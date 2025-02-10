@@ -119,7 +119,6 @@ impl MenuBar {
     }
 
     /// Creates a new submenu with the given title.
-    #[cfg(target_os = "macos")]
     pub fn add_submenu(&mut self, title: &str) -> Result<SubMenu> {
         let title = CString::new(title).map_err(|_| Error::InvalidTitle)?;
         
@@ -138,14 +137,12 @@ impl MenuBar {
     }
 }
 
-/// A submenu in the menu bar (macOS specific).
-#[cfg(target_os = "macos")]
+/// A submenu in the menu bar.
 pub struct SubMenu<'a> {
     handle: *mut c_void,
     parent: &'a mut MenuBar,
 }
 
-#[cfg(target_os = "macos")]
 impl<'a> SubMenu<'a> {
     /// Adds a menu item to this submenu.
     pub fn add_item<F>(&mut self, title: &str, callback: F) -> Result<()>
@@ -168,7 +165,6 @@ impl<'a> SubMenu<'a> {
     }
 }
 
-#[cfg(target_os = "macos")]
 impl<'a> Drop for SubMenu<'a> {
     fn drop(&mut self) {
         unsafe {
