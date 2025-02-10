@@ -1,4 +1,4 @@
-use std::env;
+#[cfg(target_os = "linux")]
 use std::process::Command;
 
 fn main() {
