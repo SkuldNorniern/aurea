@@ -25,6 +25,7 @@ extern "C" {
     fn ng_platform_attach_menu(window: *mut c_void, menu: *mut c_void) -> c_int;
     fn ng_platform_add_menu_item(menu: *mut c_void, title: *const c_char, id: u32) -> c_int;
     fn ng_platform_run() -> c_int;
+    fn ng_platform_create_submenu(parent: *mut c_void, title: *const c_char) -> *mut c_void;
 }
 
 /// A native window handle
@@ -77,7 +78,7 @@ impl Window {
     /// # Errors
     ///
     /// Returns `Error::MenuCreationFailed` if the menu bar could not be created
-    pub fn create_menu_bar(&mut self) -> Result<&mut MenuBar> {
+    pub fn create_menu_bar(&mut self) -> Result<MenuBar> {
         let handle = unsafe { ng_platform_create_menu() };
         if handle.is_null() {
             return Err(Error::MenuCreationFailed);
@@ -89,12 +90,10 @@ impl Window {
             return Err(Error::MenuCreationFailed);
         }
 
-        self.menu_bar = Some(MenuBar {
+        Ok(MenuBar {
             handle,
             callbacks: Vec::new(),
-        });
-
-        Ok(self.menu_bar.as_mut().unwrap())
+        })
     }
 
     /// Run the window's event loop
@@ -102,7 +101,7 @@ impl Window {
     /// # Errors
     ///
     /// Returns `Error::EventLoopError` if the event loop fails
-    pub fn run(&self) -> Result<()> {
+    pub fn run(self) -> Result<()> {
         let result = unsafe { ng_platform_run() };
         if result != 0 {
             return Err(Error::EventLoopError);
@@ -117,6 +116,7 @@ impl MenuBar {
     /// # Errors
     ///
     /// Returns `Error::MenuItemAddFailed` if the menu item could not be added
+    /// Returns `Error::InvalidTitle` if the title contains invalid characters
     pub fn add_item<F>(&mut self, title: &str, callback: F) -> Result<()>
     where
         F: Fn() + 'static,
@@ -134,6 +134,77 @@ impl MenuBar {
 
         self.callbacks.push(Box::new(callback));
         Ok(())
+    }
+
+    /// Creates a new submenu with the given title
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::MenuCreationFailed` if the submenu could not be created
+    /// Returns `Error::InvalidTitle` if the title contains invalid characters
+    #[cfg(target_os = "macos")]
+    pub fn add_submenu(&mut self, title: &str) -> Result<SubMenu> {
+        let title = CString::new(title).map_err(|_| Error::InvalidTitle)?;
+        
+        let submenu_handle = unsafe {
+            ng_platform_create_submenu(self.handle, title.as_ptr())
+        };
+        
+        if submenu_handle.is_null() {
+            return Err(Error::MenuCreationFailed);
+        }
+
+        Ok(SubMenu {
+            handle: submenu_handle,
+            parent: self,
+        })
+    }
+}
+
+/// A submenu in the menu bar (macOS specific)
+#[cfg(target_os = "macos")]
+pub struct SubMenu<'a> {
+    handle: *mut c_void,
+    parent: &'a mut MenuBar,
+}
+
+#[cfg(target_os = "macos")]
+impl<'a> SubMenu<'a> {
+    /// Adds a menu item to this submenu
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::MenuItemAddFailed` if the menu item could not be added
+    /// Returns `Error::InvalidTitle` if the title contains invalid characters
+    pub fn add_item<F>(&mut self, title: &str, callback: F) -> Result<()>
+    where
+        F: Fn() + 'static,
+    {
+        let title = CString::new(title).map_err(|_| Error::InvalidTitle)?;
+        let id = self.parent.callbacks.len() as u32;
+
+        let result = unsafe {
+            ng_platform_add_menu_item(self.handle, title.as_ptr(), id)
+        };
+
+        if result != 0 {
+            return Err(Error::MenuItemAddFailed);
+        }
+
+        self.parent.callbacks.push(Box::new(callback));
+        Ok(())
+    }
+}
+
+// Add Drop implementation for SubMenu to handle cleanup
+#[cfg(target_os = "macos")]
+impl<'a> Drop for SubMenu<'a> {
+    fn drop(&mut self) {
+        unsafe {
+            // The menu items will be cleaned up when the parent menu is destroyed
+            // We just need to release our retained reference
+            ng_platform_destroy_menu(self.handle);
+        }
     }
 }
 
