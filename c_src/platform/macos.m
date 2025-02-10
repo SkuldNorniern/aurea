@@ -106,29 +106,39 @@ int ng_platform_attach_menu(NGHandle window, NGMenuHandle menu) {
 int ng_platform_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id) {
     if (!menu || !title) return NG_ERROR_INVALID_PARAMETER;
     
-    NSMenu* mainMenu = (__bridge NSMenu*)menu;
+    NSMenu* parentMenu = (__bridge NSMenu*)menu;
     NSString* itemTitle = to_nsstring(title);
     
-    // Create menu item and its submenu
-    NSMenuItem* menuItem = [[NSMenuItem alloc] init];
-    NSMenu* submenu = [[NSMenu alloc] initWithTitle:itemTitle];
-    [menuItem setSubmenu:submenu];
-    [menuItem setTitle:itemTitle];
-    
-    // Create a default item in the submenu
-    NSMenuItem* defaultItem = [[NSMenuItem alloc] 
+    // Create a simple menu item (not a submenu)
+    NSMenuItem* menuItem = [[NSMenuItem alloc] 
         initWithTitle:itemTitle
         action:@selector(menuItemClicked:)
         keyEquivalent:@""];
     
-    [defaultItem setTarget:menuItemTarget];
-    [defaultItem setTag:id];
-    [submenu addItem:defaultItem];
+    [menuItem setTarget:menuItemTarget];
+    [menuItem setTag:id];
     
-    // Add the menu item to the main menu
-    [mainMenu addItem:menuItem];
+    // Add the menu item directly to the parent menu
+    [parentMenu addItem:menuItem];
     
     return NG_SUCCESS;
+}
+
+NGMenuHandle ng_platform_create_submenu(NGMenuHandle parentMenu, const char* title) {
+    if (!parentMenu || !title) return NULL;
+    
+    NSMenu* parent = (__bridge NSMenu*)parentMenu;
+    NSString* itemTitle = to_nsstring(title);
+    
+    // Create the submenu item and its menu
+    NSMenuItem* menuItem = [[NSMenuItem alloc] init];
+    NSMenu* submenu = [[NSMenu alloc] initWithTitle:itemTitle];
+    
+    [menuItem setTitle:itemTitle];
+    [menuItem setSubmenu:submenu];
+    [parent addItem:menuItem];
+    
+    return (__bridge_retained void*)submenu;
 }
 
 int ng_platform_run(void) {

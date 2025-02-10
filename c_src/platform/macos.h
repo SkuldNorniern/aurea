@@ -22,6 +22,7 @@ void ng_platform_destroy_menu(NGMenuHandle handle);
 int ng_platform_attach_menu(NGHandle window, NGMenuHandle menu);
 int ng_platform_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id);
 int ng_platform_run(void);
+NGMenuHandle ng_platform_create_submenu(NGMenuHandle parentMenu, const char* title);
 
 #ifdef __cplusplus
 }
