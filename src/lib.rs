@@ -142,7 +142,6 @@ impl MenuBar {
     ///
     /// Returns `Error::MenuCreationFailed` if the submenu could not be created
     /// Returns `Error::InvalidTitle` if the title contains invalid characters
-    #[cfg(target_os = "macos")]
     pub fn add_submenu(&mut self, title: &str) -> Result<SubMenu> {
         let title = CString::new(title).map_err(|_| Error::InvalidTitle)?;
         
@@ -161,14 +160,12 @@ impl MenuBar {
     }
 }
 
-/// A submenu in the menu bar (macOS specific)
-#[cfg(target_os = "macos")]
+/// A submenu in the menu bar
 pub struct SubMenu<'a> {
     handle: *mut c_void,
     parent: &'a mut MenuBar,
 }
 
-#[cfg(target_os = "macos")]
 impl<'a> SubMenu<'a> {
     /// Adds a menu item to this submenu
     ///
@@ -196,13 +193,9 @@ impl<'a> SubMenu<'a> {
     }
 }
 
-// Add Drop implementation for SubMenu to handle cleanup
-#[cfg(target_os = "macos")]
 impl<'a> Drop for SubMenu<'a> {
     fn drop(&mut self) {
         unsafe {
-            // The menu items will be cleaned up when the parent menu is destroyed
-            // We just need to release our retained reference
             ng_platform_destroy_menu(self.handle);
         }
     }
