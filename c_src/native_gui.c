@@ -1,83 +1,144 @@
 #include "native_gui.h"
+#include <stdlib.h>
 
 #ifdef _WIN32
 #include <windows.h>
-#include <stdlib.h>
 
-static HMENU hMenuBar = NULL;
+static WNDCLASSEXA g_wc = {0};
+static const char* CLASS_NAME = "FenestraWindow";
 
-int ngui_create_menu_bar() {
-    // Create a menu bar using the WinAPI.
-    hMenuBar = CreateMenu();
-    if (!hMenuBar) {
-        return -1; // Error: Could not create the menu.
+NGHandle ng_create_window(const char* title, int width, int height) {
+    // Register window class if not already registered
+    if (!g_wc.lpszClassName) {
+        g_wc.cbSize = sizeof(WNDCLASSEXA);
+        g_wc.lpfnWndProc = DefWindowProcA;
+        g_wc.hInstance = GetModuleHandleA(NULL);
+        g_wc.lpszClassName = CLASS_NAME;
+        
+        if (!RegisterClassExA(&g_wc)) {
+            return NULL;
+        }
     }
-    // Note: In a full implementation, you would attach the menu bar to a specific window.
+    
+    HWND hwnd = CreateWindowExA(
+        0,
+        CLASS_NAME,
+        title,
+        WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT,
+        width, height,
+        NULL,
+        NULL,
+        GetModuleHandleA(NULL),
+        NULL
+    );
+    
+    if (hwnd) {
+        ShowWindow(hwnd, SW_SHOW);
+        UpdateWindow(hwnd);
+    }
+    
+    return (NGHandle)hwnd;
+}
+
+void ng_destroy_window(NGHandle handle) {
+    if (handle) {
+        DestroyWindow((HWND)handle);
+    }
+}
+
+NGMenuHandle ng_create_menu_handle(void) {
+    HMENU hmenu = CreateMenu();
+    return (NGMenuHandle)hmenu;
+}
+
+void ng_destroy_menu_handle(NGMenuHandle handle) {
+    if (handle) {
+        DestroyMenu((HMENU)handle);
+    }
+}
+
+int ng_attach_menu_to_window(NGHandle window, NGMenuHandle menu) {
+    if (!window || !menu) return -1;
+    if (!SetMenu((HWND)window, (HMENU)menu)) return -1;
     return 0;
 }
 
-int ngui_add_menu_item(const char* title, void (*callback)(void)) {
-    // Template Windows implementation:
-    // In a proper implementation, you would need to store the callback pointer
-    // and associate it with the menu item identifier for later invocation.
-    MENUITEMINFOA mii;
-    ZeroMemory(&mii, sizeof(MENUITEMINFOA));
+int ng_add_raw_menu_item(NGMenuHandle menu, const char* title, unsigned int id) {
+    if (!menu || !title) return -1;
+    
+    MENUITEMINFOA mii = {0};
     mii.cbSize = sizeof(MENUITEMINFOA);
     mii.fMask = MIIM_STRING | MIIM_ID;
-    mii.wID = 1; // Dummy identifier; in a real implementation, assign unique IDs.
+    mii.wID = id;
     mii.dwTypeData = (LPSTR)title;
-
-    if (!InsertMenuItemA(hMenuBar, 0, TRUE, &mii)) {
-        return -1;
-    }
-    return 0;
+    
+    return InsertMenuItemA((HMENU)menu, -1, TRUE, &mii) ? 0 : -1;
 }
 
-void ngui_destroy_menu_bar() {
-    if (hMenuBar) {
-        DestroyMenu(hMenuBar);
-        hMenuBar = NULL;
-    }
+int ng_handle_menu_event(NGMenuHandle menu, unsigned int id) {
+    // Windows handles menu events through WM_COMMAND
+    return 0;
 }
 
 #elif defined(__APPLE__)
-#include <stdio.h>
+#import <Cocoa/Cocoa.h>
 
-int ngui_create_menu_bar() {
-    // TODO: Implement native menubar creation using Cocoa on macOS.
-    printf("ngui_create_menu_bar: macOS stub implementation\n");
-    return 0;
+// Basic macOS stubs - these need to be implemented with proper Cocoa code
+NGHandle ng_create_window(const char* title, int width, int height) {
+    return NULL;
 }
 
-int ngui_add_menu_item(const char *title, void (*callback)(void)) {
-    // TODO: Implement menu item addition using Cocoa on macOS.
-    printf("ngui_add_menu_item: macOS stub implementation: %s\n", title);
-    return 0;
+void ng_destroy_window(NGHandle handle) {
 }
 
-void ngui_destroy_menu_bar() {
-    // Stub for macOS.
-    printf("ngui_destroy_menu_bar: macOS stub implementation\n");
+NGMenuHandle ng_create_menu_handle(void) {
+    return NULL;
 }
 
-#else // Linux and others
-#include <stdio.h>
-
-int ngui_create_menu_bar() {
-    // On Linux, native menubar support depends on the desktop environment.
-    // For example, integration with GTK or Qt might be necessary.
-    // Here we provide a stub implementation.
-    printf("ngui_create_menu_bar: Linux stub implementation\n");
-    return 0;
+void ng_destroy_menu_handle(NGMenuHandle handle) {
 }
 
-int ngui_add_menu_item(const char *title, void (*callback)(void)) {
-    printf("ngui_add_menu_item: Linux stub implementation: %s\n", title);
-    return 0;
+int ng_attach_menu_to_window(NGHandle window, NGMenuHandle menu) {
+    return -1;
 }
 
-void ngui_destroy_menu_bar() {
-    // Stub for Linux.
-    printf("ngui_destroy_menu_bar: Linux stub implementation\n");
+int ng_add_raw_menu_item(NGMenuHandle menu, const char* title, unsigned int id) {
+    return -1;
 }
+
+int ng_handle_menu_event(NGMenuHandle menu, unsigned int id) {
+    return -1;
+}
+
+#else // Linux (GTK)
+#include <gtk/gtk.h>
+
+// Basic Linux/GTK stubs - these need to be implemented with proper GTK code
+NGHandle ng_create_window(const char* title, int width, int height) {
+    return NULL;
+}
+
+void ng_destroy_window(NGHandle handle) {
+}
+
+NGMenuHandle ng_create_menu_handle(void) {
+    return NULL;
+}
+
+void ng_destroy_menu_handle(NGMenuHandle handle) {
+}
+
+int ng_attach_menu_to_window(NGHandle window, NGMenuHandle menu) {
+    return -1;
+}
+
+int ng_add_raw_menu_item(NGMenuHandle menu, const char* title, unsigned int id) {
+    return -1;
+}
+
+int ng_handle_menu_event(NGMenuHandle menu, unsigned int id) {
+    return -1;
+}
+
 #endif 

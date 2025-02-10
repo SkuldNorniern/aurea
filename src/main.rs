@@ -1,16 +1,18 @@
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Define a simple callback function matching the expected extern "C" signature.
-    extern "C" fn on_menu_item_click() {
-        println!("Menu item clicked!");
-    }
+use fenestra::{Window, Error};
 
-    // Initialize the native GUI menubar.
-    let gui = fenestra::NativeGui::new()?;
+fn main() -> Result<(), Error> {
+    let mut window = Window::new("My Application", 800, 600)?;
     
-    // Add a menu item.
-    gui.add_menu_item("File", on_menu_item_click)?;
+    let menu = window.create_menu_bar()?;
+    
+    menu.add_item("File", || {
+        println!("File menu clicked!");
+    })?;
+    
+    menu.add_item("Edit", || {
+        println!("Edit menu clicked!");
+    })?;
 
-    // The menubar and items now exist; in a real application you would enter your event loop here.
-    println!("Native menubar initialized successfully.");
+    window.run()?;
     Ok(())
 }
