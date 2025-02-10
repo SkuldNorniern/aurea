@@ -5,17 +5,26 @@
 extern "C" {
 #endif
 
-// Creates a native menubar.
-// Returns 0 on success, or a non-zero error code if it fails.
-int ngui_create_menu_bar();
+// Platform-specific handle types
+#ifdef _WIN32
+typedef void* NGHandle;  // Will be HWND
+typedef void* NGMenuHandle;  // Will be HMENU
+#elif defined(__APPLE__)
+typedef void* NGHandle;  // Will be NSWindow*
+typedef void* NGMenuHandle;  // Will be NSMenu*
+#else
+typedef void* NGHandle;  // Will be GtkWindow*
+typedef void* NGMenuHandle;  // Will be GtkMenuBar*
+#endif
 
-// Adds a menu item to the menubar with the given title and a callback function.
-// The callback will be invoked on the corresponding menu action.
-// Returns 0 on success, or a non-zero error code if it fails.
-int ngui_add_menu_item(const char *title, void (*callback)(void));
-
-// Destroys the native menubar and clears any allocated resources.
-void ngui_destroy_menu_bar();
+// Core platform-specific functions
+NGHandle ng_create_window(const char* title, int width, int height);
+void ng_destroy_window(NGHandle handle);
+NGMenuHandle ng_create_menu_handle(void);
+void ng_destroy_menu_handle(NGMenuHandle handle);
+int ng_attach_menu_to_window(NGHandle window, NGMenuHandle menu);
+int ng_add_raw_menu_item(NGMenuHandle menu, const char* title, unsigned int id);
+int ng_handle_menu_event(NGMenuHandle menu, unsigned int id);
 
 #ifdef __cplusplus
 }

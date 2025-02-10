@@ -1,12 +1,18 @@
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    extern "C" fn on_menu_item_click() {
-        println!("Menu item clicked!");
-    }
+use fenestra::{Window, Error};
 
-    let gui = fenestra::NativeGui::new()?;
+fn main() -> Result<(), Error> {
+    let mut window = Window::new("My Application", 800, 600)?;
     
-    gui.add_menu_item("File", on_menu_item_click)?;
+    let menu = window.create_menu_bar()?;
+    
+    menu.add_item("File", || {
+        println!("File menu clicked!");
+    })?;
+    
+    menu.add_item("Edit", || {
+        println!("Edit menu clicked!");
+    })?;
 
-    println!("Native menubar initialized successfully.");
+    window.run()?;
     Ok(())
 }
