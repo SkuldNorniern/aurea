@@ -1,48 +1,86 @@
+use std::env;
+use std::process::Command;
+
 fn main() {
     let mut build = cc::Build::new();
     
-    // Add platform-specific configurations
+    // Common configuration
+    build
+        .include("c_src")
+        .warnings(true);
+    
+    // Add platform-specific configurations and source files
     #[cfg(target_os = "windows")]
     {
-        build.define("_WIN32", None);
+        build
+            .file("c_src/platform/windows.c")
+            .define("_WIN32", None);
         println!("cargo:rustc-link-lib=user32");
         println!("cargo:rustc-link-lib=gdi32");
     }
     
     #[cfg(target_os = "macos")]
     {
-        build.define("__APPLE__", None);
-        // Add macOS-specific frameworks if needed
         println!("cargo:rustc-link-lib=framework=Cocoa");
+        build
+            .file("c_src/platform/macos.m")
+            .define("__APPLE__", None)
+            .flag("-x")
+            .flag("objective-c")
+            .flag("-fmodules")
+            .flag("-fobjc-arc")
+            .flag("-Wno-error=unused-command-line-argument");
+        
+        println!("cargo:rerun-if-changed=c_src/platform/macos.m");
     }
     
     #[cfg(target_os = "linux")]
     {
-        // Use pkg-config to get the correct flags for GTK3
-        if let Ok(gtk) = pkg_config::probe_library("gtk+-3.0") {
-            for include in gtk.include_paths {
-                build.include(include);
-            }
-            
-            // Fixed: directly iterate over the defines as (name, value) pairs
-            for (name, value) in gtk.defines {
-                build.define(&name, value.as_deref());
-            }
-        } else {
-            println!("cargo:warning=GTK3 development files not found. Please install libgtk-3-dev");
-            println!("cargo:rustc-link-lib=gtk-3");
-            println!("cargo:rustc-link-lib=gdk-3");
+        // Check if pkg-config is available
+        if !Command::new("pkg-config").arg("--version").status().map_or(false, |s| s.success()) {
+            println!("cargo:warning=pkg-config not found. Please install pkg-config.");
+            std::process::exit(1);
         }
+
+        // Check if GTK3 development files are installed
+        match pkg_config::Config::new().atleast_version("3.0").probe("gtk+-3.0") {
+            Ok(gtk) => {
+                // Add GTK include paths and compiler flags
+                for include in gtk.include_paths {
+                    build.include(include);
+                }
+
+                // Add any compiler flags from GTK
+                for (name, value) in gtk.defines {
+                    build.define(&name, value.as_deref());
+                }
+            }
+            Err(e) => {
+                println!("cargo:warning=GTK3 development files not found: {}", e);
+                println!("cargo:warning=On Ubuntu/Debian, install them with:");
+                println!("cargo:warning=    sudo apt-get install libgtk-3-dev");
+                println!("cargo:warning=On Fedora:");
+                println!("cargo:warning=    sudo dnf install gtk3-devel");
+                println!("cargo:warning=On Arch Linux:");
+                println!("cargo:warning=    sudo pacman -S gtk3");
+                std::process::exit(1);
+            }
+        }
+            
+        build.file("c_src/platform/linux.c");
     }
     
-    // Build the C code
-    build
-        .file("c_src/native_gui.c")
-        .include("c_src")
-        .warnings(true)
-        .compile("native_gui");
+    // Compile the sources
+    build.compile("native_gui");
         
-    // Tell cargo to invalidate the built crate whenever the C sources change
+    // Watch for changes in all C source files
     println!("cargo:rerun-if-changed=c_src/native_gui.h");
     println!("cargo:rerun-if-changed=c_src/native_gui.c");
-} 
+    println!("cargo:rerun-if-changed=c_src/common/types.h");
+    println!("cargo:rerun-if-changed=c_src/common/errors.h");
+    println!("cargo:rerun-if-changed=c_src/platform/windows.h");
+    println!("cargo:rerun-if-changed=c_src/platform/windows.c");
+    println!("cargo:rerun-if-changed=c_src/platform/macos.h");
+    println!("cargo:rerun-if-changed=c_src/platform/linux.h");
+    println!("cargo:rerun-if-changed=c_src/platform/linux.c");
+}
