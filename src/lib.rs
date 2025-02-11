@@ -1,28 +1,48 @@
-/// A native GUI toolkit providing cross-platform windowing and widgets.
+/// A native GUI toolkit providing cross-platform windowing and widgets with native look and feel.
+/// 
+/// # Overview
+/// 
+/// Aurea is designed to provide a simple, safe, and idiomatic Rust interface to native GUI elements
+/// across different platforms. It focuses on providing:
+/// 
+/// - Native widgets with platform-specific look and feel
+/// - Safe Rust abstractions over platform APIs
+/// - Efficient memory management and resource cleanup
+/// - Type-safe event handling
+/// 
+/// # Architecture
+/// 
+/// The library is structured in layers:
+/// - High-level Rust API (`Window`, `Button`, etc.)
+/// - Safe FFI abstractions
+/// - Platform-specific native implementations
 /// 
 /// # Features
 /// 
-/// - Native window creation and management
-/// - Menu bar and menu items
-/// - Basic widgets (buttons, labels, boxes)
-/// - Layout management
+/// - Window management
+/// - Native menu bars and context menus
+/// - Basic widgets (buttons, labels)
+/// - Layout management (vertical/horizontal boxes)
+/// - Event handling
 /// 
 /// # Example
 /// 
 /// ```rust
-/// use fenestra::{Window, Error};
-/// use fenestra::elements::{Box, BoxOrientation, Button, Label};
+/// use aurea::{Window, AureaResult};
+/// use aurea::elements::{Box, BoxOrientation, Button, Label};
 /// 
-/// fn main() -> Result<(), Error> {
+/// fn main() -> AureaResult<()> {
+///     // Create a new window
 ///     let mut window = Window::new("My App", 800, 600)?;
 ///     
+///     // Create a vertical layout
 ///     let mut content = Box::new(BoxOrientation::Vertical)?;
-///     let label = Label::new("Hello, World!")?;
-///     let button = Button::new("Click Me")?;
 ///     
-///     content.add(label)?;
-///     content.add(button)?;
+///     // Add widgets
+///     content.add(Label::new("Welcome!")?)?;
+///     content.add(Button::new("Click Me")?)?;
 ///     
+///     // Set window content and run
 ///     window.set_content(content)?;
 ///     window.run()?;
 ///     Ok(())

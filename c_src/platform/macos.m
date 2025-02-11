@@ -75,4 +75,24 @@ int ng_platform_box_add(NGHandle box, NGHandle element) {
 
 int ng_platform_set_window_content(NGHandle window, NGHandle content) {
     return ng_macos_set_window_content(window, content);
+}
+
+NGHandle ng_platform_create_text_editor(void) {
+    return ng_macos_create_text_editor();
+}
+
+NGHandle ng_platform_create_text_view(int is_editable) {
+    return ng_macos_create_text_view(is_editable);
+}
+
+int ng_platform_set_text_content(NGHandle text_handle, const char* content) {
+    return ng_macos_set_text_content(text_handle, content);
+}
+
+char* ng_platform_get_text_content(NGHandle text_handle) {
+    return ng_macos_get_text_content(text_handle);
+}
+
+void ng_platform_free_text_content(char* content) {
+    ng_macos_free_text_content(content);
 } 

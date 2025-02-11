@@ -33,6 +33,13 @@ NGHandle ng_platform_create_label(const char* text);
 NGHandle ng_platform_create_box(int is_vertical);
 int ng_platform_box_add(NGHandle box, NGHandle element);
 
+// New text-related functions
+NGHandle ng_platform_create_text_editor(void);
+NGHandle ng_platform_create_text_view(int is_editable);
+int ng_platform_set_text_content(NGHandle text_handle, const char* content);
+char* ng_platform_get_text_content(NGHandle text_handle);
+void ng_platform_free_text_content(char* content);
+
 #ifdef __cplusplus
 }
 #endif
