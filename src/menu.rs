@@ -2,7 +2,7 @@ use std::ffi::CString;
 use std::os::raw::c_void;
 
 use crate::{
-    Error, Result,
+    AureaError, AureaResult,
     window::Window,
     ffi::*
 };
@@ -14,11 +14,11 @@ use crate::{
 
 impl MenuBar {
     /// Adds a menu item with the given title and callback.
-    pub fn add_item<F>(&mut self, title: &str, callback: F) -> Result<()>
+    pub fn add_item<F>(&mut self, title: &str, callback: F) -> AureaResult<()>
     where
         F: Fn() + 'static,
     {
-        let title = CString::new(title).map_err(|_| Error::InvalidTitle)?;
+        let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
         let id = self.callbacks.len() as u32;
 
         let result = unsafe {
@@ -26,7 +26,7 @@ impl MenuBar {
         };
 
         if result != 0 {
-            return Err(Error::MenuItemAddFailed);
+            return Err(AureaError::MenuItemAddFailed);
         }
 
         self.callbacks.push(Box::new(callback));
@@ -34,15 +34,15 @@ impl MenuBar {
     }
 
     /// Creates a new submenu with the given title.
-    pub fn add_submenu(&mut self, title: &str) -> Result<SubMenu> {
-        let title = CString::new(title).map_err(|_| Error::InvalidTitle)?;
+    pub fn add_submenu(&mut self, title: &str) -> AureaResult<SubMenu> {
+        let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
         
         let submenu_handle = unsafe {
             ng_platform_create_submenu(self.handle, title.as_ptr())
         };
         
         if submenu_handle.is_null() {
-            return Err(Error::MenuCreationFailed);
+            return Err(AureaError::MenuCreationFailed);
         }
 
         Ok(SubMenu {
@@ -60,11 +60,11 @@ pub struct SubMenu<'a> {
 
 impl<'a> SubMenu<'a> {
     /// Adds a menu item to this submenu.
-    pub fn add_item<F>(&mut self, title: &str, callback: F) -> Result<()>
+    pub fn add_item<F>(&mut self, title: &str, callback: F) -> AureaResult<()>
     where
         F: Fn() + 'static,
     {
-        let title = CString::new(title).map_err(|_| Error::InvalidTitle)?;
+        let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
         let id = self.parent.callbacks.len() as u32;
 
         let result = unsafe {
@@ -72,7 +72,7 @@ impl<'a> SubMenu<'a> {
         };
 
         if result != 0 {
-            return Err(Error::MenuItemAddFailed);
+            return Err(AureaError::MenuItemAddFailed);
         }
 
         self.parent.callbacks.push(Box::new(callback));

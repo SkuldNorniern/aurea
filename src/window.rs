@@ -3,7 +3,7 @@ use std::{ffi::CString, os::raw::c_void};
 
 use crate::elements::Element;
 use crate::menu::MenuBar;
-use crate::{Error, Result};
+use crate::{AureaError, AureaResult};
 use crate::ffi::*;
 
 pub struct Window {
@@ -13,13 +13,13 @@ pub struct Window {
 }
 impl Window {
     /// Creates a new native window.
-    pub fn new(title: &str, width: i32, height: i32) -> Result<Self> {
+    pub fn new(title: &str, width: i32, height: i32) -> AureaResult<Self> {
         static INIT: std::sync::Once = std::sync::Once::new();
         let mut error = None;
         
         INIT.call_once(|| {
             if unsafe { ng_platform_init() } != 0 {
-                error = Some(Error::PlatformError(1));
+                error = Some(AureaError::PlatformError(1));
             }
         });
 
@@ -27,11 +27,11 @@ impl Window {
             return Err(err);
         }
 
-        let title = CString::new(title).map_err(|_| Error::InvalidTitle)?;
+        let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
         let handle = unsafe { ng_platform_create_window(title.as_ptr(), width, height) };
         
         if handle.is_null() {
-            return Err(Error::WindowCreationFailed);
+            return Err(AureaError::WindowCreationFailed);
         }
 
         Ok(Self {
@@ -42,16 +42,16 @@ impl Window {
     }
 
     /// Creates and attaches a menu bar to the window.
-    pub fn create_menu_bar(&mut self) -> Result<MenuBar> {
+    pub fn create_menu_bar(&mut self) -> AureaResult<MenuBar> {
         let handle = unsafe { ng_platform_create_menu() };
         if handle.is_null() {
-            return Err(Error::MenuCreationFailed);
+            return Err(AureaError::MenuCreationFailed);
         }
 
         let result = unsafe { ng_platform_attach_menu(self.handle, handle) };
         if result != 0 {
             unsafe { ng_platform_destroy_menu(handle) };
-            return Err(Error::MenuCreationFailed);
+            return Err(AureaError::MenuCreationFailed);
         }
 
         Ok(MenuBar {
@@ -61,22 +61,22 @@ impl Window {
     }
 
     /// Run the window's event loop.
-    pub fn run(self) -> Result<()> {
+    pub fn run(self) -> AureaResult<()> {
         let result = unsafe { ng_platform_run() };
         if result != 0 {
-            return Err(Error::EventLoopError);
+            return Err(AureaError::EventLoopError);
         }
         Ok(())
     }
 
     /// Sets the content of the window.
-    pub fn set_content<E>(&mut self, element: E) -> Result<()> 
+    pub fn set_content<E>(&mut self, element: E) -> AureaResult<()> 
     where 
         E: Element + 'static
     {
         let content_handle = element.handle();
         if content_handle.is_null() {
-            return Err(Error::ElementOperationFailed);
+            return Err(AureaError::ElementOperationFailed);
         }
         
         let result = unsafe {
@@ -84,7 +84,7 @@ impl Window {
         };
         
         if result != 0 {
-            return Err(Error::ElementOperationFailed);
+            return Err(AureaError::ElementOperationFailed);
         }
         
         self.content = Some(Box::new(element));
