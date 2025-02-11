@@ -1,6 +1,6 @@
-use crate::{Error, Result};
-use std::ffi::CString;
-use std::os::raw::{c_int, c_void};
+use std::{ffi::CString, os::raw::c_void};
+
+use crate::{Error, Result, ffi::*};
 
 /// Represents a basic GUI element
 pub trait Element {
@@ -33,7 +33,7 @@ impl Button {
         let title = CString::new(title).map_err(|_| Error::InvalidTitle)?;
         
         let handle = unsafe { 
-            crate::ng_platform_create_button(title.as_ptr())
+            ng_platform_create_button(title.as_ptr())
         };
         
         if handle.is_null() {
@@ -64,7 +64,7 @@ impl Label {
         let text = CString::new(text).map_err(|_| Error::InvalidTitle)?;
         
         let handle = unsafe { 
-            crate::ng_platform_create_label(text.as_ptr())
+            ng_platform_create_label(text.as_ptr())
         };
         
         if handle.is_null() {
@@ -105,7 +105,7 @@ impl Box {
         };
         
         let handle = unsafe { 
-            crate::ng_platform_create_box(is_vertical)
+            ng_platform_create_box(is_vertical)
         };
         
         if handle.is_null() {
@@ -128,7 +128,7 @@ impl Element for Box {
 impl Container for Box {
     fn add<E: Element>(&mut self, element: E) -> Result<()> {
         let result = unsafe {
-            crate::ng_platform_box_add(self.handle, element.handle())
+            ng_platform_box_add(self.handle, element.handle())
         };
         
         if result != 0 {
