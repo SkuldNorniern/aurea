@@ -27,6 +27,7 @@ fn main() {
             .file("c_src/platform/macos/window.m")
             .file("c_src/platform/macos/menu.m")
             .file("c_src/platform/macos/utils.m")
+            .file("c_src/platform/macos/elements.m")
             .define("__APPLE__", None)
             .flag("-x")
             .flag("objective-c")
@@ -39,6 +40,8 @@ fn main() {
         println!("cargo:rerun-if-changed=c_src/platform/macos/menu.m");
         println!("cargo:rerun-if-changed=c_src/platform/macos/utils.m");
         println!("cargo:rerun-if-changed=c_src/platform/macos/utils.h");
+        println!("cargo:rerun-if-changed=c_src/platform/macos/elements.m");
+        println!("cargo:rerun-if-changed=c_src/platform/macos/elements.h");
     }
     
     #[cfg(target_os = "linux")]

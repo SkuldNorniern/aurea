@@ -2,8 +2,10 @@
 #import "macos/window.h"
 #import "macos/menu.h"
 #import "../common/errors.h"
-#import <Cocoa/Cocoa.h>
+#import "macos/elements.h"
 
+
+#import <Cocoa/Cocoa.h>
 static BOOL app_initialized = FALSE;
 
 int ng_platform_init(void) {
@@ -53,4 +55,24 @@ NGMenuHandle ng_platform_create_submenu(NGMenuHandle parentMenu, const char* tit
 int ng_platform_run(void) {
     [NSApp run];
     return NG_SUCCESS;
+}
+
+NGHandle ng_platform_create_button(const char* title) {
+    return ng_macos_create_button(title);
+}
+
+NGHandle ng_platform_create_label(const char* text) {
+    return ng_macos_create_label(text);
+}
+
+NGHandle ng_platform_create_box(int is_vertical) {
+    return ng_macos_create_box(is_vertical);
+}
+
+int ng_platform_box_add(NGHandle box, NGHandle element) {
+    return ng_macos_box_add(box, element);
+}
+
+int ng_platform_set_window_content(NGHandle window, NGHandle content) {
+    return ng_macos_set_window_content(window, content);
 } 

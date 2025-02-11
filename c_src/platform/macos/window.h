@@ -13,6 +13,7 @@ extern "C" {
 
 NGHandle ng_macos_create_window(const char* title, int width, int height);
 void ng_macos_destroy_window(NGHandle handle);
+int ng_macos_set_window_content(NGHandle window, NGHandle content);
 
 #ifdef __cplusplus
 }
