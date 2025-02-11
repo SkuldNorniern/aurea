@@ -1,33 +1,16 @@
 #import "macos.h"
+#import "macos/window.h"
+#import "macos/menu.h"
 #import "../common/errors.h"
 #import <Cocoa/Cocoa.h>
 
 static BOOL app_initialized = FALSE;
-
-@interface MenuItemTarget : NSObject
-- (void)menuItemClicked:(id)sender;
-@end
-
-@implementation MenuItemTarget
-- (void)menuItemClicked:(id)sender {
-    NSMenuItem* item = (NSMenuItem*)sender;
-    NSLog(@"Menu item clicked: %ld", [item tag]);
-}
-@end
-
-static MenuItemTarget* menuItemTarget = nil;
-
-static inline NSString* to_nsstring(const char* str) {
-    return str ? [NSString stringWithUTF8String:str] : nil;
-}
 
 int ng_platform_init(void) {
     if (!app_initialized) {
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
         [NSApp finishLaunching];
-        
-        menuItemTarget = [[MenuItemTarget alloc] init];
         app_initialized = TRUE;
     }
     return NG_SUCCESS;
@@ -35,110 +18,36 @@ int ng_platform_init(void) {
 
 void ng_platform_cleanup(void) {
     if (app_initialized) {
-        menuItemTarget = nil;
         app_initialized = FALSE;
     }
 }
 
 NGHandle ng_platform_create_window(const char* title, int width, int height) {
-    if (!title) return NULL;
-    
-    NSString* windowTitle = to_nsstring(title);
-    NSRect frame = NSMakeRect(0, 0, width, height);
-    
-    NSWindow* window = [[NSWindow alloc] 
-        initWithContentRect:frame
-        styleMask:NSWindowStyleMaskTitled |
-                 NSWindowStyleMaskClosable |
-                 NSWindowStyleMaskMiniaturizable |
-                 NSWindowStyleMaskResizable
-        backing:NSBackingStoreBuffered
-        defer:NO];
-    
-    [window setTitle:windowTitle];
-    [window center];
-    [window makeKeyAndOrderFront:nil];
-    
-    return (__bridge_retained void*)window;
+    return ng_macos_create_window(title, width, height);
 }
 
 void ng_platform_destroy_window(NGHandle handle) {
-    if (!handle) return;
-    NSWindow* window = (__bridge_transfer NSWindow*)handle;
-    [window close];
+    ng_macos_destroy_window(handle);
 }
 
 NGMenuHandle ng_platform_create_menu(void) {
-    // Create the main menu bar
-    NSMenu* mainMenu = [[NSMenu alloc] init];
-    
-    // Create the application menu
-    NSMenuItem* appMenuItem = [[NSMenuItem alloc] init];
-    NSMenu* appMenu = [[NSMenu alloc] init];
-    NSString* appName = [[NSProcessInfo processInfo] processName];
-    
-    // Add Quit item
-    NSMenuItem* quitMenuItem = [[NSMenuItem alloc] 
-        initWithTitle:[NSString stringWithFormat:@"Quit %@", appName]
-        action:@selector(terminate:)
-        keyEquivalent:@"q"];
-    [appMenu addItem:quitMenuItem];
-    
-    [appMenuItem setSubmenu:appMenu];
-    [mainMenu addItem:appMenuItem];
-    
-    [NSApp setMainMenu:mainMenu];
-    return (__bridge_retained void*)mainMenu;
+    return ng_macos_create_menu();
 }
 
 void ng_platform_destroy_menu(NGMenuHandle handle) {
-    if (!handle) return;
-    NSMenu* menu = (__bridge_transfer NSMenu*)handle;
-    (void)menu; // Silence unused variable warning
+    ng_macos_destroy_menu(handle);
 }
 
 int ng_platform_attach_menu(NGHandle window, NGMenuHandle menu) {
-    if (!window || !menu) return NG_ERROR_INVALID_HANDLE;
-    [NSApp setMainMenu:(__bridge NSMenu*)menu];
-    return NG_SUCCESS;
+    return ng_macos_attach_menu(window, menu);
 }
 
 int ng_platform_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id) {
-    if (!menu || !title) return NG_ERROR_INVALID_PARAMETER;
-    
-    NSMenu* parentMenu = (__bridge NSMenu*)menu;
-    NSString* itemTitle = to_nsstring(title);
-    
-    // Create a simple menu item (not a submenu)
-    NSMenuItem* menuItem = [[NSMenuItem alloc] 
-        initWithTitle:itemTitle
-        action:@selector(menuItemClicked:)
-        keyEquivalent:@""];
-    
-    [menuItem setTarget:menuItemTarget];
-    [menuItem setTag:id];
-    
-    // Add the menu item directly to the parent menu
-    [parentMenu addItem:menuItem];
-    
-    return NG_SUCCESS;
+    return ng_macos_add_menu_item(menu, title, id);
 }
 
 NGMenuHandle ng_platform_create_submenu(NGMenuHandle parentMenu, const char* title) {
-    if (!parentMenu || !title) return NULL;
-    
-    NSMenu* parent = (__bridge NSMenu*)parentMenu;
-    NSString* itemTitle = to_nsstring(title);
-    
-    // Create the submenu item and its menu
-    NSMenuItem* menuItem = [[NSMenuItem alloc] init];
-    NSMenu* submenu = [[NSMenu alloc] initWithTitle:itemTitle];
-    
-    [menuItem setTitle:itemTitle];
-    [menuItem setSubmenu:submenu];
-    [parent addItem:menuItem];
-    
-    return (__bridge_retained void*)submenu;
+    return ng_macos_create_submenu(parentMenu, title);
 }
 
 int ng_platform_run(void) {
