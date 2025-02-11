@@ -24,6 +24,9 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=Cocoa");
         build
             .file("c_src/platform/macos.m")
+            .file("c_src/platform/macos/window.m")
+            .file("c_src/platform/macos/menu.m")
+            .file("c_src/platform/macos/utils.m")
             .define("__APPLE__", None)
             .flag("-x")
             .flag("objective-c")
@@ -32,6 +35,10 @@ fn main() {
             .flag("-Wno-error=unused-command-line-argument");
         
         println!("cargo:rerun-if-changed=c_src/platform/macos.m");
+        println!("cargo:rerun-if-changed=c_src/platform/macos/window.m");
+        println!("cargo:rerun-if-changed=c_src/platform/macos/menu.m");
+        println!("cargo:rerun-if-changed=c_src/platform/macos/utils.m");
+        println!("cargo:rerun-if-changed=c_src/platform/macos/utils.h");
     }
     
     #[cfg(target_os = "linux")]
@@ -81,6 +88,9 @@ fn main() {
     println!("cargo:rerun-if-changed=c_src/platform/windows.h");
     println!("cargo:rerun-if-changed=c_src/platform/windows.c");
     println!("cargo:rerun-if-changed=c_src/platform/macos.h");
+    println!("cargo:rerun-if-changed=c_src/platform/macos/window.h");
+    println!("cargo:rerun-if-changed=c_src/platform/macos/menu.h");
+    println!("cargo:rerun-if-changed=c_src/platform/macos/utils.h");
     println!("cargo:rerun-if-changed=c_src/platform/linux.h");
     println!("cargo:rerun-if-changed=c_src/platform/linux.c");
 }
