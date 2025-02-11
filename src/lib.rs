@@ -1,19 +1,21 @@
-/// A native GUI toolkit providing cross-platform windowing and widgets.
+/// A native GUI toolkit providing cross-platform windowing and widgets with native look and feel.
 ///
 /// ```rust
-/// use fenestra::{Window, Error};
-/// use fenestra::elements::{Box, BoxOrientation, Button, Label};
+/// use aurea::{Window, AureaResult};
+/// use aurea::elements::{Box, BoxOrientation, Button, Label};
 ///
-/// fn main() -> Result<(), Error> {
+/// fn main() -> AureaResult<()> {
+///     // Create a new window
 ///     let mut window = Window::new("My App", 800, 600)?;
 ///
+///     // Create a vertical layout
 ///     let mut content = Box::new(BoxOrientation::Vertical)?;
-///     let label = Label::new("Hello, World!")?;
-///     let button = Button::new("Click Me")?;
 ///
-///     content.add(label)?;
-///     content.add(button)?;
+///     // Add widgets
+///     content.add(Label::new("Welcome!")?)?;
+///     content.add(Button::new("Click Me")?)?;
 ///
+///     // Set window content and run
 ///     window.set_content(content)?;
 ///     window.run()?;
 ///     Ok(())
