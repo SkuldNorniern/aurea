@@ -1,8 +1,8 @@
-use aurea::{Window, AureaError, AureaResult};
-use aurea::elements::{Box, BoxOrientation, Button, Label, Container};
+use aurea::{Window, AureaResult};
+use aurea::elements::{TextEditor, Box, BoxOrientation};
 
 fn main() -> AureaResult<()> {
-    let mut window = Window::new("Quill", 800, 600)?;
+    let mut window = Window::new("Notepad", 800, 600)?;
     
     // Create menu bar
     let mut menu_bar = window.create_menu_bar()?;
@@ -23,30 +23,12 @@ fn main() -> AureaResult<()> {
         edit_menu.add_item("Paste", || println!("Paste"))?;
     }
 
-    // Create main content
-    let mut main_box = Box::new(BoxOrientation::Vertical)?;
+    // Create text editor
+    let mut editor = TextEditor::new()?;
+    editor.set_content("Welcome to Notepad!")?;
     
-    // Add a welcome label
-    let welcome_label = Label::new("Welcome to Quill!")?;
-    main_box.add(welcome_label)?;
-    
-    // Create a horizontal box for buttons
-    let mut button_box = Box::new(BoxOrientation::Horizontal)?;
-    
-    // Add some buttons
-    let new_button = Button::new("New Document")?;
-    let open_button = Button::new("Open Document")?;
-    let save_button = Button::new("Save Document")?;
-    
-    button_box.add(new_button)?;
-    button_box.add(open_button)?;
-    button_box.add(save_button)?;
-    
-    // Add the button box to the main box
-    main_box.add(button_box)?;
-    
-    // Set the main box as the window's content
-    window.set_content(main_box)?;
+    // Set the editor as the window's content
+    window.set_content(editor)?;
 
     // Run the application
     window.run()?;
