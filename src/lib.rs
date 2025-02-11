@@ -1,6 +1,9 @@
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_void};
 
+pub mod elements;
+
+use crate::elements::Element;
 /// Errors that might occur during native GUI operations.
 #[derive(Debug)]
 pub enum Error {
@@ -10,6 +13,7 @@ pub enum Error {
     InvalidTitle,
     PlatformError(i32),
     EventLoopError,
+    ElementOperationFailed,
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -26,12 +30,18 @@ extern "C" {
     fn ng_platform_add_menu_item(menu: *mut c_void, title: *const c_char, id: u32) -> c_int;
     fn ng_platform_run() -> c_int;
     fn ng_platform_create_submenu(parent: *mut c_void, title: *const c_char) -> *mut c_void;
+    fn ng_platform_create_button(title: *const c_char) -> *mut c_void;
+    fn ng_platform_create_label(text: *const c_char) -> *mut c_void;
+    fn ng_platform_create_box(is_vertical: c_int) -> *mut c_void;
+    fn ng_platform_box_add(box_handle: *mut c_void, element: *mut c_void) -> c_int;
+    fn ng_platform_set_window_content(window: *mut c_void, content: *mut c_void) -> c_int;
 }
 
 /// A native window handle
 pub struct Window {
     handle: *mut c_void,
     menu_bar: Option<MenuBar>,
+    content: Option<Box<dyn Element>>,
 }
 
 /// A native menu bar handle
@@ -70,6 +80,7 @@ impl Window {
         Ok(Self {
             handle,
             menu_bar: None,
+            content: None,
         })
     }
 
@@ -106,6 +117,33 @@ impl Window {
         if result != 0 {
             return Err(Error::EventLoopError);
         }
+        Ok(())
+    }
+
+    /// Sets the content of the window
+    ///
+    /// # Errors
+    /// Returns `Error::ElementOperationFailed` if the content cannot be set
+    pub fn set_content<E>(&mut self, element: E) -> Result<()> 
+    where 
+        E: Element + 'static
+    {
+        let content_handle = element.handle();
+        if content_handle.is_null() {
+            return Err(Error::ElementOperationFailed);
+        }
+        
+        // Set the content in the native window
+        let result = unsafe {
+            ng_platform_set_window_content(self.handle, content_handle)
+        };
+        
+        if result != 0 {
+            return Err(Error::ElementOperationFailed);
+        }
+        
+        // Store the element to keep it alive
+        self.content = Some(Box::new(element));
         Ok(())
     }
 }

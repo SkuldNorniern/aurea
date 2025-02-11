@@ -6,6 +6,10 @@
 #ifdef __OBJC__
 @class NSWindow;
 @class NSMenu;
+@class NSView;
+@class NSButton;
+@class NSTextField;
+@class NSStackView;
 #endif
 
 // Platform-specific implementations
@@ -22,7 +26,12 @@ void ng_platform_destroy_menu(NGMenuHandle handle);
 int ng_platform_attach_menu(NGHandle window, NGMenuHandle menu);
 int ng_platform_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id);
 int ng_platform_run(void);
-NGMenuHandle ng_platform_create_submenu(NGMenuHandle parentMenu, const char* title);
+
+// New element-related functions
+NGHandle ng_platform_create_button(const char* title);
+NGHandle ng_platform_create_label(const char* text);
+NGHandle ng_platform_create_box(int is_vertical);
+int ng_platform_box_add(NGHandle box, NGHandle element);
 
 #ifdef __cplusplus
 }
