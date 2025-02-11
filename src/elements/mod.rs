@@ -1,6 +1,6 @@
 use std::{ffi::CString, os::raw::c_void};
 
-use crate::{Error, Result, ffi::*};
+use crate::{AureaError, AureaResult, ffi::*};
 
 /// Represents a basic GUI element
 pub trait Element {
@@ -11,7 +11,7 @@ pub trait Element {
 /// A container element that can hold other elements
 pub trait Container: Element {
     /// Adds a child element to this container
-    fn add<E: Element>(&mut self, element: E) -> Result<()>;
+    fn add<E: Element>(&mut self, element: E) -> AureaResult<()>;
 }
 
 /// Basic element properties
@@ -29,15 +29,15 @@ pub struct Button {
 }
 
 impl Button {
-    pub fn new(title: &str) -> Result<Self> {
-        let title = CString::new(title).map_err(|_| Error::InvalidTitle)?;
+    pub fn new(title: &str) -> AureaResult<Self> {
+        let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
         
         let handle = unsafe { 
             ng_platform_create_button(title.as_ptr())
         };
         
         if handle.is_null() {
-            return Err(Error::ElementOperationFailed);
+            return Err(AureaError::ElementOperationFailed);
         }
         
         Ok(Self {
@@ -60,15 +60,15 @@ pub struct Label {
 }
 
 impl Label {
-    pub fn new(text: &str) -> Result<Self> {
-        let text = CString::new(text).map_err(|_| Error::InvalidTitle)?;
+    pub fn new(text: &str) -> AureaResult<Self> {
+        let text = CString::new(text).map_err(|_| AureaError::InvalidTitle)?;
         
         let handle = unsafe { 
             ng_platform_create_label(text.as_ptr())
         };
         
         if handle.is_null() {
-            return Err(Error::ElementOperationFailed);
+            return Err(AureaError::ElementOperationFailed);
         }
         
         Ok(Self {
@@ -98,7 +98,7 @@ pub struct Box {
 }
 
 impl Box {
-    pub fn new(orientation: BoxOrientation) -> Result<Self> {
+    pub fn new(orientation: BoxOrientation) -> AureaResult<Self> {
         let is_vertical = match orientation {
             BoxOrientation::Vertical => 1,
             BoxOrientation::Horizontal => 0,
@@ -109,7 +109,7 @@ impl Box {
         };
         
         if handle.is_null() {
-            return Err(Error::ElementOperationFailed);
+            return Err(AureaError::ElementOperationFailed);
         }
         
         Ok(Self {
@@ -126,13 +126,13 @@ impl Element for Box {
 }
 
 impl Container for Box {
-    fn add<E: Element>(&mut self, element: E) -> Result<()> {
+    fn add<E: Element>(&mut self, element: E) -> AureaResult<()> {
         let result = unsafe {
             ng_platform_box_add(self.handle, element.handle())
         };
         
         if result != 0 {
-            return Err(Error::ElementOperationFailed);
+            return Err(AureaError::ElementOperationFailed);
         }
         
         Ok(())
