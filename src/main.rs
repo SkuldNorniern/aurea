@@ -1,7 +1,7 @@
-use fenestra::{Window, Error};
-use fenestra::elements::{Box, BoxOrientation, Button, Label, Container};
+use aurea::{Window, AureaError, AureaResult};
+use aurea::elements::{Box, BoxOrientation, Button, Label, Container};
 
-fn main() -> Result<(), Error> {
+fn main() -> AureaResult<()> {
     let mut window = Window::new("Quill", 800, 600)?;
     
     // Create menu bar
