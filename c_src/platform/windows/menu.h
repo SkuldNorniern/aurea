@@ -1,7 +1,7 @@
 #ifndef NATIVE_GUI_WINDOWS_MENU_H
 #define NATIVE_GUI_WINDOWS_MENU_H
 
-#include "../../common/types.h"
+#include "common/types.h"
 
 #ifdef __cplusplus
 extern "C" {

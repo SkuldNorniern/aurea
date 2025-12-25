@@ -3,7 +3,7 @@
 #include "windows/window.h"
 #include "windows/menu.h"
 #include "windows/elements.h"
-#include "../common/errors.h"
+#include "common/errors.h"
 #include <windows.h>
 
 int ng_platform_init(void) {
@@ -77,6 +77,10 @@ NGHandle ng_platform_create_text_editor(void) {
 
 NGHandle ng_platform_create_text_view(int is_editable) {
     return ng_windows_create_text_view(is_editable);
+}
+
+NGHandle ng_platform_create_text_field(void) {
+    return ng_windows_create_text_field();
 }
 
 int ng_platform_set_text_content(NGHandle text_handle, const char* content) {

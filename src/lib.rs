@@ -26,6 +26,7 @@ pub mod window;
 pub mod menu;
 pub mod ffi;
 pub mod render;
+pub mod logger;
 
 pub use crate::elements::Element;
 pub use crate::window::Window;

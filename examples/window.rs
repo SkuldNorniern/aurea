@@ -1,7 +1,13 @@
 use aurea::{Window, AureaResult};
 use aurea::elements::{Button, Label, Box, BoxOrientation, Container};
+use aurea::logger;
+use log::LevelFilter;
 
 fn main() -> AureaResult<()> {
+    logger::init(LevelFilter::Debug).unwrap_or_else(|e| {
+        eprintln!("Failed to initialize logger: {}", e);
+    });
+    
     let mut window = Window::new("Aurea Example", 800, 600)?;
     
     let mut menu_bar = window.create_menu_bar()?;
