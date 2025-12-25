@@ -95,7 +95,7 @@ char* ng_platform_get_text_content(NGHandle text_handle) {
 
 void ng_platform_free_text_content(char* content) {
     ng_macos_free_text_content(content);
-}
+} 
 
 NGHandle ng_platform_create_canvas(int width, int height) {
     return ng_macos_create_canvas(width, height);
@@ -103,4 +103,8 @@ NGHandle ng_platform_create_canvas(int width, int height) {
 
 void ng_platform_canvas_invalidate(NGHandle canvas) {
     ng_macos_canvas_invalidate(canvas);
+}
+
+void ng_platform_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size, unsigned int width, unsigned int height) {
+    ng_macos_canvas_update_buffer(canvas, buffer, size, width, height);
 } 
