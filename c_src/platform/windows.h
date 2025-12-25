@@ -1,7 +1,7 @@
 #ifndef NATIVE_GUI_WINDOWS_H
 #define NATIVE_GUI_WINDOWS_H
 
-#include "../common/types.h"
+#include "common/types.h"
 
 // Windows-specific initialization
 int ng_platform_init(void);

@@ -1,5 +1,5 @@
 #include "utils.h"
-#include "../common/errors.h"
+#include "common/errors.h"
 #include <gtk/gtk.h>
 
 static gboolean gtk_initialized = FALSE;

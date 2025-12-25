@@ -1,7 +1,14 @@
 use aurea::{Window, AureaResult};
 use aurea::elements::{Button, Label, Box, BoxOrientation, Container};
+use aurea::logger;
+use log::LevelFilter;
 
 fn main() -> AureaResult<()> {
+    // Initialize logger with debug level to see detailed logs
+    logger::init(LevelFilter::Debug).unwrap_or_else(|e| {
+        eprintln!("Failed to initialize logger: {}", e);
+    });
+    
     // Create a new window
     let mut window = Window::new("Aurea Example", 800, 600)?;
     

@@ -1,5 +1,5 @@
 #include "utils.h"
-#include "../common/errors.h"
+#include "common/errors.h"
 
 static WNDCLASSEXA g_wc = {0};
 static const char* CLASS_NAME = "NativeGuiWindow";
