@@ -1,18 +1,21 @@
-
 use std::{ffi::CString, os::raw::c_void};
-
 use crate::elements::Element;
 use crate::menu::MenuBar;
 use crate::{AureaError, AureaResult};
 use crate::ffi::*;
+use crate::platform::Platform;
+use crate::capability::{Capability, CapabilityChecker};
+use log::info;
 
 pub struct Window {
     pub handle: *mut c_void,
     pub menu_bar: Option<MenuBar>,
     pub content: Option<Box<dyn Element>>,
+    platform: Platform,
+    capabilities: CapabilityChecker,
 }
+
 impl Window {
-    /// Creates a new native window.
     pub fn new(title: &str, width: i32, height: i32) -> AureaResult<Self> {
         static INIT: std::sync::Once = std::sync::Once::new();
         let mut error = None;
@@ -27,6 +30,11 @@ impl Window {
             return Err(err);
         }
 
+        let platform = Platform::current();
+        let capabilities = CapabilityChecker::new();
+        
+        info!("Creating window: {}x{}", width, height);
+        
         let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
         let handle = unsafe { ng_platform_create_window(title.as_ptr(), width, height) };
         
@@ -38,11 +46,16 @@ impl Window {
             handle,
             menu_bar: None,
             content: None,
+            platform,
+            capabilities,
         })
     }
 
-    /// Creates and attaches a menu bar to the window.
     pub fn create_menu_bar(&mut self) -> AureaResult<MenuBar> {
+        if !self.capabilities.has(Capability::MenuBar) {
+            return Err(AureaError::ElementOperationFailed);
+        }
+        
         let handle = unsafe { ng_platform_create_menu() };
         if handle.is_null() {
             return Err(AureaError::MenuCreationFailed);
@@ -54,13 +67,17 @@ impl Window {
             return Err(AureaError::MenuCreationFailed);
         }
 
-        Ok(MenuBar {
-            handle,
-            callbacks: Vec::new(),
-        })
+        Ok(MenuBar::new(handle))
+    }
+    
+    pub fn platform(&self) -> Platform {
+        self.platform
+    }
+    
+    pub fn capabilities(&self) -> &CapabilityChecker {
+        &self.capabilities
     }
 
-    /// Run the window's event loop.
     pub fn run(self) -> AureaResult<()> {
         let result = unsafe { ng_platform_run() };
         if result != 0 {
@@ -69,7 +86,6 @@ impl Window {
         Ok(())
     }
 
-    /// Sets the content of the window.
     pub fn set_content<E>(&mut self, element: E) -> AureaResult<()> 
     where 
         E: Element + 'static

@@ -1,17 +1,17 @@
-use aurea::{Window, AureaResult};
-use aurea::elements::{Button, Label, Box, BoxOrientation, Container};
+use aurea::elements::{Box, BoxOrientation, Button, Container, Label};
 use aurea::logger;
+use aurea::{AureaResult, Window};
 use log::LevelFilter;
 
 fn main() -> AureaResult<()> {
     logger::init(LevelFilter::Debug).unwrap_or_else(|e| {
         eprintln!("Failed to initialize logger: {}", e);
     });
-    
+
     let mut window = Window::new("Aurea Example", 800, 600)?;
-    
+
     let mut menu_bar = window.create_menu_bar()?;
-    
+
     {
         let mut file_menu = menu_bar.add_submenu("File")?;
         file_menu.add_item("New", || {
@@ -28,7 +28,7 @@ fn main() -> AureaResult<()> {
             std::process::exit(0);
         })?;
     }
-    
+
     {
         let mut edit_menu = menu_bar.add_submenu("Edit")?;
         edit_menu.add_item("Cut", || {
@@ -41,42 +41,41 @@ fn main() -> AureaResult<()> {
             println!("Edit -> Paste clicked");
         })?;
     }
-    
+
     {
         let mut help_menu = menu_bar.add_submenu("Help")?;
         help_menu.add_item("About", || {
             println!("Help -> About clicked");
         })?;
     }
-    
+
     let mut main_box = Box::new(BoxOrientation::Vertical)?;
-    
+
     let welcome_label = Label::new("Welcome to Aurea!")?;
     main_box.add(welcome_label)?;
-    
+
     let mut button_box = Box::new(BoxOrientation::Horizontal)?;
-    
+
     let button1 = Button::new("Button 1")?;
     button_box.add(button1)?;
-    
+
     let button2 = Button::new("Button 2")?;
     button_box.add(button2)?;
-    
+
     let button3 = Button::new("Button 3")?;
     button_box.add(button3)?;
-    
+
     main_box.add(button_box)?;
-    
+
     let info_label = Label::new("This is a native GUI application built with Aurea.")?;
     main_box.add(info_label)?;
-    
+
     let status_label = Label::new("Status: Ready")?;
     main_box.add(status_label)?;
-    
+
     window.set_content(main_box)?;
-    
+
     window.run()?;
-    
+
     Ok(())
 }
-
