@@ -32,6 +32,7 @@ unsafe extern "C" {
     // Text elements
     pub(crate) fn ng_platform_create_text_editor() -> *mut c_void;
     pub(crate) fn ng_platform_create_text_view(is_editable: c_int) -> *mut c_void;
+    #[allow(dead_code)] // Reserved for future use
     pub(crate) fn ng_platform_create_text_field() -> *mut c_void;
     pub(crate) fn ng_platform_set_text_content(text_handle: *mut c_void, content: *const c_char) -> c_int;
     pub(crate) fn ng_platform_get_text_content(text_handle: *mut c_void) -> *mut c_char;
@@ -49,7 +50,7 @@ unsafe extern "C" {
     );
 }
 
-// Logging functions for C code
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_log_error(msg: *const c_char) {
     if !msg.is_null() {
@@ -62,6 +63,7 @@ pub extern "C" fn ng_log_error(msg: *const c_char) {
     }
 }
 
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_log_warn(msg: *const c_char) {
     if !msg.is_null() {
@@ -74,6 +76,7 @@ pub extern "C" fn ng_log_warn(msg: *const c_char) {
     }
 }
 
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_log_info(msg: *const c_char) {
     if !msg.is_null() {
@@ -86,6 +89,7 @@ pub extern "C" fn ng_log_info(msg: *const c_char) {
     }
 }
 
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_log_debug(msg: *const c_char) {
     if !msg.is_null() {
@@ -98,6 +102,7 @@ pub extern "C" fn ng_log_debug(msg: *const c_char) {
     }
 }
 
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_log_trace(msg: *const c_char) {
     if !msg.is_null() {

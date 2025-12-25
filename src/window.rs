@@ -1,22 +1,21 @@
-
 use std::{ffi::CString, os::raw::c_void};
-
 use crate::elements::Element;
 use crate::menu::MenuBar;
 use crate::{AureaError, AureaResult};
 use crate::ffi::*;
+use crate::platform::Platform;
+use crate::capability::{Capability, CapabilityChecker};
+use log::info;
 
 pub struct Window {
     pub handle: *mut c_void,
     pub menu_bar: Option<MenuBar>,
     pub content: Option<Box<dyn Element>>,
+    platform: Platform,
+    capabilities: CapabilityChecker,
 }
+
 impl Window {
-    /// Creates a new native window
-    ///
-    /// # Errors
-    ///
-    /// Returns `Error::WindowCreationFailed` if the window could not be created
     pub fn new(title: &str, width: i32, height: i32) -> AureaResult<Self> {
         static INIT: std::sync::Once = std::sync::Once::new();
         let mut error = None;
@@ -31,6 +30,11 @@ impl Window {
             return Err(err);
         }
 
+        let platform = Platform::current();
+        let capabilities = CapabilityChecker::new();
+        
+        info!("Creating window: {}x{}", width, height);
+        
         let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
         let handle = unsafe { ng_platform_create_window(title.as_ptr(), width, height) };
         
@@ -42,15 +46,16 @@ impl Window {
             handle,
             menu_bar: None,
             content: None,
+            platform,
+            capabilities,
         })
     }
 
-    /// Creates and attaches a menu bar to the window
-    ///
-    /// # Errors
-    ///
-    /// Returns `Error::MenuCreationFailed` if the menu bar could not be created
     pub fn create_menu_bar(&mut self) -> AureaResult<MenuBar> {
+        if !self.capabilities.has(Capability::MenuBar) {
+            return Err(AureaError::ElementOperationFailed);
+        }
+        
         let handle = unsafe { ng_platform_create_menu() };
         if handle.is_null() {
             return Err(AureaError::MenuCreationFailed);
@@ -62,17 +67,17 @@ impl Window {
             return Err(AureaError::MenuCreationFailed);
         }
 
-        Ok(MenuBar {
-            handle,
-            callbacks: Vec::new(),
-        })
+        Ok(MenuBar::new(handle))
+    }
+    
+    pub fn platform(&self) -> Platform {
+        self.platform
+    }
+    
+    pub fn capabilities(&self) -> &CapabilityChecker {
+        &self.capabilities
     }
 
-    /// Run the window's event loop
-    ///
-    /// # Errors
-    ///
-    /// Returns `Error::EventLoopError` if the event loop fails
     pub fn run(self) -> AureaResult<()> {
         let result = unsafe { ng_platform_run() };
         if result != 0 {
@@ -81,10 +86,6 @@ impl Window {
         Ok(())
     }
 
-    /// Sets the content of the window
-    ///
-    /// # Errors
-    /// Returns `Error::ElementOperationFailed` if the content cannot be set
     pub fn set_content<E>(&mut self, element: E) -> AureaResult<()> 
     where 
         E: Element + 'static
@@ -94,7 +95,6 @@ impl Window {
             return Err(AureaError::ElementOperationFailed);
         }
         
-        // Set the content in the native window
         let result = unsafe {
             ng_platform_set_window_content(self.handle, content_handle)
         };
@@ -103,12 +103,10 @@ impl Window {
             return Err(AureaError::ElementOperationFailed);
         }
         
-        // Store the element to keep it alive
         self.content = Some(Box::new(element));
         Ok(())
     }
 }
-
 
 impl Drop for Window {
     fn drop(&mut self) {
@@ -119,6 +117,5 @@ impl Drop for Window {
     }
 }
 
-// Implement Send and Sync for Window and MenuBar if the platform supports it
 unsafe impl Send for Window {}
 unsafe impl Sync for Window {}
