@@ -3,14 +3,19 @@
 #import "utils.h"
 #import <Cocoa/Cocoa.h>
 
+extern void ng_invoke_menu_callback(unsigned int id);
+
 @interface MenuItemTarget : NSObject
 - (void)menuItemClicked:(id)sender;
 @end
 
+extern void ng_invoke_menu_callback(unsigned int id);
+
 @implementation MenuItemTarget
 - (void)menuItemClicked:(id)sender {
     NSMenuItem* item = (NSMenuItem*)sender;
-    NSLog(@"Menu item clicked: %ld", [item tag]);
+    unsigned int id = (unsigned int)[item tag];
+    ng_invoke_menu_callback(id);
 }
 @end
 
