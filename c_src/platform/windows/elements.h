@@ -1,7 +1,7 @@
 #ifndef NATIVE_GUI_WINDOWS_ELEMENTS_H
 #define NATIVE_GUI_WINDOWS_ELEMENTS_H
 
-#include "../../common/types.h"
+#include "common/types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -13,6 +13,7 @@ NGHandle ng_windows_create_box(int is_vertical);
 int ng_windows_box_add(NGHandle box, NGHandle element);
 NGHandle ng_windows_create_text_editor(void);
 NGHandle ng_windows_create_text_view(int is_editable);
+NGHandle ng_windows_create_text_field(void);
 int ng_windows_set_text_content(NGHandle text_handle, const char* content);
 char* ng_windows_get_text_content(NGHandle text_handle);
 void ng_windows_free_text_content(char* content);

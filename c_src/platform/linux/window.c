@@ -1,6 +1,6 @@
 #include "window.h"
 #include "utils.h"
-#include "../common/errors.h"
+#include "common/errors.h"
 #include <gtk/gtk.h>
 
 static GtkWidget* main_vbox = NULL;

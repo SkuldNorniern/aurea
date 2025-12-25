@@ -1,7 +1,7 @@
 #ifndef NATIVE_GUI_LINUX_H
 #define NATIVE_GUI_LINUX_H
 
-#include "../common/types.h"
+#include "common/types.h"
 
 // Linux/GTK-specific initialization
 int ng_platform_init(void);

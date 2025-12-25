@@ -1,7 +1,7 @@
 #ifndef NATIVE_GUI_LINUX_ELEMENTS_H
 #define NATIVE_GUI_LINUX_ELEMENTS_H
 
-#include "../../common/types.h"
+#include "common/types.h"
 
 #ifdef __cplusplus
 extern "C" {

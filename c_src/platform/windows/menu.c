@@ -1,5 +1,5 @@
 #include "menu.h"
-#include "../common/errors.h"
+#include "common/errors.h"
 #include <windows.h>
 
 NGMenuHandle ng_windows_create_menu(void) {

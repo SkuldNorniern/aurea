@@ -54,6 +54,7 @@ pub mod window;
 pub mod menu;
 pub mod ffi;
 pub mod render;
+pub mod logger;
 
 // Re-export the elements, window, and menu modules
 pub use crate::elements::Element;

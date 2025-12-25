@@ -32,6 +32,7 @@ unsafe extern "C" {
     // Text elements
     pub(crate) fn ng_platform_create_text_editor() -> *mut c_void;
     pub(crate) fn ng_platform_create_text_view(is_editable: c_int) -> *mut c_void;
+    pub(crate) fn ng_platform_create_text_field() -> *mut c_void;
     pub(crate) fn ng_platform_set_text_content(text_handle: *mut c_void, content: *const c_char) -> c_int;
     pub(crate) fn ng_platform_get_text_content(text_handle: *mut c_void) -> *mut c_char;
     pub(crate) fn ng_platform_free_text_content(content: *mut c_char);
@@ -39,4 +40,65 @@ unsafe extern "C" {
     // Canvas elements
     pub(crate) fn ng_platform_create_canvas(width: c_int, height: c_int) -> *mut c_void;
     pub(crate) fn ng_platform_canvas_invalidate(canvas: *mut c_void);
+}
+
+// Logging functions for C code
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_log_error(msg: *const c_char) {
+    if !msg.is_null() {
+        unsafe {
+            let c_str = std::ffi::CStr::from_ptr(msg);
+            if let Ok(s) = c_str.to_str() {
+                log::error!("{}", s);
+            }
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_log_warn(msg: *const c_char) {
+    if !msg.is_null() {
+        unsafe {
+            let c_str = std::ffi::CStr::from_ptr(msg);
+            if let Ok(s) = c_str.to_str() {
+                log::warn!("{}", s);
+            }
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_log_info(msg: *const c_char) {
+    if !msg.is_null() {
+        unsafe {
+            let c_str = std::ffi::CStr::from_ptr(msg);
+            if let Ok(s) = c_str.to_str() {
+                log::info!("{}", s);
+            }
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_log_debug(msg: *const c_char) {
+    if !msg.is_null() {
+        unsafe {
+            let c_str = std::ffi::CStr::from_ptr(msg);
+            if let Ok(s) = c_str.to_str() {
+                log::debug!("{}", s);
+            }
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_log_trace(msg: *const c_char) {
+    if !msg.is_null() {
+        unsafe {
+            let c_str = std::ffi::CStr::from_ptr(msg);
+            if let Ok(s) = c_str.to_str() {
+                log::trace!("{}", s);
+            }
+        }
+    }
 } 
