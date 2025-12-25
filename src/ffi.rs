@@ -23,7 +23,7 @@ unsafe extern "C" {
     pub(crate) fn ng_platform_create_submenu(parent: *mut c_void, title: *const c_char) -> *mut c_void;
 
     // Button elements
-    pub(crate) fn ng_platform_create_button(title: *const c_char) -> *mut c_void;
+    pub(crate) fn ng_platform_create_button(title: *const c_char, id: u32) -> *mut c_void;
     pub(crate) fn ng_platform_create_label(text: *const c_char) -> *mut c_void;
     pub(crate) fn ng_platform_create_box(is_vertical: c_int) -> *mut c_void;
     pub(crate) fn ng_platform_box_add(box_handle: *mut c_void, element: *mut c_void) -> c_int;
@@ -118,4 +118,9 @@ pub extern "C" fn ng_log_trace(msg: *const c_char) {
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_menu_callback(id: u32) {
     crate::menu::invoke_menu_callback(id);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_button_callback(id: u32) {
+    crate::elements::invoke_button_callback(id);
 } 

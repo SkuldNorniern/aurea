@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-NGHandle ng_linux_create_button(const char* title);
+NGHandle ng_linux_create_button(const char* title, unsigned int id);
 NGHandle ng_linux_create_label(const char* text);
 NGHandle ng_linux_create_box(int is_vertical);
 int ng_linux_box_add(NGHandle box, NGHandle element);
