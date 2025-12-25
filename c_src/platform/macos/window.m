@@ -3,8 +3,27 @@
 #import "utils.h"
 #import <Cocoa/Cocoa.h>
 
+// Window delegate to handle window close events
+@interface WindowDelegate : NSObject <NSWindowDelegate>
+@end
+
+@implementation WindowDelegate
+- (BOOL)windowShouldClose:(NSWindow*)sender {
+    // Terminate the application when the window closes
+    [NSApp terminate:nil];
+    return YES;
+}
+@end
+
+static WindowDelegate* windowDelegate = nil;
+
 NGHandle ng_macos_create_window(const char* title, int width, int height) {
     if (!title) return NULL;
+    
+    // Create window delegate if not already created
+    if (!windowDelegate) {
+        windowDelegate = [[WindowDelegate alloc] init];
+    }
     
     NSRect frame = NSMakeRect(0, 0, width, height);
     NSWindow* window = [[NSWindow alloc] 
@@ -17,6 +36,7 @@ NGHandle ng_macos_create_window(const char* title, int width, int height) {
         defer:NO];
     
     [window setTitle:ng_macos_to_nsstring(title)];
+    [window setDelegate:windowDelegate];
     [window center];
     [window makeKeyAndOrderFront:nil];
     

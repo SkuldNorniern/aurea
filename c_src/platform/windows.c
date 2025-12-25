@@ -136,4 +136,27 @@ int ng_platform_run(void) {
     return NG_SUCCESS;
 }
 
+NGHandle ng_platform_create_canvas(int width, int height) {
+    // Create a child window for custom rendering
+    // This will be extended to support DirectX/OpenGL
+    HWND hwnd = CreateWindowExA(
+        0,
+        "STATIC",
+        NULL,
+        WS_CHILD | WS_VISIBLE,
+        0, 0, width, height,
+        NULL,
+        NULL,
+        GetModuleHandleA(NULL),
+        NULL
+    );
+    
+    return (NGHandle)hwnd;
+}
+
+void ng_platform_canvas_invalidate(NGHandle canvas) {
+    if (!canvas) return;
+    InvalidateRect((HWND)canvas, NULL, FALSE);
+}
+
 // ... rest of Windows implementation ... 

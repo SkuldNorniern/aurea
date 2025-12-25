@@ -21,12 +21,20 @@ void ng_platform_cleanup(void) {
     }
 }
 
+static void on_window_destroy(GtkWidget* widget, gpointer data) {
+    // Quit the GTK main loop when window is closed
+    gtk_main_quit();
+}
+
 NGHandle ng_platform_create_window(const char* title, int width, int height) {
     if (!title) return NULL;
     
     GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(window), title);
     gtk_window_set_default_size(GTK_WINDOW(window), width, height);
+    
+    // Connect destroy signal to quit the event loop
+    g_signal_connect(G_OBJECT(window), "destroy", G_CALLBACK(on_window_destroy), NULL);
     
     // Create a vertical box to hold menu and content
     main_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -95,6 +103,21 @@ int ng_platform_add_menu_item(NGMenuHandle menu, const char* title, unsigned int
 int ng_platform_run(void) {
     gtk_main();
     return NG_SUCCESS;
+}
+
+NGHandle ng_platform_create_canvas(int width, int height) {
+    // Create a GtkDrawingArea for custom rendering
+    // This will be extended to support OpenGL/Vulkan
+    GtkWidget* drawing_area = gtk_drawing_area_new();
+    gtk_widget_set_size_request(drawing_area, width, height);
+    gtk_widget_show(drawing_area);
+    
+    return (NGHandle)drawing_area;
+}
+
+void ng_platform_canvas_invalidate(NGHandle canvas) {
+    if (!canvas) return;
+    gtk_widget_queue_draw((GtkWidget*)canvas);
 }
 
 // ... rest of Linux/GTK implementation ... 

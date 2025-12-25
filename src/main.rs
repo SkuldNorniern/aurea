@@ -1,5 +1,5 @@
 use aurea::{Window, AureaResult};
-use aurea::elements::{TextEditor, Box, BoxOrientation};
+use aurea::elements::TextEditor;
 
 fn main() -> AureaResult<()> {
     let mut window = Window::new("Notepad", 800, 600)?;

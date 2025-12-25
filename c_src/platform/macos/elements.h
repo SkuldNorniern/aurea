@@ -17,6 +17,10 @@ int ng_macos_set_text_content(NGHandle text_handle, const char* content);
 char* ng_macos_get_text_content(NGHandle text_handle);
 void ng_macos_free_text_content(char* content);
 
+// Canvas functions
+NGHandle ng_macos_create_canvas(int width, int height);
+void ng_macos_canvas_invalidate(NGHandle canvas);
+
 #ifdef __cplusplus
 }
 #endif

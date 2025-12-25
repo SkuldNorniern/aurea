@@ -95,4 +95,12 @@ char* ng_platform_get_text_content(NGHandle text_handle) {
 
 void ng_platform_free_text_content(char* content) {
     ng_macos_free_text_content(content);
+}
+
+NGHandle ng_platform_create_canvas(int width, int height) {
+    return ng_macos_create_canvas(width, height);
+}
+
+void ng_platform_canvas_invalidate(NGHandle canvas) {
+    ng_macos_canvas_invalidate(canvas);
 } 

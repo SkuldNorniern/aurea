@@ -171,4 +171,24 @@ void ng_macos_free_text_content(char* content) {
     if (content) {
         free(content);
     }
+}
+
+NGHandle ng_macos_create_canvas(int width, int height) {
+    @autoreleasepool {
+        // Create a custom view for rendering
+        // This will be extended to support Metal/OpenGL surfaces
+        NSView* canvasView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
+        [canvasView setWantsLayer:YES];
+        [canvasView setLayer:[CALayer layer]];
+        [canvasView.layer setBackgroundColor:[[NSColor whiteColor] CGColor]];
+        
+        return (__bridge_retained void*)canvasView;
+    }
+}
+
+void ng_macos_canvas_invalidate(NGHandle canvas) {
+    if (!canvas) return;
+    
+    NSView* view = (__bridge NSView*)canvas;
+    [view setNeedsDisplay:YES];
 } 

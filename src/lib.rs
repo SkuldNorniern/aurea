@@ -23,6 +23,7 @@
 /// - Native menu bars and context menus
 /// - Basic widgets (buttons, labels)
 /// - Layout management (vertical/horizontal boxes)
+/// - Custom rendering with Skia/Vello support (planned)
 /// - Event handling
 /// 
 /// # Example
@@ -52,6 +53,7 @@ pub mod elements;
 pub mod window;
 pub mod menu;
 pub mod ffi;
+pub mod render;
 
 // Re-export the elements, window, and menu modules
 pub use crate::elements::Element;
@@ -75,6 +77,12 @@ pub enum AureaError {
     EventLoopError,
     /// An operation on a GUI element failed
     ElementOperationFailed,
+    /// Failed to create a canvas
+    CanvasCreationFailed,
+    /// Failed to initialize renderer
+    RendererInitFailed,
+    /// Rendering operation failed
+    RenderingFailed,
 }
 
 
@@ -91,6 +99,9 @@ impl std::fmt::Display for AureaError {
             AureaError::PlatformError(code) => write!(f, "A platform-specific error occurred: {}", code),
             AureaError::EventLoopError => write!(f, "The event loop encountered an error"),
             AureaError::ElementOperationFailed => write!(f, "An operation on a GUI element failed"),
+            AureaError::CanvasCreationFailed => write!(f, "Failed to create a canvas"),
+            AureaError::RendererInitFailed => write!(f, "Failed to initialize renderer"),
+            AureaError::RenderingFailed => write!(f, "Rendering operation failed"),
         }
     }
 }
