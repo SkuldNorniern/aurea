@@ -40,6 +40,10 @@ int ng_platform_set_text_content(NGHandle text_handle, const char* content);
 char* ng_platform_get_text_content(NGHandle text_handle);
 void ng_platform_free_text_content(char* content);
 
+// Canvas functions
+NGHandle ng_platform_create_canvas(int width, int height);
+void ng_platform_canvas_invalidate(NGHandle canvas);
+
 #ifdef __cplusplus
 }
 #endif

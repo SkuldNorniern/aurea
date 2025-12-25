@@ -3,7 +3,6 @@ use std::os::raw::c_void;
 
 use crate::{
     AureaError, AureaResult,
-    window::Window,
     ffi::*
 };
 
@@ -44,7 +43,7 @@ impl MenuBar {
     ///
     /// Returns `Error::MenuCreationFailed` if the submenu could not be created
     /// Returns `Error::InvalidTitle` if the title contains invalid characters
-    pub fn add_submenu(&mut self, title: &str) -> AureaResult<SubMenu> {
+    pub fn add_submenu(&mut self, title: &str) -> AureaResult<SubMenu<'_>> {
         let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
         
         let submenu_handle = unsafe {

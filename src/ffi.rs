@@ -1,7 +1,7 @@
 use std::os::raw::{c_char, c_int, c_void};
 
 #[allow(clippy::missing_safety_doc)]
-extern "C" {
+unsafe extern "C" {
     // Platform initialization
     pub(crate) fn ng_platform_init() -> c_int;
     pub(crate) fn ng_platform_cleanup();
@@ -35,4 +35,8 @@ extern "C" {
     pub(crate) fn ng_platform_set_text_content(text_handle: *mut c_void, content: *const c_char) -> c_int;
     pub(crate) fn ng_platform_get_text_content(text_handle: *mut c_void) -> *mut c_char;
     pub(crate) fn ng_platform_free_text_content(content: *mut c_char);
+
+    // Canvas elements
+    pub(crate) fn ng_platform_create_canvas(width: c_int, height: c_int) -> *mut c_void;
+    pub(crate) fn ng_platform_canvas_invalidate(canvas: *mut c_void);
 } 
