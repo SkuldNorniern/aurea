@@ -1,115 +1,84 @@
-use std::ffi::CString;
-use std::os::raw::c_void;
+use std::{ffi::CString, os::raw::c_void};
+use crate::{AureaError, AureaResult, ffi::*};
+use log::debug;
 
-use crate::{
-    AureaError, AureaResult,
-    ffi::*
-};
+pub struct MenuBar {
+    pub(crate) handle: *mut c_void,
+    #[allow(dead_code)]
+    pub(crate) callbacks: Vec<Box<dyn Fn() + Send + Sync>>,
+}
 
- pub struct MenuBar {
-    pub handle: *mut c_void,
-    pub callbacks: Vec<Box<dyn Fn()>>,
+pub struct SubMenu {
+    pub(crate) handle: *mut c_void,
+    #[allow(dead_code)]
+    pub(crate) callbacks: Vec<Box<dyn Fn() + Send + Sync>>,
 }
 
 impl MenuBar {
-    /// Adds a menu item with the given title and callback
-    ///
-    /// # Errors
-    ///
-    /// Returns `Error::MenuItemAddFailed` if the menu item could not be added
-    /// Returns `Error::InvalidTitle` if the title contains invalid characters
-    pub fn add_item<F>(&mut self, title: &str, callback: F) -> AureaResult<()>
-    where
-        F: Fn() + 'static,
-    {
+    pub(crate) fn new(handle: *mut c_void) -> Self {
+        Self {
+            handle,
+            callbacks: Vec::new(),
+        }
+    }
+    
+    pub fn add_submenu(&mut self, title: &str) -> AureaResult<SubMenu> {
         let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
-        let id = self.callbacks.len() as u32;
-
-        let result = unsafe {
-            ng_platform_add_menu_item(self.handle, title.as_ptr(), id)
-        };
-
-        if result != 0 {
+        let handle = unsafe { ng_platform_create_submenu(self.handle, title.as_ptr()) };
+        
+        if handle.is_null() {
             return Err(AureaError::MenuItemAddFailed);
         }
-
-        self.callbacks.push(Box::new(callback));
-        Ok(())
-    }
-
-    /// Creates a new submenu with the given title
-    ///
-    /// # Errors
-    ///
-    /// Returns `Error::MenuCreationFailed` if the submenu could not be created
-    /// Returns `Error::InvalidTitle` if the title contains invalid characters
-    pub fn add_submenu(&mut self, title: &str) -> AureaResult<SubMenu<'_>> {
-        let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
         
-        let submenu_handle = unsafe {
-            ng_platform_create_submenu(self.handle, title.as_ptr())
-        };
+        debug!("Added submenu '{}'", title.to_string_lossy());
         
-        if submenu_handle.is_null() {
-            return Err(AureaError::MenuCreationFailed);
-        }
-
         Ok(SubMenu {
-            handle: submenu_handle,
-            parent: self,
+            handle,
+            callbacks: Vec::new(),
         })
     }
-}
-
-/// A submenu in the menu bar
-pub struct SubMenu<'a> {
-    handle: *mut c_void,
-    parent: &'a mut MenuBar,
-}
-
-impl<'a> SubMenu<'a> {
-    /// Adds a menu item to this submenu
-    ///
-    /// # Errors
-    ///
-    /// Returns `Error::MenuItemAddFailed` if the menu item could not be added
-    /// Returns `Error::InvalidTitle` if the title contains invalid characters
-    pub fn add_item<F>(&mut self, title: &str, callback: F) -> AureaResult<()>
-    where
-        F: Fn() + 'static,
-    {
-        let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
-        let id = self.parent.callbacks.len() as u32;
-
-        let result = unsafe {
-            ng_platform_add_menu_item(self.handle, title.as_ptr(), id)
-        };
-
-        if result != 0 {
-            return Err(AureaError::MenuItemAddFailed);
-        }
-
-        self.parent.callbacks.push(Box::new(callback));
-        Ok(())
+    
+    pub fn handle(&self) -> *mut c_void {
+        self.handle
     }
 }
 
-impl<'a> Drop for SubMenu<'a> {
-    fn drop(&mut self) {
-        unsafe {
-            ng_platform_destroy_menu(self.handle);
+impl SubMenu {
+    pub fn add_item<F>(&mut self, title: &str, callback: F) -> AureaResult<()>
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        static mut MENU_ITEM_ID: u32 = 1;
+        let id = unsafe {
+            MENU_ITEM_ID += 1;
+            MENU_ITEM_ID - 1
+        };
+        
+        let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
+        let result = unsafe { ng_platform_add_menu_item(self.handle, title.as_ptr(), id) };
+        
+        if result != 0 {
+            return Err(AureaError::MenuItemAddFailed);
         }
+        
+        self.callbacks.push(Box::new(callback));
+        debug!("Added menu item '{}'", title.to_string_lossy());
+        
+        Ok(())
+    }
+    
+    pub fn handle(&self) -> *mut c_void {
+        self.handle
     }
 }
 
 impl Drop for MenuBar {
     fn drop(&mut self) {
-        unsafe {
-            ng_platform_destroy_menu(self.handle);
+        if !self.handle.is_null() {
+            unsafe {
+                ng_platform_destroy_menu(self.handle);
+            }
         }
     }
 }
 
-
-unsafe impl Send for MenuBar {}
-unsafe impl Sync for MenuBar {} 

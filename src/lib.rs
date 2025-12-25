@@ -55,11 +55,17 @@ pub mod menu;
 pub mod ffi;
 pub mod render;
 pub mod logger;
+pub mod platform;
+pub mod capability;
 
 // Re-export the elements, window, and menu modules
-pub use crate::elements::Element;
+pub use crate::elements::{Element, Container};
 pub use crate::window::Window;
 pub use crate::menu::MenuBar;
+
+// Re-export platform and capability modules
+pub use crate::platform::{Platform, DesktopPlatform, MobilePlatform};
+pub use crate::capability::{Capability, CapabilityChecker};
 
 /// Errors that might occur during native GUI operations.
 #[derive(Debug, Clone)]

@@ -253,36 +253,3 @@ impl Element for TextView {
     }
 }
 
-// Drop implementations
-// Note: On macOS, elements use __bridge_retained and are managed by their parent views.
-// When removed from the view hierarchy, ARC handles deallocation automatically.
-// Explicit cleanup is not needed as the native views manage their own lifecycle.
-impl Drop for TextEditor {
-    fn drop(&mut self) {
-        // Native view lifecycle managed by parent container
-    }
-}
-
-impl Drop for TextView {
-    fn drop(&mut self) {
-        // Native view lifecycle managed by parent container
-    }
-}
-
-impl Drop for Button {
-    fn drop(&mut self) {
-        // Native view lifecycle managed by parent container
-    }
-}
-
-impl Drop for Label {
-    fn drop(&mut self) {
-        // Native view lifecycle managed by parent container
-    }
-}
-
-impl Drop for Box {
-    fn drop(&mut self) {
-        // Native view lifecycle managed by parent container
-    }
-}

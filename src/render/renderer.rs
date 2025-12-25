@@ -1,20 +1,16 @@
-//! Renderer trait for different rendering backends
-
 use std::cell::RefCell;
 use crate::AureaResult;
 use super::surface::{Surface, SurfaceInfo};
 use super::types::{
     Color, Rect, Point, Paint, Path, Transform, Font, TextMetrics,
-    LinearGradient, RadialGradient, BlendMode, Image, PaintFill,
+    LinearGradient, RadialGradient, BlendMode, Image,
 };
-use log::{debug, info, warn, error, trace};
 
 thread_local! {
-    static COMMAND_BUFFER: RefCell<Option<*mut Vec<DrawCommand>>> = RefCell::new(None);
-    pub(crate) static CURRENT_BUFFER: RefCell<Option<(*const u8, usize, u32, u32)>> = RefCell::new(None);
+    static COMMAND_BUFFER: RefCell<Option<*mut Vec<DrawCommand>>> = const { RefCell::new(None) };
+    pub(crate) static CURRENT_BUFFER: RefCell<Option<(*const u8, usize, u32, u32)>> = const { RefCell::new(None) };
 }
 
-/// Drawing context for rendering operations
 pub trait DrawingContext {
     /// Clear the canvas with a color
     fn clear(&mut self, color: Color) -> AureaResult<()>;
@@ -100,59 +96,42 @@ pub trait DrawingContext {
     }
 }
 
-/// Renderer trait for different backends
 pub trait Renderer: Send + Sync {
-    /// Initialize the renderer with a native surface
     fn init(&mut self, surface: Surface, info: SurfaceInfo) -> AureaResult<()>;
-
-    /// Resize the rendering surface
     fn resize(&mut self, width: u32, height: u32) -> AureaResult<()>;
-
-    /// Begin a new frame and get a drawing context
     fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext>>;
-
-    /// End the current frame and present
     fn end_frame(&mut self) -> AureaResult<()>;
-
-    /// Cleanup resources
     fn cleanup(&mut self);
 }
 
-/// Drawing command for the placeholder renderer
 #[derive(Debug, Clone)]
 enum DrawCommand {
     Clear(Color),
     DrawRect(Rect, Paint),
     DrawCircle(Point, f32, Paint),
+    #[allow(dead_code)]
     DrawPath(Path, Paint),
+    #[allow(dead_code)]
     DrawText(String, Point, Paint),
+    #[allow(dead_code)]
     DrawTextWithFont(String, Point, Font, Paint),
 }
 
-/// Placeholder renderer implementation
-/// This will be replaced with actual Skia/Vello implementations
-/// For now, this provides a basic software renderer that draws to a buffer
+#[derive(Default)]
 pub struct PlaceholderRenderer {
     initialized: bool,
     width: u32,
     height: u32,
-    buffer: Vec<u32>, // RGBA buffer
-    commands: Vec<DrawCommand>, // Drawing commands buffer
+    buffer: Vec<u32>,
+    commands: Vec<DrawCommand>,
 }
+
 
 impl PlaceholderRenderer {
     pub fn new() -> Self {
-        Self {
-            initialized: false,
-            width: 0,
-            height: 0,
-            buffer: Vec::new(),
-            commands: Vec::new(),
-        }
+        Self::default()
     }
 
-    /// Get the rendered buffer as a raw pointer
-    /// The buffer is in RGBA format, 4 bytes per pixel (u32 values, but we return as u8 pointer)
     pub fn get_buffer(&self) -> (*const u8, usize) {
         if self.buffer.is_empty() {
             return (std::ptr::null(), 0);
@@ -170,22 +149,15 @@ impl PlaceholderRenderer {
     }
 
     fn apply_commands(&mut self) {
-        
         let commands = std::mem::take(&mut self.commands);
-        let command_count = commands.len();
-        trace!("apply_commands: processing {} commands", command_count);
-        
-        for (i, cmd) in commands.into_iter().enumerate() {
-            trace!("Processing command {}: {:?}", i, std::mem::discriminant(&cmd));
+        for cmd in commands.into_iter() {
             match cmd {
                 DrawCommand::Clear(color) => {
-                    debug!("Clear command: rgba({}, {}, {}, {})", color.r, color.g, color.b, color.a);
                     let rgba = ((color.a as u32) << 24)
                         | ((color.r as u32) << 16)
                         | ((color.g as u32) << 8)
                         | (color.b as u32);
                     self.buffer.fill(rgba);
-                    debug!("Buffer filled with clear color, buffer size: {}", self.buffer.len());
                 }
                 DrawCommand::DrawRect(rect, paint) => {
                     use super::types::PaintFill;
@@ -193,9 +165,6 @@ impl PlaceholderRenderer {
                         PaintFill::Color(c) => *c,
                         _ => Color::rgb(0, 0, 0),
                     };
-                    
-                    trace!("DrawRect: ({}, {}) {}x{}, color=rgba({}, {}, {}, {})", 
-                           rect.x, rect.y, rect.width, rect.height, color.r, color.g, color.b, color.a);
                     
                     match paint.style {
                         super::types::PaintStyle::Fill => {
@@ -225,15 +194,16 @@ impl PlaceholderRenderer {
                     }
                 }
                 DrawCommand::DrawCircle(center, radius, paint) => {
+                    use super::types::PaintFill;
                     let color = match &paint.fill {
                         PaintFill::Color(c) => *c,
                         _ => Color::rgb(0, 0, 0),
                     };
                     self.draw_circle_impl(center, radius, color, paint.style);
                 }
-                _ => {
-                    // Other commands not yet implemented in software renderer
-                }
+                DrawCommand::DrawText(..) => {}
+                DrawCommand::DrawPath(..) => {}
+                DrawCommand::DrawTextWithFont(..) => {}
             }
         }
     }
@@ -296,14 +266,10 @@ impl PlaceholderRenderer {
 
 impl Renderer for PlaceholderRenderer {
     fn init(&mut self, _surface: Surface, info: SurfaceInfo) -> AureaResult<()> {
-        info!("PlaceholderRenderer::init: {}x{}", info.width, info.height);
         self.width = info.width;
         self.height = info.height;
-        let buffer_size = (self.width * self.height) as usize;
-        info!("Allocating buffer: {} pixels ({} bytes)", buffer_size, buffer_size * 4);
-        self.buffer = vec![0; buffer_size];
+        self.buffer = vec![0; (self.width * self.height) as usize];
         self.initialized = true;
-        info!("PlaceholderRenderer initialized");
         Ok(())
     }
 
@@ -315,44 +281,25 @@ impl Renderer for PlaceholderRenderer {
     }
 
     fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext>> {
-        debug!("PlaceholderRenderer::begin_frame");
         self.commands.clear();
-        // Store a pointer to commands in thread-local storage
         COMMAND_BUFFER.with(|buf| {
             *buf.borrow_mut() = Some(&mut self.commands as *mut Vec<DrawCommand>);
         });
-        debug!("Created drawing context, command buffer ready");
-        Ok(Box::new(PlaceholderDrawingContext::new(
-            self.width,
-            self.height,
-        )))
+        Ok(Box::new(PlaceholderDrawingContext::new(self.width, self.height)))
     }
 
     fn end_frame(&mut self) -> AureaResult<()> {
-        debug!("PlaceholderRenderer::end_frame");
         COMMAND_BUFFER.with(|buf| {
             *buf.borrow_mut() = None;
         });
         
-        let command_count = self.commands.len();
-        debug!("Applying {} drawing commands", command_count);
         self.apply_commands();
         
-        // Store buffer pointer in thread-local for platform code to access
-        // Always set it, even if empty, so platform code knows the state
         let (ptr, size) = self.get_buffer();
-        let buffer_empty = self.buffer.is_empty();
-        let ptr_null = ptr.is_null();
-        
-        debug!("Buffer state: empty={}, ptr_null={}, size={}, buffer_len={}", 
-               buffer_empty, ptr_null, size, self.buffer.len());
-        
         CURRENT_BUFFER.with(|buf| {
             if !self.buffer.is_empty() && !ptr.is_null() {
-                info!("Storing buffer in thread-local: {}x{}, {} bytes", self.width, self.height, size);
                 *buf.borrow_mut() = Some((ptr, size, self.width, self.height));
             } else {
-                warn!("Not storing buffer - empty={}, ptr_null={}", buffer_empty, ptr_null);
                 *buf.borrow_mut() = None;
             }
         });
@@ -372,8 +319,8 @@ struct PlaceholderDrawingContext {
     current_transform: Transform,
     alpha: f32,
     blend_mode: BlendMode,
-    width: u32,
-    height: u32,
+    _width: u32,
+    _height: u32,
     commands: Vec<DrawCommand>,
 }
 
@@ -384,8 +331,8 @@ impl PlaceholderDrawingContext {
             current_transform: Transform::identity(),
             alpha: 1.0,
             blend_mode: BlendMode::Normal,
-            width,
-            height,
+            _width: width,
+            _height: height,
             commands: Vec::new(),
         }
     }
@@ -510,5 +457,6 @@ impl DrawingContext for PlaceholderDrawingContext {
         Ok(false)
     }
 }
+
 
 
