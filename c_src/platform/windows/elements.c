@@ -257,12 +257,13 @@ void layout_box_children(HWND box) {
     }
 }
 
-NGHandle ng_windows_create_button(const char* title) {
+extern void ng_invoke_button_callback(unsigned int id);
+
+NGHandle ng_windows_create_button(const char* title, unsigned int id) {
     if (!title) return NULL;
 
-    // Create button as a child window (will be reparented later if needed)
-    // Use a temporary parent that will be changed later
     HWND temp_parent = GetDesktopWindow();
+    UINT command_id = id + 1000;
 
     HWND button = CreateWindowExA(
         0,
@@ -271,7 +272,7 @@ NGHandle ng_windows_create_button(const char* title) {
         WS_CHILD | BS_PUSHBUTTON | WS_VISIBLE,
         0, 0, BUTTON_MIN_WIDTH, BUTTON_MIN_HEIGHT,
         temp_parent,
-        NULL,
+        (HMENU)(UINT_PTR)command_id,
         GetModuleHandleA(NULL),
         NULL
     );

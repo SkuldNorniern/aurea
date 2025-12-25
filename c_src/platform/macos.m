@@ -57,8 +57,8 @@ int ng_platform_run(void) {
     return NG_SUCCESS;
 }
 
-NGHandle ng_platform_create_button(const char* title) {
-    return ng_macos_create_button(title);
+NGHandle ng_platform_create_button(const char* title, unsigned int id) {
+    return ng_macos_create_button(title, id);
 }
 
 NGHandle ng_platform_create_label(const char* text) {

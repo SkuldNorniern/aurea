@@ -28,7 +28,7 @@ int ng_platform_add_menu_item(NGMenuHandle menu, const char* title, unsigned int
 int ng_platform_run(void);
 
 // New element-related functions
-NGHandle ng_platform_create_button(const char* title);
+NGHandle ng_platform_create_button(const char* title, unsigned int id);
 NGHandle ng_platform_create_label(const char* text);
 NGHandle ng_platform_create_box(int is_vertical);
 int ng_platform_box_add(NGHandle box, NGHandle element);

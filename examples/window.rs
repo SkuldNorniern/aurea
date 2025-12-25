@@ -67,8 +67,14 @@ fn setup_ui(window: &mut Window) -> AureaResult<()> {
 
 fn create_button_row() -> AureaResult<Box> {
     let mut button_box = Box::new(BoxOrientation::Horizontal)?;
-    button_box.add(Button::new("Button 1")?)?;
-    button_box.add(Button::new("Button 2")?)?;
-    button_box.add(Button::new("Button 3")?)?;
+    button_box.add(Button::with_callback("Button 1", || {
+        println!("Button 1 clicked!");
+    })?)?;
+    button_box.add(Button::with_callback("Button 2", || {
+        println!("Button 2 clicked!");
+    })?)?;
+    button_box.add(Button::with_callback("Button 3", || {
+        println!("Button 3 clicked!");
+    })?)?;
     Ok(button_box)
 }

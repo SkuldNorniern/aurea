@@ -55,8 +55,8 @@ int ng_platform_set_window_content(NGHandle window, NGHandle content) {
     return ng_windows_set_window_content(window, content);
 }
 
-NGHandle ng_platform_create_button(const char* title) {
-    return ng_windows_create_button(title);
+NGHandle ng_platform_create_button(const char* title, unsigned int id) {
+    return ng_windows_create_button(title, id);
 }
 
 NGHandle ng_platform_create_label(const char* text) {
