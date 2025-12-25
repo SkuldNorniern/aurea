@@ -255,30 +255,25 @@ impl Element for TextView {
 
 impl Drop for TextEditor {
     fn drop(&mut self) {
-        // TODO: Add proper cleanup if needed
     }
 }
 
 impl Drop for TextView {
     fn drop(&mut self) {
-        // TODO: Add proper cleanup if needed
     }
 }
 
 impl Drop for Button {
     fn drop(&mut self) {
-        // TODO: Add proper cleanup if needed
     }
 }
 
 impl Drop for Label {
     fn drop(&mut self) {
-        // TODO: Add proper cleanup if needed
     }
 }
 
 impl Drop for Box {
     fn drop(&mut self) {
-        // TODO: Add proper cleanup if needed
     }
 }

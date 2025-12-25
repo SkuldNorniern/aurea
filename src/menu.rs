@@ -3,7 +3,6 @@ use std::os::raw::c_void;
 
 use crate::{
     AureaError, AureaResult,
-    window::Window,
     ffi::*
 };
 
@@ -34,7 +33,7 @@ impl MenuBar {
     }
 
     /// Creates a new submenu with the given title.
-    pub fn add_submenu(&mut self, title: &str) -> AureaResult<SubMenu> {
+    pub fn add_submenu(&mut self, title: &str) -> AureaResult<SubMenu<'_>> {
         let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
         
         let submenu_handle = unsafe {
