@@ -113,4 +113,9 @@ pub extern "C" fn ng_log_trace(msg: *const c_char) {
             }
         }
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_menu_callback(id: u32) {
+    crate::menu::invoke_menu_callback(id);
 } 

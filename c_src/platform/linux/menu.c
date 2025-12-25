@@ -3,12 +3,11 @@
 #include "../common/errors.h"
 #include <gtk/gtk.h>
 
-// Forward declaration
-extern void* ng_linux_get_main_vbox(void);
+extern void ng_invoke_menu_callback(unsigned int id);
 
 static void menu_item_clicked(GtkMenuItem *item, gpointer user_data) {
     guint id = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(item), "menu-id"));
-    g_print("Menu item clicked: %u\n", id);
+    ng_invoke_menu_callback(id);
 }
 
 NGMenuHandle ng_linux_create_menu(void) {
