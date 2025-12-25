@@ -41,8 +41,10 @@ NGHandle ng_macos_create_box(int is_vertical) {
     NSStackView* stack = [[NSStackView alloc] init];
     [stack setOrientation:is_vertical ? NSUserInterfaceLayoutOrientationVertical 
                                     : NSUserInterfaceLayoutOrientationHorizontal];
-    [stack setSpacing:8.0];
-    [stack setAlignment:NSLayoutAttributeCenterY];
+    [stack setSpacing:4.0];
+    [stack setAlignment:is_vertical ? NSLayoutAttributeLeading : NSLayoutAttributeCenterY];
+    [stack setDistribution:NSStackViewDistributionFill];
+    [stack setEdgeInsets:NSEdgeInsetsMake(4.0, 4.0, 4.0, 4.0)];
     
     return (__bridge_retained void*)stack;
 }
@@ -53,7 +55,30 @@ int ng_macos_box_add(NGHandle box, NGHandle element) {
     NSStackView* stack = (__bridge NSStackView*)box;
     NSView* view = (__bridge NSView*)element;
     
+    // Configure view for proper layout
+    [view setTranslatesAutoresizingMaskIntoConstraints:NO];
+    
+    // Add to stack view
     [stack addArrangedSubview:view];
+    
+    // Set layout priorities based on view type
+    // Canvas and text views should expand, buttons should hug content
+    // Check for canvas by checking if it responds to renderBuffer selector
+    if ([view respondsToSelector:@selector(renderBuffer)]) {
+        // Canvas should expand to fill available space
+        [view setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [view setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationVertical];
+        [view setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [view setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationVertical];
+    } else if ([view isKindOfClass:[NSScrollView class]] || [view isKindOfClass:[NSTextField class]]) {
+        // Text views and text fields should expand horizontally
+        [view setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [view setContentHuggingPriority:NSLayoutPriorityDefaultHigh forOrientation:NSLayoutConstraintOrientationVertical];
+    } else if ([view isKindOfClass:[NSButton class]]) {
+        // Buttons should hug their content
+        [view setContentHuggingPriority:NSLayoutPriorityDefaultHigh forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [view setContentHuggingPriority:NSLayoutPriorityDefaultHigh forOrientation:NSLayoutConstraintOrientationVertical];
+    }
     
     return NG_SUCCESS;
 }
@@ -146,21 +171,50 @@ NGHandle ng_macos_create_text_view(int is_editable) {
 int ng_macos_set_text_content(NGHandle text_handle, const char* content) {
     if (!text_handle || !content) return NG_ERROR_INVALID_PARAMETER;
     
-    NSScrollView* scrollView = (__bridge NSScrollView*)text_handle;
-    NSTextView* textView = (NSTextView*)[scrollView documentView];
+    NSView* view = (__bridge NSView*)text_handle;
+    NSString* nsContent = ng_macos_to_nsstring(content);
     
-    [textView setString:ng_macos_to_nsstring(content)];
+    // Handle NSTextField (for editable text like URL bar)
+    if ([view isKindOfClass:[NSTextField class]]) {
+        [(NSTextField*)view setStringValue:nsContent];
+        return NG_SUCCESS;
+    }
     
-    return NG_SUCCESS;
+    // Handle NSScrollView with NSTextView
+    if ([view isKindOfClass:[NSScrollView class]]) {
+        NSScrollView* scrollView = (NSScrollView*)view;
+        NSView* docView = [scrollView documentView];
+        if ([docView isKindOfClass:[NSTextView class]]) {
+            [(NSTextView*)docView setString:nsContent];
+            return NG_SUCCESS;
+        }
+    }
+    
+    return NG_ERROR_INVALID_HANDLE;
 }
 
 char* ng_macos_get_text_content(NGHandle text_handle) {
     if (!text_handle) return NULL;
     
-    NSScrollView* scrollView = (__bridge NSScrollView*)text_handle;
-    NSTextView* textView = (NSTextView*)[scrollView documentView];
+    NSView* view = (__bridge NSView*)text_handle;
+    NSString* content = nil;
     
-    const char* utf8String = [[textView string] UTF8String];
+    // Handle NSTextField
+    if ([view isKindOfClass:[NSTextField class]]) {
+        content = [(NSTextField*)view stringValue];
+    }
+    // Handle NSScrollView with NSTextView
+    else if ([view isKindOfClass:[NSScrollView class]]) {
+        NSScrollView* scrollView = (NSScrollView*)view;
+        NSView* docView = [scrollView documentView];
+        if ([docView isKindOfClass:[NSTextView class]]) {
+            content = [(NSTextView*)docView string];
+        }
+    }
+    
+    if (!content) return NULL;
+    
+    const char* utf8String = [content UTF8String];
     if (!utf8String) return NULL;
     
     // Create a copy of the string that can be freed by the caller
@@ -171,16 +225,99 @@ void ng_macos_free_text_content(char* content) {
     if (content) {
         free(content);
     }
+} 
+
+// Custom view class for canvas rendering
+@interface AureaCanvasView : NSView
+@property (nonatomic, assign) unsigned char* renderBuffer;
+@property (nonatomic, assign) unsigned int bufferWidth;
+@property (nonatomic, assign) unsigned int bufferHeight;
+@end
+
+@implementation AureaCanvasView
+- (void)drawRect:(NSRect)dirtyRect {
+    NSLog(@"AureaCanvasView::drawRect called, buffer=%p, size=%ux%u", 
+          self.renderBuffer, self.bufferWidth, self.bufferHeight);
+    
+    if (self.renderBuffer && self.bufferWidth > 0 && self.bufferHeight > 0) {
+        NSLog(@"Drawing buffer to view");
+        CGContextRef context = [[NSGraphicsContext currentContext] CGContext];
+        
+        // Create a CGImage from the RGBA buffer
+        // The buffer is in RGBA format, stored as u32 values (4 bytes per pixel)
+        CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+        
+        // Create image directly from the buffer
+        // Buffer format: u32 values with RGBA in big-endian format
+        // kCGBitmapByteOrder32Big means R is in the most significant byte
+        CGDataProviderRef provider = CGDataProviderCreateWithData(
+            NULL,
+            self.renderBuffer,
+            self.bufferWidth * self.bufferHeight * 4, // total bytes
+            NULL
+        );
+        
+        // Determine byte order based on platform
+        // macOS is little-endian, so we use kCGBitmapByteOrder32Little
+        // The buffer stores u32 values with RGBA in native byte order
+        CGBitmapInfo bitmapInfo = (CGBitmapInfo)kCGImageAlphaPremultipliedLast;
+        
+        // Check if we're on a little-endian system (most modern systems)
+        #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+            bitmapInfo |= kCGBitmapByteOrder32Little;
+        #else
+            bitmapInfo |= kCGBitmapByteOrder32Big;
+        #endif
+        
+        CGImageRef image = CGImageCreate(
+            self.bufferWidth,
+            self.bufferHeight,
+            8,  // bits per component
+            32, // bits per pixel (RGBA = 4 bytes = 32 bits)
+            self.bufferWidth * 4, // bytes per row
+            colorSpace,
+            bitmapInfo,
+            provider,
+            NULL,
+            NO, // should interpolate
+            kCGRenderingIntentDefault
+        );
+        
+        if (image) {
+            // Draw the image to fill the view
+            CGRect viewRect = [self bounds];
+            NSLog(@"Drawing image to rect: (%.1f, %.1f) %.1fx%.1f", 
+                  viewRect.origin.x, viewRect.origin.y, viewRect.size.width, viewRect.size.height);
+            CGContextDrawImage(context, viewRect, image);
+            CGImageRelease(image);
+            NSLog(@"Image drawn successfully");
+        } else {
+            NSLog(@"Failed to create CGImage from buffer");
+        }
+        
+        if (provider) {
+            CGDataProviderRelease(provider);
+        }
+        CGColorSpaceRelease(colorSpace);
+    } else {
+        // Fallback: draw white background
+        NSLog(@"No buffer available, drawing white background");
+        [[NSColor whiteColor] setFill];
+        NSRectFill(dirtyRect);
+    }
 }
+
+// ARC handles deallocation automatically
+// Buffer is managed by Rust, don't free it here
+@end
 
 NGHandle ng_macos_create_canvas(int width, int height) {
     @autoreleasepool {
-        // Create a custom view for rendering
-        // This will be extended to support Metal/OpenGL surfaces
-        NSView* canvasView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
+        AureaCanvasView* canvasView = [[AureaCanvasView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
         [canvasView setWantsLayer:YES];
-        [canvasView setLayer:[CALayer layer]];
-        [canvasView.layer setBackgroundColor:[[NSColor whiteColor] CGColor]];
+        canvasView.renderBuffer = NULL;
+        canvasView.bufferWidth = 0;
+        canvasView.bufferHeight = 0;
         
         return (__bridge_retained void*)canvasView;
     }
@@ -191,4 +328,26 @@ void ng_macos_canvas_invalidate(NGHandle canvas) {
     
     NSView* view = (__bridge NSView*)canvas;
     [view setNeedsDisplay:YES];
+}
+
+void ng_macos_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size __attribute__((unused)), unsigned int width, unsigned int height) {
+    NSLog(@"ng_macos_canvas_update_buffer: canvas=%p, buffer=%p, size=%u, %ux%u", 
+          canvas, buffer, size, width, height);
+    
+    if (!canvas || !buffer) {
+        NSLog(@"ng_macos_canvas_update_buffer: Invalid parameters");
+        return;
+    }
+    
+    AureaCanvasView* view = (__bridge AureaCanvasView*)canvas;
+    if ([view isKindOfClass:[AureaCanvasView class]]) {
+        // Store the buffer pointer (buffer is managed by Rust, we just reference it)
+        view.renderBuffer = (unsigned char*)buffer;
+        view.bufferWidth = width;
+        view.bufferHeight = height;
+        NSLog(@"Buffer updated, requesting display");
+        [view setNeedsDisplay:YES];
+    } else {
+        NSLog(@"ng_macos_canvas_update_buffer: View is not AureaCanvasView");
+    }
 } 
