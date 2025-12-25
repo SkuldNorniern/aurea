@@ -32,6 +32,13 @@ unsafe extern "C" {
 
     pub(crate) fn ng_platform_create_canvas(width: c_int, height: c_int) -> *mut c_void;
     pub(crate) fn ng_platform_canvas_invalidate(canvas: *mut c_void);
+    pub(crate) fn ng_platform_canvas_update_buffer(
+        canvas: *mut c_void,
+        buffer: *const u8,
+        size: u32,
+        width: u32,
+        height: u32,
+    );
 }
 
 #[unsafe(no_mangle)]
