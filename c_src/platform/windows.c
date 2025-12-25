@@ -1,130 +1,45 @@
 #include "windows.h"
+#include "windows/utils.h"
+#include "windows/window.h"
+#include "windows/menu.h"
+#include "windows/elements.h"
 #include "../common/errors.h"
 #include <windows.h>
 
-static WNDCLASSEXA g_wc = {0};
-static const char* CLASS_NAME = "NativeGuiWindow";
-static BOOL win_initialized = FALSE;
-
-// Callback function for window messages
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    switch (uMsg) {
-        case WM_COMMAND:
-            // Handle menu item clicks
-            if (HIWORD(wParam) == 0) { // Menu item clicked
-                int id = LOWORD(wParam);
-                // Log menu click for debugging
-                OutputDebugStringA("Menu item clicked: ");
-                char buf[32];
-                sprintf_s(buf, sizeof(buf), "%d\n", id);
-                OutputDebugStringA(buf);
-            }
-            break;
-        
-        case WM_DESTROY:
-            PostQuitMessage(0);
-            return 0;
-    }
-    return DefWindowProcA(hwnd, uMsg, wParam, lParam);
-}
-
 int ng_platform_init(void) {
-    if (!win_initialized) {
-        g_wc.cbSize = sizeof(WNDCLASSEXA);
-        g_wc.lpfnWndProc = WindowProc; // Use our window procedure
-        g_wc.hInstance = GetModuleHandleA(NULL);
-        g_wc.lpszClassName = CLASS_NAME;
-        g_wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-        g_wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-        
-        if (!RegisterClassExA(&g_wc)) {
-            return NG_ERROR_PLATFORM_SPECIFIC;
-        }
-        win_initialized = TRUE;
-    }
-    return NG_SUCCESS;
+    return ng_windows_init();
 }
 
 void ng_platform_cleanup(void) {
-    if (win_initialized) {
-        UnregisterClassA(CLASS_NAME, g_wc.hInstance);
-        win_initialized = FALSE;
-    }
+    ng_windows_cleanup();
 }
 
 NGHandle ng_platform_create_window(const char* title, int width, int height) {
-    if (!title) return NULL;
-    
-    HWND hwnd = CreateWindowExA(
-        0,
-        CLASS_NAME,
-        title,
-        WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT,
-        width, height,
-        NULL,
-        NULL,
-        GetModuleHandleA(NULL),
-        NULL
-    );
-    
-    if (hwnd) {
-        ShowWindow(hwnd, SW_SHOW);
-        UpdateWindow(hwnd);
-    }
-    
-    return (NGHandle)hwnd;
+    return ng_windows_create_window(title, width, height);
 }
 
 void ng_platform_destroy_window(NGHandle handle) {
-    if (!handle) return;
-    DestroyWindow((HWND)handle);
+    ng_windows_destroy_window(handle);
 }
 
 NGMenuHandle ng_platform_create_menu(void) {
-    HMENU menubar = CreateMenu();
-    return (NGMenuHandle)menubar;
+    return ng_windows_create_menu();
 }
 
 void ng_platform_destroy_menu(NGMenuHandle handle) {
-    if (!handle) return;
-    DestroyMenu((HMENU)handle);
+    ng_windows_destroy_menu(handle);
 }
 
 int ng_platform_attach_menu(NGHandle window, NGMenuHandle menu) {
-    if (!window || !menu) return NG_ERROR_INVALID_HANDLE;
-    
-    if (!SetMenu((HWND)window, (HMENU)menu)) {
-        return NG_ERROR_PLATFORM_SPECIFIC;
-    }
-    DrawMenuBar((HWND)window);
-    return NG_SUCCESS;
-}
-
-NGMenuHandle ng_platform_create_submenu(NGMenuHandle parent_menu, const char* title) {
-    if (!parent_menu || !title) return NULL;
-    
-    HMENU submenu = CreatePopupMenu();
-    if (!submenu) return NULL;
-    
-    if (!AppendMenuA((HMENU)parent_menu, MF_STRING | MF_POPUP, (UINT_PTR)submenu, title)) {
-        DestroyMenu(submenu);
-        return NULL;
-    }
-    
-    return (NGMenuHandle)submenu;
+    return ng_windows_attach_menu(window, menu);
 }
 
 int ng_platform_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id) {
-    if (!menu || !title) return NG_ERROR_INVALID_PARAMETER;
-    
-    // Windows uses command IDs for menu items, starting from 1
-    UINT command_id = id + 1;
-    
-    if (!AppendMenuA((HMENU)menu, MF_STRING, command_id, title)) {
-        return NG_ERROR_PLATFORM_SPECIFIC;
-    }
-    return NG_SUCCESS;
+    return ng_windows_add_menu_item(menu, title, id);
+}
+
+NGMenuHandle ng_platform_create_submenu(NGMenuHandle parentMenu, const char* title) {
+    return ng_windows_create_submenu(parentMenu, title);
 }
 
 int ng_platform_run(void) {
@@ -136,27 +51,51 @@ int ng_platform_run(void) {
     return NG_SUCCESS;
 }
 
+int ng_platform_set_window_content(NGHandle window, NGHandle content) {
+    return ng_windows_set_window_content(window, content);
+}
+
+NGHandle ng_platform_create_button(const char* title) {
+    return ng_windows_create_button(title);
+}
+
+NGHandle ng_platform_create_label(const char* text) {
+    return ng_windows_create_label(text);
+}
+
+NGHandle ng_platform_create_box(int is_vertical) {
+    return ng_windows_create_box(is_vertical);
+}
+
+int ng_platform_box_add(NGHandle box, NGHandle element) {
+    return ng_windows_box_add(box, element);
+}
+
+NGHandle ng_platform_create_text_editor(void) {
+    return ng_windows_create_text_editor();
+}
+
+NGHandle ng_platform_create_text_view(int is_editable) {
+    return ng_windows_create_text_view(is_editable);
+}
+
+int ng_platform_set_text_content(NGHandle text_handle, const char* content) {
+    return ng_windows_set_text_content(text_handle, content);
+}
+
+char* ng_platform_get_text_content(NGHandle text_handle) {
+    return ng_windows_get_text_content(text_handle);
+}
+
+void ng_platform_free_text_content(char* content) {
+    ng_windows_free_text_content(content);
+}
+
 NGHandle ng_platform_create_canvas(int width, int height) {
-    // Create a child window for custom rendering
-    // This will be extended to support DirectX/OpenGL
-    HWND hwnd = CreateWindowExA(
-        0,
-        "STATIC",
-        NULL,
-        WS_CHILD | WS_VISIBLE,
-        0, 0, width, height,
-        NULL,
-        NULL,
-        GetModuleHandleA(NULL),
-        NULL
-    );
-    
-    return (NGHandle)hwnd;
+    return ng_windows_create_canvas(width, height);
 }
 
 void ng_platform_canvas_invalidate(NGHandle canvas) {
-    if (!canvas) return;
-    InvalidateRect((HWND)canvas, NULL, FALSE);
+    ng_windows_canvas_invalidate(canvas);
 }
 
-// ... rest of Windows implementation ... 

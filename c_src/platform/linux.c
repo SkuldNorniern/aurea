@@ -1,103 +1,45 @@
 #include "linux.h"
+#include "linux/utils.h"
+#include "linux/window.h"
+#include "linux/menu.h"
+#include "linux/elements.h"
 #include "../common/errors.h"
 #include <gtk/gtk.h>
 
-static gboolean gtk_initialized = FALSE;
-static GtkWidget *main_vbox = NULL;
-
 int ng_platform_init(void) {
-    if (!gtk_initialized) {
-        int argc = 0;
-        char **argv = NULL;
-        gtk_init(&argc, &argv);
-        gtk_initialized = TRUE;
-    }
-    return NG_SUCCESS;
+    return ng_linux_init();
 }
 
 void ng_platform_cleanup(void) {
-    if (gtk_initialized) {
-        gtk_initialized = FALSE;
-    }
-}
-
-static void on_window_destroy(GtkWidget* widget, gpointer data) {
-    // Quit the GTK main loop when window is closed
-    gtk_main_quit();
+    ng_linux_cleanup();
 }
 
 NGHandle ng_platform_create_window(const char* title, int width, int height) {
-    if (!title) return NULL;
-    
-    GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_title(GTK_WINDOW(window), title);
-    gtk_window_set_default_size(GTK_WINDOW(window), width, height);
-    
-    // Connect destroy signal to quit the event loop
-    g_signal_connect(G_OBJECT(window), "destroy", G_CALLBACK(on_window_destroy), NULL);
-    
-    // Create a vertical box to hold menu and content
-    main_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    gtk_container_add(GTK_CONTAINER(window), main_vbox);
-    
-    gtk_widget_show_all(window);
-    
-    return (NGHandle)window;
+    return ng_linux_create_window(title, width, height);
 }
 
 void ng_platform_destroy_window(NGHandle handle) {
-    if (!handle) return;
-    gtk_widget_destroy((GtkWidget*)handle);
+    ng_linux_destroy_window(handle);
 }
 
 NGMenuHandle ng_platform_create_menu(void) {
-    GtkWidget *menubar = gtk_menu_bar_new();
-    gtk_box_pack_start(GTK_BOX(main_vbox), menubar, FALSE, FALSE, 0);
-    gtk_widget_show(menubar);
-    return (NGMenuHandle)menubar;
+    return ng_linux_create_menu();
 }
 
 void ng_platform_destroy_menu(NGMenuHandle handle) {
-    if (!handle) return;
-    gtk_widget_destroy((GtkWidget*)handle);
+    ng_linux_destroy_menu(handle);
 }
 
 int ng_platform_attach_menu(NGHandle window, NGMenuHandle menu) {
-    if (!window || !menu) return NG_ERROR_INVALID_HANDLE;
-    gtk_widget_show_all((GtkWidget*)window);
-    return NG_SUCCESS;
-}
-
-static void menu_item_clicked(GtkMenuItem *item, gpointer user_data) {
-    guint id = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(item), "menu-id"));
-    g_print("Menu item clicked: %u\n", id);
-}
-
-NGMenuHandle ng_platform_create_submenu(NGMenuHandle parent_menu, const char* title) {
-    if (!parent_menu || !title) return NULL;
-    
-    GtkWidget *menu_item = gtk_menu_item_new_with_label(title);
-    GtkWidget *submenu = gtk_menu_new();
-    
-    gtk_menu_item_set_submenu(GTK_MENU_ITEM(menu_item), submenu);
-    gtk_menu_shell_append(GTK_MENU_SHELL(parent_menu), menu_item);
-    gtk_widget_show_all(menu_item);
-    
-    return (NGMenuHandle)submenu;
+    return ng_linux_attach_menu(window, menu);
 }
 
 int ng_platform_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id) {
-    if (!menu || !title) return NG_ERROR_INVALID_PARAMETER;
-    
-    GtkWidget *menu_item = gtk_menu_item_new_with_label(title);
-    g_object_set_data(G_OBJECT(menu_item), "menu-id", GUINT_TO_POINTER(id));
-    g_signal_connect(G_OBJECT(menu_item), "activate", 
-                     G_CALLBACK(menu_item_clicked), NULL);
-    
-    gtk_menu_shell_append(GTK_MENU_SHELL(menu), menu_item);
-    gtk_widget_show(menu_item);
-    
-    return NG_SUCCESS;
+    return ng_linux_add_menu_item(menu, title, id);
+}
+
+NGMenuHandle ng_platform_create_submenu(NGMenuHandle parentMenu, const char* title) {
+    return ng_linux_create_submenu(parentMenu, title);
 }
 
 int ng_platform_run(void) {
@@ -105,19 +47,51 @@ int ng_platform_run(void) {
     return NG_SUCCESS;
 }
 
+int ng_platform_set_window_content(NGHandle window, NGHandle content) {
+    return ng_linux_set_window_content(window, content);
+}
+
+NGHandle ng_platform_create_button(const char* title) {
+    return ng_linux_create_button(title);
+}
+
+NGHandle ng_platform_create_label(const char* text) {
+    return ng_linux_create_label(text);
+}
+
+NGHandle ng_platform_create_box(int is_vertical) {
+    return ng_linux_create_box(is_vertical);
+}
+
+int ng_platform_box_add(NGHandle box, NGHandle element) {
+    return ng_linux_box_add(box, element);
+}
+
+NGHandle ng_platform_create_text_editor(void) {
+    return ng_linux_create_text_editor();
+}
+
+NGHandle ng_platform_create_text_view(int is_editable) {
+    return ng_linux_create_text_view(is_editable);
+}
+
+int ng_platform_set_text_content(NGHandle text_handle, const char* content) {
+    return ng_linux_set_text_content(text_handle, content);
+}
+
+char* ng_platform_get_text_content(NGHandle text_handle) {
+    return ng_linux_get_text_content(text_handle);
+}
+
+void ng_platform_free_text_content(char* content) {
+    ng_linux_free_text_content(content);
+}
+
 NGHandle ng_platform_create_canvas(int width, int height) {
-    // Create a GtkDrawingArea for custom rendering
-    // This will be extended to support OpenGL/Vulkan
-    GtkWidget* drawing_area = gtk_drawing_area_new();
-    gtk_widget_set_size_request(drawing_area, width, height);
-    gtk_widget_show(drawing_area);
-    
-    return (NGHandle)drawing_area;
+    return ng_linux_create_canvas(width, height);
 }
 
 void ng_platform_canvas_invalidate(NGHandle canvas) {
-    if (!canvas) return;
-    gtk_widget_queue_draw((GtkWidget*)canvas);
+    ng_linux_canvas_invalidate(canvas);
 }
 
-// ... rest of Linux/GTK implementation ... 

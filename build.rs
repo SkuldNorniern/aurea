@@ -14,9 +14,20 @@ fn main() {
     {
         build
             .file("c_src/platform/windows.c")
+            .file("c_src/platform/windows/utils.c")
+            .file("c_src/platform/windows/window.c")
+            .file("c_src/platform/windows/menu.c")
+            .file("c_src/platform/windows/elements.c")
             .define("_WIN32", None);
         println!("cargo:rustc-link-lib=user32");
         println!("cargo:rustc-link-lib=gdi32");
+        println!("cargo:rustc-link-lib=comctl32");
+        
+        println!("cargo:rerun-if-changed=c_src/platform/windows.c");
+        println!("cargo:rerun-if-changed=c_src/platform/windows/utils.c");
+        println!("cargo:rerun-if-changed=c_src/platform/windows/window.c");
+        println!("cargo:rerun-if-changed=c_src/platform/windows/menu.c");
+        println!("cargo:rerun-if-changed=c_src/platform/windows/elements.c");
     }
     
     #[cfg(target_os = "macos")]
@@ -77,7 +88,18 @@ fn main() {
             }
         }
             
-        build.file("c_src/platform/linux.c");
+        build
+            .file("c_src/platform/linux.c")
+            .file("c_src/platform/linux/utils.c")
+            .file("c_src/platform/linux/window.c")
+            .file("c_src/platform/linux/menu.c")
+            .file("c_src/platform/linux/elements.c");
+        
+        println!("cargo:rerun-if-changed=c_src/platform/linux.c");
+        println!("cargo:rerun-if-changed=c_src/platform/linux/utils.c");
+        println!("cargo:rerun-if-changed=c_src/platform/linux/window.c");
+        println!("cargo:rerun-if-changed=c_src/platform/linux/menu.c");
+        println!("cargo:rerun-if-changed=c_src/platform/linux/elements.c");
     }
     
     // Compile the sources
@@ -88,12 +110,24 @@ fn main() {
     println!("cargo:rerun-if-changed=c_src/native_gui.c");
     println!("cargo:rerun-if-changed=c_src/common/types.h");
     println!("cargo:rerun-if-changed=c_src/common/errors.h");
+    // Windows files
     println!("cargo:rerun-if-changed=c_src/platform/windows.h");
-    println!("cargo:rerun-if-changed=c_src/platform/windows.c");
+    println!("cargo:rerun-if-changed=c_src/platform/windows/utils.h");
+    println!("cargo:rerun-if-changed=c_src/platform/windows/window.h");
+    println!("cargo:rerun-if-changed=c_src/platform/windows/menu.h");
+    println!("cargo:rerun-if-changed=c_src/platform/windows/elements.h");
+    
+    // macOS files
     println!("cargo:rerun-if-changed=c_src/platform/macos.h");
     println!("cargo:rerun-if-changed=c_src/platform/macos/window.h");
     println!("cargo:rerun-if-changed=c_src/platform/macos/menu.h");
     println!("cargo:rerun-if-changed=c_src/platform/macos/utils.h");
+    println!("cargo:rerun-if-changed=c_src/platform/macos/elements.h");
+    
+    // Linux files
     println!("cargo:rerun-if-changed=c_src/platform/linux.h");
-    println!("cargo:rerun-if-changed=c_src/platform/linux.c");
+    println!("cargo:rerun-if-changed=c_src/platform/linux/utils.h");
+    println!("cargo:rerun-if-changed=c_src/platform/linux/window.h");
+    println!("cargo:rerun-if-changed=c_src/platform/linux/menu.h");
+    println!("cargo:rerun-if-changed=c_src/platform/linux/elements.h");
 }
