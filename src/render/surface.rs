@@ -6,21 +6,13 @@ use std::os::raw::c_void;
 #[derive(Debug)]
 pub enum Surface {
     /// macOS Metal layer
-    Metal {
-        layer: *mut c_void,
-    },
+    Metal { layer: *mut c_void },
     /// OpenGL context
-    OpenGL {
-        context: *mut c_void,
-    },
+    OpenGL { context: *mut c_void },
     /// Vulkan surface
-    Vulkan {
-        surface: *mut c_void,
-    },
+    Vulkan { surface: *mut c_void },
     /// DirectX swap chain
-    DirectX {
-        swap_chain: *mut c_void,
-    },
+    DirectX { swap_chain: *mut c_void },
 }
 
 impl Surface {
@@ -42,4 +34,3 @@ pub struct SurfaceInfo {
     pub height: u32,
     pub scale_factor: f32,
 }
-
