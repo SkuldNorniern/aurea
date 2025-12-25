@@ -1,25 +1,20 @@
-use std::{ffi::CString, os::raw::c_void};
+use std::{ffi::CString, os::raw::c_void, sync::{Mutex, LazyLock}, collections::HashMap};
 use crate::{AureaError, AureaResult, ffi::*};
 use log::debug;
 
+static MENU_CALLBACKS: LazyLock<Mutex<HashMap<u32, Box<dyn Fn() + Send + Sync>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
 pub struct MenuBar {
     pub(crate) handle: *mut c_void,
-    #[allow(dead_code)]
-    pub(crate) callbacks: Vec<Box<dyn Fn() + Send + Sync>>,
 }
 
 pub struct SubMenu {
     pub(crate) handle: *mut c_void,
-    #[allow(dead_code)]
-    pub(crate) callbacks: Vec<Box<dyn Fn() + Send + Sync>>,
 }
 
 impl MenuBar {
     pub(crate) fn new(handle: *mut c_void) -> Self {
-        Self {
-            handle,
-            callbacks: Vec::new(),
-        }
+        Self { handle }
     }
     
     pub fn add_submenu(&mut self, title: &str) -> AureaResult<SubMenu> {
@@ -32,10 +27,7 @@ impl MenuBar {
         
         debug!("Added submenu '{}'", title.to_string_lossy());
         
-        Ok(SubMenu {
-            handle,
-            callbacks: Vec::new(),
-        })
+        Ok(SubMenu { handle })
     }
     
     pub fn handle(&self) -> *mut c_void {
@@ -48,10 +40,11 @@ impl SubMenu {
     where
         F: Fn() + Send + Sync + 'static,
     {
-        static mut MENU_ITEM_ID: u32 = 1;
-        let id = unsafe {
-            MENU_ITEM_ID += 1;
-            MENU_ITEM_ID - 1
+        static MENU_ITEM_ID: LazyLock<Mutex<u32>> = LazyLock::new(|| Mutex::new(1));
+        let id = {
+            let mut id_guard = MENU_ITEM_ID.lock().unwrap();
+            *id_guard += 1;
+            *id_guard - 1
         };
         
         let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
@@ -61,14 +54,22 @@ impl SubMenu {
             return Err(AureaError::MenuItemAddFailed);
         }
         
-        self.callbacks.push(Box::new(callback));
-        debug!("Added menu item '{}'", title.to_string_lossy());
+        let mut callbacks = MENU_CALLBACKS.lock().unwrap();
+        callbacks.insert(id, Box::new(callback));
+        debug!("Added menu item '{}' with id {}", title.to_string_lossy(), id);
         
         Ok(())
     }
     
     pub fn handle(&self) -> *mut c_void {
         self.handle
+    }
+}
+
+pub(crate) fn invoke_menu_callback(id: u32) {
+    let callbacks = MENU_CALLBACKS.lock().unwrap();
+    if let Some(callback) = callbacks.get(&id) {
+        callback();
     }
 }
 

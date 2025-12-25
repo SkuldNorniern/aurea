@@ -39,18 +39,15 @@ const char* ng_windows_get_class_name(void) {
     return CLASS_NAME;
 }
 
-// Window procedure callback
+extern void ng_invoke_menu_callback(unsigned int id);
+
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
         case WM_COMMAND:
-            // Handle menu item clicks
-            if (HIWORD(wParam) == 0) { // Menu item clicked
-                int id = LOWORD(wParam);
-                // Log menu click for debugging
-                OutputDebugStringA("Menu item clicked: ");
-                char buf[32];
-                sprintf_s(buf, sizeof(buf), "%d\n", id);
-                OutputDebugStringA(buf);
+            if (HIWORD(wParam) == 0) {
+                unsigned int command_id = LOWORD(wParam);
+                unsigned int id = command_id - 1;
+                ng_invoke_menu_callback(id);
             }
             break;
         
