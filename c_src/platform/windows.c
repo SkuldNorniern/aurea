@@ -71,12 +71,12 @@ int ng_platform_box_add(NGHandle box, NGHandle element) {
     return ng_windows_box_add(box, element);
 }
 
-NGHandle ng_platform_create_text_editor(void) {
-    return ng_windows_create_text_editor();
+NGHandle ng_platform_create_text_editor(unsigned int id) {
+    return ng_windows_create_text_editor(id);
 }
 
-NGHandle ng_platform_create_text_view(int is_editable) {
-    return ng_windows_create_text_view(is_editable);
+NGHandle ng_platform_create_text_view(int is_editable, unsigned int id) {
+    return ng_windows_create_text_view(is_editable, id);
 }
 
 NGHandle ng_platform_create_text_field(void) {
