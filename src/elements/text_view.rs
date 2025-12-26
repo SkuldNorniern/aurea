@@ -1,22 +1,42 @@
-use std::{ffi::CString, os::raw::c_void};
+use std::{ffi::CString, os::raw::c_void, sync::{Mutex, LazyLock}, collections::HashMap};
 use crate::{AureaError, AureaResult, ffi::*};
 use super::traits::Element;
 
+static TEXTVIEW_CALLBACKS: LazyLock<Mutex<HashMap<u32, Box<dyn Fn(String) + Send + Sync>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
 pub struct TextView {
     handle: *mut c_void,
+    _id: u32,
 }
 
 impl TextView {
     pub fn new(editable: bool) -> AureaResult<Self> {
+        Self::with_callback(editable, |_| {})
+    }
+
+    pub fn with_callback<F>(editable: bool, callback: F) -> AureaResult<Self>
+    where
+        F: Fn(String) + Send + Sync + 'static,
+    {
+        static TEXTVIEW_ID: LazyLock<Mutex<u32>> = LazyLock::new(|| Mutex::new(1));
+        let id = {
+            let mut id_guard = TEXTVIEW_ID.lock().unwrap();
+            *id_guard += 1;
+            *id_guard - 1
+        };
+
         let handle = unsafe { 
-            ng_platform_create_text_view(if editable { 1 } else { 0 })
+            ng_platform_create_text_view(if editable { 1 } else { 0 }, id)
         };
         
         if handle.is_null() {
             return Err(AureaError::ElementOperationFailed);
         }
+
+        let mut callbacks = TEXTVIEW_CALLBACKS.lock().unwrap();
+        callbacks.insert(id, Box::new(callback));
         
-        Ok(Self { handle })
+        Ok(Self { handle, _id: id })
     }
 
     pub fn set_content(&mut self, content: &str) -> AureaResult<()> {
@@ -55,6 +75,13 @@ impl TextView {
 impl Element for TextView {
     fn handle(&self) -> *mut c_void {
         self.handle
+    }
+}
+
+pub(crate) fn invoke_textview_callback(id: u32, content: String) {
+    let callbacks = TEXTVIEW_CALLBACKS.lock().unwrap();
+    if let Some(callback) = callbacks.get(&id) {
+        callback(content);
     }
 }
 

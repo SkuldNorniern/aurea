@@ -1,20 +1,40 @@
-use std::{ffi::CString, os::raw::c_void};
+use std::{ffi::CString, os::raw::c_void, sync::{Mutex, LazyLock}, collections::HashMap};
 use crate::{AureaError, AureaResult, ffi::*};
 use super::traits::Element;
 
+static TEXT_CALLBACKS: LazyLock<Mutex<HashMap<u32, Box<dyn Fn(String) + Send + Sync>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
 pub struct TextEditor {
     handle: *mut c_void,
+    _id: u32,
 }
 
 impl TextEditor {
     pub fn new() -> AureaResult<Self> {
-        let handle = unsafe { ng_platform_create_text_editor() };
+        Self::with_callback(|_| {})
+    }
+
+    pub fn with_callback<F>(callback: F) -> AureaResult<Self>
+    where
+        F: Fn(String) + Send + Sync + 'static,
+    {
+        static TEXT_ID: LazyLock<Mutex<u32>> = LazyLock::new(|| Mutex::new(1));
+        let id = {
+            let mut id_guard = TEXT_ID.lock().unwrap();
+            *id_guard += 1;
+            *id_guard - 1
+        };
+
+        let handle = unsafe { ng_platform_create_text_editor(id) };
         
         if handle.is_null() {
             return Err(AureaError::ElementOperationFailed);
         }
+
+        let mut callbacks = TEXT_CALLBACKS.lock().unwrap();
+        callbacks.insert(id, Box::new(callback));
         
-        Ok(Self { handle })
+        Ok(Self { handle, _id: id })
     }
 
     pub fn set_content(&mut self, content: &str) -> AureaResult<()> {
@@ -53,6 +73,13 @@ impl TextEditor {
 impl Element for TextEditor {
     fn handle(&self) -> *mut c_void {
         self.handle
+    }
+}
+
+pub(crate) fn invoke_text_callback(id: u32, content: String) {
+    let callbacks = TEXT_CALLBACKS.lock().unwrap();
+    if let Some(callback) = callbacks.get(&id) {
+        callback(content);
     }
 }
 

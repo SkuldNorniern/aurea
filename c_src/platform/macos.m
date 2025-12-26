@@ -77,12 +77,12 @@ int ng_platform_set_window_content(NGHandle window, NGHandle content) {
     return ng_macos_set_window_content(window, content);
 }
 
-NGHandle ng_platform_create_text_editor(void) {
-    return ng_macos_create_text_editor();
+NGHandle ng_platform_create_text_editor(unsigned int id) {
+    return ng_macos_create_text_editor(id);
 }
 
-NGHandle ng_platform_create_text_view(int is_editable) {
-    return ng_macos_create_text_view(is_editable);
+NGHandle ng_platform_create_text_view(int is_editable, unsigned int id) {
+    return ng_macos_create_text_view(is_editable, id);
 }
 
 int ng_platform_set_text_content(NGHandle text_handle, const char* content) {
