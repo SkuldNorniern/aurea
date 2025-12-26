@@ -48,6 +48,7 @@ unsafe extern "C" {
         width: u32,
         height: u32,
     );
+    pub(crate) fn ng_platform_canvas_get_size(canvas: *mut c_void, width: *mut u32, height: *mut u32);
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
