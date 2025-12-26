@@ -30,8 +30,8 @@ unsafe extern "C" {
     pub(crate) fn ng_platform_set_window_content(window: *mut c_void, content: *mut c_void) -> c_int;
 
     // Text elements
-    pub(crate) fn ng_platform_create_text_editor() -> *mut c_void;
-    pub(crate) fn ng_platform_create_text_view(is_editable: c_int) -> *mut c_void;
+    pub(crate) fn ng_platform_create_text_editor(id: u32) -> *mut c_void;
+    pub(crate) fn ng_platform_create_text_view(is_editable: c_int, id: u32) -> *mut c_void;
     #[allow(dead_code)] // Reserved for future use
     pub(crate) fn ng_platform_create_text_field() -> *mut c_void;
     pub(crate) fn ng_platform_set_text_content(text_handle: *mut c_void, content: *const c_char) -> c_int;
@@ -123,4 +123,28 @@ pub extern "C" fn ng_invoke_menu_callback(id: u32) {
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_button_callback(id: u32) {
     crate::elements::invoke_button_callback(id);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_text_callback(id: u32, content: *const c_char) {
+    if !content.is_null() {
+        unsafe {
+            let c_str = std::ffi::CStr::from_ptr(content);
+            if let Ok(s) = c_str.to_str() {
+                crate::elements::invoke_text_callback(id, s.to_string());
+            }
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_textview_callback(id: u32, content: *const c_char) {
+    if !content.is_null() {
+        unsafe {
+            let c_str = std::ffi::CStr::from_ptr(content);
+            if let Ok(s) = c_str.to_str() {
+                crate::elements::invoke_textview_callback(id, s.to_string());
+            }
+        }
+    }
 } 
