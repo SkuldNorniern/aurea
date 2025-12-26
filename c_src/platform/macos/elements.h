@@ -21,6 +21,7 @@ void ng_macos_free_text_content(char* content);
 NGHandle ng_macos_create_canvas(int width, int height);
 void ng_macos_canvas_invalidate(NGHandle canvas);
 void ng_macos_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size, unsigned int width, unsigned int height);
+void ng_macos_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int* height);
 
 #ifdef __cplusplus
 }

@@ -107,4 +107,8 @@ void ng_platform_canvas_invalidate(NGHandle canvas) {
 
 void ng_platform_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size, unsigned int width, unsigned int height) {
     ng_macos_canvas_update_buffer(canvas, buffer, size, width, height);
+}
+
+void ng_platform_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int* height) {
+    ng_macos_canvas_get_size(canvas, width, height);
 } 

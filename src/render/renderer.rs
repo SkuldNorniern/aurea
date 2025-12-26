@@ -160,11 +160,7 @@ impl PlaceholderRenderer {
                     self.buffer.fill(rgba);
                 }
                 DrawCommand::DrawRect(rect, paint) => {
-                    use super::types::PaintFill;
-                    let color = match &paint.fill {
-                        PaintFill::Color(c) => *c,
-                        _ => Color::rgb(0, 0, 0),
-                    };
+                    let color = paint.color;
                     
                     match paint.style {
                         super::types::PaintStyle::Fill => {
@@ -194,11 +190,7 @@ impl PlaceholderRenderer {
                     }
                 }
                 DrawCommand::DrawCircle(center, radius, paint) => {
-                    use super::types::PaintFill;
-                    let color = match &paint.fill {
-                        PaintFill::Color(c) => *c,
-                        _ => Color::rgb(0, 0, 0),
-                    };
+                    let color = paint.color;
                     self.draw_circle_impl(center, radius, color, paint.style);
                 }
                 DrawCommand::DrawText(..) => {}

@@ -4,7 +4,7 @@ use crate::{AureaError, AureaResult};
 use crate::ffi::*;
 use crate::platform::Platform;
 use crate::capability::CapabilityChecker;
-use super::renderer::{Renderer, DrawingContext, PlaceholderRenderer};
+use super::renderer::{Renderer, DrawingContext, PlaceholderRenderer, CURRENT_BUFFER};
 use super::types::RendererBackend;
 use super::surface::{Surface, SurfaceInfo};
 
@@ -49,16 +49,49 @@ impl Canvas {
             capabilities,
         })
     }
+    
+    fn handle_resize(&mut self, new_width: u32, new_height: u32) -> AureaResult<()> {
+        if new_width == self.width && new_height == self.height {
+            return Ok(());
+        }
+        
+        self.width = new_width;
+        self.height = new_height;
+        
+        CURRENT_BUFFER.with(|buf| {
+            *buf.borrow_mut() = None;
+        });
+        
+        if let Some(ref mut renderer) = self.renderer {
+            renderer.resize(new_width, new_height)?;
+        }
+        
+        Ok(())
+    }
 
     pub fn draw<F>(&mut self, draw_fn: F) -> AureaResult<()>
     where
         F: FnOnce(&mut dyn DrawingContext) -> AureaResult<()>,
     {
+        self.check_and_resize()?;
+        
         if let Some(ref mut renderer) = self.renderer {
             let mut ctx = renderer.begin_frame()?;
             draw_fn(ctx.as_mut())?;
             renderer.end_frame()?;
             self.update_platform_view();
+        }
+        Ok(())
+    }
+    
+    fn check_and_resize(&mut self) -> AureaResult<()> {
+        let mut width: u32 = 0;
+        let mut height: u32 = 0;
+        unsafe {
+            ng_platform_canvas_get_size(self.handle, &mut width, &mut height);
+        }
+        if width > 0 && height > 0 && (width != self.width || height != self.height) {
+            self.handle_resize(width, height)?;
         }
         Ok(())
     }

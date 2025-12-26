@@ -1,5 +1,5 @@
 use std::os::raw::c_void;
-use crate::{AureaError, AureaResult};
+use crate::AureaResult;
 
 pub trait Element {
     fn handle(&self) -> *mut c_void;
