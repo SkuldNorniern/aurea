@@ -49,7 +49,9 @@ impl CpuDrawingContext {
     
     /// Get mutable reference to display list (unsafe but necessary for this design)
     unsafe fn display_list_mut(&mut self) -> &mut DisplayList {
-        &mut *self.display_list
+        unsafe {
+            &mut *self.display_list
+        }
     }
     
     /// Compute a cache key for a draw command

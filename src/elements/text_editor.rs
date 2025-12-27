@@ -76,7 +76,9 @@ impl Element for TextEditor {
     }
     
     unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
-        ng_platform_text_editor_invalidate(self.handle);
+        unsafe {
+            ng_platform_text_editor_invalidate(self.handle);
+        }
     }
 }
 

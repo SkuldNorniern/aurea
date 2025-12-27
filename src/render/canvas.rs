@@ -1,9 +1,11 @@
 use std::os::raw::c_void;
+use std::sync::Mutex;
 use crate::elements::Element;
 use crate::{AureaError, AureaResult};
 use crate::ffi::*;
 use crate::platform::Platform;
 use crate::capability::CapabilityChecker;
+use crate::view::DamageRegion;
 use super::renderer::{Renderer, DrawingContext, PlaceholderRenderer, CURRENT_BUFFER};
 use super::types::RendererBackend;
 use super::surface::{Surface, SurfaceInfo};
@@ -15,6 +17,7 @@ pub struct Canvas {
     width: u32,
     height: u32,
     scale_factor: f32,
+    damage: Mutex<DamageRegion>,
     #[allow(dead_code)]
     platform: Platform,
     #[allow(dead_code)]
@@ -64,6 +67,7 @@ impl Canvas {
             width,
             height,
             scale_factor,
+            damage: Mutex::new(DamageRegion::new(16)),
             platform,
             capabilities,
         })
@@ -117,12 +121,34 @@ impl Canvas {
         self.check_and_resize()?;
         
         if let Some(ref mut renderer) = self.renderer {
+            // Get damage region for this frame
+            // If no specific damage, mark full canvas (since we're drawing new content)
+            let damage_rect = {
+                let mut damage = self.damage.lock().unwrap();
+                damage.take()
+            };
+            
+            // Set damage in renderer (for partial redraw support)
+            renderer.set_damage(damage_rect);
+            
             let mut ctx = renderer.begin_frame()?;
             draw_fn(ctx.as_mut())?;
             renderer.end_frame()?;
             self.update_platform_view();
         }
         Ok(())
+    }
+    
+    /// Add damage to the canvas (called when content changes)
+    pub fn add_damage(&self, rect: super::Rect) {
+        let mut damage = self.damage.lock().unwrap();
+        damage.add(rect);
+    }
+    
+    /// Mark the entire canvas as damaged
+    pub fn invalidate_all(&self) {
+        let mut damage = self.damage.lock().unwrap();
+        damage.add_all();
     }
     
     fn check_and_resize(&mut self) -> AureaResult<()> {
@@ -205,9 +231,13 @@ impl Element for Canvas {
     
     unsafe fn invalidate_platform(&self, rect: Option<super::Rect>) {
         if let Some(r) = rect {
-            ng_platform_canvas_invalidate_rect(self.handle, r.x, r.y, r.width, r.height);
+            unsafe {
+                ng_platform_canvas_invalidate_rect(self.handle, r.x, r.y, r.width, r.height);
+            }
         } else {
-            ng_platform_canvas_invalidate(self.handle);
+            unsafe {
+                ng_platform_canvas_invalidate(self.handle);
+            }
         }
     }
 }

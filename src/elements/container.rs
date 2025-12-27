@@ -39,7 +39,9 @@ impl Element for Box {
     }
     
     unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
-        ng_platform_box_invalidate(self.handle);
+        unsafe {
+            ng_platform_box_invalidate(self.handle);
+        }
     }
 }
 

@@ -1,6 +1,14 @@
 #import "app_delegate.h"
 #import "view_controller.h"
 #import "ios.h"
+#import "window.h"
+
+// Forward declaration for lifecycle callback
+extern void ng_invoke_lifecycle_callback(void* window, unsigned int event_id);
+
+static void* g_mainWindowHandle = NULL;
+static ScaleFactorCallback g_scaleFactorCallback = NULL;
+static BOOL g_lifecycleCallbackEnabled = NO;
 
 @implementation AureaAppDelegate
 
@@ -10,6 +18,7 @@
     
     // Create the window
     self.window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
+    g_mainWindowHandle = (__bridge void*)self.window;
     
     // Create the root view controller
     AureaViewController* rootViewController = [[AureaViewController alloc] init];
@@ -27,5 +36,46 @@
     return YES;
 }
 
+- (void)applicationDidEnterBackground:(UIApplication *)application {
+    // iOS lifecycle: app entered background
+    if (g_lifecycleCallbackEnabled && g_mainWindowHandle) {
+        ng_invoke_lifecycle_callback(g_mainWindowHandle, 0); // ApplicationDidEnterBackground = 0
+    }
+}
+
+- (void)applicationWillEnterForeground:(UIApplication *)application {
+    // iOS lifecycle: app will enter foreground
+    if (g_lifecycleCallbackEnabled && g_mainWindowHandle) {
+        ng_invoke_lifecycle_callback(g_mainWindowHandle, 1); // ApplicationWillEnterForeground = 1
+    }
+}
+
+- (void)applicationDidReceiveMemoryWarning:(UIApplication *)application {
+    // iOS lifecycle: memory warning
+    if (g_lifecycleCallbackEnabled && g_mainWindowHandle) {
+        ng_invoke_lifecycle_callback(g_mainWindowHandle, 8); // MemoryWarning = 8
+    }
+}
+
+- (void)applicationWillTerminate:(UIApplication *)application {
+    // iOS lifecycle: app will terminate
+    if (g_lifecycleCallbackEnabled && g_mainWindowHandle) {
+        ng_invoke_lifecycle_callback(g_mainWindowHandle, 4); // ApplicationDestroyed = 4
+    }
+}
+
 @end
+
+// Helper functions for scale factor and lifecycle callbacks
+void ng_ios_set_main_window_handle(void* handle) {
+    g_mainWindowHandle = handle;
+}
+
+void ng_ios_set_scale_factor_callback_global(ScaleFactorCallback callback) {
+    g_scaleFactorCallback = callback;
+}
+
+void ng_ios_set_lifecycle_callback_enabled(BOOL enabled) {
+    g_lifecycleCallbackEnabled = enabled;
+}
 

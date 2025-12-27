@@ -3,6 +3,15 @@
 //! This module provides capability checking to determine which features
 //! are available on different platforms. Capabilities differ significantly
 //! between desktop and mobile platforms.
+//!
+//! **Key Mobile Differences:**
+//! - **Lifecycle Management**: Mobile apps must handle background/foreground,
+//!   pause/resume, and memory warnings
+//! - **Input Model**: Touch-first, no mouse, virtual keyboards
+//! - **Window Model**: Single fullscreen window, no window management
+//! - **Memory**: Stricter constraints, aggressive cleanup
+//! - **Surface Management**: OpenGL/Vulkan contexts can be lost/recreated
+//! - **Scale Factor**: Changes with device rotation, not just display changes
 
 use crate::platform::{Platform, DesktopPlatform, MobilePlatform};
 
@@ -143,13 +152,20 @@ impl Capability {
     }
     
     /// Check if this capability is available on mobile platforms
+    /// 
+    /// **Note:** Mobile platforms have fundamentally different lifecycle models:
+    /// - Apps enter background/foreground (iOS) or pause/resume (Android)
+    /// - Memory warnings are common and must be handled
+    /// - Surface contexts can be lost and recreated
+    /// - Scale factor changes with device rotation
     fn is_available_on_mobile(&self, mobile: MobilePlatform) -> bool {
         match self {
             // Window Management - Limited on mobile
+            // Mobile uses single-window, fullscreen model
             Capability::MultipleWindows => false, // Mobile typically single window
-            Capability::WindowResizing => false,
-            Capability::WindowMinimization => false,
-            Capability::WindowMaximization => false,
+            Capability::WindowResizing => false, // No window resizing on mobile
+            Capability::WindowMinimization => false, // Handled by OS, not app
+            Capability::WindowMaximization => false, // Always fullscreen
             Capability::FullscreenMode => true, // Mobile is typically fullscreen
             
             // Menu System - Different on mobile

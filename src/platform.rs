@@ -2,6 +2,22 @@
 //!
 //! This module provides platform detection and categorization, distinguishing
 //! between desktop and mobile platforms.
+//!
+//! **Mobile vs Desktop Differences:**
+//! - **Mobile platforms** (iOS, Android):
+//!   - Single window model (fullscreen by default)
+//!   - Lifecycle-driven (background/foreground, pause/resume)
+//!   - Touch input primary, no mouse
+//!   - Scale factor changes with device rotation
+//!   - Memory constraints more strict
+//!   - Surface recreation on context loss
+//!
+//! - **Desktop platforms** (macOS, Windows, Linux):
+//!   - Multiple windows supported
+//!   - Mouse/keyboard input primary
+//!   - Window management (minimize, maximize, resize)
+//!   - Scale factor changes when moving between displays
+//!   - More relaxed memory constraints
 
 /// Represents the target platform
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

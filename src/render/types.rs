@@ -69,7 +69,7 @@ impl Rect {
 }
 
 /// Paint style for drawing operations
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaintStyle {
     Fill,
     Stroke,
@@ -114,6 +114,18 @@ impl Default for Paint {
     }
 }
 
+/// Rendering backend selection
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RendererBackend {
+    /// CPU rasterizer backend
+    Cpu,
+    /// Skia rendering backend
+    Skia,
+    /// Vello rendering backend
+    Vello,
+}
+
+/// 2D transformation matrix (3x3 affine transformation)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Transform {
     pub m11: f32, pub m12: f32, pub m13: f32,
@@ -129,34 +141,34 @@ impl Transform {
             m31: 0.0, m32: 0.0, m33: 1.0,
         }
     }
-
+    
     pub fn translate(x: f32, y: f32) -> Self {
         Self {
-            m11: 1.0, m12: 0.0, m13: x,
-            m21: 0.0, m22: 1.0, m23: y,
-            m31: 0.0, m32: 0.0, m33: 1.0,
+            m11: 1.0, m12: 0.0, m13: 0.0,
+            m21: 0.0, m22: 1.0, m23: 0.0,
+            m31: x,   m32: y,   m33: 1.0,
         }
     }
-
+    
     pub fn scale(sx: f32, sy: f32) -> Self {
         Self {
-            m11: sx, m12: 0.0, m13: 0.0,
-            m21: 0.0, m22: sy, m23: 0.0,
+            m11: sx,  m12: 0.0, m13: 0.0,
+            m21: 0.0, m22: sy,  m23: 0.0,
             m31: 0.0, m32: 0.0, m33: 1.0,
         }
     }
-
+    
     pub fn rotate(angle: f32) -> Self {
-        let c = angle.cos();
-        let s = angle.sin();
+        let cos = angle.cos();
+        let sin = angle.sin();
         Self {
-            m11: c, m12: -s, m13: 0.0,
-            m21: s, m22: c, m23: 0.0,
-            m31: 0.0, m32: 0.0, m33: 1.0,
+            m11: cos, m12: -sin, m13: 0.0,
+            m21: sin, m22: cos,  m23: 0.0,
+            m31: 0.0, m32: 0.0,  m33: 1.0,
         }
     }
-
-    pub fn multiply(&self, other: Self) -> Self {
+    
+    pub fn multiply(self, other: Self) -> Self {
         Self {
             m11: self.m11 * other.m11 + self.m12 * other.m21 + self.m13 * other.m31,
             m12: self.m11 * other.m12 + self.m12 * other.m22 + self.m13 * other.m32,
@@ -171,12 +183,8 @@ impl Transform {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Path {
-    pub commands: Vec<PathCommand>,
-}
-
-#[derive(Debug, Clone)]
+/// Path command for building paths
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PathCommand {
     MoveTo(Point),
     LineTo(Point),
@@ -185,9 +193,17 @@ pub enum PathCommand {
     Close,
 }
 
+/// 2D path for drawing
+#[derive(Debug, Clone)]
+pub struct Path {
+    pub commands: Vec<PathCommand>,
+}
+
 impl Path {
     pub fn new() -> Self {
-        Self { commands: Vec::new() }
+        Self {
+            commands: Vec::new(),
+        }
     }
 }
 
@@ -197,18 +213,7 @@ impl Default for Path {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum FontWeight {
-    Normal,
-    Bold,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum FontStyle {
-    Normal,
-    Italic,
-}
-
+/// Font configuration
 #[derive(Debug, Clone)]
 pub struct Font {
     pub family: String,
@@ -228,6 +233,19 @@ impl Font {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FontWeight {
+    Normal,
+    Bold,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FontStyle {
+    Normal,
+    Italic,
+}
+
+/// Text measurement results
 #[derive(Debug, Clone, Copy)]
 pub struct TextMetrics {
     pub width: f32,
@@ -237,26 +255,7 @@ pub struct TextMetrics {
     pub advance: f32,
 }
 
-#[derive(Debug, Clone)]
-pub struct GradientStop {
-    pub position: f32,
-    pub color: Color,
-}
-
-#[derive(Debug, Clone)]
-pub struct LinearGradient {
-    pub start: Point,
-    pub end: Point,
-    pub stops: Vec<GradientStop>,
-}
-
-#[derive(Debug, Clone)]
-pub struct RadialGradient {
-    pub center: Point,
-    pub radius: f32,
-    pub stops: Vec<GradientStop>,
-}
-
+/// Blend mode for compositing
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BlendMode {
     Normal,
@@ -273,6 +272,23 @@ pub enum BlendMode {
     Exclusion,
 }
 
+/// Linear gradient
+#[derive(Debug, Clone)]
+pub struct LinearGradient {
+    pub start: Point,
+    pub end: Point,
+    pub stops: Vec<(f32, Color)>,
+}
+
+/// Radial gradient
+#[derive(Debug, Clone)]
+pub struct RadialGradient {
+    pub center: Point,
+    pub radius: f32,
+    pub stops: Vec<(f32, Color)>,
+}
+
+/// Image representation
 #[derive(Debug, Clone)]
 pub struct Image {
     pub width: u32,
@@ -280,11 +296,19 @@ pub struct Image {
     pub data: Vec<u8>,
 }
 
-/// Rendering backend selection
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum RendererBackend {
-    Skia,
-    Vello,
-    Cpu,
+impl Image {
+    pub fn new(width: u32, height: u32, data: Vec<u8>) -> Self {
+        Self { width, height, data }
+    }
+}
+
+/// Add Hash implementation for PaintStyle
+impl std::hash::Hash for PaintStyle {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            PaintStyle::Fill => 0u8.hash(state),
+            PaintStyle::Stroke => 1u8.hash(state),
+        }
+    }
 }
 

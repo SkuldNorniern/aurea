@@ -78,7 +78,9 @@ impl Element for TextView {
     }
     
     unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
-        ng_platform_text_view_invalidate(self.handle);
+        unsafe {
+            ng_platform_text_view_invalidate(self.handle);
+        }
     }
 }
 
