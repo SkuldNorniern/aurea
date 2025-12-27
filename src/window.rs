@@ -6,6 +6,7 @@ use crate::ffi::*;
 use crate::platform::Platform;
 use crate::capability::{Capability, CapabilityChecker};
 use crate::view::{DamageRegion, FrameScheduler};
+use crate::lifecycle::{LifecycleEvent, register_lifecycle_callback, unregister_lifecycle_callback};
 use log::info;
 
 pub struct Window {
@@ -137,10 +138,24 @@ impl Window {
         let new_scale = unsafe { ng_platform_get_scale_factor(self.handle) };
         *self.scale_factor.lock().unwrap() = new_scale;
     }
+    
+    pub fn on_lifecycle_event<F>(&self, callback: F)
+    where
+        F: Fn(LifecycleEvent) + Send + Sync + 'static,
+    {
+        let window_handle = self.handle;
+        register_lifecycle_callback(window_handle, Box::new(callback));
+        
+        unsafe {
+            ng_platform_window_set_lifecycle_callback(window_handle);
+        }
+    }
 }
 
 impl Drop for Window {
     fn drop(&mut self) {
+        unregister_lifecycle_callback(self.handle);
+        
         unsafe { 
             ng_platform_destroy_window(self.handle);
             ng_platform_cleanup();

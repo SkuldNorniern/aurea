@@ -30,6 +30,7 @@ pub mod view;
 pub mod logger;
 pub mod platform;
 pub mod capability;
+pub mod lifecycle;
 
 pub use crate::elements::{Element, Container};
 pub use crate::window::Window;
