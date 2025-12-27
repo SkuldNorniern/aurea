@@ -11,7 +11,6 @@ mod canvas;
 mod viewport;
 mod display_list;
 
-#[cfg(feature = "cpu-raster")]
 pub mod cpu;
 
 pub use types::*;

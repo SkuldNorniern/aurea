@@ -28,7 +28,14 @@ impl Canvas {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        let mut renderer: Box<dyn Renderer> = Box::new(PlaceholderRenderer::new());
+        let mut renderer: Box<dyn Renderer> = match backend {
+            super::types::RendererBackend::Cpu => {
+                Box::new(super::cpu::CpuRasterizer::new(width, height))
+            }
+            _ => {
+                Box::new(PlaceholderRenderer::new())
+            }
+        };
         let surface = Surface::OpenGL { context: std::ptr::null_mut() };
         let surface_info = SurfaceInfo {
             width,

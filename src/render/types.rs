@@ -69,7 +69,7 @@ impl Rect {
 }
 
 /// Paint style for drawing operations
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PaintStyle {
     Fill,
     Stroke,
@@ -285,5 +285,6 @@ pub struct Image {
 pub enum RendererBackend {
     Skia,
     Vello,
+    Cpu,
 }
 
