@@ -47,6 +47,16 @@ NGHandle ng_macos_create_window(const char* title, int width, int height) {
     return (__bridge_retained void*)window;
 }
 
+float ng_macos_get_scale_factor(NGHandle window) {
+    if (!window) return 1.0f;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    NSScreen* screen = [nsWindow screen];
+    if (screen) {
+        return (float)[screen backingScaleFactor];
+    }
+    return 1.0f;
+}
+
 void ng_macos_destroy_window(NGHandle handle) {
     if (!handle) return;
     NSWindow* window = (__bridge_transfer NSWindow*)handle;

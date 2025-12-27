@@ -36,3 +36,18 @@ void ng_windows_canvas_invalidate_rect(NGHandle canvas, float x, float y, float 
     InvalidateRect((HWND)canvas, &rect, FALSE);
 }
 
+NGHandle ng_windows_canvas_get_window(NGHandle canvas) {
+    if (!canvas) return NULL;
+    HWND hwnd = (HWND)canvas;
+    HWND parent = GetParent(hwnd);
+    while (parent && parent != GetDesktopWindow()) {
+        char class_name[256];
+        GetClassNameA(parent, class_name, sizeof(class_name));
+        if (strcmp(class_name, "NativeGuiWindow") == 0) {
+            return (NGHandle)parent;
+        }
+        parent = GetParent(parent);
+    }
+    return NULL;
+}
+

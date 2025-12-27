@@ -15,6 +15,7 @@ pub struct Window {
     platform: Platform,
     capabilities: CapabilityChecker,
     damage: Mutex<DamageRegion>,
+    scale_factor: Mutex<f32>,
 }
 
 impl Window {
@@ -44,6 +45,8 @@ impl Window {
             return Err(AureaError::WindowCreationFailed);
         }
 
+        let scale_factor = unsafe { ng_platform_get_scale_factor(handle) };
+        
         Ok(Self {
             handle,
             menu_bar: None,
@@ -51,6 +54,7 @@ impl Window {
             platform,
             capabilities,
             damage: Mutex::new(DamageRegion::new(16)),
+            scale_factor: Mutex::new(scale_factor),
         })
     }
 
@@ -123,6 +127,15 @@ impl Window {
     pub fn take_damage(&self) -> Option<crate::render::Rect> {
         let mut damage = self.damage.lock().unwrap();
         damage.take()
+    }
+    
+    pub fn scale_factor(&self) -> f32 {
+        *self.scale_factor.lock().unwrap()
+    }
+    
+    pub fn update_scale_factor(&self) {
+        let new_scale = unsafe { ng_platform_get_scale_factor(self.handle) };
+        *self.scale_factor.lock().unwrap() = new_scale;
     }
 }
 
