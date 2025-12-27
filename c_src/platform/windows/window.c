@@ -71,6 +71,21 @@ NGHandle ng_windows_create_window(const char* title, int width, int height) {
 float ng_windows_get_scale_factor(NGHandle window) {
     if (!window) return 1.0f;
     HWND hwnd = (HWND)window;
+    
+    // Try GetDpiForWindow first (Windows 10 1607+)
+    typedef UINT (WINAPI *GetDpiForWindowFunc)(HWND);
+    HMODULE user32 = GetModuleHandleA("user32.dll");
+    if (user32) {
+        GetDpiForWindowFunc getDpiForWindow = (GetDpiForWindowFunc)GetProcAddress(user32, "GetDpiForWindow");
+        if (getDpiForWindow) {
+            UINT dpi = getDpiForWindow(hwnd);
+            if (dpi > 0) {
+                return (float)dpi / 96.0f;
+            }
+        }
+    }
+    
+    // Fallback to GetDpiForMonitor
     HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
     if (monitor) {
         UINT dpiX = 96;
@@ -80,6 +95,26 @@ float ng_windows_get_scale_factor(NGHandle window) {
         }
     }
     return 1.0f;
+}
+
+void ng_windows_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallback callback) {
+    if (!window) return;
+    HWND hwnd = (HWND)window;
+    
+    // Enable DPI awareness for the window
+    typedef BOOL (WINAPI *EnableNonClientDpiScalingFunc)(HWND);
+    HMODULE user32 = GetModuleHandleA("user32.dll");
+    if (user32) {
+        EnableNonClientDpiScalingFunc enableNonClientDpiScaling = 
+            (EnableNonClientDpiScalingFunc)GetProcAddress(user32, "EnableNonClientDpiScaling");
+        if (enableNonClientDpiScaling) {
+            enableNonClientDpiScaling(hwnd);
+        }
+    }
+    
+    // Register callback
+    extern void ng_windows_register_scale_callback(HWND, ScaleFactorCallback);
+    ng_windows_register_scale_callback(hwnd, callback);
 }
 
 void ng_windows_destroy_window(NGHandle handle) {

@@ -25,6 +25,7 @@ NGHandle ng_linux_create_canvas(int width, int height);
 void ng_linux_canvas_invalidate(NGHandle canvas);
 void ng_linux_canvas_invalidate_rect(NGHandle canvas, float x, float y, float width, float height);
 NGHandle ng_linux_canvas_get_window(NGHandle canvas);
+NGHandle ng_linux_canvas_get_window(NGHandle canvas);
 
 #ifdef __cplusplus
 }

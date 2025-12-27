@@ -127,3 +127,16 @@ void ng_platform_label_invalidate(NGHandle label) {
     ng_windows_label_invalidate(label);
 }
 
+NGHandle ng_platform_canvas_get_window(NGHandle canvas) {
+    return ng_windows_canvas_get_window(canvas);
+}
+
+float ng_platform_get_scale_factor(NGHandle window) {
+    return ng_windows_get_scale_factor(window);
+}
+
+typedef void (*ScaleFactorCallback)(void*, float);
+void ng_platform_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallback callback) {
+    ng_windows_window_set_scale_factor_callback(window, callback);
+}
+
