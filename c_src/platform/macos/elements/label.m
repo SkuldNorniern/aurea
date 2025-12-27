@@ -17,3 +17,9 @@ NGHandle ng_macos_create_label(const char* text) {
     return (__bridge_retained void*)label;
 }
 
+void ng_macos_label_invalidate(NGHandle label) {
+    if (!label) return;
+    NSTextField* lbl = (__bridge NSTextField*)label;
+    [lbl setNeedsDisplay:YES];
+}
+

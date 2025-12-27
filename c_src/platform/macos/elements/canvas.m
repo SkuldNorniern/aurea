@@ -78,6 +78,13 @@ void ng_macos_canvas_invalidate(NGHandle canvas) {
     [view setNeedsDisplay:YES];
 }
 
+void ng_macos_canvas_invalidate_rect(NGHandle canvas, float x, float y, float width, float height) {
+    if (!canvas) return;
+    NSView* view = (__bridge NSView*)canvas;
+    NSRect rect = NSMakeRect(x, y, width, height);
+    [view setNeedsDisplayInRect:rect];
+}
+
 void ng_macos_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size __attribute__((unused)), unsigned int width, unsigned int height) {
     if (!canvas || !buffer) return;
     

@@ -63,3 +63,8 @@ NGHandle ng_windows_create_text_view(int is_editable, unsigned int id) {
     return (NGHandle)edit;
 }
 
+void ng_windows_text_view_invalidate(NGHandle text_view) {
+    if (!text_view) return;
+    InvalidateRect((HWND)text_view, NULL, FALSE);
+}
+

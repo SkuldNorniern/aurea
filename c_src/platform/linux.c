@@ -63,6 +63,10 @@ NGHandle ng_platform_create_box(int is_vertical) {
     return ng_linux_create_box(is_vertical);
 }
 
+void ng_platform_box_invalidate(NGHandle box) {
+    ng_linux_box_invalidate(box);
+}
+
 int ng_platform_box_add(NGHandle box, NGHandle element) {
     return ng_linux_box_add(box, element);
 }
@@ -71,8 +75,16 @@ NGHandle ng_platform_create_text_editor(unsigned int id) {
     return ng_linux_create_text_editor(id);
 }
 
+void ng_platform_text_editor_invalidate(NGHandle text_editor) {
+    ng_linux_text_editor_invalidate(text_editor);
+}
+
 NGHandle ng_platform_create_text_view(int is_editable, unsigned int id) {
     return ng_linux_create_text_view(is_editable, id);
+}
+
+void ng_platform_text_view_invalidate(NGHandle text_view) {
+    ng_linux_text_view_invalidate(text_view);
 }
 
 int ng_platform_set_text_content(NGHandle text_handle, const char* content) {
@@ -93,5 +105,17 @@ NGHandle ng_platform_create_canvas(int width, int height) {
 
 void ng_platform_canvas_invalidate(NGHandle canvas) {
     ng_linux_canvas_invalidate(canvas);
+}
+
+void ng_platform_canvas_invalidate_rect(NGHandle canvas, float x, float y, float width, float height) {
+    ng_linux_canvas_invalidate_rect(canvas, x, y, width, height);
+}
+
+void ng_platform_button_invalidate(NGHandle button) {
+    ng_linux_button_invalidate(button);
+}
+
+void ng_platform_label_invalidate(NGHandle label) {
+    ng_linux_label_invalidate(label);
 }
 

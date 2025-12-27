@@ -52,3 +52,8 @@ NGHandle ng_windows_create_button(const char* title, unsigned int id) {
     return (NGHandle)button;
 }
 
+void ng_windows_button_invalidate(NGHandle button) {
+    if (!button) return;
+    InvalidateRect((HWND)button, NULL, FALSE);
+}
+

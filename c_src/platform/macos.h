@@ -29,7 +29,9 @@ int ng_platform_run(void);
 
 // New element-related functions
 NGHandle ng_platform_create_button(const char* title, unsigned int id);
+void ng_platform_button_invalidate(NGHandle button);
 NGHandle ng_platform_create_label(const char* text);
+void ng_platform_label_invalidate(NGHandle label);
 NGHandle ng_platform_create_box(int is_vertical);
 int ng_platform_box_add(NGHandle box, NGHandle element);
 
@@ -43,6 +45,7 @@ void ng_platform_free_text_content(char* content);
 // Canvas functions
 NGHandle ng_platform_create_canvas(int width, int height);
 void ng_platform_canvas_invalidate(NGHandle canvas);
+void ng_platform_canvas_invalidate_rect(NGHandle canvas, float x, float y, float width, float height);
 void ng_platform_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size, unsigned int width, unsigned int height);
 void ng_platform_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int* height);
 

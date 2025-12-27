@@ -45,3 +45,8 @@ NGHandle ng_windows_create_label(const char* text) {
     return (NGHandle)label;
 }
 
+void ng_windows_label_invalidate(NGHandle label) {
+    if (!label) return;
+    InvalidateRect((HWND)label, NULL, FALSE);
+}
+

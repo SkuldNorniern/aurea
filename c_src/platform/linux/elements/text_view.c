@@ -34,3 +34,8 @@ NGHandle ng_linux_create_text_view(int is_editable, unsigned int id) {
     return (NGHandle)scrolled_window;
 }
 
+void ng_linux_text_view_invalidate(NGHandle text_view) {
+    if (!text_view) return;
+    gtk_widget_queue_draw((GtkWidget*)text_view);
+}
+
