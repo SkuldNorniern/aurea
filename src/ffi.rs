@@ -24,14 +24,19 @@ unsafe extern "C" {
 
     // Button elements
     pub(crate) fn ng_platform_create_button(title: *const c_char, id: u32) -> *mut c_void;
+    pub(crate) fn ng_platform_button_invalidate(button: *mut c_void);
     pub(crate) fn ng_platform_create_label(text: *const c_char) -> *mut c_void;
+    pub(crate) fn ng_platform_label_invalidate(label: *mut c_void);
     pub(crate) fn ng_platform_create_box(is_vertical: c_int) -> *mut c_void;
+    pub(crate) fn ng_platform_box_invalidate(box_handle: *mut c_void);
     pub(crate) fn ng_platform_box_add(box_handle: *mut c_void, element: *mut c_void) -> c_int;
     pub(crate) fn ng_platform_set_window_content(window: *mut c_void, content: *mut c_void) -> c_int;
 
     // Text elements
     pub(crate) fn ng_platform_create_text_editor(id: u32) -> *mut c_void;
+    pub(crate) fn ng_platform_text_editor_invalidate(text_editor: *mut c_void);
     pub(crate) fn ng_platform_create_text_view(is_editable: c_int, id: u32) -> *mut c_void;
+    pub(crate) fn ng_platform_text_view_invalidate(text_view: *mut c_void);
     #[allow(dead_code)] // Reserved for future use
     pub(crate) fn ng_platform_create_text_field() -> *mut c_void;
     pub(crate) fn ng_platform_set_text_content(text_handle: *mut c_void, content: *const c_char) -> c_int;
@@ -41,6 +46,7 @@ unsafe extern "C" {
     // Canvas elements
     pub(crate) fn ng_platform_create_canvas(width: c_int, height: c_int) -> *mut c_void;
     pub(crate) fn ng_platform_canvas_invalidate(canvas: *mut c_void);
+    pub(crate) fn ng_platform_canvas_invalidate_rect(canvas: *mut c_void, x: f32, y: f32, width: f32, height: f32);
     pub(crate) fn ng_platform_canvas_update_buffer(
         canvas: *mut c_void,
         buffer: *const u8,

@@ -74,6 +74,10 @@ impl Element for TextEditor {
     fn handle(&self) -> *mut c_void {
         self.handle
     }
+    
+    unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
+        ng_platform_text_editor_invalidate(self.handle);
+    }
 }
 
 pub(crate) fn invoke_text_callback(id: u32, content: String) {

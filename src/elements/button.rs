@@ -55,5 +55,9 @@ impl Element for Button {
     fn handle(&self) -> *mut c_void {
         self.handle
     }
+    
+    unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
+        ng_platform_button_invalidate(self.handle);
+    }
 }
 

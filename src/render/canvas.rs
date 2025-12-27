@@ -107,8 +107,12 @@ impl Canvas {
     }
 
     pub fn invalidate(&self) {
+        self.invalidate_all();
+    }
+    
+    pub fn invalidate_rect(&self, rect: super::Rect) {
         unsafe {
-            ng_platform_canvas_invalidate(self.handle);
+            ng_platform_canvas_invalidate_rect(self.handle, rect.x, rect.y, rect.width, rect.height);
         }
     }
 
@@ -129,6 +133,14 @@ impl Canvas {
 impl Element for Canvas {
     fn handle(&self) -> *mut c_void {
         self.handle
+    }
+    
+    unsafe fn invalidate_platform(&self, rect: Option<super::Rect>) {
+        if let Some(r) = rect {
+            ng_platform_canvas_invalidate_rect(self.handle, r.x, r.y, r.width, r.height);
+        } else {
+            ng_platform_canvas_invalidate(self.handle);
+        }
     }
 }
 
