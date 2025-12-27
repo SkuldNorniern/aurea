@@ -117,6 +117,13 @@ void ng_windows_window_set_scale_factor_callback(NGHandle window, ScaleFactorCal
     ng_windows_register_scale_callback(hwnd, callback);
 }
 
+void ng_windows_window_set_lifecycle_callback(NGHandle window) {
+    if (!window) return;
+    HWND hwnd = (HWND)window;
+    extern void ng_windows_register_lifecycle_callback(HWND);
+    ng_windows_register_lifecycle_callback(hwnd);
+}
+
 void ng_windows_destroy_window(NGHandle handle) {
     if (!handle) return;
     DestroyWindow((HWND)handle);

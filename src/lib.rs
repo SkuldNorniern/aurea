@@ -58,6 +58,7 @@ pub mod view;
 pub mod logger;
 pub mod platform;
 pub mod capability;
+pub mod lifecycle;
 
 // Re-export the elements, window, and menu modules
 pub use crate::elements::{Element, Container};

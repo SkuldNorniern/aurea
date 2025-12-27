@@ -105,7 +105,7 @@ pub trait Renderer: Send + Sync {
 }
 
 #[derive(Debug, Clone)]
-enum DrawCommand {
+pub enum DrawCommand {
     Clear(Color),
     DrawRect(Rect, Paint),
     DrawCircle(Point, f32, Paint),
@@ -115,6 +115,13 @@ enum DrawCommand {
     DrawText(String, Point, Paint),
     #[allow(dead_code)]
     DrawTextWithFont(String, Point, Font, Paint),
+    // Stack operations for compositing
+    PushClip(Path),
+    PopClip,
+    PushTransform(Transform),
+    PopTransform,
+    PushOpacity(f32),
+    PopOpacity,
 }
 
 #[derive(Default)]
@@ -196,6 +203,12 @@ impl PlaceholderRenderer {
                 DrawCommand::DrawText(..) => {}
                 DrawCommand::DrawPath(..) => {}
                 DrawCommand::DrawTextWithFont(..) => {}
+                DrawCommand::PushClip(..) => {}
+                DrawCommand::PopClip => {}
+                DrawCommand::PushTransform(..) => {}
+                DrawCommand::PopTransform => {}
+                DrawCommand::PushOpacity(..) => {}
+                DrawCommand::PopOpacity => {}
             }
         }
     }

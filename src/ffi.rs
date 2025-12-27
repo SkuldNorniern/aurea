@@ -58,6 +58,9 @@ unsafe extern "C" {
     pub(crate) fn ng_platform_canvas_get_window(canvas: *mut c_void) -> *mut c_void;
     pub(crate) fn ng_platform_get_scale_factor(window: *mut c_void) -> f32;
     pub(crate) fn ng_platform_window_set_scale_factor_callback(window: *mut c_void, callback: extern "C" fn(*mut c_void, f32));
+    
+    // Lifecycle events
+    pub(crate) fn ng_platform_window_set_lifecycle_callback(window: *mut c_void);
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -157,4 +160,30 @@ pub extern "C" fn ng_invoke_textview_callback(id: u32, content: *const c_char) {
             }
         }
     }
+}
+
+/// Invoke a lifecycle callback from the platform layer.
+/// 
+/// This function is called by platform-specific code when a lifecycle event occurs.
+/// The event_id corresponds to the LifecycleEvent enum values.
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_lifecycle_callback(window: *mut c_void, event_id: u32) {
+    use crate::lifecycle::{LifecycleEvent, invoke_lifecycle_callback};
+    
+    let event = match event_id {
+        0 => LifecycleEvent::ApplicationDidEnterBackground,
+        1 => LifecycleEvent::ApplicationWillEnterForeground,
+        2 => LifecycleEvent::ApplicationPaused,
+        3 => LifecycleEvent::ApplicationResumed,
+        4 => LifecycleEvent::ApplicationDestroyed,
+        5 => LifecycleEvent::WindowWillClose,
+        6 => LifecycleEvent::WindowMinimized,
+        7 => LifecycleEvent::WindowRestored,
+        8 => LifecycleEvent::MemoryWarning,
+        9 => LifecycleEvent::SurfaceLost,
+        10 => LifecycleEvent::SurfaceRecreated,
+        _ => return, // Unknown event ID
+    };
+    
+    invoke_lifecycle_callback(window, event);
 } 

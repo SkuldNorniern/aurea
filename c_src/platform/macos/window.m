@@ -6,16 +6,36 @@
 // Window delegate to handle window close events and scale factor changes
 #import "window.h"
 
+// Forward declaration for lifecycle callback
+extern void ng_invoke_lifecycle_callback(void* window, unsigned int event_id);
+
 @interface WindowDelegate : NSObject <NSWindowDelegate>
 @property (nonatomic, assign) void* windowHandle;
 @property (nonatomic, assign) ScaleFactorCallback scaleFactorCallback;
+@property (nonatomic, assign) BOOL lifecycleCallbackEnabled;
 @end
 
 @implementation WindowDelegate
 - (BOOL)windowShouldClose:(NSWindow*)sender {
+    // Invoke lifecycle callback if enabled
+    if (self.lifecycleCallbackEnabled && self.windowHandle) {
+        ng_invoke_lifecycle_callback(self.windowHandle, 5); // WindowWillClose = 5
+    }
     // Terminate the application when the window closes
     [NSApp terminate:nil];
     return YES;
+}
+
+- (void)windowDidMiniaturize:(NSNotification*)notification {
+    if (self.lifecycleCallbackEnabled && self.windowHandle) {
+        ng_invoke_lifecycle_callback(self.windowHandle, 6); // WindowMinimized = 6
+    }
+}
+
+- (void)windowDidDeminiaturize:(NSNotification*)notification {
+    if (self.lifecycleCallbackEnabled && self.windowHandle) {
+        ng_invoke_lifecycle_callback(self.windowHandle, 7); // WindowRestored = 7
+    }
 }
 
 - (void)windowDidChangeScreen:(NSNotification*)notification {
@@ -105,6 +125,16 @@ void ng_macos_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallb
     WindowDelegate* delegate = [windowDelegates objectForKey:windowValue];
     if (delegate) {
         delegate.scaleFactorCallback = callback;
+    }
+}
+
+void ng_macos_window_set_lifecycle_callback(NGHandle window) {
+    if (!window || !windowDelegates) return;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)nsWindow];
+    WindowDelegate* delegate = [windowDelegates objectForKey:windowValue];
+    if (delegate) {
+        delegate.lifecycleCallbackEnabled = YES;
     }
 }
 
