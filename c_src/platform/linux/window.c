@@ -40,6 +40,54 @@ float ng_linux_get_scale_factor(NGHandle window) {
     return 1.0f;
 }
 
+typedef void (*ScaleFactorCallback)(void*, float);
+
+static struct {
+    GtkWidget* window;
+    ScaleFactorCallback callback;
+} g_scale_callbacks[256] = {0};
+static int g_scale_callback_count = 0;
+
+static gboolean on_configure_event(GtkWidget* widget, GdkEventConfigure* event, gpointer user_data) {
+    // Check for scale factor changes
+    GdkWindow* gdkWindow = gtk_widget_get_window(widget);
+    if (gdkWindow) {
+        gint scale = gdk_window_get_scale_factor(gdkWindow);
+        float scale_factor = (float)scale;
+        
+        for (int i = 0; i < g_scale_callback_count; i++) {
+            if (g_scale_callbacks[i].window == widget && g_scale_callbacks[i].callback) {
+                g_scale_callbacks[i].callback((void*)widget, scale_factor);
+                break;
+            }
+        }
+    }
+    return FALSE;
+}
+
+void ng_linux_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallback callback) {
+    if (!window) return;
+    GtkWidget* widget = (GtkWidget*)window;
+    
+    // Find or add entry
+    int found = -1;
+    for (int i = 0; i < g_scale_callback_count; i++) {
+        if (g_scale_callbacks[i].window == widget) {
+            found = i;
+            break;
+        }
+    }
+    
+    if (found >= 0) {
+        g_scale_callbacks[found].callback = callback;
+    } else if (g_scale_callback_count < 256) {
+        g_scale_callbacks[g_scale_callback_count].window = widget;
+        g_scale_callbacks[g_scale_callback_count].callback = callback;
+        g_signal_connect(G_OBJECT(widget), "configure-event", G_CALLBACK(on_configure_event), NULL);
+        g_scale_callback_count++;
+    }
+}
+
 void ng_linux_destroy_window(NGHandle handle) {
     if (!handle) return;
     gtk_widget_destroy((GtkWidget*)handle);
