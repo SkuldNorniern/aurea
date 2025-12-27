@@ -10,6 +10,11 @@ NGHandle ng_linux_create_box(int is_vertical) {
     return (NGHandle)box;
 }
 
+void ng_linux_box_invalidate(NGHandle box) {
+    if (!box) return;
+    gtk_widget_queue_draw((GtkWidget*)box);
+}
+
 int ng_linux_box_add(NGHandle box, NGHandle element) {
     if (!box || !element) return NG_ERROR_INVALID_HANDLE;
     

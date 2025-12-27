@@ -67,3 +67,9 @@ NGHandle ng_macos_create_text_editor(unsigned int id) {
     }
 }
 
+void ng_macos_text_editor_invalidate(NGHandle text_editor) {
+    if (!text_editor) return;
+    NSScrollView* scrollView = (__bridge NSScrollView*)text_editor;
+    [scrollView setNeedsDisplay:YES];
+}
+

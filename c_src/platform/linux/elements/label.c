@@ -11,3 +11,8 @@ NGHandle ng_linux_create_label(const char* text) {
     return (NGHandle)label;
 }
 
+void ng_linux_label_invalidate(NGHandle label) {
+    if (!label) return;
+    gtk_widget_queue_draw((GtkWidget*)label);
+}
+

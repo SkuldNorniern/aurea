@@ -20,3 +20,8 @@ NGHandle ng_linux_create_button(const char* title, unsigned int id) {
     return (NGHandle)button;
 }
 
+void ng_linux_button_invalidate(NGHandle button) {
+    if (!button) return;
+    gtk_widget_queue_draw((GtkWidget*)button);
+}
+
