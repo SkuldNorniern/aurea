@@ -137,6 +137,10 @@ float ng_platform_get_scale_factor(NGHandle window) {
     return ng_macos_get_scale_factor(window);
 }
 
+void ng_platform_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallback callback) {
+    ng_macos_window_set_scale_factor_callback(window, callback);
+}
+
 void ng_platform_button_invalidate(NGHandle button) {
     ng_macos_button_invalidate(button);
 }

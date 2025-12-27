@@ -11,13 +11,16 @@
 extern "C" {
 #endif
 
+typedef void (*ScaleFactorCallback)(void*, float);
+
 NGHandle ng_macos_create_window(const char* title, int width, int height);
 void ng_macos_destroy_window(NGHandle handle);
 int ng_macos_set_window_content(NGHandle window, NGHandle content);
 float ng_macos_get_scale_factor(NGHandle window);
+void ng_macos_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallback callback);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // NATIVE_GUI_MACOS_WINDOW_H 
+#endif // NATIVE_GUI_MACOS_WINDOW_H
