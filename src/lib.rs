@@ -26,6 +26,7 @@ pub mod window;
 pub mod menu;
 pub mod ffi;
 pub mod render;
+pub mod view;
 pub mod logger;
 pub mod platform;
 pub mod capability;
