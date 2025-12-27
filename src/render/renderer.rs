@@ -102,6 +102,12 @@ pub trait Renderer: Send + Sync {
     fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext>>;
     fn end_frame(&mut self) -> AureaResult<()>;
     fn cleanup(&mut self);
+    
+    /// Set damage region for partial redraw (optional, defaults to full canvas)
+    /// This is called before end_frame() to specify which region needs redrawing
+    fn set_damage(&mut self, _damage: Option<Rect>) {
+        // Default implementation does nothing (full redraw)
+    }
 }
 
 #[derive(Debug, Clone)]

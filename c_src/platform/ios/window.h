@@ -7,9 +7,14 @@
 extern "C" {
 #endif
 
+typedef void (*ScaleFactorCallback)(void*, float);
+
 NGHandle ng_ios_create_window_impl(const char* title, int width, int height);
 void ng_ios_destroy_window_impl(NGHandle handle);
 int ng_ios_set_window_content(NGHandle window, NGHandle content);
+float ng_ios_get_scale_factor(NGHandle window);
+void ng_ios_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallback callback);
+void ng_ios_window_set_lifecycle_callback(NGHandle window);
 
 #ifdef __cplusplus
 }
