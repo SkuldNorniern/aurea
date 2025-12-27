@@ -28,6 +28,7 @@ void ng_macos_canvas_invalidate(NGHandle canvas);
 void ng_macos_canvas_invalidate_rect(NGHandle canvas, float x, float y, float width, float height);
 void ng_macos_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size, unsigned int width, unsigned int height);
 void ng_macos_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int* height);
+NGHandle ng_macos_canvas_get_window(NGHandle canvas);
 
 #ifdef __cplusplus
 }
