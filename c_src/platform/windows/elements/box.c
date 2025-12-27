@@ -110,3 +110,8 @@ int ng_windows_box_add(NGHandle box, NGHandle element) {
     return NG_SUCCESS;
 }
 
+void ng_windows_box_invalidate(NGHandle box) {
+    if (!box) return;
+    InvalidateRect((HWND)box, NULL, FALSE);
+}
+

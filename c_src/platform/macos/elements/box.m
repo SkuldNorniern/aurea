@@ -40,3 +40,9 @@ int ng_macos_box_add(NGHandle box, NGHandle element) {
     return NG_SUCCESS;
 }
 
+void ng_macos_box_invalidate(NGHandle box_handle) {
+    if (!box_handle) return;
+    NSStackView* stack = (__bridge NSStackView*)box_handle;
+    [stack setNeedsDisplay:YES];
+}
+

@@ -68,3 +68,9 @@ NGHandle ng_macos_create_text_view(int is_editable, unsigned int id) {
     }
 }
 
+void ng_macos_text_view_invalidate(NGHandle text_view) {
+    if (!text_view) return;
+    NSScrollView* scrollView = (__bridge NSScrollView*)text_view;
+    [scrollView setNeedsDisplay:YES];
+}
+

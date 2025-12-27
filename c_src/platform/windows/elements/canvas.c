@@ -26,3 +26,13 @@ void ng_windows_canvas_invalidate(NGHandle canvas) {
     InvalidateRect((HWND)canvas, NULL, FALSE);
 }
 
+void ng_windows_canvas_invalidate_rect(NGHandle canvas, float x, float y, float width, float height) {
+    if (!canvas) return;
+    RECT rect;
+    rect.left = (LONG)x;
+    rect.top = (LONG)y;
+    rect.right = (LONG)(x + width);
+    rect.bottom = (LONG)(y + height);
+    InvalidateRect((HWND)canvas, &rect, FALSE);
+}
+

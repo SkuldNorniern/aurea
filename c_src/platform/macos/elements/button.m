@@ -45,3 +45,9 @@ NGHandle ng_macos_create_button(const char* title, unsigned int id) {
     }
 }
 
+void ng_macos_button_invalidate(NGHandle button) {
+    if (!button) return;
+    NSButton* btn = (__bridge NSButton*)button;
+    [btn setNeedsDisplay:YES];
+}
+
