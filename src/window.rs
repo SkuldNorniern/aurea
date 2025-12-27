@@ -1,10 +1,11 @@
-use std::{ffi::CString, os::raw::c_void};
+use std::{ffi::CString, os::raw::c_void, sync::Mutex};
 use crate::elements::Element;
 use crate::menu::MenuBar;
 use crate::{AureaError, AureaResult};
 use crate::ffi::*;
 use crate::platform::Platform;
 use crate::capability::{Capability, CapabilityChecker};
+use crate::view::{DamageRegion, FrameScheduler};
 use log::info;
 
 pub struct Window {
@@ -13,6 +14,7 @@ pub struct Window {
     pub content: Option<Box<dyn Element>>,
     platform: Platform,
     capabilities: CapabilityChecker,
+    damage: Mutex<DamageRegion>,
 }
 
 impl Window {
@@ -48,6 +50,7 @@ impl Window {
             content: None,
             platform,
             capabilities,
+            damage: Mutex::new(DamageRegion::new(16)),
         })
     }
 
@@ -105,6 +108,21 @@ impl Window {
         
         self.content = Some(Box::new(element));
         Ok(())
+    }
+    
+    pub fn schedule_frame(&self) {
+        FrameScheduler::schedule();
+    }
+    
+    pub fn add_damage(&self, rect: crate::render::Rect) {
+        let mut damage = self.damage.lock().unwrap();
+        damage.add(rect);
+        self.schedule_frame();
+    }
+    
+    pub fn take_damage(&self) -> Option<crate::render::Rect> {
+        let mut damage = self.damage.lock().unwrap();
+        damage.take()
     }
 }
 

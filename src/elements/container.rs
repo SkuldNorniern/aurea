@@ -37,6 +37,10 @@ impl Element for Box {
     fn handle(&self) -> *mut c_void {
         self.handle
     }
+    
+    unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
+        ng_platform_box_invalidate(self.handle);
+    }
 }
 
 impl Container for Box {

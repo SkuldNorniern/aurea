@@ -76,6 +76,10 @@ impl Element for TextView {
     fn handle(&self) -> *mut c_void {
         self.handle
     }
+    
+    unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
+        ng_platform_text_view_invalidate(self.handle);
+    }
 }
 
 pub(crate) fn invoke_textview_callback(id: u32, content: String) {

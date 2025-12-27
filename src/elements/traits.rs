@@ -1,8 +1,34 @@
 use std::os::raw::c_void;
 use crate::AureaResult;
+use crate::render::Rect;
 
 pub trait Element {
     fn handle(&self) -> *mut c_void;
+    
+    fn invalidate(&self, rect: Option<Rect>) {
+        if let Some(r) = rect {
+            self.invalidate_rect(r);
+        } else {
+            self.invalidate_all();
+        }
+    }
+    
+    fn invalidate_all(&self) {
+        unsafe {
+            self.invalidate_platform(None);
+        }
+    }
+    
+    fn invalidate_rect(&self, rect: Rect) {
+        unsafe {
+            self.invalidate_platform(Some(rect));
+        }
+    }
+    
+    unsafe fn invalidate_platform(&self, rect: Option<Rect>);
+    
+    fn request_layout(&self) {
+    }
 }
 
 pub trait Container: Element {
