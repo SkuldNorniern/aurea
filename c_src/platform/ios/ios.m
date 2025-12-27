@@ -1,26 +1,23 @@
 #import "ios.h"
+#import "window.h"
 #import "../../common/errors.h"
 #import <UIKit/UIKit.h>
 
-// Placeholder implementation for iOS
-// TODO: Implement iOS-specific functionality
-
 int ng_ios_init(void) {
-    // TODO: Initialize iOS application
+    // iOS initialization is handled by app delegate
     return NG_SUCCESS;
 }
 
 void ng_ios_cleanup(void) {
-    // TODO: Cleanup iOS resources
+    // iOS cleanup is handled by app lifecycle
 }
 
 NGHandle ng_ios_create_window(const char* title, int width, int height) {
-    // TODO: Create iOS window/view controller
-    return NULL;
+    return ng_ios_create_window_impl(title, width, height);
 }
 
 void ng_ios_destroy_window(NGHandle handle) {
-    // TODO: Destroy iOS window
+    ng_ios_destroy_window_impl(handle);
 }
 
 NGMenuHandle ng_ios_create_menu(void) {

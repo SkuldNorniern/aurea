@@ -18,6 +18,7 @@ pub struct CpuRasterizer {
     display_list: DisplayList,
     initialized: bool,
     scale_factor: f32,
+    pending_damage: Option<Rect>,
 }
 
 impl CpuRasterizer {
@@ -31,7 +32,13 @@ impl CpuRasterizer {
             display_list: DisplayList::new(),
             initialized: false,
             scale_factor: 1.0,
+            pending_damage: None,
         }
+    }
+    
+    /// Set damage region for the next frame.
+    pub fn set_damage(&mut self, damage: Option<Rect>) {
+        self.pending_damage = damage;
     }
     
     /// Resize the rasterizer.
@@ -274,8 +281,9 @@ impl Renderer for CpuRasterizer {
     }
     
     fn end_frame(&mut self) -> AureaResult<()> {
-        // TODO: Integrate with actual damage tracking from Window
-        let damage = Rect::new(0.0, 0.0, self.width as f32, self.height as f32);
+        let damage = self.pending_damage.take().unwrap_or_else(|| {
+            Rect::new(0.0, 0.0, self.width as f32, self.height as f32)
+        });
         
         let display_items: Vec<_> = self.display_list.items().to_vec();
         
@@ -315,6 +323,11 @@ impl Renderer for CpuRasterizer {
     fn cleanup(&mut self) {
         self.initialized = false;
         self.display_list.clear();
+        self.pending_damage = None;
+    }
+    
+    fn set_damage(&mut self, damage: Option<Rect>) {
+        self.pending_damage = damage;
     }
 }
 

@@ -44,7 +44,9 @@ impl CpuDrawingContext {
     }
     
     unsafe fn display_list_mut(&mut self) -> &mut DisplayList {
-        &mut *self.display_list
+        unsafe {
+            &mut *self.display_list
+        }
     }
     
     fn compute_cache_key(&self, command: &super::super::renderer::DrawCommand) -> CacheKey {

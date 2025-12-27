@@ -29,7 +29,9 @@ impl Element for Label {
     }
     
     unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
-        ng_platform_label_invalidate(self.handle);
+        unsafe {
+            ng_platform_label_invalidate(self.handle);
+        }
     }
 }
 
