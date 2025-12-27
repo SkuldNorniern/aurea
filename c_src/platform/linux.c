@@ -132,3 +132,7 @@ void ng_platform_window_set_scale_factor_callback(NGHandle window, ScaleFactorCa
     ng_linux_window_set_scale_factor_callback(window, callback);
 }
 
+void ng_platform_window_set_lifecycle_callback(NGHandle window) {
+    ng_linux_window_set_lifecycle_callback(window);
+}
+

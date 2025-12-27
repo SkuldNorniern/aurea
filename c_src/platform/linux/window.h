@@ -11,6 +11,7 @@ NGHandle ng_linux_create_window(const char* title, int width, int height);
 void ng_linux_destroy_window(NGHandle handle);
 int ng_linux_set_window_content(NGHandle window, NGHandle content);
 float ng_linux_get_scale_factor(NGHandle window);
+void ng_linux_window_set_lifecycle_callback(NGHandle window);
 
 // Internal function to get main vbox (used by menu.c)
 // Note: Returns GtkWidget* but declared as void* to avoid GTK dependency in header

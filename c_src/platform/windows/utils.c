@@ -8,6 +8,7 @@ static BOOL win_initialized = FALSE;
 static ScaleFactorCallback g_window_scale_callbacks[256] = {0};
 static HWND g_tracked_windows[256] = {0};
 static int g_tracked_count = 0;
+static BOOL g_lifecycle_callbacks[256] = {0};
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
@@ -57,8 +58,24 @@ void ng_windows_register_scale_callback(HWND hwnd, ScaleFactorCallback callback)
     }
 }
 
+void ng_windows_register_lifecycle_callback(HWND hwnd) {
+    for (int i = 0; i < g_tracked_count && i < 256; i++) {
+        if (g_tracked_windows[i] == hwnd) {
+            g_lifecycle_callbacks[i] = TRUE;
+            return;
+        }
+    }
+    // If window not tracked, add it
+    if (g_tracked_count < 256) {
+        g_tracked_windows[g_tracked_count] = hwnd;
+        g_lifecycle_callbacks[g_tracked_count] = TRUE;
+        g_tracked_count++;
+    }
+}
+
 extern void ng_invoke_menu_callback(unsigned int id);
 extern void ng_invoke_button_callback(unsigned int id);
+extern void ng_invoke_lifecycle_callback(void* window, unsigned int event_id);
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
@@ -96,6 +113,38 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 suggestedRect->bottom - suggestedRect->top,
                 SWP_NOZORDER | SWP_NOACTIVATE);
             return 0;
+        }
+        
+        case WM_CLOSE: {
+            // Invoke lifecycle callback before closing
+            for (int i = 0; i < g_tracked_count; i++) {
+                if (g_tracked_windows[i] == hwnd && g_lifecycle_callbacks[i]) {
+                    ng_invoke_lifecycle_callback((void*)hwnd, 5); // WindowWillClose = 5
+                    break;
+                }
+            }
+            // Continue with default close behavior
+            break;
+        }
+        
+        case WM_SIZE: {
+            // Check for minimize/restore
+            if (wParam == SIZE_MINIMIZED) {
+                for (int i = 0; i < g_tracked_count; i++) {
+                    if (g_tracked_windows[i] == hwnd && g_lifecycle_callbacks[i]) {
+                        ng_invoke_lifecycle_callback((void*)hwnd, 6); // WindowMinimized = 6
+                        break;
+                    }
+                }
+            } else if (wParam == SIZE_RESTORED || wParam == SIZE_MAXIMIZED) {
+                for (int i = 0; i < g_tracked_count; i++) {
+                    if (g_tracked_windows[i] == hwnd && g_lifecycle_callbacks[i]) {
+                        ng_invoke_lifecycle_callback((void*)hwnd, 7); // WindowRestored = 7
+                        break;
+                    }
+                }
+            }
+            break;
         }
         
         case WM_DESTROY:

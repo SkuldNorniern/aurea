@@ -52,6 +52,7 @@ NGHandle ng_platform_canvas_get_window(NGHandle canvas);
 float ng_platform_get_scale_factor(NGHandle window);
 typedef void (*ScaleFactorCallback)(void*, float);
 void ng_platform_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallback callback);
+void ng_platform_window_set_lifecycle_callback(NGHandle window);
 
 #ifdef __cplusplus
 }

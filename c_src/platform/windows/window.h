@@ -14,6 +14,7 @@ void ng_windows_destroy_window(NGHandle handle);
 int ng_windows_set_window_content(NGHandle window, NGHandle content);
 float ng_windows_get_scale_factor(NGHandle window);
 void ng_windows_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallback callback);
+void ng_windows_window_set_lifecycle_callback(NGHandle window);
 
 #ifdef __cplusplus
 }
