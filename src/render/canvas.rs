@@ -127,6 +127,29 @@ impl Canvas {
         if width > 0 && height > 0 && (width != self.width || height != self.height) {
             self.handle_resize(width, height)?;
         }
+        
+        let new_scale = unsafe {
+            let window = ng_platform_canvas_get_window(self.handle);
+            if !window.is_null() {
+                ng_platform_get_scale_factor(window)
+            } else {
+                self.scale_factor
+            }
+        };
+        
+        if new_scale != self.scale_factor {
+            self.scale_factor = new_scale;
+            if let Some(ref mut renderer) = self.renderer {
+                let surface = Surface::OpenGL { context: std::ptr::null_mut() };
+                let surface_info = SurfaceInfo {
+                    width: self.width,
+                    height: self.height,
+                    scale_factor: new_scale,
+                };
+                renderer.init(surface, surface_info)?;
+            }
+        }
+        
         Ok(())
     }
 

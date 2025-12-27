@@ -3,8 +3,12 @@
 #import "utils.h"
 #import <Cocoa/Cocoa.h>
 
-// Window delegate to handle window close events
+// Window delegate to handle window close events and scale factor changes
+#import "window.h"
+
 @interface WindowDelegate : NSObject <NSWindowDelegate>
+@property (nonatomic, assign) void* windowHandle;
+@property (nonatomic, assign) ScaleFactorCallback scaleFactorCallback;
 @end
 
 @implementation WindowDelegate
@@ -13,16 +17,37 @@
     [NSApp terminate:nil];
     return YES;
 }
+
+- (void)windowDidChangeScreen:(NSNotification*)notification {
+    if (self.scaleFactorCallback && self.windowHandle) {
+        NSWindow* window = (NSWindow*)self.windowHandle;
+        NSScreen* screen = [window screen];
+        if (screen) {
+            float scale = (float)[screen backingScaleFactor];
+            self.scaleFactorCallback(self.windowHandle, scale);
+        }
+    }
+}
+
+- (void)windowDidChangeBackingProperties:(NSNotification*)notification {
+    if (self.scaleFactorCallback && self.windowHandle) {
+        NSWindow* window = (NSWindow*)self.windowHandle;
+        NSScreen* screen = [window screen];
+        if (screen) {
+            float scale = (float)[screen backingScaleFactor];
+            self.scaleFactorCallback(self.windowHandle, scale);
+        }
+    }
+}
 @end
 
-static WindowDelegate* windowDelegate = nil;
+static NSMutableDictionary* windowDelegates = nil;
 
 NGHandle ng_macos_create_window(const char* title, int width, int height) {
     if (!title) return NULL;
     
-    // Create window delegate if not already created
-    if (!windowDelegate) {
-        windowDelegate = [[WindowDelegate alloc] init];
+    if (!windowDelegates) {
+        windowDelegates = [[NSMutableDictionary alloc] init];
     }
     
     NSRect frame = NSMakeRect(0, 0, width, height);
@@ -35,8 +60,14 @@ NGHandle ng_macos_create_window(const char* title, int width, int height) {
         backing:NSBackingStoreBuffered
         defer:NO];
     
+    WindowDelegate* delegate = [[WindowDelegate alloc] init];
+    delegate.windowHandle = (__bridge void*)window;
+    [window setDelegate:delegate];
+    
+    NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)window];
+    [windowDelegates setObject:delegate forKey:windowValue];
+    
     [window setTitle:ng_macos_to_nsstring(title)];
-    [window setDelegate:windowDelegate];
     [window center];
     [window makeKeyAndOrderFront:nil];
     
@@ -60,7 +91,21 @@ float ng_macos_get_scale_factor(NGHandle window) {
 void ng_macos_destroy_window(NGHandle handle) {
     if (!handle) return;
     NSWindow* window = (__bridge_transfer NSWindow*)handle;
+    if (windowDelegates) {
+        NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)window];
+        [windowDelegates removeObjectForKey:windowValue];
+    }
     [window close];
+}
+
+void ng_macos_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallback callback) {
+    if (!window || !windowDelegates) return;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)nsWindow];
+    WindowDelegate* delegate = [windowDelegates objectForKey:windowValue];
+    if (delegate) {
+        delegate.scaleFactorCallback = callback;
+    }
 }
 
 int ng_macos_set_window_content(NGHandle window_handle, NGHandle content_handle) {
