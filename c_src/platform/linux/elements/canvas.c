@@ -28,3 +28,13 @@ void ng_linux_canvas_invalidate_rect(NGHandle canvas, float x, float y, float wi
     cairo_region_destroy(region);
 }
 
+NGHandle ng_linux_canvas_get_window(NGHandle canvas) {
+    if (!canvas) return NULL;
+    GtkWidget* widget = (GtkWidget*)canvas;
+    GtkWindow* window = GTK_WINDOW(gtk_widget_get_toplevel(widget));
+    if (GTK_IS_WINDOW(window)) {
+        return (NGHandle)window;
+    }
+    return NULL;
+}
+

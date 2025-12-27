@@ -68,6 +68,20 @@ NGHandle ng_windows_create_window(const char* title, int width, int height) {
     return (NGHandle)hwnd;
 }
 
+float ng_windows_get_scale_factor(NGHandle window) {
+    if (!window) return 1.0f;
+    HWND hwnd = (HWND)window;
+    HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    if (monitor) {
+        UINT dpiX = 96;
+        UINT dpiY = 96;
+        if (GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY) == S_OK) {
+            return (float)dpiX / 96.0f;
+        }
+    }
+    return 1.0f;
+}
+
 void ng_windows_destroy_window(NGHandle handle) {
     if (!handle) return;
     DestroyWindow((HWND)handle);

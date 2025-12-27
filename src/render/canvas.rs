@@ -14,6 +14,7 @@ pub struct Canvas {
     _backend: RendererBackend,
     width: u32,
     height: u32,
+    scale_factor: f32,
     #[allow(dead_code)]
     platform: Platform,
     #[allow(dead_code)]
@@ -39,12 +40,23 @@ impl Canvas {
 
         let platform = Platform::current();
         let capabilities = CapabilityChecker::new();
+        
+        let scale_factor = unsafe {
+            let window = ng_platform_canvas_get_window(handle);
+            if !window.is_null() {
+                ng_platform_get_scale_factor(window)
+            } else {
+                1.0
+            }
+        };
+        
         Ok(Self {
             handle,
             renderer: Some(renderer),
             _backend: backend,
             width,
             height,
+            scale_factor,
             platform,
             capabilities,
         })
@@ -57,6 +69,28 @@ impl Canvas {
         
         self.width = new_width;
         self.height = new_height;
+        
+        let new_scale = unsafe {
+            let window = ng_platform_canvas_get_window(self.handle);
+            if !window.is_null() {
+                ng_platform_get_scale_factor(window)
+            } else {
+                self.scale_factor
+            }
+        };
+        
+        if new_scale != self.scale_factor {
+            self.scale_factor = new_scale;
+            if let Some(ref mut renderer) = self.renderer {
+                let surface = Surface::OpenGL { context: std::ptr::null_mut() };
+                let surface_info = SurfaceInfo {
+                    width: new_width,
+                    height: new_height,
+                    scale_factor: new_scale,
+                };
+                renderer.init(surface, surface_info)?;
+            }
+        }
         
         CURRENT_BUFFER.with(|buf| {
             *buf.borrow_mut() = None;
@@ -127,6 +161,10 @@ impl Canvas {
 
     pub fn height(&self) -> u32 {
         self.height
+    }
+    
+    pub fn scale_factor(&self) -> f32 {
+        self.scale_factor
     }
 }
 

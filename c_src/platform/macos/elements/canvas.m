@@ -106,3 +106,10 @@ void ng_macos_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int
     *height = (unsigned int)bounds.size.height;
 }
 
+NGHandle ng_macos_canvas_get_window(NGHandle canvas) {
+    if (!canvas) return NULL;
+    NSView* view = (__bridge NSView*)canvas;
+    NSWindow* window = [view window];
+    return (__bridge void*)window;
+}
+

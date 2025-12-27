@@ -29,6 +29,17 @@ NGHandle ng_linux_create_window(const char* title, int width, int height) {
     return (NGHandle)window;
 }
 
+float ng_linux_get_scale_factor(NGHandle window) {
+    if (!window) return 1.0f;
+    GtkWindow* gtkWindow = (GtkWindow*)window;
+    GdkWindow* gdkWindow = gtk_widget_get_window(GTK_WIDGET(gtkWindow));
+    if (gdkWindow) {
+        gint scale = gdk_window_get_scale_factor(gdkWindow);
+        return (float)scale;
+    }
+    return 1.0f;
+}
+
 void ng_linux_destroy_window(NGHandle handle) {
     if (!handle) return;
     gtk_widget_destroy((GtkWidget*)handle);
