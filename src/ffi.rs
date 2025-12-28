@@ -52,6 +52,8 @@ unsafe extern "C" {
     pub(crate) fn ng_platform_window_set_scale_factor_callback(window: *mut c_void, callback: extern "C" fn(*mut c_void, f32));
     
     pub(crate) fn ng_platform_window_set_lifecycle_callback(window: *mut c_void);
+    
+    pub(crate) fn ng_process_frames();
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
