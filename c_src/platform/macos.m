@@ -6,6 +6,7 @@
 
 
 #import <Cocoa/Cocoa.h>
+#import <CoreFoundation/CoreFoundation.h>
 static BOOL app_initialized = FALSE;
 
 int ng_platform_init(void) {
@@ -52,8 +53,37 @@ NGMenuHandle ng_platform_create_submenu(NGMenuHandle parentMenu, const char* tit
     return ng_macos_create_submenu(parentMenu, title);
 }
 
+extern void ng_process_frames(void);
+
+// Timer callback to process frames periodically
+static void process_frames_timer(CFRunLoopTimerRef timer, void *info) {
+    (void)timer;
+    (void)info;
+    ng_process_frames();
+}
+
 int ng_platform_run(void) {
+    // Add a timer to process frames periodically (60fps = ~16ms)
+    CFRunLoopTimerRef timer = CFRunLoopTimerCreate(
+        kCFAllocatorDefault,
+        CFAbsoluteTimeGetCurrent(),
+        1.0/60.0, // 60fps
+        0,
+        0,
+        process_frames_timer,
+        NULL
+    );
+    if (timer) {
+        CFRunLoopAddTimer(CFRunLoopGetCurrent(), timer, kCFRunLoopCommonModes);
+    }
+    
     [NSApp run];
+    
+    if (timer) {
+        CFRunLoopTimerInvalidate(timer);
+        CFRelease(timer);
+    }
+    
     return NG_SUCCESS;
 }
 
