@@ -42,7 +42,19 @@ NGMenuHandle ng_platform_create_submenu(NGMenuHandle parentMenu, const char* tit
     return ng_linux_create_submenu(parentMenu, title);
 }
 
+extern void ng_process_frames(void);
+
+// Idle callback to process frames
+static gboolean process_frames_idle(gpointer user_data) {
+    (void)user_data;
+    ng_process_frames();
+    return G_SOURCE_CONTINUE; // Keep the idle source active
+}
+
 int ng_platform_run(void) {
+    // Add idle callback to process frames
+    g_idle_add(process_frames_idle, NULL);
+    
     gtk_main();
     return NG_SUCCESS;
 }

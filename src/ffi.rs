@@ -61,6 +61,9 @@ unsafe extern "C" {
     
     // Lifecycle events
     pub(crate) fn ng_platform_window_set_lifecycle_callback(window: *mut c_void);
+    
+    // Frame processing
+    pub(crate) fn ng_process_frames();
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]

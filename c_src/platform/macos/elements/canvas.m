@@ -11,6 +11,10 @@
 
 @implementation AureaCanvasView
 - (void)drawRect:(NSRect)dirtyRect {
+    // Process scheduled frames before drawing (allows canvas redraw callbacks to execute)
+    extern void ng_process_frames(void);
+    ng_process_frames();
+    
     if (self.renderBuffer && self.bufferWidth > 0 && self.bufferHeight > 0) {
         CGContextRef context = [[NSGraphicsContext currentContext] CGContext];
         CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();

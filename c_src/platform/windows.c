@@ -42,9 +42,14 @@ NGMenuHandle ng_platform_create_submenu(NGMenuHandle parentMenu, const char* tit
     return ng_windows_create_submenu(parentMenu, title);
 }
 
+extern void ng_process_frames(void);
+
 int ng_platform_run(void) {
     MSG msg;
     while (GetMessageA(&msg, NULL, 0, 0)) {
+        // Process scheduled frames before handling messages
+        ng_process_frames();
+        
         TranslateMessage(&msg);
         DispatchMessageA(&msg);
     }
