@@ -82,6 +82,11 @@ impl Tile {
     pub fn clear(&mut self, color: u32) {
         self.pixels.fill(color);
     }
+    
+    /// Get mutable reference to pixel buffer
+    pub fn pixels_mut(&mut self) -> &mut [u32] {
+        &mut self.pixels
+    }
 }
 
 /// Tile-based backing store for a canvas

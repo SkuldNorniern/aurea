@@ -181,6 +181,47 @@ impl Transform {
             m33: self.m31 * other.m13 + self.m32 * other.m23 + self.m33 * other.m33,
         }
     }
+    
+    /// Compute inverse transform (for hit testing)
+    pub fn inverse(self) -> Self {
+        // For 2D affine transforms, we can compute the inverse
+        // Determinant
+        let det = self.m11 * (self.m22 * self.m33 - self.m23 * self.m32)
+            - self.m12 * (self.m21 * self.m33 - self.m23 * self.m31)
+            + self.m13 * (self.m21 * self.m32 - self.m22 * self.m31);
+        
+        if det.abs() < 1e-6 {
+            // Singular matrix, return identity
+            return Self::identity();
+        }
+        
+        let inv_det = 1.0 / det;
+        
+        Self {
+            m11: (self.m22 * self.m33 - self.m23 * self.m32) * inv_det,
+            m12: (self.m13 * self.m32 - self.m12 * self.m33) * inv_det,
+            m13: (self.m12 * self.m23 - self.m13 * self.m22) * inv_det,
+            m21: (self.m23 * self.m31 - self.m21 * self.m33) * inv_det,
+            m22: (self.m11 * self.m33 - self.m13 * self.m31) * inv_det,
+            m23: (self.m13 * self.m21 - self.m11 * self.m23) * inv_det,
+            m31: (self.m21 * self.m32 - self.m22 * self.m31) * inv_det,
+            m32: (self.m12 * self.m31 - self.m11 * self.m32) * inv_det,
+            m33: (self.m11 * self.m22 - self.m12 * self.m21) * inv_det,
+        }
+    }
+    
+    /// Transform a point
+    pub fn map_point(self, point: Point) -> Point {
+        let x = self.m11 * point.x + self.m21 * point.y + self.m31;
+        let y = self.m12 * point.x + self.m22 * point.y + self.m32;
+        let w = self.m13 * point.x + self.m23 * point.y + self.m33;
+        
+        if w.abs() > 1e-6 {
+            Point::new(x / w, y / w)
+        } else {
+            Point::new(x, y)
+        }
+    }
 }
 
 /// Path command for building paths
