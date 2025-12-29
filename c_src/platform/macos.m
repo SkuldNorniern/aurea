@@ -181,4 +181,117 @@ void ng_platform_button_invalidate(NGHandle button) {
 
 void ng_platform_label_invalidate(NGHandle label) {
     ng_macos_label_invalidate(label);
+}
+
+// ImageView functions
+NGHandle ng_platform_create_image_view(void) {
+    return ng_macos_create_image_view();
+}
+
+int ng_platform_image_view_load_from_path(NGHandle image_view, const char* path) {
+    return ng_macos_image_view_load_from_path(image_view, path);
+}
+
+int ng_platform_image_view_load_from_data(NGHandle image_view, const unsigned char* data, unsigned int size) {
+    return ng_macos_image_view_load_from_data(image_view, data, size);
+}
+
+void ng_platform_image_view_set_scaling(NGHandle image_view, int scaling_mode) {
+    ng_macos_image_view_set_scaling(image_view, scaling_mode);
+}
+
+void ng_platform_image_view_invalidate(NGHandle image_view) {
+    ng_macos_image_view_invalidate(image_view);
+}
+
+// Slider functions
+NGHandle ng_platform_create_slider(double min, double max) {
+    return ng_macos_create_slider(min, max);
+}
+
+int ng_platform_slider_set_value(NGHandle slider, double value) {
+    return ng_macos_slider_set_value(slider, value);
+}
+
+double ng_platform_slider_get_value(NGHandle slider) {
+    return ng_macos_slider_get_value(slider);
+}
+
+int ng_platform_slider_set_enabled(NGHandle slider, int enabled) {
+    return ng_macos_slider_set_enabled(slider, enabled);
+}
+
+void ng_platform_slider_invalidate(NGHandle slider) {
+    ng_macos_slider_invalidate(slider);
+}
+
+// Checkbox functions
+NGHandle ng_platform_create_checkbox(const char* label) {
+    return ng_macos_create_checkbox(label);
+}
+
+int ng_platform_checkbox_set_checked(NGHandle checkbox, int checked) {
+    return ng_macos_checkbox_set_checked(checkbox, checked);
+}
+
+int ng_platform_checkbox_get_checked(NGHandle checkbox) {
+    return ng_macos_checkbox_get_checked(checkbox);
+}
+
+int ng_platform_checkbox_set_enabled(NGHandle checkbox, int enabled) {
+    return ng_macos_checkbox_set_enabled(checkbox, enabled);
+}
+
+void ng_platform_checkbox_invalidate(NGHandle checkbox) {
+    ng_macos_checkbox_invalidate(checkbox);
+}
+
+// ProgressBar functions
+NGHandle ng_platform_create_progress_bar(void) {
+    return ng_macos_create_progress_bar();
+}
+
+int ng_platform_progress_bar_set_value(NGHandle progress_bar, double value) {
+    return ng_macos_progress_bar_set_value(progress_bar, value);
+}
+
+int ng_platform_progress_bar_set_indeterminate(NGHandle progress_bar, int indeterminate) {
+    return ng_macos_progress_bar_set_indeterminate(progress_bar, indeterminate);
+}
+
+int ng_platform_progress_bar_set_enabled(NGHandle progress_bar, int enabled) {
+    return ng_macos_progress_bar_set_enabled(progress_bar, enabled);
+}
+
+void ng_platform_progress_bar_invalidate(NGHandle progress_bar) {
+    ng_macos_progress_bar_invalidate(progress_bar);
+}
+
+// ComboBox functions
+NGHandle ng_platform_create_combo_box(void) {
+    return ng_macos_create_combo_box();
+}
+
+int ng_platform_combo_box_add_item(NGHandle combo_box, const char* item) {
+    return ng_macos_combo_box_add_item(combo_box, item);
+}
+
+int ng_platform_combo_box_set_selected(NGHandle combo_box, int index) {
+    return ng_macos_combo_box_set_selected(combo_box, index);
+}
+
+int ng_platform_combo_box_get_selected(NGHandle combo_box) {
+    return ng_macos_combo_box_get_selected(combo_box);
+}
+
+int ng_platform_combo_box_clear(NGHandle combo_box) {
+    return ng_macos_combo_box_clear(combo_box);
+}
+
+int ng_platform_combo_box_set_enabled(NGHandle combo_box, int enabled) {
+    return ng_macos_combo_box_set_enabled(combo_box, enabled);
+}
+
+void ng_platform_combo_box_invalidate(NGHandle combo_box) {
+    ng_macos_combo_box_invalidate(combo_box);
 } 
