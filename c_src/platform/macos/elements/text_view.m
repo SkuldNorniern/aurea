@@ -64,6 +64,16 @@ NGHandle ng_macos_create_text_view(int is_editable, unsigned int id) {
         [scrollView setHasVerticalRuler:NO];
         [scrollView setHasHorizontalRuler:NO];
         
+        // Set minimum height constraint for single-line text view
+        NSLayoutConstraint* heightConstraint = [NSLayoutConstraint constraintWithItem:scrollView
+                                                                            attribute:NSLayoutAttributeHeight
+                                                                            relatedBy:NSLayoutRelationGreaterThanOrEqual
+                                                                               toItem:nil
+                                                                            attribute:NSLayoutAttributeNotAnAttribute
+                                                                           multiplier:1.0
+                                                                             constant:is_editable ? 28.0 : 24.0];
+        [scrollView addConstraint:heightConstraint];
+        
         return (__bridge_retained void*)scrollView;
     }
 }

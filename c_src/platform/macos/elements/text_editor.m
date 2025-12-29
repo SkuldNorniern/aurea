@@ -63,6 +63,16 @@ NGHandle ng_macos_create_text_editor(unsigned int id) {
         [scrollView setHasVerticalRuler:NO];
         [scrollView setHasHorizontalRuler:NO];
         
+        // Set minimum height constraint for multi-line text editor
+        NSLayoutConstraint* heightConstraint = [NSLayoutConstraint constraintWithItem:scrollView
+                                                                            attribute:NSLayoutAttributeHeight
+                                                                            relatedBy:NSLayoutRelationGreaterThanOrEqual
+                                                                               toItem:nil
+                                                                            attribute:NSLayoutAttributeNotAnAttribute
+                                                                           multiplier:1.0
+                                                                             constant:100.0];
+        [scrollView addConstraint:heightConstraint];
+        
         return (__bridge_retained void*)scrollView;
     }
 }
