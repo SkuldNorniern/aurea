@@ -7,6 +7,8 @@ use crate::AureaResult;
 use super::tile::{TileStore, TILE_SIZE};
 use super::cache::BoundedCache;
 use super::context::CpuDrawingContext;
+use super::path::tessellate_path;
+use super::scanline::fill_scanline;
 use super::super::types::{Color, Rect, Point, Paint, PaintStyle};
 use super::super::display_list::{DisplayList, DisplayItem};
 use super::super::renderer::{Renderer, DrawingContext};
@@ -115,6 +117,9 @@ impl CpuRasterizer {
             }
             super::super::renderer::DrawCommand::DrawCircle(center, radius, paint) => {
                 Self::draw_circle_to_tile_static(*center, *radius, paint, tile, tile_bounds);
+            }
+            super::super::renderer::DrawCommand::DrawPath(path, paint) => {
+                Self::draw_path_to_tile_static(path, paint, tile, tile_bounds)?;
             }
             _ => {
                 // Other commands not yet implemented
@@ -276,6 +281,76 @@ impl CpuRasterizer {
         // Leak the buffer - it will be freed when the frame ends
         let leaked = Box::leak(Box::new(buffer));
         (leaked.as_ptr() as *const u8, leaked.len() * 4, self.width, self.height)
+    }
+    
+    /// Draw a path to a tile (static helper)
+    fn draw_path_to_tile_static(
+        path: &super::super::types::Path,
+        paint: &Paint,
+        tile: &mut super::tile::Tile,
+        tile_bounds: &Rect,
+    ) -> AureaResult<()> {
+        // Tessellate path to edges
+        let edges = tessellate_path(path);
+        
+        if edges.is_empty() {
+            return Ok(());
+        }
+        
+        // Find bounding box of path
+        let mut y_min = f32::MAX;
+        let mut y_max = f32::MIN;
+        for edge in &edges {
+            y_min = y_min.min(edge.y_min);
+            y_max = y_max.max(edge.y_max);
+        }
+        
+        // Clamp to tile bounds
+        let y_start = y_min.max(tile_bounds.y).ceil() as u32;
+        let y_end = y_max.min(tile_bounds.y + tile_bounds.height).ceil() as u32;
+        
+        // Get tile pixel buffer
+        let tile_pixels = tile.pixels_mut();
+        let tile_width = TILE_SIZE;
+        let tile_height = TILE_SIZE;
+        let tile_offset_x = (tile_bounds.x as u32) / TILE_SIZE * TILE_SIZE;
+        let tile_offset_y = (tile_bounds.y as u32) / TILE_SIZE * TILE_SIZE;
+        
+        match paint.style {
+            PaintStyle::Fill => {
+                // Fill using scanline algorithm
+                for y in y_start..y_end {
+                    fill_scanline(
+                        &edges,
+                        y as f32,
+                        tile_pixels,
+                        tile_width,
+                        tile_height,
+                        tile_offset_x,
+                        tile_offset_y,
+                        paint.color,
+                    );
+                }
+            }
+            PaintStyle::Stroke => {
+                // TODO: Implement stroke as expanded geometry
+                // For now, just fill (stroke implementation is more complex)
+                for y in y_start..y_end {
+                    fill_scanline(
+                        &edges,
+                        y as f32,
+                        tile_pixels,
+                        tile_width,
+                        tile_height,
+                        tile_offset_x,
+                        tile_offset_y,
+                        paint.color,
+                    );
+                }
+            }
+        }
+        
+        Ok(())
     }
 }
 
