@@ -27,6 +27,11 @@ fn main() {
             .file("c_src/platform/windows/elements/text_editor.c")
             .file("c_src/platform/windows/elements/text_view.c")
             .file("c_src/platform/windows/elements/canvas.c")
+            .file("c_src/platform/windows/elements/image_view.c")
+            .file("c_src/platform/windows/elements/slider.c")
+            .file("c_src/platform/windows/elements/checkbox.c")
+            .file("c_src/platform/windows/elements/progress_bar.c")
+            .file("c_src/platform/windows/elements/combo_box.c")
             .define("_WIN32", None);
         println!("cargo:rustc-link-lib=user32");
         println!("cargo:rustc-link-lib=gdi32");
@@ -44,6 +49,11 @@ fn main() {
         println!("cargo:rerun-if-changed=c_src/platform/windows/elements/text_editor.c");
         println!("cargo:rerun-if-changed=c_src/platform/windows/elements/text_view.c");
         println!("cargo:rerun-if-changed=c_src/platform/windows/elements/canvas.c");
+        println!("cargo:rerun-if-changed=c_src/platform/windows/elements/image_view.c");
+        println!("cargo:rerun-if-changed=c_src/platform/windows/elements/slider.c");
+        println!("cargo:rerun-if-changed=c_src/platform/windows/elements/checkbox.c");
+        println!("cargo:rerun-if-changed=c_src/platform/windows/elements/progress_bar.c");
+        println!("cargo:rerun-if-changed=c_src/platform/windows/elements/combo_box.c");
     }
 
     // iOS targets (including simulator) - check target string, not cfg
@@ -63,6 +73,11 @@ fn main() {
             .file("c_src/platform/ios/elements/label.m")
             .file("c_src/platform/ios/elements/box.m")
             .file("c_src/platform/ios/elements/canvas.m")
+            .file("c_src/platform/ios/elements/image_view.m")
+            .file("c_src/platform/ios/elements/slider.m")
+            .file("c_src/platform/ios/elements/checkbox.m")
+            .file("c_src/platform/ios/elements/progress_bar.m")
+            .file("c_src/platform/ios/elements/combo_box.m")
             .define("__APPLE__", None)
             .define("TARGET_OS_IPHONE", Some("1"))
             .flag("-x")
@@ -83,6 +98,11 @@ fn main() {
         println!("cargo:rerun-if-changed=c_src/platform/ios/elements/label.m");
         println!("cargo:rerun-if-changed=c_src/platform/ios/elements/box.m");
         println!("cargo:rerun-if-changed=c_src/platform/ios/elements/canvas.m");
+        println!("cargo:rerun-if-changed=c_src/platform/ios/elements/image_view.m");
+        println!("cargo:rerun-if-changed=c_src/platform/ios/elements/slider.m");
+        println!("cargo:rerun-if-changed=c_src/platform/ios/elements/checkbox.m");
+        println!("cargo:rerun-if-changed=c_src/platform/ios/elements/progress_bar.m");
+        println!("cargo:rerun-if-changed=c_src/platform/ios/elements/combo_box.m");
     }
     // macOS targets (only if not iOS)
     else if target.contains("apple-darwin") {
@@ -99,6 +119,11 @@ fn main() {
             .file("c_src/platform/macos/elements/text_editor.m")
             .file("c_src/platform/macos/elements/text_view.m")
             .file("c_src/platform/macos/elements/canvas.m")
+            .file("c_src/platform/macos/elements/image_view.m")
+            .file("c_src/platform/macos/elements/slider.m")
+            .file("c_src/platform/macos/elements/checkbox.m")
+            .file("c_src/platform/macos/elements/progress_bar.m")
+            .file("c_src/platform/macos/elements/combo_box.m")
             .define("__APPLE__", None)
             .flag("-x")
             .flag("objective-c")
@@ -118,6 +143,11 @@ fn main() {
         println!("cargo:rerun-if-changed=c_src/platform/macos/elements/text_editor.m");
         println!("cargo:rerun-if-changed=c_src/platform/macos/elements/text_view.m");
         println!("cargo:rerun-if-changed=c_src/platform/macos/elements/canvas.m");
+        println!("cargo:rerun-if-changed=c_src/platform/macos/elements/image_view.m");
+        println!("cargo:rerun-if-changed=c_src/platform/macos/elements/slider.m");
+        println!("cargo:rerun-if-changed=c_src/platform/macos/elements/checkbox.m");
+        println!("cargo:rerun-if-changed=c_src/platform/macos/elements/progress_bar.m");
+        println!("cargo:rerun-if-changed=c_src/platform/macos/elements/combo_box.m");
         println!("cargo:rerun-if-changed=c_src/platform/macos/elements.h");
     }
 
@@ -172,7 +202,12 @@ fn main() {
             .file("c_src/platform/linux/elements/text_common.c")
             .file("c_src/platform/linux/elements/text_editor.c")
             .file("c_src/platform/linux/elements/text_view.c")
-            .file("c_src/platform/linux/elements/canvas.c");
+            .file("c_src/platform/linux/elements/canvas.c")
+            .file("c_src/platform/linux/elements/image_view.c")
+            .file("c_src/platform/linux/elements/slider.c")
+            .file("c_src/platform/linux/elements/checkbox.c")
+            .file("c_src/platform/linux/elements/progress_bar.c")
+            .file("c_src/platform/linux/elements/combo_box.c");
 
         println!("cargo:rerun-if-changed=c_src/platform/linux.c");
         println!("cargo:rerun-if-changed=c_src/platform/linux/utils.c");
@@ -185,6 +220,11 @@ fn main() {
         println!("cargo:rerun-if-changed=c_src/platform/linux/elements/text_editor.c");
         println!("cargo:rerun-if-changed=c_src/platform/linux/elements/text_view.c");
         println!("cargo:rerun-if-changed=c_src/platform/linux/elements/canvas.c");
+        println!("cargo:rerun-if-changed=c_src/platform/linux/elements/image_view.c");
+        println!("cargo:rerun-if-changed=c_src/platform/linux/elements/slider.c");
+        println!("cargo:rerun-if-changed=c_src/platform/linux/elements/checkbox.c");
+        println!("cargo:rerun-if-changed=c_src/platform/linux/elements/progress_bar.c");
+        println!("cargo:rerun-if-changed=c_src/platform/linux/elements/combo_box.c");
     }
 
     // Compile the sources
