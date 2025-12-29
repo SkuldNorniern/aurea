@@ -210,8 +210,8 @@ impl DrawingContext for CpuDrawingContext {
         Ok(())
     }
     
-    fn draw_path(&mut self, _path: &Path, _paint: &Paint) -> AureaResult<()> {
-        // TODO: Implement path drawing
+    fn draw_path(&mut self, path: &Path, paint: &Paint) -> AureaResult<()> {
+        self.add_command(super::super::renderer::DrawCommand::DrawPath(path.clone(), paint.clone()));
         Ok(())
     }
     
@@ -328,9 +328,9 @@ impl DrawingContext for CpuDrawingContext {
         Ok(())
     }
     
-    fn hit_test_path(&mut self, _path: &Path, _point: Point) -> AureaResult<bool> {
-        // TODO: Implement hit testing
-        Ok(false)
+    fn hit_test_path(&mut self, path: &Path, point: Point) -> AureaResult<bool> {
+        let local_point = self.current_transform.inverse().map_point(point);
+        Ok(super::hit_test::hit_test_path(path, local_point))
     }
 }
 
