@@ -2,6 +2,7 @@
 #include "utils.h"
 #include "common/errors.h"
 #include <windows.h>
+#include <ShellScalingApi.h>
 #include <stdio.h>
 
 // Logging function declarations (implemented in Rust)

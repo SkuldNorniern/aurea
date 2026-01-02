@@ -27,7 +27,6 @@ fn main() {
             .file("c_src/platform/windows/elements/text_editor.c")
             .file("c_src/platform/windows/elements/text_view.c")
             .file("c_src/platform/windows/elements/canvas.c")
-            .file("c_src/platform/windows/elements/image_view.c")
             .file("c_src/platform/windows/elements/slider.c")
             .file("c_src/platform/windows/elements/checkbox.c")
             .file("c_src/platform/windows/elements/progress_bar.c")
@@ -36,6 +35,9 @@ fn main() {
         println!("cargo:rustc-link-lib=user32");
         println!("cargo:rustc-link-lib=gdi32");
         println!("cargo:rustc-link-lib=comctl32");
+        println!("cargo:rustc-link-lib=Shcore");
+        println!("cargo:rustc-link-lib=gdiplus");
+        println!("cargo:rustc-link-lib=ole32");
 
         println!("cargo:rerun-if-changed=c_src/platform/windows.c");
         println!("cargo:rerun-if-changed=c_src/platform/windows/utils.c");
@@ -49,7 +51,7 @@ fn main() {
         println!("cargo:rerun-if-changed=c_src/platform/windows/elements/text_editor.c");
         println!("cargo:rerun-if-changed=c_src/platform/windows/elements/text_view.c");
         println!("cargo:rerun-if-changed=c_src/platform/windows/elements/canvas.c");
-        println!("cargo:rerun-if-changed=c_src/platform/windows/elements/image_view.c");
+        println!("cargo:rerun-if-changed=c_src/platform/windows/elements/image_view.cpp");
         println!("cargo:rerun-if-changed=c_src/platform/windows/elements/slider.c");
         println!("cargo:rerun-if-changed=c_src/platform/windows/elements/checkbox.c");
         println!("cargo:rerun-if-changed=c_src/platform/windows/elements/progress_bar.c");
@@ -229,6 +231,17 @@ fn main() {
 
     // Compile the sources
     build.compile("native_gui");
+
+    #[cfg(target_os = "windows")]
+    {
+        let mut cpp_build = cc::Build::new();
+        cpp_build
+            .cpp(true)
+            .include("c_src")
+            .file("c_src/platform/windows/elements/image_view.cpp")
+            .define("_WIN32", None)
+            .compile("native_gui_cpp");
+    }
 
     // Watch for changes in all C source files
     println!("cargo:rerun-if-changed=c_src/native_gui.h");
