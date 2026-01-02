@@ -1,6 +1,6 @@
 #include "common.h"
 #include "../elements.h"
-#include "../../common/errors.h"
+#include "../../../common/errors.h"
 #include <windows.h>
 #include <stdlib.h>
 
@@ -32,5 +32,23 @@ void ng_windows_free_text_content(char* content) {
     if (content) {
         free(content);
     }
+}
+
+NGHandle ng_windows_create_text_field(void) {
+    HWND temp_parent = GetDesktopWindow();
+
+    HWND edit = CreateWindowExA(
+        WS_EX_CLIENTEDGE,
+        "EDIT",
+        "",
+        WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
+        0, 0, 200, 24,
+        temp_parent,
+        NULL,
+        GetModuleHandleA(NULL),
+        NULL
+    );
+
+    return (NGHandle)edit;
 }
 

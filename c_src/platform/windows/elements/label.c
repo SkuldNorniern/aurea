@@ -1,6 +1,6 @@
 #include "common.h"
 #include "../elements.h"
-#include "../../common/errors.h"
+#include "../../../common/errors.h"
 #include <windows.h>
 
 NGHandle ng_windows_create_label(const char* text) {

@@ -20,5 +20,7 @@ int ng_platform_add_menu_item(NGMenuHandle menu, const char* title, unsigned int
 // Canvas functions
 NGHandle ng_platform_create_canvas(int width, int height);
 void ng_platform_canvas_invalidate(NGHandle canvas);
+void ng_platform_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size, unsigned int width, unsigned int height);
+void ng_platform_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int* height);
 
 #endif // NATIVE_GUI_WINDOWS_H 

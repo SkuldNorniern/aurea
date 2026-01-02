@@ -1,7 +1,33 @@
 #include "common.h"
 #include "../elements.h"
-#include "../../common/errors.h"
+#include "../../../common/errors.h"
 #include <windows.h>
+#include <string.h>
+
+static const char* BOX_OLD_PROC_PROP = "AureaBoxOldProc";
+
+static LRESULT CALLBACK BoxProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (msg == WM_COMMAND) {
+        HWND parent = GetParent(hwnd);
+        while (parent && parent != GetDesktopWindow()) {
+            char class_name[256];
+            GetClassNameA(parent, class_name, sizeof(class_name));
+            if (_stricmp(class_name, "NativeGuiWindow") == 0) {
+                SendMessageA(parent, msg, wParam, lParam);
+                break;
+            }
+            parent = GetParent(parent);
+        }
+    } else if (msg == WM_NCDESTROY) {
+        RemovePropA(hwnd, BOX_OLD_PROC_PROP);
+    }
+    
+    WNDPROC old_proc = (WNDPROC)GetPropA(hwnd, BOX_OLD_PROC_PROP);
+    if (old_proc) {
+        return CallWindowProcA(old_proc, hwnd, msg, wParam, lParam);
+    }
+    return DefWindowProcA(hwnd, msg, wParam, lParam);
+}
 
 NGHandle ng_windows_create_box(int is_vertical) {
     HWND temp_parent = GetDesktopWindow();
@@ -21,6 +47,10 @@ NGHandle ng_windows_create_box(int is_vertical) {
     if (container) {
         SetPropA(container, BOX_ORIENTATION_PROP, (HANDLE)(INT_PTR)is_vertical);
         SetClassLongPtrA(container, GCLP_HBRBACKGROUND, (LONG_PTR)GetStockObject(NULL_BRUSH));
+        WNDPROC old_proc = (WNDPROC)SetWindowLongPtrA(container, GWLP_WNDPROC, (LONG_PTR)BoxProc);
+        if (old_proc) {
+            SetPropA(container, BOX_OLD_PROC_PROP, (HANDLE)old_proc);
+        }
     }
 
     return (NGHandle)container;
