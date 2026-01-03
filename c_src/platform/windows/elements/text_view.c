@@ -1,6 +1,6 @@
 #include "common.h"
 #include "../elements.h"
-#include "../../common/errors.h"
+#include "../../../common/errors.h"
 #include <windows.h>
 #include <commctrl.h>
 #include <richedit.h>
@@ -30,7 +30,6 @@ static LRESULT CALLBACK text_view_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         return CallWindowProcA(g_old_text_view_proc, hwnd, msg, wParam, lParam);
     }
     return DefWindowProcA(hwnd, msg, wParam, lParam);
-}
 }
 
 NGHandle ng_windows_create_text_view(int is_editable, unsigned int id) {

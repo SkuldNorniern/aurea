@@ -120,6 +120,14 @@ void ng_platform_canvas_invalidate(NGHandle canvas) {
     ng_windows_canvas_invalidate(canvas);
 }
 
+void ng_platform_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size, unsigned int width, unsigned int height) {
+    ng_windows_canvas_update_buffer(canvas, buffer, size, width, height);
+}
+
+void ng_platform_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int* height) {
+    ng_windows_canvas_get_size(canvas, width, height);
+}
+
 void ng_platform_canvas_invalidate_rect(NGHandle canvas, float x, float y, float width, float height) {
     ng_windows_canvas_invalidate_rect(canvas, x, y, width, height);
 }

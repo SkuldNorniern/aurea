@@ -1,9 +1,10 @@
 #include "common.h"
 #include "../elements.h"
-#include "../../common/errors.h"
+#include "../../../common/errors.h"
 #include <windows.h>
 #include <gdiplus.h>
 #include <objidl.h>
+#include <string.h>
 
 #pragma comment(lib, "gdiplus.lib")
 #pragma comment(lib, "ole32.lib")
@@ -69,6 +70,10 @@ static LRESULT CALLBACK ImageViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
     return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 NGHandle ng_windows_create_image_view(void) {
     static const char* className = "AureaImageView";
     static int registered = 0;
@@ -113,16 +118,16 @@ int ng_windows_image_view_load_from_path(NGHandle image_view, const char* path) 
     ImageViewData* data = (ImageViewData*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
     if (!data) return NG_ERROR_INVALID_HANDLE;
     
-    GdiplusStartupInput gdiplusStartupInput;
+    Gdiplus::GdiplusStartupInput gdiplusStartupInput;
     ULONG_PTR gdiplusToken;
-    GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
+    Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
     
     WCHAR wpath[MAX_PATH];
     MultiByteToWideChar(CP_UTF8, 0, path, -1, wpath, MAX_PATH);
     
     Gdiplus::Bitmap* bitmap = new Gdiplus::Bitmap(wpath);
     if (!bitmap || bitmap->GetLastStatus() != Gdiplus::Ok) {
-        GdiplusShutdown(gdiplusToken);
+        Gdiplus::GdiplusShutdown(gdiplusToken);
         if (bitmap) delete bitmap;
         return NG_ERROR_CREATION_FAILED;
     }
@@ -136,7 +141,7 @@ int ng_windows_image_view_load_from_path(NGHandle image_view, const char* path) 
     }
     data->hBitmap = hBitmap;
     
-    GdiplusShutdown(gdiplusToken);
+    Gdiplus::GdiplusShutdown(gdiplusToken);
     
     InvalidateRect(hwnd, NULL, TRUE);
     return NG_SUCCESS;
@@ -149,14 +154,14 @@ int ng_windows_image_view_load_from_data(NGHandle image_view, const unsigned cha
     ImageViewData* viewData = (ImageViewData*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
     if (!viewData) return NG_ERROR_INVALID_HANDLE;
     
-    GdiplusStartupInput gdiplusStartupInput;
+    Gdiplus::GdiplusStartupInput gdiplusStartupInput;
     ULONG_PTR gdiplusToken;
-    GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
+    Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
     
     IStream* stream = NULL;
     HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, size);
     if (!hMem) {
-        GdiplusShutdown(gdiplusToken);
+        Gdiplus::GdiplusShutdown(gdiplusToken);
         return NG_ERROR_CREATION_FAILED;
     }
     
@@ -170,7 +175,7 @@ int ng_windows_image_view_load_from_data(NGHandle image_view, const unsigned cha
     if (!bitmap || bitmap->GetLastStatus() != Gdiplus::Ok) {
         stream->Release();
         GlobalFree(hMem);
-        GdiplusShutdown(gdiplusToken);
+        Gdiplus::GdiplusShutdown(gdiplusToken);
         if (bitmap) delete bitmap;
         return NG_ERROR_CREATION_FAILED;
     }
@@ -181,12 +186,12 @@ int ng_windows_image_view_load_from_data(NGHandle image_view, const unsigned cha
     stream->Release();
     GlobalFree(hMem);
     
-    if (data->hBitmap) {
-        DeleteObject(data->hBitmap);
+    if (viewData->hBitmap) {
+        DeleteObject(viewData->hBitmap);
     }
-    data->hBitmap = hBitmap;
+    viewData->hBitmap = hBitmap;
     
-    GdiplusShutdown(gdiplusToken);
+    Gdiplus::GdiplusShutdown(gdiplusToken);
     
     InvalidateRect(hwnd, NULL, TRUE);
     return NG_SUCCESS;
@@ -207,4 +212,8 @@ void ng_windows_image_view_invalidate(NGHandle image_view) {
     if (!image_view) return;
     InvalidateRect((HWND)image_view, NULL, TRUE);
 }
+
+#ifdef __cplusplus
+}
+#endif
 

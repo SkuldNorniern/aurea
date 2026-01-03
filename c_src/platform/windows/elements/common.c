@@ -1,6 +1,7 @@
 #include "common.h"
 #include "../elements.h"
-#include "../../common/errors.h"
+#include "../../../common/errors.h"
+#include <richedit.h>
 #include <string.h>
 
 int get_box_orientation(HWND box) {
@@ -76,6 +77,17 @@ void layout_box_children(HWND box) {
             GetClassNameA(child, class_name, sizeof(class_name));
 
             int child_x = x;
+
+            if (!is_vertical && _stricmp(class_name, "AureaCanvas") == 0) {
+                int remaining_width = box_width - child_x - PADDING;
+                if (remaining_width > 0) {
+                    width = remaining_width;
+                }
+                int available_height = box_height - (PADDING * 2);
+                if (available_height > 0) {
+                    height = available_height;
+                }
+            }
 
             if (is_vertical) {
                 if (_stricmp(class_name, "RichEdit20A") == 0 || _stricmp(class_name, "EDIT") == 0) {
