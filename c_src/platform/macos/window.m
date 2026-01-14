@@ -3,9 +3,6 @@
 #import "utils.h"
 #import <Cocoa/Cocoa.h>
 
-// Window delegate to handle window close events and scale factor changes
-#import "window.h"
-
 // Forward declaration for lifecycle callback
 extern void ng_invoke_lifecycle_callback(void* window, unsigned int event_id);
 
@@ -68,7 +65,13 @@ NGHandle ng_macos_create_window(const char* title, int width, int height) {
 }
 
 NGHandle ng_macos_create_window_with_type(const char* title, int width, int height, int window_type) {
-    if (!title) return NULL;
+    if (!title) {
+        return NULL;
+    }
+    
+    if (width <= 0 || height <= 0) {
+        return NULL;
+    }
     
     if (!windowDelegates) {
         windowDelegates = [[NSMutableDictionary alloc] init];

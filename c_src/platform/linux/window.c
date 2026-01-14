@@ -180,3 +180,33 @@ void* ng_linux_get_main_vbox(void) {
     return (void*)main_vbox;
 }
 
+void ng_linux_window_set_title(NGHandle window, const char* title) {
+    if (!window || !title) return;
+    GtkWidget* widget = (GtkWidget*)window;
+    gtk_window_set_title(GTK_WINDOW(widget), title);
+}
+
+void ng_linux_window_set_size(NGHandle window, int width, int height) {
+    if (!window) return;
+    GtkWidget* widget = (GtkWidget*)window;
+    gtk_window_resize(GTK_WINDOW(widget), width, height);
+}
+
+void ng_linux_window_get_size(NGHandle window, int* width, int* height) {
+    if (!window || !width || !height) return;
+    GtkWidget* widget = (GtkWidget*)window;
+    gtk_window_get_size(GTK_WINDOW(widget), width, height);
+}
+
+void ng_linux_window_request_close(NGHandle window) {
+    if (!window) return;
+    GtkWidget* widget = (GtkWidget*)window;
+    gtk_window_close(GTK_WINDOW(widget));
+}
+
+int ng_linux_window_is_focused(NGHandle window) {
+    if (!window) return 0;
+    GtkWidget* widget = (GtkWidget*)window;
+    return gtk_window_is_active(GTK_WINDOW(widget)) ? 1 : 0;
+}
+

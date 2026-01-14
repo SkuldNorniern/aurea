@@ -8,6 +8,7 @@ unsafe extern "C" {
 
     // Platform runner
     pub(crate) fn ng_platform_run() -> c_int;
+    pub(crate) fn ng_platform_poll_events() -> c_int;
 
     // Window elements
     pub(crate) fn ng_platform_create_window(

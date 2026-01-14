@@ -490,8 +490,14 @@ impl Canvas {
         let handle_usize = self.handle as usize;
 
         // Create a callback that can perform redraw using interior mutability
+        // Locking order (to prevent deadlocks):
+        // 1. needs_redraw
+        // 2. damage
+        // 3. renderer
+        // 4. background_color
+        // 5. draw_callback
         let callback: Arc<dyn Fn() -> AureaResult<()> + Send + Sync> = Arc::new(move || {
-            // Check if redraw is needed
+            // Step 1: Check if redraw is needed
             let should_redraw = {
                 let mut flag = needs_redraw.lock().unwrap();
                 if !*flag {
@@ -505,13 +511,13 @@ impl Canvas {
                 return Ok(());
             }
 
-            // Get damage region
+            // Step 2: Get damage region
             let damage_rect = {
                 let mut d = damage.lock().unwrap();
                 d.take()
             };
 
-            // Get renderer
+            // Step 3: Get renderer (hold lock during frame)
             let mut renderer_guard = renderer.lock().unwrap();
             if let Some(ref mut r) = *renderer_guard {
                 // Set damage
@@ -520,11 +526,14 @@ impl Canvas {
                 // Begin frame
                 let mut ctx = r.begin_frame()?;
 
-                // Clear with background color
-                let bg_color = *background_color.lock().unwrap();
+                // Step 4: Get background color (short lock)
+                let bg_color = {
+                    let bg = background_color.lock().unwrap();
+                    *bg
+                };
                 ctx.clear(bg_color)?;
 
-                // Call stored callback
+                // Step 5: Call stored callback (short lock)
                 {
                     let cb = draw_callback.lock().unwrap();
                     if let Some(ref callback_fn) = *cb {
