@@ -29,6 +29,9 @@ unsafe extern "C" {
     pub(crate) fn ng_platform_window_get_size(window: *mut c_void, width: *mut c_int, height: *mut c_int);
     pub(crate) fn ng_platform_window_request_close(window: *mut c_void);
     pub(crate) fn ng_platform_window_is_focused(window: *mut c_void) -> c_int;
+    pub(crate) fn ng_platform_window_show(window: *mut c_void);
+    pub(crate) fn ng_platform_window_hide(window: *mut c_void);
+    pub(crate) fn ng_platform_window_is_visible(window: *mut c_void) -> c_int;
 
     // Menu elements
     pub(crate) fn ng_platform_create_menu() -> *mut c_void;
@@ -275,7 +278,6 @@ pub extern "C" fn ng_invoke_textview_callback(id: u32, content: *const c_char) {
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_lifecycle_callback(window: *mut c_void, event_id: u32) {
     use crate::lifecycle::{LifecycleEvent, invoke_lifecycle_callback};
-
     let event = match event_id {
         0 => LifecycleEvent::ApplicationDidEnterBackground,
         1 => LifecycleEvent::ApplicationWillEnterForeground,

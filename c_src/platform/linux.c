@@ -26,6 +26,22 @@ void ng_platform_destroy_window(NGHandle handle) {
     ng_linux_destroy_window(handle);
 }
 
+void ng_platform_window_show(NGHandle window) {
+    // TODO: Implement for Linux
+    (void)window;
+}
+
+void ng_platform_window_hide(NGHandle window) {
+    // TODO: Implement for Linux
+    (void)window;
+}
+
+int ng_platform_window_is_visible(NGHandle window) {
+    // TODO: Implement for Linux
+    (void)window;
+    return 1;
+}
+
 NGMenuHandle ng_platform_create_menu(void) {
     return ng_linux_create_menu();
 }

@@ -18,9 +18,9 @@ extern void ng_invoke_lifecycle_callback(void* window, unsigned int event_id);
     if (self.lifecycleCallbackEnabled && self.windowHandle) {
         ng_invoke_lifecycle_callback(self.windowHandle, 5); // WindowWillClose = 5
     }
-    // Terminate the application when the window closes
-    [NSApp terminate:nil];
-    return YES;
+    // Do NOT terminate the application when the window closes
+    // [NSApp terminate:nil];
+    return NO; // We handle closing ourselves
 }
 
 - (void)windowDidMiniaturize:(NSNotification*)notification {
@@ -132,6 +132,7 @@ NGHandle ng_macos_create_window_with_type(const char* title, int width, int heig
         defer:NO];
     
     [window setLevel:windowLevel];
+    [window setReleasedWhenClosed:NO]; // Crucial for show/hide behavior
     
     WindowDelegate* delegate = [[WindowDelegate alloc] init];
     delegate.windowHandle = (__bridge void*)window;
@@ -251,11 +252,39 @@ void ng_macos_window_get_size(NGHandle window, int* width, int* height) {
 void ng_macos_window_request_close(NGHandle window) {
     if (!window) return;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
-    [nsWindow performClose:nil];
+    
+    // performClose: only works if the window has a close button in styleMask.
+    // For borderless windows, we must trigger the logic manually.
+    if ([nsWindow styleMask] & NSWindowStyleMaskClosable) {
+        [nsWindow performClose:nil];
+    } else {
+        id<NSWindowDelegate> delegate = [nsWindow delegate];
+        if ([delegate respondsToSelector:@selector(windowShouldClose:)]) {
+            [delegate windowShouldClose:nsWindow];
+        }
+    }
 }
 
 int ng_macos_window_is_focused(NGHandle window) {
     if (!window) return 0;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
     return [nsWindow isKeyWindow] ? 1 : 0;
+}
+
+void ng_macos_window_show(NGHandle window) {
+    if (!window) return;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    [nsWindow makeKeyAndOrderFront:nil];
+}
+
+void ng_macos_window_hide(NGHandle window) {
+    if (!window) return;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    [nsWindow orderOut:nil];
+}
+
+int ng_macos_window_is_visible(NGHandle window) {
+    if (!window) return 0;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    return [nsWindow isVisible] ? 1 : 0;
 } 
