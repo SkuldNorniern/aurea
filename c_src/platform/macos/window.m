@@ -167,4 +167,40 @@ int ng_macos_set_window_content(NGHandle window_handle, NGHandle content_handle)
     [NSLayoutConstraint activateConstraints:constraints];
     
     return NG_SUCCESS;
+}
+
+void ng_macos_window_set_title(NGHandle window, const char* title) {
+    if (!window || !title) return;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    NSString* nsTitle = [NSString stringWithUTF8String:title];
+    [nsWindow setTitle:nsTitle];
+}
+
+void ng_macos_window_set_size(NGHandle window, int width, int height) {
+    if (!window) return;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    NSRect frame = [nsWindow frame];
+    frame.size.width = width;
+    frame.size.height = height;
+    [nsWindow setFrame:frame display:YES];
+}
+
+void ng_macos_window_get_size(NGHandle window, int* width, int* height) {
+    if (!window || !width || !height) return;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    NSRect frame = [nsWindow frame];
+    *width = (int)frame.size.width;
+    *height = (int)frame.size.height;
+}
+
+void ng_macos_window_request_close(NGHandle window) {
+    if (!window) return;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    [nsWindow performClose:nil];
+}
+
+int ng_macos_window_is_focused(NGHandle window) {
+    if (!window) return 0;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    return [nsWindow isKeyWindow] ? 1 : 0;
 } 

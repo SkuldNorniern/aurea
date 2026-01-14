@@ -148,6 +148,26 @@ void ng_platform_window_set_lifecycle_callback(NGHandle window) {
     ng_linux_window_set_lifecycle_callback(window);
 }
 
+void ng_platform_window_set_title(NGHandle window, const char* title) {
+    ng_linux_window_set_title(window, title);
+}
+
+void ng_platform_window_set_size(NGHandle window, int width, int height) {
+    ng_linux_window_set_size(window, width, height);
+}
+
+void ng_platform_window_get_size(NGHandle window, int* width, int* height) {
+    ng_linux_window_get_size(window, width, height);
+}
+
+void ng_platform_window_request_close(NGHandle window) {
+    ng_linux_window_request_close(window);
+}
+
+int ng_platform_window_is_focused(NGHandle window) {
+    return ng_linux_window_is_focused(window);
+}
+
 // ImageView functions
 NGHandle ng_platform_create_image_view(void) {
     return ng_linux_create_image_view();

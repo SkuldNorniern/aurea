@@ -287,6 +287,116 @@ impl Window {
     {
         self.event_queue.register_callback(Arc::new(callback));
     }
+
+    /// Request the window to close
+    ///
+    /// This sends a close request to the window. The window may emit a
+    /// `CloseRequested` event that can be handled by event callbacks.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use aurea::Window;
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let window = Window::new("App", 800, 600)?;
+    /// window.request_close();
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn request_close(&self) {
+        unsafe {
+            ng_platform_window_request_close(self.handle);
+        }
+    }
+
+    /// Set the window title
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use aurea::Window;
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let window = Window::new("App", 800, 600)?;
+    /// window.set_title("New Title");
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn set_title(&self, title: &str) -> AureaResult<()> {
+        let title_cstr = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
+        unsafe {
+            ng_platform_window_set_title(self.handle, title_cstr.as_ptr());
+        }
+        Ok(())
+    }
+
+    /// Set the window size
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use aurea::Window;
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let window = Window::new("App", 800, 600)?;
+    /// window.set_size(1024, 768);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn set_size(&self, width: u32, height: u32) {
+        unsafe {
+            ng_platform_window_set_size(
+                self.handle,
+                width as i32,
+                height as i32,
+            );
+        }
+    }
+
+    /// Get the window size
+    ///
+    /// Returns `(width, height)` in pixels.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use aurea::Window;
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let window = Window::new("App", 800, 600)?;
+    /// let (width, height) = window.size();
+    /// println!("Window size: {}x{}", width, height);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn size(&self) -> (u32, u32) {
+        let mut width = 0i32;
+        let mut height = 0i32;
+        unsafe {
+            ng_platform_window_get_size(self.handle, &mut width, &mut height);
+        }
+        (width as u32, height as u32)
+    }
+
+    /// Check if the window is currently focused
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use aurea::Window;
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let window = Window::new("App", 800, 600)?;
+    /// if window.is_focused() {
+    ///     println!("Window is focused");
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn is_focused(&self) -> bool {
+        unsafe { ng_platform_window_is_focused(self.handle) != 0 }
+    }
 }
 
 impl Drop for Window {
