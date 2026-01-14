@@ -33,6 +33,9 @@ pub mod render;
 pub mod view;
 pub mod window;
 
+pub use crate::view::FrameScheduler;
+pub use crate::view::damage::DamageRegion;
+
 pub use crate::elements::{Container, Element};
 pub use crate::menu::MenuBar;
 pub use crate::window::{Window, WindowManager, WindowType};

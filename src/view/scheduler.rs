@@ -6,9 +6,13 @@ use std::sync::{Arc, LazyLock, Mutex};
 static FRAME_SCHEDULED: AtomicBool = AtomicBool::new(false);
 
 type CanvasRedrawCallback = Arc<dyn Fn() -> Result<(), crate::AureaError> + Send + Sync>;
+type FrameCallback = Arc<dyn Fn() + Send + Sync + 'static>;
 
 static CANVAS_REGISTRY: LazyLock<Mutex<HashMap<usize, CanvasRedrawCallback>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+static FRAME_CALLBACKS: LazyLock<Mutex<Vec<FrameCallback>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
 
 pub struct FrameScheduler;
 
@@ -35,6 +39,15 @@ impl FrameScheduler {
         registry.remove(&(handle as usize));
     }
 
+    /// Register a global frame callback that will be called on every frame.
+    pub fn register_frame_callback<F>(callback: F)
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        let mut callbacks = FRAME_CALLBACKS.lock().unwrap();
+        callbacks.push(Arc::new(callback));
+    }
+
     /// Process scheduled frames by calling redraw callbacks on all registered canvases This should
     /// be called from the event loop or window's frame handler.
     pub fn process_frames() -> crate::AureaResult<()> {
@@ -42,15 +55,23 @@ impl FrameScheduler {
             return Ok(());
         }
 
-        let callbacks: Vec<CanvasRedrawCallback> = {
+        let (canvas_callbacks, global_callbacks) = {
             let registry = CANVAS_REGISTRY.lock().unwrap();
-            registry.values().cloned().collect()
+            let global = FRAME_CALLBACKS.lock().unwrap();
+            (
+                registry.values().cloned().collect::<Vec<_>>(),
+                global.clone(),
+            )
         };
 
-        for callback in callbacks {
+        for callback in canvas_callbacks {
             if let Err(e) = callback() {
                 log::warn!("Canvas redraw error: {:?}", e);
             }
+        }
+
+        for callback in global_callbacks {
+            callback();
         }
 
         Ok(())
