@@ -151,6 +151,11 @@ impl Window {
             ng_platform_window_set_lifecycle_callback(window_handle);
         }
     }
+
+    /// Get the native window handle for external renderer integration.
+    pub fn native_handle(&self) -> crate::wgpu_integration::NativeWindowHandle {
+        crate::wgpu_integration::Window::native_handle_impl(self)
+    }
 }
 
 impl Drop for Window {

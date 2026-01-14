@@ -31,6 +31,7 @@ pub mod platform;
 pub mod render;
 pub mod view;
 pub mod window;
+pub mod wgpu_integration;
 
 pub use crate::elements::{Container, Element};
 pub use crate::menu::MenuBar;
@@ -38,6 +39,8 @@ pub use crate::window::Window;
 
 pub use crate::capability::{Capability, CapabilityChecker};
 pub use crate::platform::{DesktopPlatform, MobilePlatform, Platform};
+
+pub use crate::wgpu_integration::NativeWindowHandle;
 
 /// Errors that might occur during native GUI operations.
 #[derive(Debug, Clone)]
