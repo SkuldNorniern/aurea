@@ -8,19 +8,30 @@ unsafe extern "C" {
 
     // Platform runner
     pub(crate) fn ng_platform_run() -> c_int;
-    
+
     // Window elements
-    pub(crate) fn ng_platform_create_window(title: *const c_char, width: c_int, height: c_int) -> *mut c_void;
+    pub(crate) fn ng_platform_create_window(
+        title: *const c_char,
+        width: c_int,
+        height: c_int,
+    ) -> *mut c_void;
     pub(crate) fn ng_platform_destroy_window(handle: *mut c_void);
 
     // Menu elements
     pub(crate) fn ng_platform_create_menu() -> *mut c_void;
     pub(crate) fn ng_platform_destroy_menu(handle: *mut c_void);
     pub(crate) fn ng_platform_attach_menu(window: *mut c_void, menu: *mut c_void) -> c_int;
-    pub(crate) fn ng_platform_add_menu_item(menu: *mut c_void, title: *const c_char, id: u32) -> c_int;
+    pub(crate) fn ng_platform_add_menu_item(
+        menu: *mut c_void,
+        title: *const c_char,
+        id: u32,
+    ) -> c_int;
 
     // Submenu elements
-    pub(crate) fn ng_platform_create_submenu(parent: *mut c_void, title: *const c_char) -> *mut c_void;
+    pub(crate) fn ng_platform_create_submenu(
+        parent: *mut c_void,
+        title: *const c_char,
+    ) -> *mut c_void;
 
     // Button elements
     pub(crate) fn ng_platform_create_button(title: *const c_char, id: u32) -> *mut c_void;
@@ -30,7 +41,10 @@ unsafe extern "C" {
     pub(crate) fn ng_platform_create_box(is_vertical: c_int) -> *mut c_void;
     pub(crate) fn ng_platform_box_invalidate(box_handle: *mut c_void);
     pub(crate) fn ng_platform_box_add(box_handle: *mut c_void, element: *mut c_void) -> c_int;
-    pub(crate) fn ng_platform_set_window_content(window: *mut c_void, content: *mut c_void) -> c_int;
+    pub(crate) fn ng_platform_set_window_content(
+        window: *mut c_void,
+        content: *mut c_void,
+    ) -> c_int;
 
     // Text elements
     pub(crate) fn ng_platform_create_text_editor(id: u32) -> *mut c_void;
@@ -39,14 +53,23 @@ unsafe extern "C" {
     pub(crate) fn ng_platform_text_view_invalidate(text_view: *mut c_void);
     #[allow(dead_code)] // Reserved for future use
     pub(crate) fn ng_platform_create_text_field() -> *mut c_void;
-    pub(crate) fn ng_platform_set_text_content(text_handle: *mut c_void, content: *const c_char) -> c_int;
+    pub(crate) fn ng_platform_set_text_content(
+        text_handle: *mut c_void,
+        content: *const c_char,
+    ) -> c_int;
     pub(crate) fn ng_platform_get_text_content(text_handle: *mut c_void) -> *mut c_char;
     pub(crate) fn ng_platform_free_text_content(content: *mut c_char);
 
     // Canvas elements
     pub(crate) fn ng_platform_create_canvas(width: c_int, height: c_int) -> *mut c_void;
     pub(crate) fn ng_platform_canvas_invalidate(canvas: *mut c_void);
-    pub(crate) fn ng_platform_canvas_invalidate_rect(canvas: *mut c_void, x: f32, y: f32, width: f32, height: f32);
+    pub(crate) fn ng_platform_canvas_invalidate_rect(
+        canvas: *mut c_void,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    );
     pub(crate) fn ng_platform_canvas_update_buffer(
         canvas: *mut c_void,
         buffer: *const u8,
@@ -54,16 +77,83 @@ unsafe extern "C" {
         width: u32,
         height: u32,
     );
-    pub(crate) fn ng_platform_canvas_get_size(canvas: *mut c_void, width: *mut u32, height: *mut u32);
+    pub(crate) fn ng_platform_canvas_get_size(
+        canvas: *mut c_void,
+        width: *mut u32,
+        height: *mut u32,
+    );
     pub(crate) fn ng_platform_canvas_get_window(canvas: *mut c_void) -> *mut c_void;
     pub(crate) fn ng_platform_get_scale_factor(window: *mut c_void) -> f32;
-    pub(crate) fn ng_platform_window_set_scale_factor_callback(window: *mut c_void, callback: extern "C" fn(*mut c_void, f32));
-    
+    pub(crate) fn ng_platform_window_set_scale_factor_callback(
+        window: *mut c_void,
+        callback: extern "C" fn(*mut c_void, f32),
+    );
+
     // Lifecycle events
     pub(crate) fn ng_platform_window_set_lifecycle_callback(window: *mut c_void);
-    
+
     // Frame processing
     pub(crate) fn ng_process_frames();
+
+    // ImageView functions
+    pub(crate) fn ng_platform_create_image_view() -> *mut c_void;
+    pub(crate) fn ng_platform_image_view_load_from_path(
+        image_view: *mut c_void,
+        path: *const c_char,
+    ) -> c_int;
+    pub(crate) fn ng_platform_image_view_load_from_data(
+        image_view: *mut c_void,
+        data: *const u8,
+        size: u32,
+    ) -> c_int;
+    pub(crate) fn ng_platform_image_view_set_scaling(image_view: *mut c_void, scaling_mode: c_int);
+    pub(crate) fn ng_platform_image_view_invalidate(image_view: *mut c_void);
+
+    // Slider functions
+    pub(crate) fn ng_platform_create_slider(min: f64, max: f64) -> *mut c_void;
+    pub(crate) fn ng_platform_slider_set_value(slider: *mut c_void, value: f64) -> c_int;
+    pub(crate) fn ng_platform_slider_get_value(slider: *mut c_void) -> f64;
+    pub(crate) fn ng_platform_slider_set_enabled(slider: *mut c_void, enabled: c_int) -> c_int;
+    pub(crate) fn ng_platform_slider_invalidate(slider: *mut c_void);
+
+    // Checkbox functions
+    pub(crate) fn ng_platform_create_checkbox(label: *const c_char) -> *mut c_void;
+    pub(crate) fn ng_platform_checkbox_set_checked(checkbox: *mut c_void, checked: c_int) -> c_int;
+    pub(crate) fn ng_platform_checkbox_get_checked(checkbox: *mut c_void) -> c_int;
+    pub(crate) fn ng_platform_checkbox_set_enabled(checkbox: *mut c_void, enabled: c_int) -> c_int;
+    pub(crate) fn ng_platform_checkbox_invalidate(checkbox: *mut c_void);
+
+    // ProgressBar functions
+    pub(crate) fn ng_platform_create_progress_bar() -> *mut c_void;
+    pub(crate) fn ng_platform_progress_bar_set_value(
+        progress_bar: *mut c_void,
+        value: f64,
+    ) -> c_int;
+    pub(crate) fn ng_platform_progress_bar_set_indeterminate(
+        progress_bar: *mut c_void,
+        indeterminate: c_int,
+    ) -> c_int;
+    pub(crate) fn ng_platform_progress_bar_set_enabled(
+        progress_bar: *mut c_void,
+        enabled: c_int,
+    ) -> c_int;
+    pub(crate) fn ng_platform_progress_bar_invalidate(progress_bar: *mut c_void);
+
+    // ComboBox functions
+    pub(crate) fn ng_platform_create_combo_box() -> *mut c_void;
+    pub(crate) fn ng_platform_combo_box_add_item(
+        combo_box: *mut c_void,
+        item: *const c_char,
+    ) -> c_int;
+    pub(crate) fn ng_platform_combo_box_set_selected(combo_box: *mut c_void, index: c_int)
+    -> c_int;
+    pub(crate) fn ng_platform_combo_box_get_selected(combo_box: *mut c_void) -> c_int;
+    pub(crate) fn ng_platform_combo_box_clear(combo_box: *mut c_void) -> c_int;
+    pub(crate) fn ng_platform_combo_box_set_enabled(
+        combo_box: *mut c_void,
+        enabled: c_int,
+    ) -> c_int;
+    pub(crate) fn ng_platform_combo_box_invalidate(combo_box: *mut c_void);
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -166,13 +256,13 @@ pub extern "C" fn ng_invoke_textview_callback(id: u32, content: *const c_char) {
 }
 
 /// Invoke a lifecycle callback from the platform layer.
-/// 
+///
 /// This function is called by platform-specific code when a lifecycle event occurs.
 /// The event_id corresponds to the LifecycleEvent enum values.
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_lifecycle_callback(window: *mut c_void, event_id: u32) {
     use crate::lifecycle::{LifecycleEvent, invoke_lifecycle_callback};
-    
+
     let event = match event_id {
         0 => LifecycleEvent::ApplicationDidEnterBackground,
         1 => LifecycleEvent::ApplicationWillEnterForeground,
@@ -187,6 +277,6 @@ pub extern "C" fn ng_invoke_lifecycle_callback(window: *mut c_void, event_id: u3
         10 => LifecycleEvent::SurfaceRecreated,
         _ => return, // Unknown event ID
     };
-    
+
     invoke_lifecycle_callback(window, event);
-} 
+}

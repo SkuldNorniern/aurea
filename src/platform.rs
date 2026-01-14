@@ -55,27 +55,27 @@ impl Platform {
         {
             Platform::Desktop(DesktopPlatform::MacOS)
         }
-        
+
         #[cfg(target_os = "windows")]
         {
             Platform::Desktop(DesktopPlatform::Windows)
         }
-        
+
         #[cfg(target_os = "linux")]
         {
             Platform::Desktop(DesktopPlatform::Linux)
         }
-        
+
         #[cfg(target_os = "ios")]
         {
             Platform::Mobile(MobilePlatform::IOS)
         }
-        
+
         #[cfg(target_os = "android")]
         {
             Platform::Mobile(MobilePlatform::Android)
         }
-        
+
         #[cfg(not(any(
             target_os = "macos",
             target_os = "windows",
@@ -87,17 +87,17 @@ impl Platform {
             compile_error!("Unsupported platform")
         }
     }
-    
+
     /// Check if this is a desktop platform
     pub fn is_desktop(&self) -> bool {
         matches!(self, Platform::Desktop(_))
     }
-    
+
     /// Check if this is a mobile platform
     pub fn is_mobile(&self) -> bool {
         matches!(self, Platform::Mobile(_))
     }
-    
+
     /// Get the desktop platform variant, if applicable
     pub fn as_desktop(&self) -> Option<DesktopPlatform> {
         match self {
@@ -105,7 +105,7 @@ impl Platform {
             Platform::Mobile(_) => None,
         }
     }
-    
+
     /// Get the mobile platform variant, if applicable
     pub fn as_mobile(&self) -> Option<MobilePlatform> {
         match self {
@@ -113,7 +113,7 @@ impl Platform {
             Platform::Mobile(platform) => Some(*platform),
         }
     }
-    
+
     /// Get the platform name as a string
     pub fn name(&self) -> &'static str {
         match self {
@@ -124,7 +124,7 @@ impl Platform {
             Platform::Mobile(MobilePlatform::Android) => "Android",
         }
     }
-    
+
     /// Get the platform family (desktop or mobile)
     pub fn family(&self) -> &'static str {
         match self {
@@ -176,13 +176,13 @@ impl std::fmt::Display for MobilePlatform {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_platform_detection() {
         let platform = Platform::current();
         assert!(platform.is_desktop() || platform.is_mobile());
     }
-    
+
     #[test]
     fn test_platform_display() {
         let platform = Platform::current();
@@ -190,4 +190,3 @@ mod tests {
         assert!(!display.is_empty());
     }
 }
-

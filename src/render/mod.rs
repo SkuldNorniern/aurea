@@ -4,19 +4,21 @@
 //! backends into Aurea applications, enabling custom drawing operations
 //! within native windows.
 
-mod types;
-mod surface;
-mod renderer;
 mod canvas;
-mod viewport;
 mod display_list;
+mod interaction;
+mod renderer;
+mod surface;
+mod types;
+mod viewport;
 
 pub mod cpu;
+pub mod text;
 
-pub use types::*;
-pub use surface::*;
-pub use renderer::*;
 pub use canvas::*;
-pub use viewport::*;
 pub use display_list::*;
-
+pub use interaction::*;
+pub use renderer::*;
+pub use surface::*;
+pub use types::*;
+pub use viewport::*;

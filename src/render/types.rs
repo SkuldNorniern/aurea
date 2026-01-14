@@ -55,7 +55,12 @@ pub struct Rect {
 
 impl Rect {
     pub const fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     pub fn from_points(top_left: Point, bottom_right: Point) -> Self {
@@ -69,7 +74,7 @@ impl Rect {
 }
 
 /// Paint style for drawing operations
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PaintStyle {
     Fill,
     Stroke,
@@ -117,124 +122,30 @@ impl Default for Paint {
 /// Rendering backend selection
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RendererBackend {
-    /// CPU rasterizer backend
-    Cpu,
     /// Skia rendering backend
     Skia,
     /// Vello rendering backend
     Vello,
+    /// CPU rendering backend
+    Cpu,
 }
 
-/// 2D transformation matrix (3x3 affine transformation)
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Transform {
-    pub m11: f32, pub m12: f32, pub m13: f32,
-    pub m21: f32, pub m22: f32, pub m23: f32,
-    pub m31: f32, pub m32: f32, pub m33: f32,
-}
-
-impl Transform {
-    pub fn identity() -> Self {
-        Self {
-            m11: 1.0, m12: 0.0, m13: 0.0,
-            m21: 0.0, m22: 1.0, m23: 0.0,
-            m31: 0.0, m32: 0.0, m33: 1.0,
-        }
-    }
-    
-    pub fn translate(x: f32, y: f32) -> Self {
-        Self {
-            m11: 1.0, m12: 0.0, m13: 0.0,
-            m21: 0.0, m22: 1.0, m23: 0.0,
-            m31: x,   m32: y,   m33: 1.0,
-        }
-    }
-    
-    pub fn scale(sx: f32, sy: f32) -> Self {
-        Self {
-            m11: sx,  m12: 0.0, m13: 0.0,
-            m21: 0.0, m22: sy,  m23: 0.0,
-            m31: 0.0, m32: 0.0, m33: 1.0,
-        }
-    }
-    
-    pub fn rotate(angle: f32) -> Self {
-        let cos = angle.cos();
-        let sin = angle.sin();
-        Self {
-            m11: cos, m12: -sin, m13: 0.0,
-            m21: sin, m22: cos,  m23: 0.0,
-            m31: 0.0, m32: 0.0,  m33: 1.0,
-        }
-    }
-    
-    pub fn multiply(self, other: Self) -> Self {
-        Self {
-            m11: self.m11 * other.m11 + self.m12 * other.m21 + self.m13 * other.m31,
-            m12: self.m11 * other.m12 + self.m12 * other.m22 + self.m13 * other.m32,
-            m13: self.m11 * other.m13 + self.m12 * other.m23 + self.m13 * other.m33,
-            m21: self.m21 * other.m11 + self.m22 * other.m21 + self.m23 * other.m31,
-            m22: self.m21 * other.m12 + self.m22 * other.m22 + self.m23 * other.m32,
-            m23: self.m21 * other.m13 + self.m22 * other.m23 + self.m23 * other.m33,
-            m31: self.m31 * other.m11 + self.m32 * other.m21 + self.m33 * other.m31,
-            m32: self.m31 * other.m12 + self.m32 * other.m22 + self.m33 * other.m32,
-            m33: self.m31 * other.m13 + self.m32 * other.m23 + self.m33 * other.m33,
-        }
-    }
-    
-    /// Compute inverse transform (for hit testing)
-    pub fn inverse(self) -> Self {
-        // For 2D affine transforms, we can compute the inverse
-        // Determinant
-        let det = self.m11 * (self.m22 * self.m33 - self.m23 * self.m32)
-            - self.m12 * (self.m21 * self.m33 - self.m23 * self.m31)
-            + self.m13 * (self.m21 * self.m32 - self.m22 * self.m31);
-        
-        if det.abs() < 1e-6 {
-            // Singular matrix, return identity
-            return Self::identity();
-        }
-        
-        let inv_det = 1.0 / det;
-        
-        Self {
-            m11: (self.m22 * self.m33 - self.m23 * self.m32) * inv_det,
-            m12: (self.m13 * self.m32 - self.m12 * self.m33) * inv_det,
-            m13: (self.m12 * self.m23 - self.m13 * self.m22) * inv_det,
-            m21: (self.m23 * self.m31 - self.m21 * self.m33) * inv_det,
-            m22: (self.m11 * self.m33 - self.m13 * self.m31) * inv_det,
-            m23: (self.m13 * self.m21 - self.m11 * self.m23) * inv_det,
-            m31: (self.m21 * self.m32 - self.m22 * self.m31) * inv_det,
-            m32: (self.m12 * self.m31 - self.m11 * self.m32) * inv_det,
-            m33: (self.m11 * self.m22 - self.m12 * self.m21) * inv_det,
-        }
-    }
-    
-    /// Transform a point
-    pub fn map_point(self, point: Point) -> Point {
-        let x = self.m11 * point.x + self.m21 * point.y + self.m31;
-        let y = self.m12 * point.x + self.m22 * point.y + self.m32;
-        let w = self.m13 * point.x + self.m23 * point.y + self.m33;
-        
-        if w.abs() > 1e-6 {
-            Point::new(x / w, y / w)
-        } else {
-            Point::new(x, y)
-        }
-    }
-}
-
-/// Path command for building paths
+/// Path command for drawing paths
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PathCommand {
+    /// Move to a point
     MoveTo(Point),
+    /// Line to a point
     LineTo(Point),
+    /// Quadratic curve to a point
     QuadTo(Point, Point),
+    /// Cubic curve to a point
     CubicTo(Point, Point, Point),
+    /// Close the path
     Close,
 }
 
-/// 2D path for drawing
+/// Path for drawing shapes
 #[derive(Debug, Clone)]
 pub struct Path {
     pub commands: Vec<PathCommand>,
@@ -254,7 +165,125 @@ impl Default for Path {
     }
 }
 
-/// Font configuration
+/// 2D transformation matrix (3x3 homogeneous coordinates)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Transform {
+    pub m11: f32,
+    pub m12: f32,
+    pub m13: f32,
+    pub m21: f32,
+    pub m22: f32,
+    pub m23: f32,
+    pub m31: f32,
+    pub m32: f32,
+    pub m33: f32,
+}
+
+impl Transform {
+    pub fn identity() -> Self {
+        Self {
+            m11: 1.0,
+            m12: 0.0,
+            m13: 0.0,
+            m21: 0.0,
+            m22: 1.0,
+            m23: 0.0,
+            m31: 0.0,
+            m32: 0.0,
+            m33: 1.0,
+        }
+    }
+
+    pub fn translate(x: f32, y: f32) -> Self {
+        Self {
+            m11: 1.0,
+            m12: 0.0,
+            m13: 0.0,
+            m21: 0.0,
+            m22: 1.0,
+            m23: 0.0,
+            m31: x,
+            m32: y,
+            m33: 1.0,
+        }
+    }
+
+    pub fn scale(sx: f32, sy: f32) -> Self {
+        Self {
+            m11: sx,
+            m12: 0.0,
+            m13: 0.0,
+            m21: 0.0,
+            m22: sy,
+            m23: 0.0,
+            m31: 0.0,
+            m32: 0.0,
+            m33: 1.0,
+        }
+    }
+
+    pub fn rotate(angle: f32) -> Self {
+        let cos_a = angle.cos();
+        let sin_a = angle.sin();
+        Self {
+            m11: cos_a,
+            m12: sin_a,
+            m13: 0.0,
+            m21: -sin_a,
+            m22: cos_a,
+            m23: 0.0,
+            m31: 0.0,
+            m32: 0.0,
+            m33: 1.0,
+        }
+    }
+
+    pub fn multiply(self, other: Self) -> Self {
+        Self {
+            m11: self.m11 * other.m11 + self.m12 * other.m21 + self.m13 * other.m31,
+            m12: self.m11 * other.m12 + self.m12 * other.m22 + self.m13 * other.m32,
+            m13: self.m11 * other.m13 + self.m12 * other.m23 + self.m13 * other.m33,
+            m21: self.m21 * other.m11 + self.m22 * other.m21 + self.m23 * other.m31,
+            m22: self.m21 * other.m12 + self.m22 * other.m22 + self.m23 * other.m32,
+            m23: self.m21 * other.m13 + self.m22 * other.m23 + self.m23 * other.m33,
+            m31: self.m31 * other.m11 + self.m32 * other.m21 + self.m33 * other.m31,
+            m32: self.m31 * other.m12 + self.m32 * other.m22 + self.m33 * other.m32,
+            m33: self.m31 * other.m13 + self.m32 * other.m23 + self.m33 * other.m33,
+        }
+    }
+
+    pub fn inverse(self) -> Self {
+        let det = self.m11 * (self.m22 * self.m33 - self.m23 * self.m32)
+            - self.m12 * (self.m21 * self.m33 - self.m23 * self.m31)
+            + self.m13 * (self.m21 * self.m32 - self.m22 * self.m31);
+
+        if det.abs() < 1e-10 {
+            return Self::identity();
+        }
+
+        let inv_det = 1.0 / det;
+        Self {
+            m11: (self.m22 * self.m33 - self.m23 * self.m32) * inv_det,
+            m12: (self.m13 * self.m32 - self.m12 * self.m33) * inv_det,
+            m13: (self.m12 * self.m23 - self.m13 * self.m22) * inv_det,
+            m21: (self.m23 * self.m31 - self.m21 * self.m33) * inv_det,
+            m22: (self.m11 * self.m33 - self.m13 * self.m31) * inv_det,
+            m23: (self.m13 * self.m21 - self.m11 * self.m23) * inv_det,
+            m31: (self.m21 * self.m32 - self.m22 * self.m31) * inv_det,
+            m32: (self.m12 * self.m31 - self.m11 * self.m32) * inv_det,
+            m33: (self.m11 * self.m22 - self.m12 * self.m21) * inv_det,
+        }
+    }
+
+    pub fn map_point(self, point: Point) -> Point {
+        Point {
+            x: self.m11 * point.x + self.m12 * point.y + self.m13,
+            y: self.m21 * point.x + self.m22 * point.y + self.m23,
+        }
+    }
+}
+
+/// Font for text rendering
 #[derive(Debug, Clone)]
 pub struct Font {
     pub family: String,
@@ -274,20 +303,22 @@ impl Font {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// Font weight
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FontWeight {
     Normal,
     Bold,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// Font style
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FontStyle {
     Normal,
     Italic,
 }
 
-/// Text measurement results
-#[derive(Debug, Clone, Copy)]
+/// Text metrics from text measurement
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TextMetrics {
     pub width: f32,
     pub height: f32,
@@ -296,8 +327,31 @@ pub struct TextMetrics {
     pub advance: f32,
 }
 
-/// Blend mode for compositing
+/// Linear gradient
+#[derive(Debug, Clone)]
+pub struct LinearGradient {
+    pub start: Point,
+    pub end: Point,
+    pub stops: Vec<GradientStop>,
+}
+
+/// Radial gradient
+#[derive(Debug, Clone)]
+pub struct RadialGradient {
+    pub center: Point,
+    pub radius: f32,
+    pub stops: Vec<GradientStop>,
+}
+
+/// Gradient stop
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GradientStop {
+    pub offset: f32,
+    pub color: Color,
+}
+
+/// Blend mode for compositing
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BlendMode {
     Normal,
     Multiply,
@@ -313,23 +367,7 @@ pub enum BlendMode {
     Exclusion,
 }
 
-/// Linear gradient
-#[derive(Debug, Clone)]
-pub struct LinearGradient {
-    pub start: Point,
-    pub end: Point,
-    pub stops: Vec<(f32, Color)>,
-}
-
-/// Radial gradient
-#[derive(Debug, Clone)]
-pub struct RadialGradient {
-    pub center: Point,
-    pub radius: f32,
-    pub stops: Vec<(f32, Color)>,
-}
-
-/// Image representation
+/// Image for rendering
 #[derive(Debug, Clone)]
 pub struct Image {
     pub width: u32,
@@ -339,17 +377,14 @@ pub struct Image {
 
 impl Image {
     pub fn new(width: u32, height: u32, data: Vec<u8>) -> Self {
-        Self { width, height, data }
-    }
-}
-
-/// Add Hash implementation for PaintStyle
-impl std::hash::Hash for PaintStyle {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        match self {
-            PaintStyle::Fill => 0u8.hash(state),
-            PaintStyle::Stroke => 1u8.hash(state),
+        Self {
+            width,
+            height,
+            data,
         }
     }
 }
 
+/// Interactive element ID for hit testing
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct InteractiveId(pub u64);
