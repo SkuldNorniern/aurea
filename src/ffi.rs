@@ -29,6 +29,7 @@ unsafe extern "C" {
     pub(crate) fn ng_platform_window_get_size(window: *mut c_void, width: *mut c_int, height: *mut c_int);
     pub(crate) fn ng_platform_window_request_close(window: *mut c_void);
     pub(crate) fn ng_platform_window_is_focused(window: *mut c_void) -> c_int;
+    pub(crate) fn ng_platform_window_get_content_view(window: *mut c_void) -> *mut c_void;
     pub(crate) fn ng_platform_window_show(window: *mut c_void);
     pub(crate) fn ng_platform_window_hide(window: *mut c_void);
     pub(crate) fn ng_platform_window_is_visible(window: *mut c_void) -> c_int;
