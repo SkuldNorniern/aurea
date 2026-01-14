@@ -64,6 +64,10 @@ extern void ng_invoke_lifecycle_callback(void* window, unsigned int event_id);
 static NSMutableDictionary* windowDelegates = nil;
 
 NGHandle ng_macos_create_window(const char* title, int width, int height) {
+    return ng_macos_create_window_with_type(title, width, height, 0);
+}
+
+NGHandle ng_macos_create_window_with_type(const char* title, int width, int height, int window_type) {
     if (!title) return NULL;
     
     if (!windowDelegates) {
@@ -71,14 +75,60 @@ NGHandle ng_macos_create_window(const char* title, int width, int height) {
     }
     
     NSRect frame = NSMakeRect(0, 0, width, height);
+    NSWindowStyleMask styleMask = 0;
+    NSWindowLevel windowLevel = NSNormalWindowLevel;
+    BOOL isSheet = NO;
+    
+    switch (window_type) {
+        case 0: // Normal
+            styleMask = NSWindowStyleMaskTitled |
+                       NSWindowStyleMaskClosable |
+                       NSWindowStyleMaskMiniaturizable |
+                       NSWindowStyleMaskResizable;
+            break;
+        case 1: // Popup
+            styleMask = NSWindowStyleMaskBorderless;
+            windowLevel = NSFloatingWindowLevel;
+            break;
+        case 2: // Tool
+            styleMask = NSWindowStyleMaskTitled |
+                       NSWindowStyleMaskClosable |
+                       NSWindowStyleMaskUtilityWindow |
+                       NSWindowStyleMaskResizable;
+            windowLevel = NSFloatingWindowLevel;
+            break;
+        case 3: // Utility
+            styleMask = NSWindowStyleMaskTitled |
+                       NSWindowStyleMaskClosable |
+                       NSWindowStyleMaskUtilityWindow |
+                       NSWindowStyleMaskResizable;
+            windowLevel = NSFloatingWindowLevel;
+            break;
+        case 4: // Sheet
+            styleMask = NSWindowStyleMaskTitled |
+                       NSWindowStyleMaskClosable;
+            isSheet = YES;
+            break;
+        case 5: // Dialog
+            styleMask = NSWindowStyleMaskTitled |
+                       NSWindowStyleMaskClosable |
+                       NSWindowStyleMaskResizable;
+            break;
+        default:
+            styleMask = NSWindowStyleMaskTitled |
+                       NSWindowStyleMaskClosable |
+                       NSWindowStyleMaskMiniaturizable |
+                       NSWindowStyleMaskResizable;
+            break;
+    }
+    
     NSWindow* window = [[NSWindow alloc] 
         initWithContentRect:frame
-        styleMask:NSWindowStyleMaskTitled |
-                 NSWindowStyleMaskClosable |
-                 NSWindowStyleMaskMiniaturizable |
-                 NSWindowStyleMaskResizable
+        styleMask:styleMask
         backing:NSBackingStoreBuffered
         defer:NO];
+    
+    [window setLevel:windowLevel];
     
     WindowDelegate* delegate = [[WindowDelegate alloc] init];
     delegate.windowHandle = (__bridge void*)window;
@@ -88,10 +138,12 @@ NGHandle ng_macos_create_window(const char* title, int width, int height) {
     [windowDelegates setObject:delegate forKey:windowValue];
     
     [window setTitle:ng_macos_to_nsstring(title)];
-    [window center];
+    
+    if (!isSheet) {
+        [window center];
+    }
     [window makeKeyAndOrderFront:nil];
     
-    // Create a content view that will hold our elements
     NSView* contentView = [[NSView alloc] initWithFrame:frame];
     [window setContentView:contentView];
     

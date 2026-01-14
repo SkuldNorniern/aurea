@@ -14,6 +14,7 @@ extern "C" {
 typedef void (*ScaleFactorCallback)(void*, float);
 
 NGHandle ng_macos_create_window(const char* title, int width, int height);
+NGHandle ng_macos_create_window_with_type(const char* title, int width, int height, int window_type);
 void ng_macos_destroy_window(NGHandle handle);
 int ng_macos_set_window_content(NGHandle window, NGHandle content);
 float ng_macos_get_scale_factor(NGHandle window);

@@ -8,6 +8,7 @@ extern "C" {
 #endif
 
 NGHandle ng_linux_create_window(const char* title, int width, int height);
+NGHandle ng_linux_create_window_with_type(const char* title, int width, int height, int window_type);
 void ng_linux_destroy_window(NGHandle handle);
 int ng_linux_set_window_content(NGHandle window, NGHandle content);
 float ng_linux_get_scale_factor(NGHandle window);

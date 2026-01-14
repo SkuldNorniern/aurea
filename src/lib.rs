@@ -35,7 +35,7 @@ pub mod window;
 
 pub use crate::elements::{Container, Element};
 pub use crate::menu::MenuBar;
-pub use crate::window::Window;
+pub use crate::window::{Window, WindowManager, WindowType};
 
 pub use crate::window::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};
 
