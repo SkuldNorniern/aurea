@@ -207,3 +207,40 @@ int ng_windows_set_window_content(NGHandle window_handle, NGHandle content_handl
     return NG_SUCCESS;
 }
 
+void ng_windows_window_set_title(NGHandle window, const char* title) {
+    if (!window || !title) return;
+    HWND hwnd = (HWND)window;
+    SetWindowTextA(hwnd, title);
+}
+
+void ng_windows_window_set_size(NGHandle window, int width, int height) {
+    if (!window) return;
+    HWND hwnd = (HWND)window;
+    RECT rect;
+    GetWindowRect(hwnd, &rect);
+    int x = rect.left;
+    int y = rect.top;
+    SetWindowPos(hwnd, NULL, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+void ng_windows_window_get_size(NGHandle window, int* width, int* height) {
+    if (!window || !width || !height) return;
+    HWND hwnd = (HWND)window;
+    RECT rect;
+    GetClientRect(hwnd, &rect);
+    *width = rect.right - rect.left;
+    *height = rect.bottom - rect.top;
+}
+
+void ng_windows_window_request_close(NGHandle window) {
+    if (!window) return;
+    HWND hwnd = (HWND)window;
+    PostMessage(hwnd, WM_CLOSE, 0, 0);
+}
+
+int ng_windows_window_is_focused(NGHandle window) {
+    if (!window) return 0;
+    HWND hwnd = (HWND)window;
+    return (GetForegroundWindow() == hwnd) ? 1 : 0;
+}
+

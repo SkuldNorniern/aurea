@@ -210,9 +210,7 @@ impl EventQueue {
             callbacks.clone()
         };
 
-        let events_for_callbacks = events.clone();
-
-        for event in events_for_callbacks {
+        for event in &events {
             for callback in &callbacks {
                 callback(event.clone());
             }

@@ -474,7 +474,10 @@ impl Canvas {
 
                 let mut ctx = r.begin_frame()?;
 
-                let bg_color = *background_color.lock().unwrap();
+                let bg_color = {
+                    let bg = background_color.lock().unwrap();
+                    *bg
+                };
                 ctx.clear(bg_color)?;
 
                 {

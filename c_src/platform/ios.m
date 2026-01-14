@@ -211,3 +211,35 @@ int ng_platform_combo_box_set_enabled(NGHandle combo_box, int enabled) {
     return ng_ios_combo_box_set_enabled(combo_box, enabled);
 }
 
+float ng_platform_get_scale_factor(NGHandle window) {
+    return ng_ios_get_scale_factor(window);
+}
+
+void ng_platform_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallback callback) {
+    ng_ios_window_set_scale_factor_callback(window, callback);
+}
+
+void ng_platform_window_set_lifecycle_callback(NGHandle window) {
+    ng_ios_window_set_lifecycle_callback(window);
+}
+
+void ng_platform_window_set_title(NGHandle window, const char* title) {
+    ng_ios_window_set_title(window, title);
+}
+
+void ng_platform_window_set_size(NGHandle window, int width, int height) {
+    ng_ios_window_set_size(window, width, height);
+}
+
+void ng_platform_window_get_size(NGHandle window, int* width, int* height) {
+    ng_ios_window_get_size(window, width, height);
+}
+
+void ng_platform_window_request_close(NGHandle window) {
+    ng_ios_window_request_close(window);
+}
+
+int ng_platform_window_is_focused(NGHandle window) {
+    return ng_ios_window_is_focused(window);
+}
+

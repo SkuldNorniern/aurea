@@ -60,6 +60,16 @@ int ng_platform_run(void) {
     return NG_SUCCESS;
 }
 
+int ng_platform_poll_events(void) {
+    MSG msg;
+    // PeekMessage with PM_REMOVE pulls events from the queue without blocking
+    while (PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE)) {
+        TranslateMessage(&msg);
+        DispatchMessageA(&msg);
+    }
+    return NG_SUCCESS;
+}
+
 int ng_platform_set_window_content(NGHandle window, NGHandle content) {
     return ng_windows_set_window_content(window, content);
 }

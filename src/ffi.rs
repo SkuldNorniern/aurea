@@ -6,6 +6,7 @@ unsafe extern "C" {
     pub(crate) fn ng_platform_cleanup();
 
     pub(crate) fn ng_platform_run() -> c_int;
+    pub(crate) fn ng_platform_poll_events() -> c_int;
 
     pub(crate) fn ng_platform_create_window(
         title: *const c_char,

@@ -38,13 +38,3 @@ NGHandle ng_linux_canvas_get_window(NGHandle canvas) {
     return NULL;
 }
 
-NGHandle ng_linux_canvas_get_window(NGHandle canvas) {
-    if (!canvas) return NULL;
-    GtkWidget* widget = (GtkWidget*)canvas;
-    GtkWindow* window = GTK_WINDOW(gtk_widget_get_toplevel(widget));
-    if (GTK_IS_WINDOW(window)) {
-        return (NGHandle)window;
-    }
-    return NULL;
-}
-
