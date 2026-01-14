@@ -217,21 +217,23 @@ impl EventQueue {
 
     /// Process all queued events by calling registered callbacks
     /// Returns the events that were processed (for manual processing if needed)
+    ///
+    /// Locking order: events -> callbacks (to prevent deadlocks)
     pub fn process_events(&self) -> Vec<WindowEvent> {
+        // Step 1: Get all events (releases lock immediately)
         let events = self.pop_all();
         if events.is_empty() {
             return Vec::new();
         }
 
+        // Step 2: Get callbacks (releases lock immediately to avoid holding during callback execution)
         let callbacks: Vec<EventCallback> = {
             let callbacks = self.callbacks.lock().unwrap();
             callbacks.clone()
         };
 
-        // Clone events for callbacks (they consume the original)
-        let events_for_callbacks = events.clone();
-
-        for event in events_for_callbacks {
+        // Step 3: Execute callbacks (no locks held, preventing deadlocks)
+        for event in &events {
             for callback in &callbacks {
                 callback(event.clone());
             }

@@ -51,4 +51,8 @@ int ng_handle_menu_event(NGMenuHandle menu, unsigned int id) {
 
 int ng_init(void) {
     return ng_platform_init();
+}
+
+int ng_poll_events(void) {
+    return ng_platform_poll_events();
 } 

@@ -63,6 +63,13 @@ int ng_platform_run(void) {
     return NG_SUCCESS;
 }
 
+int ng_platform_poll_events(void) {
+    // For now, on Linux with GTK, we rely on the main loop.
+    // If we need manual polling, we would use g_main_context_iteration.
+    while (g_main_context_iteration(NULL, FALSE));
+    return NG_SUCCESS;
+}
+
 int ng_platform_set_window_content(NGHandle window, NGHandle content) {
     return ng_linux_set_window_content(window, content);
 }

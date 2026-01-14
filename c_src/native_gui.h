@@ -33,6 +33,7 @@ void ng_platform_destroy_menu(NGMenuHandle handle);
 void ng_platform_destroy_window(NGHandle handle);
 int ng_platform_handle_menu_event(NGMenuHandle menu, unsigned int id);
 int ng_platform_init(void);
+int ng_platform_poll_events(void);
 
 #ifdef __cplusplus
 }

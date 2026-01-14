@@ -91,6 +91,22 @@ int ng_platform_run(void) {
     return NG_SUCCESS;
 }
 
+int ng_platform_poll_events(void) {
+    @autoreleasepool {
+        while (true) {
+            NSEvent* event = [NSApp nextEventMatchingMask:NSEventMaskAny
+                                              untilDate:[NSDate distantPast]
+                                                 inMode:NSDefaultRunLoopMode
+                                                dequeue:YES];
+            if (event == nil) {
+                break;
+            }
+            [NSApp sendEvent:event];
+        }
+    }
+    return NG_SUCCESS;
+}
+
 NGHandle ng_platform_create_button(const char* title, unsigned int id) {
     return ng_macos_create_button(title, id);
 }
