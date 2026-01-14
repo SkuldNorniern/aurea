@@ -309,8 +309,9 @@ impl HasWindowHandle for crate::window::Window {
             crate::platform::Platform::Desktop(crate::platform::DesktopPlatform::MacOS) => {
                 use raw_window_handle::{AppKitWindowHandle, WindowHandle};
                 use std::ptr::NonNull;
-                // SAFETY: self.handle is a valid NSView from window creation
-                let view = NonNull::new(self.handle as *mut std::ffi::c_void)
+                // SAFETY: ng_platform_window_get_content_view returns the NSView handle
+                let view_ptr = unsafe { crate::ffi::ng_platform_window_get_content_view(self.handle) };
+                let view = NonNull::new(view_ptr)
                     .expect("Invalid NSView handle");
                 unsafe {
                     Ok(WindowHandle::borrow_raw(AppKitWindowHandle::new(view).into()))

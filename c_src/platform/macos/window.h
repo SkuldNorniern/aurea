@@ -28,6 +28,7 @@ int ng_macos_window_is_focused(NGHandle window);
 void ng_macos_window_show(NGHandle window);
 void ng_macos_window_hide(NGHandle window);
 int ng_macos_window_is_visible(NGHandle window);
+NGHandle ng_macos_window_get_content_view(NGHandle window);
 
 #ifdef __cplusplus
 }

@@ -72,6 +72,9 @@ pub mod render;
 pub mod view;
 pub mod window;
 
+pub use crate::view::FrameScheduler;
+pub use crate::view::damage::DamageRegion;
+
 // Re-export the elements, window, and menu modules
 pub use crate::elements::{Container, Element};
 pub use crate::menu::MenuBar;

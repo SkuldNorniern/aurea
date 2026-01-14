@@ -18,9 +18,7 @@ extern void ng_invoke_lifecycle_callback(void* window, unsigned int event_id);
     if (self.lifecycleCallbackEnabled && self.windowHandle) {
         ng_invoke_lifecycle_callback(self.windowHandle, 5); // WindowWillClose = 5
     }
-    // Do NOT terminate the application when the window closes
-    // [NSApp terminate:nil];
-    return NO; // We handle closing ourselves
+    return YES; // Allow the window to close
 }
 
 - (void)windowDidMiniaturize:(NSNotification*)notification {
@@ -149,6 +147,7 @@ NGHandle ng_macos_create_window_with_type(const char* title, int width, int heig
     [window makeKeyAndOrderFront:nil];
     
     NSView* contentView = [[NSView alloc] initWithFrame:frame];
+    [contentView setWantsLayer:YES];
     [window setContentView:contentView];
     
     return (__bridge_retained void*)window;
@@ -287,4 +286,11 @@ int ng_macos_window_is_visible(NGHandle window) {
     if (!window) return 0;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
     return [nsWindow isVisible] ? 1 : 0;
+}
+
+NGHandle ng_macos_window_get_content_view(NGHandle window) {
+    if (!window) return NULL;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    NSView* contentView = [nsWindow contentView];
+    return (__bridge void*)contentView;
 } 

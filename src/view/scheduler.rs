@@ -8,9 +8,13 @@ static FRAME_SCHEDULED: AtomicBool = AtomicBool::new(false);
 // Canvas registry: maps handle to redraw callback
 // The callback can safely call redraw_if_needed on the canvas
 type CanvasRedrawCallback = Arc<dyn Fn() -> Result<(), crate::AureaError> + Send + Sync>;
+type FrameCallback = Arc<dyn Fn() + Send + Sync + 'static>;
 
 static CANVAS_REGISTRY: LazyLock<Mutex<HashMap<usize, CanvasRedrawCallback>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+static FRAME_CALLBACKS: LazyLock<Mutex<Vec<FrameCallback>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
 
 pub struct FrameScheduler;
 
@@ -42,6 +46,15 @@ impl FrameScheduler {
         registry.remove(&(handle as usize));
     }
 
+    /// Register a global frame callback that will be called on every frame
+    pub fn register_frame_callback<F>(callback: F)
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        let mut callbacks = FRAME_CALLBACKS.lock().unwrap();
+        callbacks.push(Arc::new(callback));
+    }
+
     /// Process scheduled frames by calling redraw callbacks on all registered canvases
     /// This should be called from the event loop or window's frame handler
     pub fn process_frames() -> crate::AureaResult<()> {
@@ -50,17 +63,26 @@ impl FrameScheduler {
         }
 
         // Get all callbacks (clone Arc to avoid holding lock during execution)
-        let callbacks: Vec<CanvasRedrawCallback> = {
+        let (canvas_callbacks, global_callbacks) = {
             let registry = CANVAS_REGISTRY.lock().unwrap();
-            registry.values().cloned().collect()
+            let global = FRAME_CALLBACKS.lock().unwrap();
+            (
+                registry.values().cloned().collect::<Vec<_>>(),
+                global.clone(),
+            )
         };
 
-        // Execute all callbacks
-        for callback in callbacks {
+        // Execute all canvas callbacks
+        for callback in canvas_callbacks {
             if let Err(e) = callback() {
                 // Log error but continue with other canvases
                 log::warn!("Canvas redraw error: {:?}", e);
             }
+        }
+
+        // Execute global frame callbacks
+        for callback in global_callbacks {
+            callback();
         }
 
         Ok(())

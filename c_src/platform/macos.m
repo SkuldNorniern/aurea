@@ -9,10 +9,25 @@
 #import <CoreFoundation/CoreFoundation.h>
 static BOOL app_initialized = FALSE;
 
+@interface AppDelegate : NSObject <NSApplicationDelegate>
+@end
+
+@implementation AppDelegate
+- (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {
+    return YES;
+}
+@end
+
+static AppDelegate* app_delegate = nil;
+
 int ng_platform_init(void) {
     if (!app_initialized) {
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+        
+        app_delegate = [[AppDelegate alloc] init];
+        [NSApp setDelegate:app_delegate];
+        
         [NSApp finishLaunching];
         app_initialized = TRUE;
     }
@@ -225,6 +240,10 @@ void ng_platform_window_request_close(NGHandle window) {
 
 int ng_platform_window_is_focused(NGHandle window) {
     return ng_macos_window_is_focused(window);
+}
+
+NGHandle ng_platform_window_get_content_view(NGHandle window) {
+    return ng_macos_window_get_content_view(window);
 }
 
 void ng_platform_button_invalidate(NGHandle button) {
