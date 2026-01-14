@@ -1,9 +1,11 @@
 use super::traits::Element;
 use crate::view::FrameScheduler;
-use crate::{AureaError, AureaResult, ffi::*};
-use std::os::raw::c_void;
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use crate::{ffi::*, AureaError, AureaResult};
+use std::{
+    os::raw::c_void,
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 
 /// Animation state for progress bar
 struct AnimationState {
