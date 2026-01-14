@@ -1,4 +1,3 @@
-pub mod capability;
 /// A native GUI toolkit providing cross-platform windowing and widgets with native look and feel.
 ///
 /// ```rust
@@ -22,6 +21,7 @@ pub mod capability;
 ///     Ok(())
 /// }
 /// ```
+pub mod capability;
 pub mod elements;
 pub mod ffi;
 pub mod lifecycle;
