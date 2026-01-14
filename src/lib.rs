@@ -66,6 +66,9 @@ pub use crate::elements::{Container, Element};
 pub use crate::menu::MenuBar;
 pub use crate::window::Window;
 
+// Re-export window event types
+pub use crate::window::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};
+
 // Re-export platform and capability modules
 pub use crate::capability::{Capability, CapabilityChecker};
 pub use crate::platform::{DesktopPlatform, MobilePlatform, Platform};
