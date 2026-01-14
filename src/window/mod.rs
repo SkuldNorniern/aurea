@@ -43,7 +43,7 @@ pub struct Window {
     capabilities: CapabilityChecker,
     damage: Mutex<DamageRegion>,
     scale_factor: Mutex<f32>,
-    event_queue: events::EventQueue,
+    event_queue: Arc<events::EventQueue>,
     window_type: WindowType,
 }
 
@@ -89,6 +89,28 @@ impl Window {
         }
 
         let scale_factor = unsafe { ng_platform_get_scale_factor(handle) };
+        let event_queue = Arc::new(events::EventQueue::new());
+        
+        // Register lifecycle bridge
+        let eq_clone = event_queue.clone();
+        register_lifecycle_callback(handle, Box::new(move |event| {
+            match event {
+                LifecycleEvent::WindowWillClose => {
+                    eq_clone.push(WindowEvent::CloseRequested);
+                }
+                LifecycleEvent::WindowMinimized => {
+                    // Could add WindowEvent::Minimized if needed
+                }
+                LifecycleEvent::WindowRestored => {
+                    // Could add WindowEvent::Restored if needed
+                }
+                _ => {}
+            }
+        }));
+
+        unsafe {
+            ng_platform_window_set_lifecycle_callback(handle);
+        }
 
         Ok(Self {
             handle,
@@ -98,7 +120,7 @@ impl Window {
             capabilities,
             damage: Mutex::new(DamageRegion::new(16)),
             scale_factor: Mutex::new(scale_factor),
-            event_queue: events::EventQueue::new(),
+            event_queue,
             window_type,
         })
     }
@@ -436,6 +458,32 @@ impl Window {
     /// ```
     pub fn is_focused(&self) -> bool {
         unsafe { ng_platform_window_is_focused(self.handle) != 0 }
+    }
+
+    /// Get the native window handle
+    pub fn handle(&self) -> *mut std::ffi::c_void {
+        self.handle
+    }
+
+    /// Show the window
+    pub fn show(&self) {
+        unsafe {
+            ng_platform_window_show(self.handle);
+        }
+    }
+
+    /// Hide the window (without destroying it)
+    pub fn hide(&self) {
+        unsafe {
+            ng_platform_window_hide(self.handle);
+        }
+    }
+
+    /// Check if the window is visible
+    pub fn is_visible(&self) -> bool {
+        unsafe {
+            ng_platform_window_is_visible(self.handle) != 0
+        }
     }
 }
 

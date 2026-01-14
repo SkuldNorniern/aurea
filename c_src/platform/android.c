@@ -18,6 +18,22 @@ void ng_platform_destroy_window(NGHandle handle) {
     ng_android_destroy_window(handle);
 }
 
+void ng_platform_window_show(NGHandle window) {
+    // Android windows are Activities, managed by OS
+    (void)window;
+}
+
+void ng_platform_window_hide(NGHandle window) {
+    // Android windows are Activities, managed by OS
+    (void)window;
+}
+
+int ng_platform_window_is_visible(NGHandle window) {
+    // Android windows are Activities, managed by OS
+    (void)window;
+    return 1;
+}
+
 NGMenuHandle ng_platform_create_menu(void) {
     return ng_android_create_menu();
 }
