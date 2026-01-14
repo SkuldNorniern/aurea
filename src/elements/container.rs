@@ -1,6 +1,6 @@
-use std::os::raw::c_void;
+use super::traits::{Container, Element};
 use crate::{AureaError, AureaResult, ffi::*};
-use super::traits::{Element, Container};
+use std::os::raw::c_void;
 
 #[derive(Debug, Clone, Copy)]
 pub enum BoxOrientation {
@@ -19,13 +19,13 @@ impl Box {
             BoxOrientation::Vertical => 1,
             BoxOrientation::Horizontal => 0,
         };
-        
+
         let handle = unsafe { ng_platform_create_box(is_vertical) };
-        
+
         if handle.is_null() {
             return Err(AureaError::ElementOperationFailed);
         }
-        
+
         Ok(Self {
             handle,
             _orientation: orientation,
@@ -37,7 +37,7 @@ impl Element for Box {
     fn handle(&self) -> *mut c_void {
         self.handle
     }
-    
+
     unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
         unsafe {
             ng_platform_box_invalidate(self.handle);
@@ -47,15 +47,12 @@ impl Element for Box {
 
 impl Container for Box {
     fn add<E: Element>(&mut self, element: E) -> AureaResult<()> {
-        let result = unsafe {
-            ng_platform_box_add(self.handle, element.handle())
-        };
-        
+        let result = unsafe { ng_platform_box_add(self.handle, element.handle()) };
+
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
         }
-        
+
         Ok(())
     }
 }
-

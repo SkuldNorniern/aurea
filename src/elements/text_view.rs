@@ -1,8 +1,14 @@
-use std::{ffi::CString, os::raw::c_void, sync::{Mutex, LazyLock}, collections::HashMap};
-use crate::{AureaError, AureaResult, ffi::*};
 use super::traits::Element;
+use crate::{AureaError, AureaResult, ffi::*};
+use std::{
+    collections::HashMap,
+    ffi::CString,
+    os::raw::c_void,
+    sync::{LazyLock, Mutex},
+};
 
-static TEXTVIEW_CALLBACKS: LazyLock<Mutex<HashMap<u32, Box<dyn Fn(String) + Send + Sync>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static TEXTVIEW_CALLBACKS: LazyLock<Mutex<HashMap<u32, Box<dyn Fn(String) + Send + Sync>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub struct TextView {
     handle: *mut c_void,
@@ -25,49 +31,46 @@ impl TextView {
             *id_guard - 1
         };
 
-        let handle = unsafe { 
-            ng_platform_create_text_view(if editable { 1 } else { 0 }, id)
-        };
-        
+        let handle = unsafe { ng_platform_create_text_view(if editable { 1 } else { 0 }, id) };
+
         if handle.is_null() {
             return Err(AureaError::ElementOperationFailed);
         }
 
         let mut callbacks = TEXTVIEW_CALLBACKS.lock().unwrap();
         callbacks.insert(id, Box::new(callback));
-        
+
         Ok(Self { handle, _id: id })
     }
 
     pub fn set_content(&mut self, content: &str) -> AureaResult<()> {
         let content = CString::new(content).map_err(|_| AureaError::InvalidTitle)?;
-        let result = unsafe {
-            ng_platform_set_text_content(self.handle, content.as_ptr())
-        };
-        
+        let result = unsafe { ng_platform_set_text_content(self.handle, content.as_ptr()) };
+
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
         }
-        
+
         Ok(())
     }
 
     pub fn get_content(&self) -> AureaResult<String> {
         let content_ptr = unsafe { ng_platform_get_text_content(self.handle) };
-        
+
         if content_ptr.is_null() {
             return Err(AureaError::ElementOperationFailed);
         }
-        
+
         let content = unsafe {
             let cstr = std::ffi::CStr::from_ptr(content_ptr);
-            let result = cstr.to_str()
+            let result = cstr
+                .to_str()
                 .map_err(|_| AureaError::ElementOperationFailed)?
                 .to_string();
             ng_platform_free_text_content(content_ptr);
             result
         };
-        
+
         Ok(content)
     }
 }
@@ -76,7 +79,7 @@ impl Element for TextView {
     fn handle(&self) -> *mut c_void {
         self.handle
     }
-    
+
     unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
         unsafe {
             ng_platform_text_view_invalidate(self.handle);
@@ -90,4 +93,3 @@ pub(crate) fn invoke_textview_callback(id: u32, content: String) {
         callback(content);
     }
 }
-

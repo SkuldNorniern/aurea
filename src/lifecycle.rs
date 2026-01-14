@@ -1,5 +1,6 @@
+use std::collections::HashMap;
 /// Lifecycle event types for application and window lifecycle management.
-/// 
+///
 /// This module provides the infrastructure for handling lifecycle events
 /// across desktop and mobile platforms, enabling proper handling of:
 /// - Application lifecycle (background/foreground, suspend/resume)
@@ -8,7 +9,6 @@
 /// - Surface recreation (for mobile)
 use std::os::raw::c_void;
 use std::sync::{LazyLock, Mutex};
-use std::collections::HashMap;
 
 /// Lifecycle event types that can be triggered by the platform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -41,7 +41,7 @@ pub enum LifecycleEvent {
 pub type LifecycleCallback = Box<dyn Fn(LifecycleEvent) + Send + Sync>;
 
 /// Global registry for lifecycle callbacks per window.
-/// 
+///
 /// This allows multiple windows to register their own lifecycle callbacks.
 /// We use a raw pointer as the key, which is safe because we only use it for
 /// comparison and the window handle is stable for the lifetime of the window.
@@ -49,7 +49,7 @@ static LIFECYCLE_CALLBACKS: LazyLock<Mutex<HashMap<usize, LifecycleCallback>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Register a lifecycle callback for a specific window.
-/// 
+///
 /// The callback will be invoked when lifecycle events occur for the given window.
 /// Only one callback can be registered per window; registering a new callback
 /// replaces any existing one.
@@ -65,7 +65,7 @@ pub fn unregister_lifecycle_callback(window: *mut c_void) {
 }
 
 /// Invoke the lifecycle callback for a specific window.
-/// 
+///
 /// This is called from the FFI layer when a lifecycle event occurs.
 pub fn invoke_lifecycle_callback(window: *mut c_void, event: LifecycleEvent) {
     let callbacks = LIFECYCLE_CALLBACKS.lock().unwrap();
@@ -75,7 +75,7 @@ pub fn invoke_lifecycle_callback(window: *mut c_void, event: LifecycleEvent) {
 }
 
 /// Invoke a global lifecycle callback (not tied to a specific window).
-/// 
+///
 /// This is used for application-level events that affect the entire app.
 pub fn invoke_global_lifecycle_callback(event: LifecycleEvent) {
     let callbacks = LIFECYCLE_CALLBACKS.lock().unwrap();
@@ -84,4 +84,3 @@ pub fn invoke_global_lifecycle_callback(event: LifecycleEvent) {
         callback(event);
     }
 }
-
