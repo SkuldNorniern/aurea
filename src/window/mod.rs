@@ -1,6 +1,25 @@
 mod events;
+mod manager;
 
 pub use events::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};
+pub use manager::WindowManager;
+
+/// Window type for different window behaviors
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowType {
+    /// Standard application window with title bar, minimize/maximize buttons
+    Normal,
+    /// Popup window (borderless or minimal border, stays on top)
+    Popup,
+    /// Tool window (floating, smaller title bar, stays on top of parent)
+    Tool,
+    /// Utility window (similar to tool, but different styling)
+    Utility,
+    /// Sheet window (modal, attached to parent window - macOS)
+    Sheet,
+    /// Dialog window (modal dialog)
+    Dialog,
+}
 
 use crate::capability::{Capability, CapabilityChecker};
 use crate::elements::Element;
@@ -25,10 +44,17 @@ pub struct Window {
     damage: Mutex<DamageRegion>,
     scale_factor: Mutex<f32>,
     event_queue: events::EventQueue,
+    window_type: WindowType,
 }
 
 impl Window {
+    /// Create a new window with default type (Normal)
     pub fn new(title: &str, width: i32, height: i32) -> AureaResult<Self> {
+        Self::with_type(title, width, height, WindowType::Normal)
+    }
+
+    /// Create a new window with specified type
+    pub fn with_type(title: &str, width: i32, height: i32, window_type: WindowType) -> AureaResult<Self> {
         static INIT: std::sync::Once = std::sync::Once::new();
         let mut error = None;
 
@@ -48,7 +74,15 @@ impl Window {
         info!("Creating window: {}x{}", width, height);
 
         let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
-        let handle = unsafe { ng_platform_create_window(title.as_ptr(), width, height) };
+        let window_type_int = match window_type {
+            WindowType::Normal => 0,
+            WindowType::Popup => 1,
+            WindowType::Tool => 2,
+            WindowType::Utility => 3,
+            WindowType::Sheet => 4,
+            WindowType::Dialog => 5,
+        };
+        let handle = unsafe { ng_platform_create_window_with_type(title.as_ptr(), width, height, window_type_int) };
 
         if handle.is_null() {
             return Err(AureaError::WindowCreationFailed);
@@ -65,6 +99,7 @@ impl Window {
             damage: Mutex::new(DamageRegion::new(16)),
             scale_factor: Mutex::new(scale_factor),
             event_queue: events::EventQueue::new(),
+            window_type,
         })
     }
 
@@ -93,6 +128,11 @@ impl Window {
 
     pub fn capabilities(&self) -> &CapabilityChecker {
         &self.capabilities
+    }
+
+    /// Get the window type
+    pub fn window_type(&self) -> WindowType {
+        self.window_type
     }
 
     pub fn run(self) -> AureaResult<()> {
@@ -220,7 +260,7 @@ impl Window {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn poll_events(&mut self) -> Vec<WindowEvent> {
+    pub fn poll_events(&self) -> Vec<WindowEvent> {
         // Process events through callbacks and return them for manual processing
         self.event_queue.process_events()
     }

@@ -75,7 +75,7 @@ pub mod window;
 // Re-export the elements, window, and menu modules
 pub use crate::elements::{Container, Element};
 pub use crate::menu::MenuBar;
-pub use crate::window::Window;
+pub use crate::window::{Window, WindowManager, WindowType};
 
 // Re-export window event types
 pub use crate::window::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};
