@@ -129,4 +129,3 @@ void ng_ios_window_set_lifecycle_callback(NGHandle window) {
     // Enable lifecycle callbacks globally (iOS has single window)
     ng_ios_set_lifecycle_callback_enabled(YES);
 }
-
