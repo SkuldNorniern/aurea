@@ -13,18 +13,29 @@
 /// # Architecture
 ///
 /// The library is structured in layers:
-/// - High-level Rust API (`Window`, `Button`, etc.)
-/// - Safe FFI abstractions
-/// - Platform-specific native implementations
+/// - **High-level Rust API** (`Window`, `Button`, etc.) - Safe, idiomatic Rust interface
+/// - **FFI Layer** (`ffi`) - Safe abstractions over C platform code
+/// - **Platform Implementations** - Native C/Objective-C code per platform
+///
+/// ## Module Organization
+///
+/// - **`window`** - Window management, events, lifecycle
+/// - **`elements`** - UI widgets (Button, Label, Canvas, etc.)
+/// - **`render`** - Rendering system (CPU rasterizer, display lists)
+/// - **`view`** - View layer (damage tracking, frame scheduling)
+/// - **`integration`** - External renderer integrations (wgpu, etc.)
+/// - **`platform`** - Platform detection and capabilities
+/// - **`lifecycle`** - Application lifecycle events
+/// - **`menu`** - Menu bar and menu management
 ///
 /// # Features
 ///
-/// - Window management
-/// - Native menu bars and context menus
-/// - Basic widgets (buttons, labels)
-/// - Layout management (vertical/horizontal boxes)
-/// - Custom rendering with Skia/Vello support (planned)
-/// - Event handling
+/// - **Window Management**: Create, manage, and control windows
+/// - **Native Widgets**: Platform-native UI elements with native look and feel
+/// - **Event System**: Retained-mode event callbacks and non-blocking event polling
+/// - **Canvas Rendering**: CPU-first rasterizer with event-driven invalidation
+/// - **External Integration**: wgpu surface support for hybrid rendering
+/// - **Cross-Platform**: macOS, Windows, Linux, iOS, Android
 ///
 /// # Example
 ///

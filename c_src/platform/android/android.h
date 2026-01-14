@@ -19,6 +19,11 @@ void ng_android_destroy_window(NGHandle handle);
 float ng_android_get_scale_factor(NGHandle window);
 void ng_android_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallback callback);
 void ng_android_window_set_lifecycle_callback(NGHandle window);
+void ng_android_window_set_title(NGHandle window, const char* title);
+void ng_android_window_set_size(NGHandle window, int width, int height);
+void ng_android_window_get_size(NGHandle window, int* width, int* height);
+void ng_android_window_request_close(NGHandle window);
+int ng_android_window_is_focused(NGHandle window);
 
 // JNI integration functions
 void ng_android_set_activity(JavaVM* jvm, jobject activity);
