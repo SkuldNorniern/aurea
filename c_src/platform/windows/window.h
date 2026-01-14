@@ -15,6 +15,11 @@ int ng_windows_set_window_content(NGHandle window, NGHandle content);
 float ng_windows_get_scale_factor(NGHandle window);
 void ng_windows_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallback callback);
 void ng_windows_window_set_lifecycle_callback(NGHandle window);
+void ng_windows_window_set_title(NGHandle window, const char* title);
+void ng_windows_window_set_size(NGHandle window, int width, int height);
+void ng_windows_window_get_size(NGHandle window, int* width, int* height);
+void ng_windows_window_request_close(NGHandle window);
+int ng_windows_window_is_focused(NGHandle window);
 
 #ifdef __cplusplus
 }

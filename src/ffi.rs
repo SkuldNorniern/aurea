@@ -16,6 +16,11 @@ unsafe extern "C" {
         height: c_int,
     ) -> *mut c_void;
     pub(crate) fn ng_platform_destroy_window(handle: *mut c_void);
+    pub(crate) fn ng_platform_window_set_title(window: *mut c_void, title: *const c_char);
+    pub(crate) fn ng_platform_window_set_size(window: *mut c_void, width: c_int, height: c_int);
+    pub(crate) fn ng_platform_window_get_size(window: *mut c_void, width: *mut c_int, height: *mut c_int);
+    pub(crate) fn ng_platform_window_request_close(window: *mut c_void);
+    pub(crate) fn ng_platform_window_is_focused(window: *mut c_void) -> c_int;
 
     // Menu elements
     pub(crate) fn ng_platform_create_menu() -> *mut c_void;
