@@ -1,3 +1,4 @@
+pub mod capability;
 /// A native GUI toolkit providing cross-platform windowing and widgets with native look and feel.
 ///
 /// ```rust
@@ -22,22 +23,21 @@
 /// }
 /// ```
 pub mod elements;
-pub mod window;
-pub mod menu;
 pub mod ffi;
+pub mod lifecycle;
+pub mod logger;
+pub mod menu;
+pub mod platform;
 pub mod render;
 pub mod view;
-pub mod logger;
-pub mod platform;
-pub mod capability;
-pub mod lifecycle;
+pub mod window;
 
-pub use crate::elements::{Element, Container};
-pub use crate::window::Window;
+pub use crate::elements::{Container, Element};
 pub use crate::menu::MenuBar;
+pub use crate::window::Window;
 
-pub use crate::platform::{Platform, DesktopPlatform, MobilePlatform};
 pub use crate::capability::{Capability, CapabilityChecker};
+pub use crate::platform::{DesktopPlatform, MobilePlatform, Platform};
 
 /// Errors that might occur during native GUI operations.
 #[derive(Debug, Clone)]
@@ -74,7 +74,9 @@ impl std::fmt::Display for AureaError {
             AureaError::MenuCreationFailed => write!(f, "Failed to create a menu"),
             AureaError::MenuItemAddFailed => write!(f, "Failed to add a menu item"),
             AureaError::InvalidTitle => write!(f, "The provided title contains invalid characters"),
-            AureaError::PlatformError(code) => write!(f, "A platform-specific error occurred: {}", code),
+            AureaError::PlatformError(code) => {
+                write!(f, "A platform-specific error occurred: {}", code)
+            }
             AureaError::EventLoopError => write!(f, "The event loop encountered an error"),
             AureaError::ElementOperationFailed => write!(f, "An operation on a GUI element failed"),
             AureaError::CanvasCreationFailed => write!(f, "Failed to create a canvas"),
@@ -85,4 +87,3 @@ impl std::fmt::Display for AureaError {
 }
 
 impl std::error::Error for AureaError {}
-

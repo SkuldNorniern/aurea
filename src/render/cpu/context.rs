@@ -1,9 +1,9 @@
 //! CPU drawing context that builds a display list.
 
-use crate::AureaResult;
+use super::super::display_list::{CacheKey, DisplayItem, DisplayList, NodeId};
 use super::super::renderer::DrawingContext;
 use super::super::types::*;
-use super::super::display_list::{DisplayList, DisplayItem, NodeId, CacheKey};
+use crate::AureaResult;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -22,6 +22,7 @@ pub struct CpuDrawingContext {
     current_opacity: f32,
     current_clip: Option<Path>,
     scale_factor: f32,
+    current_interactive_id: Option<super::super::types::InteractiveId>,
 }
 
 impl CpuDrawingContext {
@@ -35,20 +36,68 @@ impl CpuDrawingContext {
             current_opacity: 1.0,
             current_clip: None,
             scale_factor: 1.0,
+            current_interactive_id: None,
         }
     }
-    
+
     /// Set the scale factor for cache key computation.
     pub fn set_scale_factor(&mut self, scale: f32) {
         self.scale_factor = scale;
     }
-    
-    unsafe fn display_list_mut(&mut self) -> &mut DisplayList {
-        unsafe {
-            &mut *self.display_list
-        }
+
+    /// Set the current interactive ID for subsequent draw commands Shapes drawn after this will be
+    /// marked as interactive.
+    pub fn set_interactive_id(&mut self, id: Option<super::super::types::InteractiveId>) {
+        self.current_interactive_id = id;
     }
-    
+
+    /// Draw an interactive rectangle (convenience method).
+    pub fn draw_interactive_rect(
+        &mut self,
+        id: super::super::types::InteractiveId,
+        rect: Rect,
+        paint: &Paint,
+    ) -> AureaResult<()> {
+        let old_id = self.current_interactive_id;
+        self.current_interactive_id = Some(id);
+        let result = self.draw_rect(rect, paint);
+        self.current_interactive_id = old_id;
+        result
+    }
+
+    /// Draw an interactive circle (convenience method).
+    pub fn draw_interactive_circle(
+        &mut self,
+        id: super::super::types::InteractiveId,
+        center: Point,
+        radius: f32,
+        paint: &Paint,
+    ) -> AureaResult<()> {
+        let old_id = self.current_interactive_id;
+        self.current_interactive_id = Some(id);
+        let result = self.draw_circle(center, radius, paint);
+        self.current_interactive_id = old_id;
+        result
+    }
+
+    /// Draw an interactive path (convenience method).
+    pub fn draw_interactive_path(
+        &mut self,
+        id: super::super::types::InteractiveId,
+        path: &Path,
+        paint: &Paint,
+    ) -> AureaResult<()> {
+        let old_id = self.current_interactive_id;
+        self.current_interactive_id = Some(id);
+        let result = self.draw_path(path, paint);
+        self.current_interactive_id = old_id;
+        result
+    }
+
+    unsafe fn display_list_mut(&mut self) -> &mut DisplayList {
+        unsafe { &mut *self.display_list }
+    }
+
     fn compute_cache_key(&self, command: &super::super::renderer::DrawCommand) -> CacheKey {
         let mut hasher = DefaultHasher::new();
         match command {
@@ -99,30 +148,51 @@ impl CpuDrawingContext {
         self.current_transform.m33.to_bits().hash(&mut hasher);
         self.current_opacity.to_bits().hash(&mut hasher);
         self.scale_factor.to_bits().hash(&mut hasher);
-        
+
         CacheKey::from_hash(hasher.finish())
     }
-    
+
     fn transform_point(&self, point: Point) -> Point {
-        let x = self.current_transform.m11 * point.x + self.current_transform.m12 * point.y + self.current_transform.m13;
-        let y = self.current_transform.m21 * point.x + self.current_transform.m22 * point.y + self.current_transform.m23;
+        let x = self.current_transform.m11 * point.x
+            + self.current_transform.m12 * point.y
+            + self.current_transform.m13;
+        let y = self.current_transform.m21 * point.x
+            + self.current_transform.m22 * point.y
+            + self.current_transform.m23;
         Point::new(x, y)
     }
-    
+
     fn transform_rect(&self, rect: Rect) -> Rect {
         let top_left = self.transform_point(Point::new(rect.x, rect.y));
         let top_right = self.transform_point(Point::new(rect.x + rect.width, rect.y));
         let bottom_left = self.transform_point(Point::new(rect.x, rect.y + rect.height));
-        let bottom_right = self.transform_point(Point::new(rect.x + rect.width, rect.y + rect.height));
-        
-        let min_x = top_left.x.min(top_right.x).min(bottom_left.x).min(bottom_right.x);
-        let max_x = top_left.x.max(top_right.x).max(bottom_left.x).max(bottom_right.x);
-        let min_y = top_left.y.min(top_right.y).min(bottom_left.y).min(bottom_right.y);
-        let max_y = top_left.y.max(top_right.y).max(bottom_left.y).max(bottom_right.y);
-        
+        let bottom_right =
+            self.transform_point(Point::new(rect.x + rect.width, rect.y + rect.height));
+
+        let min_x = top_left
+            .x
+            .min(top_right.x)
+            .min(bottom_left.x)
+            .min(bottom_right.x);
+        let max_x = top_left
+            .x
+            .max(top_right.x)
+            .max(bottom_left.x)
+            .max(bottom_right.x);
+        let min_y = top_left
+            .y
+            .min(top_right.y)
+            .min(bottom_left.y)
+            .min(bottom_right.y);
+        let max_y = top_left
+            .y
+            .max(top_right.y)
+            .max(bottom_left.y)
+            .max(bottom_right.y);
+
         Rect::new(min_x, min_y, max_x - min_x, max_y - min_y)
     }
-    
+
     fn compute_bounds(&self, command: &super::super::renderer::DrawCommand) -> Rect {
         match command {
             super::super::renderer::DrawCommand::Clear(_) => {
@@ -155,12 +225,10 @@ impl CpuDrawingContext {
                 }
                 self.transform_rect(bounds)
             }
-            _ => {
-                Rect::new(0.0, 0.0, 0.0, 0.0)
-            }
+            _ => Rect::new(0.0, 0.0, 0.0, 0.0),
         }
     }
-    
+
     fn is_opaque(&self, command: &super::super::renderer::DrawCommand) -> bool {
         match command {
             super::super::renderer::DrawCommand::Clear(color) => color.a == 255,
@@ -173,20 +241,25 @@ impl CpuDrawingContext {
             _ => false,
         }
     }
-    
+
     fn add_command(&mut self, command: super::super::renderer::DrawCommand) {
         let cache_key = self.compute_cache_key(&command);
         let bounds = self.compute_bounds(&command);
         let opaque = self.is_opaque(&command) && self.current_opacity >= 1.0;
-        
-        let item = DisplayItem::new(
-            self.current_node_id,
-            cache_key,
-            bounds,
-            opaque,
-            command,
-        );
-        
+
+        let item = if let Some(interactive_id) = self.current_interactive_id {
+            DisplayItem::new_interactive(
+                self.current_node_id,
+                cache_key,
+                bounds,
+                opaque,
+                interactive_id,
+                command,
+            )
+        } else {
+            DisplayItem::new(self.current_node_id, cache_key, bounds, opaque, command)
+        };
+
         unsafe {
             self.display_list_mut().push(item);
         }
@@ -199,48 +272,68 @@ impl DrawingContext for CpuDrawingContext {
         self.add_command(super::super::renderer::DrawCommand::Clear(color));
         Ok(())
     }
-    
+
     fn draw_rect(&mut self, rect: Rect, paint: &Paint) -> AureaResult<()> {
-        self.add_command(super::super::renderer::DrawCommand::DrawRect(rect, paint.clone()));
+        self.add_command(super::super::renderer::DrawCommand::DrawRect(
+            rect,
+            paint.clone(),
+        ));
         Ok(())
     }
-    
+
     fn draw_circle(&mut self, center: Point, radius: f32, paint: &Paint) -> AureaResult<()> {
-        self.add_command(super::super::renderer::DrawCommand::DrawCircle(center, radius, paint.clone()));
+        self.add_command(super::super::renderer::DrawCommand::DrawCircle(
+            center,
+            radius,
+            paint.clone(),
+        ));
         Ok(())
     }
-    
+
     fn draw_path(&mut self, path: &Path, paint: &Paint) -> AureaResult<()> {
-        self.add_command(super::super::renderer::DrawCommand::DrawPath(path.clone(), paint.clone()));
+        self.add_command(super::super::renderer::DrawCommand::DrawPath(
+            path.clone(),
+            paint.clone(),
+        ));
         Ok(())
     }
-    
+
     fn draw_text(&mut self, _text: &str, _point: Point, _paint: &Paint) -> AureaResult<()> {
         // TODO: Implement text drawing
         Ok(())
     }
-    
-    fn draw_text_with_font(&mut self, _text: &str, _point: Point, _font: &Font, _paint: &Paint) -> AureaResult<()> {
+
+    fn draw_text_with_font(
+        &mut self,
+        _text: &str,
+        _point: Point,
+        _font: &Font,
+        _paint: &Paint,
+    ) -> AureaResult<()> {
         // TODO: Implement text drawing with font
         Ok(())
     }
-    
+
     fn draw_image(&mut self, _image: &Image, _position: Point) -> AureaResult<()> {
         // TODO: Implement image drawing
         Ok(())
     }
-    
+
     fn draw_image_rect(&mut self, _image: &Image, _dest: Rect) -> AureaResult<()> {
         // TODO: Implement image drawing with rect
         Ok(())
     }
-    
+
     fn draw_image_region(&mut self, _image: &Image, _src: Rect, _dest: Rect) -> AureaResult<()> {
         // TODO: Implement image region drawing
         Ok(())
     }
-    
-    fn measure_text(&mut self, _text: &str, _font: &Font) -> AureaResult<super::super::types::TextMetrics> {
+
+    fn measure_text(
+        &mut self,
+        _text: &str,
+        _font: &Font,
+    ) -> AureaResult<super::super::types::TextMetrics> {
         // TODO: Implement text measurement
         Ok(super::super::types::TextMetrics {
             width: 0.0,
@@ -250,18 +343,18 @@ impl DrawingContext for CpuDrawingContext {
             advance: 0.0,
         })
     }
-    
+
     fn save(&mut self) -> AureaResult<()> {
         let transform = self.current_transform;
         let opacity = self.current_opacity;
         let clip = self.current_clip.clone();
-        
+
         self.state_stack.push(DrawingState {
             transform,
             opacity,
             clip: clip.clone(),
         });
-        
+
         unsafe {
             self.display_list_mut().push_transform(transform);
             self.display_list_mut().push_opacity(opacity);
@@ -271,14 +364,14 @@ impl DrawingContext for CpuDrawingContext {
         }
         Ok(())
     }
-    
+
     fn restore(&mut self) -> AureaResult<()> {
         if let Some(state) = self.state_stack.pop() {
             self.current_transform = state.transform;
             self.current_opacity = state.opacity;
             self.current_clip = state.clip;
         }
-        
+
         unsafe {
             let _ = self.display_list_mut().pop_transform();
             let _ = self.display_list_mut().pop_opacity();
@@ -286,51 +379,65 @@ impl DrawingContext for CpuDrawingContext {
         }
         Ok(())
     }
-    
+
     fn transform(&mut self, transform: Transform) -> AureaResult<()> {
         self.current_transform = self.current_transform.multiply(transform);
         Ok(())
     }
-    
+
     fn clip_rect(&mut self, rect: Rect) -> AureaResult<()> {
         let mut path = Path::new();
-        path.commands.push(super::super::types::PathCommand::MoveTo(Point::new(rect.x, rect.y)));
-        path.commands.push(super::super::types::PathCommand::LineTo(Point::new(rect.x + rect.width, rect.y)));
-        path.commands.push(super::super::types::PathCommand::LineTo(Point::new(rect.x + rect.width, rect.y + rect.height)));
-        path.commands.push(super::super::types::PathCommand::LineTo(Point::new(rect.x, rect.y + rect.height)));
+        path.commands
+            .push(super::super::types::PathCommand::MoveTo(Point::new(
+                rect.x, rect.y,
+            )));
+        path.commands
+            .push(super::super::types::PathCommand::LineTo(Point::new(
+                rect.x + rect.width,
+                rect.y,
+            )));
+        path.commands
+            .push(super::super::types::PathCommand::LineTo(Point::new(
+                rect.x + rect.width,
+                rect.y + rect.height,
+            )));
+        path.commands
+            .push(super::super::types::PathCommand::LineTo(Point::new(
+                rect.x,
+                rect.y + rect.height,
+            )));
         path.commands.push(super::super::types::PathCommand::Close);
         self.current_clip = Some(path);
         Ok(())
     }
-    
+
     fn clip_path(&mut self, path: &Path) -> AureaResult<()> {
         self.current_clip = Some(path.clone());
         Ok(())
     }
-    
+
     fn set_alpha(&mut self, alpha: f32) -> AureaResult<()> {
         self.current_opacity = alpha;
         Ok(())
     }
-    
+
     fn set_blend_mode(&mut self, _mode: BlendMode) -> AureaResult<()> {
         // TODO: Implement blend modes
         Ok(())
     }
-    
+
     fn fill_linear_gradient(&mut self, _gradient: &LinearGradient, _rect: Rect) -> AureaResult<()> {
         // TODO: Implement gradients
         Ok(())
     }
-    
+
     fn fill_radial_gradient(&mut self, _gradient: &RadialGradient, _rect: Rect) -> AureaResult<()> {
         // TODO: Implement gradients
         Ok(())
     }
-    
+
     fn hit_test_path(&mut self, path: &Path, point: Point) -> AureaResult<bool> {
         let local_point = self.current_transform.inverse().map_point(point);
         Ok(super::hit_test::hit_test_path(path, local_point))
     }
 }
-

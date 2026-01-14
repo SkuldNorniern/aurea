@@ -1,10 +1,10 @@
-use std::os::raw::c_void;
 use crate::AureaResult;
 use crate::render::Rect;
+use std::os::raw::c_void;
 
 pub trait Element {
     fn handle(&self) -> *mut c_void;
-    
+
     fn invalidate(&self, rect: Option<Rect>) {
         if let Some(r) = rect {
             self.invalidate_rect(r);
@@ -12,23 +12,22 @@ pub trait Element {
             self.invalidate_all();
         }
     }
-    
+
     fn invalidate_all(&self) {
         unsafe {
             self.invalidate_platform(None);
         }
     }
-    
+
     fn invalidate_rect(&self, rect: Rect) {
         unsafe {
             self.invalidate_platform(Some(rect));
         }
     }
-    
+
     unsafe fn invalidate_platform(&self, rect: Option<Rect>);
-    
-    fn request_layout(&self) {
-    }
+
+    fn request_layout(&self) {}
 }
 
 pub trait Container: Element {
@@ -41,4 +40,3 @@ pub struct ElementProps<'a> {
     pub width: i32,
     pub height: i32,
 }
-

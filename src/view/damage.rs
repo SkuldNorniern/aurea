@@ -35,6 +35,11 @@ impl DamageRegion {
         self.union = None;
     }
 
+    pub fn set_full(&mut self, width: f32, height: f32) {
+        self.rects.clear();
+        self.union = Some(Rect::new(0.0, 0.0, width, height));
+    }
+
     pub fn take(&mut self) -> Option<Rect> {
         let result = self.union.take();
         self.rects.clear();
@@ -60,7 +65,6 @@ fn union_rect(a: Rect, b: Rect) -> Rect {
     let top = a.y.min(b.y);
     let right = (a.x + a.width).max(b.x + b.width);
     let bottom = (a.y + a.height).max(b.y + b.height);
-    
+
     Rect::new(left, top, right - left, bottom - top)
 }
-

@@ -1,6 +1,6 @@
 //! Platform capability detection.
 
-use crate::platform::{Platform, DesktopPlatform, MobilePlatform};
+use crate::platform::{DesktopPlatform, MobilePlatform, Platform};
 
 /// Represents a capability or feature that may or may not be available.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -15,14 +15,14 @@ pub enum Capability {
     WindowMaximization,
     /// Fullscreen mode.
     FullscreenMode,
-    
+
     /// Menu bar support (desktop only).
     MenuBar,
     /// Context menus.
     ContextMenus,
     /// Keyboard shortcuts.
     KeyboardShortcuts,
-    
+
     /// File dialogs (open/save).
     FileDialogs,
     /// Color picker dialogs.
@@ -31,7 +31,7 @@ pub enum Capability {
     FontPicker,
     /// System notifications.
     SystemNotifications,
-    
+
     /// Mouse input.
     MouseInput,
     /// Touch input.
@@ -40,7 +40,7 @@ pub enum Capability {
     KeyboardInput,
     /// Stylus/pen input.
     StylusInput,
-    
+
     /// Hardware-accelerated rendering.
     HardwareAcceleration,
     /// OpenGL support.
@@ -51,7 +51,7 @@ pub enum Capability {
     Vulkan,
     /// DirectX support (Windows).
     DirectX,
-    
+
     /// System tray/status bar.
     SystemTray,
     /// Dock integration (macOS).
@@ -60,7 +60,7 @@ pub enum Capability {
     TaskbarIntegration,
     /// App indicators (Linux).
     AppIndicators,
-    
+
     /// Drag and drop.
     DragAndDrop,
     /// Clipboard access.
@@ -81,7 +81,7 @@ impl Capability {
             Platform::Mobile(mobile) => self.is_available_on_mobile(mobile),
         }
     }
-    
+
     fn is_available_on_desktop(&self, desktop: DesktopPlatform) -> bool {
         match self {
             Capability::MultipleWindows => true,
@@ -89,32 +89,36 @@ impl Capability {
             Capability::WindowMinimization => true,
             Capability::WindowMaximization => true,
             Capability::FullscreenMode => true,
-            
+
             Capability::MenuBar => true,
             Capability::ContextMenus => true,
             Capability::KeyboardShortcuts => true,
-            
+
             Capability::FileDialogs => true,
             Capability::ColorPicker => true,
             Capability::FontPicker => true,
             Capability::SystemNotifications => true,
-            
+
             Capability::MouseInput => true,
             Capability::TouchInput => false,
             Capability::KeyboardInput => true,
-            Capability::StylusInput => matches!(desktop, DesktopPlatform::Windows | DesktopPlatform::MacOS),
-            
+            Capability::StylusInput => {
+                matches!(desktop, DesktopPlatform::Windows | DesktopPlatform::MacOS)
+            }
+
             Capability::HardwareAcceleration => true,
             Capability::OpenGL => true,
             Capability::Metal => matches!(desktop, DesktopPlatform::MacOS),
-            Capability::Vulkan => matches!(desktop, DesktopPlatform::Linux | DesktopPlatform::Windows),
+            Capability::Vulkan => {
+                matches!(desktop, DesktopPlatform::Linux | DesktopPlatform::Windows)
+            }
             Capability::DirectX => matches!(desktop, DesktopPlatform::Windows),
-            
+
             Capability::SystemTray => true,
             Capability::DockIntegration => matches!(desktop, DesktopPlatform::MacOS),
             Capability::TaskbarIntegration => matches!(desktop, DesktopPlatform::Windows),
             Capability::AppIndicators => matches!(desktop, DesktopPlatform::Linux),
-            
+
             Capability::DragAndDrop => true,
             Capability::Clipboard => true,
             Capability::ScreenCapture => true,
@@ -122,7 +126,7 @@ impl Capability {
             Capability::WindowShadows => true,
         }
     }
-    
+
     fn is_available_on_mobile(&self, mobile: MobilePlatform) -> bool {
         match self {
             Capability::MultipleWindows => false,
@@ -130,32 +134,32 @@ impl Capability {
             Capability::WindowMinimization => false,
             Capability::WindowMaximization => false,
             Capability::FullscreenMode => true,
-            
+
             Capability::MenuBar => false,
             Capability::ContextMenus => true,
             Capability::KeyboardShortcuts => false,
-            
+
             Capability::FileDialogs => matches!(mobile, MobilePlatform::IOS),
             Capability::ColorPicker => true,
             Capability::FontPicker => false,
             Capability::SystemNotifications => true,
-            
+
             Capability::MouseInput => false,
             Capability::TouchInput => true,
             Capability::KeyboardInput => true,
             Capability::StylusInput => true,
-            
+
             Capability::HardwareAcceleration => true,
             Capability::OpenGL => matches!(mobile, MobilePlatform::Android),
             Capability::Metal => matches!(mobile, MobilePlatform::IOS),
             Capability::Vulkan => matches!(mobile, MobilePlatform::Android),
             Capability::DirectX => false,
-            
+
             Capability::SystemTray => false,
             Capability::DockIntegration => false,
             Capability::TaskbarIntegration => false,
             Capability::AppIndicators => false,
-            
+
             Capability::DragAndDrop => matches!(mobile, MobilePlatform::IOS),
             Capability::Clipboard => true,
             Capability::ScreenCapture => true,
@@ -163,7 +167,7 @@ impl Capability {
             Capability::WindowShadows => true,
         }
     }
-    
+
     /// Get a human-readable description of the capability.
     pub fn description(&self) -> &'static str {
         match self {
@@ -214,53 +218,99 @@ impl CapabilityChecker {
             platform: Platform::current(),
         }
     }
-    
+
     /// Create a capability checker for a specific platform.
     pub fn for_platform(platform: Platform) -> Self {
         Self { platform }
     }
-    
+
     /// Check if a capability is available.
     pub fn has(&self, capability: Capability) -> bool {
         capability.is_available_on(self.platform)
     }
-    
+
     /// Get all available capabilities for the current platform.
     pub fn available_capabilities(&self) -> Vec<Capability> {
         use Capability::*;
         [
-            MultipleWindows, WindowResizing, WindowMinimization, WindowMaximization,
-            FullscreenMode, MenuBar, ContextMenus, KeyboardShortcuts,
-            FileDialogs, ColorPicker, FontPicker, SystemNotifications,
-            MouseInput, TouchInput, KeyboardInput, StylusInput,
-            HardwareAcceleration, OpenGL, Metal, Vulkan, DirectX,
-            SystemTray, DockIntegration, TaskbarIntegration, AppIndicators,
-            DragAndDrop, Clipboard, ScreenCapture, WindowTransparency, WindowShadows,
+            MultipleWindows,
+            WindowResizing,
+            WindowMinimization,
+            WindowMaximization,
+            FullscreenMode,
+            MenuBar,
+            ContextMenus,
+            KeyboardShortcuts,
+            FileDialogs,
+            ColorPicker,
+            FontPicker,
+            SystemNotifications,
+            MouseInput,
+            TouchInput,
+            KeyboardInput,
+            StylusInput,
+            HardwareAcceleration,
+            OpenGL,
+            Metal,
+            Vulkan,
+            DirectX,
+            SystemTray,
+            DockIntegration,
+            TaskbarIntegration,
+            AppIndicators,
+            DragAndDrop,
+            Clipboard,
+            ScreenCapture,
+            WindowTransparency,
+            WindowShadows,
         ]
         .iter()
         .copied()
         .filter(|&cap| self.has(cap))
         .collect()
     }
-    
+
     /// Get all unavailable capabilities for the current platform.
     pub fn unavailable_capabilities(&self) -> Vec<Capability> {
         use Capability::*;
         [
-            MultipleWindows, WindowResizing, WindowMinimization, WindowMaximization,
-            FullscreenMode, MenuBar, ContextMenus, KeyboardShortcuts,
-            FileDialogs, ColorPicker, FontPicker, SystemNotifications,
-            MouseInput, TouchInput, KeyboardInput, StylusInput,
-            HardwareAcceleration, OpenGL, Metal, Vulkan, DirectX,
-            SystemTray, DockIntegration, TaskbarIntegration, AppIndicators,
-            DragAndDrop, Clipboard, ScreenCapture, WindowTransparency, WindowShadows,
+            MultipleWindows,
+            WindowResizing,
+            WindowMinimization,
+            WindowMaximization,
+            FullscreenMode,
+            MenuBar,
+            ContextMenus,
+            KeyboardShortcuts,
+            FileDialogs,
+            ColorPicker,
+            FontPicker,
+            SystemNotifications,
+            MouseInput,
+            TouchInput,
+            KeyboardInput,
+            StylusInput,
+            HardwareAcceleration,
+            OpenGL,
+            Metal,
+            Vulkan,
+            DirectX,
+            SystemTray,
+            DockIntegration,
+            TaskbarIntegration,
+            AppIndicators,
+            DragAndDrop,
+            Clipboard,
+            ScreenCapture,
+            WindowTransparency,
+            WindowShadows,
         ]
         .iter()
         .copied()
         .filter(|&cap| !self.has(cap))
         .collect()
     }
-    
+
     /// Get the platform this checker is for.
     pub fn platform(&self) -> Platform {
         self.platform
@@ -276,39 +326,38 @@ impl Default for CapabilityChecker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_capability_checker() {
         let checker = CapabilityChecker::new();
         let platform = checker.platform();
-        
+
         if platform.is_desktop() {
             assert!(checker.has(Capability::MenuBar));
             assert!(checker.has(Capability::MouseInput));
         }
-        
+
         if platform.is_mobile() {
             assert!(checker.has(Capability::TouchInput));
             assert!(!checker.has(Capability::MenuBar));
         }
     }
-    
+
     #[test]
     fn test_platform_specific_capabilities() {
         let macos = Platform::Desktop(DesktopPlatform::MacOS);
         let checker = CapabilityChecker::for_platform(macos);
         assert!(checker.has(Capability::Metal));
         assert!(checker.has(Capability::DockIntegration));
-        
+
         let windows = Platform::Desktop(DesktopPlatform::Windows);
         let checker = CapabilityChecker::for_platform(windows);
         assert!(checker.has(Capability::DirectX));
         assert!(checker.has(Capability::TaskbarIntegration));
-        
+
         let ios = Platform::Mobile(MobilePlatform::IOS);
         let checker = CapabilityChecker::for_platform(ios);
         assert!(checker.has(Capability::Metal));
         assert!(!checker.has(Capability::MultipleWindows));
     }
 }
-

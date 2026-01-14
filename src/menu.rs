@@ -1,8 +1,14 @@
-use std::{ffi::CString, os::raw::c_void, sync::{Mutex, LazyLock}, collections::HashMap};
 use crate::{AureaError, AureaResult, ffi::*};
 use log::debug;
+use std::{
+    collections::HashMap,
+    ffi::CString,
+    os::raw::c_void,
+    sync::{LazyLock, Mutex},
+};
 
-static MENU_CALLBACKS: LazyLock<Mutex<HashMap<u32, Box<dyn Fn() + Send + Sync>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static MENU_CALLBACKS: LazyLock<Mutex<HashMap<u32, Box<dyn Fn() + Send + Sync>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub struct MenuBar {
     pub(crate) handle: *mut c_void,
@@ -16,20 +22,20 @@ impl MenuBar {
     pub(crate) fn new(handle: *mut c_void) -> Self {
         Self { handle }
     }
-    
+
     pub fn add_submenu(&mut self, title: &str) -> AureaResult<SubMenu> {
         let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
         let handle = unsafe { ng_platform_create_submenu(self.handle, title.as_ptr()) };
-        
+
         if handle.is_null() {
             return Err(AureaError::MenuItemAddFailed);
         }
-        
+
         debug!("Added submenu '{}'", title.to_string_lossy());
-        
+
         Ok(SubMenu { handle })
     }
-    
+
     pub fn handle(&self) -> *mut c_void {
         self.handle
     }
@@ -46,21 +52,25 @@ impl SubMenu {
             *id_guard += 1;
             *id_guard - 1
         };
-        
+
         let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
         let result = unsafe { ng_platform_add_menu_item(self.handle, title.as_ptr(), id) };
-        
+
         if result != 0 {
             return Err(AureaError::MenuItemAddFailed);
         }
-        
+
         let mut callbacks = MENU_CALLBACKS.lock().unwrap();
         callbacks.insert(id, Box::new(callback));
-        debug!("Added menu item '{}' with id {}", title.to_string_lossy(), id);
-        
+        debug!(
+            "Added menu item '{}' with id {}",
+            title.to_string_lossy(),
+            id
+        );
+
         Ok(())
     }
-    
+
     pub fn handle(&self) -> *mut c_void {
         self.handle
     }
@@ -82,4 +92,3 @@ impl Drop for MenuBar {
         }
     }
 }
-

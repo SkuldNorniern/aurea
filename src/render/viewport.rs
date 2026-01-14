@@ -1,6 +1,6 @@
 //! Viewport and scrolling support for browser rendering.
 
-use super::types::{Rect, Point, Transform};
+use super::types::{Point, Rect, Transform};
 
 /// Viewport configuration for managing scrollable content.
 #[derive(Debug, Clone)]
@@ -56,10 +56,7 @@ impl Viewport {
 
     /// Scroll by a delta amount.
     pub fn scroll_by(&mut self, dx: f32, dy: f32) {
-        self.scroll_to(
-            self.scroll_offset.0 + dx,
-            self.scroll_offset.1 + dy,
-        );
+        self.scroll_to(self.scroll_offset.0 + dx, self.scroll_offset.1 + dy);
     }
 
     /// Scroll to a specific position.
@@ -111,7 +108,7 @@ impl Viewport {
     /// Get the intersection of a content rectangle with the visible area.
     pub fn clip_to_visible(&self, rect: Rect) -> Option<Rect> {
         let visible = self.visible_content_rect();
-        
+
         let x = rect.x.max(visible.x);
         let y = rect.y.max(visible.y);
         let right = (rect.x + rect.width).min(visible.x + visible.width);
@@ -127,7 +124,7 @@ impl Viewport {
     fn update_max_scroll(&mut self) {
         self.max_scroll.0 = (self.content_size.0 - self.viewport_size.0).max(0.0);
         self.max_scroll.1 = (self.content_size.1 - self.viewport_size.1).max(0.0);
-        
+
         self.scroll_to(self.scroll_offset.0, self.scroll_offset.1);
     }
 
@@ -151,4 +148,3 @@ impl Viewport {
         self.viewport_size
     }
 }
-

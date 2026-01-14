@@ -1,6 +1,6 @@
+use std::collections::HashMap;
 use std::os::raw::c_void;
 use std::sync::{LazyLock, Mutex};
-use std::collections::HashMap;
 
 /// Lifecycle event types that can be triggered by the platform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -62,4 +62,3 @@ pub fn invoke_global_lifecycle_callback(event: LifecycleEvent) {
         callback(event);
     }
 }
-

@@ -9,12 +9,12 @@ pub fn hit_test_path(path: &Path, point: Point) -> bool {
     if !hit_test_rect(bounds, point) {
         return false;
     }
-    
+
     let mut intersections = 0;
     let mut current_point = Point::new(0.0, 0.0);
     let mut start_point = Point::new(0.0, 0.0);
     let mut has_start = false;
-    
+
     for command in &path.commands {
         match command {
             PathCommand::MoveTo(p) => {
@@ -66,7 +66,7 @@ pub fn hit_test_path(path: &Path, point: Point) -> bool {
             }
         }
     }
-    
+
     intersections % 2 == 1
 }
 
@@ -87,23 +87,22 @@ pub fn hit_test_circle(center: Point, radius: f32, point: Point) -> bool {
 }
 
 fn ray_intersects_line_segment(ray_origin: Point, seg_start: Point, seg_end: Point) -> bool {
-    
     let y = ray_origin.y;
     let y1 = seg_start.y;
     let y2 = seg_end.y;
-    
+
     if (y1 > y && y2 > y) || (y1 < y && y2 < y) || (y1 == y2) {
         return false;
     }
-    
+
     let t = if (y2 - y1).abs() < 0.001 {
         0.0
     } else {
         (y - y1) / (y2 - y1)
     };
-    
+
     let x_intersect = seg_start.x + t * (seg_end.x - seg_start.x);
-    
+
     x_intersect > ray_origin.x
 }
 
@@ -111,15 +110,15 @@ fn path_bounds(path: &Path) -> Rect {
     if path.commands.is_empty() {
         return Rect::new(0.0, 0.0, 0.0, 0.0);
     }
-    
+
     let mut min_x = f32::MAX;
     let mut min_y = f32::MAX;
     let mut max_x = f32::MIN;
     let mut max_y = f32::MIN;
-    
+
     let mut current_point = Point::new(0.0, 0.0);
     let mut has_point = false;
-    
+
     for command in &path.commands {
         match command {
             PathCommand::MoveTo(p) | PathCommand::LineTo(p) => {
@@ -154,15 +153,14 @@ fn path_bounds(path: &Path) -> Rect {
                 }
                 current_point = *p3;
             }
-            PathCommand::Close => {
-            }
+            PathCommand::Close => {}
         }
     }
-    
+
     if !has_point {
         return Rect::new(0.0, 0.0, 0.0, 0.0);
     }
-    
+
     Rect::new(min_x, min_y, max_x - min_x, max_y - min_y)
 }
 
@@ -170,7 +168,7 @@ fn quadratic_bezier(p0: Point, p1: Point, p2: Point, t: f32) -> Point {
     let mt = 1.0 - t;
     let mt2 = mt * mt;
     let t2 = t * t;
-    
+
     Point::new(
         mt2 * p0.x + 2.0 * mt * t * p1.x + t2 * p2.x,
         mt2 * p0.y + 2.0 * mt * t * p1.y + t2 * p2.y,
@@ -183,10 +181,9 @@ fn cubic_bezier(p0: Point, p1: Point, p2: Point, p3: Point, t: f32) -> Point {
     let mt3 = mt2 * mt;
     let t2 = t * t;
     let t3 = t2 * t;
-    
+
     Point::new(
         mt3 * p0.x + 3.0 * mt2 * t * p1.x + 3.0 * mt * t2 * p2.x + t3 * p3.x,
         mt3 * p0.y + 3.0 * mt2 * t * p1.y + 3.0 * mt * t2 * p2.y + t3 * p3.y,
     )
 }
-

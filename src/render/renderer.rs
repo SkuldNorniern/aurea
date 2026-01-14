@@ -1,10 +1,10 @@
-use std::cell::RefCell;
-use crate::AureaResult;
 use super::surface::{Surface, SurfaceInfo};
 use super::types::{
-    Color, Rect, Point, Paint, Path, Transform, Font, TextMetrics,
-    LinearGradient, RadialGradient, BlendMode, Image,
+    BlendMode, Color, Font, Image, LinearGradient, Paint, Path, Point, RadialGradient, Rect,
+    TextMetrics, Transform,
 };
+use crate::AureaResult;
+use std::cell::RefCell;
 
 thread_local! {
     static COMMAND_BUFFER: RefCell<Option<*mut Vec<DrawCommand>>> = const { RefCell::new(None) };
@@ -37,7 +37,13 @@ pub trait DrawingContext {
     fn draw_image_region(&mut self, image: &Image, src: Rect, dest: Rect) -> AureaResult<()>;
 
     /// Draw text with font configuration.
-    fn draw_text_with_font(&mut self, text: &str, position: Point, font: &Font, paint: &Paint) -> AureaResult<()>;
+    fn draw_text_with_font(
+        &mut self,
+        text: &str,
+        position: Point,
+        font: &Font,
+        paint: &Paint,
+    ) -> AureaResult<()>;
 
     /// Measure text dimensions.
     fn measure_text(&mut self, text: &str, font: &Font) -> AureaResult<TextMetrics>;
@@ -102,11 +108,10 @@ pub trait Renderer: Send + Sync {
     fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext>>;
     fn end_frame(&mut self) -> AureaResult<()>;
     fn cleanup(&mut self);
-    
+
     /// Set damage region for partial redraw (optional, defaults to full canvas) This is called
     /// before end_frame() to specify which region needs redrawing.
-    fn set_damage(&mut self, _damage: Option<Rect>) {
-    }
+    fn set_damage(&mut self, _damage: Option<Rect>) {}
 }
 
 #[derive(Debug, Clone)]
@@ -146,7 +151,10 @@ impl PlaceholderRenderer {
         if self.buffer.is_empty() {
             return (std::ptr::null(), 0);
         }
-        (self.buffer.as_ptr() as *const u8, self.buffer.len() * std::mem::size_of::<u32>())
+        (
+            self.buffer.as_ptr() as *const u8,
+            self.buffer.len() * std::mem::size_of::<u32>(),
+        )
     }
 
     pub fn width(&self) -> u32 {
@@ -170,7 +178,7 @@ impl PlaceholderRenderer {
                 }
                 DrawCommand::DrawRect(rect, paint) => {
                     let color = paint.color;
-                    
+
                     match paint.style {
                         super::types::PaintStyle::Fill => {
                             self.draw_rect_filled(rect, color);
@@ -183,7 +191,12 @@ impl PlaceholderRenderer {
                                     color,
                                 );
                                 self.draw_rect_filled(
-                                    Rect::new(rect.x, rect.y + rect.height - paint.stroke_width, rect.width, paint.stroke_width),
+                                    Rect::new(
+                                        rect.x,
+                                        rect.y + rect.height - paint.stroke_width,
+                                        rect.width,
+                                        paint.stroke_width,
+                                    ),
                                     color,
                                 );
                                 self.draw_rect_filled(
@@ -191,7 +204,12 @@ impl PlaceholderRenderer {
                                     color,
                                 );
                                 self.draw_rect_filled(
-                                    Rect::new(rect.x + rect.width - paint.stroke_width, rect.y, paint.stroke_width, rect.height),
+                                    Rect::new(
+                                        rect.x + rect.width - paint.stroke_width,
+                                        rect.y,
+                                        paint.stroke_width,
+                                        rect.height,
+                                    ),
                                     color,
                                 );
                             }
@@ -241,7 +259,13 @@ impl PlaceholderRenderer {
         }
     }
 
-    fn draw_circle_impl(&mut self, center: Point, radius: f32, color: Color, style: super::types::PaintStyle) {
+    fn draw_circle_impl(
+        &mut self,
+        center: Point,
+        radius: f32,
+        color: Color,
+        style: super::types::PaintStyle,
+    ) {
         let r = radius as i32;
         let cx = center.x as i32;
         let cy = center.y as i32;
@@ -291,16 +315,19 @@ impl Renderer for PlaceholderRenderer {
         COMMAND_BUFFER.with(|buf| {
             *buf.borrow_mut() = Some(&mut self.commands as *mut Vec<DrawCommand>);
         });
-        Ok(Box::new(PlaceholderDrawingContext::new(self.width, self.height)))
+        Ok(Box::new(PlaceholderDrawingContext::new(
+            self.width,
+            self.height,
+        )))
     }
 
     fn end_frame(&mut self) -> AureaResult<()> {
         COMMAND_BUFFER.with(|buf| {
             *buf.borrow_mut() = None;
         });
-        
+
         self.apply_commands();
-        
+
         let (ptr, size) = self.get_buffer();
         CURRENT_BUFFER.with(|buf| {
             if !self.buffer.is_empty() && !ptr.is_null() {
@@ -309,7 +336,7 @@ impl Renderer for PlaceholderRenderer {
                 *buf.borrow_mut() = None;
             }
         });
-        
+
         Ok(())
     }
 
@@ -341,7 +368,6 @@ impl PlaceholderDrawingContext {
             commands: Vec::new(),
         }
     }
-    
 }
 
 impl DrawingContext for PlaceholderDrawingContext {
@@ -379,12 +405,17 @@ impl DrawingContext for PlaceholderDrawingContext {
     }
 
     fn draw_text(&mut self, text: &str, position: Point, paint: &Paint) -> AureaResult<()> {
-        self.commands.push(DrawCommand::DrawText(text.to_string(), position, paint.clone()));
+        self.commands.push(DrawCommand::DrawText(
+            text.to_string(),
+            position,
+            paint.clone(),
+        ));
         Ok(())
     }
 
     fn draw_path(&mut self, path: &Path, paint: &Paint) -> AureaResult<()> {
-        self.commands.push(DrawCommand::DrawPath(path.clone(), paint.clone()));
+        self.commands
+            .push(DrawCommand::DrawPath(path.clone(), paint.clone()));
         Ok(())
     }
 
@@ -400,8 +431,19 @@ impl DrawingContext for PlaceholderDrawingContext {
         Ok(())
     }
 
-    fn draw_text_with_font(&mut self, text: &str, position: Point, font: &Font, paint: &Paint) -> AureaResult<()> {
-        self.commands.push(DrawCommand::DrawTextWithFont(text.to_string(), position, font.clone(), paint.clone()));
+    fn draw_text_with_font(
+        &mut self,
+        text: &str,
+        position: Point,
+        font: &Font,
+        paint: &Paint,
+    ) -> AureaResult<()> {
+        self.commands.push(DrawCommand::DrawTextWithFont(
+            text.to_string(),
+            position,
+            font.clone(),
+            paint.clone(),
+        ));
         Ok(())
     }
 
@@ -462,4 +504,3 @@ impl DrawingContext for PlaceholderDrawingContext {
         Ok(false)
     }
 }
-

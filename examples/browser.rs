@@ -1,16 +1,16 @@
 //! Browser Example.
 
-use aurea::{Window, AureaResult};
 use aurea::elements::{Box, BoxOrientation, Button, Container, TextView};
-use aurea::render::{Canvas, RendererBackend, Color, Rect, Paint, Viewport};
 use aurea::logger;
-use log::{LevelFilter, info, debug};
+use aurea::render::{Canvas, Color, Paint, Rect, RendererBackend, Viewport};
+use aurea::{AureaResult, Window};
+use log::{LevelFilter, debug, info};
 
 fn main() -> AureaResult<()> {
     logger::init(LevelFilter::Info).unwrap_or_else(|e| {
         eprintln!("Failed to initialize logger: {}", e);
     });
-    
+
     info!("Starting browser example");
 
     let mut window = Window::new("Aurea Browser", 1200, 800)?;
@@ -27,17 +27,17 @@ fn main() -> AureaResult<()> {
 
     info!("Creating content canvas");
     let mut content_canvas = Canvas::new(1200, 600, RendererBackend::Skia)?;
-    
+
     let mut viewport = Viewport::new(1200.0, 600.0);
     viewport.set_content_size(1200.0, 2000.0);
 
     render_web_content(&mut content_canvas, &viewport)?;
-    
+
     main_layout.add(content_canvas)?;
 
     info!("Setting window content");
     window.set_content(main_layout)?;
-    
+
     info!("Running window event loop");
     window.run()?;
 
@@ -46,44 +46,44 @@ fn main() -> AureaResult<()> {
 
 fn create_address_bar() -> AureaResult<Box> {
     let mut address_bar = Box::new(BoxOrientation::Horizontal)?;
-    
+
     let back_button = Button::new("←")?;
     address_bar.add(back_button)?;
-    
+
     let forward_button = Button::new("→")?;
     address_bar.add(forward_button)?;
-    
+
     let reload_button = Button::new("↻")?;
     address_bar.add(reload_button)?;
-    
+
     let mut url_field = TextView::new(true)?;
     url_field.set_content("https://example.com")?;
     address_bar.add(url_field)?;
-    
+
     info!("Address bar created with navigation buttons and URL field");
     Ok(address_bar)
 }
 
 fn create_tabs() -> AureaResult<Box> {
     let mut tabs = Box::new(BoxOrientation::Horizontal)?;
-    
+
     info!("Adding tab buttons");
     let tab1 = Button::new("Tab 1")?;
     tabs.add(tab1)?;
-    
+
     let tab2 = Button::new("Tab 2")?;
     tabs.add(tab2)?;
-    
+
     let new_tab = Button::new("+")?;
     tabs.add(new_tab)?;
-    
+
     info!("Tabs bar created with 2 tabs and new tab button");
     Ok(tabs)
 }
 
 fn render_web_content(canvas: &mut Canvas, viewport: &Viewport) -> AureaResult<()> {
     debug!("Rendering web content to canvas");
-    
+
     canvas.draw(|ctx| {
         ctx.clear(Color::rgb(255, 255, 255))?;
 
@@ -98,7 +98,7 @@ fn render_web_content(canvas: &mut Canvas, viewport: &Viewport) -> AureaResult<(
 
         Ok(())
     })?;
-    
+
     canvas.invalidate();
     Ok(())
 }
@@ -136,7 +136,10 @@ fn render_page_content(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResu
     Ok(())
 }
 
-fn render_scrollbar(ctx: &mut dyn aurea::render::DrawingContext, viewport: &Viewport) -> AureaResult<()> {
+fn render_scrollbar(
+    ctx: &mut dyn aurea::render::DrawingContext,
+    viewport: &Viewport,
+) -> AureaResult<()> {
     if !viewport.can_scroll_vertical() {
         return Ok(());
     }
@@ -160,7 +163,12 @@ fn render_scrollbar(ctx: &mut dyn aurea::render::DrawingContext, viewport: &View
         0.0
     };
 
-    let thumb_rect = Rect::new(scrollbar_x + 2.0, thumb_y + 2.0, scrollbar_width - 4.0, thumb_height - 4.0);
+    let thumb_rect = Rect::new(
+        scrollbar_x + 2.0,
+        thumb_y + 2.0,
+        scrollbar_width - 4.0,
+        thumb_height - 4.0,
+    );
     let thumb_paint = Paint::new().color(Color::rgb(180, 180, 180));
     ctx.draw_rect(thumb_rect, &thumb_paint)?;
 

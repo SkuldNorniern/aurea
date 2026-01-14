@@ -1,9 +1,9 @@
+use super::traits::Element;
+use crate::view::FrameScheduler;
+use crate::{AureaError, AureaResult, ffi::*};
 use std::os::raw::c_void;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use crate::{AureaError, AureaResult, ffi::*};
-use crate::view::FrameScheduler;
-use super::traits::Element;
 
 struct AnimationState {
     current_value: f64,
@@ -25,19 +25,19 @@ impl AnimationState {
             enabled: false,
         }
     }
-    
+
     fn update(&mut self) -> Option<f64> {
         if !self.enabled {
             return None;
         }
-        
+
         let now = Instant::now();
         if now.duration_since(self.last_update).as_millis() < 33 {
             return None;
         }
-        
+
         self.last_update = now;
-        
+
         if self.increasing {
             self.current_value += self.speed;
             if self.current_value >= self.target_value {
@@ -53,14 +53,14 @@ impl AnimationState {
                 self.target_value = 1.0;
             }
         }
-        
+
         Some(self.current_value)
     }
-    
+
     fn needs_update(&self) -> bool {
         self.enabled
     }
-    
+
     fn is_enabled(&self) -> bool {
         self.enabled
     }
@@ -74,63 +74,61 @@ pub struct ProgressBar {
 impl ProgressBar {
     pub fn new() -> AureaResult<Self> {
         let handle = unsafe { ng_platform_create_progress_bar() };
-        
+
         if handle.is_null() {
             return Err(AureaError::ElementOperationFailed);
         }
-        
+
         let animation_state = Arc::new(Mutex::new(AnimationState::new()));
         let progress_bar = Self {
             handle,
             animation_state: animation_state.clone(),
         };
-        
+
         progress_bar.register_animation();
-        
+
         Ok(progress_bar)
     }
-    
+
     fn register_animation(&self) {
         let handle = self.handle as usize;
         let animation_state = self.animation_state.clone();
-        
+
         let callback: Arc<dyn Fn() -> AureaResult<()> + Send + Sync> = Arc::new(move || {
             let mut state = animation_state.lock().unwrap();
-            
+
             if let Some(new_value) = state.update() {
                 unsafe {
                     ng_platform_progress_bar_set_value(handle as *mut c_void, new_value);
                     ng_platform_progress_bar_invalidate(handle as *mut c_void);
                 }
             }
-            
+
             if state.needs_update() {
                 FrameScheduler::schedule();
             }
-            
+
             Ok(())
         });
-        
+
         FrameScheduler::register_canvas(self.handle, callback);
     }
-    
+
     pub fn set_value(&mut self, value: f64) -> AureaResult<()> {
         {
             let mut state = self.animation_state.lock().unwrap();
             state.enabled = false;
         }
-        
-        let result = unsafe {
-            ng_platform_progress_bar_set_value(self.handle, value)
-        };
-        
+
+        let result = unsafe { ng_platform_progress_bar_set_value(self.handle, value) };
+
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
         }
-        
+
         Ok(())
     }
-    
+
     /// Start automatic animation (oscillates between 0 and 1).
     pub fn start_animation(&self) -> AureaResult<()> {
         let mut state = self.animation_state.lock().unwrap();
@@ -139,56 +137,59 @@ impl ProgressBar {
         state.target_value = 1.0;
         state.increasing = true;
         state.last_update = Instant::now();
-        
+
         FrameScheduler::schedule();
-        
+
         unsafe {
             self.invalidate_platform(None);
         }
-        
+
         Ok(())
     }
-    
+
     /// Stop automatic animation.
     pub fn stop_animation(&self) -> AureaResult<()> {
         let mut state = self.animation_state.lock().unwrap();
         state.enabled = false;
         Ok(())
     }
-    
+
     /// Set animation speed (progress change per frame, typically 0.01-0.05).
     pub fn set_animation_speed(&self, speed: f64) -> AureaResult<()> {
         let mut state = self.animation_state.lock().unwrap();
         state.speed = speed.max(0.001).min(0.1);
         Ok(())
     }
-    
+
     pub fn set_indeterminate(&mut self, indeterminate: bool) -> AureaResult<()> {
         {
             let mut state = self.animation_state.lock().unwrap();
             state.enabled = false;
         }
-        
+
         let result = unsafe {
-            ng_platform_progress_bar_set_indeterminate(self.handle, if indeterminate { 1 } else { 0 })
+            ng_platform_progress_bar_set_indeterminate(
+                self.handle,
+                if indeterminate { 1 } else { 0 },
+            )
         };
-        
+
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
         }
-        
+
         Ok(())
     }
-    
+
     pub fn set_enabled(&mut self, enabled: bool) -> AureaResult<()> {
         let result = unsafe {
             ng_platform_progress_bar_set_enabled(self.handle, if enabled { 1 } else { 0 })
         };
-        
+
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
         }
-        
+
         Ok(())
     }
 }
@@ -197,7 +198,7 @@ impl Element for ProgressBar {
     fn handle(&self) -> *mut c_void {
         self.handle
     }
-    
+
     unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
         unsafe {
             ng_platform_progress_bar_invalidate(self.handle);
@@ -210,4 +211,3 @@ impl Drop for ProgressBar {
         FrameScheduler::unregister_canvas(self.handle);
     }
 }
-
