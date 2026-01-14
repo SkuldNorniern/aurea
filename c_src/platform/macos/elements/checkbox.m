@@ -42,3 +42,5 @@ void ng_macos_checkbox_invalidate(NGHandle checkbox) {
     [nsCheckbox setNeedsDisplay:YES];
 }
 
+
+

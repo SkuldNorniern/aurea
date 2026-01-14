@@ -48,3 +48,5 @@ void ng_linux_slider_invalidate(NGHandle slider) {
     gtk_widget_queue_draw((GtkWidget*)slider);
 }
 
+
+

@@ -49,3 +49,5 @@ void ng_macos_slider_invalidate(NGHandle slider) {
     [nsSlider setNeedsDisplay:YES];
 }
 
+
+

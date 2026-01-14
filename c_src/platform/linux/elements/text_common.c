@@ -43,3 +43,5 @@ void ng_linux_free_text_content(char* content) {
     }
 }
 
+
+

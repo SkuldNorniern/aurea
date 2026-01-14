@@ -57,3 +57,5 @@ void ng_macos_free_text_content(char* content) {
     }
 }
 
+
+
