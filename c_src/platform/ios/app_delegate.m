@@ -78,4 +78,3 @@ void ng_ios_set_scale_factor_callback_global(ScaleFactorCallback callback) {
 void ng_ios_set_lifecycle_callback_enabled(BOOL enabled) {
     g_lifecycleCallbackEnabled = enabled;
 }
-

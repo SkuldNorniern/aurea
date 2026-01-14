@@ -16,6 +16,7 @@ void ng_ios_cleanup(void);
 // iOS window management
 NGHandle ng_ios_create_window(const char* title, int width, int height);
 void ng_ios_destroy_window(NGHandle handle);
+int ng_ios_set_window_content(NGHandle window, NGHandle content);
 float ng_ios_get_scale_factor(NGHandle window);
 void ng_ios_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallback callback);
 void ng_ios_window_set_lifecycle_callback(NGHandle window);
@@ -25,9 +26,17 @@ NGMenuHandle ng_ios_create_menu(void);
 void ng_ios_destroy_menu(NGMenuHandle handle);
 
 // iOS elements
-NGHandle ng_ios_create_button(const char* title);
+NGHandle ng_ios_create_button(const char* title, unsigned int id);
 NGHandle ng_ios_create_label(const char* text);
 NGHandle ng_ios_create_canvas(int width, int height);
+
+// Platform invalidation stubs (for Rust compatibility)
+void ng_platform_button_invalidate(NGHandle handle);
+void ng_platform_label_invalidate(NGHandle handle);
+void ng_platform_canvas_invalidate(NGHandle handle);
+void ng_platform_text_editor_invalidate(NGHandle handle);
+void ng_platform_text_view_invalidate(NGHandle handle);
+void ng_platform_progress_bar_invalidate(NGHandle handle);
 
 #ifdef __cplusplus
 }
