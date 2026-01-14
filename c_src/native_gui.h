@@ -15,24 +15,24 @@ int ng_init(void);
 void ng_cleanup(void);
 
 // Core platform-agnostic functions
-NGHandle ng_create_window(const char* title, int width, int height);
-void ng_destroy_window(NGHandle handle);
-NGMenuHandle ng_create_menu_handle(void);
-void ng_destroy_menu_handle(NGMenuHandle handle);
-int ng_attach_menu_to_window(NGHandle window, NGMenuHandle menu);
 int ng_add_raw_menu_item(NGMenuHandle menu, const char* title, unsigned int id);
+int ng_attach_menu_to_window(NGHandle window, NGMenuHandle menu);
+NGMenuHandle ng_create_menu_handle(void);
+NGHandle ng_create_window(const char* title, int width, int height);
+void ng_destroy_menu_handle(NGMenuHandle handle);
+void ng_destroy_window(NGHandle handle);
 int ng_handle_menu_event(NGMenuHandle menu, unsigned int id);
 
 // Platform-specific functions (implemented in platform/*.c)
-int ng_platform_init(void);
-void ng_platform_cleanup(void);
-NGHandle ng_platform_create_window(const char* title, int width, int height);
-void ng_platform_destroy_window(NGHandle handle);
-NGMenuHandle ng_platform_create_menu(void);
-void ng_platform_destroy_menu(NGMenuHandle handle);
-int ng_platform_attach_menu(NGHandle window, NGMenuHandle menu);
 int ng_platform_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id);
+int ng_platform_attach_menu(NGHandle window, NGMenuHandle menu);
+void ng_platform_cleanup(void);
+NGMenuHandle ng_platform_create_menu(void);
+NGHandle ng_platform_create_window(const char* title, int width, int height);
+void ng_platform_destroy_menu(NGMenuHandle handle);
+void ng_platform_destroy_window(NGHandle handle);
 int ng_platform_handle_menu_event(NGMenuHandle menu, unsigned int id);
+int ng_platform_init(void);
 
 #ifdef __cplusplus
 }

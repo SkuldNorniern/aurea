@@ -1,11 +1,13 @@
-use crate::{AureaError, AureaResult, ffi::*};
-use log::debug;
+use crate::ffi::*;
+use crate::{AureaError, AureaResult};
 use std::{
     collections::HashMap,
     ffi::CString,
     os::raw::c_void,
     sync::{LazyLock, Mutex},
 };
+
+use log::debug;
 
 static MENU_CALLBACKS: LazyLock<Mutex<HashMap<u32, Box<dyn Fn() + Send + Sync>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
