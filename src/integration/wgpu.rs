@@ -8,6 +8,11 @@ use crate::{AureaError, AureaResult};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 /// Platform-specific native window handle.
+///
+/// # Safety
+///
+/// This type is safe to send between threads because window handles are opaque pointers
+/// that are only used for surface creation, not for actual window manipulation across threads.
 #[derive(Debug, Clone, Copy)]
 pub enum NativeWindowHandle {
     #[cfg(target_os = "macos")]
@@ -196,12 +201,13 @@ impl HasDisplayHandle for NativeWindowHandle {
 unsafe impl Send for NativeWindowHandle {}
 unsafe impl Sync for NativeWindowHandle {}
 
-/// Extension trait for Window to provide wgpu integration methods.
-pub trait Window {
+#[cfg(feature = "wgpu")]
+pub(crate) trait WindowNativeHandle {
     fn native_handle_impl(&self) -> NativeWindowHandle;
 }
 
-impl Window for crate::window::Window {
+#[cfg(feature = "wgpu")]
+impl WindowNativeHandle for crate::window::Window {
     fn native_handle_impl(&self) -> NativeWindowHandle {
         #[cfg(target_os = "macos")]
         {
@@ -372,36 +378,16 @@ impl crate::window::Window {
     /// # Ok(())
     /// # }
     /// ```
-    /// ```rust,no_run
-    /// use aurea::Window;
-    /// use wgpu::Instance;
     ///
-    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let window = Window::new("App", 800, 600)?;
-    /// let instance = Instance::new(wgpu::InstanceDescriptor::default());
-    /// let surface = window.create_wgpu_surface(&instance)?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    /// ```rust,no_run
-    /// use aurea::Window;
-    /// use wgpu::Instance;
-    /// use raw_window_handle::{HasWindowHandle, HasDisplayHandle};
+    /// # Safety
     ///
-    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let window = Window::new("App", 800, 600)?;
-    /// let instance = Instance::new(wgpu::InstanceDescriptor::default());
-    /// let native_handle = window.native_handle();
-    /// let surface_target = wgpu::SurfaceTarget::from(&native_handle);
-    /// let surface = instance.create_surface(surface_target)?;
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// The window handle is valid for the lifetime of the window. We extend the
+    /// lifetime to `'static` because the window is typically kept alive for the
+    /// application lifetime, and wgpu surfaces are valid as long as the window exists.
     pub fn create_wgpu_surface(
         &self,
         instance: &wgpu::Instance,
     ) -> AureaResult<wgpu::Surface<'static>> {
-        // SAFETY: The window handle is valid for the lifetime of the window.
         let surface_target: wgpu::SurfaceTarget<'static> = unsafe {
             std::mem::transmute(wgpu::SurfaceTarget::from(self))
         };
@@ -413,4 +399,3 @@ impl crate::window::Window {
         Ok(surface)
     }
 }
-

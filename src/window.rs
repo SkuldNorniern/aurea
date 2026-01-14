@@ -153,8 +153,21 @@ impl Window {
     }
 
     /// Get the native window handle for external renderer integration.
-    pub fn native_handle(&self) -> crate::wgpu_integration::NativeWindowHandle {
-        crate::wgpu_integration::Window::native_handle_impl(self)
+    ///
+    /// ```rust,no_run
+    /// use aurea::Window;
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let window = Window::new("App", 800, 600)?;
+    /// let native_handle = window.native_handle();
+    /// // Use native_handle with external rendering APIs
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "wgpu")]
+    pub fn native_handle(&self) -> crate::integration::NativeWindowHandle {
+        use crate::integration::wgpu::WindowNativeHandle;
+        WindowNativeHandle::native_handle_impl(self)
     }
 }
 
