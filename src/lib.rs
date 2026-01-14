@@ -59,6 +59,7 @@ pub mod platform;
 pub mod render;
 pub mod view;
 pub mod window;
+pub mod wgpu_integration;
 
 // Re-export the elements, window, and menu modules
 pub use crate::elements::{Container, Element};
@@ -68,6 +69,9 @@ pub use crate::window::Window;
 // Re-export platform and capability modules
 pub use crate::capability::{Capability, CapabilityChecker};
 pub use crate::platform::{DesktopPlatform, MobilePlatform, Platform};
+
+// Re-export wgpu integration
+pub use crate::wgpu_integration::NativeWindowHandle;
 
 /// Errors that might occur during native GUI operations.
 #[derive(Debug, Clone)]

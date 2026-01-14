@@ -8,6 +8,18 @@ edition = "2024"
 libc = "0.2"
 log = "0.4.29"
 
+[features]
+default = []
+wgpu = ["dep:wgpu", "dep:raw-window-handle"]
+
+[dependencies.wgpu]
+version = "0.20"
+optional = true
+
+[dependencies.raw-window-handle]
+version = "0.6"
+optional = true
+
 
 [build-dependencies]
 cc = "1.2"
