@@ -8,8 +8,9 @@ use crate::menu::MenuBar;
 use crate::platform::Platform;
 use crate::view::{DamageRegion, FrameScheduler};
 use crate::{AureaError, AureaResult};
-use log::info;
 use std::{ffi::CString, os::raw::c_void, sync::Mutex};
+
+use log::info;
 
 pub struct Window {
     pub handle: *mut c_void,

@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 /// Lifecycle event types for application and window lifecycle management.
 ///
 /// This module provides the infrastructure for handling lifecycle events
@@ -7,6 +6,7 @@ use std::collections::HashMap;
 /// - Window lifecycle (close, minimize, restore)
 /// - Memory warnings
 /// - Surface recreation (for mobile)
+use std::collections::HashMap;
 use std::os::raw::c_void;
 use std::sync::{LazyLock, Mutex};
 

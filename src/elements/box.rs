@@ -1,6 +1,6 @@
+use super::traits::{Container, Element};
+use crate::{ffi::*, AureaError, AureaResult};
 use std::os::raw::c_void;
-use crate::{AureaError, AureaResult, ffi::*};
-use super::traits::{Element, Container};
 
 #[derive(Debug, Clone, Copy)]
 pub enum BoxOrientation {
@@ -52,6 +52,4 @@ impl Container for Box {
         Ok(())
     }
 }
-
-
 
