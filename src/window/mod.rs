@@ -1,3 +1,7 @@
+mod events;
+
+pub use events::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};
+
 use crate::capability::{Capability, CapabilityChecker};
 use crate::elements::Element;
 use crate::ffi::*;
@@ -8,7 +12,7 @@ use crate::menu::MenuBar;
 use crate::platform::Platform;
 use crate::view::{DamageRegion, FrameScheduler};
 use crate::{AureaError, AureaResult};
-use std::{ffi::CString, os::raw::c_void, sync::Mutex};
+use std::{ffi::CString, os::raw::c_void, sync::{Arc, Mutex}};
 
 use log::info;
 
@@ -20,6 +24,7 @@ pub struct Window {
     capabilities: CapabilityChecker,
     damage: Mutex<DamageRegion>,
     scale_factor: Mutex<f32>,
+    event_queue: events::EventQueue,
 }
 
 impl Window {
@@ -59,6 +64,7 @@ impl Window {
             capabilities,
             damage: Mutex::new(DamageRegion::new(16)),
             scale_factor: Mutex::new(scale_factor),
+            event_queue: events::EventQueue::new(),
         })
     }
 
@@ -154,11 +160,6 @@ impl Window {
 
     /// Get the native window handle for external renderer integration
     ///
-    /// This returns a platform-specific handle that can be used with external
-    /// rendering libraries (e.g., wgpu). The handle is always available,
-    /// but wgpu-specific methods require the `wgpu` feature.
-    /// Get the native window handle for external renderer integration
-    ///
     /// This returns a platform-specific window handle that can be used to create
     /// surfaces for external rendering APIs (e.g., wgpu).
     ///
@@ -178,6 +179,113 @@ impl Window {
     pub fn native_handle(&self) -> crate::integration::NativeWindowHandle {
         use crate::integration::wgpu::WindowNativeHandle;
         WindowNativeHandle::native_handle_impl(self)
+    }
+
+    /// Poll window events (non-blocking)
+    ///
+    /// This method processes all pending window events by calling registered callbacks
+    /// and returns the events for manual processing. It should be called from an
+    /// external event loop to process window events.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use aurea::Window;
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut window = Window::new("App", 800, 600)?;
+    ///
+    /// // Register callbacks
+    /// window.on_event(|event| {
+    ///     match event {
+    ///         aurea::WindowEvent::CloseRequested => {
+    ///             println!("Window close requested");
+    ///         }
+    ///         _ => {}
+    ///     }
+    /// });
+    ///
+    /// // In your event loop:
+    /// loop {
+    ///     let events = window.poll_events(); // Callbacks are called automatically
+    ///     // You can also manually process events if needed
+    ///     for event in events {
+    ///         match event {
+    ///             aurea::WindowEvent::CloseRequested => break,
+    ///             _ => {}
+    ///         }
+    ///     }
+    ///     window.process_frames()?;
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn poll_events(&mut self) -> Vec<WindowEvent> {
+        // Process events through callbacks and return them for manual processing
+        self.event_queue.process_events()
+    }
+
+    /// Process scheduled frames (event-driven canvas redraws)
+    ///
+    /// This method processes all scheduled frames by calling redraw callbacks
+    /// on registered canvases. It should be called from an external event loop
+    /// after processing window events.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use aurea::Window;
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut window = Window::new("App", 800, 600)?;
+    ///
+    /// // In your event loop:
+    /// loop {
+    ///     let events = window.poll_events();
+    ///     // Process events...
+    ///     window.process_frames()?; // Process scheduled canvas redraws
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn process_frames(&self) -> AureaResult<()> {
+        FrameScheduler::process_frames()
+    }
+
+    /// Register an event callback (retained-mode style)
+    ///
+    /// This registers a callback that will be called for all window events.
+    /// The callback is retained for the lifetime of the window.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use aurea::Window;
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let window = Window::new("App", 800, 600)?;
+    ///
+    /// window.on_event(|event| {
+    ///     match event {
+    ///         aurea::WindowEvent::CloseRequested => {
+    ///             println!("Window close requested");
+    ///         }
+    ///         aurea::WindowEvent::Resized { width, height } => {
+    ///             println!("Window resized to {}x{}", width, height);
+    ///         }
+    ///         _ => {}
+    ///     }
+    /// });
+    ///
+    /// // Call poll_events() in your event loop to trigger callbacks
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn on_event<F>(&self, callback: F)
+    where
+        F: Fn(WindowEvent) + Send + Sync + 'static,
+    {
+        self.event_queue.register_callback(Arc::new(callback));
     }
 }
 
