@@ -54,6 +54,31 @@ void ng_android_window_set_lifecycle_callback(NGHandle window) {
     ng_android_window_set_lifecycle_callback_impl(window);
 }
 
+void ng_platform_window_set_title(NGHandle window, const char* title) {
+    extern void ng_android_window_set_title(NGHandle window, const char* title);
+    ng_android_window_set_title(window, title);
+}
+
+void ng_platform_window_set_size(NGHandle window, int width, int height) {
+    extern void ng_android_window_set_size(NGHandle window, int width, int height);
+    ng_android_window_set_size(window, width, height);
+}
+
+void ng_platform_window_get_size(NGHandle window, int* width, int* height) {
+    extern void ng_android_window_get_size(NGHandle window, int* width, int* height);
+    ng_android_window_get_size(window, width, height);
+}
+
+void ng_platform_window_request_close(NGHandle window) {
+    extern void ng_android_window_request_close(NGHandle window);
+    ng_android_window_request_close(window);
+}
+
+int ng_platform_window_is_focused(NGHandle window) {
+    extern int ng_android_window_is_focused(NGHandle window);
+    return ng_android_window_is_focused(window);
+}
+
 // Helper functions are now in window.c to avoid circular dependencies
 
 // Android lifecycle callbacks (called from Java/Kotlin via JNI)

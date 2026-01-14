@@ -158,10 +158,6 @@ void ng_android_window_set_lifecycle_callback_impl(NGHandle window) {
 
 // JNI environment setup is handled in android.c via ng_android_set_activity()
 
-void ng_android_set_main_window_handle(void* handle) {
-    g_mainWindowHandle = handle;
-}
-
 void ng_android_set_scale_factor_callback_global(ScaleFactorCallback callback) {
     g_scaleFactorCallback = callback;
 }
@@ -170,7 +166,138 @@ void ng_android_set_lifecycle_callback_enabled(int enabled) {
     g_lifecycleCallbackEnabled = enabled;
 }
 
-void ng_android_set_main_window_handle(void* handle) {
-    g_mainWindowHandle = handle;
+void ng_android_window_set_title(NGHandle window, const char* title) {
+    // On Android, window title is typically the activity title
+    // This requires JNI call to Activity.setTitle()
+    // For now, this is a placeholder
+    (void)window;
+    (void)title;
+    // TODO: Implement JNI call to setTitle
+}
+
+void ng_android_window_set_size(NGHandle window, int width, int height) {
+    // Android windows are fullscreen, size is managed by the OS
+    (void)window;
+    (void)width;
+    (void)height;
+}
+
+void ng_android_window_get_size(NGHandle window, int* width, int* height) {
+    if (!window || !width || !height || !g_activity) return;
+    
+    JNIEnv* env = get_jni_env();
+    if (!env) return;
+    
+    // Get window from activity
+    jclass activity_class = (*env)->GetObjectClass(env, g_activity);
+    if (!activity_class) return;
+    
+    jmethodID get_window = (*env)->GetMethodID(env, activity_class, "getWindow", "()Landroid/view/Window;");
+    if (!get_window) {
+        (*env)->DeleteLocalRef(env, activity_class);
+        return;
+    }
+    
+    jobject window_obj = (*env)->CallObjectMethod(env, g_activity, get_window);
+    if (!window_obj) {
+        (*env)->DeleteLocalRef(env, activity_class);
+        return;
+    }
+    
+    // Get window manager and display
+    jclass window_class = (*env)->GetObjectClass(env, window_obj);
+    jmethodID get_window_manager = (*env)->GetMethodID(env, window_class, "getWindowManager", "()Landroid/view/WindowManager;");
+    if (!get_window_manager) {
+        (*env)->DeleteLocalRef(env, window_obj);
+        (*env)->DeleteLocalRef(env, window_class);
+        (*env)->DeleteLocalRef(env, activity_class);
+        return;
+    }
+    
+    jobject window_manager = (*env)->CallObjectMethod(env, window_obj, get_window_manager);
+    if (!window_manager) {
+        (*env)->DeleteLocalRef(env, window_obj);
+        (*env)->DeleteLocalRef(env, window_class);
+        (*env)->DeleteLocalRef(env, activity_class);
+        return;
+    }
+    
+    // Get default display
+    jclass wm_class = (*env)->GetObjectClass(env, window_manager);
+    jmethodID get_default_display = (*env)->GetMethodID(env, wm_class, "getDefaultDisplay", "()Landroid/view/Display;");
+    if (!get_default_display) {
+        (*env)->DeleteLocalRef(env, window_manager);
+        (*env)->DeleteLocalRef(env, wm_class);
+        (*env)->DeleteLocalRef(env, window_obj);
+        (*env)->DeleteLocalRef(env, window_class);
+        (*env)->DeleteLocalRef(env, activity_class);
+        return;
+    }
+    
+    jobject display = (*env)->CallObjectMethod(env, window_manager, get_default_display);
+    if (!display) {
+        (*env)->DeleteLocalRef(env, window_manager);
+        (*env)->DeleteLocalRef(env, wm_class);
+        (*env)->DeleteLocalRef(env, window_obj);
+        (*env)->DeleteLocalRef(env, window_class);
+        (*env)->DeleteLocalRef(env, activity_class);
+        return;
+    }
+    
+    // Get display metrics
+    jclass display_class = (*env)->GetObjectClass(env, display);
+    jmethodID get_metrics = (*env)->GetMethodID(env, display_class, "getMetrics", "(Landroid/util/DisplayMetrics;)V");
+    if (!get_metrics) {
+        (*env)->DeleteLocalRef(env, display);
+        (*env)->DeleteLocalRef(env, display_class);
+        (*env)->DeleteLocalRef(env, window_manager);
+        (*env)->DeleteLocalRef(env, wm_class);
+        (*env)->DeleteLocalRef(env, window_obj);
+        (*env)->DeleteLocalRef(env, window_class);
+        (*env)->DeleteLocalRef(env, activity_class);
+        return;
+    }
+    
+    // Create DisplayMetrics object
+    jclass metrics_class = (*env)->FindClass(env, "android/util/DisplayMetrics");
+    jmethodID metrics_init = (*env)->GetMethodID(env, metrics_class, "<init>", "()V");
+    jobject metrics = (*env)->NewObject(env, metrics_class, metrics_init);
+    
+    (*env)->CallVoidMethod(env, display, get_metrics, metrics);
+    
+    // Get width and height
+    jfieldID width_field = (*env)->GetFieldID(env, metrics_class, "widthPixels", "I");
+    jfieldID height_field = (*env)->GetFieldID(env, metrics_class, "heightPixels", "I");
+    
+    if (width_field && height_field) {
+        *width = (*env)->GetIntField(env, metrics, width_field);
+        *height = (*env)->GetIntField(env, metrics, height_field);
+    }
+    
+    // Clean up
+    (*env)->DeleteLocalRef(env, metrics);
+    (*env)->DeleteLocalRef(env, metrics_class);
+    (*env)->DeleteLocalRef(env, display);
+    (*env)->DeleteLocalRef(env, display_class);
+    (*env)->DeleteLocalRef(env, window_manager);
+    (*env)->DeleteLocalRef(env, wm_class);
+    (*env)->DeleteLocalRef(env, window_obj);
+    (*env)->DeleteLocalRef(env, window_class);
+    (*env)->DeleteLocalRef(env, activity_class);
+}
+
+void ng_android_window_request_close(NGHandle window) {
+    // On Android, this would call Activity.finish()
+    // This requires JNI call
+    (void)window;
+    // TODO: Implement JNI call to finish()
+}
+
+int ng_android_window_is_focused(NGHandle window) {
+    // On Android, check if activity has window focus
+    // This requires JNI call to Activity.hasWindowFocus()
+    (void)window;
+    // TODO: Implement JNI call to hasWindowFocus()
+    return 1; // Placeholder
 }
 
