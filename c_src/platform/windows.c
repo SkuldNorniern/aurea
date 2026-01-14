@@ -18,6 +18,10 @@ NGHandle ng_platform_create_window(const char* title, int width, int height) {
     return ng_windows_create_window(title, width, height);
 }
 
+NGHandle ng_platform_create_window_with_type(const char* title, int width, int height, int window_type) {
+    return ng_windows_create_window_with_type(title, width, height, window_type);
+}
+
 void ng_platform_destroy_window(NGHandle handle) {
     ng_windows_destroy_window(handle);
 }

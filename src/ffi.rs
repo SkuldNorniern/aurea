@@ -15,6 +15,13 @@ unsafe extern "C" {
         width: c_int,
         height: c_int,
     ) -> *mut c_void;
+    
+    pub(crate) fn ng_platform_create_window_with_type(
+        title: *const c_char,
+        width: c_int,
+        height: c_int,
+        window_type: c_int,
+    ) -> *mut c_void;
     pub(crate) fn ng_platform_destroy_window(handle: *mut c_void);
     pub(crate) fn ng_platform_window_set_title(window: *mut c_void, title: *const c_char);
     pub(crate) fn ng_platform_window_set_size(window: *mut c_void, width: c_int, height: c_int);
