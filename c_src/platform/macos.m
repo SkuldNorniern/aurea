@@ -37,6 +37,18 @@ void ng_platform_destroy_window(NGHandle handle) {
     ng_macos_destroy_window(handle);
 }
 
+void ng_platform_window_show(NGHandle window) {
+    ng_macos_window_show(window);
+}
+
+void ng_platform_window_hide(NGHandle window) {
+    ng_macos_window_hide(window);
+}
+
+int ng_platform_window_is_visible(NGHandle window) {
+    return ng_macos_window_is_visible(window);
+}
+
 NGMenuHandle ng_platform_create_menu(void) {
     return ng_macos_create_menu();
 }

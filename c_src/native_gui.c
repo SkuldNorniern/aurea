@@ -44,6 +44,25 @@ void ng_destroy_window(NGHandle handle) {
     }
 }
 
+void ng_window_show(NGHandle handle) {
+    if (handle) {
+        ng_platform_window_show(handle);
+    }
+}
+
+void ng_window_hide(NGHandle handle) {
+    if (handle) {
+        ng_platform_window_hide(handle);
+    }
+}
+
+int ng_window_is_visible(NGHandle handle) {
+    if (handle) {
+        return ng_platform_window_is_visible(handle);
+    }
+    return 0;
+}
+
 int ng_handle_menu_event(NGMenuHandle menu, unsigned int id) {
     if (!menu) return NG_ERROR_INVALID_HANDLE;
     return ng_platform_handle_menu_event(menu, id);
