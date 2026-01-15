@@ -27,11 +27,13 @@ pub struct CpuDrawingContext {
     current_clip: Option<Path>,
     scale_factor: f32,
     current_interactive_id: Option<super::super::types::InteractiveId>,
+    width: u32,
+    height: u32,
 }
 
 impl CpuDrawingContext {
     /// Create a new CPU drawing context that writes to a display list
-    pub fn new(display_list: *mut DisplayList) -> Self {
+    pub fn new(display_list: *mut DisplayList, width: u32, height: u32) -> Self {
         Self {
             display_list,
             current_node_id: NodeId::new(),
@@ -41,6 +43,8 @@ impl CpuDrawingContext {
             current_clip: None,
             scale_factor: 1.0,
             current_interactive_id: None,
+            width,
+            height,
         }
     }
 
@@ -293,6 +297,14 @@ impl CpuDrawingContext {
 }
 
 impl DrawingContext for CpuDrawingContext {
+    fn width(&self) -> u32 {
+        self.width
+    }
+
+    fn height(&self) -> u32 {
+        self.height
+    }
+
     fn clear(&mut self, color: Color) -> AureaResult<()> {
         self.add_command(super::super::renderer::DrawCommand::Clear(color));
         Ok(())

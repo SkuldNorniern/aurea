@@ -65,6 +65,18 @@ unsafe extern "C" {
         content: *mut c_void,
     ) -> c_int;
 
+    // SplitView elements
+    pub(crate) fn ng_platform_create_split_view(is_vertical: c_int) -> *mut c_void;
+    pub(crate) fn ng_platform_split_view_add(
+        split_handle: *mut c_void,
+        element: *mut c_void,
+    ) -> c_int;
+    pub(crate) fn ng_platform_split_view_set_divider_position(
+        split_handle: *mut c_void,
+        index: c_int,
+        position: f32,
+    ) -> c_int;
+
     // Text elements
     pub(crate) fn ng_platform_create_text_editor(id: u32) -> *mut c_void;
     pub(crate) fn ng_platform_text_editor_invalidate(text_editor: *mut c_void);
