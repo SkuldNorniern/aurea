@@ -39,6 +39,12 @@ NGHandle ng_platform_create_label(const char* text);
 void ng_platform_label_invalidate(NGHandle label);
 NGHandle ng_platform_create_box(int is_vertical);
 int ng_platform_box_add(NGHandle box, NGHandle element, float weight);
+int ng_platform_set_window_content(NGHandle window, NGHandle content);
+
+// SplitView elements
+NGHandle ng_platform_create_split_view(int is_vertical);
+int ng_platform_split_view_add(NGHandle split_handle, NGHandle element);
+int ng_platform_split_view_set_divider_position(NGHandle split_handle, int index, float position);
 
 // New text-related functions
 NGHandle ng_platform_create_text_editor(unsigned int id);

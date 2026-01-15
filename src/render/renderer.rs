@@ -12,6 +12,12 @@ thread_local! {
 }
 
 pub trait DrawingContext {
+    /// Get the width of the drawing area
+    fn width(&self) -> u32;
+
+    /// Get the height of the drawing area
+    fn height(&self) -> u32;
+
     /// Clear the canvas with a color
     fn clear(&mut self, color: Color) -> AureaResult<()>;
 
@@ -23,6 +29,14 @@ pub trait DrawingContext {
 
     /// Draw text at a position
     fn draw_text(&mut self, text: &str, position: Point, paint: &Paint) -> AureaResult<()>;
+
+    /// Draw a line between two points
+    fn draw_line(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, paint: &Paint) -> AureaResult<()> {
+        let mut path = Path::new();
+        path.commands.push(super::types::PathCommand::MoveTo(Point::new(x1, y1)));
+        path.commands.push(super::types::PathCommand::LineTo(Point::new(x2, y2)));
+        self.draw_path(&path, paint)
+    }
 
     /// Draw a path
     fn draw_path(&mut self, path: &Path, paint: &Paint) -> AureaResult<()>;
@@ -376,6 +390,14 @@ impl PlaceholderDrawingContext {
 }
 
 impl DrawingContext for PlaceholderDrawingContext {
+    fn width(&self) -> u32 {
+        self._width
+    }
+
+    fn height(&self) -> u32 {
+        self._height
+    }
+
     fn clear(&mut self, color: Color) -> AureaResult<()> {
         COMMAND_BUFFER.with(|buf| {
             if let Some(ptr) = *buf.borrow() {
