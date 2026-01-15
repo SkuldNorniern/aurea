@@ -92,6 +92,9 @@ impl FrameScheduler {
 // FFI function for platform to call frame processing
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ng_process_frames() {
+    // Process window events first so state changes are handled before redraw
+    crate::window::process_all_window_events();
+
     if let Err(e) = FrameScheduler::process_frames() {
         log::warn!("Frame processing error: {:?}", e);
     }

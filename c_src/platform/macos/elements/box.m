@@ -8,14 +8,15 @@ NGHandle ng_macos_create_box(int is_vertical) {
     [stack setOrientation:is_vertical ? NSUserInterfaceLayoutOrientationVertical 
                                     : NSUserInterfaceLayoutOrientationHorizontal];
     [stack setSpacing:4.0];
-    [stack setAlignment:is_vertical ? NSLayoutAttributeLeading : NSLayoutAttributeCenterY];
+    // Use Leading/Top as anchor for cross-axis pinning
+    [stack setAlignment:is_vertical ? NSLayoutAttributeLeading : NSLayoutAttributeTop];
     [stack setDistribution:NSStackViewDistributionFill];
     [stack setEdgeInsets:NSEdgeInsetsMake(4.0, 4.0, 4.0, 4.0)];
     
     return (__bridge_retained void*)stack;
 }
 
-int ng_macos_box_add(NGHandle box, NGHandle element) {
+int ng_macos_box_add(NGHandle box, NGHandle element, float weight) {
     if (!box || !element) return NG_ERROR_INVALID_HANDLE;
     
     NSStackView* stack = (__bridge NSStackView*)box;
@@ -24,17 +25,27 @@ int ng_macos_box_add(NGHandle box, NGHandle element) {
     [view setTranslatesAutoresizingMaskIntoConstraints:NO];
     [stack addArrangedSubview:view];
     
-    if ([view respondsToSelector:@selector(renderBuffer)]) {
+    // Cross-axis pinning to ensure elements fill the stack view's thickness
+    if ([stack orientation] == NSUserInterfaceLayoutOrientationVertical) {
+        // In vertical stack, pin trailing edge to fill width
+        [view.trailingAnchor constraintEqualToAnchor:stack.trailingAnchor constant:-stack.edgeInsets.right].active = YES;
+    } else {
+        // In horizontal stack, pin bottom edge to fill height
+        [view.bottomAnchor constraintEqualToAnchor:stack.bottomAnchor constant:-stack.edgeInsets.bottom].active = YES;
+    }
+    
+    // If weight > 0, we want this view to expand along the orientation to fill available space
+    if (weight > 0.0f) {
         [view setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
         [view setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationVertical];
         [view setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
         [view setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationVertical];
-    } else if ([view isKindOfClass:[NSScrollView class]] || [view isKindOfClass:[NSTextField class]]) {
-        [view setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
-        [view setContentHuggingPriority:NSLayoutPriorityDefaultHigh forOrientation:NSLayoutConstraintOrientationVertical];
-    } else if ([view isKindOfClass:[NSButton class]]) {
+    } else {
+        // Fixed/natural size elements have higher hugging priority
         [view setContentHuggingPriority:NSLayoutPriorityDefaultHigh forOrientation:NSLayoutConstraintOrientationHorizontal];
         [view setContentHuggingPriority:NSLayoutPriorityDefaultHigh forOrientation:NSLayoutConstraintOrientationVertical];
+        [view setContentCompressionResistancePriority:NSLayoutPriorityDefaultHigh forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [view setContentCompressionResistancePriority:NSLayoutPriorityDefaultHigh forOrientation:NSLayoutConstraintOrientationVertical];
     }
     
     return NG_SUCCESS;

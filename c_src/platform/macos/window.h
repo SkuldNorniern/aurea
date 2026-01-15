@@ -23,6 +23,8 @@ void ng_macos_window_set_lifecycle_callback(NGHandle window);
 void ng_macos_window_set_title(NGHandle window, const char* title);
 void ng_macos_window_set_size(NGHandle window, int width, int height);
 void ng_macos_window_get_size(NGHandle window, int* width, int* height);
+void ng_macos_window_set_position(NGHandle window, int x, int y);
+void ng_macos_window_get_position(NGHandle window, int* x, int* y);
 void ng_macos_window_request_close(NGHandle window);
 int ng_macos_window_is_focused(NGHandle window);
 void ng_macos_window_show(NGHandle window);

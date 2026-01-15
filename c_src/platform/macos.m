@@ -150,8 +150,8 @@ void ng_platform_box_invalidate(NGHandle box) {
     ng_macos_box_invalidate(box);
 }
 
-int ng_platform_box_add(NGHandle box, NGHandle element) {
-    return ng_macos_box_add(box, element);
+int ng_platform_box_add(NGHandle box, NGHandle element, float weight) {
+    return ng_macos_box_add(box, element, weight);
 }
 
 int ng_platform_set_window_content(NGHandle window, NGHandle content) {
@@ -232,6 +232,14 @@ void ng_platform_window_set_size(NGHandle window, int width, int height) {
 
 void ng_platform_window_get_size(NGHandle window, int* width, int* height) {
     ng_macos_window_get_size(window, width, height);
+}
+ 
+void ng_platform_window_set_position(NGHandle window, int x, int y) {
+    ng_macos_window_set_position(window, x, y);
+}
+
+void ng_platform_window_get_position(NGHandle window, int* x, int* y) {
+    ng_macos_window_get_position(window, x, y);
 }
 
 void ng_platform_window_request_close(NGHandle window) {

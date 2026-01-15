@@ -54,6 +54,18 @@ extern void ng_invoke_lifecycle_callback(void* window, unsigned int event_id);
         }
     }
 }
+
+- (void)windowDidMove:(NSNotification *)notification {
+    if (self.lifecycleCallbackEnabled && self.windowHandle) {
+        ng_invoke_lifecycle_callback(self.windowHandle, 11); // WindowMoved = 11
+    }
+}
+
+- (void)windowDidResize:(NSNotification *)notification {
+    if (self.lifecycleCallbackEnabled && self.windowHandle) {
+        ng_invoke_lifecycle_callback(self.windowHandle, 12); // WindowResized = 12
+    }
+}
 @end
 
 static NSMutableDictionary* windowDelegates = nil;
@@ -246,6 +258,28 @@ void ng_macos_window_get_size(NGHandle window, int* width, int* height) {
     NSRect frame = [nsWindow frame];
     *width = (int)frame.size.width;
     *height = (int)frame.size.height;
+}
+
+void ng_macos_window_set_position(NGHandle window, int x, int y) {
+    if (!window) return;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    NSScreen* screen = [[NSScreen screens] objectAtIndex:0];
+    NSRect screenFrame = [screen frame];
+    
+    // Convert top-left (Aurea) to bottom-left (Cocoa)
+    NSPoint point = NSMakePoint(x, screenFrame.size.height - y);
+    [nsWindow setFrameTopLeftPoint:point];
+}
+
+void ng_macos_window_get_position(NGHandle window, int* x, int* y) {
+    if (!window || !x || !y) return;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    NSRect frame = [nsWindow frame];
+    NSScreen* screen = [[NSScreen screens] objectAtIndex:0];
+    NSRect screenFrame = [screen frame];
+    
+    *x = (int)frame.origin.x;
+    *y = (int)(screenFrame.size.height - (frame.origin.y + frame.size.height));
 }
 
 void ng_macos_window_request_close(NGHandle window) {

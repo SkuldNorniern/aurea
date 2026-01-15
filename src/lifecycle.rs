@@ -29,6 +29,10 @@ pub enum LifecycleEvent {
     WindowMinimized,
     /// Window restored from minimized state
     WindowRestored,
+    /// Window moved
+    WindowMoved,
+    /// Window resized
+    WindowResized,
     /// Memory warning received (iOS: `didReceiveMemoryWarning`)
     MemoryWarning,
     /// Surface lost (mobile: OpenGL/Vulkan context lost)

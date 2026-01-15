@@ -21,6 +21,11 @@ int ng_platform_init(void);
 void ng_platform_cleanup(void);
 NGHandle ng_platform_create_window(const char* title, int width, int height);
 void ng_platform_destroy_window(NGHandle handle);
+void ng_platform_window_set_title(NGHandle window, const char* title);
+void ng_platform_window_set_size(NGHandle window, int width, int height);
+void ng_platform_window_get_size(NGHandle window, int* width, int* height);
+void ng_platform_window_set_position(NGHandle window, int x, int y);
+void ng_platform_window_get_position(NGHandle window, int* x, int* y);
 NGMenuHandle ng_platform_create_menu(void);
 void ng_platform_destroy_menu(NGMenuHandle handle);
 int ng_platform_attach_menu(NGHandle window, NGMenuHandle menu);
@@ -33,7 +38,7 @@ void ng_platform_button_invalidate(NGHandle button);
 NGHandle ng_platform_create_label(const char* text);
 void ng_platform_label_invalidate(NGHandle label);
 NGHandle ng_platform_create_box(int is_vertical);
-int ng_platform_box_add(NGHandle box, NGHandle element);
+int ng_platform_box_add(NGHandle box, NGHandle element, float weight);
 
 // New text-related functions
 NGHandle ng_platform_create_text_editor(unsigned int id);

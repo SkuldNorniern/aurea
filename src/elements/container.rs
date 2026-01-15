@@ -46,8 +46,8 @@ impl Element for Box {
 }
 
 impl Container for Box {
-    fn add<E: Element>(&mut self, element: E) -> AureaResult<()> {
-        let result = unsafe { ng_platform_box_add(self.handle, element.handle()) };
+    fn add_weighted<E: Element>(&mut self, element: E, weight: f32) -> AureaResult<()> {
+        let result = unsafe { ng_platform_box_add(self.handle, element.handle(), weight) };
 
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
