@@ -31,7 +31,22 @@ use crate::menu::MenuBar;
 use crate::platform::Platform;
 use crate::view::{DamageRegion, FrameScheduler};
 use crate::{AureaError, AureaResult};
-use std::{ffi::CString, os::raw::c_void, sync::{Arc, Mutex}};
+use std::{ffi::CString, os::raw::c_void, sync::{Arc, Mutex, Weak, LazyLock}};
+ 
+static ALL_EVENT_QUEUES: LazyLock<Mutex<Vec<Weak<events::EventQueue>>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
+
+pub(crate) fn process_all_window_events() {
+    let mut queues = ALL_EVENT_QUEUES.lock().unwrap();
+    queues.retain(|weak| {
+        if let Some(queue) = weak.upgrade() {
+            queue.process_events();
+            true
+        } else {
+            false
+        }
+    });
+}
 
 use log::info;
 
@@ -91,18 +106,35 @@ impl Window {
         let scale_factor = unsafe { ng_platform_get_scale_factor(handle) };
         let event_queue = Arc::new(events::EventQueue::new());
         
+        {
+            let mut queues = ALL_EVENT_QUEUES.lock().unwrap();
+            queues.push(Arc::downgrade(&event_queue));
+        }
+
         // Register lifecycle bridge
         let eq_clone = event_queue.clone();
+        let handle_usize = handle as usize;
         register_lifecycle_callback(handle, Box::new(move |event| {
+            let handle_ptr = handle_usize as *mut std::os::raw::c_void;
             match event {
                 LifecycleEvent::WindowWillClose => {
                     eq_clone.push(WindowEvent::CloseRequested);
                 }
-                LifecycleEvent::WindowMinimized => {
-                    // Could add WindowEvent::Minimized if needed
+                LifecycleEvent::WindowMoved => {
+                    let mut x = 0;
+                    let mut y = 0;
+                    unsafe {
+                        ng_platform_window_get_position(handle_ptr, &mut x, &mut y);
+                    }
+                    eq_clone.push(WindowEvent::Moved { x, y });
                 }
-                LifecycleEvent::WindowRestored => {
-                    // Could add WindowEvent::Restored if needed
+                LifecycleEvent::WindowResized => {
+                    let mut w = 0;
+                    let mut h = 0;
+                    unsafe {
+                        ng_platform_window_get_size(handle_ptr, &mut w, &mut h);
+                    }
+                    eq_clone.push(WindowEvent::Resized { width: w as u32, height: h as u32 });
                 }
                 _ => {}
             }
@@ -123,6 +155,23 @@ impl Window {
             event_queue,
             window_type,
         })
+    }
+
+    /// Set the window position
+    pub fn set_position(&self, x: i32, y: i32) {
+        unsafe {
+            ng_platform_window_set_position(self.handle, x, y);
+        }
+    }
+
+    /// Get the window position
+    pub fn position(&self) -> (i32, i32) {
+        let mut x = 0;
+        let mut y = 0;
+        unsafe {
+            ng_platform_window_get_position(self.handle, &mut x, &mut y);
+        }
+        (x, y)
     }
 
     pub fn create_menu_bar(&mut self) -> AureaResult<MenuBar> {

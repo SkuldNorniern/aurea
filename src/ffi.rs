@@ -7,32 +7,34 @@ unsafe extern "C" {
     pub(crate) fn ng_platform_cleanup();
 
     // Platform runner
-    pub(crate) fn ng_platform_run() -> c_int;
-    pub(crate) fn ng_platform_poll_events() -> c_int;
+    pub fn ng_platform_run() -> c_int;
+    pub fn ng_platform_poll_events() -> c_int;
 
     // Window elements
-    pub(crate) fn ng_platform_create_window(
+    pub fn ng_platform_create_window(
         title: *const c_char,
         width: c_int,
         height: c_int,
     ) -> *mut c_void;
     
-    pub(crate) fn ng_platform_create_window_with_type(
+    pub fn ng_platform_create_window_with_type(
         title: *const c_char,
         width: c_int,
         height: c_int,
         window_type: c_int,
     ) -> *mut c_void;
-    pub(crate) fn ng_platform_destroy_window(handle: *mut c_void);
-    pub(crate) fn ng_platform_window_set_title(window: *mut c_void, title: *const c_char);
-    pub(crate) fn ng_platform_window_set_size(window: *mut c_void, width: c_int, height: c_int);
-    pub(crate) fn ng_platform_window_get_size(window: *mut c_void, width: *mut c_int, height: *mut c_int);
-    pub(crate) fn ng_platform_window_request_close(window: *mut c_void);
-    pub(crate) fn ng_platform_window_is_focused(window: *mut c_void) -> c_int;
-    pub(crate) fn ng_platform_window_get_content_view(window: *mut c_void) -> *mut c_void;
-    pub(crate) fn ng_platform_window_show(window: *mut c_void);
-    pub(crate) fn ng_platform_window_hide(window: *mut c_void);
-    pub(crate) fn ng_platform_window_is_visible(window: *mut c_void) -> c_int;
+    pub fn ng_platform_destroy_window(handle: *mut c_void);
+    pub fn ng_platform_window_set_title(window: *mut c_void, title: *const c_char);
+    pub fn ng_platform_window_set_size(window: *mut c_void, width: c_int, height: c_int);
+    pub fn ng_platform_window_get_size(window: *mut c_void, width: *mut c_int, height: *mut c_int);
+    pub fn ng_platform_window_request_close(window: *mut c_void);
+    pub fn ng_platform_window_is_focused(window: *mut c_void) -> c_int;
+    pub fn ng_platform_window_get_content_view(window: *mut c_void) -> *mut c_void;
+    pub fn ng_platform_window_show(window: *mut c_void);
+    pub fn ng_platform_window_hide(window: *mut c_void);
+    pub fn ng_platform_window_is_visible(window: *mut c_void) -> c_int;
+    pub fn ng_platform_window_set_position(window: *mut c_void, x: c_int, y: c_int);
+    pub fn ng_platform_window_get_position(window: *mut c_void, x: *mut c_int, y: *mut c_int);
 
     // Menu elements
     pub(crate) fn ng_platform_create_menu() -> *mut c_void;
@@ -57,7 +59,7 @@ unsafe extern "C" {
     pub(crate) fn ng_platform_label_invalidate(label: *mut c_void);
     pub(crate) fn ng_platform_create_box(is_vertical: c_int) -> *mut c_void;
     pub(crate) fn ng_platform_box_invalidate(box_handle: *mut c_void);
-    pub(crate) fn ng_platform_box_add(box_handle: *mut c_void, element: *mut c_void) -> c_int;
+    pub(crate) fn ng_platform_box_add(box_handle: *mut c_void, element: *mut c_void, weight: f32) -> c_int;
     pub(crate) fn ng_platform_set_window_content(
         window: *mut c_void,
         content: *mut c_void,
@@ -291,6 +293,8 @@ pub extern "C" fn ng_invoke_lifecycle_callback(window: *mut c_void, event_id: u3
         8 => LifecycleEvent::MemoryWarning,
         9 => LifecycleEvent::SurfaceLost,
         10 => LifecycleEvent::SurfaceRecreated,
+        11 => LifecycleEvent::WindowMoved,
+        12 => LifecycleEvent::WindowResized,
         _ => return, // Unknown event ID
     };
 
