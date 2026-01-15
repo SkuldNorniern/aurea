@@ -13,7 +13,7 @@ NGHandle ng_macos_create_label(const char* text);
 void ng_macos_label_invalidate(NGHandle label);
 NGHandle ng_macos_create_box(int is_vertical);
 void ng_macos_box_invalidate(NGHandle box);
-int ng_macos_box_add(NGHandle box, NGHandle element);
+int ng_macos_box_add(NGHandle box, NGHandle element, float weight);
 NGHandle ng_macos_create_text_editor(unsigned int id);
 void ng_macos_text_editor_invalidate(NGHandle text_editor);
 NGHandle ng_macos_create_text_view(int is_editable, unsigned int id);

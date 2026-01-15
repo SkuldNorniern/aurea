@@ -31,7 +31,11 @@ pub trait Element {
 }
 
 pub trait Container: Element {
-    fn add<E: Element>(&mut self, element: E) -> AureaResult<()>;
+    fn add<E: Element>(&mut self, element: E) -> AureaResult<()> {
+        self.add_weighted(element, 0.0)
+    }
+
+    fn add_weighted<E: Element>(&mut self, element: E, weight: f32) -> AureaResult<()>;
 }
 
 #[derive(Debug, Clone)]
