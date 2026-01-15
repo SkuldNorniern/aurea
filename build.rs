@@ -80,6 +80,7 @@ fn main() {
             .file("c_src/platform/ios/elements/checkbox.m")
             .file("c_src/platform/ios/elements/progress_bar.m")
             .file("c_src/platform/ios/elements/combo_box.m")
+            .file("c_src/platform/ios/elements/split_view.m")
             .define("__APPLE__", None)
             .define("TARGET_OS_IPHONE", Some("1"))
             .flag("-x")
@@ -105,6 +106,7 @@ fn main() {
         println!("cargo:rerun-if-changed=c_src/platform/ios/elements/checkbox.m");
         println!("cargo:rerun-if-changed=c_src/platform/ios/elements/progress_bar.m");
         println!("cargo:rerun-if-changed=c_src/platform/ios/elements/combo_box.m");
+        println!("cargo:rerun-if-changed=c_src/platform/ios/elements/split_view.m");
     }
     // macOS targets (only if not iOS)
     else if target.contains("apple-darwin") {
@@ -126,6 +128,7 @@ fn main() {
             .file("c_src/platform/macos/elements/checkbox.m")
             .file("c_src/platform/macos/elements/progress_bar.m")
             .file("c_src/platform/macos/elements/combo_box.m")
+            .file("c_src/platform/macos/elements/split_view.m")
             .define("__APPLE__", None)
             .flag("-x")
             .flag("objective-c")
@@ -150,6 +153,7 @@ fn main() {
         println!("cargo:rerun-if-changed=c_src/platform/macos/elements/checkbox.m");
         println!("cargo:rerun-if-changed=c_src/platform/macos/elements/progress_bar.m");
         println!("cargo:rerun-if-changed=c_src/platform/macos/elements/combo_box.m");
+        println!("cargo:rerun-if-changed=c_src/platform/macos/elements/split_view.m");
         println!("cargo:rerun-if-changed=c_src/platform/macos/elements.h");
     }
 

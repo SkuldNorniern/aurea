@@ -379,7 +379,11 @@ impl Renderer for CpuRasterizer {
 
     fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext>> {
         self.display_list.clear();
-        let mut ctx = CpuDrawingContext::new(&mut self.display_list as *mut DisplayList);
+        let mut ctx = CpuDrawingContext::new(
+            &mut self.display_list as *mut DisplayList,
+            self.width,
+            self.height,
+        );
         ctx.set_scale_factor(self.scale_factor);
         Ok(Box::new(ctx))
     }

@@ -22,6 +22,11 @@ int ng_macos_set_text_content(NGHandle text_handle, const char* content);
 char* ng_macos_get_text_content(NGHandle text_handle);
 void ng_macos_free_text_content(char* content);
 
+// SplitView functions
+NGHandle ng_macos_create_split_view(int is_vertical);
+int ng_macos_split_view_add(NGHandle split_handle, NGHandle element);
+int ng_macos_split_view_set_divider_position(NGHandle split_handle, int index, float position);
+
 // Canvas functions
 NGHandle ng_macos_create_canvas(int width, int height);
 void ng_macos_canvas_invalidate(NGHandle canvas);
