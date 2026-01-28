@@ -162,6 +162,10 @@ NGHandle ng_platform_canvas_get_window(NGHandle canvas) {
     return ng_linux_canvas_get_window(canvas);
 }
 
+NGHandle ng_platform_canvas_get_native_handle(NGHandle canvas) {
+    return ng_linux_canvas_get_native_handle(canvas);
+}
+
 float ng_platform_get_scale_factor(NGHandle window) {
     return ng_linux_get_scale_factor(window);
 }

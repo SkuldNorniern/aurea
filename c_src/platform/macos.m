@@ -76,12 +76,12 @@ int ng_platform_attach_menu(NGHandle window, NGMenuHandle menu) {
     return ng_macos_attach_menu(window, menu);
 }
 
-int ng_platform_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id) {
-    return ng_macos_add_menu_item(menu, title, id);
+int ng_platform_add_menu_item(NGMenuHandle menu_handle, const char* title, unsigned int id) {
+    return ng_macos_add_menu_item(menu_handle, title, id);
 }
 
-NGMenuHandle ng_platform_create_submenu(NGMenuHandle parentMenu, const char* title) {
-    return ng_macos_create_submenu(parentMenu, title);
+NGMenuHandle ng_platform_create_submenu(NGMenuHandle parent, const char* title) {
+    return ng_macos_create_submenu(parent, title);
 }
 
 extern void ng_process_frames(void);
@@ -158,6 +158,10 @@ int ng_platform_set_window_content(NGHandle window, NGHandle content) {
     return ng_macos_set_window_content(window, content);
 }
 
+int ng_platform_add_menu_separator(NGMenuHandle menu_handle) {
+    return ng_macos_add_menu_separator(menu_handle);
+}
+
 NGHandle ng_platform_create_split_view(int is_vertical) {
     return ng_macos_create_split_view(is_vertical);
 }
@@ -220,6 +224,10 @@ void ng_platform_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned 
 
 NGHandle ng_platform_canvas_get_window(NGHandle canvas) {
     return ng_macos_canvas_get_window(canvas);
+}
+
+NGHandle ng_platform_canvas_get_native_handle(NGHandle canvas) {
+    return ng_macos_canvas_get_native_handle(canvas);
 }
 
 float ng_platform_get_scale_factor(NGHandle window) {

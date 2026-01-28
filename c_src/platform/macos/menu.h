@@ -15,6 +15,7 @@ NGMenuHandle ng_macos_create_menu(void);
 void ng_macos_destroy_menu(NGMenuHandle handle);
 int ng_macos_attach_menu(NGHandle window, NGMenuHandle menu);
 int ng_macos_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id);
+int ng_macos_add_menu_separator(NGMenuHandle menu);
 NGMenuHandle ng_macos_create_submenu(NGMenuHandle parentMenu, const char* title);
 
 #ifdef __cplusplus

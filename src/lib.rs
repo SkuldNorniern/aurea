@@ -36,8 +36,8 @@ pub mod window;
 pub use crate::view::FrameScheduler;
 pub use crate::view::damage::DamageRegion;
 
-pub use crate::elements::{Container, Element};
-pub use crate::menu::MenuBar;
+pub use crate::elements::{Box, BoxOrientation, Container, Element, Label, SplitView, SplitOrientation};
+pub use crate::menu::{MenuBar, SubMenu};
 pub use crate::window::{Window, WindowManager, WindowType};
 
 pub use crate::window::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};

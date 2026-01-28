@@ -33,6 +33,68 @@ pub struct Canvas {
 }
 
 impl Canvas {
+    /// Get the native window handle for this canvas.
+    pub fn native_handle(&self) -> *mut c_void {
+        unsafe {
+            ng_platform_canvas_get_native_handle(self.handle)
+        }
+    }
+    
+    /// Get the parent window handle for this canvas.
+    pub fn window_handle(&self) -> *mut c_void {
+        unsafe {
+            ng_platform_canvas_get_window(self.handle)
+        }
+    }
+    
+    /// Get canvas dimensions.
+    pub fn size(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
+    /// Create a wgpu surface from this canvas.
+    ///
+    /// ```rust,no_run
+    /// use aurea::render::{Canvas, RendererBackend};
+    /// use wgpu::Instance;
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let canvas = Canvas::new(800, 600, RendererBackend::Cpu)?;
+    /// let instance = Instance::new(wgpu::InstanceDescriptor::default());
+    /// let surface = canvas.create_wgpu_surface(&instance)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "wgpu")]
+    pub fn create_wgpu_surface(
+        &self,
+        instance: &wgpu::Instance,
+    ) -> AureaResult<wgpu::Surface<'static>> {
+        use crate::integration::wgpu::NativeWindowHandle;
+        use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
+        
+        let native_ptr = self.native_handle();
+        
+        #[cfg(target_os = "macos")]
+        let handle = NativeWindowHandle::MacOS { ns_view: native_ptr };
+        
+        #[cfg(target_os = "windows")]
+        let handle = NativeWindowHandle::Windows { hwnd: native_ptr };
+        
+        #[cfg(target_os = "linux")]
+        let handle = NativeWindowHandle::Linux { xcb_window: 0 }; // TODO: Get actual X11 window ID
+        
+        let surface_target: wgpu::SurfaceTarget<'static> = unsafe {
+            std::mem::transmute(wgpu::SurfaceTarget::from(&handle))
+        };
+        
+        let surface = instance
+            .create_surface(surface_target)
+            .map_err(|_| AureaError::ElementOperationFailed)?;
+        
+        Ok(surface)
+    }
+
     pub fn new(width: u32, height: u32, backend: RendererBackend) -> AureaResult<Self> {
         let handle = unsafe { ng_platform_create_canvas(width as i32, height as i32) };
         if handle.is_null() {
