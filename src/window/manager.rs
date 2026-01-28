@@ -3,8 +3,8 @@
 //! This module provides a window registry for managing multiple windows
 //! in desktop applications.
 
-use crate::window::Window;
 use crate::AureaResult;
+use crate::window::Window;
 use std::sync::{Arc, Mutex};
 
 /// Window manager for tracking multiple windows

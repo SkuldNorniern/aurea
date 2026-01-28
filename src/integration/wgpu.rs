@@ -120,7 +120,7 @@ impl HasWindowHandle for NativeWindowHandle {
                 use std::ptr::NonNull;
                 // SAFETY: ns_view is a valid window handle from Aurea window creation
                 let view = NonNull::new(*ns_view as *mut std::ffi::c_void)
-                    .expect("Invalid NSView handle");
+                    .ok_or(raw_window_handle::HandleError::Unavailable)?;
                 unsafe {
                     Ok(WindowHandle::borrow_raw(AppKitWindowHandle::new(view).into()))
                 }
@@ -131,7 +131,7 @@ impl HasWindowHandle for NativeWindowHandle {
                 use std::ptr::NonNull;
                 // SAFETY: hwnd is a valid window handle from Aurea window creation
                 let hwnd_ptr = NonNull::new(*hwnd as *mut std::ffi::c_void)
-                    .expect("Invalid HWND handle");
+                    .ok_or(raw_window_handle::HandleError::Unavailable)?;
                 unsafe {
                     Ok(WindowHandle::borrow_raw(
                         Win32WindowHandle::new(hwnd_ptr, None).into(),
@@ -153,7 +153,7 @@ impl HasWindowHandle for NativeWindowHandle {
                 use std::ptr::NonNull;
                 // SAFETY: ui_view is a valid window handle from Aurea window creation
                 let view = NonNull::new(*ui_view as *mut std::ffi::c_void)
-                    .expect("Invalid UIView handle");
+                    .ok_or(raw_window_handle::HandleError::Unavailable)?;
                 unsafe {
                     Ok(WindowHandle::borrow_raw(UiKitWindowHandle::new(view).into()))
                 }
@@ -164,7 +164,7 @@ impl HasWindowHandle for NativeWindowHandle {
                 use std::ptr::NonNull;
                 // SAFETY: native_window is a valid window handle from Aurea window creation
                 let window = NonNull::new(*native_window as *mut std::ffi::c_void)
-                    .expect("Invalid Android window handle");
+                    .ok_or(raw_window_handle::HandleError::Unavailable)?;
                 unsafe {
                     Ok(WindowHandle::borrow_raw(AndroidNdkWindowHandle::new(window).into()))
                 }
@@ -312,7 +312,7 @@ impl HasWindowHandle for crate::window::Window {
                 // SAFETY: ng_platform_window_get_content_view returns the NSView handle
                 let view_ptr = unsafe { crate::ffi::ng_platform_window_get_content_view(self.handle) };
                 let view = NonNull::new(view_ptr)
-                    .expect("Invalid NSView handle");
+                    .ok_or(raw_window_handle::HandleError::Unavailable)?;
                 unsafe {
                     Ok(WindowHandle::borrow_raw(AppKitWindowHandle::new(view).into()))
                 }
@@ -323,7 +323,7 @@ impl HasWindowHandle for crate::window::Window {
                 use std::ptr::NonNull;
                 // SAFETY: self.handle is a valid HWND from window creation
                 let hwnd_ptr = NonNull::new(self.handle as *mut std::ffi::c_void)
-                    .expect("Invalid HWND handle");
+                    .ok_or(raw_window_handle::HandleError::Unavailable)?;
                 unsafe {
                     Ok(WindowHandle::borrow_raw(
                         Win32WindowHandle::new(hwnd_ptr, None).into(),
@@ -346,7 +346,7 @@ impl HasWindowHandle for crate::window::Window {
                 use std::ptr::NonNull;
                 // SAFETY: self.handle is a valid UIView from window creation
                 let view = NonNull::new(self.handle as *mut std::ffi::c_void)
-                    .expect("Invalid UIView handle");
+                    .ok_or(raw_window_handle::HandleError::Unavailable)?;
                 unsafe {
                     Ok(WindowHandle::borrow_raw(UiKitWindowHandle::new(view).into()))
                 }
@@ -357,7 +357,7 @@ impl HasWindowHandle for crate::window::Window {
                 use std::ptr::NonNull;
                 // SAFETY: self.handle is a valid Android window from window creation
                 let window = NonNull::new(self.handle as *mut std::ffi::c_void)
-                    .expect("Invalid Android window handle");
+                    .ok_or(raw_window_handle::HandleError::Unavailable)?;
                 unsafe {
                     Ok(WindowHandle::borrow_raw(AndroidNdkWindowHandle::new(window).into()))
                 }

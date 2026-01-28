@@ -31,10 +31,47 @@ use crate::menu::MenuBar;
 use crate::platform::Platform;
 use crate::view::{DamageRegion, FrameScheduler};
 use crate::{AureaError, AureaResult};
-use std::{ffi::CString, os::raw::c_void, sync::{Arc, Mutex, Weak, LazyLock}};
- 
+use std::{
+    collections::HashMap,
+    ffi::CString,
+    os::raw::c_void,
+    sync::{Arc, LazyLock, Mutex, Weak},
+};
+
 static ALL_EVENT_QUEUES: LazyLock<Mutex<Vec<Weak<events::EventQueue>>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
+static EVENT_QUEUE_REGISTRY: LazyLock<Mutex<HashMap<usize, Weak<events::EventQueue>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn register_event_queue(handle: *mut c_void, queue: &Arc<events::EventQueue>) {
+    let mut registry = EVENT_QUEUE_REGISTRY.lock().unwrap();
+    registry.insert(handle as usize, Arc::downgrade(queue));
+}
+
+fn unregister_event_queue(handle: *mut c_void) {
+    let mut registry = EVENT_QUEUE_REGISTRY.lock().unwrap();
+    registry.remove(&(handle as usize));
+}
+
+pub(crate) fn push_window_event(handle: *mut c_void, event: WindowEvent) {
+    let queue = {
+        let mut registry = EVENT_QUEUE_REGISTRY.lock().unwrap();
+        match registry
+            .get(&(handle as usize))
+            .and_then(|weak| weak.upgrade())
+        {
+            Some(queue) => Some(queue),
+            None => {
+                registry.remove(&(handle as usize));
+                None
+            }
+        }
+    };
+
+    if let Some(queue) = queue {
+        queue.push(event);
+    }
+}
 
 pub(crate) fn process_all_window_events() {
     let mut queues = ALL_EVENT_QUEUES.lock().unwrap();
@@ -69,7 +106,12 @@ impl Window {
     }
 
     /// Create a new window with specified type
-    pub fn with_type(title: &str, width: i32, height: i32, window_type: WindowType) -> AureaResult<Self> {
+    pub fn with_type(
+        title: &str,
+        width: i32,
+        height: i32,
+        window_type: WindowType,
+    ) -> AureaResult<Self> {
         static INIT: std::sync::Once = std::sync::Once::new();
         let mut error = None;
 
@@ -97,7 +139,9 @@ impl Window {
             WindowType::Sheet => 4,
             WindowType::Dialog => 5,
         };
-        let handle = unsafe { ng_platform_create_window_with_type(title.as_ptr(), width, height, window_type_int) };
+        let handle = unsafe {
+            ng_platform_create_window_with_type(title.as_ptr(), width, height, window_type_int)
+        };
 
         if handle.is_null() {
             return Err(AureaError::WindowCreationFailed);
@@ -105,40 +149,60 @@ impl Window {
 
         let scale_factor = unsafe { ng_platform_get_scale_factor(handle) };
         let event_queue = Arc::new(events::EventQueue::new());
-        
+
         {
             let mut queues = ALL_EVENT_QUEUES.lock().unwrap();
             queues.push(Arc::downgrade(&event_queue));
         }
 
+        register_event_queue(handle, &event_queue);
+
         // Register lifecycle bridge
         let eq_clone = event_queue.clone();
         let handle_usize = handle as usize;
-        register_lifecycle_callback(handle, Box::new(move |event| {
-            let handle_ptr = handle_usize as *mut std::os::raw::c_void;
-            match event {
-                LifecycleEvent::WindowWillClose => {
-                    eq_clone.push(WindowEvent::CloseRequested);
-                }
-                LifecycleEvent::WindowMoved => {
-                    let mut x = 0;
-                    let mut y = 0;
-                    unsafe {
-                        ng_platform_window_get_position(handle_ptr, &mut x, &mut y);
+        register_lifecycle_callback(
+            handle,
+            Box::new(move |event| {
+                let handle_ptr = handle_usize as *mut std::os::raw::c_void;
+                match event {
+                    LifecycleEvent::WindowWillClose => {
+                        eq_clone.push(WindowEvent::CloseRequested);
                     }
-                    eq_clone.push(WindowEvent::Moved { x, y });
-                }
-                LifecycleEvent::WindowResized => {
-                    let mut w = 0;
-                    let mut h = 0;
-                    unsafe {
-                        ng_platform_window_get_size(handle_ptr, &mut w, &mut h);
+                    LifecycleEvent::WindowMoved => {
+                        let mut x = 0;
+                        let mut y = 0;
+                        unsafe {
+                            ng_platform_window_get_position(handle_ptr, &mut x, &mut y);
+                        }
+                        eq_clone.push(WindowEvent::Moved { x, y });
                     }
-                    eq_clone.push(WindowEvent::Resized { width: w as u32, height: h as u32 });
+                    LifecycleEvent::WindowResized => {
+                        let mut w = 0;
+                        let mut h = 0;
+                        unsafe {
+                            ng_platform_window_get_size(handle_ptr, &mut w, &mut h);
+                        }
+                        eq_clone.push(WindowEvent::Resized {
+                            width: w as u32,
+                            height: h as u32,
+                        });
+                    }
+                    LifecycleEvent::WindowMinimized => {
+                        eq_clone.push(WindowEvent::Minimized);
+                    }
+                    LifecycleEvent::WindowRestored => {
+                        eq_clone.push(WindowEvent::Restored);
+                    }
+                    LifecycleEvent::SurfaceLost => {
+                        eq_clone.push(WindowEvent::SurfaceLost);
+                    }
+                    LifecycleEvent::SurfaceRecreated => {
+                        eq_clone.push(WindowEvent::SurfaceRecreated);
+                    }
+                    _ => {}
                 }
-                _ => {}
-            }
-        }));
+            }),
+        );
 
         unsafe {
             ng_platform_window_set_lifecycle_callback(handle);
@@ -457,11 +521,7 @@ impl Window {
     /// ```
     pub fn set_size(&self, width: u32, height: u32) {
         unsafe {
-            ng_platform_window_set_size(
-                self.handle,
-                width as i32,
-                height as i32,
-            );
+            ng_platform_window_set_size(self.handle, width as i32, height as i32);
         }
     }
 
@@ -530,15 +590,14 @@ impl Window {
 
     /// Check if the window is visible
     pub fn is_visible(&self) -> bool {
-        unsafe {
-            ng_platform_window_is_visible(self.handle) != 0
-        }
+        unsafe { ng_platform_window_is_visible(self.handle) != 0 }
     }
 }
 
 impl Drop for Window {
     fn drop(&mut self) {
         unregister_lifecycle_callback(self.handle);
+        unregister_event_queue(self.handle);
 
         unsafe {
             ng_platform_destroy_window(self.handle);
