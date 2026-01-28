@@ -76,8 +76,8 @@ pub use crate::view::FrameScheduler;
 pub use crate::view::damage::DamageRegion;
 
 // Re-export the elements, window, and menu modules
-pub use crate::elements::{Container, Element};
-pub use crate::menu::MenuBar;
+pub use crate::elements::{Box, BoxOrientation, Container, Element, Label, SplitView, SplitOrientation};
+pub use crate::menu::{MenuBar, SubMenu};
 pub use crate::window::{Window, WindowManager, WindowType};
 
 // Re-export window event types

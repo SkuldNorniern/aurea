@@ -16,7 +16,7 @@ unsafe extern "C" {
         width: c_int,
         height: c_int,
     ) -> *mut c_void;
-    
+
     pub fn ng_platform_create_window_with_type(
         title: *const c_char,
         width: c_int,
@@ -41,12 +41,11 @@ unsafe extern "C" {
     pub(crate) fn ng_platform_destroy_menu(handle: *mut c_void);
     pub(crate) fn ng_platform_attach_menu(window: *mut c_void, menu: *mut c_void) -> c_int;
     pub(crate) fn ng_platform_add_menu_item(
-        menu: *mut c_void,
+        menu_handle: *mut c_void,
         title: *const c_char,
         id: u32,
     ) -> c_int;
-
-    // Submenu elements
+    pub(crate) fn ng_platform_add_menu_separator(menu_handle: *mut c_void) -> c_int;
     pub(crate) fn ng_platform_create_submenu(
         parent: *mut c_void,
         title: *const c_char,
@@ -59,7 +58,11 @@ unsafe extern "C" {
     pub(crate) fn ng_platform_label_invalidate(label: *mut c_void);
     pub(crate) fn ng_platform_create_box(is_vertical: c_int) -> *mut c_void;
     pub(crate) fn ng_platform_box_invalidate(box_handle: *mut c_void);
-    pub(crate) fn ng_platform_box_add(box_handle: *mut c_void, element: *mut c_void, weight: f32) -> c_int;
+    pub(crate) fn ng_platform_box_add(
+        box_handle: *mut c_void,
+        element: *mut c_void,
+        weight: f32,
+    ) -> c_int;
     pub(crate) fn ng_platform_set_window_content(
         window: *mut c_void,
         content: *mut c_void,
@@ -114,6 +117,7 @@ unsafe extern "C" {
         height: *mut u32,
     );
     pub(crate) fn ng_platform_canvas_get_window(canvas: *mut c_void) -> *mut c_void;
+    pub(crate) fn ng_platform_canvas_get_native_handle(canvas: *mut c_void) -> *mut c_void;
     pub(crate) fn ng_platform_get_scale_factor(window: *mut c_void) -> f32;
     pub(crate) fn ng_platform_window_set_scale_factor_callback(
         window: *mut c_void,
@@ -311,4 +315,103 @@ pub extern "C" fn ng_invoke_lifecycle_callback(window: *mut c_void, event_id: u3
     };
 
     invoke_lifecycle_callback(window, event);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_key_event(
+    window: *mut c_void,
+    keycode: u32,
+    pressed: c_int,
+    modifiers: u32,
+) {
+    let event = crate::window::WindowEvent::KeyInput {
+        key: crate::window::KeyCode::from_raw(keycode),
+        pressed: pressed != 0,
+        modifiers: crate::window::Modifiers::from_bits(modifiers),
+    };
+    crate::window::push_window_event(window, event);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_mouse_button(
+    window: *mut c_void,
+    button: c_int,
+    pressed: c_int,
+    modifiers: u32,
+) {
+    let button = if button < 0 { 0 } else { button as u8 };
+    let event = crate::window::WindowEvent::MouseButton {
+        button: crate::window::MouseButton::from_raw(button),
+        pressed: pressed != 0,
+        modifiers: crate::window::Modifiers::from_bits(modifiers),
+    };
+    crate::window::push_window_event(window, event);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_mouse_move(window: *mut c_void, x: f64, y: f64) {
+    let event = crate::window::WindowEvent::MouseMove { x, y };
+    crate::window::push_window_event(window, event);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_mouse_wheel(
+    window: *mut c_void,
+    delta_x: f64,
+    delta_y: f64,
+    modifiers: u32,
+) {
+    let event = crate::window::WindowEvent::MouseWheel {
+        delta_x,
+        delta_y,
+        modifiers: crate::window::Modifiers::from_bits(modifiers),
+    };
+    crate::window::push_window_event(window, event);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_text_input(window: *mut c_void, text: *const c_char) {
+    if text.is_null() {
+        return;
+    }
+
+    let text = unsafe { std::ffi::CStr::from_ptr(text) };
+    if let Ok(text) = text.to_str() {
+        let event = crate::window::WindowEvent::TextInput {
+            text: text.to_string(),
+        };
+        crate::window::push_window_event(window, event);
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_focus_changed(window: *mut c_void, focused: c_int) {
+    let event = if focused != 0 {
+        crate::window::WindowEvent::Focused
+    } else {
+        crate::window::WindowEvent::Unfocused
+    };
+    crate::window::push_window_event(window, event);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_cursor_entered(window: *mut c_void, entered: c_int) {
+    let event = if entered != 0 {
+        crate::window::WindowEvent::MouseEntered
+    } else {
+        crate::window::WindowEvent::MouseExited
+    };
+    crate::window::push_window_event(window, event);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_raw_mouse_motion(window: *mut c_void, delta_x: f64, delta_y: f64) {
+    let event = crate::window::WindowEvent::RawMouseMotion { delta_x, delta_y };
+    crate::window::push_window_event(window, event);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_scale_factor_changed(window: *mut c_void, scale_factor: f32) {
+    let event = crate::window::WindowEvent::ScaleFactorChanged { scale_factor };
+    crate::window::push_window_event(window, event);
 }
