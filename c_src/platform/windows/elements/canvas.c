@@ -170,3 +170,7 @@ NGHandle ng_windows_canvas_get_window(NGHandle canvas) {
     return NULL;
 }
 
+NGHandle ng_windows_canvas_get_native_handle(NGHandle canvas) {
+    if (!canvas) return NULL;
+    return canvas;
+}

@@ -73,6 +73,14 @@ impl SubMenu {
         Ok(())
     }
 
+    pub fn add_separator(&mut self) -> AureaResult<()> {
+        let result = unsafe { ng_platform_add_menu_separator(self.handle) };
+        if result != 0 {
+            return Err(AureaError::MenuItemAddFailed);
+        }
+        Ok(())
+    }
+
     pub fn handle(&self) -> *mut c_void {
         self.handle
     }
