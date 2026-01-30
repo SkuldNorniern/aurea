@@ -1,4 +1,4 @@
-//! Rendering API for custom drawing operations.
+//! Aurea's native rendering framework for custom drawing.
 
 mod canvas;
 mod display_list;

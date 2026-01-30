@@ -119,15 +119,14 @@ impl Default for Paint {
     }
 }
 
-/// Rendering backend selection.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// Aurea's native rendering backend.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum RendererBackend {
-    /// Skia rendering backend.
-    Skia,
-    /// Vello rendering backend.
-    Vello,
-    /// CPU rendering backend.
+    /// CPU rasterizer (tile-based, display list, partial redraw).
+    #[default]
     Cpu,
+    /// GPU-accelerated backend (planned; returns error until implemented).
+    Gpu,
 }
 
 /// Path command for drawing paths.

@@ -1,7 +1,7 @@
 //! Platform-specific text rasterization.
 
-use super::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
 use super::super::types::{Color, Font, Point};
+use super::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
 use crate::AureaResult;
 
 /// Platform text rasterizer trait.
