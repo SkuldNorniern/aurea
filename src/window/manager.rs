@@ -54,7 +54,7 @@ impl WindowManager {
     }
 
     /// Process events for all registered windows
-    pub fn poll_all_events(&self) -> Vec<crate::window::WindowEvent> {
+    pub fn poll_all_events(&self) -> Vec<(crate::window::WindowId, crate::window::WindowEvent)> {
         unsafe {
             crate::ffi::ng_platform_poll_events();
         }
@@ -62,7 +62,8 @@ impl WindowManager {
         let windows = self.windows();
         for window in windows {
             let events = window.poll_events();
-            all_events.extend(events);
+            let window_id = window.id();
+            all_events.extend(events.into_iter().map(|event| (window_id, event)));
         }
         all_events
     }
