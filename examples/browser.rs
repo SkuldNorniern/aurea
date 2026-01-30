@@ -35,7 +35,7 @@ fn main() -> AureaResult<()> {
     // Content area (canvas for web content) - fills remaining space
     info!("Creating content canvas");
     // Canvas will expand to fill available space via layout constraints
-    let mut content_canvas = Canvas::new(1200, 600, RendererBackend::Skia)?;
+    let mut content_canvas = Canvas::new(1200, 600, RendererBackend::Cpu)?;
 
     // Create viewport for scrollable web content
     // Viewport size will match canvas size
