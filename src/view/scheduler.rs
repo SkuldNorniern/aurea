@@ -95,6 +95,9 @@ pub unsafe extern "C" fn ng_process_frames() {
     // Process window events first so state changes are handled before redraw
     crate::window::process_all_window_events();
 
+    // Run per-window update callbacks before frame rendering
+    crate::window::process_all_window_updates();
+
     if let Err(e) = FrameScheduler::process_frames() {
         log::warn!("Frame processing error: {:?}", e);
     }
