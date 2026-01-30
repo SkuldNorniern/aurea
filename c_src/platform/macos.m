@@ -120,16 +120,27 @@ int ng_platform_run(void) {
 
 int ng_platform_poll_events(void) {
     @autoreleasepool {
+        if (![NSApp isActive]) {
+            [NSApp activateIgnoringOtherApps:YES];
+        }
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.001, true);
         while (true) {
             NSEvent* event = [NSApp nextEventMatchingMask:NSEventMaskAny
                                               untilDate:[NSDate distantPast]
                                                  inMode:NSDefaultRunLoopMode
                                                 dequeue:YES];
             if (event == nil) {
+                event = [NSApp nextEventMatchingMask:NSEventMaskAny
+                                          untilDate:[NSDate distantPast]
+                                             inMode:NSEventTrackingRunLoopMode
+                                            dequeue:YES];
+            }
+            if (event == nil) {
                 break;
             }
             [NSApp sendEvent:event];
         }
+        [NSApp updateWindows];
     }
     return NG_SUCCESS;
 }
@@ -268,6 +279,14 @@ void ng_platform_window_request_close(NGHandle window) {
 
 int ng_platform_window_is_focused(NGHandle window) {
     return ng_macos_window_is_focused(window);
+}
+
+int ng_platform_window_set_cursor_visible(NGHandle window, int visible) {
+    return ng_macos_window_set_cursor_visible(window, visible);
+}
+
+int ng_platform_window_set_cursor_grab(NGHandle window, int mode) {
+    return ng_macos_window_set_cursor_grab(window, mode);
 }
 
 NGHandle ng_platform_window_get_content_view(NGHandle window) {

@@ -27,6 +27,8 @@ void ng_macos_window_set_position(NGHandle window, int x, int y);
 void ng_macos_window_get_position(NGHandle window, int* x, int* y);
 void ng_macos_window_request_close(NGHandle window);
 int ng_macos_window_is_focused(NGHandle window);
+int ng_macos_window_set_cursor_visible(NGHandle window, int visible);
+int ng_macos_window_set_cursor_grab(NGHandle window, int mode);
 void ng_macos_window_show(NGHandle window);
 void ng_macos_window_hide(NGHandle window);
 int ng_macos_window_is_visible(NGHandle window);
