@@ -1,5 +1,5 @@
 use super::traits::{Container, Element};
-use crate::{ffi::*, AureaError, AureaResult};
+use crate::{AureaError, AureaResult, ffi::*};
 use std::os::raw::c_void;
 
 #[derive(Debug, Clone, Copy)]

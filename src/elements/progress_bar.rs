@@ -1,6 +1,6 @@
 use super::traits::Element;
 use crate::view::FrameScheduler;
-use crate::{ffi::*, AureaError, AureaResult};
+use crate::{AureaError, AureaResult, ffi::*};
 use std::{
     os::raw::c_void,
     sync::{Arc, Mutex},
