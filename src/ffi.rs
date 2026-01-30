@@ -29,12 +29,39 @@ unsafe extern "C" {
     pub fn ng_platform_window_get_size(window: *mut c_void, width: *mut c_int, height: *mut c_int);
     pub fn ng_platform_window_request_close(window: *mut c_void);
     pub fn ng_platform_window_is_focused(window: *mut c_void) -> c_int;
+    pub fn ng_platform_window_set_cursor_visible(window: *mut c_void, visible: c_int) -> c_int;
+    pub fn ng_platform_window_set_cursor_grab(window: *mut c_void, mode: c_int) -> c_int;
     pub fn ng_platform_window_get_content_view(window: *mut c_void) -> *mut c_void;
     pub fn ng_platform_window_show(window: *mut c_void);
     pub fn ng_platform_window_hide(window: *mut c_void);
     pub fn ng_platform_window_is_visible(window: *mut c_void) -> c_int;
     pub fn ng_platform_window_set_position(window: *mut c_void, x: c_int, y: c_int);
     pub fn ng_platform_window_get_position(window: *mut c_void, x: *mut c_int, y: *mut c_int);
+
+    #[cfg(target_os = "linux")]
+    pub fn ng_platform_window_get_xcb_handle(
+        window: *mut c_void,
+        xcb_window: *mut u32,
+        xcb_connection: *mut *mut c_void,
+    ) -> c_int;
+    #[cfg(target_os = "linux")]
+    pub fn ng_platform_window_get_wayland_handle(
+        window: *mut c_void,
+        surface: *mut *mut c_void,
+        display: *mut *mut c_void,
+    ) -> c_int;
+    #[cfg(target_os = "linux")]
+    pub fn ng_platform_canvas_get_xcb_handle(
+        canvas: *mut c_void,
+        xcb_window: *mut u32,
+        xcb_connection: *mut *mut c_void,
+    ) -> c_int;
+    #[cfg(target_os = "linux")]
+    pub fn ng_platform_canvas_get_wayland_handle(
+        canvas: *mut c_void,
+        surface: *mut *mut c_void,
+        display: *mut *mut c_void,
+    ) -> c_int;
 
     // Menu elements
     pub(crate) fn ng_platform_create_menu() -> *mut c_void;
@@ -414,4 +441,5 @@ pub extern "C" fn ng_invoke_raw_mouse_motion(window: *mut c_void, delta_x: f64, 
 pub extern "C" fn ng_invoke_scale_factor_changed(window: *mut c_void, scale_factor: f32) {
     let event = crate::window::WindowEvent::ScaleFactorChanged { scale_factor };
     crate::window::push_window_event(window, event);
+    crate::view::FrameScheduler::schedule();
 }
