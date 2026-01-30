@@ -1,8 +1,8 @@
-//! Rendering API for custom drawing operations
+//! Aurea's native rendering framework for custom drawing.
 //!
-//! This module provides support for integrating Skia and Vello rendering
-//! backends into Aurea applications, enabling custom drawing operations
-//! within native windows.
+//! Provides the framework that can natively replace external backends
+//! (e.g. Skia/Vello): CPU rasterizer, display list, tile-based redraw.
+//! Custom drawing runs within native windows and canvases.
 
 mod canvas;
 mod display_list;

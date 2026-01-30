@@ -33,8 +33,10 @@ pub trait DrawingContext {
     /// Draw a line between two points
     fn draw_line(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, paint: &Paint) -> AureaResult<()> {
         let mut path = Path::new();
-        path.commands.push(super::types::PathCommand::MoveTo(Point::new(x1, y1)));
-        path.commands.push(super::types::PathCommand::LineTo(Point::new(x2, y2)));
+        path.commands
+            .push(super::types::PathCommand::MoveTo(Point::new(x1, y1)));
+        path.commands
+            .push(super::types::PathCommand::LineTo(Point::new(x2, y2)));
         self.draw_path(&path, paint)
     }
 
