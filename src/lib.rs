@@ -1,7 +1,7 @@
 /// A native GUI toolkit providing cross-platform windowing and widgets with native look and feel.
 ///
 /// ```rust
-/// use aurea::{Window, AureaResult};
+/// use aurea::{Container, Window, AureaResult};
 /// use aurea::elements::{Box, BoxOrientation, Button, Label};
 ///
 /// fn main() -> AureaResult<()> {
@@ -36,9 +36,11 @@ pub mod window;
 pub use crate::view::FrameScheduler;
 pub use crate::view::damage::DamageRegion;
 
-pub use crate::elements::{Box, BoxOrientation, Container, Element, Label, SplitView, SplitOrientation};
+pub use crate::elements::{
+    Box, BoxOrientation, Container, Element, Label, SplitOrientation, SplitView,
+};
 pub use crate::menu::{MenuBar, SubMenu};
-pub use crate::window::{Window, WindowManager, WindowType};
+pub use crate::window::{CursorGrabMode, Window, WindowId, WindowManager, WindowType};
 
 pub use crate::window::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};
 
@@ -71,6 +73,8 @@ pub enum AureaError {
     RendererInitFailed,
     /// Rendering operation failed.
     RenderingFailed,
+    /// Requested backend (e.g. Gpu) is not yet implemented.
+    BackendNotAvailable,
 }
 
 /// Result type for GUI operations.
@@ -91,6 +95,9 @@ impl std::fmt::Display for AureaError {
             AureaError::CanvasCreationFailed => write!(f, "Failed to create a canvas"),
             AureaError::RendererInitFailed => write!(f, "Failed to initialize renderer"),
             AureaError::RenderingFailed => write!(f, "Rendering operation failed"),
+            AureaError::BackendNotAvailable => {
+                write!(f, "Requested rendering backend is not yet implemented")
+            }
         }
     }
 }
