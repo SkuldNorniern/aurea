@@ -2,6 +2,7 @@
 #define NATIVE_GUI_LINUX_ELEMENTS_H
 
 #include "common/types.h"
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,6 +27,8 @@ void ng_linux_canvas_invalidate(NGHandle canvas);
 void ng_linux_canvas_invalidate_rect(NGHandle canvas, float x, float y, float width, float height);
 NGHandle ng_linux_canvas_get_window(NGHandle canvas);
 NGHandle ng_linux_canvas_get_native_handle(NGHandle canvas);
+int ng_linux_canvas_get_xcb_handle(NGHandle canvas, uint32_t* xcb_window, void** xcb_connection);
+int ng_linux_canvas_get_wayland_handle(NGHandle canvas, void** surface, void** display);
 
 // ImageView functions
 NGHandle ng_linux_create_image_view(void);
@@ -69,4 +72,3 @@ void ng_linux_combo_box_invalidate(NGHandle combo_box);
 #endif
 
 #endif // NATIVE_GUI_LINUX_ELEMENTS_H
-
