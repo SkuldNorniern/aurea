@@ -26,7 +26,7 @@ fn main() -> AureaResult<()> {
     main_layout.add(tabs)?;
 
     info!("Creating content canvas");
-    let mut content_canvas = Canvas::new(1200, 600, RendererBackend::Skia)?;
+    let mut content_canvas = Canvas::new(1200, 600, RendererBackend::Cpu)?;
 
     let mut viewport = Viewport::new(1200.0, 600.0);
     viewport.set_content_size(1200.0, 2000.0);
