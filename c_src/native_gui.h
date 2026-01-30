@@ -2,6 +2,7 @@
 #define NATIVE_GUI_H
 
 #include "common/types.h"
+#include <stdint.h>
 #include "common/errors.h"
 
 #ifdef __cplusplus
@@ -34,6 +35,12 @@ void ng_platform_destroy_window(NGHandle handle);
 void ng_platform_window_show(NGHandle window);
 void ng_platform_window_hide(NGHandle window);
 int ng_platform_window_is_visible(NGHandle window);
+int ng_platform_window_set_cursor_visible(NGHandle window, int visible);
+int ng_platform_window_set_cursor_grab(NGHandle window, int mode);
+int ng_platform_window_get_xcb_handle(NGHandle window, uint32_t* xcb_window, void** xcb_connection);
+int ng_platform_window_get_wayland_handle(NGHandle window, void** surface, void** display);
+int ng_platform_canvas_get_xcb_handle(NGHandle canvas, uint32_t* xcb_window, void** xcb_connection);
+int ng_platform_canvas_get_wayland_handle(NGHandle canvas, void** surface, void** display);
 int ng_platform_handle_menu_event(NGMenuHandle menu, unsigned int id);
 int ng_platform_init(void);
 int ng_platform_poll_events(void);

@@ -243,3 +243,14 @@ int ng_platform_window_is_focused(NGHandle window) {
     return ng_ios_window_is_focused(window);
 }
 
+int ng_platform_window_set_cursor_visible(NGHandle window, int visible) {
+    (void)window;
+    (void)visible;
+    return NG_ERROR_PLATFORM_SPECIFIC;
+}
+
+int ng_platform_window_set_cursor_grab(NGHandle window, int mode) {
+    (void)window;
+    (void)mode;
+    return NG_ERROR_PLATFORM_SPECIFIC;
+}
