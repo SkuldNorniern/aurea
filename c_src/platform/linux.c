@@ -1,4 +1,5 @@
 #include "linux.h"
+#include <stdint.h>
 #include "linux/utils.h"
 #include "linux/window.h"
 #include "linux/menu.h"
@@ -166,6 +167,14 @@ NGHandle ng_platform_canvas_get_native_handle(NGHandle canvas) {
     return ng_linux_canvas_get_native_handle(canvas);
 }
 
+int ng_platform_canvas_get_xcb_handle(NGHandle canvas, uint32_t* xcb_window, void** xcb_connection) {
+    return ng_linux_canvas_get_xcb_handle(canvas, xcb_window, xcb_connection);
+}
+
+int ng_platform_canvas_get_wayland_handle(NGHandle canvas, void** surface, void** display) {
+    return ng_linux_canvas_get_wayland_handle(canvas, surface, display);
+}
+
 float ng_platform_get_scale_factor(NGHandle window) {
     return ng_linux_get_scale_factor(window);
 }
@@ -197,6 +206,22 @@ void ng_platform_window_request_close(NGHandle window) {
 
 int ng_platform_window_is_focused(NGHandle window) {
     return ng_linux_window_is_focused(window);
+}
+
+int ng_platform_window_set_cursor_visible(NGHandle window, int visible) {
+    return ng_linux_window_set_cursor_visible(window, visible);
+}
+
+int ng_platform_window_set_cursor_grab(NGHandle window, int mode) {
+    return ng_linux_window_set_cursor_grab(window, mode);
+}
+
+int ng_platform_window_get_xcb_handle(NGHandle window, uint32_t* xcb_window, void** xcb_connection) {
+    return ng_linux_window_get_xcb_handle(window, xcb_window, xcb_connection);
+}
+
+int ng_platform_window_get_wayland_handle(NGHandle window, void** surface, void** display) {
+    return ng_linux_window_get_wayland_handle(window, surface, display);
 }
 
 // ImageView functions
@@ -311,4 +336,3 @@ int ng_platform_combo_box_set_enabled(NGHandle combo_box, int enabled) {
 void ng_platform_combo_box_invalidate(NGHandle combo_box) {
     ng_linux_combo_box_invalidate(combo_box);
 }
-
