@@ -21,10 +21,11 @@ void ng_windows_window_set_size(NGHandle window, int width, int height);
 void ng_windows_window_get_size(NGHandle window, int* width, int* height);
 void ng_windows_window_request_close(NGHandle window);
 int ng_windows_window_is_focused(NGHandle window);
+int ng_windows_window_set_cursor_visible(NGHandle window, int visible);
+int ng_windows_window_set_cursor_grab(NGHandle window, int mode);
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif // NATIVE_GUI_WINDOWS_WINDOW_H
-

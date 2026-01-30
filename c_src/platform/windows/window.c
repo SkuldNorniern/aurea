@@ -43,6 +43,8 @@ extern void ng_log_trace(const char* msg);
     ng_log_trace(buf); \
 } while(0)
 
+#define AUREA_CURSOR_GRAB_PROP "AureaCursorGrabMode"
+
 NGHandle ng_windows_create_window(const char* title, int width, int height) {
     if (!title) return NULL;
     
@@ -244,3 +246,64 @@ int ng_windows_window_is_focused(NGHandle window) {
     return (GetForegroundWindow() == hwnd) ? 1 : 0;
 }
 
+int ng_windows_window_set_cursor_visible(NGHandle window, int visible) {
+    if (!window) return NG_ERROR_INVALID_HANDLE;
+    int count = 0;
+    int limit = 32;
+
+    if (visible) {
+        while (count < limit && ShowCursor(TRUE) < 0) {
+            count++;
+        }
+    } else {
+        while (count < limit && ShowCursor(FALSE) >= 0) {
+            count++;
+        }
+    }
+
+    return NG_SUCCESS;
+}
+
+int ng_windows_window_set_cursor_grab(NGHandle window, int mode) {
+    if (!window) return NG_ERROR_INVALID_HANDLE;
+    HWND hwnd = (HWND)window;
+
+    if (mode == 0) {
+        ClipCursor(NULL);
+        RemovePropA(hwnd, AUREA_CURSOR_GRAB_PROP);
+
+        RAWINPUTDEVICE rid;
+        rid.usUsagePage = 0x01;
+        rid.usUsage = 0x02;
+        rid.dwFlags = RIDEV_REMOVE;
+        rid.hwndTarget = NULL;
+        RegisterRawInputDevices(&rid, 1, sizeof(rid));
+
+        return NG_SUCCESS;
+    }
+
+    RECT rect;
+    GetClientRect(hwnd, &rect);
+    POINT tl = { rect.left, rect.top };
+    POINT br = { rect.right, rect.bottom };
+    ClientToScreen(hwnd, &tl);
+    ClientToScreen(hwnd, &br);
+    rect.left = tl.x;
+    rect.top = tl.y;
+    rect.right = br.x;
+    rect.bottom = br.y;
+
+    ClipCursor(&rect);
+    SetPropA(hwnd, AUREA_CURSOR_GRAB_PROP, (HANDLE)(INT_PTR)mode);
+
+    if (mode == 2) {
+        RAWINPUTDEVICE rid;
+        rid.usUsagePage = 0x01;
+        rid.usUsage = 0x02;
+        rid.dwFlags = RIDEV_INPUTSINK;
+        rid.hwndTarget = hwnd;
+        RegisterRawInputDevices(&rid, 1, sizeof(rid));
+    }
+
+    return NG_SUCCESS;
+}
