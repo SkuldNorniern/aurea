@@ -1,9 +1,13 @@
-//! CPU rasterizer for tile-based rendering.
+//! CPU rasterizer with tile-based rendering.
 
 use super::super::display_list::{DisplayItem, DisplayList};
 use super::super::renderer::{DrawingContext, Renderer};
 use super::super::surface::{Surface, SurfaceInfo};
-use super::super::types::{Color, Paint, PaintStyle, Point, Rect};
+use super::super::types::{
+    BlendMode, Color, GradientStop, Image, LinearGradient, Paint, PaintStyle, Point, RadialGradient,
+    Rect,
+};
+use super::blend::blend_pixel;
 use super::cache::BoundedCache;
 use super::context::CpuDrawingContext;
 use super::path::tessellate_path;
@@ -11,7 +15,7 @@ use super::scanline::fill_scanline;
 use super::tile::{TILE_SIZE, TileStore};
 use crate::AureaResult;
 
-/// CPU rasterizer with tile-based backing store.
+/// Rasterizer that draws the display list into a tile grid for partial redraw.
 pub struct CpuRasterizer {
     tile_store: TileStore,
     cache: BoundedCache<Vec<u32>>,
@@ -24,11 +28,12 @@ pub struct CpuRasterizer {
 }
 
 impl CpuRasterizer {
-    /// Create a new CPU rasterizer.
+    /// Creates a rasterizer for the given canvas size.
     pub fn new(width: u32, height: u32) -> Self {
+        const CACHE_BYTES: usize = 16 * 1024 * 1024;
         Self {
             tile_store: TileStore::new(width, height),
-            cache: BoundedCache::new(16 * 1024 * 1024),
+            cache: BoundedCache::new(CACHE_BYTES),
             width,
             height,
             display_list: DisplayList::new(),
@@ -38,24 +43,22 @@ impl CpuRasterizer {
         }
     }
 
-    /// Set damage region for the next frame.
+    /// Sets the damage region for the next frame; if None, the whole canvas is redrawn.
     pub fn set_damage(&mut self, damage: Option<Rect>) {
         self.pending_damage = damage;
     }
 
-    /// Resize the rasterizer.
+    /// Resizes the rasterizer to new dimensions and clears the display list.
     pub fn resize(&mut self, width: u32, height: u32) {
         self.width = width;
         self.height = height;
         self.tile_store.resize(width, height);
     }
 
-    /// Render display items to tiles, only updating damaged regions.
+    /// Renders the display list into tiles, updating only tiles that intersect the damage region.
     pub fn render(&mut self, display_list: &DisplayList, damage: &Rect) -> AureaResult<()> {
         self.tile_store.mark_damaged(damage);
-
         let dirty_tiles: Vec<_> = self.tile_store.dirty_tiles();
-
         for (tile_x, tile_y) in dirty_tiles {
             self.render_tile(tile_x, tile_y, display_list)?;
         }
@@ -84,7 +87,6 @@ impl CpuRasterizer {
 
         if let Some(tile) = self.tile_store.get_tile_mut(tile_x, tile_y) {
             tile.clear(0);
-
             for item in intersecting_items {
                 Self::render_item_to_tile_static(item, tile, &tile_bounds)?;
             }
@@ -106,13 +108,70 @@ impl CpuRasterizer {
                 tile.clear(rgba);
             }
             super::super::renderer::DrawCommand::DrawRect(rect, paint) => {
-                Self::draw_rect_to_tile_static(rect, paint, tile, tile_bounds);
+                Self::draw_rect_to_tile_static(
+                    rect,
+                    paint,
+                    item.blend_mode,
+                    tile,
+                    tile_bounds,
+                );
             }
             super::super::renderer::DrawCommand::DrawCircle(center, radius, paint) => {
-                Self::draw_circle_to_tile_static(*center, *radius, paint, tile, tile_bounds);
+                Self::draw_circle_to_tile_static(
+                    *center,
+                    *radius,
+                    paint,
+                    item.blend_mode,
+                    tile,
+                    tile_bounds,
+                );
             }
             super::super::renderer::DrawCommand::DrawPath(path, paint) => {
-                Self::draw_path_to_tile_static(path, paint, tile, tile_bounds)?;
+                Self::draw_path_to_tile_static(
+                    path,
+                    paint,
+                    item.blend_mode,
+                    tile,
+                    tile_bounds,
+                )?;
+            }
+            super::super::renderer::DrawCommand::DrawImageRect(image, dest) => {
+                Self::draw_image_to_tile_static(
+                    image,
+                    Rect::new(0.0, 0.0, image.width as f32, image.height as f32),
+                    *dest,
+                    item.blend_mode,
+                    tile,
+                    tile_bounds,
+                );
+            }
+            super::super::renderer::DrawCommand::DrawImageRegion(image, src, dest) => {
+                Self::draw_image_to_tile_static(
+                    image,
+                    *src,
+                    *dest,
+                    item.blend_mode,
+                    tile,
+                    tile_bounds,
+                );
+            }
+            super::super::renderer::DrawCommand::FillLinearGradient(gradient, rect) => {
+                Self::fill_linear_gradient_to_tile_static(
+                    gradient,
+                    *rect,
+                    item.blend_mode,
+                    tile,
+                    tile_bounds,
+                );
+            }
+            super::super::renderer::DrawCommand::FillRadialGradient(gradient, rect) => {
+                Self::fill_radial_gradient_to_tile_static(
+                    gradient,
+                    *rect,
+                    item.blend_mode,
+                    tile,
+                    tile_bounds,
+                );
             }
             _ => {}
         }
@@ -128,9 +187,25 @@ impl CpuRasterizer {
         Self::render_item_to_tile_static(item, tile, tile_bounds)
     }
 
+    fn set_pixel_blend(
+        tile: &mut super::tile::Tile,
+        lx: u32,
+        ly: u32,
+        src: u32,
+        mode: BlendMode,
+    ) {
+        if mode == BlendMode::Normal {
+            tile.set_pixel(lx, ly, src);
+        } else {
+            let dst = tile.get_pixel(lx, ly);
+            tile.set_pixel(lx, ly, blend_pixel(src, dst, mode));
+        }
+    }
+
     fn draw_rect_to_tile_static(
         rect: &Rect,
         paint: &Paint,
+        blend_mode: BlendMode,
         tile: &mut super::tile::Tile,
         tile_bounds: &Rect,
     ) {
@@ -159,7 +234,7 @@ impl CpuRasterizer {
                 for y in start_y..end_y {
                     for x in start_x..end_x {
                         let (local_x, local_y) = (x % TILE_SIZE, y % TILE_SIZE);
-                        tile.set_pixel(local_x, local_y, color);
+                        Self::set_pixel_blend(tile, local_x, local_y, color, blend_mode);
                     }
                 }
             }
@@ -177,7 +252,7 @@ impl CpuRasterizer {
                         ..((clip_rect.y + stroke_width as f32) as u32).min(end_y)
                     {
                         let (local_x, local_y) = (x % TILE_SIZE, y % TILE_SIZE);
-                        tile.set_pixel(local_x, local_y, color);
+                        Self::set_pixel_blend(tile, local_x, local_y, color, blend_mode);
                     }
                 }
 
@@ -186,7 +261,7 @@ impl CpuRasterizer {
                     for y in (bottom_y.saturating_sub(stroke_width))..bottom_y {
                         if y >= clip_rect.y as u32 && y < (clip_rect.y + clip_rect.height) as u32 {
                             let (local_x, local_y) = (x % TILE_SIZE, y % TILE_SIZE);
-                            tile.set_pixel(local_x, local_y, color);
+                            Self::set_pixel_blend(tile, local_x, local_y, color, blend_mode);
                         }
                     }
                 }
@@ -194,7 +269,7 @@ impl CpuRasterizer {
                 for y in (clip_rect.y as u32)..((clip_rect.y + clip_rect.height) as u32) {
                     for x in (clip_rect.x as u32)..((clip_rect.x + stroke_width as f32) as u32) {
                         let (local_x, local_y) = (x % TILE_SIZE, y % TILE_SIZE);
-                        tile.set_pixel(local_x, local_y, color);
+                        Self::set_pixel_blend(tile, local_x, local_y, color, blend_mode);
                     }
                 }
 
@@ -203,7 +278,7 @@ impl CpuRasterizer {
                     for x in (right_x.saturating_sub(stroke_width))..right_x {
                         if x >= clip_rect.x as u32 && x < (clip_rect.x + clip_rect.width) as u32 {
                             let (local_x, local_y) = (x % TILE_SIZE, y % TILE_SIZE);
-                            tile.set_pixel(local_x, local_y, color);
+                            Self::set_pixel_blend(tile, local_x, local_y, color, blend_mode);
                         }
                     }
                 }
@@ -215,6 +290,7 @@ impl CpuRasterizer {
         center: Point,
         radius: f32,
         paint: &Paint,
+        blend_mode: BlendMode,
         tile: &mut super::tile::Tile,
         tile_bounds: &Rect,
     ) {
@@ -234,7 +310,7 @@ impl CpuRasterizer {
                         let dy = y as f32 - center.y;
                         if dx * dx + dy * dy <= r_squared {
                             let (local_x, local_y) = (x % TILE_SIZE, y % TILE_SIZE);
-                            tile.set_pixel(local_x, local_y, color);
+                            Self::set_pixel_blend(tile, local_x, local_y, color, blend_mode);
                         }
                     }
                 }
@@ -256,7 +332,7 @@ impl CpuRasterizer {
                         let dist_squared = dx * dx + dy * dy;
                         if dist_squared <= r_squared && dist_squared >= inner_r_squared {
                             let (local_x, local_y) = (x % TILE_SIZE, y % TILE_SIZE);
-                            tile.set_pixel(local_x, local_y, color);
+                            Self::set_pixel_blend(tile, local_x, local_y, color, blend_mode);
                         }
                     }
                 }
@@ -264,18 +340,17 @@ impl CpuRasterizer {
         }
     }
 
-    /// Get the tile store (for buffer access).
+    /// Returns the tile store for direct buffer access.
     pub fn tile_store(&self) -> &TileStore {
         &self.tile_store
     }
 
-    /// Get mutable tile store.
+    /// Returns mutable access to the tile store.
     pub fn tile_store_mut(&mut self) -> &mut TileStore {
         &mut self.tile_store
     }
 
-    /// Get the render buffer (flat RGBA buffer for platform blitting) Note: This creates a
-    /// temporary buffer.
+    /// Builds a flat RGBA buffer from all tiles for the platform to blit.
     pub fn get_buffer(&self) -> (*const u8, usize, u32, u32) {
         let buffer_size = (self.width * self.height) as usize;
         let mut buffer = vec![0u32; buffer_size];
@@ -290,7 +365,7 @@ impl CpuRasterizer {
         )
     }
 
-    /// Get reference to the display list (for interaction/hit testing).
+    /// Returns the current display list (used for hit testing and interaction).
     pub fn display_list(&self) -> &DisplayList {
         &self.display_list
     }
@@ -298,6 +373,7 @@ impl CpuRasterizer {
     fn draw_path_to_tile_static(
         path: &super::super::types::Path,
         paint: &Paint,
+        blend_mode: BlendMode,
         tile: &mut super::tile::Tile,
         tile_bounds: &Rect,
     ) -> AureaResult<()> {
@@ -335,11 +411,11 @@ impl CpuRasterizer {
                         tile_offset_x,
                         tile_offset_y,
                         paint.color,
+                        blend_mode,
                     );
                 }
             }
             PaintStyle::Stroke => {
-                // TODO: Implement stroke as expanded geometry
                 for y in y_start..y_end {
                     fill_scanline(
                         &edges,
@@ -350,12 +426,193 @@ impl CpuRasterizer {
                         tile_offset_x,
                         tile_offset_y,
                         paint.color,
+                        blend_mode,
                     );
                 }
             }
         }
 
         Ok(())
+    }
+
+    fn draw_image_to_tile_static(
+        image: &Image,
+        src: Rect,
+        dest: Rect,
+        blend_mode: BlendMode,
+        tile: &mut super::tile::Tile,
+        tile_bounds: &Rect,
+    ) {
+        if image.data.is_empty()
+            || image.width == 0
+            || image.height == 0
+            || dest.width <= 0.0
+            || dest.height <= 0.0
+        {
+            return;
+        }
+        let clip_left = dest.x.max(tile_bounds.x);
+        let clip_top = dest.y.max(tile_bounds.y);
+        let clip_right = (dest.x + dest.width).min(tile_bounds.x + tile_bounds.width);
+        let clip_bottom = (dest.y + dest.height).min(tile_bounds.y + tile_bounds.height);
+        if clip_left >= clip_right || clip_top >= clip_bottom {
+            return;
+        }
+        let tile_origin_x = tile_bounds.x;
+        let tile_origin_y = tile_bounds.y;
+        let start_x = clip_left.ceil() as i32;
+        let end_x = clip_right.floor() as i32;
+        let start_y = clip_top.ceil() as i32;
+        let end_y = clip_bottom.floor() as i32;
+        for cy in start_y..end_y {
+            for cx in start_x..end_x {
+                let u = (cx as f32 - dest.x) / dest.width * src.width + src.x;
+                let v = (cy as f32 - dest.y) / dest.height * src.height + src.y;
+                let sx = u.clamp(0.0, image.width as f32 - 0.001) as u32;
+                let sy = v.clamp(0.0, image.height as f32 - 0.001) as u32;
+                let idx = (sy as usize * image.width as usize + sx as usize) * 4;
+                if idx + 3 >= image.data.len() {
+                    continue;
+                }
+                let r = image.data[idx];
+                let g = image.data[idx + 1];
+                let b = image.data[idx + 2];
+                let a = image.data[idx + 3];
+                let lx = (cx as f32 - tile_origin_x) as u32;
+                let ly = (cy as f32 - tile_origin_y) as u32;
+                if lx >= TILE_SIZE || ly >= TILE_SIZE {
+                    continue;
+                }
+                let src_rgba =
+                    ((a as u32) << 24) | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
+                Self::set_pixel_blend(tile, lx, ly, src_rgba, blend_mode);
+            }
+        }
+    }
+
+    fn gradient_color_at(stops: &[GradientStop], t: f32) -> u32 {
+        let t = t.clamp(0.0, 1.0);
+        if stops.is_empty() {
+            return 0;
+        }
+        if stops.len() == 1 {
+            let c = stops[0].color;
+            return ((c.a as u32) << 24)
+                | ((c.r as u32) << 16)
+                | ((c.g as u32) << 8)
+                | (c.b as u32);
+        }
+        for i in 0..stops.len() - 1 {
+            let a = stops[i].offset;
+            let b = stops[i + 1].offset;
+            if t >= a && t <= b {
+                let denom = b - a;
+                let s = if denom.abs() < 1e-6 {
+                    1.0
+                } else {
+                    (t - a) / denom
+                };
+                let c0 = stops[i].color;
+                let c1 = stops[i + 1].color;
+                let r = (c0.r as f32 + (c1.r as f32 - c0.r as f32) * s).round() as u8;
+                let g = (c0.g as f32 + (c1.g as f32 - c0.g as f32) * s).round() as u8;
+                let b = (c0.b as f32 + (c1.b as f32 - c0.b as f32) * s).round() as u8;
+                let a = (c0.a as f32 + (c1.a as f32 - c0.a as f32) * s).round() as u8;
+                return ((a as u32) << 24)
+                    | ((r as u32) << 16)
+                    | ((g as u32) << 8)
+                    | (b as u32);
+            }
+        }
+        let c = if t <= stops[0].offset {
+            stops[0].color
+        } else {
+            stops.last().map(|s| s.color).unwrap_or(stops[0].color)
+        };
+        ((c.a as u32) << 24) | ((c.r as u32) << 16) | ((c.g as u32) << 8) | (c.b as u32)
+    }
+
+    fn fill_linear_gradient_to_tile_static(
+        gradient: &LinearGradient,
+        rect: Rect,
+        blend_mode: BlendMode,
+        tile: &mut super::tile::Tile,
+        tile_bounds: &Rect,
+    ) {
+        let dx = gradient.end.x - gradient.start.x;
+        let dy = gradient.end.y - gradient.start.y;
+        let len_sq = dx * dx + dy * dy;
+        if len_sq < 1e-10 {
+            return;
+        }
+        let clip_left = rect.x.max(tile_bounds.x);
+        let clip_top = rect.y.max(tile_bounds.y);
+        let clip_right = (rect.x + rect.width).min(tile_bounds.x + tile_bounds.width);
+        let clip_bottom = (rect.y + rect.height).min(tile_bounds.y + tile_bounds.height);
+        if clip_left >= clip_right || clip_top >= clip_bottom {
+            return;
+        }
+        let tile_origin_x = tile_bounds.x;
+        let tile_origin_y = tile_bounds.y;
+        let start_x = clip_left.ceil() as i32;
+        let end_x = clip_right.floor() as i32;
+        let start_y = clip_top.ceil() as i32;
+        let end_y = clip_bottom.floor() as i32;
+        for cy in start_y..end_y {
+            for cx in start_x..end_x {
+                let px_f = cx as f32 + 0.5;
+                let py_f = cy as f32 + 0.5;
+                let t = ((px_f - gradient.start.x) * dx + (py_f - gradient.start.y) * dy) / len_sq;
+                let t = t.clamp(0.0, 1.0);
+                let rgba = Self::gradient_color_at(&gradient.stops, t);
+                let lx = (cx as f32 - tile_origin_x) as u32;
+                let ly = (cy as f32 - tile_origin_y) as u32;
+                if lx < TILE_SIZE && ly < TILE_SIZE {
+                    Self::set_pixel_blend(tile, lx, ly, rgba, blend_mode);
+                }
+            }
+        }
+    }
+
+    fn fill_radial_gradient_to_tile_static(
+        gradient: &RadialGradient,
+        rect: Rect,
+        blend_mode: BlendMode,
+        tile: &mut super::tile::Tile,
+        tile_bounds: &Rect,
+    ) {
+        if gradient.radius <= 0.0 {
+            return;
+        }
+        let clip_left = rect.x.max(tile_bounds.x);
+        let clip_top = rect.y.max(tile_bounds.y);
+        let clip_right = (rect.x + rect.width).min(tile_bounds.x + tile_bounds.width);
+        let clip_bottom = (rect.y + rect.height).min(tile_bounds.y + tile_bounds.height);
+        if clip_left >= clip_right || clip_top >= clip_bottom {
+            return;
+        }
+        let tile_origin_x = tile_bounds.x;
+        let tile_origin_y = tile_bounds.y;
+        let start_x = clip_left.ceil() as i32;
+        let end_x = clip_right.floor() as i32;
+        let start_y = clip_top.ceil() as i32;
+        let end_y = clip_bottom.floor() as i32;
+        for cy in start_y..end_y {
+            for cx in start_x..end_x {
+                let px_f = cx as f32 + 0.5;
+                let py_f = cy as f32 + 0.5;
+                let dist = ((px_f - gradient.center.x).powi(2)
+                    + (py_f - gradient.center.y).powi(2))
+                .sqrt();
+                let t = (dist / gradient.radius).min(1.0);
+                let rgba = Self::gradient_color_at(&gradient.stops, t);
+                let lx = (cx as f32 - tile_origin_x) as u32;
+                let ly = (cy as f32 - tile_origin_y) as u32;
+                if lx < TILE_SIZE && ly < TILE_SIZE {
+                    Self::set_pixel_blend(tile, lx, ly, rgba, blend_mode);
+                }
+            }
+        }
     }
 }
 
@@ -395,12 +652,10 @@ impl Renderer for CpuRasterizer {
             .unwrap_or_else(|| Rect::new(0.0, 0.0, self.width as f32, self.height as f32));
 
         let display_items: Vec<_> = self.display_list.items().to_vec();
-
         self.tile_store.mark_damaged(&damage);
         let dirty_tiles: Vec<_> = self.tile_store.dirty_tiles();
 
         let mut background_color = 0u32;
-
         for item in &display_items {
             if let super::super::renderer::DrawCommand::Clear(color) = &item.command {
                 background_color = color_to_u32(*color);
@@ -418,7 +673,6 @@ impl Renderer for CpuRasterizer {
 
             if let Some(tile) = self.tile_store.get_tile_mut(tile_x, tile_y) {
                 tile.clear(background_color);
-
                 for item in &display_items {
                     if item.intersects(&tile_bounds) {
                         Self::render_item_to_tile_static(item, tile, &tile_bounds)?;

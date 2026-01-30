@@ -1,8 +1,8 @@
-//! Path tessellation for CPU rasterization.
+//! Path tessellation for the CPU rasterizer.
 
 use super::super::types::{Path, PathCommand, Point};
 
-/// Edge for scanline filling.
+/// One edge for scanline filling: y range, x at the top, and dx/dy slope.
 #[derive(Debug, Clone, Copy)]
 pub struct Edge {
     pub y_min: f32,
@@ -29,7 +29,6 @@ impl Edge {
         })
     }
 
-    /// Get x coordinate at given y (using linear interpolation).
     pub fn x_at_y(&self, y: f32) -> f32 {
         if y < self.y_min {
             self.x_at_y_min
@@ -41,7 +40,8 @@ impl Edge {
     }
 }
 
-/// Tessellate a path into edges for scanline filling.
+/// Converts a path into a list of edges for the scanline filler (lines, quads and cubics
+/// subdivided).
 pub fn tessellate_path(path: &Path) -> Vec<Edge> {
     let mut edges = Vec::new();
     let mut current_point = Point::new(0.0, 0.0);

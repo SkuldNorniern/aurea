@@ -1,5 +1,6 @@
 //! CPU raster backend with tile-based rendering.
 
+pub mod blend;
 pub mod cache;
 pub mod context;
 pub mod hit_test;

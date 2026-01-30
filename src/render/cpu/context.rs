@@ -1,4 +1,4 @@
-//! CPU drawing context that builds a display list.
+//! CPU drawing context that records commands into a display list.
 
 use super::super::display_list::{CacheKey, DisplayItem, DisplayList, NodeId};
 use super::super::renderer::DrawingContext;
@@ -11,9 +11,10 @@ struct DrawingState {
     transform: Transform,
     opacity: f32,
     clip: Option<Path>,
+    blend_mode: BlendMode,
 }
 
-/// Drawing context that builds a display list for CPU rasterization.
+/// Context that records drawing commands into a display list for the CPU rasterizer.
 pub struct CpuDrawingContext {
     display_list: *mut DisplayList,
     current_node_id: NodeId,
@@ -21,6 +22,7 @@ pub struct CpuDrawingContext {
     current_transform: Transform,
     current_opacity: f32,
     current_clip: Option<Path>,
+    current_blend_mode: BlendMode,
     scale_factor: f32,
     current_interactive_id: Option<super::super::types::InteractiveId>,
     width: u32,
@@ -28,7 +30,7 @@ pub struct CpuDrawingContext {
 }
 
 impl CpuDrawingContext {
-    /// Create a new CPU drawing context that writes to a display list.
+    /// Creates a context that appends display items to the given display list.
     pub fn new(display_list: *mut DisplayList, width: u32, height: u32) -> Self {
         Self {
             display_list,
@@ -37,6 +39,7 @@ impl CpuDrawingContext {
             current_transform: Transform::identity(),
             current_opacity: 1.0,
             current_clip: None,
+            current_blend_mode: BlendMode::Normal,
             scale_factor: 1.0,
             current_interactive_id: None,
             width,
@@ -44,18 +47,17 @@ impl CpuDrawingContext {
         }
     }
 
-    /// Set the scale factor for cache key computation.
+    /// Sets the scale factor used when computing cache keys (e.g. for HiDPI).
     pub fn set_scale_factor(&mut self, scale: f32) {
         self.scale_factor = scale;
     }
 
-    /// Set the current interactive ID for subsequent draw commands Shapes drawn after this will be
-    /// marked as interactive.
+    /// Sets the interactive ID for the next drawn shapes (used for hit testing).
     pub fn set_interactive_id(&mut self, id: Option<super::super::types::InteractiveId>) {
         self.current_interactive_id = id;
     }
 
-    /// Draw an interactive rectangle (convenience method).
+    /// Draws a rectangle and marks it as interactive with the given ID.
     pub fn draw_interactive_rect(
         &mut self,
         id: super::super::types::InteractiveId,
@@ -69,7 +71,7 @@ impl CpuDrawingContext {
         result
     }
 
-    /// Draw an interactive circle (convenience method).
+    /// Draws a circle and marks it as interactive with the given ID.
     pub fn draw_interactive_circle(
         &mut self,
         id: super::super::types::InteractiveId,
@@ -84,7 +86,7 @@ impl CpuDrawingContext {
         result
     }
 
-    /// Draw an interactive path (convenience method).
+    /// Draws a path and marks it as interactive with the given ID.
     pub fn draw_interactive_path(
         &mut self,
         id: super::super::types::InteractiveId,
@@ -136,6 +138,71 @@ impl CpuDrawingContext {
                 paint.color.a.hash(&mut hasher);
                 paint.style.hash(&mut hasher);
                 paint.stroke_width.to_bits().hash(&mut hasher);
+            }
+            super::super::renderer::DrawCommand::DrawImageRect(image, dest) => {
+                "DrawImageRect".hash(&mut hasher);
+                image.width.hash(&mut hasher);
+                image.height.hash(&mut hasher);
+                dest.x.to_bits().hash(&mut hasher);
+                dest.y.to_bits().hash(&mut hasher);
+                dest.width.to_bits().hash(&mut hasher);
+                dest.height.to_bits().hash(&mut hasher);
+                let sample_len = (image.data.len()).min(256);
+                for i in 0..sample_len {
+                    image.data[i].hash(&mut hasher);
+                }
+            }
+            super::super::renderer::DrawCommand::DrawImageRegion(image, src, dest) => {
+                "DrawImageRegion".hash(&mut hasher);
+                image.width.hash(&mut hasher);
+                image.height.hash(&mut hasher);
+                src.x.to_bits().hash(&mut hasher);
+                src.y.to_bits().hash(&mut hasher);
+                src.width.to_bits().hash(&mut hasher);
+                src.height.to_bits().hash(&mut hasher);
+                dest.x.to_bits().hash(&mut hasher);
+                dest.y.to_bits().hash(&mut hasher);
+                dest.width.to_bits().hash(&mut hasher);
+                dest.height.to_bits().hash(&mut hasher);
+                let sample_len = (image.data.len()).min(256);
+                for i in 0..sample_len {
+                    image.data[i].hash(&mut hasher);
+                }
+            }
+            super::super::renderer::DrawCommand::FillLinearGradient(grad, rect) => {
+                "FillLinearGradient".hash(&mut hasher);
+                grad.start.x.to_bits().hash(&mut hasher);
+                grad.start.y.to_bits().hash(&mut hasher);
+                grad.end.x.to_bits().hash(&mut hasher);
+                grad.end.y.to_bits().hash(&mut hasher);
+                rect.x.to_bits().hash(&mut hasher);
+                rect.y.to_bits().hash(&mut hasher);
+                rect.width.to_bits().hash(&mut hasher);
+                rect.height.to_bits().hash(&mut hasher);
+                for stop in &grad.stops {
+                    stop.offset.to_bits().hash(&mut hasher);
+                    stop.color.r.hash(&mut hasher);
+                    stop.color.g.hash(&mut hasher);
+                    stop.color.b.hash(&mut hasher);
+                    stop.color.a.hash(&mut hasher);
+                }
+            }
+            super::super::renderer::DrawCommand::FillRadialGradient(grad, rect) => {
+                "FillRadialGradient".hash(&mut hasher);
+                grad.center.x.to_bits().hash(&mut hasher);
+                grad.center.y.to_bits().hash(&mut hasher);
+                grad.radius.to_bits().hash(&mut hasher);
+                rect.x.to_bits().hash(&mut hasher);
+                rect.y.to_bits().hash(&mut hasher);
+                rect.width.to_bits().hash(&mut hasher);
+                rect.height.to_bits().hash(&mut hasher);
+                for stop in &grad.stops {
+                    stop.offset.to_bits().hash(&mut hasher);
+                    stop.color.r.hash(&mut hasher);
+                    stop.color.g.hash(&mut hasher);
+                    stop.color.b.hash(&mut hasher);
+                    stop.color.a.hash(&mut hasher);
+                }
             }
             _ => {
                 format!("{:?}", command).hash(&mut hasher);
@@ -229,6 +296,16 @@ impl CpuDrawingContext {
                 }
                 self.transform_rect(bounds)
             }
+            super::super::renderer::DrawCommand::DrawImageRect(_, dest) => self.transform_rect(*dest),
+            super::super::renderer::DrawCommand::DrawImageRegion(_, _, dest) => {
+                self.transform_rect(*dest)
+            }
+            super::super::renderer::DrawCommand::FillLinearGradient(_, rect) => {
+                self.transform_rect(*rect)
+            }
+            super::super::renderer::DrawCommand::FillRadialGradient(_, rect) => {
+                self.transform_rect(*rect)
+            }
             _ => Rect::new(0.0, 0.0, 0.0, 0.0),
         }
     }
@@ -242,6 +319,10 @@ impl CpuDrawingContext {
             super::super::renderer::DrawCommand::DrawCircle(_, _, paint) => {
                 paint.color.a == 255 && paint.style == PaintStyle::Fill
             }
+            super::super::renderer::DrawCommand::DrawImageRect(..)
+            | super::super::renderer::DrawCommand::DrawImageRegion(..) => false,
+            super::super::renderer::DrawCommand::FillLinearGradient(..)
+            | super::super::renderer::DrawCommand::FillRadialGradient(..) => false,
             _ => false,
         }
     }
@@ -251,6 +332,7 @@ impl CpuDrawingContext {
         let bounds = self.compute_bounds(&command);
         let opaque = self.is_opaque(&command) && self.current_opacity >= 1.0;
 
+        let blend = self.current_blend_mode;
         let item = if let Some(interactive_id) = self.current_interactive_id {
             DisplayItem::new_interactive(
                 self.current_node_id,
@@ -258,10 +340,11 @@ impl CpuDrawingContext {
                 bounds,
                 opaque,
                 interactive_id,
+                blend,
                 command,
             )
         } else {
-            DisplayItem::new(self.current_node_id, cache_key, bounds, opaque, command)
+            DisplayItem::new(self.current_node_id, cache_key, bounds, opaque, blend, command)
         };
 
         unsafe {
@@ -326,18 +409,34 @@ impl DrawingContext for CpuDrawingContext {
         Ok(())
     }
 
-    fn draw_image(&mut self, _image: &Image, _position: Point) -> AureaResult<()> {
-        // TODO: Implement image drawing
+    fn draw_image(&mut self, image: &Image, position: Point) -> AureaResult<()> {
+        let dest = Rect::new(
+            position.x,
+            position.y,
+            image.width as f32,
+            image.height as f32,
+        );
+        self.add_command(super::super::renderer::DrawCommand::DrawImageRect(
+            image.clone(),
+            dest,
+        ));
         Ok(())
     }
 
-    fn draw_image_rect(&mut self, _image: &Image, _dest: Rect) -> AureaResult<()> {
-        // TODO: Implement image drawing with rect
+    fn draw_image_rect(&mut self, image: &Image, dest: Rect) -> AureaResult<()> {
+        self.add_command(super::super::renderer::DrawCommand::DrawImageRect(
+            image.clone(),
+            dest,
+        ));
         Ok(())
     }
 
-    fn draw_image_region(&mut self, _image: &Image, _src: Rect, _dest: Rect) -> AureaResult<()> {
-        // TODO: Implement image region drawing
+    fn draw_image_region(&mut self, image: &Image, src: Rect, dest: Rect) -> AureaResult<()> {
+        self.add_command(super::super::renderer::DrawCommand::DrawImageRegion(
+            image.clone(),
+            src,
+            dest,
+        ));
         Ok(())
     }
 
@@ -365,6 +464,7 @@ impl DrawingContext for CpuDrawingContext {
             transform,
             opacity,
             clip: clip.clone(),
+            blend_mode: self.current_blend_mode,
         });
 
         unsafe {
@@ -382,6 +482,7 @@ impl DrawingContext for CpuDrawingContext {
             self.current_transform = state.transform;
             self.current_opacity = state.opacity;
             self.current_clip = state.clip;
+            self.current_blend_mode = state.blend_mode;
         }
 
         unsafe {
@@ -433,18 +534,24 @@ impl DrawingContext for CpuDrawingContext {
         Ok(())
     }
 
-    fn set_blend_mode(&mut self, _mode: BlendMode) -> AureaResult<()> {
-        // TODO: Implement blend modes
+    fn set_blend_mode(&mut self, mode: BlendMode) -> AureaResult<()> {
+        self.current_blend_mode = mode;
         Ok(())
     }
 
-    fn fill_linear_gradient(&mut self, _gradient: &LinearGradient, _rect: Rect) -> AureaResult<()> {
-        // TODO: Implement gradients
+    fn fill_linear_gradient(&mut self, gradient: &LinearGradient, rect: Rect) -> AureaResult<()> {
+        self.add_command(super::super::renderer::DrawCommand::FillLinearGradient(
+            gradient.clone(),
+            rect,
+        ));
         Ok(())
     }
 
-    fn fill_radial_gradient(&mut self, _gradient: &RadialGradient, _rect: Rect) -> AureaResult<()> {
-        // TODO: Implement gradients
+    fn fill_radial_gradient(&mut self, gradient: &RadialGradient, rect: Rect) -> AureaResult<()> {
+        self.add_command(super::super::renderer::DrawCommand::FillRadialGradient(
+            gradient.clone(),
+            rect,
+        ));
         Ok(())
     }
 

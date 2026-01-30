@@ -3,7 +3,7 @@
 use super::super::types::{Path, PathCommand, Point, Rect};
 use super::path::Edge;
 
-/// Hit test a path using the odd-even rule (ray casting).
+/// Returns true if the point is inside the path (odd-even rule: ray to the right, count crossings).
 pub fn hit_test_path(path: &Path, point: Point) -> bool {
     let bounds = path_bounds(path);
     if !hit_test_rect(bounds, point) {
@@ -70,7 +70,7 @@ pub fn hit_test_path(path: &Path, point: Point) -> bool {
     intersections % 2 == 1
 }
 
-/// Hit test a rectangle.
+/// Returns true if the point is inside the rectangle (inclusive edges).
 pub fn hit_test_rect(rect: Rect, point: Point) -> bool {
     point.x >= rect.x
         && point.x <= rect.x + rect.width
@@ -78,7 +78,7 @@ pub fn hit_test_rect(rect: Rect, point: Point) -> bool {
         && point.y <= rect.y + rect.height
 }
 
-/// Hit test a circle.
+/// Returns true if the point is inside the circle (distance <= radius).
 pub fn hit_test_circle(center: Point, radius: f32, point: Point) -> bool {
     let dx = point.x - center.x;
     let dy = point.y - center.y;
@@ -102,7 +102,6 @@ fn ray_intersects_line_segment(ray_origin: Point, seg_start: Point, seg_end: Poi
     };
 
     let x_intersect = seg_start.x + t * (seg_end.x - seg_start.x);
-
     x_intersect > ray_origin.x
 }
 
