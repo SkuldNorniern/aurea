@@ -120,5 +120,5 @@ NGHandle ng_macos_canvas_get_window(NGHandle canvas) {
 NGHandle ng_macos_canvas_get_native_handle(NGHandle canvas) {
     if (!canvas) return NULL;
     NSView* view = (__bridge NSView*)canvas;
-    return (__bridge void*)view.layer;
+    return (__bridge void*)view;
 }

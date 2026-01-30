@@ -21,6 +21,8 @@ int ng_platform_init(void);
 void ng_platform_cleanup(void);
 NGHandle ng_platform_create_window(const char* title, int width, int height);
 void ng_platform_destroy_window(NGHandle handle);
+int ng_platform_window_set_cursor_visible(NGHandle window, int visible);
+int ng_platform_window_set_cursor_grab(NGHandle window, int mode);
 void ng_platform_window_set_title(NGHandle window, const char* title);
 void ng_platform_window_set_size(NGHandle window, int width, int height);
 void ng_platform_window_get_size(NGHandle window, int* width, int* height);
