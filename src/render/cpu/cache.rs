@@ -1,21 +1,19 @@
-//! Bounded LRU cache for expensive rendering operations
+//! Bounded LRU cache for rendering.
 //!
-//! This cache stores pre-rendered content (glyphs, complex paths, etc.)
-//! with a hard memory budget. When the budget is exceeded, least-recently-used
-//! items are evicted.
+//! Stores values by cache key with a fixed memory budget. When over budget,
+//! the least recently used entry is evicted.
 
 use super::super::display_list::CacheKey;
 use std::collections::HashMap;
 use std::hash::Hash;
 
-/// Cache entry with LRU tracking
 struct CacheEntry<T> {
     value: T,
     size_bytes: usize,
     last_used: u64,
 }
 
-/// Bounded LRU cache with memory budget
+/// LRU cache with a maximum size in bytes.
 pub struct BoundedCache<T> {
     entries: HashMap<CacheKey, CacheEntry<T>>,
     total_size: usize,
@@ -24,7 +22,7 @@ pub struct BoundedCache<T> {
 }
 
 impl<T> BoundedCache<T> {
-    /// Create a new cache with a memory budget in bytes
+    /// Creates a cache that will evict when total size exceeds the given bytes.
     pub fn new(max_size_bytes: usize) -> Self {
         Self {
             entries: HashMap::new(),
@@ -34,7 +32,7 @@ impl<T> BoundedCache<T> {
         }
     }
 
-    /// Get an item from the cache
+    /// Returns the value for the key if present and bumps its LRU time.
     pub fn get(&mut self, key: &CacheKey) -> Option<&T> {
         if let Some(entry) = self.entries.get_mut(key) {
             self.access_counter += 1;
@@ -45,19 +43,16 @@ impl<T> BoundedCache<T> {
         }
     }
 
-    /// Insert an item into the cache
+    /// Inserts a value for the key; evicts LRU entries until the new entry fits.
     pub fn insert(&mut self, key: CacheKey, value: T, size_bytes: usize) {
-        // Evict if necessary
         while self.total_size + size_bytes > self.max_size_bytes && !self.entries.is_empty() {
             self.evict_lru();
         }
 
-        // Remove existing entry if present
         if let Some(old_entry) = self.entries.remove(&key) {
             self.total_size -= old_entry.size_bytes;
         }
 
-        // Insert new entry
         self.access_counter += 1;
         self.entries.insert(
             key,
@@ -70,7 +65,7 @@ impl<T> BoundedCache<T> {
         self.total_size += size_bytes;
     }
 
-    /// Remove an item from the cache
+    /// Removes the entry for the key and returns its value.
     pub fn remove(&mut self, key: &CacheKey) -> Option<T> {
         if let Some(entry) = self.entries.remove(key) {
             self.total_size -= entry.size_bytes;
@@ -80,23 +75,22 @@ impl<T> BoundedCache<T> {
         }
     }
 
-    /// Clear all entries
+    /// Removes all entries and resets size to zero.
     pub fn clear(&mut self) {
         self.entries.clear();
         self.total_size = 0;
     }
 
-    /// Get current memory usage
+    /// Returns the total size in bytes of all entries.
     pub fn current_size(&self) -> usize {
         self.total_size
     }
 
-    /// Get memory budget
+    /// Returns the maximum size in bytes before eviction.
     pub fn max_size(&self) -> usize {
         self.max_size_bytes
     }
 
-    /// Evict the least recently used entry
     fn evict_lru(&mut self) {
         if self.entries.is_empty() {
             return;

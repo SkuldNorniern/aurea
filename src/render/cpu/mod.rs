@@ -1,9 +1,10 @@
-//! CPU raster backend with tile-based rendering
+//! CPU raster backend with tile-based rendering.
 //!
-//! This module provides a CPU-first rasterization backend optimized for
-//! low memory usage and partial redraw. It uses a tile-based backing store
-//! to enable incremental updates and bounded memory consumption.
+//! Records draw commands into a display list, then rasterizes only tiles that
+//! intersect the damage region. Uses a fixed tile size and optional cache to
+//! keep memory and redraw cost bounded.
 
+pub mod blend;
 pub mod cache;
 pub mod context;
 pub mod hit_test;

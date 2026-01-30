@@ -1,24 +1,23 @@
-//! Path tessellation for CPU rasterization
+//! Path tessellation for the CPU rasterizer.
 //!
-//! Converts paths to edges for scanline filling
+//! Turns path commands into edges (y range, x at y_min, slope) so the scanline
+//! filler can find crossings and fill between them.
 
 use super::super::types::{Path, PathCommand, Point};
 
-/// Edge for scanline filling
+/// One edge for scanline filling: y range, x at the top, and dx/dy slope.
 #[derive(Debug, Clone, Copy)]
 pub struct Edge {
     pub y_min: f32,
     pub y_max: f32,
     pub x_at_y_min: f32,
-    pub slope: f32, // dx/dy
+    pub slope: f32,
 }
 
 impl Edge {
     pub fn new(p1: Point, p2: Point) -> Option<Self> {
-        // Sort points by y
         let (p1, p2) = if p1.y <= p2.y { (p1, p2) } else { (p2, p1) };
 
-        // Skip horizontal edges (they don't contribute to fill)
         if (p2.y - p1.y).abs() < 0.001 {
             return None;
         }
@@ -33,7 +32,6 @@ impl Edge {
         })
     }
 
-    /// Get x coordinate at given y (using linear interpolation)
     pub fn x_at_y(&self, y: f32) -> f32 {
         if y < self.y_min {
             self.x_at_y_min
@@ -45,7 +43,7 @@ impl Edge {
     }
 }
 
-/// Tessellate a path into edges for scanline filling
+/// Converts a path into a list of edges for the scanline filler (lines, quads and cubics subdivided).
 pub fn tessellate_path(path: &Path) -> Vec<Edge> {
     let mut edges = Vec::new();
     let mut current_point = Point::new(0.0, 0.0);
@@ -68,8 +66,6 @@ pub fn tessellate_path(path: &Path) -> Vec<Edge> {
                 }
             }
             PathCommand::QuadTo(p1, p2) => {
-                // Simple approximation: subdivide quadratic into line segments
-                // For now, use 4 segments
                 let steps = 4;
                 let mut prev = current_point;
                 for i in 1..=steps {
@@ -83,8 +79,6 @@ pub fn tessellate_path(path: &Path) -> Vec<Edge> {
                 current_point = *p2;
             }
             PathCommand::CubicTo(p1, p2, p3) => {
-                // Simple approximation: subdivide cubic into line segments
-                // For now, use 8 segments
                 let steps = 8;
                 let mut prev = current_point;
                 for i in 1..=steps {
