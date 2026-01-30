@@ -1,5 +1,9 @@
 #include "utils.h"
 #include "common/errors.h"
+#include "common/input.h"
+#include <windowsx.h>
+
+#define AUREA_CURSOR_GRAB_PROP "AureaCursorGrabMode"
 
 static WNDCLASSEXA g_wc = {0};
 static const char* CLASS_NAME = "NativeGuiWindow";
@@ -9,6 +13,7 @@ static ScaleFactorCallback g_window_scale_callbacks[256] = {0};
 static HWND g_tracked_windows[256] = {0};
 static int g_tracked_count = 0;
 static BOOL g_lifecycle_callbacks[256] = {0};
+static BOOL g_mouse_inside[256] = {0};
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
@@ -76,9 +81,246 @@ void ng_windows_register_lifecycle_callback(HWND hwnd) {
 extern void ng_invoke_menu_callback(unsigned int id);
 extern void ng_invoke_button_callback(unsigned int id);
 extern void ng_invoke_lifecycle_callback(void* window, unsigned int event_id);
+extern void ng_invoke_key_event(void* window, unsigned int keycode, int pressed, unsigned int modifiers);
+extern void ng_invoke_mouse_button(void* window, int button, int pressed, unsigned int modifiers);
+extern void ng_invoke_mouse_move(void* window, double x, double y);
+extern void ng_invoke_mouse_wheel(void* window, double delta_x, double delta_y, unsigned int modifiers);
+extern void ng_invoke_text_input(void* window, const char* text);
+extern void ng_invoke_focus_changed(void* window, int focused);
+extern void ng_invoke_cursor_entered(void* window, int entered);
+extern void ng_invoke_raw_mouse_motion(void* window, double delta_x, double delta_y);
+
+static unsigned int ng_windows_modifiers(void) {
+    unsigned int mods = 0;
+    if (GetKeyState(VK_SHIFT) & 0x8000) {
+        mods |= NG_MOD_SHIFT;
+    }
+    if (GetKeyState(VK_CONTROL) & 0x8000) {
+        mods |= NG_MOD_CTRL;
+    }
+    if (GetKeyState(VK_MENU) & 0x8000) {
+        mods |= NG_MOD_ALT;
+    }
+    if (GetKeyState(VK_LWIN) & 0x8000 || GetKeyState(VK_RWIN) & 0x8000) {
+        mods |= NG_MOD_META;
+    }
+    return mods;
+}
+
+static unsigned int ng_windows_keycode_from_vk(WPARAM vk) {
+    if (vk >= 'A' && vk <= 'Z') {
+        return NG_KEY_A + (unsigned int)(vk - 'A');
+    }
+    if (vk >= '0' && vk <= '9') {
+        return NG_KEY_0 + (unsigned int)(vk - '0');
+    }
+
+    switch (vk) {
+        case VK_SPACE:
+            return NG_KEY_SPACE;
+        case VK_RETURN:
+            return NG_KEY_ENTER;
+        case VK_ESCAPE:
+            return NG_KEY_ESCAPE;
+        case VK_TAB:
+            return NG_KEY_TAB;
+        case VK_BACK:
+            return NG_KEY_BACKSPACE;
+        case VK_DELETE:
+            return NG_KEY_DELETE;
+        case VK_INSERT:
+            return NG_KEY_INSERT;
+        case VK_HOME:
+            return NG_KEY_HOME;
+        case VK_END:
+            return NG_KEY_END;
+        case VK_PRIOR:
+            return NG_KEY_PAGE_UP;
+        case VK_NEXT:
+            return NG_KEY_PAGE_DOWN;
+        case VK_UP:
+            return NG_KEY_UP;
+        case VK_DOWN:
+            return NG_KEY_DOWN;
+        case VK_LEFT:
+            return NG_KEY_LEFT;
+        case VK_RIGHT:
+            return NG_KEY_RIGHT;
+        case VK_F1:
+            return NG_KEY_F1;
+        case VK_F2:
+            return NG_KEY_F2;
+        case VK_F3:
+            return NG_KEY_F3;
+        case VK_F4:
+            return NG_KEY_F4;
+        case VK_F5:
+            return NG_KEY_F5;
+        case VK_F6:
+            return NG_KEY_F6;
+        case VK_F7:
+            return NG_KEY_F7;
+        case VK_F8:
+            return NG_KEY_F8;
+        case VK_F9:
+            return NG_KEY_F9;
+        case VK_F10:
+            return NG_KEY_F10;
+        case VK_F11:
+            return NG_KEY_F11;
+        case VK_F12:
+            return NG_KEY_F12;
+        case VK_SHIFT:
+        case VK_LSHIFT:
+        case VK_RSHIFT:
+            return NG_KEY_SHIFT;
+        case VK_CONTROL:
+        case VK_LCONTROL:
+        case VK_RCONTROL:
+            return NG_KEY_CONTROL;
+        case VK_MENU:
+        case VK_LMENU:
+        case VK_RMENU:
+            return NG_KEY_ALT;
+        case VK_LWIN:
+        case VK_RWIN:
+            return NG_KEY_META;
+        default:
+            return NG_KEY_UNKNOWN;
+    }
+}
+
+static void ng_windows_emit_text_input(HWND hwnd, wchar_t wc) {
+    char buffer[8];
+    int len = WideCharToMultiByte(CP_UTF8, 0, &wc, 1, buffer, (int)sizeof(buffer) - 1, NULL, NULL);
+    if (len > 0) {
+        buffer[len] = '\0';
+        ng_invoke_text_input((void*)hwnd, buffer);
+    }
+}
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
+        case WM_SETFOCUS:
+            ng_invoke_focus_changed((void*)hwnd, 1);
+            break;
+        case WM_KILLFOCUS:
+            ng_invoke_focus_changed((void*)hwnd, 0);
+            break;
+        case WM_MOUSEMOVE: {
+            int idx = -1;
+            for (int i = 0; i < g_tracked_count; i++) {
+                if (g_tracked_windows[i] == hwnd) {
+                    idx = i;
+                    break;
+                }
+            }
+            if (idx >= 0 && !g_mouse_inside[idx]) {
+                g_mouse_inside[idx] = TRUE;
+                ng_invoke_cursor_entered((void*)hwnd, 1);
+            }
+            TRACKMOUSEEVENT tme = {0};
+            tme.cbSize = sizeof(TRACKMOUSEEVENT);
+            tme.dwFlags = TME_LEAVE;
+            tme.hwndTrack = hwnd;
+            TrackMouseEvent(&tme);
+
+            double x = (double)GET_X_LPARAM(lParam);
+            double y = (double)GET_Y_LPARAM(lParam);
+            ng_invoke_mouse_move((void*)hwnd, x, y);
+            break;
+        }
+        case WM_MOUSELEAVE: {
+            int idx = -1;
+            for (int i = 0; i < g_tracked_count; i++) {
+                if (g_tracked_windows[i] == hwnd) {
+                    idx = i;
+                    break;
+                }
+            }
+            if (idx >= 0) {
+                g_mouse_inside[idx] = FALSE;
+            }
+            ng_invoke_cursor_entered((void*)hwnd, 0);
+            break;
+        }
+        default:
+            break;
+    }
+
+    switch (uMsg) {
+        case WM_INPUT: {
+            HANDLE prop = GetPropA(hwnd, AUREA_CURSOR_GRAB_PROP);
+            if ((INT_PTR)prop == 2) {
+                RAWINPUT raw;
+                UINT size = sizeof(raw);
+                if (GetRawInputData((HRAWINPUT)lParam, RID_INPUT, &raw, &size, sizeof(RAWINPUTHEADER)) == size) {
+                    if (raw.header.dwType == RIM_TYPEMOUSE) {
+                        ng_invoke_raw_mouse_motion(
+                            (void*)hwnd,
+                            (double)raw.data.mouse.lLastX,
+                            (double)raw.data.mouse.lLastY);
+                    }
+                }
+            }
+            break;
+        }
+        case WM_KEYDOWN:
+        case WM_SYSKEYDOWN: {
+            unsigned int keycode = ng_windows_keycode_from_vk(wParam);
+            ng_invoke_key_event((void*)hwnd, keycode, 1, ng_windows_modifiers());
+            break;
+        }
+        case WM_KEYUP:
+        case WM_SYSKEYUP: {
+            unsigned int keycode = ng_windows_keycode_from_vk(wParam);
+            ng_invoke_key_event((void*)hwnd, keycode, 0, ng_windows_modifiers());
+            break;
+        }
+        case WM_CHAR:
+        case WM_SYSCHAR: {
+            wchar_t wc = (wchar_t)wParam;
+            ng_windows_emit_text_input(hwnd, wc);
+            break;
+        }
+        case WM_LBUTTONDOWN:
+            ng_invoke_mouse_button((void*)hwnd, 0, 1, ng_windows_modifiers());
+            break;
+        case WM_LBUTTONUP:
+            ng_invoke_mouse_button((void*)hwnd, 0, 0, ng_windows_modifiers());
+            break;
+        case WM_RBUTTONDOWN:
+            ng_invoke_mouse_button((void*)hwnd, 1, 1, ng_windows_modifiers());
+            break;
+        case WM_RBUTTONUP:
+            ng_invoke_mouse_button((void*)hwnd, 1, 0, ng_windows_modifiers());
+            break;
+        case WM_MBUTTONDOWN:
+            ng_invoke_mouse_button((void*)hwnd, 2, 1, ng_windows_modifiers());
+            break;
+        case WM_MBUTTONUP:
+            ng_invoke_mouse_button((void*)hwnd, 2, 0, ng_windows_modifiers());
+            break;
+        case WM_XBUTTONDOWN: {
+            int button = (GET_XBUTTON_WPARAM(wParam) == XBUTTON1) ? 3 : 4;
+            ng_invoke_mouse_button((void*)hwnd, button, 1, ng_windows_modifiers());
+            break;
+        }
+        case WM_XBUTTONUP: {
+            int button = (GET_XBUTTON_WPARAM(wParam) == XBUTTON1) ? 3 : 4;
+            ng_invoke_mouse_button((void*)hwnd, button, 0, ng_windows_modifiers());
+            break;
+        }
+        case WM_MOUSEWHEEL: {
+            double delta = (double)GET_WHEEL_DELTA_WPARAM(wParam) / (double)WHEEL_DELTA;
+            ng_invoke_mouse_wheel((void*)hwnd, 0.0, delta, ng_windows_modifiers());
+            break;
+        }
+        case WM_MOUSEHWHEEL: {
+            double delta = (double)GET_WHEEL_DELTA_WPARAM(wParam) / (double)WHEEL_DELTA;
+            ng_invoke_mouse_wheel((void*)hwnd, delta, 0.0, ng_windows_modifiers());
+            break;
+        }
         case WM_COMMAND:
             if (HIWORD(wParam) == 0) {
                 unsigned int command_id = LOWORD(wParam);
@@ -133,6 +375,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 for (int i = 0; i < g_tracked_count; i++) {
                     if (g_tracked_windows[i] == hwnd && g_lifecycle_callbacks[i]) {
                         ng_invoke_lifecycle_callback((void*)hwnd, 6); // WindowMinimized = 6
+                        ng_invoke_lifecycle_callback((void*)hwnd, 9); // SurfaceLost = 9
                         break;
                     }
                 }
@@ -140,8 +383,26 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 for (int i = 0; i < g_tracked_count; i++) {
                     if (g_tracked_windows[i] == hwnd && g_lifecycle_callbacks[i]) {
                         ng_invoke_lifecycle_callback((void*)hwnd, 7); // WindowRestored = 7
+                        ng_invoke_lifecycle_callback((void*)hwnd, 10); // SurfaceRecreated = 10
                         break;
                     }
+                }
+            }
+            if (wParam != SIZE_MINIMIZED) {
+                for (int i = 0; i < g_tracked_count; i++) {
+                    if (g_tracked_windows[i] == hwnd && g_lifecycle_callbacks[i]) {
+                        ng_invoke_lifecycle_callback((void*)hwnd, 12); // WindowResized = 12
+                        break;
+                    }
+                }
+            }
+            break;
+        }
+        case WM_MOVE: {
+            for (int i = 0; i < g_tracked_count; i++) {
+                if (g_tracked_windows[i] == hwnd && g_lifecycle_callbacks[i]) {
+                    ng_invoke_lifecycle_callback((void*)hwnd, 11); // WindowMoved = 11
+                    break;
                 }
             }
             break;
@@ -153,4 +414,3 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
     }
     return DefWindowProcA(hwnd, uMsg, wParam, lParam);
 }
-

@@ -211,6 +211,14 @@ int ng_platform_window_is_focused(NGHandle window) {
     return ng_windows_window_is_focused(window);
 }
 
+int ng_platform_window_set_cursor_visible(NGHandle window, int visible) {
+    return ng_windows_window_set_cursor_visible(window, visible);
+}
+
+int ng_platform_window_set_cursor_grab(NGHandle window, int mode) {
+    return ng_windows_window_set_cursor_grab(window, mode);
+}
+
 // ImageView functions
 NGHandle ng_platform_create_image_view(void) {
     return ng_windows_create_image_view();
@@ -323,4 +331,3 @@ int ng_platform_combo_box_set_enabled(NGHandle combo_box, int enabled) {
 void ng_platform_combo_box_invalidate(NGHandle combo_box) {
     ng_windows_combo_box_invalidate(combo_box);
 }
-

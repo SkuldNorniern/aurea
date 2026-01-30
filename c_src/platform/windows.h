@@ -12,6 +12,8 @@ void ng_platform_cleanup(void);
 // Platform-specific implementations
 NGHandle ng_platform_create_window(const char* title, int width, int height);
 void ng_platform_destroy_window(NGHandle handle);
+int ng_platform_window_set_cursor_visible(NGHandle window, int visible);
+int ng_platform_window_set_cursor_grab(NGHandle window, int mode);
 NGMenuHandle ng_platform_create_menu(void);
 void ng_platform_destroy_menu(NGMenuHandle handle);
 int ng_platform_attach_menu(NGHandle window, NGMenuHandle menu);
