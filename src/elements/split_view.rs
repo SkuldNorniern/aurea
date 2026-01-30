@@ -1,5 +1,5 @@
 use super::traits::{Container, Element};
-use crate::{ffi::*, AureaError, AureaResult};
+use crate::{AureaError, AureaResult, ffi::*};
 use std::os::raw::c_void;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,9 +33,8 @@ impl SplitView {
     }
 
     pub fn set_divider_position(&self, index: i32, position: f32) -> AureaResult<()> {
-        let result = unsafe { 
-            ng_platform_split_view_set_divider_position(self.handle, index, position) 
-        };
+        let result =
+            unsafe { ng_platform_split_view_set_divider_position(self.handle, index, position) };
 
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
@@ -51,7 +50,7 @@ impl Element for SplitView {
     }
 
     unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
-        // NSSplitView handles its own invalidation usually, 
+        // NSSplitView handles its own invalidation usually,
         // but we could call a specific platform function if needed.
     }
 }
