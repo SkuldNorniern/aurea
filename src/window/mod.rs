@@ -21,6 +21,32 @@ pub enum WindowType {
     Dialog,
 }
 
+/// Stable window identifier derived from the native handle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct WindowId(usize);
+
+impl WindowId {
+    pub(crate) fn from_handle(handle: *mut c_void) -> Self {
+        Self(handle as usize)
+    }
+
+    pub(crate) fn from_raw(raw: usize) -> Self {
+        Self(raw)
+    }
+}
+
+/// Cursor grab modes
+#[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CursorGrabMode {
+    /// Do not grab the cursor
+    None = 0,
+    /// Confine cursor to the window
+    Confined = 1,
+    /// Lock cursor to the window and enable raw motion
+    Locked = 2,
+}
+
 use crate::capability::{Capability, CapabilityChecker};
 use crate::elements::Element;
 use crate::ffi::*;
@@ -38,31 +64,46 @@ use std::{
     sync::{Arc, LazyLock, Mutex, Weak},
 };
 
-static ALL_EVENT_QUEUES: LazyLock<Mutex<Vec<Weak<events::EventQueue>>>> =
+static WINDOW_EVENT_QUEUES: LazyLock<Mutex<Vec<Weak<events::EventQueue>>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
-static EVENT_QUEUE_REGISTRY: LazyLock<Mutex<HashMap<usize, Weak<events::EventQueue>>>> =
+static WINDOW_QUEUE_BY_HANDLE: LazyLock<Mutex<HashMap<usize, Weak<events::EventQueue>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+type WindowUpdateCallback = Arc<dyn Fn(WindowId) + Send + Sync>;
+static WINDOW_UPDATE_CALLBACKS: LazyLock<Mutex<HashMap<usize, Arc<Mutex<Vec<WindowUpdateCallback>>>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn register_event_queue(handle: *mut c_void, queue: &Arc<events::EventQueue>) {
-    let mut registry = EVENT_QUEUE_REGISTRY.lock().unwrap();
-    registry.insert(handle as usize, Arc::downgrade(queue));
+    let mut by_handle = WINDOW_QUEUE_BY_HANDLE.lock().unwrap();
+    by_handle.insert(handle as usize, Arc::downgrade(queue));
 }
 
 fn unregister_event_queue(handle: *mut c_void) {
-    let mut registry = EVENT_QUEUE_REGISTRY.lock().unwrap();
-    registry.remove(&(handle as usize));
+    let mut by_handle = WINDOW_QUEUE_BY_HANDLE.lock().unwrap();
+    by_handle.remove(&(handle as usize));
+}
+
+fn register_update_callbacks(handle: *mut c_void) {
+    let mut callbacks = WINDOW_UPDATE_CALLBACKS.lock().unwrap();
+    callbacks.insert(handle as usize, Arc::new(Mutex::new(Vec::new())));
+}
+
+fn unregister_update_callbacks(handle: *mut c_void) {
+    let mut callbacks = WINDOW_UPDATE_CALLBACKS.lock().unwrap();
+    callbacks.remove(&(handle as usize));
+}
+
+fn update_callback_list(handle: *mut c_void) -> Option<Arc<Mutex<Vec<WindowUpdateCallback>>>> {
+    let callbacks = WINDOW_UPDATE_CALLBACKS.lock().unwrap();
+    callbacks.get(&(handle as usize)).cloned()
 }
 
 pub(crate) fn push_window_event(handle: *mut c_void, event: WindowEvent) {
     let queue = {
-        let mut registry = EVENT_QUEUE_REGISTRY.lock().unwrap();
-        match registry
-            .get(&(handle as usize))
-            .and_then(|weak| weak.upgrade())
-        {
-            Some(queue) => Some(queue),
+        let mut by_handle = WINDOW_QUEUE_BY_HANDLE.lock().unwrap();
+        match by_handle.get(&(handle as usize)).and_then(|weak| weak.upgrade()) {
+            Some(q) => Some(q),
             None => {
-                registry.remove(&(handle as usize));
+                by_handle.remove(&(handle as usize));
                 None
             }
         }
@@ -74,7 +115,7 @@ pub(crate) fn push_window_event(handle: *mut c_void, event: WindowEvent) {
 }
 
 pub(crate) fn process_all_window_events() {
-    let mut queues = ALL_EVENT_QUEUES.lock().unwrap();
+    let mut queues = WINDOW_EVENT_QUEUES.lock().unwrap();
     queues.retain(|weak| {
         if let Some(queue) = weak.upgrade() {
             queue.process_events();
@@ -83,6 +124,35 @@ pub(crate) fn process_all_window_events() {
             false
         }
     });
+}
+
+pub(crate) fn process_all_window_updates() {
+    let callbacks = {
+        let registry = WINDOW_UPDATE_CALLBACKS.lock().unwrap();
+        registry
+            .iter()
+            .map(|(handle, list)| {
+                let list = list.lock().unwrap().clone();
+                (WindowId::from_raw(*handle), list)
+            })
+            .collect::<Vec<_>>()
+    };
+
+    for (window_id, list) in callbacks {
+        for callback in list {
+            callback(window_id);
+        }
+    }
+}
+
+fn process_window_updates(handle: *mut c_void) {
+    let callbacks = update_callback_list(handle)
+        .map(|list| list.lock().unwrap().clone())
+        .unwrap_or_default();
+    let window_id = WindowId::from_handle(handle);
+    for callback in callbacks {
+        callback(window_id);
+    }
 }
 
 use log::info;
@@ -151,11 +221,12 @@ impl Window {
         let event_queue = Arc::new(events::EventQueue::new());
 
         {
-            let mut queues = ALL_EVENT_QUEUES.lock().unwrap();
+            let mut queues = WINDOW_EVENT_QUEUES.lock().unwrap();
             queues.push(Arc::downgrade(&event_queue));
         }
 
         register_event_queue(handle, &event_queue);
+        register_update_callbacks(handle);
 
         // Register lifecycle bridge
         let eq_clone = event_queue.clone();
@@ -206,6 +277,7 @@ impl Window {
 
         unsafe {
             ng_platform_window_set_lifecycle_callback(handle);
+            ng_platform_window_set_scale_factor_callback(handle, ng_invoke_scale_factor_changed);
         }
 
         Ok(Self {
@@ -270,12 +342,30 @@ impl Window {
         self.window_type
     }
 
-    pub fn run(self) -> AureaResult<()> {
+    /// Get the stable window identifier for this window.
+    pub fn id(&self) -> WindowId {
+        WindowId::from_handle(self.handle)
+    }
+
+    pub fn run(&self) -> AureaResult<()> {
         let result = unsafe { ng_platform_run() };
         if result != 0 {
             return Err(AureaError::EventLoopError);
         }
         Ok(())
+    }
+
+    /// Register a per-window update callback.
+    ///
+    /// The callback is called once per `process_frames()` invocation.
+    pub fn on_update<F>(&self, callback: F)
+    where
+        F: Fn(WindowId) + Send + Sync + 'static,
+    {
+        if let Some(list) = update_callback_list(self.handle) {
+            let mut callbacks = list.lock().unwrap();
+            callbacks.push(Arc::new(callback));
+        }
     }
 
     pub fn set_content<E>(&mut self, element: E) -> AureaResult<()>
@@ -397,7 +487,13 @@ impl Window {
     /// ```
     pub fn poll_events(&self) -> Vec<WindowEvent> {
         // Process events through callbacks and return them for manual processing
-        self.event_queue.process_events()
+        let events = self.event_queue.process_events();
+        for event in &events {
+            if let WindowEvent::ScaleFactorChanged { scale_factor } = event {
+                *self.scale_factor.lock().unwrap() = *scale_factor;
+            }
+        }
+        events
     }
 
     /// Process scheduled frames (event-driven canvas redraws)
@@ -424,6 +520,7 @@ impl Window {
     /// # }
     /// ```
     pub fn process_frames(&self) -> AureaResult<()> {
+        process_window_updates(self.handle);
         FrameScheduler::process_frames()
     }
 
@@ -569,6 +666,24 @@ impl Window {
         unsafe { ng_platform_window_is_focused(self.handle) != 0 }
     }
 
+    /// Set cursor visibility for this window
+    pub fn set_cursor_visible(&self, visible: bool) -> AureaResult<()> {
+        let result = unsafe { ng_platform_window_set_cursor_visible(self.handle, visible as i32) };
+        if result != 0 {
+            return Err(AureaError::ElementOperationFailed);
+        }
+        Ok(())
+    }
+
+    /// Set cursor grab mode for this window
+    pub fn set_cursor_grab(&self, mode: CursorGrabMode) -> AureaResult<()> {
+        let result = unsafe { ng_platform_window_set_cursor_grab(self.handle, mode as i32) };
+        if result != 0 {
+            return Err(AureaError::ElementOperationFailed);
+        }
+        Ok(())
+    }
+
     /// Get the native window handle
     pub fn handle(&self) -> *mut std::ffi::c_void {
         self.handle
@@ -598,6 +713,7 @@ impl Drop for Window {
     fn drop(&mut self) {
         unregister_lifecycle_callback(self.handle);
         unregister_event_queue(self.handle);
+        unregister_update_callbacks(self.handle);
 
         unsafe {
             ng_platform_destroy_window(self.handle);

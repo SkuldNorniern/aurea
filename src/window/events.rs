@@ -344,3 +344,55 @@ impl Default for EventQueue {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn event_queue_push_pop_all() {
+        let queue = EventQueue::new();
+        queue.push(WindowEvent::CloseRequested);
+        queue.push(WindowEvent::Focused);
+        let out = queue.pop_all();
+        assert_eq!(out.len(), 2);
+        assert!(matches!(out[0], WindowEvent::CloseRequested));
+        assert!(matches!(out[1], WindowEvent::Focused));
+        assert!(queue.pop_all().is_empty());
+    }
+
+    #[test]
+    fn event_queue_process_events_invokes_callbacks() {
+        let queue = EventQueue::new();
+        queue.push(WindowEvent::CloseRequested);
+        let received = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let rec = std::sync::Arc::clone(&received);
+        queue.register_callback(Arc::new(move |e| {
+            rec.lock().unwrap().push(e);
+        }));
+        let processed = queue.process_events();
+        assert_eq!(processed.len(), 1);
+        assert_eq!(received.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn modifiers_from_bits_and_is_any() {
+        let none = Modifiers::from_bits(0);
+        assert!(!none.is_any());
+        assert!(!none.shift && !none.ctrl && !none.alt && !none.meta);
+
+        let shift = Modifiers::from_bits(0b0001);
+        assert!(shift.is_any());
+        assert!(shift.shift && !shift.ctrl);
+
+        let all = Modifiers::from_bits(0b1111);
+        assert!(all.is_any());
+        assert!(all.shift && all.ctrl && all.alt && all.meta);
+    }
+
+    #[test]
+    fn modifiers_default() {
+        let m = Modifiers::default();
+        assert!(!m.is_any());
+    }
+}
