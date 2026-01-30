@@ -3,8 +3,8 @@
 //! Uses native text APIs to rasterize glyphs into bitmaps.
 //! Platform-specific implementations for macOS, Windows, Linux, iOS, Android.
 
-use super::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
 use super::super::types::{Color, Font, Point};
+use super::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
 use crate::AureaResult;
 
 /// Platform text rasterizer trait

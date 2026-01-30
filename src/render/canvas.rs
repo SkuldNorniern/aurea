@@ -1,5 +1,5 @@
 use super::interaction::{ClickCallback, HoverCallback, InteractionRegistry};
-use super::renderer::{CURRENT_BUFFER, DrawingContext, PlaceholderRenderer, Renderer};
+use super::renderer::{CURRENT_BUFFER, DrawingContext, Renderer};
 use super::surface::{Surface, SurfaceInfo};
 use super::types::{Color, InteractiveId, RendererBackend};
 use crate::capability::CapabilityChecker;
@@ -14,13 +14,18 @@ use std::sync::{Arc, Mutex};
 /// Drawing callback type - stored and called when canvas needs redraw
 pub type DrawCallback = Box<dyn Fn(&mut dyn DrawingContext) -> AureaResult<()> + Send + Sync>;
 
+#[derive(Debug, Clone, Copy)]
+struct CanvasMetrics {
+    width: u32,
+    height: u32,
+    scale_factor: f32,
+}
+
 pub struct Canvas {
     handle: *mut c_void,
     renderer: Arc<Mutex<Option<Box<dyn Renderer>>>>,
     _backend: RendererBackend,
-    width: u32,
-    height: u32,
-    scale_factor: f32,
+    metrics: Arc<Mutex<CanvasMetrics>>,
     damage: Arc<Mutex<DamageRegion>>,
     // Retained-mode properties
     background_color: Arc<Mutex<Color>>,
@@ -43,21 +48,18 @@ impl Canvas {
     /// - Windows: HWND
     /// - Linux: X11 Window or Wayland Surface
     pub fn native_handle(&self) -> *mut c_void {
-        unsafe {
-            ng_platform_canvas_get_native_handle(self.handle)
-        }
+        unsafe { ng_platform_canvas_get_native_handle(self.handle) }
     }
-    
+
     /// Get the parent window handle for this canvas
     pub fn window_handle(&self) -> *mut c_void {
-        unsafe {
-            ng_platform_canvas_get_window(self.handle)
-        }
+        unsafe { ng_platform_canvas_get_window(self.handle) }
     }
-    
+
     /// Get canvas dimensions
     pub fn size(&self) -> (u32, u32) {
-        (self.width, self.height)
+        let metrics = self.metrics.lock().unwrap();
+        (metrics.width, metrics.height)
     }
 
     /// Create a wgpu surface from this canvas
@@ -83,31 +85,23 @@ impl Canvas {
         &self,
         instance: &wgpu::Instance,
     ) -> AureaResult<wgpu::Surface<'static>> {
-        use crate::integration::wgpu::NativeWindowHandle;
+        use crate::integration::wgpu::native_handle_from_canvas_ptr;
         use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
-        
+
         // Get the native handle for the canvas
         let native_ptr = self.native_handle();
-        
-        // Create platform-specific handle
-        #[cfg(target_os = "macos")]
-        let handle = NativeWindowHandle::MacOS { ns_view: native_ptr };
-        
-        #[cfg(target_os = "windows")]
-        let handle = NativeWindowHandle::Windows { hwnd: native_ptr };
-        
-        #[cfg(target_os = "linux")]
-        let handle = NativeWindowHandle::Linux { xcb_window: 0 }; // TODO: Get actual X11 window ID
-        
+
+        let handle =
+            native_handle_from_canvas_ptr(native_ptr).ok_or(AureaError::ElementOperationFailed)?;
+
         // Create surface target from handle
-        let surface_target: wgpu::SurfaceTarget<'static> = unsafe {
-            std::mem::transmute(wgpu::SurfaceTarget::from(&handle))
-        };
-        
+        let surface_target: wgpu::SurfaceTarget<'static> =
+            unsafe { std::mem::transmute(wgpu::SurfaceTarget::from(&handle)) };
+
         let surface = instance
             .create_surface(surface_target)
             .map_err(|_| AureaError::ElementOperationFailed)?;
-        
+
         Ok(surface)
     }
 
@@ -121,7 +115,9 @@ impl Canvas {
             super::types::RendererBackend::Cpu => {
                 Box::new(super::cpu::CpuRasterizer::new(width, height))
             }
-            _ => Box::new(PlaceholderRenderer::new()),
+            super::types::RendererBackend::Gpu => {
+                return Err(AureaError::BackendNotAvailable);
+            }
         };
         let surface = Surface::OpenGL {
             context: std::ptr::null_mut(),
@@ -147,6 +143,11 @@ impl Canvas {
         };
 
         let renderer_arc = Arc::new(Mutex::new(Some(renderer)));
+        let metrics = Arc::new(Mutex::new(CanvasMetrics {
+            width,
+            height,
+            scale_factor,
+        }));
         let damage_arc = Arc::new(Mutex::new(DamageRegion::new(16)));
         let bg_color_arc = Arc::new(Mutex::new(Color::rgb(255, 255, 255)));
         let draw_cb_arc = Arc::new(Mutex::new(None));
@@ -164,9 +165,7 @@ impl Canvas {
             handle,
             renderer: renderer_arc,
             _backend: backend,
-            width,
-            height,
-            scale_factor,
+            metrics: metrics.clone(),
             damage: damage_arc,
             background_color: bg_color_arc,
             draw_callback: draw_cb_arc,
@@ -179,6 +178,7 @@ impl Canvas {
         // Register with frame scheduler for automatic redraw
         canvas.register_with_scheduler(
             renderer_for_callback,
+            metrics,
             damage_for_callback,
             bg_color_for_callback,
             draw_cb_for_callback,
@@ -188,38 +188,42 @@ impl Canvas {
         Ok(canvas)
     }
 
-    fn handle_resize(&mut self, new_width: u32, new_height: u32) -> AureaResult<()> {
-        if new_width == self.width && new_height == self.height {
+    fn handle_resize(
+        &mut self,
+        new_width: u32,
+        new_height: u32,
+        new_scale: f32,
+    ) -> AureaResult<()> {
+        let (size_changed, scale_changed) = {
+            let mut metrics = self.metrics.lock().unwrap();
+            let size_changed = new_width != metrics.width || new_height != metrics.height;
+            let scale_changed = new_scale != metrics.scale_factor;
+            if size_changed {
+                metrics.width = new_width;
+                metrics.height = new_height;
+            }
+            if scale_changed {
+                metrics.scale_factor = new_scale;
+            }
+            (size_changed, scale_changed)
+        };
+
+        if !size_changed && !scale_changed {
             return Ok(());
         }
 
-        self.width = new_width;
-        self.height = new_height;
-
-        let new_scale = unsafe {
-            let window = ng_platform_canvas_get_window(self.handle);
-            if !window.is_null() {
-                ng_platform_get_scale_factor(window)
-            } else {
-                self.scale_factor
-            }
-        };
-
-        if new_scale != self.scale_factor {
-            self.scale_factor = new_scale;
-            {
-                let mut renderer_guard = self.renderer.lock().unwrap();
-                if let Some(ref mut renderer) = *renderer_guard {
-                    let surface = Surface::OpenGL {
-                        context: std::ptr::null_mut(),
-                    };
-                    let surface_info = SurfaceInfo {
-                        width: new_width,
-                        height: new_height,
-                        scale_factor: new_scale,
-                    };
-                    renderer.init(surface, surface_info)?;
-                }
+        if scale_changed {
+            let mut renderer_guard = self.renderer.lock().unwrap();
+            if let Some(ref mut renderer) = *renderer_guard {
+                let surface = Surface::OpenGL {
+                    context: std::ptr::null_mut(),
+                };
+                let surface_info = SurfaceInfo {
+                    width: new_width,
+                    height: new_height,
+                    scale_factor: new_scale,
+                };
+                renderer.init(surface, surface_info)?;
             }
         }
 
@@ -227,7 +231,7 @@ impl Canvas {
             *buf.borrow_mut() = None;
         });
 
-        {
+        if size_changed {
             let mut renderer_guard = self.renderer.lock().unwrap();
             if let Some(ref mut renderer) = *renderer_guard {
                 renderer.resize(new_width, new_height)?;
@@ -272,12 +276,8 @@ impl Canvas {
                     let rect = damage.take();
                     // If no damage region, use full canvas
                     rect.or_else(|| {
-                        Some(super::Rect::new(
-                            0.0,
-                            0.0,
-                            self.width as f32,
-                            self.height as f32,
-                        ))
+                        let (width, height) = self.size();
+                        Some(super::Rect::new(0.0, 0.0, width as f32, height as f32))
                     })
                 };
 
@@ -424,35 +424,18 @@ impl Canvas {
         unsafe {
             ng_platform_canvas_get_size(self.handle, &mut width, &mut height);
         }
-        if width > 0 && height > 0 && (width != self.width || height != self.height) {
-            self.handle_resize(width, height)?;
-        }
-
         let new_scale = unsafe {
             let window = ng_platform_canvas_get_window(self.handle);
             if !window.is_null() {
                 ng_platform_get_scale_factor(window)
             } else {
-                self.scale_factor
+                let metrics = self.metrics.lock().unwrap();
+                metrics.scale_factor
             }
         };
 
-        if new_scale != self.scale_factor {
-            self.scale_factor = new_scale;
-            {
-                let mut renderer_guard = self.renderer.lock().unwrap();
-                if let Some(ref mut renderer) = *renderer_guard {
-                    let surface = Surface::OpenGL {
-                        context: std::ptr::null_mut(),
-                    };
-                    let surface_info = SurfaceInfo {
-                        width: self.width,
-                        height: self.height,
-                        scale_factor: new_scale,
-                    };
-                    renderer.init(surface, surface_info)?;
-                }
-            }
+        if width > 0 && height > 0 {
+            self.handle_resize(width, height, new_scale)?;
         }
 
         Ok(())
@@ -502,15 +485,16 @@ impl Canvas {
     }
 
     pub fn width(&self) -> u32 {
-        self.width
+        self.size().0
     }
 
     pub fn height(&self) -> u32 {
-        self.height
+        self.size().1
     }
 
     pub fn scale_factor(&self) -> f32 {
-        self.scale_factor
+        let metrics = self.metrics.lock().unwrap();
+        metrics.scale_factor
     }
 
     /// Register a click callback for an interactive shape
@@ -557,6 +541,7 @@ impl Canvas {
     fn register_with_scheduler(
         &self,
         renderer: Arc<Mutex<Option<Box<dyn Renderer>>>>,
+        metrics: Arc<Mutex<CanvasMetrics>>,
         damage: Arc<Mutex<DamageRegion>>,
         background_color: Arc<Mutex<Color>>,
         draw_callback: Arc<Mutex<Option<DrawCallback>>>,
@@ -567,13 +552,74 @@ impl Canvas {
 
         // Create a callback that can perform redraw using interior mutability
         // Locking order (to prevent deadlocks):
-        // 1. needs_redraw
-        // 2. damage
-        // 3. renderer
-        // 4. background_color
-        // 5. draw_callback
+        // 1. metrics
+        // 2. needs_redraw
+        // 3. damage
+        // 4. renderer
+        // 5. background_color
+        // 6. draw_callback
         let callback: Arc<dyn Fn() -> AureaResult<()> + Send + Sync> = Arc::new(move || {
-            // Step 1: Check if redraw is needed
+            let mut width: u32 = 0;
+            let mut height: u32 = 0;
+            unsafe {
+                let handle_ptr = handle_usize as *mut c_void;
+                ng_platform_canvas_get_size(handle_ptr, &mut width, &mut height);
+            }
+
+            let new_scale = unsafe {
+                let handle_ptr = handle_usize as *mut c_void;
+                let window = ng_platform_canvas_get_window(handle_ptr);
+                if !window.is_null() {
+                    ng_platform_get_scale_factor(window)
+                } else {
+                    let current = metrics.lock().unwrap();
+                    current.scale_factor
+                }
+            };
+
+            let (size_changed, scale_changed, metrics_width, metrics_height) = {
+                let mut current = metrics.lock().unwrap();
+                let size_changed =
+                    width > 0 && height > 0 && (width != current.width || height != current.height);
+                let scale_changed = new_scale != current.scale_factor;
+                if size_changed {
+                    current.width = width;
+                    current.height = height;
+                }
+                if scale_changed {
+                    current.scale_factor = new_scale;
+                }
+                (size_changed, scale_changed, current.width, current.height)
+            };
+
+            if size_changed || scale_changed {
+                let mut renderer_guard = renderer.lock().unwrap();
+                if let Some(ref mut r) = *renderer_guard {
+                    if scale_changed {
+                        let surface = Surface::OpenGL {
+                            context: std::ptr::null_mut(),
+                        };
+                        let surface_info = SurfaceInfo {
+                            width: metrics_width,
+                            height: metrics_height,
+                            scale_factor: new_scale,
+                        };
+                        r.init(surface, surface_info)?;
+                    }
+                    if size_changed {
+                        r.resize(metrics_width, metrics_height)?;
+                    }
+                }
+
+                CURRENT_BUFFER.with(|buf| {
+                    *buf.borrow_mut() = None;
+                });
+
+                let mut flag = needs_redraw.lock().unwrap();
+                *flag = true;
+            }
+
+            // Step 2: Check if redraw is needed
             let should_redraw = {
                 let mut flag = needs_redraw.lock().unwrap();
                 if !*flag {
@@ -587,13 +633,13 @@ impl Canvas {
                 return Ok(());
             }
 
-            // Step 2: Get damage region
+            // Step 3: Get damage region
             let damage_rect = {
                 let mut d = damage.lock().unwrap();
                 d.take()
             };
 
-            // Step 3: Get renderer (hold lock during frame)
+            // Step 4: Get renderer (hold lock during frame)
             let mut renderer_guard = renderer.lock().unwrap();
             if let Some(ref mut r) = *renderer_guard {
                 // Set damage
@@ -602,14 +648,14 @@ impl Canvas {
                 // Begin frame
                 let mut ctx = r.begin_frame()?;
 
-                // Step 4: Get background color (short lock)
+                // Step 5: Get background color (short lock)
                 let bg_color = {
                     let bg = background_color.lock().unwrap();
                     *bg
                 };
                 ctx.clear(bg_color)?;
 
-                // Step 5: Call stored callback (short lock)
+                // Step 6: Call stored callback (short lock)
                 {
                     let cb = draw_callback.lock().unwrap();
                     if let Some(ref callback_fn) = *cb {
