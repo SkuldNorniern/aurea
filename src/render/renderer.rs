@@ -143,6 +143,10 @@ pub enum DrawCommand {
     DrawText(String, Point, Paint),
     #[allow(dead_code)]
     DrawTextWithFont(String, Point, Font, Paint),
+    DrawImageRect(Image, Rect),
+    DrawImageRegion(Image, Rect, Rect),
+    FillLinearGradient(LinearGradient, Rect),
+    FillRadialGradient(RadialGradient, Rect),
     // Stack operations for compositing
     PushClip(Path),
     PopClip,
@@ -243,6 +247,48 @@ impl PlaceholderRenderer {
                 DrawCommand::DrawText(..) => {}
                 DrawCommand::DrawPath(..) => {}
                 DrawCommand::DrawTextWithFont(..) => {}
+                DrawCommand::DrawImageRect(image, dest) => {
+                    Self::blit_image_to_buffer(
+                        &image.data,
+                        image.width,
+                        image.height,
+                        Rect::new(0.0, 0.0, image.width as f32, image.height as f32),
+                        dest,
+                        &mut self.buffer,
+                        self.width,
+                        self.height,
+                    );
+                }
+                DrawCommand::DrawImageRegion(image, src, dest) => {
+                    Self::blit_image_to_buffer(
+                        &image.data,
+                        image.width,
+                        image.height,
+                        src,
+                        dest,
+                        &mut self.buffer,
+                        self.width,
+                        self.height,
+                    );
+                }
+                DrawCommand::FillLinearGradient(gradient, rect) => {
+                    Self::fill_linear_gradient_buffer(
+                        &gradient,
+                        rect,
+                        &mut self.buffer,
+                        self.width,
+                        self.height,
+                    );
+                }
+                DrawCommand::FillRadialGradient(gradient, rect) => {
+                    Self::fill_radial_gradient_buffer(
+                        &gradient,
+                        rect,
+                        &mut self.buffer,
+                        self.width,
+                        self.height,
+                    );
+                }
                 DrawCommand::PushClip(..) => {}
                 DrawCommand::PopClip => {}
                 DrawCommand::PushTransform(..) => {}
@@ -309,6 +355,183 @@ impl PlaceholderRenderer {
                     let x = cx + (radius * rad.cos()) as i32;
                     let y = cy + (radius * rad.sin()) as i32;
                     self.set_pixel(x, y, color);
+                }
+            }
+        }
+    }
+
+    fn blit_image_to_buffer(
+        image_data: &[u8],
+        image_width: u32,
+        image_height: u32,
+        src: Rect,
+        dest: Rect,
+        buffer: &mut [u32],
+        buffer_width: u32,
+        buffer_height: u32,
+    ) {
+        if image_data.is_empty()
+            || image_width == 0
+            || image_height == 0
+            || dest.width <= 0.0
+            || dest.height <= 0.0
+        {
+            return;
+        }
+        let stride = (image_width * 4) as usize;
+        let start_x = dest.x as i32;
+        let start_y = dest.y as i32;
+        let end_x = (dest.x + dest.width) as i32;
+        let end_y = (dest.y + dest.height) as i32;
+        for dy in start_y..end_y {
+            for dx in start_x..end_x {
+                if dx < 0 || dy < 0 || dx >= buffer_width as i32 || dy >= buffer_height as i32 {
+                    continue;
+                }
+                let u = (dx - start_x) as f32 / dest.width * src.width + src.x;
+                let v = (dy - start_y) as f32 / dest.height * src.height + src.y;
+                let sx = u.clamp(0.0, image_width as f32 - 0.001) as u32;
+                let sy = v.clamp(0.0, image_height as f32 - 0.001) as u32;
+                let idx = (sy as usize * image_width as usize + sx as usize) * 4;
+                if idx + 3 >= image_data.len() {
+                    continue;
+                }
+                let r = image_data[idx];
+                let g = image_data[idx + 1];
+                let b = image_data[idx + 2];
+                let a = image_data[idx + 3];
+                let src_rgba =
+                    ((a as u32) << 24) | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
+                let buf_idx = (dy as u32 * buffer_width + dx as u32) as usize;
+                if buf_idx >= buffer.len() {
+                    continue;
+                }
+                if a >= 255 {
+                    buffer[buf_idx] = src_rgba;
+                } else {
+                    let dst = buffer[buf_idx];
+                    let da = (dst >> 24) & 0xff;
+                    let dr = (dst >> 16) & 0xff;
+                    let dg = (dst >> 8) & 0xff;
+                    let db = dst & 0xff;
+                    let sa = a as u32;
+                    let inv_sa = (255 - sa) as u32;
+                    let out_a = sa + (inv_sa * da) / 255;
+                    if out_a == 0 {
+                        buffer[buf_idx] = 0;
+                    } else {
+                        let out_r = (sa * (r as u32) + inv_sa * dr) / 255;
+                        let out_g = (sa * (g as u32) + inv_sa * dg) / 255;
+                        let out_b = (sa * (b as u32) + inv_sa * db) / 255;
+                        buffer[buf_idx] =
+                            (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b;
+                    }
+                }
+            }
+        }
+    }
+
+    fn gradient_color_at(stops: &[super::types::GradientStop], t: f32) -> super::types::Color {
+        let t = t.clamp(0.0, 1.0);
+        if stops.is_empty() {
+            return super::types::Color::rgb(0, 0, 0);
+        }
+        if stops.len() == 1 {
+            return stops[0].color;
+        }
+        for i in 0..stops.len() - 1 {
+            let a = stops[i].offset;
+            let b = stops[i + 1].offset;
+            if t >= a && t <= b {
+                let denom = b - a;
+                let s = if denom.abs() < 1e-6 {
+                    1.0
+                } else {
+                    (t - a) / denom
+                };
+                let c0 = stops[i].color;
+                let c1 = stops[i + 1].color;
+                return super::types::Color::rgba(
+                    (c0.r as f32 + (c1.r as f32 - c0.r as f32) * s).round() as u8,
+                    (c0.g as f32 + (c1.g as f32 - c0.g as f32) * s).round() as u8,
+                    (c0.b as f32 + (c1.b as f32 - c0.b as f32) * s).round() as u8,
+                    (c0.a as f32 + (c1.a as f32 - c0.a as f32) * s).round() as u8,
+                );
+            }
+        }
+        if t <= stops[0].offset {
+            stops[0].color
+        } else {
+            *stops.last().map(|s| &s.color).unwrap_or(&stops[0].color)
+        }
+    }
+
+    fn fill_linear_gradient_buffer(
+        gradient: &LinearGradient,
+        rect: Rect,
+        buffer: &mut [u32],
+        buffer_width: u32,
+        buffer_height: u32,
+    ) {
+        let dx = gradient.end.x - gradient.start.x;
+        let dy = gradient.end.y - gradient.start.y;
+        let len_sq = dx * dx + dy * dy;
+        if len_sq < 1e-10 {
+            return;
+        }
+        let start_x = rect.x.max(0.0).min(buffer_width as f32) as i32;
+        let end_x = (rect.x + rect.width).max(0.0).min(buffer_width as f32) as i32;
+        let start_y = rect.y.max(0.0).min(buffer_height as f32) as i32;
+        let end_y = (rect.y + rect.height).max(0.0).min(buffer_height as f32) as i32;
+        for py in start_y..end_y {
+            for px in start_x..end_x {
+                let px_f = px as f32 + 0.5;
+                let py_f = py as f32 + 0.5;
+                let t = ((px_f - gradient.start.x) * dx + (py_f - gradient.start.y) * dy) / len_sq;
+                let t = t.clamp(0.0, 1.0);
+                let color = Self::gradient_color_at(&gradient.stops, t);
+                let idx = (py as u32 * buffer_width + px as u32) as usize;
+                if idx < buffer.len() {
+                    let rgba = ((color.a as u32) << 24)
+                        | ((color.r as u32) << 16)
+                        | ((color.g as u32) << 8)
+                        | (color.b as u32);
+                    buffer[idx] = rgba;
+                }
+            }
+        }
+    }
+
+    fn fill_radial_gradient_buffer(
+        gradient: &RadialGradient,
+        rect: Rect,
+        buffer: &mut [u32],
+        buffer_width: u32,
+        buffer_height: u32,
+    ) {
+        if gradient.radius <= 0.0 {
+            return;
+        }
+        let start_x = rect.x.max(0.0).min(buffer_width as f32) as i32;
+        let end_x = (rect.x + rect.width).max(0.0).min(buffer_width as f32) as i32;
+        let start_y = rect.y.max(0.0).min(buffer_height as f32) as i32;
+        let end_y = (rect.y + rect.height).max(0.0).min(buffer_height as f32) as i32;
+        for py in start_y..end_y {
+            for px in start_x..end_x {
+                let px_f = px as f32 + 0.5;
+                let py_f = py as f32 + 0.5;
+                let dist = ((px_f - gradient.center.x).powi(2)
+                    + (py_f - gradient.center.y).powi(2))
+                .sqrt();
+                let t = (dist / gradient.radius).min(1.0);
+                let color = Self::gradient_color_at(&gradient.stops, t);
+                let idx = (py as u32 * buffer_width + px as u32) as usize;
+                if idx < buffer.len() {
+                    let rgba = ((color.a as u32) << 24)
+                        | ((color.r as u32) << 16)
+                        | ((color.g as u32) << 8)
+                        | (color.b as u32);
+                    buffer[idx] = rgba;
                 }
             }
         }
@@ -521,11 +744,25 @@ impl DrawingContext for PlaceholderDrawingContext {
         Ok(())
     }
 
-    fn fill_linear_gradient(&mut self, _gradient: &LinearGradient, _rect: Rect) -> AureaResult<()> {
+    fn fill_linear_gradient(&mut self, gradient: &LinearGradient, rect: Rect) -> AureaResult<()> {
+        COMMAND_BUFFER.with(|buf| {
+            if let Some(ptr) = *buf.borrow() {
+                unsafe {
+                    (*ptr).push(DrawCommand::FillLinearGradient(gradient.clone(), rect));
+                }
+            }
+        });
         Ok(())
     }
 
-    fn fill_radial_gradient(&mut self, _gradient: &RadialGradient, _rect: Rect) -> AureaResult<()> {
+    fn fill_radial_gradient(&mut self, gradient: &RadialGradient, rect: Rect) -> AureaResult<()> {
+        COMMAND_BUFFER.with(|buf| {
+            if let Some(ptr) = *buf.borrow() {
+                unsafe {
+                    (*ptr).push(DrawCommand::FillRadialGradient(gradient.clone(), rect));
+                }
+            }
+        });
         Ok(())
     }
 

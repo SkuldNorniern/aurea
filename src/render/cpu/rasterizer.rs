@@ -229,8 +229,6 @@ impl CpuRasterizer {
             return;
         }
 
-        let color = color_to_u32(paint.color);
-
         match paint.style {
             PaintStyle::Fill => {
                 let start_x = clip_rect.x as u32;
@@ -240,12 +238,15 @@ impl CpuRasterizer {
 
                 for y in start_y..end_y {
                     for x in start_x..end_x {
+                        let coverage = rect_coverage(rect, x as f32, y as f32);
+                        let color = color_to_u32_with_coverage(paint.color, coverage);
                         let (local_x, local_y) = (x % TILE_SIZE, y % TILE_SIZE);
                         Self::set_pixel_blend(tile, local_x, local_y, color, blend_mode);
                     }
                 }
             }
             PaintStyle::Stroke => {
+                let color = color_to_u32(paint.color);
                 let stroke_width = paint.stroke_width as u32;
                 if stroke_width == 0 {
                     return;
@@ -302,7 +303,6 @@ impl CpuRasterizer {
         tile: &mut super::tile::Tile,
         tile_bounds: &Rect,
     ) {
-        let color = color_to_u32(paint.color);
         let r_squared = radius * radius;
 
         match paint.style {
@@ -314,16 +314,18 @@ impl CpuRasterizer {
 
                 for y in start_y..end_y {
                     for x in start_x..end_x {
-                        let dx = x as f32 - center.x;
-                        let dy = y as f32 - center.y;
-                        if dx * dx + dy * dy <= r_squared {
-                            let (local_x, local_y) = (x % TILE_SIZE, y % TILE_SIZE);
-                            Self::set_pixel_blend(tile, local_x, local_y, color, blend_mode);
+                        let coverage = circle_coverage(center, radius, x as f32, y as f32);
+                        if coverage <= 0.0 {
+                            continue;
                         }
+                        let color = color_to_u32_with_coverage(paint.color, coverage);
+                        let (local_x, local_y) = (x % TILE_SIZE, y % TILE_SIZE);
+                        Self::set_pixel_blend(tile, local_x, local_y, color, blend_mode);
                     }
                 }
             }
             PaintStyle::Stroke => {
+                let color = color_to_u32(paint.color);
                 let stroke_width = paint.stroke_width;
                 let inner_radius = radius - stroke_width;
                 let inner_r_squared = inner_radius * inner_radius;
@@ -716,4 +718,39 @@ impl Renderer for CpuRasterizer {
 /// Packs a Color into a single u32 (A in high byte, then R, G, B).
 fn color_to_u32(color: Color) -> u32 {
     ((color.a as u32) << 24) | ((color.r as u32) << 16) | ((color.g as u32) << 8) | (color.b as u32)
+}
+
+/// Packs a Color with alpha scaled by coverage (0.0..=1.0) for anti-aliasing.
+fn color_to_u32_with_coverage(color: Color, coverage: f32) -> u32 {
+    let a = ((color.a as f32 * coverage).round().clamp(0.0, 255.0)) as u32;
+    (a << 24) | ((color.r as u32) << 16) | ((color.g as u32) << 8) | (color.b as u32)
+}
+
+/// Fraction of the pixel [px, px+1) x [py, py+1) that lies inside the rect.
+fn rect_coverage(rect: &Rect, px: f32, py: f32) -> f32 {
+    let left = px.max(rect.x);
+    let right = (px + 1.0).min(rect.x + rect.width);
+    let top = py.max(rect.y);
+    let bottom = (py + 1.0).min(rect.y + rect.height);
+    if left >= right || top >= bottom {
+        0.0
+    } else {
+        (right - left) * (bottom - top)
+    }
+}
+
+/// Approximate coverage of the pixel with center (px+0.5, py+0.5) inside the circle; 1.0 inside, 0.0 outside, linear ramp in the one-pixel band.
+fn circle_coverage(center: Point, radius: f32, px: f32, py: f32) -> f32 {
+    let cx = px + 0.5;
+    let cy = py + 0.5;
+    let dx = cx - center.x;
+    let dy = cy - center.y;
+    let d = (dx * dx + dy * dy).sqrt();
+    if d <= radius - 0.5 {
+        1.0
+    } else if d >= radius + 0.5 {
+        0.0
+    } else {
+        (radius + 0.5 - d).clamp(0.0, 1.0)
+    }
 }
