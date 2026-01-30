@@ -1,9 +1,10 @@
-//! Scanline fill algorithm for path rendering.
+//! Scanline fill for paths.
 
-use super::super::types::Color;
+use super::super::types::{BlendMode, Color};
+use super::blend::blend_pixel;
 use super::path::Edge;
 
-/// Fill a scanline region using active edge list.
+/// Fills one scanline: finds edge crossings, sorts by x, fills between pairs, clamped to the tile.
 pub fn fill_scanline(
     edges: &[Edge],
     y: f32,
@@ -13,6 +14,7 @@ pub fn fill_scanline(
     tile_offset_x: u32,
     tile_offset_y: u32,
     color: Color,
+    blend_mode: BlendMode,
 ) {
     let mut active_edges: Vec<f32> = edges
         .iter()
@@ -31,13 +33,10 @@ pub fn fill_scanline(
             break;
         }
 
-        let x_start = active_edges[i].max(0.0) as u32;
-        let x_end = active_edges[i + 1].max(0.0) as u32;
+        let x_start_f = active_edges[i].max(0.0);
+        let x_end_f = active_edges[i + 1].max(0.0);
 
-        let x_start = x_start.max(tile_offset_x).min(tile_offset_x + tile_width);
-        let x_end = x_end.max(tile_offset_x).min(tile_offset_x + tile_width);
-
-        if x_start >= x_end {
+        if x_start_f >= x_end_f {
             continue;
         }
 
@@ -46,19 +45,42 @@ pub fn fill_scanline(
             continue;
         }
 
-        let color_u32 = color_to_u32(color);
-        for x in x_start..x_end {
-            let tile_x = x.saturating_sub(tile_offset_x);
+        let clip_left = tile_offset_x as f32;
+        let clip_right = (tile_offset_x + tile_width) as f32;
+        let span_left = x_start_f.max(clip_left);
+        let span_right = x_end_f.min(clip_right);
+
+        if span_left >= span_right {
+            continue;
+        }
+
+        let j_start = span_left.floor() as u32;
+        let j_end = (span_right - 0.001).floor() as u32;
+
+        for j in j_start..=j_end {
+            let jf = j as f32;
+            let overlap_left = jf.max(span_left);
+            let overlap_right = (jf + 1.0).min(span_right);
+            let coverage = (overlap_right - overlap_left).max(0.0);
+
+            if coverage <= 0.0 {
+                continue;
+            }
+
+            let tile_x = j.saturating_sub(tile_offset_x);
             if tile_x < tile_width {
                 let idx = (tile_y as usize) * (tile_width as usize) + (tile_x as usize);
                 if idx < tile_pixels.len() {
-                    tile_pixels[idx] = color_u32;
+                    let color_u32 = color_to_u32_with_coverage(color, coverage);
+                    let dst = tile_pixels[idx];
+                    tile_pixels[idx] = blend_pixel(color_u32, dst, blend_mode);
                 }
             }
         }
     }
 }
 
-fn color_to_u32(color: Color) -> u32 {
-    ((color.a as u32) << 24) | ((color.r as u32) << 16) | ((color.g as u32) << 8) | (color.b as u32)
+fn color_to_u32_with_coverage(color: Color, coverage: f32) -> u32 {
+    let a = ((color.a as f32 * coverage).round().clamp(0.0, 255.0)) as u32;
+    (a << 24) | ((color.r as u32) << 16) | ((color.g as u32) << 8) | (color.b as u32)
 }

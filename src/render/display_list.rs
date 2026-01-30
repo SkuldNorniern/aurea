@@ -54,6 +54,8 @@ pub struct DisplayItem {
     pub opaque: bool,
     /// Interactive ID if this shape should respond to mouse/touch events.
     pub interactive_id: Option<super::types::InteractiveId>,
+    /// Blend mode when compositing this item.
+    pub blend_mode: super::types::BlendMode,
     /// The actual draw command.
     pub command: super::renderer::DrawCommand,
 }
@@ -65,6 +67,7 @@ impl DisplayItem {
         cache_key: CacheKey,
         bounds: Rect,
         opaque: bool,
+        blend_mode: super::types::BlendMode,
         command: super::renderer::DrawCommand,
     ) -> Self {
         Self {
@@ -73,6 +76,7 @@ impl DisplayItem {
             bounds,
             opaque,
             interactive_id: None,
+            blend_mode,
             command,
         }
     }
@@ -84,6 +88,7 @@ impl DisplayItem {
         bounds: Rect,
         opaque: bool,
         interactive_id: super::types::InteractiveId,
+        blend_mode: super::types::BlendMode,
         command: super::renderer::DrawCommand,
     ) -> Self {
         Self {
@@ -92,6 +97,7 @@ impl DisplayItem {
             bounds,
             opaque,
             interactive_id: Some(interactive_id),
+            blend_mode,
             command,
         }
     }
