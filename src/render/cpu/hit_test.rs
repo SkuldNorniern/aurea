@@ -1,19 +1,17 @@
-//! Hit testing for shapes and paths
+//! Hit testing for shapes and paths.
 //!
-//! Determines if a point intersects with a shape using various algorithms
+//! Answers whether a point lies inside a path (odd-even ray cast), rect, or circle.
 
 use super::super::types::{Path, PathCommand, Point, Rect};
 use super::path::Edge;
 
-/// Hit test a path using the odd-even rule (ray casting)
+/// Returns true if the point is inside the path (odd-even rule: ray to the right, count crossings).
 pub fn hit_test_path(path: &Path, point: Point) -> bool {
-    // Quick bounds check first
     let bounds = path_bounds(path);
     if !hit_test_rect(bounds, point) {
         return false;
     }
 
-    // Cast a ray to the right and count intersections
     let mut intersections = 0;
     let mut current_point = Point::new(0.0, 0.0);
     let mut start_point = Point::new(0.0, 0.0);
@@ -35,7 +33,6 @@ pub fn hit_test_path(path: &Path, point: Point) -> bool {
                 }
             }
             PathCommand::QuadTo(p1, p2) => {
-                // Approximate quadratic with line segments for hit testing
                 let steps = 8;
                 let mut prev = current_point;
                 for i in 1..=steps {
@@ -49,7 +46,6 @@ pub fn hit_test_path(path: &Path, point: Point) -> bool {
                 current_point = *p2;
             }
             PathCommand::CubicTo(p1, p2, p3) => {
-                // Approximate cubic with line segments for hit testing
                 let steps = 16;
                 let mut prev = current_point;
                 for i in 1..=steps {
@@ -73,11 +69,10 @@ pub fn hit_test_path(path: &Path, point: Point) -> bool {
         }
     }
 
-    // Odd number of intersections = inside
     intersections % 2 == 1
 }
 
-/// Hit test a rectangle
+/// Returns true if the point is inside the rectangle (inclusive edges).
 pub fn hit_test_rect(rect: Rect, point: Point) -> bool {
     point.x >= rect.x
         && point.x <= rect.x + rect.width
@@ -85,7 +80,7 @@ pub fn hit_test_rect(rect: Rect, point: Point) -> bool {
         && point.y <= rect.y + rect.height
 }
 
-/// Hit test a circle
+/// Returns true if the point is inside the circle (distance <= radius).
 pub fn hit_test_circle(center: Point, radius: f32, point: Point) -> bool {
     let dx = point.x - center.x;
     let dy = point.y - center.y;
@@ -93,21 +88,15 @@ pub fn hit_test_circle(center: Point, radius: f32, point: Point) -> bool {
     dist_squared <= radius * radius
 }
 
-/// Check if a horizontal ray from point intersects a line segment
 fn ray_intersects_line_segment(ray_origin: Point, seg_start: Point, seg_end: Point) -> bool {
-    // Ray goes to the right (positive x direction)
-    // Only consider segments that cross the ray's y coordinate
-
     let y = ray_origin.y;
     let y1 = seg_start.y;
     let y2 = seg_end.y;
 
-    // Segment must cross the ray's y coordinate
     if (y1 > y && y2 > y) || (y1 < y && y2 < y) || (y1 == y2) {
         return false;
     }
 
-    // Calculate x intersection using linear interpolation
     let t = if (y2 - y1).abs() < 0.001 {
         0.0
     } else {
@@ -115,12 +104,9 @@ fn ray_intersects_line_segment(ray_origin: Point, seg_start: Point, seg_end: Poi
     };
 
     let x_intersect = seg_start.x + t * (seg_end.x - seg_start.x);
-
-    // Intersection must be to the right of the ray origin
     x_intersect > ray_origin.x
 }
 
-/// Get bounding box of a path
 fn path_bounds(path: &Path) -> Rect {
     if path.commands.is_empty() {
         return Rect::new(0.0, 0.0, 0.0, 0.0);
@@ -145,7 +131,6 @@ fn path_bounds(path: &Path) -> Rect {
                 has_point = true;
             }
             PathCommand::QuadTo(p1, p2) => {
-                // Approximate bounds of quadratic curve
                 let steps = 8;
                 for i in 0..=steps {
                     let t = i as f32 / steps as f32;
@@ -158,7 +143,6 @@ fn path_bounds(path: &Path) -> Rect {
                 current_point = *p2;
             }
             PathCommand::CubicTo(p1, p2, p3) => {
-                // Approximate bounds of cubic curve
                 let steps = 16;
                 for i in 0..=steps {
                     let t = i as f32 / steps as f32;
@@ -170,9 +154,7 @@ fn path_bounds(path: &Path) -> Rect {
                 }
                 current_point = *p3;
             }
-            PathCommand::Close => {
-                // Already handled by previous points
-            }
+            PathCommand::Close => {}
         }
     }
 
