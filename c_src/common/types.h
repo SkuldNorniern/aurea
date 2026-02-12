@@ -2,7 +2,7 @@
 #define NATIVE_GUI_TYPES_H
 
 // Platform-specific handle types
-#ifdef __WIN32__
+#ifdef _WIN32
 typedef void* NGHandle;  // Will be HWND
 typedef void* NGMenuHandle;  // Will be HMENU
 #elif defined(__APPLE__)
