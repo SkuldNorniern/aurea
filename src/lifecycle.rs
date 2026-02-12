@@ -58,13 +58,13 @@ static LIFECYCLE_CALLBACKS: LazyLock<Mutex<HashMap<usize, LifecycleCallback>>> =
 /// Only one callback can be registered per window; registering a new callback
 /// replaces any existing one.
 pub fn register_lifecycle_callback(window: *mut c_void, callback: LifecycleCallback) {
-    let mut callbacks = LIFECYCLE_CALLBACKS.lock().unwrap();
+    let mut callbacks = crate::sync::lock(&LIFECYCLE_CALLBACKS);
     callbacks.insert(window as usize, callback);
 }
 
 /// Unregister the lifecycle callback for a specific window.
 pub fn unregister_lifecycle_callback(window: *mut c_void) {
-    let mut callbacks = LIFECYCLE_CALLBACKS.lock().unwrap();
+    let mut callbacks = crate::sync::lock(&LIFECYCLE_CALLBACKS);
     callbacks.remove(&(window as usize));
 }
 
@@ -72,7 +72,7 @@ pub fn unregister_lifecycle_callback(window: *mut c_void) {
 ///
 /// This is called from the FFI layer when a lifecycle event occurs.
 pub fn invoke_lifecycle_callback(window: *mut c_void, event: LifecycleEvent) {
-    let callbacks = LIFECYCLE_CALLBACKS.lock().unwrap();
+    let callbacks = crate::sync::lock(&LIFECYCLE_CALLBACKS);
     if let Some(callback) = callbacks.get(&(window as usize)) {
         callback(event);
     }
@@ -82,7 +82,7 @@ pub fn invoke_lifecycle_callback(window: *mut c_void, event: LifecycleEvent) {
 ///
 /// This is used for application-level events that affect the entire app.
 pub fn invoke_global_lifecycle_callback(event: LifecycleEvent) {
-    let callbacks = LIFECYCLE_CALLBACKS.lock().unwrap();
+    let callbacks = crate::sync::lock(&LIFECYCLE_CALLBACKS);
     // Invoke all registered callbacks for application-level events
     for callback in callbacks.values() {
         callback(event);

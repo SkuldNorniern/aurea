@@ -295,19 +295,19 @@ impl EventQueue {
 
     /// Push an event to the queue
     pub fn push(&self, event: WindowEvent) {
-        let mut events = self.events.lock().unwrap();
+        let mut events = crate::sync::lock(&self.events);
         events.push(event);
     }
 
     /// Pop all events from the queue
     pub fn pop_all(&self) -> Vec<WindowEvent> {
-        let mut events = self.events.lock().unwrap();
+        let mut events = crate::sync::lock(&self.events);
         std::mem::take(&mut *events)
     }
 
     /// Register an event callback
     pub fn register_callback(&self, callback: EventCallback) {
-        let mut callbacks = self.callbacks.lock().unwrap();
+        let mut callbacks = crate::sync::lock(&self.callbacks);
         callbacks.push(callback);
     }
 
@@ -324,7 +324,7 @@ impl EventQueue {
 
         // Step 2: Get callbacks (releases lock immediately to avoid holding during callback execution)
         let callbacks: Vec<EventCallback> = {
-            let callbacks = self.callbacks.lock().unwrap();
+            let callbacks = crate::sync::lock(&self.callbacks);
             callbacks.clone()
         };
 
@@ -368,11 +368,11 @@ mod tests {
         let received = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let rec = std::sync::Arc::clone(&received);
         queue.register_callback(Arc::new(move |e| {
-            rec.lock().unwrap().push(e);
+            crate::sync::lock(&rec).push(e);
         }));
         let processed = queue.process_events();
         assert_eq!(processed.len(), 1);
-        assert_eq!(received.lock().unwrap().len(), 1);
+        assert_eq!(crate::sync::lock(&received).len(), 1);
     }
 
     #[test]

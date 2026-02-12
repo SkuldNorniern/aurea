@@ -1,3 +1,5 @@
+//! Window management, events, and lifecycle integration.
+
 mod events;
 mod manager;
 
@@ -69,38 +71,42 @@ static WINDOW_EVENT_QUEUES: LazyLock<Mutex<Vec<Weak<events::EventQueue>>>> =
 static WINDOW_QUEUE_BY_HANDLE: LazyLock<Mutex<HashMap<usize, Weak<events::EventQueue>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 type WindowUpdateCallback = Arc<dyn Fn(WindowId) + Send + Sync>;
-static WINDOW_UPDATE_CALLBACKS: LazyLock<Mutex<HashMap<usize, Arc<Mutex<Vec<WindowUpdateCallback>>>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static WINDOW_UPDATE_CALLBACKS: LazyLock<
+    Mutex<HashMap<usize, Arc<Mutex<Vec<WindowUpdateCallback>>>>>,
+> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn register_event_queue(handle: *mut c_void, queue: &Arc<events::EventQueue>) {
-    let mut by_handle = WINDOW_QUEUE_BY_HANDLE.lock().unwrap();
+    let mut by_handle = crate::sync::lock(&WINDOW_QUEUE_BY_HANDLE);
     by_handle.insert(handle as usize, Arc::downgrade(queue));
 }
 
 fn unregister_event_queue(handle: *mut c_void) {
-    let mut by_handle = WINDOW_QUEUE_BY_HANDLE.lock().unwrap();
+    let mut by_handle = crate::sync::lock(&WINDOW_QUEUE_BY_HANDLE);
     by_handle.remove(&(handle as usize));
 }
 
 fn register_update_callbacks(handle: *mut c_void) {
-    let mut callbacks = WINDOW_UPDATE_CALLBACKS.lock().unwrap();
+    let mut callbacks = crate::sync::lock(&WINDOW_UPDATE_CALLBACKS);
     callbacks.insert(handle as usize, Arc::new(Mutex::new(Vec::new())));
 }
 
 fn unregister_update_callbacks(handle: *mut c_void) {
-    let mut callbacks = WINDOW_UPDATE_CALLBACKS.lock().unwrap();
+    let mut callbacks = crate::sync::lock(&WINDOW_UPDATE_CALLBACKS);
     callbacks.remove(&(handle as usize));
 }
 
 fn update_callback_list(handle: *mut c_void) -> Option<Arc<Mutex<Vec<WindowUpdateCallback>>>> {
-    let callbacks = WINDOW_UPDATE_CALLBACKS.lock().unwrap();
+    let callbacks = crate::sync::lock(&WINDOW_UPDATE_CALLBACKS);
     callbacks.get(&(handle as usize)).cloned()
 }
 
 pub(crate) fn push_window_event(handle: *mut c_void, event: WindowEvent) {
     let queue = {
-        let mut by_handle = WINDOW_QUEUE_BY_HANDLE.lock().unwrap();
-        match by_handle.get(&(handle as usize)).and_then(|weak| weak.upgrade()) {
+        let mut by_handle = crate::sync::lock(&WINDOW_QUEUE_BY_HANDLE);
+        match by_handle
+            .get(&(handle as usize))
+            .and_then(|weak| weak.upgrade())
+        {
             Some(q) => Some(q),
             None => {
                 by_handle.remove(&(handle as usize));
@@ -115,7 +121,7 @@ pub(crate) fn push_window_event(handle: *mut c_void, event: WindowEvent) {
 }
 
 pub(crate) fn process_all_window_events() {
-    let mut queues = WINDOW_EVENT_QUEUES.lock().unwrap();
+    let mut queues = crate::sync::lock(&WINDOW_EVENT_QUEUES);
     queues.retain(|weak| {
         if let Some(queue) = weak.upgrade() {
             queue.process_events();
@@ -128,11 +134,11 @@ pub(crate) fn process_all_window_events() {
 
 pub(crate) fn process_all_window_updates() {
     let callbacks = {
-        let registry = WINDOW_UPDATE_CALLBACKS.lock().unwrap();
+        let registry = crate::sync::lock(&WINDOW_UPDATE_CALLBACKS);
         registry
             .iter()
             .map(|(handle, list)| {
-                let list = list.lock().unwrap().clone();
+                let list = crate::sync::lock(list.as_ref()).clone();
                 (WindowId::from_raw(*handle), list)
             })
             .collect::<Vec<_>>()
@@ -147,7 +153,7 @@ pub(crate) fn process_all_window_updates() {
 
 fn process_window_updates(handle: *mut c_void) {
     let callbacks = update_callback_list(handle)
-        .map(|list| list.lock().unwrap().clone())
+        .map(|list| crate::sync::lock(list.as_ref()).clone())
         .unwrap_or_default();
     let window_id = WindowId::from_handle(handle);
     for callback in callbacks {
@@ -157,6 +163,7 @@ fn process_window_updates(handle: *mut c_void) {
 
 use log::info;
 
+/// A native platform window with menu, content, and event handling.
 pub struct Window {
     pub handle: *mut c_void,
     pub menu_bar: Option<MenuBar>,
@@ -170,12 +177,12 @@ pub struct Window {
 }
 
 impl Window {
-    /// Create a new window with default type (Normal)
+    /// Create a new window with default type (Normal).
     pub fn new(title: &str, width: i32, height: i32) -> AureaResult<Self> {
         Self::with_type(title, width, height, WindowType::Normal)
     }
 
-    /// Create a new window with specified type
+    /// Create a new window with the specified type.
     pub fn with_type(
         title: &str,
         width: i32,
@@ -221,7 +228,7 @@ impl Window {
         let event_queue = Arc::new(events::EventQueue::new());
 
         {
-            let mut queues = WINDOW_EVENT_QUEUES.lock().unwrap();
+            let mut queues = crate::sync::lock(&WINDOW_EVENT_QUEUES);
             queues.push(Arc::downgrade(&event_queue));
         }
 
@@ -363,7 +370,7 @@ impl Window {
         F: Fn(WindowId) + Send + Sync + 'static,
     {
         if let Some(list) = update_callback_list(self.handle) {
-            let mut callbacks = list.lock().unwrap();
+            let mut callbacks = crate::sync::lock(list.as_ref());
             callbacks.push(Arc::new(callback));
         }
     }
@@ -392,23 +399,23 @@ impl Window {
     }
 
     pub fn add_damage(&self, rect: crate::render::Rect) {
-        let mut damage = self.damage.lock().unwrap();
+        let mut damage = crate::sync::lock(&self.damage);
         damage.add(rect);
         self.schedule_frame();
     }
 
     pub fn take_damage(&self) -> Option<crate::render::Rect> {
-        let mut damage = self.damage.lock().unwrap();
+        let mut damage = crate::sync::lock(&self.damage);
         damage.take()
     }
 
     pub fn scale_factor(&self) -> f32 {
-        *self.scale_factor.lock().unwrap()
+        *crate::sync::lock(&self.scale_factor)
     }
 
     pub fn update_scale_factor(&self) {
         let new_scale = unsafe { ng_platform_get_scale_factor(self.handle) };
-        *self.scale_factor.lock().unwrap() = new_scale;
+        *crate::sync::lock(&self.scale_factor) = new_scale;
     }
 
     pub fn on_lifecycle_event<F>(&self, callback: F)
@@ -490,7 +497,7 @@ impl Window {
         let events = self.event_queue.process_events();
         for event in &events {
             if let WindowEvent::ScaleFactorChanged { scale_factor } = event {
-                *self.scale_factor.lock().unwrap() = *scale_factor;
+                *crate::sync::lock(&self.scale_factor) = *scale_factor;
             }
         }
         events

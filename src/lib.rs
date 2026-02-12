@@ -37,6 +37,11 @@
 /// - **External Integration**: wgpu surface support for hybrid rendering
 /// - **Cross-Platform**: macOS, Windows, Linux, iOS, Android
 ///
+/// # Implementation note
+///
+/// Interior mutability uses `Mutex`; `sync::lock()` is used throughout because we do not
+/// panic while holding a lock, so the mutex is never poisoned.
+///
 /// # Example
 ///
 /// ```rust
@@ -62,6 +67,7 @@
 /// ```
 pub mod capability;
 pub mod elements;
+pub(crate) mod sync;
 pub mod ffi;
 pub mod integration;
 pub mod lifecycle;
