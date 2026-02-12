@@ -2,6 +2,7 @@
 use std::process::Command;
 
 fn main() {
+    // SAFETY: Cargo always sets TARGET when running build scripts.
     let target = std::env::var("TARGET").unwrap();
     let mut build = cc::Build::new();
 
@@ -23,6 +24,7 @@ fn main() {
             .file("c_src/platform/windows/elements/button.c")
             .file("c_src/platform/windows/elements/label.c")
             .file("c_src/platform/windows/elements/box.c")
+            .file("c_src/platform/windows/elements/split_view.c")
             .file("c_src/platform/windows/elements/text_common.c")
             .file("c_src/platform/windows/elements/text_editor.c")
             .file("c_src/platform/windows/elements/text_view.c")
@@ -31,6 +33,8 @@ fn main() {
             .file("c_src/platform/windows/elements/checkbox.c")
             .file("c_src/platform/windows/elements/progress_bar.c")
             .file("c_src/platform/windows/elements/combo_box.c")
+            .file("c_src/platform/windows/elements/tab_bar.c")
+            .file("c_src/platform/windows/elements/sidebar_list.c")
             .define("_WIN32", None);
         println!("cargo:rustc-link-lib=user32");
         println!("cargo:rustc-link-lib=gdi32");
@@ -47,6 +51,7 @@ fn main() {
         println!("cargo:rerun-if-changed=c_src/platform/windows/elements/button.c");
         println!("cargo:rerun-if-changed=c_src/platform/windows/elements/label.c");
         println!("cargo:rerun-if-changed=c_src/platform/windows/elements/box.c");
+        println!("cargo:rerun-if-changed=c_src/platform/windows/elements/split_view.c");
         println!("cargo:rerun-if-changed=c_src/platform/windows/elements/text_common.c");
         println!("cargo:rerun-if-changed=c_src/platform/windows/elements/text_editor.c");
         println!("cargo:rerun-if-changed=c_src/platform/windows/elements/text_view.c");
@@ -56,6 +61,8 @@ fn main() {
         println!("cargo:rerun-if-changed=c_src/platform/windows/elements/checkbox.c");
         println!("cargo:rerun-if-changed=c_src/platform/windows/elements/progress_bar.c");
         println!("cargo:rerun-if-changed=c_src/platform/windows/elements/combo_box.c");
+        println!("cargo:rerun-if-changed=c_src/platform/windows/elements/tab_bar.c");
+        println!("cargo:rerun-if-changed=c_src/platform/windows/elements/sidebar_list.c");
     }
 
     // iOS targets (including simulator) - check target string, not cfg
@@ -128,6 +135,8 @@ fn main() {
             .file("c_src/platform/macos/elements/checkbox.m")
             .file("c_src/platform/macos/elements/progress_bar.m")
             .file("c_src/platform/macos/elements/combo_box.m")
+            .file("c_src/platform/macos/elements/tab_bar.m")
+            .file("c_src/platform/macos/elements/sidebar_list.m")
             .file("c_src/platform/macos/elements/split_view.m")
             .define("__APPLE__", None)
             .flag("-x")
@@ -153,6 +162,8 @@ fn main() {
         println!("cargo:rerun-if-changed=c_src/platform/macos/elements/checkbox.m");
         println!("cargo:rerun-if-changed=c_src/platform/macos/elements/progress_bar.m");
         println!("cargo:rerun-if-changed=c_src/platform/macos/elements/combo_box.m");
+        println!("cargo:rerun-if-changed=c_src/platform/macos/elements/tab_bar.m");
+        println!("cargo:rerun-if-changed=c_src/platform/macos/elements/sidebar_list.m");
         println!("cargo:rerun-if-changed=c_src/platform/macos/elements/split_view.m");
         println!("cargo:rerun-if-changed=c_src/platform/macos/elements.h");
     }
@@ -205,6 +216,7 @@ fn main() {
             .file("c_src/platform/linux/elements/button.c")
             .file("c_src/platform/linux/elements/label.c")
             .file("c_src/platform/linux/elements/box.c")
+            .file("c_src/platform/linux/elements/split_view.c")
             .file("c_src/platform/linux/elements/text_common.c")
             .file("c_src/platform/linux/elements/text_editor.c")
             .file("c_src/platform/linux/elements/text_view.c")
@@ -213,7 +225,9 @@ fn main() {
             .file("c_src/platform/linux/elements/slider.c")
             .file("c_src/platform/linux/elements/checkbox.c")
             .file("c_src/platform/linux/elements/progress_bar.c")
-            .file("c_src/platform/linux/elements/combo_box.c");
+            .file("c_src/platform/linux/elements/combo_box.c")
+            .file("c_src/platform/linux/elements/tab_bar.c")
+            .file("c_src/platform/linux/elements/sidebar_list.c");
 
         println!("cargo:rerun-if-changed=c_src/platform/linux.c");
         println!("cargo:rerun-if-changed=c_src/platform/linux/utils.c");
@@ -222,6 +236,7 @@ fn main() {
         println!("cargo:rerun-if-changed=c_src/platform/linux/elements/button.c");
         println!("cargo:rerun-if-changed=c_src/platform/linux/elements/label.c");
         println!("cargo:rerun-if-changed=c_src/platform/linux/elements/box.c");
+        println!("cargo:rerun-if-changed=c_src/platform/linux/elements/split_view.c");
         println!("cargo:rerun-if-changed=c_src/platform/linux/elements/text_common.c");
         println!("cargo:rerun-if-changed=c_src/platform/linux/elements/text_editor.c");
         println!("cargo:rerun-if-changed=c_src/platform/linux/elements/text_view.c");
@@ -231,6 +246,8 @@ fn main() {
         println!("cargo:rerun-if-changed=c_src/platform/linux/elements/checkbox.c");
         println!("cargo:rerun-if-changed=c_src/platform/linux/elements/progress_bar.c");
         println!("cargo:rerun-if-changed=c_src/platform/linux/elements/combo_box.c");
+        println!("cargo:rerun-if-changed=c_src/platform/linux/elements/tab_bar.c");
+        println!("cargo:rerun-if-changed=c_src/platform/linux/elements/sidebar_list.c");
     }
 
     // Compile the sources
@@ -248,8 +265,7 @@ fn main() {
     }
 
     // Watch for changes in all C source files
-    println!("cargo:rerun-if-changed=c_src/native_gui.h");
-    println!("cargo:rerun-if-changed=c_src/native_gui.c");
+    // native_gui.c/h marked .old: unused (Rust calls ng_platform_* directly)
     println!("cargo:rerun-if-changed=c_src/common/types.h");
     println!("cargo:rerun-if-changed=c_src/common/errors.h");
     // Windows files
