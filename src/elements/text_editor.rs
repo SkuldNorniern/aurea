@@ -26,7 +26,7 @@ impl TextEditor {
     {
         static TEXT_ID: LazyLock<Mutex<u32>> = LazyLock::new(|| Mutex::new(1));
         let id = {
-            let mut id_guard = TEXT_ID.lock().unwrap();
+            let mut id_guard = crate::sync::lock(&TEXT_ID);
             *id_guard += 1;
             *id_guard - 1
         };
@@ -37,7 +37,7 @@ impl TextEditor {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        let mut callbacks = TEXT_CALLBACKS.lock().unwrap();
+        let mut callbacks = crate::sync::lock(&TEXT_CALLBACKS);
         callbacks.insert(id, Box::new(callback));
 
         Ok(Self { handle, _id: id })
@@ -88,7 +88,7 @@ impl Element for TextEditor {
 }
 
 pub(crate) fn invoke_text_callback(id: u32, content: String) {
-    let callbacks = TEXT_CALLBACKS.lock().unwrap();
+    let callbacks = crate::sync::lock(&TEXT_CALLBACKS);
     if let Some(callback) = callbacks.get(&id) {
         callback(content);
     }

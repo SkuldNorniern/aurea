@@ -65,6 +65,7 @@ impl AnimationState {
         self.enabled
     }
 
+    #[allow(dead_code)]
     fn is_enabled(&self) -> bool {
         self.enabled
     }
@@ -101,7 +102,7 @@ impl ProgressBar {
         let animation_state = self.animation_state.clone();
 
         let callback: Arc<dyn Fn() -> AureaResult<()> + Send + Sync> = Arc::new(move || {
-            let mut state = animation_state.lock().unwrap();
+            let mut state = crate::sync::lock(&animation_state);
 
             // Update animation state
             if let Some(new_value) = state.update() {
@@ -127,7 +128,7 @@ impl ProgressBar {
     pub fn set_value(&mut self, value: f64) -> AureaResult<()> {
         // Stop animation when manually setting value
         {
-            let mut state = self.animation_state.lock().unwrap();
+            let mut state = crate::sync::lock(&self.animation_state);
             state.enabled = false;
         }
 
@@ -142,7 +143,7 @@ impl ProgressBar {
 
     /// Start automatic animation (oscillates between 0 and 1)
     pub fn start_animation(&self) -> AureaResult<()> {
-        let mut state = self.animation_state.lock().unwrap();
+        let mut state = crate::sync::lock(&self.animation_state);
         state.enabled = true;
         state.current_value = 0.0;
         state.target_value = 1.0;
@@ -162,14 +163,14 @@ impl ProgressBar {
 
     /// Stop automatic animation
     pub fn stop_animation(&self) -> AureaResult<()> {
-        let mut state = self.animation_state.lock().unwrap();
+        let mut state = crate::sync::lock(&self.animation_state);
         state.enabled = false;
         Ok(())
     }
 
     /// Set animation speed (progress change per frame, typically 0.01-0.05)
     pub fn set_animation_speed(&self, speed: f64) -> AureaResult<()> {
-        let mut state = self.animation_state.lock().unwrap();
+        let mut state = crate::sync::lock(&self.animation_state);
         state.speed = speed.max(0.001).min(0.1); // Clamp to reasonable range
         Ok(())
     }
@@ -177,7 +178,7 @@ impl ProgressBar {
     pub fn set_indeterminate(&mut self, indeterminate: bool) -> AureaResult<()> {
         // Stop animation when setting indeterminate mode
         {
-            let mut state = self.animation_state.lock().unwrap();
+            let mut state = crate::sync::lock(&self.animation_state);
             state.enabled = false;
         }
 
