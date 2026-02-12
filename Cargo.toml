@@ -2,11 +2,16 @@
 name = "aurea"
 version = "0.1.0"
 edition = "2024"
+description = "Native GUI toolkit with cross-platform windowing, native widgets, and framework-owned CPU rasterizer"
+license = "Apache-2.0"
+readme = "README.md"
 
 [dependencies]
 
 libc = "0.2"
 log = "0.4.29"
+fontdb = "0.16"
+fontdue = "0.9"
 
 [features]
 default = []
