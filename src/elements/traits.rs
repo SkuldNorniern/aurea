@@ -2,7 +2,9 @@ use crate::AureaResult;
 use crate::render::Rect;
 use std::os::raw::c_void;
 
+/// Base trait for all native GUI elements.
 pub trait Element {
+    /// Return the native handle for this element.
     fn handle(&self) -> *mut c_void;
 
     fn invalidate(&self, rect: Option<Rect>) {
@@ -30,6 +32,7 @@ pub trait Element {
     fn request_layout(&self) {}
 }
 
+/// A container element that can hold child elements.
 pub trait Container: Element {
     fn add<E: Element>(&mut self, element: E) -> AureaResult<()> {
         self.add_weighted(element, 0.0)
@@ -38,6 +41,7 @@ pub trait Container: Element {
     fn add_weighted<E: Element>(&mut self, element: E, weight: f32) -> AureaResult<()>;
 }
 
+/// Common element properties used during construction.
 #[derive(Debug, Clone)]
 pub struct ElementProps<'a> {
     pub title: &'a str,

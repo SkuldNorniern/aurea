@@ -2,18 +2,21 @@ use super::traits::{Container, Element};
 use crate::{AureaError, AureaResult, ffi::*};
 use std::os::raw::c_void;
 
+/// Layout orientation for a Box container.
 #[derive(Debug, Clone, Copy)]
 pub enum BoxOrientation {
     Horizontal,
     Vertical,
 }
 
+/// A native container that arranges children in a row or column.
 pub struct Box {
     handle: *mut c_void,
     _orientation: BoxOrientation,
 }
 
 impl Box {
+    /// Create a new box container with the given orientation.
     pub fn new(orientation: BoxOrientation) -> AureaResult<Self> {
         let is_vertical = match orientation {
             BoxOrientation::Vertical => 1,

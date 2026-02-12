@@ -26,7 +26,7 @@ impl TextView {
     {
         static TEXTVIEW_ID: LazyLock<Mutex<u32>> = LazyLock::new(|| Mutex::new(1));
         let id = {
-            let mut id_guard = TEXTVIEW_ID.lock().unwrap();
+            let mut id_guard = crate::sync::lock(&TEXTVIEW_ID);
             *id_guard += 1;
             *id_guard - 1
         };
@@ -37,7 +37,7 @@ impl TextView {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        let mut callbacks = TEXTVIEW_CALLBACKS.lock().unwrap();
+        let mut callbacks = crate::sync::lock(&TEXTVIEW_CALLBACKS);
         callbacks.insert(id, Box::new(callback));
 
         Ok(Self { handle, _id: id })
@@ -88,7 +88,7 @@ impl Element for TextView {
 }
 
 pub(crate) fn invoke_textview_callback(id: u32, content: String) {
-    let callbacks = TEXTVIEW_CALLBACKS.lock().unwrap();
+    let callbacks = crate::sync::lock(&TEXTVIEW_CALLBACKS);
     if let Some(callback) = callbacks.get(&id) {
         callback(content);
     }

@@ -1,6 +1,10 @@
+//! Native UI elements (widgets) and container traits.
+
 mod button;
 mod checkbox;
 mod combo_box;
+mod sidebar_list;
+mod tab_bar;
 mod container;
 mod image_view;
 mod label;
@@ -14,6 +18,8 @@ mod traits;
 pub use button::Button;
 pub use checkbox::Checkbox;
 pub use combo_box::ComboBox;
+pub use sidebar_list::SidebarList;
+pub use tab_bar::TabBar;
 pub use container::{Box, BoxOrientation};
 pub use image_view::{ImageScaling, ImageView};
 pub use label::Label;
@@ -25,5 +31,7 @@ pub use text_view::TextView;
 pub use traits::{Container, Element, ElementProps};
 
 pub(crate) use button::invoke_button_callback;
+pub(crate) use sidebar_list::invoke_sidebar_list_selected;
+pub(crate) use tab_bar::{invoke_tab_bar_detach, invoke_tab_bar_selected};
 pub(crate) use text_editor::invoke_text_callback;
 pub(crate) use text_view::invoke_textview_callback;
