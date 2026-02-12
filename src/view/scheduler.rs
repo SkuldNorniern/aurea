@@ -35,14 +35,14 @@ impl FrameScheduler {
     /// The callback will be called when a frame needs to be drawn
     /// Also used for other elements that need frame-based updates (e.g., animated progress bars)
     pub(crate) fn register_canvas(handle: *mut c_void, callback: CanvasRedrawCallback) {
-        let mut registry = CANVAS_REGISTRY.lock().unwrap();
+        let mut registry = crate::sync::lock(&CANVAS_REGISTRY);
         registry.insert(handle as usize, callback);
     }
 
     /// Unregister a canvas (called when canvas is dropped)
     /// Also used to unregister other frame-based update callbacks
     pub(crate) fn unregister_canvas(handle: *mut c_void) {
-        let mut registry = CANVAS_REGISTRY.lock().unwrap();
+        let mut registry = crate::sync::lock(&CANVAS_REGISTRY);
         registry.remove(&(handle as usize));
     }
 
@@ -51,7 +51,7 @@ impl FrameScheduler {
     where
         F: Fn() + Send + Sync + 'static,
     {
-        let mut callbacks = FRAME_CALLBACKS.lock().unwrap();
+        let mut callbacks = crate::sync::lock(&FRAME_CALLBACKS);
         callbacks.push(Arc::new(callback));
     }
 
@@ -64,8 +64,8 @@ impl FrameScheduler {
 
         // Get all callbacks (clone Arc to avoid holding lock during execution)
         let (canvas_callbacks, global_callbacks) = {
-            let registry = CANVAS_REGISTRY.lock().unwrap();
-            let global = FRAME_CALLBACKS.lock().unwrap();
+            let registry = crate::sync::lock(&CANVAS_REGISTRY);
+            let global = crate::sync::lock(&FRAME_CALLBACKS);
             (
                 registry.values().cloned().collect::<Vec<_>>(),
                 global.clone(),

@@ -25,31 +25,31 @@ impl WindowManager {
 
     /// Register a window with the manager
     pub fn register(&self, window: Arc<Window>) {
-        let mut windows = self.windows.lock().unwrap();
+        let mut windows = crate::sync::lock(&self.windows);
         windows.push(window);
     }
 
     /// Unregister a window from the manager
     pub fn unregister(&self, window_handle: *mut std::os::raw::c_void) {
-        let mut windows = self.windows.lock().unwrap();
+        let mut windows = crate::sync::lock(&self.windows);
         windows.retain(|w| w.handle != window_handle);
     }
 
     /// Get all registered windows
     pub fn windows(&self) -> Vec<Arc<Window>> {
-        let windows = self.windows.lock().unwrap();
+        let windows = crate::sync::lock(&self.windows);
         windows.clone()
     }
 
     /// Get the number of registered windows
     pub fn count(&self) -> usize {
-        let windows = self.windows.lock().unwrap();
+        let windows = crate::sync::lock(&self.windows);
         windows.len()
     }
 
     /// Find a window by handle
     pub fn find(&self, handle: *mut std::os::raw::c_void) -> Option<Arc<Window>> {
-        let windows = self.windows.lock().unwrap();
+        let windows = crate::sync::lock(&self.windows);
         windows.iter().find(|w| w.handle == handle).cloned()
     }
 
