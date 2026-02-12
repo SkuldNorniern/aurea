@@ -27,7 +27,7 @@ impl Button {
     {
         static BUTTON_ID: LazyLock<Mutex<u32>> = LazyLock::new(|| Mutex::new(1));
         let id = {
-            let mut id_guard = BUTTON_ID.lock().unwrap();
+            let mut id_guard = crate::sync::lock(&BUTTON_ID);
             *id_guard += 1;
             *id_guard - 1
         };
@@ -39,7 +39,7 @@ impl Button {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        let mut callbacks = BUTTON_CALLBACKS.lock().unwrap();
+        let mut callbacks = crate::sync::lock(&BUTTON_CALLBACKS);
         callbacks.insert(id, Box::new(callback));
 
         Ok(Self {
@@ -51,7 +51,7 @@ impl Button {
 }
 
 pub(crate) fn invoke_button_callback(id: u32) {
-    let callbacks = BUTTON_CALLBACKS.lock().unwrap();
+    let callbacks = crate::sync::lock(&BUTTON_CALLBACKS);
     if let Some(callback) = callbacks.get(&id) {
         callback();
     }

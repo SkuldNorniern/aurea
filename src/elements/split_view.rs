@@ -2,18 +2,21 @@ use super::traits::{Container, Element};
 use crate::{AureaError, AureaResult, ffi::*};
 use std::os::raw::c_void;
 
+/// Layout orientation for a split view divider.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SplitOrientation {
     Horizontal,
     Vertical,
 }
 
+/// A native split view container with a draggable divider.
 pub struct SplitView {
     handle: *mut c_void,
     _orientation: SplitOrientation,
 }
 
 impl SplitView {
+    /// Create a new split view with the given orientation.
     pub fn new(orientation: SplitOrientation) -> AureaResult<Self> {
         let is_vertical = match orientation {
             SplitOrientation::Vertical => 1,
@@ -32,6 +35,7 @@ impl SplitView {
         })
     }
 
+    /// Set the divider position for the given split index.
     pub fn set_divider_position(&self, index: i32, position: f32) -> AureaResult<()> {
         let result =
             unsafe { ng_platform_split_view_set_divider_position(self.handle, index, position) };
