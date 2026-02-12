@@ -412,4 +412,57 @@ int ng_platform_combo_box_set_enabled(NGHandle combo_box, int enabled) {
 
 void ng_platform_combo_box_invalidate(NGHandle combo_box) {
     ng_macos_combo_box_invalidate(combo_box);
+}
+
+// TabBar functions
+NGHandle ng_platform_create_tab_bar(unsigned int id) {
+    return ng_macos_create_tab_bar(id);
+}
+
+int ng_platform_tab_bar_add_tab(NGHandle tab_bar, const char* title) {
+    return ng_macos_tab_bar_add_tab(tab_bar, title);
+}
+
+int ng_platform_tab_bar_remove_tab(NGHandle tab_bar, int index) {
+    return ng_macos_tab_bar_remove_tab(tab_bar, index);
+}
+
+int ng_platform_tab_bar_set_selected(NGHandle tab_bar, int index) {
+    return ng_macos_tab_bar_set_selected(tab_bar, index);
+}
+
+int ng_platform_tab_bar_get_selected(NGHandle tab_bar) {
+    return ng_macos_tab_bar_get_selected(tab_bar);
+}
+
+void ng_platform_tab_bar_invalidate(NGHandle tab_bar) {
+    ng_macos_tab_bar_invalidate(tab_bar);
+}
+
+NGHandle ng_platform_create_sidebar_list(unsigned int id) {
+    return ng_macos_create_sidebar_list(id);
+}
+
+int ng_platform_sidebar_list_add_section(NGHandle sidebar, const char* title) {
+    return ng_macos_sidebar_list_add_section(sidebar, title);
+}
+
+int ng_platform_sidebar_list_add_item(NGHandle sidebar, const char* title, int indent) {
+    return ng_macos_sidebar_list_add_item(sidebar, title, indent);
+}
+
+int ng_platform_sidebar_list_set_selected(NGHandle sidebar, int index) {
+    return ng_macos_sidebar_list_set_selected(sidebar, index);
+}
+
+int ng_platform_sidebar_list_get_selected(NGHandle sidebar) {
+    return ng_macos_sidebar_list_get_selected(sidebar);
+}
+
+int ng_platform_sidebar_list_clear(NGHandle sidebar) {
+    return ng_macos_sidebar_list_clear(sidebar);
+}
+
+void ng_platform_sidebar_list_invalidate(NGHandle sidebar) {
+    ng_macos_sidebar_list_invalidate(sidebar);
 } 

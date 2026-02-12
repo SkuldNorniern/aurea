@@ -1,7 +1,7 @@
 #ifndef NATIVE_GUI_MACOS_ELEMENTS_H
 #define NATIVE_GUI_MACOS_ELEMENTS_H
 
-#include "../../common/types.h"
+#include "common/types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -72,6 +72,23 @@ int ng_macos_combo_box_get_selected(NGHandle combo_box);
 int ng_macos_combo_box_clear(NGHandle combo_box);
 int ng_macos_combo_box_set_enabled(NGHandle combo_box, int enabled);
 void ng_macos_combo_box_invalidate(NGHandle combo_box);
+
+// TabBar functions
+NGHandle ng_macos_create_tab_bar(unsigned int id);
+int ng_macos_tab_bar_add_tab(NGHandle tab_bar, const char* title);
+int ng_macos_tab_bar_remove_tab(NGHandle tab_bar, int index);
+int ng_macos_tab_bar_set_selected(NGHandle tab_bar, int index);
+int ng_macos_tab_bar_get_selected(NGHandle tab_bar);
+void ng_macos_tab_bar_invalidate(NGHandle tab_bar);
+
+// SidebarList functions
+NGHandle ng_macos_create_sidebar_list(unsigned int id);
+int ng_macos_sidebar_list_add_section(NGHandle sidebar, const char* title);
+int ng_macos_sidebar_list_add_item(NGHandle sidebar, const char* title, int indent);
+int ng_macos_sidebar_list_set_selected(NGHandle sidebar, int index);
+int ng_macos_sidebar_list_get_selected(NGHandle sidebar);
+int ng_macos_sidebar_list_clear(NGHandle sidebar);
+void ng_macos_sidebar_list_invalidate(NGHandle sidebar);
 
 #ifdef __cplusplus
 }

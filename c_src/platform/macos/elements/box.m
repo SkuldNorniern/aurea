@@ -34,12 +34,13 @@ int ng_macos_box_add(NGHandle box, NGHandle element, float weight) {
         [view.bottomAnchor constraintEqualToAnchor:stack.bottomAnchor constant:-stack.edgeInsets.bottom].active = YES;
     }
     
-    // If weight > 0, we want this view to expand along the orientation to fill available space
+    /* Weight > 0: expand to fill. Use low hugging so the view can grow; keep compression
+     * resistance high so views with intrinsic size (e.g. canvas) are not shrunk below it. */
     if (weight > 0.0f) {
         [view setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
         [view setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationVertical];
-        [view setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
-        [view setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationVertical];
+        [view setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [view setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationVertical];
     } else {
         // Fixed/natural size elements have higher hugging priority
         [view setContentHuggingPriority:NSLayoutPriorityDefaultHigh forOrientation:NSLayoutConstraintOrientationHorizontal];
