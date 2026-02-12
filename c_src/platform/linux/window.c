@@ -88,6 +88,34 @@ NGHandle ng_linux_create_window(const char* title, int width, int height) {
     return (NGHandle)window;
 }
 
+NGHandle ng_linux_create_window_with_type(const char* title, int width, int height, int window_type) {
+    NGHandle handle = ng_linux_create_window(title, width, height);
+    if (!handle) return NULL;
+
+    GtkWidget* widget = (GtkWidget*)handle;
+    GdkWindowTypeHint hint = GDK_WINDOW_TYPE_HINT_NORMAL;
+    switch (window_type) {
+        case 1: // Popup
+            hint = GDK_WINDOW_TYPE_HINT_POPUP_MENU;
+            break;
+        case 2: // Tool
+            hint = GDK_WINDOW_TYPE_HINT_TOOLBAR;
+            break;
+        case 3: // Utility
+            hint = GDK_WINDOW_TYPE_HINT_UTILITY;
+            break;
+        case 4: // Sheet
+        case 5: // Dialog
+            hint = GDK_WINDOW_TYPE_HINT_DIALOG;
+            break;
+        default:
+            hint = GDK_WINDOW_TYPE_HINT_NORMAL;
+            break;
+    }
+    gtk_window_set_type_hint(GTK_WINDOW(widget), hint);
+    return handle;
+}
+
 float ng_linux_get_scale_factor(NGHandle window) {
     if (!window) return 1.0f;
     GtkWindow* gtkWindow = (GtkWindow*)window;
@@ -412,6 +440,21 @@ void ng_linux_destroy_window(NGHandle handle) {
     gtk_widget_destroy((GtkWidget*)handle);
 }
 
+void ng_linux_window_show(NGHandle window) {
+    if (!window) return;
+    gtk_widget_show(GTK_WIDGET(window));
+}
+
+void ng_linux_window_hide(NGHandle window) {
+    if (!window) return;
+    gtk_widget_hide(GTK_WIDGET(window));
+}
+
+int ng_linux_window_is_visible(NGHandle window) {
+    if (!window) return 0;
+    return gtk_widget_get_visible(GTK_WIDGET(window)) ? 1 : 0;
+}
+
 int ng_linux_set_window_content(NGHandle window_handle, NGHandle content_handle) {
     if (!window_handle || !content_handle) return NG_ERROR_INVALID_HANDLE;
     
@@ -482,6 +525,18 @@ void ng_linux_window_get_size(NGHandle window, int* width, int* height) {
     if (!window || !width || !height) return;
     GtkWidget* widget = (GtkWidget*)window;
     gtk_window_get_size(GTK_WINDOW(widget), width, height);
+}
+
+void ng_linux_window_set_position(NGHandle window, int x, int y) {
+    if (!window) return;
+    GtkWidget* widget = (GtkWidget*)window;
+    gtk_window_move(GTK_WINDOW(widget), x, y);
+}
+
+void ng_linux_window_get_position(NGHandle window, int* x, int* y) {
+    if (!window || !x || !y) return;
+    GtkWidget* widget = (GtkWidget*)window;
+    gtk_window_get_position(GTK_WINDOW(widget), x, y);
 }
 
 void ng_linux_window_request_close(NGHandle window) {

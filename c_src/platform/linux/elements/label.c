@@ -1,5 +1,5 @@
 #include "../elements.h"
-#include "../../common/errors.h"
+#include "common/errors.h"
 #include <gtk/gtk.h>
 
 NGHandle ng_linux_create_label(const char* text) {

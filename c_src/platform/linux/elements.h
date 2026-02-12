@@ -15,6 +15,9 @@ void ng_linux_label_invalidate(NGHandle label);
 NGHandle ng_linux_create_box(int is_vertical);
 void ng_linux_box_invalidate(NGHandle box);
 int ng_linux_box_add(NGHandle box, NGHandle element);
+NGHandle ng_linux_create_split_view(int is_vertical);
+int ng_linux_split_view_add(NGHandle split_handle, NGHandle element);
+int ng_linux_split_view_set_divider_position(NGHandle split_handle, int index, float position);
 NGHandle ng_linux_create_text_editor(unsigned int id);
 void ng_linux_text_editor_invalidate(NGHandle text_editor);
 NGHandle ng_linux_create_text_view(int is_editable, unsigned int id);
@@ -25,6 +28,8 @@ void ng_linux_free_text_content(char* content);
 NGHandle ng_linux_create_canvas(int width, int height);
 void ng_linux_canvas_invalidate(NGHandle canvas);
 void ng_linux_canvas_invalidate_rect(NGHandle canvas, float x, float y, float width, float height);
+void ng_linux_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size, unsigned int width, unsigned int height);
+void ng_linux_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int* height);
 NGHandle ng_linux_canvas_get_window(NGHandle canvas);
 NGHandle ng_linux_canvas_get_native_handle(NGHandle canvas);
 int ng_linux_canvas_get_xcb_handle(NGHandle canvas, uint32_t* xcb_window, void** xcb_connection);
@@ -66,6 +71,23 @@ int ng_linux_combo_box_get_selected(NGHandle combo_box);
 int ng_linux_combo_box_clear(NGHandle combo_box);
 int ng_linux_combo_box_set_enabled(NGHandle combo_box, int enabled);
 void ng_linux_combo_box_invalidate(NGHandle combo_box);
+
+// TabBar functions (stub: button row, no drag-to-detach)
+NGHandle ng_linux_create_tab_bar(unsigned int id);
+int ng_linux_tab_bar_add_tab(NGHandle tab_bar, const char* title);
+int ng_linux_tab_bar_remove_tab(NGHandle tab_bar, int index);
+int ng_linux_tab_bar_set_selected(NGHandle tab_bar, int index);
+int ng_linux_tab_bar_get_selected(NGHandle tab_bar);
+void ng_linux_tab_bar_invalidate(NGHandle tab_bar);
+
+// SidebarList functions
+NGHandle ng_linux_create_sidebar_list(unsigned int id);
+int ng_linux_sidebar_list_add_section(NGHandle sidebar, const char* title);
+int ng_linux_sidebar_list_add_item(NGHandle sidebar, const char* title, int indent);
+int ng_linux_sidebar_list_set_selected(NGHandle sidebar, int index);
+int ng_linux_sidebar_list_get_selected(NGHandle sidebar);
+int ng_linux_sidebar_list_clear(NGHandle sidebar);
+void ng_linux_sidebar_list_invalidate(NGHandle sidebar);
 
 #ifdef __cplusplus
 }

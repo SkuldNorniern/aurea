@@ -1,5 +1,5 @@
 #include "../elements.h"
-#include "../../common/errors.h"
+#include "common/errors.h"
 #include <gtk/gtk.h>
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
@@ -8,10 +8,58 @@
 #include <gdk/gdkwayland.h>
 #endif
 
+typedef struct {
+    const unsigned char* buffer;
+    unsigned int width;
+    unsigned int height;
+} CanvasData;
+
+static gboolean ng_linux_canvas_draw(GtkWidget* widget, cairo_t* cr, gpointer user_data) {
+    CanvasData* data = (CanvasData*)user_data;
+    GtkAllocation allocation;
+    gtk_widget_get_allocation(widget, &allocation);
+
+    if (data && data->buffer && data->width > 0 && data->height > 0) {
+        cairo_surface_t* surface = cairo_image_surface_create_for_data(
+            (unsigned char*)data->buffer,
+            CAIRO_FORMAT_ARGB32,
+            (int)data->width,
+            (int)data->height,
+            (int)data->width * 4);
+
+        if (cairo_surface_status(surface) == CAIRO_STATUS_SUCCESS) {
+            double scale_x = 1.0;
+            double scale_y = 1.0;
+            if (allocation.width > 0 && allocation.height > 0) {
+                scale_x = (double)allocation.width / (double)data->width;
+                scale_y = (double)allocation.height / (double)data->height;
+            }
+
+            cairo_save(cr);
+            cairo_scale(cr, scale_x, scale_y);
+            cairo_set_source_surface(cr, surface, 0, 0);
+            cairo_paint(cr);
+            cairo_restore(cr);
+        }
+
+        cairo_surface_destroy(surface);
+        return FALSE;
+    }
+
+    cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+    cairo_rectangle(cr, 0, 0, allocation.width, allocation.height);
+    cairo_fill(cr);
+    return FALSE;
+}
+
 NGHandle ng_linux_create_canvas(int width, int height) {
     GtkWidget* drawing_area = gtk_drawing_area_new();
     gtk_widget_set_size_request(drawing_area, width, height);
     gtk_widget_show(drawing_area);
+
+    CanvasData* data = g_new0(CanvasData, 1);
+    g_object_set_data_full(G_OBJECT(drawing_area), "aurea-canvas-data", data, g_free);
+    g_signal_connect(G_OBJECT(drawing_area), "draw", G_CALLBACK(ng_linux_canvas_draw), data);
     
     return (NGHandle)drawing_area;
 }
@@ -32,6 +80,30 @@ void ng_linux_canvas_invalidate_rect(NGHandle canvas, float x, float y, float wi
     });
     gtk_widget_queue_draw_region(widget, region);
     cairo_region_destroy(region);
+}
+
+void ng_linux_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size, unsigned int width, unsigned int height) {
+    (void)size;
+    if (!canvas || !buffer || width == 0 || height == 0) return;
+
+    GtkWidget* widget = (GtkWidget*)canvas;
+    CanvasData* data = (CanvasData*)g_object_get_data(G_OBJECT(widget), "aurea-canvas-data");
+    if (!data) return;
+
+    data->buffer = buffer;
+    data->width = width;
+    data->height = height;
+
+    gtk_widget_queue_draw(widget);
+}
+
+void ng_linux_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int* height) {
+    if (!canvas || !width || !height) return;
+    GtkWidget* widget = (GtkWidget*)canvas;
+    GtkAllocation allocation;
+    gtk_widget_get_allocation(widget, &allocation);
+    *width = (unsigned int)allocation.width;
+    *height = (unsigned int)allocation.height;
 }
 
 NGHandle ng_linux_canvas_get_window(NGHandle canvas) {
