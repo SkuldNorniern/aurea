@@ -1,5 +1,5 @@
 #include "../elements.h"
-#include "../../common/errors.h"
+#include "common/errors.h"
 #include <gtk/gtk.h>
 
 extern void ng_invoke_textview_callback(unsigned int id, const char* content);

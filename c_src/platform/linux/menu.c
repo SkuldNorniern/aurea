@@ -1,6 +1,6 @@
 #include "menu.h"
 #include "window.h"
-#include "../common/errors.h"
+#include "common/errors.h"
 #include <gtk/gtk.h>
 
 extern void ng_invoke_menu_callback(unsigned int id);
@@ -60,3 +60,10 @@ int ng_linux_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id
     return NG_SUCCESS;
 }
 
+int ng_linux_add_menu_separator(NGMenuHandle menu) {
+    if (!menu) return NG_ERROR_INVALID_HANDLE;
+    GtkWidget* separator = gtk_separator_menu_item_new();
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), separator);
+    gtk_widget_show(separator);
+    return NG_SUCCESS;
+}

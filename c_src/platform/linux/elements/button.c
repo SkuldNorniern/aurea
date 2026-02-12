@@ -1,5 +1,5 @@
 #include "../elements.h"
-#include "../../common/errors.h"
+#include "common/errors.h"
 #include <gtk/gtk.h>
 
 extern void ng_invoke_button_callback(unsigned int id);
