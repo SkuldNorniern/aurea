@@ -1,7 +1,7 @@
 #ifndef NATIVE_GUI_MACOS_MENU_H
 #define NATIVE_GUI_MACOS_MENU_H
 
-#include "../../common/types.h"
+#include "common/types.h"
 
 #ifdef __OBJC__
 @class NSMenu;
