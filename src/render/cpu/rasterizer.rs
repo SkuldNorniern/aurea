@@ -7,8 +7,8 @@ use super::super::display_list::{DisplayItem, DisplayList};
 use super::super::renderer::{DrawingContext, Renderer};
 use super::super::surface::{Surface, SurfaceInfo};
 use super::super::types::{
-    BlendMode, Color, GradientStop, Image, LinearGradient, Paint, PaintStyle, Point, RadialGradient,
-    Rect,
+    BlendMode, Color, GradientStop, Image, LinearGradient, Paint, PaintStyle, Point,
+    RadialGradient, Rect,
 };
 use super::blend::blend_pixel;
 use super::cache::BoundedCache;
@@ -21,6 +21,7 @@ use crate::AureaResult;
 /// Rasterizer that draws the display list into a tile grid for partial redraw.
 pub struct CpuRasterizer {
     tile_store: TileStore,
+    #[allow(dead_code)]
     cache: BoundedCache<Vec<u32>>,
     width: u32,
     height: u32,
@@ -113,13 +114,7 @@ impl CpuRasterizer {
                 tile.clear(rgba);
             }
             super::super::renderer::DrawCommand::DrawRect(rect, paint) => {
-                Self::draw_rect_to_tile_static(
-                    rect,
-                    paint,
-                    item.blend_mode,
-                    tile,
-                    tile_bounds,
-                );
+                Self::draw_rect_to_tile_static(rect, paint, item.blend_mode, tile, tile_bounds);
             }
             super::super::renderer::DrawCommand::DrawCircle(center, radius, paint) => {
                 Self::draw_circle_to_tile_static(
@@ -132,13 +127,7 @@ impl CpuRasterizer {
                 );
             }
             super::super::renderer::DrawCommand::DrawPath(path, paint) => {
-                Self::draw_path_to_tile_static(
-                    path,
-                    paint,
-                    item.blend_mode,
-                    tile,
-                    tile_bounds,
-                )?;
+                Self::draw_path_to_tile_static(path, paint, item.blend_mode, tile, tile_bounds)?;
             }
             super::super::renderer::DrawCommand::DrawImageRect(image, dest) => {
                 Self::draw_image_to_tile_static(
@@ -184,6 +173,7 @@ impl CpuRasterizer {
     }
 
     /// Renders one display item into a tile (instance wrapper around the static helper).
+    #[allow(dead_code)]
     fn render_item_to_tile(
         &self,
         item: &DisplayItem,
@@ -193,13 +183,7 @@ impl CpuRasterizer {
         Self::render_item_to_tile_static(item, tile, tile_bounds)
     }
 
-    fn set_pixel_blend(
-        tile: &mut super::tile::Tile,
-        lx: u32,
-        ly: u32,
-        src: u32,
-        mode: BlendMode,
-    ) {
+    fn set_pixel_blend(tile: &mut super::tile::Tile, lx: u32, ly: u32, src: u32, mode: BlendMode) {
         if mode == BlendMode::Normal {
             tile.set_pixel(lx, ly, src);
         } else {
@@ -530,10 +514,7 @@ impl CpuRasterizer {
                 let g = (c0.g as f32 + (c1.g as f32 - c0.g as f32) * s).round() as u8;
                 let b = (c0.b as f32 + (c1.b as f32 - c0.b as f32) * s).round() as u8;
                 let a = (c0.a as f32 + (c1.a as f32 - c0.a as f32) * s).round() as u8;
-                return ((a as u32) << 24)
-                    | ((r as u32) << 16)
-                    | ((g as u32) << 8)
-                    | (b as u32);
+                return ((a as u32) << 24) | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
             }
         }
         let c = if t <= stops[0].offset {
@@ -712,6 +693,10 @@ impl Renderer for CpuRasterizer {
 
     fn set_damage(&mut self, damage: Option<Rect>) {
         self.pending_damage = damage;
+    }
+
+    fn display_list(&self) -> Option<&DisplayList> {
+        Some(&self.display_list)
     }
 }
 

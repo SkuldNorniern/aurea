@@ -5,7 +5,6 @@
 //! display items. This enables partial redraw, caching, and damage tracking.
 
 use super::types::Rect;
-use crate::AureaResult;
 
 /// Stable node identifier for display items
 /// Used for cache invalidation and tracking changes

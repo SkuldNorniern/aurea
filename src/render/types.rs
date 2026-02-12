@@ -303,6 +303,16 @@ impl Font {
             style: FontStyle::Normal,
         }
     }
+
+    pub fn with_weight(mut self, weight: FontWeight) -> Self {
+        self.weight = weight;
+        self
+    }
+
+    pub fn with_style(mut self, style: FontStyle) -> Self {
+        self.style = style;
+        self
+    }
 }
 
 /// Font weight
@@ -350,6 +360,38 @@ pub struct RadialGradient {
 pub struct GradientStop {
     pub offset: f32,
     pub color: Color,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn font_new_and_builders() {
+        let f = Font::new("Sans", 16.0);
+        assert_eq!(f.family, "Sans");
+        assert!((f.size - 16.0).abs() < 1e-5);
+        assert_eq!(f.weight, FontWeight::Normal);
+        assert_eq!(f.style, FontStyle::Normal);
+
+        let bold = f.clone().with_weight(FontWeight::Bold);
+        assert_eq!(bold.weight, FontWeight::Bold);
+        let italic = f.clone().with_style(FontStyle::Italic);
+        assert_eq!(italic.style, FontStyle::Italic);
+    }
+
+    #[test]
+    fn text_metrics_fields() {
+        let m = TextMetrics {
+            width: 100.0,
+            height: 14.0,
+            ascent: 11.0,
+            descent: 3.0,
+            advance: 100.0,
+        };
+        assert!((m.width - 100.0).abs() < 1e-5);
+        assert!((m.ascent + m.descent - m.height).abs() < 1e-5);
+    }
 }
 
 /// Blend mode for compositing

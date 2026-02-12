@@ -5,10 +5,16 @@
 
 use super::super::display_list::{CacheKey, DisplayItem, DisplayList, NodeId};
 use super::super::renderer::DrawingContext;
+use super::super::text::TextRenderer;
 use super::super::types::*;
 use crate::AureaResult;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::sync::LazyLock;
+
+static TEXT_RENDERER: LazyLock<TextRenderer> = LazyLock::new(TextRenderer::new);
+const DEFAULT_FONT_FAMILY: &str = "Sans";
+const DEFAULT_FONT_SIZE: f32 = 16.0;
 
 /// Snapshot of transform, opacity, clip, and blend mode for save/restore.
 struct DrawingState {
@@ -300,7 +306,9 @@ impl CpuDrawingContext {
                 }
                 self.transform_rect(bounds)
             }
-            super::super::renderer::DrawCommand::DrawImageRect(_, dest) => self.transform_rect(*dest),
+            super::super::renderer::DrawCommand::DrawImageRect(_, dest) => {
+                self.transform_rect(*dest)
+            }
             super::super::renderer::DrawCommand::DrawImageRegion(_, _, dest) => {
                 self.transform_rect(*dest)
             }
@@ -348,7 +356,14 @@ impl CpuDrawingContext {
                 command,
             )
         } else {
-            DisplayItem::new(self.current_node_id, cache_key, bounds, opaque, blend, command)
+            DisplayItem::new(
+                self.current_node_id,
+                cache_key,
+                bounds,
+                opaque,
+                blend,
+                command,
+            )
         };
 
         unsafe {
@@ -397,19 +412,56 @@ impl DrawingContext for CpuDrawingContext {
         Ok(())
     }
 
-    fn draw_text(&mut self, _text: &str, _point: Point, _paint: &Paint) -> AureaResult<()> {
-        // TODO: Implement text drawing
-        Ok(())
+    fn draw_text(&mut self, text: &str, point: Point, paint: &Paint) -> AureaResult<()> {
+        let font = Font::new(DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE);
+        self.draw_text_with_font(text, point, &font, paint)
     }
 
     fn draw_text_with_font(
         &mut self,
-        _text: &str,
-        _point: Point,
-        _font: &Font,
-        _paint: &Paint,
+        text: &str,
+        point: Point,
+        font: &Font,
+        paint: &Paint,
     ) -> AureaResult<()> {
-        // TODO: Implement text drawing with font
+        if text.is_empty() {
+            return Ok(());
+        }
+
+        let metrics = TEXT_RENDERER.measure_text(text, font)?;
+        if metrics.width <= 0.0 || metrics.height <= 0.0 {
+            return Ok(());
+        }
+
+        let width = metrics.width.ceil().max(1.0) as u32;
+        let height = metrics.height.ceil().max(1.0) as u32;
+        let mut buffer = vec![0u32; (width * height) as usize];
+
+        let origin = Point::new(0.0, metrics.ascent.max(0.0));
+        TEXT_RENDERER.render_text(text, origin, font, paint.color, &mut buffer, width, height)?;
+
+        let mut data = Vec::with_capacity(buffer.len() * 4);
+        for pixel in buffer {
+            let a = ((pixel >> 24) & 0xFF) as u8;
+            let r = ((pixel >> 16) & 0xFF) as u8;
+            let g = ((pixel >> 8) & 0xFF) as u8;
+            let b = (pixel & 0xFF) as u8;
+            data.push(r);
+            data.push(g);
+            data.push(b);
+            data.push(a);
+        }
+
+        let image = Image::new(width, height, data);
+        let dest = Rect::new(
+            point.x,
+            point.y - metrics.ascent,
+            width as f32,
+            height as f32,
+        );
+        self.add_command(super::super::renderer::DrawCommand::DrawImageRect(
+            image, dest,
+        ));
         Ok(())
     }
 
@@ -444,19 +496,17 @@ impl DrawingContext for CpuDrawingContext {
         Ok(())
     }
 
-    fn measure_text(
-        &mut self,
-        _text: &str,
-        _font: &Font,
-    ) -> AureaResult<super::super::types::TextMetrics> {
-        // TODO: Implement text measurement
-        Ok(super::super::types::TextMetrics {
-            width: 0.0,
-            height: 0.0,
-            ascent: 0.0,
-            descent: 0.0,
-            advance: 0.0,
-        })
+    fn measure_text(&mut self, text: &str, font: &Font) -> AureaResult<TextMetrics> {
+        if text.is_empty() {
+            return Ok(TextMetrics {
+                width: 0.0,
+                height: 0.0,
+                ascent: 0.0,
+                descent: 0.0,
+                advance: 0.0,
+            });
+        }
+        TEXT_RENDERER.measure_text(text, font)
     }
 
     fn save(&mut self) -> AureaResult<()> {

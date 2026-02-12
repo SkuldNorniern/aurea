@@ -5,7 +5,6 @@
 //! incremental updates.
 
 use super::super::types::Rect;
-use crate::AureaResult;
 
 /// Tile size in pixels (64x64 is a good balance for most UI)
 pub const TILE_SIZE: u32 = 64;
@@ -244,7 +243,7 @@ impl TileStore {
     }
 
     /// Copy only dirty tiles to a flat buffer
-    pub fn copy_dirty_to_buffer(&self, buffer: &mut [u32], buffer_width: u32, buffer_height: u32) {
+    pub fn copy_dirty_to_buffer(&self, buffer: &mut [u32], buffer_width: u32, _buffer_height: u32) {
         for (tile_x, tile_y) in self.dirty_tiles() {
             let tile_bounds = Rect::new(
                 (tile_x * TILE_SIZE) as f32,
