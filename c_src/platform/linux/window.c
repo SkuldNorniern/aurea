@@ -11,7 +11,32 @@
 #include <gdk/gdkwayland.h>
 #endif
 
+extern void ng_invoke_lifecycle_callback(void* window, unsigned int event_id);
+extern void ng_invoke_key_event(void* window, unsigned int keycode, int pressed, unsigned int modifiers);
+extern void ng_invoke_mouse_button(void* window, int button, int pressed, unsigned int modifiers);
+extern void ng_invoke_mouse_move(void* window, double x, double y);
+extern void ng_invoke_mouse_wheel(void* window, double delta_x, double delta_y, unsigned int modifiers);
+extern void ng_invoke_text_input(void* window, const char* text);
+extern void ng_invoke_focus_changed(void* window, int focused);
+extern void ng_invoke_cursor_entered(void* window, int entered);
+extern void ng_invoke_raw_mouse_motion(void* window, double delta_x, double delta_y);
+
+static gboolean g_lifecycle_callbacks[256] = {0};
+static GtkWidget* g_lifecycle_windows[256] = {0};
+static int g_lifecycle_callback_count = 0;
+
 static GtkWidget* main_vbox = NULL;
+
+static gboolean on_key_press(GtkWidget* widget, GdkEventKey* event, gpointer user_data);
+static gboolean on_key_release(GtkWidget* widget, GdkEventKey* event, gpointer user_data);
+static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpointer user_data);
+static gboolean on_button_release(GtkWidget* widget, GdkEventButton* event, gpointer user_data);
+static gboolean on_motion_notify(GtkWidget* widget, GdkEventMotion* event, gpointer user_data);
+static gboolean on_scroll(GtkWidget* widget, GdkEventScroll* event, gpointer user_data);
+static gboolean on_focus_in(GtkWidget* widget, GdkEventFocus* event, gpointer user_data);
+static gboolean on_focus_out(GtkWidget* widget, GdkEventFocus* event, gpointer user_data);
+static gboolean on_enter(GtkWidget* widget, GdkEventCrossing* event, gpointer user_data);
+static gboolean on_leave(GtkWidget* widget, GdkEventCrossing* event, gpointer user_data);
 
 static void on_window_destroy(GtkWidget* widget, gpointer data) {
     // Invoke lifecycle callback if enabled
@@ -127,17 +152,12 @@ float ng_linux_get_scale_factor(NGHandle window) {
     return 1.0f;
 }
 
-typedef void (*ScaleFactorCallback)(void*, float);
-
 static struct {
     GtkWidget* window;
     ScaleFactorCallback callback;
 } g_scale_callbacks[256] = {0};
 static int g_scale_callback_count = 0;
 
-static gboolean g_lifecycle_callbacks[256] = {0};
-static GtkWidget* g_lifecycle_windows[256] = {0};
-static int g_lifecycle_callback_count = 0;
 static int g_last_x[256] = {0};
 static int g_last_y[256] = {0};
 static int g_last_w[256] = {0};
@@ -146,16 +166,6 @@ static int g_cursor_grab_mode[256] = {0};
 static double g_last_mouse_x[256] = {0.0};
 static double g_last_mouse_y[256] = {0.0};
 static int g_last_mouse_valid[256] = {0};
-
-extern void ng_invoke_lifecycle_callback(void* window, unsigned int event_id);
-extern void ng_invoke_key_event(void* window, unsigned int keycode, int pressed, unsigned int modifiers);
-extern void ng_invoke_mouse_button(void* window, int button, int pressed, unsigned int modifiers);
-extern void ng_invoke_mouse_move(void* window, double x, double y);
-extern void ng_invoke_mouse_wheel(void* window, double delta_x, double delta_y, unsigned int modifiers);
-extern void ng_invoke_text_input(void* window, const char* text);
-extern void ng_invoke_focus_changed(void* window, int focused);
-extern void ng_invoke_cursor_entered(void* window, int entered);
-extern void ng_invoke_raw_mouse_motion(void* window, double delta_x, double delta_y);
 
 static int ng_linux_find_window_index(GtkWidget* widget) {
     for (int i = 0; i < g_lifecycle_callback_count; i++) {
