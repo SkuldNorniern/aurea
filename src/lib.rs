@@ -23,6 +23,7 @@
 /// ```
 pub mod capability;
 pub mod elements;
+pub(crate) mod sync;
 pub mod ffi;
 pub mod integration;
 pub mod lifecycle;

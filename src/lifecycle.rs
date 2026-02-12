@@ -41,19 +41,19 @@ static LIFECYCLE_CALLBACKS: LazyLock<Mutex<HashMap<usize, LifecycleCallback>>> =
 
 /// Register a lifecycle callback for a specific window.
 pub fn register_lifecycle_callback(window: *mut c_void, callback: LifecycleCallback) {
-    let mut callbacks = LIFECYCLE_CALLBACKS.lock().unwrap();
+    let mut callbacks = crate::sync::lock(&LIFECYCLE_CALLBACKS);
     callbacks.insert(window as usize, callback);
 }
 
 /// Unregister the lifecycle callback for a specific window.
 pub fn unregister_lifecycle_callback(window: *mut c_void) {
-    let mut callbacks = LIFECYCLE_CALLBACKS.lock().unwrap();
+    let mut callbacks = crate::sync::lock(&LIFECYCLE_CALLBACKS);
     callbacks.remove(&(window as usize));
 }
 
 /// Invoke the lifecycle callback for a specific window.
 pub fn invoke_lifecycle_callback(window: *mut c_void, event: LifecycleEvent) {
-    let callbacks = LIFECYCLE_CALLBACKS.lock().unwrap();
+    let callbacks = crate::sync::lock(&LIFECYCLE_CALLBACKS);
     if let Some(callback) = callbacks.get(&(window as usize)) {
         callback(event);
     }
@@ -61,7 +61,7 @@ pub fn invoke_lifecycle_callback(window: *mut c_void, event: LifecycleEvent) {
 
 /// Invoke a global lifecycle callback (not tied to a specific window).
 pub fn invoke_global_lifecycle_callback(event: LifecycleEvent) {
-    let callbacks = LIFECYCLE_CALLBACKS.lock().unwrap();
+    let callbacks = crate::sync::lock(&LIFECYCLE_CALLBACKS);
     for callback in callbacks.values() {
         callback(event);
     }

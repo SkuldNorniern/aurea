@@ -30,12 +30,12 @@ impl FrameScheduler {
     }
 
     pub(crate) fn register_canvas(handle: *mut c_void, callback: CanvasRedrawCallback) {
-        let mut registry = CANVAS_REGISTRY.lock().unwrap();
+        let mut registry = crate::sync::lock(&CANVAS_REGISTRY);
         registry.insert(handle as usize, callback);
     }
 
     pub(crate) fn unregister_canvas(handle: *mut c_void) {
-        let mut registry = CANVAS_REGISTRY.lock().unwrap();
+        let mut registry = crate::sync::lock(&CANVAS_REGISTRY);
         registry.remove(&(handle as usize));
     }
 
@@ -44,7 +44,7 @@ impl FrameScheduler {
     where
         F: Fn() + Send + Sync + 'static,
     {
-        let mut callbacks = FRAME_CALLBACKS.lock().unwrap();
+        let mut callbacks = crate::sync::lock(&FRAME_CALLBACKS);
         callbacks.push(Arc::new(callback));
     }
 
@@ -56,8 +56,8 @@ impl FrameScheduler {
         }
 
         let (canvas_callbacks, global_callbacks) = {
-            let registry = CANVAS_REGISTRY.lock().unwrap();
-            let global = FRAME_CALLBACKS.lock().unwrap();
+            let registry = crate::sync::lock(&CANVAS_REGISTRY);
+            let global = crate::sync::lock(&FRAME_CALLBACKS);
             (
                 registry.values().cloned().collect::<Vec<_>>(),
                 global.clone(),
