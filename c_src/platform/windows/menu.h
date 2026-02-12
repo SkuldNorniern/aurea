@@ -11,6 +11,7 @@ NGMenuHandle ng_windows_create_menu(void);
 void ng_windows_destroy_menu(NGMenuHandle handle);
 int ng_windows_attach_menu(NGHandle window, NGMenuHandle menu);
 int ng_windows_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id);
+int ng_windows_add_menu_separator(NGMenuHandle menu);
 NGMenuHandle ng_windows_create_submenu(NGMenuHandle parent_menu, const char* title);
 
 #ifdef __cplusplus
@@ -18,4 +19,3 @@ NGMenuHandle ng_windows_create_submenu(NGMenuHandle parent_menu, const char* tit
 #endif
 
 #endif // NATIVE_GUI_WINDOWS_MENU_H
-

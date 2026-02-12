@@ -48,3 +48,12 @@ int ng_windows_add_menu_item(NGMenuHandle menu, const char* title, unsigned int 
     return NG_SUCCESS;
 }
 
+int ng_windows_add_menu_separator(NGMenuHandle menu) {
+    if (!menu) return NG_ERROR_INVALID_HANDLE;
+
+    if (!AppendMenuA((HMENU)menu, MF_SEPARATOR, 0, NULL)) {
+        return NG_ERROR_PLATFORM_SPECIFIC;
+    }
+
+    return NG_SUCCESS;
+}

@@ -2,7 +2,7 @@
 #define NATIVE_GUI_WINDOWS_UTILS_H
 
 #include <windows.h>
-#include "../../common/types.h"
+#include "common/types.h"
 
 #ifdef __cplusplus
 extern "C" {
