@@ -1,5 +1,5 @@
 #include "window.h"
-#include "../../common/errors.h"
+#include "common/errors.h"
 #include <jni.h>
 #include <android/native_window.h>
 #include <android/log.h>
