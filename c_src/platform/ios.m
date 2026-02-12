@@ -211,6 +211,76 @@ int ng_platform_combo_box_set_enabled(NGHandle combo_box, int enabled) {
     return ng_ios_combo_box_set_enabled(combo_box, enabled);
 }
 
+NGHandle ng_platform_create_tab_bar(unsigned int id) {
+    (void)id;
+    return NULL;
+}
+
+int ng_platform_tab_bar_add_tab(NGHandle tab_bar, const char* title) {
+    (void)tab_bar;
+    (void)title;
+    return NG_SUCCESS;
+}
+
+int ng_platform_tab_bar_remove_tab(NGHandle tab_bar, int index) {
+    (void)tab_bar;
+    (void)index;
+    return NG_SUCCESS;
+}
+
+int ng_platform_tab_bar_set_selected(NGHandle tab_bar, int index) {
+    (void)tab_bar;
+    (void)index;
+    return NG_SUCCESS;
+}
+
+int ng_platform_tab_bar_get_selected(NGHandle tab_bar) {
+    (void)tab_bar;
+    return -1;
+}
+
+void ng_platform_tab_bar_invalidate(NGHandle tab_bar) {
+    (void)tab_bar;
+}
+
+NGHandle ng_platform_create_sidebar_list(unsigned int id) {
+    (void)id;
+    return NULL;
+}
+
+int ng_platform_sidebar_list_add_section(NGHandle sidebar, const char* title) {
+    (void)sidebar;
+    (void)title;
+    return NG_SUCCESS;
+}
+
+int ng_platform_sidebar_list_add_item(NGHandle sidebar, const char* title, int indent) {
+    (void)sidebar;
+    (void)title;
+    (void)indent;
+    return NG_SUCCESS;
+}
+
+int ng_platform_sidebar_list_set_selected(NGHandle sidebar, int index) {
+    (void)sidebar;
+    (void)index;
+    return NG_SUCCESS;
+}
+
+int ng_platform_sidebar_list_get_selected(NGHandle sidebar) {
+    (void)sidebar;
+    return -1;
+}
+
+int ng_platform_sidebar_list_clear(NGHandle sidebar) {
+    (void)sidebar;
+    return NG_SUCCESS;
+}
+
+void ng_platform_sidebar_list_invalidate(NGHandle sidebar) {
+    (void)sidebar;
+}
+
 float ng_platform_get_scale_factor(NGHandle window) {
     return ng_ios_get_scale_factor(window);
 }
