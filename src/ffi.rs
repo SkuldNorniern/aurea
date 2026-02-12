@@ -145,6 +145,7 @@ unsafe extern "C" {
 
     pub(crate) fn ng_platform_window_set_lifecycle_callback(window: *mut c_void);
 
+    #[allow(dead_code)]
     pub(crate) fn ng_process_frames();
 
     pub(crate) fn ng_platform_create_image_view() -> *mut c_void;
@@ -201,6 +202,31 @@ unsafe extern "C" {
         enabled: c_int,
     ) -> c_int;
     pub(crate) fn ng_platform_combo_box_invalidate(combo_box: *mut c_void);
+
+    pub(crate) fn ng_platform_create_tab_bar(id: u32) -> *mut c_void;
+    pub(crate) fn ng_platform_tab_bar_add_tab(tab_bar: *mut c_void, title: *const c_char) -> c_int;
+    pub(crate) fn ng_platform_tab_bar_remove_tab(tab_bar: *mut c_void, index: c_int) -> c_int;
+    pub(crate) fn ng_platform_tab_bar_set_selected(tab_bar: *mut c_void, index: c_int) -> c_int;
+    pub(crate) fn ng_platform_tab_bar_get_selected(tab_bar: *mut c_void) -> c_int;
+    pub(crate) fn ng_platform_tab_bar_invalidate(tab_bar: *mut c_void);
+
+    pub(crate) fn ng_platform_create_sidebar_list(id: u32) -> *mut c_void;
+    pub(crate) fn ng_platform_sidebar_list_add_section(
+        sidebar: *mut c_void,
+        title: *const c_char,
+    ) -> c_int;
+    pub(crate) fn ng_platform_sidebar_list_add_item(
+        sidebar: *mut c_void,
+        title: *const c_char,
+        indent: c_int,
+    ) -> c_int;
+    pub(crate) fn ng_platform_sidebar_list_set_selected(
+        sidebar: *mut c_void,
+        index: c_int,
+    ) -> c_int;
+    pub(crate) fn ng_platform_sidebar_list_get_selected(sidebar: *mut c_void) -> c_int;
+    pub(crate) fn ng_platform_sidebar_list_clear(sidebar: *mut c_void) -> c_int;
+    pub(crate) fn ng_platform_sidebar_list_invalidate(sidebar: *mut c_void);
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -276,6 +302,21 @@ pub extern "C" fn ng_invoke_menu_callback(id: u32) {
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_button_callback(id: u32) {
     crate::elements::invoke_button_callback(id);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_tab_bar_selected(id: u32, index: i32) {
+    crate::elements::invoke_tab_bar_selected(id, index);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_tab_bar_detach(id: u32, index: i32) {
+    crate::elements::invoke_tab_bar_detach(id, index);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_sidebar_list_selected(id: u32, index: i32) {
+    crate::elements::invoke_sidebar_list_selected(id, index);
 }
 
 #[unsafe(no_mangle)]
