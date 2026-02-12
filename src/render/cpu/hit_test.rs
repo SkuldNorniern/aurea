@@ -1,7 +1,6 @@
 //! Hit testing for shapes and paths.
 
 use super::super::types::{Path, PathCommand, Point, Rect};
-use super::path::Edge;
 
 /// Returns true if the point is inside the path (odd-even rule: ray to the right, count crossings).
 pub fn hit_test_path(path: &Path, point: Point) -> bool {

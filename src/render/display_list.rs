@@ -1,7 +1,6 @@
 //! Display list management with cacheability metadata.
 
 use super::types::Rect;
-use crate::AureaResult;
 
 /// Stable node identifier for display items Used for cache invalidation and tracking changes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
