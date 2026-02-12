@@ -21,6 +21,7 @@ struct CanvasMetrics {
     scale_factor: f32,
 }
 
+/// A drawable canvas element backed by a renderer.
 pub struct Canvas {
     handle: *mut c_void,
     renderer: Arc<Mutex<Option<Box<dyn Renderer>>>>,
@@ -58,7 +59,7 @@ impl Canvas {
 
     /// Get canvas dimensions
     pub fn size(&self) -> (u32, u32) {
-        let metrics = self.metrics.lock().unwrap();
+        let metrics = crate::sync::lock(self.metrics.as_ref());
         (metrics.width, metrics.height)
     }
 
@@ -105,6 +106,7 @@ impl Canvas {
         Ok(surface)
     }
 
+    /// Create a new canvas with the given size and renderer backend.
     pub fn new(width: u32, height: u32, backend: RendererBackend) -> AureaResult<Self> {
         let handle = unsafe { ng_platform_create_canvas(width as i32, height as i32) };
         if handle.is_null() {
@@ -195,7 +197,7 @@ impl Canvas {
         new_scale: f32,
     ) -> AureaResult<()> {
         let (size_changed, scale_changed) = {
-            let mut metrics = self.metrics.lock().unwrap();
+            let mut metrics = crate::sync::lock(self.metrics.as_ref());
             let size_changed = new_width != metrics.width || new_height != metrics.height;
             let scale_changed = new_scale != metrics.scale_factor;
             if size_changed {
@@ -213,7 +215,7 @@ impl Canvas {
         }
 
         if scale_changed {
-            let mut renderer_guard = self.renderer.lock().unwrap();
+            let mut renderer_guard = crate::sync::lock(self.renderer.as_ref());
             if let Some(ref mut renderer) = *renderer_guard {
                 let surface = Surface::OpenGL {
                     context: std::ptr::null_mut(),
@@ -232,7 +234,7 @@ impl Canvas {
         });
 
         if size_changed {
-            let mut renderer_guard = self.renderer.lock().unwrap();
+            let mut renderer_guard = crate::sync::lock(self.renderer.as_ref());
             if let Some(ref mut renderer) = *renderer_guard {
                 renderer.resize(new_width, new_height)?;
             }
@@ -247,11 +249,11 @@ impl Canvas {
     where
         F: Fn(&mut dyn DrawingContext) -> AureaResult<()> + Send + Sync + 'static,
     {
-        let mut cb = self.draw_callback.lock().unwrap();
+        let mut cb = crate::sync::lock(self.draw_callback.as_ref());
         *cb = Some(Box::new(callback));
 
         // Mark as needing redraw
-        *self.needs_redraw.lock().unwrap() = true;
+        *crate::sync::lock(self.needs_redraw.as_ref()) = true;
         self.invalidate_all();
 
         Ok(())
@@ -268,11 +270,11 @@ impl Canvas {
         self.check_and_resize()?;
 
         {
-            let mut renderer_guard = self.renderer.lock().unwrap();
+            let mut renderer_guard = crate::sync::lock(self.renderer.as_ref());
             if let Some(ref mut renderer) = *renderer_guard {
                 // Get damage region for this frame - use full canvas if empty
                 let damage_rect = {
-                    let mut damage = self.damage.lock().unwrap();
+                    let mut damage = crate::sync::lock(self.damage.as_ref());
                     let rect = damage.take();
                     // If no damage region, use full canvas
                     rect.or_else(|| {
@@ -287,7 +289,7 @@ impl Canvas {
                 let mut ctx = renderer.begin_frame()?;
 
                 // Clear with background color
-                let bg_color = *self.background_color.lock().unwrap();
+                let bg_color = *crate::sync::lock(self.background_color.as_ref());
                 ctx.clear(bg_color)?;
 
                 // Execute the draw function
@@ -317,7 +319,7 @@ impl Canvas {
 
         // Get callback reference (we can't clone, so we'll borrow)
         let has_callback = {
-            let cb = self.draw_callback.lock().unwrap();
+            let cb = crate::sync::lock(self.draw_callback.as_ref());
             cb.is_some()
         };
 
@@ -326,11 +328,11 @@ impl Canvas {
         }
 
         {
-            let mut renderer_guard = self.renderer.lock().unwrap();
+            let mut renderer_guard = crate::sync::lock(self.renderer.as_ref());
             if let Some(ref mut renderer) = *renderer_guard {
                 // Get damage region for this frame
                 let damage_rect = {
-                    let mut damage = self.damage.lock().unwrap();
+                    let mut damage = crate::sync::lock(self.damage.as_ref());
                     damage.take()
                 };
 
@@ -340,12 +342,12 @@ impl Canvas {
                 let mut ctx = renderer.begin_frame()?;
 
                 // Clear with background color
-                let bg_color = *self.background_color.lock().unwrap();
+                let bg_color = *crate::sync::lock(self.background_color.as_ref());
                 ctx.clear(bg_color)?;
 
                 // Call stored callback
                 {
-                    let cb = self.draw_callback.lock().unwrap();
+                    let cb = crate::sync::lock(self.draw_callback.as_ref());
                     if let Some(ref callback) = *cb {
                         callback(ctx.as_mut())?;
                     }
@@ -363,7 +365,7 @@ impl Canvas {
 
     /// Set background color (property setter - marks damage automatically)
     pub fn set_background_color(&self, color: Color) {
-        let mut bg = self.background_color.lock().unwrap();
+        let mut bg = crate::sync::lock(self.background_color.as_ref());
         if *bg != color {
             *bg = color;
             self.invalidate_all();
@@ -372,26 +374,26 @@ impl Canvas {
 
     /// Get background color
     pub fn background_color(&self) -> Color {
-        *self.background_color.lock().unwrap()
+        *crate::sync::lock(self.background_color.as_ref())
     }
 
     /// Add damage to the canvas (called when content changes)
     pub fn add_damage(&self, rect: super::Rect) {
-        let mut damage = self.damage.lock().unwrap();
+        let mut damage = crate::sync::lock(self.damage.as_ref());
         damage.add(rect);
     }
 
     /// Mark the entire canvas as damaged
     /// This automatically schedules a redraw using the stored callback
     pub fn invalidate_all(&self) {
-        let mut damage = self.damage.lock().unwrap();
+        let mut damage = crate::sync::lock(self.damage.as_ref());
         damage.add_all();
 
         // Schedule frame for redraw
         FrameScheduler::schedule();
 
         // Mark that we need to redraw
-        *self.needs_redraw.lock().unwrap() = true;
+        *crate::sync::lock(self.needs_redraw.as_ref()) = true;
 
         // Invalidate platform view
         unsafe {
@@ -403,7 +405,7 @@ impl Canvas {
     /// This should be called from the frame scheduler or window's frame handler
     pub fn redraw_if_needed(&mut self) -> AureaResult<()> {
         let needs_redraw = {
-            let mut flag = self.needs_redraw.lock().unwrap();
+            let mut flag = crate::sync::lock(self.needs_redraw.as_ref());
             if !*flag {
                 return Ok(());
             }
@@ -429,7 +431,7 @@ impl Canvas {
             if !window.is_null() {
                 ng_platform_get_scale_factor(window)
             } else {
-                let metrics = self.metrics.lock().unwrap();
+                let metrics = crate::sync::lock(self.metrics.as_ref());
                 metrics.scale_factor
             }
         };
@@ -465,7 +467,7 @@ impl Canvas {
         FrameScheduler::schedule();
 
         // Mark needs redraw
-        *self.needs_redraw.lock().unwrap() = true;
+        *crate::sync::lock(self.needs_redraw.as_ref()) = true;
 
         // Invalidate platform view
         unsafe {
@@ -493,7 +495,7 @@ impl Canvas {
     }
 
     pub fn scale_factor(&self) -> f32 {
-        let metrics = self.metrics.lock().unwrap();
+        let metrics = crate::sync::lock(self.metrics.as_ref());
         metrics.scale_factor
     }
 
@@ -515,15 +517,13 @@ impl Canvas {
         let point = super::types::Point::new(x, y);
 
         // Get display list from renderer
-        let renderer_guard = self.renderer.lock().unwrap();
+        let renderer_guard = crate::sync::lock(self.renderer.as_ref());
         if let Some(ref renderer) = *renderer_guard {
-            // Try to downcast to CpuRasterizer to get display list
-            // For now, we'll need to add a trait method or store display list separately
-            // TODO: Add method to Renderer trait to get display list, or store it in Canvas
+            if let Some(display_list) = renderer.display_list() {
+                return self.interaction_registry.handle_click(display_list, point);
+            }
         }
 
-        // The interaction registry needs the display list to query
-        // For now, this is a placeholder - full implementation needs display list access
         Ok(())
     }
 
@@ -532,7 +532,13 @@ impl Canvas {
     pub fn handle_hover(&self, x: f32, y: f32) -> AureaResult<()> {
         let point = super::types::Point::new(x, y);
 
-        // Similar to handle_click - needs display list access
+        let renderer_guard = crate::sync::lock(self.renderer.as_ref());
+        if let Some(ref renderer) = *renderer_guard {
+            if let Some(display_list) = renderer.display_list() {
+                return self.interaction_registry.handle_hover(display_list, point);
+            }
+        }
+
         Ok(())
     }
 
@@ -572,13 +578,13 @@ impl Canvas {
                 if !window.is_null() {
                     ng_platform_get_scale_factor(window)
                 } else {
-                    let current = metrics.lock().unwrap();
+                    let current = crate::sync::lock(metrics.as_ref());
                     current.scale_factor
                 }
             };
 
             let (size_changed, scale_changed, metrics_width, metrics_height) = {
-                let mut current = metrics.lock().unwrap();
+                let mut current = crate::sync::lock(metrics.as_ref());
                 let size_changed =
                     width > 0 && height > 0 && (width != current.width || height != current.height);
                 let scale_changed = new_scale != current.scale_factor;
@@ -593,7 +599,7 @@ impl Canvas {
             };
 
             if size_changed || scale_changed {
-                let mut renderer_guard = renderer.lock().unwrap();
+                let mut renderer_guard = crate::sync::lock(renderer.as_ref());
                 if let Some(ref mut r) = *renderer_guard {
                     if scale_changed {
                         let surface = Surface::OpenGL {
@@ -615,13 +621,13 @@ impl Canvas {
                     *buf.borrow_mut() = None;
                 });
 
-                let mut flag = needs_redraw.lock().unwrap();
+                let mut flag = crate::sync::lock(needs_redraw.as_ref());
                 *flag = true;
             }
 
             // Step 2: Check if redraw is needed
             let should_redraw = {
-                let mut flag = needs_redraw.lock().unwrap();
+                let mut flag = crate::sync::lock(needs_redraw.as_ref());
                 if !*flag {
                     return Ok(());
                 }
@@ -635,12 +641,12 @@ impl Canvas {
 
             // Step 3: Get damage region
             let damage_rect = {
-                let mut d = damage.lock().unwrap();
+                let mut d = crate::sync::lock(damage.as_ref());
                 d.take()
             };
 
             // Step 4: Get renderer (hold lock during frame)
-            let mut renderer_guard = renderer.lock().unwrap();
+            let mut renderer_guard = crate::sync::lock(renderer.as_ref());
             if let Some(ref mut r) = *renderer_guard {
                 // Set damage
                 r.set_damage(damage_rect);
@@ -650,14 +656,14 @@ impl Canvas {
 
                 // Step 5: Get background color (short lock)
                 let bg_color = {
-                    let bg = background_color.lock().unwrap();
+                    let bg = crate::sync::lock(background_color.as_ref());
                     *bg
                 };
                 ctx.clear(bg_color)?;
 
                 // Step 6: Call stored callback (short lock)
                 {
-                    let cb = draw_callback.lock().unwrap();
+                    let cb = crate::sync::lock(draw_callback.as_ref());
                     if let Some(ref callback_fn) = *cb {
                         callback_fn(ctx.as_mut())?;
                     }
@@ -709,7 +715,7 @@ impl Drop for Canvas {
         FrameScheduler::unregister_canvas(self.handle);
 
         // Cleanup renderer
-        let mut renderer_guard = self.renderer.lock().unwrap();
+        let mut renderer_guard = crate::sync::lock(self.renderer.as_ref());
         if let Some(ref mut renderer) = *renderer_guard {
             renderer.cleanup();
         }

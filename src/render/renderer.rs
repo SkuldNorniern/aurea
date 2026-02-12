@@ -1,10 +1,13 @@
+use super::display_list::DisplayList;
 use super::surface::{Surface, SurfaceInfo};
 use super::types::{
     BlendMode, Color, Font, Image, LinearGradient, Paint, Path, Point, RadialGradient, Rect,
     TextMetrics, Transform,
 };
 use crate::AureaResult;
+use crate::render::text::TextRenderer;
 use std::cell::RefCell;
+use std::sync::LazyLock;
 
 thread_local! {
     static COMMAND_BUFFER: RefCell<Option<*mut Vec<DrawCommand>>> = const { RefCell::new(None) };
@@ -130,7 +133,16 @@ pub trait Renderer: Send + Sync {
     fn set_damage(&mut self, _damage: Option<Rect>) {
         // Default implementation does nothing (full redraw)
     }
+
+    /// Optional: access the display list for hit testing (CPU renderer only).
+    fn display_list(&self) -> Option<&DisplayList> {
+        None
+    }
 }
+
+static PLACEHOLDER_TEXT_RENDERER: LazyLock<TextRenderer> = LazyLock::new(TextRenderer::new);
+const DEFAULT_FONT_FAMILY: &str = "Sans";
+const DEFAULT_FONT_SIZE: f32 = 16.0;
 
 #[derive(Debug, Clone)]
 pub enum DrawCommand {
@@ -378,7 +390,7 @@ impl PlaceholderRenderer {
         {
             return;
         }
-        let stride = (image_width * 4) as usize;
+        let _stride = (image_width * 4) as usize;
         let start_x = dest.x as i32;
         let start_y = dest.y as i32;
         let end_x = (dest.x + dest.width) as i32;
@@ -423,8 +435,7 @@ impl PlaceholderRenderer {
                         let out_r = (sa * (r as u32) + inv_sa * dr) / 255;
                         let out_g = (sa * (g as u32) + inv_sa * dg) / 255;
                         let out_b = (sa * (b as u32) + inv_sa * db) / 255;
-                        buffer[buf_idx] =
-                            (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b;
+                        buffer[buf_idx] = (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b;
                     }
                 }
             }
@@ -657,12 +668,8 @@ impl DrawingContext for PlaceholderDrawingContext {
     }
 
     fn draw_text(&mut self, text: &str, position: Point, paint: &Paint) -> AureaResult<()> {
-        self.commands.push(DrawCommand::DrawText(
-            text.to_string(),
-            position,
-            paint.clone(),
-        ));
-        Ok(())
+        let font = Font::new(DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE);
+        self.draw_text_with_font(text, position, &font, paint)
     }
 
     fn draw_path(&mut self, path: &Path, paint: &Paint) -> AureaResult<()> {
@@ -690,23 +697,65 @@ impl DrawingContext for PlaceholderDrawingContext {
         font: &Font,
         paint: &Paint,
     ) -> AureaResult<()> {
-        self.commands.push(DrawCommand::DrawTextWithFont(
-            text.to_string(),
-            position,
-            font.clone(),
-            paint.clone(),
-        ));
+        if text.is_empty() {
+            return Ok(());
+        }
+
+        let metrics = PLACEHOLDER_TEXT_RENDERER.measure_text(text, font)?;
+        if metrics.width <= 0.0 || metrics.height <= 0.0 {
+            return Ok(());
+        }
+
+        const TEXT_PADDING: f32 = 8.0;
+        let width = (metrics.width.ceil().max(1.0) + TEXT_PADDING * 2.0) as u32;
+        let height = (metrics.height.ceil().max(1.0) + TEXT_PADDING * 2.0) as u32;
+        let mut buffer = vec![0u32; (width * height) as usize];
+        let origin = Point::new(TEXT_PADDING, TEXT_PADDING + metrics.ascent.max(0.0));
+
+        PLACEHOLDER_TEXT_RENDERER.render_text(
+            text,
+            origin,
+            font,
+            paint.color,
+            &mut buffer,
+            width,
+            height,
+        )?;
+
+        let mut data = Vec::with_capacity(buffer.len() * 4);
+        for pixel in buffer {
+            let a = ((pixel >> 24) & 0xFF) as u8;
+            let r = ((pixel >> 16) & 0xFF) as u8;
+            let g = ((pixel >> 8) & 0xFF) as u8;
+            let b = (pixel & 0xFF) as u8;
+            data.push(r);
+            data.push(g);
+            data.push(b);
+            data.push(a);
+        }
+
+        let image = Image::new(width, height, data);
+        let dest = Rect::new(
+            position.x - TEXT_PADDING,
+            position.y - (TEXT_PADDING + metrics.ascent),
+            width as f32,
+            height as f32,
+        );
+        self.commands.push(DrawCommand::DrawImageRect(image, dest));
         Ok(())
     }
 
-    fn measure_text(&mut self, _text: &str, _font: &Font) -> AureaResult<TextMetrics> {
-        Ok(TextMetrics {
-            width: 0.0,
-            height: 0.0,
-            ascent: 0.0,
-            descent: 0.0,
-            advance: 0.0,
-        })
+    fn measure_text(&mut self, text: &str, font: &Font) -> AureaResult<TextMetrics> {
+        if text.is_empty() {
+            return Ok(TextMetrics {
+                width: 0.0,
+                height: 0.0,
+                ascent: 0.0,
+                descent: 0.0,
+                advance: 0.0,
+            });
+        }
+        PLACEHOLDER_TEXT_RENDERER.measure_text(text, font)
     }
 
     fn save(&mut self) -> AureaResult<()> {

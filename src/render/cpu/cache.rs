@@ -5,7 +5,6 @@
 
 use super::super::display_list::CacheKey;
 use std::collections::HashMap;
-use std::hash::Hash;
 
 struct CacheEntry<T> {
     value: T,

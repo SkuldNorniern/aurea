@@ -1,7 +1,7 @@
 //! Text rendering for Canvas
 //!
-//! Platform-first approach: uses native text APIs for fast, low-memory text rendering.
-//! Especially important for mobile platforms (iOS/Android).
+//! Uses system fonts via fontdb/fontdue for CPU text rendering.
+//! Platform-native rasterizers can replace this later for tighter OS integration.
 
 pub mod atlas;
 pub mod platform;
