@@ -1,7 +1,7 @@
 #ifndef NATIVE_GUI_MACOS_H
 #define NATIVE_GUI_MACOS_H
 
-#include "../common/types.h"
+#include "common/types.h"
 
 #ifdef __OBJC__
 @class NSWindow;
@@ -20,9 +20,16 @@ extern "C" {
 int ng_platform_init(void);
 void ng_platform_cleanup(void);
 NGHandle ng_platform_create_window(const char* title, int width, int height);
+NGHandle ng_platform_create_window_with_type(const char* title, int width, int height, int window_type);
 void ng_platform_destroy_window(NGHandle handle);
+void ng_platform_window_request_close(NGHandle window);
+int ng_platform_window_is_focused(NGHandle window);
 int ng_platform_window_set_cursor_visible(NGHandle window, int visible);
 int ng_platform_window_set_cursor_grab(NGHandle window, int mode);
+NGHandle ng_platform_window_get_content_view(NGHandle window);
+void ng_platform_window_show(NGHandle window);
+void ng_platform_window_hide(NGHandle window);
+int ng_platform_window_is_visible(NGHandle window);
 void ng_platform_window_set_title(NGHandle window, const char* title);
 void ng_platform_window_set_size(NGHandle window, int width, int height);
 void ng_platform_window_get_size(NGHandle window, int* width, int* height);
@@ -32,7 +39,10 @@ NGMenuHandle ng_platform_create_menu(void);
 void ng_platform_destroy_menu(NGMenuHandle handle);
 int ng_platform_attach_menu(NGHandle window, NGMenuHandle menu);
 int ng_platform_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id);
+int ng_platform_add_menu_separator(NGMenuHandle menu);
+NGMenuHandle ng_platform_create_submenu(NGMenuHandle parent_menu, const char* title);
 int ng_platform_run(void);
+int ng_platform_poll_events(void);
 
 // New element-related functions
 NGHandle ng_platform_create_button(const char* title, unsigned int id);
@@ -40,6 +50,7 @@ void ng_platform_button_invalidate(NGHandle button);
 NGHandle ng_platform_create_label(const char* text);
 void ng_platform_label_invalidate(NGHandle label);
 NGHandle ng_platform_create_box(int is_vertical);
+void ng_platform_box_invalidate(NGHandle box_handle);
 int ng_platform_box_add(NGHandle box, NGHandle element, float weight);
 int ng_platform_set_window_content(NGHandle window, NGHandle content);
 
@@ -50,7 +61,10 @@ int ng_platform_split_view_set_divider_position(NGHandle split_handle, int index
 
 // New text-related functions
 NGHandle ng_platform_create_text_editor(unsigned int id);
+void ng_platform_text_editor_invalidate(NGHandle text_editor);
 NGHandle ng_platform_create_text_view(int is_editable, unsigned int id);
+void ng_platform_text_view_invalidate(NGHandle text_view);
+NGHandle ng_platform_create_text_field(void);
 int ng_platform_set_text_content(NGHandle text_handle, const char* content);
 char* ng_platform_get_text_content(NGHandle text_handle);
 void ng_platform_free_text_content(char* content);
@@ -62,6 +76,7 @@ void ng_platform_canvas_invalidate_rect(NGHandle canvas, float x, float y, float
 void ng_platform_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size, unsigned int width, unsigned int height);
 void ng_platform_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int* height);
 NGHandle ng_platform_canvas_get_window(NGHandle canvas);
+NGHandle ng_platform_canvas_get_native_handle(NGHandle canvas);
 float ng_platform_get_scale_factor(NGHandle window);
 typedef void (*ScaleFactorCallback)(void*, float);
 void ng_platform_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallback callback);
