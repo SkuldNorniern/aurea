@@ -14,6 +14,9 @@ void ng_windows_label_invalidate(NGHandle label);
 NGHandle ng_windows_create_box(int is_vertical);
 void ng_windows_box_invalidate(NGHandle box);
 int ng_windows_box_add(NGHandle box, NGHandle element);
+NGHandle ng_windows_create_split_view(int is_vertical);
+int ng_windows_split_view_add(NGHandle split_handle, NGHandle element);
+int ng_windows_split_view_set_divider_position(NGHandle split_handle, int index, float position);
 NGHandle ng_windows_create_text_editor(unsigned int id);
 void ng_windows_text_editor_invalidate(NGHandle text_editor);
 NGHandle ng_windows_create_text_view(int is_editable, unsigned int id);
@@ -67,9 +70,25 @@ int ng_windows_combo_box_clear(NGHandle combo_box);
 int ng_windows_combo_box_set_enabled(NGHandle combo_box, int enabled);
 void ng_windows_combo_box_invalidate(NGHandle combo_box);
 
+// TabBar functions (stub: button row, no drag-to-detach)
+NGHandle ng_windows_create_tab_bar(unsigned int id);
+int ng_windows_tab_bar_add_tab(NGHandle tab_bar, const char* title);
+int ng_windows_tab_bar_remove_tab(NGHandle tab_bar, int index);
+int ng_windows_tab_bar_set_selected(NGHandle tab_bar, int index);
+int ng_windows_tab_bar_get_selected(NGHandle tab_bar);
+void ng_windows_tab_bar_invalidate(NGHandle tab_bar);
+
+// SidebarList functions
+NGHandle ng_windows_create_sidebar_list(unsigned int id);
+int ng_windows_sidebar_list_add_section(NGHandle sidebar, const char* title);
+int ng_windows_sidebar_list_add_item(NGHandle sidebar, const char* title, int indent);
+int ng_windows_sidebar_list_set_selected(NGHandle sidebar, int index);
+int ng_windows_sidebar_list_get_selected(NGHandle sidebar);
+int ng_windows_sidebar_list_clear(NGHandle sidebar);
+void ng_windows_sidebar_list_invalidate(NGHandle sidebar);
+
 #ifdef __cplusplus
 }
 #endif
 
 #endif // NATIVE_GUI_WINDOWS_ELEMENTS_H
-

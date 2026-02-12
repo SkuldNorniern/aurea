@@ -1,6 +1,6 @@
 #include "common.h"
 #include "../elements.h"
-#include "../../../common/errors.h"
+#include "common/errors.h"
 #include <richedit.h>
 #include <string.h>
 

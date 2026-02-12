@@ -1,6 +1,6 @@
 #include "common.h"
 #include "../elements.h"
-#include "../../../common/errors.h"
+#include "common/errors.h"
 #include <windows.h>
 
 extern void ng_invoke_button_callback(unsigned int id);

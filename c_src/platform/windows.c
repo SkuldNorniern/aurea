@@ -27,19 +27,15 @@ void ng_platform_destroy_window(NGHandle handle) {
 }
 
 void ng_platform_window_show(NGHandle window) {
-    // TODO: Implement for Windows
-    (void)window;
+    ng_windows_window_show(window);
 }
 
 void ng_platform_window_hide(NGHandle window) {
-    // TODO: Implement for Windows
-    (void)window;
+    ng_windows_window_hide(window);
 }
 
 int ng_platform_window_is_visible(NGHandle window) {
-    // TODO: Implement for Windows
-    (void)window;
-    return 1;
+    return ng_windows_window_is_visible(window);
 }
 
 NGMenuHandle ng_platform_create_menu(void) {
@@ -56,6 +52,10 @@ int ng_platform_attach_menu(NGHandle window, NGMenuHandle menu) {
 
 int ng_platform_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id) {
     return ng_windows_add_menu_item(menu, title, id);
+}
+
+int ng_platform_add_menu_separator(NGMenuHandle menu) {
+    return ng_windows_add_menu_separator(menu);
 }
 
 NGMenuHandle ng_platform_create_submenu(NGMenuHandle parentMenu, const char* title) {
@@ -106,7 +106,8 @@ void ng_platform_box_invalidate(NGHandle box) {
     ng_windows_box_invalidate(box);
 }
 
-int ng_platform_box_add(NGHandle box, NGHandle element) {
+int ng_platform_box_add(NGHandle box, NGHandle element, float weight) {
+    (void)weight;
     return ng_windows_box_add(box, element);
 }
 
@@ -203,6 +204,14 @@ void ng_platform_window_get_size(NGHandle window, int* width, int* height) {
     ng_windows_window_get_size(window, width, height);
 }
 
+void ng_platform_window_set_position(NGHandle window, int x, int y) {
+    ng_windows_window_set_position(window, x, y);
+}
+
+void ng_platform_window_get_position(NGHandle window, int* x, int* y) {
+    ng_windows_window_get_position(window, x, y);
+}
+
 void ng_platform_window_request_close(NGHandle window) {
     ng_windows_window_request_close(window);
 }
@@ -217,6 +226,19 @@ int ng_platform_window_set_cursor_visible(NGHandle window, int visible) {
 
 int ng_platform_window_set_cursor_grab(NGHandle window, int mode) {
     return ng_windows_window_set_cursor_grab(window, mode);
+}
+
+// SplitView functions
+NGHandle ng_platform_create_split_view(int is_vertical) {
+    return ng_windows_create_split_view(is_vertical);
+}
+
+int ng_platform_split_view_add(NGHandle split_handle, NGHandle element) {
+    return ng_windows_split_view_add(split_handle, element);
+}
+
+int ng_platform_split_view_set_divider_position(NGHandle split_handle, int index, float position) {
+    return ng_windows_split_view_set_divider_position(split_handle, index, position);
 }
 
 // ImageView functions
@@ -330,4 +352,56 @@ int ng_platform_combo_box_set_enabled(NGHandle combo_box, int enabled) {
 
 void ng_platform_combo_box_invalidate(NGHandle combo_box) {
     ng_windows_combo_box_invalidate(combo_box);
+}
+
+NGHandle ng_platform_create_tab_bar(unsigned int id) {
+    return ng_windows_create_tab_bar(id);
+}
+
+int ng_platform_tab_bar_add_tab(NGHandle tab_bar, const char* title) {
+    return ng_windows_tab_bar_add_tab(tab_bar, title);
+}
+
+int ng_platform_tab_bar_remove_tab(NGHandle tab_bar, int index) {
+    return ng_windows_tab_bar_remove_tab(tab_bar, index);
+}
+
+int ng_platform_tab_bar_set_selected(NGHandle tab_bar, int index) {
+    return ng_windows_tab_bar_set_selected(tab_bar, index);
+}
+
+int ng_platform_tab_bar_get_selected(NGHandle tab_bar) {
+    return ng_windows_tab_bar_get_selected(tab_bar);
+}
+
+void ng_platform_tab_bar_invalidate(NGHandle tab_bar) {
+    ng_windows_tab_bar_invalidate(tab_bar);
+}
+
+NGHandle ng_platform_create_sidebar_list(unsigned int id) {
+    return ng_windows_create_sidebar_list(id);
+}
+
+int ng_platform_sidebar_list_add_section(NGHandle sidebar, const char* title) {
+    return ng_windows_sidebar_list_add_section(sidebar, title);
+}
+
+int ng_platform_sidebar_list_add_item(NGHandle sidebar, const char* title, int indent) {
+    return ng_windows_sidebar_list_add_item(sidebar, title, indent);
+}
+
+int ng_platform_sidebar_list_set_selected(NGHandle sidebar, int index) {
+    return ng_windows_sidebar_list_set_selected(sidebar, index);
+}
+
+int ng_platform_sidebar_list_get_selected(NGHandle sidebar) {
+    return ng_windows_sidebar_list_get_selected(sidebar);
+}
+
+int ng_platform_sidebar_list_clear(NGHandle sidebar) {
+    return ng_windows_sidebar_list_clear(sidebar);
+}
+
+void ng_platform_sidebar_list_invalidate(NGHandle sidebar) {
+    ng_windows_sidebar_list_invalidate(sidebar);
 }
