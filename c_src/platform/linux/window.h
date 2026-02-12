@@ -16,6 +16,8 @@ void ng_linux_window_hide(NGHandle window);
 int ng_linux_window_is_visible(NGHandle window);
 int ng_linux_set_window_content(NGHandle window, NGHandle content);
 float ng_linux_get_scale_factor(NGHandle window);
+typedef void (*ScaleFactorCallback)(void*, float);
+void ng_linux_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallback callback);
 void ng_linux_window_set_lifecycle_callback(NGHandle window);
 void ng_linux_window_set_title(NGHandle window, const char* title);
 void ng_linux_window_set_size(NGHandle window, int width, int height);
