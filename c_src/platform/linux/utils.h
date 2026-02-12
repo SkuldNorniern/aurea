@@ -7,7 +7,8 @@
 extern "C" {
 #endif
 
-// Utility functions for Linux/GTK platform
+int ng_linux_init(void);
+void ng_linux_cleanup(void);
 
 #ifdef __cplusplus
 }
