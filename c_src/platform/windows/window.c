@@ -71,6 +71,11 @@ NGHandle ng_windows_create_window(const char* title, int width, int height) {
     return (NGHandle)hwnd;
 }
 
+NGHandle ng_windows_create_window_with_type(const char* title, int width, int height, int window_type) {
+    (void)window_type;
+    return ng_windows_create_window(title, width, height);
+}
+
 float ng_windows_get_scale_factor(NGHandle window) {
     if (!window) return 1.0f;
     HWND hwnd = (HWND)window;
@@ -130,6 +135,22 @@ void ng_windows_window_set_lifecycle_callback(NGHandle window) {
 void ng_windows_destroy_window(NGHandle handle) {
     if (!handle) return;
     DestroyWindow((HWND)handle);
+}
+
+void ng_windows_window_show(NGHandle window) {
+    if (!window) return;
+    ShowWindow((HWND)window, SW_SHOW);
+    UpdateWindow((HWND)window);
+}
+
+void ng_windows_window_hide(NGHandle window) {
+    if (!window) return;
+    ShowWindow((HWND)window, SW_HIDE);
+}
+
+int ng_windows_window_is_visible(NGHandle window) {
+    if (!window) return 0;
+    return IsWindowVisible((HWND)window) ? 1 : 0;
 }
 
 int ng_windows_set_window_content(NGHandle window_handle, NGHandle content_handle) {
@@ -232,6 +253,22 @@ void ng_windows_window_get_size(NGHandle window, int* width, int* height) {
     GetClientRect(hwnd, &rect);
     *width = rect.right - rect.left;
     *height = rect.bottom - rect.top;
+}
+
+void ng_windows_window_set_position(NGHandle window, int x, int y) {
+    if (!window) return;
+    HWND hwnd = (HWND)window;
+    SetWindowPos(hwnd, NULL, x, y, 0, 0, SWP_NOZORDER | SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
+void ng_windows_window_get_position(NGHandle window, int* x, int* y) {
+    if (!window || !x || !y) return;
+    HWND hwnd = (HWND)window;
+    RECT rect;
+    if (GetWindowRect(hwnd, &rect)) {
+        *x = rect.left;
+        *y = rect.top;
+    }
 }
 
 void ng_windows_window_request_close(NGHandle window) {
