@@ -1,6 +1,6 @@
 #include "android/android.h"
 #include "android/window.h"
-#include "../common/errors.h"
+#include "common/errors.h"
 
 int ng_platform_init(void) {
     return ng_android_init();

@@ -1,7 +1,7 @@
 #ifndef NATIVE_GUI_ANDROID_WINDOW_H
 #define NATIVE_GUI_ANDROID_WINDOW_H
 
-#include "../../common/types.h"
+#include "common/types.h"
 
 #ifdef __cplusplus
 extern "C" {
