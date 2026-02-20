@@ -5,7 +5,7 @@
 use super::cpu::hit_test;
 use super::display_list::DisplayList;
 use super::types::{InteractiveId, Point};
-use crate::AureaResult;
+use aurea_core::AureaResult;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -33,25 +33,25 @@ impl InteractionRegistry {
 
     /// Register a click callback
     pub fn register_click(&self, id: InteractiveId, callback: ClickCallback) {
-        let mut callbacks = crate::sync::lock(&self.click_callbacks);
+        let mut callbacks = aurea_core::lock(&self.click_callbacks);
         callbacks.insert(id, callback);
     }
 
     /// Register a hover callback
     pub fn register_hover(&self, id: InteractiveId, callback: HoverCallback) {
-        let mut callbacks = crate::sync::lock(&self.hover_callbacks);
+        let mut callbacks = aurea_core::lock(&self.hover_callbacks);
         callbacks.insert(id, callback);
     }
 
     /// Unregister callbacks for an ID
     pub fn unregister(&self, id: InteractiveId) {
-        let mut click_callbacks = crate::sync::lock(&self.click_callbacks);
+        let mut click_callbacks = aurea_core::lock(&self.click_callbacks);
         click_callbacks.remove(&id);
 
-        let mut hover_callbacks = crate::sync::lock(&self.hover_callbacks);
+        let mut hover_callbacks = aurea_core::lock(&self.hover_callbacks);
         hover_callbacks.remove(&id);
 
-        let mut hover_state = crate::sync::lock(&self.hover_state);
+        let mut hover_state = aurea_core::lock(&self.hover_state);
         hover_state.remove(&id);
     }
 
@@ -83,7 +83,7 @@ impl InteractionRegistry {
 
                 if hit {
                     // Found a hit, invoke callback
-                    let callbacks = crate::sync::lock(&self.click_callbacks);
+                    let callbacks = aurea_core::lock(&self.click_callbacks);
                     if let Some(callback) = callbacks.get(&interactive_id) {
                         callback(point)?;
                     }
@@ -129,8 +129,8 @@ impl InteractionRegistry {
         }
 
         // Check for hover state changes
-        let mut hover_state = crate::sync::lock(&self.hover_state);
-        let hover_callbacks = crate::sync::lock(&self.hover_callbacks);
+        let mut hover_state = aurea_core::lock(&self.hover_state);
+        let hover_callbacks = aurea_core::lock(&self.hover_callbacks);
 
         // Check for new hovers
         for (id, _) in &current_hovered {

@@ -5,7 +5,7 @@
 
 use super::super::types::{Color, Font, FontStyle, FontWeight, Point, TextMetrics};
 use super::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
-use crate::{AureaError, AureaResult};
+use aurea_core::{AureaError, AureaResult};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -57,7 +57,7 @@ impl FontDbTextRasterizer {
     fn resolve_font(&self, font: &Font) -> AureaResult<Arc<fontdue::Font>> {
         let key = FontKey::from_font(font);
 
-        if let Some(cached) = crate::sync::lock(&self.cache).get(&key).cloned() {
+        if let Some(cached) = aurea_core::lock(&self.cache).get(&key).cloned() {
             return Ok(cached);
         }
 
@@ -108,7 +108,7 @@ impl FontDbTextRasterizer {
             .map_err(|_| AureaError::RenderingFailed)?;
 
         let font_arc = Arc::new(fontdue);
-        crate::sync::lock(&self.cache).insert(key, font_arc.clone());
+        aurea_core::lock(&self.cache).insert(key, font_arc.clone());
         Ok(font_arc)
     }
 }
@@ -176,7 +176,7 @@ pub fn get_platform_rasterizer() -> Box<dyn PlatformTextRasterizer> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::types::Font;
+    use crate::types::Font;
 
     #[test]
     fn measure_text_returns_positive_for_non_empty() {
