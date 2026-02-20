@@ -1,31 +1,4 @@
-[package]
-name = "aurea"
-version = "0.0.1"
-edition = "2024"
-description = "Native GUI toolkit with cross-platform windowing, native widgets, and framework-owned CPU rasterizer"
-license = "Apache-2.0"
-readme = "README.md"
-
-[dependencies]
-
-libc = "0.2"
-log = "0.4.29"
-fontdb = "0.16"
-fontdue = "0.9"
-
-[features]
-default = []
-wgpu = ["dep:wgpu", "dep:raw-window-handle"]
-
-[dependencies.wgpu]
-version = "28.0.0"
-optional = true
-
-[dependencies.raw-window-handle]
-version = "0.6"
-optional = true
-
-
-[build-dependencies]
-cc = "1.2"
-pkg-config = "0.3"
+[workspace]
+resolver = "2"
+members = ["crates/aurea-core", "crates/aurea-ffi", "crates/aurea-render", "crates/aurea-runtime", "crates/aurea"]
+default-members = ["crates/aurea"]
