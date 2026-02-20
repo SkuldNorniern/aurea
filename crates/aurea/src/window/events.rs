@@ -1,7 +1,7 @@
 //! Window event system for external event loop integration
 
-pub use crate::events::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};
-pub use crate::runtime::event_queue::EventQueue;
+pub use aurea_core::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};
+pub use aurea_runtime::EventQueue;
 
 #[cfg(test)]
 mod tests {

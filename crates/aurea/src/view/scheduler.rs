@@ -1,4 +1,4 @@
-pub use crate::runtime::frame_queue::FrameScheduler;
+pub use aurea_runtime::FrameScheduler;
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ng_process_frames() {

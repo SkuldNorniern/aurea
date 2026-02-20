@@ -1,0 +1,27 @@
+[package]
+name = "aurea"
+version = "0.0.1"
+edition = "2024"
+description = "Native GUI toolkit with cross-platform windowing, native widgets, and framework-owned CPU rasterizer"
+license = "Apache-2.0"
+readme = "README.md"
+
+[dependencies]
+aurea-core = { path = "../aurea-core" }
+aurea-ffi = { path = "../aurea-ffi" }
+aurea-render = { path = "../aurea-render" }
+aurea-runtime = { path = "../aurea-runtime" }
+libc = "0.2"
+log = "0.4.29"
+
+[features]
+default = []
+wgpu = ["dep:wgpu", "dep:raw-window-handle"]
+
+[dependencies.wgpu]
+version = "28.0.0"
+optional = true
+
+[dependencies.raw-window-handle]
+version = "0.6"
+optional = true

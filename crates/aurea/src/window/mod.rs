@@ -49,14 +49,14 @@ pub enum CursorGrabMode {
     Locked = 2,
 }
 
-use crate::capability::{Capability, CapabilityChecker};
+use aurea_core::{Capability, CapabilityChecker};
 use crate::elements::Element;
 use crate::ffi::*;
 use crate::lifecycle::{
     LifecycleEvent, register_lifecycle_callback, unregister_lifecycle_callback,
 };
 use crate::menu::MenuBar;
-use crate::platform::Platform;
+use aurea_core::Platform;
 use crate::view::{DamageRegion, FrameScheduler};
 use crate::{AureaError, AureaResult};
 use std::{

@@ -21,11 +21,9 @@
 ///
 /// - **`window`** - Window management, events, lifecycle
 /// - **`elements`** - UI widgets (Button, Label, Canvas, etc.)
-/// - **`core`** - Shared core types (`AureaError`, `AureaResult`)
 /// - **`render`** - Rendering system (CPU rasterizer, display lists)
 /// - **`view`** - View layer (damage tracking, frame scheduling)
 /// - **`integration`** - External renderer integrations (wgpu, etc.)
-/// - **`platform`** - Platform detection and capabilities
 /// - **`lifecycle`** - Application lifecycle events
 /// - **`menu`** - Menu bar and menu management
 ///
@@ -40,7 +38,7 @@
 ///
 /// # Implementation note
 ///
-/// Interior mutability uses `Mutex`; `sync::lock()` is used throughout because we do not
+/// Interior mutability uses `Mutex`; `aurea_core::lock` is used throughout because we do not
 /// panic while holding a lock, so the mutex is never poisoned.
 ///
 /// # Example
@@ -66,20 +64,18 @@
 ///     Ok(())
 /// }
 /// ```
-pub mod capability;
-pub mod core;
+mod sync {
+    pub use aurea_core::lock;
+}
+
 pub mod elements;
-pub mod events;
 pub mod ffi;
 pub mod integration;
 pub mod lifecycle;
 pub mod logger;
 pub mod menu;
-pub mod platform;
 pub mod registry;
 pub mod render;
-pub mod runtime;
-pub mod sync;
 pub mod view;
 pub mod window;
 
@@ -96,11 +92,7 @@ pub use crate::window::{CursorGrabMode, Window, WindowId, WindowManager, WindowT
 // Re-export window event types
 pub use crate::window::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};
 
-// Re-export platform and capability modules
-pub use crate::capability::{Capability, CapabilityChecker};
-pub use crate::platform::{DesktopPlatform, MobilePlatform, Platform};
-
-// Re-export integration types
-pub use crate::core::{AureaError, AureaResult};
+pub use aurea_core::{Capability, CapabilityChecker, DesktopPlatform, MobilePlatform, Platform};
+pub use aurea_core::{AureaError, AureaResult};
 #[cfg(feature = "wgpu")]
 pub use crate::integration::NativeWindowHandle;
