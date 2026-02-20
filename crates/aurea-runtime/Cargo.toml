@@ -1,0 +1,10 @@
+[package]
+name = "aurea-runtime"
+version = "0.0.1"
+edition = "2024"
+description = "Window event loop lifecycle and scheduling for Aurea"
+
+[dependencies]
+aurea-core = { path = "../aurea-core" }
+aurea-render = { path = "../aurea-render" }
+log = "0.4.29"

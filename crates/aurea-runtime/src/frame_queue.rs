@@ -1,13 +1,12 @@
 //! Frame queue for scheduling and processing redraws.
-//!
-//! Manages canvas registrations and frame callbacks for event-driven invalidation.
 
+use aurea_core::AureaError;
 use std::collections::HashMap;
 use std::os::raw::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 
-type CanvasRedrawCallback = Arc<dyn Fn() -> Result<(), crate::AureaError> + Send + Sync>;
+type CanvasRedrawCallback = Arc<dyn Fn() -> Result<(), AureaError> + Send + Sync>;
 type FrameCallback = Arc<dyn Fn() + Send + Sync + 'static>;
 
 static FRAME_SCHEDULED: AtomicBool = AtomicBool::new(false);
@@ -32,12 +31,12 @@ impl FrameScheduler {
     }
 
     pub fn register_canvas(handle: *mut c_void, callback: CanvasRedrawCallback) {
-        let mut registry = crate::sync::lock(&CANVAS_REGISTRY);
+        let mut registry = aurea_core::lock(&CANVAS_REGISTRY);
         registry.insert(handle as usize, callback);
     }
 
     pub fn unregister_canvas(handle: *mut c_void) {
-        let mut registry = crate::sync::lock(&CANVAS_REGISTRY);
+        let mut registry = aurea_core::lock(&CANVAS_REGISTRY);
         registry.remove(&(handle as usize));
     }
 
@@ -45,18 +44,18 @@ impl FrameScheduler {
     where
         F: Fn() + Send + Sync + 'static,
     {
-        let mut callbacks = crate::sync::lock(&FRAME_CALLBACKS);
+        let mut callbacks = aurea_core::lock(&FRAME_CALLBACKS);
         callbacks.push(Arc::new(callback));
     }
 
-    pub fn process_frames() -> crate::AureaResult<()> {
+    pub fn process_frames() -> Result<(), AureaError> {
         if !Self::take() {
             return Ok(());
         }
 
         let (canvas_callbacks, global_callbacks) = {
-            let registry = crate::sync::lock(&CANVAS_REGISTRY);
-            let global = crate::sync::lock(&FRAME_CALLBACKS);
+            let registry = aurea_core::lock(&CANVAS_REGISTRY);
+            let global = aurea_core::lock(&FRAME_CALLBACKS);
             (
                 registry.values().cloned().collect::<Vec<_>>(),
                 global.clone(),
