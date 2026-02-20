@@ -9,6 +9,8 @@ extern "C" {
 
 int ng_linux_init(void);
 void ng_linux_cleanup(void);
+int ng_linux_run(void);
+int ng_linux_poll_events(void);
 
 #ifdef __cplusplus
 }
