@@ -1,6 +1,8 @@
 #[cfg(target_os = "linux")]
 use std::process::Command;
 
+const COMMON_C_SOURCES: &[&str] = &["c_src/common/platform.c"];
+
 #[cfg(target_os = "windows")]
 const WINDOWS_C_SOURCES: &[&str] = &[
     "c_src/platform/windows.c",
@@ -146,6 +148,7 @@ fn main() {
 
     #[cfg(target_os = "windows")]
     {
+        add_sources(&mut build, COMMON_C_SOURCES);
         add_sources(&mut build, WINDOWS_C_SOURCES);
         build.define("_WIN32", None);
 
@@ -164,6 +167,7 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=UIKit");
         println!("cargo:rustc-link-lib=framework=Foundation");
 
+        add_sources(&mut build, COMMON_C_SOURCES);
         add_sources(&mut build, IOS_SOURCES);
         build
             .include("c_src/platform/ios")
@@ -176,10 +180,12 @@ fn main() {
             .flag("-mios-version-min=13.0")
             .flag("-Wno-error=unused-command-line-argument");
 
+        rerun_for(COMMON_C_SOURCES);
         rerun_for(IOS_SOURCES);
     } else if target.contains("apple-darwin") {
         println!("cargo:rustc-link-lib=framework=Cocoa");
 
+        add_sources(&mut build, COMMON_C_SOURCES);
         add_sources(&mut build, MACOS_SOURCES);
         build
             .define("__APPLE__", None)
@@ -189,6 +195,7 @@ fn main() {
             .flag("-fobjc-arc")
             .flag("-Wno-error=unused-command-line-argument");
 
+        rerun_for(COMMON_C_SOURCES);
         rerun_for(MACOS_SOURCES);
     }
 
@@ -228,7 +235,9 @@ fn main() {
             }
         }
 
+        add_sources(&mut build, COMMON_C_SOURCES);
         add_sources(&mut build, LINUX_SOURCES);
+        rerun_for(COMMON_C_SOURCES);
         rerun_for(LINUX_SOURCES);
     }
 
