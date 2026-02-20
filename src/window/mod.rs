@@ -97,10 +97,20 @@ impl Window {
         height: i32,
         window_type: WindowType,
     ) -> AureaResult<Self> {
+        const AUREA_FFI_ABI_VERSION: i32 = 1;
+
         static INIT: std::sync::Once = std::sync::Once::new();
         let mut error = None;
 
         INIT.call_once(|| {
+            let got = unsafe { ng_platform_get_abi_version() };
+            if got != AUREA_FFI_ABI_VERSION {
+                error = Some(AureaError::AbiVersionMismatch {
+                    expected: AUREA_FFI_ABI_VERSION,
+                    got,
+                });
+                return;
+            }
             if unsafe { ng_platform_init() } != 0 {
                 error = Some(AureaError::PlatformError(1));
             }

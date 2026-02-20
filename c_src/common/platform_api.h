@@ -4,11 +4,15 @@
 #include "types.h"
 #include <stdint.h>
 
+#define AUREA_FFI_ABI_VERSION 1
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef void (*ScaleFactorCallback)(void*, float);
+
+int ng_platform_get_abi_version(void);
 
 // Init / event loop
 int ng_platform_init(void);
