@@ -1,9 +1,8 @@
 #include "menu.h"
 #include "window.h"
 #include "common/errors.h"
+#include "common/rust_callbacks.h"
 #include <gtk/gtk.h>
-
-extern void ng_invoke_menu_callback(unsigned int id);
 
 static void menu_item_clicked(GtkMenuItem *item, gpointer user_data) {
     guint id = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(item), "menu-id"));

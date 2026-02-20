@@ -1,8 +1,7 @@
 #include "../elements.h"
 #include "common/errors.h"
+#include "common/rust_callbacks.h"
 #include <gtk/gtk.h>
-
-extern void ng_invoke_tab_bar_selected(unsigned int id, int index);
 
 typedef struct {
     unsigned int id;

@@ -1,8 +1,7 @@
 #include "../elements.h"
 #include "common/errors.h"
+#include "common/rust_callbacks.h"
 #include <gtk/gtk.h>
-
-extern void ng_invoke_sidebar_list_selected(unsigned int id, int index);
 
 #define ROW_HEIGHT 18
 #define INDENT_STEP 10

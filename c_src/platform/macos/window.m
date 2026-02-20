@@ -1,20 +1,10 @@
 #import "window.h"
-#import "../../common/errors.h"
-#import "../../common/input.h"
+#import "common/errors.h"
+#import "common/input.h"
+#import "common/rust_callbacks.h"
 #import "utils.h"
 #import <Cocoa/Cocoa.h>
 #import <CoreGraphics/CoreGraphics.h>
-
-// Forward declaration for lifecycle callback
-extern void ng_invoke_lifecycle_callback(void* window, unsigned int event_id);
-extern void ng_invoke_key_event(void* window, unsigned int keycode, int pressed, unsigned int modifiers);
-extern void ng_invoke_mouse_button(void* window, int button, int pressed, unsigned int modifiers);
-extern void ng_invoke_mouse_move(void* window, double x, double y);
-extern void ng_invoke_mouse_wheel(void* window, double delta_x, double delta_y, unsigned int modifiers);
-extern void ng_invoke_text_input(void* window, const char* text);
-extern void ng_invoke_focus_changed(void* window, int focused);
-extern void ng_invoke_cursor_entered(void* window, int entered);
-extern void ng_invoke_raw_mouse_motion(void* window, double delta_x, double delta_y);
 
 static int ng_macos_get_cursor_grab_mode(void* windowHandle);
 

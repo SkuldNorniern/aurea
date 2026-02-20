@@ -1,11 +1,10 @@
 #include "common.h"
 #include "../elements.h"
 #include "common/errors.h"
+#include "common/rust_callbacks.h"
 #include <windows.h>
 #include <stdlib.h>
 #include <string.h>
-
-extern void ng_invoke_sidebar_list_selected(unsigned int id, int index);
 
 #define SIDEBAR_ID_PROP "AureaSidebarId"
 #define SIDEBAR_OLD_PROC_PROP "AureaSidebarOldProc"
