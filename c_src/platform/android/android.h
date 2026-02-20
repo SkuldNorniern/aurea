@@ -1,13 +1,12 @@
 #ifndef NATIVE_GUI_ANDROID_H
 #define NATIVE_GUI_ANDROID_H
 
-#include "common/types.h"
+#include "common/platform_api.h"
+#include <jni.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef void (*ScaleFactorCallback)(void*, float);
 
 // Android platform initialization
 int ng_android_init(void);
