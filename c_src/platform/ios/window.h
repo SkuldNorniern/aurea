@@ -1,13 +1,11 @@
 #ifndef NATIVE_GUI_IOS_WINDOW_H
 #define NATIVE_GUI_IOS_WINDOW_H
 
-#include "common/types.h"
+#include "common/platform_api.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef void (*ScaleFactorCallback)(void*, float);
 
 NGHandle ng_ios_create_window_impl(const char* title, int width, int height);
 void ng_ios_destroy_window_impl(NGHandle handle);
