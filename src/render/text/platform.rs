@@ -211,7 +211,10 @@ mod tests {
             .rasterize_glyph(&font, 'A' as u32)
             .expect("rasterize_glyph A should succeed");
         assert!(bitmap.width > 0 && bitmap.height > 0);
-        assert_eq!(bitmap.data.len(), (bitmap.width * bitmap.height) as usize * 4);
+        assert_eq!(
+            bitmap.data.len(),
+            (bitmap.width * bitmap.height) as usize * 4
+        );
     }
 }
 

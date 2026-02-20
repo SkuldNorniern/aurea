@@ -25,14 +25,30 @@ pub fn blend_pixel(src: u32, dst: u32, mode: BlendMode) -> u32 {
     }
 }
 
-fn sr(src: u32) -> u32 { (src >> 16) & 0xff }
-fn sg(src: u32) -> u32 { (src >> 8) & 0xff }
-fn sb(src: u32) -> u32 { src & 0xff }
-fn sa(src: u32) -> u32 { (src >> 24) & 0xff }
-fn dr(dst: u32) -> u32 { (dst >> 16) & 0xff }
-fn dg(dst: u32) -> u32 { (dst >> 8) & 0xff }
-fn db(dst: u32) -> u32 { dst & 0xff }
-fn da(dst: u32) -> u32 { (dst >> 24) & 0xff }
+fn sr(src: u32) -> u32 {
+    (src >> 16) & 0xff
+}
+fn sg(src: u32) -> u32 {
+    (src >> 8) & 0xff
+}
+fn sb(src: u32) -> u32 {
+    src & 0xff
+}
+fn sa(src: u32) -> u32 {
+    (src >> 24) & 0xff
+}
+fn dr(dst: u32) -> u32 {
+    (dst >> 16) & 0xff
+}
+fn dg(dst: u32) -> u32 {
+    (dst >> 8) & 0xff
+}
+fn db(dst: u32) -> u32 {
+    dst & 0xff
+}
+fn da(dst: u32) -> u32 {
+    (dst >> 24) & 0xff
+}
 
 fn blend_over(src: u32, dst: u32) -> u32 {
     let sa = sa(src);
@@ -142,9 +158,21 @@ fn blend_color_dodge(src: u32, dst: u32) -> u32 {
     let dg = dg(dst);
     let db = db(dst);
     let da = da(dst);
-    let out_r = if sr >= 255 { 255 } else { (255 * dr).min(255) / (255 - sr) };
-    let out_g = if sg >= 255 { 255 } else { (255 * dg).min(255) / (255 - sg) };
-    let out_b = if sb >= 255 { 255 } else { (255 * db).min(255) / (255 - sb) };
+    let out_r = if sr >= 255 {
+        255
+    } else {
+        (255 * dr).min(255) / (255 - sr)
+    };
+    let out_g = if sg >= 255 {
+        255
+    } else {
+        (255 * dg).min(255) / (255 - sg)
+    };
+    let out_b = if sb >= 255 {
+        255
+    } else {
+        (255 * db).min(255) / (255 - sb)
+    };
     let out_a = sa + (da * (255 - sa)) / 255;
     (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b
 }
@@ -158,9 +186,21 @@ fn blend_color_burn(src: u32, dst: u32) -> u32 {
     let dg = dg(dst);
     let db = db(dst);
     let da = da(dst);
-    let out_r = if sr == 0 { 0 } else { 255 - ((255 - dr) * 255).min(255) / sr };
-    let out_g = if sg == 0 { 0 } else { 255 - ((255 - dg) * 255).min(255) / sg };
-    let out_b = if sb == 0 { 0 } else { 255 - ((255 - db) * 255).min(255) / sb };
+    let out_r = if sr == 0 {
+        0
+    } else {
+        255 - ((255 - dr) * 255).min(255) / sr
+    };
+    let out_g = if sg == 0 {
+        0
+    } else {
+        255 - ((255 - dg) * 255).min(255) / sg
+    };
+    let out_b = if sb == 0 {
+        0
+    } else {
+        255 - ((255 - db) * 255).min(255) / sb
+    };
     let out_a = sa + (da * (255 - sa)) / 255;
     (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b
 }
@@ -203,7 +243,13 @@ fn soft_light_channel(s: u32, d: u32) -> u32 {
     let r = if s <= 0.5 {
         d * (1.0 - (1.0 - 2.0 * s) * (1.0 - d))
     } else {
-        d * (1.0 + (2.0 * s - 1.0) * (if d <= 0.25 { ((16.0 * d - 12.0) * d + 4.0) * d } else { d.sqrt() - d }))
+        d * (1.0
+            + (2.0 * s - 1.0)
+                * (if d <= 0.25 {
+                    ((16.0 * d - 12.0) * d + 4.0) * d
+                } else {
+                    d.sqrt() - d
+                }))
     };
     (r * 255.0).clamp(0.0, 255.0) as u32
 }
