@@ -1,55 +1,26 @@
 //! Platform detection and platform-specific functionality
-//!
-//! This module provides platform detection and categorization, distinguishing
-//! between desktop and mobile platforms.
-//!
-//! **Mobile vs Desktop Differences:**
-//! - **Mobile platforms** (iOS, Android):
-//!   - Single window model (fullscreen by default)
-//!   - Lifecycle-driven (background/foreground, pause/resume)
-//!   - Touch input primary, no mouse
-//!   - Scale factor changes with device rotation
-//!   - Memory constraints more strict
-//!   - Surface recreation on context loss
-//!
-//! - **Desktop platforms** (macOS, Windows, Linux):
-//!   - Multiple windows supported
-//!   - Mouse/keyboard input primary
-//!   - Window management (minimize, maximize, resize)
-//!   - Scale factor changes when moving between displays
-//!   - More relaxed memory constraints
 
 /// Represents the target platform
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Platform {
-    /// Desktop platforms
     Desktop(DesktopPlatform),
-    /// Mobile platforms
     Mobile(MobilePlatform),
 }
 
-/// Desktop operating systems
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DesktopPlatform {
-    /// macOS (Apple desktop)
     MacOS,
-    /// Windows (Microsoft)
     Windows,
-    /// Linux (various distributions)
     Linux,
 }
 
-/// Mobile operating systems
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MobilePlatform {
-    /// iOS (Apple mobile)
     IOS,
-    /// Android (Google mobile)
     Android,
 }
 
 impl Platform {
-    /// Detect the current platform at compile time
     pub fn current() -> Self {
         #[cfg(target_os = "macos")]
         {
@@ -88,17 +59,14 @@ impl Platform {
         }
     }
 
-    /// Check if this is a desktop platform
     pub fn is_desktop(&self) -> bool {
         matches!(self, Platform::Desktop(_))
     }
 
-    /// Check if this is a mobile platform
     pub fn is_mobile(&self) -> bool {
         matches!(self, Platform::Mobile(_))
     }
 
-    /// Get the desktop platform variant, if applicable
     pub fn as_desktop(&self) -> Option<DesktopPlatform> {
         match self {
             Platform::Desktop(platform) => Some(*platform),
@@ -106,7 +74,6 @@ impl Platform {
         }
     }
 
-    /// Get the mobile platform variant, if applicable
     pub fn as_mobile(&self) -> Option<MobilePlatform> {
         match self {
             Platform::Desktop(_) => None,
@@ -114,7 +81,6 @@ impl Platform {
         }
     }
 
-    /// Get the platform name as a string
     pub fn name(&self) -> &'static str {
         match self {
             Platform::Desktop(DesktopPlatform::MacOS) => "macOS",
@@ -125,7 +91,6 @@ impl Platform {
         }
     }
 
-    /// Get the platform family (desktop or mobile)
     pub fn family(&self) -> &'static str {
         match self {
             Platform::Desktop(_) => "Desktop",
@@ -135,7 +100,6 @@ impl Platform {
 }
 
 impl DesktopPlatform {
-    /// Get the desktop platform name
     pub fn name(&self) -> &'static str {
         match self {
             DesktopPlatform::MacOS => "macOS",
@@ -146,7 +110,6 @@ impl DesktopPlatform {
 }
 
 impl MobilePlatform {
-    /// Get the mobile platform name
     pub fn name(&self) -> &'static str {
         match self {
             MobilePlatform::IOS => "iOS",
