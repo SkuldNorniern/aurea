@@ -8,6 +8,11 @@ pub struct Checkbox {
 
 impl Checkbox {
     pub fn new(label: &str) -> AureaResult<Self> {
+        Self::with_checked(label, false)
+    }
+
+    /// Create a checkbox with initial checked state.
+    pub fn with_checked(label: &str, checked: bool) -> AureaResult<Self> {
         let label = CString::new(label).map_err(|_| AureaError::InvalidTitle)?;
         let handle = unsafe { ng_platform_create_checkbox(label.as_ptr()) };
 
@@ -15,7 +20,9 @@ impl Checkbox {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        Ok(Self { handle })
+        let mut checkbox = Self { handle };
+        let _ = checkbox.set_checked(checked);
+        Ok(checkbox)
     }
 
     pub fn set_checked(&mut self, checked: bool) -> AureaResult<()> {
