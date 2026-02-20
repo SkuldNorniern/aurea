@@ -2,17 +2,9 @@
 
 use crate::ffi::*;
 use crate::{AureaError, AureaResult};
-use std::{
-    collections::HashMap,
-    ffi::CString,
-    os::raw::c_void,
-    sync::{LazyLock, Mutex},
-};
+use std::{ffi::CString, os::raw::c_void};
 
 use log::debug;
-
-static MENU_CALLBACKS: LazyLock<Mutex<HashMap<u32, Box<dyn Fn() + Send + Sync>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// A native menu bar attached to a window.
 pub struct MenuBar {
@@ -55,12 +47,7 @@ impl SubMenu {
     where
         F: Fn() + Send + Sync + 'static,
     {
-        static MENU_ITEM_ID: LazyLock<Mutex<u32>> = LazyLock::new(|| Mutex::new(1));
-        let id = {
-            let mut id_guard = crate::sync::lock(&MENU_ITEM_ID);
-            *id_guard += 1;
-            *id_guard - 1
-        };
+        let id = crate::registry::menu::next_menu_item_id();
 
         let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
         let result = unsafe { ng_platform_add_menu_item(self.handle, title.as_ptr(), id) };
@@ -69,8 +56,7 @@ impl SubMenu {
             return Err(AureaError::MenuItemAddFailed);
         }
 
-        let mut callbacks = crate::sync::lock(&MENU_CALLBACKS);
-        callbacks.insert(id, Box::new(callback));
+        crate::registry::menu::register_menu_callback(id, callback);
         debug!(
             "Added menu item '{}' with id {}",
             title.to_string_lossy(),
@@ -96,10 +82,7 @@ impl SubMenu {
 }
 
 pub(crate) fn invoke_menu_callback(id: u32) {
-    let callbacks = crate::sync::lock(&MENU_CALLBACKS);
-    if let Some(callback) = callbacks.get(&id) {
-        callback();
-    }
+    crate::registry::menu::invoke_menu_callback(id);
 }
 
 impl Drop for MenuBar {

@@ -1,14 +1,6 @@
 use super::traits::Element;
 use crate::{AureaError, AureaResult, ffi::*};
-use std::{
-    collections::HashMap,
-    ffi::CString,
-    os::raw::c_void,
-    sync::{LazyLock, Mutex},
-};
-
-static TEXTVIEW_CALLBACKS: LazyLock<Mutex<HashMap<u32, Box<dyn Fn(String) + Send + Sync>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+use std::{ffi::CString, os::raw::c_void};
 
 pub struct TextView {
     handle: *mut c_void,
@@ -24,12 +16,7 @@ impl TextView {
     where
         F: Fn(String) + Send + Sync + 'static,
     {
-        static TEXTVIEW_ID: LazyLock<Mutex<u32>> = LazyLock::new(|| Mutex::new(1));
-        let id = {
-            let mut id_guard = crate::sync::lock(&TEXTVIEW_ID);
-            *id_guard += 1;
-            *id_guard - 1
-        };
+        let id = crate::registry::elements::next_text_view_id();
 
         let handle = unsafe { ng_platform_create_text_view(if editable { 1 } else { 0 }, id) };
 
@@ -37,8 +24,7 @@ impl TextView {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        let mut callbacks = crate::sync::lock(&TEXTVIEW_CALLBACKS);
-        callbacks.insert(id, Box::new(callback));
+        crate::registry::elements::register_text_view_callback(id, callback);
 
         Ok(Self { handle, _id: id })
     }
@@ -88,8 +74,5 @@ impl Element for TextView {
 }
 
 pub(crate) fn invoke_textview_callback(id: u32, content: String) {
-    let callbacks = crate::sync::lock(&TEXTVIEW_CALLBACKS);
-    if let Some(callback) = callbacks.get(&id) {
-        callback(content);
-    }
+    crate::registry::elements::invoke_text_view_callback(id, content);
 }

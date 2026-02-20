@@ -4,15 +4,7 @@
 
 use super::traits::Element;
 use crate::{AureaError, AureaResult, ffi::*};
-use std::{
-    ffi::CString,
-    os::raw::c_void,
-    sync::{LazyLock, Mutex},
-};
-
-static SIDEBAR_ID: LazyLock<Mutex<u32>> = LazyLock::new(|| Mutex::new(1));
-static SIDEBAR_SELECTED_CALLBACKS: LazyLock<Mutex<std::collections::HashMap<u32, Box<dyn Fn(i32) + Send + Sync>>>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+use std::{ffi::CString, os::raw::c_void};
 
 pub struct SidebarList {
     handle: *mut c_void,
@@ -31,11 +23,7 @@ impl SidebarList {
     where
         F: Fn(i32) + Send + Sync + 'static,
     {
-        let id = {
-            let mut id_guard = crate::sync::lock(&SIDEBAR_ID);
-            *id_guard += 1;
-            *id_guard - 1
-        };
+        let id = crate::registry::elements::next_sidebar_id();
 
         let handle = unsafe { ng_platform_create_sidebar_list(id) };
 
@@ -43,10 +31,7 @@ impl SidebarList {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        {
-            let mut callbacks = crate::sync::lock(&SIDEBAR_SELECTED_CALLBACKS);
-            callbacks.insert(id, Box::new(on_selected));
-        }
+        crate::registry::elements::register_sidebar_callback(id, on_selected);
 
         Ok(Self { handle, _id: id })
     }
@@ -62,7 +47,8 @@ impl SidebarList {
 
     pub fn add_item(&mut self, title: &str, indent: i32) -> AureaResult<()> {
         let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
-        let result = unsafe { ng_platform_sidebar_list_add_item(self.handle, title.as_ptr(), indent) };
+        let result =
+            unsafe { ng_platform_sidebar_list_add_item(self.handle, title.as_ptr(), indent) };
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
         }
@@ -91,10 +77,7 @@ impl SidebarList {
 }
 
 pub(crate) fn invoke_sidebar_list_selected(id: u32, index: i32) {
-    let callbacks = crate::sync::lock(&SIDEBAR_SELECTED_CALLBACKS);
-    if let Some(cb) = callbacks.get(&id) {
-        cb(index);
-    }
+    crate::registry::elements::invoke_sidebar_selected(id, index);
 }
 
 impl Element for SidebarList {
