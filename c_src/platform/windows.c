@@ -4,6 +4,7 @@
 #include "windows/menu.h"
 #include "windows/elements.h"
 #include "common/errors.h"
+#include "common/rust_callbacks.h"
 #include <windows.h>
 
 int ng_platform_init(void) {
@@ -61,8 +62,6 @@ int ng_platform_add_menu_separator(NGMenuHandle menu) {
 NGMenuHandle ng_platform_create_submenu(NGMenuHandle parentMenu, const char* title) {
     return ng_windows_create_submenu(parentMenu, title);
 }
-
-extern void ng_process_frames(void);
 
 int ng_platform_run(void) {
     MSG msg;

@@ -2,6 +2,7 @@
 #import "macos/window.h"
 #import "macos/menu.h"
 #import "common/errors.h"
+#import "common/rust_callbacks.h"
 #import "macos/elements.h"
 
 
@@ -83,8 +84,6 @@ int ng_platform_add_menu_item(NGMenuHandle menu_handle, const char* title, unsig
 NGMenuHandle ng_platform_create_submenu(NGMenuHandle parent, const char* title) {
     return ng_macos_create_submenu(parent, title);
 }
-
-extern void ng_process_frames(void);
 
 // Timer callback to process frames periodically
 static void process_frames_timer(CFRunLoopTimerRef timer, void *info) {

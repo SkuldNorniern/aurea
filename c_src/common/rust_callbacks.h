@@ -5,6 +5,14 @@
 extern "C" {
 #endif
 
+void ng_process_frames(void);
+
+void ng_log_error(const char* msg);
+void ng_log_warn(const char* msg);
+void ng_log_info(const char* msg);
+void ng_log_debug(const char* msg);
+void ng_log_trace(const char* msg);
+
 void ng_invoke_menu_callback(unsigned int id);
 void ng_invoke_button_callback(unsigned int id);
 void ng_invoke_tab_bar_selected(unsigned int id, int index);
