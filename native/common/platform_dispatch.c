@@ -2,6 +2,9 @@
 #include "platform_ops.h"
 #include "errors.h"
 #include <stdint.h>
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 
 static const ng_platform_ops_t* g_ops = NULL;
 
@@ -12,7 +15,7 @@ void ng_platform_register_ops(const ng_platform_ops_t* ops) {
 static void ensure_ops(void) {
     if (g_ops != NULL) return;
 #if defined(__APPLE__)
-#ifdef TARGET_OS_IPHONE
+#if TARGET_OS_IPHONE
     extern void ios_register_ops(void);
     ios_register_ops();
 #else
@@ -29,6 +32,7 @@ static void ensure_ops(void) {
 }
 
 #define DISPATCH_INIT(ret, name, ...) do { ensure_ops(); if (!g_ops->name) return (ret)(0); return g_ops->name(__VA_ARGS__); } while(0)
+#define DISPATCH_INIT_DEFAULT(ret, def, name, ...) do { ensure_ops(); if (!g_ops->name) return (ret)(def); return g_ops->name(__VA_ARGS__); } while(0)
 #define DISPATCH_VOID(name, ...) do { ensure_ops(); if (g_ops->name) g_ops->name(__VA_ARGS__); } while(0)
 #define DISPATCH_INT(name, ...) do { ensure_ops(); return g_ops->name ? g_ops->name(__VA_ARGS__) : NG_ERROR_PLATFORM_SPECIFIC; } while(0)
 
@@ -326,7 +330,7 @@ int ng_platform_checkbox_set_checked(NGHandle c, int v) {
 }
 
 int ng_platform_checkbox_get_checked(NGHandle c) {
-    DISPATCH_INIT(0, checkbox_get_checked, c);
+    DISPATCH_INIT(int, checkbox_get_checked, c);
 }
 
 int ng_platform_checkbox_set_enabled(NGHandle c, int e) {
@@ -370,7 +374,7 @@ int ng_platform_combo_box_set_selected(NGHandle c, int i) {
 }
 
 int ng_platform_combo_box_get_selected(NGHandle c) {
-    DISPATCH_INIT(-1, combo_box_get_selected, c);
+    DISPATCH_INIT(int, combo_box_get_selected, c);
 }
 
 int ng_platform_combo_box_clear(NGHandle c) {
@@ -386,7 +390,7 @@ void ng_platform_combo_box_invalidate(NGHandle c) {
 }
 
 NGHandle ng_platform_create_tab_bar(unsigned int id) {
-    DISPATCH_INIT((NGHandle)NULL, create_tab_bar, id);
+    DISPATCH_INIT(NGHandle, create_tab_bar, id);
 }
 
 int ng_platform_tab_bar_add_tab(NGHandle t, const char* ti) {
@@ -402,7 +406,7 @@ int ng_platform_tab_bar_set_selected(NGHandle t, int i) {
 }
 
 int ng_platform_tab_bar_get_selected(NGHandle t) {
-    DISPATCH_INIT(-1, tab_bar_get_selected, t);
+    DISPATCH_INIT_DEFAULT(int, -1, tab_bar_get_selected, t);
 }
 
 void ng_platform_tab_bar_invalidate(NGHandle t) {
@@ -410,7 +414,7 @@ void ng_platform_tab_bar_invalidate(NGHandle t) {
 }
 
 NGHandle ng_platform_create_sidebar_list(unsigned int id) {
-    DISPATCH_INIT((NGHandle)NULL, create_sidebar_list, id);
+    DISPATCH_INIT(NGHandle, create_sidebar_list, id);
 }
 
 int ng_platform_sidebar_list_add_section(NGHandle s, const char* t) {
@@ -426,7 +430,7 @@ int ng_platform_sidebar_list_set_selected(NGHandle s, int i) {
 }
 
 int ng_platform_sidebar_list_get_selected(NGHandle s) {
-    DISPATCH_INIT(-1, sidebar_list_get_selected, s);
+    DISPATCH_INIT_DEFAULT(int, -1, sidebar_list_get_selected, s);
 }
 
 int ng_platform_sidebar_list_clear(NGHandle s) {
