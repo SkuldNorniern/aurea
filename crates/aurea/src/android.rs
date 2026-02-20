@@ -35,3 +35,53 @@ pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeInit(
         aurea_ffi::ng_android_set_activity(java_vm_ptr as *mut c_void, activity_raw);
     }
 }
+
+#[no_mangle]
+pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeOnPause(
+    _env: JNIEnv,
+    _thiz: JObject,
+) {
+    unsafe {
+        aurea_ffi::ng_android_on_pause();
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeOnResume(
+    _env: JNIEnv,
+    _thiz: JObject,
+) {
+    unsafe {
+        aurea_ffi::ng_android_on_resume();
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeOnDestroy(
+    _env: JNIEnv,
+    _thiz: JObject,
+) {
+    unsafe {
+        aurea_ffi::ng_android_on_destroy();
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeOnSurfaceLost(
+    _env: JNIEnv,
+    _thiz: JObject,
+) {
+    unsafe {
+        aurea_ffi::ng_android_on_surface_lost();
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeOnSurfaceRecreated(
+    _env: JNIEnv,
+    _thiz: JObject,
+) {
+    unsafe {
+        aurea_ffi::ng_android_on_surface_recreated();
+    }
+}

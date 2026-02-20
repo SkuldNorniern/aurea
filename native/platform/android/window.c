@@ -1,4 +1,5 @@
 #include "window.h"
+#include "android.h"
 #include "common/errors.h"
 #include "common/rust_callbacks.h"
 #include <jni.h>
@@ -154,7 +155,9 @@ void ng_android_window_set_lifecycle_callback_impl(NGHandle window) {
     ng_android_set_lifecycle_callback_enabled(1);
 }
 
-// JNI environment setup is handled in android.c via ng_android_set_activity()
+void ng_android_set_jni_env(JavaVM* jvm, jobject activity) {
+    ng_android_set_activity(jvm, activity);
+}
 
 void ng_android_set_scale_factor_callback_global(ScaleFactorCallback callback) {
     g_scaleFactorCallback = callback;
