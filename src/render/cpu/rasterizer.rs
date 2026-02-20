@@ -109,14 +109,14 @@ impl CpuRasterizer {
         tile_bounds: &Rect,
     ) -> AureaResult<()> {
         match &item.command {
-            super::super::renderer::DrawCommand::Clear(color) => {
+            super::super::command::DrawCommand::Clear(color) => {
                 let rgba = color_to_u32(*color);
                 tile.clear(rgba);
             }
-            super::super::renderer::DrawCommand::DrawRect(rect, paint) => {
+            super::super::command::DrawCommand::DrawRect(rect, paint) => {
                 Self::draw_rect_to_tile_static(rect, paint, item.blend_mode, tile, tile_bounds);
             }
-            super::super::renderer::DrawCommand::DrawCircle(center, radius, paint) => {
+            super::super::command::DrawCommand::DrawCircle(center, radius, paint) => {
                 Self::draw_circle_to_tile_static(
                     *center,
                     *radius,
@@ -126,10 +126,10 @@ impl CpuRasterizer {
                     tile_bounds,
                 );
             }
-            super::super::renderer::DrawCommand::DrawPath(path, paint) => {
+            super::super::command::DrawCommand::DrawPath(path, paint) => {
                 Self::draw_path_to_tile_static(path, paint, item.blend_mode, tile, tile_bounds)?;
             }
-            super::super::renderer::DrawCommand::DrawImageRect(image, dest) => {
+            super::super::command::DrawCommand::DrawImageRect(image, dest) => {
                 Self::draw_image_to_tile_static(
                     image,
                     Rect::new(0.0, 0.0, image.width as f32, image.height as f32),
@@ -139,7 +139,7 @@ impl CpuRasterizer {
                     tile_bounds,
                 );
             }
-            super::super::renderer::DrawCommand::DrawImageRegion(image, src, dest) => {
+            super::super::command::DrawCommand::DrawImageRegion(image, src, dest) => {
                 Self::draw_image_to_tile_static(
                     image,
                     *src,
@@ -149,7 +149,7 @@ impl CpuRasterizer {
                     tile_bounds,
                 );
             }
-            super::super::renderer::DrawCommand::FillLinearGradient(gradient, rect) => {
+            super::super::command::DrawCommand::FillLinearGradient(gradient, rect) => {
                 Self::fill_linear_gradient_to_tile_static(
                     gradient,
                     *rect,
@@ -158,7 +158,7 @@ impl CpuRasterizer {
                     tile_bounds,
                 );
             }
-            super::super::renderer::DrawCommand::FillRadialGradient(gradient, rect) => {
+            super::super::command::DrawCommand::FillRadialGradient(gradient, rect) => {
                 Self::fill_radial_gradient_to_tile_static(
                     gradient,
                     *rect,
@@ -650,7 +650,7 @@ impl Renderer for CpuRasterizer {
 
         let mut background_color = 0u32;
         for item in &display_items {
-            if let super::super::renderer::DrawCommand::Clear(color) = &item.command {
+            if let super::super::command::DrawCommand::Clear(color) = &item.command {
                 background_color = color_to_u32(*color);
                 break;
             }

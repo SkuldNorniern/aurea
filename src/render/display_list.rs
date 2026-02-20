@@ -62,7 +62,7 @@ pub struct DisplayItem {
     /// Blend mode when compositing this item
     pub blend_mode: super::types::BlendMode,
     /// The actual draw command
-    pub command: super::renderer::DrawCommand,
+    pub command: super::command::DrawCommand,
 }
 
 impl DisplayItem {
@@ -73,7 +73,7 @@ impl DisplayItem {
         bounds: Rect,
         opaque: bool,
         blend_mode: super::types::BlendMode,
-        command: super::renderer::DrawCommand,
+        command: super::command::DrawCommand,
     ) -> Self {
         Self {
             node_id,
@@ -94,7 +94,7 @@ impl DisplayItem {
         opaque: bool,
         interactive_id: super::types::InteractiveId,
         blend_mode: super::types::BlendMode,
-        command: super::renderer::DrawCommand,
+        command: super::command::DrawCommand,
     ) -> Self {
         Self {
             node_id,
