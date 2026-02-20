@@ -38,7 +38,19 @@ impl std::fmt::Display for AureaError {
             AureaError::MenuItemAddFailed => write!(f, "Failed to add a menu item"),
             AureaError::InvalidTitle => write!(f, "The provided title contains invalid characters"),
             AureaError::PlatformError(code) => {
-                write!(f, "A platform-specific error occurred: {}", code)
+                let hint = if *code == 1 {
+                    #[cfg(target_os = "linux")]
+                    { " Linux: install libgtk-3-dev (apt) or gtk3-devel (dnf)." }
+                    #[cfg(target_os = "macos")]
+                    { " macOS: ensure Xcode command line tools are installed." }
+                    #[cfg(target_os = "windows")]
+                    { " Windows: ensure MSVC build tools are installed." }
+                    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+                    { " Check platform dependencies." }
+                } else {
+                    " Check platform dependencies."
+                };
+                write!(f, "Platform error (code {}){}.", code, hint)
             }
             AureaError::EventLoopError => write!(f, "The event loop encountered an error"),
             AureaError::ElementOperationFailed => write!(f, "An operation on a GUI element failed"),
@@ -75,5 +87,17 @@ mod tests {
         assert!(s.contains("mismatch"));
         assert!(s.contains("expected 1"));
         assert!(s.contains("got 0"));
+    }
+
+    #[test]
+    fn platform_error_includes_actionable_hint_for_init_failure() {
+        let e = AureaError::PlatformError(1);
+        let s = e.to_string();
+        assert!(s.contains("Platform error"));
+        assert!(s.contains("code 1"));
+        assert!(
+            s.contains("Linux") || s.contains("macOS") || s.contains("Windows") || s.contains("platform dependencies"),
+            "display must include platform-specific or fallback hint"
+        );
     }
 }
