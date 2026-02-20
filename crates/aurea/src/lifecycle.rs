@@ -83,8 +83,85 @@ pub fn invoke_lifecycle_callback(window: *mut c_void, event: LifecycleEvent) {
 /// This is used for application-level events that affect the entire app.
 pub fn invoke_global_lifecycle_callback(event: LifecycleEvent) {
     let callbacks = crate::sync::lock(&LIFECYCLE_CALLBACKS);
-    // Invoke all registered callbacks for application-level events
     for callback in callbacks.values() {
         callback(event);
+    }
+}
+
+/// Maps platform event IDs (e.g. from Android JNI, iOS) to LifecycleEvent.
+/// Used by ng_invoke_lifecycle_callback and for lifecycle mapping tests.
+pub fn event_from_id(event_id: u32) -> Option<LifecycleEvent> {
+    let event = match event_id {
+        0 => LifecycleEvent::ApplicationDidEnterBackground,
+        1 => LifecycleEvent::ApplicationWillEnterForeground,
+        2 => LifecycleEvent::ApplicationPaused,
+        3 => LifecycleEvent::ApplicationResumed,
+        4 => LifecycleEvent::ApplicationDestroyed,
+        5 => LifecycleEvent::WindowWillClose,
+        6 => LifecycleEvent::WindowMinimized,
+        7 => LifecycleEvent::WindowRestored,
+        8 => LifecycleEvent::MemoryWarning,
+        9 => LifecycleEvent::SurfaceLost,
+        10 => LifecycleEvent::SurfaceRecreated,
+        11 => LifecycleEvent::WindowMoved,
+        12 => LifecycleEvent::WindowResized,
+        _ => return None,
+    };
+    Some(event)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    #[test]
+    fn lifecycle_event_ids_map_to_events() {
+        assert_eq!(
+            event_from_id(0),
+            Some(LifecycleEvent::ApplicationDidEnterBackground)
+        );
+        assert_eq!(
+            event_from_id(1),
+            Some(LifecycleEvent::ApplicationWillEnterForeground)
+        );
+        assert_eq!(event_from_id(2), Some(LifecycleEvent::ApplicationPaused));
+        assert_eq!(event_from_id(3), Some(LifecycleEvent::ApplicationResumed));
+        assert_eq!(event_from_id(4), Some(LifecycleEvent::ApplicationDestroyed));
+        assert_eq!(event_from_id(9), Some(LifecycleEvent::SurfaceLost));
+        assert_eq!(event_from_id(10), Some(LifecycleEvent::SurfaceRecreated));
+        assert_eq!(event_from_id(99), None);
+    }
+
+    #[test]
+    fn lifecycle_callback_invoked_on_pause_resume_surface_lost() {
+        let received = std::sync::Arc::new(AtomicU32::new(0));
+        let r = received.clone();
+        register_lifecycle_callback(0x1000 as *mut c_void, Box::new(move |e| {
+            let id = match e {
+                LifecycleEvent::ApplicationPaused => 2,
+                LifecycleEvent::ApplicationResumed => 3,
+                LifecycleEvent::SurfaceLost => 9,
+                LifecycleEvent::SurfaceRecreated => 10,
+                _ => 0,
+            };
+            r.store(id, Ordering::SeqCst);
+        }));
+
+        invoke_lifecycle_callback(0x1000 as *mut c_void, LifecycleEvent::ApplicationPaused);
+        assert_eq!(received.load(Ordering::SeqCst), 2);
+
+        invoke_lifecycle_callback(0x1000 as *mut c_void, LifecycleEvent::ApplicationResumed);
+        assert_eq!(received.load(Ordering::SeqCst), 3);
+
+        invoke_lifecycle_callback(0x1000 as *mut c_void, LifecycleEvent::SurfaceLost);
+        assert_eq!(received.load(Ordering::SeqCst), 9);
+
+        invoke_lifecycle_callback(0x1000 as *mut c_void, LifecycleEvent::SurfaceRecreated);
+        assert_eq!(received.load(Ordering::SeqCst), 10);
+
+        unregister_lifecycle_callback(0x1000 as *mut c_void);
+        invoke_lifecycle_callback(0x1000 as *mut c_void, LifecycleEvent::ApplicationPaused);
+        assert_eq!(received.load(Ordering::SeqCst), 10);
     }
 }

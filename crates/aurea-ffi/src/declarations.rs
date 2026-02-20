@@ -1,5 +1,11 @@
 use std::os::raw::{c_char, c_int, c_void};
 
+#[cfg(target_os = "android")]
+#[allow(clippy::missing_safety_doc, dead_code)]
+unsafe extern "C" {
+    pub fn ng_android_set_activity(jvm: *mut c_void, activity: *mut c_void);
+}
+
 #[allow(clippy::missing_safety_doc, dead_code)]
 unsafe extern "C" {
     pub fn ng_platform_get_abi_version() -> c_int;
