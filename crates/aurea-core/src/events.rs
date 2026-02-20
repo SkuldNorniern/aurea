@@ -2,7 +2,6 @@
 
 use std::sync::Arc;
 
-/// Window-level events for external event loop integration.
 #[derive(Debug, Clone)]
 pub enum WindowEvent {
     CloseRequested,
