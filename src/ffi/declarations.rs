@@ -2,6 +2,8 @@ use std::os::raw::{c_char, c_int, c_void};
 
 #[allow(clippy::missing_safety_doc, dead_code)]
 unsafe extern "C" {
+    pub fn ng_platform_get_abi_version() -> c_int;
+
     // Platform initialization
     pub fn ng_platform_init() -> c_int;
     pub fn ng_platform_cleanup();

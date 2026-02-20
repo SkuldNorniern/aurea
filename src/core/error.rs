@@ -23,6 +23,8 @@ pub enum AureaError {
     RenderingFailed,
     /// Requested backend (e.g. Gpu) is not yet implemented
     BackendNotAvailable,
+    /// FFI ABI version mismatch between Rust and native library
+    AbiVersionMismatch { expected: i32, got: i32 },
 }
 
 /// Result type for GUI operations.
@@ -46,8 +48,32 @@ impl std::fmt::Display for AureaError {
             AureaError::BackendNotAvailable => {
                 write!(f, "Requested rendering backend is not yet implemented")
             }
+            AureaError::AbiVersionMismatch { expected, got } => {
+                write!(
+                    f,
+                    "FFI ABI version mismatch: expected {}, got {}",
+                    expected, got
+                )
+            }
         }
     }
 }
 
 impl std::error::Error for AureaError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn abi_version_mismatch_display() {
+        let e = AureaError::AbiVersionMismatch {
+            expected: 1,
+            got: 0,
+        };
+        let s = e.to_string();
+        assert!(s.contains("mismatch"));
+        assert!(s.contains("expected 1"));
+        assert!(s.contains("got 0"));
+    }
+}
