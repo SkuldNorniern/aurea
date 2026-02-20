@@ -122,7 +122,7 @@ impl Default for Paint {
 /// Aurea's native rendering backend.
 ///
 /// The framework provides its own rendering path (no external Skia/Vello).
-/// Cpu is implemented; Gpu is planned for a later release.
+/// Cpu uses native CPU rasterization. Gpu delegates to CPU for now; wgpu pipeline planned.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum RendererBackend {
     /// CPU rasterizer (tile-based, display list, partial redraw)
