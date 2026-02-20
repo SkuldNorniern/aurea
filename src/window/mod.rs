@@ -1,6 +1,6 @@
 //! Window management, events, and lifecycle integration.
 
-mod events;
+pub(crate) mod events;
 mod manager;
 
 pub use events::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};
@@ -60,106 +60,14 @@ use crate::platform::Platform;
 use crate::view::{DamageRegion, FrameScheduler};
 use crate::{AureaError, AureaResult};
 use std::{
-    collections::HashMap,
     ffi::CString,
     os::raw::c_void,
-    sync::{Arc, LazyLock, Mutex, Weak},
+    sync::{Arc, Mutex},
 };
 
-static WINDOW_EVENT_QUEUES: LazyLock<Mutex<Vec<Weak<events::EventQueue>>>> =
-    LazyLock::new(|| Mutex::new(Vec::new()));
-static WINDOW_QUEUE_BY_HANDLE: LazyLock<Mutex<HashMap<usize, Weak<events::EventQueue>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-type WindowUpdateCallback = Arc<dyn Fn(WindowId) + Send + Sync>;
-static WINDOW_UPDATE_CALLBACKS: LazyLock<
-    Mutex<HashMap<usize, Arc<Mutex<Vec<WindowUpdateCallback>>>>>,
-> = LazyLock::new(|| Mutex::new(HashMap::new()));
-
-fn register_event_queue(handle: *mut c_void, queue: &Arc<events::EventQueue>) {
-    let mut by_handle = crate::sync::lock(&WINDOW_QUEUE_BY_HANDLE);
-    by_handle.insert(handle as usize, Arc::downgrade(queue));
-}
-
-fn unregister_event_queue(handle: *mut c_void) {
-    let mut by_handle = crate::sync::lock(&WINDOW_QUEUE_BY_HANDLE);
-    by_handle.remove(&(handle as usize));
-}
-
-fn register_update_callbacks(handle: *mut c_void) {
-    let mut callbacks = crate::sync::lock(&WINDOW_UPDATE_CALLBACKS);
-    callbacks.insert(handle as usize, Arc::new(Mutex::new(Vec::new())));
-}
-
-fn unregister_update_callbacks(handle: *mut c_void) {
-    let mut callbacks = crate::sync::lock(&WINDOW_UPDATE_CALLBACKS);
-    callbacks.remove(&(handle as usize));
-}
-
-fn update_callback_list(handle: *mut c_void) -> Option<Arc<Mutex<Vec<WindowUpdateCallback>>>> {
-    let callbacks = crate::sync::lock(&WINDOW_UPDATE_CALLBACKS);
-    callbacks.get(&(handle as usize)).cloned()
-}
-
-pub(crate) fn push_window_event(handle: *mut c_void, event: WindowEvent) {
-    let queue = {
-        let mut by_handle = crate::sync::lock(&WINDOW_QUEUE_BY_HANDLE);
-        match by_handle
-            .get(&(handle as usize))
-            .and_then(|weak| weak.upgrade())
-        {
-            Some(q) => Some(q),
-            None => {
-                by_handle.remove(&(handle as usize));
-                None
-            }
-        }
-    };
-
-    if let Some(queue) = queue {
-        queue.push(event);
-    }
-}
-
-pub(crate) fn process_all_window_events() {
-    let mut queues = crate::sync::lock(&WINDOW_EVENT_QUEUES);
-    queues.retain(|weak| {
-        if let Some(queue) = weak.upgrade() {
-            queue.process_events();
-            true
-        } else {
-            false
-        }
-    });
-}
-
-pub(crate) fn process_all_window_updates() {
-    let callbacks = {
-        let registry = crate::sync::lock(&WINDOW_UPDATE_CALLBACKS);
-        registry
-            .iter()
-            .map(|(handle, list)| {
-                let list = crate::sync::lock(list.as_ref()).clone();
-                (WindowId::from_raw(*handle), list)
-            })
-            .collect::<Vec<_>>()
-    };
-
-    for (window_id, list) in callbacks {
-        for callback in list {
-            callback(window_id);
-        }
-    }
-}
-
-fn process_window_updates(handle: *mut c_void) {
-    let callbacks = update_callback_list(handle)
-        .map(|list| crate::sync::lock(list.as_ref()).clone())
-        .unwrap_or_default();
-    let window_id = WindowId::from_handle(handle);
-    for callback in callbacks {
-        callback(window_id);
-    }
-}
+pub(crate) use crate::registry::window::{
+    process_all_window_events, process_all_window_updates, push_window_event,
+};
 
 use log::info;
 
@@ -227,13 +135,9 @@ impl Window {
         let scale_factor = unsafe { ng_platform_get_scale_factor(handle) };
         let event_queue = Arc::new(events::EventQueue::new());
 
-        {
-            let mut queues = crate::sync::lock(&WINDOW_EVENT_QUEUES);
-            queues.push(Arc::downgrade(&event_queue));
-        }
-
-        register_event_queue(handle, &event_queue);
-        register_update_callbacks(handle);
+        crate::registry::window::register_global_event_queue(&event_queue);
+        crate::registry::window::register_event_queue(handle, &event_queue);
+        crate::registry::window::register_update_callbacks(handle);
 
         // Register lifecycle bridge
         let eq_clone = event_queue.clone();
@@ -369,10 +273,7 @@ impl Window {
     where
         F: Fn(WindowId) + Send + Sync + 'static,
     {
-        if let Some(list) = update_callback_list(self.handle) {
-            let mut callbacks = crate::sync::lock(list.as_ref());
-            callbacks.push(Arc::new(callback));
-        }
+        crate::registry::window::register_update_callback(self.handle, callback);
     }
 
     pub fn set_content<E>(&mut self, element: E) -> AureaResult<()>
@@ -527,7 +428,7 @@ impl Window {
     /// # }
     /// ```
     pub fn process_frames(&self) -> AureaResult<()> {
-        process_window_updates(self.handle);
+        crate::registry::window::process_window_updates(self.handle);
         FrameScheduler::process_frames()
     }
 
@@ -719,8 +620,8 @@ impl Window {
 impl Drop for Window {
     fn drop(&mut self) {
         unregister_lifecycle_callback(self.handle);
-        unregister_event_queue(self.handle);
-        unregister_update_callbacks(self.handle);
+        crate::registry::window::unregister_event_queue(self.handle);
+        crate::registry::window::unregister_update_callbacks(self.handle);
 
         unsafe {
             ng_platform_destroy_window(self.handle);
