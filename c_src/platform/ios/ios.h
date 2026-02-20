@@ -1,13 +1,11 @@
 #ifndef NATIVE_GUI_IOS_H
 #define NATIVE_GUI_IOS_H
 
-#include "common/types.h"
+#include "common/platform_api.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef void (*ScaleFactorCallback)(void*, float);
 
 // iOS platform initialization
 int ng_ios_init(void);
