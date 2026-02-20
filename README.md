@@ -81,7 +81,7 @@ fn main() -> AureaResult<()> {
 ## Building
 
 The project requires:
-- Rust 1.70 or later
+- Rust 1.88 or later
 - Platform-specific development tools:
   - Windows: MSVC build tools
   - macOS: Xcode command line tools
