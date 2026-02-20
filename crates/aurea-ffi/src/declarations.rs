@@ -4,6 +4,11 @@ use std::os::raw::{c_char, c_int, c_void};
 #[allow(clippy::missing_safety_doc, dead_code)]
 unsafe extern "C" {
     pub fn ng_android_set_activity(jvm: *mut c_void, activity: *mut c_void);
+    pub fn ng_android_on_pause();
+    pub fn ng_android_on_resume();
+    pub fn ng_android_on_destroy();
+    pub fn ng_android_on_surface_lost();
+    pub fn ng_android_on_surface_recreated();
 }
 
 #[allow(clippy::missing_safety_doc, dead_code)]
