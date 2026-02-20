@@ -21,6 +21,7 @@
 ///
 /// - **`window`** - Window management, events, lifecycle
 /// - **`elements`** - UI widgets (Button, Label, Canvas, etc.)
+/// - **`core`** - Shared core types (`AureaError`, `AureaResult`)
 /// - **`render`** - Rendering system (CPU rasterizer, display lists)
 /// - **`view`** - View layer (damage tracking, frame scheduling)
 /// - **`integration`** - External renderer integrations (wgpu, etc.)
@@ -44,7 +45,7 @@
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust,no_run
 /// use aurea::{Container, Window, AureaResult};
 /// use aurea::elements::{Box, BoxOrientation, Button, Label};
 ///
@@ -66,15 +67,17 @@
 /// }
 /// ```
 pub mod capability;
+pub mod core;
 pub mod elements;
-pub(crate) mod sync;
 pub mod ffi;
 pub mod integration;
 pub mod lifecycle;
 pub mod logger;
 pub mod menu;
 pub mod platform;
+pub(crate) mod registry;
 pub mod render;
+pub(crate) mod sync;
 pub mod view;
 pub mod window;
 
@@ -96,59 +99,6 @@ pub use crate::capability::{Capability, CapabilityChecker};
 pub use crate::platform::{DesktopPlatform, MobilePlatform, Platform};
 
 // Re-export integration types
+pub use crate::core::{AureaError, AureaResult};
 #[cfg(feature = "wgpu")]
 pub use crate::integration::NativeWindowHandle;
-
-/// Errors that might occur during native GUI operations.
-#[derive(Debug, Clone)]
-pub enum AureaError {
-    /// Failed to create a new window
-    WindowCreationFailed,
-    /// Failed to create a menu
-    MenuCreationFailed,
-    /// Failed to add a menu item
-    MenuItemAddFailed,
-    /// The provided title contains invalid characters
-    InvalidTitle,
-    /// A platform-specific error occurred
-    PlatformError(i32),
-    /// The event loop encountered an error
-    EventLoopError,
-    /// An operation on a GUI element failed
-    ElementOperationFailed,
-    /// Failed to create a canvas
-    CanvasCreationFailed,
-    /// Failed to initialize renderer
-    RendererInitFailed,
-    /// Rendering operation failed
-    RenderingFailed,
-    /// Requested backend (e.g. Gpu) is not yet implemented
-    BackendNotAvailable,
-}
-
-/// Result type for GUI operations
-pub type AureaResult<T> = std::result::Result<T, AureaError>;
-
-impl std::fmt::Display for AureaError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AureaError::WindowCreationFailed => write!(f, "Failed to create a new window"),
-            AureaError::MenuCreationFailed => write!(f, "Failed to create a menu"),
-            AureaError::MenuItemAddFailed => write!(f, "Failed to add a menu item"),
-            AureaError::InvalidTitle => write!(f, "The provided title contains invalid characters"),
-            AureaError::PlatformError(code) => {
-                write!(f, "A platform-specific error occurred: {}", code)
-            }
-            AureaError::EventLoopError => write!(f, "The event loop encountered an error"),
-            AureaError::ElementOperationFailed => write!(f, "An operation on a GUI element failed"),
-            AureaError::CanvasCreationFailed => write!(f, "Failed to create a canvas"),
-            AureaError::RendererInitFailed => write!(f, "Failed to initialize renderer"),
-            AureaError::RenderingFailed => write!(f, "Rendering operation failed"),
-            AureaError::BackendNotAvailable => {
-                write!(f, "Requested rendering backend is not yet implemented")
-            }
-        }
-    }
-}
-
-impl std::error::Error for AureaError {}
