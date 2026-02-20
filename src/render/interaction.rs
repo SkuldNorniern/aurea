@@ -69,13 +69,13 @@ impl InteractionRegistry {
 
                 // Hit test based on command type
                 let hit = match &item.command {
-                    super::renderer::DrawCommand::DrawRect(rect, _) => {
+                    super::command::DrawCommand::DrawRect(rect, _) => {
                         hit_test::hit_test_rect(*rect, point)
                     }
-                    super::renderer::DrawCommand::DrawCircle(center, radius, _) => {
+                    super::command::DrawCommand::DrawCircle(center, radius, _) => {
                         hit_test::hit_test_circle(*center, *radius, point)
                     }
-                    super::renderer::DrawCommand::DrawPath(path, _) => {
+                    super::command::DrawCommand::DrawPath(path, _) => {
                         hit_test::hit_test_path(path, point)
                     }
                     _ => false,
@@ -110,13 +110,13 @@ impl InteractionRegistry {
 
                 // Hit test based on command type
                 let hit = match &item.command {
-                    super::renderer::DrawCommand::DrawRect(rect, _) => {
+                    super::command::DrawCommand::DrawRect(rect, _) => {
                         hit_test::hit_test_rect(*rect, point)
                     }
-                    super::renderer::DrawCommand::DrawCircle(center, radius, _) => {
+                    super::command::DrawCommand::DrawCircle(center, radius, _) => {
                         hit_test::hit_test_circle(*center, *radius, point)
                     }
-                    super::renderer::DrawCommand::DrawPath(path, _) => {
+                    super::command::DrawCommand::DrawPath(path, _) => {
                         hit_test::hit_test_path(path, point)
                     }
                     _ => false,

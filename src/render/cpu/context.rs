@@ -114,17 +114,17 @@ impl CpuDrawingContext {
         unsafe { &mut *self.display_list }
     }
 
-    fn compute_cache_key(&self, command: &super::super::renderer::DrawCommand) -> CacheKey {
+    fn compute_cache_key(&self, command: &super::super::command::DrawCommand) -> CacheKey {
         let mut hasher = DefaultHasher::new();
         match command {
-            super::super::renderer::DrawCommand::Clear(color) => {
+            super::super::command::DrawCommand::Clear(color) => {
                 "Clear".hash(&mut hasher);
                 color.r.hash(&mut hasher);
                 color.g.hash(&mut hasher);
                 color.b.hash(&mut hasher);
                 color.a.hash(&mut hasher);
             }
-            super::super::renderer::DrawCommand::DrawRect(rect, paint) => {
+            super::super::command::DrawCommand::DrawRect(rect, paint) => {
                 "DrawRect".hash(&mut hasher);
                 rect.x.to_bits().hash(&mut hasher);
                 rect.y.to_bits().hash(&mut hasher);
@@ -137,7 +137,7 @@ impl CpuDrawingContext {
                 paint.style.hash(&mut hasher);
                 paint.stroke_width.to_bits().hash(&mut hasher);
             }
-            super::super::renderer::DrawCommand::DrawCircle(center, radius, paint) => {
+            super::super::command::DrawCommand::DrawCircle(center, radius, paint) => {
                 "DrawCircle".hash(&mut hasher);
                 center.x.to_bits().hash(&mut hasher);
                 center.y.to_bits().hash(&mut hasher);
@@ -149,7 +149,7 @@ impl CpuDrawingContext {
                 paint.style.hash(&mut hasher);
                 paint.stroke_width.to_bits().hash(&mut hasher);
             }
-            super::super::renderer::DrawCommand::DrawImageRect(image, dest) => {
+            super::super::command::DrawCommand::DrawImageRect(image, dest) => {
                 "DrawImageRect".hash(&mut hasher);
                 image.width.hash(&mut hasher);
                 image.height.hash(&mut hasher);
@@ -162,7 +162,7 @@ impl CpuDrawingContext {
                     image.data[i].hash(&mut hasher);
                 }
             }
-            super::super::renderer::DrawCommand::DrawImageRegion(image, src, dest) => {
+            super::super::command::DrawCommand::DrawImageRegion(image, src, dest) => {
                 "DrawImageRegion".hash(&mut hasher);
                 image.width.hash(&mut hasher);
                 image.height.hash(&mut hasher);
@@ -179,7 +179,7 @@ impl CpuDrawingContext {
                     image.data[i].hash(&mut hasher);
                 }
             }
-            super::super::renderer::DrawCommand::FillLinearGradient(grad, rect) => {
+            super::super::command::DrawCommand::FillLinearGradient(grad, rect) => {
                 "FillLinearGradient".hash(&mut hasher);
                 grad.start.x.to_bits().hash(&mut hasher);
                 grad.start.y.to_bits().hash(&mut hasher);
@@ -197,7 +197,7 @@ impl CpuDrawingContext {
                     stop.color.a.hash(&mut hasher);
                 }
             }
-            super::super::renderer::DrawCommand::FillRadialGradient(grad, rect) => {
+            super::super::command::DrawCommand::FillRadialGradient(grad, rect) => {
                 "FillRadialGradient".hash(&mut hasher);
                 grad.center.x.to_bits().hash(&mut hasher);
                 grad.center.y.to_bits().hash(&mut hasher);
@@ -274,12 +274,12 @@ impl CpuDrawingContext {
         Rect::new(min_x, min_y, max_x - min_x, max_y - min_y)
     }
 
-    fn compute_bounds(&self, command: &super::super::renderer::DrawCommand) -> Rect {
+    fn compute_bounds(&self, command: &super::super::command::DrawCommand) -> Rect {
         match command {
-            super::super::renderer::DrawCommand::Clear(_) => {
+            super::super::command::DrawCommand::Clear(_) => {
                 Rect::new(0.0, 0.0, f32::MAX, f32::MAX)
             }
-            super::super::renderer::DrawCommand::DrawRect(rect, paint) => {
+            super::super::command::DrawCommand::DrawRect(rect, paint) => {
                 let mut bounds = *rect;
                 if paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0 {
                     let half_stroke = paint.stroke_width / 2.0;
@@ -290,7 +290,7 @@ impl CpuDrawingContext {
                 }
                 self.transform_rect(bounds)
             }
-            super::super::renderer::DrawCommand::DrawCircle(center, radius, paint) => {
+            super::super::command::DrawCommand::DrawCircle(center, radius, paint) => {
                 let mut bounds = Rect::new(
                     center.x - radius,
                     center.y - radius,
@@ -306,40 +306,40 @@ impl CpuDrawingContext {
                 }
                 self.transform_rect(bounds)
             }
-            super::super::renderer::DrawCommand::DrawImageRect(_, dest) => {
+            super::super::command::DrawCommand::DrawImageRect(_, dest) => {
                 self.transform_rect(*dest)
             }
-            super::super::renderer::DrawCommand::DrawImageRegion(_, _, dest) => {
+            super::super::command::DrawCommand::DrawImageRegion(_, _, dest) => {
                 self.transform_rect(*dest)
             }
-            super::super::renderer::DrawCommand::FillLinearGradient(_, rect) => {
+            super::super::command::DrawCommand::FillLinearGradient(_, rect) => {
                 self.transform_rect(*rect)
             }
-            super::super::renderer::DrawCommand::FillRadialGradient(_, rect) => {
+            super::super::command::DrawCommand::FillRadialGradient(_, rect) => {
                 self.transform_rect(*rect)
             }
             _ => Rect::new(0.0, 0.0, 0.0, 0.0),
         }
     }
 
-    fn is_opaque(&self, command: &super::super::renderer::DrawCommand) -> bool {
+    fn is_opaque(&self, command: &super::super::command::DrawCommand) -> bool {
         match command {
-            super::super::renderer::DrawCommand::Clear(color) => color.a == 255,
-            super::super::renderer::DrawCommand::DrawRect(_, paint) => {
+            super::super::command::DrawCommand::Clear(color) => color.a == 255,
+            super::super::command::DrawCommand::DrawRect(_, paint) => {
                 paint.color.a == 255 && paint.style == PaintStyle::Fill
             }
-            super::super::renderer::DrawCommand::DrawCircle(_, _, paint) => {
+            super::super::command::DrawCommand::DrawCircle(_, _, paint) => {
                 paint.color.a == 255 && paint.style == PaintStyle::Fill
             }
-            super::super::renderer::DrawCommand::DrawImageRect(..)
-            | super::super::renderer::DrawCommand::DrawImageRegion(..) => false,
-            super::super::renderer::DrawCommand::FillLinearGradient(..)
-            | super::super::renderer::DrawCommand::FillRadialGradient(..) => false,
+            super::super::command::DrawCommand::DrawImageRect(..)
+            | super::super::command::DrawCommand::DrawImageRegion(..) => false,
+            super::super::command::DrawCommand::FillLinearGradient(..)
+            | super::super::command::DrawCommand::FillRadialGradient(..) => false,
             _ => false,
         }
     }
 
-    fn add_command(&mut self, command: super::super::renderer::DrawCommand) {
+    fn add_command(&mut self, command: super::super::command::DrawCommand) {
         let cache_key = self.compute_cache_key(&command);
         let bounds = self.compute_bounds(&command);
         let opaque = self.is_opaque(&command) && self.current_opacity >= 1.0;
@@ -383,12 +383,12 @@ impl DrawingContext for CpuDrawingContext {
     }
 
     fn clear(&mut self, color: Color) -> AureaResult<()> {
-        self.add_command(super::super::renderer::DrawCommand::Clear(color));
+        self.add_command(super::super::command::DrawCommand::Clear(color));
         Ok(())
     }
 
     fn draw_rect(&mut self, rect: Rect, paint: &Paint) -> AureaResult<()> {
-        self.add_command(super::super::renderer::DrawCommand::DrawRect(
+        self.add_command(super::super::command::DrawCommand::DrawRect(
             rect,
             paint.clone(),
         ));
@@ -396,7 +396,7 @@ impl DrawingContext for CpuDrawingContext {
     }
 
     fn draw_circle(&mut self, center: Point, radius: f32, paint: &Paint) -> AureaResult<()> {
-        self.add_command(super::super::renderer::DrawCommand::DrawCircle(
+        self.add_command(super::super::command::DrawCommand::DrawCircle(
             center,
             radius,
             paint.clone(),
@@ -405,7 +405,7 @@ impl DrawingContext for CpuDrawingContext {
     }
 
     fn draw_path(&mut self, path: &Path, paint: &Paint) -> AureaResult<()> {
-        self.add_command(super::super::renderer::DrawCommand::DrawPath(
+        self.add_command(super::super::command::DrawCommand::DrawPath(
             path.clone(),
             paint.clone(),
         ));
@@ -459,7 +459,7 @@ impl DrawingContext for CpuDrawingContext {
             width as f32,
             height as f32,
         );
-        self.add_command(super::super::renderer::DrawCommand::DrawImageRect(
+        self.add_command(super::super::command::DrawCommand::DrawImageRect(
             image, dest,
         ));
         Ok(())
@@ -472,7 +472,7 @@ impl DrawingContext for CpuDrawingContext {
             image.width as f32,
             image.height as f32,
         );
-        self.add_command(super::super::renderer::DrawCommand::DrawImageRect(
+        self.add_command(super::super::command::DrawCommand::DrawImageRect(
             image.clone(),
             dest,
         ));
@@ -480,7 +480,7 @@ impl DrawingContext for CpuDrawingContext {
     }
 
     fn draw_image_rect(&mut self, image: &Image, dest: Rect) -> AureaResult<()> {
-        self.add_command(super::super::renderer::DrawCommand::DrawImageRect(
+        self.add_command(super::super::command::DrawCommand::DrawImageRect(
             image.clone(),
             dest,
         ));
@@ -488,7 +488,7 @@ impl DrawingContext for CpuDrawingContext {
     }
 
     fn draw_image_region(&mut self, image: &Image, src: Rect, dest: Rect) -> AureaResult<()> {
-        self.add_command(super::super::renderer::DrawCommand::DrawImageRegion(
+        self.add_command(super::super::command::DrawCommand::DrawImageRegion(
             image.clone(),
             src,
             dest,
@@ -594,7 +594,7 @@ impl DrawingContext for CpuDrawingContext {
     }
 
     fn fill_linear_gradient(&mut self, gradient: &LinearGradient, rect: Rect) -> AureaResult<()> {
-        self.add_command(super::super::renderer::DrawCommand::FillLinearGradient(
+        self.add_command(super::super::command::DrawCommand::FillLinearGradient(
             gradient.clone(),
             rect,
         ));
@@ -602,7 +602,7 @@ impl DrawingContext for CpuDrawingContext {
     }
 
     fn fill_radial_gradient(&mut self, gradient: &RadialGradient, rect: Rect) -> AureaResult<()> {
-        self.add_command(super::super::renderer::DrawCommand::FillRadialGradient(
+        self.add_command(super::super::command::DrawCommand::FillRadialGradient(
             gradient.clone(),
             rect,
         ));

@@ -1,3 +1,4 @@
+use super::command::DrawCommand;
 use super::display_list::DisplayList;
 use super::surface::{Surface, SurfaceInfo};
 use super::types::{
@@ -143,30 +144,6 @@ pub trait Renderer: Send + Sync {
 static PLACEHOLDER_TEXT_RENDERER: LazyLock<TextRenderer> = LazyLock::new(TextRenderer::new);
 const DEFAULT_FONT_FAMILY: &str = "Sans";
 const DEFAULT_FONT_SIZE: f32 = 16.0;
-
-#[derive(Debug, Clone)]
-pub enum DrawCommand {
-    Clear(Color),
-    DrawRect(Rect, Paint),
-    DrawCircle(Point, f32, Paint),
-    #[allow(dead_code)]
-    DrawPath(Path, Paint),
-    #[allow(dead_code)]
-    DrawText(String, Point, Paint),
-    #[allow(dead_code)]
-    DrawTextWithFont(String, Point, Font, Paint),
-    DrawImageRect(Image, Rect),
-    DrawImageRegion(Image, Rect, Rect),
-    FillLinearGradient(LinearGradient, Rect),
-    FillRadialGradient(RadialGradient, Rect),
-    // Stack operations for compositing
-    PushClip(Path),
-    PopClip,
-    PushTransform(Transform),
-    PopTransform,
-    PushOpacity(f32),
-    PopOpacity,
-}
 
 #[derive(Default)]
 pub struct PlaceholderRenderer {
