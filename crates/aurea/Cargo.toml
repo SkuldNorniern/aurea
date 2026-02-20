@@ -6,6 +6,10 @@ description = "Native GUI toolkit with cross-platform windowing, native widgets,
 license = "Apache-2.0"
 readme = "README.md"
 
+[lib]
+name = "aurea"
+crate-type = ["rlib", "cdylib"]
+
 [dependencies]
 aurea-core = { path = "../aurea-core" }
 aurea-ffi = { path = "../aurea-ffi" }
@@ -13,6 +17,10 @@ aurea-render = { path = "../aurea-render" }
 aurea-runtime = { path = "../aurea-runtime" }
 libc = "0.2"
 log = "0.4.29"
+jni = { version = "0.21", optional = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
 
 [features]
 default = []

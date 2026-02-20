@@ -56,25 +56,10 @@ pub extern "C" fn ng_invoke_textview_callback(id: u32, content: *const c_char) {
 /// The event_id corresponds to the LifecycleEvent enum values.
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_lifecycle_callback(window: *mut c_void, event_id: u32) {
-    use crate::lifecycle::{LifecycleEvent, invoke_lifecycle_callback};
-    let event = match event_id {
-        0 => LifecycleEvent::ApplicationDidEnterBackground,
-        1 => LifecycleEvent::ApplicationWillEnterForeground,
-        2 => LifecycleEvent::ApplicationPaused,
-        3 => LifecycleEvent::ApplicationResumed,
-        4 => LifecycleEvent::ApplicationDestroyed,
-        5 => LifecycleEvent::WindowWillClose,
-        6 => LifecycleEvent::WindowMinimized,
-        7 => LifecycleEvent::WindowRestored,
-        8 => LifecycleEvent::MemoryWarning,
-        9 => LifecycleEvent::SurfaceLost,
-        10 => LifecycleEvent::SurfaceRecreated,
-        11 => LifecycleEvent::WindowMoved,
-        12 => LifecycleEvent::WindowResized,
-        _ => return,
-    };
-
-    invoke_lifecycle_callback(window, event);
+    use crate::lifecycle::{event_from_id, invoke_lifecycle_callback};
+    if let Some(event) = event_from_id(event_id) {
+        invoke_lifecycle_callback(window, event);
+    }
 }
 
 #[unsafe(no_mangle)]
