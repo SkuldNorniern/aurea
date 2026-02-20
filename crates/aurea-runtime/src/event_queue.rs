@@ -1,8 +1,6 @@
 //! Event queue for window-level events.
-//!
-//! Queues events and dispatches to registered callbacks.
 
-use crate::events::{EventCallback, WindowEvent};
+use aurea_core::{EventCallback, WindowEvent};
 use std::sync::Mutex;
 
 pub struct EventQueue {
@@ -19,17 +17,17 @@ impl EventQueue {
     }
 
     pub fn push(&self, event: WindowEvent) {
-        let mut events = crate::sync::lock(&self.events);
+        let mut events = aurea_core::lock(&self.events);
         events.push(event);
     }
 
     pub fn pop_all(&self) -> Vec<WindowEvent> {
-        let mut events = crate::sync::lock(&self.events);
+        let mut events = aurea_core::lock(&self.events);
         std::mem::take(&mut *events)
     }
 
     pub fn register_callback(&self, callback: EventCallback) {
-        let mut callbacks = crate::sync::lock(&self.callbacks);
+        let mut callbacks = aurea_core::lock(&self.callbacks);
         callbacks.push(callback);
     }
 
@@ -40,7 +38,7 @@ impl EventQueue {
         }
 
         let callbacks: Vec<EventCallback> = {
-            let callbacks = crate::sync::lock(&self.callbacks);
+            let callbacks = aurea_core::lock(&self.callbacks);
             callbacks.clone()
         };
 

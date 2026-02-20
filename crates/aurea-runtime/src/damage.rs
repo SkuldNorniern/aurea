@@ -1,8 +1,6 @@
 //! Damage region accumulator for repaint batching.
-//!
-//! Tracks dirty rectangles and computes union for efficient redraw.
 
-use crate::render::Rect;
+use aurea_render::Rect;
 
 pub struct DamageRegion {
     rects: Vec<Rect>,
