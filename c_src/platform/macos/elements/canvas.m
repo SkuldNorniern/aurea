@@ -1,6 +1,7 @@
 #import "../elements.h"
 #import "../utils.h"
 #import "../../../common/errors.h"
+#import "../../../common/rust_callbacks.h"
 #import <Cocoa/Cocoa.h>
 #import <stdlib.h>
 #import <string.h>
@@ -35,7 +36,6 @@ static void releaseFlippedBuffer(void* info, const void* data, size_t size) {
 }
 
 - (void)drawRect:(NSRect)dirtyRect {
-    extern void ng_process_frames(void);
     ng_process_frames();
 
     if (self.renderBuffer && self.bufferWidth > 0 && self.bufferHeight > 0) {

@@ -1,16 +1,10 @@
 #include "window.h"
 #include "utils.h"
 #include "common/errors.h"
+#include "common/rust_callbacks.h"
 #include <windows.h>
 #include <ShellScalingApi.h>
 #include <stdio.h>
-
-// Logging function declarations (implemented in Rust)
-extern void ng_log_error(const char* msg);
-extern void ng_log_warn(const char* msg);
-extern void ng_log_info(const char* msg);
-extern void ng_log_debug(const char* msg);
-extern void ng_log_trace(const char* msg);
 
 // Helper macro for formatted logging
 #define LOG_ERROR(fmt, ...) do { \
