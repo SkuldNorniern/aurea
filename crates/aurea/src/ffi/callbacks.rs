@@ -154,3 +154,9 @@ pub extern "C" fn ng_invoke_scale_factor_changed(window: *mut c_void, scale_fact
     crate::window::push_window_event(window, event);
     crate::view::FrameScheduler::schedule();
 }
+
+/// Invoke a custom callback by ID. Used by SwiftUI and other platform code.
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_custom_callback(id: u32) {
+    crate::registry::custom::invoke_custom_callback(id);
+}

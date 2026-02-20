@@ -33,6 +33,9 @@ void ng_invoke_cursor_entered(void* window, int entered);
 void ng_invoke_raw_mouse_motion(void* window, double delta_x, double delta_y);
 void ng_invoke_scale_factor_changed(void* window, float scale_factor);
 
+/* SwiftUI / custom bridge: Swift-initiated actions invoke Rust by ID */
+void ng_invoke_custom_callback(unsigned int id);
+
 #ifdef __cplusplus
 }
 #endif
