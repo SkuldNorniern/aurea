@@ -1,6 +1,6 @@
 //! Damage region accumulator for repaint batching.
 
-use crate::render::Rect;
+use aurea_render::Rect;
 
 pub struct DamageRegion {
     rects: Vec<Rect>,
