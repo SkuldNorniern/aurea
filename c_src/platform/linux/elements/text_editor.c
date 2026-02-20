@@ -1,8 +1,7 @@
 #include "../elements.h"
 #include "common/errors.h"
+#include "common/rust_callbacks.h"
 #include <gtk/gtk.h>
-
-extern void ng_invoke_text_callback(unsigned int id, const char* content);
 
 static void text_buffer_changed(GtkTextBuffer* buffer, gpointer user_data) {
     unsigned int id = GPOINTER_TO_UINT(user_data);
@@ -38,4 +37,3 @@ void ng_linux_text_editor_invalidate(NGHandle text_editor) {
     if (!text_editor) return;
     gtk_widget_queue_draw((GtkWidget*)text_editor);
 }
-

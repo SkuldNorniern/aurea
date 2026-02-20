@@ -1,7 +1,7 @@
 #import "macos.h"
 #import "macos/window.h"
 #import "macos/menu.h"
-#import "../common/errors.h"
+#import "common/errors.h"
 #import "macos/elements.h"
 
 

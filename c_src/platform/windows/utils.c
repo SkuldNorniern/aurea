@@ -1,6 +1,7 @@
 #include "utils.h"
 #include "common/errors.h"
 #include "common/input.h"
+#include "common/rust_callbacks.h"
 #include <windowsx.h>
 
 #define AUREA_CURSOR_GRAB_PROP "AureaCursorGrabMode"
@@ -77,18 +78,6 @@ void ng_windows_register_lifecycle_callback(HWND hwnd) {
         g_tracked_count++;
     }
 }
-
-extern void ng_invoke_menu_callback(unsigned int id);
-extern void ng_invoke_button_callback(unsigned int id);
-extern void ng_invoke_lifecycle_callback(void* window, unsigned int event_id);
-extern void ng_invoke_key_event(void* window, unsigned int keycode, int pressed, unsigned int modifiers);
-extern void ng_invoke_mouse_button(void* window, int button, int pressed, unsigned int modifiers);
-extern void ng_invoke_mouse_move(void* window, double x, double y);
-extern void ng_invoke_mouse_wheel(void* window, double delta_x, double delta_y, unsigned int modifiers);
-extern void ng_invoke_text_input(void* window, const char* text);
-extern void ng_invoke_focus_changed(void* window, int focused);
-extern void ng_invoke_cursor_entered(void* window, int entered);
-extern void ng_invoke_raw_mouse_motion(void* window, double delta_x, double delta_y);
 
 static unsigned int ng_windows_modifiers(void) {
     unsigned int mods = 0;

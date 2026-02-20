@@ -1,11 +1,10 @@
 #include "common.h"
 #include "../elements.h"
 #include "common/errors.h"
+#include "common/rust_callbacks.h"
 #include <windows.h>
 #include <commctrl.h>
 #include <richedit.h>
-
-extern void ng_invoke_text_callback(unsigned int id, const char* content);
 
 static WNDPROC g_old_text_editor_proc = NULL;
 
@@ -61,4 +60,3 @@ void ng_windows_text_editor_invalidate(NGHandle text_editor) {
     if (!text_editor) return;
     InvalidateRect((HWND)text_editor, NULL, FALSE);
 }
-

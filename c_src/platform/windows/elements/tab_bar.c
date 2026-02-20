@@ -1,11 +1,10 @@
 #include "common.h"
 #include "../elements.h"
 #include "common/errors.h"
+#include "common/rust_callbacks.h"
 #include <windows.h>
 #include <stdlib.h>
 #include <string.h>
-
-extern void ng_invoke_tab_bar_selected(unsigned int id, int index);
 
 #define TABBAR_ID_PROP "AureaTabBarId"
 #define TABBAR_OLD_PROC_PROP "AureaTabBarOldProc"
