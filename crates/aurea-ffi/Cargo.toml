@@ -1,0 +1,11 @@
+[package]
+name = "aurea-ffi"
+version = "0.0.1"
+edition = "2024"
+description = "Rust <-> native ABI declarations and native library build for Aurea"
+
+[lib]
+
+[build-dependencies]
+cc = "1.2"
+pkg-config = "0.3"

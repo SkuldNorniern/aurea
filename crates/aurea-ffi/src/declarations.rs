@@ -195,8 +195,7 @@ unsafe extern "C" {
         combo_box: *mut c_void,
         item: *const c_char,
     ) -> c_int;
-    pub fn ng_platform_combo_box_set_selected(combo_box: *mut c_void, index: c_int)
-    -> c_int;
+    pub fn ng_platform_combo_box_set_selected(combo_box: *mut c_void, index: c_int) -> c_int;
     pub fn ng_platform_combo_box_get_selected(combo_box: *mut c_void) -> c_int;
     pub fn ng_platform_combo_box_clear(combo_box: *mut c_void) -> c_int;
     pub fn ng_platform_combo_box_set_enabled(
