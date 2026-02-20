@@ -8,6 +8,11 @@ pub struct Slider {
 
 impl Slider {
     pub fn new(min: f64, max: f64) -> AureaResult<Self> {
+        Self::with_value(min, max, min)
+    }
+
+    /// Create a slider with initial value.
+    pub fn with_value(min: f64, max: f64, value: f64) -> AureaResult<Self> {
         if min >= max {
             return Err(AureaError::ElementOperationFailed);
         }
@@ -18,7 +23,10 @@ impl Slider {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        Ok(Self { handle })
+        let mut slider = Self { handle };
+        let clamped = value.clamp(min, max);
+        let _ = slider.set_value(clamped);
+        Ok(slider)
     }
 
     pub fn set_value(&mut self, value: f64) -> AureaResult<()> {

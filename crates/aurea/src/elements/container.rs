@@ -48,6 +48,14 @@ impl Element for Box {
     }
 }
 
+impl Box {
+    /// Add a spacer that expands with the given weight.
+    pub fn add_spacer(&mut self, weight: f32) -> AureaResult<()> {
+        use super::Spacer;
+        self.add_weighted(Spacer::new()?, weight)
+    }
+}
+
 impl Container for Box {
     /// Add a child element with layout weight.
     ///

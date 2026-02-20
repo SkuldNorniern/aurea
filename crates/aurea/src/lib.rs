@@ -87,7 +87,8 @@ pub use crate::view::damage::DamageRegion;
 
 // Re-export the elements, window, and menu modules
 pub use crate::elements::{
-    Box, BoxOrientation, Container, Element, Label, SplitOrientation, SplitView,
+    Box, BoxOrientation, Container, Divider, Element, Label, Spacer, SplitOrientation, SplitView,
+    TextField,
 };
 pub use crate::menu::{MenuBar, SubMenu};
 pub use crate::window::{CursorGrabMode, Window, WindowId, WindowManager, WindowType};
