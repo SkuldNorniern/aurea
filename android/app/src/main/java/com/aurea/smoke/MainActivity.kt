@@ -5,22 +5,20 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.appcompat.app.AppCompatActivity
 
-/**
- * Minimal Android smoke app for Aurea.
- *
- * To integrate Aurea native + Rust:
- * 1. Add [lib] crate-type = ["cdylib"] to aurea for Android target
- * 2. Run: cargo ndk -t arm64-v8a -o android/app/src/main/jniLibs build
- * 3. Load libaurea.so in static block and call init
- *
- * This placeholder shows a blank surface; the Rust/native bridge
- * would receive the Surface via SurfaceHolder.Callback.surfaceCreated.
- */
 class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
+
+    companion object {
+        init {
+            System.loadLibrary("aurea")
+        }
+
+        external fun nativeInit(activity: android.app.Activity)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        nativeInit(this)
         findViewById<SurfaceView>(R.id.surface).holder.addCallback(this)
     }
 

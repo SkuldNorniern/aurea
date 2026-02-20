@@ -1,6 +1,7 @@
 use aurea_render::{
-    ClickCallback, Color, CpuRasterizer, CURRENT_BUFFER, DrawingContext, HoverCallback,
-    InteractionRegistry, InteractiveId, Point, Renderer, RendererBackend, Surface, SurfaceInfo,
+    ClickCallback, Color, CpuRasterizer, CURRENT_BUFFER, DrawingContext, GpuRasterizer,
+    HoverCallback, InteractionRegistry, InteractiveId, Point, Renderer, RendererBackend,
+    Surface, SurfaceInfo,
 };
 use aurea_core::CapabilityChecker;
 use crate::elements::Element;
@@ -116,12 +117,8 @@ impl Canvas {
         }
 
         let mut renderer: Box<dyn Renderer> = match backend {
-            RendererBackend::Cpu => {
-                Box::new(CpuRasterizer::new(width, height))
-            }
-            RendererBackend::Gpu => {
-                return Err(AureaError::BackendNotAvailable);
-            }
+            RendererBackend::Cpu => Box::new(CpuRasterizer::new(width, height)),
+            RendererBackend::Gpu => Box::new(GpuRasterizer::new(width, height)),
         };
         let surface = Surface::OpenGL {
             context: std::ptr::null_mut(),

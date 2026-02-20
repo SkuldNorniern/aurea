@@ -739,3 +739,94 @@ fn circle_coverage(center: Point, radius: f32, px: f32, py: f32) -> f32 {
         (radius + 0.5 - d).clamp(0.0, 1.0)
     }
 }
+
+#[cfg(test)]
+mod conformance_tests {
+    use super::*;
+    use super::super::super::renderer::Renderer;
+    use super::super::super::surface::{Surface, SurfaceInfo};
+
+    fn pixel_at(buffer: &[u32], width: u32, x: u32, y: u32) -> u32 {
+        let idx = (y * width + x) as usize;
+        if idx < buffer.len() {
+            buffer[idx]
+        } else {
+            0
+        }
+    }
+
+    #[test]
+    fn clear_produces_uniform_color() {
+        let mut rasterizer = CpuRasterizer::new(64, 64);
+        rasterizer
+            .init(
+                Surface::Metal {
+                    layer: std::ptr::null_mut(),
+                },
+                SurfaceInfo {
+                    width: 64,
+                    height: 64,
+                    scale_factor: 1.0,
+                },
+            )
+            .expect("init");
+        let mut ctx = rasterizer.begin_frame().expect("begin_frame");
+        ctx.clear(Color::rgb(0xFF, 0x00, 0x00)).expect("clear");
+        drop(ctx);
+        rasterizer.end_frame().expect("end_frame");
+
+        let mut buffer = vec![0u32; 64 * 64];
+        rasterizer
+            .tile_store()
+            .copy_to_buffer(&mut buffer, 64, 64);
+
+        let center = pixel_at(&buffer, 64, 32, 32);
+        let expected = (255u32 << 24) | (255 << 16) | (0 << 8) | 0;
+        assert_eq!(center, expected, "center pixel should be red");
+    }
+
+    #[test]
+    fn same_scene_deterministic_output() {
+        let mut rasterizer = CpuRasterizer::new(32, 32);
+        rasterizer
+            .init(
+                Surface::Metal {
+                    layer: std::ptr::null_mut(),
+                },
+                SurfaceInfo {
+                    width: 32,
+                    height: 32,
+                    scale_factor: 1.0,
+                },
+            )
+            .expect("init");
+
+        {
+            let mut ctx = rasterizer.begin_frame().expect("begin_frame");
+            ctx.clear(Color::rgb(0, 128, 255)).expect("clear");
+            ctx.draw_rect(
+                Rect::new(8.0, 8.0, 16.0, 16.0),
+                &Paint::new().color(Color::rgb(255, 255, 0)),
+            )
+            .expect("draw_rect");
+        }
+        rasterizer.end_frame().expect("end_frame");
+        let mut buf1 = vec![0u32; 32 * 32];
+        rasterizer.tile_store().copy_to_buffer(&mut buf1, 32, 32);
+
+        {
+            let mut ctx = rasterizer.begin_frame().expect("begin_frame");
+            ctx.clear(Color::rgb(0, 128, 255)).expect("clear");
+            ctx.draw_rect(
+                Rect::new(8.0, 8.0, 16.0, 16.0),
+                &Paint::new().color(Color::rgb(255, 255, 0)),
+            )
+            .expect("draw_rect");
+        }
+        rasterizer.end_frame().expect("end_frame");
+        let mut buf2 = vec![0u32; 32 * 32];
+        rasterizer.tile_store().copy_to_buffer(&mut buf2, 32, 32);
+
+        assert_eq!(buf1, buf2, "same scene must produce identical output");
+    }
+}

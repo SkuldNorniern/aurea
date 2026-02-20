@@ -68,6 +68,9 @@ mod sync {
     pub use aurea_core::lock;
 }
 
+#[cfg(target_os = "android")]
+mod android;
+
 pub mod elements;
 pub mod ffi;
 pub mod integration;
