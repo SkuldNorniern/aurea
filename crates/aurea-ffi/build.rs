@@ -22,7 +22,9 @@ fn main() {
 
     #[cfg(target_os = "windows")]
     let windows_c: &[&str] = &[
+        "native/common/platform_dispatch.c",
         "native/platform/windows.c",
+        "native/platform/windows/windows_ops.c",
         "native/platform/windows/utils.c",
         "native/platform/windows/window.c",
         "native/platform/windows/menu.c",
@@ -92,7 +94,9 @@ fn main() {
 
     #[cfg(target_os = "linux")]
     let linux_sources: &[&str] = &[
+        "native/common/platform_dispatch.c",
         "native/platform/linux.c",
+        "native/platform/linux/linux_ops.c",
         "native/platform/linux/utils.c",
         "native/platform/linux/window.c",
         "native/platform/linux/menu.c",
