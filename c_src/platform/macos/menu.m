@@ -1,15 +1,12 @@
 #import "menu.h"
-#import "../../common/errors.h"
+#import "common/errors.h"
+#import "common/rust_callbacks.h"
 #import "utils.h"
 #import <Cocoa/Cocoa.h>
-
-extern void ng_invoke_menu_callback(unsigned int id);
 
 @interface MenuItemTarget : NSObject
 - (void)menuItemClicked:(id)sender;
 @end
-
-extern void ng_invoke_menu_callback(unsigned int id);
 
 @implementation MenuItemTarget
 - (void)menuItemClicked:(id)sender {

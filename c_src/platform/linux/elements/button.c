@@ -1,8 +1,7 @@
 #include "../elements.h"
 #include "common/errors.h"
+#include "common/rust_callbacks.h"
 #include <gtk/gtk.h>
-
-extern void ng_invoke_button_callback(unsigned int id);
 
 static void button_clicked(GtkButton *button, gpointer user_data) {
     guint id = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(button), "button-id"));
@@ -24,4 +23,3 @@ void ng_linux_button_invalidate(NGHandle button) {
     if (!button) return;
     gtk_widget_queue_draw((GtkWidget*)button);
 }
-

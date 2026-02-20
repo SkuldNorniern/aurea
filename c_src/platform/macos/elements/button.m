@@ -1,9 +1,8 @@
 #import "../elements.h"
 #import "../utils.h"
-#import "../../../common/errors.h"
+#import "common/errors.h"
+#import "common/rust_callbacks.h"
 #import <Cocoa/Cocoa.h>
-
-extern void ng_invoke_button_callback(unsigned int id);
 
 @interface ButtonTarget : NSObject
 - (void)buttonClicked:(id)sender;
@@ -50,4 +49,3 @@ void ng_macos_button_invalidate(NGHandle button) {
     NSButton* btn = (__bridge NSButton*)button;
     [btn setNeedsDisplay:YES];
 }
-

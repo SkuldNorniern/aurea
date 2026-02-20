@@ -1,9 +1,8 @@
 #include "common.h"
 #include "../elements.h"
 #include "common/errors.h"
+#include "common/rust_callbacks.h"
 #include <windows.h>
-
-extern void ng_invoke_button_callback(unsigned int id);
 
 NGHandle ng_windows_create_button(const char* title, unsigned int id) {
     if (!title) return NULL;
@@ -56,4 +55,3 @@ void ng_windows_button_invalidate(NGHandle button) {
     if (!button) return;
     InvalidateRect((HWND)button, NULL, FALSE);
 }
-

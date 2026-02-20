@@ -1,10 +1,8 @@
 #import "../elements.h"
 #import "../utils.h"
-#import "../../../common/errors.h"
+#import "common/errors.h"
+#import "common/rust_callbacks.h"
 #import <Cocoa/Cocoa.h>
-
-extern void ng_invoke_tab_bar_selected(unsigned int id, int index);
-extern void ng_invoke_tab_bar_detach(unsigned int id, int index);
 
 #define TAB_HEIGHT 28
 #define TAB_PADDING 8

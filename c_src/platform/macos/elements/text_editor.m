@@ -1,10 +1,9 @@
 #import "../elements.h"
 #import "../utils.h"
-#import "../../../common/errors.h"
+#import "common/errors.h"
+#import "common/rust_callbacks.h"
 #import <Cocoa/Cocoa.h>
 #import <objc/runtime.h>
-
-extern void ng_invoke_text_callback(unsigned int id, const char* content);
 
 @interface TextEditorDelegate : NSObject <NSTextViewDelegate>
 @property (nonatomic, assign) unsigned int textId;
@@ -82,4 +81,3 @@ void ng_macos_text_editor_invalidate(NGHandle text_editor) {
     NSScrollView* scrollView = (__bridge NSScrollView*)text_editor;
     [scrollView setNeedsDisplay:YES];
 }
-
