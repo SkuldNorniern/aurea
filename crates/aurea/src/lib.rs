@@ -45,21 +45,11 @@
 ///
 /// ```rust,no_run
 /// use aurea::{Container, Window, AureaResult};
-/// use aurea::elements::{Box, BoxOrientation, Button, Label};
+/// use aurea::elements::Label;
 ///
 /// fn main() -> AureaResult<()> {
-///     // Create a new window
-///     let mut window = Window::new("My App", 800, 600)?;
-///     
-///     // Create a vertical layout
-///     let mut content = Box::new(BoxOrientation::Vertical)?;
-///     
-///     // Add widgets
-///     content.add(Label::new("Welcome!")?)?;
-///     content.add(Button::new("Click Me")?)?;
-///     
-///     // Set window content and run
-///     window.set_content(content)?;
+///     let mut window = Window::new("Hello", 400, 300)?;
+///     window.set_content(Label::new("Hello, Aurea!")?)?;
 ///     window.run()?;
 ///     Ok(())
 /// }
@@ -72,6 +62,7 @@ mod sync {
 mod android;
 
 pub mod elements;
+pub mod embed;
 pub mod ffi;
 pub mod integration;
 pub mod lifecycle;
