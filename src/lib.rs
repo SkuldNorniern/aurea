@@ -69,15 +69,17 @@
 pub mod capability;
 pub mod core;
 pub mod elements;
+pub mod events;
 pub mod ffi;
 pub mod integration;
 pub mod lifecycle;
 pub mod logger;
 pub mod menu;
 pub mod platform;
-pub(crate) mod registry;
+pub mod registry;
 pub mod render;
-pub(crate) mod sync;
+pub mod runtime;
+pub mod sync;
 pub mod view;
 pub mod window;
 
