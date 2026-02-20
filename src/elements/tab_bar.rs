@@ -5,17 +5,7 @@
 
 use super::traits::Element;
 use crate::{AureaError, AureaResult, ffi::*};
-use std::{
-    ffi::CString,
-    os::raw::c_void,
-    sync::{LazyLock, Mutex},
-};
-
-static TAB_ID: LazyLock<Mutex<u32>> = LazyLock::new(|| Mutex::new(1));
-static TAB_SELECTED_CALLBACKS: LazyLock<Mutex<std::collections::HashMap<u32, Box<dyn Fn(i32) + Send + Sync>>>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
-static TAB_DETACH_CALLBACKS: LazyLock<Mutex<std::collections::HashMap<u32, Box<dyn Fn(i32) + Send + Sync>>>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+use std::{ffi::CString, os::raw::c_void};
 
 pub struct TabBar {
     handle: *mut c_void,
@@ -36,11 +26,7 @@ impl TabBar {
         F: Fn(i32) + Send + Sync + 'static,
         G: Fn(i32) + Send + Sync + 'static,
     {
-        let id = {
-            let mut id_guard = crate::sync::lock(&TAB_ID);
-            *id_guard += 1;
-            *id_guard - 1
-        };
+        let id = crate::registry::elements::next_tab_id();
 
         let handle = unsafe { ng_platform_create_tab_bar(id) };
 
@@ -48,14 +34,7 @@ impl TabBar {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        {
-            let mut selected = crate::sync::lock(&TAB_SELECTED_CALLBACKS);
-            selected.insert(id, Box::new(on_selected));
-        }
-        {
-            let mut detach = crate::sync::lock(&TAB_DETACH_CALLBACKS);
-            detach.insert(id, Box::new(on_detach));
-        }
+        crate::registry::elements::register_tab_callbacks(id, on_selected, on_detach);
 
         Ok(Self { handle, _id: id })
     }
@@ -91,17 +70,11 @@ impl TabBar {
 }
 
 pub(crate) fn invoke_tab_bar_selected(id: u32, index: i32) {
-    let callbacks = crate::sync::lock(&TAB_SELECTED_CALLBACKS);
-    if let Some(cb) = callbacks.get(&id) {
-        cb(index);
-    }
+    crate::registry::elements::invoke_tab_selected(id, index);
 }
 
 pub(crate) fn invoke_tab_bar_detach(id: u32, index: i32) {
-    let callbacks = crate::sync::lock(&TAB_DETACH_CALLBACKS);
-    if let Some(cb) = callbacks.get(&id) {
-        cb(index);
-    }
+    crate::registry::elements::invoke_tab_detach(id, index);
 }
 
 impl Element for TabBar {

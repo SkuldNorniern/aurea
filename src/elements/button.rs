@@ -1,14 +1,6 @@
 use super::traits::Element;
 use crate::{AureaError, AureaResult, ffi::*};
-use std::{
-    collections::HashMap,
-    ffi::CString,
-    os::raw::c_void,
-    sync::{LazyLock, Mutex},
-};
-
-static BUTTON_CALLBACKS: LazyLock<Mutex<HashMap<u32, Box<dyn Fn() + Send + Sync>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+use std::{ffi::CString, os::raw::c_void};
 
 pub struct Button {
     handle: *mut c_void,
@@ -25,12 +17,7 @@ impl Button {
     where
         F: Fn() + Send + Sync + 'static,
     {
-        static BUTTON_ID: LazyLock<Mutex<u32>> = LazyLock::new(|| Mutex::new(1));
-        let id = {
-            let mut id_guard = crate::sync::lock(&BUTTON_ID);
-            *id_guard += 1;
-            *id_guard - 1
-        };
+        let id = crate::registry::elements::next_button_id();
 
         let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
         let handle = unsafe { ng_platform_create_button(title.as_ptr(), id) };
@@ -39,8 +26,7 @@ impl Button {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        let mut callbacks = crate::sync::lock(&BUTTON_CALLBACKS);
-        callbacks.insert(id, Box::new(callback));
+        crate::registry::elements::register_button_callback(id, callback);
 
         Ok(Self {
             handle,
@@ -51,10 +37,7 @@ impl Button {
 }
 
 pub(crate) fn invoke_button_callback(id: u32) {
-    let callbacks = crate::sync::lock(&BUTTON_CALLBACKS);
-    if let Some(callback) = callbacks.get(&id) {
-        callback();
-    }
+    crate::registry::elements::invoke_button_callback(id);
 }
 
 impl Element for Button {
