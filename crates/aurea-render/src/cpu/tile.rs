@@ -1,25 +1,29 @@
-//! Tile-based backing store for efficient partial redraw.
+//! Tile-based backing store for efficient partial redraw
+//!
+//! Tiles are fixed-size rectangular regions of the canvas. Only tiles that
+//! intersect with the damage region need to be redrawn, enabling efficient
+//! incremental updates.
 
 use super::super::types::Rect;
 
-/// Tile size in pixels (64x64 is a good balance for most UI).
+/// Tile size in pixels (64x64 is a good balance for most UI)
 pub const TILE_SIZE: u32 = 64;
 
-/// A single tile in the backing store.
+/// A single tile in the backing store
 #[derive(Debug, Clone)]
 pub struct Tile {
-    /// Tile X coordinate (in tile units, not pixels).
+    /// Tile X coordinate (in tile units, not pixels)
     pub tile_x: u32,
-    /// Tile Y coordinate (in tile units, not pixels).
+    /// Tile Y coordinate (in tile units, not pixels)
     pub tile_y: u32,
-    /// Pixel data (RGBA, row-major order).
+    /// Pixel data (RGBA, row-major order)
     pub pixels: Vec<u32>,
-    /// Whether this tile is dirty and needs redraw.
+    /// Whether this tile is dirty and needs redraw
     pub dirty: bool,
 }
 
 impl Tile {
-    /// Create a new tile.
+    /// Create a new tile
     pub fn new(tile_x: u32, tile_y: u32) -> Self {
         Self {
             tile_x,
@@ -29,7 +33,7 @@ impl Tile {
         }
     }
 
-    /// Get the pixel bounds of this tile in canvas coordinates.
+    /// Get the pixel bounds of this tile in canvas coordinates
     pub fn bounds(&self) -> Rect {
         Rect::new(
             (self.tile_x * TILE_SIZE) as f32,
@@ -39,17 +43,17 @@ impl Tile {
         )
     }
 
-    /// Mark this tile as dirty.
+    /// Mark this tile as dirty
     pub fn mark_dirty(&mut self) {
         self.dirty = true;
     }
 
-    /// Mark this tile as clean.
+    /// Mark this tile as clean
     pub fn mark_clean(&mut self) {
         self.dirty = false;
     }
 
-    /// Set a pixel in this tile (local coordinates, 0..TILE_SIZE).
+    /// Set a pixel in this tile (local coordinates, 0..TILE_SIZE)
     pub fn set_pixel(&mut self, x: u32, y: u32, color: u32) {
         if x < TILE_SIZE && y < TILE_SIZE {
             let index = (y * TILE_SIZE + x) as usize;
@@ -59,7 +63,7 @@ impl Tile {
         }
     }
 
-    /// Get a pixel from this tile (local coordinates).
+    /// Get a pixel from this tile (local coordinates)
     pub fn get_pixel(&self, x: u32, y: u32) -> u32 {
         if x < TILE_SIZE && y < TILE_SIZE {
             let index = (y * TILE_SIZE + x) as usize;
@@ -73,28 +77,33 @@ impl Tile {
         }
     }
 
-    /// Clear the tile with a color.
+    /// Clear the tile with a color
     pub fn clear(&mut self, color: u32) {
         self.pixels.fill(color);
     }
 
-    /// Get mutable reference to pixel buffer.
+    /// Get mutable reference to pixel buffer
     pub fn pixels_mut(&mut self) -> &mut [u32] {
         &mut self.pixels
     }
 }
 
-/// Tile-based backing store for a canvas.
+/// Tile-based backing store for a canvas
 pub struct TileStore {
+    /// Canvas width in pixels
     width: u32,
+    /// Canvas height in pixels
     height: u32,
+    /// Tiles organized by (tile_y, tile_x)
     tiles: Vec<Vec<Tile>>,
+    /// Number of tiles horizontally
     tile_width: u32,
+    /// Number of tiles vertically
     tile_height: u32,
 }
 
 impl TileStore {
-    /// Create a new tile store for a canvas of given dimensions.
+    /// Create a new tile store for a canvas of given dimensions
     pub fn new(width: u32, height: u32) -> Self {
         let tile_width = (width + TILE_SIZE - 1) / TILE_SIZE;
         let tile_height = (height + TILE_SIZE - 1) / TILE_SIZE;
@@ -117,7 +126,7 @@ impl TileStore {
         }
     }
 
-    /// Resize the tile store.
+    /// Resize the tile store
     pub fn resize(&mut self, width: u32, height: u32) {
         self.width = width;
         self.height = height;
@@ -134,7 +143,7 @@ impl TileStore {
         }
     }
 
-    /// Get canvas dimensions.
+    /// Get canvas dimensions
     pub fn width(&self) -> u32 {
         self.width
     }
@@ -143,7 +152,7 @@ impl TileStore {
         self.height
     }
 
-    /// Get a tile by tile coordinates.
+    /// Get a tile by tile coordinates
     pub fn get_tile(&self, tile_x: u32, tile_y: u32) -> Option<&Tile> {
         if tile_y < self.tile_height && tile_x < self.tile_width {
             self.tiles
@@ -154,7 +163,7 @@ impl TileStore {
         }
     }
 
-    /// Get a mutable tile by tile coordinates.
+    /// Get a mutable tile by tile coordinates
     pub fn get_tile_mut(&mut self, tile_x: u32, tile_y: u32) -> Option<&mut Tile> {
         if tile_y < self.tile_height && tile_x < self.tile_width {
             self.tiles
@@ -165,7 +174,7 @@ impl TileStore {
         }
     }
 
-    /// Mark tiles intersecting a damage region as dirty.
+    /// Mark tiles intersecting a damage region as dirty
     pub fn mark_damaged(&mut self, damage: &Rect) {
         let start_tile_x = (damage.x as u32) / TILE_SIZE;
         let start_tile_y = (damage.y as u32) / TILE_SIZE;
@@ -181,7 +190,7 @@ impl TileStore {
         }
     }
 
-    /// Get all dirty tiles.
+    /// Get all dirty tiles
     pub fn dirty_tiles(&self) -> Vec<(u32, u32)> {
         let mut result = Vec::new();
         for y in 0..self.tile_height {
@@ -196,7 +205,7 @@ impl TileStore {
         result
     }
 
-    /// Mark all tiles as clean.
+    /// Mark all tiles as clean
     pub fn mark_all_clean(&mut self) {
         for row in &mut self.tiles {
             for tile in row {
@@ -205,17 +214,17 @@ impl TileStore {
         }
     }
 
-    /// Get tile coordinates for a pixel position.
+    /// Get tile coordinates for a pixel position
     pub fn pixel_to_tile(&self, x: u32, y: u32) -> (u32, u32) {
         (x / TILE_SIZE, y / TILE_SIZE)
     }
 
-    /// Get local pixel coordinates within a tile.
+    /// Get local pixel coordinates within a tile
     pub fn pixel_to_local(&self, x: u32, y: u32) -> (u32, u32) {
         (x % TILE_SIZE, y % TILE_SIZE)
     }
 
-    /// Copy tile data to a flat buffer (for platform blitting).
+    /// Copy tile data to a flat buffer (for platform blitting)
     pub fn copy_to_buffer(&self, buffer: &mut [u32], buffer_width: u32, buffer_height: u32) {
         for y in 0..buffer_height.min(self.height) {
             for x in 0..buffer_width.min(self.width) {
@@ -233,7 +242,7 @@ impl TileStore {
         }
     }
 
-    /// Copy only dirty tiles to a flat buffer.
+    /// Copy only dirty tiles to a flat buffer
     pub fn copy_dirty_to_buffer(&self, buffer: &mut [u32], buffer_width: u32, _buffer_height: u32) {
         for (tile_x, tile_y) in self.dirty_tiles() {
             let tile_bounds = Rect::new(

@@ -1,8 +1,13 @@
 //! Pixel-level blend modes for compositing.
+//!
+//! Colors are packed as RGBA u32: alpha in the high byte, then red, green, blue.
+//! Each mode combines a source pixel with the existing destination pixel to produce
+//! the final color (e.g. Normal is "over", Multiply darkens, Screen lightens).
 
 use super::super::types::BlendMode;
 
 /// Composites a source pixel onto a destination pixel using the given blend mode.
+/// Returns the resulting color as RGBA u32.
 pub fn blend_pixel(src: u32, dst: u32, mode: BlendMode) -> u32 {
     match mode {
         BlendMode::Normal => blend_over(src, dst),

@@ -1,4 +1,8 @@
 //! CPU raster backend with tile-based rendering.
+//!
+//! Records draw commands into a display list, then rasterizes only tiles that
+//! intersect the damage region. Uses a fixed tile size and optional cache to
+//! keep memory and redraw cost bounded.
 
 pub mod blend;
 pub mod cache;

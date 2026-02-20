@@ -1,4 +1,7 @@
 //! Bounded LRU cache for rendering.
+//!
+//! Stores values by cache key with a fixed memory budget. When over budget,
+//! the least recently used entry is evicted.
 
 use super::super::display_list::CacheKey;
 use std::collections::HashMap;

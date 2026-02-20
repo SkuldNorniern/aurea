@@ -1,4 +1,7 @@
 //! CPU rasterizer with tile-based rendering.
+//!
+//! Turns display-list commands into pixels inside fixed-size tiles. Only tiles
+//! that intersect the damage region are redrawn, so partial updates stay cheap.
 
 use super::super::display_list::{DisplayItem, DisplayList};
 use super::super::renderer::{DrawingContext, Renderer};
@@ -13,7 +16,7 @@ use super::context::CpuDrawingContext;
 use super::path::tessellate_path;
 use super::scanline::fill_scanline;
 use super::tile::{TILE_SIZE, TileStore};
-use crate::AureaResult;
+use aurea_core::AureaResult;
 
 /// Rasterizer that draws the display list into a tile grid for partial redraw.
 pub struct CpuRasterizer {
@@ -67,6 +70,7 @@ impl CpuRasterizer {
         Ok(())
     }
 
+    /// Renders one tile by clearing it and drawing all display items that intersect it.
     fn render_tile(
         &mut self,
         tile_x: u32,
@@ -98,6 +102,7 @@ impl CpuRasterizer {
         Ok(())
     }
 
+    /// Renders one display item into a tile; used as a static helper to avoid borrow conflicts.
     fn render_item_to_tile_static(
         item: &DisplayItem,
         tile: &mut super::tile::Tile,
@@ -167,6 +172,7 @@ impl CpuRasterizer {
         Ok(())
     }
 
+    /// Renders one display item into a tile (instance wrapper around the static helper).
     #[allow(dead_code)]
     fn render_item_to_tile(
         &self,
@@ -186,6 +192,7 @@ impl CpuRasterizer {
         }
     }
 
+    /// Fills or strokes a rectangle within a single tile, clipping to the tile and applying blend.
     fn draw_rect_to_tile_static(
         rect: &Rect,
         paint: &Paint,
@@ -271,6 +278,7 @@ impl CpuRasterizer {
         }
     }
 
+    /// Fills or strokes a circle within a single tile, clipping to the tile and applying blend.
     fn draw_circle_to_tile_static(
         center: Point,
         radius: f32,
@@ -336,7 +344,8 @@ impl CpuRasterizer {
         &mut self.tile_store
     }
 
-    /// Builds a flat RGBA buffer from all tiles for the platform to blit.
+    /// Builds a flat RGBA buffer from all tiles for the platform to blit. The buffer is
+    /// intentionally leaked; the platform consumes it before the next frame.
     pub fn get_buffer(&self) -> (*const u8, usize, u32, u32) {
         let buffer_size = (self.width * self.height) as usize;
         let mut buffer = vec![0u32; buffer_size];
@@ -356,6 +365,7 @@ impl CpuRasterizer {
         &self.display_list
     }
 
+    /// Fills or strokes a path within a single tile using scanlines, clipping to the tile and applying blend.
     fn draw_path_to_tile_static(
         path: &super::super::types::Path,
         paint: &Paint,
@@ -666,7 +676,7 @@ impl Renderer for CpuRasterizer {
             }
         }
 
-        use crate::render::renderer::CURRENT_BUFFER;
+        use crate::renderer::CURRENT_BUFFER;
         let (ptr, size, width, height) = self.get_buffer();
         CURRENT_BUFFER.with(|buf| {
             *buf.borrow_mut() = Some((ptr, size, width, height));
@@ -690,15 +700,18 @@ impl Renderer for CpuRasterizer {
     }
 }
 
+/// Packs a Color into a single u32 (A in high byte, then R, G, B).
 fn color_to_u32(color: Color) -> u32 {
     ((color.a as u32) << 24) | ((color.r as u32) << 16) | ((color.g as u32) << 8) | (color.b as u32)
 }
 
+/// Packs a Color with alpha scaled by coverage (0.0..=1.0) for anti-aliasing.
 fn color_to_u32_with_coverage(color: Color, coverage: f32) -> u32 {
     let a = ((color.a as f32 * coverage).round().clamp(0.0, 255.0)) as u32;
     (a << 24) | ((color.r as u32) << 16) | ((color.g as u32) << 8) | (color.b as u32)
 }
 
+/// Fraction of the pixel [px, px+1) x [py, py+1) that lies inside the rect.
 fn rect_coverage(rect: &Rect, px: f32, py: f32) -> f32 {
     let left = px.max(rect.x);
     let right = (px + 1.0).min(rect.x + rect.width);
@@ -711,6 +724,7 @@ fn rect_coverage(rect: &Rect, px: f32, py: f32) -> f32 {
     }
 }
 
+/// Approximate coverage of the pixel with center (px+0.5, py+0.5) inside the circle; 1.0 inside, 0.0 outside, linear ramp in the one-pixel band.
 fn circle_coverage(center: Point, radius: f32, px: f32, py: f32) -> f32 {
     let cx = px + 0.5;
     let cy = py + 0.5;

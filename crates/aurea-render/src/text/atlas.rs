@@ -1,18 +1,21 @@
-//! Glyph atlas management for text rendering.
+//! Glyph atlas management for text rendering
+//!
+//! Caches rasterized glyphs in a texture atlas to avoid re-rasterizing
+//! the same glyphs repeatedly. Uses bounded LRU cache.
 
 use super::super::types::Font;
-use crate::AureaResult;
+use aurea_core::AureaResult;
 use std::{
     collections::HashMap,
     collections::VecDeque,
     sync::{Arc, Mutex},
 };
 
-/// Glyph identifier (font + size + character).
+/// Glyph identifier (font + size + character)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GlyphKey {
     font_family_hash: u64,
-    size_bits: u32,
+    size_bits: u32, // f32 as bits for hashing
     char_code: u32,
 }
 
@@ -29,29 +32,29 @@ impl GlyphKey {
 
         Self {
             font_family_hash,
-            size_bits: font.size.to_bits(),
+            size_bits: font.size.to_bits(), // Convert f32 to u32 bits for hashing
             char_code,
         }
     }
 }
 
-/// Rasterized glyph data.
+/// Rasterized glyph data
 #[derive(Debug, Clone)]
 pub struct GlyphBitmap {
     pub width: u32,
     pub height: u32,
-    pub data: Vec<u8>,
+    pub data: Vec<u8>, // RGBA
     pub bearing_x: f32,
     pub bearing_y: f32,
     pub advance: f32,
 }
 
-/// Bounded glyph atlas cache.
+/// Bounded glyph atlas cache
 pub struct GlyphAtlas {
     cache: Mutex<HashMap<GlyphKey, Arc<GlyphBitmap>>>,
     order: Mutex<VecDeque<GlyphKey>>,
     sizes: Mutex<HashMap<GlyphKey, usize>>,
-    memory_budget: usize,
+    memory_budget: usize, // Bytes
     current_memory: Mutex<usize>,
 }
 
@@ -66,10 +69,10 @@ impl GlyphAtlas {
         }
     }
 
-    /// Get a glyph from cache, or None if not cached.
+    /// Get a glyph from cache, or None if not cached
     pub fn get(&self, key: &GlyphKey) -> Option<Arc<GlyphBitmap>> {
-        let cache = crate::sync::lock(&self.cache);
-        let mut order = crate::sync::lock(&self.order);
+        let cache = aurea_core::lock(&self.cache);
+        let mut order = aurea_core::lock(&self.order);
         let glyph = cache.get(key).cloned();
         if glyph.is_some() {
             if let Some(pos) = order.iter().position(|k| k == key) {
@@ -80,14 +83,14 @@ impl GlyphAtlas {
         glyph
     }
 
-    /// Store a glyph in the cache.
+    /// Store a glyph in the cache
     pub fn put(&self, key: GlyphKey, bitmap: GlyphBitmap) -> AureaResult<()> {
         let memory_used = (bitmap.width * bitmap.height * 4) as usize;
 
-        let mut cache = crate::sync::lock(&self.cache);
-        let mut order = crate::sync::lock(&self.order);
-        let mut sizes = crate::sync::lock(&self.sizes);
-        let mut current_memory = crate::sync::lock(&self.current_memory);
+        let mut cache = aurea_core::lock(&self.cache);
+        let mut order = aurea_core::lock(&self.order);
+        let mut sizes = aurea_core::lock(&self.sizes);
+        let mut current_memory = aurea_core::lock(&self.current_memory);
 
         if memory_used > self.memory_budget {
             cache.clear();
@@ -113,15 +116,15 @@ impl GlyphAtlas {
         Ok(())
     }
 
-    /// Clear the cache.
+    /// Clear the cache
     pub fn clear(&self) {
-        let mut cache = crate::sync::lock(&self.cache);
-        let mut order = crate::sync::lock(&self.order);
-        let mut sizes = crate::sync::lock(&self.sizes);
+        let mut cache = aurea_core::lock(&self.cache);
+        let mut order = aurea_core::lock(&self.order);
+        let mut sizes = aurea_core::lock(&self.sizes);
         cache.clear();
         order.clear();
         sizes.clear();
-        let mut current_memory = crate::sync::lock(&self.current_memory);
+        let mut current_memory = aurea_core::lock(&self.current_memory);
         *current_memory = 0;
     }
 }
@@ -129,7 +132,7 @@ impl GlyphAtlas {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::types::Font;
+    use crate::types::Font;
 
     #[test]
     fn glyph_key_same_font_char_equals() {

@@ -1,4 +1,6 @@
 //! Hit testing for shapes and paths.
+//!
+//! Answers whether a point lies inside a path (odd-even ray cast), rect, or circle.
 
 use super::super::types::{Path, PathCommand, Point, Rect};
 
@@ -162,6 +164,7 @@ fn path_bounds(path: &Path) -> Rect {
     Rect::new(min_x, min_y, max_x - min_x, max_y - min_y)
 }
 
+/// Evaluate quadratic Bezier curve at parameter t
 fn quadratic_bezier(p0: Point, p1: Point, p2: Point, t: f32) -> Point {
     let mt = 1.0 - t;
     let mt2 = mt * mt;
@@ -173,6 +176,7 @@ fn quadratic_bezier(p0: Point, p1: Point, p2: Point, t: f32) -> Point {
     )
 }
 
+/// Evaluate cubic Bezier curve at parameter t
 fn cubic_bezier(p0: Point, p1: Point, p2: Point, p3: Point, t: f32) -> Point {
     let mt = 1.0 - t;
     let mt2 = mt * mt;

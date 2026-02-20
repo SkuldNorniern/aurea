@@ -1,17 +1,20 @@
-//! Text rasterization using system fonts.
+//! Text rasterization using system fonts
+//!
+//! Uses fontdb/fontdue to rasterize glyphs into bitmaps from installed fonts.
+//! Platform-native rasterizers can be added later if needed.
 
 use super::super::types::{Color, Font, FontStyle, FontWeight, Point, TextMetrics};
 use super::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
-use crate::{AureaError, AureaResult};
+use aurea_core::{AureaError, AureaResult};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-/// Platform text rasterizer trait.
+/// Platform text rasterizer trait
 pub trait PlatformTextRasterizer: Send + Sync {
-    /// Rasterize a single glyph.
+    /// Rasterize a single glyph
     fn rasterize_glyph(&self, font: &Font, char_code: u32) -> AureaResult<GlyphBitmap>;
 
-    /// Measure text dimensions.
+    /// Measure text dimensions
     fn measure_text(
         &self,
         text: &str,
@@ -54,7 +57,7 @@ impl FontDbTextRasterizer {
     fn resolve_font(&self, font: &Font) -> AureaResult<Arc<fontdue::Font>> {
         let key = FontKey::from_font(font);
 
-        if let Some(cached) = crate::sync::lock(&self.cache).get(&key).cloned() {
+        if let Some(cached) = aurea_core::lock(&self.cache).get(&key).cloned() {
             return Ok(cached);
         }
 
@@ -105,7 +108,7 @@ impl FontDbTextRasterizer {
             .map_err(|_| AureaError::RenderingFailed)?;
 
         let font_arc = Arc::new(fontdue);
-        crate::sync::lock(&self.cache).insert(key, font_arc.clone());
+        aurea_core::lock(&self.cache).insert(key, font_arc.clone());
         Ok(font_arc)
     }
 }
@@ -173,7 +176,7 @@ pub fn get_platform_rasterizer() -> Box<dyn PlatformTextRasterizer> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::types::Font;
+    use crate::types::Font;
 
     #[test]
     fn measure_text_returns_positive_for_non_empty() {
@@ -215,7 +218,7 @@ mod tests {
     }
 }
 
-/// Text renderer that uses platform APIs and glyph atlas.
+/// Text renderer that uses platform APIs and glyph atlas
 pub struct TextRenderer {
     rasterizer: Box<dyn PlatformTextRasterizer>,
     atlas: GlyphAtlas,
@@ -225,11 +228,11 @@ impl TextRenderer {
     pub fn new() -> Self {
         Self {
             rasterizer: get_platform_rasterizer(),
-            atlas: GlyphAtlas::new(4),
+            atlas: GlyphAtlas::new(4), // 4MB cache budget
         }
     }
 
-    /// Render text to a buffer at a position.
+    /// Render text to a buffer at a position
     pub fn render_text(
         &self,
         text: &str,
@@ -247,6 +250,7 @@ impl TextRenderer {
             let char_code = ch as u32;
             let key = GlyphKey::new(font, char_code);
 
+            // Get glyph from cache or rasterize
             let glyph = match self.atlas.get(&key) {
                 Some(bitmap) => bitmap,
                 None => {
@@ -260,6 +264,7 @@ impl TextRenderer {
                 }
             };
 
+            // Blit glyph to buffer
             self.blit_glyph(&glyph, x, y, color, buffer, buffer_width, buffer_height)?;
 
             x += glyph.advance;
@@ -268,6 +273,7 @@ impl TextRenderer {
         Ok(())
     }
 
+    /// Blit a glyph bitmap to the buffer
     fn blit_glyph(
         &self,
         glyph: &GlyphBitmap,
@@ -295,6 +301,7 @@ impl TextRenderer {
                     if glyph_idx * 4 + 3 < glyph.data.len() {
                         let alpha = glyph.data[glyph_idx * 4 + 3] as f32 / 255.0;
 
+                        // Blend glyph alpha with text color
                         let blended = Color::rgba(
                             ((color.r as f32 * alpha).min(255.0)) as u8,
                             ((color.g as f32 * alpha).min(255.0)) as u8,
@@ -318,7 +325,7 @@ impl TextRenderer {
         Ok(())
     }
 
-    /// Measure text dimensions.
+    /// Measure text dimensions
     pub fn measure_text(
         &self,
         text: &str,

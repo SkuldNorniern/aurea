@@ -1,4 +1,7 @@
 //! Scanline fill for paths.
+//!
+//! Walks horizontal scanlines, finds where edges cross, and fills between
+//! pairs of crossings (odd-even rule), writing into a tile with blending.
 
 use super::super::types::{BlendMode, Color};
 use super::blend::blend_pixel;

@@ -1,10 +1,13 @@
 //! CPU drawing context that records commands into a display list.
+//!
+//! Each draw call is turned into a display item with a node ID, cache key, bounds,
+//! opacity, and blend mode so the rasterizer can redraw only what changed.
 
 use super::super::display_list::{CacheKey, DisplayItem, DisplayList, NodeId};
 use super::super::renderer::DrawingContext;
 use super::super::text::TextRenderer;
 use super::super::types::*;
-use crate::AureaResult;
+use aurea_core::AureaResult;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::LazyLock;
@@ -13,6 +16,7 @@ static TEXT_RENDERER: LazyLock<TextRenderer> = LazyLock::new(TextRenderer::new);
 const DEFAULT_FONT_FAMILY: &str = "Sans";
 const DEFAULT_FONT_SIZE: f32 = 16.0;
 
+/// Snapshot of transform, opacity, clip, and blend mode for save/restore.
 struct DrawingState {
     transform: Transform,
     opacity: f32,

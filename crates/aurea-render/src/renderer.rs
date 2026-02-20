@@ -5,8 +5,8 @@ use super::types::{
     BlendMode, Color, Font, Image, LinearGradient, Paint, Path, Point, RadialGradient, Rect,
     TextMetrics, Transform,
 };
-use crate::AureaResult;
-use crate::render::text::TextRenderer;
+use aurea_core::AureaResult;
+use crate::text::TextRenderer;
 use std::cell::RefCell;
 use std::sync::LazyLock;
 
@@ -16,25 +16,25 @@ thread_local! {
 }
 
 pub trait DrawingContext {
-    /// Get the width of the drawing area.
+    /// Get the width of the drawing area
     fn width(&self) -> u32;
 
-    /// Get the height of the drawing area.
+    /// Get the height of the drawing area
     fn height(&self) -> u32;
 
-    /// Clear the canvas with a color.
+    /// Clear the canvas with a color
     fn clear(&mut self, color: Color) -> AureaResult<()>;
 
-    /// Draw a rectangle.
+    /// Draw a rectangle
     fn draw_rect(&mut self, rect: Rect, paint: &Paint) -> AureaResult<()>;
 
-    /// Draw a circle.
+    /// Draw a circle
     fn draw_circle(&mut self, center: Point, radius: f32, paint: &Paint) -> AureaResult<()>;
 
-    /// Draw text at a position.
+    /// Draw text at a position
     fn draw_text(&mut self, text: &str, position: Point, paint: &Paint) -> AureaResult<()>;
 
-    /// Draw a line between two points.
+    /// Draw a line between two points
     fn draw_line(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, paint: &Paint) -> AureaResult<()> {
         let mut path = Path::new();
         path.commands
@@ -44,19 +44,19 @@ pub trait DrawingContext {
         self.draw_path(&path, paint)
     }
 
-    /// Draw a path.
+    /// Draw a path
     fn draw_path(&mut self, path: &Path, paint: &Paint) -> AureaResult<()>;
 
-    /// Draw an image at a position.
+    /// Draw an image at a position
     fn draw_image(&mut self, image: &Image, position: Point) -> AureaResult<()>;
 
-    /// Draw an image with scaling.
+    /// Draw an image with scaling
     fn draw_image_rect(&mut self, image: &Image, dest: Rect) -> AureaResult<()>;
 
-    /// Draw part of an image (source rect) to a destination rect.
+    /// Draw part of an image (source rect) to a destination rect
     fn draw_image_region(&mut self, image: &Image, src: Rect, dest: Rect) -> AureaResult<()>;
 
-    /// Draw text with font configuration.
+    /// Draw text with font configuration
     fn draw_text_with_font(
         &mut self,
         text: &str,
@@ -65,55 +65,55 @@ pub trait DrawingContext {
         paint: &Paint,
     ) -> AureaResult<()>;
 
-    /// Measure text dimensions.
+    /// Measure text dimensions
     fn measure_text(&mut self, text: &str, font: &Font) -> AureaResult<TextMetrics>;
 
-    /// Save the current transformation matrix.
+    /// Save the current transformation matrix
     fn save(&mut self) -> AureaResult<()>;
 
-    /// Restore the previously saved transformation matrix.
+    /// Restore the previously saved transformation matrix
     fn restore(&mut self) -> AureaResult<()>;
 
-    /// Apply a transformation matrix.
+    /// Apply a transformation matrix
     fn transform(&mut self, transform: Transform) -> AureaResult<()>;
 
-    /// Translate the coordinate system.
+    /// Translate the coordinate system
     fn translate(&mut self, x: f32, y: f32) -> AureaResult<()> {
         self.transform(Transform::translate(x, y))
     }
 
-    /// Scale the coordinate system.
+    /// Scale the coordinate system
     fn scale(&mut self, sx: f32, sy: f32) -> AureaResult<()> {
         self.transform(Transform::scale(sx, sy))
     }
 
-    /// Rotate the coordinate system (angle in radians).
+    /// Rotate the coordinate system (angle in radians)
     fn rotate(&mut self, angle: f32) -> AureaResult<()> {
         self.transform(Transform::rotate(angle))
     }
 
-    /// Set a clipping rectangle.
+    /// Set a clipping rectangle
     fn clip_rect(&mut self, rect: Rect) -> AureaResult<()>;
 
-    /// Set a clipping path.
+    /// Set a clipping path
     fn clip_path(&mut self, path: &Path) -> AureaResult<()>;
 
-    /// Set the global alpha (opacity).
+    /// Set the global alpha (opacity)
     fn set_alpha(&mut self, alpha: f32) -> AureaResult<()>;
 
-    /// Set the blend mode.
+    /// Set the blend mode
     fn set_blend_mode(&mut self, mode: BlendMode) -> AureaResult<()>;
 
-    /// Fill with a linear gradient.
+    /// Fill with a linear gradient
     fn fill_linear_gradient(&mut self, gradient: &LinearGradient, rect: Rect) -> AureaResult<()>;
 
-    /// Fill with a radial gradient.
+    /// Fill with a radial gradient
     fn fill_radial_gradient(&mut self, gradient: &RadialGradient, rect: Rect) -> AureaResult<()>;
 
-    /// Check if a point is inside a path (hit testing).
+    /// Check if a point is inside a path (hit testing)
     fn hit_test_path(&mut self, path: &Path, point: Point) -> AureaResult<bool>;
 
-    /// Check if a point is inside a rectangle (hit testing).
+    /// Check if a point is inside a rectangle (hit testing)
     fn hit_test_rect(&mut self, rect: Rect, point: Point) -> bool {
         point.x >= rect.x
             && point.x <= rect.x + rect.width
@@ -129,9 +129,11 @@ pub trait Renderer: Send + Sync {
     fn end_frame(&mut self) -> AureaResult<()>;
     fn cleanup(&mut self);
 
-    /// Set damage region for partial redraw (optional, defaults to full canvas) This is called
-    /// before end_frame() to specify which region needs redrawing.
-    fn set_damage(&mut self, _damage: Option<Rect>) {}
+    /// Set damage region for partial redraw (optional, defaults to full canvas)
+    /// This is called before end_frame() to specify which region needs redrawing
+    fn set_damage(&mut self, _damage: Option<Rect>) {
+        // Default implementation does nothing (full redraw)
+    }
 
     /// Optional: access the display list for hit testing (CPU renderer only).
     fn display_list(&self) -> Option<&DisplayList> {
@@ -161,6 +163,7 @@ impl PlaceholderRenderer {
         if self.buffer.is_empty() {
             return (std::ptr::null(), 0);
         }
+        // Convert u32 buffer to u8 pointer (same memory, just different type)
         (
             self.buffer.as_ptr() as *const u8,
             self.buffer.len() * std::mem::size_of::<u32>(),
@@ -335,6 +338,7 @@ impl PlaceholderRenderer {
                 }
             }
             super::types::PaintStyle::Stroke => {
+                // Simple circle outline
                 for angle in 0..360 {
                     let rad = (angle as f32).to_radians();
                     let x = cx + (radius * rad.cos()) as i32;

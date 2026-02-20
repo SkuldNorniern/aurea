@@ -1,4 +1,6 @@
 //! Draw commands shared between display list and rasterizer.
+//!
+//! Boundary between display list (records commands) and raster (executes them).
 
 use super::types::{
     Color, Font, Image, LinearGradient, Paint, Path, Point, RadialGradient, Rect, Transform,

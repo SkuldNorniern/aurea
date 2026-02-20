@@ -1,6 +1,6 @@
-//! Common types for rendering operations.
+//! Common types for rendering operations
 
-/// Color representation in RGBA format.
+/// Color representation in RGBA format
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Color {
     pub r: u8,
@@ -10,17 +10,17 @@ pub struct Color {
 }
 
 impl Color {
-    /// Create a color from RGB values (alpha defaults to 255).
+    /// Create a color from RGB values (alpha defaults to 255)
     pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b, a: 255 }
     }
 
-    /// Create a color from RGBA values.
+    /// Create a color from RGBA values
     pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a }
     }
 
-    /// Convert to f32 values in range [0.0, 1.0].
+    /// Convert to f32 values in range [0.0, 1.0]
     pub fn to_f32(self) -> (f32, f32, f32, f32) {
         (
             self.r as f32 / 255.0,
@@ -31,7 +31,7 @@ impl Color {
     }
 }
 
-/// 2D point.
+/// 2D point
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Point {
     pub x: f32,
@@ -44,7 +44,7 @@ impl Point {
     }
 }
 
-/// Rectangle.
+/// Rectangle
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Rect {
     pub x: f32,
@@ -73,14 +73,14 @@ impl Rect {
     }
 }
 
-/// Paint style for drawing operations.
+/// Paint style for drawing operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PaintStyle {
     Fill,
     Stroke,
 }
 
-/// Paint configuration for drawing.
+/// Paint configuration for drawing
 #[derive(Debug, Clone)]
 pub struct Paint {
     pub color: Color,
@@ -120,31 +120,34 @@ impl Default for Paint {
 }
 
 /// Aurea's native rendering backend.
+///
+/// The framework provides its own rendering path (no external Skia/Vello).
+/// Cpu is implemented; Gpu is planned for a later release.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum RendererBackend {
-    /// CPU rasterizer (tile-based, display list, partial redraw).
+    /// CPU rasterizer (tile-based, display list, partial redraw)
     #[default]
     Cpu,
-    /// GPU-accelerated backend (planned; returns error until implemented).
+    /// GPU-accelerated backend (planned; returns error until implemented)
     Gpu,
 }
 
-/// Path command for drawing paths.
+/// Path command for drawing paths
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PathCommand {
-    /// Move to a point.
+    /// Move to a point
     MoveTo(Point),
-    /// Line to a point.
+    /// Line to a point
     LineTo(Point),
-    /// Quadratic curve to a point.
+    /// Quadratic curve to a point
     QuadTo(Point, Point),
-    /// Cubic curve to a point.
+    /// Cubic curve to a point
     CubicTo(Point, Point, Point),
-    /// Close the path.
+    /// Close the path
     Close,
 }
 
-/// Path for drawing shapes.
+/// Path for drawing shapes
 #[derive(Debug, Clone)]
 pub struct Path {
     pub commands: Vec<PathCommand>,
@@ -164,7 +167,7 @@ impl Default for Path {
     }
 }
 
-/// 2D transformation matrix (3x3 homogeneous coordinates).
+/// 2D transformation matrix (3x3 homogeneous coordinates)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Transform {
     pub m11: f32,
@@ -282,7 +285,7 @@ impl Transform {
     }
 }
 
-/// Font for text rendering.
+/// Font for text rendering
 #[derive(Debug, Clone)]
 pub struct Font {
     pub family: String,
@@ -312,21 +315,21 @@ impl Font {
     }
 }
 
-/// Font weight.
+/// Font weight
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FontWeight {
     Normal,
     Bold,
 }
 
-/// Font style.
+/// Font style
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FontStyle {
     Normal,
     Italic,
 }
 
-/// Text metrics from text measurement.
+/// Text metrics from text measurement
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TextMetrics {
     pub width: f32,
@@ -336,7 +339,7 @@ pub struct TextMetrics {
     pub advance: f32,
 }
 
-/// Linear gradient.
+/// Linear gradient
 #[derive(Debug, Clone)]
 pub struct LinearGradient {
     pub start: Point,
@@ -344,7 +347,7 @@ pub struct LinearGradient {
     pub stops: Vec<GradientStop>,
 }
 
-/// Radial gradient.
+/// Radial gradient
 #[derive(Debug, Clone)]
 pub struct RadialGradient {
     pub center: Point,
@@ -352,7 +355,7 @@ pub struct RadialGradient {
     pub stops: Vec<GradientStop>,
 }
 
-/// Gradient stop.
+/// Gradient stop
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GradientStop {
     pub offset: f32,
@@ -391,7 +394,7 @@ mod tests {
     }
 }
 
-/// Blend mode for compositing.
+/// Blend mode for compositing
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BlendMode {
     Normal,
@@ -408,7 +411,7 @@ pub enum BlendMode {
     Exclusion,
 }
 
-/// Image for rendering.
+/// Image for rendering
 #[derive(Debug, Clone)]
 pub struct Image {
     pub width: u32,
@@ -426,6 +429,6 @@ impl Image {
     }
 }
 
-/// Interactive element ID for hit testing.
+/// Interactive element ID for hit testing
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct InteractiveId(pub u64);

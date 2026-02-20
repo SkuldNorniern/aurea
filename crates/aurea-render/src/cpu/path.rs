@@ -1,4 +1,7 @@
 //! Path tessellation for the CPU rasterizer.
+//!
+//! Turns path commands into edges (y range, x at y_min, slope) so the scanline
+//! filler can find crossings and fill between them.
 
 use super::super::types::{Path, PathCommand, Point};
 
@@ -40,8 +43,7 @@ impl Edge {
     }
 }
 
-/// Converts a path into a list of edges for the scanline filler (lines, quads and cubics
-/// subdivided).
+/// Converts a path into a list of edges for the scanline filler (lines, quads and cubics subdivided).
 pub fn tessellate_path(path: &Path) -> Vec<Edge> {
     let mut edges = Vec::new();
     let mut current_point = Point::new(0.0, 0.0);
@@ -103,6 +105,7 @@ pub fn tessellate_path(path: &Path) -> Vec<Edge> {
     edges
 }
 
+/// Evaluate quadratic Bezier curve at parameter t
 fn quadratic_bezier(p0: Point, p1: Point, p2: Point, t: f32) -> Point {
     let mt = 1.0 - t;
     let mt2 = mt * mt;
@@ -114,6 +117,7 @@ fn quadratic_bezier(p0: Point, p1: Point, p2: Point, t: f32) -> Point {
     )
 }
 
+/// Evaluate cubic Bezier curve at parameter t
 fn cubic_bezier(p0: Point, p1: Point, p2: Point, p3: Point, t: f32) -> Point {
     let mt = 1.0 - t;
     let mt2 = mt * mt;
