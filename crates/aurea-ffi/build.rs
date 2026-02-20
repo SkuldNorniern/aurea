@@ -4,7 +4,7 @@ use std::process::Command;
 fn main() {
     let manifest_dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let root = manifest_dir.join("../..").canonicalize().unwrap();
-    let c_src = root.join("c_src");
+    let native = root.join("native");
 
     fn add_sources(build: &mut cc::Build, root: &std::path::Path, sources: &[&str]) {
         for source in sources {
@@ -18,102 +18,102 @@ fn main() {
         }
     }
 
-    let common_c: &[&str] = &["c_src/common/platform.c"];
+    let common_c: &[&str] = &["native/common/platform.c"];
 
     #[cfg(target_os = "windows")]
     let windows_c: &[&str] = &[
-        "c_src/platform/windows.c",
-        "c_src/platform/windows/utils.c",
-        "c_src/platform/windows/window.c",
-        "c_src/platform/windows/menu.c",
-        "c_src/platform/windows/elements/common.c",
-        "c_src/platform/windows/elements/button.c",
-        "c_src/platform/windows/elements/label.c",
-        "c_src/platform/windows/elements/box.c",
-        "c_src/platform/windows/elements/split_view.c",
-        "c_src/platform/windows/elements/text_common.c",
-        "c_src/platform/windows/elements/text_editor.c",
-        "c_src/platform/windows/elements/text_view.c",
-        "c_src/platform/windows/elements/canvas.c",
-        "c_src/platform/windows/elements/slider.c",
-        "c_src/platform/windows/elements/checkbox.c",
-        "c_src/platform/windows/elements/progress_bar.c",
-        "c_src/platform/windows/elements/combo_box.c",
-        "c_src/platform/windows/elements/tab_bar.c",
-        "c_src/platform/windows/elements/sidebar_list.c",
+        "native/platform/windows.c",
+        "native/platform/windows/utils.c",
+        "native/platform/windows/window.c",
+        "native/platform/windows/menu.c",
+        "native/platform/windows/elements/common.c",
+        "native/platform/windows/elements/button.c",
+        "native/platform/windows/elements/label.c",
+        "native/platform/windows/elements/box.c",
+        "native/platform/windows/elements/split_view.c",
+        "native/platform/windows/elements/text_common.c",
+        "native/platform/windows/elements/text_editor.c",
+        "native/platform/windows/elements/text_view.c",
+        "native/platform/windows/elements/canvas.c",
+        "native/platform/windows/elements/slider.c",
+        "native/platform/windows/elements/checkbox.c",
+        "native/platform/windows/elements/progress_bar.c",
+        "native/platform/windows/elements/combo_box.c",
+        "native/platform/windows/elements/tab_bar.c",
+        "native/platform/windows/elements/sidebar_list.c",
     ];
 
     #[cfg(target_os = "windows")]
-    let windows_cpp: &[&str] = &["c_src/platform/windows/elements/image_view.cpp"];
+    let windows_cpp: &[&str] = &["native/platform/windows/elements/image_view.cpp"];
 
     let ios_sources: &[&str] = &[
-        "c_src/platform/ios.m",
-        "c_src/platform/ios/ios.m",
-        "c_src/platform/ios/main.m",
-        "c_src/platform/ios/app_delegate.m",
-        "c_src/platform/ios/view_controller.m",
-        "c_src/platform/ios/window.m",
-        "c_src/platform/ios/utils.m",
-        "c_src/platform/ios/elements/button.m",
-        "c_src/platform/ios/elements/label.m",
-        "c_src/platform/ios/elements/box.m",
-        "c_src/platform/ios/elements/canvas.m",
-        "c_src/platform/ios/elements/image_view.m",
-        "c_src/platform/ios/elements/slider.m",
-        "c_src/platform/ios/elements/checkbox.m",
-        "c_src/platform/ios/elements/progress_bar.m",
-        "c_src/platform/ios/elements/combo_box.m",
-        "c_src/platform/ios/elements/split_view.m",
+        "native/platform/ios.m",
+        "native/platform/ios/ios.m",
+        "native/platform/ios/main.m",
+        "native/platform/ios/app_delegate.m",
+        "native/platform/ios/view_controller.m",
+        "native/platform/ios/window.m",
+        "native/platform/ios/utils.m",
+        "native/platform/ios/elements/button.m",
+        "native/platform/ios/elements/label.m",
+        "native/platform/ios/elements/box.m",
+        "native/platform/ios/elements/canvas.m",
+        "native/platform/ios/elements/image_view.m",
+        "native/platform/ios/elements/slider.m",
+        "native/platform/ios/elements/checkbox.m",
+        "native/platform/ios/elements/progress_bar.m",
+        "native/platform/ios/elements/combo_box.m",
+        "native/platform/ios/elements/split_view.m",
     ];
 
     let macos_sources: &[&str] = &[
-        "c_src/platform/macos.m",
-        "c_src/platform/macos/window.m",
-        "c_src/platform/macos/menu.m",
-        "c_src/platform/macos/utils.m",
-        "c_src/platform/macos/elements/button.m",
-        "c_src/platform/macos/elements/label.m",
-        "c_src/platform/macos/elements/box.m",
-        "c_src/platform/macos/elements/text_common.m",
-        "c_src/platform/macos/elements/text_editor.m",
-        "c_src/platform/macos/elements/text_view.m",
-        "c_src/platform/macos/elements/canvas.m",
-        "c_src/platform/macos/elements/image_view.m",
-        "c_src/platform/macos/elements/slider.m",
-        "c_src/platform/macos/elements/checkbox.m",
-        "c_src/platform/macos/elements/progress_bar.m",
-        "c_src/platform/macos/elements/combo_box.m",
-        "c_src/platform/macos/elements/tab_bar.m",
-        "c_src/platform/macos/elements/sidebar_list.m",
-        "c_src/platform/macos/elements/split_view.m",
+        "native/platform/macos.m",
+        "native/platform/macos/window.m",
+        "native/platform/macos/menu.m",
+        "native/platform/macos/utils.m",
+        "native/platform/macos/elements/button.m",
+        "native/platform/macos/elements/label.m",
+        "native/platform/macos/elements/box.m",
+        "native/platform/macos/elements/text_common.m",
+        "native/platform/macos/elements/text_editor.m",
+        "native/platform/macos/elements/text_view.m",
+        "native/platform/macos/elements/canvas.m",
+        "native/platform/macos/elements/image_view.m",
+        "native/platform/macos/elements/slider.m",
+        "native/platform/macos/elements/checkbox.m",
+        "native/platform/macos/elements/progress_bar.m",
+        "native/platform/macos/elements/combo_box.m",
+        "native/platform/macos/elements/tab_bar.m",
+        "native/platform/macos/elements/sidebar_list.m",
+        "native/platform/macos/elements/split_view.m",
     ];
 
     #[cfg(target_os = "linux")]
     let linux_sources: &[&str] = &[
-        "c_src/platform/linux.c",
-        "c_src/platform/linux/utils.c",
-        "c_src/platform/linux/window.c",
-        "c_src/platform/linux/menu.c",
-        "c_src/platform/linux/elements/button.c",
-        "c_src/platform/linux/elements/label.c",
-        "c_src/platform/linux/elements/box.c",
-        "c_src/platform/linux/elements/split_view.c",
-        "c_src/platform/linux/elements/text_common.c",
-        "c_src/platform/linux/elements/text_editor.c",
-        "c_src/platform/linux/elements/text_view.c",
-        "c_src/platform/linux/elements/canvas.c",
-        "c_src/platform/linux/elements/image_view.c",
-        "c_src/platform/linux/elements/slider.c",
-        "c_src/platform/linux/elements/checkbox.c",
-        "c_src/platform/linux/elements/progress_bar.c",
-        "c_src/platform/linux/elements/combo_box.c",
-        "c_src/platform/linux/elements/tab_bar.c",
-        "c_src/platform/linux/elements/sidebar_list.c",
+        "native/platform/linux.c",
+        "native/platform/linux/utils.c",
+        "native/platform/linux/window.c",
+        "native/platform/linux/menu.c",
+        "native/platform/linux/elements/button.c",
+        "native/platform/linux/elements/label.c",
+        "native/platform/linux/elements/box.c",
+        "native/platform/linux/elements/split_view.c",
+        "native/platform/linux/elements/text_common.c",
+        "native/platform/linux/elements/text_editor.c",
+        "native/platform/linux/elements/text_view.c",
+        "native/platform/linux/elements/canvas.c",
+        "native/platform/linux/elements/image_view.c",
+        "native/platform/linux/elements/slider.c",
+        "native/platform/linux/elements/checkbox.c",
+        "native/platform/linux/elements/progress_bar.c",
+        "native/platform/linux/elements/combo_box.c",
+        "native/platform/linux/elements/tab_bar.c",
+        "native/platform/linux/elements/sidebar_list.c",
     ];
 
     let target = std::env::var("TARGET").unwrap();
     let mut build = cc::Build::new();
-    build.include(&c_src).warnings(true);
+    build.include(&native).warnings(true);
 
     let is_ios = target.contains("apple-ios");
 
@@ -142,7 +142,7 @@ fn main() {
         add_sources(&mut build, &root, common_c);
         add_sources(&mut build, &root, ios_sources);
         build
-            .include(c_src.join("platform/ios"))
+            .include(native.join("platform/ios"))
             .define("__APPLE__", None)
             .define("TARGET_OS_IPHONE", Some("1"))
             .flag("-x")
@@ -220,44 +220,44 @@ fn main() {
         let mut cpp_build = cc::Build::new();
         cpp_build
             .cpp(true)
-            .include(&c_src)
+            .include(&native)
             .define("_WIN32", None);
         add_sources(&mut cpp_build, &root, windows_cpp);
         cpp_build.compile("native_gui_cpp");
     }
 
     let common_headers: &[&str] = &[
-        "c_src/common/types.h",
-        "c_src/common/errors.h",
-        "c_src/common/input.h",
-        "c_src/common/platform_api.h",
-        "c_src/common/rust_callbacks.h",
+        "native/common/types.h",
+        "native/common/errors.h",
+        "native/common/input.h",
+        "native/common/platform_api.h",
+        "native/common/rust_callbacks.h",
     ];
 
     #[cfg(target_os = "windows")]
     let windows_headers: &[&str] = &[
-        "c_src/platform/windows.h",
-        "c_src/platform/windows/utils.h",
-        "c_src/platform/windows/window.h",
-        "c_src/platform/windows/menu.h",
-        "c_src/platform/windows/elements.h",
+        "native/platform/windows.h",
+        "native/platform/windows/utils.h",
+        "native/platform/windows/window.h",
+        "native/platform/windows/menu.h",
+        "native/platform/windows/elements.h",
     ];
 
     let macos_headers: &[&str] = &[
-        "c_src/platform/macos.h",
-        "c_src/platform/macos/window.h",
-        "c_src/platform/macos/menu.h",
-        "c_src/platform/macos/utils.h",
-        "c_src/platform/macos/elements.h",
+        "native/platform/macos.h",
+        "native/platform/macos/window.h",
+        "native/platform/macos/menu.h",
+        "native/platform/macos/utils.h",
+        "native/platform/macos/elements.h",
     ];
 
     #[cfg(target_os = "linux")]
     let linux_headers: &[&str] = &[
-        "c_src/platform/linux.h",
-        "c_src/platform/linux/utils.h",
-        "c_src/platform/linux/window.h",
-        "c_src/platform/linux/menu.h",
-        "c_src/platform/linux/elements.h",
+        "native/platform/linux.h",
+        "native/platform/linux/utils.h",
+        "native/platform/linux/window.h",
+        "native/platform/linux/menu.h",
+        "native/platform/linux/elements.h",
     ];
 
     rerun_for(&root, common_headers);
