@@ -19,6 +19,7 @@ use super::tile::{TILE_SIZE, TileStore};
 use aurea_core::AureaResult;
 
 /// Rasterizer that draws the display list into a tile grid for partial redraw.
+/// For HiDPI/Retina, raster_width/height = logical * scale_factor so output is sharp.
 pub struct CpuRasterizer {
     tile_store: TileStore,
     #[allow(dead_code)]
@@ -28,6 +29,8 @@ pub struct CpuRasterizer {
     display_list: DisplayList,
     initialized: bool,
     scale_factor: f32,
+    logical_width: u32,
+    logical_height: u32,
     pending_damage: Option<Rect>,
 }
 
@@ -43,8 +46,17 @@ impl CpuRasterizer {
             display_list: DisplayList::new(),
             initialized: false,
             scale_factor: 1.0,
+            logical_width: width,
+            logical_height: height,
             pending_damage: None,
         }
+    }
+
+    fn raster_dimensions(logical_w: u32, logical_h: u32, scale: f32) -> (u32, u32) {
+        let s = scale.max(1.0);
+        let rw = (logical_w as f32 * s).round() as u32;
+        let rh = (logical_h as f32 * s).round() as u32;
+        (rw.max(1), rh.max(1))
     }
 
     /// Sets the damage region for the next frame; if None, the whole canvas is redrawn.
@@ -611,18 +623,24 @@ impl CpuRasterizer {
 
 impl Renderer for CpuRasterizer {
     fn init(&mut self, _surface: Surface, info: SurfaceInfo) -> AureaResult<()> {
-        self.width = info.width;
-        self.height = info.height;
-        self.scale_factor = info.scale_factor;
-        self.tile_store = TileStore::new(info.width, info.height);
+        self.scale_factor = info.scale_factor.max(1.0);
+        self.logical_width = info.width;
+        self.logical_height = info.height;
+        let (rw, rh) = Self::raster_dimensions(info.width, info.height, info.scale_factor);
+        self.width = rw;
+        self.height = rh;
+        self.tile_store = TileStore::new(rw, rh);
         self.initialized = true;
         Ok(())
     }
 
-    fn resize(&mut self, width: u32, height: u32) -> AureaResult<()> {
-        self.width = width;
-        self.height = height;
-        self.tile_store.resize(width, height);
+    fn resize(&mut self, logical_width: u32, logical_height: u32) -> AureaResult<()> {
+        self.logical_width = logical_width;
+        self.logical_height = logical_height;
+        let (rw, rh) = Self::raster_dimensions(logical_width, logical_height, self.scale_factor);
+        self.width = rw;
+        self.height = rh;
+        self.tile_store.resize(rw, rh);
         self.display_list.clear();
         Ok(())
     }
@@ -631,10 +649,11 @@ impl Renderer for CpuRasterizer {
         self.display_list.clear();
         let mut ctx = CpuDrawingContext::new(
             &mut self.display_list as *mut DisplayList,
-            self.width,
-            self.height,
+            self.logical_width,
+            self.logical_height,
         );
         ctx.set_scale_factor(self.scale_factor);
+        ctx.scale(self.scale_factor, self.scale_factor)?;
         Ok(Box::new(ctx))
     }
 
@@ -828,5 +847,43 @@ mod conformance_tests {
         rasterizer.tile_store().copy_to_buffer(&mut buf2, 32, 32);
 
         assert_eq!(buf1, buf2, "same scene must produce identical output");
+    }
+
+    #[test]
+    fn hidpi_raster_at_2x_scale() {
+        let mut rasterizer = CpuRasterizer::new(32, 32);
+        rasterizer
+            .init(
+                Surface::Metal {
+                    layer: std::ptr::null_mut(),
+                },
+                SurfaceInfo {
+                    width: 32,
+                    height: 32,
+                    scale_factor: 2.0,
+                },
+            )
+            .expect("init");
+        let mut ctx = rasterizer.begin_frame().expect("begin_frame");
+        ctx.clear(Color::rgb(0xFF, 0x00, 0x00)).expect("clear");
+        ctx.draw_rect(
+            Rect::new(8.0, 8.0, 16.0, 16.0),
+            &Paint::new().color(Color::rgb(0, 255, 0)),
+        )
+        .expect("draw_rect");
+        drop(ctx);
+        rasterizer.end_frame().expect("end_frame");
+
+        let rw = 64u32;
+        let rh = 64u32;
+        let mut buffer = vec![0u32; (rw * rh) as usize];
+        rasterizer.tile_store().copy_to_buffer(&mut buffer, rw, rh);
+
+        let expected_green = (255u32 << 24) | (0 << 16) | (255 << 8) | 0;
+        let has_green = buffer.iter().any(|&p| p == expected_green);
+        assert!(
+            has_green,
+            "HiDPI 2x: scaled rect (logical 8,8,16,16 -> raster 16..48) should contain green pixels"
+        );
     }
 }
