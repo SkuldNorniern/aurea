@@ -122,6 +122,14 @@ fn main() {
     build.include(&native).warnings(true);
 
     let is_ios = target.contains("apple-ios");
+    let is_android = target.contains("android");
+
+    let android_sources: &[&str] = &[
+        "native/common/platform.c",
+        "native/platform/android.c",
+        "native/platform/android/android.c",
+        "native/platform/android/window.c",
+    ];
 
     #[cfg(target_os = "windows")]
     {
@@ -217,6 +225,15 @@ fn main() {
         add_sources(&mut build, &root, linux_sources);
         rerun_for(&root, common_c);
         rerun_for(&root, linux_sources);
+    }
+
+    if is_android {
+        add_sources(&mut build, &root, android_sources);
+        build
+            .include(native.join("platform/android"))
+            .define("__ANDROID__", None)
+            .flag("-std=c17");
+        rerun_for(&root, android_sources);
     }
 
     build.compile("native_gui");
