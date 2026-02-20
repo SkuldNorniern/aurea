@@ -1,13 +1,12 @@
 #ifndef NATIVE_GUI_ANDROID_WINDOW_H
 #define NATIVE_GUI_ANDROID_WINDOW_H
 
-#include "common/types.h"
+#include "common/platform_api.h"
+#include <jni.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef void (*ScaleFactorCallback)(void*, float);
 
 NGHandle ng_android_create_window_impl(const char* title, int width, int height);
 void ng_android_destroy_window_impl(NGHandle handle);
