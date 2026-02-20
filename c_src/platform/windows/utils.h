@@ -2,13 +2,12 @@
 #define NATIVE_GUI_WINDOWS_UTILS_H
 
 #include <windows.h>
-#include "common/types.h"
+#include "common/platform_api.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef void (*ScaleFactorCallback)(void*, float);
 
 // Utility functions for Windows platform
 

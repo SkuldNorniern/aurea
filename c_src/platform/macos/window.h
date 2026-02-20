@@ -1,7 +1,7 @@
 #ifndef NATIVE_GUI_MACOS_WINDOW_H
 #define NATIVE_GUI_MACOS_WINDOW_H
 
-#include "common/types.h"
+#include "common/platform_api.h"
 
 #ifdef __OBJC__
 @class NSWindow;
@@ -10,8 +10,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef void (*ScaleFactorCallback)(void*, float);
 
 NGHandle ng_macos_create_window(const char* title, int width, int height);
 NGHandle ng_macos_create_window_with_type(const char* title, int width, int height, int window_type);

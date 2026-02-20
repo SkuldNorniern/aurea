@@ -1,13 +1,11 @@
 #ifndef NATIVE_GUI_WINDOWS_WINDOW_H
 #define NATIVE_GUI_WINDOWS_WINDOW_H
 
-#include "common/types.h"
+#include "common/platform_api.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef void (*ScaleFactorCallback)(void*, float);
 
 NGHandle ng_windows_create_window(const char* title, int width, int height);
 NGHandle ng_windows_create_window_with_type(const char* title, int width, int height, int window_type);
