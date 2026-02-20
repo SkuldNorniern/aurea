@@ -390,8 +390,9 @@ impl HasDisplayHandle for NativeWindowHandle {
 unsafe impl Send for NativeWindowHandle {}
 unsafe impl Sync for NativeWindowHandle {}
 
+/// Trait for Window to provide native handle implementation.
 #[cfg(feature = "wgpu")]
-pub(crate) trait WindowNativeHandle {
+pub trait WindowNativeHandle {
     fn native_handle_impl(&self) -> NativeWindowHandle;
 }
 

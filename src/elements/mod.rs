@@ -30,8 +30,8 @@ pub use text_editor::TextEditor;
 pub use text_view::TextView;
 pub use traits::{Container, Element, ElementProps};
 
-pub(crate) use button::invoke_button_callback;
-pub(crate) use sidebar_list::invoke_sidebar_list_selected;
-pub(crate) use tab_bar::{invoke_tab_bar_detach, invoke_tab_bar_selected};
-pub(crate) use text_editor::invoke_text_callback;
-pub(crate) use text_view::invoke_textview_callback;
+pub use button::invoke_button_callback;
+pub use sidebar_list::invoke_sidebar_list_selected;
+pub use tab_bar::{invoke_tab_bar_detach, invoke_tab_bar_selected};
+pub use text_editor::invoke_text_callback;
+pub use text_view::invoke_textview_callback;
