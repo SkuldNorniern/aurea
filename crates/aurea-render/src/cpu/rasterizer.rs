@@ -16,7 +16,7 @@ use super::context::CpuDrawingContext;
 use super::path::tessellate_path;
 use super::scanline::fill_scanline;
 use super::tile::{TILE_SIZE, TileStore};
-use crate::AureaResult;
+use aurea_core::AureaResult;
 
 /// Rasterizer that draws the display list into a tile grid for partial redraw.
 pub struct CpuRasterizer {
@@ -676,7 +676,7 @@ impl Renderer for CpuRasterizer {
             }
         }
 
-        use crate::render::renderer::CURRENT_BUFFER;
+        use crate::renderer::CURRENT_BUFFER;
         let (ptr, size, width, height) = self.get_buffer();
         CURRENT_BUFFER.with(|buf| {
             *buf.borrow_mut() = Some((ptr, size, width, height));

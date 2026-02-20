@@ -7,7 +7,7 @@ use super::super::display_list::{CacheKey, DisplayItem, DisplayList, NodeId};
 use super::super::renderer::DrawingContext;
 use super::super::text::TextRenderer;
 use super::super::types::*;
-use crate::AureaResult;
+use aurea_core::AureaResult;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::LazyLock;

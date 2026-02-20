@@ -5,8 +5,8 @@ use super::types::{
     BlendMode, Color, Font, Image, LinearGradient, Paint, Path, Point, RadialGradient, Rect,
     TextMetrics, Transform,
 };
-use crate::AureaResult;
-use crate::render::text::TextRenderer;
+use aurea_core::AureaResult;
+use crate::text::TextRenderer;
 use std::cell::RefCell;
 use std::sync::LazyLock;
 
