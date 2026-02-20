@@ -3,12 +3,7 @@
 
 #include <windows.h>
 #include <stdio.h>
-
-extern void ng_log_error(const char* msg);
-extern void ng_log_warn(const char* msg);
-extern void ng_log_info(const char* msg);
-extern void ng_log_debug(const char* msg);
-extern void ng_log_trace(const char* msg);
+#include "common/rust_callbacks.h"
 
 #define LOG_ERROR(fmt, ...) do { \
     char buf[512]; \
