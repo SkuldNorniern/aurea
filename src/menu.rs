@@ -8,16 +8,16 @@ use log::debug;
 
 /// A native menu bar attached to a window.
 pub struct MenuBar {
-    pub(crate) handle: *mut c_void,
+    pub handle: *mut c_void,
 }
 
 /// A submenu inside a menu bar.
 pub struct SubMenu {
-    pub(crate) handle: *mut c_void,
+    pub handle: *mut c_void,
 }
 
 impl MenuBar {
-    pub(crate) fn new(handle: *mut c_void) -> Self {
+    pub fn new(handle: *mut c_void) -> Self {
         Self { handle }
     }
 
@@ -81,7 +81,7 @@ impl SubMenu {
     }
 }
 
-pub(crate) fn invoke_menu_callback(id: u32) {
+pub fn invoke_menu_callback(id: u32) {
     crate::registry::menu::invoke_menu_callback(id);
 }
 

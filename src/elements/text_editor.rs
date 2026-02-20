@@ -73,6 +73,6 @@ impl Element for TextEditor {
     }
 }
 
-pub(crate) fn invoke_text_callback(id: u32, content: String) {
+pub fn invoke_text_callback(id: u32, content: String) {
     crate::registry::elements::invoke_text_editor_callback(id, content);
 }

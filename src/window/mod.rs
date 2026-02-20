@@ -1,6 +1,6 @@
 //! Window management, events, and lifecycle integration.
 
-pub(crate) mod events;
+pub mod events;
 mod manager;
 
 pub use events::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};
@@ -28,11 +28,11 @@ pub enum WindowType {
 pub struct WindowId(usize);
 
 impl WindowId {
-    pub(crate) fn from_handle(handle: *mut c_void) -> Self {
+    pub fn from_handle(handle: *mut c_void) -> Self {
         Self(handle as usize)
     }
 
-    pub(crate) fn from_raw(raw: usize) -> Self {
+    pub fn from_raw(raw: usize) -> Self {
         Self(raw)
     }
 }
@@ -65,7 +65,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-pub(crate) use crate::registry::window::{
+pub use crate::registry::window::{
     process_all_window_events, process_all_window_updates, push_window_event,
 };
 

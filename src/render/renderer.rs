@@ -11,7 +11,7 @@ use std::sync::LazyLock;
 
 thread_local! {
     static COMMAND_BUFFER: RefCell<Option<*mut Vec<DrawCommand>>> = const { RefCell::new(None) };
-    pub(crate) static CURRENT_BUFFER: RefCell<Option<(*const u8, usize, u32, u32)>> = const { RefCell::new(None) };
+    pub static CURRENT_BUFFER: RefCell<Option<(*const u8, usize, u32, u32)>> = const { RefCell::new(None) };
 }
 
 pub trait DrawingContext {

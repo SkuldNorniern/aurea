@@ -76,7 +76,7 @@ impl SidebarList {
     }
 }
 
-pub(crate) fn invoke_sidebar_list_selected(id: u32, index: i32) {
+pub fn invoke_sidebar_list_selected(id: u32, index: i32) {
     crate::registry::elements::invoke_sidebar_selected(id, index);
 }
 

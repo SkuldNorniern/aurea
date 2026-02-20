@@ -36,7 +36,7 @@ impl Button {
     }
 }
 
-pub(crate) fn invoke_button_callback(id: u32) {
+pub fn invoke_button_callback(id: u32) {
     crate::registry::elements::invoke_button_callback(id);
 }
 
