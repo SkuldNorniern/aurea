@@ -456,7 +456,7 @@ unsafe impl Sync for NativeWindowHandle {}
 ///
 /// This trait is used internally to implement `Window::native_handle()`.
 #[cfg(feature = "wgpu")]
-pub(crate) trait WindowNativeHandle {
+pub trait WindowNativeHandle {
     fn native_handle_impl(&self) -> NativeWindowHandle;
 }
 

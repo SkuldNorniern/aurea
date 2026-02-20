@@ -73,6 +73,6 @@ impl Element for TextView {
     }
 }
 
-pub(crate) fn invoke_textview_callback(id: u32, content: String) {
+pub fn invoke_textview_callback(id: u32, content: String) {
     crate::registry::elements::invoke_text_view_callback(id, content);
 }

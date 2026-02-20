@@ -3,7 +3,7 @@ mod declarations;
 mod logging;
 
 pub use callbacks::*;
-pub(crate) use declarations::*;
+pub use declarations::*;
 #[cfg(target_os = "linux")]
 pub use declarations::{
     ng_platform_canvas_get_wayland_handle, ng_platform_canvas_get_xcb_handle,

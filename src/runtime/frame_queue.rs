@@ -31,12 +31,12 @@ impl FrameScheduler {
         FRAME_SCHEDULED.load(Ordering::Relaxed)
     }
 
-    pub(crate) fn register_canvas(handle: *mut c_void, callback: CanvasRedrawCallback) {
+    pub fn register_canvas(handle: *mut c_void, callback: CanvasRedrawCallback) {
         let mut registry = crate::sync::lock(&CANVAS_REGISTRY);
         registry.insert(handle as usize, callback);
     }
 
-    pub(crate) fn unregister_canvas(handle: *mut c_void) {
+    pub fn unregister_canvas(handle: *mut c_void) {
         let mut registry = crate::sync::lock(&CANVAS_REGISTRY);
         registry.remove(&(handle as usize));
     }

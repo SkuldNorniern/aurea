@@ -16,32 +16,32 @@ static WINDOW_UPDATE_CALLBACKS: LazyLock<
     Mutex<HashMap<usize, Arc<Mutex<Vec<WindowUpdateCallback>>>>>,
 > = LazyLock::new(|| Mutex::new(HashMap::new()));
 
-pub(crate) fn register_global_event_queue(queue: &Arc<EventQueue>) {
+pub fn register_global_event_queue(queue: &Arc<EventQueue>) {
     let mut queues = crate::sync::lock(&WINDOW_EVENT_QUEUES);
     queues.push(Arc::downgrade(queue));
 }
 
-pub(crate) fn register_event_queue(handle: *mut c_void, queue: &Arc<EventQueue>) {
+pub fn register_event_queue(handle: *mut c_void, queue: &Arc<EventQueue>) {
     let mut by_handle = crate::sync::lock(&WINDOW_QUEUE_BY_HANDLE);
     by_handle.insert(handle as usize, Arc::downgrade(queue));
 }
 
-pub(crate) fn unregister_event_queue(handle: *mut c_void) {
+pub fn unregister_event_queue(handle: *mut c_void) {
     let mut by_handle = crate::sync::lock(&WINDOW_QUEUE_BY_HANDLE);
     by_handle.remove(&(handle as usize));
 }
 
-pub(crate) fn register_update_callbacks(handle: *mut c_void) {
+pub fn register_update_callbacks(handle: *mut c_void) {
     let mut callbacks = crate::sync::lock(&WINDOW_UPDATE_CALLBACKS);
     callbacks.insert(handle as usize, Arc::new(Mutex::new(Vec::new())));
 }
 
-pub(crate) fn unregister_update_callbacks(handle: *mut c_void) {
+pub fn unregister_update_callbacks(handle: *mut c_void) {
     let mut callbacks = crate::sync::lock(&WINDOW_UPDATE_CALLBACKS);
     callbacks.remove(&(handle as usize));
 }
 
-pub(crate) fn register_update_callback(
+pub fn register_update_callback(
     handle: *mut c_void,
     callback: impl Fn(WindowId) + Send + Sync + 'static,
 ) {
@@ -56,7 +56,7 @@ pub(crate) fn register_update_callback(
     }
 }
 
-pub(crate) fn push_window_event(handle: *mut c_void, event: WindowEvent) {
+pub fn push_window_event(handle: *mut c_void, event: WindowEvent) {
     let queue = {
         let mut by_handle = crate::sync::lock(&WINDOW_QUEUE_BY_HANDLE);
         match by_handle
@@ -76,7 +76,7 @@ pub(crate) fn push_window_event(handle: *mut c_void, event: WindowEvent) {
     }
 }
 
-pub(crate) fn process_all_window_events() {
+pub fn process_all_window_events() {
     let mut queues = crate::sync::lock(&WINDOW_EVENT_QUEUES);
     queues.retain(|weak| {
         if let Some(queue) = weak.upgrade() {
@@ -88,7 +88,7 @@ pub(crate) fn process_all_window_events() {
     });
 }
 
-pub(crate) fn process_all_window_updates() {
+pub fn process_all_window_updates() {
     let callbacks = {
         let registry = crate::sync::lock(&WINDOW_UPDATE_CALLBACKS);
         registry
@@ -107,7 +107,7 @@ pub(crate) fn process_all_window_updates() {
     }
 }
 
-pub(crate) fn process_window_updates(handle: *mut c_void) {
+pub fn process_window_updates(handle: *mut c_void) {
     let callbacks = {
         let registry = crate::sync::lock(&WINDOW_UPDATE_CALLBACKS);
         registry.get(&(handle as usize)).cloned()

@@ -69,11 +69,11 @@ impl TabBar {
     }
 }
 
-pub(crate) fn invoke_tab_bar_selected(id: u32, index: i32) {
+pub fn invoke_tab_bar_selected(id: u32, index: i32) {
     crate::registry::elements::invoke_tab_selected(id, index);
 }
 
-pub(crate) fn invoke_tab_bar_detach(id: u32, index: i32) {
+pub fn invoke_tab_bar_detach(id: u32, index: i32) {
     crate::registry::elements::invoke_tab_detach(id, index);
 }
 
