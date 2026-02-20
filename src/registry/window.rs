@@ -1,4 +1,4 @@
-use crate::window::events::EventQueue;
+use crate::runtime::event_queue::EventQueue;
 use crate::window::{WindowEvent, WindowId};
 use std::{
     collections::HashMap,
