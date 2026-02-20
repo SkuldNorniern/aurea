@@ -1,0 +1,7 @@
+[package]
+name = "aurea-core"
+version = "0.0.1"
+edition = "2024"
+description = "Core types, errors, and platform detection for Aurea"
+
+[lib]
