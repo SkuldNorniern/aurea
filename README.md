@@ -36,7 +36,7 @@ Aurea is structured in three primary layers:
    Acts as a bridge between Rust and platform-specific implementations written in C. This layer manages conversions, error handling, and minimal resource duplication.
 
 3. **Platform-Specific Implementations:**  
-   The native side (located in the `c_src` folder) contains implementations for different operating systems:
+   The native side (located in the `native` folder) contains implementations for different operating systems:
    - **Linux (GTK)**
    - **macOS (Cocoa)**
    - **Windows (Win32 API)**
