@@ -1,9 +1,8 @@
 #import "../elements.h"
 #import "../utils.h"
 #import "../../../common/errors.h"
+#import "../../../common/rust_callbacks.h"
 #import <UIKit/UIKit.h>
-
-extern void ng_invoke_button_callback(unsigned int id);
 
 @interface ButtonTarget : NSObject
 - (void)buttonClicked:(id)sender;

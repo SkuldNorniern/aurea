@@ -1,6 +1,7 @@
 //! Aurea's native rendering framework for custom drawing.
 
 mod canvas;
+mod command;
 mod display_list;
 mod interaction;
 mod renderer;
@@ -12,6 +13,7 @@ pub mod cpu;
 pub mod text;
 
 pub use canvas::*;
+pub use command::DrawCommand;
 pub use display_list::*;
 pub use interaction::*;
 pub use renderer::*;

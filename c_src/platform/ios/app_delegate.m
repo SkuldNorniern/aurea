@@ -2,9 +2,7 @@
 #import "view_controller.h"
 #import "ios.h"
 #import "window.h"
-
-// Forward declaration for lifecycle callback
-extern void ng_invoke_lifecycle_callback(void* window, unsigned int event_id);
+#import "../../common/rust_callbacks.h"
 
 static void* g_mainWindowHandle = NULL;
 static ScaleFactorCallback g_scaleFactorCallback = NULL;

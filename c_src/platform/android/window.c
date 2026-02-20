@@ -1,12 +1,10 @@
 #include "window.h"
 #include "common/errors.h"
+#include "common/rust_callbacks.h"
 #include <jni.h>
 #include <android/native_window.h>
 #include <android/log.h>
 #include <string.h>
-
-// Forward declaration for lifecycle callback
-extern void ng_invoke_lifecycle_callback(void* window, unsigned int event_id);
 
 // Global state shared with android.c (defined in android.c)
 extern void* g_mainWindowHandle;

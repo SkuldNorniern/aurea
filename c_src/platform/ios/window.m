@@ -2,10 +2,9 @@
 #import "app_delegate.h"
 #import "view_controller.h"
 #import "../../common/errors.h"
+#import "../../common/rust_callbacks.h"
 #import <UIKit/UIKit.h>
 
-// Forward declaration for lifecycle callback
-extern void ng_invoke_lifecycle_callback(void* window, unsigned int event_id);
 extern void ng_ios_set_main_window_handle(void* handle);
 extern void ng_ios_set_scale_factor_callback_global(ScaleFactorCallback callback);
 extern void ng_ios_set_lifecycle_callback_enabled(BOOL enabled);
