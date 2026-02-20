@@ -67,7 +67,9 @@ fn main() {
     ];
 
     let macos_sources: &[&str] = &[
+        "native/common/platform_dispatch.c",
         "native/platform/macos.m",
+        "native/platform/macos/macos_ops.m",
         "native/platform/macos/window.m",
         "native/platform/macos/menu.m",
         "native/platform/macos/utils.m",
@@ -231,6 +233,7 @@ fn main() {
         "native/common/errors.h",
         "native/common/input.h",
         "native/common/platform_api.h",
+        "native/common/platform_ops.h",
         "native/common/rust_callbacks.h",
     ];
 

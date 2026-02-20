@@ -54,14 +54,6 @@ int ng_macos_attach_menu(NGHandle window, NGMenuHandle menu) {
     return NG_SUCCESS;
 }
 
-int ng_platform_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id) {
-    return ng_macos_add_menu_item(menu, title, id);
-}
-
-int ng_platform_add_menu_separator(NGMenuHandle menu) {
-    return ng_macos_add_menu_separator(menu);
-}
-
 int ng_macos_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id) {
     if (!menu || !title) return NG_ERROR_INVALID_PARAMETER;
     
