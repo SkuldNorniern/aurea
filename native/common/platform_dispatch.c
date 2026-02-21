@@ -440,3 +440,7 @@ int ng_platform_sidebar_list_clear(NGHandle s) {
 void ng_platform_sidebar_list_invalidate(NGHandle s) {
     DISPATCH_VOID(sidebar_list_invalidate, s);
 }
+
+NGHandle ng_platform_create_swiftui_host(int w, int h) {
+    DISPATCH_INIT(NGHandle, create_swiftui_host, w, h);
+}

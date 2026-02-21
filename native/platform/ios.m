@@ -324,3 +324,9 @@ int ng_platform_window_set_cursor_grab(NGHandle window, int mode) {
     (void)mode;
     return NG_ERROR_PLATFORM_SPECIFIC;
 }
+
+NGHandle ng_platform_create_swiftui_host(int width, int height) {
+    (void)width;
+    (void)height;
+    return NULL;
+}
