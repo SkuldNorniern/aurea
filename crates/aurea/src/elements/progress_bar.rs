@@ -96,6 +96,20 @@ impl ProgressBar {
         Ok(progress_bar)
     }
 
+    /// Create a progress bar with an initial determinate value.
+    pub fn with_value(value: f64) -> AureaResult<Self> {
+        let mut bar = Self::new()?;
+        bar.set_value(value)?;
+        Ok(bar)
+    }
+
+    /// Create a progress bar and configure indeterminate mode.
+    pub fn with_indeterminate(indeterminate: bool) -> AureaResult<Self> {
+        let mut bar = Self::new()?;
+        bar.set_indeterminate(indeterminate)?;
+        Ok(bar)
+    }
+
     /// Register animation callback with frame scheduler
     fn register_animation(&self) {
         let handle = self.handle as usize;
@@ -139,6 +153,12 @@ impl ProgressBar {
         }
 
         Ok(())
+    }
+
+    /// Set progress using 0..=100 percent input.
+    pub fn set_percent(&mut self, percent: u8) -> AureaResult<()> {
+        let normalized = (percent.min(100) as f64) / 100.0;
+        self.set_value(normalized)
     }
 
     /// Start automatic animation (oscillates between 0 and 1)
