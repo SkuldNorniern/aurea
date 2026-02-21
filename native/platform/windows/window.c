@@ -147,6 +147,11 @@ int ng_windows_window_is_visible(NGHandle window) {
     return IsWindowVisible((HWND)window) ? 1 : 0;
 }
 
+NGHandle ng_windows_window_get_content_view(NGHandle window) {
+    // On Win32, child controls are parented directly to the window HWND.
+    return window;
+}
+
 int ng_windows_set_window_content(NGHandle window_handle, NGHandle content_handle) {
     LOG_INFO("ng_windows_set_window_content: called");
     
