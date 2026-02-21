@@ -50,6 +50,13 @@ impl Checkbox {
 
         Ok(())
     }
+
+    /// Toggle the checked state and return the new value.
+    pub fn toggle(&mut self) -> AureaResult<bool> {
+        let next = !self.get_checked();
+        self.set_checked(next)?;
+        Ok(next)
+    }
 }
 
 impl Element for Checkbox {

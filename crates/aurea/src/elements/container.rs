@@ -54,6 +54,18 @@ impl Box {
         use super::Spacer;
         self.add_weighted(Spacer::new()?, weight)
     }
+
+    /// Add multiple elements with the same layout weight.
+    pub fn add_many<E, I>(&mut self, elements: I, weight: f32) -> AureaResult<()>
+    where
+        E: Element,
+        I: IntoIterator<Item = E>,
+    {
+        for element in elements {
+            self.add_weighted(element, weight)?;
+        }
+        Ok(())
+    }
 }
 
 impl Container for Box {

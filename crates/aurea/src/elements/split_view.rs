@@ -46,6 +46,18 @@ impl SplitView {
 
         Ok(())
     }
+
+    /// Create a split view and add two children.
+    pub fn with_children<L: Element, R: Element>(
+        orientation: SplitOrientation,
+        left: L,
+        right: R,
+    ) -> AureaResult<Self> {
+        let mut split = Self::new(orientation)?;
+        split.add(left)?;
+        split.add(right)?;
+        Ok(split)
+    }
 }
 
 impl Element for SplitView {
