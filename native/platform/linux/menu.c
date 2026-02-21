@@ -12,13 +12,6 @@ static void menu_item_clicked(GtkMenuItem *item, gpointer user_data) {
 
 NGMenuHandle ng_linux_create_menu(void) {
     GtkWidget *menubar = gtk_menu_bar_new();
-    GtkWidget* vbox = (GtkWidget*)ng_linux_get_main_vbox();
-    
-    if (vbox) {
-        gtk_box_pack_start(GTK_BOX(vbox), menubar, FALSE, FALSE, 0);
-        gtk_widget_show(menubar);
-    }
-    
     return (NGMenuHandle)menubar;
 }
 
@@ -29,6 +22,21 @@ void ng_linux_destroy_menu(NGMenuHandle handle) {
 
 int ng_linux_attach_menu(NGHandle window, NGMenuHandle menu) {
     if (!window || !menu) return NG_ERROR_INVALID_HANDLE;
+
+    GtkWidget* vbox = (GtkWidget*)ng_linux_window_get_content_view(window);
+    if (!vbox) return NG_ERROR_PLATFORM_SPECIFIC;
+
+    GtkWidget* menu_widget = (GtkWidget*)menu;
+    GtkWidget* parent = gtk_widget_get_parent(menu_widget);
+    if (parent && parent != vbox) {
+        gtk_container_remove(GTK_CONTAINER(parent), menu_widget);
+    }
+    if (!gtk_widget_get_parent(menu_widget)) {
+        gtk_box_pack_start(GTK_BOX(vbox), menu_widget, FALSE, FALSE, 0);
+    }
+
+    // Keep menu at top, above content.
+    gtk_box_reorder_child(GTK_BOX(vbox), menu_widget, 0);
     gtk_widget_show_all((GtkWidget*)window);
     return NG_SUCCESS;
 }

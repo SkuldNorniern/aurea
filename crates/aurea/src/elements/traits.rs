@@ -39,6 +39,25 @@ pub trait Container: Element {
     }
 
     fn add_weighted<E: Element>(&mut self, element: E, weight: f32) -> AureaResult<()>;
+
+    fn add_all<E, I>(&mut self, elements: I) -> AureaResult<()>
+    where
+        E: Element,
+        I: IntoIterator<Item = E>,
+    {
+        self.add_all_weighted(elements, 0.0)
+    }
+
+    fn add_all_weighted<E, I>(&mut self, elements: I, weight: f32) -> AureaResult<()>
+    where
+        E: Element,
+        I: IntoIterator<Item = E>,
+    {
+        for element in elements {
+            self.add_weighted(element, weight)?;
+        }
+        Ok(())
+    }
 }
 
 /// Common element properties used during construction.

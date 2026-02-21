@@ -29,6 +29,13 @@ impl TextEditor {
         Ok(Self { handle, _id: id })
     }
 
+    /// Create a text editor with initial content.
+    pub fn with_content(content: &str) -> AureaResult<Self> {
+        let mut editor = Self::new()?;
+        editor.set_content(content)?;
+        Ok(editor)
+    }
+
     pub fn set_content(&mut self, content: &str) -> AureaResult<()> {
         let content = CString::new(content).map_err(|_| AureaError::InvalidTitle)?;
         let result = unsafe { ng_platform_set_text_content(self.handle, content.as_ptr()) };

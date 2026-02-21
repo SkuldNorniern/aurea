@@ -16,7 +16,24 @@ static gboolean g_lifecycle_callbacks[256] = {0};
 static GtkWidget* g_lifecycle_windows[256] = {0};
 static int g_lifecycle_callback_count = 0;
 
-static GtkWidget* main_vbox = NULL;
+static const char* AUREA_MAIN_VBOX_KEY = "aurea-main-vbox";
+
+static GtkWidget* ng_linux_window_main_vbox(GtkWidget* window) {
+    if (!window) return NULL;
+    GtkWidget* vbox = GTK_WIDGET(g_object_get_data(G_OBJECT(window), AUREA_MAIN_VBOX_KEY));
+    if (vbox) return vbox;
+
+    GtkContainer* container = GTK_CONTAINER(window);
+    GList* children = gtk_container_get_children(container);
+    if (children && children->data) {
+        vbox = GTK_WIDGET(children->data);
+        g_object_set_data(G_OBJECT(window), AUREA_MAIN_VBOX_KEY, vbox);
+    }
+    if (children) {
+        g_list_free(children);
+    }
+    return vbox;
+}
 
 static gboolean on_key_press(GtkWidget* widget, GdkEventKey* event, gpointer user_data);
 static gboolean on_key_release(GtkWidget* widget, GdkEventKey* event, gpointer user_data);
@@ -96,8 +113,9 @@ NGHandle ng_linux_create_window(const char* title, int width, int height) {
     g_signal_connect(G_OBJECT(window), "window-state-event", G_CALLBACK(on_window_state_event), NULL);
     
     // Create a vertical box to hold menu and content
-    main_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    GtkWidget* main_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_container_add(GTK_CONTAINER(window), main_vbox);
+    g_object_set_data(G_OBJECT(window), AUREA_MAIN_VBOX_KEY, main_vbox);
     
     gtk_widget_show_all(window);
     
@@ -462,20 +480,24 @@ int ng_linux_set_window_content(NGHandle window_handle, NGHandle content_handle)
     GtkWidget* window = (GtkWidget*)window_handle;
     GtkWidget* content = (GtkWidget*)content_handle;
     
-    // Get the main vbox from the window
-    GtkContainer* container = GTK_CONTAINER(window);
-    GList* children = gtk_container_get_children(container);
-    
-    if (children && children->data) {
-        GtkWidget* vbox = (GtkWidget*)children->data;
-        gtk_container_add(GTK_CONTAINER(vbox), content);
-        gtk_widget_show_all(window);
+    GtkWidget* vbox = ng_linux_window_main_vbox(window);
+    if (!vbox) return NG_ERROR_PLATFORM_SPECIFIC;
+
+    // Remove previous content widgets while keeping menu bars.
+    GList* children = gtk_container_get_children(GTK_CONTAINER(vbox));
+    for (GList* item = children; item != NULL; item = item->next) {
+        GtkWidget* child = GTK_WIDGET(item->data);
+        if (!GTK_IS_MENU_BAR(child)) {
+            gtk_container_remove(GTK_CONTAINER(vbox), child);
+        }
     }
-    
     if (children) {
         g_list_free(children);
     }
-    
+
+    gtk_box_pack_end(GTK_BOX(vbox), content, TRUE, TRUE, 0);
+    gtk_widget_show_all(window);
+
     return NG_SUCCESS;
 }
 
@@ -506,8 +528,8 @@ void ng_linux_window_set_lifecycle_callback(NGHandle window) {
     }
 }
 
-void* ng_linux_get_main_vbox(void) {
-    return (void*)main_vbox;
+NGHandle ng_linux_window_get_content_view(NGHandle window) {
+    return (NGHandle)ng_linux_window_main_vbox((GtkWidget*)window);
 }
 
 void ng_linux_window_set_title(NGHandle window, const char* title) {

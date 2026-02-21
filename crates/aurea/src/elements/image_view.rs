@@ -25,6 +25,27 @@ impl ImageView {
         Ok(Self { handle })
     }
 
+    /// Create an image view and load an image from a file path.
+    pub fn with_path(path: &str) -> AureaResult<Self> {
+        let mut image = Self::new()?;
+        image.load_from_path(path)?;
+        Ok(image)
+    }
+
+    /// Create an image view and load raw image bytes.
+    pub fn with_data(data: &[u8]) -> AureaResult<Self> {
+        let mut image = Self::new()?;
+        image.load_from_data(data)?;
+        Ok(image)
+    }
+
+    /// Create an image view with a scaling mode.
+    pub fn with_scaling(scaling: ImageScaling) -> AureaResult<Self> {
+        let mut image = Self::new()?;
+        image.set_scaling(scaling)?;
+        Ok(image)
+    }
+
     pub fn load_from_path(&mut self, path: &str) -> AureaResult<()> {
         let path = CString::new(path).map_err(|_| AureaError::InvalidTitle)?;
         let result = unsafe { ng_platform_image_view_load_from_path(self.handle, path.as_ptr()) };

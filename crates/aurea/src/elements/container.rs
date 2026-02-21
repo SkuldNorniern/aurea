@@ -61,10 +61,7 @@ impl Box {
         E: Element,
         I: IntoIterator<Item = E>,
     {
-        for element in elements {
-            self.add_weighted(element, weight)?;
-        }
-        Ok(())
+        <Self as Container>::add_all_weighted(self, elements, weight)
     }
 }
 
