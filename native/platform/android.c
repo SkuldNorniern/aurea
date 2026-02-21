@@ -532,3 +532,9 @@ int ng_platform_sidebar_list_clear(NGHandle _s) {
 void ng_platform_sidebar_list_invalidate(NGHandle _s) {
     (void)_s;
 }
+
+NGHandle ng_platform_create_swiftui_host(int _w, int _h) {
+    (void)_w;
+    (void)_h;
+    return NULL;
+}

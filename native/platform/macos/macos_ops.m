@@ -4,6 +4,7 @@
 #import "window.h"
 #import "menu.h"
 #import "elements.h"
+#import "swiftui_host.h"
 
 static const ng_platform_ops_t macos_ops = {
     .init = ng_macos_init,
@@ -101,6 +102,7 @@ static const ng_platform_ops_t macos_ops = {
     .sidebar_list_get_selected = ng_macos_sidebar_list_get_selected,
     .sidebar_list_clear = ng_macos_sidebar_list_clear,
     .sidebar_list_invalidate = ng_macos_sidebar_list_invalidate,
+    .create_swiftui_host = ng_macos_try_create_swiftui_host,
 };
 
 void macos_register_ops(void) {

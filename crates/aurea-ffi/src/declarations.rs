@@ -223,6 +223,9 @@ unsafe extern "C" {
     pub fn ng_platform_tab_bar_invalidate(tab_bar: *mut c_void);
 
     pub fn ng_platform_create_sidebar_list(id: u32) -> *mut c_void;
+
+    #[cfg(target_os = "macos")]
+    pub fn ng_platform_create_swiftui_host(width: c_int, height: c_int) -> *mut c_void;
     pub fn ng_platform_sidebar_list_add_section(
         sidebar: *mut c_void,
         title: *const c_char,

@@ -90,6 +90,7 @@ fn main() {
         "native/platform/macos/elements/tab_bar.m",
         "native/platform/macos/elements/sidebar_list.m",
         "native/platform/macos/elements/split_view.m",
+        "native/platform/macos/swiftui_host.m",
     ];
 
     #[cfg(target_os = "linux")]

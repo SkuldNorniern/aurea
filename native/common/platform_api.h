@@ -143,6 +143,10 @@ int ng_platform_sidebar_list_get_selected(NGHandle sidebar);
 int ng_platform_sidebar_list_clear(NGHandle sidebar);
 void ng_platform_sidebar_list_invalidate(NGHandle sidebar);
 
+/* SwiftUI-in-Aurea: host element mounting NSHostingView (macOS). Returns NULL on other platforms
+ * or when Swift implementation not linked. */
+NGHandle ng_platform_create_swiftui_host(int width, int height);
+
 #ifdef __cplusplus
 }
 #endif

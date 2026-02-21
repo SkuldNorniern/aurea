@@ -121,6 +121,8 @@ typedef struct ng_platform_ops {
     int (*sidebar_list_get_selected)(NGHandle s);
     int (*sidebar_list_clear)(NGHandle s);
     void (*sidebar_list_invalidate)(NGHandle s);
+
+    NGHandle (*create_swiftui_host)(int width, int height);
 } ng_platform_ops_t;
 
 void ng_platform_register_ops(const ng_platform_ops_t* ops);
