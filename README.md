@@ -10,6 +10,37 @@
 
 ---
 
+## Demo
+
+| Window Demo | Menubar Integration | All Elements |
+|:-----------:|:-------------------:|:------------:|
+| ![window_demo](assets/window_demo.png) | ![menubar_integration](assets/menubar_integration_demo.png) | ![all_elements](assets/all_element_demo.png) |
+
+---
+
+## Quickstart
+
+```bash
+cargo add aurea
+# Or from a local clone: cargo add aurea --path /path/to/aurea
+```
+
+```rust
+use aurea::{AureaResult, Window};
+use aurea::elements::Label;
+
+fn main() -> AureaResult<()> {
+    let mut window = Window::new("Hello", 400, 300)?;
+    window.set_content(Label::new("Hello, Aurea!")?)?;
+    window.run()?;
+    Ok(())
+}
+```
+
+Save as `src/main.rs`, run with `cargo run`.
+
+---
+
 ## Overview
 
 Aurea is a native GUI toolkit that bridges high-level Rust abstractions with platform-specific implementations. It is designed to offer developers a robust and ergonomic way to build cross-platform applications with native look and feel across Windows, macOS, and Linux.
