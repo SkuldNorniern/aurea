@@ -29,6 +29,13 @@ impl TextView {
         Ok(Self { handle, _id: id })
     }
 
+    /// Create a text view with initial content.
+    pub fn with_content(editable: bool, content: &str) -> AureaResult<Self> {
+        let mut view = Self::new(editable)?;
+        view.set_content(content)?;
+        Ok(view)
+    }
+
     pub fn set_content(&mut self, content: &str) -> AureaResult<()> {
         let content = CString::new(content).map_err(|_| AureaError::InvalidTitle)?;
         let result = unsafe { ng_platform_set_text_content(self.handle, content.as_ptr()) };

@@ -29,10 +29,7 @@ int ng_linux_window_get_xcb_handle(NGHandle window, uint32_t* xcb_window, void**
 int ng_linux_window_get_wayland_handle(NGHandle window, void** surface, void** display);
 int ng_linux_window_set_cursor_visible(NGHandle window, int visible);
 int ng_linux_window_set_cursor_grab(NGHandle window, int mode);
-
-// Internal function to get main vbox (used by menu.c)
-// Note: Returns GtkWidget* but declared as void* to avoid GTK dependency in header
-void* ng_linux_get_main_vbox(void);
+NGHandle ng_linux_window_get_content_view(NGHandle window);
 
 #ifdef __cplusplus
 }

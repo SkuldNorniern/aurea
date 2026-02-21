@@ -48,6 +48,18 @@ impl TabBar {
         Ok(())
     }
 
+    /// Add multiple tabs in order.
+    pub fn add_tabs<I, S>(&mut self, titles: I) -> AureaResult<()>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        for title in titles {
+            self.add_tab(title.as_ref())?;
+        }
+        Ok(())
+    }
+
     pub fn remove_tab(&mut self, index: i32) -> AureaResult<()> {
         let result = unsafe { ng_platform_tab_bar_remove_tab(self.handle, index) };
         if result != 0 {
