@@ -18,6 +18,7 @@ NGHandle ng_macos_create_text_editor(unsigned int id);
 void ng_macos_text_editor_invalidate(NGHandle text_editor);
 NGHandle ng_macos_create_text_view(int is_editable, unsigned int id);
 void ng_macos_text_view_invalidate(NGHandle text_view);
+NGHandle ng_macos_create_text_field(void);
 int ng_macos_set_text_content(NGHandle text_handle, const char* content);
 char* ng_macos_get_text_content(NGHandle text_handle);
 void ng_macos_free_text_content(char* content);
