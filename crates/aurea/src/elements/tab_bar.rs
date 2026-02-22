@@ -39,6 +39,34 @@ impl TabBar {
         Ok(Self { handle, _id: id })
     }
 
+    /// Create a tab bar and populate it with initial tabs.
+    pub fn with_tabs<I, S>(titles: I) -> AureaResult<Self>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut bar = Self::new()?;
+        bar.add_tabs(titles)?;
+        Ok(bar)
+    }
+
+    /// Create a tab bar with callbacks and initial tabs.
+    pub fn with_callbacks_and_tabs<F, G, I, S>(
+        on_selected: F,
+        on_detach: G,
+        titles: I,
+    ) -> AureaResult<Self>
+    where
+        F: Fn(i32) + Send + Sync + 'static,
+        G: Fn(i32) + Send + Sync + 'static,
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut bar = Self::with_callbacks(on_selected, on_detach)?;
+        bar.add_tabs(titles)?;
+        Ok(bar)
+    }
+
     pub fn add_tab(&mut self, title: &str) -> AureaResult<()> {
         let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
         let result = unsafe { ng_platform_tab_bar_add_tab(self.handle, title.as_ptr()) };
