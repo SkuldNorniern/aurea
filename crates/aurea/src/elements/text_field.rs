@@ -121,13 +121,11 @@ impl Element for TextField {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn text_field_creation_is_platform_specific() {
-        let result = TextField::new();
         #[cfg(target_os = "windows")]
         {
+            let result = super::TextField::new();
             assert!(result.is_ok());
             let tf = result.unwrap();
             let content = tf.get_content();
@@ -135,9 +133,18 @@ mod tests {
             assert_eq!(content.unwrap(), "");
         }
 
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
         {
-            let _ = result;
+            let result = super::TextField::new();
+            assert!(result.is_ok());
+            let tf = result.unwrap();
+            assert!(tf.is_fallback());
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            // Skip native text field instantiation in unit tests because test threads
+            // are not guaranteed to run on the AppKit main thread.
         }
     }
 }
