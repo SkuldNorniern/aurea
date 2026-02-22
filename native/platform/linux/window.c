@@ -1,5 +1,6 @@
 #include "window.h"
 #include "utils.h"
+#include "menu.h"
 #include "common/errors.h"
 #include "common/input.h"
 #include "common/rust_callbacks.h"
@@ -303,6 +304,10 @@ static gboolean on_key_press(GtkWidget* widget, GdkEventKey* event, gpointer use
     unsigned int mods = ng_linux_modifiers(event->state);
     unsigned int keycode = ng_linux_keycode_from_keyval(event->keyval);
     ng_invoke_key_event((void*)widget, keycode, 1, mods);
+
+    if (ng_linux_handle_menu_shortcut((void*)widget, keycode, mods)) {
+        return TRUE;
+    }
 
     if (event->string && event->string[0] != '\0') {
         ng_invoke_text_input((void*)widget, event->string);
