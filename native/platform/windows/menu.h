@@ -13,6 +13,7 @@ int ng_windows_attach_menu(NGHandle window, NGMenuHandle menu);
 int ng_windows_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id);
 int ng_windows_add_menu_separator(NGMenuHandle menu);
 NGMenuHandle ng_windows_create_submenu(NGMenuHandle parent_menu, const char* title);
+int ng_windows_handle_menu_shortcut(NGHandle window, unsigned int keycode, unsigned int modifiers);
 
 #ifdef __cplusplus
 }

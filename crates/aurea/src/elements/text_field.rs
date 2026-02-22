@@ -133,7 +133,22 @@ mod tests {
             assert_eq!(content.unwrap(), "");
         }
 
-        #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+        #[cfg(target_os = "linux")]
+        {
+            let result = super::TextField::new();
+            assert!(result.is_ok());
+            let tf = result.unwrap();
+            assert!(!tf.is_fallback());
+            let content = tf.get_content();
+            assert!(content.is_ok());
+            assert_eq!(content.unwrap(), "");
+        }
+
+        #[cfg(all(
+            not(target_os = "windows"),
+            not(target_os = "macos"),
+            not(target_os = "linux")
+        ))]
         {
             let result = super::TextField::new();
             assert!(result.is_ok());

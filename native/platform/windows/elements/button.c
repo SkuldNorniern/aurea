@@ -8,7 +8,7 @@ NGHandle ng_windows_create_button(const char* title, unsigned int id) {
     if (!title) return NULL;
 
     HWND temp_parent = GetDesktopWindow();
-    UINT command_id = id + 1000;
+    UINT command_id = id + BUTTON_COMMAND_BASE;
 
     HWND button = CreateWindowExA(
         0,

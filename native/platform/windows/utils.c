@@ -1,4 +1,6 @@
 #include "utils.h"
+#include "menu.h"
+#include "elements/common.h"
 #include "common/errors.h"
 #include "common/input.h"
 #include "common/rust_callbacks.h"
@@ -257,7 +259,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_KEYDOWN:
         case WM_SYSKEYDOWN: {
             unsigned int keycode = ng_windows_keycode_from_vk(wParam);
-            ng_invoke_key_event((void*)hwnd, keycode, 1, ng_windows_modifiers());
+            unsigned int modifiers = ng_windows_modifiers();
+            ng_invoke_key_event((void*)hwnd, keycode, 1, modifiers);
+            if (ng_windows_handle_menu_shortcut((void*)hwnd, keycode, modifiers)) {
+                return 0;
+            }
             break;
         }
         case WM_KEYUP:
@@ -313,8 +319,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_COMMAND:
             if (HIWORD(wParam) == 0) {
                 unsigned int command_id = LOWORD(wParam);
-                if (command_id >= 1000) {
-                    unsigned int id = command_id - 1000;
+                if (command_id >= BUTTON_COMMAND_BASE) {
+                    unsigned int id = command_id - BUTTON_COMMAND_BASE;
                     ng_invoke_button_callback(id);
                 } else {
                     unsigned int id = command_id - 1;
