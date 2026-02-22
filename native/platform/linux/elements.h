@@ -22,6 +22,7 @@ NGHandle ng_linux_create_text_editor(unsigned int id);
 void ng_linux_text_editor_invalidate(NGHandle text_editor);
 NGHandle ng_linux_create_text_view(int is_editable, unsigned int id);
 void ng_linux_text_view_invalidate(NGHandle text_view);
+NGHandle ng_linux_create_text_field(void);
 int ng_linux_set_text_content(NGHandle text_handle, const char* content);
 char* ng_linux_get_text_content(NGHandle text_handle);
 void ng_linux_free_text_content(char* content);
