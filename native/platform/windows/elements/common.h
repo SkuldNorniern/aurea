@@ -41,10 +41,10 @@
 #define BUTTON_MIN_HEIGHT 32
 #define LABEL_PADDING 4
 #define BOX_ORIENTATION_PROP "AureaBoxOrientation"
+#define BUTTON_COMMAND_BASE 100000
 
 void layout_box_children(HWND box);
 int get_box_orientation(HWND box);
 void calculate_text_size(HDC hdc, const char* text, int* width, int* height);
 
 #endif
-

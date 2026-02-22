@@ -36,6 +36,17 @@ impl SidebarList {
         Ok(Self { handle, _id: id })
     }
 
+    /// Create a sidebar list and fill it with top-level items.
+    pub fn with_items<I, S>(items: I) -> AureaResult<Self>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut sidebar = Self::new()?;
+        sidebar.add_items(items, 0)?;
+        Ok(sidebar)
+    }
+
     pub fn add_section(&mut self, title: &str) -> AureaResult<()> {
         let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
         let result = unsafe { ng_platform_sidebar_list_add_section(self.handle, title.as_ptr()) };
