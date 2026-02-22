@@ -1,8 +1,32 @@
 #import "../elements.h"
 #import "../utils.h"
-#import "../../../common/errors.h"
+#import "common/errors.h"
 #import <Cocoa/Cocoa.h>
 #import <string.h>
+
+NGHandle ng_macos_create_text_field(void) {
+    @autoreleasepool {
+        NSTextField* field = [[NSTextField alloc] init];
+        [field setEditable:YES];
+        [field setSelectable:YES];
+        [field setBordered:YES];
+        [field setBezeled:YES];
+        [field setBezelStyle:NSTextFieldRoundedBezel];
+        [field setFont:[NSFont systemFontOfSize:13.0]];
+        [field setTranslatesAutoresizingMaskIntoConstraints:NO];
+
+        NSLayoutConstraint* heightConstraint = [NSLayoutConstraint constraintWithItem:field
+                                                                             attribute:NSLayoutAttributeHeight
+                                                                             relatedBy:NSLayoutRelationGreaterThanOrEqual
+                                                                                toItem:nil
+                                                                             attribute:NSLayoutAttributeNotAnAttribute
+                                                                            multiplier:1.0
+                                                                              constant:24.0];
+        [field addConstraint:heightConstraint];
+
+        return (__bridge_retained void*)field;
+    }
+}
 
 int ng_macos_set_text_content(NGHandle text_handle, const char* content) {
     if (!text_handle || !content) return NG_ERROR_INVALID_PARAMETER;
@@ -56,6 +80,5 @@ void ng_macos_free_text_content(char* content) {
         free(content);
     }
 }
-
 
 
