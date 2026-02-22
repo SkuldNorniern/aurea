@@ -55,6 +55,18 @@ impl SidebarList {
         Ok(())
     }
 
+    /// Add multiple items using the same indent level.
+    pub fn add_items<I, S>(&mut self, items: I, indent: i32) -> AureaResult<()>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        for item in items {
+            self.add_item(item.as_ref(), indent)?;
+        }
+        Ok(())
+    }
+
     pub fn set_selected(&mut self, index: i32) -> AureaResult<()> {
         let result = unsafe { ng_platform_sidebar_list_set_selected(self.handle, index) };
         if result != 0 {

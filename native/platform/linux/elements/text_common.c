@@ -3,6 +3,10 @@
 #include <gtk/gtk.h>
 #include <stdlib.h>
 
+NGHandle ng_linux_create_text_field(void) {
+    return ng_linux_create_text_view(1, 0);
+}
+
 int ng_linux_set_text_content(NGHandle text_handle, const char* content) {
     if (!text_handle || !content) return NG_ERROR_INVALID_PARAMETER;
     
@@ -42,6 +46,5 @@ void ng_linux_free_text_content(char* content) {
         g_free(content);
     }
 }
-
 
 
