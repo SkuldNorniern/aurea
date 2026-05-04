@@ -137,16 +137,19 @@ mod tests {
     fn lifecycle_callback_invoked_on_pause_resume_surface_lost() {
         let received = std::sync::Arc::new(AtomicU32::new(0));
         let r = received.clone();
-        register_lifecycle_callback(0x1000 as *mut c_void, Box::new(move |e| {
-            let id = match e {
-                LifecycleEvent::ApplicationPaused => 2,
-                LifecycleEvent::ApplicationResumed => 3,
-                LifecycleEvent::SurfaceLost => 9,
-                LifecycleEvent::SurfaceRecreated => 10,
-                _ => 0,
-            };
-            r.store(id, Ordering::SeqCst);
-        }));
+        register_lifecycle_callback(
+            0x1000 as *mut c_void,
+            Box::new(move |e| {
+                let id = match e {
+                    LifecycleEvent::ApplicationPaused => 2,
+                    LifecycleEvent::ApplicationResumed => 3,
+                    LifecycleEvent::SurfaceLost => 9,
+                    LifecycleEvent::SurfaceRecreated => 10,
+                    _ => 0,
+                };
+                r.store(id, Ordering::SeqCst);
+            }),
+        );
 
         invoke_lifecycle_callback(0x1000 as *mut c_void, LifecycleEvent::ApplicationPaused);
         assert_eq!(received.load(Ordering::SeqCst), 2);

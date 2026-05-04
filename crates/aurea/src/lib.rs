@@ -81,13 +81,13 @@ pub use crate::elements::{
     Box, BoxOrientation, Container, Divider, Element, Label, Spacer, SplitOrientation, SplitView,
     TextField,
 };
-pub use crate::menu::{MenuBar, SubMenu};
+pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
 pub use crate::window::{CursorGrabMode, Window, WindowId, WindowManager, WindowType};
 
 // Re-export window event types
 pub use crate::window::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};
 
-pub use aurea_core::{Capability, CapabilityChecker, DesktopPlatform, MobilePlatform, Platform};
-pub use aurea_core::{AureaError, AureaResult};
 #[cfg(feature = "wgpu")]
 pub use crate::integration::NativeWindowHandle;
+pub use aurea_core::{AureaError, AureaResult};
+pub use aurea_core::{Capability, CapabilityChecker, DesktopPlatform, MobilePlatform, Platform};

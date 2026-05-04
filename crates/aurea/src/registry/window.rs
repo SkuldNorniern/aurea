@@ -1,5 +1,5 @@
-use aurea_runtime::EventQueue;
 use crate::window::{WindowEvent, WindowId};
+use aurea_runtime::EventQueue;
 use std::{
     collections::HashMap,
     os::raw::c_void,

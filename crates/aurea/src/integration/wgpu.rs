@@ -517,45 +517,51 @@ pub enum SurfaceErrorAction {
     Fatal,
 }
 
+/// Classify a `CurrentSurfaceTexture` result for the given handle.
+/// Pushes `WindowEvent::SurfaceLost` on Lost/Outdated and returns the action.
 #[cfg(feature = "wgpu")]
-pub fn handle_surface_error_for_handle(
+pub fn handle_surface_result_for_handle(
     handle: *mut c_void,
-    error: wgpu::SurfaceError,
+    result: &wgpu::CurrentSurfaceTexture,
 ) -> SurfaceErrorAction {
     use crate::window::WindowEvent;
 
-    match error {
-        wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
+    match result {
+        wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
             if !handle.is_null() {
                 crate::window::push_window_event(handle, WindowEvent::SurfaceLost);
                 crate::view::FrameScheduler::schedule();
             }
             SurfaceErrorAction::Recreate
         }
-        wgpu::SurfaceError::Timeout => SurfaceErrorAction::Skip,
-        wgpu::SurfaceError::OutOfMemory => SurfaceErrorAction::Fatal,
-        wgpu::SurfaceError::Other => SurfaceErrorAction::Fatal,
+        wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+            SurfaceErrorAction::Skip
+        }
+        wgpu::CurrentSurfaceTexture::Validation => SurfaceErrorAction::Fatal,
+        wgpu::CurrentSurfaceTexture::Success(_) | wgpu::CurrentSurfaceTexture::Suboptimal(_) => {
+            SurfaceErrorAction::Skip
+        }
     }
 }
 
-/// Call this when `Surface::get_current_texture()` fails for a window-backed surface.
-/// Pushes `WindowEvent::SurfaceLost` and returns Recreate/Skip/Fatal.
+/// Call this when `Surface::get_current_texture()` returns a non-success result for a window.
+/// Pushes `WindowEvent::SurfaceLost` on Lost/Outdated and returns Recreate/Skip/Fatal.
 #[cfg(feature = "wgpu")]
-pub fn handle_surface_error_for_window(
+pub fn handle_surface_result_for_window(
     window: &crate::window::Window,
-    error: wgpu::SurfaceError,
+    result: &wgpu::CurrentSurfaceTexture,
 ) -> SurfaceErrorAction {
-    handle_surface_error_for_handle(window.handle(), error)
+    handle_surface_result_for_handle(window.handle(), result)
 }
 
-/// Call this when `Surface::get_current_texture()` fails for a canvas-backed surface.
-/// Pushes `WindowEvent::SurfaceLost` and returns Recreate/Skip/Fatal.
+/// Call this when `Surface::get_current_texture()` returns a non-success result for a canvas.
+/// Pushes `WindowEvent::SurfaceLost` on Lost/Outdated and returns Recreate/Skip/Fatal.
 #[cfg(feature = "wgpu")]
-pub fn handle_surface_error_for_canvas(
+pub fn handle_surface_result_for_canvas(
     canvas: &crate::render::Canvas,
-    error: wgpu::SurfaceError,
+    result: &wgpu::CurrentSurfaceTexture,
 ) -> SurfaceErrorAction {
-    handle_surface_error_for_handle(canvas.window_handle(), error)
+    handle_surface_result_for_handle(canvas.window_handle(), result)
 }
 
 /// Call after recreating a window-backed wgpu surface so `SurfaceRecreated` is emitted and redraw scheduled.

@@ -1,17 +1,14 @@
 //! JNI glue for Android: loads native library, forwards Activity to C backend.
 //! Compiled only when target_os = "android".
 
-use jni::objects::JObject;
 use jni::JNIEnv;
+use jni::objects::JObject;
 use std::os::raw::c_void;
 
 const JNI_VERSION: jni::sys::jint = jni::sys::JNI_VERSION_1_6;
 
 #[no_mangle]
-pub extern "system" fn JNI_OnLoad(
-    vm: jni::sys::JavaVM,
-    _reserved: *mut c_void,
-) -> jni::sys::jint {
+pub extern "system" fn JNI_OnLoad(vm: jni::sys::JavaVM, _reserved: *mut c_void) -> jni::sys::jint {
     log::info!("Aurea JNI_OnLoad");
     JNI_VERSION
 }

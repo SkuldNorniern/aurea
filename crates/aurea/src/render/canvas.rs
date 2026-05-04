@@ -1,14 +1,14 @@
-use aurea_render::{
-    ClickCallback, Color, CpuRasterizer, CURRENT_BUFFER, DrawingContext, GpuRasterizer,
-    HoverCallback, InteractionRegistry, InteractiveId, Point, Renderer, RendererBackend,
-    Surface, SurfaceInfo,
-};
-use aurea_core::CapabilityChecker;
 use crate::elements::Element;
 use crate::ffi::*;
-use aurea_core::Platform;
 use crate::view::{DamageRegion, FrameScheduler};
 use crate::{AureaError, AureaResult};
+use aurea_core::CapabilityChecker;
+use aurea_core::Platform;
+use aurea_render::{
+    CURRENT_BUFFER, ClickCallback, Color, CpuRasterizer, DrawingContext, GpuRasterizer,
+    HoverCallback, InteractionRegistry, InteractiveId, Point, Renderer, RendererBackend, Surface,
+    SurfaceInfo,
+};
 use std::os::raw::c_void;
 use std::sync::{Arc, Mutex};
 
@@ -395,7 +395,6 @@ impl Canvas {
 
         Ok(())
     }
-
 }
 
 impl Element for Canvas {
