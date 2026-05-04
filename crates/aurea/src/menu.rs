@@ -6,6 +6,112 @@ use std::{ffi::CString, os::raw::c_void};
 
 use log::debug;
 
+/// A keyboard shortcut key for menu items.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShortcutKey {
+    Char(char),
+    F(u8),
+    Enter,
+    Tab,
+    Escape,
+    Space,
+    Backspace,
+    Delete,
+}
+
+/// A portable menu shortcut description.
+///
+/// `primary` maps to Command on macOS and Ctrl on Windows/Linux.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MenuShortcut {
+    key: ShortcutKey,
+    primary: bool,
+    shift: bool,
+    alt: bool,
+    ctrl: bool,
+    meta: bool,
+}
+
+impl MenuShortcut {
+    pub fn new(key: ShortcutKey) -> Self {
+        Self {
+            key,
+            primary: false,
+            shift: false,
+            alt: false,
+            ctrl: false,
+            meta: false,
+        }
+    }
+
+    pub fn primary(mut self) -> Self {
+        self.primary = true;
+        self
+    }
+
+    pub fn shift(mut self) -> Self {
+        self.shift = true;
+        self
+    }
+
+    pub fn alt(mut self) -> Self {
+        self.alt = true;
+        self
+    }
+
+    pub fn ctrl(mut self) -> Self {
+        self.ctrl = true;
+        self
+    }
+
+    pub fn meta(mut self) -> Self {
+        self.meta = true;
+        self
+    }
+
+    fn encode_for_platform(self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+
+        if self.primary {
+            #[cfg(target_os = "macos")]
+            {
+                parts.push("Cmd".to_string());
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                parts.push("Ctrl".to_string());
+            }
+        }
+
+        if self.ctrl {
+            parts.push("Ctrl".to_string());
+        }
+        if self.shift {
+            parts.push("Shift".to_string());
+        }
+        if self.alt {
+            parts.push("Alt".to_string());
+        }
+        if self.meta {
+            parts.push("Meta".to_string());
+        }
+
+        let key = match self.key {
+            ShortcutKey::Char(c) => c.to_ascii_uppercase().to_string(),
+            ShortcutKey::F(n) => format!("F{}", n),
+            ShortcutKey::Enter => "Enter".to_string(),
+            ShortcutKey::Tab => "Tab".to_string(),
+            ShortcutKey::Escape => "Escape".to_string(),
+            ShortcutKey::Space => "Space".to_string(),
+            ShortcutKey::Backspace => "Backspace".to_string(),
+            ShortcutKey::Delete => "Delete".to_string(),
+        };
+        parts.push(key);
+
+        parts.join("+")
+    }
+}
+
 /// A native menu bar attached to a window.
 pub struct MenuBar {
     pub handle: *mut c_void,
@@ -64,6 +170,20 @@ impl SubMenu {
         );
 
         Ok(())
+    }
+
+    /// Add a clickable menu item with a portable keyboard shortcut.
+    pub fn add_item_with_shortcut<F>(
+        &mut self,
+        title: &str,
+        shortcut: MenuShortcut,
+        callback: F,
+    ) -> AureaResult<()>
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        let label = format!("{}\t{}", title, shortcut.encode_for_platform());
+        self.add_item(&label, callback)
     }
 
     /// Add a visual separator in the submenu.

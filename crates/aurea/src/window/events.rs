@@ -86,7 +86,9 @@ mod tests {
         let out = queue.pop_all();
         assert_eq!(out.len(), 1);
         match &out[0] {
-            WindowEvent::MouseButton { button, pressed, .. } => {
+            WindowEvent::MouseButton {
+                button, pressed, ..
+            } => {
                 assert_eq!(*button, MouseButton::Left);
                 assert!(*pressed);
             }
@@ -105,7 +107,9 @@ mod tests {
         let out = queue.pop_all();
         assert_eq!(out.len(), 1);
         match &out[0] {
-            WindowEvent::MouseWheel { delta_x, delta_y, .. } => {
+            WindowEvent::MouseWheel {
+                delta_x, delta_y, ..
+            } => {
                 assert_eq!(*delta_x, 1.0);
                 assert_eq!(*delta_y, -2.0);
             }
@@ -159,9 +163,7 @@ mod tests {
     #[test]
     fn event_queue_scale_factor_changed() {
         let queue = EventQueue::new();
-        queue.push(WindowEvent::ScaleFactorChanged {
-            scale_factor: 2.0,
-        });
+        queue.push(WindowEvent::ScaleFactorChanged { scale_factor: 2.0 });
         let out = queue.pop_all();
         assert_eq!(out.len(), 1);
         match &out[0] {

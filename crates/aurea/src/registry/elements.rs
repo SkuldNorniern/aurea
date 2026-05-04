@@ -55,10 +55,7 @@ pub fn next_text_editor_id() -> u32 {
     next_id(&TEXT_EDITOR_ID)
 }
 
-pub fn register_text_editor_callback(
-    id: u32,
-    callback: impl Fn(String) + Send + Sync + 'static,
-) {
+pub fn register_text_editor_callback(id: u32, callback: impl Fn(String) + Send + Sync + 'static) {
     let mut callbacks = crate::sync::lock(&TEXT_EDITOR_CALLBACKS);
     callbacks.insert(id, Box::new(callback));
 }
@@ -74,10 +71,7 @@ pub fn next_text_view_id() -> u32 {
     next_id(&TEXT_VIEW_ID)
 }
 
-pub fn register_text_view_callback(
-    id: u32,
-    callback: impl Fn(String) + Send + Sync + 'static,
-) {
+pub fn register_text_view_callback(id: u32, callback: impl Fn(String) + Send + Sync + 'static) {
     let mut callbacks = crate::sync::lock(&TEXT_VIEW_CALLBACKS);
     callbacks.insert(id, Box::new(callback));
 }
@@ -123,10 +117,7 @@ pub fn next_sidebar_id() -> u32 {
     next_id(&SIDEBAR_ID)
 }
 
-pub fn register_sidebar_callback(
-    id: u32,
-    on_selected: impl Fn(i32) + Send + Sync + 'static,
-) {
+pub fn register_sidebar_callback(id: u32, on_selected: impl Fn(i32) + Send + Sync + 'static) {
     let mut callbacks = crate::sync::lock(&SIDEBAR_SELECTED_CALLBACKS);
     callbacks.insert(id, Box::new(on_selected));
 }

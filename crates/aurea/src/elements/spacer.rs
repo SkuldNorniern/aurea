@@ -2,8 +2,8 @@
 //!
 //! Use with `add_weighted` to create flexible gaps between elements.
 
-use super::traits::Element;
 use super::Label;
+use super::traits::Element;
 use crate::AureaResult;
 use std::os::raw::c_void;
 

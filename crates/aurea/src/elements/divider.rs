@@ -3,8 +3,8 @@
 //! Renders a simple line; useful for grouping UI sections.
 
 use super::traits::Element;
-use crate::render::{Canvas, Color, Paint, PaintStyle, Rect, RendererBackend};
 use crate::AureaResult;
+use crate::render::{Canvas, Color, Paint, PaintStyle, Rect, RendererBackend};
 use std::os::raw::c_void;
 
 /// Orientation of the divider line.
@@ -47,10 +47,7 @@ impl Divider {
         canvas.set_draw_callback(move |ctx| {
             ctx.clear(Color::rgb(255, 255, 255))?;
             let paint = Paint::new().color(color).style(PaintStyle::Fill);
-            ctx.draw_rect(
-                Rect::new(0.0, 0.0, w as f32, h as f32),
-                &paint,
-            )?;
+            ctx.draw_rect(Rect::new(0.0, 0.0, w as f32, h as f32), &paint)?;
             Ok(())
         })?;
 
