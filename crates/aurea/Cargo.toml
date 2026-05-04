@@ -27,7 +27,7 @@ default = []
 wgpu = ["dep:wgpu", "dep:raw-window-handle"]
 
 [dependencies.wgpu]
-version = "28.0.0"
+version = "29.0.1"
 optional = true
 
 [dependencies.raw-window-handle]
