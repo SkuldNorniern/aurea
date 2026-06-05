@@ -40,6 +40,9 @@ impl FontDbTextRasterizer {
     pub fn new() -> Self {
         let mut db = fontdb::Database::new();
         db.load_system_fonts();
+        load_standard_font_dirs(&mut db);
+        db.set_monospace_family("DejaVu Sans Mono");
+        db.set_sans_serif_family("DejaVu Sans");
         Self {
             db,
             cache: Mutex::new(HashMap::new()),
@@ -120,6 +123,19 @@ impl FontDbTextRasterizer {
             },
         )
         .map_err(|_| AureaError::RenderingFailed)
+    }
+}
+
+fn load_standard_font_dirs(db: &mut fontdb::Database) {
+    #[cfg(target_os = "linux")]
+    {
+        for dir in [
+            "/usr/share/fonts",
+            "/usr/local/share/fonts",
+            "/usr/share/fonts/truetype",
+        ] {
+            db.load_fonts_dir(dir);
+        }
     }
 }
 
