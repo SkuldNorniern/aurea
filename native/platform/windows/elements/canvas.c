@@ -14,10 +14,48 @@ typedef struct {
 static const char* CANVAS_CLASS_NAME = "AureaCanvas";
 static int canvas_class_registered = 0;
 
+/* Walk up the HWND tree to find the first ancestor with class "NativeGuiWindow". */
+static HWND canvas_find_root_window(HWND start) {
+    HWND p = GetParent(start);
+    while (p && p != GetDesktopWindow()) {
+        char cls[256];
+        GetClassNameA(p, cls, sizeof(cls));
+        if (strcmp(cls, "NativeGuiWindow") == 0) return p;
+        p = GetParent(p);
+    }
+    return NULL;
+}
+
 static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     CanvasData* data = (CanvasData*)GetWindowLongPtrA(hwnd, GWLP_USERDATA);
-    
+
     switch (msg) {
+        /* Prevent canvas from stealing keyboard focus on click. */
+        case WM_MOUSEACTIVATE:
+            return MA_NOACTIVATE;
+
+        /* DefWindowProc for WM_LBUTTONDOWN calls SetFocus(hwnd), so the canvas
+           can still receive WM_SETFOCUS.  Immediately give focus back to the
+           NativeGuiWindow so all keyboard input is handled there. */
+        case WM_SETFOCUS: {
+            HWND root = canvas_find_root_window(hwnd);
+            if (root) SetFocus(root);
+            return 0;
+        }
+
+        /* Forward keyboard messages to the root NativeGuiWindow as a fallback
+           (handles the case where focus arrives through another path). */
+        case WM_KEYDOWN:
+        case WM_KEYUP:
+        case WM_CHAR:
+        case WM_SYSCHAR:
+        case WM_SYSKEYDOWN:
+        case WM_SYSKEYUP: {
+            HWND root = canvas_find_root_window(hwnd);
+            if (root) return SendMessageA(root, msg, wParam, lParam);
+            break;
+        }
+
         case WM_ERASEBKGND:
             return 1;
         case WM_PAINT: {

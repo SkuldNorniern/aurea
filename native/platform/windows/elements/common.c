@@ -89,6 +89,16 @@ void layout_box_children(HWND box) {
                 }
             }
 
+            /* Vertical box: canvas fills the remaining space edge-to-edge.
+               Remove the initial PADDING top gap if canvas is the first item. */
+            if (is_vertical && _stricmp(class_name, "AureaCanvas") == 0) {
+                child_x = 0;
+                if (y == PADDING) y = 0;   /* first element — no top gap */
+                width = box_width;
+                int remaining = box_height - y;
+                if (remaining > 0) height = remaining;
+            }
+
             if (is_vertical) {
                 if (_stricmp(class_name, "RichEdit20A") == 0 || _stricmp(class_name, "EDIT") == 0) {
                     width = box_width;

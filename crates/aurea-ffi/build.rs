@@ -3,7 +3,14 @@ use std::process::Command;
 
 fn main() {
     let manifest_dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    let root = manifest_dir.join("../..").canonicalize().unwrap();
+    let root = {
+        let p = manifest_dir.join("../..").canonicalize().unwrap();
+        // cl.exe rejects \\?\ extended-path prefix in -I flags on Windows.
+        let s = p.to_string_lossy();
+        std::path::PathBuf::from(
+            s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
+        )
+    };
     let native = root.join("native");
 
     fn add_sources(build: &mut cc::Build, root: &std::path::Path, sources: &[&str]) {
