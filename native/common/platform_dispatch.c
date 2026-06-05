@@ -1,6 +1,7 @@
 #include "platform_api.h"
 #include "platform_ops.h"
 #include "errors.h"
+#include <stddef.h>
 #include <stdint.h>
 #if defined(__APPLE__)
 #include <TargetConditionals.h>

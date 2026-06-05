@@ -20,8 +20,9 @@ int ng_linux_slider_set_value(NGHandle slider, double value) {
     if (!slider) return NG_ERROR_INVALID_HANDLE;
     
     GtkRange* range = GTK_RANGE(slider);
-    double minVal = gtk_range_get_min_value(range);
-    double maxVal = gtk_range_get_max_value(range);
+    GtkAdjustment* adjustment = gtk_range_get_adjustment(range);
+    double minVal = gtk_adjustment_get_lower(adjustment);
+    double maxVal = gtk_adjustment_get_upper(adjustment);
     
     if (value < minVal) value = minVal;
     if (value > maxVal) value = maxVal;
