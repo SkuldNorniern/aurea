@@ -299,23 +299,25 @@ impl TextRenderer {
                 {
                     let glyph_idx = (gy * glyph.width + gx) as usize;
                     if glyph_idx * 4 + 3 < glyph.data.len() {
-                        let alpha = glyph.data[glyph_idx * 4 + 3] as f32 / 255.0;
+                        let coverage = glyph.data[glyph_idx * 4 + 3] as f32 / 255.0;
+                        if coverage <= 0.0 {
+                            continue;
+                        }
 
-                        // Blend glyph alpha with text color
-                        let blended = Color::rgba(
-                            ((color.r as f32 * alpha).min(255.0)) as u8,
-                            ((color.g as f32 * alpha).min(255.0)) as u8,
-                            ((color.b as f32 * alpha).min(255.0)) as u8,
-                            ((color.a as f32 * alpha).min(255.0)) as u8,
-                        );
+                        // STRAIGHT alpha: keep full text colour, scale only the
+                        // alpha channel by glyph coverage. The CPU rasterizer's
+                        // blend_over composites with straight (non-premultiplied)
+                        // alpha, so premultiplying rgb here would double-darken
+                        // the antialiased edges and make text look thin/muddy.
+                        let out_a = ((color.a as f32 * coverage).round().min(255.0)) as u8;
 
                         let buffer_idx =
                             (buffer_y as usize) * (buffer_width as usize) + (buffer_x as usize);
                         if buffer_idx < buffer.len() {
-                            buffer[buffer_idx] = ((blended.a as u32) << 24)
-                                | ((blended.r as u32) << 16)
-                                | ((blended.g as u32) << 8)
-                                | (blended.b as u32);
+                            buffer[buffer_idx] = ((out_a as u32) << 24)
+                                | ((color.r as u32) << 16)
+                                | ((color.g as u32) << 8)
+                                | (color.b as u32);
                         }
                     }
                 }
