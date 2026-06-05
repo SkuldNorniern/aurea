@@ -10,6 +10,7 @@ use super::atlas::{GlyphBitmap, GlyphKey};
 use super::platform::{PlatformTextRasterizer, SubpixelGlyph};
 use aurea_core::{AureaError, AureaResult};
 use std::collections::HashMap;
+use std::fs;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -77,7 +78,7 @@ impl FontDbTextRasterizer {
             stretch: fontdb::Stretch::Normal,
         };
 
-        let fallback_families = [fontdb::Family::SansSerif];
+        let fallback_families = [fontdb::Family::Monospace, fontdb::Family::SansSerif];
         let fallback_query = fontdb::Query {
             families: &fallback_families,
             weight,
@@ -85,24 +86,60 @@ impl FontDbTextRasterizer {
             stretch: fontdb::Stretch::Normal,
         };
 
-        let face_id = self
+        let fontdue = self
             .db
             .query(&query)
-            .or_else(|| self.db.query(&fallback_query));
-        let face_id = face_id.ok_or(AureaError::RenderingFailed)?;
-
-        let data = self
-            .db
-            .with_face_data(face_id, |bytes, _| bytes.to_vec())
+            .and_then(|face_id| self.load_face(face_id).ok())
+            .or_else(|| {
+                self.db
+                    .query(&fallback_query)
+                    .and_then(|face_id| self.load_face(face_id).ok())
+            })
+            .or_else(load_builtin_fallback_font)
             .ok_or(AureaError::RenderingFailed)?;
-
-        let fontdue = fontdue::Font::from_bytes(data, fontdue::FontSettings::default())
-            .map_err(|_| AureaError::RenderingFailed)?;
 
         let font_arc = Arc::new(fontdue);
         aurea_core::lock(&self.cache).insert(key, font_arc.clone());
         Ok(font_arc)
     }
+
+    fn load_face(&self, face_id: fontdb::ID) -> AureaResult<fontdue::Font> {
+        let face = self.db.face(face_id).ok_or(AureaError::RenderingFailed)?;
+        let collection_index = face.index;
+        let data = match &face.source {
+            fontdb::Source::Binary(data) => data.as_ref().as_ref().to_vec(),
+            fontdb::Source::File(path) => fs::read(path).map_err(|_| AureaError::RenderingFailed)?,
+            fontdb::Source::SharedFile(_, data) => data.as_ref().as_ref().to_vec(),
+        };
+
+        fontdue::Font::from_bytes(
+            data,
+            fontdue::FontSettings {
+                collection_index,
+                ..fontdue::FontSettings::default()
+            },
+        )
+        .map_err(|_| AureaError::RenderingFailed)
+    }
+}
+
+fn load_builtin_fallback_font() -> Option<fontdue::Font> {
+    #[cfg(target_os = "linux")]
+    {
+        for path in [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+            "/usr/share/fonts/truetype/liberation2/LiberationMono-Regular.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
+        ] {
+            let Ok(data) = fs::read(path) else {
+                continue;
+            };
+            if let Ok(font) = fontdue::Font::from_bytes(data, fontdue::FontSettings::default()) {
+                return Some(font);
+            }
+        }
+    }
+    None
 }
 
 impl Default for FontDbTextRasterizer {
