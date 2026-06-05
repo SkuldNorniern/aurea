@@ -129,18 +129,20 @@ impl FontDbTextRasterizer {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn set_platform_generic_families(db: &mut fontdb::Database) {
-    #[cfg(target_os = "linux")]
-    {
-        if let Some(name) = first_family_matching(db, |face| face.monospaced) {
-            db.set_monospace_family(name);
-        }
-        if let Some(name) = preferred_sans_family(db) {
-            db.set_sans_serif_family(name);
-        }
+    if let Some(name) = first_family_matching(db, |face| face.monospaced) {
+        db.set_monospace_family(name);
+    }
+    if let Some(name) = preferred_sans_family(db) {
+        db.set_sans_serif_family(name);
     }
 }
 
+#[cfg(not(target_os = "linux"))]
+fn set_platform_generic_families(_db: &mut fontdb::Database) {}
+
+#[cfg(target_os = "linux")]
 fn first_family_matching(
     db: &fontdb::Database,
     predicate: impl Fn(&fontdb::FaceInfo) -> bool,
@@ -150,6 +152,7 @@ fn first_family_matching(
         .and_then(|face| face.families.first().map(|(name, _)| name.clone()))
 }
 
+#[cfg(target_os = "linux")]
 fn preferred_sans_family(db: &fontdb::Database) -> Option<String> {
     first_family_matching(db, |face| !face.monospaced)
         .or_else(|| first_family_matching(db, |_| true))
