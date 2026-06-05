@@ -5,6 +5,43 @@
 //! the final color (e.g. Normal is "over", Multiply darkens, Screen lightens).
 
 use super::super::types::BlendMode;
+use std::sync::LazyLock;
+
+/// sRGB (0..=255) -> linear-light (0.0..=1.0) lookup table.
+///
+/// Antialiased coverage — text edges in particular — must be composited in
+/// linear light, not in the gamma-encoded sRGB values the framebuffer stores.
+/// Lerping partial-coverage edge pixels directly in sRGB makes light-on-dark
+/// text look thin and the curves/stems look jagged; doing the lerp in linear
+/// light and re-encoding yields smooth, full-weight edges.
+static SRGB_TO_LINEAR: LazyLock<[f32; 256]> = LazyLock::new(|| {
+    let mut lut = [0.0f32; 256];
+    for (i, slot) in lut.iter_mut().enumerate() {
+        let c = i as f32 / 255.0;
+        *slot = if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        };
+    }
+    lut
+});
+
+/// sRGB-encoded 8-bit channel value -> linear light (0.0..=1.0).
+pub fn srgb_to_linear(c: u8) -> f32 {
+    SRGB_TO_LINEAR[c as usize]
+}
+
+/// Linear-light (0.0..=1.0) -> sRGB-encoded 8-bit channel value.
+pub fn linear_to_srgb_u8(c: f32) -> u32 {
+    let c = c.clamp(0.0, 1.0);
+    let s = if c <= 0.0031308 {
+        c * 12.92
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
+    };
+    (s * 255.0).round() as u32
+}
 
 /// Composites a source pixel onto a destination pixel using the given blend mode.
 /// Returns the resulting color as RGBA u32.
@@ -64,9 +101,12 @@ fn blend_over(src: u32, dst: u32) -> u32 {
     if out_a == 0 {
         return 0;
     }
-    let out_r = (sa * sr(src) + inv_sa * dr(dst)) / 255;
-    let out_g = (sa * sg(src) + inv_sa * dg(dst)) / 255;
-    let out_b = (sa * sb(src) + inv_sa * db(dst)) / 255;
+    // Composite the colour channels in linear light for smooth antialiased edges.
+    let cov = sa as f32 / 255.0;
+    let inv = 1.0 - cov;
+    let out_r = linear_to_srgb_u8(srgb_to_linear(sr(src) as u8) * cov + srgb_to_linear(dr(dst) as u8) * inv);
+    let out_g = linear_to_srgb_u8(srgb_to_linear(sg(src) as u8) * cov + srgb_to_linear(dg(dst) as u8) * inv);
+    let out_b = linear_to_srgb_u8(srgb_to_linear(sb(src) as u8) * cov + srgb_to_linear(db(dst) as u8) * inv);
     (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b
 }
 

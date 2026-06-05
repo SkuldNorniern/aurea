@@ -7,10 +7,10 @@ use super::super::display_list::{DisplayItem, DisplayList};
 use super::super::renderer::{DrawingContext, Renderer};
 use super::super::surface::{Surface, SurfaceInfo};
 use super::super::types::{
-    BlendMode, Color, GradientStop, Image, LinearGradient, Paint, PaintStyle, Point,
+    BlendMode, Color, GlyphMask, GradientStop, Image, LinearGradient, Paint, PaintStyle, Point,
     RadialGradient, Rect,
 };
-use super::blend::blend_pixel;
+use super::blend::{blend_pixel, linear_to_srgb_u8, srgb_to_linear};
 use super::cache::BoundedCache;
 use super::context::CpuDrawingContext;
 use super::path::tessellate_path;
@@ -163,6 +163,9 @@ impl CpuRasterizer {
                     tile,
                     tile_bounds,
                 );
+            }
+            super::super::command::DrawCommand::DrawGlyphMask(mask, origin, color) => {
+                Self::draw_glyph_mask_to_tile_static(mask, *origin, *color, tile, tile_bounds);
             }
             super::super::command::DrawCommand::FillLinearGradient(gradient, rect) => {
                 Self::fill_linear_gradient_to_tile_static(
@@ -445,6 +448,72 @@ impl CpuRasterizer {
         }
 
         Ok(())
+    }
+
+    /// Composites a subpixel (LCD) text coverage mask into a tile.
+    ///
+    /// Each device pixel carries three coverage values (R/G/B subpixel stripes).
+    /// Every channel is blended independently in linear light against the
+    /// destination, then re-encoded to sRGB — ClearType-style crisp stems and
+    /// smooth curves.
+    fn draw_glyph_mask_to_tile_static(
+        mask: &GlyphMask,
+        origin: Point,
+        color: Color,
+        tile: &mut super::tile::Tile,
+        tile_bounds: &Rect,
+    ) {
+        if mask.width == 0 || mask.height == 0 {
+            return;
+        }
+        let text_r = srgb_to_linear(color.r);
+        let text_g = srgb_to_linear(color.g);
+        let text_b = srgb_to_linear(color.b);
+
+        let dest_x = origin.x.round() as i32;
+        let dest_y = origin.y.round() as i32;
+        let tile_x0 = tile_bounds.x as i32;
+        let tile_y0 = tile_bounds.y as i32;
+
+        for my in 0..mask.height as i32 {
+            let ly = dest_y + my - tile_y0;
+            if ly < 0 || ly >= TILE_SIZE as i32 {
+                continue;
+            }
+            let row = (my as u32 * mask.width) as usize;
+            for mx in 0..mask.width as i32 {
+                let lx = dest_x + mx - tile_x0;
+                if lx < 0 || lx >= TILE_SIZE as i32 {
+                    continue;
+                }
+                let ci = (row + mx as usize) * 3;
+                let cov_r = mask.coverage[ci] as f32 / 255.0;
+                let cov_g = mask.coverage[ci + 1] as f32 / 255.0;
+                let cov_b = mask.coverage[ci + 2] as f32 / 255.0;
+                if cov_r <= 0.0 && cov_g <= 0.0 && cov_b <= 0.0 {
+                    continue;
+                }
+
+                let dst = tile.get_pixel(lx as u32, ly as u32);
+                let da = (dst >> 24) & 0xff;
+                let dr = ((dst >> 16) & 0xff) as u8;
+                let dg = ((dst >> 8) & 0xff) as u8;
+                let db = (dst & 0xff) as u8;
+
+                let out_r = linear_to_srgb_u8(text_r * cov_r + srgb_to_linear(dr) * (1.0 - cov_r));
+                let out_g = linear_to_srgb_u8(text_g * cov_g + srgb_to_linear(dg) * (1.0 - cov_g));
+                let out_b = linear_to_srgb_u8(text_b * cov_b + srgb_to_linear(db) * (1.0 - cov_b));
+
+                let cmax = cov_r.max(cov_g).max(cov_b);
+                let sa = (cmax * 255.0).round() as u32;
+                let out_a = sa + ((255 - sa) * da) / 255;
+                tile.set_pixel(
+                    lx as u32,
+                    ly as u32,
+                    (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b,
+                );
+            }
+        }
     }
 
     fn draw_image_to_tile_static(

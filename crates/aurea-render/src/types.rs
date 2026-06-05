@@ -429,6 +429,22 @@ impl Image {
     }
 }
 
+/// Subpixel (LCD/ClearType-style) text coverage mask.
+///
+/// Stores three coverage samples per device pixel — one per RGB subpixel stripe
+/// — so antialiased text gains ~3x effective horizontal resolution. The mask is
+/// colourless; the text colour is supplied at composite time and blended per
+/// channel in linear light against the destination.
+#[derive(Debug, Clone)]
+pub struct GlyphMask {
+    /// Width in device pixels.
+    pub width: u32,
+    /// Height in device pixels.
+    pub height: u32,
+    /// Per-pixel subpixel coverage, 3 bytes/pixel in R, G, B stripe order.
+    pub coverage: Vec<u8>,
+}
+
 /// Interactive element ID for hit testing
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct InteractiveId(pub u64);
