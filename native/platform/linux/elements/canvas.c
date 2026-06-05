@@ -109,9 +109,9 @@ void ng_linux_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int
 NGHandle ng_linux_canvas_get_window(NGHandle canvas) {
     if (!canvas) return NULL;
     GtkWidget* widget = (GtkWidget*)canvas;
-    GtkWindow* window = GTK_WINDOW(gtk_widget_get_toplevel(widget));
-    if (GTK_IS_WINDOW(window)) {
-        return (NGHandle)window;
+    GtkWidget* toplevel = gtk_widget_get_toplevel(widget);
+    if (GTK_IS_WINDOW(toplevel)) {
+        return (NGHandle)toplevel;
     }
     return NULL;
 }
@@ -138,14 +138,10 @@ int ng_linux_canvas_get_xcb_handle(NGHandle canvas, uint32_t* xcb_window, void**
     if (!gdk_window) return 0;
 #ifdef GDK_WINDOWING_X11
     if (GDK_IS_X11_WINDOW(gdk_window)) {
-        GdkDisplay* display = gdk_window_get_display(gdk_window);
-        if (!display) return 0;
-        *xcb_window = (uint32_t)gdk_x11_window_get_xid(gdk_window);
-        *xcb_connection = gdk_x11_display_get_xcb_connection(display);
-        if (*xcb_window == 0 || *xcb_connection == NULL) {
-            return 0;
-        }
-        return 1;
+        (void)gdk_window;
+        *xcb_window = 0;
+        *xcb_connection = NULL;
+        return 0;
     }
 #endif
     return 0;
