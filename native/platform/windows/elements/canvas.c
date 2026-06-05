@@ -30,9 +30,17 @@ static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
     CanvasData* data = (CanvasData*)GetWindowLongPtrA(hwnd, GWLP_USERDATA);
 
     switch (msg) {
-        /* Prevent canvas from stealing keyboard focus on click. */
-        case WM_MOUSEACTIVATE:
-            return MA_NOACTIVATE;
+        /* Let clicks in a canvas activate the top-level window, then keep
+           keyboard focus on that root window so WindowProc emits key events
+           using the registered window handle. */
+        case WM_MOUSEACTIVATE: {
+            HWND root = canvas_find_root_window(hwnd);
+            if (root) {
+                SetActiveWindow(root);
+                SetFocus(root);
+            }
+            return MA_ACTIVATE;
+        }
 
         /* DefWindowProc for WM_LBUTTONDOWN calls SetFocus(hwnd), so the canvas
            can still receive WM_SETFOCUS.  Immediately give focus back to the

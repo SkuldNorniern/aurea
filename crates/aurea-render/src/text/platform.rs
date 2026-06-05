@@ -137,7 +137,7 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
             height,
             data,
             bearing_x: metrics.xmin as f32,
-            bearing_y: -metrics.ymin as f32,
+            bearing_y: metrics.height as f32 + metrics.ymin as f32,
             advance: metrics.advance_width,
         })
     }
