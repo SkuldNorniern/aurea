@@ -91,14 +91,16 @@ impl DirectWriteRasterizer {
             if name.is_empty() {
                 continue;
             }
-            if let Some(f) = self.collection.get_font_family_by_name(name) {
+            if let Ok(Some(f)) = self.collection.font_family_by_name(name) {
                 family = Some(f);
                 break;
             }
         }
         let family = family.ok_or(AureaError::RenderingFailed)?;
 
-        let dw_font = family.get_first_matching_font(weight, DwStretch::Normal, style);
+        let dw_font = family
+            .first_matching_font(weight, DwStretch::Normal, style)
+            .map_err(|_| AureaError::RenderingFailed)?;
         let face = dw_font.create_font_face();
 
         // Pull design metrics straight off the IDWriteFontFace COM object so we
@@ -122,8 +124,8 @@ impl DirectWriteRasterizer {
     fn glyph_advance(&self, entry: &FaceEntry, glyph_index: u16, size: f32) -> f32 {
         let metrics = entry
             .face
-            .get_design_glyph_metrics(&[glyph_index], false);
-        match metrics.first() {
+            .design_glyph_metrics(&[glyph_index], false);
+        match metrics.ok().and_then(|metrics| metrics.first().copied()) {
             Some(m) => m.advanceWidth as f32 / entry.units_per_em * size,
             None => 0.0,
         }
@@ -145,7 +147,10 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
 
         let entry = self.resolve_face(font)?;
         let cp = [char_code];
-        let indices = entry.face.get_glyph_indices(&cp);
+        let indices = entry
+            .face
+            .glyph_indices(&cp)
+            .map_err(|_| AureaError::RenderingFailed)?;
         let glyph_index = indices.first().copied().unwrap_or(0);
         let advance = self.glyph_advance(&entry, glyph_index, font.size);
 
@@ -217,9 +222,15 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
         let mut advance = 0.0f32;
         if !text.is_empty() {
             let cps: Vec<u32> = text.chars().map(|c| c as u32).collect();
-            let indices = entry.face.get_glyph_indices(&cps);
+            let indices = entry
+                .face
+                .glyph_indices(&cps)
+                .map_err(|_| AureaError::RenderingFailed)?;
             if !indices.is_empty() {
-                let metrics = entry.face.get_design_glyph_metrics(&indices, false);
+                let metrics = entry
+                    .face
+                    .design_glyph_metrics(&indices, false)
+                    .map_err(|_| AureaError::RenderingFailed)?;
                 for m in &metrics {
                     advance += m.advanceWidth as f32 * scale;
                 }
