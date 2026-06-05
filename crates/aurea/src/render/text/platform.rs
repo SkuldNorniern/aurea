@@ -284,8 +284,11 @@ impl TextRenderer {
         buffer_width: u32,
         buffer_height: u32,
     ) -> AureaResult<()> {
-        let start_x = (x + glyph.bearing_x) as i32;
-        let start_y = (y - glyph.bearing_y) as i32;
+        // Snap each glyph to the nearest whole pixel. Truncation lets fractional
+        // pen positions land stems on inconsistent integer columns, which makes
+        // monospace text look uneven; rounding keeps vertical stems crisp.
+        let start_x = (x + glyph.bearing_x).round() as i32;
+        let start_y = (y - glyph.bearing_y).round() as i32;
 
         for gy in 0..glyph.height {
             for gx in 0..glyph.width {

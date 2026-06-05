@@ -15,6 +15,36 @@ thread_local! {
     pub static CURRENT_BUFFER: RefCell<Option<(*const u8, usize, u32, u32)>> = const { RefCell::new(None) };
 }
 
+/// sRGB -> linear-light lookup table (256 entries, one per 8-bit channel value).
+///
+/// Antialiased text coverage must be composited in linear light, not in the
+/// gamma-encoded sRGB space the framebuffer stores. Blending the partial-coverage
+/// edge pixels directly in sRGB makes light-on-dark text look thin and the edges
+/// look jagged/"rough"; doing the lerp in linear space yields smooth, crisp edges.
+static SRGB_TO_LINEAR: LazyLock<[f32; 256]> = LazyLock::new(|| {
+    let mut lut = [0.0f32; 256];
+    for (i, slot) in lut.iter_mut().enumerate() {
+        let c = i as f32 / 255.0;
+        *slot = if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        };
+    }
+    lut
+});
+
+/// Linear-light -> sRGB encoded 8-bit channel value.
+fn linear_to_srgb_u8(c: f32) -> u32 {
+    let c = c.clamp(0.0, 1.0);
+    let s = if c <= 0.0031308 {
+        c * 12.92
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
+    };
+    (s * 255.0).round().clamp(0.0, 255.0) as u32
+}
+
 pub trait DrawingContext {
     /// Get the width of the drawing area
     fn width(&self) -> u32;
@@ -397,23 +427,28 @@ impl PlaceholderRenderer {
                 }
                 if a >= 255 {
                     buffer[buf_idx] = src_rgba;
+                } else if a == 0 {
+                    // Fully transparent: leave the destination untouched.
                 } else {
                     let dst = buffer[buf_idx];
                     let da = (dst >> 24) & 0xff;
                     let dr = (dst >> 16) & 0xff;
                     let dg = (dst >> 8) & 0xff;
                     let db = dst & 0xff;
+                    let cov = a as f32 / 255.0;
+                    let inv = 1.0 - cov;
+
+                    // Composite the colour channels in linear light so antialiased
+                    // edges stay smooth and full-weight instead of thin/jagged.
+                    let lut = &*SRGB_TO_LINEAR;
+                    let out_r = linear_to_srgb_u8(lut[r as usize] * cov + lut[dr as usize] * inv);
+                    let out_g = linear_to_srgb_u8(lut[g as usize] * cov + lut[dg as usize] * inv);
+                    let out_b = linear_to_srgb_u8(lut[b as usize] * cov + lut[db as usize] * inv);
+
+                    // Alpha stays a straight Porter-Duff "over" (coverage is linear).
                     let sa = a as u32;
-                    let inv_sa = (255 - sa) as u32;
-                    let out_a = sa + (inv_sa * da) / 255;
-                    if out_a == 0 {
-                        buffer[buf_idx] = 0;
-                    } else {
-                        let out_r = (sa * (r as u32) + inv_sa * dr) / 255;
-                        let out_g = (sa * (g as u32) + inv_sa * dg) / 255;
-                        let out_b = (sa * (b as u32) + inv_sa * db) / 255;
-                        buffer[buf_idx] = (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b;
-                    }
+                    let out_a = sa + ((255 - sa) * da) / 255;
+                    buffer[buf_idx] = (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b;
                 }
             }
         }
