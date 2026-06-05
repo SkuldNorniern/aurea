@@ -184,7 +184,7 @@ impl CpuRasterizer {
     }
 
     fn set_pixel_blend(tile: &mut super::tile::Tile, lx: u32, ly: u32, src: u32, mode: BlendMode) {
-        if mode == BlendMode::Normal {
+        if mode == BlendMode::Normal && ((src >> 24) & 0xff) == 255 {
             tile.set_pixel(lx, ly, src);
         } else {
             let dst = tile.get_pixel(lx, ly);
