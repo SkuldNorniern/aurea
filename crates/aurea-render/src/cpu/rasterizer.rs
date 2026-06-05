@@ -32,6 +32,7 @@ pub struct CpuRasterizer {
     logical_width: u32,
     logical_height: u32,
     pending_damage: Option<Rect>,
+    frame_buffer: Vec<u32>,
 }
 
 impl CpuRasterizer {
@@ -49,6 +50,7 @@ impl CpuRasterizer {
             logical_width: width,
             logical_height: height,
             pending_damage: None,
+            frame_buffer: vec![0; (width * height) as usize],
         }
     }
 
@@ -69,6 +71,7 @@ impl CpuRasterizer {
         self.width = width;
         self.height = height;
         self.tile_store.resize(width, height);
+        self.frame_buffer = vec![0; (width * height) as usize];
     }
 
     /// Renders the display list into tiles, updating only tiles that intersect the damage region.
@@ -358,15 +361,16 @@ impl CpuRasterizer {
 
     /// Builds a flat RGBA buffer from all tiles for the platform to blit. The buffer is
     /// intentionally leaked; the platform consumes it before the next frame.
-    pub fn get_buffer(&self) -> (*const u8, usize, u32, u32) {
+    pub fn get_buffer(&mut self) -> (*const u8, usize, u32, u32) {
         let buffer_size = (self.width * self.height) as usize;
-        let mut buffer = vec![0u32; buffer_size];
+        if self.frame_buffer.len() != buffer_size {
+            self.frame_buffer.resize(buffer_size, 0);
+        }
         self.tile_store
-            .copy_to_buffer(&mut buffer, self.width, self.height);
-        let leaked = Box::leak(Box::new(buffer));
+            .copy_to_buffer(&mut self.frame_buffer, self.width, self.height);
         (
-            leaked.as_ptr() as *const u8,
-            leaked.len() * 4,
+            self.frame_buffer.as_ptr() as *const u8,
+            self.frame_buffer.len() * 4,
             self.width,
             self.height,
         )
