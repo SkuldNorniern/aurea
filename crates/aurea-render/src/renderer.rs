@@ -236,6 +236,7 @@ impl PlaceholderRenderer {
                 DrawCommand::DrawText(..) => {}
                 DrawCommand::DrawPath(..) => {}
                 DrawCommand::DrawTextWithFont(..) => {}
+                DrawCommand::DrawGlyphMask(..) => {}
                 DrawCommand::DrawImageRect(image, dest) => {
                     Self::blit_image_to_buffer(
                         &image.data,

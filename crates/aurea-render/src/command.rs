@@ -3,7 +3,8 @@
 //! Boundary between display list (records commands) and raster (executes them).
 
 use super::types::{
-    Color, Font, Image, LinearGradient, Paint, Path, Point, RadialGradient, Rect, Transform,
+    Color, Font, GlyphMask, Image, LinearGradient, Paint, Path, Point, RadialGradient, Rect,
+    Transform,
 };
 
 #[derive(Debug, Clone)]
@@ -19,6 +20,8 @@ pub enum DrawCommand {
     DrawTextWithFont(String, Point, Font, Paint),
     DrawImageRect(Image, Rect),
     DrawImageRegion(Image, Rect, Rect),
+    /// Subpixel-antialiased text: coverage mask, top-left position, text colour.
+    DrawGlyphMask(GlyphMask, Point, Color),
     FillLinearGradient(LinearGradient, Rect),
     FillRadialGradient(RadialGradient, Rect),
     PushClip(Path),

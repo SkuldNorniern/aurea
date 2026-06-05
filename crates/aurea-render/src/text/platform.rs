@@ -1,224 +1,70 @@
-//! Text rasterization using system fonts
+//! Text rasterization orchestration.
 //!
-//! Uses fontdb/fontdue to rasterize glyphs into bitmaps from installed fonts.
-//! Platform-native rasterizers can be added later if needed.
+//! Defines the [`PlatformTextRasterizer`] backend seam, the [`SubpixelGlyph`]
+//! exchange type, and [`TextRenderer`], which shapes a run of per-glyph subpixel
+//! coverage into a single [`GlyphMask`]. Concrete backends live in sibling
+//! modules:
+//! - `directwrite_backend` — hinted ClearType via DirectWrite (Windows only).
+//! - `fontdue_backend` — cross-platform fallback (no hinting).
+//!
+//! [`get_platform_rasterizer`] picks the best available backend per platform.
 
-use super::super::types::{Color, Font, FontStyle, FontWeight, Point, TextMetrics};
+use super::super::types::{Color, Font, GlyphMask, Point};
 use super::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
-use aurea_core::{AureaError, AureaResult};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use aurea_core::AureaResult;
+use std::sync::Arc;
 
-/// Platform text rasterizer trait
+/// A single glyph rasterized to device-resolution RGB subpixel coverage.
+///
+/// Coordinates are in device pixels. The mask is colourless: `coverage` holds
+/// three bytes per pixel (R, G, B subpixel stripes); the text colour is applied
+/// at composite time. Backends are expected to return *hinted* coverage where
+/// the platform supports it.
+#[derive(Clone)]
+pub struct SubpixelGlyph {
+    /// Bitmap width in device pixels.
+    pub width: u32,
+    /// Bitmap height in device pixels.
+    pub height: u32,
+    /// X offset from the pen origin to the bitmap's left edge.
+    pub left: i32,
+    /// Y offset from the baseline to the bitmap's top edge (down = positive).
+    pub top: i32,
+    /// Horizontal advance in device pixels.
+    pub advance: f32,
+    /// Subpixel coverage, `width * height * 3` bytes in R, G, B order.
+    pub coverage: Vec<u8>,
+}
+
+/// Platform text rasterizer trait — the backend seam.
 pub trait PlatformTextRasterizer: Send + Sync {
-    /// Rasterize a single glyph
+    /// Rasterize a single grayscale glyph (legacy / generic path).
     fn rasterize_glyph(&self, font: &Font, char_code: u32) -> AureaResult<GlyphBitmap>;
 
-    /// Measure text dimensions
-    fn measure_text(
-        &self,
-        text: &str,
-        font: &Font,
-    ) -> AureaResult<super::super::types::TextMetrics>;
+    /// Rasterize a single glyph to hinted RGB subpixel coverage (cached).
+    fn rasterize_subpixel(&self, font: &Font, char_code: u32) -> AureaResult<Arc<SubpixelGlyph>>;
+
+    /// Measure text dimensions.
+    fn measure_text(&self, text: &str, font: &Font) -> AureaResult<super::super::types::TextMetrics>;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct FontKey {
-    family: String,
-    weight: FontWeight,
-    style: FontStyle,
-}
-
-impl FontKey {
-    fn from_font(font: &Font) -> Self {
-        Self {
-            family: font.family.clone(),
-            weight: font.weight,
-            style: font.style,
-        }
-    }
-}
-
-struct FontDbTextRasterizer {
-    db: fontdb::Database,
-    cache: Mutex<HashMap<FontKey, Arc<fontdue::Font>>>,
-}
-
-impl FontDbTextRasterizer {
-    fn new() -> Self {
-        let mut db = fontdb::Database::new();
-        db.load_system_fonts();
-        Self {
-            db,
-            cache: Mutex::new(HashMap::new()),
-        }
-    }
-
-    fn resolve_font(&self, font: &Font) -> AureaResult<Arc<fontdue::Font>> {
-        let key = FontKey::from_font(font);
-
-        if let Some(cached) = aurea_core::lock(&self.cache).get(&key).cloned() {
-            return Ok(cached);
-        }
-
-        let family_name = font.family.trim();
-        let families = if family_name.is_empty() {
-            [fontdb::Family::SansSerif]
-        } else {
-            [fontdb::Family::Name(family_name)]
-        };
-
-        let weight = match font.weight {
-            FontWeight::Bold => fontdb::Weight(700),
-            FontWeight::Normal => fontdb::Weight(400),
-        };
-
-        let style = match font.style {
-            FontStyle::Italic => fontdb::Style::Italic,
-            FontStyle::Normal => fontdb::Style::Normal,
-        };
-
-        let query = fontdb::Query {
-            families: &families,
-            weight,
-            style,
-            stretch: fontdb::Stretch::Normal,
-        };
-
-        let fallback_families = [fontdb::Family::SansSerif];
-        let fallback_query = fontdb::Query {
-            families: &fallback_families,
-            weight,
-            style,
-            stretch: fontdb::Stretch::Normal,
-        };
-
-        let face_id = self
-            .db
-            .query(&query)
-            .or_else(|| self.db.query(&fallback_query));
-        let face_id = face_id.ok_or(AureaError::RenderingFailed)?;
-
-        let data = self
-            .db
-            .with_face_data(face_id, |bytes, _| bytes.to_vec())
-            .ok_or(AureaError::RenderingFailed)?;
-
-        let fontdue = fontdue::Font::from_bytes(data, fontdue::FontSettings::default())
-            .map_err(|_| AureaError::RenderingFailed)?;
-
-        let font_arc = Arc::new(fontdue);
-        aurea_core::lock(&self.cache).insert(key, font_arc.clone());
-        Ok(font_arc)
-    }
-}
-
-impl PlatformTextRasterizer for FontDbTextRasterizer {
-    fn rasterize_glyph(&self, font: &Font, char_code: u32) -> AureaResult<GlyphBitmap> {
-        let fontdue = self.resolve_font(font)?;
-        let ch = char::from_u32(char_code).unwrap_or('\u{FFFD}');
-        let (metrics, bitmap) = fontdue.rasterize(ch, font.size);
-
-        let width = metrics.width as u32;
-        let height = metrics.height as u32;
-        let mut data = vec![0u8; (width * height * 4) as usize];
-        for (i, alpha) in bitmap.iter().copied().enumerate() {
-            let base = i * 4;
-            if base + 3 < data.len() {
-                data[base] = 255;
-                data[base + 1] = 255;
-                data[base + 2] = 255;
-                data[base + 3] = alpha;
+/// Get the best available platform text rasterizer.
+///
+/// Windows uses DirectWrite (hinted ClearType); everything else uses fontdue.
+pub fn get_platform_rasterizer() -> Box<dyn PlatformTextRasterizer> {
+    #[cfg(windows)]
+    {
+        match super::directwrite_backend::DirectWriteRasterizer::new() {
+            Ok(dw) => return Box::new(dw),
+            Err(_) => {
+                // Fall through to the fontdue backend if DirectWrite init fails.
             }
         }
-
-        Ok(GlyphBitmap {
-            width,
-            height,
-            data,
-            bearing_x: metrics.xmin as f32,
-            bearing_y: metrics.height as f32 + metrics.ymin as f32,
-            advance: metrics.advance_width,
-        })
     }
-
-    fn measure_text(&self, text: &str, font: &Font) -> AureaResult<TextMetrics> {
-        let fontdue = self.resolve_font(font)?;
-        let mut advance = 0.0f32;
-
-        for ch in text.chars() {
-            let metrics = fontdue.metrics(ch, font.size);
-            advance += metrics.advance_width;
-        }
-
-        let (ascent, descent) = match fontdue.horizontal_line_metrics(font.size) {
-            Some(line) => (line.ascent, line.descent.abs()),
-            None => (font.size * 0.8, font.size * 0.2),
-        };
-
-        let height = (ascent + descent).max(0.0);
-
-        Ok(TextMetrics {
-            width: advance,
-            height,
-            ascent,
-            descent,
-            advance,
-        })
-    }
+    Box::new(super::fontdue_backend::FontDbTextRasterizer::new())
 }
 
-/// Get the platform text rasterizer (system fonts via fontdb/fontdue).
-pub fn get_platform_rasterizer() -> Box<dyn PlatformTextRasterizer> {
-    Box::new(FontDbTextRasterizer::new())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::types::Font;
-
-    #[test]
-    fn measure_text_returns_positive_for_non_empty() {
-        let rasterizer = get_platform_rasterizer();
-        let font = Font::new("", 24.0);
-        // SAFETY: System fonts always load; fontdb/fontdue never fail for basic ASCII.
-        let metrics = rasterizer
-            .measure_text("Hello", &font)
-            .expect("measure_text should succeed with system fonts");
-        assert!(metrics.width > 0.0, "width should be positive");
-        assert!(metrics.ascent > 0.0, "ascent should be positive");
-        assert!(metrics.advance > 0.0, "advance should be positive");
-    }
-
-    #[test]
-    fn measure_text_empty_string_zero_width() {
-        let rasterizer = get_platform_rasterizer();
-        let font = Font::new("", 24.0);
-        // SAFETY: Empty string always yields zero-width metrics.
-        let metrics = rasterizer
-            .measure_text("", &font)
-            .expect("measure_text empty should succeed");
-        assert!(metrics.width == 0.0 && metrics.advance == 0.0);
-    }
-
-    #[test]
-    fn rasterize_glyph_returns_bitmap() {
-        let rasterizer = get_platform_rasterizer();
-        let font = Font::new("", 24.0);
-        // SAFETY: fontdue rasterizes ASCII 'A' from system fonts.
-        let bitmap = rasterizer
-            .rasterize_glyph(&font, 'A' as u32)
-            .expect("rasterize_glyph A should succeed");
-        assert!(bitmap.width > 0 && bitmap.height > 0);
-        assert_eq!(
-            bitmap.data.len(),
-            (bitmap.width * bitmap.height) as usize * 4
-        );
-    }
-}
-
-/// Text renderer that uses platform APIs and glyph atlas
+/// Text renderer: owns a backend + a glyph atlas, and shapes runs.
 pub struct TextRenderer {
     rasterizer: Box<dyn PlatformTextRasterizer>,
     atlas: GlyphAtlas,
@@ -232,7 +78,69 @@ impl TextRenderer {
         }
     }
 
-    /// Render text to a buffer at a position
+    /// Shape a text run into a subpixel (LCD) coverage mask.
+    ///
+    /// Returns the mask plus the run's ascent and padding so the caller can
+    /// position it: the mask's top-left sits at `(point.x - pad, point.y -
+    /// ascent - pad)`. Per-glyph coverage comes pre-hinted from the backend;
+    /// this just lays glyphs out along the pen and max-combines overlaps.
+    pub fn render_text_subpixel(
+        &self,
+        text: &str,
+        font: &Font,
+    ) -> AureaResult<(GlyphMask, f32, f32)> {
+        let tm = self.rasterizer.measure_text(text, font)?;
+        let pad = 3.0f32;
+        let ascent = tm.ascent.max(0.0);
+        let dev_w = (tm.width + pad * 2.0).ceil().max(1.0) as u32;
+        let dev_h = (tm.height + pad * 2.0).ceil().max(1.0) as u32;
+        let mut coverage = vec![0u8; (dev_w * dev_h * 3) as usize];
+
+        let baseline = (ascent + pad).round() as i32;
+        let mut pen = pad;
+
+        for ch in text.chars() {
+            let g = self.rasterizer.rasterize_subpixel(font, ch as u32)?;
+            if g.width > 0 && g.height > 0 {
+                let gx = pen.round() as i32 + g.left;
+                let gy = baseline + g.top;
+                let gw = g.width as i32;
+                for row in 0..g.height as i32 {
+                    let dy = gy + row;
+                    if dy < 0 || dy >= dev_h as i32 {
+                        continue;
+                    }
+                    for col in 0..gw {
+                        let dx = gx + col;
+                        if dx < 0 || dx >= dev_w as i32 {
+                            continue;
+                        }
+                        let si = ((row * gw + col) * 3) as usize;
+                        let di = ((dy * dev_w as i32 + dx) * 3) as usize;
+                        // Max-combine so slight glyph overlaps don't double-darken.
+                        for c in 0..3 {
+                            if g.coverage[si + c] > coverage[di + c] {
+                                coverage[di + c] = g.coverage[si + c];
+                            }
+                        }
+                    }
+                }
+            }
+            pen += g.advance;
+        }
+
+        Ok((
+            GlyphMask {
+                width: dev_w,
+                height: dev_h,
+                coverage,
+            },
+            ascent,
+            pad,
+        ))
+    }
+
+    /// Render grayscale text into an RGBA buffer (legacy generic path).
     pub fn render_text(
         &self,
         text: &str,
@@ -250,30 +158,24 @@ impl TextRenderer {
             let char_code = ch as u32;
             let key = GlyphKey::new(font, char_code);
 
-            // Get glyph from cache or rasterize
             let glyph = match self.atlas.get(&key) {
                 Some(bitmap) => bitmap,
                 None => {
                     let bitmap = self.rasterizer.rasterize_glyph(font, char_code)?;
-                    let bitmap_clone = bitmap.clone();
-                    self.atlas.put(key, bitmap_clone)?;
-                    // SAFETY: We just inserted key via put(); get() must return Some.
+                    self.atlas.put(key, bitmap.clone())?;
                     self.atlas
                         .get(&key)
                         .expect("glyph present after atlas put; we just inserted this key")
                 }
             };
 
-            // Blit glyph to buffer
             self.blit_glyph(&glyph, x, y, color, buffer, buffer_width, buffer_height)?;
-
             x += glyph.advance;
         }
 
         Ok(())
     }
 
-    /// Blit a glyph bitmap to the buffer
     fn blit_glyph(
         &self,
         glyph: &GlyphBitmap,
@@ -284,8 +186,8 @@ impl TextRenderer {
         buffer_width: u32,
         buffer_height: u32,
     ) -> AureaResult<()> {
-        let start_x = (x + glyph.bearing_x) as i32;
-        let start_y = (y - glyph.bearing_y) as i32;
+        let start_x = (x + glyph.bearing_x).round() as i32;
+        let start_y = (y - glyph.bearing_y).round() as i32;
 
         for gy in 0..glyph.height {
             for gx in 0..glyph.width {
@@ -299,23 +201,17 @@ impl TextRenderer {
                 {
                     let glyph_idx = (gy * glyph.width + gx) as usize;
                     if glyph_idx * 4 + 3 < glyph.data.len() {
-                        let alpha = glyph.data[glyph_idx * 4 + 3] as f32 / 255.0;
-
-                        // Blend glyph alpha with text color
-                        let blended = Color::rgba(
-                            ((color.r as f32 * alpha).min(255.0)) as u8,
-                            ((color.g as f32 * alpha).min(255.0)) as u8,
-                            ((color.b as f32 * alpha).min(255.0)) as u8,
-                            ((color.a as f32 * alpha).min(255.0)) as u8,
-                        );
-
+                        let out_a = glyph.data[glyph_idx * 4 + 3];
+                        if out_a == 0 {
+                            continue;
+                        }
                         let buffer_idx =
                             (buffer_y as usize) * (buffer_width as usize) + (buffer_x as usize);
                         if buffer_idx < buffer.len() {
-                            buffer[buffer_idx] = ((blended.a as u32) << 24)
-                                | ((blended.r as u32) << 16)
-                                | ((blended.g as u32) << 8)
-                                | (blended.b as u32);
+                            buffer[buffer_idx] = ((out_a as u32) << 24)
+                                | ((color.r as u32) << 16)
+                                | ((color.g as u32) << 8)
+                                | (color.b as u32);
                         }
                     }
                 }
@@ -325,7 +221,7 @@ impl TextRenderer {
         Ok(())
     }
 
-    /// Measure text dimensions
+    /// Measure text dimensions.
     pub fn measure_text(
         &self,
         text: &str,
@@ -338,5 +234,33 @@ impl TextRenderer {
 impl Default for TextRenderer {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Font;
+
+    #[test]
+    fn measure_text_returns_positive_for_non_empty() {
+        let rasterizer = get_platform_rasterizer();
+        let font = Font::new("", 24.0);
+        let metrics = rasterizer
+            .measure_text("Hello", &font)
+            .expect("measure_text should succeed with system fonts");
+        assert!(metrics.width > 0.0, "width should be positive");
+        assert!(metrics.ascent > 0.0, "ascent should be positive");
+        assert!(metrics.advance > 0.0, "advance should be positive");
+    }
+
+    #[test]
+    fn subpixel_mask_has_rgb_stride() {
+        let rasterizer = get_platform_rasterizer();
+        let font = Font::new("", 24.0);
+        let g = rasterizer
+            .rasterize_subpixel(&font, 'A' as u32)
+            .expect("rasterize_subpixel A should succeed");
+        assert_eq!(g.coverage.len(), (g.width * g.height * 3) as usize);
     }
 }

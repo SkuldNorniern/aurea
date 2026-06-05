@@ -312,6 +312,13 @@ impl CpuDrawingContext {
             super::super::command::DrawCommand::DrawImageRegion(_, _, dest) => {
                 self.transform_rect(*dest)
             }
+            super::super::command::DrawCommand::DrawGlyphMask(mask, origin, _) => self
+                .transform_rect(Rect::new(
+                    origin.x,
+                    origin.y,
+                    mask.width as f32,
+                    mask.height as f32,
+                )),
             super::super::command::DrawCommand::FillLinearGradient(_, rect) => {
                 self.transform_rect(*rect)
             }
@@ -428,40 +435,16 @@ impl DrawingContext for CpuDrawingContext {
             return Ok(());
         }
 
-        let metrics = TEXT_RENDERER.measure_text(text, font)?;
-        if metrics.width <= 0.0 || metrics.height <= 0.0 {
+        // Subpixel (LCD) antialiased text: the backend hands back hinted RGB
+        // coverage which the tile compositor blends per channel in linear light.
+        let (mask, ascent, pad) = TEXT_RENDERER.render_text_subpixel(text, font)?;
+        if mask.width == 0 || mask.height == 0 {
             return Ok(());
         }
 
-        let padding = 3.0;
-        let width = (metrics.width + padding * 2.0).ceil().max(1.0) as u32;
-        let height = (metrics.height + padding * 2.0).ceil().max(1.0) as u32;
-        let mut buffer = vec![0u32; (width * height) as usize];
-
-        let origin = Point::new(padding, metrics.ascent.max(0.0) + padding);
-        TEXT_RENDERER.render_text(text, origin, font, paint.color, &mut buffer, width, height)?;
-
-        let mut data = Vec::with_capacity(buffer.len() * 4);
-        for pixel in buffer {
-            let a = ((pixel >> 24) & 0xFF) as u8;
-            let r = ((pixel >> 16) & 0xFF) as u8;
-            let g = ((pixel >> 8) & 0xFF) as u8;
-            let b = (pixel & 0xFF) as u8;
-            data.push(r);
-            data.push(g);
-            data.push(b);
-            data.push(a);
-        }
-
-        let image = Image::new(width, height, data);
-        let dest = Rect::new(
-            point.x - padding,
-            point.y - metrics.ascent - padding,
-            width as f32,
-            height as f32,
-        );
-        self.add_command(super::super::command::DrawCommand::DrawImageRect(
-            image, dest,
+        let origin = Point::new(point.x - pad, point.y - ascent - pad);
+        self.add_command(super::super::command::DrawCommand::DrawGlyphMask(
+            mask, origin, paint.color,
         ));
         Ok(())
     }
