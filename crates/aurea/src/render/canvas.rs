@@ -283,7 +283,7 @@ impl Canvas {
         damage.add_all();
 
         // Schedule frame for redraw
-        FrameScheduler::schedule();
+        FrameScheduler::schedule_canvas(self.handle);
 
         // Mark that we need to redraw
         *crate::sync::lock(self.needs_redraw.as_ref()) = true;
@@ -323,7 +323,7 @@ impl Canvas {
         self.add_damage(rect);
 
         // Schedule frame
-        FrameScheduler::schedule();
+        FrameScheduler::schedule_canvas(self.handle);
 
         // Mark needs redraw
         *crate::sync::lock(self.needs_redraw.as_ref()) = true;

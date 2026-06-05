@@ -130,7 +130,7 @@ impl ProgressBar {
             // Always schedule next frame if animation is enabled (for continuous animation)
             // This ensures frames are processed even when update() returns None due to throttling
             if state.needs_update() {
-                FrameScheduler::schedule();
+                FrameScheduler::schedule_canvas(handle as *mut c_void);
             }
 
             Ok(())
@@ -171,7 +171,7 @@ impl ProgressBar {
         state.last_update = Instant::now();
 
         // Schedule initial frame to start animation
-        FrameScheduler::schedule();
+        FrameScheduler::schedule_canvas(self.handle);
 
         // Also invalidate to trigger immediate update
         unsafe {
