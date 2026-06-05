@@ -60,8 +60,11 @@ NGHandle ng_windows_create_window(const char* title, int width, int height) {
     if (hwnd) {
         ShowWindow(hwnd, SW_SHOW);
         UpdateWindow(hwnd);
+        /* Explicitly give keyboard focus to the window so key events arrive
+           immediately without requiring a user click first. */
+        SetFocus(hwnd);
     }
-    
+
     return (NGHandle)hwnd;
 }
 
@@ -228,6 +231,10 @@ int ng_windows_set_window_content(NGHandle window_handle, NGHandle content_handl
 
     /* Store the content handle so WM_SIZE can resize it automatically. */
     SetPropA(window, "AureaContentHWND", (HANDLE)content);
+
+    /* Return keyboard focus to the NativeGuiWindow.  SetParent calls inside
+       box_add / set_window_content can silently move focus to a child HWND. */
+    SetFocus(window);
 
     return NG_SUCCESS;
 }
