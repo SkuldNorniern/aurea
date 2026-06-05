@@ -365,28 +365,42 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         }
         
         case WM_SIZE: {
-            // Check for minimize/restore
             if (wParam == SIZE_MINIMIZED) {
                 for (int i = 0; i < g_tracked_count; i++) {
                     if (g_tracked_windows[i] == hwnd && g_lifecycle_callbacks[i]) {
-                        ng_invoke_lifecycle_callback((void*)hwnd, 6); // WindowMinimized = 6
-                        ng_invoke_lifecycle_callback((void*)hwnd, 9); // SurfaceLost = 9
+                        ng_invoke_lifecycle_callback((void*)hwnd, 6); // WindowMinimized
+                        ng_invoke_lifecycle_callback((void*)hwnd, 9); // SurfaceLost
                         break;
                     }
                 }
-            } else if (wParam == SIZE_RESTORED || wParam == SIZE_MAXIMIZED) {
-                for (int i = 0; i < g_tracked_count; i++) {
-                    if (g_tracked_windows[i] == hwnd && g_lifecycle_callbacks[i]) {
-                        ng_invoke_lifecycle_callback((void*)hwnd, 7); // WindowRestored = 7
-                        ng_invoke_lifecycle_callback((void*)hwnd, 10); // SurfaceRecreated = 10
-                        break;
+            } else {
+                /* Resize the content HWND (canvas or box) to track the new client area. */
+                HWND content = (HWND)GetPropA(hwnd, "AureaContentHWND");
+                if (content && IsWindow(content)) {
+                    int new_w = LOWORD(lParam);
+                    int new_h = HIWORD(lParam);
+                    if (new_w > 0 && new_h > 0) {
+                        SetWindowPos(content, NULL, 0, 0, new_w, new_h,
+                                     SWP_NOZORDER | SWP_NOACTIVATE);
+                        extern void layout_box_children(HWND box);
+                        if (GetPropA(content, "AureaBoxOrientation")) {
+                            layout_box_children(content);
+                        }
                     }
                 }
-            }
-            if (wParam != SIZE_MINIMIZED) {
+
+                if (wParam == SIZE_RESTORED || wParam == SIZE_MAXIMIZED) {
+                    for (int i = 0; i < g_tracked_count; i++) {
+                        if (g_tracked_windows[i] == hwnd && g_lifecycle_callbacks[i]) {
+                            ng_invoke_lifecycle_callback((void*)hwnd, 7);  // WindowRestored
+                            ng_invoke_lifecycle_callback((void*)hwnd, 10); // SurfaceRecreated
+                            break;
+                        }
+                    }
+                }
                 for (int i = 0; i < g_tracked_count; i++) {
                     if (g_tracked_windows[i] == hwnd && g_lifecycle_callbacks[i]) {
-                        ng_invoke_lifecycle_callback((void*)hwnd, 12); // WindowResized = 12
+                        ng_invoke_lifecycle_callback((void*)hwnd, 12); // WindowResized
                         break;
                     }
                 }

@@ -213,7 +213,7 @@ int ng_windows_set_window_content(NGHandle window_handle, NGHandle content_handl
 
     // Force redraw of menu bar
     DrawMenuBar(window);
-    
+
     // If content is a box, ensure it's properly sized and layout its children
     extern void layout_box_children(HWND box);
     #define BOX_ORIENTATION_PROP "AureaBoxOrientation"
@@ -225,6 +225,9 @@ int ng_windows_set_window_content(NGHandle window_handle, NGHandle content_handl
         // Layout children to fill width
         layout_box_children(content);
     }
+
+    /* Store the content handle so WM_SIZE can resize it automatically. */
+    SetPropA(window, "AureaContentHWND", (HANDLE)content);
 
     return NG_SUCCESS;
 }
