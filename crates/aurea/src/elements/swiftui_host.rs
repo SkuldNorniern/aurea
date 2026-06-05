@@ -4,8 +4,11 @@
 //! See `examples/swiftui_host/` for the Swift implementation and build instructions.
 
 use super::traits::Element;
+#[cfg(target_os = "macos")]
 use crate::ffi::*;
-use std::os::raw::{c_int, c_void};
+#[cfg(target_os = "macos")]
+use std::os::raw::c_int;
+use std::os::raw::c_void;
 
 /// Error when SwiftUI host is not available (non-macOS or Swift library not linked).
 #[derive(Debug, Clone)]

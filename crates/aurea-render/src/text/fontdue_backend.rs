@@ -40,9 +40,7 @@ impl FontDbTextRasterizer {
     pub fn new() -> Self {
         let mut db = fontdb::Database::new();
         db.load_system_fonts();
-        load_standard_font_dirs(&mut db);
-        db.set_monospace_family("DejaVu Sans Mono");
-        db.set_sans_serif_family("DejaVu Sans");
+        set_platform_generic_families(&mut db);
         Self {
             db,
             cache: Mutex::new(HashMap::new()),
@@ -89,19 +87,18 @@ impl FontDbTextRasterizer {
             stretch: fontdb::Stretch::Normal,
         };
 
-        let fontdue = self
+        let font_arc = self
             .db
             .query(&query)
-            .and_then(|face_id| self.load_face(face_id).ok())
+            .and_then(|face_id| self.load_face(face_id).ok().map(Arc::new))
             .or_else(|| {
                 self.db
                     .query(&fallback_query)
-                    .and_then(|face_id| self.load_face(face_id).ok())
+                    .and_then(|face_id| self.load_face(face_id).ok().map(Arc::new))
             })
-            .or_else(load_builtin_fallback_font)
+            .or_else(|| self.first_loadable_face().map(Arc::new))
             .ok_or(AureaError::RenderingFailed)?;
 
-        let font_arc = Arc::new(fontdue);
         aurea_core::lock(&self.cache).insert(key, font_arc.clone());
         Ok(font_arc)
     }
@@ -124,43 +121,60 @@ impl FontDbTextRasterizer {
         )
         .map_err(|_| AureaError::RenderingFailed)
     }
+
+    fn first_loadable_face(&self) -> Option<fontdue::Font> {
+        self.db
+            .faces()
+            .find_map(|face| self.load_face(face.id).ok())
+    }
 }
 
-fn load_standard_font_dirs(db: &mut fontdb::Database) {
+fn set_platform_generic_families(db: &mut fontdb::Database) {
     #[cfg(target_os = "linux")]
     {
-        for dir in [
-            "/usr/share/fonts",
-            "/usr/local/share/fonts",
-            "/usr/share/fonts/truetype",
-        ] {
-            db.load_fonts_dir(dir);
+        if let Some(name) = first_family_matching(db, |face| face.monospaced) {
+            db.set_monospace_family(name);
+        }
+        if let Some(name) = preferred_sans_family(db) {
+            db.set_sans_serif_family(name);
         }
     }
 }
 
-fn load_builtin_fallback_font() -> Option<fontdue::Font> {
-    #[cfg(target_os = "linux")]
-    {
-        for path in [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-            "/usr/share/fonts/truetype/liberation2/LiberationMono-Regular.ttf",
-            "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
-        ] {
-            let Ok(data) = fs::read(path) else {
-                continue;
-            };
-            if let Ok(font) = fontdue::Font::from_bytes(data, fontdue::FontSettings::default()) {
-                return Some(font);
-            }
-        }
-    }
-    None
+fn first_family_matching(
+    db: &fontdb::Database,
+    predicate: impl Fn(&fontdb::FaceInfo) -> bool,
+) -> Option<String> {
+    db.faces()
+        .find(|face| predicate(face))
+        .and_then(|face| face.families.first().map(|(name, _)| name.clone()))
+}
+
+fn preferred_sans_family(db: &fontdb::Database) -> Option<String> {
+    first_family_matching(db, |face| !face.monospaced)
+        .or_else(|| first_family_matching(db, |_| true))
 }
 
 impl Default for FontDbTextRasterizer {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_requested_family_falls_back_to_system_font() {
+        let rasterizer = FontDbTextRasterizer::new();
+        let font = Font::new("__aurea_missing_font_family__", 24.0);
+        let metrics = rasterizer
+            .measure_text("Hello", &font)
+            .expect("missing requested font should fall back to a system font");
+
+        assert!(metrics.width > 0.0);
+        assert!(metrics.ascent > 0.0);
     }
 }
 
