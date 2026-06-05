@@ -1,7 +1,7 @@
 //! Frame queue for scheduling and processing redraws.
 
 use aurea_core::AureaError;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::os::raw::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
@@ -10,8 +10,11 @@ type CanvasRedrawCallback = Arc<dyn Fn() -> Result<(), AureaError> + Send + Sync
 type FrameCallback = Arc<dyn Fn() + Send + Sync + 'static>;
 
 static FRAME_SCHEDULED: AtomicBool = AtomicBool::new(false);
+static ALL_CANVASES_SCHEDULED: AtomicBool = AtomicBool::new(false);
 static CANVAS_REGISTRY: LazyLock<Mutex<HashMap<usize, CanvasRedrawCallback>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+static PENDING_CANVASES: LazyLock<Mutex<HashSet<usize>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
 static FRAME_CALLBACKS: LazyLock<Mutex<Vec<FrameCallback>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
 
@@ -19,6 +22,13 @@ pub struct FrameScheduler;
 
 impl FrameScheduler {
     pub fn schedule() {
+        ALL_CANVASES_SCHEDULED.store(true, Ordering::Relaxed);
+        FRAME_SCHEDULED.store(true, Ordering::Relaxed);
+    }
+
+    pub fn schedule_canvas(handle: *mut c_void) {
+        let mut pending = aurea_core::lock(&PENDING_CANVASES);
+        pending.insert(handle as usize);
         FRAME_SCHEDULED.store(true, Ordering::Relaxed);
     }
 
@@ -38,6 +48,7 @@ impl FrameScheduler {
     pub fn unregister_canvas(handle: *mut c_void) {
         let mut registry = aurea_core::lock(&CANVAS_REGISTRY);
         registry.remove(&(handle as usize));
+        aurea_core::lock(&PENDING_CANVASES).remove(&(handle as usize));
     }
 
     pub fn register_frame_callback<F>(callback: F)
@@ -53,13 +64,22 @@ impl FrameScheduler {
             return Ok(());
         }
 
+        let process_all_canvases = ALL_CANVASES_SCHEDULED.swap(false, Ordering::Relaxed);
+
         let (canvas_callbacks, global_callbacks) = {
             let registry = aurea_core::lock(&CANVAS_REGISTRY);
+            let mut pending = aurea_core::lock(&PENDING_CANVASES);
             let global = aurea_core::lock(&FRAME_CALLBACKS);
-            (
-                registry.values().cloned().collect::<Vec<_>>(),
-                global.clone(),
-            )
+            let canvas_callbacks = if process_all_canvases || pending.is_empty() {
+                pending.clear();
+                registry.values().cloned().collect::<Vec<_>>()
+            } else {
+                pending
+                    .drain()
+                    .filter_map(|handle| registry.get(&handle).cloned())
+                    .collect::<Vec<_>>()
+            };
+            (canvas_callbacks, global.clone())
         };
 
         for callback in canvas_callbacks {
@@ -73,5 +93,87 @@ impl FrameScheduler {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::LazyLock;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    fn handle(id: usize) -> *mut c_void {
+        id as *mut c_void
+    }
+
+    #[test]
+    fn targeted_schedule_processes_only_pending_canvas() {
+        let _guard = aurea_core::lock(&TEST_LOCK);
+        let first = Arc::new(AtomicUsize::new(0));
+        let second = Arc::new(AtomicUsize::new(0));
+
+        let first_count = first.clone();
+        FrameScheduler::register_canvas(
+            handle(1),
+            Arc::new(move || {
+                first_count.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }),
+        );
+
+        let second_count = second.clone();
+        FrameScheduler::register_canvas(
+            handle(2),
+            Arc::new(move || {
+                second_count.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }),
+        );
+
+        FrameScheduler::schedule_canvas(handle(1));
+        FrameScheduler::process_frames().unwrap();
+
+        assert_eq!(first.load(Ordering::Relaxed), 1);
+        assert_eq!(second.load(Ordering::Relaxed), 0);
+
+        FrameScheduler::unregister_canvas(handle(1));
+        FrameScheduler::unregister_canvas(handle(2));
+    }
+
+    #[test]
+    fn global_schedule_processes_all_canvases() {
+        let _guard = aurea_core::lock(&TEST_LOCK);
+        let first = Arc::new(AtomicUsize::new(0));
+        let second = Arc::new(AtomicUsize::new(0));
+
+        let first_count = first.clone();
+        FrameScheduler::register_canvas(
+            handle(3),
+            Arc::new(move || {
+                first_count.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }),
+        );
+
+        let second_count = second.clone();
+        FrameScheduler::register_canvas(
+            handle(4),
+            Arc::new(move || {
+                second_count.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }),
+        );
+
+        FrameScheduler::schedule_canvas(handle(3));
+        FrameScheduler::schedule();
+        FrameScheduler::process_frames().unwrap();
+
+        assert_eq!(first.load(Ordering::Relaxed), 1);
+        assert_eq!(second.load(Ordering::Relaxed), 1);
+
+        FrameScheduler::unregister_canvas(handle(3));
+        FrameScheduler::unregister_canvas(handle(4));
     }
 }

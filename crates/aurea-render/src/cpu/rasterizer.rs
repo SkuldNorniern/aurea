@@ -99,15 +99,13 @@ impl CpuRasterizer {
             TILE_SIZE as f32,
         );
 
-        let intersecting_items: Vec<_> = display_list
-            .items()
-            .iter()
-            .filter(|item| item.intersects(&tile_bounds))
-            .collect();
-
         if let Some(tile) = self.tile_store.get_tile_mut(tile_x, tile_y) {
             tile.clear(0);
-            for item in intersecting_items {
+            for item in display_list
+                .items()
+                .iter()
+                .filter(|item| item.intersects(&tile_bounds))
+            {
                 Self::render_item_to_tile_static(item, tile, &tile_bounds)?;
             }
 
@@ -736,12 +734,12 @@ impl Renderer for CpuRasterizer {
             .take()
             .unwrap_or_else(|| Rect::new(0.0, 0.0, self.width as f32, self.height as f32));
 
-        let display_items: Vec<_> = self.display_list.items().to_vec();
+        let display_items = self.display_list.items();
         self.tile_store.mark_damaged(&damage);
         let dirty_tiles: Vec<_> = self.tile_store.dirty_tiles();
 
         let mut background_color = 0u32;
-        for item in &display_items {
+        for item in display_items.iter() {
             if let super::super::command::DrawCommand::Clear(color) = &item.command {
                 background_color = color_to_u32(*color);
                 break;
@@ -758,7 +756,7 @@ impl Renderer for CpuRasterizer {
 
             if let Some(tile) = self.tile_store.get_tile_mut(tile_x, tile_y) {
                 tile.clear(background_color);
-                for item in &display_items {
+                for item in display_items.iter() {
                     if item.intersects(&tile_bounds) {
                         Self::render_item_to_tile_static(item, tile, &tile_bounds)?;
                     }
