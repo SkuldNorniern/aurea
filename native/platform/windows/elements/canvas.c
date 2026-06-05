@@ -64,6 +64,33 @@ static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             break;
         }
 
+        case WM_SETCURSOR:
+            SetCursor(LoadCursor(NULL, IDC_ARROW));
+            return TRUE;
+
+        case WM_MOUSEMOVE:
+        case WM_MOUSELEAVE:
+        case WM_LBUTTONDOWN:
+        case WM_LBUTTONUP:
+        case WM_RBUTTONDOWN:
+        case WM_RBUTTONUP:
+        case WM_MBUTTONDOWN:
+        case WM_MBUTTONUP:
+        case WM_XBUTTONDOWN:
+        case WM_XBUTTONUP:
+        case WM_MOUSEWHEEL:
+        case WM_MOUSEHWHEEL: {
+            HWND root = canvas_find_root_window(hwnd);
+            if (root) {
+                if (msg == WM_LBUTTONDOWN || msg == WM_RBUTTONDOWN || msg == WM_MBUTTONDOWN || msg == WM_XBUTTONDOWN) {
+                    SetActiveWindow(root);
+                    SetFocus(root);
+                }
+                return SendMessageA(root, msg, wParam, lParam);
+            }
+            break;
+        }
+
         case WM_ERASEBKGND:
             return 1;
         case WM_PAINT: {
@@ -132,6 +159,7 @@ NGHandle ng_windows_create_canvas(int width, int height) {
         wc.lpfnWndProc = CanvasProc;
         wc.hInstance = GetModuleHandleA(NULL);
         wc.lpszClassName = CANVAS_CLASS_NAME;
+        wc.hCursor = LoadCursor(NULL, IDC_ARROW);
         wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
         RegisterClassExA(&wc);
         canvas_class_registered = 1;

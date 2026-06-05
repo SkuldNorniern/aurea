@@ -433,11 +433,12 @@ impl DrawingContext for CpuDrawingContext {
             return Ok(());
         }
 
-        let width = metrics.width.ceil().max(1.0) as u32;
-        let height = metrics.height.ceil().max(1.0) as u32;
+        let padding = 3.0;
+        let width = (metrics.width + padding * 2.0).ceil().max(1.0) as u32;
+        let height = (metrics.height + padding * 2.0).ceil().max(1.0) as u32;
         let mut buffer = vec![0u32; (width * height) as usize];
 
-        let origin = Point::new(0.0, metrics.ascent.max(0.0));
+        let origin = Point::new(padding, metrics.ascent.max(0.0) + padding);
         TEXT_RENDERER.render_text(text, origin, font, paint.color, &mut buffer, width, height)?;
 
         let mut data = Vec::with_capacity(buffer.len() * 4);
@@ -454,8 +455,8 @@ impl DrawingContext for CpuDrawingContext {
 
         let image = Image::new(width, height, data);
         let dest = Rect::new(
-            point.x,
-            point.y - metrics.ascent,
+            point.x - padding,
+            point.y - metrics.ascent - padding,
             width as f32,
             height as f32,
         );
