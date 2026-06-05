@@ -226,16 +226,27 @@ impl TileStore {
 
     /// Copy tile data to a flat buffer (for platform blitting)
     pub fn copy_to_buffer(&self, buffer: &mut [u32], buffer_width: u32, buffer_height: u32) {
-        for y in 0..buffer_height.min(self.height) {
-            for x in 0..buffer_width.min(self.width) {
-                let (tile_x, tile_y) = self.pixel_to_tile(x, y);
-                let (local_x, local_y) = self.pixel_to_local(x, y);
+        let copy_width = buffer_width.min(self.width);
+        let copy_height = buffer_height.min(self.height);
 
-                if let Some(tile) = self.get_tile(tile_x, tile_y) {
-                    let pixel = tile.get_pixel(local_x, local_y);
-                    let index = (y * buffer_width + x) as usize;
-                    if index < buffer.len() {
-                        buffer[index] = pixel;
+        for tile_row in &self.tiles {
+            for tile in tile_row {
+                let start_x = tile.tile_x * TILE_SIZE;
+                let start_y = tile.tile_y * TILE_SIZE;
+                if start_x >= copy_width || start_y >= copy_height {
+                    continue;
+                }
+
+                let row_width = (copy_width - start_x).min(TILE_SIZE) as usize;
+                let row_count = (copy_height - start_y).min(TILE_SIZE);
+                for local_y in 0..row_count {
+                    let dst_start = ((start_y + local_y) * buffer_width + start_x) as usize;
+                    let dst_end = dst_start + row_width;
+                    let src_start = (local_y * TILE_SIZE) as usize;
+                    let src_end = src_start + row_width;
+                    if dst_end <= buffer.len() && src_end <= tile.pixels.len() {
+                        buffer[dst_start..dst_end]
+                            .copy_from_slice(&tile.pixels[src_start..src_end]);
                     }
                 }
             }
@@ -270,5 +281,30 @@ impl TileStore {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn copy_to_buffer_handles_partial_edge_tiles() {
+        let mut store = TileStore::new(TILE_SIZE + 3, TILE_SIZE + 2);
+
+        store.get_tile_mut(0, 0).unwrap().set_pixel(0, 0, 0x11223344);
+        store
+            .get_tile_mut(1, 1)
+            .unwrap()
+            .set_pixel(2, 1, 0xaabbccdd);
+
+        let width = TILE_SIZE + 3;
+        let height = TILE_SIZE + 2;
+        let mut buffer = vec![0; (width * height) as usize];
+        store.copy_to_buffer(&mut buffer, width, height);
+
+        assert_eq!(buffer[0], 0x11223344);
+        let edge_index = ((TILE_SIZE + 1) * width + TILE_SIZE + 2) as usize;
+        assert_eq!(buffer[edge_index], 0xaabbccdd);
     }
 }

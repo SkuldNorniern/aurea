@@ -66,6 +66,23 @@ impl CpuRasterizer {
         self.pending_damage = damage;
     }
 
+    fn raster_damage(&self, damage: Rect) -> Rect {
+        let scale = self.scale_factor.max(1.0);
+        let surface_right = self.width as f32;
+        let surface_bottom = self.height as f32;
+        let x = (damage.x * scale).floor().clamp(0.0, surface_right);
+        let y = (damage.y * scale).floor().clamp(0.0, surface_bottom);
+        let right = ((damage.x + damage.width) * scale)
+            .ceil()
+            .clamp(0.0, surface_right);
+        let bottom = ((damage.y + damage.height) * scale)
+            .ceil()
+            .clamp(0.0, surface_bottom);
+        let width = (right - x).max(0.0);
+        let height = (bottom - y).max(0.0);
+        Rect::new(x, y, width, height)
+    }
+
     /// Resizes the rasterizer to new dimensions and clears the display list.
     pub fn resize(&mut self, width: u32, height: u32) {
         self.width = width;
@@ -732,6 +749,7 @@ impl Renderer for CpuRasterizer {
         let damage = self
             .pending_damage
             .take()
+            .map(|damage| self.raster_damage(damage))
             .unwrap_or_else(|| Rect::new(0.0, 0.0, self.width as f32, self.height as f32));
 
         let display_items = self.display_list.items();

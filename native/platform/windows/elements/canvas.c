@@ -214,9 +214,6 @@ void ng_windows_canvas_update_buffer(NGHandle canvas, const unsigned char* buffe
     data->buffer = buffer;
     data->width = width;
     data->height = height;
-    
-    InvalidateRect((HWND)canvas, NULL, FALSE);
-    UpdateWindow((HWND)canvas);
 }
 
 void ng_windows_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int* height) {
