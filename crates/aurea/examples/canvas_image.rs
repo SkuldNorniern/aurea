@@ -11,7 +11,11 @@ const CANVAS_WIDTH: u32 = 640;
 const CANVAS_HEIGHT: u32 = 480;
 
 fn main() -> AureaResult<()> {
-    let mut window = Window::new("Canvas Image Demo", CANVAS_WIDTH as i32, CANVAS_HEIGHT as i32)?;
+    let mut window = Window::new(
+        "Canvas Image Demo",
+        CANVAS_WIDTH as i32,
+        CANVAS_HEIGHT as i32,
+    )?;
     let mut canvas = Canvas::new(CANVAS_WIDTH, CANVAS_HEIGHT, RendererBackend::Cpu)?;
     canvas.set_background_color(Color::rgb(248, 248, 248));
 
@@ -30,10 +34,7 @@ fn draw_image_scene(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResult<
 
     ctx.draw_image(&image, Point::new(20.0, 20.0))?;
 
-    ctx.draw_image_rect(
-        &image,
-        Rect::new(220.0, 20.0, 120.0, 120.0),
-    )?;
+    ctx.draw_image_rect(&image, Rect::new(220.0, 20.0, 120.0, 120.0))?;
 
     ctx.draw_image_region(
         &image,

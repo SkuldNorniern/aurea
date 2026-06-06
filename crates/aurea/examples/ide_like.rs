@@ -207,11 +207,9 @@ fn main() -> AureaResult<()> {
             last_sidebar_idx = idx;
         }
 
-        if let (Ok(sidebar_list), Ok(mut main_ed), Ok(mut st)) = (
-            ui.sidebar_list.lock(),
-            ui.editor.lock(),
-            state.lock(),
-        ) {
+        if let (Ok(sidebar_list), Ok(mut main_ed), Ok(mut st)) =
+            (ui.sidebar_list.lock(), ui.editor.lock(), state.lock())
+        {
             let sidebar_idx = sidebar_list.get_selected();
             if let Some(file_idx) = sidebar_idx_to_file_idx(sidebar_idx) {
                 if file_idx != last_sidebar_idx {
@@ -309,14 +307,19 @@ fn setup_main_menu(
     let mut view = menu_bar.add_submenu("View")?;
     view.add_item("Explorer\tCtrl+Shift+E", || println!("View -> Explorer"))?;
     view.add_item("Terminal\tCtrl+`", || println!("View -> Terminal"))?;
-    view.add_item("Toggle Sidebar\tCtrl+B", || println!("View -> Toggle Sidebar"))?;
+    view.add_item("Toggle Sidebar\tCtrl+B", || {
+        println!("View -> Toggle Sidebar")
+    })?;
 
     let state_clone = Arc::clone(&state);
     let editor_clone = Arc::clone(&ui.editor);
     let manager_clone = Arc::clone(&manager);
     view.add_item("Move to New Window\tCtrl+Shift+W", move || {
         if let (Ok(mut s), Ok(ed)) = (state_clone.lock(), editor_clone.lock()) {
-            let name = s.current_file.clone().unwrap_or_else(|| "Untitled".to_string());
+            let name = s
+                .current_file
+                .clone()
+                .unwrap_or_else(|| "Untitled".to_string());
             let content = ed.get_content().unwrap_or_default();
             s.set(&name, content.clone());
             drop(s);
@@ -354,8 +357,12 @@ fn create_editor_popup(
     state: Arc<Mutex<AppState>>,
     main_editor: Arc<Mutex<SendableTextEditor>>,
 ) -> AureaResult<(Window, Arc<Mutex<SendableTextEditor>>)> {
-    let mut popup =
-        Window::with_type(&format!("{filename} (detached)"), POPUP_WIDTH, POPUP_HEIGHT, WindowType::Utility)?;
+    let mut popup = Window::with_type(
+        &format!("{filename} (detached)"),
+        POPUP_WIDTH,
+        POPUP_HEIGHT,
+        WindowType::Utility,
+    )?;
 
     let popup_handle = popup.handle() as usize;
 
@@ -377,7 +384,11 @@ fn create_editor_popup(
     let pe2 = Arc::clone(&pe);
     let st2 = Arc::clone(&st);
     let me2 = Arc::clone(&me);
-    let idx = FILES.iter().position(|(n, _)| *n == name2).map(|i| i as i32).unwrap_or(0);
+    let idx = FILES
+        .iter()
+        .position(|(n, _)| *n == name2)
+        .map(|i| i as i32)
+        .unwrap_or(0);
     box_.add(Button::with_callback("Return to Main", move || {
         if let (Ok(ed), Ok(mut s), Ok(mut main_ed)) = (pe2.lock(), st2.lock(), me2.lock()) {
             let content = ed.get_content().unwrap_or_default();
@@ -426,8 +437,11 @@ fn setup_main_ui(
     let editor_arc = Arc::new(Mutex::new(SendableTextEditor(editor)));
     let shared_editor = SharedEditor(Arc::clone(&editor_arc));
 
-    let (tab_bar, tab_bar_arc) =
-        build_tab_bar(Arc::clone(&state), Arc::clone(&editor_arc), Arc::clone(&manager))?;
+    let (tab_bar, tab_bar_arc) = build_tab_bar(
+        Arc::clone(&state),
+        Arc::clone(&editor_arc),
+        Arc::clone(&manager),
+    )?;
     let (sidebar, sidebar_list) = build_sidebar(Arc::clone(&state))?;
     let panel = build_panel()?;
     let status_bar = build_status_bar()?;
@@ -494,8 +508,7 @@ fn build_tab_bar(
                         content,
                         Arc::clone(&state_det),
                         Arc::clone(&editor_det),
-                    )
-                    {
+                    ) {
                         let popup_arc = Arc::new(popup);
                         popup_arc.show();
                         manager.register(popup_arc.clone());
@@ -593,7 +606,9 @@ fn build_panel() -> AureaResult<Box> {
     tabs.add(Button::with_callback("Terminal", || {})?)?;
     tabs.add(Button::with_callback("Problems", || println!("Problems"))?)?;
     tabs.add(Button::with_callback("Output", || println!("Output"))?)?;
-    tabs.add(Button::with_callback("Debug Console", || println!("Debug Console"))?)?;
+    tabs.add(Button::with_callback("Debug Console", || {
+        println!("Debug Console")
+    })?)?;
     tabs.add(Label::new("")?)?;
     panel.add_weighted(tabs, 0.04)?;
     let mut terminal = TextView::new(false)?;

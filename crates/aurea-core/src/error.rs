@@ -40,13 +40,25 @@ impl std::fmt::Display for AureaError {
             AureaError::PlatformError(code) => {
                 let hint = if *code == 1 {
                     #[cfg(target_os = "linux")]
-                    { " Linux: install libgtk-3-dev (apt) or gtk3-devel (dnf)." }
+                    {
+                        " Linux: install libgtk-3-dev (apt) or gtk3-devel (dnf)."
+                    }
                     #[cfg(target_os = "macos")]
-                    { " macOS: ensure Xcode command line tools are installed." }
+                    {
+                        " macOS: ensure Xcode command line tools are installed."
+                    }
                     #[cfg(target_os = "windows")]
-                    { " Windows: ensure MSVC build tools are installed." }
-                    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-                    { " Check platform dependencies." }
+                    {
+                        " Windows: ensure MSVC build tools are installed."
+                    }
+                    #[cfg(not(any(
+                        target_os = "linux",
+                        target_os = "macos",
+                        target_os = "windows"
+                    )))]
+                    {
+                        " Check platform dependencies."
+                    }
                 } else {
                     " Check platform dependencies."
                 };
@@ -96,7 +108,10 @@ mod tests {
         assert!(s.contains("Platform error"));
         assert!(s.contains("code 1"));
         assert!(
-            s.contains("Linux") || s.contains("macOS") || s.contains("Windows") || s.contains("platform dependencies"),
+            s.contains("Linux")
+                || s.contains("macOS")
+                || s.contains("Windows")
+                || s.contains("platform dependencies"),
             "display must include platform-specific or fallback hint"
         );
     }
