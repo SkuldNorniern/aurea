@@ -286,12 +286,22 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             if (ng_windows_handle_menu_shortcut((void*)hwnd, keycode, modifiers)) {
                 return 0;
             }
+            /* A lone Alt or F10 makes DefWindowProc enter the modal menu-bar
+               loop, which swallows the matching WM_SYSKEYUP — leaving modifier
+               state stuck "down". We deliver the key ourselves, so suppress
+               that activation. */
+            if (wParam == VK_MENU || wParam == VK_F10) {
+                return 0;
+            }
             break;
         }
         case WM_KEYUP:
         case WM_SYSKEYUP: {
             unsigned int keycode = ng_windows_keycode_from_vk(wParam);
             ng_invoke_key_event((void*)hwnd, keycode, 0, ng_windows_modifiers());
+            if (wParam == VK_MENU || wParam == VK_F10) {
+                return 0;
+            }
             break;
         }
         case WM_CHAR:
