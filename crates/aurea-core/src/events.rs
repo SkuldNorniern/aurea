@@ -90,6 +90,9 @@ pub enum KeyCode {
     Up, Down, Left, Right,
     F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
     Shift, Control, Alt, Meta,
+    /// Punctuation / OEM keys, named by their unshifted US-layout character.
+    Minus, Equals, LeftBracket, RightBracket, Backslash,
+    Semicolon, Apostrophe, Grave, Comma, Period, Slash,
     Unknown(u32),
 }
 
@@ -130,8 +133,41 @@ impl KeyCode {
             64 => Self::Control,
             65 => Self::Alt,
             66 => Self::Meta,
+            67 => Self::Minus,
+            68 => Self::Equals,
+            69 => Self::LeftBracket,
+            70 => Self::RightBracket,
+            71 => Self::Backslash,
+            72 => Self::Semicolon,
+            73 => Self::Apostrophe,
+            74 => Self::Grave,
+            75 => Self::Comma,
+            76 => Self::Period,
+            77 => Self::Slash,
             _ => Self::Unknown(code),
         }
+    }
+}
+
+#[cfg(test)]
+mod keycode_tests {
+    use super::KeyCode;
+
+    #[test]
+    fn from_raw_maps_letters_digits_and_modifiers() {
+        assert_eq!(KeyCode::from_raw(0), KeyCode::A);
+        assert_eq!(KeyCode::from_raw(25), KeyCode::Z);
+        assert_eq!(KeyCode::from_raw(26), KeyCode::Key0);
+        assert_eq!(KeyCode::from_raw(66), KeyCode::Meta);
+    }
+
+    #[test]
+    fn from_raw_maps_punctuation() {
+        // Must stay in sync with NG_KEY_* in native/common/input.h.
+        assert_eq!(KeyCode::from_raw(67), KeyCode::Minus);
+        assert_eq!(KeyCode::from_raw(68), KeyCode::Equals);
+        assert_eq!(KeyCode::from_raw(77), KeyCode::Slash);
+        assert!(matches!(KeyCode::from_raw(0xFFFF_FFFF), KeyCode::Unknown(_)));
     }
 }
 

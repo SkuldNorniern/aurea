@@ -212,6 +212,23 @@ static unsigned int ng_linux_keycode_from_keyval(guint keyval) {
         return NG_KEY_0 + (unsigned int)(ch - '0');
     }
 
+    /* Punctuation, matched by character so either the base or shifted symbol on
+     * the same physical key resolves to the same keycode. */
+    switch (ch) {
+        case '-': case '_': return NG_KEY_MINUS;
+        case '=': case '+': return NG_KEY_EQUALS;
+        case '[': case '{': return NG_KEY_LEFT_BRACKET;
+        case ']': case '}': return NG_KEY_RIGHT_BRACKET;
+        case '\\': case '|': return NG_KEY_BACKSLASH;
+        case ';': case ':': return NG_KEY_SEMICOLON;
+        case '\'': case '"': return NG_KEY_APOSTROPHE;
+        case '`': case '~': return NG_KEY_GRAVE;
+        case ',': case '<': return NG_KEY_COMMA;
+        case '.': case '>': return NG_KEY_PERIOD;
+        case '/': case '?': return NG_KEY_SLASH;
+        default: break;
+    }
+
     switch (keyval) {
         case GDK_KEY_space:
             return NG_KEY_SPACE;

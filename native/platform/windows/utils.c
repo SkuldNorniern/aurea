@@ -176,6 +176,28 @@ static unsigned int ng_windows_keycode_from_vk(WPARAM vk) {
         case VK_LWIN:
         case VK_RWIN:
             return NG_KEY_META;
+        case VK_OEM_MINUS:
+            return NG_KEY_MINUS;
+        case VK_OEM_PLUS:
+            return NG_KEY_EQUALS;
+        case VK_OEM_4:
+            return NG_KEY_LEFT_BRACKET;
+        case VK_OEM_6:
+            return NG_KEY_RIGHT_BRACKET;
+        case VK_OEM_5:
+            return NG_KEY_BACKSLASH;
+        case VK_OEM_1:
+            return NG_KEY_SEMICOLON;
+        case VK_OEM_7:
+            return NG_KEY_APOSTROPHE;
+        case VK_OEM_3:
+            return NG_KEY_GRAVE;
+        case VK_OEM_COMMA:
+            return NG_KEY_COMMA;
+        case VK_OEM_PERIOD:
+            return NG_KEY_PERIOD;
+        case VK_OEM_2:
+            return NG_KEY_SLASH;
         default:
             return NG_KEY_UNKNOWN;
     }
