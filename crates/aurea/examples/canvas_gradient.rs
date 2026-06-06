@@ -12,8 +12,11 @@ const CANVAS_WIDTH: u32 = 640;
 const CANVAS_HEIGHT: u32 = 480;
 
 fn main() -> AureaResult<()> {
-    let mut window =
-        Window::new("Canvas Gradient Demo", CANVAS_WIDTH as i32, CANVAS_HEIGHT as i32)?;
+    let mut window = Window::new(
+        "Canvas Gradient Demo",
+        CANVAS_WIDTH as i32,
+        CANVAS_HEIGHT as i32,
+    )?;
     let mut canvas = Canvas::new(CANVAS_WIDTH, CANVAS_HEIGHT, RendererBackend::Cpu)?;
     canvas.set_background_color(Color::rgb(248, 248, 248));
 

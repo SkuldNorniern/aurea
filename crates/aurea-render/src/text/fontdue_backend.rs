@@ -108,7 +108,9 @@ impl FontDbTextRasterizer {
         let collection_index = face.index;
         let data = match &face.source {
             fontdb::Source::Binary(data) => data.as_ref().as_ref().to_vec(),
-            fontdb::Source::File(path) => fs::read(path).map_err(|_| AureaError::RenderingFailed)?,
+            fontdb::Source::File(path) => {
+                fs::read(path).map_err(|_| AureaError::RenderingFailed)?
+            }
             fontdb::Source::SharedFile(_, data) => data.as_ref().as_ref().to_vec(),
         };
 

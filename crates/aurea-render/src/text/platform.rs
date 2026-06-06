@@ -45,7 +45,11 @@ pub trait PlatformTextRasterizer: Send + Sync {
     fn rasterize_subpixel(&self, font: &Font, char_code: u32) -> AureaResult<Arc<SubpixelGlyph>>;
 
     /// Measure text dimensions.
-    fn measure_text(&self, text: &str, font: &Font) -> AureaResult<super::super::types::TextMetrics>;
+    fn measure_text(
+        &self,
+        text: &str,
+        font: &Font,
+    ) -> AureaResult<super::super::types::TextMetrics>;
 }
 
 /// Get the best available platform text rasterizer.

@@ -66,9 +66,9 @@ impl GpuRasterizer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::surface::Surface;
     use super::super::types::{Color, Paint, Rect};
+    use super::*;
 
     #[test]
     fn gpu_rasterizer_init_and_frame() {

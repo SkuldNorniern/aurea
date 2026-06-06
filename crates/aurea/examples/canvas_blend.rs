@@ -5,17 +5,18 @@
 //! combines with the content underneath.
 
 use aurea::elements::{Box, BoxOrientation};
-use aurea::render::{
-    BlendMode, Canvas, Color, Paint, Point, Rect, RendererBackend,
-};
+use aurea::render::{BlendMode, Canvas, Color, Paint, Point, Rect, RendererBackend};
 use aurea::{AureaResult, Container, Window};
 
 const CANVAS_WIDTH: u32 = 640;
 const CANVAS_HEIGHT: u32 = 480;
 
 fn main() -> AureaResult<()> {
-    let mut window =
-        Window::new("Canvas Blend Demo", CANVAS_WIDTH as i32, CANVAS_HEIGHT as i32)?;
+    let mut window = Window::new(
+        "Canvas Blend Demo",
+        CANVAS_WIDTH as i32,
+        CANVAS_HEIGHT as i32,
+    )?;
     let mut canvas = Canvas::new(CANVAS_WIDTH, CANVAS_HEIGHT, RendererBackend::Cpu)?;
     canvas.set_background_color(Color::rgb(240, 240, 240));
 

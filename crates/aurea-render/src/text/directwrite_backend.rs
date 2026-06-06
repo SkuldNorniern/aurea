@@ -122,9 +122,7 @@ impl DirectWriteRasterizer {
     }
 
     fn glyph_advance(&self, entry: &FaceEntry, glyph_index: u16, size: f32) -> f32 {
-        let metrics = entry
-            .face
-            .design_glyph_metrics(&[glyph_index], false);
+        let metrics = entry.face.design_glyph_metrics(&[glyph_index], false);
         match metrics.ok().and_then(|metrics| metrics.first().copied()) {
             Some(m) => m.advanceWidth as f32 / entry.units_per_em * size,
             None => 0.0,

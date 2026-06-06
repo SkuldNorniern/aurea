@@ -48,30 +48,30 @@ fn main() -> AureaResult<()> {
         // Poll main window events
         let main_events = main_window_arc.poll_events();
         for event in main_events {
-             if let aurea::WindowEvent::CloseRequested = event {
-                 println!("Main window close requested - exiting");
-                 return Ok(());
-             }
+            if let aurea::WindowEvent::CloseRequested = event {
+                println!("Main window close requested - exiting");
+                return Ok(());
+            }
         }
 
         // Poll popup events
         let popup_events = popup_arc.poll_events();
         for event in popup_events {
-             if let aurea::WindowEvent::CloseRequested = event {
-                 println!("Popup close requested - hiding");
-                 popup_arc.hide();
-             }
+            if let aurea::WindowEvent::CloseRequested = event {
+                println!("Popup close requested - hiding");
+                popup_arc.hide();
+            }
         }
 
         // Poll tool events
         let tool_events = tool_arc.poll_events();
         for event in tool_events {
-             if let aurea::WindowEvent::CloseRequested = event {
-                 println!("Tool window close requested - hiding");
-                 tool_arc.hide();
-             }
+            if let aurea::WindowEvent::CloseRequested = event {
+                println!("Tool window close requested - hiding");
+                tool_arc.hide();
+            }
         }
-        
+
         // Pump OS events globally
         unsafe {
             unsafe extern "C" {
@@ -93,13 +93,15 @@ fn setup_main_window(
     tool_arc: Arc<Window>,
 ) -> AureaResult<()> {
     let mut main_box = Box::new(BoxOrientation::Vertical)?;
-    
+
     main_box.add(Label::new("Main Application Window")?)?;
-    main_box.add(Label::new("This is a normal window with full decorations.")?)?;
+    main_box.add(Label::new(
+        "This is a normal window with full decorations.",
+    )?)?;
     main_box.add(Label::new("")?)?;
-    
+
     let mut button_box = Box::new(BoxOrientation::Horizontal)?;
-    
+
     let p_clone = popup_arc.clone();
     button_box.add(Button::with_callback("Open Popup", move || {
         if p_clone.is_visible() {
@@ -109,7 +111,7 @@ fn setup_main_window(
             p_clone.show();
         }
     })?)?;
-    
+
     let t_clone = tool_arc.clone();
     button_box.add(Button::with_callback("Open Tool", move || {
         if t_clone.is_visible() {
@@ -119,7 +121,7 @@ fn setup_main_window(
             t_clone.show();
         }
     })?)?;
-    
+
     main_box.add(button_box)?;
     main_box.add(Label::new("")?)?;
     main_box.add(Label::new("Status: Ready")?)?;
@@ -130,15 +132,15 @@ fn setup_main_window(
 
 fn setup_popup(window: &mut Window) -> AureaResult<()> {
     let mut popup_box = Box::new(BoxOrientation::Vertical)?;
-    
+
     popup_box.add(Label::new("Popup Window")?)?;
     popup_box.add(Label::new("This is a popup window.")?)?;
     popup_box.add(Label::new("It stays on top and has minimal decorations.")?)?;
-    
+
     // We use the raw handle to request a close from the callback
     // This avoids circular Arc dependencies while still allowing the button to work
-    let handle = window.handle() as usize; 
-    
+    let handle = window.handle() as usize;
+
     popup_box.add(Button::with_callback("Close", move || {
         println!("Close popup clicked");
         unsafe extern "C" {
@@ -157,7 +159,7 @@ fn setup_popup(window: &mut Window) -> AureaResult<()> {
 
 fn setup_tool_window(window: &mut Window) -> AureaResult<()> {
     let mut tool_box = Box::new(BoxOrientation::Vertical)?;
-    
+
     tool_box.add(Label::new("Tool Palette")?)?;
     tool_box.add(Button::with_callback("Tool 1", || {
         println!("Tool 1 clicked");

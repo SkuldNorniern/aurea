@@ -36,11 +36,7 @@ fn draw_text_showcase(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResul
         .color(Color::rgb(40, 80, 160))
         .style(PaintStyle::Fill);
 
-    ctx.draw_text(
-        "Default font (draw_text)",
-        Point::new(24.0, 40.0),
-        &black,
-    )?;
+    ctx.draw_text("Default font (draw_text)", Point::new(24.0, 40.0), &black)?;
 
     let font_sans = Font::new("", 24.0);
     ctx.draw_text_with_font(
@@ -51,20 +47,10 @@ fn draw_text_showcase(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResul
     )?;
 
     let font_large = Font::new("", 36.0);
-    ctx.draw_text_with_font(
-        "Large 36px",
-        Point::new(24.0, 130.0),
-        &font_large,
-        &blue,
-    )?;
+    ctx.draw_text_with_font("Large 36px", Point::new(24.0, 130.0), &font_large, &blue)?;
 
     let font_bold = Font::new("", 20.0).with_weight(FontWeight::Bold);
-    ctx.draw_text_with_font(
-        "Bold weight",
-        Point::new(24.0, 180.0),
-        &font_bold,
-        &black,
-    )?;
+    ctx.draw_text_with_font("Bold weight", Point::new(24.0, 180.0), &font_bold, &black)?;
 
     let font_italic = Font::new("", 20.0).with_style(FontStyle::Italic);
     ctx.draw_text_with_font(

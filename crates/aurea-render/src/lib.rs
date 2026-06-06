@@ -19,11 +19,11 @@ pub mod gpu;
 pub mod text;
 
 pub use command::DrawCommand;
+pub use cpu::CpuRasterizer;
 pub use display_list::*;
+pub use gpu::GpuRasterizer;
 pub use interaction::*;
 pub use renderer::*;
-pub use cpu::CpuRasterizer;
-pub use gpu::GpuRasterizer;
 pub use surface::*;
 pub use types::*;
 pub use viewport::*;

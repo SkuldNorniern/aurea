@@ -276,9 +276,7 @@ impl CpuDrawingContext {
 
     fn compute_bounds(&self, command: &super::super::command::DrawCommand) -> Rect {
         match command {
-            super::super::command::DrawCommand::Clear(_) => {
-                Rect::new(0.0, 0.0, f32::MAX, f32::MAX)
-            }
+            super::super::command::DrawCommand::Clear(_) => Rect::new(0.0, 0.0, f32::MAX, f32::MAX),
             super::super::command::DrawCommand::DrawRect(rect, paint) => {
                 let mut bounds = *rect;
                 if paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0 {
@@ -444,7 +442,9 @@ impl DrawingContext for CpuDrawingContext {
 
         let origin = Point::new(point.x - pad, point.y - ascent - pad);
         self.add_command(super::super::command::DrawCommand::DrawGlyphMask(
-            mask, origin, paint.color,
+            mask,
+            origin,
+            paint.color,
         ));
         Ok(())
     }

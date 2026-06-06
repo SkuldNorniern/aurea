@@ -82,10 +82,7 @@ unsafe extern "C" {
         id: u32,
     ) -> c_int;
     pub fn ng_platform_add_menu_separator(menu_handle: *mut c_void) -> c_int;
-    pub fn ng_platform_create_submenu(
-        parent: *mut c_void,
-        title: *const c_char,
-    ) -> *mut c_void;
+    pub fn ng_platform_create_submenu(parent: *mut c_void, title: *const c_char) -> *mut c_void;
 
     pub fn ng_platform_create_button(title: *const c_char, id: u32) -> *mut c_void;
     pub fn ng_platform_button_invalidate(button: *mut c_void);
@@ -93,21 +90,12 @@ unsafe extern "C" {
     pub fn ng_platform_label_invalidate(label: *mut c_void);
     pub fn ng_platform_create_box(is_vertical: c_int) -> *mut c_void;
     pub fn ng_platform_box_invalidate(box_handle: *mut c_void);
-    pub fn ng_platform_box_add(
-        box_handle: *mut c_void,
-        element: *mut c_void,
-        weight: f32,
-    ) -> c_int;
-    pub fn ng_platform_set_window_content(
-        window: *mut c_void,
-        content: *mut c_void,
-    ) -> c_int;
+    pub fn ng_platform_box_add(box_handle: *mut c_void, element: *mut c_void, weight: f32)
+    -> c_int;
+    pub fn ng_platform_set_window_content(window: *mut c_void, content: *mut c_void) -> c_int;
 
     pub fn ng_platform_create_split_view(is_vertical: c_int) -> *mut c_void;
-    pub fn ng_platform_split_view_add(
-        split_handle: *mut c_void,
-        element: *mut c_void,
-    ) -> c_int;
+    pub fn ng_platform_split_view_add(split_handle: *mut c_void, element: *mut c_void) -> c_int;
     pub fn ng_platform_split_view_set_divider_position(
         split_handle: *mut c_void,
         index: c_int,
@@ -120,10 +108,7 @@ unsafe extern "C" {
     pub fn ng_platform_text_view_invalidate(text_view: *mut c_void);
     #[allow(dead_code)]
     pub fn ng_platform_create_text_field() -> *mut c_void;
-    pub fn ng_platform_set_text_content(
-        text_handle: *mut c_void,
-        content: *const c_char,
-    ) -> c_int;
+    pub fn ng_platform_set_text_content(text_handle: *mut c_void, content: *const c_char) -> c_int;
     pub fn ng_platform_get_text_content(text_handle: *mut c_void) -> *mut c_char;
     pub fn ng_platform_free_text_content(content: *mut c_char);
 
@@ -143,11 +128,7 @@ unsafe extern "C" {
         width: u32,
         height: u32,
     );
-    pub fn ng_platform_canvas_get_size(
-        canvas: *mut c_void,
-        width: *mut u32,
-        height: *mut u32,
-    );
+    pub fn ng_platform_canvas_get_size(canvas: *mut c_void, width: *mut u32, height: *mut u32);
     pub fn ng_platform_canvas_get_window(canvas: *mut c_void) -> *mut c_void;
     pub fn ng_platform_canvas_get_native_handle(canvas: *mut c_void) -> *mut c_void;
     pub fn ng_platform_get_scale_factor(window: *mut c_void) -> f32;
@@ -187,32 +168,21 @@ unsafe extern "C" {
     pub fn ng_platform_checkbox_invalidate(checkbox: *mut c_void);
 
     pub fn ng_platform_create_progress_bar() -> *mut c_void;
-    pub fn ng_platform_progress_bar_set_value(
-        progress_bar: *mut c_void,
-        value: f64,
-    ) -> c_int;
+    pub fn ng_platform_progress_bar_set_value(progress_bar: *mut c_void, value: f64) -> c_int;
     pub fn ng_platform_progress_bar_set_indeterminate(
         progress_bar: *mut c_void,
         indeterminate: c_int,
     ) -> c_int;
-    pub fn ng_platform_progress_bar_set_enabled(
-        progress_bar: *mut c_void,
-        enabled: c_int,
-    ) -> c_int;
+    pub fn ng_platform_progress_bar_set_enabled(progress_bar: *mut c_void, enabled: c_int)
+    -> c_int;
     pub fn ng_platform_progress_bar_invalidate(progress_bar: *mut c_void);
 
     pub fn ng_platform_create_combo_box() -> *mut c_void;
-    pub fn ng_platform_combo_box_add_item(
-        combo_box: *mut c_void,
-        item: *const c_char,
-    ) -> c_int;
+    pub fn ng_platform_combo_box_add_item(combo_box: *mut c_void, item: *const c_char) -> c_int;
     pub fn ng_platform_combo_box_set_selected(combo_box: *mut c_void, index: c_int) -> c_int;
     pub fn ng_platform_combo_box_get_selected(combo_box: *mut c_void) -> c_int;
     pub fn ng_platform_combo_box_clear(combo_box: *mut c_void) -> c_int;
-    pub fn ng_platform_combo_box_set_enabled(
-        combo_box: *mut c_void,
-        enabled: c_int,
-    ) -> c_int;
+    pub fn ng_platform_combo_box_set_enabled(combo_box: *mut c_void, enabled: c_int) -> c_int;
     pub fn ng_platform_combo_box_invalidate(combo_box: *mut c_void);
 
     pub fn ng_platform_create_tab_bar(id: u32) -> *mut c_void;
@@ -235,10 +205,7 @@ unsafe extern "C" {
         title: *const c_char,
         indent: c_int,
     ) -> c_int;
-    pub fn ng_platform_sidebar_list_set_selected(
-        sidebar: *mut c_void,
-        index: c_int,
-    ) -> c_int;
+    pub fn ng_platform_sidebar_list_set_selected(sidebar: *mut c_void, index: c_int) -> c_int;
     pub fn ng_platform_sidebar_list_get_selected(sidebar: *mut c_void) -> c_int;
     pub fn ng_platform_sidebar_list_clear(sidebar: *mut c_void) -> c_int;
     pub fn ng_platform_sidebar_list_invalidate(sidebar: *mut c_void);

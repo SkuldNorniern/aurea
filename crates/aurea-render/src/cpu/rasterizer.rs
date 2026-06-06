@@ -850,17 +850,13 @@ fn circle_coverage(center: Point, radius: f32, px: f32, py: f32) -> f32 {
 
 #[cfg(test)]
 mod conformance_tests {
-    use super::*;
     use super::super::super::renderer::Renderer;
     use super::super::super::surface::{Surface, SurfaceInfo};
+    use super::*;
 
     fn pixel_at(buffer: &[u32], width: u32, x: u32, y: u32) -> u32 {
         let idx = (y * width + x) as usize;
-        if idx < buffer.len() {
-            buffer[idx]
-        } else {
-            0
-        }
+        if idx < buffer.len() { buffer[idx] } else { 0 }
     }
 
     #[test]
@@ -884,9 +880,7 @@ mod conformance_tests {
         rasterizer.end_frame().expect("end_frame");
 
         let mut buffer = vec![0u32; 64 * 64];
-        rasterizer
-            .tile_store()
-            .copy_to_buffer(&mut buffer, 64, 64);
+        rasterizer.tile_store().copy_to_buffer(&mut buffer, 64, 64);
 
         let center = pixel_at(&buffer, 64, 32, 32);
         let expected = (255u32 << 24) | (255 << 16) | (0 << 8) | 0;

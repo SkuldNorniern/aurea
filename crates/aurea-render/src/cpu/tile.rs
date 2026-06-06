@@ -292,7 +292,10 @@ mod tests {
     fn copy_to_buffer_handles_partial_edge_tiles() {
         let mut store = TileStore::new(TILE_SIZE + 3, TILE_SIZE + 2);
 
-        store.get_tile_mut(0, 0).unwrap().set_pixel(0, 0, 0x11223344);
+        store
+            .get_tile_mut(0, 0)
+            .unwrap()
+            .set_pixel(0, 0, 0x11223344);
         store
             .get_tile_mut(1, 1)
             .unwrap()

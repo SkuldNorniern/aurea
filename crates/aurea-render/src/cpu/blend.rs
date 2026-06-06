@@ -104,9 +104,15 @@ fn blend_over(src: u32, dst: u32) -> u32 {
     // Composite the colour channels in linear light for smooth antialiased edges.
     let cov = sa as f32 / 255.0;
     let inv = 1.0 - cov;
-    let out_r = linear_to_srgb_u8(srgb_to_linear(sr(src) as u8) * cov + srgb_to_linear(dr(dst) as u8) * inv);
-    let out_g = linear_to_srgb_u8(srgb_to_linear(sg(src) as u8) * cov + srgb_to_linear(dg(dst) as u8) * inv);
-    let out_b = linear_to_srgb_u8(srgb_to_linear(sb(src) as u8) * cov + srgb_to_linear(db(dst) as u8) * inv);
+    let out_r = linear_to_srgb_u8(
+        srgb_to_linear(sr(src) as u8) * cov + srgb_to_linear(dr(dst) as u8) * inv,
+    );
+    let out_g = linear_to_srgb_u8(
+        srgb_to_linear(sg(src) as u8) * cov + srgb_to_linear(dg(dst) as u8) * inv,
+    );
+    let out_b = linear_to_srgb_u8(
+        srgb_to_linear(sb(src) as u8) * cov + srgb_to_linear(db(dst) as u8) * inv,
+    );
     (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b
 }
 

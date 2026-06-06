@@ -65,9 +65,16 @@ fn draw_primitives(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResult<(
 
 fn path_triangle(origin: Point, size: f32) -> Path {
     let mut p = Path::new();
-    p.commands.push(PathCommand::MoveTo(Point::new(origin.x + size * 0.5, origin.y)));
-    p.commands.push(PathCommand::LineTo(Point::new(origin.x + size, origin.y + size)));
-    p.commands.push(PathCommand::LineTo(Point::new(origin.x, origin.y + size)));
+    p.commands.push(PathCommand::MoveTo(Point::new(
+        origin.x + size * 0.5,
+        origin.y,
+    )));
+    p.commands.push(PathCommand::LineTo(Point::new(
+        origin.x + size,
+        origin.y + size,
+    )));
+    p.commands
+        .push(PathCommand::LineTo(Point::new(origin.x, origin.y + size)));
     p.commands.push(PathCommand::Close);
     p
 }
@@ -175,9 +182,6 @@ fn draw_border(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResult<()> {
         .color(Color::rgb(80, 75, 70))
         .style(PaintStyle::Stroke)
         .stroke_width(2.0);
-    ctx.draw_rect(
-        Rect::new(1.0, 1.0, W as f32 - 2.0, H as f32 - 2.0),
-        &border,
-    )?;
+    ctx.draw_rect(Rect::new(1.0, 1.0, W as f32 - 2.0, H as f32 - 2.0), &border)?;
     Ok(())
 }
