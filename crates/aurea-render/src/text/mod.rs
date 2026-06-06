@@ -8,9 +8,9 @@
 pub mod atlas;
 pub mod platform;
 
-mod fontdue_backend;
 #[cfg(windows)]
 mod directwrite_backend;
+mod fontdue_backend;
 
 pub use atlas::*;
 pub use platform::*;

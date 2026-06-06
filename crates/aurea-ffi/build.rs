@@ -7,9 +7,7 @@ fn main() {
         let p = manifest_dir.join("../..").canonicalize().unwrap();
         // cl.exe rejects \\?\ extended-path prefix in -I flags on Windows.
         let s = p.to_string_lossy();
-        std::path::PathBuf::from(
-            s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
-        )
+        std::path::PathBuf::from(s.strip_prefix(r"\\?\").unwrap_or(&s).to_string())
     };
     let native = root.join("native");
 
@@ -249,10 +247,7 @@ fn main() {
     #[cfg(target_os = "windows")]
     {
         let mut cpp_build = cc::Build::new();
-        cpp_build
-            .cpp(true)
-            .include(&native)
-            .define("_WIN32", None);
+        cpp_build.cpp(true).include(&native).define("_WIN32", None);
         add_sources(&mut cpp_build, &root, windows_cpp);
         cpp_build.compile("native_gui_cpp");
     }
