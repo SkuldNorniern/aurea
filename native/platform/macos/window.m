@@ -112,6 +112,17 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
             return NG_KEY_META;
         case 114:
             return NG_KEY_INSERT;
+        case 27: return NG_KEY_MINUS;
+        case 24: return NG_KEY_EQUALS;
+        case 33: return NG_KEY_LEFT_BRACKET;
+        case 30: return NG_KEY_RIGHT_BRACKET;
+        case 42: return NG_KEY_BACKSLASH;
+        case 41: return NG_KEY_SEMICOLON;
+        case 39: return NG_KEY_APOSTROPHE;
+        case 50: return NG_KEY_GRAVE;
+        case 43: return NG_KEY_COMMA;
+        case 47: return NG_KEY_PERIOD;
+        case 44: return NG_KEY_SLASH;
         default:
             return NG_KEY_UNKNOWN;
     }

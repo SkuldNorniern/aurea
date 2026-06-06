@@ -74,6 +74,20 @@
 #define NG_KEY_ALT 65u
 #define NG_KEY_META 66u
 
+/* Punctuation / OEM keys (US layout positions). Reported as their unshifted
+ * character so keymaps treat Shift as a separate modifier. */
+#define NG_KEY_MINUS 67u         /* - */
+#define NG_KEY_EQUALS 68u        /* = */
+#define NG_KEY_LEFT_BRACKET 69u  /* [ */
+#define NG_KEY_RIGHT_BRACKET 70u /* ] */
+#define NG_KEY_BACKSLASH 71u     /* \ */
+#define NG_KEY_SEMICOLON 72u     /* ; */
+#define NG_KEY_APOSTROPHE 73u    /* ' */
+#define NG_KEY_GRAVE 74u         /* ` */
+#define NG_KEY_COMMA 75u         /* , */
+#define NG_KEY_PERIOD 76u        /* . */
+#define NG_KEY_SLASH 77u         /* / */
+
 #define NG_KEY_UNKNOWN 0xFFFFFFFFu
 
 #define NG_MOD_SHIFT 0x1u
