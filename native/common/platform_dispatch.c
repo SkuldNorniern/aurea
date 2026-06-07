@@ -72,6 +72,15 @@ void ng_platform_window_set_title(NGHandle w, const char* t) {
     DISPATCH_VOID(window_set_title, w, t);
 }
 
+int ng_platform_window_set_icon_rgba(
+    NGHandle w,
+    const unsigned char* rgba,
+    unsigned int width,
+    unsigned int height
+) {
+    DISPATCH_INT(window_set_icon_rgba, w, rgba, width, height);
+}
+
 void ng_platform_window_set_size(NGHandle w, int wd, int h) {
     DISPATCH_VOID(window_set_size, w, wd, h);
 }

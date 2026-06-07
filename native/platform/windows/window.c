@@ -4,7 +4,10 @@
 #include "common/rust_callbacks.h"
 #include <windows.h>
 #include <ShellScalingApi.h>
+#include <limits.h>
 #include <stdio.h>
+
+static const char* AUREA_WINDOW_ICON_PROPERTY = "AureaWindowIcon";
 
 // Helper macro for formatted logging
 #define LOG_ERROR(fmt, ...) do { \
@@ -131,7 +134,12 @@ void ng_windows_window_set_lifecycle_callback(NGHandle window) {
 
 void ng_windows_destroy_window(NGHandle handle) {
     if (!handle) return;
-    DestroyWindow((HWND)handle);
+    HWND hwnd = (HWND)handle;
+    HICON icon = (HICON)RemovePropA(hwnd, AUREA_WINDOW_ICON_PROPERTY);
+    SendMessageA(hwnd, WM_SETICON, ICON_BIG, 0);
+    SendMessageA(hwnd, WM_SETICON, ICON_SMALL, 0);
+    if (icon) DestroyIcon(icon);
+    DestroyWindow(hwnd);
 }
 
 void ng_windows_window_show(NGHandle window) {
@@ -243,6 +251,84 @@ void ng_windows_window_set_title(NGHandle window, const char* title) {
     if (!window || !title) return;
     HWND hwnd = (HWND)window;
     SetWindowTextA(hwnd, title);
+}
+
+int ng_windows_window_set_icon_rgba(
+    NGHandle window,
+    const unsigned char* rgba,
+    unsigned int width,
+    unsigned int height
+) {
+    if (!window || !rgba || width == 0 || height == 0 ||
+        width > INT_MAX || height > INT_MAX) {
+        return NG_ERROR_INVALID_PARAMETER;
+    }
+
+    BITMAPV5HEADER header = {0};
+    header.bV5Size = sizeof(header);
+    header.bV5Width = (LONG)width;
+    header.bV5Height = -(LONG)height;
+    header.bV5Planes = 1;
+    header.bV5BitCount = 32;
+    header.bV5Compression = BI_BITFIELDS;
+    header.bV5RedMask = 0x00ff0000;
+    header.bV5GreenMask = 0x0000ff00;
+    header.bV5BlueMask = 0x000000ff;
+    header.bV5AlphaMask = 0xff000000;
+
+    void* dib_pixels = NULL;
+    HDC dc = GetDC(NULL);
+    HBITMAP color = CreateDIBSection(
+        dc,
+        (BITMAPINFO*)&header,
+        DIB_RGB_COLORS,
+        &dib_pixels,
+        NULL,
+        0
+    );
+    ReleaseDC(NULL, dc);
+    if (!color || !dib_pixels) {
+        if (color) DeleteObject(color);
+        return NG_ERROR_PLATFORM_SPECIFIC;
+    }
+
+    unsigned char* bgra = (unsigned char*)dib_pixels;
+    size_t pixel_count = (size_t)width * (size_t)height;
+    for (size_t i = 0; i < pixel_count; ++i) {
+        bgra[i * 4] = rgba[i * 4 + 2];
+        bgra[i * 4 + 1] = rgba[i * 4 + 1];
+        bgra[i * 4 + 2] = rgba[i * 4];
+        bgra[i * 4 + 3] = rgba[i * 4 + 3];
+    }
+
+    HBITMAP mask = CreateBitmap((int)width, (int)height, 1, 1, NULL);
+    if (!mask) {
+        DeleteObject(color);
+        return NG_ERROR_PLATFORM_SPECIFIC;
+    }
+
+    ICONINFO info = {0};
+    info.fIcon = TRUE;
+    info.hbmColor = color;
+    info.hbmMask = mask;
+    HICON icon = CreateIconIndirect(&info);
+    DeleteObject(mask);
+    DeleteObject(color);
+    if (!icon) return NG_ERROR_PLATFORM_SPECIFIC;
+
+    HWND hwnd = (HWND)window;
+    HICON previous = (HICON)RemovePropA(hwnd, AUREA_WINDOW_ICON_PROPERTY);
+    if (!SetPropA(hwnd, AUREA_WINDOW_ICON_PROPERTY, (HANDLE)icon)) {
+        DestroyIcon(icon);
+        if (previous) {
+            SetPropA(hwnd, AUREA_WINDOW_ICON_PROPERTY, (HANDLE)previous);
+        }
+        return NG_ERROR_PLATFORM_SPECIFIC;
+    }
+    SendMessageA(hwnd, WM_SETICON, ICON_BIG, (LPARAM)icon);
+    SendMessageA(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)icon);
+    if (previous) DestroyIcon(previous);
+    return NG_SUCCESS;
 }
 
 void ng_windows_window_set_size(NGHandle window, int width, int height) {

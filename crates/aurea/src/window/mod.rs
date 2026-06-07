@@ -97,7 +97,7 @@ impl Window {
         height: i32,
         window_type: WindowType,
     ) -> AureaResult<Self> {
-        const AUREA_FFI_ABI_VERSION: i32 = 1;
+        const AUREA_FFI_ABI_VERSION: i32 = 2;
 
         static INIT: std::sync::Once = std::sync::Once::new();
         let mut error = None;
@@ -517,6 +517,25 @@ impl Window {
         let title_cstr = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
         unsafe {
             ng_platform_window_set_title(self.handle, title_cstr.as_ptr());
+        }
+        Ok(())
+    }
+
+    /// Set the native application/window icon from tightly packed RGBA8 pixels.
+    pub fn set_icon_rgba(&self, rgba: &[u8], width: u32, height: u32) -> AureaResult<()> {
+        let expected = width
+            .checked_mul(height)
+            .and_then(|pixels| pixels.checked_mul(4))
+            .map(|bytes| bytes as usize)
+            .ok_or(AureaError::ElementOperationFailed)?;
+        if width == 0 || height == 0 || rgba.len() != expected {
+            return Err(AureaError::ElementOperationFailed);
+        }
+        let result = unsafe {
+            ng_platform_window_set_icon_rgba(self.handle, rgba.as_ptr(), width, height)
+        };
+        if result != 0 {
+            return Err(AureaError::ElementOperationFailed);
         }
         Ok(())
     }
