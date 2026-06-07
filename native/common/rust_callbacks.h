@@ -24,7 +24,14 @@ void ng_invoke_textview_callback(unsigned int id, const char* content);
 
 void ng_invoke_lifecycle_callback(void* window, unsigned int event_id);
 void ng_invoke_key_event(void* window, unsigned int keycode, int pressed, unsigned int modifiers);
-void ng_invoke_mouse_button(void* window, int button, int pressed, unsigned int modifiers);
+void ng_invoke_mouse_button(
+    void* window,
+    int button,
+    int pressed,
+    unsigned int modifiers,
+    double x,
+    double y,
+    int click_count);
 void ng_invoke_mouse_move(void* window, double x, double y);
 void ng_invoke_mouse_wheel(void* window, double delta_x, double delta_y, unsigned int modifiers);
 void ng_invoke_text_input(void* window, const char* text);

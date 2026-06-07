@@ -342,14 +342,16 @@ static gboolean on_key_release(GtkWidget* widget, GdkEventKey* event, gpointer u
 static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpointer user_data) {
     unsigned int mods = ng_linux_modifiers(event->state);
     int button = ng_linux_mouse_button_from_event(event->button);
-    ng_invoke_mouse_button((void*)widget, button, 1, mods);
+    int click_count = event->type == GDK_3BUTTON_PRESS ? 3 :
+        event->type == GDK_2BUTTON_PRESS ? 2 : 1;
+    ng_invoke_mouse_button((void*)widget, button, 1, mods, event->x, event->y, click_count);
     return FALSE;
 }
 
 static gboolean on_button_release(GtkWidget* widget, GdkEventButton* event, gpointer user_data) {
     unsigned int mods = ng_linux_modifiers(event->state);
     int button = ng_linux_mouse_button_from_event(event->button);
-    ng_invoke_mouse_button((void*)widget, button, 0, mods);
+    ng_invoke_mouse_button((void*)widget, button, 0, mods, event->x, event->y, 1);
     return FALSE;
 }
 
