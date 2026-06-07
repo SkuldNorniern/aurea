@@ -83,12 +83,18 @@ pub extern "C" fn ng_invoke_mouse_button(
     button: c_int,
     pressed: c_int,
     modifiers: u32,
+    x: f64,
+    y: f64,
+    click_count: c_int,
 ) {
     let button = if button < 0 { 0 } else { button as u8 };
     let event = crate::window::WindowEvent::MouseButton {
         button: crate::window::MouseButton::from_raw(button),
         pressed: pressed != 0,
         modifiers: crate::window::Modifiers::from_bits(modifiers),
+        x,
+        y,
+        click_count: click_count.clamp(1, u8::MAX as c_int) as u8,
     };
     crate::window::push_window_event(window, event);
 }

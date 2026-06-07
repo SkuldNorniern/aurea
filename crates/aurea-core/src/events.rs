@@ -36,6 +36,9 @@ pub enum WindowEvent {
         button: MouseButton,
         pressed: bool,
         modifiers: Modifiers,
+        x: f64,
+        y: f64,
+        click_count: u8,
     },
     MouseWheel {
         delta_x: f64,
