@@ -35,6 +35,12 @@ unsafe extern "C" {
     ) -> *mut c_void;
     pub fn ng_platform_destroy_window(handle: *mut c_void);
     pub fn ng_platform_window_set_title(window: *mut c_void, title: *const c_char);
+    pub fn ng_platform_window_set_icon_rgba(
+        window: *mut c_void,
+        rgba: *const u8,
+        width: u32,
+        height: u32,
+    ) -> c_int;
     pub fn ng_platform_window_set_size(window: *mut c_void, width: c_int, height: c_int);
     pub fn ng_platform_window_get_size(window: *mut c_void, width: *mut c_int, height: *mut c_int);
     pub fn ng_platform_window_request_close(window: *mut c_void);

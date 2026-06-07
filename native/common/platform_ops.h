@@ -17,6 +17,12 @@ typedef struct ng_platform_ops {
     NGHandle (*create_window_with_type)(const char* title, int width, int height, int window_type);
     void (*destroy_window)(NGHandle handle);
     void (*window_set_title)(NGHandle window, const char* title);
+    int (*window_set_icon_rgba)(
+        NGHandle window,
+        const unsigned char* rgba,
+        unsigned int width,
+        unsigned int height
+    );
     void (*window_set_size)(NGHandle window, int width, int height);
     void (*window_get_size)(NGHandle window, int* width, int* height);
     void (*window_request_close)(NGHandle window);

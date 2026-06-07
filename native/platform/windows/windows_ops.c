@@ -19,6 +19,7 @@ static const ng_platform_ops_t windows_ops = {
     .create_window_with_type = ng_windows_create_window_with_type,
     .destroy_window = ng_windows_destroy_window,
     .window_set_title = ng_windows_window_set_title,
+    .window_set_icon_rgba = ng_windows_window_set_icon_rgba,
     .window_set_size = ng_windows_window_set_size,
     .window_get_size = ng_windows_window_get_size,
     .window_request_close = ng_windows_window_request_close,

@@ -19,6 +19,12 @@ float ng_linux_get_scale_factor(NGHandle window);
 void ng_linux_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallback callback);
 void ng_linux_window_set_lifecycle_callback(NGHandle window);
 void ng_linux_window_set_title(NGHandle window, const char* title);
+int ng_linux_window_set_icon_rgba(
+    NGHandle window,
+    const unsigned char* rgba,
+    unsigned int width,
+    unsigned int height
+);
 void ng_linux_window_set_size(NGHandle window, int width, int height);
 void ng_linux_window_get_size(NGHandle window, int* width, int* height);
 void ng_linux_window_set_position(NGHandle window, int x, int y);
