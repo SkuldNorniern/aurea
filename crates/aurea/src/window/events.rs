@@ -82,15 +82,25 @@ mod tests {
             button: MouseButton::Left,
             pressed: true,
             modifiers: Modifiers::default(),
+            x: 10.0,
+            y: 20.0,
+            click_count: 1,
         });
         let out = queue.pop_all();
         assert_eq!(out.len(), 1);
         match &out[0] {
             WindowEvent::MouseButton {
-                button, pressed, ..
+                button,
+                pressed,
+                x,
+                y,
+                click_count,
+                ..
             } => {
                 assert_eq!(*button, MouseButton::Left);
                 assert!(*pressed);
+                assert_eq!((*x, *y), (10.0, 20.0));
+                assert_eq!(*click_count, 1);
             }
             _ => panic!("expected MouseButton"),
         }

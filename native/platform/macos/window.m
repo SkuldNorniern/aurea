@@ -204,34 +204,40 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
 
 - (void)mouseDown:(NSEvent*)event {
     if (!self.windowHandle) return;
-    ng_invoke_mouse_button(self.windowHandle, 0, 1, ng_macos_modifiers(event));
+    NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
+    ng_invoke_mouse_button(self.windowHandle, 0, 1, ng_macos_modifiers(event), p.x, p.y, (int)[event clickCount]);
 }
 
 - (void)mouseUp:(NSEvent*)event {
     if (!self.windowHandle) return;
-    ng_invoke_mouse_button(self.windowHandle, 0, 0, ng_macos_modifiers(event));
+    NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
+    ng_invoke_mouse_button(self.windowHandle, 0, 0, ng_macos_modifiers(event), p.x, p.y, 1);
 }
 
 - (void)rightMouseDown:(NSEvent*)event {
     if (!self.windowHandle) return;
-    ng_invoke_mouse_button(self.windowHandle, 1, 1, ng_macos_modifiers(event));
+    NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
+    ng_invoke_mouse_button(self.windowHandle, 1, 1, ng_macos_modifiers(event), p.x, p.y, (int)[event clickCount]);
 }
 
 - (void)rightMouseUp:(NSEvent*)event {
     if (!self.windowHandle) return;
-    ng_invoke_mouse_button(self.windowHandle, 1, 0, ng_macos_modifiers(event));
+    NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
+    ng_invoke_mouse_button(self.windowHandle, 1, 0, ng_macos_modifiers(event), p.x, p.y, 1);
 }
 
 - (void)otherMouseDown:(NSEvent*)event {
     if (!self.windowHandle) return;
     int button = (int)[event buttonNumber];
-    ng_invoke_mouse_button(self.windowHandle, button, 1, ng_macos_modifiers(event));
+    NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
+    ng_invoke_mouse_button(self.windowHandle, button, 1, ng_macos_modifiers(event), p.x, p.y, (int)[event clickCount]);
 }
 
 - (void)otherMouseUp:(NSEvent*)event {
     if (!self.windowHandle) return;
     int button = (int)[event buttonNumber];
-    ng_invoke_mouse_button(self.windowHandle, button, 0, ng_macos_modifiers(event));
+    NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
+    ng_invoke_mouse_button(self.windowHandle, button, 0, ng_macos_modifiers(event), p.x, p.y, 1);
 }
 
 - (void)scrollWheel:(NSEvent*)event {

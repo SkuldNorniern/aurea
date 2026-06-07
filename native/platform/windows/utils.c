@@ -23,6 +23,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 int ng_windows_init(void) {
     if (!win_initialized) {
         g_wc.cbSize = sizeof(WNDCLASSEXA);
+        g_wc.style = CS_DBLCLKS;
         g_wc.lpfnWndProc = WindowProc;
         g_wc.hInstance = GetModuleHandleA(NULL);
         g_wc.lpszClassName = CLASS_NAME;
@@ -212,6 +213,23 @@ static void ng_windows_emit_text_input(HWND hwnd, wchar_t wc) {
     }
 }
 
+static void ng_windows_emit_mouse_button(
+    HWND hwnd,
+    LPARAM lParam,
+    int button,
+    int pressed,
+    int click_count
+) {
+    ng_invoke_mouse_button(
+        (void*)hwnd,
+        button,
+        pressed,
+        ng_windows_modifiers(),
+        (double)GET_X_LPARAM(lParam),
+        (double)GET_Y_LPARAM(lParam),
+        click_count);
+}
+
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
         case WM_SETFOCUS:
@@ -311,31 +329,45 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             break;
         }
         case WM_LBUTTONDOWN:
-            ng_invoke_mouse_button((void*)hwnd, 0, 1, ng_windows_modifiers());
+            ng_windows_emit_mouse_button(hwnd, lParam, 0, 1, 1);
+            break;
+        case WM_LBUTTONDBLCLK:
+            ng_windows_emit_mouse_button(hwnd, lParam, 0, 1, 2);
             break;
         case WM_LBUTTONUP:
-            ng_invoke_mouse_button((void*)hwnd, 0, 0, ng_windows_modifiers());
+            ng_windows_emit_mouse_button(hwnd, lParam, 0, 0, 1);
             break;
         case WM_RBUTTONDOWN:
-            ng_invoke_mouse_button((void*)hwnd, 1, 1, ng_windows_modifiers());
+            ng_windows_emit_mouse_button(hwnd, lParam, 1, 1, 1);
+            break;
+        case WM_RBUTTONDBLCLK:
+            ng_windows_emit_mouse_button(hwnd, lParam, 1, 1, 2);
             break;
         case WM_RBUTTONUP:
-            ng_invoke_mouse_button((void*)hwnd, 1, 0, ng_windows_modifiers());
+            ng_windows_emit_mouse_button(hwnd, lParam, 1, 0, 1);
             break;
         case WM_MBUTTONDOWN:
-            ng_invoke_mouse_button((void*)hwnd, 2, 1, ng_windows_modifiers());
+            ng_windows_emit_mouse_button(hwnd, lParam, 2, 1, 1);
+            break;
+        case WM_MBUTTONDBLCLK:
+            ng_windows_emit_mouse_button(hwnd, lParam, 2, 1, 2);
             break;
         case WM_MBUTTONUP:
-            ng_invoke_mouse_button((void*)hwnd, 2, 0, ng_windows_modifiers());
+            ng_windows_emit_mouse_button(hwnd, lParam, 2, 0, 1);
             break;
         case WM_XBUTTONDOWN: {
             int button = (GET_XBUTTON_WPARAM(wParam) == XBUTTON1) ? 3 : 4;
-            ng_invoke_mouse_button((void*)hwnd, button, 1, ng_windows_modifiers());
+            ng_windows_emit_mouse_button(hwnd, lParam, button, 1, 1);
+            break;
+        }
+        case WM_XBUTTONDBLCLK: {
+            int button = (GET_XBUTTON_WPARAM(wParam) == XBUTTON1) ? 3 : 4;
+            ng_windows_emit_mouse_button(hwnd, lParam, button, 1, 2);
             break;
         }
         case WM_XBUTTONUP: {
             int button = (GET_XBUTTON_WPARAM(wParam) == XBUTTON1) ? 3 : 4;
-            ng_invoke_mouse_button((void*)hwnd, button, 0, ng_windows_modifiers());
+            ng_windows_emit_mouse_button(hwnd, lParam, button, 0, 1);
             break;
         }
         case WM_MOUSEWHEEL: {
