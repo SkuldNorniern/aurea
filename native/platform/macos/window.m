@@ -5,6 +5,7 @@
 #import "utils.h"
 #import <Cocoa/Cocoa.h>
 #import <CoreGraphics/CoreGraphics.h>
+#include <string.h>
 
 static int ng_macos_get_cursor_grab_mode(void* windowHandle);
 
@@ -558,6 +559,37 @@ void ng_macos_window_set_title(NGHandle window, const char* title) {
     NSWindow* nsWindow = (__bridge NSWindow*)window;
     NSString* nsTitle = [NSString stringWithUTF8String:title];
     [nsWindow setTitle:nsTitle];
+}
+
+int ng_macos_window_set_icon_rgba(
+    NGHandle window,
+    const unsigned char* rgba,
+    unsigned int width,
+    unsigned int height
+) {
+    if (!window || !rgba || width == 0 || height == 0) {
+        return NG_ERROR_INVALID_PARAMETER;
+    }
+    NSBitmapImageRep* bitmap = [[NSBitmapImageRep alloc]
+        initWithBitmapDataPlanes:NULL
+        pixelsWide:(NSInteger)width
+        pixelsHigh:(NSInteger)height
+        bitsPerSample:8
+        samplesPerPixel:4
+        hasAlpha:YES
+        isPlanar:NO
+        colorSpaceName:NSDeviceRGBColorSpace
+        bitmapFormat:NSBitmapFormatAlphaNonpremultiplied
+        bytesPerRow:(NSInteger)width * 4
+        bitsPerPixel:32];
+    if (!bitmap) return NG_ERROR_PLATFORM_SPECIFIC;
+
+    memcpy([bitmap bitmapData], rgba, (size_t)width * (size_t)height * 4);
+    NSImage* image = [[NSImage alloc]
+        initWithSize:NSMakeSize((CGFloat)width, (CGFloat)height)];
+    [image addRepresentation:bitmap];
+    [NSApp setApplicationIconImage:image];
+    return NG_SUCCESS;
 }
 
 void ng_macos_window_set_size(NGHandle window, int width, int height) {

@@ -19,6 +19,7 @@ static const ng_platform_ops_t linux_ops = {
     .create_window_with_type = ng_linux_create_window_with_type,
     .destroy_window = ng_linux_destroy_window,
     .window_set_title = ng_linux_window_set_title,
+    .window_set_icon_rgba = ng_linux_window_set_icon_rgba,
     .window_set_size = ng_linux_window_set_size,
     .window_get_size = ng_linux_window_get_size,
     .window_request_close = ng_linux_window_request_close,

@@ -6,6 +6,7 @@
 #include "common/rust_callbacks.h"
 #include <gtk/gtk.h>
 #include <gdk/gdkkeysyms.h>
+#include <string.h>
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
 #endif
@@ -560,6 +561,39 @@ void ng_linux_window_set_title(NGHandle window, const char* title) {
     if (!window || !title) return;
     GtkWidget* widget = (GtkWidget*)window;
     gtk_window_set_title(GTK_WINDOW(widget), title);
+}
+
+int ng_linux_window_set_icon_rgba(
+    NGHandle window,
+    const unsigned char* rgba,
+    unsigned int width,
+    unsigned int height
+) {
+    if (!window || !rgba || width == 0 || height == 0) {
+        return NG_ERROR_INVALID_PARAMETER;
+    }
+    GdkPixbuf* pixbuf = gdk_pixbuf_new(
+        GDK_COLORSPACE_RGB,
+        TRUE,
+        8,
+        (int)width,
+        (int)height
+    );
+    if (!pixbuf) return NG_ERROR_PLATFORM_SPECIFIC;
+
+    unsigned char* pixels = gdk_pixbuf_get_pixels(pixbuf);
+    int row_stride = gdk_pixbuf_get_rowstride(pixbuf);
+    size_t source_stride = (size_t)width * 4;
+    for (unsigned int row = 0; row < height; ++row) {
+        memcpy(
+            pixels + (size_t)row * (size_t)row_stride,
+            rgba + (size_t)row * source_stride,
+            source_stride
+        );
+    }
+    gtk_window_set_icon(GTK_WINDOW((GtkWidget*)window), pixbuf);
+    g_object_unref(pixbuf);
+    return NG_SUCCESS;
 }
 
 void ng_linux_window_set_size(NGHandle window, int width, int height) {
