@@ -6,7 +6,7 @@ use super::types::{
     TextMetrics, Transform,
 };
 use crate::text::TextRenderer;
-use aurea_core::AureaResult;
+use aurea_foundation::AureaResult;
 use std::cell::RefCell;
 use std::sync::LazyLock;
 

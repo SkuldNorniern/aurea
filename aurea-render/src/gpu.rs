@@ -9,7 +9,7 @@ use super::display_list::DisplayList;
 use super::renderer::{DrawingContext, Renderer};
 use super::surface::{Surface, SurfaceInfo};
 use super::types::Rect;
-use aurea_core::AureaResult;
+use aurea_foundation::AureaResult;
 
 /// GPU rasterizer. Implements the Renderer trait for RendererBackend::Gpu.
 /// Uses CPU rasterization until a wgpu pipeline is implemented.

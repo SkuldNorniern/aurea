@@ -8,7 +8,7 @@
 use super::super::types::{Font, FontStyle, FontWeight, TextMetrics};
 use super::atlas::{GlyphBitmap, GlyphKey};
 use super::platform::{PlatformTextRasterizer, SubpixelGlyph};
-use aurea_core::{AureaError, AureaResult};
+use aurea_foundation::{AureaError, AureaResult};
 use std::collections::HashMap;
 use std::ptr;
 use std::sync::{Arc, Mutex};
@@ -71,7 +71,7 @@ impl DirectWriteRasterizer {
 
     fn resolve_face(&self, font: &Font) -> AureaResult<Arc<FaceEntry>> {
         let key = FaceKey::from_font(font);
-        if let Some(cached) = aurea_core::lock(&self.faces).get(&key).cloned() {
+        if let Some(cached) = aurea_foundation::lock(&self.faces).get(&key).cloned() {
             return Ok(cached);
         }
 
@@ -117,7 +117,7 @@ impl DirectWriteRasterizer {
             ascent: fm.ascent as f32,
             descent: fm.descent as f32,
         });
-        aurea_core::lock(&self.faces).insert(key, entry.clone());
+        aurea_foundation::lock(&self.faces).insert(key, entry.clone());
         Ok(entry)
     }
 
@@ -139,7 +139,7 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
 
     fn rasterize_subpixel(&self, font: &Font, char_code: u32) -> AureaResult<Arc<SubpixelGlyph>> {
         let key = GlyphKey::new(font, char_code);
-        if let Some(cached) = aurea_core::lock(&self.glyphs).get(&key).cloned() {
+        if let Some(cached) = aurea_foundation::lock(&self.glyphs).get(&key).cloned() {
             return Ok(cached);
         }
 
@@ -207,7 +207,7 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
         };
 
         let glyph = Arc::new(glyph);
-        aurea_core::lock(&self.glyphs).insert(key, glyph.clone());
+        aurea_foundation::lock(&self.glyphs).insert(key, glyph.clone());
         Ok(glyph)
     }
 

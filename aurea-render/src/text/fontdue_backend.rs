@@ -9,7 +9,7 @@
 use super::super::types::{Font, FontStyle, FontWeight, TextMetrics};
 use super::atlas::{GlyphBitmap, GlyphKey};
 use super::platform::{PlatformTextRasterizer, SubpixelGlyph};
-use aurea_core::{AureaError, AureaResult};
+use aurea_foundation::{AureaError, AureaResult};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -205,12 +205,12 @@ impl FontDbTextRasterizer {
     fn resolve_font(&self, font: &Font) -> AureaResult<Arc<fontdue::Font>> {
         let key = FontKey::from_font(font);
 
-        if let Some(hit) = aurea_core::lock(&self.font_cache).get(&key).cloned() {
+        if let Some(hit) = aurea_foundation::lock(&self.font_cache).get(&key).cloned() {
             return Ok(hit);
         }
 
         let loaded = self.load_for_key(&key)?;
-        aurea_core::lock(&self.font_cache).insert(key, loaded.clone());
+        aurea_foundation::lock(&self.font_cache).insert(key, loaded.clone());
         Ok(loaded)
     }
 
@@ -272,7 +272,7 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
 
     fn rasterize_subpixel(&self, font: &Font, char_code: u32) -> AureaResult<Arc<SubpixelGlyph>> {
         let key = GlyphKey::new(font, char_code);
-        if let Some(hit) = aurea_core::lock(&self.subpixel_cache).get(&key).cloned() {
+        if let Some(hit) = aurea_foundation::lock(&self.subpixel_cache).get(&key).cloned() {
             return Ok(hit);
         }
 
@@ -348,7 +348,7 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
         };
 
         let g = Arc::new(glyph);
-        aurea_core::lock(&self.subpixel_cache).insert(key, g.clone());
+        aurea_foundation::lock(&self.subpixel_cache).insert(key, g.clone());
         Ok(g)
     }
 

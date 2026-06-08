@@ -11,7 +11,7 @@
 
 use super::super::types::{Color, Font, GlyphMask, Point};
 use super::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
-use aurea_core::AureaResult;
+use aurea_foundation::AureaResult;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -108,11 +108,11 @@ impl TextRenderer {
         if let Some(ch) = chars.next() {
             if chars.next().is_none() {
                 let key = GlyphKey::new(font, ch as u32);
-                if let Some(cached) = aurea_core::lock(&self.mask_cache).get(&key).cloned() {
+                if let Some(cached) = aurea_foundation::lock(&self.mask_cache).get(&key).cloned() {
                     return Ok(cached);
                 }
                 let result = self.compute_mask(text, font)?;
-                aurea_core::lock(&self.mask_cache).insert(key, result.clone());
+                aurea_foundation::lock(&self.mask_cache).insert(key, result.clone());
                 return Ok(result);
             }
         }
