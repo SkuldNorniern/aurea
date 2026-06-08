@@ -62,6 +62,62 @@ impl CpuDrawingContext {
         self.scale_factor = scale;
     }
 
+    /// Scale a logical rect to physical pixels.
+    fn s_rect(&self, r: Rect) -> Rect {
+        let s = self.scale_factor;
+        Rect::new(r.x * s, r.y * s, r.width * s, r.height * s)
+    }
+
+    /// Scale a logical point to physical pixels.
+    fn s_pt(&self, p: Point) -> Point {
+        Point::new(p.x * self.scale_factor, p.y * self.scale_factor)
+    }
+
+    /// Scale a logical scalar to physical pixels.
+    fn s(&self, v: f32) -> f32 {
+        v * self.scale_factor
+    }
+
+    /// Scale a path from logical to physical pixel coordinates.
+    fn s_path(&self, path: &Path) -> Path {
+        let sf = self.scale_factor;
+        let mut out = Path::new();
+        for cmd in &path.commands {
+            out.commands.push(match cmd {
+                super::super::types::PathCommand::MoveTo(p) => {
+                    super::super::types::PathCommand::MoveTo(Point::new(p.x * sf, p.y * sf))
+                }
+                super::super::types::PathCommand::LineTo(p) => {
+                    super::super::types::PathCommand::LineTo(Point::new(p.x * sf, p.y * sf))
+                }
+                super::super::types::PathCommand::QuadTo(c, p) => {
+                    super::super::types::PathCommand::QuadTo(
+                        Point::new(c.x * sf, c.y * sf),
+                        Point::new(p.x * sf, p.y * sf),
+                    )
+                }
+                super::super::types::PathCommand::CubicTo(c1, c2, p) => {
+                    super::super::types::PathCommand::CubicTo(
+                        Point::new(c1.x * sf, c1.y * sf),
+                        Point::new(c2.x * sf, c2.y * sf),
+                        Point::new(p.x * sf, p.y * sf),
+                    )
+                }
+                super::super::types::PathCommand::Close => {
+                    super::super::types::PathCommand::Close
+                }
+            });
+        }
+        out
+    }
+
+    /// Scale paint properties (stroke width) to physical pixels.
+    fn s_paint(&self, paint: &Paint) -> Paint {
+        let mut p = paint.clone();
+        p.stroke_width *= self.scale_factor;
+        p
+    }
+
     /// Sets the interactive ID for the next drawn shapes (used for hit testing).
     pub fn set_interactive_id(&mut self, id: Option<super::super::types::InteractiveId>) {
         self.current_interactive_id = id;
@@ -394,25 +450,25 @@ impl DrawingContext for CpuDrawingContext {
 
     fn draw_rect(&mut self, rect: Rect, paint: &Paint) -> AureaResult<()> {
         self.add_command(super::super::command::DrawCommand::DrawRect(
-            rect,
-            paint.clone(),
+            self.s_rect(rect),
+            self.s_paint(paint),
         ));
         Ok(())
     }
 
     fn draw_circle(&mut self, center: Point, radius: f32, paint: &Paint) -> AureaResult<()> {
         self.add_command(super::super::command::DrawCommand::DrawCircle(
-            center,
-            radius,
-            paint.clone(),
+            self.s_pt(center),
+            self.s(radius),
+            self.s_paint(paint),
         ));
         Ok(())
     }
 
     fn draw_path(&mut self, path: &Path, paint: &Paint) -> AureaResult<()> {
         self.add_command(super::super::command::DrawCommand::DrawPath(
-            path.clone(),
-            paint.clone(),
+            self.s_path(path),
+            self.s_paint(paint),
         ));
         Ok(())
     }
@@ -433,14 +489,18 @@ impl DrawingContext for CpuDrawingContext {
             return Ok(());
         }
 
-        // Subpixel (LCD) antialiased text: the backend hands back hinted RGB
-        // coverage which the tile compositor blends per channel in linear light.
-        let (mask, ascent, pad) = TEXT_RENDERER.render_text_subpixel(text, font)?;
+        // Rasterize glyphs at physical resolution for sharp HiDPI output.
+        let sf = self.scale_factor;
+        let physical_font = Font::new(font.family.trim(), font.size * sf);
+        let (mask, ascent, pad) = TEXT_RENDERER.render_text_subpixel(text, &physical_font)?;
         if mask.width == 0 || mask.height == 0 {
             return Ok(());
         }
 
-        let origin = Point::new(point.x - pad, point.y - ascent - pad);
+        // Place origin in physical pixel coordinates.
+        let px = point.x * sf;
+        let py = point.y * sf;
+        let origin = Point::new(px - pad, py - ascent - pad);
         self.add_command(super::super::command::DrawCommand::DrawGlyphMask(
             mask,
             origin,
@@ -450,9 +510,10 @@ impl DrawingContext for CpuDrawingContext {
     }
 
     fn draw_image(&mut self, image: &Image, position: Point) -> AureaResult<()> {
+        let sf = self.scale_factor;
         let dest = Rect::new(
-            position.x,
-            position.y,
+            position.x * sf,
+            position.y * sf,
             image.width as f32,
             image.height as f32,
         );
@@ -466,7 +527,7 @@ impl DrawingContext for CpuDrawingContext {
     fn draw_image_rect(&mut self, image: &Image, dest: Rect) -> AureaResult<()> {
         self.add_command(super::super::command::DrawCommand::DrawImageRect(
             image.clone(),
-            dest,
+            self.s_rect(dest),
         ));
         Ok(())
     }
@@ -475,7 +536,7 @@ impl DrawingContext for CpuDrawingContext {
         self.add_command(super::super::command::DrawCommand::DrawImageRegion(
             image.clone(),
             src,
-            dest,
+            self.s_rect(dest),
         ));
         Ok(())
     }
@@ -490,7 +551,18 @@ impl DrawingContext for CpuDrawingContext {
                 advance: 0.0,
             });
         }
-        TEXT_RENDERER.measure_text(text, font)
+        // Measure at physical size, then convert back to logical so callers
+        // work in logical coordinates regardless of scale factor.
+        let sf = self.scale_factor;
+        let physical_font = Font::new(font.family.trim(), font.size * sf);
+        let m = TEXT_RENDERER.measure_text(text, &physical_font)?;
+        Ok(TextMetrics {
+            width: m.width / sf,
+            height: m.height / sf,
+            ascent: m.ascent / sf,
+            descent: m.descent / sf,
+            advance: m.advance / sf,
+        })
     }
 
     fn save(&mut self) -> AureaResult<()> {
@@ -537,25 +609,26 @@ impl DrawingContext for CpuDrawingContext {
     }
 
     fn clip_rect(&mut self, rect: Rect) -> AureaResult<()> {
+        let r = self.s_rect(rect);
         let mut path = Path::new();
         path.commands
             .push(super::super::types::PathCommand::MoveTo(Point::new(
-                rect.x, rect.y,
+                r.x, r.y,
             )));
         path.commands
             .push(super::super::types::PathCommand::LineTo(Point::new(
-                rect.x + rect.width,
-                rect.y,
+                r.x + r.width,
+                r.y,
             )));
         path.commands
             .push(super::super::types::PathCommand::LineTo(Point::new(
-                rect.x + rect.width,
-                rect.y + rect.height,
+                r.x + r.width,
+                r.y + r.height,
             )));
         path.commands
             .push(super::super::types::PathCommand::LineTo(Point::new(
-                rect.x,
-                rect.y + rect.height,
+                r.x,
+                r.y + r.height,
             )));
         path.commands.push(super::super::types::PathCommand::Close);
         self.current_clip = Some(path);
@@ -578,23 +651,32 @@ impl DrawingContext for CpuDrawingContext {
     }
 
     fn fill_linear_gradient(&mut self, gradient: &LinearGradient, rect: Rect) -> AureaResult<()> {
+        let sf = self.scale_factor;
+        let mut g = gradient.clone();
+        g.start = Point::new(g.start.x * sf, g.start.y * sf);
+        g.end = Point::new(g.end.x * sf, g.end.y * sf);
         self.add_command(super::super::command::DrawCommand::FillLinearGradient(
-            gradient.clone(),
-            rect,
+            g,
+            self.s_rect(rect),
         ));
         Ok(())
     }
 
     fn fill_radial_gradient(&mut self, gradient: &RadialGradient, rect: Rect) -> AureaResult<()> {
+        let sf = self.scale_factor;
+        let mut g = gradient.clone();
+        g.center = Point::new(g.center.x * sf, g.center.y * sf);
+        g.radius *= sf;
         self.add_command(super::super::command::DrawCommand::FillRadialGradient(
-            gradient.clone(),
-            rect,
+            g,
+            self.s_rect(rect),
         ));
         Ok(())
     }
 
     fn hit_test_path(&mut self, path: &Path, point: Point) -> AureaResult<bool> {
-        let local_point = self.current_transform.inverse().map_point(point);
-        Ok(super::hit_test::hit_test_path(path, local_point))
+        // Path coords are physical; convert the (logical) test point to physical.
+        let physical_point = self.s_pt(point);
+        Ok(super::hit_test::hit_test_path(&self.s_path(path), physical_point))
     }
 }
