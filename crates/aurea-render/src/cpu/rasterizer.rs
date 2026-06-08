@@ -741,7 +741,6 @@ impl Renderer for CpuRasterizer {
             self.logical_height,
         );
         ctx.set_scale_factor(self.scale_factor);
-        ctx.scale(self.scale_factor, self.scale_factor)?;
         Ok(Box::new(ctx))
     }
 
