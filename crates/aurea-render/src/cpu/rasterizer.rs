@@ -11,7 +11,6 @@ use super::super::types::{
     RadialGradient, Rect,
 };
 use super::blend::{blend_pixel, linear_to_srgb_u8, srgb_to_linear};
-use super::cache::BoundedCache;
 use super::context::CpuDrawingContext;
 use super::path::tessellate_path;
 use super::scanline::fill_scanline;
@@ -22,8 +21,6 @@ use aurea_core::AureaResult;
 /// For HiDPI/Retina, raster_width/height = logical * scale_factor so output is sharp.
 pub struct CpuRasterizer {
     tile_store: TileStore,
-    #[allow(dead_code)]
-    cache: BoundedCache<Vec<u32>>,
     width: u32,
     height: u32,
     display_list: DisplayList,
@@ -38,10 +35,8 @@ pub struct CpuRasterizer {
 impl CpuRasterizer {
     /// Creates a rasterizer for the given canvas size.
     pub fn new(width: u32, height: u32) -> Self {
-        const CACHE_BYTES: usize = 16 * 1024 * 1024;
         Self {
             tile_store: TileStore::new(width, height),
-            cache: BoundedCache::new(CACHE_BYTES),
             width,
             height,
             display_list: DisplayList::new(),
