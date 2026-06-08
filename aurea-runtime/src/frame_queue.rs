@@ -1,6 +1,6 @@
 //! Frame queue for scheduling and processing redraws.
 
-use aurea_core::AureaError;
+use aurea_foundation::AureaError;
 use std::collections::{HashMap, HashSet};
 use std::os::raw::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -27,7 +27,7 @@ impl FrameScheduler {
     }
 
     pub fn schedule_canvas(handle: *mut c_void) {
-        let mut pending = aurea_core::lock(&PENDING_CANVASES);
+        let mut pending = aurea_foundation::lock(&PENDING_CANVASES);
         pending.insert(handle as usize);
         FRAME_SCHEDULED.store(true, Ordering::Relaxed);
     }
@@ -41,21 +41,21 @@ impl FrameScheduler {
     }
 
     pub fn register_canvas(handle: *mut c_void, callback: CanvasRedrawCallback) {
-        let mut registry = aurea_core::lock(&CANVAS_REGISTRY);
+        let mut registry = aurea_foundation::lock(&CANVAS_REGISTRY);
         registry.insert(handle as usize, callback);
     }
 
     pub fn unregister_canvas(handle: *mut c_void) {
-        let mut registry = aurea_core::lock(&CANVAS_REGISTRY);
+        let mut registry = aurea_foundation::lock(&CANVAS_REGISTRY);
         registry.remove(&(handle as usize));
-        aurea_core::lock(&PENDING_CANVASES).remove(&(handle as usize));
+        aurea_foundation::lock(&PENDING_CANVASES).remove(&(handle as usize));
     }
 
     pub fn register_frame_callback<F>(callback: F)
     where
         F: Fn() + Send + Sync + 'static,
     {
-        let mut callbacks = aurea_core::lock(&FRAME_CALLBACKS);
+        let mut callbacks = aurea_foundation::lock(&FRAME_CALLBACKS);
         callbacks.push(Arc::new(callback));
     }
 
@@ -67,9 +67,9 @@ impl FrameScheduler {
         let process_all_canvases = ALL_CANVASES_SCHEDULED.swap(false, Ordering::Relaxed);
 
         let (canvas_callbacks, global_callbacks) = {
-            let registry = aurea_core::lock(&CANVAS_REGISTRY);
-            let mut pending = aurea_core::lock(&PENDING_CANVASES);
-            let global = aurea_core::lock(&FRAME_CALLBACKS);
+            let registry = aurea_foundation::lock(&CANVAS_REGISTRY);
+            let mut pending = aurea_foundation::lock(&PENDING_CANVASES);
+            let global = aurea_foundation::lock(&FRAME_CALLBACKS);
             let canvas_callbacks = if process_all_canvases || pending.is_empty() {
                 pending.clear();
                 registry.values().cloned().collect::<Vec<_>>()
@@ -110,7 +110,7 @@ mod tests {
 
     #[test]
     fn targeted_schedule_processes_only_pending_canvas() {
-        let _guard = aurea_core::lock(&TEST_LOCK);
+        let _guard = aurea_foundation::lock(&TEST_LOCK);
         let first = Arc::new(AtomicUsize::new(0));
         let second = Arc::new(AtomicUsize::new(0));
 
@@ -144,7 +144,7 @@ mod tests {
 
     #[test]
     fn global_schedule_processes_all_canvases() {
-        let _guard = aurea_core::lock(&TEST_LOCK);
+        let _guard = aurea_foundation::lock(&TEST_LOCK);
         let first = Arc::new(AtomicUsize::new(0));
         let second = Arc::new(AtomicUsize::new(0));
 

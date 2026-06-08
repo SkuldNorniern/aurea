@@ -1,6 +1,6 @@
 //! Window event system for external event loop integration
 
-pub use aurea_core::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};
+pub use aurea_foundation::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};
 pub use aurea_runtime::EventQueue;
 
 #[cfg(test)]
