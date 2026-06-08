@@ -70,9 +70,13 @@ impl CpuRasterizer {
 
     #[inline]
     fn buf_set(buf: &mut [u32], w: u32, x: i32, y: i32, color: u32, mode: BlendMode) {
-        if x < 0 || y < 0 { return; }
+        if x < 0 || y < 0 {
+            return;
+        }
         let idx = y as u32 * w + x as u32;
-        if idx as usize >= buf.len() { return; }
+        if idx as usize >= buf.len() {
+            return;
+        }
         if mode == BlendMode::Normal && (color >> 24) == 255 {
             buf[idx as usize] = color;
         } else {
@@ -143,13 +147,21 @@ impl CpuRasterizer {
         }
     }
 
-    fn draw_rect(rect: &Rect, paint: &Paint, mode: BlendMode,
-                 buf: &mut Vec<u32>, bw: u32, bh: u32) {
+    fn draw_rect(
+        rect: &Rect,
+        paint: &Paint,
+        mode: BlendMode,
+        buf: &mut Vec<u32>,
+        bw: u32,
+        bh: u32,
+    ) {
         let x0 = (rect.x.max(0.0) as u32).min(bw);
         let y0 = (rect.y.max(0.0) as u32).min(bh);
         let x1 = ((rect.x + rect.width).ceil() as u32).min(bw);
         let y1 = ((rect.y + rect.height).ceil() as u32).min(bh);
-        if x0 >= x1 || y0 >= y1 { return; }
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
 
         match paint.style {
             PaintStyle::Fill => {
@@ -176,7 +188,9 @@ impl CpuRasterizer {
             }
             PaintStyle::Stroke => {
                 let sw = paint.stroke_width as u32;
-                if sw == 0 { return; }
+                if sw == 0 {
+                    return;
+                }
                 let c = color_to_u32(paint.color);
                 // top/bottom rows
                 for x in x0..x1 {
@@ -202,8 +216,15 @@ impl CpuRasterizer {
         }
     }
 
-    fn draw_circle(center: Point, radius: f32, paint: &Paint, mode: BlendMode,
-                   buf: &mut Vec<u32>, bw: u32, bh: u32) {
+    fn draw_circle(
+        center: Point,
+        radius: f32,
+        paint: &Paint,
+        mode: BlendMode,
+        buf: &mut Vec<u32>,
+        bw: u32,
+        bh: u32,
+    ) {
         let x0 = ((center.x - radius).floor().max(0.0) as u32).min(bw);
         let y0 = ((center.y - radius).floor().max(0.0) as u32).min(bh);
         let x1 = ((center.x + radius).ceil() as u32).min(bw);
@@ -239,10 +260,18 @@ impl CpuRasterizer {
         }
     }
 
-    fn draw_path(path: &super::super::types::Path, paint: &Paint, mode: BlendMode,
-                 buf: &mut Vec<u32>, bw: u32, bh: u32) -> AureaResult<()> {
+    fn draw_path(
+        path: &super::super::types::Path,
+        paint: &Paint,
+        mode: BlendMode,
+        buf: &mut Vec<u32>,
+        bw: u32,
+        bh: u32,
+    ) -> AureaResult<()> {
         let edges = tessellate_path(path);
-        if edges.is_empty() { return Ok(()); }
+        if edges.is_empty() {
+            return Ok(());
+        }
 
         let y_min = edges.iter().map(|e| e.y_min).fold(f32::MAX, f32::min);
         let y_max = edges.iter().map(|e| e.y_max).fold(f32::MIN, f32::max);
@@ -255,9 +284,17 @@ impl CpuRasterizer {
         Ok(())
     }
 
-    fn draw_glyph(mask: &GlyphMask, origin: Point, color: Color,
-                  buf: &mut Vec<u32>, bw: u32, bh: u32) {
-        if mask.width == 0 || mask.height == 0 { return; }
+    fn draw_glyph(
+        mask: &GlyphMask,
+        origin: Point,
+        color: Color,
+        buf: &mut Vec<u32>,
+        bw: u32,
+        bh: u32,
+    ) {
+        if mask.width == 0 || mask.height == 0 {
+            return;
+        }
         let tr = srgb_to_linear(color.r);
         let tg = srgb_to_linear(color.g);
         let tb = srgb_to_linear(color.b);
@@ -266,29 +303,39 @@ impl CpuRasterizer {
 
         for my in 0..mask.height as i32 {
             let py = dy + my;
-            if py < 0 || py >= bh as i32 { continue; }
+            if py < 0 || py >= bh as i32 {
+                continue;
+            }
             let row = (my as u32 * mask.width) as usize;
             for mx in 0..mask.width as i32 {
                 let px = dx + mx;
-                if px < 0 || px >= bw as i32 { continue; }
+                if px < 0 || px >= bw as i32 {
+                    continue;
+                }
                 let ci = (row + mx as usize) * 3;
-                if ci + 2 >= mask.coverage.len() { continue; }
+                if ci + 2 >= mask.coverage.len() {
+                    continue;
+                }
                 let cr = mask.coverage[ci] as f32 / 255.0;
                 let cg = mask.coverage[ci + 1] as f32 / 255.0;
                 let cb = mask.coverage[ci + 2] as f32 / 255.0;
-                if cr <= 0.0 && cg <= 0.0 && cb <= 0.0 { continue; }
+                if cr <= 0.0 && cg <= 0.0 && cb <= 0.0 {
+                    continue;
+                }
 
                 let idx = (py as u32 * bw + px as u32) as usize;
-                if idx >= buf.len() { continue; }
+                if idx >= buf.len() {
+                    continue;
+                }
                 let dst = buf[idx];
                 let da = (dst >> 24) & 0xff;
                 let dr = ((dst >> 16) & 0xff) as u8;
-                let dg = ((dst >>  8) & 0xff) as u8;
+                let dg = ((dst >> 8) & 0xff) as u8;
                 let db = (dst & 0xff) as u8;
 
                 let or_ = linear_to_srgb_u8(tr * cr + srgb_to_linear(dr) * (1.0 - cr));
-                let og  = linear_to_srgb_u8(tg * cg + srgb_to_linear(dg) * (1.0 - cg));
-                let ob  = linear_to_srgb_u8(tb * cb + srgb_to_linear(db) * (1.0 - cb));
+                let og = linear_to_srgb_u8(tg * cg + srgb_to_linear(dg) * (1.0 - cg));
+                let ob = linear_to_srgb_u8(tb * cb + srgb_to_linear(db) * (1.0 - cb));
                 let cmax = cr.max(cg).max(cb);
                 let sa = (cmax * 255.0).round() as u32;
                 let oa = sa + ((255 - sa) * da) / 255;
@@ -297,25 +344,36 @@ impl CpuRasterizer {
         }
     }
 
-    fn draw_image(image: &Image, src: Rect, dest: Rect, mode: BlendMode,
-                  buf: &mut Vec<u32>, bw: u32, bh: u32) {
-        if image.data.is_empty() || dest.width <= 0.0 || dest.height <= 0.0 { return; }
+    fn draw_image(
+        image: &Image,
+        src: Rect,
+        dest: Rect,
+        mode: BlendMode,
+        buf: &mut Vec<u32>,
+        bw: u32,
+        bh: u32,
+    ) {
+        if image.data.is_empty() || dest.width <= 0.0 || dest.height <= 0.0 {
+            return;
+        }
         let x0 = dest.x.max(0.0).ceil() as i32;
         let y0 = dest.y.max(0.0).ceil() as i32;
         let x1 = (dest.x + dest.width).min(bw as f32).floor() as i32;
         let y1 = (dest.y + dest.height).min(bh as f32).floor() as i32;
         for cy in y0..y1 {
             for cx in x0..x1 {
-                let u = (cx as f32 - dest.x) / dest.width  * src.width  + src.x;
+                let u = (cx as f32 - dest.x) / dest.width * src.width + src.x;
                 let v = (cy as f32 - dest.y) / dest.height * src.height + src.y;
-                let sx = u.clamp(0.0, image.width  as f32 - 0.001) as u32;
+                let sx = u.clamp(0.0, image.width as f32 - 0.001) as u32;
                 let sy = v.clamp(0.0, image.height as f32 - 0.001) as u32;
                 let ii = (sy as usize * image.width as usize + sx as usize) * 4;
-                if ii + 3 >= image.data.len() { continue; }
-                let rgba = ((image.data[ii+3] as u32) << 24)
-                         | ((image.data[ii  ] as u32) << 16)
-                         | ((image.data[ii+1] as u32) <<  8)
-                         |  (image.data[ii+2] as u32);
+                if ii + 3 >= image.data.len() {
+                    continue;
+                }
+                let rgba = ((image.data[ii + 3] as u32) << 24)
+                    | ((image.data[ii] as u32) << 16)
+                    | ((image.data[ii + 1] as u32) << 8)
+                    | (image.data[ii + 2] as u32);
                 Self::buf_set(buf, bw, cx, cy, rgba, mode);
             }
         }
@@ -323,34 +381,57 @@ impl CpuRasterizer {
 
     fn gradient_color_at(stops: &[GradientStop], t: f32) -> u32 {
         let t = t.clamp(0.0, 1.0);
-        if stops.is_empty() { return 0; }
+        if stops.is_empty() {
+            return 0;
+        }
         if stops.len() == 1 {
             let c = stops[0].color;
-            return ((c.a as u32) << 24) | ((c.r as u32) << 16)
-                 | ((c.g as u32) <<  8) |  (c.b as u32);
+            return ((c.a as u32) << 24)
+                | ((c.r as u32) << 16)
+                | ((c.g as u32) << 8)
+                | (c.b as u32);
         }
         for w in stops.windows(2) {
             let (a, b) = (w[0].offset, w[1].offset);
             if t >= a && t <= b {
-                let s = if (b - a).abs() < 1e-6 { 1.0 } else { (t - a) / (b - a) };
+                let s = if (b - a).abs() < 1e-6 {
+                    1.0
+                } else {
+                    (t - a) / (b - a)
+                };
                 let (c0, c1) = (w[0].color, w[1].color);
                 let lerp = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * s).round() as u8;
-                let (r, g, b_, a_) = (lerp(c0.r, c1.r), lerp(c0.g, c1.g),
-                                      lerp(c0.b, c1.b), lerp(c0.a, c1.a));
+                let (r, g, b_, a_) = (
+                    lerp(c0.r, c1.r),
+                    lerp(c0.g, c1.g),
+                    lerp(c0.b, c1.b),
+                    lerp(c0.a, c1.a),
+                );
                 return ((a_ as u32) << 24) | ((r as u32) << 16) | ((g as u32) << 8) | (b_ as u32);
             }
         }
-        let c = if t <= stops[0].offset { stops[0].color }
-                else { stops.last().unwrap().color };
+        let c = if t <= stops[0].offset {
+            stops[0].color
+        } else {
+            stops.last().unwrap().color
+        };
         ((c.a as u32) << 24) | ((c.r as u32) << 16) | ((c.g as u32) << 8) | (c.b as u32)
     }
 
-    fn fill_linear_gradient(grad: &LinearGradient, rect: Rect, mode: BlendMode,
-                             buf: &mut Vec<u32>, bw: u32, bh: u32) {
+    fn fill_linear_gradient(
+        grad: &LinearGradient,
+        rect: Rect,
+        mode: BlendMode,
+        buf: &mut Vec<u32>,
+        bw: u32,
+        bh: u32,
+    ) {
         let dx = grad.end.x - grad.start.x;
         let dy = grad.end.y - grad.start.y;
         let len_sq = dx * dx + dy * dy;
-        if len_sq < 1e-10 { return; }
+        if len_sq < 1e-10 {
+            return;
+        }
         let x0 = rect.x.max(0.0).ceil() as i32;
         let y0 = rect.y.max(0.0).ceil() as i32;
         let x1 = (rect.x + rect.width).min(bw as f32).floor() as i32;
@@ -358,16 +439,25 @@ impl CpuRasterizer {
         for cy in y0..y1 {
             for cx in x0..x1 {
                 let t = ((cx as f32 + 0.5 - grad.start.x) * dx
-                        + (cy as f32 + 0.5 - grad.start.y) * dy) / len_sq;
+                    + (cy as f32 + 0.5 - grad.start.y) * dy)
+                    / len_sq;
                 let rgba = Self::gradient_color_at(&grad.stops, t.clamp(0.0, 1.0));
                 Self::buf_set(buf, bw, cx, cy, rgba, mode);
             }
         }
     }
 
-    fn fill_radial_gradient(grad: &RadialGradient, rect: Rect, mode: BlendMode,
-                             buf: &mut Vec<u32>, bw: u32, bh: u32) {
-        if grad.radius <= 0.0 { return; }
+    fn fill_radial_gradient(
+        grad: &RadialGradient,
+        rect: Rect,
+        mode: BlendMode,
+        buf: &mut Vec<u32>,
+        bw: u32,
+        bh: u32,
+    ) {
+        if grad.radius <= 0.0 {
+            return;
+        }
         let x0 = rect.x.max(0.0).ceil() as i32;
         let y0 = rect.y.max(0.0).ceil() as i32;
         let x1 = (rect.x + rect.width).min(bw as f32).floor() as i32;
@@ -375,7 +465,8 @@ impl CpuRasterizer {
         for cy in y0..y1 {
             for cx in x0..x1 {
                 let dist = ((cx as f32 + 0.5 - grad.center.x).powi(2)
-                          + (cy as f32 + 0.5 - grad.center.y).powi(2)).sqrt();
+                    + (cy as f32 + 0.5 - grad.center.y).powi(2))
+                .sqrt();
                 let t = (dist / grad.radius).min(1.0);
                 let rgba = Self::gradient_color_at(&grad.stops, t);
                 Self::buf_set(buf, bw, cx, cy, rgba, mode);
@@ -424,11 +515,7 @@ impl Renderer for CpuRasterizer {
 
         for item in self.display_list.items() {
             let has_known_bounds = item.bounds.width > 0.0 && item.bounds.height > 0.0;
-            if has_known_bounds
-                && damage
-                    .as_ref()
-                    .is_some_and(|rect| !item.intersects(rect))
-            {
+            if has_known_bounds && damage.as_ref().is_some_and(|rect| !item.intersects(rect)) {
                 continue;
             }
             Self::render_item(item, damage.as_ref(), &mut self.frame_buffer, bw, bh)?;
@@ -485,8 +572,12 @@ fn circle_coverage(center: Point, radius: f32, px: f32, py: f32) -> f32 {
     let cx = px + 0.5;
     let cy = py + 0.5;
     let d = ((cx - center.x).powi(2) + (cy - center.y).powi(2)).sqrt();
-    if d >= radius + 0.5 { return 0.0; }
-    if d <= radius - 0.5 { return 1.0; }
+    if d >= radius + 0.5 {
+        return 0.0;
+    }
+    if d <= radius - 0.5 {
+        return 1.0;
+    }
     (radius + 0.5 - d).clamp(0.0, 1.0)
 }
 

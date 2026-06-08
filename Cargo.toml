@@ -1,4 +1,41 @@
+[package]
+name = "aurea"
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.88"
+description = "Native GUI toolkit with cross-platform windowing, native widgets, and framework-owned CPU rasterizer"
+license = "Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/SkuldNorniern/aurea"
+
 [workspace]
 resolver = "2"
-members = ["crates/aurea-core", "crates/aurea-ffi", "crates/aurea-render", "crates/aurea-runtime", "crates/aurea"]
-default-members = ["crates/aurea"]
+members = ["aurea-core", "aurea-ffi", "aurea-render", "aurea-runtime"]
+
+[lib]
+name = "aurea"
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+aurea-core = { path = "aurea-core", version = "0.0.1" }
+aurea-ffi = { path = "aurea-ffi", version = "0.0.1" }
+aurea-render = { path = "aurea-render", version = "0.0.1" }
+aurea-runtime = { path = "aurea-runtime", version = "0.0.1" }
+libc = "0.2"
+log = "0.4.29"
+jni = { version = "0.21", optional = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+
+[features]
+default = []
+wgpu = ["dep:wgpu", "dep:raw-window-handle"]
+
+[dependencies.wgpu]
+version = "29.0.1"
+optional = true
+
+[dependencies.raw-window-handle]
+version = "0.6"
+optional = true

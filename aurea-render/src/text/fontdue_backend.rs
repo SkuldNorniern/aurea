@@ -118,7 +118,8 @@ fn normalise(s: &str) -> String {
 }
 
 fn file_stem(name: &str) -> &str {
-    let name = name.trim_end_matches(".ttf")
+    let name = name
+        .trim_end_matches(".ttf")
         .trim_end_matches(".TTF")
         .trim_end_matches(".otf")
         .trim_end_matches(".OTF")
@@ -146,10 +147,7 @@ fn find_by_filename(family: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
             let fname_str = fname.to_string_lossy();
             // Only consider font files.
             let lower = fname_str.to_lowercase();
-            if !lower.ends_with(".ttf")
-                && !lower.ends_with(".otf")
-                && !lower.ends_with(".ttc")
-            {
+            if !lower.ends_with(".ttf") && !lower.ends_with(".otf") && !lower.ends_with(".ttc") {
                 continue;
             }
             let stem_norm = normalise(file_stem(&fname_str));
@@ -335,8 +333,7 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
                             }
                         })
                         .sum();
-                    coverage[y * sub_w + x] =
-                        (s * 255.0).round().clamp(0.0, 255.0) as u8;
+                    coverage[y * sub_w + x] = (s * 255.0).round().clamp(0.0, 255.0) as u8;
                 }
             }
 
