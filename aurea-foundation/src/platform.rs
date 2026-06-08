@@ -1,6 +1,6 @@
-//! Platform detection and platform-specific functionality
+//! Platform detection and platform-specific functionality.
 
-/// Represents the target platform
+/// Represents the target platform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Platform {
     Desktop(DesktopPlatform),

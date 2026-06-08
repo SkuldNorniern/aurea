@@ -536,7 +536,7 @@ impl HasWindowHandle for crate::window::Window {
     ) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
         match self.platform() {
             #[cfg(target_os = "macos")]
-            aurea_core::Platform::Desktop(aurea_core::DesktopPlatform::MacOS) => {
+            aurea_foundation::Platform::Desktop(aurea_foundation::DesktopPlatform::MacOS) => {
                 use raw_window_handle::{AppKitWindowHandle, WindowHandle};
                 use std::ptr::NonNull;
                 // SAFETY: ng_platform_window_get_content_view returns the NSView handle
@@ -551,7 +551,7 @@ impl HasWindowHandle for crate::window::Window {
                 }
             }
             #[cfg(target_os = "windows")]
-            aurea_core::Platform::Desktop(aurea_core::DesktopPlatform::Windows) => {
+            aurea_foundation::Platform::Desktop(aurea_foundation::DesktopPlatform::Windows) => {
                 use raw_window_handle::{Win32WindowHandle, WindowHandle};
                 use std::ptr::NonNull;
                 // SAFETY: self.handle is a valid HWND from window creation
@@ -564,7 +564,7 @@ impl HasWindowHandle for crate::window::Window {
                 }
             }
             #[cfg(target_os = "linux")]
-            aurea_core::Platform::Desktop(aurea_core::DesktopPlatform::Linux) => {
+            aurea_foundation::Platform::Desktop(aurea_foundation::DesktopPlatform::Linux) => {
                 let handle = linux_window_handle_from_ptr(self.handle)
                     .ok_or(raw_window_handle::HandleError::Unavailable)?;
                 match handle {
@@ -593,7 +593,7 @@ impl HasWindowHandle for crate::window::Window {
                 }
             }
             #[cfg(target_os = "ios")]
-            aurea_core::Platform::Mobile(aurea_core::MobilePlatform::IOS) => {
+            aurea_foundation::Platform::Mobile(aurea_foundation::MobilePlatform::IOS) => {
                 use raw_window_handle::{UiKitWindowHandle, WindowHandle};
                 use std::ptr::NonNull;
                 // SAFETY: self.handle is a valid UIView from window creation
@@ -606,7 +606,7 @@ impl HasWindowHandle for crate::window::Window {
                 }
             }
             #[cfg(target_os = "android")]
-            aurea_core::Platform::Mobile(aurea_core::MobilePlatform::Android) => {
+            aurea_foundation::Platform::Mobile(aurea_foundation::MobilePlatform::Android) => {
                 use raw_window_handle::{AndroidNdkWindowHandle, WindowHandle};
                 use std::ptr::NonNull;
                 // SAFETY: self.handle is a valid Android window from window creation
@@ -630,17 +630,17 @@ impl HasDisplayHandle for crate::window::Window {
     ) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
         match self.platform() {
             #[cfg(target_os = "macos")]
-            aurea_core::Platform::Desktop(aurea_core::DesktopPlatform::MacOS) => {
+            aurea_foundation::Platform::Desktop(aurea_foundation::DesktopPlatform::MacOS) => {
                 use raw_window_handle::{AppKitDisplayHandle, DisplayHandle};
                 unsafe { Ok(DisplayHandle::borrow_raw(AppKitDisplayHandle::new().into())) }
             }
             #[cfg(target_os = "windows")]
-            aurea_core::Platform::Desktop(aurea_core::DesktopPlatform::Windows) => {
+            aurea_foundation::Platform::Desktop(aurea_foundation::DesktopPlatform::Windows) => {
                 use raw_window_handle::{DisplayHandle, Win32DisplayHandle};
                 unsafe { Ok(DisplayHandle::borrow_raw(Win32DisplayHandle::new().into())) }
             }
             #[cfg(target_os = "linux")]
-            aurea_core::Platform::Desktop(aurea_core::DesktopPlatform::Linux) => {
+            aurea_foundation::Platform::Desktop(aurea_foundation::DesktopPlatform::Linux) => {
                 let handle = linux_window_handle_from_ptr(self.handle)
                     .ok_or(raw_window_handle::HandleError::Unavailable)?;
                 match handle {
@@ -669,12 +669,12 @@ impl HasDisplayHandle for crate::window::Window {
                 }
             }
             #[cfg(target_os = "ios")]
-            aurea_core::Platform::Mobile(aurea_core::MobilePlatform::IOS) => {
+            aurea_foundation::Platform::Mobile(aurea_foundation::MobilePlatform::IOS) => {
                 use raw_window_handle::{DisplayHandle, UiKitDisplayHandle};
                 unsafe { Ok(DisplayHandle::borrow_raw(UiKitDisplayHandle::new().into())) }
             }
             #[cfg(target_os = "android")]
-            aurea_core::Platform::Mobile(aurea_core::MobilePlatform::Android) => {
+            aurea_foundation::Platform::Mobile(aurea_foundation::MobilePlatform::Android) => {
                 use raw_window_handle::{AndroidNdkDisplayHandle, DisplayHandle};
                 unsafe {
                     Ok(DisplayHandle::borrow_raw(

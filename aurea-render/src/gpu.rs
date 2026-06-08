@@ -5,7 +5,7 @@ use super::display_list::DisplayList;
 use super::renderer::{DrawingContext, Renderer};
 use super::surface::{Surface, SurfaceInfo};
 use super::types::Rect;
-use aurea_core::AureaResult;
+use aurea_foundation::AureaResult;
 
 /// GPU rasterizer.
 pub struct GpuRasterizer {

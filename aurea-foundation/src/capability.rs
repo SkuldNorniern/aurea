@@ -1,12 +1,8 @@
-//! Platform capability detection
-//!
-//! This module provides capability checking to determine which features
-//! are available on different platforms. Capabilities differ significantly
-//! between desktop and mobile platforms.
+//! Platform capability detection.
 
 use crate::platform::{DesktopPlatform, MobilePlatform, Platform};
 
-/// Represents a capability or feature that may or may not be available
+/// Represents a capability or feature that may or may not be available.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Capability {
     MultipleWindows,

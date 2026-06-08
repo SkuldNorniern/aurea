@@ -1,5 +1,5 @@
 mod sync {
-    pub use aurea_core::lock;
+    pub use aurea_foundation::lock;
 }
 
 #[cfg(target_os = "android")]
@@ -31,5 +31,5 @@ pub use crate::window::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEv
 
 #[cfg(feature = "wgpu")]
 pub use crate::integration::NativeWindowHandle;
-pub use aurea_core::{AureaError, AureaResult};
-pub use aurea_core::{Capability, CapabilityChecker, DesktopPlatform, MobilePlatform, Platform};
+pub use aurea_foundation::{AureaError, AureaResult};
+pub use aurea_foundation::{Capability, CapabilityChecker, DesktopPlatform, MobilePlatform, Platform};
