@@ -6,14 +6,10 @@
 #import <stdlib.h>
 #import <string.h>
 
-static void releaseFlippedBuffer(void* info, const void* data, size_t size) {
-    (void)info;
-    (void)size;
-    free((void*)data);
-}
-
 @interface AureaCanvasView : NSView
-@property (nonatomic, assign) unsigned char* renderBuffer;
+// Owned pixel buffer – grown on demand, never per-frame-allocated.
+@property (nonatomic, assign) unsigned char* ownedBuffer;
+@property (nonatomic, assign) size_t ownedBufferSize;
 @property (nonatomic, assign) unsigned int bufferWidth;
 @property (nonatomic, assign) unsigned int bufferHeight;
 @property (nonatomic, assign) unsigned int requestedWidth;
@@ -21,6 +17,7 @@ static void releaseFlippedBuffer(void* info, const void* data, size_t size) {
 @end
 
 @implementation AureaCanvasView
+
 - (BOOL)isFlipped {
     return YES;
 }
@@ -31,88 +28,84 @@ static void releaseFlippedBuffer(void* info, const void* data, size_t size) {
 
 - (void)layout {
     [super layout];
-    [self setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
-    [self setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationVertical];
+    // AutoLayout changed our frame – schedule a repaint so Rust picks up
+    // the new bounds on the next check_and_resize pass.
+    [self setNeedsDisplay:YES];
 }
 
 - (void)drawRect:(NSRect)dirtyRect {
-    ng_process_frames();
+    (void)dirtyRect;
+    // Do NOT call ng_process_frames() here – that causes reentrant Rust calls
+    // inside AppKit's drawing context and drives a setNeedsDisplay spin-loop.
+    // Frame processing is driven by the Rust event loop and the CFRunLoop timer.
 
-    if (self.renderBuffer && self.bufferWidth > 0 && self.bufferHeight > 0) {
+    if (self.ownedBuffer && self.bufferWidth > 0 && self.bufferHeight > 0) {
         CGContextRef context = [[NSGraphicsContext currentContext] CGContext];
         CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
 
         unsigned int w = self.bufferWidth;
         unsigned int h = self.bufferHeight;
-        size_t rowBytes = (size_t)w * 4;
-        size_t byteCount = rowBytes * (size_t)h;
 
-        /* CGContextDrawImage draws image row 0 at the bottom of the rect (CG y-up).
-         * Our buffer has row 0 = top. Flip rows so image row 0 = our bottom; then
-         * our top appears at the top of the view. */
-        unsigned char* flipped = (unsigned char*)malloc(byteCount);
-        if (flipped) {
-            const unsigned char* src = self.renderBuffer;
-            for (unsigned int row = 0; row < h; row++) {
-                unsigned int srcRow = h - 1 - row;
-                memcpy(flipped + row * rowBytes, src + srcRow * rowBytes, rowBytes);
-            }
-        }
-
-        const void* dataToUse = flipped ? flipped : (const void*)self.renderBuffer;
-        CGDataProviderRef provider = CGDataProviderCreateWithData(
-            NULL,
-            (void*)dataToUse,
-            byteCount,
-            flipped ? releaseFlippedBuffer : NULL
-        );
-
-        /* Buffer is BGRA (u32 ARGB little-endian): alpha in high byte, then R,G,B. */
+        // No per-frame malloc: use the owned buffer directly.
+        // Buffer is BGRA (u32 ARGB little-endian).
         CGBitmapInfo bitmapInfo = (CGBitmapInfo)kCGImageAlphaFirst
             | kCGBitmapByteOrder32Little;
 
-        CGImageRef image = CGImageCreate(
-            w,
-            h,
-            8,
-            32,
-            (size_t)w * 4,
-            colorSpace,
-            bitmapInfo,
-            provider,
+        CGDataProviderRef provider = CGDataProviderCreateWithData(
             NULL,
-            NO,
-            kCGRenderingIntentDefault
+            (const void*)self.ownedBuffer,
+            (size_t)w * (size_t)h * 4,
+            NULL  // no release – buffer lifetime is managed by the view
+        );
+
+        CGImageRef image = CGImageCreate(
+            w, h, 8, 32, (size_t)w * 4,
+            colorSpace, bitmapInfo, provider,
+            NULL, NO, kCGRenderingIntentDefault
         );
 
         if (image) {
             CGRect viewRect = [self bounds];
-            CGContextDrawImage(context, CGRectMake(0, 0, viewRect.size.width, viewRect.size.height), image);
+            // Our buffer has row 0 at the top; CG draws images bottom-up.
+            // Flip the CTM so the image renders right-side-up without copying.
+            CGContextSaveGState(context);
+            CGContextTranslateCTM(context, 0.0, viewRect.size.height);
+            CGContextScaleCTM(context, 1.0, -1.0);
+            CGContextDrawImage(context, viewRect, image);
+            CGContextRestoreGState(context);
             CGImageRelease(image);
         }
 
         CGDataProviderRelease(provider);
         CGColorSpaceRelease(colorSpace);
     } else {
-        [[NSColor whiteColor] setFill];
+        [[NSColor windowBackgroundColor] setFill];
         NSRectFill(dirtyRect);
     }
 }
+
+- (void)dealloc {
+    free(self.ownedBuffer);
+    self.ownedBuffer = NULL;
+    self.ownedBufferSize = 0;
+}
+
 @end
 
 NGHandle ng_macos_create_canvas(int width, int height) {
     @autoreleasepool {
         AureaCanvasView* canvasView = [[AureaCanvasView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
         [canvasView setWantsLayer:YES];
-        canvasView.renderBuffer = NULL;
+        canvasView.ownedBuffer = NULL;
+        canvasView.ownedBufferSize = 0;
         canvasView.bufferWidth = 0;
         canvasView.bufferHeight = 0;
         canvasView.requestedWidth = (unsigned int)width;
         canvasView.requestedHeight = (unsigned int)height;
-        [canvasView setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
-        [canvasView setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationVertical];
-        [canvasView setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
-        [canvasView setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationVertical];
+        [canvasView setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [canvasView setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationVertical];
+        [canvasView setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [canvasView setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationVertical];
 
         return (__bridge_retained void*)canvasView;
     }
@@ -132,15 +125,29 @@ void ng_macos_canvas_invalidate_rect(NGHandle canvas, float x, float y, float wi
 }
 
 void ng_macos_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size __attribute__((unused)), unsigned int width, unsigned int height) {
-    if (!canvas || !buffer) return;
-    
+    if (!canvas || !buffer || width == 0 || height == 0) return;
+
     AureaCanvasView* view = (__bridge AureaCanvasView*)canvas;
-    if ([view isKindOfClass:[AureaCanvasView class]]) {
-        view.renderBuffer = (unsigned char*)buffer;
-        view.bufferWidth = width;
-        view.bufferHeight = height;
-        [view setNeedsDisplay:YES];
+    if (![view isKindOfClass:[AureaCanvasView class]]) return;
+
+    size_t needed = (size_t)width * (size_t)height * 4;
+
+    // Grow the owned buffer only when the dimensions change – never per-frame.
+    if (needed > view.ownedBufferSize) {
+        free(view.ownedBuffer);
+        view.ownedBuffer = (unsigned char*)malloc(needed);
+        view.ownedBufferSize = view.ownedBuffer ? needed : 0;
     }
+
+    if (view.ownedBuffer) {
+        memcpy(view.ownedBuffer, buffer, needed);
+    }
+
+    view.bufferWidth = width;
+    view.bufferHeight = height;
+    // Do NOT call setNeedsDisplay here. The caller (ng_macos_canvas_invalidate)
+    // schedules the repaint after the buffer is fully written. Calling it here
+    // too causes an extra drawRect: on every write, driving a redraw spin-loop.
 }
 
 void ng_macos_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int* height) {
@@ -148,21 +155,26 @@ void ng_macos_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int
 
     AureaCanvasView* view = (__bridge AureaCanvasView*)canvas;
     if (![view isKindOfClass:[AureaCanvasView class]]) {
+        // Fallback for unknown view types.
         NSRect bounds = [view bounds];
-        *width = (unsigned int)bounds.size.width;
+        *width  = (unsigned int)bounds.size.width;
         *height = (unsigned int)bounds.size.height;
         return;
     }
+
+    // Force AutoLayout to finish so we read the post-resize bounds, not the
+    // stale pre-layout frame that exists when windowDidResize: fires.
+    [view layoutSubtreeIfNeeded];
+
     NSRect bounds = [view bounds];
     unsigned int w = (unsigned int)bounds.size.width;
     unsigned int h = (unsigned int)bounds.size.height;
-    unsigned int reqW = view.requestedWidth;
-    unsigned int reqH = view.requestedHeight;
-    if (w == 0) w = reqW;
-    if (h == 0) h = reqH;
-    if (w < reqW) w = reqW;
-    if (h < reqH) h = reqH;
-    *width = w;
+
+    // Fall back to the creation size only if layout hasn't produced valid bounds.
+    if (w == 0) w = view.requestedWidth;
+    if (h == 0) h = view.requestedHeight;
+
+    *width  = w;
     *height = h;
 }
 
