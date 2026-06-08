@@ -4,7 +4,7 @@
 #include "types.h"
 #include <stdint.h>
 
-#define AUREA_FFI_ABI_VERSION 1
+#define AUREA_FFI_ABI_VERSION 2
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,6 +25,12 @@ NGHandle ng_platform_create_window(const char* title, int width, int height);
 NGHandle ng_platform_create_window_with_type(const char* title, int width, int height, int window_type);
 void ng_platform_destroy_window(NGHandle handle);
 void ng_platform_window_set_title(NGHandle window, const char* title);
+int ng_platform_window_set_icon_rgba(
+    NGHandle window,
+    const unsigned char* rgba,
+    unsigned int width,
+    unsigned int height
+);
 void ng_platform_window_set_size(NGHandle window, int width, int height);
 void ng_platform_window_get_size(NGHandle window, int* width, int* height);
 void ng_platform_window_request_close(NGHandle window);
