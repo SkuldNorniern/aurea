@@ -2,8 +2,8 @@ use crate::elements::Element;
 use crate::ffi::*;
 use crate::view::{DamageRegion, FrameScheduler};
 use crate::{AureaError, AureaResult};
-use aurea_core::CapabilityChecker;
-use aurea_core::Platform;
+use aurea_foundation::CapabilityChecker;
+use aurea_foundation::Platform;
 use aurea_render::{
     CURRENT_BUFFER, ClickCallback, Color, CpuRasterizer, DrawingContext, GpuRasterizer,
     HoverCallback, InteractionRegistry, InteractiveId, Point, Renderer, RendererBackend, Surface,

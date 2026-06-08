@@ -17,7 +17,7 @@ use super::blend::{blend_pixel, linear_to_srgb_u8, srgb_to_linear};
 use super::context::CpuDrawingContext;
 use super::path::tessellate_path;
 use super::scanline::fill_scanline;
-use aurea_core::AureaResult;
+use aurea_foundation::AureaResult;
 
 pub struct CpuRasterizer {
     /// Physical-resolution pixel buffer — the only pixel allocation.
