@@ -25,11 +25,13 @@ int ng_macos_init(void) {
     if (!app_initialized) {
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
-        
+
         app_delegate = [[AppDelegate alloc] init];
         [NSApp setDelegate:app_delegate];
-        
+
         [NSApp finishLaunching];
+        // Activate once at startup so the first window appears in front.
+        [NSApp activateIgnoringOtherApps:YES];
         app_initialized = TRUE;
     }
     return NG_SUCCESS;
@@ -75,9 +77,6 @@ int ng_macos_run(void) {
 
 int ng_macos_poll_events(void) {
     @autoreleasepool {
-        if (![NSApp isActive]) {
-            [NSApp activateIgnoringOtherApps:YES];
-        }
         CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.001, true);
         while (true) {
             NSEvent* event = [NSApp nextEventMatchingMask:NSEventMaskAny
