@@ -1,0 +1,13 @@
+[package]
+name = "aurea-runtime"
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.88"
+description = "Window event loop lifecycle and scheduling for Aurea"
+license = "Apache-2.0"
+repository = "https://github.com/SkuldNorniern/aurea"
+
+[dependencies]
+aurea-core = { path = "../aurea-core", version = "0.0.1" }
+aurea-render = { path = "../aurea-render", version = "0.0.1" }
+log = "0.4.29"

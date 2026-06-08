@@ -1,0 +1,14 @@
+[package]
+name = "aurea-ffi"
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.88"
+description = "Rust <-> native ABI declarations and native library build for Aurea"
+license = "Apache-2.0"
+repository = "https://github.com/SkuldNorniern/aurea"
+
+[lib]
+
+[build-dependencies]
+cc = "1.2"
+pkg-config = "0.3"
