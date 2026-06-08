@@ -1,6 +1,6 @@
 [package]
 name = "aurea"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 rust-version = "1.88"
 description = "Native GUI toolkit with cross-platform windowing, native widgets, and framework-owned CPU rasterizer"
@@ -10,14 +10,14 @@ repository = "https://github.com/SkuldNorniern/aurea"
 
 [workspace]
 resolver = "2"
-members = ["aurea-core", "aurea-ffi", "aurea-render", "aurea-runtime"]
+members = ["aurea-foundation", "aurea-ffi", "aurea-render", "aurea-runtime"]
 
 [lib]
 name = "aurea"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-aurea-core = { path = "aurea-core", version = "0.0.1" }
+aurea-foundation = { path = "aurea-foundation", version = "0.0.1" }
 aurea-ffi = { path = "aurea-ffi", version = "0.0.1" }
 aurea-render = { path = "aurea-render", version = "0.0.1" }
 aurea-runtime = { path = "aurea-runtime", version = "0.0.1" }
