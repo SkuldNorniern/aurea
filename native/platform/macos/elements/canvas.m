@@ -7,9 +7,10 @@
 #import <string.h>
 
 @interface AureaCanvasView : NSView
-// Owned pixel buffer – grown on demand, never per-frame-allocated.
-@property (nonatomic, assign) unsigned char* ownedBuffer;
-@property (nonatomic, assign) size_t ownedBufferSize;
+// Raw pointer into Rust's frame_buffer.  Never freed here — Rust owns it.
+// Safe: everything runs on the main thread; the pointer is updated via
+// ng_macos_canvas_update_buffer *before* setNeedsDisplay schedules drawRect:.
+@property (nonatomic, assign) const unsigned char* renderBuffer;
 @property (nonatomic, assign) unsigned int bufferWidth;
 @property (nonatomic, assign) unsigned int bufferHeight;
 @property (nonatomic, assign) unsigned int requestedWidth;
@@ -35,47 +36,26 @@
 
 - (void)drawRect:(NSRect)dirtyRect {
     (void)dirtyRect;
-    // Do NOT call ng_process_frames() here – that causes reentrant Rust calls
-    // inside AppKit's drawing context and drives a setNeedsDisplay spin-loop.
-    // Frame processing is driven by the Rust event loop and the CFRunLoop timer.
-
-    if (self.ownedBuffer && self.bufferWidth > 0 && self.bufferHeight > 0) {
+    if (self.renderBuffer && self.bufferWidth > 0 && self.bufferHeight > 0) {
         CGContextRef context = [[NSGraphicsContext currentContext] CGContext];
         CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-
         unsigned int w = self.bufferWidth;
         unsigned int h = self.bufferHeight;
-
-        // No per-frame malloc: use the owned buffer directly.
-        // Buffer is BGRA (u32 ARGB little-endian).
-        CGBitmapInfo bitmapInfo = (CGBitmapInfo)kCGImageAlphaFirst
-            | kCGBitmapByteOrder32Little;
-
+        // Buffer is BGRA (u32 ARGB little-endian). No copy — raw ptr into Rust's frame_buffer.
         CGDataProviderRef provider = CGDataProviderCreateWithData(
-            NULL,
-            (const void*)self.ownedBuffer,
-            (size_t)w * (size_t)h * 4,
-            NULL  // no release – buffer lifetime is managed by the view
-        );
-
-        CGImageRef image = CGImageCreate(
-            w, h, 8, 32, (size_t)w * 4,
-            colorSpace, bitmapInfo, provider,
-            NULL, NO, kCGRenderingIntentDefault
-        );
-
+            NULL, (const void*)self.renderBuffer, (size_t)w * h * 4, NULL);
+        CGImageRef image = CGImageCreate(w, h, 8, 32, (size_t)w * 4, colorSpace,
+            (CGBitmapInfo)kCGImageAlphaFirst | kCGBitmapByteOrder32Little,
+            provider, NULL, NO, kCGRenderingIntentDefault);
         if (image) {
-            CGRect viewRect = [self bounds];
-            // Our buffer has row 0 at the top; CG draws images bottom-up.
-            // Flip the CTM so the image renders right-side-up without copying.
+            CGRect vr = [self bounds];
             CGContextSaveGState(context);
-            CGContextTranslateCTM(context, 0.0, viewRect.size.height);
+            CGContextTranslateCTM(context, 0.0, vr.size.height);
             CGContextScaleCTM(context, 1.0, -1.0);
-            CGContextDrawImage(context, viewRect, image);
+            CGContextDrawImage(context, vr, image);
             CGContextRestoreGState(context);
             CGImageRelease(image);
         }
-
         CGDataProviderRelease(provider);
         CGColorSpaceRelease(colorSpace);
     } else {
@@ -85,9 +65,8 @@
 }
 
 - (void)dealloc {
-    free(self.ownedBuffer);
-    self.ownedBuffer = NULL;
-    self.ownedBufferSize = 0;
+    // renderBuffer is owned by Rust — do not free.
+    self.renderBuffer = NULL;
 }
 
 @end
@@ -96,8 +75,7 @@ NGHandle ng_macos_create_canvas(int width, int height) {
     @autoreleasepool {
         AureaCanvasView* canvasView = [[AureaCanvasView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
         [canvasView setWantsLayer:YES];
-        canvasView.ownedBuffer = NULL;
-        canvasView.ownedBufferSize = 0;
+        canvasView.renderBuffer = NULL;
         canvasView.bufferWidth = 0;
         canvasView.bufferHeight = 0;
         canvasView.requestedWidth = (unsigned int)width;
@@ -126,28 +104,13 @@ void ng_macos_canvas_invalidate_rect(NGHandle canvas, float x, float y, float wi
 
 void ng_macos_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size __attribute__((unused)), unsigned int width, unsigned int height) {
     if (!canvas || !buffer || width == 0 || height == 0) return;
-
     AureaCanvasView* view = (__bridge AureaCanvasView*)canvas;
     if (![view isKindOfClass:[AureaCanvasView class]]) return;
-
-    size_t needed = (size_t)width * (size_t)height * 4;
-
-    // Grow the owned buffer only when the dimensions change – never per-frame.
-    if (needed > view.ownedBufferSize) {
-        free(view.ownedBuffer);
-        view.ownedBuffer = (unsigned char*)malloc(needed);
-        view.ownedBufferSize = view.ownedBuffer ? needed : 0;
-    }
-
-    if (view.ownedBuffer) {
-        memcpy(view.ownedBuffer, buffer, needed);
-    }
-
-    view.bufferWidth = width;
+    // Store Rust's frame_buffer pointer directly — no copy, no malloc.
+    // Safe: main-thread only; pointer updated before setNeedsDisplay fires.
+    view.renderBuffer = buffer;
+    view.bufferWidth  = width;
     view.bufferHeight = height;
-    // Do NOT call setNeedsDisplay here. The caller (ng_macos_canvas_invalidate)
-    // schedules the repaint after the buffer is fully written. Calling it here
-    // too causes an extra drawRect: on every write, driving a redraw spin-loop.
 }
 
 void ng_macos_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int* height) {
