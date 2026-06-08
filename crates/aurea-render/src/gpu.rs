@@ -59,8 +59,12 @@ impl Renderer for GpuRasterizer {
 
 #[cfg(test)]
 impl GpuRasterizer {
-    fn tile_store(&self) -> &super::cpu::TileStore {
-        self.inner.tile_store()
+    /// Read back the frame buffer for test assertions.
+    fn read_buffer(&self) -> Vec<u32> {
+        let (ptr, size, w, h) = self.inner.get_buffer();
+        let n = (w * h) as usize;
+        assert_eq!(size, n * 4);
+        unsafe { std::slice::from_raw_parts(ptr as *const u32, n).to_vec() }
     }
 }
 
@@ -72,96 +76,60 @@ mod tests {
 
     #[test]
     fn gpu_rasterizer_init_and_frame() {
-        let mut rasterizer = GpuRasterizer::new(32, 32);
-        rasterizer
-            .init(
-                Surface::OpenGL {
-                    context: std::ptr::null_mut(),
-                },
-                SurfaceInfo {
-                    width: 32,
-                    height: 32,
-                    scale_factor: 1.0,
-                },
-            )
-            .expect("init");
-
-        let mut ctx = rasterizer.begin_frame().expect("begin_frame");
+        let mut r = GpuRasterizer::new(32, 32);
+        r.init(Surface::OpenGL { context: std::ptr::null_mut() },
+               SurfaceInfo { width: 32, height: 32, scale_factor: 1.0 })
+         .expect("init");
+        let mut ctx = r.begin_frame().expect("begin_frame");
         ctx.clear(Color::rgb(255, 0, 0)).expect("clear");
         drop(ctx);
-        rasterizer.end_frame().expect("end_frame");
-        rasterizer.cleanup();
+        r.end_frame().expect("end_frame");
+        r.cleanup();
     }
 
     #[test]
     fn gpu_rasterizer_clear_produces_uniform_color() {
-        let mut rasterizer = GpuRasterizer::new(64, 64);
-        rasterizer
-            .init(
-                Surface::OpenGL {
-                    context: std::ptr::null_mut(),
-                },
-                SurfaceInfo {
-                    width: 64,
-                    height: 64,
-                    scale_factor: 1.0,
-                },
-            )
-            .expect("init");
-        let mut ctx = rasterizer.begin_frame().expect("begin_frame");
+        let mut r = GpuRasterizer::new(64, 64);
+        r.init(Surface::OpenGL { context: std::ptr::null_mut() },
+               SurfaceInfo { width: 64, height: 64, scale_factor: 1.0 })
+         .expect("init");
+        let mut ctx = r.begin_frame().expect("begin_frame");
         ctx.clear(Color::rgb(0xFF, 0x00, 0x00)).expect("clear");
         drop(ctx);
-        rasterizer.end_frame().expect("end_frame");
+        r.end_frame().expect("end_frame");
 
-        let mut buffer = vec![0u32; 64 * 64];
-        rasterizer.tile_store().copy_to_buffer(&mut buffer, 64, 64);
-        let center = buffer[(32 * 64 + 32) as usize];
-        let expected = (255u32 << 24) | (255 << 16) | (0 << 8) | 0;
+        let buf = r.read_buffer();
+        let center = buf[32 * 64 + 32];
+        let expected = (255u32 << 24) | (255 << 16);
         assert_eq!(center, expected, "center pixel should be red");
     }
 
     #[test]
     fn gpu_rasterizer_same_scene_deterministic_output() {
-        let mut rasterizer = GpuRasterizer::new(32, 32);
-        rasterizer
-            .init(
-                Surface::OpenGL {
-                    context: std::ptr::null_mut(),
-                },
-                SurfaceInfo {
-                    width: 32,
-                    height: 32,
-                    scale_factor: 1.0,
-                },
-            )
-            .expect("init");
+        let mut r = GpuRasterizer::new(32, 32);
+        r.init(Surface::OpenGL { context: std::ptr::null_mut() },
+               SurfaceInfo { width: 32, height: 32, scale_factor: 1.0 })
+         .expect("init");
 
         for _ in 0..2 {
-            let mut ctx = rasterizer.begin_frame().expect("begin_frame");
+            let mut ctx = r.begin_frame().expect("begin_frame");
             ctx.clear(Color::rgb(0, 128, 255)).expect("clear");
-            ctx.draw_rect(
-                Rect::new(8.0, 8.0, 16.0, 16.0),
-                &Paint::new().color(Color::rgb(255, 255, 0)),
-            )
-            .expect("draw_rect");
+            ctx.draw_rect(Rect::new(8.0, 8.0, 16.0, 16.0),
+                          &Paint::new().color(Color::rgb(255, 255, 0)))
+               .expect("draw_rect");
             drop(ctx);
-            rasterizer.end_frame().expect("end_frame");
+            r.end_frame().expect("end_frame");
         }
+        let buf1 = r.read_buffer();
 
-        let mut buf1 = vec![0u32; 32 * 32];
-        rasterizer.tile_store().copy_to_buffer(&mut buf1, 32, 32);
-
-        let mut ctx = rasterizer.begin_frame().expect("begin_frame");
+        let mut ctx = r.begin_frame().expect("begin_frame");
         ctx.clear(Color::rgb(0, 128, 255)).expect("clear");
-        ctx.draw_rect(
-            Rect::new(8.0, 8.0, 16.0, 16.0),
-            &Paint::new().color(Color::rgb(255, 255, 0)),
-        )
-        .expect("draw_rect");
+        ctx.draw_rect(Rect::new(8.0, 8.0, 16.0, 16.0),
+                      &Paint::new().color(Color::rgb(255, 255, 0)))
+           .expect("draw_rect");
         drop(ctx);
-        rasterizer.end_frame().expect("end_frame");
-        let mut buf2 = vec![0u32; 32 * 32];
-        rasterizer.tile_store().copy_to_buffer(&mut buf2, 32, 32);
+        r.end_frame().expect("end_frame");
+        let buf2 = r.read_buffer();
 
         assert_eq!(buf1, buf2, "same scene must produce identical output");
     }
