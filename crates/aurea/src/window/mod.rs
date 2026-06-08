@@ -523,17 +523,20 @@ impl Window {
 
     /// Set the native application/window icon from tightly packed RGBA8 pixels.
     pub fn set_icon_rgba(&self, rgba: &[u8], width: u32, height: u32) -> AureaResult<()> {
-        let expected = width
-            .checked_mul(height)
+        let expected = (width as usize)
+            .checked_mul(height as usize)
             .and_then(|pixels| pixels.checked_mul(4))
-            .map(|bytes| bytes as usize)
             .ok_or(AureaError::ElementOperationFailed)?;
-        if width == 0 || height == 0 || rgba.len() != expected {
+        if width == 0
+            || height == 0
+            || width > i32::MAX as u32
+            || height > i32::MAX as u32
+            || rgba.len() != expected
+        {
             return Err(AureaError::ElementOperationFailed);
         }
-        let result = unsafe {
-            ng_platform_window_set_icon_rgba(self.handle, rgba.as_ptr(), width, height)
-        };
+        let result =
+            unsafe { ng_platform_window_set_icon_rgba(self.handle, rgba.as_ptr(), width, height) };
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
         }
