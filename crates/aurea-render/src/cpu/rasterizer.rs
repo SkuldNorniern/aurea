@@ -153,11 +153,24 @@ impl CpuRasterizer {
 
         match paint.style {
             PaintStyle::Fill => {
-                for y in y0..y1 {
-                    for x in x0..x1 {
-                        let cov = rect_coverage(rect, x as f32, y as f32);
-                        let c = color_to_u32_with_coverage(paint.color, cov);
-                        Self::buf_set(buf, bw, x as i32, y as i32, c, mode);
+                let c = color_to_u32(paint.color);
+                if paint.color.a == 255 && mode == BlendMode::Normal {
+                    // Fast path: opaque fill — one memset per row, no per-pixel math.
+                    for y in y0..y1 {
+                        let start = (y * bw + x0) as usize;
+                        let end = (y * bw + x1) as usize;
+                        if end <= buf.len() {
+                            buf[start..end].fill(c);
+                        }
+                    }
+                } else {
+                    // Slow path: sub-pixel coverage + blend for translucent rects.
+                    for y in y0..y1 {
+                        for x in x0..x1 {
+                            let cov = rect_coverage(rect, x as f32, y as f32);
+                            let c = color_to_u32_with_coverage(paint.color, cov);
+                            Self::buf_set(buf, bw, x as i32, y as i32, c, mode);
+                        }
                     }
                 }
             }

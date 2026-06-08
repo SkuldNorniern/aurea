@@ -32,15 +32,29 @@ pub fn srgb_to_linear(c: u8) -> f32 {
     SRGB_TO_LINEAR[c as usize]
 }
 
+/// Linear-light [0,1] → sRGB 8-bit, using a 4096-entry lookup table.
+///
+/// Avoids a `powf` call per pixel; the quantisation error is < 0.5 ULP at u8
+/// precision (the final value is rounded to u8 anyway).
+static LINEAR_TO_SRGB: LazyLock<[u8; 4097]> = LazyLock::new(|| {
+    let mut lut = [0u8; 4097];
+    for (i, slot) in lut.iter_mut().enumerate() {
+        let c = i as f32 / 4096.0;
+        let s = if c <= 0.0031308 {
+            c * 12.92
+        } else {
+            1.055 * c.powf(1.0 / 2.4) - 0.055
+        };
+        *slot = (s * 255.0).round().clamp(0.0, 255.0) as u8;
+    }
+    lut
+});
+
 /// Linear-light (0.0..=1.0) -> sRGB-encoded 8-bit channel value.
+#[inline]
 pub fn linear_to_srgb_u8(c: f32) -> u32 {
-    let c = c.clamp(0.0, 1.0);
-    let s = if c <= 0.0031308 {
-        c * 12.92
-    } else {
-        1.055 * c.powf(1.0 / 2.4) - 0.055
-    };
-    (s * 255.0).round() as u32
+    let idx = (c.clamp(0.0, 1.0) * 4096.0) as usize;
+    LINEAR_TO_SRGB[idx] as u32
 }
 
 /// Composites a source pixel onto a destination pixel using the given blend mode.
