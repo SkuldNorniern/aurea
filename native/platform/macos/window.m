@@ -147,9 +147,6 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
 
 - (void)viewDidMoveToWindow {
     [super viewDidMoveToWindow];
-    if ([self window]) {
-        [[self window] makeFirstResponder:self];
-    }
     [self updateTrackingAreas];
 }
 
@@ -160,7 +157,7 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
         trackingArea = nil;
     }
     NSTrackingAreaOptions options = NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved |
-        NSTrackingActiveAlways | NSTrackingInVisibleRect;
+        NSTrackingActiveInActiveApp | NSTrackingInVisibleRect;
     trackingArea = [[NSTrackingArea alloc] initWithRect:[self bounds] options:options owner:self userInfo:nil];
     [self addTrackingArea:trackingArea];
 }
@@ -205,6 +202,7 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
 
 - (void)mouseDown:(NSEvent*)event {
     if (!self.windowHandle) return;
+    [[self window] makeFirstResponder:self];
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     ng_invoke_mouse_button(self.windowHandle, 0, 1, ng_macos_modifiers(event), p.x, p.y, (int)[event clickCount]);
 }
@@ -255,11 +253,20 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
     unsigned int keycode = ng_macos_keycode_from_event([event keyCode]);
     ng_invoke_key_event(self.windowHandle, keycode, 1, ng_macos_modifiers(event));
 
+    // Only fire TextInput for printable characters.
+    // Exclude: C0/C1 control chars, DEL (0x7F), and the macOS private-use
+    // range 0xF700–0xF8FF which carries arrow keys, F-keys, and other
+    // non-printable special keys as NSEvent characters.
     NSString* chars = [event characters];
     if (chars && [chars length] > 0) {
-        const char* utf8 = [chars UTF8String];
-        if (utf8) {
-            ng_invoke_text_input(self.windowHandle, utf8);
+        unichar first = [chars characterAtIndex:0];
+        BOOL isControl   = (first < 0x0020 || first == 0x007F);
+        BOOL isFnKeyChar = (first >= 0xF700 && first <= 0xF8FF);
+        if (!isControl && !isFnKeyChar) {
+            const char* utf8 = [chars UTF8String];
+            if (utf8) {
+                ng_invoke_text_input(self.windowHandle, utf8);
+            }
         }
     }
 }
