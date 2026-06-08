@@ -103,9 +103,7 @@ impl CpuDrawingContext {
                         Point::new(p.x * sf, p.y * sf),
                     )
                 }
-                super::super::types::PathCommand::Close => {
-                    super::super::types::PathCommand::Close
-                }
+                super::super::types::PathCommand::Close => super::super::types::PathCommand::Close,
             });
         }
         out
@@ -677,6 +675,9 @@ impl DrawingContext for CpuDrawingContext {
     fn hit_test_path(&mut self, path: &Path, point: Point) -> AureaResult<bool> {
         // Path coords are physical; convert the (logical) test point to physical.
         let physical_point = self.s_pt(point);
-        Ok(super::hit_test::hit_test_path(&self.s_path(path), physical_point))
+        Ok(super::hit_test::hit_test_path(
+            &self.s_path(path),
+            physical_point,
+        ))
     }
 }

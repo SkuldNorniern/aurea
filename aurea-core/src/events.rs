@@ -291,7 +291,7 @@ mod keycode_tests {
 
     #[test]
     fn from_raw_maps_punctuation() {
-        // Must stay in sync with NG_KEY_* in native/common/input.h.
+        // Must stay in sync with NG_KEY_* in aurea-ffi/native/common/input.h.
         assert_eq!(KeyCode::from_raw(67), KeyCode::Minus);
         assert_eq!(KeyCode::from_raw(68), KeyCode::Equals);
         assert_eq!(KeyCode::from_raw(77), KeyCode::Slash);

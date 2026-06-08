@@ -2,6 +2,9 @@
 name = "aurea-core"
 version = "0.0.1"
 edition = "2024"
+rust-version = "1.88"
 description = "Core types, errors, and platform detection for Aurea"
+license = "Apache-2.0"
+repository = "https://github.com/SkuldNorniern/aurea"
 
 [lib]
