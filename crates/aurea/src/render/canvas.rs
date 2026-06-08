@@ -365,10 +365,12 @@ impl Canvas {
         Ok(())
     }
 
-    /// Handle a mouse/touch click event at the given coordinates
-    /// This should be called from platform event handlers
+    /// Handle a mouse/touch click event at the given coordinates.
+    /// `x` and `y` are in logical (point) coordinates; they are converted to
+    /// physical pixels internally because the display list is in physical space.
     pub fn handle_click(&self, x: f32, y: f32) -> AureaResult<()> {
-        let point = Point::new(x, y);
+        let sf = self.scale_factor();
+        let point = Point::new(x * sf, y * sf);
 
         // Get display list from renderer
         let renderer_guard = crate::sync::lock(self.renderer.as_ref());
@@ -381,10 +383,12 @@ impl Canvas {
         Ok(())
     }
 
-    /// Handle a mouse hover event at the given coordinates
-    /// This should be called from platform event handlers
+    /// Handle a mouse hover event at the given coordinates.
+    /// `x` and `y` are in logical (point) coordinates; they are converted to
+    /// physical pixels internally because the display list is in physical space.
     pub fn handle_hover(&self, x: f32, y: f32) -> AureaResult<()> {
-        let point = Point::new(x, y);
+        let sf = self.scale_factor();
+        let point = Point::new(x * sf, y * sf);
 
         let renderer_guard = crate::sync::lock(self.renderer.as_ref());
         if let Some(ref renderer) = *renderer_guard {
