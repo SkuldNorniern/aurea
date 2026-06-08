@@ -12,7 +12,8 @@
 use super::super::types::{Color, Font, GlyphMask, Point};
 use super::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
 use aurea_core::AureaResult;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 /// A single glyph rasterized to device-resolution RGB subpixel coverage.
 ///
@@ -72,6 +73,11 @@ pub fn get_platform_rasterizer() -> Box<dyn PlatformTextRasterizer> {
 pub struct TextRenderer {
     rasterizer: Box<dyn PlatformTextRasterizer>,
     atlas: GlyphAtlas,
+    /// Per-glyph mask cache keyed by (font, char).  Single-char calls — which
+    /// make up >99% of draw_text_with_font calls in the editor — hit this cache
+    /// and return an O(1) Arc clone instead of allocating a new Vec<u8> every
+    /// frame.  Multi-char runs bypass it and allocate normally.
+    mask_cache: Mutex<HashMap<GlyphKey, (GlyphMask, f32, f32)>>,
 }
 
 impl TextRenderer {
@@ -79,6 +85,7 @@ impl TextRenderer {
         Self {
             rasterizer: get_platform_rasterizer(),
             atlas: GlyphAtlas::new(4), // 4MB cache budget
+            mask_cache: Mutex::new(HashMap::new()),
         }
     }
 
@@ -88,11 +95,32 @@ impl TextRenderer {
     /// position it: the mask's top-left sits at `(point.x - pad, point.y -
     /// ascent - pad)`. Per-glyph coverage comes pre-hinted from the backend;
     /// this just lays glyphs out along the pen and max-combines overlaps.
+    ///
+    /// Single-character calls use a persistent mask cache so the Arc<[u8]>
+    /// coverage is shared across frames — no per-frame heap allocation.
     pub fn render_text_subpixel(
         &self,
         text: &str,
         font: &Font,
     ) -> AureaResult<(GlyphMask, f32, f32)> {
+        // Fast path: single character — check the mask cache first.
+        let mut chars = text.chars();
+        if let Some(ch) = chars.next() {
+            if chars.next().is_none() {
+                let key = GlyphKey::new(font, ch as u32);
+                if let Some(cached) = aurea_core::lock(&self.mask_cache).get(&key).cloned() {
+                    return Ok(cached);
+                }
+                let result = self.compute_mask(text, font)?;
+                aurea_core::lock(&self.mask_cache).insert(key, result.clone());
+                return Ok(result);
+            }
+        }
+
+        self.compute_mask(text, font)
+    }
+
+    fn compute_mask(&self, text: &str, font: &Font) -> AureaResult<(GlyphMask, f32, f32)> {
         let tm = self.rasterizer.measure_text(text, font)?;
         let pad = 3.0f32;
         let ascent = tm.ascent.max(0.0);
@@ -121,7 +149,6 @@ impl TextRenderer {
                         }
                         let si = ((row * gw + col) * 3) as usize;
                         let di = ((dy * dev_w as i32 + dx) * 3) as usize;
-                        // Max-combine so slight glyph overlaps don't double-darken.
                         for c in 0..3 {
                             if g.coverage[si + c] > coverage[di + c] {
                                 coverage[di + c] = g.coverage[si + c];
@@ -137,7 +164,7 @@ impl TextRenderer {
             GlyphMask {
                 width: dev_w,
                 height: dev_h,
-                coverage,
+                coverage: coverage.into(), // Vec<u8> → Arc<[u8]>
             },
             ascent,
             pad,

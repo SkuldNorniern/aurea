@@ -435,6 +435,9 @@ impl Image {
 /// — so antialiased text gains ~3x effective horizontal resolution. The mask is
 /// colourless; the text colour is supplied at composite time and blended per
 /// channel in linear light against the destination.
+///
+/// The coverage bytes are reference-counted so cached masks can be shared across
+/// frames with an O(1) clone (just an Arc ref-count bump).
 #[derive(Debug, Clone)]
 pub struct GlyphMask {
     /// Width in device pixels.
@@ -442,7 +445,7 @@ pub struct GlyphMask {
     /// Height in device pixels.
     pub height: u32,
     /// Per-pixel subpixel coverage, 3 bytes/pixel in R, G, B stripe order.
-    pub coverage: Vec<u8>,
+    pub coverage: std::sync::Arc<[u8]>,
 }
 
 /// Interactive element ID for hit testing
