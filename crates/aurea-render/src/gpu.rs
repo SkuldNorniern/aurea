@@ -32,7 +32,7 @@ impl Renderer for GpuRasterizer {
     }
 
     fn resize(&mut self, width: u32, height: u32) -> AureaResult<()> {
-        self.inner.resize(width, height);
+        self.inner.resize(width, height)?;
         Ok(())
     }
 

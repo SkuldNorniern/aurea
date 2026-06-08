@@ -6,7 +6,7 @@
 //! (safe: everything runs on the main thread, the pointer is updated before
 //! each `setNeedsDisplay`).
 
-use super::super::display_list::{DisplayList};
+use super::super::display_list::DisplayList;
 use super::super::renderer::{DrawingContext, Renderer};
 use super::super::surface::{Surface, SurfaceInfo};
 use super::super::types::{
@@ -83,13 +83,22 @@ impl CpuRasterizer {
 
     // ── rendering ────────────────────────────────────────────────────────────
 
-    fn render_item(item: &super::super::display_list::DisplayItem,
-                   buf: &mut Vec<u32>, bw: u32, bh: u32) -> AureaResult<()> {
+    fn render_item(
+        item: &super::super::display_list::DisplayItem,
+        damage: Option<&Rect>,
+        buf: &mut Vec<u32>,
+        bw: u32,
+        bh: u32,
+    ) -> AureaResult<()> {
         use super::super::command::DrawCommand;
         match &item.command {
             DrawCommand::Clear(color) => {
                 let c = color_to_u32(*color);
-                buf.fill(c);
+                if let Some(rect) = damage {
+                    Self::clear_rect(rect, c, buf, bw, bh);
+                } else {
+                    buf.fill(c);
+                }
             }
             DrawCommand::DrawRect(rect, paint) => {
                 Self::draw_rect(rect, paint, item.blend_mode, buf, bw, bh);
@@ -119,6 +128,19 @@ impl CpuRasterizer {
             _ => {}
         }
         Ok(())
+    }
+
+    fn clear_rect(rect: &Rect, color: u32, buf: &mut [u32], bw: u32, bh: u32) {
+        let x0 = rect.x.floor().max(0.0).min(bw as f32) as u32;
+        let y0 = rect.y.floor().max(0.0).min(bh as f32) as u32;
+        let x1 = (rect.x + rect.width).ceil().max(0.0).min(bw as f32) as u32;
+        let y1 = (rect.y + rect.height).ceil().max(0.0).min(bh as f32) as u32;
+
+        for y in y0..y1 {
+            let start = (y * bw + x0) as usize;
+            let end = (y * bw + x1) as usize;
+            buf[start..end].fill(color);
+        }
     }
 
     fn draw_rect(rect: &Rect, paint: &Paint, mode: BlendMode,
@@ -385,9 +407,18 @@ impl Renderer for CpuRasterizer {
 
     fn end_frame(&mut self) -> AureaResult<()> {
         let (bw, bh) = (self.width, self.height);
+        let damage = self.pending_damage.take();
 
         for item in self.display_list.items() {
-            Self::render_item(item, &mut self.frame_buffer, bw, bh)?;
+            let has_known_bounds = item.bounds.width > 0.0 && item.bounds.height > 0.0;
+            if has_known_bounds
+                && damage
+                    .as_ref()
+                    .is_some_and(|rect| !item.intersects(rect))
+            {
+                continue;
+            }
+            Self::render_item(item, damage.as_ref(), &mut self.frame_buffer, bw, bh)?;
         }
 
         use crate::renderer::CURRENT_BUFFER;
@@ -401,9 +432,16 @@ impl Renderer for CpuRasterizer {
         self.pending_damage = None;
     }
 
-    fn set_damage(&mut self, _damage: Option<Rect>) {
-        // Full-screen repaint; damage tracking is not needed when the caller
-        // already rebuilds the entire display list each frame.
+    fn set_damage(&mut self, damage: Option<Rect>) {
+        let scale = self.scale_factor;
+        self.pending_damage = damage.map(|rect| {
+            Rect::new(
+                rect.x * scale,
+                rect.y * scale,
+                rect.width * scale,
+                rect.height * scale,
+            )
+        });
     }
 
     fn display_list(&self) -> Option<&DisplayList> {
