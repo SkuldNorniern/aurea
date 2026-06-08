@@ -1,7 +1,7 @@
 //! Glyph atlas management for text rendering.
 
 use super::super::types::Font;
-use aurea_core::AureaResult;
+use aurea_foundation::AureaResult;
 use std::{
     collections::HashMap,
     collections::VecDeque,
@@ -68,8 +68,8 @@ impl GlyphAtlas {
 
     /// Get a glyph from cache, or None if not cached.
     pub fn get(&self, key: &GlyphKey) -> Option<Arc<GlyphBitmap>> {
-        let cache = aurea_core::lock(&self.cache);
-        let mut order = aurea_core::lock(&self.order);
+        let cache = aurea_foundation::lock(&self.cache);
+        let mut order = aurea_foundation::lock(&self.order);
         let glyph = cache.get(key).cloned();
         if glyph.is_some() {
             if let Some(pos) = order.iter().position(|k| k == key) {
@@ -84,10 +84,10 @@ impl GlyphAtlas {
     pub fn put(&self, key: GlyphKey, bitmap: GlyphBitmap) -> AureaResult<()> {
         let memory_used = (bitmap.width * bitmap.height * 4) as usize;
 
-        let mut cache = aurea_core::lock(&self.cache);
-        let mut order = aurea_core::lock(&self.order);
-        let mut sizes = aurea_core::lock(&self.sizes);
-        let mut current_memory = aurea_core::lock(&self.current_memory);
+        let mut cache = aurea_foundation::lock(&self.cache);
+        let mut order = aurea_foundation::lock(&self.order);
+        let mut sizes = aurea_foundation::lock(&self.sizes);
+        let mut current_memory = aurea_foundation::lock(&self.current_memory);
 
         if memory_used > self.memory_budget {
             cache.clear();
@@ -115,13 +115,13 @@ impl GlyphAtlas {
 
     /// Clear the cache.
     pub fn clear(&self) {
-        let mut cache = aurea_core::lock(&self.cache);
-        let mut order = aurea_core::lock(&self.order);
-        let mut sizes = aurea_core::lock(&self.sizes);
+        let mut cache = aurea_foundation::lock(&self.cache);
+        let mut order = aurea_foundation::lock(&self.order);
+        let mut sizes = aurea_foundation::lock(&self.sizes);
         cache.clear();
         order.clear();
         sizes.clear();
-        let mut current_memory = aurea_core::lock(&self.current_memory);
+        let mut current_memory = aurea_foundation::lock(&self.current_memory);
         *current_memory = 0;
     }
 }

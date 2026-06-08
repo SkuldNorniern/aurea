@@ -1,29 +1,29 @@
 /// Errors that might occur during native GUI operations.
 #[derive(Debug, Clone)]
 pub enum AureaError {
-    /// Failed to create a new window
+    /// Failed to create a new window.
     WindowCreationFailed,
-    /// Failed to create a menu
+    /// Failed to create a menu.
     MenuCreationFailed,
-    /// Failed to add a menu item
+    /// Failed to add a menu item.
     MenuItemAddFailed,
-    /// The provided title contains invalid characters
+    /// The provided title contains invalid characters.
     InvalidTitle,
-    /// A platform-specific error occurred
+    /// A platform-specific error occurred.
     PlatformError(i32),
-    /// The event loop encountered an error
+    /// The event loop encountered an error.
     EventLoopError,
-    /// An operation on a GUI element failed
+    /// An operation on a GUI element failed.
     ElementOperationFailed,
-    /// Failed to create a canvas
+    /// Failed to create a canvas.
     CanvasCreationFailed,
-    /// Failed to initialize renderer
+    /// Failed to initialize renderer.
     RendererInitFailed,
-    /// Rendering operation failed
+    /// Rendering operation failed.
     RenderingFailed,
-    /// Requested backend (e.g. Gpu) is not yet implemented
+    /// Requested backend (e.g. Gpu) is not yet implemented.
     BackendNotAvailable,
-    /// FFI ABI version mismatch between Rust and native library
+    /// FFI ABI version mismatch between Rust and native library.
     AbiVersionMismatch { expected: i32, got: i32 },
 }
 

@@ -57,8 +57,8 @@ use crate::lifecycle::{
 use crate::menu::MenuBar;
 use crate::view::{DamageRegion, FrameScheduler};
 use crate::{AureaError, AureaResult};
-use aurea_core::Platform;
-use aurea_core::{Capability, CapabilityChecker};
+use aurea_foundation::Platform;
+use aurea_foundation::{Capability, CapabilityChecker};
 use std::{
     ffi::CString,
     os::raw::c_void,
