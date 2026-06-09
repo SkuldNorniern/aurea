@@ -283,6 +283,27 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
     unsigned int keycode = ng_macos_keycode_from_event([event keyCode]);
     ng_invoke_key_event(self.windowHandle, keycode, 0, ng_macos_modifiers(event));
 }
+
+// macOS sends modifier-only presses/releases via flagsChanged: rather than
+// keyDown:/keyUp:. Without this, holding Ctrl or Cmd alone never updates
+// live_mods and the which-key hint panel never appears.
+- (void)flagsChanged:(NSEvent*)event {
+    if (!self.windowHandle) return;
+    NSEventModifierFlags flags = [event modifierFlags];
+    unsigned short rawCode = [event keyCode];
+    unsigned int keycode = ng_macos_keycode_from_event(rawCode);
+
+    int pressed;
+    switch (rawCode) {
+        case 56: case 60: pressed = (flags & NSEventModifierFlagShift)   ? 1 : 0; break;
+        case 59: case 62: pressed = (flags & NSEventModifierFlagControl) ? 1 : 0; break;
+        case 58: case 61: pressed = (flags & NSEventModifierFlagOption)  ? 1 : 0; break;
+        case 55: case 54: pressed = (flags & NSEventModifierFlagCommand) ? 1 : 0; break;
+        default: return;
+    }
+
+    ng_invoke_key_event(self.windowHandle, keycode, pressed, ng_macos_modifiers(event));
+}
 @end
 
 @implementation WindowDelegate
