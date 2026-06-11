@@ -12,6 +12,8 @@
 @property (nonatomic, assign) unsigned int bufferHeight;
 @property (nonatomic, assign) unsigned int requestedWidth;
 @property (nonatomic, assign) unsigned int requestedHeight;
+@property (nonatomic, assign) unsigned int cachedWidth;
+@property (nonatomic, assign) unsigned int cachedHeight;
 @end
 
 @implementation AureaCanvasView
@@ -25,8 +27,14 @@
 }
 
 - (void)layout {
+    NSSize oldSize = self.bounds.size;
     [super layout];
-    [self setNeedsDisplay:YES];
+    NSSize newSize = self.bounds.size;
+    if (!NSEqualSizes(oldSize, newSize)) {
+        self.cachedWidth  = (unsigned int)newSize.width;
+        self.cachedHeight = (unsigned int)newSize.height;
+        [self setNeedsDisplay:YES];
+    }
 }
 
 - (void)drawRect:(NSRect)dirtyRect {
@@ -73,6 +81,8 @@ NGHandle ng_macos_create_canvas(int width, int height) {
         canvasView.bufferHeight = 0;
         canvasView.requestedWidth = (unsigned int)width;
         canvasView.requestedHeight = (unsigned int)height;
+        canvasView.cachedWidth  = (unsigned int)width;
+        canvasView.cachedHeight = (unsigned int)height;
         [canvasView setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
         [canvasView setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationVertical];
         [canvasView setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
@@ -115,12 +125,8 @@ void ng_macos_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int
         return;
     }
 
-    [view layoutSubtreeIfNeeded];
-
-    NSRect bounds = [view bounds];
-    unsigned int w = (unsigned int)bounds.size.width;
-    unsigned int h = (unsigned int)bounds.size.height;
-
+    unsigned int w = view.cachedWidth;
+    unsigned int h = view.cachedHeight;
     if (w == 0) w = view.requestedWidth;
     if (h == 0) h = view.requestedHeight;
 

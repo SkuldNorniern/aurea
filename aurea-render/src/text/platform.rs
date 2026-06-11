@@ -2,8 +2,8 @@
 
 use super::super::types::{Color, Font, GlyphMask, Point};
 use super::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
+use super::LruCache;
 use aurea_foundation::AureaResult;
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 /// A single glyph rasterized to device-resolution RGB subpixel coverage.
@@ -45,17 +45,36 @@ pub fn get_platform_rasterizer() -> Box<dyn PlatformTextRasterizer> {
     {
         match super::directwrite_backend::DirectWriteRasterizer::new() {
             Ok(dw) => return Box::new(dw),
-            Err(_) => {}
+            Err(_) => {
+            }
         }
     }
     Box::new(super::fontdue_backend::FontDbTextRasterizer::new())
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct RunKey {
+    text: String,
+    family: String,
+    size_bits: u32,
+}
+
+impl RunKey {
+    fn new(text: &str, font: &Font) -> Self {
+        Self {
+            text: text.to_owned(),
+            family: font.family.trim().to_lowercase(),
+            size_bits: font.size.to_bits(),
+        }
+    }
 }
 
 /// Text renderer: owns a backend + a glyph atlas, and shapes runs.
 pub struct TextRenderer {
     rasterizer: Box<dyn PlatformTextRasterizer>,
     atlas: GlyphAtlas,
-    mask_cache: Mutex<HashMap<GlyphKey, (GlyphMask, f32, f32)>>,
+    mask_cache: Mutex<LruCache<GlyphKey, (GlyphMask, f32, f32)>>,
+    run_cache: Mutex<LruCache<RunKey, (GlyphMask, f32, f32)>>,
 }
 
 impl TextRenderer {
@@ -63,7 +82,8 @@ impl TextRenderer {
         Self {
             rasterizer: get_platform_rasterizer(),
             atlas: GlyphAtlas::new(4),
-            mask_cache: Mutex::new(HashMap::new()),
+            mask_cache: Mutex::new(LruCache::new(256)),
+            run_cache: Mutex::new(LruCache::new(512)),
         }
     }
 
@@ -86,7 +106,13 @@ impl TextRenderer {
             }
         }
 
-        self.compute_mask(text, font)
+        let run_key = RunKey::new(text, font);
+        if let Some(cached) = aurea_foundation::lock(&self.run_cache).get(&run_key).cloned() {
+            return Ok(cached);
+        }
+        let result = self.compute_mask(text, font)?;
+        aurea_foundation::lock(&self.run_cache).insert(run_key, result.clone());
+        Ok(result)
     }
 
     fn compute_mask(&self, text: &str, font: &Font) -> AureaResult<(GlyphMask, f32, f32)> {

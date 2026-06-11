@@ -3,8 +3,8 @@
 use super::super::types::{Font, FontStyle, FontWeight, TextMetrics};
 use super::atlas::{GlyphBitmap, GlyphKey};
 use super::platform::{PlatformTextRasterizer, SubpixelGlyph};
+use super::LruCache;
 use aurea_foundation::{AureaError, AureaResult};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -169,16 +169,16 @@ fn load_font_file(path: &Path) -> Option<fontdue::Font> {
 
 pub struct FontDbTextRasterizer {
     dirs: Vec<PathBuf>,
-    font_cache: Mutex<HashMap<FontKey, Arc<fontdue::Font>>>,
-    subpixel_cache: Mutex<HashMap<GlyphKey, Arc<SubpixelGlyph>>>,
+    font_cache: Mutex<LruCache<FontKey, Arc<fontdue::Font>>>,
+    subpixel_cache: Mutex<LruCache<GlyphKey, Arc<SubpixelGlyph>>>,
 }
 
 impl FontDbTextRasterizer {
     pub fn new() -> Self {
         Self {
             dirs: font_search_dirs(),
-            font_cache: Mutex::new(HashMap::new()),
-            subpixel_cache: Mutex::new(HashMap::new()),
+            font_cache: Mutex::new(LruCache::new(32)),
+            subpixel_cache: Mutex::new(LruCache::new(512)),
         }
     }
 

@@ -18,6 +18,19 @@ impl EventQueue {
 
     pub fn push(&self, event: WindowEvent) {
         let mut events = aurea_foundation::lock(&self.events);
+        match &event {
+            WindowEvent::MouseMove { .. }
+            | WindowEvent::RawMouseMotion { .. }
+            | WindowEvent::MouseWheel { .. } => {
+                if let Some(last) = events.last_mut() {
+                    if std::mem::discriminant(last) == std::mem::discriminant(&event) {
+                        *last = event;
+                        return;
+                    }
+                }
+            }
+            _ => {}
+        }
         events.push(event);
     }
 

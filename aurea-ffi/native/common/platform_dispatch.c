@@ -56,6 +56,10 @@ int ng_platform_poll_events(void) {
     return g_ops && g_ops->poll_events ? g_ops->poll_events() : NG_SUCCESS;
 }
 
+void ng_platform_request_frame(void) {
+    DISPATCH_VOID(request_frame);
+}
+
 NGHandle ng_platform_create_window(const char* t, int w, int h) {
     DISPATCH_INIT(NGHandle, create_window, t, w, h);
 }
