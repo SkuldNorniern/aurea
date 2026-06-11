@@ -15,6 +15,7 @@ static const ng_platform_ops_t windows_ops = {
     .cleanup = ng_windows_cleanup,
     .run = ng_windows_run,
     .poll_events = ng_windows_poll_events,
+    .request_frame = ng_windows_request_frame,
     .create_window = ng_windows_create_window,
     .create_window_with_type = ng_windows_create_window_with_type,
     .destroy_window = ng_windows_destroy_window,
