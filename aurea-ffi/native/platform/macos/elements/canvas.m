@@ -3,13 +3,14 @@
 #import "../../../common/errors.h"
 #import "../../../common/rust_callbacks.h"
 #import <Cocoa/Cocoa.h>
+#import <QuartzCore/QuartzCore.h>
 #import <stdlib.h>
 #import <string.h>
 
 @interface AureaCanvasView : NSView
 // Raw pointer into Rust's frame_buffer.  Never freed here — Rust owns it.
-// Safe: everything runs on the main thread; the pointer is updated via
-// ng_macos_canvas_update_buffer *before* setNeedsDisplay schedules drawRect:.
+// Safe: everything runs on the main thread; ng_macos_canvas_update_buffer
+// reads it synchronously to build the CGImage assigned to layer.contents.
 @property (nonatomic, assign) const unsigned char* renderBuffer;
 @property (nonatomic, assign) unsigned int bufferWidth;
 @property (nonatomic, assign) unsigned int bufferHeight;
@@ -43,34 +44,12 @@
     }
 }
 
+// Only used before the first frame buffer arrives — once
+// ng_macos_canvas_update_buffer runs, presentation goes through
+// view.layer.contents directly and this is never called again.
 - (void)drawRect:(NSRect)dirtyRect {
-    (void)dirtyRect;
-    if (self.renderBuffer && self.bufferWidth > 0 && self.bufferHeight > 0) {
-        CGContextRef context = [[NSGraphicsContext currentContext] CGContext];
-        CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-        unsigned int w = self.bufferWidth;
-        unsigned int h = self.bufferHeight;
-        // Buffer is BGRA (u32 ARGB little-endian). No copy — raw ptr into Rust's frame_buffer.
-        CGDataProviderRef provider = CGDataProviderCreateWithData(
-            NULL, (const void*)self.renderBuffer, (size_t)w * h * 4, NULL);
-        CGImageRef image = CGImageCreate(w, h, 8, 32, (size_t)w * 4, colorSpace,
-            (CGBitmapInfo)kCGImageAlphaFirst | kCGBitmapByteOrder32Little,
-            provider, NULL, NO, kCGRenderingIntentDefault);
-        if (image) {
-            CGRect vr = [self bounds];
-            CGContextSaveGState(context);
-            CGContextTranslateCTM(context, 0.0, vr.size.height);
-            CGContextScaleCTM(context, 1.0, -1.0);
-            CGContextDrawImage(context, vr, image);
-            CGContextRestoreGState(context);
-            CGImageRelease(image);
-        }
-        CGDataProviderRelease(provider);
-        CGColorSpaceRelease(colorSpace);
-    } else {
-        [[NSColor windowBackgroundColor] setFill];
-        NSRectFill(dirtyRect);
-    }
+    [[NSColor windowBackgroundColor] setFill];
+    NSRectFill(dirtyRect);
 }
 
 - (void)dealloc {
@@ -101,28 +80,55 @@ NGHandle ng_macos_create_canvas(int width, int height) {
     }
 }
 
+// Presentation now goes through view.layer.contents (set in
+// ng_macos_canvas_update_buffer), which takes effect immediately — no
+// separate invalidation pass is needed.
 void ng_macos_canvas_invalidate(NGHandle canvas) {
-    if (!canvas) return;
-    NSView* view = (__bridge NSView*)canvas;
-    [view setNeedsDisplay:YES];
+    (void)canvas;
 }
 
 void ng_macos_canvas_invalidate_rect(NGHandle canvas, float x, float y, float width, float height) {
-    if (!canvas) return;
-    NSView* view = (__bridge NSView*)canvas;
-    NSRect rect = NSMakeRect(x, y, width, height);
-    [view setNeedsDisplayInRect:rect];
+    (void)canvas;
+    (void)x;
+    (void)y;
+    (void)width;
+    (void)height;
 }
+
+// Shared across all canvases — device RGB never changes at runtime.
+static CGColorSpaceRef s_canvas_colorspace = NULL;
 
 void ng_macos_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size __attribute__((unused)), unsigned int width, unsigned int height) {
     if (!canvas || !buffer || width == 0 || height == 0) return;
     AureaCanvasView* view = (__bridge AureaCanvasView*)canvas;
     if (![view isKindOfClass:[AureaCanvasView class]]) return;
-    // Store Rust's frame_buffer pointer directly — no copy, no malloc.
-    // Safe: main-thread only; pointer updated before setNeedsDisplay fires.
+
+    // Keep the raw pointer/size around for bookkeeping (e.g. get_size fallback).
     view.renderBuffer = buffer;
     view.bufferWidth  = width;
     view.bufferHeight = height;
+
+    if (!s_canvas_colorspace) {
+        s_canvas_colorspace = CGColorSpaceCreateDeviceRGB();
+    }
+
+    // Buffer is BGRA (u32 ARGB little-endian). No copy — wraps Rust's
+    // frame_buffer directly. Safe as long as the buffer outlives the image;
+    // the image is released at the end of this call and any reference held
+    // by the layer is replaced wholesale on the next update.
+    CGDataProviderRef provider = CGDataProviderCreateWithData(
+        NULL, (const void*)buffer, (size_t)width * height * 4, NULL);
+    CGImageRef image = CGImageCreate(width, height, 8, 32, (size_t)width * 4,
+        s_canvas_colorspace,
+        (CGBitmapInfo)kCGImageAlphaFirst | kCGBitmapByteOrder32Little,
+        provider, NULL, NO, kCGRenderingIntentDefault);
+    CGDataProviderRelease(provider);
+    if (!image) return;
+
+    view.layer.contents = (__bridge id)image;
+    CGFloat boundsWidth = view.bounds.size.width;
+    view.layer.contentsScale = (boundsWidth > 0.0) ? (CGFloat)width / boundsWidth : 1.0;
+    CGImageRelease(image);
 }
 
 void ng_macos_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int* height) {
