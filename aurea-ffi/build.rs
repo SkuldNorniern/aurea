@@ -176,6 +176,7 @@ fn main() {
         rerun_for(&root, ios_sources);
     } else if target.contains("apple-darwin") {
         println!("cargo:rustc-link-lib=framework=Cocoa");
+        println!("cargo:rustc-link-lib=framework=CoreVideo");
 
         add_sources(&mut build, &root, common_c);
         add_sources(&mut build, &root, macos_sources);

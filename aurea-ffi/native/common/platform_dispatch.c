@@ -60,6 +60,10 @@ void ng_platform_request_frame(void) {
     DISPATCH_VOID(request_frame);
 }
 
+void ng_platform_frame_idle(void) {
+    DISPATCH_VOID(frame_idle);
+}
+
 NGHandle ng_platform_create_window(const char* t, int w, int h) {
     DISPATCH_INIT(NGHandle, create_window, t, w, h);
 }
