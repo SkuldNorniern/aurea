@@ -41,9 +41,9 @@ impl Edge {
 }
 
 /// Converts a path into a list of edges for the scanline filler (lines, quads and cubics
-/// subdivided).
-pub fn tessellate_path(path: &Path) -> Vec<Edge> {
-    let mut edges = Vec::new();
+/// subdivided), reusing `out`'s existing allocation instead of allocating a fresh `Vec`.
+pub fn tessellate_path_into(path: &Path, edges: &mut Vec<Edge>) {
+    edges.clear();
     let mut current_point = Point::new(0.0, 0.0);
     let mut start_point = Point::new(0.0, 0.0);
     let mut has_start = false;
@@ -99,8 +99,6 @@ pub fn tessellate_path(path: &Path) -> Vec<Edge> {
             }
         }
     }
-
-    edges
 }
 
 fn quadratic_bezier(p0: Point, p1: Point, p2: Point, t: f32) -> Point {

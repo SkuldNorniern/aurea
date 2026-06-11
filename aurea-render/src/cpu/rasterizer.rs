@@ -9,7 +9,7 @@ use super::super::types::{
 };
 use super::blend::{blend_pixel, linear_to_srgb_u8, srgb_to_linear};
 use super::context::CpuDrawingContext;
-use super::path::tessellate_path;
+use super::path::{tessellate_path_into, Edge};
 use super::scanline::fill_scanline;
 use aurea_foundation::AureaResult;
 
@@ -22,6 +22,7 @@ pub struct CpuRasterizer {
     scale_factor: f32,
     display_list: DisplayList,
     pending_damage: Option<Rect>,
+    scratch_edges: Vec<Edge>,
 }
 
 impl CpuRasterizer {
@@ -35,6 +36,7 @@ impl CpuRasterizer {
             scale_factor: 1.0,
             display_list: DisplayList::new(),
             pending_damage: None,
+            scratch_edges: Vec::new(),
         }
     }
 
@@ -80,6 +82,7 @@ impl CpuRasterizer {
         item: &super::super::display_list::DisplayItem,
         damage: Option<&Rect>,
         buf: &mut Vec<u32>,
+        scratch_edges: &mut Vec<Edge>,
         bw: u32,
         bh: u32,
     ) -> AureaResult<()> {
@@ -100,7 +103,7 @@ impl CpuRasterizer {
                 Self::draw_circle(*center, *radius, paint, item.blend_mode, buf, bw, bh);
             }
             DrawCommand::DrawPath(path, paint) => {
-                Self::draw_path(path, paint, item.blend_mode, buf, bw, bh)?;
+                Self::draw_path(path, paint, item.blend_mode, buf, scratch_edges, bw, bh)?;
             }
             DrawCommand::DrawGlyphMask(mask, origin, color) => {
                 Self::draw_glyph(mask, *origin, *color, buf, bw, bh);
@@ -293,21 +296,22 @@ impl CpuRasterizer {
         paint: &Paint,
         mode: BlendMode,
         buf: &mut Vec<u32>,
+        scratch_edges: &mut Vec<Edge>,
         bw: u32,
         bh: u32,
     ) -> AureaResult<()> {
-        let edges = tessellate_path(path);
-        if edges.is_empty() {
+        tessellate_path_into(path, scratch_edges);
+        if scratch_edges.is_empty() {
             return Ok(());
         }
 
-        let y_min = edges.iter().map(|e| e.y_min).fold(f32::MAX, f32::min);
-        let y_max = edges.iter().map(|e| e.y_max).fold(f32::MIN, f32::max);
+        let y_min = scratch_edges.iter().map(|e| e.y_min).fold(f32::MAX, f32::min);
+        let y_max = scratch_edges.iter().map(|e| e.y_max).fold(f32::MIN, f32::max);
         let y_start = y_min.max(0.0).ceil() as u32;
         let y_end = y_max.min(bh as f32).ceil() as u32;
 
         for y in y_start..y_end {
-            fill_scanline(&edges, y as f32, buf, bw, bh, 0, 0, paint.color, mode);
+            fill_scanline(scratch_edges, y as f32, buf, bw, bh, 0, 0, paint.color, mode);
         }
         Ok(())
     }
@@ -601,7 +605,14 @@ impl Renderer for CpuRasterizer {
             if has_known_bounds && damage.as_ref().is_some_and(|rect| !item.intersects(rect)) {
                 continue;
             }
-            Self::render_item(item, damage.as_ref(), &mut self.frame_buffer, bw, bh)?;
+            Self::render_item(
+                item,
+                damage.as_ref(),
+                &mut self.frame_buffer,
+                &mut self.scratch_edges,
+                bw,
+                bh,
+            )?;
         }
 
         use crate::renderer::CURRENT_BUFFER;
