@@ -21,6 +21,7 @@ unsafe extern "C" {
     pub fn ng_platform_run() -> c_int;
     pub fn ng_platform_poll_events() -> c_int;
     pub fn ng_platform_request_frame();
+    pub fn ng_platform_frame_idle();
 
     pub fn ng_platform_create_window(
         title: *const c_char,
