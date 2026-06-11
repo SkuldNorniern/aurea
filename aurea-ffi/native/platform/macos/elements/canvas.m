@@ -3,6 +3,7 @@
 #import "../../../common/errors.h"
 #import "../../../common/rust_callbacks.h"
 #import <Cocoa/Cocoa.h>
+#import <QuartzCore/QuartzCore.h>
 #import <stdlib.h>
 #import <string.h>
 
@@ -38,32 +39,8 @@
 }
 
 - (void)drawRect:(NSRect)dirtyRect {
-    (void)dirtyRect;
-    if (self.renderBuffer && self.bufferWidth > 0 && self.bufferHeight > 0) {
-        CGContextRef context = [[NSGraphicsContext currentContext] CGContext];
-        CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-        unsigned int w = self.bufferWidth;
-        unsigned int h = self.bufferHeight;
-        CGDataProviderRef provider = CGDataProviderCreateWithData(
-            NULL, (const void*)self.renderBuffer, (size_t)w * h * 4, NULL);
-        CGImageRef image = CGImageCreate(w, h, 8, 32, (size_t)w * 4, colorSpace,
-            (CGBitmapInfo)kCGImageAlphaFirst | kCGBitmapByteOrder32Little,
-            provider, NULL, NO, kCGRenderingIntentDefault);
-        if (image) {
-            CGRect vr = [self bounds];
-            CGContextSaveGState(context);
-            CGContextTranslateCTM(context, 0.0, vr.size.height);
-            CGContextScaleCTM(context, 1.0, -1.0);
-            CGContextDrawImage(context, vr, image);
-            CGContextRestoreGState(context);
-            CGImageRelease(image);
-        }
-        CGDataProviderRelease(provider);
-        CGColorSpaceRelease(colorSpace);
-    } else {
-        [[NSColor windowBackgroundColor] setFill];
-        NSRectFill(dirtyRect);
-    }
+    [[NSColor windowBackgroundColor] setFill];
+    NSRectFill(dirtyRect);
 }
 
 - (void)dealloc {
@@ -93,25 +70,45 @@ NGHandle ng_macos_create_canvas(int width, int height) {
 }
 
 void ng_macos_canvas_invalidate(NGHandle canvas) {
-    if (!canvas) return;
-    NSView* view = (__bridge NSView*)canvas;
-    [view setNeedsDisplay:YES];
+    (void)canvas;
 }
 
 void ng_macos_canvas_invalidate_rect(NGHandle canvas, float x, float y, float width, float height) {
-    if (!canvas) return;
-    NSView* view = (__bridge NSView*)canvas;
-    NSRect rect = NSMakeRect(x, y, width, height);
-    [view setNeedsDisplayInRect:rect];
+    (void)canvas;
+    (void)x;
+    (void)y;
+    (void)width;
+    (void)height;
 }
+
+static CGColorSpaceRef s_canvas_colorspace = NULL;
 
 void ng_macos_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size __attribute__((unused)), unsigned int width, unsigned int height) {
     if (!canvas || !buffer || width == 0 || height == 0) return;
     AureaCanvasView* view = (__bridge AureaCanvasView*)canvas;
     if (![view isKindOfClass:[AureaCanvasView class]]) return;
+
     view.renderBuffer = buffer;
     view.bufferWidth  = width;
     view.bufferHeight = height;
+
+    if (!s_canvas_colorspace) {
+        s_canvas_colorspace = CGColorSpaceCreateDeviceRGB();
+    }
+
+    CGDataProviderRef provider = CGDataProviderCreateWithData(
+        NULL, (const void*)buffer, (size_t)width * height * 4, NULL);
+    CGImageRef image = CGImageCreate(width, height, 8, 32, (size_t)width * 4,
+        s_canvas_colorspace,
+        (CGBitmapInfo)kCGImageAlphaFirst | kCGBitmapByteOrder32Little,
+        provider, NULL, NO, kCGRenderingIntentDefault);
+    CGDataProviderRelease(provider);
+    if (!image) return;
+
+    view.layer.contents = (__bridge id)image;
+    CGFloat boundsWidth = view.bounds.size.width;
+    view.layer.contentsScale = (boundsWidth > 0.0) ? (CGFloat)width / boundsWidth : 1.0;
+    CGImageRelease(image);
 }
 
 void ng_macos_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int* height) {
