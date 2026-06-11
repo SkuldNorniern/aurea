@@ -232,12 +232,61 @@ impl CpuRasterizer {
 
         match paint.style {
             PaintStyle::Fill => {
+                // Per row, compute the analytically fully-covered span and
+                // memset/blend it directly; only the 1-2 pixels at each end
+                // need the per-pixel sqrt-based coverage test.
+                let r_in = (radius - 0.5).max(0.0);
+                let r_out = radius + 0.5;
+                let c_full = color_to_u32(paint.color);
+                let opaque_fast = mode == BlendMode::Normal && paint.color.a == 255;
+
                 for y in y0..y1 {
-                    for x in x0..x1 {
+                    let dy = y as f32 + 0.5 - center.y;
+                    if dy.abs() >= r_out {
+                        continue;
+                    }
+                    let half_out = (r_out * r_out - dy * dy).max(0.0).sqrt();
+                    let xo0 = ((center.x - half_out).floor().max(x0 as f32) as i32).min(x1 as i32);
+                    let xo1 = ((center.x + half_out).ceil().min(x1 as f32) as i32).max(x0 as i32);
+
+                    let (xi0, xi1) = if dy.abs() < r_in {
+                        let half_in = (r_in * r_in - dy * dy).max(0.0).sqrt();
+                        let a = (center.x - half_in).ceil() as i32;
+                        let b = (center.x + half_in).floor() as i32;
+                        if a < b {
+                            (a.clamp(xo0, xo1), b.clamp(xo0, xo1))
+                        } else {
+                            (xo0, xo0)
+                        }
+                    } else {
+                        (xo0, xo0)
+                    };
+
+                    // Left edge pixels (partial coverage).
+                    for x in xo0..xi0 {
                         let cov = circle_coverage(center, radius, x as f32, y as f32);
                         if cov > 0.0 {
                             let c = color_to_u32_with_coverage(paint.color, cov);
-                            Self::buf_set(buf, bw, x as i32, y as i32, c, mode);
+                            Self::buf_set(buf, bw, x, y as i32, c, mode);
+                        }
+                    }
+                    // Fully-covered interior span.
+                    if xi0 < xi1 {
+                        if opaque_fast {
+                            let row_start = (y * bw) as usize;
+                            buf[row_start + xi0 as usize..row_start + xi1 as usize].fill(c_full);
+                        } else {
+                            for x in xi0..xi1 {
+                                Self::buf_set(buf, bw, x, y as i32, c_full, mode);
+                            }
+                        }
+                    }
+                    // Right edge pixels (partial coverage).
+                    for x in xi1..xo1 {
+                        let cov = circle_coverage(center, radius, x as f32, y as f32);
+                        if cov > 0.0 {
+                            let c = color_to_u32_with_coverage(paint.color, cov);
+                            Self::buf_set(buf, bw, x, y as i32, c, mode);
                         }
                     }
                 }
