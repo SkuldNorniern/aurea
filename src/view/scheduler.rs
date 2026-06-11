@@ -8,4 +8,8 @@ pub unsafe extern "C" fn ng_process_frames() {
     if let Err(e) = FrameScheduler::process_frames() {
         log::warn!("Frame processing error: {:?}", e);
     }
+
+    if !FrameScheduler::is_scheduled() {
+        unsafe { crate::ffi::ng_platform_frame_idle() };
+    }
 }

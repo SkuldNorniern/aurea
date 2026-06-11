@@ -19,6 +19,7 @@ void ng_platform_cleanup(void);
 int ng_platform_run(void);
 int ng_platform_poll_events(void);
 void ng_platform_request_frame(void);
+void ng_platform_frame_idle(void);
 
 NGHandle ng_platform_create_window(const char* title, int width, int height);
 NGHandle ng_platform_create_window_with_type(const char* title, int width, int height, int window_type);
