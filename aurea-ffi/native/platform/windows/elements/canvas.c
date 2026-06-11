@@ -86,7 +86,17 @@ static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
                     SetActiveWindow(root);
                     SetFocus(root);
                 }
-                return SendMessageA(root, msg, wParam, lParam);
+                LPARAM out_lParam = lParam;
+                /* WM_MOUSEWHEEL/HWHEEL carry screen coordinates (unused by the
+                   root handler) and WM_MOUSELEAVE carries none — only
+                   position-bearing messages need translation from this
+                   canvas's client space into the root window's client space. */
+                if (msg != WM_MOUSEWHEEL && msg != WM_MOUSEHWHEEL && msg != WM_MOUSELEAVE) {
+                    POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+                    MapWindowPoints(hwnd, root, &pt, 1);
+                    out_lParam = MAKELPARAM(pt.x, pt.y);
+                }
+                return SendMessageA(root, msg, wParam, out_lParam);
             }
             break;
         }

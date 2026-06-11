@@ -7,19 +7,30 @@
 #include "common/rust_callbacks.h"
 #include <gtk/gtk.h>
 
-static gboolean process_frames_idle(gpointer user_data) {
+static guint g_frame_source_id = 0;
+
+static gboolean process_frames_once(gpointer user_data) {
     (void)user_data;
+    g_frame_source_id = 0;
     ng_process_frames();
-    return G_SOURCE_CONTINUE;
+    return G_SOURCE_REMOVE;
 }
 
 int ng_linux_run(void) {
-    g_idle_add(process_frames_idle, NULL);
     gtk_main();
     return NG_SUCCESS;
 }
 
 int ng_linux_poll_events(void) {
-    while (g_main_context_iteration(NULL, FALSE));
+    int iterations = 0;
+    while (iterations < 64 && g_main_context_iteration(NULL, FALSE)) {
+        iterations++;
+    }
     return NG_SUCCESS;
+}
+
+void ng_linux_request_frame(void) {
+    if (g_frame_source_id == 0) {
+        g_frame_source_id = g_idle_add(process_frames_once, NULL);
+    }
 }

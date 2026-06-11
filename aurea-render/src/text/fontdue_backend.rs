@@ -9,8 +9,8 @@
 use super::super::types::{Font, FontStyle, FontWeight, TextMetrics};
 use super::atlas::{GlyphBitmap, GlyphKey};
 use super::platform::{PlatformTextRasterizer, SubpixelGlyph};
+use super::LruCache;
 use aurea_foundation::{AureaError, AureaResult};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -189,16 +189,19 @@ fn load_font_file(path: &Path) -> Option<fontdue::Font> {
 
 pub struct FontDbTextRasterizer {
     dirs: Vec<PathBuf>,
-    font_cache: Mutex<HashMap<FontKey, Arc<fontdue::Font>>>,
-    subpixel_cache: Mutex<HashMap<GlyphKey, Arc<SubpixelGlyph>>>,
+    /// LRU cap: 32 entries — typical UIs use fewer than 10 font variants.
+    font_cache: Mutex<LruCache<FontKey, Arc<fontdue::Font>>>,
+    /// LRU cap: 512 entries — one per (font, char) pair; covers full ASCII +
+    /// common Unicode ranges without unbounded growth on text-heavy views.
+    subpixel_cache: Mutex<LruCache<GlyphKey, Arc<SubpixelGlyph>>>,
 }
 
 impl FontDbTextRasterizer {
     pub fn new() -> Self {
         Self {
             dirs: font_search_dirs(),
-            font_cache: Mutex::new(HashMap::new()),
-            subpixel_cache: Mutex::new(HashMap::new()),
+            font_cache: Mutex::new(LruCache::new(32)),
+            subpixel_cache: Mutex::new(LruCache::new(512)),
         }
     }
 
@@ -272,6 +275,7 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
 
     fn rasterize_subpixel(&self, font: &Font, char_code: u32) -> AureaResult<Arc<SubpixelGlyph>> {
         let key = GlyphKey::new(font, char_code);
+        // LruCache::get takes &mut self to update the recency timestamp.
         if let Some(hit) = aurea_foundation::lock(&self.subpixel_cache).get(&key).cloned() {
             return Ok(hit);
         }

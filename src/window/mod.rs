@@ -62,8 +62,17 @@ use aurea_foundation::{Capability, CapabilityChecker};
 use std::{
     ffi::CString,
     os::raw::c_void,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
+
+/// Number of live `Window`s. The platform is only torn down via
+/// `ng_platform_cleanup()` when the last window is dropped — calling it while
+/// other windows are still alive would destroy shared platform state (e.g.
+/// `UnregisterClassA` on Windows) out from under them.
+static WINDOW_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 pub use crate::registry::window::{
     process_all_window_events, process_all_window_updates, push_window_event,
@@ -113,7 +122,11 @@ impl Window {
             }
             if unsafe { ng_platform_init() } != 0 {
                 error = Some(AureaError::PlatformError(1));
+                return;
             }
+            FrameScheduler::set_request_frame_hook(|| {
+                unsafe { crate::ffi::ng_platform_request_frame() };
+            });
         });
 
         if let Some(err) = error {
@@ -200,6 +213,8 @@ impl Window {
             ng_platform_window_set_lifecycle_callback(handle);
             ng_platform_window_set_scale_factor_callback(handle, ng_invoke_scale_factor_changed);
         }
+
+        WINDOW_COUNT.fetch_add(1, Ordering::Relaxed);
 
         Ok(Self {
             handle,
@@ -657,7 +672,11 @@ impl Drop for Window {
 
         unsafe {
             ng_platform_destroy_window(self.handle);
-            ng_platform_cleanup();
+        }
+
+        if WINDOW_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
+            // Last window — safe to tear down shared platform state.
+            unsafe { ng_platform_cleanup() };
         }
     }
 }
