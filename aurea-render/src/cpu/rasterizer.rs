@@ -409,20 +409,67 @@ impl CpuRasterizer {
         let y0 = dest.y.max(0.0).ceil() as i32;
         let x1 = (dest.x + dest.width).min(bw as f32).floor() as i32;
         let y1 = (dest.y + dest.height).min(bh as f32).floor() as i32;
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
+
+        let max_sx = image.width as f32 - 0.001;
+        let max_sy = image.height as f32 - 0.001;
+
+        // Unscaled 1:1 copy: skip the per-pixel division entirely and walk
+        // the source row left-to-right with a plain offset.
+        if (src.width - dest.width).abs() < 0.001 && (src.height - dest.height).abs() < 0.001 {
+            let sx0 = (x0 as f32 - dest.x) + src.x;
+            let mut row_buf = vec![0u32; (x1 - x0) as usize];
+            for cy in y0..y1 {
+                let v = (cy as f32 - dest.y) + src.y;
+                let sy = v.clamp(0.0, max_sy) as u32;
+                let src_row = &image.data[sy as usize * image.width as usize * 4..];
+                let mut all_opaque = true;
+                for (i, slot) in row_buf.iter_mut().enumerate() {
+                    let sx = (sx0 + i as f32).clamp(0.0, max_sx) as usize;
+                    let ii = sx * 4;
+                    if ii + 3 >= src_row.len() {
+                        *slot = 0;
+                        all_opaque = false;
+                        continue;
+                    }
+                    let a = src_row[ii + 3];
+                    if a != 255 {
+                        all_opaque = false;
+                    }
+                    *slot = ((a as u32) << 24)
+                        | ((src_row[ii] as u32) << 16)
+                        | ((src_row[ii + 1] as u32) << 8)
+                        | (src_row[ii + 2] as u32);
+                }
+                if mode == BlendMode::Normal && all_opaque {
+                    let row_start = (cy as u32 * bw + x0 as u32) as usize;
+                    buf[row_start..row_start + row_buf.len()].copy_from_slice(&row_buf);
+                } else {
+                    for (i, &c) in row_buf.iter().enumerate() {
+                        Self::buf_set(buf, bw, x0 + i as i32, cy, c, mode);
+                    }
+                }
+            }
+            return;
+        }
+
         for cy in y0..y1 {
+            let v = (cy as f32 - dest.y) / dest.height * src.height + src.y;
+            let sy = v.clamp(0.0, max_sy) as u32;
+            let src_row = &image.data[sy as usize * image.width as usize * 4..];
             for cx in x0..x1 {
                 let u = (cx as f32 - dest.x) / dest.width * src.width + src.x;
-                let v = (cy as f32 - dest.y) / dest.height * src.height + src.y;
-                let sx = u.clamp(0.0, image.width as f32 - 0.001) as u32;
-                let sy = v.clamp(0.0, image.height as f32 - 0.001) as u32;
-                let ii = (sy as usize * image.width as usize + sx as usize) * 4;
-                if ii + 3 >= image.data.len() {
+                let sx = u.clamp(0.0, max_sx) as u32;
+                let ii = sx as usize * 4;
+                if ii + 3 >= src_row.len() {
                     continue;
                 }
-                let rgba = ((image.data[ii + 3] as u32) << 24)
-                    | ((image.data[ii] as u32) << 16)
-                    | ((image.data[ii + 1] as u32) << 8)
-                    | (image.data[ii + 2] as u32);
+                let rgba = ((src_row[ii + 3] as u32) << 24)
+                    | ((src_row[ii] as u32) << 16)
+                    | ((src_row[ii + 1] as u32) << 8)
+                    | (src_row[ii + 2] as u32);
                 Self::buf_set(buf, bw, cx, cy, rgba, mode);
             }
         }
