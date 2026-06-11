@@ -204,9 +204,31 @@ static unsigned int ng_windows_keycode_from_vk(WPARAM vk) {
     }
 }
 
+// WM_CHAR delivers UTF-16 code units one at a time, so a surrogate pair
+// (e.g. emoji, characters outside the BMP) arrives as two messages. Buffer
+// the high surrogate until its matching low surrogate arrives.
+static wchar_t g_high_surrogate = 0;
+
 static void ng_windows_emit_text_input(HWND hwnd, wchar_t wc) {
+    if (wc >= 0xD800 && wc <= 0xDBFF) {
+        g_high_surrogate = wc;
+        return;
+    }
+
+    wchar_t units[2];
+    int count;
+    if (g_high_surrogate != 0 && wc >= 0xDC00 && wc <= 0xDFFF) {
+        units[0] = g_high_surrogate;
+        units[1] = wc;
+        count = 2;
+    } else {
+        units[0] = wc;
+        count = 1;
+    }
+    g_high_surrogate = 0;
+
     char buffer[8];
-    int len = WideCharToMultiByte(CP_UTF8, 0, &wc, 1, buffer, (int)sizeof(buffer) - 1, NULL, NULL);
+    int len = WideCharToMultiByte(CP_UTF8, 0, units, count, buffer, (int)sizeof(buffer) - 1, NULL, NULL);
     if (len > 0) {
         buffer[len] = '\0';
         ng_invoke_text_input((void*)hwnd, buffer);
