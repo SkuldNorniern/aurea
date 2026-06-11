@@ -2,6 +2,7 @@
 #include "../elements.h"
 #include "common/errors.h"
 #include <windows.h>
+#include <windowsx.h>
 #include <stdlib.h>
 #include <string.h>
 
