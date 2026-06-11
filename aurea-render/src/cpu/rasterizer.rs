@@ -418,6 +418,16 @@ impl CpuRasterizer {
         ((c.a as u32) << 24) | ((c.r as u32) << 16) | ((c.g as u32) << 8) | (c.b as u32)
     }
 
+    /// Precompute 256 evenly-spaced gradient samples so the per-pixel loop
+    /// does a table lookup instead of an O(stops) search through `stops`.
+    fn build_gradient_lut(stops: &[GradientStop]) -> [u32; 256] {
+        let mut lut = [0u32; 256];
+        for (i, slot) in lut.iter_mut().enumerate() {
+            *slot = Self::gradient_color_at(stops, i as f32 / 255.0);
+        }
+        lut
+    }
+
     fn fill_linear_gradient(
         grad: &LinearGradient,
         rect: Rect,
@@ -432,6 +442,7 @@ impl CpuRasterizer {
         if len_sq < 1e-10 {
             return;
         }
+        let lut = Self::build_gradient_lut(&grad.stops);
         let x0 = rect.x.max(0.0).ceil() as i32;
         let y0 = rect.y.max(0.0).ceil() as i32;
         let x1 = (rect.x + rect.width).min(bw as f32).floor() as i32;
@@ -441,8 +452,8 @@ impl CpuRasterizer {
                 let t = ((cx as f32 + 0.5 - grad.start.x) * dx
                     + (cy as f32 + 0.5 - grad.start.y) * dy)
                     / len_sq;
-                let rgba = Self::gradient_color_at(&grad.stops, t.clamp(0.0, 1.0));
-                Self::buf_set(buf, bw, cx, cy, rgba, mode);
+                let t_idx = (t.clamp(0.0, 1.0) * 255.0).round() as usize;
+                Self::buf_set(buf, bw, cx, cy, lut[t_idx], mode);
             }
         }
     }
@@ -458,6 +469,7 @@ impl CpuRasterizer {
         if grad.radius <= 0.0 {
             return;
         }
+        let lut = Self::build_gradient_lut(&grad.stops);
         let x0 = rect.x.max(0.0).ceil() as i32;
         let y0 = rect.y.max(0.0).ceil() as i32;
         let x1 = (rect.x + rect.width).min(bw as f32).floor() as i32;
@@ -468,8 +480,8 @@ impl CpuRasterizer {
                     + (cy as f32 + 0.5 - grad.center.y).powi(2))
                 .sqrt();
                 let t = (dist / grad.radius).min(1.0);
-                let rgba = Self::gradient_color_at(&grad.stops, t);
-                Self::buf_set(buf, bw, cx, cy, rgba, mode);
+                let t_idx = (t.clamp(0.0, 1.0) * 255.0).round() as usize;
+                Self::buf_set(buf, bw, cx, cy, lut[t_idx], mode);
             }
         }
     }
