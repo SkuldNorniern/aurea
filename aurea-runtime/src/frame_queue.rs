@@ -17,19 +17,34 @@ static PENDING_CANVASES: LazyLock<Mutex<HashSet<usize>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
 static FRAME_CALLBACKS: LazyLock<Mutex<Vec<FrameCallback>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
+static REQUEST_FRAME_HOOK: LazyLock<Mutex<Option<Box<dyn Fn() + Send + Sync>>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 pub struct FrameScheduler;
 
 impl FrameScheduler {
+    pub fn set_request_frame_hook<F: Fn() + Send + Sync + 'static>(f: F) {
+        *aurea_foundation::lock(&REQUEST_FRAME_HOOK) = Some(Box::new(f));
+    }
+
+    fn notify_platform() {
+        if let Some(hook) = aurea_foundation::lock(&REQUEST_FRAME_HOOK).as_ref() {
+            hook();
+        }
+    }
+
     pub fn schedule() {
         ALL_CANVASES_SCHEDULED.store(true, Ordering::Relaxed);
         FRAME_SCHEDULED.store(true, Ordering::Relaxed);
+        Self::notify_platform();
     }
 
     pub fn schedule_canvas(handle: *mut c_void) {
         let mut pending = aurea_foundation::lock(&PENDING_CANVASES);
         pending.insert(handle as usize);
         FRAME_SCHEDULED.store(true, Ordering::Relaxed);
+        drop(pending);
+        Self::notify_platform();
     }
 
     pub fn take() -> bool {

@@ -11,8 +11,8 @@
 
 use super::super::types::{Color, Font, GlyphMask, Point};
 use super::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
+use super::LruCache;
 use aurea_foundation::AureaResult;
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 /// A single glyph rasterized to device-resolution RGB subpixel coverage.
@@ -69,15 +69,34 @@ pub fn get_platform_rasterizer() -> Box<dyn PlatformTextRasterizer> {
     Box::new(super::fontdue_backend::FontDbTextRasterizer::new())
 }
 
+/// Cache key for a multi-character glyph run.
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct RunKey {
+    text: String,
+    family: String,
+    size_bits: u32, // f32::to_bits(); already device-scaled by caller
+}
+
+impl RunKey {
+    fn new(text: &str, font: &Font) -> Self {
+        Self {
+            text: text.to_owned(),
+            family: font.family.trim().to_lowercase(),
+            size_bits: font.size.to_bits(),
+        }
+    }
+}
+
 /// Text renderer: owns a backend + a glyph atlas, and shapes runs.
 pub struct TextRenderer {
     rasterizer: Box<dyn PlatformTextRasterizer>,
     atlas: GlyphAtlas,
-    /// Per-glyph mask cache keyed by (font, char).  Single-char calls — which
-    /// make up >99% of draw_text_with_font calls in the editor — hit this cache
-    /// and return an O(1) Arc clone instead of allocating a new Vec<u8> every
-    /// frame.  Multi-char runs bypass it and allocate normally.
-    mask_cache: Mutex<HashMap<GlyphKey, (GlyphMask, f32, f32)>>,
+    /// Per-glyph mask cache for single-character calls (>99% of the hot path).
+    /// LRU cap: 256 entries — large enough for a full ASCII + common Unicode set.
+    mask_cache: Mutex<LruCache<GlyphKey, (GlyphMask, f32, f32)>>,
+    /// Multi-character run cache. Prevents re-rasterizing unchanged text strings
+    /// on every frame. LRU cap: 512 entries.
+    run_cache: Mutex<LruCache<RunKey, (GlyphMask, f32, f32)>>,
 }
 
 impl TextRenderer {
@@ -85,7 +104,8 @@ impl TextRenderer {
         Self {
             rasterizer: get_platform_rasterizer(),
             atlas: GlyphAtlas::new(4), // 4MB cache budget
-            mask_cache: Mutex::new(HashMap::new()),
+            mask_cache: Mutex::new(LruCache::new(256)),
+            run_cache: Mutex::new(LruCache::new(512)),
         }
     }
 
@@ -96,17 +116,18 @@ impl TextRenderer {
     /// ascent - pad)`. Per-glyph coverage comes pre-hinted from the backend;
     /// this just lays glyphs out along the pen and max-combines overlaps.
     ///
-    /// Single-character calls use a persistent mask cache so the Arc<[u8]>
-    /// coverage is shared across frames — no per-frame heap allocation.
+    /// Single-character calls use the per-glyph mask cache (256-entry LRU).
+    /// Multi-character runs use the run cache (512-entry LRU) — no per-frame
+    /// heap allocation for unchanged text.
     pub fn render_text_subpixel(
         &self,
         text: &str,
         font: &Font,
     ) -> AureaResult<(GlyphMask, f32, f32)> {
-        // Fast path: single character — check the mask cache first.
         let mut chars = text.chars();
         if let Some(ch) = chars.next() {
             if chars.next().is_none() {
+                // Single character — per-glyph mask cache.
                 let key = GlyphKey::new(font, ch as u32);
                 if let Some(cached) = aurea_foundation::lock(&self.mask_cache).get(&key).cloned() {
                     return Ok(cached);
@@ -117,7 +138,14 @@ impl TextRenderer {
             }
         }
 
-        self.compute_mask(text, font)
+        // Multi-character run — run-mask cache.
+        let run_key = RunKey::new(text, font);
+        if let Some(cached) = aurea_foundation::lock(&self.run_cache).get(&run_key).cloned() {
+            return Ok(cached);
+        }
+        let result = self.compute_mask(text, font)?;
+        aurea_foundation::lock(&self.run_cache).insert(run_key, result.clone());
+        Ok(result)
     }
 
     fn compute_mask(&self, text: &str, font: &Font) -> AureaResult<(GlyphMask, f32, f32)> {

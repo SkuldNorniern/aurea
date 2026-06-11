@@ -15,6 +15,9 @@
 @property (nonatomic, assign) unsigned int bufferHeight;
 @property (nonatomic, assign) unsigned int requestedWidth;
 @property (nonatomic, assign) unsigned int requestedHeight;
+// Last size recorded by -layout; avoids layoutSubtreeIfNeeded on every frame.
+@property (nonatomic, assign) unsigned int cachedWidth;
+@property (nonatomic, assign) unsigned int cachedHeight;
 @end
 
 @implementation AureaCanvasView
@@ -28,10 +31,16 @@
 }
 
 - (void)layout {
+    NSSize oldSize = self.bounds.size;
     [super layout];
-    // AutoLayout changed our frame – schedule a repaint so Rust picks up
-    // the new bounds on the next check_and_resize pass.
-    [self setNeedsDisplay:YES];
+    NSSize newSize = self.bounds.size;
+    if (!NSEqualSizes(oldSize, newSize)) {
+        // Cache the new size so canvas_get_size can read it without forcing
+        // another layout pass.
+        self.cachedWidth  = (unsigned int)newSize.width;
+        self.cachedHeight = (unsigned int)newSize.height;
+        [self setNeedsDisplay:YES];
+    }
 }
 
 - (void)drawRect:(NSRect)dirtyRect {
@@ -80,6 +89,9 @@ NGHandle ng_macos_create_canvas(int width, int height) {
         canvasView.bufferHeight = 0;
         canvasView.requestedWidth = (unsigned int)width;
         canvasView.requestedHeight = (unsigned int)height;
+        // Seed the cache with the creation dimensions; -layout will update them.
+        canvasView.cachedWidth  = (unsigned int)width;
+        canvasView.cachedHeight = (unsigned int)height;
         [canvasView setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
         [canvasView setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationVertical];
         [canvasView setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
@@ -118,22 +130,16 @@ void ng_macos_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int
 
     AureaCanvasView* view = (__bridge AureaCanvasView*)canvas;
     if (![view isKindOfClass:[AureaCanvasView class]]) {
-        // Fallback for unknown view types.
         NSRect bounds = [view bounds];
         *width  = (unsigned int)bounds.size.width;
         *height = (unsigned int)bounds.size.height;
         return;
     }
 
-    // Force AutoLayout to finish so we read the post-resize bounds, not the
-    // stale pre-layout frame that exists when windowDidResize: fires.
-    [view layoutSubtreeIfNeeded];
-
-    NSRect bounds = [view bounds];
-    unsigned int w = (unsigned int)bounds.size.width;
-    unsigned int h = (unsigned int)bounds.size.height;
-
-    // Fall back to the creation size only if layout hasn't produced valid bounds.
+    // Read from the ivar cache updated by -layout instead of forcing a
+    // synchronous layout subtree pass on every frame.
+    unsigned int w = view.cachedWidth;
+    unsigned int h = view.cachedHeight;
     if (w == 0) w = view.requestedWidth;
     if (h == 0) h = view.requestedHeight;
 

@@ -12,6 +12,7 @@ typedef struct ng_platform_ops {
     void (*cleanup)(void);
     int (*run)(void);
     int (*poll_events)(void);
+    void (*request_frame)(void);
 
     NGHandle (*create_window)(const char* title, int width, int height);
     NGHandle (*create_window_with_type)(const char* title, int width, int height, int window_type);

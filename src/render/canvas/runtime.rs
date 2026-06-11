@@ -26,6 +26,12 @@ impl Canvas {
             return Ok(());
         }
 
+        // Null the buffer pointer before any reallocation so the stale raw
+        // pointer never escapes to the platform layer.
+        CURRENT_BUFFER.with(|buf| {
+            *buf.borrow_mut() = None;
+        });
+
         if scale_changed {
             let mut renderer_guard = crate::sync::lock(self.renderer.as_ref());
             if let Some(ref mut renderer) = *renderer_guard {
@@ -40,10 +46,6 @@ impl Canvas {
                 renderer.init(surface, surface_info)?;
             }
         }
-
-        CURRENT_BUFFER.with(|buf| {
-            *buf.borrow_mut() = None;
-        });
 
         if size_changed {
             let mut renderer_guard = crate::sync::lock(self.renderer.as_ref());
@@ -189,6 +191,12 @@ impl Canvas {
             };
 
             if size_changed || scale_changed {
+                // Clear before any resize/init so the stale raw pointer from
+                // the previous frame never reaches the platform layer.
+                CURRENT_BUFFER.with(|buf| {
+                    *buf.borrow_mut() = None;
+                });
+
                 let mut renderer_guard = crate::sync::lock(renderer.as_ref());
                 if let Some(ref mut r) = *renderer_guard {
                     if scale_changed {
@@ -206,10 +214,6 @@ impl Canvas {
                         r.resize(metrics_width, metrics_height)?;
                     }
                 }
-
-                CURRENT_BUFFER.with(|buf| {
-                    *buf.borrow_mut() = None;
-                });
 
                 let mut flag = crate::sync::lock(needs_redraw.as_ref());
                 *flag = true;

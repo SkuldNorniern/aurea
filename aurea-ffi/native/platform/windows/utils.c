@@ -249,12 +249,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             if (idx >= 0 && !g_mouse_inside[idx]) {
                 g_mouse_inside[idx] = TRUE;
                 ng_invoke_cursor_entered((void*)hwnd, 1);
+                // Only arm WM_MOUSELEAVE tracking on the enter transition; the
+                // subscription stays active until the leave fires, so re-arming
+                // every WM_MOUSEMOVE is wasteful.
+                TRACKMOUSEEVENT tme = {0};
+                tme.cbSize = sizeof(TRACKMOUSEEVENT);
+                tme.dwFlags = TME_LEAVE;
+                tme.hwndTrack = hwnd;
+                TrackMouseEvent(&tme);
             }
-            TRACKMOUSEEVENT tme = {0};
-            tme.cbSize = sizeof(TRACKMOUSEEVENT);
-            tme.dwFlags = TME_LEAVE;
-            tme.hwndTrack = hwnd;
-            TrackMouseEvent(&tme);
 
             double x = (double)GET_X_LPARAM(lParam);
             double y = (double)GET_Y_LPARAM(lParam);
