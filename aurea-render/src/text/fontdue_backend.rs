@@ -6,9 +6,9 @@
 //! Instead we do a cheap filename-based search in the standard font directories
 //! and load only the single file we actually need.
 
-use super::super::types::{Font, FontStyle, FontWeight, TextMetrics};
+use super::super::types::{FontStyle, FontWeight, TextMetrics};
 use super::atlas::{GlyphBitmap, GlyphKey};
-use super::platform::{PlatformTextRasterizer, SubpixelGlyph};
+use super::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph};
 use super::LruCache;
 use aurea_foundation::{AureaError, AureaResult};
 use std::path::{Path, PathBuf};
@@ -16,17 +16,26 @@ use std::sync::{Arc, Mutex};
 
 // ── Font key ─────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// A `u64` fingerprint of the normalized family + weight/style, so
+/// `resolve_font` never allocates a `String` on a cache hit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct FontKey {
-    family: String, // normalised (lowercase, trimmed)
+    family_hash: u64,
     weight: FontWeight,
     style: FontStyle,
 }
 
 impl FontKey {
-    fn from_font(font: &Font) -> Self {
+    fn from_font(font: FontRef) -> Self {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        for c in font.family.chars().flat_map(char::to_lowercase) {
+            c.hash(&mut hasher);
+        }
         Self {
-            family: font.family.trim().to_lowercase(),
+            family_hash: hasher.finish(),
             weight: font.weight,
             style: font.style,
         }
@@ -205,22 +214,23 @@ impl FontDbTextRasterizer {
         }
     }
 
-    fn resolve_font(&self, font: &Font) -> AureaResult<Arc<fontdue::Font>> {
+    fn resolve_font(&self, font: FontRef) -> AureaResult<Arc<fontdue::Font>> {
         let key = FontKey::from_font(font);
 
         if let Some(hit) = aurea_foundation::lock(&self.font_cache).get(&key).cloned() {
             return Ok(hit);
         }
 
-        let loaded = self.load_for_key(&key)?;
+        let loaded = self.load_for_key(font)?;
         aurea_foundation::lock(&self.font_cache).insert(key, loaded.clone());
         Ok(loaded)
     }
 
-    fn load_for_key(&self, key: &FontKey) -> AureaResult<Arc<fontdue::Font>> {
-        // 1. Filename search for the requested family.
-        if !key.family.is_empty() {
-            if let Some(path) = find_by_filename(&key.family, &self.dirs) {
+    fn load_for_key(&self, font: FontRef) -> AureaResult<Arc<fontdue::Font>> {
+        // 1. Filename search for the requested family. `find_by_filename`
+        // normalizes the family internally, so no allocation is needed here.
+        if !font.family.is_empty() {
+            if let Some(path) = find_by_filename(font.family, &self.dirs) {
                 if let Some(f) = load_font_file(&path) {
                     return Ok(Arc::new(f));
                 }
@@ -245,7 +255,7 @@ impl Default for FontDbTextRasterizer {
 }
 
 impl PlatformTextRasterizer for FontDbTextRasterizer {
-    fn rasterize_glyph(&self, font: &Font, char_code: u32) -> AureaResult<GlyphBitmap> {
+    fn rasterize_glyph(&self, font: FontRef, char_code: u32) -> AureaResult<GlyphBitmap> {
         let fnt = self.resolve_font(font)?;
         let ch = char::from_u32(char_code).unwrap_or('\u{FFFD}');
         let (m, bmp) = fnt.rasterize(ch, font.size);
@@ -273,7 +283,7 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
         })
     }
 
-    fn rasterize_subpixel(&self, font: &Font, char_code: u32) -> AureaResult<Arc<SubpixelGlyph>> {
+    fn rasterize_subpixel(&self, font: FontRef, char_code: u32) -> AureaResult<Arc<SubpixelGlyph>> {
         let key = GlyphKey::new(font, char_code);
         // LruCache::get takes &mut self to update the recency timestamp.
         if let Some(hit) = aurea_foundation::lock(&self.subpixel_cache).get(&key).cloned() {
@@ -356,7 +366,7 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
         Ok(g)
     }
 
-    fn measure_text(&self, text: &str, font: &Font) -> AureaResult<TextMetrics> {
+    fn measure_text(&self, text: &str, font: FontRef) -> AureaResult<TextMetrics> {
         let fnt = self.resolve_font(font)?;
         let advance: f32 = text
             .chars()
@@ -381,13 +391,14 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Font;
 
     #[test]
     fn loads_a_font_or_fallback() {
         let r = FontDbTextRasterizer::new();
         let font = Font::new("__no_such_font__", 14.0);
         let m = r
-            .measure_text("A", &font)
+            .measure_text("A", (&font).into())
             .expect("should fall back to a system font");
         assert!(m.ascent > 0.0);
     }

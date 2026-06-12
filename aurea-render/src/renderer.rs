@@ -679,7 +679,7 @@ impl DrawingContext for PlaceholderDrawingContext {
             return Ok(());
         }
 
-        let metrics = PLACEHOLDER_TEXT_RENDERER.measure_text(text, font)?;
+        let metrics = PLACEHOLDER_TEXT_RENDERER.measure_text(text, font.into())?;
         if metrics.width <= 0.0 || metrics.height <= 0.0 {
             return Ok(());
         }
@@ -693,7 +693,7 @@ impl DrawingContext for PlaceholderDrawingContext {
         PLACEHOLDER_TEXT_RENDERER.render_text(
             text,
             origin,
-            font,
+            font.into(),
             paint.color,
             &mut buffer,
             width,
@@ -733,7 +733,7 @@ impl DrawingContext for PlaceholderDrawingContext {
                 advance: 0.0,
             });
         }
-        PLACEHOLDER_TEXT_RENDERER.measure_text(text, font)
+        PLACEHOLDER_TEXT_RENDERER.measure_text(text, font.into())
     }
 
     fn save(&mut self) -> AureaResult<()> {
