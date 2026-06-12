@@ -25,6 +25,14 @@ pub enum AureaError {
     BackendNotAvailable,
     /// FFI ABI version mismatch between Rust and native library
     AbiVersionMismatch { expected: i32, got: i32 },
+    /// Canvas state is corrupted or has been dropped
+    CanvasStateInvalid,
+    /// Animation ticker failed or panicked
+    AnimationFailed(String),
+    /// Animation ticker ID not found (already unregistered or never registered)
+    AnimationNotFound,
+    /// Internal render frame setup failed
+    RenderFrameSetupFailed(String),
 }
 
 /// Result type for GUI operations.
@@ -78,6 +86,18 @@ impl std::fmt::Display for AureaError {
                     "FFI ABI version mismatch: expected {}, got {}",
                     expected, got
                 )
+            }
+            AureaError::CanvasStateInvalid => {
+                write!(f, "Canvas state is invalid or corrupted")
+            }
+            AureaError::AnimationFailed(msg) => {
+                write!(f, "Animation failed: {}", msg)
+            }
+            AureaError::AnimationNotFound => {
+                write!(f, "Animation ID not found (already unregistered)")
+            }
+            AureaError::RenderFrameSetupFailed(msg) => {
+                write!(f, "Render frame setup failed: {}", msg)
             }
         }
     }
