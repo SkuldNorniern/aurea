@@ -92,6 +92,11 @@ unsafe extern "C" {
     pub fn ng_platform_add_menu_separator(menu_handle: *mut c_void) -> c_int;
     pub fn ng_platform_create_submenu(parent: *mut c_void, title: *const c_char) -> *mut c_void;
 
+    // Clipboard
+    pub fn ng_platform_get_clipboard_text() -> *mut c_char;
+    pub fn ng_platform_free_clipboard_text(text: *mut c_char);
+    pub fn ng_platform_set_clipboard_text(text: *const c_char) -> c_int;
+
     pub fn ng_platform_create_button(title: *const c_char, id: u32) -> *mut c_void;
     pub fn ng_platform_button_invalidate(button: *mut c_void);
     pub fn ng_platform_create_label(text: *const c_char) -> *mut c_void;

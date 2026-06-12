@@ -82,7 +82,10 @@ pub use crate::elements::{
     TextField,
 };
 pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
-pub use crate::window::{CursorGrabMode, Window, WindowId, WindowManager, WindowType};
+pub use crate::window::{
+    CursorGrabMode, Window, WindowId, WindowManager, WindowType, clipboard_text,
+    set_clipboard_text,
+};
 
 // Re-export window event types
 pub use crate::window::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};
