@@ -112,6 +112,9 @@ static const ng_platform_ops_t windows_ops = {
     .sidebar_list_get_selected = ng_windows_sidebar_list_get_selected,
     .sidebar_list_clear = ng_windows_sidebar_list_clear,
     .sidebar_list_invalidate = ng_windows_sidebar_list_invalidate,
+    .get_clipboard_text = ng_windows_get_clipboard_text,
+    .free_clipboard_text = ng_windows_free_clipboard_text,
+    .set_clipboard_text = ng_windows_set_clipboard_text,
 };
 
 void windows_register_ops(void) {

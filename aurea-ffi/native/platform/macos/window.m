@@ -1,4 +1,4 @@
-#import "window.h"
+﻿#import "window.h"
 #import "common/errors.h"
 #import "common/input.h"
 #import "common/rust_callbacks.h"
@@ -262,7 +262,7 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
 
     // Only fire TextInput for printable characters.
     // Exclude: C0/C1 control chars, DEL (0x7F), and the macOS private-use
-    // range 0xF700–0xF8FF which carries arrow keys, F-keys, and other
+    // range 0xF700??xF8FF which carries arrow keys, F-keys, and other
     // non-printable special keys as NSEvent characters.
     NSString* chars = [event characters];
     if (chars && [chars length] > 0) {
@@ -756,3 +756,26 @@ NGHandle ng_macos_window_get_content_view(NGHandle window) {
     NSView* contentView = [nsWindow contentView];
     return (__bridge void*)contentView;
 } 
+
+char* ng_macos_get_clipboard_text(void) {
+    NSPasteboard* pb = [NSPasteboard generalPasteboard];
+    NSString* str = [pb stringForType:NSPasteboardTypeString];
+    if (!str) return NULL;
+    const char* utf8 = [str UTF8String];
+    if (!utf8) return NULL;
+    return strdup(utf8);
+}
+
+void ng_macos_free_clipboard_text(char* text) {
+    free(text);
+}
+
+int ng_macos_set_clipboard_text(const char* text) {
+    if (!text) return NG_ERROR_INVALID_PARAMETER;
+    NSPasteboard* pb = [NSPasteboard generalPasteboard];
+    [pb clearContents];
+    NSString* str = [NSString stringWithUTF8String:text];
+    if (!str) return NG_ERROR_PLATFORM_SPECIFIC;
+    BOOL ok = [pb setString:str forType:NSPasteboardTypeString];
+    return ok ? NG_SUCCESS : NG_ERROR_PLATFORM_SPECIFIC;
+}

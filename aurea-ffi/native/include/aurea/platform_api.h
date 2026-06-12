@@ -20,6 +20,11 @@ void ng_platform_cleanup(void);
 int ng_platform_run(void);
 int ng_platform_poll_events(void);
 
+// Clipboard (global, not per-window)
+char* ng_platform_get_clipboard_text(void);
+void ng_platform_free_clipboard_text(char* text);
+int ng_platform_set_clipboard_text(const char* text);
+
 // Window
 NGHandle ng_platform_create_window(const char* title, int width, int height);
 NGHandle ng_platform_create_window_with_type(const char* title, int width, int height, int window_type);

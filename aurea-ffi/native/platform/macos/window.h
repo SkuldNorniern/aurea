@@ -38,6 +38,10 @@ void ng_macos_window_hide(NGHandle window);
 int ng_macos_window_is_visible(NGHandle window);
 NGHandle ng_macos_window_get_content_view(NGHandle window);
 
+char* ng_macos_get_clipboard_text(void);
+void ng_macos_free_clipboard_text(char* text);
+int ng_macos_set_clipboard_text(const char* text);
+
 #ifdef __cplusplus
 }
 #endif
