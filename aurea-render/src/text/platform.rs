@@ -9,11 +9,43 @@
 //!
 //! [`get_platform_rasterizer`] picks the best available backend per platform.
 
-use super::super::types::{Color, Font, GlyphMask, Point};
+use super::super::types::{Color, Font, FontStyle, FontWeight, GlyphMask, Point};
 use super::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
 use super::LruCache;
 use aurea_foundation::AureaResult;
 use std::sync::{Arc, Mutex};
+
+/// Borrowed font reference for the text-rendering hot path.
+///
+/// Carries the font family as `&str` plus an explicit size, so callers don't
+/// need to allocate a new [`Font`] (which owns a `family: String`) just to
+/// apply a scale factor before rasterizing or measuring text.
+#[derive(Clone, Copy)]
+pub struct FontRef<'a> {
+    pub family: &'a str,
+    pub size: f32,
+    pub weight: FontWeight,
+    pub style: FontStyle,
+}
+
+impl<'a> FontRef<'a> {
+    /// Borrow `font`'s family/weight/style with an explicit (e.g.
+    /// scale-adjusted) `size`.
+    pub fn with_size(font: &'a Font, size: f32) -> Self {
+        Self {
+            family: font.family.trim(),
+            size,
+            weight: font.weight,
+            style: font.style,
+        }
+    }
+}
+
+impl<'a> From<&'a Font> for FontRef<'a> {
+    fn from(font: &'a Font) -> Self {
+        Self::with_size(font, font.size)
+    }
+}
 
 /// A single glyph rasterized to device-resolution RGB subpixel coverage.
 ///
@@ -40,16 +72,16 @@ pub struct SubpixelGlyph {
 /// Platform text rasterizer trait — the backend seam.
 pub trait PlatformTextRasterizer: Send + Sync {
     /// Rasterize a single grayscale glyph (legacy / generic path).
-    fn rasterize_glyph(&self, font: &Font, char_code: u32) -> AureaResult<GlyphBitmap>;
+    fn rasterize_glyph(&self, font: FontRef, char_code: u32) -> AureaResult<GlyphBitmap>;
 
     /// Rasterize a single glyph to hinted RGB subpixel coverage (cached).
-    fn rasterize_subpixel(&self, font: &Font, char_code: u32) -> AureaResult<Arc<SubpixelGlyph>>;
+    fn rasterize_subpixel(&self, font: FontRef, char_code: u32) -> AureaResult<Arc<SubpixelGlyph>>;
 
     /// Measure text dimensions.
     fn measure_text(
         &self,
         text: &str,
-        font: &Font,
+        font: FontRef,
     ) -> AureaResult<super::super::types::TextMetrics>;
 }
 
@@ -70,19 +102,30 @@ pub fn get_platform_rasterizer() -> Box<dyn PlatformTextRasterizer> {
 }
 
 /// Cache key for a multi-character glyph run.
-#[derive(Clone, PartialEq, Eq, Hash)]
+///
+/// A `u64` fingerprint of the text + normalized family + size/weight/style,
+/// so looking up the run cache (the common case, including hits) never
+/// allocates a `String`. The owned text is only needed to render on a miss.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct RunKey {
-    text: String,
-    family: String,
-    size_bits: u32, // f32::to_bits(); already device-scaled by caller
+    hash: u64,
 }
 
 impl RunKey {
-    fn new(text: &str, font: &Font) -> Self {
+    fn new(text: &str, font: FontRef) -> Self {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        text.hash(&mut hasher);
+        for c in font.family.chars().flat_map(char::to_lowercase) {
+            c.hash(&mut hasher);
+        }
+        font.size.to_bits().hash(&mut hasher);
+        font.weight.hash(&mut hasher);
+        font.style.hash(&mut hasher);
         Self {
-            text: text.to_owned(),
-            family: font.family.trim().to_lowercase(),
-            size_bits: font.size.to_bits(),
+            hash: hasher.finish(),
         }
     }
 }
@@ -122,7 +165,7 @@ impl TextRenderer {
     pub fn render_text_subpixel(
         &self,
         text: &str,
-        font: &Font,
+        font: FontRef,
     ) -> AureaResult<(GlyphMask, f32, f32)> {
         let mut chars = text.chars();
         if let Some(ch) = chars.next() {
@@ -148,7 +191,7 @@ impl TextRenderer {
         Ok(result)
     }
 
-    fn compute_mask(&self, text: &str, font: &Font) -> AureaResult<(GlyphMask, f32, f32)> {
+    fn compute_mask(&self, text: &str, font: FontRef) -> AureaResult<(GlyphMask, f32, f32)> {
         let tm = self.rasterizer.measure_text(text, font)?;
         let pad = 3.0f32;
         let ascent = tm.ascent.max(0.0);
@@ -204,7 +247,7 @@ impl TextRenderer {
         &self,
         text: &str,
         position: Point,
-        font: &Font,
+        font: FontRef,
         color: Color,
         buffer: &mut [u32],
         buffer_width: u32,
@@ -284,7 +327,7 @@ impl TextRenderer {
     pub fn measure_text(
         &self,
         text: &str,
-        font: &Font,
+        font: FontRef,
     ) -> AureaResult<super::super::types::TextMetrics> {
         self.rasterizer.measure_text(text, font)
     }
@@ -306,7 +349,7 @@ mod tests {
         let rasterizer = get_platform_rasterizer();
         let font = Font::new("", 24.0);
         let metrics = rasterizer
-            .measure_text("Hello", &font)
+            .measure_text("Hello", (&font).into())
             .expect("measure_text should succeed with system fonts");
         assert!(metrics.width > 0.0, "width should be positive");
         assert!(metrics.ascent > 0.0, "ascent should be positive");
@@ -318,7 +361,7 @@ mod tests {
         let rasterizer = get_platform_rasterizer();
         let font = Font::new("", 24.0);
         let g = rasterizer
-            .rasterize_subpixel(&font, 'A' as u32)
+            .rasterize_subpixel((&font).into(), 'A' as u32)
             .expect("rasterize_subpixel A should succeed");
         assert_eq!(g.coverage.len(), (g.width * g.height * 3) as usize);
     }
