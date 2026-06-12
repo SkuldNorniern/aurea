@@ -6,7 +6,7 @@
 //! (safe: everything runs on the main thread, the pointer is updated before
 //! each `setNeedsDisplay`).
 
-use super::super::display_list::DisplayList;
+use super::super::display_list::{CacheKey, DisplayList};
 use super::super::renderer::{DrawingContext, Renderer};
 use super::super::surface::{Surface, SurfaceInfo};
 use super::super::types::{
@@ -19,6 +19,17 @@ use super::path::{tessellate_path_into, Edge};
 use super::scanline::fill_scanline;
 use aurea_foundation::AureaResult;
 
+/// Result of diffing the current display list against the previous frame's.
+#[derive(Debug)]
+enum FrameDamage {
+    /// The list is positionally identical (same cache keys) to last frame.
+    Unchanged,
+    /// An item with unknown bounds changed; repaint everything.
+    Full,
+    /// Only this region changed.
+    Region(Rect),
+}
+
 pub struct CpuRasterizer {
     /// Physical-resolution pixel buffer — the only pixel allocation.
     frame_buffer: Vec<u32>,
@@ -29,6 +40,10 @@ pub struct CpuRasterizer {
     scale_factor: f32,
     display_list: DisplayList,
     pending_damage: Option<Rect>,
+    /// `(cache_key, bounds)` of each item from the previous frame's display
+    /// list, in display order. Diffed positionally against the current
+    /// frame's list in `end_frame` to compute damage automatically.
+    prev_items: Vec<(CacheKey, Rect)>,
     /// Reused across `draw_path` calls to avoid a `Vec` allocation per path per frame.
     scratch_edges: Vec<Edge>,
     /// Reused across `fill_scanline` calls to avoid a `Vec` allocation per scanline.
@@ -46,6 +61,7 @@ impl CpuRasterizer {
             scale_factor: 1.0,
             display_list: DisplayList::new(),
             pending_damage: None,
+            prev_items: Vec::new(),
             scratch_edges: Vec::new(),
             scratch_xs: Vec::new(),
         }
@@ -727,6 +743,65 @@ impl CpuRasterizer {
             }
         }
     }
+
+    /// Diffs the current display list against `prev_items` positionally to
+    /// find what changed since the last frame. See plan.md P6-A stage 1.
+    fn diff_damage(&self) -> FrameDamage {
+        let new_items = self.display_list.items();
+        let old_items = &self.prev_items;
+        let max_len = new_items.len().max(old_items.len());
+        let mut acc: Option<Rect> = None;
+
+        for i in 0..max_len {
+            let new = new_items.get(i).map(|item| (item.cache_key, item.bounds));
+            let old = old_items.get(i).copied();
+
+            let contribution = match (new, old) {
+                (Some((nk, nb)), Some((ok, ob))) if nk != ok => {
+                    if !is_known_bounds(nb) || !is_known_bounds(ob) {
+                        return FrameDamage::Full;
+                    }
+                    Some(union_rect(nb, ob))
+                }
+                (Some((_, nb)), None) => {
+                    if !is_known_bounds(nb) {
+                        return FrameDamage::Full;
+                    }
+                    Some(nb)
+                }
+                (None, Some((_, ob))) => {
+                    if !is_known_bounds(ob) {
+                        return FrameDamage::Full;
+                    }
+                    Some(ob)
+                }
+                _ => None,
+            };
+
+            acc = match (acc, contribution) {
+                (Some(a), Some(b)) => Some(union_rect(a, b)),
+                (None, Some(b)) => Some(b),
+                (acc, None) => acc,
+            };
+        }
+
+        match acc {
+            Some(r) => FrameDamage::Region(r),
+            None => FrameDamage::Unchanged,
+        }
+    }
+
+    /// Records `(cache_key, bounds)` for every item in the just-rendered
+    /// display list, so the next frame's `diff_damage` can compare against it.
+    fn capture_prev_items(&mut self) {
+        self.prev_items.clear();
+        self.prev_items.extend(
+            self.display_list
+                .items()
+                .iter()
+                .map(|item| (item.cache_key, item.bounds)),
+        );
+    }
 }
 
 impl Renderer for CpuRasterizer {
@@ -738,6 +813,7 @@ impl Renderer for CpuRasterizer {
         self.width = rw;
         self.height = rh;
         self.frame_buffer = vec![0u32; (rw * rh) as usize];
+        self.prev_items.clear();
         Ok(())
     }
 
@@ -761,6 +837,9 @@ impl Renderer for CpuRasterizer {
         self.frame_buffer.resize(new_len, 0);
 
         self.display_list.clear();
+        // The freshly-zeroed buffer no longer matches `prev_items`; the next
+        // frame's diff would otherwise compare against stale positions/sizes.
+        self.prev_items.clear();
         Ok(())
     }
 
@@ -777,7 +856,25 @@ impl Renderer for CpuRasterizer {
 
     fn end_frame(&mut self) -> AureaResult<()> {
         let (bw, bh) = (self.width, self.height);
-        let damage = self.pending_damage.take();
+        let pending = self.pending_damage.take();
+        let diff = self.diff_damage();
+
+        let damage: Option<Rect> = match (pending, diff) {
+            // Nothing was explicitly marked dirty and the display list is
+            // positionally identical to last frame: skip rendering and
+            // presentation entirely.
+            (None, FrameDamage::Unchanged) => {
+                use crate::renderer::CURRENT_BUFFER;
+                CURRENT_BUFFER.with(|b| *b.borrow_mut() = None);
+                return Ok(());
+            }
+            (None, FrameDamage::Full) | (Some(_), FrameDamage::Full) => None,
+            (None, FrameDamage::Region(r)) => Some(round_out_clamp(r, bw, bh)),
+            (Some(p), FrameDamage::Unchanged) => Some(p),
+            (Some(p), FrameDamage::Region(r)) => {
+                Some(round_out_clamp(union_rect(p, r), bw, bh))
+            }
+        };
 
         for item in self.display_list.items() {
             let has_known_bounds = item.bounds.width > 0.0 && item.bounds.height > 0.0;
@@ -796,6 +893,8 @@ impl Renderer for CpuRasterizer {
             )?;
         }
 
+        self.capture_prev_items();
+
         use crate::renderer::CURRENT_BUFFER;
         let (ptr, sz, w, h) = self.get_buffer();
         CURRENT_BUFFER.with(|b| *b.borrow_mut() = Some((ptr, sz, w, h)));
@@ -805,6 +904,7 @@ impl Renderer for CpuRasterizer {
     fn cleanup(&mut self) {
         self.display_list.clear();
         self.pending_damage = None;
+        self.prev_items.clear();
     }
 
     fn set_damage(&mut self, damage: Option<Rect>) {
@@ -825,6 +925,30 @@ impl Renderer for CpuRasterizer {
 }
 
 // ── pixel math helpers ───────────────────────────────────────────────────────
+
+/// Bounds are "known" if non-empty; `compute_bounds` returns `(0,0,0,0)` for
+/// commands it can't size (e.g. clip/transform/opacity push-pop markers).
+fn is_known_bounds(r: Rect) -> bool {
+    r.width > 0.0 && r.height > 0.0
+}
+
+/// Smallest rect covering both `a` and `b`.
+fn union_rect(a: Rect, b: Rect) -> Rect {
+    let x0 = a.x.min(b.x);
+    let y0 = a.y.min(b.y);
+    let x1 = (a.x + a.width).max(b.x + b.width);
+    let y1 = (a.y + a.height).max(b.y + b.height);
+    Rect::new(x0, y0, x1 - x0, y1 - y0)
+}
+
+/// Rounds a damage rect outward to whole pixels and clamps it to the buffer.
+fn round_out_clamp(r: Rect, bw: u32, bh: u32) -> Rect {
+    let x0 = r.x.floor().max(0.0);
+    let y0 = r.y.floor().max(0.0);
+    let x1 = (r.x + r.width).ceil().min(bw as f32);
+    let y1 = (r.y + r.height).ceil().min(bh as f32);
+    Rect::new(x0, y0, (x1 - x0).max(0.0), (y1 - y0).max(0.0))
+}
 
 fn color_to_u32(c: Color) -> u32 {
     ((c.a as u32) << 24) | ((c.r as u32) << 16) | ((c.g as u32) << 8) | (c.b as u32)
@@ -852,4 +976,100 @@ fn circle_coverage(center: Point, radius: f32, px: f32, py: f32) -> f32 {
 fn pixel_at(buf: &[u32], w: u32, x: u32, y: u32) -> u32 {
     let idx = (y * w + x) as usize;
     if idx < buf.len() { buf[idx] } else { 0 }
+}
+
+#[cfg(test)]
+mod diff_damage_tests {
+    use super::*;
+    use crate::command::DrawCommand;
+    use crate::display_list::{DisplayItem, NodeId};
+
+    fn item(key: u64, bounds: Rect) -> DisplayItem {
+        DisplayItem::new(
+            NodeId(0),
+            CacheKey::from_hash(key),
+            bounds,
+            false,
+            BlendMode::Normal,
+            DrawCommand::Clear(Color::rgb(0, 0, 0)),
+        )
+    }
+
+    #[test]
+    fn identical_list_reports_unchanged() {
+        let mut r = CpuRasterizer::new(100, 100);
+        let bounds = Rect::new(0.0, 0.0, 10.0, 10.0);
+        r.display_list.push(item(1, bounds));
+        r.prev_items.push((CacheKey::from_hash(1), bounds));
+
+        assert!(matches!(r.diff_damage(), FrameDamage::Unchanged));
+    }
+
+    #[test]
+    fn changed_item_unions_old_and_new_bounds() {
+        let mut r = CpuRasterizer::new(100, 100);
+        let old_bounds = Rect::new(0.0, 0.0, 8.0, 8.0);
+        let new_bounds = Rect::new(20.0, 20.0, 8.0, 8.0);
+        r.display_list.push(item(2, new_bounds));
+        r.prev_items.push((CacheKey::from_hash(1), old_bounds));
+
+        match r.diff_damage() {
+            FrameDamage::Region(rect) => assert_eq!(rect, Rect::new(0.0, 0.0, 28.0, 28.0)),
+            other => panic!("expected Region, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unknown_bounds_change_forces_full_damage() {
+        let mut r = CpuRasterizer::new(100, 100);
+        let unknown = Rect::new(0.0, 0.0, 0.0, 0.0);
+        r.display_list.push(item(2, unknown));
+        r.prev_items.push((CacheKey::from_hash(1), unknown));
+
+        assert!(matches!(r.diff_damage(), FrameDamage::Full));
+    }
+
+    #[test]
+    fn appended_item_contributes_only_its_own_bounds() {
+        let mut r = CpuRasterizer::new(100, 100);
+        let shared_bounds = Rect::new(0.0, 0.0, 10.0, 10.0);
+        let new_bounds = Rect::new(50.0, 50.0, 4.0, 4.0);
+        r.display_list.push(item(1, shared_bounds));
+        r.display_list.push(item(2, new_bounds));
+        r.prev_items.push((CacheKey::from_hash(1), shared_bounds));
+
+        match r.diff_damage() {
+            FrameDamage::Region(rect) => assert_eq!(rect, new_bounds),
+            other => panic!("expected Region, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn static_scene_skips_present_on_repeat_frame() {
+        use crate::renderer::CURRENT_BUFFER;
+        use crate::types::Paint;
+
+        let mut r = CpuRasterizer::new(32, 32);
+        let paint = Paint::new();
+
+        let mut ctx = r.begin_frame().unwrap();
+        ctx.clear(Color::rgb(10, 20, 30)).unwrap();
+        ctx.draw_rect(Rect::new(2.0, 2.0, 4.0, 4.0), &paint).unwrap();
+        drop(ctx);
+        r.end_frame().unwrap();
+        assert!(CURRENT_BUFFER.with(|b| b.borrow().is_some()));
+
+        // Simulate the platform layer consuming the published buffer.
+        CURRENT_BUFFER.with(|b| *b.borrow_mut() = None);
+
+        // Second frame: identical draw calls, no explicit damage set.
+        let mut ctx = r.begin_frame().unwrap();
+        ctx.clear(Color::rgb(10, 20, 30)).unwrap();
+        ctx.draw_rect(Rect::new(2.0, 2.0, 4.0, 4.0), &paint).unwrap();
+        drop(ctx);
+        r.end_frame().unwrap();
+
+        // Unchanged scene: end_frame must not republish the buffer.
+        assert!(CURRENT_BUFFER.with(|b| b.borrow().is_none()));
+    }
 }
