@@ -1,0 +1,11 @@
+[package]
+name = "aurea-animation"
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.88"
+description = "Animation primitives for the Aurea GUI toolkit"
+license = "Apache-2.0"
+repository = "https://github.com/SkuldNorniern/aurea"
+
+[dependencies]
+aurea-foundation = { path = "../aurea-foundation", version = "0.0.1" }

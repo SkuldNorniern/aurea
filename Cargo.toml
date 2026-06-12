@@ -10,7 +10,7 @@ repository = "https://github.com/SkuldNorniern/aurea"
 
 [workspace]
 resolver = "2"
-members = ["aurea-foundation", "aurea-ffi", "aurea-render", "aurea-runtime"]
+members = ["aurea-foundation", "aurea-ffi", "aurea-render", "aurea-runtime", "aurea-animation"]
 
 [lib]
 name = "aurea"
@@ -21,6 +21,7 @@ aurea-foundation = { path = "aurea-foundation", version = "0.0.1" }
 aurea-ffi = { path = "aurea-ffi", version = "0.0.1" }
 aurea-render = { path = "aurea-render", version = "0.0.1" }
 aurea-runtime = { path = "aurea-runtime", version = "0.0.1" }
+aurea-animation = { path = "aurea-animation", version = "0.0.1" }
 libc = "0.2"
 log = "0.4.29"
 jni = { version = "0.21", optional = true }
