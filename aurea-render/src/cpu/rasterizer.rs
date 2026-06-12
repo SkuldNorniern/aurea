@@ -445,8 +445,21 @@ impl CpuRasterizer {
         let tr = srgb_to_linear(color.r);
         let tg = srgb_to_linear(color.g);
         let tb = srgb_to_linear(color.b);
+        // Fully-covered pixels composite to the text color at full alpha
+        // regardless of the destination, so they can be written directly.
+        let opaque_pixel = 0xFF00_0000
+            | ((color.r as u32) << 16)
+            | ((color.g as u32) << 8)
+            | color.b as u32;
         let dx = origin.x.round() as i32;
         let dy = origin.y.round() as i32;
+
+        let mw = mask.width as i32;
+        let x_lo = (-dx).max(0);
+        let x_hi = (bw as i32 - dx).min(mw);
+        if x_lo >= x_hi {
+            return;
+        }
 
         for my in 0..mask.height as i32 {
             let py = dy + my;
@@ -454,26 +467,29 @@ impl CpuRasterizer {
                 continue;
             }
             let row = (my as u32 * mask.width) as usize;
-            for mx in 0..mask.width as i32 {
-                let px = dx + mx;
-                if px < 0 || px >= bw as i32 {
-                    continue;
-                }
-                let ci = (row + mx as usize) * 3;
-                if ci + 2 >= mask.coverage.len() {
-                    continue;
-                }
-                let cr = mask.coverage[ci] as f32 / 255.0;
-                let cg = mask.coverage[ci + 1] as f32 / 255.0;
-                let cb = mask.coverage[ci + 2] as f32 / 255.0;
-                if cr <= 0.0 && cg <= 0.0 && cb <= 0.0 {
+            let cov_row = &mask.coverage[row * 3..(row + mask.width as usize) * 3];
+            let buf_row = (py as u32 * bw) as usize;
+
+            for mx in x_lo..x_hi {
+                let ci = mx as usize * 3;
+                let cr8 = cov_row[ci];
+                let cg8 = cov_row[ci + 1];
+                let cb8 = cov_row[ci + 2];
+                if cr8 == 0 && cg8 == 0 && cb8 == 0 {
                     continue;
                 }
 
-                let idx = (py as u32 * bw + px as u32) as usize;
-                if idx >= buf.len() {
+                let idx = buf_row + (dx + mx) as usize;
+
+                if cr8 == 255 && cg8 == 255 && cb8 == 255 {
+                    buf[idx] = opaque_pixel;
                     continue;
                 }
+
+                let cr = cr8 as f32 / 255.0;
+                let cg = cg8 as f32 / 255.0;
+                let cb = cb8 as f32 / 255.0;
+
                 let dst = buf[idx];
                 let da = (dst >> 24) & 0xff;
                 let dr = ((dst >> 16) & 0xff) as u8;
