@@ -193,12 +193,77 @@ impl CpuRasterizer {
                         }
                     }
                 } else {
-                    // Slow path: sub-pixel coverage + blend for translucent rects.
+                    // Translucent fill: rect coverage is separable
+                    // (cov(x,y) = cov_x(x) * cov_y(y)), so split into a
+                    // fully-covered interior span (bulk fill/blend) plus
+                    // edge rows/columns with per-axis coverage — mirroring
+                    // the circle-fill fast path.
+                    let xl = rect.x;
+                    let xr = rect.x + rect.width;
+                    let yl = rect.y;
+                    let yr = rect.y + rect.height;
+
+                    let cov_x = |x: u32| -> f32 {
+                        ((x as f32 + 1.0).min(xr) - (x as f32).max(xl)).clamp(0.0, 1.0)
+                    };
+                    let cov_y = |y: u32| -> f32 {
+                        ((y as f32 + 1.0).min(yr) - (y as f32).max(yl)).clamp(0.0, 1.0)
+                    };
+
+                    let xi0 = (xl.ceil() as i32).clamp(x0 as i32, x1 as i32) as u32;
+                    let xi1 = (xr.floor() as i32).clamp(x0 as i32, x1 as i32) as u32;
+                    let has_full_x = xi0 < xi1;
+                    let yi0 = (yl.ceil() as i32).clamp(y0 as i32, y1 as i32) as u32;
+                    let yi1 = (yr.floor() as i32).clamp(y0 as i32, y1 as i32) as u32;
+
+                    let c_full = color_to_u32(paint.color);
+                    let opaque_fast = mode == BlendMode::Normal && paint.color.a == 255;
+
                     for y in y0..y1 {
-                        for x in x0..x1 {
-                            let cov = rect_coverage(rect, x as f32, y as f32);
-                            let c = color_to_u32_with_coverage(paint.color, cov);
-                            Self::buf_set(buf, bw, x as i32, y as i32, c, mode);
+                        let row_cov = if y >= yi0 && y < yi1 { 1.0 } else { cov_y(y) };
+                        if row_cov <= 0.0 {
+                            continue;
+                        }
+                        let row_start = (y * bw) as usize;
+
+                        if has_full_x {
+                            for x in x0..xi0 {
+                                let cov = cov_x(x) * row_cov;
+                                if cov > 0.0 {
+                                    let c = color_to_u32_with_coverage(paint.color, cov);
+                                    Self::buf_set(buf, bw, x as i32, y as i32, c, mode);
+                                }
+                            }
+                            if row_cov >= 1.0 {
+                                if opaque_fast {
+                                    buf[row_start + xi0 as usize..row_start + xi1 as usize]
+                                        .fill(c_full);
+                                } else {
+                                    for x in xi0..xi1 {
+                                        Self::buf_set(buf, bw, x as i32, y as i32, c_full, mode);
+                                    }
+                                }
+                            } else {
+                                let c = color_to_u32_with_coverage(paint.color, row_cov);
+                                for x in xi0..xi1 {
+                                    Self::buf_set(buf, bw, x as i32, y as i32, c, mode);
+                                }
+                            }
+                            for x in xi1..x1 {
+                                let cov = cov_x(x) * row_cov;
+                                if cov > 0.0 {
+                                    let c = color_to_u32_with_coverage(paint.color, cov);
+                                    Self::buf_set(buf, bw, x as i32, y as i32, c, mode);
+                                }
+                            }
+                        } else {
+                            for x in x0..x1 {
+                                let cov = cov_x(x) * row_cov;
+                                if cov > 0.0 {
+                                    let c = color_to_u32_with_coverage(paint.color, cov);
+                                    Self::buf_set(buf, bw, x as i32, y as i32, c, mode);
+                                }
+                            }
                         }
                     }
                 }
@@ -573,13 +638,30 @@ impl CpuRasterizer {
         let y0 = rect.y.max(0.0).ceil() as i32;
         let x1 = (rect.x + rect.width).min(bw as f32).floor() as i32;
         let y1 = (rect.y + rect.height).min(bh as f32).floor() as i32;
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
+
+        // `t` advances linearly with `cx`, so step it incrementally instead
+        // of recomputing the full dot product for every pixel.
+        let dt_x = dx / len_sq;
+        let opaque_normal = mode == BlendMode::Normal;
+
         for cy in y0..y1 {
+            let row = (cy as u32 * bw) as usize;
+            let mut t = ((x0 as f32 + 0.5 - grad.start.x) * dx
+                + (cy as f32 + 0.5 - grad.start.y) * dy)
+                / len_sq;
             for cx in x0..x1 {
-                let t = ((cx as f32 + 0.5 - grad.start.x) * dx
-                    + (cy as f32 + 0.5 - grad.start.y) * dy)
-                    / len_sq;
                 let t_idx = (t.clamp(0.0, 1.0) * 255.0).round() as usize;
-                Self::buf_set(buf, bw, cx, cy, lut[t_idx], mode);
+                let src = lut[t_idx];
+                let idx = row + cx as usize;
+                buf[idx] = if opaque_normal && (src >> 24) == 255 {
+                    src
+                } else {
+                    blend_pixel(src, buf[idx], mode)
+                };
+                t += dt_x;
             }
         }
     }
@@ -600,14 +682,29 @@ impl CpuRasterizer {
         let y0 = rect.y.max(0.0).ceil() as i32;
         let x1 = (rect.x + rect.width).min(bw as f32).floor() as i32;
         let y1 = (rect.y + rect.height).min(bh as f32).floor() as i32;
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
+
+        let inv_radius = 1.0 / grad.radius;
+        let opaque_normal = mode == BlendMode::Normal;
+
         for cy in y0..y1 {
+            let row = (cy as u32 * bw) as usize;
+            let dy = cy as f32 + 0.5 - grad.center.y;
+            let dy_sq = dy * dy;
             for cx in x0..x1 {
-                let dist = ((cx as f32 + 0.5 - grad.center.x).powi(2)
-                    + (cy as f32 + 0.5 - grad.center.y).powi(2))
-                .sqrt();
-                let t = (dist / grad.radius).min(1.0);
+                let dx = cx as f32 + 0.5 - grad.center.x;
+                let dist = (dx * dx + dy_sq).sqrt();
+                let t = (dist * inv_radius).min(1.0);
                 let t_idx = (t.clamp(0.0, 1.0) * 255.0).round() as usize;
-                Self::buf_set(buf, bw, cx, cy, lut[t_idx], mode);
+                let src = lut[t_idx];
+                let idx = row + cx as usize;
+                buf[idx] = if opaque_normal && (src >> 24) == 255 {
+                    src
+                } else {
+                    blend_pixel(src, buf[idx], mode)
+                };
             }
         }
     }
@@ -704,14 +801,6 @@ fn color_to_u32(c: Color) -> u32 {
 fn color_to_u32_with_coverage(c: Color, cov: f32) -> u32 {
     let a = (c.a as f32 * cov).round().clamp(0.0, 255.0) as u32;
     (a << 24) | ((c.r as u32) << 16) | ((c.g as u32) << 8) | (c.b as u32)
-}
-
-fn rect_coverage(rect: &Rect, px: f32, py: f32) -> f32 {
-    let l = px.max(rect.x);
-    let r = (px + 1.0).min(rect.x + rect.width);
-    let t = py.max(rect.y);
-    let b = (py + 1.0).min(rect.y + rect.height);
-    ((r - l).max(0.0) * (b - t).max(0.0)).clamp(0.0, 1.0)
 }
 
 fn circle_coverage(center: Point, radius: f32, px: f32, py: f32) -> f32 {
