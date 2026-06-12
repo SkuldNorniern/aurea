@@ -318,9 +318,18 @@ impl Canvas {
     where
         F: FnMut(aurea_runtime::FrameInfo) -> bool + Send + 'static,
     {
-        let id = aurea_runtime::FrameScheduler::register_ticker(ticker);
-        aurea_runtime::FrameScheduler::schedule_canvas(self.handle);
-        id
+        let state = self.state.clone();
+        let handle_usize = self.handle as usize;
+        let mut user_ticker = ticker;
+
+        aurea_runtime::FrameScheduler::register_ticker(move |info| {
+            let keep = user_ticker(info);
+            // Mark the canvas dirty so the scheduler's needs_redraw gate is
+            // satisfied on every animation frame, including the final one.
+            crate::sync::lock(&state).needs_redraw = true;
+            aurea_runtime::FrameScheduler::schedule_canvas(handle_usize as *mut c_void);
+            keep
+        })
     }
 
     pub fn scale_factor(&self) -> f32 {
