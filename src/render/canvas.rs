@@ -30,7 +30,23 @@ pub(crate) struct CanvasState {
     pub needs_redraw: bool,
 }
 
+struct CanvasCleanup {
+    handle: usize,
+    renderer: Arc<Mutex<Option<Box<dyn Renderer>>>>,
+}
+
+impl Drop for CanvasCleanup {
+    fn drop(&mut self) {
+        FrameScheduler::unregister_canvas(self.handle as *mut c_void);
+        let mut r = crate::sync::lock(&self.renderer);
+        if let Some(ref mut renderer) = *r {
+            renderer.cleanup();
+        }
+    }
+}
+
 /// A drawable canvas element backed by a renderer.
+#[derive(Clone)]
 pub struct Canvas {
     pub(crate) handle: *mut c_void,
     pub(crate) state: Arc<Mutex<CanvasState>>,
@@ -41,6 +57,7 @@ pub struct Canvas {
     platform: Platform,
     #[allow(dead_code)]
     capabilities: CapabilityChecker,
+    _cleanup: Arc<CanvasCleanup>,
 }
 
 impl Canvas {
@@ -136,6 +153,10 @@ impl Canvas {
             interaction_registry,
             platform,
             capabilities,
+            _cleanup: Arc::new(CanvasCleanup {
+                handle: handle as usize,
+                renderer: renderer_arc.clone(),
+            }),
         };
 
         canvas.register_with_scheduler(state, renderer_arc);
@@ -327,12 +348,3 @@ impl Element for Canvas {
     }
 }
 
-impl Drop for Canvas {
-    fn drop(&mut self) {
-        FrameScheduler::unregister_canvas(self.handle);
-        let mut r = crate::sync::lock(&self.renderer);
-        if let Some(ref mut renderer) = *r {
-            renderer.cleanup();
-        }
-    }
-}
