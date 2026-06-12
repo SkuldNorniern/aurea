@@ -249,6 +249,16 @@ impl Canvas {
     pub fn width(&self) -> u32 { self.size().0 }
     pub fn height(&self) -> u32 { self.size().1 }
 
+    /// Start a per-frame ticker animation tied to this canvas.
+    pub fn animate<F>(&self, ticker: F) -> aurea_runtime::TickerId
+    where
+        F: FnMut(aurea_runtime::FrameInfo) -> bool + Send + 'static,
+    {
+        let id = aurea_runtime::FrameScheduler::register_ticker(ticker);
+        aurea_runtime::FrameScheduler::schedule_canvas(self.handle);
+        id
+    }
+
     pub fn scale_factor(&self) -> f32 {
         crate::sync::lock(&self.state).scale_factor
     }

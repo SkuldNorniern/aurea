@@ -19,6 +19,7 @@ pub mod window;
 
 pub use crate::view::FrameScheduler;
 pub use crate::view::damage::DamageRegion;
+pub use aurea_runtime::FrameInfo;
 
 pub use crate::elements::{
     Box, BoxOrientation, Container, Divider, Element, Label, Spacer, SplitOrientation, SplitView,
