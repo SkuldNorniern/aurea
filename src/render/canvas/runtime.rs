@@ -99,6 +99,7 @@ impl Canvas {
 
             if should_redraw {
                 render_frame(&state, &renderer, handle)?;
+                unsafe { ng_platform_canvas_invalidate(handle); }
             }
 
             Ok(())
