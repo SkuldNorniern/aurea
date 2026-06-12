@@ -462,3 +462,16 @@ void ng_platform_sidebar_list_invalidate(NGHandle s) {
 NGHandle ng_platform_create_swiftui_host(int w, int h) {
     DISPATCH_INIT(NGHandle, create_swiftui_host, w, h);
 }
+
+char* ng_platform_get_clipboard_text(void) {
+    ensure_ops();
+    return (g_ops && g_ops->get_clipboard_text) ? g_ops->get_clipboard_text() : NULL;
+}
+
+void ng_platform_free_clipboard_text(char* text) {
+    if (text) { DISPATCH_VOID(free_clipboard_text, text); }
+}
+
+int ng_platform_set_clipboard_text(const char* text) {
+    DISPATCH_INT(set_clipboard_text, text);
+}

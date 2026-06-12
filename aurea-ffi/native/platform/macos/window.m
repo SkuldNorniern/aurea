@@ -1,4 +1,4 @@
-#import "window.h"
+﻿#import "window.h"
 #import "common/errors.h"
 #import "common/input.h"
 #import "common/rust_callbacks.h"
@@ -740,3 +740,26 @@ NGHandle ng_macos_window_get_content_view(NGHandle window) {
     NSView* contentView = [nsWindow contentView];
     return (__bridge void*)contentView;
 } 
+
+char* ng_macos_get_clipboard_text(void) {
+    NSPasteboard* pb = [NSPasteboard generalPasteboard];
+    NSString* str = [pb stringForType:NSPasteboardTypeString];
+    if (!str) return NULL;
+    const char* utf8 = [str UTF8String];
+    if (!utf8) return NULL;
+    return strdup(utf8);
+}
+
+void ng_macos_free_clipboard_text(char* text) {
+    free(text);
+}
+
+int ng_macos_set_clipboard_text(const char* text) {
+    if (!text) return NG_ERROR_INVALID_PARAMETER;
+    NSPasteboard* pb = [NSPasteboard generalPasteboard];
+    [pb clearContents];
+    NSString* str = [NSString stringWithUTF8String:text];
+    if (!str) return NG_ERROR_PLATFORM_SPECIFIC;
+    BOOL ok = [pb setString:str forType:NSPasteboardTypeString];
+    return ok ? NG_SUCCESS : NG_ERROR_PLATFORM_SPECIFIC;
+}
