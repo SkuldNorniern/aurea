@@ -3,11 +3,14 @@
 use aurea_foundation::AureaError;
 use std::collections::{HashMap, HashSet};
 use std::os::raw::c_void;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 
 type CanvasRedrawCallback = Arc<dyn Fn() -> Result<(), AureaError> + Send + Sync>;
 type FrameCallback = Arc<dyn Fn() + Send + Sync + 'static>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FrameCallbackId(u64);
 
 static FRAME_SCHEDULED: AtomicBool = AtomicBool::new(false);
 static ALL_CANVASES_SCHEDULED: AtomicBool = AtomicBool::new(false);
@@ -15,8 +18,9 @@ static CANVAS_REGISTRY: LazyLock<Mutex<Arc<HashMap<usize, CanvasRedrawCallback>>
     LazyLock::new(|| Mutex::new(Arc::new(HashMap::new())));
 static PENDING_CANVASES: LazyLock<Mutex<HashSet<usize>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
-static FRAME_CALLBACKS: LazyLock<Mutex<Arc<Vec<FrameCallback>>>> =
-    LazyLock::new(|| Mutex::new(Arc::new(Vec::new())));
+static FRAME_CALLBACK_COUNTER: AtomicU64 = AtomicU64::new(0);
+static FRAME_CALLBACKS: LazyLock<Mutex<Arc<HashMap<FrameCallbackId, FrameCallback>>>> =
+    LazyLock::new(|| Mutex::new(Arc::new(HashMap::new())));
 static REQUEST_FRAME_HOOK: LazyLock<Mutex<Option<Box<dyn Fn() + Send + Sync>>>> =
     LazyLock::new(|| Mutex::new(None));
 
@@ -70,13 +74,22 @@ impl FrameScheduler {
         aurea_foundation::lock(&PENDING_CANVASES).remove(&(handle as usize));
     }
 
-    pub fn register_frame_callback<F>(callback: F)
+    pub fn register_frame_callback<F>(callback: F) -> FrameCallbackId
     where
         F: Fn() + Send + Sync + 'static,
     {
+        let id = FrameCallbackId(FRAME_CALLBACK_COUNTER.fetch_add(1, Ordering::Relaxed));
         let mut callbacks = aurea_foundation::lock(&FRAME_CALLBACKS);
         let mut updated = (**callbacks).clone();
-        updated.push(Arc::new(callback));
+        updated.insert(id, Arc::new(callback));
+        *callbacks = Arc::new(updated);
+        id
+    }
+
+    pub fn unregister_frame_callback(id: FrameCallbackId) {
+        let mut callbacks = aurea_foundation::lock(&FRAME_CALLBACKS);
+        let mut updated = (**callbacks).clone();
+        updated.remove(&id);
         *callbacks = Arc::new(updated);
     }
 
@@ -122,7 +135,7 @@ impl FrameScheduler {
             }
         }
 
-        for callback in global_callbacks.iter() {
+        for (_, callback) in global_callbacks.iter() {
             callback();
         }
 
