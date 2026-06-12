@@ -11,12 +11,12 @@ type FrameCallback = Arc<dyn Fn() + Send + Sync + 'static>;
 
 static FRAME_SCHEDULED: AtomicBool = AtomicBool::new(false);
 static ALL_CANVASES_SCHEDULED: AtomicBool = AtomicBool::new(false);
-static CANVAS_REGISTRY: LazyLock<Mutex<HashMap<usize, CanvasRedrawCallback>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static CANVAS_REGISTRY: LazyLock<Mutex<Arc<HashMap<usize, CanvasRedrawCallback>>>> =
+    LazyLock::new(|| Mutex::new(Arc::new(HashMap::new())));
 static PENDING_CANVASES: LazyLock<Mutex<HashSet<usize>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
-static FRAME_CALLBACKS: LazyLock<Mutex<Vec<FrameCallback>>> =
-    LazyLock::new(|| Mutex::new(Vec::new()));
+static FRAME_CALLBACKS: LazyLock<Mutex<Arc<Vec<FrameCallback>>>> =
+    LazyLock::new(|| Mutex::new(Arc::new(Vec::new())));
 static REQUEST_FRAME_HOOK: LazyLock<Mutex<Option<Box<dyn Fn() + Send + Sync>>>> =
     LazyLock::new(|| Mutex::new(None));
 
@@ -57,12 +57,16 @@ impl FrameScheduler {
 
     pub fn register_canvas(handle: *mut c_void, callback: CanvasRedrawCallback) {
         let mut registry = aurea_foundation::lock(&CANVAS_REGISTRY);
-        registry.insert(handle as usize, callback);
+        let mut updated = (**registry).clone();
+        updated.insert(handle as usize, callback);
+        *registry = Arc::new(updated);
     }
 
     pub fn unregister_canvas(handle: *mut c_void) {
         let mut registry = aurea_foundation::lock(&CANVAS_REGISTRY);
-        registry.remove(&(handle as usize));
+        let mut updated = (**registry).clone();
+        updated.remove(&(handle as usize));
+        *registry = Arc::new(updated);
         aurea_foundation::lock(&PENDING_CANVASES).remove(&(handle as usize));
     }
 
@@ -71,7 +75,9 @@ impl FrameScheduler {
         F: Fn() + Send + Sync + 'static,
     {
         let mut callbacks = aurea_foundation::lock(&FRAME_CALLBACKS);
-        callbacks.push(Arc::new(callback));
+        let mut updated = (**callbacks).clone();
+        updated.push(Arc::new(callback));
+        *callbacks = Arc::new(updated);
     }
 
     pub fn process_frames() -> Result<(), AureaError> {
@@ -81,29 +87,42 @@ impl FrameScheduler {
 
         let process_all_canvases = ALL_CANVASES_SCHEDULED.swap(false, Ordering::Relaxed);
 
-        let (canvas_callbacks, global_callbacks) = {
-            let registry = aurea_foundation::lock(&CANVAS_REGISTRY);
+        // Cheap Arc clones instead of cloning the whole registry/callback Vec
+        // every frame; the locks are released before invoking callbacks
+        // (which may re-register canvases or frame callbacks).
+        let registry = aurea_foundation::lock(&CANVAS_REGISTRY).clone();
+        let global_callbacks = aurea_foundation::lock(&FRAME_CALLBACKS).clone();
+
+        let pending_handles = {
             let mut pending = aurea_foundation::lock(&PENDING_CANVASES);
-            let global = aurea_foundation::lock(&FRAME_CALLBACKS);
-            let canvas_callbacks = if process_all_canvases || pending.is_empty() {
+            if process_all_canvases || pending.is_empty() {
                 pending.clear();
-                registry.values().cloned().collect::<Vec<_>>()
+                None
             } else {
-                pending
-                    .drain()
-                    .filter_map(|handle| registry.get(&handle).cloned())
-                    .collect::<Vec<_>>()
-            };
-            (canvas_callbacks, global.clone())
+                Some(pending.drain().collect::<Vec<_>>())
+            }
         };
 
-        for callback in canvas_callbacks {
-            if let Err(e) = callback() {
-                log::warn!("Canvas redraw error: {:?}", e);
+        match pending_handles {
+            None => {
+                for callback in registry.values() {
+                    if let Err(e) = callback() {
+                        log::warn!("Canvas redraw error: {:?}", e);
+                    }
+                }
+            }
+            Some(handles) => {
+                for handle in handles {
+                    if let Some(callback) = registry.get(&handle) {
+                        if let Err(e) = callback() {
+                            log::warn!("Canvas redraw error: {:?}", e);
+                        }
+                    }
+                }
             }
         }
 
-        for callback in global_callbacks {
+        for callback in global_callbacks.iter() {
             callback();
         }
 
