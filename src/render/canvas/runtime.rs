@@ -114,6 +114,11 @@ impl Canvas {
 
             if should_redraw {
                 render_frame(&state, &renderer, handle)?;
+                // After rendering, trigger a platform repaint so the new buffer
+                // is displayed (e.g. WM_PAINT on Windows, setNeedsDisplay on macOS).
+                // render_frame only pushes pixels to the canvas buffer — the platform
+                // still needs a paint event to blit that buffer onto the screen.
+                unsafe { ng_platform_canvas_invalidate(handle); }
             }
 
             Ok(())
