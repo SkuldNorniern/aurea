@@ -86,6 +86,15 @@ NGHandle ng_platform_create_canvas(int width, int height);
 void ng_platform_canvas_invalidate(NGHandle canvas);
 void ng_platform_canvas_invalidate_rect(NGHandle canvas, float x, float y, float width, float height);
 void ng_platform_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size, unsigned int width, unsigned int height);
+// Locks and returns the base address of a back buffer sized width x height,
+// or NULL if the platform doesn't support external-target presentation (the
+// caller should fall back to ng_platform_canvas_update_buffer). On success,
+// *stride_px is the row stride in pixels (>= width) and *buffer_index
+// identifies which of the (at most two) backing buffers was returned, for
+// callers that keep per-buffer staleness state.
+void* ng_platform_canvas_acquire_buffer(NGHandle canvas, unsigned int width, unsigned int height, unsigned int* stride_px, unsigned int* buffer_index);
+// Unlocks and presents the buffer returned by the most recent acquire_buffer call.
+void ng_platform_canvas_present(NGHandle canvas);
 void ng_platform_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int* height);
 NGHandle ng_platform_canvas_get_window(NGHandle canvas);
 NGHandle ng_platform_canvas_get_native_handle(NGHandle canvas);
