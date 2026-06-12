@@ -876,9 +876,13 @@ impl Renderer for CpuRasterizer {
             }
         };
 
-        for item in self.display_list.items() {
+        let items = self.display_list.items();
+        for (i, item) in items.iter().enumerate() {
             let has_known_bounds = item.bounds.width > 0.0 && item.bounds.height > 0.0;
             if has_known_bounds && damage.as_ref().is_some_and(|rect| !item.intersects(rect)) {
+                continue;
+            }
+            if has_known_bounds && is_occluded(items, i) {
                 continue;
             }
             Self::render_item(
@@ -939,6 +943,25 @@ fn union_rect(a: Rect, b: Rect) -> Rect {
     let x1 = (a.x + a.width).max(b.x + b.width);
     let y1 = (a.y + a.height).max(b.y + b.height);
     Rect::new(x0, y0, x1 - x0, y1 - y0)
+}
+
+/// Whether `outer` fully contains `inner`.
+fn rect_contains(outer: Rect, inner: Rect) -> bool {
+    inner.x >= outer.x
+        && inner.y >= outer.y
+        && inner.x + inner.width <= outer.x + outer.width
+        && inner.y + inner.height <= outer.y + outer.height
+}
+
+/// True if some later item in `items` is an opaque, normally-blended draw
+/// whose bounds fully cover `items[i]`'s bounds — i.e. `items[i]` is
+/// completely painted over and contributes nothing to the final frame.
+/// `items[i].bounds` must be known (non-zero) bounds; callers check this.
+fn is_occluded(items: &[super::super::display_list::DisplayItem], i: usize) -> bool {
+    let bounds = items[i].bounds;
+    items[i + 1..].iter().any(|later| {
+        later.opaque && later.blend_mode == BlendMode::Normal && rect_contains(later.bounds, bounds)
+    })
 }
 
 /// Rounds a damage rect outward to whole pixels and clamps it to the buffer.
@@ -1071,5 +1094,75 @@ mod diff_damage_tests {
 
         // Unchanged scene: end_frame must not republish the buffer.
         assert!(CURRENT_BUFFER.with(|b| b.borrow().is_none()));
+    }
+}
+
+#[cfg(test)]
+mod occlusion_tests {
+    use super::*;
+    use crate::command::DrawCommand;
+    use crate::display_list::{DisplayItem, NodeId};
+
+    fn occluder_item(bounds: Rect, blend: BlendMode) -> DisplayItem {
+        DisplayItem::new(
+            NodeId(0),
+            CacheKey::from_hash(1),
+            bounds,
+            true,
+            blend,
+            DrawCommand::Clear(Color::rgb(0, 0, 0)),
+        )
+    }
+
+    fn plain_item(bounds: Rect) -> DisplayItem {
+        DisplayItem::new(
+            NodeId(0),
+            CacheKey::from_hash(2),
+            bounds,
+            false,
+            BlendMode::Normal,
+            DrawCommand::Clear(Color::rgb(0, 0, 0)),
+        )
+    }
+
+    #[test]
+    fn rect_contains_basic() {
+        let outer = Rect::new(0.0, 0.0, 10.0, 10.0);
+        assert!(rect_contains(outer, Rect::new(1.0, 1.0, 5.0, 5.0)));
+        assert!(rect_contains(outer, outer));
+        assert!(!rect_contains(outer, Rect::new(5.0, 5.0, 10.0, 10.0)));
+        assert!(!rect_contains(outer, Rect::new(-1.0, 0.0, 5.0, 5.0)));
+    }
+
+    #[test]
+    fn later_opaque_normal_item_occludes_earlier() {
+        let small = Rect::new(2.0, 2.0, 4.0, 4.0);
+        let big = Rect::new(0.0, 0.0, 10.0, 10.0);
+        let items = vec![plain_item(small), occluder_item(big, BlendMode::Normal)];
+        assert!(is_occluded(&items, 0));
+    }
+
+    #[test]
+    fn partial_cover_does_not_occlude() {
+        let small = Rect::new(2.0, 2.0, 4.0, 4.0);
+        let partial = Rect::new(0.0, 0.0, 5.0, 5.0);
+        let items = vec![plain_item(small), occluder_item(partial, BlendMode::Normal)];
+        assert!(!is_occluded(&items, 0));
+    }
+
+    #[test]
+    fn non_normal_blend_does_not_occlude() {
+        let small = Rect::new(2.0, 2.0, 4.0, 4.0);
+        let big = Rect::new(0.0, 0.0, 10.0, 10.0);
+        let items = vec![plain_item(small), occluder_item(big, BlendMode::Multiply)];
+        assert!(!is_occluded(&items, 0));
+    }
+
+    #[test]
+    fn earlier_item_does_not_occlude_later() {
+        let small = Rect::new(2.0, 2.0, 4.0, 4.0);
+        let big = Rect::new(0.0, 0.0, 10.0, 10.0);
+        let items = vec![occluder_item(big, BlendMode::Normal), plain_item(small)];
+        assert!(!is_occluded(&items, 0));
     }
 }
