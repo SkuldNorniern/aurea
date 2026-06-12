@@ -13,6 +13,7 @@ pub enum BoxOrientation {
 pub struct Box {
     handle: *mut c_void,
     _orientation: BoxOrientation,
+    _children: Vec<std::boxed::Box<dyn std::any::Any>>,
 }
 
 impl Box {
@@ -32,6 +33,7 @@ impl Box {
         Ok(Self {
             handle,
             _orientation: orientation,
+            _children: Vec::new(),
         })
     }
 }
@@ -58,7 +60,7 @@ impl Box {
     /// Add multiple elements with the same layout weight.
     pub fn add_many<E, I>(&mut self, elements: I, weight: f32) -> AureaResult<()>
     where
-        E: Element,
+        E: Element + 'static,
         I: IntoIterator<Item = E>,
     {
         <Self as Container>::add_all_weighted(self, elements, weight)
@@ -66,13 +68,14 @@ impl Box {
 }
 
 impl Container for Box {
-    fn add_weighted<E: Element>(&mut self, element: E, weight: f32) -> AureaResult<()> {
+    fn add_weighted<E: Element + 'static>(&mut self, element: E, weight: f32) -> AureaResult<()> {
         let result = unsafe { ng_platform_box_add(self.handle, element.handle(), weight) };
 
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
         }
 
+        self._children.push(std::boxed::Box::new(element));
         Ok(())
     }
 }
