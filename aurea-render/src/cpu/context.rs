@@ -78,37 +78,6 @@ impl CpuDrawingContext {
         v * self.scale_factor
     }
 
-    /// Scale a path from logical to physical pixel coordinates.
-    fn s_path(&self, path: &Path) -> Path {
-        let sf = self.scale_factor;
-        let mut out = Path::new();
-        for cmd in &path.commands {
-            out.commands.push(match cmd {
-                super::super::types::PathCommand::MoveTo(p) => {
-                    super::super::types::PathCommand::MoveTo(Point::new(p.x * sf, p.y * sf))
-                }
-                super::super::types::PathCommand::LineTo(p) => {
-                    super::super::types::PathCommand::LineTo(Point::new(p.x * sf, p.y * sf))
-                }
-                super::super::types::PathCommand::QuadTo(c, p) => {
-                    super::super::types::PathCommand::QuadTo(
-                        Point::new(c.x * sf, c.y * sf),
-                        Point::new(p.x * sf, p.y * sf),
-                    )
-                }
-                super::super::types::PathCommand::CubicTo(c1, c2, p) => {
-                    super::super::types::PathCommand::CubicTo(
-                        Point::new(c1.x * sf, c1.y * sf),
-                        Point::new(c2.x * sf, c2.y * sf),
-                        Point::new(p.x * sf, p.y * sf),
-                    )
-                }
-                super::super::types::PathCommand::Close => super::super::types::PathCommand::Close,
-            });
-        }
-        out
-    }
-
     /// Scale paint properties (stroke width) to physical pixels.
     fn s_paint(&self, paint: &Paint) -> Paint {
         let mut p = paint.clone();
@@ -516,8 +485,10 @@ impl DrawingContext for CpuDrawingContext {
     }
 
     fn draw_path(&mut self, path: &Path, paint: &Paint) -> AureaResult<()> {
+        // Stored in logical coordinates; the rasterizer applies scale_factor
+        // during tessellation, so no separate scaled-Path copy is built here.
         self.add_command(super::super::command::DrawCommand::DrawPath(
-            self.s_path(path),
+            path.clone(),
             self.s_paint(paint),
         ));
         Ok(())
@@ -620,13 +591,6 @@ impl DrawingContext for CpuDrawingContext {
         let opacity = self.current_opacity;
         let clip = self.current_clip.clone();
 
-        self.state_stack.push(DrawingState {
-            transform,
-            opacity,
-            clip: clip.clone(),
-            blend_mode: self.current_blend_mode,
-        });
-
         unsafe {
             self.display_list_mut().push_transform(transform);
             self.display_list_mut().push_opacity(opacity);
@@ -634,6 +598,13 @@ impl DrawingContext for CpuDrawingContext {
                 self.display_list_mut().push_clip(clip_path.clone());
             }
         }
+
+        self.state_stack.push(DrawingState {
+            transform,
+            opacity,
+            clip,
+            blend_mode: self.current_blend_mode,
+        });
         Ok(())
     }
 
@@ -725,11 +696,8 @@ impl DrawingContext for CpuDrawingContext {
     }
 
     fn hit_test_path(&mut self, path: &Path, point: Point) -> AureaResult<bool> {
-        // Path coords are physical; convert the (logical) test point to physical.
-        let physical_point = self.s_pt(point);
-        Ok(super::hit_test::hit_test_path(
-            &self.s_path(path),
-            physical_point,
-        ))
+        // Both path and point are in logical coordinates; uniform scaling about
+        // the origin doesn't change inside/outside, so no scaling is needed.
+        Ok(super::hit_test::hit_test_path(path, point))
     }
 }

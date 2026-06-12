@@ -45,52 +45,64 @@ impl Edge {
 
 /// Converts a path into a list of edges for the scanline filler (lines, quads and cubics
 /// subdivided), reusing `out`'s existing allocation instead of allocating a fresh `Vec`.
-pub fn tessellate_path_into(path: &Path, edges: &mut Vec<Edge>) {
+///
+/// `scale` converts the path's (logical) coordinates to physical pixels as each point
+/// is visited, so callers no longer need to pre-build a separately-scaled `Path`.
+pub fn tessellate_path_into(path: &Path, scale: f32, edges: &mut Vec<Edge>) {
     edges.clear();
     let mut current_point = Point::new(0.0, 0.0);
     let mut start_point = Point::new(0.0, 0.0);
     let mut has_start = false;
 
+    let sp = |p: &Point| Point::new(p.x * scale, p.y * scale);
+
     for command in &path.commands {
         match command {
             PathCommand::MoveTo(p) => {
-                current_point = *p;
-                start_point = *p;
+                let p = sp(p);
+                current_point = p;
+                start_point = p;
                 has_start = true;
             }
             PathCommand::LineTo(p) => {
+                let p = sp(p);
                 if has_start {
-                    if let Some(edge) = Edge::new(current_point, *p) {
+                    if let Some(edge) = Edge::new(current_point, p) {
                         edges.push(edge);
                     }
-                    current_point = *p;
+                    current_point = p;
                 }
             }
             PathCommand::QuadTo(p1, p2) => {
+                let p1 = sp(p1);
+                let p2 = sp(p2);
                 let steps = 4;
                 let mut prev = current_point;
                 for i in 1..=steps {
                     let t = i as f32 / steps as f32;
-                    let p = quadratic_bezier(current_point, *p1, *p2, t);
+                    let p = quadratic_bezier(current_point, p1, p2, t);
                     if let Some(edge) = Edge::new(prev, p) {
                         edges.push(edge);
                     }
                     prev = p;
                 }
-                current_point = *p2;
+                current_point = p2;
             }
             PathCommand::CubicTo(p1, p2, p3) => {
+                let p1 = sp(p1);
+                let p2 = sp(p2);
+                let p3 = sp(p3);
                 let steps = 8;
                 let mut prev = current_point;
                 for i in 1..=steps {
                     let t = i as f32 / steps as f32;
-                    let p = cubic_bezier(current_point, *p1, *p2, *p3, t);
+                    let p = cubic_bezier(current_point, p1, p2, p3, t);
                     if let Some(edge) = Edge::new(prev, p) {
                         edges.push(edge);
                     }
                     prev = p;
                 }
-                current_point = *p3;
+                current_point = p3;
             }
             PathCommand::Close => {
                 if has_start {
