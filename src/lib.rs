@@ -75,6 +75,7 @@ pub mod window;
 
 pub use crate::view::FrameScheduler;
 pub use crate::view::damage::DamageRegion;
+pub use aurea_runtime::FrameInfo;
 
 // Re-export the elements, window, and menu modules
 pub use crate::elements::{

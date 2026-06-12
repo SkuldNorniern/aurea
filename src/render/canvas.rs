@@ -291,6 +291,38 @@ impl Canvas {
     pub fn width(&self) -> u32 { self.size().0 }
     pub fn height(&self) -> u32 { self.size().1 }
 
+    /// Start a per-frame ticker animation tied to this canvas.
+    ///
+    /// The closure is invoked every frame with [`aurea_runtime::FrameInfo`]
+    /// (time, delta, frame counter). Return `true` to continue or `false` to
+    /// stop — the ticker unregisters itself automatically on `false`.
+    ///
+    /// Returns a [`aurea_runtime::TickerId`] that can be passed to
+    /// [`FrameScheduler::unregister_ticker`] for early cancellation.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// use std::time::Duration;
+    /// use aurea::FrameInfo;
+    /// use aurea_animation::{Animation, EaseMode};
+    ///
+    /// let mut anim = Animation::new(Duration::from_secs(1)).ease(EaseMode::OutCubic);
+    /// let id = canvas.animate(move |info: FrameInfo| {
+    ///     match anim.tick(info.delta) {
+    ///         Some(t) => { /* update app state with t */ true }
+    ///         None    => false,
+    ///     }
+    /// });
+    /// ```
+    pub fn animate<F>(&self, ticker: F) -> aurea_runtime::TickerId
+    where
+        F: FnMut(aurea_runtime::FrameInfo) -> bool + Send + 'static,
+    {
+        let id = aurea_runtime::FrameScheduler::register_ticker(ticker);
+        aurea_runtime::FrameScheduler::schedule_canvas(self.handle);
+        id
+    }
+
     pub fn scale_factor(&self) -> f32 {
         crate::sync::lock(&self.state).scale_factor
     }
