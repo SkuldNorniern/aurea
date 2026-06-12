@@ -712,7 +712,15 @@ impl Renderer for CpuRasterizer {
         let (rw, rh) = Self::raster_dimensions(lw, lh, self.scale_factor);
         self.width = rw;
         self.height = rh;
-        self.frame_buffer = vec![0u32; (rw * rh) as usize];
+
+        let new_len = (rw * rh) as usize;
+        self.frame_buffer.clear();
+        if new_len > self.frame_buffer.capacity() {
+            self.frame_buffer
+                .reserve(new_len - self.frame_buffer.capacity());
+        }
+        self.frame_buffer.resize(new_len, 0);
+
         self.display_list.clear();
         Ok(())
     }
