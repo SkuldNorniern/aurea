@@ -138,6 +138,10 @@ void ng_platform_sidebar_list_invalidate(NGHandle sidebar);
 
 NGHandle ng_platform_create_swiftui_host(int width, int height);
 
+char* ng_platform_get_clipboard_text(void);
+void ng_platform_free_clipboard_text(char* text);
+int ng_platform_set_clipboard_text(const char* text);
+
 #ifdef __cplusplus
 }
 #endif

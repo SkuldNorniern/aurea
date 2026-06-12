@@ -37,6 +37,10 @@ int ng_linux_window_set_cursor_visible(NGHandle window, int visible);
 int ng_linux_window_set_cursor_grab(NGHandle window, int mode);
 NGHandle ng_linux_window_get_content_view(NGHandle window);
 
+char* ng_linux_get_clipboard_text(void);
+void ng_linux_free_clipboard_text(char* text);
+int ng_linux_set_clipboard_text(const char* text);
+
 #ifdef __cplusplus
 }
 #endif
