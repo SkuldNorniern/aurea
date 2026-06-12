@@ -155,6 +155,11 @@ void ng_platform_sidebar_list_invalidate(NGHandle sidebar);
  * or when Swift implementation not linked. */
 NGHandle ng_platform_create_swiftui_host(int width, int height);
 
+// Clipboard (global, not per-window)
+char* ng_platform_get_clipboard_text(void);
+void ng_platform_free_clipboard_text(char* text);
+int ng_platform_set_clipboard_text(const char* text);
+
 #ifdef __cplusplus
 }
 #endif

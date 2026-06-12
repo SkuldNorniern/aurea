@@ -1,4 +1,4 @@
-#include "window.h"
+﻿#include "window.h"
 #include "utils.h"
 #include "menu.h"
 #include "common/errors.h"
@@ -726,5 +726,23 @@ int ng_linux_window_set_cursor_grab(NGHandle window, int mode) {
         return NG_ERROR_PLATFORM_SPECIFIC;
     }
 
+    return NG_SUCCESS;
+}
+
+char* ng_linux_get_clipboard_text(void) {
+    GtkClipboard* cb = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+    if (!cb) return NULL;
+    return gtk_clipboard_wait_for_text(cb);
+}
+
+void ng_linux_free_clipboard_text(char* text) {
+    if (text) g_free(text);
+}
+
+int ng_linux_set_clipboard_text(const char* text) {
+    if (!text) return NG_ERROR_INVALID_PARAMETER;
+    GtkClipboard* cb = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+    if (!cb) return NG_ERROR_PLATFORM_SPECIFIC;
+    gtk_clipboard_set_text(cb, text, -1);
     return NG_SUCCESS;
 }
