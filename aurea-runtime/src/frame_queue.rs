@@ -5,12 +5,26 @@ use std::collections::{HashMap, HashSet};
 use std::os::raw::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
+use std::time::{Duration, Instant};
 
 type CanvasRedrawCallback = Arc<dyn Fn() -> Result<(), AureaError> + Send + Sync>;
 type FrameCallback = Arc<dyn Fn() + Send + Sync + 'static>;
+type TickerFn = Arc<Mutex<dyn FnMut(FrameInfo) -> bool + Send>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FrameCallbackId(u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TickerId(u64);
+
+/// Time information passed to every ticker each frame.
+/// Sampled once by the scheduler so draw callbacks never read the wall clock.
+#[derive(Debug, Clone, Copy)]
+pub struct FrameInfo {
+    pub time: Instant,
+    pub delta: Duration,
+    pub frame: u64,
+}
 
 static FRAME_SCHEDULED: AtomicBool = AtomicBool::new(false);
 static ALL_CANVASES_SCHEDULED: AtomicBool = AtomicBool::new(false);
@@ -21,6 +35,12 @@ static PENDING_CANVASES: LazyLock<Mutex<HashSet<usize>>> =
 static FRAME_CALLBACK_COUNTER: AtomicU64 = AtomicU64::new(0);
 static FRAME_CALLBACKS: LazyLock<Mutex<Arc<HashMap<FrameCallbackId, FrameCallback>>>> =
     LazyLock::new(|| Mutex::new(Arc::new(HashMap::new())));
+static TICKER_COUNTER: AtomicU64 = AtomicU64::new(0);
+static TICKERS: LazyLock<Mutex<Arc<HashMap<TickerId, TickerFn>>>> =
+    LazyLock::new(|| Mutex::new(Arc::new(HashMap::new())));
+static FRAME_COUNTER: AtomicU64 = AtomicU64::new(0);
+static LAST_FRAME_TIME: LazyLock<Mutex<Instant>> =
+    LazyLock::new(|| Mutex::new(Instant::now()));
 static REQUEST_FRAME_HOOK: LazyLock<Mutex<Option<Box<dyn Fn() + Send + Sync>>>> =
     LazyLock::new(|| Mutex::new(None));
 
@@ -93,15 +113,72 @@ impl FrameScheduler {
         *callbacks = Arc::new(updated);
     }
 
+    /// Register a per-frame ticker. The closure receives [`FrameInfo`] every frame
+    /// and must return `true` to keep running or `false` to unregister itself.
+    /// Tickers run *before* canvas redraws so state mutations are visible in the
+    /// same frame. Canvas-specific invalidation should call [`Self::schedule_canvas`]
+    /// from inside the ticker.
+    pub fn register_ticker<F>(ticker: F) -> TickerId
+    where
+        F: FnMut(FrameInfo) -> bool + Send + 'static,
+    {
+        let id = TickerId(TICKER_COUNTER.fetch_add(1, Ordering::Relaxed));
+        let mut tickers = aurea_foundation::lock(&TICKERS);
+        let mut updated = (**tickers).clone();
+        updated.insert(id, Arc::new(Mutex::new(ticker)));
+        *tickers = Arc::new(updated);
+        // Pump-only arm: don't set ALL_CANVASES_SCHEDULED — one active ticker
+        // must not force a full repaint of every canvas every frame.
+        FRAME_SCHEDULED.store(true, Ordering::Relaxed);
+        Self::notify_platform();
+        id
+    }
+
+    pub fn unregister_ticker(id: TickerId) {
+        let mut tickers = aurea_foundation::lock(&TICKERS);
+        let mut updated = (**tickers).clone();
+        updated.remove(&id);
+        *tickers = Arc::new(updated);
+    }
+
     pub fn process_frames() -> Result<(), AureaError> {
         if !Self::take() {
             return Ok(());
         }
 
+        // Sample frame time once — tickers receive it so draw callbacks never
+        // read the wall clock themselves (required by the determinism contract).
+        let now = Instant::now();
+        let delta = {
+            let mut last = aurea_foundation::lock(&LAST_FRAME_TIME);
+            let d = now.duration_since(*last);
+            *last = now;
+            d
+        };
+        let frame = FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let frame_info = FrameInfo { time: now, delta, frame };
+
+        // === Tickers run before canvas redraws so mutations are visible this frame ===
+        // Clone the Arc — O(1); locks released before invoking user code.
+        let tickers = aurea_foundation::lock(&TICKERS).clone();
+        let mut to_remove = Vec::new();
+        for (id, ticker_fn) in tickers.iter() {
+            let keep = {
+                let mut f = ticker_fn.lock().unwrap();
+                f(frame_info)
+            };
+            if !keep {
+                to_remove.push(*id);
+            }
+        }
+        for id in to_remove {
+            Self::unregister_ticker(id);
+        }
+
+        // === Canvas redraws ===
         let process_all_canvases = ALL_CANVASES_SCHEDULED.swap(false, Ordering::Relaxed);
 
-        // Cheap Arc clones instead of cloning the whole registry/callback Vec
-        // every frame; the locks are released before invoking callbacks
+        // Cheap Arc clones; locks released before invoking callbacks
         // (which may re-register canvases or frame callbacks).
         let registry = aurea_foundation::lock(&CANVAS_REGISTRY).clone();
         let global_callbacks = aurea_foundation::lock(&FRAME_CALLBACKS).clone();
@@ -139,6 +216,14 @@ impl FrameScheduler {
             callback();
         }
 
+        // Re-arm pump if tickers remain after removal (pump-only, not all-canvas).
+        // Check the live map — not the snapshot — so finished tickers don't waste a frame.
+        // scheduler.rs calls ng_platform_frame_idle() when !is_scheduled().
+        if !aurea_foundation::lock(&TICKERS).is_empty() {
+            FRAME_SCHEDULED.store(true, Ordering::Relaxed);
+            Self::notify_platform();
+        }
+
         Ok(())
     }
 }
@@ -150,6 +235,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+    static TICKER_TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     fn handle(id: usize) -> *mut c_void {
         id as *mut c_void
@@ -222,5 +308,65 @@ mod tests {
 
         FrameScheduler::unregister_canvas(handle(3));
         FrameScheduler::unregister_canvas(handle(4));
+    }
+
+    #[test]
+    fn frame_callback_unregister_stops_invocation() {
+        let _guard = aurea_foundation::lock(&TEST_LOCK);
+        let count = Arc::new(AtomicUsize::new(0));
+        let c = count.clone();
+        let id = FrameScheduler::register_frame_callback(move || {
+            c.fetch_add(1, Ordering::Relaxed);
+        });
+
+        FrameScheduler::schedule();
+        FrameScheduler::process_frames().unwrap();
+        assert_eq!(count.load(Ordering::Relaxed), 1);
+
+        FrameScheduler::unregister_frame_callback(id);
+        FrameScheduler::schedule();
+        FrameScheduler::process_frames().unwrap();
+        assert_eq!(count.load(Ordering::Relaxed), 1, "callback must not fire after unregister");
+    }
+
+    #[test]
+    fn ticker_runs_until_false() {
+        let _guard = aurea_foundation::lock(&TICKER_TEST_LOCK);
+        let count = Arc::new(AtomicUsize::new(0));
+        let c = count.clone();
+
+        // Ticker returns true for the first two calls, then false.
+        FrameScheduler::register_ticker(move |_info| {
+            let n = c.fetch_add(1, Ordering::Relaxed);
+            n < 2 // keep running while n was 0 or 1 (i.e. after 3rd call: n==2, return false)
+        });
+
+        for _ in 0..4 {
+            FrameScheduler::schedule();
+            FrameScheduler::process_frames().unwrap();
+        }
+
+        // Ticker must have been called exactly 3 times (n=0 → true, n=1 → true, n=2 → false).
+        assert_eq!(count.load(Ordering::Relaxed), 3);
+    }
+
+    #[test]
+    fn ticker_explicit_unregister() {
+        let _guard = aurea_foundation::lock(&TICKER_TEST_LOCK);
+        let count = Arc::new(AtomicUsize::new(0));
+        let c = count.clone();
+        let id = FrameScheduler::register_ticker(move |_| {
+            c.fetch_add(1, Ordering::Relaxed);
+            true
+        });
+
+        FrameScheduler::schedule();
+        FrameScheduler::process_frames().unwrap();
+        assert_eq!(count.load(Ordering::Relaxed), 1);
+
+        FrameScheduler::unregister_ticker(id);
+        FrameScheduler::schedule();
+        FrameScheduler::process_frames().unwrap();
+        assert_eq!(count.load(Ordering::Relaxed), 1, "ticker must not fire after unregister");
     }
 }
