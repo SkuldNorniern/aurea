@@ -96,6 +96,7 @@ impl CpuRasterizer {
     fn render_item(
         item: &super::super::display_list::DisplayItem,
         damage: Option<&Rect>,
+        scale: f32,
         buf: &mut Vec<u32>,
         scratch_edges: &mut Vec<Edge>,
         scratch_xs: &mut Vec<f32>,
@@ -123,6 +124,7 @@ impl CpuRasterizer {
                     path,
                     paint,
                     item.blend_mode,
+                    scale,
                     buf,
                     scratch_edges,
                     scratch_xs,
@@ -395,13 +397,14 @@ impl CpuRasterizer {
         path: &super::super::types::Path,
         paint: &Paint,
         mode: BlendMode,
+        scale: f32,
         buf: &mut Vec<u32>,
         scratch_edges: &mut Vec<Edge>,
         scratch_xs: &mut Vec<f32>,
         bw: u32,
         bh: u32,
     ) -> AureaResult<()> {
-        tessellate_path_into(path, scratch_edges);
+        tessellate_path_into(path, scale, scratch_edges);
         if scratch_edges.is_empty() {
             return Ok(());
         }
@@ -756,6 +759,7 @@ impl Renderer for CpuRasterizer {
             Self::render_item(
                 item,
                 damage.as_ref(),
+                self.scale_factor,
                 &mut self.frame_buffer,
                 &mut self.scratch_edges,
                 &mut self.scratch_xs,
