@@ -527,8 +527,8 @@ impl DrawingContext for CpuDrawingContext {
         }
 
         let sf = self.scale_factor;
-        let physical_font = Font::new(font.family.trim(), font.size * sf);
-        let (mask, ascent, pad) = TEXT_RENDERER.render_text_subpixel(text, &physical_font)?;
+        let physical_font = super::super::text::FontRef::with_size(font, font.size * sf);
+        let (mask, ascent, pad) = TEXT_RENDERER.render_text_subpixel(text, physical_font)?;
         if mask.width == 0 || mask.height == 0 {
             return Ok(());
         }
@@ -587,8 +587,8 @@ impl DrawingContext for CpuDrawingContext {
             });
         }
         let sf = self.scale_factor;
-        let physical_font = Font::new(font.family.trim(), font.size * sf);
-        let m = TEXT_RENDERER.measure_text(text, &physical_font)?;
+        let physical_font = super::super::text::FontRef::with_size(font, font.size * sf);
+        let m = TEXT_RENDERER.measure_text(text, physical_font)?;
         Ok(TextMetrics {
             width: m.width / sf,
             height: m.height / sf,

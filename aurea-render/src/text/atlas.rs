@@ -1,6 +1,6 @@
 //! Glyph atlas management for text rendering.
 
-use super::super::types::Font;
+use super::platform::FontRef;
 use aurea_foundation::AureaResult;
 use std::{
     collections::HashMap,
@@ -17,7 +17,7 @@ pub struct GlyphKey {
 }
 
 impl GlyphKey {
-    pub fn new(font: &Font, char_code: u32) -> Self {
+    pub fn new(font: FontRef, char_code: u32) -> Self {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
@@ -134,16 +134,16 @@ mod tests {
     #[test]
     fn glyph_key_same_font_char_equals() {
         let font = Font::new("Sans", 16.0);
-        let k1 = GlyphKey::new(&font, 'A' as u32);
-        let k2 = GlyphKey::new(&font, 'A' as u32);
+        let k1 = GlyphKey::new((&font).into(), 'A' as u32);
+        let k2 = GlyphKey::new((&font).into(), 'A' as u32);
         assert_eq!(k1, k2);
     }
 
     #[test]
     fn glyph_key_different_char_different() {
         let font = Font::new("Sans", 16.0);
-        let k1 = GlyphKey::new(&font, 'A' as u32);
-        let k2 = GlyphKey::new(&font, 'B' as u32);
+        let k1 = GlyphKey::new((&font).into(), 'A' as u32);
+        let k2 = GlyphKey::new((&font).into(), 'B' as u32);
         assert_ne!(k1, k2);
     }
 
@@ -151,15 +151,15 @@ mod tests {
     fn glyph_key_different_font_different() {
         let f1 = Font::new("Sans", 16.0);
         let f2 = Font::new("Serif", 16.0);
-        let k1 = GlyphKey::new(&f1, 'A' as u32);
-        let k2 = GlyphKey::new(&f2, 'A' as u32);
+        let k1 = GlyphKey::new((&f1).into(), 'A' as u32);
+        let k2 = GlyphKey::new((&f2).into(), 'A' as u32);
         assert_ne!(k1, k2);
     }
 
     #[test]
     fn glyph_key_different_size_different() {
-        let k1 = GlyphKey::new(&Font::new("Sans", 16.0), 'A' as u32);
-        let k2 = GlyphKey::new(&Font::new("Sans", 24.0), 'A' as u32);
+        let k1 = GlyphKey::new((&Font::new("Sans", 16.0)).into(), 'A' as u32);
+        let k2 = GlyphKey::new((&Font::new("Sans", 24.0)).into(), 'A' as u32);
         assert_ne!(k1, k2);
     }
 }

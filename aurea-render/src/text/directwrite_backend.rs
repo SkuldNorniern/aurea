@@ -1,8 +1,8 @@
 //! DirectWrite glyph rasterizer (Windows) — hinted ClearType subpixel coverage.
 
-use super::super::types::{Font, FontStyle, FontWeight, TextMetrics};
+use super::super::types::{FontStyle, FontWeight, TextMetrics};
 use super::atlas::{GlyphBitmap, GlyphKey};
-use super::platform::{PlatformTextRasterizer, SubpixelGlyph};
+use super::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph};
 use aurea_foundation::{AureaError, AureaResult};
 use std::collections::HashMap;
 use std::ptr;
@@ -18,17 +18,22 @@ use winapi::um::dwrite::{
     DWRITE_TEXTURE_CLEARTYPE_3x1, IDWriteFontFace,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct FaceKey {
-    family: String,
+    family_hash: u64,
     weight: FontWeight,
     style: FontStyle,
 }
 
 impl FaceKey {
-    fn from_font(font: &Font) -> Self {
+    fn from_font(font: FontRef) -> Self {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        font.family.hash(&mut hasher);
         Self {
-            family: font.family.clone(),
+            family_hash: hasher.finish(),
             weight: font.weight,
             style: font.style,
         }
@@ -61,7 +66,7 @@ impl DirectWriteRasterizer {
         })
     }
 
-    fn resolve_face(&self, font: &Font) -> AureaResult<Arc<FaceEntry>> {
+    fn resolve_face(&self, font: FontRef) -> AureaResult<Arc<FaceEntry>> {
         let key = FaceKey::from_font(font);
         if let Some(cached) = aurea_foundation::lock(&self.faces).get(&key).cloned() {
             return Ok(cached);
@@ -76,7 +81,7 @@ impl DirectWriteRasterizer {
             FontStyle::Normal => DwStyle::Normal,
         };
 
-        let candidates = [font.family.trim(), "Consolas", "Cascadia Mono", "Segoe UI"];
+        let candidates = [font.family, "Consolas", "Cascadia Mono", "Segoe UI"];
         let mut family = None;
         for name in candidates {
             if name.is_empty() {
@@ -120,11 +125,11 @@ impl DirectWriteRasterizer {
 }
 
 impl PlatformTextRasterizer for DirectWriteRasterizer {
-    fn rasterize_glyph(&self, _font: &Font, _char_code: u32) -> AureaResult<GlyphBitmap> {
+    fn rasterize_glyph(&self, _font: FontRef, _char_code: u32) -> AureaResult<GlyphBitmap> {
         Err(AureaError::RenderingFailed)
     }
 
-    fn rasterize_subpixel(&self, font: &Font, char_code: u32) -> AureaResult<Arc<SubpixelGlyph>> {
+    fn rasterize_subpixel(&self, font: FontRef, char_code: u32) -> AureaResult<Arc<SubpixelGlyph>> {
         let key = GlyphKey::new(font, char_code);
         if let Some(cached) = aurea_foundation::lock(&self.glyphs).get(&key).cloned() {
             return Ok(cached);
@@ -198,7 +203,7 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
         Ok(glyph)
     }
 
-    fn measure_text(&self, text: &str, font: &Font) -> AureaResult<TextMetrics> {
+    fn measure_text(&self, text: &str, font: FontRef) -> AureaResult<TextMetrics> {
         let entry = self.resolve_face(font)?;
         let scale = font.size / entry.units_per_em;
         let ascent = entry.ascent * scale;
