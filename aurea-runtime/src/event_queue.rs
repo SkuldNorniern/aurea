@@ -1,18 +1,18 @@
 //! Event queue for window-level events.
 
 use aurea_foundation::{EventCallback, WindowEvent};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 pub struct EventQueue {
     events: Mutex<Vec<WindowEvent>>,
-    callbacks: Mutex<Vec<EventCallback>>,
+    callbacks: Mutex<Arc<Vec<EventCallback>>>,
 }
 
 impl EventQueue {
     pub fn new() -> Self {
         Self {
             events: Mutex::new(Vec::new()),
-            callbacks: Mutex::new(Vec::new()),
+            callbacks: Mutex::new(Arc::new(Vec::new())),
         }
     }
 
@@ -41,7 +41,9 @@ impl EventQueue {
 
     pub fn register_callback(&self, callback: EventCallback) {
         let mut callbacks = aurea_foundation::lock(&self.callbacks);
-        callbacks.push(callback);
+        let mut updated = (**callbacks).clone();
+        updated.push(callback);
+        *callbacks = Arc::new(updated);
     }
 
     pub fn process_events(&self) -> Vec<WindowEvent> {
@@ -50,13 +52,10 @@ impl EventQueue {
             return Vec::new();
         }
 
-        let callbacks: Vec<EventCallback> = {
-            let callbacks = aurea_foundation::lock(&self.callbacks);
-            callbacks.clone()
-        };
+        let callbacks = aurea_foundation::lock(&self.callbacks).clone();
 
         for event in &events {
-            for callback in &callbacks {
+            for callback in callbacks.iter() {
                 callback(event.clone());
             }
         }
