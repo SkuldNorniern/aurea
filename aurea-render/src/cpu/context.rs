@@ -27,7 +27,11 @@ struct DrawingState {
 /// Context that records drawing commands into a display list for the CPU rasterizer.
 pub struct CpuDrawingContext {
     display_list: *mut DisplayList,
-    current_node_id: NodeId,
+    /// Sequence counter for this frame's node IDs, reset per frame (a fresh
+    /// `CpuDrawingContext` is created in `begin_frame`). Items at the same
+    /// position in consecutive frames get the same ID, so display-list
+    /// diffing can use index-based identity.
+    next_node_id: u64,
     state_stack: Vec<DrawingState>,
     current_transform: Transform,
     current_opacity: f32,
@@ -44,7 +48,7 @@ impl CpuDrawingContext {
     pub fn new(display_list: *mut DisplayList, width: u32, height: u32) -> Self {
         Self {
             display_list,
-            current_node_id: NodeId::new(),
+            next_node_id: 0,
             state_stack: Vec::new(),
             current_transform: Transform::identity(),
             current_opacity: 1.0,
@@ -398,6 +402,19 @@ impl CpuDrawingContext {
             super::super::command::DrawCommand::FillRadialGradient(_, rect) => {
                 self.transform_rect(*rect)
             }
+            super::super::command::DrawCommand::DrawPath(path, paint) => {
+                // `path` is stored in logical coordinates (P7-F); scale to
+                // physical pixels like the other arms before transforming.
+                let mut bounds = self.s_rect(super::hit_test::path_bounds(path));
+                if paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0 {
+                    let half_stroke = paint.stroke_width / 2.0;
+                    bounds.x -= half_stroke;
+                    bounds.y -= half_stroke;
+                    bounds.width += paint.stroke_width;
+                    bounds.height += paint.stroke_width;
+                }
+                self.transform_rect(bounds)
+            }
             _ => Rect::new(0.0, 0.0, 0.0, 0.0),
         }
     }
@@ -424,10 +441,13 @@ impl CpuDrawingContext {
         let bounds = self.compute_bounds(&command);
         let opaque = self.is_opaque(&command) && self.current_opacity >= 1.0;
 
+        let node_id = NodeId(self.next_node_id);
+        self.next_node_id += 1;
+
         let blend = self.current_blend_mode;
         let item = if let Some(interactive_id) = self.current_interactive_id {
             DisplayItem::new_interactive(
-                self.current_node_id,
+                node_id,
                 cache_key,
                 bounds,
                 opaque,
@@ -436,20 +456,12 @@ impl CpuDrawingContext {
                 command,
             )
         } else {
-            DisplayItem::new(
-                self.current_node_id,
-                cache_key,
-                bounds,
-                opaque,
-                blend,
-                command,
-            )
+            DisplayItem::new(node_id, cache_key, bounds, opaque, blend, command)
         };
 
         unsafe {
             self.display_list_mut().push(item);
         }
-        self.current_node_id = NodeId::new();
     }
 }
 
