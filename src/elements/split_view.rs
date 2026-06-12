@@ -13,6 +13,7 @@ pub enum SplitOrientation {
 pub struct SplitView {
     handle: *mut c_void,
     _orientation: SplitOrientation,
+    _children: Vec<std::boxed::Box<dyn std::any::Any>>,
 }
 
 impl SplitView {
@@ -32,6 +33,7 @@ impl SplitView {
         Ok(Self {
             handle,
             _orientation: orientation,
+            _children: Vec::new(),
         })
     }
 
@@ -48,7 +50,7 @@ impl SplitView {
     }
 
     /// Create a split view and add two children.
-    pub fn with_children<L: Element, R: Element>(
+    pub fn with_children<L: Element + 'static, R: Element + 'static>(
         orientation: SplitOrientation,
         left: L,
         right: R,
@@ -72,15 +74,14 @@ impl Element for SplitView {
 }
 
 impl Container for SplitView {
-    fn add_weighted<E: Element>(&mut self, element: E, _weight: f32) -> AureaResult<()> {
-        // Note: NSSplitView doesn't use simple weights like NSStackView,
-        // it uses constraints or holding priorities. For now, we just add it.
+    fn add_weighted<E: Element + 'static>(&mut self, element: E, _weight: f32) -> AureaResult<()> {
         let result = unsafe { ng_platform_split_view_add(self.handle, element.handle()) };
 
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
         }
 
+        self._children.push(std::boxed::Box::new(element));
         Ok(())
     }
 }

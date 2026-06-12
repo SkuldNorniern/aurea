@@ -33,16 +33,19 @@ pub trait Element {
 }
 
 /// A container element that can hold child elements.
+///
+/// Children must be `'static` so the container can keep them alive (preventing
+/// their `Drop` from running) until the container itself is dropped.
 pub trait Container: Element {
-    fn add<E: Element>(&mut self, element: E) -> AureaResult<()> {
+    fn add<E: Element + 'static>(&mut self, element: E) -> AureaResult<()> {
         self.add_weighted(element, 0.0)
     }
 
-    fn add_weighted<E: Element>(&mut self, element: E, weight: f32) -> AureaResult<()>;
+    fn add_weighted<E: Element + 'static>(&mut self, element: E, weight: f32) -> AureaResult<()>;
 
     fn add_all<E, I>(&mut self, elements: I) -> AureaResult<()>
     where
-        E: Element,
+        E: Element + 'static,
         I: IntoIterator<Item = E>,
     {
         self.add_all_weighted(elements, 0.0)
@@ -50,7 +53,7 @@ pub trait Container: Element {
 
     fn add_all_weighted<E, I>(&mut self, elements: I, weight: f32) -> AureaResult<()>
     where
-        E: Element,
+        E: Element + 'static,
         I: IntoIterator<Item = E>,
     {
         for element in elements {

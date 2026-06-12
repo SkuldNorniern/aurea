@@ -13,6 +13,9 @@ pub enum BoxOrientation {
 pub struct Box {
     handle: *mut c_void,
     _orientation: BoxOrientation,
+    /// Keeps child elements alive so their Drop impls run only when the Box
+    /// itself is dropped, not when they are moved in via `add`.
+    _children: Vec<std::boxed::Box<dyn std::any::Any>>,
 }
 
 impl Box {
@@ -32,6 +35,7 @@ impl Box {
         Ok(Self {
             handle,
             _orientation: orientation,
+            _children: Vec::new(),
         })
     }
 }
@@ -58,7 +62,7 @@ impl Box {
     /// Add multiple elements with the same layout weight.
     pub fn add_many<E, I>(&mut self, elements: I, weight: f32) -> AureaResult<()>
     where
-        E: Element,
+        E: Element + 'static,
         I: IntoIterator<Item = E>,
     {
         <Self as Container>::add_all_weighted(self, elements, weight)
@@ -70,13 +74,16 @@ impl Container for Box {
     ///
     /// On macOS the weight affects space distribution; on Linux and Windows
     /// the weight is ignored (GTK/Win32 layouts do not use it).
-    fn add_weighted<E: Element>(&mut self, element: E, weight: f32) -> AureaResult<()> {
+    fn add_weighted<E: Element + 'static>(&mut self, element: E, weight: f32) -> AureaResult<()> {
         let result = unsafe { ng_platform_box_add(self.handle, element.handle(), weight) };
 
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
         }
 
+        // Keep the element alive so its Drop (e.g. Canvas scheduler unregister)
+        // only runs when this Box is dropped, not when the element is "added".
+        self._children.push(std::boxed::Box::new(element));
         Ok(())
     }
 }
