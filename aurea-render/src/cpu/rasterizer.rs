@@ -1,5 +1,6 @@
 //! CPU rasterizer — flat framebuffer, no tile overhead.
 
+use super::super::command::DrawCommand;
 use super::super::display_list::{CacheKey, DisplayList};
 use super::super::renderer::{DrawingContext, Renderer};
 use super::super::surface::{Surface, SurfaceInfo};
@@ -12,6 +13,8 @@ use super::context::CpuDrawingContext;
 use super::path::{tessellate_path_into, Edge};
 use super::scanline::fill_scanline;
 use aurea_foundation::AureaResult;
+
+const TILE_SIZE: u32 = 256;
 
 #[derive(Debug)]
 enum FrameDamage {
@@ -33,6 +36,7 @@ pub struct CpuRasterizer {
     display_list: DisplayList,
     pending_damage: Option<Rect>,
     prev_items: Vec<(CacheKey, Rect)>,
+    tile_hashes: Vec<u64>,
     scratch_edges: Vec<Edge>,
     scratch_xs: Vec<f32>,
 }
@@ -49,6 +53,7 @@ impl CpuRasterizer {
             display_list: DisplayList::new(),
             pending_damage: None,
             prev_items: Vec::new(),
+            tile_hashes: Vec::new(),
             scratch_edges: Vec::new(),
             scratch_xs: Vec::new(),
         }
@@ -94,7 +99,6 @@ impl CpuRasterizer {
 
     fn render_item(
         item: &super::super::display_list::DisplayItem,
-        damage: Option<&Rect>,
         scale: f32,
         buf: &mut Vec<u32>,
         scratch_edges: &mut Vec<Edge>,
@@ -102,16 +106,7 @@ impl CpuRasterizer {
         bw: u32,
         bh: u32,
     ) -> AureaResult<()> {
-        use super::super::command::DrawCommand;
         match &item.command {
-            DrawCommand::Clear(color) => {
-                let c = color_to_u32(*color);
-                if let Some(rect) = damage {
-                    Self::clear_rect(rect, c, buf, bw, bh);
-                } else {
-                    buf.fill(c);
-                }
-            }
             DrawCommand::DrawRect(rect, paint) => {
                 Self::draw_rect(rect, paint, item.blend_mode, buf, bw, bh);
             }
@@ -750,6 +745,86 @@ impl CpuRasterizer {
         }
     }
 
+    fn compute_dirty_tiles(
+        &mut self,
+        damage: Option<Rect>,
+        forced: Option<Rect>,
+        tiles_x: u32,
+        tiles_y: u32,
+    ) -> Vec<bool> {
+        let tile_count = (tiles_x * tiles_y) as usize;
+        if self.tile_hashes.len() != tile_count {
+            self.tile_hashes = vec![0u64; tile_count];
+        }
+
+        let mut dirty = vec![false; tile_count];
+
+        let range = match damage {
+            Some(rect) => tile_range(rect, tiles_x, tiles_y),
+            None => (0, 0, tiles_x, tiles_y),
+        };
+        self.refine_tile_hashes(range, (tiles_x, tiles_y), &mut dirty);
+
+        if damage.is_none() {
+            dirty.fill(true);
+        }
+        if let Some(rect) = forced {
+            mark_tile_range_dirty(rect, tiles_x, tiles_y, &mut dirty);
+        }
+        dirty
+    }
+
+    fn refine_tile_hashes(
+        &mut self,
+        (tx0, ty0, tx1, ty1): (u32, u32, u32, u32),
+        (tiles_x, tiles_y): (u32, u32),
+        dirty: &mut [bool],
+    ) {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        if tx0 >= tx1 || ty0 >= ty1 {
+            return;
+        }
+        let range_w = (tx1 - tx0) as usize;
+        let mut hashers: Vec<DefaultHasher> = (0..range_w * (ty1 - ty0) as usize)
+            .map(|_| DefaultHasher::new())
+            .collect();
+
+        for item in self.display_list.items() {
+            if !is_known_bounds(item.bounds) {
+                continue;
+            }
+            let (itx0, ity0, itx1, ity1) = tile_range(item.bounds, tiles_x, tiles_y);
+            let lo_x = itx0.max(tx0);
+            let hi_x = itx1.min(tx1);
+            let lo_y = ity0.max(ty0);
+            let hi_y = ity1.min(ty1);
+            for ty in lo_y..hi_y {
+                for tx in lo_x..hi_x {
+                    let h = &mut hashers[(ty - ty0) as usize * range_w + (tx - tx0) as usize];
+                    item.cache_key.0.hash(h);
+                    item.bounds.x.to_bits().hash(h);
+                    item.bounds.y.to_bits().hash(h);
+                    item.bounds.width.to_bits().hash(h);
+                    item.bounds.height.to_bits().hash(h);
+                }
+            }
+        }
+
+        for ty in ty0..ty1 {
+            for tx in tx0..tx1 {
+                let new_hash =
+                    hashers[(ty - ty0) as usize * range_w + (tx - tx0) as usize].finish();
+                let idx = (ty * tiles_x + tx) as usize;
+                if new_hash != self.tile_hashes[idx] {
+                    dirty[idx] = true;
+                }
+                self.tile_hashes[idx] = new_hash;
+            }
+        }
+    }
+
     fn capture_prev_items(&mut self) {
         self.prev_items.clear();
         self.prev_items.extend(
@@ -771,6 +846,7 @@ impl Renderer for CpuRasterizer {
         self.height = rh;
         self.frame_buffer = vec![0u32; (rw * rh) as usize];
         self.prev_items.clear();
+        self.tile_hashes.clear();
         Ok(())
     }
 
@@ -791,6 +867,7 @@ impl Renderer for CpuRasterizer {
 
         self.display_list.clear();
         self.prev_items.clear();
+        self.tile_hashes.clear();
         Ok(())
     }
 
@@ -824,10 +901,29 @@ impl Renderer for CpuRasterizer {
             }
         };
 
+        let (tiles_x, tiles_y) = tile_grid_dims(bw, bh);
+        let dirty_tiles = self.compute_dirty_tiles(damage, pending, tiles_x, tiles_y);
+
         let items = self.display_list.items();
         for (i, item) in items.iter().enumerate() {
-            let has_known_bounds = item.bounds.width > 0.0 && item.bounds.height > 0.0;
-            if has_known_bounds && damage.as_ref().is_some_and(|rect| !item.intersects(rect)) {
+            let has_known_bounds = is_known_bounds(item.bounds);
+
+            if let DrawCommand::Clear(color) = &item.command {
+                let c = color_to_u32(*color);
+                for ty in 0..tiles_y {
+                    for tx in 0..tiles_x {
+                        if dirty_tiles[(ty * tiles_x + tx) as usize] {
+                            let rect = tile_rect(tx, ty, bw, bh);
+                            Self::clear_rect(&rect, c, &mut self.frame_buffer, bw, bh);
+                        }
+                    }
+                }
+                continue;
+            }
+
+            if has_known_bounds
+                && !item_overlaps_dirty_tiles(item.bounds, &dirty_tiles, tiles_x, tiles_y)
+            {
                 continue;
             }
             if has_known_bounds && is_occluded(items, i) {
@@ -835,7 +931,6 @@ impl Renderer for CpuRasterizer {
             }
             Self::render_item(
                 item,
-                damage.as_ref(),
                 self.scale_factor,
                 &mut self.frame_buffer,
                 &mut self.scratch_edges,
@@ -857,6 +952,7 @@ impl Renderer for CpuRasterizer {
         self.display_list.clear();
         self.pending_damage = None;
         self.prev_items.clear();
+        self.tile_hashes.clear();
     }
 
     fn set_damage(&mut self, damage: Option<Rect>) {
@@ -902,6 +998,45 @@ fn is_occluded(items: &[super::super::display_list::DisplayItem], i: usize) -> b
     })
 }
 
+fn tile_grid_dims(bw: u32, bh: u32) -> (u32, u32) {
+    (bw.div_ceil(TILE_SIZE), bh.div_ceil(TILE_SIZE))
+}
+
+fn tile_range(bounds: Rect, tiles_x: u32, tiles_y: u32) -> (u32, u32, u32, u32) {
+    let tile = TILE_SIZE as f32;
+    let x0 = ((bounds.x / tile).floor().max(0.0) as u32).min(tiles_x);
+    let y0 = ((bounds.y / tile).floor().max(0.0) as u32).min(tiles_y);
+    let x1 = (((bounds.x + bounds.width) / tile).ceil().max(0.0) as u32)
+        .min(tiles_x)
+        .max(x0);
+    let y1 = (((bounds.y + bounds.height) / tile).ceil().max(0.0) as u32)
+        .min(tiles_y)
+        .max(y0);
+    (x0, y0, x1, y1)
+}
+
+fn tile_rect(tx: u32, ty: u32, bw: u32, bh: u32) -> Rect {
+    let x0 = (tx * TILE_SIZE) as f32;
+    let y0 = (ty * TILE_SIZE) as f32;
+    let x1 = ((tx + 1) * TILE_SIZE).min(bw) as f32;
+    let y1 = ((ty + 1) * TILE_SIZE).min(bh) as f32;
+    Rect::new(x0, y0, x1 - x0, y1 - y0)
+}
+
+fn item_overlaps_dirty_tiles(bounds: Rect, dirty: &[bool], tiles_x: u32, tiles_y: u32) -> bool {
+    let (tx0, ty0, tx1, ty1) = tile_range(bounds, tiles_x, tiles_y);
+    (ty0..ty1).any(|ty| (tx0..tx1).any(|tx| dirty[(ty * tiles_x + tx) as usize]))
+}
+
+fn mark_tile_range_dirty(rect: Rect, tiles_x: u32, tiles_y: u32, dirty: &mut [bool]) {
+    let (tx0, ty0, tx1, ty1) = tile_range(rect, tiles_x, tiles_y);
+    for ty in ty0..ty1 {
+        for tx in tx0..tx1 {
+            dirty[(ty * tiles_x + tx) as usize] = true;
+        }
+    }
+}
+
 fn round_out_clamp(r: Rect, bw: u32, bh: u32) -> Rect {
     let x0 = r.x.floor().max(0.0);
     let y0 = r.y.floor().max(0.0);
@@ -932,7 +1067,7 @@ fn circle_coverage(center: Point, radius: f32, px: f32, py: f32) -> f32 {
     (radius + 0.5 - d).clamp(0.0, 1.0)
 }
 
-#[allow(dead_code)]
+#[cfg_attr(not(test), allow(dead_code))]
 fn pixel_at(buf: &[u32], w: u32, x: u32, y: u32) -> u32 {
     let idx = (y * w + x) as usize;
     if idx < buf.len() { buf[idx] } else { 0 }
@@ -1098,5 +1233,122 @@ mod occlusion_tests {
         let big = Rect::new(0.0, 0.0, 10.0, 10.0);
         let items = vec![occluder_item(big, BlendMode::Normal), plain_item(small)];
         assert!(!is_occluded(&items, 0));
+    }
+}
+
+#[cfg(test)]
+mod tile_cache_tests {
+    use super::*;
+    use crate::command::DrawCommand;
+    use crate::display_list::{DisplayItem, NodeId};
+    use crate::types::Paint;
+
+    fn item(key: u64, bounds: Rect) -> DisplayItem {
+        DisplayItem::new(
+            NodeId(0),
+            CacheKey::from_hash(key),
+            bounds,
+            false,
+            BlendMode::Normal,
+            DrawCommand::Clear(Color::rgb(0, 0, 0)),
+        )
+    }
+
+    #[test]
+    fn tile_grid_dims_rounds_up() {
+        assert_eq!(tile_grid_dims(256, 256), (1, 1));
+        assert_eq!(tile_grid_dims(257, 256), (2, 1));
+        assert_eq!(tile_grid_dims(512, 300), (2, 2));
+    }
+
+    #[test]
+    fn tile_range_clamps_huge_bounds_to_grid() {
+        let max = Rect::new(0.0, 0.0, f32::MAX, f32::MAX);
+        assert_eq!(tile_range(max, 3, 2), (0, 0, 3, 2));
+    }
+
+    #[test]
+    fn tile_range_picks_single_tile() {
+        let bounds = Rect::new(300.0, 10.0, 4.0, 4.0);
+        assert_eq!(tile_range(bounds, 4, 4), (1, 0, 2, 1));
+    }
+
+    #[test]
+    fn changing_one_tiles_item_leaves_other_tile_clean() {
+        let mut r = CpuRasterizer::new(512, 512);
+        let a = Rect::new(4.0, 4.0, 8.0, 8.0);
+        let b = Rect::new(300.0, 300.0, 8.0, 8.0);
+        let full = Rect::new(0.0, 0.0, 512.0, 512.0);
+
+        r.display_list.push(item(1, a));
+        r.display_list.push(item(2, b));
+        let dirty = r.compute_dirty_tiles(Some(full), None, 2, 2);
+        assert!(dirty[0], "tile (0,0) dirty on first computation");
+        assert!(dirty[3], "tile (1,1) dirty on first computation");
+
+        r.display_list.clear();
+        r.display_list.push(item(10, a));
+        r.display_list.push(item(2, b));
+        let dirty = r.compute_dirty_tiles(Some(full), None, 2, 2);
+        assert!(dirty[0], "tile (0,0) dirty: its item's cache key changed");
+        assert!(!dirty[1], "tile (1,0) is empty and unchanged");
+        assert!(!dirty[2], "tile (0,1) is empty and unchanged");
+        assert!(!dirty[3], "tile (1,1) clean: its item is unchanged");
+    }
+
+    #[test]
+    fn forced_damage_marks_tile_dirty_regardless_of_hash() {
+        let mut r = CpuRasterizer::new(512, 512);
+        let a = Rect::new(4.0, 4.0, 8.0, 8.0);
+        let forced = Rect::new(300.0, 300.0, 8.0, 8.0);
+        let full = Rect::new(0.0, 0.0, 512.0, 512.0);
+
+        r.display_list.push(item(1, a));
+        let _ = r.compute_dirty_tiles(Some(full), None, 2, 2);
+
+        let dirty = r.compute_dirty_tiles(Some(full), Some(forced), 2, 2);
+        assert!(!dirty[0], "tile (0,0) unchanged and not forced");
+        assert!(dirty[3], "tile (1,1) forced dirty by set_damage");
+    }
+
+    #[test]
+    fn unrelated_tile_pixels_survive_a_localized_redraw() {
+        let mut r = CpuRasterizer::new(512, 512);
+        let paint_a = Paint::new().color(Color::rgb(10, 20, 30));
+        let paint_b = Paint::new().color(Color::rgb(200, 100, 50));
+        let paint_c = Paint::new().color(Color::rgb(0, 255, 0));
+
+        let mut ctx = r.begin_frame().unwrap();
+        ctx.clear(Color::rgb(1, 2, 3)).unwrap();
+        ctx.draw_rect(Rect::new(4.0, 4.0, 8.0, 8.0), &paint_a)
+            .unwrap();
+        ctx.draw_rect(Rect::new(300.0, 300.0, 8.0, 8.0), &paint_b)
+            .unwrap();
+        drop(ctx);
+        r.end_frame().unwrap();
+
+        let bw = r.width;
+        assert_eq!(
+            pixel_at(&r.frame_buffer, bw, 304, 304),
+            color_to_u32(paint_b.color)
+        );
+
+        let mut ctx = r.begin_frame().unwrap();
+        ctx.clear(Color::rgb(1, 2, 3)).unwrap();
+        ctx.draw_rect(Rect::new(4.0, 4.0, 8.0, 8.0), &paint_c)
+            .unwrap();
+        ctx.draw_rect(Rect::new(300.0, 300.0, 8.0, 8.0), &paint_b)
+            .unwrap();
+        drop(ctx);
+        r.end_frame().unwrap();
+
+        assert_eq!(
+            pixel_at(&r.frame_buffer, bw, 8, 8),
+            color_to_u32(paint_c.color)
+        );
+        assert_eq!(
+            pixel_at(&r.frame_buffer, bw, 304, 304),
+            color_to_u32(paint_b.color)
+        );
     }
 }
