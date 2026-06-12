@@ -6,6 +6,7 @@
 #include <ShellScalingApi.h>
 #include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static const char* AUREA_WINDOW_ICON_PROPERTY = "AureaWindowIcon";
 
@@ -437,5 +438,47 @@ int ng_windows_window_set_cursor_grab(NGHandle window, int mode) {
         RegisterRawInputDevices(&rid, 1, sizeof(rid));
     }
 
+    return NG_SUCCESS;
+}
+
+char* ng_windows_get_clipboard_text(void) {
+    if (!OpenClipboard(NULL)) return NULL;
+    HANDLE h = GetClipboardData(CF_UNICODETEXT);
+    if (!h) { CloseClipboard(); return NULL; }
+    WCHAR* wide = (WCHAR*)GlobalLock(h);
+    if (!wide) { CloseClipboard(); return NULL; }
+    int len = WideCharToMultiByte(CP_UTF8, 0, wide, -1, NULL, 0, NULL, NULL);
+    char* result = NULL;
+    if (len > 0) {
+        result = (char*)malloc((size_t)len);
+        if (result) WideCharToMultiByte(CP_UTF8, 0, wide, -1, result, len, NULL, NULL);
+    }
+    GlobalUnlock(h);
+    CloseClipboard();
+    return result;
+}
+
+void ng_windows_free_clipboard_text(char* text) {
+    free(text);
+}
+
+int ng_windows_set_clipboard_text(const char* text) {
+    if (!text) return NG_ERROR_INVALID_PARAMETER;
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, text, -1, NULL, 0);
+    if (wlen <= 0) return NG_ERROR_PLATFORM_SPECIFIC;
+    HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, (SIZE_T)wlen * sizeof(WCHAR));
+    if (!h) return NG_ERROR_PLATFORM_SPECIFIC;
+    WCHAR* dst = (WCHAR*)GlobalLock(h);
+    if (!dst) { GlobalFree(h); return NG_ERROR_PLATFORM_SPECIFIC; }
+    MultiByteToWideChar(CP_UTF8, 0, text, -1, dst, wlen);
+    GlobalUnlock(h);
+    if (!OpenClipboard(NULL)) { GlobalFree(h); return NG_ERROR_PLATFORM_SPECIFIC; }
+    EmptyClipboard();
+    if (!SetClipboardData(CF_UNICODETEXT, h)) {
+        CloseClipboard();
+        GlobalFree(h);
+        return NG_ERROR_PLATFORM_SPECIFIC;
+    }
+    CloseClipboard();
     return NG_SUCCESS;
 }

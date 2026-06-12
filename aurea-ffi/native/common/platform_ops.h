@@ -131,6 +131,11 @@ typedef struct ng_platform_ops {
     void (*sidebar_list_invalidate)(NGHandle s);
 
     NGHandle (*create_swiftui_host)(int width, int height);
+
+    /* Clipboard (global, not per-window) */
+    char* (*get_clipboard_text)(void);
+    void (*free_clipboard_text)(char* text);
+    int (*set_clipboard_text)(const char* text);
 } ng_platform_ops_t;
 
 void ng_platform_register_ops(const ng_platform_ops_t* ops);

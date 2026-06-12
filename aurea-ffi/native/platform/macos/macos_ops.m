@@ -106,6 +106,9 @@ static const ng_platform_ops_t macos_ops = {
     .sidebar_list_clear = ng_macos_sidebar_list_clear,
     .sidebar_list_invalidate = ng_macos_sidebar_list_invalidate,
     .create_swiftui_host = ng_macos_try_create_swiftui_host,
+    .get_clipboard_text = ng_macos_get_clipboard_text,
+    .free_clipboard_text = ng_macos_free_clipboard_text,
+    .set_clipboard_text = ng_macos_set_clipboard_text,
 };
 
 void macos_register_ops(void) {
