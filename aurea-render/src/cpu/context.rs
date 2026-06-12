@@ -211,10 +211,8 @@ impl CpuDrawingContext {
                 dest.y.to_bits().hash(&mut hasher);
                 dest.width.to_bits().hash(&mut hasher);
                 dest.height.to_bits().hash(&mut hasher);
-                let sample_len = (image.data.len()).min(256);
-                for i in 0..sample_len {
-                    image.data[i].hash(&mut hasher);
-                }
+                // Pixel data is reference-counted; same Arc => same contents.
+                (std::sync::Arc::as_ptr(&image.data) as *const u8 as usize).hash(&mut hasher);
             }
             super::super::command::DrawCommand::DrawImageRegion(image, src, dest) => {
                 "DrawImageRegion".hash(&mut hasher);
@@ -228,10 +226,7 @@ impl CpuDrawingContext {
                 dest.y.to_bits().hash(&mut hasher);
                 dest.width.to_bits().hash(&mut hasher);
                 dest.height.to_bits().hash(&mut hasher);
-                let sample_len = (image.data.len()).min(256);
-                for i in 0..sample_len {
-                    image.data[i].hash(&mut hasher);
-                }
+                (std::sync::Arc::as_ptr(&image.data) as *const u8 as usize).hash(&mut hasher);
             }
             super::super::command::DrawCommand::FillLinearGradient(grad, rect) => {
                 "FillLinearGradient".hash(&mut hasher);

@@ -412,11 +412,15 @@ pub enum BlendMode {
 }
 
 /// Image for rendering
+///
+/// Pixel data is reference-counted so that drawing the same image repeatedly
+/// (the common case for icons/sprites in a redrawn frame) is an O(1) Arc
+/// clone rather than a full pixel-buffer memcpy.
 #[derive(Debug, Clone)]
 pub struct Image {
     pub width: u32,
     pub height: u32,
-    pub data: Vec<u8>,
+    pub data: std::sync::Arc<[u8]>,
 }
 
 impl Image {
@@ -424,7 +428,7 @@ impl Image {
         Self {
             width,
             height,
-            data,
+            data: data.into(),
         }
     }
 }
