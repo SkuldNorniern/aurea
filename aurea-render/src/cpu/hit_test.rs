@@ -106,7 +106,7 @@ fn ray_intersects_line_segment(ray_origin: Point, seg_start: Point, seg_end: Poi
     x_intersect > ray_origin.x
 }
 
-fn path_bounds(path: &Path) -> Rect {
+pub(crate) fn path_bounds(path: &Path) -> Rect {
     if path.commands.is_empty() {
         return Rect::new(0.0, 0.0, 0.0, 0.0);
     }
