@@ -401,6 +401,8 @@ impl Window {
     /// # }
     /// ```
     pub fn poll_events(&self) -> Vec<WindowEvent> {
+        unsafe { ng_platform_poll_events() };
+
         let events = self.event_queue.process_events();
         for event in &events {
             if let WindowEvent::ScaleFactorChanged { scale_factor } = event {
