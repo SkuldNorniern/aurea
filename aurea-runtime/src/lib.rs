@@ -6,4 +6,4 @@ pub mod frame_queue;
 
 pub use damage::DamageRegion;
 pub use event_queue::EventQueue;
-pub use frame_queue::FrameScheduler;
+pub use frame_queue::{FrameCallbackId, FrameScheduler};
