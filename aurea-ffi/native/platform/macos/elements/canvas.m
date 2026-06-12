@@ -4,10 +4,25 @@
 #import "../../../common/rust_callbacks.h"
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/QuartzCore.h>
+#import <IOSurface/IOSurface.h>
+#import <CoreVideo/CVPixelBuffer.h>
 #import <stdlib.h>
 #import <string.h>
 
 @interface AureaCanvasView : NSView
+{
+@public
+    // IOSurface double-buffer pair for the acquire/present presentation
+    // path (P5-A). NULL until the first ng_macos_canvas_acquire_buffer
+    // call; recreated whenever the requested size changes. The layer
+    // retains its own reference to whichever surface is assigned to
+    // `layer.contents`, so releasing our reference here on resize never
+    // invalidates what CoreAnimation is currently compositing.
+    IOSurfaceRef _ioSurfaces[2];
+    int _ioBackIndex;
+    unsigned int _ioSurfWidth;
+    unsigned int _ioSurfHeight;
+}
 // Raw pointer into Rust's frame_buffer.  Never freed here — Rust owns it.
 // Safe: everything runs on the main thread; ng_macos_canvas_update_buffer
 // reads it synchronously to build the CGImage assigned to layer.contents.
@@ -55,6 +70,12 @@
 - (void)dealloc {
     // renderBuffer is owned by Rust — do not free.
     self.renderBuffer = NULL;
+    for (int i = 0; i < 2; i++) {
+        if (_ioSurfaces[i]) {
+            CFRelease(_ioSurfaces[i]);
+            _ioSurfaces[i] = NULL;
+        }
+    }
 }
 
 @end
@@ -129,6 +150,71 @@ void ng_macos_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer,
     CGFloat boundsWidth = view.bounds.size.width;
     view.layer.contentsScale = (boundsWidth > 0.0) ? (CGFloat)width / boundsWidth : 1.0;
     CGImageRelease(image);
+}
+
+static IOSurfaceRef ng_macos_create_io_surface(unsigned int width, unsigned int height) {
+    NSDictionary* props = @{
+        (id)kIOSurfaceWidth: @(width),
+        (id)kIOSurfaceHeight: @(height),
+        (id)kIOSurfaceBytesPerElement: @4,
+        (id)kIOSurfacePixelFormat: @(kCVPixelFormatType_32BGRA),
+    };
+    return IOSurfaceCreate((CFDictionaryRef)props);
+}
+
+// Locks and returns the back surface's base address, (re)creating the
+// surface pair first if the requested size changed. The pair persists
+// across calls (and across resizes the layer doesn't need releasing for —
+// see the dealloc comment on _ioSurfaces) so present() can flip between
+// the two without reallocating every frame.
+void* ng_macos_canvas_acquire_buffer(NGHandle canvas, unsigned int width, unsigned int height, unsigned int* stride_px, unsigned int* buffer_index) {
+    if (!canvas || width == 0 || height == 0) return NULL;
+    AureaCanvasView* view = (__bridge AureaCanvasView*)canvas;
+    if (![view isKindOfClass:[AureaCanvasView class]]) return NULL;
+
+    if (view->_ioSurfWidth != width || view->_ioSurfHeight != height || !view->_ioSurfaces[0] || !view->_ioSurfaces[1]) {
+        for (int i = 0; i < 2; i++) {
+            if (view->_ioSurfaces[i]) {
+                CFRelease(view->_ioSurfaces[i]);
+                view->_ioSurfaces[i] = NULL;
+            }
+        }
+        view->_ioSurfaces[0] = ng_macos_create_io_surface(width, height);
+        view->_ioSurfaces[1] = ng_macos_create_io_surface(width, height);
+        view->_ioSurfWidth = width;
+        view->_ioSurfHeight = height;
+        view->_ioBackIndex = 0;
+    }
+
+    IOSurfaceRef back = view->_ioSurfaces[view->_ioBackIndex];
+    if (!back) return NULL;
+
+    IOSurfaceLock(back, 0, NULL);
+
+    if (stride_px) *stride_px = (unsigned int)(IOSurfaceGetBytesPerRow(back) / 4);
+    if (buffer_index) *buffer_index = (unsigned int)view->_ioBackIndex;
+
+    return (unsigned char*)IOSurfaceGetBaseAddress(back);
+}
+
+// Unlocks the back surface acquired above, assigns it to layer.contents
+// (CoreAnimation takes its own retain on it — see the ivar comment on
+// AureaCanvasView), and flips _ioBackIndex for the next frame.
+void ng_macos_canvas_present(NGHandle canvas) {
+    if (!canvas) return;
+    AureaCanvasView* view = (__bridge AureaCanvasView*)canvas;
+    if (![view isKindOfClass:[AureaCanvasView class]]) return;
+
+    IOSurfaceRef back = view->_ioSurfaces[view->_ioBackIndex];
+    if (!back) return;
+
+    IOSurfaceUnlock(back, 0, NULL);
+
+    view.layer.contents = (__bridge id)back;
+    CGFloat boundsWidth = view.bounds.size.width;
+    view.layer.contentsScale = (boundsWidth > 0.0) ? (CGFloat)view->_ioSurfWidth / boundsWidth : 1.0;
+
+    view->_ioBackIndex = 1 - view->_ioBackIndex;
 }
 
 void ng_macos_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int* height) {
