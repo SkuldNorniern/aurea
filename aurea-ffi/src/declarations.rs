@@ -141,6 +141,16 @@ unsafe extern "C" {
         width: u32,
         height: u32,
     );
+    /// Returns NULL if the platform doesn't support external-target
+    /// presentation; callers should fall back to `ng_platform_canvas_update_buffer`.
+    pub fn ng_platform_canvas_acquire_buffer(
+        canvas: *mut c_void,
+        width: u32,
+        height: u32,
+        stride_px: *mut u32,
+        buffer_index: *mut u32,
+    ) -> *mut u8;
+    pub fn ng_platform_canvas_present(canvas: *mut c_void);
     pub fn ng_platform_canvas_get_size(canvas: *mut c_void, width: *mut u32, height: *mut u32);
     pub fn ng_platform_canvas_get_window(canvas: *mut c_void) -> *mut c_void;
     pub fn ng_platform_canvas_get_native_handle(canvas: *mut c_void) -> *mut c_void;

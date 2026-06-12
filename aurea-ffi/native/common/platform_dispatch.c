@@ -263,6 +263,14 @@ void ng_platform_canvas_update_buffer(NGHandle c, const unsigned char* b, unsign
     DISPATCH_VOID(canvas_update_buffer, c, b, sz, w, h);
 }
 
+void* ng_platform_canvas_acquire_buffer(NGHandle c, unsigned int w, unsigned int h, unsigned int* stride_px, unsigned int* buffer_index) {
+    DISPATCH_INIT(void*, canvas_acquire_buffer, c, w, h, stride_px, buffer_index);
+}
+
+void ng_platform_canvas_present(NGHandle c) {
+    DISPATCH_VOID(canvas_present, c);
+}
+
 void ng_platform_canvas_get_size(NGHandle c, unsigned int* w, unsigned int* h) {
     DISPATCH_VOID(canvas_get_size, c, w, h);
 }
