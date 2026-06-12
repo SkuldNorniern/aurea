@@ -268,8 +268,65 @@ impl CpuDrawingContext {
                     stop.color.a.hash(&mut hasher);
                 }
             }
+            super::super::command::DrawCommand::DrawPath(path, paint) => {
+                "DrawPath".hash(&mut hasher);
+                for cmd in &path.commands {
+                    match cmd {
+                        super::super::types::PathCommand::MoveTo(p) => {
+                            0u8.hash(&mut hasher);
+                            p.x.to_bits().hash(&mut hasher);
+                            p.y.to_bits().hash(&mut hasher);
+                        }
+                        super::super::types::PathCommand::LineTo(p) => {
+                            1u8.hash(&mut hasher);
+                            p.x.to_bits().hash(&mut hasher);
+                            p.y.to_bits().hash(&mut hasher);
+                        }
+                        super::super::types::PathCommand::QuadTo(c, p) => {
+                            2u8.hash(&mut hasher);
+                            c.x.to_bits().hash(&mut hasher);
+                            c.y.to_bits().hash(&mut hasher);
+                            p.x.to_bits().hash(&mut hasher);
+                            p.y.to_bits().hash(&mut hasher);
+                        }
+                        super::super::types::PathCommand::CubicTo(c1, c2, p) => {
+                            3u8.hash(&mut hasher);
+                            c1.x.to_bits().hash(&mut hasher);
+                            c1.y.to_bits().hash(&mut hasher);
+                            c2.x.to_bits().hash(&mut hasher);
+                            c2.y.to_bits().hash(&mut hasher);
+                            p.x.to_bits().hash(&mut hasher);
+                            p.y.to_bits().hash(&mut hasher);
+                        }
+                        super::super::types::PathCommand::Close => {
+                            4u8.hash(&mut hasher);
+                        }
+                    }
+                }
+                paint.color.r.hash(&mut hasher);
+                paint.color.g.hash(&mut hasher);
+                paint.color.b.hash(&mut hasher);
+                paint.color.a.hash(&mut hasher);
+                paint.style.hash(&mut hasher);
+                paint.stroke_width.to_bits().hash(&mut hasher);
+            }
+            super::super::command::DrawCommand::DrawGlyphMask(mask, origin, color) => {
+                "DrawGlyphMask".hash(&mut hasher);
+                // The coverage buffer comes from the glyph/run LRU caches, so its
+                // Arc pointer is a stable identity for unchanged text — avoids
+                // hashing (or debug-formatting) the coverage bytes themselves.
+                (std::sync::Arc::as_ptr(&mask.coverage) as *const u8 as usize).hash(&mut hasher);
+                mask.width.hash(&mut hasher);
+                mask.height.hash(&mut hasher);
+                origin.x.to_bits().hash(&mut hasher);
+                origin.y.to_bits().hash(&mut hasher);
+                color.r.hash(&mut hasher);
+                color.g.hash(&mut hasher);
+                color.b.hash(&mut hasher);
+                color.a.hash(&mut hasher);
+            }
             _ => {
-                format!("{:?}", command).hash(&mut hasher);
+                std::mem::discriminant(command).hash(&mut hasher);
             }
         }
         self.current_transform.m11.to_bits().hash(&mut hasher);
