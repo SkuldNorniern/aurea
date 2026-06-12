@@ -23,6 +23,7 @@ pub struct CpuRasterizer {
     display_list: DisplayList,
     pending_damage: Option<Rect>,
     scratch_edges: Vec<Edge>,
+    scratch_xs: Vec<f32>,
 }
 
 impl CpuRasterizer {
@@ -37,6 +38,7 @@ impl CpuRasterizer {
             display_list: DisplayList::new(),
             pending_damage: None,
             scratch_edges: Vec::new(),
+            scratch_xs: Vec::new(),
         }
     }
 
@@ -83,6 +85,7 @@ impl CpuRasterizer {
         damage: Option<&Rect>,
         buf: &mut Vec<u32>,
         scratch_edges: &mut Vec<Edge>,
+        scratch_xs: &mut Vec<f32>,
         bw: u32,
         bh: u32,
     ) -> AureaResult<()> {
@@ -103,7 +106,16 @@ impl CpuRasterizer {
                 Self::draw_circle(*center, *radius, paint, item.blend_mode, buf, bw, bh);
             }
             DrawCommand::DrawPath(path, paint) => {
-                Self::draw_path(path, paint, item.blend_mode, buf, scratch_edges, bw, bh)?;
+                Self::draw_path(
+                    path,
+                    paint,
+                    item.blend_mode,
+                    buf,
+                    scratch_edges,
+                    scratch_xs,
+                    bw,
+                    bh,
+                )?;
             }
             DrawCommand::DrawGlyphMask(mask, origin, color) => {
                 Self::draw_glyph(mask, *origin, *color, buf, bw, bh);
@@ -297,6 +309,7 @@ impl CpuRasterizer {
         mode: BlendMode,
         buf: &mut Vec<u32>,
         scratch_edges: &mut Vec<Edge>,
+        scratch_xs: &mut Vec<f32>,
         bw: u32,
         bh: u32,
     ) -> AureaResult<()> {
@@ -311,7 +324,18 @@ impl CpuRasterizer {
         let y_end = y_max.min(bh as f32).ceil() as u32;
 
         for y in y_start..y_end {
-            fill_scanline(scratch_edges, y as f32, buf, bw, bh, 0, 0, paint.color, mode);
+            fill_scanline(
+                scratch_edges,
+                y as f32,
+                buf,
+                bw,
+                bh,
+                0,
+                0,
+                paint.color,
+                mode,
+                scratch_xs,
+            );
         }
         Ok(())
     }
@@ -610,6 +634,7 @@ impl Renderer for CpuRasterizer {
                 damage.as_ref(),
                 &mut self.frame_buffer,
                 &mut self.scratch_edges,
+                &mut self.scratch_xs,
                 bw,
                 bh,
             )?;
