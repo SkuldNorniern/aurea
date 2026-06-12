@@ -826,7 +826,43 @@ impl CpuRasterizer {
         if let Some(rect) = forced {
             mark_tile_range_dirty(rect, tiles_x, tiles_y, &mut dirty);
         }
+        self.propagate_dirty_tiles(tiles_x, tiles_y, &mut dirty);
         dirty
+    }
+
+    /// `render_item` paints an item's full bounds with no per-tile clipping,
+    /// but only dirty tiles get `Clear`d this frame. If an item spans both a
+    /// dirty and a clean tile, redrawing it paints over the clean tile's
+    /// already-composited pixels too — for non-opaque content that compounds
+    /// every frame it's redrawn, which is visible as flicker in regions that
+    /// otherwise shouldn't be touched. Mark every tile an item overlaps as
+    /// dirty once any one of them is, repeating to a fixed point (an item
+    /// pulled in by this can itself drag in further items/tiles).
+    fn propagate_dirty_tiles(&self, tiles_x: u32, tiles_y: u32, dirty: &mut [bool]) {
+        let tile_count = (tiles_x * tiles_y) as usize;
+        for _ in 0..tile_count {
+            let mut changed = false;
+            for item in self.display_list.items() {
+                if !is_known_bounds(item.bounds) {
+                    continue;
+                }
+                if item_overlaps_dirty_tiles(item.bounds, dirty, tiles_x, tiles_y) {
+                    let (tx0, ty0, tx1, ty1) = tile_range(item.bounds, tiles_x, tiles_y);
+                    for ty in ty0..ty1 {
+                        for tx in tx0..tx1 {
+                            let idx = (ty * tiles_x + tx) as usize;
+                            if !dirty[idx] {
+                                dirty[idx] = true;
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
     }
 
     /// Recomputes the hash of every tile in `[tx0,tx1) x [ty0,ty1)` from the
@@ -1407,6 +1443,37 @@ mod tile_cache_tests {
         let dirty = r.compute_dirty_tiles(Some(full), Some(forced), 2, 2);
         assert!(!dirty[0], "tile (0,0) unchanged and not forced");
         assert!(dirty[3], "tile (1,1) forced dirty by set_damage");
+    }
+
+    #[test]
+    fn item_spanning_a_dirty_tile_drags_in_its_other_tiles() {
+        let mut r = CpuRasterizer::new(512, 512); // 2x2 tile grid
+        let full = Rect::new(0.0, 0.0, 512.0, 512.0);
+        // Spans tiles (0,0) and (1,0): x in [240, 280) crosses the x=256 tile edge.
+        let spanning = Rect::new(240.0, 4.0, 40.0, 8.0);
+        // Fully inside tile (0,0).
+        let small = Rect::new(4.0, 4.0, 8.0, 8.0);
+
+        r.display_list.push(item(100, spanning));
+        r.display_list.push(item(1, small));
+        let _ = r.compute_dirty_tiles(Some(full), None, 2, 2);
+
+        // Second frame: only `small`'s cache key changes. Its own damage
+        // region only covers tile (0,0), but `spanning` also overlaps that
+        // tile, so its other tile (1,0) must be dragged in too — otherwise
+        // redrawing `spanning` across both tiles would paint onto tile
+        // (1,0) without it having been cleared this frame.
+        r.display_list.clear();
+        r.display_list.push(item(100, spanning));
+        r.display_list.push(item(2, small));
+        let dirty = r.compute_dirty_tiles(Some(full), None, 2, 2);
+        assert!(dirty[0], "tile (0,0) dirty: small's cache key changed");
+        assert!(
+            dirty[1],
+            "tile (1,0) dragged in: spanning item also covers it"
+        );
+        assert!(!dirty[2], "tile (0,1) untouched");
+        assert!(!dirty[3], "tile (1,1) untouched");
     }
 
     #[test]
