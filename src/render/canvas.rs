@@ -190,7 +190,23 @@ impl Canvas {
     }
 
     /// Set the drawing callback (retained-mode style)
-    /// The callback will be called automatically when the canvas needs redraw
+    /// The callback will be called automatically when the canvas needs redraw.
+    ///
+    /// # Idempotency contract
+    ///
+    /// The renderer's damage tracker (see `aurea-render`'s P6-A diff/tile
+    /// cache) assumes that re-running this callback with unchanged
+    /// application state issues the *same draw commands in the same order*
+    /// as the previous frame, producing identical `cache_key`s. The
+    /// scheduler already re-invokes this callback on every frame it decides
+    /// to redraw, so a callback whose output depends on anything other than
+    /// the application state it captures (e.g. wall-clock time, RNG, or
+    /// iteration order over a `HashMap`) is already visibly broken today —
+    /// it would flicker or jitter even without the tile cache. The tile
+    /// cache does not introduce a new requirement, but it does make
+    /// violations cheaper to miss: a non-deterministic callback can produce
+    /// a display list that hashes the same as last frame's for some tiles
+    /// and differently for others, redrawing only part of the scene.
     pub fn set_draw_callback<F>(&self, callback: F) -> AureaResult<()>
     where
         F: Fn(&mut dyn DrawingContext) -> AureaResult<()> + Send + Sync + 'static,
@@ -207,6 +223,20 @@ impl Canvas {
 
     /// Draw immediately (legacy API - still supported)
     /// Prefer using `set_draw_callback()` for retained-mode style
+    ///
+    /// # Damage tracking
+    ///
+    /// Each call always carries an "always-dirty" damage hint to the
+    /// renderer: any region queued via `add_damage`/`invalidate_rect` since
+    /// the last frame, or the *entire* canvas if nothing was queued. That
+    /// hint is forced-dirty regardless of the tile cache's content hashes
+    /// (see `CpuRasterizer::compute_dirty_tiles`'s `forced` parameter), so
+    /// calling this repeatedly with identical content still repaints the
+    /// hinted region every time rather than silently going stale. Any
+    /// *actual* content change elsewhere in `draw_fn`'s output is still
+    /// caught independently by the stage-1 list diff and unioned in, so
+    /// this never under-paints — only the diffing's "nothing changed, skip
+    /// entirely" fast path is disabled for whatever region the hint covers.
     pub fn draw<F>(&mut self, draw_fn: F) -> AureaResult<()>
     where
         F: FnOnce(&mut dyn DrawingContext) -> AureaResult<()>,
