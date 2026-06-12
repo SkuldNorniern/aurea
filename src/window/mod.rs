@@ -419,6 +419,12 @@ impl Window {
     /// # }
     /// ```
     pub fn poll_events(&self) -> Vec<WindowEvent> {
+        // Pump the native message queue first: on Windows this drives
+        // PeekMessage/DispatchMessage, which runs WndProc (filling the event
+        // queue) and delivers WM_PAINT for any invalidated canvas. Without
+        // this, a manual poll loop never repaints and never receives input.
+        unsafe { ng_platform_poll_events() };
+
         // Process events through callbacks and return them for manual processing
         let events = self.event_queue.process_events();
         for event in &events {
