@@ -34,9 +34,9 @@ jni = "0.21"
 default = []
 wgpu = ["dep:wgpu"]
 # GPU 2D backend via ZenGPU (Vulkan). Opt-in.
-# ZenGPU crates resolve through aurea-render's optional path deps (same paths
-# as the dev-dependencies below, so Cargo unifies them to one crate).
-zengpu = ["aurea-render/zengpu"]
+# Forwards to aurea-render (which owns the ZenGpuRenderer) and pulls in
+# zengpu-hal so the root crate can build WindowHandles for the window-level API.
+zengpu = ["aurea-render/zengpu", "dep:zengpu-hal"]
 
 [dependencies.wgpu]
 version = "29.0.1"
@@ -44,6 +44,12 @@ optional = true
 
 [dependencies.raw-window-handle]
 version = "0.6"
+
+# zengpu-hal — optional, for the window-level GPU surface API (feature `zengpu`).
+# Same path as the dev-dependency below, so Cargo unifies them to one crate.
+[dependencies.zengpu-hal]
+path = "ZenGPU/zengpu-hal"
+optional = true
 
 # ZenGPU — local path deps (will become git deps once published).
 [dev-dependencies.zengpu-hal]
