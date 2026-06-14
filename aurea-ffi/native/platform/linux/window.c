@@ -7,8 +7,9 @@
 #include <gtk/gtk.h>
 #include <gdk/gdkkeysyms.h>
 #include <string.h>
-#ifdef GDK_WINDOWING_X11
+#if defined(GDK_WINDOWING_X11) && defined(AUREA_HAVE_X11_XCB)
 #include <gdk/gdkx.h>
+#include <X11/Xlib-xcb.h>
 #endif
 #ifdef GDK_WINDOWING_WAYLAND
 #include <gdk/gdkwayland.h>
@@ -637,12 +638,17 @@ int ng_linux_window_get_xcb_handle(NGHandle window, uint32_t* xcb_window, void**
     GtkWidget* widget = (GtkWidget*)window;
     GdkWindow* gdk_window = gtk_widget_get_window(widget);
     if (!gdk_window) return 0;
-#ifdef GDK_WINDOWING_X11
+#if defined(GDK_WINDOWING_X11) && defined(AUREA_HAVE_X11_XCB)
     if (GDK_IS_X11_WINDOW(gdk_window)) {
-        (void)gdk_window;
-        *xcb_window = 0;
-        *xcb_connection = NULL;
-        return 0;
+        GdkDisplay* gdk_display = gdk_window_get_display(gdk_window);
+        if (!gdk_display || !GDK_IS_X11_DISPLAY(gdk_display)) return 0;
+        Display* xdisplay = gdk_x11_display_get_xdisplay(gdk_display);
+        xcb_connection_t* connection = xdisplay ? XGetXCBConnection(xdisplay) : NULL;
+        Window xid = gdk_x11_window_get_xid(gdk_window);
+        if (!connection || xid == 0 || xid > UINT32_MAX) return 0;
+        *xcb_window = (uint32_t)xid;
+        *xcb_connection = connection;
+        return 1;
     }
 #endif
     return 0;
