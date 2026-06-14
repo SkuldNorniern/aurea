@@ -10,3 +10,6 @@ pub use aurea_render::{
     TextMetrics, Transform, Viewport,
 };
 pub use canvas::*;
+
+#[cfg(feature = "zengpu")]
+pub use aurea_render::ZenGpuRenderer;

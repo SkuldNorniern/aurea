@@ -13,6 +13,9 @@ pub mod cpu;
 pub mod gpu;
 pub mod text;
 
+#[cfg(feature = "zengpu")]
+pub mod zengpu;
+
 pub use batch::{RectInstance, RenderBatches};
 pub use command::DrawCommand;
 pub use cpu::CpuRasterizer;
@@ -23,3 +26,6 @@ pub use renderer::*;
 pub use surface::*;
 pub use types::*;
 pub use viewport::*;
+
+#[cfg(feature = "zengpu")]
+pub use zengpu::ZenGpuRenderer;
