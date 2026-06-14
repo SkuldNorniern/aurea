@@ -705,6 +705,35 @@ pub fn clipboard_text() -> Option<String> {
     if text.is_empty() { None } else { Some(text) }
 }
 
+// ── raw-window-handle integration ─────────────────────────────────────────────
+
+#[cfg(target_os = "windows")]
+mod rwh_impl {
+    use super::Window;
+    use raw_window_handle::{
+        DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawDisplayHandle,
+        RawWindowHandle, Win32WindowHandle, WindowHandle, WindowsDisplayHandle,
+    };
+    use std::num::NonZeroIsize;
+
+    impl HasWindowHandle for Window {
+        fn window_handle(&self) -> std::result::Result<WindowHandle<'_>, HandleError> {
+            let hwnd = self.handle as isize;
+            let hwnd = NonZeroIsize::new(hwnd).ok_or(HandleError::Unavailable)?;
+            let handle = Win32WindowHandle::new(hwnd);
+            Ok(unsafe { WindowHandle::borrow_raw(RawWindowHandle::Win32(handle)) })
+        }
+    }
+
+    impl HasDisplayHandle for Window {
+        fn display_handle(&self) -> std::result::Result<DisplayHandle<'_>, HandleError> {
+            Ok(unsafe {
+                DisplayHandle::borrow_raw(RawDisplayHandle::Windows(WindowsDisplayHandle::new()))
+            })
+        }
+    }
+}
+
 /// Write a UTF-8 string to the OS clipboard.
 pub fn set_clipboard_text(text: &str) -> AureaResult<()> {
     let Ok(cstr) = std::ffi::CString::new(text) else {

@@ -31,7 +31,7 @@ jni = "0.21"
 
 [features]
 default = []
-wgpu = ["dep:wgpu", "dep:raw-window-handle"]
+wgpu = ["dep:wgpu"]
 
 [dependencies.wgpu]
 version = "29.0.1"
@@ -39,4 +39,3 @@ optional = true
 
 [dependencies.raw-window-handle]
 version = "0.6"
-optional = true
