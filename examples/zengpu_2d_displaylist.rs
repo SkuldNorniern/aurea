@@ -82,6 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?;
         ctx.draw_circle(Point::new(240.0, 440.0), 60.0, &paint(255, 120, 160, 255))?;
         ctx.draw_circle(Point::new(440.0, 440.0), 80.0, &paint(120, 220, 255, 200))?;
+        ctx.draw_rect(Rect::new(420.0, 420.0, 55.0, 55.0), &paint(35, 35, 48, 255))?;
         ctx.fill_linear_gradient(
             &LinearGradient {
                 start: Point::new(560.0, 360.0),

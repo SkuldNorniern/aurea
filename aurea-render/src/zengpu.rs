@@ -17,8 +17,9 @@ use zengpu_hal::{
 };
 use zengpu_vulkan::instance::VulkanInstance;
 use zengpu_vulkan::{
-    CircleInstance as VkCircle, Frame2d, GradientInstance as VkGradient, ImageInstance as VkImage,
-    RectInstance as VkRect, TextInstance as VkText, Vulkan2dSurface, VulkanDevice,
+    CircleInstance as VkCircle, DrawRef as VkDrawRef, Frame2d, GradientInstance as VkGradient,
+    ImageInstance as VkImage, RectInstance as VkRect, TextInstance as VkText, Vulkan2dSurface,
+    VulkanDevice,
 };
 
 const _: () =
@@ -66,6 +67,7 @@ pub struct ZenGpuRenderer {
     vk_images: Vec<VkImage>,
     vk_gradients: Vec<VkGradient>,
     vk_texts: Vec<VkText>,
+    vk_order: Vec<VkDrawRef>,
     logical_width: u32,
     logical_height: u32,
     scale_factor: f32,
@@ -121,6 +123,7 @@ impl ZenGpuRenderer {
             vk_images: Vec::new(),
             vk_gradients: Vec::new(),
             vk_texts: Vec::new(),
+            vk_order: Vec::new(),
             logical_width: width,
             logical_height: height,
             scale_factor: scale,
@@ -221,6 +224,15 @@ impl Renderer for ZenGpuRenderer {
             self.frame_counter,
             &mut self.vk_texts,
         )?;
+        self.vk_order.clear();
+        self.vk_order
+            .extend(self.batches.order.iter().map(|draw| match *draw {
+                crate::batch::DrawRef::Rect(index) => VkDrawRef::Rect(index),
+                crate::batch::DrawRef::Gradient(index) => VkDrawRef::Gradient(index),
+                crate::batch::DrawRef::Image(index) => VkDrawRef::Image(index),
+                crate::batch::DrawRef::Text(index) => VkDrawRef::Text(index),
+                crate::batch::DrawRef::Circle(index) => VkDrawRef::Circle(index),
+            }));
 
         self.surface
             .present(Frame2d {
@@ -230,6 +242,7 @@ impl Renderer for ZenGpuRenderer {
                 images: &self.vk_images,
                 texts: &self.vk_texts,
                 circles,
+                order: &self.vk_order,
             })
             .map_err(gpu_err)
     }
