@@ -92,6 +92,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         color: Color::rgb(230, 60, 60),
                     },
                     GradientStop {
+                        offset: 0.5,
+                        color: Color::rgb(70, 220, 120),
+                    },
+                    GradientStop {
                         offset: 1.0,
                         color: Color::rgb(60, 90, 230),
                     },
