@@ -33,7 +33,7 @@ use zengpu_hal::{
 use zengpu_vulkan::instance::VulkanInstance;
 use zengpu_vulkan::{
     CircleInstance as VkCircle, Frame2d, GradientInstance as VkGradient, ImageInstance as VkImage,
-    RectInstance as VkRect, Vulkan2dSurface, VulkanDevice,
+    RectInstance as VkRect, TextInstance as VkText, Vulkan2dSurface, VulkanDevice,
 };
 
 // The batch-layer and ZenGPU instance types are `#[repr(C)]` with identical
@@ -96,6 +96,8 @@ pub struct ZenGpuRenderer {
     vk_images: Vec<VkImage>,
     /// Reused per-frame buffer of gradients with resolved LUT slots.
     vk_gradients: Vec<VkGradient>,
+    /// Reused per-frame buffer of text masks with resolved texture slots.
+    vk_texts: Vec<VkText>,
     logical_width: u32,
     logical_height: u32,
     scale_factor: f32,
@@ -153,6 +155,7 @@ impl ZenGpuRenderer {
             frame_counter: 0,
             vk_images: Vec::new(),
             vk_gradients: Vec::new(),
+            vk_texts: Vec::new(),
             logical_width: width,
             logical_height: height,
             scale_factor: scale,
@@ -247,6 +250,16 @@ impl Renderer for ZenGpuRenderer {
             self.frame_counter,
             &mut self.vk_images,
         )?;
+        resolve_texts(
+            &self.batches.texts,
+            &self.device,
+            &self.surface,
+            self.sampler,
+            &mut self.texture_cache,
+            &mut self.free_slots,
+            self.frame_counter,
+            &mut self.vk_texts,
+        )?;
 
         self.surface
             .present(Frame2d {
@@ -254,6 +267,7 @@ impl Renderer for ZenGpuRenderer {
                 rects,
                 gradients: &self.vk_gradients,
                 images: &self.vk_images,
+                texts: &self.vk_texts,
                 circles,
             })
             .map_err(gpu_err)
@@ -362,6 +376,42 @@ fn resolve_gradients(
             rect: gradient.rect,
             a: gradient.a,
             b: gradient.b,
+            slot,
+            _pad: [0; 3],
+        });
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_texts(
+    texts: &[crate::batch::TextDraw],
+    device: &VulkanDevice,
+    surface: &Vulkan2dSurface,
+    sampler: SamplerHandle,
+    cache: &mut HashMap<ImageKey, CachedImage>,
+    free_slots: &mut Vec<u32>,
+    frame: u64,
+    out: &mut Vec<VkText>,
+) -> AureaResult<()> {
+    out.clear();
+    for text in texts {
+        let width = text.rect.width as u32;
+        let height = text.rect.height as u32;
+        if width == 0 || height == 0 {
+            continue;
+        }
+        let slot = resolve_texture_slot(
+            &text.mask, width, height, device, surface, sampler, cache, free_slots, frame,
+        )?;
+        out.push(VkText {
+            rect: [text.rect.x, text.rect.y, text.rect.width, text.rect.height],
+            color: [
+                text.color.r as f32 / 255.0,
+                text.color.g as f32 / 255.0,
+                text.color.b as f32 / 255.0,
+                text.color.a as f32 / 255.0,
+            ],
             slot,
             _pad: [0; 3],
         });

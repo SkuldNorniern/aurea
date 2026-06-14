@@ -23,7 +23,9 @@ pub mod text;
 #[cfg(feature = "zengpu")]
 pub mod zengpu;
 
-pub use batch::{CircleInstance, GradientInstance, ImageDraw, RectInstance, RenderBatches};
+pub use batch::{
+    CircleInstance, GradientInstance, ImageDraw, RectInstance, RenderBatches, TextDraw,
+};
 pub use command::DrawCommand;
 pub use cpu::CpuRasterizer;
 pub use display_list::*;
