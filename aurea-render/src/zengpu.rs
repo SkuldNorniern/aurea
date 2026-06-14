@@ -10,10 +10,15 @@ use aurea_foundation::{AureaError, AureaResult};
 
 use zengpu_hal::{DeviceRequest, Format, PresentMode, SurfaceConfig, WindowHandles};
 use zengpu_vulkan::instance::VulkanInstance;
-use zengpu_vulkan::{RectInstance as VkRect, Vulkan2dSurface, VulkanDevice};
+use zengpu_vulkan::{
+    CircleInstance as VkCircle, Frame2d, RectInstance as VkRect, Vulkan2dSurface, VulkanDevice,
+};
 
 const _: () =
     assert!(std::mem::size_of::<crate::batch::RectInstance>() == std::mem::size_of::<VkRect>());
+const _: () = assert!(
+    std::mem::size_of::<crate::batch::CircleInstance>() == std::mem::size_of::<VkCircle>()
+);
 
 /// A [`Renderer`] that lowers the display list to instanced rects and presents them through
 /// ZenGPU's Vulkan backend.
@@ -119,14 +124,23 @@ impl Renderer for ZenGpuRenderer {
                 self.batches.rects.len(),
             )
         };
-        self.surface.present(clear, rects).map_err(gpu_err)
+        let circles: &[VkCircle] = unsafe {
+            std::slice::from_raw_parts(
+                self.batches.circles.as_ptr() as *const VkCircle,
+                self.batches.circles.len(),
+            )
+        };
+        self.surface
+            .present(Frame2d { clear, rects, circles })
+            .map_err(gpu_err)
     }
 
     fn cleanup(&mut self) {
         self.display_list.clear();
     }
 
-    fn set_damage(&mut self, _damage: Option<Rect>) {}
+    fn set_damage(&mut self, _damage: Option<Rect>) {
+    }
 
     fn display_list(&self) -> Option<&DisplayList> {
         Some(&self.display_list)

@@ -1,6 +1,6 @@
 //! ZenGPU G4 / Rung 1 — the full `DisplayList → ZenGPU` pipeline.
 
-use aurea::render::{Color, Paint, Rect, Renderer};
+use aurea::render::{Color, Paint, Point, Rect, Renderer};
 use aurea::{Window, WindowEvent};
 
 const W: i32 = 800;
@@ -40,6 +40,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ctx.draw_rect(Rect::new(520.0, 40.0, 200.0, 150.0), &paint(60, 120, 230, 255))?;
         ctx.draw_rect(Rect::new(40.0, 230.0, 680.0, 120.0), &paint(240, 200, 40, 255))?;
         ctx.draw_rect(Rect::new(120.0, 120.0, 480.0, 260.0), &paint(255, 255, 255, 110))?;
+        ctx.draw_circle(Point::new(240.0, 440.0), 60.0, &paint(255, 120, 160, 255))?;
+        ctx.draw_circle(Point::new(440.0, 440.0), 80.0, &paint(120, 220, 255, 200))?;
         drop(ctx);
         renderer.end_frame()?;
     }
