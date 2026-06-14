@@ -14,6 +14,9 @@ use super::display_list::DisplayList;
 use super::types::{
     Color, GradientStop, Image, LinearGradient, PaintStyle, Point, RadialGradient, Rect,
 };
+use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::{Arc, Weak};
 
 /// One solid-colour rectangle, ready to upload as a GPU instance.
 ///
@@ -68,42 +71,36 @@ impl CircleInstance {
     }
 }
 
-/// One 2-stop gradient fill over a rect. `a[3]` is the kind flag: `0.0` linear,
-/// `1.0` radial. 80-byte `#[repr(C)]` (five `vec4`), matching ZenGPU's layout.
+/// One gradient fill over a rect. `a[3]` is the kind flag: `0.0` linear,
+/// `1.0` radial. `lut` is a 256x1 tightly packed RGBA8 lookup texture.
 ///
 /// - **Linear:** `a = [start.x, start.y, _, 0.0]`, `b = [end.x, end.y, _, _]`.
 /// - **Radial:** `a = [center.x, center.y, radius, 1.0]`, `b` unused.
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[repr(C)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GradientInstance {
     /// Fill area `[x, y, w, h]` in physical pixels.
     pub rect: [f32; 4],
     pub a: [f32; 4],
     pub b: [f32; 4],
-    pub color0: [f32; 4],
-    pub color1: [f32; 4],
+    pub lut: Arc<[u8]>,
 }
 
 impl GradientInstance {
-    fn linear(rect: Rect, grad: &LinearGradient) -> Self {
-        let (c0, c1) = stop_endpoints(&grad.stops);
+    fn linear(rect: Rect, grad: &LinearGradient, lut: Arc<[u8]>) -> Self {
         Self {
             rect: [rect.x, rect.y, rect.width, rect.height],
             a: [grad.start.x, grad.start.y, 0.0, 0.0],
             b: [grad.end.x, grad.end.y, 0.0, 0.0],
-            color0: color_f32(c0),
-            color1: color_f32(c1),
+            lut,
         }
     }
 
-    fn radial(rect: Rect, grad: &RadialGradient) -> Self {
-        let (c0, c1) = stop_endpoints(&grad.stops);
+    fn radial(rect: Rect, grad: &RadialGradient, lut: Arc<[u8]>) -> Self {
         Self {
             rect: [rect.x, rect.y, rect.width, rect.height],
             a: [grad.center.x, grad.center.y, grad.radius, 1.0],
             b: [0.0, 0.0, 0.0, 0.0],
-            color0: color_f32(c0),
-            color1: color_f32(c1),
+            lut,
         }
     }
 }
@@ -117,13 +114,56 @@ fn color_f32(c: Color) -> [f32; 4] {
     ]
 }
 
-/// First and last stop colours (the 2-stop reduction of an N-stop gradient).
-/// Empty → transparent black; single stop → that colour twice.
-fn stop_endpoints(stops: &[GradientStop]) -> (Color, Color) {
-    match (stops.first(), stops.last()) {
-        (Some(a), Some(b)) => (a.color, b.color),
-        _ => (Color::rgba(0, 0, 0, 0), Color::rgba(0, 0, 0, 0)),
+/// Stable in-process content key for retaining LUT allocations across frames.
+fn gradient_lut_key(stops: &[GradientStop]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    stops.len().hash(&mut hasher);
+    for stop in stops {
+        stop.offset.to_bits().hash(&mut hasher);
+        [stop.color.r, stop.color.g, stop.color.b, stop.color.a].hash(&mut hasher);
     }
+    hasher.finish()
+}
+
+fn gradient_color_at(stops: &[GradientStop], t: f32) -> Color {
+    if stops.is_empty() {
+        return Color::rgba(0, 0, 0, 0);
+    }
+    if stops.len() == 1 {
+        return stops[0].color;
+    }
+    for pair in stops.windows(2) {
+        let (a, b) = (pair[0].offset, pair[1].offset);
+        if t >= a && t <= b {
+            let s = if (b - a).abs() < 1e-6 {
+                1.0
+            } else {
+                (t - a) / (b - a)
+            };
+            let lerp = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * s).round() as u8;
+            let (c0, c1) = (pair[0].color, pair[1].color);
+            return Color::rgba(
+                lerp(c0.r, c1.r),
+                lerp(c0.g, c1.g),
+                lerp(c0.b, c1.b),
+                lerp(c0.a, c1.a),
+            );
+        }
+    }
+    if t <= stops[0].offset {
+        stops[0].color
+    } else {
+        stops.last().expect("non-empty gradient stops").color
+    }
+}
+
+fn build_gradient_lut(stops: &[GradientStop]) -> Arc<[u8]> {
+    let mut lut = Vec::with_capacity(256 * 4);
+    for i in 0..256 {
+        let color = gradient_color_at(stops, i as f32 / 255.0);
+        lut.extend_from_slice(&[color.r, color.g, color.b, color.a]);
+    }
+    lut.into()
 }
 
 /// An image to blit: `image` is the (Arc-backed) pixel source, `dest` the
@@ -148,12 +188,13 @@ pub struct RenderBatches {
     pub clear: Option<Color>,
     /// Solid-colour rectangles in submission (painter's-algorithm) order.
     pub rects: Vec<RectInstance>,
-    /// 2-stop gradient fills in submission order.
+    /// LUT-sampled gradient fills in submission order.
     pub gradients: Vec<GradientInstance>,
     /// Images to blit in submission order.
     pub images: Vec<ImageDraw>,
     /// Solid-colour filled circles in submission order.
     pub circles: Vec<CircleInstance>,
+    gradient_lut_cache: HashMap<u64, Weak<[u8]>>,
 }
 
 impl RenderBatches {
@@ -201,10 +242,14 @@ impl RenderBatches {
                         .push(CircleInstance::new(*center, *radius, paint.color));
                 }
                 DrawCommand::FillLinearGradient(grad, rect) => {
-                    self.gradients.push(GradientInstance::linear(*rect, grad));
+                    let lut = self.gradient_lut(&grad.stops);
+                    self.gradients
+                        .push(GradientInstance::linear(*rect, grad, lut));
                 }
                 DrawCommand::FillRadialGradient(grad, rect) => {
-                    self.gradients.push(GradientInstance::radial(*rect, grad));
+                    let lut = self.gradient_lut(&grad.stops);
+                    self.gradients
+                        .push(GradientInstance::radial(*rect, grad, lut));
                 }
                 DrawCommand::DrawImageRect(image, dest) => {
                     self.images.push(ImageDraw {
@@ -235,6 +280,16 @@ impl RenderBatches {
             && self.gradients.is_empty()
             && self.images.is_empty()
             && self.circles.is_empty()
+    }
+
+    fn gradient_lut(&mut self, stops: &[GradientStop]) -> Arc<[u8]> {
+        let key = gradient_lut_key(stops);
+        if let Some(lut) = self.gradient_lut_cache.get(&key).and_then(Weak::upgrade) {
+            return lut;
+        }
+        let lut = build_gradient_lut(stops);
+        self.gradient_lut_cache.insert(key, Arc::downgrade(&lut));
+        lut
     }
 }
 
@@ -346,8 +401,8 @@ mod tests {
         let b = RenderBatches::lower(&list);
         assert_eq!(b.gradients.len(), 1);
         assert_eq!(b.gradients[0].a[3], 0.0, "linear kind flag");
-        assert_eq!(b.gradients[0].color0, [1.0, 0.0, 0.0, 1.0]);
-        assert_eq!(b.gradients[0].color1, [0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(&b.gradients[0].lut[..4], &[255, 0, 0, 255]);
+        assert_eq!(&b.gradients[0].lut[1020..], &[0, 0, 255, 255]);
     }
 
     #[test]
@@ -370,6 +425,56 @@ mod tests {
         assert_eq!(b.gradients.len(), 1);
         assert_eq!(b.gradients[0].a[2], 25.0, "radius");
         assert_eq!(b.gradients[0].a[3], 1.0, "radial kind flag");
+    }
+
+    #[test]
+    fn multi_stop_gradient_lut_preserves_middle_stop() {
+        let lut = build_gradient_lut(&[
+            GradientStop {
+                offset: 0.0,
+                color: Color::rgb(255, 0, 0),
+            },
+            GradientStop {
+                offset: 0.5,
+                color: Color::rgb(0, 255, 0),
+            },
+            GradientStop {
+                offset: 1.0,
+                color: Color::rgb(0, 0, 255),
+            },
+        ]);
+        let middle = 128 * 4;
+        assert!(lut[middle] < 5);
+        assert!(lut[middle + 1] > 250);
+        assert!(lut[middle + 2] < 5);
+        assert_eq!(lut[middle + 3], 255);
+    }
+
+    #[test]
+    fn repeated_lowering_reuses_gradient_lut_arc() {
+        let mut list = DisplayList::new();
+        list.push(item(DrawCommand::FillLinearGradient(
+            LinearGradient {
+                start: Point::new(0.0, 0.0),
+                end: Point::new(10.0, 0.0),
+                stops: vec![
+                    GradientStop {
+                        offset: 0.0,
+                        color: Color::rgb(0, 0, 0),
+                    },
+                    GradientStop {
+                        offset: 1.0,
+                        color: Color::rgb(255, 255, 255),
+                    },
+                ],
+            },
+            Rect::new(0.0, 0.0, 10.0, 10.0),
+        )));
+        let mut batches = RenderBatches::default();
+        batches.lower_into(&list);
+        let first = Arc::clone(&batches.gradients[0].lut);
+        batches.lower_into(&list);
+        assert!(Arc::ptr_eq(&first, &batches.gradients[0].lut));
     }
 
     #[test]

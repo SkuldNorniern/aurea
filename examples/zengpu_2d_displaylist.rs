@@ -94,7 +94,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Antialiased filled circles (Rung 2 SDF circle path).
         ctx.draw_circle(Point::new(240.0, 440.0), 60.0, &paint(255, 120, 160, 255))?;
         ctx.draw_circle(Point::new(440.0, 440.0), 80.0, &paint(120, 220, 255, 200))?;
-        // Gradient fills (Rung 2): linear and radial, 2-stop.
+        // LUT-sampled gradients, including a three-stop linear gradient.
         ctx.fill_linear_gradient(
             &LinearGradient {
                 start: Point::new(560.0, 360.0),
@@ -103,6 +103,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     GradientStop {
                         offset: 0.0,
                         color: Color::rgb(230, 60, 60),
+                    },
+                    GradientStop {
+                        offset: 0.5,
+                        color: Color::rgb(70, 220, 120),
                     },
                     GradientStop {
                         offset: 1.0,
