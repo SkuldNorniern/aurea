@@ -11,7 +11,7 @@
 use aurea::{Window, WindowEvent};
 use zengpu_hal::{DeviceRequest, Format, GpuAdapter, PresentMode, SurfaceConfig, WindowHandles};
 use zengpu_vulkan::instance::VulkanInstance;
-use zengpu_vulkan::{CircleInstance, Frame2d, RectInstance};
+use zengpu_vulkan::{CircleInstance, DrawRef, Frame2d, RectInstance};
 
 const W: i32 = 800;
 const H: i32 = 600;
@@ -94,6 +94,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     ];
     let clear = Some(rgba(20, 20, 28, 255));
+    let order = [
+        DrawRef::Rect(0),
+        DrawRef::Rect(1),
+        DrawRef::Rect(2),
+        DrawRef::Rect(3),
+        DrawRef::Rect(4),
+        DrawRef::Circle(0),
+        DrawRef::Circle(1),
+    ];
 
     'main: loop {
         for event in window.poll_events() {
@@ -108,6 +117,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             images: &[],
             texts: &[],
             circles: &circles,
+            order: &order,
         })?;
     }
 
