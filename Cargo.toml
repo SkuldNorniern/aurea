@@ -11,6 +11,7 @@ repository = "https://github.com/SkuldNorniern/aurea"
 [workspace]
 resolver = "2"
 members = ["aurea-foundation", "aurea-ffi", "aurea-render", "aurea-runtime", "aurea-animation"]
+exclude = ["ZenGPU"]
 
 [lib]
 name = "aurea"
@@ -39,3 +40,10 @@ optional = true
 
 [dependencies.raw-window-handle]
 version = "0.6"
+
+# ZenGPU — local path deps (will become git deps once published).
+[dev-dependencies.zengpu-hal]
+path = "ZenGPU/zengpu-hal"
+
+[dev-dependencies.zengpu-vulkan]
+path = "ZenGPU/zengpu-vulkan"
