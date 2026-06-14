@@ -11,13 +11,17 @@ use aurea_foundation::{AureaError, AureaResult};
 use zengpu_hal::{DeviceRequest, Format, PresentMode, SurfaceConfig, WindowHandles};
 use zengpu_vulkan::instance::VulkanInstance;
 use zengpu_vulkan::{
-    CircleInstance as VkCircle, Frame2d, RectInstance as VkRect, Vulkan2dSurface, VulkanDevice,
+    CircleInstance as VkCircle, Frame2d, GradientInstance as VkGradient, RectInstance as VkRect,
+    Vulkan2dSurface, VulkanDevice,
 };
 
 const _: () =
     assert!(std::mem::size_of::<crate::batch::RectInstance>() == std::mem::size_of::<VkRect>());
 const _: () = assert!(
     std::mem::size_of::<crate::batch::CircleInstance>() == std::mem::size_of::<VkCircle>()
+);
+const _: () = assert!(
+    std::mem::size_of::<crate::batch::GradientInstance>() == std::mem::size_of::<VkGradient>()
 );
 
 /// A [`Renderer`] that lowers the display list to instanced rects and presents them through
@@ -130,8 +134,14 @@ impl Renderer for ZenGpuRenderer {
                 self.batches.circles.len(),
             )
         };
+        let gradients: &[VkGradient] = unsafe {
+            std::slice::from_raw_parts(
+                self.batches.gradients.as_ptr() as *const VkGradient,
+                self.batches.gradients.len(),
+            )
+        };
         self.surface
-            .present(Frame2d { clear, rects, circles })
+            .present(Frame2d { clear, rects, gradients, circles })
             .map_err(gpu_err)
     }
 
