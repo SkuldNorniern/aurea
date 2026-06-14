@@ -8,7 +8,7 @@
 //! Run with:
 //!   cargo run --example zengpu_2d_displaylist --features zengpu
 
-use aurea::render::{Color, Paint, Rect, Renderer};
+use aurea::render::{Color, Paint, Point, Rect, Renderer};
 use aurea::{Window, WindowEvent};
 
 const W: i32 = 800;
@@ -51,6 +51,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ctx.draw_rect(Rect::new(40.0, 230.0, 680.0, 120.0), &paint(240, 200, 40, 255))?;
         // Translucent white panel exercises the alpha-blend path.
         ctx.draw_rect(Rect::new(120.0, 120.0, 480.0, 260.0), &paint(255, 255, 255, 110))?;
+        // Antialiased filled circles (Rung 2 SDF circle path).
+        ctx.draw_circle(Point::new(240.0, 440.0), 60.0, &paint(255, 120, 160, 255))?;
+        ctx.draw_circle(Point::new(440.0, 440.0), 80.0, &paint(120, 220, 255, 200))?;
         drop(ctx);
         renderer.end_frame()?;
     }

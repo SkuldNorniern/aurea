@@ -11,7 +11,7 @@
 
 use super::command::DrawCommand;
 use super::display_list::DisplayList;
-use super::types::{Color, PaintStyle};
+use super::types::{Color, PaintStyle, Point};
 
 /// One solid-colour rectangle, ready to upload as a GPU instance.
 ///
@@ -43,6 +43,34 @@ impl RectInstance {
     }
 }
 
+/// One solid-colour filled circle, ready to upload as a GPU instance.
+///
+/// `center_radius` is `[cx, cy, radius, _]` in **physical** pixels; `color` is
+/// straight RGBA in `0.0..=1.0`. Same 32-byte `#[repr(C)]` layout as
+/// [`RectInstance`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
+pub struct CircleInstance {
+    /// `[cx, cy, radius, _padding]` in physical pixels.
+    pub center_radius: [f32; 4],
+    /// Straight RGBA, each channel in `0.0..=1.0`.
+    pub color: [f32; 4],
+}
+
+impl CircleInstance {
+    fn new(center: Point, radius: f32, color: Color) -> Self {
+        Self {
+            center_radius: [center.x, center.y, radius, 0.0],
+            color: [
+                color.r as f32 / 255.0,
+                color.g as f32 / 255.0,
+                color.b as f32 / 255.0,
+                color.a as f32 / 255.0,
+            ],
+        }
+    }
+}
+
 /// A single frame's 2D draw work, lowered from a display list and independent
 /// of any GPU backend.
 #[derive(Debug, Clone, Default)]
@@ -52,6 +80,8 @@ pub struct RenderBatches {
     pub clear: Option<Color>,
     /// Solid-colour rectangles in submission (painter's-algorithm) order.
     pub rects: Vec<RectInstance>,
+    /// Solid-colour filled circles in submission order.
+    pub circles: Vec<CircleInstance>,
 }
 
 impl RenderBatches {
@@ -77,17 +107,25 @@ impl RenderBatches {
     pub fn lower_into(&mut self, list: &DisplayList) {
         self.clear = None;
         self.rects.clear();
+        self.circles.clear();
         for item in list.items() {
             match &item.command {
                 DrawCommand::Clear(color) => {
                     self.clear = Some(*color);
                     self.rects.clear();
+                    self.circles.clear();
                 }
                 DrawCommand::DrawRect(rect, paint) if paint.style == PaintStyle::Fill => {
                     self.rects.push(RectInstance::from_rect(*rect, paint.color));
                 }
-                // Other commands (strokes, circles, images, gradients, text)
-                // are lowered in later rungs.
+                DrawCommand::DrawCircle(center, radius, paint)
+                    if paint.style == PaintStyle::Fill =>
+                {
+                    self.circles
+                        .push(CircleInstance::new(*center, *radius, paint.color));
+                }
+                // Other commands (strokes, images, gradients, text) are lowered
+                // in later rungs.
                 _ => {}
             }
         }
@@ -95,7 +133,7 @@ impl RenderBatches {
 
     /// True when there's nothing to clear and nothing to draw.
     pub fn is_empty(&self) -> bool {
-        self.clear.is_none() && self.rects.is_empty()
+        self.clear.is_none() && self.rects.is_empty() && self.circles.is_empty()
     }
 }
 
@@ -144,6 +182,28 @@ mod tests {
         list.push(item(DrawCommand::DrawRect(Rect::new(0.0, 0.0, 8.0, 8.0), paint)));
         let b = RenderBatches::lower(&list);
         assert!(b.rects.is_empty());
+    }
+
+    #[test]
+    fn fill_circle_is_collected() {
+        use crate::types::Point;
+        let mut list = DisplayList::new();
+        let paint = Paint::new().color(Color::rgb(0, 128, 255));
+        list.push(item(DrawCommand::DrawCircle(Point::new(10.0, 20.0), 5.0, paint)));
+        let b = RenderBatches::lower(&list);
+        assert_eq!(b.circles.len(), 1);
+        assert_eq!(b.circles[0].center_radius, [10.0, 20.0, 5.0, 0.0]);
+        assert!(b.rects.is_empty());
+    }
+
+    #[test]
+    fn stroke_circle_is_skipped() {
+        use crate::types::Point;
+        let mut list = DisplayList::new();
+        let paint = Paint::new().style(PaintStyle::Stroke);
+        list.push(item(DrawCommand::DrawCircle(Point::new(0.0, 0.0), 8.0, paint)));
+        let b = RenderBatches::lower(&list);
+        assert!(b.circles.is_empty());
     }
 
     #[test]
