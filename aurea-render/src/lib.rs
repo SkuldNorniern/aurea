@@ -1,5 +1,6 @@
 //! Aurea's native rendering framework.
 
+mod batch;
 mod command;
 mod display_list;
 mod interaction;
@@ -12,6 +13,7 @@ pub mod cpu;
 pub mod gpu;
 pub mod text;
 
+pub use batch::{RectInstance, RenderBatches};
 pub use command::DrawCommand;
 pub use cpu::CpuRasterizer;
 pub use display_list::*;
