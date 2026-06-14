@@ -95,6 +95,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             rects: &rects,
             gradients: &[],
             images: &[],
+            texts: &[],
             circles: &circles,
         })?;
     }
