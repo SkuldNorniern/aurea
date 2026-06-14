@@ -1,4 +1,4 @@
-//! ZenGPU 2D renderer backend (feature `zengpu`, aurea G4 / Rung 1).
+//! ZenGPU 2D renderer backend (feature `zengpu`).
 //!
 //! Implements [`Renderer`] by recording draw calls into a [`DisplayList`] (the
 //! same [`CpuDrawingContext`] the CPU rasterizer uses), then in `end_frame`
@@ -10,8 +10,15 @@
 //! framebuffer for the platform to blit. It is therefore driven at the window
 //! level (the caller owns the window and its handles); wiring it into `Canvas`
 //! backend selection is a follow-up that must reconcile the canvas blit path.
+//!
+//! Images are uploaded to GPU textures **once** and cached by the source
+//! pixels' `Arc` pointer (keyed identity), bound into the painter's bindless
+//! slots; the cache evicts least-recently-used entries when the slots fill.
 
-use crate::batch::RenderBatches;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use crate::batch::{ImageDraw, RenderBatches};
 use crate::cpu::CpuDrawingContext;
 use crate::display_list::DisplayList;
 use crate::renderer::{DrawingContext, Renderer};
@@ -19,11 +26,14 @@ use crate::surface::{Surface, SurfaceInfo};
 use crate::types::Rect;
 use aurea_foundation::{AureaError, AureaResult};
 
-use zengpu_hal::{DeviceRequest, Format, PresentMode, SurfaceConfig, WindowHandles};
+use zengpu_hal::{
+    DeviceRequest, FilterMode, Format, GpuDevice, PresentMode, SamplerDesc, SamplerHandle,
+    SurfaceConfig, TextureDesc, TextureHandle, TextureUsage, WindowHandles,
+};
 use zengpu_vulkan::instance::VulkanInstance;
 use zengpu_vulkan::{
-    CircleInstance as VkCircle, Frame2d, GradientInstance as VkGradient, RectInstance as VkRect,
-    Vulkan2dSurface, VulkanDevice,
+    CircleInstance as VkCircle, Frame2d, GradientInstance as VkGradient, ImageInstance as VkImage,
+    RectInstance as VkRect, Vulkan2dSurface, VulkanDevice,
 };
 
 // The batch-layer and ZenGPU instance types are `#[repr(C)]` with identical
@@ -31,26 +41,63 @@ use zengpu_vulkan::{
 // with no per-frame copy. Guard the layout assumptions.
 const _: () =
     assert!(std::mem::size_of::<crate::batch::RectInstance>() == std::mem::size_of::<VkRect>());
-const _: () = assert!(
-    std::mem::size_of::<crate::batch::CircleInstance>() == std::mem::size_of::<VkCircle>()
-);
+const _: () =
+    assert!(std::mem::size_of::<crate::batch::CircleInstance>() == std::mem::size_of::<VkCircle>());
 const _: () = assert!(
     std::mem::size_of::<crate::batch::GradientInstance>() == std::mem::size_of::<VkGradient>()
 );
 
-/// A [`Renderer`] that lowers the display list to instanced rects and presents
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct ImageKey {
+    data_ptr: usize,
+    data_len: usize,
+    width: u32,
+    height: u32,
+}
+
+impl ImageKey {
+    fn new(image: &crate::types::Image) -> Self {
+        Self {
+            data_ptr: image.data.as_ptr() as usize,
+            data_len: image.data.len(),
+            width: image.width,
+            height: image.height,
+        }
+    }
+}
+
+/// A cached GPU texture for an `Image`, holding its bindless slot. `keepalive`
+/// retains the source `Arc` so the pointer used as the cache key stays valid.
+struct CachedImage {
+    texture: TextureHandle,
+    slot: u32,
+    keepalive: Arc<[u8]>,
+    last_used: u64,
+}
+
+/// A [`Renderer`] that lowers the display list to GPU primitives and presents
 /// them through ZenGPU's Vulkan backend.
 pub struct ZenGpuRenderer {
     // `device` and `_instance` own GPU resources the surface borrows; they must
     // outlive `surface` and are dropped after it (struct field order: surface
-    // is declared first so it drops first).
+    // is declared first so it drops first). Cached textures live in `device`'s
+    // slotmap and are freed when it drops.
     surface: Vulkan2dSurface,
-    #[allow(dead_code)]
     device: VulkanDevice,
     _instance: VulkanInstance,
     display_list: DisplayList,
     /// Reused across frames so steady-state `end_frame` does no allocation.
     batches: RenderBatches,
+    /// GPU texture cache keyed by the source pixels' `Arc` pointer.
+    texture_cache: HashMap<ImageKey, CachedImage>,
+    /// Bindless slots not currently assigned to a cached texture.
+    free_slots: Vec<u32>,
+    /// Shared sampler for all cached image textures.
+    sampler: SamplerHandle,
+    /// Monotonic frame counter for LRU eviction.
+    frame_counter: u64,
+    /// Reused per-frame buffer of resolved image instances.
+    vk_images: Vec<VkImage>,
     logical_width: u32,
     logical_height: u32,
     scale_factor: f32,
@@ -85,12 +132,28 @@ impl ZenGpuRenderer {
             .create_2d_surface(handles, &device, config)
             .map_err(gpu_err)?;
 
+        // Shared sampler for image textures (linear min/mag, clamp).
+        let sampler = device
+            .create_sampler(SamplerDesc {
+                min_filter: FilterMode::Linear,
+                mag_filter: FilterMode::Linear,
+                ..SamplerDesc::default()
+            })
+            .map_err(gpu_err)?;
+        let slots = surface.image_slot_capacity();
+        let free_slots: Vec<u32> = (0..slots).rev().collect();
+
         Ok(Self {
             surface,
             device,
             _instance: instance,
             display_list: DisplayList::new(),
             batches: RenderBatches::default(),
+            texture_cache: HashMap::new(),
+            free_slots,
+            sampler,
+            frame_counter: 0,
+            vk_images: Vec::new(),
             logical_width: width,
             logical_height: height,
             scale_factor: scale,
@@ -162,8 +225,35 @@ impl Renderer for ZenGpuRenderer {
                 self.batches.gradients.len(),
             )
         };
+
+        // Images need GPU textures resolved (created/cached/bound), so they're
+        // built into a reused Vec rather than cast.
+        self.frame_counter += 1;
+        prune_dropped_images(
+            &self.device,
+            &self.surface,
+            &mut self.texture_cache,
+            &mut self.free_slots,
+        )?;
+        resolve_images(
+            &self.batches.images,
+            &self.device,
+            &self.surface,
+            self.sampler,
+            &mut self.texture_cache,
+            &mut self.free_slots,
+            self.frame_counter,
+            &mut self.vk_images,
+        )?;
+
         self.surface
-            .present(Frame2d { clear, rects, gradients, circles })
+            .present(Frame2d {
+                clear,
+                rects,
+                gradients,
+                images: &self.vk_images,
+                circles,
+            })
             .map_err(gpu_err)
     }
 
@@ -180,6 +270,165 @@ impl Renderer for ZenGpuRenderer {
     }
 }
 
+/// Resolve each `ImageDraw` to a bindless slot (uploading + caching its GPU
+/// texture on first sight, evicting the least-recently-used entry when the
+/// slots are full), and build the per-image instances into `out`.
+///
+/// Takes the renderer's fields individually so the borrow checker can see they
+/// are disjoint (a `&mut self` helper would conflict with the `&self.batches`
+/// read in `end_frame`).
+#[allow(clippy::too_many_arguments)]
+fn resolve_images(
+    images: &[ImageDraw],
+    device: &VulkanDevice,
+    surface: &Vulkan2dSurface,
+    sampler: SamplerHandle,
+    cache: &mut HashMap<ImageKey, CachedImage>,
+    free_slots: &mut Vec<u32>,
+    frame: u64,
+    out: &mut Vec<VkImage>,
+) -> AureaResult<()> {
+    out.clear();
+    for draw in images {
+        let (iw, ih) = (draw.image.width, draw.image.height);
+        if iw == 0 || ih == 0 {
+            continue;
+        }
+        let expected_len = (iw as usize).saturating_mul(ih as usize).saturating_mul(4);
+        if draw.image.data.len() != expected_len {
+            return Err(AureaError::RenderingFailed);
+        }
+        let key = ImageKey::new(&draw.image);
+
+        let slot = if let Some(cached) = cache.get_mut(&key) {
+            cached.last_used = frame;
+            cached.slot
+        } else {
+            // Allocate a slot, evicting the LRU texture if none are free.
+            let (slot, evicted_key) = match free_slots.pop() {
+                Some(s) => (s, None),
+                None => {
+                    let lru = *cache
+                        .iter()
+                        .min_by_key(|(_, c)| c.last_used)
+                        .map(|(k, _)| k)
+                        .expect("cache full implies non-empty");
+                    (cache.get(&lru).expect("just found").slot, Some(lru))
+                }
+            };
+            let texture = match device.create_texture(TextureDesc {
+                width: iw,
+                height: ih,
+                format: Format::Rgba8Unorm,
+                usage: TextureUsage::SAMPLED | TextureUsage::TRANSFER_DST,
+                samples: 1,
+            }) {
+                Ok(texture) => texture,
+                Err(error) => {
+                    if evicted_key.is_none() {
+                        free_slots.push(slot);
+                    }
+                    return Err(gpu_err(error));
+                }
+            };
+            if let Err(error) = device.upload_texture_data(texture, &draw.image.data) {
+                device.destroy_texture(texture);
+                if evicted_key.is_none() {
+                    free_slots.push(slot);
+                }
+                return Err(gpu_err(error));
+            }
+            // Binding waits for device idle, so the evicted texture is safe to
+            // free immediately afterwards.
+            if let Err(error) = surface.set_image_slot(device, slot, texture, sampler) {
+                device.destroy_texture(texture);
+                if evicted_key.is_none() {
+                    free_slots.push(slot);
+                }
+                return Err(gpu_err(error));
+            }
+            if let Some(evicted_key) = evicted_key {
+                let old = cache
+                    .remove(&evicted_key)
+                    .expect("eviction key came from cache");
+                device.destroy_texture(old.texture);
+            }
+            cache.insert(
+                key,
+                CachedImage {
+                    texture,
+                    slot,
+                    keepalive: Arc::clone(&draw.image.data),
+                    last_used: frame,
+                },
+            );
+            slot
+        };
+
+        let (iwf, ihf) = (iw as f32, ih as f32);
+        out.push(VkImage {
+            rect: [draw.dest.x, draw.dest.y, draw.dest.width, draw.dest.height],
+            uv: [
+                draw.src.x / iwf,
+                draw.src.y / ihf,
+                (draw.src.x + draw.src.width) / iwf,
+                (draw.src.y + draw.src.height) / ihf,
+            ],
+            tint: [
+                draw.tint.r as f32 / 255.0,
+                draw.tint.g as f32 / 255.0,
+                draw.tint.b as f32 / 255.0,
+                draw.tint.a as f32 / 255.0,
+            ],
+            slot,
+            _pad: [0; 3],
+        });
+    }
+    Ok(())
+}
+
+fn prune_dropped_images(
+    device: &VulkanDevice,
+    surface: &Vulkan2dSurface,
+    cache: &mut HashMap<ImageKey, CachedImage>,
+    free_slots: &mut Vec<u32>,
+) -> AureaResult<()> {
+    while let Some(key) = cache
+        .iter()
+        .find(|(_, cached)| Arc::strong_count(&cached.keepalive) == 1)
+        .map(|(key, _)| *key)
+    {
+        let cached = cache.get(&key).expect("key came from cache");
+        surface.clear_image_slot(cached.slot).map_err(gpu_err)?;
+        let cached = cache.remove(&key).expect("key came from cache");
+        device.destroy_texture(cached.texture);
+        free_slots.push(cached.slot);
+    }
+    Ok(())
+}
+
 fn gpu_err(_e: zengpu_hal::GpuError) -> AureaError {
     AureaError::ElementOperationFailed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ImageKey;
+    use crate::types::Image;
+
+    #[test]
+    fn image_cache_key_includes_dimensions() {
+        let image = Image::new(2, 2, vec![255; 16]);
+        let mut reshaped = image.clone();
+        reshaped.width = 1;
+        reshaped.height = 4;
+
+        assert_ne!(ImageKey::new(&image), ImageKey::new(&reshaped));
+    }
+
+    #[test]
+    fn image_cache_key_is_stable_across_arc_clones() {
+        let image = Image::new(2, 2, vec![255; 16]);
+        assert_eq!(ImageKey::new(&image), ImageKey::new(&image.clone()));
+    }
 }
