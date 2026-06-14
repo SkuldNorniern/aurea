@@ -10,7 +10,10 @@ use aurea_foundation::{AureaError, AureaResult};
 
 use zengpu_hal::{DeviceRequest, Format, PresentMode, SurfaceConfig, WindowHandles};
 use zengpu_vulkan::instance::VulkanInstance;
-use zengpu_vulkan::{RectInstance, Vulkan2dSurface, VulkanDevice};
+use zengpu_vulkan::{RectInstance as VkRect, Vulkan2dSurface, VulkanDevice};
+
+const _: () =
+    assert!(std::mem::size_of::<crate::batch::RectInstance>() == std::mem::size_of::<VkRect>());
 
 /// A [`Renderer`] that lowers the display list to instanced rects and presents them through
 /// ZenGPU's Vulkan backend.
@@ -20,6 +23,7 @@ pub struct ZenGpuRenderer {
     device: VulkanDevice,
     _instance: VulkanInstance,
     display_list: DisplayList,
+    batches: RenderBatches,
     logical_width: u32,
     logical_height: u32,
     scale_factor: f32,
@@ -57,6 +61,7 @@ impl ZenGpuRenderer {
             device,
             _instance: instance,
             display_list: DisplayList::new(),
+            batches: RenderBatches::default(),
             logical_width: width,
             logical_height: height,
             scale_factor: scale,
@@ -99,8 +104,8 @@ impl Renderer for ZenGpuRenderer {
     }
 
     fn end_frame(&mut self) -> AureaResult<()> {
-        let batches = RenderBatches::lower(&self.display_list);
-        let clear = batches.clear.map(|c| {
+        self.batches.lower_into(&self.display_list);
+        let clear = self.batches.clear.map(|c| {
             [
                 c.r as f32 / 255.0,
                 c.g as f32 / 255.0,
@@ -108,15 +113,13 @@ impl Renderer for ZenGpuRenderer {
                 c.a as f32 / 255.0,
             ]
         });
-        let rects: Vec<RectInstance> = batches
-            .rects
-            .iter()
-            .map(|r| RectInstance {
-                rect: r.rect,
-                color: r.color,
-            })
-            .collect();
-        self.surface.present(clear, &rects).map_err(gpu_err)
+        let rects: &[VkRect] = unsafe {
+            std::slice::from_raw_parts(
+                self.batches.rects.as_ptr() as *const VkRect,
+                self.batches.rects.len(),
+            )
+        };
+        self.surface.present(clear, rects).map_err(gpu_err)
     }
 
     fn cleanup(&mut self) {

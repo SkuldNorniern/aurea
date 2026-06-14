@@ -38,22 +38,29 @@ pub struct RenderBatches {
 }
 
 impl RenderBatches {
-    /// Lower a display list into backend-agnostic batches.
+    /// Lower a display list into freshly-allocated batches.
     pub fn lower(list: &DisplayList) -> Self {
         let mut batches = RenderBatches::default();
+        batches.lower_into(list);
+        batches
+    }
+
+    /// Clear and refill from `list`, **reusing** the existing `rects` allocation.
+    pub fn lower_into(&mut self, list: &DisplayList) {
+        self.clear = None;
+        self.rects.clear();
         for item in list.items() {
             match &item.command {
                 DrawCommand::Clear(color) => {
-                    batches.clear = Some(*color);
-                    batches.rects.clear();
+                    self.clear = Some(*color);
+                    self.rects.clear();
                 }
                 DrawCommand::DrawRect(rect, paint) if paint.style == PaintStyle::Fill => {
-                    batches.rects.push(RectInstance::from_rect(*rect, paint.color));
+                    self.rects.push(RectInstance::from_rect(*rect, paint.color));
                 }
                 _ => {}
             }
         }
-        batches
     }
 
     /// True when there's nothing to clear and nothing to draw.
