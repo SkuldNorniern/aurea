@@ -13,7 +13,7 @@ use zengpu_hal::{
     DeviceRequest, Format, GpuAdapter, PresentMode, SurfaceConfig, WindowHandles,
 };
 use zengpu_vulkan::instance::VulkanInstance;
-use zengpu_vulkan::RectInstance;
+use zengpu_vulkan::{CircleInstance, Frame2d, RectInstance};
 
 const W: i32 = 800;
 const H: i32 = 600;
@@ -59,6 +59,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("surface: {}×{} ({} images)", surface.size().0, surface.size().1, surface.image_count());
 
     let rects = scene();
+    let circles = vec![
+        // Two filled circles to exercise the SDF circle pipeline.
+        CircleInstance { center_radius: [200.0, 440.0, 60.0, 0.0], color: rgba(255, 120, 160, 255) },
+        CircleInstance { center_radius: [400.0, 440.0, 80.0, 0.0], color: rgba(120, 220, 255, 200) },
+    ];
     let clear = Some(rgba(20, 20, 28, 255));
 
     'main: loop {
@@ -67,7 +72,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 break 'main;
             }
         }
-        surface.present(clear, &rects)?;
+        surface.present(Frame2d { clear, rects: &rects, circles: &circles })?;
     }
 
     drop(surface);

@@ -21,13 +21,18 @@ use aurea_foundation::{AureaError, AureaResult};
 
 use zengpu_hal::{DeviceRequest, Format, PresentMode, SurfaceConfig, WindowHandles};
 use zengpu_vulkan::instance::VulkanInstance;
-use zengpu_vulkan::{RectInstance as VkRect, Vulkan2dSurface, VulkanDevice};
+use zengpu_vulkan::{
+    CircleInstance as VkCircle, Frame2d, RectInstance as VkRect, Vulkan2dSurface, VulkanDevice,
+};
 
-// The batch-layer and ZenGPU rect instances are both `#[repr(C)]` with the same
-// `[f32; 4] + [f32; 4]` fields, so a frame's rects can be reinterpreted from one
-// to the other with no per-frame copy. Guard the layout assumption.
+// The batch-layer and ZenGPU instance types are both `#[repr(C)]` with the same
+// `[f32; 4] + [f32; 4]` fields, so a frame's primitives can be reinterpreted
+// from one to the other with no per-frame copy. Guard the layout assumptions.
 const _: () =
     assert!(std::mem::size_of::<crate::batch::RectInstance>() == std::mem::size_of::<VkRect>());
+const _: () = assert!(
+    std::mem::size_of::<crate::batch::CircleInstance>() == std::mem::size_of::<VkCircle>()
+);
 
 /// A [`Renderer`] that lowers the display list to instanced rects and presents
 /// them through ZenGPU's Vulkan backend.
@@ -134,14 +139,22 @@ impl Renderer for ZenGpuRenderer {
             ]
         });
         // Zero-copy reinterpret: layout identity is asserted at the top of the
-        // module, so the batch rects upload directly with no per-frame Vec.
+        // module, so the batch primitives upload directly with no per-frame Vec.
         let rects: &[VkRect] = unsafe {
             std::slice::from_raw_parts(
                 self.batches.rects.as_ptr() as *const VkRect,
                 self.batches.rects.len(),
             )
         };
-        self.surface.present(clear, rects).map_err(gpu_err)
+        let circles: &[VkCircle] = unsafe {
+            std::slice::from_raw_parts(
+                self.batches.circles.as_ptr() as *const VkCircle,
+                self.batches.circles.len(),
+            )
+        };
+        self.surface
+            .present(Frame2d { clear, rects, circles })
+            .map_err(gpu_err)
     }
 
     fn cleanup(&mut self) {
