@@ -229,6 +229,14 @@ fn main() {
             }
         }
 
+        if pkg_config::Config::new().probe("x11-xcb").is_ok() {
+            build.define("AUREA_HAVE_X11_XCB", None);
+        } else {
+            println!(
+                "cargo:warning=X11-XCB development files not found; XCB GPU surfaces disabled"
+            );
+        }
+
         add_sources(&mut build, &root, common_c);
         add_sources(&mut build, &root, linux_sources);
         rerun_for(&root, common_c);
