@@ -10,8 +10,8 @@
 //! [`get_platform_rasterizer`] picks the best available backend per platform.
 
 use super::super::types::{Color, Font, FontStyle, FontWeight, GlyphMask, Point};
-use super::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
 use super::LruCache;
+use super::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
 use aurea_foundation::AureaResult;
 use std::sync::{Arc, Mutex};
 
@@ -183,7 +183,10 @@ impl TextRenderer {
 
         // Multi-character run — run-mask cache.
         let run_key = RunKey::new(text, font);
-        if let Some(cached) = aurea_foundation::lock(&self.run_cache).get(&run_key).cloned() {
+        if let Some(cached) = aurea_foundation::lock(&self.run_cache)
+            .get(&run_key)
+            .cloned()
+        {
             return Ok(cached);
         }
         let result = self.compute_mask(text, font)?;

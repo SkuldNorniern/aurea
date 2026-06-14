@@ -16,7 +16,7 @@ use super::super::types::{
 };
 use super::blend::{blend_pixel, linear_to_srgb_u8, srgb_to_linear};
 use super::context::CpuDrawingContext;
-use super::path::{tessellate_path_into, Edge};
+use super::path::{Edge, tessellate_path_into};
 use super::scanline::fill_scanline;
 use aurea_foundation::AureaResult;
 
@@ -425,8 +425,14 @@ impl CpuRasterizer {
             return Ok(());
         }
 
-        let y_min = scratch_edges.iter().map(|e| e.y_min).fold(f32::MAX, f32::min);
-        let y_max = scratch_edges.iter().map(|e| e.y_max).fold(f32::MIN, f32::max);
+        let y_min = scratch_edges
+            .iter()
+            .map(|e| e.y_min)
+            .fold(f32::MAX, f32::min);
+        let y_max = scratch_edges
+            .iter()
+            .map(|e| e.y_max)
+            .fold(f32::MIN, f32::max);
         let y_start = y_min.max(0.0).ceil() as u32;
         let y_end = y_max.min(bh as f32).ceil() as u32;
 
@@ -463,10 +469,8 @@ impl CpuRasterizer {
         let tb = srgb_to_linear(color.b);
         // Fully-covered pixels composite to the text color at full alpha
         // regardless of the destination, so they can be written directly.
-        let opaque_pixel = 0xFF00_0000
-            | ((color.r as u32) << 16)
-            | ((color.g as u32) << 8)
-            | color.b as u32;
+        let opaque_pixel =
+            0xFF00_0000 | ((color.r as u32) << 16) | ((color.g as u32) << 8) | color.b as u32;
         let dx = origin.x.round() as i32;
         let dy = origin.y.round() as i32;
 
@@ -1004,9 +1008,7 @@ impl Renderer for CpuRasterizer {
             (None, FrameDamage::Full) | (Some(_), FrameDamage::Full) => None,
             (None, FrameDamage::Region(r)) => Some(round_out_clamp(r, bw, bh)),
             (Some(p), FrameDamage::Unchanged) => Some(p),
-            (Some(p), FrameDamage::Region(r)) => {
-                Some(round_out_clamp(union_rect(p, r), bw, bh))
-            }
+            (Some(p), FrameDamage::Region(r)) => Some(round_out_clamp(union_rect(p, r), bw, bh)),
         };
 
         let (tiles_x, tiles_y) = tile_grid_dims(bw, bh);
@@ -1277,7 +1279,8 @@ mod diff_damage_tests {
 
         let mut ctx = r.begin_frame().unwrap();
         ctx.clear(Color::rgb(10, 20, 30)).unwrap();
-        ctx.draw_rect(Rect::new(2.0, 2.0, 4.0, 4.0), &paint).unwrap();
+        ctx.draw_rect(Rect::new(2.0, 2.0, 4.0, 4.0), &paint)
+            .unwrap();
         drop(ctx);
         r.end_frame().unwrap();
         assert!(CURRENT_BUFFER.with(|b| b.borrow().is_some()));
@@ -1288,7 +1291,8 @@ mod diff_damage_tests {
         // Second frame: identical draw calls, no explicit damage set.
         let mut ctx = r.begin_frame().unwrap();
         ctx.clear(Color::rgb(10, 20, 30)).unwrap();
-        ctx.draw_rect(Rect::new(2.0, 2.0, 4.0, 4.0), &paint).unwrap();
+        ctx.draw_rect(Rect::new(2.0, 2.0, 4.0, 4.0), &paint)
+            .unwrap();
         drop(ctx);
         r.end_frame().unwrap();
 
