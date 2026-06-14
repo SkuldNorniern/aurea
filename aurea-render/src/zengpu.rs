@@ -81,7 +81,10 @@ impl Renderer for ZenGpuRenderer {
         self.logical_width = width;
         self.logical_height = height;
         self.display_list.clear();
-        Ok(())
+        let scale = self.scale_factor;
+        let pw = ((width as f32 * scale).round() as u32).max(1);
+        let ph = ((height as f32 * scale).round() as u32).max(1);
+        self.surface.resize(pw, ph).map_err(gpu_err)
     }
 
     fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext>> {

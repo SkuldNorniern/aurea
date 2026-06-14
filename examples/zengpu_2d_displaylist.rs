@@ -1,6 +1,6 @@
 //! ZenGPU G4 / Rung 1 — the full `DisplayList → ZenGPU` pipeline.
 
-use aurea::render::{Color, Paint, Renderer, Rect};
+use aurea::render::{Color, Paint, Rect, Renderer};
 use aurea::{Window, WindowEvent};
 
 const W: i32 = 800;
@@ -16,11 +16,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut renderer = window.create_zengpu_2d()?;
     eprintln!("ZenGPU 2D surface: {}×{}", renderer.size().0, renderer.size().1);
 
+    let mut frame: u64 = 0;
     'main: loop {
         for event in window.poll_events() {
-            if matches!(event, WindowEvent::CloseRequested) {
-                break 'main;
+            match event {
+                WindowEvent::CloseRequested => break 'main,
+                WindowEvent::Resized { width, height } => {
+                    renderer.resize(width, height)?;
+                }
+                _ => {}
             }
+        }
+
+        frame += 1;
+        if frame == 120 {
+            window.set_size(1000, 700);
         }
 
         let mut ctx = renderer.begin_frame()?;
