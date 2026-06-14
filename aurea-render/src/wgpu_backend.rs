@@ -10,6 +10,9 @@
 //! The caller owns device/queue/surface creation (window-handle plumbing is a
 //! root-crate concern); this module only consumes them.
 
+use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::mem::size_of;
 
 use wgpu::util::DeviceExt;
@@ -113,6 +116,62 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// Computes a gradient parameter `t` per pixel and samples a 256x1 LUT
+/// texture (group 1), matching `ZenGpuRenderer`'s gradient pipeline.
+const GRADIENT_SHADER: &str = r#"
+struct Viewport {
+    size: vec2<f32>,
+    _pad: vec2<f32>,
+};
+@group(0) @binding(0) var<uniform> viewport: Viewport;
+@group(1) @binding(0) var lut_tex: texture_2d<f32>;
+@group(1) @binding(1) var lut_sampler: sampler;
+
+struct Instance {
+    @location(0) rect: vec4<f32>,
+    @location(1) a: vec4<f32>,
+    @location(2) b: vec4<f32>,
+};
+
+struct VsOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) px: vec2<f32>,
+    @location(1) a: vec4<f32>,
+    @location(2) b: vec4<f32>,
+};
+
+const CORNERS = array<vec2<f32>, 6>(
+    vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0), vec2<f32>(0.0, 1.0),
+    vec2<f32>(1.0, 0.0), vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0),
+);
+
+@vertex
+fn vs_main(@builtin(vertex_index) vidx: u32, instance: Instance) -> VsOut {
+    let corner = CORNERS[vidx];
+    let px = instance.rect.xy + corner * instance.rect.zw;
+    let ndc = (px / viewport.size) * 2.0 - 1.0;
+    var out: VsOut;
+    out.position = vec4<f32>(ndc.x, -ndc.y, 0.0, 1.0);
+    out.px = px;
+    out.a = instance.a;
+    out.b = instance.b;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    var t: f32;
+    if (in.a.w < 0.5) {
+        let d = in.b.xy - in.a.xy;
+        t = dot(in.px - in.a.xy, d) / max(dot(d, d), 1e-6);
+    } else {
+        t = length(in.px - in.a.xy) / max(in.a.z, 1e-6);
+    }
+    let u = (clamp(t, 0.0, 1.0) * 255.0 + 0.5) / 256.0;
+    return textureSample(lut_tex, lut_sampler, vec2<f32>(u, 0.5));
+}
+"#;
+
 /// Host-visible instance buffer that grows (doubling) to fit the largest
 /// batch seen so far, reused across frames to avoid per-frame allocation.
 struct InstanceBuffer {
@@ -169,9 +228,19 @@ pub struct WgpuRenderer {
     viewport_buffer: wgpu::Buffer,
     rect_pipeline: wgpu::RenderPipeline,
     circle_pipeline: wgpu::RenderPipeline,
+    gradient_pipeline: wgpu::RenderPipeline,
     rect_bind_group: wgpu::BindGroup,
+    gradient_bind_group_layout: wgpu::BindGroupLayout,
+    gradient_sampler: wgpu::Sampler,
     rect_instances: InstanceBuffer,
     circle_instances: InstanceBuffer,
+    gradient_instances: InstanceBuffer,
+    /// LUT texture + bind group per distinct 256x1 gradient LUT, keyed by a
+    /// content hash of the LUT bytes. Grows unboundedly across frames; no
+    /// eviction yet (see status.md watch-outs).
+    gradient_lut_textures: HashMap<u64, (wgpu::Texture, wgpu::BindGroup)>,
+    /// LUT hash keys for `batches.gradients`, rebuilt each frame.
+    gradient_keys: Vec<u64>,
     display_list: DisplayList,
     /// Reused across frames so steady-state `end_frame` does no allocation.
     batches: RenderBatches,
@@ -308,6 +377,84 @@ impl WgpuRenderer {
             size_of::<CircleInstance>(),
         );
 
+        let gradient_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("aurea-wgpu2d-gradient-lut-layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+        let gradient_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("aurea-wgpu2d-gradient-sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let gradient_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("aurea-wgpu2d-gradient-pipeline-layout"),
+                bind_group_layouts: &[Some(&bind_group_layout), Some(&gradient_bind_group_layout)],
+                immediate_size: 0,
+            });
+        let gradient_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("aurea-wgpu2d-gradient"),
+            source: wgpu::ShaderSource::Wgsl(GRADIENT_SHADER.into()),
+        });
+        let gradient_attrs =
+            wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4];
+        let gradient_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("aurea-wgpu2d-gradient-pipeline"),
+            layout: Some(&gradient_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &gradient_shader,
+                entry_point: Some("vs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: (size_of::<f32>() * 12) as wgpu::BufferAddress,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &gradient_attrs,
+                }],
+            },
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &gradient_shader,
+                entry_point: Some("fs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+        let gradient_instances = InstanceBuffer::new(
+            &device,
+            "aurea-wgpu2d-gradient-instances",
+            GRADIENT_INSTANCE_SIZE,
+        );
+
         let scale = scale_factor.max(1.0);
         Self {
             device,
@@ -317,9 +464,15 @@ impl WgpuRenderer {
             viewport_buffer,
             rect_pipeline,
             circle_pipeline,
+            gradient_pipeline,
             rect_bind_group: bind_group,
+            gradient_bind_group_layout,
+            gradient_sampler,
             rect_instances,
             circle_instances,
+            gradient_instances,
+            gradient_lut_textures: HashMap::new(),
+            gradient_keys: Vec::new(),
             display_list: DisplayList::new(),
             batches: RenderBatches::default(),
             logical_width: ((config.width as f32) / scale).round().max(1.0) as u32,
@@ -388,6 +541,27 @@ impl Renderer for WgpuRenderer {
         };
         self.circle_instances.upload(&self.device, &self.queue, circle_bytes);
 
+        self.gradient_keys.clear();
+        let mut gradient_bytes = Vec::with_capacity(self.batches.gradients.len() * GRADIENT_INSTANCE_SIZE);
+        for gradient in &self.batches.gradients {
+            let key = lut_hash_key(&gradient.lut);
+            self.gradient_keys.push(key);
+            gradient_bytes.extend_from_slice(bytemuck_bytes(&gradient.rect));
+            gradient_bytes.extend_from_slice(bytemuck_bytes(&gradient.a));
+            gradient_bytes.extend_from_slice(bytemuck_bytes(&gradient.b));
+            self.gradient_lut_textures.entry(key).or_insert_with(|| {
+                create_gradient_lut_texture(
+                    &self.device,
+                    &self.queue,
+                    &self.gradient_bind_group_layout,
+                    &self.gradient_sampler,
+                    &gradient.lut,
+                )
+            });
+        }
+        self.gradient_instances
+            .upload(&self.device, &self.queue, &gradient_bytes);
+
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame) => frame,
             wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
@@ -451,8 +625,16 @@ impl Renderer for WgpuRenderer {
                         pass.set_vertex_buffer(0, self.circle_instances.buffer.slice(..));
                         pass.draw(0..6, index..index + 1);
                     }
-                    // Gradient/image/text pipelines land in later P7-O stages.
-                    DrawRef::Gradient(_) | DrawRef::Image(_) | DrawRef::Text(_) => {}
+                    DrawRef::Gradient(index) => {
+                        let key = self.gradient_keys[index as usize];
+                        let (_, lut_bind_group) = &self.gradient_lut_textures[&key];
+                        pass.set_pipeline(&self.gradient_pipeline);
+                        pass.set_bind_group(1, lut_bind_group, &[]);
+                        pass.set_vertex_buffer(0, self.gradient_instances.buffer.slice(..));
+                        pass.draw(0..6, index..index + 1);
+                    }
+                    // Image/text pipelines land in later P7-O stages.
+                    DrawRef::Image(_) | DrawRef::Text(_) => {}
                 }
             }
         }
@@ -477,4 +659,73 @@ impl Renderer for WgpuRenderer {
 
 fn bytemuck_bytes(floats: &[f32; 4]) -> &[u8] {
     unsafe { std::slice::from_raw_parts(floats.as_ptr() as *const u8, size_of::<[f32; 4]>()) }
+}
+
+/// `[rect, a, b]`, each `[f32; 4]` — the packed `GradientInstance` fields
+/// uploaded to `gradient_instances` (the `lut` field is a separate texture).
+const GRADIENT_INSTANCE_SIZE: usize = size_of::<f32>() * 12;
+
+/// Content hash of a gradient's 256x1 LUT bytes, used to key
+/// `gradient_lut_textures` so identical gradients share one texture.
+fn lut_hash_key(lut: &[u8]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    lut.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Upload a 256x1 RGBA8 gradient LUT as a texture and build its bind group
+/// (group 1: texture + sampler) for the gradient pipeline.
+fn create_gradient_lut_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    layout: &wgpu::BindGroupLayout,
+    sampler: &wgpu::Sampler,
+    lut: &[u8],
+) -> (wgpu::Texture, wgpu::BindGroup) {
+    let size = wgpu::Extent3d {
+        width: 256,
+        height: 1,
+        depth_or_array_layers: 1,
+    };
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("aurea-wgpu2d-gradient-lut"),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        lut,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(256 * 4),
+            rows_per_image: Some(1),
+        },
+        size,
+    );
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("aurea-wgpu2d-gradient-lut-bind-group"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    });
+    (texture, bind_group)
 }
