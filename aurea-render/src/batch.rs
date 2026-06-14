@@ -12,7 +12,7 @@
 use super::command::DrawCommand;
 use super::display_list::DisplayList;
 use super::types::{
-    Color, GradientStop, Image, LinearGradient, PaintStyle, Point, RadialGradient, Rect,
+    Color, GlyphMask, GradientStop, Image, LinearGradient, PaintStyle, Point, RadialGradient, Rect,
 };
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -179,6 +179,15 @@ pub struct ImageDraw {
     pub tint: Color,
 }
 
+/// A cached text-run coverage mask ready for GPU upload. `mask` is RGBA8 where
+/// RGB retain the source LCD coverage channels and A is their maximum.
+#[derive(Debug, Clone)]
+pub struct TextDraw {
+    pub mask: Arc<[u8]>,
+    pub rect: Rect,
+    pub color: Color,
+}
+
 /// A single frame's 2D draw work, lowered from a display list and independent
 /// of any GPU backend.
 #[derive(Debug, Clone, Default)]
@@ -192,9 +201,12 @@ pub struct RenderBatches {
     pub gradients: Vec<GradientInstance>,
     /// Images to blit in submission order.
     pub images: Vec<ImageDraw>,
+    /// HiDPI text-run masks in submission order.
+    pub texts: Vec<TextDraw>,
     /// Solid-colour filled circles in submission order.
     pub circles: Vec<CircleInstance>,
     gradient_lut_cache: HashMap<u64, Weak<[u8]>>,
+    text_mask_cache: HashMap<(usize, u32, u32), Weak<[u8]>>,
 }
 
 impl RenderBatches {
@@ -222,6 +234,7 @@ impl RenderBatches {
         self.rects.clear();
         self.gradients.clear();
         self.images.clear();
+        self.texts.clear();
         self.circles.clear();
         for item in list.items() {
             match &item.command {
@@ -230,6 +243,7 @@ impl RenderBatches {
                     self.rects.clear();
                     self.gradients.clear();
                     self.images.clear();
+                    self.texts.clear();
                     self.circles.clear();
                 }
                 DrawCommand::DrawRect(rect, paint) if paint.style == PaintStyle::Fill => {
@@ -267,7 +281,21 @@ impl RenderBatches {
                         tint: Color::rgb(255, 255, 255),
                     });
                 }
-                // Other commands (strokes, glyph masks, text) are lowered later.
+                DrawCommand::DrawGlyphMask(mask, origin, color) => {
+                    if let Some(rgba) = self.text_mask(mask) {
+                        self.texts.push(TextDraw {
+                            mask: rgba,
+                            rect: Rect::new(
+                                origin.x,
+                                origin.y,
+                                mask.width as f32,
+                                mask.height as f32,
+                            ),
+                            color: *color,
+                        });
+                    }
+                }
+                // Other commands (strokes and legacy text commands) are lowered later.
                 _ => {}
             }
         }
@@ -279,6 +307,7 @@ impl RenderBatches {
             && self.rects.is_empty()
             && self.gradients.is_empty()
             && self.images.is_empty()
+            && self.texts.is_empty()
             && self.circles.is_empty()
     }
 
@@ -290,6 +319,29 @@ impl RenderBatches {
         let lut = build_gradient_lut(stops);
         self.gradient_lut_cache.insert(key, Arc::downgrade(&lut));
         lut
+    }
+
+    fn text_mask(&mut self, mask: &GlyphMask) -> Option<Arc<[u8]>> {
+        let pixel_count = (mask.width as usize).checked_mul(mask.height as usize)?;
+        if mask.coverage.len() != pixel_count.checked_mul(3)? {
+            return None;
+        }
+        let key = (mask.coverage.as_ptr() as usize, mask.width, mask.height);
+        if let Some(rgba) = self.text_mask_cache.get(&key).and_then(Weak::upgrade) {
+            return Some(rgba);
+        }
+        let mut rgba = Vec::with_capacity(pixel_count * 4);
+        for coverage in mask.coverage.chunks_exact(3) {
+            rgba.extend_from_slice(&[
+                coverage[0],
+                coverage[1],
+                coverage[2],
+                coverage[0].max(coverage[1]).max(coverage[2]),
+            ]);
+        }
+        let rgba: Arc<[u8]> = rgba.into();
+        self.text_mask_cache.insert(key, Arc::downgrade(&rgba));
+        Some(rgba)
     }
 }
 
@@ -506,6 +558,59 @@ mod tests {
         assert_eq!(b.images.len(), 1);
         assert_eq!(b.images[0].src, Rect::new(2.0, 3.0, 4.0, 5.0));
         assert_eq!(b.images[0].dest, Rect::new(20.0, 30.0, 40.0, 50.0));
+    }
+
+    #[test]
+    fn glyph_mask_is_converted_to_rgba_text_draw() {
+        let mut list = DisplayList::new();
+        list.push(item(DrawCommand::DrawGlyphMask(
+            GlyphMask {
+                width: 1,
+                height: 1,
+                coverage: vec![10, 20, 30].into(),
+            },
+            Point::new(4.0, 5.0),
+            Color::rgb(200, 100, 50),
+        )));
+
+        let b = RenderBatches::lower(&list);
+        assert_eq!(b.texts.len(), 1);
+        assert_eq!(b.texts[0].rect, Rect::new(4.0, 5.0, 1.0, 1.0));
+        assert_eq!(&*b.texts[0].mask, &[10, 20, 30, 30]);
+    }
+
+    #[test]
+    fn repeated_lowering_reuses_text_mask_arc() {
+        let mut list = DisplayList::new();
+        list.push(item(DrawCommand::DrawGlyphMask(
+            GlyphMask {
+                width: 1,
+                height: 1,
+                coverage: vec![255, 255, 255].into(),
+            },
+            Point::new(0.0, 0.0),
+            Color::rgb(255, 255, 255),
+        )));
+        let mut batches = RenderBatches::default();
+        batches.lower_into(&list);
+        let first = Arc::clone(&batches.texts[0].mask);
+        batches.lower_into(&list);
+        assert!(Arc::ptr_eq(&first, &batches.texts[0].mask));
+    }
+
+    #[test]
+    fn malformed_glyph_mask_is_skipped() {
+        let mut list = DisplayList::new();
+        list.push(item(DrawCommand::DrawGlyphMask(
+            GlyphMask {
+                width: 2,
+                height: 1,
+                coverage: vec![255, 255, 255].into(),
+            },
+            Point::new(0.0, 0.0),
+            Color::rgb(255, 255, 255),
+        )));
+        assert!(RenderBatches::lower(&list).texts.is_empty());
     }
 
     #[test]

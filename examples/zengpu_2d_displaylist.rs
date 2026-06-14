@@ -141,6 +141,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Rect::new(16.0, 16.0, 32.0, 32.0),
             Rect::new(445.0, 415.0, 80.0, 80.0),
         )?;
+        ctx.draw_text(
+            "Aurea GPU text",
+            Point::new(275.0, 570.0),
+            &paint(245, 245, 255, 255),
+        )?;
         drop(ctx);
         renderer.end_frame()?;
     }
