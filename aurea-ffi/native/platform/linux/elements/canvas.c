@@ -13,10 +13,13 @@ typedef struct {
     const unsigned char* buffer;
     unsigned int width;
     unsigned int height;
+    int gpu_owned;
 } CanvasData;
 
 static gboolean ng_linux_canvas_draw(GtkWidget* widget, cairo_t* cr, gpointer user_data) {
     CanvasData* data = (CanvasData*)user_data;
+    if (data && data->gpu_owned) return TRUE;
+
     GtkAllocation allocation;
     gtk_widget_get_allocation(widget, &allocation);
 
@@ -81,6 +84,19 @@ void ng_linux_canvas_invalidate_rect(NGHandle canvas, float x, float y, float wi
     });
     gtk_widget_queue_draw_region(widget, region);
     cairo_region_destroy(region);
+}
+
+void ng_linux_canvas_set_gpu_owned(NGHandle canvas, int gpu_owned) {
+    if (!canvas) return;
+    GtkWidget* widget = (GtkWidget*)canvas;
+    CanvasData* data = (CanvasData*)g_object_get_data(G_OBJECT(widget), "aurea-canvas-data");
+    if (!data) return;
+    data->gpu_owned = gpu_owned != 0;
+    if (data->gpu_owned) {
+        data->buffer = NULL;
+        data->width = 0;
+        data->height = 0;
+    }
 }
 
 void ng_linux_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size, unsigned int width, unsigned int height) {

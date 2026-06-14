@@ -28,6 +28,7 @@ void ng_windows_free_text_content(char* content);
 NGHandle ng_windows_create_canvas(int width, int height);
 void ng_windows_canvas_invalidate(NGHandle canvas);
 void ng_windows_canvas_invalidate_rect(NGHandle canvas, float x, float y, float width, float height);
+void ng_windows_canvas_set_gpu_owned(NGHandle canvas, int gpu_owned);
 void ng_windows_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int* height);
 NGHandle ng_windows_canvas_get_window(NGHandle canvas);
 NGHandle ng_windows_canvas_get_native_handle(NGHandle canvas);

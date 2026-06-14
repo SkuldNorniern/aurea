@@ -81,6 +81,7 @@ void ng_platform_canvas_invalidate_rect(NGHandle canvas, float x, float y, float
 void ng_platform_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size, unsigned int width, unsigned int height);
 void* ng_platform_canvas_acquire_buffer(NGHandle canvas, unsigned int width, unsigned int height, unsigned int* stride_px, unsigned int* buffer_index);
 void ng_platform_canvas_present(NGHandle canvas);
+void ng_platform_canvas_set_gpu_owned(NGHandle canvas, int gpu_owned);
 void ng_platform_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int* height);
 NGHandle ng_platform_canvas_get_window(NGHandle canvas);
 NGHandle ng_platform_canvas_get_native_handle(NGHandle canvas);

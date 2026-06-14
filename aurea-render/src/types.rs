@@ -125,8 +125,11 @@ pub enum RendererBackend {
     /// CPU rasterizer (tile-based, display list, partial redraw).
     #[default]
     Cpu,
-    /// GPU-accelerated backend (planned; returns error until implemented).
+    /// Legacy GPU placeholder, currently backed by the CPU rasterizer.
     Gpu,
+    /// ZenGPU Vulkan renderer hosted directly in the native canvas surface.
+    #[cfg(feature = "zengpu")]
+    ZenGpu,
 }
 
 /// Path command for drawing paths.
