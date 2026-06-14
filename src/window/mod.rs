@@ -379,6 +379,54 @@ impl Window {
         WindowNativeHandle::native_handle_impl(self)
     }
 
+    /// Create a ZenGPU 2D renderer that presents directly to this window.
+    ///
+    /// This is aurea's window-level GPU path: the swapchain belongs to the
+    /// window (one per window, not per widget). Drive the returned renderer
+    /// like any [`Renderer`](aurea_render::Renderer) — `begin_frame` to record
+    /// draws, `end_frame` to lower them to GPU draws and present.
+    ///
+    /// Requires the `zengpu` feature. Currently implemented on Windows;
+    /// other platforms return an error until their window handles are wired.
+    ///
+    /// ```rust,no_run
+    /// # #[cfg(feature = "zengpu")]
+    /// # fn demo() -> Result<(), Box<dyn std::error::Error>> {
+    /// use aurea::Window;
+    /// let window = Window::new("GPU", 800, 600)?;
+    /// let mut renderer = window.create_zengpu_2d()?;
+    /// # let _ = &mut renderer;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "zengpu")]
+    pub fn create_zengpu_2d(&self) -> AureaResult<crate::render::ZenGpuRenderer> {
+        let handles = self.zengpu_window_handles()?;
+        let (w, h) = self.size();
+        crate::render::ZenGpuRenderer::new(&handles, w, h, self.scale_factor())
+    }
+
+    #[cfg(all(feature = "zengpu", target_os = "windows"))]
+    fn zengpu_window_handles(&self) -> AureaResult<zengpu_hal::WindowHandles> {
+        use raw_window_handle::{
+            RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle,
+        };
+        use std::num::NonZeroIsize;
+
+        let hwnd =
+            NonZeroIsize::new(self.handle as isize).ok_or(AureaError::ElementOperationFailed)?;
+        let window = RawWindowHandle::Win32(Win32WindowHandle::new(hwnd));
+        let display = RawDisplayHandle::Windows(WindowsDisplayHandle::new());
+        Ok(zengpu_hal::WindowHandles::from_raw(window, display))
+    }
+
+    #[cfg(all(feature = "zengpu", not(target_os = "windows")))]
+    fn zengpu_window_handles(&self) -> AureaResult<zengpu_hal::WindowHandles> {
+        // Platform window-handle extraction for ZenGPU is wired on Windows
+        // first; macOS/Linux follow with their raw-window-handle plumbing.
+        Err(AureaError::ElementOperationFailed)
+    }
+
     /// Poll window events (non-blocking)
     ///
     /// This method processes all pending window events by calling registered callbacks
