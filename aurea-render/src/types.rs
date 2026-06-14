@@ -122,14 +122,17 @@ impl Default for Paint {
 /// Aurea's native rendering backend.
 ///
 /// The framework provides its own rendering path (no external Skia/Vello).
-/// Cpu uses native CPU rasterization. Gpu delegates to CPU for now; wgpu pipeline planned.
+/// Cpu uses native CPU rasterization. Gpu delegates to CPU for now.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum RendererBackend {
     /// CPU rasterizer (tile-based, display list, partial redraw)
     #[default]
     Cpu,
-    /// GPU-accelerated backend (planned; returns error until implemented)
+    /// Legacy GPU placeholder, currently backed by the CPU rasterizer.
     Gpu,
+    /// ZenGPU Vulkan renderer hosted directly in the native canvas surface.
+    #[cfg(feature = "zengpu")]
+    ZenGpu,
 }
 
 /// Path command for drawing paths

@@ -62,3 +62,7 @@ path = "ZenGPU/zengpu-vulkan"
 [[example]]
 name = "zengpu_2d_displaylist"
 required-features = ["zengpu"]
+
+[[example]]
+name = "zengpu_canvas"
+required-features = ["zengpu"]

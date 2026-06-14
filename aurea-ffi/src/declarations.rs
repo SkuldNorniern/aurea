@@ -151,6 +151,7 @@ unsafe extern "C" {
         buffer_index: *mut u32,
     ) -> *mut u8;
     pub fn ng_platform_canvas_present(canvas: *mut c_void);
+    pub fn ng_platform_canvas_set_gpu_owned(canvas: *mut c_void, gpu_owned: c_int);
     pub fn ng_platform_canvas_get_size(canvas: *mut c_void, width: *mut u32, height: *mut u32);
     pub fn ng_platform_canvas_get_window(canvas: *mut c_void) -> *mut c_void;
     pub fn ng_platform_canvas_get_native_handle(canvas: *mut c_void) -> *mut c_void;

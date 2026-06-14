@@ -271,6 +271,10 @@ void ng_platform_canvas_present(NGHandle c) {
     DISPATCH_VOID(canvas_present, c);
 }
 
+void ng_platform_canvas_set_gpu_owned(NGHandle c, int gpu_owned) {
+    DISPATCH_VOID(canvas_set_gpu_owned, c, gpu_owned);
+}
+
 void ng_platform_canvas_get_size(NGHandle c, unsigned int* w, unsigned int* h) {
     DISPATCH_VOID(canvas_get_size, c, w, h);
 }

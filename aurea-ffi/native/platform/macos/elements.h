@@ -32,6 +32,7 @@ int ng_macos_split_view_set_divider_position(NGHandle split_handle, int index, f
 NGHandle ng_macos_create_canvas(int width, int height);
 void ng_macos_canvas_invalidate(NGHandle canvas);
 void ng_macos_canvas_invalidate_rect(NGHandle canvas, float x, float y, float width, float height);
+void ng_macos_canvas_set_gpu_owned(NGHandle canvas, int gpu_owned);
 void ng_macos_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size, unsigned int width, unsigned int height);
 void* ng_macos_canvas_acquire_buffer(NGHandle canvas, unsigned int width, unsigned int height, unsigned int* stride_px, unsigned int* buffer_index);
 void ng_macos_canvas_present(NGHandle canvas);

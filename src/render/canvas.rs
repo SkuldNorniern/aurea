@@ -73,7 +73,7 @@ pub struct Canvas {
     pub(crate) handle: *mut c_void,
     pub(crate) state: Arc<Mutex<CanvasState>>,
     pub(crate) renderer: Arc<Mutex<Option<Box<dyn Renderer>>>>,
-    _backend: RendererBackend,
+    pub(crate) backend: RendererBackend,
     interaction_registry: Arc<InteractionRegistry>,
     #[allow(dead_code)]
     platform: Platform,
@@ -149,15 +149,41 @@ impl Canvas {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        let mut renderer: Box<dyn Renderer> = match backend {
-            RendererBackend::Cpu => Box::new(CpuRasterizer::new(width, height)),
-            RendererBackend::Gpu => Box::new(GpuRasterizer::new(width, height)),
+        let renderer = match backend {
+            RendererBackend::Cpu => {
+                let mut renderer: Box<dyn Renderer> = Box::new(CpuRasterizer::new(width, height));
+                renderer.init(
+                    Surface::OpenGL {
+                        context: std::ptr::null_mut(),
+                    },
+                    SurfaceInfo {
+                        width,
+                        height,
+                        scale_factor: 1.0,
+                    },
+                )?;
+                Some(renderer)
+            }
+            RendererBackend::Gpu => {
+                let mut renderer: Box<dyn Renderer> = Box::new(GpuRasterizer::new(width, height));
+                renderer.init(
+                    Surface::OpenGL {
+                        context: std::ptr::null_mut(),
+                    },
+                    SurfaceInfo {
+                        width,
+                        height,
+                        scale_factor: 1.0,
+                    },
+                )?;
+                Some(renderer)
+            }
+            #[cfg(feature = "zengpu")]
+            RendererBackend::ZenGpu => {
+                unsafe { ng_platform_canvas_set_gpu_owned(handle, 1) };
+                None
+            }
         };
-        let surface = Surface::OpenGL {
-            context: std::ptr::null_mut(),
-        };
-        let surface_info = SurfaceInfo { width, height, scale_factor: 1.0 };
-        renderer.init(surface, surface_info)?;
 
         let platform = Platform::current();
         let capabilities = CapabilityChecker::new();
@@ -175,14 +201,14 @@ impl Canvas {
             draw_callback: None,
             needs_redraw: false,
         }));
-        let renderer_arc = Arc::new(Mutex::new(Some(renderer)));
+        let renderer_arc = Arc::new(Mutex::new(renderer));
         let interaction_registry = Arc::new(InteractionRegistry::new());
 
         let canvas = Self {
             handle,
             state: state.clone(),
             renderer: renderer_arc.clone(),
-            _backend: backend,
+            backend,
             interaction_registry,
             platform,
             capabilities,
@@ -192,7 +218,7 @@ impl Canvas {
             }),
         };
 
-        canvas.register_with_scheduler(state, renderer_arc);
+        canvas.register_with_scheduler(state, renderer_arc, backend);
         Ok(canvas)
     }
 
@@ -244,6 +270,9 @@ impl Canvas {
         F: FnOnce(&mut dyn DrawingContext) -> AureaResult<()>,
     {
         self.check_and_resize()?;
+        if crate::sync::lock(&self.renderer).is_none() {
+            return Err(AureaError::ElementOperationFailed);
+        }
 
         let (damage_rect, bg_color) = {
             let mut st = crate::sync::lock(&self.state);
@@ -417,6 +446,126 @@ impl Canvas {
     }
 }
 
+#[cfg(feature = "zengpu")]
+pub(super) fn ensure_canvas_renderer(
+    handle: *mut c_void,
+    state: &Arc<Mutex<CanvasState>>,
+    renderer: &Arc<Mutex<Option<Box<dyn Renderer>>>>,
+    backend: RendererBackend,
+) -> AureaResult<bool> {
+    if crate::sync::lock(renderer).is_some() {
+        return Ok(true);
+    }
+    if backend != RendererBackend::ZenGpu {
+        return Ok(false);
+    }
+
+    let window = unsafe { ng_platform_canvas_get_window(handle) };
+    if window.is_null() || unsafe { ng_platform_canvas_get_native_handle(handle) }.is_null() {
+        return Ok(false);
+    }
+
+    let handles = zengpu_canvas_handles(handle)?;
+    let (width, height, scale_factor) = {
+        let st = crate::sync::lock(state);
+        (st.width.max(1), st.height.max(1), st.scale_factor.max(1.0))
+    };
+    let gpu = aurea_render::ZenGpuRenderer::new(&handles, width, height, scale_factor)?;
+    *crate::sync::lock(renderer) = Some(Box::new(gpu));
+    Ok(true)
+}
+
+#[cfg(not(feature = "zengpu"))]
+pub(super) fn ensure_canvas_renderer(
+    _handle: *mut c_void,
+    _state: &Arc<Mutex<CanvasState>>,
+    renderer: &Arc<Mutex<Option<Box<dyn Renderer>>>>,
+    _backend: RendererBackend,
+) -> AureaResult<bool> {
+    Ok(crate::sync::lock(renderer).is_some())
+}
+
+#[cfg(all(feature = "zengpu", target_os = "windows"))]
+fn zengpu_canvas_handles(handle: *mut c_void) -> AureaResult<zengpu_hal::WindowHandles> {
+    use raw_window_handle::{
+        RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle,
+    };
+    use std::num::NonZeroIsize;
+
+    let hwnd = NonZeroIsize::new(handle as isize).ok_or(AureaError::ElementOperationFailed)?;
+    Ok(zengpu_hal::WindowHandles::from_raw(
+        RawWindowHandle::Win32(Win32WindowHandle::new(hwnd)),
+        RawDisplayHandle::Windows(WindowsDisplayHandle::new()),
+    ))
+}
+
+#[cfg(all(feature = "zengpu", target_os = "macos"))]
+fn zengpu_canvas_handles(handle: *mut c_void) -> AureaResult<zengpu_hal::WindowHandles> {
+    use raw_window_handle::{
+        AppKitDisplayHandle, AppKitWindowHandle, RawDisplayHandle, RawWindowHandle,
+    };
+    use std::ptr::NonNull;
+
+    let view = unsafe { ng_platform_canvas_get_native_handle(handle) };
+    let view = NonNull::new(view).ok_or(AureaError::ElementOperationFailed)?;
+    Ok(zengpu_hal::WindowHandles::from_raw(
+        RawWindowHandle::AppKit(AppKitWindowHandle::new(view)),
+        RawDisplayHandle::AppKit(AppKitDisplayHandle::new()),
+    ))
+}
+
+#[cfg(all(feature = "zengpu", target_os = "linux"))]
+fn zengpu_canvas_handles(handle: *mut c_void) -> AureaResult<zengpu_hal::WindowHandles> {
+    use raw_window_handle::{
+        RawDisplayHandle, RawWindowHandle, WaylandDisplayHandle, WaylandWindowHandle,
+        XcbDisplayHandle, XcbWindowHandle,
+    };
+    use std::{num::NonZeroU32, ptr::NonNull};
+
+    let mut xcb_window = 0;
+    let mut xcb_connection = std::ptr::null_mut();
+    if unsafe {
+        crate::ffi::ng_platform_canvas_get_xcb_handle(
+            handle,
+            &mut xcb_window,
+            &mut xcb_connection,
+        )
+    } != 0
+    {
+        let window = NonZeroU32::new(xcb_window).ok_or(AureaError::ElementOperationFailed)?;
+        let connection =
+            NonNull::new(xcb_connection).ok_or(AureaError::ElementOperationFailed)?;
+        return Ok(zengpu_hal::WindowHandles::from_raw(
+            RawWindowHandle::Xcb(XcbWindowHandle::new(window)),
+            RawDisplayHandle::Xcb(XcbDisplayHandle::new(Some(connection), 0)),
+        ));
+    }
+
+    let mut surface = std::ptr::null_mut();
+    let mut display = std::ptr::null_mut();
+    if unsafe {
+        crate::ffi::ng_platform_canvas_get_wayland_handle(handle, &mut surface, &mut display)
+    } != 0
+    {
+        let surface = NonNull::new(surface).ok_or(AureaError::ElementOperationFailed)?;
+        let display = NonNull::new(display).ok_or(AureaError::ElementOperationFailed)?;
+        return Ok(zengpu_hal::WindowHandles::from_raw(
+            RawWindowHandle::Wayland(WaylandWindowHandle::new(surface)),
+            RawDisplayHandle::Wayland(WaylandDisplayHandle::new(display)),
+        ));
+    }
+
+    Err(AureaError::ElementOperationFailed)
+}
+
+#[cfg(all(
+    feature = "zengpu",
+    not(any(target_os = "windows", target_os = "macos", target_os = "linux"))
+))]
+fn zengpu_canvas_handles(_handle: *mut c_void) -> AureaResult<zengpu_hal::WindowHandles> {
+    Err(AureaError::ElementOperationFailed)
+}
+
 impl Element for Canvas {
     fn handle(&self) -> *mut c_void {
         self.handle
@@ -432,6 +581,28 @@ impl Element for Canvas {
                 ng_platform_canvas_invalidate(self.handle);
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "zengpu"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zengpu_renderer_waits_for_canvas_attachment() {
+        let canvas = Canvas::new(64, 64, RendererBackend::ZenGpu).unwrap();
+
+        assert!(crate::sync::lock(&canvas.renderer).is_none());
+        assert!(
+            !ensure_canvas_renderer(
+                canvas.handle,
+                &canvas.state,
+                &canvas.renderer,
+                canvas.backend,
+            )
+            .unwrap()
+        );
+        assert!(crate::sync::lock(&canvas.renderer).is_none());
     }
 }
 
