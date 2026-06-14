@@ -396,7 +396,7 @@ impl PlaceholderRenderer {
                 if buf_idx >= buffer.len() {
                     continue;
                 }
-                if a >= 255 {
+                if a == 255 {
                     buffer[buf_idx] = src_rgba;
                 } else {
                     let dst = buffer[buf_idx];
