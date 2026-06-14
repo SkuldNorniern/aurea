@@ -14,7 +14,7 @@ use std::mem::size_of;
 
 use wgpu::util::DeviceExt;
 
-use crate::batch::{RectInstance, RenderBatches};
+use crate::batch::{CircleInstance, DrawRef, RectInstance, RenderBatches};
 use crate::cpu::CpuDrawingContext;
 use crate::display_list::DisplayList;
 use crate::renderer::{DrawingContext, Renderer};
@@ -58,6 +58,58 @@ fn vs_main(@builtin(vertex_index) vidx: u32, instance: Instance) -> VsOut {
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     return in.color;
+}
+"#;
+
+/// Expands each instance's bounding-box quad and evaluates a signed distance
+/// field in the fragment shader for a 1px-antialiased edge, matching
+/// `ZenGpuRenderer`'s circle pipeline.
+const CIRCLE_SHADER: &str = r#"
+struct Viewport {
+    size: vec2<f32>,
+    _pad: vec2<f32>,
+};
+@group(0) @binding(0) var<uniform> viewport: Viewport;
+
+struct Instance {
+    @location(0) center_radius: vec4<f32>,
+    @location(1) color: vec4<f32>,
+};
+
+struct VsOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) local: vec2<f32>,
+    @location(1) color: vec4<f32>,
+    @location(2) radius: f32,
+};
+
+const CORNERS = array<vec2<f32>, 6>(
+    vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, -1.0), vec2<f32>(-1.0, 1.0),
+    vec2<f32>(1.0, -1.0), vec2<f32>(1.0, 1.0), vec2<f32>(-1.0, 1.0),
+);
+
+@vertex
+fn vs_main(@builtin(vertex_index) vidx: u32, instance: Instance) -> VsOut {
+    let corner = CORNERS[vidx];
+    let r = instance.center_radius.z;
+    let px = instance.center_radius.xy + corner * r;
+    let ndc = (px / viewport.size) * 2.0 - 1.0;
+    var out: VsOut;
+    out.position = vec4<f32>(ndc.x, -ndc.y, 0.0, 1.0);
+    out.local = corner * r;
+    out.color = instance.color;
+    out.radius = r;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    let dist = length(in.local);
+    let alpha = 1.0 - smoothstep(in.radius - 1.0, in.radius, dist);
+    if (alpha <= 0.0) {
+        discard;
+    }
+    return vec4<f32>(in.color.rgb, in.color.a * alpha);
 }
 "#;
 
@@ -116,8 +168,10 @@ pub struct WgpuRenderer {
     config: wgpu::SurfaceConfiguration,
     viewport_buffer: wgpu::Buffer,
     rect_pipeline: wgpu::RenderPipeline,
+    circle_pipeline: wgpu::RenderPipeline,
     rect_bind_group: wgpu::BindGroup,
     rect_instances: InstanceBuffer,
+    circle_instances: InstanceBuffer,
     display_list: DisplayList,
     /// Reused across frames so steady-state `end_frame` does no allocation.
     batches: RenderBatches,
@@ -214,6 +268,46 @@ impl WgpuRenderer {
             size_of::<RectInstance>(),
         );
 
+        let circle_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("aurea-wgpu2d-circle"),
+            source: wgpu::ShaderSource::Wgsl(CIRCLE_SHADER.into()),
+        });
+        let circle_attrs = wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4];
+        let circle_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("aurea-wgpu2d-circle-pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &circle_shader,
+                entry_point: Some("vs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: size_of::<CircleInstance>() as wgpu::BufferAddress,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &circle_attrs,
+                }],
+            },
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &circle_shader,
+                entry_point: Some("fs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+        let circle_instances = InstanceBuffer::new(
+            &device,
+            "aurea-wgpu2d-circle-instances",
+            size_of::<CircleInstance>(),
+        );
+
         let scale = scale_factor.max(1.0);
         Self {
             device,
@@ -222,8 +316,10 @@ impl WgpuRenderer {
             config: config.clone(),
             viewport_buffer,
             rect_pipeline,
+            circle_pipeline,
             rect_bind_group: bind_group,
             rect_instances,
+            circle_instances,
             display_list: DisplayList::new(),
             batches: RenderBatches::default(),
             logical_width: ((config.width as f32) / scale).round().max(1.0) as u32,
@@ -284,6 +380,14 @@ impl Renderer for WgpuRenderer {
         };
         self.rect_instances.upload(&self.device, &self.queue, rect_bytes);
 
+        let circle_bytes: &[u8] = unsafe {
+            std::slice::from_raw_parts(
+                self.batches.circles.as_ptr() as *const u8,
+                self.batches.circles.len() * size_of::<CircleInstance>(),
+            )
+        };
+        self.circle_instances.upload(&self.device, &self.queue, circle_bytes);
+
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame) => frame,
             wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
@@ -334,11 +438,22 @@ impl Renderer for WgpuRenderer {
                 multiview_mask: None,
             });
 
-            if !self.batches.rects.is_empty() {
-                pass.set_pipeline(&self.rect_pipeline);
-                pass.set_bind_group(0, &self.rect_bind_group, &[]);
-                pass.set_vertex_buffer(0, self.rect_instances.buffer.slice(..));
-                pass.draw(0..6, 0..self.batches.rects.len() as u32);
+            pass.set_bind_group(0, &self.rect_bind_group, &[]);
+            for draw in &self.batches.order {
+                match *draw {
+                    DrawRef::Rect(index) => {
+                        pass.set_pipeline(&self.rect_pipeline);
+                        pass.set_vertex_buffer(0, self.rect_instances.buffer.slice(..));
+                        pass.draw(0..6, index..index + 1);
+                    }
+                    DrawRef::Circle(index) => {
+                        pass.set_pipeline(&self.circle_pipeline);
+                        pass.set_vertex_buffer(0, self.circle_instances.buffer.slice(..));
+                        pass.draw(0..6, index..index + 1);
+                    }
+                    // Gradient/image/text pipelines land in later P7-O stages.
+                    DrawRef::Gradient(_) | DrawRef::Image(_) | DrawRef::Text(_) => {}
+                }
             }
         }
 
