@@ -7,9 +7,8 @@
 //!
 //! Unlike [`crate::cpu::CpuRasterizer`], this backend presents **directly** to
 //! its own swapchain on the supplied window — it does not publish a CPU
-//! framebuffer for the platform to blit. It is therefore driven at the window
-//! level (the caller owns the window and its handles); wiring it into `Canvas`
-//! backend selection is a follow-up that must reconcile the canvas blit path.
+//! framebuffer for the platform to blit. It can target either a top-level
+//! window or a native canvas child surface owned by the platform compositor.
 //!
 //! Images and gradient LUTs are uploaded to GPU textures **once**, cached by
 //! their Arc-backed pixel identity, and bound into the painter's shared

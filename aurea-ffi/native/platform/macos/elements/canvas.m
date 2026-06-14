@@ -34,6 +34,7 @@
 // Last size recorded by -layout; avoids layoutSubtreeIfNeeded on every frame.
 @property (nonatomic, assign) unsigned int cachedWidth;
 @property (nonatomic, assign) unsigned int cachedHeight;
+@property (nonatomic, assign) BOOL gpuOwned;
 @end
 
 @implementation AureaCanvasView
@@ -63,6 +64,7 @@
 // ng_macos_canvas_update_buffer runs, presentation goes through
 // view.layer.contents directly and this is never called again.
 - (void)drawRect:(NSRect)dirtyRect {
+    if (self.gpuOwned) return;
     [[NSColor windowBackgroundColor] setFill];
     NSRectFill(dirtyRect);
 }
@@ -92,6 +94,7 @@ NGHandle ng_macos_create_canvas(int width, int height) {
         // Seed the cache with the creation dimensions; -layout will update them.
         canvasView.cachedWidth  = (unsigned int)width;
         canvasView.cachedHeight = (unsigned int)height;
+        canvasView.gpuOwned = NO;
         [canvasView setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
         [canvasView setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationVertical];
         [canvasView setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
@@ -114,6 +117,19 @@ void ng_macos_canvas_invalidate_rect(NGHandle canvas, float x, float y, float wi
     (void)y;
     (void)width;
     (void)height;
+}
+
+void ng_macos_canvas_set_gpu_owned(NGHandle canvas, int gpu_owned) {
+    if (!canvas) return;
+    AureaCanvasView* view = (__bridge AureaCanvasView*)canvas;
+    if (![view isKindOfClass:[AureaCanvasView class]]) return;
+    view.gpuOwned = gpu_owned != 0;
+    if (view.gpuOwned) {
+        view.renderBuffer = NULL;
+        view.bufferWidth = 0;
+        view.bufferHeight = 0;
+        view.layer.contents = nil;
+    }
 }
 
 // Shared across all canvases — device RGB never changes at runtime.

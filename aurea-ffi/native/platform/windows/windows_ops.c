@@ -64,6 +64,7 @@ static const ng_platform_ops_t windows_ops = {
     .canvas_invalidate = ng_windows_canvas_invalidate,
     .canvas_invalidate_rect = ng_windows_canvas_invalidate_rect,
     .canvas_update_buffer = ng_windows_canvas_update_buffer,
+    .canvas_set_gpu_owned = ng_windows_canvas_set_gpu_owned,
     .canvas_get_size = ng_windows_canvas_get_size,
     .canvas_get_window = ng_windows_canvas_get_window,
     .canvas_get_native_handle = ng_windows_canvas_get_native_handle,

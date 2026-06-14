@@ -10,6 +10,7 @@ fn render_frame(
     state: &Arc<Mutex<CanvasState>>,
     renderer: &Arc<Mutex<Option<Box<dyn Renderer>>>>,
     handle: *mut c_void,
+    _backend: RendererBackend,
 ) -> AureaResult<()> {
     // 1. Snapshot what we need, then release the state lock.
     let (damage_rect, draw_callback, bg_color) = {
@@ -35,10 +36,16 @@ fn render_frame(
     }
 
     // 3. Push buffer to platform (CURRENT_BUFFER is thread-local; no lock needed).
-    if let Some((ptr, size, w, h)) = CURRENT_BUFFER.with(|buf| *buf.borrow()) {
-        if !ptr.is_null() && size > 0 {
-            unsafe {
-                ng_platform_canvas_update_buffer(handle, ptr, size as u32, w, h);
+    #[cfg(feature = "zengpu")]
+    let publishes_cpu_buffer = _backend != RendererBackend::ZenGpu;
+    #[cfg(not(feature = "zengpu"))]
+    let publishes_cpu_buffer = true;
+    if publishes_cpu_buffer {
+        if let Some((ptr, size, w, h)) = CURRENT_BUFFER.with(|buf| *buf.borrow()) {
+            if !ptr.is_null() && size > 0 {
+                unsafe {
+                    ng_platform_canvas_update_buffer(handle, ptr, size as u32, w, h);
+                }
             }
         }
     }
@@ -52,6 +59,7 @@ impl Canvas {
         &self,
         state: Arc<Mutex<CanvasState>>,
         renderer: Arc<Mutex<Option<Box<dyn Renderer>>>>,
+        backend: RendererBackend,
     ) {
         let handle_usize = self.handle as usize;
 
@@ -81,6 +89,11 @@ impl Canvas {
                 if scale_changed { st.scale_factor = new_scale; }
                 (size_changed, scale_changed, st.width, st.height)
             };
+
+            if !ensure_canvas_renderer(handle, &state, &renderer, backend)? {
+                crate::sync::lock(&state).needs_redraw = true;
+                return Ok(());
+            }
 
             if size_changed || scale_changed {
                 // Null the platform pointer before any realloc so the stale raw
@@ -113,7 +126,7 @@ impl Canvas {
             };
 
             if should_redraw {
-                render_frame(&state, &renderer, handle)?;
+                render_frame(&state, &renderer, handle, backend)?;
                 // After rendering, trigger a platform repaint so the new buffer
                 // is displayed (e.g. WM_PAINT on Windows, setNeedsDisplay on macOS).
                 // render_frame only pushes pixels to the canvas buffer — the platform
@@ -130,7 +143,10 @@ impl Canvas {
     /// Internal: perform a full redraw now (called from redraw_if_needed and draw()).
     pub(super) fn perform_redraw(&mut self) -> AureaResult<()> {
         self.check_and_resize()?;
-        render_frame(&self.state, &self.renderer, self.handle)
+        if !ensure_canvas_renderer(self.handle, &self.state, &self.renderer, self.backend)? {
+            return Err(AureaError::ElementOperationFailed);
+        }
+        render_frame(&self.state, &self.renderer, self.handle, self.backend)
     }
 
     pub(super) fn check_and_resize(&mut self) -> AureaResult<()> {
@@ -160,10 +176,15 @@ impl Canvas {
         };
 
         if !size_changed && !scale_changed {
+            let _ = ensure_canvas_renderer(self.handle, &self.state, &self.renderer, self.backend)?;
             return Ok(());
         }
 
         CURRENT_BUFFER.with(|buf| { *buf.borrow_mut() = None; });
+
+        if !ensure_canvas_renderer(self.handle, &self.state, &self.renderer, self.backend)? {
+            return Ok(());
+        }
 
         let mut r = crate::sync::lock(&self.renderer);
         if let Some(ref mut r) = *r {
@@ -182,6 +203,10 @@ impl Canvas {
     }
 
     pub(super) fn update_platform_view(&self) {
+        #[cfg(feature = "zengpu")]
+        if self.backend == RendererBackend::ZenGpu {
+            return;
+        }
         if let Some((ptr, size, w, h)) = CURRENT_BUFFER.with(|buf| *buf.borrow()) {
             if !ptr.is_null() && size > 0 {
                 unsafe {

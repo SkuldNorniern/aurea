@@ -10,6 +10,7 @@ typedef struct {
     const unsigned char* buffer;
     unsigned int width;
     unsigned int height;
+    int gpu_owned;
 } CanvasData;
 
 static const char* CANVAS_CLASS_NAME = "AureaCanvas";
@@ -107,6 +108,11 @@ static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
+
+            if (data && data->gpu_owned) {
+                EndPaint(hwnd, &ps);
+                return 0;
+            }
             
             if (data && data->buffer && data->width > 0 && data->height > 0) {
                 RECT rect;
@@ -213,6 +219,18 @@ void ng_windows_canvas_invalidate_rect(NGHandle canvas, float x, float y, float 
     rect.right = (LONG)(x + width);
     rect.bottom = (LONG)(y + height);
     InvalidateRect((HWND)canvas, &rect, FALSE);
+}
+
+void ng_windows_canvas_set_gpu_owned(NGHandle canvas, int gpu_owned) {
+    if (!canvas) return;
+    CanvasData* data = (CanvasData*)GetWindowLongPtrA((HWND)canvas, GWLP_USERDATA);
+    if (!data) return;
+    data->gpu_owned = gpu_owned != 0;
+    if (data->gpu_owned) {
+        data->buffer = NULL;
+        data->width = 0;
+        data->height = 0;
+    }
 }
 
 void ng_windows_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size, unsigned int width, unsigned int height) {
