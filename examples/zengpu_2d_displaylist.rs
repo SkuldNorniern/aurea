@@ -1,7 +1,7 @@
 //! ZenGPU G4 / Rung 1 — the full `DisplayList → ZenGPU` pipeline.
 
 use aurea::render::{
-    Color, GradientStop, LinearGradient, Paint, Point, RadialGradient, Rect, Renderer,
+    Color, GradientStop, Image, LinearGradient, Paint, Point, RadialGradient, Rect, Renderer,
 };
 use aurea::{Window, WindowEvent};
 
@@ -12,12 +12,35 @@ fn paint(r: u8, g: u8, b: u8, a: u8) -> Paint {
     Paint::new().color(Color::rgba(r, g, b, a))
 }
 
+fn test_image() -> Image {
+    const WIDTH: u32 = 64;
+    const HEIGHT: u32 = 64;
+    let mut data = vec![0; (WIDTH * HEIGHT * 4) as usize];
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            let i = ((y * WIDTH + x) * 4) as usize;
+            let color = if ((x / 8) + (y / 8)) % 2 == 0 {
+                [245, 245, 255, 255]
+            } else {
+                [65, 80, 145, 255]
+            };
+            data[i..i + 4].copy_from_slice(&color);
+        }
+    }
+    Image::new(WIDTH, HEIGHT, data)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let window = Window::new("ZenGPU — DisplayList 2D (G4 Rung 1)", W, H)?;
 
     let mut renderer = window.create_zengpu_2d()?;
-    eprintln!("ZenGPU 2D surface: {}×{}", renderer.size().0, renderer.size().1);
+    eprintln!(
+        "ZenGPU 2D surface: {}×{}",
+        renderer.size().0,
+        renderer.size().1
+    );
 
+    let image = test_image();
     let mut frame: u64 = 0;
     'main: loop {
         for event in window.poll_events() {
@@ -37,11 +60,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut ctx = renderer.begin_frame()?;
         ctx.clear(Color::rgb(20, 20, 28))?;
-        ctx.draw_rect(Rect::new(40.0, 40.0, 200.0, 150.0), &paint(220, 50, 50, 255))?;
-        ctx.draw_rect(Rect::new(280.0, 40.0, 200.0, 150.0), &paint(50, 200, 80, 255))?;
-        ctx.draw_rect(Rect::new(520.0, 40.0, 200.0, 150.0), &paint(60, 120, 230, 255))?;
-        ctx.draw_rect(Rect::new(40.0, 230.0, 680.0, 120.0), &paint(240, 200, 40, 255))?;
-        ctx.draw_rect(Rect::new(120.0, 120.0, 480.0, 260.0), &paint(255, 255, 255, 110))?;
+        ctx.draw_rect(
+            Rect::new(40.0, 40.0, 200.0, 150.0),
+            &paint(220, 50, 50, 255),
+        )?;
+        ctx.draw_rect(
+            Rect::new(280.0, 40.0, 200.0, 150.0),
+            &paint(50, 200, 80, 255),
+        )?;
+        ctx.draw_rect(
+            Rect::new(520.0, 40.0, 200.0, 150.0),
+            &paint(60, 120, 230, 255),
+        )?;
+        ctx.draw_rect(
+            Rect::new(40.0, 230.0, 680.0, 120.0),
+            &paint(240, 200, 40, 255),
+        )?;
+        ctx.draw_rect(
+            Rect::new(120.0, 120.0, 480.0, 260.0),
+            &paint(255, 255, 255, 110),
+        )?;
         ctx.draw_circle(Point::new(240.0, 440.0), 60.0, &paint(255, 120, 160, 255))?;
         ctx.draw_circle(Point::new(440.0, 440.0), 80.0, &paint(120, 220, 255, 200))?;
         ctx.fill_linear_gradient(
@@ -49,8 +87,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 start: Point::new(560.0, 360.0),
                 end: Point::new(760.0, 360.0),
                 stops: vec![
-                    GradientStop { offset: 0.0, color: Color::rgb(230, 60, 60) },
-                    GradientStop { offset: 1.0, color: Color::rgb(60, 90, 230) },
+                    GradientStop {
+                        offset: 0.0,
+                        color: Color::rgb(230, 60, 60),
+                    },
+                    GradientStop {
+                        offset: 1.0,
+                        color: Color::rgb(60, 90, 230),
+                    },
                 ],
             },
             Rect::new(560.0, 360.0, 200.0, 180.0),
@@ -60,11 +104,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 center: Point::new(120.0, 450.0),
                 radius: 90.0,
                 stops: vec![
-                    GradientStop { offset: 0.0, color: Color::rgb(250, 240, 140) },
-                    GradientStop { offset: 1.0, color: Color::rgb(40, 40, 60) },
+                    GradientStop {
+                        offset: 0.0,
+                        color: Color::rgb(250, 240, 140),
+                    },
+                    GradientStop {
+                        offset: 1.0,
+                        color: Color::rgb(40, 40, 60),
+                    },
                 ],
             },
             Rect::new(30.0, 360.0, 180.0, 180.0),
+        )?;
+        ctx.draw_image_rect(&image, Rect::new(300.0, 390.0, 128.0, 128.0))?;
+        ctx.draw_image_region(
+            &image,
+            Rect::new(16.0, 16.0, 32.0, 32.0),
+            Rect::new(445.0, 415.0, 80.0, 80.0),
         )?;
         drop(ctx);
         renderer.end_frame()?;
