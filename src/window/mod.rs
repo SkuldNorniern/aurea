@@ -402,8 +402,14 @@ impl Window {
     #[cfg(feature = "zengpu")]
     pub fn create_zengpu_2d(&self) -> AureaResult<crate::render::ZenGpuRenderer> {
         let handles = self.zengpu_window_handles()?;
-        let (w, h) = self.size();
-        crate::render::ZenGpuRenderer::new(&handles, w, h, self.scale_factor())
+        // `size()` is physical pixels; the renderer wants logical size + scale
+        // (it scales drawing coords back up to physical, matching the swapchain
+        // extent), so convert here.
+        let scale = self.scale_factor().max(1.0);
+        let (pw, ph) = self.size();
+        let lw = ((pw as f32 / scale).round() as u32).max(1);
+        let lh = ((ph as f32 / scale).round() as u32).max(1);
+        crate::render::ZenGpuRenderer::new(&handles, lw, lh, scale)
     }
 
     #[cfg(all(feature = "zengpu", target_os = "windows"))]
