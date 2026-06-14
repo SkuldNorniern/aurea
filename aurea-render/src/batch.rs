@@ -11,7 +11,7 @@
 
 use super::command::DrawCommand;
 use super::display_list::DisplayList;
-use super::types::{Color, PaintStyle, Point};
+use super::types::{Color, GradientStop, LinearGradient, PaintStyle, Point, RadialGradient, Rect};
 
 /// One solid-colour rectangle, ready to upload as a GPU instance.
 ///
@@ -61,13 +61,66 @@ impl CircleInstance {
     fn new(center: Point, radius: f32, color: Color) -> Self {
         Self {
             center_radius: [center.x, center.y, radius, 0.0],
-            color: [
-                color.r as f32 / 255.0,
-                color.g as f32 / 255.0,
-                color.b as f32 / 255.0,
-                color.a as f32 / 255.0,
-            ],
+            color: color_f32(color),
         }
+    }
+}
+
+/// One 2-stop gradient fill over a rect. `a[3]` is the kind flag: `0.0` linear,
+/// `1.0` radial. 80-byte `#[repr(C)]` (five `vec4`), matching ZenGPU's layout.
+///
+/// - **Linear:** `a = [start.x, start.y, _, 0.0]`, `b = [end.x, end.y, _, _]`.
+/// - **Radial:** `a = [center.x, center.y, radius, 1.0]`, `b` unused.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
+pub struct GradientInstance {
+    /// Fill area `[x, y, w, h]` in physical pixels.
+    pub rect: [f32; 4],
+    pub a: [f32; 4],
+    pub b: [f32; 4],
+    pub color0: [f32; 4],
+    pub color1: [f32; 4],
+}
+
+impl GradientInstance {
+    fn linear(rect: Rect, grad: &LinearGradient) -> Self {
+        let (c0, c1) = stop_endpoints(&grad.stops);
+        Self {
+            rect: [rect.x, rect.y, rect.width, rect.height],
+            a: [grad.start.x, grad.start.y, 0.0, 0.0],
+            b: [grad.end.x, grad.end.y, 0.0, 0.0],
+            color0: color_f32(c0),
+            color1: color_f32(c1),
+        }
+    }
+
+    fn radial(rect: Rect, grad: &RadialGradient) -> Self {
+        let (c0, c1) = stop_endpoints(&grad.stops);
+        Self {
+            rect: [rect.x, rect.y, rect.width, rect.height],
+            a: [grad.center.x, grad.center.y, grad.radius, 1.0],
+            b: [0.0, 0.0, 0.0, 0.0],
+            color0: color_f32(c0),
+            color1: color_f32(c1),
+        }
+    }
+}
+
+fn color_f32(c: Color) -> [f32; 4] {
+    [
+        c.r as f32 / 255.0,
+        c.g as f32 / 255.0,
+        c.b as f32 / 255.0,
+        c.a as f32 / 255.0,
+    ]
+}
+
+/// First and last stop colours (the 2-stop reduction of an N-stop gradient).
+/// Empty → transparent black; single stop → that colour twice.
+fn stop_endpoints(stops: &[GradientStop]) -> (Color, Color) {
+    match (stops.first(), stops.last()) {
+        (Some(a), Some(b)) => (a.color, b.color),
+        _ => (Color::rgba(0, 0, 0, 0), Color::rgba(0, 0, 0, 0)),
     }
 }
 
@@ -80,6 +133,8 @@ pub struct RenderBatches {
     pub clear: Option<Color>,
     /// Solid-colour rectangles in submission (painter's-algorithm) order.
     pub rects: Vec<RectInstance>,
+    /// 2-stop gradient fills in submission order.
+    pub gradients: Vec<GradientInstance>,
     /// Solid-colour filled circles in submission order.
     pub circles: Vec<CircleInstance>,
 }
@@ -107,12 +162,14 @@ impl RenderBatches {
     pub fn lower_into(&mut self, list: &DisplayList) {
         self.clear = None;
         self.rects.clear();
+        self.gradients.clear();
         self.circles.clear();
         for item in list.items() {
             match &item.command {
                 DrawCommand::Clear(color) => {
                     self.clear = Some(*color);
                     self.rects.clear();
+                    self.gradients.clear();
                     self.circles.clear();
                 }
                 DrawCommand::DrawRect(rect, paint) if paint.style == PaintStyle::Fill => {
@@ -124,8 +181,13 @@ impl RenderBatches {
                     self.circles
                         .push(CircleInstance::new(*center, *radius, paint.color));
                 }
-                // Other commands (strokes, images, gradients, text) are lowered
-                // in later rungs.
+                DrawCommand::FillLinearGradient(grad, rect) => {
+                    self.gradients.push(GradientInstance::linear(*rect, grad));
+                }
+                DrawCommand::FillRadialGradient(grad, rect) => {
+                    self.gradients.push(GradientInstance::radial(*rect, grad));
+                }
+                // Other commands (strokes, images, text) are lowered in later rungs.
                 _ => {}
             }
         }
@@ -133,7 +195,10 @@ impl RenderBatches {
 
     /// True when there's nothing to clear and nothing to draw.
     pub fn is_empty(&self) -> bool {
-        self.clear.is_none() && self.rects.is_empty() && self.circles.is_empty()
+        self.clear.is_none()
+            && self.rects.is_empty()
+            && self.gradients.is_empty()
+            && self.circles.is_empty()
     }
 }
 
@@ -204,6 +269,42 @@ mod tests {
         list.push(item(DrawCommand::DrawCircle(Point::new(0.0, 0.0), 8.0, paint)));
         let b = RenderBatches::lower(&list);
         assert!(b.circles.is_empty());
+    }
+
+    #[test]
+    fn linear_gradient_is_collected() {
+        use crate::types::{GradientStop, LinearGradient};
+        let mut list = DisplayList::new();
+        let grad = LinearGradient {
+            start: Point::new(0.0, 0.0),
+            end: Point::new(100.0, 0.0),
+            stops: vec![
+                GradientStop { offset: 0.0, color: Color::rgb(255, 0, 0) },
+                GradientStop { offset: 1.0, color: Color::rgb(0, 0, 255) },
+            ],
+        };
+        list.push(item(DrawCommand::FillLinearGradient(grad, Rect::new(0.0, 0.0, 100.0, 50.0))));
+        let b = RenderBatches::lower(&list);
+        assert_eq!(b.gradients.len(), 1);
+        assert_eq!(b.gradients[0].a[3], 0.0, "linear kind flag");
+        assert_eq!(b.gradients[0].color0, [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(b.gradients[0].color1, [0.0, 0.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn radial_gradient_carries_radius_and_kind() {
+        use crate::types::{GradientStop, RadialGradient};
+        let mut list = DisplayList::new();
+        let grad = RadialGradient {
+            center: Point::new(50.0, 50.0),
+            radius: 25.0,
+            stops: vec![GradientStop { offset: 0.0, color: Color::rgb(10, 20, 30) }],
+        };
+        list.push(item(DrawCommand::FillRadialGradient(grad, Rect::new(0.0, 0.0, 100.0, 100.0))));
+        let b = RenderBatches::lower(&list);
+        assert_eq!(b.gradients.len(), 1);
+        assert_eq!(b.gradients[0].a[2], 25.0, "radius");
+        assert_eq!(b.gradients[0].a[3], 1.0, "radial kind flag");
     }
 
     #[test]

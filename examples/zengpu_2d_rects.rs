@@ -13,7 +13,7 @@ use zengpu_hal::{
     DeviceRequest, Format, GpuAdapter, PresentMode, SurfaceConfig, WindowHandles,
 };
 use zengpu_vulkan::instance::VulkanInstance;
-use zengpu_vulkan::{CircleInstance, Frame2d, RectInstance};
+use zengpu_vulkan::{CircleInstance, Frame2d, GradientInstance, RectInstance};
 
 const W: i32 = 800;
 const H: i32 = 600;
@@ -64,6 +64,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         CircleInstance { center_radius: [200.0, 440.0, 60.0, 0.0], color: rgba(255, 120, 160, 255) },
         CircleInstance { center_radius: [400.0, 440.0, 80.0, 0.0], color: rgba(120, 220, 255, 200) },
     ];
+    let gradients = vec![
+        // Linear (kind 0): left→right red→blue across a panel.
+        GradientInstance {
+            rect: [520.0, 360.0, 240.0, 200.0],
+            a: [520.0, 0.0, 0.0, 0.0],
+            b: [760.0, 0.0, 0.0, 0.0],
+            color0: rgba(230, 60, 60, 255),
+            color1: rgba(60, 90, 230, 255),
+        },
+        // Radial (kind 1): centred glow.
+        GradientInstance {
+            rect: [40.0, 360.0, 200.0, 200.0],
+            a: [140.0, 460.0, 100.0, 1.0],
+            b: [0.0, 0.0, 0.0, 0.0],
+            color0: rgba(250, 240, 140, 255),
+            color1: rgba(40, 40, 60, 255),
+        },
+    ];
     let clear = Some(rgba(20, 20, 28, 255));
 
     'main: loop {
@@ -72,7 +90,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 break 'main;
             }
         }
-        surface.present(Frame2d { clear, rects: &rects, circles: &circles })?;
+        surface.present(Frame2d { clear, rects: &rects, gradients: &gradients, circles: &circles })?;
     }
 
     drop(surface);

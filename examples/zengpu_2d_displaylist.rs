@@ -8,7 +8,9 @@
 //! Run with:
 //!   cargo run --example zengpu_2d_displaylist --features zengpu
 
-use aurea::render::{Color, Paint, Point, Rect, Renderer};
+use aurea::render::{
+    Color, GradientStop, LinearGradient, Paint, Point, RadialGradient, Rect, Renderer,
+};
 use aurea::{Window, WindowEvent};
 
 const W: i32 = 800;
@@ -54,6 +56,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Antialiased filled circles (Rung 2 SDF circle path).
         ctx.draw_circle(Point::new(240.0, 440.0), 60.0, &paint(255, 120, 160, 255))?;
         ctx.draw_circle(Point::new(440.0, 440.0), 80.0, &paint(120, 220, 255, 200))?;
+        // Gradient fills (Rung 2): linear and radial, 2-stop.
+        ctx.fill_linear_gradient(
+            &LinearGradient {
+                start: Point::new(560.0, 360.0),
+                end: Point::new(760.0, 360.0),
+                stops: vec![
+                    GradientStop { offset: 0.0, color: Color::rgb(230, 60, 60) },
+                    GradientStop { offset: 1.0, color: Color::rgb(60, 90, 230) },
+                ],
+            },
+            Rect::new(560.0, 360.0, 200.0, 180.0),
+        )?;
+        ctx.fill_radial_gradient(
+            &RadialGradient {
+                center: Point::new(120.0, 450.0),
+                radius: 90.0,
+                stops: vec![
+                    GradientStop { offset: 0.0, color: Color::rgb(250, 240, 140) },
+                    GradientStop { offset: 1.0, color: Color::rgb(40, 40, 60) },
+                ],
+            },
+            Rect::new(30.0, 360.0, 180.0, 180.0),
+        )?;
         drop(ctx);
         renderer.end_frame()?;
     }
