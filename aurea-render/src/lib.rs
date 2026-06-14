@@ -24,7 +24,7 @@ pub mod text;
 pub mod zengpu;
 
 pub use batch::{
-    CircleInstance, GradientInstance, ImageDraw, RectInstance, RenderBatches, TextDraw,
+    CircleInstance, DrawRef, GradientInstance, ImageDraw, RectInstance, RenderBatches, TextDraw,
 };
 pub use command::DrawCommand;
 pub use cpu::CpuRasterizer;

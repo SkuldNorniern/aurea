@@ -94,6 +94,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Antialiased filled circles (Rung 2 SDF circle path).
         ctx.draw_circle(Point::new(240.0, 440.0), 60.0, &paint(255, 120, 160, 255))?;
         ctx.draw_circle(Point::new(440.0, 440.0), 80.0, &paint(120, 220, 255, 200))?;
+        // Submitted after the circle, so P7-L requires this rect to cover it.
+        ctx.draw_rect(Rect::new(420.0, 420.0, 55.0, 55.0), &paint(35, 35, 48, 255))?;
         // LUT-sampled gradients, including a three-stop linear gradient.
         ctx.fill_linear_gradient(
             &LinearGradient {

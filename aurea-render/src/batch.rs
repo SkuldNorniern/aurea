@@ -188,6 +188,16 @@ pub struct TextDraw {
     pub color: Color,
 }
 
+/// One primitive reference in original display-list submission order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DrawRef {
+    Rect(u32),
+    Gradient(u32),
+    Image(u32),
+    Text(u32),
+    Circle(u32),
+}
+
 /// A single frame's 2D draw work, lowered from a display list and independent
 /// of any GPU backend.
 #[derive(Debug, Clone, Default)]
@@ -205,6 +215,8 @@ pub struct RenderBatches {
     pub texts: Vec<TextDraw>,
     /// Solid-colour filled circles in submission order.
     pub circles: Vec<CircleInstance>,
+    /// Cross-kind painter order, indexing the per-kind instance arrays above.
+    pub order: Vec<DrawRef>,
     gradient_lut_cache: HashMap<u64, Weak<[u8]>>,
     text_mask_cache: HashMap<(usize, u32, u32), Weak<[u8]>>,
 }
@@ -236,6 +248,7 @@ impl RenderBatches {
         self.images.clear();
         self.texts.clear();
         self.circles.clear();
+        self.order.clear();
         for item in list.items() {
             match &item.command {
                 DrawCommand::Clear(color) => {
@@ -245,27 +258,37 @@ impl RenderBatches {
                     self.images.clear();
                     self.texts.clear();
                     self.circles.clear();
+                    self.order.clear();
                 }
                 DrawCommand::DrawRect(rect, paint) if paint.style == PaintStyle::Fill => {
+                    self.order.push(DrawRef::Rect(self.rects.len() as u32));
                     self.rects.push(RectInstance::from_rect(*rect, paint.color));
                 }
                 DrawCommand::DrawCircle(center, radius, paint)
                     if paint.style == PaintStyle::Fill =>
                 {
+                    self.order.push(DrawRef::Circle(self.circles.len() as u32));
                     self.circles
                         .push(CircleInstance::new(*center, *radius, paint.color));
                 }
                 DrawCommand::FillLinearGradient(grad, rect) => {
                     let lut = self.gradient_lut(&grad.stops);
+                    self.order
+                        .push(DrawRef::Gradient(self.gradients.len() as u32));
                     self.gradients
                         .push(GradientInstance::linear(*rect, grad, lut));
                 }
                 DrawCommand::FillRadialGradient(grad, rect) => {
                     let lut = self.gradient_lut(&grad.stops);
+                    self.order
+                        .push(DrawRef::Gradient(self.gradients.len() as u32));
                     self.gradients
                         .push(GradientInstance::radial(*rect, grad, lut));
                 }
-                DrawCommand::DrawImageRect(image, dest) => {
+                DrawCommand::DrawImageRect(image, dest)
+                    if valid_rgba_image(image.width, image.height, &image.data) =>
+                {
+                    self.order.push(DrawRef::Image(self.images.len() as u32));
                     self.images.push(ImageDraw {
                         image: image.clone(),
                         dest: *dest,
@@ -273,7 +296,10 @@ impl RenderBatches {
                         tint: Color::rgb(255, 255, 255),
                     });
                 }
-                DrawCommand::DrawImageRegion(image, src, dest) => {
+                DrawCommand::DrawImageRegion(image, src, dest)
+                    if valid_rgba_image(image.width, image.height, &image.data) =>
+                {
+                    self.order.push(DrawRef::Image(self.images.len() as u32));
                     self.images.push(ImageDraw {
                         image: image.clone(),
                         dest: *dest,
@@ -283,6 +309,7 @@ impl RenderBatches {
                 }
                 DrawCommand::DrawGlyphMask(mask, origin, color) => {
                     if let Some(rgba) = self.text_mask(mask) {
+                        self.order.push(DrawRef::Text(self.texts.len() as u32));
                         self.texts.push(TextDraw {
                             mask: rgba,
                             rect: Rect::new(
@@ -309,6 +336,7 @@ impl RenderBatches {
             && self.images.is_empty()
             && self.texts.is_empty()
             && self.circles.is_empty()
+            && self.order.is_empty()
     }
 
     fn gradient_lut(&mut self, stops: &[GradientStop]) -> Arc<[u8]> {
@@ -343,6 +371,15 @@ impl RenderBatches {
         self.text_mask_cache.insert(key, Arc::downgrade(&rgba));
         Some(rgba)
     }
+}
+
+fn valid_rgba_image(width: u32, height: u32, data: &[u8]) -> bool {
+    width > 0
+        && height > 0
+        && (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|pixels| pixels.checked_mul(4))
+            == Some(data.len())
 }
 
 #[cfg(test)]
@@ -611,6 +648,48 @@ mod tests {
             Color::rgb(255, 255, 255),
         )));
         assert!(RenderBatches::lower(&list).texts.is_empty());
+    }
+
+    #[test]
+    fn cross_kind_order_matches_display_list() {
+        let mut list = DisplayList::new();
+        list.push(item(DrawCommand::DrawCircle(
+            Point::new(5.0, 5.0),
+            3.0,
+            Paint::new(),
+        )));
+        list.push(item(DrawCommand::DrawRect(
+            Rect::new(0.0, 0.0, 10.0, 10.0),
+            Paint::new(),
+        )));
+        list.push(item(DrawCommand::DrawImageRect(
+            Image::new(1, 1, vec![255; 4]),
+            Rect::new(0.0, 0.0, 1.0, 1.0),
+        )));
+
+        let b = RenderBatches::lower(&list);
+        assert_eq!(
+            b.order,
+            vec![DrawRef::Circle(0), DrawRef::Rect(0), DrawRef::Image(0)]
+        );
+    }
+
+    #[test]
+    fn clear_resets_cross_kind_order() {
+        let mut list = DisplayList::new();
+        list.push(item(DrawCommand::DrawCircle(
+            Point::new(5.0, 5.0),
+            3.0,
+            Paint::new(),
+        )));
+        list.push(item(DrawCommand::Clear(Color::rgb(0, 0, 0))));
+        list.push(item(DrawCommand::DrawRect(
+            Rect::new(0.0, 0.0, 10.0, 10.0),
+            Paint::new(),
+        )));
+
+        let b = RenderBatches::lower(&list);
+        assert_eq!(b.order, vec![DrawRef::Rect(0)]);
     }
 
     #[test]
