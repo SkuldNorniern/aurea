@@ -55,29 +55,42 @@ pub struct RenderBatches {
 }
 
 impl RenderBatches {
-    /// Lower a display list into backend-agnostic batches.
+    /// Lower a display list into freshly-allocated batches.
+    ///
+    /// Prefer [`RenderBatches::lower_into`] in a render loop to reuse the
+    /// allocation across frames.
+    pub fn lower(list: &DisplayList) -> Self {
+        let mut batches = RenderBatches::default();
+        batches.lower_into(list);
+        batches
+    }
+
+    /// Clear and refill from `list`, **reusing** the existing `rects`
+    /// allocation. This is the per-frame hot path: a renderer keeps one
+    /// `RenderBatches` and calls this each frame, so steady-state framing does
+    /// no heap allocation once the buffer has grown to its working size.
     ///
     /// Commands are walked in order so the painter can reproduce the CPU
     /// rasterizer's semantics with a back-to-front draw. A `Clear` matches the
     /// rasterizer by covering the whole frame, so it both records the clear
     /// colour and discards any rects already collected this frame.
-    pub fn lower(list: &DisplayList) -> Self {
-        let mut batches = RenderBatches::default();
+    pub fn lower_into(&mut self, list: &DisplayList) {
+        self.clear = None;
+        self.rects.clear();
         for item in list.items() {
             match &item.command {
                 DrawCommand::Clear(color) => {
-                    batches.clear = Some(*color);
-                    batches.rects.clear();
+                    self.clear = Some(*color);
+                    self.rects.clear();
                 }
                 DrawCommand::DrawRect(rect, paint) if paint.style == PaintStyle::Fill => {
-                    batches.rects.push(RectInstance::from_rect(*rect, paint.color));
+                    self.rects.push(RectInstance::from_rect(*rect, paint.color));
                 }
                 // Other commands (strokes, circles, images, gradients, text)
                 // are lowered in later rungs.
                 _ => {}
             }
         }
-        batches
     }
 
     /// True when there's nothing to clear and nothing to draw.
