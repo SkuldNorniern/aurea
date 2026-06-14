@@ -33,6 +33,10 @@ jni = "0.21"
 [features]
 default = []
 wgpu = ["dep:wgpu"]
+# GPU 2D backend via ZenGPU (Vulkan). Opt-in.
+# ZenGPU crates resolve through aurea-render's optional path deps (same paths
+# as the dev-dependencies below, so Cargo unifies them to one crate).
+zengpu = ["aurea-render/zengpu"]
 
 [dependencies.wgpu]
 version = "29.0.1"
@@ -47,3 +51,8 @@ path = "ZenGPU/zengpu-hal"
 
 [dev-dependencies.zengpu-vulkan]
 path = "ZenGPU/zengpu-vulkan"
+
+# DisplayList → ZenGPU example needs the GPU backend compiled in.
+[[example]]
+name = "zengpu_2d_displaylist"
+required-features = ["zengpu"]
