@@ -62,9 +62,6 @@ path = "ZenGPU/zengpu-vulkan"
 version = "0.2"
 features = ["glsl"]
 
-[dev-dependencies.ash]
-version = "0.38"
-
 # DisplayList → ZenGPU example needs the GPU backend compiled in.
 [[example]]
 name = "zengpu_2d_displaylist"
