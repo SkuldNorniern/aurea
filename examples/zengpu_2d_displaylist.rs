@@ -1,8 +1,7 @@
 //! ZenGPU G4 / Rung 1 — the full `DisplayList → ZenGPU` pipeline.
 
-use aurea::render::{Color, Paint, Renderer, Rect, ZenGpuRenderer};
+use aurea::render::{Color, Paint, Renderer, Rect};
 use aurea::{Window, WindowEvent};
-use zengpu_hal::WindowHandles;
 
 const W: i32 = 800;
 const H: i32 = 600;
@@ -14,11 +13,7 @@ fn paint(r: u8, g: u8, b: u8, a: u8) -> Paint {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let window = Window::new("ZenGPU — DisplayList 2D (G4 Rung 1)", W, H)?;
 
-    let handles = WindowHandles::from_window(&window)
-        .map_err(|e| format!("window handle unavailable: {e:?}"))?;
-    let (w, h) = window.size();
-
-    let mut renderer = ZenGpuRenderer::new(&handles, w, h, 1.0)?;
+    let mut renderer = window.create_zengpu_2d()?;
     eprintln!("ZenGPU 2D surface: {}×{}", renderer.size().0, renderer.size().1);
 
     'main: loop {
