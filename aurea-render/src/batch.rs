@@ -11,7 +11,9 @@
 
 use super::command::DrawCommand;
 use super::display_list::DisplayList;
-use super::types::{Color, GradientStop, LinearGradient, PaintStyle, Point, RadialGradient, Rect};
+use super::types::{
+    Color, GradientStop, Image, LinearGradient, PaintStyle, Point, RadialGradient, Rect,
+};
 
 /// One solid-colour rectangle, ready to upload as a GPU instance.
 ///
@@ -124,6 +126,19 @@ fn stop_endpoints(stops: &[GradientStop]) -> (Color, Color) {
     }
 }
 
+/// An image to blit: `image` is the (Arc-backed) pixel source, `dest` the
+/// destination rect in physical pixels, `src` the source sub-rect in image
+/// pixels, `tint` a straight-RGBA multiply. The GPU texture is resolved by the
+/// backend (which owns the device) — the batch layer stays device-agnostic and
+/// just carries the `Image`.
+#[derive(Debug, Clone)]
+pub struct ImageDraw {
+    pub image: Image,
+    pub dest: Rect,
+    pub src: Rect,
+    pub tint: Color,
+}
+
 /// A single frame's 2D draw work, lowered from a display list and independent
 /// of any GPU backend.
 #[derive(Debug, Clone, Default)]
@@ -135,6 +150,8 @@ pub struct RenderBatches {
     pub rects: Vec<RectInstance>,
     /// 2-stop gradient fills in submission order.
     pub gradients: Vec<GradientInstance>,
+    /// Images to blit in submission order.
+    pub images: Vec<ImageDraw>,
     /// Solid-colour filled circles in submission order.
     pub circles: Vec<CircleInstance>,
 }
@@ -163,6 +180,7 @@ impl RenderBatches {
         self.clear = None;
         self.rects.clear();
         self.gradients.clear();
+        self.images.clear();
         self.circles.clear();
         for item in list.items() {
             match &item.command {
@@ -170,6 +188,7 @@ impl RenderBatches {
                     self.clear = Some(*color);
                     self.rects.clear();
                     self.gradients.clear();
+                    self.images.clear();
                     self.circles.clear();
                 }
                 DrawCommand::DrawRect(rect, paint) if paint.style == PaintStyle::Fill => {
@@ -187,7 +206,23 @@ impl RenderBatches {
                 DrawCommand::FillRadialGradient(grad, rect) => {
                     self.gradients.push(GradientInstance::radial(*rect, grad));
                 }
-                // Other commands (strokes, images, text) are lowered in later rungs.
+                DrawCommand::DrawImageRect(image, dest) => {
+                    self.images.push(ImageDraw {
+                        image: image.clone(),
+                        dest: *dest,
+                        src: Rect::new(0.0, 0.0, image.width as f32, image.height as f32),
+                        tint: Color::rgb(255, 255, 255),
+                    });
+                }
+                DrawCommand::DrawImageRegion(image, src, dest) => {
+                    self.images.push(ImageDraw {
+                        image: image.clone(),
+                        dest: *dest,
+                        src: *src,
+                        tint: Color::rgb(255, 255, 255),
+                    });
+                }
+                // Other commands (strokes, glyph masks, text) are lowered later.
                 _ => {}
             }
         }
@@ -198,6 +233,7 @@ impl RenderBatches {
         self.clear.is_none()
             && self.rects.is_empty()
             && self.gradients.is_empty()
+            && self.images.is_empty()
             && self.circles.is_empty()
     }
 }
@@ -233,7 +269,10 @@ mod tests {
     fn fill_rect_is_collected() {
         let mut list = DisplayList::new();
         let paint = Paint::new().color(Color::rgb(255, 0, 0));
-        list.push(item(DrawCommand::DrawRect(Rect::new(1.0, 2.0, 3.0, 4.0), paint)));
+        list.push(item(DrawCommand::DrawRect(
+            Rect::new(1.0, 2.0, 3.0, 4.0),
+            paint,
+        )));
         let b = RenderBatches::lower(&list);
         assert_eq!(b.rects.len(), 1);
         assert_eq!(b.rects[0].rect, [1.0, 2.0, 3.0, 4.0]);
@@ -244,7 +283,10 @@ mod tests {
     fn stroke_rect_is_skipped() {
         let mut list = DisplayList::new();
         let paint = Paint::new().style(PaintStyle::Stroke);
-        list.push(item(DrawCommand::DrawRect(Rect::new(0.0, 0.0, 8.0, 8.0), paint)));
+        list.push(item(DrawCommand::DrawRect(
+            Rect::new(0.0, 0.0, 8.0, 8.0),
+            paint,
+        )));
         let b = RenderBatches::lower(&list);
         assert!(b.rects.is_empty());
     }
@@ -254,7 +296,11 @@ mod tests {
         use crate::types::Point;
         let mut list = DisplayList::new();
         let paint = Paint::new().color(Color::rgb(0, 128, 255));
-        list.push(item(DrawCommand::DrawCircle(Point::new(10.0, 20.0), 5.0, paint)));
+        list.push(item(DrawCommand::DrawCircle(
+            Point::new(10.0, 20.0),
+            5.0,
+            paint,
+        )));
         let b = RenderBatches::lower(&list);
         assert_eq!(b.circles.len(), 1);
         assert_eq!(b.circles[0].center_radius, [10.0, 20.0, 5.0, 0.0]);
@@ -266,7 +312,11 @@ mod tests {
         use crate::types::Point;
         let mut list = DisplayList::new();
         let paint = Paint::new().style(PaintStyle::Stroke);
-        list.push(item(DrawCommand::DrawCircle(Point::new(0.0, 0.0), 8.0, paint)));
+        list.push(item(DrawCommand::DrawCircle(
+            Point::new(0.0, 0.0),
+            8.0,
+            paint,
+        )));
         let b = RenderBatches::lower(&list);
         assert!(b.circles.is_empty());
     }
@@ -279,11 +329,20 @@ mod tests {
             start: Point::new(0.0, 0.0),
             end: Point::new(100.0, 0.0),
             stops: vec![
-                GradientStop { offset: 0.0, color: Color::rgb(255, 0, 0) },
-                GradientStop { offset: 1.0, color: Color::rgb(0, 0, 255) },
+                GradientStop {
+                    offset: 0.0,
+                    color: Color::rgb(255, 0, 0),
+                },
+                GradientStop {
+                    offset: 1.0,
+                    color: Color::rgb(0, 0, 255),
+                },
             ],
         };
-        list.push(item(DrawCommand::FillLinearGradient(grad, Rect::new(0.0, 0.0, 100.0, 50.0))));
+        list.push(item(DrawCommand::FillLinearGradient(
+            grad,
+            Rect::new(0.0, 0.0, 100.0, 50.0),
+        )));
         let b = RenderBatches::lower(&list);
         assert_eq!(b.gradients.len(), 1);
         assert_eq!(b.gradients[0].a[3], 0.0, "linear kind flag");
@@ -298,9 +357,15 @@ mod tests {
         let grad = RadialGradient {
             center: Point::new(50.0, 50.0),
             radius: 25.0,
-            stops: vec![GradientStop { offset: 0.0, color: Color::rgb(10, 20, 30) }],
+            stops: vec![GradientStop {
+                offset: 0.0,
+                color: Color::rgb(10, 20, 30),
+            }],
         };
-        list.push(item(DrawCommand::FillRadialGradient(grad, Rect::new(0.0, 0.0, 100.0, 100.0))));
+        list.push(item(DrawCommand::FillRadialGradient(
+            grad,
+            Rect::new(0.0, 0.0, 100.0, 100.0),
+        )));
         let b = RenderBatches::lower(&list);
         assert_eq!(b.gradients.len(), 1);
         assert_eq!(b.gradients[0].a[2], 25.0, "radius");
@@ -308,14 +373,51 @@ mod tests {
     }
 
     #[test]
+    fn full_image_is_collected() {
+        let mut list = DisplayList::new();
+        let image = Image::new(2, 3, vec![255; 24]);
+        list.push(item(DrawCommand::DrawImageRect(
+            image,
+            Rect::new(10.0, 20.0, 30.0, 40.0),
+        )));
+
+        let b = RenderBatches::lower(&list);
+        assert_eq!(b.images.len(), 1);
+        assert_eq!(b.images[0].dest, Rect::new(10.0, 20.0, 30.0, 40.0));
+        assert_eq!(b.images[0].src, Rect::new(0.0, 0.0, 2.0, 3.0));
+    }
+
+    #[test]
+    fn image_region_is_collected() {
+        let mut list = DisplayList::new();
+        let image = Image::new(8, 8, vec![255; 256]);
+        list.push(item(DrawCommand::DrawImageRegion(
+            image,
+            Rect::new(2.0, 3.0, 4.0, 5.0),
+            Rect::new(20.0, 30.0, 40.0, 50.0),
+        )));
+
+        let b = RenderBatches::lower(&list);
+        assert_eq!(b.images.len(), 1);
+        assert_eq!(b.images[0].src, Rect::new(2.0, 3.0, 4.0, 5.0));
+        assert_eq!(b.images[0].dest, Rect::new(20.0, 30.0, 40.0, 50.0));
+    }
+
+    #[test]
     fn clear_after_rects_wipes_them() {
         let mut list = DisplayList::new();
         let paint = Paint::new().color(Color::rgb(0, 255, 0));
-        list.push(item(DrawCommand::DrawRect(Rect::new(0.0, 0.0, 4.0, 4.0), paint)));
+        list.push(item(DrawCommand::DrawRect(
+            Rect::new(0.0, 0.0, 4.0, 4.0),
+            paint,
+        )));
         list.push(item(DrawCommand::Clear(Color::rgb(0, 0, 0))));
         let b = RenderBatches::lower(&list);
         assert_eq!(b.clear, Some(Color::rgb(0, 0, 0)));
-        assert!(b.rects.is_empty(), "clear must discard rects drawn before it");
+        assert!(
+            b.rects.is_empty(),
+            "clear must discard rects drawn before it"
+        );
     }
 
     #[test]
@@ -323,7 +425,10 @@ mod tests {
         let mut list = DisplayList::new();
         let paint = Paint::new().color(Color::rgb(0, 0, 255));
         list.push(item(DrawCommand::Clear(Color::rgb(0, 0, 0))));
-        list.push(item(DrawCommand::DrawRect(Rect::new(5.0, 5.0, 2.0, 2.0), paint)));
+        list.push(item(DrawCommand::DrawRect(
+            Rect::new(5.0, 5.0, 2.0, 2.0),
+            paint,
+        )));
         let b = RenderBatches::lower(&list);
         assert_eq!(b.clear, Some(Color::rgb(0, 0, 0)));
         assert_eq!(b.rects.len(), 1);
