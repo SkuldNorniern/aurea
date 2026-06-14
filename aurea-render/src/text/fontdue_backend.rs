@@ -1,9 +1,9 @@
 //! fontdue glyph rasterizer — cross-platform fallback backend.
 
 use super::super::types::{FontStyle, FontWeight, TextMetrics};
+use super::LruCache;
 use super::atlas::{GlyphBitmap, GlyphKey};
 use super::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph};
-use super::LruCache;
 use aurea_foundation::{AureaError, AureaResult};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -257,7 +257,10 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
 
     fn rasterize_subpixel(&self, font: FontRef, char_code: u32) -> AureaResult<Arc<SubpixelGlyph>> {
         let key = GlyphKey::new(font, char_code);
-        if let Some(hit) = aurea_foundation::lock(&self.subpixel_cache).get(&key).cloned() {
+        if let Some(hit) = aurea_foundation::lock(&self.subpixel_cache)
+            .get(&key)
+            .cloned()
+        {
             return Ok(hit);
         }
 

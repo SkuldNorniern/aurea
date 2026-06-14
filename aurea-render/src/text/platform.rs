@@ -1,8 +1,8 @@
 //! Text rasterization orchestration.
 
 use super::super::types::{Color, Font, FontStyle, FontWeight, GlyphMask, Point};
-use super::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
 use super::LruCache;
+use super::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
 use aurea_foundation::AureaResult;
 use std::sync::{Arc, Mutex};
 
@@ -72,8 +72,7 @@ pub fn get_platform_rasterizer() -> Box<dyn PlatformTextRasterizer> {
     {
         match super::directwrite_backend::DirectWriteRasterizer::new() {
             Ok(dw) => return Box::new(dw),
-            Err(_) => {
-            }
+            Err(_) => {}
         }
     }
     Box::new(super::fontdue_backend::FontDbTextRasterizer::new())
@@ -141,7 +140,10 @@ impl TextRenderer {
         }
 
         let run_key = RunKey::new(text, font);
-        if let Some(cached) = aurea_foundation::lock(&self.run_cache).get(&run_key).cloned() {
+        if let Some(cached) = aurea_foundation::lock(&self.run_cache)
+            .get(&run_key)
+            .cloned()
+        {
             return Ok(cached);
         }
         let result = self.compute_mask(text, font)?;
