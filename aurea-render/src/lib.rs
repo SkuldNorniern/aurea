@@ -16,6 +16,9 @@ pub mod text;
 #[cfg(feature = "zengpu")]
 pub mod zengpu;
 
+#[cfg(feature = "wgpu")]
+pub mod wgpu_backend;
+
 pub use batch::{
     CircleInstance, DrawRef, GradientInstance, ImageDraw, RectInstance, RenderBatches, TextDraw,
 };
@@ -31,3 +34,6 @@ pub use viewport::*;
 
 #[cfg(feature = "zengpu")]
 pub use zengpu::ZenGpuRenderer;
+
+#[cfg(feature = "wgpu")]
+pub use wgpu_backend::WgpuRenderer;
