@@ -18,8 +18,8 @@ use zengpu_hal::{
 use zengpu_vulkan::instance::VulkanInstance;
 use zengpu_vulkan::{
     CircleInstance as VkCircle, DrawRef as VkDrawRef, Frame2d, GradientInstance as VkGradient,
-    ImageInstance as VkImage, RectInstance as VkRect, TextInstance as VkText, Vulkan2dSurface,
-    VulkanDevice,
+    ImageInstance as VkImage, RectInstance as VkRect, SampledImageView, TextInstance as VkText,
+    Vulkan2dSurface, VulkanDevice,
 };
 
 const _: () =
@@ -50,6 +50,11 @@ struct CachedImage {
     slot: u32,
     keepalive: Arc<[u8]>,
     last_used: u64,
+}
+
+struct ExternalImageDraw {
+    instance: VkImage,
+    slot: u32,
 }
 
 /// Shareable ZenGPU instance/device ownership for Aurea UI and engine rendering.
@@ -100,6 +105,7 @@ pub struct ZenGpuRenderer {
     sampler: SamplerHandle,
     frame_counter: u64,
     vk_images: Vec<VkImage>,
+    external_images: Vec<ExternalImageDraw>,
     vk_gradients: Vec<VkGradient>,
     vk_texts: Vec<VkText>,
     vk_order: Vec<VkDrawRef>,
@@ -166,6 +172,7 @@ impl ZenGpuRenderer {
             sampler,
             frame_counter: 0,
             vk_images: Vec::new(),
+            external_images: Vec::new(),
             vk_gradients: Vec::new(),
             vk_texts: Vec::new(),
             vk_order: Vec::new(),
@@ -183,6 +190,55 @@ impl ZenGpuRenderer {
     /// Shared context backing this renderer.
     pub fn context(&self) -> &Arc<ZenGpuContext> {
         &self.context
+    }
+
+    /// Draw a caller-owned GPU image after the ordinary Aurea display list.
+    pub fn draw_sampled_image(
+        &mut self,
+        image: SampledImageView<'_>,
+        dest: Rect,
+    ) -> AureaResult<()> {
+        let (slot, evicted_key) = reserve_external_slot(&self.texture_cache, &mut self.free_slots)?;
+        if let Err(error) =
+            self.surface
+                .set_sampled_image_slot(self.context.device(), slot, image, self.sampler)
+        {
+            if evicted_key.is_none() {
+                self.free_slots.push(slot);
+            }
+            return Err(gpu_err(error));
+        }
+        if let Some(key) = evicted_key {
+            let old = self
+                .texture_cache
+                .remove(&key)
+                .expect("external slot eviction key came from cache");
+            self.context.device().destroy_texture(old.texture);
+        }
+        self.external_images.push(ExternalImageDraw {
+            instance: VkImage {
+                rect: [dest.x, dest.y, dest.width, dest.height],
+                uv: [0.0, 0.0, 1.0, 1.0],
+                tint: [1.0; 4],
+                slot,
+                _pad: [0; 3],
+            },
+            slot,
+        });
+        Ok(())
+    }
+
+    /// Remove all caller-owned sampled images from this renderer.
+    pub fn clear_sampled_images(&mut self) -> AureaResult<()> {
+        self.release_external_images()
+    }
+
+    fn release_external_images(&mut self) -> AureaResult<()> {
+        for draw in self.external_images.drain(..) {
+            self.surface.clear_image_slot(draw.slot).map_err(gpu_err)?;
+            self.free_slots.push(draw.slot);
+        }
+        Ok(())
     }
 }
 
@@ -205,6 +261,7 @@ impl Renderer for ZenGpuRenderer {
     }
 
     fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext>> {
+        self.release_external_images()?;
         self.display_list.clear();
         let mut ctx = CpuDrawingContext::new(
             &mut self.display_list as *mut DisplayList,
@@ -274,6 +331,9 @@ impl Renderer for ZenGpuRenderer {
             self.frame_counter,
             &mut self.vk_texts,
         )?;
+        let external_image_base = self.vk_images.len() as u32;
+        self.vk_images
+            .extend(self.external_images.iter().map(|draw| draw.instance));
         self.vk_order.clear();
         self.vk_order
             .extend(self.batches.order.iter().map(|draw| match *draw {
@@ -283,6 +343,12 @@ impl Renderer for ZenGpuRenderer {
                 crate::batch::DrawRef::Text(index) => VkDrawRef::Text(index),
                 crate::batch::DrawRef::Circle(index) => VkDrawRef::Circle(index),
             }));
+        self.vk_order.extend(
+            self.external_images
+                .iter()
+                .enumerate()
+                .map(|(index, _)| VkDrawRef::Image(external_image_base + index as u32)),
+        );
 
         self.surface
             .present(Frame2d {
@@ -525,6 +591,24 @@ fn resolve_texture_slot(
     Ok(slot)
 }
 
+fn reserve_external_slot(
+    cache: &HashMap<ImageKey, CachedImage>,
+    free_slots: &mut Vec<u32>,
+) -> AureaResult<(u32, Option<ImageKey>)> {
+    if let Some(slot) = free_slots.pop() {
+        return Ok((slot, None));
+    }
+    let key = *cache
+        .iter()
+        .min_by_key(|(_, cached)| cached.last_used)
+        .map(|(key, _)| key)
+        .ok_or(AureaError::RenderingFailed)?;
+    Ok((
+        cache.get(&key).expect("key came from cache").slot,
+        Some(key),
+    ))
+}
+
 fn prune_dropped_images(
     device: &VulkanDevice,
     surface: &Vulkan2dSurface,
@@ -551,13 +635,23 @@ fn gpu_err(_e: zengpu_hal::GpuError) -> AureaError {
 
 #[cfg(test)]
 mod tests {
-    use super::{ImageKey, ZenGpuContext};
+    use super::{ImageKey, ZenGpuContext, reserve_external_slot};
     use crate::types::Image;
+    use std::collections::HashMap;
 
     #[test]
     fn shared_context_is_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<ZenGpuContext>();
+    }
+
+    #[test]
+    fn external_image_prefers_a_free_slot() {
+        let mut free_slots = vec![7];
+        assert_eq!(
+            reserve_external_slot(&HashMap::new(), &mut free_slots).unwrap(),
+            (7, None)
+        );
     }
 
     #[test]
