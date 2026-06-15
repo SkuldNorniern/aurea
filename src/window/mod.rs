@@ -401,6 +401,20 @@ impl Window {
     /// ```
     #[cfg(feature = "zengpu")]
     pub fn create_zengpu_2d(&self) -> AureaResult<crate::render::ZenGpuRenderer> {
+        self.create_zengpu_2d_with_context(
+            std::sync::Arc::new(crate::render::ZenGpuContext::new()?),
+        )
+    }
+
+    /// Create a ZenGPU 2D renderer on a caller-owned shared GPU context.
+    ///
+    /// Use this for editor/game integration where Aurea UI, offscreen game
+    /// viewports, and additional windows must use the same logical device.
+    #[cfg(feature = "zengpu")]
+    pub fn create_zengpu_2d_with_context(
+        &self,
+        context: std::sync::Arc<crate::render::ZenGpuContext>,
+    ) -> AureaResult<crate::render::ZenGpuRenderer> {
         let handles = self.zengpu_window_handles()?;
         // `size()` is physical pixels; the renderer wants logical size + scale
         // (it scales drawing coords back up to physical, matching the swapchain
@@ -409,7 +423,7 @@ impl Window {
         let (pw, ph) = self.size();
         let lw = ((pw as f32 / scale).round() as u32).max(1);
         let lh = ((ph as f32 / scale).round() as u32).max(1);
-        crate::render::ZenGpuRenderer::new(&handles, lw, lh, scale)
+        crate::render::ZenGpuRenderer::with_context(&handles, context, lw, lh, scale)
     }
 
     #[cfg(all(feature = "zengpu", target_os = "windows"))]
