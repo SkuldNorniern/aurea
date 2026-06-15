@@ -38,12 +38,13 @@
 }
 
 - (void)layout {
-    NSSize oldSize = self.bounds.size;
     [super layout];
-    NSSize newSize = self.bounds.size;
-    if (!NSEqualSizes(oldSize, newSize)) {
-        self.cachedWidth  = (unsigned int)newSize.width;
-        self.cachedHeight = (unsigned int)newSize.height;
+    NSSize size = self.bounds.size;
+    unsigned int width = (unsigned int)size.width;
+    unsigned int height = (unsigned int)size.height;
+    if (width != self.cachedWidth || height != self.cachedHeight) {
+        self.cachedWidth = width;
+        self.cachedHeight = height;
         [self setNeedsDisplay:YES];
     }
 }
