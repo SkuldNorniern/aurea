@@ -186,14 +186,14 @@ fn main() -> Result<()> {
     let pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader: vert_shader,
         fragment_shader: frag_shader,
-        vertex_layout: VertexLayout {
+        vertex_layouts: &[VertexLayout {
             stride: std::mem::size_of::<Vertex3d>() as u32,
             attributes: &[
                 VertexAttribute { location: 0, offset: 0, format: VertexFormat::Float32x3 },
                 VertexAttribute { location: 1, offset: 12, format: VertexFormat::Float32x3 },
             ],
             ..Default::default()
-        },
+        }],
         topology: PrimitiveTopology::TriangleList,
         color_format: config.format,
         depth_format: Some(Format::Depth32Float),

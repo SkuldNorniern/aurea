@@ -10,7 +10,7 @@ use inline_spirv::inline_spirv;
 use zengpu::{
     Acquire, BlendMode, ColorAttachment, DepthState, Format, Frame, GpuAdapter, GpuDevice,
     GpuError, GraphicsDevice, GraphicsPipelineDesc, LoadOp, PresentMode, PrimitiveTopology,
-    RenderCommands, RenderPassDesc, Result, ShaderDesc, Surface, SurfaceConfig, VertexLayout,
+    RenderCommands, RenderPassDesc, Result, ShaderDesc, Surface, SurfaceConfig,
     Viewport, ViewportScissor, VulkanInstance, WindowHandles,
 };
 
@@ -65,7 +65,7 @@ fn main() -> Result<()> {
     let pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader: vert_shader,
         fragment_shader: frag_shader,
-        vertex_layout: VertexLayout::default(),
+        vertex_layouts: &[],
         topology: PrimitiveTopology::TriangleList,
         color_format: config.format,
         depth_format: None,
