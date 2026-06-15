@@ -65,7 +65,7 @@ fn main() -> Result<()> {
     let pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader: vert_shader,
         fragment_shader: frag_shader,
-        vertex_layout: VertexLayout { stride: 0, attributes: &[] },
+        vertex_layout: VertexLayout::default(),
         topology: PrimitiveTopology::TriangleList,
         color_format: config.format,
         depth_format: None,

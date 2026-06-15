@@ -192,6 +192,7 @@ fn main() -> Result<()> {
                 VertexAttribute { location: 0, offset: 0, format: VertexFormat::Float32x3 },
                 VertexAttribute { location: 1, offset: 12, format: VertexFormat::Float32x3 },
             ],
+            ..Default::default()
         },
         topology: PrimitiveTopology::TriangleList,
         color_format: config.format,

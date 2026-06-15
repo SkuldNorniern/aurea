@@ -122,7 +122,7 @@ fn main() -> Result<()> {
     let off_pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader: off_vert,
         fragment_shader: off_frag,
-        vertex_layout: VertexLayout { stride: 0, attributes: &[] },
+        vertex_layout: VertexLayout::default(),
         topology: PrimitiveTopology::TriangleList,
         color_format: Format::Rgba8Unorm,
         depth_format: None,
@@ -137,7 +137,7 @@ fn main() -> Result<()> {
     let scr_pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader: scr_vert,
         fragment_shader: scr_frag,
-        vertex_layout: VertexLayout { stride: 0, attributes: &[] },
+        vertex_layout: VertexLayout::default(),
         topology: PrimitiveTopology::TriangleList,
         color_format: config.format,
         depth_format: None,
