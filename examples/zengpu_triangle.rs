@@ -96,6 +96,7 @@ fn main() -> Result<()> {
                 target: frame.target(),
                 load: LoadOp::clear_rgb(0.02, 0.02, 0.02),
                 store: true,
+                sample_after: false,
             }],
             depth: None,
         });

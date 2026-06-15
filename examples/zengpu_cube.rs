@@ -260,6 +260,7 @@ fn main() -> Result<()> {
                 target: frame.target(),
                 load: LoadOp::clear_rgb(0.02, 0.02, 0.05),
                 store: true,
+                sample_after: false,
             }],
             depth: Some(DepthAttachment {
                 target: depth_target,
