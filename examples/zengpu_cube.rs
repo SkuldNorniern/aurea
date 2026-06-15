@@ -14,8 +14,11 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use inline_spirv::inline_spirv;
-use zengpu_hal::{DeviceRequest, Format, GpuAdapter, GpuError, PresentMode, Result, SurfaceConfig, WindowHandles};
-use zengpu_vulkan::{ash, vk, BeginFrame, DeviceContext, Swapchain, VulkanDevice, VulkanInstance};
+use zengpu::vulkan::{ash, vk};
+use zengpu::{
+    BeginFrame, DeviceContext, DeviceRequest, Format, GpuAdapter, GpuError, PresentMode,
+    Result, SurfaceConfig, Swapchain, VulkanDevice, VulkanInstance, WindowHandles,
+};
 use aurea::{Window, WindowEvent};
 
 // ── Geometry ──────────────────────────────────────────────────────────────────

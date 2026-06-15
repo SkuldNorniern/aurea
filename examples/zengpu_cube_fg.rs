@@ -1,11 +1,10 @@
 use aurea::{Window, WindowEvent};
 use inline_spirv::inline_spirv;
-use zengpu_hal::{
-    DeviceRequest, Format, GpuAdapter, GpuError, PresentMode, Result, SurfaceConfig, WindowHandles,
-};
-use zengpu_vulkan::{
-    ash, vk, AttachmentUsage, BeginFrame, DEPTH_FORMAT, DepthTarget, DeviceContext, FrameGraph,
-    Swapchain, VulkanDevice, VulkanInstance,
+use zengpu::vulkan::{ash, vk};
+use zengpu::{
+    AttachmentUsage, BeginFrame, DEPTH_FORMAT, DepthTarget, DeviceContext, DeviceRequest,
+    Format, FrameGraph, GpuAdapter, GpuError, PresentMode, Result, SurfaceConfig, Swapchain,
+    VulkanDevice, VulkanInstance, WindowHandles,
 };
 
 // ── Geometry ──────────────────────────────────────────────────────────────────

@@ -1,10 +1,9 @@
 use aurea::{Window, WindowEvent};
 use inline_spirv::inline_spirv;
-use zengpu_hal::{
-    DeviceRequest, Format, GpuAdapter, GpuError, PresentMode, Result, SurfaceConfig, WindowHandles,
-};
-use zengpu_vulkan::{
-    ash, vk, BeginFrame, DeviceContext, OffscreenTarget, Swapchain, VulkanDevice, VulkanInstance,
+use zengpu::vulkan::{ash, vk};
+use zengpu::{
+    BeginFrame, DeviceContext, DeviceRequest, Format, GpuAdapter, GpuError, OffscreenTarget,
+    PresentMode, Result, SurfaceConfig, Swapchain, VulkanDevice, VulkanInstance, WindowHandles,
 };
 
 // Offscreen render size (fixed; independent of window size).
