@@ -8,11 +8,12 @@
 
 use aurea::{Window, WindowEvent};
 use inline_spirv::inline_spirv;
-use zengpu_hal::{
-    DeviceRequest, FilterMode, Format, GpuAdapter, GpuDevice, PresentMode, Result, SamplerDesc,
-    SurfaceConfig, TextureDesc, TextureHandle, TextureUsage, WindowHandles,
+use zengpu::vulkan::{ash, vk};
+use zengpu::{
+    BeginFrame, DeviceContext, DeviceRequest, FilterMode, Format, GpuAdapter, GpuDevice,
+    PresentMode, Result, SamplerDesc, SurfaceConfig, Swapchain, TextureDesc, TextureHandle,
+    TextureUsage, VulkanDevice, VulkanInstance, WindowHandles,
 };
-use zengpu_vulkan::{ash, vk, BeginFrame, DeviceContext, Swapchain, VulkanDevice, VulkanInstance};
 
 const W: u32 = 800;
 const H: u32 = 600;

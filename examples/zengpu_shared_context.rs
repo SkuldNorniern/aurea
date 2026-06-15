@@ -7,7 +7,7 @@
 use aurea::render::{Rect, ZenGpuContext};
 use aurea::Window;
 use std::sync::Arc;
-use zengpu_vulkan::{vk, OffscreenTarget};
+use zengpu::{vulkan::vk, OffscreenTarget};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let window = Window::new("Aurea - shared ZenGPU context", 1280, 720)?;
