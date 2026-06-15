@@ -30,10 +30,11 @@ use zengpu_hal::{
     SurfaceConfig, TextureDesc, TextureHandle, TextureUsage, WindowHandles,
 };
 use zengpu_vulkan::instance::VulkanInstance;
-use zengpu_vulkan::{
+use zengpu_vulkan::{SampledImageView, VulkanDevice};
+
+use crate::zengpu_surface::{
     CircleInstance as VkCircle, DrawRef as VkDrawRef, Frame2d, GradientInstance as VkGradient,
-    ImageInstance as VkImage, RectInstance as VkRect, SampledImageView, TextInstance as VkText,
-    Vulkan2dSurface, VulkanDevice,
+    ImageInstance as VkImage, RectInstance as VkRect, TextInstance as VkText, Vulkan2dSurface,
 };
 
 // The batch-layer and ZenGPU instance types are `#[repr(C)]` with identical
@@ -181,10 +182,7 @@ impl ZenGpuRenderer {
             height: ((height as f32 * scale).round() as u32).max(1),
             present_mode: PresentMode::Fifo,
         };
-        let surface = context
-            .instance()
-            .create_2d_surface(handles, context.device(), config)
-            .map_err(gpu_err)?;
+        let surface = Vulkan2dSurface::new(context.device(), handles, config).map_err(gpu_err)?;
 
         // Shared sampler for image textures (linear min/mag, clamp).
         let sampler = context
@@ -691,7 +689,7 @@ fn gpu_err(_e: zengpu_hal::GpuError) -> AureaError {
 
 #[cfg(test)]
 mod tests {
-    use super::{ImageKey, ZenGpuContext, reserve_external_slot};
+    use super::{reserve_external_slot, ImageKey, ZenGpuContext};
     use crate::types::Image;
     use std::collections::HashMap;
 
