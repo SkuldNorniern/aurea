@@ -14,7 +14,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use inline_spirv::inline_spirv;
-use zengpu::vulkan::{ash, vk};
+use zengpu::vulkan::{ash, to_vk_format, vk};
 use zengpu::{
     BeginFrame, DeviceContext, DeviceRequest, Format, GpuAdapter, GpuError, PresentMode,
     Result, SurfaceConfig, Swapchain, VulkanDevice, VulkanInstance, WindowHandles,
@@ -186,7 +186,7 @@ impl CubeSurface {
     ) -> Result<Self> {
         let swapchain = Swapchain::new(device, handles, config, 2)?;
         let ctx = swapchain.context();
-        let render_pass = create_render_pass(&ctx, swapchain.format())?;
+        let render_pass = create_render_pass(&ctx, to_vk_format(swapchain.format()))?;
         let pipeline_layout = create_pipeline_layout(&ctx)?;
         let pipeline = create_pipeline(&ctx, render_pass, pipeline_layout)?;
         let (vertex_buf, vertex_mem) =
@@ -218,7 +218,8 @@ impl CubeSurface {
         };
         let targets = self.targets.lock().unwrap();
         let cmd = self.swapchain.cmd_buffer(current);
-        self.record(cmd, targets[index as usize].framebuffer, self.swapchain.extent(), mvp)?;
+        let (sw, sh) = self.swapchain.extent();
+        self.record(cmd, targets[index as usize].framebuffer, vk::Extent2D { width: sw, height: sh }, mvp)?;
         drop(targets);
         if self.swapchain.end_frame(&frame, cmd)? {
             self.rebuild_targets()?;
@@ -311,8 +312,7 @@ impl CubeSurface {
     }
 
     fn size(&self) -> (u32, u32) {
-        let e = self.swapchain.extent();
-        (e.width, e.height)
+        self.swapchain.extent()
     }
 }
 
@@ -337,7 +337,8 @@ impl Drop for CubeSurface {
 
 fn build_targets(ctx: &DeviceContext, render_pass: vk::RenderPass, swapchain: &Swapchain) -> Result<Vec<FrameTarget>> {
     let dev = ctx.device();
-    let extent = swapchain.extent();
+    let (sw, sh) = swapchain.extent();
+    let extent = vk::Extent2D { width: sw, height: sh };
     swapchain.image_views().into_iter().map(|color_view| {
         let (depth_image, depth_view, depth_mem) = create_depth(ctx, extent)?;
         let framebuffer = unsafe {
@@ -554,16 +555,19 @@ fn as_bytes<T: Copy>(slice: &[T]) -> &[u8] {
 
 // ── Event loop ────────────────────────────────────────────────────────────────
 
-fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let window = Window::new("ZenGPU — 3D cube", 800, 600)?;
+fn main() -> Result<()> {
+    let window = Window::new("ZenGPU — 3D cube", 800, 600)
+        .map_err(|e| GpuError::Backend(format!("window: {e}")))?;
 
     let instance = VulkanInstance::new_with_surface()?;
-    let adapter = instance.request_vulkan_adapter().ok_or("no Vulkan adapter")?;
+    let adapter = instance
+        .request_vulkan_adapter()
+        .ok_or_else(|| GpuError::Backend("no Vulkan adapter".into()))?;
     eprintln!("ZenGPU: {}", adapter.info().name);
     let device = adapter.open_with_surface(DeviceRequest::default())?;
 
     let handles = WindowHandles::from_window(&window)
-        .map_err(|e| format!("window handles: {e:?}"))?;
+        .map_err(|e| GpuError::Backend(format!("window handles: {e:?}")))?;
     let (w, h) = window.size();
     let surface = CubeSurface::new(
         &device,
