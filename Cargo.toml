@@ -46,17 +46,22 @@ optional = true
 version = "0.6"
 
 # zengpu-hal — optional, for the window-level GPU surface API (feature `zengpu`).
-# Same path as the dev-dependency below, so Cargo unifies them to one crate.
 [dependencies.zengpu-hal]
-path = "ZenGPU/zengpu-hal"
+version = "0.0.1"
 optional = true
 
-# ZenGPU — local path deps (will become git deps once published).
 [dev-dependencies.zengpu-hal]
-path = "ZenGPU/zengpu-hal"
+version = "0.0.1"
 
 [dev-dependencies.zengpu-vulkan]
-path = "ZenGPU/zengpu-vulkan"
+version = "0.0.1"
+
+# ── Local ZenGPU development override ──────────────────────────────────────────
+# Uncomment (or keep as-is) while ZenGPU is not yet published, or when working
+# on ZenGPU and aurea simultaneously. Remove once relying on crates.io releases.
+[patch.crates-io]
+zengpu-hal = { path = "ZenGPU/zengpu-hal" }
+zengpu-vulkan = { path = "ZenGPU/zengpu-vulkan" }
 
 [dev-dependencies.inline-spirv]
 version = "0.2"
