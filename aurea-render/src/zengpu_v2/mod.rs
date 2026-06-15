@@ -8,4 +8,5 @@
 //! Not yet wired into anything — `#![allow(dead_code)]` until the capstone.
 #![allow(dead_code)]
 
+mod pipelines;
 mod shaders;
