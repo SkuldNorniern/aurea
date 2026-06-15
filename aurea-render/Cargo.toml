@@ -10,7 +10,7 @@ repository = "https://github.com/SkuldNorniern/aurea"
 [features]
 default = []
 # GPU 2D backend via ZenGPU (Vulkan). Opt-in; pulls in ash/Vulkan.
-zengpu = ["dep:zengpu-hal", "dep:zengpu-vulkan"]
+zengpu = ["dep:inline-spirv", "dep:zengpu-hal", "dep:zengpu-vulkan"]
 # GPU 2D backend via wgpu — community-compat peer to ZenGPU. Opt-in.
 wgpu = ["dep:wgpu"]
 
@@ -22,6 +22,7 @@ fontdue = "0.9"
 # ZenGPU — optional, enabled by the `zengpu` feature.
 zengpu-hal = { path = "../ZenGPU/zengpu-hal", optional = true }
 zengpu-vulkan = { path = "../ZenGPU/zengpu-vulkan", optional = true }
+inline-spirv = { version = "0.2", features = ["glsl"], optional = true }
 
 # wgpu peer 2D backend — optional, enabled by the `wgpu` feature.
 wgpu = { version = "29.0.1", optional = true }
