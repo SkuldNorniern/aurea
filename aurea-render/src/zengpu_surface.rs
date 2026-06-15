@@ -22,7 +22,7 @@ use inline_spirv::inline_spirv;
 use zengpu_hal::{GpuError, Result, SamplerHandle, TextureHandle};
 use zengpu_vulkan::ash::{self, vk};
 
-use zengpu_vulkan::{BeginFrame, DeviceContext, SampledImageView, Swapchain, VulkanDevice};
+use zengpu_vulkan::{to_vk_format, BeginFrame, DeviceContext, SampledImageView, Swapchain, VulkanDevice};
 
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
@@ -565,9 +565,10 @@ impl Vulkan2dSurface {
         let swapchain = Swapchain::new(device, handles, config, MAX_FRAMES_IN_FLIGHT)?;
         let ctx = swapchain.context();
         let dev = ctx.device();
-        let format = swapchain.format();
+        let format = to_vk_format(swapchain.format());
         let image_views = swapchain.image_views();
-        let extent = swapchain.extent();
+        let (sw, sh) = swapchain.extent();
+        let extent = vk::Extent2D { width: sw, height: sh };
 
         let render_pass = create_render_pass(dev, format)?;
         let framebuffers = create_framebuffers(dev, render_pass, &image_views, extent)?;
@@ -691,8 +692,7 @@ impl Vulkan2dSurface {
 
     /// Swapchain extent in physical pixels.
     pub fn size(&self) -> (u32, u32) {
-        let e = self.swapchain.extent();
-        (e.width, e.height)
+        self.swapchain.extent()
     }
 
     /// Recreate the swapchain (e.g. after a resize or surface-lost). Safe to
@@ -861,10 +861,11 @@ impl Vulkan2dSurface {
         // can't destroy them while GPU work is being recorded.
         let fbs = self.framebuffers.lock().unwrap();
         let cmd = self.swapchain.cmd_buffer(current);
+        let (sw, sh) = self.swapchain.extent();
         self.record(
             cmd,
             fbs[index as usize],
-            self.swapchain.extent(),
+            vk::Extent2D { width: sw, height: sh },
             &frame,
             [rect_buf, gradient_buf, image_buf, text_buf, circle_buf],
         )?;
@@ -879,9 +880,13 @@ impl Vulkan2dSurface {
     /// Destroy old framebuffers and create new ones from current image views.
     fn rebuild_framebuffers(&self) -> Result<()> {
         let image_views = self.swapchain.image_views();
-        let extent = self.swapchain.extent();
-        let new_fbs =
-            create_framebuffers(self.ctx.device(), self.render_pass, &image_views, extent)?;
+        let (sw, sh) = self.swapchain.extent();
+        let new_fbs = create_framebuffers(
+            self.ctx.device(),
+            self.render_pass,
+            &image_views,
+            vk::Extent2D { width: sw, height: sh },
+        )?;
         let mut fbs = self.framebuffers.lock().unwrap();
         for &fb in fbs.iter() {
             unsafe {
