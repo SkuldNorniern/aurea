@@ -50,16 +50,15 @@ version = "0.6"
 version = "0.0.1"
 optional = true
 
-[dev-dependencies.zengpu-hal]
+[dev-dependencies.zengpu]
 version = "0.0.1"
-
-[dev-dependencies.zengpu-vulkan]
-version = "0.0.1"
+features = ["vulkan"]
 
 # ── Local ZenGPU development override ──────────────────────────────────────────
 # Uncomment (or keep as-is) while ZenGPU is not yet published, or when working
 # on ZenGPU and aurea simultaneously. Remove once relying on crates.io releases.
 [patch.crates-io]
+zengpu     = { path = "ZenGPU" }
 zengpu-hal = { path = "ZenGPU/zengpu-hal" }
 zengpu-vulkan = { path = "ZenGPU/zengpu-vulkan" }
 
