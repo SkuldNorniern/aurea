@@ -40,7 +40,7 @@ pub use types::*;
 pub use viewport::*;
 
 #[cfg(feature = "zengpu")]
-pub use zengpu::ZenGpuRenderer;
+pub use zengpu::{ZenGpuContext, ZenGpuRenderer};
 
 #[cfg(feature = "wgpu")]
 pub use wgpu_backend::WgpuRenderer;

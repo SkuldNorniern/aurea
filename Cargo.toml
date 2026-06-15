@@ -72,4 +72,8 @@ name = "zengpu_canvas"
 required-features = ["zengpu"]
 
 [[example]]
+name = "zengpu_shared_context"
+required-features = ["zengpu"]
+
+[[example]]
 name = "zengpu_cube"

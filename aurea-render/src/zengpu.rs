@@ -71,16 +71,50 @@ struct CachedImage {
     last_used: u64,
 }
 
+/// Shareable ZenGPU instance/device ownership for Aurea UI and engine rendering.
+pub struct ZenGpuContext {
+    instance: VulkanInstance,
+    device: VulkanDevice,
+}
+
+impl ZenGpuContext {
+    /// Create a shareable Vulkan instance/device pair with presentation support.
+    pub fn new() -> AureaResult<Self> {
+        let instance = VulkanInstance::new_with_surface().map_err(gpu_err)?;
+        let adapter = instance
+            .request_vulkan_adapter()
+            .ok_or(AureaError::ElementOperationFailed)?;
+        let device = adapter
+            .open_with_surface(DeviceRequest::default())
+            .map_err(gpu_err)?;
+        Ok(Self { instance, device })
+    }
+
+    /// Vulkan instance used to create window surfaces.
+    pub fn instance(&self) -> &VulkanInstance {
+        &self.instance
+    }
+
+    /// Shared logical device used by Aurea and engine-side rendering.
+    pub fn device(&self) -> &VulkanDevice {
+        &self.device
+    }
+
+    /// Cloneable raw graphics context for offscreen targets, depth targets,
+    /// frame graphs, and other engine-side Vulkan resources.
+    pub fn device_context(&self) -> zengpu_vulkan::DeviceContext {
+        self.device.context()
+    }
+}
+
 /// A [`Renderer`] that lowers the display list to GPU primitives and presents
 /// them through ZenGPU's Vulkan backend.
 pub struct ZenGpuRenderer {
-    // `device` and `_instance` own GPU resources the surface borrows; they must
-    // outlive `surface` and are dropped after it (struct field order: surface
-    // is declared first so it drops first). Cached textures live in `device`'s
-    // slotmap and are freed when it drops.
+    // The surface must drop before the shared context. Renderer-owned textures
+    // and the sampler are explicitly released in Drop because the context may
+    // outlive this renderer.
     surface: Vulkan2dSurface,
-    device: VulkanDevice,
-    _instance: VulkanInstance,
+    context: Arc<ZenGpuContext>,
     display_list: DisplayList,
     /// Reused across frames so steady-state `end_frame` does no allocation.
     batches: RenderBatches,
@@ -115,14 +149,24 @@ impl ZenGpuRenderer {
         height: u32,
         scale_factor: f32,
     ) -> AureaResult<Self> {
-        let instance = VulkanInstance::new_with_surface().map_err(gpu_err)?;
-        let adapter = instance
-            .request_vulkan_adapter()
-            .ok_or(AureaError::ElementOperationFailed)?;
-        let device = adapter
-            .open_with_surface(DeviceRequest::default())
-            .map_err(gpu_err)?;
+        Self::with_context(
+            handles,
+            Arc::new(ZenGpuContext::new()?),
+            width,
+            height,
+            scale_factor,
+        )
+    }
 
+    /// Create a renderer on a caller-owned GPU context. Multiple Aurea
+    /// renderers and engine viewports can share this context and its device.
+    pub fn with_context(
+        handles: &WindowHandles,
+        context: Arc<ZenGpuContext>,
+        width: u32,
+        height: u32,
+        scale_factor: f32,
+    ) -> AureaResult<Self> {
         let scale = scale_factor.max(1.0);
         let config = SurfaceConfig {
             format: Format::Bgra8Unorm,
@@ -130,12 +174,14 @@ impl ZenGpuRenderer {
             height: ((height as f32 * scale).round() as u32).max(1),
             present_mode: PresentMode::Fifo,
         };
-        let surface = instance
-            .create_2d_surface(handles, &device, config)
+        let surface = context
+            .instance()
+            .create_2d_surface(handles, context.device(), config)
             .map_err(gpu_err)?;
 
         // Shared sampler for image textures (linear min/mag, clamp).
-        let sampler = device
+        let sampler = context
+            .device()
             .create_sampler(SamplerDesc {
                 min_filter: FilterMode::Linear,
                 mag_filter: FilterMode::Linear,
@@ -147,8 +193,7 @@ impl ZenGpuRenderer {
 
         Ok(Self {
             surface,
-            device,
-            _instance: instance,
+            context,
             display_list: DisplayList::new(),
             batches: RenderBatches::default(),
             texture_cache: HashMap::new(),
@@ -168,6 +213,11 @@ impl ZenGpuRenderer {
     /// Swapchain extent in physical pixels.
     pub fn size(&self) -> (u32, u32) {
         self.surface.size()
+    }
+
+    /// Shared context backing this renderer.
+    pub fn context(&self) -> &Arc<ZenGpuContext> {
+        &self.context
     }
 }
 
@@ -228,14 +278,14 @@ impl Renderer for ZenGpuRenderer {
         // bound), so they are built into reused Vecs rather than cast.
         self.frame_counter += 1;
         prune_dropped_images(
-            &self.device,
+            self.context.device(),
             &self.surface,
             &mut self.texture_cache,
             &mut self.free_slots,
         )?;
         resolve_gradients(
             &self.batches.gradients,
-            &self.device,
+            self.context.device(),
             &self.surface,
             self.sampler,
             &mut self.texture_cache,
@@ -245,7 +295,7 @@ impl Renderer for ZenGpuRenderer {
         )?;
         resolve_images(
             &self.batches.images,
-            &self.device,
+            self.context.device(),
             &self.surface,
             self.sampler,
             &mut self.texture_cache,
@@ -255,7 +305,7 @@ impl Renderer for ZenGpuRenderer {
         )?;
         resolve_texts(
             &self.batches.texts,
-            &self.device,
+            self.context.device(),
             &self.surface,
             self.sampler,
             &mut self.texture_cache,
@@ -296,6 +346,17 @@ impl Renderer for ZenGpuRenderer {
 
     fn display_list(&self) -> Option<&DisplayList> {
         Some(&self.display_list)
+    }
+}
+
+impl Drop for ZenGpuRenderer {
+    fn drop(&mut self) {
+        let device = self.context.device();
+        let _ = device.wait_idle();
+        for (_, cached) in self.texture_cache.drain() {
+            device.destroy_texture(cached.texture);
+        }
+        device.destroy_sampler(self.sampler);
     }
 }
 
@@ -538,8 +599,14 @@ fn gpu_err(_e: zengpu_hal::GpuError) -> AureaError {
 
 #[cfg(test)]
 mod tests {
-    use super::ImageKey;
+    use super::{ImageKey, ZenGpuContext};
     use crate::types::Image;
+
+    #[test]
+    fn shared_context_is_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<ZenGpuContext>();
+    }
 
     #[test]
     fn image_cache_key_includes_dimensions() {
