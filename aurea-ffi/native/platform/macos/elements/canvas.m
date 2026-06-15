@@ -48,14 +48,15 @@
 }
 
 - (void)layout {
-    NSSize oldSize = self.bounds.size;
     [super layout];
-    NSSize newSize = self.bounds.size;
-    if (!NSEqualSizes(oldSize, newSize)) {
-        // Cache the new size so canvas_get_size can read it without forcing
-        // another layout pass.
-        self.cachedWidth  = (unsigned int)newSize.width;
-        self.cachedHeight = (unsigned int)newSize.height;
+    NSSize size = self.bounds.size;
+    unsigned int width = (unsigned int)size.width;
+    unsigned int height = (unsigned int)size.height;
+    if (width != self.cachedWidth || height != self.cachedHeight) {
+        // AppKit updates bounds before calling -layout, so compare against the
+        // last cached dimensions rather than reading "old" bounds here.
+        self.cachedWidth = width;
+        self.cachedHeight = height;
         [self setNeedsDisplay:YES];
     }
 }
