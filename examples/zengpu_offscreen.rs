@@ -1,6 +1,6 @@
 use aurea::{Window, WindowEvent};
 use inline_spirv::inline_spirv;
-use zengpu::vulkan::{ash, vk};
+use zengpu::vulkan::{ash, to_vk_format, vk};
 use zengpu::{
     BeginFrame, DeviceContext, DeviceRequest, Format, GpuAdapter, GpuError, OffscreenTarget,
     PresentMode, Result, SurfaceConfig, Swapchain, VulkanDevice, VulkanInstance, WindowHandles,
@@ -110,7 +110,7 @@ impl OffscreenSurface {
         let dev = ctx.device();
 
         // offscreen target
-        let offscreen = OffscreenTarget::new(&ctx, OFF_FMT, OFF_W, OFF_H)?;
+        let offscreen = OffscreenTarget::new(&ctx, Format::Rgba8Unorm, OFF_W, OFF_H)?;
 
         // offscreen pass: UNDEFINED→CLEAR→SHADER_READ_ONLY_OPTIMAL
         let off_render_pass = make_off_render_pass(dev)?;
@@ -118,9 +118,11 @@ impl OffscreenSurface {
         let (off_pipeline_layout, off_pipeline) = make_off_pipeline(dev, off_render_pass)?;
 
         // screen pass: UNDEFINED→CLEAR→PRESENT_SRC_KHR
-        let scr_render_pass = make_scr_render_pass(dev, sc.format())?;
-        let scr_framebuffers =
-            make_scr_framebuffers(dev, scr_render_pass, &sc.image_views(), sc.extent())?;
+        let scr_render_pass = make_scr_render_pass(dev, to_vk_format(sc.format()))?;
+        let (sw, sh) = sc.extent();
+        let scr_framebuffers = make_scr_framebuffers(
+            dev, scr_render_pass, &sc.image_views(), vk::Extent2D { width: sw, height: sh },
+        )?;
 
         // descriptor: combined image sampler for offscreen target
         let sampler = make_sampler(dev)?;
@@ -156,11 +158,12 @@ impl OffscreenSurface {
                 dev.destroy_framebuffer(fb, None);
             }
         }
+        let (sw, sh) = self.sc.extent();
         self.scr_framebuffers = make_scr_framebuffers(
             dev,
             self.scr_render_pass,
             &self.sc.image_views(),
-            self.sc.extent(),
+            vk::Extent2D { width: sw, height: sh },
         )?;
         Ok(())
     }
@@ -175,8 +178,10 @@ impl OffscreenSurface {
 
         let cmd = self.sc.cmd_buffer(current);
         let dev = self.ctx.device();
-        let sc_extent = self.sc.extent();
-        let off_extent = self.offscreen.extent();
+        let (scw, sch) = self.sc.extent();
+        let sc_extent = vk::Extent2D { width: scw, height: sch };
+        let (ow, oh) = self.offscreen.extent();
+        let off_extent = vk::Extent2D { width: ow, height: oh };
 
         unsafe {
             dev.reset_command_buffer(cmd, vk::CommandBufferResetFlags::empty())
@@ -402,15 +407,15 @@ fn make_off_framebuffer(
     target: &OffscreenTarget,
 ) -> Result<vk::Framebuffer> {
     let view = target.view();
-    let ext = target.extent();
+    let (ew, eh) = target.extent();
     unsafe {
         dev.create_framebuffer(
             &vk::FramebufferCreateInfo {
                 render_pass,
                 attachment_count: 1,
                 p_attachments: &view,
-                width: ext.width,
-                height: ext.height,
+                width: ew,
+                height: eh,
                 layers: 1,
                 ..Default::default()
             },
@@ -735,16 +740,19 @@ fn build_pipeline(
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let window = Window::new("ZenGPU — Offscreen (render-to-texture)", 800, 600)?;
+fn main() -> Result<()> {
+    let window = Window::new("ZenGPU — Offscreen (render-to-texture)", 800, 600)
+        .map_err(|e| GpuError::Backend(format!("window: {e}")))?;
 
     let inst = VulkanInstance::new_with_surface()?;
-    let adapter = inst.request_vulkan_adapter().ok_or("no Vulkan adapter")?;
+    let adapter = inst
+        .request_vulkan_adapter()
+        .ok_or_else(|| GpuError::Backend("no Vulkan adapter".into()))?;
     eprintln!("ZenGPU: {}", adapter.info().name);
     let device = adapter.open_with_surface(DeviceRequest::default())?;
 
     let handles = WindowHandles::from_window(&window)
-        .map_err(|e| format!("window handle: {e:?}"))?;
+        .map_err(|e| GpuError::Backend(format!("window handle: {e:?}")))?;
     let (w, h) = window.size();
     let config = SurfaceConfig {
         format: Format::Bgra8Unorm,
