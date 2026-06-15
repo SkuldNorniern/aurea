@@ -1,6 +1,6 @@
 use aurea::{Window, WindowEvent};
 use inline_spirv::inline_spirv;
-use zengpu::vulkan::{ash, vk};
+use zengpu::vulkan::{ash, to_vk_format, vk};
 use zengpu::{
     AttachmentUsage, BeginFrame, DEPTH_FORMAT, DepthTarget, DeviceContext, DeviceRequest,
     Format, FrameGraph, GpuAdapter, GpuError, PresentMode, Result, SurfaceConfig, Swapchain,
@@ -138,11 +138,11 @@ impl CubeFgSurface {
         let ctx = sc.context();
         let dev = ctx.device();
 
-        let render_pass = make_render_pass(dev, sc.format())?;
-        let ext = sc.extent();
-        let depth = DepthTarget::new(&ctx, ext.width, ext.height)?;
+        let render_pass = make_render_pass(dev, to_vk_format(sc.format()))?;
+        let (sw, sh) = sc.extent();
+        let depth = DepthTarget::new(&ctx, sw, sh)?;
         let framebuffers = make_framebuffers(
-            dev, render_pass, &sc.image_views(), depth.view(), ext,
+            dev, render_pass, &sc.image_views(), depth.view(), vk::Extent2D { width: sw, height: sh },
         )?;
         let (pipeline_layout, pipeline) = make_pipeline(dev, render_pass)?;
 
@@ -164,11 +164,12 @@ impl CubeFgSurface {
         for &fb in &self.framebuffers {
             unsafe { dev.destroy_framebuffer(fb, None); }
         }
-        let ext = self.sc.extent();
+        let (sw, sh) = self.sc.extent();
         // Rebuild depth target at new size.
-        let new_depth = DepthTarget::new(&self.ctx, ext.width, ext.height)?;
+        let new_depth = DepthTarget::new(&self.ctx, sw, sh)?;
         self.framebuffers = make_framebuffers(
-            dev, self.render_pass, &self.sc.image_views(), new_depth.view(), ext,
+            dev, self.render_pass, &self.sc.image_views(), new_depth.view(),
+            vk::Extent2D { width: sw, height: sh },
         )?;
         self.depth = new_depth;
         Ok(())
@@ -194,22 +195,8 @@ impl CubeFgSurface {
         // Build frame graph.
         let mut graph = FrameGraph::new();
 
-        let sc_images = self.sc.images();
-        let sc_views = self.sc.image_views();
-        let sc_id = graph.add_resource(
-            sc_images[index as usize],
-            sc_views[index as usize],
-            self.sc.format(),
-            self.sc.extent(),
-            vk::ImageLayout::UNDEFINED,
-        );
-        let depth_id = graph.add_depth_resource(
-            self.depth.image(),
-            self.depth.view(),
-            DEPTH_FORMAT,
-            self.depth.extent(),
-            vk::ImageLayout::UNDEFINED,
-        );
+        let sc_id = graph.add_swapchain_image(&self.sc, index);
+        let depth_id = graph.add_depth(&self.depth);
 
         // ── Pass: cube draw ───────────────────────────────────────────────
         {
@@ -220,7 +207,8 @@ impl CubeFgSurface {
             let pll = self.pipeline_layout;
             let vb = self.vertex_buf;
             let ib = self.index_buf;
-            let ext = self.sc.extent();
+            let (sw, sh) = self.sc.extent();
+            let ext = vk::Extent2D { width: sw, height: sh };
             let mvp = *mvp;
 
             graph.add_pass(
@@ -301,8 +289,8 @@ impl CubeFgSurface {
     }
 
     fn aspect(&self) -> f32 {
-        let e = self.sc.extent();
-        e.width as f32 / e.height.max(1) as f32
+        let (sw, sh) = self.sc.extent();
+        sw as f32 / sh.max(1) as f32
     }
 }
 
@@ -621,16 +609,19 @@ fn make_pipeline(
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let window = Window::new("ZenGPU — Cube via FrameGraph (G7)", 800, 600)?;
+fn main() -> Result<()> {
+    let window = Window::new("ZenGPU — Cube via FrameGraph (G7)", 800, 600)
+        .map_err(|e| GpuError::Backend(format!("window: {e}")))?;
 
     let inst = VulkanInstance::new_with_surface()?;
-    let adapter = inst.request_vulkan_adapter().ok_or("no Vulkan adapter")?;
+    let adapter = inst
+        .request_vulkan_adapter()
+        .ok_or_else(|| GpuError::Backend("no Vulkan adapter".into()))?;
     eprintln!("ZenGPU: {}", adapter.info().name);
     let device = adapter.open_with_surface(DeviceRequest::default())?;
 
     let handles = WindowHandles::from_window(&window)
-        .map_err(|e| format!("window handle: {e:?}"))?;
+        .map_err(|e| GpuError::Backend(format!("window handle: {e:?}")))?;
     let (w, h) = window.size();
     let config = SurfaceConfig {
         format: Format::Bgra8Unorm,
