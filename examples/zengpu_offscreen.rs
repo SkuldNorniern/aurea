@@ -17,7 +17,7 @@ use zengpu::{
     Acquire, Bindings, BlendMode, ColorAttachment, DepthState, FilterMode, Format, Frame,
     GpuAdapter, GpuDevice, GpuError, GraphicsDevice, GraphicsPipelineDesc, LoadOp, PresentMode,
     PrimitiveTopology, RenderCommands, RenderPassDesc, Result, Scalar, SamplerDesc, ShaderDesc,
-    Surface, SurfaceConfig, TextureDesc, TextureUsage, VertexLayout, Viewport, ViewportScissor,
+    Surface, SurfaceConfig, TextureDesc, TextureUsage, Viewport, ViewportScissor,
     VulkanInstance, WindowHandles,
 };
 
@@ -122,7 +122,7 @@ fn main() -> Result<()> {
     let off_pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader: off_vert,
         fragment_shader: off_frag,
-        vertex_layout: VertexLayout::default(),
+        vertex_layouts: &[],
         topology: PrimitiveTopology::TriangleList,
         color_format: Format::Rgba8Unorm,
         depth_format: None,
@@ -137,7 +137,7 @@ fn main() -> Result<()> {
     let scr_pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader: scr_vert,
         fragment_shader: scr_frag,
-        vertex_layout: VertexLayout::default(),
+        vertex_layouts: &[],
         topology: PrimitiveTopology::TriangleList,
         color_format: config.format,
         depth_format: None,
