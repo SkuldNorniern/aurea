@@ -4,10 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::batch::{ImageDraw, RenderBatches};
-use crate::cpu::CpuDrawingContext;
-use crate::display_list::DisplayList;
-use crate::renderer::{DrawingContext, Renderer};
-use crate::surface::{Surface, SurfaceInfo};
+use crate::gpu2d::{Gpu2dBackend, Gpu2dRenderer};
 use crate::types::Rect;
 use aurea_foundation::{AureaError, AureaResult};
 
@@ -94,13 +91,11 @@ impl ZenGpuContext {
     }
 }
 
-/// A [`Renderer`] that lowers the display list to GPU primitives and presents them through ZenGPU's
-/// Vulkan backend.
-pub struct ZenGpuRenderer {
+/// ZenGPU device backend for the shared [`Gpu2dRenderer`] core: owns the swapchain surface, the
+/// image/LUT cache, bindless slots, and per-frame resolve buffers.
+pub struct ZenGpuBackend {
     surface: Vulkan2dSurface,
     context: Arc<ZenGpuContext>,
-    display_list: DisplayList,
-    batches: RenderBatches,
     texture_cache: HashMap<ImageKey, CachedImage>,
     free_slots: Vec<u32>,
     sampler: SamplerHandle,
@@ -110,10 +105,10 @@ pub struct ZenGpuRenderer {
     vk_gradients: Vec<VkGradient>,
     vk_texts: Vec<VkText>,
     vk_order: Vec<VkDrawRef>,
-    logical_width: u32,
-    logical_height: u32,
-    scale_factor: f32,
 }
+
+/// Public renderer: aurea's [`Renderer`](crate::Renderer) on the ZenGPU device backend.
+pub type ZenGpuRenderer = Gpu2dRenderer<ZenGpuBackend>;
 
 impl ZenGpuRenderer {
     /// Create a renderer presenting to the window described by `handles`.
@@ -160,11 +155,9 @@ impl ZenGpuRenderer {
         let slots = surface.image_slot_capacity();
         let free_slots: Vec<u32> = (0..slots).rev().collect();
 
-        Ok(Self {
+        let backend = ZenGpuBackend {
             surface,
             context,
-            display_list: DisplayList::new(),
-            batches: RenderBatches::default(),
             texture_cache: HashMap::new(),
             free_slots,
             sampler,
@@ -174,18 +167,42 @@ impl ZenGpuRenderer {
             vk_gradients: Vec::new(),
             vk_texts: Vec::new(),
             vk_order: Vec::new(),
-            logical_width: width,
-            logical_height: height,
-            scale_factor: scale,
-        })
+        };
+        Ok(Gpu2dRenderer::from_backend(backend, width, height, scale))
     }
 
+    /// Swapchain extent in physical pixels.
+    pub fn size(&self) -> (u32, u32) {
+        self.backend().size()
+    }
+
+    /// Shared context backing this renderer.
+    pub fn context(&self) -> &Arc<ZenGpuContext> {
+        self.backend().context()
+    }
+
+    /// Draw a caller-owned GPU image after the ordinary Aurea display list.
+    pub fn draw_sampled_image(
+        &mut self,
+        image: SampledImageView<'_>,
+        dest: Rect,
+    ) -> AureaResult<()> {
+        self.backend_mut().draw_sampled_image(image, dest)
+    }
+
+    /// Remove all caller-owned sampled images from this renderer.
+    pub fn clear_sampled_images(&mut self) -> AureaResult<()> {
+        self.backend_mut().clear_sampled_images()
+    }
+}
+
+impl ZenGpuBackend {
     /// Swapchain extent in physical pixels.
     pub fn size(&self) -> (u32, u32) {
         self.surface.size()
     }
 
-    /// Shared context backing this renderer.
+    /// Shared context backing this backend.
     pub fn context(&self) -> &Arc<ZenGpuContext> {
         &self.context
     }
@@ -240,39 +257,19 @@ impl ZenGpuRenderer {
     }
 }
 
-impl Renderer for ZenGpuRenderer {
-    fn init(&mut self, _surface: Surface, info: SurfaceInfo) -> AureaResult<()> {
-        self.logical_width = info.width;
-        self.logical_height = info.height;
-        self.scale_factor = info.scale_factor.max(1.0);
-        Ok(())
+impl Gpu2dBackend for ZenGpuBackend {
+    fn resize(&mut self, physical_width: u32, physical_height: u32) -> AureaResult<()> {
+        self.surface
+            .resize(physical_width, physical_height)
+            .map_err(gpu_err)
     }
 
-    fn resize(&mut self, width: u32, height: u32) -> AureaResult<()> {
-        self.logical_width = width;
-        self.logical_height = height;
-        self.display_list.clear();
-        let scale = self.scale_factor;
-        let pw = ((width as f32 * scale).round() as u32).max(1);
-        let ph = ((height as f32 * scale).round() as u32).max(1);
-        self.surface.resize(pw, ph).map_err(gpu_err)
+    fn begin_frame(&mut self) -> AureaResult<()> {
+        self.release_external_images()
     }
 
-    fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext>> {
-        self.release_external_images()?;
-        self.display_list.clear();
-        let mut ctx = CpuDrawingContext::new(
-            &mut self.display_list as *mut DisplayList,
-            self.logical_width,
-            self.logical_height,
-        );
-        ctx.set_scale_factor(self.scale_factor);
-        Ok(Box::new(ctx))
-    }
-
-    fn end_frame(&mut self) -> AureaResult<()> {
-        self.batches.lower_into(&self.display_list);
-        let clear = self.batches.clear.map(|c| {
+    fn present(&mut self, batches: &RenderBatches) -> AureaResult<()> {
+        let clear = batches.clear.map(|c| {
             [
                 c.r as f32 / 255.0,
                 c.g as f32 / 255.0,
@@ -282,14 +279,14 @@ impl Renderer for ZenGpuRenderer {
         });
         let rects: &[VkRect] = unsafe {
             std::slice::from_raw_parts(
-                self.batches.rects.as_ptr() as *const VkRect,
-                self.batches.rects.len(),
+                batches.rects.as_ptr() as *const VkRect,
+                batches.rects.len(),
             )
         };
         let circles: &[VkCircle] = unsafe {
             std::slice::from_raw_parts(
-                self.batches.circles.as_ptr() as *const VkCircle,
-                self.batches.circles.len(),
+                batches.circles.as_ptr() as *const VkCircle,
+                batches.circles.len(),
             )
         };
         self.frame_counter += 1;
@@ -300,7 +297,7 @@ impl Renderer for ZenGpuRenderer {
             &mut self.free_slots,
         )?;
         resolve_gradients(
-            &self.batches.gradients,
+            &batches.gradients,
             self.context.device(),
             &self.surface,
             self.sampler,
@@ -310,7 +307,7 @@ impl Renderer for ZenGpuRenderer {
             &mut self.vk_gradients,
         )?;
         resolve_images(
-            &self.batches.images,
+            &batches.images,
             self.context.device(),
             &self.surface,
             self.sampler,
@@ -320,7 +317,7 @@ impl Renderer for ZenGpuRenderer {
             &mut self.vk_images,
         )?;
         resolve_texts(
-            &self.batches.texts,
+            &batches.texts,
             self.context.device(),
             &self.surface,
             self.sampler,
@@ -334,7 +331,7 @@ impl Renderer for ZenGpuRenderer {
             .extend(self.external_images.iter().map(|draw| draw.instance));
         self.vk_order.clear();
         self.vk_order
-            .extend(self.batches.order.iter().map(|draw| match *draw {
+            .extend(batches.order.iter().map(|draw| match *draw {
                 crate::batch::DrawRef::Rect(index) => VkDrawRef::Rect(index),
                 crate::batch::DrawRef::Gradient(index) => VkDrawRef::Gradient(index),
                 crate::batch::DrawRef::Image(index) => VkDrawRef::Image(index),
@@ -360,20 +357,9 @@ impl Renderer for ZenGpuRenderer {
             })
             .map_err(gpu_err)
     }
-
-    fn cleanup(&mut self) {
-        self.display_list.clear();
-    }
-
-    fn set_damage(&mut self, _damage: Option<Rect>) {
-    }
-
-    fn display_list(&self) -> Option<&DisplayList> {
-        Some(&self.display_list)
-    }
 }
 
-impl Drop for ZenGpuRenderer {
+impl Drop for ZenGpuBackend {
     fn drop(&mut self) {
         let device = self.context.device();
         let _ = device.wait_idle();
