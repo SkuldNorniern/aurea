@@ -1,6 +1,6 @@
 use aurea::{Window, WindowEvent};
 use inline_spirv::inline_spirv;
-use zengpu::vulkan::{ash, vk};
+use zengpu::vulkan::{ash, to_vk_format, vk};
 use zengpu::{
     AttachmentUsage, BeginFrame, DeviceContext, DeviceRequest, Format, FrameGraph, GpuAdapter,
     GpuError, OffscreenTarget, PresentMode, Result, SurfaceConfig, Swapchain, VulkanDevice,
@@ -9,7 +9,6 @@ use zengpu::{
 
 const OFF_W: u32 = 512;
 const OFF_H: u32 = 512;
-const OFF_FMT: vk::Format = vk::Format::R8G8B8A8_UNORM;
 const MAX_FRAMES: usize = 2;
 
 // ── Shaders ───────────────────────────────────────────────────────────────────
@@ -110,20 +109,24 @@ impl FgSurface {
         let ctx = sc.context();
         let dev = ctx.device();
 
-        let offscreen = OffscreenTarget::new(&ctx, OFF_FMT, OFF_W, OFF_H)?;
+        let offscreen = OffscreenTarget::new(&ctx, Format::Rgba8Unorm, OFF_W, OFF_H)?;
 
         // Render passes: finalLayout = COLOR_ATTACHMENT_OPTIMAL.
         // The frame-graph handles the COLOR_ATTACHMENT_OPTIMAL→PRESENT_SRC_KHR
         // barrier for the swapchain image, and the COLOR_ATTACHMENT_OPTIMAL→
         // SHADER_READ_ONLY_OPTIMAL barrier for the offscreen image.
-        let off_render_pass = make_render_pass(dev, OFF_FMT)?;
-        let off_framebuffer = make_framebuffer(dev, off_render_pass, offscreen.view(),
-                                               offscreen.extent())?;
+        let off_render_pass = make_render_pass(dev, vk::Format::R8G8B8A8_UNORM)?;
+        let (ow, oh) = offscreen.extent();
+        let off_framebuffer = make_framebuffer(
+            dev, off_render_pass, offscreen.view(), vk::Extent2D { width: ow, height: oh },
+        )?;
         let (off_pipeline_layout, off_pipeline) = make_off_pipeline(dev, off_render_pass)?;
 
-        let scr_render_pass = make_render_pass(dev, sc.format())?;
-        let scr_framebuffers =
-            make_framebuffers(dev, scr_render_pass, &sc.image_views(), sc.extent())?;
+        let scr_render_pass = make_render_pass(dev, to_vk_format(sc.format()))?;
+        let (sw, sh) = sc.extent();
+        let scr_framebuffers = make_framebuffers(
+            dev, scr_render_pass, &sc.image_views(), vk::Extent2D { width: sw, height: sh },
+        )?;
 
         let sampler = make_sampler(dev)?;
         let (descriptor_pool, descriptor_set_layout, descriptor_set) =
@@ -157,11 +160,12 @@ impl FgSurface {
                 dev.destroy_framebuffer(fb, None);
             }
         }
+        let (sw, sh) = self.sc.extent();
         self.scr_framebuffers = make_framebuffers(
             dev,
             self.scr_render_pass,
             &self.sc.image_views(),
-            self.sc.extent(),
+            vk::Extent2D { width: sw, height: sh },
         )?;
         Ok(())
     }
@@ -186,23 +190,8 @@ impl FgSurface {
         // Build the frame graph for this frame.
         let mut graph = FrameGraph::new();
 
-        let off_id = graph.add_resource(
-            self.offscreen.image(),
-            self.offscreen.view(),
-            self.offscreen.format(),
-            self.offscreen.extent(),
-            vk::ImageLayout::UNDEFINED,
-        );
-
-        let sc_images = self.sc.images();
-        let sc_views = self.sc.image_views();
-        let sc_id = graph.add_resource(
-            sc_images[index as usize],
-            sc_views[index as usize],
-            self.sc.format(),
-            self.sc.extent(),
-            vk::ImageLayout::UNDEFINED,
-        );
+        let off_id = graph.add_offscreen(&self.offscreen);
+        let sc_id = graph.add_swapchain_image(&self.sc, index);
 
         // ── Pass 0: offscreen triangle ────────────────────────────────────
         {
@@ -211,7 +200,8 @@ impl FgSurface {
             let off_fb = self.off_framebuffer;
             let off_pl = self.off_pipeline;
             let off_pll = self.off_pipeline_layout;
-            let off_ext = self.offscreen.extent();
+            let (ow, oh) = self.offscreen.extent();
+            let off_ext = vk::Extent2D { width: ow, height: oh };
 
             graph.add_pass(&[(off_id, AttachmentUsage::ColorWrite)], move |cmd| {
                 let dev = ctx.device();
@@ -264,7 +254,8 @@ impl FgSurface {
             let scr_pl = self.scr_pipeline;
             let scr_pll = self.scr_pipeline_layout;
             let ds = self.descriptor_set;
-            let sc_ext = self.sc.extent();
+            let (sw, sh) = self.sc.extent();
+            let sc_ext = vk::Extent2D { width: sw, height: sh };
 
             graph.add_pass(
                 &[
@@ -671,16 +662,19 @@ fn make_scr_pipeline(
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let window = Window::new("ZenGPU — Frame Graph (G6)", 800, 600)?;
+fn main() -> Result<()> {
+    let window = Window::new("ZenGPU — Frame Graph (G6)", 800, 600)
+        .map_err(|e| GpuError::Backend(format!("window: {e}")))?;
 
     let inst = VulkanInstance::new_with_surface()?;
-    let adapter = inst.request_vulkan_adapter().ok_or("no Vulkan adapter")?;
+    let adapter = inst
+        .request_vulkan_adapter()
+        .ok_or_else(|| GpuError::Backend("no Vulkan adapter".into()))?;
     eprintln!("ZenGPU: {}", adapter.info().name);
     let device = adapter.open_with_surface(DeviceRequest::default())?;
 
     let handles = WindowHandles::from_window(&window)
-        .map_err(|e| format!("window handle: {e:?}"))?;
+        .map_err(|e| GpuError::Backend(format!("window handle: {e:?}")))?;
     let (w, h) = window.size();
     let config = SurfaceConfig {
         format: Format::Bgra8Unorm,
