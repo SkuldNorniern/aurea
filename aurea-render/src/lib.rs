@@ -25,6 +25,8 @@ pub mod text;
 pub mod zengpu;
 #[cfg(feature = "zengpu")]
 mod zengpu_surface;
+#[cfg(feature = "zengpu")]
+mod zengpu_v2;
 
 #[cfg(feature = "wgpu")]
 pub mod wgpu_backend;
