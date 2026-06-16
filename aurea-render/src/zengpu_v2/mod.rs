@@ -12,3 +12,4 @@ mod buffer;
 mod pipelines;
 mod shaders;
 mod surface;
+mod texture_cache;
