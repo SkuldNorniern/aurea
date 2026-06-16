@@ -1,8 +1,12 @@
 //! Backend-agnostic GPU-2D rendering core.
 
 mod backend;
+mod frame_plan;
+mod resolve;
+mod texture_cache;
 
 pub use backend::Gpu2dBackend;
+pub use frame_plan::FramePlan;
 
 use aurea_foundation::AureaResult;
 
@@ -13,11 +17,17 @@ use crate::renderer::{DrawingContext, Renderer};
 use crate::surface::{Surface, SurfaceInfo};
 use crate::types::Rect;
 
+use resolve::resolve_frame;
+use texture_cache::TextureCache;
+
 /// A 2D GPU renderer parameterized over its device backend.
 pub struct Gpu2dRenderer<B: Gpu2dBackend> {
     backend: B,
     display_list: DisplayList,
     batches: RenderBatches,
+    texture_cache: TextureCache,
+    frame_plan: FramePlan,
+    frame_counter: u64,
     logical_width: u32,
     logical_height: u32,
     scale_factor: f32,
@@ -30,6 +40,9 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
             backend,
             display_list: DisplayList::new(),
             batches: RenderBatches::default(),
+            texture_cache: TextureCache::new(),
+            frame_plan: FramePlan::new(),
+            frame_counter: 0,
             logical_width: width,
             logical_height: height,
             scale_factor: scale_factor.max(1.0),
@@ -37,7 +50,7 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
     }
 
     /// Shared access to the device backend (for backend-specific extensions such as engine-side
-    /// image embedding).
+    /// image embedding via `draw_sampled_image`).
     pub fn backend(&self) -> &B {
         &self.backend
     }
@@ -74,6 +87,7 @@ impl<B: Gpu2dBackend + Send + Sync> Renderer for Gpu2dRenderer<B> {
 
     fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext>> {
         self.backend.begin_frame()?;
+        self.texture_cache.prune_dropped(&mut self.backend);
         self.display_list.clear();
         let mut ctx = CpuDrawingContext::new(
             &mut self.display_list as *mut DisplayList,
@@ -86,7 +100,21 @@ impl<B: Gpu2dBackend + Send + Sync> Renderer for Gpu2dRenderer<B> {
 
     fn end_frame(&mut self) -> AureaResult<()> {
         self.batches.lower_into(&self.display_list);
-        self.backend.present(&self.batches)
+        let (pw, ph) = self.physical_size();
+        self.frame_plan.viewport_width = pw;
+        self.frame_plan.viewport_height = ph;
+        self.frame_counter += 1;
+        let fc = self.frame_counter;
+        resolve_frame(
+            &self.batches,
+            &mut self.texture_cache,
+            &mut self.backend,
+            fc,
+            &mut self.frame_plan,
+        )?;
+        let rects = &self.batches.rects;
+        let circles = &self.batches.circles;
+        self.backend.present_frame(&self.frame_plan, rects, circles)
     }
 
     fn cleanup(&mut self) {
