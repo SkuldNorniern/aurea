@@ -40,7 +40,11 @@ impl<K: Eq + Hash + Clone, V> LruCache<K, V> {
 
     pub(crate) fn insert(&mut self, k: K, v: V) {
         if self.map.len() >= self.cap
-            && let Some(key) = self.map.iter().min_by_key(|(_, (_, ts))| *ts).map(|(k, _)| k.clone())
+            && let Some(key) = self
+                .map
+                .iter()
+                .min_by_key(|(_, (_, ts))| *ts)
+                .map(|(k, _)| k.clone())
         {
             self.map.remove(&key);
         }
