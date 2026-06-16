@@ -4,10 +4,10 @@
 //! Aurea's 2D renderer and engine-side offscreen resources use one logical
 //! Vulkan device, and the target can be bound without a CPU readback.
 
-use aurea::render::{Rect, ZenGpuContext};
 use aurea::Window;
+use aurea::render::{Rect, ZenGpuContext};
 use std::sync::Arc;
-use zengpu::{vulkan::vk, OffscreenTarget};
+use zengpu::{OffscreenTarget, vulkan::vk};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let window = Window::new("Aurea - shared ZenGPU context", 1280, 720)?;

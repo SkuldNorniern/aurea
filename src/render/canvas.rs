@@ -17,8 +17,7 @@ mod runtime;
 /// Drawing callback — Arc so it can be cheaply cloned out of the state lock
 /// before the renderer lock is acquired, preventing deadlock when the callback
 /// reads canvas properties (size, background_color, etc.).
-pub type DrawCallback =
-    Arc<dyn Fn(&mut dyn DrawingContext) -> AureaResult<()> + Send + Sync>;
+pub type DrawCallback = Arc<dyn Fn(&mut dyn DrawingContext) -> AureaResult<()> + Send + Sync>;
 
 /// All per-frame mutable canvas properties in one lock.
 /// Renderer lives in a separate Arc<Mutex<>> so render_frame can release this
@@ -189,7 +188,11 @@ impl Canvas {
         let capabilities = CapabilityChecker::new();
         let scale_factor = unsafe {
             let window = ng_platform_canvas_get_window(handle);
-            if !window.is_null() { ng_platform_get_scale_factor(window) } else { 1.0 }
+            if !window.is_null() {
+                ng_platform_get_scale_factor(window)
+            } else {
+                1.0
+            }
         };
 
         let state = Arc::new(Mutex::new(CanvasState {
@@ -277,7 +280,12 @@ impl Canvas {
         let (damage_rect, bg_color) = {
             let mut st = crate::sync::lock(&self.state);
             let damage = st.damage.take().or_else(|| {
-                Some(super::Rect::new(0.0, 0.0, st.width as f32, st.height as f32))
+                Some(super::Rect::new(
+                    0.0,
+                    0.0,
+                    st.width as f32,
+                    st.height as f32,
+                ))
             });
             (damage, st.background_color)
         };
@@ -294,7 +302,9 @@ impl Canvas {
         }
 
         self.update_platform_view();
-        unsafe { ng_platform_canvas_invalidate(self.handle); }
+        unsafe {
+            ng_platform_canvas_invalidate(self.handle);
+        }
         Ok(())
     }
 
@@ -302,9 +312,16 @@ impl Canvas {
     pub fn set_background_color(&self, color: Color) {
         let changed = {
             let mut st = crate::sync::lock(&self.state);
-            if st.background_color == color { false } else { st.background_color = color; true }
+            if st.background_color == color {
+                false
+            } else {
+                st.background_color = color;
+                true
+            }
         };
-        if changed { self.invalidate_all(); }
+        if changed {
+            self.invalidate_all();
+        }
     }
 
     /// Get background color.
@@ -325,18 +342,24 @@ impl Canvas {
             st.needs_redraw = true;
         }
         FrameScheduler::schedule_canvas(self.handle);
-        unsafe { ng_platform_canvas_invalidate(self.handle); }
+        unsafe {
+            ng_platform_canvas_invalidate(self.handle);
+        }
     }
 
     /// Check if canvas needs redraw and perform it.
     pub fn redraw_if_needed(&mut self) -> AureaResult<()> {
         let needs = {
             let mut st = crate::sync::lock(&self.state);
-            if !st.needs_redraw { return Ok(()); }
+            if !st.needs_redraw {
+                return Ok(());
+            }
             st.needs_redraw = false;
             true
         };
-        if needs { self.perform_redraw()?; }
+        if needs {
+            self.perform_redraw()?;
+        }
         Ok(())
     }
 
@@ -353,12 +376,22 @@ impl Canvas {
         }
         FrameScheduler::schedule_canvas(self.handle);
         unsafe {
-            ng_platform_canvas_invalidate_rect(self.handle, rect.x, rect.y, rect.width, rect.height);
+            ng_platform_canvas_invalidate_rect(
+                self.handle,
+                rect.x,
+                rect.y,
+                rect.width,
+                rect.height,
+            );
         }
     }
 
-    pub fn width(&self) -> u32 { self.size().0 }
-    pub fn height(&self) -> u32 { self.size().1 }
+    pub fn width(&self) -> u32 {
+        self.size().0
+    }
+    pub fn height(&self) -> u32 {
+        self.size().1
+    }
 
     /// Start a per-frame ticker animation tied to this canvas.
     ///
@@ -525,16 +558,11 @@ fn zengpu_canvas_handles(handle: *mut c_void) -> AureaResult<zengpu_hal::WindowH
     let mut xcb_window = 0;
     let mut xcb_connection = std::ptr::null_mut();
     if unsafe {
-        crate::ffi::ng_platform_canvas_get_xcb_handle(
-            handle,
-            &mut xcb_window,
-            &mut xcb_connection,
-        )
+        crate::ffi::ng_platform_canvas_get_xcb_handle(handle, &mut xcb_window, &mut xcb_connection)
     } != 0
     {
         let window = NonZeroU32::new(xcb_window).ok_or(AureaError::ElementOperationFailed)?;
-        let connection =
-            NonNull::new(xcb_connection).ok_or(AureaError::ElementOperationFailed)?;
+        let connection = NonNull::new(xcb_connection).ok_or(AureaError::ElementOperationFailed)?;
         return Ok(zengpu_hal::WindowHandles::from_raw(
             RawWindowHandle::Xcb(XcbWindowHandle::new(window)),
             RawDisplayHandle::Xcb(XcbDisplayHandle::new(Some(connection), 0)),
@@ -605,4 +633,3 @@ mod tests {
         assert!(crate::sync::lock(&canvas.renderer).is_none());
     }
 }
-

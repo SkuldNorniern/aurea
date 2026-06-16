@@ -473,8 +473,7 @@ impl Window {
             )
         } != 0;
         if has_xcb {
-            let window =
-                NonZeroU32::new(xcb_window).ok_or(AureaError::ElementOperationFailed)?;
+            let window = NonZeroU32::new(xcb_window).ok_or(AureaError::ElementOperationFailed)?;
             let connection =
                 NonNull::new(xcb_connection).ok_or(AureaError::ElementOperationFailed)?;
             return Ok(zengpu_hal::WindowHandles::from_raw(

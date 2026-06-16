@@ -16,9 +16,9 @@ use inline_spirv::inline_spirv;
 use zengpu::{
     Acquire, Bindings, BlendMode, ColorAttachment, DepthState, FilterMode, Format, Frame,
     GpuAdapter, GpuDevice, GpuError, GraphicsDevice, GraphicsPipelineDesc, LoadOp, PresentMode,
-    PrimitiveTopology, RenderCommands, RenderPassDesc, Result, Scalar, SamplerDesc, ShaderDesc,
-    Surface, SurfaceConfig, TextureDesc, TextureUsage, Viewport, ViewportScissor,
-    VulkanInstance, WindowHandles,
+    PrimitiveTopology, RenderCommands, RenderPassDesc, Result, SamplerDesc, Scalar, ShaderDesc,
+    Surface, SurfaceConfig, TextureDesc, TextureUsage, Viewport, ViewportScissor, VulkanInstance,
+    WindowHandles,
 };
 
 const OFF_SIZE: u32 = 512;
@@ -113,12 +113,21 @@ fn main() -> Result<()> {
     let handles = WindowHandles::from_window(&window)
         .map_err(|e| GpuError::Backend(format!("window handle: {e:?}")))?;
     let (w, h) = window.size();
-    let config = SurfaceConfig { format: Format::Bgra8Unorm, width: w, height: h, present_mode: PresentMode::Fifo };
+    let config = SurfaceConfig {
+        format: Format::Bgra8Unorm,
+        width: w,
+        height: h,
+        present_mode: PresentMode::Fifo,
+    };
     let surface = device.create_surface(&handles, config)?;
 
     // Offscreen pass: spinning triangle into a 512×512 render target.
-    let off_vert = device.create_shader(ShaderDesc { spirv: spv_bytes(OFF_VERT_SPV) })?;
-    let off_frag = device.create_shader(ShaderDesc { spirv: spv_bytes(OFF_FRAG_SPV) })?;
+    let off_vert = device.create_shader(ShaderDesc {
+        spirv: spv_bytes(OFF_VERT_SPV),
+    })?;
+    let off_frag = device.create_shader(ShaderDesc {
+        spirv: spv_bytes(OFF_FRAG_SPV),
+    })?;
     let off_pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader: off_vert,
         fragment_shader: off_frag,
@@ -132,8 +141,12 @@ fn main() -> Result<()> {
     })?;
 
     // Screen pass: fullscreen quad sampling the offscreen target.
-    let scr_vert = device.create_shader(ShaderDesc { spirv: spv_bytes(SCR_VERT_SPV) })?;
-    let scr_frag = device.create_shader(ShaderDesc { spirv: spv_bytes(SCR_FRAG_SPV) })?;
+    let scr_vert = device.create_shader(ShaderDesc {
+        spirv: spv_bytes(SCR_VERT_SPV),
+    })?;
+    let scr_frag = device.create_shader(ShaderDesc {
+        spirv: spv_bytes(SCR_FRAG_SPV),
+    })?;
     let scr_pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader: scr_vert,
         fragment_shader: scr_frag,
@@ -201,10 +214,20 @@ fn main() -> Result<()> {
         });
         list.set_pipeline(off_pipeline);
         list.set_viewport_scissor(ViewportScissor {
-            viewport: Viewport { x: 0.0, y: 0.0, width: OFF_SIZE as f32, height: OFF_SIZE as f32, min_depth: 0.0, max_depth: 1.0 },
+            viewport: Viewport {
+                x: 0.0,
+                y: 0.0,
+                width: OFF_SIZE as f32,
+                height: OFF_SIZE as f32,
+                min_depth: 0.0,
+                max_depth: 1.0,
+            },
             scissor: None,
         });
-        list.bind(Bindings { scalars: &[Scalar::F32(angle)], ..Default::default() });
+        list.bind(Bindings {
+            scalars: &[Scalar::F32(angle)],
+            ..Default::default()
+        });
         list.draw(0..3, 0..1);
         list.end_render_pass();
 
@@ -220,10 +243,20 @@ fn main() -> Result<()> {
         });
         list.set_pipeline(scr_pipeline);
         list.set_viewport_scissor(ViewportScissor {
-            viewport: Viewport { x: 0.0, y: 0.0, width: sw as f32, height: sh as f32, min_depth: 0.0, max_depth: 1.0 },
+            viewport: Viewport {
+                x: 0.0,
+                y: 0.0,
+                width: sw as f32,
+                height: sh as f32,
+                min_depth: 0.0,
+                max_depth: 1.0,
+            },
             scissor: None,
         });
-        list.bind(Bindings { textures: &[tex_index], ..Default::default() });
+        list.bind(Bindings {
+            textures: &[tex_index],
+            ..Default::default()
+        });
         list.draw(0..6, 0..1);
         list.end_render_pass();
 

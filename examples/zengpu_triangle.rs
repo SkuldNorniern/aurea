@@ -10,8 +10,8 @@ use inline_spirv::inline_spirv;
 use zengpu::{
     Acquire, BlendMode, ColorAttachment, DepthState, Format, Frame, GpuAdapter, GpuDevice,
     GpuError, GraphicsDevice, GraphicsPipelineDesc, LoadOp, PresentMode, PrimitiveTopology,
-    RenderCommands, RenderPassDesc, Result, ShaderDesc, Surface, SurfaceConfig,
-    Viewport, ViewportScissor, VulkanInstance, WindowHandles,
+    RenderCommands, RenderPassDesc, Result, ShaderDesc, Surface, SurfaceConfig, Viewport,
+    ViewportScissor, VulkanInstance, WindowHandles,
 };
 
 const VERT_SPV: &[u32] = inline_spirv!(
@@ -55,12 +55,21 @@ fn main() -> Result<()> {
     let handles = WindowHandles::from_window(&window)
         .map_err(|e| GpuError::Backend(format!("window handle: {e:?}")))?;
     let (w, h) = window.size();
-    let config = SurfaceConfig { format: Format::Bgra8Unorm, width: w, height: h, present_mode: PresentMode::Fifo };
+    let config = SurfaceConfig {
+        format: Format::Bgra8Unorm,
+        width: w,
+        height: h,
+        present_mode: PresentMode::Fifo,
+    };
 
     let surface = device.create_surface(&handles, config)?;
 
-    let vert_shader = device.create_shader(ShaderDesc { spirv: spv_bytes(VERT_SPV) })?;
-    let frag_shader = device.create_shader(ShaderDesc { spirv: spv_bytes(FRAG_SPV) })?;
+    let vert_shader = device.create_shader(ShaderDesc {
+        spirv: spv_bytes(VERT_SPV),
+    })?;
+    let frag_shader = device.create_shader(ShaderDesc {
+        spirv: spv_bytes(FRAG_SPV),
+    })?;
 
     let pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader: vert_shader,
@@ -103,7 +112,14 @@ fn main() -> Result<()> {
         list.set_pipeline(pipeline);
         let (sw, sh) = surface.size();
         list.set_viewport_scissor(ViewportScissor {
-            viewport: Viewport { x: 0.0, y: 0.0, width: sw as f32, height: sh as f32, min_depth: 0.0, max_depth: 1.0 },
+            viewport: Viewport {
+                x: 0.0,
+                y: 0.0,
+                width: sw as f32,
+                height: sh as f32,
+                min_depth: 0.0,
+                max_depth: 1.0,
+            },
             scissor: None,
         });
         list.draw(0..3, 0..1);

@@ -54,7 +54,11 @@ fn main() -> AureaResult<()> {
             let label_paint = Paint::new()
                 .color(Color::rgb(180, 180, 180))
                 .style(PaintStyle::Fill);
-            ctx.draw_text("OutCubic fade-in (1.5 s)", Point::new(20.0, 30.0), &label_paint)?;
+            ctx.draw_text(
+                "OutCubic fade-in (1.5 s)",
+                Point::new(20.0, 30.0),
+                &label_paint,
+            )?;
 
             // The panel: alpha goes from 0 → 255 as t goes 0 → 1.
             let a = (alpha * 255.0) as u8;
