@@ -112,14 +112,12 @@ fn normalise(s: &str) -> String {
 }
 
 fn file_stem(name: &str) -> &str {
-    let name = name
-        .trim_end_matches(".ttf")
+    name.trim_end_matches(".ttf")
         .trim_end_matches(".TTF")
         .trim_end_matches(".otf")
         .trim_end_matches(".OTF")
         .trim_end_matches(".ttc")
-        .trim_end_matches(".TTC");
-    name
+        .trim_end_matches(".TTC")
 }
 
 fn find_by_filename(family: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
@@ -153,7 +151,7 @@ fn find_by_filename(family: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
                 continue;
             };
 
-            if best.as_ref().map_or(true, |(s, _)| score > *s) {
+            if best.as_ref().is_none_or(|(s, _)| score > *s) {
                 best = Some((score, entry.path()));
             }
         }
@@ -202,12 +200,11 @@ impl FontDbTextRasterizer {
     }
 
     fn load_for_key(&self, font: FontRef) -> AureaResult<Arc<fontdue::Font>> {
-        if !font.family.is_empty() {
-            if let Some(path) = find_by_filename(font.family, &self.dirs) {
-                if let Some(f) = load_font_file(&path) {
-                    return Ok(Arc::new(f));
-                }
-            }
+        if !font.family.is_empty()
+            && let Some(path) = find_by_filename(font.family, &self.dirs)
+            && let Some(f) = load_font_file(&path)
+        {
+            return Ok(Arc::new(f));
         }
 
         for &path in fallback_paths() {

@@ -97,10 +97,11 @@ impl CpuRasterizer {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render_item(
         item: &super::super::display_list::DisplayItem,
         scale: f32,
-        buf: &mut Vec<u32>,
+        buf: &mut [u32],
         scratch_edges: &mut Vec<Edge>,
         scratch_xs: &mut Vec<f32>,
         bw: u32,
@@ -164,7 +165,7 @@ impl CpuRasterizer {
         rect: &Rect,
         paint: &Paint,
         mode: BlendMode,
-        buf: &mut Vec<u32>,
+        buf: &mut [u32],
         bw: u32,
         bh: u32,
     ) {
@@ -291,7 +292,7 @@ impl CpuRasterizer {
         radius: f32,
         paint: &Paint,
         mode: BlendMode,
-        buf: &mut Vec<u32>,
+        buf: &mut [u32],
         bw: u32,
         bh: u32,
     ) {
@@ -373,12 +374,13 @@ impl CpuRasterizer {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn draw_path(
         path: &super::super::types::Path,
         paint: &Paint,
         mode: BlendMode,
         scale: f32,
-        buf: &mut Vec<u32>,
+        buf: &mut [u32],
         scratch_edges: &mut Vec<Edge>,
         scratch_xs: &mut Vec<f32>,
         bw: u32,
@@ -421,7 +423,7 @@ impl CpuRasterizer {
         mask: &GlyphMask,
         origin: Point,
         color: Color,
-        buf: &mut Vec<u32>,
+        buf: &mut [u32],
         bw: u32,
         bh: u32,
     ) {
@@ -494,7 +496,7 @@ impl CpuRasterizer {
         src: Rect,
         dest: Rect,
         mode: BlendMode,
-        buf: &mut Vec<u32>,
+        buf: &mut [u32],
         bw: u32,
         bh: u32,
     ) {
@@ -620,7 +622,7 @@ impl CpuRasterizer {
         grad: &LinearGradient,
         rect: Rect,
         mode: BlendMode,
-        buf: &mut Vec<u32>,
+        buf: &mut [u32],
         bw: u32,
         bh: u32,
     ) {
@@ -665,7 +667,7 @@ impl CpuRasterizer {
         grad: &RadialGradient,
         rect: Rect,
         mode: BlendMode,
-        buf: &mut Vec<u32>,
+        buf: &mut [u32],
         bw: u32,
         bh: u32,
     ) {
