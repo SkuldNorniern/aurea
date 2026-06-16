@@ -7,6 +7,7 @@ use super::path::Edge;
 /// Fill one scanline into a flat RGBA buffer (odd-even winding rule).
 /// `offset_x/y` allow clipping to a sub-region (pass 0,0 for the full buffer).
 /// `scratch_xs` is reused across calls to avoid a `Vec` allocation per scanline.
+#[allow(clippy::too_many_arguments)]
 pub fn fill_scanline(
     edges: &[Edge],
     y: f32,
@@ -101,8 +102,8 @@ pub fn fill_scanline(
                     if opaque_fast {
                         buf[start..end].fill(full_src);
                     } else {
-                        for idx in start..end {
-                            buf[idx] = blend_pixel(full_src, buf[idx], blend_mode);
+                        for p in &mut buf[start..end] {
+                            *p = blend_pixel(full_src, *p, blend_mode);
                         }
                     }
                 }

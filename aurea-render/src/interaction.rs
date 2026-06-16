@@ -133,7 +133,7 @@ impl InteractionRegistry {
         let hover_callbacks = aurea_foundation::lock(&self.hover_callbacks);
 
         // Check for new hovers
-        for (id, _) in &current_hovered {
+        for id in current_hovered.keys() {
             if !hover_state.get(id).copied().unwrap_or(false) {
                 // Entered
                 if let Some(callback) = hover_callbacks.get(id) {

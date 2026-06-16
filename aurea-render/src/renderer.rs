@@ -350,6 +350,7 @@ impl PlaceholderRenderer {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn blit_image_to_buffer(
         image_data: &[u8],
         image_width: u32,
@@ -405,7 +406,7 @@ impl PlaceholderRenderer {
                     let dg = (dst >> 8) & 0xff;
                     let db = dst & 0xff;
                     let sa = a as u32;
-                    let inv_sa = (255 - sa) as u32;
+                    let inv_sa = 255 - sa;
                     let out_a = sa + (inv_sa * da) / 255;
                     if out_a == 0 {
                         buffer[buf_idx] = 0;

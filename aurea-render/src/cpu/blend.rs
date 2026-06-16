@@ -246,21 +246,9 @@ fn blend_color_burn(src: u32, dst: u32) -> u32 {
     let dg = dg(dst);
     let db = db(dst);
     let da = da(dst);
-    let out_r = if sr == 0 {
-        0
-    } else {
-        255 - ((255 - dr) * 255).min(255) / sr
-    };
-    let out_g = if sg == 0 {
-        0
-    } else {
-        255 - ((255 - dg) * 255).min(255) / sg
-    };
-    let out_b = if sb == 0 {
-        0
-    } else {
-        255 - ((255 - db) * 255).min(255) / sb
-    };
+    let out_r = ((255 - dr) * 255).min(255).checked_div(sr).map_or(0, |v| 255 - v);
+    let out_g = ((255 - dg) * 255).min(255).checked_div(sg).map_or(0, |v| 255 - v);
+    let out_b = ((255 - db) * 255).min(255).checked_div(sb).map_or(0, |v| 255 - v);
     let out_a = sa + (da * (255 - sa)) / 255;
     (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b
 }

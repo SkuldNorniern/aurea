@@ -118,6 +118,7 @@ impl DirectWriteRasterizer {
             (*raw).GetMetrics(&mut fm);
         }
 
+        #[allow(clippy::arc_with_non_send_sync)]
         let entry = Arc::new(FaceEntry {
             face,
             units_per_em: fm.designUnitsPerEm.max(1) as f32,
