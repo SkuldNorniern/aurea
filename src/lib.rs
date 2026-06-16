@@ -84,8 +84,7 @@ pub use crate::elements::{
 };
 pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
 pub use crate::window::{
-    CursorGrabMode, Window, WindowId, WindowManager, WindowType, clipboard_text,
-    set_clipboard_text,
+    CursorGrabMode, Window, WindowId, WindowManager, WindowType, clipboard_text, set_clipboard_text,
 };
 
 // Re-export window event types
@@ -94,4 +93,6 @@ pub use crate::window::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEv
 #[cfg(feature = "wgpu")]
 pub use crate::integration::NativeWindowHandle;
 pub use aurea_foundation::{AureaError, AureaResult};
-pub use aurea_foundation::{Capability, CapabilityChecker, DesktopPlatform, MobilePlatform, Platform};
+pub use aurea_foundation::{
+    Capability, CapabilityChecker, DesktopPlatform, MobilePlatform, Platform,
+};

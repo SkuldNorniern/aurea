@@ -27,8 +27,11 @@ impl EaseMode {
             Self::InQuad => t * t,
             Self::OutQuad => 1.0 - (1.0 - t) * (1.0 - t),
             Self::InOutQuad => {
-                if t < 0.5 { 2.0 * t * t }
-                else { 1.0 - (-2.0 * t + 2.0) * (-2.0 * t + 2.0) / 2.0 }
+                if t < 0.5 {
+                    2.0 * t * t
+                } else {
+                    1.0 - (-2.0 * t + 2.0) * (-2.0 * t + 2.0) / 2.0
+                }
             }
 
             Self::InCubic => t * t * t,
@@ -37,8 +40,9 @@ impl EaseMode {
                 1.0 + u * u * u
             }
             Self::InOutCubic => {
-                if t < 0.5 { 4.0 * t * t * t }
-                else {
+                if t < 0.5 {
+                    4.0 * t * t * t
+                } else {
                     let u = -2.0 * t + 2.0;
                     1.0 - u * u * u / 2.0
                 }
@@ -50,8 +54,9 @@ impl EaseMode {
                 1.0 - u * u * u * u
             }
             Self::InOutQuart => {
-                if t < 0.5 { 8.0 * t * t * t * t }
-                else {
+                if t < 0.5 {
+                    8.0 * t * t * t * t
+                } else {
                     let u = -2.0 * t + 2.0;
                     1.0 - u * u * u * u / 2.0
                 }
@@ -63,8 +68,9 @@ impl EaseMode {
                 1.0 + u * u * u * u * u
             }
             Self::InOutQuint => {
-                if t < 0.5 { 16.0 * t * t * t * t * t }
-                else {
+                if t < 0.5 {
+                    16.0 * t * t * t * t * t
+                } else {
                     let u = -2.0 * t + 2.0;
                     1.0 - u * u * u * u * u / 2.0
                 }
@@ -77,7 +83,9 @@ impl EaseMode {
 mod tests {
     use super::*;
 
-    fn approx(a: f32, b: f32) -> bool { (a - b).abs() < 1e-5 }
+    fn approx(a: f32, b: f32) -> bool {
+        (a - b).abs() < 1e-5
+    }
 
     #[test]
     fn linear_identity() {
@@ -89,10 +97,18 @@ mod tests {
     #[test]
     fn all_modes_boundary() {
         let modes = [
-            EaseMode::InQuad, EaseMode::OutQuad, EaseMode::InOutQuad,
-            EaseMode::InCubic, EaseMode::OutCubic, EaseMode::InOutCubic,
-            EaseMode::InQuart, EaseMode::OutQuart, EaseMode::InOutQuart,
-            EaseMode::InQuint, EaseMode::OutQuint, EaseMode::InOutQuint,
+            EaseMode::InQuad,
+            EaseMode::OutQuad,
+            EaseMode::InOutQuad,
+            EaseMode::InCubic,
+            EaseMode::OutCubic,
+            EaseMode::InOutCubic,
+            EaseMode::InQuart,
+            EaseMode::OutQuart,
+            EaseMode::InOutQuart,
+            EaseMode::InQuint,
+            EaseMode::OutQuint,
+            EaseMode::InOutQuint,
         ];
         for mode in modes {
             assert!(approx(mode.eval(0.0), 0.0), "{:?} must start at 0", mode);

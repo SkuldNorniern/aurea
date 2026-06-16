@@ -39,8 +39,7 @@ static TICKER_COUNTER: AtomicU64 = AtomicU64::new(0);
 static TICKERS: LazyLock<Mutex<Arc<HashMap<TickerId, TickerFn>>>> =
     LazyLock::new(|| Mutex::new(Arc::new(HashMap::new())));
 static FRAME_COUNTER: AtomicU64 = AtomicU64::new(0);
-static LAST_FRAME_TIME: LazyLock<Mutex<Instant>> =
-    LazyLock::new(|| Mutex::new(Instant::now()));
+static LAST_FRAME_TIME: LazyLock<Mutex<Instant>> = LazyLock::new(|| Mutex::new(Instant::now()));
 static REQUEST_FRAME_HOOK: LazyLock<Mutex<Option<Box<dyn Fn() + Send + Sync>>>> =
     LazyLock::new(|| Mutex::new(None));
 
@@ -156,7 +155,11 @@ impl FrameScheduler {
             d
         };
         let frame = FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let frame_info = FrameInfo { time: now, delta, frame };
+        let frame_info = FrameInfo {
+            time: now,
+            delta,
+            frame,
+        };
 
         // === Tickers run before canvas redraws so mutations are visible this frame ===
         // Clone the Arc — O(1); locks released before invoking user code.
@@ -326,7 +329,11 @@ mod tests {
         FrameScheduler::unregister_frame_callback(id);
         FrameScheduler::schedule();
         FrameScheduler::process_frames().unwrap();
-        assert_eq!(count.load(Ordering::Relaxed), 1, "callback must not fire after unregister");
+        assert_eq!(
+            count.load(Ordering::Relaxed),
+            1,
+            "callback must not fire after unregister"
+        );
     }
 
     #[test]
@@ -367,6 +374,10 @@ mod tests {
         FrameScheduler::unregister_ticker(id);
         FrameScheduler::schedule();
         FrameScheduler::process_frames().unwrap();
-        assert_eq!(count.load(Ordering::Relaxed), 1, "ticker must not fire after unregister");
+        assert_eq!(
+            count.load(Ordering::Relaxed),
+            1,
+            "ticker must not fire after unregister"
+        );
     }
 }

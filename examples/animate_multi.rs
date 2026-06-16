@@ -85,7 +85,11 @@ fn main() -> AureaResult<()> {
             let sq_label = Paint::new()
                 .color(Color::rgb(255, 255, 255))
                 .style(PaintStyle::Fill);
-            ctx.draw_text("Slide (OutQuint)", Point::new(slide_x + 10.0, 165.0), &sq_label)?;
+            ctx.draw_text(
+                "Slide (OutQuint)",
+                Point::new(slide_x + 10.0, 165.0),
+                &sq_label,
+            )?;
 
             // ── Fading + scaling circle ───────────────────────────────────────
             let cx = W as f32 * 0.65;

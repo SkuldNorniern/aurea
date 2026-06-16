@@ -177,11 +177,20 @@ fn main() -> Result<()> {
     let handles = WindowHandles::from_window(&window)
         .map_err(|e| GpuError::Backend(format!("window handle: {e:?}")))?;
     let (w, h) = window.size();
-    let config = SurfaceConfig { format: Format::Bgra8Unorm, width: w, height: h, present_mode: PresentMode::Fifo };
+    let config = SurfaceConfig {
+        format: Format::Bgra8Unorm,
+        width: w,
+        height: h,
+        present_mode: PresentMode::Fifo,
+    };
     let surface = device.create_surface(&handles, config)?;
 
-    let vert_shader = device.create_shader(ShaderDesc { spirv: spv_bytes(VERT_SPV) })?;
-    let frag_shader = device.create_shader(ShaderDesc { spirv: spv_bytes(FRAG_SPV) })?;
+    let vert_shader = device.create_shader(ShaderDesc {
+        spirv: spv_bytes(VERT_SPV),
+    })?;
+    let frag_shader = device.create_shader(ShaderDesc {
+        spirv: spv_bytes(FRAG_SPV),
+    })?;
 
     let pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader: vert_shader,
@@ -189,15 +198,26 @@ fn main() -> Result<()> {
         vertex_layouts: &[VertexLayout {
             stride: std::mem::size_of::<Vertex3d>() as u32,
             attributes: &[
-                VertexAttribute { location: 0, offset: 0, format: VertexFormat::Float32x3 },
-                VertexAttribute { location: 1, offset: 12, format: VertexFormat::Float32x3 },
+                VertexAttribute {
+                    location: 0,
+                    offset: 0,
+                    format: VertexFormat::Float32x3,
+                },
+                VertexAttribute {
+                    location: 1,
+                    offset: 12,
+                    format: VertexFormat::Float32x3,
+                },
             ],
             ..Default::default()
         }],
         topology: PrimitiveTopology::TriangleList,
         color_format: config.format,
         depth_format: Some(Format::Depth32Float),
-        depth: DepthState { test: true, write: true },
+        depth: DepthState {
+            test: true,
+            write: true,
+        },
         blend: BlendMode::default(),
         samples: 1,
     })?;
@@ -279,9 +299,17 @@ fn main() -> Result<()> {
                 min_depth: 0.0,
                 max_depth: 1.0,
             },
-            scissor: Some(Rect { x: 0.0, y: 0.0, width: sw as f32, height: sh as f32 }),
+            scissor: Some(Rect {
+                x: 0.0,
+                y: 0.0,
+                width: sw as f32,
+                height: sh as f32,
+            }),
         });
-        list.bind(Bindings { scalars: &scalars, ..Default::default() });
+        list.bind(Bindings {
+            scalars: &scalars,
+            ..Default::default()
+        });
         list.set_vertex_buffer(0, vertex_buf);
         list.set_index_buffer(index_buf);
         list.draw_indexed(0..CUBE_INDICES.len() as u32, 0..1);
