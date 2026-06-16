@@ -1,8 +1,9 @@
-use aurea::elements::{Box as NativeBox, BoxOrientation, Label};
-use aurea::render::{Canvas, Color, Paint, Point, Rect, RendererBackend};
-use aurea::{Container, Window, WindowEvent};
-
+#[cfg(feature = "zengpu")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    use aurea::elements::{Box as NativeBox, BoxOrientation, Label};
+    use aurea::render::{Canvas, Color, Paint, Point, Rect, RendererBackend};
+    use aurea::{Container, Window, WindowEvent};
+
     let mut window = Window::new("Aurea - hosted ZenGPU canvas", 800, 600)?;
     let canvas = Canvas::new(800, 600, RendererBackend::ZenGpu)?;
 
@@ -39,4 +40,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         window.process_frames()?;
     }
+}
+
+#[cfg(not(feature = "zengpu"))]
+fn main() {
+    eprintln!("This example requires the `zengpu` feature.");
+    eprintln!("Run with: cargo run --example zengpu_canvas --features zengpu");
+    std::process::exit(1);
 }
