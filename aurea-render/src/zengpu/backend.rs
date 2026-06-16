@@ -11,7 +11,7 @@ use zengpu_hal::{
     Surface, TextureDesc, TextureHandle, TextureUsage, Viewport, ViewportScissor, WindowHandles,
 };
 use zengpu_vulkan::instance::VulkanInstance;
-use zengpu_vulkan::{SampledImageView, VulkanDevice, VulkanSurface};
+use zengpu_vulkan::{VulkanDevice, VulkanSurface};
 
 use crate::batch::{CircleInstance, DrawRef, RectInstance};
 use crate::gpu2d::{FramePlan, Gpu2dBackend, Gpu2dRenderer};
@@ -145,13 +145,13 @@ impl ZenGpuRenderer {
         &self.backend().context
     }
 
-    /// Draw a caller-owned GPU image after the ordinary display list.
+    /// Draw a caller-owned GPU texture after the ordinary display list.
     pub fn draw_sampled_image(
         &mut self,
-        image: SampledImageView<'_>,
+        texture: TextureHandle,
         dest: crate::types::Rect,
     ) -> AureaResult<()> {
-        self.backend_mut().push_external_image(image, dest)
+        self.backend_mut().push_external_image(texture, dest)
     }
 
     /// Remove all caller-owned sampled images queued with [`draw_sampled_image`].
@@ -164,14 +164,13 @@ impl ZenGpuRenderer {
 impl ZenGpuBackend {
     fn push_external_image(
         &mut self,
-        image: SampledImageView<'_>,
+        texture: TextureHandle,
         dest: crate::types::Rect,
     ) -> AureaResult<()> {
         let device = self.context.device();
-        let sampler_vk = device
-            .sampler_vk(self.sampler)
-            .ok_or(AureaError::ElementOperationFailed)?;
-        let slot = device.bind_raw_image_view(image.raw(), sampler_vk);
+        let slot = device
+            .bind_texture(texture, self.sampler)
+            .ok_or(AureaError::RenderingFailed)?;
         self.external_images.push(ExternalImageDraw {
             instance: ImageInstance {
                 rect: [dest.x, dest.y, dest.width, dest.height],
