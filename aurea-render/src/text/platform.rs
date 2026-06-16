@@ -168,17 +168,17 @@ impl TextRenderer {
         font: FontRef,
     ) -> AureaResult<(GlyphMask, f32, f32)> {
         let mut chars = text.chars();
-        if let Some(ch) = chars.next() {
-            if chars.next().is_none() {
-                // Single character — per-glyph mask cache.
-                let key = GlyphKey::new(font, ch as u32);
-                if let Some(cached) = aurea_foundation::lock(&self.mask_cache).get(&key).cloned() {
-                    return Ok(cached);
-                }
-                let result = self.compute_mask(text, font)?;
-                aurea_foundation::lock(&self.mask_cache).insert(key, result.clone());
-                return Ok(result);
+        if let Some(ch) = chars.next()
+            && chars.next().is_none()
+        {
+            // Single character — per-glyph mask cache.
+            let key = GlyphKey::new(font, ch as u32);
+            if let Some(cached) = aurea_foundation::lock(&self.mask_cache).get(&key).cloned() {
+                return Ok(cached);
             }
+            let result = self.compute_mask(text, font)?;
+            aurea_foundation::lock(&self.mask_cache).insert(key, result.clone());
+            return Ok(result);
         }
 
         // Multi-character run — run-mask cache.
@@ -246,6 +246,7 @@ impl TextRenderer {
     }
 
     /// Render grayscale text into an RGBA buffer (legacy generic path).
+    #[allow(clippy::too_many_arguments)]
     pub fn render_text(
         &self,
         text: &str,
@@ -281,6 +282,7 @@ impl TextRenderer {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn blit_glyph(
         &self,
         glyph: &GlyphBitmap,
