@@ -159,6 +159,39 @@ impl Capability {
     }
 }
 
+const ALL: &[Capability] = &[
+    Capability::MultipleWindows,
+    Capability::WindowResizing,
+    Capability::WindowMinimization,
+    Capability::WindowMaximization,
+    Capability::FullscreenMode,
+    Capability::MenuBar,
+    Capability::ContextMenus,
+    Capability::KeyboardShortcuts,
+    Capability::FileDialogs,
+    Capability::ColorPicker,
+    Capability::FontPicker,
+    Capability::SystemNotifications,
+    Capability::MouseInput,
+    Capability::TouchInput,
+    Capability::KeyboardInput,
+    Capability::StylusInput,
+    Capability::HardwareAcceleration,
+    Capability::OpenGL,
+    Capability::Metal,
+    Capability::Vulkan,
+    Capability::DirectX,
+    Capability::SystemTray,
+    Capability::DockIntegration,
+    Capability::TaskbarIntegration,
+    Capability::AppIndicators,
+    Capability::DragAndDrop,
+    Capability::Clipboard,
+    Capability::ScreenCapture,
+    Capability::WindowTransparency,
+    Capability::WindowShadows,
+];
+
 #[derive(Debug, Clone, Copy)]
 pub struct CapabilityChecker {
     platform: Platform,
@@ -180,83 +213,11 @@ impl CapabilityChecker {
     }
 
     pub fn available_capabilities(&self) -> Vec<Capability> {
-        use Capability::*;
-        [
-            MultipleWindows,
-            WindowResizing,
-            WindowMinimization,
-            WindowMaximization,
-            FullscreenMode,
-            MenuBar,
-            ContextMenus,
-            KeyboardShortcuts,
-            FileDialogs,
-            ColorPicker,
-            FontPicker,
-            SystemNotifications,
-            MouseInput,
-            TouchInput,
-            KeyboardInput,
-            StylusInput,
-            HardwareAcceleration,
-            OpenGL,
-            Metal,
-            Vulkan,
-            DirectX,
-            SystemTray,
-            DockIntegration,
-            TaskbarIntegration,
-            AppIndicators,
-            DragAndDrop,
-            Clipboard,
-            ScreenCapture,
-            WindowTransparency,
-            WindowShadows,
-        ]
-        .iter()
-        .copied()
-        .filter(|&cap| self.has(cap))
-        .collect()
+        ALL.iter().copied().filter(|&cap| self.has(cap)).collect()
     }
 
     pub fn unavailable_capabilities(&self) -> Vec<Capability> {
-        use Capability::*;
-        [
-            MultipleWindows,
-            WindowResizing,
-            WindowMinimization,
-            WindowMaximization,
-            FullscreenMode,
-            MenuBar,
-            ContextMenus,
-            KeyboardShortcuts,
-            FileDialogs,
-            ColorPicker,
-            FontPicker,
-            SystemNotifications,
-            MouseInput,
-            TouchInput,
-            KeyboardInput,
-            StylusInput,
-            HardwareAcceleration,
-            OpenGL,
-            Metal,
-            Vulkan,
-            DirectX,
-            SystemTray,
-            DockIntegration,
-            TaskbarIntegration,
-            AppIndicators,
-            DragAndDrop,
-            Clipboard,
-            ScreenCapture,
-            WindowTransparency,
-            WindowShadows,
-        ]
-        .iter()
-        .copied()
-        .filter(|&cap| !self.has(cap))
-        .collect()
+        ALL.iter().copied().filter(|&cap| !self.has(cap)).collect()
     }
 
     pub fn platform(&self) -> Platform {
