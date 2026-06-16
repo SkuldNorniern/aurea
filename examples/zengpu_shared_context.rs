@@ -6,8 +6,8 @@
 
 #[cfg(feature = "zengpu")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use aurea::render::{Rect, ZenGpuContext};
     use aurea::Window;
+    use aurea::render::{Rect, ZenGpuContext};
     use std::sync::Arc;
     use zengpu::{Format, OffscreenTarget};
 
@@ -15,14 +15,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let context = Arc::new(ZenGpuContext::new()?);
 
     let mut host_renderer = window.create_zengpu_2d_with_context(Arc::clone(&context))?;
-    let game_view = OffscreenTarget::new(
-        &context.device_context(),
-        Format::Rgba8Unorm,
-        960,
-        540,
-    )?;
+    let game_view = OffscreenTarget::new(context.device(), Format::Rgba8Unorm, 960, 540)?;
     host_renderer.draw_sampled_image(
-        game_view.sampled_view(),
+        game_view.texture_handle(),
         Rect::new(32.0, 32.0, 960.0, 540.0),
     )?;
 
