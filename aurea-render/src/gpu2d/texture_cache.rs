@@ -30,7 +30,12 @@ struct CacheKey {
 
 impl CacheKey {
     fn from_pixels(data: &Arc<[u8]>, width: u32, height: u32) -> Self {
-        Self { data_ptr: data.as_ptr() as usize, data_len: data.len(), width, height }
+        Self {
+            data_ptr: data.as_ptr() as usize,
+            data_len: data.len(),
+            width,
+            height,
+        }
     }
 }
 
@@ -55,7 +60,11 @@ impl TextureCache {
     }
 
     pub fn with_capacity(cap: usize) -> Self {
-        Self { map: HashMap::new(), clock: 0, cap }
+        Self {
+            map: HashMap::new(),
+            clock: 0,
+            cap,
+        }
     }
 
     /// Return the shader slot for `pixels`/`width`/`height`, uploading via the
@@ -84,7 +93,11 @@ impl TextureCache {
         let slot = backend.upload_image(width, height, pixels)?;
         self.map.insert(
             key,
-            Entry { slot, keepalive: Arc::clone(pixels), last_used: clock },
+            Entry {
+                slot,
+                keepalive: Arc::clone(pixels),
+                last_used: clock,
+            },
         );
         Ok(slot)
     }
@@ -105,6 +118,7 @@ impl TextureCache {
     }
 
     /// Release all cached entries. Call while the device is idle (Drop context).
+    #[allow(dead_code)]
     pub fn drain<B: Gpu2dBackend>(&mut self, backend: &mut B) {
         for (_, entry) in self.map.drain() {
             backend.evict_image(entry.slot);

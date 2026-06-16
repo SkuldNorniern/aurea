@@ -506,7 +506,12 @@ impl Renderer for WgpuRenderer {
         self.queue.write_buffer(
             &self.viewport_buffer,
             0,
-            bytemuck_bytes(&[self.config.width as f32, self.config.height as f32, 0.0, 0.0]),
+            bytemuck_bytes(&[
+                self.config.width as f32,
+                self.config.height as f32,
+                0.0,
+                0.0,
+            ]),
         );
         Ok(())
     }
@@ -531,7 +536,8 @@ impl Renderer for WgpuRenderer {
                 self.batches.rects.len() * size_of::<RectInstance>(),
             )
         };
-        self.rect_instances.upload(&self.device, &self.queue, rect_bytes);
+        self.rect_instances
+            .upload(&self.device, &self.queue, rect_bytes);
 
         let circle_bytes: &[u8] = unsafe {
             std::slice::from_raw_parts(
@@ -539,10 +545,12 @@ impl Renderer for WgpuRenderer {
                 self.batches.circles.len() * size_of::<CircleInstance>(),
             )
         };
-        self.circle_instances.upload(&self.device, &self.queue, circle_bytes);
+        self.circle_instances
+            .upload(&self.device, &self.queue, circle_bytes);
 
         self.gradient_keys.clear();
-        let mut gradient_bytes = Vec::with_capacity(self.batches.gradients.len() * GRADIENT_INSTANCE_SIZE);
+        let mut gradient_bytes =
+            Vec::with_capacity(self.batches.gradients.len() * GRADIENT_INSTANCE_SIZE);
         for gradient in &self.batches.gradients {
             let key = lut_hash_key(&gradient.lut);
             self.gradient_keys.push(key);

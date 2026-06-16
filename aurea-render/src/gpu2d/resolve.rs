@@ -30,7 +30,13 @@ pub fn resolve_frame<B: Gpu2dBackend>(
     plan.clear = batches.clear;
     plan.order.extend_from_slice(&batches.order);
 
-    resolve_gradients(&batches.gradients, cache, backend, frame, &mut plan.gradients)?;
+    resolve_gradients(
+        &batches.gradients,
+        cache,
+        backend,
+        frame,
+        &mut plan.gradients,
+    )?;
     resolve_images(&batches.images, cache, backend, frame, &mut plan.images)?;
     resolve_texts(&batches.texts, cache, backend, frame, &mut plan.texts)?;
 
@@ -46,7 +52,12 @@ fn resolve_gradients<B: Gpu2dBackend>(
 ) -> AureaResult<()> {
     for g in gradients {
         let slot = cache.resolve(&g.lut, 256, 1, backend, frame)?;
-        out.push(GradientPlanEntry { rect: g.rect, a: g.a, b: g.b, slot });
+        out.push(GradientPlanEntry {
+            rect: g.rect,
+            a: g.a,
+            b: g.b,
+            slot,
+        });
     }
     Ok(())
 }

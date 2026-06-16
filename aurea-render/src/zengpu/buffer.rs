@@ -14,7 +14,11 @@ pub struct GrowableBuffer {
 
 impl GrowableBuffer {
     pub fn new(usage: BufferUsage) -> Self {
-        Self { handle: None, capacity: 0, usage: usage | BufferUsage::VERTEX }
+        Self {
+            handle: None,
+            capacity: 0,
+            usage: usage | BufferUsage::VERTEX,
+        }
     }
 
     /// Upload `data`, growing the backing buffer if it doesn't fit. Returns
