@@ -13,11 +13,12 @@ use zengpu_hal::{
     GpuDevice, GraphicsDevice, LoadOp, RenderCommands, RenderPassDesc, Scalar,
     SamplerDesc, SamplerHandle, Surface, Viewport, ViewportScissor, WindowHandles,
 };
-use zengpu_vulkan::{VulkanDevice, VulkanSurface};
+use zengpu_vulkan::{SampledImageView, VulkanDevice, VulkanSurface};
 use zengpu_vulkan::instance::VulkanInstance;
 
 use crate::batch::{DrawRef, GradientInstance as BatchGradient, ImageDraw, RenderBatches, TextDraw};
 use crate::gpu2d::{Gpu2dBackend, Gpu2dRenderer};
+use crate::types::Rect;
 
 use super::buffer::GrowableBuffer;
 use super::pipelines::{GradientInstance, ImageInstance, Pipelines, RectInstance, TextInstance};
@@ -64,6 +65,10 @@ impl PainterContext {
     }
 }
 
+struct ExternalImageDraw {
+    instance: ImageInstance,
+}
+
 /// ZenGPU device backend for the shared `Gpu2dRenderer` core, using the
 /// unified graphics API (no raw `ash`/`vk` calls).
 ///
@@ -85,6 +90,7 @@ pub struct Painter {
     vk_gradients: Vec<GradientInstance>,
     vk_images: Vec<ImageInstance>,
     vk_texts: Vec<TextInstance>,
+    external_images: Vec<ExternalImageDraw>,
 }
 
 /// Public renderer type (staging name; becomes `ZenGpuRenderer` at capstone).
@@ -139,6 +145,7 @@ impl PainterRenderer {
             vk_gradients: Vec::new(),
             vk_images: Vec::new(),
             vk_texts: Vec::new(),
+            external_images: Vec::new(),
         };
         Ok(Gpu2dRenderer::from_backend(backend, width, height, scale))
     }
@@ -150,9 +157,55 @@ impl PainterRenderer {
     pub fn context(&self) -> &Arc<PainterContext> {
         &self.backend().context
     }
+
+    /// Draw a caller-owned GPU image after the ordinary display list. The image
+    /// must come from the same [`PainterContext`] and already be in
+    /// `SHADER_READ_ONLY_OPTIMAL`. Bound via `bind_raw_image_view` into the
+    /// device's global bindless table (slot range 512-1023).
+    pub fn draw_sampled_image(
+        &mut self,
+        image: SampledImageView<'_>,
+        dest: Rect,
+    ) -> AureaResult<()> {
+        self.backend_mut().push_external_image(image, dest)
+    }
+
+    /// Remove all caller-owned sampled images queued with [`draw_sampled_image`].
+    ///
+    /// Call this before destroying their backing targets if no subsequent
+    /// `begin_frame` will clear them automatically.
+    pub fn clear_sampled_images(&mut self) -> AureaResult<()> {
+        self.backend_mut().external_images.clear();
+        Ok(())
+    }
+}
+
+impl Painter {
+    fn push_external_image(&mut self, image: SampledImageView<'_>, dest: Rect) -> AureaResult<()> {
+        let device = self.context.device();
+        let sampler_vk = device
+            .sampler_vk(self.sampler)
+            .ok_or(AureaError::ElementOperationFailed)?;
+        let slot = device.bind_raw_image_view(image.raw(), sampler_vk);
+        self.external_images.push(ExternalImageDraw {
+            instance: ImageInstance {
+                rect: [dest.x, dest.y, dest.width, dest.height],
+                uv: [0.0, 0.0, 1.0, 1.0],
+                tint: [1.0; 4],
+                slot,
+                _pad: [0; 3],
+            },
+        });
+        Ok(())
+    }
 }
 
 impl Gpu2dBackend for Painter {
+    fn begin_frame(&mut self) -> AureaResult<()> {
+        self.external_images.clear();
+        Ok(())
+    }
+
     fn resize(&mut self, physical_width: u32, physical_height: u32) -> AureaResult<()> {
         self.surface.resize(physical_width, physical_height).map_err(gpu_err)
     }
@@ -190,6 +243,9 @@ impl Gpu2dBackend for Painter {
             &mut self.texture_cache,
             &mut self.vk_images,
         )?;
+        // Append external (engine-side) images after display-list images.
+        let ext_image_base = self.vk_images.len() as u32;
+        self.vk_images.extend(self.external_images.iter().map(|e| e.instance));
         resolve_texts(
             &batches.texts,
             device,
@@ -314,6 +370,25 @@ impl Gpu2dBackend for Painter {
                     cmd.draw(0..6, idx..idx + 1);
                 }
             }
+        }
+
+        // External (engine-side) images after the display-list painter order.
+        for (i, ext) in self.external_images.iter().enumerate() {
+            let idx = ext_image_base + i as u32;
+            if cur_kind != Some(DrawKind::Image) {
+                cmd.set_pipeline(self.pipelines.image);
+                if let Some(buf) = image_handle {
+                    cmd.set_vertex_buffer(0, buf);
+                }
+                cur_kind = Some(DrawKind::Image);
+            }
+            let slot = ext.instance.slot;
+            cmd.bind(Bindings {
+                scalars: &viewport_scalars,
+                textures: std::slice::from_ref(&slot),
+                ..Default::default()
+            });
+            cmd.draw(0..6, idx..idx + 1);
         }
 
         cmd.end_render_pass();
