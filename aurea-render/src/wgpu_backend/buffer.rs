@@ -16,7 +16,12 @@ impl InstanceBuffer {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        Self { buffer, capacity, elem_size, label }
+        Self {
+            buffer,
+            capacity,
+            elem_size,
+            label,
+        }
     }
 
     /// Upload `data` (tightly-packed instance bytes), growing the buffer first

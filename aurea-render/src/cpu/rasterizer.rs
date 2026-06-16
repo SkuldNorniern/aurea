@@ -183,14 +183,7 @@ impl CpuRasterizer {
         }
     }
 
-    fn draw_rect(
-        rect: &Rect,
-        paint: &Paint,
-        mode: BlendMode,
-        buf: &mut [u32],
-        bw: u32,
-        bh: u32,
-    ) {
+    fn draw_rect(rect: &Rect, paint: &Paint, mode: BlendMode, buf: &mut [u32], bw: u32, bh: u32) {
         let x0 = (rect.x.max(0.0) as u32).min(bw);
         let y0 = (rect.y.max(0.0) as u32).min(bh);
         let x1 = ((rect.x + rect.width).ceil() as u32).min(bw);

@@ -264,15 +264,21 @@ impl WgpuBackend {
             cache: None,
         });
 
-        let rect_buf =
-            InstanceBuffer::new(&device, "aurea-wgpu2d-rect-instances", size_of::<RectInstance>());
+        let rect_buf = InstanceBuffer::new(
+            &device,
+            "aurea-wgpu2d-rect-instances",
+            size_of::<RectInstance>(),
+        );
         let circle_buf = InstanceBuffer::new(
             &device,
             "aurea-wgpu2d-circle-instances",
             size_of::<CircleInstance>(),
         );
-        let gradient_buf =
-            InstanceBuffer::new(&device, "aurea-wgpu2d-gradient-instances", GRADIENT_INSTANCE_STRIDE);
+        let gradient_buf = InstanceBuffer::new(
+            &device,
+            "aurea-wgpu2d-gradient-instances",
+            GRADIENT_INSTANCE_STRIDE,
+        );
 
         Self {
             device,
@@ -295,7 +301,11 @@ impl WgpuBackend {
     }
 
     fn make_slot_resource(&self, width: u32, height: u32, rgba: &[u8]) -> SlotResource {
-        let size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
+        let size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("aurea-wgpu2d-slot-tex"),
             size,
@@ -336,7 +346,10 @@ impl WgpuBackend {
                 },
             ],
         });
-        SlotResource { _texture: texture, bind_group }
+        SlotResource {
+            _texture: texture,
+            bind_group,
+        }
     }
 }
 
@@ -381,9 +394,12 @@ impl Gpu2dBackend for WgpuBackend {
             gradient_bytes.extend_from_slice(cast_bytes(g.b.as_ref()));
         }
 
-        self.rect_buf.upload(&self.device, &self.queue, cast_bytes(rects));
-        self.circle_buf.upload(&self.device, &self.queue, cast_bytes(circles));
-        self.gradient_buf.upload(&self.device, &self.queue, &gradient_bytes);
+        self.rect_buf
+            .upload(&self.device, &self.queue, cast_bytes(rects));
+        self.circle_buf
+            .upload(&self.device, &self.queue, cast_bytes(circles));
+        self.gradient_buf
+            .upload(&self.device, &self.queue, &gradient_bytes);
 
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(f) => f,
@@ -400,10 +416,14 @@ impl Gpu2dBackend for WgpuBackend {
             }
         };
 
-        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("aurea-wgpu2d-encoder"),
-        });
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("aurea-wgpu2d-encoder"),
+            });
         {
             let load = match plan.clear {
                 Some(c) => wgpu::LoadOp::Clear(wgpu::Color {
@@ -420,7 +440,10 @@ impl Gpu2dBackend for WgpuBackend {
                     view: &view,
                     depth_slice: None,
                     resolve_target: None,
-                    ops: wgpu::Operations { load, store: wgpu::StoreOp::Store },
+                    ops: wgpu::Operations {
+                        load,
+                        store: wgpu::StoreOp::Store,
+                    },
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
