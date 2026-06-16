@@ -63,7 +63,11 @@ const _: () = assert!(std::mem::size_of::<ImageInstance>() == 64);
 const _: () = assert!(std::mem::size_of::<TextInstance>() == 48);
 
 const fn float4(location: u32, offset: u32) -> VertexAttribute {
-    VertexAttribute { location, offset, format: VertexFormat::Float32x4 }
+    VertexAttribute {
+        location,
+        offset,
+        format: VertexFormat::Float32x4,
+    }
 }
 
 const RECT_ATTRS: [VertexAttribute; 2] = [float4(0, 0), float4(1, 16)];
@@ -105,8 +109,16 @@ impl Pipelines {
     /// Create all five pipelines for `color_format`.
     pub fn new(device: &VulkanDevice, color_format: Format) -> Result<Self> {
         let text_dual_source = device.supports_dual_source_blending();
-        let text_frag_spv = if text_dual_source { TEXT_DUAL_SOURCE_FRAG_SPV } else { TEXT_FRAG_SPV };
-        let text_blend = if text_dual_source { BlendMode::DualSourceAlpha } else { BlendMode::AlphaBlend };
+        let text_frag_spv = if text_dual_source {
+            TEXT_DUAL_SOURCE_FRAG_SPV
+        } else {
+            TEXT_FRAG_SPV
+        };
+        let text_blend = if text_dual_source {
+            BlendMode::DualSourceAlpha
+        } else {
+            BlendMode::AlphaBlend
+        };
 
         let rect = create_pipeline(
             device,
@@ -149,7 +161,13 @@ impl Pipelines {
             color_format,
         )?;
 
-        Ok(Self { rect, circle, gradient, image, text })
+        Ok(Self {
+            rect,
+            circle,
+            gradient,
+            image,
+            text,
+        })
     }
 }
 
@@ -161,8 +179,12 @@ fn create_pipeline(
     blend: BlendMode,
     color_format: Format,
 ) -> Result<PipelineHandle> {
-    let vertex_shader = device.create_shader(ShaderDesc { spirv: spv_bytes(vert_spv) })?;
-    let fragment_shader = device.create_shader(ShaderDesc { spirv: spv_bytes(frag_spv) })?;
+    let vertex_shader = device.create_shader(ShaderDesc {
+        spirv: spv_bytes(vert_spv),
+    })?;
+    let fragment_shader = device.create_shader(ShaderDesc {
+        spirv: spv_bytes(frag_spv),
+    })?;
     let pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader,
         fragment_shader,
