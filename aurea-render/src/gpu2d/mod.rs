@@ -1,18 +1,22 @@
 //! Backend-agnostic GPU-2D rendering core.
 //!
 //! [`Gpu2dRenderer`] implements aurea's [`Renderer`] trait **once**, over any
-//! [`Gpu2dBackend`]. It owns the display list, batch lowering, and logical/
-//! physical size bookkeeping; the backend supplies only device-touching
-//! primitives. ZenGPU is the first backend on this core (the showcase for
-//! ZenGPU's unified, no-raw-`vk` graphics API); wgpu follows on the same seam,
-//! so the cache/record machinery exists once instead of once per backend.
+//! [`Gpu2dBackend`]. It owns the display list, batch lowering, texture-cache
+//! LRU policy, and display-list resolution; the backend supplies only
+//! device-touching primitives. ZenGPU is the first backend on this core; wgpu
+//! follows on the same seam, so cache/record machinery exists once instead of
+//! once per backend.
 //!
 //! This is the GPU peer of the modular `cpu/` backend: one concern per piece,
 //! a thin device boundary, and "add a backend = implement one trait".
 
 mod backend;
+mod frame_plan;
+mod resolve;
+mod texture_cache;
 
 pub use backend::Gpu2dBackend;
+pub use frame_plan::FramePlan;
 
 use aurea_foundation::AureaResult;
 
@@ -23,17 +27,28 @@ use crate::renderer::{DrawingContext, Renderer};
 use crate::surface::{Surface, SurfaceInfo};
 use crate::types::Rect;
 
+use resolve::resolve_frame;
+use texture_cache::TextureCache;
+
 /// A 2D GPU renderer parameterized over its device backend.
 ///
-/// Records draw calls into a [`DisplayList`] (the same [`CpuDrawingContext`] the
-/// CPU rasterizer uses), lowers them to [`RenderBatches`] in `end_frame`, and
-/// hands the batches to the backend to resolve, record, and present. Holds no
-/// `vk`/`wgpu` types.
+/// Records draw calls into a [`DisplayList`] (the same [`CpuDrawingContext`]
+/// the CPU rasterizer uses), lowers them to [`RenderBatches`] in `end_frame`,
+/// resolves textures through the backend-agnostic [`TextureCache`], and hands
+/// the resulting [`FramePlan`] to the backend to upload, record, and present.
+/// Holds no `vk`/`wgpu` types.
 pub struct Gpu2dRenderer<B: Gpu2dBackend> {
     backend: B,
     display_list: DisplayList,
     /// Reused across frames so steady-state `end_frame` allocates nothing.
     batches: RenderBatches,
+    /// Backend-agnostic LRU texture cache. Calls `backend.upload_image` /
+    /// `evict_image` for actual GPU work.
+    texture_cache: TextureCache,
+    /// Scratch plan filled by resolve, passed to `backend.present_frame`.
+    frame_plan: FramePlan,
+    /// Frame counter used as LRU timestamp.
+    frame_counter: u64,
     logical_width: u32,
     logical_height: u32,
     scale_factor: f32,
@@ -47,14 +62,17 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
             backend,
             display_list: DisplayList::new(),
             batches: RenderBatches::default(),
+            texture_cache: TextureCache::new(),
+            frame_plan: FramePlan::new(),
+            frame_counter: 0,
             logical_width: width,
             logical_height: height,
             scale_factor: scale_factor.max(1.0),
         }
     }
 
-    /// Shared access to the device backend (for backend-specific extensions such
-    /// as engine-side image embedding).
+    /// Shared access to the device backend (for backend-specific extensions
+    /// such as engine-side image embedding via `draw_sampled_image`).
     pub fn backend(&self) -> &B {
         &self.backend
     }
@@ -92,6 +110,7 @@ impl<B: Gpu2dBackend + Send + Sync> Renderer for Gpu2dRenderer<B> {
 
     fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext>> {
         self.backend.begin_frame()?;
+        self.texture_cache.prune_dropped(&mut self.backend);
         self.display_list.clear();
         let mut ctx = CpuDrawingContext::new(
             &mut self.display_list as *mut DisplayList,
@@ -104,16 +123,28 @@ impl<B: Gpu2dBackend + Send + Sync> Renderer for Gpu2dRenderer<B> {
 
     fn end_frame(&mut self) -> AureaResult<()> {
         self.batches.lower_into(&self.display_list);
-        self.backend.present(&self.batches)
+        let (pw, ph) = self.physical_size();
+        self.frame_plan.viewport_width = pw;
+        self.frame_plan.viewport_height = ph;
+        self.frame_counter += 1;
+        let fc = self.frame_counter;
+        resolve_frame(
+            &self.batches,
+            &mut self.texture_cache,
+            &mut self.backend,
+            fc,
+            &mut self.frame_plan,
+        )?;
+        let rects = &self.batches.rects;
+        let circles = &self.batches.circles;
+        self.backend.present_frame(&self.frame_plan, rects, circles)
     }
 
     fn cleanup(&mut self) {
         self.display_list.clear();
     }
 
-    fn set_damage(&mut self, _damage: Option<Rect>) {
-        // The GPU painter redraws the full frame each present; damage is unused.
-    }
+    fn set_damage(&mut self, _damage: Option<Rect>) {}
 
     fn display_list(&self) -> Option<&DisplayList> {
         Some(&self.display_list)
