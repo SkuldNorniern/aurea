@@ -5,6 +5,5 @@ mod buffer;
 mod pipelines;
 mod shaders;
 mod surface;
-mod texture_cache;
 
 pub use backend::{ZenGpuBackend, ZenGpuContext, ZenGpuRenderer};
