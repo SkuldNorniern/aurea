@@ -55,7 +55,10 @@ fn main() -> AureaResult<()> {
                 .color(Color::rgba(255, 255, 255, 30))
                 .style(PaintStyle::Stroke)
                 .stroke_width(1.0);
-            ctx.draw_rect(Rect::new(BALL_R, cy - 1.0, W as f32 - BALL_R * 2.0, 2.0), &track)?;
+            ctx.draw_rect(
+                Rect::new(BALL_R, cy - 1.0, W as f32 - BALL_R * 2.0, 2.0),
+                &track,
+            )?;
 
             let shadow = Paint::new()
                 .color(Color::rgba(0, 0, 0, 80))
@@ -79,7 +82,11 @@ fn main() -> AureaResult<()> {
             let label = Paint::new()
                 .color(Color::rgba(180, 180, 180, 180))
                 .style(PaintStyle::Fill);
-            ctx.draw_text("InOutQuad looping — any key cancels", Point::new(10.0, 20.0), &label)?;
+            ctx.draw_text(
+                "InOutQuad looping — any key cancels",
+                Point::new(10.0, 20.0),
+                &label,
+            )?;
 
             Ok(())
         })?;

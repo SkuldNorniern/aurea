@@ -59,7 +59,9 @@ impl Canvas {
 
             let mut width: u32 = 0;
             let mut height: u32 = 0;
-            unsafe { ng_platform_canvas_get_size(handle, &mut width, &mut height); }
+            unsafe {
+                ng_platform_canvas_get_size(handle, &mut width, &mut height);
+            }
             let new_scale = unsafe {
                 let window = ng_platform_canvas_get_window(handle);
                 if !window.is_null() {
@@ -74,8 +76,13 @@ impl Canvas {
                 let size_changed =
                     width > 0 && height > 0 && (width != st.width || height != st.height);
                 let scale_changed = (new_scale - st.scale_factor).abs() > f32::EPSILON;
-                if size_changed { st.width = width; st.height = height; }
-                if scale_changed { st.scale_factor = new_scale; }
+                if size_changed {
+                    st.width = width;
+                    st.height = height;
+                }
+                if scale_changed {
+                    st.scale_factor = new_scale;
+                }
                 (size_changed, scale_changed, st.width, st.height)
             };
 
@@ -85,14 +92,22 @@ impl Canvas {
             }
 
             if size_changed || scale_changed {
-                CURRENT_BUFFER.with(|buf| { *buf.borrow_mut() = None; });
+                CURRENT_BUFFER.with(|buf| {
+                    *buf.borrow_mut() = None;
+                });
 
                 let mut r = crate::sync::lock(&renderer);
                 if let Some(ref mut r) = *r {
                     if scale_changed {
                         r.init(
-                            Surface::OpenGL { context: std::ptr::null_mut() },
-                            SurfaceInfo { width: cur_w, height: cur_h, scale_factor: new_scale },
+                            Surface::OpenGL {
+                                context: std::ptr::null_mut(),
+                            },
+                            SurfaceInfo {
+                                width: cur_w,
+                                height: cur_h,
+                                scale_factor: new_scale,
+                            },
                         )?;
                     }
                     if size_changed {
@@ -105,14 +120,18 @@ impl Canvas {
 
             let should_redraw = {
                 let mut st = crate::sync::lock(&state);
-                if !st.needs_redraw { return Ok(()); }
+                if !st.needs_redraw {
+                    return Ok(());
+                }
                 st.needs_redraw = false;
                 true
             };
 
             if should_redraw {
                 render_frame(&state, &renderer, handle, backend)?;
-                unsafe { ng_platform_canvas_invalidate(handle); }
+                unsafe {
+                    ng_platform_canvas_invalidate(handle);
+                }
             }
 
             Ok(())
@@ -132,7 +151,9 @@ impl Canvas {
     pub(super) fn check_and_resize(&mut self) -> AureaResult<()> {
         let mut width: u32 = 0;
         let mut height: u32 = 0;
-        unsafe { ng_platform_canvas_get_size(self.handle, &mut width, &mut height); }
+        unsafe {
+            ng_platform_canvas_get_size(self.handle, &mut width, &mut height);
+        }
         let new_scale = unsafe {
             let window = ng_platform_canvas_get_window(self.handle);
             if !window.is_null() {
@@ -150,8 +171,13 @@ impl Canvas {
             let mut st = crate::sync::lock(&self.state);
             let sc = width != st.width || height != st.height;
             let sca = (new_scale - st.scale_factor).abs() > f32::EPSILON;
-            if sc { st.width = width; st.height = height; }
-            if sca { st.scale_factor = new_scale; }
+            if sc {
+                st.width = width;
+                st.height = height;
+            }
+            if sca {
+                st.scale_factor = new_scale;
+            }
             (sc, sca, st.width, st.height)
         };
 
@@ -160,7 +186,9 @@ impl Canvas {
             return Ok(());
         }
 
-        CURRENT_BUFFER.with(|buf| { *buf.borrow_mut() = None; });
+        CURRENT_BUFFER.with(|buf| {
+            *buf.borrow_mut() = None;
+        });
 
         if !ensure_canvas_renderer(self.handle, &self.state, &self.renderer, self.backend)? {
             return Ok(());
@@ -170,8 +198,14 @@ impl Canvas {
         if let Some(ref mut r) = *r {
             if scale_changed {
                 r.init(
-                    Surface::OpenGL { context: std::ptr::null_mut() },
-                    SurfaceInfo { width: cur_w, height: cur_h, scale_factor: new_scale },
+                    Surface::OpenGL {
+                        context: std::ptr::null_mut(),
+                    },
+                    SurfaceInfo {
+                        width: cur_w,
+                        height: cur_h,
+                        scale_factor: new_scale,
+                    },
                 )?;
             }
             if size_changed {

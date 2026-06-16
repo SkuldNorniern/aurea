@@ -87,7 +87,11 @@ mod tests {
         let mut anim = Animation::new(Duration::from_millis(100));
         let last = anim.tick(Duration::from_millis(200));
         assert_eq!(last, Some(1.0), "must yield Some(1.0) on final frame");
-        assert_eq!(anim.tick(Duration::from_millis(1)), None, "must return None after done");
+        assert_eq!(
+            anim.tick(Duration::from_millis(1)),
+            None,
+            "must return None after done"
+        );
     }
 
     #[test]
@@ -96,7 +100,10 @@ mod tests {
         let first = anim.tick(Duration::from_millis(50));
         assert!(first.is_some());
         let wrapped = anim.tick(Duration::from_millis(80));
-        assert!(wrapped.is_some(), "looping animation must never return None");
+        assert!(
+            wrapped.is_some(),
+            "looping animation must never return None"
+        );
         assert!(anim.progress() < 0.5);
     }
 
