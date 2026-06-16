@@ -8,18 +8,24 @@
 //! Run with:
 //!   cargo run --example zengpu_2d_displaylist --features zengpu
 
+#[cfg(feature = "zengpu")]
 use aurea::render::{
     Color, GradientStop, Image, LinearGradient, Paint, Point, RadialGradient, Rect, Renderer,
 };
+#[cfg(feature = "zengpu")]
 use aurea::{Window, WindowEvent};
 
+#[cfg(feature = "zengpu")]
 const W: i32 = 800;
+#[cfg(feature = "zengpu")]
 const H: i32 = 600;
 
+#[cfg(feature = "zengpu")]
 fn paint(r: u8, g: u8, b: u8, a: u8) -> Paint {
     Paint::new().color(Color::rgba(r, g, b, a))
 }
 
+#[cfg(feature = "zengpu")]
 fn test_image() -> Image {
     const WIDTH: u32 = 64;
     const HEIGHT: u32 = 64;
@@ -38,6 +44,7 @@ fn test_image() -> Image {
     Image::new(WIDTH, HEIGHT, data)
 }
 
+#[cfg(feature = "zengpu")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let window = Window::new("ZenGPU — DisplayList 2D (G4 Rung 1)", W, H)?;
 
@@ -153,4 +160,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+#[cfg(not(feature = "zengpu"))]
+fn main() {
+    eprintln!("This example requires the `zengpu` feature.");
+    eprintln!("Run with: cargo run --example zengpu_2d_displaylist --features zengpu");
+    std::process::exit(1);
 }
