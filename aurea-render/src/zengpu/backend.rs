@@ -1,8 +1,8 @@
-//! Unified-API ZenGPU 2D painter — `impl Gpu2dBackend for Painter`.
+//! ZenGPU 2D painter on the unified graphics API — `impl Gpu2dBackend for ZenGpuBackend`.
 //!
-//! At capstone this module (+ the rest of `zengpu_v2/`) replaces
-//! `zengpu.rs` + `zengpu_surface.rs` entirely: `Painter` becomes
-//! `ZenGpuBackend`, `PainterContext` becomes `ZenGpuContext`.
+//! Replaces `zengpu_surface.rs` (raw `ash`/`vk` render passes, pipelines,
+//! private bindless descriptor set) with `GraphicsPipelineDesc`, `RenderCommands`,
+//! and `device.bind_texture()` into the device's global bindless table.
 
 use std::sync::Arc;
 
@@ -38,12 +38,12 @@ const _: () = assert!(
 /// Shareable ZenGPU instance/device ownership for Aurea UI and engine rendering.
 ///
 /// At capstone this becomes `ZenGpuContext` (same fields, same API).
-pub struct PainterContext {
+pub struct ZenGpuContext {
     instance: VulkanInstance,
     device: VulkanDevice,
 }
 
-impl PainterContext {
+impl ZenGpuContext {
     pub fn new() -> AureaResult<Self> {
         let instance = VulkanInstance::new_with_surface().map_err(gpu_err)?;
         let adapter =
@@ -71,12 +71,10 @@ struct ExternalImageDraw {
 
 /// ZenGPU device backend for the shared `Gpu2dRenderer` core, using the
 /// unified graphics API (no raw `ash`/`vk` calls).
-///
-/// At capstone this becomes `ZenGpuBackend`.
-pub struct Painter {
+pub struct ZenGpuBackend {
     // Drop order: surface → pipelines/buffers → context (Arc may outlive).
     surface: VulkanSurface,
-    context: Arc<PainterContext>,
+    context: Arc<ZenGpuContext>,
     pipelines: Pipelines,
     color_format: Format,
     sampler: SamplerHandle,
@@ -94,21 +92,21 @@ pub struct Painter {
 }
 
 /// Public renderer type (staging name; becomes `ZenGpuRenderer` at capstone).
-pub type PainterRenderer = Gpu2dRenderer<Painter>;
+pub type ZenGpuRenderer = Gpu2dRenderer<ZenGpuBackend>;
 
-impl PainterRenderer {
+impl ZenGpuRenderer {
     pub fn new(
         handles: &WindowHandles,
         width: u32,
         height: u32,
         scale_factor: f32,
     ) -> AureaResult<Self> {
-        Self::with_context(handles, Arc::new(PainterContext::new()?), width, height, scale_factor)
+        Self::with_context(handles, Arc::new(ZenGpuContext::new()?), width, height, scale_factor)
     }
 
     pub fn with_context(
         handles: &WindowHandles,
-        context: Arc<PainterContext>,
+        context: Arc<ZenGpuContext>,
         width: u32,
         height: u32,
         scale_factor: f32,
@@ -129,7 +127,7 @@ impl PainterRenderer {
             })
             .map_err(gpu_err)?;
 
-        let backend = Painter {
+        let backend = ZenGpuBackend {
             surface,
             context,
             pipelines,
@@ -154,12 +152,12 @@ impl PainterRenderer {
         self.backend().surface.size()
     }
 
-    pub fn context(&self) -> &Arc<PainterContext> {
+    pub fn context(&self) -> &Arc<ZenGpuContext> {
         &self.backend().context
     }
 
     /// Draw a caller-owned GPU image after the ordinary display list. The image
-    /// must come from the same [`PainterContext`] and already be in
+    /// must come from the same [`ZenGpuContext`] and already be in
     /// `SHADER_READ_ONLY_OPTIMAL`. Bound via `bind_raw_image_view` into the
     /// device's global bindless table (slot range 512-1023).
     pub fn draw_sampled_image(
@@ -180,7 +178,7 @@ impl PainterRenderer {
     }
 }
 
-impl Painter {
+impl ZenGpuBackend {
     fn push_external_image(&mut self, image: SampledImageView<'_>, dest: Rect) -> AureaResult<()> {
         let device = self.context.device();
         let sampler_vk = device
@@ -200,7 +198,7 @@ impl Painter {
     }
 }
 
-impl Gpu2dBackend for Painter {
+impl Gpu2dBackend for ZenGpuBackend {
     fn begin_frame(&mut self) -> AureaResult<()> {
         self.external_images.clear();
         Ok(())
@@ -396,7 +394,7 @@ impl Gpu2dBackend for Painter {
     }
 }
 
-impl Drop for Painter {
+impl Drop for ZenGpuBackend {
     fn drop(&mut self) {
         let device = self.context.device();
         let _ = device.wait_idle();
