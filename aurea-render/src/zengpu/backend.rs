@@ -11,16 +11,15 @@ use std::sync::Arc;
 use aurea_foundation::{AureaError, AureaResult};
 
 use zengpu_hal::{
-    Acquire, Bindings, ColorAttachment, DeviceRequest, FilterMode, Format,
-    Frame, GpuDevice, GraphicsDevice, LoadOp, RenderCommands, RenderPassDesc,
-    Scalar, SamplerDesc, SamplerHandle, Surface, TextureDesc, TextureHandle,
-    TextureUsage, Viewport, ViewportScissor, WindowHandles,
+    Acquire, Bindings, ColorAttachment, DeviceRequest, FilterMode, Format, Frame, GpuDevice,
+    GraphicsDevice, LoadOp, RenderCommands, RenderPassDesc, SamplerDesc, SamplerHandle, Scalar,
+    Surface, TextureDesc, TextureHandle, TextureUsage, Viewport, ViewportScissor, WindowHandles,
 };
-use zengpu_vulkan::{SampledImageView, VulkanDevice, VulkanSurface};
 use zengpu_vulkan::instance::VulkanInstance;
+use zengpu_vulkan::{SampledImageView, VulkanDevice, VulkanSurface};
 
 use crate::batch::{CircleInstance, DrawRef, RectInstance};
-use crate::gpu2d::{Gpu2dBackend, Gpu2dRenderer, FramePlan};
+use crate::gpu2d::{FramePlan, Gpu2dBackend, Gpu2dRenderer};
 
 use super::buffer::GrowableBuffer;
 use super::pipelines::{GradientInstance, ImageInstance, Pipelines, TextInstance};
@@ -45,9 +44,12 @@ pub struct ZenGpuContext {
 impl ZenGpuContext {
     pub fn new() -> AureaResult<Self> {
         let instance = VulkanInstance::new_with_surface().map_err(gpu_err)?;
-        let adapter =
-            instance.request_vulkan_adapter().ok_or(AureaError::ElementOperationFailed)?;
-        let device = adapter.open_with_surface(DeviceRequest::default()).map_err(gpu_err)?;
+        let adapter = instance
+            .request_vulkan_adapter()
+            .ok_or(AureaError::ElementOperationFailed)?;
+        let device = adapter
+            .open_with_surface(DeviceRequest::default())
+            .map_err(gpu_err)?;
         Ok(Self { instance, device })
     }
 
@@ -95,7 +97,13 @@ impl ZenGpuRenderer {
         height: u32,
         scale_factor: f32,
     ) -> AureaResult<Self> {
-        Self::with_context(handles, Arc::new(ZenGpuContext::new()?), width, height, scale_factor)
+        Self::with_context(
+            handles,
+            Arc::new(ZenGpuContext::new()?),
+            width,
+            height,
+            scale_factor,
+        )
     }
 
     pub fn with_context(
@@ -195,7 +203,9 @@ impl Gpu2dBackend for ZenGpuBackend {
     }
 
     fn resize(&mut self, physical_width: u32, physical_height: u32) -> AureaResult<()> {
-        self.surface.resize(physical_width, physical_height).map_err(gpu_err)
+        self.surface
+            .resize(physical_width, physical_height)
+            .map_err(gpu_err)
     }
 
     fn upload_image(&mut self, width: u32, height: u32, rgba: &[u8]) -> AureaResult<u32> {
@@ -213,7 +223,9 @@ impl Gpu2dBackend for ZenGpuBackend {
             device.destroy_texture(texture);
             return Err(gpu_err(e));
         }
-        let slot = device.bind_texture(texture, self.sampler).ok_or(AureaError::RenderingFailed)?;
+        let slot = device
+            .bind_texture(texture, self.sampler)
+            .ok_or(AureaError::RenderingFailed)?;
         self.slot_textures.insert(slot, texture);
         Ok(slot)
     }
@@ -247,13 +259,23 @@ impl Gpu2dBackend for ZenGpuBackend {
         let vk_gradients: Vec<GradientInstance> = plan
             .gradients
             .iter()
-            .map(|g| GradientInstance { rect: g.rect, a: g.a, b: g.b, slot: g.slot, _pad: [0; 3] })
+            .map(|g| GradientInstance {
+                rect: g.rect,
+                a: g.a,
+                b: g.b,
+                slot: g.slot,
+                _pad: [0; 3],
+            })
             .collect();
         let mut vk_images: Vec<ImageInstance> = plan
             .images
             .iter()
             .map(|i| ImageInstance {
-                rect: i.rect, uv: i.uv, tint: i.tint, slot: i.slot, _pad: [0; 3],
+                rect: i.rect,
+                uv: i.uv,
+                tint: i.tint,
+                slot: i.slot,
+                _pad: [0; 3],
             })
             .collect();
         // Append external (engine-side) images after display-list images.
@@ -262,30 +284,43 @@ impl Gpu2dBackend for ZenGpuBackend {
         let vk_texts: Vec<TextInstance> = plan
             .texts
             .iter()
-            .map(|t| TextInstance { rect: t.rect, color: t.color, slot: t.slot, _pad: [0; 3] })
+            .map(|t| TextInstance {
+                rect: t.rect,
+                color: t.color,
+                slot: t.slot,
+                _pad: [0; 3],
+            })
             .collect();
 
         // Upload instance buffers.
-        let rect_handle =
-            self.rect_buf.upload(device, as_bytes(rects)).map_err(gpu_err)?;
-        let circle_handle =
-            self.circle_buf.upload(device, as_bytes(circles)).map_err(gpu_err)?;
-        let gradient_handle =
-            self.gradient_buf.upload(device, as_bytes(&vk_gradients)).map_err(gpu_err)?;
-        let image_handle =
-            self.image_buf.upload(device, as_bytes(&vk_images)).map_err(gpu_err)?;
-        let text_handle =
-            self.text_buf.upload(device, as_bytes(&vk_texts)).map_err(gpu_err)?;
+        let rect_handle = self
+            .rect_buf
+            .upload(device, as_bytes(rects))
+            .map_err(gpu_err)?;
+        let circle_handle = self
+            .circle_buf
+            .upload(device, as_bytes(circles))
+            .map_err(gpu_err)?;
+        let gradient_handle = self
+            .gradient_buf
+            .upload(device, as_bytes(&vk_gradients))
+            .map_err(gpu_err)?;
+        let image_handle = self
+            .image_buf
+            .upload(device, as_bytes(&vk_images))
+            .map_err(gpu_err)?;
+        let text_handle = self
+            .text_buf
+            .upload(device, as_bytes(&vk_texts))
+            .map_err(gpu_err)?;
 
         // Record.
         let mut cmd = device.create_command_list().map_err(gpu_err)?;
 
         let load = match plan.clear {
-            Some(c) => LoadOp::clear_rgb(
-                c.r as f32 / 255.0,
-                c.g as f32 / 255.0,
-                c.b as f32 / 255.0,
-            ),
+            Some(c) => {
+                LoadOp::clear_rgb(c.r as f32 / 255.0, c.g as f32 / 255.0, c.b as f32 / 255.0)
+            }
             None => LoadOp::Load,
         };
         cmd.begin_render_pass(&RenderPassDesc {
@@ -299,7 +334,12 @@ impl Gpu2dBackend for ZenGpuBackend {
         });
         cmd.set_viewport_scissor(ViewportScissor {
             viewport: Viewport {
-                x: 0.0, y: 0.0, width: vw, height: vh, min_depth: 0.0, max_depth: 1.0,
+                x: 0.0,
+                y: 0.0,
+                width: vw,
+                height: vh,
+                min_depth: 0.0,
+                max_depth: 1.0,
             },
             scissor: None,
         });
@@ -312,25 +352,37 @@ impl Gpu2dBackend for ZenGpuBackend {
                 DrawRef::Rect(idx) => {
                     if cur_kind != Some(DrawKind::Rect) {
                         cmd.set_pipeline(self.pipelines.rect);
-                        if let Some(buf) = rect_handle { cmd.set_vertex_buffer(0, buf); }
+                        if let Some(buf) = rect_handle {
+                            cmd.set_vertex_buffer(0, buf);
+                        }
                         cur_kind = Some(DrawKind::Rect);
                     }
-                    cmd.bind(Bindings { scalars: &viewport_scalars, ..Default::default() });
+                    cmd.bind(Bindings {
+                        scalars: &viewport_scalars,
+                        ..Default::default()
+                    });
                     cmd.draw(0..6, idx..idx + 1);
                 }
                 DrawRef::Circle(idx) => {
                     if cur_kind != Some(DrawKind::Circle) {
                         cmd.set_pipeline(self.pipelines.circle);
-                        if let Some(buf) = circle_handle { cmd.set_vertex_buffer(0, buf); }
+                        if let Some(buf) = circle_handle {
+                            cmd.set_vertex_buffer(0, buf);
+                        }
                         cur_kind = Some(DrawKind::Circle);
                     }
-                    cmd.bind(Bindings { scalars: &viewport_scalars, ..Default::default() });
+                    cmd.bind(Bindings {
+                        scalars: &viewport_scalars,
+                        ..Default::default()
+                    });
                     cmd.draw(0..6, idx..idx + 1);
                 }
                 DrawRef::Gradient(idx) => {
                     if cur_kind != Some(DrawKind::Gradient) {
                         cmd.set_pipeline(self.pipelines.gradient);
-                        if let Some(buf) = gradient_handle { cmd.set_vertex_buffer(0, buf); }
+                        if let Some(buf) = gradient_handle {
+                            cmd.set_vertex_buffer(0, buf);
+                        }
                         cur_kind = Some(DrawKind::Gradient);
                     }
                     let slot = vk_gradients.get(idx as usize).map(|g| g.slot).unwrap_or(0);
@@ -344,7 +396,9 @@ impl Gpu2dBackend for ZenGpuBackend {
                 DrawRef::Image(idx) => {
                     if cur_kind != Some(DrawKind::Image) {
                         cmd.set_pipeline(self.pipelines.image);
-                        if let Some(buf) = image_handle { cmd.set_vertex_buffer(0, buf); }
+                        if let Some(buf) = image_handle {
+                            cmd.set_vertex_buffer(0, buf);
+                        }
                         cur_kind = Some(DrawKind::Image);
                     }
                     let slot = vk_images.get(idx as usize).map(|i| i.slot).unwrap_or(0);
@@ -358,7 +412,9 @@ impl Gpu2dBackend for ZenGpuBackend {
                 DrawRef::Text(idx) => {
                     if cur_kind != Some(DrawKind::Text) {
                         cmd.set_pipeline(self.pipelines.text);
-                        if let Some(buf) = text_handle { cmd.set_vertex_buffer(0, buf); }
+                        if let Some(buf) = text_handle {
+                            cmd.set_vertex_buffer(0, buf);
+                        }
                         cur_kind = Some(DrawKind::Text);
                     }
                     let slot = vk_texts.get(idx as usize).map(|t| t.slot).unwrap_or(0);
@@ -377,7 +433,9 @@ impl Gpu2dBackend for ZenGpuBackend {
             let idx = ext_image_base + i as u32;
             if cur_kind != Some(DrawKind::Image) {
                 cmd.set_pipeline(self.pipelines.image);
-                if let Some(buf) = image_handle { cmd.set_vertex_buffer(0, buf); }
+                if let Some(buf) = image_handle {
+                    cmd.set_vertex_buffer(0, buf);
+                }
                 cur_kind = Some(DrawKind::Image);
             }
             let slot = ext.instance.slot;
@@ -416,7 +474,13 @@ impl Drop for ZenGpuBackend {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DrawKind { Rect, Circle, Gradient, Image, Text }
+enum DrawKind {
+    Rect,
+    Circle,
+    Gradient,
+    Image,
+    Text,
+}
 
 fn gpu_err(_e: zengpu_hal::GpuError) -> AureaError {
     AureaError::ElementOperationFailed

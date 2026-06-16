@@ -17,6 +17,7 @@ use super::frame_plan::FramePlan;
 /// 2. (core resolves textures via [`upload_image`](Self::upload_image) /
 ///    [`evict_image`](Self::evict_image), building a [`FramePlan`])
 /// 3. [`present_frame`](Self::present_frame) — GPU upload + record + present.
+///
 /// Resize can happen any time between frames via [`resize`](Self::resize).
 pub trait Gpu2dBackend {
     /// (Re)create the swapchain/surface for a new **physical** pixel size.
