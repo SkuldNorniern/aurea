@@ -6,6 +6,7 @@
 #include "common/errors.h"
 #include "common/rust_callbacks.h"
 #include <windows.h>
+#include <stdio.h>
 
 static HANDLE g_frame_event = NULL;
 
@@ -15,6 +16,7 @@ void ng_windows_request_frame(void) {
 
 int ng_windows_run(void) {
     g_frame_event = CreateEventA(NULL, FALSE, FALSE, NULL);
+    SetEvent(g_frame_event);
 
     for (;;) {
         DWORD result = MsgWaitForMultipleObjectsEx(

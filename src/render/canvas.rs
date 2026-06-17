@@ -9,8 +9,9 @@ use aurea_render::{
     HoverCallback, InteractionRegistry, InteractiveId, Point, Renderer, RendererBackend, Surface,
     SurfaceInfo,
 };
+use std::collections::HashMap;
 use std::os::raw::c_void;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 mod runtime;
 
@@ -29,6 +30,31 @@ pub(crate) struct CanvasState {
     pub needs_redraw: bool,
 }
 
+static CANVAS_STATES: LazyLock<Mutex<HashMap<usize, Arc<Mutex<CanvasState>>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn register_canvas_state(handle: usize, state: Arc<Mutex<CanvasState>>) {
+    crate::sync::lock(&CANVAS_STATES).insert(handle, state);
+}
+
+fn unregister_canvas_state(handle: usize) {
+    crate::sync::lock(&CANVAS_STATES).remove(&handle);
+}
+
+/// Request a full redraw of a canvas identified by its raw handle.
+pub fn request_canvas_redraw(handle: usize) {
+    let state = crate::sync::lock(&CANVAS_STATES).get(&handle).cloned();
+    if let Some(state) = state {
+        let mut st = crate::sync::lock(&state);
+        st.damage.add_all();
+        st.needs_redraw = true;
+    }
+    FrameScheduler::schedule_canvas(handle as *mut c_void);
+    unsafe {
+        ng_platform_canvas_invalidate(handle as *mut c_void);
+    }
+}
+
 struct CanvasCleanup {
     handle: usize,
     renderer: Arc<Mutex<Option<Box<dyn Renderer>>>>,
@@ -37,6 +63,7 @@ struct CanvasCleanup {
 impl Drop for CanvasCleanup {
     fn drop(&mut self) {
         FrameScheduler::unregister_canvas(self.handle as *mut c_void);
+        unregister_canvas_state(self.handle);
         let mut r = crate::sync::lock(&self.renderer);
         if let Some(ref mut renderer) = *r {
             renderer.cleanup();
@@ -188,6 +215,7 @@ impl Canvas {
             }),
         };
 
+        register_canvas_state(handle as usize, canvas.state.clone());
         canvas.register_with_scheduler(state, renderer_arc, backend);
         Ok(canvas)
     }
