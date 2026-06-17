@@ -173,7 +173,6 @@ impl Canvas {
         instance: &wgpu::Instance,
     ) -> AureaResult<wgpu::Surface<'static>> {
         use crate::integration::wgpu::native_handle_from_canvas_ptr;
-        use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
         let native_ptr = self.native_handle();
         let handle =

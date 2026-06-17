@@ -302,13 +302,13 @@ impl HasWindowHandle for NativeWindowHandle {
             #[cfg(target_os = "windows")]
             NativeWindowHandle::Windows { hwnd } => {
                 use raw_window_handle::{Win32WindowHandle, WindowHandle};
-                use std::ptr::NonNull;
-                // SAFETY: hwnd is a valid window handle from Aurea window creation
-                let hwnd_ptr = NonNull::new(*hwnd as *mut std::ffi::c_void)
+                use std::num::NonZeroIsize;
+                // SAFETY: hwnd is a valid HWND from Aurea window creation
+                let hwnd_nz = NonZeroIsize::new(*hwnd as isize)
                     .ok_or(raw_window_handle::HandleError::Unavailable)?;
                 unsafe {
                     Ok(WindowHandle::borrow_raw(
-                        Win32WindowHandle::new(hwnd_ptr, None).into(),
+                        Win32WindowHandle::new(hwnd_nz).into(),
                     ))
                 }
             }
@@ -390,8 +390,8 @@ impl HasDisplayHandle for NativeWindowHandle {
             }
             #[cfg(target_os = "windows")]
             NativeWindowHandle::Windows { .. } => {
-                use raw_window_handle::{DisplayHandle, Win32DisplayHandle};
-                unsafe { Ok(DisplayHandle::borrow_raw(Win32DisplayHandle::new().into())) }
+                use raw_window_handle::{DisplayHandle, WindowsDisplayHandle};
+                unsafe { Ok(DisplayHandle::borrow_raw(WindowsDisplayHandle::new().into())) }
             }
             #[cfg(target_os = "linux")]
             NativeWindowHandle::Linux(handle) => match handle {
@@ -594,7 +594,7 @@ pub fn notify_surface_recreated_for_canvas(canvas: &crate::render::Canvas) {
     crate::view::FrameScheduler::schedule();
 }
 
-#[cfg(feature = "wgpu")]
+#[cfg(all(feature = "wgpu", not(target_os = "windows")))]
 impl HasWindowHandle for crate::window::Window {
     fn window_handle(
         &self,
@@ -689,7 +689,7 @@ impl HasWindowHandle for crate::window::Window {
     }
 }
 
-#[cfg(feature = "wgpu")]
+#[cfg(all(feature = "wgpu", not(target_os = "windows")))]
 impl HasDisplayHandle for crate::window::Window {
     fn display_handle(
         &self,
