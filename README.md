@@ -1,33 +1,66 @@
 # Aurea
 
-**Aurea** is derived from the Latin word for "golden". It embodies our vision of delivering a **golden standard** for native GUI applications by providing a safe, idiomatic, and efficient Rust interface to the underlying platform APIs.
+Aurea is a pre-alpha Rust GUI toolkit for native windows, native widgets,
+event-driven canvases, and renderer experiments. It provides Rust APIs over
+platform-specific windowing code and a rendering layer that can target CPU and
+optional GPU backends.
 
-> **⚠️ Disclaimer:**  
-> This project is currently in **pre-alpha** stage and is under active development. Due to the rapidly evolving codebase, it may contain bugs, incomplete features, or unexpected behavior.  
-> **Usage Warning:** This software is intended solely for experimentation and development purposes. It is not recommended for production use.  
-> Use this software at your own risk; the maintainer(s) are not responsible for any issues, errors, or damages—including, but not limited to, crashes, data loss, or security vulnerabilities—that may arise from its use.  
-> Contributions, testing, and feedback are welcome to help improve the project's stability and reliability.
+This repository also includes ongoing integration with ZenGPU. ZenGPU is an
+optional Vulkan-backed rendering path used for window-level 2D rendering,
+hosted canvases, shared GPU contexts, and shader/runtime work such as
+ZSL-to-SPIR-V inside the nested ZenGPU checkout.
 
----
+> Status: pre-alpha. The APIs, backend boundaries, and examples are still moving.
+> Use this crate for experimentation and development, not production software.
 
-## Demo
+## What Is In This Repository
 
-| Window Demo | Menubar Integration | All Elements |
-|:-----------:|:-------------------:|:------------:|
-| ![window_demo](assets/window_demo.png) | ![menubar_integration](assets/menubar_integration_demo.png) | ![all_elements](assets/all_element_demo.png) |
+- `aurea`: root crate with windows, menus, widgets, event polling, lifecycle
+  hooks, and the public API.
+- `aurea-foundation`: shared errors, platform detection, capabilities, events,
+  and synchronization helpers.
+- `aurea-ffi`: Rust declarations and native platform build glue.
+- `aurea-render`: display lists, drawing types, CPU rasterizer, text support,
+  and optional GPU backends.
+- `aurea-runtime`: frame scheduling, event queues, and damage tracking.
+- `aurea-animation`: small animation primitives.
+- `ZenGPU`: nested ZenGPU development workspace. Aurea excludes it from the
+  Aurea workspace and patches selected ZenGPU crates to this local checkout.
 
----
+## Current Capabilities
 
-## Quickstart
+- Native window backends for Windows, macOS, and Linux, with experimental iOS
+  and Android platform code.
+- Native widgets such as labels, buttons, boxes, split views, text fields, text
+  editors, sidebars, tabs, progress bars, sliders, combo boxes, checkboxes, and
+  image views. Availability still varies by platform.
+- Menu bars and submenus where the platform supports them.
+- Non-blocking event polling with retained callbacks for keys, mouse buttons,
+  motion, wheel input, text input, focus, cursor enter/exit, raw mouse motion,
+  scale-factor changes, and lifecycle events.
+- Canvas rendering through Aurea's renderer abstraction, with retained draw
+  callbacks, explicit invalidation, damage regions, frame scheduling, and
+  per-frame animation tickers.
+- CPU rasterizer with paths, rectangles, circles, images, gradients,
+  blending, text measurement, tile caching, and damage-driven redraw.
+- Optional `wgpu` window integration.
+- Optional `zengpu` renderer path through ZenGPU and Vulkan.
+
+## Quick Start
 
 ```bash
 cargo add aurea
-# Or from a local clone: cargo add aurea --path /path/to/aurea
+```
+
+For local development from this repository:
+
+```bash
+cargo run --example window
 ```
 
 ```rust
-use aurea::{AureaResult, Window};
 use aurea::elements::Label;
+use aurea::{AureaResult, Window};
 
 fn main() -> AureaResult<()> {
     let mut window = Window::new("Hello", 400, 300)?;
@@ -37,83 +70,120 @@ fn main() -> AureaResult<()> {
 }
 ```
 
-Save as `src/main.rs`, run with `cargo run`.
+## Canvas Rendering
 
----
+The canvas API can use Aurea's renderer abstraction for drawing inside native UI
+layouts. `Canvas::set_draw_callback` is the preferred retained-mode path;
+`Canvas::draw` is still available for immediate drawing. Use
+`request_canvas_redraw(handle)` when a `Send + Sync` callback only has a raw
+canvas handle and needs to re-run the draw callback rather than only re-blit the
+cached platform buffer.
 
-## Overview
-
-Aurea is a native GUI toolkit that bridges high-level Rust abstractions with platform-specific implementations. It is designed to offer developers a robust and ergonomic way to build cross-platform applications with native look and feel across Windows, macOS, and Linux.
-
-### Key Features
-
-- **Native Windowing:** Create and manage native windows with ease.
-- **Menus & Submenus:** Build native menu bars, complete with submenus and callback-driven menu items.
-- **Widgets:** Use basic elements like buttons, labels, text editors, and text views.
-- **Layout Management:** Organize UI elements using horizontal or vertical boxes.
-- **Safe FFI(WIP):** Leverage a well-defined FFI layer that connects Rust with low-level C code, ensuring robust error handling and minimal overhead.
-- **Resource Management:** Efficient memory management without unnecessary ownership overhead.
-
----
-
-## Architecture
-
-Aurea is structured in three primary layers:
-
-1. **High-Level Rust API:**  
-   Provides safe, idiomatic Rust types and functions for creating and managing windows, menus, and elements.
-
-2. **FFI Layer:**  
-   Acts as a bridge between Rust and platform-specific implementations written in C. This layer manages conversions, error handling, and minimal resource duplication.
-
-3. **Platform-Specific Implementations:**  
-   The native side (located in the `aurea-ffi/native` folder) contains implementations for different operating systems:
-   - **Linux (GTK)**
-   - **macOS (Cocoa)**
-   - **Windows (Win32 API)**
-
----
-
-## Example Usage
-
-Below is a simple example demonstrating how to create a window with a text editor and a functional menu bar:
-
-```rust
-use aurea::{Window, AureaResult};
-use aurea::elements::{TextEditor, Box, BoxOrientation};
-fn main() -> AureaResult<()> {
-    // Create a window
-    let mut window = Window::new("Notepad", 800, 600)?;
-    // Create and configure menu bar
-    let mut menu_bar = window.create_menu_bar()?;
-    // Add File menu
-    let mut file_menu = menu_bar.add_submenu("File")?;
-    file_menu.add_item("New", || println!("New"))?;
-    file_menu.add_item("Open...", || println!("Open"))?;
-    file_menu.add_item("Save", || println!("Save"))?;
-    // Add Edit menu
-    let mut edit_menu = menu_bar.add_submenu("Edit")?;
-    edit_menu.add_item("Cut", || println!("Cut"))?;
-    edit_menu.add_item("Copy", || println!("Copy"))?;
-    edit_menu.add_item("Paste", || println!("Paste"))?;
-    // Create and set up text editor
-    let mut editor = TextEditor::new()?;
-    editor.set_content("Welcome to Notepad!")?;
-    // Set window content and run
-    window.set_content(editor)?;
-    window.run()?;
-    Ok(())
-}
+```bash
+cargo run --example canvas_showcase
+cargo run --example canvas_gradient
+cargo run --example canvas_blend
 ```
 
----
+The renderer layer lives in `aurea-render` and is shared by CPU and GPU paths.
+Display-list drawing commands are lowered either into the CPU rasterizer or into
+backend-specific GPU batches. Draw callbacks should be deterministic for the
+same captured application state so the damage/tile cache can make correct reuse
+decisions.
 
+## ZenGPU Integration
+
+ZenGPU support is opt-in:
+
+```bash
+cargo run --example zengpu_canvas --features zengpu
+cargo run --example zengpu_2d_displaylist --features zengpu
+cargo run --example zengpu_shared_context --features zengpu
+```
+
+The root `zengpu` feature forwards into `aurea-render/zengpu` and enables
+`zengpu-hal` so `Window` can create ZenGPU window handles.
+
+The active ZenGPU paths are:
+
+- `Window::create_zengpu_2d()`: creates a window-level ZenGPU renderer and owns
+  the window swapchain.
+- `Window::create_zengpu_2d_with_context(...)`: uses a caller-owned
+  `ZenGpuContext` so Aurea UI and external engine/offscreen resources can share
+  one logical device.
+- `Canvas::new(..., RendererBackend::ZenGpu)`: hosts a ZenGPU-backed canvas
+  inside a native widget layout.
+
+ZenGPU currently targets desktop window surfaces on Windows, macOS, and Linux
+through raw-window-handle data. Linux supports XCB and Wayland handles when the
+native backend can provide them.
+
+The local ZenGPU workspace also contains compute, BLAS, SPIR-V, and ZSL crates.
+Aurea currently patches only `zengpu`, `zengpu-hal`, and `zengpu-vulkan` for the
+renderer path.
+
+## Examples
+
+Native UI and event examples:
+
+```bash
+cargo run --example window
+cargo run --example multi_window
+cargo run --example input_smoke
+cargo run --example ide_like
+cargo run --example hybrid_ui
+```
+
+Canvas examples:
+
+```bash
+cargo run --example canvas_demo
+cargo run --example canvas_text
+cargo run --example canvas_image
+cargo run --example animate_fade
+cargo run --example animate_bounce
+```
+
+ZenGPU examples:
+
+```bash
+cargo run --example zengpu_triangle --features zengpu
+cargo run --example zengpu_textured_quad --features zengpu
+cargo run --example zengpu_cube --features zengpu
+cargo run --example zengpu_offscreen --features zengpu
+```
+
+## Features
+
+- `default`: no optional GPU backend.
+- `wgpu`: enables the wgpu integration helpers.
+- `zengpu`: enables the ZenGPU renderer backend and window-level GPU surface API.
+
+The workspace currently patches `zengpu`, `zengpu-hal`, and `zengpu-vulkan` to
+the local `ZenGPU` directory. Remove or replace the `[patch.crates-io]` entries
+in `Cargo.toml` when depending on published ZenGPU crates instead.
 
 ## Building
 
-The project requires:
-- Rust 1.88 or later
-- Platform-specific development tools:
-  - Windows: MSVC build tools
-  - macOS: Xcode command line tools
-  - Linux: GTK3 development libraries
+Requirements:
+
+- Rust 1.88 or later.
+- Windows: MSVC build tools.
+- macOS: Xcode command line tools.
+- Linux: GTK3 development libraries.
+- ZenGPU examples: a Vulkan-capable system and the local `ZenGPU` checkout, or
+  equivalent published crates once those are available.
+- Mobile targets: platform SDK setup for iOS or Android. Those paths are less
+  complete than desktop.
+
+Useful checks:
+
+```bash
+cargo check
+cargo check --features zengpu
+cargo test
+```
+
+## License
+
+Apache-2.0
