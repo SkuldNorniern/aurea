@@ -331,7 +331,11 @@ impl HasDisplayHandle for NativeWindowHandle {
             #[cfg(target_os = "windows")]
             NativeWindowHandle::Windows { .. } => {
                 use raw_window_handle::{DisplayHandle, WindowsDisplayHandle};
-                unsafe { Ok(DisplayHandle::borrow_raw(WindowsDisplayHandle::new().into())) }
+                unsafe {
+                    Ok(DisplayHandle::borrow_raw(
+                        WindowsDisplayHandle::new().into(),
+                    ))
+                }
             }
             #[cfg(target_os = "linux")]
             NativeWindowHandle::Linux(handle) => match handle {
@@ -697,7 +701,7 @@ impl crate::window::Window {
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let window = Window::new("App", 800, 600)?;
-    /// let instance = Instance::new(wgpu::InstanceDescriptor::default());
+    /// let instance = Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     /// let surface = window.create_wgpu_surface(&instance)?;
     /// # Ok(())
     /// # }
