@@ -36,6 +36,7 @@ optional GPU backends.
   per-frame animation tickers.
 - CPU rasterizer with paths, rectangles, circles, images, gradients,
   blending, text measurement, tile caching, and damage-driven redraw.
+- Optional GPU acceleration through the in-house ZenGPU backend.
 - Optional `wgpu` window integration.
 
 ## Quick Start
@@ -109,6 +110,7 @@ cargo run --example animate_bounce
 
 - `default`: no optional GPU backend.
 - `wgpu`: enables the wgpu integration helpers.
+- `zengpu`: enables GPU-accelerated rendering through ZenGPU.
 
 ## Building
 
