@@ -6,8 +6,12 @@
 //! `aurea::integration::wgpu::handle_surface_error_for_window()`; after recreating the surface
 //! call `notify_surface_recreated_for_window()`. See `aurea::integration::wgpu` docs.
 
+use std::error::Error;
+#[cfg(not(feature = "wgpu"))]
+use std::process::exit;
+
 #[cfg(feature = "wgpu")]
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     let window = aurea::Window::new("WGPU Window", 800, 600)?;
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let _surface = window.create_wgpu_surface(&instance)?;
@@ -19,5 +23,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(not(feature = "wgpu"))]
 fn main() {
     eprintln!("Build with --features wgpu to run this example.");
-    std::process::exit(1);
+    exit(1);
 }

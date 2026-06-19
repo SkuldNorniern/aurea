@@ -63,7 +63,7 @@ impl Element for Divider {
         self.canvas.handle()
     }
 
-    unsafe fn invalidate_platform(&self, rect: Option<crate::render::Rect>) {
+    unsafe fn invalidate_platform(&self, rect: Option<Rect>) {
         use super::traits::Element;
         unsafe {
             <Canvas as Element>::invalidate_platform(&self.canvas, rect);

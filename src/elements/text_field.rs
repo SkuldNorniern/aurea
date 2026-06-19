@@ -4,8 +4,14 @@
 //! on platforms that do not yet expose `ng_platform_create_text_field`.
 
 use super::traits::Element;
+use crate::render::Rect;
+use crate::sync::lock;
 use crate::{AureaError, AureaResult, ffi::*};
-use std::{ffi::CString, os::raw::c_void};
+use std::{
+    ffi::{CStr, CString},
+    os::raw::c_void,
+    sync::{LazyLock, Mutex},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TextFieldKind {
@@ -42,10 +48,10 @@ impl TextField {
 
                 #[cfg(not(target_os = "macos"))]
                 {
-                    static TEXT_FIELD_FALLBACK_ID: std::sync::LazyLock<std::sync::Mutex<u32>> =
-                        std::sync::LazyLock::new(|| std::sync::Mutex::new(1));
+                    static TEXT_FIELD_FALLBACK_ID: LazyLock<Mutex<u32>> =
+                        LazyLock::new(|| Mutex::new(1));
                     let fallback_id = {
-                        let mut id_guard = crate::sync::lock(&TEXT_FIELD_FALLBACK_ID);
+                        let mut id_guard = lock(&TEXT_FIELD_FALLBACK_ID);
                         *id_guard += 1;
                         *id_guard - 1
                     };
@@ -89,7 +95,7 @@ impl TextField {
         }
 
         let content = unsafe {
-            let cstr = std::ffi::CStr::from_ptr(content_ptr);
+            let cstr = CStr::from_ptr(content_ptr);
             let result = cstr
                 .to_str()
                 .map_err(|_| AureaError::ElementOperationFailed)?
@@ -107,7 +113,7 @@ impl Element for TextField {
         self.handle
     }
 
-    unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
+    unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         unsafe {
             match self.kind {
                 TextFieldKind::NativeField => ng_platform_text_editor_invalidate(self.handle),

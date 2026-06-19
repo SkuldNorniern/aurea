@@ -10,7 +10,10 @@ use aurea::elements::{Box, BoxOrientation, Button, Container, Label};
 use aurea::logger;
 use aurea::{AureaResult, Window, WindowManager, WindowType};
 use log::LevelFilter;
+use std::ffi::c_void;
 use std::sync::Arc;
+use std::thread::sleep;
+use std::time::Duration;
 
 fn main() -> AureaResult<()> {
     logger::init(LevelFilter::Debug).unwrap_or_else(|e| {
@@ -83,7 +86,7 @@ fn main() -> AureaResult<()> {
         manager.process_all_frames()?;
 
         // Small delay to prevent busy loop
-        std::thread::sleep(std::time::Duration::from_millis(16));
+        sleep(Duration::from_millis(16));
     }
 }
 
@@ -144,11 +147,11 @@ fn setup_popup(window: &mut Window) -> AureaResult<()> {
     popup_box.add(Button::with_callback("Close", move || {
         println!("Close popup clicked");
         unsafe extern "C" {
-            fn ng_platform_window_request_close(handle: *mut std::ffi::c_void);
+            fn ng_platform_window_request_close(handle: *mut c_void);
         }
         unsafe {
             // Re-construct the handle and request close
-            let h = handle as *mut std::ffi::c_void;
+            let h = handle as *mut c_void;
             ng_platform_window_request_close(h);
         }
     })?)?;

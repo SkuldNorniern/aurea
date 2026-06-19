@@ -27,6 +27,13 @@ pub trait Element {
         }
     }
 
+    /// Invalidate the backing platform view for this element.
+    ///
+    /// # Safety
+    ///
+    /// Implementations call into native UI handles. The handle returned by
+    /// [`Element::handle`] must still be valid, and callers must uphold any
+    /// platform main-thread requirements for the underlying toolkit.
     unsafe fn invalidate_platform(&self, rect: Option<Rect>);
 
     fn request_layout(&self) {}

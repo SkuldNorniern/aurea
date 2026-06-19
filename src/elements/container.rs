@@ -1,5 +1,8 @@
 use super::traits::{Container, Element};
+use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
+use std::any::Any;
+use std::boxed::Box as StdBox;
 use std::os::raw::c_void;
 
 /// Layout orientation for a Box container.
@@ -15,7 +18,7 @@ pub struct Box {
     _orientation: BoxOrientation,
     /// Keeps child elements alive so their Drop impls run only when the Box
     /// itself is dropped, not when they are moved in via `add`.
-    _children: Vec<std::boxed::Box<dyn std::any::Any>>,
+    _children: Vec<StdBox<dyn Any>>,
 }
 
 impl Box {
@@ -45,7 +48,7 @@ impl Element for Box {
         self.handle
     }
 
-    unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
+    unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         unsafe {
             ng_platform_box_invalidate(self.handle);
         }
@@ -83,7 +86,7 @@ impl Container for Box {
 
         // Keep the element alive so its Drop (e.g. Canvas scheduler unregister)
         // only runs when this Box is dropped, not when the element is "added".
-        self._children.push(std::boxed::Box::new(element));
+        self._children.push(StdBox::new(element));
         Ok(())
     }
 }

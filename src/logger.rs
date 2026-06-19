@@ -1,3 +1,5 @@
+use std::env::var;
+
 use log::{LevelFilter, Metadata, Record};
 
 struct SimpleLogger;
@@ -41,7 +43,7 @@ pub fn init_default() -> Result<(), log::SetLoggerError> {
 }
 
 fn parse_rust_log() -> LevelFilter {
-    let Ok(val) = std::env::var("RUST_LOG") else {
+    let Ok(val) = var("RUST_LOG") else {
         return LevelFilter::Warn;
     };
     match val.to_ascii_lowercase().as_str() {

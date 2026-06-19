@@ -1,6 +1,10 @@
 //! Menu bar and submenu support.
 
 use crate::ffi::*;
+use crate::registry::menu::{
+    invoke_menu_callback as invoke_registered_menu_callback, next_menu_item_id,
+    register_menu_callback,
+};
 use crate::{AureaError, AureaResult};
 use std::{ffi::CString, os::raw::c_void};
 
@@ -153,7 +157,7 @@ impl SubMenu {
     where
         F: Fn() + Send + Sync + 'static,
     {
-        let id = crate::registry::menu::next_menu_item_id();
+        let id = next_menu_item_id();
 
         let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
         let result = unsafe { ng_platform_add_menu_item(self.handle, title.as_ptr(), id) };
@@ -162,7 +166,7 @@ impl SubMenu {
             return Err(AureaError::MenuItemAddFailed);
         }
 
-        crate::registry::menu::register_menu_callback(id, callback);
+        register_menu_callback(id, callback);
         debug!(
             "Added menu item '{}' with id {}",
             title.to_string_lossy(),
@@ -202,7 +206,7 @@ impl SubMenu {
 }
 
 pub fn invoke_menu_callback(id: u32) {
-    crate::registry::menu::invoke_menu_callback(id);
+    invoke_registered_menu_callback(id);
 }
 
 impl Drop for MenuBar {

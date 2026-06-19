@@ -7,6 +7,9 @@ description = "Rust <-> native ABI declarations and native library build for Aur
 license = "Apache-2.0"
 repository = "https://github.com/SkuldNorniern/aurea"
 
+[lints]
+workspace = true
+
 [lib]
 
 [build-dependencies]

@@ -1,5 +1,7 @@
 use super::*;
 use crate::render::{Surface, SurfaceInfo};
+use crate::sync::lock;
+use std::ptr::null_mut;
 
 /// Unified render pipeline: damage → begin_frame → clear → draw callback → end_frame → platform update.
 ///
@@ -14,7 +16,7 @@ fn render_frame(
 ) -> AureaResult<()> {
     // 1. Snapshot what we need, then release the state lock.
     let (damage_rect, draw_callback, bg_color) = {
-        let mut st = crate::sync::lock(state);
+        let mut st = lock(state);
         let damage = st.damage.take();
         let cb = st.draw_callback.clone(); // Arc clone — O(1), no deep copy
         let bg = st.background_color;
@@ -23,7 +25,7 @@ fn render_frame(
 
     // 2. Render under renderer lock only.
     {
-        let mut r = crate::sync::lock(renderer);
+        let mut r = lock(renderer);
         if let Some(ref mut r) = *r {
             r.set_damage(damage_rect);
             let mut ctx = r.begin_frame()?;
@@ -40,13 +42,13 @@ fn render_frame(
     let publishes_cpu_buffer = _backend != RendererBackend::ZenGpu;
     #[cfg(not(feature = "zengpu"))]
     let publishes_cpu_buffer = true;
-    if publishes_cpu_buffer {
-        if let Some((ptr, size, w, h)) = CURRENT_BUFFER.with(|buf| *buf.borrow()) {
-            if !ptr.is_null() && size > 0 {
-                unsafe {
-                    ng_platform_canvas_update_buffer(handle, ptr, size as u32, w, h);
-                }
-            }
+    if publishes_cpu_buffer
+        && let Some((ptr, size, w, h)) = CURRENT_BUFFER.with(|buf| *buf.borrow())
+        && !ptr.is_null()
+        && size > 0
+    {
+        unsafe {
+            ng_platform_canvas_update_buffer(handle, ptr, size as u32, w, h);
         }
     }
 
@@ -77,13 +79,13 @@ impl Canvas {
                 if !window.is_null() {
                     ng_platform_get_scale_factor(window)
                 } else {
-                    crate::sync::lock(&state).scale_factor
+                    lock(&state).scale_factor
                 }
             };
 
             // Detect size/scale changes and update state.
             let (size_changed, scale_changed, cur_w, cur_h) = {
-                let mut st = crate::sync::lock(&state);
+                let mut st = lock(&state);
                 let size_changed =
                     width > 0 && height > 0 && (width != st.width || height != st.height);
                 let scale_changed = (new_scale - st.scale_factor).abs() > f32::EPSILON;
@@ -98,7 +100,7 @@ impl Canvas {
             };
 
             if !ensure_canvas_renderer(handle, &state, &renderer, backend)? {
-                crate::sync::lock(&state).needs_redraw = true;
+                lock(&state).needs_redraw = true;
                 return Ok(());
             }
 
@@ -109,13 +111,13 @@ impl Canvas {
                     *buf.borrow_mut() = None;
                 });
 
-                let mut r = crate::sync::lock(&renderer);
+                let mut r = lock(&renderer);
                 if let Some(ref mut r) = *r {
                     if scale_changed {
                         // Surface::Cpu once step 15 is done; placeholder until then.
                         r.init(
                             Surface::OpenGL {
-                                context: std::ptr::null_mut(),
+                                context: null_mut(),
                             },
                             SurfaceInfo {
                                 width: cur_w,
@@ -129,12 +131,12 @@ impl Canvas {
                     }
                 }
                 drop(r);
-                crate::sync::lock(&state).needs_redraw = true;
+                lock(&state).needs_redraw = true;
             }
 
             // Gate on needs_redraw to avoid redundant redraws.
             let should_redraw = {
-                let mut st = crate::sync::lock(&state);
+                let mut st = lock(&state);
                 if !st.needs_redraw {
                     return Ok(());
                 }
@@ -179,7 +181,7 @@ impl Canvas {
             if !window.is_null() {
                 ng_platform_get_scale_factor(window)
             } else {
-                crate::sync::lock(&self.state).scale_factor
+                lock(&self.state).scale_factor
             }
         };
 
@@ -188,7 +190,7 @@ impl Canvas {
         }
 
         let (size_changed, scale_changed, cur_w, cur_h) = {
-            let mut st = crate::sync::lock(&self.state);
+            let mut st = lock(&self.state);
             let sc = width != st.width || height != st.height;
             let sca = (new_scale - st.scale_factor).abs() > f32::EPSILON;
             if sc {
@@ -214,12 +216,12 @@ impl Canvas {
             return Ok(());
         }
 
-        let mut r = crate::sync::lock(&self.renderer);
+        let mut r = lock(&self.renderer);
         if let Some(ref mut r) = *r {
             if scale_changed {
                 r.init(
                     Surface::OpenGL {
-                        context: std::ptr::null_mut(),
+                        context: null_mut(),
                     },
                     SurfaceInfo {
                         width: cur_w,
@@ -241,11 +243,12 @@ impl Canvas {
         if self.backend == RendererBackend::ZenGpu {
             return;
         }
-        if let Some((ptr, size, w, h)) = CURRENT_BUFFER.with(|buf| *buf.borrow()) {
-            if !ptr.is_null() && size > 0 {
-                unsafe {
-                    ng_platform_canvas_update_buffer(self.handle, ptr, size as u32, w, h);
-                }
+        if let Some((ptr, size, w, h)) = CURRENT_BUFFER.with(|buf| *buf.borrow())
+            && !ptr.is_null()
+            && size > 0
+        {
+            unsafe {
+                ng_platform_canvas_update_buffer(self.handle, ptr, size as u32, w, h);
             }
         }
     }

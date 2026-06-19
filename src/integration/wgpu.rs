@@ -57,11 +57,28 @@
 //!    (or `_for_canvas()`).
 
 use std::os::raw::c_void;
+#[cfg(all(feature = "wgpu", target_os = "linux"))]
+use std::ptr::null_mut;
 
+#[cfg(all(feature = "wgpu", target_os = "macos"))]
+use crate::ffi::ng_platform_window_get_content_view;
+#[cfg(all(feature = "wgpu", target_os = "linux"))]
+use crate::ffi::{
+    ng_platform_canvas_get_wayland_handle, ng_platform_canvas_get_xcb_handle,
+    ng_platform_window_get_wayland_handle, ng_platform_window_get_xcb_handle,
+};
+#[cfg(feature = "wgpu")]
+use crate::render::Canvas;
+#[cfg(feature = "wgpu")]
+use crate::view::FrameScheduler;
+#[cfg(feature = "wgpu")]
+use crate::window::{Window, WindowEvent, push_window_event};
 #[cfg(feature = "wgpu")]
 use crate::{AureaError, AureaResult};
 #[cfg(feature = "wgpu")]
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
+#[cfg(feature = "wgpu")]
+use std::mem::transmute;
 
 /// Platform-specific native window handle
 ///
@@ -103,10 +120,10 @@ pub enum LinuxWindowHandle {
 #[cfg(all(feature = "wgpu", target_os = "linux"))]
 fn linux_window_handle_from_ptr(window: *mut c_void) -> Option<LinuxWindowHandle> {
     let mut xcb_window: u32 = 0;
-    let mut xcb_connection: *mut c_void = std::ptr::null_mut();
-    let has_xcb = unsafe {
-        crate::ffi::ng_platform_window_get_xcb_handle(window, &mut xcb_window, &mut xcb_connection)
-    } != 0;
+    let mut xcb_connection: *mut c_void = null_mut();
+    let has_xcb =
+        unsafe { ng_platform_window_get_xcb_handle(window, &mut xcb_window, &mut xcb_connection) }
+            != 0;
     if has_xcb && xcb_window != 0 && !xcb_connection.is_null() {
         return Some(LinuxWindowHandle::Xcb {
             window: xcb_window,
@@ -114,11 +131,10 @@ fn linux_window_handle_from_ptr(window: *mut c_void) -> Option<LinuxWindowHandle
         });
     }
 
-    let mut surface: *mut c_void = std::ptr::null_mut();
-    let mut display: *mut c_void = std::ptr::null_mut();
-    let has_wayland = unsafe {
-        crate::ffi::ng_platform_window_get_wayland_handle(window, &mut surface, &mut display)
-    } != 0;
+    let mut surface: *mut c_void = null_mut();
+    let mut display: *mut c_void = null_mut();
+    let has_wayland =
+        unsafe { ng_platform_window_get_wayland_handle(window, &mut surface, &mut display) } != 0;
     if has_wayland && !surface.is_null() && !display.is_null() {
         return Some(LinuxWindowHandle::Wayland { surface, display });
     }
@@ -129,10 +145,10 @@ fn linux_window_handle_from_ptr(window: *mut c_void) -> Option<LinuxWindowHandle
 #[cfg(all(feature = "wgpu", target_os = "linux"))]
 fn linux_canvas_handle_from_ptr(canvas: *mut c_void) -> Option<LinuxWindowHandle> {
     let mut xcb_window: u32 = 0;
-    let mut xcb_connection: *mut c_void = std::ptr::null_mut();
-    let has_xcb = unsafe {
-        crate::ffi::ng_platform_canvas_get_xcb_handle(canvas, &mut xcb_window, &mut xcb_connection)
-    } != 0;
+    let mut xcb_connection: *mut c_void = null_mut();
+    let has_xcb =
+        unsafe { ng_platform_canvas_get_xcb_handle(canvas, &mut xcb_window, &mut xcb_connection) }
+            != 0;
     if has_xcb && xcb_window != 0 && !xcb_connection.is_null() {
         return Some(LinuxWindowHandle::Xcb {
             window: xcb_window,
@@ -140,11 +156,10 @@ fn linux_canvas_handle_from_ptr(canvas: *mut c_void) -> Option<LinuxWindowHandle
         });
     }
 
-    let mut surface: *mut c_void = std::ptr::null_mut();
-    let mut display: *mut c_void = std::ptr::null_mut();
-    let has_wayland = unsafe {
-        crate::ffi::ng_platform_canvas_get_wayland_handle(canvas, &mut surface, &mut display)
-    } != 0;
+    let mut surface: *mut c_void = null_mut();
+    let mut display: *mut c_void = null_mut();
+    let has_wayland =
+        unsafe { ng_platform_canvas_get_wayland_handle(canvas, &mut surface, &mut display) } != 0;
     if has_wayland && !surface.is_null() && !display.is_null() {
         return Some(LinuxWindowHandle::Wayland { surface, display });
     }
@@ -156,7 +171,7 @@ fn linux_canvas_handle_from_ptr(canvas: *mut c_void) -> Option<LinuxWindowHandle
 pub fn native_handle_from_window_ptr(window: *mut c_void) -> Option<NativeWindowHandle> {
     #[cfg(target_os = "macos")]
     {
-        let view_ptr = unsafe { crate::ffi::ng_platform_window_get_content_view(window) };
+        let view_ptr = unsafe { ng_platform_window_get_content_view(window) };
         if view_ptr.is_null() {
             return None;
         }
@@ -167,7 +182,7 @@ pub fn native_handle_from_window_ptr(window: *mut c_void) -> Option<NativeWindow
         if window.is_null() {
             return None;
         }
-        return Some(NativeWindowHandle::Windows { hwnd: window });
+        Some(NativeWindowHandle::Windows { hwnd: window })
     }
     #[cfg(target_os = "linux")]
     {
@@ -216,7 +231,7 @@ pub fn native_handle_from_canvas_ptr(canvas: *mut c_void) -> Option<NativeWindow
         if canvas.is_null() {
             return None;
         }
-        return Some(NativeWindowHandle::Windows { hwnd: canvas });
+        Some(NativeWindowHandle::Windows { hwnd: canvas })
     }
     #[cfg(target_os = "linux")]
     {
@@ -275,7 +290,7 @@ impl NativeWindowHandle {
                 target_os = "ios",
                 target_os = "android"
             )))]
-            _ => std::ptr::null_mut(),
+            _ => null_mut(),
         }
     }
 }
@@ -291,7 +306,7 @@ impl HasWindowHandle for NativeWindowHandle {
                 use raw_window_handle::{AppKitWindowHandle, WindowHandle};
                 use std::ptr::NonNull;
                 // SAFETY: ns_view is a valid window handle from Aurea window creation
-                let view = NonNull::new(*ns_view as *mut std::ffi::c_void)
+                let view = NonNull::new(*ns_view as *mut c_void)
                     .ok_or(raw_window_handle::HandleError::Unavailable)?;
                 unsafe {
                     Ok(WindowHandle::borrow_raw(
@@ -342,7 +357,7 @@ impl HasWindowHandle for NativeWindowHandle {
                 use raw_window_handle::{UiKitWindowHandle, WindowHandle};
                 use std::ptr::NonNull;
                 // SAFETY: ui_view is a valid window handle from Aurea window creation
-                let view = NonNull::new(*ui_view as *mut std::ffi::c_void)
+                let view = NonNull::new(*ui_view as *mut c_void)
                     .ok_or(raw_window_handle::HandleError::Unavailable)?;
                 unsafe {
                     Ok(WindowHandle::borrow_raw(
@@ -355,7 +370,7 @@ impl HasWindowHandle for NativeWindowHandle {
                 use raw_window_handle::{AndroidNdkWindowHandle, WindowHandle};
                 use std::ptr::NonNull;
                 // SAFETY: native_window is a valid window handle from Aurea window creation
-                let window = NonNull::new(*native_window as *mut std::ffi::c_void)
+                let window = NonNull::new(*native_window as *mut c_void)
                     .ok_or(raw_window_handle::HandleError::Unavailable)?;
                 unsafe {
                     Ok(WindowHandle::borrow_raw(
@@ -465,11 +480,11 @@ pub trait WindowNativeHandle {
 }
 
 #[cfg(feature = "wgpu")]
-impl WindowNativeHandle for crate::window::Window {
+impl WindowNativeHandle for Window {
     fn native_handle_impl(&self) -> NativeWindowHandle {
         #[cfg(target_os = "macos")]
         {
-            let view_ptr = unsafe { crate::ffi::ng_platform_window_get_content_view(self.handle) };
+            let view_ptr = unsafe { ng_platform_window_get_content_view(self.handle) };
             NativeWindowHandle::MacOS { ns_view: view_ptr }
         }
         #[cfg(target_os = "windows")]
@@ -482,7 +497,7 @@ impl WindowNativeHandle for crate::window::Window {
                 .map(NativeWindowHandle::Linux)
                 .unwrap_or(NativeWindowHandle::Linux(LinuxWindowHandle::Xcb {
                     window: 0,
-                    connection: std::ptr::null_mut(),
+                    connection: null_mut(),
                 }))
         }
         #[cfg(target_os = "ios")]
@@ -528,13 +543,11 @@ pub fn handle_surface_result_for_handle(
     handle: *mut c_void,
     result: &wgpu::CurrentSurfaceTexture,
 ) -> SurfaceErrorAction {
-    use crate::window::WindowEvent;
-
     match result {
         wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
             if !handle.is_null() {
-                crate::window::push_window_event(handle, WindowEvent::SurfaceLost);
-                crate::view::FrameScheduler::schedule();
+                push_window_event(handle, WindowEvent::SurfaceLost);
+                FrameScheduler::schedule();
             }
             SurfaceErrorAction::Recreate
         }
@@ -552,7 +565,7 @@ pub fn handle_surface_result_for_handle(
 /// Pushes `WindowEvent::SurfaceLost` on Lost/Outdated and returns Recreate/Skip/Fatal.
 #[cfg(feature = "wgpu")]
 pub fn handle_surface_result_for_window(
-    window: &crate::window::Window,
+    window: &Window,
     result: &wgpu::CurrentSurfaceTexture,
 ) -> SurfaceErrorAction {
     handle_surface_result_for_handle(window.handle(), result)
@@ -562,7 +575,7 @@ pub fn handle_surface_result_for_window(
 /// Pushes `WindowEvent::SurfaceLost` on Lost/Outdated and returns Recreate/Skip/Fatal.
 #[cfg(feature = "wgpu")]
 pub fn handle_surface_result_for_canvas(
-    canvas: &crate::render::Canvas,
+    canvas: &Canvas,
     result: &wgpu::CurrentSurfaceTexture,
 ) -> SurfaceErrorAction {
     handle_surface_result_for_handle(canvas.window_handle(), result)
@@ -570,10 +583,9 @@ pub fn handle_surface_result_for_canvas(
 
 /// Call after recreating a window-backed wgpu surface so `SurfaceRecreated` is emitted and redraw scheduled.
 #[cfg(feature = "wgpu")]
-pub fn notify_surface_recreated_for_window(window: &crate::window::Window) {
-    use crate::window::WindowEvent;
-    crate::window::push_window_event(window.handle(), WindowEvent::SurfaceRecreated);
-    crate::view::FrameScheduler::schedule();
+pub fn notify_surface_recreated_for_window(window: &Window) {
+    push_window_event(window.handle(), WindowEvent::SurfaceRecreated);
+    FrameScheduler::schedule();
 }
 
 #[cfg(feature = "wgpu")]
@@ -581,25 +593,23 @@ pub fn notify_surface_recreated_for_handle(handle: *mut c_void) {
     if handle.is_null() {
         return;
     }
-    use crate::window::WindowEvent;
-    crate::window::push_window_event(handle, WindowEvent::SurfaceRecreated);
-    crate::view::FrameScheduler::schedule();
+    push_window_event(handle, WindowEvent::SurfaceRecreated);
+    FrameScheduler::schedule();
 }
 
 /// Call after recreating a canvas-backed wgpu surface so `SurfaceRecreated` is emitted and redraw scheduled.
 #[cfg(feature = "wgpu")]
-pub fn notify_surface_recreated_for_canvas(canvas: &crate::render::Canvas) {
+pub fn notify_surface_recreated_for_canvas(canvas: &Canvas) {
     let handle = canvas.window_handle();
     if handle.is_null() {
         return;
     }
-    use crate::window::WindowEvent;
-    crate::window::push_window_event(handle, WindowEvent::SurfaceRecreated);
-    crate::view::FrameScheduler::schedule();
+    push_window_event(handle, WindowEvent::SurfaceRecreated);
+    FrameScheduler::schedule();
 }
 
 #[cfg(all(feature = "wgpu", not(target_os = "windows")))]
-impl HasWindowHandle for crate::window::Window {
+impl HasWindowHandle for Window {
     fn window_handle(
         &self,
     ) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
@@ -610,8 +620,7 @@ impl HasWindowHandle for crate::window::Window {
                 use raw_window_handle::{AppKitWindowHandle, WindowHandle};
                 use std::ptr::NonNull;
                 // SAFETY: ng_platform_window_get_content_view returns the NSView handle
-                let view_ptr =
-                    unsafe { crate::ffi::ng_platform_window_get_content_view(self.handle) };
+                let view_ptr = unsafe { ng_platform_window_get_content_view(self.handle) };
                 let view =
                     NonNull::new(view_ptr).ok_or(raw_window_handle::HandleError::Unavailable)?;
                 unsafe {
@@ -625,7 +634,7 @@ impl HasWindowHandle for crate::window::Window {
                 use raw_window_handle::{Win32WindowHandle, WindowHandle};
                 use std::ptr::NonNull;
                 // SAFETY: self.handle is a valid HWND from window creation
-                let hwnd_ptr = NonNull::new(self.handle as *mut std::ffi::c_void)
+                let hwnd_ptr = NonNull::new(self.handle as *mut c_void)
                     .ok_or(raw_window_handle::HandleError::Unavailable)?;
                 unsafe {
                     Ok(WindowHandle::borrow_raw(
@@ -667,7 +676,7 @@ impl HasWindowHandle for crate::window::Window {
                 use raw_window_handle::{UiKitWindowHandle, WindowHandle};
                 use std::ptr::NonNull;
                 // SAFETY: self.handle is a valid UIView from window creation
-                let view = NonNull::new(self.handle as *mut std::ffi::c_void)
+                let view = NonNull::new(self.handle as *mut c_void)
                     .ok_or(raw_window_handle::HandleError::Unavailable)?;
                 unsafe {
                     Ok(WindowHandle::borrow_raw(
@@ -680,7 +689,7 @@ impl HasWindowHandle for crate::window::Window {
                 use raw_window_handle::{AndroidNdkWindowHandle, WindowHandle};
                 use std::ptr::NonNull;
                 // SAFETY: self.handle is a valid Android window from window creation
-                let window = NonNull::new(self.handle as *mut std::ffi::c_void)
+                let window = NonNull::new(self.handle as *mut c_void)
                     .ok_or(raw_window_handle::HandleError::Unavailable)?;
                 unsafe {
                     Ok(WindowHandle::borrow_raw(
@@ -694,7 +703,7 @@ impl HasWindowHandle for crate::window::Window {
 }
 
 #[cfg(all(feature = "wgpu", not(target_os = "windows")))]
-impl HasDisplayHandle for crate::window::Window {
+impl HasDisplayHandle for Window {
     fn display_handle(
         &self,
     ) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
@@ -759,7 +768,7 @@ impl HasDisplayHandle for crate::window::Window {
 }
 
 #[cfg(feature = "wgpu")]
-impl crate::window::Window {
+impl Window {
     /// Create a wgpu surface from this window
     ///
     /// This creates a wgpu surface for external rendering. The surface can be
@@ -791,7 +800,7 @@ impl crate::window::Window {
         // Window implements HasWindowHandle and HasDisplayHandle (via native_handle)
         // wgpu's SurfaceTarget::from can create a surface target from such types
         let surface_target: wgpu::SurfaceTarget<'static> =
-            unsafe { std::mem::transmute(wgpu::SurfaceTarget::from(self)) };
+            unsafe { transmute(wgpu::SurfaceTarget::from(self)) };
 
         let surface = instance
             .create_surface(surface_target)

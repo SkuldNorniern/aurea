@@ -1,23 +1,25 @@
+use std::env;
+use std::path::{Path, PathBuf};
 #[cfg(target_os = "linux")]
-use std::process::Command;
+use std::process::{self, Command};
 
 fn main() {
-    let manifest_dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let root = {
         let p = manifest_dir.canonicalize().unwrap();
         // cl.exe rejects \\?\ extended-path prefix in -I flags on Windows.
         let s = p.to_string_lossy();
-        std::path::PathBuf::from(s.strip_prefix(r"\\?\").unwrap_or(&s).to_string())
+        PathBuf::from(s.strip_prefix(r"\\?\").unwrap_or(&s).to_string())
     };
     let native = root.join("native");
 
-    fn add_sources(build: &mut cc::Build, root: &std::path::Path, sources: &[&str]) {
+    fn add_sources(build: &mut cc::Build, root: &Path, sources: &[&str]) {
         for source in sources {
             build.file(root.join(source));
         }
     }
 
-    fn rerun_for(root: &std::path::Path, paths: &[&str]) {
+    fn rerun_for(root: &Path, paths: &[&str]) {
         for path in paths {
             println!("cargo:rerun-if-changed={}", root.join(path).display());
         }
@@ -123,7 +125,7 @@ fn main() {
         "native/platform/linux/elements/sidebar_list.c",
     ];
 
-    let target = std::env::var("TARGET").unwrap();
+    let target = env::var("TARGET").unwrap();
     let mut build = cc::Build::new();
     build.include(&native).warnings(true);
 
@@ -201,7 +203,7 @@ fn main() {
             .is_ok_and(|status| status.success())
         {
             println!("cargo:warning=pkg-config not found. Please install pkg-config.");
-            std::process::exit(1);
+            process::exit(1);
         }
 
         match pkg_config::Config::new()
@@ -225,7 +227,7 @@ fn main() {
                 println!("cargo:warning=    sudo dnf install gtk3-devel");
                 println!("cargo:warning=On Arch Linux:");
                 println!("cargo:warning=    sudo pacman -S gtk3");
-                std::process::exit(1);
+                process::exit(1);
             }
         }
 

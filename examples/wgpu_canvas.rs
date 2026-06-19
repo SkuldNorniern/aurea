@@ -6,8 +6,12 @@
 //! `aurea::integration::wgpu::handle_surface_error_for_canvas()`; after recreating the surface
 //! call `notify_surface_recreated_for_canvas()`. See `aurea::integration::wgpu` docs.
 
+use std::error::Error;
+#[cfg(not(feature = "wgpu"))]
+use std::process::exit;
+
 #[cfg(feature = "wgpu")]
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     use aurea::elements::{Box, BoxOrientation};
     use aurea::render::{Canvas, RendererBackend};
     use aurea::{Container, Window};
@@ -27,5 +31,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(not(feature = "wgpu"))]
 fn main() {
     eprintln!("Build with --features wgpu to run this example.");
-    std::process::exit(1);
+    exit(1);
 }

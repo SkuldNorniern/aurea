@@ -3,6 +3,7 @@ use aurea::elements::{Box, BoxOrientation, Button, Container, Label};
 use aurea::logger;
 use aurea::{AureaResult, Window};
 use log::LevelFilter;
+use std::process::exit;
 
 fn main() -> AureaResult<()> {
     logger::init(LevelFilter::Debug).unwrap_or_else(|e| {
@@ -34,7 +35,7 @@ fn setup_file_menu(menu_bar: &mut MenuBar) -> AureaResult<()> {
     file_menu.add_item("Save", || println!("File -> Save clicked"))?;
     file_menu.add_item("Exit", || {
         println!("File -> Exit clicked");
-        std::process::exit(0);
+        exit(0);
     })?;
     Ok(())
 }

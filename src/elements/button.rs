@@ -1,4 +1,9 @@
 use super::traits::Element;
+use crate::registry::elements::{
+    invoke_button_callback as invoke_registered_button_callback, next_button_id,
+    register_button_callback,
+};
+use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::{ffi::CString, os::raw::c_void};
 
@@ -17,7 +22,7 @@ impl Button {
     where
         F: Fn() + Send + Sync + 'static,
     {
-        let id = crate::registry::elements::next_button_id();
+        let id = next_button_id();
 
         let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
         let handle = unsafe { ng_platform_create_button(title.as_ptr(), id) };
@@ -26,7 +31,7 @@ impl Button {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        crate::registry::elements::register_button_callback(id, callback);
+        register_button_callback(id, callback);
 
         Ok(Self {
             handle,
@@ -37,7 +42,7 @@ impl Button {
 }
 
 pub fn invoke_button_callback(id: u32) {
-    crate::registry::elements::invoke_button_callback(id);
+    invoke_registered_button_callback(id);
 }
 
 impl Element for Button {
@@ -45,7 +50,7 @@ impl Element for Button {
         self.handle
     }
 
-    unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
+    unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         unsafe {
             ng_platform_button_invalidate(self.handle);
         }

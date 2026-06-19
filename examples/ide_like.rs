@@ -12,11 +12,18 @@ use aurea::elements::{
     Box, BoxOrientation, Button, Container, Element, Label, SidebarList, SplitOrientation,
     SplitView, TabBar, TextEditor, TextView,
 };
+use aurea::ffi::{ng_platform_poll_events, ng_platform_window_request_close};
 use aurea::logger;
+use aurea::render::Rect;
 use aurea::{AureaResult, Window, WindowManager, WindowType};
 use log::LevelFilter;
 use std::collections::HashMap;
+use std::ffi::c_void;
+use std::ops::{Deref, DerefMut};
+use std::process::exit;
 use std::sync::{Arc, Mutex};
+use std::thread::sleep;
+use std::time::Duration;
 
 const WINDOW_WIDTH: i32 = 1280;
 const WINDOW_HEIGHT: i32 = 800;
@@ -114,14 +121,14 @@ struct SendableTextEditor(TextEditor);
 unsafe impl Send for SendableTextEditor {}
 unsafe impl Sync for SendableTextEditor {}
 
-impl std::ops::Deref for SendableTextEditor {
+impl Deref for SendableTextEditor {
     type Target = TextEditor;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl std::ops::DerefMut for SendableTextEditor {
+impl DerefMut for SendableTextEditor {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -130,11 +137,11 @@ impl std::ops::DerefMut for SendableTextEditor {
 struct SharedSidebarList(Arc<Mutex<SidebarList>>);
 
 impl Element for SharedSidebarList {
-    fn handle(&self) -> *mut std::os::raw::c_void {
+    fn handle(&self) -> *mut c_void {
         self.0.lock().unwrap().handle()
     }
 
-    unsafe fn invalidate_platform(&self, rect: Option<aurea::render::Rect>) {
+    unsafe fn invalidate_platform(&self, rect: Option<Rect>) {
         let guard = self.0.lock().unwrap();
         unsafe { Element::invalidate_platform(&*guard, rect) }
     }
@@ -143,11 +150,11 @@ impl Element for SharedSidebarList {
 struct SharedEditor(Arc<Mutex<SendableTextEditor>>);
 
 impl Element for SharedEditor {
-    fn handle(&self) -> *mut std::os::raw::c_void {
+    fn handle(&self) -> *mut c_void {
         self.0.lock().unwrap().handle()
     }
 
-    unsafe fn invalidate_platform(&self, rect: Option<aurea::render::Rect>) {
+    unsafe fn invalidate_platform(&self, rect: Option<Rect>) {
         let guard = self.0.lock().unwrap();
         unsafe { Element::invalidate_platform(&**guard, rect) }
     }
@@ -193,12 +200,11 @@ fn main() -> AureaResult<()> {
                     state.lock(),
                     ui.tab_bar.lock(),
                     ui.sidebar_list.lock(),
-                ) {
-                    if let Some(c) = st.get(name) {
-                        let _ = main_ed.set_content(c);
-                        let _ = tc.set_selected(idx);
-                        let _ = sl.set_selected(idx);
-                    }
+                ) && let Some(c) = st.get(name)
+                {
+                    let _ = main_ed.set_content(c);
+                    let _ = tc.set_selected(idx);
+                    let _ = sl.set_selected(idx);
                 }
                 if let Ok(mut s) = state.lock() {
                     s.current_file = Some((*name).to_string());
@@ -211,22 +217,22 @@ fn main() -> AureaResult<()> {
             (ui.sidebar_list.lock(), ui.editor.lock(), state.lock())
         {
             let sidebar_idx = sidebar_list.get_selected();
-            if let Some(file_idx) = sidebar_idx_to_file_idx(sidebar_idx) {
-                if file_idx != last_sidebar_idx {
-                    last_sidebar_idx = file_idx;
-                    if let Some((name, _)) = FILES.get(file_idx as usize) {
-                        if let Some(c) = st.get(name) {
-                            let _ = main_ed.set_content(c);
-                            st.current_file = Some((*name).to_string());
-                        }
-                    }
-                    drop((sidebar_list, main_ed, st));
-                    if let (Ok(mut tc), Ok(mut sl)) = (ui.tab_bar.lock(), ui.sidebar_list.lock()) {
-                        let _ = tc.set_selected(file_idx);
-                        let _ = sl.set_selected(file_idx);
-                    }
-                    continue;
+            if let Some(file_idx) = sidebar_idx_to_file_idx(sidebar_idx)
+                && file_idx != last_sidebar_idx
+            {
+                last_sidebar_idx = file_idx;
+                if let Some((name, _)) = FILES.get(file_idx as usize)
+                    && let Some(c) = st.get(name)
+                {
+                    let _ = main_ed.set_content(c);
+                    st.current_file = Some((*name).to_string());
                 }
+                drop((sidebar_list, main_ed, st));
+                if let (Ok(mut tc), Ok(mut sl)) = (ui.tab_bar.lock(), ui.sidebar_list.lock()) {
+                    let _ = tc.set_selected(file_idx);
+                    let _ = sl.set_selected(file_idx);
+                }
+                continue;
             }
         }
 
@@ -263,9 +269,9 @@ fn main() -> AureaResult<()> {
             }
         }
 
-        unsafe { aurea::ffi::ng_platform_poll_events() };
+        unsafe { ng_platform_poll_events() };
         manager.process_all_frames()?;
-        std::thread::sleep(std::time::Duration::from_millis(16));
+        sleep(Duration::from_millis(16));
     }
 
     Ok(())
@@ -295,7 +301,7 @@ fn setup_main_menu(
     file.add_separator()?;
     file.add_item("Save\tCtrl+S", || println!("File -> Save"))?;
     file.add_item("Save As...\tCtrl+Shift+S", || println!("File -> Save As"))?;
-    file.add_item("Exit\tAlt+F4", || std::process::exit(0))?;
+    file.add_item("Exit\tAlt+F4", || exit(0))?;
 
     let mut edit = menu_bar.add_submenu("Edit")?;
     edit.add_item("Undo\tCtrl+Z", || println!("Edit -> Undo"))?;
@@ -398,7 +404,7 @@ fn create_editor_popup(
             let _ = main_ed.set_content(&content);
         }
         unsafe {
-            aurea::ffi::ng_platform_window_request_close(popup_handle as *mut std::ffi::c_void);
+            ng_platform_window_request_close(popup_handle as *mut c_void);
         }
     })?)?;
 
@@ -410,11 +416,11 @@ fn create_editor_popup(
 struct SharedTabBar(Arc<Mutex<TabBar>>);
 
 impl Element for SharedTabBar {
-    fn handle(&self) -> *mut std::os::raw::c_void {
+    fn handle(&self) -> *mut c_void {
         self.0.lock().unwrap().handle()
     }
 
-    unsafe fn invalidate_platform(&self, rect: Option<aurea::render::Rect>) {
+    unsafe fn invalidate_platform(&self, rect: Option<Rect>) {
         let guard = self.0.lock().unwrap();
         unsafe { Element::invalidate_platform(&*guard, rect) }
     }
@@ -486,39 +492,38 @@ fn build_tab_bar(
     let editor_det = Arc::clone(&editor_arc);
     let mut tab_bar = TabBar::with_callbacks(
         move |idx| {
-            if let Some((name, _)) = FILES.get(idx as usize) {
-                if let (Ok(mut ed), Ok(mut st)) = (editor_sel.lock(), state_sel.lock()) {
-                    if let Some(c) = st.get(name) {
-                        let _ = ed.set_content(c);
-                        st.current_file = Some((*name).to_string());
-                        st.pending_file_index = Some(idx);
-                    }
-                }
+            if let Some((name, _)) = FILES.get(idx as usize)
+                && let (Ok(mut ed), Ok(mut st)) = (editor_sel.lock(), state_sel.lock())
+                && let Some(c) = st.get(name)
+            {
+                let _ = ed.set_content(c);
+                st.current_file = Some((*name).to_string());
+                st.pending_file_index = Some(idx);
             }
         },
         move |idx| {
-            if let Some((name, _)) = FILES.get(idx as usize) {
-                if let (Ok(mut s), Ok(ed)) = (state_det.lock(), editor_det.lock()) {
-                    let content = ed.get_content().unwrap_or_default();
-                    s.set(name, content.clone());
-                    drop(s);
-                    drop(ed);
-                    if let Ok((popup, popup_editor)) = create_editor_popup(
-                        name,
-                        content,
-                        Arc::clone(&state_det),
-                        Arc::clone(&editor_det),
-                    ) {
-                        let popup_arc = Arc::new(popup);
-                        popup_arc.show();
-                        manager.register(popup_arc.clone());
-                        if let Ok(mut s) = state_det.lock() {
-                            s.detached.push(DetachedPopup {
-                                window: popup_arc,
-                                filename: (*name).to_string(),
-                                editor: popup_editor,
-                            });
-                        }
+            if let Some((name, _)) = FILES.get(idx as usize)
+                && let (Ok(mut s), Ok(ed)) = (state_det.lock(), editor_det.lock())
+            {
+                let content = ed.get_content().unwrap_or_default();
+                s.set(name, content.clone());
+                drop(s);
+                drop(ed);
+                if let Ok((popup, popup_editor)) = create_editor_popup(
+                    name,
+                    content,
+                    Arc::clone(&state_det),
+                    Arc::clone(&editor_det),
+                ) {
+                    let popup_arc = Arc::new(popup);
+                    popup_arc.show();
+                    manager.register(popup_arc.clone());
+                    if let Ok(mut s) = state_det.lock() {
+                        s.detached.push(DetachedPopup {
+                            window: popup_arc,
+                            filename: (*name).to_string(),
+                            editor: popup_editor,
+                        });
                     }
                 }
             }
@@ -557,10 +562,10 @@ fn sidebar_idx_to_file_idx(idx: i32) -> Option<i32> {
 fn build_sidebar(state: Arc<Mutex<AppState>>) -> AureaResult<(Box, Arc<Mutex<SidebarList>>)> {
     let st = Arc::clone(&state);
     let mut list = SidebarList::with_callback(move |idx| {
-        if let Some(file_idx) = sidebar_idx_to_file_idx(idx) {
-            if let Ok(mut s) = st.lock() {
-                s.pending_file_index = Some(file_idx);
-            }
+        if let Some(file_idx) = sidebar_idx_to_file_idx(idx)
+            && let Ok(mut s) = st.lock()
+        {
+            s.pending_file_index = Some(file_idx);
         }
     })?;
 

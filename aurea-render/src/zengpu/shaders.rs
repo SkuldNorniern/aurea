@@ -9,10 +9,12 @@
 //! ABI's "scalars, then texture indices" packing.
 
 use inline_spirv::inline_spirv;
+use std::mem::size_of_val;
+use std::slice::from_raw_parts;
 
 /// View SPIR-V words as the bytes [`zengpu_hal::ShaderDesc`] expects.
 pub fn spv_bytes(words: &[u32]) -> &[u8] {
-    unsafe { std::slice::from_raw_parts(words.as_ptr() as *const u8, std::mem::size_of_val(words)) }
+    unsafe { from_raw_parts(words.as_ptr() as *const u8, size_of_val(words)) }
 }
 
 pub const RECT_VERT_SPV: &[u32] = inline_spirv!(

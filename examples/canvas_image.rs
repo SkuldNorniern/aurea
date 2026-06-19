@@ -4,7 +4,9 @@
 //! and as a region (crop) to verify the image drawing path.
 
 use aurea::elements::{Box, BoxOrientation};
-use aurea::render::{Canvas, Color, Image, Paint, PaintStyle, Point, Rect, RendererBackend};
+use aurea::render::{
+    Canvas, Color, DrawingContext, Image, Paint, PaintStyle, Point, Rect, RendererBackend,
+};
 use aurea::{AureaResult, Container, Window};
 
 const CANVAS_WIDTH: u32 = 640;
@@ -29,7 +31,7 @@ fn main() -> AureaResult<()> {
     Ok(())
 }
 
-fn draw_image_scene(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResult<()> {
+fn draw_image_scene(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
     let image = make_test_image();
 
     ctx.draw_image(&image, Point::new(20.0, 20.0))?;

@@ -1,5 +1,7 @@
 //! Platform detection and platform-specific functionality
 
+use std::fmt::{Display, Formatter, Result as FmtResult};
+
 /// Represents the target platform
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Platform {
@@ -118,20 +120,20 @@ impl MobilePlatform {
     }
 }
 
-impl std::fmt::Display for Platform {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for Platform {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "{} ({})", self.name(), self.family())
     }
 }
 
-impl std::fmt::Display for DesktopPlatform {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for DesktopPlatform {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "{}", self.name())
     }
 }
 
-impl std::fmt::Display for MobilePlatform {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for MobilePlatform {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "{}", self.name())
     }
 }

@@ -1,5 +1,7 @@
 //! Scanline fill for paths — flat-buffer variant.
 
+use std::cmp::Ordering;
+
 use super::super::types::{BlendMode, Color};
 use super::blend::blend_pixel;
 use super::path::Edge;
@@ -31,7 +33,7 @@ pub fn fill_scanline(
     if scratch_xs.is_empty() {
         return;
     }
-    scratch_xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    scratch_xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
 
     let row_y = y as u32;
     let buf_y = row_y.saturating_sub(offset_y);

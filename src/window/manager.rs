@@ -4,7 +4,10 @@
 //! in desktop applications.
 
 use crate::AureaResult;
-use crate::window::Window;
+use crate::ffi::ng_platform_poll_events;
+use crate::sync::lock;
+use crate::window::{Window, WindowEvent, WindowId};
+use std::os::raw::c_void;
 use std::sync::{Arc, Mutex};
 
 /// Window manager for tracking multiple windows
@@ -25,38 +28,38 @@ impl WindowManager {
 
     /// Register a window with the manager
     pub fn register(&self, window: Arc<Window>) {
-        let mut windows = crate::sync::lock(&self.windows);
+        let mut windows = lock(&self.windows);
         windows.push(window);
     }
 
     /// Unregister a window from the manager
-    pub fn unregister(&self, window_handle: *mut std::os::raw::c_void) {
-        let mut windows = crate::sync::lock(&self.windows);
+    pub fn unregister(&self, window_handle: *mut c_void) {
+        let mut windows = lock(&self.windows);
         windows.retain(|w| w.handle != window_handle);
     }
 
     /// Get all registered windows
     pub fn windows(&self) -> Vec<Arc<Window>> {
-        let windows = crate::sync::lock(&self.windows);
+        let windows = lock(&self.windows);
         windows.clone()
     }
 
     /// Get the number of registered windows
     pub fn count(&self) -> usize {
-        let windows = crate::sync::lock(&self.windows);
+        let windows = lock(&self.windows);
         windows.len()
     }
 
     /// Find a window by handle
-    pub fn find(&self, handle: *mut std::os::raw::c_void) -> Option<Arc<Window>> {
-        let windows = crate::sync::lock(&self.windows);
+    pub fn find(&self, handle: *mut c_void) -> Option<Arc<Window>> {
+        let windows = lock(&self.windows);
         windows.iter().find(|w| w.handle == handle).cloned()
     }
 
     /// Process events for all registered windows
-    pub fn poll_all_events(&self) -> Vec<(crate::window::WindowId, crate::window::WindowEvent)> {
+    pub fn poll_all_events(&self) -> Vec<(WindowId, WindowEvent)> {
         unsafe {
-            crate::ffi::ng_platform_poll_events();
+            ng_platform_poll_events();
         }
         let mut all_events = Vec::new();
         let windows = self.windows();

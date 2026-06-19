@@ -1,6 +1,7 @@
 //! Event queue for window-level events.
 
 use aurea_foundation::{EventCallback, WindowEvent};
+use std::mem::{discriminant, take};
 use std::sync::{Arc, Mutex};
 
 pub struct EventQueue {
@@ -25,11 +26,11 @@ impl EventQueue {
             WindowEvent::MouseMove { .. }
             | WindowEvent::RawMouseMotion { .. }
             | WindowEvent::MouseWheel { .. } => {
-                if let Some(last) = events.last_mut() {
-                    if std::mem::discriminant(last) == std::mem::discriminant(&event) {
-                        *last = event;
-                        return;
-                    }
+                if let Some(last) = events.last_mut()
+                    && discriminant(last) == discriminant(&event)
+                {
+                    *last = event;
+                    return;
                 }
             }
             _ => {}
@@ -39,7 +40,7 @@ impl EventQueue {
 
     pub fn pop_all(&self) -> Vec<WindowEvent> {
         let mut events = aurea_foundation::lock(&self.events);
-        std::mem::take(&mut *events)
+        take(&mut *events)
     }
 
     pub fn register_callback(&self, callback: EventCallback) {

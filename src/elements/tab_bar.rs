@@ -4,6 +4,10 @@
 //! allows dragging a tab out of the window to create a popup.
 
 use super::traits::Element;
+use crate::registry::elements::{
+    invoke_tab_detach, invoke_tab_selected, next_tab_id, register_tab_callbacks,
+};
+use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::{ffi::CString, os::raw::c_void};
 
@@ -26,7 +30,7 @@ impl TabBar {
         F: Fn(i32) + Send + Sync + 'static,
         G: Fn(i32) + Send + Sync + 'static,
     {
-        let id = crate::registry::elements::next_tab_id();
+        let id = next_tab_id();
 
         let handle = unsafe { ng_platform_create_tab_bar(id) };
 
@@ -34,7 +38,7 @@ impl TabBar {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        crate::registry::elements::register_tab_callbacks(id, on_selected, on_detach);
+        register_tab_callbacks(id, on_selected, on_detach);
 
         Ok(Self { handle, _id: id })
     }
@@ -110,11 +114,11 @@ impl TabBar {
 }
 
 pub fn invoke_tab_bar_selected(id: u32, index: i32) {
-    crate::registry::elements::invoke_tab_selected(id, index);
+    invoke_tab_selected(id, index);
 }
 
 pub fn invoke_tab_bar_detach(id: u32, index: i32) {
-    crate::registry::elements::invoke_tab_detach(id, index);
+    invoke_tab_detach(id, index);
 }
 
 impl Element for TabBar {
@@ -122,7 +126,7 @@ impl Element for TabBar {
         self.handle
     }
 
-    unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
+    unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         unsafe {
             ng_platform_tab_bar_invalidate(self.handle);
         }

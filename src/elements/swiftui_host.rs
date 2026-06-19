@@ -6,6 +6,9 @@
 use super::traits::Element;
 #[cfg(target_os = "macos")]
 use crate::ffi::*;
+use crate::render::Rect;
+use std::error::Error;
+use std::fmt::{Display, Formatter, Result as FmtResult};
 #[cfg(target_os = "macos")]
 use std::os::raw::c_int;
 use std::os::raw::c_void;
@@ -14,8 +17,8 @@ use std::os::raw::c_void;
 #[derive(Debug, Clone)]
 pub struct SwiftUIHostNotAvailable;
 
-impl std::fmt::Display for SwiftUIHostNotAvailable {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for SwiftUIHostNotAvailable {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
             "SwiftUI host element is only available on macOS with the Swift host library linked"
@@ -23,7 +26,7 @@ impl std::fmt::Display for SwiftUIHostNotAvailable {
     }
 }
 
-impl std::error::Error for SwiftUIHostNotAvailable {}
+impl Error for SwiftUIHostNotAvailable {}
 
 /// Host element that embeds a SwiftUI view hierarchy inside an Aurea window.
 /// macOS only; returns `Err` on other platforms or when the Swift implementation is not linked.
@@ -63,7 +66,7 @@ impl Element for SwiftUIHost {
         self.handle
     }
 
-    unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
+    unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         // SwiftUI manages its own updates; no-op.
     }
 }

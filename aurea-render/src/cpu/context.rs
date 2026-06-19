@@ -10,7 +10,8 @@ use super::super::types::*;
 use aurea_foundation::AureaResult;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::sync::LazyLock;
+use std::mem::discriminant;
+use std::sync::{Arc, LazyLock};
 
 static TEXT_RENDERER: LazyLock<TextRenderer> = LazyLock::new(TextRenderer::new);
 const DEFAULT_FONT_FAMILY: &str = "Sans";
@@ -185,7 +186,7 @@ impl CpuDrawingContext {
                 dest.width.to_bits().hash(&mut hasher);
                 dest.height.to_bits().hash(&mut hasher);
                 // Pixel data is reference-counted; same Arc => same contents.
-                (std::sync::Arc::as_ptr(&image.data) as *const u8 as usize).hash(&mut hasher);
+                (Arc::as_ptr(&image.data) as *const u8 as usize).hash(&mut hasher);
             }
             super::super::command::DrawCommand::DrawImageRegion(image, src, dest) => {
                 "DrawImageRegion".hash(&mut hasher);
@@ -199,7 +200,7 @@ impl CpuDrawingContext {
                 dest.y.to_bits().hash(&mut hasher);
                 dest.width.to_bits().hash(&mut hasher);
                 dest.height.to_bits().hash(&mut hasher);
-                (std::sync::Arc::as_ptr(&image.data) as *const u8 as usize).hash(&mut hasher);
+                (Arc::as_ptr(&image.data) as *const u8 as usize).hash(&mut hasher);
             }
             super::super::command::DrawCommand::FillLinearGradient(grad, rect) => {
                 "FillLinearGradient".hash(&mut hasher);
@@ -283,7 +284,7 @@ impl CpuDrawingContext {
                 // The coverage buffer comes from the glyph/run LRU caches, so its
                 // Arc pointer is a stable identity for unchanged text — avoids
                 // hashing (or debug-formatting) the coverage bytes themselves.
-                (std::sync::Arc::as_ptr(&mask.coverage) as *const u8 as usize).hash(&mut hasher);
+                (Arc::as_ptr(&mask.coverage) as *const u8 as usize).hash(&mut hasher);
                 mask.width.hash(&mut hasher);
                 mask.height.hash(&mut hasher);
                 origin.x.to_bits().hash(&mut hasher);
@@ -294,7 +295,7 @@ impl CpuDrawingContext {
                 color.a.hash(&mut hasher);
             }
             _ => {
-                std::mem::discriminant(command).hash(&mut hasher);
+                discriminant(command).hash(&mut hasher);
             }
         }
         self.current_transform.m11.to_bits().hash(&mut hasher);

@@ -11,6 +11,8 @@ use super::LruCache;
 use super::atlas::{GlyphBitmap, GlyphKey};
 use super::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph};
 use aurea_foundation::{AureaError, AureaResult};
+use std::env::{var, var_os};
+use std::fs::{read, read_dir};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -59,12 +61,12 @@ fn font_search_dirs() -> Vec<PathBuf> {
 
     #[cfg(target_os = "windows")]
     {
-        if let Some(root) = std::env::var_os("SYSTEMROOT") {
+        if let Some(root) = var_os("SYSTEMROOT") {
             dirs.push(PathBuf::from(root).join("Fonts"));
         } else {
             dirs.push(PathBuf::from("C:\\Windows\\Fonts"));
         }
-        if let Ok(profile) = std::env::var("USERPROFILE") {
+        if let Ok(profile) = var("USERPROFILE") {
             let home = PathBuf::from(profile);
             dirs.push(home.join("AppData\\Local\\Microsoft\\Windows\\Fonts"));
             dirs.push(home.join("AppData\\Roaming\\Microsoft\\Windows\\Fonts"));
@@ -146,7 +148,7 @@ fn find_by_filename(family: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
     let mut best: Option<(usize, PathBuf)> = None; // (match_score, path)
 
     for dir in dirs {
-        let Ok(entries) = std::fs::read_dir(dir) else {
+        let Ok(entries) = read_dir(dir) else {
             continue;
         };
         for entry in entries.flatten() {
@@ -181,7 +183,7 @@ fn find_by_filename(family: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
 
 /// Load a fontdue Font from a file path (collection index 0).
 fn load_font_file(path: &Path) -> Option<fontdue::Font> {
-    let data = std::fs::read(path).ok()?;
+    let data = read(path).ok()?;
     fontdue::Font::from_bytes(
         data,
         fontdue::FontSettings {

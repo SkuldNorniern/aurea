@@ -5,7 +5,9 @@
 //! combines with the content underneath.
 
 use aurea::elements::{Box, BoxOrientation};
-use aurea::render::{BlendMode, Canvas, Color, Paint, Point, Rect, RendererBackend};
+use aurea::render::{
+    BlendMode, Canvas, Color, DrawingContext, Paint, Point, Rect, RendererBackend,
+};
 use aurea::{AureaResult, Container, Window};
 
 const CANVAS_WIDTH: u32 = 640;
@@ -30,7 +32,7 @@ fn main() -> AureaResult<()> {
     Ok(())
 }
 
-fn draw_blend_scene(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResult<()> {
+fn draw_blend_scene(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
     let base = Paint::new().color(Color::rgb(200, 180, 160));
     ctx.draw_rect(Rect::new(20.0, 20.0, 280.0, 200.0), &base)?;
 

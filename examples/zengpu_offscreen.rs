@@ -9,6 +9,8 @@
 //!
 //! Run: cargo run --example zengpu_offscreen
 
+use std::mem::size_of_val;
+use std::slice::from_raw_parts;
 use std::time::Instant;
 
 use aurea::{Window, WindowEvent};
@@ -94,7 +96,7 @@ const SCR_FRAG_SPV: &[u32] = inline_spirv!(
 
 /// View SPIR-V words as the bytes [`ShaderDesc`] expects.
 fn spv_bytes(words: &[u32]) -> &[u8] {
-    unsafe { std::slice::from_raw_parts(words.as_ptr() as *const u8, std::mem::size_of_val(words)) }
+    unsafe { from_raw_parts(words.as_ptr() as *const u8, size_of_val(words)) }
 }
 
 // ── Event loop ────────────────────────────────────────────────────────────────
