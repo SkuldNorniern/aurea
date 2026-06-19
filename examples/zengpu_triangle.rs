@@ -5,23 +5,20 @@
 //!
 //! Run:  cargo run --example zengpu_triangle --features zengpu
 
-#[cfg(feature = "zengpu")]
-use aurea::{Window, WindowEvent};
-#[cfg(feature = "zengpu")]
-use inline_spirv::inline_spirv;
-#[cfg(feature = "zengpu")]
-use std::mem::size_of_val;
 #[cfg(not(feature = "zengpu"))]
 use std::process::exit;
-#[cfg(feature = "zengpu")]
-use std::slice::from_raw_parts;
 use std::{error::Error, result::Result as StdResult};
 #[cfg(feature = "zengpu")]
-use zengpu::{
-    Acquire, BlendMode, ColorAttachment, DepthState, Format, Frame, GpuAdapter, GpuDevice,
-    GpuError, GraphicsDevice, GraphicsPipelineDesc, LoadOp, PresentMode, PrimitiveTopology,
-    RenderCommands, RenderPassDesc, Result, ShaderDesc, Surface, SurfaceConfig, Viewport,
-    ViewportScissor, VulkanInstance, WindowHandles,
+use {
+    aurea::{Window, WindowEvent},
+    inline_spirv::inline_spirv,
+    std::{mem::size_of_val, slice::from_raw_parts},
+    zengpu::{
+        Acquire, BlendMode, ColorAttachment, DepthState, Format, Frame, GpuAdapter, GpuDevice,
+        GpuError, GraphicsDevice, GraphicsPipelineDesc, LoadOp, PresentMode, PrimitiveTopology,
+        RenderCommands, RenderPassDesc, Result, ShaderDesc, Surface, SurfaceConfig, Viewport,
+        ViewportScissor, VulkanInstance, WindowHandles,
+    },
 };
 
 #[cfg(feature = "zengpu")]
