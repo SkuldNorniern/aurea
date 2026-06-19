@@ -8,10 +8,16 @@ license = "Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/SkuldNorniern/aurea"
 
+[lints]
+workspace = true
+
 [workspace]
 resolver = "2"
 members = ["aurea-foundation", "aurea-ffi", "aurea-render", "aurea-runtime", "aurea-animation"]
 exclude = ["ZenGPU"]
+
+[workspace.lints.clippy]
+absolute_paths = "deny"
 
 [lib]
 name = "aurea"

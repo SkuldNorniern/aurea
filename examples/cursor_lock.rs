@@ -1,8 +1,9 @@
 use aurea::{CursorGrabMode, KeyCode, Window, WindowEvent};
+use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     let window = Arc::new(Window::new("Cursor Lock Demo", 800, 600)?);
     window.show();
 
@@ -57,26 +58,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         WindowEvent::MouseButton {
             button, pressed, ..
-        } => {
-            if pressed {
-                println!("mouse pressed: {:?}", button);
-                let mut locked = locked_for_events.lock().unwrap();
-                *locked = !*locked;
-                let mode = if *locked {
-                    CursorGrabMode::Locked
+        } if pressed => {
+            println!("mouse pressed: {:?}", button);
+            let mut locked = locked_for_events.lock().unwrap();
+            *locked = !*locked;
+            let mode = if *locked {
+                CursorGrabMode::Locked
+            } else {
+                CursorGrabMode::None
+            };
+            if window_for_events.set_cursor_grab(mode).is_ok() {
+                let _ = window_for_events.set_cursor_visible(!*locked);
+                let title = if *locked {
+                    "Cursor Lock Demo (Locked)"
                 } else {
-                    CursorGrabMode::None
+                    "Cursor Lock Demo"
                 };
-                if window_for_events.set_cursor_grab(mode).is_ok() {
-                    let _ = window_for_events.set_cursor_visible(!*locked);
-                    let title = if *locked {
-                        "Cursor Lock Demo (Locked)"
-                    } else {
-                        "Cursor Lock Demo"
-                    };
-                    let _ = window_for_events.set_title(title);
-                    println!("cursor locked: {}", *locked);
-                }
+                let _ = window_for_events.set_title(title);
+                println!("cursor locked: {}", *locked);
             }
         }
         _ => {}

@@ -1,6 +1,13 @@
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_int, c_void};
 
+use crate::elements::{
+    invoke_button_callback, invoke_sidebar_list_selected, invoke_tab_bar_detach,
+    invoke_tab_bar_selected, invoke_text_callback, invoke_textview_callback,
+};
+use crate::menu::invoke_menu_callback;
+use crate::registry::custom::invoke_custom_callback;
+use crate::view::FrameScheduler;
 use crate::window::{KeyCode, Modifiers, MouseButton, WindowEvent, push_window_event};
 
 #[inline]
@@ -15,40 +22,40 @@ fn c_string(ptr: *const c_char) -> Option<String> {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_menu_callback(id: u32) {
-    crate::menu::invoke_menu_callback(id);
+    invoke_menu_callback(id);
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_button_callback(id: u32) {
-    crate::elements::invoke_button_callback(id);
+    invoke_button_callback(id);
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_tab_bar_selected(id: u32, index: i32) {
-    crate::elements::invoke_tab_bar_selected(id, index);
+    invoke_tab_bar_selected(id, index);
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_tab_bar_detach(id: u32, index: i32) {
-    crate::elements::invoke_tab_bar_detach(id, index);
+    invoke_tab_bar_detach(id, index);
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_sidebar_list_selected(id: u32, index: i32) {
-    crate::elements::invoke_sidebar_list_selected(id, index);
+    invoke_sidebar_list_selected(id, index);
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_text_callback(id: u32, content: *const c_char) {
     if let Some(content) = c_string(content) {
-        crate::elements::invoke_text_callback(id, content);
+        invoke_text_callback(id, content);
     }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_textview_callback(id: u32, content: *const c_char) {
     if let Some(content) = c_string(content) {
-        crate::elements::invoke_textview_callback(id, content);
+        invoke_textview_callback(id, content);
     }
 }
 
@@ -80,6 +87,7 @@ pub extern "C" fn ng_invoke_key_event(
 }
 
 #[unsafe(no_mangle)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn ng_invoke_mouse_button(
     window: *mut c_void,
     button: c_int,
@@ -103,6 +111,7 @@ pub extern "C" fn ng_invoke_mouse_button(
 }
 
 #[unsafe(no_mangle)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn ng_invoke_mouse_move(window: *mut c_void, x: f64, y: f64) {
     let scale = (unsafe { aurea_ffi::ng_platform_get_scale_factor(window) } as f64).max(1.0);
     let event = WindowEvent::MouseMove {
@@ -165,11 +174,11 @@ pub extern "C" fn ng_invoke_raw_mouse_motion(window: *mut c_void, delta_x: f64, 
 pub extern "C" fn ng_invoke_scale_factor_changed(window: *mut c_void, scale_factor: f32) {
     let event = WindowEvent::ScaleFactorChanged { scale_factor };
     push_window_event(window, event);
-    crate::view::FrameScheduler::schedule();
+    FrameScheduler::schedule();
 }
 
 /// Invoke a custom callback by ID. Used by SwiftUI and other platform code.
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_custom_callback(id: u32) {
-    crate::registry::custom::invoke_custom_callback(id);
+    invoke_custom_callback(id);
 }

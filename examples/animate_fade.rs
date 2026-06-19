@@ -10,6 +10,7 @@
 //! - The poll-loop render pattern: `poll_events` → `draw` → `process_frames`
 //! - `Canvas::clone` — one clone is the window content, the other draws
 
+use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use aurea::render::{Canvas, Color, Paint, PaintStyle, Point, Rect, RendererBackend};
@@ -86,7 +87,7 @@ fn main() -> AureaResult<()> {
         })?;
 
         window.process_frames()?;
-        std::thread::sleep(Duration::from_millis(8));
+        sleep(Duration::from_millis(8));
     }
 
     Ok(())

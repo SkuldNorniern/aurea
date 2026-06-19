@@ -7,6 +7,8 @@
 //! = the element index, `instance_count` = 1) — so each binding uses
 //! [`StepMode::Instance`].
 
+use std::mem::size_of;
+
 use zengpu_hal::{
     BlendMode, DepthState, Format, GpuDevice, GraphicsDevice, GraphicsPipelineDesc, PipelineHandle,
     PrimitiveTopology, Result, ShaderDesc, StepMode, VertexAttribute, VertexFormat, VertexLayout,
@@ -73,11 +75,11 @@ pub struct TextInstance {
     pub _pad: [u32; 3],
 }
 
-const _: () = assert!(std::mem::size_of::<RectInstance>() == 32);
-const _: () = assert!(std::mem::size_of::<CircleInstance>() == 32);
-const _: () = assert!(std::mem::size_of::<GradientInstance>() == 64);
-const _: () = assert!(std::mem::size_of::<ImageInstance>() == 64);
-const _: () = assert!(std::mem::size_of::<TextInstance>() == 48);
+const _: () = assert!(size_of::<RectInstance>() == 32);
+const _: () = assert!(size_of::<CircleInstance>() == 32);
+const _: () = assert!(size_of::<GradientInstance>() == 64);
+const _: () = assert!(size_of::<ImageInstance>() == 64);
+const _: () = assert!(size_of::<TextInstance>() == 48);
 
 const fn float4(location: u32, offset: u32) -> VertexAttribute {
     VertexAttribute {

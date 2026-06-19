@@ -10,6 +10,7 @@
 //! - Manual animation delay by accumulating time before the first tick
 //! - The poll-loop render pattern: `poll_events` → `draw` → `process_frames`
 
+use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use aurea::render::{Canvas, Color, Paint, PaintStyle, Point, Rect, RendererBackend};
@@ -142,7 +143,7 @@ fn main() -> AureaResult<()> {
         })?;
 
         window.process_frames()?;
-        std::thread::sleep(Duration::from_millis(8));
+        sleep(Duration::from_millis(8));
     }
 
     Ok(())

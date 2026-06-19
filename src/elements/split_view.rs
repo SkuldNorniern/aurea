@@ -1,5 +1,8 @@
 use super::traits::{Container, Element};
+use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
+use std::any::Any;
+use std::boxed::Box as StdBox;
 use std::os::raw::c_void;
 
 /// Layout orientation for a split view divider.
@@ -13,7 +16,7 @@ pub enum SplitOrientation {
 pub struct SplitView {
     handle: *mut c_void,
     _orientation: SplitOrientation,
-    _children: Vec<std::boxed::Box<dyn std::any::Any>>,
+    _children: Vec<StdBox<dyn Any>>,
 }
 
 impl SplitView {
@@ -67,7 +70,7 @@ impl Element for SplitView {
         self.handle
     }
 
-    unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
+    unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         // NSSplitView handles its own invalidation usually,
         // but we could call a specific platform function if needed.
     }
@@ -81,7 +84,7 @@ impl Container for SplitView {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        self._children.push(std::boxed::Box::new(element));
+        self._children.push(StdBox::new(element));
         Ok(())
     }
 }

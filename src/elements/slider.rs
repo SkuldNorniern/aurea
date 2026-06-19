@@ -1,4 +1,5 @@
 use super::traits::Element;
+use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::os::raw::c_void;
 
@@ -60,7 +61,7 @@ impl Element for Slider {
         self.handle
     }
 
-    unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
+    unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         unsafe {
             ng_platform_slider_invalidate(self.handle);
         }

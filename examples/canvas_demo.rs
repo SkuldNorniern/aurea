@@ -6,7 +6,9 @@
 //! - CPU-first rasterization approach
 
 use aurea::elements::{Box, BoxOrientation};
-use aurea::render::{Canvas, Color, Paint, PaintStyle, Point, Rect, RendererBackend};
+use aurea::render::{
+    Canvas, Color, DrawingContext, Paint, PaintStyle, Point, Rect, RendererBackend,
+};
 use aurea::{AureaResult, Container, Window};
 
 const CANVAS_WIDTH: u32 = 800;
@@ -40,7 +42,7 @@ fn main() -> AureaResult<()> {
 }
 
 /// Draw the demo scene
-fn draw_scene(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResult<()> {
+fn draw_scene(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
     // Background is already cleared by canvas with set_background_color
 
     // Draw filled rectangle

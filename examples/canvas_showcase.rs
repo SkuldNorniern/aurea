@@ -5,8 +5,8 @@
 
 use aurea::elements::{Box, BoxOrientation};
 use aurea::render::{
-    BlendMode, Canvas, Color, GradientStop, Image, LinearGradient, Paint, PaintStyle, Path,
-    PathCommand, Point, RadialGradient, Rect, RendererBackend,
+    BlendMode, Canvas, Color, DrawingContext, GradientStop, Image, LinearGradient, Paint,
+    PaintStyle, Path, PathCommand, Point, RadialGradient, Rect, RendererBackend,
 };
 use aurea::{AureaResult, Container, Window};
 
@@ -28,7 +28,7 @@ fn main() -> AureaResult<()> {
     Ok(())
 }
 
-fn draw_showcase(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResult<()> {
+fn draw_showcase(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
     draw_primitives(ctx)?;
     draw_gradients(ctx)?;
     draw_blend(ctx)?;
@@ -37,7 +37,7 @@ fn draw_showcase(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResult<()>
     Ok(())
 }
 
-fn draw_primitives(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResult<()> {
+fn draw_primitives(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
     let rect_fill = Paint::new()
         .color(Color::rgb(120, 160, 200))
         .style(PaintStyle::Fill);
@@ -79,7 +79,7 @@ fn path_triangle(origin: Point, size: f32) -> Path {
     p
 }
 
-fn draw_gradients(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResult<()> {
+fn draw_gradients(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
     let linear = LinearGradient {
         start: Point::new(24.0, 160.0),
         end: Point::new(200.0, 260.0),
@@ -123,7 +123,7 @@ fn draw_gradients(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResult<()
     Ok(())
 }
 
-fn draw_blend(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResult<()> {
+fn draw_blend(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
     let base = Paint::new().color(Color::rgb(200, 190, 170));
     ctx.draw_rect(Rect::new(24.0, 300.0, 220.0, 120.0), &base)?;
 
@@ -148,7 +148,7 @@ fn draw_blend(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResult<()> {
     Ok(())
 }
 
-fn draw_image(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResult<()> {
+fn draw_image(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
     let image = make_showcase_image();
     ctx.draw_image_rect(&image, Rect::new(280.0, 300.0, 160.0, 120.0))?;
 
@@ -177,7 +177,7 @@ fn make_showcase_image() -> Image {
     Image::new(W, H, data)
 }
 
-fn draw_border(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResult<()> {
+fn draw_border(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
     let border = Paint::new()
         .color(Color::rgb(80, 75, 70))
         .style(PaintStyle::Stroke)

@@ -1,5 +1,10 @@
 #[cfg(feature = "zengpu")]
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+use std::error::Error;
+#[cfg(not(feature = "zengpu"))]
+use std::process::exit;
+
+#[cfg(feature = "zengpu")]
+fn main() -> Result<(), Box<dyn Error>> {
     use aurea::elements::{Box as NativeBox, BoxOrientation, Label};
     use aurea::render::{Canvas, Color, Paint, Point, Rect, RendererBackend};
     use aurea::{Container, Window, WindowEvent};
@@ -46,5 +51,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn main() {
     eprintln!("This example requires the `zengpu` feature.");
     eprintln!("Run with: cargo run --example zengpu_canvas --features zengpu");
-    std::process::exit(1);
+    exit(1);
 }

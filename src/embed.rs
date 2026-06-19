@@ -8,10 +8,11 @@ use crate::render::{Canvas, Color, Paint, PaintStyle, Point, Rect, RendererBacke
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::os::raw::{c_int, c_void};
+use std::ptr::null_mut;
 
 thread_local! {
     static EMBED_CANVASES: RefCell<HashMap<usize, Box<Canvas>>> = RefCell::new(HashMap::new());
-    static EMBED_INIT: RefCell<bool> = RefCell::new(false);
+    static EMBED_INIT: RefCell<bool> = const { RefCell::new(false) };
 }
 
 fn ensure_init() {
@@ -29,13 +30,13 @@ fn ensure_init() {
 #[unsafe(no_mangle)]
 pub extern "C" fn aurea_embed_create_canvas(width: c_int, height: c_int) -> *mut c_void {
     if width <= 0 || height <= 0 {
-        return std::ptr::null_mut();
+        return null_mut();
     }
     ensure_init();
 
     let mut canvas = match Canvas::new(width as u32, height as u32, RendererBackend::Cpu) {
         Ok(c) => c,
-        Err(_) => return std::ptr::null_mut(),
+        Err(_) => return null_mut(),
     };
 
     let _ = canvas.draw(|ctx| {

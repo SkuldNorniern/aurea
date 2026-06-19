@@ -1,6 +1,10 @@
 use super::traits::Element;
+use crate::registry::elements::{
+    invoke_text_editor_callback, next_text_editor_id, register_text_editor_callback,
+};
+use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
-use std::{ffi::CString, os::raw::c_void};
+use std::{ffi::CStr, ffi::CString, os::raw::c_void};
 
 pub struct TextEditor {
     handle: *mut c_void,
@@ -16,7 +20,7 @@ impl TextEditor {
     where
         F: Fn(String) + Send + Sync + 'static,
     {
-        let id = crate::registry::elements::next_text_editor_id();
+        let id = next_text_editor_id();
 
         let handle = unsafe { ng_platform_create_text_editor(id) };
 
@@ -24,7 +28,7 @@ impl TextEditor {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        crate::registry::elements::register_text_editor_callback(id, callback);
+        register_text_editor_callback(id, callback);
 
         Ok(Self { handle, _id: id })
     }
@@ -55,7 +59,7 @@ impl TextEditor {
         }
 
         let content = unsafe {
-            let cstr = std::ffi::CStr::from_ptr(content_ptr);
+            let cstr = CStr::from_ptr(content_ptr);
             let result = cstr
                 .to_str()
                 .map_err(|_| AureaError::ElementOperationFailed)?
@@ -73,7 +77,7 @@ impl Element for TextEditor {
         self.handle
     }
 
-    unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
+    unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         unsafe {
             ng_platform_text_editor_invalidate(self.handle);
         }
@@ -81,5 +85,5 @@ impl Element for TextEditor {
 }
 
 pub fn invoke_text_callback(id: u32, content: String) {
-    crate::registry::elements::invoke_text_editor_callback(id, content);
+    invoke_text_editor_callback(id, content);
 }

@@ -8,6 +8,8 @@ use super::types::{
 use crate::text::TextRenderer;
 use aurea_foundation::AureaResult;
 use std::cell::RefCell;
+use std::mem::{size_of, take};
+use std::ptr::null;
 use std::sync::LazyLock;
 
 thread_local! {
@@ -161,12 +163,12 @@ impl PlaceholderRenderer {
 
     pub fn get_buffer(&self) -> (*const u8, usize) {
         if self.buffer.is_empty() {
-            return (std::ptr::null(), 0);
+            return (null(), 0);
         }
         // Convert u32 buffer to u8 pointer (same memory, just different type)
         (
             self.buffer.as_ptr() as *const u8,
-            self.buffer.len() * std::mem::size_of::<u32>(),
+            self.buffer.len() * size_of::<u32>(),
         )
     }
 
@@ -179,7 +181,7 @@ impl PlaceholderRenderer {
     }
 
     fn apply_commands(&mut self) {
-        let commands = std::mem::take(&mut self.commands);
+        let commands = take(&mut self.commands);
         for cmd in commands.into_iter() {
             match cmd {
                 DrawCommand::Clear(color) => {

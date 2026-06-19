@@ -1,3 +1,4 @@
+use crate::sync::lock;
 use std::{
     collections::HashMap,
     sync::{LazyLock, Mutex},
@@ -30,7 +31,7 @@ static SIDEBAR_SELECTED_CALLBACKS: LazyLock<Mutex<HashMap<u32, IndexCallback>>> 
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn next_id(counter: &LazyLock<Mutex<u32>>) -> u32 {
-    let mut id_guard = crate::sync::lock(counter);
+    let mut id_guard = lock(counter);
     *id_guard += 1;
     *id_guard - 1
 }
@@ -40,12 +41,12 @@ pub fn next_button_id() -> u32 {
 }
 
 pub fn register_button_callback(id: u32, callback: impl Fn() + Send + Sync + 'static) {
-    let mut callbacks = crate::sync::lock(&BUTTON_CALLBACKS);
+    let mut callbacks = lock(&BUTTON_CALLBACKS);
     callbacks.insert(id, Box::new(callback));
 }
 
 pub fn invoke_button_callback(id: u32) {
-    let callbacks = crate::sync::lock(&BUTTON_CALLBACKS);
+    let callbacks = lock(&BUTTON_CALLBACKS);
     if let Some(callback) = callbacks.get(&id) {
         callback();
     }
@@ -56,12 +57,12 @@ pub fn next_text_editor_id() -> u32 {
 }
 
 pub fn register_text_editor_callback(id: u32, callback: impl Fn(String) + Send + Sync + 'static) {
-    let mut callbacks = crate::sync::lock(&TEXT_EDITOR_CALLBACKS);
+    let mut callbacks = lock(&TEXT_EDITOR_CALLBACKS);
     callbacks.insert(id, Box::new(callback));
 }
 
 pub fn invoke_text_editor_callback(id: u32, content: String) {
-    let callbacks = crate::sync::lock(&TEXT_EDITOR_CALLBACKS);
+    let callbacks = lock(&TEXT_EDITOR_CALLBACKS);
     if let Some(callback) = callbacks.get(&id) {
         callback(content);
     }
@@ -72,12 +73,12 @@ pub fn next_text_view_id() -> u32 {
 }
 
 pub fn register_text_view_callback(id: u32, callback: impl Fn(String) + Send + Sync + 'static) {
-    let mut callbacks = crate::sync::lock(&TEXT_VIEW_CALLBACKS);
+    let mut callbacks = lock(&TEXT_VIEW_CALLBACKS);
     callbacks.insert(id, Box::new(callback));
 }
 
 pub fn invoke_text_view_callback(id: u32, content: String) {
-    let callbacks = crate::sync::lock(&TEXT_VIEW_CALLBACKS);
+    let callbacks = lock(&TEXT_VIEW_CALLBACKS);
     if let Some(callback) = callbacks.get(&id) {
         callback(content);
     }
@@ -92,22 +93,22 @@ pub fn register_tab_callbacks(
     on_selected: impl Fn(i32) + Send + Sync + 'static,
     on_detach: impl Fn(i32) + Send + Sync + 'static,
 ) {
-    let mut selected = crate::sync::lock(&TAB_SELECTED_CALLBACKS);
+    let mut selected = lock(&TAB_SELECTED_CALLBACKS);
     selected.insert(id, Box::new(on_selected));
 
-    let mut detach = crate::sync::lock(&TAB_DETACH_CALLBACKS);
+    let mut detach = lock(&TAB_DETACH_CALLBACKS);
     detach.insert(id, Box::new(on_detach));
 }
 
 pub fn invoke_tab_selected(id: u32, index: i32) {
-    let callbacks = crate::sync::lock(&TAB_SELECTED_CALLBACKS);
+    let callbacks = lock(&TAB_SELECTED_CALLBACKS);
     if let Some(callback) = callbacks.get(&id) {
         callback(index);
     }
 }
 
 pub fn invoke_tab_detach(id: u32, index: i32) {
-    let callbacks = crate::sync::lock(&TAB_DETACH_CALLBACKS);
+    let callbacks = lock(&TAB_DETACH_CALLBACKS);
     if let Some(callback) = callbacks.get(&id) {
         callback(index);
     }
@@ -118,12 +119,12 @@ pub fn next_sidebar_id() -> u32 {
 }
 
 pub fn register_sidebar_callback(id: u32, on_selected: impl Fn(i32) + Send + Sync + 'static) {
-    let mut callbacks = crate::sync::lock(&SIDEBAR_SELECTED_CALLBACKS);
+    let mut callbacks = lock(&SIDEBAR_SELECTED_CALLBACKS);
     callbacks.insert(id, Box::new(on_selected));
 }
 
 pub fn invoke_sidebar_selected(id: u32, index: i32) {
-    let callbacks = crate::sync::lock(&SIDEBAR_SELECTED_CALLBACKS);
+    let callbacks = lock(&SIDEBAR_SELECTED_CALLBACKS);
     if let Some(callback) = callbacks.get(&id) {
         callback(index);
     }

@@ -3,6 +3,10 @@
 //! Displays section headers and indented clickable items with selection highlight.
 
 use super::traits::Element;
+use crate::registry::elements::{
+    invoke_sidebar_selected, next_sidebar_id, register_sidebar_callback,
+};
+use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::{ffi::CString, os::raw::c_void};
 
@@ -23,7 +27,7 @@ impl SidebarList {
     where
         F: Fn(i32) + Send + Sync + 'static,
     {
-        let id = crate::registry::elements::next_sidebar_id();
+        let id = next_sidebar_id();
 
         let handle = unsafe { ng_platform_create_sidebar_list(id) };
 
@@ -31,7 +35,7 @@ impl SidebarList {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        crate::registry::elements::register_sidebar_callback(id, on_selected);
+        register_sidebar_callback(id, on_selected);
 
         Ok(Self { handle, _id: id })
     }
@@ -100,7 +104,7 @@ impl SidebarList {
 }
 
 pub fn invoke_sidebar_list_selected(id: u32, index: i32) {
-    crate::registry::elements::invoke_sidebar_selected(id, index);
+    invoke_sidebar_selected(id, index);
 }
 
 impl Element for SidebarList {
@@ -108,7 +112,7 @@ impl Element for SidebarList {
         self.handle
     }
 
-    unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
+    unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         unsafe {
             ng_platform_sidebar_list_invalidate(self.handle);
         }

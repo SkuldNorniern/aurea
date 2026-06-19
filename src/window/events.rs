@@ -6,7 +6,8 @@ pub use aurea_runtime::EventQueue;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
+    use crate::sync::lock;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn event_queue_push_pop_all() {
@@ -24,14 +25,14 @@ mod tests {
     fn event_queue_process_events_invokes_callbacks() {
         let queue = EventQueue::new();
         queue.push(WindowEvent::CloseRequested);
-        let received = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let rec = std::sync::Arc::clone(&received);
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let rec = Arc::clone(&received);
         queue.register_callback(Arc::new(move |e| {
-            crate::sync::lock(&rec).push(e);
+            lock(&rec).push(e);
         }));
         let processed = queue.process_events();
         assert_eq!(processed.len(), 1);
-        assert_eq!(crate::sync::lock(&received).len(), 1);
+        assert_eq!(lock(&received).len(), 1);
     }
 
     #[test]

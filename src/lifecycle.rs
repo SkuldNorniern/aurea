@@ -6,6 +6,7 @@
 /// - Window lifecycle (close, minimize, restore)
 /// - Memory warnings
 /// - Surface recreation (for mobile)
+use crate::sync::lock;
 use std::collections::HashMap;
 use std::os::raw::c_void;
 use std::sync::{LazyLock, Mutex};
@@ -58,13 +59,13 @@ static LIFECYCLE_CALLBACKS: LazyLock<Mutex<HashMap<usize, LifecycleCallback>>> =
 /// Only one callback can be registered per window; registering a new callback
 /// replaces any existing one.
 pub fn register_lifecycle_callback(window: *mut c_void, callback: LifecycleCallback) {
-    let mut callbacks = crate::sync::lock(&LIFECYCLE_CALLBACKS);
+    let mut callbacks = lock(&LIFECYCLE_CALLBACKS);
     callbacks.insert(window as usize, callback);
 }
 
 /// Unregister the lifecycle callback for a specific window.
 pub fn unregister_lifecycle_callback(window: *mut c_void) {
-    let mut callbacks = crate::sync::lock(&LIFECYCLE_CALLBACKS);
+    let mut callbacks = lock(&LIFECYCLE_CALLBACKS);
     callbacks.remove(&(window as usize));
 }
 
@@ -72,7 +73,7 @@ pub fn unregister_lifecycle_callback(window: *mut c_void) {
 ///
 /// This is called from the FFI layer when a lifecycle event occurs.
 pub fn invoke_lifecycle_callback(window: *mut c_void, event: LifecycleEvent) {
-    let callbacks = crate::sync::lock(&LIFECYCLE_CALLBACKS);
+    let callbacks = lock(&LIFECYCLE_CALLBACKS);
     if let Some(callback) = callbacks.get(&(window as usize)) {
         callback(event);
     }
@@ -82,7 +83,7 @@ pub fn invoke_lifecycle_callback(window: *mut c_void, event: LifecycleEvent) {
 ///
 /// This is used for application-level events that affect the entire app.
 pub fn invoke_global_lifecycle_callback(event: LifecycleEvent) {
-    let callbacks = crate::sync::lock(&LIFECYCLE_CALLBACKS);
+    let callbacks = lock(&LIFECYCLE_CALLBACKS);
     for callback in callbacks.values() {
         callback(event);
     }
@@ -113,6 +114,7 @@ pub fn event_from_id(event_id: u32) -> Option<LifecycleEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     #[test]
@@ -135,7 +137,7 @@ mod tests {
 
     #[test]
     fn lifecycle_callback_invoked_on_pause_resume_surface_lost() {
-        let received = std::sync::Arc::new(AtomicU32::new(0));
+        let received = Arc::new(AtomicU32::new(0));
         let r = received.clone();
         register_lifecycle_callback(
             0x1000 as *mut c_void,

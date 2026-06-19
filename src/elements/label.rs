@@ -1,4 +1,5 @@
 use super::traits::Element;
+use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::{ffi::CString, os::raw::c_void};
 
@@ -28,7 +29,7 @@ impl Element for Label {
         self.handle
     }
 
-    unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
+    unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         unsafe {
             ng_platform_label_invalidate(self.handle);
         }

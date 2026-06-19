@@ -1,5 +1,6 @@
 use crate::elements::Element;
 use crate::ffi::*;
+use crate::sync::lock;
 use crate::view::{DamageRegion, FrameScheduler};
 use crate::{AureaError, AureaResult};
 use aurea_foundation::CapabilityChecker;
@@ -10,7 +11,10 @@ use aurea_render::{
     SurfaceInfo,
 };
 use std::collections::HashMap;
+#[cfg(feature = "wgpu")]
+use std::mem::transmute;
 use std::os::raw::c_void;
+use std::ptr::null_mut;
 use std::sync::{Arc, LazyLock, Mutex};
 
 mod runtime;
@@ -41,11 +45,11 @@ static CANVAS_STATES: LazyLock<Mutex<HashMap<usize, Arc<Mutex<CanvasState>>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn register_canvas_state(handle: usize, state: Arc<Mutex<CanvasState>>) {
-    crate::sync::lock(&CANVAS_STATES).insert(handle, state);
+    lock(&CANVAS_STATES).insert(handle, state);
 }
 
 fn unregister_canvas_state(handle: usize) {
-    crate::sync::lock(&CANVAS_STATES).remove(&handle);
+    lock(&CANVAS_STATES).remove(&handle);
 }
 
 /// Request a full redraw of a canvas identified by its raw handle.
@@ -64,9 +68,9 @@ fn unregister_canvas_state(handle: usize) {
 /// `handle` is the value returned by [`crate::Element::handle`] cast to `usize`.
 /// It is a no-op if the handle is unknown (e.g. the canvas was already dropped).
 pub fn request_canvas_redraw(handle: usize) {
-    let state = crate::sync::lock(&CANVAS_STATES).get(&handle).cloned();
+    let state = lock(&CANVAS_STATES).get(&handle).cloned();
     if let Some(state) = state {
-        let mut st = crate::sync::lock(&state);
+        let mut st = lock(&state);
         st.damage.add_all();
         st.needs_redraw = true;
     }
@@ -87,7 +91,7 @@ impl Drop for CanvasCleanup {
     fn drop(&mut self) {
         FrameScheduler::unregister_canvas(self.handle as *mut c_void);
         unregister_canvas_state(self.handle);
-        let mut r = crate::sync::lock(&self.renderer);
+        let mut r = lock(&self.renderer);
         if let Some(ref mut renderer) = *r {
             renderer.cleanup();
         }
@@ -145,7 +149,7 @@ impl Canvas {
 
     /// Get canvas dimensions
     pub fn size(&self) -> (u32, u32) {
-        let st = crate::sync::lock(&self.state);
+        let st = lock(&self.state);
         (st.width, st.height)
     }
 
@@ -178,7 +182,7 @@ impl Canvas {
         let handle =
             native_handle_from_canvas_ptr(native_ptr).ok_or(AureaError::ElementOperationFailed)?;
         let surface_target: wgpu::SurfaceTarget<'static> =
-            unsafe { std::mem::transmute(wgpu::SurfaceTarget::from(&handle)) };
+            unsafe { transmute(wgpu::SurfaceTarget::from(&handle)) };
         let surface = instance
             .create_surface(surface_target)
             .map_err(|_| AureaError::ElementOperationFailed)?;
@@ -197,7 +201,7 @@ impl Canvas {
                 let mut renderer: Box<dyn Renderer> = Box::new(CpuRasterizer::new(width, height));
                 renderer.init(
                     Surface::OpenGL {
-                        context: std::ptr::null_mut(),
+                        context: null_mut(),
                     },
                     SurfaceInfo {
                         width,
@@ -211,7 +215,7 @@ impl Canvas {
                 let mut renderer: Box<dyn Renderer> = Box::new(GpuRasterizer::new(width, height));
                 renderer.init(
                     Surface::OpenGL {
-                        context: std::ptr::null_mut(),
+                        context: null_mut(),
                     },
                     SurfaceInfo {
                         width,
@@ -293,7 +297,7 @@ impl Canvas {
         F: Fn(&mut dyn DrawingContext) -> AureaResult<()> + Send + Sync + 'static,
     {
         {
-            let mut st = crate::sync::lock(&self.state);
+            let mut st = lock(&self.state);
             st.draw_callback = Some(Arc::new(callback));
             st.needs_redraw = true;
         }
@@ -318,12 +322,12 @@ impl Canvas {
         F: FnOnce(&mut dyn DrawingContext) -> AureaResult<()>,
     {
         self.check_and_resize()?;
-        if crate::sync::lock(&self.renderer).is_none() {
+        if lock(&self.renderer).is_none() {
             return Err(AureaError::ElementOperationFailed);
         }
 
         let (damage_rect, bg_color) = {
-            let mut st = crate::sync::lock(&self.state);
+            let mut st = lock(&self.state);
             let damage = st.damage.take().or_else(|| {
                 Some(super::Rect::new(
                     0.0,
@@ -336,7 +340,7 @@ impl Canvas {
         };
 
         {
-            let mut r = crate::sync::lock(&self.renderer);
+            let mut r = lock(&self.renderer);
             if let Some(ref mut renderer) = *r {
                 renderer.set_damage(damage_rect);
                 let mut ctx = renderer.begin_frame()?;
@@ -356,7 +360,7 @@ impl Canvas {
     /// Set background color.
     pub fn set_background_color(&self, color: Color) {
         let changed = {
-            let mut st = crate::sync::lock(&self.state);
+            let mut st = lock(&self.state);
             if st.background_color == color {
                 false
             } else {
@@ -371,18 +375,18 @@ impl Canvas {
 
     /// Get background color.
     pub fn background_color(&self) -> Color {
-        crate::sync::lock(&self.state).background_color
+        lock(&self.state).background_color
     }
 
     /// Add damage to the canvas (called when content changes).
     pub fn add_damage(&self, rect: super::Rect) {
-        crate::sync::lock(&self.state).damage.add(rect);
+        lock(&self.state).damage.add(rect);
     }
 
     /// Mark the entire canvas as damaged and schedule a redraw.
     pub fn invalidate_all(&self) {
         {
-            let mut st = crate::sync::lock(&self.state);
+            let mut st = lock(&self.state);
             st.damage.add_all();
             st.needs_redraw = true;
         }
@@ -395,7 +399,7 @@ impl Canvas {
     /// Check if canvas needs redraw and perform it.
     pub fn redraw_if_needed(&mut self) -> AureaResult<()> {
         let needs = {
-            let mut st = crate::sync::lock(&self.state);
+            let mut st = lock(&self.state);
             if !st.needs_redraw {
                 return Ok(());
             }
@@ -415,7 +419,7 @@ impl Canvas {
     /// Invalidate a specific rectangle.
     pub fn invalidate_rect(&self, rect: super::Rect) {
         {
-            let mut st = crate::sync::lock(&self.state);
+            let mut st = lock(&self.state);
             st.damage.add(rect);
             st.needs_redraw = true;
         }
@@ -473,14 +477,14 @@ impl Canvas {
             let keep = user_ticker(info);
             // Mark the canvas dirty so the scheduler's needs_redraw gate is
             // satisfied on every animation frame, including the final one.
-            crate::sync::lock(&state).needs_redraw = true;
+            lock(&state).needs_redraw = true;
             aurea_runtime::FrameScheduler::schedule_canvas(handle_usize as *mut c_void);
             keep
         })
     }
 
     pub fn scale_factor(&self) -> f32 {
-        crate::sync::lock(&self.state).scale_factor
+        lock(&self.state).scale_factor
     }
 
     /// Register a click callback for an interactive shape.
@@ -500,11 +504,11 @@ impl Canvas {
     pub fn handle_click(&self, x: f32, y: f32) -> AureaResult<()> {
         let sf = self.scale_factor();
         let point = Point::new(x * sf, y * sf);
-        let r = crate::sync::lock(&self.renderer);
-        if let Some(ref renderer) = *r {
-            if let Some(display_list) = renderer.display_list() {
-                return self.interaction_registry.handle_click(display_list, point);
-            }
+        let r = lock(&self.renderer);
+        if let Some(ref renderer) = *r
+            && let Some(display_list) = renderer.display_list()
+        {
+            return self.interaction_registry.handle_click(display_list, point);
         }
         Ok(())
     }
@@ -514,11 +518,11 @@ impl Canvas {
     pub fn handle_hover(&self, x: f32, y: f32) -> AureaResult<()> {
         let sf = self.scale_factor();
         let point = Point::new(x * sf, y * sf);
-        let r = crate::sync::lock(&self.renderer);
-        if let Some(ref renderer) = *r {
-            if let Some(display_list) = renderer.display_list() {
-                return self.interaction_registry.handle_hover(display_list, point);
-            }
+        let r = lock(&self.renderer);
+        if let Some(ref renderer) = *r
+            && let Some(display_list) = renderer.display_list()
+        {
+            return self.interaction_registry.handle_hover(display_list, point);
         }
         Ok(())
     }
@@ -531,7 +535,7 @@ pub(super) fn ensure_canvas_renderer(
     renderer: &Arc<Mutex<Option<Box<dyn Renderer>>>>,
     backend: RendererBackend,
 ) -> AureaResult<bool> {
-    if crate::sync::lock(renderer).is_some() {
+    if lock(renderer).is_some() {
         return Ok(true);
     }
     if backend != RendererBackend::ZenGpu {
@@ -545,11 +549,11 @@ pub(super) fn ensure_canvas_renderer(
 
     let handles = zengpu_canvas_handles(handle)?;
     let (width, height, scale_factor) = {
-        let st = crate::sync::lock(state);
+        let st = lock(state);
         (st.width.max(1), st.height.max(1), st.scale_factor.max(1.0))
     };
     let gpu = aurea_render::ZenGpuRenderer::new(&handles, width, height, scale_factor)?;
-    *crate::sync::lock(renderer) = Some(Box::new(gpu));
+    *lock(renderer) = Some(Box::new(gpu));
     Ok(true)
 }
 
@@ -560,7 +564,7 @@ pub(super) fn ensure_canvas_renderer(
     renderer: &Arc<Mutex<Option<Box<dyn Renderer>>>>,
     _backend: RendererBackend,
 ) -> AureaResult<bool> {
-    Ok(crate::sync::lock(renderer).is_some())
+    Ok(lock(renderer).is_some())
 }
 
 #[cfg(all(feature = "zengpu", target_os = "windows"))]
@@ -601,10 +605,9 @@ fn zengpu_canvas_handles(handle: *mut c_void) -> AureaResult<zengpu_hal::WindowH
     use std::{num::NonZeroU32, ptr::NonNull};
 
     let mut xcb_window = 0;
-    let mut xcb_connection = std::ptr::null_mut();
-    if unsafe {
-        crate::ffi::ng_platform_canvas_get_xcb_handle(handle, &mut xcb_window, &mut xcb_connection)
-    } != 0
+    let mut xcb_connection = null_mut();
+    if unsafe { ng_platform_canvas_get_xcb_handle(handle, &mut xcb_window, &mut xcb_connection) }
+        != 0
     {
         let window = NonZeroU32::new(xcb_window).ok_or(AureaError::ElementOperationFailed)?;
         let connection = NonNull::new(xcb_connection).ok_or(AureaError::ElementOperationFailed)?;
@@ -614,12 +617,9 @@ fn zengpu_canvas_handles(handle: *mut c_void) -> AureaResult<zengpu_hal::WindowH
         ));
     }
 
-    let mut surface = std::ptr::null_mut();
-    let mut display = std::ptr::null_mut();
-    if unsafe {
-        crate::ffi::ng_platform_canvas_get_wayland_handle(handle, &mut surface, &mut display)
-    } != 0
-    {
+    let mut surface = null_mut();
+    let mut display = null_mut();
+    if unsafe { ng_platform_canvas_get_wayland_handle(handle, &mut surface, &mut display) } != 0 {
         let surface = NonNull::new(surface).ok_or(AureaError::ElementOperationFailed)?;
         let display = NonNull::new(display).ok_or(AureaError::ElementOperationFailed)?;
         return Ok(zengpu_hal::WindowHandles::from_raw(
@@ -665,7 +665,7 @@ mod tests {
     fn zengpu_renderer_waits_for_canvas_attachment() {
         let canvas = Canvas::new(64, 64, RendererBackend::ZenGpu).unwrap();
 
-        assert!(crate::sync::lock(&canvas.renderer).is_none());
+        assert!(lock(&canvas.renderer).is_none());
         assert!(
             !ensure_canvas_renderer(
                 canvas.handle,
@@ -675,6 +675,6 @@ mod tests {
             )
             .unwrap()
         );
-        assert!(crate::sync::lock(&canvas.renderer).is_none());
+        assert!(lock(&canvas.renderer).is_none());
     }
 }

@@ -8,6 +8,9 @@
 //!
 //! Run: cargo run --example zengpu_cube
 
+use core::array::from_fn;
+use std::mem::{size_of, size_of_val};
+use std::slice::from_raw_parts;
 use std::time::Instant;
 
 use aurea::{Window, WindowEvent};
@@ -154,11 +157,11 @@ const FRAG_SPV: &[u32] = inline_spirv!(
 
 /// View SPIR-V words as the bytes [`ShaderDesc`] expects.
 fn spv_bytes(words: &[u32]) -> &[u8] {
-    unsafe { std::slice::from_raw_parts(words.as_ptr() as *const u8, std::mem::size_of_val(words)) }
+    unsafe { from_raw_parts(words.as_ptr() as *const u8, size_of_val(words)) }
 }
 
 fn as_bytes<T: Copy>(slice: &[T]) -> &[u8] {
-    unsafe { std::slice::from_raw_parts(slice.as_ptr() as *const u8, std::mem::size_of_val(slice)) }
+    unsafe { from_raw_parts(slice.as_ptr() as *const u8, size_of_val(slice)) }
 }
 
 // ── Event loop ────────────────────────────────────────────────────────────────
@@ -196,7 +199,7 @@ fn main() -> Result<()> {
         vertex_shader: vert_shader,
         fragment_shader: frag_shader,
         vertex_layouts: &[VertexLayout {
-            stride: std::mem::size_of::<Vertex3d>() as u32,
+            stride: size_of::<Vertex3d>() as u32,
             attributes: &[
                 VertexAttribute {
                     location: 0,
@@ -273,7 +276,7 @@ fn main() -> Result<()> {
         let view = translate(0.0, 0.0, -5.0);
         let proj = perspective(60f32.to_radians(), sw as f32 / sh.max(1) as f32, 0.1, 100.0);
         let mvp = mat_mul(&proj, &mat_mul(&view, &model));
-        let scalars: [Scalar; 16] = core::array::from_fn(|i| Scalar::F32(mvp[i]));
+        let scalars: [Scalar; 16] = from_fn(|i| Scalar::F32(mvp[i]));
 
         let mut list = device.create_command_list()?;
         list.begin_render_pass(&RenderPassDesc {

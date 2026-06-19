@@ -4,7 +4,8 @@
 
 use aurea::elements::{Box, BoxOrientation};
 use aurea::render::{
-    Canvas, Color, Font, FontStyle, FontWeight, Paint, PaintStyle, Point, Rect, RendererBackend,
+    Canvas, Color, DrawingContext, Font, FontStyle, FontWeight, Paint, PaintStyle, Point, Rect,
+    RendererBackend,
 };
 use aurea::{AureaResult, Container, Window};
 
@@ -25,7 +26,7 @@ fn main() -> AureaResult<()> {
     Ok(())
 }
 
-fn draw_text_showcase(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResult<()> {
+fn draw_text_showcase(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
     let black = Paint::new()
         .color(Color::rgb(20, 20, 20))
         .style(PaintStyle::Fill);

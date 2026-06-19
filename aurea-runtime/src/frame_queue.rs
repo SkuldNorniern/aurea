@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 type CanvasRedrawCallback = Arc<dyn Fn() -> Result<(), AureaError> + Send + Sync>;
 type FrameCallback = Arc<dyn Fn() + Send + Sync + 'static>;
 type TickerFn = Arc<Mutex<dyn FnMut(FrameInfo) -> bool + Send>>;
+type RequestFrameHook = Option<Box<dyn Fn() + Send + Sync>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FrameCallbackId(u64);
@@ -40,8 +41,7 @@ static TICKERS: LazyLock<Mutex<Arc<HashMap<TickerId, TickerFn>>>> =
     LazyLock::new(|| Mutex::new(Arc::new(HashMap::new())));
 static FRAME_COUNTER: AtomicU64 = AtomicU64::new(0);
 static LAST_FRAME_TIME: LazyLock<Mutex<Instant>> = LazyLock::new(|| Mutex::new(Instant::now()));
-static REQUEST_FRAME_HOOK: LazyLock<Mutex<Option<Box<dyn Fn() + Send + Sync>>>> =
-    LazyLock::new(|| Mutex::new(None));
+static REQUEST_FRAME_HOOK: LazyLock<Mutex<RequestFrameHook>> = LazyLock::new(|| Mutex::new(None));
 
 pub struct FrameScheduler;
 
@@ -206,10 +206,10 @@ impl FrameScheduler {
             }
             Some(handles) => {
                 for handle in handles {
-                    if let Some(callback) = registry.get(&handle) {
-                        if let Err(e) = callback() {
-                            log::warn!("Canvas redraw error: {:?}", e);
-                        }
+                    if let Some(callback) = registry.get(&handle)
+                        && let Err(e) = callback()
+                    {
+                        log::warn!("Canvas redraw error: {:?}", e);
                     }
                 }
             }

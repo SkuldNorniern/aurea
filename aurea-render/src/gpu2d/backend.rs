@@ -8,6 +8,8 @@
 
 use aurea_foundation::AureaResult;
 
+use crate::batch::{CircleInstance, RectInstance};
+
 use super::frame_plan::FramePlan;
 
 /// Device-touching primitives driven by [`super::Gpu2dRenderer`] each frame.
@@ -51,7 +53,7 @@ pub trait Gpu2dBackend {
     fn present_frame(
         &mut self,
         plan: &FramePlan,
-        rects: &[crate::batch::RectInstance],
-        circles: &[crate::batch::CircleInstance],
+        rects: &[RectInstance],
+        circles: &[CircleInstance],
     ) -> AureaResult<()>;
 }

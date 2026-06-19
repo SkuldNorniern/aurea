@@ -7,4 +7,7 @@ description = "Core types, errors, and platform detection for Aurea"
 license = "Apache-2.0"
 repository = "https://github.com/SkuldNorniern/aurea"
 
+[lints]
+workspace = true
+
 [lib]

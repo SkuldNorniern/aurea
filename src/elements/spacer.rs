@@ -5,6 +5,7 @@
 use super::Label;
 use super::traits::Element;
 use crate::AureaResult;
+use crate::render::Rect;
 use std::os::raw::c_void;
 
 /// Invisible spacer that expands to fill available space.
@@ -28,7 +29,7 @@ impl Element for Spacer {
         self.inner.handle()
     }
 
-    unsafe fn invalidate_platform(&self, rect: Option<crate::render::Rect>) {
+    unsafe fn invalidate_platform(&self, rect: Option<Rect>) {
         use super::traits::Element;
         unsafe {
             <Label as Element>::invalidate_platform(&self.inner, rect);

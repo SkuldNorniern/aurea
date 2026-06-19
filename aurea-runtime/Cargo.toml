@@ -7,6 +7,9 @@ description = "Window event loop lifecycle and scheduling for Aurea"
 license = "Apache-2.0"
 repository = "https://github.com/SkuldNorniern/aurea"
 
+[lints]
+workspace = true
+
 [dependencies]
 aurea-foundation = { path = "../aurea-foundation", version = "0.0.1" }
 aurea-render = { path = "../aurea-render", version = "0.0.1" }
