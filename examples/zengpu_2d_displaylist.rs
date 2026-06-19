@@ -14,7 +14,6 @@ use aurea::render::{
 };
 #[cfg(feature = "zengpu")]
 use aurea::{Window, WindowEvent};
-#[cfg(feature = "zengpu")]
 use std::error::Error;
 #[cfg(not(feature = "zengpu"))]
 use std::process::exit;
@@ -49,7 +48,7 @@ fn test_image() -> Image {
 }
 
 #[cfg(feature = "zengpu")]
-fn main() -> Result<(), Box<dyn Error>> {
+fn run() -> Result<(), Box<dyn Error>> {
     let window = Window::new("ZenGPU — DisplayList 2D (G4 Rung 1)", W, H)?;
 
     // Window-level GPU path: the swapchain belongs to the window.
@@ -166,9 +165,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-#[cfg(not(feature = "zengpu"))]
-fn main() {
-    eprintln!("This example requires the `zengpu` feature.");
-    eprintln!("Run with: cargo run --example zengpu_2d_displaylist --features zengpu");
-    exit(1);
+fn main() -> Result<(), Box<dyn Error>> {
+    #[cfg(not(feature = "zengpu"))]
+    {
+        eprintln!("This example requires the `zengpu` feature.");
+        eprintln!("Run with: cargo run --example zengpu_2d_displaylist --features zengpu");
+        exit(1);
+    }
+
+    #[cfg(feature = "zengpu")]
+    {
+        run()
+    }
 }
