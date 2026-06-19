@@ -8,30 +8,27 @@
 //!
 //! Run: cargo run --example zengpu_cube --features zengpu
 
-#[cfg(feature = "zengpu")]
-use core::array::from_fn;
-#[cfg(feature = "zengpu")]
-use std::mem::{size_of, size_of_val};
 #[cfg(not(feature = "zengpu"))]
 use std::process::exit;
-#[cfg(feature = "zengpu")]
-use std::slice::from_raw_parts;
-#[cfg(feature = "zengpu")]
-use std::time::Instant;
 use std::{error::Error, result::Result as StdResult};
-
 #[cfg(feature = "zengpu")]
-use aurea::{Window, WindowEvent};
-#[cfg(feature = "zengpu")]
-use inline_spirv::inline_spirv;
-#[cfg(feature = "zengpu")]
-use zengpu::{
-    Acquire, Bindings, BlendMode, BufferDesc, BufferUsage, ColorAttachment, DepthAttachment,
-    DepthState, DepthTarget, Format, Frame, GpuAdapter, GpuDevice, GpuError, GraphicsDevice,
-    GraphicsPipelineDesc, LoadOp, MemoryUsage, PresentMode, PrimitiveTopology, Rect,
-    RenderCommands, RenderPassDesc, Result, Scalar, ShaderDesc, Surface, SurfaceConfig,
-    VertexAttribute, VertexFormat, VertexLayout, Viewport, ViewportScissor, VulkanInstance,
-    WindowHandles,
+use {
+    aurea::{Window, WindowEvent},
+    core::array::from_fn,
+    inline_spirv::inline_spirv,
+    std::{
+        mem::{size_of, size_of_val},
+        slice::from_raw_parts,
+        time::Instant,
+    },
+    zengpu::{
+        Acquire, Bindings, BlendMode, BufferDesc, BufferUsage, ColorAttachment, DepthAttachment,
+        DepthState, DepthTarget, Format, Frame, GpuAdapter, GpuDevice, GpuError, GraphicsDevice,
+        GraphicsPipelineDesc, LoadOp, MemoryUsage, PresentMode, PrimitiveTopology, Rect,
+        RenderCommands, RenderPassDesc, Result, Scalar, ShaderDesc, Surface, SurfaceConfig,
+        VertexAttribute, VertexFormat, VertexLayout, Viewport, ViewportScissor, VulkanInstance,
+        WindowHandles,
+    },
 };
 
 // ── Geometry ──────────────────────────────────────────────────────────────────

@@ -8,24 +8,21 @@
 //!
 //! Run: cargo run --example zengpu_textured_quad --features zengpu
 
-#[cfg(feature = "zengpu")]
-use aurea::{Window, WindowEvent};
-#[cfg(feature = "zengpu")]
-use inline_spirv::inline_spirv;
-#[cfg(feature = "zengpu")]
-use std::mem::size_of_val;
 #[cfg(not(feature = "zengpu"))]
 use std::process::exit;
-#[cfg(feature = "zengpu")]
-use std::slice::from_raw_parts;
 use std::{error::Error, result::Result as StdResult};
 #[cfg(feature = "zengpu")]
-use zengpu::{
-    Acquire, Bindings, BlendMode, ColorAttachment, DepthState, FilterMode, Format, Frame,
-    GpuAdapter, GpuDevice, GpuError, GraphicsDevice, GraphicsPipelineDesc, LoadOp, PresentMode,
-    PrimitiveTopology, RenderCommands, RenderPassDesc, Result, SamplerDesc, ShaderDesc, Surface,
-    SurfaceConfig, TextureDesc, TextureUsage, Viewport, ViewportScissor, VulkanInstance,
-    WindowHandles,
+use {
+    aurea::{Window, WindowEvent},
+    inline_spirv::inline_spirv,
+    std::{mem::size_of_val, slice::from_raw_parts},
+    zengpu::{
+        Acquire, Bindings, BlendMode, ColorAttachment, DepthState, FilterMode, Format, Frame,
+        GpuAdapter, GpuDevice, GpuError, GraphicsDevice, GraphicsPipelineDesc, LoadOp, PresentMode,
+        PrimitiveTopology, RenderCommands, RenderPassDesc, Result, SamplerDesc, ShaderDesc,
+        Surface, SurfaceConfig, TextureDesc, TextureUsage, Viewport, ViewportScissor,
+        VulkanInstance, WindowHandles,
+    },
 };
 
 #[cfg(feature = "zengpu")]
