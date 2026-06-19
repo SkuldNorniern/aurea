@@ -1,16 +1,17 @@
 //! Shared ZenGPU context bootstrap for an Aurea editor and game viewport.
 
-#[cfg(feature = "zengpu")]
-use aurea::Window;
-#[cfg(feature = "zengpu")]
-use aurea::render::{Rect, ZenGpuContext};
 use std::error::Error;
 #[cfg(not(feature = "zengpu"))]
 use std::process::exit;
 #[cfg(feature = "zengpu")]
-use std::sync::Arc;
-#[cfg(feature = "zengpu")]
-use zengpu::{Format, OffscreenTarget};
+use {
+    aurea::{
+        Window,
+        render::{Rect, ZenGpuContext},
+    },
+    std::sync::Arc,
+    zengpu::{Format, OffscreenTarget},
+};
 
 fn main() -> Result<(), Box<dyn Error>> {
     #[cfg(not(feature = "zengpu"))]

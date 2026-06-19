@@ -1,11 +1,12 @@
 //! ZenGPU G4 / Rung 1 — the full `DisplayList → ZenGPU` pipeline.
 
 #[cfg(feature = "zengpu")]
-use aurea::render::{
-    Color, GradientStop, Image, LinearGradient, Paint, Point, RadialGradient, Rect, Renderer,
+use aurea::{
+    Window, WindowEvent,
+    render::{
+        Color, GradientStop, Image, LinearGradient, Paint, Point, RadialGradient, Rect, Renderer,
+    },
 };
-#[cfg(feature = "zengpu")]
-use aurea::{Window, WindowEvent};
 use std::error::Error;
 #[cfg(not(feature = "zengpu"))]
 use std::process::exit;
