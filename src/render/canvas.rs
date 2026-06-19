@@ -162,7 +162,7 @@ impl Canvas {
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let canvas = Canvas::new(800, 600, RendererBackend::Cpu)?;
-    /// let instance = Instance::new(wgpu::InstanceDescriptor::default());
+    /// let instance = Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     /// let surface = canvas.create_wgpu_surface(&instance)?;
     /// # Ok(())
     /// # }
