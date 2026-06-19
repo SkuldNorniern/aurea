@@ -2,7 +2,8 @@
 
 use aurea::elements::{Box, BoxOrientation};
 use aurea::render::{
-    Canvas, Color, GradientStop, LinearGradient, Point, RadialGradient, Rect, RendererBackend,
+    Canvas, Color, DrawingContext, GradientStop, LinearGradient, Point, RadialGradient, Rect,
+    RendererBackend,
 };
 use aurea::{AureaResult, Container, Window};
 
@@ -28,7 +29,7 @@ fn main() -> AureaResult<()> {
     Ok(())
 }
 
-fn draw_gradient_scene(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResult<()> {
+fn draw_gradient_scene(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
     let linear = LinearGradient {
         start: Point::new(50.0, 50.0),
         end: Point::new(250.0, 250.0),

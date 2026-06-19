@@ -2,7 +2,9 @@
 
 use aurea::elements::{Box, BoxOrientation, Button, Container, TextView};
 use aurea::logger;
-use aurea::render::{Canvas, Color, Paint, Rect, RendererBackend, Viewport};
+use aurea::render::{
+    Canvas, Color, DrawingContext, Paint, PaintStyle, Rect, RendererBackend, Viewport,
+};
 use aurea::{AureaResult, Window};
 use log::{LevelFilter, debug, info};
 
@@ -103,7 +105,7 @@ fn render_web_content(canvas: &mut Canvas, viewport: &Viewport) -> AureaResult<(
     Ok(())
 }
 
-fn render_page_content(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResult<()> {
+fn render_page_content(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
     let header_rect = Rect::new(0.0, 0.0, 1200.0, 100.0);
     let header_paint = Paint::new().color(Color::rgb(240, 240, 240));
     ctx.draw_rect(header_rect, &header_paint)?;
@@ -114,7 +116,7 @@ fn render_page_content(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResu
 
     let border_paint = Paint::new()
         .color(Color::rgb(220, 220, 220))
-        .style(aurea::render::PaintStyle::Stroke)
+        .style(PaintStyle::Stroke)
         .stroke_width(1.0);
     ctx.draw_rect(content_rect, &border_paint)?;
 
@@ -136,10 +138,7 @@ fn render_page_content(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResu
     Ok(())
 }
 
-fn render_scrollbar(
-    ctx: &mut dyn aurea::render::DrawingContext,
-    viewport: &Viewport,
-) -> AureaResult<()> {
+fn render_scrollbar(ctx: &mut dyn DrawingContext, viewport: &Viewport) -> AureaResult<()> {
     if !viewport.can_scroll_vertical() {
         return Ok(());
     }

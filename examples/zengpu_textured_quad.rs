@@ -2,6 +2,8 @@
 
 use aurea::{Window, WindowEvent};
 use inline_spirv::inline_spirv;
+use std::mem::size_of_val;
+use std::slice::from_raw_parts;
 use zengpu::{
     Acquire, Bindings, BlendMode, ColorAttachment, DepthState, FilterMode, Format, Frame,
     GpuAdapter, GpuDevice, GpuError, GraphicsDevice, GraphicsPipelineDesc, LoadOp, PresentMode,
@@ -44,14 +46,14 @@ const FRAG_SPV: &[u32] = inline_spirv!(
 );
 
 fn spv_bytes(words: &[u32]) -> &[u8] {
-    unsafe { std::slice::from_raw_parts(words.as_ptr() as *const u8, std::mem::size_of_val(words)) }
+    unsafe { from_raw_parts(words.as_ptr() as *const u8, size_of_val(words)) }
 }
 
 fn checkerboard() -> Vec<u8> {
     let mut pixels = vec![0u8; (TEX_SIZE * TEX_SIZE * 4) as usize];
     for y in 0..TEX_SIZE {
         for x in 0..TEX_SIZE {
-            let checker = ((x / CELL) + (y / CELL)) % 2 == 0;
+            let checker = ((x / CELL) + (y / CELL)).is_multiple_of(2);
             let (r, g, b) = if checker { (220, 50, 50) } else { (30, 30, 30) };
             let i = ((y * TEX_SIZE + x) * 4) as usize;
             pixels[i] = r;

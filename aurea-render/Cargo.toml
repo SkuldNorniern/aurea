@@ -7,6 +7,9 @@ description = "CPU/GPU rendering backends, display list, and text pipeline for A
 license = "Apache-2.0"
 repository = "https://github.com/SkuldNorniern/aurea"
 
+[lints]
+workspace = true
+
 [features]
 default = []
 # GPU 2D backend via ZenGPU (Vulkan). Opt-in; pulls in ash/Vulkan.

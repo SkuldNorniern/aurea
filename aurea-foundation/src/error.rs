@@ -1,3 +1,7 @@
+use std::error::Error;
+use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::result::Result as StdResult;
+
 /// Errors that might occur during native GUI operations.
 #[derive(Debug, Clone)]
 pub enum AureaError {
@@ -36,10 +40,10 @@ pub enum AureaError {
 }
 
 /// Result type for GUI operations.
-pub type AureaResult<T> = std::result::Result<T, AureaError>;
+pub type AureaResult<T> = StdResult<T, AureaError>;
 
-impl std::fmt::Display for AureaError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for AureaError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             AureaError::WindowCreationFailed => write!(f, "Failed to create a new window"),
             AureaError::MenuCreationFailed => write!(f, "Failed to create a menu"),
@@ -103,7 +107,7 @@ impl std::fmt::Display for AureaError {
     }
 }
 
-impl std::error::Error for AureaError {}
+impl Error for AureaError {}
 
 #[cfg(test)]
 mod tests {

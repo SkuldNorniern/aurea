@@ -1,4 +1,6 @@
-#[cfg(feature = "zengpu")]
+#[cfg(not(feature = "zengpu"))]
+use std::process::exit;
+
 fn main() -> aurea::AureaResult<()> {
     use aurea::elements::{Box as NativeBox, BoxOrientation};
     use aurea::render::{Canvas, Color, Paint, PaintStyle, Point, Rect, RendererBackend};
@@ -81,5 +83,5 @@ fn main() -> aurea::AureaResult<()> {
 fn main() {
     eprintln!("This example requires the `zengpu` feature.");
     eprintln!("Run with: cargo run --example zengpu_demo --features zengpu");
-    std::process::exit(1);
+    exit(1);
 }

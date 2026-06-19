@@ -6,6 +6,10 @@ use aurea::render::{
 };
 #[cfg(feature = "zengpu")]
 use aurea::{Window, WindowEvent};
+#[cfg(feature = "zengpu")]
+use std::error::Error;
+#[cfg(not(feature = "zengpu"))]
+use std::process::exit;
 
 #[cfg(feature = "zengpu")]
 const W: i32 = 800;
@@ -37,7 +41,7 @@ fn test_image() -> Image {
 }
 
 #[cfg(feature = "zengpu")]
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     let window = Window::new("ZenGPU — DisplayList 2D (G4 Rung 1)", W, H)?;
 
     let mut renderer = window.create_zengpu_2d()?;
@@ -150,5 +154,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn main() {
     eprintln!("This example requires the `zengpu` feature.");
     eprintln!("Run with: cargo run --example zengpu_2d_displaylist --features zengpu");
-    std::process::exit(1);
+    exit(1);
 }

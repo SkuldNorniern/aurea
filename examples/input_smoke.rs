@@ -1,9 +1,10 @@
 //! Input smoke test: key, mouse, wheel, focus, cursor.
 
 use aurea::{KeyCode, Window, WindowEvent};
+use std::error::Error;
 use std::sync::Arc;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     let window = Arc::new(Window::new("Input Smoke", 640, 480)?);
     window.show();
 

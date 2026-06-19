@@ -1,6 +1,8 @@
 //! ZenGPU 2D painter on the unified graphics API — `impl Gpu2dBackend for ZenGpuBackend`.
 
 use std::collections::HashMap;
+use std::mem::{size_of, size_of_val};
+use std::slice::{from_raw_parts, from_ref};
 use std::sync::Arc;
 
 use aurea_foundation::{AureaError, AureaResult};
@@ -15,19 +17,14 @@ use zengpu_vulkan::{VulkanDevice, VulkanSurface};
 
 use crate::batch::{CircleInstance, DrawRef, RectInstance};
 use crate::gpu2d::{FramePlan, Gpu2dBackend, Gpu2dRenderer};
+use crate::types::Rect;
 
 use super::buffer::GrowableBuffer;
 use super::pipelines::{GradientInstance, ImageInstance, Pipelines, TextInstance};
 use super::surface::create_surface;
 
-const _: () = assert!(
-    std::mem::size_of::<crate::batch::RectInstance>()
-        == std::mem::size_of::<super::pipelines::RectInstance>()
-);
-const _: () = assert!(
-    std::mem::size_of::<crate::batch::CircleInstance>()
-        == std::mem::size_of::<super::pipelines::CircleInstance>()
-);
+const _: () = assert!(size_of::<RectInstance>() == size_of::<super::pipelines::RectInstance>());
+const _: () = assert!(size_of::<CircleInstance>() == size_of::<super::pipelines::CircleInstance>());
 
 /// Shareable ZenGPU instance/device ownership for Aurea UI and engine rendering.
 pub struct ZenGpuContext {
@@ -146,11 +143,7 @@ impl ZenGpuRenderer {
     }
 
     /// Draw a caller-owned GPU texture after the ordinary display list.
-    pub fn draw_sampled_image(
-        &mut self,
-        texture: TextureHandle,
-        dest: crate::types::Rect,
-    ) -> AureaResult<()> {
+    pub fn draw_sampled_image(&mut self, texture: TextureHandle, dest: Rect) -> AureaResult<()> {
         self.backend_mut().push_external_image(texture, dest)
     }
 
@@ -162,11 +155,7 @@ impl ZenGpuRenderer {
 }
 
 impl ZenGpuBackend {
-    fn push_external_image(
-        &mut self,
-        texture: TextureHandle,
-        dest: crate::types::Rect,
-    ) -> AureaResult<()> {
+    fn push_external_image(&mut self, texture: TextureHandle, dest: Rect) -> AureaResult<()> {
         let device = self.context.device();
         let slot = device
             .bind_texture(texture, self.sampler)
@@ -372,7 +361,7 @@ impl Gpu2dBackend for ZenGpuBackend {
                     let slot = vk_gradients.get(idx as usize).map(|g| g.slot).unwrap_or(0);
                     cmd.bind(Bindings {
                         scalars: &viewport_scalars,
-                        textures: std::slice::from_ref(&slot),
+                        textures: from_ref(&slot),
                         ..Default::default()
                     });
                     cmd.draw(0..6, idx..idx + 1);
@@ -388,7 +377,7 @@ impl Gpu2dBackend for ZenGpuBackend {
                     let slot = vk_images.get(idx as usize).map(|i| i.slot).unwrap_or(0);
                     cmd.bind(Bindings {
                         scalars: &viewport_scalars,
-                        textures: std::slice::from_ref(&slot),
+                        textures: from_ref(&slot),
                         ..Default::default()
                     });
                     cmd.draw(0..6, idx..idx + 1);
@@ -404,7 +393,7 @@ impl Gpu2dBackend for ZenGpuBackend {
                     let slot = vk_texts.get(idx as usize).map(|t| t.slot).unwrap_or(0);
                     cmd.bind(Bindings {
                         scalars: &viewport_scalars,
-                        textures: std::slice::from_ref(&slot),
+                        textures: from_ref(&slot),
                         ..Default::default()
                     });
                     cmd.draw(0..6, idx..idx + 1);
@@ -424,7 +413,7 @@ impl Gpu2dBackend for ZenGpuBackend {
             let slot = ext.instance.slot;
             cmd.bind(Bindings {
                 scalars: &viewport_scalars,
-                textures: std::slice::from_ref(&slot),
+                textures: from_ref(&slot),
                 ..Default::default()
             });
             cmd.draw(0..6, idx..idx + 1);
@@ -470,5 +459,5 @@ fn gpu_err(_e: zengpu_hal::GpuError) -> AureaError {
 }
 
 fn as_bytes<T: Copy>(slice: &[T]) -> &[u8] {
-    unsafe { std::slice::from_raw_parts(slice.as_ptr() as *const u8, std::mem::size_of_val(slice)) }
+    unsafe { from_raw_parts(slice.as_ptr() as *const u8, size_of_val(slice)) }
 }

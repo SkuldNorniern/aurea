@@ -1,5 +1,6 @@
 //! Bouncing ball animation example.
 
+use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use aurea::render::{Canvas, Color, Paint, PaintStyle, Point, Rect, RendererBackend};
@@ -41,11 +42,9 @@ fn main() -> AureaResult<()> {
         let delta = now - last;
         last = now;
 
-        if running {
-            if let Some(t) = anim.tick(delta) {
-                let mirrored = if t < 0.5 { t * 2.0 } else { (1.0 - t) * 2.0 };
-                ball_x = BALL_R + mirrored * travel;
-            }
+        if running && let Some(t) = anim.tick(delta) {
+            let mirrored = if t < 0.5 { t * 2.0 } else { (1.0 - t) * 2.0 };
+            ball_x = BALL_R + mirrored * travel;
         }
 
         draw_canvas.draw(|ctx| {
@@ -92,7 +91,7 @@ fn main() -> AureaResult<()> {
         })?;
 
         window.process_frames()?;
-        std::thread::sleep(Duration::from_millis(8));
+        sleep(Duration::from_millis(8));
     }
 
     Ok(())

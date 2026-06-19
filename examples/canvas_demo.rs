@@ -1,7 +1,9 @@
 //! Canvas demo showcasing CPU rasterizer with tile-based rendering.
 
 use aurea::elements::{Box, BoxOrientation};
-use aurea::render::{Canvas, Color, Paint, PaintStyle, Point, Rect, RendererBackend};
+use aurea::render::{
+    Canvas, Color, DrawingContext, Paint, PaintStyle, Point, Rect, RendererBackend,
+};
 use aurea::{AureaResult, Container, Window};
 
 const CANVAS_WIDTH: u32 = 800;
@@ -28,7 +30,7 @@ fn main() -> AureaResult<()> {
     Ok(())
 }
 
-fn draw_scene(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResult<()> {
+fn draw_scene(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
     let blue_fill = Paint::new()
         .color(Color::rgb(100, 150, 200))
         .style(PaintStyle::Fill);

@@ -1,5 +1,8 @@
 use super::traits::{Container, Element};
+use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
+use std::any::Any;
+use std::boxed::Box as StdBox;
 use std::os::raw::c_void;
 
 /// Layout orientation for a Box container.
@@ -13,7 +16,7 @@ pub enum BoxOrientation {
 pub struct Box {
     handle: *mut c_void,
     _orientation: BoxOrientation,
-    _children: Vec<std::boxed::Box<dyn std::any::Any>>,
+    _children: Vec<StdBox<dyn Any>>,
 }
 
 impl Box {
@@ -43,7 +46,7 @@ impl Element for Box {
         self.handle
     }
 
-    unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
+    unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         unsafe {
             ng_platform_box_invalidate(self.handle);
         }
@@ -75,7 +78,7 @@ impl Container for Box {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        self._children.push(std::boxed::Box::new(element));
+        self._children.push(StdBox::new(element));
         Ok(())
     }
 }

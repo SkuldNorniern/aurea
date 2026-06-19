@@ -31,7 +31,8 @@ impl Color {
     }
 }
 
-/// 2D point.
+use std::sync::Arc;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Point {
     pub x: f32,
@@ -416,7 +417,7 @@ pub enum BlendMode {
 pub struct Image {
     pub width: u32,
     pub height: u32,
-    pub data: std::sync::Arc<[u8]>,
+    pub data: Arc<[u8]>,
 }
 
 impl Image {
@@ -437,7 +438,7 @@ pub struct GlyphMask {
     /// Height in device pixels.
     pub height: u32,
     /// Per-pixel subpixel coverage, 3 bytes/pixel in R, G, B stripe order.
-    pub coverage: std::sync::Arc<[u8]>,
+    pub coverage: Arc<[u8]>,
 }
 
 /// Interactive element ID for hit testing.

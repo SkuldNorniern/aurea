@@ -51,19 +51,34 @@ pub enum CursorGrabMode {
 
 use crate::elements::Element;
 use crate::ffi::*;
+use crate::ffi::{
+    ng_platform_free_clipboard_text, ng_platform_get_clipboard_text, ng_platform_request_frame,
+    ng_platform_set_clipboard_text,
+};
+use crate::integration::NativeWindowHandle;
 use crate::lifecycle::{
     LifecycleEvent, register_lifecycle_callback, unregister_lifecycle_callback,
 };
 use crate::menu::MenuBar;
+use crate::registry::window::{
+    process_window_updates, register_event_queue, register_global_event_queue,
+    register_update_callback, register_update_callbacks, unregister_event_queue,
+    unregister_update_callbacks,
+};
+use crate::render::Rect;
+#[cfg(feature = "zengpu")]
+use crate::render::{ZenGpuContext, ZenGpuRenderer};
+use crate::sync::lock;
 use crate::view::{DamageRegion, FrameScheduler};
 use crate::{AureaError, AureaResult};
 use aurea_foundation::Platform;
 use aurea_foundation::{Capability, CapabilityChecker};
 use std::{
-    ffi::CString,
+    ffi::{CStr, CString},
     os::raw::c_void,
+    result::Result as StdResult,
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, Once,
         atomic::{AtomicUsize, Ordering},
     },
 };
@@ -104,7 +119,7 @@ impl Window {
     ) -> AureaResult<Self> {
         const AUREA_FFI_ABI_VERSION: i32 = 2;
 
-        static INIT: std::sync::Once = std::sync::Once::new();
+        static INIT: Once = Once::new();
         let mut error = None;
 
         INIT.call_once(|| {
@@ -121,7 +136,7 @@ impl Window {
                 return;
             }
             FrameScheduler::set_request_frame_hook(|| {
-                unsafe { crate::ffi::ng_platform_request_frame() };
+                unsafe { ng_platform_request_frame() };
             });
         });
 
@@ -154,16 +169,16 @@ impl Window {
         let scale_factor = unsafe { ng_platform_get_scale_factor(handle) };
         let event_queue = Arc::new(events::EventQueue::new());
 
-        crate::registry::window::register_global_event_queue(&event_queue);
-        crate::registry::window::register_event_queue(handle, &event_queue);
-        crate::registry::window::register_update_callbacks(handle);
+        register_global_event_queue(&event_queue);
+        register_event_queue(handle, &event_queue);
+        register_update_callbacks(handle);
 
         let eq_clone = event_queue.clone();
         let handle_usize = handle as usize;
         register_lifecycle_callback(
             handle,
             Box::new(move |event| {
-                let handle_ptr = handle_usize as *mut std::os::raw::c_void;
+                let handle_ptr = handle_usize as *mut c_void;
                 match event {
                     LifecycleEvent::WindowWillClose => {
                         eq_clone.push(WindowEvent::CloseRequested);
@@ -291,7 +306,7 @@ impl Window {
     where
         F: Fn(WindowId) + Send + Sync + 'static,
     {
-        crate::registry::window::register_update_callback(self.handle, callback);
+        register_update_callback(self.handle, callback);
     }
 
     pub fn set_content<E>(&mut self, element: E) -> AureaResult<()>
@@ -317,24 +332,24 @@ impl Window {
         FrameScheduler::schedule();
     }
 
-    pub fn add_damage(&self, rect: crate::render::Rect) {
-        let mut damage = crate::sync::lock(&self.damage);
+    pub fn add_damage(&self, rect: Rect) {
+        let mut damage = lock(&self.damage);
         damage.add(rect);
         self.schedule_frame();
     }
 
-    pub fn take_damage(&self) -> Option<crate::render::Rect> {
-        let mut damage = crate::sync::lock(&self.damage);
+    pub fn take_damage(&self) -> Option<Rect> {
+        let mut damage = lock(&self.damage);
         damage.take()
     }
 
     pub fn scale_factor(&self) -> f32 {
-        *crate::sync::lock(&self.scale_factor)
+        *lock(&self.scale_factor)
     }
 
     pub fn update_scale_factor(&self) {
         let new_scale = unsafe { ng_platform_get_scale_factor(self.handle) };
-        *crate::sync::lock(&self.scale_factor) = new_scale;
+        *lock(&self.scale_factor) = new_scale;
     }
 
     pub fn on_lifecycle_event<F>(&self, callback: F)
@@ -362,7 +377,7 @@ impl Window {
     /// # }
     /// ```
     #[cfg(feature = "wgpu")]
-    pub fn native_handle(&self) -> crate::integration::NativeWindowHandle {
+    pub fn native_handle(&self) -> NativeWindowHandle {
         use crate::integration::wgpu::WindowNativeHandle;
         WindowNativeHandle::native_handle_impl(self)
     }
@@ -380,24 +395,22 @@ impl Window {
     /// # }
     /// ```
     #[cfg(feature = "zengpu")]
-    pub fn create_zengpu_2d(&self) -> AureaResult<crate::render::ZenGpuRenderer> {
-        self.create_zengpu_2d_with_context(
-            std::sync::Arc::new(crate::render::ZenGpuContext::new()?),
-        )
+    pub fn create_zengpu_2d(&self) -> AureaResult<ZenGpuRenderer> {
+        self.create_zengpu_2d_with_context(Arc::new(ZenGpuContext::new()?))
     }
 
     /// Create a ZenGPU 2D renderer on a caller-owned shared GPU context.
     #[cfg(feature = "zengpu")]
     pub fn create_zengpu_2d_with_context(
         &self,
-        context: std::sync::Arc<crate::render::ZenGpuContext>,
-    ) -> AureaResult<crate::render::ZenGpuRenderer> {
+        context: Arc<ZenGpuContext>,
+    ) -> AureaResult<ZenGpuRenderer> {
         let handles = self.zengpu_window_handles()?;
         let scale = self.scale_factor().max(1.0);
         let (pw, ph) = self.size();
         let lw = ((pw as f32 / scale).round() as u32).max(1);
         let lh = ((ph as f32 / scale).round() as u32).max(1);
-        crate::render::ZenGpuRenderer::with_context(&handles, context, lw, lh, scale)
+        ZenGpuRenderer::with_context(&handles, context, lw, lh, scale)
     }
 
     #[cfg(all(feature = "zengpu", target_os = "windows"))]
@@ -438,7 +451,7 @@ impl Window {
         use std::{num::NonZeroU32, ptr::NonNull};
 
         let mut xcb_window = 0;
-        let mut xcb_connection = std::ptr::null_mut();
+        let mut xcb_connection = null_mut();
         let has_xcb = unsafe {
             crate::ffi::ng_platform_window_get_xcb_handle(
                 self.handle,
@@ -456,8 +469,8 @@ impl Window {
             ));
         }
 
-        let mut surface = std::ptr::null_mut();
-        let mut display = std::ptr::null_mut();
+        let mut surface = null_mut();
+        let mut display = null_mut();
         let has_wayland = unsafe {
             crate::ffi::ng_platform_window_get_wayland_handle(
                 self.handle,
@@ -524,7 +537,7 @@ impl Window {
         let events = self.event_queue.process_events();
         for event in &events {
             if let WindowEvent::ScaleFactorChanged { scale_factor } = event {
-                *crate::sync::lock(&self.scale_factor) = *scale_factor;
+                *lock(&self.scale_factor) = *scale_factor;
             }
         }
         events
@@ -548,7 +561,7 @@ impl Window {
     /// # }
     /// ```
     pub fn process_frames(&self) -> AureaResult<()> {
-        crate::registry::window::process_window_updates(self.handle);
+        process_window_updates(self.handle);
         FrameScheduler::process_frames()
     }
 
@@ -715,7 +728,7 @@ impl Window {
     }
 
     /// Get the native window handle.
-    pub fn handle(&self) -> *mut std::ffi::c_void {
+    pub fn handle(&self) -> *mut c_void {
         self.handle
     }
 
@@ -742,8 +755,8 @@ impl Window {
 impl Drop for Window {
     fn drop(&mut self) {
         unregister_lifecycle_callback(self.handle);
-        crate::registry::window::unregister_event_queue(self.handle);
-        crate::registry::window::unregister_update_callbacks(self.handle);
+        unregister_event_queue(self.handle);
+        unregister_update_callbacks(self.handle);
 
         unsafe {
             ng_platform_destroy_window(self.handle);
@@ -760,13 +773,13 @@ unsafe impl Sync for Window {}
 
 /// Read the OS clipboard as a UTF-8 string.
 pub fn clipboard_text() -> Option<String> {
-    let ptr = unsafe { crate::ffi::ng_platform_get_clipboard_text() };
+    let ptr = unsafe { ng_platform_get_clipboard_text() };
     if ptr.is_null() {
         return None;
     }
     let text = unsafe {
-        let s = std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned();
-        crate::ffi::ng_platform_free_clipboard_text(ptr);
+        let s = CStr::from_ptr(ptr).to_string_lossy().into_owned();
+        ng_platform_free_clipboard_text(ptr);
         s
     };
     if text.is_empty() { None } else { Some(text) }
@@ -774,7 +787,7 @@ pub fn clipboard_text() -> Option<String> {
 
 #[cfg(target_os = "windows")]
 mod rwh_impl {
-    use super::Window;
+    use super::{StdResult, Window};
     use raw_window_handle::{
         DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawDisplayHandle,
         RawWindowHandle, Win32WindowHandle, WindowHandle, WindowsDisplayHandle,
@@ -782,7 +795,7 @@ mod rwh_impl {
     use std::num::NonZeroIsize;
 
     impl HasWindowHandle for Window {
-        fn window_handle(&self) -> std::result::Result<WindowHandle<'_>, HandleError> {
+        fn window_handle(&self) -> StdResult<WindowHandle<'_>, HandleError> {
             let hwnd = self.handle as isize;
             let hwnd = NonZeroIsize::new(hwnd).ok_or(HandleError::Unavailable)?;
             let handle = Win32WindowHandle::new(hwnd);
@@ -791,7 +804,7 @@ mod rwh_impl {
     }
 
     impl HasDisplayHandle for Window {
-        fn display_handle(&self) -> std::result::Result<DisplayHandle<'_>, HandleError> {
+        fn display_handle(&self) -> StdResult<DisplayHandle<'_>, HandleError> {
             Ok(unsafe {
                 DisplayHandle::borrow_raw(RawDisplayHandle::Windows(WindowsDisplayHandle::new()))
             })
@@ -801,10 +814,10 @@ mod rwh_impl {
 
 /// Write a UTF-8 string to the OS clipboard.
 pub fn set_clipboard_text(text: &str) -> AureaResult<()> {
-    let Ok(cstr) = std::ffi::CString::new(text) else {
+    let Ok(cstr) = CString::new(text) else {
         return Err(AureaError::ElementOperationFailed);
     };
-    let result = unsafe { crate::ffi::ng_platform_set_clipboard_text(cstr.as_ptr()) };
+    let result = unsafe { ng_platform_set_clipboard_text(cstr.as_ptr()) };
     if result != 0 {
         Err(AureaError::ElementOperationFailed)
     } else {

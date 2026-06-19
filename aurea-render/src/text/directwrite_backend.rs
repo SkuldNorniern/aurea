@@ -5,6 +5,7 @@ use super::atlas::{GlyphBitmap, GlyphKey};
 use super::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph};
 use aurea_foundation::{AureaError, AureaResult};
 use std::collections::HashMap;
+use std::mem::zeroed;
 use std::ptr;
 use std::sync::{Arc, Mutex};
 
@@ -99,7 +100,7 @@ impl DirectWriteRasterizer {
             .map_err(|_| AureaError::RenderingFailed)?;
         let face = dw_font.create_font_face();
 
-        let mut fm: DWRITE_FONT_METRICS = unsafe { std::mem::zeroed() };
+        let mut fm: DWRITE_FONT_METRICS = unsafe { zeroed() };
         unsafe {
             let raw: *mut IDWriteFontFace = face.as_ptr();
             (*raw).GetMetrics(&mut fm);

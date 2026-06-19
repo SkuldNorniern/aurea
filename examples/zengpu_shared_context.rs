@@ -1,7 +1,10 @@
 //! Shared ZenGPU context bootstrap for an Aurea editor and game viewport.
 
 #[cfg(feature = "zengpu")]
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+use std::error::Error;
+
+#[cfg(feature = "zengpu")]
+fn main() -> Result<(), Box<dyn Error>> {
     use aurea::Window;
     use aurea::render::{Rect, ZenGpuContext};
     use std::sync::Arc;
@@ -34,5 +37,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn main() {
     eprintln!("This example requires the `zengpu` feature.");
     eprintln!("Run with: cargo run --example zengpu_shared_context --features zengpu");
-    std::process::exit(1);
+    use std::process::exit;
+    exit(1);
 }

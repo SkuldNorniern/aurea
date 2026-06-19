@@ -1,7 +1,11 @@
 //! WGPU surface from a canvas.
 
+use std::error::Error;
+#[cfg(not(feature = "wgpu"))]
+use std::process::exit;
+
 #[cfg(feature = "wgpu")]
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     use aurea::elements::{Box, BoxOrientation};
     use aurea::render::{Canvas, RendererBackend};
     use aurea::{Container, Window};
@@ -21,5 +25,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(not(feature = "wgpu"))]
 fn main() {
     eprintln!("Build with --features wgpu to run this example.");
-    std::process::exit(1);
+    exit(1);
 }

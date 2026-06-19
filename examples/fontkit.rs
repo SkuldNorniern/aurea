@@ -2,7 +2,8 @@
 
 use aurea::elements::{Box, BoxOrientation};
 use aurea::render::{
-    Canvas, Color, Font, FontStyle, FontWeight, Paint, PaintStyle, Point, Rect, RendererBackend,
+    Canvas, Color, DrawingContext, Font, FontStyle, FontWeight, Paint, PaintStyle, Point, Rect,
+    RendererBackend,
 };
 use aurea::{AureaResult, Container, Window};
 
@@ -25,7 +26,7 @@ fn main() -> AureaResult<()> {
     Ok(())
 }
 
-fn draw_fontkit(ctx: &mut dyn aurea::render::DrawingContext) -> AureaResult<()> {
+fn draw_fontkit(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
     let black = Paint::new()
         .color(Color::rgb(30, 30, 30))
         .style(PaintStyle::Fill);

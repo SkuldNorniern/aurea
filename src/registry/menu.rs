@@ -1,3 +1,4 @@
+use crate::sync::lock;
 use std::{
     collections::HashMap,
     sync::{LazyLock, Mutex},
@@ -10,18 +11,18 @@ static MENU_CALLBACKS: LazyLock<Mutex<HashMap<u32, MenuCallback>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub fn next_menu_item_id() -> u32 {
-    let mut id_guard = crate::sync::lock(&MENU_ITEM_ID);
+    let mut id_guard = lock(&MENU_ITEM_ID);
     *id_guard += 1;
     *id_guard - 1
 }
 
 pub fn register_menu_callback(id: u32, callback: impl Fn() + Send + Sync + 'static) {
-    let mut callbacks = crate::sync::lock(&MENU_CALLBACKS);
+    let mut callbacks = lock(&MENU_CALLBACKS);
     callbacks.insert(id, Box::new(callback));
 }
 
 pub fn invoke_menu_callback(id: u32) {
-    let callbacks = crate::sync::lock(&MENU_CALLBACKS);
+    let callbacks = lock(&MENU_CALLBACKS);
     if let Some(callback) = callbacks.get(&id) {
         callback();
     }

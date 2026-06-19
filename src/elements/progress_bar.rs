@@ -1,4 +1,6 @@
 use super::traits::Element;
+use crate::render::Rect;
+use crate::sync::lock;
 use crate::view::FrameScheduler;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::{
@@ -112,7 +114,7 @@ impl ProgressBar {
         let animation_state = self.animation_state.clone();
 
         let callback: Arc<dyn Fn() -> AureaResult<()> + Send + Sync> = Arc::new(move || {
-            let mut state = crate::sync::lock(&animation_state);
+            let mut state = lock(&animation_state);
 
             if let Some(new_value) = state.update() {
                 unsafe {
@@ -133,7 +135,7 @@ impl ProgressBar {
 
     pub fn set_value(&mut self, value: f64) -> AureaResult<()> {
         {
-            let mut state = crate::sync::lock(&self.animation_state);
+            let mut state = lock(&self.animation_state);
             state.enabled = false;
         }
 
@@ -154,7 +156,7 @@ impl ProgressBar {
 
     /// Start automatic animation (oscillates between 0 and 1).
     pub fn start_animation(&self) -> AureaResult<()> {
-        let mut state = crate::sync::lock(&self.animation_state);
+        let mut state = lock(&self.animation_state);
         state.enabled = true;
         state.current_value = 0.0;
         state.target_value = 1.0;
@@ -172,21 +174,21 @@ impl ProgressBar {
 
     /// Stop automatic animation.
     pub fn stop_animation(&self) -> AureaResult<()> {
-        let mut state = crate::sync::lock(&self.animation_state);
+        let mut state = lock(&self.animation_state);
         state.enabled = false;
         Ok(())
     }
 
     /// Set animation speed (progress change per frame, typically 0.01-0.05).
     pub fn set_animation_speed(&self, speed: f64) -> AureaResult<()> {
-        let mut state = crate::sync::lock(&self.animation_state);
-        state.speed = speed.max(0.001).min(0.1);
+        let mut state = lock(&self.animation_state);
+        state.speed = speed.clamp(0.001, 0.1);
         Ok(())
     }
 
     pub fn set_indeterminate(&mut self, indeterminate: bool) -> AureaResult<()> {
         {
-            let mut state = crate::sync::lock(&self.animation_state);
+            let mut state = lock(&self.animation_state);
             state.enabled = false;
         }
 
@@ -222,7 +224,7 @@ impl Element for ProgressBar {
         self.handle
     }
 
-    unsafe fn invalidate_platform(&self, _rect: Option<crate::render::Rect>) {
+    unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         unsafe {
             ng_platform_progress_bar_invalidate(self.handle);
         }
