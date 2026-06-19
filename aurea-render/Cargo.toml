@@ -11,7 +11,7 @@ repository = "https://github.com/SkuldNorniern/aurea"
 default = []
 # GPU 2D backend via ZenGPU (Vulkan). Opt-in; pulls in ash/Vulkan.
 zengpu = ["dep:inline-spirv", "dep:zengpu-hal", "dep:zengpu-vulkan"]
-# GPU 2D backend via wgpu — community-compat peer to ZenGPU. Opt-in.
+# GPU 2D backend via wgpu: community-compat peer to ZenGPU. Opt-in.
 wgpu = ["dep:wgpu"]
 
 [dependencies]
@@ -19,12 +19,12 @@ aurea-foundation = { path = "../aurea-foundation", version = "0.0.1" }
 fontdb = "0.16"
 fontdue = "0.9"
 
-# ZenGPU — optional, enabled by the `zengpu` feature.
+# ZenGPU: optional, enabled by the `zengpu` feature.
 zengpu-hal = { version = "0.0.1", optional = true }
 zengpu-vulkan = { version = "0.0.1", optional = true }
 inline-spirv = { version = "0.2", features = ["glsl"], optional = true }
 
-# wgpu peer 2D backend — optional, enabled by the `wgpu` feature.
+# wgpu peer 2D backend: optional, enabled by the `wgpu` feature.
 wgpu = { version = "29.0.1", optional = true }
 
 # Windows: hinted ClearType glyph rasterization via DirectWrite.
