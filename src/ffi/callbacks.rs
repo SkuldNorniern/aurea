@@ -1,6 +1,8 @@
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_int, c_void};
 
+use crate::window::{KeyCode, Modifiers, MouseButton, WindowEvent, push_window_event};
+
 #[inline]
 fn c_string(ptr: *const c_char) -> Option<String> {
     if ptr.is_null() {
@@ -69,12 +71,12 @@ pub extern "C" fn ng_invoke_key_event(
     pressed: c_int,
     modifiers: u32,
 ) {
-    let event = crate::window::WindowEvent::KeyInput {
-        key: crate::window::KeyCode::from_raw(keycode),
+    let event = WindowEvent::KeyInput {
+        key: KeyCode::from_raw(keycode),
         pressed: pressed != 0,
-        modifiers: crate::window::Modifiers::from_bits(modifiers),
+        modifiers: Modifiers::from_bits(modifiers),
     };
-    crate::window::push_window_event(window, event);
+    push_window_event(window, event);
 }
 
 #[unsafe(no_mangle)]
@@ -89,25 +91,25 @@ pub extern "C" fn ng_invoke_mouse_button(
 ) {
     let scale = (unsafe { aurea_ffi::ng_platform_get_scale_factor(window) } as f64).max(1.0);
     let button = if button < 0 { 0 } else { button as u8 };
-    let event = crate::window::WindowEvent::MouseButton {
-        button: crate::window::MouseButton::from_raw(button),
+    let event = WindowEvent::MouseButton {
+        button: MouseButton::from_raw(button),
         pressed: pressed != 0,
-        modifiers: crate::window::Modifiers::from_bits(modifiers),
+        modifiers: Modifiers::from_bits(modifiers),
         x: x / scale,
         y: y / scale,
         click_count: click_count.clamp(1, u8::MAX as c_int) as u8,
     };
-    crate::window::push_window_event(window, event);
+    push_window_event(window, event);
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_mouse_move(window: *mut c_void, x: f64, y: f64) {
     let scale = (unsafe { aurea_ffi::ng_platform_get_scale_factor(window) } as f64).max(1.0);
-    let event = crate::window::WindowEvent::MouseMove {
+    let event = WindowEvent::MouseMove {
         x: x / scale,
         y: y / scale,
     };
-    crate::window::push_window_event(window, event);
+    push_window_event(window, event);
 }
 
 #[unsafe(no_mangle)]
@@ -117,52 +119,52 @@ pub extern "C" fn ng_invoke_mouse_wheel(
     delta_y: f64,
     modifiers: u32,
 ) {
-    let event = crate::window::WindowEvent::MouseWheel {
+    let event = WindowEvent::MouseWheel {
         delta_x,
         delta_y,
-        modifiers: crate::window::Modifiers::from_bits(modifiers),
+        modifiers: Modifiers::from_bits(modifiers),
     };
-    crate::window::push_window_event(window, event);
+    push_window_event(window, event);
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_text_input(window: *mut c_void, text: *const c_char) {
     if let Some(text) = c_string(text) {
-        let event = crate::window::WindowEvent::TextInput { text };
-        crate::window::push_window_event(window, event);
+        let event = WindowEvent::TextInput { text };
+        push_window_event(window, event);
     }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_focus_changed(window: *mut c_void, focused: c_int) {
     let event = if focused != 0 {
-        crate::window::WindowEvent::Focused
+        WindowEvent::Focused
     } else {
-        crate::window::WindowEvent::Unfocused
+        WindowEvent::Unfocused
     };
-    crate::window::push_window_event(window, event);
+    push_window_event(window, event);
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_cursor_entered(window: *mut c_void, entered: c_int) {
     let event = if entered != 0 {
-        crate::window::WindowEvent::MouseEntered
+        WindowEvent::MouseEntered
     } else {
-        crate::window::WindowEvent::MouseExited
+        WindowEvent::MouseExited
     };
-    crate::window::push_window_event(window, event);
+    push_window_event(window, event);
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_raw_mouse_motion(window: *mut c_void, delta_x: f64, delta_y: f64) {
-    let event = crate::window::WindowEvent::RawMouseMotion { delta_x, delta_y };
-    crate::window::push_window_event(window, event);
+    let event = WindowEvent::RawMouseMotion { delta_x, delta_y };
+    push_window_event(window, event);
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_scale_factor_changed(window: *mut c_void, scale_factor: f32) {
-    let event = crate::window::WindowEvent::ScaleFactorChanged { scale_factor };
-    crate::window::push_window_event(window, event);
+    let event = WindowEvent::ScaleFactorChanged { scale_factor };
+    push_window_event(window, event);
     crate::view::FrameScheduler::schedule();
 }
 
