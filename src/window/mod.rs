@@ -55,6 +55,7 @@ use crate::ffi::{
     ng_platform_free_clipboard_text, ng_platform_get_clipboard_text, ng_platform_request_frame,
     ng_platform_set_clipboard_text,
 };
+#[cfg(feature = "wgpu")]
 use crate::integration::NativeWindowHandle;
 use crate::lifecycle::{
     LifecycleEvent, register_lifecycle_callback, unregister_lifecycle_callback,

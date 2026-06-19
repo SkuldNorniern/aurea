@@ -6,6 +6,7 @@
 //! `aurea::integration::wgpu::handle_surface_error_for_window()`; after recreating the surface
 //! call `notify_surface_recreated_for_window()`. See `aurea::integration::wgpu` docs.
 
+#[cfg(feature = "wgpu")]
 use std::error::Error;
 #[cfg(not(feature = "wgpu"))]
 use std::process::exit;

@@ -1,14 +1,13 @@
-#[cfg(not(feature = "zengpu"))]
-use std::process::exit;
+#[cfg(feature = "zengpu")]
 use aurea::{
+    Container, Window, WindowEvent,
     elements::{Box as NativeBox, BoxOrientation},
     render::{Canvas, Color, Paint, PaintStyle, Point, Rect, RendererBackend},
-    Container, Window, WindowEvent
 };
-
+#[cfg(not(feature = "zengpu"))]
+use std::process::exit;
 
 fn main() -> aurea::AureaResult<()> {
-    
     #[cfg(not(feature = "zengpu"))]
     {
         eprintln!("This example requires the `zengpu` feature.");
