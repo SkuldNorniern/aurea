@@ -14,7 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut window = Window::new("WGPU Canvas", 800, 600)?;
     let canvas = Canvas::new(800, 600, RendererBackend::Cpu)?;
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let _surface = canvas.create_wgpu_surface(&instance)?;
 
     let mut layout = Box::new(BoxOrientation::Vertical)?;
