@@ -9,7 +9,12 @@ impl log::Log for SimpleLogger {
 
     fn log(&self, record: &Record) {
         if log::log_enabled!(target: record.target(), record.level()) {
-            eprintln!("[{}] {} -- {}", record.level(), record.target(), record.args());
+            eprintln!(
+                "[{}] {} -- {}",
+                record.level(),
+                record.target(),
+                record.args()
+            );
         }
     }
 
@@ -42,10 +47,10 @@ fn parse_rust_log() -> LevelFilter {
     match val.to_ascii_lowercase().as_str() {
         "trace" => LevelFilter::Trace,
         "debug" => LevelFilter::Debug,
-        "info"  => LevelFilter::Info,
-        "warn"  => LevelFilter::Warn,
+        "info" => LevelFilter::Info,
+        "warn" => LevelFilter::Warn,
         "error" => LevelFilter::Error,
-        "off"   => LevelFilter::Off,
-        _       => LevelFilter::Warn,
+        "off" => LevelFilter::Off,
+        _ => LevelFilter::Warn,
     }
 }

@@ -103,7 +103,10 @@ pub extern "C" fn ng_invoke_mouse_button(
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_mouse_move(window: *mut c_void, x: f64, y: f64) {
     let scale = (unsafe { aurea_ffi::ng_platform_get_scale_factor(window) } as f64).max(1.0);
-    let event = crate::window::WindowEvent::MouseMove { x: x / scale, y: y / scale };
+    let event = crate::window::WindowEvent::MouseMove {
+        x: x / scale,
+        y: y / scale,
+    };
     crate::window::push_window_event(window, event);
 }
 

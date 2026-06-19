@@ -238,7 +238,38 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
-    static TICKER_TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    struct TestGuard {
+        _guard: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl TestGuard {
+        fn new() -> Self {
+            let guard = aurea_foundation::lock(&TEST_LOCK);
+            reset_scheduler_state();
+            Self { _guard: guard }
+        }
+    }
+
+    impl Drop for TestGuard {
+        fn drop(&mut self) {
+            reset_scheduler_state();
+        }
+    }
+
+    fn reset_scheduler_state() {
+        FRAME_SCHEDULED.store(false, Ordering::Relaxed);
+        ALL_CANVASES_SCHEDULED.store(false, Ordering::Relaxed);
+        FRAME_CALLBACK_COUNTER.store(0, Ordering::Relaxed);
+        TICKER_COUNTER.store(0, Ordering::Relaxed);
+        FRAME_COUNTER.store(0, Ordering::Relaxed);
+        *aurea_foundation::lock(&CANVAS_REGISTRY) = Arc::new(HashMap::new());
+        aurea_foundation::lock(&PENDING_CANVASES).clear();
+        *aurea_foundation::lock(&FRAME_CALLBACKS) = Arc::new(HashMap::new());
+        *aurea_foundation::lock(&TICKERS) = Arc::new(HashMap::new());
+        *aurea_foundation::lock(&LAST_FRAME_TIME) = Instant::now();
+        *aurea_foundation::lock(&REQUEST_FRAME_HOOK) = None;
+    }
 
     fn handle(id: usize) -> *mut c_void {
         id as *mut c_void
@@ -246,7 +277,7 @@ mod tests {
 
     #[test]
     fn targeted_schedule_processes_only_pending_canvas() {
-        let _guard = aurea_foundation::lock(&TEST_LOCK);
+        let _guard = TestGuard::new();
         let first = Arc::new(AtomicUsize::new(0));
         let second = Arc::new(AtomicUsize::new(0));
 
@@ -280,7 +311,7 @@ mod tests {
 
     #[test]
     fn global_schedule_processes_all_canvases() {
-        let _guard = aurea_foundation::lock(&TEST_LOCK);
+        let _guard = TestGuard::new();
         let first = Arc::new(AtomicUsize::new(0));
         let second = Arc::new(AtomicUsize::new(0));
 
@@ -315,7 +346,7 @@ mod tests {
 
     #[test]
     fn frame_callback_unregister_stops_invocation() {
-        let _guard = aurea_foundation::lock(&TEST_LOCK);
+        let _guard = TestGuard::new();
         let count = Arc::new(AtomicUsize::new(0));
         let c = count.clone();
         let id = FrameScheduler::register_frame_callback(move || {
@@ -338,7 +369,7 @@ mod tests {
 
     #[test]
     fn ticker_runs_until_false() {
-        let _guard = aurea_foundation::lock(&TICKER_TEST_LOCK);
+        let _guard = TestGuard::new();
         let count = Arc::new(AtomicUsize::new(0));
         let c = count.clone();
 
@@ -359,7 +390,7 @@ mod tests {
 
     #[test]
     fn ticker_explicit_unregister() {
-        let _guard = aurea_foundation::lock(&TICKER_TEST_LOCK);
+        let _guard = TestGuard::new();
         let count = Arc::new(AtomicUsize::new(0));
         let c = count.clone();
         let id = FrameScheduler::register_ticker(move |_| {
