@@ -1,11 +1,20 @@
 //! ZenGPU render-to-texture rendered into an aurea window — unified graphics API.
 
+#[cfg(feature = "zengpu")]
 use std::mem::size_of_val;
+#[cfg(not(feature = "zengpu"))]
+use std::process::exit;
+#[cfg(feature = "zengpu")]
 use std::slice::from_raw_parts;
+#[cfg(feature = "zengpu")]
 use std::time::Instant;
+use std::{error::Error, result::Result as StdResult};
 
+#[cfg(feature = "zengpu")]
 use aurea::{Window, WindowEvent};
+#[cfg(feature = "zengpu")]
 use inline_spirv::inline_spirv;
+#[cfg(feature = "zengpu")]
 use zengpu::{
     Acquire, Bindings, BlendMode, ColorAttachment, DepthState, FilterMode, Format, Frame,
     GpuAdapter, GpuDevice, GpuError, GraphicsDevice, GraphicsPipelineDesc, LoadOp, PresentMode,
@@ -14,8 +23,10 @@ use zengpu::{
     WindowHandles,
 };
 
+#[cfg(feature = "zengpu")]
 const OFF_SIZE: u32 = 512;
 
+#[cfg(feature = "zengpu")]
 const OFF_VERT_SPV: &[u32] = inline_spirv!(
     r#"
     #version 450
@@ -34,6 +45,7 @@ const OFF_VERT_SPV: &[u32] = inline_spirv!(
     vulkan1_0
 );
 
+#[cfg(feature = "zengpu")]
 const OFF_FRAG_SPV: &[u32] = inline_spirv!(
     r#"
     #version 450
@@ -45,6 +57,7 @@ const OFF_FRAG_SPV: &[u32] = inline_spirv!(
     vulkan1_0
 );
 
+#[cfg(feature = "zengpu")]
 const SCR_VERT_SPV: &[u32] = inline_spirv!(
     r#"
     #version 450
@@ -66,6 +79,7 @@ const SCR_VERT_SPV: &[u32] = inline_spirv!(
     vulkan1_0
 );
 
+#[cfg(feature = "zengpu")]
 const SCR_FRAG_SPV: &[u32] = inline_spirv!(
     r#"
     #version 450
@@ -81,11 +95,13 @@ const SCR_FRAG_SPV: &[u32] = inline_spirv!(
     vulkan1_0
 );
 
+#[cfg(feature = "zengpu")]
 fn spv_bytes(words: &[u32]) -> &[u8] {
     unsafe { from_raw_parts(words.as_ptr() as *const u8, size_of_val(words)) }
 }
 
-fn main() -> Result<()> {
+#[cfg(feature = "zengpu")]
+fn run() -> Result<()> {
     let window = Window::new("ZenGPU — Offscreen (render-to-texture)", 800, 600)
         .map_err(|e| GpuError::Backend(format!("window: {e}")))?;
 
@@ -246,4 +262,19 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn main() -> StdResult<(), Box<dyn Error>> {
+    #[cfg(not(feature = "zengpu"))]
+    {
+        eprintln!("This example requires the `zengpu` feature.");
+        eprintln!("Run with: cargo run --example zengpu_offscreen --features zengpu");
+        exit(1);
+    }
+
+    #[cfg(feature = "zengpu")]
+    {
+        run()?;
+        Ok(())
+    }
 }

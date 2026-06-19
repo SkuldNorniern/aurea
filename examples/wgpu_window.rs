@@ -1,5 +1,6 @@
 //! WGPU surface from a window.
 
+#[cfg(feature = "wgpu")]
 use std::error::Error;
 #[cfg(not(feature = "wgpu"))]
 use std::process::exit;

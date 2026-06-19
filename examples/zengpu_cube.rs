@@ -1,12 +1,22 @@
 //! ZenGPU 3D cube rendered into an aurea window — unified graphics API.
 
+#[cfg(feature = "zengpu")]
 use core::array::from_fn;
+#[cfg(feature = "zengpu")]
 use std::mem::{size_of, size_of_val};
+#[cfg(not(feature = "zengpu"))]
+use std::process::exit;
+#[cfg(feature = "zengpu")]
 use std::slice::from_raw_parts;
+#[cfg(feature = "zengpu")]
 use std::time::Instant;
+use std::{error::Error, result::Result as StdResult};
 
+#[cfg(feature = "zengpu")]
 use aurea::{Window, WindowEvent};
+#[cfg(feature = "zengpu")]
 use inline_spirv::inline_spirv;
+#[cfg(feature = "zengpu")]
 use zengpu::{
     Acquire, Bindings, BlendMode, BufferDesc, BufferUsage, ColorAttachment, DepthAttachment,
     DepthState, DepthTarget, Format, Frame, GpuAdapter, GpuDevice, GpuError, GraphicsDevice,
@@ -18,11 +28,13 @@ use zengpu::{
 
 #[repr(C)]
 #[derive(Copy, Clone)]
+#[cfg(feature = "zengpu")]
 struct Vertex3d {
     pos: [f32; 3],
     color: [f32; 3],
 }
 
+#[cfg(feature = "zengpu")]
 fn cube_vertices() -> [Vertex3d; 8] {
     let v = |x: f32, y: f32, z: f32| Vertex3d {
         pos: [x, y, z],
@@ -41,6 +53,7 @@ fn cube_vertices() -> [Vertex3d; 8] {
 }
 
 #[rustfmt::skip]
+#[cfg(feature = "zengpu")]
 const CUBE_INDICES: [u32; 36] = [
     4, 5, 6,  4, 6, 7,
     1, 0, 3,  1, 3, 2,
@@ -50,8 +63,10 @@ const CUBE_INDICES: [u32; 36] = [
     0, 1, 5,  0, 5, 4,
 ];
 
+#[cfg(feature = "zengpu")]
 type Mat4 = [f32; 16];
 
+#[cfg(feature = "zengpu")]
 fn mat_mul(a: &Mat4, b: &Mat4) -> Mat4 {
     let mut out = [0.0f32; 16];
     for c in 0..4 {
@@ -62,6 +77,7 @@ fn mat_mul(a: &Mat4, b: &Mat4) -> Mat4 {
     out
 }
 
+#[cfg(feature = "zengpu")]
 fn identity() -> Mat4 {
     let mut m = [0.0f32; 16];
     m[0] = 1.0;
@@ -71,6 +87,7 @@ fn identity() -> Mat4 {
     m
 }
 
+#[cfg(feature = "zengpu")]
 fn translate(x: f32, y: f32, z: f32) -> Mat4 {
     let mut m = identity();
     m[12] = x;
@@ -79,6 +96,7 @@ fn translate(x: f32, y: f32, z: f32) -> Mat4 {
     m
 }
 
+#[cfg(feature = "zengpu")]
 fn rotate_y(a: f32) -> Mat4 {
     let (s, c) = a.sin_cos();
     let mut m = identity();
@@ -89,6 +107,7 @@ fn rotate_y(a: f32) -> Mat4 {
     m
 }
 
+#[cfg(feature = "zengpu")]
 fn rotate_x(a: f32) -> Mat4 {
     let (s, c) = a.sin_cos();
     let mut m = identity();
@@ -99,6 +118,7 @@ fn rotate_x(a: f32) -> Mat4 {
     m
 }
 
+#[cfg(feature = "zengpu")]
 fn perspective(fovy: f32, aspect: f32, near: f32, far: f32) -> Mat4 {
     let f = 1.0 / (fovy * 0.5).tan();
     let mut m = [0.0f32; 16];
@@ -110,6 +130,7 @@ fn perspective(fovy: f32, aspect: f32, near: f32, far: f32) -> Mat4 {
     m
 }
 
+#[cfg(feature = "zengpu")]
 const VERT_SPV: &[u32] = inline_spirv!(
     r#"
     #version 450
@@ -126,6 +147,7 @@ const VERT_SPV: &[u32] = inline_spirv!(
     vulkan1_0
 );
 
+#[cfg(feature = "zengpu")]
 const FRAG_SPV: &[u32] = inline_spirv!(
     r#"
     #version 450
@@ -137,15 +159,18 @@ const FRAG_SPV: &[u32] = inline_spirv!(
     vulkan1_0
 );
 
+#[cfg(feature = "zengpu")]
 fn spv_bytes(words: &[u32]) -> &[u8] {
     unsafe { from_raw_parts(words.as_ptr() as *const u8, size_of_val(words)) }
 }
 
+#[cfg(feature = "zengpu")]
 fn as_bytes<T: Copy>(slice: &[T]) -> &[u8] {
     unsafe { from_raw_parts(slice.as_ptr() as *const u8, size_of_val(slice)) }
 }
 
-fn main() -> Result<()> {
+#[cfg(feature = "zengpu")]
+fn run() -> Result<()> {
     let window = Window::new("ZenGPU — 3D Cube", 800, 600)
         .map_err(|e| GpuError::Backend(format!("window: {e}")))?;
 
@@ -301,4 +326,19 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn main() -> StdResult<(), Box<dyn Error>> {
+    #[cfg(not(feature = "zengpu"))]
+    {
+        eprintln!("This example requires the `zengpu` feature.");
+        eprintln!("Run with: cargo run --example zengpu_cube --features zengpu");
+        exit(1);
+    }
+
+    #[cfg(feature = "zengpu")]
+    {
+        run()?;
+        Ok(())
+    }
 }
