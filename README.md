@@ -106,6 +106,12 @@ cargo run --example animate_fade
 cargo run --example animate_bounce
 ```
 
+## Projects Using Aurea
+
+| Project | Preview |
+| --- | --- |
+| [Ozone](https://github.com/SkuldNorniern/ozone) | ![Ozone editor](https://github.com/SkuldNorniern/ozone/blob/main/assets/screenshots/ozone-editor.png) |
+
 ## Features
 
 - `default`: no optional GPU backend.
