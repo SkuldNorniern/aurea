@@ -72,6 +72,9 @@ pub struct ZenGpuBackend {
     gradient_buf: GrowableBuffer,
     image_buf: GrowableBuffer,
     text_buf: GrowableBuffer,
+    gradient_instances: Vec<GradientInstance>,
+    image_instances: Vec<ImageInstance>,
+    text_instances: Vec<TextInstance>,
     slot_textures: HashMap<u32, TextureHandle>,
     external_images: Vec<ExternalImageDraw>,
 }
@@ -128,6 +131,9 @@ impl ZenGpuRenderer {
             gradient_buf: GrowableBuffer::new(Default::default()),
             image_buf: GrowableBuffer::new(Default::default()),
             text_buf: GrowableBuffer::new(Default::default()),
+            gradient_instances: Vec::new(),
+            image_instances: Vec::new(),
+            text_instances: Vec::new(),
             slot_textures: HashMap::new(),
             external_images: Vec::new(),
         };
@@ -232,40 +238,35 @@ impl Gpu2dBackend for ZenGpuBackend {
         let vh = plan.viewport_height as f32;
         let device = self.context.device();
 
-        let vk_gradients: Vec<GradientInstance> = plan
-            .gradients
-            .iter()
-            .map(|g| GradientInstance {
+        self.gradient_instances.clear();
+        self.gradient_instances
+            .extend(plan.gradients.iter().map(|g| GradientInstance {
                 rect: g.rect,
                 a: g.a,
                 b: g.b,
                 slot: g.slot,
                 _pad: [0; 3],
-            })
-            .collect();
-        let mut vk_images: Vec<ImageInstance> = plan
-            .images
-            .iter()
-            .map(|i| ImageInstance {
+            }));
+        self.image_instances.clear();
+        self.image_instances
+            .extend(plan.images.iter().map(|i| ImageInstance {
                 rect: i.rect,
                 uv: i.uv,
                 tint: i.tint,
                 slot: i.slot,
                 _pad: [0; 3],
-            })
-            .collect();
-        let ext_image_base = vk_images.len() as u32;
-        vk_images.extend(self.external_images.iter().map(|e| e.instance));
-        let vk_texts: Vec<TextInstance> = plan
-            .texts
-            .iter()
-            .map(|t| TextInstance {
+            }));
+        let ext_image_base = self.image_instances.len() as u32;
+        self.image_instances
+            .extend(self.external_images.iter().map(|e| e.instance));
+        self.text_instances.clear();
+        self.text_instances
+            .extend(plan.texts.iter().map(|t| TextInstance {
                 rect: t.rect,
                 color: t.color,
                 slot: t.slot,
                 _pad: [0; 3],
-            })
-            .collect();
+            }));
 
         let rect_handle = self
             .rect_buf
@@ -277,15 +278,15 @@ impl Gpu2dBackend for ZenGpuBackend {
             .map_err(gpu_err)?;
         let gradient_handle = self
             .gradient_buf
-            .upload(device, as_bytes(&vk_gradients))
+            .upload(device, as_bytes(&self.gradient_instances))
             .map_err(gpu_err)?;
         let image_handle = self
             .image_buf
-            .upload(device, as_bytes(&vk_images))
+            .upload(device, as_bytes(&self.image_instances))
             .map_err(gpu_err)?;
         let text_handle = self
             .text_buf
-            .upload(device, as_bytes(&vk_texts))
+            .upload(device, as_bytes(&self.text_instances))
             .map_err(gpu_err)?;
 
         let mut cmd = device.create_command_list().map_err(gpu_err)?;
@@ -358,7 +359,11 @@ impl Gpu2dBackend for ZenGpuBackend {
                         }
                         cur_kind = Some(DrawKind::Gradient);
                     }
-                    let slot = vk_gradients.get(idx as usize).map(|g| g.slot).unwrap_or(0);
+                    let slot = self
+                        .gradient_instances
+                        .get(idx as usize)
+                        .map(|g| g.slot)
+                        .unwrap_or(0);
                     cmd.bind(Bindings {
                         scalars: &viewport_scalars,
                         textures: from_ref(&slot),
@@ -374,7 +379,11 @@ impl Gpu2dBackend for ZenGpuBackend {
                         }
                         cur_kind = Some(DrawKind::Image);
                     }
-                    let slot = vk_images.get(idx as usize).map(|i| i.slot).unwrap_or(0);
+                    let slot = self
+                        .image_instances
+                        .get(idx as usize)
+                        .map(|i| i.slot)
+                        .unwrap_or(0);
                     cmd.bind(Bindings {
                         scalars: &viewport_scalars,
                         textures: from_ref(&slot),
@@ -390,7 +399,11 @@ impl Gpu2dBackend for ZenGpuBackend {
                         }
                         cur_kind = Some(DrawKind::Text);
                     }
-                    let slot = vk_texts.get(idx as usize).map(|t| t.slot).unwrap_or(0);
+                    let slot = self
+                        .text_instances
+                        .get(idx as usize)
+                        .map(|t| t.slot)
+                        .unwrap_or(0);
                     cmd.bind(Bindings {
                         scalars: &viewport_scalars,
                         textures: from_ref(&slot),
