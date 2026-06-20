@@ -70,7 +70,7 @@ fn run() -> Result<()> {
         format: Format::Bgra8Unorm,
         width: w,
         height: h,
-        present_mode: PresentMode::Fifo,
+        present_mode: PresentMode::Mailbox,
     };
 
     let surface = device.create_surface(&handles, config)?;

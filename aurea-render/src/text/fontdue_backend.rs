@@ -246,7 +246,7 @@ impl FontDbTextRasterizer {
         // 3. Embedded Tuffy (public domain) — guaranteed last resort.
         static EMBEDDED: &[u8] = include_bytes!("../../fonts/Tuffy.ttf");
         if let Ok(f) = fontdue::Font::from_bytes(
-            EMBEDDED.to_vec(),
+            EMBEDDED,
             fontdue::FontSettings {
                 collection_index: 0,
                 ..fontdue::FontSettings::default()
