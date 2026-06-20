@@ -3,20 +3,32 @@
 //! `InstanceBuffer`/`alloc_mapped_vertex_buffer` with `GpuDevice::{create_buffer,
 //! write_buffer}` (host-visible, persistently mapped via `MemoryUsage::CpuToGpu`).
 
+use std::array::from_fn;
+
 use zengpu_hal::{BufferDesc, BufferHandle, BufferUsage, GpuDevice, MemoryUsage, Result};
 use zengpu_vulkan::VulkanDevice;
 
-pub struct GrowableBuffer {
+const BUFFER_RING: usize = 3;
+
+struct BufferSlot {
     handle: Option<BufferHandle>,
     capacity: u64,
+}
+
+pub struct GrowableBuffer {
+    slots: [BufferSlot; BUFFER_RING],
+    next_slot: usize,
     usage: BufferUsage,
 }
 
 impl GrowableBuffer {
     pub fn new(usage: BufferUsage) -> Self {
         Self {
-            handle: None,
-            capacity: 0,
+            slots: from_fn(|_| BufferSlot {
+                handle: None,
+                capacity: 0,
+            }),
+            next_slot: 0,
             usage: usage | BufferUsage::VERTEX,
         }
     }
@@ -27,31 +39,37 @@ impl GrowableBuffer {
         if data.is_empty() {
             return Ok(None);
         }
+        let slot_index = self.next_slot;
+        self.next_slot = (self.next_slot + 1) % BUFFER_RING;
+        let slot = &mut self.slots[slot_index];
         let needed = data.len() as u64;
-        if needed > self.capacity {
-            if let Some(old) = self.handle.take() {
+        if needed > slot.capacity {
+            if let Some(old) = slot.handle.take() {
                 device.destroy_buffer(old);
             }
-            let mut capacity = self.capacity.max(1);
+            let mut capacity = slot.capacity.max(1);
             while capacity < needed {
                 capacity *= 2;
             }
-            self.handle = Some(device.create_buffer(BufferDesc {
+            slot.handle = Some(device.create_buffer(BufferDesc {
                 size: capacity,
                 usage: self.usage,
                 memory: MemoryUsage::CpuToGpu,
             })?);
-            self.capacity = capacity;
+            slot.capacity = capacity;
         }
-        let handle = self.handle.expect("capacity > 0 implies handle is set");
+        let handle = slot.handle.expect("capacity > 0 implies handle is set");
         device.write_buffer(handle, 0, data)?;
         Ok(Some(handle))
     }
 
     pub fn destroy(&mut self, device: &VulkanDevice) {
-        if let Some(handle) = self.handle.take() {
-            device.destroy_buffer(handle);
+        for slot in &mut self.slots {
+            if let Some(handle) = slot.handle.take() {
+                device.destroy_buffer(handle);
+            }
+            slot.capacity = 0;
         }
-        self.capacity = 0;
+        self.next_slot = 0;
     }
 }
