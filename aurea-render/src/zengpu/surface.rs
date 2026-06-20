@@ -19,7 +19,7 @@ pub fn create_surface(
             format: Format::Bgra8Unorm,
             width: width.max(1),
             height: height.max(1),
-            present_mode: PresentMode::Fifo,
+            present_mode: PresentMode::Mailbox,
         },
     )
 }
