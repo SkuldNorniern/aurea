@@ -171,6 +171,20 @@ impl ZenGpuRenderer {
 }
 
 impl ZenGpuBackend {
+    fn gradient_slot(&self, idx: u32) -> u32 {
+        self.gradient_instances
+            .get(idx as usize)
+            .map_or(0, |g| g.slot)
+    }
+
+    fn image_slot(&self, idx: u32) -> u32 {
+        self.image_instances.get(idx as usize).map_or(0, |i| i.slot)
+    }
+
+    fn text_slot(&self, idx: u32) -> u32 {
+        self.text_instances.get(idx as usize).map_or(0, |t| t.slot)
+    }
+
     fn push_external_image(&mut self, texture: TextureHandle, dest: Rect) -> AureaResult<()> {
         let device = self.context.device();
         let slot = device
@@ -333,118 +347,148 @@ impl Gpu2dBackend for ZenGpuBackend {
         });
 
         let viewport_scalars = [Scalar::F32(vw), Scalar::F32(vh)];
-        let mut cur_kind: Option<DrawKind> = None;
 
-        for draw_ref in &plan.order {
-            match *draw_ref {
-                DrawRef::Rect(idx) => {
-                    if cur_kind != Some(DrawKind::Rect) {
-                        cmd.set_pipeline(self.pipelines.rect);
-                        if let Some(buf) = rect_handle {
-                            cmd.set_vertex_buffer(0, buf);
-                        }
-                        cur_kind = Some(DrawKind::Rect);
+        // Painter order assigns each kind's instances contiguous indices in
+        // submission order, so a maximal run of adjacent same-kind refs always
+        // spans a contiguous instance range. Collapse each run into a single
+        // instanced draw (`first_instance = start`, `instance_count = run len`)
+        // instead of one draw per instance. Rect/circle carry no per-instance
+        // shader state, so any run coalesces; gradient/image/text push their
+        // texture slot per draw, so a run is split where the slot changes.
+        let order = &plan.order;
+        let mut i = 0;
+        while i < order.len() {
+            match order[i] {
+                DrawRef::Rect(start) => {
+                    let mut count = 1u32;
+                    while order
+                        .get(i + count as usize)
+                        .is_some_and(|r| *r == DrawRef::Rect(start + count))
+                    {
+                        count += 1;
+                    }
+                    cmd.set_pipeline(self.pipelines.rect);
+                    if let Some(buf) = rect_handle {
+                        cmd.set_vertex_buffer(0, buf);
                     }
                     cmd.bind(Bindings {
                         scalars: &viewport_scalars,
                         ..Default::default()
                     });
-                    cmd.draw(0..6, idx..idx + 1);
+                    cmd.draw(0..6, start..start + count);
+                    i += count as usize;
                 }
-                DrawRef::Circle(idx) => {
-                    if cur_kind != Some(DrawKind::Circle) {
-                        cmd.set_pipeline(self.pipelines.circle);
-                        if let Some(buf) = circle_handle {
-                            cmd.set_vertex_buffer(0, buf);
-                        }
-                        cur_kind = Some(DrawKind::Circle);
+                DrawRef::Circle(start) => {
+                    let mut count = 1u32;
+                    while order
+                        .get(i + count as usize)
+                        .is_some_and(|r| *r == DrawRef::Circle(start + count))
+                    {
+                        count += 1;
+                    }
+                    cmd.set_pipeline(self.pipelines.circle);
+                    if let Some(buf) = circle_handle {
+                        cmd.set_vertex_buffer(0, buf);
                     }
                     cmd.bind(Bindings {
                         scalars: &viewport_scalars,
                         ..Default::default()
                     });
-                    cmd.draw(0..6, idx..idx + 1);
+                    cmd.draw(0..6, start..start + count);
+                    i += count as usize;
                 }
-                DrawRef::Gradient(idx) => {
-                    if cur_kind != Some(DrawKind::Gradient) {
-                        cmd.set_pipeline(self.pipelines.gradient);
-                        if let Some(buf) = gradient_handle {
-                            cmd.set_vertex_buffer(0, buf);
-                        }
-                        cur_kind = Some(DrawKind::Gradient);
+                DrawRef::Gradient(start) => {
+                    let slot = self.gradient_slot(start);
+                    let mut count = 1u32;
+                    while order
+                        .get(i + count as usize)
+                        .is_some_and(|r| *r == DrawRef::Gradient(start + count))
+                        && self.gradient_slot(start + count) == slot
+                    {
+                        count += 1;
                     }
-                    let slot = self
-                        .gradient_instances
-                        .get(idx as usize)
-                        .map(|g| g.slot)
-                        .unwrap_or(0);
+                    cmd.set_pipeline(self.pipelines.gradient);
+                    if let Some(buf) = gradient_handle {
+                        cmd.set_vertex_buffer(0, buf);
+                    }
                     cmd.bind(Bindings {
                         scalars: &viewport_scalars,
                         textures: from_ref(&slot),
                         ..Default::default()
                     });
-                    cmd.draw(0..6, idx..idx + 1);
+                    cmd.draw(0..6, start..start + count);
+                    i += count as usize;
                 }
-                DrawRef::Image(idx) => {
-                    if cur_kind != Some(DrawKind::Image) {
-                        cmd.set_pipeline(self.pipelines.image);
-                        if let Some(buf) = image_handle {
-                            cmd.set_vertex_buffer(0, buf);
-                        }
-                        cur_kind = Some(DrawKind::Image);
+                DrawRef::Image(start) => {
+                    let slot = self.image_slot(start);
+                    let mut count = 1u32;
+                    while order
+                        .get(i + count as usize)
+                        .is_some_and(|r| *r == DrawRef::Image(start + count))
+                        && self.image_slot(start + count) == slot
+                    {
+                        count += 1;
                     }
-                    let slot = self
-                        .image_instances
-                        .get(idx as usize)
-                        .map(|i| i.slot)
-                        .unwrap_or(0);
+                    cmd.set_pipeline(self.pipelines.image);
+                    if let Some(buf) = image_handle {
+                        cmd.set_vertex_buffer(0, buf);
+                    }
                     cmd.bind(Bindings {
                         scalars: &viewport_scalars,
                         textures: from_ref(&slot),
                         ..Default::default()
                     });
-                    cmd.draw(0..6, idx..idx + 1);
+                    cmd.draw(0..6, start..start + count);
+                    i += count as usize;
                 }
-                DrawRef::Text(idx) => {
-                    if cur_kind != Some(DrawKind::Text) {
-                        cmd.set_pipeline(self.pipelines.text);
-                        if let Some(buf) = text_handle {
-                            cmd.set_vertex_buffer(0, buf);
-                        }
-                        cur_kind = Some(DrawKind::Text);
+                DrawRef::Text(start) => {
+                    let slot = self.text_slot(start);
+                    let mut count = 1u32;
+                    while order
+                        .get(i + count as usize)
+                        .is_some_and(|r| *r == DrawRef::Text(start + count))
+                        && self.text_slot(start + count) == slot
+                    {
+                        count += 1;
                     }
-                    let slot = self
-                        .text_instances
-                        .get(idx as usize)
-                        .map(|t| t.slot)
-                        .unwrap_or(0);
+                    cmd.set_pipeline(self.pipelines.text);
+                    if let Some(buf) = text_handle {
+                        cmd.set_vertex_buffer(0, buf);
+                    }
                     cmd.bind(Bindings {
                         scalars: &viewport_scalars,
                         textures: from_ref(&slot),
                         ..Default::default()
                     });
-                    cmd.draw(0..6, idx..idx + 1);
+                    cmd.draw(0..6, start..start + count);
+                    i += count as usize;
                 }
             }
         }
 
-        // External (engine-side) images after display-list painter order.
-        for (i, ext) in self.external_images.iter().enumerate() {
-            let idx = ext_image_base + i as u32;
-            if cur_kind != Some(DrawKind::Image) {
-                cmd.set_pipeline(self.pipelines.image);
-                if let Some(buf) = image_handle {
-                    cmd.set_vertex_buffer(0, buf);
-                }
-                cur_kind = Some(DrawKind::Image);
+        // External (engine-side) images after display-list painter order. They
+        // occupy a contiguous tail of `image_instances`, so coalesce same-slot
+        // runs the same way.
+        let ext_count = self.external_images.len();
+        let mut j = 0;
+        while j < ext_count {
+            let slot = self.external_images[j].instance.slot;
+            let mut run = 1usize;
+            while j + run < ext_count && self.external_images[j + run].instance.slot == slot {
+                run += 1;
             }
-            let slot = ext.instance.slot;
+            cmd.set_pipeline(self.pipelines.image);
+            if let Some(buf) = image_handle {
+                cmd.set_vertex_buffer(0, buf);
+            }
             cmd.bind(Bindings {
                 scalars: &viewport_scalars,
                 textures: from_ref(&slot),
                 ..Default::default()
             });
-            cmd.draw(0..6, idx..idx + 1);
+            let base = ext_image_base + j as u32;
+            cmd.draw(0..6, base..base + run as u32);
+            j += run;
         }
 
         cmd.end_render_pass();
@@ -471,15 +515,6 @@ impl Drop for ZenGpuBackend {
         device.destroy_pipeline(self.pipelines.text);
         device.destroy_sampler(self.sampler);
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DrawKind {
-    Rect,
-    Circle,
-    Gradient,
-    Image,
-    Text,
 }
 
 fn gpu_err(_e: zengpu_hal::GpuError) -> AureaError {
