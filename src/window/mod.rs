@@ -82,6 +82,8 @@ use std::{
         atomic::{AtomicUsize, Ordering},
     },
 };
+#[cfg(target_os = "windows")]
+use std::result::Result as StdResult;
 
 /// Number of live `Window`s. The platform is only torn down via
 /// `ng_platform_cleanup()` when the last window is dropped — calling it while
