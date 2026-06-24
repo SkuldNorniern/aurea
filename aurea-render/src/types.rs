@@ -23,10 +23,10 @@ impl Color {
     /// Convert to f32 values in range [0.0, 1.0]
     pub fn to_f32(self) -> (f32, f32, f32, f32) {
         (
-            self.r as f32 / 255.0,
-            self.g as f32 / 255.0,
-            self.b as f32 / 255.0,
-            self.a as f32 / 255.0,
+            f32::from(self.r) / 255.0,
+            f32::from(self.g) / 255.0,
+            f32::from(self.b) / 255.0,
+            f32::from(self.a) / 255.0,
         )
     }
 }

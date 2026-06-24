@@ -10,10 +10,11 @@
 use aurea_foundation::{AureaError, AureaResult};
 
 use crate::batch::{GradientInstance as BatchGradient, ImageDraw, RenderBatches, TextDraw};
+use crate::numeric::f32_to_u32_clamped;
 
-use super::backend::Gpu2dBackend;
-use super::frame_plan::{FramePlan, GradientPlanEntry, ImagePlanEntry, TextPlanEntry};
-use super::texture_cache::TextureCache;
+use crate::gpu2d::backend::Gpu2dBackend;
+use crate::gpu2d::frame_plan::{FramePlan, GradientPlanEntry, ImagePlanEntry, TextPlanEntry};
+use crate::gpu2d::texture_cache::TextureCache;
 
 /// Fill `plan` from `batches`, resolving all texture slots through `cache`.
 ///
@@ -89,10 +90,10 @@ fn resolve_images<B: Gpu2dBackend>(
                 (draw.src.y + draw.src.height) / ihf,
             ],
             tint: [
-                draw.tint.r as f32 / 255.0,
-                draw.tint.g as f32 / 255.0,
-                draw.tint.b as f32 / 255.0,
-                draw.tint.a as f32 / 255.0,
+                f32::from(draw.tint.r) / 255.0,
+                f32::from(draw.tint.g) / 255.0,
+                f32::from(draw.tint.b) / 255.0,
+                f32::from(draw.tint.a) / 255.0,
             ],
             slot,
         });
@@ -108,8 +109,8 @@ fn resolve_texts<B: Gpu2dBackend>(
     out: &mut Vec<TextPlanEntry>,
 ) -> AureaResult<()> {
     for text in texts {
-        let w = text.rect.width as u32;
-        let h = text.rect.height as u32;
+        let w = f32_to_u32_clamped(text.rect.width);
+        let h = f32_to_u32_clamped(text.rect.height);
         if w == 0 || h == 0 {
             continue;
         }
@@ -117,10 +118,10 @@ fn resolve_texts<B: Gpu2dBackend>(
         out.push(TextPlanEntry {
             rect: [text.rect.x, text.rect.y, text.rect.width, text.rect.height],
             color: [
-                text.color.r as f32 / 255.0,
-                text.color.g as f32 / 255.0,
-                text.color.b as f32 / 255.0,
-                text.color.a as f32 / 255.0,
+                f32::from(text.color.r) / 255.0,
+                f32::from(text.color.g) / 255.0,
+                f32::from(text.color.b) / 255.0,
+                f32::from(text.color.a) / 255.0,
             ],
             slot,
         });

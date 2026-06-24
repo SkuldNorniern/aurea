@@ -2,7 +2,7 @@
 //!
 //! Answers whether a point lies inside a path (odd-even ray cast), rect, or circle.
 
-use super::super::types::{Path, PathCommand, Point, Rect};
+use crate::types::{Path, PathCommand, Point, Rect};
 
 /// Returns true if the point is inside the path (odd-even rule: ray to the right, count crossings).
 pub fn hit_test_path(path: &Path, point: Point) -> bool {
@@ -11,7 +11,7 @@ pub fn hit_test_path(path: &Path, point: Point) -> bool {
         return false;
     }
 
-    let mut intersections = 0;
+    let mut intersections: u32 = 0;
     let mut current_point = Point::new(0.0, 0.0);
     let mut start_point = Point::new(0.0, 0.0);
     let mut has_start = false;
@@ -25,43 +25,21 @@ pub fn hit_test_path(path: &Path, point: Point) -> bool {
             }
             PathCommand::LineTo(p) => {
                 if has_start {
-                    if ray_intersects_line_segment(point, current_point, *p) {
-                        intersections += 1;
-                    }
+                    intersections += count_line_intersection(point, current_point, *p);
                     current_point = *p;
                 }
             }
             PathCommand::QuadTo(p1, p2) => {
-                let steps = 8;
-                let mut prev = current_point;
-                for i in 1..=steps {
-                    let t = i as f32 / steps as f32;
-                    let p = quadratic_bezier(current_point, *p1, *p2, t);
-                    if ray_intersects_line_segment(point, prev, p) {
-                        intersections += 1;
-                    }
-                    prev = p;
-                }
+                intersections += count_quad_intersections(point, current_point, *p1, *p2);
                 current_point = *p2;
             }
             PathCommand::CubicTo(p1, p2, p3) => {
-                let steps = 16;
-                let mut prev = current_point;
-                for i in 1..=steps {
-                    let t = i as f32 / steps as f32;
-                    let p = cubic_bezier(current_point, *p1, *p2, *p3, t);
-                    if ray_intersects_line_segment(point, prev, p) {
-                        intersections += 1;
-                    }
-                    prev = p;
-                }
+                intersections += count_cubic_intersections(point, current_point, *p1, *p2, *p3);
                 current_point = *p3;
             }
             PathCommand::Close => {
                 if has_start {
-                    if ray_intersects_line_segment(point, current_point, start_point) {
-                        intersections += 1;
-                    }
+                    intersections += count_line_intersection(point, current_point, start_point);
                     current_point = start_point;
                 }
             }
@@ -69,6 +47,36 @@ pub fn hit_test_path(path: &Path, point: Point) -> bool {
     }
 
     intersections % 2 == 1
+}
+
+fn count_line_intersection(point: Point, a: Point, b: Point) -> u32 {
+    u32::from(ray_intersects_line_segment(point, a, b))
+}
+
+fn count_quad_intersections(point: Point, p0: Point, p1: Point, p2: Point) -> u32 {
+    let steps: u16 = 8;
+    let mut prev = p0;
+    let mut count = 0;
+    for i in 1..=steps {
+        let t = f32::from(i) / f32::from(steps);
+        let p = quadratic_bezier(p0, p1, p2, t);
+        count += u32::from(ray_intersects_line_segment(point, prev, p));
+        prev = p;
+    }
+    count
+}
+
+fn count_cubic_intersections(point: Point, p0: Point, p1: Point, p2: Point, p3: Point) -> u32 {
+    let steps: u16 = 16;
+    let mut prev = p0;
+    let mut count = 0;
+    for i in 1..=steps {
+        let t = f32::from(i) / f32::from(steps);
+        let p = cubic_bezier(p0, p1, p2, p3, t);
+        count += u32::from(ray_intersects_line_segment(point, prev, p));
+        prev = p;
+    }
+    count
 }
 
 /// Returns true if the point is inside the rectangle (inclusive edges).

@@ -1,11 +1,12 @@
-use super::command::DrawCommand;
-use super::display_list::DisplayList;
-use super::surface::{Surface, SurfaceInfo};
-use super::types::{
-    BlendMode, Color, Font, Image, LinearGradient, Paint, Path, Point, RadialGradient, Rect,
-    TextMetrics, Transform,
-};
+use crate::command::DrawCommand;
+use crate::display_list::DisplayList;
+use crate::numeric::{f32_to_i32_clamped, f32_to_u32_clamped, f32_to_u8_clamped};
+use crate::surface::{Surface, SurfaceInfo};
 use crate::text::TextRenderer;
+use crate::types::{
+    BlendMode, Color, Font, GradientStop, Image, LinearGradient, Paint, PaintStyle, Path,
+    PathCommand, Point, RadialGradient, Rect, TextMetrics, Transform,
+};
 use aurea_foundation::AureaResult;
 use std::cell::RefCell;
 use std::mem::{size_of, take};
@@ -40,9 +41,9 @@ pub trait DrawingContext {
     fn draw_line(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, paint: &Paint) -> AureaResult<()> {
         let mut path = Path::new();
         path.commands
-            .push(super::types::PathCommand::MoveTo(Point::new(x1, y1)));
+            .push(PathCommand::MoveTo(Point::new(x1, y1)));
         path.commands
-            .push(super::types::PathCommand::LineTo(Point::new(x2, y2)));
+            .push(PathCommand::LineTo(Point::new(x2, y2)));
         self.draw_path(&path, paint)
     }
 
@@ -193,21 +194,21 @@ impl PlaceholderRenderer {
         for cmd in commands.into_iter() {
             match cmd {
                 DrawCommand::Clear(color) => {
-                    let rgba = ((color.a as u32) << 24)
-                        | ((color.r as u32) << 16)
-                        | ((color.g as u32) << 8)
-                        | (color.b as u32);
+                    let rgba = (u32::from(color.a) << 24)
+                        | (u32::from(color.r) << 16)
+                        | (u32::from(color.g) << 8)
+                        | u32::from(color.b);
                     self.buffer.fill(rgba);
                 }
                 DrawCommand::DrawRect(rect, paint) => {
                     let color = paint.color;
 
                     match paint.style {
-                        super::types::PaintStyle::Fill => {
+                        PaintStyle::Fill => {
                             self.draw_rect_filled(rect, color);
                         }
-                        super::types::PaintStyle::Stroke => {
-                            let stroke_width = paint.stroke_width as i32;
+                        PaintStyle::Stroke => {
+                            let stroke_width = f32_to_i32_clamped(paint.stroke_width);
                             if stroke_width > 0 {
                                 self.draw_rect_filled(
                                     Rect::new(rect.x, rect.y, rect.width, paint.stroke_width),
@@ -301,22 +302,22 @@ impl PlaceholderRenderer {
 
     fn set_pixel(&mut self, x: i32, y: i32, color: Color) {
         if x >= 0 && x < self.width as i32 && y >= 0 && y < self.height as i32 {
-            let index = (y as u32 * self.width + x as u32) as usize;
+            let index = (y.cast_unsigned() * self.width + x.cast_unsigned()) as usize;
             if index < self.buffer.len() {
-                let rgba = ((color.a as u32) << 24)
-                    | ((color.r as u32) << 16)
-                    | ((color.g as u32) << 8)
-                    | (color.b as u32);
+                let rgba = (u32::from(color.a) << 24)
+                    | (u32::from(color.r) << 16)
+                    | (u32::from(color.g) << 8)
+                    | u32::from(color.b);
                 self.buffer[index] = rgba;
             }
         }
     }
 
     fn draw_rect_filled(&mut self, rect: Rect, color: Color) {
-        let start_x = rect.x as i32;
-        let start_y = rect.y as i32;
-        let end_x = (rect.x + rect.width) as i32;
-        let end_y = (rect.y + rect.height) as i32;
+        let start_x = f32_to_i32_clamped(rect.x);
+        let start_y = f32_to_i32_clamped(rect.y);
+        let end_x = f32_to_i32_clamped(rect.x + rect.width);
+        let end_y = f32_to_i32_clamped(rect.y + rect.height);
 
         for y in start_y.max(0)..end_y.min(self.height as i32) {
             for x in start_x.max(0)..end_x.min(self.width as i32) {
@@ -330,14 +331,14 @@ impl PlaceholderRenderer {
         center: Point,
         radius: f32,
         color: Color,
-        style: super::types::PaintStyle,
+        style: PaintStyle,
     ) {
-        let r = radius as i32;
-        let cx = center.x as i32;
-        let cy = center.y as i32;
+        let r = f32_to_i32_clamped(radius);
+        let cx = f32_to_i32_clamped(center.x);
+        let cy = f32_to_i32_clamped(center.y);
 
         match style {
-            super::types::PaintStyle::Fill => {
+            PaintStyle::Fill => {
                 for y in (cy - r)..=(cy + r) {
                     for x in (cx - r)..=(cx + r) {
                         let dx = x - cx;
@@ -348,12 +349,12 @@ impl PlaceholderRenderer {
                     }
                 }
             }
-            super::types::PaintStyle::Stroke => {
+            PaintStyle::Stroke => {
                 // Simple circle outline
                 for angle in 0..360 {
                     let rad = (angle as f32).to_radians();
-                    let x = cx + (radius * rad.cos()) as i32;
-                    let y = cy + (radius * rad.sin()) as i32;
+                    let x = cx + f32_to_i32_clamped(radius * rad.cos());
+                    let y = cy + f32_to_i32_clamped(radius * rad.sin());
                     self.set_pixel(x, y, color);
                 }
             }
@@ -380,10 +381,10 @@ impl PlaceholderRenderer {
             return;
         }
         let _stride = (image_width * 4) as usize;
-        let start_x = dest.x as i32;
-        let start_y = dest.y as i32;
-        let end_x = (dest.x + dest.width) as i32;
-        let end_y = (dest.y + dest.height) as i32;
+        let start_x = f32_to_i32_clamped(dest.x);
+        let start_y = f32_to_i32_clamped(dest.y);
+        let end_x = f32_to_i32_clamped(dest.x + dest.width);
+        let end_y = f32_to_i32_clamped(dest.y + dest.height);
         for dy in start_y..end_y {
             for dx in start_x..end_x {
                 if dx < 0 || dy < 0 || dx >= buffer_width as i32 || dy >= buffer_height as i32 {
@@ -391,8 +392,8 @@ impl PlaceholderRenderer {
                 }
                 let u = (dx - start_x) as f32 / dest.width * src.width + src.x;
                 let v = (dy - start_y) as f32 / dest.height * src.height + src.y;
-                let sx = u.clamp(0.0, image_width as f32 - 0.001) as u32;
-                let sy = v.clamp(0.0, image_height as f32 - 0.001) as u32;
+                let sx = f32_to_u32_clamped(u.clamp(0.0, image_width as f32 - 0.001));
+                let sy = f32_to_u32_clamped(v.clamp(0.0, image_height as f32 - 0.001));
                 let idx = (sy as usize * image_width as usize + sx as usize) * 4;
                 if idx + 3 >= image_data.len() {
                     continue;
@@ -402,8 +403,8 @@ impl PlaceholderRenderer {
                 let b = image_data[idx + 2];
                 let a = image_data[idx + 3];
                 let src_rgba =
-                    ((a as u32) << 24) | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
-                let buf_idx = (dy as u32 * buffer_width + dx as u32) as usize;
+                    (u32::from(a) << 24) | (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b);
+                let buf_idx = (dy.cast_unsigned() * buffer_width + dx.cast_unsigned()) as usize;
                 if buf_idx >= buffer.len() {
                     continue;
                 }
@@ -415,15 +416,15 @@ impl PlaceholderRenderer {
                     let dr = (dst >> 16) & 0xff;
                     let dg = (dst >> 8) & 0xff;
                     let db = dst & 0xff;
-                    let sa = a as u32;
+                    let sa = u32::from(a);
                     let inv_sa = 255 - sa;
                     let out_a = sa + (inv_sa * da) / 255;
                     if out_a == 0 {
                         buffer[buf_idx] = 0;
                     } else {
-                        let out_r = (sa * (r as u32) + inv_sa * dr) / 255;
-                        let out_g = (sa * (g as u32) + inv_sa * dg) / 255;
-                        let out_b = (sa * (b as u32) + inv_sa * db) / 255;
+                        let out_r = (sa * u32::from(r) + inv_sa * dr) / 255;
+                        let out_g = (sa * u32::from(g) + inv_sa * dg) / 255;
+                        let out_b = (sa * u32::from(b) + inv_sa * db) / 255;
                         buffer[buf_idx] = (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b;
                     }
                 }
@@ -431,10 +432,10 @@ impl PlaceholderRenderer {
         }
     }
 
-    fn gradient_color_at(stops: &[super::types::GradientStop], t: f32) -> super::types::Color {
+    fn gradient_color_at(stops: &[GradientStop], t: f32) -> Color {
         let t = t.clamp(0.0, 1.0);
         if stops.is_empty() {
-            return super::types::Color::rgb(0, 0, 0);
+            return Color::rgb(0, 0, 0);
         }
         if stops.len() == 1 {
             return stops[0].color;
@@ -451,11 +452,11 @@ impl PlaceholderRenderer {
                 };
                 let c0 = stops[i].color;
                 let c1 = stops[i + 1].color;
-                return super::types::Color::rgba(
-                    (c0.r as f32 + (c1.r as f32 - c0.r as f32) * s).round() as u8,
-                    (c0.g as f32 + (c1.g as f32 - c0.g as f32) * s).round() as u8,
-                    (c0.b as f32 + (c1.b as f32 - c0.b as f32) * s).round() as u8,
-                    (c0.a as f32 + (c1.a as f32 - c0.a as f32) * s).round() as u8,
+                return Color::rgba(
+                    f32_to_u8_clamped((f32::from(c0.r) + (f32::from(c1.r) - f32::from(c0.r)) * s).round()),
+                    f32_to_u8_clamped((f32::from(c0.g) + (f32::from(c1.g) - f32::from(c0.g)) * s).round()),
+                    f32_to_u8_clamped((f32::from(c0.b) + (f32::from(c1.b) - f32::from(c0.b)) * s).round()),
+                    f32_to_u8_clamped((f32::from(c0.a) + (f32::from(c1.a) - f32::from(c0.a)) * s).round()),
                 );
             }
         }
@@ -479,10 +480,10 @@ impl PlaceholderRenderer {
         if len_sq < 1e-10 {
             return;
         }
-        let start_x = rect.x.max(0.0).min(buffer_width as f32) as i32;
-        let end_x = (rect.x + rect.width).max(0.0).min(buffer_width as f32) as i32;
-        let start_y = rect.y.max(0.0).min(buffer_height as f32) as i32;
-        let end_y = (rect.y + rect.height).max(0.0).min(buffer_height as f32) as i32;
+        let start_x = f32_to_i32_clamped(rect.x.max(0.0).min(buffer_width as f32));
+        let end_x = f32_to_i32_clamped((rect.x + rect.width).max(0.0).min(buffer_width as f32));
+        let start_y = f32_to_i32_clamped(rect.y.max(0.0).min(buffer_height as f32));
+        let end_y = f32_to_i32_clamped((rect.y + rect.height).max(0.0).min(buffer_height as f32));
         for py in start_y..end_y {
             for px in start_x..end_x {
                 let px_f = px as f32 + 0.5;
@@ -490,12 +491,12 @@ impl PlaceholderRenderer {
                 let t = ((px_f - gradient.start.x) * dx + (py_f - gradient.start.y) * dy) / len_sq;
                 let t = t.clamp(0.0, 1.0);
                 let color = Self::gradient_color_at(&gradient.stops, t);
-                let idx = (py as u32 * buffer_width + px as u32) as usize;
+                let idx = (py.cast_unsigned() * buffer_width + px.cast_unsigned()) as usize;
                 if idx < buffer.len() {
-                    let rgba = ((color.a as u32) << 24)
-                        | ((color.r as u32) << 16)
-                        | ((color.g as u32) << 8)
-                        | (color.b as u32);
+                    let rgba = (u32::from(color.a) << 24)
+                        | (u32::from(color.r) << 16)
+                        | (u32::from(color.g) << 8)
+                        | u32::from(color.b);
                     buffer[idx] = rgba;
                 }
             }
@@ -512,10 +513,10 @@ impl PlaceholderRenderer {
         if gradient.radius <= 0.0 {
             return;
         }
-        let start_x = rect.x.max(0.0).min(buffer_width as f32) as i32;
-        let end_x = (rect.x + rect.width).max(0.0).min(buffer_width as f32) as i32;
-        let start_y = rect.y.max(0.0).min(buffer_height as f32) as i32;
-        let end_y = (rect.y + rect.height).max(0.0).min(buffer_height as f32) as i32;
+        let start_x = f32_to_i32_clamped(rect.x.max(0.0).min(buffer_width as f32));
+        let end_x = f32_to_i32_clamped((rect.x + rect.width).max(0.0).min(buffer_width as f32));
+        let start_y = f32_to_i32_clamped(rect.y.max(0.0).min(buffer_height as f32));
+        let end_y = f32_to_i32_clamped((rect.y + rect.height).max(0.0).min(buffer_height as f32));
         for py in start_y..end_y {
             for px in start_x..end_x {
                 let px_f = px as f32 + 0.5;
@@ -525,12 +526,12 @@ impl PlaceholderRenderer {
                 .sqrt();
                 let t = (dist / gradient.radius).min(1.0);
                 let color = Self::gradient_color_at(&gradient.stops, t);
-                let idx = (py as u32 * buffer_width + px as u32) as usize;
+                let idx = (py.cast_unsigned() * buffer_width + px.cast_unsigned()) as usize;
                 if idx < buffer.len() {
-                    let rgba = ((color.a as u32) << 24)
-                        | ((color.r as u32) << 16)
-                        | ((color.g as u32) << 8)
-                        | (color.b as u32);
+                    let rgba = (u32::from(color.a) << 24)
+                        | (u32::from(color.r) << 16)
+                        | (u32::from(color.g) << 8)
+                        | u32::from(color.b);
                     buffer[idx] = rgba;
                 }
             }
@@ -696,8 +697,8 @@ impl DrawingContext for PlaceholderDrawingContext {
         }
 
         const TEXT_PADDING: f32 = 8.0;
-        let width = (metrics.width.ceil().max(1.0) + TEXT_PADDING * 2.0) as u32;
-        let height = (metrics.height.ceil().max(1.0) + TEXT_PADDING * 2.0) as u32;
+        let width = f32_to_u32_clamped(metrics.width.ceil().max(1.0) + TEXT_PADDING * 2.0);
+        let height = f32_to_u32_clamped(metrics.height.ceil().max(1.0) + TEXT_PADDING * 2.0);
         let mut buffer = vec![0u32; (width * height) as usize];
         let origin = Point::new(TEXT_PADDING, TEXT_PADDING + metrics.ascent.max(0.0));
 

@@ -1,6 +1,6 @@
 //! Event queue for window-level events.
 
-use aurea_foundation::{EventCallback, WindowEvent};
+use aurea_foundation::{lock, EventCallback, WindowEvent};
 use std::mem::{discriminant, take};
 use std::sync::{Arc, Mutex};
 
@@ -18,7 +18,7 @@ impl EventQueue {
     }
 
     pub fn push(&self, event: WindowEvent) {
-        let mut events = aurea_foundation::lock(&self.events);
+        let mut events = lock(&self.events);
         // Coalesce high-frequency motion events: replace the tail if it is the
         // same variant, so a fast mouse or trackpad never queues more than one
         // entry per process_events() call.
@@ -39,12 +39,12 @@ impl EventQueue {
     }
 
     pub fn pop_all(&self) -> Vec<WindowEvent> {
-        let mut events = aurea_foundation::lock(&self.events);
+        let mut events = lock(&self.events);
         take(&mut *events)
     }
 
     pub fn register_callback(&self, callback: EventCallback) {
-        let mut callbacks = aurea_foundation::lock(&self.callbacks);
+        let mut callbacks = lock(&self.callbacks);
         let mut updated = (**callbacks).clone();
         updated.push(callback);
         *callbacks = Arc::new(updated);
@@ -58,7 +58,7 @@ impl EventQueue {
 
         // Cheap Arc clone instead of cloning the whole callback Vec; the lock
         // is still released before invoking callbacks (which may re-register).
-        let callbacks = aurea_foundation::lock(&self.callbacks).clone();
+        let callbacks = lock(&self.callbacks).clone();
 
         for event in &events {
             for callback in callbacks.iter() {

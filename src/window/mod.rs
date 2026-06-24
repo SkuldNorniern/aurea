@@ -77,7 +77,6 @@ use aurea_foundation::{Capability, CapabilityChecker};
 use std::{
     ffi::{CStr, CString},
     os::raw::c_void,
-    result::Result as StdResult,
     sync::{
         Arc, Mutex, Once,
         atomic::{AtomicUsize, Ordering},
@@ -204,8 +203,8 @@ impl Window {
                             ng_platform_window_get_size(handle_ptr, &mut w, &mut h);
                         }
                         eq_clone.push(WindowEvent::Resized {
-                            width: w as u32,
-                            height: h as u32,
+                            width: w.cast_unsigned(),
+                            height: h.cast_unsigned(),
                         });
                     }
                     LifecycleEvent::WindowMinimized => {
@@ -751,7 +750,7 @@ impl Window {
         unsafe {
             ng_platform_window_get_size(self.handle, &mut width, &mut height);
         }
-        (width as u32, height as u32)
+        (width.cast_unsigned(), height.cast_unsigned())
     }
 
     /// Check if the window is currently focused
@@ -775,7 +774,8 @@ impl Window {
 
     /// Set cursor visibility for this window
     pub fn set_cursor_visible(&self, visible: bool) -> AureaResult<()> {
-        let result = unsafe { ng_platform_window_set_cursor_visible(self.handle, visible as i32) };
+        let result =
+            unsafe { ng_platform_window_set_cursor_visible(self.handle, i32::from(visible)) };
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
         }

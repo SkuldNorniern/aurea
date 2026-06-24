@@ -1,16 +1,16 @@
 use std::env::var;
 
-use log::{LevelFilter, Metadata, Record};
+use log::{log_enabled, set_logger, set_max_level, LevelFilter, Log, Metadata, Record, SetLoggerError};
 
 struct SimpleLogger;
 
-impl log::Log for SimpleLogger {
+impl Log for SimpleLogger {
     fn enabled(&self, _metadata: &Metadata) -> bool {
         true
     }
 
     fn log(&self, record: &Record) {
-        if log::log_enabled!(target: record.target(), record.level()) {
+        if log_enabled!(target: record.target(), record.level()) {
             eprintln!(
                 "[{}] {} -- {}",
                 record.level(),
@@ -26,19 +26,19 @@ impl log::Log for SimpleLogger {
 static LOGGER: SimpleLogger = SimpleLogger;
 
 /// Initialize with explicit level.
-pub fn init(level: LevelFilter) -> Result<(), log::SetLoggerError> {
-    log::set_logger(&LOGGER)?;
-    log::set_max_level(level);
+pub fn init(level: LevelFilter) -> Result<(), SetLoggerError> {
+    set_logger(&LOGGER)?;
+    set_max_level(level);
     Ok(())
 }
 
 /// Initialize from `RUST_LOG` env var; falls back to `Warn`.
-pub fn init_from_env() -> Result<(), log::SetLoggerError> {
+pub fn init_from_env() -> Result<(), SetLoggerError> {
     init(parse_rust_log())
 }
 
 /// Initialize with default level (Info).
-pub fn init_default() -> Result<(), log::SetLoggerError> {
+pub fn init_default() -> Result<(), SetLoggerError> {
     init(LevelFilter::Info)
 }
 

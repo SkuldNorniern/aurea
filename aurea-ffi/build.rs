@@ -1,19 +1,24 @@
+use cc::Build;
 use std::env;
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "linux")]
 use std::process::{self, Command};
 
 fn main() {
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let manifest_dir = PathBuf::from(
+        env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set by cargo"),
+    );
     let root = {
-        let p = manifest_dir.canonicalize().unwrap();
+        let p = manifest_dir
+            .canonicalize()
+            .expect("manifest dir exists and is readable");
         // cl.exe rejects \\?\ extended-path prefix in -I flags on Windows.
         let s = p.to_string_lossy();
         PathBuf::from(s.strip_prefix(r"\\?\").unwrap_or(&s).to_string())
     };
     let native = root.join("native");
 
-    fn add_sources(build: &mut cc::Build, root: &Path, sources: &[&str]) {
+    fn add_sources(build: &mut Build, root: &Path, sources: &[&str]) {
         for source in sources {
             build.file(root.join(source));
         }
@@ -125,8 +130,8 @@ fn main() {
         "native/platform/linux/elements/sidebar_list.c",
     ];
 
-    let target = env::var("TARGET").unwrap();
-    let mut build = cc::Build::new();
+    let target = env::var("TARGET").expect("TARGET is set by cargo");
+    let mut build = Build::new();
     build.include(&native).warnings(true);
 
     let is_ios = target.contains("apple-ios");
@@ -258,7 +263,7 @@ fn main() {
 
     #[cfg(target_os = "windows")]
     {
-        let mut cpp_build = cc::Build::new();
+        let mut cpp_build = Build::new();
         cpp_build.cpp(true).include(&native).define("_WIN32", None);
         add_sources(&mut cpp_build, &root, windows_cpp);
         cpp_build.compile("native_gui_cpp");

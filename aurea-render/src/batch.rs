@@ -9,9 +9,10 @@
 //! rungs; commands this rung doesn't understand are skipped (the CPU rasterizer
 //! remains the fallback for full fidelity until those land).
 
-use super::command::DrawCommand;
-use super::display_list::DisplayList;
-use super::types::{
+use crate::command::DrawCommand;
+use crate::display_list::DisplayList;
+use crate::numeric::f32_to_u8_clamped;
+use crate::types::{
     Color, GlyphMask, GradientStop, Image, LinearGradient, PaintStyle, Point, RadialGradient, Rect,
 };
 use std::collections::HashMap;
@@ -35,14 +36,14 @@ pub struct RectInstance {
 }
 
 impl RectInstance {
-    fn from_rect(rect: super::types::Rect, color: Color) -> Self {
+    fn from_rect(rect: Rect, color: Color) -> Self {
         Self {
             rect: [rect.x, rect.y, rect.width, rect.height],
             color: [
-                color.r as f32 / 255.0,
-                color.g as f32 / 255.0,
-                color.b as f32 / 255.0,
-                color.a as f32 / 255.0,
+                f32::from(color.r) / 255.0,
+                f32::from(color.g) / 255.0,
+                f32::from(color.b) / 255.0,
+                f32::from(color.a) / 255.0,
             ],
         }
     }
@@ -107,10 +108,10 @@ impl GradientInstance {
 
 fn color_f32(c: Color) -> [f32; 4] {
     [
-        c.r as f32 / 255.0,
-        c.g as f32 / 255.0,
-        c.b as f32 / 255.0,
-        c.a as f32 / 255.0,
+        f32::from(c.r) / 255.0,
+        f32::from(c.g) / 255.0,
+        f32::from(c.b) / 255.0,
+        f32::from(c.a) / 255.0,
     ]
 }
 
@@ -140,7 +141,9 @@ fn gradient_color_at(stops: &[GradientStop], t: f32) -> Color {
             } else {
                 (t - a) / (b - a)
             };
-            let lerp = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * s).round() as u8;
+            let lerp = |a: u8, b: u8| {
+                f32_to_u8_clamped((f32::from(a) + (f32::from(b) - f32::from(a)) * s).round())
+            };
             let (c0, c1) = (pair[0].color, pair[1].color);
             return Color::rgba(
                 lerp(c0.r, c1.r),
@@ -261,34 +264,42 @@ impl RenderBatches {
                     self.order.clear();
                 }
                 DrawCommand::DrawRect(rect, paint) if paint.style == PaintStyle::Fill => {
-                    self.order.push(DrawRef::Rect(self.rects.len() as u32));
+                    self.order.push(DrawRef::Rect(
+                        u32::try_from(self.rects.len()).expect("batch count fits in u32"),
+                    ));
                     self.rects.push(RectInstance::from_rect(*rect, paint.color));
                 }
                 DrawCommand::DrawCircle(center, radius, paint)
                     if paint.style == PaintStyle::Fill =>
                 {
-                    self.order.push(DrawRef::Circle(self.circles.len() as u32));
+                    self.order.push(DrawRef::Circle(
+                        u32::try_from(self.circles.len()).expect("batch count fits in u32"),
+                    ));
                     self.circles
                         .push(CircleInstance::new(*center, *radius, paint.color));
                 }
                 DrawCommand::FillLinearGradient(grad, rect) => {
                     let lut = self.gradient_lut(&grad.stops);
-                    self.order
-                        .push(DrawRef::Gradient(self.gradients.len() as u32));
+                    self.order.push(DrawRef::Gradient(
+                        u32::try_from(self.gradients.len()).expect("batch count fits in u32"),
+                    ));
                     self.gradients
                         .push(GradientInstance::linear(*rect, grad, lut));
                 }
                 DrawCommand::FillRadialGradient(grad, rect) => {
                     let lut = self.gradient_lut(&grad.stops);
-                    self.order
-                        .push(DrawRef::Gradient(self.gradients.len() as u32));
+                    self.order.push(DrawRef::Gradient(
+                        u32::try_from(self.gradients.len()).expect("batch count fits in u32"),
+                    ));
                     self.gradients
                         .push(GradientInstance::radial(*rect, grad, lut));
                 }
                 DrawCommand::DrawImageRect(image, dest)
                     if valid_rgba_image(image.width, image.height, &image.data) =>
                 {
-                    self.order.push(DrawRef::Image(self.images.len() as u32));
+                    self.order.push(DrawRef::Image(
+                        u32::try_from(self.images.len()).expect("batch count fits in u32"),
+                    ));
                     self.images.push(ImageDraw {
                         image: image.clone(),
                         dest: *dest,
@@ -299,7 +310,9 @@ impl RenderBatches {
                 DrawCommand::DrawImageRegion(image, src, dest)
                     if valid_rgba_image(image.width, image.height, &image.data) =>
                 {
-                    self.order.push(DrawRef::Image(self.images.len() as u32));
+                    self.order.push(DrawRef::Image(
+                        u32::try_from(self.images.len()).expect("batch count fits in u32"),
+                    ));
                     self.images.push(ImageDraw {
                         image: image.clone(),
                         dest: *dest,
@@ -309,7 +322,9 @@ impl RenderBatches {
                 }
                 DrawCommand::DrawGlyphMask(mask, origin, color) => {
                     if let Some(rgba) = self.text_mask(mask) {
-                        self.order.push(DrawRef::Text(self.texts.len() as u32));
+                        self.order.push(DrawRef::Text(
+                            u32::try_from(self.texts.len()).expect("batch count fits in u32"),
+                        ));
                         self.texts.push(TextDraw {
                             mask: rgba,
                             rect: Rect::new(

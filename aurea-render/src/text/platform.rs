@@ -9,10 +9,11 @@
 //!
 //! [`get_platform_rasterizer`] picks the best available backend per platform.
 
-use super::super::types::{Color, Font, FontStyle, FontWeight, GlyphMask, Point};
-use super::LruCache;
-use super::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
-use aurea_foundation::AureaResult;
+use crate::numeric::{f32_to_i32_clamped, f32_to_u32_clamped};
+use crate::text::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
+use crate::text::LruCache;
+use crate::types::{Color, Font, FontStyle, FontWeight, GlyphMask, Point, TextMetrics};
+use aurea_foundation::{lock, AureaResult};
 use std::sync::{Arc, Mutex};
 
 /// Borrowed font reference for the text-rendering hot path.
@@ -78,11 +79,7 @@ pub trait PlatformTextRasterizer: Send + Sync {
     fn rasterize_subpixel(&self, font: FontRef, char_code: u32) -> AureaResult<Arc<SubpixelGlyph>>;
 
     /// Measure text dimensions.
-    fn measure_text(
-        &self,
-        text: &str,
-        font: FontRef,
-    ) -> AureaResult<super::super::types::TextMetrics>;
+    fn measure_text(&self, text: &str, font: FontRef) -> AureaResult<TextMetrics>;
 }
 
 /// Get the best available platform text rasterizer.
@@ -91,14 +88,16 @@ pub trait PlatformTextRasterizer: Send + Sync {
 pub fn get_platform_rasterizer() -> Box<dyn PlatformTextRasterizer> {
     #[cfg(windows)]
     {
-        match super::directwrite_backend::DirectWriteRasterizer::new() {
+        use crate::text::directwrite_backend::DirectWriteRasterizer;
+        match DirectWriteRasterizer::new() {
             Ok(dw) => return Box::new(dw),
             Err(_) => {
                 // Fall through to the fontdue backend if DirectWrite init fails.
             }
         }
     }
-    Box::new(super::fontdue_backend::FontDbTextRasterizer::new())
+    use crate::text::fontdue_backend::FontDbTextRasterizer;
+    Box::new(FontDbTextRasterizer::new())
 }
 
 /// Cache key for a multi-character glyph run.
@@ -173,24 +172,24 @@ impl TextRenderer {
         {
             // Single character — per-glyph mask cache.
             let key = GlyphKey::new(font, ch as u32);
-            if let Some(cached) = aurea_foundation::lock(&self.mask_cache).get(&key).cloned() {
+            if let Some(cached) = lock(&self.mask_cache).get(&key).cloned() {
                 return Ok(cached);
             }
             let result = self.compute_mask(text, font)?;
-            aurea_foundation::lock(&self.mask_cache).insert(key, result.clone());
+            lock(&self.mask_cache).insert(key, result.clone());
             return Ok(result);
         }
 
         // Multi-character run — run-mask cache.
         let run_key = RunKey::new(text, font);
-        if let Some(cached) = aurea_foundation::lock(&self.run_cache)
+        if let Some(cached) = lock(&self.run_cache)
             .get(&run_key)
             .cloned()
         {
             return Ok(cached);
         }
         let result = self.compute_mask(text, font)?;
-        aurea_foundation::lock(&self.run_cache).insert(run_key, result.clone());
+        lock(&self.run_cache).insert(run_key, result.clone());
         Ok(result)
     }
 
@@ -198,17 +197,17 @@ impl TextRenderer {
         let tm = self.rasterizer.measure_text(text, font)?;
         let pad = 3.0f32;
         let ascent = tm.ascent.max(0.0);
-        let dev_w = (tm.width + pad * 2.0).ceil().max(1.0) as u32;
-        let dev_h = (tm.height + pad * 2.0).ceil().max(1.0) as u32;
+        let dev_w = f32_to_u32_clamped((tm.width + pad * 2.0).ceil().max(1.0));
+        let dev_h = f32_to_u32_clamped((tm.height + pad * 2.0).ceil().max(1.0));
         let mut coverage = vec![0u8; (dev_w * dev_h * 3) as usize];
 
-        let baseline = (ascent + pad).round() as i32;
+        let baseline = f32_to_i32_clamped((ascent + pad).round());
         let mut pen = pad;
 
         for ch in text.chars() {
             let g = self.rasterizer.rasterize_subpixel(font, ch as u32)?;
             if g.width > 0 && g.height > 0 {
-                let gx = pen.round() as i32 + g.left;
+                let gx = f32_to_i32_clamped(pen.round()) + g.left;
                 let gy = baseline + g.top;
                 let gw = g.width as i32;
                 for row in 0..g.height as i32 {
@@ -221,8 +220,8 @@ impl TextRenderer {
                         if dx < 0 || dx >= dev_w as i32 {
                             continue;
                         }
-                        let si = ((row * gw + col) * 3) as usize;
-                        let di = ((dy * dev_w as i32 + dx) * 3) as usize;
+                        let si = ((row * gw + col) * 3).cast_unsigned() as usize;
+                        let di = ((dy * dev_w as i32 + dx) * 3).cast_unsigned() as usize;
                         for c in 0..3 {
                             if g.coverage[si + c] > coverage[di + c] {
                                 coverage[di + c] = g.coverage[si + c];
@@ -293,8 +292,8 @@ impl TextRenderer {
         buffer_width: u32,
         buffer_height: u32,
     ) -> AureaResult<()> {
-        let start_x = (x + glyph.bearing_x).round() as i32;
-        let start_y = (y - glyph.bearing_y).round() as i32;
+        let start_x = f32_to_i32_clamped((x + glyph.bearing_x).round());
+        let start_y = f32_to_i32_clamped((y - glyph.bearing_y).round());
 
         for gy in 0..glyph.height {
             for gx in 0..glyph.width {
@@ -312,13 +311,14 @@ impl TextRenderer {
                         if out_a == 0 {
                             continue;
                         }
-                        let buffer_idx =
-                            (buffer_y as usize) * (buffer_width as usize) + (buffer_x as usize);
+                        let buffer_idx = buffer_y.cast_unsigned() as usize
+                            * (buffer_width as usize)
+                            + buffer_x.cast_unsigned() as usize;
                         if buffer_idx < buffer.len() {
-                            buffer[buffer_idx] = ((out_a as u32) << 24)
-                                | ((color.r as u32) << 16)
-                                | ((color.g as u32) << 8)
-                                | (color.b as u32);
+                            buffer[buffer_idx] = (u32::from(out_a) << 24)
+                                | (u32::from(color.r) << 16)
+                                | (u32::from(color.g) << 8)
+                                | u32::from(color.b);
                         }
                     }
                 }

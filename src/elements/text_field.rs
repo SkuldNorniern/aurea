@@ -5,12 +5,10 @@
 
 use super::traits::Element;
 use crate::render::Rect;
-use crate::sync::lock;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::{
     ffi::{CStr, CString},
     os::raw::c_void,
-    sync::{LazyLock, Mutex},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

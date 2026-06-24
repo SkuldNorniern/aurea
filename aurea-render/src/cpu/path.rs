@@ -3,7 +3,7 @@
 //! Turns path commands into edges (y range, x at y_min, slope) so the scanline
 //! filler can find crossings and fill between them.
 
-use super::super::types::{Path, PathCommand, Point};
+use crate::types::{Path, PathCommand, Point};
 
 /// One edge for scanline filling: y range, x at the top, and dx/dy slope.
 #[derive(Debug, Clone, Copy)]
@@ -76,32 +76,14 @@ pub fn tessellate_path_into(path: &Path, scale: f32, edges: &mut Vec<Edge>) {
             PathCommand::QuadTo(p1, p2) => {
                 let p1 = sp(p1);
                 let p2 = sp(p2);
-                let steps = 4;
-                let mut prev = current_point;
-                for i in 1..=steps {
-                    let t = i as f32 / steps as f32;
-                    let p = quadratic_bezier(current_point, p1, p2, t);
-                    if let Some(edge) = Edge::new(prev, p) {
-                        edges.push(edge);
-                    }
-                    prev = p;
-                }
+                tessellate_quad(current_point, p1, p2, edges);
                 current_point = p2;
             }
             PathCommand::CubicTo(p1, p2, p3) => {
                 let p1 = sp(p1);
                 let p2 = sp(p2);
                 let p3 = sp(p3);
-                let steps = 8;
-                let mut prev = current_point;
-                for i in 1..=steps {
-                    let t = i as f32 / steps as f32;
-                    let p = cubic_bezier(current_point, p1, p2, p3, t);
-                    if let Some(edge) = Edge::new(prev, p) {
-                        edges.push(edge);
-                    }
-                    prev = p;
-                }
+                tessellate_cubic(current_point, p1, p2, p3, edges);
                 current_point = p3;
             }
             PathCommand::Close => {
@@ -113,6 +95,32 @@ pub fn tessellate_path_into(path: &Path, scale: f32, edges: &mut Vec<Edge>) {
                 }
             }
         }
+    }
+}
+
+fn tessellate_quad(p0: Point, p1: Point, p2: Point, edges: &mut Vec<Edge>) {
+    let steps: u16 = 4;
+    let mut prev = p0;
+    for i in 1..=steps {
+        let t = f32::from(i) / f32::from(steps);
+        let p = quadratic_bezier(p0, p1, p2, t);
+        if let Some(edge) = Edge::new(prev, p) {
+            edges.push(edge);
+        }
+        prev = p;
+    }
+}
+
+fn tessellate_cubic(p0: Point, p1: Point, p2: Point, p3: Point, edges: &mut Vec<Edge>) {
+    let steps: u16 = 8;
+    let mut prev = p0;
+    for i in 1..=steps {
+        let t = f32::from(i) / f32::from(steps);
+        let p = cubic_bezier(p0, p1, p2, p3, t);
+        if let Some(edge) = Edge::new(prev, p) {
+            edges.push(edge);
+        }
+        prev = p;
     }
 }
 
