@@ -7,8 +7,8 @@ use aurea_foundation::CapabilityChecker;
 use aurea_foundation::Platform;
 use aurea_render::{
     CURRENT_BUFFER, ClickCallback, Color, CpuRasterizer, DrawingContext, GpuRasterizer,
-    HoverCallback, InteractionRegistry, InteractiveId, Point, Renderer, RendererBackend, Surface,
-    SurfaceInfo,
+    HoverCallback, InteractionRegistry, InteractiveId, Point, Rect, Renderer, RendererBackend,
+    Surface, SurfaceInfo,
 };
 use std::collections::HashMap;
 #[cfg(feature = "wgpu")]
@@ -32,6 +32,8 @@ pub(crate) struct CanvasState {
     pub background_color: Color,
     pub draw_callback: Option<DrawCallback>,
     pub needs_redraw: bool,
+    /// Physical-pixel damage rect from the previous rendered frame.
+    pub prev_frame_damage: Option<Rect>,
 }
 
 static CANVAS_STATES: LazyLock<Mutex<HashMap<usize, Arc<Mutex<CanvasState>>>>> =
@@ -200,6 +202,7 @@ impl Canvas {
             background_color: Color::rgb(255, 255, 255),
             draw_callback: None,
             needs_redraw: false,
+            prev_frame_damage: None,
         }));
         let renderer_arc = Arc::new(Mutex::new(renderer));
         let interaction_registry = Arc::new(InteractionRegistry::new());

@@ -16,6 +16,7 @@
     int _ioBackIndex;
     unsigned int _ioSurfWidth;
     unsigned int _ioSurfHeight;
+    CGFloat _lastContentsScale;
 }
 @property (nonatomic, assign) const unsigned char* renderBuffer;
 @property (nonatomic, assign) unsigned int bufferWidth;
@@ -79,6 +80,8 @@ NGHandle ng_macos_create_canvas(int width, int height) {
         canvasView.cachedWidth  = (unsigned int)width;
         canvasView.cachedHeight = (unsigned int)height;
         canvasView.gpuOwned = NO;
+        canvasView->_lastContentsScale = 0.0;
+        canvasView.layer.opaque = YES;
         [canvasView setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
         [canvasView setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationVertical];
         [canvasView setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
@@ -139,7 +142,11 @@ void ng_macos_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer,
 
     view.layer.contents = (__bridge id)image;
     CGFloat boundsWidth = view.bounds.size.width;
-    view.layer.contentsScale = (boundsWidth > 0.0) ? (CGFloat)width / boundsWidth : 1.0;
+    CGFloat newScale = (boundsWidth > 0.0) ? (CGFloat)width / boundsWidth : 1.0;
+    if (newScale != view->_lastContentsScale) {
+        view.layer.contentsScale = newScale;
+        view->_lastContentsScale = newScale;
+    }
     CGImageRelease(image);
 }
 
@@ -195,7 +202,11 @@ void ng_macos_canvas_present(NGHandle canvas) {
 
     view.layer.contents = (__bridge id)back;
     CGFloat boundsWidth = view.bounds.size.width;
-    view.layer.contentsScale = (boundsWidth > 0.0) ? (CGFloat)view->_ioSurfWidth / boundsWidth : 1.0;
+    CGFloat newScale = (boundsWidth > 0.0) ? (CGFloat)view->_ioSurfWidth / boundsWidth : 1.0;
+    if (newScale != view->_lastContentsScale) {
+        view.layer.contentsScale = newScale;
+        view->_lastContentsScale = newScale;
+    }
 
     view->_ioBackIndex = 1 - view->_ioBackIndex;
 }

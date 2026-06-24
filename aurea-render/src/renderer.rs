@@ -139,6 +139,11 @@ pub trait Renderer: Send + Sync {
     fn display_list(&self) -> Option<&DisplayList> {
         None
     }
+
+    /// Physical-pixel rect that was repainted by the last `end_frame` call.
+    fn last_frame_damage(&self) -> Option<Rect> {
+        None
+    }
 }
 
 static PLACEHOLDER_TEXT_RENDERER: LazyLock<TextRenderer> = LazyLock::new(TextRenderer::new);

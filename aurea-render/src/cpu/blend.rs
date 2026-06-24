@@ -42,6 +42,51 @@ pub fn linear_to_srgb_u8(c: f32) -> u32 {
     LINEAR_TO_SRGB[idx] as u32
 }
 
+/// Precomputed linear-light source channels for a constant-color span.
+#[derive(Clone, Copy)]
+pub struct ConstSrc {
+    pub sa: u32,
+    pub da_scale: f32,
+    pub lr: f32,
+    pub lg: f32,
+    pub lb: f32,
+    pub cov: f32,
+}
+
+impl ConstSrc {
+    #[inline]
+    pub fn new(src: u32) -> Self {
+        let sa = sa(src);
+        let cov = sa as f32 / 255.0;
+        Self {
+            sa,
+            da_scale: (255 - sa) as f32 / 255.0,
+            lr: srgb_to_linear(sr(src) as u8),
+            lg: srgb_to_linear(sg(src) as u8),
+            lb: srgb_to_linear(sb(src) as u8),
+            cov,
+        }
+    }
+
+    /// Composite this constant source onto a single destination pixel.
+    #[inline]
+    pub fn over(self, dst: u32) -> u32 {
+        if self.sa == 0 {
+            return dst;
+        }
+        let da = da(dst);
+        let out_a = self.sa + ((255 - self.sa) * da) / 255;
+        if out_a == 0 {
+            return 0;
+        }
+        let inv = 1.0 - self.cov;
+        let out_r = linear_to_srgb_u8(self.lr * self.cov + srgb_to_linear(dr(dst) as u8) * inv);
+        let out_g = linear_to_srgb_u8(self.lg * self.cov + srgb_to_linear(dg(dst) as u8) * inv);
+        let out_b = linear_to_srgb_u8(self.lb * self.cov + srgb_to_linear(db(dst) as u8) * inv);
+        (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b
+    }
+}
+
 /// Composites a source pixel onto a destination pixel using the given blend mode.
 pub fn blend_pixel(src: u32, dst: u32, mode: BlendMode) -> u32 {
     match mode {

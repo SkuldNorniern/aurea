@@ -1,18 +1,46 @@
 use super::*;
 use crate::render::{Surface, SurfaceInfo};
 use crate::sync::lock;
+use aurea_render::Rect;
 use std::ptr::{copy_nonoverlapping, null_mut};
 
-unsafe fn publish_cpu_buffer(handle: *mut c_void, ptr: *const u8, size: usize, w: u32, h: u32) {
+fn union_opt_rects(a: Option<Rect>, b: Option<Rect>) -> Option<Rect> {
+    match (a, b) {
+        (None, _) | (_, None) => None,
+        (Some(a), Some(b)) => {
+            let x0 = a.x.min(b.x);
+            let y0 = a.y.min(b.y);
+            let x1 = (a.x + a.width).max(b.x + b.width);
+            let y1 = (a.y + a.height).max(b.y + b.height);
+            Some(Rect::new(x0, y0, x1 - x0, y1 - y0))
+        }
+    }
+}
+
+unsafe fn publish_cpu_buffer(
+    handle: *mut c_void,
+    ptr: *const u8,
+    size: usize,
+    w: u32,
+    h: u32,
+    refresh: Option<Rect>,
+) {
     let mut stride_px: u32 = 0;
     let mut buffer_index: u32 = 0;
-    let dst = unsafe {
-        ng_platform_canvas_acquire_buffer(handle, w, h, &mut stride_px, &mut buffer_index)
-    };
+    let dst =
+        unsafe { ng_platform_canvas_acquire_buffer(handle, w, h, &mut stride_px, &mut buffer_index) };
 
     if dst.is_null() {
         unsafe {
             ng_platform_canvas_update_buffer(handle, ptr, size as u32, w, h);
+            match refresh {
+                Some(r) => {
+                    ng_platform_canvas_invalidate_rect(handle, r.x, r.y, r.width, r.height);
+                }
+                None => {
+                    ng_platform_canvas_invalidate(handle);
+                }
+            }
         }
         return;
     }
@@ -20,13 +48,30 @@ unsafe fn publish_cpu_buffer(handle: *mut c_void, ptr: *const u8, size: usize, w
     let src = ptr as *const u32;
     let dst = dst as *mut u32;
     unsafe {
-        if stride_px == w {
-            copy_nonoverlapping(src, dst, (w as usize) * (h as usize));
-        } else {
-            for y in 0..h as usize {
-                let s = src.add(y * w as usize);
-                let d = dst.add(y * stride_px as usize);
-                copy_nonoverlapping(s, d, w as usize);
+        match refresh {
+            None => {
+                if stride_px == w {
+                    copy_nonoverlapping(src, dst, w as usize * h as usize);
+                } else {
+                    for y in 0..h as usize {
+                        copy_nonoverlapping(
+                            src.add(y * w as usize),
+                            dst.add(y * stride_px as usize),
+                            w as usize,
+                        );
+                    }
+                }
+            }
+            Some(r) => {
+                let y0 = r.y.floor().max(0.0) as usize;
+                let y1 = (r.y + r.height).ceil().min(h as f32) as usize;
+                for y in y0..y1 {
+                    copy_nonoverlapping(
+                        src.add(y * w as usize),
+                        dst.add(y * stride_px as usize),
+                        w as usize,
+                    );
+                }
             }
         }
         ng_platform_canvas_present(handle);
@@ -47,7 +92,7 @@ fn render_frame(
         (damage, cb, bg)
     };
 
-    {
+    let current_damage = {
         let mut r = lock(renderer);
         if let Some(ref mut r) = *r {
             r.set_damage(damage_rect);
@@ -57,8 +102,11 @@ fn render_frame(
                 cb(ctx.as_mut())?;
             }
             r.end_frame()?;
+            r.last_frame_damage()
+        } else {
+            None
         }
-    }
+    };
 
     #[cfg(feature = "zengpu")]
     let publishes_cpu_buffer = _backend != RendererBackend::ZenGpu;
@@ -69,8 +117,14 @@ fn render_frame(
         && !ptr.is_null()
         && size > 0
     {
+        let refresh = {
+            let mut st = lock(state);
+            let prev = st.prev_frame_damage;
+            st.prev_frame_damage = current_damage;
+            union_opt_rects(current_damage, prev)
+        };
         unsafe {
-            publish_cpu_buffer(handle, ptr, size, w, h);
+            publish_cpu_buffer(handle, ptr, size, w, h, refresh);
         }
     }
 
@@ -161,9 +215,6 @@ impl Canvas {
 
             if should_redraw {
                 render_frame(&state, &renderer, handle, backend)?;
-                unsafe {
-                    ng_platform_canvas_invalidate(handle);
-                }
             }
 
             Ok(())
@@ -258,7 +309,7 @@ impl Canvas {
             && size > 0
         {
             unsafe {
-                publish_cpu_buffer(self.handle, ptr, size, w, h);
+                publish_cpu_buffer(self.handle, ptr, size, w, h, None);
             }
         }
     }

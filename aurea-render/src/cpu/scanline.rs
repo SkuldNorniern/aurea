@@ -3,7 +3,7 @@
 use std::cmp::Ordering;
 
 use super::super::types::{BlendMode, Color};
-use super::blend::blend_pixel;
+use super::blend::{blend_pixel, ConstSrc};
 use super::path::Edge;
 
 /// Fill sorted x-crossing pairs into a scanline row (odd-even rule).
@@ -24,8 +24,13 @@ pub fn fill_spans(
     let clip_l = offset_x as f32;
     let clip_r = (offset_x + buf_width) as f32;
 
-    let opaque_fast = blend_mode == BlendMode::Normal && color.a == 255;
     let full_src = color_u32_cov(color, 1.0);
+    let opaque_fast = blend_mode == BlendMode::Normal && color.a == 255;
+    let const_src = if !opaque_fast && blend_mode == BlendMode::Normal {
+        Some(ConstSrc::new(full_src))
+    } else {
+        None
+    };
 
     let write = |buf: &mut [u32], j: u32, cov: f32| {
         if cov <= 0.0 {
@@ -79,6 +84,10 @@ pub fn fill_spans(
                 if end <= buf.len() {
                     if opaque_fast {
                         buf[start..end].fill(full_src);
+                    } else if let Some(cs) = const_src {
+                        for p in &mut buf[start..end] {
+                            *p = cs.over(*p);
+                        }
                     } else {
                         for p in &mut buf[start..end] {
                             *p = blend_pixel(full_src, *p, blend_mode);

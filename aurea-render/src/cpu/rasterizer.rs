@@ -43,6 +43,7 @@ pub struct CpuRasterizer {
     scratch_xs: Vec<f32>,
     scratch_row: Vec<u32>,
     scratch_active: Vec<usize>,
+    last_frame_damage: Option<Rect>,
 }
 
 impl CpuRasterizer {
@@ -62,6 +63,7 @@ impl CpuRasterizer {
             scratch_xs: Vec::new(),
             scratch_row: Vec::new(),
             scratch_active: Vec::new(),
+            last_frame_damage: None,
         }
     }
 
@@ -899,6 +901,7 @@ impl Renderer for CpuRasterizer {
         self.frame_buffer = vec![0u32; (rw * rh) as usize];
         self.prev_items.clear();
         self.tile_hashes.clear();
+        self.last_frame_damage = None;
         Ok(())
     }
 
@@ -920,6 +923,7 @@ impl Renderer for CpuRasterizer {
         self.display_list.clear();
         self.prev_items.clear();
         self.tile_hashes.clear();
+        self.last_frame_damage = None;
         Ok(())
     }
 
@@ -953,6 +957,22 @@ impl Renderer for CpuRasterizer {
 
         let (tiles_x, tiles_y) = tile_grid_dims(bw, bh);
         let dirty_tiles = self.compute_dirty_tiles(damage, pending, tiles_x, tiles_y);
+
+        self.last_frame_damage = {
+            let mut acc: Option<Rect> = None;
+            for ty in 0..tiles_y {
+                for tx in 0..tiles_x {
+                    if dirty_tiles[(ty * tiles_x + tx) as usize] {
+                        let tr = tile_rect(tx, ty, bw, bh);
+                        acc = Some(match acc {
+                            None => tr,
+                            Some(a) => union_rect(a, tr),
+                        });
+                    }
+                }
+            }
+            acc
+        };
 
         let items = self.display_list.items();
         for (i, item) in items.iter().enumerate() {
@@ -998,6 +1018,10 @@ impl Renderer for CpuRasterizer {
         let (ptr, sz, w, h) = self.get_buffer();
         CURRENT_BUFFER.with(|b| *b.borrow_mut() = Some((ptr, sz, w, h)));
         Ok(())
+    }
+
+    fn last_frame_damage(&self) -> Option<Rect> {
+        self.last_frame_damage
     }
 
     fn cleanup(&mut self) {
