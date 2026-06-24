@@ -2,18 +2,19 @@
 
 use std::cmp::Ordering as CmpOrdering;
 
-use super::super::command::DrawCommand;
-use super::super::display_list::{CacheKey, DisplayList};
-use super::super::renderer::{DrawingContext, Renderer};
-use super::super::surface::{Surface, SurfaceInfo};
-use super::super::types::{
-    BlendMode, Color, GlyphMask, GradientStop, Image, LinearGradient, Paint, PaintStyle, Point,
-    RadialGradient, Rect,
+use crate::command::DrawCommand;
+use crate::cpu::blend::{blend_pixel, linear_to_srgb_u8, srgb_to_linear};
+use crate::cpu::context::CpuDrawingContext;
+use crate::cpu::path::{tessellate_path_into, Edge};
+use crate::cpu::scanline::fill_spans;
+use crate::display_list::{CacheKey, DisplayItem, DisplayList};
+use crate::numeric::{f32_to_i32_clamped, f32_to_u32_clamped, f32_to_u8_clamped, f32_to_usize_clamped};
+use crate::renderer::{DrawingContext, Renderer};
+use crate::surface::{Surface, SurfaceInfo};
+use crate::types::{
+    BlendMode, Color, GlyphMask, GradientStop, Image, LinearGradient, Paint, PaintStyle, Path,
+    Point, RadialGradient, Rect,
 };
-use super::blend::{blend_pixel, linear_to_srgb_u8, srgb_to_linear};
-use super::context::CpuDrawingContext;
-use super::path::{Edge, tessellate_path_into};
-use super::scanline::fill_spans;
 use aurea_foundation::AureaResult;
 
 const TILE_SIZE: u32 = 256;
@@ -70,8 +71,8 @@ impl CpuRasterizer {
     fn raster_dimensions(lw: u32, lh: u32, scale: f32) -> (u32, u32) {
         let s = scale.max(1.0);
         (
-            ((lw as f32 * s).round() as u32).max(1),
-            ((lh as f32 * s).round() as u32).max(1),
+            f32_to_u32_clamped((lw as f32 * s).round()).max(1),
+            f32_to_u32_clamped((lh as f32 * s).round()).max(1),
         )
     }
 
@@ -93,7 +94,7 @@ impl CpuRasterizer {
         if x < 0 || y < 0 {
             return;
         }
-        let idx = y as u32 * w + x as u32;
+        let idx = y.cast_unsigned() * w + x.cast_unsigned();
         if idx as usize >= buf.len() {
             return;
         }
@@ -107,7 +108,7 @@ impl CpuRasterizer {
 
     #[allow(clippy::too_many_arguments)]
     fn render_item(
-        item: &super::super::display_list::DisplayItem,
+        item: &DisplayItem,
         scale: f32,
         buf: &mut [u32],
         scratch_edges: &mut Vec<Edge>,
@@ -160,10 +161,10 @@ impl CpuRasterizer {
     }
 
     fn clear_rect(rect: &Rect, color: u32, buf: &mut [u32], bw: u32, bh: u32) {
-        let x0 = rect.x.floor().max(0.0).min(bw as f32) as u32;
-        let y0 = rect.y.floor().max(0.0).min(bh as f32) as u32;
-        let x1 = (rect.x + rect.width).ceil().max(0.0).min(bw as f32) as u32;
-        let y1 = (rect.y + rect.height).ceil().max(0.0).min(bh as f32) as u32;
+        let x0 = f32_to_u32_clamped(rect.x.floor().max(0.0).min(bw as f32));
+        let y0 = f32_to_u32_clamped(rect.y.floor().max(0.0).min(bh as f32));
+        let x1 = f32_to_u32_clamped((rect.x + rect.width).ceil().max(0.0).min(bw as f32));
+        let y1 = f32_to_u32_clamped((rect.y + rect.height).ceil().max(0.0).min(bh as f32));
 
         for y in y0..y1 {
             let start = (y * bw + x0) as usize;
@@ -173,119 +174,189 @@ impl CpuRasterizer {
     }
 
     fn draw_rect(rect: &Rect, paint: &Paint, mode: BlendMode, buf: &mut [u32], bw: u32, bh: u32) {
-        let x0 = (rect.x.max(0.0) as u32).min(bw);
-        let y0 = (rect.y.max(0.0) as u32).min(bh);
-        let x1 = ((rect.x + rect.width).ceil() as u32).min(bw);
-        let y1 = ((rect.y + rect.height).ceil() as u32).min(bh);
+        let x0 = f32_to_u32_clamped(rect.x.max(0.0)).min(bw);
+        let y0 = f32_to_u32_clamped(rect.y.max(0.0)).min(bh);
+        let x1 = f32_to_u32_clamped((rect.x + rect.width).ceil()).min(bw);
+        let y1 = f32_to_u32_clamped((rect.y + rect.height).ceil()).min(bh);
         if x0 >= x1 || y0 >= y1 {
             return;
         }
 
         match paint.style {
-            PaintStyle::Fill => {
-                let c = color_to_u32(paint.color);
-                if paint.color.a == 255 && mode == BlendMode::Normal {
-                    for y in y0..y1 {
-                        let start = (y * bw + x0) as usize;
-                        let end = (y * bw + x1) as usize;
-                        if end <= buf.len() {
-                            buf[start..end].fill(c);
-                        }
-                    }
-                } else {
-                    let xl = rect.x;
-                    let xr = rect.x + rect.width;
-                    let yl = rect.y;
-                    let yr = rect.y + rect.height;
+            PaintStyle::Fill => Self::fill_rect_region(rect, paint, mode, buf, bw, x0, y0, x1, y1),
+            PaintStyle::Stroke => Self::stroke_rect_region(paint, mode, buf, bw, x0, y0, x1, y1),
+        }
+    }
 
-                    let cov_x = |x: u32| -> f32 {
-                        ((x as f32 + 1.0).min(xr) - (x as f32).max(xl)).clamp(0.0, 1.0)
-                    };
-                    let cov_y = |y: u32| -> f32 {
-                        ((y as f32 + 1.0).min(yr) - (y as f32).max(yl)).clamp(0.0, 1.0)
-                    };
-
-                    let xi0 = (xl.ceil() as i32).clamp(x0 as i32, x1 as i32) as u32;
-                    let xi1 = (xr.floor() as i32).clamp(x0 as i32, x1 as i32) as u32;
-                    let has_full_x = xi0 < xi1;
-                    let yi0 = (yl.ceil() as i32).clamp(y0 as i32, y1 as i32) as u32;
-                    let yi1 = (yr.floor() as i32).clamp(y0 as i32, y1 as i32) as u32;
-
-                    let c_full = color_to_u32(paint.color);
-                    let opaque_fast = mode == BlendMode::Normal && paint.color.a == 255;
-
-                    for y in y0..y1 {
-                        let row_cov = if y >= yi0 && y < yi1 { 1.0 } else { cov_y(y) };
-                        if row_cov <= 0.0 {
-                            continue;
-                        }
-                        let row_start = (y * bw) as usize;
-
-                        if has_full_x {
-                            for x in x0..xi0 {
-                                let cov = cov_x(x) * row_cov;
-                                if cov > 0.0 {
-                                    let c = color_to_u32_with_coverage(paint.color, cov);
-                                    Self::buf_set(buf, bw, x as i32, y as i32, c, mode);
-                                }
-                            }
-                            if row_cov >= 1.0 {
-                                if opaque_fast {
-                                    buf[row_start + xi0 as usize..row_start + xi1 as usize]
-                                        .fill(c_full);
-                                } else {
-                                    for x in xi0..xi1 {
-                                        Self::buf_set(buf, bw, x as i32, y as i32, c_full, mode);
-                                    }
-                                }
-                            } else {
-                                let c = color_to_u32_with_coverage(paint.color, row_cov);
-                                for x in xi0..xi1 {
-                                    Self::buf_set(buf, bw, x as i32, y as i32, c, mode);
-                                }
-                            }
-                            for x in xi1..x1 {
-                                let cov = cov_x(x) * row_cov;
-                                if cov > 0.0 {
-                                    let c = color_to_u32_with_coverage(paint.color, cov);
-                                    Self::buf_set(buf, bw, x as i32, y as i32, c, mode);
-                                }
-                            }
-                        } else {
-                            for x in x0..x1 {
-                                let cov = cov_x(x) * row_cov;
-                                if cov > 0.0 {
-                                    let c = color_to_u32_with_coverage(paint.color, cov);
-                                    Self::buf_set(buf, bw, x as i32, y as i32, c, mode);
-                                }
-                            }
-                        }
-                    }
+    #[allow(clippy::too_many_arguments)]
+    fn fill_rect_region(
+        rect: &Rect,
+        paint: &Paint,
+        mode: BlendMode,
+        buf: &mut [u32],
+        bw: u32,
+        x0: u32,
+        y0: u32,
+        x1: u32,
+        y1: u32,
+    ) {
+        if paint.color.a == 255 && mode == BlendMode::Normal {
+            let c = color_to_u32(paint.color);
+            for y in y0..y1 {
+                let start = (y * bw + x0) as usize;
+                let end = (y * bw + x1) as usize;
+                if end <= buf.len() {
+                    buf[start..end].fill(c);
                 }
             }
-            PaintStyle::Stroke => {
-                let sw = paint.stroke_width as u32;
-                if sw == 0 {
-                    return;
+        } else {
+            Self::fill_rect_region_translucent(rect, paint, mode, buf, bw, x0, y0, x1, y1);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn fill_rect_region_translucent(
+        rect: &Rect,
+        paint: &Paint,
+        mode: BlendMode,
+        buf: &mut [u32],
+        bw: u32,
+        x0: u32,
+        y0: u32,
+        x1: u32,
+        y1: u32,
+    ) {
+        let xl = rect.x;
+        let xr = rect.x + rect.width;
+        let yl = rect.y;
+        let yr = rect.y + rect.height;
+
+        let xi0 = f32_to_i32_clamped(xl.ceil())
+            .clamp(x0 as i32, x1 as i32)
+            .cast_unsigned();
+        let xi1 = f32_to_i32_clamped(xr.floor())
+            .clamp(x0 as i32, x1 as i32)
+            .cast_unsigned();
+        let has_full_x = xi0 < xi1;
+        let yi0 = f32_to_i32_clamped(yl.ceil())
+            .clamp(y0 as i32, y1 as i32)
+            .cast_unsigned();
+        let yi1 = f32_to_i32_clamped(yr.floor())
+            .clamp(y0 as i32, y1 as i32)
+            .cast_unsigned();
+
+        let ctx = RectFillCtx {
+            paint,
+            mode,
+            xl,
+            xr,
+            c_full: color_to_u32(paint.color),
+            opaque_fast: mode == BlendMode::Normal && paint.color.a == 255,
+        };
+
+        for y in y0..y1 {
+            let row_cov = if y >= yi0 && y < yi1 {
+                1.0
+            } else {
+                rect_cov_y(y, yl, yr)
+            };
+            if row_cov <= 0.0 {
+                continue;
+            }
+            Self::fill_rect_row_translucent(
+                buf, bw, &ctx, x0, x1, xi0, xi1, has_full_x, y, row_cov,
+            );
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn fill_rect_row_translucent(
+        buf: &mut [u32],
+        bw: u32,
+        ctx: &RectFillCtx,
+        x0: u32,
+        x1: u32,
+        xi0: u32,
+        xi1: u32,
+        has_full_x: bool,
+        y: u32,
+        row_cov: f32,
+    ) {
+        if !has_full_x {
+            Self::fill_rect_edge_span(buf, bw, ctx, x0, x1, y, row_cov);
+            return;
+        }
+
+        Self::fill_rect_edge_span(buf, bw, ctx, x0, xi0, y, row_cov);
+
+        if row_cov >= 1.0 {
+            if ctx.opaque_fast {
+                let row_start = (y * bw) as usize;
+                buf[row_start + xi0 as usize..row_start + xi1 as usize].fill(ctx.c_full);
+            } else {
+                for x in xi0..xi1 {
+                    Self::buf_set(buf, bw, x as i32, y as i32, ctx.c_full, ctx.mode);
                 }
-                let c = color_to_u32(paint.color);
-                for x in x0..x1 {
-                    for dy in 0..sw.min(y1 - y0) {
-                        Self::buf_set(buf, bw, x as i32, (y0 + dy) as i32, c, mode);
-                        let bot = (y1 - 1).saturating_sub(dy);
-                        if bot >= y0 {
-                            Self::buf_set(buf, bw, x as i32, bot as i32, c, mode);
-                        }
-                    }
+            }
+        } else {
+            let c = color_to_u32_with_coverage(ctx.paint.color, row_cov);
+            for x in xi0..xi1 {
+                Self::buf_set(buf, bw, x as i32, y as i32, c, ctx.mode);
+            }
+        }
+
+        Self::fill_rect_edge_span(buf, bw, ctx, xi1, x1, y, row_cov);
+    }
+
+    fn fill_rect_edge_span(
+        buf: &mut [u32],
+        bw: u32,
+        ctx: &RectFillCtx,
+        xa: u32,
+        xb: u32,
+        y: u32,
+        row_cov: f32,
+    ) {
+        for x in xa..xb {
+            let cov = rect_cov_x(x, ctx.xl, ctx.xr) * row_cov;
+            if cov > 0.0 {
+                let c = color_to_u32_with_coverage(ctx.paint.color, cov);
+                Self::buf_set(buf, bw, x as i32, y as i32, c, ctx.mode);
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn stroke_rect_region(
+        paint: &Paint,
+        mode: BlendMode,
+        buf: &mut [u32],
+        bw: u32,
+        x0: u32,
+        y0: u32,
+        x1: u32,
+        y1: u32,
+    ) {
+        let sw = f32_to_u32_clamped(paint.stroke_width);
+        if sw == 0 {
+            return;
+        }
+        let c = color_to_u32(paint.color);
+        for x in x0..x1 {
+            for dy in 0..sw.min(y1 - y0) {
+                Self::buf_set(buf, bw, x as i32, (y0 + dy) as i32, c, mode);
+                let bot = (y1 - 1).saturating_sub(dy);
+                if bot >= y0 {
+                    Self::buf_set(buf, bw, x as i32, bot as i32, c, mode);
                 }
-                for y in y0..y1 {
-                    for dx in 0..sw.min(x1 - x0) {
-                        Self::buf_set(buf, bw, (x0 + dx) as i32, y as i32, c, mode);
-                        let right = (x1 - 1).saturating_sub(dx);
-                        if right >= x0 {
-                            Self::buf_set(buf, bw, right as i32, y as i32, c, mode);
-                        }
-                    }
+            }
+        }
+        for y in y0..y1 {
+            for dx in 0..sw.min(x1 - x0) {
+                Self::buf_set(buf, bw, (x0 + dx) as i32, y as i32, c, mode);
+                let right = (x1 - 1).saturating_sub(dx);
+                if right >= x0 {
+                    Self::buf_set(buf, bw, right as i32, y as i32, c, mode);
                 }
             }
         }
@@ -300,79 +371,125 @@ impl CpuRasterizer {
         bw: u32,
         bh: u32,
     ) {
-        let x0 = ((center.x - radius).floor().max(0.0) as u32).min(bw);
-        let y0 = ((center.y - radius).floor().max(0.0) as u32).min(bh);
-        let x1 = ((center.x + radius).ceil() as u32).min(bw);
-        let y1 = ((center.y + radius).ceil() as u32).min(bh);
+        let x0 = f32_to_u32_clamped((center.x - radius).floor().max(0.0)).min(bw);
+        let y0 = f32_to_u32_clamped((center.y - radius).floor().max(0.0)).min(bh);
+        let x1 = f32_to_u32_clamped((center.x + radius).ceil()).min(bw);
+        let y1 = f32_to_u32_clamped((center.y + radius).ceil()).min(bh);
 
         match paint.style {
             PaintStyle::Fill => {
-                let r_in = (radius - 0.5).max(0.0);
-                let r_out = radius + 0.5;
-                let c_full = color_to_u32(paint.color);
-                let opaque_fast = mode == BlendMode::Normal && paint.color.a == 255;
-
-                for y in y0..y1 {
-                    let dy = y as f32 + 0.5 - center.y;
-                    if dy.abs() >= r_out {
-                        continue;
-                    }
-                    let half_out = (r_out * r_out - dy * dy).max(0.0).sqrt();
-                    let xo0 = ((center.x - half_out).floor().max(x0 as f32) as i32).min(x1 as i32);
-                    let xo1 = ((center.x + half_out).ceil().min(x1 as f32) as i32).max(x0 as i32);
-
-                    let (xi0, xi1) = if dy.abs() < r_in {
-                        let half_in = (r_in * r_in - dy * dy).max(0.0).sqrt();
-                        let a = (center.x - half_in).ceil() as i32;
-                        let b = (center.x + half_in).floor() as i32;
-                        if a < b {
-                            (a.clamp(xo0, xo1), b.clamp(xo0, xo1))
-                        } else {
-                            (xo0, xo0)
-                        }
-                    } else {
-                        (xo0, xo0)
-                    };
-
-                    for x in xo0..xi0 {
-                        let cov = circle_coverage(center, radius, x as f32, y as f32);
-                        if cov > 0.0 {
-                            let c = color_to_u32_with_coverage(paint.color, cov);
-                            Self::buf_set(buf, bw, x, y as i32, c, mode);
-                        }
-                    }
-                    if xi0 < xi1 {
-                        if opaque_fast {
-                            let row_start = (y * bw) as usize;
-                            buf[row_start + xi0 as usize..row_start + xi1 as usize].fill(c_full);
-                        } else {
-                            for x in xi0..xi1 {
-                                Self::buf_set(buf, bw, x, y as i32, c_full, mode);
-                            }
-                        }
-                    }
-                    for x in xi1..xo1 {
-                        let cov = circle_coverage(center, radius, x as f32, y as f32);
-                        if cov > 0.0 {
-                            let c = color_to_u32_with_coverage(paint.color, cov);
-                            Self::buf_set(buf, bw, x, y as i32, c, mode);
-                        }
-                    }
-                }
+                Self::fill_circle_region(center, radius, paint, mode, buf, bw, x0, y0, x1, y1);
             }
             PaintStyle::Stroke => {
-                let sw = paint.stroke_width;
-                let inner_r = (radius - sw).max(0.0);
-                let c = color_to_u32(paint.color);
-                for y in y0..y1 {
-                    for x in x0..x1 {
-                        let dx = x as f32 + 0.5 - center.x;
-                        let dy = y as f32 + 0.5 - center.y;
-                        let d = (dx * dx + dy * dy).sqrt();
-                        if d <= radius && d >= inner_r {
-                            Self::buf_set(buf, bw, x as i32, y as i32, c, mode);
-                        }
-                    }
+                Self::stroke_circle_region(center, radius, paint, mode, buf, bw, x0, y0, x1, y1);
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn fill_circle_region(
+        center: Point,
+        radius: f32,
+        paint: &Paint,
+        mode: BlendMode,
+        buf: &mut [u32],
+        bw: u32,
+        x0: u32,
+        y0: u32,
+        x1: u32,
+        y1: u32,
+    ) {
+        let ctx = CircleFillCtx {
+            center,
+            radius,
+            paint,
+            mode,
+            r_in: (radius - 0.5).max(0.0),
+            r_out: radius + 0.5,
+            c_full: color_to_u32(paint.color),
+            opaque_fast: mode == BlendMode::Normal && paint.color.a == 255,
+        };
+
+        for y in y0..y1 {
+            Self::fill_circle_row(buf, bw, &ctx, x0, x1, y);
+        }
+    }
+
+    fn fill_circle_row(buf: &mut [u32], bw: u32, ctx: &CircleFillCtx, x0: u32, x1: u32, y: u32) {
+        let dy = y as f32 + 0.5 - ctx.center.y;
+        if dy.abs() >= ctx.r_out {
+            return;
+        }
+        let half_out = (ctx.r_out * ctx.r_out - dy * dy).max(0.0).sqrt();
+        let xo0 = f32_to_i32_clamped((ctx.center.x - half_out).floor().max(x0 as f32))
+            .min(x1 as i32);
+        let xo1 = f32_to_i32_clamped((ctx.center.x + half_out).ceil().min(x1 as f32))
+            .max(x0 as i32);
+
+        let (xi0, xi1) = if dy.abs() < ctx.r_in {
+            let half_in = (ctx.r_in * ctx.r_in - dy * dy).max(0.0).sqrt();
+            let a = f32_to_i32_clamped((ctx.center.x - half_in).ceil());
+            let b = f32_to_i32_clamped((ctx.center.x + half_in).floor());
+            if a < b {
+                (a.clamp(xo0, xo1), b.clamp(xo0, xo1))
+            } else {
+                (xo0, xo0)
+            }
+        } else {
+            (xo0, xo0)
+        };
+
+        Self::fill_circle_edge_span(buf, bw, ctx, xo0, xi0, y);
+
+        if xi0 < xi1 {
+            if ctx.opaque_fast {
+                let row_start = (y * bw) as usize;
+                buf[row_start + xi0.cast_unsigned() as usize
+                    ..row_start + xi1.cast_unsigned() as usize]
+                    .fill(ctx.c_full);
+            } else {
+                for x in xi0..xi1 {
+                    Self::buf_set(buf, bw, x, y as i32, ctx.c_full, ctx.mode);
+                }
+            }
+        }
+
+        Self::fill_circle_edge_span(buf, bw, ctx, xi1, xo1, y);
+    }
+
+    fn fill_circle_edge_span(buf: &mut [u32], bw: u32, ctx: &CircleFillCtx, xa: i32, xb: i32, y: u32) {
+        for x in xa..xb {
+            let cov = circle_coverage(ctx.center, ctx.radius, x as f32, y as f32);
+            if cov > 0.0 {
+                let c = color_to_u32_with_coverage(ctx.paint.color, cov);
+                Self::buf_set(buf, bw, x, y as i32, c, ctx.mode);
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn stroke_circle_region(
+        center: Point,
+        radius: f32,
+        paint: &Paint,
+        mode: BlendMode,
+        buf: &mut [u32],
+        bw: u32,
+        x0: u32,
+        y0: u32,
+        x1: u32,
+        y1: u32,
+    ) {
+        let sw = paint.stroke_width;
+        let inner_r = (radius - sw).max(0.0);
+        let c = color_to_u32(paint.color);
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let dx = x as f32 + 0.5 - center.x;
+                let dy = y as f32 + 0.5 - center.y;
+                let d = (dx * dx + dy * dy).sqrt();
+                if d <= radius && d >= inner_r {
+                    Self::buf_set(buf, bw, x as i32, y as i32, c, mode);
                 }
             }
         }
@@ -380,7 +497,7 @@ impl CpuRasterizer {
 
     #[allow(clippy::too_many_arguments)]
     fn draw_path(
-        path: &super::super::types::Path,
+        path: &Path,
         paint: &Paint,
         mode: BlendMode,
         scale: f32,
@@ -403,8 +520,8 @@ impl CpuRasterizer {
             .iter()
             .map(|e| e.y_max)
             .fold(f32::MIN, f32::max);
-        let y_start = y_min.max(0.0).ceil() as u32;
-        let y_end = y_max.min(bh as f32).ceil() as u32;
+        let y_start = f32_to_u32_clamped(y_min.max(0.0).ceil());
+        let y_end = f32_to_u32_clamped(y_max.min(bh as f32).ceil());
 
         scratch_active.clear();
         let mut enter_idx = 0usize;
@@ -450,9 +567,9 @@ impl CpuRasterizer {
         let tg = srgb_to_linear(color.g);
         let tb = srgb_to_linear(color.b);
         let opaque_pixel =
-            0xFF00_0000 | ((color.r as u32) << 16) | ((color.g as u32) << 8) | color.b as u32;
-        let dx = origin.x.round() as i32;
-        let dy = origin.y.round() as i32;
+            0xFF00_0000 | (u32::from(color.r) << 16) | (u32::from(color.g) << 8) | u32::from(color.b);
+        let dx = f32_to_i32_clamped(origin.x.round());
+        let dy = f32_to_i32_clamped(origin.y.round());
 
         let mw = mask.width as i32;
         let x_lo = (-dx).max(0);
@@ -466,12 +583,12 @@ impl CpuRasterizer {
             if py < 0 || py >= bh as i32 {
                 continue;
             }
-            let row = (my as u32 * mask.width) as usize;
+            let row = (my.cast_unsigned() * mask.width) as usize;
             let cov_row = &mask.coverage[row * 3..(row + mask.width as usize) * 3];
-            let buf_row = (py as u32 * bw) as usize;
+            let buf_row = (py.cast_unsigned() * bw) as usize;
 
             for mx in x_lo..x_hi {
-                let ci = mx as usize * 3;
+                let ci = mx.cast_unsigned() as usize * 3;
                 let cr8 = cov_row[ci];
                 let cg8 = cov_row[ci + 1];
                 let cb8 = cov_row[ci + 2];
@@ -479,16 +596,16 @@ impl CpuRasterizer {
                     continue;
                 }
 
-                let idx = buf_row + (dx + mx) as usize;
+                let idx = buf_row + (dx + mx).cast_unsigned() as usize;
 
                 if cr8 == 255 && cg8 == 255 && cb8 == 255 {
                     buf[idx] = opaque_pixel;
                     continue;
                 }
 
-                let cr = cr8 as f32 / 255.0;
-                let cg = cg8 as f32 / 255.0;
-                let cb = cb8 as f32 / 255.0;
+                let cr = f32::from(cr8) / 255.0;
+                let cg = f32::from(cg8) / 255.0;
+                let cb = f32::from(cb8) / 255.0;
 
                 let dst = buf[idx];
                 let da = (dst >> 24) & 0xff;
@@ -500,7 +617,7 @@ impl CpuRasterizer {
                 let og = linear_to_srgb_u8(tg * cg + srgb_to_linear(dg) * (1.0 - cg));
                 let ob = linear_to_srgb_u8(tb * cb + srgb_to_linear(db) * (1.0 - cb));
                 let cmax = cr.max(cg).max(cb);
-                let sa = (cmax * 255.0).round() as u32;
+                let sa = f32_to_u32_clamped((cmax * 255.0).round());
                 let oa = sa + ((255 - sa) * da) / 255;
                 buf[idx] = (oa << 24) | (or_ << 16) | (og << 8) | ob;
             }
@@ -521,71 +638,105 @@ impl CpuRasterizer {
         if image.data.is_empty() || dest.width <= 0.0 || dest.height <= 0.0 {
             return;
         }
-        let x0 = dest.x.max(0.0).ceil() as i32;
-        let y0 = dest.y.max(0.0).ceil() as i32;
-        let x1 = (dest.x + dest.width).min(bw as f32).floor() as i32;
-        let y1 = (dest.y + dest.height).min(bh as f32).floor() as i32;
+        let x0 = f32_to_i32_clamped(dest.x.max(0.0).ceil());
+        let y0 = f32_to_i32_clamped(dest.y.max(0.0).ceil());
+        let x1 = f32_to_i32_clamped((dest.x + dest.width).min(bw as f32).floor());
+        let y1 = f32_to_i32_clamped((dest.y + dest.height).min(bh as f32).floor());
         if x0 >= x1 || y0 >= y1 {
             return;
         }
 
+        if (src.width - dest.width).abs() < 0.001 && (src.height - dest.height).abs() < 0.001 {
+            Self::draw_image_1to1(image, src, dest, mode, buf, scratch_row, bw, x0, y0, x1, y1);
+        } else {
+            Self::draw_image_scaled(image, src, dest, mode, buf, bw, x0, y0, x1, y1);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_image_1to1(
+        image: &Image,
+        src: Rect,
+        dest: Rect,
+        mode: BlendMode,
+        buf: &mut [u32],
+        scratch_row: &mut Vec<u32>,
+        bw: u32,
+        x0: i32,
+        y0: i32,
+        x1: i32,
+        y1: i32,
+    ) {
         let max_sx = image.width as f32 - 0.001;
         let max_sy = image.height as f32 - 0.001;
-
-        if (src.width - dest.width).abs() < 0.001 && (src.height - dest.height).abs() < 0.001 {
-            let sx0 = (x0 as f32 - dest.x) + src.x;
-            let row_buf = scratch_row;
-            row_buf.clear();
-            row_buf.resize((x1 - x0) as usize, 0u32);
-            for cy in y0..y1 {
-                let v = (cy as f32 - dest.y) + src.y;
-                let sy = v.clamp(0.0, max_sy) as u32;
-                let src_row = &image.data[sy as usize * image.width as usize * 4..];
-                let mut all_opaque = true;
-                for (i, slot) in row_buf.iter_mut().enumerate() {
-                    let sx = (sx0 + i as f32).clamp(0.0, max_sx) as usize;
-                    let ii = sx * 4;
-                    if ii + 3 >= src_row.len() {
-                        *slot = 0;
-                        all_opaque = false;
-                        continue;
-                    }
-                    let a = src_row[ii + 3];
-                    if a != 255 {
-                        all_opaque = false;
-                    }
-                    *slot = ((a as u32) << 24)
-                        | ((src_row[ii] as u32) << 16)
-                        | ((src_row[ii + 1] as u32) << 8)
-                        | (src_row[ii + 2] as u32);
+        let sx0 = (x0 as f32 - dest.x) + src.x;
+        let row_buf = scratch_row;
+        row_buf.clear();
+        row_buf.resize(usize::try_from(x1 - x0).expect("x1 > x0"), 0u32);
+        for cy in y0..y1 {
+            let v = (cy as f32 - dest.y) + src.y;
+            let sy = f32_to_u32_clamped(v.clamp(0.0, max_sy));
+            let src_row = &image.data[sy as usize * image.width as usize * 4..];
+            let mut all_opaque = true;
+            for (i, slot) in row_buf.iter_mut().enumerate() {
+                let sx = f32_to_usize_clamped((sx0 + i as f32).clamp(0.0, max_sx));
+                let ii = sx * 4;
+                if ii + 3 >= src_row.len() {
+                    *slot = 0;
+                    all_opaque = false;
+                    continue;
                 }
-                if mode == BlendMode::Normal && all_opaque {
-                    let row_start = (cy as u32 * bw + x0 as u32) as usize;
-                    buf[row_start..row_start + row_buf.len()].copy_from_slice(row_buf.as_slice());
-                } else {
-                    for (i, &c) in row_buf.iter().enumerate() {
-                        Self::buf_set(buf, bw, x0 + i as i32, cy, c, mode);
-                    }
+                let a = src_row[ii + 3];
+                if a != 255 {
+                    all_opaque = false;
+                }
+                *slot = (u32::from(a) << 24)
+                    | (u32::from(src_row[ii]) << 16)
+                    | (u32::from(src_row[ii + 1]) << 8)
+                    | u32::from(src_row[ii + 2]);
+            }
+            if mode == BlendMode::Normal && all_opaque {
+                let row_start = (cy.cast_unsigned() * bw + x0.cast_unsigned()) as usize;
+                buf[row_start..row_start + row_buf.len()].copy_from_slice(row_buf.as_slice());
+            } else {
+                for (i, &c) in row_buf.iter().enumerate() {
+                    let xi = i32::try_from(i).expect("row width fits in i32");
+                    Self::buf_set(buf, bw, x0 + xi, cy, c, mode);
                 }
             }
-            return;
         }
+    }
 
+    #[allow(clippy::too_many_arguments)]
+    fn draw_image_scaled(
+        image: &Image,
+        src: Rect,
+        dest: Rect,
+        mode: BlendMode,
+        buf: &mut [u32],
+        bw: u32,
+        x0: i32,
+        y0: i32,
+        x1: i32,
+        y1: i32,
+    ) {
+        let max_sx = image.width as f32 - 0.001;
+        let max_sy = image.height as f32 - 0.001;
         for cy in y0..y1 {
             let v = (cy as f32 - dest.y) / dest.height * src.height + src.y;
-            let sy = v.clamp(0.0, max_sy) as u32;
+            let sy = f32_to_u32_clamped(v.clamp(0.0, max_sy));
             let src_row = &image.data[sy as usize * image.width as usize * 4..];
             for cx in x0..x1 {
                 let u = (cx as f32 - dest.x) / dest.width * src.width + src.x;
-                let sx = u.clamp(0.0, max_sx) as u32;
+                let sx = f32_to_u32_clamped(u.clamp(0.0, max_sx));
                 let ii = sx as usize * 4;
                 if ii + 3 >= src_row.len() {
                     continue;
                 }
-                let rgba = ((src_row[ii + 3] as u32) << 24)
-                    | ((src_row[ii] as u32) << 16)
-                    | ((src_row[ii + 1] as u32) << 8)
-                    | (src_row[ii + 2] as u32);
+                let rgba = (u32::from(src_row[ii + 3]) << 24)
+                    | (u32::from(src_row[ii]) << 16)
+                    | (u32::from(src_row[ii + 1]) << 8)
+                    | u32::from(src_row[ii + 2]);
                 Self::buf_set(buf, bw, cx, cy, rgba, mode);
             }
         }
@@ -598,10 +749,10 @@ impl CpuRasterizer {
         }
         if stops.len() == 1 {
             let c = stops[0].color;
-            return ((c.a as u32) << 24)
-                | ((c.r as u32) << 16)
-                | ((c.g as u32) << 8)
-                | (c.b as u32);
+            return (u32::from(c.a) << 24)
+                | (u32::from(c.r) << 16)
+                | (u32::from(c.g) << 8)
+                | u32::from(c.b);
         }
         for w in stops.windows(2) {
             let (a, b) = (w[0].offset, w[1].offset);
@@ -612,22 +763,27 @@ impl CpuRasterizer {
                     (t - a) / (b - a)
                 };
                 let (c0, c1) = (w[0].color, w[1].color);
-                let lerp = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * s).round() as u8;
+                let lerp = |a: u8, b: u8| {
+                    f32_to_u8_clamped((f32::from(a) + (f32::from(b) - f32::from(a)) * s).round())
+                };
                 let (r, g, b_, a_) = (
                     lerp(c0.r, c1.r),
                     lerp(c0.g, c1.g),
                     lerp(c0.b, c1.b),
                     lerp(c0.a, c1.a),
                 );
-                return ((a_ as u32) << 24) | ((r as u32) << 16) | ((g as u32) << 8) | (b_ as u32);
+                return (u32::from(a_) << 24)
+                    | (u32::from(r) << 16)
+                    | (u32::from(g) << 8)
+                    | u32::from(b_);
             }
         }
         let c = if t <= stops[0].offset {
             stops[0].color
         } else {
-            stops.last().unwrap().color
+            stops.last().expect("stops has at least 2 elements").color
         };
-        ((c.a as u32) << 24) | ((c.r as u32) << 16) | ((c.g as u32) << 8) | (c.b as u32)
+        (u32::from(c.a) << 24) | (u32::from(c.r) << 16) | (u32::from(c.g) << 8) | u32::from(c.b)
     }
 
     fn build_gradient_lut(stops: &[GradientStop]) -> [u32; 256] {
@@ -653,10 +809,10 @@ impl CpuRasterizer {
             return;
         }
         let lut = Self::build_gradient_lut(&grad.stops);
-        let x0 = rect.x.max(0.0).ceil() as i32;
-        let y0 = rect.y.max(0.0).ceil() as i32;
-        let x1 = (rect.x + rect.width).min(bw as f32).floor() as i32;
-        let y1 = (rect.y + rect.height).min(bh as f32).floor() as i32;
+        let x0 = f32_to_i32_clamped(rect.x.max(0.0).ceil());
+        let y0 = f32_to_i32_clamped(rect.y.max(0.0).ceil());
+        let x1 = f32_to_i32_clamped((rect.x + rect.width).min(bw as f32).floor());
+        let y1 = f32_to_i32_clamped((rect.y + rect.height).min(bh as f32).floor());
         if x0 >= x1 || y0 >= y1 {
             return;
         }
@@ -665,14 +821,14 @@ impl CpuRasterizer {
         let opaque_normal = mode == BlendMode::Normal;
 
         for cy in y0..y1 {
-            let row = (cy as u32 * bw) as usize;
+            let row = (cy.cast_unsigned() * bw) as usize;
             let mut t = ((x0 as f32 + 0.5 - grad.start.x) * dx
                 + (cy as f32 + 0.5 - grad.start.y) * dy)
                 / len_sq;
             for cx in x0..x1 {
-                let t_idx = (t.clamp(0.0, 1.0) * 255.0).round() as usize;
+                let t_idx = f32_to_usize_clamped((t.clamp(0.0, 1.0) * 255.0).round());
                 let src = lut[t_idx];
-                let idx = row + cx as usize;
+                let idx = row + cx.cast_unsigned() as usize;
                 buf[idx] = if opaque_normal && (src >> 24) == 255 {
                     src
                 } else {
@@ -695,10 +851,10 @@ impl CpuRasterizer {
             return;
         }
         let lut = Self::build_gradient_lut(&grad.stops);
-        let x0 = rect.x.max(0.0).ceil() as i32;
-        let y0 = rect.y.max(0.0).ceil() as i32;
-        let x1 = (rect.x + rect.width).min(bw as f32).floor() as i32;
-        let y1 = (rect.y + rect.height).min(bh as f32).floor() as i32;
+        let x0 = f32_to_i32_clamped(rect.x.max(0.0).ceil());
+        let y0 = f32_to_i32_clamped(rect.y.max(0.0).ceil());
+        let x1 = f32_to_i32_clamped((rect.x + rect.width).min(bw as f32).floor());
+        let y1 = f32_to_i32_clamped((rect.y + rect.height).min(bh as f32).floor());
         if x0 >= x1 || y0 >= y1 {
             return;
         }
@@ -707,16 +863,16 @@ impl CpuRasterizer {
         let opaque_normal = mode == BlendMode::Normal;
 
         for cy in y0..y1 {
-            let row = (cy as u32 * bw) as usize;
+            let row = (cy.cast_unsigned() * bw) as usize;
             let dy = cy as f32 + 0.5 - grad.center.y;
             let dy_sq = dy * dy;
             for cx in x0..x1 {
                 let dx = cx as f32 + 0.5 - grad.center.x;
                 let dist = (dx * dx + dy_sq).sqrt();
                 let t = (dist * inv_radius).min(1.0);
-                let t_idx = (t.clamp(0.0, 1.0) * 255.0).round() as usize;
+                let t_idx = f32_to_usize_clamped((t.clamp(0.0, 1.0) * 255.0).round());
                 let src = lut[t_idx];
-                let idx = row + cx as usize;
+                let idx = row + cx.cast_unsigned() as usize;
                 buf[idx] = if opaque_normal && (src >> 24) == 255 {
                     src
                 } else {
@@ -943,60 +1099,33 @@ impl Renderer for CpuRasterizer {
         let pending = self.pending_damage.take();
         let diff = self.diff_damage();
 
-        let damage: Option<Rect> = match (pending, diff) {
-            (None, FrameDamage::Unchanged) => {
-                use crate::renderer::CURRENT_BUFFER;
-                CURRENT_BUFFER.with(|b| *b.borrow_mut() = None);
-                return Ok(());
-            }
-            (None, FrameDamage::Full) | (Some(_), FrameDamage::Full) => None,
-            (None, FrameDamage::Region(r)) => Some(round_out_clamp(r, bw, bh)),
-            (Some(p), FrameDamage::Unchanged) => Some(p),
-            (Some(p), FrameDamage::Region(r)) => Some(round_out_clamp(union_rect(p, r), bw, bh)),
+        let Some(damage) = resolve_frame_damage(pending, diff, bw, bh) else {
+            use crate::renderer::CURRENT_BUFFER;
+            CURRENT_BUFFER.with(|b| *b.borrow_mut() = None);
+            return Ok(());
         };
 
         let (tiles_x, tiles_y) = tile_grid_dims(bw, bh);
         let dirty_tiles = self.compute_dirty_tiles(damage, pending, tiles_x, tiles_y);
 
-        self.last_frame_damage = {
-            let mut acc: Option<Rect> = None;
-            for ty in 0..tiles_y {
-                for tx in 0..tiles_x {
-                    if dirty_tiles[(ty * tiles_x + tx) as usize] {
-                        let tr = tile_rect(tx, ty, bw, bh);
-                        acc = Some(match acc {
-                            None => tr,
-                            Some(a) => union_rect(a, tr),
-                        });
-                    }
-                }
-            }
-            acc
-        };
+        self.last_frame_damage = union_dirty_tile_rects(&dirty_tiles, tiles_x, tiles_y, bw, bh);
 
         let items = self.display_list.items();
         for (i, item) in items.iter().enumerate() {
-            let has_known_bounds = is_known_bounds(item.bounds);
-
             if let DrawCommand::Clear(color) = &item.command {
-                let c = color_to_u32(*color);
-                for ty in 0..tiles_y {
-                    for tx in 0..tiles_x {
-                        if dirty_tiles[(ty * tiles_x + tx) as usize] {
-                            let rect = tile_rect(tx, ty, bw, bh);
-                            Self::clear_rect(&rect, c, &mut self.frame_buffer, bw, bh);
-                        }
-                    }
-                }
+                clear_dirty_tiles(
+                    &mut self.frame_buffer,
+                    *color,
+                    &dirty_tiles,
+                    tiles_x,
+                    tiles_y,
+                    bw,
+                    bh,
+                );
                 continue;
             }
 
-            if has_known_bounds
-                && !item_overlaps_dirty_tiles(item.bounds, &dirty_tiles, tiles_x, tiles_y)
-            {
-                continue;
-            }
-            if has_known_bounds && is_occluded(items, i) {
+            if !should_render_item(item, items, i, &dirty_tiles, tiles_x, tiles_y) {
                 continue;
             }
             Self::render_item(
@@ -1052,6 +1181,71 @@ fn is_known_bounds(r: Rect) -> bool {
     r.width > 0.0 && r.height > 0.0
 }
 
+fn resolve_frame_damage(
+    forced: Option<Rect>,
+    diff: FrameDamage,
+    bw: u32,
+    bh: u32,
+) -> Option<Option<Rect>> {
+    match (forced, diff) {
+        (None, FrameDamage::Unchanged) => None,
+        (None, FrameDamage::Full) | (Some(_), FrameDamage::Full) => Some(None),
+        (None, FrameDamage::Region(r)) => Some(Some(round_out_clamp(r, bw, bh))),
+        (Some(p), FrameDamage::Unchanged) => Some(Some(p)),
+        (Some(p), FrameDamage::Region(r)) => Some(Some(round_out_clamp(union_rect(p, r), bw, bh))),
+    }
+}
+
+fn union_dirty_tile_rects(dirty_tiles: &[bool], tiles_x: u32, tiles_y: u32, bw: u32, bh: u32) -> Option<Rect> {
+    let mut acc: Option<Rect> = None;
+    for ty in 0..tiles_y {
+        for tx in 0..tiles_x {
+            if dirty_tiles[(ty * tiles_x + tx) as usize] {
+                let tr = tile_rect(tx, ty, bw, bh);
+                acc = Some(match acc {
+                    None => tr,
+                    Some(a) => union_rect(a, tr),
+                });
+            }
+        }
+    }
+    acc
+}
+
+fn clear_dirty_tiles(
+    frame_buffer: &mut [u32],
+    color: Color,
+    dirty_tiles: &[bool],
+    tiles_x: u32,
+    tiles_y: u32,
+    bw: u32,
+    bh: u32,
+) {
+    let c = color_to_u32(color);
+    for ty in 0..tiles_y {
+        for tx in 0..tiles_x {
+            if dirty_tiles[(ty * tiles_x + tx) as usize] {
+                let rect = tile_rect(tx, ty, bw, bh);
+                CpuRasterizer::clear_rect(&rect, c, frame_buffer, bw, bh);
+            }
+        }
+    }
+}
+
+fn should_render_item(
+    item: &DisplayItem,
+    items: &[DisplayItem],
+    i: usize,
+    dirty_tiles: &[bool],
+    tiles_x: u32,
+    tiles_y: u32,
+) -> bool {
+    if !is_known_bounds(item.bounds) {
+        return true;
+    }
+    item_overlaps_dirty_tiles(item.bounds, dirty_tiles, tiles_x, tiles_y) && !is_occluded(items, i)
+}
+
 fn union_rect(a: Rect, b: Rect) -> Rect {
     let x0 = a.x.min(b.x);
     let y0 = a.y.min(b.y);
@@ -1067,7 +1261,7 @@ fn rect_contains(outer: Rect, inner: Rect) -> bool {
         && inner.y + inner.height <= outer.y + outer.height
 }
 
-fn is_occluded(items: &[super::super::display_list::DisplayItem], i: usize) -> bool {
+fn is_occluded(items: &[DisplayItem], i: usize) -> bool {
     let bounds = items[i].bounds;
     items[i + 1..].iter().any(|later| {
         later.opaque && later.blend_mode == BlendMode::Normal && rect_contains(later.bounds, bounds)
@@ -1080,12 +1274,12 @@ fn tile_grid_dims(bw: u32, bh: u32) -> (u32, u32) {
 
 fn tile_range(bounds: Rect, tiles_x: u32, tiles_y: u32) -> (u32, u32, u32, u32) {
     let tile = TILE_SIZE as f32;
-    let x0 = ((bounds.x / tile).floor().max(0.0) as u32).min(tiles_x);
-    let y0 = ((bounds.y / tile).floor().max(0.0) as u32).min(tiles_y);
-    let x1 = (((bounds.x + bounds.width) / tile).ceil().max(0.0) as u32)
+    let x0 = f32_to_u32_clamped((bounds.x / tile).floor().max(0.0)).min(tiles_x);
+    let y0 = f32_to_u32_clamped((bounds.y / tile).floor().max(0.0)).min(tiles_y);
+    let x1 = f32_to_u32_clamped(((bounds.x + bounds.width) / tile).ceil().max(0.0))
         .min(tiles_x)
         .max(x0);
-    let y1 = (((bounds.y + bounds.height) / tile).ceil().max(0.0) as u32)
+    let y1 = f32_to_u32_clamped(((bounds.y + bounds.height) / tile).ceil().max(0.0))
         .min(tiles_y)
         .max(y0);
     (x0, y0, x1, y1)
@@ -1121,13 +1315,41 @@ fn round_out_clamp(r: Rect, bw: u32, bh: u32) -> Rect {
     Rect::new(x0, y0, (x1 - x0).max(0.0), (y1 - y0).max(0.0))
 }
 
+struct CircleFillCtx<'a> {
+    center: Point,
+    radius: f32,
+    paint: &'a Paint,
+    mode: BlendMode,
+    r_in: f32,
+    r_out: f32,
+    c_full: u32,
+    opaque_fast: bool,
+}
+
+struct RectFillCtx<'a> {
+    paint: &'a Paint,
+    mode: BlendMode,
+    xl: f32,
+    xr: f32,
+    c_full: u32,
+    opaque_fast: bool,
+}
+
+fn rect_cov_x(x: u32, xl: f32, xr: f32) -> f32 {
+    ((x as f32 + 1.0).min(xr) - (x as f32).max(xl)).clamp(0.0, 1.0)
+}
+
+fn rect_cov_y(y: u32, yl: f32, yr: f32) -> f32 {
+    ((y as f32 + 1.0).min(yr) - (y as f32).max(yl)).clamp(0.0, 1.0)
+}
+
 fn color_to_u32(c: Color) -> u32 {
-    ((c.a as u32) << 24) | ((c.r as u32) << 16) | ((c.g as u32) << 8) | (c.b as u32)
+    (u32::from(c.a) << 24) | (u32::from(c.r) << 16) | (u32::from(c.g) << 8) | u32::from(c.b)
 }
 
 fn color_to_u32_with_coverage(c: Color, cov: f32) -> u32 {
-    let a = (c.a as f32 * cov).round().clamp(0.0, 255.0) as u32;
-    (a << 24) | ((c.r as u32) << 16) | ((c.g as u32) << 8) | (c.b as u32)
+    let a = f32_to_u32_clamped((f32::from(c.a) * cov).round());
+    (a << 24) | (u32::from(c.r) << 16) | (u32::from(c.g) << 8) | u32::from(c.b)
 }
 
 fn circle_coverage(center: Point, radius: f32, px: f32, py: f32) -> f32 {

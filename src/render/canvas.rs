@@ -5,10 +5,11 @@ use crate::view::{DamageRegion, FrameScheduler};
 use crate::{AureaError, AureaResult};
 use aurea_foundation::CapabilityChecker;
 use aurea_foundation::Platform;
+use aurea_runtime::{FrameInfo, TickerId};
 use aurea_render::{
-    CURRENT_BUFFER, ClickCallback, Color, CpuRasterizer, DrawingContext, GpuRasterizer,
-    HoverCallback, InteractionRegistry, InteractiveId, Point, Rect, Renderer, RendererBackend,
-    Surface, SurfaceInfo,
+    ClickCallback, Color, CpuRasterizer, DrawingContext, GpuRasterizer, HoverCallback,
+    InteractionRegistry, InteractiveId, Point, Rect, Renderer, RendererBackend, Surface,
+    SurfaceInfo,
 };
 use std::collections::HashMap;
 #[cfg(feature = "wgpu")]
@@ -367,18 +368,18 @@ impl Canvas {
     }
 
     /// Start a per-frame ticker animation tied to this canvas.
-    pub fn animate<F>(&self, ticker: F) -> aurea_runtime::TickerId
+    pub fn animate<F>(&self, ticker: F) -> TickerId
     where
-        F: FnMut(aurea_runtime::FrameInfo) -> bool + Send + 'static,
+        F: FnMut(FrameInfo) -> bool + Send + 'static,
     {
         let state = self.state.clone();
         let handle_usize = self.handle as usize;
         let mut user_ticker = ticker;
 
-        aurea_runtime::FrameScheduler::register_ticker(move |info| {
+        FrameScheduler::register_ticker(move |info| {
             let keep = user_ticker(info);
             lock(&state).needs_redraw = true;
-            aurea_runtime::FrameScheduler::schedule_canvas(handle_usize as *mut c_void);
+            FrameScheduler::schedule_canvas(handle_usize as *mut c_void);
             keep
         })
     }

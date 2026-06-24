@@ -1,11 +1,15 @@
 //! fontdue glyph rasterizer — cross-platform fallback backend.
 
-use super::super::types::{FontStyle, FontWeight, TextMetrics};
-use super::LruCache;
-use super::atlas::{GlyphBitmap, GlyphKey};
-use super::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph};
-use aurea_foundation::{AureaError, AureaResult};
-use std::env::{var, var_os};
+use crate::numeric::{f32_to_i32_clamped, f32_to_u8_clamped};
+use crate::text::atlas::{GlyphBitmap, GlyphKey};
+use crate::text::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph};
+use crate::text::LruCache;
+use crate::types::{FontStyle, FontWeight, TextMetrics};
+use aurea_foundation::{lock, AureaError, AureaResult};
+use fontdue::{Font, FontSettings};
+use std::env::var;
+#[cfg(target_os = "windows")]
+use std::env::var_os;
 use std::fs::{read, read_dir};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -162,13 +166,13 @@ fn find_by_filename(family: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
     best.map(|(_, p)| p)
 }
 
-fn load_font_file(path: &Path) -> Option<fontdue::Font> {
+fn load_font_file(path: &Path) -> Option<Font> {
     let data = read(path).ok()?;
-    fontdue::Font::from_bytes(
+    Font::from_bytes(
         data,
-        fontdue::FontSettings {
+        FontSettings {
             collection_index: 0,
-            ..fontdue::FontSettings::default()
+            ..FontSettings::default()
         },
     )
     .ok()
@@ -176,7 +180,7 @@ fn load_font_file(path: &Path) -> Option<fontdue::Font> {
 
 pub struct FontDbTextRasterizer {
     dirs: Vec<PathBuf>,
-    font_cache: Mutex<LruCache<FontKey, Arc<fontdue::Font>>>,
+    font_cache: Mutex<LruCache<FontKey, Arc<Font>>>,
     subpixel_cache: Mutex<LruCache<GlyphKey, Arc<SubpixelGlyph>>>,
 }
 
@@ -189,19 +193,19 @@ impl FontDbTextRasterizer {
         }
     }
 
-    fn resolve_font(&self, font: FontRef) -> AureaResult<Arc<fontdue::Font>> {
+    fn resolve_font(&self, font: FontRef) -> AureaResult<Arc<Font>> {
         let key = FontKey::from_font(font);
 
-        if let Some(hit) = aurea_foundation::lock(&self.font_cache).get(&key).cloned() {
+        if let Some(hit) = lock(&self.font_cache).get(&key).cloned() {
             return Ok(hit);
         }
 
         let loaded = self.load_for_key(font)?;
-        aurea_foundation::lock(&self.font_cache).insert(key, loaded.clone());
+        lock(&self.font_cache).insert(key, loaded.clone());
         Ok(loaded)
     }
 
-    fn load_for_key(&self, font: FontRef) -> AureaResult<Arc<fontdue::Font>> {
+    fn load_for_key(&self, font: FontRef) -> AureaResult<Arc<Font>> {
         if !font.family.is_empty()
             && let Some(path) = find_by_filename(font.family, &self.dirs)
             && let Some(f) = load_font_file(&path)
@@ -216,11 +220,11 @@ impl FontDbTextRasterizer {
         }
 
         static EMBEDDED: &[u8] = include_bytes!("../../fonts/Tuffy.ttf");
-        if let Ok(f) = fontdue::Font::from_bytes(
+        if let Ok(f) = Font::from_bytes(
             EMBEDDED,
-            fontdue::FontSettings {
+            FontSettings {
                 collection_index: 0,
-                ..fontdue::FontSettings::default()
+                ..FontSettings::default()
             },
         ) {
             return Ok(Arc::new(f));
@@ -242,8 +246,8 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
         let ch = char::from_u32(char_code).unwrap_or('\u{FFFD}');
         let (m, bmp) = fnt.rasterize(ch, font.size);
 
-        let width = m.width as u32;
-        let height = m.height as u32;
+        let width = u32::try_from(m.width).expect("glyph width fits in u32");
+        let height = u32::try_from(m.height).expect("glyph height fits in u32");
         let mut data = vec![0u8; (width * height * 4) as usize];
         for (i, alpha) in bmp.iter().copied().enumerate() {
             let base = i * 4;
@@ -267,7 +271,7 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
 
     fn rasterize_subpixel(&self, font: FontRef, char_code: u32) -> AureaResult<Arc<SubpixelGlyph>> {
         let key = GlyphKey::new(font, char_code);
-        if let Some(hit) = aurea_foundation::lock(&self.subpixel_cache)
+        if let Some(hit) = lock(&self.subpixel_cache)
             .get(&key)
             .cloned()
         {
@@ -278,8 +282,8 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
         let ch = char::from_u32(char_code).unwrap_or('\u{FFFD}');
 
         let (m, bmp) = fnt.rasterize(ch, font.size * 3.0);
-        let w3 = m.width as i32;
-        let h3 = m.height as i32;
+        let w3 = i32::try_from(m.width).expect("glyph width fits in i32");
+        let h3 = i32::try_from(m.height).expect("glyph height fits in i32");
 
         let glyph = if w3 <= 0 || h3 <= 0 {
             SubpixelGlyph {
@@ -291,16 +295,16 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
                 coverage: Vec::new(),
             }
         } else {
-            let dev_w = ((w3 + 2) / 3).max(1) as usize;
-            let dev_h = ((h3 + 2) / 3).max(1) as usize;
+            let dev_w = ((w3 + 2) / 3).max(1).cast_unsigned() as usize;
+            let dev_h = ((h3 + 2) / 3).max(1).cast_unsigned() as usize;
             let sub_w = dev_w * 3;
             let mut acc = vec![0f32; sub_w * dev_h];
             for sy in 0..h3 {
-                let g_row = (sy * w3) as usize;
-                let dev_row = (sy / 3) as usize;
+                let g_row = (sy * w3).cast_unsigned() as usize;
+                let dev_row = (sy / 3).cast_unsigned() as usize;
                 for sx in 0..w3 {
-                    acc[dev_row * sub_w + sx as usize] +=
-                        bmp[g_row + sx as usize] as f32 / (255.0 * 3.0);
+                    acc[dev_row * sub_w + sx.cast_unsigned() as usize] +=
+                        f32::from(bmp[g_row + sx.cast_unsigned() as usize]) / (255.0 * 3.0);
                 }
             }
             for v in acc.iter_mut() {
@@ -322,29 +326,29 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
                         .enumerate()
                         .map(|(k, w)| {
                             let xi = x as isize + k as isize - 2;
-                            if xi >= 0 && (xi as usize) < sub_w {
-                                acc[row + xi as usize] * w
+                            if xi >= 0 && xi.cast_unsigned() < sub_w {
+                                acc[row + xi.cast_unsigned()] * w
                             } else {
                                 0.0
                             }
                         })
                         .sum();
-                    coverage[y * sub_w + x] = (s * 255.0).round().clamp(0.0, 255.0) as u8;
+                    coverage[y * sub_w + x] = f32_to_u8_clamped((s * 255.0).round());
                 }
             }
 
             SubpixelGlyph {
-                width: dev_w as u32,
-                height: dev_h as u32,
-                left: (m.xmin as f32 / 3.0).round() as i32,
-                top: -(((h3 + m.ymin) as f32) / 3.0).round() as i32,
+                width: u32::try_from(dev_w).expect("glyph width fits in u32"),
+                height: u32::try_from(dev_h).expect("glyph height fits in u32"),
+                left: f32_to_i32_clamped((m.xmin as f32 / 3.0).round()),
+                top: -f32_to_i32_clamped(((h3 + m.ymin) as f32 / 3.0).round()),
                 advance: m.advance_width / 3.0,
                 coverage,
             }
         };
 
         let g = Arc::new(glyph);
-        aurea_foundation::lock(&self.subpixel_cache).insert(key, g.clone());
+        lock(&self.subpixel_cache).insert(key, g.clone());
         Ok(g)
     }
 

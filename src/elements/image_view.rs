@@ -60,7 +60,11 @@ impl ImageView {
 
     pub fn load_from_data(&mut self, data: &[u8]) -> AureaResult<()> {
         let result = unsafe {
-            ng_platform_image_view_load_from_data(self.handle, data.as_ptr(), data.len() as u32)
+            ng_platform_image_view_load_from_data(
+                self.handle,
+                data.as_ptr(),
+                u32::try_from(data.len()).expect("image data fits in u32"),
+            )
         };
 
         if result != 0 {

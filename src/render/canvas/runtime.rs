@@ -1,8 +1,20 @@
-use super::*;
+use crate::ffi::*;
+use crate::render::canvas::{ensure_canvas_renderer, Canvas, CanvasState};
 use crate::render::{Surface, SurfaceInfo};
+use crate::view::FrameScheduler;
+use crate::{AureaError, AureaResult};
+use aurea_render::{CURRENT_BUFFER, Renderer, RendererBackend};
+use std::os::raw::c_void;
+use std::sync::{Arc, Mutex};
 use crate::sync::lock;
 use aurea_render::Rect;
 use std::ptr::{copy_nonoverlapping, null_mut};
+
+fn f32_to_usize_clamped(v: f32) -> usize {
+    let v = v.clamp(0.0, 16_777_216.0);
+    // SAFETY: v is clamped to a non-negative, exactly-representable range above.
+    unsafe { v.to_int_unchecked() }
+}
 
 fn union_opt_rects(a: Option<Rect>, b: Option<Rect>) -> Option<Rect> {
     match (a, b) {
@@ -32,7 +44,13 @@ unsafe fn publish_cpu_buffer(
 
     if dst.is_null() {
         unsafe {
-            ng_platform_canvas_update_buffer(handle, ptr, size as u32, w, h);
+            ng_platform_canvas_update_buffer(
+                handle,
+                ptr,
+                u32::try_from(size).expect("buffer size fits in u32"),
+                w,
+                h,
+            );
             match refresh {
                 Some(r) => {
                     ng_platform_canvas_invalidate_rect(handle, r.x, r.y, r.width, r.height);
@@ -63,8 +81,8 @@ unsafe fn publish_cpu_buffer(
                 }
             }
             Some(r) => {
-                let y0 = r.y.floor().max(0.0) as usize;
-                let y1 = (r.y + r.height).ceil().min(h as f32) as usize;
+                let y0 = f32_to_usize_clamped(r.y.floor().max(0.0));
+                let y1 = f32_to_usize_clamped((r.y + r.height).ceil().min(h as f32));
                 for y in y0..y1 {
                     copy_nonoverlapping(
                         src.add(y * w as usize),
