@@ -8,10 +8,8 @@
 #import <Cocoa/Cocoa.h>
 #import <CoreFoundation/CoreFoundation.h>
 #import <CoreVideo/CoreVideo.h>
+#import <QuartzCore/QuartzCore.h>
 static BOOL app_initialized = FALSE;
-
-static CVDisplayLinkRef s_display_link = NULL;
-static volatile BOOL s_link_running = NO;
 
 @interface AppDelegate : NSObject <NSApplicationDelegate>
 @end
@@ -24,7 +22,29 @@ static volatile BOOL s_link_running = NO;
 
 static AppDelegate* app_delegate = nil;
 
-static CVReturn display_link_callback(
+API_AVAILABLE(macos(14.0))
+@interface NgDisplayLinkProxy : NSObject
+@end
+
+API_AVAILABLE(macos(14.0))
+@implementation NgDisplayLinkProxy
+- (void)onDisplayLink:(CADisplayLink*)link {
+    (void)link;
+    ng_process_frames();
+}
+@end
+
+static CADisplayLink* s_display_link API_AVAILABLE(macos(14.0)) = nil;
+static NgDisplayLinkProxy* s_display_link_proxy API_AVAILABLE(macos(14.0)) = nil;
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+
+static CVDisplayLinkRef s_cv_display_link = NULL;
+static volatile BOOL s_cv_link_running = NO;
+static BOOL s_using_legacy = NO;
+
+static CVReturn legacy_display_link_callback(
     CVDisplayLinkRef link,
     const CVTimeStamp* now,
     const CVTimeStamp* output,
@@ -44,6 +64,40 @@ static CVReturn display_link_callback(
     return kCVReturnSuccess;
 }
 
+static void legacy_display_link_init(void) {
+    s_using_legacy = YES;
+    CVDisplayLinkCreateWithActiveCGDisplays(&s_cv_display_link);
+    if (s_cv_display_link) {
+        CVDisplayLinkSetOutputCallback(s_cv_display_link, legacy_display_link_callback, NULL);
+    }
+}
+
+static void legacy_display_link_cleanup(void) {
+    if (s_cv_display_link) {
+        if (s_cv_link_running) {
+            CVDisplayLinkStop(s_cv_display_link);
+            s_cv_link_running = NO;
+        }
+        CVDisplayLinkRelease(s_cv_display_link);
+        s_cv_display_link = NULL;
+    }
+}
+
+static void legacy_display_link_request_frame(void) {
+    if (s_cv_display_link && !s_cv_link_running) {
+        CVDisplayLinkStart(s_cv_display_link);
+        s_cv_link_running = YES;
+    }
+}
+
+static void legacy_display_link_frame_idle(void) {
+    if (s_cv_display_link && s_cv_link_running) {
+        CVDisplayLinkStop(s_cv_display_link);
+        s_cv_link_running = NO;
+    }
+}
+#pragma clang diagnostic pop
+
 int ng_macos_init(void) {
     if (!app_initialized) {
         [NSApplication sharedApplication];
@@ -55,9 +109,17 @@ int ng_macos_init(void) {
         [NSApp finishLaunching];
         [NSApp activateIgnoringOtherApps:YES];
 
-        CVDisplayLinkCreateWithActiveCGDisplays(&s_display_link);
-        if (s_display_link) {
-            CVDisplayLinkSetOutputCallback(s_display_link, display_link_callback, NULL);
+        if (@available(macOS 14.0, *)) {
+            s_display_link_proxy = [[NgDisplayLinkProxy alloc] init];
+            NSScreen* screen = [NSScreen mainScreen];
+            if (screen) {
+                s_display_link = [screen displayLinkWithTarget:s_display_link_proxy
+                                                        selector:@selector(onDisplayLink:)];
+                s_display_link.paused = YES;
+                [s_display_link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+            }
+        } else {
+            legacy_display_link_init();
         }
 
         app_initialized = TRUE;
@@ -67,29 +129,36 @@ int ng_macos_init(void) {
 
 void ng_macos_cleanup(void) {
     if (app_initialized) {
-        if (s_display_link) {
-            if (s_link_running) {
-                CVDisplayLinkStop(s_display_link);
-                s_link_running = NO;
+        if (s_using_legacy) {
+            legacy_display_link_cleanup();
+        } else if (@available(macOS 14.0, *)) {
+            if (s_display_link) {
+                [s_display_link invalidate];
+                s_display_link = nil;
             }
-            CVDisplayLinkRelease(s_display_link);
-            s_display_link = NULL;
+            s_display_link_proxy = nil;
         }
         app_initialized = FALSE;
     }
 }
 
 void ng_macos_request_frame(void) {
-    if (s_display_link && !s_link_running) {
-        CVDisplayLinkStart(s_display_link);
-        s_link_running = YES;
+    if (s_using_legacy) {
+        legacy_display_link_request_frame();
+    } else if (@available(macOS 14.0, *)) {
+        if (s_display_link) {
+            s_display_link.paused = NO;
+        }
     }
 }
 
 void ng_macos_frame_idle(void) {
-    if (s_display_link && s_link_running) {
-        CVDisplayLinkStop(s_display_link);
-        s_link_running = NO;
+    if (s_using_legacy) {
+        legacy_display_link_frame_idle();
+    } else if (@available(macOS 14.0, *)) {
+        if (s_display_link) {
+            s_display_link.paused = YES;
+        }
     }
 }
 
