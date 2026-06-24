@@ -2,7 +2,7 @@
 
 use aurea::elements::{Box, BoxOrientation, Button, Container, Label};
 use aurea::logger;
-use aurea::{AureaResult, Window, WindowManager, WindowType};
+use aurea::{AureaResult, Window, WindowEvent, WindowManager, WindowType};
 use log::LevelFilter;
 use std::ffi::c_void;
 use std::sync::Arc;
@@ -39,7 +39,7 @@ fn main() -> AureaResult<()> {
     loop {
         let main_events = main_window_arc.poll_events();
         for event in main_events {
-            if let aurea::WindowEvent::CloseRequested = event {
+            if let WindowEvent::CloseRequested = event {
                 println!("Main window close requested - exiting");
                 return Ok(());
             }
@@ -47,7 +47,7 @@ fn main() -> AureaResult<()> {
 
         let popup_events = popup_arc.poll_events();
         for event in popup_events {
-            if let aurea::WindowEvent::CloseRequested = event {
+            if let WindowEvent::CloseRequested = event {
                 println!("Popup close requested - hiding");
                 popup_arc.hide();
             }
@@ -55,7 +55,7 @@ fn main() -> AureaResult<()> {
 
         let tool_events = tool_arc.poll_events();
         for event in tool_events {
-            if let aurea::WindowEvent::CloseRequested = event {
+            if let WindowEvent::CloseRequested = event {
                 println!("Tool window close requested - hiding");
                 tool_arc.hide();
             }

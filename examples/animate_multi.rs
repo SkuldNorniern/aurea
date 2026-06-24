@@ -10,6 +10,18 @@ use aurea_animation::{Animation, EaseMode};
 const W: u32 = 700;
 const H: u32 = 500;
 
+fn pct_to_u32(t: f32) -> u32 {
+    let t = (t * 100.0).clamp(0.0, 100.0);
+    // SAFETY: t is clamped to u32's range above.
+    unsafe { t.to_int_unchecked() }
+}
+
+fn unit_to_u8(t: f32) -> u8 {
+    let t = (t * 255.0).clamp(0.0, 255.0);
+    // SAFETY: t is clamped to u8's range above.
+    unsafe { t.to_int_unchecked() }
+}
+
 fn main() -> AureaResult<()> {
     let mut window = Window::new("Animate — Multiple Simultaneous", W as i32, H as i32)?;
 
@@ -55,7 +67,7 @@ fn main() -> AureaResult<()> {
         if circle_waited < circle_delay {
             circle_waited += delta;
         } else if let Some(t) = circle_anim.tick(delta) {
-            circle_alpha = (t * 255.0) as u8;
+            circle_alpha = unit_to_u8(t);
             circle_scale = t;
         }
 
@@ -116,7 +128,7 @@ fn main() -> AureaResult<()> {
                 .stroke_width(1.0);
             ctx.draw_rect(Rect::new(bar_x, bar_y, bar_w, bar_h), &border)?;
 
-            let pct = format!("{}% (InOutQuad, looping)", (bar_fill * 100.0) as u32);
+            let pct = format!("{}% (InOutQuad, looping)", pct_to_u32(bar_fill));
             let bar_label = Paint::new()
                 .color(Color::rgb(60, 60, 60))
                 .style(PaintStyle::Fill);

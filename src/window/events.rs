@@ -67,13 +67,14 @@ mod tests {
         });
         let out = queue.pop_all();
         assert_eq!(out.len(), 1);
-        match &out[0] {
-            WindowEvent::KeyInput { key, pressed, .. } => {
-                assert_eq!(*key, KeyCode::A);
-                assert!(*pressed);
+        assert!(matches!(
+            &out[0],
+            WindowEvent::KeyInput {
+                key: KeyCode::A,
+                pressed: true,
+                ..
             }
-            _ => panic!("expected KeyInput"),
-        }
+        ));
     }
 
     #[test]
@@ -103,7 +104,7 @@ mod tests {
                 assert_eq!((*x, *y), (10.0, 20.0));
                 assert_eq!(*click_count, 1);
             }
-            _ => panic!("expected MouseButton"),
+            _ => unreachable!("just pushed a MouseButton event"),
         }
     }
 
@@ -124,7 +125,7 @@ mod tests {
                 assert_eq!(*delta_x, 1.0);
                 assert_eq!(*delta_y, -2.0);
             }
-            _ => panic!("expected MouseWheel"),
+            _ => unreachable!("just pushed a MouseWheel event"),
         }
     }
 
@@ -138,7 +139,7 @@ mod tests {
         assert_eq!(out.len(), 1);
         match &out[0] {
             WindowEvent::TextInput { text } => assert_eq!(text, "hello"),
-            _ => panic!("expected TextInput"),
+            _ => unreachable!("just pushed a TextInput event"),
         }
     }
 
@@ -162,13 +163,13 @@ mod tests {
         });
         let out = queue.pop_all();
         assert_eq!(out.len(), 1);
-        match &out[0] {
-            WindowEvent::Resized { width, height } => {
-                assert_eq!(*width, 800);
-                assert_eq!(*height, 600);
+        assert!(matches!(
+            &out[0],
+            WindowEvent::Resized {
+                width: 800,
+                height: 600
             }
-            _ => panic!("expected Resized"),
-        }
+        ));
     }
 
     #[test]
@@ -179,7 +180,7 @@ mod tests {
         assert_eq!(out.len(), 1);
         match &out[0] {
             WindowEvent::ScaleFactorChanged { scale_factor } => assert_eq!(*scale_factor, 2.0),
-            _ => panic!("expected ScaleFactorChanged"),
+            _ => unreachable!("just pushed a ScaleFactorChanged event"),
         }
     }
 }

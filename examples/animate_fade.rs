@@ -10,6 +10,18 @@ use aurea_animation::{Animation, EaseMode};
 const W: u32 = 640;
 const H: u32 = 480;
 
+fn unit_to_u8(t: f32) -> u8 {
+    let t = (t * 255.0).clamp(0.0, 255.0);
+    // SAFETY: t is clamped to u8's range above.
+    unsafe { t.to_int_unchecked() }
+}
+
+fn unit_to_pct(t: f32) -> u32 {
+    let t = (t * 100.0).clamp(0.0, 100.0);
+    // SAFETY: t is clamped to u32's range above.
+    unsafe { t.to_int_unchecked() }
+}
+
 fn main() -> AureaResult<()> {
     let mut window = Window::new("Animate — Fade In", W as i32, H as i32)?;
 
@@ -48,7 +60,7 @@ fn main() -> AureaResult<()> {
                 &label_paint,
             )?;
 
-            let a = (alpha * 255.0) as u8;
+            let a = unit_to_u8(alpha);
             let panel = Paint::new()
                 .color(Color::rgba(80, 140, 220, a))
                 .style(PaintStyle::Fill);
@@ -60,7 +72,7 @@ fn main() -> AureaResult<()> {
                 .stroke_width(1.5);
             ctx.draw_rect(Rect::new(100.0, 80.0, 440.0, 300.0), &border)?;
 
-            let pct = (alpha * 100.0) as u32;
+            let pct = unit_to_pct(alpha);
             let pct_str = format!("{}%", pct);
             let pct_paint = Paint::new()
                 .color(Color::rgb(220, 220, 220))
