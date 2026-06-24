@@ -22,6 +22,9 @@
     int _ioBackIndex;
     unsigned int _ioSurfWidth;
     unsigned int _ioSurfHeight;
+    // Last contentsScale written to layer; skip the property assignment
+    // (an ObjC message send + CA transaction) when nothing changed.
+    CGFloat _lastContentsScale;
 }
 // Raw pointer into Rust's frame_buffer.  Never freed here — Rust owns it.
 // Safe: everything runs on the main thread; ng_macos_canvas_update_buffer
@@ -96,6 +99,11 @@ NGHandle ng_macos_create_canvas(int width, int height) {
         canvasView.cachedWidth  = (unsigned int)width;
         canvasView.cachedHeight = (unsigned int)height;
         canvasView.gpuOwned = NO;
+        canvasView->_lastContentsScale = 0.0;
+        // The CPU rasterizer writes every pixel in the framebuffer, so the canvas
+        // layer never has transparent regions — marking it opaque lets CA skip the
+        // per-pixel alpha-blend compositing step for this layer.
+        canvasView.layer.opaque = YES;
         [canvasView setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
         [canvasView setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationVertical];
         [canvasView setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
@@ -165,7 +173,11 @@ void ng_macos_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer,
 
     view.layer.contents = (__bridge id)image;
     CGFloat boundsWidth = view.bounds.size.width;
-    view.layer.contentsScale = (boundsWidth > 0.0) ? (CGFloat)width / boundsWidth : 1.0;
+    CGFloat newScale = (boundsWidth > 0.0) ? (CGFloat)width / boundsWidth : 1.0;
+    if (newScale != view->_lastContentsScale) {
+        view.layer.contentsScale = newScale;
+        view->_lastContentsScale = newScale;
+    }
     CGImageRelease(image);
 }
 
@@ -229,7 +241,11 @@ void ng_macos_canvas_present(NGHandle canvas) {
 
     view.layer.contents = (__bridge id)back;
     CGFloat boundsWidth = view.bounds.size.width;
-    view.layer.contentsScale = (boundsWidth > 0.0) ? (CGFloat)view->_ioSurfWidth / boundsWidth : 1.0;
+    CGFloat newScale = (boundsWidth > 0.0) ? (CGFloat)view->_ioSurfWidth / boundsWidth : 1.0;
+    if (newScale != view->_lastContentsScale) {
+        view.layer.contentsScale = newScale;
+        view->_lastContentsScale = newScale;
+    }
 
     view->_ioBackIndex = 1 - view->_ioBackIndex;
 }

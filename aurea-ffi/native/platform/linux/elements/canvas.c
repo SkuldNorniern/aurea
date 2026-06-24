@@ -32,17 +32,24 @@ static gboolean ng_linux_canvas_draw(GtkWidget* widget, cairo_t* cr, gpointer us
             (int)data->width * 4);
 
         if (cairo_surface_status(surface) == CAIRO_STATUS_SUCCESS) {
-            double scale_x = 1.0;
-            double scale_y = 1.0;
-            if (allocation.width > 0 && allocation.height > 0) {
-                scale_x = (double)allocation.width / (double)data->width;
-                scale_y = (double)allocation.height / (double)data->height;
-            }
-
             cairo_save(cr);
-            cairo_scale(cr, scale_x, scale_y);
-            cairo_set_source_surface(cr, surface, 0, 0);
-            cairo_paint(cr);
+            if (allocation.width == (int)data->width &&
+                allocation.height == (int)data->height) {
+                // 1:1 path: no scaling. GTK has already clipped `cr` to the
+                // queued dirty region, so cairo_paint only touches those pixels.
+                cairo_set_source_surface(cr, surface, 0, 0);
+                // Nearest-neighbour: no bilinear resampling when no scaling.
+                cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_NEAREST);
+                cairo_paint(cr);
+            } else {
+                // Scaled path: apply the mapping and blit the full surface.
+                // GTK's clip still limits the actual pixel work to the dirty region.
+                double scale_x = (allocation.width  > 0) ? (double)allocation.width  / (double)data->width  : 1.0;
+                double scale_y = (allocation.height > 0) ? (double)allocation.height / (double)data->height : 1.0;
+                cairo_scale(cr, scale_x, scale_y);
+                cairo_set_source_surface(cr, surface, 0, 0);
+                cairo_paint(cr);
+            }
             cairo_restore(cr);
         }
 

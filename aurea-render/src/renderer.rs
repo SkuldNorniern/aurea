@@ -141,6 +141,14 @@ pub trait Renderer: Send + Sync {
     fn display_list(&self) -> Option<&DisplayList> {
         None
     }
+
+    /// Physical-pixel rect that was repainted by the last `end_frame` call.
+    /// `None` means the whole frame was repainted (or unknown). Used by the
+    /// platform layer to compute how much of the IOSurface double-buffer needs
+    /// refreshing; defaults to `None` for renderers that don't track tile damage.
+    fn last_frame_damage(&self) -> Option<Rect> {
+        None
+    }
 }
 
 static PLACEHOLDER_TEXT_RENDERER: LazyLock<TextRenderer> = LazyLock::new(TextRenderer::new);

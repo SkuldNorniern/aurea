@@ -57,6 +57,60 @@ pub fn linear_to_srgb_u8(c: f32) -> u32 {
     LINEAR_TO_SRGB[idx] as u32
 }
 
+/// Precomputed linear-light source channels for a constant-color span.
+///
+/// When a draw call fills a span with the same source color for many pixels,
+/// computing the linear source channels once per span (instead of once per
+/// pixel inside `blend_over`) saves 3 LUT lookups per pixel.
+///
+/// Only worth using for `BlendMode::Normal` with `sa < 255`; for the opaque
+/// fast path (`sa == 255`) callers already skip blending entirely.
+#[derive(Clone, Copy)]
+pub struct ConstSrc {
+    pub sa: u32,
+    pub da_scale: f32, // (255 - sa) / 255 — constant for alpha composition
+    pub lr: f32,       // srgb_to_linear(src.r)
+    pub lg: f32,       // srgb_to_linear(src.g)
+    pub lb: f32,       // srgb_to_linear(src.b)
+    pub cov: f32,      // sa as f32 / 255.0
+}
+
+impl ConstSrc {
+    #[inline]
+    pub fn new(src: u32) -> Self {
+        let sa = sa(src);
+        let cov = sa as f32 / 255.0;
+        Self {
+            sa,
+            da_scale: (255 - sa) as f32 / 255.0,
+            lr: srgb_to_linear(sr(src) as u8),
+            lg: srgb_to_linear(sg(src) as u8),
+            lb: srgb_to_linear(sb(src) as u8),
+            cov,
+        }
+    }
+
+    /// Composite this constant source onto a single destination pixel.
+    /// Equivalent to `blend_over(src, dst)` but skips the per-pixel source
+    /// `srgb_to_linear` calls.
+    #[inline]
+    pub fn over(self, dst: u32) -> u32 {
+        if self.sa == 0 {
+            return dst;
+        }
+        let da = da(dst);
+        let out_a = self.sa + ((255 - self.sa) * da) / 255;
+        if out_a == 0 {
+            return 0;
+        }
+        let inv = 1.0 - self.cov;
+        let out_r = linear_to_srgb_u8(self.lr * self.cov + srgb_to_linear(dr(dst) as u8) * inv);
+        let out_g = linear_to_srgb_u8(self.lg * self.cov + srgb_to_linear(dg(dst) as u8) * inv);
+        let out_b = linear_to_srgb_u8(self.lb * self.cov + srgb_to_linear(db(dst) as u8) * inv);
+        (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b
+    }
+}
+
 /// Composites a source pixel onto a destination pixel using the given blend mode.
 /// Returns the resulting color as RGBA u32.
 pub fn blend_pixel(src: u32, dst: u32, mode: BlendMode) -> u32 {
