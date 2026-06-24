@@ -6,6 +6,8 @@
 //! (safe: everything runs on the main thread, the pointer is updated before
 //! each `setNeedsDisplay`).
 
+use std::cmp::Ordering as CmpOrdering;
+
 use super::super::command::DrawCommand;
 use super::super::display_list::{CacheKey, DisplayList};
 use super::super::renderer::{DrawingContext, Renderer};
@@ -17,7 +19,7 @@ use super::super::types::{
 use super::blend::{blend_pixel, linear_to_srgb_u8, srgb_to_linear};
 use super::context::CpuDrawingContext;
 use super::path::{Edge, tessellate_path_into};
-use super::scanline::fill_scanline;
+use super::scanline::fill_spans;
 use aurea_foundation::AureaResult;
 
 /// Side length of a tile in physical pixels. See plan.md P6-A stage 3.
@@ -59,6 +61,8 @@ pub struct CpuRasterizer {
     scratch_xs: Vec<f32>,
     /// Reused by the 1:1 `draw_image` blit to avoid a `Vec` allocation per row.
     scratch_row: Vec<u32>,
+    /// Active-edge indices for the AET path fill; reused to avoid per-path allocs.
+    scratch_active: Vec<usize>,
 }
 
 impl CpuRasterizer {
@@ -77,6 +81,7 @@ impl CpuRasterizer {
             scratch_edges: Vec::new(),
             scratch_xs: Vec::new(),
             scratch_row: Vec::new(),
+            scratch_active: Vec::new(),
         }
     }
 
@@ -130,6 +135,7 @@ impl CpuRasterizer {
         scratch_edges: &mut Vec<Edge>,
         scratch_xs: &mut Vec<f32>,
         scratch_row: &mut Vec<u32>,
+        scratch_active: &mut Vec<usize>,
         bw: u32,
         bh: u32,
     ) -> AureaResult<()> {
@@ -149,6 +155,7 @@ impl CpuRasterizer {
                     buf,
                     scratch_edges,
                     scratch_xs,
+                    scratch_active,
                     bw,
                     bh,
                 )?;
@@ -416,6 +423,7 @@ impl CpuRasterizer {
         buf: &mut [u32],
         scratch_edges: &mut Vec<Edge>,
         scratch_xs: &mut Vec<f32>,
+        scratch_active: &mut Vec<usize>,
         bw: u32,
         bh: u32,
     ) -> AureaResult<()> {
@@ -424,10 +432,11 @@ impl CpuRasterizer {
             return Ok(());
         }
 
-        let y_min = scratch_edges
-            .iter()
-            .map(|e| e.y_min)
-            .fold(f32::MAX, f32::min);
+        // Sort edges by y_min once so the sweep only looks at each edge when
+        // it first becomes active — O(E·log E + A·rows) instead of O(E·rows).
+        scratch_edges.sort_unstable_by(|a, b| a.y_min.partial_cmp(&b.y_min).unwrap_or(CmpOrdering::Equal));
+
+        let y_min = scratch_edges[0].y_min;
         let y_max = scratch_edges
             .iter()
             .map(|e| e.y_max)
@@ -435,19 +444,34 @@ impl CpuRasterizer {
         let y_start = y_min.max(0.0).ceil() as u32;
         let y_end = y_max.min(bh as f32).ceil() as u32;
 
+        scratch_active.clear();
+        let mut enter_idx = 0usize;
+
         for y in y_start..y_end {
-            fill_scanline(
-                scratch_edges,
-                y as f32,
-                buf,
-                bw,
-                bh,
-                0,
-                0,
-                paint.color,
-                mode,
-                scratch_xs,
-            );
+            let yf = y as f32;
+
+            // Admit newly-active edges (all with y_min <= yf, in sorted order).
+            while enter_idx < scratch_edges.len() && scratch_edges[enter_idx].y_min <= yf {
+                scratch_active.push(enter_idx);
+                enter_idx += 1;
+            }
+
+            // Retire edges whose y_max <= yf (they no longer cross this scanline).
+            scratch_active.retain(|&i| scratch_edges[i].y_max > yf);
+
+            if scratch_active.is_empty() {
+                continue;
+            }
+
+            // Gather x crossings from the active set only, then sort and fill.
+            scratch_xs.clear();
+            for &i in scratch_active.iter() {
+                scratch_xs.push(scratch_edges[i].x_at_y(yf));
+            }
+            scratch_xs.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(CmpOrdering::Equal));
+
+            let row_base = y as usize * bw as usize;
+            fill_spans(scratch_xs, row_base, buf, bw, 0, paint.color, mode);
         }
         Ok(())
     }
@@ -1054,6 +1078,7 @@ impl Renderer for CpuRasterizer {
                 &mut self.scratch_edges,
                 &mut self.scratch_xs,
                 &mut self.scratch_row,
+                &mut self.scratch_active,
                 bw,
                 bh,
             )?;

@@ -6,48 +6,28 @@ use super::super::types::{BlendMode, Color};
 use super::blend::blend_pixel;
 use super::path::Edge;
 
-/// Fill one scanline into a flat RGBA buffer (odd-even winding rule).
-/// `offset_x/y` allow clipping to a sub-region (pass 0,0 for the full buffer).
-/// `scratch_xs` is reused across calls to avoid a `Vec` allocation per scanline.
+/// Fill sorted x-crossing pairs into a scanline row (odd-even rule).
+///
+/// `xs` must already be sorted ascending. Called by both `fill_scanline`
+/// (which gathers crossings from the full edge list) and the AET path in
+/// `draw_path` (which maintains a pre-filtered active set).
 #[allow(clippy::too_many_arguments)]
-pub fn fill_scanline(
-    edges: &[Edge],
-    y: f32,
+pub fn fill_spans(
+    xs: &[f32],
+    row_base: usize,
     buf: &mut [u32],
     buf_width: u32,
-    buf_height: u32,
     offset_x: u32,
-    offset_y: u32,
     color: Color,
     blend_mode: BlendMode,
-    scratch_xs: &mut Vec<f32>,
 ) {
-    scratch_xs.clear();
-    scratch_xs.extend(
-        edges
-            .iter()
-            .filter(|e| y >= e.y_min && y < e.y_max)
-            .map(|e| e.x_at_y(y)),
-    );
-
-    if scratch_xs.is_empty() {
+    if xs.is_empty() {
         return;
     }
-    scratch_xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
-
-    let row_y = y as u32;
-    let buf_y = row_y.saturating_sub(offset_y);
-    if buf_y >= buf_height {
-        return;
-    }
-    let row_base = buf_y as usize * buf_width as usize;
 
     let clip_l = offset_x as f32;
     let clip_r = (offset_x + buf_width) as f32;
 
-    // Fully-covered pixels (the common case for the interior of a filled
-    // span) skip the per-pixel coverage math entirely; opaque+Normal spans
-    // go through `fill()` instead of a per-pixel blend.
     let opaque_fast = blend_mode == BlendMode::Normal && color.a == 255;
     let full_src = color_u32_cov(color, 1.0);
 
@@ -71,12 +51,12 @@ pub fn fill_scanline(
         buf[idx] = blend_pixel(src, buf[idx], blend_mode);
     };
 
-    for i in (0..scratch_xs.len()).step_by(2) {
-        if i + 1 >= scratch_xs.len() {
+    for i in (0..xs.len()).step_by(2) {
+        if i + 1 >= xs.len() {
             break;
         }
-        let sl = scratch_xs[i].max(clip_l);
-        let sr = scratch_xs[i + 1].min(clip_r);
+        let sl = xs[i].max(clip_l);
+        let sr = xs[i + 1].min(clip_r);
         if sl >= sr {
             continue;
         }
@@ -112,6 +92,50 @@ pub fn fill_scanline(
             }
         }
     }
+}
+
+/// Fill one scanline into a flat RGBA buffer (odd-even winding rule).
+///
+/// Scans the full edge list for crossings at `y` — O(edges) per call. For
+/// single-call use in tests or simple paths; the hot path in `draw_path` uses
+/// the active-edge table variant instead.
+///
+/// `offset_x/y` allow clipping to a sub-region (pass 0,0 for the full buffer).
+/// `scratch_xs` is reused across calls to avoid a `Vec` allocation per scanline.
+#[allow(clippy::too_many_arguments)]
+pub fn fill_scanline(
+    edges: &[Edge],
+    y: f32,
+    buf: &mut [u32],
+    buf_width: u32,
+    buf_height: u32,
+    offset_x: u32,
+    offset_y: u32,
+    color: Color,
+    blend_mode: BlendMode,
+    scratch_xs: &mut Vec<f32>,
+) {
+    scratch_xs.clear();
+    scratch_xs.extend(
+        edges
+            .iter()
+            .filter(|e| y >= e.y_min && y < e.y_max)
+            .map(|e| e.x_at_y(y)),
+    );
+
+    if scratch_xs.is_empty() {
+        return;
+    }
+    scratch_xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+
+    let row_y = y as u32;
+    let buf_y = row_y.saturating_sub(offset_y);
+    if buf_y >= buf_height {
+        return;
+    }
+    let row_base = buf_y as usize * buf_width as usize;
+
+    fill_spans(scratch_xs, row_base, buf, buf_width, offset_x, color, blend_mode);
 }
 
 fn color_u32_cov(c: Color, cov: f32) -> u32 {
