@@ -2,11 +2,15 @@
 
 use super::traits::Element;
 use crate::render::Rect;
+#[cfg(not(target_os = "macos"))]
+use crate::sync::lock;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::{
     ffi::{CStr, CString},
     os::raw::c_void,
 };
+#[cfg(not(target_os = "macos"))]
+use std::sync::{LazyLock, Mutex};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TextFieldKind {
@@ -155,6 +159,7 @@ mod tests {
         }
 
         #[cfg(target_os = "macos")]
-        {}
+        {
+        }
     }
 }

@@ -82,6 +82,8 @@ use std::{
         atomic::{AtomicUsize, Ordering},
     },
 };
+#[cfg(target_os = "windows")]
+use std::result::Result as StdResult;
 
 static WINDOW_COUNT: AtomicUsize = AtomicUsize::new(0);
 
