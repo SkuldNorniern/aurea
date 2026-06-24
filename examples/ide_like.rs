@@ -15,7 +15,7 @@ use aurea::elements::{
 use aurea::ffi::{ng_platform_poll_events, ng_platform_window_request_close};
 use aurea::logger;
 use aurea::render::Rect;
-use aurea::{AureaResult, Window, WindowManager, WindowType};
+use aurea::{AureaResult, Window, WindowEvent, WindowManager, WindowType};
 use log::LevelFilter;
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -138,11 +138,11 @@ struct SharedSidebarList(Arc<Mutex<SidebarList>>);
 
 impl Element for SharedSidebarList {
     fn handle(&self) -> *mut c_void {
-        self.0.lock().unwrap().handle()
+        self.0.lock().expect("mutex not poisoned").handle()
     }
 
     unsafe fn invalidate_platform(&self, rect: Option<Rect>) {
-        let guard = self.0.lock().unwrap();
+        let guard = self.0.lock().expect("mutex not poisoned");
         unsafe { Element::invalidate_platform(&*guard, rect) }
     }
 }
@@ -151,11 +151,11 @@ struct SharedEditor(Arc<Mutex<SendableTextEditor>>);
 
 impl Element for SharedEditor {
     fn handle(&self) -> *mut c_void {
-        self.0.lock().unwrap().handle()
+        self.0.lock().expect("mutex not poisoned").handle()
     }
 
     unsafe fn invalidate_platform(&self, rect: Option<Rect>) {
-        let guard = self.0.lock().unwrap();
+        let guard = self.0.lock().expect("mutex not poisoned");
         unsafe { Element::invalidate_platform(&**guard, rect) }
     }
 }
@@ -178,95 +178,33 @@ fn main() -> AureaResult<()> {
     let mut last_sidebar_idx: i32 = 0;
 
     loop {
-        let mut exit = false;
-        for event in main_arc.poll_events() {
-            if let aurea::WindowEvent::CloseRequested = event {
-                exit = true;
-                break;
-            }
-        }
-        if exit {
+        if main_arc
+            .poll_events()
+            .iter()
+            .any(|event| matches!(event, WindowEvent::CloseRequested))
+        {
             break;
         }
 
         let pending = {
-            let mut s = state.lock().unwrap();
+            let mut s = state.lock().expect("state mutex not poisoned");
             s.pending_file_index.take()
         };
         if let Some(idx) = pending {
-            if let Some((name, _)) = FILES.get(idx as usize) {
-                if let (Ok(mut main_ed), Ok(st), Ok(mut tc), Ok(mut sl)) = (
-                    ui.editor.lock(),
-                    state.lock(),
-                    ui.tab_bar.lock(),
-                    ui.sidebar_list.lock(),
-                ) && let Some(c) = st.get(name)
-                {
-                    let _ = main_ed.set_content(c);
-                    let _ = tc.set_selected(idx);
-                    let _ = sl.set_selected(idx);
-                }
-                if let Ok(mut s) = state.lock() {
-                    s.current_file = Some((*name).to_string());
-                }
-            }
+            apply_pending_file_index(idx, &ui, &state);
             last_sidebar_idx = idx;
         }
 
-        if let (Ok(sidebar_list), Ok(mut main_ed), Ok(mut st)) =
-            (ui.sidebar_list.lock(), ui.editor.lock(), state.lock())
-        {
-            let sidebar_idx = sidebar_list.get_selected();
-            if let Some(file_idx) = sidebar_idx_to_file_idx(sidebar_idx)
-                && file_idx != last_sidebar_idx
-            {
-                last_sidebar_idx = file_idx;
-                if let Some((name, _)) = FILES.get(file_idx as usize)
-                    && let Some(c) = st.get(name)
-                {
-                    let _ = main_ed.set_content(c);
-                    st.current_file = Some((*name).to_string());
-                }
-                drop((sidebar_list, main_ed, st));
-                if let (Ok(mut tc), Ok(mut sl)) = (ui.tab_bar.lock(), ui.sidebar_list.lock()) {
-                    let _ = tc.set_selected(file_idx);
-                    let _ = sl.set_selected(file_idx);
-                }
-                continue;
-            }
+        if sync_sidebar_selection(&ui, &state, &mut last_sidebar_idx) {
+            continue;
         }
 
         let detached = {
-            let s = state.lock().unwrap();
+            let s = state.lock().expect("state mutex not poisoned");
             s.detached.clone()
         };
         for dp in &detached {
-            for event in dp.window.poll_events() {
-                if let aurea::WindowEvent::CloseRequested = event {
-                    let handle = dp.window.handle();
-                    if let (Ok(ed), Ok(mut s), Ok(mut main_ed)) =
-                        (dp.editor.lock(), state.lock(), ui.editor.lock())
-                    {
-                        let content: String = ed.get_content().unwrap_or_default();
-                        s.set(&dp.filename, content.clone());
-                        s.current_file = Some(dp.filename.clone());
-                        let _ = main_ed.set_content(&content);
-                        if let Some(idx) = FILES.iter().position(|(n, _)| n == &dp.filename) {
-                            last_sidebar_idx = idx as i32;
-                            if let (Ok(mut tc), Ok(mut sl)) =
-                                (ui.tab_bar.lock(), ui.sidebar_list.lock())
-                            {
-                                let _ = tc.set_selected(idx as i32);
-                                let _ = sl.set_selected(idx as i32);
-                            }
-                        }
-                    }
-                    manager.unregister(handle);
-                    if let Ok(mut s) = state.lock() {
-                        s.detached.retain(|d| d.window.handle() != handle);
-                    }
-                }
-            }
+            handle_detached_window(dp, &state, &ui, &manager, &mut last_sidebar_idx);
         }
 
         unsafe { ng_platform_poll_events() };
@@ -275,6 +213,106 @@ fn main() -> AureaResult<()> {
     }
 
     Ok(())
+}
+
+/// Applies a file-open request made via the File menu or sidebar: loads the
+/// file's content into the editor and syncs the tab bar / sidebar selection.
+fn apply_pending_file_index(idx: i32, ui: &UiRefs, state: &Arc<Mutex<AppState>>) {
+    let Some((name, _)) = FILES.get(idx.cast_unsigned() as usize) else {
+        return;
+    };
+    if let (Ok(mut main_ed), Ok(st), Ok(mut tc), Ok(mut sl)) = (
+        ui.editor.lock(),
+        state.lock(),
+        ui.tab_bar.lock(),
+        ui.sidebar_list.lock(),
+    ) && let Some(c) = st.get(name)
+    {
+        let _ = main_ed.set_content(c);
+        let _ = tc.set_selected(idx);
+        let _ = sl.set_selected(idx);
+    }
+    if let Ok(mut s) = state.lock() {
+        s.current_file = Some((*name).to_string());
+    }
+}
+
+/// Checks whether the sidebar's selected file changed since the last poll
+/// and, if so, loads it into the editor and syncs the tab bar. Returns
+/// `true` if the caller should `continue` its loop (selection changed).
+fn sync_sidebar_selection(
+    ui: &UiRefs,
+    state: &Arc<Mutex<AppState>>,
+    last_sidebar_idx: &mut i32,
+) -> bool {
+    let Ok(sidebar_list) = ui.sidebar_list.lock() else {
+        return false;
+    };
+    let Ok(mut main_ed) = ui.editor.lock() else {
+        return false;
+    };
+    let Ok(mut st) = state.lock() else {
+        return false;
+    };
+
+    let sidebar_idx = sidebar_list.get_selected();
+    let Some(file_idx) = sidebar_idx_to_file_idx(sidebar_idx) else {
+        return false;
+    };
+    if file_idx == *last_sidebar_idx {
+        return false;
+    }
+
+    *last_sidebar_idx = file_idx;
+    if let Some((name, _)) = FILES.get(file_idx.cast_unsigned() as usize)
+        && let Some(c) = st.get(name)
+    {
+        let _ = main_ed.set_content(c);
+        st.current_file = Some((*name).to_string());
+    }
+    drop((sidebar_list, main_ed, st));
+    if let (Ok(mut tc), Ok(mut sl)) = (ui.tab_bar.lock(), ui.sidebar_list.lock()) {
+        let _ = tc.set_selected(file_idx);
+        let _ = sl.set_selected(file_idx);
+    }
+    true
+}
+
+/// Handles close requests on a detached editor popup: saves its content back
+/// into shared state, loads it into the main editor, and unregisters the
+/// window.
+fn handle_detached_window(
+    dp: &DetachedPopup,
+    state: &Arc<Mutex<AppState>>,
+    ui: &UiRefs,
+    manager: &Arc<WindowManager>,
+    last_sidebar_idx: &mut i32,
+) {
+    for event in dp.window.poll_events() {
+        if let WindowEvent::CloseRequested = event {
+            let handle = dp.window.handle();
+            if let (Ok(ed), Ok(mut s), Ok(mut main_ed)) =
+                (dp.editor.lock(), state.lock(), ui.editor.lock())
+            {
+                let content: String = ed.get_content().unwrap_or_default();
+                s.set(&dp.filename, content.clone());
+                s.current_file = Some(dp.filename.clone());
+                let _ = main_ed.set_content(&content);
+                if let Some(idx) = FILES.iter().position(|(n, _)| n == &dp.filename) {
+                    let idx = i32::try_from(idx).expect("FILES.len() fits in i32");
+                    *last_sidebar_idx = idx;
+                    if let (Ok(mut tc), Ok(mut sl)) = (ui.tab_bar.lock(), ui.sidebar_list.lock()) {
+                        let _ = tc.set_selected(idx);
+                        let _ = sl.set_selected(idx);
+                    }
+                }
+            }
+            manager.unregister(handle);
+            if let Ok(mut s) = state.lock() {
+                s.detached.retain(|d| d.window.handle() != handle);
+            }
+        }
+    }
 }
 
 fn setup_main_menu(
@@ -290,7 +328,7 @@ fn setup_main_menu(
     file.add_item("Open...\tCtrl+O", || println!("File -> Open"))?;
     file.add_separator()?;
     for (i, (title, _)) in FILES.iter().enumerate() {
-        let idx = i as i32;
+        let idx = i32::try_from(i).expect("FILES.len() fits in i32");
         let st = Arc::clone(&state);
         file.add_item(title, move || {
             if let Ok(mut s) = st.lock() {
@@ -393,7 +431,7 @@ fn create_editor_popup(
     let idx = FILES
         .iter()
         .position(|(n, _)| *n == name2)
-        .map(|i| i as i32)
+        .and_then(|i| i32::try_from(i).ok())
         .unwrap_or(0);
     box_.add(Button::with_callback("Return to Main", move || {
         if let (Ok(ed), Ok(mut s), Ok(mut main_ed)) = (pe2.lock(), st2.lock(), me2.lock()) {
@@ -417,11 +455,11 @@ struct SharedTabBar(Arc<Mutex<TabBar>>);
 
 impl Element for SharedTabBar {
     fn handle(&self) -> *mut c_void {
-        self.0.lock().unwrap().handle()
+        self.0.lock().expect("mutex not poisoned").handle()
     }
 
     unsafe fn invalidate_platform(&self, rect: Option<Rect>) {
-        let guard = self.0.lock().unwrap();
+        let guard = self.0.lock().expect("mutex not poisoned");
         unsafe { Element::invalidate_platform(&*guard, rect) }
     }
 }
@@ -492,7 +530,7 @@ fn build_tab_bar(
     let editor_det = Arc::clone(&editor_arc);
     let mut tab_bar = TabBar::with_callbacks(
         move |idx| {
-            if let Some((name, _)) = FILES.get(idx as usize)
+            if let Some((name, _)) = FILES.get(idx.cast_unsigned() as usize)
                 && let (Ok(mut ed), Ok(mut st)) = (editor_sel.lock(), state_sel.lock())
                 && let Some(c) = st.get(name)
             {
@@ -502,7 +540,7 @@ fn build_tab_bar(
             }
         },
         move |idx| {
-            if let Some((name, _)) = FILES.get(idx as usize)
+            if let Some((name, _)) = FILES.get(idx.cast_unsigned() as usize)
                 && let (Ok(mut s), Ok(ed)) = (state_det.lock(), editor_det.lock())
             {
                 let content = ed.get_content().unwrap_or_default();
