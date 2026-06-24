@@ -1,7 +1,7 @@
 use cc::Build;
+use pkg_config::Config as PkgConfig;
 use std::env;
 use std::path::{Path, PathBuf};
-#[cfg(target_os = "linux")]
 use std::process::{self, Command};
 
 fn main() {
@@ -17,6 +17,9 @@ fn main() {
         PathBuf::from(s.strip_prefix(r"\\?\").unwrap_or(&s).to_string())
     };
     let native = root.join("native");
+    let target = env::var("TARGET").expect("TARGET is set by cargo");
+    let is_windows = target.contains("windows");
+    let is_linux = target.contains("linux") && !target.contains("android");
 
     fn add_sources(build: &mut Build, root: &Path, sources: &[&str]) {
         for source in sources {
@@ -32,7 +35,6 @@ fn main() {
 
     let common_c: &[&str] = &["native/common/platform.c"];
 
-    #[cfg(target_os = "windows")]
     let windows_c: &[&str] = &[
         "native/common/platform_dispatch.c",
         "native/platform/windows.c",
@@ -57,7 +59,6 @@ fn main() {
         "native/platform/windows/elements/sidebar_list.c",
     ];
 
-    #[cfg(target_os = "windows")]
     let windows_cpp: &[&str] = &["native/platform/windows/elements/image_view.cpp"];
 
     let ios_sources: &[&str] = &[
@@ -105,7 +106,6 @@ fn main() {
         "native/platform/macos/swiftui_host.m",
     ];
 
-    #[cfg(target_os = "linux")]
     let linux_sources: &[&str] = &[
         "native/common/platform_dispatch.c",
         "native/platform/linux.c",
@@ -130,7 +130,6 @@ fn main() {
         "native/platform/linux/elements/sidebar_list.c",
     ];
 
-    let target = env::var("TARGET").expect("TARGET is set by cargo");
     let mut build = Build::new();
     build.include(&native).warnings(true);
 
@@ -144,8 +143,7 @@ fn main() {
         "native/platform/android/window.c",
     ];
 
-    #[cfg(target_os = "windows")]
-    {
+    if is_windows {
         add_sources(&mut build, &root, common_c);
         add_sources(&mut build, &root, windows_c);
         build.define("_WIN32", None);
@@ -201,50 +199,8 @@ fn main() {
         rerun_for(&root, macos_sources);
     }
 
-    #[cfg(target_os = "linux")]
-    {
-        if !Command::new("pkg-config")
-            .arg("--version")
-            .status()
-            .is_ok_and(|status| status.success())
-        {
-            println!("cargo:warning=pkg-config not found. Please install pkg-config.");
-            process::exit(1);
-        }
-
-        match pkg_config::Config::new()
-            .atleast_version("3.0")
-            .probe("gtk+-3.0")
-        {
-            Ok(gtk) => {
-                for include in gtk.include_paths {
-                    build.include(include);
-                }
-
-                for (name, value) in gtk.defines {
-                    build.define(&name, value.as_deref());
-                }
-            }
-            Err(error) => {
-                println!("cargo:warning=GTK3 development files not found: {}", error);
-                println!("cargo:warning=On Ubuntu/Debian, install them with:");
-                println!("cargo:warning=    sudo apt-get install libgtk-3-dev");
-                println!("cargo:warning=On Fedora:");
-                println!("cargo:warning=    sudo dnf install gtk3-devel");
-                println!("cargo:warning=On Arch Linux:");
-                println!("cargo:warning=    sudo pacman -S gtk3");
-                process::exit(1);
-            }
-        }
-
-        if pkg_config::Config::new().probe("x11-xcb").is_ok() {
-            build.define("AUREA_HAVE_X11_XCB", None);
-        } else {
-            println!(
-                "cargo:warning=X11-XCB development files not found; XCB GPU surfaces disabled"
-            );
-        }
-
+    if is_linux {
+        configure_linux_build(&mut build);
         add_sources(&mut build, &root, common_c);
         add_sources(&mut build, &root, linux_sources);
         rerun_for(&root, common_c);
@@ -262,8 +218,7 @@ fn main() {
 
     build.compile("native_gui");
 
-    #[cfg(target_os = "windows")]
-    {
+    if is_windows {
         let mut cpp_build = Build::new();
         cpp_build.cpp(true).include(&native).define("_WIN32", None);
         add_sources(&mut cpp_build, &root, windows_cpp);
@@ -279,7 +234,6 @@ fn main() {
         "native/common/rust_callbacks.h",
     ];
 
-    #[cfg(target_os = "windows")]
     let windows_headers: &[&str] = &[
         "native/platform/windows.h",
         "native/platform/windows/utils.h",
@@ -296,7 +250,6 @@ fn main() {
         "native/platform/macos/elements.h",
     ];
 
-    #[cfg(target_os = "linux")]
     let linux_headers: &[&str] = &[
         "native/platform/linux.h",
         "native/platform/linux/utils.h",
@@ -306,9 +259,48 @@ fn main() {
     ];
 
     rerun_for(&root, common_headers);
-    #[cfg(target_os = "windows")]
     rerun_for(&root, windows_headers);
     rerun_for(&root, macos_headers);
-    #[cfg(target_os = "linux")]
     rerun_for(&root, linux_headers);
+}
+
+/// Probes for GTK3 (and optionally X11-XCB) via pkg-config and configures
+/// `build`'s include paths / defines accordingly. Exits the process with an
+/// actionable message if pkg-config or GTK3 dev files are missing.
+fn configure_linux_build(build: &mut Build) {
+    if !Command::new("pkg-config")
+        .arg("--version")
+        .status()
+        .is_ok_and(|status| status.success())
+    {
+        println!("cargo:warning=pkg-config not found. Please install pkg-config.");
+        process::exit(1);
+    }
+
+    match PkgConfig::new().atleast_version("3.0").probe("gtk+-3.0") {
+        Ok(gtk) => {
+            for include in gtk.include_paths {
+                build.include(include);
+            }
+            for (name, value) in gtk.defines {
+                build.define(&name, value.as_deref());
+            }
+        }
+        Err(error) => {
+            println!("cargo:warning=GTK3 development files not found: {}", error);
+            println!("cargo:warning=On Ubuntu/Debian, install them with:");
+            println!("cargo:warning=    sudo apt-get install libgtk-3-dev");
+            println!("cargo:warning=On Fedora:");
+            println!("cargo:warning=    sudo dnf install gtk3-devel");
+            println!("cargo:warning=On Arch Linux:");
+            println!("cargo:warning=    sudo pacman -S gtk3");
+            process::exit(1);
+        }
+    }
+
+    if PkgConfig::new().probe("x11-xcb").is_ok() {
+        build.define("AUREA_HAVE_X11_XCB", None);
+    } else {
+        println!("cargo:warning=X11-XCB development files not found; XCB GPU surfaces disabled");
+    }
 }
