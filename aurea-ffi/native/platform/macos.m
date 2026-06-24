@@ -9,10 +9,8 @@
 #import <Cocoa/Cocoa.h>
 #import <CoreFoundation/CoreFoundation.h>
 #import <CoreVideo/CoreVideo.h>
+#import <QuartzCore/QuartzCore.h>
 static BOOL app_initialized = FALSE;
-
-static CVDisplayLinkRef s_display_link = NULL;
-static volatile BOOL s_link_running = NO;
 
 @interface AppDelegate : NSObject <NSApplicationDelegate>
 @end
@@ -25,9 +23,44 @@ static volatile BOOL s_link_running = NO;
 
 static AppDelegate* app_delegate = nil;
 
+// ── Modern vsync pump: CADisplayLink (macOS 14+) ────────────────────────────
+//
+// Fires already on the main run loop (it's scheduled there in ng_macos_init),
+// so no dispatch_async hop is needed before touching AppKit/Rust state,
+// unlike the legacy CVDisplayLink path below.
+API_AVAILABLE(macos(14.0))
+@interface NgDisplayLinkProxy : NSObject
+@end
+
+API_AVAILABLE(macos(14.0))
+@implementation NgDisplayLinkProxy
+- (void)onDisplayLink:(CADisplayLink*)link {
+    (void)link;
+    ng_process_frames();
+}
+@end
+
+static CADisplayLink* s_display_link API_AVAILABLE(macos(14.0)) = nil;
+static NgDisplayLinkProxy* s_display_link_proxy API_AVAILABLE(macos(14.0)) = nil;
+
+// ── Legacy vsync pump: CVDisplayLink (macOS < 14) ───────────────────────────
+//
+// CVDisplayLink was deprecated in macOS 15 in favor of CADisplayLink via
+// NSScreen/NSView/NSWindow.displayLink(target:selector:) (above), but that
+// replacement only exists on macOS 14+. This fallback is the only option on
+// older systems, so it's kept — gated by `s_using_legacy`, set only when
+// @available(macOS 14.0, *) is false — and its deprecation warnings are
+// suppressed for exactly this still-necessary branch.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+
+static CVDisplayLinkRef s_cv_display_link = NULL;
+static volatile BOOL s_cv_link_running = NO;
+static BOOL s_using_legacy = NO;
+
 // CVDisplayLink fires on its own thread; hop to the main queue before
 // touching any AppKit/Rust state.
-static CVReturn display_link_callback(
+static CVReturn legacy_display_link_callback(
     CVDisplayLinkRef link,
     const CVTimeStamp* now,
     const CVTimeStamp* output,
@@ -47,6 +80,40 @@ static CVReturn display_link_callback(
     return kCVReturnSuccess;
 }
 
+static void legacy_display_link_init(void) {
+    s_using_legacy = YES;
+    CVDisplayLinkCreateWithActiveCGDisplays(&s_cv_display_link);
+    if (s_cv_display_link) {
+        CVDisplayLinkSetOutputCallback(s_cv_display_link, legacy_display_link_callback, NULL);
+    }
+}
+
+static void legacy_display_link_cleanup(void) {
+    if (s_cv_display_link) {
+        if (s_cv_link_running) {
+            CVDisplayLinkStop(s_cv_display_link);
+            s_cv_link_running = NO;
+        }
+        CVDisplayLinkRelease(s_cv_display_link);
+        s_cv_display_link = NULL;
+    }
+}
+
+static void legacy_display_link_request_frame(void) {
+    if (s_cv_display_link && !s_cv_link_running) {
+        CVDisplayLinkStart(s_cv_display_link);
+        s_cv_link_running = YES;
+    }
+}
+
+static void legacy_display_link_frame_idle(void) {
+    if (s_cv_display_link && s_cv_link_running) {
+        CVDisplayLinkStop(s_cv_display_link);
+        s_cv_link_running = NO;
+    }
+}
+#pragma clang diagnostic pop
+
 int ng_macos_init(void) {
     if (!app_initialized) {
         [NSApplication sharedApplication];
@@ -59,9 +126,20 @@ int ng_macos_init(void) {
         // Activate once at startup so the first window appears in front.
         [NSApp activateIgnoringOtherApps:YES];
 
-        CVDisplayLinkCreateWithActiveCGDisplays(&s_display_link);
-        if (s_display_link) {
-            CVDisplayLinkSetOutputCallback(s_display_link, display_link_callback, NULL);
+        if (@available(macOS 14.0, *)) {
+            s_display_link_proxy = [[NgDisplayLinkProxy alloc] init];
+            NSScreen* screen = [NSScreen mainScreen];
+            if (screen) {
+                s_display_link = [screen displayLinkWithTarget:s_display_link_proxy
+                                                        selector:@selector(onDisplayLink:)];
+                // Starts paused; ng_macos_request_frame unpauses on the first
+                // scheduled frame, ng_macos_frame_idle pauses again once the
+                // scheduler has nothing pending.
+                s_display_link.paused = YES;
+                [s_display_link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+            }
+        } else {
+            legacy_display_link_init();
         }
 
         app_initialized = TRUE;
@@ -71,32 +149,39 @@ int ng_macos_init(void) {
 
 void ng_macos_cleanup(void) {
     if (app_initialized) {
-        if (s_display_link) {
-            if (s_link_running) {
-                CVDisplayLinkStop(s_display_link);
-                s_link_running = NO;
+        if (s_using_legacy) {
+            legacy_display_link_cleanup();
+        } else if (@available(macOS 14.0, *)) {
+            if (s_display_link) {
+                [s_display_link invalidate];
+                s_display_link = nil;
             }
-            CVDisplayLinkRelease(s_display_link);
-            s_display_link = NULL;
+            s_display_link_proxy = nil;
         }
         app_initialized = FALSE;
     }
 }
 
-// Started lazily on the first scheduled frame; stopped via
-// ng_macos_frame_idle once the scheduler has nothing pending, so the
-// display link (and its main-thread dispatches) don't run while idle.
+// Unpaused/started lazily on the first scheduled frame; paused/stopped again
+// via ng_macos_frame_idle once the scheduler has nothing pending, so the
+// display link doesn't fire while idle.
 void ng_macos_request_frame(void) {
-    if (s_display_link && !s_link_running) {
-        CVDisplayLinkStart(s_display_link);
-        s_link_running = YES;
+    if (s_using_legacy) {
+        legacy_display_link_request_frame();
+    } else if (@available(macOS 14.0, *)) {
+        if (s_display_link) {
+            s_display_link.paused = NO;
+        }
     }
 }
 
 void ng_macos_frame_idle(void) {
-    if (s_display_link && s_link_running) {
-        CVDisplayLinkStop(s_display_link);
-        s_link_running = NO;
+    if (s_using_legacy) {
+        legacy_display_link_frame_idle();
+    } else if (@available(macOS 14.0, *)) {
+        if (s_display_link) {
+            s_display_link.paused = YES;
+        }
     }
 }
 
