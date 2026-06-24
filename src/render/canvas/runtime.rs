@@ -1,7 +1,60 @@
 use super::*;
 use crate::render::{Surface, SurfaceInfo};
 use crate::sync::lock;
-use std::ptr::null_mut;
+use std::ptr::{copy_nonoverlapping, null_mut};
+
+/// Publish a freshly-rendered CPU frame to the platform.
+///
+/// Prefers the zero-copy external-target path: `ng_platform_canvas_acquire_buffer`
+/// hands back a platform-owned, GPU-shareable buffer (an `IOSurface` on macOS)
+/// that the compositor can sample without a per-frame CPU→GPU upload. We copy the
+/// rasterizer's frame into it row-by-row (the platform buffer's stride may exceed
+/// `w` due to alignment padding) and `ng_platform_canvas_present` flips it onto the
+/// layer.
+///
+/// `acquire_buffer` returns NULL on platforms that don't implement it (Windows,
+/// Linux today), in which case we fall back to `ng_platform_canvas_update_buffer`
+/// — the legacy "store the pointer, blit on the next paint event" path. Returns
+/// `true` if the zero-copy path was used (no separate invalidate needed).
+///
+/// # Safety
+/// `ptr` must point to at least `w * h` packed `u32` pixels and stay valid for the
+/// duration of the call. Runs on the platform's main/UI thread.
+unsafe fn publish_cpu_buffer(handle: *mut c_void, ptr: *const u8, size: usize, w: u32, h: u32) {
+    let mut stride_px: u32 = 0;
+    let mut buffer_index: u32 = 0;
+    let dst = unsafe {
+        ng_platform_canvas_acquire_buffer(handle, w, h, &mut stride_px, &mut buffer_index)
+    };
+
+    if dst.is_null() {
+        // No external-target support: legacy upload path. The caller (or the
+        // scheduler) issues the platform repaint that actually blits this.
+        unsafe {
+            ng_platform_canvas_update_buffer(handle, ptr, size as u32, w, h);
+        }
+        return;
+    }
+
+    // Zero-copy present: copy the frame into the platform buffer honoring its
+    // stride, then flip it. First cut copies the whole frame; this is a cheap
+    // CPU→shared-memory memcpy, not a GPU upload, and replaces the per-frame
+    // CGImage allocation + texture upload of the old path.
+    let src = ptr as *const u32;
+    let dst = dst as *mut u32;
+    unsafe {
+        if stride_px == w {
+            copy_nonoverlapping(src, dst, (w as usize) * (h as usize));
+        } else {
+            for y in 0..h as usize {
+                let s = src.add(y * w as usize);
+                let d = dst.add(y * stride_px as usize);
+                copy_nonoverlapping(s, d, w as usize);
+            }
+        }
+        ng_platform_canvas_present(handle);
+    }
+}
 
 /// Unified render pipeline: damage → begin_frame → clear → draw callback → end_frame → platform update.
 ///
@@ -48,7 +101,7 @@ fn render_frame(
         && size > 0
     {
         unsafe {
-            ng_platform_canvas_update_buffer(handle, ptr, size as u32, w, h);
+            publish_cpu_buffer(handle, ptr, size, w, h);
         }
     }
 
@@ -248,7 +301,7 @@ impl Canvas {
             && size > 0
         {
             unsafe {
-                ng_platform_canvas_update_buffer(self.handle, ptr, size as u32, w, h);
+                publish_cpu_buffer(self.handle, ptr, size, w, h);
             }
         }
     }

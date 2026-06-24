@@ -54,7 +54,7 @@ fn font_search_dirs() -> Vec<PathBuf> {
         dirs.push(PathBuf::from("/System/Library/Fonts"));
         dirs.push(PathBuf::from("/System/Library/Fonts/Supplemental"));
         dirs.push(PathBuf::from("/Library/Fonts"));
-        if let Ok(home) = std::env::var("HOME") {
+        if let Ok(home) = var("HOME") {
             dirs.push(PathBuf::from(home).join("Library/Fonts"));
         }
     }
@@ -77,7 +77,7 @@ fn font_search_dirs() -> Vec<PathBuf> {
     {
         dirs.push(PathBuf::from("/usr/share/fonts"));
         dirs.push(PathBuf::from("/usr/local/share/fonts"));
-        if let Ok(home) = std::env::var("HOME") {
+        if let Ok(home) = var("HOME") {
             let h = PathBuf::from(home);
             dirs.push(h.join(".fonts"));
             dirs.push(h.join(".local/share/fonts"));
