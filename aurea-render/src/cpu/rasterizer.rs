@@ -57,6 +57,8 @@ pub struct CpuRasterizer {
     scratch_edges: Vec<Edge>,
     /// Reused across `fill_scanline` calls to avoid a `Vec` allocation per scanline.
     scratch_xs: Vec<f32>,
+    /// Reused by the 1:1 `draw_image` blit to avoid a `Vec` allocation per row.
+    scratch_row: Vec<u32>,
 }
 
 impl CpuRasterizer {
@@ -74,6 +76,7 @@ impl CpuRasterizer {
             tile_hashes: Vec::new(),
             scratch_edges: Vec::new(),
             scratch_xs: Vec::new(),
+            scratch_row: Vec::new(),
         }
     }
 
@@ -126,6 +129,7 @@ impl CpuRasterizer {
         buf: &mut [u32],
         scratch_edges: &mut Vec<Edge>,
         scratch_xs: &mut Vec<f32>,
+        scratch_row: &mut Vec<u32>,
         bw: u32,
         bh: u32,
     ) -> AureaResult<()> {
@@ -154,10 +158,10 @@ impl CpuRasterizer {
             }
             DrawCommand::DrawImageRect(image, dest) => {
                 let src = Rect::new(0.0, 0.0, image.width as f32, image.height as f32);
-                Self::draw_image(image, src, *dest, item.blend_mode, buf, bw, bh);
+                Self::draw_image(image, src, *dest, item.blend_mode, buf, scratch_row, bw, bh);
             }
             DrawCommand::DrawImageRegion(image, src, dest) => {
-                Self::draw_image(image, *src, *dest, item.blend_mode, buf, bw, bh);
+                Self::draw_image(image, *src, *dest, item.blend_mode, buf, scratch_row, bw, bh);
             }
             DrawCommand::FillLinearGradient(grad, rect) => {
                 Self::fill_linear_gradient(grad, *rect, item.blend_mode, buf, bw, bh);
@@ -522,12 +526,14 @@ impl CpuRasterizer {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn draw_image(
         image: &Image,
         src: Rect,
         dest: Rect,
         mode: BlendMode,
         buf: &mut [u32],
+        scratch_row: &mut Vec<u32>,
         bw: u32,
         bh: u32,
     ) {
@@ -549,7 +555,11 @@ impl CpuRasterizer {
         // the source row left-to-right with a plain offset.
         if (src.width - dest.width).abs() < 0.001 && (src.height - dest.height).abs() < 0.001 {
             let sx0 = (x0 as f32 - dest.x) + src.x;
-            let mut row_buf = vec![0u32; (x1 - x0) as usize];
+            // Reused scratch (one entry per destination column) — avoids a heap
+            // allocation per row.
+            let row_buf = scratch_row;
+            row_buf.clear();
+            row_buf.resize((x1 - x0) as usize, 0u32);
             for cy in y0..y1 {
                 let v = (cy as f32 - dest.y) + src.y;
                 let sy = v.clamp(0.0, max_sy) as u32;
@@ -574,7 +584,7 @@ impl CpuRasterizer {
                 }
                 if mode == BlendMode::Normal && all_opaque {
                     let row_start = (cy as u32 * bw + x0 as u32) as usize;
-                    buf[row_start..row_start + row_buf.len()].copy_from_slice(&row_buf);
+                    buf[row_start..row_start + row_buf.len()].copy_from_slice(row_buf.as_slice());
                 } else {
                     for (i, &c) in row_buf.iter().enumerate() {
                         Self::buf_set(buf, bw, x0 + i as i32, cy, c, mode);
@@ -1043,6 +1053,7 @@ impl Renderer for CpuRasterizer {
                 &mut self.frame_buffer,
                 &mut self.scratch_edges,
                 &mut self.scratch_xs,
+                &mut self.scratch_row,
                 bw,
                 bh,
             )?;
