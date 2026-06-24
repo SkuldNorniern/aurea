@@ -1,7 +1,37 @@
 use super::*;
 use crate::render::{Surface, SurfaceInfo};
 use crate::sync::lock;
-use std::ptr::null_mut;
+use std::ptr::{copy_nonoverlapping, null_mut};
+
+unsafe fn publish_cpu_buffer(handle: *mut c_void, ptr: *const u8, size: usize, w: u32, h: u32) {
+    let mut stride_px: u32 = 0;
+    let mut buffer_index: u32 = 0;
+    let dst = unsafe {
+        ng_platform_canvas_acquire_buffer(handle, w, h, &mut stride_px, &mut buffer_index)
+    };
+
+    if dst.is_null() {
+        unsafe {
+            ng_platform_canvas_update_buffer(handle, ptr, size as u32, w, h);
+        }
+        return;
+    }
+
+    let src = ptr as *const u32;
+    let dst = dst as *mut u32;
+    unsafe {
+        if stride_px == w {
+            copy_nonoverlapping(src, dst, (w as usize) * (h as usize));
+        } else {
+            for y in 0..h as usize {
+                let s = src.add(y * w as usize);
+                let d = dst.add(y * stride_px as usize);
+                copy_nonoverlapping(s, d, w as usize);
+            }
+        }
+        ng_platform_canvas_present(handle);
+    }
+}
 
 fn render_frame(
     state: &Arc<Mutex<CanvasState>>,
@@ -40,7 +70,7 @@ fn render_frame(
         && size > 0
     {
         unsafe {
-            ng_platform_canvas_update_buffer(handle, ptr, size as u32, w, h);
+            publish_cpu_buffer(handle, ptr, size, w, h);
         }
     }
 
@@ -228,7 +258,7 @@ impl Canvas {
             && size > 0
         {
             unsafe {
-                ng_platform_canvas_update_buffer(self.handle, ptr, size as u32, w, h);
+                publish_cpu_buffer(self.handle, ptr, size, w, h);
             }
         }
     }
