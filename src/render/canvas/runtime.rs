@@ -1,58 +1,110 @@
 use super::*;
 use crate::render::{Surface, SurfaceInfo};
 use crate::sync::lock;
+use aurea_render::Rect;
 use std::ptr::{copy_nonoverlapping, null_mut};
+
+/// Union of two optional physical-pixel damage rects.
+/// `None` encodes "full frame" — any `None` operand dominates.
+fn union_opt_rects(a: Option<Rect>, b: Option<Rect>) -> Option<Rect> {
+    match (a, b) {
+        (None, _) | (_, None) => None,
+        (Some(a), Some(b)) => {
+            let x0 = a.x.min(b.x);
+            let y0 = a.y.min(b.y);
+            let x1 = (a.x + a.width).max(b.x + b.width);
+            let y1 = (a.y + a.height).max(b.y + b.height);
+            Some(Rect::new(x0, y0, x1 - x0, y1 - y0))
+        }
+    }
+}
 
 /// Publish a freshly-rendered CPU frame to the platform.
 ///
-/// Prefers the zero-copy external-target path: `ng_platform_canvas_acquire_buffer`
-/// hands back a platform-owned, GPU-shareable buffer (an `IOSurface` on macOS)
-/// that the compositor can sample without a per-frame CPU→GPU upload. We copy the
-/// rasterizer's frame into it row-by-row (the platform buffer's stride may exceed
-/// `w` due to alignment padding) and `ng_platform_canvas_present` flips it onto the
-/// layer.
+/// `refresh` is the physical-pixel rect that needs to be updated this present
+/// (union of current-frame damage and the previous frame's damage, to account
+/// for the IOSurface double-buffer being 2 frames stale). `None` = full frame.
 ///
-/// `acquire_buffer` returns NULL on platforms that don't implement it (Windows,
-/// Linux today), in which case we fall back to `ng_platform_canvas_update_buffer`
-/// — the legacy "store the pointer, blit on the next paint event" path. Returns
-/// `true` if the zero-copy path was used (no separate invalidate needed).
+/// **macOS zero-copy path** (`ng_platform_canvas_acquire_buffer` returns non-NULL):
+/// Locks the IOSurface back buffer, copies only the `refresh` rows from the
+/// rasterizer's frame_buffer into it (CPU→shared-memory, not a GPU upload), then
+/// `ng_platform_canvas_present` flips the surface onto the layer. No additional
+/// invalidate is needed — CoreAnimation picks up the layer change immediately.
+///
+/// **Legacy fallback** (acquire returns NULL — Windows, Linux today):
+/// Stores the Rust buffer pointer via `ng_platform_canvas_update_buffer` and
+/// issues a damage-aware platform repaint (`invalidate_rect` when `refresh` is
+/// known, `invalidate` for a full redraw). The platform's paint handler blits the
+/// buffer to the screen on the next paint event.
 ///
 /// # Safety
 /// `ptr` must point to at least `w * h` packed `u32` pixels and stay valid for the
-/// duration of the call. Runs on the platform's main/UI thread.
-unsafe fn publish_cpu_buffer(handle: *mut c_void, ptr: *const u8, size: usize, w: u32, h: u32) {
+/// duration of this call. Must be called on the platform's main/UI thread.
+unsafe fn publish_cpu_buffer(
+    handle: *mut c_void,
+    ptr: *const u8,
+    size: usize,
+    w: u32,
+    h: u32,
+    refresh: Option<Rect>,
+) {
     let mut stride_px: u32 = 0;
     let mut buffer_index: u32 = 0;
-    let dst = unsafe {
-        ng_platform_canvas_acquire_buffer(handle, w, h, &mut stride_px, &mut buffer_index)
-    };
+    let dst =
+        unsafe { ng_platform_canvas_acquire_buffer(handle, w, h, &mut stride_px, &mut buffer_index) };
 
     if dst.is_null() {
-        // No external-target support: legacy upload path. The caller (or the
-        // scheduler) issues the platform repaint that actually blits this.
+        // Legacy path: store Rust buffer pointer, let the platform blit on repaint.
         unsafe {
             ng_platform_canvas_update_buffer(handle, ptr, size as u32, w, h);
+            match refresh {
+                Some(r) => {
+                    ng_platform_canvas_invalidate_rect(handle, r.x, r.y, r.width, r.height);
+                }
+                None => {
+                    ng_platform_canvas_invalidate(handle);
+                }
+            }
         }
         return;
     }
 
-    // Zero-copy present: copy the frame into the platform buffer honoring its
-    // stride, then flip it. First cut copies the whole frame; this is a cheap
-    // CPU→shared-memory memcpy, not a GPU upload, and replaces the per-frame
-    // CGImage allocation + texture upload of the old path.
+    // Zero-copy present: copy refresh rows from frame_buffer into the IOSurface.
+    // stride_px may exceed w due to IOSurface row alignment — copy row-by-row.
     let src = ptr as *const u32;
     let dst = dst as *mut u32;
     unsafe {
-        if stride_px == w {
-            copy_nonoverlapping(src, dst, (w as usize) * (h as usize));
-        } else {
-            for y in 0..h as usize {
-                let s = src.add(y * w as usize);
-                let d = dst.add(y * stride_px as usize);
-                copy_nonoverlapping(s, d, w as usize);
+        match refresh {
+            None => {
+                // Full frame: copy all rows.
+                if stride_px == w {
+                    copy_nonoverlapping(src, dst, w as usize * h as usize);
+                } else {
+                    for y in 0..h as usize {
+                        copy_nonoverlapping(
+                            src.add(y * w as usize),
+                            dst.add(y * stride_px as usize),
+                            w as usize,
+                        );
+                    }
+                }
+            }
+            Some(r) => {
+                // Partial: only rows that intersect the refresh rect.
+                let y0 = r.y.floor().max(0.0) as usize;
+                let y1 = (r.y + r.height).ceil().min(h as f32) as usize;
+                for y in y0..y1 {
+                    copy_nonoverlapping(
+                        src.add(y * w as usize),
+                        dst.add(y * stride_px as usize),
+                        w as usize,
+                    );
+                }
             }
         }
         ng_platform_canvas_present(handle);
+        // IOSurface present: CoreAnimation picks up the change immediately;
+        // no additional invalidate call is needed.
     }
 }
 
@@ -76,8 +128,8 @@ fn render_frame(
         (damage, cb, bg)
     };
 
-    // 2. Render under renderer lock only.
-    {
+    // 2. Render under renderer lock only; grab last_frame_damage before releasing.
+    let current_damage = {
         let mut r = lock(renderer);
         if let Some(ref mut r) = *r {
             r.set_damage(damage_rect);
@@ -87,8 +139,11 @@ fn render_frame(
                 cb(ctx.as_mut())?; // state lock NOT held here
             }
             r.end_frame()?;
+            r.last_frame_damage()
+        } else {
+            None
         }
-    }
+    };
 
     // 3. Push buffer to platform (CURRENT_BUFFER is thread-local; no lock needed).
     #[cfg(feature = "zengpu")]
@@ -100,8 +155,17 @@ fn render_frame(
         && !ptr.is_null()
         && size > 0
     {
+        // The IOSurface double-buffer is 2 frames stale on the back surface, so
+        // we must refresh any pixel that changed in either this frame OR the
+        // previous frame. Read and update prev_frame_damage under a brief lock.
+        let refresh = {
+            let mut st = lock(state);
+            let prev = st.prev_frame_damage;
+            st.prev_frame_damage = current_damage;
+            union_opt_rects(current_damage, prev)
+        };
         unsafe {
-            publish_cpu_buffer(handle, ptr, size, w, h);
+            publish_cpu_buffer(handle, ptr, size, w, h, refresh);
         }
     }
 
@@ -199,13 +263,9 @@ impl Canvas {
 
             if should_redraw {
                 render_frame(&state, &renderer, handle, backend)?;
-                // After rendering, trigger a platform repaint so the new buffer
-                // is displayed (e.g. WM_PAINT on Windows, setNeedsDisplay on macOS).
-                // render_frame only pushes pixels to the canvas buffer — the platform
-                // still needs a paint event to blit that buffer onto the screen.
-                unsafe {
-                    ng_platform_canvas_invalidate(handle);
-                }
+                // publish_cpu_buffer (called inside render_frame) now handles the
+                // platform repaint: IOSurface present for macOS (no extra call needed)
+                // or invalidate_rect / invalidate for Windows and Linux.
             }
 
             Ok(())
@@ -301,7 +361,7 @@ impl Canvas {
             && size > 0
         {
             unsafe {
-                publish_cpu_buffer(self.handle, ptr, size, w, h);
+                publish_cpu_buffer(self.handle, ptr, size, w, h, None);
             }
         }
     }

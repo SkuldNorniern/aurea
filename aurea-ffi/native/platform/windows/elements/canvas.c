@@ -113,16 +113,21 @@ static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
                 EndPaint(hwnd, &ps);
                 return 0;
             }
-            
+
             if (data && data->buffer && data->width > 0 && data->height > 0) {
-                RECT rect;
-                GetClientRect(hwnd, &rect);
-                int dest_width = rect.right - rect.left;
-                int dest_height = rect.bottom - rect.top;
-                if (dest_width <= 0 || dest_height <= 0) {
+                RECT client;
+                GetClientRect(hwnd, &client);
+                int client_w = client.right - client.left;
+                int client_h = client.bottom - client.top;
+                if (client_w <= 0 || client_h <= 0) {
                     EndPaint(hwnd, &ps);
                     return 0;
                 }
+
+                // Clip the blit to the dirty rect reported by BeginPaint.
+                // When invalidate_rect was used this is only the damaged region;
+                // after a full invalidate it covers the whole client area.
+                RECT dirty = ps.rcPaint;
 
                 BITMAPINFO bmi;
                 ZeroMemory(&bmi, sizeof(bmi));
@@ -132,28 +137,53 @@ static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
                 bmi.bmiHeader.biPlanes = 1;
                 bmi.bmiHeader.biBitCount = 32;
                 bmi.bmiHeader.biCompression = BI_RGB;
-                
-                StretchDIBits(
-                    hdc,
-                    0,
-                    0,
-                    dest_width,
-                    dest_height,
-                    0,
-                    0,
-                    (int)data->width,
-                    (int)data->height,
-                    data->buffer,
-                    &bmi,
-                    DIB_RGB_COLORS,
-                    SRCCOPY
-                );
+
+                if (client_w == (int)data->width && client_h == (int)data->height) {
+                    // 1:1 — no scaling. Use SetDIBitsToDevice and copy only the
+                    // dirty rows directly from the Rust framebuffer.
+                    int dirty_h = dirty.bottom - dirty.top;
+                    if (dirty_h > 0) {
+                        SetDIBitsToDevice(
+                            hdc,
+                            dirty.left,
+                            dirty.top,
+                            dirty.right - dirty.left,
+                            dirty_h,
+                            dirty.left,
+                            (int)data->height - dirty.bottom, // DIB is bottom-up, flip
+                            0,
+                            data->height,
+                            data->buffer,
+                            &bmi,
+                            DIB_RGB_COLORS
+                        );
+                    }
+                } else {
+                    // Scaled: map dirty dest rect back to source coords and blit
+                    // only that sub-region to avoid processing the full bitmap.
+                    double sx = (double)data->width  / client_w;
+                    double sy = (double)data->height / client_h;
+                    int src_x = (int)(dirty.left   * sx);
+                    int src_y = (int)(dirty.top    * sy);
+                    int src_w = (int)((dirty.right  - dirty.left) * sx + 0.5);
+                    int src_h = (int)((dirty.bottom - dirty.top)  * sy + 0.5);
+                    if (src_w > 0 && src_h > 0) {
+                        StretchDIBits(
+                            hdc,
+                            dirty.left, dirty.top,
+                            dirty.right - dirty.left, dirty.bottom - dirty.top,
+                            src_x, src_y, src_w, src_h,
+                            data->buffer,
+                            &bmi,
+                            DIB_RGB_COLORS,
+                            SRCCOPY
+                        );
+                    }
+                }
             } else {
-                RECT rect;
-                GetClientRect(hwnd, &rect);
-                FillRect(hdc, &rect, (HBRUSH)(COLOR_WINDOW + 1));
+                FillRect(hdc, &ps.rcPaint, (HBRUSH)(COLOR_WINDOW + 1));
             }
-            
+
             EndPaint(hwnd, &ps);
             return 0;
         }
