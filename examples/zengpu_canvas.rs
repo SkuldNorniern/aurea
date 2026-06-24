@@ -1,3 +1,4 @@
+use aurea::AureaResult;
 #[cfg(feature = "zengpu")]
 use aurea::{
     Container, Window, WindowEvent,
@@ -7,7 +8,7 @@ use aurea::{
 #[cfg(not(feature = "zengpu"))]
 use std::process::exit;
 
-fn main() -> aurea::AureaResult<()> {
+fn main() -> AureaResult<()> {
     #[cfg(not(feature = "zengpu"))]
     {
         eprintln!("This example requires the `zengpu` feature.");

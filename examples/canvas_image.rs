@@ -62,8 +62,8 @@ fn make_test_image() -> Image {
     for y in 0..H {
         for x in 0..W {
             let i = (y * W + x) as usize * 4;
-            data[i] = (x * 3) as u8;
-            data[i + 1] = (y * 3) as u8;
+            data[i] = u8::try_from(x * 3).expect("x < 80, so x*3 < 256");
+            data[i + 1] = u8::try_from(y * 3).expect("y < 80, so y*3 < 256");
             data[i + 2] = 180;
             data[i + 3] = 255;
         }

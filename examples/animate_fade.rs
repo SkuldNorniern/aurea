@@ -20,6 +20,22 @@ use aurea_animation::{Animation, EaseMode};
 const W: u32 = 640;
 const H: u32 = 480;
 
+/// Converts a `0.0..=1.0` value to a `u8` alpha byte.
+/// `std` has no safe non-`as` float-to-int conversion, even pre-clamped, so
+/// this isolates the unchecked conversion behind the caller's `.clamp()`.
+fn unit_to_u8(t: f32) -> u8 {
+    let t = (t * 255.0).clamp(0.0, 255.0);
+    // SAFETY: t is clamped to u8's range above.
+    unsafe { t.to_int_unchecked() }
+}
+
+/// Converts a `0.0..=1.0` value to a percentage `u32`.
+fn unit_to_pct(t: f32) -> u32 {
+    let t = (t * 100.0).clamp(0.0, 100.0);
+    // SAFETY: t is clamped to u32's range above.
+    unsafe { t.to_int_unchecked() }
+}
+
 fn main() -> AureaResult<()> {
     let mut window = Window::new("Animate — Fade In", W as i32, H as i32)?;
 
@@ -62,7 +78,7 @@ fn main() -> AureaResult<()> {
             )?;
 
             // The panel: alpha goes from 0 → 255 as t goes 0 → 1.
-            let a = (alpha * 255.0) as u8;
+            let a = unit_to_u8(alpha);
             let panel = Paint::new()
                 .color(Color::rgba(80, 140, 220, a))
                 .style(PaintStyle::Fill);
@@ -76,7 +92,7 @@ fn main() -> AureaResult<()> {
             ctx.draw_rect(Rect::new(100.0, 80.0, 440.0, 300.0), &border)?;
 
             // Progress text
-            let pct = (alpha * 100.0) as u32;
+            let pct = unit_to_pct(alpha);
             let pct_str = format!("{}%", pct);
             let pct_paint = Paint::new()
                 .color(Color::rgb(220, 220, 220))

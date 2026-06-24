@@ -27,9 +27,9 @@ fn draw_background(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
     for row in 0..GRID {
         for col in 0..GRID {
             let paint = Paint::new().color(Color::rgb(
-                ((row * 13) % 256) as u8,
-                ((col * 7) % 256) as u8,
-                (((row + col) * 5) % 256) as u8,
+                u8::try_from((row * 13) % 256).expect("mod 256 fits in u8"),
+                u8::try_from((col * 7) % 256).expect("mod 256 fits in u8"),
+                u8::try_from(((row + col) * 5) % 256).expect("mod 256 fits in u8"),
             ));
             ctx.draw_rect(
                 Rect::new(
@@ -57,7 +57,7 @@ fn run_frames(
         drop(ctx);
         r.end_frame()?;
     }
-    Ok(start.elapsed().as_secs_f64() * 1000.0 / frames as f64)
+    Ok(start.elapsed().as_secs_f64() * 1000.0 / f64::from(frames))
 }
 
 fn main() -> AureaResult<()> {
