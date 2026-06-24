@@ -23,6 +23,7 @@ use aurea_foundation::AureaResult;
 use crate::batch::RenderBatches;
 use crate::cpu::CpuDrawingContext;
 use crate::display_list::DisplayList;
+use crate::numeric::f32_to_u32_clamped;
 use crate::renderer::{DrawingContext, Renderer};
 use crate::surface::{Surface, SurfaceInfo};
 use crate::types::Rect;
@@ -86,8 +87,8 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
     fn physical_size(&self) -> (u32, u32) {
         let s = self.scale_factor;
         (
-            ((self.logical_width as f32 * s).round() as u32).max(1),
-            ((self.logical_height as f32 * s).round() as u32).max(1),
+            f32_to_u32_clamped((self.logical_width as f32 * s).round()).max(1),
+            f32_to_u32_clamped((self.logical_height as f32 * s).round()).max(1),
         )
     }
 }

@@ -2,9 +2,10 @@
 
 use std::cmp::Ordering;
 
-use super::super::types::{BlendMode, Color};
-use super::blend::{blend_pixel, ConstSrc};
-use super::path::Edge;
+use crate::cpu::blend::{blend_pixel, ConstSrc};
+use crate::cpu::path::Edge;
+use crate::numeric::f32_to_u32_clamped;
+use crate::types::{BlendMode, Color};
 
 /// Fill sorted x-crossing pairs into a scanline row (odd-even rule).
 ///
@@ -68,8 +69,8 @@ pub fn fill_spans(
             continue;
         }
 
-        let j0 = sl.floor() as u32;
-        let j1 = (sr - 0.001).floor() as u32;
+        let j0 = f32_to_u32_clamped(sl.floor());
+        let j1 = f32_to_u32_clamped((sr - 0.001).floor());
 
         if j0 == j1 {
             write(buf, j0, sr - sl);
@@ -79,29 +80,49 @@ pub fn fill_spans(
         write(buf, j0, (j0 as f32 + 1.0) - sl);
         write(buf, j1, sr - j1 as f32);
 
-        let interior_j0 = j0 + 1;
-        let interior_j1 = j1;
-        if interior_j0 < interior_j1 {
-            let bx0 = interior_j0.saturating_sub(offset_x);
-            let bx1 = interior_j1.saturating_sub(offset_x).min(buf_width);
-            if bx0 < bx1 {
-                let start = row_base + bx0 as usize;
-                let end = row_base + bx1 as usize;
-                if end <= buf.len() {
-                    if opaque_fast {
-                        buf[start..end].fill(full_src);
-                    } else if let Some(cs) = const_src {
-                        // Translucent Normal: use precomputed linear source.
-                        for p in &mut buf[start..end] {
-                            *p = cs.over(*p);
-                        }
-                    } else {
-                        for p in &mut buf[start..end] {
-                            *p = blend_pixel(full_src, *p, blend_mode);
-                        }
-                    }
-                }
-            }
+        fill_interior(
+            buf, row_base, buf_width, offset_x, j0 + 1, j1, full_src, opaque_fast, const_src,
+            blend_mode,
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn fill_interior(
+    buf: &mut [u32],
+    row_base: usize,
+    buf_width: u32,
+    offset_x: u32,
+    interior_j0: u32,
+    interior_j1: u32,
+    full_src: u32,
+    opaque_fast: bool,
+    const_src: Option<ConstSrc>,
+    blend_mode: BlendMode,
+) {
+    if interior_j0 >= interior_j1 {
+        return;
+    }
+    let bx0 = interior_j0.saturating_sub(offset_x);
+    let bx1 = interior_j1.saturating_sub(offset_x).min(buf_width);
+    if bx0 >= bx1 {
+        return;
+    }
+    let start = row_base + bx0 as usize;
+    let end = row_base + bx1 as usize;
+    if end > buf.len() {
+        return;
+    }
+    if opaque_fast {
+        buf[start..end].fill(full_src);
+    } else if let Some(cs) = const_src {
+        // Translucent Normal: use precomputed linear source.
+        for p in &mut buf[start..end] {
+            *p = cs.over(*p);
+        }
+    } else {
+        for p in &mut buf[start..end] {
+            *p = blend_pixel(full_src, *p, blend_mode);
         }
     }
 }
@@ -140,7 +161,7 @@ pub fn fill_scanline(
     }
     scratch_xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
 
-    let row_y = y as u32;
+    let row_y = f32_to_u32_clamped(y);
     let buf_y = row_y.saturating_sub(offset_y);
     if buf_y >= buf_height {
         return;
@@ -151,6 +172,6 @@ pub fn fill_scanline(
 }
 
 fn color_u32_cov(c: Color, cov: f32) -> u32 {
-    let a = (c.a as f32 * cov).round().clamp(0.0, 255.0) as u32;
-    (a << 24) | ((c.r as u32) << 16) | ((c.g as u32) << 8) | (c.b as u32)
+    let a = f32_to_u32_clamped((f32::from(c.a) * cov).round());
+    (a << 24) | (u32::from(c.r) << 16) | (u32::from(c.g) << 8) | u32::from(c.b)
 }

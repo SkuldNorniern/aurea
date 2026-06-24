@@ -1,6 +1,6 @@
 //! Frame queue for scheduling and processing redraws.
 
-use aurea_foundation::AureaError;
+use aurea_foundation::{lock, AureaError};
 use std::collections::{HashMap, HashSet};
 use std::os::raw::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -47,11 +47,11 @@ pub struct FrameScheduler;
 
 impl FrameScheduler {
     pub fn set_request_frame_hook<F: Fn() + Send + Sync + 'static>(f: F) {
-        *aurea_foundation::lock(&REQUEST_FRAME_HOOK) = Some(Box::new(f));
+        *lock(&REQUEST_FRAME_HOOK) = Some(Box::new(f));
     }
 
     fn notify_platform() {
-        if let Some(hook) = aurea_foundation::lock(&REQUEST_FRAME_HOOK).as_ref() {
+        if let Some(hook) = lock(&REQUEST_FRAME_HOOK).as_ref() {
             hook();
         }
     }
@@ -63,7 +63,7 @@ impl FrameScheduler {
     }
 
     pub fn schedule_canvas(handle: *mut c_void) {
-        let mut pending = aurea_foundation::lock(&PENDING_CANVASES);
+        let mut pending = lock(&PENDING_CANVASES);
         pending.insert(handle as usize);
         FRAME_SCHEDULED.store(true, Ordering::Relaxed);
         drop(pending);
@@ -79,18 +79,18 @@ impl FrameScheduler {
     }
 
     pub fn register_canvas(handle: *mut c_void, callback: CanvasRedrawCallback) {
-        let mut registry = aurea_foundation::lock(&CANVAS_REGISTRY);
+        let mut registry = lock(&CANVAS_REGISTRY);
         let mut updated = (**registry).clone();
         updated.insert(handle as usize, callback);
         *registry = Arc::new(updated);
     }
 
     pub fn unregister_canvas(handle: *mut c_void) {
-        let mut registry = aurea_foundation::lock(&CANVAS_REGISTRY);
+        let mut registry = lock(&CANVAS_REGISTRY);
         let mut updated = (**registry).clone();
         updated.remove(&(handle as usize));
         *registry = Arc::new(updated);
-        aurea_foundation::lock(&PENDING_CANVASES).remove(&(handle as usize));
+        lock(&PENDING_CANVASES).remove(&(handle as usize));
     }
 
     pub fn register_frame_callback<F>(callback: F) -> FrameCallbackId
@@ -98,7 +98,7 @@ impl FrameScheduler {
         F: Fn() + Send + Sync + 'static,
     {
         let id = FrameCallbackId(FRAME_CALLBACK_COUNTER.fetch_add(1, Ordering::Relaxed));
-        let mut callbacks = aurea_foundation::lock(&FRAME_CALLBACKS);
+        let mut callbacks = lock(&FRAME_CALLBACKS);
         let mut updated = (**callbacks).clone();
         updated.insert(id, Arc::new(callback));
         *callbacks = Arc::new(updated);
@@ -106,7 +106,7 @@ impl FrameScheduler {
     }
 
     pub fn unregister_frame_callback(id: FrameCallbackId) {
-        let mut callbacks = aurea_foundation::lock(&FRAME_CALLBACKS);
+        let mut callbacks = lock(&FRAME_CALLBACKS);
         let mut updated = (**callbacks).clone();
         updated.remove(&id);
         *callbacks = Arc::new(updated);
@@ -122,7 +122,7 @@ impl FrameScheduler {
         F: FnMut(FrameInfo) -> bool + Send + 'static,
     {
         let id = TickerId(TICKER_COUNTER.fetch_add(1, Ordering::Relaxed));
-        let mut tickers = aurea_foundation::lock(&TICKERS);
+        let mut tickers = lock(&TICKERS);
         let mut updated = (**tickers).clone();
         updated.insert(id, Arc::new(Mutex::new(ticker)));
         *tickers = Arc::new(updated);
@@ -134,10 +134,30 @@ impl FrameScheduler {
     }
 
     pub fn unregister_ticker(id: TickerId) {
-        let mut tickers = aurea_foundation::lock(&TICKERS);
+        let mut tickers = lock(&TICKERS);
         let mut updated = (**tickers).clone();
         updated.remove(&id);
         *tickers = Arc::new(updated);
+    }
+
+    /// Runs every registered ticker once, unregistering any that return `false`.
+    /// Locks are released before invoking user code: ticker callbacks may
+    /// re-register canvases or other tickers.
+    fn run_tickers(frame_info: FrameInfo) {
+        let tickers = lock(&TICKERS).clone();
+        let mut to_remove = Vec::new();
+        for (id, ticker_fn) in tickers.iter() {
+            let keep = {
+                let mut f = ticker_fn.lock().expect("ticker mutex not poisoned");
+                f(frame_info)
+            };
+            if !keep {
+                to_remove.push(*id);
+            }
+        }
+        for id in to_remove {
+            Self::unregister_ticker(id);
+        }
     }
 
     pub fn process_frames() -> Result<(), AureaError> {
@@ -149,7 +169,7 @@ impl FrameScheduler {
         // read the wall clock themselves (required by the determinism contract).
         let now = Instant::now();
         let delta = {
-            let mut last = aurea_foundation::lock(&LAST_FRAME_TIME);
+            let mut last = lock(&LAST_FRAME_TIME);
             let d = now.duration_since(*last);
             *last = now;
             d
@@ -162,32 +182,33 @@ impl FrameScheduler {
         };
 
         // === Tickers run before canvas redraws so mutations are visible this frame ===
-        // Clone the Arc — O(1); locks released before invoking user code.
-        let tickers = aurea_foundation::lock(&TICKERS).clone();
-        let mut to_remove = Vec::new();
-        for (id, ticker_fn) in tickers.iter() {
-            let keep = {
-                let mut f = ticker_fn.lock().unwrap();
-                f(frame_info)
-            };
-            if !keep {
-                to_remove.push(*id);
-            }
-        }
-        for id in to_remove {
-            Self::unregister_ticker(id);
-        }
+        Self::run_tickers(frame_info);
 
         // === Canvas redraws ===
-        let process_all_canvases = ALL_CANVASES_SCHEDULED.swap(false, Ordering::Relaxed);
+        Self::redraw_canvases();
 
-        // Cheap Arc clones; locks released before invoking callbacks
-        // (which may re-register canvases or frame callbacks).
-        let registry = aurea_foundation::lock(&CANVAS_REGISTRY).clone();
-        let global_callbacks = aurea_foundation::lock(&FRAME_CALLBACKS).clone();
+        // Re-arm pump if tickers remain after removal (pump-only, not all-canvas).
+        // Check the live map — not the snapshot — so finished tickers don't waste a frame.
+        // scheduler.rs calls ng_platform_frame_idle() when !is_scheduled().
+        if !lock(&TICKERS).is_empty() {
+            FRAME_SCHEDULED.store(true, Ordering::Relaxed);
+            Self::notify_platform();
+        }
+
+        Ok(())
+    }
+
+    /// Invokes either every registered canvas's redraw callback (full repaint)
+    /// or just the ones pending a redraw, plus all global frame callbacks.
+    /// Locks are released before invoking callbacks, which may re-register
+    /// canvases or frame callbacks.
+    fn redraw_canvases() {
+        let process_all_canvases = ALL_CANVASES_SCHEDULED.swap(false, Ordering::Relaxed);
+        let registry = lock(&CANVAS_REGISTRY).clone();
+        let global_callbacks = lock(&FRAME_CALLBACKS).clone();
 
         let pending_handles = {
-            let mut pending = aurea_foundation::lock(&PENDING_CANVASES);
+            let mut pending = lock(&PENDING_CANVASES);
             if process_all_canvases || pending.is_empty() {
                 pending.clear();
                 None
@@ -218,16 +239,6 @@ impl FrameScheduler {
         for (_, callback) in global_callbacks.iter() {
             callback();
         }
-
-        // Re-arm pump if tickers remain after removal (pump-only, not all-canvas).
-        // Check the live map — not the snapshot — so finished tickers don't waste a frame.
-        // scheduler.rs calls ng_platform_frame_idle() when !is_scheduled().
-        if !aurea_foundation::lock(&TICKERS).is_empty() {
-            FRAME_SCHEDULED.store(true, Ordering::Relaxed);
-            Self::notify_platform();
-        }
-
-        Ok(())
     }
 }
 
@@ -245,7 +256,7 @@ mod tests {
 
     impl TestGuard {
         fn new() -> Self {
-            let guard = aurea_foundation::lock(&TEST_LOCK);
+            let guard = lock(&TEST_LOCK);
             reset_scheduler_state();
             Self { _guard: guard }
         }
@@ -263,12 +274,12 @@ mod tests {
         FRAME_CALLBACK_COUNTER.store(0, Ordering::Relaxed);
         TICKER_COUNTER.store(0, Ordering::Relaxed);
         FRAME_COUNTER.store(0, Ordering::Relaxed);
-        *aurea_foundation::lock(&CANVAS_REGISTRY) = Arc::new(HashMap::new());
-        aurea_foundation::lock(&PENDING_CANVASES).clear();
-        *aurea_foundation::lock(&FRAME_CALLBACKS) = Arc::new(HashMap::new());
-        *aurea_foundation::lock(&TICKERS) = Arc::new(HashMap::new());
-        *aurea_foundation::lock(&LAST_FRAME_TIME) = Instant::now();
-        *aurea_foundation::lock(&REQUEST_FRAME_HOOK) = None;
+        *lock(&CANVAS_REGISTRY) = Arc::new(HashMap::new());
+        lock(&PENDING_CANVASES).clear();
+        *lock(&FRAME_CALLBACKS) = Arc::new(HashMap::new());
+        *lock(&TICKERS) = Arc::new(HashMap::new());
+        *lock(&LAST_FRAME_TIME) = Instant::now();
+        *lock(&REQUEST_FRAME_HOOK) = None;
     }
 
     fn handle(id: usize) -> *mut c_void {

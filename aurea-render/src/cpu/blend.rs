@@ -4,7 +4,8 @@
 //! Each mode combines a source pixel with the existing destination pixel to produce
 //! the final color (e.g. Normal is "over", Multiply darkens, Screen lightens).
 
-use super::super::types::BlendMode;
+use crate::numeric::{f32_to_u32_clamped, f32_to_u8_clamped, f32_to_usize_clamped};
+use crate::types::BlendMode;
 use std::sync::LazyLock;
 
 /// sRGB (0..=255) -> linear-light (0.0..=1.0) lookup table.
@@ -45,7 +46,7 @@ static LINEAR_TO_SRGB: LazyLock<[u8; 4097]> = LazyLock::new(|| {
         } else {
             1.055 * c.powf(1.0 / 2.4) - 0.055
         };
-        *slot = (s * 255.0).round().clamp(0.0, 255.0) as u8;
+        *slot = f32_to_u8_clamped((s * 255.0).round());
     }
     lut
 });
@@ -53,8 +54,8 @@ static LINEAR_TO_SRGB: LazyLock<[u8; 4097]> = LazyLock::new(|| {
 /// Linear-light (0.0..=1.0) -> sRGB-encoded 8-bit channel value.
 #[inline]
 pub fn linear_to_srgb_u8(c: f32) -> u32 {
-    let idx = (c.clamp(0.0, 1.0) * 4096.0) as usize;
-    LINEAR_TO_SRGB[idx] as u32
+    let idx = f32_to_usize_clamped(c.clamp(0.0, 1.0) * 4096.0);
+    u32::from(LINEAR_TO_SRGB[idx])
 }
 
 /// Precomputed linear-light source channels for a constant-color span.
@@ -83,9 +84,9 @@ impl ConstSrc {
         Self {
             sa,
             da_scale: (255 - sa) as f32 / 255.0,
-            lr: srgb_to_linear(sr(src) as u8),
-            lg: srgb_to_linear(sg(src) as u8),
-            lb: srgb_to_linear(sb(src) as u8),
+            lr: srgb_to_linear(sr8(src)),
+            lg: srgb_to_linear(sg8(src)),
+            lb: srgb_to_linear(sb8(src)),
             cov,
         }
     }
@@ -104,9 +105,9 @@ impl ConstSrc {
             return 0;
         }
         let inv = 1.0 - self.cov;
-        let out_r = linear_to_srgb_u8(self.lr * self.cov + srgb_to_linear(dr(dst) as u8) * inv);
-        let out_g = linear_to_srgb_u8(self.lg * self.cov + srgb_to_linear(dg(dst) as u8) * inv);
-        let out_b = linear_to_srgb_u8(self.lb * self.cov + srgb_to_linear(db(dst) as u8) * inv);
+        let out_r = linear_to_srgb_u8(self.lr * self.cov + srgb_to_linear(dr8(dst)) * inv);
+        let out_g = linear_to_srgb_u8(self.lg * self.cov + srgb_to_linear(dg8(dst)) * inv);
+        let out_b = linear_to_srgb_u8(self.lb * self.cov + srgb_to_linear(db8(dst)) * inv);
         (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b
     }
 }
@@ -142,6 +143,24 @@ fn sb(src: u32) -> u32 {
 fn sa(src: u32) -> u32 {
     (src >> 24) & 0xff
 }
+fn sr8(src: u32) -> u8 {
+    ((src >> 16) & 0xff) as u8
+}
+fn sg8(src: u32) -> u8 {
+    ((src >> 8) & 0xff) as u8
+}
+fn sb8(src: u32) -> u8 {
+    (src & 0xff) as u8
+}
+fn dr8(dst: u32) -> u8 {
+    ((dst >> 16) & 0xff) as u8
+}
+fn dg8(dst: u32) -> u8 {
+    ((dst >> 8) & 0xff) as u8
+}
+fn db8(dst: u32) -> u8 {
+    (dst & 0xff) as u8
+}
 fn dr(dst: u32) -> u32 {
     (dst >> 16) & 0xff
 }
@@ -172,15 +191,12 @@ fn blend_over(src: u32, dst: u32) -> u32 {
     // Composite the colour channels in linear light for smooth antialiased edges.
     let cov = sa as f32 / 255.0;
     let inv = 1.0 - cov;
-    let out_r = linear_to_srgb_u8(
-        srgb_to_linear(sr(src) as u8) * cov + srgb_to_linear(dr(dst) as u8) * inv,
-    );
-    let out_g = linear_to_srgb_u8(
-        srgb_to_linear(sg(src) as u8) * cov + srgb_to_linear(dg(dst) as u8) * inv,
-    );
-    let out_b = linear_to_srgb_u8(
-        srgb_to_linear(sb(src) as u8) * cov + srgb_to_linear(db(dst) as u8) * inv,
-    );
+    let out_r =
+        linear_to_srgb_u8(srgb_to_linear(sr8(src)) * cov + srgb_to_linear(dr8(dst)) * inv);
+    let out_g =
+        linear_to_srgb_u8(srgb_to_linear(sg8(src)) * cov + srgb_to_linear(dg8(dst)) * inv);
+    let out_b =
+        linear_to_srgb_u8(srgb_to_linear(sb8(src)) * cov + srgb_to_linear(db8(dst)) * inv);
     (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b
 }
 
@@ -362,7 +378,7 @@ fn soft_light_channel(s: u32, d: u32) -> u32 {
                     d.sqrt() - d
                 }))
     };
-    (r * 255.0).clamp(0.0, 255.0) as u32
+    f32_to_u32_clamped(r * 255.0)
 }
 
 fn blend_difference(src: u32, dst: u32) -> u32 {

@@ -12,6 +12,7 @@ mod command;
 mod display_list;
 mod gpu2d;
 mod interaction;
+mod numeric;
 mod renderer;
 mod surface;
 mod types;

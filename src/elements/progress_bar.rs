@@ -159,7 +159,7 @@ impl ProgressBar {
 
     /// Set progress using 0..=100 percent input.
     pub fn set_percent(&mut self, percent: u8) -> AureaResult<()> {
-        let normalized = (percent.min(100) as f64) / 100.0;
+        let normalized = f64::from(percent.min(100)) / 100.0;
         self.set_value(normalized)
     }
 
