@@ -6,7 +6,7 @@ use crate::command::DrawCommand;
 use crate::cpu::hit_test;
 use crate::display_list::{DisplayItem, DisplayList};
 use crate::types::{InteractiveId, Point};
-use aurea_foundation::{lock, AureaResult};
+use aurea_foundation::{AureaResult, lock};
 use std::collections::HashMap;
 use std::sync::Mutex;
 

@@ -4,7 +4,7 @@
 //! the same glyphs repeatedly. Uses bounded LRU cache.
 
 use crate::text::platform::FontRef;
-use aurea_foundation::{lock, AureaResult};
+use aurea_foundation::{AureaResult, lock};
 use std::{
     collections::HashMap,
     collections::VecDeque,

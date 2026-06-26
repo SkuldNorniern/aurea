@@ -11,10 +11,12 @@ use std::cmp::Ordering as CmpOrdering;
 use crate::command::DrawCommand;
 use crate::cpu::blend::{blend_pixel, linear_to_srgb_u8, srgb_to_linear};
 use crate::cpu::context::CpuDrawingContext;
-use crate::cpu::path::{tessellate_path_into, Edge};
+use crate::cpu::path::{Edge, tessellate_path_into};
 use crate::cpu::scanline::fill_spans;
 use crate::display_list::{CacheKey, DisplayItem, DisplayList};
-use crate::numeric::{f32_to_i32_clamped, f32_to_u32_clamped, f32_to_u8_clamped, f32_to_usize_clamped};
+use crate::numeric::{
+    f32_to_i32_clamped, f32_to_u8_clamped, f32_to_u32_clamped, f32_to_usize_clamped,
+};
 use crate::renderer::{DrawingContext, Renderer};
 use crate::surface::{Surface, SurfaceInfo};
 use crate::types::{
@@ -173,7 +175,16 @@ impl CpuRasterizer {
                 Self::draw_image(image, src, *dest, item.blend_mode, buf, scratch_row, bw, bh);
             }
             DrawCommand::DrawImageRegion(image, src, dest) => {
-                Self::draw_image(image, *src, *dest, item.blend_mode, buf, scratch_row, bw, bh);
+                Self::draw_image(
+                    image,
+                    *src,
+                    *dest,
+                    item.blend_mode,
+                    buf,
+                    scratch_row,
+                    bw,
+                    bh,
+                );
             }
             DrawCommand::FillLinearGradient(grad, rect) => {
                 Self::fill_linear_gradient(grad, *rect, item.blend_mode, buf, bw, bh);
@@ -457,10 +468,10 @@ impl CpuRasterizer {
             return;
         }
         let half_out = (ctx.r_out * ctx.r_out - dy * dy).max(0.0).sqrt();
-        let xo0 = f32_to_i32_clamped((ctx.center.x - half_out).floor().max(x0 as f32))
-            .min(x1 as i32);
-        let xo1 = f32_to_i32_clamped((ctx.center.x + half_out).ceil().min(x1 as f32))
-            .max(x0 as i32);
+        let xo0 =
+            f32_to_i32_clamped((ctx.center.x - half_out).floor().max(x0 as f32)).min(x1 as i32);
+        let xo1 =
+            f32_to_i32_clamped((ctx.center.x + half_out).ceil().min(x1 as f32)).max(x0 as i32);
 
         let (xi0, xi1) = if dy.abs() < ctx.r_in {
             let half_in = (ctx.r_in * ctx.r_in - dy * dy).max(0.0).sqrt();
@@ -496,7 +507,14 @@ impl CpuRasterizer {
         Self::fill_circle_edge_span(buf, bw, ctx, xi1, xo1, y);
     }
 
-    fn fill_circle_edge_span(buf: &mut [u32], bw: u32, ctx: &CircleFillCtx, xa: i32, xb: i32, y: u32) {
+    fn fill_circle_edge_span(
+        buf: &mut [u32],
+        bw: u32,
+        ctx: &CircleFillCtx,
+        xa: i32,
+        xb: i32,
+        y: u32,
+    ) {
         for x in xa..xb {
             let cov = circle_coverage(ctx.center, ctx.radius, x as f32, y as f32);
             if cov > 0.0 {
@@ -554,7 +572,8 @@ impl CpuRasterizer {
 
         // Sort edges by y_min once so the sweep only looks at each edge when
         // it first becomes active — O(E·log E + A·rows) instead of O(E·rows).
-        scratch_edges.sort_unstable_by(|a, b| a.y_min.partial_cmp(&b.y_min).unwrap_or(CmpOrdering::Equal));
+        scratch_edges
+            .sort_unstable_by(|a, b| a.y_min.partial_cmp(&b.y_min).unwrap_or(CmpOrdering::Equal));
 
         let y_min = scratch_edges[0].y_min;
         let y_max = scratch_edges
@@ -612,8 +631,10 @@ impl CpuRasterizer {
         let tb = srgb_to_linear(color.b);
         // Fully-covered pixels composite to the text color at full alpha
         // regardless of the destination, so they can be written directly.
-        let opaque_pixel =
-            0xFF00_0000 | (u32::from(color.r) << 16) | (u32::from(color.g) << 8) | u32::from(color.b);
+        let opaque_pixel = 0xFF00_0000
+            | (u32::from(color.r) << 16)
+            | (u32::from(color.g) << 8)
+            | u32::from(color.b);
         let dx = f32_to_i32_clamped(origin.x.round());
         let dy = f32_to_i32_clamped(origin.y.round());
 
@@ -1299,7 +1320,13 @@ fn resolve_frame_damage(
 }
 
 /// Union of all dirty tile rects in physical pixels.
-fn union_dirty_tile_rects(dirty_tiles: &[bool], tiles_x: u32, tiles_y: u32, bw: u32, bh: u32) -> Option<Rect> {
+fn union_dirty_tile_rects(
+    dirty_tiles: &[bool],
+    tiles_x: u32,
+    tiles_y: u32,
+    bw: u32,
+    bh: u32,
+) -> Option<Rect> {
     let mut acc: Option<Rect> = None;
     for ty in 0..tiles_y {
         for tx in 0..tiles_x {

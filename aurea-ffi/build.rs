@@ -5,9 +5,8 @@ use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 
 fn main() {
-    let manifest_dir = PathBuf::from(
-        env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set by cargo"),
-    );
+    let manifest_dir =
+        PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set by cargo"));
     let root = {
         let p = manifest_dir
             .canonicalize()

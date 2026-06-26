@@ -1,6 +1,6 @@
 use crate::command::DrawCommand;
 use crate::display_list::DisplayList;
-use crate::numeric::{f32_to_i32_clamped, f32_to_u32_clamped, f32_to_u8_clamped};
+use crate::numeric::{f32_to_i32_clamped, f32_to_u8_clamped, f32_to_u32_clamped};
 use crate::surface::{Surface, SurfaceInfo};
 use crate::text::TextRenderer;
 use crate::types::{
@@ -40,10 +40,8 @@ pub trait DrawingContext {
     /// Draw a line between two points
     fn draw_line(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, paint: &Paint) -> AureaResult<()> {
         let mut path = Path::new();
-        path.commands
-            .push(PathCommand::MoveTo(Point::new(x1, y1)));
-        path.commands
-            .push(PathCommand::LineTo(Point::new(x2, y2)));
+        path.commands.push(PathCommand::MoveTo(Point::new(x1, y1)));
+        path.commands.push(PathCommand::LineTo(Point::new(x2, y2)));
         self.draw_path(&path, paint)
     }
 
@@ -326,13 +324,7 @@ impl PlaceholderRenderer {
         }
     }
 
-    fn draw_circle_impl(
-        &mut self,
-        center: Point,
-        radius: f32,
-        color: Color,
-        style: PaintStyle,
-    ) {
+    fn draw_circle_impl(&mut self, center: Point, radius: f32, color: Color, style: PaintStyle) {
         let r = f32_to_i32_clamped(radius);
         let cx = f32_to_i32_clamped(center.x);
         let cy = f32_to_i32_clamped(center.y);
@@ -402,8 +394,10 @@ impl PlaceholderRenderer {
                 let g = image_data[idx + 1];
                 let b = image_data[idx + 2];
                 let a = image_data[idx + 3];
-                let src_rgba =
-                    (u32::from(a) << 24) | (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b);
+                let src_rgba = (u32::from(a) << 24)
+                    | (u32::from(r) << 16)
+                    | (u32::from(g) << 8)
+                    | u32::from(b);
                 let buf_idx = (dy.cast_unsigned() * buffer_width + dx.cast_unsigned()) as usize;
                 if buf_idx >= buffer.len() {
                     continue;
@@ -453,10 +447,18 @@ impl PlaceholderRenderer {
                 let c0 = stops[i].color;
                 let c1 = stops[i + 1].color;
                 return Color::rgba(
-                    f32_to_u8_clamped((f32::from(c0.r) + (f32::from(c1.r) - f32::from(c0.r)) * s).round()),
-                    f32_to_u8_clamped((f32::from(c0.g) + (f32::from(c1.g) - f32::from(c0.g)) * s).round()),
-                    f32_to_u8_clamped((f32::from(c0.b) + (f32::from(c1.b) - f32::from(c0.b)) * s).round()),
-                    f32_to_u8_clamped((f32::from(c0.a) + (f32::from(c1.a) - f32::from(c0.a)) * s).round()),
+                    f32_to_u8_clamped(
+                        (f32::from(c0.r) + (f32::from(c1.r) - f32::from(c0.r)) * s).round(),
+                    ),
+                    f32_to_u8_clamped(
+                        (f32::from(c0.g) + (f32::from(c1.g) - f32::from(c0.g)) * s).round(),
+                    ),
+                    f32_to_u8_clamped(
+                        (f32::from(c0.b) + (f32::from(c1.b) - f32::from(c0.b)) * s).round(),
+                    ),
+                    f32_to_u8_clamped(
+                        (f32::from(c0.a) + (f32::from(c1.a) - f32::from(c0.a)) * s).round(),
+                    ),
                 );
             }
         }

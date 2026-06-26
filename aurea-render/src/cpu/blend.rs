@@ -4,7 +4,7 @@
 //! Each mode combines a source pixel with the existing destination pixel to produce
 //! the final color (e.g. Normal is "over", Multiply darkens, Screen lightens).
 
-use crate::numeric::{f32_to_u32_clamped, f32_to_u8_clamped, f32_to_usize_clamped};
+use crate::numeric::{f32_to_u8_clamped, f32_to_u32_clamped, f32_to_usize_clamped};
 use crate::types::BlendMode;
 use std::sync::LazyLock;
 
@@ -191,12 +191,9 @@ fn blend_over(src: u32, dst: u32) -> u32 {
     // Composite the colour channels in linear light for smooth antialiased edges.
     let cov = sa as f32 / 255.0;
     let inv = 1.0 - cov;
-    let out_r =
-        linear_to_srgb_u8(srgb_to_linear(sr8(src)) * cov + srgb_to_linear(dr8(dst)) * inv);
-    let out_g =
-        linear_to_srgb_u8(srgb_to_linear(sg8(src)) * cov + srgb_to_linear(dg8(dst)) * inv);
-    let out_b =
-        linear_to_srgb_u8(srgb_to_linear(sb8(src)) * cov + srgb_to_linear(db8(dst)) * inv);
+    let out_r = linear_to_srgb_u8(srgb_to_linear(sr8(src)) * cov + srgb_to_linear(dr8(dst)) * inv);
+    let out_g = linear_to_srgb_u8(srgb_to_linear(sg8(src)) * cov + srgb_to_linear(dg8(dst)) * inv);
+    let out_b = linear_to_srgb_u8(srgb_to_linear(sb8(src)) * cov + srgb_to_linear(db8(dst)) * inv);
     (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b
 }
 

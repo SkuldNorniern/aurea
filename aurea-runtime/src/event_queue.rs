@@ -1,6 +1,6 @@
 //! Event queue for window-level events.
 
-use aurea_foundation::{lock, EventCallback, WindowEvent};
+use aurea_foundation::{EventCallback, WindowEvent, lock};
 use std::mem::{discriminant, take};
 use std::sync::{Arc, Mutex};
 

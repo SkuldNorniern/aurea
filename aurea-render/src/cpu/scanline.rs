@@ -2,7 +2,7 @@
 
 use std::cmp::Ordering;
 
-use crate::cpu::blend::{blend_pixel, ConstSrc};
+use crate::cpu::blend::{ConstSrc, blend_pixel};
 use crate::cpu::path::Edge;
 use crate::numeric::f32_to_u32_clamped;
 use crate::types::{BlendMode, Color};
@@ -81,7 +81,15 @@ pub fn fill_spans(
         write(buf, j1, sr - j1 as f32);
 
         fill_interior(
-            buf, row_base, buf_width, offset_x, j0 + 1, j1, full_src, opaque_fast, const_src,
+            buf,
+            row_base,
+            buf_width,
+            offset_x,
+            j0 + 1,
+            j1,
+            full_src,
+            opaque_fast,
+            const_src,
             blend_mode,
         );
     }
@@ -168,7 +176,9 @@ pub fn fill_scanline(
     }
     let row_base = buf_y as usize * buf_width as usize;
 
-    fill_spans(scratch_xs, row_base, buf, buf_width, offset_x, color, blend_mode);
+    fill_spans(
+        scratch_xs, row_base, buf, buf_width, offset_x, color, blend_mode,
+    );
 }
 
 fn color_u32_cov(c: Color, cov: f32) -> u32 {

@@ -1,6 +1,6 @@
 //! Frame queue for scheduling and processing redraws.
 
-use aurea_foundation::{lock, AureaError};
+use aurea_foundation::{AureaError, lock};
 use std::collections::{HashMap, HashSet};
 use std::os::raw::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

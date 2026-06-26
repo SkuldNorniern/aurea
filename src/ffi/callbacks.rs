@@ -106,7 +106,8 @@ pub extern "C" fn ng_invoke_mouse_button(
         modifiers: Modifiers::from_bits(modifiers),
         x: x / scale,
         y: y / scale,
-        click_count: u8::try_from(click_count.clamp(1, c_int::from(u8::MAX))).expect("clamped to u8 range"),
+        click_count: u8::try_from(click_count.clamp(1, c_int::from(u8::MAX)))
+            .expect("clamped to u8 range"),
     };
     push_window_event(window, event);
 }
