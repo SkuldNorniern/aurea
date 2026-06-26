@@ -33,12 +33,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn handle_raw_motion(
-    locked: &Mutex<bool>,
-    last_log: &Mutex<Instant>,
-    delta_x: f64,
-    delta_y: f64,
-) {
+fn handle_raw_motion(locked: &Mutex<bool>, last_log: &Mutex<Instant>, delta_x: f64, delta_y: f64) {
     let is_locked = *locked.lock().expect("lock mutex not poisoned");
     if !is_locked {
         return;

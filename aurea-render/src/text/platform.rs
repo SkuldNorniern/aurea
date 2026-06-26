@@ -1,10 +1,10 @@
 //! Text rasterization orchestration.
 
 use crate::numeric::{f32_to_i32_clamped, f32_to_u32_clamped};
-use crate::text::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
 use crate::text::LruCache;
+use crate::text::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
 use crate::types::{Color, Font, FontStyle, FontWeight, GlyphMask, Point, TextMetrics};
-use aurea_foundation::{lock, AureaResult};
+use aurea_foundation::{AureaResult, lock};
 use std::sync::{Arc, Mutex};
 
 /// Borrowed font reference for the text-rendering hot path.
@@ -68,10 +68,8 @@ pub fn get_platform_rasterizer() -> Box<dyn PlatformTextRasterizer> {
     #[cfg(windows)]
     {
         use crate::text::directwrite_backend::DirectWriteRasterizer;
-        match DirectWriteRasterizer::new() {
-            Ok(dw) => return Box::new(dw),
-            Err(_) => {
-            }
+        if let Ok(dw) = DirectWriteRasterizer::new() {
+            return Box::new(dw);
         }
     }
     use crate::text::fontdue_backend::FontDbTextRasterizer;
@@ -140,10 +138,7 @@ impl TextRenderer {
         }
 
         let run_key = RunKey::new(text, font);
-        if let Some(cached) = lock(&self.run_cache)
-            .get(&run_key)
-            .cloned()
-        {
+        if let Some(cached) = lock(&self.run_cache).get(&run_key).cloned() {
             return Ok(cached);
         }
         let result = self.compute_mask(text, font)?;

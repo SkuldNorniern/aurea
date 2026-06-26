@@ -1,11 +1,11 @@
 //! fontdue glyph rasterizer — cross-platform fallback backend.
 
 use crate::numeric::{f32_to_i32_clamped, f32_to_u8_clamped};
+use crate::text::LruCache;
 use crate::text::atlas::{GlyphBitmap, GlyphKey};
 use crate::text::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph};
-use crate::text::LruCache;
 use crate::types::{FontStyle, FontWeight, TextMetrics};
-use aurea_foundation::{lock, AureaError, AureaResult};
+use aurea_foundation::{AureaError, AureaResult, lock};
 use fontdue::{Font, FontSettings};
 use std::env::var;
 #[cfg(target_os = "windows")]
@@ -271,10 +271,7 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
 
     fn rasterize_subpixel(&self, font: FontRef, char_code: u32) -> AureaResult<Arc<SubpixelGlyph>> {
         let key = GlyphKey::new(font, char_code);
-        if let Some(hit) = lock(&self.subpixel_cache)
-            .get(&key)
-            .cloned()
-        {
+        if let Some(hit) = lock(&self.subpixel_cache).get(&key).cloned() {
             return Ok(hit);
         }
 

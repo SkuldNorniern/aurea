@@ -9,14 +9,22 @@ pub(crate) fn f32_to_u8_clamped(v: f32) -> u8 {
 
 #[inline]
 pub(crate) fn f32_to_u32_clamped(v: f32) -> u32 {
-    let v = if v.is_nan() { 0.0 } else { v.clamp(0.0, 16_777_216.0) };
+    let v = if v.is_nan() {
+        0.0
+    } else {
+        v.clamp(0.0, 16_777_216.0)
+    };
     // SAFETY: v is clamped to within u32's range (and exactly representable) above.
     unsafe { v.to_int_unchecked() }
 }
 
 #[inline]
 pub(crate) fn f32_to_usize_clamped(v: f32) -> usize {
-    let v = if v.is_nan() { 0.0 } else { v.clamp(0.0, 16_777_216.0) };
+    let v = if v.is_nan() {
+        0.0
+    } else {
+        v.clamp(0.0, 16_777_216.0)
+    };
     // SAFETY: v is clamped to within usize's range (and exactly representable) above.
     unsafe { v.to_int_unchecked() }
 }
