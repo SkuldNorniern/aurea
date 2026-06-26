@@ -10,10 +10,10 @@
 //! [`get_platform_rasterizer`] picks the best available backend per platform.
 
 use crate::numeric::{f32_to_i32_clamped, f32_to_u32_clamped};
-use crate::text::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
 use crate::text::LruCache;
+use crate::text::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
 use crate::types::{Color, Font, FontStyle, FontWeight, GlyphMask, Point, TextMetrics};
-use aurea_foundation::{lock, AureaResult};
+use aurea_foundation::{AureaResult, lock};
 use std::sync::{Arc, Mutex};
 
 /// Borrowed font reference for the text-rendering hot path.
@@ -182,10 +182,7 @@ impl TextRenderer {
 
         // Multi-character run — run-mask cache.
         let run_key = RunKey::new(text, font);
-        if let Some(cached) = lock(&self.run_cache)
-            .get(&run_key)
-            .cloned()
-        {
+        if let Some(cached) = lock(&self.run_cache).get(&run_key).cloned() {
             return Ok(cached);
         }
         let result = self.compute_mask(text, font)?;

@@ -34,7 +34,11 @@ pub extern "C" fn aurea_embed_create_canvas(width: c_int, height: c_int) -> *mut
     }
     ensure_init();
 
-    let mut canvas = match Canvas::new(width.cast_unsigned(), height.cast_unsigned(), RendererBackend::Cpu) {
+    let mut canvas = match Canvas::new(
+        width.cast_unsigned(),
+        height.cast_unsigned(),
+        RendererBackend::Cpu,
+    ) {
         Ok(c) => c,
         Err(_) => return null_mut(),
     };

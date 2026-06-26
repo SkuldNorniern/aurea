@@ -1,6 +1,8 @@
 use std::env::var;
 
-use log::{log_enabled, set_logger, set_max_level, LevelFilter, Log, Metadata, Record, SetLoggerError};
+use log::{
+    LevelFilter, Log, Metadata, Record, SetLoggerError, log_enabled, set_logger, set_max_level,
+};
 
 struct SimpleLogger;
 

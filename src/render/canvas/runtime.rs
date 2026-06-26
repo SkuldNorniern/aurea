@@ -1,14 +1,14 @@
 use crate::ffi::*;
-use crate::render::canvas::{ensure_canvas_renderer, Canvas, CanvasState};
+use crate::render::canvas::{Canvas, CanvasState, ensure_canvas_renderer};
 use crate::render::{Surface, SurfaceInfo};
+use crate::sync::lock;
 use crate::view::FrameScheduler;
 use crate::{AureaError, AureaResult};
+use aurea_render::Rect;
 use aurea_render::{CURRENT_BUFFER, Renderer, RendererBackend};
 use std::os::raw::c_void;
-use std::sync::{Arc, Mutex};
-use crate::sync::lock;
-use aurea_render::Rect;
 use std::ptr::{copy_nonoverlapping, null_mut};
+use std::sync::{Arc, Mutex};
 
 /// Converts a non-negative, pre-clamped `f32` row coordinate to `usize`.
 /// `std` has no safe non-`as` float-to-int conversion; clippy's
@@ -66,8 +66,9 @@ unsafe fn publish_cpu_buffer(
 ) {
     let mut stride_px: u32 = 0;
     let mut buffer_index: u32 = 0;
-    let dst =
-        unsafe { ng_platform_canvas_acquire_buffer(handle, w, h, &mut stride_px, &mut buffer_index) };
+    let dst = unsafe {
+        ng_platform_canvas_acquire_buffer(handle, w, h, &mut stride_px, &mut buffer_index)
+    };
 
     if dst.is_null() {
         // Legacy path: store Rust buffer pointer, let the platform blit on repaint.

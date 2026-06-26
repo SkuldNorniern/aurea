@@ -74,6 +74,8 @@ use crate::view::{DamageRegion, FrameScheduler};
 use crate::{AureaError, AureaResult};
 use aurea_foundation::Platform;
 use aurea_foundation::{Capability, CapabilityChecker};
+#[cfg(target_os = "windows")]
+use std::result::Result as StdResult;
 use std::{
     ffi::{CStr, CString},
     os::raw::c_void,
@@ -82,8 +84,6 @@ use std::{
         atomic::{AtomicUsize, Ordering},
     },
 };
-#[cfg(target_os = "windows")]
-use std::result::Result as StdResult;
 
 /// Number of live `Window`s. The platform is only torn down via
 /// `ng_platform_cleanup()` when the last window is dropped — calling it while
