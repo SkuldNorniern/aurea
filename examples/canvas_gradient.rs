@@ -2,7 +2,7 @@
 //!
 //! Draws linear and radial gradients to verify the gradient fill path.
 
-use aurea::elements::{Box, BoxOrientation};
+use aurea::elements::{Stack, Orientation};
 use aurea::render::{
     Canvas, Color, DrawingContext, GradientStop, LinearGradient, Point, RadialGradient, Rect,
     RendererBackend,
@@ -23,7 +23,7 @@ fn main() -> AureaResult<()> {
 
     canvas.draw(|ctx| draw_gradient_scene(ctx))?;
 
-    let mut main_box = Box::new(BoxOrientation::Vertical)?;
+    let mut main_box = Stack::new(Orientation::Vertical)?;
     main_box.add(canvas)?;
     window.set_content(main_box)?;
     window.run()?;

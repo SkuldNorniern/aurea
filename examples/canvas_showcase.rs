@@ -3,7 +3,7 @@
 //! Covers anti-aliased primitives (rect, circle, path), gradients, blend modes,
 //! and image drawing so you can see what the rasterizer supports in a single run.
 
-use aurea::elements::{Box, BoxOrientation};
+use aurea::elements::{Stack, Orientation};
 use aurea::render::{
     BlendMode, Canvas, Color, DrawingContext, GradientStop, Image, LinearGradient, Paint,
     PaintStyle, Path, PathCommand, Point, RadialGradient, Rect, RendererBackend,
@@ -20,7 +20,7 @@ fn main() -> AureaResult<()> {
 
     canvas.draw(|ctx| draw_showcase(ctx))?;
 
-    let mut main_box = Box::new(BoxOrientation::Vertical)?;
+    let mut main_box = Stack::new(Orientation::Vertical)?;
     main_box.add(canvas)?;
     window.set_content(main_box)?;
     window.run()?;
