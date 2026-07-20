@@ -79,8 +79,9 @@ pub use aurea_runtime::{DamageRegion, FrameInfo, FrameScheduler};
 
 // Re-export the elements, window, and menu modules
 pub use crate::elements::{
-    Container, Divider, Element, Label, Orientation, Spacer, SplitOrientation, SplitView, Stack,
-    TextField,
+    Button, Checkbox, ComboBox, Container, Divider, Element, ImageView, Label, Orientation,
+    ProgressBar, SidebarList, Slider, Spacer, SplitOrientation, SplitView, Stack, TabBar,
+    TextEditor, TextField, TextView,
 };
 pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
 pub use crate::window::{
@@ -89,6 +90,9 @@ pub use crate::window::{
 
 // Re-export window event types
 pub use crate::window::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};
+
+// Re-export the canvas rendering surface and its core drawing types
+pub use crate::render::{Canvas, Color, DrawingContext, Point, Rect, RendererBackend};
 
 pub use crate::platform::handles::NativeWindowHandle;
 pub use aurea_foundation::{AureaError, AureaResult};
