@@ -23,7 +23,7 @@ pub use crate::view::damage::DamageRegion;
 pub use aurea_runtime::FrameInfo;
 
 pub use crate::elements::{
-    Box, BoxOrientation, Container, Divider, Element, Label, Spacer, SplitOrientation, SplitView,
+    Container, Divider, Element, Label, Orientation, Spacer, SplitOrientation, SplitView, Stack,
     TextField,
 };
 pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};

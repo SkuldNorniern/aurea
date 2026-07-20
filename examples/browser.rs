@@ -1,6 +1,6 @@
 //! Browser Example.
 
-use aurea::elements::{Box, BoxOrientation, Button, Container, TextView};
+use aurea::elements::{Stack, Orientation, Button, Container, TextView};
 use aurea::logger;
 use aurea::render::{
     Canvas, Color, DrawingContext, Paint, PaintStyle, Rect, RendererBackend, Viewport,
@@ -17,7 +17,7 @@ fn main() -> AureaResult<()> {
 
     let mut window = Window::new("Aurea Browser", 1200, 800)?;
 
-    let mut main_layout = Box::new(BoxOrientation::Vertical)?;
+    let mut main_layout = Stack::new(Orientation::Vertical)?;
 
     info!("Creating address bar");
     let address_bar = create_address_bar()?;
@@ -46,8 +46,8 @@ fn main() -> AureaResult<()> {
     Ok(())
 }
 
-fn create_address_bar() -> AureaResult<Box> {
-    let mut address_bar = Box::new(BoxOrientation::Horizontal)?;
+fn create_address_bar() -> AureaResult<Stack> {
+    let mut address_bar = Stack::new(Orientation::Horizontal)?;
 
     let back_button = Button::new("←")?;
     address_bar.add(back_button)?;
@@ -66,8 +66,8 @@ fn create_address_bar() -> AureaResult<Box> {
     Ok(address_bar)
 }
 
-fn create_tabs() -> AureaResult<Box> {
-    let mut tabs = Box::new(BoxOrientation::Horizontal)?;
+fn create_tabs() -> AureaResult<Stack> {
+    let mut tabs = Stack::new(Orientation::Horizontal)?;
 
     info!("Adding tab buttons");
     let tab1 = Button::new("Tab 1")?;

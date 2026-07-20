@@ -1,6 +1,6 @@
 //! Canvas image demo: draw_image, draw_image_rect, draw_image_region.
 
-use aurea::elements::{Box, BoxOrientation};
+use aurea::elements::{Stack, Orientation};
 use aurea::render::{
     Canvas, Color, DrawingContext, Image, Paint, PaintStyle, Point, Rect, RendererBackend,
 };
@@ -20,7 +20,7 @@ fn main() -> AureaResult<()> {
 
     canvas.draw(|ctx| draw_image_scene(ctx))?;
 
-    let mut main_box = Box::new(BoxOrientation::Vertical)?;
+    let mut main_box = Stack::new(Orientation::Vertical)?;
     main_box.add(canvas)?;
     window.set_content(main_box)?;
     window.run()?;

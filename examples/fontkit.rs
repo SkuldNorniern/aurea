@@ -1,6 +1,6 @@
 //! Font kit example: canvas text API (Skia/Vello-style).
 
-use aurea::elements::{Box, BoxOrientation};
+use aurea::elements::{Stack, Orientation};
 use aurea::render::{
     Canvas, Color, DrawingContext, Font, FontStyle, FontWeight, Paint, PaintStyle, Point, Rect,
     RendererBackend,
@@ -18,7 +18,7 @@ fn main() -> AureaResult<()> {
     canvas.set_draw_callback(|ctx| draw_fontkit(ctx))?;
     canvas.draw(|ctx| draw_fontkit(ctx))?;
 
-    let mut main_box = Box::new(BoxOrientation::Vertical)?;
+    let mut main_box = Stack::new(Orientation::Vertical)?;
     main_box.add_weighted(canvas, 1.0)?;
     window.set_content(main_box)?;
     window.run()?;

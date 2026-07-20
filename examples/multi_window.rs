@@ -1,6 +1,6 @@
 //! Multi-window example demonstrating different window types.
 
-use aurea::elements::{Box, BoxOrientation, Button, Container, Label};
+use aurea::elements::{Stack, Orientation, Button, Container, Label};
 use aurea::logger;
 use aurea::{AureaResult, Window, WindowEvent, WindowManager, WindowType};
 use log::LevelFilter;
@@ -79,7 +79,7 @@ fn setup_main_window(
     popup_arc: Arc<Window>,
     tool_arc: Arc<Window>,
 ) -> AureaResult<()> {
-    let mut main_box = Box::new(BoxOrientation::Vertical)?;
+    let mut main_box = Stack::new(Orientation::Vertical)?;
 
     main_box.add(Label::new("Main Application Window")?)?;
     main_box.add(Label::new(
@@ -87,7 +87,7 @@ fn setup_main_window(
     )?)?;
     main_box.add(Label::new("")?)?;
 
-    let mut button_box = Box::new(BoxOrientation::Horizontal)?;
+    let mut button_box = Stack::new(Orientation::Horizontal)?;
 
     let p_clone = popup_arc.clone();
     button_box.add(Button::with_callback("Open Popup", move || {
@@ -118,7 +118,7 @@ fn setup_main_window(
 }
 
 fn setup_popup(window: &mut Window) -> AureaResult<()> {
-    let mut popup_box = Box::new(BoxOrientation::Vertical)?;
+    let mut popup_box = Stack::new(Orientation::Vertical)?;
 
     popup_box.add(Label::new("Popup Window")?)?;
     popup_box.add(Label::new("This is a popup window.")?)?;
@@ -142,7 +142,7 @@ fn setup_popup(window: &mut Window) -> AureaResult<()> {
 }
 
 fn setup_tool_window(window: &mut Window) -> AureaResult<()> {
-    let mut tool_box = Box::new(BoxOrientation::Vertical)?;
+    let mut tool_box = Stack::new(Orientation::Vertical)?;
 
     tool_box.add(Label::new("Tool Palette")?)?;
     tool_box.add(Button::with_callback("Tool 1", || {

@@ -1,6 +1,6 @@
 use aurea::{
     AureaResult, Container, Window, WindowEvent,
-    elements::{Box as NativeBox, BoxOrientation},
+    elements::{Stack, Orientation},
     render::{Canvas, Color, Paint, PaintStyle, Point, Rect, RendererBackend},
 };
 
@@ -64,7 +64,7 @@ fn main() -> AureaResult<()> {
         Ok(())
     })?;
 
-    let mut layout = NativeBox::new(BoxOrientation::Vertical)?;
+    let mut layout = Stack::new(Orientation::Vertical)?;
     layout.add(canvas)?;
     window.set_content(layout)?;
 

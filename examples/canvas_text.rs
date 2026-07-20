@@ -1,6 +1,6 @@
 //! Canvas text API example.
 
-use aurea::elements::{Box, BoxOrientation};
+use aurea::elements::{Stack, Orientation};
 use aurea::render::{
     Canvas, Color, DrawingContext, Font, FontStyle, FontWeight, Paint, PaintStyle, Point, Rect,
     RendererBackend,
@@ -16,7 +16,7 @@ fn main() -> AureaResult<()> {
     canvas.set_background_color(Color::rgb(252, 250, 248));
     canvas.draw(|ctx| draw_text_showcase(ctx))?;
 
-    let mut main_box = Box::new(BoxOrientation::Vertical)?;
+    let mut main_box = Stack::new(Orientation::Vertical)?;
     main_box.add(canvas)?;
     window.set_content(main_box)?;
     window.run()?;

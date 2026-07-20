@@ -1,5 +1,5 @@
 use aurea::MenuBar;
-use aurea::elements::{Box, BoxOrientation, Button, Container, Label};
+use aurea::elements::{Stack, Orientation, Button, Container, Label};
 use aurea::logger;
 use aurea::{AureaResult, Window};
 use log::LevelFilter;
@@ -55,7 +55,7 @@ fn setup_help_menu(menu_bar: &mut MenuBar) -> AureaResult<()> {
 }
 
 fn setup_ui(window: &mut Window) -> AureaResult<()> {
-    let mut main_box = Box::new(BoxOrientation::Vertical)?;
+    let mut main_box = Stack::new(Orientation::Vertical)?;
 
     main_box.add(Label::new("Welcome to Aurea!")?)?;
     main_box.add(create_button_row()?)?;
@@ -68,8 +68,8 @@ fn setup_ui(window: &mut Window) -> AureaResult<()> {
     Ok(())
 }
 
-fn create_button_row() -> AureaResult<Box> {
-    let mut button_box = Box::new(BoxOrientation::Horizontal)?;
+fn create_button_row() -> AureaResult<Stack> {
+    let mut button_box = Stack::new(Orientation::Horizontal)?;
     button_box.add(Button::with_callback("Button 1", || {
         println!("Button 1 clicked!");
     })?)?;
