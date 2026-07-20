@@ -28,7 +28,7 @@ use crate::registry::window::{
 };
 use crate::render::Rect;
 use crate::sync::lock;
-use crate::view::{DamageRegion, FrameScheduler};
+use aurea_runtime::{DamageRegion, FrameScheduler};
 use crate::{AureaError, AureaResult};
 use aurea_foundation::Platform;
 use aurea_foundation::{Capability, CapabilityChecker};

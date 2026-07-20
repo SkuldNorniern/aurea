@@ -22,7 +22,7 @@
 /// - **`window`** - Window management, events, lifecycle
 /// - **`elements`** - UI widgets (Button, Label, Canvas, etc.)
 /// - **`render`** - Rendering system (CPU rasterizer, display lists)
-/// - **`view`** - View layer (damage tracking, frame scheduling)
+/// - **`platform`** - Native window/display handle extraction and conversion
 /// - **`integration`** - External renderer integrations (wgpu, etc.)
 /// - **`lifecycle`** - Application lifecycle events
 /// - **`menu`** - Menu bar and menu management
@@ -71,12 +71,9 @@ pub mod menu;
 pub mod platform;
 pub mod registry;
 pub mod render;
-pub mod view;
 pub mod window;
 
-pub use crate::view::FrameScheduler;
-pub use crate::view::damage::DamageRegion;
-pub use aurea_runtime::FrameInfo;
+pub use aurea_runtime::{DamageRegion, FrameInfo, FrameScheduler};
 
 // Re-export the elements, window, and menu modules
 pub use crate::elements::{
