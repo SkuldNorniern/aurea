@@ -54,10 +54,6 @@
 ///     Ok(())
 /// }
 /// ```
-mod sync {
-    pub use aurea_foundation::lock;
-}
-
 #[cfg(target_os = "android")]
 mod android;
 
