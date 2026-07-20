@@ -3,8 +3,6 @@ use crate::ffi::*;
 use crate::sync::lock;
 use crate::view::{DamageRegion, FrameScheduler};
 use crate::{AureaError, AureaResult};
-use aurea_foundation::CapabilityChecker;
-use aurea_foundation::Platform;
 use aurea_render::{
     ClickCallback, Color, CpuRasterizer, DrawingContext, HoverCallback,
     InteractionRegistry, InteractiveId, Point, Rect, Renderer, RendererBackend, Surface,
@@ -128,10 +126,6 @@ pub struct Canvas {
     pub(crate) renderer: Arc<Mutex<Option<Box<dyn Renderer>>>>,
     pub(crate) backend: RendererBackend,
     interaction_registry: Arc<InteractionRegistry>,
-    #[allow(dead_code)]
-    platform: Platform,
-    #[allow(dead_code)]
-    capabilities: CapabilityChecker,
     _cleanup: Arc<CanvasCleanup>,
 }
 
@@ -223,8 +217,6 @@ impl Canvas {
             }
         };
 
-        let platform = Platform::current();
-        let capabilities = CapabilityChecker::new();
         let scale_factor = unsafe {
             let window = ng_platform_canvas_get_window(handle);
             if !window.is_null() {
@@ -253,8 +245,6 @@ impl Canvas {
             renderer: renderer_arc.clone(),
             backend,
             interaction_registry,
-            platform,
-            capabilities,
             _cleanup: Arc::new(CanvasCleanup {
                 handle: handle as usize,
                 renderer: renderer_arc.clone(),
