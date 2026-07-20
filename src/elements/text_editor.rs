@@ -1,7 +1,5 @@
 use super::traits::Element;
-use crate::registry::elements::{
-    invoke_text_editor_callback, next_text_editor_id, register_text_editor_callback,
-};
+use crate::registry::elements::{next_text_editor_id, register_text_editor_callback};
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::{ffi::CStr, ffi::CString, os::raw::c_void};
@@ -82,8 +80,4 @@ impl Element for TextEditor {
             ng_platform_text_editor_invalidate(self.handle);
         }
     }
-}
-
-pub fn invoke_text_callback(id: u32, content: String) {
-    invoke_text_editor_callback(id, content);
 }
