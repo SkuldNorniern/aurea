@@ -1,5 +1,5 @@
 use crate::render::Canvas;
-use crate::view::FrameScheduler;
+use aurea_runtime::FrameScheduler;
 use crate::window::{Window, WindowEvent, push_window_event};
 use std::os::raw::c_void;
 

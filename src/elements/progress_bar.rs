@@ -1,7 +1,7 @@
 use super::traits::Element;
 use crate::render::Rect;
 use crate::sync::lock;
-use crate::view::FrameScheduler;
+use aurea_runtime::FrameScheduler;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::{
     os::raw::c_void,

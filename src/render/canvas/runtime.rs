@@ -2,7 +2,7 @@ use crate::ffi::*;
 use crate::render::canvas::{Canvas, CanvasState, ensure_canvas_renderer};
 use crate::render::{Surface, SurfaceInfo};
 use crate::sync::lock;
-use crate::view::FrameScheduler;
+use aurea_runtime::FrameScheduler;
 use crate::{AureaError, AureaResult};
 use aurea_render::Rect;
 use aurea_render::{CURRENT_BUFFER, Renderer, RendererBackend};

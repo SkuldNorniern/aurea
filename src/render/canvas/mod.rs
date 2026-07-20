@@ -2,7 +2,7 @@ use crate::elements::Element;
 use crate::ffi::*;
 use crate::registry::handle_key;
 use crate::sync::lock;
-use crate::view::{DamageRegion, FrameScheduler};
+use aurea_runtime::{DamageRegion, FrameScheduler};
 use crate::{AureaError, AureaResult};
 use aurea_render::{
     ClickCallback, Color, CpuRasterizer, DrawingContext, HoverCallback,

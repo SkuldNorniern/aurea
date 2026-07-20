@@ -1,6 +1,6 @@
-use crate::ffi::ng_platform_frame_idle;
-use crate::window::{process_all_window_events, process_all_window_updates};
-pub use aurea_runtime::FrameScheduler;
+use crate::registry::window::{process_all_window_events, process_all_window_updates};
+use aurea_ffi::ng_platform_frame_idle;
+use aurea_runtime::FrameScheduler;
 use std::io::{Write, stderr};
 use std::panic::catch_unwind;
 
