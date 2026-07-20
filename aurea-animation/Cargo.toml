@@ -9,6 +9,3 @@ repository = "https://github.com/SkuldNorniern/aurea"
 
 [lints]
 workspace = true
-
-[dependencies]
-aurea-foundation = { path = "../aurea-foundation", version = "0.0.1" }
