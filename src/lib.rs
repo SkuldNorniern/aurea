@@ -26,6 +26,7 @@
 /// - **`integration`** - External renderer integrations (wgpu, etc.)
 /// - **`lifecycle`** - Application lifecycle events
 /// - **`menu`** - Menu bar and menu management
+/// - **`prelude`** - Glob-importable set of the most commonly used types
 ///
 /// # Features
 ///
@@ -44,8 +45,7 @@
 /// # Example
 ///
 /// ```rust,no_run
-/// use aurea::{Container, Window, AureaResult};
-/// use aurea::elements::Label;
+/// use aurea::prelude::*;
 ///
 /// fn main() -> AureaResult<()> {
 ///     let mut window = Window::new("Hello", 400, 300)?;
@@ -71,6 +71,7 @@ pub mod lifecycle;
 pub mod logger;
 pub mod menu;
 pub mod platform;
+pub mod prelude;
 pub mod registry;
 pub mod render;
 pub mod window;
