@@ -80,7 +80,7 @@ pub use aurea_runtime::FrameInfo;
 
 // Re-export the elements, window, and menu modules
 pub use crate::elements::{
-    Box, BoxOrientation, Container, Divider, Element, Label, Spacer, SplitOrientation, SplitView,
+    Container, Divider, Element, Label, Orientation, Spacer, SplitOrientation, SplitView, Stack,
     TextField,
 };
 pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};

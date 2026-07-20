@@ -4,7 +4,7 @@
 //! - Native UI elements for browser chrome (address bar, tabs, buttons)
 //! - Canvas/viewport for rendering web content only
 
-use aurea::elements::{Box, BoxOrientation, Button, Container, TextView};
+use aurea::elements::{Stack, Orientation, Button, Container, TextView};
 use aurea::logger;
 use aurea::render::{
     Canvas, Color, DrawingContext, Paint, PaintStyle, Rect, RendererBackend, Viewport,
@@ -22,7 +22,7 @@ fn main() -> AureaResult<()> {
     let mut window = Window::new("Aurea Browser", 1200, 800)?;
 
     // Create main vertical layout
-    let mut main_layout = Box::new(BoxOrientation::Vertical)?;
+    let mut main_layout = Stack::new(Orientation::Vertical)?;
 
     // Address bar (native UI) - fixed height at top
     info!("Creating address bar");
@@ -60,8 +60,8 @@ fn main() -> AureaResult<()> {
 }
 
 /// Create the address bar with navigation buttons and URL field
-fn create_address_bar() -> AureaResult<Box> {
-    let mut address_bar = Box::new(BoxOrientation::Horizontal)?;
+fn create_address_bar() -> AureaResult<Stack> {
+    let mut address_bar = Stack::new(Orientation::Horizontal)?;
 
     // Navigation buttons (fixed size, left-aligned)
     let back_button = Button::new("←")?;
@@ -83,8 +83,8 @@ fn create_address_bar() -> AureaResult<Box> {
 }
 
 /// Create tabs bar with better tab management
-fn create_tabs() -> AureaResult<Box> {
-    let mut tabs = Box::new(BoxOrientation::Horizontal)?;
+fn create_tabs() -> AureaResult<Stack> {
+    let mut tabs = Stack::new(Orientation::Horizontal)?;
 
     // Create tab buttons
     // First tab (active) - represents the current page

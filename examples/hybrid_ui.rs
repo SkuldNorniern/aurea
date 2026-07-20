@@ -9,7 +9,7 @@
 //! - Demonstrates retained-mode, event-driven architecture
 //! - Shows how native widgets and canvas can coexist in the same window
 
-use aurea::elements::{Box, BoxOrientation, Button, Label};
+use aurea::elements::{Stack, Orientation, Button, Label};
 use aurea::render::{Canvas, Color, Paint, PaintStyle, Point, Rect, RendererBackend};
 use aurea::{AureaResult, Container, Window};
 
@@ -60,7 +60,7 @@ fn main() -> AureaResult<()> {
     })?;
 
     // Create control panel with native widgets
-    let mut control_panel = Box::new(BoxOrientation::Vertical)?;
+    let mut control_panel = Stack::new(Orientation::Vertical)?;
 
     // Title label
     control_panel.add(Label::new("Canvas Controls")?)?;
@@ -86,7 +86,7 @@ fn main() -> AureaResult<()> {
     control_panel.add(Label::new("• All in one window")?)?;
 
     // Create main layout: horizontal box with controls and canvas
-    let mut main_layout = Box::new(BoxOrientation::Horizontal)?;
+    let mut main_layout = Stack::new(Orientation::Horizontal)?;
     main_layout.add(control_panel)?;
     main_layout.add(canvas)?;
 

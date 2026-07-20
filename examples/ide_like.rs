@@ -9,7 +9,7 @@
 //! SplitView divider position is in pixels.
 
 use aurea::elements::{
-    Box, BoxOrientation, Button, Container, Element, Label, SidebarList, SplitOrientation,
+    Stack, Orientation, Button, Container, Element, Label, SidebarList, SplitOrientation,
     SplitView, TabBar, TextEditor, TextView,
 };
 use aurea::ffi::{ng_platform_poll_events, ng_platform_window_request_close};
@@ -414,7 +414,7 @@ fn create_editor_popup(
     editor.set_content(&content)?;
     let popup_editor = Arc::new(Mutex::new(SendableTextEditor(editor)));
 
-    let mut box_ = Box::new(BoxOrientation::Vertical)?;
+    let mut box_ = Stack::new(Orientation::Vertical)?;
 
     let name = filename.to_string();
     let pe = Arc::clone(&popup_editor);
@@ -490,7 +490,7 @@ fn setup_main_ui(
     let panel = build_panel()?;
     let status_bar = build_status_bar()?;
 
-    let mut editor_with_tabs = Box::new(BoxOrientation::Vertical)?;
+    let mut editor_with_tabs = Stack::new(Orientation::Vertical)?;
     editor_with_tabs.add_weighted(tab_bar, 0.05)?;
     editor_with_tabs.add_weighted(shared_editor, 1.0)?;
 
@@ -504,7 +504,7 @@ fn setup_main_ui(
     main_split.add(panel)?;
     main_split.set_divider_position(0, (WINDOW_HEIGHT - PANEL_HEIGHT) as f32)?;
 
-    let mut content_box = Box::new(BoxOrientation::Vertical)?;
+    let mut content_box = Stack::new(Orientation::Vertical)?;
     content_box.add_weighted(main_split, 1.0)?;
     content_box.add_weighted(status_bar, 0.03)?;
 
@@ -521,8 +521,8 @@ fn build_tab_bar(
     state: Arc<Mutex<AppState>>,
     editor_arc: Arc<Mutex<SendableTextEditor>>,
     manager: Arc<WindowManager>,
-) -> AureaResult<(Box, Arc<Mutex<TabBar>>)> {
-    let mut tab_bar_box = Box::new(BoxOrientation::Horizontal)?;
+) -> AureaResult<(Stack, Arc<Mutex<TabBar>>)> {
+    let mut tab_bar_box = Stack::new(Orientation::Horizontal)?;
 
     let state_sel = Arc::clone(&state);
     let editor_sel = Arc::clone(&editor_arc);
@@ -580,8 +580,8 @@ fn build_tab_bar(
     Ok((tab_bar_box, tab_bar_arc))
 }
 
-fn build_activity_bar() -> AureaResult<Box> {
-    let mut bar = Box::new(BoxOrientation::Vertical)?;
+fn build_activity_bar() -> AureaResult<Stack> {
+    let mut bar = Stack::new(Orientation::Vertical)?;
     bar.add(Button::with_callback("Ex", || {})?)?;
     bar.add(Button::with_callback("Se", || println!("Search"))?)?;
     bar.add(Button::with_callback("Gi", || println!("Source Control"))?)?;
@@ -597,7 +597,7 @@ fn sidebar_idx_to_file_idx(idx: i32) -> Option<i32> {
     }
 }
 
-fn build_sidebar(state: Arc<Mutex<AppState>>) -> AureaResult<(Box, Arc<Mutex<SidebarList>>)> {
+fn build_sidebar(state: Arc<Mutex<AppState>>) -> AureaResult<(Stack, Arc<Mutex<SidebarList>>)> {
     let st = Arc::clone(&state);
     let mut list = SidebarList::with_callback(move |idx| {
         if let Some(file_idx) = sidebar_idx_to_file_idx(idx)
@@ -636,16 +636,16 @@ fn build_sidebar(state: Arc<Mutex<AppState>>) -> AureaResult<(Box, Arc<Mutex<Sid
     let list_arc = Arc::new(Mutex::new(list));
 
     let activity_bar = build_activity_bar()?;
-    let mut sidebar = Box::new(BoxOrientation::Horizontal)?;
+    let mut sidebar = Stack::new(Orientation::Horizontal)?;
     sidebar.add_weighted(activity_bar, 0.0)?;
     sidebar.add_weighted(SharedSidebarList(Arc::clone(&list_arc)), 1.0)?;
 
     Ok((sidebar, list_arc))
 }
 
-fn build_panel() -> AureaResult<Box> {
-    let mut panel = Box::new(BoxOrientation::Vertical)?;
-    let mut tabs = Box::new(BoxOrientation::Horizontal)?;
+fn build_panel() -> AureaResult<Stack> {
+    let mut panel = Stack::new(Orientation::Vertical)?;
+    let mut tabs = Stack::new(Orientation::Horizontal)?;
     tabs.add(Button::with_callback("Terminal", || {})?)?;
     tabs.add(Button::with_callback("Problems", || println!("Problems"))?)?;
     tabs.add(Button::with_callback("Output", || println!("Output"))?)?;
@@ -660,8 +660,8 @@ fn build_panel() -> AureaResult<Box> {
     Ok(panel)
 }
 
-fn build_status_bar() -> AureaResult<Box> {
-    let mut bar = Box::new(BoxOrientation::Horizontal)?;
+fn build_status_bar() -> AureaResult<Stack> {
+    let mut bar = Stack::new(Orientation::Horizontal)?;
     bar.add(Label::new("main")?)?;
     bar.add(Label::new("  |  ")?)?;
     bar.add(Label::new("UTF-8")?)?;

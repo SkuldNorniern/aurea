@@ -3,7 +3,7 @@
 //! Creates a small RGBA image and draws it at position, scaled to a rect,
 //! and as a region (crop) to verify the image drawing path.
 
-use aurea::elements::{Box, BoxOrientation};
+use aurea::elements::{Stack, Orientation};
 use aurea::render::{
     Canvas, Color, DrawingContext, Image, Paint, PaintStyle, Point, Rect, RendererBackend,
 };
@@ -23,7 +23,7 @@ fn main() -> AureaResult<()> {
 
     canvas.draw(|ctx| draw_image_scene(ctx))?;
 
-    let mut main_box = Box::new(BoxOrientation::Vertical)?;
+    let mut main_box = Stack::new(Orientation::Vertical)?;
     main_box.add(canvas)?;
     window.set_content(main_box)?;
     window.run()?;

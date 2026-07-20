@@ -1,6 +1,6 @@
 use aurea::{
     AureaResult, Container, Window, WindowEvent,
-    elements::{Box as NativeBox, BoxOrientation, Label},
+    elements::{Stack, Orientation, Label},
     render::{Canvas, Color, Paint, Point, Rect, RendererBackend},
 };
 
@@ -27,7 +27,7 @@ fn main() -> AureaResult<()> {
         Ok(())
     })?;
 
-    let mut layout = NativeBox::new(BoxOrientation::Vertical)?;
+    let mut layout = Stack::new(Orientation::Vertical)?;
     layout.add(Label::new(
         "Native label above a compositor-hosted ZenGPU canvas",
     )?)?;

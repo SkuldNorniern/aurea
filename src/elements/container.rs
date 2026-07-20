@@ -2,31 +2,30 @@ use super::traits::{Container, Element};
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::any::Any;
-use std::boxed::Box as StdBox;
 use std::os::raw::c_void;
 
-/// Layout orientation for a Box container.
+/// Layout orientation for a Stack container.
 #[derive(Debug, Clone, Copy)]
-pub enum BoxOrientation {
+pub enum Orientation {
     Horizontal,
     Vertical,
 }
 
 /// A native container that arranges children in a row or column.
-pub struct Box {
+pub struct Stack {
     handle: *mut c_void,
-    _orientation: BoxOrientation,
-    /// Keeps child elements alive so their Drop impls run only when the Box
+    _orientation: Orientation,
+    /// Keeps child elements alive so their Drop impls run only when the Stack
     /// itself is dropped, not when they are moved in via `add`.
-    _children: Vec<StdBox<dyn Any>>,
+    _children: Vec<Box<dyn Any>>,
 }
 
-impl Box {
-    /// Create a new box container with the given orientation.
-    pub fn new(orientation: BoxOrientation) -> AureaResult<Self> {
+impl Stack {
+    /// Create a new stack container with the given orientation.
+    pub fn new(orientation: Orientation) -> AureaResult<Self> {
         let is_vertical = match orientation {
-            BoxOrientation::Vertical => 1,
-            BoxOrientation::Horizontal => 0,
+            Orientation::Vertical => 1,
+            Orientation::Horizontal => 0,
         };
 
         let handle = unsafe { ng_platform_create_box(is_vertical) };
@@ -43,7 +42,7 @@ impl Box {
     }
 }
 
-impl Element for Box {
+impl Element for Stack {
     fn handle(&self) -> *mut c_void {
         self.handle
     }
@@ -55,7 +54,7 @@ impl Element for Box {
     }
 }
 
-impl Box {
+impl Stack {
     /// Add a spacer that expands with the given weight.
     pub fn add_spacer(&mut self, weight: f32) -> AureaResult<()> {
         use super::Spacer;
@@ -72,7 +71,7 @@ impl Box {
     }
 }
 
-impl Container for Box {
+impl Container for Stack {
     /// Add a child element with layout weight.
     ///
     /// On macOS the weight affects space distribution; on Linux and Windows
@@ -85,8 +84,8 @@ impl Container for Box {
         }
 
         // Keep the element alive so its Drop (e.g. Canvas scheduler unregister)
-        // only runs when this Box is dropped, not when the element is "added".
-        self._children.push(StdBox::new(element));
+        // only runs when this Stack is dropped, not when the element is "added".
+        self._children.push(Box::new(element));
         Ok(())
     }
 }

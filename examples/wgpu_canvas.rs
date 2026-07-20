@@ -6,19 +6,18 @@
 //! `aurea::integration::wgpu::handle_surface_error_for_canvas()`; after recreating the surface
 //! call `notify_surface_recreated_for_canvas()`. See `aurea::integration::wgpu` docs.
 
+use aurea::elements::{Orientation, Stack};
+use aurea::render::{Canvas, RendererBackend};
+use aurea::{Container, Window};
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    use aurea::elements::{Box, BoxOrientation};
-    use aurea::render::{Canvas, RendererBackend};
-    use aurea::{Container, Window};
-
     let mut window = Window::new("WGPU Canvas", 800, 600)?;
     let canvas = Canvas::new(800, 600, RendererBackend::Cpu)?;
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let _surface = canvas.create_wgpu_surface(&instance)?;
 
-    let mut layout = Box::new(BoxOrientation::Vertical)?;
+    let mut layout = Stack::new(Orientation::Vertical)?;
     layout.add(canvas)?;
     window.set_content(layout)?;
     window.run()?;

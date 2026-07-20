@@ -22,7 +22,7 @@ mod traits;
 pub use button::Button;
 pub use checkbox::Checkbox;
 pub use combo_box::ComboBox;
-pub use container::{Box, BoxOrientation};
+pub use container::{Orientation, Stack};
 pub use divider::Divider;
 pub use image_view::{ImageScaling, ImageView};
 pub use label::Label;

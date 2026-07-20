@@ -5,7 +5,7 @@
 //! - Tile-based rendering with partial redraw support
 //! - CPU-first rasterization approach
 
-use aurea::elements::{Box, BoxOrientation};
+use aurea::elements::{Stack, Orientation};
 use aurea::render::{
     Canvas, Color, DrawingContext, Paint, PaintStyle, Point, Rect, RendererBackend,
 };
@@ -31,7 +31,7 @@ fn main() -> AureaResult<()> {
     canvas.draw(|ctx| draw_scene(ctx))?;
 
     // Create layout and add canvas
-    let mut main_box = Box::new(BoxOrientation::Vertical)?;
+    let mut main_box = Stack::new(Orientation::Vertical)?;
     main_box.add(canvas)?;
 
     // Set window content and run
