@@ -5,6 +5,8 @@ mod sync {
 #[cfg(target_os = "android")]
 mod android;
 
+pub use aurea_animation as animation;
+
 pub mod elements;
 pub mod embed;
 pub mod ffi;
