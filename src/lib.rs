@@ -15,6 +15,7 @@ pub mod lifecycle;
 pub mod logger;
 pub mod menu;
 pub mod platform;
+pub mod prelude;
 pub mod registry;
 pub mod render;
 pub mod window;
