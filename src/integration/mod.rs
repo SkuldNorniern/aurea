@@ -9,13 +9,4 @@
 #[cfg(feature = "wgpu")]
 pub mod wgpu;
 
-// Re-export types that are always available
-#[cfg(feature = "wgpu")]
-pub use wgpu::NativeWindowHandle;
-
-// Placeholder for when wgpu feature is not enabled
-#[cfg(not(feature = "wgpu"))]
-#[derive(Debug, Clone, Copy)]
-pub enum NativeWindowHandle {
-    Unsupported,
-}
+pub use crate::platform::handles::NativeWindowHandle;

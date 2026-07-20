@@ -1,0 +1,4 @@
+//! Native window/display handle extraction and conversion, shared by the
+//! wgpu integration and the ZenGPU window-level GPU surface API.
+
+pub mod handles;
