@@ -119,7 +119,6 @@ unsafe extern "C" {
     pub fn ng_platform_text_editor_invalidate(text_editor: *mut c_void);
     pub fn ng_platform_create_text_view(is_editable: c_int, id: u32) -> *mut c_void;
     pub fn ng_platform_text_view_invalidate(text_view: *mut c_void);
-    #[allow(dead_code)]
     pub fn ng_platform_create_text_field() -> *mut c_void;
     pub fn ng_platform_set_text_content(text_handle: *mut c_void, content: *const c_char) -> c_int;
     pub fn ng_platform_get_text_content(text_handle: *mut c_void) -> *mut c_char;
@@ -163,7 +162,6 @@ unsafe extern "C" {
 
     pub fn ng_platform_window_set_lifecycle_callback(window: *mut c_void);
 
-    #[allow(dead_code)]
     pub fn ng_process_frames();
 
     pub fn ng_platform_create_image_view() -> *mut c_void;
