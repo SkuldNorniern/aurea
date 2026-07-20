@@ -550,74 +550,23 @@ pub(super) fn ensure_canvas_renderer(
     Ok(lock(renderer).is_some())
 }
 
-#[cfg(all(feature = "zengpu", target_os = "windows"))]
+/// Native handle extraction differs from [`native_handle_from_canvas_ptr`] on
+/// macOS: the ZenGPU surface needs the resolved `NSView` from
+/// `ng_platform_canvas_get_native_handle`, not the raw canvas handle.
+#[cfg(feature = "zengpu")]
 fn zengpu_canvas_handles(handle: *mut c_void) -> AureaResult<zengpu_hal::WindowHandles> {
-    use std::num::NonZeroIsize;
-    use zen_window_handle::{DisplayHandle, Win32WindowHandle, WindowHandle};
-
-    let hwnd = NonZeroIsize::new(handle as isize).ok_or(AureaError::ElementOperationFailed)?;
-    Ok(zengpu_hal::WindowHandles::from_raw(
-        WindowHandle::Win32(Win32WindowHandle::new(hwnd)),
-        DisplayHandle::Windows,
-    ))
-}
-
-#[cfg(all(feature = "zengpu", target_os = "macos"))]
-fn zengpu_canvas_handles(handle: *mut c_void) -> AureaResult<zengpu_hal::WindowHandles> {
-    use std::ptr::NonNull;
-    use zen_window_handle::{AppKitWindowHandle, DisplayHandle, WindowHandle};
-
-    let view = unsafe { ng_platform_canvas_get_native_handle(handle) };
-    let view = NonNull::new(view).ok_or(AureaError::ElementOperationFailed)?;
-    Ok(zengpu_hal::WindowHandles::from_raw(
-        WindowHandle::AppKit(AppKitWindowHandle::new(view)),
-        DisplayHandle::AppKit,
-    ))
-}
-
-#[cfg(all(feature = "zengpu", target_os = "linux"))]
-fn zengpu_canvas_handles(handle: *mut c_void) -> AureaResult<zengpu_hal::WindowHandles> {
-    use std::{num::NonZeroU32, ptr::NonNull};
-    use zen_window_handle::{
-        DisplayHandle, WaylandDisplayHandle, WaylandWindowHandle, WindowHandle, XcbDisplayHandle,
-        XcbWindowHandle,
-    };
-
-    let mut xcb_window = 0;
-    let mut xcb_connection = null_mut();
-    if unsafe { ng_platform_canvas_get_xcb_handle(handle, &mut xcb_window, &mut xcb_connection) }
-        != 0
+    #[cfg(target_os = "macos")]
     {
-        let window = NonZeroU32::new(xcb_window).ok_or(AureaError::ElementOperationFailed)?;
-        let connection = NonNull::new(xcb_connection).ok_or(AureaError::ElementOperationFailed)?;
-        return Ok(zengpu_hal::WindowHandles::from_raw(
-            WindowHandle::Xcb(XcbWindowHandle::new(window)),
-            DisplayHandle::Xcb(XcbDisplayHandle {
-                connection: Some(connection),
-            }),
-        ));
+        let view = unsafe { ng_platform_canvas_get_native_handle(handle) };
+        let native = crate::platform::handles::NativeWindowHandle::MacOS { ns_view: view };
+        crate::platform::zengpu::window_handles(&native)
     }
-
-    let mut surface = null_mut();
-    let mut display = null_mut();
-    if unsafe { ng_platform_canvas_get_wayland_handle(handle, &mut surface, &mut display) } != 0 {
-        let surface = NonNull::new(surface).ok_or(AureaError::ElementOperationFailed)?;
-        let display = NonNull::new(display).ok_or(AureaError::ElementOperationFailed)?;
-        return Ok(zengpu_hal::WindowHandles::from_raw(
-            WindowHandle::Wayland(WaylandWindowHandle::new(surface)),
-            DisplayHandle::Wayland(WaylandDisplayHandle { display }),
-        ));
+    #[cfg(not(target_os = "macos"))]
+    {
+        let native = crate::platform::handles::native_handle_from_canvas_ptr(handle)
+            .ok_or(AureaError::ElementOperationFailed)?;
+        crate::platform::zengpu::window_handles(&native)
     }
-
-    Err(AureaError::ElementOperationFailed)
-}
-
-#[cfg(all(
-    feature = "zengpu",
-    not(any(target_os = "windows", target_os = "macos", target_os = "linux"))
-))]
-fn zengpu_canvas_handles(_handle: *mut c_void) -> AureaResult<zengpu_hal::WindowHandles> {
-    Err(AureaError::ElementOperationFailed)
 }
 
 impl Element for Canvas {

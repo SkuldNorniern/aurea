@@ -444,87 +444,11 @@ impl Window {
     /// Use this to drive `zengpu`/`zengpu_hal`/`zengpu_vulkan` APIs by hand
     /// instead of [`create_zengpu_2d`](Self::create_zengpu_2d)'s managed 2D
     /// renderer, e.g. for a custom 3D pipeline hosted in an Aurea window.
-    #[cfg(all(feature = "zengpu", target_os = "windows"))]
+    #[cfg(feature = "zengpu")]
     pub fn zengpu_handles(&self) -> AureaResult<zengpu_hal::WindowHandles> {
-        use std::num::NonZeroIsize;
-        use zen_window_handle::{DisplayHandle, Win32WindowHandle, WindowHandle};
-
-        let hwnd =
-            NonZeroIsize::new(self.handle as isize).ok_or(AureaError::ElementOperationFailed)?;
-        let window = WindowHandle::Win32(Win32WindowHandle::new(hwnd));
-        let display = DisplayHandle::Windows;
-        Ok(zengpu_hal::WindowHandles::from_raw(window, display))
-    }
-
-    #[cfg(all(feature = "zengpu", target_os = "macos"))]
-    pub fn zengpu_handles(&self) -> AureaResult<zengpu_hal::WindowHandles> {
-        use std::ptr::NonNull;
-        use zen_window_handle::{AppKitWindowHandle, DisplayHandle, WindowHandle};
-
-        let view = unsafe { crate::ffi::ng_platform_window_get_content_view(self.handle) };
-        let view = NonNull::new(view).ok_or(AureaError::ElementOperationFailed)?;
-        Ok(zengpu_hal::WindowHandles::from_raw(
-            WindowHandle::AppKit(AppKitWindowHandle::new(view)),
-            DisplayHandle::AppKit,
-        ))
-    }
-
-    #[cfg(all(feature = "zengpu", target_os = "linux"))]
-    pub fn zengpu_handles(&self) -> AureaResult<zengpu_hal::WindowHandles> {
-        use std::{num::NonZeroU32, ptr::NonNull};
-        use zen_window_handle::{
-            DisplayHandle, WaylandDisplayHandle, WaylandWindowHandle, WindowHandle,
-            XcbDisplayHandle, XcbWindowHandle,
-        };
-
-        let mut xcb_window = 0;
-        let mut xcb_connection = null_mut();
-        let has_xcb = unsafe {
-            crate::ffi::ng_platform_window_get_xcb_handle(
-                self.handle,
-                &mut xcb_window,
-                &mut xcb_connection,
-            )
-        } != 0;
-        if has_xcb {
-            let window = NonZeroU32::new(xcb_window).ok_or(AureaError::ElementOperationFailed)?;
-            let connection =
-                NonNull::new(xcb_connection).ok_or(AureaError::ElementOperationFailed)?;
-            return Ok(zengpu_hal::WindowHandles::from_raw(
-                WindowHandle::Xcb(XcbWindowHandle::new(window)),
-                DisplayHandle::Xcb(XcbDisplayHandle {
-                    connection: Some(connection),
-                }),
-            ));
-        }
-
-        let mut surface = null_mut();
-        let mut display = null_mut();
-        let has_wayland = unsafe {
-            crate::ffi::ng_platform_window_get_wayland_handle(
-                self.handle,
-                &mut surface,
-                &mut display,
-            )
-        } != 0;
-        if has_wayland {
-            let surface = NonNull::new(surface).ok_or(AureaError::ElementOperationFailed)?;
-            let display = NonNull::new(display).ok_or(AureaError::ElementOperationFailed)?;
-            return Ok(zengpu_hal::WindowHandles::from_raw(
-                WindowHandle::Wayland(WaylandWindowHandle::new(surface)),
-                DisplayHandle::Wayland(WaylandDisplayHandle { display }),
-            ));
-        }
-
-        Err(AureaError::ElementOperationFailed)
-    }
-
-    #[cfg(all(
-        feature = "zengpu",
-        not(any(target_os = "windows", target_os = "macos", target_os = "linux"))
-    ))]
-    pub fn zengpu_handles(&self) -> AureaResult<zengpu_hal::WindowHandles> {
-        Err(AureaError::ElementOperationFailed)
+        let native = crate::platform::handles::native_handle_from_window_ptr(self.handle)
+            .ok_or(AureaError::ElementOperationFailed)?;
+        crate::platform::zengpu::window_handles(&native)
     }
 
     /// Poll window events (non-blocking)
