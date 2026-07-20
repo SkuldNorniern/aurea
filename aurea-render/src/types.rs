@@ -130,8 +130,6 @@ pub enum RendererBackend {
     /// CPU rasterizer (tile-based, display list, partial redraw)
     #[default]
     Cpu,
-    /// Legacy GPU placeholder, currently backed by the CPU rasterizer.
-    Gpu,
     /// ZenGPU Vulkan renderer hosted directly in the native canvas surface.
     #[cfg(feature = "zengpu")]
     ZenGpu,
