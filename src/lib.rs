@@ -68,6 +68,7 @@ pub mod integration;
 pub mod lifecycle;
 pub mod logger;
 pub mod menu;
+pub mod platform;
 pub mod registry;
 pub mod render;
 pub mod view;
@@ -90,8 +91,7 @@ pub use crate::window::{
 // Re-export window event types
 pub use crate::window::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};
 
-#[cfg(feature = "wgpu")]
-pub use crate::integration::NativeWindowHandle;
+pub use crate::platform::handles::NativeWindowHandle;
 pub use aurea_foundation::{AureaError, AureaResult};
 pub use aurea_foundation::{
     Capability, CapabilityChecker, DesktopPlatform, MobilePlatform, Platform,
