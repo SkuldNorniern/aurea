@@ -15,7 +15,8 @@ use aurea_foundation::{AureaError, AureaResult};
 use zengpu_hal::{
     Acquire, Bindings, ColorAttachment, DeviceRequest, FilterMode, Format, Frame, GpuDevice,
     GraphicsDevice, LoadOp, RenderCommands, RenderPassDesc, SamplerDesc, SamplerHandle, Scalar,
-    Surface, TextureDesc, TextureHandle, TextureUsage, Viewport, ViewportScissor, WindowHandles,
+    Surface, TexDim, TextureDesc, TextureHandle, TextureUsage, Viewport, ViewportScissor,
+    WindowHandles,
 };
 use zengpu_vulkan::instance::VulkanInstance;
 use zengpu_vulkan::{VulkanDevice, VulkanSurface};
@@ -221,9 +222,13 @@ impl Gpu2dBackend for ZenGpuBackend {
             .create_texture(TextureDesc {
                 width,
                 height,
+                depth: 1,
                 format: Format::Rgba8Unorm,
                 usage: TextureUsage::SAMPLED | TextureUsage::TRANSFER_DST,
                 samples: 1,
+                dimension: TexDim::D2,
+                mip_levels: 1,
+                array_layers: 1,
             })
             .map_err(gpu_err)?;
         if let Err(e) = device.upload_texture_data(texture, rgba) {
