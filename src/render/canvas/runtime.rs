@@ -7,7 +7,7 @@ use crate::{AureaError, AureaResult};
 use aurea_render::Rect;
 use aurea_render::{CURRENT_BUFFER, Renderer, RendererBackend};
 use std::os::raw::c_void;
-use std::ptr::{copy_nonoverlapping, null_mut};
+use std::ptr::copy_nonoverlapping;
 use std::sync::{Arc, Mutex};
 
 /// Converts a non-negative, pre-clamped `f32` row coordinate to `usize`.
@@ -254,11 +254,8 @@ impl Canvas {
                 let mut r = lock(&renderer);
                 if let Some(ref mut r) = *r {
                     if scale_changed {
-                        // Surface::Cpu once step 15 is done; placeholder until then.
                         r.init(
-                            Surface::OpenGL {
-                                context: null_mut(),
-                            },
+                            Surface::Cpu,
                             SurfaceInfo {
                                 width: cur_w,
                                 height: cur_h,
@@ -356,9 +353,7 @@ impl Canvas {
         if let Some(ref mut r) = *r {
             if scale_changed {
                 r.init(
-                    Surface::OpenGL {
-                        context: null_mut(),
-                    },
+                    Surface::Cpu,
                     SurfaceInfo {
                         width: cur_w,
                         height: cur_h,

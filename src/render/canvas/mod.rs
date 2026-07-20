@@ -12,7 +12,6 @@ use aurea_runtime::{FrameInfo, TickerId};
 #[cfg(feature = "wgpu")]
 use std::mem::transmute;
 use std::os::raw::c_void;
-use std::ptr::null_mut;
 use std::sync::{Arc, Mutex};
 
 mod runtime;
@@ -124,9 +123,7 @@ impl Canvas {
             RendererBackend::Cpu => {
                 let mut renderer: Box<dyn Renderer> = Box::new(CpuRasterizer::new(width, height));
                 renderer.init(
-                    Surface::OpenGL {
-                        context: null_mut(),
-                    },
+                    Surface::Cpu,
                     SurfaceInfo {
                         width,
                         height,
