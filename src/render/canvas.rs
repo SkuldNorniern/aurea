@@ -6,7 +6,7 @@ use crate::{AureaError, AureaResult};
 use aurea_foundation::CapabilityChecker;
 use aurea_foundation::Platform;
 use aurea_render::{
-    ClickCallback, Color, CpuRasterizer, DrawingContext, GpuRasterizer, HoverCallback,
+    ClickCallback, Color, CpuRasterizer, DrawingContext, HoverCallback,
     InteractionRegistry, InteractiveId, Point, Rect, Renderer, RendererBackend, Surface,
     SurfaceInfo,
 };
@@ -204,20 +204,6 @@ impl Canvas {
         let renderer = match backend {
             RendererBackend::Cpu => {
                 let mut renderer: Box<dyn Renderer> = Box::new(CpuRasterizer::new(width, height));
-                renderer.init(
-                    Surface::OpenGL {
-                        context: null_mut(),
-                    },
-                    SurfaceInfo {
-                        width,
-                        height,
-                        scale_factor: 1.0,
-                    },
-                )?;
-                Some(renderer)
-            }
-            RendererBackend::Gpu => {
-                let mut renderer: Box<dyn Renderer> = Box::new(GpuRasterizer::new(width, height));
                 renderer.init(
                     Surface::OpenGL {
                         context: null_mut(),
