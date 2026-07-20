@@ -11,7 +11,8 @@ use std::mem::size_of;
 
 use zengpu_hal::{
     BlendMode, DepthState, Format, GpuDevice, GraphicsDevice, GraphicsPipelineDesc, PipelineHandle,
-    PrimitiveTopology, Result, ShaderDesc, StepMode, VertexAttribute, VertexFormat, VertexLayout,
+    PrimitiveTopology, RasterState, Result, ShaderDesc, StepMode, VertexAttribute, VertexFormat,
+    VertexLayout,
 };
 use zengpu_vulkan::VulkanDevice;
 
@@ -200,12 +201,8 @@ fn create_pipeline(
     blend: BlendMode,
     color_format: Format,
 ) -> Result<PipelineHandle> {
-    let vertex_shader = device.create_shader(ShaderDesc {
-        spirv: spv_bytes(vert_spv),
-    })?;
-    let fragment_shader = device.create_shader(ShaderDesc {
-        spirv: spv_bytes(frag_spv),
-    })?;
+    let vertex_shader = device.create_shader(ShaderDesc::spirv(spv_bytes(vert_spv)))?;
+    let fragment_shader = device.create_shader(ShaderDesc::spirv(spv_bytes(frag_spv)))?;
     let pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader,
         fragment_shader,
@@ -215,6 +212,7 @@ fn create_pipeline(
         depth_format: None,
         depth: DepthState::default(),
         blend,
+        raster: RasterState::default(),
         samples: 1,
     });
     device.destroy_shader(vertex_shader);
