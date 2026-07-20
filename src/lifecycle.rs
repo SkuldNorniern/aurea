@@ -6,7 +6,7 @@
 /// - Window lifecycle (close, minimize, restore)
 /// - Memory warnings
 /// - Surface recreation (for mobile)
-use crate::sync::lock;
+use aurea_foundation::lock;
 use std::collections::HashMap;
 use std::os::raw::c_void;
 use std::sync::{LazyLock, Mutex};

@@ -5,7 +5,7 @@
 
 use crate::AureaResult;
 use crate::ffi::ng_platform_poll_events;
-use crate::sync::lock;
+use aurea_foundation::lock;
 use crate::window::{Window, WindowEvent, WindowId};
 use std::os::raw::c_void;
 use std::sync::{Arc, Mutex};

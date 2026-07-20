@@ -27,7 +27,7 @@ use crate::registry::window::{
     unregister_update_callbacks,
 };
 use crate::render::Rect;
-use crate::sync::lock;
+use aurea_foundation::lock;
 use aurea_runtime::{DamageRegion, FrameScheduler};
 use crate::{AureaError, AureaResult};
 use aurea_foundation::Platform;
