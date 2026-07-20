@@ -19,24 +19,10 @@ pub enum AureaError {
     EventLoopError,
     /// An operation on a GUI element failed
     ElementOperationFailed,
-    /// Failed to create a canvas
-    CanvasCreationFailed,
-    /// Failed to initialize renderer
-    RendererInitFailed,
     /// Rendering operation failed
     RenderingFailed,
-    /// Requested backend (e.g. Gpu) is not yet implemented
-    BackendNotAvailable,
     /// FFI ABI version mismatch between Rust and native library
     AbiVersionMismatch { expected: i32, got: i32 },
-    /// Canvas state is corrupted or has been dropped
-    CanvasStateInvalid,
-    /// Animation ticker failed or panicked
-    AnimationFailed(String),
-    /// Animation ticker ID not found (already unregistered or never registered)
-    AnimationNotFound,
-    /// Internal render frame setup failed
-    RenderFrameSetupFailed(String),
 }
 
 /// Result type for GUI operations.
@@ -78,30 +64,13 @@ impl Display for AureaError {
             }
             AureaError::EventLoopError => write!(f, "The event loop encountered an error"),
             AureaError::ElementOperationFailed => write!(f, "An operation on a GUI element failed"),
-            AureaError::CanvasCreationFailed => write!(f, "Failed to create a canvas"),
-            AureaError::RendererInitFailed => write!(f, "Failed to initialize renderer"),
             AureaError::RenderingFailed => write!(f, "Rendering operation failed"),
-            AureaError::BackendNotAvailable => {
-                write!(f, "Requested rendering backend is not yet implemented")
-            }
             AureaError::AbiVersionMismatch { expected, got } => {
                 write!(
                     f,
                     "FFI ABI version mismatch: expected {}, got {}",
                     expected, got
                 )
-            }
-            AureaError::CanvasStateInvalid => {
-                write!(f, "Canvas state is invalid or corrupted")
-            }
-            AureaError::AnimationFailed(msg) => {
-                write!(f, "Animation failed: {}", msg)
-            }
-            AureaError::AnimationNotFound => {
-                write!(f, "Animation ID not found (already unregistered)")
-            }
-            AureaError::RenderFrameSetupFailed(msg) => {
-                write!(f, "Render frame setup failed: {}", msg)
             }
         }
     }
