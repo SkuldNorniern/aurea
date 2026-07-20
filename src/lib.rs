@@ -22,8 +22,9 @@ pub mod window;
 pub use aurea_runtime::{DamageRegion, FrameInfo, FrameScheduler};
 
 pub use crate::elements::{
-    Container, Divider, Element, Label, Orientation, Spacer, SplitOrientation, SplitView, Stack,
-    TextField,
+    Button, Checkbox, ComboBox, Container, Divider, Element, ImageView, Label, Orientation,
+    ProgressBar, SidebarList, Slider, Spacer, SplitOrientation, SplitView, Stack, TabBar,
+    TextEditor, TextField, TextView,
 };
 pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
 pub use crate::window::{
@@ -31,6 +32,8 @@ pub use crate::window::{
 };
 
 pub use crate::window::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};
+
+pub use crate::render::{Canvas, Color, DrawingContext, Point, Rect, RendererBackend};
 
 pub use crate::platform::handles::NativeWindowHandle;
 pub use aurea_foundation::{AureaError, AureaResult};
