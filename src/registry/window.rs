@@ -1,5 +1,5 @@
 use super::handle_key;
-use crate::sync::lock;
+use aurea_foundation::lock;
 use crate::window::{WindowEvent, WindowId};
 use aurea_runtime::EventQueue;
 use std::{

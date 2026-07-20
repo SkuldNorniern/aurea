@@ -1,6 +1,6 @@
 //! Shared ID allocation and callback storage for the platform-callback registries.
 
-use crate::sync::lock;
+use aurea_foundation::lock;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
