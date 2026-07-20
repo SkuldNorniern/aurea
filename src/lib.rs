@@ -15,12 +15,9 @@ pub mod menu;
 pub mod platform;
 pub mod registry;
 pub mod render;
-pub mod view;
 pub mod window;
 
-pub use crate::view::FrameScheduler;
-pub use crate::view::damage::DamageRegion;
-pub use aurea_runtime::FrameInfo;
+pub use aurea_runtime::{DamageRegion, FrameInfo, FrameScheduler};
 
 pub use crate::elements::{
     Container, Divider, Element, Label, Orientation, Spacer, SplitOrientation, SplitView, Stack,

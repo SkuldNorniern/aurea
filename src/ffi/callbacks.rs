@@ -7,7 +7,7 @@ use crate::registry::elements::{
     invoke_text_editor_callback, invoke_text_view_callback,
 };
 use crate::registry::menu::invoke_menu_callback;
-use crate::view::FrameScheduler;
+use aurea_runtime::FrameScheduler;
 use crate::window::{KeyCode, Modifiers, MouseButton, WindowEvent, push_window_event};
 use aurea_ffi::ng_platform_get_scale_factor;
 

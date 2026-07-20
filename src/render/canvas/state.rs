@@ -1,6 +1,6 @@
 use crate::ffi::*;
 use crate::sync::lock;
-use crate::view::{DamageRegion, FrameScheduler};
+use aurea_runtime::{DamageRegion, FrameScheduler};
 #[cfg(feature = "zengpu")]
 use crate::AureaError;
 use crate::AureaResult;
