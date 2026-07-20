@@ -430,7 +430,7 @@ impl Window {
         &self,
         context: Arc<ZenGpuContext>,
     ) -> AureaResult<ZenGpuRenderer> {
-        let handles = self.zengpu_window_handles()?;
+        let handles = self.zengpu_handles()?;
         // `size()` is physical pixels; the renderer wants logical size + scale
         // (it scales drawing coords back up to physical, matching the swapchain
         // extent), so convert here.
@@ -441,42 +441,43 @@ impl Window {
         ZenGpuRenderer::with_context(&handles, context, lw, lh, scale)
     }
 
+    /// Native window/display handles for building a `zengpu_hal` surface directly.
+    ///
+    /// Use this to drive `zengpu`/`zengpu_hal`/`zengpu_vulkan` APIs by hand
+    /// instead of [`create_zengpu_2d`](Self::create_zengpu_2d)'s managed 2D
+    /// renderer, e.g. for a custom 3D pipeline hosted in an Aurea window.
     #[cfg(all(feature = "zengpu", target_os = "windows"))]
-    fn zengpu_window_handles(&self) -> AureaResult<zengpu_hal::WindowHandles> {
-        use raw_window_handle::{
-            RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle,
-        };
+    pub fn zengpu_handles(&self) -> AureaResult<zengpu_hal::WindowHandles> {
         use std::num::NonZeroIsize;
+        use zen_window_handle::{DisplayHandle, Win32WindowHandle, WindowHandle};
 
         let hwnd =
             NonZeroIsize::new(self.handle as isize).ok_or(AureaError::ElementOperationFailed)?;
-        let window = RawWindowHandle::Win32(Win32WindowHandle::new(hwnd));
-        let display = RawDisplayHandle::Windows(WindowsDisplayHandle::new());
+        let window = WindowHandle::Win32(Win32WindowHandle::new(hwnd));
+        let display = DisplayHandle::Windows;
         Ok(zengpu_hal::WindowHandles::from_raw(window, display))
     }
 
     #[cfg(all(feature = "zengpu", target_os = "macos"))]
-    fn zengpu_window_handles(&self) -> AureaResult<zengpu_hal::WindowHandles> {
-        use raw_window_handle::{
-            AppKitDisplayHandle, AppKitWindowHandle, RawDisplayHandle, RawWindowHandle,
-        };
+    pub fn zengpu_handles(&self) -> AureaResult<zengpu_hal::WindowHandles> {
         use std::ptr::NonNull;
+        use zen_window_handle::{AppKitWindowHandle, DisplayHandle, WindowHandle};
 
         let view = unsafe { crate::ffi::ng_platform_window_get_content_view(self.handle) };
         let view = NonNull::new(view).ok_or(AureaError::ElementOperationFailed)?;
         Ok(zengpu_hal::WindowHandles::from_raw(
-            RawWindowHandle::AppKit(AppKitWindowHandle::new(view)),
-            RawDisplayHandle::AppKit(AppKitDisplayHandle::new()),
+            WindowHandle::AppKit(AppKitWindowHandle::new(view)),
+            DisplayHandle::AppKit,
         ))
     }
 
     #[cfg(all(feature = "zengpu", target_os = "linux"))]
-    fn zengpu_window_handles(&self) -> AureaResult<zengpu_hal::WindowHandles> {
-        use raw_window_handle::{
-            RawDisplayHandle, RawWindowHandle, WaylandDisplayHandle, WaylandWindowHandle,
+    pub fn zengpu_handles(&self) -> AureaResult<zengpu_hal::WindowHandles> {
+        use std::{num::NonZeroU32, ptr::NonNull};
+        use zen_window_handle::{
+            DisplayHandle, WaylandDisplayHandle, WaylandWindowHandle, WindowHandle,
             XcbDisplayHandle, XcbWindowHandle,
         };
-        use std::{num::NonZeroU32, ptr::NonNull};
 
         let mut xcb_window = 0;
         let mut xcb_connection = null_mut();
@@ -492,8 +493,10 @@ impl Window {
             let connection =
                 NonNull::new(xcb_connection).ok_or(AureaError::ElementOperationFailed)?;
             return Ok(zengpu_hal::WindowHandles::from_raw(
-                RawWindowHandle::Xcb(XcbWindowHandle::new(window)),
-                RawDisplayHandle::Xcb(XcbDisplayHandle::new(Some(connection), 0)),
+                WindowHandle::Xcb(XcbWindowHandle::new(window)),
+                DisplayHandle::Xcb(XcbDisplayHandle {
+                    connection: Some(connection),
+                }),
             ));
         }
 
@@ -510,8 +513,8 @@ impl Window {
             let surface = NonNull::new(surface).ok_or(AureaError::ElementOperationFailed)?;
             let display = NonNull::new(display).ok_or(AureaError::ElementOperationFailed)?;
             return Ok(zengpu_hal::WindowHandles::from_raw(
-                RawWindowHandle::Wayland(WaylandWindowHandle::new(surface)),
-                RawDisplayHandle::Wayland(WaylandDisplayHandle::new(display)),
+                WindowHandle::Wayland(WaylandWindowHandle::new(surface)),
+                DisplayHandle::Wayland(WaylandDisplayHandle { display }),
             ));
         }
 
@@ -522,7 +525,7 @@ impl Window {
         feature = "zengpu",
         not(any(target_os = "windows", target_os = "macos", target_os = "linux"))
     ))]
-    fn zengpu_window_handles(&self) -> AureaResult<zengpu_hal::WindowHandles> {
+    pub fn zengpu_handles(&self) -> AureaResult<zengpu_hal::WindowHandles> {
         Err(AureaError::ElementOperationFailed)
     }
 
