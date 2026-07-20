@@ -66,11 +66,6 @@ impl AnimationState {
     fn needs_update(&self) -> bool {
         self.enabled
     }
-
-    #[allow(dead_code)]
-    fn is_enabled(&self) -> bool {
-        self.enabled
-    }
 }
 
 pub struct ProgressBar {
