@@ -238,7 +238,6 @@ unsafe impl Sync for NativeWindowHandle {}
 
 /// Convert a [`NativeWindowHandle`] to the `raw-window-handle` pair a `wgpu`
 /// surface (or any other `raw-window-handle` consumer) needs.
-#[cfg(feature = "wgpu")]
 pub fn raw_handles(
     native: &NativeWindowHandle,
 ) -> Result<
