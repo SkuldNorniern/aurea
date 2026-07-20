@@ -1,29 +1,18 @@
 //! Custom callback registry for SwiftUI and other platform-triggered actions.
 
-use crate::sync::lock;
-use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
+use super::callback::{CallbackRegistry, IdAllocator};
 
-type VoidCallback = Box<dyn Fn() + Send + Sync>;
-
-static CUSTOM_ID: LazyLock<Mutex<u32>> = LazyLock::new(|| Mutex::new(1));
-static CUSTOM_CALLBACKS: LazyLock<Mutex<HashMap<u32, VoidCallback>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static CUSTOM_ID: IdAllocator = IdAllocator::new();
+static CUSTOM_CALLBACKS: CallbackRegistry<()> = CallbackRegistry::new();
 
 pub fn next_custom_id() -> u32 {
-    let mut guard = lock(&CUSTOM_ID);
-    *guard += 1;
-    *guard - 1
+    CUSTOM_ID.next()
 }
 
 pub fn register_custom_callback(id: u32, callback: impl Fn() + Send + Sync + 'static) {
-    let mut callbacks = lock(&CUSTOM_CALLBACKS);
-    callbacks.insert(id, Box::new(callback));
+    CUSTOM_CALLBACKS.insert(id, move |()| callback());
 }
 
 pub fn invoke_custom_callback(id: u32) {
-    let callbacks = lock(&CUSTOM_CALLBACKS);
-    if let Some(cb) = callbacks.get(&id) {
-        cb();
-    }
+    CUSTOM_CALLBACKS.invoke(id, ());
 }
