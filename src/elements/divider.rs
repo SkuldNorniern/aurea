@@ -15,8 +15,6 @@ pub enum DividerOrientation {
 /// A horizontal or vertical divider line.
 pub struct Divider {
     canvas: Canvas,
-    #[allow(dead_code)]
-    orientation: DividerOrientation,
 }
 
 impl Divider {
@@ -33,11 +31,9 @@ impl Divider {
     }
 
     /// Create a divider with explicit dimensions.
-    pub fn new(orientation: DividerOrientation, width: u32, height: u32) -> AureaResult<Self> {
-        let (w, h) = match orientation {
-            DividerOrientation::Horizontal => (width.max(1), height.max(1)),
-            DividerOrientation::Vertical => (width.max(1), height.max(1)),
-        };
+    pub fn new(_orientation: DividerOrientation, width: u32, height: u32) -> AureaResult<Self> {
+        let w = width.max(1);
+        let h = height.max(1);
 
         let canvas = Canvas::new(w, h, RendererBackend::Cpu)?;
         let color = Color::rgb(180, 180, 180);
@@ -48,10 +44,7 @@ impl Divider {
             Ok(())
         })?;
 
-        Ok(Self {
-            canvas,
-            orientation,
-        })
+        Ok(Self { canvas })
     }
 }
 
