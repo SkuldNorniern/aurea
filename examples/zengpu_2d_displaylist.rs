@@ -1,6 +1,5 @@
-//! ZenGPU G4 / Rung 1 — the full `DisplayList → ZenGPU` pipeline.
+//! The full `DisplayList → ZenGPU` pipeline.
 
-#[cfg(feature = "zengpu")]
 use aurea::{
     Window, WindowEvent,
     render::{
@@ -8,20 +7,14 @@ use aurea::{
     },
 };
 use std::error::Error;
-#[cfg(not(feature = "zengpu"))]
-use std::process::exit;
 
-#[cfg(feature = "zengpu")]
 const W: i32 = 800;
-#[cfg(feature = "zengpu")]
 const H: i32 = 600;
 
-#[cfg(feature = "zengpu")]
 fn paint(r: u8, g: u8, b: u8, a: u8) -> Paint {
     Paint::new().color(Color::rgba(r, g, b, a))
 }
 
-#[cfg(feature = "zengpu")]
 fn test_image() -> Image {
     const WIDTH: u32 = 64;
     const HEIGHT: u32 = 64;
@@ -40,9 +33,8 @@ fn test_image() -> Image {
     Image::new(WIDTH, HEIGHT, data)
 }
 
-#[cfg(feature = "zengpu")]
-fn run() -> Result<(), Box<dyn Error>> {
-    let window = Window::new("ZenGPU — DisplayList 2D (G4 Rung 1)", W, H)?;
+fn main() -> Result<(), Box<dyn Error>> {
+    let window = Window::new("ZenGPU — DisplayList 2D", W, H)?;
 
     let mut renderer = window.create_zengpu_2d()?;
     eprintln!(
@@ -148,18 +140,4 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
-}
-
-fn main() -> Result<(), Box<dyn Error>> {
-    #[cfg(not(feature = "zengpu"))]
-    {
-        eprintln!("This example requires the `zengpu` feature.");
-        eprintln!("Run with: cargo run --example zengpu_2d_displaylist --features zengpu");
-        exit(1);
-    }
-
-    #[cfg(feature = "zengpu")]
-    {
-        run()
-    }
 }

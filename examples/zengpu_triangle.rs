@@ -1,9 +1,6 @@
 //! ZenGPU triangle rendered into an aurea window — unified graphics API.
 
-#[cfg(not(feature = "zengpu"))]
-use std::process::exit;
 use std::{error::Error, result::Result as StdResult};
-#[cfg(feature = "zengpu")]
 use {
     aurea::{Window, WindowEvent},
     inline_spirv::inline_spirv,
@@ -17,7 +14,6 @@ use {
     },
 };
 
-#[cfg(feature = "zengpu")]
 const VERT_SPV: &[u32] = inline_spirv!(
     r#"
     #version 450
@@ -30,7 +26,6 @@ const VERT_SPV: &[u32] = inline_spirv!(
     vulkan1_0
 );
 
-#[cfg(feature = "zengpu")]
 const FRAG_SPV: &[u32] = inline_spirv!(
     r#"
     #version 450
@@ -41,12 +36,10 @@ const FRAG_SPV: &[u32] = inline_spirv!(
     vulkan1_0
 );
 
-#[cfg(feature = "zengpu")]
 fn spv_bytes(words: &[u32]) -> &[u8] {
     unsafe { from_raw_parts(words.as_ptr() as *const u8, size_of_val(words)) }
 }
 
-#[cfg(feature = "zengpu")]
 fn run() -> Result<()> {
     let window = Window::new("ZenGPU — Triangle", 800, 600)
         .map_err(|e| GpuError::Backend(format!("window: {e}")))?;
@@ -136,16 +129,6 @@ fn run() -> Result<()> {
 }
 
 fn main() -> StdResult<(), Box<dyn Error>> {
-    #[cfg(not(feature = "zengpu"))]
-    {
-        eprintln!("This example requires the `zengpu` feature.");
-        eprintln!("Run with: cargo run --example zengpu_triangle --features zengpu");
-        exit(1);
-    }
-
-    #[cfg(feature = "zengpu")]
-    {
-        run()?;
-        Ok(())
-    }
+    run()?;
+    Ok(())
 }
