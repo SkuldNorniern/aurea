@@ -43,9 +43,9 @@ jni = { version = "0.21", optional = true }
 jni = "0.21"
 
 [features]
-default = []
+default = ["zengpu"]
 wgpu = ["dep:wgpu"]
-# GPU 2D backend via ZenGPU (Vulkan). Opt-in.
+# GPU 2D backend via ZenGPU (Vulkan). Default.
 # Forwards to aurea-render (which owns the ZenGpuRenderer) and pulls in
 # zengpu-hal so the root crate can build WindowHandles for the window-level API.
 zengpu = ["aurea-render/zengpu", "dep:zengpu-hal", "dep:zen-window-handle"]
