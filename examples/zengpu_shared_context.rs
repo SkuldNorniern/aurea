@@ -14,7 +14,7 @@ use {
         render::{Rect, ZenGpuContext},
     },
     std::sync::Arc,
-    zengpu::{Format, OffscreenTarget},
+    zengpu::{Format, vulkan::OffscreenTarget},
 };
 
 fn main() -> Result<(), Box<dyn Error>> {

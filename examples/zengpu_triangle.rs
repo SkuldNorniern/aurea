@@ -14,10 +14,11 @@ use {
     inline_spirv::inline_spirv,
     std::{mem::size_of_val, slice::from_raw_parts},
     zengpu::{
+        hal::RasterState,
         Acquire, BlendMode, ColorAttachment, DepthState, Format, Frame, GpuAdapter, GpuDevice,
         GpuError, GraphicsDevice, GraphicsPipelineDesc, LoadOp, PresentMode, PrimitiveTopology,
         RenderCommands, RenderPassDesc, Result, ShaderDesc, Surface, SurfaceConfig, Viewport,
-        ViewportScissor, VulkanInstance, WindowHandles,
+        ViewportScissor, VulkanInstance,
     },
 };
 
@@ -63,7 +64,8 @@ fn run() -> Result<()> {
     eprintln!("ZenGPU: {}", adapter.info().name);
     let device = adapter.open_with_surface(zengpu::DeviceRequest::default())?;
 
-    let handles = WindowHandles::from_window(&window)
+    let handles = window
+        .zengpu_handles()
         .map_err(|e| GpuError::Backend(format!("window handle: {e:?}")))?;
     let (w, h) = window.size();
     let config = SurfaceConfig {
@@ -75,12 +77,8 @@ fn run() -> Result<()> {
 
     let surface = device.create_surface(&handles, config)?;
 
-    let vert_shader = device.create_shader(ShaderDesc {
-        spirv: spv_bytes(VERT_SPV),
-    })?;
-    let frag_shader = device.create_shader(ShaderDesc {
-        spirv: spv_bytes(FRAG_SPV),
-    })?;
+    let vert_shader = device.create_shader(ShaderDesc::spirv(spv_bytes(VERT_SPV)))?;
+    let frag_shader = device.create_shader(ShaderDesc::spirv(spv_bytes(FRAG_SPV)))?;
 
     let pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader: vert_shader,
@@ -91,6 +89,7 @@ fn run() -> Result<()> {
         depth_format: None,
         depth: DepthState::default(),
         blend: BlendMode::default(),
+        raster: RasterState::default(),
         samples: 1,
     })?;
 
