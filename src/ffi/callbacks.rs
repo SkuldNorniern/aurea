@@ -1,12 +1,12 @@
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_int, c_void};
 
-use crate::elements::{
-    invoke_button_callback, invoke_sidebar_list_selected, invoke_tab_bar_detach,
-    invoke_tab_bar_selected, invoke_text_callback, invoke_textview_callback,
-};
-use crate::menu::invoke_menu_callback;
 use crate::registry::custom::invoke_custom_callback;
+use crate::registry::elements::{
+    invoke_button_callback, invoke_sidebar_selected, invoke_tab_detach, invoke_tab_selected,
+    invoke_text_editor_callback, invoke_text_view_callback,
+};
+use crate::registry::menu::invoke_menu_callback;
 use crate::view::FrameScheduler;
 use crate::window::{KeyCode, Modifiers, MouseButton, WindowEvent, push_window_event};
 use aurea_ffi::ng_platform_get_scale_factor;
@@ -33,30 +33,30 @@ pub extern "C" fn ng_invoke_button_callback(id: u32) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_tab_bar_selected(id: u32, index: i32) {
-    invoke_tab_bar_selected(id, index);
+    invoke_tab_selected(id, index);
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_tab_bar_detach(id: u32, index: i32) {
-    invoke_tab_bar_detach(id, index);
+    invoke_tab_detach(id, index);
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_sidebar_list_selected(id: u32, index: i32) {
-    invoke_sidebar_list_selected(id, index);
+    invoke_sidebar_selected(id, index);
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_text_callback(id: u32, content: *const c_char) {
     if let Some(content) = c_string(content) {
-        invoke_text_callback(id, content);
+        invoke_text_editor_callback(id, content);
     }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_textview_callback(id: u32, content: *const c_char) {
     if let Some(content) = c_string(content) {
-        invoke_textview_callback(id, content);
+        invoke_text_view_callback(id, content);
     }
 }
 

@@ -4,9 +4,7 @@
 //! allows dragging a tab out of the window to create a popup.
 
 use super::traits::Element;
-use crate::registry::elements::{
-    invoke_tab_detach, invoke_tab_selected, next_tab_id, register_tab_callbacks,
-};
+use crate::registry::elements::{next_tab_id, register_tab_callbacks};
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::{ffi::CString, os::raw::c_void};
@@ -111,14 +109,6 @@ impl TabBar {
     pub fn get_selected(&self) -> i32 {
         unsafe { ng_platform_tab_bar_get_selected(self.handle) }
     }
-}
-
-pub fn invoke_tab_bar_selected(id: u32, index: i32) {
-    invoke_tab_selected(id, index);
-}
-
-pub fn invoke_tab_bar_detach(id: u32, index: i32) {
-    invoke_tab_detach(id, index);
 }
 
 impl Element for TabBar {

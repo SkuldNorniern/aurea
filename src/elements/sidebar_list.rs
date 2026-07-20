@@ -3,9 +3,7 @@
 //! Displays section headers and indented clickable items with selection highlight.
 
 use super::traits::Element;
-use crate::registry::elements::{
-    invoke_sidebar_selected, next_sidebar_id, register_sidebar_callback,
-};
+use crate::registry::elements::{next_sidebar_id, register_sidebar_callback};
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::{ffi::CString, os::raw::c_void};
@@ -101,10 +99,6 @@ impl SidebarList {
         }
         Ok(())
     }
-}
-
-pub fn invoke_sidebar_list_selected(id: u32, index: i32) {
-    invoke_sidebar_selected(id, index);
 }
 
 impl Element for SidebarList {

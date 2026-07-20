@@ -1,8 +1,5 @@
 use super::traits::Element;
-use crate::registry::elements::{
-    invoke_button_callback as invoke_registered_button_callback, next_button_id,
-    register_button_callback,
-};
+use crate::registry::elements::{next_button_id, register_button_callback};
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::{ffi::CString, os::raw::c_void};
@@ -39,10 +36,6 @@ impl Button {
             _id: id,
         })
     }
-}
-
-pub fn invoke_button_callback(id: u32) {
-    invoke_registered_button_callback(id);
 }
 
 impl Element for Button {
