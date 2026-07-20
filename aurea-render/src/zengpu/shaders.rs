@@ -7,6 +7,20 @@
 //! `binding = 0, textures[64]` set). The push-constant block layout is
 //! unchanged (`vec2 viewport [, uint slot]`), which matches the new bindless
 //! ABI's "scalars, then texture indices" packing.
+//!
+//! ## All shaders here stay hand-written GLSL, not ZenGPU's `zsl!` macro
+//!
+//! Every vertex shader in this file draws a 6-vertex quad per instance by
+//! indexing a hardcoded `corners[6]` array with `gl_VertexIndex` — no vertex
+//! buffer is bound. ZSL's parser has no `vertex_index`/`instance_index`
+//! builtin (only `@location`-attributed per-vertex inputs and, for compute
+//! kernels, `global_id`), so this pattern cannot be expressed in ZSL today.
+//! Expressing it would mean binding a real per-vertex corner buffer, which
+//! changes `vertex_layouts` in `pipelines.rs` — a pipeline-shape change that
+//! belongs with the rest of the zengpu backend's unification work, not this
+//! shader-by-shader migration. The gradient/image/text shaders have a second,
+//! independent blocker: ZSL also has no texture sampling, bindless array
+//! indexing, or dual-source blend output support yet.
 
 use inline_spirv::inline_spirv;
 use std::mem::size_of_val;
