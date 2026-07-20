@@ -48,7 +48,7 @@ wgpu = ["dep:wgpu"]
 # GPU 2D backend via ZenGPU (Vulkan). Opt-in.
 # Forwards to aurea-render (which owns the ZenGpuRenderer) and pulls in
 # zengpu-hal so the root crate can build WindowHandles for the window-level API.
-zengpu = ["aurea-render/zengpu", "dep:zengpu-hal"]
+zengpu = ["aurea-render/zengpu", "dep:zengpu-hal", "dep:zen-window-handle"]
 
 [dependencies.wgpu]
 version = "29.0.1"
@@ -59,18 +59,21 @@ version = "0.6"
 
 # zengpu-hal: optional, for the window-level GPU surface API (feature `zengpu`).
 [dependencies.zengpu-hal]
+git = "https://github.com/SkuldNorniern/ZenGPU"
 version = "0.0.1"
 optional = true
 
+# zen-window-handle: dependency-free WindowHandle/DisplayHandle types consumed
+# by zengpu-hal's WindowHandles::from_raw (feature `zengpu`).
+[dependencies.zen-window-handle]
+git = "https://github.com/SkuldNorniern/ZenGPU"
+version = "0.1.0"
+optional = true
+
 [dev-dependencies.zengpu]
+git = "https://github.com/SkuldNorniern/ZenGPU"
 version = "0.0.1"
 features = ["vulkan"]
-
-# Public ZenGPU source override; dependency declarations above remain version-only.
-[patch.crates-io]
-zengpu = { git = "https://github.com/SkuldNorniern/ZenGPU", version = "0.0.1" }
-zengpu-hal = { git = "https://github.com/SkuldNorniern/ZenGPU", version = "0.0.1" }
-zengpu-vulkan = { git = "https://github.com/SkuldNorniern/ZenGPU", version = "0.0.1" }
 
 [dev-dependencies.inline-spirv]
 version = "0.2"

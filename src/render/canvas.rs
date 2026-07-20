@@ -551,40 +551,36 @@ pub(super) fn ensure_canvas_renderer(
 
 #[cfg(all(feature = "zengpu", target_os = "windows"))]
 fn zengpu_canvas_handles(handle: *mut c_void) -> AureaResult<zengpu_hal::WindowHandles> {
-    use raw_window_handle::{
-        RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle,
-    };
     use std::num::NonZeroIsize;
+    use zen_window_handle::{DisplayHandle, Win32WindowHandle, WindowHandle};
 
     let hwnd = NonZeroIsize::new(handle as isize).ok_or(AureaError::ElementOperationFailed)?;
     Ok(zengpu_hal::WindowHandles::from_raw(
-        RawWindowHandle::Win32(Win32WindowHandle::new(hwnd)),
-        RawDisplayHandle::Windows(WindowsDisplayHandle::new()),
+        WindowHandle::Win32(Win32WindowHandle::new(hwnd)),
+        DisplayHandle::Windows,
     ))
 }
 
 #[cfg(all(feature = "zengpu", target_os = "macos"))]
 fn zengpu_canvas_handles(handle: *mut c_void) -> AureaResult<zengpu_hal::WindowHandles> {
-    use raw_window_handle::{
-        AppKitDisplayHandle, AppKitWindowHandle, RawDisplayHandle, RawWindowHandle,
-    };
     use std::ptr::NonNull;
+    use zen_window_handle::{AppKitWindowHandle, DisplayHandle, WindowHandle};
 
     let view = unsafe { ng_platform_canvas_get_native_handle(handle) };
     let view = NonNull::new(view).ok_or(AureaError::ElementOperationFailed)?;
     Ok(zengpu_hal::WindowHandles::from_raw(
-        RawWindowHandle::AppKit(AppKitWindowHandle::new(view)),
-        RawDisplayHandle::AppKit(AppKitDisplayHandle::new()),
+        WindowHandle::AppKit(AppKitWindowHandle::new(view)),
+        DisplayHandle::AppKit,
     ))
 }
 
 #[cfg(all(feature = "zengpu", target_os = "linux"))]
 fn zengpu_canvas_handles(handle: *mut c_void) -> AureaResult<zengpu_hal::WindowHandles> {
-    use raw_window_handle::{
-        RawDisplayHandle, RawWindowHandle, WaylandDisplayHandle, WaylandWindowHandle,
-        XcbDisplayHandle, XcbWindowHandle,
-    };
     use std::{num::NonZeroU32, ptr::NonNull};
+    use zen_window_handle::{
+        DisplayHandle, WaylandDisplayHandle, WaylandWindowHandle, WindowHandle, XcbDisplayHandle,
+        XcbWindowHandle,
+    };
 
     let mut xcb_window = 0;
     let mut xcb_connection = null_mut();
@@ -594,8 +590,10 @@ fn zengpu_canvas_handles(handle: *mut c_void) -> AureaResult<zengpu_hal::WindowH
         let window = NonZeroU32::new(xcb_window).ok_or(AureaError::ElementOperationFailed)?;
         let connection = NonNull::new(xcb_connection).ok_or(AureaError::ElementOperationFailed)?;
         return Ok(zengpu_hal::WindowHandles::from_raw(
-            RawWindowHandle::Xcb(XcbWindowHandle::new(window)),
-            RawDisplayHandle::Xcb(XcbDisplayHandle::new(Some(connection), 0)),
+            WindowHandle::Xcb(XcbWindowHandle::new(window)),
+            DisplayHandle::Xcb(XcbDisplayHandle {
+                connection: Some(connection),
+            }),
         ));
     }
 
@@ -605,8 +603,8 @@ fn zengpu_canvas_handles(handle: *mut c_void) -> AureaResult<zengpu_hal::WindowH
         let surface = NonNull::new(surface).ok_or(AureaError::ElementOperationFailed)?;
         let display = NonNull::new(display).ok_or(AureaError::ElementOperationFailed)?;
         return Ok(zengpu_hal::WindowHandles::from_raw(
-            RawWindowHandle::Wayland(WaylandWindowHandle::new(surface)),
-            RawDisplayHandle::Wayland(WaylandDisplayHandle::new(display)),
+            WindowHandle::Wayland(WaylandWindowHandle::new(surface)),
+            DisplayHandle::Wayland(WaylandDisplayHandle { display }),
         ));
     }
 
