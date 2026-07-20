@@ -6,10 +6,8 @@
 use super::traits::Element;
 use crate::render::Rect;
 #[cfg(not(target_os = "macos"))]
-use crate::sync::lock;
+use crate::registry::elements::next_text_view_id;
 use crate::{AureaError, AureaResult, ffi::*};
-#[cfg(not(target_os = "macos"))]
-use std::sync::{LazyLock, Mutex};
 use std::{
     ffi::{CStr, CString},
     os::raw::c_void,
@@ -50,13 +48,7 @@ impl TextField {
 
                 #[cfg(not(target_os = "macos"))]
                 {
-                    static TEXT_FIELD_FALLBACK_ID: LazyLock<Mutex<u32>> =
-                        LazyLock::new(|| Mutex::new(1));
-                    let fallback_id = {
-                        let mut id_guard = lock(&TEXT_FIELD_FALLBACK_ID);
-                        *id_guard += 1;
-                        *id_guard - 1
-                    };
+                    let fallback_id = next_text_view_id();
                     let fallback = ng_platform_create_text_view(1, fallback_id);
                     if fallback.is_null() {
                         return Err(AureaError::ElementOperationFailed);
