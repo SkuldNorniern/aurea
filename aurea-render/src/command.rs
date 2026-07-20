@@ -12,11 +12,8 @@ pub enum DrawCommand {
     Clear(Color),
     DrawRect(Rect, Paint),
     DrawCircle(Point, f32, Paint),
-    #[allow(dead_code)]
     DrawPath(Path, Paint),
-    #[allow(dead_code)]
     DrawText(String, Point, Paint),
-    #[allow(dead_code)]
     DrawTextWithFont(String, Point, Font, Paint),
     DrawImageRect(Image, Rect),
     DrawImageRegion(Image, Rect, Rect),
