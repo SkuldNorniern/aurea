@@ -69,11 +69,3 @@ pub trait Container: Element {
         Ok(())
     }
 }
-
-/// Common element properties used during construction.
-#[derive(Debug, Clone)]
-pub struct ElementProps<'a> {
-    pub title: &'a str,
-    pub width: i32,
-    pub height: i32,
-}
