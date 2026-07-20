@@ -80,95 +80,10 @@ impl HasWindowHandle for NativeWindowHandle {
     fn window_handle(
         &self,
     ) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
-        match self {
-            #[cfg(target_os = "macos")]
-            NativeWindowHandle::MacOS { ns_view } => {
-                use raw_window_handle::{AppKitWindowHandle, WindowHandle};
-                use std::ptr::NonNull;
-                // SAFETY: ns_view is a valid window handle from Aurea window creation
-                let view = NonNull::new(*ns_view as *mut c_void)
-                    .ok_or(raw_window_handle::HandleError::Unavailable)?;
-                unsafe {
-                    Ok(WindowHandle::borrow_raw(
-                        AppKitWindowHandle::new(view).into(),
-                    ))
-                }
-            }
-            #[cfg(target_os = "windows")]
-            NativeWindowHandle::Windows { hwnd } => {
-                use raw_window_handle::{Win32WindowHandle, WindowHandle};
-                use std::num::NonZeroIsize;
-                // SAFETY: hwnd is a valid HWND from Aurea window creation
-                let hwnd_nz = NonZeroIsize::new(*hwnd as isize)
-                    .ok_or(raw_window_handle::HandleError::Unavailable)?;
-                unsafe {
-                    Ok(WindowHandle::borrow_raw(
-                        Win32WindowHandle::new(hwnd_nz).into(),
-                    ))
-                }
-            }
-            #[cfg(target_os = "linux")]
-            NativeWindowHandle::Linux(handle) => match handle {
-                LinuxWindowHandle::Xcb { window, connection } => {
-                    use raw_window_handle::{WindowHandle, XcbWindowHandle};
-                    if *window == 0 || connection.is_null() {
-                        return Err(raw_window_handle::HandleError::Unavailable);
-                    }
-                    unsafe {
-                        Ok(WindowHandle::borrow_raw(
-                            XcbWindowHandle::new(*window, *connection).into(),
-                        ))
-                    }
-                }
-                LinuxWindowHandle::Wayland { surface, .. } => {
-                    use raw_window_handle::{WaylandWindowHandle, WindowHandle};
-                    if surface.is_null() {
-                        return Err(raw_window_handle::HandleError::Unavailable);
-                    }
-                    unsafe {
-                        Ok(WindowHandle::borrow_raw(
-                            WaylandWindowHandle::new(*surface).into(),
-                        ))
-                    }
-                }
-            },
-            #[cfg(target_os = "ios")]
-            NativeWindowHandle::IOS { ui_view } => {
-                use raw_window_handle::{UiKitWindowHandle, WindowHandle};
-                use std::ptr::NonNull;
-                // SAFETY: ui_view is a valid window handle from Aurea window creation
-                let view = NonNull::new(*ui_view as *mut c_void)
-                    .ok_or(raw_window_handle::HandleError::Unavailable)?;
-                unsafe {
-                    Ok(WindowHandle::borrow_raw(
-                        UiKitWindowHandle::new(view).into(),
-                    ))
-                }
-            }
-            #[cfg(target_os = "android")]
-            NativeWindowHandle::Android { native_window } => {
-                use raw_window_handle::{AndroidNdkWindowHandle, WindowHandle};
-                use std::ptr::NonNull;
-                // SAFETY: native_window is a valid window handle from Aurea window creation
-                let window = NonNull::new(*native_window as *mut c_void)
-                    .ok_or(raw_window_handle::HandleError::Unavailable)?;
-                unsafe {
-                    Ok(WindowHandle::borrow_raw(
-                        AndroidNdkWindowHandle::new(window).into(),
-                    ))
-                }
-            }
-            #[cfg(not(any(
-                target_os = "macos",
-                target_os = "windows",
-                target_os = "linux",
-                target_os = "ios",
-                target_os = "android"
-            )))]
-            _ => {
-                compile_error!("Unsupported platform for wgpu integration")
-            }
-        }
+        let (window, _display) = crate::platform::handles::raw_handles(self)?;
+        // SAFETY: the raw handle was built from a native pointer that outlives
+        // this borrow, per NativeWindowHandle's own safety contract.
+        unsafe { Ok(raw_window_handle::WindowHandle::borrow_raw(window)) }
     }
 }
 
@@ -177,71 +92,10 @@ impl HasDisplayHandle for NativeWindowHandle {
     fn display_handle(
         &self,
     ) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
-        match self {
-            #[cfg(target_os = "macos")]
-            NativeWindowHandle::MacOS { .. } => {
-                use raw_window_handle::{AppKitDisplayHandle, DisplayHandle};
-                unsafe { Ok(DisplayHandle::borrow_raw(AppKitDisplayHandle::new().into())) }
-            }
-            #[cfg(target_os = "windows")]
-            NativeWindowHandle::Windows { .. } => {
-                use raw_window_handle::{DisplayHandle, WindowsDisplayHandle};
-                unsafe {
-                    Ok(DisplayHandle::borrow_raw(
-                        WindowsDisplayHandle::new().into(),
-                    ))
-                }
-            }
-            #[cfg(target_os = "linux")]
-            NativeWindowHandle::Linux(handle) => match handle {
-                LinuxWindowHandle::Xcb { connection, .. } => {
-                    use raw_window_handle::{DisplayHandle, XcbDisplayHandle};
-                    if connection.is_null() {
-                        return Err(raw_window_handle::HandleError::Unavailable);
-                    }
-                    unsafe {
-                        Ok(DisplayHandle::borrow_raw(
-                            XcbDisplayHandle::new(*connection, 0).into(),
-                        ))
-                    }
-                }
-                LinuxWindowHandle::Wayland { display, .. } => {
-                    use raw_window_handle::{DisplayHandle, WaylandDisplayHandle};
-                    if display.is_null() {
-                        return Err(raw_window_handle::HandleError::Unavailable);
-                    }
-                    unsafe {
-                        Ok(DisplayHandle::borrow_raw(
-                            WaylandDisplayHandle::new(*display).into(),
-                        ))
-                    }
-                }
-            },
-            #[cfg(target_os = "ios")]
-            NativeWindowHandle::IOS { .. } => {
-                use raw_window_handle::{DisplayHandle, UiKitDisplayHandle};
-                unsafe { Ok(DisplayHandle::borrow_raw(UiKitDisplayHandle::new().into())) }
-            }
-            #[cfg(target_os = "android")]
-            NativeWindowHandle::Android { .. } => {
-                use raw_window_handle::{AndroidNdkDisplayHandle, DisplayHandle};
-                unsafe {
-                    Ok(DisplayHandle::borrow_raw(
-                        AndroidNdkDisplayHandle::new().into(),
-                    ))
-                }
-            }
-            #[cfg(not(any(
-                target_os = "macos",
-                target_os = "windows",
-                target_os = "linux",
-                target_os = "ios",
-                target_os = "android"
-            )))]
-            _ => {
-                compile_error!("Unsupported platform for wgpu integration")
-            }
-        }
+        let (_window, display) = crate::platform::handles::raw_handles(self)?;
+        // SAFETY: the raw handle was built from a native pointer that outlives
+        // this borrow, per NativeWindowHandle's own safety contract.
+        unsafe { Ok(raw_window_handle::DisplayHandle::borrow_raw(display)) }
     }
 }
 

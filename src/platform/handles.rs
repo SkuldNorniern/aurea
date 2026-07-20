@@ -235,3 +235,98 @@ impl NativeWindowHandle {
 // need to be thread-safe for this use case.
 unsafe impl Send for NativeWindowHandle {}
 unsafe impl Sync for NativeWindowHandle {}
+
+/// Convert a [`NativeWindowHandle`] to the `raw-window-handle` pair a `wgpu`
+/// surface (or any other `raw-window-handle` consumer) needs.
+#[cfg(feature = "wgpu")]
+pub fn raw_handles(
+    native: &NativeWindowHandle,
+) -> Result<
+    (
+        raw_window_handle::RawWindowHandle,
+        raw_window_handle::RawDisplayHandle,
+    ),
+    raw_window_handle::HandleError,
+> {
+    use raw_window_handle::{HandleError, RawDisplayHandle, RawWindowHandle};
+
+    match native {
+        #[cfg(target_os = "macos")]
+        NativeWindowHandle::MacOS { ns_view } => {
+            use raw_window_handle::{AppKitDisplayHandle, AppKitWindowHandle};
+            use std::ptr::NonNull;
+            // SAFETY: ns_view is a valid window handle from Aurea window creation.
+            let view = NonNull::new(*ns_view).ok_or(HandleError::Unavailable)?;
+            Ok((
+                RawWindowHandle::AppKit(AppKitWindowHandle::new(view)),
+                RawDisplayHandle::AppKit(AppKitDisplayHandle::new()),
+            ))
+        }
+        #[cfg(target_os = "windows")]
+        NativeWindowHandle::Windows { hwnd } => {
+            use raw_window_handle::{Win32WindowHandle, WindowsDisplayHandle};
+            use std::num::NonZeroIsize;
+            // SAFETY: hwnd is a valid HWND from Aurea window creation.
+            let hwnd_nz = NonZeroIsize::new(*hwnd as isize).ok_or(HandleError::Unavailable)?;
+            Ok((
+                RawWindowHandle::Win32(Win32WindowHandle::new(hwnd_nz)),
+                RawDisplayHandle::Windows(WindowsDisplayHandle::new()),
+            ))
+        }
+        #[cfg(target_os = "linux")]
+        NativeWindowHandle::Linux(handle) => match handle {
+            LinuxWindowHandle::Xcb { window, connection } => {
+                use raw_window_handle::{XcbDisplayHandle, XcbWindowHandle};
+                if *window == 0 || connection.is_null() {
+                    return Err(HandleError::Unavailable);
+                }
+                Ok((
+                    RawWindowHandle::Xcb(XcbWindowHandle::new(*window, *connection)),
+                    RawDisplayHandle::Xcb(XcbDisplayHandle::new(*connection, 0)),
+                ))
+            }
+            LinuxWindowHandle::Wayland { surface, display } => {
+                use raw_window_handle::{WaylandDisplayHandle, WaylandWindowHandle};
+                if surface.is_null() || display.is_null() {
+                    return Err(HandleError::Unavailable);
+                }
+                Ok((
+                    RawWindowHandle::Wayland(WaylandWindowHandle::new(*surface)),
+                    RawDisplayHandle::Wayland(WaylandDisplayHandle::new(*display)),
+                ))
+            }
+        },
+        #[cfg(target_os = "ios")]
+        NativeWindowHandle::IOS { ui_view } => {
+            use raw_window_handle::{UiKitDisplayHandle, UiKitWindowHandle};
+            use std::ptr::NonNull;
+            // SAFETY: ui_view is a valid window handle from Aurea window creation.
+            let view = NonNull::new(*ui_view).ok_or(HandleError::Unavailable)?;
+            Ok((
+                RawWindowHandle::UiKit(UiKitWindowHandle::new(view)),
+                RawDisplayHandle::UiKit(UiKitDisplayHandle::new()),
+            ))
+        }
+        #[cfg(target_os = "android")]
+        NativeWindowHandle::Android { native_window } => {
+            use raw_window_handle::{AndroidNdkDisplayHandle, AndroidNdkWindowHandle};
+            use std::ptr::NonNull;
+            // SAFETY: native_window is a valid window handle from Aurea window creation.
+            let window = NonNull::new(*native_window).ok_or(HandleError::Unavailable)?;
+            Ok((
+                RawWindowHandle::AndroidNdk(AndroidNdkWindowHandle::new(window)),
+                RawDisplayHandle::AndroidNdk(AndroidNdkDisplayHandle::new()),
+            ))
+        }
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "ios",
+            target_os = "android"
+        )))]
+        _ => {
+            compile_error!("Unsupported platform for wgpu integration")
+        }
+    }
+}
