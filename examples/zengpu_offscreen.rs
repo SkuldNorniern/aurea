@@ -9,11 +9,12 @@ use {
     inline_spirv::inline_spirv,
     std::{mem::size_of_val, slice::from_raw_parts, time::Instant},
     zengpu::{
+        hal::{RasterState, TexDim},
         Acquire, Bindings, BlendMode, ColorAttachment, DepthState, FilterMode, Format, Frame,
         GpuAdapter, GpuDevice, GpuError, GraphicsDevice, GraphicsPipelineDesc, LoadOp, PresentMode,
         PrimitiveTopology, RenderCommands, RenderPassDesc, Result, SamplerDesc, Scalar, ShaderDesc,
         Surface, SurfaceConfig, TextureDesc, TextureUsage, Viewport, ViewportScissor,
-        VulkanInstance, WindowHandles,
+        VulkanInstance,
     },
 };
 
@@ -106,7 +107,8 @@ fn run() -> Result<()> {
     eprintln!("ZenGPU: {}", adapter.info().name);
     let device = adapter.open_with_surface(zengpu::DeviceRequest::default())?;
 
-    let handles = WindowHandles::from_window(&window)
+    let handles = window
+        .zengpu_handles()
         .map_err(|e| GpuError::Backend(format!("window handle: {e:?}")))?;
     let (w, h) = window.size();
     let config = SurfaceConfig {
@@ -117,12 +119,8 @@ fn run() -> Result<()> {
     };
     let surface = device.create_surface(&handles, config)?;
 
-    let off_vert = device.create_shader(ShaderDesc {
-        spirv: spv_bytes(OFF_VERT_SPV),
-    })?;
-    let off_frag = device.create_shader(ShaderDesc {
-        spirv: spv_bytes(OFF_FRAG_SPV),
-    })?;
+    let off_vert = device.create_shader(ShaderDesc::spirv(spv_bytes(OFF_VERT_SPV)))?;
+    let off_frag = device.create_shader(ShaderDesc::spirv(spv_bytes(OFF_FRAG_SPV)))?;
     let off_pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader: off_vert,
         fragment_shader: off_frag,
@@ -132,15 +130,12 @@ fn run() -> Result<()> {
         depth_format: None,
         depth: DepthState::default(),
         blend: BlendMode::default(),
+        raster: RasterState::default(),
         samples: 1,
     })?;
 
-    let scr_vert = device.create_shader(ShaderDesc {
-        spirv: spv_bytes(SCR_VERT_SPV),
-    })?;
-    let scr_frag = device.create_shader(ShaderDesc {
-        spirv: spv_bytes(SCR_FRAG_SPV),
-    })?;
+    let scr_vert = device.create_shader(ShaderDesc::spirv(spv_bytes(SCR_VERT_SPV)))?;
+    let scr_frag = device.create_shader(ShaderDesc::spirv(spv_bytes(SCR_FRAG_SPV)))?;
     let scr_pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader: scr_vert,
         fragment_shader: scr_frag,
@@ -150,15 +145,20 @@ fn run() -> Result<()> {
         depth_format: None,
         depth: DepthState::default(),
         blend: BlendMode::default(),
+        raster: RasterState::default(),
         samples: 1,
     })?;
 
     let offscreen_tex = device.create_texture(TextureDesc {
         width: OFF_SIZE,
         height: OFF_SIZE,
+        depth: 1,
         format: Format::Rgba8Unorm,
         usage: TextureUsage::RENDER_TARGET | TextureUsage::SAMPLED,
         samples: 1,
+        dimension: TexDim::D2,
+        mip_levels: 1,
+        array_layers: 1,
     })?;
     let offscreen_target = device
         .register_color_target(offscreen_tex)
