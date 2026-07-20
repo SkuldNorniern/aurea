@@ -1,4 +1,4 @@
-//! ZenGPU G4 / Rung 1 — the full `DisplayList → ZenGPU` pipeline.
+//! The full `DisplayList → ZenGPU` pipeline.
 //!
 //! Drives `ZenGpuRenderer` (an aurea `Renderer`) the same way the framework
 //! would: `begin_frame` hands back a `DrawingContext`, draw calls are recorded
@@ -8,7 +8,6 @@
 //! Run with:
 //!   cargo run --example zengpu_2d_displaylist --features zengpu
 
-#[cfg(feature = "zengpu")]
 use aurea::{
     Window, WindowEvent,
     render::{
@@ -16,20 +15,14 @@ use aurea::{
     },
 };
 use std::error::Error;
-#[cfg(not(feature = "zengpu"))]
-use std::process::exit;
 
-#[cfg(feature = "zengpu")]
 const W: i32 = 800;
-#[cfg(feature = "zengpu")]
 const H: i32 = 600;
 
-#[cfg(feature = "zengpu")]
 fn paint(r: u8, g: u8, b: u8, a: u8) -> Paint {
     Paint::new().color(Color::rgba(r, g, b, a))
 }
 
-#[cfg(feature = "zengpu")]
 fn test_image() -> Image {
     const WIDTH: u32 = 64;
     const HEIGHT: u32 = 64;
@@ -48,9 +41,8 @@ fn test_image() -> Image {
     Image::new(WIDTH, HEIGHT, data)
 }
 
-#[cfg(feature = "zengpu")]
-fn run() -> Result<(), Box<dyn Error>> {
-    let window = Window::new("ZenGPU — DisplayList 2D (G4 Rung 1)", W, H)?;
+fn main() -> Result<(), Box<dyn Error>> {
+    let window = Window::new("ZenGPU — DisplayList 2D", W, H)?;
 
     // Window-level GPU path: the swapchain belongs to the window.
     let mut renderer = window.create_zengpu_2d()?;
@@ -102,10 +94,10 @@ fn run() -> Result<(), Box<dyn Error>> {
             Rect::new(120.0, 120.0, 480.0, 260.0),
             &paint(255, 255, 255, 110),
         )?;
-        // Antialiased filled circles (Rung 2 SDF circle path).
+        // Antialiased filled circles.
         ctx.draw_circle(Point::new(240.0, 440.0), 60.0, &paint(255, 120, 160, 255))?;
         ctx.draw_circle(Point::new(440.0, 440.0), 80.0, &paint(120, 220, 255, 200))?;
-        // Submitted after the circle, so P7-L requires this rect to cover it.
+        // Submitted after the circle, so this rect must cover it.
         ctx.draw_rect(Rect::new(420.0, 420.0, 55.0, 55.0), &paint(35, 35, 48, 255))?;
         // LUT-sampled gradients, including a three-stop linear gradient.
         ctx.fill_linear_gradient(
@@ -164,18 +156,4 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
-}
-
-fn main() -> Result<(), Box<dyn Error>> {
-    #[cfg(not(feature = "zengpu"))]
-    {
-        eprintln!("This example requires the `zengpu` feature.");
-        eprintln!("Run with: cargo run --example zengpu_2d_displaylist --features zengpu");
-        exit(1);
-    }
-
-    #[cfg(feature = "zengpu")]
-    {
-        run()
-    }
 }

@@ -9,10 +9,7 @@
 //!
 //! Run: cargo run --example zengpu_offscreen --features zengpu
 
-#[cfg(not(feature = "zengpu"))]
-use std::process::exit;
 use std::{error::Error, result::Result as StdResult};
-#[cfg(feature = "zengpu")]
 use {
     aurea::{Window, WindowEvent},
     inline_spirv::inline_spirv,
@@ -27,12 +24,10 @@ use {
     },
 };
 
-#[cfg(feature = "zengpu")]
 const OFF_SIZE: u32 = 512;
 
 // ── Offscreen shaders: spinning triangle ─────────────────────────────────────
 
-#[cfg(feature = "zengpu")]
 const OFF_VERT_SPV: &[u32] = inline_spirv!(
     r#"
     #version 450
@@ -51,7 +46,6 @@ const OFF_VERT_SPV: &[u32] = inline_spirv!(
     vulkan1_0
 );
 
-#[cfg(feature = "zengpu")]
 const OFF_FRAG_SPV: &[u32] = inline_spirv!(
     r#"
     #version 450
@@ -65,7 +59,6 @@ const OFF_FRAG_SPV: &[u32] = inline_spirv!(
 
 // ── Screen shaders: fullscreen quad sampling the offscreen texture ────────────
 
-#[cfg(feature = "zengpu")]
 const SCR_VERT_SPV: &[u32] = inline_spirv!(
     r#"
     #version 450
@@ -87,7 +80,6 @@ const SCR_VERT_SPV: &[u32] = inline_spirv!(
     vulkan1_0
 );
 
-#[cfg(feature = "zengpu")]
 const SCR_FRAG_SPV: &[u32] = inline_spirv!(
     r#"
     #version 450
@@ -104,14 +96,12 @@ const SCR_FRAG_SPV: &[u32] = inline_spirv!(
 );
 
 /// View SPIR-V words as the bytes [`ShaderDesc`] expects.
-#[cfg(feature = "zengpu")]
 fn spv_bytes(words: &[u32]) -> &[u8] {
     unsafe { from_raw_parts(words.as_ptr() as *const u8, size_of_val(words)) }
 }
 
 // ── Event loop ────────────────────────────────────────────────────────────────
 
-#[cfg(feature = "zengpu")]
 fn run() -> Result<()> {
     let window = Window::new("ZenGPU — Offscreen (render-to-texture)", 800, 600)
         .map_err(|e| GpuError::Backend(format!("window: {e}")))?;
@@ -279,16 +269,6 @@ fn run() -> Result<()> {
 }
 
 fn main() -> StdResult<(), Box<dyn Error>> {
-    #[cfg(not(feature = "zengpu"))]
-    {
-        eprintln!("This example requires the `zengpu` feature.");
-        eprintln!("Run with: cargo run --example zengpu_offscreen --features zengpu");
-        exit(1);
-    }
-
-    #[cfg(feature = "zengpu")]
-    {
-        run()?;
-        Ok(())
-    }
+    run()?;
+    Ok(())
 }
