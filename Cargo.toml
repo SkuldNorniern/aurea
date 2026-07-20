@@ -78,3 +78,43 @@ features = ["vulkan"]
 [dev-dependencies.inline-spirv]
 version = "0.2"
 features = ["glsl"]
+
+[[example]]
+name = "wgpu_window"
+required-features = ["wgpu"]
+
+[[example]]
+name = "wgpu_canvas"
+required-features = ["wgpu"]
+
+[[example]]
+name = "zengpu_2d_displaylist"
+required-features = ["zengpu"]
+
+[[example]]
+name = "zengpu_canvas"
+required-features = ["zengpu"]
+
+[[example]]
+name = "zengpu_demo"
+required-features = ["zengpu"]
+
+[[example]]
+name = "zengpu_triangle"
+required-features = ["zengpu"]
+
+[[example]]
+name = "zengpu_cube"
+required-features = ["zengpu"]
+
+[[example]]
+name = "zengpu_textured_quad"
+required-features = ["zengpu"]
+
+[[example]]
+name = "zengpu_offscreen"
+required-features = ["zengpu"]
+
+[[example]]
+name = "zengpu_shared_context"
+required-features = ["zengpu"]
