@@ -1,19 +1,18 @@
 //! Window management, events, and lifecycle integration.
 
+mod clipboard;
 mod manager;
 mod types;
 
 pub use aurea_foundation::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};
 pub use aurea_runtime::EventQueue;
+pub use clipboard::{clipboard_text, set_clipboard_text};
 pub use manager::WindowManager;
 pub use types::{CursorGrabMode, WindowId, WindowType};
 
 use crate::elements::Element;
 use crate::ffi::*;
-use crate::ffi::{
-    ng_platform_free_clipboard_text, ng_platform_get_clipboard_text, ng_platform_request_frame,
-    ng_platform_set_clipboard_text,
-};
+use crate::ffi::ng_platform_request_frame;
 #[cfg(feature = "wgpu")]
 use crate::integration::NativeWindowHandle;
 use crate::lifecycle::{
@@ -34,7 +33,7 @@ use crate::{AureaError, AureaResult};
 use aurea_foundation::Platform;
 use aurea_foundation::{Capability, CapabilityChecker};
 use std::{
-    ffi::{CStr, CString},
+    ffi::CString,
     os::raw::c_void,
     sync::{
         Arc, Mutex, Once,
@@ -721,34 +720,6 @@ impl Drop for Window {
 
 unsafe impl Send for Window {}
 unsafe impl Sync for Window {}
-
-/// Read the OS clipboard as a UTF-8 string.
-/// Returns `None` if the clipboard is empty or does not contain text.
-pub fn clipboard_text() -> Option<String> {
-    let ptr = unsafe { ng_platform_get_clipboard_text() };
-    if ptr.is_null() {
-        return None;
-    }
-    let text = unsafe {
-        let s = CStr::from_ptr(ptr).to_string_lossy().into_owned();
-        ng_platform_free_clipboard_text(ptr);
-        s
-    };
-    if text.is_empty() { None } else { Some(text) }
-}
-
-/// Write a UTF-8 string to the OS clipboard.
-pub fn set_clipboard_text(text: &str) -> AureaResult<()> {
-    let Ok(cstr) = CString::new(text) else {
-        return Err(AureaError::ElementOperationFailed);
-    };
-    let result = unsafe { ng_platform_set_clipboard_text(cstr.as_ptr()) };
-    if result != 0 {
-        Err(AureaError::ElementOperationFailed)
-    } else {
-        Ok(())
-    }
-}
 
 #[cfg(test)]
 mod event_queue_tests {
