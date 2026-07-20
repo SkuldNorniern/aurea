@@ -1,5 +1,6 @@
 use crate::elements::Element;
 use crate::ffi::*;
+use crate::registry::handle_key;
 use crate::sync::lock;
 use crate::view::{DamageRegion, FrameScheduler};
 use crate::{AureaError, AureaResult};
@@ -246,12 +247,12 @@ impl Canvas {
             backend,
             interaction_registry,
             _cleanup: Arc::new(CanvasCleanup {
-                handle: handle as usize,
+                handle: handle_key(handle),
                 renderer: renderer_arc.clone(),
             }),
         };
 
-        register_canvas_state(handle as usize, canvas.state.clone());
+        register_canvas_state(handle_key(handle), canvas.state.clone());
         canvas.register_with_scheduler(state, renderer_arc, backend);
         Ok(canvas)
     }

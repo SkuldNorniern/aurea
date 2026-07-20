@@ -1,3 +1,4 @@
+use super::handle_key;
 use crate::sync::lock;
 use crate::window::{WindowEvent, WindowId};
 use aurea_runtime::EventQueue;
@@ -24,22 +25,22 @@ pub fn register_global_event_queue(queue: &Arc<EventQueue>) {
 
 pub fn register_event_queue(handle: *mut c_void, queue: &Arc<EventQueue>) {
     let mut by_handle = lock(&WINDOW_QUEUE_BY_HANDLE);
-    by_handle.insert(handle as usize, Arc::downgrade(queue));
+    by_handle.insert(handle_key(handle), Arc::downgrade(queue));
 }
 
 pub fn unregister_event_queue(handle: *mut c_void) {
     let mut by_handle = lock(&WINDOW_QUEUE_BY_HANDLE);
-    by_handle.remove(&(handle as usize));
+    by_handle.remove(&handle_key(handle));
 }
 
 pub fn register_update_callbacks(handle: *mut c_void) {
     let mut callbacks = lock(&WINDOW_UPDATE_CALLBACKS);
-    callbacks.insert(handle as usize, Arc::new(Mutex::new(Vec::new())));
+    callbacks.insert(handle_key(handle), Arc::new(Mutex::new(Vec::new())));
 }
 
 pub fn unregister_update_callbacks(handle: *mut c_void) {
     let mut callbacks = lock(&WINDOW_UPDATE_CALLBACKS);
-    callbacks.remove(&(handle as usize));
+    callbacks.remove(&handle_key(handle));
 }
 
 pub fn register_update_callback(
@@ -48,7 +49,7 @@ pub fn register_update_callback(
 ) {
     let callbacks = {
         let callbacks = lock(&WINDOW_UPDATE_CALLBACKS);
-        callbacks.get(&(handle as usize)).cloned()
+        callbacks.get(&handle_key(handle)).cloned()
     };
 
     if let Some(list) = callbacks {
@@ -61,12 +62,12 @@ pub fn push_window_event(handle: *mut c_void, event: WindowEvent) {
     let queue = {
         let mut by_handle = lock(&WINDOW_QUEUE_BY_HANDLE);
         match by_handle
-            .get(&(handle as usize))
+            .get(&handle_key(handle))
             .and_then(|weak| weak.upgrade())
         {
             Some(q) => Some(q),
             None => {
-                by_handle.remove(&(handle as usize));
+                by_handle.remove(&handle_key(handle));
                 None
             }
         }
@@ -111,7 +112,7 @@ pub fn process_all_window_updates() {
 pub fn process_window_updates(handle: *mut c_void) {
     let callbacks = {
         let registry = lock(&WINDOW_UPDATE_CALLBACKS);
-        registry.get(&(handle as usize)).cloned()
+        registry.get(&handle_key(handle)).cloned()
     }
     .map(|list| lock(list.as_ref()).clone())
     .unwrap_or_default();
