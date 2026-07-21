@@ -1,7 +1,10 @@
 use super::Window;
+use crate::platform::handles::native_handle_from_window_ptr;
+use crate::platform::zengpu::window_handles;
 use crate::render::{ZenGpuContext, ZenGpuRenderer};
 use crate::{AureaError, AureaResult};
 use std::sync::Arc;
+use zengpu_hal::WindowHandles;
 
 impl Window {
     /// Create a ZenGPU 2D renderer that presents directly to this window.
@@ -28,15 +31,17 @@ impl Window {
         let handles = self.zengpu_handles()?;
         let scale = self.scale_factor().max(1.0);
         let (pw, ph) = self.size();
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let lw = ((pw as f32 / scale).round() as u32).max(1);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let lh = ((ph as f32 / scale).round() as u32).max(1);
         ZenGpuRenderer::with_context(&handles, context, lw, lh, scale)
     }
 
     /// Native window/display handles for building a `zengpu_hal` surface directly.
-    pub fn zengpu_handles(&self) -> AureaResult<zengpu_hal::WindowHandles> {
-        let native = crate::platform::handles::native_handle_from_window_ptr(self.handle)
-            .ok_or(AureaError::ElementOperationFailed)?;
-        crate::platform::zengpu::window_handles(&native)
+    pub fn zengpu_handles(&self) -> AureaResult<WindowHandles> {
+        let native =
+            native_handle_from_window_ptr(self.handle).ok_or(AureaError::ElementOperationFailed)?;
+        window_handles(&native)
     }
 }
