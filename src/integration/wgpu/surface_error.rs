@@ -1,6 +1,6 @@
 use crate::render::Canvas;
-use aurea_runtime::FrameScheduler;
 use crate::window::{Window, WindowEvent, push_window_event};
+use aurea_runtime::FrameScheduler;
 use std::os::raw::c_void;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

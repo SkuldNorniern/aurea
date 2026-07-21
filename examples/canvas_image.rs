@@ -3,7 +3,7 @@
 //! Creates a small RGBA image and draws it at position, scaled to a rect,
 //! and as a region (crop) to verify the image drawing path.
 
-use aurea::elements::{Stack, Orientation};
+use aurea::elements::{Orientation, Stack};
 use aurea::render::{
     Canvas, Color, DrawingContext, Image, Paint, PaintStyle, Point, Rect, RendererBackend,
 };

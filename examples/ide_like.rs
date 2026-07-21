@@ -9,8 +9,8 @@
 //! SplitView divider position is in pixels.
 
 use aurea::elements::{
-    Stack, Orientation, Button, Container, Element, Label, SidebarList, SplitOrientation,
-    SplitView, TabBar, TextEditor, TextView,
+    Button, Container, Element, Label, Orientation, SidebarList, SplitOrientation, SplitView,
+    Stack, TabBar, TextEditor, TextView,
 };
 use aurea::ffi::{ng_platform_poll_events, ng_platform_window_request_close};
 use aurea::logger;

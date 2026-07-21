@@ -13,9 +13,9 @@
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
+use aurea::animation::{Animation, EaseMode};
 use aurea::render::{Canvas, Color, Paint, PaintStyle, Point, Rect, RendererBackend};
 use aurea::{AureaResult, Window, WindowEvent};
-use aurea::animation::{Animation, EaseMode};
 
 const W: u32 = 700;
 const H: u32 = 500;

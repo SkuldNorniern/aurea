@@ -2,7 +2,7 @@
 //!
 //! Draws linear and radial gradients to verify the gradient fill path.
 
-use aurea::elements::{Stack, Orientation};
+use aurea::elements::{Orientation, Stack};
 use aurea::render::{
     Canvas, Color, DrawingContext, GradientStop, LinearGradient, Point, RadialGradient, Rect,
     RendererBackend,

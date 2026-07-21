@@ -3,7 +3,7 @@
 //! Covers anti-aliased primitives (rect, circle, path), gradients, blend modes,
 //! and image drawing so you can see what the rasterizer supports in a single run.
 
-use aurea::elements::{Stack, Orientation};
+use aurea::elements::{Orientation, Stack};
 use aurea::render::{
     BlendMode, Canvas, Color, DrawingContext, GradientStop, Image, LinearGradient, Paint,
     PaintStyle, Path, PathCommand, Point, RadialGradient, Rect, RendererBackend,
