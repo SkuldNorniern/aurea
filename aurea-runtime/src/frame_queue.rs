@@ -246,12 +246,13 @@ impl FrameScheduler {
 mod tests {
     use super::*;
     use std::sync::LazyLock;
+    use std::sync::MutexGuard;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     struct TestGuard {
-        _guard: std::sync::MutexGuard<'static, ()>,
+        _guard: MutexGuard<'static, ()>,
     }
 
     impl TestGuard {

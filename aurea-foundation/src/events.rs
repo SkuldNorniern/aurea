@@ -277,6 +277,8 @@ impl KeyCode {
     }
 }
 
+pub type EventCallback = Arc<dyn Fn(WindowEvent) + Send + Sync>;
+
 #[cfg(test)]
 mod keycode_tests {
     use super::KeyCode;
@@ -301,5 +303,3 @@ mod keycode_tests {
         ));
     }
 }
-
-pub type EventCallback = Arc<dyn Fn(WindowEvent) + Send + Sync>;
