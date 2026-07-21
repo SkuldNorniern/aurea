@@ -10,9 +10,9 @@
 use std::mem::size_of;
 
 use zengpu_hal::{
-    BlendMode, DepthState, Format, GpuDevice, GraphicsDevice, GraphicsPipelineDesc, PipelineHandle,
-    PrimitiveTopology, RasterState, Result, ShaderDesc, StepMode, VertexAttribute, VertexFormat,
-    VertexLayout,
+    BlendMode, BlendState, ColorTargetState, DepthState, Format, GpuDevice, GraphicsDevice,
+    GraphicsPipelineDesc, PipelineHandle, PrimitiveTopology, RasterState, Result, ShaderDesc,
+    StepMode, VertexAttribute, VertexFormat, VertexLayout,
 };
 use zengpu_vulkan::VulkanDevice;
 
@@ -203,15 +203,23 @@ fn create_pipeline(
 ) -> Result<PipelineHandle> {
     let vertex_shader = device.create_shader(ShaderDesc::spirv(spv_bytes(vert_spv)))?;
     let fragment_shader = device.create_shader(ShaderDesc::spirv(spv_bytes(frag_spv)))?;
+    let blend = match blend {
+        BlendMode::Opaque => None,
+        BlendMode::AlphaBlend => Some(BlendState::ALPHA_BLEND),
+        BlendMode::DualSourceAlpha => Some(BlendState::DUAL_SOURCE_ALPHA),
+    };
     let pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader,
         fragment_shader,
         vertex_layouts,
         topology: PrimitiveTopology::TriangleList,
-        color_format,
+        color_targets: &[ColorTargetState {
+            format: color_format,
+            blend,
+        }],
         depth_format: None,
         depth: DepthState::default(),
-        blend,
+        stencil: None,
         raster: RasterState::default(),
         samples: 1,
     });

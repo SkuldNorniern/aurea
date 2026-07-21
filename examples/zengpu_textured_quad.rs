@@ -15,10 +15,10 @@ use {
     std::{mem::size_of_val, slice::from_raw_parts},
     zengpu::{
         hal::{RasterState, TexDim},
-        Acquire, Bindings, BlendMode, ColorAttachment, DepthState, FilterMode, Format, Frame,
-        GpuAdapter, GpuDevice, GpuError, GraphicsDevice, GraphicsPipelineDesc, LoadOp, PresentMode,
-        PrimitiveTopology, RenderCommands, RenderPassDesc, Result, SamplerDesc, ShaderDesc,
-        Surface, SurfaceConfig, TextureDesc, TextureUsage, Viewport, ViewportScissor,
+        Acquire, Bindings, ColorAttachment, ColorTargetState, DepthState, FilterMode, Format,
+        Frame, GpuAdapter, GpuDevice, GpuError, GraphicsDevice, GraphicsPipelineDesc, LoadOp,
+        PresentMode, PrimitiveTopology, RenderCommands, RenderPassDesc, Result, SamplerDesc,
+        ShaderDesc, Surface, SurfaceConfig, TextureDesc, TextureUsage, Viewport, ViewportScissor,
         VulkanInstance,
     },
 };
@@ -114,10 +114,13 @@ fn run() -> Result<()> {
         fragment_shader: frag_shader,
         vertex_layouts: &[],
         topology: PrimitiveTopology::TriangleList,
-        color_format: config.format,
+        color_targets: &[ColorTargetState {
+            format: config.format,
+            blend: None,
+        }],
         depth_format: None,
         depth: DepthState::default(),
-        blend: BlendMode::default(),
+        stencil: None,
         raster: RasterState::default(),
         samples: 1,
     })?;

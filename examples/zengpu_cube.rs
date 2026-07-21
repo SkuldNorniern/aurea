@@ -21,9 +21,10 @@ use {
     zengpu::{
         hal::{CompareFn, RasterState},
         vulkan::DepthTarget,
-        Acquire, Bindings, BlendMode, BufferDesc, BufferUsage, ColorAttachment, DepthAttachment,
-        DepthState, Format, Frame, GpuAdapter, GpuDevice, GpuError, GraphicsDevice,
-        GraphicsPipelineDesc, LoadOp, MemoryUsage, PresentMode, PrimitiveTopology, Rect,
+        Acquire, Bindings, BufferDesc, BufferUsage, ColorAttachment, ColorTargetState,
+        DepthAttachment, DepthState, Format, Frame, GpuAdapter, GpuDevice, GpuError,
+        GraphicsDevice, GraphicsPipelineDesc, LoadOp, MemoryUsage, PresentMode, PrimitiveTopology,
+        Rect,
         RenderCommands, RenderPassDesc, Result, Scalar, ShaderDesc, Surface, SurfaceConfig,
         VertexAttribute, VertexFormat, VertexLayout, Viewport, ViewportScissor, VulkanInstance,
     },
@@ -217,14 +218,17 @@ fn run() -> Result<()> {
             ..Default::default()
         }],
         topology: PrimitiveTopology::TriangleList,
-        color_format: config.format,
+        color_targets: &[ColorTargetState {
+            format: config.format,
+            blend: None,
+        }],
         depth_format: Some(Format::Depth32Float),
         depth: DepthState {
             test: true,
             write: true,
             compare: CompareFn::default(),
         },
-        blend: BlendMode::default(),
+        stencil: None,
         raster: RasterState::default(),
         samples: 1,
     })?;
