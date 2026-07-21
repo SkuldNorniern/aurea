@@ -9,6 +9,8 @@ use std::os::raw::c_void;
 #[cfg(target_os = "linux")]
 use std::ptr::null_mut;
 
+use raw_window_handle::{HandleError, RawDisplayHandle, RawWindowHandle};
+
 #[cfg(target_os = "macos")]
 use crate::ffi::ng_platform_window_get_content_view;
 #[cfg(target_os = "linux")]
@@ -240,15 +242,7 @@ unsafe impl Sync for NativeWindowHandle {}
 /// surface (or any other `raw-window-handle` consumer) needs.
 pub fn raw_handles(
     native: &NativeWindowHandle,
-) -> Result<
-    (
-        raw_window_handle::RawWindowHandle,
-        raw_window_handle::RawDisplayHandle,
-    ),
-    raw_window_handle::HandleError,
-> {
-    use raw_window_handle::{HandleError, RawDisplayHandle, RawWindowHandle};
-
+) -> Result<(RawWindowHandle, RawDisplayHandle), HandleError> {
     match native {
         #[cfg(target_os = "macos")]
         NativeWindowHandle::MacOS { ns_view } => {

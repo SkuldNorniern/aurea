@@ -14,12 +14,12 @@ use {
     inline_spirv::inline_spirv,
     std::{mem::size_of_val, slice::from_raw_parts},
     zengpu::{
+        Acquire, Bindings, ColorAttachment, ColorTargetState, DepthState, DeviceRequest,
+        FilterMode, Format, Frame, GpuAdapter, GpuDevice, GpuError, GraphicsDevice,
+        GraphicsPipelineDesc, LoadOp, PresentMode, PrimitiveTopology, RenderCommands,
+        RenderPassDesc, Result, SamplerDesc, ShaderDesc, Surface, SurfaceConfig, TextureDesc,
+        TextureUsage, Viewport, ViewportScissor, VulkanInstance,
         hal::{RasterState, TexDim},
-        Acquire, Bindings, ColorAttachment, ColorTargetState, DepthState, FilterMode, Format,
-        Frame, GpuAdapter, GpuDevice, GpuError, GraphicsDevice, GraphicsPipelineDesc, LoadOp,
-        PresentMode, PrimitiveTopology, RenderCommands, RenderPassDesc, Result, SamplerDesc,
-        ShaderDesc, Surface, SurfaceConfig, TextureDesc, TextureUsage, Viewport, ViewportScissor,
-        VulkanInstance,
     },
 };
 
@@ -92,7 +92,7 @@ fn run() -> Result<()> {
         .request_vulkan_adapter()
         .ok_or_else(|| GpuError::Backend("no Vulkan adapter found".into()))?;
     eprintln!("ZenGPU: {}", adapter.info().name);
-    let device = adapter.open_with_surface(zengpu::DeviceRequest::default())?;
+    let device = adapter.open_with_surface(DeviceRequest::default())?;
 
     let handles = window
         .zengpu_handles()
