@@ -19,14 +19,13 @@ use {
         time::Instant,
     },
     zengpu::{
+        Acquire, Bindings, BufferDesc, BufferUsage, ColorAttachment, ColorTargetState,
+        DepthAttachment, DepthState, DeviceRequest, Format, Frame, GpuAdapter, GpuDevice, GpuError,
+        GraphicsDevice, GraphicsPipelineDesc, LoadOp, MemoryUsage, PresentMode, PrimitiveTopology,
+        Rect, RenderCommands, RenderPassDesc, Result, Scalar, ShaderDesc, Surface, SurfaceConfig,
+        VertexAttribute, VertexFormat, VertexLayout, Viewport, ViewportScissor, VulkanInstance,
         hal::{CompareFn, RasterState},
         vulkan::DepthTarget,
-        Acquire, Bindings, BufferDesc, BufferUsage, ColorAttachment, ColorTargetState,
-        DepthAttachment, DepthState, Format, Frame, GpuAdapter, GpuDevice, GpuError,
-        GraphicsDevice, GraphicsPipelineDesc, LoadOp, MemoryUsage, PresentMode, PrimitiveTopology,
-        Rect,
-        RenderCommands, RenderPassDesc, Result, Scalar, ShaderDesc, Surface, SurfaceConfig,
-        VertexAttribute, VertexFormat, VertexLayout, Viewport, ViewportScissor, VulkanInstance,
     },
 };
 
@@ -181,7 +180,7 @@ fn run() -> Result<()> {
         .request_vulkan_adapter()
         .ok_or_else(|| GpuError::Backend("no Vulkan adapter found".into()))?;
     eprintln!("ZenGPU: {}", adapter.info().name);
-    let device = adapter.open_with_surface(zengpu::DeviceRequest::default())?;
+    let device = adapter.open_with_surface(DeviceRequest::default())?;
 
     let handles = window
         .zengpu_handles()
@@ -202,7 +201,7 @@ fn run() -> Result<()> {
         vertex_shader: vert_shader,
         fragment_shader: frag_shader,
         vertex_layouts: &[VertexLayout {
-            stride: size_of::<Vertex3d>() as u32,
+            stride: u32::try_from(size_of::<Vertex3d>()).expect("vertex stride fits in u32"),
             attributes: &[
                 VertexAttribute {
                     location: 0,
@@ -323,7 +322,10 @@ fn run() -> Result<()> {
         });
         list.set_vertex_buffer(0, vertex_buf);
         list.set_index_buffer(index_buf);
-        list.draw_indexed(0..CUBE_INDICES.len() as u32, 0..1);
+        list.draw_indexed(
+            0..u32::try_from(CUBE_INDICES.len()).expect("index count fits in u32"),
+            0..1,
+        );
         list.end_render_pass();
 
         surface.present(frame, list)?;

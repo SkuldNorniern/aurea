@@ -1,13 +1,23 @@
-use crate::ffi::*;
-use aurea_foundation::lock;
-use aurea_runtime::{DamageRegion, FrameScheduler};
 #[cfg(feature = "zengpu")]
 use crate::AureaError;
 use crate::AureaResult;
+use crate::ffi::*;
+#[cfg(all(feature = "zengpu", target_os = "macos"))]
+use crate::platform::handles::NativeWindowHandle;
+#[cfg(feature = "zengpu")]
+use crate::platform::handles::native_handle_from_canvas_ptr;
+#[cfg(feature = "zengpu")]
+use crate::platform::zengpu::window_handles;
+use aurea_foundation::lock;
+#[cfg(feature = "zengpu")]
+use aurea_render::ZenGpuRenderer;
 use aurea_render::{Color, Rect, Renderer, RendererBackend};
+use aurea_runtime::{DamageRegion, FrameScheduler};
 use std::collections::HashMap;
 use std::os::raw::c_void;
 use std::sync::{Arc, LazyLock, Mutex};
+#[cfg(feature = "zengpu")]
+use zengpu_hal::WindowHandles;
 
 use super::DrawCallback;
 
@@ -113,7 +123,7 @@ pub(super) fn ensure_canvas_renderer(
         let st = lock(state);
         (st.width.max(1), st.height.max(1), st.scale_factor.max(1.0))
     };
-    let gpu = aurea_render::ZenGpuRenderer::new(&handles, width, height, scale_factor)?;
+    let gpu = ZenGpuRenderer::new(&handles, width, height, scale_factor)?;
     *lock(renderer) = Some(Box::new(gpu));
     Ok(true)
 }
@@ -132,17 +142,17 @@ pub(super) fn ensure_canvas_renderer(
 /// macOS: the ZenGPU surface needs the resolved `NSView` from
 /// `ng_platform_canvas_get_native_handle`, not the raw canvas handle.
 #[cfg(feature = "zengpu")]
-fn zengpu_canvas_handles(handle: *mut c_void) -> AureaResult<zengpu_hal::WindowHandles> {
+fn zengpu_canvas_handles(handle: *mut c_void) -> AureaResult<WindowHandles> {
     #[cfg(target_os = "macos")]
     {
         let view = unsafe { ng_platform_canvas_get_native_handle(handle) };
-        let native = crate::platform::handles::NativeWindowHandle::MacOS { ns_view: view };
-        crate::platform::zengpu::window_handles(&native)
+        let native = NativeWindowHandle::MacOS { ns_view: view };
+        window_handles(&native)
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let native = crate::platform::handles::native_handle_from_canvas_ptr(handle)
-            .ok_or(AureaError::ElementOperationFailed)?;
-        crate::platform::zengpu::window_handles(&native)
+        let native =
+            native_handle_from_canvas_ptr(handle).ok_or(AureaError::ElementOperationFailed)?;
+        window_handles(&native)
     }
 }
