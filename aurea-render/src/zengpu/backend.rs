@@ -13,16 +13,17 @@ use std::sync::Arc;
 use aurea_foundation::{AureaError, AureaResult};
 
 use zengpu_hal::{
-    Acquire, Bindings, ColorAttachment, DeviceRequest, FilterMode, Format, Frame, GpuDevice,
-    GraphicsDevice, LoadOp, RenderCommands, RenderPassDesc, SamplerDesc, SamplerHandle, Scalar,
-    Surface, TexDim, TextureDesc, TextureHandle, TextureUsage, Viewport, ViewportScissor,
-    WindowHandles,
+    Acquire, Bindings, BufferHandle, ColorAttachment, DeviceRequest, FilterMode, Format, Frame,
+    GpuDevice, GpuError, GraphicsDevice, LoadOp, PipelineHandle, RenderCommands, RenderPassDesc,
+    SamplerDesc, SamplerHandle, Scalar, Surface, TexDim, TextureDesc, TextureHandle, TextureUsage,
+    Viewport, ViewportScissor, WindowHandles,
 };
 use zengpu_vulkan::instance::VulkanInstance;
-use zengpu_vulkan::{VulkanDevice, VulkanSurface};
+use zengpu_vulkan::{DeviceContext, VulkanCommandList, VulkanDevice, VulkanSurface};
 
 use crate::batch::{CircleInstance, DrawRef, RectInstance};
 use crate::gpu2d::{FramePlan, Gpu2dBackend, Gpu2dRenderer};
+use crate::numeric::f32_to_u32_clamped;
 use crate::types::Rect;
 
 use super::buffer::GrowableBuffer;
@@ -59,13 +60,38 @@ impl ZenGpuContext {
         &self.device
     }
 
-    pub fn device_context(&self) -> zengpu_vulkan::DeviceContext {
+    pub fn device_context(&self) -> DeviceContext {
         self.device.context()
     }
 }
 
 struct ExternalImageDraw {
     instance: ImageInstance,
+}
+
+/// This frame's instance-buffer handles, one per primitive kind. `None` when
+/// that kind has zero instances this frame (its buffer wasn't (re)uploaded).
+struct FrameBuffers {
+    rect: Option<BufferHandle>,
+    circle: Option<BufferHandle>,
+    gradient: Option<BufferHandle>,
+    image: Option<BufferHandle>,
+    text: Option<BufferHandle>,
+}
+
+/// Length of the maximal run starting at `order[i]` (always ≥ 1) for which
+/// `keep(element, offset)` holds, `offset` being the 1-based distance from
+/// `i`. Used to coalesce contiguous same-kind (same-slot, for
+/// gradient/image/text) painter-order runs into one instanced draw.
+fn coalesce_run(order: &[DrawRef], i: usize, mut keep: impl FnMut(&DrawRef, u32) -> bool) -> u32 {
+    let mut count = 1u32;
+    while order
+        .get(i + count as usize)
+        .is_some_and(|r| keep(r, count))
+    {
+        count += 1;
+    }
+    count
 }
 
 /// ZenGPU device backend for `Gpu2dRenderer`, using the unified graphics API.
@@ -115,8 +141,8 @@ impl ZenGpuRenderer {
         scale_factor: f32,
     ) -> AureaResult<Self> {
         let scale = scale_factor.max(1.0);
-        let pw = ((width as f32 * scale).round() as u32).max(1);
-        let ph = ((height as f32 * scale).round() as u32).max(1);
+        let pw = f32_to_u32_clamped((width as f32 * scale).round()).max(1);
+        let ph = f32_to_u32_clamped((height as f32 * scale).round()).max(1);
 
         let color_format = Format::Bgra8Unorm;
         let surface = create_surface(context.device(), handles, pw, ph).map_err(gpu_err)?;
@@ -201,6 +227,154 @@ impl ZenGpuBackend {
             },
         });
         Ok(())
+    }
+
+    /// Bind `pipeline`/`buffer`, push `scalars`+`textures`, and issue one
+    /// instanced draw over `start..start + count`.
+    fn draw_run(
+        cmd: &mut VulkanCommandList,
+        pipeline: PipelineHandle,
+        buffer: Option<BufferHandle>,
+        scalars: &[Scalar],
+        textures: &[u32],
+        start: u32,
+        count: u32,
+    ) {
+        cmd.set_pipeline(pipeline);
+        if let Some(buf) = buffer {
+            cmd.set_vertex_buffer(0, buf);
+        }
+        cmd.bind(Bindings {
+            scalars,
+            textures,
+            ..Default::default()
+        });
+        cmd.draw(0..6, start..start + count);
+    }
+
+    /// Record the display list's painter-ordered draws (see `present_frame`'s
+    /// former doc comment on why coalescing contiguous runs is valid).
+    fn record_ordered_draws(
+        &self,
+        cmd: &mut VulkanCommandList,
+        order: &[DrawRef],
+        buffers: &FrameBuffers,
+        viewport_scalars: &[Scalar],
+    ) {
+        let mut i = 0;
+        while i < order.len() {
+            match order[i] {
+                DrawRef::Rect(start) => {
+                    let count = coalesce_run(order, i, |r, n| *r == DrawRef::Rect(start + n));
+                    Self::draw_run(
+                        cmd,
+                        self.pipelines.rect,
+                        buffers.rect,
+                        viewport_scalars,
+                        &[],
+                        start,
+                        count,
+                    );
+                    i += count as usize;
+                }
+                DrawRef::Circle(start) => {
+                    let count = coalesce_run(order, i, |r, n| *r == DrawRef::Circle(start + n));
+                    Self::draw_run(
+                        cmd,
+                        self.pipelines.circle,
+                        buffers.circle,
+                        viewport_scalars,
+                        &[],
+                        start,
+                        count,
+                    );
+                    i += count as usize;
+                }
+                DrawRef::Gradient(start) => {
+                    let slot = self.gradient_slot(start);
+                    let count = coalesce_run(order, i, |r, n| {
+                        *r == DrawRef::Gradient(start + n) && self.gradient_slot(start + n) == slot
+                    });
+                    Self::draw_run(
+                        cmd,
+                        self.pipelines.gradient,
+                        buffers.gradient,
+                        viewport_scalars,
+                        from_ref(&slot),
+                        start,
+                        count,
+                    );
+                    i += count as usize;
+                }
+                DrawRef::Image(start) => {
+                    let slot = self.image_slot(start);
+                    let count = coalesce_run(order, i, |r, n| {
+                        *r == DrawRef::Image(start + n) && self.image_slot(start + n) == slot
+                    });
+                    Self::draw_run(
+                        cmd,
+                        self.pipelines.image,
+                        buffers.image,
+                        viewport_scalars,
+                        from_ref(&slot),
+                        start,
+                        count,
+                    );
+                    i += count as usize;
+                }
+                DrawRef::Text(start) => {
+                    let slot = self.text_slot(start);
+                    let count = coalesce_run(order, i, |r, n| {
+                        *r == DrawRef::Text(start + n) && self.text_slot(start + n) == slot
+                    });
+                    Self::draw_run(
+                        cmd,
+                        self.pipelines.text,
+                        buffers.text,
+                        viewport_scalars,
+                        from_ref(&slot),
+                        start,
+                        count,
+                    );
+                    i += count as usize;
+                }
+            }
+        }
+    }
+
+    /// Record caller-owned images queued via `draw_sampled_image`, after the
+    /// display-list painter order. They occupy a contiguous tail of
+    /// `image_instances` starting at `ext_image_base`, so coalesce same-slot
+    /// runs the same way as `record_ordered_draws`.
+    fn record_external_images(
+        &self,
+        cmd: &mut VulkanCommandList,
+        image_handle: Option<BufferHandle>,
+        ext_image_base: u32,
+        viewport_scalars: &[Scalar],
+    ) {
+        let ext_count = self.external_images.len();
+        let mut j = 0;
+        while j < ext_count {
+            let slot = self.external_images[j].instance.slot;
+            let mut run = 1usize;
+            while j + run < ext_count && self.external_images[j + run].instance.slot == slot {
+                run += 1;
+            }
+            let start =
+                ext_image_base + u32::try_from(j).expect("external image index fits in u32");
+            let count = u32::try_from(run).expect("external image run length fits in u32");
+            Self::draw_run(
+                cmd,
+                self.pipelines.image,
+                image_handle,
+                viewport_scalars,
+                from_ref(&slot),
+                start,
+                count,
+            );
+            j += run;
+        }
     }
 }
 
@@ -287,7 +461,8 @@ impl Gpu2dBackend for ZenGpuBackend {
                 _pad: [0; 3],
             }));
         // Append external (engine-side) images after display-list images.
-        let ext_image_base = self.image_instances.len() as u32;
+        let ext_image_base =
+            u32::try_from(self.image_instances.len()).expect("image instance count fits in u32");
         self.image_instances
             .extend(self.external_images.iter().map(|e| e.instance));
         self.text_instances.clear();
@@ -325,9 +500,11 @@ impl Gpu2dBackend for ZenGpuBackend {
         let mut cmd = device.create_command_list().map_err(gpu_err)?;
 
         let load = match plan.clear {
-            Some(c) => {
-                LoadOp::clear_rgb(c.r as f32 / 255.0, c.g as f32 / 255.0, c.b as f32 / 255.0)
-            }
+            Some(c) => LoadOp::clear_rgb(
+                f32::from(c.r) / 255.0,
+                f32::from(c.g) / 255.0,
+                f32::from(c.b) / 255.0,
+            ),
             None => LoadOp::Load,
         };
         cmd.begin_render_pass(&RenderPassDesc {
@@ -360,141 +537,15 @@ impl Gpu2dBackend for ZenGpuBackend {
         // instead of one draw per instance. Rect/circle carry no per-instance
         // shader state, so any run coalesces; gradient/image/text push their
         // texture slot per draw, so a run is split where the slot changes.
-        let order = &plan.order;
-        let mut i = 0;
-        while i < order.len() {
-            match order[i] {
-                DrawRef::Rect(start) => {
-                    let mut count = 1u32;
-                    while order
-                        .get(i + count as usize)
-                        .is_some_and(|r| *r == DrawRef::Rect(start + count))
-                    {
-                        count += 1;
-                    }
-                    cmd.set_pipeline(self.pipelines.rect);
-                    if let Some(buf) = rect_handle {
-                        cmd.set_vertex_buffer(0, buf);
-                    }
-                    cmd.bind(Bindings {
-                        scalars: &viewport_scalars,
-                        ..Default::default()
-                    });
-                    cmd.draw(0..6, start..start + count);
-                    i += count as usize;
-                }
-                DrawRef::Circle(start) => {
-                    let mut count = 1u32;
-                    while order
-                        .get(i + count as usize)
-                        .is_some_and(|r| *r == DrawRef::Circle(start + count))
-                    {
-                        count += 1;
-                    }
-                    cmd.set_pipeline(self.pipelines.circle);
-                    if let Some(buf) = circle_handle {
-                        cmd.set_vertex_buffer(0, buf);
-                    }
-                    cmd.bind(Bindings {
-                        scalars: &viewport_scalars,
-                        ..Default::default()
-                    });
-                    cmd.draw(0..6, start..start + count);
-                    i += count as usize;
-                }
-                DrawRef::Gradient(start) => {
-                    let slot = self.gradient_slot(start);
-                    let mut count = 1u32;
-                    while order
-                        .get(i + count as usize)
-                        .is_some_and(|r| *r == DrawRef::Gradient(start + count))
-                        && self.gradient_slot(start + count) == slot
-                    {
-                        count += 1;
-                    }
-                    cmd.set_pipeline(self.pipelines.gradient);
-                    if let Some(buf) = gradient_handle {
-                        cmd.set_vertex_buffer(0, buf);
-                    }
-                    cmd.bind(Bindings {
-                        scalars: &viewport_scalars,
-                        textures: from_ref(&slot),
-                        ..Default::default()
-                    });
-                    cmd.draw(0..6, start..start + count);
-                    i += count as usize;
-                }
-                DrawRef::Image(start) => {
-                    let slot = self.image_slot(start);
-                    let mut count = 1u32;
-                    while order
-                        .get(i + count as usize)
-                        .is_some_and(|r| *r == DrawRef::Image(start + count))
-                        && self.image_slot(start + count) == slot
-                    {
-                        count += 1;
-                    }
-                    cmd.set_pipeline(self.pipelines.image);
-                    if let Some(buf) = image_handle {
-                        cmd.set_vertex_buffer(0, buf);
-                    }
-                    cmd.bind(Bindings {
-                        scalars: &viewport_scalars,
-                        textures: from_ref(&slot),
-                        ..Default::default()
-                    });
-                    cmd.draw(0..6, start..start + count);
-                    i += count as usize;
-                }
-                DrawRef::Text(start) => {
-                    let slot = self.text_slot(start);
-                    let mut count = 1u32;
-                    while order
-                        .get(i + count as usize)
-                        .is_some_and(|r| *r == DrawRef::Text(start + count))
-                        && self.text_slot(start + count) == slot
-                    {
-                        count += 1;
-                    }
-                    cmd.set_pipeline(self.pipelines.text);
-                    if let Some(buf) = text_handle {
-                        cmd.set_vertex_buffer(0, buf);
-                    }
-                    cmd.bind(Bindings {
-                        scalars: &viewport_scalars,
-                        textures: from_ref(&slot),
-                        ..Default::default()
-                    });
-                    cmd.draw(0..6, start..start + count);
-                    i += count as usize;
-                }
-            }
-        }
-
-        // External (engine-side) images after display-list painter order. They
-        // occupy a contiguous tail of `image_instances`, so coalesce same-slot
-        // runs the same way.
-        let ext_count = self.external_images.len();
-        let mut j = 0;
-        while j < ext_count {
-            let slot = self.external_images[j].instance.slot;
-            let mut run = 1usize;
-            while j + run < ext_count && self.external_images[j + run].instance.slot == slot {
-                run += 1;
-            }
-            cmd.set_pipeline(self.pipelines.image);
-            if let Some(buf) = image_handle {
-                cmd.set_vertex_buffer(0, buf);
-            }
-            cmd.bind(Bindings {
-                scalars: &viewport_scalars,
-                textures: from_ref(&slot),
-                ..Default::default()
-            });
-            let base = ext_image_base + j as u32;
-            cmd.draw(0..6, base..base + run as u32);
-            j += run;
-        }
+        let buffers = FrameBuffers {
+            rect: rect_handle,
+            circle: circle_handle,
+            gradient: gradient_handle,
+            image: image_handle,
+            text: text_handle,
+        };
+        self.record_ordered_draws(&mut cmd, &plan.order, &buffers, &viewport_scalars);
+        self.record_external_images(&mut cmd, image_handle, ext_image_base, &viewport_scalars);
 
         cmd.end_render_pass();
         self.surface.present(frame, cmd).map_err(gpu_err)
@@ -522,7 +573,7 @@ impl Drop for ZenGpuBackend {
     }
 }
 
-fn gpu_err(_e: zengpu_hal::GpuError) -> AureaError {
+fn gpu_err(_e: GpuError) -> AureaError {
     AureaError::ElementOperationFailed
 }
 

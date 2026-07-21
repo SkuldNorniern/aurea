@@ -300,7 +300,7 @@ impl PlaceholderRenderer {
 
     fn set_pixel(&mut self, x: i32, y: i32, color: Color) {
         if x >= 0 && x < self.width as i32 && y >= 0 && y < self.height as i32 {
-            let index = (y.cast_unsigned() * self.width + x.cast_unsigned()) as usize;
+            let index = (y.unsigned_abs() * self.width + x.unsigned_abs()) as usize;
             if index < self.buffer.len() {
                 let rgba = (u32::from(color.a) << 24)
                     | (u32::from(color.r) << 16)
@@ -398,7 +398,7 @@ impl PlaceholderRenderer {
                     | (u32::from(r) << 16)
                     | (u32::from(g) << 8)
                     | u32::from(b);
-                let buf_idx = (dy.cast_unsigned() * buffer_width + dx.cast_unsigned()) as usize;
+                let buf_idx = (dy.unsigned_abs() * buffer_width + dx.unsigned_abs()) as usize;
                 if buf_idx >= buffer.len() {
                     continue;
                 }
@@ -493,7 +493,7 @@ impl PlaceholderRenderer {
                 let t = ((px_f - gradient.start.x) * dx + (py_f - gradient.start.y) * dy) / len_sq;
                 let t = t.clamp(0.0, 1.0);
                 let color = Self::gradient_color_at(&gradient.stops, t);
-                let idx = (py.cast_unsigned() * buffer_width + px.cast_unsigned()) as usize;
+                let idx = (py.unsigned_abs() * buffer_width + px.unsigned_abs()) as usize;
                 if idx < buffer.len() {
                     let rgba = (u32::from(color.a) << 24)
                         | (u32::from(color.r) << 16)
@@ -528,7 +528,7 @@ impl PlaceholderRenderer {
                 .sqrt();
                 let t = (dist / gradient.radius).min(1.0);
                 let color = Self::gradient_color_at(&gradient.stops, t);
-                let idx = (py.cast_unsigned() * buffer_width + px.cast_unsigned()) as usize;
+                let idx = (py.unsigned_abs() * buffer_width + px.unsigned_abs()) as usize;
                 if idx < buffer.len() {
                     let rgba = (u32::from(color.a) << 24)
                         | (u32::from(color.r) << 16)

@@ -143,19 +143,41 @@ impl Pipelines {
         };
 
         let make = |vert_spv, frag_spv, vertex_layouts, blend| {
-            create_pipeline(device, vert_spv, frag_spv, vertex_layouts, blend, color_format)
+            create_pipeline(
+                device,
+                vert_spv,
+                frag_spv,
+                vertex_layouts,
+                blend,
+                color_format,
+            )
         };
 
         Ok(Self {
-            rect: make(RECT_VERT_SPV, RECT_FRAG_SPV, &[RECT_LAYOUT], BlendMode::AlphaBlend)?,
-            circle: make(CIRCLE_VERT_SPV, CIRCLE_FRAG_SPV, &[RECT_LAYOUT], BlendMode::AlphaBlend)?,
+            rect: make(
+                RECT_VERT_SPV,
+                RECT_FRAG_SPV,
+                &[RECT_LAYOUT],
+                BlendMode::AlphaBlend,
+            )?,
+            circle: make(
+                CIRCLE_VERT_SPV,
+                CIRCLE_FRAG_SPV,
+                &[RECT_LAYOUT],
+                BlendMode::AlphaBlend,
+            )?,
             gradient: make(
                 GRADIENT_VERT_SPV,
                 GRADIENT_FRAG_SPV,
                 &[GRADIENT_LAYOUT],
                 BlendMode::AlphaBlend,
             )?,
-            image: make(IMAGE_VERT_SPV, IMAGE_FRAG_SPV, &[IMAGE_LAYOUT], BlendMode::AlphaBlend)?,
+            image: make(
+                IMAGE_VERT_SPV,
+                IMAGE_FRAG_SPV,
+                &[IMAGE_LAYOUT],
+                BlendMode::AlphaBlend,
+            )?,
             text: make(TEXT_VERT_SPV, text_frag_spv, &[TEXT_LAYOUT], text_blend)?,
         })
     }
