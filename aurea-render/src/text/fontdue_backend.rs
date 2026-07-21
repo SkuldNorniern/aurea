@@ -323,16 +323,16 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
                 coverage: Vec::new(),
             }
         } else {
-            let dev_w = ((w3 + 2) / 3).max(1).cast_unsigned() as usize;
-            let dev_h = ((h3 + 2) / 3).max(1).cast_unsigned() as usize;
+            let dev_w = ((w3 + 2) / 3).max(1).unsigned_abs() as usize;
+            let dev_h = ((h3 + 2) / 3).max(1).unsigned_abs() as usize;
             let sub_w = dev_w * 3;
             let mut acc = vec![0f32; sub_w * dev_h];
             for sy in 0..h3 {
-                let g_row = (sy * w3).cast_unsigned() as usize;
-                let dev_row = (sy / 3).cast_unsigned() as usize;
+                let g_row = (sy * w3).unsigned_abs() as usize;
+                let dev_row = (sy / 3).unsigned_abs() as usize;
                 for sx in 0..w3 {
-                    acc[dev_row * sub_w + sx.cast_unsigned() as usize] +=
-                        f32::from(bmp[g_row + sx.cast_unsigned() as usize]) / (255.0 * 3.0);
+                    acc[dev_row * sub_w + sx.unsigned_abs() as usize] +=
+                        f32::from(bmp[g_row + sx.unsigned_abs() as usize]) / (255.0 * 3.0);
                 }
             }
             for v in acc.iter_mut() {
@@ -355,8 +355,8 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
                         .enumerate()
                         .map(|(k, w)| {
                             let xi = x as isize + k as isize - 2;
-                            if xi >= 0 && xi.cast_unsigned() < sub_w {
-                                acc[row + xi.cast_unsigned()] * w
+                            if xi >= 0 && xi.unsigned_abs() < sub_w {
+                                acc[row + xi.unsigned_abs()] * w
                             } else {
                                 0.0
                             }

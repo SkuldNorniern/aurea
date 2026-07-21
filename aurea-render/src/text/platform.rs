@@ -217,8 +217,8 @@ impl TextRenderer {
                         if dx < 0 || dx >= dev_w as i32 {
                             continue;
                         }
-                        let si = ((row * gw + col) * 3).cast_unsigned() as usize;
-                        let di = ((dy * dev_w as i32 + dx) * 3).cast_unsigned() as usize;
+                        let si = ((row * gw + col) * 3).unsigned_abs() as usize;
+                        let di = ((dy * dev_w as i32 + dx) * 3).unsigned_abs() as usize;
                         for c in 0..3 {
                             if g.coverage[si + c] > coverage[di + c] {
                                 coverage[di + c] = g.coverage[si + c];
@@ -308,9 +308,8 @@ impl TextRenderer {
                         if out_a == 0 {
                             continue;
                         }
-                        let buffer_idx = buffer_y.cast_unsigned() as usize
-                            * (buffer_width as usize)
-                            + buffer_x.cast_unsigned() as usize;
+                        let buffer_idx = buffer_y.unsigned_abs() as usize * (buffer_width as usize)
+                            + buffer_x.unsigned_abs() as usize;
                         if buffer_idx < buffer.len() {
                             buffer[buffer_idx] = (u32::from(out_a) << 24)
                                 | (u32::from(color.r) << 16)

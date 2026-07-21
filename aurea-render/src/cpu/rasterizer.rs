@@ -120,7 +120,7 @@ impl CpuRasterizer {
         if x < 0 || y < 0 {
             return;
         }
-        let idx = y.cast_unsigned() * w + x.cast_unsigned();
+        let idx = y.unsigned_abs() * w + x.unsigned_abs();
         if idx as usize >= buf.len() {
             return;
         }
@@ -275,17 +275,17 @@ impl CpuRasterizer {
 
         let xi0 = f32_to_i32_clamped(xl.ceil())
             .clamp(x0 as i32, x1 as i32)
-            .cast_unsigned();
+            .unsigned_abs();
         let xi1 = f32_to_i32_clamped(xr.floor())
             .clamp(x0 as i32, x1 as i32)
-            .cast_unsigned();
+            .unsigned_abs();
         let has_full_x = xi0 < xi1;
         let yi0 = f32_to_i32_clamped(yl.ceil())
             .clamp(y0 as i32, y1 as i32)
-            .cast_unsigned();
+            .unsigned_abs();
         let yi1 = f32_to_i32_clamped(yr.floor())
             .clamp(y0 as i32, y1 as i32)
-            .cast_unsigned();
+            .unsigned_abs();
 
         let ctx = RectFillCtx {
             paint,
@@ -493,8 +493,8 @@ impl CpuRasterizer {
         if xi0 < xi1 {
             if ctx.opaque_fast {
                 let row_start = (y * bw) as usize;
-                buf[row_start + xi0.cast_unsigned() as usize
-                    ..row_start + xi1.cast_unsigned() as usize]
+                buf[row_start + xi0.unsigned_abs() as usize
+                    ..row_start + xi1.unsigned_abs() as usize]
                     .fill(ctx.c_full);
             } else {
                 for x in xi0..xi1 {
@@ -650,12 +650,12 @@ impl CpuRasterizer {
             if py < 0 || py >= bh as i32 {
                 continue;
             }
-            let row = (my.cast_unsigned() * mask.width) as usize;
+            let row = (my.unsigned_abs() * mask.width) as usize;
             let cov_row = &mask.coverage[row * 3..(row + mask.width as usize) * 3];
-            let buf_row = (py.cast_unsigned() * bw) as usize;
+            let buf_row = (py.unsigned_abs() * bw) as usize;
 
             for mx in x_lo..x_hi {
-                let ci = mx.cast_unsigned() as usize * 3;
+                let ci = mx.unsigned_abs() as usize * 3;
                 let cr8 = cov_row[ci];
                 let cg8 = cov_row[ci + 1];
                 let cb8 = cov_row[ci + 2];
@@ -663,7 +663,7 @@ impl CpuRasterizer {
                     continue;
                 }
 
-                let idx = buf_row + (dx + mx).cast_unsigned() as usize;
+                let idx = buf_row + (dx + mx).unsigned_abs() as usize;
 
                 if cr8 == 255 && cg8 == 255 && cb8 == 255 {
                     buf[idx] = opaque_pixel;
@@ -767,7 +767,7 @@ impl CpuRasterizer {
                     | u32::from(src_row[ii + 2]);
             }
             if mode == BlendMode::Normal && all_opaque {
-                let row_start = (cy.cast_unsigned() * bw + x0.cast_unsigned()) as usize;
+                let row_start = (cy.unsigned_abs() * bw + x0.unsigned_abs()) as usize;
                 buf[row_start..row_start + row_buf.len()].copy_from_slice(row_buf.as_slice());
             } else {
                 for (i, &c) in row_buf.iter().enumerate() {
@@ -896,14 +896,14 @@ impl CpuRasterizer {
         let opaque_normal = mode == BlendMode::Normal;
 
         for cy in y0..y1 {
-            let row = (cy.cast_unsigned() * bw) as usize;
+            let row = (cy.unsigned_abs() * bw) as usize;
             let mut t = ((x0 as f32 + 0.5 - grad.start.x) * dx
                 + (cy as f32 + 0.5 - grad.start.y) * dy)
                 / len_sq;
             for cx in x0..x1 {
                 let t_idx = f32_to_usize_clamped((t.clamp(0.0, 1.0) * 255.0).round());
                 let src = lut[t_idx];
-                let idx = row + cx.cast_unsigned() as usize;
+                let idx = row + cx.unsigned_abs() as usize;
                 buf[idx] = if opaque_normal && (src >> 24) == 255 {
                     src
                 } else {
@@ -938,7 +938,7 @@ impl CpuRasterizer {
         let opaque_normal = mode == BlendMode::Normal;
 
         for cy in y0..y1 {
-            let row = (cy.cast_unsigned() * bw) as usize;
+            let row = (cy.unsigned_abs() * bw) as usize;
             let dy = cy as f32 + 0.5 - grad.center.y;
             let dy_sq = dy * dy;
             for cx in x0..x1 {
@@ -947,7 +947,7 @@ impl CpuRasterizer {
                 let t = (dist * inv_radius).min(1.0);
                 let t_idx = f32_to_usize_clamped((t.clamp(0.0, 1.0) * 255.0).round());
                 let src = lut[t_idx];
-                let idx = row + cx.cast_unsigned() as usize;
+                let idx = row + cx.unsigned_abs() as usize;
                 buf[idx] = if opaque_normal && (src >> 24) == 255 {
                     src
                 } else {

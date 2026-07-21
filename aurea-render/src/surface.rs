@@ -1,6 +1,7 @@
 //! Platform-agnostic surface abstraction
 
 use std::os::raw::c_void;
+use std::ptr::null_mut;
 
 /// Platform-specific surface types
 #[derive(Debug)]
@@ -19,7 +20,7 @@ impl Surface {
     /// Get the raw handle for the surface
     pub fn handle(&self) -> *mut c_void {
         match self {
-            Surface::Cpu => std::ptr::null_mut(),
+            Surface::Cpu => null_mut(),
             Surface::Metal { layer } => *layer,
             Surface::Vulkan { surface } => *surface,
             Surface::DirectX { swap_chain } => *swap_chain,

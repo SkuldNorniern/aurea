@@ -8,15 +8,15 @@
 use super::super::types::{FontStyle, FontWeight, TextMetrics};
 use super::atlas::{GlyphBitmap, GlyphKey};
 use super::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph};
-use aurea_foundation::{AureaError, AureaResult};
+use aurea_foundation::{AureaError, AureaResult, lock};
 use std::collections::HashMap;
 use std::mem::zeroed;
 use std::ptr;
 use std::sync::{Arc, Mutex};
 
 use dwrote::{
-    FontCollection, FontStretch as DwStretch, FontStyle as DwStyle, FontWeight as DwWeight,
-    GlyphRunAnalysis,
+    FontCollection, FontFace, FontStretch as DwStretch, FontStyle as DwStyle,
+    FontWeight as DwWeight, GlyphRunAnalysis,
 };
 use winapi::um::dcommon::DWRITE_MEASURING_MODE_NATURAL;
 use winapi::um::dwrite::{
@@ -50,7 +50,7 @@ impl FaceKey {
 
 /// A resolved font face plus the metrics needed for layout.
 struct FaceEntry {
-    face: dwrote::FontFace,
+    face: FontFace,
     units_per_em: f32,
     ascent: f32,
     descent: f32,
@@ -79,7 +79,7 @@ impl DirectWriteRasterizer {
 
     fn resolve_face(&self, font: FontRef) -> AureaResult<Arc<FaceEntry>> {
         let key = FaceKey::from_font(font);
-        if let Some(cached) = aurea_foundation::lock(&self.faces).get(&key).cloned() {
+        if let Some(cached) = lock(&self.faces).get(&key).cloned() {
             return Ok(cached);
         }
 
@@ -122,11 +122,11 @@ impl DirectWriteRasterizer {
         #[allow(clippy::arc_with_non_send_sync)]
         let entry = Arc::new(FaceEntry {
             face,
-            units_per_em: fm.designUnitsPerEm.max(1) as f32,
-            ascent: fm.ascent as f32,
-            descent: fm.descent as f32,
+            units_per_em: f32::from(fm.designUnitsPerEm.max(1)),
+            ascent: f32::from(fm.ascent),
+            descent: f32::from(fm.descent),
         });
-        aurea_foundation::lock(&self.faces).insert(key, entry.clone());
+        lock(&self.faces).insert(key, entry.clone());
         Ok(entry)
     }
 
@@ -148,7 +148,7 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
 
     fn rasterize_subpixel(&self, font: FontRef, char_code: u32) -> AureaResult<Arc<SubpixelGlyph>> {
         let key = GlyphKey::new(font, char_code);
-        if let Some(cached) = aurea_foundation::lock(&self.glyphs).get(&key).cloned() {
+        if let Some(cached) = lock(&self.glyphs).get(&key).cloned() {
             return Ok(cached);
         }
 
@@ -206,8 +206,8 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
                 .create_alpha_texture(DWRITE_TEXTURE_CLEARTYPE_3x1, bounds)
                 .map_err(|_| AureaError::RenderingFailed)?;
             SubpixelGlyph {
-                width: w as u32,
-                height: h as u32,
+                width: u32::try_from(w).expect("bounds width is non-negative"),
+                height: u32::try_from(h).expect("bounds height is non-negative"),
                 left: bounds.left,
                 top: bounds.top,
                 advance,
@@ -216,7 +216,7 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
         };
 
         let glyph = Arc::new(glyph);
-        aurea_foundation::lock(&self.glyphs).insert(key, glyph.clone());
+        lock(&self.glyphs).insert(key, glyph.clone());
         Ok(glyph)
     }
 
