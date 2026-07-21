@@ -13,8 +13,8 @@ pub use manager::WindowManager;
 pub use types::{CursorGrabMode, WindowId, WindowType};
 
 use crate::elements::Element;
-use crate::ffi::*;
 use crate::ffi::ng_platform_request_frame;
+use crate::ffi::*;
 #[cfg(feature = "wgpu")]
 use crate::integration::NativeWindowHandle;
 use crate::lifecycle::{
@@ -27,11 +27,11 @@ use crate::registry::window::{
     unregister_update_callbacks,
 };
 use crate::render::Rect;
-use aurea_foundation::lock;
-use aurea_runtime::{DamageRegion, FrameScheduler};
 use crate::{AureaError, AureaResult};
 use aurea_foundation::Platform;
+use aurea_foundation::lock;
 use aurea_foundation::{Capability, CapabilityChecker};
+use aurea_runtime::{DamageRegion, FrameScheduler};
 use std::{
     ffi::CString,
     os::raw::c_void,

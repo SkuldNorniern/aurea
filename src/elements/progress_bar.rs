@@ -1,8 +1,8 @@
 use super::traits::Element;
 use crate::render::Rect;
+use crate::{AureaError, AureaResult, ffi::*};
 use aurea_foundation::lock;
 use aurea_runtime::FrameScheduler;
-use crate::{AureaError, AureaResult, ffi::*};
 use std::{
     os::raw::c_void,
     sync::{Arc, Mutex},

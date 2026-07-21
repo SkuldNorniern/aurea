@@ -1,11 +1,11 @@
 use crate::ffi::*;
 use crate::render::canvas::{Canvas, CanvasState, ensure_canvas_renderer};
 use crate::render::{Surface, SurfaceInfo};
-use aurea_foundation::lock;
-use aurea_runtime::FrameScheduler;
 use crate::{AureaError, AureaResult};
+use aurea_foundation::lock;
 use aurea_render::Rect;
 use aurea_render::{CURRENT_BUFFER, Renderer, RendererBackend};
+use aurea_runtime::FrameScheduler;
 use std::os::raw::c_void;
 use std::ptr::copy_nonoverlapping;
 use std::sync::{Arc, Mutex};

@@ -1,5 +1,5 @@
 use aurea::MenuBar;
-use aurea::elements::{Stack, Orientation, Button, Container, Label};
+use aurea::elements::{Button, Container, Label, Orientation, Stack};
 use aurea::logger;
 use aurea::{AureaResult, Window};
 use log::LevelFilter;

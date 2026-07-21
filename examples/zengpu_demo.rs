@@ -1,6 +1,6 @@
 use aurea::{
     AureaResult, Container, Window, WindowEvent,
-    elements::{Stack, Orientation},
+    elements::{Orientation, Stack},
     render::{Canvas, Color, Paint, PaintStyle, Point, Rect, RendererBackend},
 };
 

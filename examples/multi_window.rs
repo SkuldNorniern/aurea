@@ -6,7 +6,7 @@
 //! - Tool window (floating tool palette)
 //! - Dialog window (modal dialog)
 
-use aurea::elements::{Stack, Orientation, Button, Container, Label};
+use aurea::elements::{Button, Container, Label, Orientation, Stack};
 use aurea::logger;
 use aurea::{AureaResult, Window, WindowEvent, WindowManager, WindowType};
 use log::LevelFilter;

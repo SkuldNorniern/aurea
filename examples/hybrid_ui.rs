@@ -9,7 +9,7 @@
 //! - Demonstrates retained-mode, event-driven architecture
 //! - Shows how native widgets and canvas can coexist in the same window
 
-use aurea::elements::{Stack, Orientation, Button, Label};
+use aurea::elements::{Button, Label, Orientation, Stack};
 use aurea::render::{Canvas, Color, Paint, PaintStyle, Point, Rect, RendererBackend};
 use aurea::{AureaResult, Container, Window};
 

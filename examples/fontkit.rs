@@ -4,7 +4,7 @@
 //! draw_text_with_font (family, size, weight, style), measure_text for
 //! layout and centering.
 
-use aurea::elements::{Stack, Orientation};
+use aurea::elements::{Orientation, Stack};
 use aurea::render::{
     Canvas, Color, DrawingContext, Font, FontStyle, FontWeight, Paint, PaintStyle, Point, Rect,
     RendererBackend,

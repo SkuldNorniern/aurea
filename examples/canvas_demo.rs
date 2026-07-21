@@ -5,7 +5,7 @@
 //! - Tile-based rendering with partial redraw support
 //! - CPU-first rasterization approach
 
-use aurea::elements::{Stack, Orientation};
+use aurea::elements::{Orientation, Stack};
 use aurea::render::{
     Canvas, Color, DrawingContext, Paint, PaintStyle, Point, Rect, RendererBackend,
 };

@@ -2,7 +2,7 @@
 //!
 //! Demonstrates: draw_text, draw_text_with_font, measure_text (Skia/Vello-style).
 
-use aurea::elements::{Stack, Orientation};
+use aurea::elements::{Orientation, Stack};
 use aurea::render::{
     Canvas, Color, DrawingContext, Font, FontStyle, FontWeight, Paint, PaintStyle, Point, Rect,
     RendererBackend,

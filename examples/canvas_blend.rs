@@ -4,7 +4,7 @@
 //! Overlay, Difference, Darken, and Lighten so you can see how each mode
 //! combines with the content underneath.
 
-use aurea::elements::{Stack, Orientation};
+use aurea::elements::{Orientation, Stack};
 use aurea::render::{
     BlendMode, Canvas, Color, DrawingContext, Paint, Point, Rect, RendererBackend,
 };
