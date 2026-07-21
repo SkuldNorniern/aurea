@@ -1,6 +1,6 @@
 //! Multi-window example demonstrating different window types.
 
-use aurea::elements::{Stack, Orientation, Button, Container, Label};
+use aurea::elements::{Button, Container, Label, Orientation, Stack};
 use aurea::logger;
 use aurea::{AureaResult, Window, WindowEvent, WindowManager, WindowType};
 use log::LevelFilter;

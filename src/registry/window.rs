@@ -1,6 +1,6 @@
 use super::handle_key;
-use aurea_foundation::lock;
 use crate::window::{WindowEvent, WindowId};
+use aurea_foundation::lock;
 use aurea_runtime::EventQueue;
 use std::{
     collections::HashMap,

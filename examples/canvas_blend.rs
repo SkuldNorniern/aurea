@@ -1,6 +1,6 @@
 //! Demonstrates blend modes on the CPU canvas.
 
-use aurea::elements::{Stack, Orientation};
+use aurea::elements::{Orientation, Stack};
 use aurea::render::{
     BlendMode, Canvas, Color, DrawingContext, Paint, Point, Rect, RendererBackend,
 };

@@ -1,6 +1,6 @@
 //! Canvas demo showcasing CPU rasterizer with tile-based rendering.
 
-use aurea::elements::{Stack, Orientation};
+use aurea::elements::{Orientation, Stack};
 use aurea::render::{
     Canvas, Color, DrawingContext, Paint, PaintStyle, Point, Rect, RendererBackend,
 };

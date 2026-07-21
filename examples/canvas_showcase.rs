@@ -1,6 +1,6 @@
 //! Representative canvas example: one scene that shows the full CPU canvas stack.
 
-use aurea::elements::{Stack, Orientation};
+use aurea::elements::{Orientation, Stack};
 use aurea::render::{
     BlendMode, Canvas, Color, DrawingContext, GradientStop, Image, LinearGradient, Paint,
     PaintStyle, Path, PathCommand, Point, RadialGradient, Rect, RendererBackend,

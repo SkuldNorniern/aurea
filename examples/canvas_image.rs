@@ -1,6 +1,6 @@
 //! Canvas image demo: draw_image, draw_image_rect, draw_image_region.
 
-use aurea::elements::{Stack, Orientation};
+use aurea::elements::{Orientation, Stack};
 use aurea::render::{
     Canvas, Color, DrawingContext, Image, Paint, PaintStyle, Point, Rect, RendererBackend,
 };

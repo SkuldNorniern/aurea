@@ -1,6 +1,6 @@
 //! Canvas gradient demo: fill_linear_gradient, fill_radial_gradient.
 
-use aurea::elements::{Stack, Orientation};
+use aurea::elements::{Orientation, Stack};
 use aurea::render::{
     Canvas, Color, DrawingContext, GradientStop, LinearGradient, Point, RadialGradient, Rect,
     RendererBackend,

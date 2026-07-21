@@ -1,9 +1,9 @@
 //! Single-line text input field.
 
 use super::traits::Element;
-use crate::render::Rect;
 #[cfg(not(target_os = "macos"))]
 use crate::registry::elements::next_text_view_id;
+use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::{
     ffi::{CStr, CString},
@@ -151,7 +151,6 @@ mod tests {
         }
 
         #[cfg(target_os = "macos")]
-        {
-        }
+        {}
     }
 }

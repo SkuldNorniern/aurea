@@ -1,6 +1,6 @@
 //! Browser Example.
 
-use aurea::elements::{Stack, Orientation, Button, Container, TextView};
+use aurea::elements::{Button, Container, Orientation, Stack, TextView};
 use aurea::logger;
 use aurea::render::{
     Canvas, Color, DrawingContext, Paint, PaintStyle, Rect, RendererBackend, Viewport,
