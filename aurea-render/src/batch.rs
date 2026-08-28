@@ -616,11 +616,7 @@ mod tests {
     fn glyph_mask_is_converted_to_rgba_text_draw() {
         let mut list = DisplayList::new();
         list.push(item(DrawCommand::DrawGlyphMask(
-            GlyphMask {
-                width: 1,
-                height: 1,
-                coverage: vec![10, 20, 30].into(),
-            },
+            GlyphMask::new(1, 1, vec![10, 20, 30].into()),
             Point::new(4.0, 5.0),
             Color::rgb(200, 100, 50),
         )));
@@ -635,11 +631,7 @@ mod tests {
     fn repeated_lowering_reuses_text_mask_arc() {
         let mut list = DisplayList::new();
         list.push(item(DrawCommand::DrawGlyphMask(
-            GlyphMask {
-                width: 1,
-                height: 1,
-                coverage: vec![255, 255, 255].into(),
-            },
+            GlyphMask::new(1, 1, vec![255, 255, 255].into()),
             Point::new(0.0, 0.0),
             Color::rgb(255, 255, 255),
         )));
@@ -654,11 +646,7 @@ mod tests {
     fn malformed_glyph_mask_is_skipped() {
         let mut list = DisplayList::new();
         list.push(item(DrawCommand::DrawGlyphMask(
-            GlyphMask {
-                width: 2,
-                height: 1,
-                coverage: vec![255, 255, 255].into(),
-            },
+            GlyphMask::new(2, 1, vec![255, 255, 255].into()),
             Point::new(0.0, 0.0),
             Color::rgb(255, 255, 255),
         )));
