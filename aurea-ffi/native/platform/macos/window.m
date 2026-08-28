@@ -727,6 +727,49 @@ int ng_macos_window_set_cursor_grab(NGHandle window, int mode) {
     return NG_SUCCESS;
 }
 
+void ng_macos_destroy_element(NGHandle element) {
+    if (!element) return;
+    /* Element constructors hand out a retained reference with
+       __bridge_retained. Taking it back with __bridge_transfer is what releases
+       it: ARC drops the reference when this scope ends.
+
+       A view still in a hierarchy is removed first. Its superview holds its own
+       reference, so leaving it attached would keep it alive and leave the
+       parent drawing a view the caller believes is gone. */
+    NSView* view = (__bridge_transfer NSView*)element;
+    if ([view isKindOfClass:[NSView class]] && [view superview]) {
+        [view removeFromSuperview];
+    }
+    /* ARC releases `view` here. */
+}
+
+void ng_macos_element_released_to_parent(NGHandle element) {
+    if (!element) return;
+    /* The superview holds its own reference now, so the one handed out by
+       __bridge_retained at construction has to go back. Taking it with
+       __bridge_transfer and letting ARC drop it at the end of this scope is
+       that release; without it the element outlives the parent that was
+       supposed to own it. */
+    NSView* view = (__bridge_transfer NSView*)element;
+    (void)view;
+}
+
+int ng_macos_detach_element(NGHandle element) {
+    if (!element) return NG_ERROR_INVALID_HANDLE;
+    NSView* view = (__bridge NSView*)element;
+    if (![view isKindOfClass:[NSView class]]) return NG_ERROR_INVALID_HANDLE;
+
+    /* Detaching hands ownership back to the caller, so take a reference before
+       the superview drops its own — otherwise removeFromSuperview would be the
+       last release and the caller would hold a dangling handle. */
+    if ([view superview]) {
+        CFTypeRef reclaimed = (__bridge_retained CFTypeRef)view;
+        (void)reclaimed;
+        [view removeFromSuperview];
+    }
+    return NG_SUCCESS;
+}
+
 void ng_macos_window_show(NGHandle window) {
     if (!window) return;
     NSWindow* nsWindow = (__bridge NSWindow*)window;

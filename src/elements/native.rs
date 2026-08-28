@@ -10,7 +10,7 @@
 //! Elements embed a [`NativeElement`] rather than a bare pointer, so the rule
 //! is written down once instead of in every widget's `Drop`.
 
-use crate::ffi::ng_platform_destroy_element;
+use crate::ffi::{ng_platform_destroy_element, ng_platform_element_released_to_parent};
 use std::cell::Cell;
 use std::os::raw::c_void;
 
@@ -45,8 +45,17 @@ impl NativeElement {
     ///
     /// Called when a container adopts a child. The Rust value stays alive and
     /// usable — it just no longer frees anything.
+    ///
+    /// The platform is told as well, because on some backends the handover is
+    /// more than bookkeeping: AppKit hands out a retained reference at
+    /// construction and the superview takes its own on top, so the first has to
+    /// be given back or the element outlives its parent.
     pub fn released_to_parent(&self) {
-        self.owned.set(false);
+        if !self.owned.replace(false) {
+            // Already handed over; releasing twice would be an over-release.
+            return;
+        }
+        unsafe { ng_platform_element_released_to_parent(self.handle) };
     }
 
     /// Takes ownership back, for an element that has been detached from its
