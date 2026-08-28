@@ -111,6 +111,15 @@ fn render_frame(
         (damage, cb, bg)
     };
 
+    let has_buffer = CURRENT_BUFFER.with(|buf| {
+        buf.borrow()
+            .is_some_and(|(ptr, size, _, _)| !ptr.is_null() && size > 0)
+    });
+    if draw_callback.is_none() && has_buffer {
+        republish_current_buffer(state, handle, _backend, None);
+        return Ok(());
+    }
+
     let current_damage = {
         let mut r = lock(renderer);
         if let Some(ref mut r) = *r {
@@ -127,6 +136,17 @@ fn render_frame(
         }
     };
 
+    republish_current_buffer(state, handle, _backend, current_damage);
+
+    Ok(())
+}
+
+fn republish_current_buffer(
+    state: &Arc<Mutex<CanvasState>>,
+    handle: *mut c_void,
+    _backend: RendererBackend,
+    current_damage: Option<Rect>,
+) {
     #[cfg(feature = "zengpu")]
     let publishes_cpu_buffer = _backend != RendererBackend::ZenGpu;
     #[cfg(not(feature = "zengpu"))]
@@ -146,8 +166,6 @@ fn render_frame(
             publish_cpu_buffer(handle, ptr, size, w, h, refresh);
         }
     }
-
-    Ok(())
 }
 
 impl Canvas {
