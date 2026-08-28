@@ -8,38 +8,38 @@ pub use surface_error::{
     notify_surface_recreated_for_handle, notify_surface_recreated_for_window,
 };
 
-#[cfg(feature = "wgpu")]
-use crate::platform::handles::NativeWindowHandle;
 #[cfg(all(feature = "wgpu", target_os = "linux"))]
 use crate::platform::handles::{LinuxWindowHandle, linux_window_handle_from_ptr};
+#[cfg(feature = "wgpu")]
+use crate::platform::handles::{NativeWindowHandle, raw_handles};
 #[cfg(feature = "wgpu")]
 use crate::window::Window;
 #[cfg(feature = "wgpu")]
 use crate::{AureaError, AureaResult};
 #[cfg(feature = "wgpu")]
-use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
+use raw_window_handle::{
+    DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, WindowHandle,
+};
 #[cfg(feature = "wgpu")]
 use std::sync::Arc;
+#[cfg(feature = "wgpu")]
+use wgpu::{Instance, Surface, SurfaceTarget};
 
 #[cfg(feature = "wgpu")]
 impl HasWindowHandle for NativeWindowHandle {
-    fn window_handle(
-        &self,
-    ) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
-        let (window, _display) = crate::platform::handles::raw_handles(self)?;
+    fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
+        let (window, _display) = raw_handles(self)?;
         // SAFETY: the raw handle was built from a native pointer that outlives
-        unsafe { Ok(raw_window_handle::WindowHandle::borrow_raw(window)) }
+        unsafe { Ok(WindowHandle::borrow_raw(window)) }
     }
 }
 
 #[cfg(feature = "wgpu")]
 impl HasDisplayHandle for NativeWindowHandle {
-    fn display_handle(
-        &self,
-    ) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
-        let (_window, display) = crate::platform::handles::raw_handles(self)?;
+    fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
+        let (_window, display) = raw_handles(self)?;
         // SAFETY: the raw handle was built from a native pointer that outlives
-        unsafe { Ok(raw_window_handle::DisplayHandle::borrow_raw(display)) }
+        unsafe { Ok(DisplayHandle::borrow_raw(display)) }
     }
 }
 
@@ -112,9 +112,9 @@ impl Window {
     /// ```
     pub fn create_wgpu_surface<'window>(
         &'window self,
-        instance: &wgpu::Instance,
-    ) -> AureaResult<wgpu::Surface<'window>> {
-        let surface_target = wgpu::SurfaceTarget::from(self);
+        instance: &Instance,
+    ) -> AureaResult<Surface<'window>> {
+        let surface_target = SurfaceTarget::from(self);
 
         let surface = instance
             .create_surface(surface_target)
@@ -139,9 +139,9 @@ impl Window {
     /// ```
     pub fn create_wgpu_surface_owned(
         window: &Arc<Self>,
-        instance: &wgpu::Instance,
-    ) -> AureaResult<wgpu::Surface<'static>> {
-        let surface_target = wgpu::SurfaceTarget::from(Arc::clone(window));
+        instance: &Instance,
+    ) -> AureaResult<Surface<'static>> {
+        let surface_target = SurfaceTarget::from(Arc::clone(window));
 
         instance
             .create_surface(surface_target)

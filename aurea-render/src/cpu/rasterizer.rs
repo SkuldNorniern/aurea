@@ -1352,6 +1352,7 @@ fn union_dirty_tile_rects(
     acc
 }
 
+#[allow(clippy::too_many_arguments)]
 fn clear_dirty_tiles(
     frame_buffer: &mut [u32],
     color: Color,
