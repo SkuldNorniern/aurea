@@ -162,12 +162,6 @@ impl CpuDrawingContext {
         Point::new(t.x * self.scale_factor, t.y * self.scale_factor)
     }
 
-    /// Maps a logical point through the current transform, staying in logical
-    /// coordinates — for commands the rasterizer scales itself.
-    fn t_pt(&self, p: Point) -> Point {
-        self.current_transform.map_point(p)
-    }
-
     /// Scales a logical length through the current transform into physical
     /// pixels.
     fn s(&self, v: f32) -> f32 {
@@ -181,21 +175,22 @@ impl CpuDrawingContext {
         p
     }
 
-    /// A copy of `path` with every point mapped through the current transform,
-    /// still in logical coordinates.
-    fn transformed_path(&self, path: &Path) -> Path {
-        if self.current_transform == Transform::identity() {
-            return path.clone();
-        }
+    /// A copy of `path` in physical pixels, transform applied.
+    ///
+    /// Paths used to be recorded in logical coordinates and scaled again at
+    /// tessellation time, which left them in a different space from every
+    /// other command. Hit testing compares against the recorded geometry, so
+    /// under HiDPI a click landed at twice the distance from the path.
+    fn physical_path(&self, path: &Path) -> Path {
         let commands = path
             .commands
             .iter()
             .map(|cmd| match cmd {
-                PathCommand::MoveTo(p) => PathCommand::MoveTo(self.t_pt(*p)),
-                PathCommand::LineTo(p) => PathCommand::LineTo(self.t_pt(*p)),
-                PathCommand::QuadTo(c, p) => PathCommand::QuadTo(self.t_pt(*c), self.t_pt(*p)),
+                PathCommand::MoveTo(p) => PathCommand::MoveTo(self.s_pt(*p)),
+                PathCommand::LineTo(p) => PathCommand::LineTo(self.s_pt(*p)),
+                PathCommand::QuadTo(c, p) => PathCommand::QuadTo(self.s_pt(*c), self.s_pt(*p)),
                 PathCommand::CubicTo(c1, c2, p) => {
-                    PathCommand::CubicTo(self.t_pt(*c1), self.t_pt(*c2), self.t_pt(*p))
+                    PathCommand::CubicTo(self.s_pt(*c1), self.s_pt(*c2), self.s_pt(*p))
                 }
                 PathCommand::Close => PathCommand::Close,
             })
@@ -203,14 +198,14 @@ impl CpuDrawingContext {
         Path { commands }
     }
 
-    /// Builds the transformed outline of a rect, in logical coordinates, for
-    /// the rotated/skewed case that a `Rect` command cannot represent.
+    /// Outline of a rect in physical pixels, for the rotated or skewed case a
+    /// `Rect` command cannot hold.
     fn transformed_rect_path(&self, r: Rect) -> Path {
         let corners = [
-            self.t_pt(Point::new(r.x, r.y)),
-            self.t_pt(Point::new(r.x + r.width, r.y)),
-            self.t_pt(Point::new(r.x + r.width, r.y + r.height)),
-            self.t_pt(Point::new(r.x, r.y + r.height)),
+            self.s_pt(Point::new(r.x, r.y)),
+            self.s_pt(Point::new(r.x + r.width, r.y)),
+            self.s_pt(Point::new(r.x + r.width, r.y + r.height)),
+            self.s_pt(Point::new(r.x, r.y + r.height)),
         ];
         let mut path = Path::new();
         path.commands.push(PathCommand::MoveTo(corners[0]));
@@ -461,9 +456,7 @@ impl CpuDrawingContext {
             super::super::command::DrawCommand::FillLinearGradient(_, rect) => *rect,
             super::super::command::DrawCommand::FillRadialGradient(_, rect) => *rect,
             super::super::command::DrawCommand::DrawPath(path, paint) => {
-                // `path` is stored in logical coordinates (P7-F); scale to
-                // physical pixels like the other arms before transforming.
-                let mut bounds = self.s_rect(super::hit_test::path_bounds(path));
+                let mut bounds = super::hit_test::path_bounds(path);
                 if paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0 {
                     let half_stroke = paint.stroke_width / 2.0;
                     bounds.x -= half_stroke;
@@ -570,10 +563,8 @@ impl DrawingContext for CpuDrawingContext {
     }
 
     fn draw_path(&mut self, path: &Path, paint: &Paint) -> AureaResult<()> {
-        // Stored in logical coordinates; the rasterizer applies scale_factor
-        // during tessellation, so only the transform is baked in here.
         self.add_command(super::super::command::DrawCommand::DrawPath(
-            self.transformed_path(path),
+            self.physical_path(path),
             self.s_paint(paint),
         ));
         Ok(())
@@ -744,7 +735,7 @@ impl DrawingContext for CpuDrawingContext {
     }
 
     fn clip_path(&mut self, path: &Path) -> AureaResult<()> {
-        self.current_clip = Some(path.clone());
+        self.current_clip = Some(self.physical_path(path));
         // A general path clip is not something the rasterizer can enforce yet.
         // Narrowing to the path's bounding box would let pixels outside the
         // path through, so the enforced clip is left as it was.

@@ -46,26 +46,24 @@ impl Edge {
 /// Converts a path into a list of edges for the scanline filler (lines, quads and cubics
 /// subdivided), reusing `out`'s existing allocation instead of allocating a fresh `Vec`.
 ///
-/// `scale` converts the path's (logical) coordinates to physical pixels as each point
-/// is visited, so callers no longer need to pre-build a separately-scaled `Path`.
-pub fn tessellate_path_into(path: &Path, scale: f32, edges: &mut Vec<Edge>) {
+/// Points are taken as they are. The recorder puts paths in physical pixels
+/// like every other command, so there is nothing left to scale here.
+pub fn tessellate_path_into(path: &Path, edges: &mut Vec<Edge>) {
     edges.clear();
     let mut current_point = Point::new(0.0, 0.0);
     let mut start_point = Point::new(0.0, 0.0);
     let mut has_start = false;
 
-    let sp = |p: &Point| Point::new(p.x * scale, p.y * scale);
-
     for command in &path.commands {
         match command {
             PathCommand::MoveTo(p) => {
-                let p = sp(p);
+                let p = *p;
                 current_point = p;
                 start_point = p;
                 has_start = true;
             }
             PathCommand::LineTo(p) => {
-                let p = sp(p);
+                let p = *p;
                 if has_start {
                     if let Some(edge) = Edge::new(current_point, p) {
                         edges.push(edge);
@@ -74,15 +72,15 @@ pub fn tessellate_path_into(path: &Path, scale: f32, edges: &mut Vec<Edge>) {
                 }
             }
             PathCommand::QuadTo(p1, p2) => {
-                let p1 = sp(p1);
-                let p2 = sp(p2);
+                let p1 = *p1;
+                let p2 = *p2;
                 tessellate_quad(current_point, p1, p2, edges);
                 current_point = p2;
             }
             PathCommand::CubicTo(p1, p2, p3) => {
-                let p1 = sp(p1);
-                let p2 = sp(p2);
-                let p3 = sp(p3);
+                let p1 = *p1;
+                let p2 = *p2;
+                let p3 = *p3;
                 tessellate_cubic(current_point, p1, p2, p3, edges);
                 current_point = p3;
             }
