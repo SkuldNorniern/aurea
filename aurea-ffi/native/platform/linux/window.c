@@ -56,7 +56,17 @@ static void on_window_destroy(GtkWidget* widget, gpointer data) {
             break;
         }
     }
-    gtk_main_quit();
+    if (gtk_main_level() == 0) return;
+
+    GList* toplevels = gtk_window_list_toplevels();
+    int remaining = 0;
+    for (GList* item = toplevels; item != NULL; item = item->next) {
+        GtkWidget* other = GTK_WIDGET(item->data);
+        if (other != widget && gtk_widget_get_visible(other)) remaining++;
+    }
+    g_list_free(toplevels);
+
+    if (remaining == 0) gtk_main_quit();
 }
 
 static gboolean on_window_state_event(GtkWidget* widget, GdkEventWindowState* event, gpointer user_data) {
