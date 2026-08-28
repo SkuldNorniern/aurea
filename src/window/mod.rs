@@ -44,14 +44,14 @@ use std::{
     os::raw::c_void,
     rc::Rc,
     sync::{
-        Arc, Mutex, OnceLock,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc, LazyLock, Mutex, OnceLock,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 
 static WINDOW_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-static PLATFORM_READY: AtomicBool = AtomicBool::new(false);
+static PLATFORM_READY: LazyLock<Mutex<bool>> = LazyLock::new(|| Mutex::new(false));
 
 pub use crate::registry::window::{
     process_all_window_events, process_all_window_updates, push_window_event,
@@ -105,15 +105,18 @@ impl Window {
             })
             .clone()?;
 
-        if !PLATFORM_READY.load(Ordering::Acquire) {
-            if unsafe { ng_platform_init() } != 0 {
-                return Err(AureaError::PlatformError(1));
+        {
+            let mut ready = lock(&PLATFORM_READY);
+            if !*ready {
+                if unsafe { ng_platform_init() } != 0 {
+                    return Err(AureaError::PlatformError(1));
+                }
+                FrameScheduler::set_request_frame_hook(|| {
+                    unsafe { ng_platform_request_frame() };
+                });
+                ui_thread::claim();
+                *ready = true;
             }
-            FrameScheduler::set_request_frame_hook(|| {
-                unsafe { ng_platform_request_frame() };
-            });
-            ui_thread::claim();
-            PLATFORM_READY.store(true, Ordering::Release);
         }
 
         let platform = Platform::current();
@@ -670,7 +673,7 @@ impl Drop for Window {
 
         if WINDOW_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
             unsafe { ng_platform_cleanup() };
-            PLATFORM_READY.store(false, Ordering::Release);
+            *lock(&PLATFORM_READY) = false;
             ui_thread::release();
         }
     }
