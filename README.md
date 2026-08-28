@@ -116,7 +116,8 @@ cargo run --example animate_bounce
 
 - `default`: no optional GPU backend.
 - `wgpu`: enables the wgpu integration helpers.
-- `zengpu`: enables GPU-accelerated rendering through ZenGPU.
+- `zengpu`: enables GPU-accelerated rendering through ZenGPU. Experimental: it
+  does not yet match the CPU rasterizer's command coverage or partial repaint.
 
 ## Building
 
