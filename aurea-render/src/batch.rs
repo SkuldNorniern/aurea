@@ -191,7 +191,7 @@ pub struct RenderBatches {
     /// Cross-kind painter order, indexing the per-kind instance arrays above.
     pub order: Vec<DrawRef>,
     gradient_lut_cache: HashMap<u64, Weak<[u8]>>,
-    text_mask_cache: HashMap<(usize, u32, u32), Weak<[u8]>>,
+    text_mask_cache: HashMap<u64, Weak<[u8]>>,
 }
 
 impl RenderBatches {
@@ -327,7 +327,7 @@ impl RenderBatches {
         if mask.coverage.len() != pixel_count.checked_mul(3)? {
             return None;
         }
-        let key = (mask.coverage.as_ptr() as usize, mask.width, mask.height);
+        let key = mask.id();
         if let Some(rgba) = self.text_mask_cache.get(&key).and_then(Weak::upgrade) {
             return Some(rgba);
         }
