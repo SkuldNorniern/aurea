@@ -43,14 +43,16 @@ mod tests {
     use std::thread;
 
     #[test]
-    fn uninitialised_platform_accepts_any_thread() {
+    fn the_ui_thread_follows_whoever_claims_it() {
         release();
-        assert!(is_ui_thread());
-    }
+        assert!(
+            is_ui_thread(),
+            "nothing is claimed, so nothing is wrong yet"
+        );
 
-    #[test]
-    fn a_released_platform_can_be_claimed_by_another_thread() {
         claim();
+        assert!(is_ui_thread());
+
         let claimed_elsewhere = thread::spawn(|| {
             release();
             claim();
