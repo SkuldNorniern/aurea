@@ -325,7 +325,10 @@ impl Window {
             let stale = previous.handle();
             drop(previous);
             if !stale.is_null() && stale != content_handle {
-                unsafe { ng_platform_destroy_element(stale) };
+                unsafe {
+                    let _ = ng_platform_detach_element(stale);
+                    ng_platform_destroy_element(stale);
+                }
             }
         }
         Ok(())

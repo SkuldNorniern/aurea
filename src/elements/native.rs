@@ -1,6 +1,6 @@
 //! Who owns a native element, and who frees it.
 
-use crate::ffi::ng_platform_destroy_element;
+use crate::ffi::{ng_platform_destroy_element, ng_platform_element_released_to_parent};
 use std::cell::Cell;
 use std::os::raw::c_void;
 
@@ -32,7 +32,10 @@ impl NativeElement {
 
     /// Hands the element to its new native parent, which will free it.
     pub fn released_to_parent(&self) {
-        self.owned.set(false);
+        if !self.owned.replace(false) {
+            return;
+        }
+        unsafe { ng_platform_element_released_to_parent(self.handle) };
     }
 
     /// Takes ownership back, for an element that has been detached from its parent and is once

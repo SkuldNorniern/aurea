@@ -42,6 +42,9 @@ unsafe extern "C" {
 
     /// Removes an element from its parent, leaving it alive and unparented.
     pub fn ng_platform_detach_element(element: *mut c_void) -> i32;
+
+    /// Tells the platform a container has taken ownership of this element.
+    pub fn ng_platform_element_released_to_parent(element: *mut c_void);
     pub fn ng_platform_window_set_title(window: *mut c_void, title: *const c_char);
     pub fn ng_platform_window_set_icon_rgba(
         window: *mut c_void,

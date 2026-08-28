@@ -711,6 +711,33 @@ int ng_macos_window_set_cursor_grab(NGHandle window, int mode) {
     return NG_SUCCESS;
 }
 
+void ng_macos_destroy_element(NGHandle element) {
+    if (!element) return;
+    NSView* view = (__bridge_transfer NSView*)element;
+    if ([view isKindOfClass:[NSView class]] && [view superview]) {
+        [view removeFromSuperview];
+    }
+}
+
+void ng_macos_element_released_to_parent(NGHandle element) {
+    if (!element) return;
+    NSView* view = (__bridge_transfer NSView*)element;
+    (void)view;
+}
+
+int ng_macos_detach_element(NGHandle element) {
+    if (!element) return NG_ERROR_INVALID_HANDLE;
+    NSView* view = (__bridge NSView*)element;
+    if (![view isKindOfClass:[NSView class]]) return NG_ERROR_INVALID_HANDLE;
+
+    if ([view superview]) {
+        CFTypeRef reclaimed = (__bridge_retained CFTypeRef)view;
+        (void)reclaimed;
+        [view removeFromSuperview];
+    }
+    return NG_SUCCESS;
+}
+
 void ng_macos_window_show(NGHandle window) {
     if (!window) return;
     NSWindow* nsWindow = (__bridge NSWindow*)window;

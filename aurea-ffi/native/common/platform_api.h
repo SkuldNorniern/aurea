@@ -66,6 +66,8 @@ void ng_platform_destroy_element(NGHandle element);
 
 int ng_platform_detach_element(NGHandle element);
 
+void ng_platform_element_released_to_parent(NGHandle element);
+
 NGHandle ng_platform_create_split_view(int is_vertical);
 int ng_platform_split_view_add(NGHandle split_handle, NGHandle element);
 int ng_platform_split_view_set_divider_position(NGHandle split_handle, int index, float position);

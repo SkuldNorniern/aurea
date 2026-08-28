@@ -204,6 +204,11 @@ void ng_platform_destroy_element(NGHandle e) {
     DISPATCH_VOID(destroy_element, e);
 }
 
+void ng_platform_element_released_to_parent(NGHandle e) {
+    if (!e) return;
+    DISPATCH_VOID(element_released_to_parent, e);
+}
+
 int ng_platform_detach_element(NGHandle e) {
     ensure_ops();
     if (!e) return NG_ERROR_INVALID_HANDLE;

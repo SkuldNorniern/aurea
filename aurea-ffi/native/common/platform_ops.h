@@ -56,6 +56,7 @@ typedef struct ng_platform_ops {
     int (*box_add)(NGHandle box, NGHandle element, float weight);
     void (*destroy_element)(NGHandle element);
     int (*detach_element)(NGHandle element);
+    void (*element_released_to_parent)(NGHandle element);
     int (*set_window_content)(NGHandle window, NGHandle content);
 
     NGHandle (*create_split_view)(int is_vertical);
