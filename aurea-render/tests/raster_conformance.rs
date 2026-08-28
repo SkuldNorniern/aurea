@@ -10,6 +10,7 @@
 use aurea_render::{
     Color, CpuRasterizer, DrawingContext, Paint, Point, Rect, Renderer, Surface, SurfaceInfo,
 };
+use std::f32::consts::FRAC_PI_4;
 use std::slice::from_raw_parts;
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -149,7 +150,6 @@ fn scale_factor_maps_logical_geometry_to_physical_pixels() {
 }
 
 #[test]
-#[ignore = "the recorder applies the transform to item bounds only, not to recorded geometry"]
 fn translate_moves_drawn_pixels() {
     let buf = render(|ctx| {
         ctx.translate(8.0, 4.0).expect("translate");
@@ -276,4 +276,99 @@ fn alpha_applies_to_circles_too() {
         "half-alpha circle should be partially blended, got {red}{}",
         dump(&circle)
     );
+}
+
+#[test]
+fn translate_composes_with_the_scale_factor() {
+    // A logical translate of (4, 2) at scale 2 moves 8 x 4 physical pixels.
+    let buf = render_scaled(2.0, |ctx| {
+        ctx.translate(4.0, 2.0).expect("translate");
+        ctx.draw_rect(Rect::new(0.0, 0.0, 2.0, 2.0), &fill(RED))
+            .expect("draw_rect");
+    });
+
+    assert_px(&buf, 8, 4, opaque(RED));
+    assert_px(&buf, 11, 7, opaque(RED));
+    assert_px(&buf, 7, 4, 0);
+}
+
+#[test]
+fn scale_transform_grows_drawn_geometry() {
+    let buf = render(|ctx| {
+        ctx.scale(2.0, 2.0).expect("scale");
+        ctx.draw_rect(Rect::new(2.0, 2.0, 4.0, 4.0), &fill(RED))
+            .expect("draw_rect");
+    });
+
+    assert_px(&buf, 4, 4, opaque(RED));
+    assert_px(&buf, 11, 11, opaque(RED));
+    assert_px(&buf, 3, 3, 0);
+    assert_px(&buf, 12, 12, 0);
+}
+
+#[test]
+fn transform_moves_paths_and_circles_too() {
+    let circle = render(|ctx| {
+        ctx.translate(8.0, 8.0).expect("translate");
+        ctx.draw_circle(Point::new(0.0, 0.0), 4.0, &fill(RED))
+            .expect("draw_circle");
+    });
+    assert_px(&circle, 8, 8, opaque(RED));
+    assert_eq!(
+        px(&circle, 0, 0) >> 24,
+        0,
+        "origin should be clear{}",
+        dump(&circle)
+    );
+}
+
+#[test]
+fn restore_undoes_a_transform() {
+    let buf = render(|ctx| {
+        ctx.save().expect("save");
+        ctx.translate(16.0, 16.0).expect("translate");
+        ctx.restore().expect("restore");
+        ctx.draw_rect(Rect::new(0.0, 0.0, 4.0, 4.0), &fill(RED))
+            .expect("draw_rect");
+    });
+
+    assert_px(&buf, 0, 0, opaque(RED));
+    assert_px(&buf, 16, 16, 0);
+}
+
+#[test]
+fn a_rotated_rect_is_no_longer_upright() {
+    let buf = render(|ctx| {
+        ctx.translate(16.0, 16.0).expect("translate");
+        ctx.rotate(FRAC_PI_4).expect("rotate");
+        ctx.draw_rect(Rect::new(-6.0, -6.0, 12.0, 12.0), &fill(RED))
+            .expect("draw_rect");
+    });
+
+    // A square rotated 45 degrees about its centre: the centre stays covered
+    // and the corners of the upright square are now outside the shape.
+    assert_px(&buf, 16, 16, opaque(RED));
+    assert_eq!(
+        px(&buf, 11, 11) >> 24,
+        0,
+        "the upright square's corner should now be empty{}",
+        dump(&buf)
+    );
+}
+
+#[test]
+fn transforms_compose_innermost_first() {
+    // translate then scale: the scale applies to the geometry, not to the
+    // translation, so the rect starts at the translated origin.
+    let buf = render(|ctx| {
+        ctx.translate(8.0, 8.0).expect("translate");
+        ctx.scale(2.0, 2.0).expect("scale");
+        ctx.draw_rect(Rect::new(0.0, 0.0, 4.0, 4.0), &fill(RED))
+            .expect("draw_rect");
+    });
+
+    assert_px(&buf, 8, 8, opaque(RED));
+    assert_px(&buf, 15, 15, opaque(RED));
+    assert_px(&buf, 7, 7, 0);
+    assert_px(&buf, 16, 16, 0);
 }
