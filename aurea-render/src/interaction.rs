@@ -6,13 +6,13 @@ use crate::display_list::{DisplayItem, DisplayList};
 use crate::types::{InteractiveId, Point};
 use aurea_foundation::{AureaResult, lock};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// Callback for click events.
-pub type ClickCallback = Box<dyn Fn(Point) -> AureaResult<()> + Send + Sync>;
+pub type ClickCallback = Arc<dyn Fn(Point) -> AureaResult<()> + Send + Sync>;
 
 /// Callback for hover events (point, entered).
-pub type HoverCallback = Box<dyn Fn(Point, bool) -> AureaResult<()> + Send + Sync>;
+pub type HoverCallback = Arc<dyn Fn(Point, bool) -> AureaResult<()> + Send + Sync>;
 
 /// Registry for interactive shape callbacks.
 pub struct InteractionRegistry {
@@ -64,8 +64,8 @@ impl InteractionRegistry {
                     continue;
                 }
 
-                let callbacks = lock(&self.click_callbacks);
-                if let Some(callback) = callbacks.get(&interactive_id) {
+                let callback = lock(&self.click_callbacks).get(&interactive_id).cloned();
+                if let Some(callback) = callback {
                     callback(point)?;
                 }
                 return Ok(());
@@ -103,26 +103,35 @@ impl InteractionRegistry {
         point: Point,
         current_hovered: &HashMap<InteractiveId, bool>,
     ) -> AureaResult<()> {
-        let mut hover_state = lock(&self.hover_state);
-        let hover_callbacks = lock(&self.hover_callbacks);
+        let pending: Vec<(HoverCallback, bool)> = {
+            let mut hover_state = lock(&self.hover_state);
+            let hover_callbacks = lock(&self.hover_callbacks);
+            let mut pending = Vec::new();
 
-        for id in current_hovered.keys() {
-            if !hover_state.get(id).copied().unwrap_or(false) {
-                if let Some(callback) = hover_callbacks.get(id) {
-                    callback(point, true)?;
+            for id in current_hovered.keys() {
+                if !hover_state.get(id).copied().unwrap_or(false) {
+                    if let Some(callback) = hover_callbacks.get(id) {
+                        pending.push((Arc::clone(callback), true));
+                    }
+                    hover_state.insert(*id, true);
                 }
-                hover_state.insert(*id, true);
             }
-        }
 
-        let previous_hovered: Vec<InteractiveId> = hover_state.keys().copied().collect();
-        for id in previous_hovered {
-            if !current_hovered.contains_key(&id) {
-                if let Some(callback) = hover_callbacks.get(&id) {
-                    callback(point, false)?;
+            let previous_hovered: Vec<InteractiveId> = hover_state.keys().copied().collect();
+            for id in previous_hovered {
+                if !current_hovered.contains_key(&id) {
+                    if let Some(callback) = hover_callbacks.get(&id) {
+                        pending.push((Arc::clone(callback), false));
+                    }
+                    hover_state.remove(&id);
                 }
-                hover_state.remove(&id);
             }
+
+            pending
+        };
+
+        for (callback, entered) in pending {
+            callback(point, entered)?;
         }
 
         Ok(())
@@ -147,5 +156,87 @@ fn item_hit(item: &DisplayItem, point: Point) -> bool {
 impl Default for InteractionRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::command::DrawCommand;
+    use crate::display_list::{CacheKey, DisplayItem, NodeId};
+    use crate::types::{BlendMode, Paint, Rect};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn interactive_rect(id: InteractiveId, rect: Rect) -> DisplayItem {
+        DisplayItem::new_interactive(
+            NodeId(0),
+            CacheKey::from_hash(1),
+            rect,
+            false,
+            id,
+            BlendMode::Normal,
+            DrawCommand::DrawRect(rect, Paint::new()),
+        )
+    }
+
+    #[test]
+    fn click_callback_can_reenter_the_registry() {
+        let registry = Arc::new(InteractionRegistry::new());
+        let inner = Arc::clone(&registry);
+        let ran = Arc::new(AtomicUsize::new(0));
+        let ran_clone = Arc::clone(&ran);
+
+        registry.register_click(
+            InteractiveId(1),
+            Arc::new(move |_| {
+                inner.register_click(InteractiveId(2), Arc::new(|_| Ok(())));
+                inner.unregister(InteractiveId(2));
+                ran_clone.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }),
+        );
+
+        let mut list = DisplayList::new();
+        list.push(interactive_rect(
+            InteractiveId(1),
+            Rect::new(0.0, 0.0, 10.0, 10.0),
+        ));
+
+        registry
+            .handle_click(&list, Point::new(5.0, 5.0))
+            .expect("handle_click");
+        assert_eq!(ran.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn hover_callback_can_reenter_the_registry() {
+        let registry = Arc::new(InteractionRegistry::new());
+        let inner = Arc::clone(&registry);
+        let ran = Arc::new(AtomicUsize::new(0));
+        let ran_clone = Arc::clone(&ran);
+
+        registry.register_hover(
+            InteractiveId(1),
+            Arc::new(move |_, _| {
+                inner.register_hover(InteractiveId(2), Arc::new(|_, _| Ok(())));
+                inner.unregister(InteractiveId(2));
+                ran_clone.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }),
+        );
+
+        let mut list = DisplayList::new();
+        list.push(interactive_rect(
+            InteractiveId(1),
+            Rect::new(0.0, 0.0, 10.0, 10.0),
+        ));
+
+        registry
+            .handle_hover(&list, Point::new(5.0, 5.0))
+            .expect("enter");
+        registry
+            .handle_hover(&list, Point::new(50.0, 50.0))
+            .expect("leave");
+        assert_eq!(ran.load(Ordering::Relaxed), 2, "enter and leave both ran");
     }
 }

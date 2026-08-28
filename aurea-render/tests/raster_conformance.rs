@@ -438,7 +438,7 @@ fn interactive_paths_hit_test_in_the_same_space_as_the_click() {
     let hits_clone = Arc::clone(&hits);
     registry.register_click(
         InteractiveId(7),
-        Box::new(move |_| -> AureaResult<()> {
+        Arc::new(move |_| -> AureaResult<()> {
             hits_clone.fetch_add(1, Ordering::Relaxed);
             Ok(())
         }),

@@ -1,7 +1,7 @@
 use aurea_foundation::lock;
 use std::collections::HashMap;
 use std::os::raw::c_void;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 /// Lifecycle event types that can be triggered by the platform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -35,7 +35,7 @@ pub enum LifecycleEvent {
 }
 
 /// Callback function type for lifecycle events.
-pub type LifecycleCallback = Box<dyn Fn(LifecycleEvent) + Send + Sync>;
+pub type LifecycleCallback = Arc<dyn Fn(LifecycleEvent) + Send + Sync>;
 
 static LIFECYCLE_CALLBACKS: LazyLock<Mutex<HashMap<usize, LifecycleCallback>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -54,16 +54,16 @@ pub fn unregister_lifecycle_callback(window: *mut c_void) {
 
 /// Invoke the lifecycle callback for a specific window.
 pub fn invoke_lifecycle_callback(window: *mut c_void, event: LifecycleEvent) {
-    let callbacks = lock(&LIFECYCLE_CALLBACKS);
-    if let Some(callback) = callbacks.get(&(window as usize)) {
+    let callback = lock(&LIFECYCLE_CALLBACKS).get(&(window as usize)).cloned();
+    if let Some(callback) = callback {
         callback(event);
     }
 }
 
 /// Invoke a global lifecycle callback (not tied to a specific window).
 pub fn invoke_global_lifecycle_callback(event: LifecycleEvent) {
-    let callbacks = lock(&LIFECYCLE_CALLBACKS);
-    for callback in callbacks.values() {
+    let callbacks: Vec<LifecycleCallback> = lock(&LIFECYCLE_CALLBACKS).values().cloned().collect();
+    for callback in callbacks {
         callback(event);
     }
 }
@@ -119,7 +119,7 @@ mod tests {
         let r = received.clone();
         register_lifecycle_callback(
             0x1000 as *mut c_void,
-            Box::new(move |e| {
+            Arc::new(move |e| {
                 let id = match e {
                     LifecycleEvent::ApplicationPaused => 2,
                     LifecycleEvent::ApplicationResumed => 3,
