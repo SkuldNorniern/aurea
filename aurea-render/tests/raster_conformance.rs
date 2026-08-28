@@ -411,7 +411,7 @@ fn paths_are_recorded_in_physical_pixels() {
 #[test]
 fn interactive_paths_hit_test_in_the_same_space_as_the_click() {
     use aurea_foundation::AureaResult;
-    use aurea_render::cpu::CpuDrawingContext;
+    use aurea_render::cpu::RecordingContext;
     use aurea_render::{DisplayList, InteractionRegistry, InteractiveId};
 
     let mut path = Path::new();
@@ -427,7 +427,7 @@ fn interactive_paths_hit_test_in_the_same_space_as_the_click() {
 
     let mut list = DisplayList::new();
     {
-        let mut ctx = CpuDrawingContext::new(&mut list, 64, 64);
+        let mut ctx = RecordingContext::new(&mut list, 64, 64);
         ctx.set_scale_factor(2.0);
         ctx.set_interactive_id(Some(InteractiveId(7)));
         ctx.draw_path(&path, &fill(RED)).expect("draw_path");

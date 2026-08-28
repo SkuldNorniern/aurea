@@ -1,4 +1,4 @@
-//! CPU drawing context that records commands into a display list.
+//! Records draw calls into a display list.
 
 use super::super::display_list::{CacheKey, DisplayItem, DisplayList, NodeId};
 use super::super::renderer::DrawingContext;
@@ -22,8 +22,8 @@ struct DrawingState {
     blend_mode: BlendMode,
 }
 
-/// Context that records drawing commands into a display list for the CPU rasterizer.
-pub struct CpuDrawingContext {
+/// Records drawing commands into a display list.
+pub struct RecordingContext {
     display_list: *mut DisplayList,
     next_node_id: u64,
     state_stack: Vec<DrawingState>,
@@ -82,7 +82,7 @@ fn hash_path(path: &Path, hasher: &mut DefaultHasher) {
     }
 }
 
-impl CpuDrawingContext {
+impl RecordingContext {
     /// Creates a context that appends display items to the given display list.
     pub fn new(display_list: *mut DisplayList, width: u32, height: u32) -> Self {
         Self {
@@ -474,7 +474,7 @@ impl CpuDrawingContext {
     }
 }
 
-impl DrawingContext for CpuDrawingContext {
+impl DrawingContext for RecordingContext {
     fn width(&self) -> u32 {
         self.width
     }
@@ -724,8 +724,8 @@ impl DrawingContext for CpuDrawingContext {
 mod tests {
     use super::*;
 
-    fn ctx_with(list: &mut DisplayList, scale: f32) -> CpuDrawingContext {
-        let mut ctx = CpuDrawingContext::new(list, 100, 100);
+    fn ctx_with(list: &mut DisplayList, scale: f32) -> RecordingContext {
+        let mut ctx = RecordingContext::new(list, 100, 100);
         ctx.set_scale_factor(scale);
         ctx
     }

@@ -11,7 +11,7 @@ pub use frame_plan::FramePlan;
 use aurea_foundation::AureaResult;
 
 use crate::batch::RenderBatches;
-use crate::cpu::CpuDrawingContext;
+use crate::cpu::RecordingContext;
 use crate::display_list::DisplayList;
 use crate::numeric::f32_to_u32_clamped;
 use crate::renderer::{DrawingContext, Renderer};
@@ -90,7 +90,7 @@ impl<B: Gpu2dBackend + Send + Sync> Renderer for Gpu2dRenderer<B> {
         self.backend.begin_frame()?;
         self.texture_cache.prune_dropped(&mut self.backend);
         self.display_list.clear();
-        let mut ctx = CpuDrawingContext::new(
+        let mut ctx = RecordingContext::new(
             &mut self.display_list as *mut DisplayList,
             self.logical_width,
             self.logical_height,

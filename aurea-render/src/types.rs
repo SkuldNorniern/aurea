@@ -82,7 +82,7 @@ impl Default for Paint {
     }
 }
 
-/// Aurea's native rendering backend.
+/// Which renderer draws a canvas.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum RendererBackend {
     /// CPU rasterizer (tile-based, display list, partial redraw).
