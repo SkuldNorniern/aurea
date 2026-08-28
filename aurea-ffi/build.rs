@@ -1,6 +1,7 @@
 use cc::Build;
 use pkg_config::Config as PkgConfig;
 use std::env;
+use std::fs::read_dir;
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 
@@ -29,6 +30,33 @@ fn main() {
     fn rerun_for(root: &Path, paths: &[&str]) {
         for path in paths {
             println!("cargo:rerun-if-changed={}", root.join(path).display());
+        }
+    }
+
+    /// Watches a whole directory tree of native sources and headers.
+    ///
+    /// Listing only the `.c` files meant a header edit rebuilt nothing: a
+    /// constant could be corrected and the stale object file kept, so the fix
+    /// appeared not to work.
+    fn rerun_for_tree(root: &Path, dir: &str) {
+        let base = root.join(dir);
+        println!("cargo:rerun-if-changed={}", base.display());
+        let Ok(entries) = read_dir(&base) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                    continue;
+                };
+                rerun_for_tree(&base, name);
+            } else if matches!(
+                path.extension().and_then(|e| e.to_str()),
+                Some("c" | "h" | "m" | "mm")
+            ) {
+                println!("cargo:rerun-if-changed={}", path.display());
+            }
         }
     }
 
@@ -257,10 +285,17 @@ fn main() {
         "native/platform/linux/elements.h",
     ];
 
-    rerun_for(&root, common_headers);
-    rerun_for(&root, windows_headers);
-    rerun_for(&root, macos_headers);
-    rerun_for(&root, linux_headers);
+    // Every native source and header, not a hand-kept list. A missing entry
+    // is invisible until an edit to that file quietly changes nothing:
+    // `elements/common.h` was absent, so correcting a constant in it kept the
+    // stale object and the fix looked like it had failed.
+    rerun_for_tree(&root, "native");
+    let _ = (
+        common_headers,
+        windows_headers,
+        macos_headers,
+        linux_headers,
+    );
 }
 
 /// Probes for GTK3 (and optionally X11-XCB) via pkg-config and configures
