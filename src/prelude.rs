@@ -13,7 +13,12 @@ pub use crate::elements::{
 
 pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
 
-pub use crate::render::{Canvas, Color, DrawingContext, Point, Rect, RendererBackend};
+pub use crate::render::{
+    Canvas, Color, DrawingContext, Paint, PaintStyle, Point, Rect, RendererBackend,
+};
+
+/// Plots and scope views.
+pub use crate::render::graph;
 
 pub use crate::{AureaError, AureaResult};
 

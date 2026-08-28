@@ -3,6 +3,8 @@
 mod buffer;
 mod numeric;
 mod plot;
+pub mod prelude;
+pub mod quick;
 mod scale;
 mod scope;
 mod series;
