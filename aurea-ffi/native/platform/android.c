@@ -66,14 +66,14 @@ NGHandle ng_platform_create_split_view(int is_vertical) {
 int ng_platform_split_view_add(NGHandle _split, NGHandle _element) {
     (void)_split;
     (void)_element;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_split_view_set_divider_position(NGHandle _split, int _index, float _pos) {
     (void)_split;
     (void)_index;
     (void)_pos;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 void ng_platform_text_editor_invalidate(NGHandle _h) {
@@ -168,19 +168,19 @@ int ng_platform_window_get_wayland_handle(NGHandle _window, void** _surface, voi
 int ng_platform_attach_menu(NGHandle _window, NGMenuHandle _menu) {
     (void)_window;
     (void)_menu;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_add_menu_item(NGMenuHandle _menu, const char* _title, unsigned int _id) {
     (void)_menu;
     (void)_title;
     (void)_id;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_add_menu_separator(NGMenuHandle _menu) {
     (void)_menu;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 NGMenuHandle ng_platform_create_submenu(NGMenuHandle _parentMenu, const char* _title) {
@@ -190,11 +190,11 @@ NGMenuHandle ng_platform_create_submenu(NGMenuHandle _parentMenu, const char* _t
 }
 
 int ng_platform_run(void) {
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_poll_events(void) {
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_set_window_content(NGHandle window, NGHandle content) {
@@ -221,7 +221,7 @@ int ng_platform_box_add(NGHandle box, NGHandle element, float weight) {
     (void)box;
     (void)element;
     (void)weight;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 NGHandle ng_platform_create_text_editor(unsigned int _id) {
@@ -241,7 +241,7 @@ int ng_platform_set_text_content(NGHandle _text_handle, const char* _content) {
     // TODO: Implement for Android
     (void)_text_handle;
     (void)_content;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 char* ng_platform_get_text_content(NGHandle _text_handle) {
@@ -349,7 +349,7 @@ NGHandle ng_platform_create_slider(double _min, double _max) {
 int ng_platform_slider_set_value(NGHandle _s, double _v) {
     (void)_s;
     (void)_v;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 double ng_platform_slider_get_value(NGHandle _s) {
@@ -360,7 +360,7 @@ double ng_platform_slider_get_value(NGHandle _s) {
 int ng_platform_slider_set_enabled(NGHandle _s, int _e) {
     (void)_s;
     (void)_e;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 void ng_platform_slider_invalidate(NGHandle _s) {
@@ -375,7 +375,7 @@ NGHandle ng_platform_create_checkbox(const char* _label) {
 int ng_platform_checkbox_set_checked(NGHandle _c, int _v) {
     (void)_c;
     (void)_v;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_checkbox_get_checked(NGHandle _c) {
@@ -386,7 +386,7 @@ int ng_platform_checkbox_get_checked(NGHandle _c) {
 int ng_platform_checkbox_set_enabled(NGHandle _c, int _e) {
     (void)_c;
     (void)_e;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 void ng_platform_checkbox_invalidate(NGHandle _c) {
@@ -400,19 +400,19 @@ NGHandle ng_platform_create_progress_bar(void) {
 int ng_platform_progress_bar_set_value(NGHandle _p, double _v) {
     (void)_p;
     (void)_v;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_progress_bar_set_indeterminate(NGHandle _p, int _i) {
     (void)_p;
     (void)_i;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_progress_bar_set_enabled(NGHandle _p, int _e) {
     (void)_p;
     (void)_e;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 void ng_platform_progress_bar_invalidate(NGHandle _p) {
@@ -426,13 +426,13 @@ NGHandle ng_platform_create_combo_box(void) {
 int ng_platform_combo_box_add_item(NGHandle _c, const char* _item) {
     (void)_c;
     (void)_item;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_combo_box_set_selected(NGHandle _c, int _i) {
     (void)_c;
     (void)_i;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_combo_box_get_selected(NGHandle _c) {
@@ -442,13 +442,13 @@ int ng_platform_combo_box_get_selected(NGHandle _c) {
 
 int ng_platform_combo_box_clear(NGHandle _c) {
     (void)_c;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_combo_box_set_enabled(NGHandle _c, int _e) {
     (void)_c;
     (void)_e;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 void ng_platform_combo_box_invalidate(NGHandle _c) {
@@ -463,19 +463,19 @@ NGHandle ng_platform_create_tab_bar(unsigned int _id) {
 int ng_platform_tab_bar_add_tab(NGHandle _t, const char* _title) {
     (void)_t;
     (void)_title;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_tab_bar_remove_tab(NGHandle _t, int _i) {
     (void)_t;
     (void)_i;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_tab_bar_set_selected(NGHandle _t, int _i) {
     (void)_t;
     (void)_i;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_tab_bar_get_selected(NGHandle _t) {
@@ -495,20 +495,20 @@ NGHandle ng_platform_create_sidebar_list(unsigned int _id) {
 int ng_platform_sidebar_list_add_section(NGHandle _s, const char* _title) {
     (void)_s;
     (void)_title;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_sidebar_list_add_item(NGHandle _s, const char* _title, int _indent) {
     (void)_s;
     (void)_title;
     (void)_indent;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_sidebar_list_set_selected(NGHandle _s, int _i) {
     (void)_s;
     (void)_i;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_sidebar_list_get_selected(NGHandle _s) {
@@ -518,7 +518,7 @@ int ng_platform_sidebar_list_get_selected(NGHandle _s) {
 
 int ng_platform_sidebar_list_clear(NGHandle _s) {
     (void)_s;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 void ng_platform_sidebar_list_invalidate(NGHandle _s) {
