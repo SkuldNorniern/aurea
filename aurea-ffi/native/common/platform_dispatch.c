@@ -32,10 +32,10 @@ static void ensure_ops(void) {
 #endif
 }
 
-#define DISPATCH_INIT(ret, name, ...) do { ensure_ops(); if (!g_ops->name) return (ret)(0); return g_ops->name(__VA_ARGS__); } while(0)
-#define DISPATCH_INIT_DEFAULT(ret, def, name, ...) do { ensure_ops(); if (!g_ops->name) return (ret)(def); return g_ops->name(__VA_ARGS__); } while(0)
-#define DISPATCH_VOID(name, ...) do { ensure_ops(); if (g_ops->name) g_ops->name(__VA_ARGS__); } while(0)
-#define DISPATCH_INT(name, ...) do { ensure_ops(); return g_ops->name ? g_ops->name(__VA_ARGS__) : NG_ERROR_PLATFORM_SPECIFIC; } while(0)
+#define DISPATCH_INIT(ret, name, ...) do { ensure_ops(); if (!g_ops || !g_ops->name) return (ret)(0); return g_ops->name(__VA_ARGS__); } while(0)
+#define DISPATCH_INIT_DEFAULT(ret, def, name, ...) do { ensure_ops(); if (!g_ops || !g_ops->name) return (ret)(def); return g_ops->name(__VA_ARGS__); } while(0)
+#define DISPATCH_VOID(name, ...) do { ensure_ops(); if (g_ops && g_ops->name) g_ops->name(__VA_ARGS__); } while(0)
+#define DISPATCH_INT(name, ...) do { ensure_ops(); return (g_ops && g_ops->name) ? g_ops->name(__VA_ARGS__) : NG_ERROR_PLATFORM_SPECIFIC; } while(0)
 
 int ng_platform_init(void) {
     ensure_ops();
