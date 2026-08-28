@@ -17,10 +17,9 @@ const TOP_MARGIN: f32 = 0.0;
 
 fn main() -> AureaResult<()> {
     let mut window = Window::new("Font Kit", W as i32, H as i32)?;
-    let mut canvas = Canvas::new(W, H, RendererBackend::Cpu)?;
+    let canvas = Canvas::new(W, H, RendererBackend::Cpu)?;
     canvas.set_background_color(Color::rgb(252, 250, 248));
-    canvas.set_draw_callback(|ctx| draw_fontkit(ctx))?;
-    canvas.draw(|ctx| draw_fontkit(ctx))?;
+    canvas.set_draw_callback(draw_fontkit)?;
 
     let mut main_box = Stack::new(Orientation::Vertical)?;
     main_box.add_weighted(canvas, 1.0)?;

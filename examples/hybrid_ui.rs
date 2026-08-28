@@ -21,10 +21,12 @@ fn main() -> AureaResult<()> {
     let mut window = Window::new("Hybrid UI Demo - Native + Canvas", 800, 600)?;
 
     // Create canvas with CPU rasterizer
-    let mut canvas = Canvas::new(CANVAS_WIDTH, CANVAS_HEIGHT, RendererBackend::Cpu)?;
+    let canvas = Canvas::new(CANVAS_WIDTH, CANVAS_HEIGHT, RendererBackend::Cpu)?;
 
-    // Draw initial canvas content (Shapes mode)
-    canvas.draw(|ctx| {
+    // Retained, not an immediate draw: the window resizes the canvas when it
+    // takes the layout as content, and with nothing to redraw from the canvas
+    // would come up blank.
+    canvas.set_draw_callback(|ctx| {
         // Clear with light background
         ctx.clear(Color::rgb(245, 245, 250))?;
 

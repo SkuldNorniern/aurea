@@ -37,7 +37,7 @@ fn main() -> AureaResult<()> {
     // Content area (canvas for web content) - fills remaining space
     info!("Creating content canvas");
     // Canvas will expand to fill available space via layout constraints
-    let mut content_canvas = Canvas::new(1200, 600, RendererBackend::Cpu)?;
+    let content_canvas = Canvas::new(1200, 600, RendererBackend::Cpu)?;
 
     // Create viewport for scrollable web content
     // Viewport size will match canvas size
@@ -45,7 +45,7 @@ fn main() -> AureaResult<()> {
     viewport.set_content_size(1200.0, 2000.0); // Content is taller than viewport
 
     // Render web content to canvas
-    render_web_content(&mut content_canvas, &viewport)?;
+    render_web_content(&content_canvas, &viewport)?;
 
     main_layout.add(content_canvas)?;
 
@@ -105,10 +105,15 @@ fn create_tabs() -> AureaResult<Stack> {
 }
 
 /// Render web content to the canvas (only the actual web page content)
-fn render_web_content(canvas: &mut Canvas, viewport: &Viewport) -> AureaResult<()> {
+///
+/// Retained, not an immediate `draw`: the window resizes the canvas when it
+/// takes the layout as content, which reallocates the buffer. With nothing to
+/// redraw from, the page would come up blank.
+fn render_web_content(canvas: &Canvas, viewport: &Viewport) -> AureaResult<()> {
     debug!("Rendering web content to canvas");
 
-    canvas.draw(|ctx| {
+    let viewport = viewport.clone();
+    canvas.set_draw_callback(move |ctx| {
         // Clear with white background (typical web page background)
         ctx.clear(Color::rgb(255, 255, 255))?;
 
@@ -122,7 +127,7 @@ fn render_web_content(canvas: &mut Canvas, viewport: &Viewport) -> AureaResult<(
         ctx.restore()?;
 
         // Render scrollbar (outside viewport transform)
-        render_scrollbar(ctx, viewport)?;
+        render_scrollbar(ctx, &viewport)?;
 
         Ok(())
     })?;
