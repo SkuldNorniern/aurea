@@ -61,6 +61,8 @@ pub struct DisplayItem {
     pub interactive_id: Option<super::types::InteractiveId>,
     /// Blend mode when compositing this item.
     pub blend_mode: super::types::BlendMode,
+    /// Active clip when this item was recorded, in physical pixels.
+    pub clip: Option<Rect>,
     /// The actual draw command.
     pub command: super::command::DrawCommand,
 }
@@ -82,8 +84,16 @@ impl DisplayItem {
             opaque,
             interactive_id: None,
             blend_mode,
+            clip: None,
             command,
         }
+    }
+
+    /// Sets the clip this item was recorded under.
+    #[must_use]
+    pub fn with_clip(mut self, clip: Option<Rect>) -> Self {
+        self.clip = clip;
+        self
     }
 
     /// Create a new interactive display item.
@@ -103,6 +113,7 @@ impl DisplayItem {
             opaque,
             interactive_id: Some(interactive_id),
             blend_mode,
+            clip: None,
             command,
         }
     }

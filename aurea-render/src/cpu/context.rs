@@ -18,6 +18,7 @@ struct DrawingState {
     transform: Transform,
     opacity: f32,
     clip: Option<Path>,
+    clip_rect: Option<Rect>,
     blend_mode: BlendMode,
 }
 
@@ -29,11 +30,20 @@ pub struct CpuDrawingContext {
     current_transform: Transform,
     current_opacity: f32,
     current_clip: Option<Path>,
+    current_clip_rect: Option<Rect>,
     current_blend_mode: BlendMode,
     scale_factor: f32,
     current_interactive_id: Option<super::super::types::InteractiveId>,
     width: u32,
     height: u32,
+}
+
+fn intersect_rects(a: Rect, b: Rect) -> Rect {
+    let x0 = a.x.max(b.x);
+    let y0 = a.y.max(b.y);
+    let x1 = (a.x + a.width).min(b.x + b.width);
+    let y1 = (a.y + a.height).min(b.y + b.height);
+    Rect::new(x0, y0, (x1 - x0).max(0.0), (y1 - y0).max(0.0))
 }
 
 fn hash_path(path: &Path, hasher: &mut DefaultHasher) {
@@ -82,6 +92,7 @@ impl CpuDrawingContext {
             current_transform: Transform::identity(),
             current_opacity: 1.0,
             current_clip: None,
+            current_clip_rect: None,
             current_blend_mode: BlendMode::Normal,
             scale_factor: 1.0,
             current_interactive_id: None,
@@ -439,6 +450,7 @@ impl CpuDrawingContext {
         self.next_node_id += 1;
 
         let blend = self.current_blend_mode;
+        let clip = self.current_clip_rect;
         let item = if let Some(interactive_id) = self.current_interactive_id {
             DisplayItem::new_interactive(
                 node_id,
@@ -449,8 +461,9 @@ impl CpuDrawingContext {
                 blend,
                 command,
             )
+            .with_clip(clip)
         } else {
-            DisplayItem::new(node_id, cache_key, bounds, opaque, blend, command)
+            DisplayItem::new(node_id, cache_key, bounds, opaque, blend, command).with_clip(clip)
         };
 
         unsafe {
@@ -603,6 +616,7 @@ impl DrawingContext for CpuDrawingContext {
             transform,
             opacity,
             clip,
+            clip_rect: self.current_clip_rect,
             blend_mode: self.current_blend_mode,
         });
         Ok(())
@@ -613,6 +627,7 @@ impl DrawingContext for CpuDrawingContext {
             self.current_transform = state.transform;
             self.current_opacity = state.opacity;
             self.current_clip = state.clip;
+            self.current_clip_rect = state.clip_rect;
             self.current_blend_mode = state.blend_mode;
         }
 
@@ -644,6 +659,10 @@ impl DrawingContext for CpuDrawingContext {
             .push(PathCommand::LineTo(Point::new(r.x, r.y + r.height)));
         path.commands.push(PathCommand::Close);
         self.current_clip = Some(path);
+        self.current_clip_rect = Some(match self.current_clip_rect {
+            Some(current) => intersect_rects(current, r),
+            None => r,
+        });
         Ok(())
     }
 

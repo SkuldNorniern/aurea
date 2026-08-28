@@ -163,7 +163,6 @@ fn translate_moves_drawn_pixels() {
 }
 
 #[test]
-#[ignore = "the rasterizer does not yet honour the active clip"]
 fn clip_rect_suppresses_pixels_outside_the_clip() {
     let buf = render(|ctx| {
         ctx.clip_rect(Rect::new(8.0, 8.0, 8.0, 8.0))
@@ -210,4 +209,42 @@ fn restore_undoes_clip_and_alpha() {
     });
 
     assert_px(&buf, 12, 12, opaque(RED));
+}
+
+#[test]
+fn nested_clips_intersect() {
+    let buf = render(|ctx| {
+        ctx.clip_rect(Rect::new(4.0, 4.0, 12.0, 12.0))
+            .expect("clip_rect");
+        ctx.clip_rect(Rect::new(8.0, 0.0, 12.0, 12.0))
+            .expect("clip_rect");
+        ctx.draw_rect(Rect::new(0.0, 0.0, 32.0, 32.0), &fill(RED))
+            .expect("draw_rect");
+    });
+
+    // Intersection is x 8..16, y 4..12.
+    assert_px(&buf, 8, 4, opaque(RED));
+    assert_px(&buf, 15, 11, opaque(RED));
+    assert_px(&buf, 7, 4, 0);
+    assert_px(&buf, 8, 12, 0);
+}
+
+#[test]
+fn clip_applies_to_every_primitive() {
+    let clip = Rect::new(12.0, 12.0, 8.0, 8.0);
+
+    let circle = render(|ctx| {
+        ctx.clip_rect(clip).expect("clip_rect");
+        ctx.draw_circle(Point::new(16.0, 16.0), 14.0, &fill(RED))
+            .expect("draw_circle");
+    });
+    assert_px(&circle, 16, 16, opaque(RED));
+    assert_px(&circle, 16, 4, 0);
+
+    let cleared = render(|ctx| {
+        ctx.clip_rect(clip).expect("clip_rect");
+        ctx.clear(RED).expect("clear");
+    });
+    assert_px(&cleared, 16, 16, opaque(RED));
+    assert_px(&cleared, 0, 0, 0);
 }
