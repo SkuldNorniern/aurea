@@ -1,19 +1,24 @@
 //! Event queue for window-level events.
 
-use aurea_foundation::{EventCallback, WindowEvent, lock};
+use aurea_foundation::{WindowEvent, lock};
 use std::mem::{discriminant, take};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
+/// A window's pending native events.
+///
+/// Deliberately holds only events, not the callbacks that consume them: the
+/// platform can deliver an event from a thread that is not the UI thread (a
+/// render thread reporting a lost surface, for instance), so pushing has to be
+/// thread-safe. Dispatching to application callbacks is a UI-thread concern and
+/// lives in the `aurea` crate's thread-local registry.
 pub struct EventQueue {
     events: Mutex<Vec<WindowEvent>>,
-    callbacks: Mutex<Arc<Vec<EventCallback>>>,
 }
 
 impl EventQueue {
     pub fn new() -> Self {
         Self {
             events: Mutex::new(Vec::new()),
-            callbacks: Mutex::new(Arc::new(Vec::new())),
         }
     }
 
@@ -71,32 +76,6 @@ impl EventQueue {
     pub fn pop_all(&self) -> Vec<WindowEvent> {
         let mut events = lock(&self.events);
         take(&mut *events)
-    }
-
-    pub fn register_callback(&self, callback: EventCallback) {
-        let mut callbacks = lock(&self.callbacks);
-        let mut updated = (**callbacks).clone();
-        updated.push(callback);
-        *callbacks = Arc::new(updated);
-    }
-
-    pub fn process_events(&self) -> Vec<WindowEvent> {
-        let events = self.pop_all();
-        if events.is_empty() {
-            return Vec::new();
-        }
-
-        // Cheap Arc clone instead of cloning the whole callback Vec; the lock
-        // is still released before invoking callbacks (which may re-register).
-        let callbacks = lock(&self.callbacks).clone();
-
-        for event in &events {
-            for callback in callbacks.iter() {
-                callback(event.clone());
-            }
-        }
-
-        events
     }
 }
 

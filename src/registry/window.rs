@@ -1,26 +1,35 @@
+//! Per-window event queues and callbacks.
+//!
+//! The split here is deliberate. Event *queues* are global and thread-safe:
+//! the platform can report an event from a thread that is not the UI thread,
+//! so pushing must work from anywhere. Event *callbacks* are thread-local: they
+//! run on the UI thread and may capture windows and widgets, which belong to
+//! it.
+
 use super::handle_key;
 use crate::window::{WindowEvent, WindowId};
-use aurea_foundation::lock;
+use aurea_foundation::{EventCallback, lock};
 use aurea_runtime::EventQueue;
 use std::{
+    cell::RefCell,
     collections::HashMap,
     os::raw::c_void,
+    rc::Rc,
     sync::{Arc, LazyLock, Mutex, Weak},
 };
 
-type WindowUpdateCallback = Arc<dyn Fn(WindowId) + Send + Sync>;
-type WindowUpdateList = Arc<Mutex<Vec<WindowUpdateCallback>>>;
+type WindowUpdateCallback = Rc<dyn Fn(WindowId)>;
 
-static WINDOW_EVENT_QUEUES: LazyLock<Mutex<Vec<Weak<EventQueue>>>> =
-    LazyLock::new(|| Mutex::new(Vec::new()));
 static WINDOW_QUEUE_BY_HANDLE: LazyLock<Mutex<HashMap<usize, Weak<EventQueue>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
-static WINDOW_UPDATE_CALLBACKS: LazyLock<Mutex<HashMap<usize, WindowUpdateList>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
 
-pub fn register_global_event_queue(queue: &Arc<EventQueue>) {
-    let mut queues = lock(&WINDOW_EVENT_QUEUES);
-    queues.push(Arc::downgrade(queue));
+thread_local! {
+    /// Event handlers registered through `Window::on_event`, by window handle.
+    static WINDOW_EVENT_CALLBACKS: RefCell<HashMap<usize, Vec<EventCallback>>> =
+        RefCell::new(HashMap::new());
+    /// Per-frame update callbacks, by window handle.
+    static WINDOW_UPDATE_CALLBACKS: RefCell<HashMap<usize, Vec<WindowUpdateCallback>>> =
+        RefCell::new(HashMap::new());
 }
 
 pub fn register_event_queue(handle: *mut c_void, queue: &Arc<EventQueue>) {
@@ -34,27 +43,63 @@ pub fn unregister_event_queue(handle: *mut c_void) {
 }
 
 pub fn register_update_callbacks(handle: *mut c_void) {
-    let mut callbacks = lock(&WINDOW_UPDATE_CALLBACKS);
-    callbacks.insert(handle_key(handle), Arc::new(Mutex::new(Vec::new())));
+    WINDOW_UPDATE_CALLBACKS.with(|registry| {
+        registry.borrow_mut().insert(handle_key(handle), Vec::new());
+    });
 }
 
 pub fn unregister_update_callbacks(handle: *mut c_void) {
-    let mut callbacks = lock(&WINDOW_UPDATE_CALLBACKS);
-    callbacks.remove(&handle_key(handle));
+    WINDOW_UPDATE_CALLBACKS.with(|registry| {
+        registry.borrow_mut().remove(&handle_key(handle));
+    });
 }
 
-pub fn register_update_callback(
-    handle: *mut c_void,
-    callback: impl Fn(WindowId) + Send + Sync + 'static,
-) {
-    let callbacks = {
-        let callbacks = lock(&WINDOW_UPDATE_CALLBACKS);
-        callbacks.get(&handle_key(handle)).cloned()
-    };
+pub fn register_update_callback(handle: *mut c_void, callback: impl Fn(WindowId) + 'static) {
+    WINDOW_UPDATE_CALLBACKS.with(|registry| {
+        if let Some(list) = registry.borrow_mut().get_mut(&handle_key(handle)) {
+            list.push(Rc::new(callback));
+        }
+    });
+}
 
-    if let Some(list) = callbacks {
-        let mut guard = lock(list.as_ref());
-        guard.push(Arc::new(callback));
+/// Registers an event handler for a window.
+pub fn register_event_callback(handle: *mut c_void, callback: EventCallback) {
+    WINDOW_EVENT_CALLBACKS.with(|registry| {
+        registry
+            .borrow_mut()
+            .entry(handle_key(handle))
+            .or_default()
+            .push(callback);
+    });
+}
+
+/// Drops every handler registered for a window.
+pub fn unregister_event_callbacks(handle: *mut c_void) {
+    WINDOW_EVENT_CALLBACKS.with(|registry| {
+        registry.borrow_mut().remove(&handle_key(handle));
+    });
+}
+
+/// Hands `events` to the window's registered handlers.
+///
+/// The handler list is cloned out before any handler runs, so a handler is free
+/// to register another one without upsetting the borrow.
+pub fn dispatch_window_events(handle: *mut c_void, events: &[WindowEvent]) {
+    if events.is_empty() {
+        return;
+    }
+    let callbacks = WINDOW_EVENT_CALLBACKS.with(|registry| {
+        registry
+            .borrow()
+            .get(&handle_key(handle))
+            .cloned()
+            .unwrap_or_default()
+    });
+
+    for event in events {
+        for callback in &callbacks {
+            callback(event.clone());
+        }
     }
 }
 
@@ -79,28 +124,31 @@ pub fn push_window_event(handle: *mut c_void, event: WindowEvent) {
 }
 
 pub fn process_all_window_events() {
-    let mut queues = lock(&WINDOW_EVENT_QUEUES);
-    queues.retain(|weak| {
-        if let Some(queue) = weak.upgrade() {
-            queue.process_events();
-            true
-        } else {
-            false
-        }
-    });
+    let live: Vec<(usize, Arc<EventQueue>)> = {
+        let mut by_handle = lock(&WINDOW_QUEUE_BY_HANDLE);
+        by_handle.retain(|_, weak| weak.strong_count() > 0);
+        by_handle
+            .iter()
+            .filter_map(|(handle, weak)| weak.upgrade().map(|queue| (*handle, queue)))
+            .collect()
+    };
+
+    // The lock is released before dispatching: a handler may create or destroy
+    // a window, which would otherwise re-enter it.
+    for (handle, queue) in live {
+        let events = queue.pop_all();
+        dispatch_window_events(handle as *mut c_void, &events);
+    }
 }
 
 pub fn process_all_window_updates() {
-    let callbacks = {
-        let registry = lock(&WINDOW_UPDATE_CALLBACKS);
+    let callbacks = WINDOW_UPDATE_CALLBACKS.with(|registry| {
         registry
+            .borrow()
             .iter()
-            .map(|(handle, list)| {
-                let list = lock(list.as_ref()).clone();
-                (WindowId::from_raw(*handle), list)
-            })
+            .map(|(handle, list)| (WindowId::from_raw(*handle), list.clone()))
             .collect::<Vec<_>>()
-    };
+    });
 
     for (window_id, list) in callbacks {
         for callback in list {
@@ -110,12 +158,13 @@ pub fn process_all_window_updates() {
 }
 
 pub fn process_window_updates(handle: *mut c_void) {
-    let callbacks = {
-        let registry = lock(&WINDOW_UPDATE_CALLBACKS);
-        registry.get(&handle_key(handle)).cloned()
-    }
-    .map(|list| lock(list.as_ref()).clone())
-    .unwrap_or_default();
+    let callbacks = WINDOW_UPDATE_CALLBACKS.with(|registry| {
+        registry
+            .borrow()
+            .get(&handle_key(handle))
+            .cloned()
+            .unwrap_or_default()
+    });
 
     let window_id = WindowId::from_handle(handle);
     for callback in callbacks {
