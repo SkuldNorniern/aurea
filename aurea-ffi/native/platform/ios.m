@@ -32,7 +32,7 @@ int ng_platform_attach_menu(NGHandle _window, NGMenuHandle _menu) {
     // iOS doesn't support menu bars
     (void)_window;
     (void)_menu;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_add_menu_item(NGMenuHandle _menu, const char* _title, unsigned int _id) {
@@ -40,7 +40,7 @@ int ng_platform_add_menu_item(NGMenuHandle _menu, const char* _title, unsigned i
     (void)_menu;
     (void)_title;
     (void)_id;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 NGMenuHandle ng_platform_create_submenu(NGMenuHandle _parentMenu, const char* _title) {
@@ -54,7 +54,7 @@ int ng_platform_run(void) {
     // iOS app runs via UIApplicationMain in main.m
     // This function should not be called on iOS
     // The event loop is managed by UIKit
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_set_window_content(NGHandle window, NGHandle content) {
@@ -94,7 +94,7 @@ int ng_platform_set_text_content(NGHandle _text_handle, const char* _content) {
     // TODO: Implement for iOS
     (void)_text_handle;
     (void)_content;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 char* ng_platform_get_text_content(NGHandle _text_handle) {
@@ -219,19 +219,19 @@ NGHandle ng_platform_create_tab_bar(unsigned int id) {
 int ng_platform_tab_bar_add_tab(NGHandle tab_bar, const char* title) {
     (void)tab_bar;
     (void)title;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_tab_bar_remove_tab(NGHandle tab_bar, int index) {
     (void)tab_bar;
     (void)index;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_tab_bar_set_selected(NGHandle tab_bar, int index) {
     (void)tab_bar;
     (void)index;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_tab_bar_get_selected(NGHandle tab_bar) {
@@ -251,20 +251,20 @@ NGHandle ng_platform_create_sidebar_list(unsigned int id) {
 int ng_platform_sidebar_list_add_section(NGHandle sidebar, const char* title) {
     (void)sidebar;
     (void)title;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_sidebar_list_add_item(NGHandle sidebar, const char* title, int indent) {
     (void)sidebar;
     (void)title;
     (void)indent;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_sidebar_list_set_selected(NGHandle sidebar, int index) {
     (void)sidebar;
     (void)index;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_sidebar_list_get_selected(NGHandle sidebar) {
@@ -274,7 +274,7 @@ int ng_platform_sidebar_list_get_selected(NGHandle sidebar) {
 
 int ng_platform_sidebar_list_clear(NGHandle sidebar) {
     (void)sidebar;
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
 }
 
 void ng_platform_sidebar_list_invalidate(NGHandle sidebar) {
