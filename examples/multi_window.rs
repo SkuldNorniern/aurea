@@ -4,12 +4,16 @@
 //! - Normal window (main application window)
 //! - Popup window (borderless, stays on top)
 //! - Tool window (floating tool palette)
-//! - Dialog window (modal dialog)
+//!
+//! Closing a secondary window destroys it. `CloseRequested` arrives after the
+//! platform has already closed the window, so there is no way to keep it and
+//! hide it instead — the buttons stop offering a window once it is gone.
 
 use aurea::elements::{Button, Container, Label, Orientation, Stack};
 use aurea::logger;
 use aurea::{AureaResult, Window, WindowEvent, WindowManager, WindowType};
 use log::LevelFilter;
+use std::cell::Cell;
 use std::ffi::c_void;
 use std::rc::Rc;
 use std::thread::sleep;
@@ -21,6 +25,11 @@ fn main() -> AureaResult<()> {
     });
 
     let manager = WindowManager::new();
+
+    // A closed window is destroyed, so `show()` cannot bring it back. Track
+    // that so the buttons do not claim to reopen something that is gone.
+    let popup_alive = Rc::new(Cell::new(true));
+    let tool_alive = Rc::new(Cell::new(true));
 
     // Create popup window first, set it up, then share it
     let mut popup = Window::with_type("Popup", 300, 200, WindowType::Popup)?;
@@ -36,7 +45,13 @@ fn main() -> AureaResult<()> {
 
     // Create main window, set it up with references to the others, then share it
     let mut main_window = Window::new("Main Window", 800, 600)?;
-    setup_main_window(&mut main_window, popup_arc.clone(), tool_arc.clone())?;
+    setup_main_window(
+        &mut main_window,
+        popup_arc.clone(),
+        tool_arc.clone(),
+        Rc::clone(&popup_alive),
+        Rc::clone(&tool_alive),
+    )?;
     let main_window_arc = Rc::new(main_window);
 
     // Register all windows
@@ -61,8 +76,9 @@ fn main() -> AureaResult<()> {
         let popup_events = popup_arc.poll_events();
         for event in popup_events {
             if let WindowEvent::CloseRequested = event {
-                println!("Popup close requested - hiding");
-                popup_arc.hide();
+                println!("Popup closed");
+                popup_alive.set(false);
+                manager.unregister(popup_arc.handle());
             }
         }
 
@@ -70,8 +86,9 @@ fn main() -> AureaResult<()> {
         let tool_events = tool_arc.poll_events();
         for event in tool_events {
             if let WindowEvent::CloseRequested = event {
-                println!("Tool window close requested - hiding");
-                tool_arc.hide();
+                println!("Tool window closed");
+                tool_alive.set(false);
+                manager.unregister(tool_arc.handle());
             }
         }
 
@@ -94,6 +111,8 @@ fn setup_main_window(
     window: &mut Window,
     popup_arc: Rc<Window>,
     tool_arc: Rc<Window>,
+    popup_alive: Rc<Cell<bool>>,
+    tool_alive: Rc<Cell<bool>>,
 ) -> AureaResult<()> {
     let mut main_box = Stack::new(Orientation::Vertical)?;
 
@@ -107,7 +126,9 @@ fn setup_main_window(
 
     let p_clone = popup_arc.clone();
     button_box.add(Button::with_callback("Open Popup", move || {
-        if p_clone.is_visible() {
+        if !popup_alive.get() {
+            println!("Popup was closed, it cannot be reopened");
+        } else if p_clone.is_visible() {
             println!("Open button clicked but it's already opened");
         } else {
             println!("Opening popup");
@@ -117,7 +138,9 @@ fn setup_main_window(
 
     let t_clone = tool_arc.clone();
     button_box.add(Button::with_callback("Open Tool", move || {
-        if t_clone.is_visible() {
+        if !tool_alive.get() {
+            println!("Tool window was closed, it cannot be reopened");
+        } else if t_clone.is_visible() {
             println!("Open button clicked but it's already opened");
         } else {
             println!("Opening tool");
