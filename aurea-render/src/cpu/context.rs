@@ -272,7 +272,7 @@ impl CpuDrawingContext {
             }
             super::super::command::DrawCommand::DrawGlyphMask(mask, origin, color) => {
                 "DrawGlyphMask".hash(&mut hasher);
-                (Arc::as_ptr(&mask.coverage) as *const u8 as usize).hash(&mut hasher);
+                mask.id().hash(&mut hasher);
                 mask.width.hash(&mut hasher);
                 mask.height.hash(&mut hasher);
                 origin.x.to_bits().hash(&mut hasher);
