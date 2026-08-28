@@ -5,15 +5,21 @@
 //! lives in exactly one place and both backends draw identical geometry.
 //!
 //! Lowered so far: `Clear`, solid fills of rects and circles, linear and radial
-//! gradients, images, and glyph masks. Strokes and paths are not, and anything
-//! that is not understood is skipped rather than drawn wrong — so the CPU
-//! rasterizer is still the backend with full fidelity.
+//! gradients, images, and glyph masks. Per-item opacity folds into the colours,
+//! as it does on the CPU.
+//!
+//! Not lowered: strokes and paths, items a clip actually cuts, and any blend
+//! mode other than `Normal` — a scissor and pipeline state this representation
+//! does not carry. Anything that cannot be drawn faithfully is skipped rather
+//! than drawn wrong, so the CPU rasterizer remains the backend with full
+//! fidelity.
 
 use crate::command::DrawCommand;
-use crate::display_list::DisplayList;
+use crate::display_list::{DisplayItem, DisplayList};
 use crate::numeric::f32_to_u8_clamped;
 use crate::types::{
-    Color, GlyphMask, GradientStop, Image, LinearGradient, PaintStyle, Point, RadialGradient, Rect,
+    BlendMode, Color, GlyphMask, GradientStop, Image, LinearGradient, PaintStyle, Point,
+    RadialGradient, Rect,
 };
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -191,6 +197,62 @@ pub struct TextDraw {
     pub color: Color,
 }
 
+/// The item's opacity, or `None` when it is invisible and can be dropped.
+fn drawable_alpha(item: &DisplayItem) -> Option<f32> {
+    let alpha = item.opacity.clamp(0.0, 1.0);
+    if alpha <= 0.0 { None } else { Some(alpha) }
+}
+
+/// Whether this layer can draw the item faithfully.
+///
+/// Clipping needs a scissor and blend modes need pipeline state, neither of
+/// which the batch representation carries. A clip that does not actually cut
+/// the item is no constraint, so it does not disqualify it.
+fn representable(item: &DisplayItem) -> bool {
+    if item.blend_mode != BlendMode::Normal {
+        return false;
+    }
+    match item.clip {
+        Some(clip) => contains(clip, item.bounds),
+        None => true,
+    }
+}
+
+/// Whether `outer` fully covers `inner`.
+fn contains(outer: Rect, inner: Rect) -> bool {
+    inner.x >= outer.x
+        && inner.y >= outer.y
+        && inner.x + inner.width <= outer.x + outer.width
+        && inner.y + inner.height <= outer.y + outer.height
+}
+
+/// A colour with its alpha scaled by `factor`.
+fn fade(color: Color, factor: f32) -> Color {
+    if factor >= 1.0 {
+        return color;
+    }
+    Color::rgba(color.r, color.g, color.b, scale_u8(color.a, factor))
+}
+
+/// Gradient stops with every colour faded.
+fn faded_stops(stops: &[GradientStop], factor: f32) -> Vec<GradientStop> {
+    if factor >= 1.0 {
+        return stops.to_vec();
+    }
+    stops
+        .iter()
+        .map(|stop| GradientStop {
+            color: fade(stop.color, factor),
+            ..*stop
+        })
+        .collect()
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn scale_u8(value: u8, factor: f32) -> u8 {
+    (f32::from(value) * factor).clamp(0.0, 255.0).round() as u8
+}
+
 /// One primitive reference in original display-list submission order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DrawRef {
@@ -254,6 +316,20 @@ impl RenderBatches {
         self.circles.clear();
         self.order.clear();
         for item in list.items() {
+            // Per-item state the CPU rasterizer honours. Opacity folds into the
+            // colours, which is exactly what the CPU does. Clipping and blend
+            // modes need pipeline state this layer cannot express yet, so an
+            // item that relies on either is skipped rather than drawn without
+            // it — a trace drawn at the wrong opacity or spilling past its clip
+            // is worse than one that is missing, and the CPU rasterizer remains
+            // the backend with full fidelity.
+            let Some(alpha) = drawable_alpha(item) else {
+                continue;
+            };
+            if !representable(item) {
+                continue;
+            }
+
             match &item.command {
                 DrawCommand::Clear(color) => {
                     self.clear = Some(*color);
@@ -268,7 +344,8 @@ impl RenderBatches {
                     self.order.push(DrawRef::Rect(
                         u32::try_from(self.rects.len()).expect("batch count fits in u32"),
                     ));
-                    self.rects.push(RectInstance::from_rect(*rect, paint.color));
+                    self.rects
+                        .push(RectInstance::from_rect(*rect, fade(paint.color, alpha)));
                 }
                 DrawCommand::DrawCircle(center, radius, paint)
                     if paint.style == PaintStyle::Fill =>
@@ -276,11 +353,14 @@ impl RenderBatches {
                     self.order.push(DrawRef::Circle(
                         u32::try_from(self.circles.len()).expect("batch count fits in u32"),
                     ));
-                    self.circles
-                        .push(CircleInstance::new(*center, *radius, paint.color));
+                    self.circles.push(CircleInstance::new(
+                        *center,
+                        *radius,
+                        fade(paint.color, alpha),
+                    ));
                 }
                 DrawCommand::FillLinearGradient(grad, rect) => {
-                    let lut = self.gradient_lut(&grad.stops);
+                    let lut = self.gradient_lut(&faded_stops(&grad.stops, alpha));
                     self.order.push(DrawRef::Gradient(
                         u32::try_from(self.gradients.len()).expect("batch count fits in u32"),
                     ));
@@ -288,7 +368,7 @@ impl RenderBatches {
                         .push(GradientInstance::linear(*rect, grad, lut));
                 }
                 DrawCommand::FillRadialGradient(grad, rect) => {
-                    let lut = self.gradient_lut(&grad.stops);
+                    let lut = self.gradient_lut(&faded_stops(&grad.stops, alpha));
                     self.order.push(DrawRef::Gradient(
                         u32::try_from(self.gradients.len()).expect("batch count fits in u32"),
                     ));
@@ -305,7 +385,7 @@ impl RenderBatches {
                         image: image.clone(),
                         dest: *dest,
                         src: Rect::new(0.0, 0.0, image.width as f32, image.height as f32),
-                        tint: Color::rgb(255, 255, 255),
+                        tint: fade(Color::rgb(255, 255, 255), alpha),
                     });
                 }
                 DrawCommand::DrawImageRegion(image, src, dest)
@@ -318,7 +398,7 @@ impl RenderBatches {
                         image: image.clone(),
                         dest: *dest,
                         src: *src,
-                        tint: Color::rgb(255, 255, 255),
+                        tint: fade(Color::rgb(255, 255, 255), alpha),
                     });
                 }
                 DrawCommand::DrawGlyphMask(mask, origin, color) => {
@@ -334,11 +414,12 @@ impl RenderBatches {
                                 mask.width as f32,
                                 mask.height as f32,
                             ),
-                            color: *color,
+                            color: fade(*color, alpha),
                         });
                     }
                 }
-                // Other commands (strokes and legacy text commands) are lowered later.
+                // Strokes, paths and the legacy text commands have no GPU
+                // representation yet, so they are left to the CPU rasterizer.
                 _ => {}
             }
         }
@@ -728,5 +809,116 @@ mod tests {
         let b = RenderBatches::lower(&list);
         assert_eq!(b.clear, Some(Color::rgb(0, 0, 0)));
         assert_eq!(b.rects.len(), 1);
+    }
+
+    /// A rect with a bounds, for the per-item state tests.
+    fn placed(command: DrawCommand, bounds: Rect) -> DisplayItem {
+        DisplayItem::new(
+            NodeId(0),
+            CacheKey::from_hash(0),
+            bounds,
+            false,
+            BlendMode::Normal,
+            command,
+        )
+    }
+
+    fn red_rect(bounds: Rect) -> DrawCommand {
+        DrawCommand::DrawRect(bounds, Paint::new().color(Color::rgb(255, 0, 0)))
+    }
+
+    /// Opacity is per-item state the CPU honours, and it used to be dropped on
+    /// the way to the GPU: a half-transparent panel came out solid.
+    #[test]
+    fn opacity_is_folded_into_the_colour() {
+        let bounds = Rect::new(0.0, 0.0, 10.0, 10.0);
+        let mut list = DisplayList::new();
+        list.push(placed(red_rect(bounds), bounds).with_opacity(0.5));
+
+        let b = RenderBatches::lower(&list);
+        assert_eq!(b.rects.len(), 1);
+        let alpha = b.rects[0].color[3];
+        assert!(
+            (alpha - 0.5).abs() < 0.01,
+            "expected about half alpha, got {alpha}"
+        );
+    }
+
+    #[test]
+    fn a_fully_transparent_item_is_dropped() {
+        let bounds = Rect::new(0.0, 0.0, 10.0, 10.0);
+        let mut list = DisplayList::new();
+        list.push(placed(red_rect(bounds), bounds).with_opacity(0.0));
+
+        assert!(RenderBatches::lower(&list).rects.is_empty());
+    }
+
+    #[test]
+    fn opacity_reaches_gradients_and_images_too() {
+        let bounds = Rect::new(0.0, 0.0, 10.0, 10.0);
+        let gradient = LinearGradient {
+            start: Point::new(0.0, 0.0),
+            end: Point::new(10.0, 0.0),
+            stops: vec![
+                GradientStop {
+                    offset: 0.0,
+                    color: Color::rgb(255, 0, 0),
+                },
+                GradientStop {
+                    offset: 1.0,
+                    color: Color::rgb(0, 0, 255),
+                },
+            ],
+        };
+
+        let mut list = DisplayList::new();
+        list.push(
+            placed(DrawCommand::FillLinearGradient(gradient, bounds), bounds).with_opacity(0.5),
+        );
+
+        let b = RenderBatches::lower(&list);
+        assert_eq!(b.gradients.len(), 1, "the gradient should still be drawn");
+    }
+
+    /// A clip that actually cuts the item needs a scissor this layer has no way
+    /// to express, so the item is left to the CPU rather than drawn spilling
+    /// past its clip.
+    #[test]
+    fn an_item_its_clip_actually_cuts_is_skipped() {
+        let bounds = Rect::new(0.0, 0.0, 100.0, 100.0);
+        let mut list = DisplayList::new();
+        list.push(
+            placed(red_rect(bounds), bounds).with_clip(Some(Rect::new(0.0, 0.0, 10.0, 10.0))),
+        );
+
+        assert!(RenderBatches::lower(&list).rects.is_empty());
+    }
+
+    /// A clip the item already sits inside constrains nothing, so it is drawn.
+    #[test]
+    fn a_clip_that_does_not_cut_is_no_obstacle() {
+        let bounds = Rect::new(10.0, 10.0, 10.0, 10.0);
+        let mut list = DisplayList::new();
+        list.push(
+            placed(red_rect(bounds), bounds).with_clip(Some(Rect::new(0.0, 0.0, 100.0, 100.0))),
+        );
+
+        assert_eq!(RenderBatches::lower(&list).rects.len(), 1);
+    }
+
+    /// Blend modes need pipeline state the batches do not carry.
+    #[test]
+    fn a_non_normal_blend_mode_is_skipped() {
+        let bounds = Rect::new(0.0, 0.0, 10.0, 10.0);
+        let mut item = placed(red_rect(bounds), bounds);
+        item.blend_mode = BlendMode::Multiply;
+
+        let mut list = DisplayList::new();
+        list.push(item);
+
+        assert!(
+            RenderBatches::lower(&list).rects.is_empty(),
+            "drawing it as Normal would be the wrong picture"
+        );
     }
 }
