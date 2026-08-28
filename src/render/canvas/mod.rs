@@ -12,6 +12,7 @@ use aurea_render::{
 use aurea_runtime::{DamageRegion, FrameScheduler};
 use aurea_runtime::{FrameInfo, TickerId};
 use std::os::raw::c_void;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 #[cfg(feature = "wgpu")]
 use wgpu::{Instance, Surface as WgpuSurface, SurfaceTarget};
@@ -181,6 +182,7 @@ impl Canvas {
             _cleanup: Arc::new(CanvasCleanup {
                 handle: handle_key(handle),
                 renderer: renderer_arc.clone(),
+                owns_native: AtomicBool::new(true),
             }),
         };
 
@@ -485,6 +487,12 @@ impl Canvas {
 }
 
 impl Element for Canvas {
+    fn released_to_parent(&self) {
+        // Clones share one cleanup, so this is recorded once for the canvas
+        // however many handles exist.
+        self._cleanup.owns_native.store(false, Ordering::Release);
+    }
+
     fn handle(&self) -> *mut c_void {
         self.handle
     }

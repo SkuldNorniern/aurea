@@ -3,6 +3,7 @@
 //! Requires linking a Swift library that provides `ng_macos_create_swiftui_host_impl`.
 //! See `examples/swiftui_host/` for the Swift implementation and build instructions.
 
+use super::native::NativeElement;
 use super::traits::Element;
 #[cfg(target_os = "macos")]
 use crate::ffi::*;
@@ -31,7 +32,7 @@ impl Error for SwiftUIHostNotAvailable {}
 /// Host element that embeds a SwiftUI view hierarchy inside an Aurea window.
 /// macOS only; returns `Err` on other platforms or when the Swift implementation is not linked.
 pub struct SwiftUIHost {
-    handle: *mut c_void,
+    handle: NativeElement,
 }
 
 impl SwiftUIHost {
@@ -50,7 +51,9 @@ impl SwiftUIHost {
             if handle.is_null() {
                 return Err(SwiftUIHostNotAvailable);
             }
-            Ok(Self { handle })
+            Ok(Self {
+                handle: NativeElement::new(handle),
+            })
         }
 
         #[cfg(not(target_os = "macos"))]
@@ -63,7 +66,11 @@ impl SwiftUIHost {
 
 impl Element for SwiftUIHost {
     fn handle(&self) -> *mut c_void {
-        self.handle
+        self.handle.handle()
+    }
+
+    fn released_to_parent(&self) {
+        self.handle.released_to_parent();
     }
 
     unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {

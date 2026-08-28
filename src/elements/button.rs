@@ -1,3 +1,4 @@
+use super::native::NativeElement;
 use super::traits::Element;
 use crate::registry::elements::{
     next_button_id, register_button_callback, unregister_button_callback,
@@ -7,7 +8,7 @@ use crate::{AureaError, AureaResult, ffi::*};
 use std::{ffi::CString, os::raw::c_void};
 
 pub struct Button {
-    handle: *mut c_void,
+    handle: NativeElement,
     _title: CString,
     _id: u32,
 }
@@ -33,7 +34,7 @@ impl Button {
         register_button_callback(id, callback);
 
         Ok(Self {
-            handle,
+            handle: NativeElement::new(handle),
             _title: title,
             _id: id,
         })
@@ -50,12 +51,16 @@ impl Button {
 
 impl Element for Button {
     fn handle(&self) -> *mut c_void {
-        self.handle
+        self.handle.handle()
+    }
+
+    fn released_to_parent(&self) {
+        self.handle.released_to_parent();
     }
 
     unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         unsafe {
-            ng_platform_button_invalidate(self.handle);
+            ng_platform_button_invalidate(self.handle.handle());
         }
     }
 }

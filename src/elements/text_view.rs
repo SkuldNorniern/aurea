@@ -1,3 +1,4 @@
+use super::native::NativeElement;
 use super::traits::Element;
 use crate::registry::elements::{
     next_text_view_id, register_text_view_callback, unregister_text_view_callback,
@@ -7,7 +8,7 @@ use crate::{AureaError, AureaResult, ffi::*};
 use std::{ffi::CStr, ffi::CString, os::raw::c_void};
 
 pub struct TextView {
-    handle: *mut c_void,
+    handle: NativeElement,
     _id: u32,
 }
 
@@ -30,7 +31,10 @@ impl TextView {
 
         register_text_view_callback(id, callback);
 
-        Ok(Self { handle, _id: id })
+        Ok(Self {
+            handle: NativeElement::new(handle),
+            _id: id,
+        })
     }
 
     /// Create a text view with initial content.
@@ -42,7 +46,8 @@ impl TextView {
 
     pub fn set_content(&mut self, content: &str) -> AureaResult<()> {
         let content = CString::new(content).map_err(|_| AureaError::InvalidTitle)?;
-        let result = unsafe { ng_platform_set_text_content(self.handle, content.as_ptr()) };
+        let result =
+            unsafe { ng_platform_set_text_content(self.handle.handle(), content.as_ptr()) };
 
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
@@ -52,7 +57,7 @@ impl TextView {
     }
 
     pub fn get_content(&self) -> AureaResult<String> {
-        let content_ptr = unsafe { ng_platform_get_text_content(self.handle) };
+        let content_ptr = unsafe { ng_platform_get_text_content(self.handle.handle()) };
 
         if content_ptr.is_null() {
             return Err(AureaError::ElementOperationFailed);
@@ -74,12 +79,16 @@ impl TextView {
 
 impl Element for TextView {
     fn handle(&self) -> *mut c_void {
-        self.handle
+        self.handle.handle()
+    }
+
+    fn released_to_parent(&self) {
+        self.handle.released_to_parent();
     }
 
     unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         unsafe {
-            ng_platform_text_view_invalidate(self.handle);
+            ng_platform_text_view_invalidate(self.handle.handle());
         }
     }
 }

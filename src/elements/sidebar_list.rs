@@ -2,6 +2,7 @@
 //!
 //! Displays section headers and indented clickable items with selection highlight.
 
+use super::native::NativeElement;
 use super::traits::Element;
 use crate::registry::elements::{
     next_sidebar_id, register_sidebar_callback, unregister_sidebar_callback,
@@ -11,7 +12,7 @@ use crate::{AureaError, AureaResult, ffi::*};
 use std::{ffi::CString, os::raw::c_void};
 
 pub struct SidebarList {
-    handle: *mut c_void,
+    handle: NativeElement,
     _id: u32,
 }
 
@@ -34,7 +35,10 @@ impl SidebarList {
 
         register_sidebar_callback(id, on_selected);
 
-        Ok(Self { handle, _id: id })
+        Ok(Self {
+            handle: NativeElement::new(handle),
+            _id: id,
+        })
     }
 
     /// Create a sidebar list and fill it with top-level items.
@@ -50,7 +54,8 @@ impl SidebarList {
 
     pub fn add_section(&mut self, title: &str) -> AureaResult<()> {
         let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
-        let result = unsafe { ng_platform_sidebar_list_add_section(self.handle, title.as_ptr()) };
+        let result =
+            unsafe { ng_platform_sidebar_list_add_section(self.handle.handle(), title.as_ptr()) };
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
         }
@@ -59,8 +64,9 @@ impl SidebarList {
 
     pub fn add_item(&mut self, title: &str, indent: i32) -> AureaResult<()> {
         let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
-        let result =
-            unsafe { ng_platform_sidebar_list_add_item(self.handle, title.as_ptr(), indent) };
+        let result = unsafe {
+            ng_platform_sidebar_list_add_item(self.handle.handle(), title.as_ptr(), indent)
+        };
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
         }
@@ -80,7 +86,7 @@ impl SidebarList {
     }
 
     pub fn set_selected(&mut self, index: i32) -> AureaResult<()> {
-        let result = unsafe { ng_platform_sidebar_list_set_selected(self.handle, index) };
+        let result = unsafe { ng_platform_sidebar_list_set_selected(self.handle.handle(), index) };
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
         }
@@ -88,11 +94,11 @@ impl SidebarList {
     }
 
     pub fn get_selected(&self) -> i32 {
-        unsafe { ng_platform_sidebar_list_get_selected(self.handle) }
+        unsafe { ng_platform_sidebar_list_get_selected(self.handle.handle()) }
     }
 
     pub fn clear(&mut self) -> AureaResult<()> {
-        let result = unsafe { ng_platform_sidebar_list_clear(self.handle) };
+        let result = unsafe { ng_platform_sidebar_list_clear(self.handle.handle()) };
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
         }
@@ -102,12 +108,16 @@ impl SidebarList {
 
 impl Element for SidebarList {
     fn handle(&self) -> *mut c_void {
-        self.handle
+        self.handle.handle()
+    }
+
+    fn released_to_parent(&self) {
+        self.handle.released_to_parent();
     }
 
     unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         unsafe {
-            ng_platform_sidebar_list_invalidate(self.handle);
+            ng_platform_sidebar_list_invalidate(self.handle.handle());
         }
     }
 }

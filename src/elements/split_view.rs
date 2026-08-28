@@ -1,3 +1,4 @@
+use super::native::NativeElement;
 use super::traits::{Container, Element};
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
@@ -14,7 +15,7 @@ pub enum SplitOrientation {
 
 /// A native split view container with a draggable divider.
 pub struct SplitView {
-    handle: *mut c_void,
+    handle: NativeElement,
     _orientation: SplitOrientation,
     _children: Vec<StdBox<dyn Any>>,
 }
@@ -34,7 +35,7 @@ impl SplitView {
         }
 
         Ok(Self {
-            handle,
+            handle: NativeElement::new(handle),
             _orientation: orientation,
             _children: Vec::new(),
         })
@@ -42,8 +43,9 @@ impl SplitView {
 
     /// Set the divider position for the given split index.
     pub fn set_divider_position(&self, index: i32, position: f32) -> AureaResult<()> {
-        let result =
-            unsafe { ng_platform_split_view_set_divider_position(self.handle, index, position) };
+        let result = unsafe {
+            ng_platform_split_view_set_divider_position(self.handle.handle(), index, position)
+        };
 
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
@@ -67,7 +69,11 @@ impl SplitView {
 
 impl Element for SplitView {
     fn handle(&self) -> *mut c_void {
-        self.handle
+        self.handle.handle()
+    }
+
+    fn released_to_parent(&self) {
+        self.handle.released_to_parent();
     }
 
     unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
@@ -78,7 +84,7 @@ impl Element for SplitView {
 
 impl Container for SplitView {
     fn add_weighted<E: Element + 'static>(&mut self, element: E, _weight: f32) -> AureaResult<()> {
-        let result = unsafe { ng_platform_split_view_add(self.handle, element.handle()) };
+        let result = unsafe { ng_platform_split_view_add(self.handle.handle(), element.handle()) };
 
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);

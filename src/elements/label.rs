@@ -1,10 +1,11 @@
+use super::native::NativeElement;
 use super::traits::Element;
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::{ffi::CString, os::raw::c_void};
 
 pub struct Label {
-    handle: *mut c_void,
+    handle: NativeElement,
     _text: CString,
 }
 
@@ -18,7 +19,7 @@ impl Label {
         }
 
         Ok(Self {
-            handle,
+            handle: NativeElement::new(handle),
             _text: text,
         })
     }
@@ -26,12 +27,16 @@ impl Label {
 
 impl Element for Label {
     fn handle(&self) -> *mut c_void {
-        self.handle
+        self.handle.handle()
+    }
+
+    fn released_to_parent(&self) {
+        self.handle.released_to_parent();
     }
 
     unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         unsafe {
-            ng_platform_label_invalidate(self.handle);
+            ng_platform_label_invalidate(self.handle.handle());
         }
     }
 }

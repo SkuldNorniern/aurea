@@ -1,10 +1,11 @@
+use super::native::NativeElement;
 use super::traits::Element;
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::{ffi::CString, os::raw::c_void};
 
 pub struct Checkbox {
-    handle: *mut c_void,
+    handle: NativeElement,
 }
 
 impl Checkbox {
@@ -21,14 +22,17 @@ impl Checkbox {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        let mut checkbox = Self { handle };
+        let mut checkbox = Self {
+            handle: NativeElement::new(handle),
+        };
         let _ = checkbox.set_checked(checked);
         Ok(checkbox)
     }
 
     pub fn set_checked(&mut self, checked: bool) -> AureaResult<()> {
-        let result =
-            unsafe { ng_platform_checkbox_set_checked(self.handle, if checked { 1 } else { 0 }) };
+        let result = unsafe {
+            ng_platform_checkbox_set_checked(self.handle.handle(), if checked { 1 } else { 0 })
+        };
 
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
@@ -38,12 +42,13 @@ impl Checkbox {
     }
 
     pub fn get_checked(&self) -> bool {
-        unsafe { ng_platform_checkbox_get_checked(self.handle) != 0 }
+        unsafe { ng_platform_checkbox_get_checked(self.handle.handle()) != 0 }
     }
 
     pub fn set_enabled(&mut self, enabled: bool) -> AureaResult<()> {
-        let result =
-            unsafe { ng_platform_checkbox_set_enabled(self.handle, if enabled { 1 } else { 0 }) };
+        let result = unsafe {
+            ng_platform_checkbox_set_enabled(self.handle.handle(), if enabled { 1 } else { 0 })
+        };
 
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
@@ -62,12 +67,16 @@ impl Checkbox {
 
 impl Element for Checkbox {
     fn handle(&self) -> *mut c_void {
-        self.handle
+        self.handle.handle()
+    }
+
+    fn released_to_parent(&self) {
+        self.handle.released_to_parent();
     }
 
     unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         unsafe {
-            ng_platform_checkbox_invalidate(self.handle);
+            ng_platform_checkbox_invalidate(self.handle.handle());
         }
     }
 }

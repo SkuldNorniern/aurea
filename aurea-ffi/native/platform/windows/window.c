@@ -143,6 +143,27 @@ void ng_windows_destroy_window(NGHandle handle) {
     DestroyWindow(hwnd);
 }
 
+void ng_windows_destroy_element(NGHandle element) {
+    if (!element) return;
+    /* Every element on Windows is an HWND, and DestroyWindow takes its child
+       windows with it. A container therefore frees its children, which is why
+       the Rust side hands ownership over when a child is added. */
+    HWND hwnd = (HWND)element;
+    if (!IsWindow(hwnd)) return;
+    DestroyWindow(hwnd);
+}
+
+int ng_windows_detach_element(NGHandle element) {
+    if (!element) return NG_ERROR_INVALID_HANDLE;
+    HWND hwnd = (HWND)element;
+    if (!IsWindow(hwnd)) return NG_ERROR_INVALID_HANDLE;
+    /* Reparenting to NULL makes it a top-level window, so hide it too:
+       an unparented control should not appear on the desktop. */
+    ShowWindow(hwnd, SW_HIDE);
+    if (!SetParent(hwnd, NULL)) return NG_ERROR_PLATFORM_SPECIFIC;
+    return NG_SUCCESS;
+}
+
 void ng_windows_window_show(NGHandle window) {
     if (!window) return;
     ShowWindow((HWND)window, SW_SHOW);
