@@ -9,9 +9,9 @@ use aurea_foundation::{AureaError, AureaResult};
 
 use zengpu_hal::{
     Acquire, Bindings, BufferHandle, ColorAttachment, DeviceRequest, FilterMode, Format, Frame,
-    GpuDevice, GpuError, GraphicsDevice, LoadOp, PipelineHandle, RenderCommands, RenderPassDesc,
-    SamplerDesc, SamplerHandle, Scalar, Surface, TexDim, TextureDesc, TextureHandle, TextureUsage,
-    Viewport, ViewportScissor, WindowHandles,
+    GpuDevice, GpuError, GraphicsDevice, LoadOp, PipelineHandle, Rect as HalRect, RenderCommands,
+    RenderPassDesc, SamplerDesc, SamplerHandle, Scalar, Surface, TexDim, TextureDesc,
+    TextureHandle, TextureUsage, Viewport, ViewportScissor, WindowHandles,
 };
 use zengpu_vulkan::instance::VulkanInstance;
 use zengpu_vulkan::{DeviceContext, VulkanCommandList, VulkanDevice, VulkanSurface};
@@ -71,11 +71,18 @@ struct FrameBuffers {
     text: Option<BufferHandle>,
 }
 
-fn coalesce_run(order: &[DrawRef], i: usize, mut keep: impl FnMut(&DrawRef, u32) -> bool) -> u32 {
+fn coalesce_run(
+    order: &[DrawRef],
+    clips: &[Option<Rect>],
+    i: usize,
+    mut keep: impl FnMut(&DrawRef, u32) -> bool,
+) -> u32 {
+    let clip = clips.get(i).copied().flatten();
     let mut count = 1u32;
     while order
         .get(i + count as usize)
         .is_some_and(|r| keep(r, count))
+        && clips.get(i + count as usize).copied().flatten() == clip
     {
         count += 1;
     }
@@ -234,18 +241,54 @@ impl ZenGpuBackend {
         cmd.draw(0..6, start..start + count);
     }
 
+    fn set_scissor(cmd: &mut VulkanCommandList, viewport: (f32, f32), clip: Option<Rect>) {
+        let (vw, vh) = viewport;
+        let scissor = clip.map(|c| {
+            let x = c.x.clamp(0.0, vw);
+            let y = c.y.clamp(0.0, vh);
+            HalRect {
+                x,
+                y,
+                width: (c.x + c.width).clamp(0.0, vw) - x,
+                height: (c.y + c.height).clamp(0.0, vh) - y,
+            }
+        });
+        cmd.set_viewport_scissor(ViewportScissor {
+            viewport: Viewport {
+                x: 0.0,
+                y: 0.0,
+                width: vw,
+                height: vh,
+                min_depth: 0.0,
+                max_depth: 1.0,
+            },
+            scissor,
+        });
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn record_ordered_draws(
         &self,
         cmd: &mut VulkanCommandList,
         order: &[DrawRef],
+        clips: &[Option<Rect>],
+        viewport: (f32, f32),
         buffers: &FrameBuffers,
         viewport_scalars: &[Scalar],
     ) {
         let mut i = 0;
+        let mut active_clip: Option<Option<Rect>> = None;
         while i < order.len() {
+            let clip = clips.get(i).copied().flatten();
+            if active_clip != Some(clip) {
+                Self::set_scissor(cmd, viewport, clip);
+                active_clip = Some(clip);
+            }
+
             match order[i] {
                 DrawRef::Rect(start) => {
-                    let count = coalesce_run(order, i, |r, n| *r == DrawRef::Rect(start + n));
+                    let count =
+                        coalesce_run(order, clips, i, |r, n| *r == DrawRef::Rect(start + n));
                     Self::draw_run(
                         cmd,
                         self.pipelines.rect,
@@ -258,7 +301,8 @@ impl ZenGpuBackend {
                     i += count as usize;
                 }
                 DrawRef::Circle(start) => {
-                    let count = coalesce_run(order, i, |r, n| *r == DrawRef::Circle(start + n));
+                    let count =
+                        coalesce_run(order, clips, i, |r, n| *r == DrawRef::Circle(start + n));
                     Self::draw_run(
                         cmd,
                         self.pipelines.circle,
@@ -272,7 +316,7 @@ impl ZenGpuBackend {
                 }
                 DrawRef::Gradient(start) => {
                     let slot = self.gradient_slot(start);
-                    let count = coalesce_run(order, i, |r, n| {
+                    let count = coalesce_run(order, clips, i, |r, n| {
                         *r == DrawRef::Gradient(start + n) && self.gradient_slot(start + n) == slot
                     });
                     Self::draw_run(
@@ -288,7 +332,7 @@ impl ZenGpuBackend {
                 }
                 DrawRef::Image(start) => {
                     let slot = self.image_slot(start);
-                    let count = coalesce_run(order, i, |r, n| {
+                    let count = coalesce_run(order, clips, i, |r, n| {
                         *r == DrawRef::Image(start + n) && self.image_slot(start + n) == slot
                     });
                     Self::draw_run(
@@ -304,7 +348,7 @@ impl ZenGpuBackend {
                 }
                 DrawRef::Text(start) => {
                     let slot = self.text_slot(start);
-                    let count = coalesce_run(order, i, |r, n| {
+                    let count = coalesce_run(order, clips, i, |r, n| {
                         *r == DrawRef::Text(start + n) && self.text_slot(start + n) == slot
                     });
                     Self::draw_run(
@@ -509,7 +553,14 @@ impl Gpu2dBackend for ZenGpuBackend {
             image: image_handle,
             text: text_handle,
         };
-        self.record_ordered_draws(&mut cmd, &plan.order, &buffers, &viewport_scalars);
+        self.record_ordered_draws(
+            &mut cmd,
+            &plan.order,
+            &plan.clips,
+            (vw, vh),
+            &buffers,
+            &viewport_scalars,
+        );
         self.record_external_images(&mut cmd, image_handle, ext_image_base, &viewport_scalars);
 
         cmd.end_render_pass();

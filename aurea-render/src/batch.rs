@@ -170,20 +170,7 @@ fn drawable_alpha(item: &DisplayItem) -> Option<f32> {
 }
 
 fn representable(item: &DisplayItem) -> bool {
-    if item.blend_mode != BlendMode::Normal {
-        return false;
-    }
-    match item.clip {
-        Some(clip) => contains(clip, item.bounds),
-        None => true,
-    }
-}
-
-fn contains(outer: Rect, inner: Rect) -> bool {
-    inner.x >= outer.x
-        && inner.y >= outer.y
-        && inner.x + inner.width <= outer.x + outer.width
-        && inner.y + inner.height <= outer.y + outer.height
+    item.blend_mode == BlendMode::Normal
 }
 
 fn fade(color: Color, factor: f32) -> Color {
@@ -238,6 +225,8 @@ pub struct RenderBatches {
     pub circles: Vec<CircleInstance>,
     /// Cross-kind painter order, indexing the per-kind instance arrays above.
     pub order: Vec<DrawRef>,
+    /// The clip for each entry in [`Self::order`], in physical pixels.
+    pub clips: Vec<Option<Rect>>,
     gradient_lut_cache: HashMap<u64, Weak<[u8]>>,
     text_mask_cache: HashMap<u64, Weak<[u8]>>,
 }
@@ -259,6 +248,7 @@ impl RenderBatches {
         self.texts.clear();
         self.circles.clear();
         self.order.clear();
+        self.clips.clear();
         for item in list.items() {
             let Some(alpha) = drawable_alpha(item) else {
                 continue;
@@ -276,6 +266,7 @@ impl RenderBatches {
                     self.texts.clear();
                     self.circles.clear();
                     self.order.clear();
+                    self.clips.clear();
                 }
                 DrawCommand::DrawRect(rect, paint) if paint.style == PaintStyle::Fill => {
                     self.order.push(DrawRef::Rect(
@@ -357,6 +348,8 @@ impl RenderBatches {
                 }
                 _ => {}
             }
+
+            self.clips.resize(self.order.len(), item.clip);
         }
     }
 
@@ -810,25 +803,43 @@ mod tests {
     }
 
     #[test]
-    fn an_item_its_clip_actually_cuts_is_skipped() {
+    fn a_clipped_item_is_drawn_and_carries_its_clip() {
         let bounds = Rect::new(0.0, 0.0, 100.0, 100.0);
+        let clip = Rect::new(0.0, 0.0, 10.0, 10.0);
         let mut list = DisplayList::new();
-        list.push(
-            placed(red_rect(bounds), bounds).with_clip(Some(Rect::new(0.0, 0.0, 10.0, 10.0))),
-        );
+        list.push(placed(red_rect(bounds), bounds).with_clip(Some(clip)));
 
-        assert!(RenderBatches::lower(&list).rects.is_empty());
+        let b = RenderBatches::lower(&list);
+        assert_eq!(b.rects.len(), 1, "the item should still be drawn");
+        assert_eq!(b.clips, vec![Some(clip)], "with its clip alongside");
     }
 
     #[test]
-    fn a_clip_that_does_not_cut_is_no_obstacle() {
+    fn an_unclipped_item_carries_no_clip() {
         let bounds = Rect::new(10.0, 10.0, 10.0, 10.0);
         let mut list = DisplayList::new();
-        list.push(
-            placed(red_rect(bounds), bounds).with_clip(Some(Rect::new(0.0, 0.0, 100.0, 100.0))),
-        );
+        list.push(placed(red_rect(bounds), bounds));
 
-        assert_eq!(RenderBatches::lower(&list).rects.len(), 1);
+        assert_eq!(RenderBatches::lower(&list).clips, vec![None]);
+    }
+
+    #[test]
+    fn every_draw_has_a_clip_entry() {
+        let bounds = Rect::new(0.0, 0.0, 10.0, 10.0);
+        let clip = Rect::new(0.0, 0.0, 5.0, 5.0);
+
+        let mut list = DisplayList::new();
+        list.push(placed(red_rect(bounds), bounds));
+        list.push(placed(red_rect(bounds), bounds).with_clip(Some(clip)));
+        list.push(placed(
+            DrawCommand::DrawRect(bounds, Paint::new().style(PaintStyle::Stroke)),
+            bounds,
+        ));
+        list.push(placed(red_rect(bounds), bounds));
+
+        let b = RenderBatches::lower(&list);
+        assert_eq!(b.order.len(), b.clips.len());
+        assert_eq!(b.clips, vec![None, Some(clip), None]);
     }
 
     #[test]

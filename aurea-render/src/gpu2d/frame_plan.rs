@@ -3,6 +3,7 @@
 use crate::types::Color;
 
 use crate::batch::DrawRef;
+use crate::types::Rect;
 
 /// A resolved gradient instance: LUT texture slot assigned.
 #[derive(Clone, Copy, Default)]
@@ -42,6 +43,8 @@ pub struct FramePlan {
     /// Painter-order draw stream (indices into per-kind arrays above or into the rect/circle arrays
     /// on the `RenderBatches` side, which the backend receives alongside this plan).
     pub order: Vec<DrawRef>,
+    /// The clip for each entry in [`Self::order`], in physical pixels.
+    pub clips: Vec<Option<Rect>>,
     /// Background clear colour, if any.
     pub clear: Option<Color>,
     /// Physical width/height for viewport setup.
@@ -60,6 +63,7 @@ impl FramePlan {
         self.images.clear();
         self.texts.clear();
         self.order.clear();
+        self.clips.clear();
         self.clear = None;
     }
 }
