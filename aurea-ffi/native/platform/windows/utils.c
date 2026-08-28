@@ -506,9 +506,30 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             break;
         }
         
-        case WM_DESTROY:
-            PostQuitMessage(0);
+        case WM_DESTROY: {
+            /* Drop the window from tracking, then quit only when the last one
+               is gone. Quitting on any window's destruction took the whole app
+               down as soon as a popup or tool window was closed. */
+            for (int i = 0; i < g_tracked_count; i++) {
+                if (g_tracked_windows[i] == hwnd) {
+                    int last = g_tracked_count - 1;
+                    g_tracked_windows[i] = g_tracked_windows[last];
+                    g_window_scale_callbacks[i] = g_window_scale_callbacks[last];
+                    g_lifecycle_callbacks[i] = g_lifecycle_callbacks[last];
+                    g_mouse_inside[i] = g_mouse_inside[last];
+                    g_tracked_windows[last] = NULL;
+                    g_window_scale_callbacks[last] = NULL;
+                    g_lifecycle_callbacks[last] = FALSE;
+                    g_mouse_inside[last] = FALSE;
+                    g_tracked_count--;
+                    break;
+                }
+            }
+            if (g_tracked_count == 0) {
+                PostQuitMessage(0);
+            }
             return 0;
+        }
     }
     return DefWindowProcA(hwnd, uMsg, wParam, lParam);
 }
