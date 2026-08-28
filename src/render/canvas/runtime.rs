@@ -124,10 +124,12 @@ fn render_frame(
         let mut r = lock(renderer);
         if let Some(ref mut r) = *r {
             r.set_damage(damage_rect);
-            let mut ctx = r.begin_frame()?;
-            ctx.clear(bg_color)?;
-            if let Some(ref cb) = draw_callback {
-                cb(ctx.as_mut())?;
+            {
+                let mut ctx = r.begin_frame()?;
+                ctx.clear(bg_color)?;
+                if let Some(ref cb) = draw_callback {
+                    cb(ctx.as_mut())?;
+                }
             }
             r.end_frame()?;
             r.last_frame_damage()

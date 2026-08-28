@@ -126,7 +126,8 @@ pub trait DrawingContext {
 pub trait Renderer: Send + Sync {
     fn init(&mut self, surface: Surface, info: SurfaceInfo) -> AureaResult<()>;
     fn resize(&mut self, width: u32, height: u32) -> AureaResult<()>;
-    fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext>>;
+    /// Starts a frame and hands back a context to record into.
+    fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext + '_>>;
     fn end_frame(&mut self) -> AureaResult<()>;
     fn cleanup(&mut self);
 
@@ -550,7 +551,7 @@ impl Renderer for PlaceholderRenderer {
         Ok(())
     }
 
-    fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext>> {
+    fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext + '_>> {
         self.commands.clear();
         COMMAND_BUFFER.with(|buf| {
             *buf.borrow_mut() = Some(&mut self.commands as *mut Vec<DrawCommand>);
