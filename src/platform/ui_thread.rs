@@ -1,19 +1,24 @@
 //! Which thread owns the native UI.
 
+use aurea_foundation::lock;
 use log::error;
-use std::sync::OnceLock;
+use std::sync::{LazyLock, Mutex};
 use std::thread::{ThreadId, current};
 
-static UI_THREAD: OnceLock<ThreadId> = OnceLock::new();
+static UI_THREAD: LazyLock<Mutex<Option<ThreadId>>> = LazyLock::new(|| Mutex::new(None));
 
 pub(crate) fn claim() {
-    let _ = UI_THREAD.set(current().id());
+    *lock(&UI_THREAD) = Some(current().id());
+}
+
+pub(crate) fn release() {
+    *lock(&UI_THREAD) = None;
 }
 
 /// Whether the calling thread owns the native UI.
 pub fn is_ui_thread() -> bool {
-    match UI_THREAD.get() {
-        Some(id) => *id == current().id(),
+    match *lock(&UI_THREAD) {
+        Some(id) => id == current().id(),
         None => true,
     }
 }
@@ -35,9 +40,27 @@ pub(crate) fn check(operation: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::thread;
 
     #[test]
     fn uninitialised_platform_accepts_any_thread() {
+        release();
         assert!(is_ui_thread());
+    }
+
+    #[test]
+    fn a_released_platform_can_be_claimed_by_another_thread() {
+        claim();
+        let claimed_elsewhere = thread::spawn(|| {
+            release();
+            claim();
+            is_ui_thread()
+        })
+        .join()
+        .expect("claiming thread panicked");
+
+        assert!(claimed_elsewhere, "the second thread should own the UI");
+        assert!(!is_ui_thread(), "the first thread should have lost it");
+        release();
     }
 }

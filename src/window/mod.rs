@@ -45,11 +45,13 @@ use std::{
     rc::Rc,
     sync::{
         Arc, Mutex, OnceLock,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 
 static WINDOW_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+static PLATFORM_READY: AtomicBool = AtomicBool::new(false);
 
 pub use crate::registry::window::{
     process_all_window_events, process_all_window_updates, push_window_event,
@@ -87,16 +89,22 @@ impl Window {
     ) -> AureaResult<Self> {
         const AUREA_FFI_ABI_VERSION: i32 = 2;
 
-        static INIT: OnceLock<Result<(), AureaError>> = OnceLock::new();
+        static ABI_CHECK: OnceLock<Result<(), AureaError>> = OnceLock::new();
 
-        INIT.get_or_init(|| {
-            let got = unsafe { ng_platform_get_abi_version() };
-            if got != AUREA_FFI_ABI_VERSION {
-                return Err(AureaError::AbiVersionMismatch {
-                    expected: AUREA_FFI_ABI_VERSION,
-                    got,
-                });
-            }
+        ABI_CHECK
+            .get_or_init(|| {
+                let got = unsafe { ng_platform_get_abi_version() };
+                if got != AUREA_FFI_ABI_VERSION {
+                    return Err(AureaError::AbiVersionMismatch {
+                        expected: AUREA_FFI_ABI_VERSION,
+                        got,
+                    });
+                }
+                Ok(())
+            })
+            .clone()?;
+
+        if !PLATFORM_READY.load(Ordering::Acquire) {
             if unsafe { ng_platform_init() } != 0 {
                 return Err(AureaError::PlatformError(1));
             }
@@ -104,9 +112,8 @@ impl Window {
                 unsafe { ng_platform_request_frame() };
             });
             ui_thread::claim();
-            Ok(())
-        })
-        .clone()?;
+            PLATFORM_READY.store(true, Ordering::Release);
+        }
 
         let platform = Platform::current();
         let capabilities = CapabilityChecker::new();
@@ -648,6 +655,8 @@ impl Drop for Window {
 
         if WINDOW_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
             unsafe { ng_platform_cleanup() };
+            PLATFORM_READY.store(false, Ordering::Release);
+            ui_thread::release();
         }
     }
 }
