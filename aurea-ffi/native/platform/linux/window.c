@@ -485,6 +485,33 @@ void ng_linux_destroy_window(NGHandle handle) {
     gtk_widget_destroy((GtkWidget*)handle);
 }
 
+void ng_linux_destroy_element(NGHandle element) {
+    if (!element) return;
+    GtkWidget* widget = (GtkWidget*)element;
+    if (!GTK_IS_WIDGET(widget)) return;
+    /* Destroys the widget and everything inside it, so a container frees its
+       children — which is why the Rust side hands ownership over when a child
+       is added, rather than freeing it twice. */
+    gtk_widget_destroy(widget);
+}
+
+int ng_linux_detach_element(NGHandle element) {
+    if (!element) return NG_ERROR_INVALID_HANDLE;
+    GtkWidget* widget = (GtkWidget*)element;
+    if (!GTK_IS_WIDGET(widget)) return NG_ERROR_INVALID_HANDLE;
+
+    GtkWidget* parent = gtk_widget_get_parent(widget);
+    if (!parent) return NG_SUCCESS;
+    if (!GTK_IS_CONTAINER(parent)) return NG_ERROR_PLATFORM_SPECIFIC;
+
+    /* gtk_container_remove drops the parent's reference, which would take the
+       widget with it. Hold one across the removal and hand it back to the
+       caller, who owns the widget again once it is unparented. */
+    g_object_ref(widget);
+    gtk_container_remove(GTK_CONTAINER(parent), widget);
+    return NG_SUCCESS;
+}
+
 void ng_linux_window_show(NGHandle window) {
     if (!window) return;
     gtk_widget_show(GTK_WIDGET(window));

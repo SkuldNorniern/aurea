@@ -384,3 +384,62 @@ fn embedding_creates_a_canvas() {
     assert!(!handle.is_null());
     aurea_embed_destroy_canvas(handle);
 }
+
+/// Ownership held over many create/drop cycles.
+///
+/// A double free or a leak usually survives one round trip and shows up under
+/// repetition, so this exercises the shapes that transfer ownership: a loose
+/// widget, an adopted one, nesting, and replacing a window's content.
+#[test]
+#[ignore = "creates native widgets; run with --ignored"]
+fn ownership_survives_repetition() -> AureaResult<()> {
+    use aurea::elements::{Button, Label};
+
+    let mut window = Window::new("stress", 300, 200)?;
+
+    for round in 0..200 {
+        // Created and dropped without ever being adopted: this one frees
+        // itself.
+        drop(Label::new("loose")?);
+
+        // Adopted, then the parent is dropped: the parent frees it.
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        stack.add(Button::new("adopted")?)?;
+        stack.add(Label::new("also adopted")?)?;
+        drop(stack);
+
+        // Nested containers, dropped from the outside in.
+        let mut outer = Stack::new(Orientation::Vertical)?;
+        let mut inner = Stack::new(Orientation::Horizontal)?;
+        inner.add(Label::new("deep")?)?;
+        outer.add(inner)?;
+        drop(outer);
+
+        // Replacing content destroys what was there before.
+        let mut content = Stack::new(Orientation::Vertical)?;
+        content.add(Label::new(&format!("round {round}"))?)?;
+        window.set_content(content)?;
+    }
+
+    // Still usable after all that.
+    window.set_title("done")?;
+    Ok(())
+}
+
+/// A canvas is reference counted, so the native element must be destroyed once
+/// when the last clone goes, not once per clone.
+#[test]
+#[ignore = "creates native widgets; run with --ignored"]
+fn canvas_clones_free_once() -> AureaResult<()> {
+    let _window = Window::new("canvas clones", 300, 200)?;
+
+    for _ in 0..100 {
+        let canvas = Canvas::new(64, 64, RendererBackend::Cpu)?;
+        let a = canvas.clone();
+        let b = canvas.clone();
+        drop(canvas);
+        drop(a);
+        drop(b);
+    }
+    Ok(())
+}
