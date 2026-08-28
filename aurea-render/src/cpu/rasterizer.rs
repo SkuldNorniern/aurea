@@ -10,6 +10,7 @@ use std::cmp::Ordering as CmpOrdering;
 
 use crate::command::DrawCommand;
 use crate::cpu::blend::{blend_pixel, linear_to_srgb_u8, srgb_to_linear};
+use crate::cpu::clip::ClipBox;
 use crate::cpu::context::CpuDrawingContext;
 use crate::cpu::path::{Edge, tessellate_path_into};
 use crate::cpu::scanline::fill_spans;
@@ -116,8 +117,16 @@ impl CpuRasterizer {
     // ── pixel helpers ────────────────────────────────────────────────────────
 
     #[inline]
-    fn buf_set(buf: &mut [u32], w: u32, x: i32, y: i32, color: u32, mode: BlendMode) {
-        if x < 0 || y < 0 {
+    fn buf_set(
+        buf: &mut [u32],
+        w: u32,
+        clip: ClipBox,
+        x: i32,
+        y: i32,
+        color: u32,
+        mode: BlendMode,
+    ) {
+        if !clip.contains(x, y) {
             return;
         }
         let idx = y.unsigned_abs() * w + x.unsigned_abs();
@@ -144,14 +153,17 @@ impl CpuRasterizer {
         scratch_row: &mut Vec<u32>,
         scratch_active: &mut Vec<usize>,
         bw: u32,
-        bh: u32,
+        clip: ClipBox,
     ) -> AureaResult<()> {
+        if clip.is_empty() {
+            return Ok(());
+        }
         match &item.command {
             DrawCommand::DrawRect(rect, paint) => {
-                Self::draw_rect(rect, paint, item.blend_mode, buf, bw, bh);
+                Self::draw_rect(rect, paint, item.blend_mode, buf, bw, clip);
             }
             DrawCommand::DrawCircle(center, radius, paint) => {
-                Self::draw_circle(*center, *radius, paint, item.blend_mode, buf, bw, bh);
+                Self::draw_circle(*center, *radius, paint, item.blend_mode, buf, bw, clip);
             }
             DrawCommand::DrawPath(path, paint) => {
                 Self::draw_path(
@@ -164,15 +176,24 @@ impl CpuRasterizer {
                     scratch_xs,
                     scratch_active,
                     bw,
-                    bh,
+                    clip,
                 )?;
             }
             DrawCommand::DrawGlyphMask(mask, origin, color) => {
-                Self::draw_glyph(mask, *origin, *color, buf, bw, bh);
+                Self::draw_glyph(mask, *origin, *color, buf, bw, clip);
             }
             DrawCommand::DrawImageRect(image, dest) => {
                 let src = Rect::new(0.0, 0.0, image.width as f32, image.height as f32);
-                Self::draw_image(image, src, *dest, item.blend_mode, buf, scratch_row, bw, bh);
+                Self::draw_image(
+                    image,
+                    src,
+                    *dest,
+                    item.blend_mode,
+                    buf,
+                    scratch_row,
+                    bw,
+                    clip,
+                );
             }
             DrawCommand::DrawImageRegion(image, src, dest) => {
                 Self::draw_image(
@@ -183,25 +204,33 @@ impl CpuRasterizer {
                     buf,
                     scratch_row,
                     bw,
-                    bh,
+                    clip,
                 );
             }
             DrawCommand::FillLinearGradient(grad, rect) => {
-                Self::fill_linear_gradient(grad, *rect, item.blend_mode, buf, bw, bh);
+                Self::fill_linear_gradient(grad, *rect, item.blend_mode, buf, bw, clip);
             }
             DrawCommand::FillRadialGradient(grad, rect) => {
-                Self::fill_radial_gradient(grad, *rect, item.blend_mode, buf, bw, bh);
+                Self::fill_radial_gradient(grad, *rect, item.blend_mode, buf, bw, clip);
             }
             _ => {}
         }
         Ok(())
     }
 
-    fn clear_rect(rect: &Rect, color: u32, buf: &mut [u32], bw: u32, bh: u32) {
-        let x0 = f32_to_u32_clamped(rect.x.floor().max(0.0).min(bw as f32));
-        let y0 = f32_to_u32_clamped(rect.y.floor().max(0.0).min(bh as f32));
-        let x1 = f32_to_u32_clamped((rect.x + rect.width).ceil().max(0.0).min(bw as f32));
-        let y1 = f32_to_u32_clamped((rect.y + rect.height).ceil().max(0.0).min(bh as f32));
+    fn clear_rect(rect: &Rect, color: u32, buf: &mut [u32], bw: u32, clip: ClipBox) {
+        let x0 = f32_to_u32_clamped(rect.x.floor().clamp(clip.left(), clip.right()));
+        let y0 = f32_to_u32_clamped(rect.y.floor().clamp(clip.top(), clip.bottom()));
+        let x1 = f32_to_u32_clamped(
+            (rect.x + rect.width)
+                .ceil()
+                .clamp(clip.left(), clip.right()),
+        );
+        let y1 = f32_to_u32_clamped(
+            (rect.y + rect.height)
+                .ceil()
+                .clamp(clip.top(), clip.bottom()),
+        );
 
         for y in y0..y1 {
             let start = (y * bw + x0) as usize;
@@ -210,18 +239,29 @@ impl CpuRasterizer {
         }
     }
 
-    fn draw_rect(rect: &Rect, paint: &Paint, mode: BlendMode, buf: &mut [u32], bw: u32, bh: u32) {
-        let x0 = f32_to_u32_clamped(rect.x.max(0.0)).min(bw);
-        let y0 = f32_to_u32_clamped(rect.y.max(0.0)).min(bh);
-        let x1 = f32_to_u32_clamped((rect.x + rect.width).ceil()).min(bw);
-        let y1 = f32_to_u32_clamped((rect.y + rect.height).ceil()).min(bh);
+    fn draw_rect(
+        rect: &Rect,
+        paint: &Paint,
+        mode: BlendMode,
+        buf: &mut [u32],
+        bw: u32,
+        clip: ClipBox,
+    ) {
+        let x0 = f32_to_u32_clamped(rect.x.max(clip.left())).min(clip.x1);
+        let y0 = f32_to_u32_clamped(rect.y.max(clip.top())).min(clip.y1);
+        let x1 = f32_to_u32_clamped((rect.x + rect.width).ceil().max(clip.left())).min(clip.x1);
+        let y1 = f32_to_u32_clamped((rect.y + rect.height).ceil().max(clip.top())).min(clip.y1);
         if x0 >= x1 || y0 >= y1 {
             return;
         }
 
         match paint.style {
-            PaintStyle::Fill => Self::fill_rect_region(rect, paint, mode, buf, bw, x0, y0, x1, y1),
-            PaintStyle::Stroke => Self::stroke_rect_region(paint, mode, buf, bw, x0, y0, x1, y1),
+            PaintStyle::Fill => {
+                Self::fill_rect_region(rect, paint, mode, buf, bw, clip, x0, y0, x1, y1)
+            }
+            PaintStyle::Stroke => {
+                Self::stroke_rect_region(paint, mode, buf, bw, clip, x0, y0, x1, y1)
+            }
         }
     }
 
@@ -232,6 +272,7 @@ impl CpuRasterizer {
         mode: BlendMode,
         buf: &mut [u32],
         bw: u32,
+        clip: ClipBox,
         x0: u32,
         y0: u32,
         x1: u32,
@@ -248,7 +289,7 @@ impl CpuRasterizer {
                 }
             }
         } else {
-            Self::fill_rect_region_translucent(rect, paint, mode, buf, bw, x0, y0, x1, y1);
+            Self::fill_rect_region_translucent(rect, paint, mode, buf, bw, clip, x0, y0, x1, y1);
         }
     }
 
@@ -263,6 +304,7 @@ impl CpuRasterizer {
         mode: BlendMode,
         buf: &mut [u32],
         bw: u32,
+        clip: ClipBox,
         x0: u32,
         y0: u32,
         x1: u32,
@@ -288,6 +330,7 @@ impl CpuRasterizer {
             .unsigned_abs();
 
         let ctx = RectFillCtx {
+            clip,
             paint,
             mode,
             xl,
@@ -337,13 +380,13 @@ impl CpuRasterizer {
                 buf[row_start + xi0 as usize..row_start + xi1 as usize].fill(ctx.c_full);
             } else {
                 for x in xi0..xi1 {
-                    Self::buf_set(buf, bw, x as i32, y as i32, ctx.c_full, ctx.mode);
+                    Self::buf_set(buf, bw, ctx.clip, x as i32, y as i32, ctx.c_full, ctx.mode);
                 }
             }
         } else {
             let c = color_to_u32_with_coverage(ctx.paint.color, row_cov);
             for x in xi0..xi1 {
-                Self::buf_set(buf, bw, x as i32, y as i32, c, ctx.mode);
+                Self::buf_set(buf, bw, ctx.clip, x as i32, y as i32, c, ctx.mode);
             }
         }
 
@@ -363,7 +406,7 @@ impl CpuRasterizer {
             let cov = rect_cov_x(x, ctx.xl, ctx.xr) * row_cov;
             if cov > 0.0 {
                 let c = color_to_u32_with_coverage(ctx.paint.color, cov);
-                Self::buf_set(buf, bw, x as i32, y as i32, c, ctx.mode);
+                Self::buf_set(buf, bw, ctx.clip, x as i32, y as i32, c, ctx.mode);
             }
         }
     }
@@ -374,6 +417,7 @@ impl CpuRasterizer {
         mode: BlendMode,
         buf: &mut [u32],
         bw: u32,
+        clip: ClipBox,
         x0: u32,
         y0: u32,
         x1: u32,
@@ -387,20 +431,20 @@ impl CpuRasterizer {
         // top/bottom rows
         for x in x0..x1 {
             for dy in 0..sw.min(y1 - y0) {
-                Self::buf_set(buf, bw, x as i32, (y0 + dy) as i32, c, mode);
+                Self::buf_set(buf, bw, clip, x as i32, (y0 + dy) as i32, c, mode);
                 let bot = (y1 - 1).saturating_sub(dy);
                 if bot >= y0 {
-                    Self::buf_set(buf, bw, x as i32, bot as i32, c, mode);
+                    Self::buf_set(buf, bw, clip, x as i32, bot as i32, c, mode);
                 }
             }
         }
         // left/right columns
         for y in y0..y1 {
             for dx in 0..sw.min(x1 - x0) {
-                Self::buf_set(buf, bw, (x0 + dx) as i32, y as i32, c, mode);
+                Self::buf_set(buf, bw, clip, (x0 + dx) as i32, y as i32, c, mode);
                 let right = (x1 - 1).saturating_sub(dx);
                 if right >= x0 {
-                    Self::buf_set(buf, bw, right as i32, y as i32, c, mode);
+                    Self::buf_set(buf, bw, clip, right as i32, y as i32, c, mode);
                 }
             }
         }
@@ -413,19 +457,23 @@ impl CpuRasterizer {
         mode: BlendMode,
         buf: &mut [u32],
         bw: u32,
-        bh: u32,
+        clip: ClipBox,
     ) {
-        let x0 = f32_to_u32_clamped((center.x - radius).floor().max(0.0)).min(bw);
-        let y0 = f32_to_u32_clamped((center.y - radius).floor().max(0.0)).min(bh);
-        let x1 = f32_to_u32_clamped((center.x + radius).ceil()).min(bw);
-        let y1 = f32_to_u32_clamped((center.y + radius).ceil()).min(bh);
+        let x0 = f32_to_u32_clamped((center.x - radius).floor().max(clip.left())).min(clip.x1);
+        let y0 = f32_to_u32_clamped((center.y - radius).floor().max(clip.top())).min(clip.y1);
+        let x1 = f32_to_u32_clamped((center.x + radius).ceil().max(clip.left())).min(clip.x1);
+        let y1 = f32_to_u32_clamped((center.y + radius).ceil().max(clip.top())).min(clip.y1);
 
         match paint.style {
             PaintStyle::Fill => {
-                Self::fill_circle_region(center, radius, paint, mode, buf, bw, x0, y0, x1, y1);
+                Self::fill_circle_region(
+                    center, radius, paint, mode, buf, bw, clip, x0, y0, x1, y1,
+                );
             }
             PaintStyle::Stroke => {
-                Self::stroke_circle_region(center, radius, paint, mode, buf, bw, x0, y0, x1, y1);
+                Self::stroke_circle_region(
+                    center, radius, paint, mode, buf, bw, clip, x0, y0, x1, y1,
+                );
             }
         }
     }
@@ -441,12 +489,14 @@ impl CpuRasterizer {
         mode: BlendMode,
         buf: &mut [u32],
         bw: u32,
+        clip: ClipBox,
         x0: u32,
         y0: u32,
         x1: u32,
         y1: u32,
     ) {
         let ctx = CircleFillCtx {
+            clip,
             center,
             radius,
             paint,
@@ -498,7 +548,7 @@ impl CpuRasterizer {
                     .fill(ctx.c_full);
             } else {
                 for x in xi0..xi1 {
-                    Self::buf_set(buf, bw, x, y as i32, ctx.c_full, ctx.mode);
+                    Self::buf_set(buf, bw, ctx.clip, x, y as i32, ctx.c_full, ctx.mode);
                 }
             }
         }
@@ -519,7 +569,7 @@ impl CpuRasterizer {
             let cov = circle_coverage(ctx.center, ctx.radius, x as f32, y as f32);
             if cov > 0.0 {
                 let c = color_to_u32_with_coverage(ctx.paint.color, cov);
-                Self::buf_set(buf, bw, x, y as i32, c, ctx.mode);
+                Self::buf_set(buf, bw, ctx.clip, x, y as i32, c, ctx.mode);
             }
         }
     }
@@ -532,6 +582,7 @@ impl CpuRasterizer {
         mode: BlendMode,
         buf: &mut [u32],
         bw: u32,
+        clip: ClipBox,
         x0: u32,
         y0: u32,
         x1: u32,
@@ -546,7 +597,7 @@ impl CpuRasterizer {
                 let dy = y as f32 + 0.5 - center.y;
                 let d = (dx * dx + dy * dy).sqrt();
                 if d <= radius && d >= inner_r {
-                    Self::buf_set(buf, bw, x as i32, y as i32, c, mode);
+                    Self::buf_set(buf, bw, clip, x as i32, y as i32, c, mode);
                 }
             }
         }
@@ -563,7 +614,7 @@ impl CpuRasterizer {
         scratch_xs: &mut Vec<f32>,
         scratch_active: &mut Vec<usize>,
         bw: u32,
-        bh: u32,
+        clip: ClipBox,
     ) -> AureaResult<()> {
         tessellate_path_into(path, scale, scratch_edges);
         if scratch_edges.is_empty() {
@@ -580,8 +631,8 @@ impl CpuRasterizer {
             .iter()
             .map(|e| e.y_max)
             .fold(f32::MIN, f32::max);
-        let y_start = f32_to_u32_clamped(y_min.max(0.0).ceil());
-        let y_end = f32_to_u32_clamped(y_max.min(bh as f32).ceil());
+        let y_start = f32_to_u32_clamped(y_min.max(clip.top()).ceil()).max(clip.y0);
+        let y_end = f32_to_u32_clamped(y_max.clamp(clip.top(), clip.bottom()).ceil());
 
         scratch_active.clear();
         let mut enter_idx = 0usize;
@@ -610,7 +661,7 @@ impl CpuRasterizer {
             scratch_xs.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(CmpOrdering::Equal));
 
             let row_base = y as usize * bw as usize;
-            fill_spans(scratch_xs, row_base, buf, bw, 0, paint.color, mode);
+            fill_spans(scratch_xs, row_base, buf, bw, 0, clip, paint.color, mode);
         }
         Ok(())
     }
@@ -621,7 +672,7 @@ impl CpuRasterizer {
         color: Color,
         buf: &mut [u32],
         bw: u32,
-        bh: u32,
+        clip: ClipBox,
     ) {
         if mask.width == 0 || mask.height == 0 {
             return;
@@ -639,15 +690,15 @@ impl CpuRasterizer {
         let dy = f32_to_i32_clamped(origin.y.round());
 
         let mw = mask.width as i32;
-        let x_lo = (-dx).max(0);
-        let x_hi = (bw as i32 - dx).min(mw);
+        let x_lo = (i32::try_from(clip.x0).unwrap_or(0) - dx).max(0);
+        let x_hi = (i32::try_from(clip.x1).unwrap_or(i32::MAX) - dx).min(mw);
         if x_lo >= x_hi {
             return;
         }
 
         for my in 0..mask.height as i32 {
             let py = dy + my;
-            if py < 0 || py >= bh as i32 {
+            if !clip.contains(dx + x_lo, py) {
                 continue;
             }
             let row = (my.unsigned_abs() * mask.width) as usize;
@@ -700,15 +751,15 @@ impl CpuRasterizer {
         buf: &mut [u32],
         scratch_row: &mut Vec<u32>,
         bw: u32,
-        bh: u32,
+        clip: ClipBox,
     ) {
         if image.data.is_empty() || dest.width <= 0.0 || dest.height <= 0.0 {
             return;
         }
-        let x0 = f32_to_i32_clamped(dest.x.max(0.0).ceil());
-        let y0 = f32_to_i32_clamped(dest.y.max(0.0).ceil());
-        let x1 = f32_to_i32_clamped((dest.x + dest.width).min(bw as f32).floor());
-        let y1 = f32_to_i32_clamped((dest.y + dest.height).min(bh as f32).floor());
+        let x0 = f32_to_i32_clamped(dest.x.max(clip.left()).ceil());
+        let y0 = f32_to_i32_clamped(dest.y.max(clip.top()).ceil());
+        let x1 = f32_to_i32_clamped((dest.x + dest.width).min(clip.right()).floor());
+        let y1 = f32_to_i32_clamped((dest.y + dest.height).min(clip.bottom()).floor());
         if x0 >= x1 || y0 >= y1 {
             return;
         }
@@ -716,9 +767,22 @@ impl CpuRasterizer {
         // Unscaled 1:1 copy: skip the per-pixel division entirely and walk
         // the source row left-to-right with a plain offset.
         if (src.width - dest.width).abs() < 0.001 && (src.height - dest.height).abs() < 0.001 {
-            Self::draw_image_1to1(image, src, dest, mode, buf, scratch_row, bw, x0, y0, x1, y1);
+            Self::draw_image_1to1(
+                image,
+                src,
+                dest,
+                mode,
+                buf,
+                scratch_row,
+                bw,
+                clip,
+                x0,
+                y0,
+                x1,
+                y1,
+            );
         } else {
-            Self::draw_image_scaled(image, src, dest, mode, buf, bw, x0, y0, x1, y1);
+            Self::draw_image_scaled(image, src, dest, mode, buf, bw, clip, x0, y0, x1, y1);
         }
     }
 
@@ -731,6 +795,7 @@ impl CpuRasterizer {
         buf: &mut [u32],
         scratch_row: &mut Vec<u32>,
         bw: u32,
+        clip: ClipBox,
         x0: i32,
         y0: i32,
         x1: i32,
@@ -772,7 +837,7 @@ impl CpuRasterizer {
             } else {
                 for (i, &c) in row_buf.iter().enumerate() {
                     let xi = i32::try_from(i).expect("row width fits in i32");
-                    Self::buf_set(buf, bw, x0 + xi, cy, c, mode);
+                    Self::buf_set(buf, bw, clip, x0 + xi, cy, c, mode);
                 }
             }
         }
@@ -786,6 +851,7 @@ impl CpuRasterizer {
         mode: BlendMode,
         buf: &mut [u32],
         bw: u32,
+        clip: ClipBox,
         x0: i32,
         y0: i32,
         x1: i32,
@@ -808,7 +874,7 @@ impl CpuRasterizer {
                     | (u32::from(src_row[ii]) << 16)
                     | (u32::from(src_row[ii + 1]) << 8)
                     | u32::from(src_row[ii + 2]);
-                Self::buf_set(buf, bw, cx, cy, rgba, mode);
+                Self::buf_set(buf, bw, clip, cx, cy, rgba, mode);
             }
         }
     }
@@ -873,7 +939,7 @@ impl CpuRasterizer {
         mode: BlendMode,
         buf: &mut [u32],
         bw: u32,
-        bh: u32,
+        clip: ClipBox,
     ) {
         let dx = grad.end.x - grad.start.x;
         let dy = grad.end.y - grad.start.y;
@@ -882,10 +948,10 @@ impl CpuRasterizer {
             return;
         }
         let lut = Self::build_gradient_lut(&grad.stops);
-        let x0 = f32_to_i32_clamped(rect.x.max(0.0).ceil());
-        let y0 = f32_to_i32_clamped(rect.y.max(0.0).ceil());
-        let x1 = f32_to_i32_clamped((rect.x + rect.width).min(bw as f32).floor());
-        let y1 = f32_to_i32_clamped((rect.y + rect.height).min(bh as f32).floor());
+        let x0 = f32_to_i32_clamped(rect.x.max(clip.left()).ceil());
+        let y0 = f32_to_i32_clamped(rect.y.max(clip.top()).ceil());
+        let x1 = f32_to_i32_clamped((rect.x + rect.width).min(clip.right()).floor());
+        let y1 = f32_to_i32_clamped((rect.y + rect.height).min(clip.bottom()).floor());
         if x0 >= x1 || y0 >= y1 {
             return;
         }
@@ -920,16 +986,16 @@ impl CpuRasterizer {
         mode: BlendMode,
         buf: &mut [u32],
         bw: u32,
-        bh: u32,
+        clip: ClipBox,
     ) {
         if grad.radius <= 0.0 {
             return;
         }
         let lut = Self::build_gradient_lut(&grad.stops);
-        let x0 = f32_to_i32_clamped(rect.x.max(0.0).ceil());
-        let y0 = f32_to_i32_clamped(rect.y.max(0.0).ceil());
-        let x1 = f32_to_i32_clamped((rect.x + rect.width).min(bw as f32).floor());
-        let y1 = f32_to_i32_clamped((rect.y + rect.height).min(bh as f32).floor());
+        let x0 = f32_to_i32_clamped(rect.x.max(clip.left()).ceil());
+        let y0 = f32_to_i32_clamped(rect.y.max(clip.top()).ceil());
+        let x1 = f32_to_i32_clamped((rect.x + rect.width).min(clip.right()).floor());
+        let y1 = f32_to_i32_clamped((rect.y + rect.height).min(clip.bottom()).floor());
         if x0 >= x1 || y0 >= y1 {
             return;
         }
@@ -1223,6 +1289,7 @@ impl Renderer for CpuRasterizer {
         // `last_frame_damage()` so the platform layer can do a partial IOSurface copy.
         self.last_frame_damage = union_dirty_tile_rects(&dirty_tiles, tiles_x, tiles_y, bw, bh);
 
+        let surface_clip = ClipBox::surface(bw, bh);
         let items = self.display_list.items();
         for (i, item) in items.iter().enumerate() {
             // `Clear` conceptually covers the whole buffer, but only the
@@ -1237,6 +1304,7 @@ impl Renderer for CpuRasterizer {
                     tiles_y,
                     bw,
                     bh,
+                    surface_clip.intersect_opt(item.clip),
                 );
                 continue;
             }
@@ -1253,7 +1321,7 @@ impl Renderer for CpuRasterizer {
                 &mut self.scratch_row,
                 &mut self.scratch_active,
                 bw,
-                bh,
+                surface_clip.intersect_opt(item.clip),
             )?;
         }
 
@@ -1354,13 +1422,14 @@ fn clear_dirty_tiles(
     tiles_y: u32,
     bw: u32,
     bh: u32,
+    clip: ClipBox,
 ) {
     let c = color_to_u32(color);
     for ty in 0..tiles_y {
         for tx in 0..tiles_x {
             if dirty_tiles[(ty * tiles_x + tx) as usize] {
                 let rect = tile_rect(tx, ty, bw, bh);
-                CpuRasterizer::clear_rect(&rect, c, frame_buffer, bw, bh);
+                CpuRasterizer::clear_rect(&rect, c, frame_buffer, bw, clip);
             }
         }
     }
@@ -1466,6 +1535,7 @@ fn round_out_clamp(r: Rect, bw: u32, bh: u32) -> Rect {
 
 /// Shared per-call state for the circle-fill row/span helpers.
 struct CircleFillCtx<'a> {
+    clip: ClipBox,
     center: Point,
     radius: f32,
     paint: &'a Paint,
@@ -1478,6 +1548,7 @@ struct CircleFillCtx<'a> {
 
 /// Shared per-call state for the translucent rect-fill row/span helpers.
 struct RectFillCtx<'a> {
+    clip: ClipBox,
     paint: &'a Paint,
     mode: BlendMode,
     xl: f32,
