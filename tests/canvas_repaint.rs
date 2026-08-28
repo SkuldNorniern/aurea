@@ -1,0 +1,113 @@
+//! Repaint behaviour of a live canvas inside a real window.
+//!
+//! These need a display and create actual native windows, so they are
+//! `#[ignore]`d by default. Run them with:
+//!
+//! ```text
+//! cargo test --test canvas_repaint -- --ignored --test-threads=1
+//! ```
+
+use aurea::elements::{Orientation, Stack};
+use aurea::render::{Canvas, Color, DrawingContext, Paint, PaintStyle, Rect, RendererBackend};
+use aurea::{AureaResult, Container, Window};
+use aurea_render::CURRENT_BUFFER;
+use std::slice::from_raw_parts;
+
+const BG: Color = Color {
+    r: 240,
+    g: 240,
+    b: 240,
+    a: 255,
+};
+
+fn paint_a_square(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
+    let fill = Paint::new()
+        .color(Color::rgb(100, 150, 200))
+        .style(PaintStyle::Fill);
+    ctx.draw_rect(Rect::new(10.0, 10.0, 100.0, 100.0), &fill)
+}
+
+/// Pixels in the published buffer that are not the background colour.
+fn drawn_pixels() -> usize {
+    CURRENT_BUFFER.with(|buf| match *buf.borrow() {
+        Some((ptr, size, _, _)) if !ptr.is_null() && size > 0 => {
+            let bg = (u32::from(BG.a) << 24)
+                | (u32::from(BG.r) << 16)
+                | (u32::from(BG.g) << 8)
+                | u32::from(BG.b);
+            let bytes = unsafe { from_raw_parts(ptr, size) };
+            bytes
+                .chunks_exact(4)
+                .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .filter(|&p| p != bg)
+                .count()
+        }
+        _ => 0,
+    })
+}
+
+fn window_with_canvas(title: &str) -> AureaResult<(Window, Canvas)> {
+    let mut window = Window::new(title, 400, 300)?;
+    let canvas = Canvas::new(400, 300, RendererBackend::Cpu)?;
+    canvas.set_background_color(BG);
+    let mut layout = Stack::new(Orientation::Vertical)?;
+    layout.add(canvas.clone())?;
+    window.set_content(layout)?;
+    window.show();
+    // Let the canvas settle at the size the window actually gave it.
+    window.poll_events();
+    window.process_frames()?;
+    Ok((window, canvas))
+}
+
+/// A canvas drawn through `set_draw_callback` keeps its content across the
+/// resize that happens when it is placed in a window.
+#[test]
+#[ignore = "creates a native window; run with --ignored"]
+fn retained_draw_survives_the_layout_resize() -> AureaResult<()> {
+    let mut window = Window::new("retained", 400, 300)?;
+    let canvas = Canvas::new(400, 300, RendererBackend::Cpu)?;
+    canvas.set_background_color(BG);
+    canvas.set_draw_callback(paint_a_square)?;
+
+    let mut layout = Stack::new(Orientation::Vertical)?;
+    layout.add(canvas.clone())?;
+    window.set_content(layout)?;
+    window.show();
+
+    for _ in 0..3 {
+        window.poll_events();
+        window.process_frames()?;
+    }
+
+    assert!(
+        drawn_pixels() > 1000,
+        "retained canvas went blank after the window resized it"
+    );
+    Ok(())
+}
+
+/// `invalidate_all` must not erase what `Canvas::draw` put in the buffer.
+/// There is no callback to re-run, so the pixels are all there is.
+#[test]
+#[ignore = "creates a native window; run with --ignored"]
+fn invalidate_keeps_immediate_mode_pixels() -> AureaResult<()> {
+    let (window, mut canvas) = window_with_canvas("immediate")?;
+
+    canvas.draw(paint_a_square)?;
+    let before = drawn_pixels();
+    assert!(before > 1000, "immediate draw produced nothing");
+
+    canvas.invalidate_all();
+    for _ in 0..3 {
+        window.poll_events();
+        window.process_frames()?;
+    }
+
+    assert_eq!(
+        drawn_pixels(),
+        before,
+        "invalidate_all wiped an immediate-mode canvas"
+    );
+    Ok(())
+}
