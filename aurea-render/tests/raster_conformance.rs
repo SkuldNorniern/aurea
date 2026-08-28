@@ -11,7 +11,7 @@ use aurea_render::{
     Color, CpuRasterizer, DrawingContext, Paint, PaintStyle, Path, PathCommand, Point, Rect,
     Renderer, Surface, SurfaceInfo,
 };
-use std::f32::consts::FRAC_PI_4;
+use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
 use std::slice::from_raw_parts;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -618,4 +618,254 @@ fn a_filled_path_is_still_filled() {
     });
 
     assert_ne!(px(&buf, 16, 16) >> 24, 0, "the middle{}", dump(&buf));
+}
+
+/// Gradients used to receive only the device scale, so the fill moved under a
+/// transform while its colours stayed where they were.
+#[test]
+fn a_gradient_moves_with_its_rect() {
+    use aurea_render::{GradientStop, LinearGradient};
+
+    let gradient = LinearGradient {
+        start: Point::new(0.0, 0.0),
+        end: Point::new(8.0, 0.0),
+        stops: vec![
+            GradientStop {
+                offset: 0.0,
+                color: RED,
+            },
+            GradientStop {
+                offset: 1.0,
+                color: Color::rgb(0, 0, 255),
+            },
+        ],
+    };
+
+    let buf = render(|ctx| {
+        ctx.translate(16.0, 8.0).expect("translate");
+        ctx.fill_linear_gradient(&gradient, Rect::new(0.0, 0.0, 8.0, 8.0))
+            .expect("gradient");
+    });
+
+    // The fill landed at the translated position...
+    assert_ne!(
+        px(&buf, 18, 10) >> 24,
+        0,
+        "gradient should be here{}",
+        dump(&buf)
+    );
+    assert_eq!(
+        px(&buf, 2, 2) >> 24,
+        0,
+        "and not at the origin{}",
+        dump(&buf)
+    );
+
+    // ...and runs red to blue across it, rather than being a flat colour.
+    let left = px(&buf, 17, 11);
+    let right = px(&buf, 23, 11);
+    assert!(
+        (left >> 16) & 0xFF > (right >> 16) & 0xFF,
+        "left {left:#010x} should be redder than right {right:#010x}"
+    );
+}
+
+#[test]
+fn a_radial_gradient_moves_and_scales_with_the_transform() {
+    use aurea_render::{GradientStop, RadialGradient};
+
+    let gradient = RadialGradient {
+        center: Point::new(4.0, 4.0),
+        radius: 4.0,
+        stops: vec![
+            GradientStop {
+                offset: 0.0,
+                color: RED,
+            },
+            GradientStop {
+                offset: 1.0,
+                color: Color::rgb(0, 0, 255),
+            },
+        ],
+    };
+
+    let buf = render(|ctx| {
+        ctx.translate(12.0, 12.0).expect("translate");
+        ctx.fill_radial_gradient(&gradient, Rect::new(0.0, 0.0, 8.0, 8.0))
+            .expect("gradient");
+    });
+
+    // The centre of the gradient sits at the translated centre.
+    let centre = px(&buf, 16, 16);
+    assert!(
+        (centre >> 16) & 0xFF > 128,
+        "the middle should be near the first stop, got {centre:#010x}{}",
+        dump(&buf)
+    );
+}
+
+/// Images used to receive only the device scale, so a translated image stayed
+/// at the origin.
+#[test]
+fn an_image_moves_with_the_transform() {
+    use aurea_render::Image;
+
+    let image = Image {
+        width: 4,
+        height: 4,
+        data: vec![255u8; 4 * 4 * 4].into(),
+    };
+
+    let buf = render(|ctx| {
+        ctx.translate(10.0, 10.0).expect("translate");
+        ctx.draw_image(&image, Point::new(0.0, 0.0))
+            .expect("draw_image");
+    });
+
+    assert_ne!(
+        px(&buf, 11, 11) >> 24,
+        0,
+        "image should be here{}",
+        dump(&buf)
+    );
+    assert_eq!(
+        px(&buf, 1, 1) >> 24,
+        0,
+        "and not at the origin{}",
+        dump(&buf)
+    );
+}
+
+#[test]
+fn a_scaled_image_covers_more_ground() {
+    use aurea_render::Image;
+
+    let image = Image {
+        width: 4,
+        height: 4,
+        data: vec![255u8; 4 * 4 * 4].into(),
+    };
+
+    let plain = render(|ctx| {
+        ctx.draw_image(&image, Point::new(2.0, 2.0))
+            .expect("draw_image");
+    });
+    let scaled = render(|ctx| {
+        ctx.scale(2.0, 2.0).expect("scale");
+        ctx.draw_image(&image, Point::new(1.0, 1.0))
+            .expect("draw_image");
+    });
+
+    let covered = |b: &[u32]| b.iter().filter(|&&p| p >> 24 != 0).count();
+    assert!(
+        covered(&scaled) > covered(&plain),
+        "scaled {} vs plain {}",
+        covered(&scaled),
+        covered(&plain)
+    );
+}
+
+/// Text used to receive only the device scale, so it stayed put while the rest
+/// of the drawing moved.
+#[test]
+fn text_moves_with_the_transform() {
+    let plain = render(|ctx| {
+        ctx.draw_text("Hg", Point::new(4.0, 20.0), &fill(RED))
+            .expect("draw_text");
+    });
+    let moved = render(|ctx| {
+        ctx.translate(12.0, 0.0).expect("translate");
+        ctx.draw_text("Hg", Point::new(4.0, 20.0), &fill(RED))
+            .expect("draw_text");
+    });
+
+    let leftmost = |b: &[u32]| (0..W).find(|x| (0..H).any(|y| px(b, *x, y) >> 24 != 0));
+    let (Some(a), Some(b)) = (leftmost(&plain), leftmost(&moved)) else {
+        // No font available in this environment; nothing to compare.
+        return;
+    };
+    assert!(
+        b > a,
+        "translated text should start further right: {a} then {b}"
+    );
+}
+
+fn rect_path(r: Rect) -> Path {
+    let mut path = Path::new();
+    path.commands
+        .push(PathCommand::MoveTo(Point::new(r.x, r.y)));
+    path.commands
+        .push(PathCommand::LineTo(Point::new(r.x + r.width, r.y)));
+    path.commands.push(PathCommand::LineTo(Point::new(
+        r.x + r.width,
+        r.y + r.height,
+    )));
+    path.commands
+        .push(PathCommand::LineTo(Point::new(r.x, r.y + r.height)));
+    path.commands.push(PathCommand::Close);
+    path
+}
+
+/// A rectangular clip path is enforced like `clip_rect`.
+#[test]
+fn clip_path_with_a_rectangle_clips() {
+    let buf = render(|ctx| {
+        ctx.clip_path(&rect_path(Rect::new(8.0, 8.0, 8.0, 8.0)))
+            .expect("clip_path");
+        ctx.draw_rect(Rect::new(0.0, 0.0, 32.0, 32.0), &fill(RED))
+            .expect("draw_rect");
+    });
+
+    assert_px(&buf, 12, 12, opaque(RED));
+    assert_px(&buf, 4, 4, 0);
+    assert_px(&buf, 20, 20, 0);
+}
+
+/// Anything else is refused. Accepting it and drawing unclipped would paint
+/// over whatever the clip was meant to protect.
+#[test]
+fn clip_path_refuses_a_shape_it_cannot_enforce() {
+    let mut triangle = Path::new();
+    triangle
+        .commands
+        .push(PathCommand::MoveTo(Point::new(4.0, 4.0)));
+    triangle
+        .commands
+        .push(PathCommand::LineTo(Point::new(28.0, 4.0)));
+    triangle
+        .commands
+        .push(PathCommand::LineTo(Point::new(16.0, 28.0)));
+    triangle.commands.push(PathCommand::Close);
+
+    let mut r = CpuRasterizer::new(W, H);
+    r.init(
+        Surface::Cpu,
+        SurfaceInfo {
+            width: W,
+            height: H,
+            scale_factor: 1.0,
+        },
+    )
+    .expect("init");
+
+    let mut ctx = r.begin_frame().expect("begin_frame");
+    let result = ctx.clip_path(&triangle);
+
+    assert!(result.is_err(), "a triangular clip cannot be enforced");
+}
+
+#[test]
+fn clip_path_survives_the_transform_that_makes_it_a_rectangle() {
+    // Rotating a rectangle by a quarter turn leaves it axis-aligned.
+    let buf = render(|ctx| {
+        ctx.translate(16.0, 16.0).expect("translate");
+        ctx.rotate(FRAC_PI_2).expect("rotate");
+        ctx.clip_path(&rect_path(Rect::new(-8.0, -8.0, 16.0, 16.0)))
+            .expect("a rotated rectangle is still a rectangle");
+        ctx.draw_rect(Rect::new(-32.0, -32.0, 64.0, 64.0), &fill(RED))
+            .expect("draw_rect");
+    });
+
+    assert_px(&buf, 16, 16, opaque(RED));
+    assert_px(&buf, 2, 2, 0);
 }
