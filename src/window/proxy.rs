@@ -9,17 +9,32 @@
 //! `process_frames`, or the event loop — in the order it was submitted.
 
 use super::Window;
-use crate::registry::handle_key;
 use aurea_foundation::lock;
+use aurea_runtime::FrameScheduler;
 use std::collections::HashMap;
 use std::mem::take;
-use std::os::raw::c_void;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 
 /// Work submitted to a window from another thread.
 type QueuedCall = Box<dyn FnOnce(&Window) + Send>;
 
-static PENDING: LazyLock<Mutex<HashMap<usize, Vec<QueuedCall>>>> =
+/// Identifies one window for the life of the process.
+///
+/// Not the native handle: the platform reuses addresses, so a proxy held past
+/// its window's death could otherwise deliver work to whichever window landed
+/// on the same address next.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ProxyId(u64);
+
+static NEXT_PROXY_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Allocates an id for a new window.
+pub(super) fn next_id() -> ProxyId {
+    ProxyId(NEXT_PROXY_ID.fetch_add(1, Ordering::Relaxed))
+}
+
+static PENDING: LazyLock<Mutex<HashMap<ProxyId, Vec<QueuedCall>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// A `Send + Sync` handle to a window, for use off the UI thread.
@@ -50,14 +65,12 @@ static PENDING: LazyLock<Mutex<HashMap<usize, Vec<QueuedCall>>>> =
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct WindowProxy {
-    handle: usize,
+    id: ProxyId,
 }
 
 impl WindowProxy {
-    pub(crate) fn new(handle: *mut c_void) -> Self {
-        Self {
-            handle: handle_key(handle),
-        }
+    pub(crate) fn new(id: ProxyId) -> Self {
+        Self { id }
     }
 
     /// Queues `call` to run on the UI thread with the window it came from.
@@ -69,14 +82,18 @@ impl WindowProxy {
         F: FnOnce(&Window) + Send + 'static,
     {
         lock(&PENDING)
-            .entry(self.handle)
+            .entry(self.id)
             .or_default()
             .push(Box::new(call));
+
+        // Queuing is not enough: an idle UI would sit there until something
+        // else happened to pump. Ask for a frame so the work is picked up.
+        FrameScheduler::schedule();
     }
 
     /// How many calls are queued and not yet run.
     pub fn pending(&self) -> usize {
-        lock(&PENDING).get(&self.handle).map_or(0, Vec::len)
+        lock(&PENDING).get(&self.id).map_or(0, Vec::len)
     }
 }
 
@@ -85,7 +102,7 @@ impl WindowProxy {
 pub(super) fn drain_for(window: &Window) {
     let calls = {
         let mut pending = lock(&PENDING);
-        match pending.get_mut(&handle_key(window.handle())) {
+        match pending.get_mut(&window.proxy_id()) {
             Some(queue) if !queue.is_empty() => take(queue),
             _ => return,
         }
@@ -99,15 +116,18 @@ pub(super) fn drain_for(window: &Window) {
 }
 
 /// Discards work queued for a window that is going away.
-pub(super) fn clear_for(handle: *mut c_void) {
-    lock(&PENDING).remove(&handle_key(handle));
+///
+/// Proxies that outlive the window keep working in the sense that they accept
+/// calls; those calls are simply never run, because the id is never reused.
+pub(super) fn clear_for(id: ProxyId) {
+    lock(&PENDING).remove(&id);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::AtomicUsize;
     use std::thread;
 
     #[test]
@@ -118,7 +138,7 @@ mod tests {
 
     #[test]
     fn dispatch_queues_work_without_running_it() {
-        let proxy = WindowProxy { handle: 0x1234 };
+        let proxy = WindowProxy::new(next_id());
         let ran = Arc::new(AtomicUsize::new(0));
         let ran_clone = Arc::clone(&ran);
 
@@ -128,27 +148,44 @@ mod tests {
 
         assert_eq!(proxy.pending(), 1, "work should be queued");
         assert_eq!(ran.load(Ordering::Relaxed), 0, "and not yet run");
-        clear_for(0x1234 as *mut c_void);
+        clear_for(proxy.id);
     }
 
     #[test]
     fn clear_discards_queued_work() {
-        let proxy = WindowProxy { handle: 0x5678 };
+        let proxy = WindowProxy::new(next_id());
         proxy.dispatch(|_| {});
         assert_eq!(proxy.pending(), 1);
 
-        clear_for(0x5678 as *mut c_void);
+        clear_for(proxy.id);
 
         assert_eq!(proxy.pending(), 0);
     }
 
     #[test]
     fn dispatch_from_another_thread_reaches_the_queue() {
-        let proxy = WindowProxy { handle: 0x9ABC };
+        let proxy = WindowProxy::new(next_id());
         let handle = thread::spawn(move || proxy.dispatch(|_| {}));
         handle.join().expect("dispatching thread panicked");
 
         assert_eq!(proxy.pending(), 1);
-        clear_for(0x9ABC as *mut c_void);
+        clear_for(proxy.id);
+    }
+
+    /// Ids are never reused, so a proxy that outlives its window cannot be
+    /// pointed at whichever window takes over its native handle.
+    #[test]
+    fn ids_are_not_reused() {
+        let first = next_id();
+        let second = next_id();
+        assert_ne!(first, second);
+
+        let stale = WindowProxy::new(first);
+        clear_for(first);
+        stale.dispatch(|_| {});
+
+        // The work sits under the dead id and never reaches the new window.
+        assert_eq!(WindowProxy::new(second).pending(), 0);
+        clear_for(first);
     }
 }
