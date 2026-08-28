@@ -84,16 +84,19 @@ impl Default for Paint {
     }
 }
 
-/// Aurea's native rendering backend.
+/// Which renderer draws a canvas.
 ///
-/// The framework provides its own rendering path (no external Skia/Vello).
-/// Cpu uses native CPU rasterization. Gpu delegates to CPU for now.
+/// Aurea rasterizes itself; there is no Skia or Vello underneath.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum RendererBackend {
     /// CPU rasterizer (tile-based, display list, partial redraw)
     #[default]
     Cpu,
     /// ZenGPU Vulkan renderer hosted directly in the native canvas surface.
+    ///
+    /// Experimental. It does not yet cover every draw command the CPU
+    /// rasterizer does, and it has no partial repaint, so the CPU backend is
+    /// still the one with full fidelity.
     #[cfg(feature = "zengpu")]
     ZenGpu,
 }

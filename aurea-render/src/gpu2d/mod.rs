@@ -21,7 +21,7 @@ pub use frame_plan::FramePlan;
 use aurea_foundation::AureaResult;
 
 use crate::batch::RenderBatches;
-use crate::cpu::CpuDrawingContext;
+use crate::cpu::RecordingContext;
 use crate::display_list::DisplayList;
 use crate::numeric::f32_to_u32_clamped;
 use crate::renderer::{DrawingContext, Renderer};
@@ -33,7 +33,7 @@ use texture_cache::TextureCache;
 
 /// A 2D GPU renderer parameterized over its device backend.
 ///
-/// Records draw calls into a [`DisplayList`] (the same [`CpuDrawingContext`]
+/// Records draw calls into a [`DisplayList`] (the same [`RecordingContext`]
 /// the CPU rasterizer uses), lowers them to [`RenderBatches`] in `end_frame`,
 /// resolves textures through the backend-agnostic [`TextureCache`], and hands
 /// the resulting [`FramePlan`] to the backend to upload, record, and present.
@@ -113,7 +113,7 @@ impl<B: Gpu2dBackend + Send + Sync> Renderer for Gpu2dRenderer<B> {
         self.backend.begin_frame()?;
         self.texture_cache.prune_dropped(&mut self.backend);
         self.display_list.clear();
-        let mut ctx = CpuDrawingContext::new(
+        let mut ctx = RecordingContext::new(
             &mut self.display_list as *mut DisplayList,
             self.logical_width,
             self.logical_height,

@@ -4,10 +4,10 @@
 //! the display list themselves, so the rect-batching / instance-layout logic
 //! lives in exactly one place and both backends draw identical geometry.
 //!
-//! Scope is G4 "Rung 1": background `Clear` plus solid-colour, axis-aligned
-//! `DrawRect` fills. Circles, images, gradients, and text are lowered in later
-//! rungs; commands this rung doesn't understand are skipped (the CPU rasterizer
-//! remains the fallback for full fidelity until those land).
+//! Lowered so far: `Clear`, solid fills of rects and circles, linear and radial
+//! gradients, images, and glyph masks. Strokes and paths are not, and anything
+//! that is not understood is skipped rather than drawn wrong — so the CPU
+//! rasterizer is still the backend with full fidelity.
 
 use crate::command::DrawCommand;
 use crate::display_list::DisplayList;
