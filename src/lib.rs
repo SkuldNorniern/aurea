@@ -94,5 +94,38 @@ pub use crate::render::{Canvas, Color, DrawingContext, Point, Rect, RendererBack
 pub use crate::platform::handles::NativeWindowHandle;
 pub use aurea_foundation::{AureaError, AureaResult};
 pub use aurea_foundation::{
-    Capability, CapabilityChecker, DesktopPlatform, MobilePlatform, Platform,
+    Capability, CapabilityChecker, DesktopPlatform, MobilePlatform, Platform, Support,
 };
+
+/// How well Aurea supports `capability` in this build, on this platform.
+///
+/// [`CapabilityChecker::support`] answers for the platform alone, because
+/// `aurea-foundation` knows nothing about this crate's Cargo features. GPU
+/// backends are compiled in or they are not, and a build without one cannot
+/// use them however capable the hardware is — so this narrows that answer.
+///
+/// ```rust
+/// use aurea::{Capability, CapabilityChecker, Support};
+///
+/// let checker = CapabilityChecker::new();
+/// // Without the `zengpu` or `wgpu` feature this reports Unimplemented, even
+/// // on a machine with a perfectly good GPU.
+/// let _ = aurea::gpu_support(&checker, Capability::Vulkan);
+/// # let _ = Support::Unimplemented;
+/// ```
+pub fn gpu_support(checker: &CapabilityChecker, capability: Capability) -> Support {
+    let platform_support = checker.support(capability);
+    if !CapabilityChecker::is_gpu(capability) {
+        return platform_support;
+    }
+    if platform_support == Support::Unavailable {
+        return platform_support;
+    }
+
+    let compiled_in = cfg!(feature = "zengpu") || cfg!(feature = "wgpu");
+    if compiled_in {
+        platform_support
+    } else {
+        Support::Unimplemented
+    }
+}

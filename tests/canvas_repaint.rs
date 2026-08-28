@@ -11,7 +11,7 @@ use aurea::elements::{Orientation, Stack};
 use aurea::embed::{aurea_embed_create_canvas, aurea_embed_destroy_canvas};
 use aurea::registry::elements::invoke_button_callback;
 use aurea::render::{Canvas, Color, DrawingContext, Paint, PaintStyle, Rect, RendererBackend};
-use aurea::{AureaResult, Container, Window};
+use aurea::{AureaResult, Container, Window, gpu_support};
 use aurea_render::CURRENT_BUFFER;
 use aurea_runtime::FrameScheduler;
 use std::slice::from_raw_parts;
@@ -442,4 +442,44 @@ fn canvas_clones_free_once() -> AureaResult<()> {
         drop(b);
     }
     Ok(())
+}
+
+/// A GPU capability is not usable just because the hardware has it: the
+/// backend has to be compiled in. The platform-level answer says otherwise,
+/// so this narrows it.
+#[test]
+fn gpu_capability_follows_the_compiled_backend() {
+    use aurea::{Capability, CapabilityChecker, Support};
+
+    let checker = CapabilityChecker::new();
+    let narrowed = gpu_support(&checker, Capability::Vulkan);
+
+    if cfg!(any(feature = "zengpu", feature = "wgpu")) {
+        assert_eq!(narrowed, checker.support(Capability::Vulkan));
+    } else {
+        assert!(
+            matches!(narrowed, Support::Unimplemented | Support::Unavailable),
+            "no GPU backend is compiled in, so it cannot be usable: {narrowed:?}"
+        );
+    }
+}
+
+/// Narrowing applies to GPU capabilities only; everything else is unchanged.
+#[test]
+fn other_capabilities_are_not_narrowed() {
+    use aurea::{Capability, CapabilityChecker};
+
+    let checker = CapabilityChecker::new();
+    for capability in [
+        Capability::MenuBar,
+        Capability::Clipboard,
+        Capability::FileDialogs,
+        Capability::KeyboardInput,
+    ] {
+        assert_eq!(
+            gpu_support(&checker, capability),
+            checker.support(capability),
+            "{capability:?} is not a GPU capability"
+        );
+    }
 }
