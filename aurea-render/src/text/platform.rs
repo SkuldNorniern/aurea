@@ -88,8 +88,8 @@ impl RunKey {
 
         let mut hasher = DefaultHasher::new();
         text.hash(&mut hasher);
-        for c in font.family.chars().flat_map(char::to_lowercase) {
-            c.hash(&mut hasher);
+        for byte in font.family.as_bytes() {
+            byte.to_ascii_lowercase().hash(&mut hasher);
         }
         font.size.to_bits().hash(&mut hasher);
         font.weight.hash(&mut hasher);

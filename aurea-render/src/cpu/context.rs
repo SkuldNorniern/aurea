@@ -416,22 +416,16 @@ impl<'list> RecordingContext<'list> {
                 discriminant(command).hash(&mut hasher);
             }
         }
-        self.current_transform.m11.to_bits().hash(&mut hasher);
-        self.current_transform.m12.to_bits().hash(&mut hasher);
-        self.current_transform.m13.to_bits().hash(&mut hasher);
-        self.current_transform.m21.to_bits().hash(&mut hasher);
-        self.current_transform.m22.to_bits().hash(&mut hasher);
-        self.current_transform.m23.to_bits().hash(&mut hasher);
-        self.current_transform.m31.to_bits().hash(&mut hasher);
-        self.current_transform.m32.to_bits().hash(&mut hasher);
-        self.current_transform.m33.to_bits().hash(&mut hasher);
         self.current_opacity.to_bits().hash(&mut hasher);
         self.scale_factor.to_bits().hash(&mut hasher);
         self.current_blend_mode.hash(&mut hasher);
-        match self.current_clip {
-            Some(ref clip) => {
+        match self.current_clip_rect {
+            Some(clip) => {
                 1u8.hash(&mut hasher);
-                hash_path(clip, &mut hasher);
+                clip.x.to_bits().hash(&mut hasher);
+                clip.y.to_bits().hash(&mut hasher);
+                clip.width.to_bits().hash(&mut hasher);
+                clip.height.to_bits().hash(&mut hasher);
             }
             None => 0u8.hash(&mut hasher),
         }
@@ -828,6 +822,42 @@ mod tests {
         let bounds = list.items()[0].bounds;
         assert!((bounds.x - 6.0).abs() < 1e-4, "x = {}", bounds.x);
         assert!((bounds.y - 8.0).abs() < 1e-4, "y = {}", bounds.y);
+    }
+
+    #[test]
+    fn transforms_landing_in_the_same_place_share_a_key() {
+        let mut list = DisplayList::new();
+        {
+            let mut ctx = ctx_with(&mut list, 1.0);
+            ctx.draw_rect(Rect::new(10.0, 10.0, 5.0, 5.0), &Paint::default())
+                .expect("draw_rect");
+            ctx.translate(10.0, 10.0).expect("translate");
+            ctx.draw_rect(Rect::new(0.0, 0.0, 5.0, 5.0), &Paint::default())
+                .expect("draw_rect");
+        }
+
+        let items = list.items();
+        assert_eq!(
+            items[0].cache_key, items[1].cache_key,
+            "same pixels, so the damage diff should see no change"
+        );
+        assert_eq!(items[0].bounds, items[1].bounds);
+    }
+
+    #[test]
+    fn a_transform_that_moves_a_shape_changes_its_key() {
+        let mut list = DisplayList::new();
+        {
+            let mut ctx = ctx_with(&mut list, 1.0);
+            ctx.draw_rect(Rect::new(0.0, 0.0, 5.0, 5.0), &Paint::default())
+                .expect("draw_rect");
+            ctx.translate(7.0, 0.0).expect("translate");
+            ctx.draw_rect(Rect::new(0.0, 0.0, 5.0, 5.0), &Paint::default())
+                .expect("draw_rect");
+        }
+
+        let items = list.items();
+        assert_ne!(items[0].cache_key, items[1].cache_key);
     }
 
     #[test]
