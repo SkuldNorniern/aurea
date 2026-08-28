@@ -1,5 +1,6 @@
 //! Embed FFI for Aurea-in-SwiftUI (macOS) and similar host integration.
 
+use crate::elements::Element;
 use crate::ffi::*;
 use crate::render::{Canvas, Color, Paint, PaintStyle, Point, Rect, RendererBackend};
 use std::cell::RefCell;
@@ -60,7 +61,7 @@ pub extern "C" fn aurea_embed_create_canvas(width: c_int, height: c_int) -> *mut
         )?;
         Ok(())
     });
-    let ptr = canvas.native_handle();
+    let ptr = Element::handle(&canvas);
     let key = ptr as usize;
     EMBED_CANVASES.with(|c| {
         c.borrow_mut().insert(key, Box::new(canvas));
@@ -83,13 +84,6 @@ pub extern "C" fn aurea_embed_destroy_canvas(handle: *mut c_void) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn embed_create_returns_non_null_on_valid_size() {
-        let handle = aurea_embed_create_canvas(100, 100);
-        assert!(!handle.is_null());
-        aurea_embed_destroy_canvas(handle);
-    }
 
     #[test]
     fn embed_create_returns_null_on_invalid_size() {

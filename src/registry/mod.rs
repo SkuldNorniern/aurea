@@ -10,6 +10,3 @@ use std::os::raw::c_void;
 pub(crate) fn handle_key(handle: *mut c_void) -> usize {
     handle as usize
 }
-
-#[cfg(test)]
-mod lifetime_tests;

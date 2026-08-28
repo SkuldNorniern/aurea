@@ -42,8 +42,9 @@ impl Button {
 }
 
 impl Button {
-    #[cfg(test)]
-    pub(crate) fn callback_id(&self) -> u32 {
+    /// Id this button's callback is registered under.
+    #[doc(hidden)]
+    pub fn callback_id(&self) -> u32 {
         self._id
     }
 }
