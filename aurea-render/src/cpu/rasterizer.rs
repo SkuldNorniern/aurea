@@ -132,17 +132,36 @@ impl CpuRasterizer {
         if clip.is_empty() {
             return Ok(());
         }
+        let alpha = item.opacity.clamp(0.0, 1.0);
+        if alpha <= 0.0 {
+            return Ok(());
+        }
         match &item.command {
             DrawCommand::DrawRect(rect, paint) => {
-                Self::draw_rect(rect, paint, item.blend_mode, buf, bw, clip);
+                Self::draw_rect(
+                    rect,
+                    &fade_paint(paint, alpha),
+                    item.blend_mode,
+                    buf,
+                    bw,
+                    clip,
+                );
             }
             DrawCommand::DrawCircle(center, radius, paint) => {
-                Self::draw_circle(*center, *radius, paint, item.blend_mode, buf, bw, clip);
+                Self::draw_circle(
+                    *center,
+                    *radius,
+                    &fade_paint(paint, alpha),
+                    item.blend_mode,
+                    buf,
+                    bw,
+                    clip,
+                );
             }
             DrawCommand::DrawPath(path, paint) => {
                 Self::draw_path(
                     path,
-                    paint,
+                    &fade_paint(paint, alpha),
                     item.blend_mode,
                     scale,
                     buf,
@@ -154,7 +173,7 @@ impl CpuRasterizer {
                 )?;
             }
             DrawCommand::DrawGlyphMask(mask, origin, color) => {
-                Self::draw_glyph(mask, *origin, *color, buf, bw, clip);
+                Self::draw_glyph(mask, *origin, fade_color(*color, alpha), buf, bw, clip);
             }
             DrawCommand::DrawImageRect(image, dest) => {
                 let src = Rect::new(0.0, 0.0, image.width as f32, image.height as f32);
@@ -163,6 +182,7 @@ impl CpuRasterizer {
                     src,
                     *dest,
                     item.blend_mode,
+                    alpha,
                     buf,
                     scratch_row,
                     bw,
@@ -175,6 +195,7 @@ impl CpuRasterizer {
                     *src,
                     *dest,
                     item.blend_mode,
+                    alpha,
                     buf,
                     scratch_row,
                     bw,
@@ -182,9 +203,29 @@ impl CpuRasterizer {
                 );
             }
             DrawCommand::FillLinearGradient(grad, rect) => {
+                let faded;
+                let grad = if alpha < 1.0 {
+                    faded = LinearGradient {
+                        stops: fade_stops(&grad.stops, alpha),
+                        ..grad.clone()
+                    };
+                    &faded
+                } else {
+                    grad
+                };
                 Self::fill_linear_gradient(grad, *rect, item.blend_mode, buf, bw, clip);
             }
             DrawCommand::FillRadialGradient(grad, rect) => {
+                let faded;
+                let grad = if alpha < 1.0 {
+                    faded = RadialGradient {
+                        stops: fade_stops(&grad.stops, alpha),
+                        ..grad.clone()
+                    };
+                    &faded
+                } else {
+                    grad
+                };
                 Self::fill_radial_gradient(grad, *rect, item.blend_mode, buf, bw, clip);
             }
             _ => {}
@@ -702,6 +743,7 @@ impl CpuRasterizer {
         src: Rect,
         dest: Rect,
         mode: BlendMode,
+        alpha: f32,
         buf: &mut [u32],
         scratch_row: &mut Vec<u32>,
         bw: u32,
@@ -724,6 +766,7 @@ impl CpuRasterizer {
                 src,
                 dest,
                 mode,
+                alpha,
                 buf,
                 scratch_row,
                 bw,
@@ -734,7 +777,7 @@ impl CpuRasterizer {
                 y1,
             );
         } else {
-            Self::draw_image_scaled(image, src, dest, mode, buf, bw, clip, x0, y0, x1, y1);
+            Self::draw_image_scaled(image, src, dest, mode, alpha, buf, bw, clip, x0, y0, x1, y1);
         }
     }
 
@@ -744,6 +787,7 @@ impl CpuRasterizer {
         src: Rect,
         dest: Rect,
         mode: BlendMode,
+        alpha: f32,
         buf: &mut [u32],
         scratch_row: &mut Vec<u32>,
         bw: u32,
@@ -772,7 +816,7 @@ impl CpuRasterizer {
                     all_opaque = false;
                     continue;
                 }
-                let a = src_row[ii + 3];
+                let a = scale_u8(src_row[ii + 3], alpha);
                 if a != 255 {
                     all_opaque = false;
                 }
@@ -799,6 +843,7 @@ impl CpuRasterizer {
         src: Rect,
         dest: Rect,
         mode: BlendMode,
+        alpha: f32,
         buf: &mut [u32],
         bw: u32,
         clip: ClipBox,
@@ -820,7 +865,7 @@ impl CpuRasterizer {
                 if ii + 3 >= src_row.len() {
                     continue;
                 }
-                let rgba = (u32::from(src_row[ii + 3]) << 24)
+                let rgba = (u32::from(scale_u8(src_row[ii + 3], alpha)) << 24)
                     | (u32::from(src_row[ii]) << 16)
                     | (u32::from(src_row[ii + 1]) << 8)
                     | u32::from(src_row[ii + 2]);
@@ -1439,6 +1484,42 @@ fn rect_cov_x(x: u32, xl: f32, xr: f32) -> f32 {
 
 fn rect_cov_y(y: u32, yl: f32, yr: f32) -> f32 {
     ((y as f32 + 1.0).min(yr) - (y as f32).max(yl)).clamp(0.0, 1.0)
+}
+
+fn scale_u8(v: u8, factor: f32) -> u8 {
+    if factor >= 1.0 {
+        return v;
+    }
+    f32_to_u8_clamped((f32::from(v) * factor).round())
+}
+
+fn fade_color(c: Color, alpha: f32) -> Color {
+    if alpha >= 1.0 {
+        return c;
+    }
+    Color {
+        a: f32_to_u8_clamped((f32::from(c.a) * alpha).round()),
+        ..c
+    }
+}
+
+fn fade_paint(paint: &Paint, alpha: f32) -> Paint {
+    if alpha >= 1.0 {
+        return paint.clone();
+    }
+    let mut faded = paint.clone();
+    faded.color = fade_color(paint.color, alpha);
+    faded
+}
+
+fn fade_stops(stops: &[GradientStop], alpha: f32) -> Vec<GradientStop> {
+    stops
+        .iter()
+        .map(|stop| GradientStop {
+            color: fade_color(stop.color, alpha),
+            ..*stop
+        })
+        .collect()
 }
 
 fn color_to_u32(c: Color) -> u32 {

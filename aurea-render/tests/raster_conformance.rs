@@ -178,7 +178,6 @@ fn clip_rect_suppresses_pixels_outside_the_clip() {
 }
 
 #[test]
-#[ignore = "the rasterizer does not yet honour the active opacity"]
 fn alpha_blends_against_the_backdrop() {
     let buf = render(|ctx| {
         ctx.clear(Color::rgb(0, 0, 0)).expect("clear");
@@ -187,11 +186,14 @@ fn alpha_blends_against_the_backdrop() {
             .expect("draw_rect");
     });
 
+    // Compositing happens in linear light, so half-alpha red over black lands
+    // near sRGB 188, not 128. What matters is that it is neither the untouched
+    // backdrop nor full-strength red.
     let mid = px(&buf, 12, 12);
     let red = (mid >> 16) & 0xFF;
     assert!(
-        (100..=155).contains(&red),
-        "half-alpha red over black should be mid red, got {mid:#010x}{}",
+        (150..=210).contains(&red),
+        "half-alpha red over black should be partially blended, got {mid:#010x}{}",
         dump(&buf)
     );
 }
@@ -247,4 +249,31 @@ fn clip_applies_to_every_primitive() {
     });
     assert_px(&cleared, 16, 16, opaque(RED));
     assert_px(&cleared, 0, 0, 0);
+}
+
+#[test]
+fn zero_alpha_draws_nothing() {
+    let buf = render(|ctx| {
+        ctx.set_alpha(0.0).expect("set_alpha");
+        ctx.draw_rect(Rect::new(8.0, 8.0, 8.0, 8.0), &fill(RED))
+            .expect("draw_rect");
+    });
+
+    assert_px(&buf, 12, 12, 0);
+}
+
+#[test]
+fn alpha_applies_to_circles_too() {
+    let circle = render(|ctx| {
+        ctx.clear(Color::rgb(0, 0, 0)).expect("clear");
+        ctx.set_alpha(0.5).expect("set_alpha");
+        ctx.draw_circle(Point::new(16.0, 16.0), 8.0, &fill(RED))
+            .expect("draw_circle");
+    });
+    let red = (px(&circle, 16, 16) >> 16) & 0xFF;
+    assert!(
+        (150..=210).contains(&red),
+        "half-alpha circle should be partially blended, got {red}{}",
+        dump(&circle)
+    );
 }

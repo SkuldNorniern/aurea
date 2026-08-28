@@ -61,6 +61,8 @@ pub struct DisplayItem {
     pub interactive_id: Option<super::types::InteractiveId>,
     /// Blend mode when compositing this item.
     pub blend_mode: super::types::BlendMode,
+    /// Opacity this item was recorded under, `0.0..=1.0`.
+    pub opacity: f32,
     /// Active clip when this item was recorded, in physical pixels.
     pub clip: Option<Rect>,
     /// The actual draw command.
@@ -84,6 +86,7 @@ impl DisplayItem {
             opaque,
             interactive_id: None,
             blend_mode,
+            opacity: 1.0,
             clip: None,
             command,
         }
@@ -93,6 +96,13 @@ impl DisplayItem {
     #[must_use]
     pub fn with_clip(mut self, clip: Option<Rect>) -> Self {
         self.clip = clip;
+        self
+    }
+
+    /// Sets the opacity this item was recorded under.
+    #[must_use]
+    pub fn with_opacity(mut self, opacity: f32) -> Self {
+        self.opacity = opacity.clamp(0.0, 1.0);
         self
     }
 
@@ -113,6 +123,7 @@ impl DisplayItem {
             opaque,
             interactive_id: Some(interactive_id),
             blend_mode,
+            opacity: 1.0,
             clip: None,
             command,
         }
