@@ -23,7 +23,7 @@ use crate::lifecycle::{
 use crate::menu::MenuBar;
 mod proxy;
 
-pub use proxy::WindowProxy;
+pub use proxy::{ProxyId, WindowProxy};
 
 #[cfg(feature = "wgpu")]
 use crate::platform::handles::native_handle_from_window_ptr;
@@ -75,6 +75,9 @@ pub struct Window {
     damage: Mutex<DamageRegion>,
     scale_factor: Mutex<f32>,
     event_queue: Arc<EventQueue>,
+    /// Addresses this window for the life of the process, so a proxy outliving
+    /// its window cannot be pointed at whichever window reuses its handle.
+    proxy_id: ProxyId,
     /// The window's native handle, kept so a wgpu surface can borrow something
     /// that lives as long as the window does. `NativeWindowHandle` is an inert
     /// identifier and stays `Send + Sync`; the `Window` around it is not.
@@ -223,6 +226,7 @@ impl Window {
 
         Ok(Self {
             handle,
+            proxy_id: proxy::next_id(),
             #[cfg(feature = "wgpu")]
             surface_handle,
             menu_bar: None,
@@ -295,7 +299,12 @@ impl Window {
     ///
     /// See [`WindowProxy`] for how queued work gets back onto the UI thread.
     pub fn proxy(&self) -> WindowProxy {
-        WindowProxy::new(self.handle)
+        WindowProxy::new(self.proxy_id)
+    }
+
+    /// This window's process-unique id, which proxies address it by.
+    pub(super) fn proxy_id(&self) -> ProxyId {
+        self.proxy_id
     }
 
     pub fn run(&self) -> AureaResult<()> {
@@ -734,7 +743,7 @@ impl Drop for Window {
         unregister_event_queue(self.handle);
         unregister_update_callbacks(self.handle);
         unregister_event_callbacks(self.handle);
-        proxy::clear_for(self.handle);
+        proxy::clear_for(self.proxy_id);
 
         unsafe {
             ng_platform_destroy_window(self.handle);
