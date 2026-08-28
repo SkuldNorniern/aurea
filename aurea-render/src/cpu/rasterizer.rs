@@ -1125,35 +1125,7 @@ impl CpuRasterizer {
         if let Some(rect) = forced {
             mark_tile_range_dirty(rect, tiles_x, tiles_y, &mut dirty);
         }
-        self.propagate_dirty_tiles(tiles_x, tiles_y, &mut dirty);
         dirty
-    }
-
-    fn propagate_dirty_tiles(&self, tiles_x: u32, tiles_y: u32, dirty: &mut [bool]) {
-        let tile_count = (tiles_x * tiles_y) as usize;
-        for _ in 0..tile_count {
-            let mut changed = false;
-            for item in self.display_list.items() {
-                if !is_known_bounds(item.bounds) {
-                    continue;
-                }
-                if item_overlaps_dirty_tiles(item.bounds, dirty, tiles_x, tiles_y) {
-                    let (tx0, ty0, tx1, ty1) = tile_range(item.bounds, tiles_x, tiles_y);
-                    for ty in ty0..ty1 {
-                        for tx in tx0..tx1 {
-                            let idx = (ty * tiles_x + tx) as usize;
-                            if !dirty[idx] {
-                                dirty[idx] = true;
-                                changed = true;
-                            }
-                        }
-                    }
-                }
-            }
-            if !changed {
-                break;
-            }
-        }
     }
 
     fn refine_tile_hashes(
@@ -1282,7 +1254,10 @@ impl Renderer for CpuRasterizer {
 
         self.last_frame_damage = union_dirty_tile_rects(&dirty_tiles, tiles_x, tiles_y, bw, bh);
 
-        let surface_clip = ClipBox::surface(bw, bh);
+        let surface_clip = match self.last_frame_damage {
+            Some(region) => ClipBox::surface(bw, bh).intersect(region),
+            None => ClipBox::surface(bw, bh),
+        };
         let items = self.display_list.items();
         for (i, item) in items.iter().enumerate() {
             if let DrawCommand::Clear(color) = &item.command {
@@ -1847,7 +1822,7 @@ mod tile_cache_tests {
     }
 
     #[test]
-    fn item_spanning_a_dirty_tile_drags_in_its_other_tiles() {
+    fn a_spanning_item_does_not_drag_in_its_clean_tiles() {
         let mut r = two_by_two();
         let full = whole();
         let spanning = Rect::new(tile() - 16.0, 4.0, 40.0, 8.0);
@@ -1861,10 +1836,11 @@ mod tile_cache_tests {
         r.display_list.push(item(100, spanning));
         r.display_list.push(item(2, small));
         let dirty = r.compute_dirty_tiles(Some(full), None, 2, 2);
+
         assert!(dirty[0], "tile (0,0) dirty: small's cache key changed");
         assert!(
-            dirty[1],
-            "tile (1,0) dragged in: spanning item also covers it"
+            !dirty[1],
+            "tile (1,0) stays clean: the spanning item is clipped to the repaint"
         );
         assert!(!dirty[2], "tile (0,1) untouched");
         assert!(!dirty[3], "tile (1,1) untouched");
