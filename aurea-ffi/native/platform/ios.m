@@ -73,7 +73,9 @@ NGHandle ng_platform_create_box(int is_vertical) {
     return ng_ios_create_box(is_vertical);
 }
 
-int ng_platform_box_add(NGHandle box, NGHandle element) {
+int ng_platform_box_add(NGHandle box, NGHandle element, float weight) {
+    /* iOS stack views distribute space themselves; the weight is unused. */
+    (void)weight;
     return ng_ios_box_add(box, element);
 }
 

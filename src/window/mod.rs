@@ -44,8 +44,8 @@ use std::{
     os::raw::c_void,
     rc::Rc,
     sync::{
-        Arc, Mutex, OnceLock,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc, LazyLock, Mutex, OnceLock,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 
@@ -57,7 +57,10 @@ static WINDOW_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 /// Whether the native platform is currently initialised. Goes back to `false`
 /// when the last window is dropped, so the next window brings it up again.
-static PLATFORM_READY: AtomicBool = AtomicBool::new(false);
+///
+/// A lock rather than an atomic: bringing the platform up is several steps,
+/// and two threads reaching the first window at once must not each run them.
+static PLATFORM_READY: LazyLock<Mutex<bool>> = LazyLock::new(|| Mutex::new(false));
 
 pub use crate::registry::window::{
     process_all_window_events, process_all_window_updates, push_window_event,
@@ -124,17 +127,27 @@ impl Window {
         // runs `ng_platform_cleanup()`, so a program that closes every window
         // and then opens a new one needs the platform brought back up; a
         // one-shot init left it torn down and every later window failed.
-        if !PLATFORM_READY.load(Ordering::Acquire) {
-            if unsafe { ng_platform_init() } != 0 {
-                return Err(AureaError::PlatformError(1));
+        //
+        // Held under one lock rather than a pair of atomics: two threads
+        // racing the first `Window::new` would otherwise both see "not ready",
+        // both initialise the platform, and both claim the UI thread. Windows
+        // are `!Send` once they exist, which says nothing about who may create
+        // one.
+        {
+            let mut ready = lock(&PLATFORM_READY);
+            if !*ready {
+                if unsafe { ng_platform_init() } != 0 {
+                    return Err(AureaError::PlatformError(1));
+                }
+                FrameScheduler::set_request_frame_hook(|| {
+                    unsafe { ng_platform_request_frame() };
+                });
+                // Whichever thread brings the platform up owns the native UI.
+                // On macOS and iOS that has to be the main thread; the check
+                // in `ui_thread` reports a mismatch rather than enforcing it.
+                ui_thread::claim();
+                *ready = true;
             }
-            FrameScheduler::set_request_frame_hook(|| {
-                unsafe { ng_platform_request_frame() };
-            });
-            // Whichever thread initialises the platform owns the native UI
-            // from here on.
-            ui_thread::claim();
-            PLATFORM_READY.store(true, Ordering::Release);
         }
 
         let platform = Platform::current();
@@ -752,7 +765,7 @@ impl Drop for Window {
         if WINDOW_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
             // Last window — safe to tear down shared platform state.
             unsafe { ng_platform_cleanup() };
-            PLATFORM_READY.store(false, Ordering::Release);
+            *lock(&PLATFORM_READY) = false;
             ui_thread::release();
         }
     }
