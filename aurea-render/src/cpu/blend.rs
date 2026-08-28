@@ -91,6 +91,30 @@ impl ConstSrc {
         }
     }
 
+    /// Composite this source at a per-pixel alpha, in `0..=255`.
+    ///
+    /// The linear source channels do not depend on alpha, so a shape whose
+    /// colour is constant but whose coverage varies — the antialiased edge of
+    /// any fill, and every pixel of a hairline that never fully covers one —
+    /// still avoids three `srgb_to_linear` lookups per pixel.
+    #[inline]
+    pub fn over_at_alpha(self, dst: u32, alpha: u32) -> u32 {
+        if alpha == 0 {
+            return dst;
+        }
+        let da = da(dst);
+        let out_a = alpha + ((255 - alpha) * da) / 255;
+        if out_a == 0 {
+            return 0;
+        }
+        let cov = alpha as f32 / 255.0;
+        let inv = 1.0 - cov;
+        let out_r = linear_to_srgb_u8(self.lr * cov + srgb_to_linear(dr8(dst)) * inv);
+        let out_g = linear_to_srgb_u8(self.lg * cov + srgb_to_linear(dg8(dst)) * inv);
+        let out_b = linear_to_srgb_u8(self.lb * cov + srgb_to_linear(db8(dst)) * inv);
+        (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b
+    }
+
     /// Composite this constant source onto a single destination pixel.
     /// Equivalent to `blend_over(src, dst)` but skips the per-pixel source
     /// `srgb_to_linear` calls.
@@ -408,4 +432,59 @@ fn blend_exclusion(src: u32, dst: u32) -> u32 {
     let out_b = sb + db - (2 * sb * db) / 255;
     let out_a = sa + (da * (255 - sa)) / 255;
     (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::BlendMode;
+
+    fn rgba(r: u8, g: u8, b: u8, a: u8) -> u32 {
+        (u32::from(a) << 24) | (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
+    }
+
+    /// Hoisting the source colour out of the per-pixel loop has to produce the
+    /// same pixels, or it is not an optimisation but a change of appearance.
+    #[test]
+    fn hoisting_the_source_colour_changes_nothing() {
+        let destinations = [
+            rgba(0, 0, 0, 255),
+            rgba(255, 255, 255, 255),
+            rgba(30, 33, 40, 255),
+            rgba(120, 200, 255, 128),
+            rgba(0, 0, 0, 0),
+        ];
+
+        for (r, g, b) in [(120u8, 200u8, 255u8), (255, 0, 0), (10, 200, 40)] {
+            for alpha in [1u8, 26, 64, 128, 200, 254] {
+                let src = rgba(r, g, b, alpha);
+                let hoisted = ConstSrc::new(rgba(r, g, b, 255));
+
+                for dst in destinations {
+                    let direct = blend_pixel(src, dst, BlendMode::Normal);
+                    let via_const = hoisted.over_at_alpha(dst, u32::from(alpha));
+                    assert_eq!(
+                        direct, via_const,
+                        "src {r},{g},{b} at alpha {alpha} over {dst:#010x}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn zero_alpha_leaves_the_destination_alone() {
+        let dst = rgba(30, 33, 40, 255);
+        let src = ConstSrc::new(rgba(255, 0, 0, 255));
+        assert_eq!(src.over_at_alpha(dst, 0), dst);
+    }
+
+    #[test]
+    fn full_alpha_replaces_the_destination() {
+        let dst = rgba(30, 33, 40, 255);
+        let src = ConstSrc::new(rgba(255, 0, 0, 255));
+        let out = src.over_at_alpha(dst, 255);
+        assert_eq!(out >> 24, 255, "opaque result");
+        assert_eq!((out >> 16) & 0xFF, 255, "the source colour");
+    }
 }
