@@ -1,5 +1,7 @@
 use super::traits::Element;
-use crate::registry::elements::{next_text_editor_id, register_text_editor_callback};
+use crate::registry::elements::{
+    next_text_editor_id, register_text_editor_callback, unregister_text_editor_callback,
+};
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::{ffi::CStr, ffi::CString, os::raw::c_void};
@@ -79,5 +81,13 @@ impl Element for TextEditor {
         unsafe {
             ng_platform_text_editor_invalidate(self.handle);
         }
+    }
+}
+
+impl Drop for TextEditor {
+    fn drop(&mut self) {
+        // The registry held the closure for the life of the process otherwise,
+        // and it keeps alive whatever the application captured in it.
+        unregister_text_editor_callback(self._id);
     }
 }
