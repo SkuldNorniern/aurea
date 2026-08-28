@@ -11,7 +11,10 @@ use aurea::elements::{Orientation, Stack};
 use aurea::render::{Canvas, Color, DrawingContext, Paint, PaintStyle, Rect, RendererBackend};
 use aurea::{AureaResult, Container, Window};
 use aurea_render::CURRENT_BUFFER;
+use aurea_runtime::FrameScheduler;
 use std::slice::from_raw_parts;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const BG: Color = Color {
     r: 240,
@@ -108,6 +111,78 @@ fn invalidate_keeps_immediate_mode_pixels() -> AureaResult<()> {
         drawn_pixels(),
         before,
         "invalidate_all wiped an immediate-mode canvas"
+    );
+    Ok(())
+}
+
+/// A ticker that feeds a retained draw callback has to mark the canvas dirty,
+/// or the callback runs once and the canvas sits there looking frozen.
+/// `on_frame` is what ties the two together.
+#[test]
+#[ignore = "creates a native window; run with --ignored"]
+fn on_frame_keeps_the_draw_callback_running() -> AureaResult<()> {
+    let (window, canvas) = window_with_canvas("on_frame")?;
+
+    let draws = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&draws);
+    canvas.set_draw_callback(move |ctx| {
+        counter.fetch_add(1, Ordering::Relaxed);
+        // Something different every frame, so the damage diff cannot skip it.
+        let n = counter.load(Ordering::Relaxed) % 40;
+        let fill = Paint::new()
+            .color(Color::rgb(100, 150, 200))
+            .style(PaintStyle::Fill);
+        ctx.draw_rect(Rect::new(n as f32, 10.0, 20.0, 20.0), &fill)
+    })?;
+
+    let ticks = Arc::new(AtomicUsize::new(0));
+    let tick_counter = Arc::clone(&ticks);
+    let ticker = canvas.on_frame(move |_| {
+        tick_counter.fetch_add(1, Ordering::Relaxed);
+        true
+    });
+
+    for _ in 0..4 {
+        window.poll_events();
+        window.process_frames()?;
+    }
+    FrameScheduler::unregister_ticker(ticker);
+
+    assert!(
+        ticks.load(Ordering::Relaxed) >= 3,
+        "the ticker should run each frame"
+    );
+    assert!(
+        draws.load(Ordering::Relaxed) >= 3,
+        "the canvas redrew {} time(s); a ticker alone leaves it at 1",
+        draws.load(Ordering::Relaxed)
+    );
+    Ok(())
+}
+
+/// Returning false from `on_frame` stops it.
+#[test]
+#[ignore = "creates a native window; run with --ignored"]
+fn on_frame_stops_when_it_returns_false() -> AureaResult<()> {
+    let (window, canvas) = window_with_canvas("on_frame stop")?;
+    canvas.set_draw_callback(|_| Ok(()))?;
+
+    let ticks = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&ticks);
+    canvas.on_frame(move |_| {
+        counter.fetch_add(1, Ordering::Relaxed);
+        false
+    });
+
+    for _ in 0..4 {
+        window.poll_events();
+        window.process_frames()?;
+    }
+
+    assert_eq!(
+        ticks.load(Ordering::Relaxed),
+        1,
+        "it should run once and stop"
     );
     Ok(())
 }

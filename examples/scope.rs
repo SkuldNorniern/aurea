@@ -69,9 +69,13 @@ fn main() -> AureaResult<()> {
 
     // The signal generator. `phase` is where the waveform got to last frame, so
     // the two channels stay continuous across frames instead of restarting.
+    //
+    // on_frame rather than a plain ticker: a retained draw callback only runs
+    // when the canvas is dirty, so feeding samples from a ticker that does not
+    // redraw paints one frame and then sits there looking frozen.
     let feed = Arc::clone(&scope);
     let mut phase = 0.0f64;
-    let ticker = FrameScheduler::register_ticker(move |info| {
+    let ticker = canvas.on_frame(move |info| {
         let seconds = info.delta.as_secs_f64().min(0.1);
         let count = samples_for(seconds);
 
@@ -92,7 +96,7 @@ fn main() -> AureaResult<()> {
     })?;
 
     let mut layout = Stack::new(Orientation::Vertical)?;
-    layout.add(canvas)?;
+    layout.add(canvas.clone())?;
     window.set_content(layout)?;
     window.show();
     window.run()?;
