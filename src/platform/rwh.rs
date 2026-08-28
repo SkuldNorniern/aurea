@@ -1,5 +1,9 @@
 //! `raw-window-handle` trait impls for [`Window`], built on the shared
 //! [`super::handles`] extraction and conversion.
+//!
+//! Implementing these on the owning type rather than on a temporary handle
+//! struct is what lets a wgpu surface borrow the thing that actually backs it,
+//! instead of claiming a `'static` lifetime it does not have.
 
 use super::handles::{native_handle_from_window_ptr, raw_handles};
 use crate::window::Window;
