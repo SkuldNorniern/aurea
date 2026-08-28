@@ -23,7 +23,7 @@ impl SidebarList {
 
     pub fn with_callback<F>(on_selected: F) -> AureaResult<Self>
     where
-        F: Fn(i32) + Send + Sync + 'static,
+        F: Fn(i32) + 'static,
     {
         let id = next_sidebar_id();
 

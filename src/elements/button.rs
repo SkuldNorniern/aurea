@@ -17,7 +17,7 @@ impl Button {
 
     pub fn with_callback<F>(title: &str, callback: F) -> AureaResult<Self>
     where
-        F: Fn() + Send + Sync + 'static,
+        F: Fn() + 'static,
     {
         let id = next_button_id();
 
