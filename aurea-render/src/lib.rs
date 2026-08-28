@@ -6,6 +6,25 @@
 //! - batch: backend-agnostic 2D batches lowered from a display list (GPU path)
 //! - cpu: rasterizer executes commands, tile-based with damage
 //! - interaction: hit testing on display list items
+//!
+//! # How a frame gets drawn
+//!
+//! A caller records into a [`RecordingContext`], which resolves each draw
+//! against the current transform, clip, opacity and blend mode and stores the
+//! result on the item. Nothing is left as pending state: partial repaint
+//! renders an arbitrary subset of the list, so anything that only existed
+//! between a push and a pop would go missing exactly when a frame is repainted
+//! in pieces.
+//!
+//! Each item also carries a cache key over everything that affects its pixels.
+//! The rasterizer diffs this frame's keys against the last frame's positionally,
+//! marks the tiles that changed, and clips every draw to that region — so an
+//! item spanning changed and unchanged tiles repaints only the changed part.
+//! An unchanged frame is detected before any pixel is touched.
+//!
+//! The geometry an item holds is already resolved, which is why the transform
+//! is not part of its cache key: two transforms that put a shape in the same
+//! place produce the same pixels and should share a key.
 
 mod batch;
 mod command;
