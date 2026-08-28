@@ -41,7 +41,8 @@
 #define BUTTON_MIN_HEIGHT 32
 #define LABEL_PADDING 4
 #define BOX_ORIENTATION_PROP "AureaBoxOrientation"
-#define BUTTON_COMMAND_BASE 100000
+/* Control ids for buttons start here; menu item ids sit below it. */
+#define BUTTON_COMMAND_BASE 0x8000
 
 void layout_box_children(HWND box);
 int get_box_orientation(HWND box);
