@@ -3,6 +3,7 @@
 use std::cmp::Ordering;
 
 use crate::cpu::blend::{ConstSrc, blend_pixel};
+use crate::cpu::clip::ClipBox;
 use crate::cpu::path::Edge;
 use crate::numeric::f32_to_u32_clamped;
 use crate::types::{BlendMode, Color};
@@ -19,6 +20,7 @@ pub fn fill_spans(
     buf: &mut [u32],
     buf_width: u32,
     offset_x: u32,
+    clip: ClipBox,
     color: Color,
     blend_mode: BlendMode,
 ) {
@@ -26,8 +28,10 @@ pub fn fill_spans(
         return;
     }
 
-    let clip_l = offset_x as f32;
-    let clip_r = (offset_x + buf_width) as f32;
+    // Spans are clamped to the clip rather than to the buffer: the clip is
+    // never wider than the buffer, so this subsumes the bounds check.
+    let clip_l = (offset_x as f32).max(clip.left());
+    let clip_r = ((offset_x + buf_width) as f32).min(clip.right());
 
     let full_src = color_u32_cov(color, 1.0);
     let opaque_fast = blend_mode == BlendMode::Normal && color.a == 255;
@@ -177,7 +181,14 @@ pub fn fill_scanline(
     let row_base = buf_y as usize * buf_width as usize;
 
     fill_spans(
-        scratch_xs, row_base, buf, buf_width, offset_x, color, blend_mode,
+        scratch_xs,
+        row_base,
+        buf,
+        buf_width,
+        offset_x,
+        ClipBox::unbounded(),
+        color,
+        blend_mode,
     );
 }
 
