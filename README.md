@@ -114,9 +114,22 @@ cargo run --example canvas_blend
 
 The renderer layer lives in `aurea-render` and is shared by CPU and GPU paths.
 Display-list drawing commands are lowered either into the CPU rasterizer or into
-backend-specific GPU batches. Draw callbacks should be deterministic for the
-same captured application state so the damage/tile cache can make correct reuse
-decisions.
+backend-specific GPU batches.
+
+A draw callback runs every frame the canvas is dirty and rebuilds the whole
+display list; what makes that cheap is the diff underneath it. Each item carries
+a cache key covering everything that affects its pixels, the list is compared
+against the previous frame's, and only the tiles that changed are repainted —
+with every draw clipped to that region, so an item spanning changed and
+unchanged tiles only repaints the changed part.
+
+Two things follow for callers. Draw callbacks must be deterministic for the same
+application state: one that varies with wall-clock time or hash iteration order
+will produce a display list that hashes differently every frame and defeat the
+diff. And identical output should be produced identically — the same shape drawn
+at the same place gets the same key whether it got there through a transform or
+directly, so either is fine, but recomputing geometry in a way that jitters by a
+fraction of a pixel is not.
 
 ## Examples
 
