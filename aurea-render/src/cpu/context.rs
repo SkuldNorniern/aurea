@@ -106,23 +106,81 @@ impl CpuDrawingContext {
         self.scale_factor = scale;
     }
 
+    fn transform_is_axis_aligned(&self) -> bool {
+        let t = self.current_transform;
+        t.m12.abs() < 1e-6 && t.m21.abs() < 1e-6
+    }
+
+    fn transform_scale(&self) -> f32 {
+        let t = self.current_transform;
+        let det = t.m11 * t.m22 - t.m12 * t.m21;
+        det.abs().sqrt()
+    }
+
     fn s_rect(&self, r: Rect) -> Rect {
-        let s = self.scale_factor;
-        Rect::new(r.x * s, r.y * s, r.width * s, r.height * s)
+        let a = self.s_pt(Point::new(r.x, r.y));
+        let b = self.s_pt(Point::new(r.x + r.width, r.y + r.height));
+        Rect::new(
+            a.x.min(b.x),
+            a.y.min(b.y),
+            (b.x - a.x).abs(),
+            (b.y - a.y).abs(),
+        )
     }
 
     fn s_pt(&self, p: Point) -> Point {
-        Point::new(p.x * self.scale_factor, p.y * self.scale_factor)
+        let t = self.current_transform.map_point(p);
+        Point::new(t.x * self.scale_factor, t.y * self.scale_factor)
+    }
+
+    fn t_pt(&self, p: Point) -> Point {
+        self.current_transform.map_point(p)
     }
 
     fn s(&self, v: f32) -> f32 {
-        v * self.scale_factor
+        v * self.transform_scale() * self.scale_factor
     }
 
     fn s_paint(&self, paint: &Paint) -> Paint {
         let mut p = paint.clone();
-        p.stroke_width *= self.scale_factor;
+        p.stroke_width *= self.transform_scale() * self.scale_factor;
         p
+    }
+
+    fn transformed_path(&self, path: &Path) -> Path {
+        if self.current_transform == Transform::identity() {
+            return path.clone();
+        }
+        let commands = path
+            .commands
+            .iter()
+            .map(|cmd| match cmd {
+                PathCommand::MoveTo(p) => PathCommand::MoveTo(self.t_pt(*p)),
+                PathCommand::LineTo(p) => PathCommand::LineTo(self.t_pt(*p)),
+                PathCommand::QuadTo(c, p) => PathCommand::QuadTo(self.t_pt(*c), self.t_pt(*p)),
+                PathCommand::CubicTo(c1, c2, p) => {
+                    PathCommand::CubicTo(self.t_pt(*c1), self.t_pt(*c2), self.t_pt(*p))
+                }
+                PathCommand::Close => PathCommand::Close,
+            })
+            .collect();
+        Path { commands }
+    }
+
+    fn transformed_rect_path(&self, r: Rect) -> Path {
+        let corners = [
+            self.t_pt(Point::new(r.x, r.y)),
+            self.t_pt(Point::new(r.x + r.width, r.y)),
+            self.t_pt(Point::new(r.x + r.width, r.y + r.height)),
+            self.t_pt(Point::new(r.x, r.y + r.height)),
+        ];
+        let mut path = Path::new();
+        path.commands.push(PathCommand::MoveTo(corners[0]));
+        for corner in &corners[1..] {
+            path.commands.push(PathCommand::LineTo(*corner));
+        }
+        path.commands.push(PathCommand::Close);
+        path
     }
 
     /// Sets the interactive ID for the next drawn shapes (used for hit testing).
@@ -320,46 +378,6 @@ impl CpuDrawingContext {
         CacheKey::from_hash(hasher.finish())
     }
 
-    fn transform_point(&self, point: Point) -> Point {
-        let t = self.current_transform;
-        let sf = self.scale_factor;
-        Point::new(
-            t.m11 * point.x + t.m21 * point.y + t.m31 * sf,
-            t.m12 * point.x + t.m22 * point.y + t.m32 * sf,
-        )
-    }
-
-    fn transform_rect(&self, rect: Rect) -> Rect {
-        let top_left = self.transform_point(Point::new(rect.x, rect.y));
-        let top_right = self.transform_point(Point::new(rect.x + rect.width, rect.y));
-        let bottom_left = self.transform_point(Point::new(rect.x, rect.y + rect.height));
-        let bottom_right =
-            self.transform_point(Point::new(rect.x + rect.width, rect.y + rect.height));
-
-        let min_x = top_left
-            .x
-            .min(top_right.x)
-            .min(bottom_left.x)
-            .min(bottom_right.x);
-        let max_x = top_left
-            .x
-            .max(top_right.x)
-            .max(bottom_left.x)
-            .max(bottom_right.x);
-        let min_y = top_left
-            .y
-            .min(top_right.y)
-            .min(bottom_left.y)
-            .min(bottom_right.y);
-        let max_y = top_left
-            .y
-            .max(top_right.y)
-            .max(bottom_left.y)
-            .max(bottom_right.y);
-
-        Rect::new(min_x, min_y, max_x - min_x, max_y - min_y)
-    }
-
     fn compute_bounds(&self, command: &super::super::command::DrawCommand) -> Rect {
         match command {
             super::super::command::DrawCommand::Clear(_) => Rect::new(0.0, 0.0, f32::MAX, f32::MAX),
@@ -372,7 +390,7 @@ impl CpuDrawingContext {
                     bounds.width += paint.stroke_width;
                     bounds.height += paint.stroke_width;
                 }
-                self.transform_rect(bounds)
+                bounds
             }
             super::super::command::DrawCommand::DrawCircle(center, radius, paint) => {
                 let mut bounds = Rect::new(
@@ -388,27 +406,15 @@ impl CpuDrawingContext {
                     bounds.width += paint.stroke_width;
                     bounds.height += paint.stroke_width;
                 }
-                self.transform_rect(bounds)
+                bounds
             }
-            super::super::command::DrawCommand::DrawImageRect(_, dest) => {
-                self.transform_rect(*dest)
+            super::super::command::DrawCommand::DrawImageRect(_, dest) => *dest,
+            super::super::command::DrawCommand::DrawImageRegion(_, _, dest) => *dest,
+            super::super::command::DrawCommand::DrawGlyphMask(mask, origin, _) => {
+                Rect::new(origin.x, origin.y, mask.width as f32, mask.height as f32)
             }
-            super::super::command::DrawCommand::DrawImageRegion(_, _, dest) => {
-                self.transform_rect(*dest)
-            }
-            super::super::command::DrawCommand::DrawGlyphMask(mask, origin, _) => self
-                .transform_rect(Rect::new(
-                    origin.x,
-                    origin.y,
-                    mask.width as f32,
-                    mask.height as f32,
-                )),
-            super::super::command::DrawCommand::FillLinearGradient(_, rect) => {
-                self.transform_rect(*rect)
-            }
-            super::super::command::DrawCommand::FillRadialGradient(_, rect) => {
-                self.transform_rect(*rect)
-            }
+            super::super::command::DrawCommand::FillLinearGradient(_, rect) => *rect,
+            super::super::command::DrawCommand::FillRadialGradient(_, rect) => *rect,
             super::super::command::DrawCommand::DrawPath(path, paint) => {
                 let mut bounds = self.s_rect(super::hit_test::path_bounds(path));
                 if paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0 {
@@ -418,7 +424,7 @@ impl CpuDrawingContext {
                     bounds.width += paint.stroke_width;
                     bounds.height += paint.stroke_width;
                 }
-                self.transform_rect(bounds)
+                bounds
             }
             _ => Rect::new(0.0, 0.0, 0.0, 0.0),
         }
@@ -490,6 +496,14 @@ impl DrawingContext for CpuDrawingContext {
     }
 
     fn draw_rect(&mut self, rect: Rect, paint: &Paint) -> AureaResult<()> {
+        if !self.transform_is_axis_aligned() {
+            let path = self.transformed_rect_path(rect);
+            self.add_command(super::super::command::DrawCommand::DrawPath(
+                path,
+                self.s_paint(paint),
+            ));
+            return Ok(());
+        }
         self.add_command(super::super::command::DrawCommand::DrawRect(
             self.s_rect(rect),
             self.s_paint(paint),
@@ -508,7 +522,7 @@ impl DrawingContext for CpuDrawingContext {
 
     fn draw_path(&mut self, path: &Path, paint: &Paint) -> AureaResult<()> {
         self.add_command(super::super::command::DrawCommand::DrawPath(
-            path.clone(),
+            self.transformed_path(path),
             self.s_paint(paint),
         ));
         Ok(())
@@ -643,7 +657,7 @@ impl DrawingContext for CpuDrawingContext {
     }
 
     fn transform(&mut self, transform: Transform) -> AureaResult<()> {
-        self.current_transform = self.current_transform.multiply(transform);
+        self.current_transform = transform.multiply(self.current_transform);
         Ok(())
     }
 
