@@ -224,7 +224,7 @@ impl NativeWindowHandle {
     }
 }
 
-// SAFETY: NativeWindowHandle contains raw pointers, but they are only used
+// SAFETY: this is the one place in the crate that still asserts thread-safety
 unsafe impl Send for NativeWindowHandle {}
 unsafe impl Sync for NativeWindowHandle {}
 

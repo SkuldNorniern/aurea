@@ -11,9 +11,6 @@ pub struct TabBar {
     _id: u32,
 }
 
-unsafe impl Send for TabBar {}
-unsafe impl Sync for TabBar {}
-
 impl TabBar {
     pub fn new() -> AureaResult<Self> {
         Self::with_callbacks(|_| {}, |_| {})

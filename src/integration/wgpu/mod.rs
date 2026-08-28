@@ -21,7 +21,6 @@ use raw_window_handle::{
     DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, WindowHandle,
 };
 #[cfg(feature = "wgpu")]
-use std::sync::Arc;
 #[cfg(feature = "wgpu")]
 use wgpu::{Instance, Surface, SurfaceTarget};
 
@@ -114,37 +113,8 @@ impl Window {
         &'window self,
         instance: &Instance,
     ) -> AureaResult<Surface<'window>> {
-        let surface_target = SurfaceTarget::from(self);
-
-        let surface = instance
-            .create_surface(surface_target)
-            .map_err(|_| AureaError::ElementOperationFailed)?;
-
-        Ok(surface)
-    }
-
-    /// Creates a wgpu surface that keeps the window alive.
-    ///
-    /// ```rust,no_run
-    /// use aurea::Window;
-    /// use std::sync::Arc;
-    /// use wgpu::Instance;
-    ///
-    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let window = Arc::new(Window::new("App", 800, 600)?);
-    /// let instance = Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    /// let surface = Window::create_wgpu_surface_owned(&window, &instance)?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn create_wgpu_surface_owned(
-        window: &Arc<Self>,
-        instance: &Instance,
-    ) -> AureaResult<Surface<'static>> {
-        let surface_target = SurfaceTarget::from(Arc::clone(window));
-
         instance
-            .create_surface(surface_target)
+            .create_surface(SurfaceTarget::from(self.surface_target()))
             .map_err(|_| AureaError::ElementOperationFailed)
     }
 }

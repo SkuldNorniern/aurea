@@ -21,6 +21,12 @@ use crate::lifecycle::{
     LifecycleEvent, register_lifecycle_callback, unregister_lifecycle_callback,
 };
 use crate::menu::MenuBar;
+mod proxy;
+
+pub use proxy::WindowProxy;
+
+#[cfg(feature = "wgpu")]
+use crate::platform::handles::native_handle_from_window_ptr;
 use crate::platform::ui_thread;
 use crate::registry::window::{
     dispatch_window_events, process_window_updates, register_event_callback, register_event_queue,
@@ -61,6 +67,8 @@ pub struct Window {
     damage: Mutex<DamageRegion>,
     scale_factor: Mutex<f32>,
     event_queue: Arc<EventQueue>,
+    #[cfg(feature = "wgpu")]
+    surface_handle: Arc<NativeWindowHandle>,
     window_type: WindowType,
 }
 
@@ -181,8 +189,15 @@ impl Window {
 
         WINDOW_COUNT.fetch_add(1, Ordering::Relaxed);
 
+        #[cfg(feature = "wgpu")]
+        let surface_handle = Arc::new(
+            native_handle_from_window_ptr(handle).ok_or(AureaError::WindowCreationFailed)?,
+        );
+
         Ok(Self {
             handle,
+            #[cfg(feature = "wgpu")]
+            surface_handle,
             menu_bar: None,
             content: None,
             platform,
@@ -247,6 +262,11 @@ impl Window {
     /// Get the stable window identifier for this window.
     pub fn id(&self) -> WindowId {
         WindowId::from_handle(self.handle)
+    }
+
+    /// A `Send + Sync` handle for reaching this window from another thread.
+    pub fn proxy(&self) -> WindowProxy {
+        WindowProxy::new(self.handle)
     }
 
     pub fn run(&self) -> AureaResult<()> {
@@ -340,6 +360,11 @@ impl Window {
         WindowNativeHandle::native_handle_impl(self)
     }
 
+    #[cfg(feature = "wgpu")]
+    pub(crate) fn surface_target(&self) -> &NativeWindowHandle {
+        &self.surface_handle
+    }
+
     /// Poll window events (non-blocking).
     ///
     /// ```rust,no_run
@@ -377,6 +402,8 @@ impl Window {
         ui_thread::check("Window::poll_events");
         unsafe { ng_platform_poll_events() };
 
+        proxy::drain_for(self);
+
         let events = self.event_queue.pop_all();
         for event in &events {
             if let WindowEvent::ScaleFactorChanged { scale_factor } = event {
@@ -406,6 +433,7 @@ impl Window {
     /// ```
     pub fn process_frames(&self) -> AureaResult<()> {
         ui_thread::check("Window::process_frames");
+        proxy::drain_for(self);
         process_window_updates(self.handle);
         FrameScheduler::process_frames()
     }
@@ -612,6 +640,7 @@ impl Drop for Window {
         unregister_event_queue(self.handle);
         unregister_update_callbacks(self.handle);
         unregister_event_callbacks(self.handle);
+        proxy::clear_for(self.handle);
 
         unsafe {
             ng_platform_destroy_window(self.handle);
@@ -622,10 +651,6 @@ impl Drop for Window {
         }
     }
 }
-
-// SAFETY: these do not mean a `Window` is safe to *use* from any thread — it
-unsafe impl Send for Window {}
-unsafe impl Sync for Window {}
 
 #[cfg(test)]
 mod event_queue_tests {

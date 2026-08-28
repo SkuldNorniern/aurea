@@ -18,8 +18,10 @@ impl IdAllocator {
     }
 }
 
+type Callback<A> = Rc<dyn Fn(A)>;
+
 pub(crate) struct CallbackRegistry<A: 'static> {
-    slots: RefCell<HashMap<u32, Rc<dyn Fn(A)>>>,
+    slots: RefCell<HashMap<u32, Callback<A>>>,
 }
 
 impl<A> CallbackRegistry<A> {
@@ -40,7 +42,7 @@ impl<A> CallbackRegistry<A> {
 
     pub fn invoke(&self, id: u32, arg: A) {
         let callback = match self.slots.try_borrow() {
-            Ok(slots) => slots.get(&id).map(Rc::clone),
+            Ok(slots) => slots.get(&id).map(Callback::clone),
             Err(_) => {
                 error!("aurea: callback registry busy; invocation for id {id} skipped");
                 None
