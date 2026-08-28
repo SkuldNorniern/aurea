@@ -232,9 +232,20 @@ impl NativeWindowHandle {
     }
 }
 
-// SAFETY: NativeWindowHandle contains raw pointers, but they are only used
-// for surface creation on the main thread. The handles themselves don't
-// need to be thread-safe for this use case.
+// SAFETY: this is the one place in the crate that still asserts thread-safety
+// over a raw native pointer, and it is deliberately narrow.
+//
+// A `NativeWindowHandle` is an inert *identifier* — an `HWND`, an `NSView*`, an
+// X11 window id — not a handle you can operate the window through. Nothing in
+// this type calls into the platform; copying the identifier between threads
+// does not touch the native object. The types that *do* operate on windows
+// (`Window`, `Canvas`, the widgets) are neither `Send` nor `Sync`, and their
+// UI-thread affinity is checked by `crate::platform::ui_thread`.
+//
+// The impls exist because wgpu requires a surface target to be `Send + Sync` on
+// native platforms; without them no surface could be created at all. wgpu reads
+// the identifier and hands it to the graphics driver, which is the usage every
+// windowing integration relies on.
 unsafe impl Send for NativeWindowHandle {}
 unsafe impl Sync for NativeWindowHandle {}
 

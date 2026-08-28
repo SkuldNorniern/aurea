@@ -6,54 +6,56 @@
 use crate::AureaResult;
 use crate::ffi::ng_platform_poll_events;
 use crate::window::{Window, WindowEvent, WindowId};
-use aurea_foundation::lock;
+use std::cell::RefCell;
 use std::os::raw::c_void;
-use std::sync::{Arc, Mutex};
+use std::rc::Rc;
 
 /// Window manager for tracking multiple windows
 ///
-/// This manager uses a single Mutex to protect the window list, avoiding
-/// nested Arc/Mutex patterns that could lead to deadlocks.
+/// Windows belong to the UI thread, so the manager does too: a `RefCell` and
+/// `Rc` are the right tools here, and a `Mutex` would only buy the appearance
+/// of thread-safety over values that cannot cross threads anyway.
 pub struct WindowManager {
-    windows: Mutex<Vec<Arc<Window>>>,
+    windows: RefCell<Vec<Rc<Window>>>,
 }
 
 impl WindowManager {
     /// Create a new window manager
     pub fn new() -> Self {
         Self {
-            windows: Mutex::new(Vec::new()),
+            windows: RefCell::new(Vec::new()),
         }
     }
 
     /// Register a window with the manager
-    pub fn register(&self, window: Arc<Window>) {
-        let mut windows = lock(&self.windows);
-        windows.push(window);
+    pub fn register(&self, window: Rc<Window>) {
+        self.windows.borrow_mut().push(window);
     }
 
     /// Unregister a window from the manager
     pub fn unregister(&self, window_handle: *mut c_void) {
-        let mut windows = lock(&self.windows);
-        windows.retain(|w| w.handle != window_handle);
+        self.windows
+            .borrow_mut()
+            .retain(|w| w.handle != window_handle);
     }
 
     /// Get all registered windows
-    pub fn windows(&self) -> Vec<Arc<Window>> {
-        let windows = lock(&self.windows);
-        windows.clone()
+    pub fn windows(&self) -> Vec<Rc<Window>> {
+        self.windows.borrow().clone()
     }
 
     /// Get the number of registered windows
     pub fn count(&self) -> usize {
-        let windows = lock(&self.windows);
-        windows.len()
+        self.windows.borrow().len()
     }
 
     /// Find a window by handle
-    pub fn find(&self, handle: *mut c_void) -> Option<Arc<Window>> {
-        let windows = lock(&self.windows);
-        windows.iter().find(|w| w.handle == handle).cloned()
+    pub fn find(&self, handle: *mut c_void) -> Option<Rc<Window>> {
+        self.windows
+            .borrow()
+            .iter()
+            .find(|w| w.handle == handle)
+            .cloned()
     }
 
     /// Process events for all registered windows
@@ -62,6 +64,8 @@ impl WindowManager {
             ng_platform_poll_events();
         }
         let mut all_events = Vec::new();
+        // Snapshot before pumping: a handler may register or drop a window,
+        // which would otherwise re-enter the borrow.
         let windows = self.windows();
         for window in windows {
             let events = window.poll_events();

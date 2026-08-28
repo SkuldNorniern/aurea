@@ -17,11 +17,11 @@ use aurea::logger;
 use aurea::render::Rect;
 use aurea::{AureaResult, Window, WindowEvent, WindowManager, WindowType};
 use log::LevelFilter;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
-use std::ops::{Deref, DerefMut};
 use std::process::exit;
-use std::sync::{Arc, Mutex};
+use std::rc::Rc;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -81,9 +81,9 @@ const FILES: &[(&str, &str)] = &[
 
 #[derive(Clone)]
 struct DetachedPopup {
-    window: Arc<Window>,
+    window: Rc<Window>,
     filename: String,
-    editor: Arc<Mutex<SendableTextEditor>>,
+    editor: Rc<RefCell<TextEditor>>,
 }
 
 struct AppState {
@@ -116,47 +116,29 @@ impl AppState {
     }
 }
 
-struct SendableTextEditor(TextEditor);
-
-unsafe impl Send for SendableTextEditor {}
-unsafe impl Sync for SendableTextEditor {}
-
-impl Deref for SendableTextEditor {
-    type Target = TextEditor;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for SendableTextEditor {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-struct SharedSidebarList(Arc<Mutex<SidebarList>>);
+struct SharedSidebarList(Rc<RefCell<SidebarList>>);
 
 impl Element for SharedSidebarList {
     fn handle(&self) -> *mut c_void {
-        self.0.lock().expect("mutex not poisoned").handle()
+        self.0.borrow().handle()
     }
 
     unsafe fn invalidate_platform(&self, rect: Option<Rect>) {
-        let guard = self.0.lock().expect("mutex not poisoned");
+        let guard = self.0.borrow();
         unsafe { Element::invalidate_platform(&*guard, rect) }
     }
 }
 
-struct SharedEditor(Arc<Mutex<SendableTextEditor>>);
+struct SharedEditor(Rc<RefCell<TextEditor>>);
 
 impl Element for SharedEditor {
     fn handle(&self) -> *mut c_void {
-        self.0.lock().expect("mutex not poisoned").handle()
+        self.0.borrow().handle()
     }
 
     unsafe fn invalidate_platform(&self, rect: Option<Rect>) {
-        let guard = self.0.lock().expect("mutex not poisoned");
-        unsafe { Element::invalidate_platform(&**guard, rect) }
+        let guard = self.0.borrow();
+        unsafe { Element::invalidate_platform(&*guard, rect) }
     }
 }
 
@@ -165,14 +147,14 @@ fn main() -> AureaResult<()> {
         eprintln!("Failed to init logger: {}", e);
     });
 
-    let state = Arc::new(Mutex::new(AppState::new()));
-    let manager = Arc::new(WindowManager::new());
+    let state = Rc::new(RefCell::new(AppState::new()));
+    let manager = Rc::new(WindowManager::new());
 
     let mut main_win = Window::new("Aurea Editor - VS Code-like", WINDOW_WIDTH, WINDOW_HEIGHT)?;
-    let ui = setup_main_ui(&mut main_win, Arc::clone(&state), Arc::clone(&manager))?;
-    setup_main_menu(&mut main_win, Arc::clone(&state), &ui, Arc::clone(&manager))?;
+    let ui = setup_main_ui(&mut main_win, Rc::clone(&state), Rc::clone(&manager))?;
+    setup_main_menu(&mut main_win, Rc::clone(&state), &ui, Rc::clone(&manager))?;
 
-    let main_arc = Arc::new(main_win);
+    let main_arc = Rc::new(main_win);
     manager.register(main_arc.clone());
 
     let mut last_sidebar_idx: i32 = 0;
@@ -187,7 +169,7 @@ fn main() -> AureaResult<()> {
         }
 
         let pending = {
-            let mut s = state.lock().expect("state mutex not poisoned");
+            let mut s = state.borrow_mut();
             s.pending_file_index.take()
         };
         if let Some(idx) = pending {
@@ -200,7 +182,7 @@ fn main() -> AureaResult<()> {
         }
 
         let detached = {
-            let s = state.lock().expect("state mutex not poisoned");
+            let s = state.borrow_mut();
             s.detached.clone()
         };
         for dp in &detached {
@@ -217,24 +199,19 @@ fn main() -> AureaResult<()> {
 
 /// Applies a file-open request made via the File menu or sidebar: loads the
 /// file's content into the editor and syncs the tab bar / sidebar selection.
-fn apply_pending_file_index(idx: i32, ui: &UiRefs, state: &Arc<Mutex<AppState>>) {
+fn apply_pending_file_index(idx: i32, ui: &UiRefs, state: &Rc<RefCell<AppState>>) {
     let Some((name, _)) = FILES.get(idx.cast_unsigned() as usize) else {
         return;
     };
-    if let (Ok(mut main_ed), Ok(st), Ok(mut tc), Ok(mut sl)) = (
-        ui.editor.lock(),
-        state.lock(),
-        ui.tab_bar.lock(),
-        ui.sidebar_list.lock(),
-    ) && let Some(c) = st.get(name)
     {
-        let _ = main_ed.set_content(c);
-        let _ = tc.set_selected(idx);
-        let _ = sl.set_selected(idx);
+        let st = state.borrow();
+        if let Some(c) = st.get(name) {
+            let _ = ui.editor.borrow_mut().set_content(c);
+            let _ = ui.tab_bar.borrow_mut().set_selected(idx);
+            let _ = ui.sidebar_list.borrow_mut().set_selected(idx);
+        }
     }
-    if let Ok(mut s) = state.lock() {
-        s.current_file = Some((*name).to_string());
-    }
+    state.borrow_mut().current_file = Some((*name).to_string());
 }
 
 /// Checks whether the sidebar's selected file changed since the last poll
@@ -242,18 +219,12 @@ fn apply_pending_file_index(idx: i32, ui: &UiRefs, state: &Arc<Mutex<AppState>>)
 /// `true` if the caller should `continue` its loop (selection changed).
 fn sync_sidebar_selection(
     ui: &UiRefs,
-    state: &Arc<Mutex<AppState>>,
+    state: &Rc<RefCell<AppState>>,
     last_sidebar_idx: &mut i32,
 ) -> bool {
-    let Ok(sidebar_list) = ui.sidebar_list.lock() else {
-        return false;
-    };
-    let Ok(mut main_ed) = ui.editor.lock() else {
-        return false;
-    };
-    let Ok(mut st) = state.lock() else {
-        return false;
-    };
+    let sidebar_list = ui.sidebar_list.borrow_mut();
+    let mut main_ed = ui.editor.borrow_mut();
+    let mut st = state.borrow_mut();
 
     let sidebar_idx = sidebar_list.get_selected();
     let Some(file_idx) = sidebar_idx_to_file_idx(sidebar_idx) else {
@@ -271,7 +242,9 @@ fn sync_sidebar_selection(
         st.current_file = Some((*name).to_string());
     }
     drop((sidebar_list, main_ed, st));
-    if let (Ok(mut tc), Ok(mut sl)) = (ui.tab_bar.lock(), ui.sidebar_list.lock()) {
+    {
+        let mut tc = ui.tab_bar.borrow_mut();
+        let mut sl = ui.sidebar_list.borrow_mut();
         let _ = tc.set_selected(file_idx);
         let _ = sl.set_selected(file_idx);
     }
@@ -283,17 +256,18 @@ fn sync_sidebar_selection(
 /// window.
 fn handle_detached_window(
     dp: &DetachedPopup,
-    state: &Arc<Mutex<AppState>>,
+    state: &Rc<RefCell<AppState>>,
     ui: &UiRefs,
-    manager: &Arc<WindowManager>,
+    manager: &Rc<WindowManager>,
     last_sidebar_idx: &mut i32,
 ) {
     for event in dp.window.poll_events() {
         if let WindowEvent::CloseRequested = event {
             let handle = dp.window.handle();
-            if let (Ok(ed), Ok(mut s), Ok(mut main_ed)) =
-                (dp.editor.lock(), state.lock(), ui.editor.lock())
             {
+                let ed = dp.editor.borrow_mut();
+                let mut s = state.borrow_mut();
+                let mut main_ed = ui.editor.borrow_mut();
                 let content: String = ed.get_content().unwrap_or_default();
                 s.set(&dp.filename, content.clone());
                 s.current_file = Some(dp.filename.clone());
@@ -301,14 +275,17 @@ fn handle_detached_window(
                 if let Some(idx) = FILES.iter().position(|(n, _)| n == &dp.filename) {
                     let idx = i32::try_from(idx).expect("FILES.len() fits in i32");
                     *last_sidebar_idx = idx;
-                    if let (Ok(mut tc), Ok(mut sl)) = (ui.tab_bar.lock(), ui.sidebar_list.lock()) {
+                    {
+                        let mut tc = ui.tab_bar.borrow_mut();
+                        let mut sl = ui.sidebar_list.borrow_mut();
                         let _ = tc.set_selected(idx);
                         let _ = sl.set_selected(idx);
                     }
                 }
             }
             manager.unregister(handle);
-            if let Ok(mut s) = state.lock() {
+            {
+                let mut s = state.borrow_mut();
                 s.detached.retain(|d| d.window.handle() != handle);
             }
         }
@@ -317,9 +294,9 @@ fn handle_detached_window(
 
 fn setup_main_menu(
     window: &mut Window,
-    state: Arc<Mutex<AppState>>,
+    state: Rc<RefCell<AppState>>,
     ui: &UiRefs,
-    manager: Arc<WindowManager>,
+    manager: Rc<WindowManager>,
 ) -> AureaResult<()> {
     let mut menu_bar = window.create_menu_bar()?;
 
@@ -329,11 +306,10 @@ fn setup_main_menu(
     file.add_separator()?;
     for (i, (title, _)) in FILES.iter().enumerate() {
         let idx = i32::try_from(i).expect("FILES.len() fits in i32");
-        let st = Arc::clone(&state);
+        let st = Rc::clone(&state);
         file.add_item(title, move || {
-            if let Ok(mut s) = st.lock() {
-                s.pending_file_index = Some(idx);
-            }
+            let mut s = st.borrow_mut();
+            s.pending_file_index = Some(idx);
         })?;
     }
     file.add_separator()?;
@@ -355,35 +331,36 @@ fn setup_main_menu(
         println!("View -> Toggle Sidebar")
     })?;
 
-    let state_clone = Arc::clone(&state);
-    let editor_clone = Arc::clone(&ui.editor);
-    let manager_clone = Arc::clone(&manager);
+    let state_clone = Rc::clone(&state);
+    let editor_clone = Rc::clone(&ui.editor);
+    let manager_clone = Rc::clone(&manager);
     view.add_item("Move to New Window\tCtrl+Shift+W", move || {
-        if let (Ok(mut s), Ok(ed)) = (state_clone.lock(), editor_clone.lock()) {
-            let name = s
-                .current_file
-                .clone()
-                .unwrap_or_else(|| "Untitled".to_string());
-            let content = ed.get_content().unwrap_or_default();
-            s.set(&name, content.clone());
-            drop(s);
-            drop(ed);
-            if let Ok((popup, popup_editor)) = create_editor_popup(
-                &name,
-                content,
-                Arc::clone(&state_clone),
-                Arc::clone(&editor_clone),
-            ) {
-                let popup_arc = Arc::new(popup);
-                popup_arc.show();
-                manager_clone.register(popup_arc.clone());
-                if let Ok(mut s) = state_clone.lock() {
-                    s.detached.push(DetachedPopup {
-                        window: popup_arc,
-                        filename: name,
-                        editor: popup_editor,
-                    });
-                }
+        let mut s = state_clone.borrow_mut();
+        let ed = editor_clone.borrow_mut();
+        let name = s
+            .current_file
+            .clone()
+            .unwrap_or_else(|| "Untitled".to_string());
+        let content = ed.get_content().unwrap_or_default();
+        s.set(&name, content.clone());
+        drop(s);
+        drop(ed);
+        if let Ok((popup, popup_editor)) = create_editor_popup(
+            &name,
+            content,
+            Rc::clone(&state_clone),
+            Rc::clone(&editor_clone),
+        ) {
+            let popup_arc = Rc::new(popup);
+            popup_arc.show();
+            manager_clone.register(popup_arc.clone());
+            {
+                let mut s = state_clone.borrow_mut();
+                s.detached.push(DetachedPopup {
+                    window: popup_arc,
+                    filename: name,
+                    editor: popup_editor,
+                });
             }
         }
     })?;
@@ -398,9 +375,9 @@ fn setup_main_menu(
 fn create_editor_popup(
     filename: &str,
     content: String,
-    state: Arc<Mutex<AppState>>,
-    main_editor: Arc<Mutex<SendableTextEditor>>,
-) -> AureaResult<(Window, Arc<Mutex<SendableTextEditor>>)> {
+    state: Rc<RefCell<AppState>>,
+    main_editor: Rc<RefCell<TextEditor>>,
+) -> AureaResult<(Window, Rc<RefCell<TextEditor>>)> {
     let mut popup = Window::with_type(
         &format!("{filename} (detached)"),
         POPUP_WIDTH,
@@ -412,29 +389,32 @@ fn create_editor_popup(
 
     let mut editor = TextEditor::new()?;
     editor.set_content(&content)?;
-    let popup_editor = Arc::new(Mutex::new(SendableTextEditor(editor)));
+    let popup_editor = Rc::new(RefCell::new(editor));
 
     let mut box_ = Stack::new(Orientation::Vertical)?;
 
     let name = filename.to_string();
-    let pe = Arc::clone(&popup_editor);
-    let st = Arc::clone(&state);
-    let me = Arc::clone(&main_editor);
+    let pe = Rc::clone(&popup_editor);
+    let st = Rc::clone(&state);
+    let me = Rc::clone(&main_editor);
 
-    box_.add(SharedEditor(Arc::clone(&popup_editor)))?;
+    box_.add(SharedEditor(Rc::clone(&popup_editor)))?;
     box_.add(Label::new("")?)?;
 
     let name2 = name.clone();
-    let pe2 = Arc::clone(&pe);
-    let st2 = Arc::clone(&st);
-    let me2 = Arc::clone(&me);
+    let pe2 = Rc::clone(&pe);
+    let st2 = Rc::clone(&st);
+    let me2 = Rc::clone(&me);
     let idx = FILES
         .iter()
         .position(|(n, _)| *n == name2)
         .and_then(|i| i32::try_from(i).ok())
         .unwrap_or(0);
     box_.add(Button::with_callback("Return to Main", move || {
-        if let (Ok(ed), Ok(mut s), Ok(mut main_ed)) = (pe2.lock(), st2.lock(), me2.lock()) {
+        {
+            let ed = pe2.borrow_mut();
+            let mut s = st2.borrow_mut();
+            let mut main_ed = me2.borrow_mut();
             let content = ed.get_content().unwrap_or_default();
             s.set(&name2, content.clone());
             s.current_file = Some(name2.clone());
@@ -451,42 +431,42 @@ fn create_editor_popup(
     Ok((popup, popup_editor))
 }
 
-struct SharedTabBar(Arc<Mutex<TabBar>>);
+struct SharedTabBar(Rc<RefCell<TabBar>>);
 
 impl Element for SharedTabBar {
     fn handle(&self) -> *mut c_void {
-        self.0.lock().expect("mutex not poisoned").handle()
+        self.0.borrow_mut().handle()
     }
 
     unsafe fn invalidate_platform(&self, rect: Option<Rect>) {
-        let guard = self.0.lock().expect("mutex not poisoned");
+        let guard = self.0.borrow_mut();
         unsafe { Element::invalidate_platform(&*guard, rect) }
     }
 }
 
 struct UiRefs {
-    editor: Arc<Mutex<SendableTextEditor>>,
-    tab_bar: Arc<Mutex<TabBar>>,
-    sidebar_list: Arc<Mutex<SidebarList>>,
+    editor: Rc<RefCell<TextEditor>>,
+    tab_bar: Rc<RefCell<TabBar>>,
+    sidebar_list: Rc<RefCell<SidebarList>>,
 }
 
 fn setup_main_ui(
     window: &mut Window,
-    state: Arc<Mutex<AppState>>,
-    manager: Arc<WindowManager>,
+    state: Rc<RefCell<AppState>>,
+    manager: Rc<WindowManager>,
 ) -> AureaResult<UiRefs> {
     let mut editor = TextEditor::new()?;
     editor.set_content(FILE_WELCOME)?;
 
-    let editor_arc = Arc::new(Mutex::new(SendableTextEditor(editor)));
-    let shared_editor = SharedEditor(Arc::clone(&editor_arc));
+    let editor_arc = Rc::new(RefCell::new(editor));
+    let shared_editor = SharedEditor(Rc::clone(&editor_arc));
 
     let (tab_bar, tab_bar_arc) = build_tab_bar(
-        Arc::clone(&state),
-        Arc::clone(&editor_arc),
-        Arc::clone(&manager),
+        Rc::clone(&state),
+        Rc::clone(&editor_arc),
+        Rc::clone(&manager),
     )?;
-    let (sidebar, sidebar_list) = build_sidebar(Arc::clone(&state))?;
+    let (sidebar, sidebar_list) = build_sidebar(Rc::clone(&state))?;
     let panel = build_panel()?;
     let status_bar = build_status_bar()?;
 
@@ -518,31 +498,32 @@ fn setup_main_ui(
 }
 
 fn build_tab_bar(
-    state: Arc<Mutex<AppState>>,
-    editor_arc: Arc<Mutex<SendableTextEditor>>,
-    manager: Arc<WindowManager>,
-) -> AureaResult<(Stack, Arc<Mutex<TabBar>>)> {
+    state: Rc<RefCell<AppState>>,
+    editor_arc: Rc<RefCell<TextEditor>>,
+    manager: Rc<WindowManager>,
+) -> AureaResult<(Stack, Rc<RefCell<TabBar>>)> {
     let mut tab_bar_box = Stack::new(Orientation::Horizontal)?;
 
-    let state_sel = Arc::clone(&state);
-    let editor_sel = Arc::clone(&editor_arc);
-    let state_det = Arc::clone(&state);
-    let editor_det = Arc::clone(&editor_arc);
+    let state_sel = Rc::clone(&state);
+    let editor_sel = Rc::clone(&editor_arc);
+    let state_det = Rc::clone(&state);
+    let editor_det = Rc::clone(&editor_arc);
     let mut tab_bar = TabBar::with_callbacks(
         move |idx| {
-            if let Some((name, _)) = FILES.get(idx.cast_unsigned() as usize)
-                && let (Ok(mut ed), Ok(mut st)) = (editor_sel.lock(), state_sel.lock())
-                && let Some(c) = st.get(name)
-            {
-                let _ = ed.set_content(c);
-                st.current_file = Some((*name).to_string());
-                st.pending_file_index = Some(idx);
+            if let Some((name, _)) = FILES.get(idx.cast_unsigned() as usize) {
+                let mut ed = editor_sel.borrow_mut();
+                let mut st = state_sel.borrow_mut();
+                if let Some(c) = st.get(name) {
+                    let _ = ed.set_content(c);
+                    st.current_file = Some((*name).to_string());
+                    st.pending_file_index = Some(idx);
+                }
             }
         },
         move |idx| {
-            if let Some((name, _)) = FILES.get(idx.cast_unsigned() as usize)
-                && let (Ok(mut s), Ok(ed)) = (state_det.lock(), editor_det.lock())
-            {
+            if let Some((name, _)) = FILES.get(idx.cast_unsigned() as usize) {
+                let mut s = state_det.borrow_mut();
+                let ed = editor_det.borrow_mut();
                 let content = ed.get_content().unwrap_or_default();
                 s.set(name, content.clone());
                 drop(s);
@@ -550,13 +531,14 @@ fn build_tab_bar(
                 if let Ok((popup, popup_editor)) = create_editor_popup(
                     name,
                     content,
-                    Arc::clone(&state_det),
-                    Arc::clone(&editor_det),
+                    Rc::clone(&state_det),
+                    Rc::clone(&editor_det),
                 ) {
-                    let popup_arc = Arc::new(popup);
+                    let popup_arc = Rc::new(popup);
                     popup_arc.show();
                     manager.register(popup_arc.clone());
-                    if let Ok(mut s) = state_det.lock() {
+                    {
+                        let mut s = state_det.borrow_mut();
                         s.detached.push(DetachedPopup {
                             window: popup_arc,
                             filename: (*name).to_string(),
@@ -573,8 +555,8 @@ fn build_tab_bar(
     }
     tab_bar.set_selected(0)?;
 
-    let tab_bar_arc = Arc::new(Mutex::new(tab_bar));
-    tab_bar_box.add_weighted(SharedTabBar(Arc::clone(&tab_bar_arc)), 1.0)?;
+    let tab_bar_arc = Rc::new(RefCell::new(tab_bar));
+    tab_bar_box.add_weighted(SharedTabBar(Rc::clone(&tab_bar_arc)), 1.0)?;
     tab_bar_box.add(Button::with_callback("+", || println!("New file"))?)?;
 
     Ok((tab_bar_box, tab_bar_arc))
@@ -597,13 +579,11 @@ fn sidebar_idx_to_file_idx(idx: i32) -> Option<i32> {
     }
 }
 
-fn build_sidebar(state: Arc<Mutex<AppState>>) -> AureaResult<(Stack, Arc<Mutex<SidebarList>>)> {
-    let st = Arc::clone(&state);
+fn build_sidebar(state: Rc<RefCell<AppState>>) -> AureaResult<(Stack, Rc<RefCell<SidebarList>>)> {
+    let st = Rc::clone(&state);
     let mut list = SidebarList::with_callback(move |idx| {
-        if let Some(file_idx) = sidebar_idx_to_file_idx(idx)
-            && let Ok(mut s) = st.lock()
-        {
-            s.pending_file_index = Some(file_idx);
+        if let Some(file_idx) = sidebar_idx_to_file_idx(idx) {
+            st.borrow_mut().pending_file_index = Some(file_idx);
         }
     })?;
 
@@ -633,12 +613,12 @@ fn build_sidebar(state: Arc<Mutex<AppState>>) -> AureaResult<(Stack, Arc<Mutex<S
 
     list.set_selected(0)?;
 
-    let list_arc = Arc::new(Mutex::new(list));
+    let list_arc = Rc::new(RefCell::new(list));
 
     let activity_bar = build_activity_bar()?;
     let mut sidebar = Stack::new(Orientation::Horizontal)?;
     sidebar.add_weighted(activity_bar, 0.0)?;
-    sidebar.add_weighted(SharedSidebarList(Arc::clone(&list_arc)), 1.0)?;
+    sidebar.add_weighted(SharedSidebarList(Rc::clone(&list_arc)), 1.0)?;
 
     Ok((sidebar, list_arc))
 }

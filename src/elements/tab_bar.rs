@@ -14,10 +14,6 @@ pub struct TabBar {
     _id: u32,
 }
 
-/// TabBar is only used from the main UI thread; the native handle is not shared across threads.
-unsafe impl Send for TabBar {}
-unsafe impl Sync for TabBar {}
-
 impl TabBar {
     pub fn new() -> AureaResult<Self> {
         Self::with_callbacks(|_| {}, |_| {})

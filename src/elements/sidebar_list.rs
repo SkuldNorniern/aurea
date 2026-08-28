@@ -13,9 +13,6 @@ pub struct SidebarList {
     _id: u32,
 }
 
-unsafe impl Send for SidebarList {}
-unsafe impl Sync for SidebarList {}
-
 impl SidebarList {
     pub fn new() -> AureaResult<Self> {
         Self::with_callback(|_| {})

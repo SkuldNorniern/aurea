@@ -11,7 +11,7 @@ use aurea::logger;
 use aurea::{AureaResult, Window, WindowEvent, WindowManager, WindowType};
 use log::LevelFilter;
 use std::ffi::c_void;
-use std::sync::Arc;
+use std::rc::Rc;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -22,22 +22,22 @@ fn main() -> AureaResult<()> {
 
     let manager = WindowManager::new();
 
-    // Create popup window first, setup, then Arc it
+    // Create popup window first, set it up, then share it
     let mut popup = Window::with_type("Popup", 300, 200, WindowType::Popup)?;
     setup_popup(&mut popup)?;
     popup.hide(); // Hide initially
-    let popup_arc = Arc::new(popup);
+    let popup_arc = Rc::new(popup);
 
-    // Create tool window, setup, then Arc it
+    // Create tool window, set it up, then share it
     let mut tool = Window::with_type("Tool Palette", 200, 400, WindowType::Tool)?;
     setup_tool_window(&mut tool)?;
     tool.hide(); // Hide initially
-    let tool_arc = Arc::new(tool);
+    let tool_arc = Rc::new(tool);
 
-    // Create main window, setup with references to other Arcs, then Arc it
+    // Create main window, set it up with references to the others, then share it
     let mut main_window = Window::new("Main Window", 800, 600)?;
     setup_main_window(&mut main_window, popup_arc.clone(), tool_arc.clone())?;
-    let main_window_arc = Arc::new(main_window);
+    let main_window_arc = Rc::new(main_window);
 
     // Register all windows
     manager.register(main_window_arc.clone());
@@ -92,8 +92,8 @@ fn main() -> AureaResult<()> {
 
 fn setup_main_window(
     window: &mut Window,
-    popup_arc: Arc<Window>,
-    tool_arc: Arc<Window>,
+    popup_arc: Rc<Window>,
+    tool_arc: Rc<Window>,
 ) -> AureaResult<()> {
     let mut main_box = Stack::new(Orientation::Vertical)?;
 
@@ -141,7 +141,7 @@ fn setup_popup(window: &mut Window) -> AureaResult<()> {
     popup_box.add(Label::new("It stays on top and has minimal decorations.")?)?;
 
     // We use the raw handle to request a close from the callback
-    // This avoids circular Arc dependencies while still allowing the button to work
+    // This avoids circular Rc dependencies while still allowing the button to work
     let handle = window.handle() as usize;
 
     popup_box.add(Button::with_callback("Close", move || {

@@ -31,8 +31,11 @@ impl IdAllocator {
 /// `invoke` clones the callback out from under the borrow before calling it, so
 /// a callback that registers another callback of the same kind cannot panic on
 /// a re-entrant borrow.
+/// A stored callback. `Rc`, not `Arc`: the registry never leaves its thread.
+type Callback<A> = Rc<dyn Fn(A)>;
+
 pub(crate) struct CallbackRegistry<A: 'static> {
-    slots: RefCell<HashMap<u32, Rc<dyn Fn(A)>>>,
+    slots: RefCell<HashMap<u32, Callback<A>>>,
 }
 
 impl<A> CallbackRegistry<A> {
@@ -55,7 +58,7 @@ impl<A> CallbackRegistry<A> {
         // Clone out and release the borrow before calling: the callback is
         // free to register or invoke callbacks of the same kind.
         let callback = match self.slots.try_borrow() {
-            Ok(slots) => slots.get(&id).map(Rc::clone),
+            Ok(slots) => slots.get(&id).map(Callback::clone),
             Err(_) => {
                 error!("aurea: callback registry busy; invocation for id {id} skipped");
                 None
