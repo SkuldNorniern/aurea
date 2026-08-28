@@ -77,7 +77,6 @@ use raw_window_handle::{
     DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, WindowHandle,
 };
 #[cfg(feature = "wgpu")]
-use std::sync::Arc;
 #[cfg(feature = "wgpu")]
 use wgpu::{Instance, Surface, SurfaceTarget};
 
@@ -180,54 +179,13 @@ impl Window {
     ///
     /// The surface borrows the window, because that is the truth: the native
     /// window backs the surface, and using the surface after the window is
-    /// dropped is undefined behaviour. If you need a `Surface<'static>` — to
-    /// store it in a struct, or hand it to something that outlives this scope —
-    /// put the window in an [`Arc`] and use
-    /// [`create_wgpu_surface_owned`](Self::create_wgpu_surface_owned), which
-    /// keeps the window alive for as long as the surface exists.
+    /// dropped is undefined behaviour. Keep the window in scope alongside it.
     pub fn create_wgpu_surface<'window>(
         &'window self,
         instance: &Instance,
     ) -> AureaResult<Surface<'window>> {
-        // Window implements HasWindowHandle and HasDisplayHandle (via native_handle)
-        // wgpu's SurfaceTarget::from can create a surface target from such types
-        let surface_target = SurfaceTarget::from(self);
-
-        let surface = instance
-            .create_surface(surface_target)
-            .map_err(|_| AureaError::ElementOperationFailed)?;
-
-        Ok(surface)
-    }
-
-    /// Creates a wgpu surface that keeps the window alive.
-    ///
-    /// The returned surface is `'static` because it owns a clone of the `Arc`:
-    /// the window cannot be dropped while the surface exists, which is exactly
-    /// the invariant a `'static` surface needs.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// use aurea::Window;
-    /// use std::sync::Arc;
-    /// use wgpu::Instance;
-    ///
-    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let window = Arc::new(Window::new("App", 800, 600)?);
-    /// let instance = Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    /// let surface = Window::create_wgpu_surface_owned(&window, &instance)?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn create_wgpu_surface_owned(
-        window: &Arc<Self>,
-        instance: &Instance,
-    ) -> AureaResult<Surface<'static>> {
-        let surface_target = SurfaceTarget::from(Arc::clone(window));
-
         instance
-            .create_surface(surface_target)
+            .create_surface(SurfaceTarget::from(self.surface_target()))
             .map_err(|_| AureaError::ElementOperationFailed)
     }
 }

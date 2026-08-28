@@ -5,13 +5,13 @@
 
 use aurea::{KeyCode, Window, WindowEvent};
 use std::error::Error;
-use std::sync::Arc;
+use std::rc::Rc;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let window = Arc::new(Window::new("Input Smoke", 640, 480)?);
+    let window = Rc::new(Window::new("Input Smoke", 640, 480)?);
     window.show();
 
-    let w = Arc::clone(&window);
+    let w = Rc::clone(&window);
     window.on_event(move |event| match event {
         WindowEvent::KeyInput {
             key,

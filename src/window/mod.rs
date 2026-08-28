@@ -21,6 +21,12 @@ use crate::lifecycle::{
     LifecycleEvent, register_lifecycle_callback, unregister_lifecycle_callback,
 };
 use crate::menu::MenuBar;
+mod proxy;
+
+pub use proxy::WindowProxy;
+
+#[cfg(feature = "wgpu")]
+use crate::platform::handles::native_handle_from_window_ptr;
 use crate::platform::ui_thread;
 use crate::registry::window::{
     dispatch_window_events, process_window_updates, register_event_callback, register_event_queue,
@@ -65,6 +71,11 @@ pub struct Window {
     damage: Mutex<DamageRegion>,
     scale_factor: Mutex<f32>,
     event_queue: Arc<EventQueue>,
+    /// The window's native handle, kept so a wgpu surface can borrow something
+    /// that lives as long as the window does. `NativeWindowHandle` is an inert
+    /// identifier and stays `Send + Sync`; the `Window` around it is not.
+    #[cfg(feature = "wgpu")]
+    surface_handle: Arc<NativeWindowHandle>,
     window_type: WindowType,
 }
 
@@ -191,8 +202,15 @@ impl Window {
 
         WINDOW_COUNT.fetch_add(1, Ordering::Relaxed);
 
+        #[cfg(feature = "wgpu")]
+        let surface_handle = Arc::new(
+            native_handle_from_window_ptr(handle).ok_or(AureaError::WindowCreationFailed)?,
+        );
+
         Ok(Self {
             handle,
+            #[cfg(feature = "wgpu")]
+            surface_handle,
             menu_bar: None,
             content: None,
             platform,
@@ -257,6 +275,13 @@ impl Window {
     /// Get the stable window identifier for this window.
     pub fn id(&self) -> WindowId {
         WindowId::from_handle(self.handle)
+    }
+
+    /// A `Send + Sync` handle for reaching this window from another thread.
+    ///
+    /// See [`WindowProxy`] for how queued work gets back onto the UI thread.
+    pub fn proxy(&self) -> WindowProxy {
+        WindowProxy::new(self.handle)
     }
 
     pub fn run(&self) -> AureaResult<()> {
@@ -357,6 +382,12 @@ impl Window {
         WindowNativeHandle::native_handle_impl(self)
     }
 
+    /// The stored handle a wgpu surface target borrows from.
+    #[cfg(feature = "wgpu")]
+    pub(crate) fn surface_target(&self) -> &NativeWindowHandle {
+        &self.surface_handle
+    }
+
     /// Poll window events (non-blocking)
     ///
     /// This method processes all pending window events by calling registered callbacks
@@ -404,6 +435,8 @@ impl Window {
         // this, a manual poll loop never repaints and never receives input.
         unsafe { ng_platform_poll_events() };
 
+        proxy::drain_for(self);
+
         // Drain the queue, then hand the events to this window's callbacks and
         // return them for manual processing too.
         let events = self.event_queue.pop_all();
@@ -441,6 +474,7 @@ impl Window {
     /// ```
     pub fn process_frames(&self) -> AureaResult<()> {
         ui_thread::check("Window::process_frames");
+        proxy::drain_for(self);
         process_window_updates(self.handle);
         FrameScheduler::process_frames()
     }
@@ -667,6 +701,7 @@ impl Drop for Window {
         unregister_event_queue(self.handle);
         unregister_update_callbacks(self.handle);
         unregister_event_callbacks(self.handle);
+        proxy::clear_for(self.handle);
 
         unsafe {
             ng_platform_destroy_window(self.handle);
@@ -679,18 +714,14 @@ impl Drop for Window {
     }
 }
 
-// SAFETY: these do not mean a `Window` is safe to *use* from any thread — it
-// is not, and `ui_thread::check` reports it when you try. They exist because
-// event and widget callbacks are declared `Send + Sync` (they are stored in
-// global registries), and the natural thing to capture in one is an
-// `Arc<Window>`. The callbacks themselves run on the UI thread, so the capture
-// is sound in practice; the bound is what is too strong.
+// `Window` is deliberately neither `Send` nor `Sync`. Native window systems
+// are thread-affine — AppKit and UIKit demand the main thread, GTK the thread
+// that called `gtk_init`, Win32 the thread that created the window — so a
+// window that could travel between threads would be a standing invitation to
+// undefined behaviour. Background threads reach the UI through
+// [`WindowProxy`] instead.
 //
-// The real fix is to make the callback registries UI-thread-affine and drop
-// these impls, which is a breaking change to every callback signature in the
-// crate.
-unsafe impl Send for Window {}
-unsafe impl Sync for Window {}
+// The raw pointer field is what makes it so; there is no impl to write.
 
 #[cfg(test)]
 mod event_queue_tests {
