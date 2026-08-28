@@ -230,6 +230,34 @@ impl Canvas {
         lock(&self.state).background_color
     }
 
+    /// Runs `tick` once per frame and redraws the canvas afterwards.
+    ///
+    /// ```rust,no_run
+    /// # use aurea::render::{Canvas, RendererBackend};
+    /// # fn main() -> aurea::AureaResult<()> {
+    /// let canvas = Canvas::new(400, 300, RendererBackend::Cpu)?;
+    /// canvas.set_draw_callback(|ctx| { let _ = ctx; Ok(()) })?;
+    /// canvas.on_frame(|info| {
+    ///     let _ = info.delta;
+    ///     true
+    /// });
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn on_frame<F>(&self, mut tick: F) -> TickerId
+    where
+        F: FnMut(FrameInfo) -> bool + Send + 'static,
+    {
+        let handle = handle_key(self.handle);
+        FrameScheduler::register_ticker(move |info| {
+            if !tick(info) {
+                return false;
+            }
+            request_canvas_redraw(handle);
+            true
+        })
+    }
+
     /// Add damage to the canvas (called when content changes).
     pub fn add_damage(&self, rect: super::Rect) {
         lock(&self.state).damage.add(rect);

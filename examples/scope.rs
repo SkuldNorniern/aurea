@@ -59,7 +59,7 @@ fn main() -> AureaResult<()> {
 
     let feed = Arc::clone(&scope);
     let mut phase = 0.0f64;
-    let ticker = FrameScheduler::register_ticker(move |info| {
+    let ticker = canvas.on_frame(move |info| {
         let seconds = info.delta.as_secs_f64().min(0.1);
         let count = samples_for(seconds);
 
@@ -80,7 +80,7 @@ fn main() -> AureaResult<()> {
     })?;
 
     let mut layout = Stack::new(Orientation::Vertical)?;
-    layout.add(canvas)?;
+    layout.add(canvas.clone())?;
     window.set_content(layout)?;
     window.show();
     window.run()?;
