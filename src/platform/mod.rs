@@ -3,5 +3,6 @@
 
 pub mod handles;
 pub mod rwh;
+pub mod ui_thread;
 #[cfg(feature = "zengpu")]
 pub mod zengpu;
