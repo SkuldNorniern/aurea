@@ -133,10 +133,6 @@ impl CpuDrawingContext {
         Point::new(t.x * self.scale_factor, t.y * self.scale_factor)
     }
 
-    fn t_pt(&self, p: Point) -> Point {
-        self.current_transform.map_point(p)
-    }
-
     fn s(&self, v: f32) -> f32 {
         v * self.transform_scale() * self.scale_factor
     }
@@ -147,19 +143,16 @@ impl CpuDrawingContext {
         p
     }
 
-    fn transformed_path(&self, path: &Path) -> Path {
-        if self.current_transform == Transform::identity() {
-            return path.clone();
-        }
+    fn physical_path(&self, path: &Path) -> Path {
         let commands = path
             .commands
             .iter()
             .map(|cmd| match cmd {
-                PathCommand::MoveTo(p) => PathCommand::MoveTo(self.t_pt(*p)),
-                PathCommand::LineTo(p) => PathCommand::LineTo(self.t_pt(*p)),
-                PathCommand::QuadTo(c, p) => PathCommand::QuadTo(self.t_pt(*c), self.t_pt(*p)),
+                PathCommand::MoveTo(p) => PathCommand::MoveTo(self.s_pt(*p)),
+                PathCommand::LineTo(p) => PathCommand::LineTo(self.s_pt(*p)),
+                PathCommand::QuadTo(c, p) => PathCommand::QuadTo(self.s_pt(*c), self.s_pt(*p)),
                 PathCommand::CubicTo(c1, c2, p) => {
-                    PathCommand::CubicTo(self.t_pt(*c1), self.t_pt(*c2), self.t_pt(*p))
+                    PathCommand::CubicTo(self.s_pt(*c1), self.s_pt(*c2), self.s_pt(*p))
                 }
                 PathCommand::Close => PathCommand::Close,
             })
@@ -169,10 +162,10 @@ impl CpuDrawingContext {
 
     fn transformed_rect_path(&self, r: Rect) -> Path {
         let corners = [
-            self.t_pt(Point::new(r.x, r.y)),
-            self.t_pt(Point::new(r.x + r.width, r.y)),
-            self.t_pt(Point::new(r.x + r.width, r.y + r.height)),
-            self.t_pt(Point::new(r.x, r.y + r.height)),
+            self.s_pt(Point::new(r.x, r.y)),
+            self.s_pt(Point::new(r.x + r.width, r.y)),
+            self.s_pt(Point::new(r.x + r.width, r.y + r.height)),
+            self.s_pt(Point::new(r.x, r.y + r.height)),
         ];
         let mut path = Path::new();
         path.commands.push(PathCommand::MoveTo(corners[0]));
@@ -416,7 +409,7 @@ impl CpuDrawingContext {
             super::super::command::DrawCommand::FillLinearGradient(_, rect) => *rect,
             super::super::command::DrawCommand::FillRadialGradient(_, rect) => *rect,
             super::super::command::DrawCommand::DrawPath(path, paint) => {
-                let mut bounds = self.s_rect(super::hit_test::path_bounds(path));
+                let mut bounds = super::hit_test::path_bounds(path);
                 if paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0 {
                     let half_stroke = paint.stroke_width / 2.0;
                     bounds.x -= half_stroke;
@@ -522,7 +515,7 @@ impl DrawingContext for CpuDrawingContext {
 
     fn draw_path(&mut self, path: &Path, paint: &Paint) -> AureaResult<()> {
         self.add_command(super::super::command::DrawCommand::DrawPath(
-            self.transformed_path(path),
+            self.physical_path(path),
             self.s_paint(paint),
         ));
         Ok(())
@@ -684,7 +677,7 @@ impl DrawingContext for CpuDrawingContext {
     }
 
     fn clip_path(&mut self, path: &Path) -> AureaResult<()> {
-        self.current_clip = Some(path.clone());
+        self.current_clip = Some(self.physical_path(path));
         Ok(())
     }
 
