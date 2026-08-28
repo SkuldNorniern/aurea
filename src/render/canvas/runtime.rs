@@ -174,10 +174,14 @@ fn render_frame(
         let mut r = lock(renderer);
         if let Some(ref mut r) = *r {
             r.set_damage(damage_rect);
-            let mut ctx = r.begin_frame()?;
-            ctx.clear(bg_color)?;
-            if let Some(ref cb) = draw_callback {
-                cb(ctx.as_mut())?; // state lock NOT held here
+            // The context borrows the renderer, so it has to go out of scope
+            // before the frame can be ended.
+            {
+                let mut ctx = r.begin_frame()?;
+                ctx.clear(bg_color)?;
+                if let Some(ref cb) = draw_callback {
+                    cb(ctx.as_mut())?; // state lock NOT held here
+                }
             }
             r.end_frame()?;
             r.last_frame_damage()

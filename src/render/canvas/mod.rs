@@ -260,9 +260,11 @@ impl Canvas {
             let mut r = lock(&self.renderer);
             if let Some(ref mut renderer) = *r {
                 renderer.set_damage(damage_rect);
-                let mut ctx = renderer.begin_frame()?;
-                ctx.clear(bg_color)?;
-                draw_fn(ctx.as_mut())?;
+                {
+                    let mut ctx = renderer.begin_frame()?;
+                    ctx.clear(bg_color)?;
+                    draw_fn(ctx.as_mut())?;
+                }
                 renderer.end_frame()?;
             }
         }

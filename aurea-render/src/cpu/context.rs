@@ -32,8 +32,47 @@ struct DrawingState {
 }
 
 /// Records drawing commands into a display list.
-pub struct RecordingContext {
-    display_list: *mut DisplayList,
+///
+/// Borrows the list it writes into. It used to hold a raw pointer with a safe
+/// public constructor, which let safe code hand it a bogus pointer, or drop
+/// the renderer while a context still pointed into its display list.
+///
+/// Dropping the renderer while a context is alive no longer compiles:
+///
+/// ```compile_fail
+/// use aurea_render::{CpuRasterizer, Renderer};
+///
+/// let mut renderer = CpuRasterizer::new(64, 64);
+/// let ctx = renderer.begin_frame().expect("begin_frame");
+/// drop(renderer);
+/// let _ = ctx;
+/// ```
+///
+/// Neither does touching the renderer again before the context is done:
+///
+/// ```compile_fail
+/// use aurea_render::{CpuRasterizer, Renderer};
+///
+/// let mut renderer = CpuRasterizer::new(64, 64);
+/// let ctx = renderer.begin_frame().expect("begin_frame");
+/// renderer.end_frame().expect("end_frame");
+/// let _ = ctx;
+/// ```
+///
+/// The ordinary shape is to scope the context:
+///
+/// ```rust
+/// use aurea_render::{CpuRasterizer, Renderer};
+///
+/// let mut renderer = CpuRasterizer::new(64, 64);
+/// {
+///     let mut ctx = renderer.begin_frame().expect("begin_frame");
+///     let _ = ctx.width();
+/// }
+/// renderer.end_frame().expect("end_frame");
+/// ```
+pub struct RecordingContext<'list> {
+    display_list: &'list mut DisplayList,
     /// Sequence counter for this frame's node IDs, reset per frame (a fresh
     /// `RecordingContext` is created in `begin_frame`). Items at the same
     /// position in consecutive frames get the same ID, so display-list
@@ -103,9 +142,9 @@ fn hash_path(path: &Path, hasher: &mut DefaultHasher) {
     }
 }
 
-impl RecordingContext {
+impl<'list> RecordingContext<'list> {
     /// Creates a context that appends display items to the given display list.
-    pub fn new(display_list: *mut DisplayList, width: u32, height: u32) -> Self {
+    pub fn new(display_list: &'list mut DisplayList, width: u32, height: u32) -> Self {
         Self {
             display_list,
             next_node_id: 0,
@@ -267,10 +306,6 @@ impl RecordingContext {
         let result = self.draw_path(path, paint);
         self.current_interactive_id = old_id;
         result
-    }
-
-    unsafe fn display_list_mut(&mut self) -> &mut DisplayList {
-        unsafe { &mut *self.display_list }
     }
 
     fn compute_cache_key(&self, command: &super::super::command::DrawCommand) -> CacheKey {
@@ -520,13 +555,11 @@ impl RecordingContext {
                 .with_opacity(self.current_opacity)
         };
 
-        unsafe {
-            self.display_list_mut().push(item);
-        }
+        self.display_list.push(item);
     }
 }
 
-impl DrawingContext for RecordingContext {
+impl DrawingContext for RecordingContext<'_> {
     fn width(&self) -> u32 {
         self.width
     }
@@ -672,12 +705,10 @@ impl DrawingContext for RecordingContext {
         let opacity = self.current_opacity;
         let clip = self.current_clip.clone();
 
-        unsafe {
-            self.display_list_mut().push_transform(transform);
-            self.display_list_mut().push_opacity(opacity);
-            if let Some(ref clip_path) = clip {
-                self.display_list_mut().push_clip(clip_path.clone());
-            }
+        self.display_list.push_transform(transform);
+        self.display_list.push_opacity(opacity);
+        if let Some(ref clip_path) = clip {
+            self.display_list.push_clip(clip_path.clone());
         }
 
         self.state_stack.push(DrawingState {
@@ -699,11 +730,9 @@ impl DrawingContext for RecordingContext {
             self.current_blend_mode = state.blend_mode;
         }
 
-        unsafe {
-            let _ = self.display_list_mut().pop_transform();
-            let _ = self.display_list_mut().pop_opacity();
-            let _ = self.display_list_mut().pop_clip();
-        }
+        let _ = self.display_list.pop_transform();
+        let _ = self.display_list.pop_opacity();
+        let _ = self.display_list.pop_clip();
         Ok(())
     }
 
@@ -792,10 +821,25 @@ impl DrawingContext for RecordingContext {
 mod tests {
     use super::*;
 
-    fn ctx_with(list: &mut DisplayList, scale: f32) -> RecordingContext {
+    fn ctx_with(list: &mut DisplayList, scale: f32) -> RecordingContext<'_> {
         let mut ctx = RecordingContext::new(list, 100, 100);
         ctx.set_scale_factor(scale);
         ctx
+    }
+
+    /// Ordinary recording still works; the compile-fail proofs live on
+    /// [`RecordingContext`] itself, where doctests are collected.
+    #[test]
+    fn a_context_cannot_outlive_its_renderer() {
+        // The proof is in the compile_fail doctests above; this asserts the
+        // ordinary use still works.
+        let mut list = DisplayList::new();
+        {
+            let mut ctx = ctx_with(&mut list, 1.0);
+            ctx.draw_rect(Rect::new(0.0, 0.0, 1.0, 1.0), &Paint::default())
+                .expect("draw_rect");
+        }
+        assert_eq!(list.items().len(), 1);
     }
 
     #[test]

@@ -109,12 +109,12 @@ impl<B: Gpu2dBackend + Send + Sync> Renderer for Gpu2dRenderer<B> {
         self.backend.resize(pw, ph)
     }
 
-    fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext>> {
+    fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext + '_>> {
         self.backend.begin_frame()?;
         self.texture_cache.prune_dropped(&mut self.backend);
         self.display_list.clear();
         let mut ctx = RecordingContext::new(
-            &mut self.display_list as *mut DisplayList,
+            &mut self.display_list,
             self.logical_width,
             self.logical_height,
         );
