@@ -170,9 +170,11 @@ impl Capability {
             // Events are delivered for these.
             Self::MouseInput | Self::KeyboardInput => Support::Supported,
             Self::Clipboard => Support::Supported,
-            // A canvas can hand out a GPU surface for any of these, but
-            // Aurea's own renderer only draws through ZenGPU on Vulkan;
-            // anything else is the application's renderer on Aurea's surface.
+            // A canvas can hand out a GPU surface for any of these, and what
+            // Aurea itself draws through depends on which backend was compiled
+            // in. This crate knows nothing about the root crate's features, so
+            // it answers for the platform and `CapabilityChecker::support` in
+            // `aurea` narrows it — see `gpu_support`.
             Self::HardwareAcceleration
             | Self::Vulkan
             | Self::Metal
@@ -286,8 +288,25 @@ impl CapabilityChecker {
     }
 
     /// How well Aurea supports this here.
+    ///
+    /// GPU capabilities are answered for the platform alone. A build with no
+    /// GPU backend compiled in cannot use them, and only the crate that owns
+    /// those features knows; `aurea::gpu_support` gives the narrowed answer.
     pub fn support(&self, capability: Capability) -> Support {
         capability.support_on(self.platform)
+    }
+
+    /// Whether `capability` names a GPU backend, whose availability also
+    /// depends on what was compiled in.
+    pub fn is_gpu(capability: Capability) -> bool {
+        matches!(
+            capability,
+            Capability::HardwareAcceleration
+                | Capability::Vulkan
+                | Capability::Metal
+                | Capability::DirectX
+                | Capability::OpenGL
+        )
     }
 
     /// Everything Aurea can do here.
