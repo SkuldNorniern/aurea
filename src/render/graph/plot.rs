@@ -385,24 +385,34 @@ impl Graph {
             let color = series
                 .color
                 .unwrap_or_else(|| self.style.palette_color(index));
-            let screen = self.project(&series.points, x_map, y_map);
+            let projected = self.project(&series.points, x_map, y_map);
+            let screen = &projected.points;
             if screen.is_empty() {
                 continue;
             }
 
+            // An envelope alternates bottom, top, bottom, top down the screen,
+            // so joining it up would turn every column into a hard reversal —
+            // the worst case for the stroker, and slower than the full trace it
+            // replaced. Drawn as spans it is both correct and cheap.
+            if projected.envelope {
+                draw_envelope(ctx, screen, color, series.width)?;
+                continue;
+            }
+
             match series.plot {
-                Plot::Line => stroke_polyline(ctx, &screen, color, series.width, false)?,
-                Plot::Step => stroke_polyline(ctx, &screen, color, series.width, true)?,
+                Plot::Line => stroke_polyline(ctx, screen, color, series.width, false)?,
+                Plot::Step => stroke_polyline(ctx, screen, color, series.width, true)?,
                 Plot::Points => {}
                 Plot::Area => {
-                    self.fill_area(ctx, &screen, series, color, y_map)?;
-                    stroke_polyline(ctx, &screen, color, series.width, false)?;
+                    self.fill_area(ctx, screen, series, color, y_map)?;
+                    stroke_polyline(ctx, screen, color, series.width, false)?;
                 }
-                Plot::Bars => self.draw_bars(ctx, &screen, series, color, y_map)?,
+                Plot::Bars => self.draw_bars(ctx, screen, series, color, y_map)?,
             }
 
             if series.show_points || series.plot == Plot::Points {
-                for point in &screen {
+                for point in screen {
                     ctx.draw_circle(*point, series.point_radius, &fill(color))?;
                 }
             }
@@ -411,15 +421,28 @@ impl Graph {
     }
 
     /// Data points turned into pixels, dropping any that have no position.
-    fn project(&self, points: &Points, x_map: Mapping, y_map: Mapping) -> Vec<Point> {
-        points
-            .iter()
-            .filter_map(|(x, y)| {
-                let px = x_map.place(x).pixel()?;
-                let py = y_map.place(y).pixel()?;
-                Some(Point::new(px, py))
-            })
-            .collect()
+    fn project(&self, points: &Points, x_map: Mapping, y_map: Mapping) -> Projected {
+        let columns = self.plot_area.width.max(1.0);
+        let projected = points.iter().filter_map(|(x, y)| {
+            let px = x_map.place(x).pixel()?;
+            let py = y_map.place(y).pixel()?;
+            Some(Point::new(px, py))
+        });
+
+        // More points than there are pixels to put them in: nothing is gained
+        // by drawing every one, and the cost grows with the data rather than
+        // with the screen. Keep the highest and lowest in each column, which is
+        // the envelope the eye actually sees.
+        if points.len() > decimation_threshold(columns) {
+            return Projected {
+                points: decimate(projected, self.plot_area.x, columns),
+                envelope: true,
+            };
+        }
+        Projected {
+            points: projected.collect(),
+            envelope: false,
+        }
     }
 
     fn fill_area(
@@ -595,6 +618,89 @@ impl Graph {
     }
 }
 
+/// Projected points, and whether they are a per-column envelope rather than
+/// the trace itself.
+struct Projected {
+    points: Vec<Point>,
+    envelope: bool,
+}
+
+/// Draws a decimated envelope as one vertical span per column.
+fn draw_envelope(
+    ctx: &mut dyn DrawingContext,
+    screen: &[Point],
+    color: Color,
+    width: f32,
+) -> AureaResult<()> {
+    let paint = fill(color);
+    let thickness = width.max(1.0);
+
+    let mut index = 0;
+    while index < screen.len() {
+        let first = screen[index];
+        // A column is one point when flat, two when it spans a range.
+        let second = screen
+            .get(index + 1)
+            .filter(|next| (next.x - first.x).abs() < 0.5);
+
+        let (top, bottom) = match second {
+            Some(next) => (first.y.min(next.y), first.y.max(next.y)),
+            None => (first.y, first.y),
+        };
+        ctx.draw_rect(
+            Rect::new(first.x, top, thickness, (bottom - top).max(thickness)),
+            &paint,
+        )?;
+        index += if second.is_some() { 2 } else { 1 };
+    }
+    Ok(())
+}
+
+/// Above this many points per pixel column, drawing every point is wasted
+/// work. Two per column is the most that can be distinguished.
+fn decimation_threshold(columns: f32) -> usize {
+    let per_column = 2.0;
+    super::numeric::f64_to_count(f64::from(columns * per_column)).max(64)
+}
+
+/// Collapses points to the highest and lowest in each pixel column.
+///
+/// The result is a polyline that walks each column bottom to top, which draws
+/// the same envelope as the full trace at a fraction of the cost.
+fn decimate(points: impl Iterator<Item = Point>, left: f32, columns: f32) -> Vec<Point> {
+    let column_count = super::numeric::f64_to_count(f64::from(columns)).max(1);
+    let mut out: Vec<Point> = Vec::with_capacity(column_count * 2);
+
+    let mut current: Option<(i32, f32, f32)> = None;
+    for point in points {
+        let column = super::numeric::f32_to_i32(point.x - left);
+        match current {
+            Some((c, ref mut lo, ref mut hi)) if c == column => {
+                *lo = lo.min(point.y);
+                *hi = hi.max(point.y);
+            }
+            Some((c, lo, hi)) => {
+                push_column(&mut out, left, c, lo, hi);
+                current = Some((column, point.y, point.y));
+            }
+            None => current = Some((column, point.y, point.y)),
+        }
+    }
+    if let Some((c, lo, hi)) = current {
+        push_column(&mut out, left, c, lo, hi);
+    }
+    out
+}
+
+/// One column of the envelope, as a bottom-to-top pair.
+fn push_column(out: &mut Vec<Point>, left: f32, column: i32, lo: f32, hi: f32) {
+    let x = left + column as f32;
+    out.push(Point::new(x, lo));
+    if (hi - lo).abs() > f32::EPSILON {
+        out.push(Point::new(x, hi));
+    }
+}
+
 /// The plotting area, once the margins are taken off.
 fn inner_area(area: Rect, style: &GraphStyle) -> Rect {
     let m = style.margin;
@@ -698,6 +804,7 @@ fn stroke_polyline(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::iter::empty;
 
     #[test]
     fn an_auto_axis_grows_to_the_data() {
@@ -815,6 +922,98 @@ mod tests {
     #[test]
     fn a_single_bar_still_gets_a_width() {
         assert!(bar_width(&[Point::new(0.0, 0.0)]) > 0.0);
+    }
+
+    /// Projection produces x in order, and decimation collapses each pixel
+    /// column of it to at most a low and a high.
+    #[test]
+    fn decimation_collapses_to_at_most_two_points_per_column() {
+        let columns = 100.0;
+        let count = 10_000;
+        let points = (0..count).map(|i| {
+            // Ascending x across 100 columns, alternating y.
+            let x = (i as f32) * columns / (count as f32);
+            Point::new(x, if i % 2 == 0 { 0.0 } else { 10.0 })
+        });
+
+        let out = decimate(points, 0.0, columns);
+
+        assert!(out.len() <= 200, "got {} points", out.len());
+        assert!(!out.is_empty());
+    }
+
+    /// The envelope has to keep the extremes, or a spike would vanish.
+    #[test]
+    fn decimation_keeps_the_highest_and_lowest_in_a_column() {
+        let points = vec![
+            Point::new(0.0, 5.0),
+            Point::new(0.2, -3.0),
+            Point::new(0.4, 9.0),
+            Point::new(0.6, 1.0),
+        ];
+
+        let out = decimate(points.into_iter(), 0.0, 4.0);
+
+        let lowest = out.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
+        let highest = out.iter().map(|p| p.y).fold(f32::NEG_INFINITY, f32::max);
+        assert_eq!(lowest, -3.0);
+        assert_eq!(highest, 9.0);
+    }
+
+    #[test]
+    fn a_flat_column_yields_one_point() {
+        let points = vec![Point::new(0.0, 5.0), Point::new(0.3, 5.0)];
+        let out = decimate(points.into_iter(), 0.0, 4.0);
+
+        assert_eq!(out.len(), 1, "nothing to span");
+    }
+
+    #[test]
+    fn decimating_nothing_gives_nothing() {
+        let out = decimate(empty(), 0.0, 10.0);
+        assert!(out.is_empty());
+    }
+
+    /// Below the threshold the trace is drawn as it is, so short series keep
+    /// their exact shape.
+    #[test]
+    fn a_short_series_is_not_decimated() {
+        let mut graph = Graph::new();
+        graph.plot_area = Rect::new(0.0, 0.0, 800.0, 400.0);
+        graph.add_series(Series::xy(
+            "s",
+            (0..50).map(|i| (f64::from(i), 1.0)).collect(),
+        ));
+
+        let (x_map, y_map) = graph.mappings();
+        let projected = graph.project(&graph.series[0].points, x_map, y_map);
+
+        assert!(!projected.envelope);
+        assert_eq!(projected.points.len(), 50);
+    }
+
+    #[test]
+    fn a_long_series_is_decimated_to_the_screen() {
+        let mut graph = Graph::new();
+        graph.plot_area = Rect::new(0.0, 0.0, 800.0, 400.0);
+        graph.x = Axis::fixed(0.0, 100_000.0);
+        graph.y = Axis::fixed(-1.0, 1.0);
+        graph.add_series(Series::xy(
+            "s",
+            (0..100_000)
+                .map(|i| (f64::from(i), if i % 2 == 0 { -1.0 } else { 1.0 }))
+                .collect(),
+        ));
+
+        let (x_map, y_map) = graph.mappings();
+        let projected = graph.project(&graph.series[0].points, x_map, y_map);
+
+        assert!(projected.envelope, "should have been decimated");
+        assert!(
+            projected.points.len() <= 2 * 800 + 2,
+            "got {} points for an 800px plot",
+            projected.points.len()
+        );
     }
 
     #[test]

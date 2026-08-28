@@ -96,9 +96,55 @@ impl SampleBuffer {
         self.get(self.filled.checked_sub(1)?)
     }
 
+    /// The held samples as at most two contiguous runs, oldest first.
+    ///
+    /// Reading through [`Self::get`] costs two integer divisions per sample,
+    /// which is most of the time in a plot with a lot of them. Walking the
+    /// slices costs none.
+    pub fn slices(&self) -> (&[f64], &[f64]) {
+        if self.samples.is_empty() || self.filled == 0 {
+            return (&[], &[]);
+        }
+        let capacity = self.samples.len();
+        let start = (self.head + capacity - self.filled) % capacity;
+        if start + self.filled <= capacity {
+            (&self.samples[start..start + self.filled], &[])
+        } else {
+            let first = capacity - start;
+            (&self.samples[start..], &self.samples[..self.filled - first])
+        }
+    }
+
     /// Samples from oldest to newest.
     pub fn iter(&self) -> impl Iterator<Item = f64> + '_ {
-        (0..self.filled).filter_map(|i| self.get(i))
+        let (first, second) = self.slices();
+        first.iter().chain(second.iter()).copied()
+    }
+
+    /// The samples in `range`, as at most two contiguous runs.
+    ///
+    /// An out-of-range end is clamped; a start past the end gives nothing.
+    pub fn range(&self, start: usize, len: usize) -> (&[f64], &[f64]) {
+        let (first, second) = self.slices();
+        let total = first.len() + second.len();
+        if start >= total {
+            return (&[], &[]);
+        }
+        let end = start.saturating_add(len).min(total);
+
+        let head = if start < first.len() {
+            &first[start..first.len().min(end)]
+        } else {
+            &[]
+        };
+        let tail_start = start.saturating_sub(first.len());
+        let tail_end = end.saturating_sub(first.len()).min(second.len());
+        let tail = if tail_start < tail_end {
+            &second[tail_start..tail_end]
+        } else {
+            &[]
+        };
+        (head, tail)
     }
 
     /// Smallest and largest sample held, or `None` when empty.
@@ -173,6 +219,66 @@ mod tests {
         assert!(buf.is_empty());
         assert_eq!(buf.capacity(), 4);
         assert_eq!(buf.last(), None);
+    }
+
+    #[test]
+    fn slices_give_the_samples_in_order() {
+        let mut buf = SampleBuffer::with_capacity(4);
+        buf.extend([1.0, 2.0, 3.0]);
+
+        let (first, second) = buf.slices();
+        let joined: Vec<f64> = first.iter().chain(second).copied().collect();
+        assert_eq!(joined, vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn slices_split_where_the_ring_wraps() {
+        let mut buf = SampleBuffer::with_capacity(3);
+        buf.extend([1.0, 2.0, 3.0, 4.0, 5.0]);
+
+        let (first, second) = buf.slices();
+        assert!(!second.is_empty(), "this window straddles the wrap");
+        let joined: Vec<f64> = first.iter().chain(second).copied().collect();
+        assert_eq!(joined, vec![3.0, 4.0, 5.0]);
+    }
+
+    #[test]
+    fn an_empty_buffer_has_empty_slices() {
+        let buf = SampleBuffer::with_capacity(4);
+        assert_eq!(buf.slices(), (&[][..], &[][..]));
+    }
+
+    #[test]
+    fn range_takes_a_window_out_of_the_middle() {
+        let mut buf = SampleBuffer::with_capacity(8);
+        buf.extend([0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
+
+        let (first, second) = buf.range(2, 3);
+        let joined: Vec<f64> = first.iter().chain(second).copied().collect();
+        assert_eq!(joined, vec![2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn range_clamps_and_refuses_what_is_not_there() {
+        let mut buf = SampleBuffer::with_capacity(8);
+        buf.extend([0.0, 1.0, 2.0]);
+
+        let (first, second) = buf.range(1, 100);
+        let joined: Vec<f64> = first.iter().chain(second).copied().collect();
+        assert_eq!(joined, vec![1.0, 2.0], "clamped to what exists");
+
+        assert_eq!(buf.range(99, 1), (&[][..], &[][..]));
+    }
+
+    #[test]
+    fn range_works_across_the_wrap() {
+        let mut buf = SampleBuffer::with_capacity(4);
+        buf.extend([1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        // Holds 3,4,5,6.
+
+        let (first, second) = buf.range(1, 2);
+        let joined: Vec<f64> = first.iter().chain(second).copied().collect();
+        assert_eq!(joined, vec![4.0, 5.0]);
     }
 
     #[test]
