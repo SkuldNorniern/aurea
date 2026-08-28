@@ -358,6 +358,7 @@ impl Scope {
         let window = self.timebase.window_samples();
         let interval = self.timebase.sample_interval();
         let vertical = self.vertical_range();
+        let columns = super::numeric::f64_to_count(f64::from(area.width.max(1.0)));
 
         self.graph.style = self.style.clone();
         self.graph.x = Axis::fixed(0.0, self.timebase.window_seconds()).with_ticks(
@@ -397,12 +398,7 @@ impl Scope {
                 fired = self.find_trigger(channel, window).or(fired);
             }
 
-            let points: Vec<(f64, f64)> = (0..take)
-                .filter_map(|i| {
-                    let value = channel.samples.get(start + i)?;
-                    Some((interval * count_to_f64(i), value + channel.offset))
-                })
-                .collect();
+            let points = sweep_points(channel, start, take, interval, columns);
 
             let mut series = Series::new(channel.name.clone(), Points::Xy(points));
             series.color = channel.color;
@@ -483,6 +479,70 @@ fn engineering_value(value: f64) -> (f64, &'static str) {
         }
     }
     (value / 1e-9, "n")
+}
+
+fn sweep_points(
+    channel: &Channel,
+    start: usize,
+    take: usize,
+    interval: f64,
+    columns: usize,
+) -> Vec<(f64, f64)> {
+    let (head, tail) = channel.samples.range(start, take);
+    let offset = channel.offset;
+    let budget = columns.saturating_mul(2).max(64);
+
+    if take <= budget {
+        return head
+            .iter()
+            .chain(tail)
+            .enumerate()
+            .map(|(i, value)| (interval * count_to_f64(i), value + offset))
+            .collect();
+    }
+
+    let mut points = Vec::with_capacity(budget);
+    let total = head.len() + tail.len();
+    let per_column = count_to_f64(total) / count_to_f64(columns.max(1));
+
+    let mut column = 0usize;
+    let mut low = f64::INFINITY;
+    let mut high = f64::NEG_INFINITY;
+    let mut column_start = 0usize;
+
+    for (index, value) in head.iter().chain(tail).copied().enumerate() {
+        let this_column = super::numeric::f64_to_count(count_to_f64(index) / per_column);
+        if this_column != column {
+            if low.is_finite() {
+                push_envelope(&mut points, interval, column_start, low, high, offset);
+            }
+            column = this_column;
+            column_start = index;
+            low = f64::INFINITY;
+            high = f64::NEG_INFINITY;
+        }
+        low = low.min(value);
+        high = high.max(value);
+    }
+    if low.is_finite() {
+        push_envelope(&mut points, interval, column_start, low, high, offset);
+    }
+    points
+}
+
+fn push_envelope(
+    points: &mut Vec<(f64, f64)>,
+    interval: f64,
+    index: usize,
+    low: f64,
+    high: f64,
+    offset: f64,
+) {
+    let t = interval * count_to_f64(index);
+    points.push((t, low + offset));
+    if (high - low).abs() > f64::EPSILON {
+        points.push((t, high + offset));
+    }
 }
 
 #[cfg(test)]

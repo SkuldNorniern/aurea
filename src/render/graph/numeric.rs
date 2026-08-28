@@ -14,3 +14,8 @@ pub(crate) fn count_to_f64(v: usize) -> f64 {
 pub(crate) fn f64_to_count(v: f64) -> usize {
     if v <= 0.0 { 0 } else { v as usize }
 }
+
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) fn f32_to_i32(v: f32) -> i32 {
+    v as i32
+}
