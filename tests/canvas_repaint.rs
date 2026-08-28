@@ -186,3 +186,53 @@ fn on_frame_stops_when_it_returns_false() -> AureaResult<()> {
     );
     Ok(())
 }
+
+/// A widget frees its native element when it is dropped, and stops doing so
+/// once a container has taken it: the platform frees a container's children
+/// along with the container, so freeing it again would be a double free.
+#[test]
+#[ignore = "creates native elements; run with --ignored"]
+fn a_container_takes_ownership_of_what_it_is_given() -> AureaResult<()> {
+    use aurea::elements::{Button, Element, Label};
+
+    let _window = Window::new("ownership", 200, 100)?;
+
+    let loose = Label::new("loose")?;
+    assert!(!loose.handle().is_null());
+    // Nothing has adopted it, so dropping it destroys the native label.
+    drop(loose);
+
+    let mut stack = Stack::new(Orientation::Vertical)?;
+    let adopted = Button::new("adopted")?;
+    let handle = adopted.handle();
+    stack.add(adopted)?;
+
+    // Still a live native element: the stack holds it now.
+    assert!(!stack.handle().is_null());
+    assert!(!handle.is_null());
+
+    // Dropping the stack frees the stack and its child together. Doing it
+    // twice is what the handover prevents; this must not fault.
+    drop(stack);
+    Ok(())
+}
+
+/// Dropping a canvas destroys its native object. It used to unregister from
+/// the scheduler and leave the platform element behind.
+#[test]
+#[ignore = "creates native elements; run with --ignored"]
+fn dropping_a_canvas_destroys_the_native_element() -> AureaResult<()> {
+    use aurea::elements::Element;
+
+    let _window = Window::new("canvas ownership", 200, 100)?;
+
+    let canvas = Canvas::new(100, 100, RendererBackend::Cpu)?;
+    let handle = canvas.handle();
+    assert!(!handle.is_null());
+
+    // Clones share one native canvas and one cleanup, so it is freed once.
+    let clone = canvas.clone();
+    drop(canvas);
+    drop(clone);
+    Ok(())
+}

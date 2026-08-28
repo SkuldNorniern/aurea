@@ -66,6 +66,20 @@ void ng_platform_box_invalidate(NGHandle box_handle);
 int ng_platform_box_add(NGHandle box_handle, NGHandle element, float weight);
 int ng_platform_set_window_content(NGHandle window, NGHandle content);
 
+/* Element lifetime.
+
+   Every element Aurea creates is owned by the Rust value that created it, and
+   destroyed when that value is dropped. A container takes ownership of what is
+   added to it, so a child is destroyed with its parent and not twice. */
+
+/* Destroys an element and anything the platform frees along with it. Safe to
+   call with NULL. */
+void ng_platform_destroy_element(NGHandle element);
+
+/* Removes an element from its parent, leaving it alive and unparented.
+   NG_ERROR_UNSUPPORTED where the backend cannot reparent. */
+int ng_platform_detach_element(NGHandle element);
+
 // Split view
 NGHandle ng_platform_create_split_view(int is_vertical);
 int ng_platform_split_view_add(NGHandle split_handle, NGHandle element);

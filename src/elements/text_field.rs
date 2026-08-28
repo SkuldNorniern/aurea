@@ -3,6 +3,7 @@
 //! Uses a native single-line field where available and falls back to editable TextView
 //! on platforms that do not yet expose `ng_platform_create_text_field`.
 
+use super::native::NativeElement;
 use super::traits::Element;
 #[cfg(not(target_os = "macos"))]
 use crate::registry::elements::next_text_view_id;
@@ -24,7 +25,7 @@ enum TextFieldKind {
 /// Uses native platform control: Windows EDIT, etc.
 /// Returns error on macOS and Linux (ng_platform_create_text_field is NULL).
 pub struct TextField {
-    handle: *mut c_void,
+    handle: NativeElement,
     kind: TextFieldKind,
 }
 
@@ -58,7 +59,10 @@ impl TextField {
             }
         };
 
-        let mut field = Self { handle, kind };
+        let mut field = Self {
+            handle: NativeElement::new(handle),
+            kind,
+        };
         let _ = field.set_content(content);
         Ok(field)
     }
@@ -71,7 +75,8 @@ impl TextField {
     /// Set the text content.
     pub fn set_content(&mut self, content: &str) -> AureaResult<()> {
         let content = CString::new(content).map_err(|_| AureaError::InvalidTitle)?;
-        let result = unsafe { ng_platform_set_text_content(self.handle, content.as_ptr()) };
+        let result =
+            unsafe { ng_platform_set_text_content(self.handle.handle(), content.as_ptr()) };
 
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
@@ -82,7 +87,7 @@ impl TextField {
 
     /// Get the text content.
     pub fn get_content(&self) -> AureaResult<String> {
-        let content_ptr = unsafe { ng_platform_get_text_content(self.handle) };
+        let content_ptr = unsafe { ng_platform_get_text_content(self.handle.handle()) };
 
         if content_ptr.is_null() {
             return Err(AureaError::ElementOperationFailed);
@@ -104,15 +109,21 @@ impl TextField {
 
 impl Element for TextField {
     fn handle(&self) -> *mut c_void {
-        self.handle
+        self.handle.handle()
+    }
+
+    fn released_to_parent(&self) {
+        self.handle.released_to_parent();
     }
 
     unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         unsafe {
             match self.kind {
-                TextFieldKind::NativeField => ng_platform_text_editor_invalidate(self.handle),
+                TextFieldKind::NativeField => {
+                    ng_platform_text_editor_invalidate(self.handle.handle())
+                }
                 TextFieldKind::EditableTextViewFallback => {
-                    ng_platform_text_view_invalidate(self.handle)
+                    ng_platform_text_view_invalidate(self.handle.handle())
                 }
             }
         }

@@ -199,6 +199,17 @@ int ng_platform_box_add(NGHandle b, NGHandle e, float w) {
     DISPATCH_INT(box_add, b, e, w);
 }
 
+void ng_platform_destroy_element(NGHandle e) {
+    if (!e) return;
+    DISPATCH_VOID(destroy_element, e);
+}
+
+int ng_platform_detach_element(NGHandle e) {
+    ensure_ops();
+    if (!e) return NG_ERROR_INVALID_HANDLE;
+    return g_ops && g_ops->detach_element ? g_ops->detach_element(e) : NG_ERROR_UNSUPPORTED;
+}
+
 int ng_platform_set_window_content(NGHandle w, NGHandle c) {
     DISPATCH_INT(set_window_content, w, c);
 }

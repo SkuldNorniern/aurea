@@ -1,10 +1,11 @@
+use super::native::NativeElement;
 use super::traits::Element;
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::{ffi::CString, os::raw::c_void};
 
 pub struct ComboBox {
-    handle: *mut c_void,
+    handle: NativeElement,
 }
 
 impl ComboBox {
@@ -15,7 +16,9 @@ impl ComboBox {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        Ok(Self { handle })
+        Ok(Self {
+            handle: NativeElement::new(handle),
+        })
     }
 
     /// Create a combo box and populate it with items.
@@ -42,7 +45,7 @@ impl ComboBox {
 
     pub fn add_item(&mut self, item: &str) -> AureaResult<()> {
         let item = CString::new(item).map_err(|_| AureaError::InvalidTitle)?;
-        let result = unsafe { ng_platform_combo_box_add_item(self.handle, item.as_ptr()) };
+        let result = unsafe { ng_platform_combo_box_add_item(self.handle.handle(), item.as_ptr()) };
 
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
@@ -64,7 +67,7 @@ impl ComboBox {
     }
 
     pub fn set_selected(&mut self, index: i32) -> AureaResult<()> {
-        let result = unsafe { ng_platform_combo_box_set_selected(self.handle, index) };
+        let result = unsafe { ng_platform_combo_box_set_selected(self.handle.handle(), index) };
 
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
@@ -74,11 +77,11 @@ impl ComboBox {
     }
 
     pub fn get_selected(&self) -> i32 {
-        unsafe { ng_platform_combo_box_get_selected(self.handle) }
+        unsafe { ng_platform_combo_box_get_selected(self.handle.handle()) }
     }
 
     pub fn clear(&mut self) -> AureaResult<()> {
-        let result = unsafe { ng_platform_combo_box_clear(self.handle) };
+        let result = unsafe { ng_platform_combo_box_clear(self.handle.handle()) };
 
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
@@ -88,8 +91,9 @@ impl ComboBox {
     }
 
     pub fn set_enabled(&mut self, enabled: bool) -> AureaResult<()> {
-        let result =
-            unsafe { ng_platform_combo_box_set_enabled(self.handle, if enabled { 1 } else { 0 }) };
+        let result = unsafe {
+            ng_platform_combo_box_set_enabled(self.handle.handle(), if enabled { 1 } else { 0 })
+        };
 
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
@@ -101,12 +105,16 @@ impl ComboBox {
 
 impl Element for ComboBox {
     fn handle(&self) -> *mut c_void {
-        self.handle
+        self.handle.handle()
+    }
+
+    fn released_to_parent(&self) {
+        self.handle.released_to_parent();
     }
 
     unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         unsafe {
-            ng_platform_combo_box_invalidate(self.handle);
+            ng_platform_combo_box_invalidate(self.handle.handle());
         }
     }
 }

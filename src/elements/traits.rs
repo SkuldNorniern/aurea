@@ -7,6 +7,15 @@ pub trait Element {
     /// Return the native handle for this element.
     fn handle(&self) -> *mut c_void;
 
+    /// Tells the element that a container has taken it into its native
+    /// hierarchy and will free it.
+    ///
+    /// Containers call this when a child is added. An element that owns a
+    /// native handle stops freeing it; the platform frees a container's
+    /// children along with the container, so freeing it again would be a
+    /// double free. The default does nothing, for elements that own nothing.
+    fn released_to_parent(&self) {}
+
     fn invalidate(&self, rect: Option<Rect>) {
         if let Some(r) = rect {
             self.invalidate_rect(r);

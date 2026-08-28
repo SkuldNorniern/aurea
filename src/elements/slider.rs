@@ -1,10 +1,11 @@
+use super::native::NativeElement;
 use super::traits::Element;
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::os::raw::c_void;
 
 pub struct Slider {
-    handle: *mut c_void,
+    handle: NativeElement,
 }
 
 impl Slider {
@@ -24,14 +25,16 @@ impl Slider {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        let mut slider = Self { handle };
+        let mut slider = Self {
+            handle: NativeElement::new(handle),
+        };
         let clamped = value.clamp(min, max);
         let _ = slider.set_value(clamped);
         Ok(slider)
     }
 
     pub fn set_value(&mut self, value: f64) -> AureaResult<()> {
-        let result = unsafe { ng_platform_slider_set_value(self.handle, value) };
+        let result = unsafe { ng_platform_slider_set_value(self.handle.handle(), value) };
 
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
@@ -41,12 +44,13 @@ impl Slider {
     }
 
     pub fn get_value(&self) -> f64 {
-        unsafe { ng_platform_slider_get_value(self.handle) }
+        unsafe { ng_platform_slider_get_value(self.handle.handle()) }
     }
 
     pub fn set_enabled(&mut self, enabled: bool) -> AureaResult<()> {
-        let result =
-            unsafe { ng_platform_slider_set_enabled(self.handle, if enabled { 1 } else { 0 }) };
+        let result = unsafe {
+            ng_platform_slider_set_enabled(self.handle.handle(), if enabled { 1 } else { 0 })
+        };
 
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
@@ -58,12 +62,16 @@ impl Slider {
 
 impl Element for Slider {
     fn handle(&self) -> *mut c_void {
-        self.handle
+        self.handle.handle()
+    }
+
+    fn released_to_parent(&self) {
+        self.handle.released_to_parent();
     }
 
     unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         unsafe {
-            ng_platform_slider_invalidate(self.handle);
+            ng_platform_slider_invalidate(self.handle.handle());
         }
     }
 }

@@ -1,3 +1,4 @@
+use super::native::NativeElement;
 use super::traits::{Container, Element};
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
@@ -13,7 +14,7 @@ pub enum Orientation {
 
 /// A native container that arranges children in a row or column.
 pub struct Stack {
-    handle: *mut c_void,
+    handle: NativeElement,
     _orientation: Orientation,
     /// Keeps child elements alive so their Drop impls run only when the Stack
     /// itself is dropped, not when they are moved in via `add`.
@@ -35,7 +36,7 @@ impl Stack {
         }
 
         Ok(Self {
-            handle,
+            handle: NativeElement::new(handle),
             _orientation: orientation,
             _children: Vec::new(),
         })
@@ -44,12 +45,16 @@ impl Stack {
 
 impl Element for Stack {
     fn handle(&self) -> *mut c_void {
-        self.handle
+        self.handle.handle()
+    }
+
+    fn released_to_parent(&self) {
+        self.handle.released_to_parent();
     }
 
     unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         unsafe {
-            ng_platform_box_invalidate(self.handle);
+            ng_platform_box_invalidate(self.handle.handle());
         }
     }
 }
@@ -77,14 +82,19 @@ impl Container for Stack {
     /// On macOS the weight affects space distribution; on Linux and Windows
     /// the weight is ignored (GTK/Win32 layouts do not use it).
     fn add_weighted<E: Element + 'static>(&mut self, element: E, weight: f32) -> AureaResult<()> {
-        let result = unsafe { ng_platform_box_add(self.handle, element.handle(), weight) };
+        let result = unsafe { ng_platform_box_add(self.handle.handle(), element.handle(), weight) };
 
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        // Keep the element alive so its Drop (e.g. Canvas scheduler unregister)
-        // only runs when this Stack is dropped, not when the element is "added".
+        // The native parent frees its children, so the child must stop freeing
+        // itself or it would be freed twice.
+        element.released_to_parent();
+
+        // The Rust value stays alive so its other cleanup (a Canvas
+        // unregistering from the scheduler, a widget dropping its callback)
+        // runs when this Stack is dropped, not when the child is added.
         self._children.push(Box::new(element));
         Ok(())
     }

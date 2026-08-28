@@ -36,6 +36,13 @@ unsafe extern "C" {
         window_type: c_int,
     ) -> *mut c_void;
     pub fn ng_platform_destroy_window(handle: *mut c_void);
+
+    /// Destroys an element and anything the platform frees with it.
+    /// Harmless on a null handle.
+    pub fn ng_platform_destroy_element(element: *mut c_void);
+
+    /// Removes an element from its parent, leaving it alive and unparented.
+    pub fn ng_platform_detach_element(element: *mut c_void) -> i32;
     pub fn ng_platform_window_set_title(window: *mut c_void, title: *const c_char);
     pub fn ng_platform_window_set_icon_rgba(
         window: *mut c_void,
