@@ -34,6 +34,18 @@
 //! scope.trigger = Trigger::rising(0.0);
 //! ```
 //!
+//! # The short way
+//!
+//! [`quick`] builds the common shapes in one call, and [`prelude`] brings the
+//! whole module in at once.
+//!
+//! ```rust
+//! use aurea::render::graph::quick;
+//!
+//! let (mut graph, signal) = quick::live("cpu", 600);
+//! graph.push(signal, 0.42);
+//! ```
+//!
 //! # Using the pieces on their own
 //!
 //! The parts are separate on purpose. [`Mapping`] and [`TickPlan`] are plain
@@ -44,6 +56,8 @@
 mod buffer;
 mod numeric;
 mod plot;
+pub mod prelude;
+pub mod quick;
 mod scale;
 mod scope;
 mod series;
