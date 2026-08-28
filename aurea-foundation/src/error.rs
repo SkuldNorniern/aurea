@@ -1,3 +1,4 @@
+use crate::platform::Platform;
 use std::error::Error;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::result::Result as StdResult;
@@ -23,6 +24,17 @@ pub enum AureaError {
     RenderingFailed,
     /// FFI ABI version mismatch between Rust and native library
     AbiVersionMismatch { expected: i32, got: i32 },
+    /// The platform backend has no implementation for this operation.
+    ///
+    /// Distinct from a failure: nothing went wrong, there is simply no code
+    /// for it on this platform. Worth telling apart, because an application
+    /// can fall back on one and not on the other.
+    Unsupported {
+        /// What was attempted, e.g. `"attach_menu"`.
+        operation: &'static str,
+        /// Where it was attempted.
+        platform: Platform,
+    },
 }
 
 /// Result type for GUI operations.
@@ -65,6 +77,10 @@ impl Display for AureaError {
             AureaError::EventLoopError => write!(f, "The event loop encountered an error"),
             AureaError::ElementOperationFailed => write!(f, "An operation on a GUI element failed"),
             AureaError::RenderingFailed => write!(f, "Rendering operation failed"),
+            AureaError::Unsupported {
+                operation,
+                platform,
+            } => write!(f, "{operation} is not implemented on {platform:?}"),
             AureaError::AbiVersionMismatch { expected, got } => {
                 write!(
                     f,
@@ -81,6 +97,7 @@ impl Error for AureaError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::platform::MobilePlatform;
 
     #[test]
     fn abi_version_mismatch_display() {
@@ -107,5 +124,26 @@ mod tests {
                 || s.contains("platform dependencies"),
             "display must include platform-specific or fallback hint"
         );
+    }
+    #[test]
+    fn unsupported_names_the_operation_and_the_platform() {
+        let err = AureaError::Unsupported {
+            operation: "attach_menu",
+            platform: Platform::Mobile(MobilePlatform::Android),
+        };
+        let text = err.to_string();
+
+        assert!(text.contains("attach_menu"), "got {text}");
+        assert!(text.contains("Android"), "got {text}");
+    }
+
+    /// Not the same thing as a failure: nothing went wrong.
+    #[test]
+    fn unsupported_is_its_own_error() {
+        let unsupported = AureaError::Unsupported {
+            operation: "x",
+            platform: Platform::Mobile(MobilePlatform::IOS),
+        };
+        assert!(!matches!(unsupported, AureaError::ElementOperationFailed));
     }
 }
