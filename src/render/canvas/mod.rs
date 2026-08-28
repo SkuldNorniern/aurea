@@ -293,6 +293,47 @@ impl Canvas {
         lock(&self.state).background_color
     }
 
+    /// Runs `tick` once per frame and redraws the canvas afterwards.
+    ///
+    /// A retained draw callback only runs when the canvas is dirty, so feeding
+    /// it new data from a plain ticker paints once and then looks frozen: the
+    /// data changed but nothing said so. This ties the two together.
+    ///
+    /// Return `false` from `tick` to stop; the ticker unregisters itself.
+    /// Otherwise it stops when the canvas is dropped.
+    ///
+    /// `tick` runs on the UI thread but is declared `Send` because the frame
+    /// scheduler holds it, so it cannot capture the canvas itself. It does not
+    /// need to: the redraw is arranged here.
+    ///
+    /// ```rust,no_run
+    /// # use aurea::render::{Canvas, RendererBackend};
+    /// # fn main() -> aurea::AureaResult<()> {
+    /// let canvas = Canvas::new(400, 300, RendererBackend::Cpu)?;
+    /// canvas.set_draw_callback(|ctx| { let _ = ctx; Ok(()) })?;
+    /// canvas.on_frame(|info| {
+    ///     let _ = info.delta;
+    ///     true
+    /// });
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn on_frame<F>(&self, mut tick: F) -> TickerId
+    where
+        F: FnMut(FrameInfo) -> bool + Send + 'static,
+    {
+        let handle = handle_key(self.handle);
+        FrameScheduler::register_ticker(move |info| {
+            if !tick(info) {
+                return false;
+            }
+            // A canvas that has gone away makes this a no-op, so a ticker
+            // outliving its canvas cannot touch a dead handle.
+            request_canvas_redraw(handle);
+            true
+        })
+    }
+
     /// Add damage to the canvas (called when content changes).
     pub fn add_damage(&self, rect: super::Rect) {
         lock(&self.state).damage.add(rect);
