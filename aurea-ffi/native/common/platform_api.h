@@ -80,6 +80,16 @@ void ng_platform_destroy_element(NGHandle element);
    NG_ERROR_UNSUPPORTED where the backend cannot reparent. */
 int ng_platform_detach_element(NGHandle element);
 
+/* Tells the platform that a container has taken this element into its own
+   hierarchy and will free it.
+
+   Not every backend needs to do anything. Win32 reparenting is not reference
+   counted, and GTK containers sink a widget's floating reference, so both are
+   no-ops. AppKit is different: element constructors hand out a retained
+   reference, the superview takes its own on top of that, and without giving
+   the first one back the element outlives its parent. */
+void ng_platform_element_released_to_parent(NGHandle element);
+
 // Split view
 NGHandle ng_platform_create_split_view(int is_vertical);
 int ng_platform_split_view_add(NGHandle split_handle, NGHandle element);

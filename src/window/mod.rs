@@ -372,7 +372,14 @@ impl Window {
             let stale = previous.handle();
             drop(previous);
             if !stale.is_null() && stale != content_handle {
-                unsafe { ng_platform_destroy_element(stale) };
+                // Detach first, then destroy. The old content gave up
+                // ownership when it became the content, so something has to
+                // take it back before it can be freed — on AppKit that is a
+                // retain, and destroying without it would be an over-release.
+                unsafe {
+                    let _ = ng_platform_detach_element(stale);
+                    ng_platform_destroy_element(stale);
+                }
             }
         }
         Ok(())
