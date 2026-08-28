@@ -44,6 +44,46 @@ pub struct CpuDrawingContext {
     height: u32,
 }
 
+/// Hashes a path's geometry into `hasher`.
+///
+/// Used for both `DrawPath` commands and the active clip path so that a clip
+/// change participates in visual identity.
+fn hash_path(path: &Path, hasher: &mut DefaultHasher) {
+    for cmd in &path.commands {
+        match cmd {
+            PathCommand::MoveTo(p) => {
+                0u8.hash(hasher);
+                p.x.to_bits().hash(hasher);
+                p.y.to_bits().hash(hasher);
+            }
+            PathCommand::LineTo(p) => {
+                1u8.hash(hasher);
+                p.x.to_bits().hash(hasher);
+                p.y.to_bits().hash(hasher);
+            }
+            PathCommand::QuadTo(c, p) => {
+                2u8.hash(hasher);
+                c.x.to_bits().hash(hasher);
+                c.y.to_bits().hash(hasher);
+                p.x.to_bits().hash(hasher);
+                p.y.to_bits().hash(hasher);
+            }
+            PathCommand::CubicTo(c1, c2, p) => {
+                3u8.hash(hasher);
+                c1.x.to_bits().hash(hasher);
+                c1.y.to_bits().hash(hasher);
+                c2.x.to_bits().hash(hasher);
+                c2.y.to_bits().hash(hasher);
+                p.x.to_bits().hash(hasher);
+                p.y.to_bits().hash(hasher);
+            }
+            PathCommand::Close => {
+                4u8.hash(hasher);
+            }
+        }
+    }
+}
+
 impl CpuDrawingContext {
     /// Creates a context that appends display items to the given display list.
     pub fn new(display_list: *mut DisplayList, width: u32, height: u32) -> Self {
@@ -239,39 +279,7 @@ impl CpuDrawingContext {
             }
             super::super::command::DrawCommand::DrawPath(path, paint) => {
                 "DrawPath".hash(&mut hasher);
-                for cmd in &path.commands {
-                    match cmd {
-                        super::super::types::PathCommand::MoveTo(p) => {
-                            0u8.hash(&mut hasher);
-                            p.x.to_bits().hash(&mut hasher);
-                            p.y.to_bits().hash(&mut hasher);
-                        }
-                        super::super::types::PathCommand::LineTo(p) => {
-                            1u8.hash(&mut hasher);
-                            p.x.to_bits().hash(&mut hasher);
-                            p.y.to_bits().hash(&mut hasher);
-                        }
-                        super::super::types::PathCommand::QuadTo(c, p) => {
-                            2u8.hash(&mut hasher);
-                            c.x.to_bits().hash(&mut hasher);
-                            c.y.to_bits().hash(&mut hasher);
-                            p.x.to_bits().hash(&mut hasher);
-                            p.y.to_bits().hash(&mut hasher);
-                        }
-                        super::super::types::PathCommand::CubicTo(c1, c2, p) => {
-                            3u8.hash(&mut hasher);
-                            c1.x.to_bits().hash(&mut hasher);
-                            c1.y.to_bits().hash(&mut hasher);
-                            c2.x.to_bits().hash(&mut hasher);
-                            c2.y.to_bits().hash(&mut hasher);
-                            p.x.to_bits().hash(&mut hasher);
-                            p.y.to_bits().hash(&mut hasher);
-                        }
-                        super::super::types::PathCommand::Close => {
-                            4u8.hash(&mut hasher);
-                        }
-                    }
-                }
+                hash_path(path, &mut hasher);
                 paint.color.r.hash(&mut hasher);
                 paint.color.g.hash(&mut hasher);
                 paint.color.b.hash(&mut hasher);
@@ -309,6 +317,17 @@ impl CpuDrawingContext {
         self.current_transform.m33.to_bits().hash(&mut hasher);
         self.current_opacity.to_bits().hash(&mut hasher);
         self.scale_factor.to_bits().hash(&mut hasher);
+        // Blend mode and clip affect the pixels an item produces, so they must
+        // take part in its visual identity or the damage diff will treat a
+        // state-only change as "unchanged".
+        self.current_blend_mode.hash(&mut hasher);
+        match self.current_clip {
+            Some(ref clip) => {
+                1u8.hash(&mut hasher);
+                hash_path(clip, &mut hasher);
+            }
+            None => 0u8.hash(&mut hasher),
+        }
 
         CacheKey::from_hash(hasher.finish())
     }
@@ -651,25 +670,16 @@ impl DrawingContext for CpuDrawingContext {
         let r = self.s_rect(rect);
         let mut path = Path::new();
         path.commands
-            .push(super::super::types::PathCommand::MoveTo(Point::new(
-                r.x, r.y,
-            )));
+            .push(PathCommand::MoveTo(Point::new(r.x, r.y)));
         path.commands
-            .push(super::super::types::PathCommand::LineTo(Point::new(
-                r.x + r.width,
-                r.y,
-            )));
+            .push(PathCommand::LineTo(Point::new(r.x + r.width, r.y)));
+        path.commands.push(PathCommand::LineTo(Point::new(
+            r.x + r.width,
+            r.y + r.height,
+        )));
         path.commands
-            .push(super::super::types::PathCommand::LineTo(Point::new(
-                r.x + r.width,
-                r.y + r.height,
-            )));
-        path.commands
-            .push(super::super::types::PathCommand::LineTo(Point::new(
-                r.x,
-                r.y + r.height,
-            )));
-        path.commands.push(super::super::types::PathCommand::Close);
+            .push(PathCommand::LineTo(Point::new(r.x, r.y + r.height)));
+        path.commands.push(PathCommand::Close);
         self.current_clip = Some(path);
         Ok(())
     }
@@ -757,5 +767,35 @@ mod tests {
         let bounds = list.items()[0].bounds;
         assert!((bounds.x - 6.0).abs() < 1e-4, "x = {}", bounds.x);
         assert!((bounds.y - 8.0).abs() < 1e-4, "y = {}", bounds.y);
+    }
+
+    #[test]
+    fn blend_mode_change_changes_cache_key() {
+        let mut list = DisplayList::new();
+        {
+            let mut ctx = ctx_with(&mut list, 1.0);
+            let rect = Rect::new(0.0, 0.0, 10.0, 10.0);
+            ctx.draw_rect(rect, &Paint::default()).expect("draw_rect");
+            ctx.set_blend_mode(BlendMode::Multiply)
+                .expect("set_blend_mode");
+            ctx.draw_rect(rect, &Paint::default()).expect("draw_rect");
+        }
+        let items = list.items();
+        assert_ne!(items[0].cache_key, items[1].cache_key);
+    }
+
+    #[test]
+    fn clip_change_changes_cache_key() {
+        let mut list = DisplayList::new();
+        {
+            let mut ctx = ctx_with(&mut list, 1.0);
+            let rect = Rect::new(0.0, 0.0, 10.0, 10.0);
+            ctx.draw_rect(rect, &Paint::default()).expect("draw_rect");
+            ctx.clip_rect(Rect::new(0.0, 0.0, 5.0, 5.0))
+                .expect("clip_rect");
+            ctx.draw_rect(rect, &Paint::default()).expect("draw_rect");
+        }
+        let items = list.items();
+        assert_ne!(items[0].cache_key, items[1].cache_key);
     }
 }
