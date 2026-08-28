@@ -11,7 +11,7 @@ use std::cmp::Ordering as CmpOrdering;
 use crate::command::DrawCommand;
 use crate::cpu::blend::{blend_pixel, linear_to_srgb_u8, srgb_to_linear};
 use crate::cpu::clip::ClipBox;
-use crate::cpu::context::CpuDrawingContext;
+use crate::cpu::context::RecordingContext;
 use crate::cpu::path::{Edge, tessellate_path_into};
 use crate::cpu::scanline::fill_spans;
 use crate::cpu::stroke;
@@ -1347,7 +1347,7 @@ impl Renderer for CpuRasterizer {
 
     fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext>> {
         self.display_list.clear();
-        let mut ctx = CpuDrawingContext::new(
+        let mut ctx = RecordingContext::new(
             &mut self.display_list as *mut DisplayList,
             self.logical_width,
             self.logical_height,
