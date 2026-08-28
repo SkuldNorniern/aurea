@@ -34,10 +34,44 @@ optional GPU backends.
 - Canvas rendering through Aurea's renderer abstraction, with retained draw
   callbacks, explicit invalidation, damage regions, frame scheduling, and
   per-frame animation tickers.
-- CPU rasterizer with paths, rectangles, circles, images, gradients,
-  blending, text measurement, tile caching, and damage-driven redraw.
+- CPU rasterizer with paths, rectangles, circles, images, gradients, blending,
+  text measurement, tile caching, and damage-driven redraw. Fills and strokes
+  are antialiased through the same coverage path.
+- Plots and oscilloscope views in `aurea::render::graph`, drawn onto a canvas:
+  linear and log axes, tick and grid generation, line, step, point, area and
+  bar series, cursors, and a scope with channels, timebase and trigger.
 - Optional GPU acceleration through the in-house ZenGPU backend.
 - Optional `wgpu` window integration.
+
+## Threads
+
+Windows, canvases and widgets belong to the thread that brought the platform
+up. `Window` is neither `Send` nor `Sync`, so the compiler stops them from
+travelling; native window systems are thread-affine and a window that could
+move between threads would be a standing invitation to undefined behaviour.
+
+To reach the UI from another thread, use a proxy. Work queued on it runs the
+next time the window pumps.
+
+```rust,no_run
+use aurea::Window;
+
+# fn main() -> aurea::AureaResult<()> {
+let window = Window::new("App", 800, 600)?;
+let proxy = window.proxy();
+
+std::thread::spawn(move || {
+    proxy.dispatch(|window| {
+        let _ = window.set_title("done");
+    });
+});
+
+window.run()
+# }
+```
+
+Event and widget callbacks run on the UI thread and are not required to be
+`Send` or `Sync`, so they can capture windows and widgets directly.
 
 ## Quick Start
 

@@ -7,7 +7,7 @@ pub mod geometry;
 pub mod platform;
 pub mod sync;
 
-pub use capability::{Capability, CapabilityChecker};
+pub use capability::{Capability, CapabilityChecker, Support};
 pub use error::{AureaError, AureaResult};
 pub use events::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};
 pub use geometry::{Point, Rect};

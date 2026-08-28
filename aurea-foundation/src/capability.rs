@@ -1,6 +1,26 @@
-//! Platform capability detection.
+//! What can be done here.
 
 use crate::platform::{DesktopPlatform, MobilePlatform, Platform};
+
+/// How well Aurea supports something on a platform.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Support {
+    /// The platform cannot do it at all.
+    Unavailable,
+    /// The platform can, and Aurea has no code for it yet.
+    Unimplemented,
+    /// Aurea does it, but the implementation is young enough to be worth saying so.
+    Experimental,
+    /// Aurea does it.
+    Supported,
+}
+
+impl Support {
+    /// Whether an application can use it.
+    pub fn is_usable(self) -> bool {
+        matches!(self, Self::Supported | Self::Experimental)
+    }
+}
 
 /// Represents a capability or feature that may or may not be available.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -119,6 +139,30 @@ impl Capability {
         }
     }
 
+    /// What Aurea can do with this capability on `platform`.
+    pub fn support_on(&self, platform: Platform) -> Support {
+        if !self.is_available_on(platform) {
+            return Support::Unavailable;
+        }
+        let desktop = platform.is_desktop();
+        match self {
+            Self::MultipleWindows | Self::WindowResizing => Support::Supported,
+            Self::MenuBar | Self::KeyboardShortcuts => Support::Supported,
+            Self::MouseInput | Self::KeyboardInput => Support::Supported,
+            Self::Clipboard => Support::Supported,
+            Self::HardwareAcceleration
+            | Self::Vulkan
+            | Self::Metal
+            | Self::DirectX
+            | Self::OpenGL => Support::Experimental,
+            Self::TouchInput | Self::StylusInput => Support::Unimplemented,
+            Self::WindowMinimization | Self::WindowMaximization if desktop => {
+                Support::Unimplemented
+            }
+            _ => Support::Unimplemented,
+        }
+    }
+
     pub fn description(&self) -> &'static str {
         match self {
             Capability::MultipleWindows => "Multiple Windows",
@@ -204,16 +248,33 @@ impl CapabilityChecker {
         Self { platform }
     }
 
+    /// Whether Aurea can do this here.
     pub fn has(&self, capability: Capability) -> bool {
-        capability.is_available_on(self.platform)
+        self.support(capability).is_usable()
     }
 
+    /// How well Aurea supports this here.
+    pub fn support(&self, capability: Capability) -> Support {
+        capability.support_on(self.platform)
+    }
+
+    /// Everything Aurea can do here.
     pub fn available_capabilities(&self) -> Vec<Capability> {
         ALL.iter().copied().filter(|&cap| self.has(cap)).collect()
     }
 
+    /// Everything it cannot, whether because the platform lacks it or because Aurea has no code for
+    /// it.
     pub fn unavailable_capabilities(&self) -> Vec<Capability> {
         ALL.iter().copied().filter(|&cap| !self.has(cap)).collect()
+    }
+
+    /// The capabilities the platform offers that Aurea has not implemented.
+    pub fn unimplemented_capabilities(&self) -> Vec<Capability> {
+        ALL.iter()
+            .copied()
+            .filter(|&cap| self.support(cap) == Support::Unimplemented)
+            .collect()
     }
 
     pub fn platform(&self) -> Platform {
@@ -232,36 +293,82 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_capability_checker() {
-        let checker = CapabilityChecker::new();
-        let platform = checker.platform();
+    fn a_checker_reports_what_aurea_does_not_what_the_platform_could() {
+        let checker = CapabilityChecker::for_platform(Platform::Desktop(DesktopPlatform::Windows));
 
-        if platform.is_desktop() {
-            assert!(checker.has(Capability::MenuBar));
-            assert!(checker.has(Capability::MouseInput));
-        }
-
-        if platform.is_mobile() {
-            assert!(checker.has(Capability::TouchInput));
-            assert!(!checker.has(Capability::MenuBar));
-        }
+        assert!(Capability::FileDialogs.is_available_on(checker.platform()));
+        assert_eq!(
+            checker.support(Capability::FileDialogs),
+            Support::Unimplemented
+        );
+        assert!(!checker.has(Capability::FileDialogs));
     }
 
     #[test]
-    fn test_platform_specific_capabilities() {
-        let macos = Platform::Desktop(DesktopPlatform::MacOS);
-        let checker = CapabilityChecker::for_platform(macos);
-        assert!(checker.has(Capability::Metal));
-        assert!(checker.has(Capability::DockIntegration));
+    fn the_things_aurea_does_are_reported_as_supported() {
+        let checker = CapabilityChecker::for_platform(Platform::Desktop(DesktopPlatform::Linux));
 
-        let windows = Platform::Desktop(DesktopPlatform::Windows);
-        let checker = CapabilityChecker::for_platform(windows);
-        assert!(checker.has(Capability::DirectX));
-        assert!(checker.has(Capability::TaskbarIntegration));
+        assert_eq!(checker.support(Capability::MenuBar), Support::Supported);
+        assert_eq!(checker.support(Capability::Clipboard), Support::Supported);
+        assert_eq!(
+            checker.support(Capability::KeyboardInput),
+            Support::Supported
+        );
+        assert!(checker.has(Capability::MenuBar));
+    }
 
-        let ios = Platform::Mobile(MobilePlatform::IOS);
-        let checker = CapabilityChecker::for_platform(ios);
-        assert!(checker.has(Capability::Metal));
-        assert!(!checker.has(Capability::MultipleWindows));
+    #[test]
+    fn what_the_platform_cannot_do_is_unavailable_not_unimplemented() {
+        let checker = CapabilityChecker::for_platform(Platform::Mobile(MobilePlatform::Android));
+
+        assert_eq!(checker.support(Capability::MenuBar), Support::Unavailable);
+        assert!(!checker.has(Capability::MenuBar));
+    }
+
+    #[test]
+    fn gpu_surfaces_are_experimental_but_usable() {
+        let checker = CapabilityChecker::for_platform(Platform::Desktop(DesktopPlatform::MacOS));
+
+        assert_eq!(checker.support(Capability::Metal), Support::Experimental);
+        assert!(checker.has(Capability::Metal), "experimental still counts");
+    }
+
+    #[test]
+    fn touch_is_not_claimed_before_there_are_touch_events() {
+        let checker = CapabilityChecker::for_platform(Platform::Mobile(MobilePlatform::IOS));
+
+        assert!(Capability::TouchInput.is_available_on(checker.platform()));
+        assert_eq!(
+            checker.support(Capability::TouchInput),
+            Support::Unimplemented
+        );
+    }
+
+    #[test]
+    fn the_three_lists_partition_everything() {
+        let checker = CapabilityChecker::for_platform(Platform::Desktop(DesktopPlatform::Windows));
+        let available = checker.available_capabilities().len();
+        let unavailable = checker.unavailable_capabilities().len();
+
+        assert_eq!(available + unavailable, ALL.len());
+        assert!(
+            !checker.unimplemented_capabilities().is_empty(),
+            "plenty is unimplemented and saying so is the point"
+        );
+    }
+
+    #[test]
+    fn experimental_is_usable_and_the_rest_are_not() {
+        assert!(Support::Supported.is_usable());
+        assert!(Support::Experimental.is_usable());
+        assert!(!Support::Unimplemented.is_usable());
+        assert!(!Support::Unavailable.is_usable());
+    }
+
+    #[test]
+    fn every_capability_has_a_description() {
+        for cap in ALL {
+            assert!(!cap.description().is_empty(), "{cap:?} has no description");
+        }
     }
 }
