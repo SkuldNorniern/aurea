@@ -28,7 +28,23 @@ use crate::types::{
 use aurea_foundation::AureaResult;
 
 /// Side length of a tile in physical pixels. See plan.md P6-A stage 3.
-const TILE_SIZE: u32 = 256;
+/// Tile edge in physical pixels.
+///
+/// Measured on a 1440x900 UI scene (sidebar, 24 rows, body, moving caret),
+/// microseconds per frame, forced full repaint against a one-caret change:
+///
+/// ```text
+///  32   81 / 67
+///  64   66 / 64
+/// 128   62 / 61
+/// 256   57 / 76
+/// ```
+///
+/// 256 wins a forced full repaint and loses the case that actually happens.
+/// Worth knowing what this does *not* fix: a small change still costs nearly a
+/// full repaint at every size, because the expensive part is rebuilding and
+/// rehashing the display list, not rasterizing it. Tiles cannot help with that.
+const TILE_SIZE: u32 = 128;
 
 /// Result of diffing the current display list against the previous frame's.
 #[derive(Debug)]
@@ -1899,6 +1915,28 @@ mod tile_cache_tests {
     use crate::display_list::{DisplayItem, NodeId};
     use crate::types::Paint;
 
+    /// One tile edge, as a float. The tests are written against the tile grid
+    /// rather than a fixed pixel count, so changing `TILE_SIZE` does not
+    /// invalidate them.
+    fn tile() -> f32 {
+        TILE_SIZE as f32
+    }
+
+    /// A surface exactly two tiles by two tiles.
+    fn two_by_two() -> CpuRasterizer {
+        CpuRasterizer::new(TILE_SIZE * 2, TILE_SIZE * 2)
+    }
+
+    /// The whole of a two-by-two surface.
+    fn whole() -> Rect {
+        Rect::new(0.0, 0.0, tile() * 2.0, tile() * 2.0)
+    }
+
+    /// A small rect well inside the tile at `(tx, ty)`.
+    fn inside(tx: f32, ty: f32) -> Rect {
+        Rect::new(tx * tile() + 4.0, ty * tile() + 4.0, 8.0, 8.0)
+    }
+
     fn item(key: u64, bounds: Rect) -> DisplayItem {
         DisplayItem::new(
             NodeId(0),
@@ -1912,9 +1950,9 @@ mod tile_cache_tests {
 
     #[test]
     fn tile_grid_dims_rounds_up() {
-        assert_eq!(tile_grid_dims(256, 256), (1, 1));
-        assert_eq!(tile_grid_dims(257, 256), (2, 1));
-        assert_eq!(tile_grid_dims(512, 300), (2, 2));
+        assert_eq!(tile_grid_dims(TILE_SIZE, TILE_SIZE), (1, 1));
+        assert_eq!(tile_grid_dims(TILE_SIZE + 1, TILE_SIZE), (2, 1));
+        assert_eq!(tile_grid_dims(TILE_SIZE * 2, TILE_SIZE + 44), (2, 2));
     }
 
     #[test]
@@ -1925,16 +1963,17 @@ mod tile_cache_tests {
 
     #[test]
     fn tile_range_picks_single_tile() {
-        let bounds = Rect::new(300.0, 10.0, 4.0, 4.0);
+        // Just inside the second tile along x, first along y.
+        let bounds = Rect::new(tile() + 10.0, 10.0, 4.0, 4.0);
         assert_eq!(tile_range(bounds, 4, 4), (1, 0, 2, 1));
     }
 
     #[test]
     fn changing_one_tiles_item_leaves_other_tile_clean() {
-        let mut r = CpuRasterizer::new(512, 512); // 2x2 tile grid
-        let a = Rect::new(4.0, 4.0, 8.0, 8.0); // tile (0,0)
-        let b = Rect::new(300.0, 300.0, 8.0, 8.0); // tile (1,1)
-        let full = Rect::new(0.0, 0.0, 512.0, 512.0);
+        let mut r = two_by_two();
+        let a = inside(0.0, 0.0);
+        let b = inside(1.0, 1.0);
+        let full = whole();
 
         r.display_list.push(item(1, a));
         r.display_list.push(item(2, b));
@@ -1955,10 +1994,10 @@ mod tile_cache_tests {
 
     #[test]
     fn forced_damage_marks_tile_dirty_regardless_of_hash() {
-        let mut r = CpuRasterizer::new(512, 512); // 2x2 tile grid
-        let a = Rect::new(4.0, 4.0, 8.0, 8.0); // tile (0,0)
-        let forced = Rect::new(300.0, 300.0, 8.0, 8.0); // tile (1,1)
-        let full = Rect::new(0.0, 0.0, 512.0, 512.0);
+        let mut r = two_by_two();
+        let a = inside(0.0, 0.0);
+        let forced = inside(1.0, 1.0);
+        let full = whole();
 
         r.display_list.push(item(1, a));
         let _ = r.compute_dirty_tiles(Some(full), None, 2, 2);
@@ -1972,12 +2011,12 @@ mod tile_cache_tests {
 
     #[test]
     fn item_spanning_a_dirty_tile_drags_in_its_other_tiles() {
-        let mut r = CpuRasterizer::new(512, 512); // 2x2 tile grid
-        let full = Rect::new(0.0, 0.0, 512.0, 512.0);
-        // Spans tiles (0,0) and (1,0): x in [240, 280) crosses the x=256 tile edge.
-        let spanning = Rect::new(240.0, 4.0, 40.0, 8.0);
+        let mut r = two_by_two();
+        let full = whole();
+        // Straddles the edge between tiles (0,0) and (1,0).
+        let spanning = Rect::new(tile() - 16.0, 4.0, 40.0, 8.0);
         // Fully inside tile (0,0).
-        let small = Rect::new(4.0, 4.0, 8.0, 8.0);
+        let small = inside(0.0, 0.0);
 
         r.display_list.push(item(100, spanning));
         r.display_list.push(item(1, small));
