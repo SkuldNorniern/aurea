@@ -21,7 +21,7 @@ use crate::types::{
 };
 use aurea_foundation::AureaResult;
 
-const TILE_SIZE: u32 = 256;
+const TILE_SIZE: u32 = 128;
 
 #[derive(Debug)]
 enum FrameDamage {
@@ -1762,6 +1762,22 @@ mod tile_cache_tests {
     use crate::display_list::{DisplayItem, NodeId};
     use crate::types::Paint;
 
+    fn tile() -> f32 {
+        TILE_SIZE as f32
+    }
+
+    fn two_by_two() -> CpuRasterizer {
+        CpuRasterizer::new(TILE_SIZE * 2, TILE_SIZE * 2)
+    }
+
+    fn whole() -> Rect {
+        Rect::new(0.0, 0.0, tile() * 2.0, tile() * 2.0)
+    }
+
+    fn inside(tx: f32, ty: f32) -> Rect {
+        Rect::new(tx * tile() + 4.0, ty * tile() + 4.0, 8.0, 8.0)
+    }
+
     fn item(key: u64, bounds: Rect) -> DisplayItem {
         DisplayItem::new(
             NodeId(0),
@@ -1775,9 +1791,9 @@ mod tile_cache_tests {
 
     #[test]
     fn tile_grid_dims_rounds_up() {
-        assert_eq!(tile_grid_dims(256, 256), (1, 1));
-        assert_eq!(tile_grid_dims(257, 256), (2, 1));
-        assert_eq!(tile_grid_dims(512, 300), (2, 2));
+        assert_eq!(tile_grid_dims(TILE_SIZE, TILE_SIZE), (1, 1));
+        assert_eq!(tile_grid_dims(TILE_SIZE + 1, TILE_SIZE), (2, 1));
+        assert_eq!(tile_grid_dims(TILE_SIZE * 2, TILE_SIZE + 44), (2, 2));
     }
 
     #[test]
@@ -1788,16 +1804,16 @@ mod tile_cache_tests {
 
     #[test]
     fn tile_range_picks_single_tile() {
-        let bounds = Rect::new(300.0, 10.0, 4.0, 4.0);
+        let bounds = Rect::new(tile() + 10.0, 10.0, 4.0, 4.0);
         assert_eq!(tile_range(bounds, 4, 4), (1, 0, 2, 1));
     }
 
     #[test]
     fn changing_one_tiles_item_leaves_other_tile_clean() {
-        let mut r = CpuRasterizer::new(512, 512);
-        let a = Rect::new(4.0, 4.0, 8.0, 8.0);
-        let b = Rect::new(300.0, 300.0, 8.0, 8.0);
-        let full = Rect::new(0.0, 0.0, 512.0, 512.0);
+        let mut r = two_by_two();
+        let a = inside(0.0, 0.0);
+        let b = inside(1.0, 1.0);
+        let full = whole();
 
         r.display_list.push(item(1, a));
         r.display_list.push(item(2, b));
@@ -1817,10 +1833,10 @@ mod tile_cache_tests {
 
     #[test]
     fn forced_damage_marks_tile_dirty_regardless_of_hash() {
-        let mut r = CpuRasterizer::new(512, 512);
-        let a = Rect::new(4.0, 4.0, 8.0, 8.0);
-        let forced = Rect::new(300.0, 300.0, 8.0, 8.0);
-        let full = Rect::new(0.0, 0.0, 512.0, 512.0);
+        let mut r = two_by_two();
+        let a = inside(0.0, 0.0);
+        let forced = inside(1.0, 1.0);
+        let full = whole();
 
         r.display_list.push(item(1, a));
         let _ = r.compute_dirty_tiles(Some(full), None, 2, 2);
@@ -1832,10 +1848,10 @@ mod tile_cache_tests {
 
     #[test]
     fn item_spanning_a_dirty_tile_drags_in_its_other_tiles() {
-        let mut r = CpuRasterizer::new(512, 512);
-        let full = Rect::new(0.0, 0.0, 512.0, 512.0);
-        let spanning = Rect::new(240.0, 4.0, 40.0, 8.0);
-        let small = Rect::new(4.0, 4.0, 8.0, 8.0);
+        let mut r = two_by_two();
+        let full = whole();
+        let spanning = Rect::new(tile() - 16.0, 4.0, 40.0, 8.0);
+        let small = inside(0.0, 0.0);
 
         r.display_list.push(item(100, spanning));
         r.display_list.push(item(1, small));
