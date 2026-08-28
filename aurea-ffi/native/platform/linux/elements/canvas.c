@@ -143,6 +143,9 @@ NGHandle ng_linux_canvas_get_window(NGHandle canvas) {
 NGHandle ng_linux_canvas_get_native_handle(NGHandle canvas) {
     if (!canvas) return NULL;
     GtkWidget* widget = (GtkWidget*)canvas;
+    /* NULL until the widget is realized, which does not happen until it has a
+       toplevel ancestor. Callers that need something before then — an embedding
+       host, for instance — want the widget itself, not its backing surface. */
     GdkWindow* gdk_window = gtk_widget_get_window(widget);
     if (gdk_window) {
         return (NGHandle)gdk_window;

@@ -51,7 +51,13 @@ wgpu = ["dep:wgpu"]
 # GPU 2D backend via ZenGPU (Vulkan). Opt-in, experimental.
 # Forwards to aurea-render (which owns the ZenGpuRenderer) and pulls in
 # zengpu-hal so the root crate can build WindowHandles for the window-level API.
-zengpu = ["aurea-render/zengpu", "dep:zengpu-hal", "dep:zen-window-handle"]
+zengpu = [
+    "aurea-render/zengpu",
+    "dep:zengpu-hal",
+    "dep:zen-window-handle",
+    "dep:zengpu",
+    "dep:inline-spirv",
+]
 
 [dependencies.wgpu]
 version = "29.0.1"
@@ -75,15 +81,21 @@ rev = "73102e8499f12b04b149d030d7745e33a8f643c8"
 version = "0.1.0"
 optional = true
 
-[dev-dependencies.zengpu]
+# Only the zengpu examples use these, but a dev-dependency is built for every
+# `cargo test` whether it is reachable or not, and inline-spirv needs shaderc
+# and a C++ toolchain. As plain optional dependencies they follow the feature
+# that actually wants them, so the tests build on a machine without it.
+[dependencies.zengpu]
 git = "https://github.com/SkuldNorniern/ZenGPU"
 rev = "73102e8499f12b04b149d030d7745e33a8f643c8"
 version = "0.0.1"
 features = ["vulkan"]
+optional = true
 
-[dev-dependencies.inline-spirv]
+[dependencies.inline-spirv]
 version = "0.2"
 features = ["glsl"]
+optional = true
 
 [[example]]
 name = "wgpu_window"

@@ -8,6 +8,8 @@
 //! ```
 
 use aurea::elements::{Orientation, Stack};
+use aurea::embed::{aurea_embed_create_canvas, aurea_embed_destroy_canvas};
+use aurea::registry::elements::invoke_button_callback;
 use aurea::render::{Canvas, Color, DrawingContext, Paint, PaintStyle, Rect, RendererBackend};
 use aurea::{AureaResult, Container, Window};
 use aurea_render::CURRENT_BUFFER;
@@ -292,4 +294,93 @@ fn wrapper_elements_forward_ownership() -> AureaResult<()> {
     stack.add(Divider::horizontal(200)?)?;
     drop(stack);
     Ok(())
+}
+
+/// A dropped widget takes its callback registration with it, and everything the
+/// application captured in it.
+///
+/// This lives here rather than as a unit test because it creates a real native
+/// button: GTK aborts the process when asked to build a widget with no display
+/// connection, which took the whole suite down on a headless Linux box.
+#[test]
+#[ignore = "creates a native widget; run with --ignored"]
+fn dropping_a_button_drops_its_callback() -> AureaResult<()> {
+    use aurea::elements::Button;
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    let _window = Window::new("callback lifetime", 200, 100)?;
+
+    let fired = Rc::new(Cell::new(0));
+    let f = Rc::clone(&fired);
+    let button = Button::with_callback("go", move || f.set(f.get() + 1))?;
+    let id = button.callback_id();
+
+    invoke_button_callback(id);
+    assert_eq!(fired.get(), 1, "callback should run while the button lives");
+
+    drop(button);
+    invoke_button_callback(id);
+
+    assert_eq!(fired.get(), 1, "callback should be gone with the button");
+    assert_eq!(
+        Rc::strong_count(&fired),
+        1,
+        "the registry still holds what the callback captured"
+    );
+    Ok(())
+}
+
+/// Creating a divider builds a real native canvas, so it needs a display.
+/// As a unit test it took the whole suite down on a headless Linux box: GTK
+/// aborts rather than returning an error when there is no display connection.
+#[test]
+#[ignore = "creates a native widget; run with --ignored"]
+fn dividers_can_be_created() -> AureaResult<()> {
+    use aurea::elements::Divider;
+
+    let _window = Window::new("dividers", 200, 100)?;
+
+    assert!(Divider::horizontal(100).is_ok());
+    assert!(Divider::vertical(50).is_ok());
+    Ok(())
+}
+
+/// Same for a spacer, which is a native label underneath.
+#[test]
+#[ignore = "creates a native widget; run with --ignored"]
+fn spacers_can_be_created() -> AureaResult<()> {
+    use aurea::elements::Spacer;
+
+    let _window = Window::new("spacers", 200, 100)?;
+
+    assert!(Spacer::new().is_ok());
+    Ok(())
+}
+
+/// A text field is a native control, so what it reports differs per platform.
+/// On Windows and Linux it is real and starts empty; elsewhere it may fall
+/// back. Either way it needs a display to exist.
+#[test]
+#[ignore = "creates a native widget; run with --ignored"]
+fn a_text_field_starts_empty() -> AureaResult<()> {
+    use aurea::elements::TextField;
+
+    let _window = Window::new("text field", 200, 100)?;
+
+    let field = TextField::new()?;
+    assert_eq!(field.get_content()?, "");
+    Ok(())
+}
+
+/// The embedding entry point hands back a canvas for a sensible size. It needs
+/// a display: with none it returns null, which is the right answer and the
+/// wrong one to assert in a unit test.
+#[test]
+#[ignore = "creates a native widget; run with --ignored"]
+fn embedding_creates_a_canvas() {
+    let handle = aurea_embed_create_canvas(100, 100);
+
+    assert!(!handle.is_null());
+    aurea_embed_destroy_canvas(handle);
 }
