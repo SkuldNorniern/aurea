@@ -8,8 +8,8 @@
 //! instead of silently rendering the wrong frame.
 
 use aurea_render::{
-    Color, CpuRasterizer, DrawingContext, Paint, Path, PathCommand, Point, Rect, Renderer, Surface,
-    SurfaceInfo,
+    Color, CpuRasterizer, DrawingContext, Paint, PaintStyle, Path, PathCommand, Point, Rect,
+    Renderer, Surface, SurfaceInfo,
 };
 use std::f32::consts::FRAC_PI_4;
 use std::slice::from_raw_parts;
@@ -462,4 +462,160 @@ fn interactive_paths_hit_test_in_the_same_space_as_the_click() {
         1,
         "logical coords are outside the physical path"
     );
+}
+
+fn stroke(color: Color, width: f32) -> Paint {
+    Paint::new()
+        .color(color)
+        .style(PaintStyle::Stroke)
+        .stroke_width(width)
+}
+
+/// A stroked path used to be filled instead, so a polyline came out as a solid
+/// polygon and a straight line came out as nothing.
+#[test]
+fn a_stroked_line_is_a_band_not_a_filled_shape() {
+    let mut path = Path::new();
+    path.commands
+        .push(PathCommand::MoveTo(Point::new(4.0, 16.0)));
+    path.commands
+        .push(PathCommand::LineTo(Point::new(28.0, 16.0)));
+
+    let buf = render(|ctx| {
+        ctx.draw_path(&path, &stroke(RED, 4.0)).expect("draw_path");
+    });
+
+    assert_ne!(px(&buf, 16, 16) >> 24, 0, "the line itself{}", dump(&buf));
+    assert_eq!(
+        px(&buf, 16, 4) >> 24,
+        0,
+        "well above the line{}",
+        dump(&buf)
+    );
+    assert_eq!(
+        px(&buf, 16, 28) >> 24,
+        0,
+        "well below the line{}",
+        dump(&buf)
+    );
+}
+
+#[test]
+fn a_stroke_is_as_wide_as_it_was_asked_to_be() {
+    let mut path = Path::new();
+    path.commands
+        .push(PathCommand::MoveTo(Point::new(4.0, 16.0)));
+    path.commands
+        .push(PathCommand::LineTo(Point::new(28.0, 16.0)));
+
+    let buf = render(|ctx| {
+        ctx.draw_path(&path, &stroke(RED, 6.0)).expect("draw_path");
+    });
+
+    let covered = (0..H).filter(|y| px(&buf, 16, *y) >> 24 != 0).count();
+    assert!(
+        (5..=8).contains(&covered),
+        "a 6px stroke covered {covered} rows{}",
+        dump(&buf)
+    );
+}
+
+/// The inside of a bend must stay solid. Filling one self-overlapping outline
+/// would cancel the overlap under the odd-even rule and open a hole.
+#[test]
+fn a_right_angle_join_has_no_hole() {
+    let mut path = Path::new();
+    path.commands
+        .push(PathCommand::MoveTo(Point::new(6.0, 8.0)));
+    path.commands
+        .push(PathCommand::LineTo(Point::new(20.0, 8.0)));
+    path.commands
+        .push(PathCommand::LineTo(Point::new(20.0, 24.0)));
+
+    let buf = render(|ctx| {
+        ctx.draw_path(&path, &stroke(RED, 6.0)).expect("draw_path");
+    });
+
+    assert_ne!(px(&buf, 20, 8) >> 24, 0, "the corner itself{}", dump(&buf));
+    assert_ne!(
+        px(&buf, 19, 9) >> 24,
+        0,
+        "just inside the corner{}",
+        dump(&buf)
+    );
+}
+
+#[test]
+fn draw_line_produces_a_line() {
+    let buf = render(|ctx| {
+        ctx.draw_line(4.0, 4.0, 28.0, 28.0, &stroke(RED, 3.0))
+            .expect("draw_line");
+    });
+
+    assert_ne!(px(&buf, 16, 16) >> 24, 0, "on the diagonal{}", dump(&buf));
+    assert_eq!(px(&buf, 4, 28) >> 24, 0, "off the diagonal{}", dump(&buf));
+}
+
+/// Filling the outline is what gives a stroke its antialiasing: the edge of a
+/// diagonal line lands on partly covered pixels.
+#[test]
+fn a_diagonal_stroke_is_antialiased() {
+    let buf = render(|ctx| {
+        ctx.draw_line(4.0, 4.0, 28.0, 28.0, &stroke(RED, 3.0))
+            .expect("draw_line");
+    });
+
+    let partial = buf
+        .iter()
+        .filter(|&&p| {
+            let a = p >> 24;
+            a > 0 && a < 255
+        })
+        .count();
+    assert!(
+        partial > 4,
+        "expected soft edges, got {partial}{}",
+        dump(&buf)
+    );
+}
+
+#[test]
+fn a_stroked_rect_path_leaves_its_middle_empty() {
+    let mut path = Path::new();
+    path.commands
+        .push(PathCommand::MoveTo(Point::new(8.0, 8.0)));
+    path.commands
+        .push(PathCommand::LineTo(Point::new(24.0, 8.0)));
+    path.commands
+        .push(PathCommand::LineTo(Point::new(24.0, 24.0)));
+    path.commands
+        .push(PathCommand::LineTo(Point::new(8.0, 24.0)));
+    path.commands.push(PathCommand::Close);
+
+    let buf = render(|ctx| {
+        ctx.draw_path(&path, &stroke(RED, 2.0)).expect("draw_path");
+    });
+
+    assert_ne!(px(&buf, 8, 16) >> 24, 0, "the left edge{}", dump(&buf));
+    assert_eq!(px(&buf, 16, 16) >> 24, 0, "the middle{}", dump(&buf));
+}
+
+#[test]
+fn a_filled_path_is_still_filled() {
+    let mut path = Path::new();
+    path.commands
+        .push(PathCommand::MoveTo(Point::new(8.0, 8.0)));
+    path.commands
+        .push(PathCommand::LineTo(Point::new(24.0, 8.0)));
+    path.commands
+        .push(PathCommand::LineTo(Point::new(24.0, 24.0)));
+    path.commands
+        .push(PathCommand::LineTo(Point::new(8.0, 24.0)));
+    path.commands.push(PathCommand::Close);
+
+    let buf = render(|ctx| {
+        ctx.draw_path(&path, &fill(RED)).expect("draw_path");
+    });
+
+    assert_ne!(px(&buf, 16, 16) >> 24, 0, "the middle{}", dump(&buf));
 }

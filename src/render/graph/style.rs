@@ -48,6 +48,7 @@ pub struct AxisStyle {
     /// Gap between the axis and its labels.
     pub label_gap: f32,
     pub show_labels: bool,
+    pub show_ticks: bool,
 }
 
 /// The whole plot.
@@ -123,6 +124,7 @@ impl Default for AxisStyle {
             label_font: Font::new("Sans", 11.0),
             label_gap: 4.0,
             show_labels: true,
+            show_ticks: true,
         }
     }
 }
@@ -192,11 +194,13 @@ impl GraphStyle {
             x_axis: AxisStyle {
                 line: None,
                 show_labels: false,
+                show_ticks: false,
                 ..AxisStyle::default()
             },
             y_axis: AxisStyle {
                 line: None,
                 show_labels: false,
+                show_ticks: false,
                 ..AxisStyle::default()
             },
             margin: Margin::uniform(1.0),
@@ -255,6 +259,7 @@ mod tests {
         assert!(style.border.is_none());
         assert!(!style.grid.show_vertical);
         assert!(!style.x_axis.show_labels);
+        assert!(!style.x_axis.show_ticks, "ticks are furniture too");
     }
 
     #[test]

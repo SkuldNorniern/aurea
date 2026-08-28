@@ -10,6 +10,7 @@ pub mod hit_test;
 pub mod path;
 pub mod rasterizer;
 pub mod scanline;
+pub mod stroke;
 
 pub use clip::ClipBox;
 pub use context::*;
