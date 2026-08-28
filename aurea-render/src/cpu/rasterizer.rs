@@ -8,6 +8,7 @@ use crate::cpu::clip::ClipBox;
 use crate::cpu::context::CpuDrawingContext;
 use crate::cpu::path::{Edge, tessellate_path_into};
 use crate::cpu::scanline::fill_spans;
+use crate::cpu::stroke;
 use crate::display_list::{CacheKey, DisplayItem, DisplayList};
 use crate::numeric::{
     f32_to_i32_clamped, f32_to_u8_clamped, f32_to_u32_clamped, f32_to_usize_clamped,
@@ -605,6 +606,48 @@ impl CpuRasterizer {
 
     #[allow(clippy::too_many_arguments)]
     fn draw_path(
+        path: &Path,
+        paint: &Paint,
+        mode: BlendMode,
+        buf: &mut [u32],
+        scratch_edges: &mut Vec<Edge>,
+        scratch_xs: &mut Vec<f32>,
+        scratch_active: &mut Vec<usize>,
+        bw: u32,
+        clip: ClipBox,
+    ) -> AureaResult<()> {
+        if paint.style == PaintStyle::Stroke {
+            for piece in stroke::outline(path, paint.stroke_width) {
+                Self::fill_path(
+                    &piece,
+                    paint,
+                    mode,
+                    buf,
+                    scratch_edges,
+                    scratch_xs,
+                    scratch_active,
+                    bw,
+                    clip,
+                )?;
+            }
+            return Ok(());
+        }
+
+        Self::fill_path(
+            path,
+            paint,
+            mode,
+            buf,
+            scratch_edges,
+            scratch_xs,
+            scratch_active,
+            bw,
+            clip,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn fill_path(
         path: &Path,
         paint: &Paint,
         mode: BlendMode,
