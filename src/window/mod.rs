@@ -36,7 +36,7 @@ use std::{
     ffi::CString,
     os::raw::c_void,
     sync::{
-        Arc, Mutex, Once,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicUsize, Ordering},
     },
 };
@@ -77,30 +77,25 @@ impl Window {
     ) -> AureaResult<Self> {
         const AUREA_FFI_ABI_VERSION: i32 = 2;
 
-        static INIT: Once = Once::new();
-        let mut error = None;
+        static INIT: OnceLock<Result<(), AureaError>> = OnceLock::new();
 
-        INIT.call_once(|| {
+        INIT.get_or_init(|| {
             let got = unsafe { ng_platform_get_abi_version() };
             if got != AUREA_FFI_ABI_VERSION {
-                error = Some(AureaError::AbiVersionMismatch {
+                return Err(AureaError::AbiVersionMismatch {
                     expected: AUREA_FFI_ABI_VERSION,
                     got,
                 });
-                return;
             }
             if unsafe { ng_platform_init() } != 0 {
-                error = Some(AureaError::PlatformError(1));
-                return;
+                return Err(AureaError::PlatformError(1));
             }
             FrameScheduler::set_request_frame_hook(|| {
                 unsafe { ng_platform_request_frame() };
             });
-        });
-
-        if let Some(err) = error {
-            return Err(err);
-        }
+            Ok(())
+        })
+        .clone()?;
 
         let platform = Platform::current();
         let capabilities = CapabilityChecker::new();
