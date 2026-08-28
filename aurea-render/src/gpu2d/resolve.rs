@@ -30,6 +30,7 @@ pub fn resolve_frame<B: Gpu2dBackend>(
     plan.reset();
     plan.clear = batches.clear;
     plan.order.extend_from_slice(&batches.order);
+    plan.clips.extend_from_slice(&batches.clips);
 
     resolve_gradients(
         &batches.gradients,

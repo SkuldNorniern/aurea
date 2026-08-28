@@ -8,11 +8,13 @@
 //! gradients, images, and glyph masks. Per-item opacity folds into the colours,
 //! as it does on the CPU.
 //!
-//! Not lowered: strokes and paths, items a clip actually cuts, and any blend
-//! mode other than `Normal` — a scissor and pipeline state this representation
-//! does not carry. Anything that cannot be drawn faithfully is skipped rather
-//! than drawn wrong, so the CPU rasterizer remains the backend with full
-//! fidelity.
+//! A clipped item is lowered with its clip alongside it, in [`RenderBatches`]'s
+//! `clips`, for a backend to apply as a scissor around the draw.
+//!
+//! Not lowered: strokes and paths, and any blend mode other than `Normal` —
+//! pipeline state this representation does not carry. Anything that cannot be
+//! drawn faithfully is skipped rather than drawn wrong, so the CPU rasterizer
+//! remains the backend with full fidelity.
 
 use crate::command::DrawCommand;
 use crate::display_list::{DisplayItem, DisplayList};
@@ -205,25 +207,11 @@ fn drawable_alpha(item: &DisplayItem) -> Option<f32> {
 
 /// Whether this layer can draw the item faithfully.
 ///
-/// Clipping needs a scissor and blend modes need pipeline state, neither of
-/// which the batch representation carries. A clip that does not actually cut
-/// the item is no constraint, so it does not disqualify it.
+/// Blend modes other than `Normal` need pipeline state the batches do not
+/// carry. Clipping does not disqualify an item: it travels with the draw and a
+/// backend applies it as a scissor.
 fn representable(item: &DisplayItem) -> bool {
-    if item.blend_mode != BlendMode::Normal {
-        return false;
-    }
-    match item.clip {
-        Some(clip) => contains(clip, item.bounds),
-        None => true,
-    }
-}
-
-/// Whether `outer` fully covers `inner`.
-fn contains(outer: Rect, inner: Rect) -> bool {
-    inner.x >= outer.x
-        && inner.y >= outer.y
-        && inner.x + inner.width <= outer.x + outer.width
-        && inner.y + inner.height <= outer.y + outer.height
+    item.blend_mode == BlendMode::Normal
 }
 
 /// A colour with its alpha scaled by `factor`.
@@ -282,6 +270,12 @@ pub struct RenderBatches {
     pub circles: Vec<CircleInstance>,
     /// Cross-kind painter order, indexing the per-kind instance arrays above.
     pub order: Vec<DrawRef>,
+    /// The clip for each entry in [`Self::order`], in physical pixels.
+    ///
+    /// Parallel to `order` rather than stored per instance: a backend applies
+    /// it as a scissor around a run of draws, so it belongs to the draw and not
+    /// to the geometry.
+    pub clips: Vec<Option<Rect>>,
     gradient_lut_cache: HashMap<u64, Weak<[u8]>>,
     /// Converted RGBA per glyph mask, keyed by the mask's own identity.
     text_mask_cache: HashMap<u64, Weak<[u8]>>,
@@ -315,6 +309,7 @@ impl RenderBatches {
         self.texts.clear();
         self.circles.clear();
         self.order.clear();
+        self.clips.clear();
         for item in list.items() {
             // Per-item state the CPU rasterizer honours. Opacity folds into the
             // colours, which is exactly what the CPU does. Clipping and blend
@@ -339,6 +334,7 @@ impl RenderBatches {
                     self.texts.clear();
                     self.circles.clear();
                     self.order.clear();
+                    self.clips.clear();
                 }
                 DrawCommand::DrawRect(rect, paint) if paint.style == PaintStyle::Fill => {
                     self.order.push(DrawRef::Rect(
@@ -422,6 +418,8 @@ impl RenderBatches {
                 // representation yet, so they are left to the CPU rasterizer.
                 _ => {}
             }
+
+            self.clips.resize(self.order.len(), item.clip);
         }
     }
 
@@ -880,30 +878,52 @@ mod tests {
         assert_eq!(b.gradients.len(), 1, "the gradient should still be drawn");
     }
 
-    /// A clip that actually cuts the item needs a scissor this layer has no way
-    /// to express, so the item is left to the CPU rather than drawn spilling
-    /// past its clip.
+    /// A clipped item is drawn with its clip carried alongside, for a backend
+    /// to apply as a scissor.
+    ///
+    /// Skipping it would be worse than it sounds: the graph module clips its
+    /// traces to the plot area, so a trace running past the axes would vanish
+    /// entirely rather than being trimmed.
     #[test]
-    fn an_item_its_clip_actually_cuts_is_skipped() {
+    fn a_clipped_item_is_drawn_and_carries_its_clip() {
         let bounds = Rect::new(0.0, 0.0, 100.0, 100.0);
+        let clip = Rect::new(0.0, 0.0, 10.0, 10.0);
         let mut list = DisplayList::new();
-        list.push(
-            placed(red_rect(bounds), bounds).with_clip(Some(Rect::new(0.0, 0.0, 10.0, 10.0))),
-        );
+        list.push(placed(red_rect(bounds), bounds).with_clip(Some(clip)));
 
-        assert!(RenderBatches::lower(&list).rects.is_empty());
+        let b = RenderBatches::lower(&list);
+        assert_eq!(b.rects.len(), 1, "the item should still be drawn");
+        assert_eq!(b.clips, vec![Some(clip)], "with its clip alongside");
     }
 
-    /// A clip the item already sits inside constrains nothing, so it is drawn.
     #[test]
-    fn a_clip_that_does_not_cut_is_no_obstacle() {
+    fn an_unclipped_item_carries_no_clip() {
         let bounds = Rect::new(10.0, 10.0, 10.0, 10.0);
         let mut list = DisplayList::new();
-        list.push(
-            placed(red_rect(bounds), bounds).with_clip(Some(Rect::new(0.0, 0.0, 100.0, 100.0))),
-        );
+        list.push(placed(red_rect(bounds), bounds));
 
-        assert_eq!(RenderBatches::lower(&list).rects.len(), 1);
+        assert_eq!(RenderBatches::lower(&list).clips, vec![None]);
+    }
+
+    /// `clips` is read positionally against `order`, so the two must not drift.
+    #[test]
+    fn every_draw_has_a_clip_entry() {
+        let bounds = Rect::new(0.0, 0.0, 10.0, 10.0);
+        let clip = Rect::new(0.0, 0.0, 5.0, 5.0);
+
+        let mut list = DisplayList::new();
+        list.push(placed(red_rect(bounds), bounds));
+        list.push(placed(red_rect(bounds), bounds).with_clip(Some(clip)));
+        // A command with no GPU form contributes neither a draw nor a clip.
+        list.push(placed(
+            DrawCommand::DrawRect(bounds, Paint::new().style(PaintStyle::Stroke)),
+            bounds,
+        ));
+        list.push(placed(red_rect(bounds), bounds));
+
+        let b = RenderBatches::lower(&list);
+        assert_eq!(b.order.len(), b.clips.len());
+        assert_eq!(b.clips, vec![None, Some(clip), None]);
     }
 
     /// Blend modes need pipeline state the batches do not carry.
