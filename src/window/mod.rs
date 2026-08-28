@@ -23,9 +23,9 @@ use crate::lifecycle::{
 use crate::menu::MenuBar;
 use crate::platform::ui_thread;
 use crate::registry::window::{
-    process_window_updates, register_event_queue, register_global_event_queue,
-    register_update_callback, register_update_callbacks, unregister_event_queue,
-    unregister_update_callbacks,
+    dispatch_window_events, process_window_updates, register_event_callback, register_event_queue,
+    register_update_callback, register_update_callbacks, unregister_event_callbacks,
+    unregister_event_queue, unregister_update_callbacks,
 };
 use crate::render::Rect;
 use crate::{AureaError, AureaResult};
@@ -36,6 +36,7 @@ use aurea_runtime::{DamageRegion, FrameScheduler};
 use std::{
     ffi::CString,
     os::raw::c_void,
+    rc::Rc,
     sync::{
         Arc, Mutex, OnceLock,
         atomic::{AtomicUsize, Ordering},
@@ -133,7 +134,6 @@ impl Window {
         let scale_factor = unsafe { ng_platform_get_scale_factor(handle) };
         let event_queue = Arc::new(EventQueue::new());
 
-        register_global_event_queue(&event_queue);
         register_event_queue(handle, &event_queue);
         register_update_callbacks(handle);
 
@@ -404,13 +404,15 @@ impl Window {
         // this, a manual poll loop never repaints and never receives input.
         unsafe { ng_platform_poll_events() };
 
-        // Process events through callbacks and return them for manual processing
-        let events = self.event_queue.process_events();
+        // Drain the queue, then hand the events to this window's callbacks and
+        // return them for manual processing too.
+        let events = self.event_queue.pop_all();
         for event in &events {
             if let WindowEvent::ScaleFactorChanged { scale_factor } = event {
                 *lock(&self.scale_factor) = *scale_factor;
             }
         }
+        dispatch_window_events(self.handle, &events);
         events
     }
 
@@ -474,9 +476,10 @@ impl Window {
     /// ```
     pub fn on_event<F>(&self, callback: F)
     where
-        F: Fn(WindowEvent) + Send + Sync + 'static,
+        F: Fn(WindowEvent) + 'static,
     {
-        self.event_queue.register_callback(Arc::new(callback));
+        ui_thread::check("Window::on_event");
+        register_event_callback(self.handle, Rc::new(callback));
     }
 
     /// Request the window to close
@@ -663,6 +666,7 @@ impl Drop for Window {
         unregister_lifecycle_callback(self.handle);
         unregister_event_queue(self.handle);
         unregister_update_callbacks(self.handle);
+        unregister_event_callbacks(self.handle);
 
         unsafe {
             ng_platform_destroy_window(self.handle);
@@ -691,6 +695,7 @@ unsafe impl Sync for Window {}
 #[cfg(test)]
 mod event_queue_tests {
     use super::*;
+    use std::cell::RefCell;
 
     #[test]
     fn event_queue_push_pop_all() {
@@ -704,18 +709,32 @@ mod event_queue_tests {
         assert!(queue.pop_all().is_empty());
     }
 
+    /// Handlers are keyed by window handle in a thread-local registry, and may
+    /// capture values that are neither `Send` nor `Sync`.
     #[test]
-    fn event_queue_process_events_invokes_callbacks() {
-        let queue = EventQueue::new();
-        queue.push(WindowEvent::CloseRequested);
-        let received = Arc::new(Mutex::new(Vec::new()));
-        let rec = Arc::clone(&received);
-        queue.register_callback(Arc::new(move |e| {
-            lock(&rec).push(e);
-        }));
-        let processed = queue.process_events();
-        assert_eq!(processed.len(), 1);
-        assert_eq!(lock(&received).len(), 1);
+    fn dispatch_invokes_registered_callbacks() {
+        let handle = 0xBEEF as *mut c_void;
+        let received = Rc::new(RefCell::new(Vec::new()));
+        let rec = Rc::clone(&received);
+        register_event_callback(handle, Rc::new(move |e| rec.borrow_mut().push(e)));
+
+        dispatch_window_events(handle, &[WindowEvent::CloseRequested, WindowEvent::Focused]);
+
+        assert_eq!(received.borrow().len(), 2);
+        unregister_event_callbacks(handle);
+    }
+
+    #[test]
+    fn dispatch_after_unregister_is_a_noop() {
+        let handle = 0xF00D as *mut c_void;
+        let seen = Rc::new(RefCell::new(0));
+        let seen_clone = Rc::clone(&seen);
+        register_event_callback(handle, Rc::new(move |_| *seen_clone.borrow_mut() += 1));
+        unregister_event_callbacks(handle);
+
+        dispatch_window_events(handle, &[WindowEvent::Focused]);
+
+        assert_eq!(*seen.borrow(), 0);
     }
 
     #[test]
