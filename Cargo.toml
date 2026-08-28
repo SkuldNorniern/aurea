@@ -69,7 +69,7 @@ version = "0.6"
 # zengpu-hal: optional, for the window-level GPU surface API (feature `zengpu`).
 [dependencies.zengpu-hal]
 git = "https://github.com/SkuldNorniern/ZenGPU"
-rev = "73102e8499f12b04b149d030d7745e33a8f643c8"
+rev = "191f772a6084785d273b4d46141e15f1f6666664"
 version = "0.0.1"
 optional = true
 
@@ -77,7 +77,7 @@ optional = true
 # by zengpu-hal's WindowHandles::from_raw (feature `zengpu`).
 [dependencies.zen-window-handle]
 git = "https://github.com/SkuldNorniern/ZenGPU"
-rev = "73102e8499f12b04b149d030d7745e33a8f643c8"
+rev = "191f772a6084785d273b4d46141e15f1f6666664"
 version = "0.1.0"
 optional = true
 
@@ -87,7 +87,7 @@ optional = true
 # that actually wants them, so the tests build on a machine without it.
 [dependencies.zengpu]
 git = "https://github.com/SkuldNorniern/ZenGPU"
-rev = "73102e8499f12b04b149d030d7745e33a8f643c8"
+rev = "191f772a6084785d273b4d46141e15f1f6666664"
 version = "0.0.1"
 features = ["vulkan"]
 optional = true
