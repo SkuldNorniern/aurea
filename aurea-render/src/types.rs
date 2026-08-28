@@ -170,7 +170,11 @@ impl Default for Path {
     }
 }
 
-/// 2D transformation matrix (3x3 homogeneous coordinates)
+/// 2D transformation matrix (3x3 homogeneous coordinates).
+///
+/// Points are row vectors multiplied on the left: `p' = p * M`. Translation
+/// therefore lives in `m31`/`m32`, and `a.multiply(b)` means "apply `a`, then
+/// `b`". Every constructor and reader in this module follows that convention.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Transform {
     pub m11: f32,
@@ -280,10 +284,12 @@ impl Transform {
         }
     }
 
+    /// Maps a point through the matrix using the row-vector convention
+    /// documented on [`Transform`].
     pub fn map_point(self, point: Point) -> Point {
         Point {
-            x: self.m11 * point.x + self.m12 * point.y + self.m13,
-            y: self.m21 * point.x + self.m22 * point.y + self.m23,
+            x: self.m11 * point.x + self.m21 * point.y + self.m31,
+            y: self.m12 * point.x + self.m22 * point.y + self.m32,
         }
     }
 }
@@ -368,6 +374,64 @@ pub struct GradientStop {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::f32::consts::FRAC_PI_2;
+
+    fn assert_pt(actual: Point, x: f32, y: f32) {
+        assert!(
+            (actual.x - x).abs() < 1e-4 && (actual.y - y).abs() < 1e-4,
+            "expected ({x}, {y}), got ({}, {})",
+            actual.x,
+            actual.y
+        );
+    }
+
+    #[test]
+    fn identity_maps_point_unchanged() {
+        assert_pt(
+            Transform::identity().map_point(Point::new(3.0, -7.0)),
+            3.0,
+            -7.0,
+        );
+    }
+
+    #[test]
+    fn translate_maps_origin_to_offset() {
+        let t = Transform::translate(100.0, 50.0);
+        assert_pt(t.map_point(Point::new(0.0, 0.0)), 100.0, 50.0);
+        assert_pt(t.map_point(Point::new(5.0, 5.0)), 105.0, 55.0);
+    }
+
+    #[test]
+    fn scale_maps_point() {
+        assert_pt(
+            Transform::scale(2.0, 3.0).map_point(Point::new(4.0, 5.0)),
+            8.0,
+            15.0,
+        );
+    }
+
+    #[test]
+    fn rotate_quarter_turn_maps_unit_x_to_unit_y() {
+        let t = Transform::rotate(FRAC_PI_2);
+        assert_pt(t.map_point(Point::new(1.0, 0.0)), 0.0, 1.0);
+        assert_pt(t.map_point(Point::new(0.0, 1.0)), -1.0, 0.0);
+    }
+
+    #[test]
+    fn inverse_round_trips() {
+        let t = Transform::scale(2.0, 4.0)
+            .multiply(Transform::rotate(0.7))
+            .multiply(Transform::translate(30.0, -10.0));
+        let p = Point::new(11.0, -3.0);
+        assert_pt(t.inverse().map_point(t.map_point(p)), p.x, p.y);
+    }
+
+    #[test]
+    fn multiply_applies_left_operand_first() {
+        // Scale then translate: the translation must not be scaled.
+        let t = Transform::scale(2.0, 2.0).multiply(Transform::translate(10.0, 0.0));
+        assert_pt(t.map_point(Point::new(1.0, 0.0)), 12.0, 0.0);
+    }
 
     #[test]
     fn font_new_and_builders() {
