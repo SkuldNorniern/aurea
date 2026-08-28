@@ -486,12 +486,12 @@ fn valid_rgba_image(width: u32, height: u32, data: &[u8]) -> bool {
 mod tests {
     use super::*;
     use crate::command::DrawCommand;
-    use crate::display_list::{CacheKey, DisplayItem, NodeId};
+    use crate::display_list::{CacheKey, DisplayIndex, DisplayItem};
     use crate::types::{BlendMode, Paint, Rect};
 
     fn item(command: DrawCommand) -> DisplayItem {
         DisplayItem::new(
-            NodeId(0),
+            DisplayIndex(0),
             CacheKey::from_hash(0),
             Rect::new(0.0, 0.0, 0.0, 0.0),
             false,
@@ -814,7 +814,7 @@ mod tests {
     /// A rect with a bounds, for the per-item state tests.
     fn placed(command: DrawCommand, bounds: Rect) -> DisplayItem {
         DisplayItem::new(
-            NodeId(0),
+            DisplayIndex(0),
             CacheKey::from_hash(0),
             bounds,
             false,

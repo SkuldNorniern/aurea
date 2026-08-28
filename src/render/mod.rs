@@ -7,11 +7,11 @@ mod canvas;
 pub mod graph;
 
 pub use aurea_render::{
-    BlendMode, CURRENT_BUFFER, ClickCallback, Color, CpuRasterizer, DisplayItem, DisplayList,
-    DrawCommand, DrawingContext, Font, FontStyle, FontWeight, GradientStop, HoverCallback, Image,
-    InteractionRegistry, InteractiveId, LinearGradient, NodeId, Paint, PaintStyle, Path,
-    PathCommand, Point, RadialGradient, Rect, Renderer, RendererBackend, Surface, SurfaceInfo,
-    TextMetrics, Transform, Viewport,
+    BlendMode, CURRENT_BUFFER, ClickCallback, Color, CpuRasterizer, DisplayIndex, DisplayItem,
+    DisplayList, DrawCommand, DrawingContext, Font, FontStyle, FontWeight, GradientStop,
+    HoverCallback, Image, InteractionRegistry, InteractiveId, LinearGradient, Paint, PaintStyle,
+    Path, PathCommand, Point, RadialGradient, Rect, Renderer, RendererBackend, Surface,
+    SurfaceInfo, TextMetrics, Transform, Viewport,
 };
 pub use canvas::*;
 

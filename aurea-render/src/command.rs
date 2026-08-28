@@ -1,10 +1,13 @@
 //! Draw commands shared between display list and rasterizer.
 //!
 //! Boundary between display list (records commands) and raster (executes them).
+//!
+//! Only things that draw. Clip, transform and opacity used to have push/pop
+//! commands here, but nothing emitted them and nothing executed them: each item
+//! carries its own resolved state, which is what partial repaint needs.
 
 use super::types::{
     Color, Font, GlyphMask, Image, LinearGradient, Paint, Path, Point, RadialGradient, Rect,
-    Transform,
 };
 
 #[derive(Debug, Clone)]
@@ -21,12 +24,6 @@ pub enum DrawCommand {
     DrawGlyphMask(GlyphMask, Point, Color),
     FillLinearGradient(LinearGradient, Rect),
     FillRadialGradient(RadialGradient, Rect),
-    PushClip(Path),
-    PopClip,
-    PushTransform(Transform),
-    PopTransform,
-    PushOpacity(f32),
-    PopOpacity,
 }
 
 #[cfg(test)]
