@@ -16,7 +16,7 @@ impl TextView {
 
     pub fn with_callback<F>(editable: bool, callback: F) -> AureaResult<Self>
     where
-        F: Fn(String) + Send + Sync + 'static,
+        F: Fn(String) + 'static,
     {
         let id = next_text_view_id();
 

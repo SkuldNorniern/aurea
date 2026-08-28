@@ -25,8 +25,8 @@ impl TabBar {
 
     pub fn with_callbacks<F, G>(on_selected: F, on_detach: G) -> AureaResult<Self>
     where
-        F: Fn(i32) + Send + Sync + 'static,
-        G: Fn(i32) + Send + Sync + 'static,
+        F: Fn(i32) + 'static,
+        G: Fn(i32) + 'static,
     {
         let id = next_tab_id();
 
@@ -59,8 +59,8 @@ impl TabBar {
         titles: I,
     ) -> AureaResult<Self>
     where
-        F: Fn(i32) + Send + Sync + 'static,
-        G: Fn(i32) + Send + Sync + 'static,
+        F: Fn(i32) + 'static,
+        G: Fn(i32) + 'static,
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {

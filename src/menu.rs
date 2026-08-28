@@ -152,7 +152,7 @@ impl SubMenu {
     /// Add a clickable menu item with a callback.
     pub fn add_item<F>(&mut self, title: &str, callback: F) -> AureaResult<()>
     where
-        F: Fn() + Send + Sync + 'static,
+        F: Fn() + 'static,
     {
         let id = next_menu_item_id();
 
@@ -181,7 +181,7 @@ impl SubMenu {
         callback: F,
     ) -> AureaResult<()>
     where
-        F: Fn() + Send + Sync + 'static,
+        F: Fn() + 'static,
     {
         let label = format!("{}\t{}", title, shortcut.encode_for_platform());
         self.add_item(&label, callback)

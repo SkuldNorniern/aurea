@@ -16,7 +16,7 @@ impl TextEditor {
 
     pub fn with_callback<F>(callback: F) -> AureaResult<Self>
     where
-        F: Fn(String) + Send + Sync + 'static,
+        F: Fn(String) + 'static,
     {
         let id = next_text_editor_id();
 
