@@ -19,7 +19,7 @@ use crate::{AureaError, AureaResult};
 #[cfg(feature = "wgpu")]
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 #[cfg(feature = "wgpu")]
-use std::mem::transmute;
+use std::sync::Arc;
 
 #[cfg(feature = "wgpu")]
 impl HasWindowHandle for NativeWindowHandle {
@@ -110,23 +110,41 @@ impl Window {
     /// # Ok(())
     /// # }
     /// ```
-    ///
-    /// # Safety
-    ///
-    /// The window handle is valid for the lifetime of the window. We extend the
-    /// lifetime to `'static` because the window is typically kept alive for the
-    /// application lifetime, and wgpu surfaces are valid as long as the window exists.
-    pub fn create_wgpu_surface(
-        &self,
+    pub fn create_wgpu_surface<'window>(
+        &'window self,
         instance: &wgpu::Instance,
-    ) -> AureaResult<wgpu::Surface<'static>> {
-        let surface_target: wgpu::SurfaceTarget<'static> =
-            unsafe { transmute(wgpu::SurfaceTarget::from(self)) };
+    ) -> AureaResult<wgpu::Surface<'window>> {
+        let surface_target = wgpu::SurfaceTarget::from(self);
 
         let surface = instance
             .create_surface(surface_target)
             .map_err(|_| AureaError::ElementOperationFailed)?;
 
         Ok(surface)
+    }
+
+    /// Creates a wgpu surface that keeps the window alive.
+    ///
+    /// ```rust,no_run
+    /// use aurea::Window;
+    /// use std::sync::Arc;
+    /// use wgpu::Instance;
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let window = Arc::new(Window::new("App", 800, 600)?);
+    /// let instance = Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    /// let surface = Window::create_wgpu_surface_owned(&window, &instance)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn create_wgpu_surface_owned(
+        window: &Arc<Self>,
+        instance: &wgpu::Instance,
+    ) -> AureaResult<wgpu::Surface<'static>> {
+        let surface_target = wgpu::SurfaceTarget::from(Arc::clone(window));
+
+        instance
+            .create_surface(surface_target)
+            .map_err(|_| AureaError::ElementOperationFailed)
     }
 }

@@ -9,8 +9,6 @@ use aurea_render::{
 };
 use aurea_runtime::{DamageRegion, FrameScheduler};
 use aurea_runtime::{FrameInfo, TickerId};
-#[cfg(feature = "wgpu")]
-use std::mem::transmute;
 use std::os::raw::c_void;
 use std::sync::{Arc, Mutex};
 
@@ -33,6 +31,8 @@ pub struct Canvas {
     pub(crate) renderer: Arc<Mutex<Option<Box<dyn Renderer>>>>,
     pub(crate) backend: RendererBackend,
     interaction_registry: Arc<InteractionRegistry>,
+    #[cfg(feature = "wgpu")]
+    surface_handle: Arc<crate::platform::handles::NativeWindowHandle>,
     _cleanup: Arc<CanvasCleanup>,
 }
 
@@ -67,21 +67,13 @@ impl Canvas {
     /// # }
     /// ```
     #[cfg(feature = "wgpu")]
-    pub fn create_wgpu_surface(
-        &self,
+    pub fn create_wgpu_surface<'canvas>(
+        &'canvas self,
         instance: &wgpu::Instance,
-    ) -> AureaResult<wgpu::Surface<'static>> {
-        use crate::platform::handles::native_handle_from_canvas_ptr;
-
-        let native_ptr = self.native_handle();
-        let handle =
-            native_handle_from_canvas_ptr(native_ptr).ok_or(AureaError::ElementOperationFailed)?;
-        let surface_target: wgpu::SurfaceTarget<'static> =
-            unsafe { transmute(wgpu::SurfaceTarget::from(&handle)) };
-        let surface = instance
-            .create_surface(surface_target)
-            .map_err(|_| AureaError::ElementOperationFailed)?;
-        Ok(surface)
+    ) -> AureaResult<wgpu::Surface<'canvas>> {
+        instance
+            .create_surface(wgpu::SurfaceTarget::from(&*self.surface_handle))
+            .map_err(|_| AureaError::ElementOperationFailed)
     }
 
     /// Create a new canvas with the given size and renderer backend.
@@ -133,12 +125,22 @@ impl Canvas {
         let renderer_arc = Arc::new(Mutex::new(renderer));
         let interaction_registry = Arc::new(InteractionRegistry::new());
 
+        #[cfg(feature = "wgpu")]
+        let surface_handle = Arc::new(
+            crate::platform::handles::native_handle_from_canvas_ptr(unsafe {
+                ng_platform_canvas_get_native_handle(handle)
+            })
+            .ok_or(AureaError::ElementOperationFailed)?,
+        );
+
         let canvas = Self {
             handle,
             state: state.clone(),
             renderer: renderer_arc.clone(),
             backend,
             interaction_registry,
+            #[cfg(feature = "wgpu")]
+            surface_handle,
             _cleanup: Arc::new(CanvasCleanup {
                 handle: handle_key(handle),
                 renderer: renderer_arc.clone(),
