@@ -46,7 +46,22 @@ impl Animation {
     ///
     /// On the last frame of a non-looping animation, yields `Some(1.0)` exactly once
     /// so callers always see the end value before the animation completes.
+    ///
+    /// A zero-length animation is already over: it yields the end value once,
+    /// or on every tick if it loops. There is no progress to report through a
+    /// span of no time.
     pub fn tick(&mut self, delta: Duration) -> Option<f32> {
+        if self.duration.is_zero() {
+            if self.looping {
+                return Some(self.easing.eval(1.0));
+            }
+            if self.elapsed > self.duration {
+                return None;
+            }
+            self.elapsed = Duration::from_nanos(1);
+            return Some(self.easing.eval(1.0));
+        }
+
         // Sentinel: elapsed > duration means the final Some(1.0) was already yielded.
         if self.elapsed > self.duration {
             return None;
@@ -57,6 +72,7 @@ impl Animation {
         if self.elapsed >= self.duration {
             if self.looping {
                 // Duration has no Rem<Duration>; subtract in a loop (≤few iters in practice).
+                // The zero-duration case is handled above, so this terminates.
                 while self.elapsed >= self.duration {
                     self.elapsed -= self.duration;
                 }
@@ -72,7 +88,13 @@ impl Animation {
     }
 
     /// Fraction of time elapsed, independent of easing, clamped to [0, 1].
+    ///
+    /// A zero-length animation reports `1.0`; dividing by its duration would
+    /// give NaN, and NaN survives `clamp`.
     pub fn progress(&self) -> f32 {
+        if self.duration.is_zero() {
+            return 1.0;
+        }
         (self.elapsed.as_secs_f32() / self.duration.as_secs_f32()).clamp(0.0, 1.0)
     }
 
@@ -88,6 +110,32 @@ impl Animation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A zero-length looping animation used to spin forever in `tick`:
+    /// subtracting a zero duration never made the loop condition false.
+    #[test]
+    fn zero_duration_looping_yields_the_end_value() {
+        let mut anim = Animation::new(Duration::ZERO).looping(true);
+        for _ in 0..3 {
+            assert_eq!(anim.tick(Duration::from_millis(16)), Some(1.0));
+        }
+        assert_eq!(anim.progress(), 1.0);
+    }
+
+    #[test]
+    fn zero_duration_finishes_after_one_tick() {
+        let mut anim = Animation::new(Duration::ZERO);
+        assert_eq!(anim.tick(Duration::from_millis(16)), Some(1.0));
+        assert_eq!(anim.tick(Duration::from_millis(16)), None);
+        assert!(anim.is_done());
+    }
+
+    #[test]
+    fn zero_duration_progress_is_not_nan() {
+        let anim = Animation::new(Duration::ZERO);
+        assert!(anim.progress().is_finite());
+        assert_eq!(anim.progress(), 1.0);
+    }
 
     #[test]
     fn tick_yields_terminal_value_once() {
