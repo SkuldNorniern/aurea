@@ -497,8 +497,11 @@ impl CpuDrawingContext {
                 command,
             )
             .with_clip(clip)
+            .with_opacity(self.current_opacity)
         } else {
-            DisplayItem::new(node_id, cache_key, bounds, opaque, blend, command).with_clip(clip)
+            DisplayItem::new(node_id, cache_key, bounds, opaque, blend, command)
+                .with_clip(clip)
+                .with_opacity(self.current_opacity)
         };
 
         unsafe {
