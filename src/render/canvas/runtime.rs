@@ -152,6 +152,24 @@ fn render_frame(
     };
 
     // 2. Render under renderer lock only; grab last_frame_damage before releasing.
+    //
+    // With no retained draw callback there is nothing to re-render, and
+    // clearing anyway would throw away whatever `Canvas::draw` put in the
+    // buffer — which is how an immediate-mode canvas went blank on the first
+    // repaint. Republish what is already there instead.
+    //
+    // Unless the buffer is gone: a resize drops it, and presenting nothing
+    // leaves the platform with a stale pointer. Then an empty frame is the
+    // only frame that can be produced.
+    let has_buffer = CURRENT_BUFFER.with(|buf| {
+        buf.borrow()
+            .is_some_and(|(ptr, size, _, _)| !ptr.is_null() && size > 0)
+    });
+    if draw_callback.is_none() && has_buffer {
+        republish_current_buffer(state, handle, _backend, None);
+        return Ok(());
+    }
+
     let current_damage = {
         let mut r = lock(renderer);
         if let Some(ref mut r) = *r {
@@ -169,6 +187,18 @@ fn render_frame(
     };
 
     // 3. Push buffer to platform (CURRENT_BUFFER is thread-local; no lock needed).
+    republish_current_buffer(state, handle, _backend, current_damage);
+
+    Ok(())
+}
+
+/// Hands the renderer's current pixels to the platform.
+fn republish_current_buffer(
+    state: &Arc<Mutex<CanvasState>>,
+    handle: *mut c_void,
+    _backend: RendererBackend,
+    current_damage: Option<Rect>,
+) {
     #[cfg(feature = "zengpu")]
     let publishes_cpu_buffer = _backend != RendererBackend::ZenGpu;
     #[cfg(not(feature = "zengpu"))]
@@ -191,8 +221,6 @@ fn render_frame(
             publish_cpu_buffer(handle, ptr, size, w, h, refresh);
         }
     }
-
-    Ok(())
 }
 
 impl Canvas {
