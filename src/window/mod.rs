@@ -21,6 +21,7 @@ use crate::lifecycle::{
     LifecycleEvent, register_lifecycle_callback, unregister_lifecycle_callback,
 };
 use crate::menu::MenuBar;
+use crate::platform::ui_thread;
 use crate::registry::window::{
     process_window_updates, register_event_queue, register_global_event_queue,
     register_update_callback, register_update_callbacks, unregister_event_queue,
@@ -93,6 +94,7 @@ impl Window {
             FrameScheduler::set_request_frame_hook(|| {
                 unsafe { ng_platform_request_frame() };
             });
+            ui_thread::claim();
             Ok(())
         })
         .clone()?;
@@ -194,6 +196,7 @@ impl Window {
 
     /// Set the window position.
     pub fn set_position(&self, x: i32, y: i32) {
+        ui_thread::check("Window::set_position");
         unsafe {
             ng_platform_window_set_position(self.handle, x, y);
         }
@@ -247,6 +250,7 @@ impl Window {
     }
 
     pub fn run(&self) -> AureaResult<()> {
+        ui_thread::check("Window::run");
         let result = unsafe { ng_platform_run() };
         if result != 0 {
             return Err(AureaError::EventLoopError);
@@ -266,6 +270,7 @@ impl Window {
     where
         E: Element + 'static,
     {
+        ui_thread::check("Window::set_content");
         let content_handle = element.handle();
         if content_handle.is_null() {
             return Err(AureaError::ElementOperationFailed);
@@ -369,6 +374,7 @@ impl Window {
     /// # }
     /// ```
     pub fn poll_events(&self) -> Vec<WindowEvent> {
+        ui_thread::check("Window::poll_events");
         unsafe { ng_platform_poll_events() };
 
         let events = self.event_queue.process_events();
@@ -398,6 +404,7 @@ impl Window {
     /// # }
     /// ```
     pub fn process_frames(&self) -> AureaResult<()> {
+        ui_thread::check("Window::process_frames");
         process_window_updates(self.handle);
         FrameScheduler::process_frames()
     }
@@ -462,6 +469,7 @@ impl Window {
     /// # }
     /// ```
     pub fn set_title(&self, title: &str) -> AureaResult<()> {
+        ui_thread::check("Window::set_title");
         let title_cstr = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
         unsafe {
             ng_platform_window_set_title(self.handle, title_cstr.as_ptr());
@@ -471,6 +479,7 @@ impl Window {
 
     /// Set the native application/window icon from tightly packed RGBA8 pixels.
     pub fn set_icon_rgba(&self, rgba: &[u8], width: u32, height: u32) -> AureaResult<()> {
+        ui_thread::check("Window::set_icon_rgba");
         let expected = (width as usize)
             .checked_mul(height as usize)
             .and_then(|pixels| pixels.checked_mul(4))
@@ -503,6 +512,7 @@ impl Window {
     /// # }
     /// ```
     pub fn set_size(&self, width: u32, height: u32) {
+        ui_thread::check("Window::set_size");
         unsafe {
             ng_platform_window_set_size(self.handle, width as i32, height as i32);
         }
@@ -548,6 +558,7 @@ impl Window {
 
     /// Set cursor visibility for this window.
     pub fn set_cursor_visible(&self, visible: bool) -> AureaResult<()> {
+        ui_thread::check("Window::set_cursor_visible");
         let result =
             unsafe { ng_platform_window_set_cursor_visible(self.handle, i32::from(visible)) };
         if result != 0 {
@@ -558,6 +569,7 @@ impl Window {
 
     /// Set cursor grab mode for this window.
     pub fn set_cursor_grab(&self, mode: CursorGrabMode) -> AureaResult<()> {
+        ui_thread::check("Window::set_cursor_grab");
         let result = unsafe { ng_platform_window_set_cursor_grab(self.handle, mode as i32) };
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
@@ -572,6 +584,7 @@ impl Window {
 
     /// Show the window.
     pub fn show(&self) {
+        ui_thread::check("Window::show");
         unsafe {
             ng_platform_window_show(self.handle);
         }
@@ -579,6 +592,7 @@ impl Window {
 
     /// Hide the window (without destroying it).
     pub fn hide(&self) {
+        ui_thread::check("Window::hide");
         unsafe {
             ng_platform_window_hide(self.handle);
         }
@@ -606,6 +620,7 @@ impl Drop for Window {
     }
 }
 
+// SAFETY: these do not mean a `Window` is safe to *use* from any thread — it
 unsafe impl Send for Window {}
 unsafe impl Sync for Window {}
 
