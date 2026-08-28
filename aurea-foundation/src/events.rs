@@ -1,6 +1,6 @@
 //! Window event types for external event loop integration.
 
-use std::sync::Arc;
+use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub enum WindowEvent {
@@ -277,7 +277,8 @@ impl KeyCode {
     }
 }
 
-pub type EventCallback = Arc<dyn Fn(WindowEvent) + Send + Sync>;
+/// An application's window-event handler.
+pub type EventCallback = Rc<dyn Fn(WindowEvent)>;
 
 #[cfg(test)]
 mod keycode_tests {
