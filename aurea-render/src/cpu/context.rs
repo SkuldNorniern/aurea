@@ -483,25 +483,27 @@ impl<'list> RecordingContext<'list> {
                 discriminant(command).hash(&mut hasher);
             }
         }
-        self.current_transform.m11.to_bits().hash(&mut hasher);
-        self.current_transform.m12.to_bits().hash(&mut hasher);
-        self.current_transform.m13.to_bits().hash(&mut hasher);
-        self.current_transform.m21.to_bits().hash(&mut hasher);
-        self.current_transform.m22.to_bits().hash(&mut hasher);
-        self.current_transform.m23.to_bits().hash(&mut hasher);
-        self.current_transform.m31.to_bits().hash(&mut hasher);
-        self.current_transform.m32.to_bits().hash(&mut hasher);
-        self.current_transform.m33.to_bits().hash(&mut hasher);
+        // The transform is deliberately not hashed. Every command's geometry
+        // is resolved through it at record time, so two transforms that put a
+        // shape in the same place produce the same pixels and should share a
+        // key. Hashing the matrix as well was nine floats per item of work that
+        // could only ever split identical output into different keys.
         self.current_opacity.to_bits().hash(&mut hasher);
         self.scale_factor.to_bits().hash(&mut hasher);
-        // Blend mode and clip affect the pixels an item produces, so they must
-        // take part in its visual identity or the damage diff will treat a
-        // state-only change as "unchanged".
+        // Blend mode and clip do affect the pixels without touching the
+        // geometry, so they must take part in visual identity or the damage
+        // diff would treat a state-only change as unchanged.
         self.current_blend_mode.hash(&mut hasher);
-        match self.current_clip {
-            Some(ref clip) => {
+        // The enforced rectangle, not the path it came from: that rectangle is
+        // what the rasterizer applies, and hashing it is four floats rather
+        // than a walk over the path's commands.
+        match self.current_clip_rect {
+            Some(clip) => {
                 1u8.hash(&mut hasher);
-                hash_path(clip, &mut hasher);
+                clip.x.to_bits().hash(&mut hasher);
+                clip.y.to_bits().hash(&mut hasher);
+                clip.width.to_bits().hash(&mut hasher);
+                clip.height.to_bits().hash(&mut hasher);
             }
             None => 0u8.hash(&mut hasher),
         }
@@ -936,6 +938,49 @@ mod tests {
         let bounds = list.items()[0].bounds;
         assert!((bounds.x - 6.0).abs() < 1e-4, "x = {}", bounds.x);
         assert!((bounds.y - 8.0).abs() < 1e-4, "y = {}", bounds.y);
+    }
+
+    /// Two transforms that put a shape in the same place produce the same
+    /// pixels, so they share a cache key. The geometry is resolved at record
+    /// time, which is what makes hashing the matrix itself unnecessary.
+    #[test]
+    fn transforms_landing_in_the_same_place_share_a_key() {
+        let mut list = DisplayList::new();
+        {
+            let mut ctx = ctx_with(&mut list, 1.0);
+            // Drawn at (10, 10) directly...
+            ctx.draw_rect(Rect::new(10.0, 10.0, 5.0, 5.0), &Paint::default())
+                .expect("draw_rect");
+            // ...and again via a translation that lands in the same place.
+            ctx.translate(10.0, 10.0).expect("translate");
+            ctx.draw_rect(Rect::new(0.0, 0.0, 5.0, 5.0), &Paint::default())
+                .expect("draw_rect");
+        }
+
+        let items = list.items();
+        assert_eq!(
+            items[0].cache_key, items[1].cache_key,
+            "same pixels, so the damage diff should see no change"
+        );
+        assert_eq!(items[0].bounds, items[1].bounds);
+    }
+
+    /// A transform that moves the shape still changes the key, because it
+    /// changes the geometry that gets hashed.
+    #[test]
+    fn a_transform_that_moves_a_shape_changes_its_key() {
+        let mut list = DisplayList::new();
+        {
+            let mut ctx = ctx_with(&mut list, 1.0);
+            ctx.draw_rect(Rect::new(0.0, 0.0, 5.0, 5.0), &Paint::default())
+                .expect("draw_rect");
+            ctx.translate(7.0, 0.0).expect("translate");
+            ctx.draw_rect(Rect::new(0.0, 0.0, 5.0, 5.0), &Paint::default())
+                .expect("draw_rect");
+        }
+
+        let items = list.items();
+        assert_ne!(items[0].cache_key, items[1].cache_key);
     }
 
     #[test]

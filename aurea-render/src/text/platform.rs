@@ -117,8 +117,13 @@ impl RunKey {
 
         let mut hasher = DefaultHasher::new();
         text.hash(&mut hasher);
-        for c in font.family.chars().flat_map(char::to_lowercase) {
-            c.hash(&mut hasher);
+        // ASCII case folding rather than Unicode: font family names are ASCII
+        // in practice, and `to_lowercase` per character is a real cost on a
+        // path taken once per text item per frame. A family name that differs
+        // only in non-ASCII case gets its own cache entry instead of sharing
+        // one, which is a wasted entry and not a wrong result.
+        for byte in font.family.as_bytes() {
+            byte.to_ascii_lowercase().hash(&mut hasher);
         }
         font.size.to_bits().hash(&mut hasher);
         font.weight.hash(&mut hasher);
