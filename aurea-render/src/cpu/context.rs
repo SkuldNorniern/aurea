@@ -144,6 +144,11 @@ fn near_value(a: f32, b: f32) -> bool {
     (a - b).abs() < 1e-3
 }
 
+/// A solid fill in `color`.
+fn fill_with(color: Color) -> Paint {
+    Paint::new().color(color).style(PaintStyle::Fill)
+}
+
 /// Intersection of two rectangles; zero-sized when they do not overlap.
 fn intersect_rects(a: Rect, b: Rect) -> Rect {
     let x0 = a.x.max(b.x);
@@ -624,6 +629,40 @@ impl DrawingContext for RecordingContext<'_> {
     fn clear(&mut self, color: Color) -> AureaResult<()> {
         self.add_command(super::super::command::DrawCommand::Clear(color));
         Ok(())
+    }
+
+    /// Draws a line.
+    ///
+    /// A horizontal or vertical stroke with butt caps covers exactly a
+    /// rectangle, so it is recorded as one. That is not an approximation, and
+    /// it skips stroke outlining, tessellation and a scanline sweep for a shape
+    /// the rasterizer can fill with a memset per row.
+    ///
+    /// It matters because thin axis-aligned lines are most of the lines a UI
+    /// draws — gridlines, rules, borders, separators, tick marks, carets. A
+    /// vertical one costs a scanline row per pixel of length, and the per-row
+    /// setup dwarfs filling the single pixel in it.
+    fn draw_line(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, paint: &Paint) -> AureaResult<()> {
+        if paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0 {
+            let half = paint.stroke_width / 2.0;
+            let horizontal = (y1 - y2).abs() < 1e-4;
+            let vertical = (x1 - x2).abs() < 1e-4;
+
+            // A zero-length line is neither, and both would give an empty rect.
+            if horizontal && !vertical {
+                let rect = Rect::new(x1.min(x2), y1 - half, (x2 - x1).abs(), paint.stroke_width);
+                return self.draw_rect(rect, &fill_with(paint.color));
+            }
+            if vertical && !horizontal {
+                let rect = Rect::new(x1 - half, y1.min(y2), paint.stroke_width, (y2 - y1).abs());
+                return self.draw_rect(rect, &fill_with(paint.color));
+            }
+        }
+
+        let mut path = Path::new();
+        path.commands.push(PathCommand::MoveTo(Point::new(x1, y1)));
+        path.commands.push(PathCommand::LineTo(Point::new(x2, y2)));
+        self.draw_path(&path, paint)
     }
 
     fn draw_rect(&mut self, rect: Rect, paint: &Paint) -> AureaResult<()> {
