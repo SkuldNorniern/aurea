@@ -23,7 +23,7 @@ use crate::lifecycle::{
 use crate::menu::MenuBar;
 mod proxy;
 
-pub use proxy::WindowProxy;
+pub use proxy::{ProxyId, WindowProxy};
 
 #[cfg(feature = "wgpu")]
 use crate::platform::handles::native_handle_from_window_ptr;
@@ -69,6 +69,7 @@ pub struct Window {
     damage: Mutex<DamageRegion>,
     scale_factor: Mutex<f32>,
     event_queue: Arc<EventQueue>,
+    proxy_id: ProxyId,
     #[cfg(feature = "wgpu")]
     surface_handle: Arc<NativeWindowHandle>,
     window_type: WindowType,
@@ -203,6 +204,7 @@ impl Window {
 
         Ok(Self {
             handle,
+            proxy_id: proxy::next_id(),
             #[cfg(feature = "wgpu")]
             surface_handle,
             menu_bar: None,
@@ -273,7 +275,11 @@ impl Window {
 
     /// A `Send + Sync` handle for reaching this window from another thread.
     pub fn proxy(&self) -> WindowProxy {
-        WindowProxy::new(self.handle)
+        WindowProxy::new(self.proxy_id)
+    }
+
+    pub(super) fn proxy_id(&self) -> ProxyId {
+        self.proxy_id
     }
 
     pub fn run(&self) -> AureaResult<()> {
@@ -656,7 +662,7 @@ impl Drop for Window {
         unregister_event_queue(self.handle);
         unregister_update_callbacks(self.handle);
         unregister_event_callbacks(self.handle);
-        proxy::clear_for(self.handle);
+        proxy::clear_for(self.proxy_id);
 
         unsafe {
             ng_platform_destroy_window(self.handle);
