@@ -167,7 +167,7 @@ impl Window {
         let handle_usize = handle as usize;
         register_lifecycle_callback(
             handle,
-            Box::new(move |event| {
+            Arc::new(move |event| {
                 let handle_ptr = handle_usize as *mut c_void;
                 match event {
                     LifecycleEvent::WindowWillClose => {
@@ -366,7 +366,7 @@ impl Window {
         F: Fn(LifecycleEvent) + Send + Sync + 'static,
     {
         let window_handle = self.handle;
-        register_lifecycle_callback(window_handle, Box::new(callback));
+        register_lifecycle_callback(window_handle, Arc::new(callback));
 
         unsafe {
             ng_platform_window_set_lifecycle_callback(window_handle);

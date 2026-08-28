@@ -9,7 +9,7 @@
 use aurea_foundation::lock;
 use std::collections::HashMap;
 use std::os::raw::c_void;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 /// Lifecycle event types that can be triggered by the platform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -43,7 +43,12 @@ pub enum LifecycleEvent {
 }
 
 /// Callback function type for lifecycle events.
-pub type LifecycleCallback = Box<dyn Fn(LifecycleEvent) + Send + Sync>;
+///
+/// `Arc` so a dispatch can clone it out and drop the registry lock before
+/// running it. Window teardown registers and unregisters lifecycle callbacks,
+/// and a callback that closes a window would otherwise deadlock on the lock
+/// that is dispatching it.
+pub type LifecycleCallback = Arc<dyn Fn(LifecycleEvent) + Send + Sync>;
 
 /// Global registry for lifecycle callbacks per window.
 ///
@@ -73,8 +78,8 @@ pub fn unregister_lifecycle_callback(window: *mut c_void) {
 ///
 /// This is called from the FFI layer when a lifecycle event occurs.
 pub fn invoke_lifecycle_callback(window: *mut c_void, event: LifecycleEvent) {
-    let callbacks = lock(&LIFECYCLE_CALLBACKS);
-    if let Some(callback) = callbacks.get(&(window as usize)) {
+    let callback = lock(&LIFECYCLE_CALLBACKS).get(&(window as usize)).cloned();
+    if let Some(callback) = callback {
         callback(event);
     }
 }
@@ -83,8 +88,8 @@ pub fn invoke_lifecycle_callback(window: *mut c_void, event: LifecycleEvent) {
 ///
 /// This is used for application-level events that affect the entire app.
 pub fn invoke_global_lifecycle_callback(event: LifecycleEvent) {
-    let callbacks = lock(&LIFECYCLE_CALLBACKS);
-    for callback in callbacks.values() {
+    let callbacks: Vec<LifecycleCallback> = lock(&LIFECYCLE_CALLBACKS).values().cloned().collect();
+    for callback in callbacks {
         callback(event);
     }
 }
@@ -141,7 +146,7 @@ mod tests {
         let r = received.clone();
         register_lifecycle_callback(
             0x1000 as *mut c_void,
-            Box::new(move |e| {
+            Arc::new(move |e| {
                 let id = match e {
                     LifecycleEvent::ApplicationPaused => 2,
                     LifecycleEvent::ApplicationResumed => 3,
