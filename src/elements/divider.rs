@@ -53,6 +53,10 @@ impl Element for Divider {
         self.canvas.handle()
     }
 
+    fn released_to_parent(&self) {
+        self.canvas.released_to_parent();
+    }
+
     unsafe fn invalidate_platform(&self, rect: Option<Rect>) {
         use super::traits::Element;
         unsafe {

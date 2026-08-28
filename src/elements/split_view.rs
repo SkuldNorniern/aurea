@@ -87,6 +87,8 @@ impl Container for SplitView {
             return Err(AureaError::ElementOperationFailed);
         }
 
+        element.released_to_parent();
+
         self._children.push(StdBox::new(element));
         Ok(())
     }

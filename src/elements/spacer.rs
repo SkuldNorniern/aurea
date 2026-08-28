@@ -24,6 +24,10 @@ impl Element for Spacer {
         self.inner.handle()
     }
 
+    fn released_to_parent(&self) {
+        self.inner.released_to_parent();
+    }
+
     unsafe fn invalidate_platform(&self, rect: Option<Rect>) {
         use super::traits::Element;
         unsafe {

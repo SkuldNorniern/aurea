@@ -8,7 +8,7 @@ pub trait Element {
     fn handle(&self) -> *mut c_void;
 
     /// Tells the element that a container has taken it into its native hierarchy and will free it.
-    fn released_to_parent(&self) {}
+    fn released_to_parent(&self);
 
     fn invalidate(&self, rect: Option<Rect>) {
         if let Some(r) = rect {

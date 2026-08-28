@@ -293,6 +293,7 @@ impl Window {
         register_update_callback(self.handle, callback);
     }
 
+    /// Sets the window's content, replacing whatever was there.
     pub fn set_content<E>(&mut self, element: E) -> AureaResult<()>
     where
         E: Element + 'static,
@@ -309,7 +310,15 @@ impl Window {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        self.content = Some(Box::new(element));
+        element.released_to_parent();
+
+        if let Some(previous) = self.content.replace(Box::new(element)) {
+            let stale = previous.handle();
+            drop(previous);
+            if !stale.is_null() && stale != content_handle {
+                unsafe { ng_platform_destroy_element(stale) };
+            }
+        }
         Ok(())
     }
 

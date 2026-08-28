@@ -115,6 +115,10 @@ impl Element for SharedSidebarList {
         self.0.borrow().handle()
     }
 
+    fn released_to_parent(&self) {
+        self.0.borrow().released_to_parent();
+    }
+
     unsafe fn invalidate_platform(&self, rect: Option<Rect>) {
         let guard = self.0.borrow();
         unsafe { Element::invalidate_platform(&*guard, rect) }
@@ -126,6 +130,10 @@ struct SharedEditor(Rc<RefCell<TextEditor>>);
 impl Element for SharedEditor {
     fn handle(&self) -> *mut c_void {
         self.0.borrow().handle()
+    }
+
+    fn released_to_parent(&self) {
+        self.0.borrow().released_to_parent();
     }
 
     unsafe fn invalidate_platform(&self, rect: Option<Rect>) {
@@ -420,6 +428,10 @@ struct SharedTabBar(Rc<RefCell<TabBar>>);
 impl Element for SharedTabBar {
     fn handle(&self) -> *mut c_void {
         self.0.borrow_mut().handle()
+    }
+
+    fn released_to_parent(&self) {
+        self.0.borrow().released_to_parent();
     }
 
     unsafe fn invalidate_platform(&self, rect: Option<Rect>) {
