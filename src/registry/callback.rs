@@ -40,6 +40,22 @@ impl<A> CallbackRegistry<A> {
         }
     }
 
+    /// Drops the callback for `id`, if there is one.
+    pub fn remove(&self, id: u32) {
+        match self.slots.try_borrow_mut() {
+            Ok(mut slots) => {
+                slots.remove(&id);
+            }
+            Err(_) => error!("aurea: callback registry busy; removal for id {id} skipped"),
+        }
+    }
+
+    /// How many callbacks are registered.
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.slots.try_borrow().map_or(0, |slots| slots.len())
+    }
+
     pub fn invoke(&self, id: u32, arg: A) {
         let callback = match self.slots.try_borrow() {
             Ok(slots) => slots.get(&id).map(Callback::clone),
@@ -109,6 +125,23 @@ mod tests {
             0,
             "the re-registered callback runs, not the old one"
         );
+    }
+
+    #[test]
+    fn remove_drops_the_callback() {
+        thread_local! {
+            static REGISTRY: CallbackRegistry<()> = CallbackRegistry::new();
+        }
+        let ran = Rc::new(Cell::new(0));
+        let ran_clone = Rc::clone(&ran);
+        REGISTRY.with(|r| r.insert(1, move |()| ran_clone.set(ran_clone.get() + 1)));
+        assert_eq!(REGISTRY.with(CallbackRegistry::len), 1);
+
+        REGISTRY.with(|r| r.remove(1));
+
+        assert_eq!(REGISTRY.with(CallbackRegistry::len), 0);
+        REGISTRY.with(|r| r.invoke(1, ()));
+        assert_eq!(ran.get(), 0, "a removed callback must not run");
     }
 
     #[test]

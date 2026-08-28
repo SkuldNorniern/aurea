@@ -1,7 +1,7 @@
 //! Tab bar element with selectable tabs and drag-to-detach support.
 
 use super::traits::Element;
-use crate::registry::elements::{next_tab_id, register_tab_callbacks};
+use crate::registry::elements::{next_tab_id, register_tab_callbacks, unregister_tab_callbacks};
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::{ffi::CString, os::raw::c_void};
@@ -113,5 +113,11 @@ impl Element for TabBar {
         unsafe {
             ng_platform_tab_bar_invalidate(self.handle);
         }
+    }
+}
+
+impl Drop for TabBar {
+    fn drop(&mut self) {
+        unregister_tab_callbacks(self._id);
     }
 }

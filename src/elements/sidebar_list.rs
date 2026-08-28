@@ -1,7 +1,9 @@
 //! Sidebar list element for VS Code / Finder style sidebars.
 
 use super::traits::Element;
-use crate::registry::elements::{next_sidebar_id, register_sidebar_callback};
+use crate::registry::elements::{
+    next_sidebar_id, register_sidebar_callback, unregister_sidebar_callback,
+};
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::{ffi::CString, os::raw::c_void};
@@ -105,5 +107,11 @@ impl Element for SidebarList {
         unsafe {
             ng_platform_sidebar_list_invalidate(self.handle);
         }
+    }
+}
+
+impl Drop for SidebarList {
+    fn drop(&mut self) {
+        unregister_sidebar_callback(self._id);
     }
 }

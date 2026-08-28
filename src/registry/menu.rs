@@ -13,6 +13,11 @@ pub fn register_menu_callback(id: u32, callback: impl Fn() + 'static) {
     MENU_CALLBACKS.with(|r| r.insert(id, move |()| callback()));
 }
 
+/// Drops the menu callback registered for `id`.
+pub fn unregister_menu_callback(id: u32) {
+    MENU_CALLBACKS.with(|r| r.remove(id));
+}
+
 pub fn invoke_menu_callback(id: u32) {
     MENU_CALLBACKS.with(|r| r.invoke(id, ()));
 }

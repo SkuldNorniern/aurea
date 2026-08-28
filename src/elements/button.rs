@@ -1,5 +1,7 @@
 use super::traits::Element;
-use crate::registry::elements::{next_button_id, register_button_callback};
+use crate::registry::elements::{
+    next_button_id, register_button_callback, unregister_button_callback,
+};
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::{ffi::CString, os::raw::c_void};
@@ -38,6 +40,13 @@ impl Button {
     }
 }
 
+impl Button {
+    #[cfg(test)]
+    pub(crate) fn callback_id(&self) -> u32 {
+        self._id
+    }
+}
+
 impl Element for Button {
     fn handle(&self) -> *mut c_void {
         self.handle
@@ -47,5 +56,11 @@ impl Element for Button {
         unsafe {
             ng_platform_button_invalidate(self.handle);
         }
+    }
+}
+
+impl Drop for Button {
+    fn drop(&mut self) {
+        unregister_button_callback(self._id);
     }
 }
