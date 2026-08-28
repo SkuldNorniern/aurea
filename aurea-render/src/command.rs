@@ -2,7 +2,6 @@
 
 use super::types::{
     Color, Font, GlyphMask, Image, LinearGradient, Paint, Path, Point, RadialGradient, Rect,
-    Transform,
 };
 
 #[derive(Debug, Clone)]
@@ -19,12 +18,6 @@ pub enum DrawCommand {
     DrawGlyphMask(GlyphMask, Point, Color),
     FillLinearGradient(LinearGradient, Rect),
     FillRadialGradient(RadialGradient, Rect),
-    PushClip(Path),
-    PopClip,
-    PushTransform(Transform),
-    PopTransform,
-    PushOpacity(f32),
-    PopOpacity,
 }
 
 #[cfg(test)]

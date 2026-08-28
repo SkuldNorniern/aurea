@@ -2,12 +2,12 @@
 
 use super::types::Rect;
 
-/// Stable node identifier for display items Used for cache invalidation and tracking changes.
+/// Where an item sits in this frame's display list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct NodeId(pub u64);
+pub struct DisplayIndex(pub u64);
 
-impl NodeId {
-    /// Generate a new unique node ID.
+impl DisplayIndex {
+    /// A process-unique value, for a caller that needs one outside a frame.
     pub fn new() -> Self {
         use std::sync::atomic::{AtomicU64, Ordering};
         static COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -15,7 +15,7 @@ impl NodeId {
     }
 }
 
-impl Default for NodeId {
+impl Default for DisplayIndex {
     fn default() -> Self {
         Self::new()
     }
@@ -50,7 +50,7 @@ impl CacheKey {
 #[derive(Debug, Clone)]
 pub struct DisplayItem {
     /// Stable identity for this item.
-    pub node_id: NodeId,
+    pub index: DisplayIndex,
     /// Cache key for this item (hash of content + style + scale + font).
     pub cache_key: CacheKey,
     /// Bounding rectangle for damage calculation.
@@ -72,7 +72,7 @@ pub struct DisplayItem {
 impl DisplayItem {
     /// Create a new display item.
     pub fn new(
-        node_id: NodeId,
+        index: DisplayIndex,
         cache_key: CacheKey,
         bounds: Rect,
         opaque: bool,
@@ -80,7 +80,7 @@ impl DisplayItem {
         command: super::command::DrawCommand,
     ) -> Self {
         Self {
-            node_id,
+            index,
             cache_key,
             bounds,
             opaque,
@@ -108,7 +108,7 @@ impl DisplayItem {
 
     /// Create a new interactive display item.
     pub fn new_interactive(
-        node_id: NodeId,
+        index: DisplayIndex,
         cache_key: CacheKey,
         bounds: Rect,
         opaque: bool,
@@ -117,7 +117,7 @@ impl DisplayItem {
         command: super::command::DrawCommand,
     ) -> Self {
         Self {
-            node_id,
+            index,
             cache_key,
             bounds,
             opaque,
@@ -138,86 +138,40 @@ impl DisplayItem {
     }
 }
 
-/// Display list with metadata support.
+/// The draw commands for one frame, in submission order.
 #[derive(Debug, Default)]
 pub struct DisplayList {
     items: Vec<DisplayItem>,
-    clip_stack: Vec<super::types::Path>,
-    transform_stack: Vec<super::types::Transform>,
-    opacity_stack: Vec<f32>,
 }
 
 impl DisplayList {
-    /// Create a new empty display list.
+    /// An empty list.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Add a display item to the list.
+    /// Appends an item.
     pub fn push(&mut self, item: DisplayItem) {
         self.items.push(item);
     }
 
-    /// Get all items.
+    /// The items, in submission order.
     pub fn items(&self) -> &[DisplayItem] {
         &self.items
     }
 
-    /// Clear all items.
+    /// Drops every item, keeping the allocation for the next frame.
     pub fn clear(&mut self) {
         self.items.clear();
-        self.clip_stack.clear();
-        self.transform_stack.clear();
-        self.opacity_stack.clear();
     }
 
-    /// Push a clip path onto the stack.
-    pub fn push_clip(&mut self, path: super::types::Path) {
-        self.clip_stack.push(path);
+    /// How many items the list holds.
+    pub fn len(&self) -> usize {
+        self.items.len()
     }
 
-    /// Pop a clip path from the stack.
-    pub fn pop_clip(&mut self) -> Option<super::types::Path> {
-        self.clip_stack.pop()
-    }
-
-    /// Get current clip stack depth.
-    pub fn clip_depth(&self) -> usize {
-        self.clip_stack.len()
-    }
-
-    /// Push a transform onto the stack.
-    pub fn push_transform(&mut self, transform: super::types::Transform) {
-        self.transform_stack.push(transform);
-    }
-
-    /// Pop a transform from the stack.
-    pub fn pop_transform(&mut self) -> Option<super::types::Transform> {
-        self.transform_stack.pop()
-    }
-
-    /// Get current transform stack depth.
-    pub fn transform_depth(&self) -> usize {
-        self.transform_stack.len()
-    }
-
-    /// Push an opacity value onto the stack.
-    pub fn push_opacity(&mut self, opacity: f32) {
-        self.opacity_stack.push(opacity);
-    }
-
-    /// Pop an opacity value from the stack.
-    pub fn pop_opacity(&mut self) -> Option<f32> {
-        self.opacity_stack.pop()
-    }
-
-    /// Get current opacity stack depth.
-    pub fn opacity_depth(&self) -> usize {
-        self.opacity_stack.len()
-    }
-
-    /// Compute the effective opacity from the stack.
-    pub fn effective_opacity(&self) -> f32 {
-        self.opacity_stack.iter().product()
+    /// Whether the list holds nothing.
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
     }
 }
