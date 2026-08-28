@@ -289,10 +289,10 @@ impl CpuDrawingContext {
             }
             super::super::command::DrawCommand::DrawGlyphMask(mask, origin, color) => {
                 "DrawGlyphMask".hash(&mut hasher);
-                // The coverage buffer comes from the glyph/run LRU caches, so its
-                // Arc pointer is a stable identity for unchanged text — avoids
-                // hashing (or debug-formatting) the coverage bytes themselves.
-                (Arc::as_ptr(&mask.coverage) as *const u8 as usize).hash(&mut hasher);
+                // The mask carries a process-unique id that clones share, so
+                // unchanged text keeps its key without hashing the coverage
+                // bytes — and an evicted mask can never alias a new one.
+                mask.id().hash(&mut hasher);
                 mask.width.hash(&mut hasher);
                 mask.height.hash(&mut hasher);
                 origin.x.to_bits().hash(&mut hasher);

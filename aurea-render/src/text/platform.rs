@@ -230,15 +230,7 @@ impl TextRenderer {
             pen += g.advance;
         }
 
-        Ok((
-            GlyphMask {
-                width: dev_w,
-                height: dev_h,
-                coverage: coverage.into(), // Vec<u8> → Arc<[u8]>
-            },
-            ascent,
-            pad,
-        ))
+        Ok((GlyphMask::new(dev_w, dev_h, coverage.into()), ascent, pad))
     }
 
     /// Render grayscale text into an RGBA buffer (legacy generic path).
