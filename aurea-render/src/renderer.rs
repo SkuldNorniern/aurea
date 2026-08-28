@@ -292,12 +292,6 @@ impl PlaceholderRenderer {
                         self.height,
                     );
                 }
-                DrawCommand::PushClip(..) => {}
-                DrawCommand::PopClip => {}
-                DrawCommand::PushTransform(..) => {}
-                DrawCommand::PopTransform => {}
-                DrawCommand::PushOpacity(..) => {}
-                DrawCommand::PopOpacity => {}
             }
         }
     }

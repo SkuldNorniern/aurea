@@ -175,13 +175,13 @@ impl Default for InteractionRegistry {
 mod tests {
     use super::*;
     use crate::command::DrawCommand;
-    use crate::display_list::{CacheKey, DisplayItem, NodeId};
+    use crate::display_list::{CacheKey, DisplayIndex, DisplayItem};
     use crate::types::{BlendMode, Paint, Rect};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn interactive_rect(id: InteractiveId, rect: Rect) -> DisplayItem {
         DisplayItem::new_interactive(
-            NodeId(0),
+            DisplayIndex(0),
             CacheKey::from_hash(1),
             rect,
             false,

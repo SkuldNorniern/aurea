@@ -8,7 +8,7 @@
 //! records through the same context and lowers the resulting display list to
 //! batches. It used to be called `CpuDrawingContext`, which said otherwise.
 
-use super::super::display_list::{CacheKey, DisplayItem, DisplayList, NodeId};
+use super::super::display_list::{CacheKey, DisplayIndex, DisplayItem, DisplayList};
 use super::super::renderer::DrawingContext;
 use super::super::text::TextRenderer;
 use super::super::types::*;
@@ -77,7 +77,7 @@ pub struct RecordingContext<'list> {
     /// `RecordingContext` is created in `begin_frame`). Items at the same
     /// position in consecutive frames get the same ID, so display-list
     /// diffing can use index-based identity.
-    next_node_id: u64,
+    next_index: u64,
     state_stack: Vec<DrawingState>,
     current_transform: Transform,
     current_opacity: f32,
@@ -198,7 +198,7 @@ impl<'list> RecordingContext<'list> {
     pub fn new(display_list: &'list mut DisplayList, width: u32, height: u32) -> Self {
         Self {
             display_list,
-            next_node_id: 0,
+            next_index: 0,
             state_stack: Vec::new(),
             current_transform: Transform::identity(),
             current_opacity: 1.0,
@@ -583,14 +583,14 @@ impl<'list> RecordingContext<'list> {
         let bounds = self.compute_bounds(&command);
         let opaque = self.is_opaque(&command) && self.current_opacity >= 1.0;
 
-        let node_id = NodeId(self.next_node_id);
-        self.next_node_id += 1;
+        let index = DisplayIndex(self.next_index);
+        self.next_index += 1;
 
         let blend = self.current_blend_mode;
         let clip = self.current_clip_rect;
         let item = if let Some(interactive_id) = self.current_interactive_id {
             DisplayItem::new_interactive(
-                node_id,
+                index,
                 cache_key,
                 bounds,
                 opaque,
@@ -601,7 +601,7 @@ impl<'list> RecordingContext<'list> {
             .with_clip(clip)
             .with_opacity(self.current_opacity)
         } else {
-            DisplayItem::new(node_id, cache_key, bounds, opaque, blend, command)
+            DisplayItem::new(index, cache_key, bounds, opaque, blend, command)
                 .with_clip(clip)
                 .with_opacity(self.current_opacity)
         };
@@ -756,16 +756,16 @@ impl DrawingContext for RecordingContext<'_> {
         })
     }
 
+    /// Saves the drawing state.
+    ///
+    /// Only the recorder's own stack: the state also went into the display list
+    /// as push commands, which nothing read. Items carry their resolved state
+    /// instead, because partial repaint renders a subset of the list and would
+    /// miss anything that lived between a push and a pop.
     fn save(&mut self) -> AureaResult<()> {
         let transform = self.current_transform;
         let opacity = self.current_opacity;
         let clip = self.current_clip.clone();
-
-        self.display_list.push_transform(transform);
-        self.display_list.push_opacity(opacity);
-        if let Some(ref clip_path) = clip {
-            self.display_list.push_clip(clip_path.clone());
-        }
 
         self.state_stack.push(DrawingState {
             transform,
@@ -785,10 +785,6 @@ impl DrawingContext for RecordingContext<'_> {
             self.current_clip_rect = state.clip_rect;
             self.current_blend_mode = state.blend_mode;
         }
-
-        let _ = self.display_list.pop_transform();
-        let _ = self.display_list.pop_opacity();
-        let _ = self.display_list.pop_clip();
         Ok(())
     }
 

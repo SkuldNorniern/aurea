@@ -1744,11 +1744,11 @@ fn pixel_at(buf: &[u32], w: u32, x: u32, y: u32) -> u32 {
 mod diff_damage_tests {
     use super::*;
     use crate::command::DrawCommand;
-    use crate::display_list::{DisplayItem, NodeId};
+    use crate::display_list::{DisplayIndex, DisplayItem};
 
     fn item(key: u64, bounds: Rect) -> DisplayItem {
         DisplayItem::new(
-            NodeId(0),
+            DisplayIndex(0),
             CacheKey::from_hash(key),
             bounds,
             false,
@@ -1842,11 +1842,11 @@ mod diff_damage_tests {
 mod occlusion_tests {
     use super::*;
     use crate::command::DrawCommand;
-    use crate::display_list::{DisplayItem, NodeId};
+    use crate::display_list::{DisplayIndex, DisplayItem};
 
     fn occluder_item(bounds: Rect, blend: BlendMode) -> DisplayItem {
         DisplayItem::new(
-            NodeId(0),
+            DisplayIndex(0),
             CacheKey::from_hash(1),
             bounds,
             true,
@@ -1857,7 +1857,7 @@ mod occlusion_tests {
 
     fn plain_item(bounds: Rect) -> DisplayItem {
         DisplayItem::new(
-            NodeId(0),
+            DisplayIndex(0),
             CacheKey::from_hash(2),
             bounds,
             false,
@@ -1912,7 +1912,7 @@ mod occlusion_tests {
 mod tile_cache_tests {
     use super::*;
     use crate::command::DrawCommand;
-    use crate::display_list::{DisplayItem, NodeId};
+    use crate::display_list::{DisplayIndex, DisplayItem};
     use crate::types::Paint;
 
     /// One tile edge, as a float. The tests are written against the tile grid
@@ -1939,7 +1939,7 @@ mod tile_cache_tests {
 
     fn item(key: u64, bounds: Rect) -> DisplayItem {
         DisplayItem::new(
-            NodeId(0),
+            DisplayIndex(0),
             CacheKey::from_hash(key),
             bounds,
             false,
