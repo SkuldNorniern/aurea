@@ -28,12 +28,12 @@ fn main() -> AureaResult<()> {
     main_layout.add(tabs)?;
 
     info!("Creating content canvas");
-    let mut content_canvas = Canvas::new(1200, 600, RendererBackend::Cpu)?;
+    let content_canvas = Canvas::new(1200, 600, RendererBackend::Cpu)?;
 
     let mut viewport = Viewport::new(1200.0, 600.0);
     viewport.set_content_size(1200.0, 2000.0);
 
-    render_web_content(&mut content_canvas, &viewport)?;
+    render_web_content(&content_canvas, &viewport)?;
 
     main_layout.add(content_canvas)?;
 
@@ -83,10 +83,11 @@ fn create_tabs() -> AureaResult<Stack> {
     Ok(tabs)
 }
 
-fn render_web_content(canvas: &mut Canvas, viewport: &Viewport) -> AureaResult<()> {
+fn render_web_content(canvas: &Canvas, viewport: &Viewport) -> AureaResult<()> {
     debug!("Rendering web content to canvas");
 
-    canvas.draw(|ctx| {
+    let viewport = viewport.clone();
+    canvas.set_draw_callback(move |ctx| {
         ctx.clear(Color::rgb(255, 255, 255))?;
 
         ctx.save()?;
@@ -96,7 +97,7 @@ fn render_web_content(canvas: &mut Canvas, viewport: &Viewport) -> AureaResult<(
 
         ctx.restore()?;
 
-        render_scrollbar(ctx, viewport)?;
+        render_scrollbar(ctx, &viewport)?;
 
         Ok(())
     })?;

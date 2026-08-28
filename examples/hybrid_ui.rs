@@ -10,9 +10,9 @@ const CANVAS_HEIGHT: u32 = 400;
 fn main() -> AureaResult<()> {
     let mut window = Window::new("Hybrid UI Demo - Native + Canvas", 800, 600)?;
 
-    let mut canvas = Canvas::new(CANVAS_WIDTH, CANVAS_HEIGHT, RendererBackend::Cpu)?;
+    let canvas = Canvas::new(CANVAS_WIDTH, CANVAS_HEIGHT, RendererBackend::Cpu)?;
 
-    canvas.draw(|ctx| {
+    canvas.set_draw_callback(|ctx| {
         ctx.clear(Color::rgb(245, 245, 250))?;
 
         let color = Color::rgb(100, 150, 200);
