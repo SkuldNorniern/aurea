@@ -1345,10 +1345,10 @@ impl Renderer for CpuRasterizer {
         Ok(())
     }
 
-    fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext>> {
+    fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext + '_>> {
         self.display_list.clear();
         let mut ctx = RecordingContext::new(
-            &mut self.display_list as *mut DisplayList,
+            &mut self.display_list,
             self.logical_width,
             self.logical_height,
         );
