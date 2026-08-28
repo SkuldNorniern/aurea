@@ -4,6 +4,7 @@
 //! Canvas stays here as it bridges elements, view, and the renderer.
 
 mod canvas;
+pub mod graph;
 
 pub use aurea_render::{
     BlendMode, CURRENT_BUFFER, ClickCallback, Color, CpuRasterizer, DisplayItem, DisplayList,
