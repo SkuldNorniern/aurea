@@ -10,12 +10,16 @@ use aurea::elements::{Orientation, Stack};
 use aurea::render::{Canvas, RendererBackend};
 use aurea::{Container, Window};
 use std::error::Error;
+use wgpu::{Instance, InstanceDescriptor};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut window = Window::new("WGPU Canvas", 800, 600)?;
     let canvas = Canvas::new(800, 600, RendererBackend::Cpu)?;
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    let _surface = canvas.create_wgpu_surface(&instance)?;
+    let instance = Instance::new(InstanceDescriptor::new_without_display_handle());
+    // Canvas clones share one native canvas, so keep a clone for the surface to
+    // borrow while the other goes into the layout.
+    let surface_canvas = canvas.clone();
+    let _surface = surface_canvas.create_wgpu_surface(&instance)?;
 
     let mut layout = Stack::new(Orientation::Vertical)?;
     layout.add(canvas)?;

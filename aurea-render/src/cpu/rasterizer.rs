@@ -1459,6 +1459,7 @@ fn union_dirty_tile_rects(
 /// conceptually covers the whole buffer, but only the dirty tiles' pixels
 /// actually need to be overwritten — anything outside them is already
 /// correct from a prior frame.
+#[allow(clippy::too_many_arguments)]
 fn clear_dirty_tiles(
     frame_buffer: &mut [u32],
     color: Color,

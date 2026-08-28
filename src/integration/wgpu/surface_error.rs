@@ -2,6 +2,7 @@ use crate::render::Canvas;
 use crate::window::{Window, WindowEvent, push_window_event};
 use aurea_runtime::FrameScheduler;
 use std::os::raw::c_void;
+use wgpu::CurrentSurfaceTexture;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SurfaceErrorAction {
@@ -17,21 +18,21 @@ pub enum SurfaceErrorAction {
 /// Pushes `WindowEvent::SurfaceLost` on Lost/Outdated and returns the action.
 pub fn handle_surface_result_for_handle(
     handle: *mut c_void,
-    result: &wgpu::CurrentSurfaceTexture,
+    result: &CurrentSurfaceTexture,
 ) -> SurfaceErrorAction {
     match result {
-        wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
+        CurrentSurfaceTexture::Lost | CurrentSurfaceTexture::Outdated => {
             if !handle.is_null() {
                 push_window_event(handle, WindowEvent::SurfaceLost);
                 FrameScheduler::schedule();
             }
             SurfaceErrorAction::Recreate
         }
-        wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+        CurrentSurfaceTexture::Timeout | CurrentSurfaceTexture::Occluded => {
             SurfaceErrorAction::Skip
         }
-        wgpu::CurrentSurfaceTexture::Validation => SurfaceErrorAction::Fatal,
-        wgpu::CurrentSurfaceTexture::Success(_) | wgpu::CurrentSurfaceTexture::Suboptimal(_) => {
+        CurrentSurfaceTexture::Validation => SurfaceErrorAction::Fatal,
+        CurrentSurfaceTexture::Success(_) | CurrentSurfaceTexture::Suboptimal(_) => {
             SurfaceErrorAction::Skip
         }
     }
@@ -41,7 +42,7 @@ pub fn handle_surface_result_for_handle(
 /// Pushes `WindowEvent::SurfaceLost` on Lost/Outdated and returns Recreate/Skip/Fatal.
 pub fn handle_surface_result_for_window(
     window: &Window,
-    result: &wgpu::CurrentSurfaceTexture,
+    result: &CurrentSurfaceTexture,
 ) -> SurfaceErrorAction {
     handle_surface_result_for_handle(window.handle(), result)
 }
@@ -50,7 +51,7 @@ pub fn handle_surface_result_for_window(
 /// Pushes `WindowEvent::SurfaceLost` on Lost/Outdated and returns Recreate/Skip/Fatal.
 pub fn handle_surface_result_for_canvas(
     canvas: &Canvas,
-    result: &wgpu::CurrentSurfaceTexture,
+    result: &CurrentSurfaceTexture,
 ) -> SurfaceErrorAction {
     handle_surface_result_for_handle(canvas.window_handle(), result)
 }

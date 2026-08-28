@@ -1,5 +1,7 @@
 use crate::elements::Element;
 use crate::ffi::*;
+#[cfg(feature = "wgpu")]
+use crate::platform::handles::{NativeWindowHandle, native_handle_from_canvas_ptr};
 use crate::registry::handle_key;
 use crate::{AureaError, AureaResult};
 use aurea_foundation::lock;
@@ -11,6 +13,8 @@ use aurea_runtime::{DamageRegion, FrameScheduler};
 use aurea_runtime::{FrameInfo, TickerId};
 use std::os::raw::c_void;
 use std::sync::{Arc, Mutex};
+#[cfg(feature = "wgpu")]
+use wgpu::{Instance, Surface as WgpuSurface, SurfaceTarget};
 
 mod runtime;
 mod state;
@@ -51,7 +55,7 @@ pub struct Canvas {
     /// The canvas's native handle, kept so a wgpu surface can borrow something
     /// that genuinely lives as long as the canvas does.
     #[cfg(feature = "wgpu")]
-    surface_handle: Arc<crate::platform::handles::NativeWindowHandle>,
+    surface_handle: Arc<NativeWindowHandle>,
     _cleanup: Arc<CanvasCleanup>,
 }
 
@@ -104,10 +108,10 @@ impl Canvas {
     #[cfg(feature = "wgpu")]
     pub fn create_wgpu_surface<'canvas>(
         &'canvas self,
-        instance: &wgpu::Instance,
-    ) -> AureaResult<wgpu::Surface<'canvas>> {
+        instance: &Instance,
+    ) -> AureaResult<WgpuSurface<'canvas>> {
         instance
-            .create_surface(wgpu::SurfaceTarget::from(&*self.surface_handle))
+            .create_surface(SurfaceTarget::from(&*self.surface_handle))
             .map_err(|_| AureaError::ElementOperationFailed)
     }
 
@@ -162,10 +166,8 @@ impl Canvas {
 
         #[cfg(feature = "wgpu")]
         let surface_handle = Arc::new(
-            crate::platform::handles::native_handle_from_canvas_ptr(unsafe {
-                ng_platform_canvas_get_native_handle(handle)
-            })
-            .ok_or(AureaError::ElementOperationFailed)?,
+            native_handle_from_canvas_ptr(unsafe { ng_platform_canvas_get_native_handle(handle) })
+                .ok_or(AureaError::ElementOperationFailed)?,
         );
 
         let canvas = Self {
