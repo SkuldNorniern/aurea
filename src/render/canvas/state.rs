@@ -46,8 +46,10 @@ fn unregister_canvas_state(handle: usize) {
 
 /// Request a full redraw of a canvas identified by its raw handle.
 pub fn request_canvas_redraw(handle: usize) {
-    let state = lock(&CANVAS_STATES).get(&handle).cloned();
-    if let Some(state) = state {
+    let Some(state) = lock(&CANVAS_STATES).get(&handle).cloned() else {
+        return;
+    };
+    {
         let mut st = lock(&state);
         st.damage.add_all();
         st.needs_redraw = true;
