@@ -7,11 +7,11 @@
 //! instead of sliding across the screen.
 
 use aurea_foundation::AureaResult;
-use aurea_render::{Color, DrawingContext, Rect};
+use aurea_render::{Color, DrawingContext, Paint, PaintStyle, Point, Rect};
 
 use super::buffer::SampleBuffer;
 use super::numeric::count_to_f64;
-use super::plot::{Axis, Graph};
+use super::plot::{Axis, Cursor, Graph};
 use super::scale::Range;
 use super::series::{Points, Series};
 use super::style::GraphStyle;
@@ -392,16 +392,34 @@ impl Scope {
         let vertical = self.vertical_range();
 
         self.graph.style = self.style.clone();
+        // A graticule is ruled in even divisions, not at round numbers, and
+        // reads in engineering units the way an instrument front panel does.
         self.graph.x = Axis::fixed(0.0, self.timebase.window_seconds()).with_ticks(
             TickPlan::default()
-                .with_target(self.timebase.divisions)
-                .with_suffix(" s"),
+                .with_even_divisions(self.timebase.divisions)
+                .with_engineering(true)
+                .with_suffix("s"),
         );
         self.graph.y = Axis::fixed(vertical.min, vertical.max).with_ticks(
             TickPlan::default()
-                .with_target(self.vertical_divisions * 2)
-                .with_suffix(" V"),
+                .with_even_divisions(self.vertical_divisions * 2)
+                .with_engineering(true)
+                .with_suffix("V"),
         );
+
+        // A line at the trigger level, so it is clear what the sweep is
+        // waiting for and which channel it is watching.
+        self.graph.cursors.clear();
+        if self.trigger.enabled {
+            let color = self
+                .channels
+                .get(self.trigger.source)
+                .and_then(|c| c.color)
+                .unwrap_or(Color::rgb(255, 210, 120));
+            self.graph
+                .cursors
+                .push(Cursor::horizontal(self.trigger.level, dim(color, 160)).with_label("T"));
+        }
 
         self.graph.series.clear();
         let mut fired = self.last_trigger;
@@ -435,13 +453,83 @@ impl Scope {
             self.single_done = true;
         }
 
-        self.graph.draw(ctx, area)
+        self.graph.draw(ctx, area)?;
+        self.draw_readout(ctx)
+    }
+
+    /// The line of text along the top: timebase, then each visible channel with
+    /// what one division is worth. Same information a front panel shows.
+    ///
+    /// It goes in the top margin rather than over the graticule, so there has
+    /// to be room for it; with no margin there is nowhere to put it.
+    fn draw_readout(&self, ctx: &mut dyn DrawingContext) -> AureaResult<()> {
+        let area = self.graph.plot_area();
+        if area.width <= 0.0 || area.height <= 0.0 || self.style.margin.top < 12.0 {
+            return Ok(());
+        }
+
+        let font = self.style.x_axis.label_font.clone();
+        let mut x = area.x;
+        let y = area.y - 6.0;
+
+        let (per_div, prefix) = engineering_value(self.timebase.seconds_per_division);
+        let timebase = format!("{per_div:.0}{prefix}s/div");
+        let paint = Paint::new()
+            .color(self.style.x_axis.label_color)
+            .style(PaintStyle::Fill);
+        ctx.draw_text_with_font(&timebase, Point::new(x, y), &font, &paint)?;
+        x += ctx.measure_text(&timebase, &font)?.width + 12.0;
+
+        for (index, channel) in self.channels.iter().enumerate() {
+            if !channel.visible {
+                continue;
+            }
+            let (volts, prefix) = engineering_value(channel.volts_per_division);
+            let text = format!("{}: {volts:.0}{prefix}V/div", channel.name);
+            let color = channel
+                .color
+                .unwrap_or_else(|| self.style.palette_color(index));
+            let paint = Paint::new().color(color).style(PaintStyle::Fill);
+            ctx.draw_text_with_font(&text, Point::new(x, y), &font, &paint)?;
+            x += ctx.measure_text(&text, &font)?.width + 12.0;
+        }
+        Ok(())
     }
 
     /// The plot behind the scope, for anything the scope API does not cover.
     pub fn graph(&self) -> &Graph {
         &self.graph
     }
+}
+
+/// A colour at a different opacity, for a marker that should not compete with
+/// the trace.
+fn dim(color: Color, alpha: u8) -> Color {
+    Color::rgba(color.r, color.g, color.b, alpha)
+}
+
+/// A value in its engineering range, with the prefix. Shared with the tick
+/// labels so the readout and the axis agree on units.
+fn engineering_value(value: f64) -> (f64, &'static str) {
+    const STEPS: [(f64, &str); 7] = [
+        (1e9, "G"),
+        (1e6, "M"),
+        (1e3, "k"),
+        (1.0, ""),
+        (1e-3, "m"),
+        (1e-6, "µ"),
+        (1e-9, "n"),
+    ];
+    let magnitude = value.abs();
+    if magnitude == 0.0 || !magnitude.is_finite() {
+        return (0.0, "");
+    }
+    for (factor, prefix) in STEPS {
+        if magnitude >= factor {
+            return (value / factor, prefix);
+        }
+    }
+    (value / 1e-9, "n")
 }
 
 #[cfg(test)]
