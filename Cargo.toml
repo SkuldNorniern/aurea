@@ -43,9 +43,12 @@ jni = { version = "0.21", optional = true }
 jni = "0.21"
 
 [features]
-default = ["zengpu"]
+# No GPU backend by default: the GPU 2D path does not yet reach parity with the
+# CPU rasterizer (strokes and damage-driven partial repaint are still missing),
+# so it stays opt-in until it does.
+default = []
 wgpu = ["dep:wgpu"]
-# GPU 2D backend via ZenGPU (Vulkan). Default.
+# GPU 2D backend via ZenGPU (Vulkan). Opt-in, experimental.
 # Forwards to aurea-render (which owns the ZenGpuRenderer) and pulls in
 # zengpu-hal so the root crate can build WindowHandles for the window-level API.
 zengpu = ["aurea-render/zengpu", "dep:zengpu-hal", "dep:zen-window-handle"]
