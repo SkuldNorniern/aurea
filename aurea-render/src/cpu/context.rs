@@ -314,13 +314,11 @@ impl CpuDrawingContext {
     }
 
     fn transform_point(&self, point: Point) -> Point {
-        let x = self.current_transform.m11 * point.x
-            + self.current_transform.m12 * point.y
-            + self.current_transform.m13;
-        let y = self.current_transform.m21 * point.x
-            + self.current_transform.m22 * point.y
-            + self.current_transform.m23;
-        Point::new(x, y)
+        let t = self.current_transform;
+        Point::new(
+            t.m11 * point.x + t.m21 * point.y + t.m31,
+            t.m12 * point.x + t.m22 * point.y + t.m32,
+        )
     }
 
     fn transform_rect(&self, rect: Rect) -> Rect {
