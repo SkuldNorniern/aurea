@@ -390,6 +390,10 @@ impl Scope {
         let window = self.timebase.window_samples();
         let interval = self.timebase.sample_interval();
         let vertical = self.vertical_range();
+        // How many pixel columns the trace has to fit into. More samples than
+        // that cannot be told apart, so they are collapsed to an envelope
+        // before anything is built.
+        let columns = super::numeric::f64_to_count(f64::from(area.width.max(1.0)));
 
         self.graph.style = self.style.clone();
         // A graticule is ruled in even divisions, not at round numbers, and
@@ -433,14 +437,9 @@ impl Scope {
                 fired = self.find_trigger(channel, window).or(fired);
             }
 
-            let points: Vec<(f64, f64)> = (0..take)
-                .filter_map(|i| {
-                    let value = channel.samples.get(start + i)?;
-                    // Offset shifts the trace on screen without touching the
-                    // captured sample, the way a scope front panel does.
-                    Some((interval * count_to_f64(i), value + channel.offset))
-                })
-                .collect();
+            // Offset shifts the trace on screen without touching the captured
+            // sample, the way a scope front panel does.
+            let points = sweep_points(channel, start, take, interval, columns);
 
             let mut series = Series::new(channel.name.clone(), Points::Xy(points));
             series.color = channel.color;
@@ -530,6 +529,79 @@ fn engineering_value(value: f64) -> (f64, &'static str) {
         }
     }
     (value / 1e-9, "n")
+}
+
+/// The points for one sweep, collapsed to a per-column envelope when there are
+/// more samples than pixels.
+///
+/// Without this the cost of a frame grows with the capture length rather than
+/// with the size of the screen: a 100k-sample sweep built 100k pairs to draw
+/// into 900 columns.
+fn sweep_points(
+    channel: &Channel,
+    start: usize,
+    take: usize,
+    interval: f64,
+    columns: usize,
+) -> Vec<(f64, f64)> {
+    // Walk contiguous slices rather than indexing: reading through `get` costs
+    // two integer divisions per sample, which dominates a long sweep.
+    let (head, tail) = channel.samples.range(start, take);
+    let offset = channel.offset;
+    let budget = columns.saturating_mul(2).max(64);
+
+    if take <= budget {
+        return head
+            .iter()
+            .chain(tail)
+            .enumerate()
+            .map(|(i, value)| (interval * count_to_f64(i), value + offset))
+            .collect();
+    }
+
+    let mut points = Vec::with_capacity(budget);
+    let total = head.len() + tail.len();
+    let per_column = count_to_f64(total) / count_to_f64(columns.max(1));
+
+    let mut column = 0usize;
+    let mut low = f64::INFINITY;
+    let mut high = f64::NEG_INFINITY;
+    let mut column_start = 0usize;
+
+    for (index, value) in head.iter().chain(tail).copied().enumerate() {
+        let this_column = super::numeric::f64_to_count(count_to_f64(index) / per_column);
+        if this_column != column {
+            if low.is_finite() {
+                push_envelope(&mut points, interval, column_start, low, high, offset);
+            }
+            column = this_column;
+            column_start = index;
+            low = f64::INFINITY;
+            high = f64::NEG_INFINITY;
+        }
+        low = low.min(value);
+        high = high.max(value);
+    }
+    if low.is_finite() {
+        push_envelope(&mut points, interval, column_start, low, high, offset);
+    }
+    points
+}
+
+/// One column of the envelope, drawn bottom to top.
+fn push_envelope(
+    points: &mut Vec<(f64, f64)>,
+    interval: f64,
+    index: usize,
+    low: f64,
+    high: f64,
+    offset: f64,
+) {
+    let t = interval * count_to_f64(index);
+    points.push((t, low + offset));
+    if (high - low).abs() > f64::EPSILON {
+        points.push((t, high + offset));
+    }
 }
 
 #[cfg(test)]
