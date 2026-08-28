@@ -69,8 +69,13 @@ fn unregister_canvas_state(handle: usize) {
 /// `handle` is the value returned by [`crate::Element::handle`] cast to `usize`.
 /// It is a no-op if the handle is unknown (e.g. the canvas was already dropped).
 pub fn request_canvas_redraw(handle: usize) {
-    let state = lock(&CANVAS_STATES).get(&handle).cloned();
-    if let Some(state) = state {
+    // Bail out before touching the scheduler or the FFI: an unknown handle
+    // belongs to a canvas that is already gone, and passing its stale address
+    // back into native code is exactly what the no-op contract rules out.
+    let Some(state) = lock(&CANVAS_STATES).get(&handle).cloned() else {
+        return;
+    };
+    {
         let mut st = lock(&state);
         st.damage.add_all();
         st.needs_redraw = true;
