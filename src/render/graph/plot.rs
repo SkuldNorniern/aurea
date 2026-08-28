@@ -538,7 +538,9 @@ impl Graph {
             };
             let style = &self.style.x_axis;
             let length = tick_length(style, tick.major);
-            vline(ctx, px, bottom, bottom + length, style.tick)?;
+            if style.show_ticks {
+                vline(ctx, px, bottom, bottom + length, style.tick)?;
+            }
 
             if tick.major && style.show_labels && !tick.label.is_empty() {
                 self.draw_x_label(ctx, &tick.label, px, bottom + length + style.label_gap)?;
@@ -551,7 +553,9 @@ impl Graph {
             };
             let style = &self.style.y_axis;
             let length = tick_length(style, tick.major);
-            hline(ctx, py, area.x - length, area.x, style.tick)?;
+            if style.show_ticks {
+                hline(ctx, py, area.x - length, area.x, style.tick)?;
+            }
 
             if tick.major && style.show_labels && !tick.label.is_empty() {
                 self.draw_y_label(ctx, &tick.label, area.x - length - style.label_gap, py)?;
