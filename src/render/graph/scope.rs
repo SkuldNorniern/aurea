@@ -354,11 +354,21 @@ impl Scope {
         );
         let after = window.saturating_sub(before);
 
-        let newest_usable = len.saturating_sub(after);
+        // The newest sample that can still be the crossing. Capped at the last
+        // real index: at position 1.0 the whole window sits before the trigger,
+        // so `after` is zero and this would otherwise start one past the end —
+        // where the first read failed and abandoned the search entirely.
+        let newest_usable = len.saturating_sub(after).min(len - 1);
         let mut index = newest_usable;
         while index > before.max(1) {
-            let previous = channel.samples.get(index - 1)?;
-            let current = channel.samples.get(index)?;
+            let (Some(previous), Some(current)) =
+                (channel.samples.get(index - 1), channel.samples.get(index))
+            else {
+                // A gap says nothing about the rest of the capture, so keep
+                // looking rather than giving up on the sweep.
+                index -= 1;
+                continue;
+            };
             if self.trigger.fires(previous, current) {
                 return Some(index - before);
             }
@@ -371,6 +381,15 @@ impl Scope {
     fn window_for(&self, channel: &Channel, window: usize) -> (usize, usize) {
         let len = channel.samples.len();
         let take = window.min(len);
+
+        // A finished single shot shows the sweep it caught and nothing else.
+        // Searching again each frame let newer samples slide the trace along
+        // while `is_stopped` reported it frozen.
+        if self.is_stopped() {
+            let start = self.last_trigger.unwrap_or(0);
+            return (start.min(len.saturating_sub(take)), take);
+        }
+
         match self.find_trigger(channel, window) {
             Some(start) => (start.min(len.saturating_sub(take)), take),
             None => match self.trigger.mode {
@@ -433,7 +452,9 @@ impl Scope {
                 continue;
             }
             let (start, take) = self.window_for(channel, window);
-            if index == self.trigger.source && self.trigger.enabled {
+            // A stopped single shot keeps the sweep it has; looking for a newer
+            // crossing is exactly what it is stopped from doing.
+            if index == self.trigger.source && self.trigger.enabled && !self.is_stopped() {
                 fired = self.find_trigger(channel, window).or(fired);
             }
 
@@ -713,6 +734,85 @@ mod tests {
         assert!(
             previous < 0.0 && current >= 0.0,
             "window should open on a rising edge, got {previous} then {current}"
+        );
+    }
+
+    /// Position 1.0 puts the whole window before the crossing, which left the
+    /// search starting one sample past the end and giving up immediately.
+    #[test]
+    fn a_trigger_at_the_far_edge_still_fires() {
+        let samples: Vec<f64> = (0..64)
+            .map(|i| if (i / 4) % 2 == 0 { -1.0 } else { 1.0 })
+            .collect();
+        let mut scope = scope_with(&samples);
+        scope.trigger = Trigger::rising(0.0).with_position(1.0);
+
+        assert!(
+            scope.find_trigger(&scope.channels[0], 8).is_some(),
+            "a square wave has crossings at any trigger position"
+        );
+    }
+
+    #[test]
+    fn every_trigger_position_finds_a_crossing() {
+        let samples: Vec<f64> = (0..64)
+            .map(|i| if (i / 4) % 2 == 0 { -1.0 } else { 1.0 })
+            .collect();
+
+        for tenth in 0..=10 {
+            let mut scope = scope_with(&samples);
+            let position = f64::from(tenth) / 10.0;
+            scope.trigger = Trigger::rising(0.0).with_position(position);
+
+            assert!(
+                scope.find_trigger(&scope.channels[0], 8).is_some(),
+                "no crossing found at position {position}"
+            );
+        }
+    }
+
+    /// A finished single shot holds the sweep it caught. It used to keep
+    /// searching, so the trace slid along while `is_stopped` said otherwise.
+    #[test]
+    fn a_stopped_single_shot_holds_its_sweep() {
+        let samples: Vec<f64> = (0..64)
+            .map(|i| if (i / 4) % 2 == 0 { -1.0 } else { 1.0 })
+            .collect();
+        let mut scope = scope_with(&samples);
+        scope.trigger = Trigger::rising(0.0).with_mode(TriggerMode::Single);
+
+        // Pretend a sweep was captured at a known place.
+        scope.last_trigger = Some(12);
+        scope.single_done = true;
+        assert!(scope.is_stopped());
+
+        let before = scope.window_for(&scope.channels[0], 8);
+
+        // More samples arrive; the frozen sweep must not move.
+        for value in 0..32 {
+            scope.push(0, f64::from(value % 2) * 2.0 - 1.0);
+        }
+        let after = scope.window_for(&scope.channels[0], 8);
+
+        assert_eq!(before, after, "a stopped sweep should not follow new data");
+    }
+
+    #[test]
+    fn arming_lets_a_single_shot_track_again() {
+        let samples: Vec<f64> = (0..64)
+            .map(|i| if (i / 4) % 2 == 0 { -1.0 } else { 1.0 })
+            .collect();
+        let mut scope = scope_with(&samples);
+        scope.trigger = Trigger::rising(0.0).with_mode(TriggerMode::Single);
+        scope.last_trigger = Some(12);
+        scope.single_done = true;
+
+        scope.arm();
+
+        assert!(!scope.is_stopped());
+        assert!(
+            scope.find_trigger(&scope.channels[0], 8).is_some(),
+            "an armed scope searches again"
         );
     }
 
