@@ -313,11 +313,18 @@ impl CpuDrawingContext {
         CacheKey::from_hash(hasher.finish())
     }
 
+    /// Maps a *physical* point through the current transform.
+    ///
+    /// `current_transform` is expressed in logical coordinates, while every
+    /// recorded command has already been scaled to physical pixels, so the
+    /// translation column has to be scaled to match. The linear part is
+    /// scale-invariant and is used as-is.
     fn transform_point(&self, point: Point) -> Point {
         let t = self.current_transform;
+        let sf = self.scale_factor;
         Point::new(
-            t.m11 * point.x + t.m21 * point.y + t.m31,
-            t.m12 * point.x + t.m22 * point.y + t.m32,
+            t.m11 * point.x + t.m21 * point.y + t.m31 * sf,
+            t.m12 * point.x + t.m22 * point.y + t.m32 * sf,
         )
     }
 
@@ -710,5 +717,45 @@ impl DrawingContext for CpuDrawingContext {
         // Both path and point are in logical coordinates; uniform scaling about
         // the origin doesn't change inside/outside, so no scaling is needed.
         Ok(super::hit_test::hit_test_path(path, point))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ctx_with(list: &mut DisplayList, scale: f32) -> CpuDrawingContext {
+        let mut ctx = CpuDrawingContext::new(list, 100, 100);
+        ctx.set_scale_factor(scale);
+        ctx
+    }
+
+    #[test]
+    fn translated_bounds_land_at_physical_offset() {
+        let mut list = DisplayList::new();
+        {
+            let mut ctx = ctx_with(&mut list, 2.0);
+            ctx.translate(10.0, 5.0).expect("translate");
+            ctx.draw_rect(Rect::new(0.0, 0.0, 20.0, 20.0), &Paint::default())
+                .expect("draw_rect");
+        }
+        let bounds = list.items()[0].bounds;
+        // Logical (10, 5) translation at scale 2 is (20, 10) physical.
+        assert!((bounds.x - 20.0).abs() < 1e-4, "x = {}", bounds.x);
+        assert!((bounds.y - 10.0).abs() < 1e-4, "y = {}", bounds.y);
+        assert!((bounds.width - 40.0).abs() < 1e-4, "w = {}", bounds.width);
+    }
+
+    #[test]
+    fn untransformed_bounds_are_plain_scaled_geometry() {
+        let mut list = DisplayList::new();
+        {
+            let mut ctx = ctx_with(&mut list, 2.0);
+            ctx.draw_rect(Rect::new(3.0, 4.0, 20.0, 20.0), &Paint::default())
+                .expect("draw_rect");
+        }
+        let bounds = list.items()[0].bounds;
+        assert!((bounds.x - 6.0).abs() < 1e-4, "x = {}", bounds.x);
+        assert!((bounds.y - 8.0).abs() < 1e-4, "y = {}", bounds.y);
     }
 }
