@@ -90,6 +90,10 @@ impl Container for SplitView {
             return Err(AureaError::ElementOperationFailed);
         }
 
+        // The native split view frees its children, so the child must stop
+        // freeing itself or it would be freed twice.
+        element.released_to_parent();
+
         self._children.push(StdBox::new(element));
         Ok(())
     }

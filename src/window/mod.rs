@@ -317,6 +317,16 @@ impl Window {
         register_update_callback(self.handle, callback);
     }
 
+    /// Sets the window's content, replacing whatever was there.
+    ///
+    /// The window takes ownership of the element: it is destroyed with the
+    /// window, or when it is replaced.
+    ///
+    /// Replacing destroys the previous content. It cannot be dropped to
+    /// achieve that — it gave up ownership when it became the content — so its
+    /// native element is destroyed explicitly here. The platform does not free
+    /// the old content when new content is set, so without this it would be
+    /// left parented and invisible for the life of the window.
     pub fn set_content<E>(&mut self, element: E) -> AureaResult<()>
     where
         E: Element + 'static,
@@ -333,7 +343,16 @@ impl Window {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        self.content = Some(Box::new(element));
+        // The window frees its content, so the element stops freeing itself.
+        element.released_to_parent();
+
+        if let Some(previous) = self.content.replace(Box::new(element)) {
+            let stale = previous.handle();
+            drop(previous);
+            if !stale.is_null() && stale != content_handle {
+                unsafe { ng_platform_destroy_element(stale) };
+            }
+        }
         Ok(())
     }
 

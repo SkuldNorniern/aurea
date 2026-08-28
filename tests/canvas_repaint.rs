@@ -236,3 +236,60 @@ fn dropping_a_canvas_destroys_the_native_element() -> AureaResult<()> {
     drop(clone);
     Ok(())
 }
+
+/// A split view takes ownership of its children too. It used to attach them
+/// and leave the child still believing it owned its handle, which is a double
+/// free waiting for the split view to be dropped.
+#[test]
+#[ignore = "creates native elements; run with --ignored"]
+fn a_split_view_takes_ownership_of_what_it_is_given() -> AureaResult<()> {
+    use aurea::elements::{Label, SplitOrientation, SplitView};
+
+    let _window = Window::new("split ownership", 300, 200)?;
+
+    let mut split = SplitView::new(SplitOrientation::Horizontal)?;
+    split.add(Label::new("left")?)?;
+    split.add(Label::new("right")?)?;
+    drop(split);
+    Ok(())
+}
+
+/// Replacing a window's content destroys the old content. The platform does
+/// not free it, and the old wrapper cannot: it gave up ownership when it
+/// became the content.
+#[test]
+#[ignore = "creates native elements; run with --ignored"]
+fn replacing_window_content_destroys_the_old_content() -> AureaResult<()> {
+    use aurea::elements::{Element, Label};
+
+    let mut window = Window::new("replace", 300, 200)?;
+
+    let first = Label::new("first")?;
+    let first_handle = first.handle();
+    window.set_content(first)?;
+
+    let second = Label::new("second")?;
+    let second_handle = second.handle();
+    window.set_content(second)?;
+
+    assert_ne!(first_handle, second_handle);
+    // The old label is gone and the window still works.
+    window.set_title("replaced")?;
+    Ok(())
+}
+
+/// A wrapper that forwards ownership behaves like the widget underneath. The
+/// trait method has no default, so a wrapper that forgets does not compile.
+#[test]
+#[ignore = "creates native elements; run with --ignored"]
+fn wrapper_elements_forward_ownership() -> AureaResult<()> {
+    use aurea::elements::{Divider, Spacer};
+
+    let _window = Window::new("wrappers", 300, 200)?;
+
+    let mut stack = Stack::new(Orientation::Vertical)?;
+    stack.add(Spacer::new()?)?;
+    stack.add(Divider::horizontal(200)?)?;
+    drop(stack);
+    Ok(())
+}
