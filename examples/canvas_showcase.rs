@@ -15,10 +15,10 @@ const H: u32 = 560;
 
 fn main() -> AureaResult<()> {
     let mut window = Window::new("Canvas Showcase", W as i32, H as i32)?;
-    let mut canvas = Canvas::new(W, H, RendererBackend::Cpu)?;
+    let canvas = Canvas::new(W, H, RendererBackend::Cpu)?;
     canvas.set_background_color(Color::rgb(250, 248, 245));
 
-    canvas.draw(|ctx| draw_showcase(ctx))?;
+    canvas.set_draw_callback(draw_showcase)?;
 
     let mut main_box = Stack::new(Orientation::Vertical)?;
     main_box.add(canvas)?;

@@ -14,9 +14,9 @@ const H: u32 = 480;
 
 fn main() -> AureaResult<()> {
     let mut window = Window::new("Canvas Text", W as i32, H as i32)?;
-    let mut canvas = Canvas::new(W, H, RendererBackend::Cpu)?;
+    let canvas = Canvas::new(W, H, RendererBackend::Cpu)?;
     canvas.set_background_color(Color::rgb(252, 250, 248));
-    canvas.draw(|ctx| draw_text_showcase(ctx))?;
+    canvas.set_draw_callback(draw_text_showcase)?;
 
     let mut main_box = Stack::new(Orientation::Vertical)?;
     main_box.add(canvas)?;

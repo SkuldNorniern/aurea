@@ -18,10 +18,10 @@ fn main() -> AureaResult<()> {
         CANVAS_WIDTH as i32,
         CANVAS_HEIGHT as i32,
     )?;
-    let mut canvas = Canvas::new(CANVAS_WIDTH, CANVAS_HEIGHT, RendererBackend::Cpu)?;
+    let canvas = Canvas::new(CANVAS_WIDTH, CANVAS_HEIGHT, RendererBackend::Cpu)?;
     canvas.set_background_color(Color::rgb(248, 248, 248));
 
-    canvas.draw(|ctx| draw_gradient_scene(ctx))?;
+    canvas.set_draw_callback(draw_gradient_scene)?;
 
     let mut main_box = Stack::new(Orientation::Vertical)?;
     main_box.add(canvas)?;

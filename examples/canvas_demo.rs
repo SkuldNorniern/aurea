@@ -23,12 +23,12 @@ fn main() -> AureaResult<()> {
     )?;
 
     // Create canvas with CPU rasterizer backend
-    let mut canvas = Canvas::new(CANVAS_WIDTH, CANVAS_HEIGHT, RendererBackend::Cpu)?;
+    let canvas = Canvas::new(CANVAS_WIDTH, CANVAS_HEIGHT, RendererBackend::Cpu)?;
     // Set background color to light gray
     canvas.set_background_color(Color::rgb(240, 240, 240));
 
     // Draw shapes on the canvas
-    canvas.draw(|ctx| draw_scene(ctx))?;
+    canvas.set_draw_callback(draw_scene)?;
 
     // Create layout and add canvas
     let mut main_box = Stack::new(Orientation::Vertical)?;
