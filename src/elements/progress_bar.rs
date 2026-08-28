@@ -2,19 +2,19 @@ use super::traits::Element;
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use aurea_foundation::lock;
-use aurea_runtime::FrameScheduler;
+use aurea_runtime::{FrameInfo, FrameScheduler, TickerId};
 use std::{
     os::raw::c_void,
     sync::{Arc, Mutex},
-    time::Instant,
 };
+
+const DEFAULT_SPEED: f64 = 0.6;
 
 struct AnimationState {
     current_value: f64,
     target_value: f64,
     speed: f64,
     increasing: bool,
-    last_update: Instant,
     enabled: bool,
 }
 
@@ -23,34 +23,28 @@ impl AnimationState {
         Self {
             current_value: 0.0,
             target_value: 1.0,
-            speed: 0.02,
+            speed: DEFAULT_SPEED,
             increasing: true,
-            last_update: Instant::now(),
             enabled: false,
         }
     }
 
-    fn update(&mut self) -> Option<f64> {
+    fn update(&mut self, delta: f64) -> Option<f64> {
         if !self.enabled {
             return None;
         }
 
-        let now = Instant::now();
-        if now.duration_since(self.last_update).as_millis() < 33 {
-            return None;
-        }
-
-        self.last_update = now;
+        let step = self.speed * delta;
 
         if self.increasing {
-            self.current_value += self.speed;
+            self.current_value += step;
             if self.current_value >= self.target_value {
                 self.current_value = self.target_value;
                 self.increasing = false;
                 self.target_value = 0.0;
             }
         } else {
-            self.current_value -= self.speed;
+            self.current_value -= step;
             if self.current_value <= self.target_value {
                 self.current_value = self.target_value;
                 self.increasing = true;
@@ -60,15 +54,12 @@ impl AnimationState {
 
         Some(self.current_value)
     }
-
-    fn needs_update(&self) -> bool {
-        self.enabled
-    }
 }
 
 pub struct ProgressBar {
     handle: *mut c_void,
     animation_state: Arc<Mutex<AnimationState>>,
+    ticker: Arc<Mutex<Option<TickerId>>>,
 }
 
 impl ProgressBar {
@@ -79,15 +70,11 @@ impl ProgressBar {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        let animation_state = Arc::new(Mutex::new(AnimationState::new()));
-        let progress_bar = Self {
+        Ok(Self {
             handle,
-            animation_state: animation_state.clone(),
-        };
-
-        progress_bar.register_animation();
-
-        Ok(progress_bar)
+            animation_state: Arc::new(Mutex::new(AnimationState::new())),
+            ticker: Arc::new(Mutex::new(None)),
+        })
     }
 
     /// Create a progress bar with an initial determinate value.
@@ -104,28 +91,44 @@ impl ProgressBar {
         Ok(bar)
     }
 
-    fn register_animation(&self) {
+    fn start_ticker(&self) {
+        let mut ticker = lock(&self.ticker);
+        if ticker.is_some() {
+            return;
+        }
+
         let handle = self.handle as usize;
         let animation_state = self.animation_state.clone();
+        let slot = Arc::clone(&self.ticker);
 
-        let callback: Arc<dyn Fn() -> AureaResult<()> + Send + Sync> = Arc::new(move || {
-            let mut state = lock(&animation_state);
+        let id = FrameScheduler::register_ticker(move |info: FrameInfo| {
+            let advanced = {
+                let mut state = lock(&animation_state);
+                state.update(info.delta.as_secs_f64())
+            };
 
-            if let Some(new_value) = state.update() {
-                unsafe {
-                    ng_platform_progress_bar_set_value(handle as *mut c_void, new_value);
-                    ng_platform_progress_bar_invalidate(handle as *mut c_void);
+            match advanced {
+                Some(value) => {
+                    unsafe {
+                        ng_platform_progress_bar_set_value(handle as *mut c_void, value);
+                        ng_platform_progress_bar_invalidate(handle as *mut c_void);
+                    }
+                    true
+                }
+                None => {
+                    *lock(&slot) = None;
+                    false
                 }
             }
-
-            if state.needs_update() {
-                FrameScheduler::schedule_canvas(handle as *mut c_void);
-            }
-
-            Ok(())
         });
 
-        FrameScheduler::register_canvas(self.handle, callback);
+        *ticker = Some(id);
+    }
+
+    fn stop_ticker(&self) {
+        if let Some(id) = lock(&self.ticker).take() {
+            FrameScheduler::unregister_ticker(id);
+        }
     }
 
     pub fn set_value(&mut self, value: f64) -> AureaResult<()> {
@@ -151,14 +154,15 @@ impl ProgressBar {
 
     /// Start automatic animation (oscillates between 0 and 1).
     pub fn start_animation(&self) -> AureaResult<()> {
-        let mut state = lock(&self.animation_state);
-        state.enabled = true;
-        state.current_value = 0.0;
-        state.target_value = 1.0;
-        state.increasing = true;
-        state.last_update = Instant::now();
+        {
+            let mut state = lock(&self.animation_state);
+            state.enabled = true;
+            state.current_value = 0.0;
+            state.target_value = 1.0;
+            state.increasing = true;
+        }
 
-        FrameScheduler::schedule_canvas(self.handle);
+        self.start_ticker();
 
         unsafe {
             self.invalidate_platform(None);
@@ -169,15 +173,15 @@ impl ProgressBar {
 
     /// Stop automatic animation.
     pub fn stop_animation(&self) -> AureaResult<()> {
-        let mut state = lock(&self.animation_state);
-        state.enabled = false;
+        lock(&self.animation_state).enabled = false;
+        self.stop_ticker();
         Ok(())
     }
 
-    /// Set animation speed (progress change per frame, typically 0.01-0.05).
+    /// Set animation speed, as progress per second.
     pub fn set_animation_speed(&self, speed: f64) -> AureaResult<()> {
         let mut state = lock(&self.animation_state);
-        state.speed = speed.clamp(0.001, 0.1);
+        state.speed = speed.clamp(0.03, 3.0);
         Ok(())
     }
 
@@ -228,6 +232,51 @@ impl Element for ProgressBar {
 
 impl Drop for ProgressBar {
     fn drop(&mut self) {
-        FrameScheduler::unregister_canvas(self.handle);
+        self.stop_ticker();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sweep_advances_by_real_time_not_by_frame_count() {
+        let mut state = AnimationState::new();
+        state.enabled = true;
+        state.speed = 1.0;
+
+        let one_step = state.update(0.5).expect("enabled");
+
+        let mut state = AnimationState::new();
+        state.enabled = true;
+        state.speed = 1.0;
+        let mut many_steps = 0.0;
+        for _ in 0..10 {
+            many_steps = state.update(0.05).expect("enabled");
+        }
+
+        assert!(
+            (one_step - many_steps).abs() < 1e-9,
+            "{one_step} vs {many_steps}"
+        );
+    }
+
+    #[test]
+    fn a_disabled_sweep_reports_nothing() {
+        let mut state = AnimationState::new();
+        assert_eq!(state.update(0.016), None);
+    }
+
+    #[test]
+    fn the_sweep_turns_around_at_both_ends() {
+        let mut state = AnimationState::new();
+        state.enabled = true;
+        state.speed = 10.0;
+
+        assert_eq!(state.update(1.0), Some(1.0), "clamped at the top");
+        assert!(!state.increasing, "and turned around");
+        assert_eq!(state.update(1.0), Some(0.0), "clamped at the bottom");
+        assert!(state.increasing);
     }
 }
