@@ -11,10 +11,29 @@ pub trait Element {
     /// hierarchy and will free it.
     ///
     /// Containers call this when a child is added. An element that owns a
-    /// native handle stops freeing it; the platform frees a container's
+    /// native handle must stop freeing it: the platform frees a container's
     /// children along with the container, so freeing it again would be a
-    /// double free. The default does nothing, for elements that own nothing.
-    fn released_to_parent(&self) {}
+    /// double free.
+    ///
+    /// There is deliberately no default. A wrapper around another element
+    /// would silently inherit an empty one and leave the element underneath
+    /// still believing it owns its handle, which is exactly the double free
+    /// this exists to prevent. Forward it to whatever holds the handle:
+    ///
+    /// ```rust,ignore
+    /// impl Element for MyWrapper {
+    ///     fn handle(&self) -> *mut c_void {
+    ///         self.inner.borrow().handle()
+    ///     }
+    ///
+    ///     fn released_to_parent(&self) {
+    ///         self.inner.borrow().released_to_parent();
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// An element that owns nothing native implements it as an empty body.
+    fn released_to_parent(&self);
 
     fn invalidate(&self, rect: Option<Rect>) {
         if let Some(r) = rect {

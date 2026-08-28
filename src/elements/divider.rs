@@ -56,6 +56,11 @@ impl Element for Divider {
         self.canvas.handle()
     }
 
+    fn released_to_parent(&self) {
+        // The canvas underneath owns the native element.
+        self.canvas.released_to_parent();
+    }
+
     unsafe fn invalidate_platform(&self, rect: Option<Rect>) {
         use super::traits::Element;
         unsafe {

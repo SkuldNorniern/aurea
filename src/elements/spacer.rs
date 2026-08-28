@@ -29,6 +29,12 @@ impl Element for Spacer {
         self.inner.handle()
     }
 
+    fn released_to_parent(&self) {
+        // The label underneath owns the native element, so it is the one that
+        // has to stop freeing it.
+        self.inner.released_to_parent();
+    }
+
     unsafe fn invalidate_platform(&self, rect: Option<Rect>) {
         use super::traits::Element;
         unsafe {
