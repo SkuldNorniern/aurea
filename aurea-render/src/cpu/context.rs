@@ -4,7 +4,7 @@ use super::super::display_list::{CacheKey, DisplayItem, DisplayList, NodeId};
 use super::super::renderer::DrawingContext;
 use super::super::text::TextRenderer;
 use super::super::types::*;
-use aurea_foundation::AureaResult;
+use aurea_foundation::{AureaError, AureaResult, Platform};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::mem::discriminant;
@@ -63,6 +63,51 @@ pub struct RecordingContext<'list> {
     current_interactive_id: Option<super::super::types::InteractiveId>,
     width: u32,
     height: u32,
+}
+
+fn axis_aligned_rect(path: &Path) -> Option<Rect> {
+    let mut points: Vec<Point> = Vec::with_capacity(5);
+    for command in &path.commands {
+        match command {
+            PathCommand::MoveTo(p) | PathCommand::LineTo(p) => points.push(*p),
+            PathCommand::Close => {}
+            PathCommand::QuadTo(..) | PathCommand::CubicTo(..) => return None,
+        }
+    }
+    if points.len() == 5 && near(points[0], points[4]) {
+        points.pop();
+    }
+    if points.len() != 4 {
+        return None;
+    }
+
+    let horizontal_first = near_value(points[0].y, points[1].y)
+        && near_value(points[1].x, points[2].x)
+        && near_value(points[2].y, points[3].y)
+        && near_value(points[3].x, points[0].x);
+    let vertical_first = near_value(points[0].x, points[1].x)
+        && near_value(points[1].y, points[2].y)
+        && near_value(points[2].x, points[3].x)
+        && near_value(points[3].y, points[0].y);
+    if !horizontal_first && !vertical_first {
+        return None;
+    }
+
+    let xs = [points[0].x, points[1].x, points[2].x, points[3].x];
+    let ys = [points[0].y, points[1].y, points[2].y, points[3].y];
+    let min_x = xs.iter().copied().fold(f32::INFINITY, f32::min);
+    let max_x = xs.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let min_y = ys.iter().copied().fold(f32::INFINITY, f32::min);
+    let max_y = ys.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    Some(Rect::new(min_x, min_y, max_x - min_x, max_y - min_y))
+}
+
+fn near(a: Point, b: Point) -> bool {
+    near_value(a.x, b.x) && near_value(a.y, b.y)
+}
+
+fn near_value(a: f32, b: f32) -> bool {
+    (a - b).abs() < 1e-3
 }
 
 fn intersect_rects(a: Rect, b: Rect) -> Rect {
@@ -558,16 +603,14 @@ impl DrawingContext for RecordingContext<'_> {
             return Ok(());
         }
 
-        let sf = self.scale_factor;
-        let physical_font = super::super::text::FontRef::with_size(font, font.size * sf);
+        let physical_font = super::super::text::FontRef::with_size(font, self.s(font.size));
         let (mask, ascent, pad) = TEXT_RENDERER.render_text_subpixel(text, physical_font)?;
         if mask.width == 0 || mask.height == 0 {
             return Ok(());
         }
 
-        let px = point.x * sf;
-        let py = point.y * sf;
-        let origin = Point::new(px - pad, py - ascent - pad);
+        let anchor = self.s_pt(point);
+        let origin = Point::new(anchor.x - pad, anchor.y - ascent - pad);
         self.add_command(super::super::command::DrawCommand::DrawGlyphMask(
             mask,
             origin,
@@ -577,12 +620,13 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn draw_image(&mut self, image: &Image, position: Point) -> AureaResult<()> {
-        let sf = self.scale_factor;
+        let anchor = self.s_pt(position);
+        let zoom = self.transform_scale();
         let dest = Rect::new(
-            position.x * sf,
-            position.y * sf,
-            image.width as f32,
-            image.height as f32,
+            anchor.x,
+            anchor.y,
+            image.width as f32 * zoom,
+            image.height as f32 * zoom,
         );
         self.add_command(super::super::command::DrawCommand::DrawImageRect(
             image.clone(),
@@ -694,7 +738,19 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn clip_path(&mut self, path: &Path) -> AureaResult<()> {
-        self.current_clip = Some(self.physical_path(path));
+        let physical = self.physical_path(path);
+        let Some(rect) = axis_aligned_rect(&physical) else {
+            return Err(AureaError::Unsupported {
+                operation: "clip_path with a non-rectangular path",
+                platform: Platform::current(),
+            });
+        };
+
+        self.current_clip = Some(physical);
+        self.current_clip_rect = Some(match self.current_clip_rect {
+            Some(current) => intersect_rects(current, rect),
+            None => rect,
+        });
         Ok(())
     }
 
@@ -709,10 +765,9 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn fill_linear_gradient(&mut self, gradient: &LinearGradient, rect: Rect) -> AureaResult<()> {
-        let sf = self.scale_factor;
         let mut g = gradient.clone();
-        g.start = Point::new(g.start.x * sf, g.start.y * sf);
-        g.end = Point::new(g.end.x * sf, g.end.y * sf);
+        g.start = self.s_pt(g.start);
+        g.end = self.s_pt(g.end);
         self.add_command(super::super::command::DrawCommand::FillLinearGradient(
             g,
             self.s_rect(rect),
@@ -721,10 +776,9 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn fill_radial_gradient(&mut self, gradient: &RadialGradient, rect: Rect) -> AureaResult<()> {
-        let sf = self.scale_factor;
         let mut g = gradient.clone();
-        g.center = Point::new(g.center.x * sf, g.center.y * sf);
-        g.radius *= sf;
+        g.center = self.s_pt(g.center);
+        g.radius = self.s(g.radius);
         self.add_command(super::super::command::DrawCommand::FillRadialGradient(
             g,
             self.s_rect(rect),
