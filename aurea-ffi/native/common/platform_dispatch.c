@@ -13,6 +13,11 @@ void ng_platform_register_ops(const ng_platform_ops_t* ops) {
     g_ops = ops;
 }
 
+/* Installs the backend for the platform being built for.
+ *
+ * There is no fallback branch: a platform with no backend leaves g_ops NULL,
+ * and every dispatch below checks for that and reports an error rather than
+ * following a null pointer. */
 static void ensure_ops(void) {
     if (g_ops != NULL) return;
 #if defined(__APPLE__)
@@ -32,10 +37,10 @@ static void ensure_ops(void) {
 #endif
 }
 
-#define DISPATCH_INIT(ret, name, ...) do { ensure_ops(); if (!g_ops->name) return (ret)(0); return g_ops->name(__VA_ARGS__); } while(0)
-#define DISPATCH_INIT_DEFAULT(ret, def, name, ...) do { ensure_ops(); if (!g_ops->name) return (ret)(def); return g_ops->name(__VA_ARGS__); } while(0)
-#define DISPATCH_VOID(name, ...) do { ensure_ops(); if (g_ops->name) g_ops->name(__VA_ARGS__); } while(0)
-#define DISPATCH_INT(name, ...) do { ensure_ops(); return g_ops->name ? g_ops->name(__VA_ARGS__) : NG_ERROR_PLATFORM_SPECIFIC; } while(0)
+#define DISPATCH_INIT(ret, name, ...) do { ensure_ops(); if (!g_ops || !g_ops->name) return (ret)(0); return g_ops->name(__VA_ARGS__); } while(0)
+#define DISPATCH_INIT_DEFAULT(ret, def, name, ...) do { ensure_ops(); if (!g_ops || !g_ops->name) return (ret)(def); return g_ops->name(__VA_ARGS__); } while(0)
+#define DISPATCH_VOID(name, ...) do { ensure_ops(); if (g_ops && g_ops->name) g_ops->name(__VA_ARGS__); } while(0)
+#define DISPATCH_INT(name, ...) do { ensure_ops(); return (g_ops && g_ops->name) ? g_ops->name(__VA_ARGS__) : NG_ERROR_PLATFORM_SPECIFIC; } while(0)
 
 int ng_platform_init(void) {
     ensure_ops();
