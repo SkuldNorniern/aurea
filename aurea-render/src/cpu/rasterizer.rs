@@ -3,7 +3,7 @@
 use std::cmp::Ordering as CmpOrdering;
 
 use crate::command::DrawCommand;
-use crate::cpu::blend::{blend_pixel, linear_to_srgb_u8, srgb_to_linear};
+use crate::cpu::blend::{ConstSrc, blend_pixel, linear_to_srgb_u8, srgb_to_linear};
 use crate::cpu::clip::ClipBox;
 use crate::cpu::context::RecordingContext;
 use crate::cpu::path::{Edge, tessellate_path_into};
@@ -338,6 +338,8 @@ impl CpuRasterizer {
             .clamp(y0 as i32, y1 as i32)
             .unsigned_abs();
 
+        let const_src =
+            (mode == BlendMode::Normal).then(|| ConstSrc::new(color_to_u32(paint.color)));
         let ctx = RectFillCtx {
             clip,
             paint,
@@ -346,6 +348,7 @@ impl CpuRasterizer {
             xr,
             c_full: color_to_u32(paint.color),
             opaque_fast: mode == BlendMode::Normal && paint.color.a == 255,
+            const_src,
         };
 
         for y in y0..y1 {
@@ -393,13 +396,32 @@ impl CpuRasterizer {
                 }
             }
         } else {
-            let c = color_to_u32_with_coverage(ctx.paint.color, row_cov);
             for x in xi0..xi1 {
-                Self::buf_set(buf, bw, ctx.clip, x as i32, y as i32, c, ctx.mode);
+                Self::blend_at(buf, bw, ctx, x, y, row_cov);
             }
         }
 
         Self::fill_rect_edge_span(buf, bw, ctx, xi1, x1, y, row_cov);
+    }
+
+    fn blend_at(buf: &mut [u32], bw: u32, ctx: &RectFillCtx, x: u32, y: u32, cov: f32) {
+        let alpha = f32_to_u32_clamped((f32::from(ctx.paint.color.a) * cov).round());
+        match ctx.const_src {
+            Some(src) => {
+                if !ctx.clip.contains(x as i32, y as i32) {
+                    return;
+                }
+                let idx = (y * bw + x) as usize;
+                if idx >= buf.len() {
+                    return;
+                }
+                buf[idx] = src.over_at_alpha(buf[idx], alpha);
+            }
+            None => {
+                let c = color_to_u32_with_coverage(ctx.paint.color, cov);
+                Self::buf_set(buf, bw, ctx.clip, x as i32, y as i32, c, ctx.mode);
+            }
+        }
     }
 
     fn fill_rect_edge_span(
@@ -413,10 +435,10 @@ impl CpuRasterizer {
     ) {
         for x in xa..xb {
             let cov = rect_cov_x(x, ctx.xl, ctx.xr) * row_cov;
-            if cov > 0.0 {
-                let c = color_to_u32_with_coverage(ctx.paint.color, cov);
-                Self::buf_set(buf, bw, ctx.clip, x as i32, y as i32, c, ctx.mode);
+            if cov <= 0.0 {
+                continue;
             }
+            Self::blend_at(buf, bw, ctx, x, y, cov);
         }
     }
 
@@ -1491,6 +1513,7 @@ struct RectFillCtx<'a> {
     xr: f32,
     c_full: u32,
     opaque_fast: bool,
+    const_src: Option<ConstSrc>,
 }
 
 fn rect_cov_x(x: u32, xl: f32, xr: f32) -> f32 {

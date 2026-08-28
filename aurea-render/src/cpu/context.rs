@@ -110,6 +110,10 @@ fn near_value(a: f32, b: f32) -> bool {
     (a - b).abs() < 1e-3
 }
 
+fn fill_with(color: Color) -> Paint {
+    Paint::new().color(color).style(PaintStyle::Fill)
+}
+
 fn intersect_rects(a: Rect, b: Rect) -> Rect {
     let x0 = a.x.max(b.x);
     let y0 = a.y.max(b.y);
@@ -546,6 +550,28 @@ impl DrawingContext for RecordingContext<'_> {
     fn clear(&mut self, color: Color) -> AureaResult<()> {
         self.add_command(super::super::command::DrawCommand::Clear(color));
         Ok(())
+    }
+
+    fn draw_line(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, paint: &Paint) -> AureaResult<()> {
+        if paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0 {
+            let half = paint.stroke_width / 2.0;
+            let horizontal = (y1 - y2).abs() < 1e-4;
+            let vertical = (x1 - x2).abs() < 1e-4;
+
+            if horizontal && !vertical {
+                let rect = Rect::new(x1.min(x2), y1 - half, (x2 - x1).abs(), paint.stroke_width);
+                return self.draw_rect(rect, &fill_with(paint.color));
+            }
+            if vertical && !horizontal {
+                let rect = Rect::new(x1 - half, y1.min(y2), paint.stroke_width, (y2 - y1).abs());
+                return self.draw_rect(rect, &fill_with(paint.color));
+            }
+        }
+
+        let mut path = Path::new();
+        path.commands.push(PathCommand::MoveTo(Point::new(x1, y1)));
+        path.commands.push(PathCommand::LineTo(Point::new(x2, y2)));
+        self.draw_path(&path, paint)
     }
 
     fn draw_rect(&mut self, rect: Rect, paint: &Paint) -> AureaResult<()> {
