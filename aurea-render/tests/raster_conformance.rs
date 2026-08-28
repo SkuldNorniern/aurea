@@ -869,3 +869,69 @@ fn clip_path_survives_the_transform_that_makes_it_a_rectangle() {
     assert_px(&buf, 16, 16, opaque(RED));
     assert_px(&buf, 2, 2, 0);
 }
+
+/// A frame where only a small thing moves must leave the rest of the picture
+/// exactly as it was, even with a full-surface background drawn every frame.
+///
+/// The background spans every tile, so redrawing it used to drag the whole
+/// surface into the repaint. Clipping each draw to the repainted region is what
+/// removed that, and this checks the pixels it was protecting are still right.
+#[test]
+fn a_small_change_leaves_the_rest_of_the_frame_intact() {
+    let mut r = CpuRasterizer::new(W, H);
+    r.init(
+        Surface::Cpu,
+        SurfaceInfo {
+            width: W,
+            height: H,
+            scale_factor: 1.0,
+        },
+    )
+    .expect("init");
+
+    let paint_scene = |ctx: &mut dyn DrawingContext, marker_x: f32| {
+        // Full-surface background, redrawn every frame.
+        ctx.clear(Color::rgb(20, 20, 20)).expect("clear");
+        // Something static in a corner, far from the marker.
+        ctx.draw_rect(Rect::new(2.0, 2.0, 6.0, 6.0), &fill(Color::rgb(0, 200, 0)))
+            .expect("static");
+        // And the one thing that moves.
+        ctx.draw_rect(Rect::new(marker_x, 20.0, 2.0, 5.0), &fill(RED))
+            .expect("marker");
+    };
+
+    // First frame, fully painted.
+    r.set_damage(Some(Rect::new(0.0, 0.0, W as f32, H as f32)));
+    {
+        let mut ctx = r.begin_frame().expect("begin");
+        paint_scene(ctx.as_mut(), 10.0);
+    }
+    r.end_frame().expect("end");
+
+    // Second frame: only the marker moves.
+    {
+        let mut ctx = r.begin_frame().expect("begin");
+        paint_scene(ctx.as_mut(), 24.0);
+    }
+    r.end_frame().expect("end");
+
+    let (ptr, len, _, _) = r.get_buffer();
+    let bytes = unsafe { from_raw_parts(ptr, len) };
+    let buf: Vec<u32> = bytes
+        .chunks_exact(4)
+        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect();
+
+    // The static square is untouched.
+    assert_px(&buf, 4, 4, opaque(Color::rgb(0, 200, 0)));
+    // The marker moved: gone from where it was, present where it is.
+    assert_px(&buf, 24, 22, opaque(RED));
+    assert_ne!(
+        px(&buf, 10, 22),
+        opaque(RED),
+        "the old marker should have been painted over{}",
+        dump(&buf)
+    );
+    // And the background is still the background.
+    assert_px(&buf, 28, 28, opaque(Color::rgb(20, 20, 20)));
+}
