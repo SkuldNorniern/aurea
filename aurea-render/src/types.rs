@@ -287,7 +287,7 @@ impl Transform {
 }
 
 /// Font for text rendering.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Font {
     pub family: String,
     pub size: f32,
