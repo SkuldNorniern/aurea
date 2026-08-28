@@ -1,8 +1,10 @@
 //! Menu bar and submenu support.
 
 use crate::ffi::*;
-use crate::registry::menu::{next_menu_item_id, register_menu_callback};
+use crate::registry::menu::{next_menu_item_id, register_menu_callback, unregister_menu_callback};
 use crate::{AureaError, AureaResult};
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::{ffi::CString, os::raw::c_void};
 
 use log::debug;
@@ -113,19 +115,28 @@ impl MenuShortcut {
     }
 }
 
+/// Ids of the menu items registered under one menu bar, so the callbacks can
+/// be dropped with it.
+type ItemIds = Rc<RefCell<Vec<u32>>>;
+
 /// A native menu bar attached to a window.
 pub struct MenuBar {
     pub handle: *mut c_void,
+    item_ids: ItemIds,
 }
 
 /// A submenu inside a menu bar.
 pub struct SubMenu {
     pub handle: *mut c_void,
+    item_ids: ItemIds,
 }
 
 impl MenuBar {
     pub fn new(handle: *mut c_void) -> Self {
-        Self { handle }
+        Self {
+            handle,
+            item_ids: Rc::new(RefCell::new(Vec::new())),
+        }
     }
 
     /// Add a submenu to this menu bar.
@@ -139,7 +150,10 @@ impl MenuBar {
 
         debug!("Added submenu '{}'", title.to_string_lossy());
 
-        Ok(SubMenu { handle })
+        Ok(SubMenu {
+            handle,
+            item_ids: Rc::clone(&self.item_ids),
+        })
     }
 
     /// Return the underlying native handle.
@@ -164,6 +178,7 @@ impl SubMenu {
         }
 
         register_menu_callback(id, callback);
+        self.item_ids.borrow_mut().push(id);
         debug!(
             "Added menu item '{}' with id {}",
             title.to_string_lossy(),
@@ -204,6 +219,11 @@ impl SubMenu {
 
 impl Drop for MenuBar {
     fn drop(&mut self) {
+        // Menu item callbacks are keyed by id in a registry that has no idea
+        // the menu is gone, so drop them here with the menu that owns them.
+        for id in self.item_ids.borrow().iter() {
+            unregister_menu_callback(*id);
+        }
         if !self.handle.is_null() {
             unsafe {
                 ng_platform_destroy_menu(self.handle);

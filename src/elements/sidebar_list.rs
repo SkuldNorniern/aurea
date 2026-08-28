@@ -3,7 +3,9 @@
 //! Displays section headers and indented clickable items with selection highlight.
 
 use super::traits::Element;
-use crate::registry::elements::{next_sidebar_id, register_sidebar_callback};
+use crate::registry::elements::{
+    next_sidebar_id, register_sidebar_callback, unregister_sidebar_callback,
+};
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::{ffi::CString, os::raw::c_void};
@@ -107,5 +109,13 @@ impl Element for SidebarList {
         unsafe {
             ng_platform_sidebar_list_invalidate(self.handle);
         }
+    }
+}
+
+impl Drop for SidebarList {
+    fn drop(&mut self) {
+        // The registry held the closure for the life of the process otherwise,
+        // and it keeps alive whatever the application captured in it.
+        unregister_sidebar_callback(self._id);
     }
 }
