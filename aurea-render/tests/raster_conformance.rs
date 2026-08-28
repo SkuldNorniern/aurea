@@ -8,10 +8,13 @@
 //! instead of silently rendering the wrong frame.
 
 use aurea_render::{
-    Color, CpuRasterizer, DrawingContext, Paint, Point, Rect, Renderer, Surface, SurfaceInfo,
+    Color, CpuRasterizer, DrawingContext, Paint, Path, PathCommand, Point, Rect, Renderer, Surface,
+    SurfaceInfo,
 };
 use std::f32::consts::FRAC_PI_4;
 use std::slice::from_raw_parts;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn f32_to_u32(v: f32) -> u32 {
@@ -371,4 +374,92 @@ fn transforms_compose_innermost_first() {
     assert_px(&buf, 15, 15, opaque(RED));
     assert_px(&buf, 7, 7, 0);
     assert_px(&buf, 16, 16, 0);
+}
+
+/// Paths are recorded in physical pixels like every other command, so a HiDPI
+/// path lands where the scale factor says it should. It used to stay logical
+/// and get scaled again at tessellation time.
+#[test]
+fn paths_are_recorded_in_physical_pixels() {
+    let mut path = Path::new();
+    path.commands
+        .push(PathCommand::MoveTo(Point::new(2.0, 2.0)));
+    path.commands
+        .push(PathCommand::LineTo(Point::new(6.0, 2.0)));
+    path.commands
+        .push(PathCommand::LineTo(Point::new(6.0, 6.0)));
+    path.commands
+        .push(PathCommand::LineTo(Point::new(2.0, 6.0)));
+    path.commands.push(PathCommand::Close);
+
+    let buf = render_scaled(2.0, |ctx| {
+        ctx.draw_path(&path, &fill(RED)).expect("draw_path");
+    });
+
+    // Logical 2..6 at scale 2 covers physical 4..12.
+    assert_px(&buf, 8, 8, opaque(RED));
+    assert_eq!(
+        px(&buf, 2, 2) >> 24,
+        0,
+        "logical coords should be empty{}",
+        dump(&buf)
+    );
+}
+
+/// A click on an interactive path is compared against the recorded geometry,
+/// so both have to be in the same space. Under HiDPI they were not.
+#[test]
+fn interactive_paths_hit_test_in_the_same_space_as_the_click() {
+    use aurea_foundation::AureaResult;
+    use aurea_render::cpu::CpuDrawingContext;
+    use aurea_render::{DisplayList, InteractionRegistry, InteractiveId};
+
+    let mut path = Path::new();
+    path.commands
+        .push(PathCommand::MoveTo(Point::new(10.0, 10.0)));
+    path.commands
+        .push(PathCommand::LineTo(Point::new(20.0, 10.0)));
+    path.commands
+        .push(PathCommand::LineTo(Point::new(20.0, 20.0)));
+    path.commands
+        .push(PathCommand::LineTo(Point::new(10.0, 20.0)));
+    path.commands.push(PathCommand::Close);
+
+    let mut list = DisplayList::new();
+    {
+        let mut ctx = CpuDrawingContext::new(&mut list, 64, 64);
+        ctx.set_scale_factor(2.0);
+        ctx.set_interactive_id(Some(InteractiveId(7)));
+        ctx.draw_path(&path, &fill(RED)).expect("draw_path");
+    }
+
+    let registry = InteractionRegistry::new();
+    let hits = Arc::new(AtomicUsize::new(0));
+    let hits_clone = Arc::clone(&hits);
+    registry.register_click(
+        InteractiveId(7),
+        Box::new(move |_| -> AureaResult<()> {
+            hits_clone.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }),
+    );
+
+    // Logical (15, 15) is physical (30, 30) at scale 2 — inside the path.
+    registry
+        .handle_click(&list, Point::new(30.0, 30.0))
+        .expect("handle_click");
+    assert_eq!(
+        hits.load(Ordering::Relaxed),
+        1,
+        "click inside the path should hit"
+    );
+
+    registry
+        .handle_click(&list, Point::new(15.0, 15.0))
+        .expect("handle_click");
+    assert_eq!(
+        hits.load(Ordering::Relaxed),
+        1,
+        "logical coords are outside the physical path"
+    );
 }
