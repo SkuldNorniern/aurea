@@ -30,6 +30,13 @@ pub struct TickPlan {
     pub decimals: Option<usize>,
     /// Appended to every label, e.g. a unit.
     pub suffix: String,
+    /// Divide the range into exactly this many even parts instead of picking
+    /// round numbers. An instrument graticule is even divisions, and the labels
+    /// that come out are whatever the divisions land on.
+    pub even_divisions: Option<usize>,
+    /// Write labels with an engineering prefix, so 0.0005 s reads as 500 us
+    /// rather than a row of zeroes.
+    pub engineering: bool,
 }
 
 impl Default for TickPlan {
@@ -39,6 +46,8 @@ impl Default for TickPlan {
             minor_per_major: 0,
             decimals: None,
             suffix: String::new(),
+            even_divisions: None,
+            engineering: false,
         }
     }
 }
@@ -68,6 +77,18 @@ impl TickPlan {
         self
     }
 
+    /// Divides the range into `count` even parts, the way a graticule is ruled.
+    pub fn with_even_divisions(mut self, count: usize) -> Self {
+        self.even_divisions = Some(count);
+        self
+    }
+
+    /// Writes labels with an engineering prefix (n, u, m, k, M, G).
+    pub fn with_engineering(mut self, engineering: bool) -> Self {
+        self.engineering = engineering;
+        self
+    }
+
     /// Works out the ticks for `range` under `scale`.
     ///
     /// Comes back empty when the range has no width or the numbers are not
@@ -80,7 +101,13 @@ impl TickPlan {
     }
 
     fn linear_ticks(&self, range: Range) -> Vec<Tick> {
-        if range.is_degenerate() || self.target == 0 {
+        if range.is_degenerate() {
+            return Vec::new();
+        }
+        if let Some(count) = self.even_divisions {
+            return self.even_ticks(range, count);
+        }
+        if self.target == 0 {
             return Vec::new();
         }
         let (lo, hi) = ordered(range);
@@ -115,6 +142,30 @@ impl TickPlan {
                 self.push_minor(&mut ticks, value, minor_step, lo, hi);
             }
             i += 1.0;
+        }
+        ticks
+    }
+
+    /// The range cut into `count` even parts, ends included.
+    fn even_ticks(&self, range: Range, count: usize) -> Vec<Tick> {
+        if count == 0 || super::numeric::count_to_f64(count) > MAX_TICKS {
+            return Vec::new();
+        }
+        let (lo, hi) = ordered(range);
+        let step = (hi - lo) / super::numeric::count_to_f64(count);
+        let decimals = self.decimals.unwrap_or_else(|| decimals_for(step));
+
+        let mut ticks = Vec::with_capacity(count + 1);
+        for i in 0..=count {
+            let value = step.mul_add(super::numeric::count_to_f64(i), lo);
+            ticks.push(Tick {
+                value,
+                label: self.format(value, decimals),
+                major: true,
+            });
+            if i < count {
+                self.push_minor(&mut ticks, value, self.minor_step(step), lo, hi);
+            }
         }
         ticks
     }
@@ -188,8 +239,38 @@ impl TickPlan {
     fn format(&self, value: f64, decimals: usize) -> String {
         // -0 reads as a mistake on an axis, so fold it into 0.
         let value = if value == 0.0 { 0.0 } else { value };
+        if self.engineering {
+            let (scaled, prefix) = engineering(value);
+            return format!("{scaled:.0}{prefix}{}", self.suffix);
+        }
         format!("{value:.decimals$}{}", self.suffix)
     }
+}
+
+/// A value scaled into the nearest engineering range, with its prefix.
+///
+/// Instruments read in nanoseconds and millivolts, not in exponents.
+fn engineering(value: f64) -> (f64, &'static str) {
+    const STEPS: [(f64, &str); 7] = [
+        (1e9, "G"),
+        (1e6, "M"),
+        (1e3, "k"),
+        (1.0, ""),
+        (1e-3, "m"),
+        (1e-6, "µ"),
+        (1e-9, "n"),
+    ];
+    let magnitude = value.abs();
+    if magnitude == 0.0 || !magnitude.is_finite() {
+        return (0.0, "");
+    }
+    for (factor, prefix) in STEPS {
+        if magnitude >= factor {
+            return (value / factor, prefix);
+        }
+    }
+    // Smaller than a nanosecond; keep the smallest prefix rather than none.
+    (value / 1e-9, "n")
 }
 
 /// Anything past this and the axis is not readable anyway; better to draw no
@@ -352,6 +433,63 @@ mod tests {
         let ticks = plan.ticks(Range::new(-1.0, 1.0), Scale::Linear);
         assert!(!ticks.iter().any(|t| t.label.starts_with("-0.0")));
         assert!(!ticks.iter().any(|t| t.label == "-0"));
+    }
+
+    #[test]
+    fn even_divisions_cut_the_range_into_equal_parts() {
+        let plan = TickPlan::default().with_even_divisions(4);
+        let ticks = plan.ticks(Range::new(0.0, 10.0), Scale::Linear);
+
+        assert_eq!(values(&ticks), vec![0.0, 2.5, 5.0, 7.5, 10.0]);
+    }
+
+    #[test]
+    fn even_divisions_hit_both_ends_of_an_awkward_range() {
+        let plan = TickPlan::default().with_even_divisions(3);
+        let ticks = plan.ticks(Range::new(-1.0, 2.0), Scale::Linear);
+        let vals = values(&ticks);
+
+        assert!((vals[0] - -1.0).abs() < 1e-9, "got {vals:?}");
+        assert!((vals[vals.len() - 1] - 2.0).abs() < 1e-9, "got {vals:?}");
+    }
+
+    #[test]
+    fn zero_even_divisions_gives_no_ticks() {
+        let plan = TickPlan::default().with_even_divisions(0);
+        assert!(plan.ticks(Range::new(0.0, 10.0), Scale::Linear).is_empty());
+    }
+
+    #[test]
+    fn engineering_labels_use_a_prefix_instead_of_zeroes() {
+        let plan = TickPlan::default()
+            .with_even_divisions(2)
+            .with_engineering(true)
+            .with_suffix("s");
+        let ticks = plan.ticks(Range::new(0.0, 0.001), Scale::Linear);
+        let labels: Vec<&str> = ticks.iter().map(|t| t.label.as_str()).collect();
+
+        assert!(labels.contains(&"1ms"), "got {labels:?}");
+    }
+
+    #[test]
+    fn engineering_picks_the_right_range() {
+        assert_eq!(engineering(0.0), (0.0, ""));
+        assert_eq!(engineering(1500.0), (1.5, "k"));
+        assert_eq!(engineering(0.5), (500.0, "m"));
+        assert_eq!(engineering(2.0), (2.0, ""));
+    }
+
+    #[test]
+    fn engineering_keeps_the_sign() {
+        let (value, prefix) = engineering(-0.002);
+        assert!(value < 0.0, "got {value}{prefix}");
+        assert_eq!(prefix, "m");
+    }
+
+    #[test]
+    fn something_smaller_than_a_nanosecond_still_gets_a_label() {
+        let (_, prefix) = engineering(1e-12);
+        assert_eq!(prefix, "n");
     }
 
     #[test]

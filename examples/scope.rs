@@ -7,7 +7,7 @@
 //! signal slides across the screen instead.
 
 use aurea::elements::{Orientation, Stack};
-use aurea::render::graph::{Channel, Scope, Timebase, Trigger};
+use aurea::render::graph::{Channel, GridStyle, Margin, Scope, Stroke, Timebase, Trigger};
 use aurea::render::{Canvas, Color, Rect, RendererBackend};
 use aurea::{AureaResult, Container, Window};
 use aurea_foundation::lock;
@@ -37,16 +37,32 @@ fn main() -> AureaResult<()> {
     scope.vertical_divisions = 4;
     scope.trigger = Trigger::rising(0.0).with_position(0.1);
 
+    // A graticule wants a faint, even grid and room for the readout along the
+    // top, not the default plot furniture.
+    scope.style.plot_background = Some(Color::rgb(8, 10, 13));
+    scope.style.margin = Margin::new(56.0, 16.0, 24.0, 30.0);
+    scope.style.grid = GridStyle {
+        major: Stroke::new(Color::rgba(120, 200, 255, 26), 1.0),
+        minor: Stroke::new(Color::rgba(120, 200, 255, 12), 1.0),
+        zero: Some(Stroke::new(Color::rgba(180, 220, 255, 70), 1.0)),
+        show_vertical: true,
+        show_horizontal: true,
+    };
+    scope.style.border = Some(Stroke::new(Color::rgba(120, 200, 255, 70), 1.0));
+    scope.style.x_axis.minor_tick_length = 3.0;
+    scope.style.y_axis.minor_tick_length = 3.0;
+
     scope.add_channel(
         Channel::with_capacity("CH1", CAPTURE)
-            .with_color(Color::rgb(120, 200, 255))
-            .with_volts_per_division(0.5),
+            .with_color(Color::rgb(140, 225, 255))
+            .with_volts_per_division(0.5)
+            .with_offset(0.9),
     );
     scope.add_channel(
         Channel::with_capacity("CH2", CAPTURE)
-            .with_color(Color::rgb(255, 190, 90))
+            .with_color(Color::rgb(255, 200, 120))
             .with_volts_per_division(0.5)
-            .with_offset(-1.2),
+            .with_offset(-0.9),
     );
 
     let scope = Arc::new(Mutex::new(scope));
