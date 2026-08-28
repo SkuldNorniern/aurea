@@ -12,5 +12,4 @@ workspace = true
 
 [dependencies]
 aurea-foundation = { path = "../aurea-foundation", version = "0.0.1" }
-aurea-render = { path = "../aurea-render", version = "0.0.1" }
 log = "0.4.29"

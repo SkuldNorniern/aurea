@@ -31,50 +31,12 @@ impl Color {
     }
 }
 
-/// 2D point
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Point {
-    pub x: f32,
-    pub y: f32,
-}
-
-impl Point {
-    pub const fn new(x: f32, y: f32) -> Self {
-        Self { x, y }
-    }
-}
-
-/// Rectangle
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Rect {
-    pub x: f32,
-    pub y: f32,
-    pub width: f32,
-    pub height: f32,
-}
-
-impl Rect {
-    pub const fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
-        Self {
-            x,
-            y,
-            width,
-            height,
-        }
-    }
-
-    pub fn from_points(top_left: Point, bottom_right: Point) -> Self {
-        Self {
-            x: top_left.x,
-            y: top_left.y,
-            width: bottom_right.x - top_left.x,
-            height: bottom_right.y - top_left.y,
-        }
-    }
-}
+// Geometry belongs to the foundation, not to the renderer: the runtime speaks
+// in rectangles too, and it should not need a renderer to do so.
+pub use aurea_foundation::{Point, Rect};
 
 /// Paint style for drawing operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
