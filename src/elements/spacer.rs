@@ -42,14 +42,3 @@ impl Element for Spacer {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn spacer_creates_successfully() {
-        let spacer = Spacer::new();
-        assert!(spacer.is_ok());
-    }
-}

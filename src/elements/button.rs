@@ -43,8 +43,11 @@ impl Button {
 
 impl Button {
     /// Id this button's callback is registered under.
-    #[cfg(test)]
-    pub(crate) fn callback_id(&self) -> u32 {
+    ///
+    /// Public so an integration test can check that dropping the button drops
+    /// the registration; there is no other reason to want it.
+    #[doc(hidden)]
+    pub fn callback_id(&self) -> u32 {
         self._id
     }
 }

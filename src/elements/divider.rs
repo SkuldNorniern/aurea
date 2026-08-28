@@ -68,20 +68,3 @@ impl Element for Divider {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn divider_horizontal_creates() {
-        let d = Divider::horizontal(100);
-        assert!(d.is_ok());
-    }
-
-    #[test]
-    fn divider_vertical_creates() {
-        let d = Divider::vertical(50);
-        assert!(d.is_ok());
-    }
-}

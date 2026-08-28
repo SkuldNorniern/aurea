@@ -281,22 +281,31 @@ pub fn raw_handles(
         NativeWindowHandle::Linux(handle) => match handle {
             LinuxWindowHandle::Xcb { window, connection } => {
                 use raw_window_handle::{XcbDisplayHandle, XcbWindowHandle};
-                if *window == 0 || connection.is_null() {
+                use std::num::NonZeroU32;
+                use std::ptr::NonNull;
+                // The handle types take the window id and the connection
+                // pre-checked for null, so the checks are the conversion.
+                let (Some(window), Some(connection)) =
+                    (NonZeroU32::new(*window), NonNull::new(*connection))
+                else {
                     return Err(HandleError::Unavailable);
-                }
+                };
                 Ok((
-                    RawWindowHandle::Xcb(XcbWindowHandle::new(*window, *connection)),
-                    RawDisplayHandle::Xcb(XcbDisplayHandle::new(*connection, 0)),
+                    RawWindowHandle::Xcb(XcbWindowHandle::new(window)),
+                    RawDisplayHandle::Xcb(XcbDisplayHandle::new(Some(connection), 0)),
                 ))
             }
             LinuxWindowHandle::Wayland { surface, display } => {
                 use raw_window_handle::{WaylandDisplayHandle, WaylandWindowHandle};
-                if surface.is_null() || display.is_null() {
+                use std::ptr::NonNull;
+                let (Some(surface), Some(display)) =
+                    (NonNull::new(*surface), NonNull::new(*display))
+                else {
                     return Err(HandleError::Unavailable);
-                }
+                };
                 Ok((
-                    RawWindowHandle::Wayland(WaylandWindowHandle::new(*surface)),
-                    RawDisplayHandle::Wayland(WaylandDisplayHandle::new(*display)),
+                    RawWindowHandle::Wayland(WaylandWindowHandle::new(surface)),
+                    RawDisplayHandle::Wayland(WaylandDisplayHandle::new(display)),
                 ))
             }
         },
