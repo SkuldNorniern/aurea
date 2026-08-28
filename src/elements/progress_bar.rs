@@ -1,3 +1,4 @@
+use super::native::NativeElement;
 use super::traits::Element;
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
@@ -57,7 +58,7 @@ impl AnimationState {
 }
 
 pub struct ProgressBar {
-    handle: *mut c_void,
+    handle: NativeElement,
     animation_state: Arc<Mutex<AnimationState>>,
     ticker: Arc<Mutex<Option<TickerId>>>,
 }
@@ -71,7 +72,7 @@ impl ProgressBar {
         }
 
         Ok(Self {
-            handle,
+            handle: NativeElement::new(handle),
             animation_state: Arc::new(Mutex::new(AnimationState::new())),
             ticker: Arc::new(Mutex::new(None)),
         })
@@ -97,7 +98,7 @@ impl ProgressBar {
             return;
         }
 
-        let handle = self.handle as usize;
+        let handle = self.handle.handle() as usize;
         let animation_state = self.animation_state.clone();
         let slot = Arc::clone(&self.ticker);
 
@@ -137,7 +138,7 @@ impl ProgressBar {
             state.enabled = false;
         }
 
-        let result = unsafe { ng_platform_progress_bar_set_value(self.handle, value) };
+        let result = unsafe { ng_platform_progress_bar_set_value(self.handle.handle(), value) };
 
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
@@ -193,7 +194,7 @@ impl ProgressBar {
 
         let result = unsafe {
             ng_platform_progress_bar_set_indeterminate(
-                self.handle,
+                self.handle.handle(),
                 if indeterminate { 1 } else { 0 },
             )
         };
@@ -207,7 +208,7 @@ impl ProgressBar {
 
     pub fn set_enabled(&mut self, enabled: bool) -> AureaResult<()> {
         let result = unsafe {
-            ng_platform_progress_bar_set_enabled(self.handle, if enabled { 1 } else { 0 })
+            ng_platform_progress_bar_set_enabled(self.handle.handle(), if enabled { 1 } else { 0 })
         };
 
         if result != 0 {
@@ -220,12 +221,16 @@ impl ProgressBar {
 
 impl Element for ProgressBar {
     fn handle(&self) -> *mut c_void {
-        self.handle
+        self.handle.handle()
+    }
+
+    fn released_to_parent(&self) {
+        self.handle.released_to_parent();
     }
 
     unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         unsafe {
-            ng_platform_progress_bar_invalidate(self.handle);
+            ng_platform_progress_bar_invalidate(self.handle.handle());
         }
     }
 }

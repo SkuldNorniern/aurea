@@ -136,6 +136,22 @@ void ng_windows_destroy_window(NGHandle handle) {
     DestroyWindow(hwnd);
 }
 
+void ng_windows_destroy_element(NGHandle element) {
+    if (!element) return;
+    HWND hwnd = (HWND)element;
+    if (!IsWindow(hwnd)) return;
+    DestroyWindow(hwnd);
+}
+
+int ng_windows_detach_element(NGHandle element) {
+    if (!element) return NG_ERROR_INVALID_HANDLE;
+    HWND hwnd = (HWND)element;
+    if (!IsWindow(hwnd)) return NG_ERROR_INVALID_HANDLE;
+    ShowWindow(hwnd, SW_HIDE);
+    if (!SetParent(hwnd, NULL)) return NG_ERROR_PLATFORM_SPECIFIC;
+    return NG_SUCCESS;
+}
+
 void ng_windows_window_show(NGHandle window) {
     if (!window) return;
     ShowWindow((HWND)window, SW_SHOW);

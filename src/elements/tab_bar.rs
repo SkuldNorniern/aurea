@@ -1,5 +1,6 @@
 //! Tab bar element with selectable tabs and drag-to-detach support.
 
+use super::native::NativeElement;
 use super::traits::Element;
 use crate::registry::elements::{next_tab_id, register_tab_callbacks, unregister_tab_callbacks};
 use crate::render::Rect;
@@ -7,7 +8,7 @@ use crate::{AureaError, AureaResult, ffi::*};
 use std::{ffi::CString, os::raw::c_void};
 
 pub struct TabBar {
-    handle: *mut c_void,
+    handle: NativeElement,
     _id: u32,
 }
 
@@ -31,7 +32,10 @@ impl TabBar {
 
         register_tab_callbacks(id, on_selected, on_detach);
 
-        Ok(Self { handle, _id: id })
+        Ok(Self {
+            handle: NativeElement::new(handle),
+            _id: id,
+        })
     }
 
     /// Create a tab bar and populate it with initial tabs.
@@ -64,7 +68,7 @@ impl TabBar {
 
     pub fn add_tab(&mut self, title: &str) -> AureaResult<()> {
         let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
-        let result = unsafe { ng_platform_tab_bar_add_tab(self.handle, title.as_ptr()) };
+        let result = unsafe { ng_platform_tab_bar_add_tab(self.handle.handle(), title.as_ptr()) };
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
         }
@@ -84,7 +88,7 @@ impl TabBar {
     }
 
     pub fn remove_tab(&mut self, index: i32) -> AureaResult<()> {
-        let result = unsafe { ng_platform_tab_bar_remove_tab(self.handle, index) };
+        let result = unsafe { ng_platform_tab_bar_remove_tab(self.handle.handle(), index) };
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
         }
@@ -92,7 +96,7 @@ impl TabBar {
     }
 
     pub fn set_selected(&mut self, index: i32) -> AureaResult<()> {
-        let result = unsafe { ng_platform_tab_bar_set_selected(self.handle, index) };
+        let result = unsafe { ng_platform_tab_bar_set_selected(self.handle.handle(), index) };
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
         }
@@ -100,18 +104,22 @@ impl TabBar {
     }
 
     pub fn get_selected(&self) -> i32 {
-        unsafe { ng_platform_tab_bar_get_selected(self.handle) }
+        unsafe { ng_platform_tab_bar_get_selected(self.handle.handle()) }
     }
 }
 
 impl Element for TabBar {
     fn handle(&self) -> *mut c_void {
-        self.handle
+        self.handle.handle()
+    }
+
+    fn released_to_parent(&self) {
+        self.handle.released_to_parent();
     }
 
     unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         unsafe {
-            ng_platform_tab_bar_invalidate(self.handle);
+            ng_platform_tab_bar_invalidate(self.handle.handle());
         }
     }
 }

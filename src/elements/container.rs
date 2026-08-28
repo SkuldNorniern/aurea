@@ -1,3 +1,4 @@
+use super::native::NativeElement;
 use super::traits::{Container, Element};
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
@@ -13,7 +14,7 @@ pub enum Orientation {
 
 /// A native container that arranges children in a row or column.
 pub struct Stack {
-    handle: *mut c_void,
+    handle: NativeElement,
     _orientation: Orientation,
     _children: Vec<Box<dyn Any>>,
 }
@@ -33,7 +34,7 @@ impl Stack {
         }
 
         Ok(Self {
-            handle,
+            handle: NativeElement::new(handle),
             _orientation: orientation,
             _children: Vec::new(),
         })
@@ -42,12 +43,16 @@ impl Stack {
 
 impl Element for Stack {
     fn handle(&self) -> *mut c_void {
-        self.handle
+        self.handle.handle()
+    }
+
+    fn released_to_parent(&self) {
+        self.handle.released_to_parent();
     }
 
     unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         unsafe {
-            ng_platform_box_invalidate(self.handle);
+            ng_platform_box_invalidate(self.handle.handle());
         }
     }
 }
@@ -71,11 +76,13 @@ impl Stack {
 
 impl Container for Stack {
     fn add_weighted<E: Element + 'static>(&mut self, element: E, weight: f32) -> AureaResult<()> {
-        let result = unsafe { ng_platform_box_add(self.handle, element.handle(), weight) };
+        let result = unsafe { ng_platform_box_add(self.handle.handle(), element.handle(), weight) };
 
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
         }
+
+        element.released_to_parent();
 
         self._children.push(Box::new(element));
         Ok(())

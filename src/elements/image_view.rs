@@ -1,3 +1,4 @@
+use super::native::NativeElement;
 use super::traits::Element;
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
@@ -12,7 +13,7 @@ pub enum ImageScaling {
 }
 
 pub struct ImageView {
-    handle: *mut c_void,
+    handle: NativeElement,
 }
 
 impl ImageView {
@@ -23,7 +24,9 @@ impl ImageView {
             return Err(AureaError::ElementOperationFailed);
         }
 
-        Ok(Self { handle })
+        Ok(Self {
+            handle: NativeElement::new(handle),
+        })
     }
 
     /// Create an image view and load an image from a file path.
@@ -49,7 +52,8 @@ impl ImageView {
 
     pub fn load_from_path(&mut self, path: &str) -> AureaResult<()> {
         let path = CString::new(path).map_err(|_| AureaError::InvalidTitle)?;
-        let result = unsafe { ng_platform_image_view_load_from_path(self.handle, path.as_ptr()) };
+        let result =
+            unsafe { ng_platform_image_view_load_from_path(self.handle.handle(), path.as_ptr()) };
 
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
@@ -61,7 +65,7 @@ impl ImageView {
     pub fn load_from_data(&mut self, data: &[u8]) -> AureaResult<()> {
         let result = unsafe {
             ng_platform_image_view_load_from_data(
-                self.handle,
+                self.handle.handle(),
                 data.as_ptr(),
                 u32::try_from(data.len()).expect("image data fits in u32"),
             )
@@ -76,7 +80,7 @@ impl ImageView {
 
     pub fn set_scaling(&mut self, scaling: ImageScaling) -> AureaResult<()> {
         unsafe {
-            ng_platform_image_view_set_scaling(self.handle, scaling as i32);
+            ng_platform_image_view_set_scaling(self.handle.handle(), scaling as i32);
         }
         Ok(())
     }
@@ -84,12 +88,16 @@ impl ImageView {
 
 impl Element for ImageView {
     fn handle(&self) -> *mut c_void {
-        self.handle
+        self.handle.handle()
+    }
+
+    fn released_to_parent(&self) {
+        self.handle.released_to_parent();
     }
 
     unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
         unsafe {
-            ng_platform_image_view_invalidate(self.handle);
+            ng_platform_image_view_invalidate(self.handle.handle());
         }
     }
 }

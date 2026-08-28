@@ -15,6 +15,7 @@ use aurea_render::{Color, Rect, Renderer, RendererBackend};
 use aurea_runtime::{DamageRegion, FrameScheduler};
 use std::collections::HashMap;
 use std::os::raw::c_void;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 #[cfg(feature = "zengpu")]
 use zengpu_hal::WindowHandles;
@@ -63,15 +64,21 @@ pub fn request_canvas_redraw(handle: usize) {
 pub(super) struct CanvasCleanup {
     pub(super) handle: usize,
     pub(super) renderer: Arc<Mutex<Option<Box<dyn Renderer>>>>,
+    pub(super) owns_native: AtomicBool,
 }
 
 impl Drop for CanvasCleanup {
     fn drop(&mut self) {
         FrameScheduler::unregister_canvas(self.handle as *mut c_void);
         unregister_canvas_state(self.handle);
-        let mut r = lock(&self.renderer);
-        if let Some(ref mut renderer) = *r {
-            renderer.cleanup();
+        {
+            let mut r = lock(&self.renderer);
+            if let Some(ref mut renderer) = *r {
+                renderer.cleanup();
+            }
+        }
+        if self.owns_native.load(Ordering::Acquire) {
+            unsafe { ng_platform_destroy_element(self.handle as *mut c_void) };
         }
     }
 }

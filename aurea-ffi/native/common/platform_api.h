@@ -62,6 +62,10 @@ void ng_platform_box_invalidate(NGHandle box_handle);
 int ng_platform_box_add(NGHandle box_handle, NGHandle element, float weight);
 int ng_platform_set_window_content(NGHandle window, NGHandle content);
 
+void ng_platform_destroy_element(NGHandle element);
+
+int ng_platform_detach_element(NGHandle element);
+
 NGHandle ng_platform_create_split_view(int is_vertical);
 int ng_platform_split_view_add(NGHandle split_handle, NGHandle element);
 int ng_platform_split_view_set_divider_position(NGHandle split_handle, int index, float position);

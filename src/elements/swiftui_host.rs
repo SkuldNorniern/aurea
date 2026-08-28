@@ -1,5 +1,6 @@
 //! SwiftUI-in-Aurea: host element that mounts NSHostingView on macOS.
 
+use super::native::NativeElement;
 use super::traits::Element;
 #[cfg(target_os = "macos")]
 use crate::ffi::*;
@@ -27,7 +28,7 @@ impl Error for SwiftUIHostNotAvailable {}
 
 /// Host element that embeds a SwiftUI view hierarchy inside an Aurea window.
 pub struct SwiftUIHost {
-    handle: *mut c_void,
+    handle: NativeElement,
 }
 
 impl SwiftUIHost {
@@ -44,7 +45,9 @@ impl SwiftUIHost {
             if handle.is_null() {
                 return Err(SwiftUIHostNotAvailable);
             }
-            Ok(Self { handle })
+            Ok(Self {
+                handle: NativeElement::new(handle),
+            })
         }
 
         #[cfg(not(target_os = "macos"))]
@@ -57,7 +60,11 @@ impl SwiftUIHost {
 
 impl Element for SwiftUIHost {
     fn handle(&self) -> *mut c_void {
-        self.handle
+        self.handle.handle()
+    }
+
+    fn released_to_parent(&self) {
+        self.handle.released_to_parent();
     }
 
     unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {}
