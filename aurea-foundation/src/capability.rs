@@ -258,6 +258,19 @@ impl CapabilityChecker {
         capability.support_on(self.platform)
     }
 
+    /// Whether `capability` names a GPU backend, whose availability also depends on what was
+    /// compiled in.
+    pub fn is_gpu(capability: Capability) -> bool {
+        matches!(
+            capability,
+            Capability::HardwareAcceleration
+                | Capability::Vulkan
+                | Capability::Metal
+                | Capability::DirectX
+                | Capability::OpenGL
+        )
+    }
+
     /// Everything Aurea can do here.
     pub fn available_capabilities(&self) -> Vec<Capability> {
         ALL.iter().copied().filter(|&cap| self.has(cap)).collect()
