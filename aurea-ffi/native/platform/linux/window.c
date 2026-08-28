@@ -57,8 +57,22 @@ static void on_window_destroy(GtkWidget* widget, gpointer data) {
             break;
         }
     }
-    // Quit the GTK main loop when window is closed
-    gtk_main_quit();
+    /* End the loop only when the last window goes.
+     *
+     * Quitting on any window's destroy would take every other window with it,
+     * and poll_events drives the context directly without ever entering
+     * gtk_main, so there is often no loop to quit at all. */
+    if (gtk_main_level() == 0) return;
+
+    GList* toplevels = gtk_window_list_toplevels();
+    int remaining = 0;
+    for (GList* item = toplevels; item != NULL; item = item->next) {
+        GtkWidget* other = GTK_WIDGET(item->data);
+        if (other != widget && gtk_widget_get_visible(other)) remaining++;
+    }
+    g_list_free(toplevels);
+
+    if (remaining == 0) gtk_main_quit();
 }
 
 static gboolean on_window_state_event(GtkWidget* widget, GdkEventWindowState* event, gpointer user_data) {
