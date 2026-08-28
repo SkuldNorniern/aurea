@@ -43,6 +43,17 @@ impl Animation {
 
     /// Advance by `delta` time.
     pub fn tick(&mut self, delta: Duration) -> Option<f32> {
+        if self.duration.is_zero() {
+            if self.looping {
+                return Some(self.easing.eval(1.0));
+            }
+            if self.elapsed > self.duration {
+                return None;
+            }
+            self.elapsed = Duration::from_nanos(1);
+            return Some(self.easing.eval(1.0));
+        }
+
         if self.elapsed > self.duration {
             return None;
         }
@@ -66,6 +77,9 @@ impl Animation {
 
     /// Fraction of time elapsed, independent of easing, clamped to [0, 1].
     pub fn progress(&self) -> f32 {
+        if self.duration.is_zero() {
+            return 1.0;
+        }
         (self.elapsed.as_secs_f32() / self.duration.as_secs_f32()).clamp(0.0, 1.0)
     }
 
@@ -81,6 +95,30 @@ impl Animation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zero_duration_looping_yields_the_end_value() {
+        let mut anim = Animation::new(Duration::ZERO).looping(true);
+        for _ in 0..3 {
+            assert_eq!(anim.tick(Duration::from_millis(16)), Some(1.0));
+        }
+        assert_eq!(anim.progress(), 1.0);
+    }
+
+    #[test]
+    fn zero_duration_finishes_after_one_tick() {
+        let mut anim = Animation::new(Duration::ZERO);
+        assert_eq!(anim.tick(Duration::from_millis(16)), Some(1.0));
+        assert_eq!(anim.tick(Duration::from_millis(16)), None);
+        assert!(anim.is_done());
+    }
+
+    #[test]
+    fn zero_duration_progress_is_not_nan() {
+        let anim = Animation::new(Duration::ZERO);
+        assert!(anim.progress().is_finite());
+        assert_eq!(anim.progress(), 1.0);
+    }
 
     #[test]
     fn tick_yields_terminal_value_once() {
