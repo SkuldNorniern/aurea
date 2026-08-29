@@ -16,8 +16,10 @@
 #![cfg(target_os = "linux")]
 
 use aurea::{AureaResult, Window};
+use std::mem::forget;
 use std::os::raw::{c_int, c_void};
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::ptr::null_mut;
+use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 
 unsafe extern "C" {
     fn gtk_widget_destroy(widget: *mut c_void);
@@ -39,8 +41,8 @@ const REMOVE: c_int = 0;
 static LEVEL_AFTER_FIRST_CLOSE: AtomicI32 = AtomicI32::new(-1);
 /// The second window, closed once the check has run so the loop can end.
 static SECOND: AtomicI32 = AtomicI32::new(0);
-static SECOND_PTR: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-static FIRST_PTR: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static SECOND_PTR: AtomicUsize = AtomicUsize::new(0);
+static FIRST_PTR: AtomicUsize = AtomicUsize::new(0);
 
 extern "C" fn close_first(_: *mut c_void) -> c_int {
     unsafe { gtk_widget_destroy(FIRST_PTR.load(Ordering::SeqCst) as *mut c_void) };
@@ -82,9 +84,9 @@ fn closing_one_window_leaves_the_others_running() -> AureaResult<()> {
     SECOND.store(1, Ordering::SeqCst);
 
     unsafe {
-        g_idle_add(close_first, std::ptr::null_mut());
-        g_timeout_add(150, observe_then_close_second, std::ptr::null_mut());
-        g_timeout_add(3000, bail_out, std::ptr::null_mut());
+        g_idle_add(close_first, null_mut());
+        g_timeout_add(150, observe_then_close_second, null_mut());
+        g_timeout_add(3000, bail_out, null_mut());
     }
 
     // Returns when the last window goes, or when bail_out fires.
@@ -93,8 +95,8 @@ fn closing_one_window_leaves_the_others_running() -> AureaResult<()> {
     // Both widgets are already gone, destroyed above. Dropping the Rust values
     // would destroy them a second time, which GTK reports and ignores; leaking
     // them keeps that noise out of the test output.
-    std::mem::forget(first);
-    std::mem::forget(second);
+    forget(first);
+    forget(second);
 
     assert!(
         LEVEL_AFTER_FIRST_CLOSE.load(Ordering::SeqCst) > 0,
