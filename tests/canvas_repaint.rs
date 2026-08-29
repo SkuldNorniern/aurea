@@ -489,8 +489,10 @@ fn other_capabilities_are_not_narrowed() {
 #[test]
 #[ignore = "creates a native window; run with --ignored"]
 fn a_menu_bar_belongs_to_its_window() -> AureaResult<()> {
+    use aurea::Capability;
+
     let mut window = Window::new("menus", 300, 200)?;
-    if !window.capabilities().has(aurea::Capability::MenuBar) {
+    if !window.capabilities().has(Capability::MenuBar) {
         return Ok(());
     }
 
