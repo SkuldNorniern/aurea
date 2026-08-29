@@ -1,7 +1,6 @@
 //! Window manager for multi-window support.
 
 use crate::AureaResult;
-use crate::ffi::ng_platform_poll_events;
 use crate::window::{Window, WindowEvent, WindowId};
 use std::cell::RefCell;
 use std::os::raw::c_void;
@@ -53,13 +52,12 @@ impl WindowManager {
 
     /// Process events for all registered windows.
     pub fn poll_all_events(&self) -> Vec<(WindowId, WindowEvent)> {
-        unsafe {
-            ng_platform_poll_events();
-        }
+        super::pump_platform_events();
+
         let mut all_events = Vec::new();
         let windows = self.windows();
         for window in windows {
-            let events = window.poll_events();
+            let events = window.drain_events();
             let window_id = window.id();
             all_events.extend(events.into_iter().map(|event| (window_id, event)));
         }

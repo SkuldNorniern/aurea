@@ -438,8 +438,11 @@ impl Window {
     /// ```
     pub fn poll_events(&self) -> Vec<WindowEvent> {
         ui_thread::check("Window::poll_events");
-        unsafe { ng_platform_poll_events() };
+        pump_platform_events();
+        self.drain_events()
+    }
 
+    pub(super) fn drain_events(&self) -> Vec<WindowEvent> {
         proxy::drain_for(self);
 
         let events = self.event_queue.pop_all();
@@ -670,6 +673,10 @@ impl Window {
     pub fn is_visible(&self) -> bool {
         unsafe { ng_platform_window_is_visible(self.handle) != 0 }
     }
+}
+
+pub(super) fn pump_platform_events() {
+    unsafe { ng_platform_poll_events() };
 }
 
 struct WindowBuildGuard {
