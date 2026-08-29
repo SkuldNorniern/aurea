@@ -24,7 +24,7 @@ use crate::lifecycle::{
 use crate::menu::MenuBar;
 mod proxy;
 
-pub use proxy::{ProxyId, WindowProxy};
+pub use proxy::WindowProxy;
 
 #[cfg(feature = "wgpu")]
 use crate::platform::handles::native_handle_from_window_ptr;
@@ -105,7 +105,7 @@ pub struct Window {
     damage: Mutex<DamageRegion>,
     scale_factor: Mutex<f32>,
     event_queue: Arc<EventQueue>,
-    proxy_id: ProxyId,
+    id: WindowId,
     #[cfg(feature = "wgpu")]
     surface_handle: Arc<NativeWindowHandle>,
     window_type: WindowType,
@@ -144,7 +144,7 @@ impl Window {
         acquire_platform()?;
         let mut guard = WindowBuildGuard {
             handle: None,
-            proxy_id: None,
+            id: None,
             armed: true,
         };
 
@@ -228,9 +228,9 @@ impl Window {
             ng_platform_window_set_scale_factor_callback(handle, ng_invoke_scale_factor_changed);
         }
 
-        let proxy_id = proxy::next_id();
-        proxy::register(proxy_id);
-        guard.proxy_id = Some(proxy_id);
+        let id = WindowId::claim(handle);
+        proxy::register(id);
+        guard.id = Some(id);
 
         #[cfg(feature = "wgpu")]
         let surface_handle = Arc::new(
@@ -240,7 +240,7 @@ impl Window {
         guard.disarm();
         Ok(Self {
             handle,
-            proxy_id,
+            id,
             #[cfg(feature = "wgpu")]
             surface_handle,
             menu_bar: None,
@@ -306,16 +306,16 @@ impl Window {
 
     /// Get the stable window identifier for this window.
     pub fn id(&self) -> WindowId {
-        WindowId::from_handle(self.handle)
+        self.id
     }
 
     /// A `Send + Sync` handle for reaching this window from another thread.
     pub fn proxy(&self) -> WindowProxy {
-        WindowProxy::new(self.proxy_id)
+        WindowProxy::new(self.id)
     }
 
-    pub(super) fn proxy_id(&self) -> ProxyId {
-        self.proxy_id
+    pub(super) fn proxy_id(&self) -> WindowId {
+        self.id
     }
 
     pub fn run(&self) -> AureaResult<()> {
@@ -704,7 +704,7 @@ pub(super) fn pump_platform_events() {
 
 struct WindowBuildGuard {
     handle: Option<*mut c_void>,
-    proxy_id: Option<ProxyId>,
+    id: Option<WindowId>,
     armed: bool,
 }
 
@@ -719,8 +719,8 @@ impl Drop for WindowBuildGuard {
         if !self.armed {
             return;
         }
-        match (self.handle, self.proxy_id) {
-            (Some(handle), Some(proxy_id)) => teardown_window(handle, proxy_id),
+        match (self.handle, self.id) {
+            (Some(handle), Some(id)) => teardown_window(handle, id),
             _ => {
                 if let Some(handle) = self.handle {
                     unsafe { ng_platform_destroy_window(handle) };
@@ -731,12 +731,13 @@ impl Drop for WindowBuildGuard {
     }
 }
 
-fn teardown_window(handle: *mut c_void, proxy_id: ProxyId) {
+fn teardown_window(handle: *mut c_void, id: WindowId) {
     unregister_lifecycle_callback(handle);
     unregister_event_queue(handle);
     unregister_update_callbacks(handle);
     unregister_event_callbacks(handle);
-    proxy::clear_for(proxy_id);
+    proxy::clear_for(id);
+    WindowId::forget(handle);
 
     unsafe {
         ng_platform_destroy_window(handle);
@@ -747,7 +748,7 @@ fn teardown_window(handle: *mut c_void, proxy_id: ProxyId) {
 
 impl Drop for Window {
     fn drop(&mut self) {
-        teardown_window(self.handle, self.proxy_id);
+        teardown_window(self.handle, self.id);
     }
 }
 

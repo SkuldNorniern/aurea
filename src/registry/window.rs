@@ -133,7 +133,7 @@ pub fn process_all_window_updates() {
         registry
             .borrow()
             .iter()
-            .map(|(handle, list)| (WindowId::from_raw(*handle), list.clone()))
+            .filter_map(|(handle, list)| Some((WindowId::of_key(*handle)?, list.clone())))
             .collect::<Vec<_>>()
     });
 
@@ -153,7 +153,9 @@ pub fn process_window_updates(handle: *mut c_void) {
             .unwrap_or_default()
     });
 
-    let window_id = WindowId::from_handle(handle);
+    let Some(window_id) = WindowId::of_handle(handle) else {
+        return;
+    };
     for callback in callbacks {
         callback(window_id);
     }
