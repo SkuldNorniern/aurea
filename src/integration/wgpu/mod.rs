@@ -17,20 +17,22 @@
 //! # }
 //! ```
 //!
-//! # Manual Surface Creation
+//! # Reading the native handle
 //!
-//! If you need more control over surface creation, you can use `native_handle()`:
+//! [`Window::create_wgpu_surface`] is the way to get a surface. The handle
+//! underneath is available too, for talking to a graphics API directly:
 //!
 //! ```rust,no_run
 //! use aurea::Window;
-//! use wgpu::Instance;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let window = Window::new("App", 800, 600)?;
-//! let instance = Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-//! let native_handle = window.native_handle();
-//! let surface_target = SurfaceTarget::from(&native_handle);
-//! let surface = instance.create_surface(surface_target)?;
+//! // `None` when the platform will not give one up — a window that is not
+//! // realised yet, or a display server this build cannot read a surface from.
+//! let Some(native_handle) = window.native_handle() else {
+//!     return Ok(());
+//! };
+//! # let _ = native_handle;
 //! # Ok(())
 //! # }
 //! ```
