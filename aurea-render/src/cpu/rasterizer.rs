@@ -1,6 +1,7 @@
 //! CPU rasterizer — flat framebuffer, no tile overhead.
 
 use std::cmp::Ordering as CmpOrdering;
+use std::f32::consts::FRAC_1_SQRT_2;
 
 use crate::command::DrawCommand;
 use crate::cpu::blend::{ConstSrc, blend_pixel, linear_to_srgb_u8, srgb_to_linear};
@@ -1480,10 +1481,19 @@ fn rect_contains(outer: Rect, inner: Rect) -> bool {
 }
 
 fn covered_region(item: &DisplayItem) -> Option<Rect> {
+    let solid = match &item.command {
+        DrawCommand::DrawCircle(center, radius, _) => inscribed_square(*center, *radius),
+        _ => item.bounds,
+    };
     match item.clip {
-        None => Some(item.bounds),
-        Some(clip) => intersect_rect(item.bounds, clip),
+        None => Some(solid),
+        Some(clip) => intersect_rect(solid, clip),
     }
+}
+
+fn inscribed_square(center: Point, radius: f32) -> Rect {
+    let half = radius * FRAC_1_SQRT_2;
+    Rect::new(center.x - half, center.y - half, half * 2.0, half * 2.0)
 }
 
 fn intersect_rect(a: Rect, b: Rect) -> Option<Rect> {
@@ -1861,6 +1871,19 @@ mod occlusion_tests {
         let items = vec![plain_item(first_tile()), occluder];
 
         assert!(occluded(&items)[0]);
+    }
+
+    #[test]
+    fn a_circle_covers_less_than_the_square_around_it() {
+        let radius = TILE_SIZE as f32;
+        let center = Point::new(radius, radius);
+        let square = inscribed_square(center, radius);
+
+        assert!(square.width < radius * 2.0, "smaller than the bounds");
+        assert!(
+            (center.x - square.x).hypot(center.y - square.y) <= radius + 0.001,
+            "and its corner is still inside the circle"
+        );
     }
 
     #[test]

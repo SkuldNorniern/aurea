@@ -653,9 +653,12 @@ fn decimation_threshold(columns: f32) -> usize {
 }
 
 fn column_of(point: Point, left: f32, column_count: usize) -> Option<usize> {
-    let column = super::numeric::f32_to_i32(point.x - left);
-    let column = usize::try_from(column).ok()?;
-    (column < column_count).then_some(column)
+    let offset = point.x - left;
+    if offset < 0.0 || offset > column_count as f32 {
+        return None;
+    }
+    let column = usize::try_from(super::numeric::f32_to_i32(offset)).ok()?;
+    Some(column.min(column_count.saturating_sub(1)))
 }
 
 fn decimate(points: impl Iterator<Item = Point>, left: f32, columns: f32) -> Vec<Point> {
@@ -1113,6 +1116,20 @@ mod tests {
         );
         assert_eq!(in_column_0[0].y, 10.0);
         assert_eq!(in_column_0[1].y, 30.0);
+    }
+
+    #[test]
+    fn a_point_on_the_far_edge_lands_in_the_last_column() {
+        let out = decimate(
+            [Point::new(0.0, 1.0), Point::new(4.0, 9.0)].into_iter(),
+            0.0,
+            4.0,
+        );
+
+        assert!(
+            out.iter().any(|p| p.y == 9.0),
+            "the value on the right-hand edge was dropped: {out:?}"
+        );
     }
 
     #[test]
