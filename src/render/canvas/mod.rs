@@ -60,6 +60,31 @@ pub struct Canvas {
     _cleanup: Arc<CanvasCleanup>,
 }
 
+/// Destroys a native canvas whose `Canvas` was never finished.
+///
+/// The same job `CanvasCleanup` does for a live canvas, for the window
+/// between the platform object existing and there being a Rust value that
+/// owns it.
+struct CanvasBuildGuard {
+    handle: *mut c_void,
+    armed: bool,
+}
+
+impl CanvasBuildGuard {
+    /// The canvas is built and frees itself now.
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for CanvasBuildGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            unsafe { ng_platform_destroy_element(self.handle) };
+        }
+    }
+}
+
 impl Canvas {
     /// Get the native window handle for this canvas
     ///
@@ -122,6 +147,15 @@ impl Canvas {
         if handle.is_null() {
             return Err(AureaError::ElementOperationFailed);
         }
+
+        // The native canvas exists and nothing owns it yet. Setting up the
+        // renderer and, under `wgpu`, reading the surface handle can both
+        // fail, and returning from here would leave the platform object with
+        // no `Canvas` to free it.
+        let mut guard = CanvasBuildGuard {
+            handle,
+            armed: true,
+        };
 
         let renderer = match backend {
             RendererBackend::Cpu => {
@@ -186,6 +220,7 @@ impl Canvas {
             }),
         };
 
+        guard.disarm();
         register_canvas_state(handle_key(handle), canvas.state.clone());
         canvas.register_with_scheduler(state, renderer_arc, backend);
         Ok(canvas)
