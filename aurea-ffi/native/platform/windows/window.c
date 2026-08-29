@@ -46,12 +46,13 @@ static const char* AUREA_WINDOW_ICON_PROPERTY = "AureaWindowIcon";
 NGHandle ng_windows_create_window(const char* title, int width, int height) {
     if (!title) return NULL;
     
-    const char* class_name = ng_windows_get_class_name();
-    
-    HWND hwnd = CreateWindowExA(
+    wchar_t* wide_title = ng_windows_utf8_to_wide(title);
+    if (!wide_title) return NULL;
+
+    HWND hwnd = CreateWindowExW(
         0,
-        class_name,
-        title,
+        ng_windows_get_class_name(),
+        wide_title,
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT,
         width, height,
@@ -60,6 +61,7 @@ NGHandle ng_windows_create_window(const char* title, int width, int height) {
         GetModuleHandleA(NULL),
         NULL
     );
+    free(wide_title);
     
     if (hwnd) {
         ShowWindow(hwnd, SW_SHOW);
@@ -123,10 +125,13 @@ NGHandle ng_windows_create_window_with_type(const char* title, int width, int he
         return NULL;
     }
 
-    HWND hwnd = CreateWindowExA(
+    wchar_t* wide_title = ng_windows_utf8_to_wide(title);
+    if (!wide_title) return NULL;
+
+    HWND hwnd = CreateWindowExW(
         ex_style,
         ng_windows_get_class_name(),
-        title,
+        wide_title,
         style,
         CW_USEDEFAULT, CW_USEDEFAULT,
         width, height,
@@ -135,6 +140,7 @@ NGHandle ng_windows_create_window_with_type(const char* title, int width, int he
         GetModuleHandleA(NULL),
         NULL
     );
+    free(wide_title);
 
     if (hwnd) {
         ShowWindow(hwnd, SW_SHOW);
