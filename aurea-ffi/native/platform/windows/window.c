@@ -1,4 +1,4 @@
-#include "window.h"
+﻿#include "window.h"
 #include "utils.h"
 #include "common/errors.h"
 #include "common/rust_callbacks.h"
@@ -69,9 +69,66 @@ NGHandle ng_windows_create_window(const char* title, int width, int height) {
     return (NGHandle)hwnd;
 }
 
+#define AUREA_WINDOW_NORMAL  0
+#define AUREA_WINDOW_POPUP   1
+#define AUREA_WINDOW_TOOL    2
+#define AUREA_WINDOW_UTILITY 3
+#define AUREA_WINDOW_SHEET   4
+#define AUREA_WINDOW_DIALOG  5
+
+static int window_styles_for(int window_type, DWORD* style, DWORD* ex_style) {
+    switch (window_type) {
+        case AUREA_WINDOW_NORMAL:
+            *style = WS_OVERLAPPEDWINDOW;
+            *ex_style = 0;
+            return 1;
+        case AUREA_WINDOW_POPUP:
+            *style = WS_POPUP;
+            *ex_style = WS_EX_TOPMOST;
+            return 1;
+        case AUREA_WINDOW_TOOL:
+        case AUREA_WINDOW_UTILITY:
+            *style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME;
+            *ex_style = WS_EX_TOOLWINDOW;
+            return 1;
+        case AUREA_WINDOW_DIALOG:
+            *style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;
+            *ex_style = WS_EX_DLGMODALFRAME;
+            return 1;
+        default:
+            return 0;
+    }
+}
+
 NGHandle ng_windows_create_window_with_type(const char* title, int width, int height, int window_type) {
-    (void)window_type;
-    return ng_windows_create_window(title, width, height);
+    if (!title) return NULL;
+
+    DWORD style = 0;
+    DWORD ex_style = 0;
+    if (!window_styles_for(window_type, &style, &ex_style)) {
+        return NULL;
+    }
+
+    HWND hwnd = CreateWindowExA(
+        ex_style,
+        ng_windows_get_class_name(),
+        title,
+        style,
+        CW_USEDEFAULT, CW_USEDEFAULT,
+        width, height,
+        NULL,
+        NULL,
+        GetModuleHandleA(NULL),
+        NULL
+    );
+
+    if (hwnd) {
+        ShowWindow(hwnd, SW_SHOW);
+        UpdateWindow(hwnd);
+        SetFocus(hwnd);
+    }
+
+    return (NGHandle)hwnd;
 }
 
 float ng_windows_get_scale_factor(NGHandle window) {
