@@ -43,24 +43,69 @@ use std::{
     ffi::CString,
     os::raw::c_void,
     rc::Rc,
-    sync::{
-        Arc, LazyLock, Mutex, OnceLock,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::{Arc, LazyLock, Mutex, OnceLock},
 };
 
-/// Number of live `Window`s. The platform is only torn down via
-/// `ng_platform_cleanup()` when the last window is dropped — calling it while
-/// other windows are still alive would destroy shared platform state (e.g.
-/// `UnregisterClassA` on Windows) out from under them.
-static WINDOW_COUNT: AtomicUsize = AtomicUsize::new(0);
-
-/// Whether the native platform is currently initialised. Goes back to `false`
-/// when the last window is dropped, so the next window brings it up again.
+/// Whether the platform is up, and how many windows are relying on it.
 ///
-/// A lock rather than an atomic: bringing the platform up is several steps,
-/// and two threads reaching the first window at once must not each run them.
-static PLATFORM_READY: LazyLock<Mutex<bool>> = LazyLock::new(|| Mutex::new(false));
+/// One lock rather than a flag and a counter: they describe a single thing,
+/// and apart they could disagree. Bringing the platform up is several steps
+/// and two threads reaching the first window at once must not each run them;
+/// worse, a thread dropping the last window could tear the platform down
+/// while another was midway through building one against it, because the
+/// count only rose once the native window already existed. Claiming a window
+/// and readying the platform now happen together, so the count is never
+/// briefly zero while a window is being built.
+struct PlatformState {
+    /// Whether the native platform is currently initialised. Goes back to
+    /// `false` when the last window is dropped, so the next window brings it
+    /// up again — platform init is not once per process.
+    ready: bool,
+    /// Live windows, plus any part-built one. `ng_platform_cleanup()` runs
+    /// only at zero: calling it while other windows are alive would destroy
+    /// shared state (`UnregisterClassA` on Windows) out from under them.
+    windows: usize,
+}
+
+static PLATFORM: LazyLock<Mutex<PlatformState>> = LazyLock::new(|| {
+    Mutex::new(PlatformState {
+        ready: false,
+        windows: 0,
+    })
+});
+
+/// Readies the platform if it is down, and counts one window against it.
+///
+/// The caller owns that count until it calls [`release_platform`].
+fn acquire_platform() -> AureaResult<()> {
+    let mut state = lock(&PLATFORM);
+    if !state.ready {
+        if unsafe { ng_platform_init() } != 0 {
+            return Err(AureaError::PlatformError(1));
+        }
+        FrameScheduler::set_request_frame_hook(|| {
+            unsafe { ng_platform_request_frame() };
+        });
+        // Whichever thread brings the platform up owns the native UI.
+        // On macOS and iOS that has to be the main thread; the check
+        // in `ui_thread` reports a mismatch rather than enforcing it.
+        ui_thread::claim();
+        state.ready = true;
+    }
+    state.windows += 1;
+    Ok(())
+}
+
+/// Gives back one window's claim, tearing the platform down at the last.
+fn release_platform() {
+    let mut state = lock(&PLATFORM);
+    state.windows = state.windows.saturating_sub(1);
+    if state.windows == 0 && state.ready {
+        unsafe { ng_platform_cleanup() };
+        state.ready = false;
+        ui_thread::release();
+    }
+}
 
 pub use crate::registry::window::{
     process_all_window_events, process_all_window_updates, push_window_event,
@@ -123,32 +168,14 @@ impl Window {
             })
             .clone()?;
 
-        // Platform init is *not* once per process. Dropping the last window
-        // runs `ng_platform_cleanup()`, so a program that closes every window
-        // and then opens a new one needs the platform brought back up; a
-        // one-shot init left it torn down and every later window failed.
-        //
-        // Held under one lock rather than a pair of atomics: two threads
-        // racing the first `Window::new` would otherwise both see "not ready",
-        // both initialise the platform, and both claim the UI thread. Windows
-        // are `!Send` once they exist, which says nothing about who may create
-        // one.
-        {
-            let mut ready = lock(&PLATFORM_READY);
-            if !*ready {
-                if unsafe { ng_platform_init() } != 0 {
-                    return Err(AureaError::PlatformError(1));
-                }
-                FrameScheduler::set_request_frame_hook(|| {
-                    unsafe { ng_platform_request_frame() };
-                });
-                // Whichever thread brings the platform up owns the native UI.
-                // On macOS and iOS that has to be the main thread; the check
-                // in `ui_thread` reports a mismatch rather than enforcing it.
-                ui_thread::claim();
-                *ready = true;
-            }
-        }
+        // The claim is taken before anything native is created, and the guard
+        // below gives it back if construction does not finish.
+        acquire_platform()?;
+        let mut guard = WindowBuildGuard {
+            handle: None,
+            proxy_id: None,
+            armed: true,
+        };
 
         let platform = Platform::current();
         let capabilities = CapabilityChecker::new();
@@ -171,6 +198,7 @@ impl Window {
         if handle.is_null() {
             return Err(AureaError::WindowCreationFailed);
         }
+        guard.handle = Some(handle);
 
         let scale_factor = unsafe { ng_platform_get_scale_factor(handle) };
         let event_queue = Arc::new(EventQueue::new());
@@ -230,20 +258,9 @@ impl Window {
             ng_platform_window_set_scale_factor_callback(handle, ng_invoke_scale_factor_changed);
         }
 
-        WINDOW_COUNT.fetch_add(1, Ordering::Relaxed);
-
         let proxy_id = proxy::next_id();
         proxy::register(proxy_id);
-
-        // Everything above is registered against a live native window, and
-        // from here construction can still fail. `Window::drop` cannot clean
-        // that up because there is no `Window` yet, so the guard does it and
-        // is disarmed once the value is built.
-        let mut guard = WindowBuildGuard {
-            handle,
-            proxy_id,
-            armed: true,
-        };
+        guard.proxy_id = Some(proxy_id);
 
         #[cfg(feature = "wgpu")]
         let surface_handle = Arc::new(
@@ -792,8 +809,10 @@ pub(super) fn pump_platform_events() {
 /// anyone's responsibility yet: the `Window` that would have freed it in its
 /// own `Drop` was never returned.
 struct WindowBuildGuard {
-    handle: *mut c_void,
-    proxy_id: ProxyId,
+    /// Set once the native window exists; before that there is none to free.
+    handle: Option<*mut c_void>,
+    /// Set once a proxy queue is open for it.
+    proxy_id: Option<ProxyId>,
     armed: bool,
 }
 
@@ -809,7 +828,17 @@ impl Drop for WindowBuildGuard {
         if !self.armed {
             return;
         }
-        teardown_window(self.handle, self.proxy_id);
+        match (self.handle, self.proxy_id) {
+            (Some(handle), Some(proxy_id)) => teardown_window(handle, proxy_id),
+            // Nothing native was registered yet, so only the platform claim
+            // taken at the top of construction has to go back.
+            _ => {
+                if let Some(handle) = self.handle {
+                    unsafe { ng_platform_destroy_window(handle) };
+                }
+                release_platform();
+            }
+        }
     }
 }
 
@@ -825,12 +854,7 @@ fn teardown_window(handle: *mut c_void, proxy_id: ProxyId) {
         ng_platform_destroy_window(handle);
     }
 
-    if WINDOW_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
-        // Last window — safe to tear down shared platform state.
-        unsafe { ng_platform_cleanup() };
-        *lock(&PLATFORM_READY) = false;
-        ui_thread::release();
-    }
+    release_platform();
 }
 
 impl Drop for Window {
