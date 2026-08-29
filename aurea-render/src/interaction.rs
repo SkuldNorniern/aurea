@@ -155,6 +155,16 @@ fn item_hit(item: &DisplayItem, point: Point) -> bool {
         return false;
     }
 
+    // What was clipped away was never drawn, and a viewer cannot click on
+    // something they cannot see. Rendering has honoured clips for a while;
+    // hit testing did not, leaving the trimmed-off part of a shape reacting
+    // to clicks from under whatever was covering it.
+    if let Some(clip) = item.clip
+        && !hit_test::hit_test_rect(clip, point)
+    {
+        return false;
+    }
+
     match &item.command {
         DrawCommand::DrawRect(rect, _) => hit_test::hit_test_rect(*rect, point),
         DrawCommand::DrawCircle(center, radius, _) => {
@@ -189,6 +199,30 @@ mod tests {
             BlendMode::Normal,
             DrawCommand::DrawRect(rect, Paint::new()),
         )
+    }
+
+    /// A shape clipped down to part of itself is only interactive where it is
+    /// visible: the rest was never drawn.
+    #[test]
+    fn a_click_outside_the_clip_misses() {
+        let bounds = Rect::new(0.0, 0.0, 100.0, 100.0);
+        let mut item = interactive_rect(InteractiveId(1), bounds);
+        item.clip = Some(Rect::new(0.0, 0.0, 20.0, 100.0));
+
+        assert!(item_hit(&item, Point::new(10.0, 50.0)), "inside the clip");
+        assert!(
+            !item_hit(&item, Point::new(60.0, 50.0)),
+            "clipped away, so not on screen and not clickable"
+        );
+    }
+
+    /// With no clip the whole shape stays interactive.
+    #[test]
+    fn an_unclipped_shape_is_interactive_throughout() {
+        let bounds = Rect::new(0.0, 0.0, 100.0, 100.0);
+        let item = interactive_rect(InteractiveId(1), bounds);
+
+        assert!(item_hit(&item, Point::new(60.0, 50.0)));
     }
 
     /// A click callback that touches the registry while it runs must not

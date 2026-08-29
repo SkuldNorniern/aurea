@@ -117,7 +117,13 @@ pub use crate::registry::window::{
     process_all_window_events, process_all_window_updates, push_window_event,
 };
 
-use log::info;
+use log::{error, info};
+
+/// The platform layer's success code, from `common/errors.h`.
+const NG_SUCCESS: i32 = 0;
+/// The platform layer's "no implementation for this" code, which is a
+/// statement about the backend rather than a failure.
+const NG_ERROR_UNSUPPORTED: i32 = -5;
 
 /// A native platform window with menu, content, and event handling.
 pub struct Window {
@@ -414,9 +420,21 @@ impl Window {
                 // ownership when it became the content, so something has to
                 // take it back before it can be freed — on AppKit that is a
                 // retain, and destroying without it would be an over-release.
-                unsafe {
-                    let _ = ng_platform_detach_element(stale);
-                    ng_platform_destroy_element(stale);
+                //
+                // Which is why the result matters. Destroying after a failed
+                // detach is the over-release this order exists to avoid, so a
+                // failure leaves the element alone: leaked, but leaked
+                // safely, and said out loud.
+                let detached = unsafe { ng_platform_detach_element(stale) };
+                if detached == NG_SUCCESS || detached == NG_ERROR_UNSUPPORTED {
+                    // Unsupported means the backend has no separate detach
+                    // step, not that anything went wrong — freeing the
+                    // element is all there ever was to do there.
+                    unsafe { ng_platform_destroy_element(stale) };
+                } else {
+                    error!(
+                        "could not reclaim the previous window content                          (error {detached}); leaving it rather than freeing                          something this window no longer owns"
+                    );
                 }
             }
         }
@@ -478,8 +496,10 @@ impl Window {
     /// # Ok(())
     /// # }
     /// ```
+    /// `None` when the platform will not give one up, rather than a handle
+    /// that only looks like one.
     #[cfg(feature = "wgpu")]
-    pub fn native_handle(&self) -> NativeWindowHandle {
+    pub fn native_handle(&self) -> Option<NativeWindowHandle> {
         use crate::integration::wgpu::WindowNativeHandle;
         WindowNativeHandle::native_handle_impl(self)
     }
