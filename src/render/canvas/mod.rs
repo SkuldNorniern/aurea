@@ -388,7 +388,9 @@ impl Canvas {
 
 impl Element for Canvas {
     fn released_to_parent(&self) {
-        self._cleanup.owns_native.store(false, Ordering::Release);
+        if self._cleanup.owns_native.swap(false, Ordering::AcqRel) {
+            unsafe { ng_platform_element_released_to_parent(self.handle) };
+        }
     }
 
     fn handle(&self) -> *mut c_void {
