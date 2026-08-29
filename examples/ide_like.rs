@@ -310,7 +310,7 @@ fn setup_main_menu(
     ui: &UiRefs,
     manager: Rc<WindowManager>,
 ) -> AureaResult<()> {
-    let mut menu_bar = window.create_menu_bar()?;
+    let menu_bar = window.create_menu_bar()?;
 
     let mut file = menu_bar.add_submenu("File")?;
     file.add_item("New File\tCtrl+N", || println!("File -> New File"))?;

@@ -19,11 +19,11 @@ fn main() -> AureaResult<()> {
 }
 
 fn setup_menu_bar(window: &mut Window) -> AureaResult<()> {
-    let mut menu_bar = window.create_menu_bar()?;
+    let menu_bar = window.create_menu_bar()?;
 
-    setup_file_menu(&mut menu_bar)?;
-    setup_edit_menu(&mut menu_bar)?;
-    setup_help_menu(&mut menu_bar)?;
+    setup_file_menu(menu_bar)?;
+    setup_edit_menu(menu_bar)?;
+    setup_help_menu(menu_bar)?;
 
     Ok(())
 }
