@@ -20,8 +20,10 @@ use wgpu::{Instance, Surface as WgpuSurface, SurfaceTarget};
 mod runtime;
 mod state;
 
-pub use state::request_canvas_redraw;
-use state::{CanvasCleanup, CanvasState, ensure_canvas_renderer, register_canvas_state};
+use state::{
+    CanvasCleanup, CanvasState, ensure_canvas_renderer, next_canvas_id, register_canvas_state,
+};
+pub use state::{CanvasId, request_canvas_redraw};
 
 /// Drawing callback — Arc so it can be cheaply cloned out of the state lock
 /// before the renderer lock is acquired, preventing deadlock when the callback
@@ -156,6 +158,7 @@ impl Canvas {
             handle,
             armed: true,
         };
+        let id = next_canvas_id();
 
         let renderer = match backend {
             RendererBackend::Cpu => {
@@ -215,15 +218,26 @@ impl Canvas {
             surface_handle,
             _cleanup: Arc::new(CanvasCleanup {
                 handle: handle_key(handle),
+                id,
                 renderer: renderer_arc.clone(),
                 owns_native: AtomicBool::new(true),
             }),
         };
 
         guard.disarm();
-        register_canvas_state(handle_key(handle), canvas.state.clone());
+        register_canvas_state(id, handle_key(handle), canvas.state.clone());
         canvas.register_with_scheduler(state, renderer_arc, backend);
         Ok(canvas)
+    }
+
+    /// This canvas's identity, for as long as the process runs.
+    ///
+    /// `Send + Sync`, unlike the canvas itself, so this is what a background
+    /// callback holds to ask for a redraw through
+    /// [`request_canvas_redraw`]. Clones of a canvas share one id: they are
+    /// one canvas.
+    pub fn id(&self) -> CanvasId {
+        self._cleanup.id
     }
 
     /// Set the drawing callback (retained-mode style).
@@ -361,14 +375,14 @@ impl Canvas {
     where
         F: FnMut(FrameInfo) -> bool + Send + 'static,
     {
-        let handle = handle_key(self.handle);
+        let id = self.id();
         FrameScheduler::register_ticker(move |info| {
             if !tick(info) {
                 return false;
             }
             // A canvas that has gone away makes this a no-op, so a ticker
             // outliving its canvas cannot touch a dead handle.
-            request_canvas_redraw(handle);
+            request_canvas_redraw(id);
             true
         })
     }
