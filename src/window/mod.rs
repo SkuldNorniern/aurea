@@ -100,9 +100,9 @@ const NG_ERROR_UNSUPPORTED: i32 = -5;
 
 /// A native platform window with menu, content, and event handling.
 pub struct Window {
-    pub handle: *mut c_void,
-    pub menu_bar: Option<MenuBar>,
-    pub content: Option<Box<dyn Element>>,
+    handle: *mut c_void,
+    menu_bar: Option<MenuBar>,
+    content: Option<Box<dyn Element>>,
     platform: Platform,
     capabilities: CapabilityChecker,
     damage: Mutex<DamageRegion>,
@@ -283,7 +283,8 @@ impl Window {
         (x, y)
     }
 
-    pub fn create_menu_bar(&mut self) -> AureaResult<MenuBar> {
+    /// Builds this window's menu bar and hands back a borrow of it.
+    pub fn create_menu_bar(&mut self) -> AureaResult<&mut MenuBar> {
         if !self.capabilities.has(Capability::MenuBar) {
             return Err(AureaError::ElementOperationFailed);
         }
@@ -299,7 +300,7 @@ impl Window {
             return Err(AureaError::MenuCreationFailed);
         }
 
-        Ok(MenuBar::new(handle))
+        Ok(self.menu_bar.insert(MenuBar::new(handle)))
     }
 
     pub fn platform(&self) -> Platform {

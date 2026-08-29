@@ -3,7 +3,7 @@ use aurea::prelude::*;
 fn main() -> AureaResult<()> {
     let mut window = Window::new("Notepad", 800, 600)?;
 
-    let mut menu_bar = window.create_menu_bar()?;
+    let menu_bar = window.create_menu_bar()?;
 
     {
         let mut file_menu = menu_bar.add_submenu("File")?;
