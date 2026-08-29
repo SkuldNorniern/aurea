@@ -178,6 +178,7 @@ impl Canvas {
                 id,
                 renderer: renderer_arc.clone(),
                 owns_native: AtomicBool::new(true),
+                warned_about_mixed_drawing: AtomicBool::new(false),
             }),
         };
 
@@ -190,6 +191,22 @@ impl Canvas {
     /// This canvas's identity, for as long as the process runs.
     pub fn id(&self) -> CanvasId {
         self._cleanup.id
+    }
+
+    fn warn_if_also_retained(&self) {
+        if lock(&self.state).draw_callback.is_none() {
+            return;
+        }
+        if self
+            ._cleanup
+            .warned_about_mixed_drawing
+            .swap(true, Ordering::AcqRel)
+        {
+            return;
+        }
+        log::warn!(
+            "Canvas::draw called on a canvas that also has a draw callback.              Both paint the same buffer and the scheduler re-runs the              callback on its own, so the two will take turns and the region              will flicker. Use one or the other for a given canvas."
+        );
     }
 
     /// Set the drawing callback (retained-mode style).
@@ -215,6 +232,7 @@ impl Canvas {
         if lock(&self.renderer).is_none() {
             return Err(AureaError::ElementOperationFailed);
         }
+        self.warn_if_also_retained();
 
         let (damage_rect, bg_color) = {
             let mut st = lock(&self.state);

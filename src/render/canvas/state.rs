@@ -91,6 +91,7 @@ pub(super) struct CanvasCleanup {
     pub(super) id: CanvasId,
     pub(super) renderer: Arc<Mutex<Option<Box<dyn Renderer>>>>,
     pub(super) owns_native: AtomicBool,
+    pub(super) warned_about_mixed_drawing: AtomicBool,
 }
 
 impl Drop for CanvasCleanup {
