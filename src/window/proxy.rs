@@ -80,8 +80,10 @@ impl WindowProxy {
         }
 
         // Queuing is not enough: an idle UI would sit there until something
-        // else happened to pump. Ask for a frame so the work is picked up.
-        FrameScheduler::schedule();
+        // else happened to pump. Ask for a frame so the work is picked up —
+        // a frame, not a repaint. The call may not touch a canvas at all, and
+        // asking for a full repaint meant every dispatch redrew every canvas.
+        FrameScheduler::wake();
         Ok(())
     }
 
