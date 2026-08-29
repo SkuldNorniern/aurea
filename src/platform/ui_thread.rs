@@ -12,7 +12,7 @@
 //! the offending call, and a release build logs it, instead of the native
 //! toolkit misbehaving somewhere far away.
 
-use aurea_foundation::lock;
+use aurea_foundation::{AureaError, AureaResult, lock};
 use log::error;
 use std::sync::{LazyLock, Mutex};
 use std::thread::{ThreadId, current};
@@ -25,8 +25,33 @@ static UI_THREAD: LazyLock<Mutex<Option<ThreadId>>> = LazyLock::new(|| Mutex::ne
 /// Called from platform initialisation, which can run more than once: the
 /// platform is torn down with the last window and brought back up with the
 /// next one, possibly on a different thread.
-pub(crate) fn claim() {
+pub(crate) fn claim() -> AureaResult<()> {
+    if !is_process_main_thread() {
+        return Err(AureaError::NotMainThread);
+    }
     *lock(&UI_THREAD) = Some(current().id());
+    Ok(())
+}
+
+/// Whether this is the thread the process started on.
+///
+/// Only Apple targets care. Everywhere else any single thread may own the UI,
+/// so the question does not arise and the answer is always yes.
+#[cfg(not(target_vendor = "apple"))]
+fn is_process_main_thread() -> bool {
+    true
+}
+
+/// Whether this is the thread the process started on.
+///
+/// `pthread_main_np` is in libSystem, which every Apple target links already,
+/// so this needs nothing that is not there.
+#[cfg(target_vendor = "apple")]
+fn is_process_main_thread() -> bool {
+    unsafe extern "C" {
+        fn pthread_main_np() -> std::os::raw::c_int;
+    }
+    unsafe { pthread_main_np() != 0 }
 }
 
 /// Forgets the UI thread. Called when the platform is torn down.
@@ -77,12 +102,22 @@ mod tests {
             "nothing is claimed, so nothing is wrong yet"
         );
 
-        claim();
+        // AppKit and UIKit will not take orders from any thread but the one
+        // the process started on, so there the answer is a refusal rather
+        // than a handover — including for this test, which libtest runs on a
+        // worker thread of its own.
+        if cfg!(target_vendor = "apple") {
+            assert!(matches!(claim(), Err(AureaError::NotMainThread)));
+            release();
+            return;
+        }
+
+        claim().expect("any thread may own the UI here");
         assert!(is_ui_thread());
 
         let claimed_elsewhere = thread::spawn(|| {
             release();
-            claim();
+            claim().expect("any thread may own the UI here");
             is_ui_thread()
         })
         .join()

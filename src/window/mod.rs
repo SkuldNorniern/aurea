@@ -87,10 +87,15 @@ fn acquire_platform() -> AureaResult<()> {
         FrameScheduler::set_request_frame_hook(|| {
             unsafe { ng_platform_request_frame() };
         });
-        // Whichever thread brings the platform up owns the native UI.
-        // On macOS and iOS that has to be the main thread; the check
-        // in `ui_thread` reports a mismatch rather than enforcing it.
-        ui_thread::claim();
+        // Whichever thread brings the platform up owns the native UI. On
+        // Apple targets that has to be the process main thread, and claiming
+        // it from elsewhere is refused rather than recorded — the platform is
+        // up at this point, so it is torn back down before returning.
+        if let Err(error) = ui_thread::claim() {
+            unsafe { ng_platform_cleanup() };
+            state.ready = false;
+            return Err(error);
+        }
         state.ready = true;
     }
     state.windows += 1;
