@@ -1,4 +1,5 @@
 //! wgpu peer 2D backend (feature `wgpu`).
+#![allow(clippy::absolute_paths)]
 
 mod backend;
 mod buffer;

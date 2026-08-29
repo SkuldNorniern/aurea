@@ -116,7 +116,7 @@ pub fn native_handle_from_window_ptr(window: *mut c_void) -> Option<NativeWindow
     }
     #[cfg(target_os = "linux")]
     {
-        return linux_window_handle_from_ptr(window).map(NativeWindowHandle::Linux);
+        linux_window_handle_from_ptr(window).map(NativeWindowHandle::Linux)
     }
     #[cfg(target_os = "ios")]
     {
@@ -164,7 +164,7 @@ pub fn native_handle_from_canvas_ptr(canvas: *mut c_void) -> Option<NativeWindow
     }
     #[cfg(target_os = "linux")]
     {
-        return linux_canvas_handle_from_ptr(canvas).map(NativeWindowHandle::Linux);
+        linux_canvas_handle_from_ptr(canvas).map(NativeWindowHandle::Linux)
     }
     #[cfg(target_os = "ios")]
     {

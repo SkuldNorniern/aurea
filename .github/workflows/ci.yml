@@ -1,0 +1,144 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  check:
+    name: Build & Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libgtk-3-dev pkg-config
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Test
+        run: cargo test --workspace
+
+      # Not --all-features: that turns on zengpu and wgpu at once, and zengpu
+      # drags in shaderc, which builds from source where the system has no
+      # copy. The GPU backends get their own job.
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  native:
+    name: Native tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS is missing on purpose. AppKit only takes orders from the
+        # process main thread, and libtest runs every test on a worker, so a
+        # test that opens a window is refused there rather than quietly
+        # mis-driving AppKit. Running these on macOS needs a main-thread
+        # harness first.
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-native-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-native-
+
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libgtk-3-dev pkg-config xvfb
+
+      # These open real windows and are #[ignore]d for that reason. They are
+      # the tests that catch the ownership, lifetime and input bugs the unit
+      # tests cannot see, so they need to run somewhere.
+      - name: Run display tests (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a cargo test --workspace -- --ignored --test-threads=1
+
+      - name: Run display tests (Windows)
+        if: runner.os == 'Windows'
+        run: cargo test --workspace -- --ignored --test-threads=1
+
+  backends:
+    name: GPU backends (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-backends-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-backends-
+
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libgtk-3-dev pkg-config \
+            libvulkan-dev libshaderc-dev cmake ninja-build
+
+      # One feature at a time. They are alternative backends, and building
+      # them together says nothing about either.
+      - name: wgpu
+        run: cargo clippy --workspace --all-targets --features wgpu -- -D warnings
+
+      - name: zengpu
+        run: cargo clippy --workspace --all-targets --features zengpu -- -D warnings
