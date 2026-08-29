@@ -1970,28 +1970,45 @@ mod occlusion_tests {
 
     #[test]
     fn a_later_opaque_draw_hides_what_is_under_it() {
-        let items = vec![plain_item(first_tile()), occluder_item(whole(), BlendMode::Normal)];
+        let items = vec![
+            plain_item(first_tile()),
+            occluder_item(whole(), BlendMode::Normal),
+        ];
         assert!(occluded(&items)[0]);
     }
 
     #[test]
     fn an_earlier_draw_does_not_hide_a_later_one() {
-        let items = vec![occluder_item(whole(), BlendMode::Normal), plain_item(first_tile())];
+        let items = vec![
+            occluder_item(whole(), BlendMode::Normal),
+            plain_item(first_tile()),
+        ];
         assert!(!occluded(&items)[1]);
     }
 
     #[test]
     fn a_draw_that_covers_only_part_hides_nothing_outside_it() {
         // Covers the leftmost tile column only; the item sits in the last one.
-        let last_tile = Rect::new((TILE_SIZE * 3) as f32, 0.0, TILE_SIZE as f32, TILE_SIZE as f32);
+        let last_tile = Rect::new(
+            (TILE_SIZE * 3) as f32,
+            0.0,
+            TILE_SIZE as f32,
+            TILE_SIZE as f32,
+        );
         let left = Rect::new(0.0, 0.0, TILE_SIZE as f32, H as f32);
-        let items = vec![plain_item(last_tile), occluder_item(left, BlendMode::Normal)];
+        let items = vec![
+            plain_item(last_tile),
+            occluder_item(left, BlendMode::Normal),
+        ];
         assert!(!occluded(&items)[0]);
     }
 
     #[test]
     fn a_blend_that_is_not_normal_hides_nothing() {
-        let items = vec![plain_item(first_tile()), occluder_item(whole(), BlendMode::Multiply)];
+        let items = vec![
+            plain_item(first_tile()),
+            occluder_item(whole(), BlendMode::Multiply),
+        ];
         assert!(!occluded(&items)[0]);
     }
 
@@ -2006,7 +2023,12 @@ mod occlusion_tests {
     /// underneath the rest of it.
     #[test]
     fn a_clipped_draw_hides_only_what_its_clip_reaches() {
-        let last_tile = Rect::new((TILE_SIZE * 3) as f32, 0.0, TILE_SIZE as f32, TILE_SIZE as f32);
+        let last_tile = Rect::new(
+            (TILE_SIZE * 3) as f32,
+            0.0,
+            TILE_SIZE as f32,
+            TILE_SIZE as f32,
+        );
         let mut occluder = occluder_item(whole(), BlendMode::Normal);
         occluder.clip = Some(Rect::new(0.0, 0.0, TILE_SIZE as f32, H as f32));
         let items = vec![plain_item(last_tile), occluder];
@@ -2047,7 +2069,10 @@ mod occlusion_tests {
     #[test]
     fn a_draw_ending_inside_a_tile_does_not_claim_it() {
         let half = Rect::new(0.0, 0.0, (TILE_SIZE / 2) as f32, H as f32);
-        let items = vec![plain_item(first_tile()), occluder_item(half, BlendMode::Normal)];
+        let items = vec![
+            plain_item(first_tile()),
+            occluder_item(half, BlendMode::Normal),
+        ];
 
         assert!(!occluded(&items)[0], "half a tile is not a covered tile");
     }
