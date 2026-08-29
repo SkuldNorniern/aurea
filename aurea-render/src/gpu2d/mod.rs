@@ -32,6 +32,7 @@ pub struct Gpu2dRenderer<B: Gpu2dBackend> {
     logical_width: u32,
     logical_height: u32,
     scale_factor: f32,
+    warned_about_dropped: bool,
 }
 
 impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
@@ -44,6 +45,7 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
             texture_cache: TextureCache::new(),
             frame_plan: FramePlan::new(),
             frame_counter: 0,
+            warned_about_dropped: false,
             logical_width: width,
             logical_height: height,
             scale_factor: scale_factor.max(1.0),
@@ -67,6 +69,17 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
             f32_to_u32_clamped((self.logical_width as f32 * s).round()).max(1),
             f32_to_u32_clamped((self.logical_height as f32 * s).round()).max(1),
         )
+    }
+
+    fn report_dropped(&mut self) {
+        if self.batches.dropped == 0 || self.warned_about_dropped {
+            return;
+        }
+        self.warned_about_dropped = true;
+        log::warn!(
+            "GPU backend has no form for {} draw(s) in this frame; they are              missing from it. Paths, non-normal blend modes and the legacy              text commands are not implemented here yet — a canvas needing              them wants the CPU renderer.",
+            self.batches.dropped,
+        );
     }
 }
 
@@ -101,6 +114,7 @@ impl<B: Gpu2dBackend + Send + Sync> Renderer for Gpu2dRenderer<B> {
 
     fn end_frame(&mut self) -> AureaResult<()> {
         self.batches.lower_into(&self.display_list);
+        self.report_dropped();
         let (pw, ph) = self.physical_size();
         self.frame_plan.viewport_width = pw;
         self.frame_plan.viewport_height = ph;

@@ -173,6 +173,20 @@ fn representable(item: &DisplayItem) -> bool {
     item.blend_mode == BlendMode::Normal
 }
 
+fn stroke_edges(rect: Rect, width: f32) -> [Rect; 4] {
+    let half = width / 2.0;
+    let (l, t) = (rect.x - half, rect.y - half);
+    let (r, b) = (rect.x + rect.width - half, rect.y + rect.height - half);
+    let outer_w = rect.width + width;
+    let inner_h = (rect.height - width).max(0.0);
+    [
+        Rect::new(l, t, outer_w, width),
+        Rect::new(l, b, outer_w, width),
+        Rect::new(l, t + width, width, inner_h),
+        Rect::new(r, t + width, width, inner_h),
+    ]
+}
+
 fn fade(color: Color, factor: f32) -> Color {
     if factor >= 1.0 {
         return color;
@@ -227,6 +241,8 @@ pub struct RenderBatches {
     pub order: Vec<DrawRef>,
     /// The clip for each entry in [`Self::order`], in physical pixels.
     pub clips: Vec<Option<Rect>>,
+    /// Draws this layer had no form for, and therefore left out of the frame.
+    pub dropped: usize,
     gradient_lut_cache: HashMap<u64, Weak<[u8]>>,
     text_mask_cache: HashMap<u64, Weak<[u8]>>,
 }
@@ -239,7 +255,13 @@ impl RenderBatches {
         batches
     }
 
-    /// Clear and refill from `list`, **reusing** the existing `rects` allocation.
+    fn push_rect(&mut self, rect: Rect, color: Color) {
+        self.order.push(DrawRef::Rect(
+            u32::try_from(self.rects.len()).expect("batch count fits in u32"),
+        ));
+        self.rects.push(RectInstance::from_rect(rect, color));
+    }
+
     pub fn lower_into(&mut self, list: &DisplayList) {
         self.clear = None;
         self.rects.clear();
@@ -250,11 +272,19 @@ impl RenderBatches {
         self.order.clear();
         self.clips.clear();
         for item in list.items() {
+            self.lower_item(item);
+            self.clips.resize(self.order.len(), item.clip);
+        }
+    }
+
+    fn lower_item(&mut self, item: &DisplayItem) {
+        {
             let Some(alpha) = drawable_alpha(item) else {
-                continue;
+                return;
             };
             if !representable(item) {
-                continue;
+                self.dropped += 1;
+                return;
             }
 
             match &item.command {
@@ -269,11 +299,15 @@ impl RenderBatches {
                     self.clips.clear();
                 }
                 DrawCommand::DrawRect(rect, paint) if paint.style == PaintStyle::Fill => {
-                    self.order.push(DrawRef::Rect(
-                        u32::try_from(self.rects.len()).expect("batch count fits in u32"),
-                    ));
-                    self.rects
-                        .push(RectInstance::from_rect(*rect, fade(paint.color, alpha)));
+                    self.push_rect(*rect, fade(paint.color, alpha));
+                }
+                DrawCommand::DrawRect(rect, paint)
+                    if paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0 =>
+                {
+                    let color = fade(paint.color, alpha);
+                    for edge in stroke_edges(*rect, paint.stroke_width) {
+                        self.push_rect(edge, color);
+                    }
                 }
                 DrawCommand::DrawCircle(center, radius, paint)
                     if paint.style == PaintStyle::Fill =>
@@ -346,10 +380,8 @@ impl RenderBatches {
                         });
                     }
                 }
-                _ => {}
+                _ => self.dropped += 1,
             }
-
-            self.clips.resize(self.order.len(), item.clip);
         }
     }
 
@@ -412,6 +444,7 @@ mod tests {
     use super::*;
     use crate::command::DrawCommand;
     use crate::display_list::{CacheKey, DisplayIndex, DisplayItem};
+    use crate::types::Path;
     use crate::types::{BlendMode, Paint, Rect};
 
     fn item(command: DrawCommand) -> DisplayItem {
@@ -449,9 +482,9 @@ mod tests {
     }
 
     #[test]
-    fn stroke_rect_is_skipped() {
+    fn a_stroke_with_no_width_draws_nothing() {
         let mut list = DisplayList::new();
-        let paint = Paint::new().style(PaintStyle::Stroke);
+        let paint = Paint::new().style(PaintStyle::Stroke).stroke_width(0.0);
         list.push(item(DrawCommand::DrawRect(
             Rect::new(0.0, 0.0, 8.0, 8.0),
             paint,
@@ -723,6 +756,55 @@ mod tests {
     }
 
     #[test]
+    fn a_stroked_rect_becomes_four_edges() {
+        let mut list = DisplayList::new();
+        let paint = Paint::new()
+            .color(Color::rgb(255, 0, 0))
+            .style(PaintStyle::Stroke)
+            .stroke_width(2.0);
+        list.push(item(DrawCommand::DrawRect(
+            Rect::new(10.0, 10.0, 100.0, 50.0),
+            paint,
+        )));
+
+        let b = RenderBatches::lower(&list);
+
+        assert_eq!(b.rects.len(), 4, "one rect per edge");
+        assert_eq!(b.order.len(), 4);
+        assert_eq!(b.clips.len(), b.order.len(), "a clip for every draw");
+    }
+
+    #[test]
+    fn the_edges_of_a_stroked_rect_do_not_overlap() {
+        let edges = stroke_edges(Rect::new(10.0, 10.0, 100.0, 50.0), 2.0);
+        for (i, a) in edges.iter().enumerate() {
+            for b in edges.iter().skip(i + 1) {
+                let w = (a.x + a.width).min(b.x + b.width) - a.x.max(b.x);
+                let h = (a.y + a.height).min(b.y + b.height) - a.y.max(b.y);
+                assert!(w <= 0.0 || h <= 0.0, "{a:?} and {b:?} overlap");
+            }
+        }
+    }
+
+    #[test]
+    fn a_stroke_straddles_the_edge_it_outlines() {
+        let edges = stroke_edges(Rect::new(10.0, 10.0, 100.0, 50.0), 4.0);
+        let top = edges[0];
+
+        assert_eq!(top.y, 8.0, "half the width above the top edge");
+        assert_eq!(top.x, 8.0);
+        assert_eq!(top.width, 104.0, "wide enough to carry both corners");
+    }
+
+    #[test]
+    fn a_stroke_thicker_than_the_rect_has_no_sides() {
+        let edges = stroke_edges(Rect::new(0.0, 0.0, 20.0, 4.0), 10.0);
+
+        assert_eq!(edges[2].height, 0.0);
+        assert_eq!(edges[3].height, 0.0);
+    }
+
+    #[test]
     fn rects_after_clear_survive() {
         let mut list = DisplayList::new();
         let paint = Paint::new().color(Color::rgb(0, 0, 255));
@@ -832,7 +914,7 @@ mod tests {
         list.push(placed(red_rect(bounds), bounds));
         list.push(placed(red_rect(bounds), bounds).with_clip(Some(clip)));
         list.push(placed(
-            DrawCommand::DrawRect(bounds, Paint::new().style(PaintStyle::Stroke)),
+            DrawCommand::DrawPath(Path::new(), Paint::new()),
             bounds,
         ));
         list.push(placed(red_rect(bounds), bounds));
@@ -840,6 +922,37 @@ mod tests {
         let b = RenderBatches::lower(&list);
         assert_eq!(b.order.len(), b.clips.len());
         assert_eq!(b.clips, vec![None, Some(clip), None]);
+    }
+
+    #[test]
+    fn draws_with_no_gpu_form_are_counted() {
+        let bounds = Rect::new(0.0, 0.0, 10.0, 10.0);
+        let mut list = DisplayList::new();
+        list.push(placed(red_rect(bounds), bounds));
+        list.push(placed(
+            DrawCommand::DrawPath(Path::new(), Paint::new()),
+            bounds,
+        ));
+        let mut blended = placed(red_rect(bounds), bounds);
+        blended.blend_mode = BlendMode::Multiply;
+        list.push(blended);
+
+        let b = RenderBatches::lower(&list);
+
+        assert_eq!(b.dropped, 2, "the path and the blended rect");
+        assert_eq!(b.rects.len(), 1);
+    }
+
+    #[test]
+    fn a_transparent_draw_is_not_counted_as_dropped() {
+        let bounds = Rect::new(0.0, 0.0, 10.0, 10.0);
+        let mut item = placed(red_rect(bounds), bounds);
+        item.opacity = 0.0;
+
+        let mut list = DisplayList::new();
+        list.push(item);
+
+        assert_eq!(RenderBatches::lower(&list).dropped, 0);
     }
 
     #[test]
