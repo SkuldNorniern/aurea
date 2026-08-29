@@ -288,3 +288,141 @@ fn a_windowed_line_draws_its_newest_data() {
         "windowed traces with too little ink: {blank:?}"
     );
 }
+
+/// A region that keeps being redrawn must not flicker: the same scene has to
+/// produce the same pixels every frame, and a small change must leave the
+/// rest of the buffer alone.
+#[test]
+fn repeated_frames_of_the_same_scene_are_stable() {
+    use aurea::render::{Color, Paint, PaintStyle};
+
+    const BG: Color = Color::rgb(16, 18, 22);
+
+    let draw = |ctx: &mut dyn DrawingContext, caret_x: f32| {
+        ctx.clear(BG).expect("clear");
+        // A wide opaque panel, then content over it, then a moving caret:
+        // the shape an editor draws, and what the occlusion pass reasons over.
+        let panel = Paint::new().color(Color::rgb(30, 34, 40));
+        ctx.draw_rect(Rect::new(0.0, 0.0, W as f32, 40.0), &panel)
+            .expect("panel");
+        let text = Paint::new().color(Color::rgb(200, 200, 210));
+        for row in 0..6 {
+            ctx.draw_rect(Rect::new(8.0, 50.0 + row as f32 * 14.0, 180.0, 8.0), &text)
+                .expect("row");
+        }
+        let caret = Paint::new()
+            .color(Color::rgb(255, 220, 120))
+            .style(PaintStyle::Fill);
+        ctx.draw_rect(Rect::new(caret_x, 50.0, 2.0, 84.0), &caret)
+            .expect("caret");
+    };
+
+    let mut r = CpuRasterizer::new(W, H);
+    r.init(
+        Surface::Cpu,
+        SurfaceInfo {
+            width: W,
+            height: H,
+            scale_factor: 1.0,
+        },
+    )
+    .expect("init");
+
+    let mut frame = |caret_x: f32| -> Vec<u32> {
+        {
+            let mut ctx = r.begin_frame().expect("begin");
+            draw(ctx.as_mut(), caret_x);
+        }
+        r.end_frame().expect("end");
+        let (ptr, len, _, _) = r.get_buffer();
+        unsafe { from_raw_parts(ptr, len) }
+            .chunks_exact(4)
+            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect()
+    };
+
+    // Settle, then take the same scene twice: identical input, identical out.
+    frame(20.0);
+    let settled = frame(20.0);
+    let again = frame(20.0);
+    assert_eq!(settled, again, "an unchanged scene changed between frames");
+
+    // Move the caret and put it back. The buffer has to return to what it was
+    // rather than keeping a hole where something was cleared and not redrawn.
+    frame(60.0);
+    let returned = frame(20.0);
+    let differing = settled
+        .iter()
+        .zip(&returned)
+        .filter(|(a, b)| a != b)
+        .count();
+    assert_eq!(
+        differing, 0,
+        "{differing} pixels differ after moving the caret away and back"
+    );
+}
+
+/// An overlay that comes and goes must leave the content underneath correct.
+/// A panel covering something is exactly the case the occlusion pass skips
+/// the covered draw for, so the frame the panel disappears has to bring it
+/// back rather than show whatever the buffer happened to hold.
+#[test]
+fn content_returns_when_an_overlay_is_dismissed() {
+    use aurea::render::{Color, Paint};
+
+    const BG: Color = Color::rgb(16, 18, 22);
+
+    let draw = |ctx: &mut dyn DrawingContext, overlay: bool| {
+        ctx.clear(BG).expect("clear");
+        let text = Paint::new().color(Color::rgb(200, 200, 210));
+        for row in 0..8 {
+            ctx.draw_rect(Rect::new(8.0, 20.0 + row as f32 * 14.0, 200.0, 8.0), &text)
+                .expect("row");
+        }
+        if overlay {
+            // Opaque, and wide enough to swallow whole tiles.
+            let panel = Paint::new().color(Color::rgb(40, 44, 52));
+            ctx.draw_rect(Rect::new(0.0, 0.0, W as f32, H as f32), &panel)
+                .expect("overlay");
+        }
+    };
+
+    let mut r = CpuRasterizer::new(W, H);
+    r.init(
+        Surface::Cpu,
+        SurfaceInfo {
+            width: W,
+            height: H,
+            scale_factor: 1.0,
+        },
+    )
+    .expect("init");
+
+    let mut frame = |overlay: bool| -> Vec<u32> {
+        {
+            let mut ctx = r.begin_frame().expect("begin");
+            draw(ctx.as_mut(), overlay);
+        }
+        r.end_frame().expect("end");
+        let (ptr, len, _, _) = r.get_buffer();
+        unsafe { from_raw_parts(ptr, len) }
+            .chunks_exact(4)
+            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect()
+    };
+
+    frame(false);
+    let without = frame(false);
+    frame(true);
+    let restored = frame(false);
+
+    let differing = without
+        .iter()
+        .zip(&restored)
+        .filter(|(a, b)| a != b)
+        .count();
+    assert_eq!(
+        differing, 0,
+        "{differing} pixels wrong after the overlay was dismissed"
+    );
+}
