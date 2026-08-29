@@ -105,41 +105,43 @@ impl HasDisplayHandle for NativeWindowHandle {
 /// This trait is used internally to implement `Window::native_handle()`.
 #[cfg(feature = "wgpu")]
 pub trait WindowNativeHandle {
-    fn native_handle_impl(&self) -> NativeWindowHandle;
+    /// `None` when the platform will not give one up — a window that is not
+    /// realised yet, or a display server this build cannot read a surface
+    /// from. Handing back a zeroed handle of the right shape instead only
+    /// moved the failure into whatever tried to draw on it.
+    fn native_handle_impl(&self) -> Option<NativeWindowHandle>;
 }
 
 #[cfg(feature = "wgpu")]
 impl WindowNativeHandle for Window {
-    fn native_handle_impl(&self) -> NativeWindowHandle {
+    fn native_handle_impl(&self) -> Option<NativeWindowHandle> {
         #[cfg(target_os = "macos")]
         {
             let view_ptr = unsafe { ng_platform_window_get_content_view(self.handle) };
-            NativeWindowHandle::MacOS { ns_view: view_ptr }
+            if view_ptr.is_null() {
+                return None;
+            }
+            Some(NativeWindowHandle::MacOS { ns_view: view_ptr })
         }
         #[cfg(target_os = "windows")]
         {
-            NativeWindowHandle::Windows { hwnd: self.handle }
+            Some(NativeWindowHandle::Windows { hwnd: self.handle })
         }
         #[cfg(target_os = "linux")]
         {
-            linux_window_handle_from_ptr(self.handle)
-                .map(NativeWindowHandle::Linux)
-                .unwrap_or(NativeWindowHandle::Linux(LinuxWindowHandle::Xcb {
-                    window: 0,
-                    connection: null_mut(),
-                }))
+            linux_window_handle_from_ptr(self.handle).map(NativeWindowHandle::Linux)
         }
         #[cfg(target_os = "ios")]
         {
-            NativeWindowHandle::IOS {
+            Some(NativeWindowHandle::IOS {
                 ui_view: self.handle,
-            }
+            })
         }
         #[cfg(target_os = "android")]
         {
-            NativeWindowHandle::Android {
+            Some(NativeWindowHandle::Android {
                 native_window: self.handle,
-            }
+            })
         }
         #[cfg(not(any(
             target_os = "macos",
