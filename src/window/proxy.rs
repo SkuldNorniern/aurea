@@ -57,7 +57,7 @@ impl WindowProxy {
             queue.push(Box::new(call));
         }
 
-        FrameScheduler::schedule();
+        FrameScheduler::wake();
         Ok(())
     }
 

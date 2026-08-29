@@ -44,6 +44,15 @@ static REQUEST_FRAME_HOOK: LazyLock<Mutex<RequestFrameHook>> = LazyLock::new(|| 
 
 pub struct FrameScheduler;
 
+enum Redraw {
+    /// Nobody dirtied anything.
+    Nothing,
+    /// These canvases were dirtied.
+    These(Vec<usize>),
+    /// Everything, because something asked for a full repaint.
+    All,
+}
+
 impl FrameScheduler {
     pub fn set_request_frame_hook<F: Fn() + Send + Sync + 'static>(f: F) {
         *lock(&REQUEST_FRAME_HOOK) = Some(Box::new(f));
@@ -55,8 +64,15 @@ impl FrameScheduler {
         }
     }
 
+    /// Asks for a frame that repaints every canvas.
     pub fn schedule() {
         ALL_CANVASES_SCHEDULED.store(true, Ordering::Relaxed);
+        FRAME_SCHEDULED.store(true, Ordering::Relaxed);
+        Self::notify_platform();
+    }
+
+    /// Asks for a frame without dirtying anything.
+    pub fn wake() {
         FRAME_SCHEDULED.store(true, Ordering::Relaxed);
         Self::notify_platform();
     }
@@ -181,39 +197,40 @@ impl FrameScheduler {
         Ok(())
     }
 
+    fn run_redraws(registry: &HashMap<usize, CanvasRedrawCallback>, redraw: Redraw) {
+        let callbacks: Vec<&CanvasRedrawCallback> = match redraw {
+            Redraw::Nothing => return,
+            Redraw::All => registry.values().collect(),
+            Redraw::These(handles) => handles
+                .into_iter()
+                .filter_map(|handle| registry.get(&handle))
+                .collect(),
+        };
+        for callback in callbacks {
+            if let Err(e) = callback() {
+                log::warn!("Canvas redraw error: {:?}", e);
+            }
+        }
+    }
+
     fn redraw_canvases() {
         let process_all_canvases = ALL_CANVASES_SCHEDULED.swap(false, Ordering::Relaxed);
         let registry = lock(&CANVAS_REGISTRY).clone();
         let global_callbacks = lock(&FRAME_CALLBACKS).clone();
 
-        let pending_handles = {
+        let redraw = {
             let mut pending = lock(&PENDING_CANVASES);
-            if process_all_canvases || pending.is_empty() {
+            if process_all_canvases {
                 pending.clear();
-                None
+                Redraw::All
+            } else if pending.is_empty() {
+                Redraw::Nothing
             } else {
-                Some(pending.drain().collect::<Vec<_>>())
+                Redraw::These(pending.drain().collect::<Vec<_>>())
             }
         };
 
-        match pending_handles {
-            None => {
-                for callback in registry.values() {
-                    if let Err(e) = callback() {
-                        log::warn!("Canvas redraw error: {:?}", e);
-                    }
-                }
-            }
-            Some(handles) => {
-                for handle in handles {
-                    if let Some(callback) = registry.get(&handle)
-                        && let Err(e) = callback()
-                    {
-                        log::warn!("Canvas redraw error: {:?}", e);
-                    }
-                }
-            }
-        }
+        Self::run_redraws(&registry, redraw);
 
         for (_, callback) in global_callbacks.iter() {
             callback();
@@ -264,6 +281,76 @@ mod tests {
 
     fn handle(id: usize) -> *mut c_void {
         id as *mut c_void
+    }
+
+    #[test]
+    fn a_frame_with_nothing_dirty_redraws_no_canvas() {
+        let _guard = TestGuard::new();
+
+        let redraws = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&redraws);
+        FrameScheduler::register_canvas(
+            handle(1),
+            Arc::new(move || {
+                counted.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }),
+        );
+
+        FRAME_SCHEDULED.store(true, Ordering::Relaxed);
+        FrameScheduler::process_frames().expect("process");
+
+        assert_eq!(
+            redraws.load(Ordering::Relaxed),
+            0,
+            "a canvas nobody dirtied was repainted anyway"
+        );
+    }
+
+    #[test]
+    fn only_the_dirty_canvas_is_redrawn() {
+        let _guard = TestGuard::new();
+
+        let first = Arc::new(AtomicUsize::new(0));
+        let second = Arc::new(AtomicUsize::new(0));
+        for (id, counter) in [(1usize, &first), (2usize, &second)] {
+            let counted = Arc::clone(counter);
+            FrameScheduler::register_canvas(
+                handle(id),
+                Arc::new(move || {
+                    counted.fetch_add(1, Ordering::Relaxed);
+                    Ok(())
+                }),
+            );
+        }
+
+        FrameScheduler::schedule_canvas(handle(1));
+        FrameScheduler::process_frames().expect("process");
+
+        assert_eq!(first.load(Ordering::Relaxed), 1);
+        assert_eq!(second.load(Ordering::Relaxed), 0, "not dirty, not redrawn");
+    }
+
+    #[test]
+    fn scheduling_all_redraws_every_canvas() {
+        let _guard = TestGuard::new();
+
+        let redraws = Arc::new(AtomicUsize::new(0));
+        for id in 1..=2usize {
+            let counted = Arc::clone(&redraws);
+            FrameScheduler::register_canvas(
+                handle(id),
+                Arc::new(move || {
+                    counted.fetch_add(1, Ordering::Relaxed);
+                    Ok(())
+                }),
+            );
+        }
+
+        FrameScheduler::schedule();
+        FrameScheduler::process_frames().expect("process");
+
+        assert_eq!(redraws.load(Ordering::Relaxed), 2);
     }
 
     #[test]
