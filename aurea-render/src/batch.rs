@@ -214,6 +214,26 @@ fn representable(item: &DisplayItem) -> bool {
     item.blend_mode == BlendMode::Normal
 }
 
+/// The four rects that make up a stroke of `width` centred on `rect`'s edges,
+/// the way the rasterizer draws one.
+///
+/// The corners belong to the top and bottom bars, so the sides stop short of
+/// them and nothing is painted twice — which would show through a translucent
+/// colour as a darker square at each corner.
+fn stroke_edges(rect: Rect, width: f32) -> [Rect; 4] {
+    let half = width / 2.0;
+    let (l, t) = (rect.x - half, rect.y - half);
+    let (r, b) = (rect.x + rect.width - half, rect.y + rect.height - half);
+    let outer_w = rect.width + width;
+    let inner_h = (rect.height - width).max(0.0);
+    [
+        Rect::new(l, t, outer_w, width),
+        Rect::new(l, b, outer_w, width),
+        Rect::new(l, t + width, width, inner_h),
+        Rect::new(r, t + width, width, inner_h),
+    ]
+}
+
 /// A colour with its alpha scaled by `factor`.
 fn fade(color: Color, factor: f32) -> Color {
     if factor >= 1.0 {
@@ -276,6 +296,13 @@ pub struct RenderBatches {
     /// it as a scissor around a run of draws, so it belongs to the draw and not
     /// to the geometry.
     pub clips: Vec<Option<Rect>>,
+    /// Draws this layer had no form for, and therefore left out of the frame.
+    ///
+    /// The frame is missing them: they are not deferred anywhere. Anything
+    /// above zero means the GPU frame differs from what the CPU rasterizer
+    /// would have produced, which is worth knowing about rather than
+    /// discovering by looking at the window.
+    pub dropped: usize,
     gradient_lut_cache: HashMap<u64, Weak<[u8]>>,
     /// Converted RGBA per glyph mask, keyed by the mask's own identity.
     text_mask_cache: HashMap<u64, Weak<[u8]>>,
@@ -301,6 +328,16 @@ impl RenderBatches {
     /// rasterizer's semantics with a back-to-front draw. A `Clear` matches the
     /// rasterizer by covering the whole frame, so it both records the clear
     /// colour and discards any rects already collected this frame.
+    /// Records one rect draw. A command that emits several rects calls this
+    /// for each; the clip for all of them is filled in once the command is
+    /// done, so they stay in step with [`Self::order`].
+    fn push_rect(&mut self, rect: Rect, color: Color) {
+        self.order.push(DrawRef::Rect(
+            u32::try_from(self.rects.len()).expect("batch count fits in u32"),
+        ));
+        self.rects.push(RectInstance::from_rect(rect, color));
+    }
+
     pub fn lower_into(&mut self, list: &DisplayList) {
         self.clear = None;
         self.rects.clear();
@@ -311,18 +348,28 @@ impl RenderBatches {
         self.order.clear();
         self.clips.clear();
         for item in list.items() {
-            // Per-item state the CPU rasterizer honours. Opacity folds into the
-            // colours, which is exactly what the CPU does. Clipping and blend
-            // modes need pipeline state this layer cannot express yet, so an
-            // item that relies on either is skipped rather than drawn without
-            // it — a trace drawn at the wrong opacity or spilling past its clip
-            // is worse than one that is missing, and the CPU rasterizer remains
-            // the backend with full fidelity.
+            self.lower_item(item);
+            self.clips.resize(self.order.len(), item.clip);
+        }
+    }
+
+    /// Turns one display item into draws, or counts it as one this layer has
+    /// no form for.
+    ///
+    /// Opacity folds into the colours, which is what the CPU rasterizer does.
+    /// A blend mode needs pipeline state this layer cannot express, so an item
+    /// relying on one is left out rather than drawn without it: a trace at the
+    /// wrong opacity is worse than a missing one.
+    fn lower_item(&mut self, item: &DisplayItem) {
+        {
             let Some(alpha) = drawable_alpha(item) else {
-                continue;
+                // Fully transparent: leaving it out is what drawing it would
+                // have looked like, so this is not a shortfall.
+                return;
             };
             if !representable(item) {
-                continue;
+                self.dropped += 1;
+                return;
             }
 
             match &item.command {
@@ -337,11 +384,18 @@ impl RenderBatches {
                     self.clips.clear();
                 }
                 DrawCommand::DrawRect(rect, paint) if paint.style == PaintStyle::Fill => {
-                    self.order.push(DrawRef::Rect(
-                        u32::try_from(self.rects.len()).expect("batch count fits in u32"),
-                    ));
-                    self.rects
-                        .push(RectInstance::from_rect(*rect, fade(paint.color, alpha)));
+                    self.push_rect(*rect, fade(paint.color, alpha));
+                }
+                // A border is four fills, which the layer already draws. Left
+                // to the catch-all it was dropped, so a stroked rect simply
+                // did not appear on the GPU while the CPU drew it.
+                DrawCommand::DrawRect(rect, paint)
+                    if paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0 =>
+                {
+                    let color = fade(paint.color, alpha);
+                    for edge in stroke_edges(*rect, paint.stroke_width) {
+                        self.push_rect(edge, color);
+                    }
                 }
                 DrawCommand::DrawCircle(center, radius, paint)
                     if paint.style == PaintStyle::Fill =>
@@ -414,12 +468,12 @@ impl RenderBatches {
                         });
                     }
                 }
-                // Strokes, paths and the legacy text commands have no GPU
-                // representation yet, so they are left to the CPU rasterizer.
-                _ => {}
+                // Paths and the legacy text commands have no GPU form yet.
+                // They are not drawn anywhere: "left to the CPU rasterizer"
+                // only holds for a canvas actually using it, and a canvas on
+                // this backend simply loses them.
+                _ => self.dropped += 1,
             }
-
-            self.clips.resize(self.order.len(), item.clip);
         }
     }
 
@@ -485,6 +539,7 @@ mod tests {
     use super::*;
     use crate::command::DrawCommand;
     use crate::display_list::{CacheKey, DisplayIndex, DisplayItem};
+    use crate::types::Path;
     use crate::types::{BlendMode, Paint, Rect};
 
     fn item(command: DrawCommand) -> DisplayItem {
@@ -521,10 +576,11 @@ mod tests {
         assert_eq!(b.rects[0].color, [1.0, 0.0, 0.0, 1.0]);
     }
 
+    /// A stroke of no width draws nothing, so there is nothing to lower.
     #[test]
-    fn stroke_rect_is_skipped() {
+    fn a_stroke_with_no_width_draws_nothing() {
         let mut list = DisplayList::new();
-        let paint = Paint::new().style(PaintStyle::Stroke);
+        let paint = Paint::new().style(PaintStyle::Stroke).stroke_width(0.0);
         list.push(item(DrawCommand::DrawRect(
             Rect::new(0.0, 0.0, 8.0, 8.0),
             paint,
@@ -795,6 +851,63 @@ mod tests {
         );
     }
 
+    /// A border used to vanish on the GPU: the stroke arm fell through to the
+    /// catch-all while the CPU rasterizer drew it.
+    #[test]
+    fn a_stroked_rect_becomes_four_edges() {
+        let mut list = DisplayList::new();
+        let paint = Paint::new()
+            .color(Color::rgb(255, 0, 0))
+            .style(PaintStyle::Stroke)
+            .stroke_width(2.0);
+        list.push(item(DrawCommand::DrawRect(
+            Rect::new(10.0, 10.0, 100.0, 50.0),
+            paint,
+        )));
+
+        let b = RenderBatches::lower(&list);
+
+        assert_eq!(b.rects.len(), 4, "one rect per edge");
+        assert_eq!(b.order.len(), 4);
+        assert_eq!(b.clips.len(), b.order.len(), "a clip for every draw");
+    }
+
+    /// The corners belong to the top and bottom bars. Painting them twice
+    /// shows as a darker square at each corner through a translucent colour.
+    #[test]
+    fn the_edges_of_a_stroked_rect_do_not_overlap() {
+        let edges = stroke_edges(Rect::new(10.0, 10.0, 100.0, 50.0), 2.0);
+        for (i, a) in edges.iter().enumerate() {
+            for b in edges.iter().skip(i + 1) {
+                let w = (a.x + a.width).min(b.x + b.width) - a.x.max(b.x);
+                let h = (a.y + a.height).min(b.y + b.height) - a.y.max(b.y);
+                assert!(w <= 0.0 || h <= 0.0, "{a:?} and {b:?} overlap");
+            }
+        }
+    }
+
+    /// The border sits centred on the edge, so it reaches half the width
+    /// outside the rect and half inside — the same as the rasterizer draws it.
+    #[test]
+    fn a_stroke_straddles_the_edge_it_outlines() {
+        let edges = stroke_edges(Rect::new(10.0, 10.0, 100.0, 50.0), 4.0);
+        let top = edges[0];
+
+        assert_eq!(top.y, 8.0, "half the width above the top edge");
+        assert_eq!(top.x, 8.0);
+        assert_eq!(top.width, 104.0, "wide enough to carry both corners");
+    }
+
+    /// A stroke thicker than the rect leaves no gap between the bars for the
+    /// sides to fill, and a negative height would be nonsense.
+    #[test]
+    fn a_stroke_thicker_than_the_rect_has_no_sides() {
+        let edges = stroke_edges(Rect::new(0.0, 0.0, 20.0, 4.0), 10.0);
+
+        assert_eq!(edges[2].height, 0.0);
+        assert_eq!(edges[3].height, 0.0);
+    }
+
     #[test]
     fn rects_after_clear_survive() {
         let mut list = DisplayList::new();
@@ -916,7 +1029,7 @@ mod tests {
         list.push(placed(red_rect(bounds), bounds).with_clip(Some(clip)));
         // A command with no GPU form contributes neither a draw nor a clip.
         list.push(placed(
-            DrawCommand::DrawRect(bounds, Paint::new().style(PaintStyle::Stroke)),
+            DrawCommand::DrawPath(Path::new(), Paint::new()),
             bounds,
         ));
         list.push(placed(red_rect(bounds), bounds));
@@ -924,6 +1037,41 @@ mod tests {
         let b = RenderBatches::lower(&list);
         assert_eq!(b.order.len(), b.clips.len());
         assert_eq!(b.clips, vec![None, Some(clip), None]);
+    }
+
+    /// The count is what makes a missing draw noticeable; without it a GPU
+    /// frame quietly disagrees with the CPU one and nothing says so.
+    #[test]
+    fn draws_with_no_gpu_form_are_counted() {
+        let bounds = Rect::new(0.0, 0.0, 10.0, 10.0);
+        let mut list = DisplayList::new();
+        list.push(placed(red_rect(bounds), bounds));
+        list.push(placed(
+            DrawCommand::DrawPath(Path::new(), Paint::new()),
+            bounds,
+        ));
+        let mut blended = placed(red_rect(bounds), bounds);
+        blended.blend_mode = BlendMode::Multiply;
+        list.push(blended);
+
+        let b = RenderBatches::lower(&list);
+
+        assert_eq!(b.dropped, 2, "the path and the blended rect");
+        assert_eq!(b.rects.len(), 1);
+    }
+
+    /// A fully transparent draw looks the same left out, so it is not a
+    /// shortfall and must not be reported as one.
+    #[test]
+    fn a_transparent_draw_is_not_counted_as_dropped() {
+        let bounds = Rect::new(0.0, 0.0, 10.0, 10.0);
+        let mut item = placed(red_rect(bounds), bounds);
+        item.opacity = 0.0;
+
+        let mut list = DisplayList::new();
+        list.push(item);
+
+        assert_eq!(RenderBatches::lower(&list).dropped, 0);
     }
 
     /// Blend modes need pipeline state the batches do not carry.
