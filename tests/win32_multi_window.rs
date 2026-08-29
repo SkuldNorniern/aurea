@@ -17,7 +17,7 @@
 
 #![cfg(windows)]
 
-use aurea::{AureaResult, Window};
+use aurea::{AureaError, AureaResult, Window};
 use std::mem::forget;
 use std::os::raw::c_void;
 use std::ptr::null_mut;
@@ -112,7 +112,7 @@ fn each_window_kind_gets_its_own_style() -> AureaResult<()> {
     unsafe extern "system" {
         fn GetWindowLongA(hwnd: *mut c_void, index: i32) -> i32;
     }
-    let style = |w: &Window, index| unsafe { GetWindowLongA(w.handle(), index) as u32 };
+    let style = |w: &Window, index| unsafe { GetWindowLongA(w.handle(), index).cast_unsigned() };
 
     let normal = Window::new("normal", 200, 150)?;
     let popup = Window::with_type("popup", 200, 150, WindowType::Popup)?;
@@ -144,7 +144,7 @@ fn each_window_kind_gets_its_own_style() -> AureaResult<()> {
     // that does not behave like one.
     assert!(matches!(
         Window::with_type("sheet", 200, 150, WindowType::Sheet),
-        Err(aurea::AureaError::Unsupported { .. })
+        Err(AureaError::Unsupported { .. })
     ));
     Ok(())
 }
