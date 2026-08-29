@@ -159,12 +159,45 @@ cargo run --example animate_bounce
 | --- | --- |
 | [Ozone](https://github.com/SkuldNorniern/ozone) | ![Ozone editor](https://github.com/SkuldNorniern/ozone/blob/main/assets/screenshots/ozone-editor.png) |
 
+## What Is Supported
+
+What each part of Aurea is expected to do, so that "experimental" means
+something specific rather than a disclaimer on the whole project.
+
+| Part | Status |
+| --- | --- |
+| Windows, macOS, Linux/GTK3 | Supported |
+| CPU rasterizer | Supported — the reference backend, and what correctness is measured against |
+| Native widgets | Supported, a subset that varies by platform |
+| Graph and scope | Supported |
+| Window lifetime, input, clipboard | Supported |
+| ZenGPU renderer | Experimental — Aurea's primary GPU backend, and where accelerated work goes |
+| wgpu renderer | Experimental — a compatibility path, not the architectural target |
+| External wgpu surface integration | Supported, for fitting Aurea into an application already built on wgpu |
+| iOS, Android | Experimental, not a 0.1 compatibility target |
+| Arbitrary affine transforms on a canvas | Partial; see the limits below |
+| Complex-script text shaping | Not yet |
+| Accessibility for canvas-drawn UI | Not yet |
+
+Known limits worth reading before relying on them:
+
+- The GPU backends draw a subset of what the CPU rasterizer does. Paths,
+  blend modes other than `Normal`, and the older text commands are not
+  lowered; a frame reports how many draws it left out rather than pretending
+  otherwise. A canvas needing them wants the CPU renderer.
+- Rotation and skew move text and images but do not rotate the glyphs or the
+  image itself, and a circle stays a circle under a non-uniform scale.
+- A retained draw callback is re-recorded on every frame that is redrawn.
+  Damage tracking keeps that off the screen, not off the CPU.
+
 ## Features
 
 - `default`: no optional GPU backend.
-- `wgpu`: enables the wgpu integration helpers.
-- `zengpu`: enables GPU-accelerated rendering through ZenGPU. Experimental: it
-  does not yet match the CPU rasterizer's command coverage or partial repaint.
+- `zengpu`: GPU-accelerated rendering through ZenGPU, Aurea's primary
+  accelerated backend. Experimental: it does not yet match the CPU
+  rasterizer's command coverage or partial repaint.
+- `wgpu`: the wgpu integration helpers and compatibility renderer, for
+  applications already built around wgpu. Not Aurea's primary GPU backend.
 
 ## Building
 
