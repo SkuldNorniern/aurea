@@ -36,9 +36,9 @@ use crate::registry::window::{
 };
 use crate::render::Rect;
 use crate::{AureaError, AureaResult};
-use aurea_foundation::Platform;
 use aurea_foundation::lock;
 use aurea_foundation::{Capability, CapabilityChecker};
+use aurea_foundation::{DesktopPlatform, Platform};
 use aurea_runtime::{DamageRegion, FrameScheduler};
 use std::{
     ffi::CString,
@@ -194,6 +194,17 @@ impl Window {
         let capabilities = CapabilityChecker::new();
 
         info!("Creating window: {}x{}", width, height);
+
+        // A sheet is a macOS document-modal panel with no counterpart
+        // elsewhere. Saying so beats handing back an ordinary window that
+        // does not behave like one.
+        if window_type == WindowType::Sheet && platform != Platform::Desktop(DesktopPlatform::MacOS)
+        {
+            return Err(AureaError::Unsupported {
+                operation: "create a sheet window",
+                platform,
+            });
+        }
 
         let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
         let window_type_int = match window_type {
