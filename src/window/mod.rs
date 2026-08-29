@@ -232,14 +232,28 @@ impl Window {
 
         WINDOW_COUNT.fetch_add(1, Ordering::Relaxed);
 
+        let proxy_id = proxy::next_id();
+        proxy::register(proxy_id);
+
+        // Everything above is registered against a live native window, and
+        // from here construction can still fail. `Window::drop` cannot clean
+        // that up because there is no `Window` yet, so the guard does it and
+        // is disarmed once the value is built.
+        let mut guard = WindowBuildGuard {
+            handle,
+            proxy_id,
+            armed: true,
+        };
+
         #[cfg(feature = "wgpu")]
         let surface_handle = Arc::new(
             native_handle_from_window_ptr(handle).ok_or(AureaError::WindowCreationFailed)?,
         );
 
+        guard.disarm();
         Ok(Self {
             handle,
-            proxy_id: proxy::next_id(),
+            proxy_id,
             #[cfg(feature = "wgpu")]
             surface_handle,
             menu_bar: None,
@@ -757,24 +771,57 @@ impl Window {
     }
 }
 
+/// Undoes a half-built window.
+///
+/// Creating a window registers callbacks, opens a proxy queue and counts
+/// towards the platform staying alive. If a later step fails, none of that is
+/// anyone's responsibility yet: the `Window` that would have freed it in its
+/// own `Drop` was never returned.
+struct WindowBuildGuard {
+    handle: *mut c_void,
+    proxy_id: ProxyId,
+    armed: bool,
+}
+
+impl WindowBuildGuard {
+    /// The window is built and owns its registrations now.
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for WindowBuildGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        teardown_window(self.handle, self.proxy_id);
+    }
+}
+
+/// Releases everything `Window::new` registered for `handle`.
+fn teardown_window(handle: *mut c_void, proxy_id: ProxyId) {
+    unregister_lifecycle_callback(handle);
+    unregister_event_queue(handle);
+    unregister_update_callbacks(handle);
+    unregister_event_callbacks(handle);
+    proxy::clear_for(proxy_id);
+
+    unsafe {
+        ng_platform_destroy_window(handle);
+    }
+
+    if WINDOW_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
+        // Last window — safe to tear down shared platform state.
+        unsafe { ng_platform_cleanup() };
+        *lock(&PLATFORM_READY) = false;
+        ui_thread::release();
+    }
+}
+
 impl Drop for Window {
     fn drop(&mut self) {
-        unregister_lifecycle_callback(self.handle);
-        unregister_event_queue(self.handle);
-        unregister_update_callbacks(self.handle);
-        unregister_event_callbacks(self.handle);
-        proxy::clear_for(self.proxy_id);
-
-        unsafe {
-            ng_platform_destroy_window(self.handle);
-        }
-
-        if WINDOW_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
-            // Last window — safe to tear down shared platform state.
-            unsafe { ng_platform_cleanup() };
-            *lock(&PLATFORM_READY) = false;
-            ui_thread::release();
-        }
+        teardown_window(self.handle, self.proxy_id);
     }
 }
 
