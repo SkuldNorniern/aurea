@@ -236,6 +236,7 @@ pub struct Scope {
     /// Divisions above and below the centre line.
     pub vertical_divisions: usize,
     last_trigger: Option<usize>,
+    frozen: Option<Vec<Vec<f64>>>,
     single_done: bool,
     graph: Graph,
     default_capacity: usize,
@@ -254,6 +255,7 @@ impl Scope {
             style,
             vertical_divisions: 4,
             last_trigger: None,
+            frozen: None,
             single_done: false,
             graph: Graph::new(),
             default_capacity: capacity,
@@ -290,12 +292,42 @@ impl Scope {
             channel.samples.clear();
         }
         self.last_trigger = None;
+        self.frozen = None;
     }
 
     /// Re-arms a single-shot capture.
     pub fn arm(&mut self) {
         self.single_done = false;
         self.last_trigger = None;
+        self.frozen = None;
+    }
+
+    fn freeze_sweep(&mut self, window: usize) {
+        self.single_done = true;
+        self.frozen = Some(
+            self.channels
+                .iter()
+                .map(|channel| {
+                    let (start, take) = self.window_for(channel, window);
+                    let (head, tail) = channel.samples.range(start, take);
+                    head.iter().chain(tail).copied().collect()
+                })
+                .collect(),
+        );
+    }
+
+    /// The samples channel `index` is showing: the frozen sweep if a single shot caught one,
+    /// otherwise whatever the live window holds.
+    pub fn sweep_samples(&self, index: usize, window: usize) -> Vec<f64> {
+        if let Some(frozen) = &self.frozen {
+            return frozen.get(index).cloned().unwrap_or_default();
+        }
+        let Some(channel) = self.channels.get(index) else {
+            return Vec::new();
+        };
+        let (start, take) = self.window_for(channel, window);
+        let (head, tail) = channel.samples.range(start, take);
+        head.iter().chain(tail).copied().collect()
     }
 
     /// Whether a single-shot capture has fired and stopped.
@@ -408,7 +440,16 @@ impl Scope {
                 fired = self.find_trigger(channel, window).or(fired);
             }
 
-            let points = sweep_points(channel, start, take, interval, columns);
+            let points = match &self.frozen {
+                Some(frozen) => sweep_points_from(
+                    frozen.get(index).map_or(&[][..], Vec::as_slice),
+                    &[],
+                    channel.offset,
+                    interval,
+                    columns,
+                ),
+                None => sweep_points(channel, start, take, interval, columns),
+            };
 
             let mut series = Series::new(channel.name.clone(), Points::Xy(points));
             series.color = channel.color;
@@ -417,8 +458,8 @@ impl Scope {
         }
 
         self.last_trigger = fired;
-        if self.trigger.mode == TriggerMode::Single && fired.is_some() {
-            self.single_done = true;
+        if self.trigger.mode == TriggerMode::Single && fired.is_some() && !self.single_done {
+            self.freeze_sweep(window);
         }
 
         self.graph.draw(ctx, area)?;
@@ -499,7 +540,17 @@ fn sweep_points(
     columns: usize,
 ) -> Vec<(f64, f64)> {
     let (head, tail) = channel.samples.range(start, take);
-    let offset = channel.offset;
+    sweep_points_from(head, tail, channel.offset, interval, columns)
+}
+
+fn sweep_points_from(
+    head: &[f64],
+    tail: &[f64],
+    offset: f64,
+    interval: f64,
+    columns: usize,
+) -> Vec<(f64, f64)> {
+    let take = head.len() + tail.len();
     let budget = columns.saturating_mul(2).max(64);
 
     if take <= budget {
@@ -716,6 +767,30 @@ mod tests {
         let after = scope.window_for(&scope.channels[0], 8);
 
         assert_eq!(before, after, "a stopped sweep should not follow new data");
+    }
+
+    #[test]
+    fn a_stopped_single_shot_holds_the_same_samples() {
+        let mut scope = Scope::new(64);
+        let mut channel = Channel::with_capacity("CH1", 64);
+        channel.extend((0..64).map(|i| if (i / 4) % 2 == 0 { -1.0 } else { 1.0 }));
+        scope.add_channel(channel);
+        scope.trigger = Trigger::rising(0.0).with_mode(TriggerMode::Single);
+        scope.last_trigger = Some(12);
+        scope.freeze_sweep(8);
+
+        let before = scope.sweep_samples(0, 8);
+        assert!(!before.is_empty());
+
+        for i in 0..300 {
+            scope.push(0, f64::from(i % 2) * 8.0 + 40.0);
+        }
+
+        assert_eq!(
+            scope.sweep_samples(0, 8),
+            before,
+            "the captured sweep changed after the ring wrapped"
+        );
     }
 
     #[test]
