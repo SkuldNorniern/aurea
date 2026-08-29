@@ -46,38 +46,27 @@ fn main() -> AureaResult<()> {
 
     println!("Created {} windows", manager.count());
 
+    let main_id = main_window_arc.id();
+    let popup_id = popup_arc.id();
+    let tool_id = tool_arc.id();
+
     loop {
-        let main_events = main_window_arc.poll_events();
-        for event in main_events {
-            if let WindowEvent::CloseRequested = event {
+        for (id, event) in manager.poll_all_events() {
+            if !matches!(event, WindowEvent::CloseRequested) {
+                continue;
+            }
+            if id == main_id {
                 println!("Main window close requested - exiting");
                 return Ok(());
-            }
-        }
-
-        let popup_events = popup_arc.poll_events();
-        for event in popup_events {
-            if let WindowEvent::CloseRequested = event {
+            } else if id == popup_id {
                 println!("Popup closed");
                 popup_alive.set(false);
                 manager.unregister(popup_arc.handle());
-            }
-        }
-
-        let tool_events = tool_arc.poll_events();
-        for event in tool_events {
-            if let WindowEvent::CloseRequested = event {
+            } else if id == tool_id {
                 println!("Tool window closed");
                 tool_alive.set(false);
                 manager.unregister(tool_arc.handle());
             }
-        }
-
-        unsafe {
-            unsafe extern "C" {
-                fn ng_platform_poll_events() -> i32;
-            }
-            ng_platform_poll_events();
         }
 
         manager.process_all_frames()?;
