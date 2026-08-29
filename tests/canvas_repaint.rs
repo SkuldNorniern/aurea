@@ -12,9 +12,7 @@ use aurea::embed::{aurea_embed_create_canvas, aurea_embed_destroy_canvas};
 use aurea::registry::elements::invoke_button_callback;
 use aurea::render::{Canvas, Color, DrawingContext, Paint, PaintStyle, Rect, RendererBackend};
 use aurea::{AureaResult, Container, Window, gpu_support};
-use aurea_render::CURRENT_BUFFER;
 use aurea_runtime::FrameScheduler;
-use std::slice::from_raw_parts;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -33,22 +31,15 @@ fn paint_a_square(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
 }
 
 /// Pixels in the published buffer that are not the background colour.
-fn drawn_pixels() -> usize {
-    CURRENT_BUFFER.with(|buf| match *buf.borrow() {
-        Some((ptr, size, _, _)) if !ptr.is_null() && size > 0 => {
-            let bg = (u32::from(BG.a) << 24)
-                | (u32::from(BG.r) << 16)
-                | (u32::from(BG.g) << 8)
-                | u32::from(BG.b);
-            let bytes = unsafe { from_raw_parts(ptr, size) };
-            bytes
-                .chunks_exact(4)
-                .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                .filter(|&p| p != bg)
-                .count()
-        }
-        _ => 0,
-    })
+/// Pixels this canvas drew that are not the background colour.
+fn drawn_pixels(canvas: &Canvas) -> usize {
+    let bg = (u32::from(BG.a) << 24)
+        | (u32::from(BG.r) << 16)
+        | (u32::from(BG.g) << 8)
+        | u32::from(BG.b);
+    canvas
+        .with_frame_pixels(|pixels, _, _| pixels.iter().filter(|&&p| p != bg).count())
+        .unwrap_or(0)
 }
 
 fn window_with_canvas(title: &str) -> AureaResult<(Window, Canvas)> {
@@ -86,7 +77,7 @@ fn retained_draw_survives_the_layout_resize() -> AureaResult<()> {
     }
 
     assert!(
-        drawn_pixels() > 1000,
+        drawn_pixels(&canvas) > 1000,
         "retained canvas went blank after the window resized it"
     );
     Ok(())
@@ -100,7 +91,7 @@ fn invalidate_keeps_immediate_mode_pixels() -> AureaResult<()> {
     let (window, mut canvas) = window_with_canvas("immediate")?;
 
     canvas.draw(paint_a_square)?;
-    let before = drawn_pixels();
+    let before = drawn_pixels(&canvas);
     assert!(before > 1000, "immediate draw produced nothing");
 
     canvas.invalidate_all();
@@ -110,7 +101,7 @@ fn invalidate_keeps_immediate_mode_pixels() -> AureaResult<()> {
     }
 
     assert_eq!(
-        drawn_pixels(),
+        drawn_pixels(&canvas),
         before,
         "invalidate_all wiped an immediate-mode canvas"
     );
