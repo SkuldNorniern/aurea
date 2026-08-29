@@ -43,15 +43,46 @@ use std::{
     ffi::CString,
     os::raw::c_void,
     rc::Rc,
-    sync::{
-        Arc, LazyLock, Mutex, OnceLock,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::{Arc, LazyLock, Mutex, OnceLock},
 };
 
-static WINDOW_COUNT: AtomicUsize = AtomicUsize::new(0);
+struct PlatformState {
+    ready: bool,
+    windows: usize,
+}
 
-static PLATFORM_READY: LazyLock<Mutex<bool>> = LazyLock::new(|| Mutex::new(false));
+static PLATFORM: LazyLock<Mutex<PlatformState>> = LazyLock::new(|| {
+    Mutex::new(PlatformState {
+        ready: false,
+        windows: 0,
+    })
+});
+
+fn acquire_platform() -> AureaResult<()> {
+    let mut state = lock(&PLATFORM);
+    if !state.ready {
+        if unsafe { ng_platform_init() } != 0 {
+            return Err(AureaError::PlatformError(1));
+        }
+        FrameScheduler::set_request_frame_hook(|| {
+            unsafe { ng_platform_request_frame() };
+        });
+        ui_thread::claim();
+        state.ready = true;
+    }
+    state.windows += 1;
+    Ok(())
+}
+
+fn release_platform() {
+    let mut state = lock(&PLATFORM);
+    state.windows = state.windows.saturating_sub(1);
+    if state.windows == 0 && state.ready {
+        unsafe { ng_platform_cleanup() };
+        state.ready = false;
+        ui_thread::release();
+    }
+}
 
 pub use crate::registry::window::{
     process_all_window_events, process_all_window_updates, push_window_event,
@@ -105,19 +136,12 @@ impl Window {
             })
             .clone()?;
 
-        {
-            let mut ready = lock(&PLATFORM_READY);
-            if !*ready {
-                if unsafe { ng_platform_init() } != 0 {
-                    return Err(AureaError::PlatformError(1));
-                }
-                FrameScheduler::set_request_frame_hook(|| {
-                    unsafe { ng_platform_request_frame() };
-                });
-                ui_thread::claim();
-                *ready = true;
-            }
-        }
+        acquire_platform()?;
+        let mut guard = WindowBuildGuard {
+            handle: None,
+            proxy_id: None,
+            armed: true,
+        };
 
         let platform = Platform::current();
         let capabilities = CapabilityChecker::new();
@@ -140,6 +164,7 @@ impl Window {
         if handle.is_null() {
             return Err(AureaError::WindowCreationFailed);
         }
+        guard.handle = Some(handle);
 
         let scale_factor = unsafe { ng_platform_get_scale_factor(handle) };
         let event_queue = Arc::new(EventQueue::new());
@@ -198,16 +223,9 @@ impl Window {
             ng_platform_window_set_scale_factor_callback(handle, ng_invoke_scale_factor_changed);
         }
 
-        WINDOW_COUNT.fetch_add(1, Ordering::Relaxed);
-
         let proxy_id = proxy::next_id();
         proxy::register(proxy_id);
-
-        let mut guard = WindowBuildGuard {
-            handle,
-            proxy_id,
-            armed: true,
-        };
+        guard.proxy_id = Some(proxy_id);
 
         #[cfg(feature = "wgpu")]
         let surface_handle = Arc::new(
@@ -680,8 +698,8 @@ pub(super) fn pump_platform_events() {
 }
 
 struct WindowBuildGuard {
-    handle: *mut c_void,
-    proxy_id: ProxyId,
+    handle: Option<*mut c_void>,
+    proxy_id: Option<ProxyId>,
     armed: bool,
 }
 
@@ -696,7 +714,15 @@ impl Drop for WindowBuildGuard {
         if !self.armed {
             return;
         }
-        teardown_window(self.handle, self.proxy_id);
+        match (self.handle, self.proxy_id) {
+            (Some(handle), Some(proxy_id)) => teardown_window(handle, proxy_id),
+            _ => {
+                if let Some(handle) = self.handle {
+                    unsafe { ng_platform_destroy_window(handle) };
+                }
+                release_platform();
+            }
+        }
     }
 }
 
@@ -711,11 +737,7 @@ fn teardown_window(handle: *mut c_void, proxy_id: ProxyId) {
         ng_platform_destroy_window(handle);
     }
 
-    if WINDOW_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
-        unsafe { ng_platform_cleanup() };
-        *lock(&PLATFORM_READY) = false;
-        ui_thread::release();
-    }
+    release_platform();
 }
 
 impl Drop for Window {
