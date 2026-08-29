@@ -2,10 +2,9 @@
 
 use aurea_foundation::AureaResult;
 use aurea_render::{Color, DrawingContext, Paint, PaintStyle, Path, PathCommand, Point, Rect};
-use std::collections::HashSet;
 
 use super::scale::{Mapping, Placed, Range, Scale};
-use super::series::{Plot, Points, Series};
+use super::series::{Plot, Series};
 use super::style::{AxisStyle, GraphStyle, Stroke};
 use super::ticks::{Tick, TickPlan};
 
@@ -380,7 +379,7 @@ impl Graph {
             let color = series
                 .color
                 .unwrap_or_else(|| self.style.palette_color(index));
-            let projected = self.project(&series.points, series.plot, x_map, y_map);
+            let projected = self.project(series, x_map, y_map);
             let screen = &projected.points;
             if screen.is_empty() {
                 continue;
@@ -411,7 +410,8 @@ impl Graph {
         Ok(())
     }
 
-    fn project(&self, points: &Points, plot: Plot, x_map: Mapping, y_map: Mapping) -> Projected {
+    fn project(&self, series: &Series, x_map: Mapping, y_map: Mapping) -> Projected {
+        let points = &series.points;
         let columns = self.plot_area.width.max(1.0);
         let projected = points.iter().filter_map(|(x, y)| {
             let px = x_map.place(x).pixel()?;
@@ -427,13 +427,13 @@ impl Graph {
         }
 
         let left = self.plot_area.x;
-        match plot {
+        match series.plot {
             Plot::Line | Plot::Area | Plot::Step => Projected {
                 points: decimate(projected, left, columns),
                 envelope: true,
             },
             Plot::Points => Projected {
-                points: thin_to_cells(projected, self.plot_area),
+                points: thin_to_cells(projected, self.plot_area, series.point_radius),
                 envelope: false,
             },
             Plot::Bars => Projected {
@@ -680,15 +680,27 @@ fn decimate(points: impl Iterator<Item = Point>, left: f32, columns: f32) -> Vec
     out
 }
 
-fn thin_to_cells(points: impl Iterator<Item = Point>, area: Rect) -> Vec<Point> {
-    let mut seen = HashSet::new();
+fn thin_to_cells(points: impl Iterator<Item = Point>, area: Rect, radius: f32) -> Vec<Point> {
+    let cell_size = radius.max(1.0);
+    let width = super::numeric::f64_to_count(f64::from((area.width / cell_size).max(1.0)));
+    let height = super::numeric::f64_to_count(f64::from((area.height / cell_size).max(1.0)));
+    let cells = width.saturating_mul(height);
+    let mut seen = vec![0u64; cells.div_ceil(64)];
+
     let mut out = Vec::new();
     for point in points {
-        let cell = (
-            super::numeric::f32_to_i32(point.x - area.x),
-            super::numeric::f32_to_i32(point.y - area.y),
-        );
-        if seen.insert(cell) {
+        let x = super::numeric::f32_to_i32((point.x - area.x) / cell_size);
+        let y = super::numeric::f32_to_i32((point.y - area.y) / cell_size);
+        let (Ok(x), Ok(y)) = (usize::try_from(x), usize::try_from(y)) else {
+            continue;
+        };
+        if x >= width || y >= height {
+            continue;
+        }
+        let cell = y * width + x;
+        let (word, bit) = (cell / 64, 1u64 << (cell % 64));
+        if seen[word] & bit == 0 {
+            seen[word] |= bit;
             out.push(point);
         }
     }
@@ -994,7 +1006,7 @@ mod tests {
         ));
 
         let (x_map, y_map) = graph.mappings();
-        let projected = graph.project(&graph.series[0].points, graph.series[0].plot, x_map, y_map);
+        let projected = graph.project(&graph.series[0], x_map, y_map);
 
         assert!(!projected.envelope);
         assert_eq!(projected.points.len(), 50);
@@ -1050,7 +1062,7 @@ mod tests {
         graph.add_series(series);
 
         let (x_map, y_map) = graph.mappings();
-        let projected = graph.project(&graph.series[0].points, Plot::Points, x_map, y_map);
+        let projected = graph.project(&graph.series[0], x_map, y_map);
 
         assert!(!projected.envelope, "a scatter is not an envelope");
         assert!(
@@ -1071,7 +1083,7 @@ mod tests {
         graph.add_series(series);
 
         let (x_map, y_map) = graph.mappings();
-        let projected = graph.project(&graph.series[0].points, Plot::Bars, x_map, y_map);
+        let projected = graph.project(&graph.series[0], x_map, y_map);
 
         assert!(!projected.envelope);
         assert!(
@@ -1128,7 +1140,7 @@ mod tests {
         ));
 
         let (x_map, y_map) = graph.mappings();
-        let projected = graph.project(&graph.series[0].points, graph.series[0].plot, x_map, y_map);
+        let projected = graph.project(&graph.series[0], x_map, y_map);
 
         assert!(projected.envelope, "should have been decimated");
         assert!(
