@@ -7,6 +7,7 @@
 //! each `setNeedsDisplay`).
 
 use std::cmp::Ordering as CmpOrdering;
+use std::f32::consts::FRAC_1_SQRT_2;
 
 use crate::command::DrawCommand;
 use crate::cpu::blend::{ConstSrc, blend_pixel, linear_to_srgb_u8, srgb_to_linear};
@@ -1631,13 +1632,29 @@ fn rect_contains(outer: Rect, inner: Rect) -> bool {
         && inner.y + inner.height <= outer.y + outer.height
 }
 
-/// The area a draw actually covers: its bounds, less anything its clip cuts
-/// away. An item paints nothing outside its clip, so this is what it can hide.
+/// The area a draw actually covers: the part of its shape that is solid,
+/// less anything its clip cuts away.
+///
+/// Bounds are not that area for every shape. A circle's bounds are the square
+/// around it, and the corners of that square are not painted — so a circle
+/// wide enough to swallow a tile could hide something the tile's corner still
+/// showed. What is used instead is the largest square that fits inside it.
 fn covered_region(item: &DisplayItem) -> Option<Rect> {
+    let solid = match &item.command {
+        DrawCommand::DrawCircle(center, radius, _) => inscribed_square(*center, *radius),
+        _ => item.bounds,
+    };
     match item.clip {
-        None => Some(item.bounds),
-        Some(clip) => intersect_rect(item.bounds, clip),
+        None => Some(solid),
+        Some(clip) => intersect_rect(solid, clip),
     }
+}
+
+/// The largest axis-aligned square inside a circle.
+fn inscribed_square(center: Point, radius: f32) -> Rect {
+    // Half the side of a square inscribed in a circle of radius r is r/sqrt(2).
+    let half = radius * FRAC_1_SQRT_2;
+    Rect::new(center.x - half, center.y - half, half * 2.0, half * 2.0)
 }
 
 /// The overlap of `a` and `b`, or `None` when they do not meet.
@@ -2046,6 +2063,21 @@ mod occlusion_tests {
         let items = vec![plain_item(first_tile()), occluder];
 
         assert!(occluded(&items)[0]);
+    }
+
+    /// A circle does not paint the corners of the square around it, so using
+    /// those bounds as cover would hide something still showing through them.
+    #[test]
+    fn a_circle_covers_less_than_the_square_around_it() {
+        let radius = TILE_SIZE as f32;
+        let center = Point::new(radius, radius);
+        let square = inscribed_square(center, radius);
+
+        assert!(square.width < radius * 2.0, "smaller than the bounds");
+        assert!(
+            (center.x - square.x).hypot(center.y - square.y) <= radius + 0.001,
+            "and its corner is still inside the circle"
+        );
     }
 
     /// Several draws can hide something together that none of them contains

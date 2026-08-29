@@ -716,10 +716,17 @@ fn decimation_threshold(columns: f32) -> usize {
 /// A point off the side of the plot belongs to no column: it is clipped away,
 /// so letting it into the nearest one would stretch that column's span to
 /// reach a value the viewer cannot see.
+///
+/// The far edge is the exception. An axis maps its maximum to the last pixel
+/// of the plot, so the newest value in a scrolling trace lands exactly there;
+/// counting that as past the end dropped precisely the value being watched.
 fn column_of(point: Point, left: f32, column_count: usize) -> Option<usize> {
-    let column = super::numeric::f32_to_i32(point.x - left);
-    let column = usize::try_from(column).ok()?;
-    (column < column_count).then_some(column)
+    let offset = point.x - left;
+    if offset < 0.0 || offset > column_count as f32 {
+        return None;
+    }
+    let column = usize::try_from(super::numeric::f32_to_i32(offset)).ok()?;
+    Some(column.min(column_count.saturating_sub(1)))
 }
 
 /// Collapses points to the highest and lowest in each pixel column.
@@ -1233,6 +1240,23 @@ mod tests {
         );
         assert_eq!(in_column_0[0].y, 10.0);
         assert_eq!(in_column_0[1].y, 30.0);
+    }
+
+    /// The mapping runs to the far edge of the plot, so the newest value in a
+    /// scrolling trace lands exactly on it. Treating that as past the last
+    /// column dropped the value the viewer is most likely watching.
+    #[test]
+    fn a_point_on_the_far_edge_lands_in_the_last_column() {
+        let out = decimate(
+            [Point::new(0.0, 1.0), Point::new(4.0, 9.0)].into_iter(),
+            0.0,
+            4.0,
+        );
+
+        assert!(
+            out.iter().any(|p| p.y == 9.0),
+            "the value on the right-hand edge was dropped: {out:?}"
+        );
     }
 
     /// A point off the side of the plot is clipped away, so it must not drag

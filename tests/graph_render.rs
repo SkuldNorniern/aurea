@@ -198,3 +198,93 @@ fn a_scope_with_no_samples_draws_the_graticule() {
 
     assert_ne!(px(&buf, 1, 1) >> 24, 0, "background should be painted");
 }
+
+/// A trace has to appear whatever its density. The thinning that keeps a long
+/// series cheap changes shape at a threshold, and a trace that vanishes on one
+/// side of it is worse than one that is slow.
+#[test]
+fn a_line_is_drawn_at_every_density() {
+    let bg = 0xFF101216;
+    let mut blank = Vec::new();
+
+    for count in [2usize, 10, 50, 200, 479, 480, 481, 960, 1000, 5000, 100_000] {
+        let buf = render(|ctx| {
+            let mut graph = Graph::new();
+            graph.add_series(Series::xy(
+                "s",
+                (0..count)
+                    .map(|i| {
+                        let t = i as f64 / count as f64;
+                        (t * 100.0, (t * 12.0).sin())
+                    })
+                    .collect(),
+            ));
+            graph.draw(ctx, frame()).expect("draw");
+        });
+        let drawn = ink(&buf, bg);
+        if drawn < 200 {
+            blank.push((count, drawn));
+        }
+    }
+
+    assert!(blank.is_empty(), "traces with too little ink: {blank:?}");
+}
+
+/// A flat trace is still a trace. Every column holds one value, which is the
+/// case the envelope has least to work with.
+#[test]
+fn a_flat_line_is_drawn_at_every_density() {
+    let bg = 0xFF101216;
+    let mut blank = Vec::new();
+
+    for count in [50usize, 1000, 100_000] {
+        let buf = render(|ctx| {
+            let mut graph = Graph::new();
+            graph.add_series(Series::xy(
+                "s",
+                (0..count).map(|i| (i as f64, 1.0)).collect(),
+            ));
+            graph.draw(ctx, frame()).expect("draw");
+        });
+        let drawn = ink(&buf, bg);
+        if drawn < 100 {
+            blank.push((count, drawn));
+        }
+    }
+
+    assert!(
+        blank.is_empty(),
+        "flat traces with too little ink: {blank:?}"
+    );
+}
+
+/// A live chart follows its newest data with a moving window, so the value
+/// that matters most sits exactly on the right-hand edge.
+#[test]
+fn a_windowed_line_draws_its_newest_data() {
+    let bg = 0xFF101216;
+    let mut blank = Vec::new();
+
+    for count in [50usize, 1000, 5000, 100_000] {
+        let buf = render(|ctx| {
+            let mut graph = Graph::new();
+            graph.x = Axis::window(500.0);
+            graph.add_series(Series::xy(
+                "s",
+                (0..count)
+                    .map(|i| (i as f64, ((i as f64) * 0.05).sin()))
+                    .collect(),
+            ));
+            graph.draw(ctx, frame()).expect("draw");
+        });
+        let drawn = ink(&buf, bg);
+        if drawn < 200 {
+            blank.push((count, drawn));
+        }
+    }
+
+    assert!(
+        blank.is_empty(),
+        "windowed traces with too little ink: {blank:?}"
+    );
+}
