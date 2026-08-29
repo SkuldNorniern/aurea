@@ -15,7 +15,7 @@ use aurea_render::{Color, Rect, Renderer, RendererBackend};
 use aurea_runtime::{DamageRegion, FrameScheduler};
 use std::collections::HashMap;
 use std::os::raw::c_void;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 #[cfg(feature = "zengpu")]
 use zengpu_hal::WindowHandles;
@@ -39,19 +39,48 @@ pub(crate) struct CanvasState {
     pub prev_frame_damage: Option<Rect>,
 }
 
-/// Global handle → state map so a redraw can be requested given only the raw
-/// canvas handle. A handle (`usize`) is `Send + Sync`, whereas `Canvas` is not,
-/// so this is the bridge that lets background callbacks (e.g. a window's
-/// `on_event`/`on_update`) ask a canvas to re-run its draw callback.
-static CANVAS_STATES: LazyLock<Mutex<HashMap<usize, Arc<Mutex<CanvasState>>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+/// A canvas's identity, for as long as the process runs.
+///
+/// Allocated when the canvas is created and never given out again. The native
+/// handle used to be the identity, and the platform is free to hand the same
+/// address back for the next canvas — so work queued against a canvas that
+/// has since gone would have redrawn whichever one took its place.
+///
+/// `Send + Sync`, whereas [`Canvas`](super::Canvas) is not, so this is what a
+/// background callback holds to ask a canvas to redraw.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct CanvasId(u64);
 
-pub(super) fn register_canvas_state(handle: usize, state: Arc<Mutex<CanvasState>>) {
-    lock(&CANVAS_STATES).insert(handle, state);
+impl CanvasId {
+    /// The raw value, for logging or as a key of the caller's own.
+    pub fn get(self) -> u64 {
+        self.0
+    }
 }
 
-fn unregister_canvas_state(handle: usize) {
-    lock(&CANVAS_STATES).remove(&handle);
+static NEXT_CANVAS_ID: AtomicU64 = AtomicU64::new(1);
+
+/// What a live canvas needs to be reached by id.
+struct CanvasEntry {
+    state: Arc<Mutex<CanvasState>>,
+    /// The native handle, which the scheduler and the platform still speak in.
+    handle: usize,
+}
+
+static CANVAS_STATES: LazyLock<Mutex<HashMap<CanvasId, CanvasEntry>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Takes the next id for a canvas that is about to exist.
+pub(super) fn next_canvas_id() -> CanvasId {
+    CanvasId(NEXT_CANVAS_ID.fetch_add(1, Ordering::Relaxed))
+}
+
+pub(super) fn register_canvas_state(id: CanvasId, handle: usize, state: Arc<Mutex<CanvasState>>) {
+    lock(&CANVAS_STATES).insert(id, CanvasEntry { state, handle });
+}
+
+fn unregister_canvas_state(id: CanvasId) {
+    lock(&CANVAS_STATES).remove(&id);
 }
 
 /// Request a full redraw of a canvas identified by its raw handle.
@@ -67,13 +96,17 @@ fn unregister_canvas_state(handle: usize) {
 /// (consuming a pending click, updating hover, etc.) need the callback to run,
 /// which is exactly what this provides.
 ///
-/// `handle` is the value returned by [`crate::Element::handle`] cast to `usize`.
-/// It is a no-op if the handle is unknown (e.g. the canvas was already dropped).
-pub fn request_canvas_redraw(handle: usize) {
-    // Bail out before touching the scheduler or the FFI: an unknown handle
-    // belongs to a canvas that is already gone, and passing its stale address
-    // back into native code is exactly what the no-op contract rules out.
-    let Some(state) = lock(&CANVAS_STATES).get(&handle).cloned() else {
+/// `id` comes from [`Canvas::id`](super::Canvas::id). It is a no-op if the
+/// canvas has been dropped, and because ids are never reused it cannot reach
+/// whichever canvas came afterwards.
+pub fn request_canvas_redraw(id: CanvasId) {
+    // Bail out before touching the scheduler or the FFI: an unknown id belongs
+    // to a canvas that is already gone, and passing its stale address back
+    // into native code is exactly what the no-op contract rules out.
+    let Some((state, handle)) = lock(&CANVAS_STATES)
+        .get(&id)
+        .map(|entry| (entry.state.clone(), entry.handle))
+    else {
         return;
     };
     {
@@ -91,6 +124,8 @@ pub fn request_canvas_redraw(handle: usize) {
 /// destroys the native canvas when the *last* `Canvas` clone is dropped.
 pub(super) struct CanvasCleanup {
     pub(super) handle: usize,
+    /// This canvas's identity, which is how the registry knows it.
+    pub(super) id: CanvasId,
     pub(super) renderer: Arc<Mutex<Option<Box<dyn Renderer>>>>,
     /// False once the canvas has been added to a container, which frees it.
     pub(super) owns_native: AtomicBool,
@@ -99,7 +134,7 @@ pub(super) struct CanvasCleanup {
 impl Drop for CanvasCleanup {
     fn drop(&mut self) {
         FrameScheduler::unregister_canvas(self.handle as *mut c_void);
-        unregister_canvas_state(self.handle);
+        unregister_canvas_state(self.id);
         {
             let mut r = lock(&self.renderer);
             if let Some(ref mut renderer) = *r {
@@ -170,5 +205,28 @@ fn zengpu_canvas_handles(handle: *mut c_void) -> AureaResult<WindowHandles> {
         let native =
             native_handle_from_canvas_ptr(handle).ok_or(AureaError::ElementOperationFailed)?;
         window_handles(&native)
+    }
+}
+
+#[cfg(test)]
+mod id_tests {
+    use super::*;
+
+    /// Ids are never handed out twice, so work queued against a canvas that
+    /// has gone cannot reach whichever canvas took its place.
+    #[test]
+    fn ids_are_not_reused() {
+        let first = next_canvas_id();
+        let second = next_canvas_id();
+
+        assert_ne!(first, second);
+        assert!(second.get() > first.get());
+    }
+
+    /// Asking a canvas that no longer exists to redraw does nothing, rather
+    /// than reaching into the platform with an address it no longer owns.
+    #[test]
+    fn redrawing_an_unknown_canvas_is_a_no_op() {
+        request_canvas_redraw(next_canvas_id());
     }
 }
