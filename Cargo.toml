@@ -1,12 +1,12 @@
 [package]
 name = "aurea"
-version = "0.0.2"
-edition = "2024"
-rust-version = "1.88"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Native GUI toolkit with cross-platform windowing, native widgets, and framework-owned CPU rasterizer"
-license = "Apache-2.0"
+license.workspace = true
 readme = "README.md"
-repository = "https://github.com/SkuldNorniern/aurea"
+repository.workspace = true
 
 [lints]
 workspace = true
@@ -15,6 +15,16 @@ workspace = true
 resolver = "2"
 members = ["aurea-foundation", "aurea-ffi", "aurea-render", "aurea-runtime", "aurea-animation"]
 exclude = ["ZenGPU"]
+
+# The published crates move together. They are one library split for build
+# times and optional backends, not five independently versioned things, and a
+# crate depending on a stale sibling is how a release breaks after it is cut.
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "Apache-2.0"
+repository = "https://github.com/SkuldNorniern/aurea"
 
 [workspace.lints.clippy]
 absolute_paths = "deny"
@@ -30,11 +40,11 @@ name = "aurea"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-aurea-foundation = { path = "aurea-foundation", version = "0.0.1" }
-aurea-ffi = { path = "aurea-ffi", version = "0.0.1" }
-aurea-render = { path = "aurea-render", version = "0.0.1" }
-aurea-runtime = { path = "aurea-runtime", version = "0.0.1" }
-aurea-animation = { path = "aurea-animation", version = "0.0.1" }
+aurea-foundation = { path = "aurea-foundation", version = "0.1.0" }
+aurea-ffi = { path = "aurea-ffi", version = "0.1.0" }
+aurea-render = { path = "aurea-render", version = "0.1.0" }
+aurea-runtime = { path = "aurea-runtime", version = "0.1.0" }
+aurea-animation = { path = "aurea-animation", version = "0.1.0" }
 libc = "0.2"
 log = "0.4.29"
 jni = { version = "0.21", optional = true }
@@ -138,4 +148,4 @@ name = "zengpu_shared_context"
 required-features = ["zengpu"]
 
 [dev-dependencies]
-aurea-render = { path = "aurea-render", version = "0.0.1" }
+aurea-render = { path = "aurea-render", version = "0.1.0" }
