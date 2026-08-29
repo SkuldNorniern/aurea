@@ -1,4 +1,4 @@
-#include "window.h"
+﻿#include "window.h"
 #include "utils.h"
 #include "common/errors.h"
 #include "common/rust_callbacks.h"
@@ -72,9 +72,77 @@ NGHandle ng_windows_create_window(const char* title, int width, int height) {
     return (NGHandle)hwnd;
 }
 
+/* Window kinds, matching the WindowType discriminants on the Rust side. */
+#define AUREA_WINDOW_NORMAL  0
+#define AUREA_WINDOW_POPUP   1
+#define AUREA_WINDOW_TOOL    2
+#define AUREA_WINDOW_UTILITY 3
+#define AUREA_WINDOW_SHEET   4
+#define AUREA_WINDOW_DIALOG  5
+
+/* The window styles for a kind.
+ *
+ * Every kind used to come out as a plain overlapped window, so asking for a
+ * popup or a tool palette got a normal window and no indication otherwise.
+ *
+ * Sheet has no Win32 equivalent — it is a macOS document-modal panel — so it
+ * is reported as unsupported rather than quietly given a different shape. */
+static int window_styles_for(int window_type, DWORD* style, DWORD* ex_style) {
+    switch (window_type) {
+        case AUREA_WINDOW_NORMAL:
+            *style = WS_OVERLAPPEDWINDOW;
+            *ex_style = 0;
+            return 1;
+        case AUREA_WINDOW_POPUP:
+            /* Borderless and above its owner, which is what a popup is for. */
+            *style = WS_POPUP;
+            *ex_style = WS_EX_TOPMOST;
+            return 1;
+        case AUREA_WINDOW_TOOL:
+        case AUREA_WINDOW_UTILITY:
+            /* A floating palette: thin title bar, and out of the taskbar. */
+            *style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME;
+            *ex_style = WS_EX_TOOLWINDOW;
+            return 1;
+        case AUREA_WINDOW_DIALOG:
+            /* Fixed size with a title bar, as a dialog is expected to be. */
+            *style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;
+            *ex_style = WS_EX_DLGMODALFRAME;
+            return 1;
+        default:
+            return 0;
+    }
+}
+
 NGHandle ng_windows_create_window_with_type(const char* title, int width, int height, int window_type) {
-    (void)window_type;
-    return ng_windows_create_window(title, width, height);
+    if (!title) return NULL;
+
+    DWORD style = 0;
+    DWORD ex_style = 0;
+    if (!window_styles_for(window_type, &style, &ex_style)) {
+        return NULL;
+    }
+
+    HWND hwnd = CreateWindowExA(
+        ex_style,
+        ng_windows_get_class_name(),
+        title,
+        style,
+        CW_USEDEFAULT, CW_USEDEFAULT,
+        width, height,
+        NULL,
+        NULL,
+        GetModuleHandleA(NULL),
+        NULL
+    );
+
+    if (hwnd) {
+        ShowWindow(hwnd, SW_SHOW);
+        UpdateWindow(hwnd);
+        SetFocus(hwnd);
+    }
+
+    return (NGHandle)hwnd;
 }
 
 float ng_windows_get_scale_factor(NGHandle window) {
