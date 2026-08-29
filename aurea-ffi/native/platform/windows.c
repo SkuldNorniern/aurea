@@ -1,4 +1,4 @@
-#include "windows.h"
+﻿#include "windows.h"
 #include "windows/utils.h"
 #include "windows/window.h"
 #include "windows/menu.h"
@@ -32,11 +32,11 @@ int ng_windows_run(void) {
             ng_process_frames();
         } else if (result == WAIT_OBJECT_0 + 1) {
             MSG msg;
-            while (PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE)) {
+            while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
                 if (msg.message == WM_QUIT) goto done;
                 ng_process_frames();
                 TranslateMessage(&msg);
-                DispatchMessageA(&msg);
+                DispatchMessageW(&msg);
             }
         } else {
             break;
@@ -50,9 +50,12 @@ done:
 
 int ng_windows_poll_events(void) {
     MSG msg;
-    while (PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE)) {
+    /* Wide, to match the window class. PeekMessageA on a wide window hands
+       back WM_CHAR converted down to the ANSI codepage, which is exactly the
+       loss the wide class exists to avoid. */
+    while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
         TranslateMessage(&msg);
-        DispatchMessageA(&msg);
+        DispatchMessageW(&msg);
     }
     return NG_SUCCESS;
 }
