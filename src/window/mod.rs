@@ -505,12 +505,17 @@ impl Window {
     /// ```
     pub fn poll_events(&self) -> Vec<WindowEvent> {
         ui_thread::check("Window::poll_events");
-        // Pump the native message queue first: on Windows this drives
-        // PeekMessage/DispatchMessage, which runs WndProc (filling the event
-        // queue) and delivers WM_PAINT for any invalidated canvas. Without
-        // this, a manual poll loop never repaints and never receives input.
-        unsafe { ng_platform_poll_events() };
+        pump_platform_events();
+        self.drain_events()
+    }
 
+    /// Takes this window's events without pumping the platform queue.
+    ///
+    /// The queue belongs to the process, not to any one window, so a caller
+    /// holding several windows pumps once and drains each. Going through
+    /// [`Self::poll_events`] for every window pumps once per window, which is
+    /// wasted work and lets one window's turn dispatch another's messages.
+    pub(super) fn drain_events(&self) -> Vec<WindowEvent> {
         proxy::drain_for(self);
 
         // Drain the queue, then hand the events to this window's callbacks and
@@ -769,6 +774,15 @@ impl Window {
     pub fn is_visible(&self) -> bool {
         unsafe { ng_platform_window_is_visible(self.handle) != 0 }
     }
+}
+
+/// Runs the platform's message queue.
+///
+/// On Windows this drives PeekMessage/DispatchMessage, which runs WndProc —
+/// filling event queues and delivering WM_PAINT for any invalidated canvas.
+/// Without it a manual poll loop never repaints and never receives input.
+pub(super) fn pump_platform_events() {
+    unsafe { ng_platform_poll_events() };
 }
 
 /// Undoes a half-built window.
