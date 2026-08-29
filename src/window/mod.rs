@@ -93,7 +93,10 @@ pub use crate::registry::window::{
     process_all_window_events, process_all_window_updates, push_window_event,
 };
 
-use log::info;
+use log::{error, info};
+
+const NG_SUCCESS: i32 = 0;
+const NG_ERROR_UNSUPPORTED: i32 = -5;
 
 /// A native platform window with menu, content, and event handling.
 pub struct Window {
@@ -358,9 +361,13 @@ impl Window {
             let stale = previous.handle();
             drop(previous);
             if !stale.is_null() && stale != content_handle {
-                unsafe {
-                    let _ = ng_platform_detach_element(stale);
-                    ng_platform_destroy_element(stale);
+                let detached = unsafe { ng_platform_detach_element(stale) };
+                if detached == NG_SUCCESS || detached == NG_ERROR_UNSUPPORTED {
+                    unsafe { ng_platform_destroy_element(stale) };
+                } else {
+                    error!(
+                        "could not reclaim the previous window content                          (error {detached}); leaving it rather than freeing                          something this window no longer owns"
+                    );
                 }
             }
         }
@@ -416,7 +423,7 @@ impl Window {
     /// # }
     /// ```
     #[cfg(feature = "wgpu")]
-    pub fn native_handle(&self) -> NativeWindowHandle {
+    pub fn native_handle(&self) -> Option<NativeWindowHandle> {
         use crate::integration::wgpu::WindowNativeHandle;
         WindowNativeHandle::native_handle_impl(self)
     }

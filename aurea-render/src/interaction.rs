@@ -143,6 +143,12 @@ fn item_hit(item: &DisplayItem, point: Point) -> bool {
         return false;
     }
 
+    if let Some(clip) = item.clip
+        && !hit_test::hit_test_rect(clip, point)
+    {
+        return false;
+    }
+
     match &item.command {
         DrawCommand::DrawRect(rect, _) => hit_test::hit_test_rect(*rect, point),
         DrawCommand::DrawCircle(center, radius, _) => {
@@ -177,6 +183,27 @@ mod tests {
             BlendMode::Normal,
             DrawCommand::DrawRect(rect, Paint::new()),
         )
+    }
+
+    #[test]
+    fn a_click_outside_the_clip_misses() {
+        let bounds = Rect::new(0.0, 0.0, 100.0, 100.0);
+        let mut item = interactive_rect(InteractiveId(1), bounds);
+        item.clip = Some(Rect::new(0.0, 0.0, 20.0, 100.0));
+
+        assert!(item_hit(&item, Point::new(10.0, 50.0)), "inside the clip");
+        assert!(
+            !item_hit(&item, Point::new(60.0, 50.0)),
+            "clipped away, so not on screen and not clickable"
+        );
+    }
+
+    #[test]
+    fn an_unclipped_shape_is_interactive_throughout() {
+        let bounds = Rect::new(0.0, 0.0, 100.0, 100.0);
+        let item = interactive_rect(InteractiveId(1), bounds);
+
+        assert!(item_hit(&item, Point::new(60.0, 50.0)));
     }
 
     #[test]
