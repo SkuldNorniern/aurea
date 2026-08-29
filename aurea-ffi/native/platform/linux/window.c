@@ -481,7 +481,9 @@ void ng_linux_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallb
 
 void ng_linux_destroy_window(NGHandle handle) {
     if (!handle) return;
-    gtk_widget_destroy((GtkWidget*)handle);
+    GtkWidget* widget = (GtkWidget*)handle;
+    if (!GTK_IS_WIDGET(widget)) return;
+    gtk_widget_destroy(widget);
 }
 
 void ng_linux_destroy_element(NGHandle element) {
