@@ -13,7 +13,8 @@ use raw_window_handle::{
 
 impl HasWindowHandle for Window {
     fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
-        let native = native_handle_from_window_ptr(self.handle).ok_or(HandleError::Unavailable)?;
+        let native =
+            native_handle_from_window_ptr(self.handle()).ok_or(HandleError::Unavailable)?;
         let (window, _display) = raw_handles(&native)?;
         // SAFETY: the raw handle was built from a native pointer that outlives
         // this borrow, per NativeWindowHandle's own safety contract.
@@ -23,7 +24,8 @@ impl HasWindowHandle for Window {
 
 impl HasDisplayHandle for Window {
     fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
-        let native = native_handle_from_window_ptr(self.handle).ok_or(HandleError::Unavailable)?;
+        let native =
+            native_handle_from_window_ptr(self.handle()).ok_or(HandleError::Unavailable)?;
         let (_window, display) = raw_handles(&native)?;
         // SAFETY: the raw handle was built from a native pointer that outlives
         // this borrow, per NativeWindowHandle's own safety contract.

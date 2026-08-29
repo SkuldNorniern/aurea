@@ -127,9 +127,14 @@ const NG_ERROR_UNSUPPORTED: i32 = -5;
 
 /// A native platform window with menu, content, and event handling.
 pub struct Window {
-    pub handle: *mut c_void,
-    pub menu_bar: Option<MenuBar>,
-    pub content: Option<Box<dyn Element>>,
+    /// The native window. Read through [`Self::handle`], which is the
+    /// deliberate escape hatch; writing it would leave everything registered
+    /// against the old one.
+    handle: *mut c_void,
+    /// This window's menu bar, freed with the window.
+    menu_bar: Option<MenuBar>,
+    /// What the window shows, freed with the window.
+    content: Option<Box<dyn Element>>,
     platform: Platform,
     capabilities: CapabilityChecker,
     damage: Mutex<DamageRegion>,
@@ -326,7 +331,15 @@ impl Window {
         (x, y)
     }
 
-    pub fn create_menu_bar(&mut self) -> AureaResult<MenuBar> {
+    /// Builds this window's menu bar and hands back a borrow of it.
+    ///
+    /// The window keeps it. A menu is attached to a window and the platform
+    /// frees the two together, so handing back an owned `MenuBar` gave it a
+    /// life of its own: dropping it early destroyed the menu of a window that
+    /// was still showing it.
+    ///
+    /// Calling this twice replaces the previous menu bar.
+    pub fn create_menu_bar(&mut self) -> AureaResult<&mut MenuBar> {
         if !self.capabilities.has(Capability::MenuBar) {
             return Err(AureaError::ElementOperationFailed);
         }
@@ -342,7 +355,9 @@ impl Window {
             return Err(AureaError::MenuCreationFailed);
         }
 
-        Ok(MenuBar::new(handle))
+        // Replacing any previous one frees it here, which is what attaching a
+        // second menu to the window did to the first anyway.
+        Ok(self.menu_bar.insert(MenuBar::new(handle)))
     }
 
     pub fn platform(&self) -> Platform {

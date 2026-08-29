@@ -119,7 +119,7 @@ impl WindowNativeHandle for Window {
     fn native_handle_impl(&self) -> Option<NativeWindowHandle> {
         #[cfg(target_os = "macos")]
         {
-            let view_ptr = unsafe { ng_platform_window_get_content_view(self.handle) };
+            let view_ptr = unsafe { ng_platform_window_get_content_view(self.handle()) };
             if view_ptr.is_null() {
                 return None;
             }
@@ -127,22 +127,24 @@ impl WindowNativeHandle for Window {
         }
         #[cfg(target_os = "windows")]
         {
-            Some(NativeWindowHandle::Windows { hwnd: self.handle })
+            Some(NativeWindowHandle::Windows {
+                hwnd: self.handle(),
+            })
         }
         #[cfg(target_os = "linux")]
         {
-            linux_window_handle_from_ptr(self.handle).map(NativeWindowHandle::Linux)
+            linux_window_handle_from_ptr(self.handle()).map(NativeWindowHandle::Linux)
         }
         #[cfg(target_os = "ios")]
         {
             Some(NativeWindowHandle::IOS {
-                ui_view: self.handle,
+                ui_view: self.handle(),
             })
         }
         #[cfg(target_os = "android")]
         {
             Some(NativeWindowHandle::Android {
-                native_window: self.handle,
+                native_window: self.handle(),
             })
         }
         #[cfg(not(any(

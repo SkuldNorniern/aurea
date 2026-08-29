@@ -483,3 +483,31 @@ fn other_capabilities_are_not_narrowed() {
         );
     }
 }
+
+/// A menu belongs to the window it is attached to. It used to be handed back
+/// owned, so dropping it destroyed the menu of a window still showing it.
+#[test]
+#[ignore = "creates a native window; run with --ignored"]
+fn a_menu_bar_belongs_to_its_window() -> AureaResult<()> {
+    let mut window = Window::new("menus", 300, 200)?;
+    if !window.capabilities().has(aurea::Capability::MenuBar) {
+        return Ok(());
+    }
+
+    {
+        let menu_bar = window.create_menu_bar()?;
+        let mut file = menu_bar.add_submenu("File")?;
+        file.add_item("New", || {})?;
+    }
+
+    // The borrow is over, and the menu is still the window's: asking again
+    // replaces it rather than finding nothing there.
+    {
+        let menu_bar = window.create_menu_bar()?;
+        menu_bar.add_submenu("Edit")?;
+    }
+
+    // Dropping the window takes the menu with it, which must not fault.
+    drop(window);
+    Ok(())
+}
