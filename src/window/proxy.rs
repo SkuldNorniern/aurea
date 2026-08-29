@@ -8,35 +8,19 @@
 //! Queued work runs the next time the window pumps — `poll_events`,
 //! `process_frames`, or the event loop — in the order it was submitted.
 
-use super::Window;
+use super::{Window, WindowId};
 use aurea_foundation::lock;
 use aurea_runtime::FrameScheduler;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::mem::take;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 
 /// Work submitted to a window from another thread.
 type QueuedCall = Box<dyn FnOnce(&Window) + Send>;
 
-/// Identifies one window for the life of the process.
-///
-/// Not the native handle: the platform reuses addresses, so a proxy held past
-/// its window's death could otherwise deliver work to whichever window landed
-/// on the same address next.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ProxyId(u64);
-
-static NEXT_PROXY_ID: AtomicU64 = AtomicU64::new(1);
-
-/// Allocates an id for a new window.
-pub(super) fn next_id() -> ProxyId {
-    ProxyId(NEXT_PROXY_ID.fetch_add(1, Ordering::Relaxed))
-}
-
-static PENDING: LazyLock<Mutex<HashMap<ProxyId, Vec<QueuedCall>>>> =
+static PENDING: LazyLock<Mutex<HashMap<WindowId, Vec<QueuedCall>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// A `Send + Sync` handle to a window, for use off the UI thread.
@@ -67,11 +51,11 @@ static PENDING: LazyLock<Mutex<HashMap<ProxyId, Vec<QueuedCall>>>> =
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct WindowProxy {
-    id: ProxyId,
+    id: WindowId,
 }
 
 impl WindowProxy {
-    pub(crate) fn new(id: ProxyId) -> Self {
+    pub(crate) fn new(id: WindowId) -> Self {
         Self { id }
     }
 
@@ -129,12 +113,12 @@ pub(super) fn drain_for(window: &Window) {
 ///
 /// Proxies that outlive the window keep working in the sense that they accept
 /// calls; those calls are simply never run, because the id is never reused.
-pub(super) fn clear_for(id: ProxyId) {
+pub(super) fn clear_for(id: WindowId) {
     lock(&PENDING).remove(&id);
 }
 
 /// Opens a queue for a new window, which is what makes its proxies usable.
-pub(super) fn register(id: ProxyId) {
+pub(super) fn register(id: WindowId) {
     lock(&PENDING).entry(id).or_default();
 }
 
@@ -156,15 +140,26 @@ impl Error for WindowClosed {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::raw::c_void;
     use std::sync::Arc;
-    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::thread;
 
     /// A proxy for a window that exists, which is what `Window::new` sets up.
+    ///
+    /// The handle is a stand-in: nothing here dereferences it, and each call
+    /// uses a fresh one so the ids differ the way real windows' do.
     fn live_proxy() -> WindowProxy {
-        let id = next_id();
+        let id = fresh_id();
         register(id);
         WindowProxy::new(id)
+    }
+
+    /// An id from a handle no other test is using.
+    fn fresh_id() -> WindowId {
+        static NEXT: AtomicUsize = AtomicUsize::new(0x5000);
+        let handle = NEXT.fetch_add(0x10, Ordering::Relaxed) as *mut c_void;
+        WindowId::claim(handle)
     }
 
     /// A proxy outliving its window used to put its queue back and hold the
@@ -232,8 +227,8 @@ mod tests {
     /// pointed at whichever window takes over its native handle.
     #[test]
     fn ids_are_not_reused() {
-        let first = next_id();
-        let second = next_id();
+        let first = fresh_id();
+        let second = fresh_id();
         assert_ne!(first, second);
 
         register(second);
