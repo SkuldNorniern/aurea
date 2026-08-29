@@ -41,6 +41,25 @@ pub struct Canvas {
     _cleanup: Arc<CanvasCleanup>,
 }
 
+struct CanvasBuildGuard {
+    handle: *mut c_void,
+    armed: bool,
+}
+
+impl CanvasBuildGuard {
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for CanvasBuildGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            unsafe { ng_platform_destroy_element(self.handle) };
+        }
+    }
+}
+
 impl Canvas {
     /// Get the native window handle for this canvas.
     pub fn native_handle(&self) -> *mut c_void {
@@ -87,6 +106,11 @@ impl Canvas {
         if handle.is_null() {
             return Err(AureaError::ElementOperationFailed);
         }
+
+        let mut guard = CanvasBuildGuard {
+            handle,
+            armed: true,
+        };
 
         let renderer = match backend {
             RendererBackend::Cpu => {
@@ -151,6 +175,7 @@ impl Canvas {
             }),
         };
 
+        guard.disarm();
         register_canvas_state(handle_key(handle), canvas.state.clone());
         canvas.register_with_scheduler(state, renderer_arc, backend);
         Ok(canvas)
