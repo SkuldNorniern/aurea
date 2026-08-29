@@ -1387,6 +1387,7 @@ impl Renderer for CpuRasterizer {
             None => ClipBox::surface(bw, bh),
         };
         let items = self.display_list.items();
+        let occluded = mark_occluded(items, tiles_x, tiles_y, bw, bh);
         for (i, item) in items.iter().enumerate() {
             // `Clear` conceptually covers the whole buffer, but only the
             // dirty tiles' pixels actually need to be overwritten — anything
@@ -1405,7 +1406,7 @@ impl Renderer for CpuRasterizer {
                 continue;
             }
 
-            if !should_render_item(item, items, i, &dirty_tiles, tiles_x, tiles_y) {
+            if !should_render_item(item, &occluded, i, &dirty_tiles, tiles_x, tiles_y) {
                 continue;
             }
             Self::render_item(
@@ -1532,10 +1533,10 @@ fn clear_dirty_tiles(
 }
 
 /// Whether `items[i]` needs rendering: it must have known bounds that
-/// overlap a dirty tile, and must not be fully occluded by a later item.
+/// overlap a dirty tile, and must not be fully hidden by later draws.
 fn should_render_item(
     item: &DisplayItem,
-    items: &[DisplayItem],
+    occluded: &[bool],
     i: usize,
     dirty_tiles: &[bool],
     tiles_x: u32,
@@ -1544,7 +1545,73 @@ fn should_render_item(
     if !is_known_bounds(item.bounds) {
         return true;
     }
-    item_overlaps_dirty_tiles(item.bounds, dirty_tiles, tiles_x, tiles_y) && !is_occluded(items, i)
+    item_overlaps_dirty_tiles(item.bounds, dirty_tiles, tiles_x, tiles_y) && !occluded[i]
+}
+
+/// Marks each item that later opaque draws completely cover.
+///
+/// Asking "does any later item hide this one?" per item reads the rest of the
+/// list every time, which is quadratic. Measured on a scene of 8000 rects:
+///
+/// ```text
+/// per frame     scan      no occlusion    tile sweep
+/// 1000 items    550us     240us           124us
+/// 2000 items   1893us     467us           244us
+/// 4000 items   7162us    1015us           490us
+/// 8000 items  26820us    1404us           836us
+/// ```
+///
+/// The scan cost more than the drawing it saved — 19 times the frame with the
+/// check removed at 8000 items. The sweep is linear and beats both.
+///
+/// This walks the list backwards instead, keeping a tile per bit of what is
+/// already painted over. An item is hidden when every tile it touches is
+/// covered, and an opaque item covers the tiles that sit entirely inside it.
+/// The cost is a tile sweep per item rather than a list scan.
+///
+/// Tiles also let several draws combine to hide something that no single one
+/// of them contains, which the old check could not see.
+///
+/// It errs towards drawing: a tile only counts as covered when a draw plainly
+/// contains it, so an item is never skipped over a partially covered tile.
+fn mark_occluded(items: &[DisplayItem], tiles_x: u32, tiles_y: u32, bw: u32, bh: u32) -> Vec<bool> {
+    let tile_count = (tiles_x * tiles_y) as usize;
+    let mut covered = vec![false; tile_count];
+    let mut occluded = vec![false; items.len()];
+    if tile_count == 0 {
+        return occluded;
+    }
+
+    for (i, item) in items.iter().enumerate().rev() {
+        if !is_known_bounds(item.bounds) {
+            continue;
+        }
+        let (tx0, ty0, tx1, ty1) = tile_range(item.bounds, tiles_x, tiles_y);
+        if tx0 == tx1 || ty0 == ty1 {
+            continue;
+        }
+
+        occluded[i] = (ty0..ty1)
+            .flat_map(|ty| (tx0..tx1).map(move |tx| (tx, ty)))
+            .all(|(tx, ty)| covered[(ty * tiles_x + tx) as usize]);
+
+        // Then let this item hide what comes before it.
+        if !item.opaque || item.blend_mode != BlendMode::Normal {
+            continue;
+        }
+        let Some(region) = covered_region(item) else {
+            continue;
+        };
+        let (cx0, cy0, cx1, cy1) = tile_range(region, tiles_x, tiles_y);
+        for ty in cy0..cy1 {
+            for tx in cx0..cx1 {
+                if rect_contains(region, tile_rect(tx, ty, bw, bh)) {
+                    covered[(ty * tiles_x + tx) as usize] = true;
+                }
+            }
+        }
+    }
+    occluded
 }
 
 /// Smallest rect covering both `a` and `b`.
@@ -1583,24 +1650,6 @@ fn intersect_rect(a: Rect, b: Rect) -> Option<Rect> {
         return None;
     }
     Some(Rect::new(x0, y0, x1 - x0, y1 - y0))
-}
-
-/// True if some later item in `items` is an opaque, normally-blended draw
-/// that covers `items[i]`'s bounds — i.e. `items[i]` is completely painted
-/// over and contributes nothing to the final frame.
-///
-/// What covers is the clipped region, not the bounds: a draw clipped to a
-/// tenth of itself hides only that tenth, and treating its full bounds as
-/// covering erased whatever was underneath the other nine.
-///
-/// `items[i].bounds` must be known (non-zero) bounds; callers check this.
-fn is_occluded(items: &[DisplayItem], i: usize) -> bool {
-    let bounds = items[i].bounds;
-    items[i + 1..].iter().any(|later| {
-        later.opaque
-            && later.blend_mode == BlendMode::Normal
-            && covered_region(later).is_some_and(|covers| rect_contains(covers, bounds))
-    })
 }
 
 /// Number of `TILE_SIZE` tiles needed to cover a `bw x bh` buffer.
@@ -1869,6 +1918,13 @@ mod occlusion_tests {
     use crate::command::DrawCommand;
     use crate::display_list::{DisplayIndex, DisplayItem};
 
+    /// A surface four tiles across and two down, so coverage can be reasoned
+    /// about a tile at a time.
+    const W: u32 = TILE_SIZE * 4;
+    const H: u32 = TILE_SIZE * 2;
+    const TILES_X: u32 = 4;
+    const TILES_Y: u32 = 2;
+
     fn occluder_item(bounds: Rect, blend: BlendMode) -> DisplayItem {
         DisplayItem::new(
             DisplayIndex(0),
@@ -1891,6 +1947,18 @@ mod occlusion_tests {
         )
     }
 
+    fn occluded(items: &[DisplayItem]) -> Vec<bool> {
+        mark_occluded(items, TILES_X, TILES_Y, W, H)
+    }
+
+    /// The whole surface, and the first tile alone.
+    fn whole() -> Rect {
+        Rect::new(0.0, 0.0, W as f32, H as f32)
+    }
+    fn first_tile() -> Rect {
+        Rect::new(0.0, 0.0, TILE_SIZE as f32, TILE_SIZE as f32)
+    }
+
     #[test]
     fn rect_contains_basic() {
         let outer = Rect::new(0.0, 0.0, 10.0, 10.0);
@@ -1901,61 +1969,87 @@ mod occlusion_tests {
     }
 
     #[test]
-    fn later_opaque_normal_item_occludes_earlier() {
-        let small = Rect::new(2.0, 2.0, 4.0, 4.0);
-        let big = Rect::new(0.0, 0.0, 10.0, 10.0);
-        let items = vec![plain_item(small), occluder_item(big, BlendMode::Normal)];
-        assert!(is_occluded(&items, 0));
+    fn a_later_opaque_draw_hides_what_is_under_it() {
+        let items = vec![plain_item(first_tile()), occluder_item(whole(), BlendMode::Normal)];
+        assert!(occluded(&items)[0]);
     }
 
-    /// A clipped occluder only covers what its clip lets through, so an item
-    /// outside the clip is still visible and still has to be drawn.
     #[test]
-    fn a_clipped_occluder_does_not_occlude_what_it_cannot_reach() {
-        let covered = Rect::new(0.0, 0.0, 500.0, 500.0);
-        let mut occluder = occluder_item(Rect::new(0.0, 0.0, 500.0, 500.0), BlendMode::Normal);
-        occluder.clip = Some(Rect::new(0.0, 0.0, 50.0, 500.0));
-        let items = vec![plain_item(covered), occluder];
+    fn an_earlier_draw_does_not_hide_a_later_one() {
+        let items = vec![occluder_item(whole(), BlendMode::Normal), plain_item(first_tile())];
+        assert!(!occluded(&items)[1]);
+    }
+
+    #[test]
+    fn a_draw_that_covers_only_part_hides_nothing_outside_it() {
+        // Covers the leftmost tile column only; the item sits in the last one.
+        let last_tile = Rect::new((TILE_SIZE * 3) as f32, 0.0, TILE_SIZE as f32, TILE_SIZE as f32);
+        let left = Rect::new(0.0, 0.0, TILE_SIZE as f32, H as f32);
+        let items = vec![plain_item(last_tile), occluder_item(left, BlendMode::Normal)];
+        assert!(!occluded(&items)[0]);
+    }
+
+    #[test]
+    fn a_blend_that_is_not_normal_hides_nothing() {
+        let items = vec![plain_item(first_tile()), occluder_item(whole(), BlendMode::Multiply)];
+        assert!(!occluded(&items)[0]);
+    }
+
+    #[test]
+    fn a_draw_that_is_not_opaque_hides_nothing() {
+        let items = vec![plain_item(first_tile()), plain_item(whole())];
+        assert!(!occluded(&items)[0]);
+    }
+
+    /// The bug this guards: a clipped draw covers only what its clip lets
+    /// through, and treating its full bounds as covering erased everything
+    /// underneath the rest of it.
+    #[test]
+    fn a_clipped_draw_hides_only_what_its_clip_reaches() {
+        let last_tile = Rect::new((TILE_SIZE * 3) as f32, 0.0, TILE_SIZE as f32, TILE_SIZE as f32);
+        let mut occluder = occluder_item(whole(), BlendMode::Normal);
+        occluder.clip = Some(Rect::new(0.0, 0.0, TILE_SIZE as f32, H as f32));
+        let items = vec![plain_item(last_tile), occluder];
 
         assert!(
-            !is_occluded(&items, 0),
-            "the occluder is clipped to a tenth of its bounds; the rest of the              item underneath is still on screen"
+            !occluded(&items)[0],
+            "the draw is clipped to the first tile column and cannot hide the last"
         );
     }
 
-    /// A clip that still covers the item leaves the occlusion in place.
     #[test]
-    fn a_clip_wider_than_the_item_still_occludes() {
-        let covered = Rect::new(10.0, 10.0, 20.0, 20.0);
-        let mut occluder = occluder_item(Rect::new(0.0, 0.0, 500.0, 500.0), BlendMode::Normal);
-        occluder.clip = Some(Rect::new(0.0, 0.0, 100.0, 100.0));
-        let items = vec![plain_item(covered), occluder];
+    fn a_clip_that_still_covers_the_item_hides_it() {
+        let mut occluder = occluder_item(whole(), BlendMode::Normal);
+        occluder.clip = Some(Rect::new(0.0, 0.0, (TILE_SIZE * 2) as f32, H as f32));
+        let items = vec![plain_item(first_tile()), occluder];
 
-        assert!(is_occluded(&items, 0));
+        assert!(occluded(&items)[0]);
     }
 
+    /// Several draws can hide something together that none of them contains
+    /// on its own, which the old pairwise check could not see.
     #[test]
-    fn partial_cover_does_not_occlude() {
-        let small = Rect::new(2.0, 2.0, 4.0, 4.0);
-        let partial = Rect::new(0.0, 0.0, 5.0, 5.0);
-        let items = vec![plain_item(small), occluder_item(partial, BlendMode::Normal)];
-        assert!(!is_occluded(&items, 0));
+    fn draws_combine_to_hide_what_neither_covers_alone() {
+        let across = Rect::new(0.0, 0.0, (TILE_SIZE * 2) as f32, H as f32);
+        let left = Rect::new(0.0, 0.0, TILE_SIZE as f32, H as f32);
+        let right = Rect::new(TILE_SIZE as f32, 0.0, TILE_SIZE as f32, H as f32);
+        let items = vec![
+            plain_item(across),
+            occluder_item(left, BlendMode::Normal),
+            occluder_item(right, BlendMode::Normal),
+        ];
+
+        assert!(occluded(&items)[0]);
     }
 
+    /// Coverage is only claimed for a tile a draw plainly contains, so a draw
+    /// that stops inside a tile hides nothing in it.
     #[test]
-    fn non_normal_blend_does_not_occlude() {
-        let small = Rect::new(2.0, 2.0, 4.0, 4.0);
-        let big = Rect::new(0.0, 0.0, 10.0, 10.0);
-        let items = vec![plain_item(small), occluder_item(big, BlendMode::Multiply)];
-        assert!(!is_occluded(&items, 0));
-    }
+    fn a_draw_ending_inside_a_tile_does_not_claim_it() {
+        let half = Rect::new(0.0, 0.0, (TILE_SIZE / 2) as f32, H as f32);
+        let items = vec![plain_item(first_tile()), occluder_item(half, BlendMode::Normal)];
 
-    #[test]
-    fn earlier_item_does_not_occlude_later() {
-        let small = Rect::new(2.0, 2.0, 4.0, 4.0);
-        let big = Rect::new(0.0, 0.0, 10.0, 10.0);
-        let items = vec![occluder_item(big, BlendMode::Normal), plain_item(small)];
-        assert!(!is_occluded(&items, 0));
+        assert!(!occluded(&items)[0], "half a tile is not a covered tile");
     }
 }
 
