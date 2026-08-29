@@ -1,4 +1,4 @@
-#ifndef NATIVE_GUI_MACOS_WINDOW_H
+﻿#ifndef NATIVE_GUI_MACOS_WINDOW_H
 #define NATIVE_GUI_MACOS_WINDOW_H
 
 #include "common/platform_api.h"
@@ -16,6 +16,7 @@ NGHandle ng_macos_create_window_with_type(const char* title, int width, int heig
 void ng_macos_destroy_window(NGHandle handle);
 void ng_macos_destroy_element(NGHandle element);
 int ng_macos_detach_element(NGHandle element);
+void ng_macos_element_released_to_parent(NGHandle element);
 int ng_macos_set_window_content(NGHandle window, NGHandle content);
 float ng_macos_get_scale_factor(NGHandle window);
 void ng_macos_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallback callback);

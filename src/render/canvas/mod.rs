@@ -491,8 +491,15 @@ impl Canvas {
 impl Element for Canvas {
     fn released_to_parent(&self) {
         // Clones share one cleanup, so this is recorded once for the canvas
-        // however many handles exist.
-        self._cleanup.owns_native.store(false, Ordering::Release);
+        // however many handles exist. The swap is what makes that true: a
+        // second call must not tell the platform to release again, which on
+        // AppKit would drop a reference the canvas no longer holds.
+        if self._cleanup.owns_native.swap(false, Ordering::AcqRel) {
+            // Some backends need more than the bookkeeping above: AppKit hands
+            // out a retained reference when the canvas is created, and the
+            // superview takes its own on top, so the first has to go back.
+            unsafe { ng_platform_element_released_to_parent(self.handle) };
+        }
     }
 
     fn handle(&self) -> *mut c_void {
