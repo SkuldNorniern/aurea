@@ -1,3 +1,4 @@
+﻿#include <stdlib.h>
 #include "utils.h"
 #include "menu.h"
 #include "elements/common.h"
@@ -8,8 +9,8 @@
 
 #define AUREA_CURSOR_GRAB_PROP "AureaCursorGrabMode"
 
-static WNDCLASSEXA g_wc = {0};
-static const char* CLASS_NAME = "NativeGuiWindow";
+static WNDCLASSEXW g_wc = {0};
+static const wchar_t* CLASS_NAME = L"NativeGuiWindow";
 static BOOL win_initialized = FALSE;
 
 static ScaleFactorCallback g_window_scale_callbacks[256] = {0};
@@ -22,7 +23,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
 int ng_windows_init(void) {
     if (!win_initialized) {
-        g_wc.cbSize = sizeof(WNDCLASSEXA);
+        g_wc.cbSize = sizeof(WNDCLASSEXW);
         g_wc.style = CS_DBLCLKS;
         g_wc.lpfnWndProc = WindowProc;
         g_wc.hInstance = GetModuleHandleA(NULL);
@@ -30,7 +31,7 @@ int ng_windows_init(void) {
         g_wc.hCursor = LoadCursor(NULL, IDC_ARROW);
         g_wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
         
-        if (!RegisterClassExA(&g_wc)) {
+        if (!RegisterClassExW(&g_wc)) {
             return NG_ERROR_PLATFORM_SPECIFIC;
         }
         win_initialized = TRUE;
@@ -40,7 +41,7 @@ int ng_windows_init(void) {
 
 void ng_windows_cleanup(void) {
     if (win_initialized) {
-        UnregisterClassA(CLASS_NAME, g_wc.hInstance);
+        UnregisterClassW(CLASS_NAME, g_wc.hInstance);
         win_initialized = FALSE;
     }
 }
@@ -49,7 +50,20 @@ BOOL ng_windows_is_initialized(void) {
     return win_initialized;
 }
 
-const char* ng_windows_get_class_name(void) {
+wchar_t* ng_windows_utf8_to_wide(const char* utf8) {
+    if (!utf8) return NULL;
+    int count = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, NULL, 0);
+    if (count <= 0) return NULL;
+    wchar_t* wide = (wchar_t*)malloc((size_t)count * sizeof(wchar_t));
+    if (!wide) return NULL;
+    if (MultiByteToWideChar(CP_UTF8, 0, utf8, -1, wide, count) <= 0) {
+        free(wide);
+        return NULL;
+    }
+    return wide;
+}
+
+const wchar_t* ng_windows_get_class_name(void) {
     return CLASS_NAME;
 }
 
@@ -512,5 +526,5 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             return 0;
         }
     }
-    return DefWindowProcA(hwnd, uMsg, wParam, lParam);
+    return DefWindowProcW(hwnd, uMsg, wParam, lParam);
 }
