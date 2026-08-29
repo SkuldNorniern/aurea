@@ -223,6 +223,7 @@ impl Canvas {
                 id,
                 renderer: renderer_arc.clone(),
                 owns_native: AtomicBool::new(true),
+                warned_about_mixed_drawing: AtomicBool::new(false),
             }),
         };
 
@@ -240,6 +241,27 @@ impl Canvas {
     /// one canvas.
     pub fn id(&self) -> CanvasId {
         self._cleanup.id
+    }
+
+    /// Says once that this canvas is being drawn two ways at the same time.
+    ///
+    /// Nothing here can tell which of the two the caller meant, so it is a
+    /// warning rather than an error. The symptom is a flickering region, and
+    /// it is a hard one to trace back from.
+    fn warn_if_also_retained(&self) {
+        if lock(&self.state).draw_callback.is_none() {
+            return;
+        }
+        if self
+            ._cleanup
+            .warned_about_mixed_drawing
+            .swap(true, Ordering::AcqRel)
+        {
+            return;
+        }
+        log::warn!(
+            "Canvas::draw called on a canvas that also has a draw callback.              Both paint the same buffer and the scheduler re-runs the              callback on its own, so the two will take turns and the region              will flicker. Use one or the other for a given canvas."
+        );
     }
 
     /// Set the drawing callback (retained-mode style).
@@ -276,6 +298,17 @@ impl Canvas {
     /// Draw immediately (legacy API - still supported).
     /// Prefer using `set_draw_callback()` for retained-mode style.
     ///
+    /// # Do not mix this with a retained callback
+    ///
+    /// A canvas has one buffer. If it also has a draw callback, the scheduler
+    /// re-runs that callback on every frame it decides to redraw, painting
+    /// over whatever this put there. The two then take turns, and the result
+    /// on screen is a region that flickers between them.
+    ///
+    /// Pick one per canvas: a callback for anything that redraws on its own,
+    /// or this for a canvas that only changes when the caller says so. Doing
+    /// both is reported once through `log::warn`.
+    ///
     /// # Damage tracking
     ///
     /// Each call always carries an "always-dirty" damage hint to the
@@ -293,6 +326,7 @@ impl Canvas {
         if lock(&self.renderer).is_none() {
             return Err(AureaError::ElementOperationFailed);
         }
+        self.warn_if_also_retained();
 
         let (damage_rect, bg_color) = {
             let mut st = lock(&self.state);

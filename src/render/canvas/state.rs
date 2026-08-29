@@ -129,6 +129,9 @@ pub(super) struct CanvasCleanup {
     pub(super) renderer: Arc<Mutex<Option<Box<dyn Renderer>>>>,
     /// False once the canvas has been added to a container, which frees it.
     pub(super) owns_native: AtomicBool,
+    /// Whether the immediate/retained clash has already been reported, so a
+    /// canvas drawing every frame says it once instead of filling the log.
+    pub(super) warned_about_mixed_drawing: AtomicBool,
 }
 
 impl Drop for CanvasCleanup {
