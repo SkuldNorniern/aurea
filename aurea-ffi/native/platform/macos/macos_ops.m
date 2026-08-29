@@ -1,4 +1,4 @@
-#import "platform/macos.h"
+﻿#import "platform/macos.h"
 #import "common/platform_ops.h"
 #import "common/errors.h"
 #import "window.h"
@@ -18,6 +18,7 @@ static const ng_platform_ops_t macos_ops = {
     .destroy_window = ng_macos_destroy_window,
     .destroy_element = ng_macos_destroy_element,
     .detach_element = ng_macos_detach_element,
+    .element_released_to_parent = ng_macos_element_released_to_parent,
     .window_set_title = ng_macos_window_set_title,
     .window_set_icon_rgba = ng_macos_window_set_icon_rgba,
     .window_set_size = ng_macos_window_set_size,
