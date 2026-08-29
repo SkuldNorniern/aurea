@@ -23,6 +23,8 @@ mod state;
 use state::{
     CanvasCleanup, CanvasState, ensure_canvas_renderer, next_canvas_id, register_canvas_state,
 };
+mod shared;
+pub use shared::{SharedCanvas, SharedCanvasRef};
 pub use state::{CanvasId, request_canvas_redraw};
 
 /// Drawing callback — Arc so it can be cheaply cloned out of the state lock
