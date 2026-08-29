@@ -37,13 +37,39 @@ pub enum LifecycleEvent {
 /// Callback function type for lifecycle events.
 pub type LifecycleCallback = Arc<dyn Fn(LifecycleEvent) + Send + Sync>;
 
-static LIFECYCLE_CALLBACKS: LazyLock<Mutex<HashMap<usize, LifecycleCallback>>> =
+#[derive(Default)]
+struct WindowLifecycle {
+    internal: Option<LifecycleCallback>,
+    subscribers: Vec<LifecycleCallback>,
+}
+
+impl WindowLifecycle {
+    fn listeners(&self) -> Vec<LifecycleCallback> {
+        self.internal
+            .iter()
+            .chain(self.subscribers.iter())
+            .cloned()
+            .collect()
+    }
+}
+
+static LIFECYCLE_CALLBACKS: LazyLock<Mutex<HashMap<usize, WindowLifecycle>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// Register a lifecycle callback for a specific window.
+/// Registers Aurea's own bridge for a window, replacing any previous one.
 pub fn register_lifecycle_callback(window: *mut c_void, callback: LifecycleCallback) {
     let mut callbacks = lock(&LIFECYCLE_CALLBACKS);
-    callbacks.insert(window as usize, callback);
+    callbacks.entry(window as usize).or_default().internal = Some(callback);
+}
+
+/// Adds an application listener for a window's lifecycle events.
+pub fn subscribe_lifecycle_callback(window: *mut c_void, callback: LifecycleCallback) {
+    let mut callbacks = lock(&LIFECYCLE_CALLBACKS);
+    callbacks
+        .entry(window as usize)
+        .or_default()
+        .subscribers
+        .push(callback);
 }
 
 /// Unregister the lifecycle callback for a specific window.
@@ -54,17 +80,23 @@ pub fn unregister_lifecycle_callback(window: *mut c_void) {
 
 /// Invoke the lifecycle callback for a specific window.
 pub fn invoke_lifecycle_callback(window: *mut c_void, event: LifecycleEvent) {
-    let callback = lock(&LIFECYCLE_CALLBACKS).get(&(window as usize)).cloned();
-    if let Some(callback) = callback {
-        callback(event);
+    let listeners = lock(&LIFECYCLE_CALLBACKS)
+        .get(&(window as usize))
+        .map(WindowLifecycle::listeners)
+        .unwrap_or_default();
+    for listener in listeners {
+        listener(event);
     }
 }
 
 /// Invoke a global lifecycle callback (not tied to a specific window).
 pub fn invoke_global_lifecycle_callback(event: LifecycleEvent) {
-    let callbacks: Vec<LifecycleCallback> = lock(&LIFECYCLE_CALLBACKS).values().cloned().collect();
-    for callback in callbacks {
-        callback(event);
+    let listeners: Vec<LifecycleCallback> = lock(&LIFECYCLE_CALLBACKS)
+        .values()
+        .flat_map(WindowLifecycle::listeners)
+        .collect();
+    for listener in listeners {
+        listener(event);
     }
 }
 
@@ -94,6 +126,77 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, Ordering};
+
+    #[test]
+    fn subscribing_does_not_displace_the_internal_bridge() {
+        let window = 0x1001 as *mut c_void;
+        let bridge = Arc::new(AtomicU32::new(0));
+        let listener = Arc::new(AtomicU32::new(0));
+
+        let b = Arc::clone(&bridge);
+        register_lifecycle_callback(
+            window,
+            Arc::new(move |_| {
+                b.fetch_add(1, Ordering::Relaxed);
+            }),
+        );
+        let l = Arc::clone(&listener);
+        subscribe_lifecycle_callback(
+            window,
+            Arc::new(move |_| {
+                l.fetch_add(1, Ordering::Relaxed);
+            }),
+        );
+
+        invoke_lifecycle_callback(window, LifecycleEvent::WindowWillClose);
+
+        assert_eq!(bridge.load(Ordering::Relaxed), 1, "the bridge still runs");
+        assert_eq!(
+            listener.load(Ordering::Relaxed),
+            1,
+            "and so does the listener"
+        );
+        unregister_lifecycle_callback(window);
+    }
+
+    #[test]
+    fn every_subscriber_is_called_in_order() {
+        let window = 0x1002 as *mut c_void;
+        let order = Arc::new(Mutex::new(Vec::new()));
+
+        for tag in 1..=3u32 {
+            let seen = Arc::clone(&order);
+            subscribe_lifecycle_callback(
+                window,
+                Arc::new(move |_| {
+                    lock(&seen).push(tag);
+                }),
+            );
+        }
+
+        invoke_lifecycle_callback(window, LifecycleEvent::WindowRestored);
+
+        assert_eq!(*lock(&order), vec![1, 2, 3]);
+        unregister_lifecycle_callback(window);
+    }
+
+    #[test]
+    fn unregistering_clears_every_listener() {
+        let window = 0x1003 as *mut c_void;
+        let calls = Arc::new(AtomicU32::new(0));
+        let c = Arc::clone(&calls);
+        subscribe_lifecycle_callback(
+            window,
+            Arc::new(move |_| {
+                c.fetch_add(1, Ordering::Relaxed);
+            }),
+        );
+
+        unregister_lifecycle_callback(window);
+        invoke_lifecycle_callback(window, LifecycleEvent::WindowRestored);
+
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+    }
 
     #[test]
     fn lifecycle_event_ids_map_to_events() {
