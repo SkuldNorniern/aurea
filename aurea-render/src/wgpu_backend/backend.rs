@@ -6,6 +6,7 @@
 //! image, or text mask) creates a wgpu texture + bind group stored by slot
 //! index; `FramePlan` entries carry the slot, and `present_frame` looks it up.
 
+use crate::numeric::f32_to_u32_clamped;
 use std::collections::HashMap;
 use std::mem::size_of;
 
@@ -63,8 +64,8 @@ impl WgpuRenderer {
         scale_factor: f32,
     ) -> Self {
         let scale = scale_factor.max(1.0);
-        let lw = ((config.width as f32) / scale).round().max(1.0) as u32;
-        let lh = ((config.height as f32) / scale).round().max(1.0) as u32;
+        let lw = f32_to_u32_clamped((config.width as f32 / scale).round().max(1.0));
+        let lh = f32_to_u32_clamped((config.height as f32 / scale).round().max(1.0));
         let backend = WgpuBackend::new(device, queue, surface, config);
         Gpu2dRenderer::from_backend(backend, lw, lh, scale)
     }
@@ -427,10 +428,10 @@ impl Gpu2dBackend for WgpuBackend {
         {
             let load = match plan.clear {
                 Some(c) => wgpu::LoadOp::Clear(wgpu::Color {
-                    r: c.r as f64 / 255.0,
-                    g: c.g as f64 / 255.0,
-                    b: c.b as f64 / 255.0,
-                    a: c.a as f64 / 255.0,
+                    r: f64::from(c.r) / 255.0,
+                    g: f64::from(c.g) / 255.0,
+                    b: f64::from(c.b) / 255.0,
+                    a: f64::from(c.a) / 255.0,
                 }),
                 None => wgpu::LoadOp::Load,
             };
