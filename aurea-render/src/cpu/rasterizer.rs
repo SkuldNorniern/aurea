@@ -1564,14 +1564,42 @@ fn rect_contains(outer: Rect, inner: Rect) -> bool {
         && inner.y + inner.height <= outer.y + outer.height
 }
 
+/// The area a draw actually covers: its bounds, less anything its clip cuts
+/// away. An item paints nothing outside its clip, so this is what it can hide.
+fn covered_region(item: &DisplayItem) -> Option<Rect> {
+    match item.clip {
+        None => Some(item.bounds),
+        Some(clip) => intersect_rect(item.bounds, clip),
+    }
+}
+
+/// The overlap of `a` and `b`, or `None` when they do not meet.
+fn intersect_rect(a: Rect, b: Rect) -> Option<Rect> {
+    let x0 = a.x.max(b.x);
+    let y0 = a.y.max(b.y);
+    let x1 = (a.x + a.width).min(b.x + b.width);
+    let y1 = (a.y + a.height).min(b.y + b.height);
+    if x1 <= x0 || y1 <= y0 {
+        return None;
+    }
+    Some(Rect::new(x0, y0, x1 - x0, y1 - y0))
+}
+
 /// True if some later item in `items` is an opaque, normally-blended draw
-/// whose bounds fully cover `items[i]`'s bounds — i.e. `items[i]` is
-/// completely painted over and contributes nothing to the final frame.
+/// that covers `items[i]`'s bounds — i.e. `items[i]` is completely painted
+/// over and contributes nothing to the final frame.
+///
+/// What covers is the clipped region, not the bounds: a draw clipped to a
+/// tenth of itself hides only that tenth, and treating its full bounds as
+/// covering erased whatever was underneath the other nine.
+///
 /// `items[i].bounds` must be known (non-zero) bounds; callers check this.
 fn is_occluded(items: &[DisplayItem], i: usize) -> bool {
     let bounds = items[i].bounds;
     items[i + 1..].iter().any(|later| {
-        later.opaque && later.blend_mode == BlendMode::Normal && rect_contains(later.bounds, bounds)
+        later.opaque
+            && later.blend_mode == BlendMode::Normal
+            && covered_region(later).is_some_and(|covers| rect_contains(covers, bounds))
     })
 }
 
@@ -1877,6 +1905,32 @@ mod occlusion_tests {
         let small = Rect::new(2.0, 2.0, 4.0, 4.0);
         let big = Rect::new(0.0, 0.0, 10.0, 10.0);
         let items = vec![plain_item(small), occluder_item(big, BlendMode::Normal)];
+        assert!(is_occluded(&items, 0));
+    }
+
+    /// A clipped occluder only covers what its clip lets through, so an item
+    /// outside the clip is still visible and still has to be drawn.
+    #[test]
+    fn a_clipped_occluder_does_not_occlude_what_it_cannot_reach() {
+        let covered = Rect::new(0.0, 0.0, 500.0, 500.0);
+        let mut occluder = occluder_item(Rect::new(0.0, 0.0, 500.0, 500.0), BlendMode::Normal);
+        occluder.clip = Some(Rect::new(0.0, 0.0, 50.0, 500.0));
+        let items = vec![plain_item(covered), occluder];
+
+        assert!(
+            !is_occluded(&items, 0),
+            "the occluder is clipped to a tenth of its bounds; the rest of the              item underneath is still on screen"
+        );
+    }
+
+    /// A clip that still covers the item leaves the occlusion in place.
+    #[test]
+    fn a_clip_wider_than_the_item_still_occludes() {
+        let covered = Rect::new(10.0, 10.0, 20.0, 20.0);
+        let mut occluder = occluder_item(Rect::new(0.0, 0.0, 500.0, 500.0), BlendMode::Normal);
+        occluder.clip = Some(Rect::new(0.0, 0.0, 100.0, 100.0));
+        let items = vec![plain_item(covered), occluder];
+
         assert!(is_occluded(&items, 0));
     }
 
