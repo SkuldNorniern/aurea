@@ -161,43 +161,42 @@ cargo run --example animate_bounce
 
 ## What Is Supported
 
-What each part of Aurea is expected to do, so that "experimental" means
-something specific rather than a disclaimer on the whole project.
+What each part does now, so `experimental` says something instead of covering
+everything.
 
 | Part | Status |
 | --- | --- |
-| Windows, macOS, Linux/GTK3 | Supported |
-| CPU rasterizer | Supported — the reference backend, and what correctness is measured against |
-| Native widgets | Supported, a subset that varies by platform |
-| Graph and scope | Supported |
-| Window lifetime, input, clipboard | Supported |
-| ZenGPU renderer | Experimental — Aurea's primary GPU backend, and where accelerated work goes |
-| wgpu renderer | Experimental — a compatibility path, not the architectural target |
-| External wgpu surface integration | Supported, for fitting Aurea into an application already built on wgpu |
-| iOS, Android | Experimental, not a 0.1 compatibility target |
-| Arbitrary affine transforms on a canvas | Partial; see the limits below |
-| Complex-script text shaping | Not yet |
-| Accessibility for canvas-drawn UI | Not yet |
+| Windows, macOS, Linux/GTK3 | supported |
+| CPU rasterizer | supported, and the backend the others are checked against |
+| Native widgets | supported, subset varies by platform |
+| Graph and scope | supported |
+| Window lifetime, input, clipboard | supported |
+| ZenGPU renderer | experimental, and the GPU backend work goes into |
+| wgpu renderer | experimental, for fitting into apps already using wgpu |
+| External wgpu surface | supported |
+| iOS, Android | experimental, not a 0.1 target |
+| Arbitrary affine transforms on a canvas | partial, see below |
+| Complex-script text shaping | not yet |
+| Accessibility for canvas UI | not yet |
 
-Known limits worth reading before relying on them:
+Limits to know about before relying on them:
 
-- The GPU backends draw a subset of what the CPU rasterizer does. Paths,
-  blend modes other than `Normal`, and the older text commands are not
-  lowered; a frame reports how many draws it left out rather than pretending
-  otherwise. A canvas needing them wants the CPU renderer.
+- GPU backends draw less than the CPU rasterizer. Paths, blend modes other
+  than `Normal` and the older text commands are not lowered. A frame counts
+  what it left out and says so once. Use the CPU renderer if you need them.
 - Rotation and skew move text and images but do not rotate the glyphs or the
-  image itself, and a circle stays a circle under a non-uniform scale.
-- A retained draw callback is re-recorded on every frame that is redrawn.
-  Damage tracking keeps that off the screen, not off the CPU.
+  image. A circle stays a circle under a non-uniform scale.
+- A retained draw callback runs again on every frame that redraws. Damage
+  tracking keeps that off the screen, not off the CPU.
 
 ## Features
 
 - `default`: no optional GPU backend.
-- `zengpu`: GPU-accelerated rendering through ZenGPU, Aurea's primary
-  accelerated backend. Experimental: it does not yet match the CPU
-  rasterizer's command coverage or partial repaint.
-- `wgpu`: the wgpu integration helpers and compatibility renderer, for
-  applications already built around wgpu. Not Aurea's primary GPU backend.
+- `zengpu`: GPU rendering through ZenGPU. This is where the GPU work goes.
+  Experimental, still draws less than the CPU rasterizer and has no partial
+  repaint.
+- `wgpu`: wgpu integration helpers and a compatibility renderer, for apps
+  already built around wgpu.
 
 ## Building
 
