@@ -50,22 +50,61 @@ pub enum LifecycleEvent {
 /// that is dispatching it.
 pub type LifecycleCallback = Arc<dyn Fn(LifecycleEvent) + Send + Sync>;
 
+/// What is listening to one window's lifecycle events.
+///
+/// Aurea's own bridge is kept apart from anything the application registers.
+/// They shared a slot before, so subscribing replaced the bridge and the
+/// window quietly stopped delivering `CloseRequested`, `Resized` and `Moved`
+/// to its event queue.
+#[derive(Default)]
+struct WindowLifecycle {
+    /// The bridge `Window::new` installs, which fills the event queue.
+    internal: Option<LifecycleCallback>,
+    /// Whatever the application asked to hear about, in the order it asked.
+    subscribers: Vec<LifecycleCallback>,
+}
+
+impl WindowLifecycle {
+    /// Everything to call for one event: the bridge first, so the queue is
+    /// filled before an application callback can look at it.
+    fn listeners(&self) -> Vec<LifecycleCallback> {
+        self.internal
+            .iter()
+            .chain(self.subscribers.iter())
+            .cloned()
+            .collect()
+    }
+}
+
 /// Global registry for lifecycle callbacks per window.
 ///
 /// This allows multiple windows to register their own lifecycle callbacks.
 /// We use a raw pointer as the key, which is safe because we only use it for
 /// comparison and the window handle is stable for the lifetime of the window.
-static LIFECYCLE_CALLBACKS: LazyLock<Mutex<HashMap<usize, LifecycleCallback>>> =
+static LIFECYCLE_CALLBACKS: LazyLock<Mutex<HashMap<usize, WindowLifecycle>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// Register a lifecycle callback for a specific window.
+/// Registers Aurea's own bridge for a window, replacing any previous one.
 ///
-/// The callback will be invoked when lifecycle events occur for the given window.
-/// Only one callback can be registered per window; registering a new callback
-/// replaces any existing one.
+/// For the framework's use. An application wants
+/// [`subscribe_lifecycle_callback`], which adds a listener rather than taking
+/// this one's place.
 pub fn register_lifecycle_callback(window: *mut c_void, callback: LifecycleCallback) {
     let mut callbacks = lock(&LIFECYCLE_CALLBACKS);
-    callbacks.insert(window as usize, callback);
+    callbacks.entry(window as usize).or_default().internal = Some(callback);
+}
+
+/// Adds an application listener for a window's lifecycle events.
+///
+/// Every listener is called, in the order they were added, after Aurea's own
+/// bridge has run.
+pub fn subscribe_lifecycle_callback(window: *mut c_void, callback: LifecycleCallback) {
+    let mut callbacks = lock(&LIFECYCLE_CALLBACKS);
+    callbacks
+        .entry(window as usize)
+        .or_default()
+        .subscribers
+        .push(callback);
 }
 
 /// Unregister the lifecycle callback for a specific window.
@@ -78,9 +117,14 @@ pub fn unregister_lifecycle_callback(window: *mut c_void) {
 ///
 /// This is called from the FFI layer when a lifecycle event occurs.
 pub fn invoke_lifecycle_callback(window: *mut c_void, event: LifecycleEvent) {
-    let callback = lock(&LIFECYCLE_CALLBACKS).get(&(window as usize)).cloned();
-    if let Some(callback) = callback {
-        callback(event);
+    // Collected and the lock released first: a listener may create or drop a
+    // window, which would come back through here.
+    let listeners = lock(&LIFECYCLE_CALLBACKS)
+        .get(&(window as usize))
+        .map(WindowLifecycle::listeners)
+        .unwrap_or_default();
+    for listener in listeners {
+        listener(event);
     }
 }
 
@@ -88,9 +132,12 @@ pub fn invoke_lifecycle_callback(window: *mut c_void, event: LifecycleEvent) {
 ///
 /// This is used for application-level events that affect the entire app.
 pub fn invoke_global_lifecycle_callback(event: LifecycleEvent) {
-    let callbacks: Vec<LifecycleCallback> = lock(&LIFECYCLE_CALLBACKS).values().cloned().collect();
-    for callback in callbacks {
-        callback(event);
+    let listeners: Vec<LifecycleCallback> = lock(&LIFECYCLE_CALLBACKS)
+        .values()
+        .flat_map(WindowLifecycle::listeners)
+        .collect();
+    for listener in listeners {
+        listener(event);
     }
 }
 
@@ -121,6 +168,81 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// Subscribing used to take the framework's slot, so a window that added
+    /// a listener stopped delivering its own events.
+    #[test]
+    fn subscribing_does_not_displace_the_internal_bridge() {
+        let window = 0x1001 as *mut c_void;
+        let bridge = Arc::new(AtomicU32::new(0));
+        let listener = Arc::new(AtomicU32::new(0));
+
+        let b = Arc::clone(&bridge);
+        register_lifecycle_callback(
+            window,
+            Arc::new(move |_| {
+                b.fetch_add(1, Ordering::Relaxed);
+            }),
+        );
+        let l = Arc::clone(&listener);
+        subscribe_lifecycle_callback(
+            window,
+            Arc::new(move |_| {
+                l.fetch_add(1, Ordering::Relaxed);
+            }),
+        );
+
+        invoke_lifecycle_callback(window, LifecycleEvent::WindowWillClose);
+
+        assert_eq!(bridge.load(Ordering::Relaxed), 1, "the bridge still runs");
+        assert_eq!(
+            listener.load(Ordering::Relaxed),
+            1,
+            "and so does the listener"
+        );
+        unregister_lifecycle_callback(window);
+    }
+
+    /// Several listeners all hear about it, in the order they were added.
+    #[test]
+    fn every_subscriber_is_called_in_order() {
+        let window = 0x1002 as *mut c_void;
+        let order = Arc::new(Mutex::new(Vec::new()));
+
+        for tag in 1..=3u32 {
+            let seen = Arc::clone(&order);
+            subscribe_lifecycle_callback(
+                window,
+                Arc::new(move |_| {
+                    lock(&seen).push(tag);
+                }),
+            );
+        }
+
+        invoke_lifecycle_callback(window, LifecycleEvent::WindowRestored);
+
+        assert_eq!(*lock(&order), vec![1, 2, 3]);
+        unregister_lifecycle_callback(window);
+    }
+
+    /// Dropping a window forgets its listeners along with its bridge.
+    #[test]
+    fn unregistering_clears_every_listener() {
+        let window = 0x1003 as *mut c_void;
+        let calls = Arc::new(AtomicU32::new(0));
+        let c = Arc::clone(&calls);
+        subscribe_lifecycle_callback(
+            window,
+            Arc::new(move |_| {
+                c.fetch_add(1, Ordering::Relaxed);
+            }),
+        );
+
+        unregister_lifecycle_callback(window);
+        invoke_lifecycle_callback(window, LifecycleEvent::WindowRestored);
+
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+    }
 
     #[test]
     fn lifecycle_event_ids_map_to_events() {

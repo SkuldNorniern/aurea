@@ -18,7 +18,8 @@ use crate::ffi::*;
 #[cfg(feature = "wgpu")]
 use crate::integration::NativeWindowHandle;
 use crate::lifecycle::{
-    LifecycleEvent, register_lifecycle_callback, unregister_lifecycle_callback,
+    LifecycleEvent, register_lifecycle_callback, subscribe_lifecycle_callback,
+    unregister_lifecycle_callback,
 };
 use crate::menu::MenuBar;
 mod proxy;
@@ -445,7 +446,9 @@ impl Window {
         F: Fn(LifecycleEvent) + Send + Sync + 'static,
     {
         let window_handle = self.handle;
-        register_lifecycle_callback(window_handle, Arc::new(callback));
+        // Added alongside Aurea's own bridge rather than over it: replacing
+        // it stopped this window delivering CloseRequested, Resized and Moved.
+        subscribe_lifecycle_callback(window_handle, Arc::new(callback));
 
         unsafe {
             ng_platform_window_set_lifecycle_callback(window_handle);
