@@ -9,13 +9,44 @@ use crate::types::{
 };
 use aurea_foundation::AureaResult;
 use std::cell::RefCell;
+use std::marker::PhantomData;
 use std::mem::{size_of, take};
 use std::ptr::null;
 use std::sync::LazyLock;
 
 thread_local! {
     static COMMAND_BUFFER: RefCell<Option<*mut Vec<DrawCommand>>> = const { RefCell::new(None) };
-    pub static CURRENT_BUFFER: RefCell<Option<(*const u8, usize, u32, u32)>> = const { RefCell::new(None) };
+}
+
+/// A renderer's finished pixels, borrowed for as long as the renderer is.
+///
+/// The pointer is the renderer's own buffer. It stays valid until the
+/// renderer next draws or is resized, which is why this borrows it.
+#[derive(Debug, Clone, Copy)]
+pub struct FrameOutput<'a> {
+    /// Start of the pixel data.
+    pub pixels: *const u8,
+    /// Length in bytes.
+    pub size: usize,
+    pub width: u32,
+    pub height: u32,
+    _borrow: PhantomData<&'a [u8]>,
+}
+
+impl<'a> FrameOutput<'a> {
+    /// Describes `pixels`, which must stay valid as long as `'a`.
+    pub fn new(pixels: *const u8, size: usize, width: u32, height: u32) -> Option<Self> {
+        if pixels.is_null() || size == 0 {
+            return None;
+        }
+        Some(Self {
+            pixels,
+            size,
+            width,
+            height,
+            _borrow: PhantomData,
+        })
+    }
 }
 
 pub trait DrawingContext {
@@ -149,6 +180,20 @@ pub trait Renderer: Send + Sync {
     /// `None` means the whole frame was repainted (or unknown). Used by the
     /// platform layer to compute how much of the IOSurface double-buffer needs
     /// refreshing; defaults to `None` for renderers that don't track tile damage.
+    /// The pixels this renderer produced, if it keeps any.
+    ///
+    /// Asked of a renderer rather than read from an ambient slot, so what
+    /// comes back belongs to this renderer. The slot was per thread, and with
+    /// two canvases on the UI thread the one that rendered last was what the
+    /// other published: a canvas with no draw callback would put its
+    /// neighbour's pixels on screen.
+    ///
+    /// `None` for a renderer that presents its own frames, such as a GPU
+    /// backend, and for one whose buffer is gone after a resize.
+    fn frame_output(&self) -> Option<FrameOutput<'_>> {
+        None
+    }
+
     fn last_frame_damage(&self) -> Option<Rect> {
         None
     }
@@ -572,17 +617,12 @@ impl Renderer for PlaceholderRenderer {
         });
 
         self.apply_commands();
-
-        let (ptr, size) = self.get_buffer();
-        CURRENT_BUFFER.with(|buf| {
-            if !self.buffer.is_empty() && !ptr.is_null() {
-                *buf.borrow_mut() = Some((ptr, size, self.width, self.height));
-            } else {
-                *buf.borrow_mut() = None;
-            }
-        });
-
         Ok(())
+    }
+
+    fn frame_output(&self) -> Option<FrameOutput<'_>> {
+        let (ptr, size) = self.get_buffer();
+        FrameOutput::new(ptr, size, self.width, self.height)
     }
 
     fn cleanup(&mut self) {

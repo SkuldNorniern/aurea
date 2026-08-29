@@ -4,7 +4,7 @@ use crate::render::{Surface, SurfaceInfo};
 use crate::{AureaError, AureaResult};
 use aurea_foundation::lock;
 use aurea_render::Rect;
-use aurea_render::{CURRENT_BUFFER, Renderer, RendererBackend};
+use aurea_render::{Renderer, RendererBackend};
 use aurea_runtime::FrameScheduler;
 use std::os::raw::c_void;
 use std::ptr::copy_nonoverlapping;
@@ -161,12 +161,12 @@ fn render_frame(
     // Unless the buffer is gone: a resize drops it, and presenting nothing
     // leaves the platform with a stale pointer. Then an empty frame is the
     // only frame that can be produced.
-    let has_buffer = CURRENT_BUFFER.with(|buf| {
-        buf.borrow()
-            .is_some_and(|(ptr, size, _, _)| !ptr.is_null() && size > 0)
-    });
+    // This canvas's own renderer, not whichever one drew last on this thread.
+    let has_buffer = lock(renderer)
+        .as_ref()
+        .is_some_and(|r| r.frame_output().is_some());
     if draw_callback.is_none() && has_buffer {
-        republish_current_buffer(state, handle, _backend, None);
+        republish_current_buffer(state, renderer, handle, _backend, None);
         return Ok(());
     }
 
@@ -190,8 +190,8 @@ fn render_frame(
         }
     };
 
-    // 3. Push buffer to platform (CURRENT_BUFFER is thread-local; no lock needed).
-    republish_current_buffer(state, handle, _backend, current_damage);
+    // 3. Push this canvas's pixels to the platform.
+    republish_current_buffer(state, renderer, handle, _backend, current_damage);
 
     Ok(())
 }
@@ -199,6 +199,7 @@ fn render_frame(
 /// Hands the renderer's current pixels to the platform.
 fn republish_current_buffer(
     state: &Arc<Mutex<CanvasState>>,
+    renderer: &Arc<Mutex<Option<Box<dyn Renderer>>>>,
     handle: *mut c_void,
     _backend: RendererBackend,
     current_damage: Option<Rect>,
@@ -207,11 +208,10 @@ fn republish_current_buffer(
     let publishes_cpu_buffer = _backend != RendererBackend::ZenGpu;
     #[cfg(not(feature = "zengpu"))]
     let publishes_cpu_buffer = true;
-    if publishes_cpu_buffer
-        && let Some((ptr, size, w, h)) = CURRENT_BUFFER.with(|buf| *buf.borrow())
-        && !ptr.is_null()
-        && size > 0
-    {
+    let guard = lock(renderer);
+    let output = guard.as_ref().and_then(|r| r.frame_output());
+    if publishes_cpu_buffer && let Some(frame) = output {
+        let (ptr, size, w, h) = (frame.pixels, frame.size, frame.width, frame.height);
         // The IOSurface double-buffer is 2 frames stale on the back surface, so
         // we must refresh any pixel that changed in either this frame OR the
         // previous frame. Read and update prev_frame_damage under a brief lock.
@@ -277,12 +277,6 @@ impl Canvas {
             }
 
             if size_changed || scale_changed {
-                // Null the platform pointer before any realloc so the stale raw
-                // pointer never escapes to the platform layer.
-                CURRENT_BUFFER.with(|buf| {
-                    *buf.borrow_mut() = None;
-                });
-
                 let mut r = lock(&renderer);
                 if let Some(ref mut r) = *r {
                     if scale_changed {
@@ -373,10 +367,6 @@ impl Canvas {
             return Ok(());
         }
 
-        CURRENT_BUFFER.with(|buf| {
-            *buf.borrow_mut() = None;
-        });
-
         if !ensure_canvas_renderer(self.handle, &self.state, &self.renderer, self.backend)? {
             return Ok(());
         }
@@ -406,12 +396,19 @@ impl Canvas {
         if self.backend == RendererBackend::ZenGpu {
             return;
         }
-        if let Some((ptr, size, w, h)) = CURRENT_BUFFER.with(|buf| *buf.borrow())
-            && !ptr.is_null()
-            && size > 0
-        {
+        // This canvas's own renderer, so a second canvas on the same thread
+        // cannot end up publishing its pixels here.
+        let guard = lock(&self.renderer);
+        if let Some(frame) = guard.as_ref().and_then(|r| r.frame_output()) {
             unsafe {
-                publish_cpu_buffer(self.handle, ptr, size, w, h, None);
+                publish_cpu_buffer(
+                    self.handle,
+                    frame.pixels,
+                    frame.size,
+                    frame.width,
+                    frame.height,
+                    None,
+                );
             }
         }
     }

@@ -20,7 +20,7 @@ use crate::display_list::{CacheKey, DisplayItem, DisplayList};
 use crate::numeric::{
     f32_to_i32_clamped, f32_to_u8_clamped, f32_to_u32_clamped, f32_to_usize_clamped,
 };
-use crate::renderer::{DrawingContext, Renderer};
+use crate::renderer::{DrawingContext, FrameOutput, Renderer};
 use crate::surface::{Surface, SurfaceInfo};
 use crate::types::{
     BlendMode, Color, GlyphMask, GradientStop, Image, LinearGradient, Paint, PaintStyle, Path,
@@ -88,6 +88,13 @@ pub struct CpuRasterizer {
     /// Physical-pixel rect that was actually repainted in the last `end_frame`.
     /// `None` = full frame (or first frame / after resize).
     last_frame_damage: Option<Rect>,
+    /// Whether there is a frame worth presenting.
+    ///
+    /// False after a resize, because a resized buffer is the right size and
+    /// holds nothing, and false after a frame that changed nothing, because
+    /// presenting it again is work with no effect. This is what the ambient
+    /// `CURRENT_BUFFER` slot used to say, per renderer instead of per thread.
+    has_new_frame: bool,
 }
 
 impl CpuRasterizer {
@@ -108,6 +115,7 @@ impl CpuRasterizer {
             scratch_row: Vec::new(),
             scratch_active: Vec::new(),
             last_frame_damage: None,
+            has_new_frame: false,
         }
     }
 
@@ -1318,6 +1326,7 @@ impl Renderer for CpuRasterizer {
     }
 
     fn resize(&mut self, lw: u32, lh: u32) -> AureaResult<()> {
+        self.has_new_frame = false;
         self.logical_width = lw;
         self.logical_height = lh;
         let (rw, rh) = Self::raster_dimensions(lw, lh, self.scale_factor);
@@ -1367,8 +1376,9 @@ impl Renderer for CpuRasterizer {
         // frame and nothing was explicitly marked dirty: skip rendering and
         // presentation entirely.
         let Some(damage) = resolve_frame_damage(pending, diff, bw, bh) else {
-            use crate::renderer::CURRENT_BUFFER;
-            CURRENT_BUFFER.with(|b| *b.borrow_mut() = None);
+            // Positionally identical to last frame and nothing marked dirty,
+            // so there is nothing to present.
+            self.has_new_frame = false;
             return Ok(());
         };
 
@@ -1424,10 +1434,16 @@ impl Renderer for CpuRasterizer {
 
         self.capture_prev_items();
 
-        use crate::renderer::CURRENT_BUFFER;
-        let (ptr, sz, w, h) = self.get_buffer();
-        CURRENT_BUFFER.with(|b| *b.borrow_mut() = Some((ptr, sz, w, h)));
+        self.has_new_frame = true;
         Ok(())
+    }
+
+    fn frame_output(&self) -> Option<FrameOutput<'_>> {
+        if !self.has_new_frame {
+            return None;
+        }
+        let (ptr, size, width, height) = self.get_buffer();
+        FrameOutput::new(ptr, size, width, height)
     }
 
     fn last_frame_damage(&self) -> Option<Rect> {
@@ -1899,7 +1915,6 @@ mod diff_damage_tests {
 
     #[test]
     fn static_scene_skips_present_on_repeat_frame() {
-        use crate::renderer::CURRENT_BUFFER;
         use crate::types::Paint;
 
         let mut r = CpuRasterizer::new(32, 32);
@@ -1911,10 +1926,9 @@ mod diff_damage_tests {
             .unwrap();
         drop(ctx);
         r.end_frame().unwrap();
-        assert!(CURRENT_BUFFER.with(|b| b.borrow().is_some()));
+        assert!(r.frame_output().is_some());
 
-        // Simulate the platform layer consuming the published buffer.
-        CURRENT_BUFFER.with(|b| *b.borrow_mut() = None);
+        // The platform layer consumes the frame.
 
         // Second frame: identical draw calls, no explicit damage set.
         let mut ctx = r.begin_frame().unwrap();
@@ -1924,8 +1938,62 @@ mod diff_damage_tests {
         drop(ctx);
         r.end_frame().unwrap();
 
-        // Unchanged scene: end_frame must not republish the buffer.
-        assert!(CURRENT_BUFFER.with(|b| b.borrow().is_none()));
+        // Unchanged scene: nothing new to present.
+        assert!(r.frame_output().is_none());
+    }
+
+    /// Two canvases on one thread must not be able to publish each other's
+    /// pixels. The published frame used to come from a slot shared by the
+    /// whole thread, so whichever rendered last was what a canvas with no
+    /// draw callback put on screen.
+    #[test]
+    fn each_renderer_publishes_only_its_own_frame() {
+        use crate::types::Paint;
+
+        let mut first = CpuRasterizer::new(16, 16);
+        {
+            let mut ctx = first.begin_frame().unwrap();
+            ctx.clear(Color::rgb(255, 0, 0)).unwrap();
+            ctx.draw_rect(Rect::new(1.0, 1.0, 4.0, 4.0), &Paint::new())
+                .unwrap();
+        }
+        first.end_frame().unwrap();
+
+        let mut second = CpuRasterizer::new(32, 32);
+        {
+            let mut ctx = second.begin_frame().unwrap();
+            ctx.clear(Color::rgb(0, 0, 255)).unwrap();
+            ctx.draw_rect(Rect::new(2.0, 2.0, 8.0, 8.0), &Paint::new())
+                .unwrap();
+        }
+        second.end_frame().unwrap();
+
+        let a = first.frame_output().expect("first drew a frame");
+        let b = second.frame_output().expect("second drew a frame");
+
+        assert_eq!((a.width, a.height), (16, 16), "the first renderer's own");
+        assert_eq!((b.width, b.height), (32, 32), "and the second's own");
+        assert_ne!(a.pixels, b.pixels, "two buffers, not one shared slot");
+    }
+
+    /// A resized buffer is the right size and holds nothing, so there is
+    /// nothing to present until something is drawn into it.
+    #[test]
+    fn a_resized_renderer_has_no_frame_to_publish() {
+        let mut r = CpuRasterizer::new(16, 16);
+        {
+            let mut ctx = r.begin_frame().unwrap();
+            ctx.clear(Color::rgb(255, 0, 0)).unwrap();
+        }
+        r.end_frame().unwrap();
+        assert!(r.frame_output().is_some());
+
+        r.resize(32, 32).unwrap();
+
+        assert!(
+            r.frame_output().is_none(),
+            "an empty buffer of the new size is not a frame"
+        );
     }
 }
 

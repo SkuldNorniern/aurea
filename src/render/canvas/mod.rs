@@ -12,6 +12,7 @@ use aurea_render::{
 use aurea_runtime::{DamageRegion, FrameScheduler};
 use aurea_runtime::{FrameInfo, TickerId};
 use std::os::raw::c_void;
+use std::slice::from_raw_parts;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 #[cfg(feature = "wgpu")]
@@ -262,6 +263,27 @@ impl Canvas {
         log::warn!(
             "Canvas::draw called on a canvas that also has a draw callback.              Both paint the same buffer and the scheduler re-runs the              callback on its own, so the two will take turns and the region              will flicker. Use one or the other for a given canvas."
         );
+    }
+
+    /// Runs `f` with the pixels this canvas last drew, as `0xAARRGGBB` words.
+    ///
+    /// `None` when there is nothing to read: a canvas that has not drawn yet,
+    /// one that has been resized since, or a GPU backend that presents its
+    /// own frames and keeps no buffer here.
+    ///
+    /// The pixels are borrowed for the call, which is why this takes a
+    /// closure rather than handing back a slice.
+    pub fn with_frame_pixels<R>(&self, f: impl FnOnce(&[u32], u32, u32) -> R) -> Option<R> {
+        let guard = lock(&self.renderer);
+        let frame = guard.as_ref()?.frame_output()?;
+        // SAFETY: the renderer is held for the length of the call, so its
+        // buffer cannot be redrawn or reallocated underneath the slice.
+        let bytes = unsafe { from_raw_parts(frame.pixels, frame.size) };
+        let pixels: Vec<u32> = bytes
+            .chunks_exact(4)
+            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
+        Some(f(&pixels, frame.width, frame.height))
     }
 
     /// Set the drawing callback (retained-mode style).
