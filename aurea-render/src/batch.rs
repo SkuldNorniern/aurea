@@ -271,6 +271,7 @@ impl RenderBatches {
         self.circles.clear();
         self.order.clear();
         self.clips.clear();
+        self.dropped = 0;
         for item in list.items() {
             self.lower_item(item);
             self.clips.resize(self.order.len(), item.clip);
@@ -941,6 +942,29 @@ mod tests {
 
         assert_eq!(b.dropped, 2, "the path and the blended rect");
         assert_eq!(b.rects.len(), 1);
+    }
+
+    #[test]
+    fn the_dropped_count_is_per_frame() {
+        let bounds = Rect::new(0.0, 0.0, 10.0, 10.0);
+        let mut with_path = DisplayList::new();
+        with_path.push(placed(
+            DrawCommand::DrawPath(Path::new(), Paint::new()),
+            bounds,
+        ));
+
+        let mut batches = RenderBatches::default();
+        batches.lower_into(&with_path);
+        batches.lower_into(&with_path);
+
+        assert_eq!(batches.dropped, 1, "one per frame, not two");
+
+        let clean = DisplayList::new();
+        batches.lower_into(&clean);
+        assert_eq!(
+            batches.dropped, 0,
+            "a frame that drops nothing reports none"
+        );
     }
 
     #[test]
