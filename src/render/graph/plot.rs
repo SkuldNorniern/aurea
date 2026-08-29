@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use super::scale::{Mapping, Placed, Range, Scale};
 use super::series::{Plot, Points, Series};
 use super::style::{AxisStyle, GraphStyle, Stroke};
-use super::ticks::TickPlan;
+use super::ticks::{Tick, TickPlan};
 
 /// How an axis decides what range to show.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -18,6 +18,12 @@ pub enum Bounds {
     Auto { padding: f64 },
     /// Follows the newest data, keeping a window this wide.
     Window { span: f64 },
+}
+
+impl Bounds {
+    fn needs_data(self) -> bool {
+        !matches!(self, Self::Fixed(_))
+    }
 }
 
 impl Default for Bounds {
@@ -35,6 +41,7 @@ pub struct Axis {
     /// Written alongside the axis.
     pub label: String,
     resolved: Range,
+    resolved_ticks: Vec<Tick>,
 }
 
 impl Default for Axis {
@@ -45,6 +52,7 @@ impl Default for Axis {
             ticks: TickPlan::default(),
             label: String::new(),
             resolved: Range::new(0.0, 1.0),
+            resolved_ticks: Vec::new(),
         }
     }
 }
@@ -112,6 +120,11 @@ impl Axis {
             };
             self.resolved = Range::new(max / 1000.0, max);
         }
+        self.resolved_ticks = self.ticks.ticks(self.resolved, self.scale);
+    }
+
+    fn resolved_ticks(&self) -> &[Tick] {
+        &self.resolved_ticks
     }
 }
 
@@ -270,7 +283,11 @@ impl Graph {
 
     /// Draws the plot into `area`.
     pub fn draw(&mut self, ctx: &mut dyn DrawingContext, area: Rect) -> AureaResult<()> {
-        let (data_x, data_y) = self.data_extent();
+        let (data_x, data_y) = if self.x.bounds.needs_data() || self.y.bounds.needs_data() {
+            self.data_extent()
+        } else {
+            (None, None)
+        };
         self.x.resolve(data_x);
         self.y.resolve(data_y);
 
@@ -308,7 +325,7 @@ impl Graph {
         let grid = self.style.grid;
 
         if grid.show_vertical {
-            for tick in self.x.ticks.ticks(self.x.resolved, self.x.scale) {
+            for tick in self.x.resolved_ticks() {
                 let Placed::At(px) = x_map.place(tick.value) else {
                     continue;
                 };
@@ -317,7 +334,7 @@ impl Graph {
             }
         }
         if grid.show_horizontal {
-            for tick in self.y.ticks.ticks(self.y.resolved, self.y.scale) {
+            for tick in self.y.resolved_ticks() {
                 let Placed::At(py) = y_map.place(tick.value) else {
                     continue;
                 };
@@ -535,7 +552,7 @@ impl Graph {
             vline(ctx, area.x, area.y, bottom, line)?;
         }
 
-        for tick in self.x.ticks.ticks(self.x.resolved, self.x.scale) {
+        for tick in self.x.resolved_ticks() {
             let Placed::At(px) = x_map.place(tick.value) else {
                 continue;
             };
@@ -550,7 +567,7 @@ impl Graph {
             }
         }
 
-        for tick in self.y.ticks.ticks(self.y.resolved, self.y.scale) {
+        for tick in self.y.resolved_ticks() {
             let Placed::At(py) = y_map.place(tick.value) else {
                 continue;
             };
@@ -981,6 +998,40 @@ mod tests {
 
         assert!(!projected.envelope);
         assert_eq!(projected.points.len(), 50);
+    }
+
+    #[test]
+    fn a_fixed_axis_does_not_need_the_data() {
+        assert!(!Bounds::Fixed(Range::new(0.0, 1.0)).needs_data());
+        assert!(Bounds::Auto { padding: 0.0 }.needs_data());
+        assert!(Bounds::Window { span: 10.0 }.needs_data());
+    }
+
+    #[test]
+    fn a_fixed_plot_draws_the_range_it_was_given() {
+        let mut graph = Graph::new();
+        graph.plot_area = Rect::new(0.0, 0.0, 100.0, 100.0);
+        graph.x = Axis::fixed(0.0, 10.0);
+        graph.y = Axis::fixed(-1.0, 1.0);
+        graph.add_series(Series::xy("s", vec![(0.0, 0.0), (1000.0, 500.0)]));
+
+        graph.x.resolve(None);
+        graph.y.resolve(None);
+
+        assert_eq!(graph.x.range(), Range::new(0.0, 10.0));
+        assert_eq!(graph.y.range(), Range::new(-1.0, 1.0));
+    }
+
+    #[test]
+    fn ticks_are_worked_out_once_when_the_range_settles() {
+        let mut axis = Axis::fixed(0.0, 10.0);
+        assert!(axis.resolved_ticks().is_empty(), "none until resolved");
+
+        axis.resolve(None);
+
+        let ticks = axis.resolved_ticks().to_vec();
+        assert!(!ticks.is_empty());
+        assert_eq!(axis.resolved_ticks(), ticks, "stable between readers");
     }
 
     #[test]
