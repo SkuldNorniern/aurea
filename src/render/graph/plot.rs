@@ -7,6 +7,7 @@
 
 use aurea_foundation::AureaResult;
 use aurea_render::{Color, DrawingContext, Paint, PaintStyle, Path, PathCommand, Point, Rect};
+use std::collections::HashSet;
 
 use super::scale::{Mapping, Placed, Range, Scale};
 use super::series::{Plot, Points, Series};
@@ -385,7 +386,7 @@ impl Graph {
             let color = series
                 .color
                 .unwrap_or_else(|| self.style.palette_color(index));
-            let projected = self.project(&series.points, x_map, y_map);
+            let projected = self.project(&series.points, series.plot, x_map, y_map);
             let screen = &projected.points;
             if screen.is_empty() {
                 continue;
@@ -421,7 +422,12 @@ impl Graph {
     }
 
     /// Data points turned into pixels, dropping any that have no position.
-    fn project(&self, points: &Points, x_map: Mapping, y_map: Mapping) -> Projected {
+    ///
+    /// Thinned when there is more data than screen to put it on, in whatever
+    /// way suits the plot: an envelope is what a dense *line* looks like, but
+    /// it is not what a scatter or a bar chart looks like, and drawing one for
+    /// those turned them into something else entirely.
+    fn project(&self, points: &Points, plot: Plot, x_map: Mapping, y_map: Mapping) -> Projected {
         let columns = self.plot_area.width.max(1.0);
         let projected = points.iter().filter_map(|(x, y)| {
             let px = x_map.place(x).pixel()?;
@@ -429,19 +435,33 @@ impl Graph {
             Some(Point::new(px, py))
         });
 
-        // More points than there are pixels to put them in: nothing is gained
-        // by drawing every one, and the cost grows with the data rather than
-        // with the screen. Keep the highest and lowest in each column, which is
-        // the envelope the eye actually sees.
-        if points.len() > decimation_threshold(columns) {
+        if points.len() <= decimation_threshold(columns) {
             return Projected {
-                points: decimate(projected, self.plot_area.x, columns),
-                envelope: true,
+                points: projected.collect(),
+                envelope: false,
             };
         }
-        Projected {
-            points: projected.collect(),
-            envelope: false,
+
+        let left = self.plot_area.x;
+        match plot {
+            // A line, its filled area and its stepped form all read as the
+            // band between the highest and lowest value in each column.
+            Plot::Line | Plot::Area | Plot::Step => Projected {
+                points: decimate(projected, left, columns),
+                envelope: true,
+            },
+            // A scatter is a cloud of marks. Two marks in the same pixel are
+            // one mark, so keeping one per cell draws the same picture.
+            Plot::Points => Projected {
+                points: thin_to_cells(projected, self.plot_area),
+                envelope: false,
+            },
+            // Bars narrower than a pixel cannot be told apart, so each column
+            // keeps its tallest — the usual way a dense bar chart is bucketed.
+            Plot::Bars => Projected {
+                points: tallest_per_column(projected, left, columns),
+                envelope: false,
+            },
         }
     }
 
@@ -663,37 +683,91 @@ fn decimation_threshold(columns: f32) -> usize {
     super::numeric::f64_to_count(f64::from(columns * per_column)).max(64)
 }
 
+/// The column a point falls in, if it is on screen at all.
+///
+/// A point off the side of the plot belongs to no column: it is clipped away,
+/// so letting it into the nearest one would stretch that column's span to
+/// reach a value the viewer cannot see.
+fn column_of(point: Point, left: f32, column_count: usize) -> Option<usize> {
+    let column = super::numeric::f32_to_i32(point.x - left);
+    let column = usize::try_from(column).ok()?;
+    (column < column_count).then_some(column)
+}
+
 /// Collapses points to the highest and lowest in each pixel column.
 ///
 /// The result is a polyline that walks each column bottom to top, which draws
 /// the same envelope as the full trace at a fraction of the cost.
+///
+/// Collected per column rather than as a running column, because `Points::Xy`
+/// takes pairs in any order: revisiting a column later used to open a second
+/// span for it instead of widening the first.
 fn decimate(points: impl Iterator<Item = Point>, left: f32, columns: f32) -> Vec<Point> {
     let column_count = super::numeric::f64_to_count(f64::from(columns)).max(1);
-    let mut out: Vec<Point> = Vec::with_capacity(column_count * 2);
+    let mut lo = vec![f32::INFINITY; column_count];
+    let mut hi = vec![f32::NEG_INFINITY; column_count];
 
-    let mut current: Option<(i32, f32, f32)> = None;
     for point in points {
-        let column = super::numeric::f32_to_i32(point.x - left);
-        match current {
-            Some((c, ref mut lo, ref mut hi)) if c == column => {
-                *lo = lo.min(point.y);
-                *hi = hi.max(point.y);
-            }
-            Some((c, lo, hi)) => {
-                push_column(&mut out, left, c, lo, hi);
-                current = Some((column, point.y, point.y));
-            }
-            None => current = Some((column, point.y, point.y)),
-        }
+        let Some(column) = column_of(point, left, column_count) else {
+            continue;
+        };
+        lo[column] = lo[column].min(point.y);
+        hi[column] = hi[column].max(point.y);
     }
-    if let Some((c, lo, hi)) = current {
-        push_column(&mut out, left, c, lo, hi);
+
+    let mut out: Vec<Point> = Vec::with_capacity(column_count * 2);
+    for column in 0..column_count {
+        if lo[column] <= hi[column] {
+            push_column(&mut out, left, column, lo[column], hi[column]);
+        }
     }
     out
 }
 
+/// Keeps one point per pixel cell, in the order they first appear.
+///
+/// Marks landing on the same pixel are indistinguishable once drawn, so a
+/// scatter of a million points needs no more of them than the plot has pixels.
+fn thin_to_cells(points: impl Iterator<Item = Point>, area: Rect) -> Vec<Point> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for point in points {
+        let cell = (
+            super::numeric::f32_to_i32(point.x - area.x),
+            super::numeric::f32_to_i32(point.y - area.y),
+        );
+        if seen.insert(cell) {
+            out.push(point);
+        }
+    }
+    out
+}
+
+/// Keeps the tallest point in each pixel column.
+///
+/// Bars thinner than a pixel overdraw each other, so a column shows the
+/// largest of them — the same answer as bucketing the data and taking the
+/// maximum, which is what a reader of a dense bar chart expects to see.
+fn tallest_per_column(points: impl Iterator<Item = Point>, left: f32, columns: f32) -> Vec<Point> {
+    let column_count = super::numeric::f64_to_count(f64::from(columns)).max(1);
+    // Screen y grows downward, so the tallest bar is the smallest y.
+    let mut top = vec![f32::INFINITY; column_count];
+
+    for point in points {
+        let Some(column) = column_of(point, left, column_count) else {
+            continue;
+        };
+        top[column] = top[column].min(point.y);
+    }
+
+    (0..column_count)
+        .filter(|&column| top[column].is_finite())
+        .map(|column| Point::new(left + column as f32, top[column]))
+        .collect()
+}
+
 /// One column of the envelope, as a bottom-to-top pair.
-fn push_column(out: &mut Vec<Point>, left: f32, column: i32, lo: f32, hi: f32) {
+fn push_column(out: &mut Vec<Point>, left: f32, column: usize, lo: f32, hi: f32) {
     let x = left + column as f32;
     out.push(Point::new(x, lo));
     if (hi - lo).abs() > f32::EPSILON {
@@ -986,10 +1060,98 @@ mod tests {
         ));
 
         let (x_map, y_map) = graph.mappings();
-        let projected = graph.project(&graph.series[0].points, x_map, y_map);
+        let projected = graph.project(&graph.series[0].points, graph.series[0].plot, x_map, y_map);
 
         assert!(!projected.envelope);
         assert_eq!(projected.points.len(), 50);
+    }
+
+    /// A dense scatter used to come out as vertical bars: the envelope was
+    /// chosen before the plot type was looked at, so every plot became a line.
+    #[test]
+    fn a_dense_scatter_stays_a_scatter() {
+        let mut graph = Graph::new();
+        graph.plot_area = Rect::new(0.0, 0.0, 800.0, 400.0);
+        graph.x = Axis::fixed(0.0, 100_000.0);
+        graph.y = Axis::fixed(-1.0, 1.0);
+        let mut series = Series::xy(
+            "s",
+            (0..100_000)
+                .map(|i| (f64::from(i), if i % 2 == 0 { -1.0 } else { 1.0 }))
+                .collect(),
+        );
+        series.plot = Plot::Points;
+        graph.add_series(series);
+
+        let (x_map, y_map) = graph.mappings();
+        let projected = graph.project(&graph.series[0].points, Plot::Points, x_map, y_map);
+
+        assert!(!projected.envelope, "a scatter is not an envelope");
+        assert!(
+            projected.points.len() <= 800 * 400,
+            "no more marks than the plot has pixels"
+        );
+        assert!(projected.points.len() < 100_000, "still thinned");
+    }
+
+    /// Bars keep one per column rather than becoming a filled band.
+    #[test]
+    fn a_dense_bar_chart_keeps_one_bar_per_column() {
+        let mut graph = Graph::new();
+        graph.plot_area = Rect::new(0.0, 0.0, 800.0, 400.0);
+        graph.x = Axis::fixed(0.0, 100_000.0);
+        graph.y = Axis::fixed(0.0, 1.0);
+        let mut series = Series::xy("s", (0..100_000).map(|i| (f64::from(i), 0.5)).collect());
+        series.plot = Plot::Bars;
+        graph.add_series(series);
+
+        let (x_map, y_map) = graph.mappings();
+        let projected = graph.project(&graph.series[0].points, Plot::Bars, x_map, y_map);
+
+        assert!(!projected.envelope);
+        assert!(
+            projected.points.len() <= 801,
+            "got {} bars for an 800px plot",
+            projected.points.len()
+        );
+    }
+
+    /// `Points::Xy` takes pairs in any order. Revisiting a column later used to
+    /// open a second span for it rather than widening the first.
+    #[test]
+    fn an_out_of_order_series_gets_one_span_per_column() {
+        let left = 0.0;
+        let columns = 4.0;
+        // Column 0 is visited, left, and visited again with a lower value.
+        let points = [
+            Point::new(0.0, 10.0),
+            Point::new(2.0, 5.0),
+            Point::new(0.0, 30.0),
+        ];
+
+        let out = decimate(points.into_iter(), left, columns);
+
+        let in_column_0: Vec<_> = out.iter().filter(|p| p.x == 0.0).collect();
+        assert_eq!(
+            in_column_0.len(),
+            2,
+            "one bottom and one top, not two spans"
+        );
+        assert_eq!(in_column_0[0].y, 10.0);
+        assert_eq!(in_column_0[1].y, 30.0);
+    }
+
+    /// A point off the side of the plot is clipped away, so it must not drag
+    /// an edge column's span out to a value nobody can see.
+    #[test]
+    fn a_point_outside_the_plot_joins_no_column() {
+        let out = decimate(
+            [Point::new(-50.0, 999.0), Point::new(1.0, 5.0)].into_iter(),
+            0.0,
+            4.0,
+        );
+
+        assert!(out.iter().all(|p| p.y == 5.0), "got {out:?}");
     }
 
     #[test]
@@ -1006,7 +1168,7 @@ mod tests {
         ));
 
         let (x_map, y_map) = graph.mappings();
-        let projected = graph.project(&graph.series[0].points, x_map, y_map);
+        let projected = graph.project(&graph.series[0].points, graph.series[0].plot, x_map, y_map);
 
         assert!(projected.envelope, "should have been decimated");
         assert!(
