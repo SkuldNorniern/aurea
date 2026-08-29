@@ -29,6 +29,9 @@ pub enum AureaError {
         operation: &'static str,
         platform: Platform,
     },
+    /// The native UI has to be brought up on the process main thread, and the thread asking for it
+    /// is not that one.
+    NotMainThread,
 }
 
 /// Result type for GUI operations.
@@ -69,6 +72,10 @@ impl Display for AureaError {
                 write!(f, "Platform error (code {}){}.", code, hint)
             }
             AureaError::EventLoopError => write!(f, "The event loop encountered an error"),
+            AureaError::NotMainThread => write!(
+                f,
+                "The native UI must be created on the process main thread on this platform."
+            ),
             AureaError::ElementOperationFailed => write!(f, "An operation on a GUI element failed"),
             AureaError::RenderingFailed => write!(f, "Rendering operation failed"),
             AureaError::Unsupported {

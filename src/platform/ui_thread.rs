@@ -1,14 +1,31 @@
 //! Which thread owns the native UI.
 
-use aurea_foundation::lock;
+use aurea_foundation::{AureaError, AureaResult, lock};
 use log::error;
 use std::sync::{LazyLock, Mutex};
 use std::thread::{ThreadId, current};
 
 static UI_THREAD: LazyLock<Mutex<Option<ThreadId>>> = LazyLock::new(|| Mutex::new(None));
 
-pub(crate) fn claim() {
+pub(crate) fn claim() -> AureaResult<()> {
+    if !is_process_main_thread() {
+        return Err(AureaError::NotMainThread);
+    }
     *lock(&UI_THREAD) = Some(current().id());
+    Ok(())
+}
+
+#[cfg(not(target_vendor = "apple"))]
+fn is_process_main_thread() -> bool {
+    true
+}
+
+#[cfg(target_vendor = "apple")]
+fn is_process_main_thread() -> bool {
+    unsafe extern "C" {
+        fn pthread_main_np() -> std::os::raw::c_int;
+    }
+    unsafe { pthread_main_np() != 0 }
 }
 
 pub(crate) fn release() {
@@ -50,12 +67,18 @@ mod tests {
             "nothing is claimed, so nothing is wrong yet"
         );
 
-        claim();
+        if cfg!(target_vendor = "apple") {
+            assert!(matches!(claim(), Err(AureaError::NotMainThread)));
+            release();
+            return;
+        }
+
+        claim().expect("any thread may own the UI here");
         assert!(is_ui_thread());
 
         let claimed_elsewhere = thread::spawn(|| {
             release();
-            claim();
+            claim().expect("any thread may own the UI here");
             is_ui_thread()
         })
         .join()

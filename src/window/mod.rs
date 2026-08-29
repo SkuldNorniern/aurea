@@ -68,7 +68,11 @@ fn acquire_platform() -> AureaResult<()> {
         FrameScheduler::set_request_frame_hook(|| {
             unsafe { ng_platform_request_frame() };
         });
-        ui_thread::claim();
+        if let Err(error) = ui_thread::claim() {
+            unsafe { ng_platform_cleanup() };
+            state.ready = false;
+            return Err(error);
+        }
         state.ready = true;
     }
     state.windows += 1;
