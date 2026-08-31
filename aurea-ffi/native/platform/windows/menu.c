@@ -1,4 +1,4 @@
-#include "menu.h"
+﻿#include "menu.h"
 #include "common/errors.h"
 #include "common/input.h"
 #include "common/rust_callbacks.h"
@@ -165,7 +165,14 @@ NGMenuHandle ng_windows_create_submenu(NGMenuHandle parent_menu, const char* tit
     
     char display_buf[256];
     const char* label = display_title(title, display_buf, sizeof(display_buf));
-    if (!AppendMenuA((HMENU)parent_menu, MF_STRING | MF_POPUP, (UINT_PTR)submenu, label)) {
+    wchar_t* wide = ng_windows_utf8_to_wide(label);
+    if (!wide) {
+        DestroyMenu(submenu);
+        return NULL;
+    }
+    BOOL added = AppendMenuW((HMENU)parent_menu, MF_STRING | MF_POPUP, (UINT_PTR)submenu, wide);
+    free(wide);
+    if (!added) {
         DestroyMenu(submenu);
         return NULL;
     }
@@ -182,7 +189,11 @@ int ng_windows_add_menu_item(NGMenuHandle menu, const char* title, unsigned int 
 
     UINT command_id = id + 1;
 
-    if (!AppendMenuA((HMENU)menu, MF_STRING, command_id, label)) {
+    wchar_t* wide = ng_windows_utf8_to_wide(label);
+    if (!wide) return NG_ERROR_PLATFORM_SPECIFIC;
+    BOOL added = AppendMenuW((HMENU)menu, MF_STRING, command_id, wide);
+    free(wide);
+    if (!added) {
         return NG_ERROR_PLATFORM_SPECIFIC;
     }
     register_shortcut((HMENU)menu, title, id);
@@ -192,7 +203,7 @@ int ng_windows_add_menu_item(NGMenuHandle menu, const char* title, unsigned int 
 int ng_windows_add_menu_separator(NGMenuHandle menu) {
     if (!menu) return NG_ERROR_INVALID_HANDLE;
 
-    if (!AppendMenuA((HMENU)menu, MF_SEPARATOR, 0, NULL)) {
+    if (!AppendMenuW((HMENU)menu, MF_SEPARATOR, 0, NULL)) {
         return NG_ERROR_PLATFORM_SPECIFIC;
     }
 

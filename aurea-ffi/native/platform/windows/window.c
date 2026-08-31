@@ -305,8 +305,10 @@ int ng_windows_set_window_content(NGHandle window_handle, NGHandle content_handl
 
 void ng_windows_window_set_title(NGHandle window, const char* title) {
     if (!window || !title) return;
-    HWND hwnd = (HWND)window;
-    SetWindowTextA(hwnd, title);
+    wchar_t* wide = ng_windows_utf8_to_wide(title);
+    if (!wide) return;
+    SetWindowTextW((HWND)window, wide);
+    free(wide);
 }
 
 int ng_windows_window_set_icon_rgba(
