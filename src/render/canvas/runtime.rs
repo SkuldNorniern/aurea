@@ -1,15 +1,15 @@
 use crate::ffi::*;
+use crate::render::canvas::state::take_full_redraw_request;
 use crate::render::canvas::{Canvas, CanvasState, ensure_canvas_renderer};
 use crate::render::{Surface, SurfaceInfo};
 use crate::{AureaError, AureaResult};
-use aurea_foundation::lock;
 use aurea_render::Rect;
 use aurea_render::{Renderer, RendererBackend};
 use aurea_runtime::FrameScheduler;
+use std::cell::RefCell;
 use std::os::raw::c_void;
 use std::ptr::copy_nonoverlapping;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
 
 /// Converts a non-negative, pre-clamped `f32` row coordinate to `usize`.
 /// `std` has no safe non-`as` float-to-int conversion; clippy's
@@ -138,14 +138,14 @@ unsafe fn publish_cpu_buffer(
 /// The draw callback runs with NO lock held, so it can safely read canvas state
 /// (size(), background_color(), etc.) without deadlocking.
 fn render_frame(
-    state: &Arc<Mutex<CanvasState>>,
-    renderer: &Arc<Mutex<Option<Box<dyn Renderer>>>>,
+    state: &Rc<RefCell<CanvasState>>,
+    renderer: &Rc<RefCell<Option<Box<dyn Renderer>>>>,
     handle: *mut c_void,
     _backend: RendererBackend,
 ) -> AureaResult<()> {
     // 1. Snapshot what we need, then release the state lock.
     let (damage_rect, draw_callback, bg_color) = {
-        let mut st = lock(state);
+        let mut st = state.borrow_mut();
         let damage = st.damage.take();
         let cb = st.draw_callback.clone(); // Arc clone — O(1), no deep copy
         let bg = st.background_color;
@@ -163,7 +163,8 @@ fn render_frame(
     // leaves the platform with a stale pointer. Then an empty frame is the
     // only frame that can be produced.
     // This canvas's own renderer, not whichever one drew last on this thread.
-    let has_buffer = lock(renderer)
+    let has_buffer = renderer
+        .borrow_mut()
         .as_ref()
         .is_some_and(|r| r.frame_output().is_some());
     if draw_callback.is_none() && has_buffer {
@@ -172,7 +173,7 @@ fn render_frame(
     }
 
     let current_damage = {
-        let mut r = lock(renderer);
+        let mut r = renderer.borrow_mut();
         if let Some(ref mut r) = *r {
             r.set_damage(damage_rect);
             // The context borrows the renderer, so it has to go out of scope
@@ -199,8 +200,8 @@ fn render_frame(
 
 /// Hands the renderer's current pixels to the platform.
 fn republish_current_buffer(
-    state: &Arc<Mutex<CanvasState>>,
-    renderer: &Arc<Mutex<Option<Box<dyn Renderer>>>>,
+    state: &Rc<RefCell<CanvasState>>,
+    renderer: &Rc<RefCell<Option<Box<dyn Renderer>>>>,
     handle: *mut c_void,
     _backend: RendererBackend,
     current_damage: Option<Rect>,
@@ -209,7 +210,7 @@ fn republish_current_buffer(
     let publishes_cpu_buffer = _backend != RendererBackend::ZenGpu;
     #[cfg(not(feature = "zengpu"))]
     let publishes_cpu_buffer = true;
-    let guard = lock(renderer);
+    let guard = renderer.borrow_mut();
     let output = guard.as_ref().and_then(|r| r.frame_output());
     if publishes_cpu_buffer && let Some(frame) = output {
         let (ptr, size, w, h) = (frame.pixels, frame.size, frame.width, frame.height);
@@ -217,7 +218,7 @@ fn republish_current_buffer(
         // we must refresh any pixel that changed in either this frame OR the
         // previous frame. Read and update prev_frame_damage under a brief lock.
         let refresh = {
-            let mut st = lock(state);
+            let mut st = state.borrow_mut();
             let prev = st.prev_frame_damage;
             st.prev_frame_damage = current_damage;
             union_opt_rects(current_damage, prev)
@@ -232,14 +233,24 @@ impl Canvas {
     /// Called from Canvas::new — registers this canvas with the frame scheduler.
     pub(super) fn register_with_scheduler(
         &self,
-        state: Arc<Mutex<CanvasState>>,
-        renderer: Arc<Mutex<Option<Box<dyn Renderer>>>>,
+        state: Rc<RefCell<CanvasState>>,
+        renderer: Rc<RefCell<Option<Box<dyn Renderer>>>>,
         backend: RendererBackend,
     ) {
         let handle_usize = self.handle as usize;
+        let id = self.id();
 
         let callback: Rc<dyn Fn() -> AureaResult<()>> = Rc::new(move || {
             let handle = handle_usize as *mut c_void;
+
+            // Somebody off the UI thread asked for a full redraw. Marking the
+            // canvas dirty is this thread's job: the state holds the draw
+            // callback, and the asking thread has no business reaching it.
+            if take_full_redraw_request(id) {
+                let mut st = state.borrow_mut();
+                st.damage.add_all();
+                st.needs_redraw = true;
+            }
 
             // Query platform for current size and scale factor.
             let mut width: u32 = 0;
@@ -252,13 +263,13 @@ impl Canvas {
                 if !window.is_null() {
                     ng_platform_get_scale_factor(window)
                 } else {
-                    lock(&state).scale_factor
+                    state.borrow_mut().scale_factor
                 }
             };
 
             // Detect size/scale changes and update state.
             let (size_changed, scale_changed, cur_w, cur_h) = {
-                let mut st = lock(&state);
+                let mut st = state.borrow_mut();
                 let size_changed =
                     width > 0 && height > 0 && (width != st.width || height != st.height);
                 let scale_changed = (new_scale - st.scale_factor).abs() > f32::EPSILON;
@@ -273,12 +284,12 @@ impl Canvas {
             };
 
             if !ensure_canvas_renderer(handle, &state, &renderer, backend)? {
-                lock(&state).needs_redraw = true;
+                state.borrow_mut().needs_redraw = true;
                 return Ok(());
             }
 
             if size_changed || scale_changed {
-                let mut r = lock(&renderer);
+                let mut r = renderer.borrow_mut();
                 if let Some(ref mut r) = *r {
                     if scale_changed {
                         r.init(
@@ -295,12 +306,12 @@ impl Canvas {
                     }
                 }
                 drop(r);
-                lock(&state).needs_redraw = true;
+                state.borrow_mut().needs_redraw = true;
             }
 
             // Gate on needs_redraw to avoid redundant redraws.
             let should_redraw = {
-                let mut st = lock(&state);
+                let mut st = state.borrow_mut();
                 if !st.needs_redraw {
                     return Ok(());
                 }
@@ -341,7 +352,7 @@ impl Canvas {
             if !window.is_null() {
                 ng_platform_get_scale_factor(window)
             } else {
-                lock(&self.state).scale_factor
+                self.state.borrow_mut().scale_factor
             }
         };
 
@@ -350,7 +361,7 @@ impl Canvas {
         }
 
         let (size_changed, scale_changed, cur_w, cur_h) = {
-            let mut st = lock(&self.state);
+            let mut st = self.state.borrow_mut();
             let sc = width != st.width || height != st.height;
             let sca = (new_scale - st.scale_factor).abs() > f32::EPSILON;
             if sc {
@@ -372,7 +383,7 @@ impl Canvas {
             return Ok(());
         }
 
-        let mut r = lock(&self.renderer);
+        let mut r = self.renderer.borrow_mut();
         if let Some(ref mut r) = *r {
             if scale_changed {
                 r.init(
@@ -399,7 +410,7 @@ impl Canvas {
         }
         // This canvas's own renderer, so a second canvas on the same thread
         // cannot end up publishing its pixels here.
-        let guard = lock(&self.renderer);
+        let guard = self.renderer.borrow_mut();
         if let Some(frame) = guard.as_ref().and_then(|r| r.frame_output()) {
             unsafe {
                 publish_cpu_buffer(
