@@ -7,8 +7,14 @@
 //! follows on the same seam, so cache/record machinery exists once instead of
 //! once per backend.
 //!
-//! This is the GPU peer of the modular `cpu/` backend: one concern per piece,
-//! a thin device boundary, and "add a backend = implement one trait".
+//! Laid out like the modular `cpu/` backend: one concern per piece, a thin
+//! device boundary, and "add a backend = implement one trait".
+//!
+//! ZenGPU is the backend Aurea is built around and where GPU work goes. wgpu
+//! is here so Aurea can render inside an application already built on wgpu,
+//! which is a different job from being the fast path. What they share is the
+//! lowering above this line, not a ceiling: a shared trait should not stop
+//! ZenGPU using something wgpu cannot express.
 
 mod backend;
 mod frame_plan;

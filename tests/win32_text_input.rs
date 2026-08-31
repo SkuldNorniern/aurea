@@ -86,3 +86,29 @@ fn a_surrogate_pair_arrives_as_one_character() -> AureaResult<()> {
     assert_eq!(typed_text(&window), "\u{1F600}");
     Ok(())
 }
+
+/// A title in any script has to survive the trip. It crosses the FFI as UTF-8
+/// and used to be handed to the ANSI entry point, which read it as the
+/// thread's codepage.
+#[test]
+#[ignore = "creates a native window; run with --ignored"]
+fn a_window_title_keeps_its_script() -> AureaResult<()> {
+    const WM_GETTEXT: u32 = 0x000D;
+
+    let window = Window::new("한글 제목", 300, 200)?;
+    window.set_title("Ω 제목 テスト")?;
+
+    let mut buf = [0u16; 64];
+    let len = unsafe {
+        SendMessageW(
+            window.handle(),
+            WM_GETTEXT,
+            buf.len(),
+            buf.as_mut_ptr() as isize,
+        )
+    };
+    let len = usize::try_from(len).unwrap_or(0);
+
+    assert_eq!(String::from_utf16_lossy(&buf[..len]), "Ω 제목 テスト");
+    Ok(())
+}

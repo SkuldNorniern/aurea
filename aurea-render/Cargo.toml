@@ -12,9 +12,11 @@ workspace = true
 
 [features]
 default = []
-# GPU 2D backend via ZenGPU (Vulkan). Opt-in; pulls in ash/Vulkan.
+# Aurea's own GPU backend, and where accelerated work goes. Currently Vulkan
+# through ZenGPU. Opt-in; pulls in ash/Vulkan.
 zengpu = ["dep:inline-spirv", "dep:zengpu-hal", "dep:zengpu-vulkan"]
-# GPU 2D backend via wgpu: community-compat peer to ZenGPU. Opt-in.
+# For fitting Aurea into an application already built around wgpu. A
+# compatibility path, not the backend Aurea is designed around.
 wgpu = ["dep:wgpu"]
 
 [dependencies]
@@ -28,7 +30,7 @@ zengpu-hal = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "191f772a6
 zengpu-vulkan = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "191f772a6084785d273b4d46141e15f1f6666664", version = "0.0.1", optional = true }
 inline-spirv = { version = "0.2", features = ["glsl"], optional = true }
 
-# wgpu peer 2D backend: optional, enabled by the `wgpu` feature.
+# wgpu compatibility backend: optional, enabled by the `wgpu` feature.
 wgpu = { version = "29.0.1", optional = true }
 
 # Windows: hinted ClearType glyph rasterization via DirectWrite.
