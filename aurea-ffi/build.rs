@@ -160,6 +160,19 @@ fn main() {
     let mut build = Build::new();
     build.include(&native).warnings(true);
 
+    // A function used without a declaration is an error, not a warning.
+    //
+    // C lets a missing declaration through as "returns int", which on a
+    // 64-bit target truncates a returned pointer to 32 bits. Not a style
+    // point: a menu label helper called without its header compiled cleanly
+    // and then crashed the process.
+    if build.get_compiler().is_like_msvc() {
+        // C4013: 'f' undefined; assuming extern returning int.
+        build.flag("/we4013");
+    } else {
+        build.flag("-Werror=implicit-function-declaration");
+    }
+
     let is_ios = target.contains("apple-ios");
     let is_android = target.contains("android");
 
