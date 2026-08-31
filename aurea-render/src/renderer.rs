@@ -151,7 +151,8 @@ pub trait DrawingContext {
     }
 }
 
-pub trait Renderer: Send + Sync {
+/// A renderer belongs to the thread that draws with it.
+pub trait Renderer {
     fn init(&mut self, surface: Surface, info: SurfaceInfo) -> AureaResult<()>;
     fn resize(&mut self, width: u32, height: u32) -> AureaResult<()>;
     /// Starts a frame and hands back a context to record into.

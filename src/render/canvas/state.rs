@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 #[cfg(feature = "zengpu")]
 use crate::AureaError;
 use crate::AureaResult;
@@ -13,10 +16,10 @@ use aurea_foundation::lock;
 use aurea_render::ZenGpuRenderer;
 use aurea_render::{Color, Rect, Renderer, RendererBackend};
 use aurea_runtime::{DamageRegion, FrameScheduler};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::os::raw::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{LazyLock, Mutex};
 #[cfg(feature = "zengpu")]
 use zengpu_hal::WindowHandles;
 
@@ -47,47 +50,42 @@ impl CanvasId {
 
 static NEXT_CANVAS_ID: AtomicU64 = AtomicU64::new(1);
 
-struct CanvasEntry {
-    state: Arc<Mutex<CanvasState>>,
-    handle: usize,
-}
-
-static CANVAS_STATES: LazyLock<Mutex<HashMap<CanvasId, CanvasEntry>>> =
+static CANVAS_HANDLES: LazyLock<Mutex<HashMap<CanvasId, usize>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+static FULL_REDRAW_REQUESTS: LazyLock<Mutex<HashSet<CanvasId>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
 
 pub(super) fn next_canvas_id() -> CanvasId {
     CanvasId(NEXT_CANVAS_ID.fetch_add(1, Ordering::Relaxed))
 }
 
-pub(super) fn register_canvas_state(id: CanvasId, handle: usize, state: Arc<Mutex<CanvasState>>) {
-    lock(&CANVAS_STATES).insert(id, CanvasEntry { state, handle });
+pub(super) fn register_canvas_state(id: CanvasId, handle: usize) {
+    lock(&CANVAS_HANDLES).insert(id, handle);
 }
 
 fn unregister_canvas_state(id: CanvasId) {
-    lock(&CANVAS_STATES).remove(&id);
+    lock(&CANVAS_HANDLES).remove(&id);
+    lock(&FULL_REDRAW_REQUESTS).remove(&id);
 }
 
-/// Request a full redraw of a canvas identified by its raw handle.
+pub(super) fn take_full_redraw_request(id: CanvasId) -> bool {
+    lock(&FULL_REDRAW_REQUESTS).remove(&id)
+}
+
+/// Request a full redraw of a canvas from anywhere.
 pub fn request_canvas_redraw(id: CanvasId) {
-    let Some(state) = lock(&CANVAS_STATES)
-        .get(&id)
-        .map(|entry| (entry.state.clone(), entry.handle))
-    else {
+    let Some(handle) = lock(&CANVAS_HANDLES).get(&id).copied() else {
         return;
     };
-    let (state, handle) = state;
-    {
-        let mut st = lock(&state);
-        st.damage.add_all();
-        st.needs_redraw = true;
-    }
+    lock(&FULL_REDRAW_REQUESTS).insert(id);
     FrameScheduler::schedule_canvas(handle as *mut c_void);
 }
 
 pub(super) struct CanvasCleanup {
     pub(super) handle: usize,
     pub(super) id: CanvasId,
-    pub(super) renderer: Arc<Mutex<Option<Box<dyn Renderer>>>>,
+    pub(super) renderer: Rc<RefCell<Option<Box<dyn Renderer>>>>,
     pub(super) owns_native: AtomicBool,
     pub(super) warned_about_mixed_drawing: AtomicBool,
 }
@@ -97,7 +95,7 @@ impl Drop for CanvasCleanup {
         FrameScheduler::unregister_canvas(self.handle as *mut c_void);
         unregister_canvas_state(self.id);
         {
-            let mut r = lock(&self.renderer);
+            let mut r = self.renderer.borrow_mut();
             if let Some(ref mut renderer) = *r {
                 renderer.cleanup();
             }
@@ -111,11 +109,11 @@ impl Drop for CanvasCleanup {
 #[cfg(feature = "zengpu")]
 pub(super) fn ensure_canvas_renderer(
     handle: *mut c_void,
-    state: &Arc<Mutex<CanvasState>>,
-    renderer: &Arc<Mutex<Option<Box<dyn Renderer>>>>,
+    state: &Rc<RefCell<CanvasState>>,
+    renderer: &Rc<RefCell<Option<Box<dyn Renderer>>>>,
     backend: RendererBackend,
 ) -> AureaResult<bool> {
-    if lock(renderer).is_some() {
+    if renderer.borrow_mut().is_some() {
         return Ok(true);
     }
     if backend != RendererBackend::ZenGpu {
@@ -129,22 +127,22 @@ pub(super) fn ensure_canvas_renderer(
 
     let handles = zengpu_canvas_handles(handle)?;
     let (width, height, scale_factor) = {
-        let st = lock(state);
+        let st = state.borrow_mut();
         (st.width.max(1), st.height.max(1), st.scale_factor.max(1.0))
     };
     let gpu = ZenGpuRenderer::new(&handles, width, height, scale_factor)?;
-    *lock(renderer) = Some(Box::new(gpu));
+    *renderer.borrow_mut() = Some(Box::new(gpu));
     Ok(true)
 }
 
 #[cfg(not(feature = "zengpu"))]
 pub(super) fn ensure_canvas_renderer(
     _handle: *mut c_void,
-    _state: &Arc<Mutex<CanvasState>>,
-    renderer: &Arc<Mutex<Option<Box<dyn Renderer>>>>,
+    _state: &Rc<RefCell<CanvasState>>,
+    renderer: &Rc<RefCell<Option<Box<dyn Renderer>>>>,
     _backend: RendererBackend,
 ) -> AureaResult<bool> {
-    Ok(lock(renderer).is_some())
+    Ok(renderer.borrow_mut().is_some())
 }
 
 #[cfg(feature = "zengpu")]

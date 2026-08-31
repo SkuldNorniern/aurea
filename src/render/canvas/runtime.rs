@@ -1,15 +1,15 @@
 use crate::ffi::*;
+use crate::render::canvas::state::take_full_redraw_request;
 use crate::render::canvas::{Canvas, CanvasState, ensure_canvas_renderer};
 use crate::render::{Surface, SurfaceInfo};
 use crate::{AureaError, AureaResult};
-use aurea_foundation::lock;
 use aurea_render::Rect;
 use aurea_render::{Renderer, RendererBackend};
 use aurea_runtime::FrameScheduler;
+use std::cell::RefCell;
 use std::os::raw::c_void;
 use std::ptr::copy_nonoverlapping;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
 
 fn f32_to_usize_clamped(v: f32) -> usize {
     let v = v.clamp(0.0, 16_777_216.0);
@@ -99,20 +99,21 @@ unsafe fn publish_cpu_buffer(
 }
 
 fn render_frame(
-    state: &Arc<Mutex<CanvasState>>,
-    renderer: &Arc<Mutex<Option<Box<dyn Renderer>>>>,
+    state: &Rc<RefCell<CanvasState>>,
+    renderer: &Rc<RefCell<Option<Box<dyn Renderer>>>>,
     handle: *mut c_void,
     _backend: RendererBackend,
 ) -> AureaResult<()> {
     let (damage_rect, draw_callback, bg_color) = {
-        let mut st = lock(state);
+        let mut st = state.borrow_mut();
         let damage = st.damage.take();
         let cb = st.draw_callback.clone();
         let bg = st.background_color;
         (damage, cb, bg)
     };
 
-    let has_buffer = lock(renderer)
+    let has_buffer = renderer
+        .borrow_mut()
         .as_ref()
         .is_some_and(|r| r.frame_output().is_some());
     if draw_callback.is_none() && has_buffer {
@@ -121,7 +122,7 @@ fn render_frame(
     }
 
     let current_damage = {
-        let mut r = lock(renderer);
+        let mut r = renderer.borrow_mut();
         if let Some(ref mut r) = *r {
             r.set_damage(damage_rect);
             {
@@ -144,8 +145,8 @@ fn render_frame(
 }
 
 fn republish_current_buffer(
-    state: &Arc<Mutex<CanvasState>>,
-    renderer: &Arc<Mutex<Option<Box<dyn Renderer>>>>,
+    state: &Rc<RefCell<CanvasState>>,
+    renderer: &Rc<RefCell<Option<Box<dyn Renderer>>>>,
     handle: *mut c_void,
     _backend: RendererBackend,
     current_damage: Option<Rect>,
@@ -154,12 +155,12 @@ fn republish_current_buffer(
     let publishes_cpu_buffer = _backend != RendererBackend::ZenGpu;
     #[cfg(not(feature = "zengpu"))]
     let publishes_cpu_buffer = true;
-    let guard = lock(renderer);
+    let guard = renderer.borrow_mut();
     let output = guard.as_ref().and_then(|r| r.frame_output());
     if publishes_cpu_buffer && let Some(frame) = output {
         let (ptr, size, w, h) = (frame.pixels, frame.size, frame.width, frame.height);
         let refresh = {
-            let mut st = lock(state);
+            let mut st = state.borrow_mut();
             let prev = st.prev_frame_damage;
             st.prev_frame_damage = current_damage;
             union_opt_rects(current_damage, prev)
@@ -173,14 +174,21 @@ fn republish_current_buffer(
 impl Canvas {
     pub(super) fn register_with_scheduler(
         &self,
-        state: Arc<Mutex<CanvasState>>,
-        renderer: Arc<Mutex<Option<Box<dyn Renderer>>>>,
+        state: Rc<RefCell<CanvasState>>,
+        renderer: Rc<RefCell<Option<Box<dyn Renderer>>>>,
         backend: RendererBackend,
     ) {
         let handle_usize = self.handle as usize;
+        let id = self.id();
 
         let callback: Rc<dyn Fn() -> AureaResult<()>> = Rc::new(move || {
             let handle = handle_usize as *mut c_void;
+
+            if take_full_redraw_request(id) {
+                let mut st = state.borrow_mut();
+                st.damage.add_all();
+                st.needs_redraw = true;
+            }
 
             let mut width: u32 = 0;
             let mut height: u32 = 0;
@@ -192,12 +200,12 @@ impl Canvas {
                 if !window.is_null() {
                     ng_platform_get_scale_factor(window)
                 } else {
-                    lock(&state).scale_factor
+                    state.borrow_mut().scale_factor
                 }
             };
 
             let (size_changed, scale_changed, cur_w, cur_h) = {
-                let mut st = lock(&state);
+                let mut st = state.borrow_mut();
                 let size_changed =
                     width > 0 && height > 0 && (width != st.width || height != st.height);
                 let scale_changed = (new_scale - st.scale_factor).abs() > f32::EPSILON;
@@ -212,12 +220,12 @@ impl Canvas {
             };
 
             if !ensure_canvas_renderer(handle, &state, &renderer, backend)? {
-                lock(&state).needs_redraw = true;
+                state.borrow_mut().needs_redraw = true;
                 return Ok(());
             }
 
             if size_changed || scale_changed {
-                let mut r = lock(&renderer);
+                let mut r = renderer.borrow_mut();
                 if let Some(ref mut r) = *r {
                     if scale_changed {
                         r.init(
@@ -234,11 +242,11 @@ impl Canvas {
                     }
                 }
                 drop(r);
-                lock(&state).needs_redraw = true;
+                state.borrow_mut().needs_redraw = true;
             }
 
             let should_redraw = {
-                let mut st = lock(&state);
+                let mut st = state.borrow_mut();
                 if !st.needs_redraw {
                     return Ok(());
                 }
@@ -275,7 +283,7 @@ impl Canvas {
             if !window.is_null() {
                 ng_platform_get_scale_factor(window)
             } else {
-                lock(&self.state).scale_factor
+                self.state.borrow_mut().scale_factor
             }
         };
 
@@ -284,7 +292,7 @@ impl Canvas {
         }
 
         let (size_changed, scale_changed, cur_w, cur_h) = {
-            let mut st = lock(&self.state);
+            let mut st = self.state.borrow_mut();
             let sc = width != st.width || height != st.height;
             let sca = (new_scale - st.scale_factor).abs() > f32::EPSILON;
             if sc {
@@ -306,7 +314,7 @@ impl Canvas {
             return Ok(());
         }
 
-        let mut r = lock(&self.renderer);
+        let mut r = self.renderer.borrow_mut();
         if let Some(ref mut r) = *r {
             if scale_changed {
                 r.init(
@@ -331,7 +339,7 @@ impl Canvas {
         if self.backend == RendererBackend::ZenGpu {
             return;
         }
-        let guard = lock(&self.renderer);
+        let guard = self.renderer.borrow_mut();
         if let Some(frame) = guard.as_ref().and_then(|r| r.frame_output()) {
             unsafe {
                 publish_cpu_buffer(
