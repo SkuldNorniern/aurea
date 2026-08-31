@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 #[cfg(feature = "zengpu")]
 use crate::AureaError;
 use crate::AureaResult;
@@ -13,10 +16,10 @@ use aurea_foundation::lock;
 use aurea_render::ZenGpuRenderer;
 use aurea_render::{Color, Rect, Renderer, RendererBackend};
 use aurea_runtime::{DamageRegion, FrameScheduler};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::os::raw::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{LazyLock, Mutex};
 #[cfg(feature = "zengpu")]
 use zengpu_hal::WindowHandles;
 
@@ -60,63 +63,59 @@ impl CanvasId {
 
 static NEXT_CANVAS_ID: AtomicU64 = AtomicU64::new(1);
 
-/// What a live canvas needs to be reached by id.
-struct CanvasEntry {
-    state: Arc<Mutex<CanvasState>>,
-    /// The native handle, which the scheduler and the platform still speak in.
-    handle: usize,
-}
-
-static CANVAS_STATES: LazyLock<Mutex<HashMap<CanvasId, CanvasEntry>>> =
+/// What a background thread may know about a live canvas: where to send the
+/// wake-up, and nothing else.
+///
+/// The canvas's own state stays with the UI thread. It holds the draw
+/// callback, which draws, and a thread that is not going to draw has no
+/// business reaching it.
+static CANVAS_HANDLES: LazyLock<Mutex<HashMap<CanvasId, usize>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Canvases somebody has asked to redraw in full, waiting for the UI thread
+/// to notice.
+static FULL_REDRAW_REQUESTS: LazyLock<Mutex<HashSet<CanvasId>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
 
 /// Takes the next id for a canvas that is about to exist.
 pub(super) fn next_canvas_id() -> CanvasId {
     CanvasId(NEXT_CANVAS_ID.fetch_add(1, Ordering::Relaxed))
 }
 
-pub(super) fn register_canvas_state(id: CanvasId, handle: usize, state: Arc<Mutex<CanvasState>>) {
-    lock(&CANVAS_STATES).insert(id, CanvasEntry { state, handle });
+pub(super) fn register_canvas_state(id: CanvasId, handle: usize) {
+    lock(&CANVAS_HANDLES).insert(id, handle);
 }
 
 fn unregister_canvas_state(id: CanvasId) {
-    lock(&CANVAS_STATES).remove(&id);
+    lock(&CANVAS_HANDLES).remove(&id);
+    lock(&FULL_REDRAW_REQUESTS).remove(&id);
 }
 
-/// Request a full redraw of a canvas identified by its raw handle.
+/// Whether this canvas was asked to redraw in full since the last frame, and
+/// forgets the request. For the UI thread, on its way into a frame.
+pub(super) fn take_full_redraw_request(id: CanvasId) -> bool {
+    lock(&FULL_REDRAW_REQUESTS).remove(&id)
+}
+
+/// Request a full redraw of a canvas from anywhere.
 ///
-/// This is the `Send + Sync`-safe equivalent of [`Canvas::invalidate_all`](super::Canvas::invalidate_all): it
-/// marks the canvas dirty so the frame scheduler actually **re-runs the draw
-/// callback**, schedules a frame, then triggers a platform repaint.
+/// This is the `Send`-safe equivalent of
+/// [`Canvas::invalidate_all`](super::Canvas::invalidate_all). It records the
+/// request and asks for a frame; the UI thread marks the canvas dirty and
+/// re-runs its draw callback when it gets there.
 ///
-/// Prefer this over calling the raw `ng_platform_canvas_invalidate` FFI from a
-/// background callback: that FFI only re-blits the *cached* pixel buffer and
-/// never sets `needs_redraw`, so the scheduler's redraw gate skips the draw
-/// callback. Immediate-mode UIs that mutate draw state in response to input
-/// (consuming a pending click, updating hover, etc.) need the callback to run,
-/// which is exactly what this provides.
+/// Nothing native happens here, and no canvas state is touched. GTK and
+/// AppKit will not be driven from a background thread, and the draw callback
+/// belongs to the UI thread that runs it.
 ///
 /// `id` comes from [`Canvas::id`](super::Canvas::id). It is a no-op if the
 /// canvas has been dropped, and because ids are never reused it cannot reach
 /// whichever canvas came afterwards.
 pub fn request_canvas_redraw(id: CanvasId) {
-    // Nothing native happens here. This is the one call an application is
-    // meant to make from a background thread, and GTK and AppKit will not be
-    // touched from one — so all it does is mark the canvas dirty and ask for
-    // a frame. The UI thread renders it and tells the platform, which it was
-    // going to do anyway: publishing a frame invalidates the view.
-    let Some(state) = lock(&CANVAS_STATES).get(&id).map(|entry| {
-        // An unknown id belongs to a canvas that is already gone.
-        (entry.state.clone(), entry.handle)
-    }) else {
+    let Some(handle) = lock(&CANVAS_HANDLES).get(&id).copied() else {
         return;
     };
-    let (state, handle) = state;
-    {
-        let mut st = lock(&state);
-        st.damage.add_all();
-        st.needs_redraw = true;
-    }
+    lock(&FULL_REDRAW_REQUESTS).insert(id);
     FrameScheduler::schedule_canvas(handle as *mut c_void);
 }
 
@@ -126,7 +125,7 @@ pub(super) struct CanvasCleanup {
     pub(super) handle: usize,
     /// This canvas's identity, which is how the registry knows it.
     pub(super) id: CanvasId,
-    pub(super) renderer: Arc<Mutex<Option<Box<dyn Renderer>>>>,
+    pub(super) renderer: Rc<RefCell<Option<Box<dyn Renderer>>>>,
     /// False once the canvas has been added to a container, which frees it.
     pub(super) owns_native: AtomicBool,
     /// Whether the immediate/retained clash has already been reported, so a
@@ -139,7 +138,7 @@ impl Drop for CanvasCleanup {
         FrameScheduler::unregister_canvas(self.handle as *mut c_void);
         unregister_canvas_state(self.id);
         {
-            let mut r = lock(&self.renderer);
+            let mut r = self.renderer.borrow_mut();
             if let Some(ref mut renderer) = *r {
                 renderer.cleanup();
             }
@@ -156,11 +155,11 @@ impl Drop for CanvasCleanup {
 #[cfg(feature = "zengpu")]
 pub(super) fn ensure_canvas_renderer(
     handle: *mut c_void,
-    state: &Arc<Mutex<CanvasState>>,
-    renderer: &Arc<Mutex<Option<Box<dyn Renderer>>>>,
+    state: &Rc<RefCell<CanvasState>>,
+    renderer: &Rc<RefCell<Option<Box<dyn Renderer>>>>,
     backend: RendererBackend,
 ) -> AureaResult<bool> {
-    if lock(renderer).is_some() {
+    if renderer.borrow_mut().is_some() {
         return Ok(true);
     }
     if backend != RendererBackend::ZenGpu {
@@ -174,22 +173,22 @@ pub(super) fn ensure_canvas_renderer(
 
     let handles = zengpu_canvas_handles(handle)?;
     let (width, height, scale_factor) = {
-        let st = lock(state);
+        let st = state.borrow_mut();
         (st.width.max(1), st.height.max(1), st.scale_factor.max(1.0))
     };
     let gpu = ZenGpuRenderer::new(&handles, width, height, scale_factor)?;
-    *lock(renderer) = Some(Box::new(gpu));
+    *renderer.borrow_mut() = Some(Box::new(gpu));
     Ok(true)
 }
 
 #[cfg(not(feature = "zengpu"))]
 pub(super) fn ensure_canvas_renderer(
     _handle: *mut c_void,
-    _state: &Arc<Mutex<CanvasState>>,
-    renderer: &Arc<Mutex<Option<Box<dyn Renderer>>>>,
+    _state: &Rc<RefCell<CanvasState>>,
+    renderer: &Rc<RefCell<Option<Box<dyn Renderer>>>>,
     _backend: RendererBackend,
 ) -> AureaResult<bool> {
-    Ok(lock(renderer).is_some())
+    Ok(renderer.borrow_mut().is_some())
 }
 
 /// Native handle extraction differs from [`native_handle_from_canvas_ptr`](crate::platform::handles::native_handle_from_canvas_ptr) on

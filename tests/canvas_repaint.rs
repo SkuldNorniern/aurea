@@ -504,3 +504,50 @@ fn a_menu_bar_belongs_to_its_window() -> AureaResult<()> {
     drop(window);
     Ok(())
 }
+
+/// A draw callback may capture the canvas it draws on.
+///
+/// It could not before: the callback had to be `Send + Sync`, and a canvas is
+/// neither, so an application had to put its canvas behind a mutex and assert
+/// `Send` onto it by hand. Nothing here is shared across threads, so nothing
+/// needs to pretend it is.
+#[test]
+#[ignore = "creates native elements; run with --ignored"]
+fn a_draw_callback_can_capture_its_own_canvas() -> AureaResult<()> {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    let mut window = Window::new("capture", 300, 200)?;
+    let canvas = Canvas::new(300, 200, RendererBackend::Cpu)?;
+    canvas.set_background_color(BG);
+
+    // UI-local state, captured directly. `Rc` and `Cell` are not `Send`.
+    let frames = Rc::new(Cell::new(0usize));
+    let counted = Rc::clone(&frames);
+    let for_callback = canvas.clone();
+
+    canvas.set_draw_callback(move |ctx| {
+        counted.set(counted.get() + 1);
+        // The canvas itself, reachable from inside its own callback.
+        let (w, _h) = for_callback.size();
+        paint_a_square(ctx)?;
+        ctx.draw_rect(
+            Rect::new(0.0, 0.0, w as f32 / 4.0, 4.0),
+            &Paint::new().color(Color::rgb(200, 120, 60)),
+        )
+    })?;
+
+    let mut layout = Stack::new(Orientation::Vertical)?;
+    layout.add(canvas.clone())?;
+    window.set_content(layout)?;
+    window.show();
+
+    for _ in 0..3 {
+        window.poll_events();
+        window.process_frames()?;
+    }
+
+    assert!(frames.get() > 0, "the callback never ran");
+    assert!(drawn_pixels(&canvas) > 1000, "and it drew nothing");
+    Ok(())
+}

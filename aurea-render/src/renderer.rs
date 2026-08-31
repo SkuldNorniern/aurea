@@ -154,7 +154,13 @@ pub trait DrawingContext {
     }
 }
 
-pub trait Renderer: Send + Sync {
+/// A renderer belongs to the thread that draws with it.
+///
+/// Not `Send` or `Sync`: it holds a native surface, and the toolkits behind
+/// those are thread-affine. It used to require both, which forced everything
+/// reachable from a draw callback to be `Send + Sync` as well — including the
+/// canvas, which then had to be shared through a mutex that bought nothing.
+pub trait Renderer {
     fn init(&mut self, surface: Surface, info: SurfaceInfo) -> AureaResult<()>;
     fn resize(&mut self, width: u32, height: u32) -> AureaResult<()>;
     /// Starts a frame and hands back a context to record into.

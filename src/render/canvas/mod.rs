@@ -4,17 +4,17 @@ use crate::ffi::*;
 use crate::platform::handles::{NativeWindowHandle, native_handle_from_canvas_ptr};
 use crate::registry::handle_key;
 use crate::{AureaError, AureaResult};
-use aurea_foundation::lock;
 use aurea_render::{
     ClickCallback, Color, CpuRasterizer, DrawingContext, HoverCallback, InteractionRegistry,
     InteractiveId, Point, Renderer, RendererBackend, Surface, SurfaceInfo,
 };
 use aurea_runtime::{DamageRegion, FrameScheduler};
 use aurea_runtime::{FrameInfo, TickerId};
+use std::cell::RefCell;
 use std::os::raw::c_void;
+use std::rc::Rc;
 use std::slice::from_raw_parts;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 #[cfg(feature = "wgpu")]
 use wgpu::{Instance, Surface as WgpuSurface, SurfaceTarget};
 
@@ -24,14 +24,16 @@ mod state;
 use state::{
     CanvasCleanup, CanvasState, ensure_canvas_renderer, next_canvas_id, register_canvas_state,
 };
-mod shared;
-pub use shared::{SharedCanvas, SharedCanvasRef};
 pub use state::{CanvasId, request_canvas_redraw};
 
 /// Drawing callback — Arc so it can be cheaply cloned out of the state lock
 /// before the renderer lock is acquired, preventing deadlock when the callback
 /// reads canvas properties (size, background_color, etc.).
-pub type DrawCallback = Arc<dyn Fn(&mut dyn DrawingContext) -> AureaResult<()> + Send + Sync>;
+/// What a canvas draws, held by the UI thread that runs it.
+///
+/// Not `Send`: it draws, and drawing is the UI thread's. That also means it
+/// may capture whatever it likes — including the canvas it is drawing on.
+pub type DrawCallback = Rc<dyn Fn(&mut dyn DrawingContext) -> AureaResult<()>>;
 
 /// A drawable canvas element backed by a renderer.
 ///
@@ -54,15 +56,15 @@ pub type DrawCallback = Arc<dyn Fn(&mut dyn DrawingContext) -> AureaResult<()> +
 #[derive(Clone)]
 pub struct Canvas {
     pub(crate) handle: *mut c_void,
-    pub(crate) state: Arc<Mutex<CanvasState>>,
-    pub(crate) renderer: Arc<Mutex<Option<Box<dyn Renderer>>>>,
+    pub(crate) state: Rc<RefCell<CanvasState>>,
+    pub(crate) renderer: Rc<RefCell<Option<Box<dyn Renderer>>>>,
     pub(crate) backend: RendererBackend,
-    interaction_registry: Arc<InteractionRegistry>,
+    interaction_registry: Rc<InteractionRegistry>,
     /// The canvas's native handle, kept so a wgpu surface can borrow something
     /// that genuinely lives as long as the canvas does.
     #[cfg(feature = "wgpu")]
-    surface_handle: Arc<NativeWindowHandle>,
-    _cleanup: Arc<CanvasCleanup>,
+    surface_handle: Rc<NativeWindowHandle>,
+    _cleanup: Rc<CanvasCleanup>,
 }
 
 /// Destroys a native canvas whose `Canvas` was never finished.
@@ -109,7 +111,7 @@ impl Canvas {
 
     /// Get canvas dimensions
     pub fn size(&self) -> (u32, u32) {
-        let st = lock(&self.state);
+        let st = self.state.borrow_mut();
         (st.width, st.height)
     }
 
@@ -192,7 +194,7 @@ impl Canvas {
             }
         };
 
-        let state = Arc::new(Mutex::new(CanvasState {
+        let state = Rc::new(RefCell::new(CanvasState {
             width,
             height,
             scale_factor,
@@ -202,11 +204,11 @@ impl Canvas {
             needs_redraw: false,
             prev_frame_damage: None,
         }));
-        let renderer_arc = Arc::new(Mutex::new(renderer));
-        let interaction_registry = Arc::new(InteractionRegistry::new());
+        let renderer_arc = Rc::new(RefCell::new(renderer));
+        let interaction_registry = Rc::new(InteractionRegistry::new());
 
         #[cfg(feature = "wgpu")]
-        let surface_handle = Arc::new(
+        let surface_handle = Rc::new(
             native_handle_from_canvas_ptr(unsafe { ng_platform_canvas_get_native_handle(handle) })
                 .ok_or(AureaError::ElementOperationFailed)?,
         );
@@ -219,7 +221,7 @@ impl Canvas {
             interaction_registry,
             #[cfg(feature = "wgpu")]
             surface_handle,
-            _cleanup: Arc::new(CanvasCleanup {
+            _cleanup: Rc::new(CanvasCleanup {
                 handle: handle_key(handle),
                 id,
                 renderer: renderer_arc.clone(),
@@ -229,7 +231,7 @@ impl Canvas {
         };
 
         guard.disarm();
-        register_canvas_state(id, handle_key(handle), canvas.state.clone());
+        register_canvas_state(id, handle_key(handle));
         canvas.register_with_scheduler(state, renderer_arc, backend);
         Ok(canvas)
     }
@@ -250,7 +252,7 @@ impl Canvas {
     /// warning rather than an error. The symptom is a flickering region, and
     /// it is a hard one to trace back from.
     fn warn_if_also_retained(&self) {
-        if lock(&self.state).draw_callback.is_none() {
+        if self.state.borrow_mut().draw_callback.is_none() {
             return;
         }
         if self
@@ -274,7 +276,7 @@ impl Canvas {
     /// The pixels are borrowed for the call, which is why this takes a
     /// closure rather than handing back a slice.
     pub fn with_frame_pixels<R>(&self, f: impl FnOnce(&[u32], u32, u32) -> R) -> Option<R> {
-        let guard = lock(&self.renderer);
+        let guard = self.renderer.borrow_mut();
         let frame = guard.as_ref()?.frame_output()?;
         // SAFETY: the renderer is held for the length of the call, so its
         // buffer cannot be redrawn or reallocated underneath the slice.
@@ -306,11 +308,11 @@ impl Canvas {
     /// and differently for others, redrawing only part of the scene.
     pub fn set_draw_callback<F>(&self, callback: F) -> AureaResult<()>
     where
-        F: Fn(&mut dyn DrawingContext) -> AureaResult<()> + Send + Sync + 'static,
+        F: Fn(&mut dyn DrawingContext) -> AureaResult<()> + 'static,
     {
         {
-            let mut st = lock(&self.state);
-            st.draw_callback = Some(Arc::new(callback));
+            let mut st = self.state.borrow_mut();
+            st.draw_callback = Some(Rc::new(callback));
             st.needs_redraw = true;
         }
         self.invalidate_all();
@@ -345,13 +347,13 @@ impl Canvas {
         F: FnOnce(&mut dyn DrawingContext) -> AureaResult<()>,
     {
         self.check_and_resize()?;
-        if lock(&self.renderer).is_none() {
+        if self.renderer.borrow_mut().is_none() {
             return Err(AureaError::ElementOperationFailed);
         }
         self.warn_if_also_retained();
 
         let (damage_rect, bg_color) = {
-            let mut st = lock(&self.state);
+            let mut st = self.state.borrow_mut();
             let damage = st.damage.take().or_else(|| {
                 Some(super::Rect::new(
                     0.0,
@@ -364,7 +366,7 @@ impl Canvas {
         };
 
         {
-            let mut r = lock(&self.renderer);
+            let mut r = self.renderer.borrow_mut();
             if let Some(ref mut renderer) = *r {
                 renderer.set_damage(damage_rect);
                 {
@@ -386,7 +388,7 @@ impl Canvas {
     /// Set background color.
     pub fn set_background_color(&self, color: Color) {
         let changed = {
-            let mut st = lock(&self.state);
+            let mut st = self.state.borrow_mut();
             if st.background_color == color {
                 false
             } else {
@@ -401,7 +403,7 @@ impl Canvas {
 
     /// Get background color.
     pub fn background_color(&self) -> Color {
-        lock(&self.state).background_color
+        self.state.borrow_mut().background_color
     }
 
     /// Runs `tick` once per frame and redraws the canvas afterwards.
@@ -447,13 +449,13 @@ impl Canvas {
 
     /// Add damage to the canvas (called when content changes).
     pub fn add_damage(&self, rect: super::Rect) {
-        lock(&self.state).damage.add(rect);
+        self.state.borrow_mut().damage.add(rect);
     }
 
     /// Mark the entire canvas as damaged and schedule a redraw.
     pub fn invalidate_all(&self) {
         {
-            let mut st = lock(&self.state);
+            let mut st = self.state.borrow_mut();
             st.damage.add_all();
             st.needs_redraw = true;
         }
@@ -466,7 +468,7 @@ impl Canvas {
     /// Check if canvas needs redraw and perform it.
     pub fn redraw_if_needed(&mut self) -> AureaResult<()> {
         let needs = {
-            let mut st = lock(&self.state);
+            let mut st = self.state.borrow_mut();
             if !st.needs_redraw {
                 return Ok(());
             }
@@ -486,7 +488,7 @@ impl Canvas {
     /// Invalidate a specific rectangle.
     pub fn invalidate_rect(&self, rect: super::Rect) {
         {
-            let mut st = lock(&self.state);
+            let mut st = self.state.borrow_mut();
             st.damage.add(rect);
             st.needs_redraw = true;
         }
@@ -544,14 +546,14 @@ impl Canvas {
             let keep = user_ticker(info);
             // Mark the canvas dirty so the scheduler's needs_redraw gate is
             // satisfied on every animation frame, including the final one.
-            lock(&state).needs_redraw = true;
+            state.borrow_mut().needs_redraw = true;
             FrameScheduler::schedule_canvas(handle_usize as *mut c_void);
             keep
         })
     }
 
     pub fn scale_factor(&self) -> f32 {
-        lock(&self.state).scale_factor
+        self.state.borrow_mut().scale_factor
     }
 
     /// Register a click callback for an interactive shape.
@@ -571,7 +573,7 @@ impl Canvas {
     pub fn handle_click(&self, x: f32, y: f32) -> AureaResult<()> {
         let sf = self.scale_factor();
         let point = Point::new(x * sf, y * sf);
-        let r = lock(&self.renderer);
+        let r = self.renderer.borrow_mut();
         if let Some(ref renderer) = *r
             && let Some(display_list) = renderer.display_list()
         {
@@ -585,7 +587,7 @@ impl Canvas {
     pub fn handle_hover(&self, x: f32, y: f32) -> AureaResult<()> {
         let sf = self.scale_factor();
         let point = Point::new(x * sf, y * sf);
-        let r = lock(&self.renderer);
+        let r = self.renderer.borrow_mut();
         if let Some(ref renderer) = *r
             && let Some(display_list) = renderer.display_list()
         {
@@ -634,7 +636,7 @@ mod tests {
     fn zengpu_renderer_waits_for_canvas_attachment() {
         let canvas = Canvas::new(64, 64, RendererBackend::ZenGpu).unwrap();
 
-        assert!(lock(&canvas.renderer).is_none());
+        assert!(canvas.renderer.borrow().is_none());
         assert!(
             !ensure_canvas_renderer(
                 canvas.handle,
@@ -644,6 +646,6 @@ mod tests {
             )
             .unwrap()
         );
-        assert!(lock(&canvas.renderer).is_none());
+        assert!(canvas.renderer.borrow().is_none());
     }
 }
