@@ -69,21 +69,19 @@ fn unregister_canvas_state(id: CanvasId) {
 
 /// Request a full redraw of a canvas identified by its raw handle.
 pub fn request_canvas_redraw(id: CanvasId) {
-    let Some((state, handle)) = lock(&CANVAS_STATES)
+    let Some(state) = lock(&CANVAS_STATES)
         .get(&id)
         .map(|entry| (entry.state.clone(), entry.handle))
     else {
         return;
     };
+    let (state, handle) = state;
     {
         let mut st = lock(&state);
         st.damage.add_all();
         st.needs_redraw = true;
     }
     FrameScheduler::schedule_canvas(handle as *mut c_void);
-    unsafe {
-        ng_platform_canvas_invalidate(handle as *mut c_void);
-    }
 }
 
 pub(super) struct CanvasCleanup {
