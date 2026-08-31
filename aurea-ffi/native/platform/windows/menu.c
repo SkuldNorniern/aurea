@@ -1,4 +1,5 @@
 ﻿#include "menu.h"
+#include "utils.h"
 #include "common/errors.h"
 #include "common/input.h"
 #include "common/rust_callbacks.h"
