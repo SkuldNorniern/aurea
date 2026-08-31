@@ -1,15 +1,17 @@
 //! Frame queue for scheduling and processing redraws.
 
 use aurea_foundation::{AureaError, lock};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::os::raw::c_void;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
-type CanvasRedrawCallback = Arc<dyn Fn() -> Result<(), AureaError> + Send + Sync>;
-type FrameCallback = Arc<dyn Fn() + Send + Sync + 'static>;
-type TickerFn = Arc<Mutex<dyn FnMut(FrameInfo) -> bool + Send>>;
+type CanvasRedrawCallback = Rc<dyn Fn() -> Result<(), AureaError>>;
+type FrameCallback = Rc<dyn Fn() + 'static>;
+type TickerFn = Rc<RefCell<dyn FnMut(FrameInfo) -> bool>>;
 type RequestFrameHook = Option<Box<dyn Fn() + Send + Sync>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -27,21 +29,34 @@ pub struct FrameInfo {
     pub frame: u64,
 }
 
+// Asking for a frame crosses threads; running one does not.
+//
+// A background thread may say "this canvas is dirty, wake up". Everything it
+// touches to say so is below. What it must never touch is a callback, because
+// running one means drawing, and drawing belongs to the UI thread.
 static FRAME_SCHEDULED: AtomicBool = AtomicBool::new(false);
 static ALL_CANVASES_SCHEDULED: AtomicBool = AtomicBool::new(false);
-static CANVAS_REGISTRY: LazyLock<Mutex<Arc<HashMap<usize, CanvasRedrawCallback>>>> =
-    LazyLock::new(|| Mutex::new(Arc::new(HashMap::new())));
 static PENDING_CANVASES: LazyLock<Mutex<HashSet<usize>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
 static FRAME_CALLBACK_COUNTER: AtomicU64 = AtomicU64::new(0);
-static FRAME_CALLBACKS: LazyLock<Mutex<Arc<HashMap<FrameCallbackId, FrameCallback>>>> =
-    LazyLock::new(|| Mutex::new(Arc::new(HashMap::new())));
 static TICKER_COUNTER: AtomicU64 = AtomicU64::new(0);
-static TICKERS: LazyLock<Mutex<Arc<HashMap<TickerId, TickerFn>>>> =
-    LazyLock::new(|| Mutex::new(Arc::new(HashMap::new())));
 static FRAME_COUNTER: AtomicU64 = AtomicU64::new(0);
 static LAST_FRAME_TIME: LazyLock<Mutex<Instant>> = LazyLock::new(|| Mutex::new(Instant::now()));
 static REQUEST_FRAME_HOOK: LazyLock<Mutex<RequestFrameHook>> = LazyLock::new(|| Mutex::new(None));
+
+// The callbacks themselves, owned by the thread that runs them.
+//
+// They were global, which meant every one of them had to be `Send + Sync`,
+// which meant a draw callback could not capture anything UI-local and the
+// canvas it drew had to be shared through a mutex it never needed. Held here
+// instead, a callback is an ordinary closure on one thread.
+thread_local! {
+    static CANVAS_REGISTRY: RefCell<HashMap<usize, CanvasRedrawCallback>> =
+        RefCell::new(HashMap::new());
+    static FRAME_CALLBACKS: RefCell<HashMap<FrameCallbackId, FrameCallback>> =
+        RefCell::new(HashMap::new());
+    static TICKERS: RefCell<HashMap<TickerId, TickerFn>> = RefCell::new(HashMap::new());
+}
 
 pub struct FrameScheduler;
 
@@ -109,37 +124,29 @@ impl FrameScheduler {
     }
 
     pub fn register_canvas(handle: *mut c_void, callback: CanvasRedrawCallback) {
-        let mut registry = lock(&CANVAS_REGISTRY);
-        let mut updated = (**registry).clone();
-        updated.insert(handle as usize, callback);
-        *registry = Arc::new(updated);
+        CANVAS_REGISTRY.with(|r| r.borrow_mut().insert(handle as usize, callback));
     }
 
     pub fn unregister_canvas(handle: *mut c_void) {
-        let mut registry = lock(&CANVAS_REGISTRY);
-        let mut updated = (**registry).clone();
-        updated.remove(&(handle as usize));
-        *registry = Arc::new(updated);
+        CANVAS_REGISTRY.with(|r| r.borrow_mut().remove(&(handle as usize)));
         lock(&PENDING_CANVASES).remove(&(handle as usize));
     }
 
+    /// Registers a callback run once per frame, on the UI thread.
+    ///
+    /// It is held by the thread that will run it, so it may capture UI-local
+    /// state and need not be `Send`.
     pub fn register_frame_callback<F>(callback: F) -> FrameCallbackId
     where
-        F: Fn() + Send + Sync + 'static,
+        F: Fn() + 'static,
     {
         let id = FrameCallbackId(FRAME_CALLBACK_COUNTER.fetch_add(1, Ordering::Relaxed));
-        let mut callbacks = lock(&FRAME_CALLBACKS);
-        let mut updated = (**callbacks).clone();
-        updated.insert(id, Arc::new(callback));
-        *callbacks = Arc::new(updated);
+        FRAME_CALLBACKS.with(|c| c.borrow_mut().insert(id, Rc::new(callback)));
         id
     }
 
     pub fn unregister_frame_callback(id: FrameCallbackId) {
-        let mut callbacks = lock(&FRAME_CALLBACKS);
-        let mut updated = (**callbacks).clone();
-        updated.remove(&id);
-        *callbacks = Arc::new(updated);
+        FRAME_CALLBACKS.with(|c| c.borrow_mut().remove(&id));
     }
 
     /// Register a per-frame ticker. The closure receives [`FrameInfo`] every frame
@@ -149,13 +156,10 @@ impl FrameScheduler {
     /// from inside the ticker.
     pub fn register_ticker<F>(ticker: F) -> TickerId
     where
-        F: FnMut(FrameInfo) -> bool + Send + 'static,
+        F: FnMut(FrameInfo) -> bool + 'static,
     {
         let id = TickerId(TICKER_COUNTER.fetch_add(1, Ordering::Relaxed));
-        let mut tickers = lock(&TICKERS);
-        let mut updated = (**tickers).clone();
-        updated.insert(id, Arc::new(Mutex::new(ticker)));
-        *tickers = Arc::new(updated);
+        TICKERS.with(|t| t.borrow_mut().insert(id, Rc::new(RefCell::new(ticker))));
         // Pump-only arm: don't set ALL_CANVASES_SCHEDULED — one active ticker
         // must not force a full repaint of every canvas every frame.
         FRAME_SCHEDULED.store(true, Ordering::Relaxed);
@@ -164,25 +168,26 @@ impl FrameScheduler {
     }
 
     pub fn unregister_ticker(id: TickerId) {
-        let mut tickers = lock(&TICKERS);
-        let mut updated = (**tickers).clone();
-        updated.remove(&id);
-        *tickers = Arc::new(updated);
+        TICKERS.with(|t| t.borrow_mut().remove(&id));
     }
 
     /// Runs every registered ticker once, unregistering any that return `false`.
     /// Locks are released before invoking user code: ticker callbacks may
     /// re-register canvases or other tickers.
     fn run_tickers(frame_info: FrameInfo) {
-        let tickers = lock(&TICKERS).clone();
+        // Snapshot first: a ticker may register or drop another one, and the
+        // registry cannot be borrowed while user code runs.
+        let tickers: Vec<(TickerId, TickerFn)> = TICKERS.with(|t| {
+            t.borrow()
+                .iter()
+                .map(|(id, f)| (*id, Rc::clone(f)))
+                .collect()
+        });
         let mut to_remove = Vec::new();
-        for (id, ticker_fn) in tickers.iter() {
-            let keep = {
-                let mut f = ticker_fn.lock().expect("ticker mutex not poisoned");
-                f(frame_info)
-            };
+        for (id, ticker_fn) in tickers {
+            let keep = (ticker_fn.borrow_mut())(frame_info);
             if !keep {
-                to_remove.push(*id);
+                to_remove.push(id);
             }
         }
         for id in to_remove {
@@ -220,7 +225,7 @@ impl FrameScheduler {
         // Re-arm pump if tickers remain after removal (pump-only, not all-canvas).
         // Check the live map — not the snapshot — so finished tickers don't waste a frame.
         // scheduler.rs calls ng_platform_frame_idle() when !is_scheduled().
-        if !lock(&TICKERS).is_empty() {
+        if TICKERS.with(|t| !t.borrow().is_empty()) {
             FRAME_SCHEDULED.store(true, Ordering::Relaxed);
             Self::notify_platform();
         }
@@ -253,8 +258,11 @@ impl FrameScheduler {
     /// canvases or frame callbacks.
     fn redraw_canvases() {
         let process_all_canvases = ALL_CANVASES_SCHEDULED.swap(false, Ordering::Relaxed);
-        let registry = lock(&CANVAS_REGISTRY).clone();
-        let global_callbacks = lock(&FRAME_CALLBACKS).clone();
+        // Snapshots of the callbacks, so a redraw may register or drop one.
+        let registry: HashMap<usize, CanvasRedrawCallback> =
+            CANVAS_REGISTRY.with(|r| r.borrow().clone());
+        let global_callbacks: Vec<FrameCallback> =
+            FRAME_CALLBACKS.with(|c| c.borrow().values().cloned().collect());
 
         let redraw = {
             let mut pending = lock(&PENDING_CANVASES);
@@ -270,7 +278,7 @@ impl FrameScheduler {
 
         Self::run_redraws(&registry, redraw);
 
-        for (_, callback) in global_callbacks.iter() {
+        for callback in global_callbacks {
             callback();
         }
     }
@@ -279,6 +287,7 @@ impl FrameScheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use std::sync::LazyLock;
     use std::sync::MutexGuard;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -309,10 +318,10 @@ mod tests {
         FRAME_CALLBACK_COUNTER.store(0, Ordering::Relaxed);
         TICKER_COUNTER.store(0, Ordering::Relaxed);
         FRAME_COUNTER.store(0, Ordering::Relaxed);
-        *lock(&CANVAS_REGISTRY) = Arc::new(HashMap::new());
+        CANVAS_REGISTRY.with(|r| r.borrow_mut().clear());
         lock(&PENDING_CANVASES).clear();
-        *lock(&FRAME_CALLBACKS) = Arc::new(HashMap::new());
-        *lock(&TICKERS) = Arc::new(HashMap::new());
+        FRAME_CALLBACKS.with(|c| c.borrow_mut().clear());
+        TICKERS.with(|t| t.borrow_mut().clear());
         *lock(&LAST_FRAME_TIME) = Instant::now();
         *lock(&REQUEST_FRAME_HOOK) = None;
     }
@@ -333,7 +342,7 @@ mod tests {
         let counted = Arc::clone(&redraws);
         FrameScheduler::register_canvas(
             handle(1),
-            Arc::new(move || {
+            Rc::new(move || {
                 counted.fetch_add(1, Ordering::Relaxed);
                 Ok(())
             }),
@@ -361,7 +370,7 @@ mod tests {
             let counted = Arc::clone(counter);
             FrameScheduler::register_canvas(
                 handle(id),
-                Arc::new(move || {
+                Rc::new(move || {
                     counted.fetch_add(1, Ordering::Relaxed);
                     Ok(())
                 }),
@@ -385,7 +394,7 @@ mod tests {
             let counted = Arc::clone(&redraws);
             FrameScheduler::register_canvas(
                 handle(id),
-                Arc::new(move || {
+                Rc::new(move || {
                     counted.fetch_add(1, Ordering::Relaxed);
                     Ok(())
                 }),
@@ -407,7 +416,7 @@ mod tests {
         let first_count = first.clone();
         FrameScheduler::register_canvas(
             handle(1),
-            Arc::new(move || {
+            Rc::new(move || {
                 first_count.fetch_add(1, Ordering::Relaxed);
                 Ok(())
             }),
@@ -416,7 +425,7 @@ mod tests {
         let second_count = second.clone();
         FrameScheduler::register_canvas(
             handle(2),
-            Arc::new(move || {
+            Rc::new(move || {
                 second_count.fetch_add(1, Ordering::Relaxed);
                 Ok(())
             }),
@@ -441,7 +450,7 @@ mod tests {
         let first_count = first.clone();
         FrameScheduler::register_canvas(
             handle(3),
-            Arc::new(move || {
+            Rc::new(move || {
                 first_count.fetch_add(1, Ordering::Relaxed);
                 Ok(())
             }),
@@ -450,7 +459,7 @@ mod tests {
         let second_count = second.clone();
         FrameScheduler::register_canvas(
             handle(4),
-            Arc::new(move || {
+            Rc::new(move || {
                 second_count.fetch_add(1, Ordering::Relaxed);
                 Ok(())
             }),

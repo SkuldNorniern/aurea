@@ -8,6 +8,7 @@ use aurea_render::{Renderer, RendererBackend};
 use aurea_runtime::FrameScheduler;
 use std::os::raw::c_void;
 use std::ptr::copy_nonoverlapping;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 /// Converts a non-negative, pre-clamped `f32` row coordinate to `usize`.
@@ -237,7 +238,7 @@ impl Canvas {
     ) {
         let handle_usize = self.handle as usize;
 
-        let callback: Arc<dyn Fn() -> AureaResult<()> + Send + Sync> = Arc::new(move || {
+        let callback: Rc<dyn Fn() -> AureaResult<()>> = Rc::new(move || {
             let handle = handle_usize as *mut c_void;
 
             // Query platform for current size and scale factor.
