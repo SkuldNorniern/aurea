@@ -100,24 +100,24 @@ fn unregister_canvas_state(id: CanvasId) {
 /// canvas has been dropped, and because ids are never reused it cannot reach
 /// whichever canvas came afterwards.
 pub fn request_canvas_redraw(id: CanvasId) {
-    // Bail out before touching the scheduler or the FFI: an unknown id belongs
-    // to a canvas that is already gone, and passing its stale address back
-    // into native code is exactly what the no-op contract rules out.
-    let Some((state, handle)) = lock(&CANVAS_STATES)
-        .get(&id)
-        .map(|entry| (entry.state.clone(), entry.handle))
-    else {
+    // Nothing native happens here. This is the one call an application is
+    // meant to make from a background thread, and GTK and AppKit will not be
+    // touched from one — so all it does is mark the canvas dirty and ask for
+    // a frame. The UI thread renders it and tells the platform, which it was
+    // going to do anyway: publishing a frame invalidates the view.
+    let Some(state) = lock(&CANVAS_STATES).get(&id).map(|entry| {
+        // An unknown id belongs to a canvas that is already gone.
+        (entry.state.clone(), entry.handle)
+    }) else {
         return;
     };
+    let (state, handle) = state;
     {
         let mut st = lock(&state);
         st.damage.add_all();
         st.needs_redraw = true;
     }
     FrameScheduler::schedule_canvas(handle as *mut c_void);
-    unsafe {
-        ng_platform_canvas_invalidate(handle as *mut c_void);
-    }
 }
 
 /// Unregisters the canvas from the scheduler, tears down the renderer and
