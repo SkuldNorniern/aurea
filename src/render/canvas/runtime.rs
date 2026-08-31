@@ -8,6 +8,7 @@ use aurea_render::{Renderer, RendererBackend};
 use aurea_runtime::FrameScheduler;
 use std::os::raw::c_void;
 use std::ptr::copy_nonoverlapping;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 fn f32_to_usize_clamped(v: f32) -> usize {
@@ -178,7 +179,7 @@ impl Canvas {
     ) {
         let handle_usize = self.handle as usize;
 
-        let callback: Arc<dyn Fn() -> AureaResult<()> + Send + Sync> = Arc::new(move || {
+        let callback: Rc<dyn Fn() -> AureaResult<()>> = Rc::new(move || {
             let handle = handle_usize as *mut c_void;
 
             let mut width: u32 = 0;
