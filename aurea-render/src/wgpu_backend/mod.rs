@@ -1,4 +1,4 @@
-//! wgpu peer 2D backend (feature `wgpu`).
+//! wgpu compatibility 2D backend (feature `wgpu`).
 //!
 //! Implements [`Gpu2dBackend`](crate::gpu2d::Gpu2dBackend) so that
 //! [`WgpuRenderer`] (`Gpu2dRenderer<WgpuBackend>`) draws through a
