@@ -1389,6 +1389,15 @@ impl Renderer for CpuRasterizer {
         // `last_frame_damage()` so the platform layer can do a partial IOSurface copy.
         self.last_frame_damage = union_dirty_tile_rects(&dirty_tiles, tiles_x, tiles_y, bw, bh);
 
+        // Draws are clipped to that union, not to the dirty tiles, so a clean
+        // tile inside it gets painted over by anything spanning it (a
+        // full-window background). Repaint every tile in the union, or its
+        // own items are never drawn back.
+        let mut dirty_tiles = dirty_tiles;
+        if let Some(region) = self.last_frame_damage {
+            mark_tile_range_dirty(region, tiles_x, tiles_y, &mut dirty_tiles);
+        }
+
         // Every draw is clipped to the region actually being repainted, so an
         // item that spans dirty and clean tiles only paints the dirty part.
         // Without this a full-window background rect had to drag every tile it
@@ -2311,6 +2320,43 @@ mod tile_cache_tests {
         );
         assert!(!dirty[2], "tile (0,1) untouched");
         assert!(!dirty[3], "tile (1,1) untouched");
+    }
+
+    /// Two changes in opposite corners repaint the union around them; the
+    /// clean tile in between keeps its item, even under a full-window
+    /// background drawn as a rect.
+    #[test]
+    fn a_clean_tile_inside_the_repaint_keeps_its_items() {
+        let mut r = CpuRasterizer::new(512, 512); // 2x2 tile grid
+        let background = Paint::new().color(Color::rgb(1, 2, 3));
+        let kept = Paint::new().color(Color::rgb(200, 100, 50));
+        let frame = |r: &mut CpuRasterizer, corner: Color| {
+            let corner = Paint::new().color(corner);
+            let mut ctx = r.begin_frame().unwrap();
+            ctx.draw_rect(Rect::new(0.0, 0.0, 512.0, 512.0), &background)
+                .unwrap();
+            // tiles (0,0) and (1,1) change, tile (1,0) does not
+            ctx.draw_rect(Rect::new(4.0, 4.0, 8.0, 8.0), &corner)
+                .unwrap();
+            ctx.draw_rect(Rect::new(300.0, 4.0, 8.0, 8.0), &kept)
+                .unwrap();
+            ctx.draw_rect(Rect::new(300.0, 300.0, 8.0, 8.0), &corner)
+                .unwrap();
+            drop(ctx);
+            r.end_frame().unwrap();
+        };
+        frame(&mut r, Color::rgb(10, 20, 30));
+        frame(&mut r, Color::rgb(0, 255, 0));
+
+        let bw = r.width;
+        assert_eq!(
+            pixel_at(&r.frame_buffer, bw, 8, 8),
+            color_to_u32(Color::rgb(0, 255, 0))
+        );
+        assert_eq!(
+            pixel_at(&r.frame_buffer, bw, 304, 8),
+            color_to_u32(kept.color)
+        );
     }
 
     #[test]
