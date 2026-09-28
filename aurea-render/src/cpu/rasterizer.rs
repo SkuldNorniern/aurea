@@ -1279,6 +1279,11 @@ impl Renderer for CpuRasterizer {
 
         self.last_frame_damage = union_dirty_tile_rects(&dirty_tiles, tiles_x, tiles_y, bw, bh);
 
+        let mut dirty_tiles = dirty_tiles;
+        if let Some(region) = self.last_frame_damage {
+            mark_tile_range_dirty(region, tiles_x, tiles_y, &mut dirty_tiles);
+        }
+
         let surface_clip = match self.last_frame_damage {
             Some(region) => ClipBox::surface(bw, bh).intersect(region),
             None => ClipBox::surface(bw, bh),
@@ -2079,6 +2084,39 @@ mod tile_cache_tests {
         );
         assert!(!dirty[2], "tile (0,1) untouched");
         assert!(!dirty[3], "tile (1,1) untouched");
+    }
+
+    #[test]
+    fn a_clean_tile_inside_the_repaint_keeps_its_items() {
+        let mut r = CpuRasterizer::new(512, 512);
+        let background = Paint::new().color(Color::rgb(1, 2, 3));
+        let kept = Paint::new().color(Color::rgb(200, 100, 50));
+        let frame = |r: &mut CpuRasterizer, corner: Color| {
+            let corner = Paint::new().color(corner);
+            let mut ctx = r.begin_frame().unwrap();
+            ctx.draw_rect(Rect::new(0.0, 0.0, 512.0, 512.0), &background)
+                .unwrap();
+            ctx.draw_rect(Rect::new(4.0, 4.0, 8.0, 8.0), &corner)
+                .unwrap();
+            ctx.draw_rect(Rect::new(300.0, 4.0, 8.0, 8.0), &kept)
+                .unwrap();
+            ctx.draw_rect(Rect::new(300.0, 300.0, 8.0, 8.0), &corner)
+                .unwrap();
+            drop(ctx);
+            r.end_frame().unwrap();
+        };
+        frame(&mut r, Color::rgb(10, 20, 30));
+        frame(&mut r, Color::rgb(0, 255, 0));
+
+        let bw = r.width;
+        assert_eq!(
+            pixel_at(&r.frame_buffer, bw, 8, 8),
+            color_to_u32(Color::rgb(0, 255, 0))
+        );
+        assert_eq!(
+            pixel_at(&r.frame_buffer, bw, 304, 8),
+            color_to_u32(kept.color)
+        );
     }
 
     #[test]
