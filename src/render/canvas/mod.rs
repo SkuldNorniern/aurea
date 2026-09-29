@@ -33,7 +33,7 @@ pub use state::{CanvasId, request_canvas_redraw};
 ///
 /// Not `Send`: it draws, and drawing is the UI thread's. That also means it
 /// may capture whatever it likes — including the canvas it is drawing on.
-pub type DrawCallback = Rc<dyn Fn(&mut dyn DrawingContext) -> AureaResult<()>>;
+pub type DrawCallback = Rc<RefCell<dyn FnMut(&mut dyn DrawingContext) -> AureaResult<()>>>;
 
 /// A drawable canvas element backed by a renderer.
 ///
@@ -290,6 +290,8 @@ impl Canvas {
 
     /// Set the drawing callback (retained-mode style).
     /// The callback will be called automatically when the canvas needs redraw.
+    /// It runs on the UI thread one frame at a time, so it may keep its own
+    /// state between frames (a last frame time, say) without a `Cell`.
     ///
     /// # Idempotency contract
     ///
@@ -308,11 +310,11 @@ impl Canvas {
     /// and differently for others, redrawing only part of the scene.
     pub fn set_draw_callback<F>(&self, callback: F) -> AureaResult<()>
     where
-        F: Fn(&mut dyn DrawingContext) -> AureaResult<()> + 'static,
+        F: FnMut(&mut dyn DrawingContext) -> AureaResult<()> + 'static,
     {
         {
             let mut st = self.state.borrow_mut();
-            st.draw_callback = Some(Rc::new(callback));
+            st.draw_callback = Some(Rc::new(RefCell::new(callback)));
             st.needs_redraw = true;
         }
         self.invalidate_all();
