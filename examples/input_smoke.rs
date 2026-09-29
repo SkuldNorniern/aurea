@@ -1,14 +1,25 @@
 //! Input smoke test: key, mouse, wheel, focus, cursor.
 //!
-//! Minimal window that prints every input event to verify the pipeline.
-//! Run and interact (keys, mouse, scroll, tab away/back); Escape closes.
+//! Window with a canvas that prints every input event to verify the pipeline.
+//! Most apps get their input over a canvas, so moving over it must not look
+//! like leaving the window. Run and interact (keys, mouse, scroll, tab
+//! away/back, drag out of the window); Escape closes.
 
-use aurea::{KeyCode, Window, WindowEvent};
+use aurea::elements::{Orientation, Stack};
+use aurea::render::{Canvas, Color, RendererBackend};
+use aurea::{Container, KeyCode, Window, WindowEvent};
 use std::error::Error;
 use std::rc::Rc;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let window = Rc::new(Window::new("Input Smoke", 640, 480)?);
+    let mut window = Window::new("Input Smoke", 640, 480)?;
+    let canvas = Canvas::new(640, 480, RendererBackend::Cpu)?;
+    canvas.set_background_color(Color::rgb(240, 240, 240));
+    let mut content = Stack::new(Orientation::Vertical)?;
+    content.add(canvas)?;
+    window.set_content(content)?;
+
+    let window = Rc::new(window);
     window.show();
 
     let w = Rc::clone(&window);
@@ -33,10 +44,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
         WindowEvent::MouseButton {
-            button, pressed, ..
+            button,
+            pressed,
+            x,
+            y,
+            ..
         } => {
             let action = if pressed { "mouse down" } else { "mouse up" };
-            println!("{} {:?}", action, button);
+            println!("{} {:?} ({:.1}, {:.1})", action, button, x, y);
         }
         WindowEvent::MouseMove { x, y } => {
             println!("mouse move ({:.1}, {:.1})", x, y);
