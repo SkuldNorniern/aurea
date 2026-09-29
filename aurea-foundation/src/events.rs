@@ -22,8 +22,14 @@ pub enum WindowEvent {
     },
     SurfaceLost,
     SurfaceRecreated,
+    /// The pointer came into the window. Moving between the window and its
+    /// own children, like a canvas, is not an enter.
     MouseEntered,
+    /// The pointer left the window. Held back while a button is down, so a
+    /// drag that goes outside ends with the release first and then this.
     MouseExited,
+    /// Pointer position in logical pixels, relative to the window's content
+    /// (below any title bar or menu bar).
     MouseMove {
         x: f64,
         y: f64,
@@ -32,6 +38,9 @@ pub enum WindowEvent {
         delta_x: f64,
         delta_y: f64,
     },
+    /// A button went down or up, at the same kind of position as
+    /// [`WindowEvent::MouseMove`]. While any button is held the window keeps
+    /// the pointer, so the release arrives even outside it.
     MouseButton {
         button: MouseButton,
         pressed: bool,
