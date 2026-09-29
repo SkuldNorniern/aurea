@@ -449,12 +449,21 @@ static gboolean on_focus_out(GtkWidget* widget, GdkEventFocus* event, gpointer u
     return FALSE;
 }
 
+/* Crossing into or out of one of the window's own children, like a canvas
+ * with its own GdkWindow, is still inside the window. */
+static gboolean ng_linux_crossing_is_inside(GtkWidget* widget, GdkEventCrossing* event) {
+    return event->detail == GDK_NOTIFY_INFERIOR ||
+        event->window != gtk_widget_get_window(widget);
+}
+
 static gboolean on_enter(GtkWidget* widget, GdkEventCrossing* event, gpointer user_data) {
+    if (ng_linux_crossing_is_inside(widget, event)) return FALSE;
     ng_invoke_cursor_entered((void*)widget, 1);
     return FALSE;
 }
 
 static gboolean on_leave(GtkWidget* widget, GdkEventCrossing* event, gpointer user_data) {
+    if (ng_linux_crossing_is_inside(widget, event)) return FALSE;
     ng_invoke_cursor_entered((void*)widget, 0);
     return FALSE;
 }
