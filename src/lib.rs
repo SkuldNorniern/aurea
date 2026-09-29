@@ -28,7 +28,9 @@ pub use crate::window::{
     CursorGrabMode, Window, WindowId, WindowManager, WindowType, clipboard_text, set_clipboard_text,
 };
 
-pub use crate::window::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};
+pub use crate::window::{
+    EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons, WindowEvent,
+};
 
 pub use crate::render::{Canvas, Color, DrawingContext, Point, Rect, RendererBackend};
 

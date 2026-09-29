@@ -31,6 +31,8 @@ pub enum WindowEvent {
     MouseMove {
         x: f64,
         y: f64,
+        buttons: MouseButtons,
+        modifiers: Modifiers,
     },
     RawMouseMotion {
         delta_x: f64,
@@ -76,6 +78,41 @@ impl MouseButton {
             2 => Self::Middle,
             other => Self::Other(other),
         }
+    }
+}
+
+impl MouseButton {
+    /// The number [`MouseButton::from_raw`] reads this button from.
+    pub fn to_raw(self) -> u8 {
+        match self {
+            Self::Left => 0,
+            Self::Right => 1,
+            Self::Middle => 2,
+            Self::Other(n) => n,
+        }
+    }
+}
+
+/// The mouse buttons held at one moment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct MouseButtons(u8);
+
+impl MouseButtons {
+    pub fn from_bits(bits: u32) -> Self {
+        Self(u8::try_from(bits & 0xFF).unwrap_or(0))
+    }
+
+    pub fn bits(self) -> u8 {
+        self.0
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    pub fn contains(self, button: MouseButton) -> bool {
+        let n = button.to_raw();
+        n < 8 && self.0 & (1 << n) != 0
     }
 }
 
