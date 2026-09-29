@@ -29,7 +29,7 @@ pub use state::{CanvasId, request_canvas_redraw};
 /// Drawing callback — Arc so it can be cheaply cloned out of the state lock before the renderer
 /// lock is acquired, preventing deadlock when the callback reads canvas properties (size,
 /// background_color, etc.).
-pub type DrawCallback = Rc<dyn Fn(&mut dyn DrawingContext) -> AureaResult<()>>;
+pub type DrawCallback = Rc<RefCell<dyn FnMut(&mut dyn DrawingContext) -> AureaResult<()>>>;
 
 /// A drawable canvas element backed by a renderer.
 #[derive(Clone)]
@@ -224,11 +224,11 @@ impl Canvas {
     /// Set the drawing callback (retained-mode style).
     pub fn set_draw_callback<F>(&self, callback: F) -> AureaResult<()>
     where
-        F: Fn(&mut dyn DrawingContext) -> AureaResult<()> + 'static,
+        F: FnMut(&mut dyn DrawingContext) -> AureaResult<()> + 'static,
     {
         {
             let mut st = self.state.borrow_mut();
-            st.draw_callback = Some(Rc::new(callback));
+            st.draw_callback = Some(Rc::new(RefCell::new(callback)));
             st.needs_redraw = true;
         }
         self.invalidate_all();
