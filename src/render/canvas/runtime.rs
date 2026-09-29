@@ -181,7 +181,9 @@ fn render_frame(
             {
                 let mut ctx = r.begin_frame()?;
                 ctx.clear(bg_color)?;
-                if let Some(ref cb) = draw_callback {
+                // A callback that draws this canvas again from inside itself
+                // finds it busy; that frame is skipped, not deadlocked.
+                if let Some(mut cb) = draw_callback.as_ref().and_then(|cb| cb.try_borrow_mut().ok()) {
                     cb(ctx.as_mut())?; // state lock NOT held here
                 }
             }
