@@ -10,7 +10,6 @@ use crate::registry::elements::{
 };
 use crate::registry::menu::invoke_menu_callback;
 use crate::window::{KeyCode, Modifiers, MouseButton, WindowEvent, push_window_event};
-use aurea_ffi::ng_platform_get_scale_factor;
 use aurea_runtime::FrameScheduler;
 
 /// Runs an application callback reached from native code.
@@ -131,14 +130,13 @@ pub extern "C" fn ng_invoke_mouse_button(
     click_count: c_int,
 ) {
     guard("ng_invoke_mouse_button", || {
-        let scale = f64::from(unsafe { ng_platform_get_scale_factor(window) }).max(1.0);
         let button = u8::try_from(button.max(0)).unwrap_or(u8::MAX);
         let event = WindowEvent::MouseButton {
             button: MouseButton::from_raw(button),
             pressed: pressed != 0,
             modifiers: Modifiers::from_bits(modifiers),
-            x: x / scale,
-            y: y / scale,
+            x,
+            y,
             click_count: u8::try_from(click_count.clamp(1, c_int::from(u8::MAX)))
                 .expect("clamped to u8 range"),
         };
@@ -150,11 +148,7 @@ pub extern "C" fn ng_invoke_mouse_button(
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn ng_invoke_mouse_move(window: *mut c_void, x: f64, y: f64) {
     guard("ng_invoke_mouse_move", || {
-        let scale = f64::from(unsafe { ng_platform_get_scale_factor(window) }).max(1.0);
-        let event = WindowEvent::MouseMove {
-            x: x / scale,
-            y: y / scale,
-        };
+        let event = WindowEvent::MouseMove { x, y };
         push_window_event(window, event);
     });
 }

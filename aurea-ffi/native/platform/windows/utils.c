@@ -1,5 +1,6 @@
 ﻿#include <stdlib.h>
 #include "utils.h"
+#include "window.h"
 #include "menu.h"
 #include "elements/common.h"
 #include "common/errors.h"
@@ -266,6 +267,13 @@ static void ng_windows_emit_text_input(HWND hwnd, wchar_t wc) {
     }
 }
 
+/* Mouse messages carry physical pixels. Everything past the FFI works in
+ * logical ones, which is what macOS and GTK report already. */
+static double ng_windows_logical(HWND hwnd, int physical) {
+    float scale = ng_windows_get_scale_factor((NGHandle)hwnd);
+    return (double)physical / (scale > 1.0f ? (double)scale : 1.0);
+}
+
 static void ng_windows_emit_mouse_button(
     HWND hwnd,
     LPARAM lParam,
@@ -278,8 +286,8 @@ static void ng_windows_emit_mouse_button(
         button,
         pressed,
         ng_windows_modifiers(),
-        (double)GET_X_LPARAM(lParam),
-        (double)GET_Y_LPARAM(lParam),
+        ng_windows_logical(hwnd, GET_X_LPARAM(lParam)),
+        ng_windows_logical(hwnd, GET_Y_LPARAM(lParam)),
         click_count);
 }
 
@@ -361,9 +369,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 ng_windows_track_leave(hwnd);
             }
 
-            double x = (double)GET_X_LPARAM(lParam);
-            double y = (double)GET_Y_LPARAM(lParam);
-            ng_invoke_mouse_move((void*)hwnd, x, y);
+            ng_invoke_mouse_move(
+                (void*)hwnd,
+                ng_windows_logical(hwnd, GET_X_LPARAM(lParam)),
+                ng_windows_logical(hwnd, GET_Y_LPARAM(lParam)));
             break;
         }
         case WM_MOUSELEAVE:
