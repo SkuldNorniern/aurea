@@ -2,7 +2,7 @@
 
 use aurea::elements::{Orientation, Stack};
 use aurea::render::{Canvas, Color, RendererBackend};
-use aurea::{Container, KeyCode, Window, WindowEvent};
+use aurea::{Container, CursorIcon, KeyCode, Window, WindowEvent};
 use std::error::Error;
 use std::rc::Rc;
 
@@ -50,6 +50,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             println!("{action} {button:?} ({x:.1}, {y:.1}) x{click_count}");
         }
         WindowEvent::MouseMove { x, y, buttons, .. } => {
+            let _ = w.set_cursor(if x > 320.0 {
+                CursorIcon::Pointer
+            } else {
+                CursorIcon::Default
+            });
             if buttons.is_empty() {
                 println!("mouse move ({x:.1}, {y:.1})");
             } else {
