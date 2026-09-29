@@ -355,7 +355,25 @@ static gboolean on_key_release(GtkWidget* widget, GdkEventKey* event, gpointer u
     return FALSE;
 }
 
+/* GTK hands a toplevel its own button and motion events twice: once from
+ * _gtk_window_check_handle_wm_event, and once more through normal propagation
+ * when the handler lets it through. Report each native event once. */
+static gboolean ng_linux_already_seen(GdkEvent* event) {
+    static GdkEvent* last = NULL;
+    static GdkEventType last_type = GDK_NOTHING;
+    static guint32 last_time = 0;
+    guint32 time = gdk_event_get_time(event);
+    if (event == last && event->type == last_type && time == last_time) {
+        return TRUE;
+    }
+    last = event;
+    last_type = event->type;
+    last_time = time;
+    return FALSE;
+}
+
 static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpointer user_data) {
+    if (ng_linux_already_seen((GdkEvent*)event)) return FALSE;
     unsigned int mods = ng_linux_modifiers(event->state);
     int button = ng_linux_mouse_button_from_event(event->button);
     int click_count = event->type == GDK_3BUTTON_PRESS ? 3 :
@@ -365,6 +383,7 @@ static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpoint
 }
 
 static gboolean on_button_release(GtkWidget* widget, GdkEventButton* event, gpointer user_data) {
+    if (ng_linux_already_seen((GdkEvent*)event)) return FALSE;
     unsigned int mods = ng_linux_modifiers(event->state);
     int button = ng_linux_mouse_button_from_event(event->button);
     ng_invoke_mouse_button((void*)widget, button, 0, mods, event->x, event->y, 1);
@@ -372,6 +391,7 @@ static gboolean on_button_release(GtkWidget* widget, GdkEventButton* event, gpoi
 }
 
 static gboolean on_motion_notify(GtkWidget* widget, GdkEventMotion* event, gpointer user_data) {
+    if (ng_linux_already_seen((GdkEvent*)event)) return FALSE;
     ng_invoke_mouse_move((void*)widget, event->x, event->y);
 
     int index = ng_linux_find_window_index(widget);
