@@ -12,7 +12,7 @@ use std::env::var;
 use std::env::var_os;
 use std::fs::{read, read_dir};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct FontKey {
@@ -79,33 +79,36 @@ fn font_search_dirs() -> Vec<PathBuf> {
     dirs
 }
 
-fn fallback_paths() -> &'static [&'static str] {
+fn fallback_stems() -> &'static [&'static str] {
     #[cfg(target_os = "macos")]
     {
         &[
-            "/System/Library/Fonts/SFNSMono.ttf",
-            "/System/Library/Fonts/Menlo.ttc",
-            "/System/Library/Fonts/Monaco.ttf",
-            "/System/Library/Fonts/Courier.ttc",
-            "/System/Library/Fonts/Supplemental/Courier New.ttf",
-            "/System/Library/Fonts/Supplemental/Andale Mono.ttf",
+            "sfns",
+            "helveticaneue",
+            "helvetica",
+            "applesdgothicneo",
+            "pingfang",
+            "hiraginosansgb",
+            "menlo",
         ]
     }
     #[cfg(target_os = "windows")]
     {
-        &[
-            "C:\\Windows\\Fonts\\consola.ttf",
-            "C:\\Windows\\Fonts\\cour.ttf",
-            "C:\\Windows\\Fonts\\lucon.ttf",
-        ]
+        &["segoeui", "arial", "malgun", "msyh", "yugothr", "consola"]
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         &[
-            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-            "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
-            "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
+            "dejavusans",
+            "liberationsansregular",
+            "notosansregular",
+            "ubunturegular",
+            "notosanscjkregular",
+            "notosanscjkkrregular",
+            "nanumgothic",
+            "droidsansfallbackfull",
+            "dejavusansmono",
+            "liberationmonoregular",
         ]
     }
 }
@@ -126,44 +129,82 @@ fn file_stem(name: &str) -> &str {
         .trim_end_matches(".TTC")
 }
 
-fn find_by_filename(family: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
+fn is_font_file(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    lower.ends_with(".ttf") || lower.ends_with(".otf") || lower.ends_with(".ttc")
+}
+
+type FontFile = (String, PathBuf);
+
+fn scan_font_files(dirs: &[PathBuf]) -> Vec<FontFile> {
+    let mut files = Vec::new();
+    let mut pending = dirs.to_vec();
+    while let Some(dir) = pending.pop() {
+        let Ok(entries) = read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            if kind.is_dir() {
+                pending.push(entry.path());
+                continue;
+            }
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if is_font_file(&name) {
+                files.push((normalise(file_stem(&name)), entry.path()));
+            }
+        }
+    }
+    files.sort_by(|a, b| a.1.cmp(&b.1));
+    files
+}
+
+fn face_suffixes(weight: FontWeight, style: FontStyle) -> &'static [&'static str] {
+    match (weight, style) {
+        (FontWeight::Normal, FontStyle::Normal) => &["", "regular", "book", "roman"],
+        (FontWeight::Bold, FontStyle::Normal) => &["bold", "", "regular"],
+        (FontWeight::Normal, FontStyle::Italic) => &["italic", "oblique", "", "regular"],
+        (FontWeight::Bold, FontStyle::Italic) => {
+            &["bolditalic", "boldoblique", "bold", "", "regular"]
+        }
+    }
+}
+
+fn find_font_file<'a>(
+    family: &str,
+    weight: FontWeight,
+    style: FontStyle,
+    files: &'a [FontFile],
+) -> Option<&'a Path> {
     let want = normalise(family);
     if want.is_empty() {
         return None;
     }
 
-    let mut best: Option<(usize, PathBuf)> = None;
-
-    for dir in dirs {
-        let Ok(entries) = read_dir(dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let fname = entry.file_name();
-            let fname_str = fname.to_string_lossy();
-            let lower = fname_str.to_lowercase();
-            if !lower.ends_with(".ttf") && !lower.ends_with(".otf") && !lower.ends_with(".ttc") {
-                continue;
-            }
-            let stem_norm = normalise(file_stem(&fname_str));
-
-            let score = if stem_norm == want {
-                3
-            } else if stem_norm.starts_with(&want) || want.starts_with(&stem_norm) {
-                2
-            } else if stem_norm.contains(&want) {
-                1
-            } else {
-                continue;
-            };
-
-            if best.as_ref().is_none_or(|(s, _)| score > *s) {
-                best = Some((score, entry.path()));
-            }
+    for suffix in face_suffixes(weight, style) {
+        let name = format!("{want}{suffix}");
+        if let Some((_, path)) = files.iter().find(|(stem, _)| *stem == name) {
+            return Some(path);
         }
     }
 
-    best.map(|(_, p)| p)
+    files
+        .iter()
+        .filter_map(|(stem, path)| {
+            let score = if stem.starts_with(&want) || want.starts_with(stem.as_str()) {
+                2
+            } else if stem.contains(&want) {
+                1
+            } else {
+                return None;
+            };
+            Some((score, stem.len(), path))
+        })
+        .max_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)))
+        .map(|(_, _, path)| path.as_path())
 }
 
 fn load_font_file(path: &Path) -> Option<Font> {
@@ -180,6 +221,8 @@ fn load_font_file(path: &Path) -> Option<Font> {
 
 pub struct FontDbTextRasterizer {
     dirs: Vec<PathBuf>,
+    files: OnceLock<Vec<FontFile>>,
+    fallbacks: Vec<OnceLock<Option<Arc<Font>>>>,
     font_cache: Mutex<LruCache<FontKey, Arc<Font>>>,
     subpixel_cache: Mutex<LruCache<GlyphKey, Arc<SubpixelGlyph>>>,
 }
@@ -188,6 +231,8 @@ impl FontDbTextRasterizer {
     pub fn new() -> Self {
         Self {
             dirs: font_search_dirs(),
+            files: OnceLock::new(),
+            fallbacks: fallback_stems().iter().map(|_| OnceLock::new()).collect(),
             font_cache: Mutex::new(LruCache::new(32)),
             subpixel_cache: Mutex::new(LruCache::new(512)),
         }
@@ -205,18 +250,30 @@ impl FontDbTextRasterizer {
         Ok(loaded)
     }
 
+    fn files(&self) -> &[FontFile] {
+        self.files.get_or_init(|| scan_font_files(&self.dirs))
+    }
+
+    fn fallback(&self, slot: usize) -> Option<Arc<Font>> {
+        let stem = fallback_stems().get(slot)?;
+        self.fallbacks
+            .get(slot)?
+            .get_or_init(|| {
+                let (_, path) = self.files().iter().find(|(s, _)| s == stem)?;
+                load_font_file(path).map(Arc::new)
+            })
+            .clone()
+    }
+
     fn load_for_key(&self, font: FontRef) -> AureaResult<Arc<Font>> {
-        if !font.family.is_empty()
-            && let Some(path) = find_by_filename(font.family, &self.dirs)
-            && let Some(f) = load_font_file(&path)
+        if let Some(path) = find_font_file(font.family, font.weight, font.style, self.files())
+            && let Some(f) = load_font_file(path)
         {
             return Ok(Arc::new(f));
         }
 
-        for &path in fallback_paths() {
-            if let Some(f) = load_font_file(Path::new(path)) {
-                return Ok(Arc::new(f));
-            }
+        if let Some(f) = (0..self.fallbacks.len()).find_map(|slot| self.fallback(slot)) {
+            return Ok(f);
         }
 
         static EMBEDDED: &[u8] = include_bytes!("../../fonts/Tuffy.ttf");
@@ -242,8 +299,8 @@ impl Default for FontDbTextRasterizer {
 
 impl PlatformTextRasterizer for FontDbTextRasterizer {
     fn rasterize_glyph(&self, font: FontRef, char_code: u32) -> AureaResult<GlyphBitmap> {
-        let fnt = self.resolve_font(font)?;
         let ch = char::from_u32(char_code).unwrap_or('\u{FFFD}');
+        let fnt = self.resolve_font(font)?;
         let (m, bmp) = fnt.rasterize(ch, font.size);
 
         let width = u32::try_from(m.width).expect("glyph width fits in u32");
@@ -275,8 +332,8 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
             return Ok(hit);
         }
 
-        let fnt = self.resolve_font(font)?;
         let ch = char::from_u32(char_code).unwrap_or('\u{FFFD}');
+        let fnt = self.resolve_font(font)?;
 
         let (m, bmp) = fnt.rasterize(ch, font.size * 3.0);
         let w3 = i32::try_from(m.width).expect("glyph width fits in i32");
@@ -375,6 +432,10 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
 mod tests {
     use super::*;
     use crate::types::Font;
+    use std::env::temp_dir;
+    use std::fs::{create_dir_all, remove_dir_all, write};
+    use std::process::id;
+    use std::slice::from_ref;
 
     #[test]
     fn loads_a_font_or_fallback() {
@@ -384,5 +445,59 @@ mod tests {
             .measure_text("A", (&font).into())
             .expect("should fall back to a system font");
         assert!(m.ascent > 0.0);
+    }
+
+    fn files(stems: &[&str]) -> Vec<FontFile> {
+        stems
+            .iter()
+            .map(|s| ((*s).to_owned(), PathBuf::from(format!("{s}.ttf"))))
+            .collect()
+    }
+
+    fn pick(family: &str, weight: FontWeight, style: FontStyle, list: &[FontFile]) -> String {
+        find_font_file(family, weight, style, list)
+            .and_then(Path::to_str)
+            .unwrap_or("")
+            .to_owned()
+    }
+
+    #[test]
+    fn picks_the_family_not_a_longer_one() {
+        let list = files(&["dejavusansmono", "dejavusansbold", "dejavusans"]);
+        let normal = (FontWeight::Normal, FontStyle::Normal);
+        assert_eq!(pick("DejaVu Sans", normal.0, normal.1, &list), "dejavusans.ttf");
+        assert_eq!(pick("DejaVu", normal.0, normal.1, &list), "dejavusans.ttf");
+    }
+
+    #[test]
+    fn picks_the_bold_face_and_falls_back_to_regular() {
+        let list = files(&["notosansregular", "notosansbold", "dejavusans"]);
+        assert_eq!(
+            pick("Noto Sans", FontWeight::Bold, FontStyle::Normal, &list),
+            "notosansbold.ttf"
+        );
+        assert_eq!(
+            pick("Noto Sans", FontWeight::Normal, FontStyle::Normal, &list),
+            "notosansregular.ttf"
+        );
+        assert_eq!(
+            pick("DejaVu Sans", FontWeight::Bold, FontStyle::Italic, &list),
+            "dejavusans.ttf"
+        );
+    }
+
+    #[test]
+    fn scans_nested_font_directories() {
+        let root = temp_dir().join(format!("aurea-fonts-{}", id()));
+        let nested = root.join("truetype").join("dejavu");
+        create_dir_all(&nested).expect("create font dirs");
+        write(nested.join("DejaVuSans.ttf"), b"").expect("write font");
+        write(nested.join("README"), b"").expect("write readme");
+
+        let found = scan_font_files(from_ref(&root));
+        let _ = remove_dir_all(&root);
+
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].0, "dejavusans");
     }
 }
