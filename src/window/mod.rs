@@ -6,7 +6,9 @@ mod gpu;
 mod manager;
 mod types;
 
-pub use aurea_foundation::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};
+pub use aurea_foundation::{
+    EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons, WindowEvent,
+};
 pub use aurea_runtime::EventQueue;
 pub use clipboard::{clipboard_text, set_clipboard_text};
 pub use manager::WindowManager;

@@ -204,7 +204,9 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
     if (!self.windowHandle) return;
     NSPoint location = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
-    ng_invoke_mouse_move(self.windowHandle, location.x, h - location.y);
+    // pressedMouseButtons uses the same bit per button as the FFI.
+    unsigned int buttons = (unsigned int)([NSEvent pressedMouseButtons] & 0xFF);
+    ng_invoke_mouse_move(self.windowHandle, location.x, h - location.y, buttons, ng_macos_modifiers(event));
 
     int mode = ng_macos_get_cursor_grab_mode(self.windowHandle);
     if (mode == 2) {

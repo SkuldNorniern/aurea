@@ -32,7 +32,8 @@ void ng_invoke_mouse_button(
     double x,
     double y,
     int click_count);
-void ng_invoke_mouse_move(void* window, double x, double y);
+/* buttons: bit n is held button n (0 left, 1 right, 2 middle, 3 back, 4 forward). */
+void ng_invoke_mouse_move(void* window, double x, double y, unsigned int buttons, unsigned int modifiers);
 void ng_invoke_mouse_wheel(void* window, double delta_x, double delta_y, unsigned int modifiers);
 void ng_invoke_text_input(void* window, const char* text);
 void ng_invoke_focus_changed(void* window, int focused);

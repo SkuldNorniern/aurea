@@ -54,8 +54,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             let action = if pressed { "mouse down" } else { "mouse up" };
             println!("{action} {button:?} ({x:.1}, {y:.1}) x{click_count}");
         }
-        WindowEvent::MouseMove { x, y } => {
-            println!("mouse move ({:.1}, {:.1})", x, y);
+        WindowEvent::MouseMove { x, y, buttons, .. } => {
+            if buttons.is_empty() {
+                println!("mouse move ({x:.1}, {y:.1})");
+            } else {
+                println!("mouse drag ({x:.1}, {y:.1}) buttons {:#b}", buttons.bits());
+            }
         }
         WindowEvent::MouseWheel {
             delta_x, delta_y, ..

@@ -88,7 +88,7 @@ impl Default for EventQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aurea_foundation::Modifiers;
+    use aurea_foundation::{Modifiers, MouseButtons};
 
     fn wheel(delta_y: f64, modifiers: Modifiers) -> WindowEvent {
         WindowEvent::MouseWheel {
@@ -152,13 +152,23 @@ mod tests {
     #[test]
     fn mouse_move_keeps_newest_position() {
         let q = EventQueue::new();
-        q.push(WindowEvent::MouseMove { x: 1.0, y: 1.0 });
-        q.push(WindowEvent::MouseMove { x: 9.0, y: 7.0 });
+        q.push(WindowEvent::MouseMove {
+            x: 1.0,
+            y: 1.0,
+            buttons: MouseButtons::default(),
+            modifiers: Modifiers::default(),
+        });
+        q.push(WindowEvent::MouseMove {
+            x: 9.0,
+            y: 7.0,
+            buttons: MouseButtons::default(),
+            modifiers: Modifiers::default(),
+        });
 
         let events = q.pop_all();
         assert_eq!(events.len(), 1);
         match events[0] {
-            WindowEvent::MouseMove { x, y } => {
+            WindowEvent::MouseMove { x, y, .. } => {
                 assert!((x - 9.0).abs() < 1e-9 && (y - 7.0).abs() < 1e-9);
             }
             ref other => panic!("expected MouseMove, got {other:?}"),

@@ -86,7 +86,9 @@ pub use crate::window::{
 };
 
 // Re-export window event types
-pub use crate::window::{EventCallback, KeyCode, Modifiers, MouseButton, WindowEvent};
+pub use crate::window::{
+    EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons, WindowEvent,
+};
 
 // Re-export the canvas rendering surface and its core drawing types
 pub use crate::render::{Canvas, Color, DrawingContext, Point, Rect, RendererBackend};

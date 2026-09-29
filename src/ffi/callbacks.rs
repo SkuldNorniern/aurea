@@ -9,7 +9,9 @@ use crate::registry::elements::{
     invoke_text_editor_callback, invoke_text_view_callback,
 };
 use crate::registry::menu::invoke_menu_callback;
-use crate::window::{KeyCode, Modifiers, MouseButton, WindowEvent, push_window_event};
+use crate::window::{
+    KeyCode, Modifiers, MouseButton, MouseButtons, WindowEvent, push_window_event,
+};
 use aurea_runtime::FrameScheduler;
 
 /// Runs an application callback reached from native code.
@@ -146,9 +148,20 @@ pub extern "C" fn ng_invoke_mouse_button(
 
 #[unsafe(no_mangle)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub extern "C" fn ng_invoke_mouse_move(window: *mut c_void, x: f64, y: f64) {
+pub extern "C" fn ng_invoke_mouse_move(
+    window: *mut c_void,
+    x: f64,
+    y: f64,
+    buttons: u32,
+    modifiers: u32,
+) {
     guard("ng_invoke_mouse_move", || {
-        let event = WindowEvent::MouseMove { x, y };
+        let event = WindowEvent::MouseMove {
+            x,
+            y,
+            buttons: MouseButtons::from_bits(buttons),
+            modifiers: Modifiers::from_bits(modifiers),
+        };
         push_window_event(window, event);
     });
 }
