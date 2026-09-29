@@ -6,6 +6,7 @@
 #include "common/input.h"
 #include "common/rust_callbacks.h"
 #include <windowsx.h>
+#include <string.h>
 
 #define AUREA_CURSOR_GRAB_PROP "AureaCursorGrabMode"
 
@@ -262,6 +263,52 @@ static void ng_windows_emit_mouse_button(
         click_count);
 }
 
+static int ng_windows_tracked_index(HWND hwnd) {
+    for (int i = 0; i < g_tracked_count; i++) {
+        if (g_tracked_windows[i] == hwnd) return i;
+    }
+    return -1;
+}
+
+#define AUREA_HOVER_TIMER_ID 0xA0E1
+
+static void ng_windows_track_leave(HWND target) {
+    TRACKMOUSEEVENT tme = {0};
+    tme.cbSize = sizeof(TRACKMOUSEEVENT);
+    tme.dwFlags = TME_LEAVE;
+    tme.hwndTrack = target;
+    TrackMouseEvent(&tme);
+}
+
+static void ng_windows_recheck_pointer(HWND root) {
+    int idx = ng_windows_tracked_index(root);
+    if (idx < 0 || !g_mouse_inside[idx]) return;
+
+    POINT pt;
+    GetCursorPos(&pt);
+    HWND under = WindowFromPoint(pt);
+    if (under == root) {
+        KillTimer(root, AUREA_HOVER_TIMER_ID);
+        ng_windows_track_leave(root);
+        return;
+    }
+    if (under && IsChild(root, under)) {
+        char cls[32];
+        GetClassNameA(under, cls, sizeof(cls));
+        if (strcmp(cls, "AureaCanvas") == 0) {
+            KillTimer(root, AUREA_HOVER_TIMER_ID);
+            ng_windows_track_leave(under);
+        } else {
+            SetTimer(root, AUREA_HOVER_TIMER_ID, 50, NULL);
+        }
+        return;
+    }
+
+    KillTimer(root, AUREA_HOVER_TIMER_ID);
+    g_mouse_inside[idx] = FALSE;
+    ng_invoke_cursor_entered((void*)root, 0);
+}
+
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
         case WM_SETFOCUS:
@@ -271,21 +318,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             ng_invoke_focus_changed((void*)hwnd, 0);
             break;
         case WM_MOUSEMOVE: {
-            int idx = -1;
-            for (int i = 0; i < g_tracked_count; i++) {
-                if (g_tracked_windows[i] == hwnd) {
-                    idx = i;
-                    break;
-                }
-            }
+            int idx = ng_windows_tracked_index(hwnd);
             if (idx >= 0 && !g_mouse_inside[idx]) {
                 g_mouse_inside[idx] = TRUE;
                 ng_invoke_cursor_entered((void*)hwnd, 1);
-                TRACKMOUSEEVENT tme = {0};
-                tme.cbSize = sizeof(TRACKMOUSEEVENT);
-                tme.dwFlags = TME_LEAVE;
-                tme.hwndTrack = hwnd;
-                TrackMouseEvent(&tme);
+                ng_windows_track_leave(hwnd);
             }
 
             double x = (double)GET_X_LPARAM(lParam);
@@ -293,20 +330,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             ng_invoke_mouse_move((void*)hwnd, x, y);
             break;
         }
-        case WM_MOUSELEAVE: {
-            int idx = -1;
-            for (int i = 0; i < g_tracked_count; i++) {
-                if (g_tracked_windows[i] == hwnd) {
-                    idx = i;
-                    break;
-                }
-            }
-            if (idx >= 0) {
-                g_mouse_inside[idx] = FALSE;
-            }
-            ng_invoke_cursor_entered((void*)hwnd, 0);
+        case WM_MOUSELEAVE:
+            ng_windows_recheck_pointer(hwnd);
             break;
-        }
+        case WM_TIMER:
+            if (wParam == AUREA_HOVER_TIMER_ID) {
+                ng_windows_recheck_pointer(hwnd);
+                return 0;
+            }
+            break;
         default:
             break;
     }
