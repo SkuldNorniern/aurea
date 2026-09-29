@@ -358,6 +358,8 @@ static gboolean on_key_release(GtkWidget* widget, GdkEventKey* event, gpointer u
 /* GTK hands a toplevel its own button and motion events twice: once from
  * _gtk_window_check_handle_wm_event, and once more through normal propagation
  * when the handler lets it through. Report each native event once. */
+static int g_buttons_held = 0;
+
 static gboolean ng_linux_already_seen(GdkEvent* event) {
     static GdkEvent* last = NULL;
     static GdkEventType last_type = GDK_NOTHING;
@@ -416,6 +418,7 @@ static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpoint
     double x = event->x;
     double y = event->y;
     ng_linux_content_point(widget, event->window, &x, &y);
+    g_buttons_held++;
     ng_invoke_mouse_button((void*)widget, button, 1, mods, x, y, click_count);
     return FALSE;
 }
@@ -427,6 +430,7 @@ static gboolean on_button_release(GtkWidget* widget, GdkEventButton* event, gpoi
     double x = event->x;
     double y = event->y;
     ng_linux_content_point(widget, event->window, &x, &y);
+    if (g_buttons_held > 0) g_buttons_held--;
     ng_invoke_mouse_button((void*)widget, button, 0, mods, x, y, 1);
     return FALSE;
 }
@@ -494,9 +498,13 @@ static gboolean on_focus_out(GtkWidget* widget, GdkEventFocus* event, gpointer u
 }
 
 /* Crossing into or out of one of the window's own children, like a canvas
- * with its own GdkWindow, is still inside the window. */
+ * with its own GdkWindow, is still inside the window. So is anything while a
+ * button is held: GDK moves its implicit grab on press and sends the toplevel
+ * a leave for it, and a drag that goes outside is not a leave until the
+ * release. */
 static gboolean ng_linux_crossing_is_inside(GtkWidget* widget, GdkEventCrossing* event) {
-    return event->detail == GDK_NOTIFY_INFERIOR ||
+    return g_buttons_held > 0 ||
+        event->detail == GDK_NOTIFY_INFERIOR ||
         event->window != gtk_widget_get_window(widget);
 }
 
