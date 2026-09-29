@@ -291,6 +291,7 @@ static int ng_windows_tracked_index(HWND hwnd) {
 }
 
 #define AUREA_HOVER_TIMER_ID 0xA0E1
+#define AUREA_ANY_BUTTON (MK_LBUTTON | MK_RBUTTON | MK_MBUTTON | MK_XBUTTON1 | MK_XBUTTON2)
 
 static void ng_windows_track_leave(HWND target) {
     TRACKMOUSEEVENT tme = {0};
@@ -307,7 +308,7 @@ static void ng_windows_track_leave(HWND target) {
  * here, and any other child is polled until the pointer moves on. */
 static void ng_windows_recheck_pointer(HWND root) {
     int idx = ng_windows_tracked_index(root);
-    if (idx < 0 || !g_mouse_inside[idx]) return;
+    if (idx < 0 || !g_mouse_inside[idx] || GetCapture() == root) return;
 
     POINT pt;
     GetCursorPos(&pt);
@@ -332,6 +333,14 @@ static void ng_windows_recheck_pointer(HWND root) {
     KillTimer(root, AUREA_HOVER_TIMER_ID);
     g_mouse_inside[idx] = FALSE;
     ng_invoke_cursor_entered((void*)root, 0);
+}
+
+/* After the last held button goes up. Runs once the release is reported, so a
+ * MouseExited it lets through comes after the button event, not before. */
+static void ng_windows_release_capture(HWND hwnd, WPARAM held) {
+    if (!(held & AUREA_ANY_BUTTON) && GetCapture() == hwnd) {
+        ReleaseCapture();
+    }
 }
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
@@ -364,6 +373,24 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             if (wParam == AUREA_HOVER_TIMER_ID) {
                 ng_windows_recheck_pointer(hwnd);
                 return 0;
+            }
+            break;
+        case WM_LBUTTONDOWN:
+        case WM_LBUTTONDBLCLK:
+        case WM_RBUTTONDOWN:
+        case WM_RBUTTONDBLCLK:
+        case WM_MBUTTONDOWN:
+        case WM_MBUTTONDBLCLK:
+        case WM_XBUTTONDOWN:
+        case WM_XBUTTONDBLCLK:
+            // Keep moves and the release coming while the pointer is dragged
+            // outside the window.
+            SetCapture(hwnd);
+            break;
+        case WM_CAPTURECHANGED:
+            // Capture held back the leave; now the pointer may be outside.
+            if ((HWND)lParam != hwnd) {
+                ng_windows_recheck_pointer(hwnd);
             }
             break;
         default:
@@ -427,6 +454,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             break;
         case WM_LBUTTONUP:
             ng_windows_emit_mouse_button(hwnd, lParam, 0, 0, 1);
+            ng_windows_release_capture(hwnd, wParam);
             break;
         case WM_RBUTTONDOWN:
             ng_windows_emit_mouse_button(hwnd, lParam, 1, 1, 1);
@@ -436,6 +464,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             break;
         case WM_RBUTTONUP:
             ng_windows_emit_mouse_button(hwnd, lParam, 1, 0, 1);
+            ng_windows_release_capture(hwnd, wParam);
             break;
         case WM_MBUTTONDOWN:
             ng_windows_emit_mouse_button(hwnd, lParam, 2, 1, 1);
@@ -445,6 +474,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             break;
         case WM_MBUTTONUP:
             ng_windows_emit_mouse_button(hwnd, lParam, 2, 0, 1);
+            ng_windows_release_capture(hwnd, wParam);
             break;
         case WM_XBUTTONDOWN: {
             int button = (GET_XBUTTON_WPARAM(wParam) == XBUTTON1) ? 3 : 4;
@@ -459,6 +489,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_XBUTTONUP: {
             int button = (GET_XBUTTON_WPARAM(wParam) == XBUTTON1) ? 3 : 4;
             ng_windows_emit_mouse_button(hwnd, lParam, button, 0, 1);
+            ng_windows_release_capture(hwnd, wParam);
             break;
         }
         case WM_MOUSEWHEEL: {
