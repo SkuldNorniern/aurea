@@ -372,13 +372,51 @@ static gboolean ng_linux_already_seen(GdkEvent* event) {
     return FALSE;
 }
 
+/* The content widget: whatever set_window_content packed, below any menu bar. */
+static GtkWidget* ng_linux_window_content(GtkWidget* window) {
+    GtkWidget* vbox = ng_linux_window_main_vbox(window);
+    if (!vbox) return NULL;
+    GtkWidget* content = vbox;
+    GList* children = gtk_container_get_children(GTK_CONTAINER(vbox));
+    for (GList* item = children; item != NULL; item = item->next) {
+        if (!GTK_IS_MENU_BAR(item->data)) {
+            content = GTK_WIDGET(item->data);
+            break;
+        }
+    }
+    g_list_free(children);
+    return content;
+}
+
+/* Pointer positions go out relative to the content, like on Windows and
+ * macOS. GTK gives them relative to the GdkWindow the event came in on,
+ * and the toplevel's one also holds the CSD shadow, the headerbar and the
+ * menu bar. */
+static void ng_linux_content_point(GtkWidget* window, GdkWindow* from, double* x, double* y) {
+    GdkWindow* top = gtk_widget_get_window(window);
+    while (from && from != top) {
+        gdk_window_coords_to_parent(from, *x, *y, x, y);
+        from = gdk_window_get_parent(from);
+    }
+    GtkWidget* content = ng_linux_window_content(window);
+    int ox = 0;
+    int oy = 0;
+    if (content && gtk_widget_translate_coordinates(content, window, 0, 0, &ox, &oy)) {
+        *x -= ox;
+        *y -= oy;
+    }
+}
+
 static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpointer user_data) {
     if (ng_linux_already_seen((GdkEvent*)event)) return FALSE;
     unsigned int mods = ng_linux_modifiers(event->state);
     int button = ng_linux_mouse_button_from_event(event->button);
     int click_count = event->type == GDK_3BUTTON_PRESS ? 3 :
         event->type == GDK_2BUTTON_PRESS ? 2 : 1;
-    ng_invoke_mouse_button((void*)widget, button, 1, mods, event->x, event->y, click_count);
+    double x = event->x;
+    double y = event->y;
+    ng_linux_content_point(widget, event->window, &x, &y);
+    ng_invoke_mouse_button((void*)widget, button, 1, mods, x, y, click_count);
     return FALSE;
 }
 
@@ -386,13 +424,19 @@ static gboolean on_button_release(GtkWidget* widget, GdkEventButton* event, gpoi
     if (ng_linux_already_seen((GdkEvent*)event)) return FALSE;
     unsigned int mods = ng_linux_modifiers(event->state);
     int button = ng_linux_mouse_button_from_event(event->button);
-    ng_invoke_mouse_button((void*)widget, button, 0, mods, event->x, event->y, 1);
+    double x = event->x;
+    double y = event->y;
+    ng_linux_content_point(widget, event->window, &x, &y);
+    ng_invoke_mouse_button((void*)widget, button, 0, mods, x, y, 1);
     return FALSE;
 }
 
 static gboolean on_motion_notify(GtkWidget* widget, GdkEventMotion* event, gpointer user_data) {
     if (ng_linux_already_seen((GdkEvent*)event)) return FALSE;
-    ng_invoke_mouse_move((void*)widget, event->x, event->y);
+    double x = event->x;
+    double y = event->y;
+    ng_linux_content_point(widget, event->window, &x, &y);
+    ng_invoke_mouse_move((void*)widget, x, y);
 
     int index = ng_linux_find_window_index(widget);
     if (index >= 0 && g_cursor_grab_mode[index] == 2) {
