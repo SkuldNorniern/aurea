@@ -3,7 +3,7 @@
 use super::handle_key;
 use crate::window::{WindowEvent, WindowId};
 use aurea_foundation::{EventCallback, lock};
-use aurea_runtime::EventQueue;
+use aurea_runtime::{EventQueue, FrameScheduler};
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -109,6 +109,7 @@ pub fn push_window_event(handle: *mut c_void, event: WindowEvent) {
 
     if let Some(queue) = queue {
         queue.push(event);
+        FrameScheduler::wake();
     }
 }
 
