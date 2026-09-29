@@ -30,8 +30,8 @@
 //! ```
 
 pub use crate::window::{
-    CursorGrabMode, EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons, Window,
-    WindowEvent, WindowId, WindowType,
+    CursorGrabMode, CursorIcon, EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons,
+    Window, WindowEvent, WindowId, WindowType,
 };
 
 pub use crate::elements::{

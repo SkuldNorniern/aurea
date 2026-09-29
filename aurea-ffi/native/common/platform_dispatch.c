@@ -114,6 +114,10 @@ int ng_platform_window_set_cursor_visible(NGHandle w, int v) {
     DISPATCH_INT(window_set_cursor_visible, w, v);
 }
 
+int ng_platform_window_set_cursor_icon(NGHandle w, int icon) {
+    DISPATCH_INT(window_set_cursor_icon, w, icon);
+}
+
 int ng_platform_window_set_cursor_grab(NGHandle w, int m) {
     DISPATCH_INT(window_set_cursor_grab, w, m);
 }

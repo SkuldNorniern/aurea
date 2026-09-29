@@ -1,5 +1,6 @@
 #include "common.h"
 #include "../elements.h"
+#include "../window.h"
 #include "common/errors.h"
 #include <windows.h>
 #include <windowsx.h>
@@ -67,7 +68,7 @@ static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         }
 
         case WM_SETCURSOR:
-            SetCursor(LoadCursor(NULL, IDC_ARROW));
+            SetCursor((HCURSOR)ng_windows_window_cursor((NGHandle)canvas_find_root_window(hwnd)));
             return TRUE;
 
         case WM_MOUSEMOVE:

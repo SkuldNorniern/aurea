@@ -39,6 +39,9 @@ void ng_platform_window_request_close(NGHandle window);
 int ng_platform_window_is_focused(NGHandle window);
 int ng_platform_window_set_cursor_visible(NGHandle window, int visible);
 int ng_platform_window_set_cursor_grab(NGHandle window, int mode);
+/* icon: 0 default, 1 pointer, 2 text, 3 crosshair, 4 move, 5 resize ew,
+   6 resize ns, 7 not allowed, 8 wait. */
+int ng_platform_window_set_cursor_icon(NGHandle window, int icon);
 NGHandle ng_platform_window_get_content_view(NGHandle window);
 void ng_platform_window_show(NGHandle window);
 void ng_platform_window_hide(NGHandle window);

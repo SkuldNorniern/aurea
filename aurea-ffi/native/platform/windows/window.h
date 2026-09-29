@@ -34,6 +34,9 @@ void ng_windows_window_request_close(NGHandle window);
 int ng_windows_window_is_focused(NGHandle window);
 int ng_windows_window_set_cursor_visible(NGHandle window, int visible);
 int ng_windows_window_set_cursor_grab(NGHandle window, int mode);
+int ng_windows_window_set_cursor_icon(NGHandle window, int icon);
+/* The HCURSOR to show over the window's content. */
+void* ng_windows_window_cursor(NGHandle window);
 NGHandle ng_windows_window_get_content_view(NGHandle window);
 
 char* ng_windows_get_clipboard_text(void);

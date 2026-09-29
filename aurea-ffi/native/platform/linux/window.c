@@ -836,6 +836,29 @@ int ng_linux_window_get_wayland_handle(NGHandle window, void** surface, void** d
     return 0;
 }
 
+int ng_linux_window_set_cursor_icon(NGHandle window, int icon) {
+    if (!window) return NG_ERROR_INVALID_HANDLE;
+    GdkWindow* gdkWindow = gtk_widget_get_window((GtkWidget*)window);
+    if (!gdkWindow) return NG_ERROR_INVALID_HANDLE;
+
+    static const char* const names[] = {
+        NULL, "pointer", "text", "crosshair", "move",
+        "ew-resize", "ns-resize", "not-allowed", "wait",
+    };
+    int count = (int)(sizeof(names) / sizeof(names[0]));
+    const char* name = (icon > 0 && icon < count) ? names[icon] : NULL;
+    if (!name) {
+        gdk_window_set_cursor(gdkWindow, NULL);
+        return NG_SUCCESS;
+    }
+
+    GdkCursor* cursor = gdk_cursor_new_from_name(gdk_window_get_display(gdkWindow), name);
+    if (!cursor) return NG_ERROR_PLATFORM_SPECIFIC;
+    gdk_window_set_cursor(gdkWindow, cursor);
+    g_object_unref(cursor);
+    return NG_SUCCESS;
+}
+
 int ng_linux_window_set_cursor_visible(NGHandle window, int visible) {
     if (!window) return NG_ERROR_INVALID_HANDLE;
     GtkWidget* widget = (GtkWidget*)window;

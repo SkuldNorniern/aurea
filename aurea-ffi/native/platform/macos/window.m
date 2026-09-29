@@ -135,9 +135,14 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
     BOOL exitHeld;
 }
 @property (nonatomic, assign) void* windowHandle;
+@property (nonatomic, strong) NSCursor* cursor;
 @end
 
 @implementation AureaContentView
+- (void)resetCursorRects {
+    [self addCursorRect:[self bounds] cursor:(self.cursor ?: [NSCursor arrowCursor])];
+}
+
 - (BOOL)acceptsFirstResponder {
     return YES;
 }
@@ -729,6 +734,29 @@ int ng_macos_window_set_cursor_visible(NGHandle window, int visible) {
     } else {
         CGDisplayHideCursor(kCGDirectMainDisplay);
     }
+    return NG_SUCCESS;
+}
+
+int ng_macos_window_set_cursor_icon(NGHandle window, int icon) {
+    if (!window) return NG_ERROR_INVALID_HANDLE;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    NSView* view = [nsWindow contentView];
+    if (![view isKindOfClass:[AureaContentView class]]) return NG_ERROR_PLATFORM_SPECIFIC;
+
+    NSCursor* cursor;
+    switch (icon) {
+        case 1: cursor = [NSCursor pointingHandCursor]; break;
+        case 2: cursor = [NSCursor IBeamCursor]; break;
+        case 3: cursor = [NSCursor crosshairCursor]; break;
+        case 4: cursor = [NSCursor openHandCursor]; break;
+        case 5: cursor = [NSCursor resizeLeftRightCursor]; break;
+        case 6: cursor = [NSCursor resizeUpDownCursor]; break;
+        case 7: cursor = [NSCursor operationNotAllowedCursor]; break;
+        default: cursor = [NSCursor arrowCursor]; break; // no public busy cursor
+    }
+    ((AureaContentView*)view).cursor = cursor;
+    [nsWindow invalidateCursorRectsForView:view];
+    [cursor set];
     return NG_SUCCESS;
 }
 

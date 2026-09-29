@@ -497,6 +497,46 @@ int ng_windows_window_set_cursor_visible(NGHandle window, int visible) {
     return NG_SUCCESS;
 }
 
+#define AUREA_CURSOR_ICON_PROP "AureaCursorIcon"
+
+/* The cursor the app asked for over the window's content; arrow if none. */
+void* ng_windows_window_cursor(NGHandle window) {
+    HANDLE cursor = window ? GetPropA((HWND)window, AUREA_CURSOR_ICON_PROP) : NULL;
+    return cursor ? (void*)cursor : (void*)LoadCursor(NULL, IDC_ARROW);
+}
+
+int ng_windows_window_set_cursor_icon(NGHandle window, int icon) {
+    if (!window) return NG_ERROR_INVALID_HANDLE;
+    HWND hwnd = (HWND)window;
+    LPCTSTR id;
+    switch (icon) {
+        case 1: id = IDC_HAND; break;
+        case 2: id = IDC_IBEAM; break;
+        case 3: id = IDC_CROSS; break;
+        case 4: id = IDC_SIZEALL; break;
+        case 5: id = IDC_SIZEWE; break;
+        case 6: id = IDC_SIZENS; break;
+        case 7: id = IDC_NO; break;
+        case 8: id = IDC_WAIT; break;
+        default: id = IDC_ARROW; break;
+    }
+    HCURSOR cursor = LoadCursor(NULL, id);
+    SetPropA(hwnd, AUREA_CURSOR_ICON_PROP, (HANDLE)cursor);
+
+    /* WM_SETCURSOR only comes with the next move, so show it now when the
+       pointer is already over the content. */
+    POINT pt;
+    RECT client;
+    if (GetCursorPos(&pt) && GetClientRect(hwnd, &client)) {
+        HWND under = WindowFromPoint(pt);
+        ScreenToClient(hwnd, &pt);
+        if ((under == hwnd || IsChild(hwnd, under)) && PtInRect(&client, pt)) {
+            SetCursor(cursor);
+        }
+    }
+    return NG_SUCCESS;
+}
+
 int ng_windows_window_set_cursor_grab(NGHandle window, int mode) {
     if (!window) return NG_ERROR_INVALID_HANDLE;
     HWND hwnd = (HWND)window;

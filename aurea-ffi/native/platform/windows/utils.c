@@ -391,6 +391,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_MOUSELEAVE:
             ng_windows_recheck_pointer(hwnd);
             break;
+        case WM_SETCURSOR:
+            // Only over the content; borders keep their resize arrows.
+            if (LOWORD(lParam) == HTCLIENT && (HWND)wParam == hwnd) {
+                SetCursor((HCURSOR)ng_windows_window_cursor((NGHandle)hwnd));
+                return TRUE;
+            }
+            break;
         case WM_TIMER:
             if (wParam == AUREA_HOVER_TIMER_ID) {
                 ng_windows_recheck_pointer(hwnd);
