@@ -48,10 +48,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             pressed,
             x,
             y,
+            click_count,
             ..
         } => {
             let action = if pressed { "mouse down" } else { "mouse up" };
-            println!("{} {:?} ({:.1}, {:.1})", action, button, x, y);
+            println!("{action} {button:?} ({x:.1}, {y:.1}) x{click_count}");
         }
         WindowEvent::MouseMove { x, y } => {
             println!("mouse move ({:.1}, {:.1})", x, y);
