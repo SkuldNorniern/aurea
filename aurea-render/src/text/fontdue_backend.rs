@@ -252,7 +252,9 @@ pub struct FontDbTextRasterizer {
     dirs: Vec<PathBuf>,
     /// Font files under `dirs`, scanned on first use.
     files: OnceLock<Vec<FontFile>>,
-    /// One slot per `fallback_stems()` entry, loaded on first use.
+    /// One slot per `fallback_stems()` entry, loaded only when a glyph is
+    /// missing from everything before it: a CJK font is tens of MB parsed,
+    /// and Latin text should never pay for it.
     fallbacks: Vec<OnceLock<Option<Arc<Font>>>>,
     /// LRU cap: 32 entries — typical UIs use fewer than 10 font variants.
     font_cache: Mutex<LruCache<FontKey, Arc<Font>>>,
@@ -299,6 +301,18 @@ impl FontDbTextRasterizer {
             .clone()
     }
 
+    /// The font that draws `ch`: the requested one when it has the glyph,
+    /// otherwise the first fallback that does.
+    fn font_for_char(&self, primary: &Arc<Font>, ch: char) -> Arc<Font> {
+        if ch.is_whitespace() || ch.is_control() || primary.has_glyph(ch) {
+            return primary.clone();
+        }
+        (0..self.fallbacks.len())
+            .filter_map(|slot| self.fallback(slot))
+            .find(|font| font.has_glyph(ch))
+            .unwrap_or_else(|| primary.clone())
+    }
+
     fn load_for_key(&self, font: FontRef) -> AureaResult<Arc<Font>> {
         // 1. The requested family, in the requested face when installed.
         if let Some(path) = find_font_file(font.family, font.weight, font.style, self.files())
@@ -337,7 +351,7 @@ impl Default for FontDbTextRasterizer {
 impl PlatformTextRasterizer for FontDbTextRasterizer {
     fn rasterize_glyph(&self, font: FontRef, char_code: u32) -> AureaResult<GlyphBitmap> {
         let ch = char::from_u32(char_code).unwrap_or('\u{FFFD}');
-        let fnt = self.resolve_font(font)?;
+        let fnt = self.font_for_char(&self.resolve_font(font)?, ch);
         let (m, bmp) = fnt.rasterize(ch, font.size);
 
         let width = u32::try_from(m.width).expect("glyph width fits in u32");
@@ -371,7 +385,7 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
         }
 
         let ch = char::from_u32(char_code).unwrap_or('\u{FFFD}');
-        let fnt = self.resolve_font(font)?;
+        let fnt = self.font_for_char(&self.resolve_font(font)?, ch);
 
         // 3× supersample → RGB subpixel coverage.
         let (m, bmp) = fnt.rasterize(ch, font.size * 3.0);
@@ -450,7 +464,11 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
         let fnt = self.resolve_font(font)?;
         let advance: f32 = text
             .chars()
-            .map(|c| fnt.metrics(c, font.size).advance_width)
+            .map(|c| {
+                self.font_for_char(&fnt, c)
+                    .metrics(c, font.size)
+                    .advance_width
+            })
             .sum();
 
         let (ascent, descent) = fnt
@@ -485,6 +503,20 @@ mod tests {
             .measure_text("A", (&font).into())
             .expect("should fall back to a system font");
         assert!(m.ascent > 0.0);
+    }
+
+    /// Hangul is missing from the usual Latin UI fonts. When any installed
+    /// fallback has it, that is the font that draws it.
+    #[test]
+    fn a_missing_glyph_comes_from_a_fallback() {
+        let r = FontDbTextRasterizer::new();
+        let font = Font::new("__no_such_font__", 14.0);
+        let primary = r.resolve_font((&font).into()).expect("some font");
+        let covered = (0..r.fallbacks.len())
+            .filter_map(|slot| r.fallback(slot))
+            .any(|f| f.has_glyph('가'));
+        assert_eq!(r.font_for_char(&primary, '가').has_glyph('가'), covered);
+        assert!(Arc::ptr_eq(&r.font_for_char(&primary, ' '), &primary));
     }
 
     fn files(stems: &[&str]) -> Vec<FontFile> {
