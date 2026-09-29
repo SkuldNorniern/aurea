@@ -189,6 +189,20 @@ Limits to know about before relying on them:
 - A retained draw callback runs again on every frame that redraws. Damage
   tracking keeps that off the screen, not off the CPU.
 
+Input and text per platform:
+
+| | Windows | macOS | Linux (GTK3) |
+| --- | --- | --- | --- |
+| Pointer position | logical px from the content | same | same |
+| Enter/leave only for the whole window, held back while a button is down | yes | yes | yes |
+| Pointer kept while a button is held | yes | yes | yes |
+| Held buttons on `MouseMove` | all five | all | left, right, middle |
+| Cursor shapes (`Window::set_cursor`) | yes | yes, no busy cursor | yes |
+| IME | no | no | no |
+| Glyph fallback for missing characters | DirectWrite, fixed family list | fontdue fallback list | fontdue fallback list |
+| Bold and italic faces | yes | when the font file is named for it | when the font file is named for it |
+| Scale factor changes | yes | yes | yes |
+
 ## Features
 
 - `default`: no optional GPU backend.
