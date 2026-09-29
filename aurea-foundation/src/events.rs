@@ -22,8 +22,12 @@ pub enum WindowEvent {
     },
     SurfaceLost,
     SurfaceRecreated,
+    /// The pointer came into the window.
     MouseEntered,
+    /// The pointer left the window.
     MouseExited,
+    /// Pointer position in logical pixels, relative to the window's content (below any title bar or
+    /// menu bar).
     MouseMove {
         x: f64,
         y: f64,
@@ -32,6 +36,7 @@ pub enum WindowEvent {
         delta_x: f64,
         delta_y: f64,
     },
+    /// A button went down or up, at the same kind of position as [`WindowEvent::MouseMove`].
     MouseButton {
         button: MouseButton,
         pressed: bool,
