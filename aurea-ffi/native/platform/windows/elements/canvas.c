@@ -64,18 +64,23 @@ static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         case WM_MOUSEMOVE:
         case WM_MOUSELEAVE:
         case WM_LBUTTONDOWN:
+        case WM_LBUTTONDBLCLK:
         case WM_LBUTTONUP:
         case WM_RBUTTONDOWN:
+        case WM_RBUTTONDBLCLK:
         case WM_RBUTTONUP:
         case WM_MBUTTONDOWN:
+        case WM_MBUTTONDBLCLK:
         case WM_MBUTTONUP:
         case WM_XBUTTONDOWN:
+        case WM_XBUTTONDBLCLK:
         case WM_XBUTTONUP:
         case WM_MOUSEWHEEL:
         case WM_MOUSEHWHEEL: {
             HWND root = canvas_find_root_window(hwnd);
             if (root) {
-                if (msg == WM_LBUTTONDOWN || msg == WM_RBUTTONDOWN || msg == WM_MBUTTONDOWN || msg == WM_XBUTTONDOWN) {
+                if (msg == WM_LBUTTONDOWN || msg == WM_RBUTTONDOWN || msg == WM_MBUTTONDOWN || msg == WM_XBUTTONDOWN ||
+                    msg == WM_LBUTTONDBLCLK || msg == WM_RBUTTONDBLCLK || msg == WM_MBUTTONDBLCLK || msg == WM_XBUTTONDBLCLK) {
                     SetActiveWindow(root);
                     SetFocus(root);
                 }
@@ -183,6 +188,7 @@ NGHandle ng_windows_create_canvas(int width, int height) {
     if (!canvas_class_registered) {
         WNDCLASSEXA wc = {0};
         wc.cbSize = sizeof(WNDCLASSEXA);
+        wc.style = CS_DBLCLKS;
         wc.lpfnWndProc = CanvasProc;
         wc.hInstance = GetModuleHandleA(NULL);
         wc.lpszClassName = CANVAS_CLASS_NAME;
