@@ -67,6 +67,27 @@ impl WindowId {
     }
 }
 
+/// The cursor shown over a window's content.
+#[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CursorIcon {
+    #[default]
+    Default = 0,
+    /// A hand, for something clickable.
+    Pointer = 1,
+    /// An I-beam, for text that can be edited or selected.
+    Text = 2,
+    Crosshair = 3,
+    Move = 4,
+    /// Left-right arrows, like a slider or a column edge.
+    ResizeHorizontal = 5,
+    /// Up-down arrows, like a row edge.
+    ResizeVertical = 6,
+    NotAllowed = 7,
+    /// Busy. The default arrow on macOS, which has no public busy cursor.
+    Wait = 8,
+}
+
 /// Cursor grab modes
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -322,6 +322,12 @@ int ng_platform_window_set_cursor_grab(NGHandle window, int mode) {
     return NG_ERROR_PLATFORM_SPECIFIC;
 }
 
+int ng_platform_window_set_cursor_icon(NGHandle window, int icon) {
+    (void)window;
+    (void)icon;
+    return NG_ERROR_PLATFORM_SPECIFIC;
+}
+
 NGHandle ng_platform_create_image_view(void) {
     return NULL;
 }

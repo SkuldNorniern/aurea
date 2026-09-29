@@ -12,7 +12,7 @@ pub use aurea_foundation::{
 pub use aurea_runtime::EventQueue;
 pub use clipboard::{clipboard_text, set_clipboard_text};
 pub use manager::WindowManager;
-pub use types::{CursorGrabMode, WindowId, WindowType};
+pub use types::{CursorGrabMode, CursorIcon, WindowId, WindowType};
 
 use crate::elements::Element;
 use crate::ffi::ng_platform_request_frame;
@@ -807,6 +807,18 @@ impl Window {
         ui_thread::check("Window::set_cursor_visible");
         let result =
             unsafe { ng_platform_window_set_cursor_visible(self.handle, i32::from(visible)) };
+        if result != 0 {
+            return Err(AureaError::ElementOperationFailed);
+        }
+        Ok(())
+    }
+
+    /// Sets the cursor shown over this window's content, until changed.
+    ///
+    /// Cheap enough to call every frame with whatever is under the pointer.
+    pub fn set_cursor(&self, icon: CursorIcon) -> AureaResult<()> {
+        ui_thread::check("Window::set_cursor");
+        let result = unsafe { ng_platform_window_set_cursor_icon(self.handle, icon as i32) };
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
         }

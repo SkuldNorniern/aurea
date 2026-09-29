@@ -60,6 +60,7 @@ unsafe extern "C" {
     pub fn ng_platform_window_is_focused(window: *mut c_void) -> c_int;
     pub fn ng_platform_window_set_cursor_visible(window: *mut c_void, visible: c_int) -> c_int;
     pub fn ng_platform_window_set_cursor_grab(window: *mut c_void, mode: c_int) -> c_int;
+    pub fn ng_platform_window_set_cursor_icon(window: *mut c_void, icon: c_int) -> c_int;
     pub fn ng_platform_window_get_content_view(window: *mut c_void) -> *mut c_void;
     pub fn ng_platform_window_show(window: *mut c_void);
     pub fn ng_platform_window_hide(window: *mut c_void);

@@ -36,6 +36,7 @@ void ng_macos_window_request_close(NGHandle window);
 int ng_macos_window_is_focused(NGHandle window);
 int ng_macos_window_set_cursor_visible(NGHandle window, int visible);
 int ng_macos_window_set_cursor_grab(NGHandle window, int mode);
+int ng_macos_window_set_cursor_icon(NGHandle window, int icon);
 void ng_macos_window_show(NGHandle window);
 void ng_macos_window_hide(NGHandle window);
 int ng_macos_window_is_visible(NGHandle window);
