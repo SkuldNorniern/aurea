@@ -56,6 +56,22 @@ struct FaceEntry {
     descent: f32,
 }
 
+/// Families tried in order for a character the requested font has no glyph
+/// for: UI text first, then CJK, then symbols.
+const FALLBACK_FAMILIES: &[&str] = &[
+    "Segoe UI",
+    "Malgun Gothic",
+    "Microsoft YaHei",
+    "Yu Gothic UI",
+    "Microsoft JhengHei",
+    "Nirmala UI",
+    "Leelawadee UI",
+    "Ebrima",
+    "Segoe UI Symbol",
+    "Segoe UI Emoji",
+    "Segoe UI Historic",
+];
+
 pub struct DirectWriteRasterizer {
     collection: FontCollection,
     faces: Mutex<HashMap<FaceKey, Arc<FaceEntry>>>,
@@ -130,6 +146,42 @@ impl DirectWriteRasterizer {
         Ok(entry)
     }
 
+    fn glyph_index(entry: &FaceEntry, char_code: u32) -> u16 {
+        entry
+            .face
+            .glyph_indices(&[char_code])
+            .ok()
+            .and_then(|indices| indices.first().copied())
+            .unwrap_or(0)
+    }
+
+    /// The face that draws `char_code` and its glyph there: the requested
+    /// face when it has one, otherwise the first fallback family that does.
+    /// Without this a character outside the font, like Hangul in Segoe UI,
+    /// draws as an empty box.
+    fn face_for_char(
+        &self,
+        font: FontRef,
+        primary: Arc<FaceEntry>,
+        char_code: u32,
+    ) -> (Arc<FaceEntry>, u16) {
+        let index = Self::glyph_index(&primary, char_code);
+        let blank = char::from_u32(char_code).is_none_or(|c| c.is_whitespace() || c.is_control());
+        if index != 0 || blank {
+            return (primary, index);
+        }
+        for family in FALLBACK_FAMILIES {
+            let fallback = FontRef { family, ..font };
+            if let Ok(entry) = self.resolve_face(fallback) {
+                let index = Self::glyph_index(&entry, char_code);
+                if index != 0 {
+                    return (entry, index);
+                }
+            }
+        }
+        (primary, 0)
+    }
+
     fn glyph_advance(&self, entry: &FaceEntry, glyph_index: u16, size: f32) -> f32 {
         let metrics = entry.face.design_glyph_metrics(&[glyph_index], false);
         match metrics.ok().and_then(|metrics| metrics.first().copied()) {
@@ -152,13 +204,7 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
             return Ok(cached);
         }
 
-        let entry = self.resolve_face(font)?;
-        let cp = [char_code];
-        let indices = entry
-            .face
-            .glyph_indices(&cp)
-            .map_err(|_| AureaError::RenderingFailed)?;
-        let glyph_index = indices.first().copied().unwrap_or(0);
+        let (entry, glyph_index) = self.face_for_char(font, self.resolve_face(font)?, char_code);
         let advance = self.glyph_advance(&entry, glyph_index, font.size);
 
         let glyph_index_arr = [glyph_index];
@@ -228,7 +274,7 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
 
         let mut advance = 0.0f32;
         if !text.is_empty() {
-            let cps: Vec<u32> = text.chars().map(|c| c as u32).collect();
+            let cps: Vec<u32> = text.chars().map(u32::from).collect();
             let indices = entry
                 .face
                 .glyph_indices(&cps)
@@ -238,8 +284,14 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
                     .face
                     .design_glyph_metrics(&indices, false)
                     .map_err(|_| AureaError::RenderingFailed)?;
-                for m in &metrics {
-                    advance += m.advanceWidth as f32 * scale;
+                for ((m, &index), &cp) in metrics.iter().zip(&indices).zip(&cps) {
+                    advance += if index == 0 {
+                        // Drawn from a fallback face, so measured there too.
+                        let (face, index) = self.face_for_char(font, entry.clone(), cp);
+                        self.glyph_advance(&face, index, font.size)
+                    } else {
+                        m.advanceWidth as f32 * scale
+                    };
                 }
             }
         }
@@ -251,5 +303,27 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
             descent,
             advance,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Font;
+
+    #[test]
+    fn hangul_in_segoe_ui_comes_from_a_fallback() {
+        let r = DirectWriteRasterizer::new().expect("directwrite");
+        let font = Font::new("Segoe UI", 14.0);
+        let font: FontRef = (&font).into();
+        let primary = r.resolve_face(font).expect("segoe ui");
+        let (face, index) = r.face_for_char(font, primary.clone(), u32::from('가'));
+        assert_ne!(index, 0);
+        assert!(!Arc::ptr_eq(&face, &primary));
+
+        let glyph = r
+            .rasterize_subpixel(font, u32::from('가'))
+            .expect("glyph");
+        assert!(glyph.coverage.iter().any(|&c| c > 0));
     }
 }
