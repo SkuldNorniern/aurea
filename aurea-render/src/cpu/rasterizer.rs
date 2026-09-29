@@ -2405,4 +2405,47 @@ mod tile_cache_tests {
             color_to_u32(paint_b.color)
         );
     }
+
+    /// A dark corner of an image stays dark: nothing else leaks into the
+    /// blit. Shaped like a saturation/brightness square, drawn at a
+    /// fractional position over a lighter card, across two frames.
+    #[test]
+    fn an_image_blit_adds_nothing_of_its_own() {
+        let size = 170u32;
+        let last = size - 1;
+        let mut data = Vec::with_capacity((size * size * 4) as usize);
+        for y in 0..size {
+            for x in 0..size {
+                let v = u8::try_from(255 - y * 255 / last).expect("fits");
+                let s = u8::try_from(x * 255 / last).expect("fits");
+                let min = u8::try_from(u32::from(v) * (255 - u32::from(s)) / 255).expect("fits");
+                data.extend_from_slice(&[v, min, min, 255]);
+            }
+        }
+        let image = Image::new(size, size, data);
+        let dest = Rect::new(33.4, 57.6, 170.0, 170.0);
+        let card = Paint::new().color(Color::rgb(40, 44, 52));
+
+        let mut r = CpuRasterizer::new(512, 512);
+        for _ in 0..2 {
+            let mut ctx = r.begin_frame().unwrap();
+            ctx.draw_rect(Rect::new(0.0, 0.0, 512.0, 512.0), &card).unwrap();
+            ctx.draw_image_rect(&image, dest).unwrap();
+            drop(ctx);
+            r.end_frame().unwrap();
+        }
+
+        let bw = r.width;
+        // Bottom-left 40x40 of the image: brightness is under 60 there.
+        for y in 131..169u32 {
+            for x in 1..40u32 {
+                let px = pixel_at(&r.frame_buffer, bw, 34 + x, 58 + y);
+                let brightest = [(px >> 16) & 0xFF, (px >> 8) & 0xFF, px & 0xFF]
+                    .into_iter()
+                    .max()
+                    .unwrap_or(0);
+                assert!(brightest < 60, "pixel ({x}, {y}) of the image is {px:08x}");
+            }
+        }
+    }
 }
