@@ -342,6 +342,8 @@ static gboolean on_key_release(GtkWidget* widget, GdkEventKey* event, gpointer u
     return FALSE;
 }
 
+static int g_buttons_held = 0;
+
 static gboolean ng_linux_already_seen(GdkEvent* event) {
     static GdkEvent* last = NULL;
     static GdkEventType last_type = GDK_NOTHING;
@@ -395,6 +397,7 @@ static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpoint
     double x = event->x;
     double y = event->y;
     ng_linux_content_point(widget, event->window, &x, &y);
+    g_buttons_held++;
     ng_invoke_mouse_button((void*)widget, button, 1, mods, x, y, click_count);
     return FALSE;
 }
@@ -406,6 +409,7 @@ static gboolean on_button_release(GtkWidget* widget, GdkEventButton* event, gpoi
     double x = event->x;
     double y = event->y;
     ng_linux_content_point(widget, event->window, &x, &y);
+    if (g_buttons_held > 0) g_buttons_held--;
     ng_invoke_mouse_button((void*)widget, button, 0, mods, x, y, 1);
     return FALSE;
 }
@@ -473,7 +477,8 @@ static gboolean on_focus_out(GtkWidget* widget, GdkEventFocus* event, gpointer u
 }
 
 static gboolean ng_linux_crossing_is_inside(GtkWidget* widget, GdkEventCrossing* event) {
-    return event->detail == GDK_NOTIFY_INFERIOR ||
+    return g_buttons_held > 0 ||
+        event->detail == GDK_NOTIFY_INFERIOR ||
         event->window != gtk_widget_get_window(widget);
 }
 
