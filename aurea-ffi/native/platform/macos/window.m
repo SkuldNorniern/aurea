@@ -131,6 +131,8 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
 
 @interface AureaContentView : NSView {
     NSTrackingArea* trackingArea;
+    int buttonsHeld;
+    BOOL exitHeld;
 }
 @property (nonatomic, assign) void* windowHandle;
 @end
@@ -162,15 +164,39 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
     [self addTrackingArea:trackingArea];
 }
 
+// A drag that goes outside is not a leave until the release, the same as on
+// Windows and GTK. Tracking areas report it mid-drag, so hold it back.
 - (void)mouseEntered:(NSEvent*)event {
+    if (exitHeld) {
+        exitHeld = NO;
+        return;
+    }
     if (self.windowHandle) {
         ng_invoke_cursor_entered(self.windowHandle, 1);
     }
 }
 
 - (void)mouseExited:(NSEvent*)event {
+    if (buttonsHeld > 0) {
+        exitHeld = YES;
+        return;
+    }
     if (self.windowHandle) {
         ng_invoke_cursor_entered(self.windowHandle, 0);
+    }
+}
+
+- (void)buttonWentDown {
+    buttonsHeld++;
+}
+
+- (void)buttonWentUp {
+    if (buttonsHeld > 0) buttonsHeld--;
+    if (buttonsHeld == 0 && exitHeld) {
+        exitHeld = NO;
+        if (self.windowHandle) {
+            ng_invoke_cursor_entered(self.windowHandle, 0);
+        }
     }
 }
 
@@ -207,6 +233,7 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
     ng_invoke_mouse_button(self.windowHandle, 0, 1, ng_macos_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
+    [self buttonWentDown];
 }
 
 - (void)mouseUp:(NSEvent*)event {
@@ -214,6 +241,7 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
     ng_invoke_mouse_button(self.windowHandle, 0, 0, ng_macos_modifiers(event), p.x, h - p.y, 1);
+    [self buttonWentUp];
 }
 
 - (void)rightMouseDown:(NSEvent*)event {
@@ -221,6 +249,7 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
     ng_invoke_mouse_button(self.windowHandle, 1, 1, ng_macos_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
+    [self buttonWentDown];
 }
 
 - (void)rightMouseUp:(NSEvent*)event {
@@ -228,6 +257,7 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
     ng_invoke_mouse_button(self.windowHandle, 1, 0, ng_macos_modifiers(event), p.x, h - p.y, 1);
+    [self buttonWentUp];
 }
 
 - (void)otherMouseDown:(NSEvent*)event {
@@ -236,6 +266,7 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
     ng_invoke_mouse_button(self.windowHandle, button, 1, ng_macos_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
+    [self buttonWentDown];
 }
 
 - (void)otherMouseUp:(NSEvent*)event {
@@ -244,6 +275,7 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
     ng_invoke_mouse_button(self.windowHandle, button, 0, ng_macos_modifiers(event), p.x, h - p.y, 1);
+    [self buttonWentUp];
 }
 
 - (void)scrollWheel:(NSEvent*)event {
