@@ -470,7 +470,11 @@ static gboolean on_motion_notify(GtkWidget* widget, GdkEventMotion* event, gpoin
     double x = event->x;
     double y = event->y;
     ng_linux_content_point(widget, event->window, &x, &y);
-    ng_invoke_mouse_move((void*)widget, x, y);
+    unsigned int buttons = 0;
+    if (event->state & GDK_BUTTON1_MASK) buttons |= 1u << 0;
+    if (event->state & GDK_BUTTON3_MASK) buttons |= 1u << 1;
+    if (event->state & GDK_BUTTON2_MASK) buttons |= 1u << 2;
+    ng_invoke_mouse_move((void*)widget, x, y, buttons, ng_linux_modifiers(event->state));
 
     int index = ng_linux_find_window_index(widget);
     if (index >= 0 && g_cursor_grab_mode[index] == 2) {

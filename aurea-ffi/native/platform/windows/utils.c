@@ -291,6 +291,17 @@ static void ng_windows_emit_mouse_button(
         click_count);
 }
 
+/* MK_* flags to the held-button bits ng_invoke_mouse_move takes. */
+static unsigned int ng_windows_buttons(WPARAM held) {
+    unsigned int buttons = 0;
+    if (held & MK_LBUTTON) buttons |= 1u << 0;
+    if (held & MK_RBUTTON) buttons |= 1u << 1;
+    if (held & MK_MBUTTON) buttons |= 1u << 2;
+    if (held & MK_XBUTTON1) buttons |= 1u << 3;
+    if (held & MK_XBUTTON2) buttons |= 1u << 4;
+    return buttons;
+}
+
 static int ng_windows_tracked_index(HWND hwnd) {
     for (int i = 0; i < g_tracked_count; i++) {
         if (g_tracked_windows[i] == hwnd) return i;
@@ -372,7 +383,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             ng_invoke_mouse_move(
                 (void*)hwnd,
                 ng_windows_logical(hwnd, GET_X_LPARAM(lParam)),
-                ng_windows_logical(hwnd, GET_Y_LPARAM(lParam)));
+                ng_windows_logical(hwnd, GET_Y_LPARAM(lParam)),
+                ng_windows_buttons(wParam),
+                ng_windows_modifiers());
             break;
         }
         case WM_MOUSELEAVE:
