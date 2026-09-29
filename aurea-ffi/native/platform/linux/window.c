@@ -409,12 +409,42 @@ static void ng_linux_content_point(GtkWidget* window, GdkWindow* from, double* x
     }
 }
 
+/* GTK reports a double click as a second GDK_BUTTON_PRESS and then one more
+ * GDK_2BUTTON_PRESS on top. Count clicks on the plain press, with GTK's own
+ * double click time and distance, so each click is one press. */
+static int ng_linux_click_count(GtkWidget* widget, GdkEventButton* event) {
+    static guint last_button = 0;
+    static guint32 last_time = 0;
+    static double last_x = 0.0;
+    static double last_y = 0.0;
+    static int count = 0;
+
+    gint time = 400;
+    gint distance = 5;
+    g_object_get(gtk_widget_get_settings(widget),
+        "gtk-double-click-time", &time,
+        "gtk-double-click-distance", &distance,
+        NULL);
+    double dx = event->x_root - last_x;
+    double dy = event->y_root - last_y;
+    gboolean again = count > 0 && event->button == last_button &&
+        event->time - last_time <= (guint32)time &&
+        dx * dx + dy * dy <= (double)(distance * distance);
+
+    count = again ? count + 1 : 1;
+    last_button = event->button;
+    last_time = event->time;
+    last_x = event->x_root;
+    last_y = event->y_root;
+    return count;
+}
+
 static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpointer user_data) {
+    if (event->type != GDK_BUTTON_PRESS) return FALSE;
     if (ng_linux_already_seen((GdkEvent*)event)) return FALSE;
     unsigned int mods = ng_linux_modifiers(event->state);
     int button = ng_linux_mouse_button_from_event(event->button);
-    int click_count = event->type == GDK_3BUTTON_PRESS ? 3 :
-        event->type == GDK_2BUTTON_PRESS ? 2 : 1;
+    int click_count = ng_linux_click_count(widget, event);
     double x = event->x;
     double y = event->y;
     ng_linux_content_point(widget, event->window, &x, &y);
