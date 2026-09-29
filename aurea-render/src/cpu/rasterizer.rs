@@ -2429,7 +2429,8 @@ mod tile_cache_tests {
         let mut r = CpuRasterizer::new(512, 512);
         for _ in 0..2 {
             let mut ctx = r.begin_frame().unwrap();
-            ctx.draw_rect(Rect::new(0.0, 0.0, 512.0, 512.0), &card).unwrap();
+            ctx.draw_rect(Rect::new(0.0, 0.0, 512.0, 512.0), &card)
+                .unwrap();
             ctx.draw_image_rect(&image, dest).unwrap();
             drop(ctx);
             r.end_frame().unwrap();

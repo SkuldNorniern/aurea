@@ -537,7 +537,10 @@ mod tests {
     fn picks_the_family_not_a_longer_one() {
         let list = files(&["dejavusansmono", "dejavusansbold", "dejavusans"]);
         let normal = (FontWeight::Normal, FontStyle::Normal);
-        assert_eq!(pick("DejaVu Sans", normal.0, normal.1, &list), "dejavusans.ttf");
+        assert_eq!(
+            pick("DejaVu Sans", normal.0, normal.1, &list),
+            "dejavusans.ttf"
+        );
         assert_eq!(pick("DejaVu", normal.0, normal.1, &list), "dejavusans.ttf");
     }
 

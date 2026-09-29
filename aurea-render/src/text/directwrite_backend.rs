@@ -321,9 +321,7 @@ mod tests {
         assert_ne!(index, 0);
         assert!(!Arc::ptr_eq(&face, &primary));
 
-        let glyph = r
-            .rasterize_subpixel(font, u32::from('가'))
-            .expect("glyph");
+        let glyph = r.rasterize_subpixel(font, u32::from('가')).expect("glyph");
         assert!(glyph.coverage.iter().any(|&c| c > 0));
     }
 }
