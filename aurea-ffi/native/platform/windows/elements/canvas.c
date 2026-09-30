@@ -245,9 +245,19 @@ NGHandle ng_windows_create_canvas(int width, int height) {
     return (NGHandle)hwnd;
 }
 
+/* Paint now instead of waiting for WM_PAINT. The run loop serves the frame
+ * event before the message queue, and WM_PAINT only comes when the queue is
+ * otherwise empty, so an app asking for a frame every 16 ms from another
+ * thread made frames that never reached the screen. Publishing runs on the UI
+ * thread, so this is a direct call, not a cross-thread send. */
+static void canvas_paint_now(HWND hwnd, const RECT* rect) {
+    InvalidateRect(hwnd, rect, FALSE);
+    UpdateWindow(hwnd);
+}
+
 void ng_windows_canvas_invalidate(NGHandle canvas) {
     if (!canvas) return;
-    InvalidateRect((HWND)canvas, NULL, FALSE);
+    canvas_paint_now((HWND)canvas, NULL);
 }
 
 void ng_windows_canvas_invalidate_rect(NGHandle canvas, float x, float y, float width, float height) {
@@ -257,7 +267,7 @@ void ng_windows_canvas_invalidate_rect(NGHandle canvas, float x, float y, float 
     rect.top = (LONG)y;
     rect.right = (LONG)(x + width);
     rect.bottom = (LONG)(y + height);
-    InvalidateRect((HWND)canvas, &rect, FALSE);
+    canvas_paint_now((HWND)canvas, &rect);
 }
 
 void ng_windows_canvas_set_gpu_owned(NGHandle canvas, int gpu_owned) {
