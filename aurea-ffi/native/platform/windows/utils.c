@@ -622,7 +622,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         }
         
         case WM_SIZE: {
+            /* SIZE_RESTORED is any size that is neither minimized nor
+               maximized, so every step of an edge drag is one. Restored
+               and the surface coming back only mean something after
+               minimized, which is what this remembers. */
+            BOOL was_minimized = GetPropA(hwnd, "AureaMinimized") != NULL;
             if (wParam == SIZE_MINIMIZED) {
+                if (was_minimized) break;
+                SetPropA(hwnd, "AureaMinimized", (HANDLE)1);
                 for (int i = 0; i < g_tracked_count; i++) {
                     if (g_tracked_windows[i] == hwnd && g_lifecycle_callbacks[i]) {
                         ng_invoke_lifecycle_callback((void*)hwnd, 6); // WindowMinimized
@@ -646,7 +653,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                     }
                 }
 
-                if (wParam == SIZE_RESTORED || wParam == SIZE_MAXIMIZED) {
+                if (was_minimized) {
+                    RemovePropA(hwnd, "AureaMinimized");
                     for (int i = 0; i < g_tracked_count; i++) {
                         if (g_tracked_windows[i] == hwnd && g_lifecycle_callbacks[i]) {
                             ng_invoke_lifecycle_callback((void*)hwnd, 7);  // WindowRestored
@@ -682,6 +690,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         
         case WM_DESTROY: {
             RemovePropA(hwnd, "AureaMonitor");
+            RemovePropA(hwnd, "AureaMinimized");
             /* Drop the window from tracking, then quit only when the last one
                is gone. Quitting on any window's destruction took the whole app
                down as soon as a popup or tool window was closed. */
