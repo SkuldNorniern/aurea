@@ -98,7 +98,7 @@ fn linux_canvas_handle_from_ptr(canvas: *mut c_void) -> Option<LinuxWindowHandle
     None
 }
 
-pub fn native_handle_from_window_ptr(window: *mut c_void) -> Option<NativeWindowHandle> {
+pub(crate) fn native_handle_from_window_ptr(window: *mut c_void) -> Option<NativeWindowHandle> {
     #[cfg(target_os = "macos")]
     {
         let view_ptr = unsafe { ng_platform_window_get_content_view(window) };
@@ -147,7 +147,8 @@ pub fn native_handle_from_window_ptr(window: *mut c_void) -> Option<NativeWindow
     }
 }
 
-pub fn native_handle_from_canvas_ptr(canvas: *mut c_void) -> Option<NativeWindowHandle> {
+#[cfg(any(feature = "wgpu", feature = "zengpu"))]
+pub(crate) fn native_handle_from_canvas_ptr(canvas: *mut c_void) -> Option<NativeWindowHandle> {
     #[cfg(target_os = "macos")]
     {
         if canvas.is_null() {
