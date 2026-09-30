@@ -52,6 +52,12 @@ void ng_windows_display_changed(void) {
     if (g_qpc_freq > 0) g_frame_interval = g_qpc_freq / ng_windows_refresh_hz();
 }
 
+unsigned int ng_windows_frame_interval_ms(void) {
+    if (g_qpc_freq <= 0 || g_frame_interval <= 0) return 16;
+    LONGLONG ms = g_frame_interval * 1000 / g_qpc_freq;
+    return ms > 0 ? (unsigned int)ms : 1;
+}
+
 static void ng_windows_run_frame(void) {
     /* A modal loop opened inside a frame, a message box say, pumps messages,
        and one of them can be the modal frame timer. */
@@ -81,6 +87,20 @@ static void ng_windows_frame_wanted(void) {
         } else {
             ng_windows_run_frame();
         }
+    }
+}
+
+/* Moving, sizing and menus run their own message loop inside
+   DispatchMessage, so ng_windows_run does not get to wait on anything until
+   they end. The window proc calls this from a timer meanwhile. */
+void ng_windows_modal_tick(void) {
+    if (!g_frame_event) return;
+    HANDLE handles[2] = { g_frame_event, g_frame_timer };
+    DWORD count = g_frame_timer ? 2 : 1;
+    DWORD result = WaitForMultipleObjects(count, handles, FALSE, 0);
+    if (result == WAIT_OBJECT_0 + 1) g_timer_armed = FALSE;
+    if (result == WAIT_OBJECT_0 || result == WAIT_OBJECT_0 + 1) {
+        ng_windows_run_frame();
     }
 }
 

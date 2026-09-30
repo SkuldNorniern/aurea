@@ -333,6 +333,7 @@ static int ng_windows_tracked_index(HWND hwnd) {
 }
 
 #define AUREA_HOVER_TIMER_ID 0xA0E1
+#define AUREA_FRAME_TIMER_ID 0xA0E2
 #define AUREA_ANY_BUTTON (MK_LBUTTON | MK_RBUTTON | MK_MBUTTON | MK_XBUTTON1 | MK_XBUTTON2)
 
 static void ng_windows_track_leave(HWND target) {
@@ -426,6 +427,20 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 ng_windows_recheck_pointer(hwnd);
                 return 0;
             }
+            if (wParam == AUREA_FRAME_TIMER_ID) {
+                ng_windows_modal_tick();
+                return 0;
+            }
+            break;
+        /* Frames keep coming while the window is dragged, sized or a
+           menu is open, each of which runs its own message loop. */
+        case WM_ENTERSIZEMOVE:
+        case WM_ENTERMENULOOP:
+            SetTimer(hwnd, AUREA_FRAME_TIMER_ID, ng_windows_frame_interval_ms(), NULL);
+            break;
+        case WM_EXITSIZEMOVE:
+        case WM_EXITMENULOOP:
+            KillTimer(hwnd, AUREA_FRAME_TIMER_ID);
             break;
         case WM_DISPLAYCHANGE:
         case WM_SHOWWINDOW:
