@@ -434,6 +434,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_ENTERMENULOOP:
             ng_windows_modal_begin(hwnd);
             break;
+        case WM_SIZING:
+        case WM_MOVING:
+        case WM_MENUSELECT:
+            ng_windows_modal_tick();
+            break;
         case WM_EXITSIZEMOVE:
         case WM_EXITMENULOOP:
             ng_windows_modal_end(hwnd);
