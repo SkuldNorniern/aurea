@@ -316,31 +316,48 @@ static void ng_windows_track_leave(HWND target) {
     TrackMouseEvent(&tme);
 }
 
-static void ng_windows_recheck_pointer(HWND root) {
-    int idx = ng_windows_tracked_index(root);
-    if (idx < 0 || !g_mouse_inside[idx] || GetCapture() == root) return;
+#define AUREA_TRACKING_PROP "AureaTracking"
 
+static BOOL ng_windows_pointer_in_content(HWND root, HWND* under) {
     POINT pt;
     GetCursorPos(&pt);
-    HWND under = WindowFromPoint(pt);
+    *under = WindowFromPoint(pt);
     POINT client = pt;
     ScreenToClient(root, &client);
     RECT content;
     GetClientRect(root, &content);
-    if (!PtInRect(&content, client)) under = NULL;
+    return PtInRect(&content, client) && *under && (*under == root || IsChild(root, *under));
+}
 
-    if (under == root) {
-        KillTimer(root, AUREA_HOVER_TIMER_ID);
-        ng_windows_track_leave(root);
+static void ng_windows_arm_tracking(HWND root) {
+    if (GetPropA(root, AUREA_TRACKING_PROP)) return;
+    HWND under;
+    if (!ng_windows_pointer_in_content(root, &under)) {
+        SetTimer(root, AUREA_HOVER_TIMER_ID, 50, NULL);
         return;
     }
-    if (under && IsChild(root, under)) {
+    HWND target = root;
+    if (under != root) {
         char cls[32];
         GetClassNameA(under, cls, sizeof(cls));
-        if (strcmp(cls, "AureaCanvas") == 0) {
-            KillTimer(root, AUREA_HOVER_TIMER_ID);
-            ng_windows_track_leave(under);
-        } else {
+        if (strcmp(cls, "AureaCanvas") != 0) {
+            SetTimer(root, AUREA_HOVER_TIMER_ID, 50, NULL);
+            return;
+        }
+        target = under;
+    }
+    KillTimer(root, AUREA_HOVER_TIMER_ID);
+    SetPropA(root, AUREA_TRACKING_PROP, (HANDLE)1);
+    ng_windows_track_leave(target);
+}
+
+static void ng_windows_recheck_pointer(HWND root) {
+    int idx = ng_windows_tracked_index(root);
+    if (idx < 0 || !g_mouse_inside[idx] || GetCapture() == root) return;
+
+    HWND under;
+    if (ng_windows_pointer_in_content(root, &under)) {
+        if (!GetPropA(root, AUREA_TRACKING_PROP)) {
             SetTimer(root, AUREA_HOVER_TIMER_ID, 50, NULL);
         }
         return;
@@ -374,8 +391,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             if (idx >= 0 && !g_mouse_inside[idx]) {
                 g_mouse_inside[idx] = TRUE;
                 ng_invoke_cursor_entered((void*)hwnd, 1);
-                ng_windows_track_leave(hwnd);
             }
+            if (idx >= 0) ng_windows_arm_tracking(hwnd);
 
             ng_invoke_mouse_move(
                 (void*)hwnd,
@@ -386,6 +403,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             break;
         }
         case WM_MOUSELEAVE:
+            RemovePropA(hwnd, AUREA_TRACKING_PROP);
             ng_windows_recheck_pointer(hwnd);
             break;
         case WM_SETCURSOR:
@@ -397,6 +415,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_TIMER:
             if (wParam == AUREA_HOVER_TIMER_ID) {
                 ng_windows_recheck_pointer(hwnd);
+                int idx = ng_windows_tracked_index(hwnd);
+                if (idx >= 0 && g_mouse_inside[idx]) ng_windows_arm_tracking(hwnd);
                 return 0;
             }
             if (wParam == AUREA_FRAME_TIMER_ID) {
@@ -645,6 +665,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_DESTROY: {
             ng_windows_release_window_input((void*)hwnd);
             RemovePropA(hwnd, "AureaMonitor");
+            RemovePropA(hwnd, AUREA_TRACKING_PROP);
             RemovePropA(hwnd, AUREA_HIGH_SURROGATE_PROP);
             RemovePropA(hwnd, "AureaMinimized");
             for (int i = 0; i < g_tracked_count; i++) {
