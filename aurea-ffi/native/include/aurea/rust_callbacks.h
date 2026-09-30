@@ -40,6 +40,8 @@ void ng_invoke_focus_changed(void* window, int focused);
 void ng_invoke_cursor_entered(void* window, int entered);
 void ng_invoke_raw_mouse_motion(void* window, double delta_x, double delta_y);
 void ng_invoke_scale_factor_changed(void* window, float scale_factor);
+/* A canvas's own size changed, by its window or by the layout around it. */
+void ng_invoke_canvas_resized(void* canvas);
 
 #ifdef __cplusplus
 }

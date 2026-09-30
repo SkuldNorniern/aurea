@@ -2,6 +2,7 @@
 #include "../elements.h"
 #include "../window.h"
 #include "common/errors.h"
+#include "common/rust_callbacks.h"
 #include <windows.h>
 #include <windowsx.h>
 #include <stdlib.h>
@@ -109,6 +110,9 @@ static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             break;
         }
 
+        case WM_SIZE:
+            ng_invoke_canvas_resized((void*)hwnd);
+            break;
         case WM_ERASEBKGND:
             return 1;
         case WM_PAINT: {

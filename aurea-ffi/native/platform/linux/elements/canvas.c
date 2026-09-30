@@ -1,5 +1,6 @@
 #include "../elements.h"
 #include "common/errors.h"
+#include "common/rust_callbacks.h"
 #include <gtk/gtk.h>
 #if defined(GDK_WINDOWING_X11) && defined(AUREA_HAVE_X11_XCB)
 #include <gdk/gdkx.h>
@@ -14,7 +15,17 @@ typedef struct {
     unsigned int width;
     unsigned int height;
     int gpu_owned;
+    int allocated_width;
+    int allocated_height;
 } CanvasData;
+
+static void ng_linux_canvas_size_allocate(GtkWidget* widget, GdkRectangle* allocation, gpointer user_data) {
+    CanvasData* data = (CanvasData*)user_data;
+    if (allocation->width == data->allocated_width && allocation->height == data->allocated_height) return;
+    data->allocated_width = allocation->width;
+    data->allocated_height = allocation->height;
+    ng_invoke_canvas_resized((void*)widget);
+}
 
 static gboolean ng_linux_canvas_draw(GtkWidget* widget, cairo_t* cr, gpointer user_data) {
     CanvasData* data = (CanvasData*)user_data;
@@ -71,6 +82,7 @@ NGHandle ng_linux_create_canvas(int width, int height) {
     CanvasData* data = g_new0(CanvasData, 1);
     g_object_set_data_full(G_OBJECT(drawing_area), "aurea-canvas-data", data, g_free);
     g_signal_connect(G_OBJECT(drawing_area), "draw", G_CALLBACK(ng_linux_canvas_draw), data);
+    g_signal_connect(G_OBJECT(drawing_area), "size-allocate", G_CALLBACK(ng_linux_canvas_size_allocate), data);
     
     return (NGHandle)drawing_area;
 }
