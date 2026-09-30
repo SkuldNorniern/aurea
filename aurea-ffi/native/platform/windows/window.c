@@ -486,21 +486,26 @@ int ng_windows_window_is_focused(NGHandle window) {
     return (GetForegroundWindow() == hwnd) ? 1 : 0;
 }
 
+/* ShowCursor is a counter, not a setter, and the count is shared with the
+   rest of the thread. Calling it until the cursor changed moved the count
+   every time, so a visible cursor asked for every frame took as many hides
+   to go away. Aurea keeps one step of it, and only when the state changes. */
+static HWND g_cursor_hidden_by = NULL;
+
 int ng_windows_window_set_cursor_visible(NGHandle window, int visible) {
     if (!window) return NG_ERROR_INVALID_HANDLE;
-    int count = 0;
-    int limit = 32;
-
+    HWND hwnd = (HWND)window;
     if (visible) {
-        while (count < limit && ShowCursor(TRUE) < 0) {
-            count++;
+        if (g_cursor_hidden_by) {
+            ShowCursor(TRUE);
+            g_cursor_hidden_by = NULL;
         }
+    } else if (!g_cursor_hidden_by) {
+        ShowCursor(FALSE);
+        g_cursor_hidden_by = hwnd;
     } else {
-        while (count < limit && ShowCursor(FALSE) >= 0) {
-            count++;
-        }
+        g_cursor_hidden_by = hwnd;
     }
-
     return NG_SUCCESS;
 }
 
@@ -624,6 +629,10 @@ void ng_windows_release_window_input(void* window) {
     HWND hwnd = (HWND)window;
     ng_windows_give_up_grab(hwnd);
     RemovePropA(hwnd, AUREA_CURSOR_GRAB_PROP);
+    if (g_cursor_hidden_by == hwnd) {
+        ShowCursor(TRUE);
+        g_cursor_hidden_by = NULL;
+    }
 }
 
 int ng_windows_window_set_cursor_grab(NGHandle window, int mode) {
