@@ -51,8 +51,10 @@ fn render_scaled(scale: f32, draw: impl FnOnce(&mut dyn DrawingContext)) -> Vec<
     assert_eq!(bw, W, "unexpected buffer width");
     let bytes = unsafe { from_raw_parts(ptr, len) };
     bytes
-        .chunks_exact(4)
-        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|&c| u32::from_le_bytes(c))
         .collect()
 }
 
@@ -918,8 +920,10 @@ fn a_small_change_leaves_the_rest_of_the_frame_intact() {
     let (ptr, len, _, _) = r.get_buffer();
     let bytes = unsafe { from_raw_parts(ptr, len) };
     let buf: Vec<u32> = bytes
-        .chunks_exact(4)
-        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|&c| u32::from_le_bytes(c))
         .collect();
 
     // The static square is untouched.

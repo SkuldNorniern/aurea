@@ -215,8 +215,10 @@ impl Canvas {
         // SAFETY: the renderer is held for the length of the call, so its
         let bytes = unsafe { from_raw_parts(frame.pixels, frame.size) };
         let pixels: Vec<u32> = bytes
-            .chunks_exact(4)
-            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|&c| u32::from_le_bytes(c))
             .collect();
         Some(f(&pixels, frame.width, frame.height))
     }
