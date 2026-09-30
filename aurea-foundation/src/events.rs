@@ -54,6 +54,10 @@ pub enum WindowEvent {
         y: f64,
         click_count: u8,
     },
+    /// The wheel or a touchpad scrolled. Positive `delta_y` is up, the wheel
+    /// turned away from the user, and positive `delta_x` is right, on every
+    /// platform. A wheel notch is 1.0 on Windows and GTK; macOS gives
+    /// AppKit's scrolling deltas, which are points on a trackpad.
     MouseWheel {
         delta_x: f64,
         delta_y: f64,
