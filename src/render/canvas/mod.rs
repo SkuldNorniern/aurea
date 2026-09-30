@@ -273,9 +273,6 @@ impl Canvas {
         }
 
         self.update_platform_view();
-        unsafe {
-            ng_platform_canvas_invalidate(self.handle);
-        }
         Ok(())
     }
 
@@ -341,9 +338,6 @@ impl Canvas {
             st.needs_redraw = true;
         }
         FrameScheduler::schedule_canvas(self.handle);
-        unsafe {
-            ng_platform_canvas_invalidate(self.handle);
-        }
     }
 
     /// Check if canvas needs redraw and perform it.
@@ -374,15 +368,6 @@ impl Canvas {
             st.needs_redraw = true;
         }
         FrameScheduler::schedule_canvas(self.handle);
-        unsafe {
-            ng_platform_canvas_invalidate_rect(
-                self.handle,
-                rect.x,
-                rect.y,
-                rect.width,
-                rect.height,
-            );
-        }
     }
 
     pub fn width(&self) -> u32 {
