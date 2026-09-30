@@ -244,17 +244,15 @@ impl Window {
             handle,
             Arc::new(move |event| {
                 let handle_ptr = handle_usize as *mut c_void;
-                match event {
-                    LifecycleEvent::WindowWillClose => {
-                        eq_clone.push(WindowEvent::CloseRequested);
-                    }
+                let event = match event {
+                    LifecycleEvent::WindowWillClose => WindowEvent::CloseRequested,
                     LifecycleEvent::WindowMoved => {
                         let mut x = 0;
                         let mut y = 0;
                         unsafe {
                             ng_platform_window_get_position(handle_ptr, &mut x, &mut y);
                         }
-                        eq_clone.push(WindowEvent::Moved { x, y });
+                        WindowEvent::Moved { x, y }
                     }
                     LifecycleEvent::WindowResized => {
                         let mut w = 0;
@@ -262,25 +260,22 @@ impl Window {
                         unsafe {
                             ng_platform_window_get_size(handle_ptr, &mut w, &mut h);
                         }
-                        eq_clone.push(WindowEvent::Resized {
+                        WindowEvent::Resized {
                             width: w.cast_unsigned(),
                             height: h.cast_unsigned(),
-                        });
+                        }
                     }
-                    LifecycleEvent::WindowMinimized => {
-                        eq_clone.push(WindowEvent::Minimized);
-                    }
-                    LifecycleEvent::WindowRestored => {
-                        eq_clone.push(WindowEvent::Restored);
-                    }
-                    LifecycleEvent::SurfaceLost => {
-                        eq_clone.push(WindowEvent::SurfaceLost);
-                    }
-                    LifecycleEvent::SurfaceRecreated => {
-                        eq_clone.push(WindowEvent::SurfaceRecreated);
-                    }
-                    _ => {}
-                }
+                    LifecycleEvent::WindowMinimized => WindowEvent::Minimized,
+                    LifecycleEvent::WindowRestored => WindowEvent::Restored,
+                    LifecycleEvent::SurfaceLost => WindowEvent::SurfaceLost,
+                    LifecycleEvent::SurfaceRecreated => WindowEvent::SurfaceRecreated,
+                    _ => return,
+                };
+                eq_clone.push(event);
+                // Queued here rather than through push_window_event, so the
+                // wake is ours to ask for. An idle loop runs no frame by
+                // itself, and the event would wait for an unrelated one.
+                FrameScheduler::wake();
             }),
         );
 
