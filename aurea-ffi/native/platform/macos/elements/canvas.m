@@ -47,6 +47,7 @@
         self.cachedWidth = width;
         self.cachedHeight = height;
         [self setNeedsDisplay:YES];
+        ng_invoke_canvas_resized((__bridge void*)self);
     }
 }
 

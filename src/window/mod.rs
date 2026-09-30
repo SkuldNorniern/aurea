@@ -61,14 +61,6 @@ static PLATFORM: LazyLock<Mutex<PlatformState>> = LazyLock::new(|| {
     })
 });
 
-fn redraw_canvases_in(window: *mut c_void) {
-    for canvas in FrameScheduler::registered_canvases() {
-        if unsafe { ng_platform_canvas_get_window(canvas) } == window {
-            FrameScheduler::schedule_canvas(canvas);
-        }
-    }
-}
-
 fn acquire_platform() -> AureaResult<()> {
     let mut state = lock(&PLATFORM);
     if !state.ready {
@@ -232,9 +224,6 @@ impl Window {
                     LifecycleEvent::SurfaceRecreated => WindowEvent::SurfaceRecreated,
                     _ => return,
                 };
-                if matches!(event, WindowEvent::Resized { .. }) {
-                    redraw_canvases_in(handle_ptr);
-                }
                 eq_clone.push(event);
                 FrameScheduler::wake();
             }),

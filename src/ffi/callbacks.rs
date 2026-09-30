@@ -229,6 +229,14 @@ pub extern "C" fn ng_invoke_scale_factor_changed(window: *mut c_void, scale_fact
     });
 }
 
+/// A canvas was given a new size by the platform.
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_canvas_resized(canvas: *mut c_void) {
+    guard("ng_invoke_canvas_resized", || {
+        FrameScheduler::schedule_canvas(canvas);
+    });
+}
+
 /// Invoke a custom callback by ID.
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_custom_callback(id: u32) {
