@@ -137,6 +137,18 @@ unsigned int ng_windows_window_refresh_hz(void) {
     return (unsigned int)best;
 }
 
+/* Paints what the frame just invalidated, before going back to the queue.
+   WM_PAINT is only handed out once nothing else is waiting, so with messages
+   coming faster than they were handled, frames were drawn and not shown: a
+   hundred frames a second and a handful of paints. Only a finished frame
+   gets here, after every canvas published its new pixels, so what is painted
+   is always the new frame. */
+void ng_windows_present(void) {
+    for (int i = 0; i < g_tracked_count; i++) {
+        RedrawWindow(g_tracked_windows[i], NULL, NULL, RDW_UPDATENOW | RDW_ALLCHILDREN);
+    }
+}
+
 static unsigned int ng_windows_modifiers(void) {
     unsigned int mods = 0;
     if (GetKeyState(VK_SHIFT) & 0x8000) {
