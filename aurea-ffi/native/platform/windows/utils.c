@@ -323,6 +323,12 @@ static void ng_windows_recheck_pointer(HWND root) {
     POINT pt;
     GetCursorPos(&pt);
     HWND under = WindowFromPoint(pt);
+    POINT client = pt;
+    ScreenToClient(root, &client);
+    RECT content;
+    GetClientRect(root, &content);
+    if (!PtInRect(&content, client)) under = NULL;
+
     if (under == root) {
         KillTimer(root, AUREA_HOVER_TIMER_ID);
         ng_windows_track_leave(root);
