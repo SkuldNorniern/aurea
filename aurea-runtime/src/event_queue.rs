@@ -30,9 +30,12 @@ impl EventQueue {
         // replaced by the newest one, while deltas must be summed or the motion
         // they describe is silently thrown away.
         match &event {
+            // With the cursor grabbed, every move comes with a raw delta, so
+            // the two alternate and neither was ever next to its own kind.
+            // Either merges past the other, but never past anything else.
             WindowEvent::MouseMove { .. } => {
-                if let Some(last) = events.last_mut()
-                    && discriminant(last) == discriminant(&event)
+                if let Some(last) = trailing_motion(&mut events)
+                    .find(|e| discriminant(&**e) == discriminant(&event))
                 {
                     *last = event;
                     return;
@@ -42,7 +45,8 @@ impl EventQueue {
                 if let Some(WindowEvent::RawMouseMotion {
                     delta_x: last_x,
                     delta_y: last_y,
-                }) = events.last_mut()
+                }) = trailing_motion(&mut events)
+                    .find(|e| matches!(e, WindowEvent::RawMouseMotion { .. }))
                 {
                     *last_x += delta_x;
                     *last_y += delta_y;
@@ -77,6 +81,16 @@ impl EventQueue {
         let mut events = lock(&self.events);
         take(&mut *events)
     }
+}
+
+/// The run of pointer motion at the end of the queue, newest first.
+fn trailing_motion(events: &mut [WindowEvent]) -> impl Iterator<Item = &mut WindowEvent> {
+    events.iter_mut().rev().take_while(|e| {
+        matches!(
+            e,
+            WindowEvent::MouseMove { .. } | WindowEvent::RawMouseMotion { .. }
+        )
+    })
 }
 
 impl Default for EventQueue {
@@ -124,6 +138,55 @@ mod tests {
         q.push(wheel(4.0, ctrl));
 
         assert_eq!(q.pop_all().len(), 2);
+    }
+
+    fn motion(x: f64) -> WindowEvent {
+        WindowEvent::MouseMove {
+            x,
+            y: 0.0,
+            buttons: MouseButtons::default(),
+            modifiers: Modifiers::new(),
+        }
+    }
+
+    fn raw(dx: f64) -> WindowEvent {
+        WindowEvent::RawMouseMotion {
+            delta_x: dx,
+            delta_y: 0.0,
+        }
+    }
+
+    /// A grabbed cursor sends a move and a raw delta for every motion.
+    #[test]
+    fn alternating_moves_and_raw_motion_still_merge() {
+        let q = EventQueue::new();
+        for i in 0..1000 {
+            q.push(motion(f64::from(i)));
+            q.push(raw(1.0));
+        }
+
+        let events = q.pop_all();
+        assert_eq!(events.len(), 2, "{events:?}");
+        assert!(matches!(events[0], WindowEvent::MouseMove { x, .. } if x == 999.0));
+        assert!(
+            matches!(events[1], WindowEvent::RawMouseMotion { delta_x, .. } if delta_x == 1000.0)
+        );
+    }
+
+    /// A button in between keeps the motion on either side of it apart.
+    #[test]
+    fn motion_does_not_merge_past_other_events() {
+        let q = EventQueue::new();
+        q.push(motion(1.0));
+        q.push(WindowEvent::Focused);
+        q.push(motion(2.0));
+        q.push(raw(1.0));
+        q.push(motion(3.0));
+
+        let events = q.pop_all();
+        assert_eq!(events.len(), 4, "{events:?}");
+        assert!(matches!(events[0], WindowEvent::MouseMove { x, .. } if x == 1.0));
+        assert!(matches!(events[2], WindowEvent::MouseMove { x, .. } if x == 3.0));
     }
 
     #[test]
