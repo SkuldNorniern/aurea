@@ -206,7 +206,10 @@ mod tests {
         assert!(!scale_factor_changed(window, 2.0));
         assert!(scale_factor_changed(window, 1.5));
         unregister_event_queue(window);
-        assert!(scale_factor_changed(window, 1.5), "a new window starts fresh");
+        assert!(
+            scale_factor_changed(window, 1.5),
+            "a new window starts fresh"
+        );
         unregister_event_queue(window);
     }
 }
