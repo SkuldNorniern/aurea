@@ -355,11 +355,30 @@ static gboolean on_key_release(GtkWidget* widget, GdkEventKey* event, gpointer u
     return FALSE;
 }
 
+/* Pointer state for one window. It was process-wide, so a button held in
+ * one window made another treat its crossings as part of a drag, and
+ * clicks in two windows could count as one double click. */
+typedef struct {
+    unsigned int held;
+    guint last_button;
+    guint32 last_time;
+    double last_x;
+    double last_y;
+    int count;
+} NgLinuxPointer;
+
+static NgLinuxPointer* ng_linux_pointer(GtkWidget* window) {
+    NgLinuxPointer* pointer = g_object_get_data(G_OBJECT(window), "aurea-pointer");
+    if (!pointer) {
+        pointer = g_new0(NgLinuxPointer, 1);
+        g_object_set_data_full(G_OBJECT(window), "aurea-pointer", pointer, g_free);
+    }
+    return pointer;
+}
+
 /* GTK hands a toplevel its own button and motion events twice: once from
  * _gtk_window_check_handle_wm_event, and once more through normal propagation
  * when the handler lets it through. Report each native event once. */
-static int g_buttons_held = 0;
-
 static gboolean ng_linux_already_seen(GdkEvent* event) {
     static GdkEvent* last = NULL;
     static GdkEventType last_type = GDK_NOTHING;
@@ -413,11 +432,7 @@ static void ng_linux_content_point(GtkWidget* window, GdkWindow* from, double* x
  * GDK_2BUTTON_PRESS on top. Count clicks on the plain press, with GTK's own
  * double click time and distance, so each click is one press. */
 static int ng_linux_click_count(GtkWidget* widget, GdkEventButton* event) {
-    static guint last_button = 0;
-    static guint32 last_time = 0;
-    static double last_x = 0.0;
-    static double last_y = 0.0;
-    static int count = 0;
+    NgLinuxPointer* p = ng_linux_pointer(widget);
 
     gint time = 400;
     gint distance = 5;
@@ -425,18 +440,18 @@ static int ng_linux_click_count(GtkWidget* widget, GdkEventButton* event) {
         "gtk-double-click-time", &time,
         "gtk-double-click-distance", &distance,
         NULL);
-    double dx = event->x_root - last_x;
-    double dy = event->y_root - last_y;
-    gboolean again = count > 0 && event->button == last_button &&
-        event->time - last_time <= (guint32)time &&
+    double dx = event->x_root - p->last_x;
+    double dy = event->y_root - p->last_y;
+    gboolean again = p->count > 0 && event->button == p->last_button &&
+        event->time - p->last_time <= (guint32)time &&
         dx * dx + dy * dy <= (double)(distance * distance);
 
-    count = again ? count + 1 : 1;
-    last_button = event->button;
-    last_time = event->time;
-    last_x = event->x_root;
-    last_y = event->y_root;
-    return count;
+    p->count = again ? p->count + 1 : 1;
+    p->last_button = event->button;
+    p->last_time = event->time;
+    p->last_x = event->x_root;
+    p->last_y = event->y_root;
+    return p->count;
 }
 
 static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpointer user_data) {
@@ -448,7 +463,7 @@ static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpoint
     double x = event->x;
     double y = event->y;
     ng_linux_content_point(widget, event->window, &x, &y);
-    g_buttons_held++;
+    if (button < 8) ng_linux_pointer(widget)->held |= 1u << button;
     ng_invoke_mouse_button((void*)widget, button, 1, mods, x, y, click_count);
     return FALSE;
 }
@@ -460,7 +475,7 @@ static gboolean on_button_release(GtkWidget* widget, GdkEventButton* event, gpoi
     double x = event->x;
     double y = event->y;
     ng_linux_content_point(widget, event->window, &x, &y);
-    if (g_buttons_held > 0) g_buttons_held--;
+    if (button < 8) ng_linux_pointer(widget)->held &= ~(1u << button);
     ng_invoke_mouse_button((void*)widget, button, 0, mods, x, y, 1);
     return FALSE;
 }
@@ -537,7 +552,7 @@ static gboolean on_focus_out(GtkWidget* widget, GdkEventFocus* event, gpointer u
  * a leave for it, and a drag that goes outside is not a leave until the
  * release. */
 static gboolean ng_linux_crossing_is_inside(GtkWidget* widget, GdkEventCrossing* event) {
-    return g_buttons_held > 0 ||
+    return ng_linux_pointer(widget)->held != 0 ||
         event->detail == GDK_NOTIFY_INFERIOR ||
         event->window != gtk_widget_get_window(widget);
 }
