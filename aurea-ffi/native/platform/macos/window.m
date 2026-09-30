@@ -653,10 +653,7 @@ int ng_macos_window_set_icon_rgba(
 void ng_macos_window_set_size(NGHandle window, int width, int height) {
     if (!window) return;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
-    NSRect frame = [nsWindow frame];
-    frame.size.width = width;
-    frame.size.height = height;
-    [nsWindow setFrame:frame display:YES];
+    [nsWindow setContentSize:NSMakeSize(width, height)];
 }
 
 void ng_macos_window_get_size(NGHandle window, int* width, int* height) {
