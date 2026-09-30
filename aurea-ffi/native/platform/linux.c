@@ -50,13 +50,24 @@ int ng_linux_poll_events(void) {
     return NG_SUCCESS;
 }
 
-void ng_linux_request_frame(void) {
-    if (g_frame_source_id != 0) return;
+static gint g_request_posted = 0;
+
+static gboolean ng_linux_schedule_frame(gpointer user_data) {
+    (void)user_data;
+    g_atomic_int_set(&g_request_posted, 0);
+    if (g_frame_source_id != 0) return G_SOURCE_REMOVE;
     gint64 wait_us = g_next_frame_us - g_get_monotonic_time();
     if (wait_us <= 0) {
         g_frame_source_id = g_idle_add(process_frames_once, NULL);
     } else {
         g_frame_source_id = g_timeout_add_full(G_PRIORITY_DEFAULT_IDLE,
             (guint)((wait_us + 999) / 1000), process_frames_once, NULL, NULL);
+    }
+    return G_SOURCE_REMOVE;
+}
+
+void ng_linux_request_frame(void) {
+    if (g_atomic_int_compare_and_exchange(&g_request_posted, 0, 1)) {
+        g_main_context_invoke(NULL, ng_linux_schedule_frame, NULL);
     }
 }
