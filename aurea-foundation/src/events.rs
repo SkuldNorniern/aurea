@@ -58,6 +58,7 @@ pub enum WindowEvent {
         pressed: bool,
         modifiers: Modifiers,
     },
+    /// Text typed into the window, to insert.
     TextInput {
         text: String,
     },
