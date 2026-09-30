@@ -261,26 +261,28 @@ static unsigned int ng_windows_keycode_from_vk(WPARAM vk) {
 
 // WM_CHAR delivers UTF-16 code units one at a time, so a surrogate pair
 // (e.g. emoji, characters outside the BMP) arrives as two messages. Buffer
-// the high surrogate until its matching low surrogate arrives.
-static wchar_t g_high_surrogate = 0;
+// the high surrogate until its matching low surrogate arrives. Kept on the
+// window it was typed into, so half a character cannot pair up with the
+// other half of one typed into another window.
+#define AUREA_HIGH_SURROGATE_PROP "AureaHighSurrogate"
 
 static void ng_windows_emit_text_input(HWND hwnd, wchar_t wc) {
     if (wc >= 0xD800 && wc <= 0xDBFF) {
-        g_high_surrogate = wc;
+        SetPropA(hwnd, AUREA_HIGH_SURROGATE_PROP, (HANDLE)(UINT_PTR)wc);
         return;
     }
 
+    wchar_t high = (wchar_t)(UINT_PTR)RemovePropA(hwnd, AUREA_HIGH_SURROGATE_PROP);
     wchar_t units[2];
     int count;
-    if (g_high_surrogate != 0 && wc >= 0xDC00 && wc <= 0xDFFF) {
-        units[0] = g_high_surrogate;
+    if (high != 0 && wc >= 0xDC00 && wc <= 0xDFFF) {
+        units[0] = high;
         units[1] = wc;
         count = 2;
     } else {
         units[0] = wc;
         count = 1;
     }
-    g_high_surrogate = 0;
 
     char buffer[8];
     int len = WideCharToMultiByte(CP_UTF8, 0, units, count, buffer, (int)sizeof(buffer) - 1, NULL, NULL);
@@ -405,6 +407,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             ng_windows_cursor_grab_activate((void*)hwnd, LOWORD(wParam) != WA_INACTIVE);
             break;
         case WM_KILLFOCUS:
+            RemovePropA(hwnd, AUREA_HIGH_SURROGATE_PROP);
             ng_invoke_focus_changed((void*)hwnd, 0);
             break;
         case WM_MOUSEMOVE: {
@@ -708,6 +711,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                ng_windows_destroy_window. */
             ng_windows_release_window_input((void*)hwnd);
             RemovePropA(hwnd, "AureaMonitor");
+            RemovePropA(hwnd, AUREA_HIGH_SURROGATE_PROP);
             RemovePropA(hwnd, "AureaMinimized");
             /* Drop the window from tracking, then quit only when the last one
                is gone. Quitting on any window's destruction took the whole app
