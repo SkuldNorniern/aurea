@@ -142,14 +142,19 @@ float ng_windows_get_scale_factor(NGHandle window) {
     HWND hwnd = (HWND)window;
     
     typedef UINT (WINAPI *GetDpiForWindowFunc)(HWND);
-    HMODULE user32 = GetModuleHandleA("user32.dll");
-    if (user32) {
-        GetDpiForWindowFunc getDpiForWindow = (GetDpiForWindowFunc)GetProcAddress(user32, "GetDpiForWindow");
-        if (getDpiForWindow) {
-            UINT dpi = getDpiForWindow(hwnd);
-            if (dpi > 0) {
-                return (float)dpi / 96.0f;
-            }
+    static GetDpiForWindowFunc getDpiForWindow = NULL;
+    static BOOL looked_up = FALSE;
+    if (!looked_up) {
+        HMODULE user32 = GetModuleHandleA("user32.dll");
+        if (user32) {
+            getDpiForWindow = (GetDpiForWindowFunc)GetProcAddress(user32, "GetDpiForWindow");
+        }
+        looked_up = TRUE;
+    }
+    if (getDpiForWindow) {
+        UINT dpi = getDpiForWindow(hwnd);
+        if (dpi > 0) {
+            return (float)dpi / 96.0f;
         }
     }
     
