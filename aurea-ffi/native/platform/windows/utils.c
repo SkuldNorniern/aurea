@@ -474,8 +474,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             }
             break;
         }
-        case WM_CHAR:
-        case WM_SYSCHAR: {
+        case WM_CHAR: {
             wchar_t wc = (wchar_t)wParam;
             ng_windows_emit_text_input(hwnd, wc);
             break;
