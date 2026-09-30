@@ -22,9 +22,7 @@ use zen_window_handle::{DisplayHandle, Win32WindowHandle, WindowHandle};
 use zengpu_hal::WindowHandles;
 
 /// Build the `zengpu_hal` window/display handle pair for a native window or
-/// canvas handle already extracted via
-/// [`native_handle_from_window_ptr`](super::handles::native_handle_from_window_ptr)
-/// or [`native_handle_from_canvas_ptr`](super::handles::native_handle_from_canvas_ptr).
+/// canvas handle already taken from a window or canvas.
 pub fn window_handles(native: &NativeWindowHandle) -> AureaResult<WindowHandles> {
     #[cfg(target_os = "macos")]
     {
