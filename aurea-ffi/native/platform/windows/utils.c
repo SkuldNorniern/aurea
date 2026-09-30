@@ -492,6 +492,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_ENTERMENULOOP:
             ng_windows_modal_begin(hwnd);
             break;
+        /* The timer is the last message a modal loop hands out, and a
+           steady drag keeps it from ever coming. The drag's own messages
+           give frames their chance instead; the timer covers holding
+           still. */
+        case WM_SIZING:
+        case WM_MOVING:
+        case WM_MENUSELECT:
+            ng_windows_modal_tick();
+            break;
         case WM_EXITSIZEMOVE:
         case WM_EXITMENULOOP:
             ng_windows_modal_end(hwnd);
