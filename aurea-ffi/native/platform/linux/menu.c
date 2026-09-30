@@ -164,6 +164,7 @@ static void menu_item_clicked(GtkMenuItem *item, gpointer user_data) {
 
 NGMenuHandle ng_linux_create_menu(void) {
     GtkWidget *menubar = gtk_menu_bar_new();
+    g_object_ref_sink(menubar);
     register_menu_root(menubar, menubar);
     return (NGMenuHandle)menubar;
 }
@@ -171,6 +172,7 @@ NGMenuHandle ng_linux_create_menu(void) {
 void ng_linux_destroy_menu(NGMenuHandle handle) {
     if (!handle) return;
     gtk_widget_destroy((GtkWidget*)handle);
+    g_object_unref(handle);
 }
 
 int ng_linux_attach_menu(NGHandle window, NGMenuHandle menu) {
