@@ -15,6 +15,8 @@ use aurea::{AureaResult, Container, Window, gpu_support};
 use aurea_runtime::FrameScheduler;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::thread::sleep;
+use std::time::Duration;
 
 const BG: Color = Color {
     r: 240,
@@ -42,6 +44,17 @@ fn drawn_pixels(canvas: &Canvas) -> usize {
         .unwrap_or(0)
 }
 
+/// Pumps the window for a while. GTK lays widgets out on its frame clock, so
+/// a single non-blocking pump can finish before the canvas has its size.
+fn settle(window: &Window) -> AureaResult<()> {
+    for _ in 0..20 {
+        window.poll_events();
+        window.process_frames()?;
+        sleep(Duration::from_millis(5));
+    }
+    Ok(())
+}
+
 fn window_with_canvas(title: &str) -> AureaResult<(Window, Canvas)> {
     let mut window = Window::new(title, 400, 300)?;
     let canvas = Canvas::new(400, 300, RendererBackend::Cpu)?;
@@ -51,8 +64,7 @@ fn window_with_canvas(title: &str) -> AureaResult<(Window, Canvas)> {
     window.set_content(layout)?;
     window.show();
     // Let the canvas settle at the size the window actually gave it.
-    window.poll_events();
-    window.process_frames()?;
+    settle(&window)?;
     Ok((window, canvas))
 }
 
