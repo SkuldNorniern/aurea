@@ -84,24 +84,13 @@ int ng_windows_box_add(NGHandle box, NGHandle element) {
         BOOL is_window_parent = (_stricmp(parent_class, "NativeGuiWindow") == 0);
 
         if (is_window_parent) {
+            /* The client area already leaves the menu bar out, as it does
+               for the window's resize handler. */
             RECT parent_rect;
             GetClientRect(box_parent, &parent_rect);
 
-            HMENU menu = GetMenu(box_parent);
-            int menu_height = 0;
-            if (menu) {
-                RECT menu_rect;
-                if (GetMenuItemRect(box_parent, menu, 0, &menu_rect)) {
-                    POINT pt = {menu_rect.left, menu_rect.top};
-                    ScreenToClient(box_parent, &pt);
-                    menu_height = menu_rect.bottom - menu_rect.top + pt.y;
-                } else {
-                    menu_height = GetSystemMetrics(SM_CYMENU);
-                }
-            }
-
             int target_width = parent_rect.right - parent_rect.left;
-            int target_height = parent_rect.bottom - parent_rect.top - menu_height;
+            int target_height = parent_rect.bottom - parent_rect.top;
             
             SetWindowPos(box_hwnd, NULL, 0, 0,
                         target_width, target_height,
