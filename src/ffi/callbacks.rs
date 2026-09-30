@@ -238,6 +238,19 @@ pub extern "C" fn ng_invoke_scale_factor_changed(window: *mut c_void, scale_fact
     });
 }
 
+/// A canvas was given a new size by the platform.
+///
+/// Its window resizing is one way, the layout around it moving is another,
+/// and so is being laid out for the first time after a frame already drew it
+/// at whatever size it had. Nothing else redraws it at the new size, and the
+/// platform stretches the old frame to fit meanwhile.
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_canvas_resized(canvas: *mut c_void) {
+    guard("ng_invoke_canvas_resized", || {
+        FrameScheduler::schedule_canvas(canvas);
+    });
+}
+
 /// Invoke a custom callback by ID. Used by SwiftUI and other platform code.
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_custom_callback(id: u32) {

@@ -127,11 +127,6 @@ impl FrameScheduler {
         CANVAS_REGISTRY.with(|r| r.borrow_mut().insert(handle as usize, callback));
     }
 
-    /// The canvases with a redraw callback on this thread.
-    pub fn registered_canvases() -> Vec<*mut c_void> {
-        CANVAS_REGISTRY.with(|r| r.borrow().keys().map(|&h| h as *mut c_void).collect())
-    }
-
     pub fn unregister_canvas(handle: *mut c_void) {
         CANVAS_REGISTRY.with(|r| r.borrow_mut().remove(&(handle as usize)));
         lock(&PENDING_CANVASES).remove(&(handle as usize));
@@ -362,17 +357,6 @@ mod tests {
             0,
             "a canvas nobody dirtied was repainted anyway"
         );
-    }
-
-    /// A window finds its canvases here to redraw them when it is resized.
-    #[test]
-    fn registered_canvases_lists_what_can_redraw() {
-        let _guard = TestGuard::new();
-        FrameScheduler::register_canvas(handle(1), Rc::new(|| Ok(())));
-        FrameScheduler::register_canvas(handle(2), Rc::new(|| Ok(())));
-        FrameScheduler::unregister_canvas(handle(1));
-
-        assert_eq!(FrameScheduler::registered_canvases(), vec![handle(2)]);
     }
 
     /// Dirtying one canvas redraws that one and leaves the others alone.
