@@ -679,9 +679,10 @@ void ng_macos_window_set_size(NGHandle window, int width, int height) {
 void ng_macos_window_get_size(NGHandle window, int* width, int* height) {
     if (!window || !width || !height) return;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
-    NSRect frame = [nsWindow frame];
-    *width = (int)frame.size.width;
-    *height = (int)frame.size.height;
+    /* The content, without the title bar, as GTK and Windows report it. */
+    NSRect content = [nsWindow contentRectForFrameRect:[nsWindow frame]];
+    *width = (int)content.size.width;
+    *height = (int)content.size.height;
 }
 
 void ng_macos_window_set_position(NGHandle window, int x, int y) {
