@@ -33,8 +33,8 @@ use crate::platform::handles::native_handle_from_window_ptr;
 use crate::platform::ui_thread;
 use crate::registry::window::{
     dispatch_window_events, process_window_updates, register_event_callback, register_event_queue,
-    register_update_callback, register_update_callbacks, unregister_event_callbacks,
-    unregister_event_queue, unregister_update_callbacks,
+    register_update_callback, register_update_callbacks, scale_factor_changed,
+    unregister_event_callbacks, unregister_event_queue, unregister_update_callbacks,
 };
 use crate::render::Rect;
 use crate::{AureaError, AureaResult};
@@ -244,6 +244,7 @@ impl Window {
         let event_queue = Arc::new(EventQueue::new());
 
         register_event_queue(handle, &event_queue);
+        scale_factor_changed(handle, scale_factor);
         register_update_callbacks(handle);
 
         // Register lifecycle bridge
