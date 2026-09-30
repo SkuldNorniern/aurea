@@ -20,6 +20,9 @@
 static HANDLE g_frame_event = NULL;
 static HANDLE g_frame_timer = NULL;
 static BOOL g_timer_armed = FALSE;
+/* Asked for and not yet run. Only a modal loop leaves one behind: it
+   takes the request but runs the frame on a later tick. */
+static BOOL g_frame_pending = FALSE;
 static BOOL g_in_frame = FALSE;
 static LONGLONG g_qpc_freq = 0;
 static LONGLONG g_frame_interval = 0;
@@ -50,12 +53,6 @@ static DWORD ng_windows_refresh_hz(void) {
 
 void ng_windows_display_changed(void) {
     if (g_qpc_freq > 0) g_frame_interval = g_qpc_freq / ng_windows_refresh_hz();
-}
-
-unsigned int ng_windows_frame_interval_ms(void) {
-    if (g_qpc_freq <= 0 || g_frame_interval <= 0) return 16;
-    LONGLONG ms = g_frame_interval * 1000 / g_qpc_freq;
-    return ms > 0 ? (unsigned int)ms : 1;
 }
 
 static void ng_windows_run_frame(void) {
@@ -92,7 +89,23 @@ static void ng_windows_frame_wanted(void) {
 
 /* Moving, sizing and menus run their own message loop inside
    DispatchMessage, so ng_windows_run does not get to wait on anything until
-   they end. The window proc calls this from a timer meanwhile. */
+   they end. A window timer drives frames meanwhile.
+
+   It fires on the 15.6 ms system tick whatever it asks for, raised timer
+   resolution or not. Asking for a frame interval of 16 ms got two ticks,
+   38 frames a second at 60 Hz, so it asks for the shortest wait and lets
+   the deadline pick the tick. Above 64 Hz the tick is the limit. */
+void ng_windows_modal_begin(HWND hwnd) {
+    SetTimer(hwnd, AUREA_FRAME_TIMER_ID, USER_TIMER_MINIMUM, NULL);
+}
+
+void ng_windows_modal_end(HWND hwnd) {
+    KillTimer(hwnd, AUREA_FRAME_TIMER_ID);
+}
+
+/* A tick can come before the next frame is due, so a request is only
+   noted here and runs once its refresh has come, the same rule as the main
+   loop. */
 void ng_windows_modal_tick(void) {
     if (!g_frame_event) return;
     HANDLE handles[2] = { g_frame_event, g_frame_timer };
@@ -100,6 +113,10 @@ void ng_windows_modal_tick(void) {
     DWORD result = WaitForMultipleObjects(count, handles, FALSE, 0);
     if (result == WAIT_OBJECT_0 + 1) g_timer_armed = FALSE;
     if (result == WAIT_OBJECT_0 || result == WAIT_OBJECT_0 + 1) {
+        g_frame_pending = TRUE;
+    }
+    if (g_frame_pending && ng_windows_now() >= g_next_frame) {
+        g_frame_pending = FALSE;
         ng_windows_run_frame();
     }
 }
@@ -111,6 +128,7 @@ int ng_windows_run(void) {
     ng_windows_display_changed();
     g_next_frame = 0;
     g_timer_armed = FALSE;
+    g_frame_pending = FALSE;
 
     g_frame_event = CreateEventA(NULL, FALSE, FALSE, NULL); // auto-reset
     /* The plain timer ticks at the system timer resolution, 15.6 ms unless
@@ -151,7 +169,11 @@ int ng_windows_run(void) {
             DispatchMessageW(&msg);
         }
 
-        if (wanted) ng_windows_frame_wanted();
+        /* A modal loop may have ended with a frame taken but not run. */
+        if (wanted || g_frame_pending) {
+            g_frame_pending = FALSE;
+            ng_windows_frame_wanted();
+        }
     }
 done:
     if (g_frame_timer) {
