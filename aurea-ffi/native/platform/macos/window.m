@@ -287,9 +287,10 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
 
 - (void)scrollWheel:(NSEvent*)event {
     if (!self.windowHandle) return;
+    /* AppKit counts left as positive; Aurea, like Windows and GDK, right. */
     ng_invoke_mouse_wheel(
         self.windowHandle,
-        (double)[event scrollingDeltaX],
+        -(double)[event scrollingDeltaX],
         (double)[event scrollingDeltaY],
         ng_macos_modifiers(event));
 }

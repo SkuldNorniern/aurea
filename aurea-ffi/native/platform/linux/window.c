@@ -537,7 +537,8 @@ static gboolean on_scroll(GtkWidget* widget, GdkEventScroll* event, gpointer use
         }
     }
 
-    ng_invoke_mouse_wheel((void*)widget, dx, dy, mods);
+    /* GDK counts down as positive; Aurea, like Windows and AppKit, up. */
+    ng_invoke_mouse_wheel((void*)widget, dx, -dy, mods);
     return FALSE;
 }
 
