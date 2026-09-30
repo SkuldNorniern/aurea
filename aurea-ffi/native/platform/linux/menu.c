@@ -162,8 +162,12 @@ static void menu_item_clicked(GtkMenuItem *item, gpointer user_data) {
     ng_invoke_menu_callback(id);
 }
 
+/* The handle owns a reference. Its window destroys the menu bar along with
+   everything else, and that used to free it before the handle was done with
+   it, so the handle's own destroy then ran on freed memory. */
 NGMenuHandle ng_linux_create_menu(void) {
     GtkWidget *menubar = gtk_menu_bar_new();
+    g_object_ref_sink(menubar);
     register_menu_root(menubar, menubar);
     return (NGMenuHandle)menubar;
 }
@@ -171,6 +175,7 @@ NGMenuHandle ng_linux_create_menu(void) {
 void ng_linux_destroy_menu(NGMenuHandle handle) {
     if (!handle) return;
     gtk_widget_destroy((GtkWidget*)handle);
+    g_object_unref(handle);
 }
 
 int ng_linux_attach_menu(NGHandle window, NGMenuHandle menu) {
