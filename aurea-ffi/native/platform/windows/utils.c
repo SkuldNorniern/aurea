@@ -346,8 +346,13 @@ static void ng_windows_track_leave(HWND target) {
 /* Called when the pointer left whatever was being tracked. Windows counts a
  * child as outside its parent, so leaving the window for its own canvas fires
  * WM_MOUSELEAVE too. Only report MouseExited when the pointer is really out of
- * the window; otherwise follow it: a canvas forwards its own WM_MOUSELEAVE
- * here, and any other child is polled until the pointer moves on. */
+ * the content; otherwise follow it: a canvas forwards its own WM_MOUSELEAVE
+ * here, and any other child is polled until the pointer moves on.
+ *
+ * Inside means the client area, as on macOS and in the positions reported.
+ * The title bar and borders belong to the window but not to the content, and
+ * tracking the window while the pointer is on them ends at once: each end
+ * armed another, and the flood of them starved every frame. */
 static void ng_windows_recheck_pointer(HWND root) {
     int idx = ng_windows_tracked_index(root);
     if (idx < 0 || !g_mouse_inside[idx] || GetCapture() == root) return;
@@ -355,6 +360,12 @@ static void ng_windows_recheck_pointer(HWND root) {
     POINT pt;
     GetCursorPos(&pt);
     HWND under = WindowFromPoint(pt);
+    POINT client = pt;
+    ScreenToClient(root, &client);
+    RECT content;
+    GetClientRect(root, &content);
+    if (!PtInRect(&content, client)) under = NULL;
+
     if (under == root) {
         KillTimer(root, AUREA_HOVER_TIMER_ID);
         ng_windows_track_leave(root);
