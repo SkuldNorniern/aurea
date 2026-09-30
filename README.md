@@ -196,7 +196,7 @@ Input and text per platform:
 | Pointer position | logical px from the content | same | same |
 | Enter/leave only for the whole window, held back while a button is down | yes | yes | yes |
 | Pointer kept while a button is held | yes | yes | yes |
-| Held buttons on `MouseMove` | all five | all | left, right, middle |
+| Held buttons on `MouseMove` | all five | all | all, back and forward as 3 and 4 like the others |
 | Cursor shapes (`Window::set_cursor`) | yes | yes, no busy cursor | yes |
 | IME | no | no | no |
 | Glyph fallback for missing characters | DirectWrite, fixed family list | fontdue fallback list | fontdue fallback list |
