@@ -116,6 +116,12 @@ unsigned int ng_windows_window_refresh_hz(void) {
     return (unsigned int)best;
 }
 
+void ng_windows_present(void) {
+    for (int i = 0; i < g_tracked_count; i++) {
+        RedrawWindow(g_tracked_windows[i], NULL, NULL, RDW_UPDATENOW | RDW_ALLCHILDREN);
+    }
+}
+
 static unsigned int ng_windows_modifiers(void) {
     unsigned int mods = 0;
     if (GetKeyState(VK_SHIFT) & 0x8000) {
