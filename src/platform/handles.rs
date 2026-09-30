@@ -13,11 +13,10 @@ use raw_window_handle::{HandleError, RawDisplayHandle, RawWindowHandle};
 
 #[cfg(target_os = "macos")]
 use crate::ffi::ng_platform_window_get_content_view;
+#[cfg(all(target_os = "linux", any(feature = "wgpu", feature = "zengpu")))]
+use crate::ffi::{ng_platform_canvas_get_wayland_handle, ng_platform_canvas_get_xcb_handle};
 #[cfg(target_os = "linux")]
-use crate::ffi::{
-    ng_platform_canvas_get_wayland_handle, ng_platform_canvas_get_xcb_handle,
-    ng_platform_window_get_wayland_handle, ng_platform_window_get_xcb_handle,
-};
+use crate::ffi::{ng_platform_window_get_wayland_handle, ng_platform_window_get_xcb_handle};
 
 /// Platform-specific native window handle.
 ///
@@ -81,7 +80,7 @@ pub(crate) fn linux_window_handle_from_ptr(window: *mut c_void) -> Option<LinuxW
     None
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", any(feature = "wgpu", feature = "zengpu")))]
 fn linux_canvas_handle_from_ptr(canvas: *mut c_void) -> Option<LinuxWindowHandle> {
     let mut xcb_window: u32 = 0;
     let mut xcb_connection: *mut c_void = null_mut();
