@@ -15,6 +15,7 @@
 static HANDLE g_frame_event = NULL;
 static HANDLE g_frame_timer = NULL;
 static BOOL g_timer_armed = FALSE;
+static BOOL g_frame_pending = FALSE;
 static BOOL g_in_frame = FALSE;
 static LONGLONG g_qpc_freq = 0;
 static LONGLONG g_frame_interval = 0;
@@ -46,12 +47,6 @@ void ng_windows_display_changed(void) {
     if (g_qpc_freq > 0) g_frame_interval = g_qpc_freq / ng_windows_refresh_hz();
 }
 
-unsigned int ng_windows_frame_interval_ms(void) {
-    if (g_qpc_freq <= 0 || g_frame_interval <= 0) return 16;
-    LONGLONG ms = g_frame_interval * 1000 / g_qpc_freq;
-    return ms > 0 ? (unsigned int)ms : 1;
-}
-
 static void ng_windows_run_frame(void) {
     if (g_in_frame) return;
     LONGLONG now = ng_windows_now();
@@ -80,6 +75,14 @@ static void ng_windows_frame_wanted(void) {
     }
 }
 
+void ng_windows_modal_begin(HWND hwnd) {
+    SetTimer(hwnd, AUREA_FRAME_TIMER_ID, USER_TIMER_MINIMUM, NULL);
+}
+
+void ng_windows_modal_end(HWND hwnd) {
+    KillTimer(hwnd, AUREA_FRAME_TIMER_ID);
+}
+
 void ng_windows_modal_tick(void) {
     if (!g_frame_event) return;
     HANDLE handles[2] = { g_frame_event, g_frame_timer };
@@ -87,6 +90,10 @@ void ng_windows_modal_tick(void) {
     DWORD result = WaitForMultipleObjects(count, handles, FALSE, 0);
     if (result == WAIT_OBJECT_0 + 1) g_timer_armed = FALSE;
     if (result == WAIT_OBJECT_0 || result == WAIT_OBJECT_0 + 1) {
+        g_frame_pending = TRUE;
+    }
+    if (g_frame_pending && ng_windows_now() >= g_next_frame) {
+        g_frame_pending = FALSE;
         ng_windows_run_frame();
     }
 }
@@ -98,6 +105,7 @@ int ng_windows_run(void) {
     ng_windows_display_changed();
     g_next_frame = 0;
     g_timer_armed = FALSE;
+    g_frame_pending = FALSE;
 
     g_frame_event = CreateEventA(NULL, FALSE, FALSE, NULL);
     g_frame_timer = CreateWaitableTimerExW(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
@@ -130,7 +138,10 @@ int ng_windows_run(void) {
             DispatchMessageW(&msg);
         }
 
-        if (wanted) ng_windows_frame_wanted();
+        if (wanted || g_frame_pending) {
+            g_frame_pending = FALSE;
+            ng_windows_frame_wanted();
+        }
     }
 done:
     if (g_frame_timer) {
