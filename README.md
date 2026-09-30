@@ -194,7 +194,7 @@ Input and text per platform:
 | | Windows | macOS | Linux (GTK3) |
 | --- | --- | --- | --- |
 | Pointer position | logical px from the content | same | same |
-| Enter/leave only for the whole window, held back while a button is down | yes | yes | yes |
+| Enter/leave for the content, not the title bar, held back while a button is down | yes | yes | yes, but a drawn (CSD) title bar counts as content |
 | Pointer kept while a button is held | yes | yes | yes |
 | Held buttons on `MouseMove` | all five | all | all, back and forward as 3 and 4 like the others |
 | Cursor shapes (`Window::set_cursor`) | yes | yes, no busy cursor | yes |
