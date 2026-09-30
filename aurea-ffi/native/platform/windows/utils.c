@@ -362,6 +362,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_SETFOCUS:
             ng_invoke_focus_changed((void*)hwnd, 1);
             break;
+        case WM_ACTIVATE:
+            ng_windows_cursor_grab_activate((void*)hwnd, LOWORD(wParam) != WA_INACTIVE);
+            break;
         case WM_KILLFOCUS:
             ng_invoke_focus_changed((void*)hwnd, 0);
             break;
@@ -577,6 +580,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         }
         
         case WM_SIZE: {
+            ng_windows_cursor_grab_refresh((void*)hwnd);
             BOOL was_minimized = GetPropA(hwnd, "AureaMinimized") != NULL;
             if (wParam == SIZE_MINIMIZED) {
                 if (was_minimized) break;
@@ -623,6 +627,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             break;
         }
         case WM_MOVE: {
+            ng_windows_cursor_grab_refresh((void*)hwnd);
             HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
             if ((HMONITOR)GetPropA(hwnd, "AureaMonitor") != monitor) {
                 SetPropA(hwnd, "AureaMonitor", (HANDLE)monitor);
@@ -638,6 +643,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         }
         
         case WM_DESTROY: {
+            ng_windows_release_window_input((void*)hwnd);
             RemovePropA(hwnd, "AureaMonitor");
             RemovePropA(hwnd, "AureaMinimized");
             for (int i = 0; i < g_tracked_count; i++) {
