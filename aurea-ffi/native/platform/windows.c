@@ -28,6 +28,13 @@ static LONGLONG g_qpc_freq = 0;
 static LONGLONG g_frame_interval = 0;
 static LONGLONG g_next_frame = 0;
 
+/* How much of the queue one turn of the loop handles before a frame gets
+   its chance, like the 64 iterations the GTK poll allows. The queue is not
+   guaranteed to run dry: anything that posts as fast as it is handled would
+   otherwise keep every frame out. */
+#define AUREA_MESSAGE_BATCH 64
+#define AUREA_MESSAGE_BUDGET_US 2000
+
 void ng_windows_request_frame(void) {
     if (g_frame_event) SetEvent(g_frame_event);
 }
@@ -53,6 +60,30 @@ static DWORD ng_windows_refresh_hz(void) {
 
 void ng_windows_display_changed(void) {
     if (g_qpc_freq > 0) g_frame_interval = g_qpc_freq / ng_windows_refresh_hz();
+}
+
+/* Handles waiting messages, within the batch and the time budget. Returns
+   FALSE once WM_QUIT comes. */
+static BOOL ng_windows_drain_messages(void) {
+    if (g_qpc_freq <= 0) {
+        LARGE_INTEGER freq;
+        QueryPerformanceFrequency(&freq);
+        g_qpc_freq = freq.QuadPart;
+    }
+    LONGLONG start = ng_windows_now();
+    LONGLONG budget = g_qpc_freq * AUREA_MESSAGE_BUDGET_US / 1000000;
+    /* Wide, to match the window class. PeekMessageA on a wide window hands
+       back WM_CHAR converted down to the ANSI codepage, which is exactly the
+       loss the wide class exists to avoid. */
+    MSG msg;
+    for (int handled = 0; handled < AUREA_MESSAGE_BATCH; handled++) {
+        if (!PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) break;
+        if (msg.message == WM_QUIT) return FALSE;
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+        if (ng_windows_now() - start >= budget) break;
+    }
+    return TRUE;
 }
 
 static void ng_windows_run_frame(void) {
@@ -159,14 +190,18 @@ int ng_windows_run(void) {
             break;
         }
 
-        /* Every waiting message first, frame after. Input handled here only
+        /* Waiting messages first, frame after. Input handled here only
            queues events, so a burst of mouse moves collapses into one before
-           the frame reads it, and a paint is never left behind a frame. */
-        MSG msg;
-        while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
-            if (msg.message == WM_QUIT) goto done;
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+           the frame reads it, and a paint is not left behind a frame. What
+           the batch leaves over is handled on the next turn. */
+        if (!ng_windows_drain_messages()) goto done;
+
+        /* The wait reports waiting input ahead of the event and the timer, so
+           while input keeps coming it never says a frame is due. Look. */
+        if (!wanted) {
+            DWORD due = WaitForMultipleObjects(count, handles, FALSE, 0);
+            if (due == WAIT_OBJECT_0 + 1) g_timer_armed = FALSE;
+            wanted = due == WAIT_OBJECT_0 || due == WAIT_OBJECT_0 + 1;
         }
 
         /* A modal loop may have ended with a frame taken but not run. */
@@ -187,13 +222,6 @@ done:
 }
 
 int ng_windows_poll_events(void) {
-    MSG msg;
-    /* Wide, to match the window class. PeekMessageA on a wide window hands
-       back WM_CHAR converted down to the ANSI codepage, which is exactly the
-       loss the wide class exists to avoid. */
-    while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
-        TranslateMessage(&msg);
-        DispatchMessageW(&msg);
-    }
+    ng_windows_drain_messages();
     return NG_SUCCESS;
 }
