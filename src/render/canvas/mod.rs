@@ -380,10 +380,8 @@ impl Canvas {
             }
         }
 
+        // Publishing asks the platform to show the frame.
         self.update_platform_view();
-        unsafe {
-            ng_platform_canvas_invalidate(self.handle);
-        }
         Ok(())
     }
 
@@ -461,10 +459,9 @@ impl Canvas {
             st.damage.add_all();
             st.needs_redraw = true;
         }
+        // Only the frame that redraws asks the platform to show anything.
+        // Asking here as well showed the old pixels once more before it.
         FrameScheduler::schedule_canvas(self.handle);
-        unsafe {
-            ng_platform_canvas_invalidate(self.handle);
-        }
     }
 
     /// Check if canvas needs redraw and perform it.
@@ -495,15 +492,6 @@ impl Canvas {
             st.needs_redraw = true;
         }
         FrameScheduler::schedule_canvas(self.handle);
-        unsafe {
-            ng_platform_canvas_invalidate_rect(
-                self.handle,
-                rect.x,
-                rect.y,
-                rect.width,
-                rect.height,
-            );
-        }
     }
 
     pub fn width(&self) -> u32 {
