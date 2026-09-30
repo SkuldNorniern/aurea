@@ -72,6 +72,22 @@ impl EventQueue {
                     return;
                 }
             }
+            // Where the window is and how big: only the latest matters. A
+            // live resize sends one for every step of the drag, often
+            // alternating with moves, and each reached every handler.
+            WindowEvent::Resized { .. } | WindowEvent::Moved { .. } => {
+                if let Some(last) = events
+                    .iter_mut()
+                    .rev()
+                    .take_while(|e| {
+                        matches!(e, WindowEvent::Resized { .. } | WindowEvent::Moved { .. })
+                    })
+                    .find(|e| discriminant(&**e) == discriminant(&event))
+                {
+                    *last = event;
+                    return;
+                }
+            }
             _ => {}
         }
         events.push(event);
@@ -187,6 +203,42 @@ mod tests {
         assert_eq!(events.len(), 4, "{events:?}");
         assert!(matches!(events[0], WindowEvent::MouseMove { x, .. } if x == 1.0));
         assert!(matches!(events[2], WindowEvent::MouseMove { x, .. } if x == 3.0));
+    }
+
+    fn drag_left_edge(q: &EventQueue, steps: i32) {
+        for step in 0..steps {
+            q.push(WindowEvent::Moved { x: -step, y: 0 });
+            q.push(WindowEvent::Resized {
+                width: 800 + step.cast_unsigned(),
+                height: 600,
+            });
+        }
+    }
+
+    /// Dragging the left edge moves and resizes at every step; one of each
+    /// is left, and anything else in between still keeps them apart.
+    #[test]
+    fn a_live_resize_leaves_the_latest_size_and_position() {
+        let q = EventQueue::new();
+        drag_left_edge(&q, 500);
+        q.push(WindowEvent::Focused);
+        q.push(WindowEvent::Resized {
+            width: 1,
+            height: 1,
+        });
+
+        let events = q.pop_all();
+        assert_eq!(events.len(), 4, "{events:?}");
+        assert!(matches!(events[0], WindowEvent::Moved { x: -499, .. }));
+        assert!(matches!(
+            events[1],
+            WindowEvent::Resized {
+                width: 1299,
+                height: 600
+            }
+        ));
+        assert!(matches!(events[2], WindowEvent::Focused));
+        assert!(matches!(events[3], WindowEvent::Resized { width: 1, .. }));
     }
 
     #[test]
