@@ -57,8 +57,18 @@ int ng_linux_poll_events(void) {
     return NG_SUCCESS;
 }
 
-void ng_linux_request_frame(void) {
-    if (g_frame_source_id != 0) return;
+/* Set while a request is on its way to the UI thread, so a burst of them
+   from another thread posts one. */
+static gint g_request_posted = 0;
+
+/* Runs only on the thread holding the main context, the UI thread once
+   gtk_main runs, so the frame source and the deadline are never touched by
+   two threads at once. */
+static gboolean ng_linux_schedule_frame(gpointer user_data) {
+    (void)user_data;
+    /* Cleared first, so a request that comes in from here on posts again. */
+    g_atomic_int_set(&g_request_posted, 0);
+    if (g_frame_source_id != 0) return G_SOURCE_REMOVE;
     gint64 wait_us = g_next_frame_us - g_get_monotonic_time();
     if (wait_us <= 0) {
         g_frame_source_id = g_idle_add(process_frames_once, NULL);
@@ -67,5 +77,14 @@ void ng_linux_request_frame(void) {
            comes first. */
         g_frame_source_id = g_timeout_add_full(G_PRIORITY_DEFAULT_IDLE,
             (guint)((wait_us + 999) / 1000), process_frames_once, NULL, NULL);
+    }
+    return G_SOURCE_REMOVE;
+}
+
+/* Any thread may ask for a frame; the scheduler promises that. On the UI
+   thread this runs the request at once, from elsewhere it is handed over. */
+void ng_linux_request_frame(void) {
+    if (g_atomic_int_compare_and_exchange(&g_request_posted, 0, 1)) {
+        g_main_context_invoke(NULL, ng_linux_schedule_frame, NULL);
     }
 }
