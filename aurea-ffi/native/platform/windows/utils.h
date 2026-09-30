@@ -13,6 +13,8 @@ void ng_windows_cleanup(void);
 int ng_windows_run(void);
 int ng_windows_poll_events(void);
 void ng_windows_request_frame(void);
+void ng_windows_display_changed(void);
+unsigned int ng_windows_window_refresh_hz(void);
 BOOL ng_windows_is_initialized(void);
 const wchar_t* ng_windows_get_class_name(void);
 wchar_t* ng_windows_utf8_to_wide(const char* utf8);
