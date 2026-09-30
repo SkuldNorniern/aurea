@@ -286,7 +286,7 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
     if (!self.windowHandle) return;
     ng_invoke_mouse_wheel(
         self.windowHandle,
-        (double)[event scrollingDeltaX],
+        -(double)[event scrollingDeltaX],
         (double)[event scrollingDeltaY],
         ng_macos_modifiers(event));
 }
