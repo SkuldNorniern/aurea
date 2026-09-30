@@ -30,16 +30,19 @@ int ng_windows_run(void) {
 
         if (result == WAIT_OBJECT_0) {
             ng_process_frames();
-        } else if (result == WAIT_OBJECT_0 + 1) {
-            MSG msg;
-            while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
-                if (msg.message == WM_QUIT) goto done;
-                ng_process_frames();
-                TranslateMessage(&msg);
-                DispatchMessageW(&msg);
-            }
-        } else {
+        } else if (result != WAIT_OBJECT_0 + 1) {
             break;
+        }
+
+        /* Messages too, after a frame. The wait reports the frame event
+           first whenever it is set, so an app asking for frames from another
+           thread kept it set and input and paints waited behind it. */
+        MSG msg;
+        while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
+            if (msg.message == WM_QUIT) goto done;
+            ng_process_frames();
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
         }
     }
 done:
