@@ -345,41 +345,66 @@ static void ng_windows_track_leave(HWND target) {
     TrackMouseEvent(&tme);
 }
 
-/* Called when the pointer left whatever was being tracked. Windows counts a
- * child as outside its parent, so leaving the window for its own canvas fires
- * WM_MOUSELEAVE too. Only report MouseExited when the pointer is really out of
- * the content; otherwise follow it: a canvas forwards its own WM_MOUSELEAVE
- * here, and any other child is polled until the pointer moves on.
- *
- * Inside means the client area, as on macOS and in the positions reported.
- * The title bar and borders belong to the window but not to the content, and
- * tracking the window while the pointer is on them ends at once: each end
- * armed another, and the flood of them starved every frame. */
-static void ng_windows_recheck_pointer(HWND root) {
-    int idx = ng_windows_tracked_index(root);
-    if (idx < 0 || !g_mouse_inside[idx] || GetCapture() == root) return;
+/* Set while a leave is asked for and has not come yet. */
+#define AUREA_TRACKING_PROP "AureaTracking"
 
+/* Whether the pointer is over the window's content: its client area, or a
+ * child in it. Not the title bar or the borders, as on macOS and in the
+ * positions reported. Sets *under to what it is over. */
+static BOOL ng_windows_pointer_in_content(HWND root, HWND* under) {
     POINT pt;
     GetCursorPos(&pt);
-    HWND under = WindowFromPoint(pt);
+    *under = WindowFromPoint(pt);
     POINT client = pt;
     ScreenToClient(root, &client);
     RECT content;
     GetClientRect(root, &content);
-    if (!PtInRect(&content, client)) under = NULL;
+    return PtInRect(&content, client) && *under && (*under == root || IsChild(root, *under));
+}
 
-    if (under == root) {
-        KillTimer(root, AUREA_HOVER_TIMER_ID);
-        ng_windows_track_leave(root);
+/* Asks for a leave from what the pointer is over: a canvas forwards its own
+ * WM_MOUSELEAVE here, and the window's comes here directly. Any other child
+ * cannot be asked, so it is polled until the pointer moves on. */
+static void ng_windows_arm_tracking(HWND root) {
+    if (GetPropA(root, AUREA_TRACKING_PROP)) return;
+    HWND under;
+    if (!ng_windows_pointer_in_content(root, &under)) {
+        /* Already out again; the poll finds that and says so. */
+        SetTimer(root, AUREA_HOVER_TIMER_ID, 50, NULL);
         return;
     }
-    if (under && IsChild(root, under)) {
+    HWND target = root;
+    if (under != root) {
         char cls[32];
         GetClassNameA(under, cls, sizeof(cls));
-        if (strcmp(cls, "AureaCanvas") == 0) {
-            KillTimer(root, AUREA_HOVER_TIMER_ID);
-            ng_windows_track_leave(under);
-        } else {
+        if (strcmp(cls, "AureaCanvas") != 0) {
+            SetTimer(root, AUREA_HOVER_TIMER_ID, 50, NULL);
+            return;
+        }
+        target = under;
+    }
+    KillTimer(root, AUREA_HOVER_TIMER_ID);
+    SetPropA(root, AUREA_TRACKING_PROP, (HANDLE)1);
+    ng_windows_track_leave(target);
+}
+
+/* Called when the pointer left whatever was being tracked, when capture ends
+ * and on the poll. Windows counts a child as outside its parent, so leaving
+ * the window for its own canvas fires WM_MOUSELEAVE too; only report
+ * MouseExited when the pointer is out of the content.
+ *
+ * Never asks for another leave itself. Asking while Windows already thinks
+ * the pointer is outside ends the request at once, and asking again from
+ * that leave made a loop: hundreds of thousands of them a second, with
+ * WM_PAINT never getting through, so the window stopped showing new frames.
+ * Moves ask again, and so does the poll, at most every 50 ms. */
+static void ng_windows_recheck_pointer(HWND root) {
+    int idx = ng_windows_tracked_index(root);
+    if (idx < 0 || !g_mouse_inside[idx] || GetCapture() == root) return;
+
+    HWND under;
+    if (ng_windows_pointer_in_content(root, &under)) {
+        if (!GetPropA(root, AUREA_TRACKING_PROP)) {
             SetTimer(root, AUREA_HOVER_TIMER_ID, 50, NULL);
         }
         return;
@@ -415,10 +440,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             if (idx >= 0 && !g_mouse_inside[idx]) {
                 g_mouse_inside[idx] = TRUE;
                 ng_invoke_cursor_entered((void*)hwnd, 1);
-                // Armed once on enter; each leave re-arms wherever the
-                // pointer went (see ng_windows_recheck_pointer).
-                ng_windows_track_leave(hwnd);
             }
+            if (idx >= 0) ng_windows_arm_tracking(hwnd);
 
             ng_invoke_mouse_move(
                 (void*)hwnd,
@@ -429,6 +452,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             break;
         }
         case WM_MOUSELEAVE:
+            RemovePropA(hwnd, AUREA_TRACKING_PROP);
             ng_windows_recheck_pointer(hwnd);
             break;
         case WM_SETCURSOR:
@@ -441,6 +465,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_TIMER:
             if (wParam == AUREA_HOVER_TIMER_ID) {
                 ng_windows_recheck_pointer(hwnd);
+                int idx = ng_windows_tracked_index(hwnd);
+                if (idx >= 0 && g_mouse_inside[idx]) ng_windows_arm_tracking(hwnd);
                 return 0;
             }
             if (wParam == AUREA_FRAME_TIMER_ID) {
@@ -712,6 +738,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                ng_windows_destroy_window. */
             ng_windows_release_window_input((void*)hwnd);
             RemovePropA(hwnd, "AureaMonitor");
+            RemovePropA(hwnd, AUREA_TRACKING_PROP);
             RemovePropA(hwnd, AUREA_HIGH_SURROGATE_PROP);
             RemovePropA(hwnd, "AureaMinimized");
             /* Drop the window from tracking, then quit only when the last one
