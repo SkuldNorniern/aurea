@@ -187,11 +187,24 @@ pub extern "C" fn ng_invoke_mouse_wheel(
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_text_input(window: *mut c_void, text: *const c_char) {
     guard("ng_invoke_text_input", || {
-        if let Some(text) = c_string(text) {
+        if let Some(text) = c_string(text).and_then(typed_text) {
             let event = WindowEvent::TextInput { text };
             push_window_event(window, event);
         }
     });
+}
+
+/// What of `text` is text to insert. The platforms also hand over control
+/// characters as typed text: Windows the Backspace, Enter and Ctrl+letter
+/// codes from `WM_CHAR`, AppKit DEL for Backspace, GDK its key strings. Those
+/// are keys, and they already came as key events.
+fn typed_text(text: String) -> Option<String> {
+    let text = if text.chars().any(char::is_control) {
+        text.chars().filter(|c| !c.is_control()).collect()
+    } else {
+        text
+    };
+    (!text.is_empty()).then_some(text)
 }
 
 #[unsafe(no_mangle)]
@@ -263,6 +276,15 @@ pub extern "C" fn ng_invoke_custom_callback(id: u32) {
 mod tests {
     use super::*;
     use crate::registry::elements::{next_button_id, register_button_callback};
+
+    #[test]
+    fn control_characters_are_not_typed_text() {
+        for key in ["\r", "\u{8}", "\t", "\u{1b}", "\u{1}", "\u{7f}"] {
+            assert_eq!(typed_text(key.to_owned()), None, "{key:?}");
+        }
+        assert_eq!(typed_text("a\u{8}b".to_owned()).as_deref(), Some("ab"));
+        assert_eq!(typed_text("한글 😀".to_owned()).as_deref(), Some("한글 😀"));
+    }
 
     /// A panicking application callback must not take the process with it.
     #[test]

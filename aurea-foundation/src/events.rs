@@ -68,6 +68,9 @@ pub enum WindowEvent {
         pressed: bool,
         modifiers: Modifiers,
     },
+    /// Text typed into the window, to insert. Never control characters:
+    /// Enter, Backspace, Tab, Escape and Ctrl with a letter come as
+    /// [`WindowEvent::KeyInput`] only.
     TextInput {
         text: String,
     },
