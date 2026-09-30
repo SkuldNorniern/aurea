@@ -527,8 +527,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             }
             break;
         }
-        case WM_CHAR:
-        case WM_SYSCHAR: {
+        /* Not WM_SYSCHAR: Alt with a letter is a menu key or a shortcut,
+           and in an editor it typed the letter as well. */
+        case WM_CHAR: {
             wchar_t wc = (wchar_t)wParam;
             ng_windows_emit_text_input(hwnd, wc);
             break;
