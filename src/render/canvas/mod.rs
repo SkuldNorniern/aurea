@@ -547,12 +547,20 @@ impl Canvas {
     }
 
     /// Register a click callback for an interactive shape.
+    ///
+    /// Nothing calls it on its own yet: pointer input is not routed to
+    /// canvases, so feed clicks in through [`Self::handle_click`] from a
+    /// window's [`WindowEvent::MouseButton`](crate::WindowEvent::MouseButton),
+    /// in the canvas's own coordinates.
     pub fn on_click(&self, id: InteractiveId, callback: ClickCallback) -> AureaResult<()> {
         self.interaction_registry.register_click(id, callback);
         Ok(())
     }
 
     /// Register a hover callback for an interactive shape.
+    ///
+    /// Like [`Self::on_click`], it runs from [`Self::handle_hover`], which the
+    /// application calls.
     pub fn on_hover(&self, id: InteractiveId, callback: HoverCallback) -> AureaResult<()> {
         self.interaction_registry.register_hover(id, callback);
         Ok(())
