@@ -46,6 +46,12 @@ void ng_windows_display_changed(void) {
     if (g_qpc_freq > 0) g_frame_interval = g_qpc_freq / ng_windows_refresh_hz();
 }
 
+unsigned int ng_windows_frame_interval_ms(void) {
+    if (g_qpc_freq <= 0 || g_frame_interval <= 0) return 16;
+    LONGLONG ms = g_frame_interval * 1000 / g_qpc_freq;
+    return ms > 0 ? (unsigned int)ms : 1;
+}
+
 static void ng_windows_run_frame(void) {
     if (g_in_frame) return;
     LONGLONG now = ng_windows_now();
@@ -71,6 +77,17 @@ static void ng_windows_frame_wanted(void) {
         } else {
             ng_windows_run_frame();
         }
+    }
+}
+
+void ng_windows_modal_tick(void) {
+    if (!g_frame_event) return;
+    HANDLE handles[2] = { g_frame_event, g_frame_timer };
+    DWORD count = g_frame_timer ? 2 : 1;
+    DWORD result = WaitForMultipleObjects(count, handles, FALSE, 0);
+    if (result == WAIT_OBJECT_0 + 1) g_timer_armed = FALSE;
+    if (result == WAIT_OBJECT_0 || result == WAIT_OBJECT_0 + 1) {
+        ng_windows_run_frame();
     }
 }
 
