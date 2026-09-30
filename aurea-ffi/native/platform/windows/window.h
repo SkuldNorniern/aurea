@@ -35,6 +35,13 @@ int ng_windows_window_is_focused(NGHandle window);
 int ng_windows_window_set_cursor_visible(NGHandle window, int visible);
 int ng_windows_window_set_cursor_grab(NGHandle window, int mode);
 int ng_windows_window_set_cursor_icon(NGHandle window, int icon);
+/* The grab follows the active window: taken on activation, given up on
+   deactivation, and moved along when the window moves or resizes. */
+void ng_windows_cursor_grab_activate(void* hwnd, int active);
+void ng_windows_cursor_grab_refresh(void* hwnd);
+/* Gives back everything process-wide the window holds: the cursor clip and
+   raw mouse input. */
+void ng_windows_release_window_input(void* hwnd);
 /* The HCURSOR to show over the window's content. */
 void* ng_windows_window_cursor(NGHandle window);
 NGHandle ng_windows_window_get_content_view(NGHandle window);

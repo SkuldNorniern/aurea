@@ -401,6 +401,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_SETFOCUS:
             ng_invoke_focus_changed((void*)hwnd, 1);
             break;
+        case WM_ACTIVATE:
+            ng_windows_cursor_grab_activate((void*)hwnd, LOWORD(wParam) != WA_INACTIVE);
+            break;
         case WM_KILLFOCUS:
             ng_invoke_focus_changed((void*)hwnd, 0);
             break;
@@ -632,6 +635,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         }
         
         case WM_SIZE: {
+            ng_windows_cursor_grab_refresh((void*)hwnd);
             /* SIZE_RESTORED is any size that is neither minimized nor
                maximized, so every step of an edge drag is one. Restored
                and the surface coming back only mean something after
@@ -683,6 +687,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             break;
         }
         case WM_MOVE: {
+            ng_windows_cursor_grab_refresh((void*)hwnd);
             /* Onto another monitor, maybe with another refresh rate. */
             HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
             if ((HMONITOR)GetPropA(hwnd, "AureaMonitor") != monitor) {
@@ -699,6 +704,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         }
         
         case WM_DESTROY: {
+            /* Also here for a window destroyed some way other than
+               ng_windows_destroy_window. */
+            ng_windows_release_window_input((void*)hwnd);
             RemovePropA(hwnd, "AureaMonitor");
             RemovePropA(hwnd, "AureaMinimized");
             /* Drop the window from tracking, then quit only when the last one

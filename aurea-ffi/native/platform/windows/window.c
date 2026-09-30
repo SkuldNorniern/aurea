@@ -220,6 +220,7 @@ void ng_windows_destroy_window(NGHandle handle) {
     SendMessageA(hwnd, WM_SETICON, ICON_BIG, 0);
     SendMessageA(hwnd, WM_SETICON, ICON_SMALL, 0);
     if (icon) DestroyIcon(icon);
+    ng_windows_release_window_input(hwnd);
     DestroyWindow(hwnd);
 }
 
@@ -543,24 +544,26 @@ int ng_windows_window_set_cursor_icon(NGHandle window, int icon) {
     return NG_SUCCESS;
 }
 
-int ng_windows_window_set_cursor_grab(NGHandle window, int mode) {
-    if (!window) return NG_ERROR_INVALID_HANDLE;
-    HWND hwnd = (HWND)window;
+/* A grab is two things the system has one of: the cursor clip, for the whole
+   desktop, and the raw mouse registration, one target per process. So one
+   window holds them at a time, the active one, and the mode each window
+   asked for is kept on it until it is active. Before, the clip stayed where
+   the window was when grabbed, outlived the window, and followed it into
+   the background; and letting go of relative mode in one window took raw
+   input from every other. */
+static HWND g_grab_holder = NULL;
+static HWND g_raw_holder = NULL;
 
-    if (mode == 0) {
-        ClipCursor(NULL);
-        RemovePropA(hwnd, AUREA_CURSOR_GRAB_PROP);
+static void ng_windows_set_raw_mouse(HWND target) {
+    RAWINPUTDEVICE rid;
+    rid.usUsagePage = 0x01;
+    rid.usUsage = 0x02;
+    rid.dwFlags = target ? 0 : RIDEV_REMOVE;
+    rid.hwndTarget = target;
+    if (RegisterRawInputDevices(&rid, 1, sizeof(rid))) g_raw_holder = target;
+}
 
-        RAWINPUTDEVICE rid;
-        rid.usUsagePage = 0x01;
-        rid.usUsage = 0x02;
-        rid.dwFlags = RIDEV_REMOVE;
-        rid.hwndTarget = NULL;
-        RegisterRawInputDevices(&rid, 1, sizeof(rid));
-
-        return NG_SUCCESS;
-    }
-
+static void ng_windows_clip_to_content(HWND hwnd) {
     RECT rect;
     GetClientRect(hwnd, &rect);
     POINT tl = { rect.left, rect.top };
@@ -571,19 +574,71 @@ int ng_windows_window_set_cursor_grab(NGHandle window, int mode) {
     rect.top = tl.y;
     rect.right = br.x;
     rect.bottom = br.y;
-
     ClipCursor(&rect);
-    SetPropA(hwnd, AUREA_CURSOR_GRAB_PROP, (HANDLE)(INT_PTR)mode);
+}
 
+static void ng_windows_give_up_grab(HWND hwnd) {
+    if (g_grab_holder == hwnd) {
+        ClipCursor(NULL);
+        g_grab_holder = NULL;
+    }
+    /* Only what Aurea registered: removing it clears the process's mouse
+       registration, the host application's included. */
+    if (g_raw_holder == hwnd) ng_windows_set_raw_mouse(NULL);
+}
+
+static void ng_windows_take_grab(HWND hwnd) {
+    INT_PTR mode = (INT_PTR)GetPropA(hwnd, AUREA_CURSOR_GRAB_PROP);
+    /* A minimized window can still be the active one, with nothing to clip to. */
+    if (mode == 0 || IsIconic(hwnd)) return;
+    if (g_grab_holder && g_grab_holder != hwnd) ng_windows_give_up_grab(g_grab_holder);
+    ng_windows_clip_to_content(hwnd);
+    g_grab_holder = hwnd;
     if (mode == 2) {
-        RAWINPUTDEVICE rid;
-        rid.usUsagePage = 0x01;
-        rid.usUsage = 0x02;
-        rid.dwFlags = RIDEV_INPUTSINK;
-        rid.hwndTarget = hwnd;
-        RegisterRawInputDevices(&rid, 1, sizeof(rid));
+        if (g_raw_holder != hwnd) ng_windows_set_raw_mouse(hwnd);
+    } else if (g_raw_holder == hwnd) {
+        ng_windows_set_raw_mouse(NULL);
+    }
+}
+
+void ng_windows_cursor_grab_activate(void* window, int active) {
+    HWND hwnd = (HWND)window;
+    if (active) {
+        ng_windows_take_grab(hwnd);
+    } else {
+        ng_windows_give_up_grab(hwnd);
+    }
+}
+
+void ng_windows_cursor_grab_refresh(void* window) {
+    HWND hwnd = (HWND)window;
+    if (g_grab_holder != hwnd) return;
+    if (IsIconic(hwnd)) {
+        ng_windows_give_up_grab(hwnd);
+    } else {
+        ng_windows_clip_to_content(hwnd);
+    }
+}
+
+void ng_windows_release_window_input(void* window) {
+    HWND hwnd = (HWND)window;
+    ng_windows_give_up_grab(hwnd);
+    RemovePropA(hwnd, AUREA_CURSOR_GRAB_PROP);
+}
+
+int ng_windows_window_set_cursor_grab(NGHandle window, int mode) {
+    if (!window) return NG_ERROR_INVALID_HANDLE;
+    HWND hwnd = (HWND)window;
+
+    if (mode == 0) {
+        RemovePropA(hwnd, AUREA_CURSOR_GRAB_PROP);
+        ng_windows_give_up_grab(hwnd);
+        return NG_SUCCESS;
     }
 
+    SetPropA(hwnd, AUREA_CURSOR_GRAB_PROP, (HANDLE)(INT_PTR)mode);
+    /* Otherwise taken when the window is activated. */
+    if (GetActiveWindow() == hwnd) ng_windows_take_grab(hwnd);
     return NG_SUCCESS;
 }
 
