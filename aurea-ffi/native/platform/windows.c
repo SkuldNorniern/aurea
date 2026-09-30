@@ -88,8 +88,12 @@ static BOOL ng_windows_drain_messages(void) {
 
 static void ng_windows_run_frame(void) {
     /* A modal loop opened inside a frame, a message box say, pumps messages,
-       and one of them can be the modal frame timer. */
-    if (g_in_frame) return;
+       and one of them can be the modal frame timer. The frame it wanted
+       stays wanted, or it was dropped along with the call. */
+    if (g_in_frame) {
+        g_frame_pending = TRUE;
+        return;
+    }
     LONGLONG now = ng_windows_now();
     g_next_frame += g_frame_interval;
     if (g_next_frame <= now) g_next_frame = now + g_frame_interval;
