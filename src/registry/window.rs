@@ -17,6 +17,9 @@ type WindowUpdateCallback = Rc<dyn Fn(WindowId)>;
 static WINDOW_QUEUE_BY_HANDLE: LazyLock<Mutex<HashMap<usize, Weak<EventQueue>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+static SCALE_BY_HANDLE: LazyLock<Mutex<HashMap<usize, f32>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 thread_local! {
     static WINDOW_EVENT_CALLBACKS: RefCell<HashMap<usize, Vec<EventCallback>>> =
         RefCell::new(HashMap::new());
@@ -32,6 +35,13 @@ pub fn register_event_queue(handle: *mut c_void, queue: &Arc<EventQueue>) {
 pub fn unregister_event_queue(handle: *mut c_void) {
     let mut by_handle = lock(&WINDOW_QUEUE_BY_HANDLE);
     by_handle.remove(&handle_key(handle));
+    lock(&SCALE_BY_HANDLE).remove(&handle_key(handle));
+}
+
+/// Records `scale` for the window, returning whether it differs from the last one recorded.
+pub fn scale_factor_changed(handle: *mut c_void, scale: f32) -> bool {
+    let previous = lock(&SCALE_BY_HANDLE).insert(handle_key(handle), scale);
+    previous.is_none_or(|old| (old - scale).abs() > f32::EPSILON)
 }
 
 pub fn register_update_callbacks(handle: *mut c_void) {
@@ -159,5 +169,21 @@ pub fn process_window_updates(handle: *mut c_void) {
     };
     for callback in callbacks {
         callback(window_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_new_scale_counts_as_a_change() {
+        let window = 0x5ca1e as *mut c_void;
+        assert!(scale_factor_changed(window, 2.0));
+        assert!(!scale_factor_changed(window, 2.0));
+        assert!(scale_factor_changed(window, 1.5));
+        unregister_event_queue(window);
+        assert!(scale_factor_changed(window, 1.5), "a new window starts fresh");
+        unregister_event_queue(window);
     }
 }
