@@ -34,8 +34,10 @@ fn render(draw: impl FnOnce(&mut dyn DrawingContext)) -> Vec<u32> {
     let (ptr, len, _, _) = r.get_buffer();
     let bytes = unsafe { from_raw_parts(ptr, len) };
     bytes
-        .chunks_exact(4)
-        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|&c| u32::from_le_bytes(c))
         .collect()
 }
 
@@ -336,8 +338,10 @@ fn repeated_frames_of_the_same_scene_are_stable() {
         r.end_frame().expect("end");
         let (ptr, len, _, _) = r.get_buffer();
         unsafe { from_raw_parts(ptr, len) }
-            .chunks_exact(4)
-            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|&c| u32::from_le_bytes(c))
             .collect()
     };
 
@@ -406,8 +410,10 @@ fn content_returns_when_an_overlay_is_dismissed() {
         r.end_frame().expect("end");
         let (ptr, len, _, _) = r.get_buffer();
         unsafe { from_raw_parts(ptr, len) }
-            .chunks_exact(4)
-            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|&c| u32::from_le_bytes(c))
             .collect()
     };
 
