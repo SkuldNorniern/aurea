@@ -514,13 +514,9 @@ impl RenderBatches {
             return Some(rgba);
         }
         let mut rgba = Vec::with_capacity(pixel_count * 4);
-        for coverage in mask.coverage.chunks_exact(3) {
-            rgba.extend_from_slice(&[
-                coverage[0],
-                coverage[1],
-                coverage[2],
-                coverage[0].max(coverage[1]).max(coverage[2]),
-            ]);
+        let (pixels, _) = mask.coverage.as_chunks::<3>();
+        for &[r, g, b] in pixels {
+            rgba.extend_from_slice(&[r, g, b, r.max(g).max(b)]);
         }
         let rgba: Arc<[u8]> = rgba.into();
         self.text_mask_cache.insert(key, Arc::downgrade(&rgba));
