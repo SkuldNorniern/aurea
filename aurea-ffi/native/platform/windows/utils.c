@@ -114,6 +114,29 @@ void ng_windows_register_lifecycle_callback(HWND hwnd) {
     }
 }
 
+/* The fastest refresh among the monitors showing a window, 0 if none
+   says. The primary display is not it: with a 32 Hz primary, a window on
+   a 99 Hz monitor got 32 frames a second. */
+unsigned int ng_windows_window_refresh_hz(void) {
+    DWORD best = 0;
+    for (int i = 0; i < g_tracked_count; i++) {
+        HMONITOR monitor = MonitorFromWindow(g_tracked_windows[i], MONITOR_DEFAULTTONEAREST);
+        MONITORINFOEXW info;
+        ZeroMemory(&info, sizeof(info));
+        info.cbSize = sizeof(info);
+        if (!monitor || !GetMonitorInfoW(monitor, (MONITORINFO*)&info)) continue;
+        DEVMODEW mode;
+        ZeroMemory(&mode, sizeof(mode));
+        mode.dmSize = sizeof(mode);
+        /* 0 and 1 both mean the hardware default. */
+        if (EnumDisplaySettingsW(info.szDevice, ENUM_CURRENT_SETTINGS, &mode)
+            && mode.dmDisplayFrequency > 1 && mode.dmDisplayFrequency > best) {
+            best = mode.dmDisplayFrequency;
+        }
+    }
+    return (unsigned int)best;
+}
+
 static unsigned int ng_windows_modifiers(void) {
     unsigned int mods = 0;
     if (GetKeyState(VK_SHIFT) & 0x8000) {
@@ -404,6 +427,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 return 0;
             }
             break;
+        case WM_DISPLAYCHANGE:
+        case WM_SHOWWINDOW:
+            ng_windows_display_changed();
+            break;
         case WM_LBUTTONDOWN:
         case WM_LBUTTONDBLCLK:
         case WM_RBUTTONDOWN:
@@ -623,6 +650,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             break;
         }
         case WM_MOVE: {
+            /* Onto another monitor, maybe with another refresh rate. */
+            HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            if ((HMONITOR)GetPropA(hwnd, "AureaMonitor") != monitor) {
+                SetPropA(hwnd, "AureaMonitor", (HANDLE)monitor);
+                ng_windows_display_changed();
+            }
             for (int i = 0; i < g_tracked_count; i++) {
                 if (g_tracked_windows[i] == hwnd && g_lifecycle_callbacks[i]) {
                     ng_invoke_lifecycle_callback((void*)hwnd, 11); // WindowMoved = 11
@@ -633,6 +666,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         }
         
         case WM_DESTROY: {
+            RemovePropA(hwnd, "AureaMonitor");
             /* Drop the window from tracking, then quit only when the last one
                is gone. Quitting on any window's destruction took the whole app
                down as soon as a popup or tool window was closed. */
