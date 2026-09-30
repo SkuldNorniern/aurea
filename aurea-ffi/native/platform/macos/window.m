@@ -133,6 +133,7 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
     NSTrackingArea* trackingArea;
     int buttonsHeld;
     BOOL exitHeld;
+    unsigned int modifiersDown;
 }
 @property (nonatomic, assign) void* windowHandle;
 @property (nonatomic, strong) NSCursor* cursor;
@@ -322,13 +323,21 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
     unsigned short rawCode = [event keyCode];
     unsigned int keycode = ng_macos_keycode_from_event(rawCode);
 
-    int pressed;
+    NSEventModifierFlags flag;
+    unsigned int bit;
     switch (rawCode) {
-        case 56: case 60: pressed = (flags & NSEventModifierFlagShift)   ? 1 : 0; break;
-        case 59: case 62: pressed = (flags & NSEventModifierFlagControl) ? 1 : 0; break;
-        case 58: case 61: pressed = (flags & NSEventModifierFlagOption)  ? 1 : 0; break;
-        case 55: case 54: pressed = (flags & NSEventModifierFlagCommand) ? 1 : 0; break;
+        case 56: case 60: flag = NSEventModifierFlagShift;   bit = 1u << 0; break;
+        case 59: case 62: flag = NSEventModifierFlagControl; bit = 1u << 1; break;
+        case 58: case 61: flag = NSEventModifierFlagOption;  bit = 1u << 2; break;
+        case 55: case 54: flag = NSEventModifierFlagCommand; bit = 1u << 3; break;
         default: return;
+    }
+    int pressed = (flags & flag) ? 1 : 0;
+    if (pressed == ((modifiersDown & bit) != 0)) return;
+    if (pressed) {
+        modifiersDown |= bit;
+    } else {
+        modifiersDown &= ~bit;
     }
 
     ng_invoke_key_event(self.windowHandle, keycode, pressed, ng_macos_modifiers(event));
