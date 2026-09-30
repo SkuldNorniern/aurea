@@ -77,6 +77,15 @@ static PLATFORM: LazyLock<Mutex<PlatformState>> = LazyLock::new(|| {
     })
 });
 
+/// Asks for a redraw of every canvas in `window`.
+fn redraw_canvases_in(window: *mut c_void) {
+    for canvas in FrameScheduler::registered_canvases() {
+        if unsafe { ng_platform_canvas_get_window(canvas) } == window {
+            FrameScheduler::schedule_canvas(canvas);
+        }
+    }
+}
+
 /// Readies the platform if it is down, and counts one window against it.
 ///
 /// The caller owns that count until it calls [`release_platform`].
@@ -271,6 +280,12 @@ impl Window {
                     LifecycleEvent::SurfaceRecreated => WindowEvent::SurfaceRecreated,
                     _ => return,
                 };
+                // Nothing else tells a canvas its window changed size; left
+                // alone it shows the old frame stretched until something
+                // else dirties it.
+                if matches!(event, WindowEvent::Resized { .. }) {
+                    redraw_canvases_in(handle_ptr);
+                }
                 eq_clone.push(event);
                 // Queued here rather than through push_window_event, so the
                 // wake is ours to ask for. An idle loop runs no frame by
