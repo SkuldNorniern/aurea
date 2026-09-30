@@ -316,7 +316,7 @@ static int ng_linux_mouse_button_from_event(guint button) {
         case 2:
             return 2;
         default:
-            return (int)button;
+            return button >= 8 ? (int)button - 5 : (int)button;
     }
 }
 
@@ -462,6 +462,7 @@ static gboolean on_motion_notify(GtkWidget* widget, GdkEventMotion* event, gpoin
     if (event->state & GDK_BUTTON1_MASK) buttons |= 1u << 0;
     if (event->state & GDK_BUTTON3_MASK) buttons |= 1u << 1;
     if (event->state & GDK_BUTTON2_MASK) buttons |= 1u << 2;
+    buttons |= ng_linux_pointer(widget)->held & ~7u;
     ng_invoke_mouse_move((void*)widget, x, y, buttons, ng_linux_modifiers(event->state));
 
     int index = ng_linux_find_window_index(widget);
