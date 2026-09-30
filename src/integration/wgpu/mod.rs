@@ -67,7 +67,7 @@ pub use surface_error::{
 };
 
 #[cfg(all(feature = "wgpu", target_os = "linux"))]
-use crate::platform::handles::{LinuxWindowHandle, linux_window_handle_from_ptr};
+use crate::platform::handles::linux_window_handle_from_ptr;
 #[cfg(feature = "wgpu")]
 use crate::platform::handles::{NativeWindowHandle, raw_handles};
 #[cfg(feature = "wgpu")]
