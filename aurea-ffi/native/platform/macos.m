@@ -9,6 +9,7 @@
 #import <CoreFoundation/CoreFoundation.h>
 #import <CoreVideo/CoreVideo.h>
 #import <QuartzCore/QuartzCore.h>
+#import <stdatomic.h>
 static BOOL app_initialized = FALSE;
 
 @interface AppDelegate : NSObject <NSApplicationDelegate>
@@ -41,6 +42,7 @@ static NgDisplayLinkProxy* s_display_link_proxy API_AVAILABLE(macos(14.0)) = nil
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
 static CVDisplayLinkRef s_cv_display_link = NULL;
+static atomic_bool s_cv_frame_queued = false;
 static volatile BOOL s_cv_link_running = NO;
 static BOOL s_using_legacy = NO;
 
@@ -58,7 +60,9 @@ static CVReturn legacy_display_link_callback(
     (void)flagsIn;
     (void)flagsOut;
     (void)ctx;
+    if (atomic_exchange(&s_cv_frame_queued, true)) return kCVReturnSuccess;
     dispatch_async(dispatch_get_main_queue(), ^{
+        atomic_store(&s_cv_frame_queued, false);
         ng_process_frames();
     });
     return kCVReturnSuccess;
