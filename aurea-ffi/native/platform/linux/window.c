@@ -320,6 +320,9 @@ static unsigned int ng_linux_keycode_from_keyval(guint keyval) {
     }
 }
 
+/* X11 numbers: 1 left, 2 middle, 3 right, 4 to 7 the wheel, 8 back and
+ * 9 forward. Aurea's are Windows' order, so back and forward are 3 and 4
+ * on every platform, and the wheel's numbers are skipped. */
 static int ng_linux_mouse_button_from_event(guint button) {
     switch (button) {
         case 1:
@@ -329,7 +332,7 @@ static int ng_linux_mouse_button_from_event(guint button) {
         case 2:
             return 2;
         default:
-            return (int)button;
+            return button >= 8 ? (int)button - 5 : (int)button;
     }
 }
 
@@ -489,6 +492,8 @@ static gboolean on_motion_notify(GtkWidget* widget, GdkEventMotion* event, gpoin
     if (event->state & GDK_BUTTON1_MASK) buttons |= 1u << 0;
     if (event->state & GDK_BUTTON3_MASK) buttons |= 1u << 1;
     if (event->state & GDK_BUTTON2_MASK) buttons |= 1u << 2;
+    /* The state has no bits for back, forward and beyond. */
+    buttons |= ng_linux_pointer(widget)->held & ~7u;
     ng_invoke_mouse_move((void*)widget, x, y, buttons, ng_linux_modifiers(event->state));
 
     int index = ng_linux_find_window_index(widget);
