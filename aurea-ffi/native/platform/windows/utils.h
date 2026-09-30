@@ -16,9 +16,11 @@ void ng_windows_cleanup(void);
 int ng_windows_run(void);
 int ng_windows_poll_events(void);
 void ng_windows_request_frame(void);
+#define AUREA_FRAME_TIMER_ID 0xA0E2
+void ng_windows_modal_begin(HWND hwnd);
+void ng_windows_modal_end(HWND hwnd);
 void ng_windows_modal_tick(void);
 void ng_windows_display_changed(void);
-unsigned int ng_windows_frame_interval_ms(void);
 unsigned int ng_windows_window_refresh_hz(void);
 BOOL ng_windows_is_initialized(void);
 const wchar_t* ng_windows_get_class_name(void);
