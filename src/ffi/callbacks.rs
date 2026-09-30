@@ -9,6 +9,7 @@ use crate::registry::elements::{
     invoke_text_editor_callback, invoke_text_view_callback,
 };
 use crate::registry::menu::invoke_menu_callback;
+use crate::registry::window::scale_factor_changed;
 use crate::window::{
     KeyCode, Modifiers, MouseButton, MouseButtons, WindowEvent, push_window_event,
 };
@@ -228,6 +229,9 @@ pub extern "C" fn ng_invoke_raw_mouse_motion(window: *mut c_void, delta_x: f64, 
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_scale_factor_changed(window: *mut c_void, scale_factor: f32) {
     guard("ng_invoke_scale_factor_changed", || {
+        if !scale_factor_changed(window, scale_factor) {
+            return;
+        }
         let event = WindowEvent::ScaleFactorChanged { scale_factor };
         push_window_event(window, event);
         FrameScheduler::schedule();
