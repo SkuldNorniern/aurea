@@ -572,7 +572,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         }
         
         case WM_SIZE: {
+            BOOL was_minimized = GetPropA(hwnd, "AureaMinimized") != NULL;
             if (wParam == SIZE_MINIMIZED) {
+                if (was_minimized) break;
+                SetPropA(hwnd, "AureaMinimized", (HANDLE)1);
                 for (int i = 0; i < g_tracked_count; i++) {
                     if (g_tracked_windows[i] == hwnd && g_lifecycle_callbacks[i]) {
                         ng_invoke_lifecycle_callback((void*)hwnd, 6);
@@ -595,7 +598,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                     }
                 }
 
-                if (wParam == SIZE_RESTORED || wParam == SIZE_MAXIMIZED) {
+                if (was_minimized) {
+                    RemovePropA(hwnd, "AureaMinimized");
                     for (int i = 0; i < g_tracked_count; i++) {
                         if (g_tracked_windows[i] == hwnd && g_lifecycle_callbacks[i]) {
                             ng_invoke_lifecycle_callback((void*)hwnd, 7);
@@ -630,6 +634,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         
         case WM_DESTROY: {
             RemovePropA(hwnd, "AureaMonitor");
+            RemovePropA(hwnd, "AureaMinimized");
             for (int i = 0; i < g_tracked_count; i++) {
                 if (g_tracked_windows[i] == hwnd) {
                     int last = g_tracked_count - 1;
