@@ -95,6 +95,7 @@ static void ng_windows_run_frame(void) {
     if (g_next_frame <= now) g_next_frame = now + g_frame_interval;
     g_in_frame = TRUE;
     ng_process_frames();
+    ng_windows_present();
     g_in_frame = FALSE;
 }
 

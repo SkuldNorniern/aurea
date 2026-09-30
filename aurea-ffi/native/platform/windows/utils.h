@@ -22,6 +22,7 @@ void ng_windows_modal_end(HWND hwnd);
 void ng_windows_modal_tick(void);
 void ng_windows_display_changed(void);
 unsigned int ng_windows_window_refresh_hz(void);
+void ng_windows_present(void);
 BOOL ng_windows_is_initialized(void);
 const wchar_t* ng_windows_get_class_name(void);
 /* UTF-8 to UTF-16 on the heap; the caller frees it. */
