@@ -21,6 +21,9 @@ static LONGLONG g_qpc_freq = 0;
 static LONGLONG g_frame_interval = 0;
 static LONGLONG g_next_frame = 0;
 
+#define AUREA_MESSAGE_BATCH 64
+#define AUREA_MESSAGE_BUDGET_US 2000
+
 void ng_windows_request_frame(void) {
     if (g_frame_event) SetEvent(g_frame_event);
 }
@@ -45,6 +48,25 @@ static DWORD ng_windows_refresh_hz(void) {
 
 void ng_windows_display_changed(void) {
     if (g_qpc_freq > 0) g_frame_interval = g_qpc_freq / ng_windows_refresh_hz();
+}
+
+static BOOL ng_windows_drain_messages(void) {
+    if (g_qpc_freq <= 0) {
+        LARGE_INTEGER freq;
+        QueryPerformanceFrequency(&freq);
+        g_qpc_freq = freq.QuadPart;
+    }
+    LONGLONG start = ng_windows_now();
+    LONGLONG budget = g_qpc_freq * AUREA_MESSAGE_BUDGET_US / 1000000;
+    MSG msg;
+    for (int handled = 0; handled < AUREA_MESSAGE_BATCH; handled++) {
+        if (!PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) break;
+        if (msg.message == WM_QUIT) return FALSE;
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+        if (ng_windows_now() - start >= budget) break;
+    }
+    return TRUE;
 }
 
 static void ng_windows_run_frame(void) {
@@ -131,11 +153,12 @@ int ng_windows_run(void) {
             break;
         }
 
-        MSG msg;
-        while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
-            if (msg.message == WM_QUIT) goto done;
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+        if (!ng_windows_drain_messages()) goto done;
+
+        if (!wanted) {
+            DWORD due = WaitForMultipleObjects(count, handles, FALSE, 0);
+            if (due == WAIT_OBJECT_0 + 1) g_timer_armed = FALSE;
+            wanted = due == WAIT_OBJECT_0 || due == WAIT_OBJECT_0 + 1;
         }
 
         if (wanted || g_frame_pending) {
@@ -155,10 +178,6 @@ done:
 }
 
 int ng_windows_poll_events(void) {
-    MSG msg;
-    while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
-        TranslateMessage(&msg);
-        DispatchMessageW(&msg);
-    }
+    ng_windows_drain_messages();
     return NG_SUCCESS;
 }
