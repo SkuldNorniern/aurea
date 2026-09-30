@@ -156,7 +156,9 @@ static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
                             dirty.right - dirty.left,
                             dirty_h,
                             dirty.left,
-                            (int)data->height - dirty.bottom, // DIB is bottom-up, flip
+                            // ySrc counts from the bottom row even for a
+                            // top-down DIB, so this is the dirty top row.
+                            (int)data->height - dirty.bottom,
                             0,
                             data->height,
                             data->buffer,
