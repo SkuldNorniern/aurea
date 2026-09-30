@@ -200,7 +200,11 @@ int ng_macos_run(void) {
 int ng_macos_poll_events(void) {
     @autoreleasepool {
         CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.001, true);
-        while (true) {
+        /* The same share as Windows and GTK get: 64 events or 2 ms, then back
+           to the caller, whose frame would otherwise wait for as long as
+           events kept coming. */
+        CFAbsoluteTime until = CFAbsoluteTimeGetCurrent() + 0.002;
+        for (int handled = 0; handled < 64 && CFAbsoluteTimeGetCurrent() < until; handled++) {
             NSEvent* event = [NSApp nextEventMatchingMask:NSEventMaskAny
                                               untilDate:[NSDate distantPast]
                                                  inMode:NSDefaultRunLoopMode
