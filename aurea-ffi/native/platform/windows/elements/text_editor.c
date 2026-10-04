@@ -34,7 +34,7 @@ static LRESULT CALLBACK text_editor_proc(HWND hwnd, UINT msg, WPARAM wParam, LPA
 NGHandle ng_windows_create_text_editor(unsigned int id) {
     LoadLibraryA("riched20.dll");
 
-    HWND temp_parent = GetDesktopWindow();
+    HWND temp_parent = ng_windows_detached_parent();
 
     HWND edit = CreateWindowExA(
         WS_EX_CLIENTEDGE,

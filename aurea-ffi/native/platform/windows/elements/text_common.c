@@ -35,7 +35,7 @@ void ng_windows_free_text_content(char* content) {
 }
 
 NGHandle ng_windows_create_text_field(void) {
-    HWND temp_parent = GetDesktopWindow();
+    HWND temp_parent = ng_windows_detached_parent();
 
     HWND edit = CreateWindowExA(
         WS_EX_CLIENTEDGE,
