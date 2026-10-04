@@ -10,7 +10,7 @@ NGHandle ng_windows_create_combo_box(void) {
         NULL,
         WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | CBS_HASSTRINGS,
         0, 0, 200, 200,
-        GetDesktopWindow(),
+        ng_windows_detached_parent(),
         NULL,
         GetModuleHandleA(NULL),
         NULL

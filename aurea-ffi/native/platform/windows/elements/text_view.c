@@ -34,7 +34,7 @@ static LRESULT CALLBACK text_view_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
 NGHandle ng_windows_create_text_view(int is_editable, unsigned int id) {
     LoadLibraryA("riched20.dll");
 
-    HWND temp_parent = GetDesktopWindow();
+    HWND temp_parent = ng_windows_detached_parent();
 
     DWORD style = WS_CHILD | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL;
     if (!is_editable) {

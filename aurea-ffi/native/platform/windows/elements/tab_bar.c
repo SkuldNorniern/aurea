@@ -33,7 +33,7 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
 }
 
 NGHandle ng_windows_create_tab_bar(unsigned int id) {
-    HWND temp_parent = GetDesktopWindow();
+    HWND temp_parent = ng_windows_detached_parent();
     HWND container = CreateWindowExA(
         0,
         "STATIC",

@@ -47,6 +47,9 @@
    weight times 1000 plus 1, so that 0 still means unset. */
 #define BOX_INDEX_PROP "AureaBoxIndex"
 #define BOX_WEIGHT_PROP "AureaBoxWeight"
+/* A child's size when it was added, width << 16 | height. Layout stretches
+   children, so their current size is no guide to what they asked for. */
+#define BOX_NATURAL_PROP "AureaBoxNatural"
 /* Control ids for buttons start here; menu item ids sit below it.
 
    Must stay inside 16 bits. WM_COMMAND carries the control id in LOWORD(wParam),
@@ -57,6 +60,12 @@
 void layout_box_children(HWND box);
 int get_box_orientation(HWND box);
 int is_box(HWND hwnd);
+/* Where a control lives until it is added somewhere: one hidden window.
+   Creating controls as children of the desktop cost about 15 ms each. */
+#ifdef __cplusplus
+extern "C"
+#endif
+HWND ng_windows_detached_parent(void);
 void calculate_text_size(HDC hdc, const char* text, int* width, int* height);
 
 #endif

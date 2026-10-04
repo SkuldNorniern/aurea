@@ -95,7 +95,7 @@ NGHandle ng_windows_create_image_view(void) {
         NULL,
         WS_CHILD | WS_VISIBLE,
         0, 0, 200, 150,
-        GetDesktopWindow(),
+        ng_windows_detached_parent(),
         NULL,
         GetModuleHandleA(NULL),
         NULL

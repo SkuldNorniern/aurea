@@ -210,7 +210,7 @@ static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
 }
 
 NGHandle ng_windows_create_canvas(int width, int height) {
-    HWND temp_parent = GetDesktopWindow();
+    HWND temp_parent = ng_windows_detached_parent();
 
     if (!canvas_class_registered) {
         WNDCLASSEXA wc = {0};

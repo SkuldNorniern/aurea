@@ -6,7 +6,7 @@
 NGHandle ng_windows_create_label(const char* text) {
     if (!text) return NULL;
 
-    HWND temp_parent = GetDesktopWindow();
+    HWND temp_parent = ng_windows_detached_parent();
 
     HWND label = CreateWindowExA(
         0,

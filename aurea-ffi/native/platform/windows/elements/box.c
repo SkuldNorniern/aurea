@@ -18,6 +18,25 @@ static LRESULT CALLBACK BoxProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             }
             parent = GetParent(parent);
         }
+    } else if (msg == WM_ERASEBKGND) {
+        /* Paint the gaps between children in the dialog colour, around the
+           children so a canvas filling the box does not flicker. Left
+           transparent, the gaps kept whatever the previous content drew. */
+        HDC hdc = (HDC)wParam;
+        int saved = SaveDC(hdc);
+        for (HWND child = GetWindow(hwnd, GW_CHILD); child;
+             child = GetWindow(child, GW_HWNDNEXT)) {
+            if (!(GetWindowLongPtrA(child, GWL_STYLE) & WS_VISIBLE)) continue;
+            RECT r;
+            GetWindowRect(child, &r);
+            MapWindowPoints(NULL, hwnd, (POINT*)&r, 2);
+            ExcludeClipRect(hdc, r.left, r.top, r.right, r.bottom);
+        }
+        RECT client;
+        GetClientRect(hwnd, &client);
+        FillRect(hdc, &client, GetSysColorBrush(COLOR_BTNFACE));
+        RestoreDC(hdc, saved);
+        return 1;
     } else if (msg == WM_NCDESTROY) {
         RemovePropA(hwnd, BOX_OLD_PROC_PROP);
     }
@@ -30,7 +49,7 @@ static LRESULT CALLBACK BoxProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 }
 
 NGHandle ng_windows_create_box(int is_vertical) {
-    HWND temp_parent = GetDesktopWindow();
+    HWND temp_parent = ng_windows_detached_parent();
 
     HWND container = CreateWindowExA(
         0,
@@ -70,6 +89,11 @@ int ng_windows_box_add_weighted(NGHandle box, NGHandle element, float weight) {
     static INT_PTR next_index = 1;
     SetParent(element_hwnd, box_hwnd);
     SetPropA(element_hwnd, BOX_INDEX_PROP, (HANDLE)next_index++);
+    RECT added;
+    GetWindowRect(element_hwnd, &added);
+    SetPropA(element_hwnd, BOX_NATURAL_PROP,
+             (HANDLE)(((INT_PTR)(added.right - added.left) & 0xFFFF) << 16 |
+                      ((INT_PTR)(added.bottom - added.top) & 0xFFFF)));
     if (weight > 0.0f) {
         SetPropA(element_hwnd, BOX_WEIGHT_PROP, (HANDLE)(INT_PTR)(weight * 1000.0f + 1.0f));
     } else {

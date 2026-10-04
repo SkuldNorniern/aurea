@@ -15,7 +15,7 @@ NGHandle ng_windows_create_slider(double min, double max) {
         NULL,
         WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_AUTOTICKS,
         0, 0, 200, 30,
-        GetDesktopWindow(),
+        ng_windows_detached_parent(),
         NULL,
         GetModuleHandle(NULL),
         NULL
