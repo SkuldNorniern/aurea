@@ -101,7 +101,7 @@ static LRESULT CALLBACK SplitViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
 }
 
 NGHandle ng_windows_create_split_view(int is_vertical) {
-    HWND temp_parent = GetDesktopWindow();
+    HWND temp_parent = ng_windows_detached_parent();
 
     HWND container = CreateWindowExA(
         0,

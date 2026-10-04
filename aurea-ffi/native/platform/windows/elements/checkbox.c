@@ -10,7 +10,7 @@ NGHandle ng_windows_create_checkbox(const char* label) {
         label ? label : "",
         WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
         0, 0, 200, 25,
-        GetDesktopWindow(),
+        ng_windows_detached_parent(),
         NULL,
         GetModuleHandleA(NULL),
         NULL

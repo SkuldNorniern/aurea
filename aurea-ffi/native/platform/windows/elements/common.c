@@ -10,6 +10,15 @@ int get_box_orientation(HWND box) {
     return (INT_PTR)GetPropA(box, BOX_ORIENTATION_PROP) != BOX_HORIZONTAL;
 }
 
+HWND ng_windows_detached_parent(void) {
+    static HWND parking = NULL;
+    if (!parking || !IsWindow(parking)) {
+        parking = CreateWindowExA(WS_EX_TOOLWINDOW, "STATIC", NULL, WS_POPUP,
+                                  0, 0, 0, 0, NULL, NULL, GetModuleHandleA(NULL), NULL);
+    }
+    return parking ? parking : GetDesktopWindow();
+}
+
 int is_box(HWND hwnd) {
     return GetPropA(hwnd, BOX_ORIENTATION_PROP) != NULL;
 }
@@ -120,6 +129,11 @@ static void measure_child(BoxChild* c, int vertical, int cross) {
     GetWindowRect(c->hwnd, &r);
     int w = r.right - r.left;
     int h = r.bottom - r.top;
+    INT_PTR natural = (INT_PTR)GetPropA(c->hwnd, BOX_NATURAL_PROP);
+    if (natural) {
+        w = (int)((natural >> 16) & 0xFFFF);
+        h = (int)(natural & 0xFFFF);
+    }
     const char* cls = c->class_name;
 
     if (is_box(c->hwnd)) {

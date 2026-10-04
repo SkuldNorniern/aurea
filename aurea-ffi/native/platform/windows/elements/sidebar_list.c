@@ -50,7 +50,7 @@ NGHandle ng_windows_create_sidebar_list(unsigned int id) {
         NULL,
         WS_CHILD | SS_LEFT | WS_VISIBLE | WS_VSCROLL,
         0, 0, 200, 400,
-        GetDesktopWindow(),
+        ng_windows_detached_parent(),
         NULL,
         GetModuleHandleA(NULL),
         NULL
