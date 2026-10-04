@@ -41,6 +41,12 @@
 #define BUTTON_MIN_HEIGHT 32
 #define LABEL_PADDING 4
 #define BOX_ORIENTATION_PROP "AureaBoxOrientation"
+#define BOX_VERTICAL 2
+#define BOX_HORIZONTAL 1
+/* Set on each child when it is added: its place in the box, and its layout
+   weight times 1000 plus 1, so that 0 still means unset. */
+#define BOX_INDEX_PROP "AureaBoxIndex"
+#define BOX_WEIGHT_PROP "AureaBoxWeight"
 /* Control ids for buttons start here; menu item ids sit below it.
 
    Must stay inside 16 bits. WM_COMMAND carries the control id in LOWORD(wParam),
@@ -50,6 +56,7 @@
 
 void layout_box_children(HWND box);
 int get_box_orientation(HWND box);
+int is_box(HWND hwnd);
 void calculate_text_size(HDC hdc, const char* text, int* width, int* height);
 
 #endif
