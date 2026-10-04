@@ -6,8 +6,7 @@
 #include "platform/windows/elements.h"
 
 static int box_add_wrapper(NGHandle b, NGHandle e, float w) {
-    (void)w;
-    return ng_windows_box_add(b, e);
+    return ng_windows_box_add_weighted(b, e, w);
 }
 
 static const ng_platform_ops_t windows_ops = {

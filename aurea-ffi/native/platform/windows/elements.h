@@ -14,6 +14,7 @@ void ng_windows_label_invalidate(NGHandle label);
 NGHandle ng_windows_create_box(int is_vertical);
 void ng_windows_box_invalidate(NGHandle box);
 int ng_windows_box_add(NGHandle box, NGHandle element);
+int ng_windows_box_add_weighted(NGHandle box, NGHandle element, float weight);
 NGHandle ng_windows_create_split_view(int is_vertical);
 int ng_windows_split_view_add(NGHandle split_handle, NGHandle element);
 int ng_windows_split_view_set_divider_position(NGHandle split_handle, int index, float position);

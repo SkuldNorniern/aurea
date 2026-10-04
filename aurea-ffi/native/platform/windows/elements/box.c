@@ -45,7 +45,8 @@ NGHandle ng_windows_create_box(int is_vertical) {
     );
 
     if (container) {
-        SetPropA(container, BOX_ORIENTATION_PROP, (HANDLE)(INT_PTR)is_vertical);
+        SetPropA(container, BOX_ORIENTATION_PROP,
+                 (HANDLE)(INT_PTR)(is_vertical ? BOX_VERTICAL : BOX_HORIZONTAL));
         SetClassLongPtrA(container, GCLP_HBRBACKGROUND, (LONG_PTR)GetStockObject(NULL_BRUSH));
         WNDPROC old_proc = (WNDPROC)SetWindowLongPtrA(container, GWLP_WNDPROC, (LONG_PTR)BoxProc);
         if (old_proc) {
@@ -57,12 +58,23 @@ NGHandle ng_windows_create_box(int is_vertical) {
 }
 
 int ng_windows_box_add(NGHandle box, NGHandle element) {
+    return ng_windows_box_add_weighted(box, element, 0.0f);
+}
+
+int ng_windows_box_add_weighted(NGHandle box, NGHandle element, float weight) {
     if (!box || !element) return NG_ERROR_INVALID_HANDLE;
 
     HWND box_hwnd = (HWND)box;
     HWND element_hwnd = (HWND)element;
 
+    static INT_PTR next_index = 1;
     SetParent(element_hwnd, box_hwnd);
+    SetPropA(element_hwnd, BOX_INDEX_PROP, (HANDLE)next_index++);
+    if (weight > 0.0f) {
+        SetPropA(element_hwnd, BOX_WEIGHT_PROP, (HANDLE)(INT_PTR)(weight * 1000.0f + 1.0f));
+    } else {
+        RemovePropA(element_hwnd, BOX_WEIGHT_PROP);
+    }
 
     LONG_PTR style = GetWindowLongPtrA(element_hwnd, GWL_STYLE);
     SetWindowLongPtrA(element_hwnd, GWL_STYLE, style | WS_CHILD | WS_VISIBLE);
@@ -98,31 +110,11 @@ int ng_windows_box_add(NGHandle box, NGHandle element) {
 
             layout_box_children(box_hwnd);
         }
-        else if (!is_window_parent) {
-            int max_x = PADDING;
-            int max_y = PADDING;
-
-            HWND child = GetWindow(box_hwnd, GW_CHILD);
-            while (child) {
-                if (IsWindowVisible(child)) {
-                    RECT child_rect;
-                    GetWindowRect(child, &child_rect);
-                    POINT pt = {child_rect.left, child_rect.top};
-                    ScreenToClient(box_hwnd, &pt);
-
-                    int child_right = pt.x + (child_rect.right - child_rect.left);
-                    int child_bottom = pt.y + (child_rect.bottom - child_rect.top);
-
-                    if (child_right > max_x) max_x = child_right;
-                    if (child_bottom > max_y) max_y = child_bottom;
-                }
-                child = GetWindow(child, GW_HWNDNEXT);
-            }
-
-            if (max_x > PADDING || max_y > PADDING) {
-                SetWindowPos(box_hwnd, NULL, 0, 0, max_x + PADDING, max_y + PADDING,
-                            SWP_NOMOVE | SWP_NOZORDER);
-            }
+        else {
+            /* Lay out again from the top, so the parents make room. */
+            HWND top = box_hwnd;
+            while (GetParent(top) && is_box(GetParent(top))) top = GetParent(top);
+            if (top != box_hwnd) layout_box_children(top);
         }
     }
 
