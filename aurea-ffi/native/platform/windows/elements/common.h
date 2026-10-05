@@ -54,6 +54,8 @@
 void layout_box_children(HWND box);
 int get_box_orientation(HWND box);
 int is_box(HWND hwnd);
+/* The font Windows uses for message boxes and dialogs, Segoe UI on current versions. */
+HFONT ng_windows_ui_font(void);
 /* Where a control lives until it is added somewhere: one hidden window. */
 #ifdef __cplusplus
 extern "C"
