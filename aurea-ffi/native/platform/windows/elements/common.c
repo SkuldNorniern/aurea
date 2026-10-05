@@ -19,6 +19,19 @@ HWND ng_windows_detached_parent(void) {
     return parking ? parking : GetDesktopWindow();
 }
 
+HFONT ng_windows_ui_font(void) {
+    static HFONT font = NULL;
+    if (!font) {
+        NONCLIENTMETRICSW metrics;
+        metrics.cbSize = sizeof(metrics);
+        if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0)) {
+            font = CreateFontIndirectW(&metrics.lfMessageFont);
+        }
+        if (!font) font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+    }
+    return font;
+}
+
 int is_box(HWND hwnd) {
     return GetPropA(hwnd, BOX_ORIENTATION_PROP) != NULL;
 }
@@ -93,7 +106,8 @@ static int box_children(HWND box, BoxChild* out) {
 
 static HFONT control_font(HWND hwnd) {
     HFONT font = (HFONT)SendMessageA(hwnd, WM_GETFONT, 0, 0);
-    return font ? font : (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+    /* A control with no font draws in the old System font. */
+    return font ? font : (HFONT)GetStockObject(SYSTEM_FONT);
 }
 
 /* Size of a control's text, wrapped to `wrap` pixels when it is above 0. */
@@ -244,6 +258,12 @@ void layout_box_children(HWND box) {
     float weights = 0.0f;
     for (int i = 0; i < n; i++) {
         measure_child(&children[i], vertical, cross);
+        /* A weighted box takes its share of the room, not its natural
+           length: in a row, that length is its text unwrapped, which
+           would push it past the edge. */
+        if (!vertical && children[i].weight > 0.0f && is_box(children[i].hwnd)) {
+            children[i].w = 0;
+        }
         main_room -= vertical ? children[i].h : children[i].w;
         weights += children[i].weight;
     }

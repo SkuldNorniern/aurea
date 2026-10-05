@@ -103,6 +103,12 @@ int ng_windows_box_add_weighted(NGHandle box, NGHandle element, float weight) {
     LONG_PTR style = GetWindowLongPtrA(element_hwnd, GWL_STYLE);
     SetWindowLongPtrA(element_hwnd, GWL_STYLE, style | WS_CHILD | WS_VISIBLE);
 
+    /* Without a font a control draws in the old bold System font, unlike
+       every native dialog. Boxes and canvases have no text to draw. */
+    if (!is_box(element_hwnd) && !SendMessageA(element_hwnd, WM_GETFONT, 0, 0)) {
+        SendMessageA(element_hwnd, WM_SETFONT, (WPARAM)ng_windows_ui_font(), FALSE);
+    }
+
     char class_name[256];
     GetClassNameA(element_hwnd, class_name, sizeof(class_name));
     if (_stricmp(class_name, "BUTTON") == 0) {
