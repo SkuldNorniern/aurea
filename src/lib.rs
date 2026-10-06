@@ -59,6 +59,7 @@ mod android;
 
 pub use aurea_animation as animation;
 
+mod dispatch;
 pub mod elements;
 pub mod embed;
 pub mod ffi;
@@ -76,6 +77,7 @@ pub mod window;
 pub use aurea_runtime::{DamageRegion, FrameInfo, FrameScheduler};
 
 // Re-export the elements, window, and menu modules
+pub use crate::dispatch::on_ui_thread;
 pub use crate::elements::{
     Button, Checkbox, ComboBox, Container, Divider, Element, ImageView, Label, Orientation,
     ProgressBar, SidebarList, Slider, Spacer, SplitOrientation, SplitView, Stack, TabBar,

@@ -14,6 +14,7 @@ pub use clipboard::{clipboard_text, set_clipboard_text};
 pub use manager::WindowManager;
 pub use types::{CursorGrabMode, CursorIcon, WindowId, WindowType};
 
+use crate::dispatch;
 use crate::elements::Element;
 use crate::ffi::ng_platform_request_frame;
 use crate::ffi::*;
@@ -587,6 +588,7 @@ impl Window {
     /// wasted work and lets one window's turn dispatch another's messages.
     pub(super) fn drain_events(&self) -> Vec<WindowEvent> {
         proxy::drain_for(self);
+        dispatch::drain();
 
         // Drain the queue, then hand the events to this window's callbacks and
         // return them for manual processing too.
@@ -626,6 +628,7 @@ impl Window {
     pub fn process_frames(&self) -> AureaResult<()> {
         ui_thread::check("Window::process_frames");
         proxy::drain_for(self);
+        dispatch::drain();
         process_window_updates(self.handle);
         FrameScheduler::process_frames()
     }
