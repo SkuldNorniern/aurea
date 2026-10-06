@@ -143,6 +143,18 @@ typedef struct ng_platform_ops {
     char* (*get_clipboard_text)(void);
     void (*free_clipboard_text)(char* text);
     int (*set_clipboard_text)(const char* text);
+
+    /* Closing the window hides it instead of destroying it. */
+    int (*window_set_hide_on_close)(NGHandle w, int hide);
+
+    /* Notification area icon. A menu item with a NULL title is a separator;
+       clicks and items call back through the menu callback registry. */
+    NGHandle (*create_tray)(const char* tooltip, unsigned int click_id);
+    void (*destroy_tray)(NGHandle tray);
+    int (*tray_set_icon_rgba)(NGHandle tray, const unsigned char* rgba, unsigned int width, unsigned int height);
+    int (*tray_set_tooltip)(NGHandle tray, const char* tooltip);
+    int (*tray_add_item)(NGHandle tray, const char* title, unsigned int id);
+    int (*tray_notify)(NGHandle tray, const char* title, const char* body);
 } ng_platform_ops_t;
 
 void ng_platform_register_ops(const ng_platform_ops_t* ops);

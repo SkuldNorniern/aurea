@@ -1,4 +1,4 @@
-use std::os::raw::{c_char, c_int, c_void};
+use std::os::raw::{c_char, c_int, c_uint, c_void};
 
 #[cfg(target_os = "android")]
 #[allow(clippy::missing_safety_doc, dead_code)]
@@ -64,6 +64,22 @@ unsafe extern "C" {
     pub fn ng_platform_window_get_content_view(window: *mut c_void) -> *mut c_void;
     pub fn ng_platform_window_show(window: *mut c_void);
     pub fn ng_platform_window_hide(window: *mut c_void);
+    pub fn ng_platform_window_set_hide_on_close(window: *mut c_void, hide: c_int) -> c_int;
+    pub fn ng_platform_create_tray(tooltip: *const c_char, click_id: c_uint) -> *mut c_void;
+    pub fn ng_platform_destroy_tray(tray: *mut c_void);
+    pub fn ng_platform_tray_set_icon_rgba(
+        tray: *mut c_void,
+        rgba: *const u8,
+        width: u32,
+        height: u32,
+    ) -> c_int;
+    pub fn ng_platform_tray_set_tooltip(tray: *mut c_void, tooltip: *const c_char) -> c_int;
+    pub fn ng_platform_tray_add_item(tray: *mut c_void, title: *const c_char, id: c_uint) -> c_int;
+    pub fn ng_platform_tray_notify(
+        tray: *mut c_void,
+        title: *const c_char,
+        body: *const c_char,
+    ) -> c_int;
     pub fn ng_platform_window_is_visible(window: *mut c_void) -> c_int;
     pub fn ng_platform_window_set_position(window: *mut c_void, x: c_int, y: c_int);
     pub fn ng_platform_window_get_position(window: *mut c_void, x: *mut c_int, y: *mut c_int);

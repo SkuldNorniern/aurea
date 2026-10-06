@@ -361,15 +361,13 @@ void ng_windows_window_set_title(NGHandle window, const char* title) {
     free(wide);
 }
 
-int ng_windows_window_set_icon_rgba(
-    NGHandle window,
+HICON ng_windows_icon_from_rgba(
     const unsigned char* rgba,
     unsigned int width,
     unsigned int height
 ) {
-    if (!window || !rgba || width == 0 || height == 0 ||
-        width > INT_MAX || height > INT_MAX) {
-        return NG_ERROR_INVALID_PARAMETER;
+    if (!rgba || width == 0 || height == 0 || width > INT_MAX || height > INT_MAX) {
+        return NULL;
     }
 
     BITMAPV5HEADER header = {0};
@@ -397,7 +395,7 @@ int ng_windows_window_set_icon_rgba(
     ReleaseDC(NULL, dc);
     if (!color || !dib_pixels) {
         if (color) DeleteObject(color);
-        return NG_ERROR_PLATFORM_SPECIFIC;
+        return NULL;
     }
 
     unsigned char* bgra = (unsigned char*)dib_pixels;
@@ -412,7 +410,7 @@ int ng_windows_window_set_icon_rgba(
     HBITMAP mask = CreateBitmap((int)width, (int)height, 1, 1, NULL);
     if (!mask) {
         DeleteObject(color);
-        return NG_ERROR_PLATFORM_SPECIFIC;
+        return NULL;
     }
 
     ICONINFO info = {0};
@@ -422,6 +420,20 @@ int ng_windows_window_set_icon_rgba(
     HICON icon = CreateIconIndirect(&info);
     DeleteObject(mask);
     DeleteObject(color);
+    return icon;
+}
+
+int ng_windows_window_set_icon_rgba(
+    NGHandle window,
+    const unsigned char* rgba,
+    unsigned int width,
+    unsigned int height
+) {
+    if (!window || !rgba || width == 0 || height == 0 ||
+        width > INT_MAX || height > INT_MAX) {
+        return NG_ERROR_INVALID_PARAMETER;
+    }
+    HICON icon = ng_windows_icon_from_rgba(rgba, width, height);
     if (!icon) return NG_ERROR_PLATFORM_SPECIFIC;
 
     HWND hwnd = (HWND)window;
@@ -436,6 +448,19 @@ int ng_windows_window_set_icon_rgba(
     SendMessageA(hwnd, WM_SETICON, ICON_BIG, (LPARAM)icon);
     SendMessageA(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)icon);
     if (previous) DestroyIcon(previous);
+    return NG_SUCCESS;
+}
+
+int ng_windows_window_set_hide_on_close(NGHandle window, int hide) {
+    if (!window) return NG_ERROR_INVALID_PARAMETER;
+    HWND hwnd = (HWND)window;
+    if (hide) {
+        if (!SetPropA(hwnd, AUREA_HIDE_ON_CLOSE_PROPERTY, (HANDLE)1)) {
+            return NG_ERROR_PLATFORM_SPECIFIC;
+        }
+    } else {
+        RemovePropA(hwnd, AUREA_HIDE_ON_CLOSE_PROPERTY);
+    }
     return NG_SUCCESS;
 }
 

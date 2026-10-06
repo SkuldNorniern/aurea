@@ -69,6 +69,7 @@ fn main() {
         "native/platform/windows/utils.c",
         "native/platform/windows/window.c",
         "native/platform/windows/menu.c",
+        "native/platform/windows/tray.c",
         "native/platform/windows/elements/common.c",
         "native/platform/windows/elements/button.c",
         "native/platform/windows/elements/label.c",
@@ -190,6 +191,7 @@ fn main() {
 
         println!("cargo:rustc-link-lib=user32");
         println!("cargo:rustc-link-lib=gdi32");
+        println!("cargo:rustc-link-lib=shell32");
         println!("cargo:rustc-link-lib=comctl32");
         println!("cargo:rustc-link-lib=Shcore");
         println!("cargo:rustc-link-lib=gdiplus");
