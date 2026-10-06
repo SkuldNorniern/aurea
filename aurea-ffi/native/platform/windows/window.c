@@ -247,8 +247,12 @@ int ng_windows_detach_element(NGHandle element) {
 
 void ng_windows_window_show(NGHandle window) {
     if (!window) return;
-    ShowWindow((HWND)window, SW_SHOW);
-    UpdateWindow((HWND)window);
+    HWND hwnd = (HWND)window;
+    /* brought back from the taskbar or a tray icon: restored and in front,
+       not shown behind whatever has the focus. */
+    ShowWindow(hwnd, IsIconic(hwnd) ? SW_RESTORE : SW_SHOW);
+    SetForegroundWindow(hwnd);
+    UpdateWindow(hwnd);
 }
 
 void ng_windows_window_hide(NGHandle window) {
