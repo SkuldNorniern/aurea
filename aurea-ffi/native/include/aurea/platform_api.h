@@ -48,6 +48,17 @@ int ng_platform_window_set_cursor_icon(NGHandle window, int icon);
 NGHandle ng_platform_window_get_content_view(NGHandle window);
 void ng_platform_window_show(NGHandle window);
 void ng_platform_window_hide(NGHandle window);
+
+/* Closing the window hides it instead of destroying it. */
+int ng_platform_window_set_hide_on_close(NGHandle window, int hide);
+
+/* Notification area icon. */
+NGHandle ng_platform_create_tray(const char* tooltip, unsigned int click_id);
+void ng_platform_destroy_tray(NGHandle tray);
+int ng_platform_tray_set_icon_rgba(NGHandle tray, const unsigned char* rgba, unsigned int width, unsigned int height);
+int ng_platform_tray_set_tooltip(NGHandle tray, const char* tooltip);
+int ng_platform_tray_add_item(NGHandle tray, const char* title, unsigned int id);
+int ng_platform_tray_notify(NGHandle tray, const char* title, const char* body);
 int ng_platform_window_is_visible(NGHandle window);
 void ng_platform_window_set_position(NGHandle window, int x, int y);
 void ng_platform_window_get_position(NGHandle window, int* x, int* y);

@@ -681,6 +681,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                     break;
                 }
             }
+            /* a window that hides on close stays alive, so the app keeps
+               running, from a tray icon for example. */
+            if (GetPropA(hwnd, AUREA_HIDE_ON_CLOSE_PROPERTY)) {
+                ShowWindow(hwnd, SW_HIDE);
+                return 0;
+            }
             // Continue with default close behavior
             break;
         }

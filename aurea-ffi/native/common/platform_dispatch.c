@@ -134,6 +134,34 @@ void ng_platform_window_hide(NGHandle w) {
     DISPATCH_VOID(window_hide, w);
 }
 
+int ng_platform_window_set_hide_on_close(NGHandle w, int hide) {
+    DISPATCH_INT(window_set_hide_on_close, w, hide);
+}
+
+NGHandle ng_platform_create_tray(const char* tooltip, unsigned int click_id) {
+    DISPATCH_INIT(NGHandle, create_tray, tooltip, click_id);
+}
+
+void ng_platform_destroy_tray(NGHandle tray) {
+    DISPATCH_VOID(destroy_tray, tray);
+}
+
+int ng_platform_tray_set_icon_rgba(NGHandle tray, const unsigned char* rgba, unsigned int width, unsigned int height) {
+    DISPATCH_INT(tray_set_icon_rgba, tray, rgba, width, height);
+}
+
+int ng_platform_tray_set_tooltip(NGHandle tray, const char* tooltip) {
+    DISPATCH_INT(tray_set_tooltip, tray, tooltip);
+}
+
+int ng_platform_tray_add_item(NGHandle tray, const char* title, unsigned int id) {
+    DISPATCH_INT(tray_add_item, tray, title, id);
+}
+
+int ng_platform_tray_notify(NGHandle tray, const char* title, const char* body) {
+    DISPATCH_INT(tray_notify, tray, title, body);
+}
+
 int ng_platform_window_is_visible(NGHandle w) {
     DISPATCH_INIT(int, window_is_visible, w);
 }
