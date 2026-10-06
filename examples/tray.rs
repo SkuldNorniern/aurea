@@ -1,11 +1,20 @@
 //! A window that closes to the notification area.
 //!
 //! Closing the window only hides it; the tray icon brings it back with a
-//! click, and its menu can quit. Windows only for now.
+//! click, and its menu can quit. A worker thread keeps the tooltip current
+//! through `aurea::on_ui_thread`, shown or not. Windows only for now.
 
 use aurea::elements::{Container, Label, Orientation, Stack};
 use aurea::{AureaResult, TrayIcon, Window};
+use std::cell::RefCell;
 use std::rc::Rc;
+use std::thread;
+use std::time::Duration;
+
+thread_local! {
+    /// the icon lives on the UI thread; work sent there finds it here.
+    static TRAY: RefCell<Option<TrayIcon>> = const { RefCell::new(None) };
+}
 
 /// a 32 x 32 round mark, drawn here so the example needs no image file.
 fn mark() -> Vec<u8> {
@@ -46,8 +55,22 @@ fn main() -> AureaResult<()> {
         let _ = leaving.set_hide_on_close(false);
         leaving.request_close();
     })?;
+    TRAY.with(|held| *held.borrow_mut() = Some(tray));
+
+    thread::spawn(|| {
+        for seconds in 1.. {
+            thread::sleep(Duration::from_secs(1));
+            aurea::on_ui_thread(move || {
+                TRAY.with(|held| {
+                    if let Some(tray) = &*held.borrow() {
+                        let _ = tray.set_tooltip(&format!("Running for {seconds} s"));
+                    }
+                });
+            });
+        }
+    });
 
     let result = window.run();
-    drop(tray);
+    TRAY.with(|held| held.borrow_mut().take());
     result
 }
