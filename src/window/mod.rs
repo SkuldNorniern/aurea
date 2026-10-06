@@ -14,6 +14,7 @@ pub use clipboard::{clipboard_text, set_clipboard_text};
 pub use manager::WindowManager;
 pub use types::{CursorGrabMode, CursorIcon, WindowId, WindowType};
 
+use crate::dispatch;
 use crate::elements::Element;
 use crate::ffi::ng_platform_request_frame;
 use crate::ffi::*;
@@ -478,6 +479,7 @@ impl Window {
 
     pub(super) fn drain_events(&self) -> Vec<WindowEvent> {
         proxy::drain_for(self);
+        dispatch::drain();
 
         let events = self.event_queue.pop_all();
         for event in &events {
@@ -509,6 +511,7 @@ impl Window {
     pub fn process_frames(&self) -> AureaResult<()> {
         ui_thread::check("Window::process_frames");
         proxy::drain_for(self);
+        dispatch::drain();
         process_window_updates(self.handle);
         FrameScheduler::process_frames()
     }
