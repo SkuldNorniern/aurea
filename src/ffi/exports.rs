@@ -1,3 +1,4 @@
+use crate::dispatch;
 use crate::registry::window::{process_all_window_events, process_all_window_updates};
 use aurea_ffi::ng_platform_frame_idle;
 use aurea_runtime::FrameScheduler;
@@ -13,6 +14,7 @@ use std::panic::catch_unwind;
 /// from a thread where the platform event queue and UI objects may be accessed.
 pub unsafe extern "C" fn ng_process_frames() {
     let result = catch_unwind(|| {
+        dispatch::drain();
         process_all_window_events();
         process_all_window_updates();
         if let Err(e) = FrameScheduler::process_frames() {
