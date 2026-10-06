@@ -607,6 +607,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                     break;
                 }
             }
+            if (GetPropA(hwnd, AUREA_HIDE_ON_CLOSE_PROPERTY)) {
+                ShowWindow(hwnd, SW_HIDE);
+                return 0;
+            }
             break;
         }
         

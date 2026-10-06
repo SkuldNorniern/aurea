@@ -3,6 +3,7 @@
 #include "platform/windows/utils.h"
 #include "platform/windows/window.h"
 #include "platform/windows/menu.h"
+#include "platform/windows/tray.h"
 #include "platform/windows/elements.h"
 
 static int box_add_wrapper(NGHandle b, NGHandle e, float w) {
@@ -118,6 +119,13 @@ static const ng_platform_ops_t windows_ops = {
     .get_clipboard_text = ng_windows_get_clipboard_text,
     .free_clipboard_text = ng_windows_free_clipboard_text,
     .set_clipboard_text = ng_windows_set_clipboard_text,
+    .window_set_hide_on_close = ng_windows_window_set_hide_on_close,
+    .create_tray = ng_windows_tray_create,
+    .destroy_tray = ng_windows_tray_destroy,
+    .tray_set_icon_rgba = ng_windows_tray_set_icon_rgba,
+    .tray_set_tooltip = ng_windows_tray_set_tooltip,
+    .tray_add_item = ng_windows_tray_add_item,
+    .tray_notify = ng_windows_tray_notify,
 };
 
 void windows_register_ops(void) {
