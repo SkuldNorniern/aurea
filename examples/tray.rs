@@ -2,7 +2,14 @@
 
 use aurea::elements::{Container, Label, Orientation, Stack};
 use aurea::{AureaResult, TrayIcon, Window};
+use std::cell::RefCell;
 use std::rc::Rc;
+use std::thread;
+use std::time::Duration;
+
+thread_local! {
+    static TRAY: RefCell<Option<TrayIcon>> = const { RefCell::new(None) };
+}
 
 fn mark() -> Vec<u8> {
     let mut rgba = Vec::with_capacity(32 * 32 * 4);
@@ -42,8 +49,22 @@ fn main() -> AureaResult<()> {
         let _ = leaving.set_hide_on_close(false);
         leaving.request_close();
     })?;
+    TRAY.with(|held| *held.borrow_mut() = Some(tray));
+
+    thread::spawn(|| {
+        for seconds in 1.. {
+            thread::sleep(Duration::from_secs(1));
+            aurea::on_ui_thread(move || {
+                TRAY.with(|held| {
+                    if let Some(tray) = &*held.borrow() {
+                        let _ = tray.set_tooltip(&format!("Running for {seconds} s"));
+                    }
+                });
+            });
+        }
+    });
 
     let result = window.run();
-    drop(tray);
+    TRAY.with(|held| held.borrow_mut().take());
     result
 }
