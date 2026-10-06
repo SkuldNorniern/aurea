@@ -70,6 +70,7 @@ pub mod platform;
 pub mod prelude;
 pub mod registry;
 pub mod render;
+pub mod tray;
 pub mod window;
 
 pub use aurea_runtime::{DamageRegion, FrameInfo, FrameScheduler};
@@ -81,6 +82,7 @@ pub use crate::elements::{
     TextEditor, TextField, TextView,
 };
 pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
+pub use crate::tray::TrayIcon;
 pub use crate::window::{
     CursorGrabMode, CursorIcon, Window, WindowId, WindowManager, WindowType, clipboard_text,
     set_clipboard_text,
