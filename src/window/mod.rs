@@ -713,6 +713,22 @@ impl Window {
         }
     }
 
+    /// Makes closing the window hide it instead of destroying it.
+    pub fn set_hide_on_close(&self, hide: bool) -> AureaResult<()> {
+        ui_thread::check("Window::set_hide_on_close");
+        if !cfg!(windows) {
+            return Err(AureaError::Unsupported {
+                operation: "hide a window on close",
+                platform: Platform::current(),
+            });
+        }
+        let result = unsafe { ng_platform_window_set_hide_on_close(self.handle, i32::from(hide)) };
+        if result != 0 {
+            return Err(AureaError::PlatformError(result));
+        }
+        Ok(())
+    }
+
     /// Check if the window is visible.
     pub fn is_visible(&self) -> bool {
         unsafe { ng_platform_window_is_visible(self.handle) != 0 }
