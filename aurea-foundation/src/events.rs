@@ -74,6 +74,20 @@ pub enum WindowEvent {
     TextInput {
         text: String,
     },
+    /// Text an input method is still composing, such as a Hangul syllable
+    /// being built or a kana run before conversion. Draw it at the caret,
+    /// usually underlined; it is not part of the content yet. An empty
+    /// `text` ends the composition. What the user settles on arrives as
+    /// [`WindowEvent::TextInput`].
+    ///
+    /// While text is being composed the keys that edit it (Backspace,
+    /// Enter, arrows) belong to the input method and are not reported as
+    /// [`WindowEvent::KeyInput`].
+    ImePreedit {
+        text: String,
+        /// Byte offset of the input method's caret in `text`, if it shows one.
+        cursor: Option<usize>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

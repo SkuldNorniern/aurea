@@ -45,6 +45,9 @@ int ng_platform_window_set_cursor_grab(NGHandle window, int mode);
 /* icon: 0 default, 1 pointer, 2 text, 3 crosshair, 4 move, 5 resize ew,
    6 resize ns, 7 not allowed, 8 wait. */
 int ng_platform_window_set_cursor_icon(NGHandle window, int icon);
+/* Where the text caret is, in logical pixels relative to the content, so the
+   input method can place its candidate window next to it. */
+int ng_platform_window_set_ime_cursor_area(NGHandle window, float x, float y, float width, float height);
 NGHandle ng_platform_window_get_content_view(NGHandle window);
 void ng_platform_window_show(NGHandle window);
 void ng_platform_window_hide(NGHandle window);
