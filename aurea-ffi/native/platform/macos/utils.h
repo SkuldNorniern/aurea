@@ -13,6 +13,8 @@ extern "C" {
 NSString* ng_macos_to_nsstring(const char* str);
 #endif
 
+int ng_macos_reduced_motion(void);
+
 #ifdef __cplusplus
 }
 #endif

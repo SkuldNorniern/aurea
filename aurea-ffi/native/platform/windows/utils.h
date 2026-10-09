@@ -27,6 +27,8 @@ void ng_windows_register_scale_callback(HWND hwnd, ScaleFactorCallback callback)
 int ng_windows_window_set_shortcuts(NGHandle window, const unsigned int* keycodes, const unsigned int* modifiers, int count);
 int ng_windows_take_shortcut(HWND root, WPARAM vk);
 
+int ng_windows_reduced_motion(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -9,6 +9,7 @@ extern "C" {
 
 typedef struct ng_platform_ops {
     int (*init)(void);
+    int (*reduced_motion)(void);
     void (*cleanup)(void);
     int (*run)(void);
     int (*poll_events)(void);

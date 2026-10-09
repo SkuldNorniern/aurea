@@ -4,6 +4,10 @@
 #import "../common/errors.h"
 #import <UIKit/UIKit.h>
 
+int ng_platform_reduced_motion(void) {
+    return UIAccessibilityIsReduceMotionEnabled() ? 1 : 0;
+}
+
 int ng_platform_init(void) {
     return ng_ios_init();
 }

@@ -726,3 +726,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
     }
     return DefWindowProcW(hwnd, uMsg, wParam, lParam);
 }
+
+int ng_windows_reduced_motion(void) {
+    BOOL animate = TRUE;
+    if (!SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animate, 0)) return 0;
+    return animate ? 0 : 1;
+}
