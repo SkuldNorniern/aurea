@@ -162,6 +162,14 @@ impl Modifiers {
         self.shift || self.ctrl || self.alt || self.meta
     }
 
+    /// The bits [`Modifiers::from_bits`] reads.
+    pub fn bits(self) -> u32 {
+        u32::from(self.shift)
+            | u32::from(self.ctrl) << 1
+            | u32::from(self.alt) << 2
+            | u32::from(self.meta) << 3
+    }
+
     pub fn from_bits(bits: u32) -> Self {
         Self {
             shift: bits & 0b0001 != 0,
@@ -257,6 +265,15 @@ pub enum KeyCode {
 }
 
 impl KeyCode {
+    /// The code [`KeyCode::from_raw`] reads this key from; `None` for
+    /// [`KeyCode::Unknown`].
+    pub fn to_raw(self) -> Option<u32> {
+        if matches!(self, Self::Unknown(_)) {
+            return None;
+        }
+        (0..=77).find(|&code| Self::from_raw(code) == self)
+    }
+
     pub fn from_raw(code: u32) -> Self {
         match code {
             0..=25 => [
@@ -357,7 +374,7 @@ pub type EventCallback = Rc<dyn Fn(WindowEvent)>;
 
 #[cfg(test)]
 mod keycode_tests {
-    use super::KeyCode;
+    use super::{KeyCode, Modifiers};
 
     #[test]
     fn from_raw_maps_letters_digits_and_modifiers() {
@@ -365,6 +382,17 @@ mod keycode_tests {
         assert_eq!(KeyCode::from_raw(25), KeyCode::Z);
         assert_eq!(KeyCode::from_raw(26), KeyCode::Key0);
         assert_eq!(KeyCode::from_raw(66), KeyCode::Meta);
+    }
+
+    #[test]
+    fn raw_codes_round_trip() {
+        for code in 0..=77 {
+            assert_eq!(KeyCode::from_raw(code).to_raw(), Some(code));
+        }
+        assert_eq!(KeyCode::Unknown(500).to_raw(), None);
+        for bits in 0..16 {
+            assert_eq!(Modifiers::from_bits(bits).bits(), bits);
+        }
     }
 
     #[test]

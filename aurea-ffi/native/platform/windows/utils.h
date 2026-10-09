@@ -28,6 +28,9 @@ const wchar_t* ng_windows_get_class_name(void);
 /* UTF-8 to UTF-16 on the heap; the caller frees it. */
 wchar_t* ng_windows_utf8_to_wide(const char* utf8);
 void ng_windows_register_scale_callback(HWND hwnd, ScaleFactorCallback callback);
+int ng_windows_window_set_shortcuts(NGHandle window, const unsigned int* keycodes, const unsigned int* modifiers, int count);
+/* 1 if a key going to a child of root was root's shortcut and is now handled. */
+int ng_windows_take_shortcut(HWND root, WPARAM vk);
 
 #ifdef __cplusplus
 }

@@ -3,6 +3,7 @@
 #include "window.h"
 #include "menu.h"
 #include "ime.h"
+#include "common/shortcuts.h"
 #include "elements/common.h"
 #include "common/errors.h"
 #include "common/input.h"
@@ -270,6 +271,20 @@ static unsigned int ng_windows_keycode_from_vk(WPARAM vk) {
         default:
             return NG_KEY_UNKNOWN;
     }
+}
+
+int ng_windows_window_set_shortcuts(NGHandle window, const unsigned int* keycodes, const unsigned int* modifiers, int count) {
+    return ng_shortcuts_set(window, keycodes, modifiers, count);
+}
+
+/* A key going to a child of `root` (an embedded view with focus) that is one
+   of root's shortcuts: reported as root's key event, and kept from the child. */
+int ng_windows_take_shortcut(HWND root, WPARAM vk) {
+    unsigned int keycode = ng_windows_keycode_from_vk(vk);
+    unsigned int mods = ng_windows_modifiers();
+    if (!ng_shortcuts_match((void*)root, keycode, mods)) return 0;
+    ng_invoke_key_event((void*)root, keycode, 1, mods);
+    return 1;
 }
 
 // WM_CHAR delivers UTF-16 code units one at a time, so a surrogate pair
@@ -774,6 +789,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             RemovePropA(hwnd, AUREA_HIGH_SURROGATE_PROP);
             RemovePropA(hwnd, "AureaMinimized");
             ng_windows_ime_release(hwnd);
+            ng_shortcuts_clear((void*)hwnd);
             /* Drop the window from tracking, then quit only when the last one
                is gone. Quitting on any window's destruction took the whole app
                down as soon as a popup or tool window was closed. */

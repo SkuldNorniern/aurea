@@ -68,6 +68,12 @@ unsafe extern "C" {
         width: f32,
         height: f32,
     ) -> c_int;
+    pub fn ng_platform_window_set_shortcuts(
+        window: *mut c_void,
+        keycodes: *const c_uint,
+        modifiers: *const c_uint,
+        count: c_int,
+    ) -> c_int;
     pub fn ng_platform_window_get_content_view(window: *mut c_void) -> *mut c_void;
     pub fn ng_platform_window_show(window: *mut c_void);
     pub fn ng_platform_window_hide(window: *mut c_void);

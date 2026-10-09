@@ -847,6 +847,35 @@ impl Window {
         Ok(())
     }
 
+    /// Keys this window keeps for itself even while a child view, such as
+    /// an embedded web view, has keyboard focus. They arrive as
+    /// [`WindowEvent::KeyInput`] on this window and do not reach the child.
+    /// Replaces any set before; an empty slice clears them.
+    ///
+    /// Covers child views in this process. A view whose input runs in
+    /// another process (WebView2) has to forward its keys itself.
+    pub fn set_shortcuts(&self, shortcuts: &[(KeyCode, Modifiers)]) -> AureaResult<()> {
+        ui_thread::check("Window::set_shortcuts");
+        let (keycodes, modifiers): (Vec<u32>, Vec<u32>) = shortcuts
+            .iter()
+            .filter_map(|(key, mods)| Some((key.to_raw()?, mods.bits())))
+            .unzip();
+        let count =
+            i32::try_from(keycodes.len()).map_err(|_| AureaError::ElementOperationFailed)?;
+        let result = unsafe {
+            ng_platform_window_set_shortcuts(
+                self.handle,
+                keycodes.as_ptr(),
+                modifiers.as_ptr(),
+                count,
+            )
+        };
+        if result != 0 {
+            return Err(AureaError::ElementOperationFailed);
+        }
+        Ok(())
+    }
+
     /// Set cursor grab mode for this window
     pub fn set_cursor_grab(&self, mode: CursorGrabMode) -> AureaResult<()> {
         ui_thread::check("Window::set_cursor_grab");

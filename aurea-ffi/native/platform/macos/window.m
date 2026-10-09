@@ -2,6 +2,7 @@
 #import "common/errors.h"
 #import "common/input.h"
 #import "common/rust_callbacks.h"
+#import "common/shortcuts.h"
 #import "utils.h"
 #import <Cocoa/Cocoa.h>
 #import <CoreGraphics/CoreGraphics.h>
@@ -840,6 +841,32 @@ int ng_macos_window_set_cursor_visible(NGHandle window, int visible) {
         CGDisplayHideCursor(kCGDirectMainDisplay);
     }
     return NG_SUCCESS;
+}
+
+/* Takes a window's shortcuts before the first responder when that is a
+   child view, an embedded web view say. The content view reports its own
+   keys through keyDown:, so those pass. One monitor serves every window. */
+static id g_shortcut_monitor = nil;
+
+static void ng_macos_ensure_shortcut_monitor(void) {
+    if (g_shortcut_monitor) return;
+    g_shortcut_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
+                                                               handler:^NSEvent*(NSEvent* event) {
+        NSWindow* window = [event window];
+        if (!window || [window firstResponder] == [window contentView]) return event;
+        void* handle = (__bridge void*)window;
+        unsigned int keycode = ng_macos_keycode_from_event([event keyCode]);
+        unsigned int mods = ng_macos_modifiers(event);
+        if (!ng_shortcuts_match(handle, keycode, mods)) return event;
+        ng_invoke_key_event(handle, keycode, 1, mods);
+        return nil;
+    }];
+}
+
+int ng_macos_window_set_shortcuts(NGHandle window, const unsigned int* keycodes, const unsigned int* modifiers, int count) {
+    if (!window) return NG_ERROR_INVALID_HANDLE;
+    ng_macos_ensure_shortcut_monitor();
+    return ng_shortcuts_set(window, keycodes, modifiers, count);
 }
 
 int ng_macos_window_set_ime_cursor_area(NGHandle window, float x, float y, float width, float height) {

@@ -48,6 +48,9 @@ int ng_platform_window_set_cursor_icon(NGHandle window, int icon);
 /* Where the text caret is, in logical pixels relative to the content, so the
    input method can place its candidate window next to it. */
 int ng_platform_window_set_ime_cursor_area(NGHandle window, float x, float y, float width, float height);
+/* Keys the window keeps even while a child view has keyboard focus; they
+   arrive as key events on the window. count 0 clears them. */
+int ng_platform_window_set_shortcuts(NGHandle window, const unsigned int* keycodes, const unsigned int* modifiers, int count);
 NGHandle ng_platform_window_get_content_view(NGHandle window);
 void ng_platform_window_show(NGHandle window);
 void ng_platform_window_hide(NGHandle window);
