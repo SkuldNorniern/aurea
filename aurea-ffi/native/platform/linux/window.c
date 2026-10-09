@@ -1,6 +1,7 @@
 ﻿#include "window.h"
 #include "utils.h"
 #include "menu.h"
+#include "ime.h"
 #include "common/errors.h"
 #include "common/input.h"
 #include "common/rust_callbacks.h"
@@ -105,6 +106,7 @@ NGHandle ng_linux_create_window(const char* title, int width, int height) {
             GDK_BUTTON_RELEASE_MASK | GDK_POINTER_MOTION_MASK | GDK_SCROLL_MASK |
             GDK_ENTER_NOTIFY_MASK | GDK_LEAVE_NOTIFY_MASK | GDK_FOCUS_CHANGE_MASK);
 
+    ng_linux_ime_attach(window);
     g_signal_connect(G_OBJECT(window), "key-press-event", G_CALLBACK(on_key_press), NULL);
     g_signal_connect(G_OBJECT(window), "key-release-event", G_CALLBACK(on_key_release), NULL);
     g_signal_connect(G_OBJECT(window), "button-press-event", G_CALLBACK(on_button_press), NULL);
@@ -323,13 +325,18 @@ static int ng_linux_mouse_button_from_event(guint button) {
 static gboolean on_key_press(GtkWidget* widget, GdkEventKey* event, gpointer user_data) {
     unsigned int mods = ng_linux_modifiers(event->state);
     unsigned int keycode = ng_linux_keycode_from_keyval(event->keyval);
-    ng_invoke_key_event((void*)widget, keycode, 1, mods);
 
-    if (ng_linux_handle_menu_shortcut((void*)widget, keycode, mods)) {
-        return TRUE;
+    if (!ng_linux_ime_composing(widget)) {
+        ng_invoke_key_event((void*)widget, keycode, 1, mods);
+        if (ng_linux_handle_menu_shortcut((void*)widget, keycode, mods)) {
+            return TRUE;
+        }
     }
 
-    if (event->string && event->string[0] != '\0') {
+    if (ng_linux_ime_filter(widget, event)) {
+        return TRUE;
+    }
+    if (!ng_linux_ime_available(widget) && event->string && event->string[0] != '\0') {
         ng_invoke_text_input((void*)widget, event->string);
     }
     return FALSE;
@@ -338,7 +345,13 @@ static gboolean on_key_press(GtkWidget* widget, GdkEventKey* event, gpointer use
 static gboolean on_key_release(GtkWidget* widget, GdkEventKey* event, gpointer user_data) {
     unsigned int mods = ng_linux_modifiers(event->state);
     unsigned int keycode = ng_linux_keycode_from_keyval(event->keyval);
-    ng_invoke_key_event((void*)widget, keycode, 0, mods);
+    int composing = ng_linux_ime_composing(widget);
+    if (ng_linux_ime_filter(widget, event)) {
+        return TRUE;
+    }
+    if (!composing) {
+        ng_invoke_key_event((void*)widget, keycode, 0, mods);
+    }
     return FALSE;
 }
 
@@ -511,11 +524,13 @@ static gboolean on_scroll(GtkWidget* widget, GdkEventScroll* event, gpointer use
 }
 
 static gboolean on_focus_in(GtkWidget* widget, GdkEventFocus* event, gpointer user_data) {
+    ng_linux_ime_focus(widget, 1);
     ng_invoke_focus_changed((void*)widget, 1);
     return FALSE;
 }
 
 static gboolean on_focus_out(GtkWidget* widget, GdkEventFocus* event, gpointer user_data) {
+    ng_linux_ime_focus(widget, 0);
     ng_invoke_focus_changed((void*)widget, 0);
     return FALSE;
 }

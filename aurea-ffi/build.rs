@@ -141,6 +141,7 @@ fn main() {
         "native/platform/linux/linux_ops.c",
         "native/platform/linux/utils.c",
         "native/platform/linux/window.c",
+        "native/platform/linux/ime.c",
         "native/platform/linux/menu.c",
         "native/platform/linux/elements/button.c",
         "native/platform/linux/elements/label.c",
