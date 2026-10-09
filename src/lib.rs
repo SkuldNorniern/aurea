@@ -62,6 +62,7 @@ pub use aurea_animation as animation;
 mod dispatch;
 pub mod elements;
 pub mod embed;
+pub mod files;
 pub mod ffi;
 pub mod integration;
 pub mod lifecycle;
@@ -100,6 +101,7 @@ pub use crate::window::{
 pub use crate::render::{Canvas, Color, DrawingContext, Point, Rect, RendererBackend};
 
 pub use crate::platform::handles::NativeWindowHandle;
+pub use crate::files::{open_path, reveal_path};
 pub use aurea_foundation::{AureaError, AureaResult};
 pub use aurea_foundation::{
     Capability, CapabilityChecker, DesktopPlatform, MobilePlatform, Platform, Support,
