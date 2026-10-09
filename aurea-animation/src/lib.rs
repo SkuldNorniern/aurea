@@ -1,5 +1,7 @@
 pub mod easing;
+pub mod tweens;
 pub use easing::EaseMode;
+pub use tweens::{Tweens, smoothstep};
 
 use std::time::Duration;
 
