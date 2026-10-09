@@ -198,7 +198,7 @@ Input and text per platform:
 | Pointer kept while a button is held | yes | yes | yes |
 | Held buttons on `MouseMove` | all five | all | all, back and forward as 3 and 4 like the others |
 | Cursor shapes (`Window::set_cursor`) | yes | yes, no busy cursor | yes |
-| IME | no | no | no |
+| IME composition (`ImePreedit`, `set_ime_cursor_area`) | IMM32 | NSTextInputClient | GtkIMContext |
 | Glyph fallback for missing characters | DirectWrite, fixed family list | fontdue fallback list | fontdue fallback list |
 | Bold and italic faces | yes | when the font file is named for it | when the font file is named for it |
 | Scale factor changes | yes | yes | yes |

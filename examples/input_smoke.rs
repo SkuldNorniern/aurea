@@ -69,6 +69,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         WindowEvent::TextInput { text } => {
             println!("text input: {:?}", text);
         }
+        WindowEvent::ImePreedit { text, cursor } => {
+            println!("ime preedit: {:?} caret {:?}", text, cursor);
+        }
         WindowEvent::Focused => println!("focus gained"),
         WindowEvent::Unfocused => println!("focus lost"),
         WindowEvent::MouseEntered => println!("cursor entered"),
