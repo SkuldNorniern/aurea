@@ -325,7 +325,7 @@ impl CpuRasterizer {
                 Self::fill_rect_region(rect, paint, mode, buf, bw, clip, x0, y0, x1, y1)
             }
             PaintStyle::Stroke => {
-                Self::stroke_rect_region(paint, mode, buf, bw, clip, x0, y0, x1, y1)
+                Self::stroke_rect_region(rect, paint, mode, buf, bw, clip, x0, y0, x1, y1)
             }
         }
     }
@@ -501,8 +501,14 @@ impl CpuRasterizer {
         }
     }
 
+    /// Strokes `rect`'s outline inside the visible part `x0..x1`, `y0..y1`.
+    ///
+    /// The edges are the rectangle's own. A rectangle cut by the clip, as
+    /// one spanning several repainted tiles is, must not grow an edge along
+    /// the cut: that drew a line at every tile boundary it crossed.
     #[allow(clippy::too_many_arguments)]
     fn stroke_rect_region(
+        rect: &Rect,
         paint: &Paint,
         mode: BlendMode,
         buf: &mut [u32],
@@ -513,29 +519,34 @@ impl CpuRasterizer {
         x1: u32,
         y1: u32,
     ) {
-        let sw = f32_to_u32_clamped(paint.stroke_width);
+        let sw = i32::try_from(f32_to_u32_clamped(paint.stroke_width)).unwrap_or(i32::MAX);
         if sw == 0 {
             return;
         }
         let c = color_to_u32(paint.color);
-        // top/bottom rows
-        for x in x0..x1 {
-            for dy in 0..sw.min(y1 - y0) {
-                Self::buf_set(buf, bw, clip, x as i32, (y0 + dy) as i32, c, mode);
-                let bot = (y1 - 1).saturating_sub(dy);
-                if bot >= y0 {
-                    Self::buf_set(buf, bw, clip, x as i32, bot as i32, c, mode);
-                }
-            }
-        }
-        // left/right columns
-        for y in y0..y1 {
-            for dx in 0..sw.min(x1 - x0) {
-                Self::buf_set(buf, bw, clip, (x0 + dx) as i32, y as i32, c, mode);
-                let right = (x1 - 1).saturating_sub(dx);
-                if right >= x0 {
-                    Self::buf_set(buf, bw, clip, right as i32, y as i32, c, mode);
-                }
+        let left = f32_to_i32_clamped(rect.x.floor());
+        let top = f32_to_i32_clamped(rect.y.floor());
+        let right = f32_to_i32_clamped((rect.x + rect.width).ceil());
+        let bottom = f32_to_i32_clamped((rect.y + rect.height).ceil());
+        let sw_x = sw.min(right.saturating_sub(left));
+        let sw_y = sw.min(bottom.saturating_sub(top));
+        let (vx0, vx1) = (x0 as i32, x1 as i32);
+
+        // The visible parts of the left and right edge columns.
+        let span = |from: i32, to: i32| from.clamp(vx0, vx1)..to.clamp(vx0, vx1);
+        let left_band = span(left, left.saturating_add(sw_x));
+        let right_band = span(
+            right.saturating_sub(sw_x).max(left.saturating_add(sw_x)),
+            right,
+        );
+
+        for y in y0 as i32..y1 as i32 {
+            let mut set = |x: i32| Self::buf_set(buf, bw, clip, x, y, c, mode);
+            if y < top.saturating_add(sw_y) || y >= bottom.saturating_sub(sw_y) {
+                (vx0..vx1).for_each(&mut set);
+            } else {
+                left_band.clone().for_each(&mut set);
+                right_band.clone().for_each(&mut set);
             }
         }
     }
@@ -1854,6 +1865,59 @@ fn circle_coverage(center: Point, radius: f32, px: f32, py: f32) -> f32 {
 fn pixel_at(buf: &[u32], w: u32, x: u32, y: u32) -> u32 {
     let idx = (y * w + x) as usize;
     if idx < buf.len() { buf[idx] } else { 0 }
+}
+
+#[cfg(test)]
+mod stroke_rect_tests {
+    use super::*;
+
+    /// Strokes the same rectangle through two clips that split it, the way
+    /// two repainted tiles do, and returns the pixels.
+    fn stroke_split(split: u32) -> Vec<u32> {
+        let (w, h) = (20, 10);
+        let mut buf = vec![0u32; (w * h) as usize];
+        let rect = Rect::new(2.0, 2.0, 16.0, 6.0);
+        let paint = Paint::new()
+            .color(Color::rgb(255, 0, 0))
+            .style(PaintStyle::Stroke)
+            .stroke_width(1.0);
+        for clip in [
+            ClipBox {
+                x0: 0,
+                y0: 0,
+                x1: split,
+                y1: h,
+            },
+            ClipBox {
+                x0: split,
+                y0: 0,
+                x1: w,
+                y1: h,
+            },
+        ] {
+            CpuRasterizer::draw_rect(&rect, &paint, BlendMode::Normal, &mut buf, w, clip);
+        }
+        buf
+    }
+
+    #[test]
+    fn a_split_rectangle_has_no_edge_at_the_split() {
+        let buf = stroke_split(10);
+        let at = |x: u32, y: u32| buf[(y * 20 + x) as usize];
+        // Inside the rectangle, either side of the split: untouched.
+        assert_eq!(at(9, 4), 0);
+        assert_eq!(at(10, 4), 0);
+        // Its real edges are all there.
+        assert_ne!(at(2, 4), 0);
+        assert_ne!(at(17, 4), 0);
+        assert_ne!(at(9, 2), 0);
+        assert_ne!(at(10, 7), 0);
+    }
+
+    #[test]
+    fn splitting_does_not_change_the_outline() {
+        assert_eq!(stroke_split(10), stroke_split(20));
+    }
 }
 
 #[cfg(test)]
