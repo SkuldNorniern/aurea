@@ -15,7 +15,9 @@ int ng_linux_ime_composing(GtkWidget* window);
 /* Offers a key press or release to the input method; 1 if it took it. */
 int ng_linux_ime_filter(GtkWidget* window, GdkEventKey* event);
 
-int ng_linux_ime_available(GtkWidget* window);
+/* Whether typing goes to Aurea's input method rather than a focused native
+   widget with its own. */
+int ng_linux_ime_active(GtkWidget* window);
 
 int ng_linux_window_set_ime_cursor_area(NGHandle window, float x, float y, float width, float height);
 

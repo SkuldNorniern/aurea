@@ -355,7 +355,7 @@ static gboolean on_key_press(GtkWidget* widget, GdkEventKey* event, gpointer use
     if (ng_linux_ime_filter(widget, event)) {
         return TRUE;
     }
-    if (!ng_linux_ime_available(widget) && event->string && event->string[0] != '\0') {
+    if (!ng_linux_ime_active(widget) && event->string && event->string[0] != '\0') {
         ng_invoke_text_input((void*)widget, event->string);
     }
     return FALSE;
