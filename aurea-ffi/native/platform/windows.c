@@ -62,6 +62,10 @@ static BOOL ng_windows_drain_messages(void) {
     for (int handled = 0; handled < AUREA_MESSAGE_BATCH; handled++) {
         if (!PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) break;
         if (msg.message == WM_QUIT) return FALSE;
+        if (msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN) {
+            HWND root = GetAncestor(msg.hwnd, GA_ROOT);
+            if (root && root != msg.hwnd && ng_windows_take_shortcut(root, msg.wParam)) continue;
+        }
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
         if (ng_windows_now() - start >= budget) break;

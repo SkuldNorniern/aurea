@@ -2,6 +2,7 @@
 #include "utils.h"
 #include "menu.h"
 #include "ime.h"
+#include "common/shortcuts.h"
 #include "common/errors.h"
 #include "common/input.h"
 #include "common/rust_callbacks.h"
@@ -329,6 +330,9 @@ static gboolean on_key_press(GtkWidget* widget, GdkEventKey* event, gpointer use
     if (!ng_linux_ime_composing(widget)) {
         ng_invoke_key_event((void*)widget, keycode, 1, mods);
         if (ng_linux_handle_menu_shortcut((void*)widget, keycode, mods)) {
+            return TRUE;
+        }
+        if (ng_shortcuts_match((void*)widget, keycode, mods)) {
             return TRUE;
         }
     }

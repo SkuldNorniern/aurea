@@ -117,6 +117,10 @@ int ng_platform_window_set_ime_cursor_area(NGHandle w, float x, float y, float w
     DISPATCH_INT(window_set_ime_cursor_area, w, x, y, width, height);
 }
 
+int ng_platform_window_set_shortcuts(NGHandle w, const unsigned int* keycodes, const unsigned int* modifiers, int count) {
+    DISPATCH_INT(window_set_shortcuts, w, keycodes, modifiers, count);
+}
+
 int ng_platform_window_set_cursor_grab(NGHandle w, int m) {
     DISPATCH_INT(window_set_cursor_grab, w, m);
 }

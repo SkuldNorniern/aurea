@@ -329,6 +329,14 @@ int ng_platform_window_set_ime_cursor_area(NGHandle window, float x, float y, fl
     return NG_ERROR_PLATFORM_SPECIFIC;
 }
 
+int ng_platform_window_set_shortcuts(NGHandle window, const unsigned int* keycodes, const unsigned int* modifiers, int count) {
+    (void)window;
+    (void)keycodes;
+    (void)modifiers;
+    (void)count;
+    return NG_ERROR_PLATFORM_SPECIFIC;
+}
+
 NGHandle ng_platform_create_image_view(void) {
     return NULL;
 }

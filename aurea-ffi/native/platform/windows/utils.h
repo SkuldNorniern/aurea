@@ -24,6 +24,8 @@ BOOL ng_windows_is_initialized(void);
 const wchar_t* ng_windows_get_class_name(void);
 wchar_t* ng_windows_utf8_to_wide(const char* utf8);
 void ng_windows_register_scale_callback(HWND hwnd, ScaleFactorCallback callback);
+int ng_windows_window_set_shortcuts(NGHandle window, const unsigned int* keycodes, const unsigned int* modifiers, int count);
+int ng_windows_take_shortcut(HWND root, WPARAM vk);
 
 #ifdef __cplusplus
 }
