@@ -320,6 +320,15 @@ int ng_platform_window_set_cursor_icon(NGHandle window, int icon) {
     return NG_ERROR_PLATFORM_SPECIFIC;
 }
 
+int ng_platform_window_set_ime_cursor_area(NGHandle window, float x, float y, float width, float height) {
+    (void)window;
+    (void)x;
+    (void)y;
+    (void)width;
+    (void)height;
+    return NG_ERROR_PLATFORM_SPECIFIC;
+}
+
 NGHandle ng_platform_create_image_view(void) {
     return NULL;
 }

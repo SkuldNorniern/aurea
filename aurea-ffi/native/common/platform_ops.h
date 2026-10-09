@@ -32,6 +32,7 @@ typedef struct ng_platform_ops {
     int (*window_set_cursor_visible)(NGHandle window, int visible);
     int (*window_set_cursor_grab)(NGHandle window, int mode);
     int (*window_set_cursor_icon)(NGHandle window, int icon);
+    int (*window_set_ime_cursor_area)(NGHandle window, float x, float y, float width, float height);
     NGHandle (*window_get_content_view)(NGHandle window);
     void (*window_show)(NGHandle window);
     void (*window_hide)(NGHandle window);

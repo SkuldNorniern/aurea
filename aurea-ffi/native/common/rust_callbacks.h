@@ -35,6 +35,7 @@ void ng_invoke_mouse_button(
 void ng_invoke_mouse_move(void* window, double x, double y, unsigned int buttons, unsigned int modifiers);
 void ng_invoke_mouse_wheel(void* window, double delta_x, double delta_y, unsigned int modifiers);
 void ng_invoke_text_input(void* window, const char* text);
+void ng_invoke_ime_preedit(void* window, const char* text, int cursor);
 void ng_invoke_focus_changed(void* window, int focused);
 void ng_invoke_cursor_entered(void* window, int entered);
 void ng_invoke_raw_mouse_motion(void* window, double delta_x, double delta_y);

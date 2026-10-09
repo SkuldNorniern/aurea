@@ -185,6 +185,23 @@ pub extern "C" fn ng_invoke_text_input(window: *mut c_void, text: *const c_char)
     });
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_ime_preedit(window: *mut c_void, text: *const c_char, cursor: c_int) {
+    guard("ng_invoke_ime_preedit", || {
+        let text = c_string(text).unwrap_or_default();
+        let event = WindowEvent::ImePreedit {
+            cursor: preedit_cursor(&text, cursor),
+            text,
+        };
+        push_window_event(window, event);
+    });
+}
+
+fn preedit_cursor(text: &str, cursor: c_int) -> Option<usize> {
+    let cursor = usize::try_from(cursor).ok()?;
+    text.is_char_boundary(cursor).then_some(cursor)
+}
+
 fn typed_text(text: String) -> Option<String> {
     let text = if text.chars().any(char::is_control) {
         text.chars().filter(|c| !c.is_control()).collect()
@@ -266,6 +283,16 @@ mod tests {
         }
         assert_eq!(typed_text("a\u{8}b".to_owned()).as_deref(), Some("ab"));
         assert_eq!(typed_text("한글 😀".to_owned()).as_deref(), Some("한글 😀"));
+    }
+
+    #[test]
+    fn preedit_cursor_must_land_on_a_character() {
+        assert_eq!(preedit_cursor("한글", -1), None);
+        assert_eq!(preedit_cursor("한글", 0), Some(0));
+        assert_eq!(preedit_cursor("한글", 3), Some(3));
+        assert_eq!(preedit_cursor("한글", 6), Some(6));
+        assert_eq!(preedit_cursor("한글", 1), None);
+        assert_eq!(preedit_cursor("한글", 7), None);
     }
 
     #[test]

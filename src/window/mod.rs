@@ -685,6 +685,25 @@ impl Window {
         Ok(())
     }
 
+    /// Tells the input method where the text caret is, in logical pixels relative to the content,
+    /// so its candidate window opens beside the text instead of in a corner.
+    pub fn set_ime_cursor_area(&self, area: Rect) -> AureaResult<()> {
+        ui_thread::check("Window::set_ime_cursor_area");
+        let result = unsafe {
+            ng_platform_window_set_ime_cursor_area(
+                self.handle,
+                area.x,
+                area.y,
+                area.width,
+                area.height,
+            )
+        };
+        if result != 0 {
+            return Err(AureaError::ElementOperationFailed);
+        }
+        Ok(())
+    }
+
     /// Set cursor grab mode for this window.
     pub fn set_cursor_grab(&self, mode: CursorGrabMode) -> AureaResult<()> {
         ui_thread::check("Window::set_cursor_grab");

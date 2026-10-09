@@ -62,6 +62,12 @@ pub enum WindowEvent {
     TextInput {
         text: String,
     },
+    /// Text an input method is still composing, such as a Hangul syllable being built or a kana run
+    /// before conversion.
+    ImePreedit {
+        text: String,
+        cursor: Option<usize>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
