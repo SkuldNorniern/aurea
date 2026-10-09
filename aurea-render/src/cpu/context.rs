@@ -20,6 +20,25 @@ use std::sync::{Arc, LazyLock};
 
 static TEXT_RENDERER: LazyLock<TextRenderer> = LazyLock::new(TextRenderer::new);
 const DEFAULT_FONT_FAMILY: &str = "Sans";
+
+/// Measures `text` in `font` at logical size, with the same text engine and
+/// caches the CPU renderer draws with, so what is measured is what is drawn.
+/// Callable from any thread: for laying text out away from the UI thread.
+pub fn measure_text(text: &str, font: &Font) -> AureaResult<TextMetrics> {
+    if text.is_empty() {
+        return Ok(TextMetrics {
+            width: 0.0,
+            height: 0.0,
+            ascent: 0.0,
+            descent: 0.0,
+            advance: 0.0,
+        });
+    }
+    TEXT_RENDERER.measure_text(
+        text,
+        super::super::text::FontRef::with_size(font, font.size),
+    )
+}
 const DEFAULT_FONT_SIZE: f32 = 16.0;
 
 /// Snapshot of transform, opacity, clip, and blend mode for save/restore.
@@ -927,6 +946,22 @@ impl DrawingContext for RecordingContext<'_> {
 
 #[cfg(test)]
 mod tests {
+
+    use std::thread::spawn;
+
+    #[test]
+    fn measuring_off_the_ui_thread_matches_drawing_widths() {
+        let font = Font::new("", 16.0);
+        let here = measure_text("Hello, measured world", &font).expect("measure");
+        let there = spawn(move || measure_text("Hello, measured world", &Font::new("", 16.0)))
+            .join()
+            .expect("thread")
+            .expect("measure");
+        assert!(here.width > 0.0);
+        assert_eq!(here.width, there.width);
+        assert!(measure_text("ab", &font).expect("measure").width < here.width);
+    }
+
     use super::*;
 
     fn ctx_with(list: &mut DisplayList, scale: f32) -> RecordingContext<'_> {
