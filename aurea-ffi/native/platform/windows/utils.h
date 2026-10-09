@@ -32,6 +32,8 @@ int ng_windows_window_set_shortcuts(NGHandle window, const unsigned int* keycode
 /* 1 if a key going to a child of root was root's shortcut and is now handled. */
 int ng_windows_take_shortcut(HWND root, WPARAM vk);
 
+int ng_windows_reduced_motion(void);
+
 #ifdef __cplusplus
 }
 #endif

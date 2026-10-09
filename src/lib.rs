@@ -83,6 +83,7 @@ pub use crate::elements::{
     ProgressBar, SidebarList, Slider, Spacer, SplitOrientation, SplitView, Stack, TabBar,
     TextEditor, TextField, TextView,
 };
+use crate::ffi::ng_platform_reduced_motion;
 pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
 pub use crate::tray::TrayIcon;
 pub use crate::window::{
@@ -103,6 +104,15 @@ pub use aurea_foundation::{AureaError, AureaResult};
 pub use aurea_foundation::{
     Capability, CapabilityChecker, DesktopPlatform, MobilePlatform, Platform, Support,
 };
+
+/// Whether the user asked the system for less motion: Windows' "animation
+/// effects", macOS' "reduce motion", GTK's animation switch, iOS' "reduce
+/// motion". Animations should then jump straight to their end. `false` where
+/// the platform has no such setting or it cannot be read. Ask after a
+/// window exists; GTK reads its settings once it is up.
+pub fn reduced_motion() -> bool {
+    unsafe { ng_platform_reduced_motion() != 0 }
+}
 
 /// How well Aurea supports `capability` in this build, on this platform.
 ///

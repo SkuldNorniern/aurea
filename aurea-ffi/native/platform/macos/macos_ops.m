@@ -8,6 +8,7 @@
 
 static const ng_platform_ops_t macos_ops = {
     .init = ng_macos_init,
+    .reduced_motion = ng_macos_reduced_motion,
     .cleanup = ng_macos_cleanup,
     .run = ng_macos_run,
     .poll_events = ng_macos_poll_events,

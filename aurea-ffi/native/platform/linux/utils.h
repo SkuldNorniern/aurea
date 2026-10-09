@@ -13,6 +13,8 @@ int ng_linux_run(void);
 int ng_linux_poll_events(void);
 void ng_linux_request_frame(void);
 
+int ng_linux_reduced_motion(void);
+
 #ifdef __cplusplus
 }
 #endif

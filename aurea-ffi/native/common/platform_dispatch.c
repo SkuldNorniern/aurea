@@ -47,6 +47,11 @@ int ng_platform_init(void) {
     return g_ops && g_ops->init ? g_ops->init() : NG_SUCCESS;
 }
 
+int ng_platform_reduced_motion(void) {
+    ensure_ops();
+    return (g_ops && g_ops->reduced_motion) ? g_ops->reduced_motion() : 0;
+}
+
 void ng_platform_cleanup(void) {
     if (g_ops && g_ops->cleanup) g_ops->cleanup();
 }

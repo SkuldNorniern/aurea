@@ -16,6 +16,8 @@ int ng_platform_get_abi_version(void);
 
 // Init / event loop
 int ng_platform_init(void);
+/* 1 when the user asked the system for less motion, else 0. */
+int ng_platform_reduced_motion(void);
 void ng_platform_cleanup(void);
 int ng_platform_run(void);
 int ng_platform_poll_events(void);

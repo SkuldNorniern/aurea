@@ -24,3 +24,12 @@ gboolean ng_linux_is_initialized(void) {
     return gtk_initialized;
 }
 
+/* GTK's own switch for animations, which desktops tie to their reduced
+   motion setting. */
+int ng_linux_reduced_motion(void) {
+    GtkSettings* settings = gtk_settings_get_default();
+    if (!settings) return 0;
+    gboolean enabled = TRUE;
+    g_object_get(settings, "gtk-enable-animations", &enabled, NULL);
+    return enabled ? 0 : 1;
+}
