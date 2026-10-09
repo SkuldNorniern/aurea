@@ -75,13 +75,15 @@ int ng_linux_ime_composing(GtkWidget* window) {
     return window && GPOINTER_TO_INT(g_object_get_data(G_OBJECT(window), AUREA_IM_COMPOSING_KEY));
 }
 
-int ng_linux_ime_filter(GtkWidget* window, GdkEventKey* event) {
-    GtkIMContext* im = ng_linux_im(window);
-    return im ? gtk_im_context_filter_keypress(im, event) : 0;
+int ng_linux_ime_active(GtkWidget* window) {
+    if (!ng_linux_im(window) || !GTK_IS_WINDOW(window)) return 0;
+    GtkWidget* focus = gtk_window_get_focus(GTK_WINDOW(window));
+    return focus == NULL || GTK_IS_DRAWING_AREA(focus);
 }
 
-int ng_linux_ime_available(GtkWidget* window) {
-    return ng_linux_im(window) != NULL;
+int ng_linux_ime_filter(GtkWidget* window, GdkEventKey* event) {
+    if (!ng_linux_ime_active(window)) return 0;
+    return gtk_im_context_filter_keypress(ng_linux_im(window), event);
 }
 
 int ng_linux_window_set_ime_cursor_area(NGHandle window, float x, float y, float width, float height) {
