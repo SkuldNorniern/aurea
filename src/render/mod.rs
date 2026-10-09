@@ -3,6 +3,7 @@
 mod canvas;
 pub mod graph;
 
+pub use aurea_render::cpu::measure_text;
 pub use aurea_render::{
     BlendMode, ClickCallback, Color, CpuRasterizer, DisplayIndex, DisplayItem, DisplayList,
     DrawCommand, DrawingContext, Font, FontStyle, FontWeight, GradientStop, HoverCallback, Image,
