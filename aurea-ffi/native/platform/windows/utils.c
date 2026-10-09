@@ -2,6 +2,7 @@
 #include "utils.h"
 #include "window.h"
 #include "menu.h"
+#include "ime.h"
 #include "elements/common.h"
 #include "common/errors.h"
 #include "common/input.h"
@@ -381,6 +382,10 @@ static void ng_windows_release_capture(HWND hwnd, WPARAM held) {
 }
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    LRESULT ime_result;
+    if (ng_windows_ime_message(hwnd, uMsg, wParam, lParam, &ime_result)) {
+        return ime_result;
+    }
     switch (uMsg) {
         case WM_SETFOCUS:
             ng_invoke_focus_changed((void*)hwnd, 1);
@@ -683,6 +688,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             RemovePropA(hwnd, AUREA_TRACKING_PROP);
             RemovePropA(hwnd, AUREA_HIGH_SURROGATE_PROP);
             RemovePropA(hwnd, "AureaMinimized");
+            ng_windows_ime_release(hwnd);
             for (int i = 0; i < g_tracked_count; i++) {
                 if (g_tracked_windows[i] == hwnd) {
                     int last = g_tracked_count - 1;
