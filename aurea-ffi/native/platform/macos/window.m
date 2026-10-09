@@ -129,15 +129,20 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
     }
 }
 
-@interface AureaContentView : NSView {
+@interface AureaContentView : NSView <NSTextInputClient> {
     NSTrackingArea* trackingArea;
     int buttonsHeld;
     BOOL exitHeld;
     // Which of Shift, Control, Option and Command were last reported down.
     unsigned int modifiersDown;
+    // Text the input method is composing, nil when it is not.
+    NSString* markedText;
+    // The application's text caret, in content pixels from the top left.
+    NSRect imeArea;
 }
 @property (nonatomic, assign) void* windowHandle;
 @property (nonatomic, strong) NSCursor* cursor;
+- (void)setImeArea:(NSRect)area;
 @end
 
 @implementation AureaContentView
@@ -299,25 +304,111 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
 
 - (void)keyDown:(NSEvent*)event {
     if (!self.windowHandle) return;
-    unsigned int keycode = ng_macos_keycode_from_event([event keyCode]);
-    ng_invoke_key_event(self.windowHandle, keycode, 1, ng_macos_modifiers(event));
-
-    // Only fire TextInput for printable characters.
-    // Exclude: C0/C1 control chars, DEL (0x7F), and the macOS private-use
-    // range 0xF700??xF8FF which carries arrow keys, F-keys, and other
-    // non-printable special keys as NSEvent characters.
-    NSString* chars = [event characters];
-    if (chars && [chars length] > 0) {
-        unichar first = [chars characterAtIndex:0];
-        BOOL isControl   = (first < 0x0020 || first == 0x007F);
-        BOOL isFnKeyChar = (first >= 0xF700 && first <= 0xF8FF);
-        if (!isControl && !isFnKeyChar) {
-            const char* utf8 = [chars UTF8String];
-            if (utf8) {
-                ng_invoke_text_input(self.windowHandle, utf8);
-            }
-        }
+    // While text is being composed its keys belong to the input method.
+    if (![self hasMarkedText]) {
+        unsigned int keycode = ng_macos_keycode_from_event([event keyCode]);
+        ng_invoke_key_event(self.windowHandle, keycode, 1, ng_macos_modifiers(event));
     }
+    // Text, composed or not, comes back through NSTextInputClient.
+    [self interpretKeyEvents:@[event]];
+}
+
+// NSTextInputClient
+
+- (void)insertText:(id)string replacementRange:(NSRange)replacementRange {
+    (void)replacementRange;
+    NSString* text = [string isKindOfClass:[NSAttributedString class]] ? [string string] : string;
+    if ([self hasMarkedText]) {
+        markedText = nil;
+        if (self.windowHandle) ng_invoke_ime_preedit(self.windowHandle, "", -1);
+    }
+    if (!self.windowHandle || !text || [text length] == 0) return;
+
+    // Only printable text. Exclude C0 control characters, DEL, and the
+    // private-use range 0xF700-0xF8FF that carries arrow and function keys.
+    unichar first = [text characterAtIndex:0];
+    BOOL isControl = (first < 0x0020 || first == 0x007F);
+    BOOL isFnKeyChar = (first >= 0xF700 && first <= 0xF8FF);
+    if (isControl || isFnKeyChar) return;
+
+    const char* utf8 = [text UTF8String];
+    if (utf8) {
+        ng_invoke_text_input(self.windowHandle, utf8);
+    }
+}
+
+- (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange replacementRange:(NSRange)replacementRange {
+    (void)replacementRange;
+    NSString* text = [string isKindOfClass:[NSAttributedString class]] ? [string string] : string;
+    markedText = (text && [text length] > 0) ? [text copy] : nil;
+    if (!self.windowHandle) return;
+
+    // AppKit counts the caret in UTF-16 units; Aurea in UTF-8 bytes.
+    int cursor = -1;
+    if (markedText && selectedRange.location != NSNotFound && selectedRange.location <= [markedText length]) {
+        NSString* head = [markedText substringToIndex:selectedRange.location];
+        cursor = (int)[head lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+    }
+    const char* utf8 = markedText ? [markedText UTF8String] : "";
+    ng_invoke_ime_preedit(self.windowHandle, utf8 ? utf8 : "", cursor);
+}
+
+- (void)unmarkText {
+    if (![self hasMarkedText]) return;
+    markedText = nil;
+    if (self.windowHandle) ng_invoke_ime_preedit(self.windowHandle, "", -1);
+}
+
+- (BOOL)hasMarkedText {
+    return markedText != nil && [markedText length] > 0;
+}
+
+- (NSRange)markedRange {
+    return [self hasMarkedText] ? NSMakeRange(0, [markedText length]) : NSMakeRange(NSNotFound, 0);
+}
+
+- (NSRange)selectedRange {
+    return NSMakeRange(NSNotFound, 0);
+}
+
+- (NSArray<NSAttributedStringKey>*)validAttributesForMarkedText {
+    return @[];
+}
+
+- (NSAttributedString*)attributedSubstringForProposedRange:(NSRange)range actualRange:(NSRangePointer)actualRange {
+    (void)range;
+    (void)actualRange;
+    return nil;
+}
+
+- (NSUInteger)characterIndexForPoint:(NSPoint)point {
+    (void)point;
+    return NSNotFound;
+}
+
+// Where the candidate window goes: the caret area, in screen coordinates.
+- (NSRect)firstRectForCharacterRange:(NSRange)range actualRange:(NSRangePointer)actualRange {
+    (void)range;
+    (void)actualRange;
+    CGFloat h = [self bounds].size.height;
+    NSRect local = NSMakeRect(
+        imeArea.origin.x,
+        h - imeArea.origin.y - imeArea.size.height,
+        imeArea.size.width,
+        imeArea.size.height);
+    NSRect inWindow = [self convertRect:local toView:nil];
+    return [self window] ? [[self window] convertRectToScreen:inWindow] : inWindow;
+}
+
+// Keys with a command (arrows, Return, Backspace) were already reported as
+// key events. Handling the command here stops AppKit beeping at it.
+- (void)doCommandBySelector:(SEL)selector {
+    (void)selector;
+}
+
+- (void)setImeArea:(NSRect)area {
+    imeArea = area;
+    [[self inputContext] invalidateCharacterCoordinates];
 }
 
 - (void)keyUp:(NSEvent*)event {
@@ -748,6 +839,15 @@ int ng_macos_window_set_cursor_visible(NGHandle window, int visible) {
     } else {
         CGDisplayHideCursor(kCGDirectMainDisplay);
     }
+    return NG_SUCCESS;
+}
+
+int ng_macos_window_set_ime_cursor_area(NGHandle window, float x, float y, float width, float height) {
+    if (!window) return NG_ERROR_INVALID_HANDLE;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    NSView* view = [nsWindow contentView];
+    if (![view isKindOfClass:[AureaContentView class]]) return NG_ERROR_PLATFORM_SPECIFIC;
+    [(AureaContentView*)view setImeArea:NSMakeRect(x, y, width, height)];
     return NG_SUCCESS;
 }
 
