@@ -8,6 +8,10 @@
 //! widget calls [`Ui::interact`](super::Ui::interact) once and hands the
 //! result down.
 
+mod editable;
+
+pub use editable::{EditableText, TextOutcome};
+
 use super::frame::{Eased, Ui};
 use super::paint::{Component, Shadow, Surface};
 use super::state::WidgetId;
