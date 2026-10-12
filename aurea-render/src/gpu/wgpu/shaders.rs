@@ -193,7 +193,7 @@ fn vs_main(@builtin(vertex_index) vidx: u32, instance: Instance) -> VsOut {
     let ndc = (px / viewport.size) * 2.0 - 1.0;
     var out: VsOut;
     out.position = vec4<f32>(ndc.x, -ndc.y, 0.0, 1.0);
-    out.uv = instance.uv.xy + corner * instance.uv.zw;
+    out.uv = mix(instance.uv.xy, instance.uv.zw, corner);
     out.tint = instance.tint;
     return out;
 }
