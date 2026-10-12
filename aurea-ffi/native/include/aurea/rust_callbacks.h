@@ -42,6 +42,19 @@ void ng_invoke_ime_preedit(void* window, const char* text, int cursor);
 void ng_invoke_focus_changed(void* window, int focused);
 void ng_invoke_cursor_entered(void* window, int entered);
 void ng_invoke_raw_mouse_motion(void* window, double delta_x, double delta_y);
+/* One pen sample. pressure 0..1; tilts in degrees -90..90; twist 0..360.
+   phase: 0 hover, 1 down, 2 move, 3 up. flags: 1 eraser, 2 barrel button. */
+void ng_invoke_pen(
+    void* window,
+    double x,
+    double y,
+    float pressure,
+    float tilt_x,
+    float tilt_y,
+    float twist,
+    unsigned int phase,
+    unsigned int flags,
+    unsigned int modifiers);
 void ng_invoke_scale_factor_changed(void* window, float scale_factor);
 /* A canvas's own size changed, by its window or by the layout around it. */
 void ng_invoke_canvas_resized(void* canvas);

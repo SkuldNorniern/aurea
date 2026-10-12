@@ -71,6 +71,7 @@ fn main() {
         "native/platform/windows/menu.c",
         "native/platform/windows/tray.c",
         "native/platform/windows/ime.c",
+        "native/platform/windows/pen.c",
         "native/platform/windows/elements/common.c",
         "native/platform/windows/elements/button.c",
         "native/platform/windows/elements/label.c",
