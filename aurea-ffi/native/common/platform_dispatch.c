@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include "platform_api.h"
 #include "platform_ops.h"
 #include "errors.h"
@@ -568,6 +569,17 @@ void ng_platform_sidebar_list_invalidate(NGHandle s) {
 
 NGHandle ng_platform_create_swiftui_host(int w, int h) {
     DISPATCH_INIT(NGHandle, create_swiftui_host, w, h);
+}
+
+char* ng_platform_file_dialog(NGHandle window, int kind, const char* title, const char* filters, const char* default_name, const char* directory, int multiple) {
+    ensure_ops();
+    return (g_ops && g_ops->file_dialog)
+        ? g_ops->file_dialog(window, kind, title, filters, default_name, directory, multiple)
+        : NULL;
+}
+
+void ng_platform_free_dialog_paths(char* paths) {
+    free(paths);
 }
 
 char* ng_platform_get_clipboard_text(void) {

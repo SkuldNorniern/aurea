@@ -76,6 +76,9 @@ int ng_platform_menu_item_set_title(NGMenuHandle menu, unsigned int id, const ch
 int ng_platform_menu_item_remove(NGMenuHandle menu, unsigned int id);
 int ng_platform_menu_clear(NGMenuHandle menu);
 
+char* ng_platform_file_dialog(NGHandle window, int kind, const char* title, const char* filters, const char* default_name, const char* directory, int multiple);
+void ng_platform_free_dialog_paths(char* paths);
+
 NGHandle ng_platform_create_button(const char* title, unsigned int id);
 void ng_platform_button_invalidate(NGHandle button);
 NGHandle ng_platform_create_label(const char* text);
