@@ -136,6 +136,7 @@ pub use widget::dock::{
     DockView,
 };
 pub use widget::dropdown::{Dropdown, DropdownStyle};
+pub use widget::empty::EmptyState;
 pub use widget::link::{Link, LinkStyle};
 pub use widget::pager::{Pager, PagerStyle};
 pub use widget::popup::MenuItem;
