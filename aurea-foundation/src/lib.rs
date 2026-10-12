@@ -4,6 +4,7 @@ pub mod capability;
 pub mod error;
 pub mod events;
 pub mod geometry;
+pub mod hash;
 pub mod platform;
 pub mod sync;
 
@@ -14,5 +15,6 @@ pub use events::{
     WindowEvent,
 };
 pub use geometry::{Point, Rect};
+pub use hash::{FastBuild, FastHasher};
 pub use platform::{DesktopPlatform, MobilePlatform, Platform};
 pub use sync::lock;
