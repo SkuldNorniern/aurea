@@ -225,6 +225,10 @@ impl<Id: WidgetId> Ui<'_, Id> {
     }
 
     /// Where the pointer is over the canvas.
+    pub fn modifiers(&self) -> Modifiers {
+        self.state.modifiers
+    }
+
     pub fn pointer(&self) -> Option<Point> {
         self.state.pointer()
     }
