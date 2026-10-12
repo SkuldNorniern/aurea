@@ -3,14 +3,17 @@
 //!
 //! [`StateColors`] picks a colour from hover and press, [`FocusRing`] shows
 //! keyboard focus, [`Track`] and [`Knob`] make sliders and switches,
-//! [`card`] is the surface popups sit on, and [`EditableText`] is the
-//! editing inside a text field. None of them asks for input itself: the
+//! [`card`] is the surface popups sit on, [`EditableText`] is the
+//! editing inside a text field, and [`PanZoom`] moves and zooms content in
+//! an editor's view. None of them asks for input itself: the
 //! widget calls [`Ui::interact`](super::Ui::interact) once and hands the
 //! result down.
 
 mod editable;
+mod pan_zoom;
 
 pub use editable::{EditableText, TextOutcome};
+pub use pan_zoom::PanZoom;
 
 use super::frame::{Eased, Ui};
 use super::paint::{Component, Shadow, Surface};
