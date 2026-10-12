@@ -14,7 +14,7 @@ use crate::display_list::{CacheKey, DisplayItem, DisplayList};
 use crate::numeric::{
     f32_to_i32_clamped, f32_to_u8_clamped, f32_to_u32_clamped, f32_to_usize_clamped,
 };
-use crate::renderer::{DrawingContext, FrameOutput, Renderer};
+use crate::renderer::{DrawingContext, FrameOutcome, FrameOutput, Renderer};
 use crate::surface::{Surface, SurfaceInfo};
 use crate::types::{
     BlendMode, Color, GlyphMask, GradientStop, Image, LinearGradient, Paint, PaintStyle, Path,
@@ -50,7 +50,7 @@ pub struct CpuRasterizer {
     scratch_row: Vec<u32>,
     scratch_active: Vec<usize>,
     last_frame_damage: Option<Rect>,
-    has_new_frame: bool,
+    has_frame: bool,
 }
 
 impl CpuRasterizer {
@@ -71,7 +71,7 @@ impl CpuRasterizer {
             scratch_row: Vec::new(),
             scratch_active: Vec::new(),
             last_frame_damage: None,
-            has_new_frame: false,
+            has_frame: false,
         }
     }
 
@@ -1249,7 +1249,7 @@ impl Renderer for CpuRasterizer {
     }
 
     fn resize(&mut self, lw: u32, lh: u32) -> AureaResult<()> {
-        self.has_new_frame = false;
+        self.has_frame = false;
         self.logical_width = lw;
         self.logical_height = lh;
         let (rw, rh) = Self::raster_dimensions(lw, lh, self.scale_factor);
@@ -1282,14 +1282,13 @@ impl Renderer for CpuRasterizer {
         Ok(Box::new(ctx))
     }
 
-    fn end_frame(&mut self) -> AureaResult<()> {
+    fn end_frame(&mut self) -> AureaResult<FrameOutcome> {
         let (bw, bh) = (self.width, self.height);
         let pending = self.pending_damage.take();
         let diff = self.diff_damage();
 
         let Some(damage) = resolve_frame_damage(pending, diff, bw, bh) else {
-            self.has_new_frame = false;
-            return Ok(());
+            return Ok(FrameOutcome::Unchanged);
         };
 
         let (tiles_x, tiles_y) = tile_grid_dims(bw, bh);
@@ -1340,12 +1339,12 @@ impl Renderer for CpuRasterizer {
 
         self.capture_prev_items();
 
-        self.has_new_frame = true;
-        Ok(())
+        self.has_frame = true;
+        Ok(FrameOutcome::Presented)
     }
 
     fn frame_output(&self) -> Option<FrameOutput<'_>> {
-        if !self.has_new_frame {
+        if !self.has_frame {
             return None;
         }
         let (ptr, size, width, height) = self.get_buffer();
@@ -1807,7 +1806,7 @@ mod diff_damage_tests {
         ctx.draw_rect(Rect::new(2.0, 2.0, 4.0, 4.0), &paint)
             .unwrap();
         drop(ctx);
-        r.end_frame().unwrap();
+        assert_eq!(r.end_frame().unwrap(), FrameOutcome::Presented);
         assert!(r.frame_output().is_some());
 
         let mut ctx = r.begin_frame().unwrap();
@@ -1815,9 +1814,9 @@ mod diff_damage_tests {
         ctx.draw_rect(Rect::new(2.0, 2.0, 4.0, 4.0), &paint)
             .unwrap();
         drop(ctx);
-        r.end_frame().unwrap();
 
-        assert!(r.frame_output().is_none());
+        assert_eq!(r.end_frame().unwrap(), FrameOutcome::Unchanged);
+        assert!(r.frame_output().is_some());
     }
 
     #[test]

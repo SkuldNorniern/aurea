@@ -10,6 +10,7 @@ use aurea_foundation::{AureaError, AureaResult};
 
 use crate::batch::{CircleInstance, DrawRef, RectInstance};
 use crate::gpu2d::{FramePlan, Gpu2dBackend, Gpu2dRenderer};
+use crate::renderer::FrameOutcome;
 
 use super::buffer::InstanceBuffer;
 use super::shaders::{CIRCLE_SHADER, GRADIENT_SHADER, RECT_SHADER};
@@ -25,6 +26,7 @@ pub struct WgpuBackend {
     device: wgpu::Device,
     queue: wgpu::Queue,
     surface: wgpu::Surface<'static>,
+    lost: bool,
     config: wgpu::SurfaceConfiguration,
     viewport_buf: wgpu::Buffer,
     viewport_bind_group: wgpu::BindGroup,
@@ -274,6 +276,7 @@ impl WgpuBackend {
             device,
             queue,
             surface,
+            lost: false,
             config,
             viewport_buf,
             viewport_bind_group,
@@ -373,7 +376,7 @@ impl Gpu2dBackend for WgpuBackend {
         plan: &FramePlan,
         rects: &[RectInstance],
         circles: &[CircleInstance],
-    ) -> AureaResult<()> {
+    ) -> AureaResult<FrameOutcome> {
         let mut gradient_bytes =
             Vec::with_capacity(plan.gradients.len() * GRADIENT_INSTANCE_STRIDE);
         for g in &plan.gradients {
@@ -389,15 +392,22 @@ impl Gpu2dBackend for WgpuBackend {
         self.gradient_buf
             .upload(&self.device, &self.queue, &gradient_bytes);
 
+        if self.lost {
+            return Ok(FrameOutcome::Recreate);
+        }
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(f) => f,
             wgpu::CurrentSurfaceTexture::Suboptimal(f) => f,
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
-                return Ok(());
+                return Ok(FrameOutcome::Retry);
             }
-            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
+            wgpu::CurrentSurfaceTexture::Outdated => {
                 self.surface.configure(&self.device, &self.config);
-                return Ok(());
+                return Ok(FrameOutcome::Retry);
+            }
+            wgpu::CurrentSurfaceTexture::Lost => {
+                self.lost = true;
+                return Ok(FrameOutcome::Recreate);
             }
             wgpu::CurrentSurfaceTexture::Validation => {
                 return Err(AureaError::RenderingFailed);
@@ -470,7 +480,7 @@ impl Gpu2dBackend for WgpuBackend {
 
         self.queue.submit(Some(encoder.finish()));
         frame.present();
-        Ok(())
+        Ok(FrameOutcome::Presented)
     }
 }
 

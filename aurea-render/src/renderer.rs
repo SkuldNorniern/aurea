@@ -157,12 +157,33 @@ pub trait DrawingContext {
 }
 
 /// A renderer belongs to the thread that draws with it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrameOutcome {
+    /// New pixels are on their way to the target.
+    Presented,
+    /// Nothing changed since the last frame; what the target shows is still right.
+    Unchanged,
+    /// The target could not take a frame now (out of date, timed out, hidden).
+    Retry,
+    /// The target is gone and the renderer must be made again before it can present.
+    Recreate,
+    /// The target has no size.
+    Suspended,
+}
+
+impl FrameOutcome {
+    /// Whether the frame still has to be drawn later.
+    pub fn needs_redraw(self) -> bool {
+        matches!(self, Self::Retry | Self::Recreate | Self::Suspended)
+    }
+}
+
 pub trait Renderer {
     fn init(&mut self, surface: Surface, info: SurfaceInfo) -> AureaResult<()>;
     fn resize(&mut self, width: u32, height: u32) -> AureaResult<()>;
     /// Starts a frame and hands back a context to record into.
     fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext + '_>>;
-    fn end_frame(&mut self) -> AureaResult<()>;
+    fn end_frame(&mut self) -> AureaResult<FrameOutcome>;
     fn cleanup(&mut self);
 
     /// Set damage region for partial redraw (optional, defaults to full canvas) This is called
@@ -598,13 +619,13 @@ impl Renderer for PlaceholderRenderer {
         )))
     }
 
-    fn end_frame(&mut self) -> AureaResult<()> {
+    fn end_frame(&mut self) -> AureaResult<FrameOutcome> {
         COMMAND_BUFFER.with(|buf| {
             *buf.borrow_mut() = None;
         });
 
         self.apply_commands();
-        Ok(())
+        Ok(FrameOutcome::Presented)
     }
 
     fn frame_output(&self) -> Option<FrameOutput<'_>> {

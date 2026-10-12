@@ -3,6 +3,7 @@
 use aurea_foundation::AureaResult;
 
 use crate::batch::{CircleInstance, RectInstance};
+use crate::renderer::FrameOutcome;
 
 use super::frame_plan::FramePlan;
 
@@ -36,5 +37,5 @@ pub trait Gpu2dBackend {
         plan: &FramePlan,
         rects: &[RectInstance],
         circles: &[CircleInstance],
-    ) -> AureaResult<()>;
+    ) -> AureaResult<FrameOutcome>;
 }

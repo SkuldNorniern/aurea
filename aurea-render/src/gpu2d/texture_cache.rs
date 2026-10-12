@@ -142,6 +142,7 @@ mod tests {
     use super::*;
     use crate::batch::{CircleInstance, RectInstance};
     use crate::gpu2d::frame_plan::FramePlan;
+    use crate::renderer::FrameOutcome;
 
     #[derive(Default)]
     struct Slots {
@@ -171,8 +172,8 @@ mod tests {
             _: &FramePlan,
             _: &[RectInstance],
             _: &[CircleInstance],
-        ) -> AureaResult<()> {
-            Ok(())
+        ) -> AureaResult<FrameOutcome> {
+            Ok(FrameOutcome::Presented)
         }
     }
 
