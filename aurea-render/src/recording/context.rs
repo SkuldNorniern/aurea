@@ -41,12 +41,52 @@ pub fn measure_text(text: &str, font: &Font) -> AureaResult<TextMetrics> {
 const DEFAULT_FONT_SIZE: f32 = 16.0;
 
 /// Snapshot of transform, opacity, clip, and blend mode for save/restore.
+#[derive(Clone, Copy)]
 struct DrawingState {
     transform: Transform,
     opacity: f32,
-    clip: Option<Path>,
     clip_rect: Option<Rect>,
     blend_mode: BlendMode,
+}
+
+/// Saves this deep live in the context itself; only deeper ones reach the
+/// heap. A context is made each frame, so a `Vec` here allocated each frame
+/// the first `save` came.
+const INLINE_SAVES: usize = 32;
+
+/// The save stack, kept inline up to [`INLINE_SAVES`].
+struct SaveStack {
+    inline: [Option<DrawingState>; INLINE_SAVES],
+    len: usize,
+    spill: Vec<DrawingState>,
+}
+
+impl SaveStack {
+    const fn new() -> Self {
+        Self {
+            inline: [None; INLINE_SAVES],
+            len: 0,
+            spill: Vec::new(),
+        }
+    }
+
+    fn push(&mut self, state: DrawingState) {
+        match self.inline.get_mut(self.len) {
+            Some(slot) => {
+                *slot = Some(state);
+                self.len += 1;
+            }
+            None => self.spill.push(state),
+        }
+    }
+
+    fn pop(&mut self) -> Option<DrawingState> {
+        if let Some(state) = self.spill.pop() {
+            return Some(state);
+        }
+        self.len = self.len.checked_sub(1)?;
+        self.inline[self.len].take()
+    }
 }
 
 /// Records drawing commands into a display list.
@@ -96,10 +136,9 @@ pub struct RecordingContext<'list> {
     /// position in consecutive frames get the same ID, so display-list
     /// diffing can use index-based identity.
     next_index: u64,
-    state_stack: Vec<DrawingState>,
+    state_stack: SaveStack,
     current_transform: Transform,
     current_opacity: f32,
-    current_clip: Option<Path>,
     /// The active clip reduced to a physical-pixel rectangle, which is what the
     /// rasterizer can actually enforce. `None` means unclipped; a non-rectangular
     /// clip path leaves it at the enclosing rectangle it was already narrowed to.
@@ -116,19 +155,23 @@ pub struct RecordingContext<'list> {
 /// Recognises the four corners in either winding, with or without an explicit
 /// closing point. Anything else is not a rectangle.
 fn axis_aligned_rect(path: &Path) -> Option<Rect> {
-    let mut points: Vec<Point> = Vec::with_capacity(5);
+    let mut points = [Point::default(); 5];
+    let mut n = 0;
     for command in &path.commands {
         match command {
-            PathCommand::MoveTo(p) | PathCommand::LineTo(p) => points.push(*p),
+            PathCommand::MoveTo(p) | PathCommand::LineTo(p) => {
+                *points.get_mut(n)? = *p;
+                n += 1;
+            }
             PathCommand::Close => {}
             PathCommand::QuadTo(..) | PathCommand::CubicTo(..) => return None,
         }
     }
     // A closed rectangle may repeat its first corner.
-    if points.len() == 5 && near(points[0], points[4]) {
-        points.pop();
+    if n == 5 && near(points[0], points[4]) {
+        n = 4;
     }
-    if points.len() != 4 {
+    if n != 4 {
         return None;
     }
 
@@ -222,10 +265,9 @@ impl<'list> RecordingContext<'list> {
         Self {
             display_list,
             next_index: 0,
-            state_stack: Vec::new(),
+            state_stack: SaveStack::new(),
             current_transform: Transform::identity(),
             current_opacity: 1.0,
-            current_clip: None,
             current_clip_rect: None,
             current_blend_mode: BlendMode::Normal,
             scale_factor: 1.0,
@@ -847,14 +889,9 @@ impl DrawingContext for RecordingContext<'_> {
     /// instead, because partial repaint renders a subset of the list and would
     /// miss anything that lived between a push and a pop.
     fn save(&mut self) -> AureaResult<()> {
-        let transform = self.current_transform;
-        let opacity = self.current_opacity;
-        let clip = self.current_clip.clone();
-
         self.state_stack.push(DrawingState {
-            transform,
-            opacity,
-            clip,
+            transform: self.current_transform,
+            opacity: self.current_opacity,
             clip_rect: self.current_clip_rect,
             blend_mode: self.current_blend_mode,
         });
@@ -865,7 +902,6 @@ impl DrawingContext for RecordingContext<'_> {
         if let Some(state) = self.state_stack.pop() {
             self.current_transform = state.transform;
             self.current_opacity = state.opacity;
-            self.current_clip = state.clip;
             self.current_clip_rect = state.clip_rect;
             self.current_blend_mode = state.blend_mode;
         }
@@ -882,19 +918,6 @@ impl DrawingContext for RecordingContext<'_> {
 
     fn clip_rect(&mut self, rect: Rect) -> AureaResult<()> {
         let r = self.s_rect(rect);
-        let mut path = Path::new();
-        path.commands
-            .push(PathCommand::MoveTo(Point::new(r.x, r.y)));
-        path.commands
-            .push(PathCommand::LineTo(Point::new(r.x + r.width, r.y)));
-        path.commands.push(PathCommand::LineTo(Point::new(
-            r.x + r.width,
-            r.y + r.height,
-        )));
-        path.commands
-            .push(PathCommand::LineTo(Point::new(r.x, r.y + r.height)));
-        path.commands.push(PathCommand::Close);
-        self.current_clip = Some(path);
         // Clips nest by intersection: a clip inside a clip can only ever show
         // less, never more.
         self.current_clip_rect = Some(match self.current_clip_rect {
@@ -919,7 +942,6 @@ impl DrawingContext for RecordingContext<'_> {
             });
         };
 
-        self.current_clip = Some(physical);
         self.current_clip_rect = Some(match self.current_clip_rect {
             Some(current) => intersect_rects(current, rect),
             None => rect,
