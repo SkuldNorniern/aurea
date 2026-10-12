@@ -10,7 +10,6 @@
 //! built once per theme.
 
 use std::collections::HashMap;
-use std::collections::hash_map::DefaultHasher;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::mem;
@@ -18,6 +17,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use aurea_animation::Tweens;
+use aurea_foundation::{FastBuild, FastHasher};
 
 use super::paint::TextSize;
 use super::text_edit::TextEdit;
@@ -197,7 +197,7 @@ pub struct UiState<Id: WidgetId> {
     pub(crate) path: Path,
     pub(crate) scratch: String,
     pub(crate) probe: String,
-    measures: HashMap<u64, (TextMetrics, bool)>,
+    measures: HashMap<u64, (TextMetrics, bool), FastBuild>,
     pub(crate) fonts: Option<Rc<Fonts>>,
     pub(crate) tip: Tip,
     pub(crate) cursor: CursorIcon,
@@ -242,7 +242,7 @@ impl<Id: WidgetId> UiState<Id> {
             path: Path::new(),
             scratch: String::new(),
             probe: String::new(),
-            measures: HashMap::new(),
+            measures: HashMap::default(),
             fonts: None,
             tip: Tip::default(),
             cursor: CursorIcon::Default,
@@ -650,7 +650,7 @@ impl<Id: WidgetId> UiState<Id> {
         font: &Font,
         measure: impl FnOnce() -> TextMetrics,
     ) -> TextMetrics {
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = FastHasher::default();
         text.hash(&mut hasher);
         font.family.hash(&mut hasher);
         font.size.to_bits().hash(&mut hasher);
