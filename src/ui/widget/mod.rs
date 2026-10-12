@@ -1,5 +1,6 @@
 //! The top layer: widgets, each a few components and one call to [`Ui::interact`].
 
+pub mod button;
 pub(crate) mod tooltip;
 
 use super::frame::{Response, Ui};
