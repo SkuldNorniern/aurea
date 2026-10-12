@@ -10,7 +10,7 @@
 ///
 /// The type does not say whether it is logical or physical; that is the
 /// caller's business, and mixing the two is a bug the type cannot catch.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Point {
     pub x: f32,
     pub y: f32,
@@ -28,7 +28,7 @@ impl Point {
 }
 
 /// A rectangle, given by its top-left corner and its size.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Rect {
     pub x: f32,
     pub y: f32,
