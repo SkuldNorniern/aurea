@@ -108,10 +108,10 @@ impl DirectWriteRasterizer {
             FontStyle::Normal => DwStyle::Normal,
         };
 
-        // Try the requested family, then sensible monospace/UI fallbacks.
-        let candidates = [font.family, "Consolas", "Cascadia Mono", "Segoe UI"];
+        // A generic name picks the system's face for it; a named family is
+        // tried as asked, then sensible fallbacks.
         let mut family = None;
-        for name in candidates {
+        for name in candidates(font.family) {
             if name.is_empty() {
                 continue;
             }
@@ -306,10 +306,35 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
     }
 }
 
+/// The families to try for `family`, in order.
+///
+/// CSS-style generic names map to the Windows face for them. They used to
+/// fall through to the monospace fallbacks, so text asked for in the
+/// default "Sans" came out in Consolas.
+fn candidates(family: &str) -> [&str; 4] {
+    match family.to_ascii_lowercase().as_str() {
+        "" | "sans" | "sans-serif" | "system-ui" | "ui-sans-serif" => {
+            ["Segoe UI Variable Text", "Segoe UI", "Arial", "Consolas"]
+        }
+        "serif" | "ui-serif" => ["Cambria", "Times New Roman", "Segoe UI", "Consolas"],
+        "mono" | "monospace" | "ui-monospace" => {
+            ["Cascadia Mono", "Consolas", "Courier New", "Segoe UI"]
+        }
+        _ => [family, "Segoe UI", "Consolas", "Cascadia Mono"],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::types::Font;
+
+    #[test]
+    fn generic_names_pick_the_system_faces() {
+        assert_eq!(candidates("Sans")[1], "Segoe UI");
+        assert_eq!(candidates("monospace")[0], "Cascadia Mono");
+        assert_eq!(candidates("Malgun Gothic")[0], "Malgun Gothic");
+    }
 
     #[test]
     fn hangul_in_segoe_ui_comes_from_a_fallback() {
