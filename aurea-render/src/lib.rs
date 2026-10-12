@@ -11,6 +11,7 @@ mod surface;
 mod types;
 mod viewport;
 
+pub mod capabilities;
 pub mod cpu;
 pub mod text;
 
@@ -23,6 +24,7 @@ pub mod wgpu_backend;
 pub use batch::{
     CircleInstance, DrawRef, GradientInstance, ImageDraw, RectInstance, RenderBatches, TextDraw,
 };
+pub use capabilities::{Fallback, GpuFeatures};
 pub use command::DrawCommand;
 pub use cpu::CpuRasterizer;
 pub use display_list::*;

@@ -1,5 +1,6 @@
 //! Backend-agnostic 2D batches lowered from a [`DisplayList`].
 
+use crate::capabilities::GpuFeatures;
 use crate::command::DrawCommand;
 use crate::display_list::{DisplayItem, DisplayList};
 use crate::numeric::f32_to_u8_clamped;
@@ -169,6 +170,41 @@ fn drawable_alpha(item: &DisplayItem) -> Option<f32> {
     if alpha <= 0.0 { None } else { Some(alpha) }
 }
 
+fn needs_of(item: &DisplayItem) -> GpuFeatures {
+    let mut needs = match &item.command {
+        DrawCommand::Clear(_) | DrawCommand::DrawRect(..) => GpuFeatures::NONE,
+        DrawCommand::DrawRoundRect(..) => GpuFeatures {
+            rounded_rects: true,
+            ..GpuFeatures::NONE
+        },
+        DrawCommand::DrawCircle(_, _, paint) => GpuFeatures {
+            stroked_circles: paint.style == PaintStyle::Stroke,
+            ..GpuFeatures::NONE
+        },
+        DrawCommand::DrawPath(..)
+        | DrawCommand::DrawText(..)
+        | DrawCommand::DrawTextWithFont(..) => GpuFeatures {
+            paths: true,
+            ..GpuFeatures::NONE
+        },
+        DrawCommand::DrawImageRect(..) | DrawCommand::DrawImageRegion(..) => GpuFeatures {
+            images: true,
+            ..GpuFeatures::NONE
+        },
+        DrawCommand::DrawGlyphMask(..) => GpuFeatures {
+            text: true,
+            ..GpuFeatures::NONE
+        },
+        DrawCommand::FillLinearGradient(..) | DrawCommand::FillRadialGradient(..) => GpuFeatures {
+            gradients: true,
+            ..GpuFeatures::NONE
+        },
+    };
+    needs.clips = item.clip.is_some();
+    needs.blend_modes = item.blend_mode != BlendMode::Normal;
+    needs
+}
+
 fn representable(item: &DisplayItem) -> bool {
     item.blend_mode == BlendMode::Normal
 }
@@ -243,6 +279,9 @@ pub struct RenderBatches {
     pub clips: Vec<Option<Rect>>,
     /// Draws this layer had no form for, and therefore left out of the frame.
     pub dropped: usize,
+    /// The kinds of drawing this frame uses, for checking against what a backend supports before it
+    /// is asked to draw the frame.
+    pub needs: GpuFeatures,
     gradient_lut_cache: HashMap<u64, Weak<[u8]>>,
     text_mask_cache: HashMap<u64, Weak<[u8]>>,
 }
@@ -272,7 +311,9 @@ impl RenderBatches {
         self.order.clear();
         self.clips.clear();
         self.dropped = 0;
+        self.needs = GpuFeatures::NONE;
         for item in list.items() {
+            self.needs = self.needs.union(needs_of(item));
             self.lower_item(item);
             self.clips.resize(self.order.len(), item.clip);
         }
@@ -455,6 +496,23 @@ fn valid_rgba_image(width: u32, height: u32, data: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lowering_records_what_the_frame_needs() {
+        let mut list = DisplayList::new();
+        list.push(item(DrawCommand::DrawRect(
+            Rect::new(0.0, 0.0, 4.0, 4.0),
+            Paint::new(),
+        )));
+        assert!(RenderBatches::lower(&list).needs.is_empty());
+        list.push(item(DrawCommand::DrawRoundRect(
+            Rect::new(0.0, 0.0, 4.0, 4.0),
+            2.0,
+            Paint::new(),
+        )));
+        let needs = RenderBatches::lower(&list).needs;
+        assert!(needs.rounded_rects && !needs.paths && !needs.images);
+    }
     use crate::command::DrawCommand;
     use crate::display_list::{CacheKey, DisplayIndex, DisplayItem};
     use crate::types::Path;
