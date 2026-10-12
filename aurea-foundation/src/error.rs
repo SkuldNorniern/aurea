@@ -41,6 +41,9 @@ pub enum AureaError {
     /// AppKit and UIKit require it. The other backends are content with any
     /// one thread owning the UI, so this only arises on Apple targets.
     NotMainThread,
+    /// The GPU device is gone: reset by the driver, removed, or hung. It does
+    /// not come back; what drew with it has to be made again on a new one.
+    DeviceLost,
 }
 
 /// Result type for GUI operations.
@@ -87,6 +90,7 @@ impl Display for AureaError {
             ),
             AureaError::ElementOperationFailed => write!(f, "An operation on a GUI element failed"),
             AureaError::RenderingFailed => write!(f, "Rendering operation failed"),
+            AureaError::DeviceLost => write!(f, "The GPU device was lost"),
             AureaError::Unsupported {
                 operation,
                 platform,
