@@ -1,6 +1,5 @@
 //! CPU rasterizer — flat framebuffer, no tile overhead.
 
-use std::cmp::Ordering as CmpOrdering;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::mem;
 
@@ -12,9 +11,8 @@ use crate::cpu::damage::{
     FrameDamage, is_known_bounds, mark_occluded, resolve_frame_damage, should_render_item,
     union_rect,
 };
-use crate::cpu::path::{Edge, tessellate_path_into};
+use crate::cpu::raster::fill::{self, PathScratch};
 use crate::cpu::raster::sample;
-use crate::cpu::scanline::fill_spans;
 use crate::cpu::stroke;
 #[cfg(test)]
 use crate::cpu::tiles::*;
@@ -46,10 +44,8 @@ pub struct CpuRasterizer {
     pending_damage: Option<Rect>,
     prev_items: Vec<(CacheKey, Rect)>,
     tile_hashes: Vec<u64>,
-    scratch_edges: Vec<Edge>,
-    scratch_xs: Vec<f32>,
+    scratch_path: PathScratch,
     scratch_row: Vec<u32>,
-    scratch_active: Vec<usize>,
     scratch_dirty: Vec<bool>,
     scratch_hashers: Vec<DefaultHasher>,
     scratch_covered: Vec<bool>,
@@ -71,10 +67,8 @@ impl CpuRasterizer {
             pending_damage: None,
             prev_items: Vec::new(),
             tile_hashes: Vec::new(),
-            scratch_edges: Vec::new(),
-            scratch_xs: Vec::new(),
+            scratch_path: PathScratch::default(),
             scratch_row: Vec::new(),
-            scratch_active: Vec::new(),
             scratch_dirty: Vec::new(),
             scratch_hashers: Vec::new(),
             scratch_covered: Vec::new(),
@@ -123,6 +117,7 @@ impl CpuRasterizer {
     ) -> AureaResult<Vec<u8>> {
         let shift = |p: Point| Point::new(p.x - origin.x, p.y - origin.y);
         let mut moved = Path::new();
+        moved.fill_rule = path.fill_rule;
         moved.commands.reserve(path.commands.len());
         for command in &path.commands {
             moved.commands.push(match *command {
@@ -138,15 +133,13 @@ impl CpuRasterizer {
             ..paint.clone()
         };
         let mut buf = vec![0u32; width as usize * height as usize];
-        let (mut edges, mut xs, mut active) = (Vec::new(), Vec::new(), Vec::new());
+        let mut scratch = PathScratch::default();
         Self::draw_path(
             &moved,
             &white,
             BlendMode::Normal,
             &mut buf,
-            &mut edges,
-            &mut xs,
-            &mut active,
+            &mut scratch,
             width,
             ClipBox::surface(width, height),
         )?;
@@ -195,10 +188,8 @@ impl CpuRasterizer {
     fn render_item(
         item: &DisplayItem,
         buf: &mut [u32],
-        scratch_edges: &mut Vec<Edge>,
-        scratch_xs: &mut Vec<f32>,
+        scratch_path: &mut PathScratch,
         scratch_row: &mut Vec<u32>,
-        scratch_active: &mut Vec<usize>,
         bw: u32,
         clip: ClipBox,
     ) -> AureaResult<()> {
@@ -248,9 +239,7 @@ impl CpuRasterizer {
                     &fade_paint(paint, alpha),
                     item.blend_mode,
                     buf,
-                    scratch_edges,
-                    scratch_xs,
-                    scratch_active,
+                    scratch_path,
                     bw,
                     clip,
                 )?;
@@ -725,96 +714,30 @@ impl CpuRasterizer {
         paint: &Paint,
         mode: BlendMode,
         buf: &mut [u32],
-        scratch_edges: &mut Vec<Edge>,
-        scratch_xs: &mut Vec<f32>,
-        scratch_active: &mut Vec<usize>,
+        scratch_path: &mut PathScratch,
         bw: u32,
         clip: ClipBox,
     ) -> AureaResult<()> {
         if paint.style == PaintStyle::Stroke {
             for piece in stroke::outline(path, paint.stroke_width) {
-                Self::fill_path(
-                    &piece,
-                    paint,
-                    mode,
-                    buf,
-                    scratch_edges,
-                    scratch_xs,
-                    scratch_active,
-                    bw,
-                    clip,
-                )?;
+                Self::fill_path(&piece, paint, mode, buf, scratch_path, bw, clip)?;
             }
             return Ok(());
         }
 
-        Self::fill_path(
-            path,
-            paint,
-            mode,
-            buf,
-            scratch_edges,
-            scratch_xs,
-            scratch_active,
-            bw,
-            clip,
-        )
+        Self::fill_path(path, paint, mode, buf, scratch_path, bw, clip)
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn fill_path(
         path: &Path,
         paint: &Paint,
         mode: BlendMode,
         buf: &mut [u32],
-        scratch_edges: &mut Vec<Edge>,
-        scratch_xs: &mut Vec<f32>,
-        scratch_active: &mut Vec<usize>,
+        scratch_path: &mut PathScratch,
         bw: u32,
         clip: ClipBox,
     ) -> AureaResult<()> {
-        tessellate_path_into(path, scratch_edges);
-        if scratch_edges.is_empty() {
-            return Ok(());
-        }
-
-        scratch_edges
-            .sort_unstable_by(|a, b| a.y_min.partial_cmp(&b.y_min).unwrap_or(CmpOrdering::Equal));
-
-        let y_min = scratch_edges[0].y_min;
-        let y_max = scratch_edges
-            .iter()
-            .map(|e| e.y_max)
-            .fold(f32::MIN, f32::max);
-        let y_start = f32_to_u32_clamped(y_min.max(clip.top()).ceil()).max(clip.y0);
-        let y_end = f32_to_u32_clamped(y_max.clamp(clip.top(), clip.bottom()).ceil());
-
-        scratch_active.clear();
-        let mut enter_idx = 0usize;
-
-        for y in y_start..y_end {
-            let yf = y as f32;
-
-            while enter_idx < scratch_edges.len() && scratch_edges[enter_idx].y_min <= yf {
-                scratch_active.push(enter_idx);
-                enter_idx += 1;
-            }
-
-            scratch_active.retain(|&i| scratch_edges[i].y_max > yf);
-
-            if scratch_active.is_empty() {
-                continue;
-            }
-
-            scratch_xs.clear();
-            for &i in scratch_active.iter() {
-                scratch_xs.push(scratch_edges[i].x_at_y(yf));
-            }
-            scratch_xs.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(CmpOrdering::Equal));
-
-            let row_base = y as usize * bw as usize;
-            fill_spans(scratch_xs, row_base, buf, bw, 0, clip, paint.color, mode);
-        }
+        fill::fill_path(path, paint.color, mode, buf, bw, clip, scratch_path);
         Ok(())
     }
 
@@ -1461,10 +1384,8 @@ impl Renderer for CpuRasterizer {
             Self::render_item(
                 item,
                 &mut self.frame_buffer,
-                &mut self.scratch_edges,
-                &mut self.scratch_xs,
+                &mut self.scratch_path,
                 &mut self.scratch_row,
-                &mut self.scratch_active,
                 bw,
                 surface_clip.intersect_opt(item.clip),
             )?;

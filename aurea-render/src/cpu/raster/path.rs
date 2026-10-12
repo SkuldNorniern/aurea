@@ -9,10 +9,13 @@ pub struct Edge {
     pub y_max: f32,
     pub x_at_y_min: f32,
     pub slope: f32,
+    /// 1 where the outline runs down, -1 where it runs up.
+    pub dir: i32,
 }
 
 impl Edge {
     pub fn new(p1: Point, p2: Point) -> Option<Self> {
+        let dir = if p1.y <= p2.y { 1 } else { -1 };
         let (p1, p2) = if p1.y <= p2.y { (p1, p2) } else { (p2, p1) };
 
         if (p2.y - p1.y).abs() < 0.001 {
@@ -26,6 +29,7 @@ impl Edge {
             y_max: p2.y,
             x_at_y_min: p1.x,
             slope,
+            dir,
         })
     }
 

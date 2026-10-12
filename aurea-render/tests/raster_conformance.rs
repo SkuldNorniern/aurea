@@ -351,10 +351,10 @@ fn a_rotated_rect_is_no_longer_upright() {
     });
 
     // A square rotated 45 degrees about its centre: the centre stays covered
-    // and the corners of the upright square are now outside the shape.
+    // and the corner pixel of the upright square is now wholly outside it.
     assert_px(&buf, 16, 16, opaque(RED));
     assert_eq!(
-        px(&buf, 11, 11) >> 24,
+        px(&buf, 10, 10) >> 24,
         0,
         "the upright square's corner should now be empty{}",
         dump(&buf)

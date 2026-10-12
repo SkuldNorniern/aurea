@@ -15,16 +15,29 @@ pub enum PathCommand {
     Close,
 }
 
+/// Which points a path's outline encloses when its contours overlap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum FillRule {
+    /// Inside where the contours wind around a point a nonzero number of times: a contour wound the
+    /// other way cuts a hole.
+    #[default]
+    NonZero,
+    /// Inside where an odd number of contours cross on the way out.
+    EvenOdd,
+}
+
 /// Path for drawing shapes.
 #[derive(Debug, Clone)]
 pub struct Path {
     pub commands: Vec<PathCommand>,
+    pub fill_rule: FillRule,
 }
 
 impl Path {
     pub fn new() -> Self {
         Self {
             commands: Vec::new(),
+            fill_rule: FillRule::NonZero,
         }
     }
 
@@ -33,6 +46,7 @@ impl Path {
     pub fn rounded_rect(rect: Rect, radius: f32) -> Self {
         let mut path = Self {
             commands: Vec::with_capacity(10),
+            fill_rule: FillRule::NonZero,
         };
         path.push_rounded_rect(rect, radius);
         path

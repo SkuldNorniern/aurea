@@ -291,7 +291,10 @@ impl<'list> RecordingContext<'list> {
                 PathCommand::Close => PathCommand::Close,
             })
             .collect();
-        Path { commands }
+        Path {
+            commands,
+            fill_rule: path.fill_rule,
+        }
     }
 
     fn transformed_rect_path(&self, r: Rect) -> Path {
