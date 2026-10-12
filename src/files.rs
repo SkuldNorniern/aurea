@@ -35,7 +35,7 @@ pub fn reveal_path(path: &Path) -> AureaResult<()> {
     }
     #[cfg(all(unix, not(target_os = "macos"), not(target_os = "android"), not(target_os = "ios")))]
     {
-        let uri = format!("file://{}", path.display());
+        let uri = file_uri(path);
         let shown = Command::new("gdbus")
             .args([
                 "call",
@@ -93,6 +93,27 @@ fn user_dir(app: &str, xdg: &str, home_relative: &str) -> Option<PathBuf> {
     base.map(|base| base.join(app))
 }
 
+#[cfg(any(
+    all(
+        unix,
+        not(target_os = "macos"),
+        not(target_os = "android"),
+        not(target_os = "ios")
+    ),
+    test
+))]
+fn file_uri(path: &Path) -> String {
+    let mut uri = String::from("file://");
+    for &byte in path.as_os_str().as_encoded_bytes() {
+        if byte.is_ascii_alphanumeric() || b"/-._~".contains(&byte) {
+            uri.push(char::from(byte));
+        } else {
+            uri.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    uri
+}
+
 fn spawn(command: &mut Command) -> AureaResult<()> {
     command
         .spawn()
@@ -110,6 +131,18 @@ fn unsupported(operation: &'static str) -> AureaResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn file_uri_escapes_what_a_uri_or_gvariant_string_cannot_hold() {
+        assert_eq!(
+            file_uri(Path::new("/home/me/My Files/it's #1.txt")),
+            "file:///home/me/My%20Files/it%27s%20%231.txt"
+        );
+        assert_eq!(
+            file_uri(Path::new("/tmp/caf\u{e9}")),
+            "file:///tmp/caf%C3%A9"
+        );
+    }
 
     #[test]
     fn app_folders_end_in_the_app_name() {
