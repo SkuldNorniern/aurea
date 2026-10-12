@@ -1,6 +1,7 @@
 //! CPU rasterizer — flat framebuffer, no tile overhead.
 
 use std::cmp::Ordering as CmpOrdering;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::mem;
 
 use crate::cpu::blend::{ConstSrc, blend_pixel, linear_to_srgb_u8, srgb_to_linear};
@@ -48,6 +49,10 @@ pub struct CpuRasterizer {
     scratch_xs: Vec<f32>,
     scratch_row: Vec<u32>,
     scratch_active: Vec<usize>,
+    scratch_dirty: Vec<bool>,
+    scratch_hashers: Vec<DefaultHasher>,
+    scratch_covered: Vec<bool>,
+    scratch_occluded: Vec<bool>,
     last_frame_damage: Option<Rect>,
     has_frame: bool,
 }
@@ -69,6 +74,10 @@ impl CpuRasterizer {
             scratch_xs: Vec::new(),
             scratch_row: Vec::new(),
             scratch_active: Vec::new(),
+            scratch_dirty: Vec::new(),
+            scratch_hashers: Vec::new(),
+            scratch_covered: Vec::new(),
+            scratch_occluded: Vec::new(),
             last_frame_damage: None,
             has_frame: false,
         }
@@ -1170,7 +1179,9 @@ impl CpuRasterizer {
             self.tile_hashes = vec![0u64; tile_count];
         }
 
-        let mut dirty = vec![false; tile_count];
+        let mut dirty = mem::take(&mut self.scratch_dirty);
+        dirty.clear();
+        dirty.resize(tile_count, false);
 
         let range = match damage {
             Some(rect) => tile_range(rect, tiles_x, tiles_y),
@@ -1193,16 +1204,13 @@ impl CpuRasterizer {
         (tiles_x, tiles_y): (u32, u32),
         dirty: &mut [bool],
     ) {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
         if tx0 >= tx1 || ty0 >= ty1 {
             return;
         }
         let range_w = (tx1 - tx0) as usize;
-        let mut hashers: Vec<DefaultHasher> = (0..range_w * (ty1 - ty0) as usize)
-            .map(|_| DefaultHasher::new())
-            .collect();
+        let mut hashers = mem::take(&mut self.scratch_hashers);
+        hashers.clear();
+        hashers.resize(range_w * (ty1 - ty0) as usize, DefaultHasher::new());
 
         for item in self.display_list.items() {
             if !is_known_bounds(item.bounds) {
@@ -1236,6 +1244,7 @@ impl CpuRasterizer {
                 self.tile_hashes[idx] = new_hash;
             }
         }
+        self.scratch_hashers = hashers;
     }
 
     fn capture_prev_items(&mut self) {
@@ -1327,7 +1336,13 @@ impl Renderer for CpuRasterizer {
             None => ClipBox::surface(bw, bh),
         };
         let items = self.display_list.items();
-        let occluded = mark_occluded(items, tiles_x, tiles_y, bw, bh);
+        let mut occluded = mem::take(&mut self.scratch_occluded);
+        mark_occluded(
+            items,
+            (tiles_x, tiles_y, bw, bh),
+            &mut self.scratch_covered,
+            &mut occluded,
+        );
         for (i, item) in items.iter().enumerate() {
             if let DrawCommand::Clear(color) = &item.command {
                 clear_dirty_tiles(
@@ -1358,6 +1373,8 @@ impl Renderer for CpuRasterizer {
             )?;
         }
 
+        self.scratch_occluded = occluded;
+        self.scratch_dirty = dirty_tiles;
         self.capture_prev_items();
 
         self.has_frame = true;
@@ -1740,7 +1757,9 @@ mod occlusion_tests {
     }
 
     fn occluded(items: &[DisplayItem]) -> Vec<bool> {
-        mark_occluded(items, TILES_X, TILES_Y, W, H)
+        let (mut covered, mut occluded) = (Vec::new(), Vec::new());
+        mark_occluded(items, (TILES_X, TILES_Y, W, H), &mut covered, &mut occluded);
+        occluded
     }
 
     fn whole() -> Rect {

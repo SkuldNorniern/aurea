@@ -54,16 +54,17 @@ pub(super) fn should_render_item(
 
 pub(super) fn mark_occluded(
     items: &[DisplayItem],
-    tiles_x: u32,
-    tiles_y: u32,
-    bw: u32,
-    bh: u32,
-) -> Vec<bool> {
+    (tiles_x, tiles_y, bw, bh): (u32, u32, u32, u32),
+    covered: &mut Vec<bool>,
+    occluded: &mut Vec<bool>,
+) {
     let tile_count = (tiles_x * tiles_y) as usize;
-    let mut covered = vec![false; tile_count];
-    let mut occluded = vec![false; items.len()];
+    covered.clear();
+    covered.resize(tile_count, false);
+    occluded.clear();
+    occluded.resize(items.len(), false);
     if tile_count == 0 {
-        return occluded;
+        return;
     }
 
     for (i, item) in items.iter().enumerate().rev() {
@@ -94,7 +95,6 @@ pub(super) fn mark_occluded(
             }
         }
     }
-    occluded
 }
 
 pub(super) fn union_rect(a: Rect, b: Rect) -> Rect {
