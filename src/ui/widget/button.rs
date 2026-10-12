@@ -1,11 +1,12 @@
-//! A push button: a [`Surface`], a [`Label`] and a [`FocusRing`].
+//! A push button: a [`Surface`], an optional [`IconMark`], a [`Label`] and a
+//! [`FocusRing`].
 
 use super::Widget;
 use crate::AureaResult;
 use crate::render::{Color, Font, Rect};
 use crate::ui::component::{FocusRing, StateColors};
-use crate::ui::frame::{Response, Ui};
-use crate::ui::paint::{Component, Label, Surface, TextSize};
+use crate::ui::frame::{Align, Response, Ui};
+use crate::ui::paint::{Component, IconMark, IconSource, Label, Surface, TextSize};
 use crate::ui::state::{Sense, WidgetId};
 use crate::ui::theme::Theme;
 
@@ -93,9 +94,11 @@ impl ButtonStyle {
 #[derive(Clone, Copy, Debug)]
 pub struct Button<'t> {
     label: &'t str,
+    icon: Option<IconSource<'t>>,
     tone: Tone,
     style: Option<ButtonStyle>,
     enabled: bool,
+    selected: bool,
     font: Option<&'t Font>,
 }
 
@@ -103,11 +106,41 @@ impl<'t> Button<'t> {
     pub fn new(label: &'t str) -> Self {
         Self {
             label,
+            icon: None,
             tone: Tone::Normal,
             style: None,
             enabled: true,
+            selected: false,
             font: None,
         }
+    }
+
+    /// A button showing only an icon; give it a tooltip.
+    ///
+    /// ```rust,no_run
+    /// # use aurea::ui::{Button, Ui};
+    /// # use aurea::render::Icon;
+    /// # fn f(ui: &mut Ui<'_, u8>, brush: bool) -> aurea::AureaResult<()> {
+    /// let at = aurea::Rect::new(0.0, 0.0, 32.0, 32.0);
+    /// let r = Button::icon_only(Icon::Brush).quiet().selected(brush).show(ui, 1, at)?;
+    /// ui.tooltip(&r, "Brush (B)");
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn icon_only(icon: impl Into<IconSource<'t>>) -> Self {
+        Self::new("").icon(icon)
+    }
+
+    /// An icon before the label.
+    pub fn icon(mut self, icon: impl Into<IconSource<'t>>) -> Self {
+        self.icon = Some(icon.into());
+        self
+    }
+
+    /// Drawn held down, for the current tool in a tool strip.
+    pub fn selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
+        self
     }
 
     pub fn tone(mut self, tone: Tone) -> Self {
@@ -145,12 +178,22 @@ impl<'t> Button<'t> {
         self
     }
 
-    /// The width the label needs, with the style's padding each side.
+    /// The width the icon and label need, with the style's padding each side.
     pub fn width<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> f32 {
         let style = self
             .style
             .unwrap_or_else(|| ButtonStyle::new(ui.theme, self.tone));
-        self.label(&style, Color::rgb(0, 0, 0)).width(ui) + style.padding * 2.0
+        let text = if self.label.is_empty() {
+            0.0
+        } else {
+            self.label(&style, Color::rgb(0, 0, 0)).width(ui)
+        };
+        let icon = match self.icon {
+            Some(_) if text > 0.0 => icon_size(ui) + style.padding * 0.5,
+            Some(_) => icon_size(ui),
+            None => 0.0,
+        };
+        icon + text + style.padding * 2.0
     }
 
     fn label(&self, style: &ButtonStyle, color: Color) -> Label<'t> {
@@ -173,13 +216,24 @@ impl<'t> Button<'t> {
     }
 }
 
+/// Icons sit a little taller than the text beside them.
+fn icon_size<Id: WidgetId>(ui: &Ui<'_, Id>) -> f32 {
+    (ui.theme.text_size * 1.35).round()
+}
+
 impl<Id: WidgetId> Widget<Id> for Button<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
         let input = ui.interact(id, 0, rect, Sense::Click, self.enabled);
-        let state = ui.eased(id, 0, input);
-        let style = self
+        let mut state = ui.eased(id, 0, input);
+        let mut style = self
             .style
             .unwrap_or_else(|| ButtonStyle::new(ui.theme, self.tone));
+        if self.selected {
+            // Held down: the pressed face, without sinking further.
+            state.press = state.press.max(1.0);
+            style.sink = 0.0;
+            style.text = StateColors::same(ui.theme.palette.accent);
+        }
         let body = rect.inset(state.press * style.sink);
         FocusRing::new(ui.theme, style.radius, state.focus).paint(ui, rect)?;
         let mut surface = Surface::new(style.face.at(state)).radius(style.radius);
@@ -188,8 +242,69 @@ impl<Id: WidgetId> Widget<Id> for Button<'_> {
             surface = surface.border(ui.theme.border_width, shown);
         }
         surface.paint(ui, body)?;
+        let ink = style.text.at(state);
         let inner = body.inset_xy(style.padding * 0.5, 0.0);
-        self.label(&style, style.text.at(state)).paint(ui, inner)?;
+        let Some(icon) = self.icon else {
+            self.label(&style, ink).paint(ui, inner)?;
+            return Ok(Response::new(rect, input));
+        };
+        let size = icon_size(ui).min(body.height - 4.0).max(0.0);
+        let label_w = if self.label.is_empty() {
+            0.0
+        } else {
+            self.label(&style, ink).width(ui) + style.padding * 0.5
+        };
+        // Icon and label as one group, centred.
+        let x = body.x + ((body.width - size - label_w) / 2.0).max(style.padding * 0.5);
+        let y = body.y + (body.height - size) / 2.0;
+        IconMark::new(icon, ink).paint(ui, Rect::new(x, y, size, size))?;
+        if label_w > 0.0 {
+            let start = x + size + style.padding * 0.5;
+            let text = Rect::new(
+                start,
+                body.y,
+                (body.x + body.width - start).max(0.0),
+                body.height,
+            );
+            self.label(&style, ink)
+                .align(Align::Start)
+                .paint(ui, text)?;
+        }
         Ok(Response::new(rect, input))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::render::{CpuRasterizer, Icon, Renderer};
+    use crate::ui::UiState;
+
+    /// An icon button draws its icon in the label's colour, and a label next
+    /// to it makes it wider than the icon alone.
+    #[test]
+    fn icons_draw_and_take_room() {
+        let theme = Theme::dark();
+        let (mut raster, mut state) = (CpuRasterizer::new(120, 40), UiState::<u8>::new());
+        let mut ctx = raster.begin_frame().expect("frame");
+        let (alone, labelled) = {
+            let mut ui = state.frame(&mut *ctx, &theme);
+            let alone = Button::icon_only(Icon::Plus).width(&mut ui);
+            let labelled = Button::new("Add").icon(Icon::Plus).width(&mut ui);
+            Button::icon_only(Icon::Plus)
+                .quiet()
+                .show(&mut ui, 1, Rect::new(0.0, 0.0, 40.0, 40.0))
+                .expect("draw");
+            (alone, labelled)
+        };
+        drop(ctx);
+        raster.end_frame().expect("end");
+        assert!(labelled > alone + 10.0, "{labelled} vs {alone}");
+        // The plus crosses the middle of the button.
+        let frame = raster.frame_output().expect("pixels");
+        let (w, bytes) = (frame.width as usize, frame.bytes());
+        let at = |x: usize, y: usize| bytes[(y * w + x) * 4];
+        assert!(at(20, 20) > 128, "plus drawn in the dim text colour");
+        assert_eq!(at(4, 4), 0, "nothing in the corner");
     }
 }
