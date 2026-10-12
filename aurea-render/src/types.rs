@@ -1,5 +1,7 @@
 //! Common types for rendering operations.
 
+use crate::numeric::f32_to_u8_clamped;
+
 /// Color representation in RGBA format.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Color {
@@ -29,6 +31,35 @@ impl Color {
             f32::from(self.a) / 255.0,
         )
     }
+
+    /// This colour with alpha `a`.
+    pub const fn with_alpha(self, a: u8) -> Self {
+        Self { a, ..self }
+    }
+
+    /// This colour with its alpha scaled by `factor`, kept to `0..=1`.
+    pub fn fade(self, factor: f32) -> Self {
+        Self {
+            a: lerp_u8(0, self.a, factor),
+            ..self
+        }
+    }
+
+    /// The colour `t` of the way from this one to `other`, `t` kept to `0..=1`, alpha included.
+    pub fn mix(self, other: Self, t: f32) -> Self {
+        Self {
+            r: lerp_u8(self.r, other.r, t),
+            g: lerp_u8(self.g, other.g, t),
+            b: lerp_u8(self.b, other.b, t),
+            a: lerp_u8(self.a, other.a, t),
+        }
+    }
+}
+
+fn lerp_u8(from: u8, to: u8, t: f32) -> u8 {
+    let t = if t.is_nan() { 0.0 } else { t.clamp(0.0, 1.0) };
+    let v = f32::from(from) + (f32::from(to) - f32::from(from)) * t;
+    f32_to_u8_clamped(v.round())
 }
 
 use std::sync::Arc;
