@@ -7,14 +7,25 @@
 //! each `setNeedsDisplay`).
 
 use std::cmp::Ordering as CmpOrdering;
-use std::f32::consts::FRAC_1_SQRT_2;
 use std::mem;
 
 use crate::cpu::blend::{ConstSrc, blend_pixel, linear_to_srgb_u8, srgb_to_linear};
 use crate::cpu::clip::ClipBox;
+use crate::cpu::damage::{
+    FrameDamage, is_known_bounds, mark_occluded, resolve_frame_damage, should_render_item,
+    union_rect,
+};
 use crate::cpu::path::{Edge, tessellate_path_into};
 use crate::cpu::scanline::fill_spans;
 use crate::cpu::stroke;
+// The tests reach the helpers the frame code no longer names itself.
+#[cfg(test)]
+use crate::cpu::damage::*;
+#[cfg(test)]
+use crate::cpu::tiles::*;
+use crate::cpu::tiles::{
+    mark_tile_range_dirty, tile_grid_dims, tile_range, tile_rect, union_dirty_tile_rects,
+};
 use crate::numeric::{
     f32_to_i32_clamped, f32_to_u8_clamped, f32_to_u32_clamped, f32_to_usize_clamped,
 };
@@ -28,36 +39,6 @@ use crate::types::{
     Point, RadialGradient, Rect,
 };
 use aurea_foundation::AureaResult;
-
-/// Side length of a tile in physical pixels. See plan.md P6-A stage 3.
-/// Tile edge in physical pixels.
-///
-/// Measured on a 1440x900 UI scene (sidebar, 24 rows, body, moving caret),
-/// microseconds per frame, forced full repaint against a one-caret change:
-///
-/// ```text
-///  32   81 / 67
-///  64   66 / 64
-/// 128   62 / 61
-/// 256   57 / 76
-/// ```
-///
-/// 256 wins a forced full repaint and loses the case that actually happens.
-/// Worth knowing what this does *not* fix: a small change still costs nearly a
-/// full repaint at every size, because the expensive part is rebuilding and
-/// rehashing the display list, not rasterizing it. Tiles cannot help with that.
-const TILE_SIZE: u32 = 128;
-
-/// Result of diffing the current display list against the previous frame's.
-#[derive(Debug)]
-enum FrameDamage {
-    /// The list is positionally identical (same cache keys) to last frame.
-    Unchanged,
-    /// An item with unknown bounds changed; repaint everything.
-    Full,
-    /// Only this region changed.
-    Region(Rect),
-}
 
 pub struct CpuRasterizer {
     /// Physical-resolution pixel buffer — the only pixel allocation.
@@ -1534,57 +1515,6 @@ impl Renderer for CpuRasterizer {
 
 // ── pixel math helpers ───────────────────────────────────────────────────────
 
-/// Bounds are "known" if non-empty; `compute_bounds` returns `(0,0,0,0)` for
-/// commands it can't size (e.g. clip/transform/opacity push-pop markers).
-fn is_known_bounds(r: Rect) -> bool {
-    r.width > 0.0 && r.height > 0.0
-}
-
-/// Resolves explicit (`forced`) and diffed (`diff`) damage into the rect that
-/// must be repainted this frame. `Some(None)` means "repaint everything";
-/// `None` means the frame is unchanged and rendering can be skipped entirely.
-fn resolve_frame_damage(
-    forced: Option<Rect>,
-    diff: FrameDamage,
-    bw: u32,
-    bh: u32,
-) -> Option<Option<Rect>> {
-    match (forced, diff) {
-        (None, FrameDamage::Unchanged) => None,
-        (None, FrameDamage::Full) | (Some(_), FrameDamage::Full) => Some(None),
-        (None, FrameDamage::Region(r)) => Some(Some(round_out_clamp(r, bw, bh))),
-        (Some(p), FrameDamage::Unchanged) => Some(Some(p)),
-        (Some(p), FrameDamage::Region(r)) => Some(Some(round_out_clamp(union_rect(p, r), bw, bh))),
-    }
-}
-
-/// Union of all dirty tile rects in physical pixels.
-fn union_dirty_tile_rects(
-    dirty_tiles: &[bool],
-    tiles_x: u32,
-    tiles_y: u32,
-    bw: u32,
-    bh: u32,
-) -> Option<Rect> {
-    let mut acc: Option<Rect> = None;
-    for ty in 0..tiles_y {
-        for tx in 0..tiles_x {
-            if dirty_tiles[(ty * tiles_x + tx) as usize] {
-                let tr = tile_rect(tx, ty, bw, bh);
-                acc = Some(match acc {
-                    None => tr,
-                    Some(a) => union_rect(a, tr),
-                });
-            }
-        }
-    }
-    acc
-}
-
-/// Overwrites the dirty-tile pixels of `frame_buffer` with `color`. `Clear`
-/// conceptually covers the whole buffer, but only the dirty tiles' pixels
-/// actually need to be overwritten — anything outside them is already
-/// correct from a prior frame.
 #[allow(clippy::too_many_arguments)]
 fn clear_dirty_tiles(
     frame_buffer: &mut [u32],
@@ -1605,196 +1535,6 @@ fn clear_dirty_tiles(
             }
         }
     }
-}
-
-/// Whether `items[i]` needs rendering: it must have known bounds that
-/// overlap a dirty tile, and must not be fully hidden by later draws.
-fn should_render_item(
-    item: &DisplayItem,
-    occluded: &[bool],
-    i: usize,
-    dirty_tiles: &[bool],
-    tiles_x: u32,
-    tiles_y: u32,
-) -> bool {
-    if !is_known_bounds(item.bounds) {
-        return true;
-    }
-    item_overlaps_dirty_tiles(item.bounds, dirty_tiles, tiles_x, tiles_y) && !occluded[i]
-}
-
-/// Marks each item that later opaque draws completely cover.
-///
-/// Asking "does any later item hide this one?" per item reads the rest of the
-/// list every time, which is quadratic. Measured on a scene of 8000 rects:
-///
-/// ```text
-/// per frame     scan      no occlusion    tile sweep
-/// 1000 items    550us     240us           124us
-/// 2000 items   1893us     467us           244us
-/// 4000 items   7162us    1015us           490us
-/// 8000 items  26820us    1404us           836us
-/// ```
-///
-/// The scan cost more than the drawing it saved — 19 times the frame with the
-/// check removed at 8000 items. The sweep is linear and beats both.
-///
-/// This walks the list backwards instead, keeping a tile per bit of what is
-/// already painted over. An item is hidden when every tile it touches is
-/// covered, and an opaque item covers the tiles that sit entirely inside it.
-/// The cost is a tile sweep per item rather than a list scan.
-///
-/// Tiles also let several draws combine to hide something that no single one
-/// of them contains, which the old check could not see.
-///
-/// It errs towards drawing: a tile only counts as covered when a draw plainly
-/// contains it, so an item is never skipped over a partially covered tile.
-fn mark_occluded(items: &[DisplayItem], tiles_x: u32, tiles_y: u32, bw: u32, bh: u32) -> Vec<bool> {
-    let tile_count = (tiles_x * tiles_y) as usize;
-    let mut covered = vec![false; tile_count];
-    let mut occluded = vec![false; items.len()];
-    if tile_count == 0 {
-        return occluded;
-    }
-
-    for (i, item) in items.iter().enumerate().rev() {
-        if !is_known_bounds(item.bounds) {
-            continue;
-        }
-        let (tx0, ty0, tx1, ty1) = tile_range(item.bounds, tiles_x, tiles_y);
-        if tx0 == tx1 || ty0 == ty1 {
-            continue;
-        }
-
-        occluded[i] = (ty0..ty1)
-            .flat_map(|ty| (tx0..tx1).map(move |tx| (tx, ty)))
-            .all(|(tx, ty)| covered[(ty * tiles_x + tx) as usize]);
-
-        // Then let this item hide what comes before it.
-        if !item.opaque || item.blend_mode != BlendMode::Normal {
-            continue;
-        }
-        let Some(region) = covered_region(item) else {
-            continue;
-        };
-        let (cx0, cy0, cx1, cy1) = tile_range(region, tiles_x, tiles_y);
-        for ty in cy0..cy1 {
-            for tx in cx0..cx1 {
-                if rect_contains(region, tile_rect(tx, ty, bw, bh)) {
-                    covered[(ty * tiles_x + tx) as usize] = true;
-                }
-            }
-        }
-    }
-    occluded
-}
-
-/// Smallest rect covering both `a` and `b`.
-fn union_rect(a: Rect, b: Rect) -> Rect {
-    let x0 = a.x.min(b.x);
-    let y0 = a.y.min(b.y);
-    let x1 = (a.x + a.width).max(b.x + b.width);
-    let y1 = (a.y + a.height).max(b.y + b.height);
-    Rect::new(x0, y0, x1 - x0, y1 - y0)
-}
-
-/// Whether `outer` fully contains `inner`.
-fn rect_contains(outer: Rect, inner: Rect) -> bool {
-    inner.x >= outer.x
-        && inner.y >= outer.y
-        && inner.x + inner.width <= outer.x + outer.width
-        && inner.y + inner.height <= outer.y + outer.height
-}
-
-/// The area a draw actually covers: the part of its shape that is solid,
-/// less anything its clip cuts away.
-///
-/// Bounds are not that area for every shape. A circle's bounds are the square
-/// around it, and the corners of that square are not painted — so a circle
-/// wide enough to swallow a tile could hide something the tile's corner still
-/// showed. What is used instead is the largest square that fits inside it.
-fn covered_region(item: &DisplayItem) -> Option<Rect> {
-    let solid = match &item.command {
-        DrawCommand::DrawCircle(center, radius, _) => inscribed_square(*center, *radius),
-        _ => item.bounds,
-    };
-    match item.clip {
-        None => Some(solid),
-        Some(clip) => intersect_rect(solid, clip),
-    }
-}
-
-/// The largest axis-aligned square inside a circle.
-fn inscribed_square(center: Point, radius: f32) -> Rect {
-    // Half the side of a square inscribed in a circle of radius r is r/sqrt(2).
-    let half = radius * FRAC_1_SQRT_2;
-    Rect::new(center.x - half, center.y - half, half * 2.0, half * 2.0)
-}
-
-/// The overlap of `a` and `b`, or `None` when they do not meet.
-fn intersect_rect(a: Rect, b: Rect) -> Option<Rect> {
-    let x0 = a.x.max(b.x);
-    let y0 = a.y.max(b.y);
-    let x1 = (a.x + a.width).min(b.x + b.width);
-    let y1 = (a.y + a.height).min(b.y + b.height);
-    if x1 <= x0 || y1 <= y0 {
-        return None;
-    }
-    Some(Rect::new(x0, y0, x1 - x0, y1 - y0))
-}
-
-/// Number of `TILE_SIZE` tiles needed to cover a `bw x bh` buffer.
-fn tile_grid_dims(bw: u32, bh: u32) -> (u32, u32) {
-    (bw.div_ceil(TILE_SIZE), bh.div_ceil(TILE_SIZE))
-}
-
-/// The half-open range of tiles `[tx0,tx1) x [ty0,ty1)` that `bounds`
-/// overlaps, clamped to the `tiles_x x tiles_y` grid.
-fn tile_range(bounds: Rect, tiles_x: u32, tiles_y: u32) -> (u32, u32, u32, u32) {
-    let tile = TILE_SIZE as f32;
-    let x0 = f32_to_u32_clamped((bounds.x / tile).floor().max(0.0)).min(tiles_x);
-    let y0 = f32_to_u32_clamped((bounds.y / tile).floor().max(0.0)).min(tiles_y);
-    let x1 = f32_to_u32_clamped(((bounds.x + bounds.width) / tile).ceil().max(0.0))
-        .min(tiles_x)
-        .max(x0);
-    let y1 = f32_to_u32_clamped(((bounds.y + bounds.height) / tile).ceil().max(0.0))
-        .min(tiles_y)
-        .max(y0);
-    (x0, y0, x1, y1)
-}
-
-/// Pixel rect covered by tile `(tx, ty)`, clipped to the `bw x bh` buffer.
-fn tile_rect(tx: u32, ty: u32, bw: u32, bh: u32) -> Rect {
-    let x0 = (tx * TILE_SIZE) as f32;
-    let y0 = (ty * TILE_SIZE) as f32;
-    let x1 = ((tx + 1) * TILE_SIZE).min(bw) as f32;
-    let y1 = ((ty + 1) * TILE_SIZE).min(bh) as f32;
-    Rect::new(x0, y0, x1 - x0, y1 - y0)
-}
-
-/// Whether any tile that `bounds` overlaps is marked dirty.
-fn item_overlaps_dirty_tiles(bounds: Rect, dirty: &[bool], tiles_x: u32, tiles_y: u32) -> bool {
-    let (tx0, ty0, tx1, ty1) = tile_range(bounds, tiles_x, tiles_y);
-    (ty0..ty1).any(|ty| (tx0..tx1).any(|tx| dirty[(ty * tiles_x + tx) as usize]))
-}
-
-/// Marks every tile that `rect` overlaps as dirty.
-fn mark_tile_range_dirty(rect: Rect, tiles_x: u32, tiles_y: u32, dirty: &mut [bool]) {
-    let (tx0, ty0, tx1, ty1) = tile_range(rect, tiles_x, tiles_y);
-    for ty in ty0..ty1 {
-        for tx in tx0..tx1 {
-            dirty[(ty * tiles_x + tx) as usize] = true;
-        }
-    }
-}
-
-/// Rounds a damage rect outward to whole pixels and clamps it to the buffer.
-fn round_out_clamp(r: Rect, bw: u32, bh: u32) -> Rect {
-    let x0 = r.x.floor().max(0.0);
-    let y0 = r.y.floor().max(0.0);
-    let x1 = (r.x + r.width).ceil().min(bw as f32);
-    let y1 = (r.y + r.height).ceil().min(bh as f32);
-    Rect::new(x0, y0, (x1 - x0).max(0.0), (y1 - y0).max(0.0))
 }
 
 /// Shared per-call state for the circle-fill row/span helpers.

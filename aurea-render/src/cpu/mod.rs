@@ -5,11 +5,13 @@
 
 pub mod blend;
 pub mod clip;
+mod damage;
 pub mod path;
 pub mod rasterizer;
 mod round_rect;
 pub mod scanline;
 pub mod stroke;
+mod tiles;
 
 pub use clip::ClipBox;
 // Recording moved up a level; kept reachable here for existing callers.
