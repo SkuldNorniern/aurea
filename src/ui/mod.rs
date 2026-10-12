@@ -17,6 +17,10 @@ pub use state::{Channel, Fonts, Interaction, Sense, UiState, WidgetId};
 pub use theme::{Motion, Palette, Theme};
 pub use widget::Widget;
 pub use widget::button::{Button, ButtonStyle, Tone};
+pub use widget::dock::{
+    Dock, DockAxis, DockBar, DockGroup, DockLayout, DockMetrics, DockSide, DockStyle, DockTree,
+    DockView,
+};
 pub use widget::progress::{ProgressBar, ProgressStyle};
 pub use widget::segmented::{Segmented, SegmentedStyle};
 pub use widget::slider::{Slider, SliderStyle};
