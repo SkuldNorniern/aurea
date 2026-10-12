@@ -1,6 +1,10 @@
 //! The middle layer: small pieces that follow input, built from [`paint`](super::paint) and used by
 //! the widgets.
 
+mod editable;
+
+pub use editable::{EditableText, TextOutcome};
+
 use super::frame::{Eased, Ui};
 use super::paint::{Component, Shadow, Surface};
 use super::state::WidgetId;
