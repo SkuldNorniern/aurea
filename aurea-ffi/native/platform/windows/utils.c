@@ -768,19 +768,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 }
             } else {
                 /* Resize the content HWND (canvas or box) to track the new client area. */
-                HWND content = (HWND)GetPropA(hwnd, "AureaContentHWND");
-                if (content && IsWindow(content)) {
-                    int new_w = LOWORD(lParam);
-                    int new_h = HIWORD(lParam);
-                    if (new_w > 0 && new_h > 0) {
-                        SetWindowPos(content, NULL, 0, 0, new_w, new_h,
-                                     SWP_NOZORDER | SWP_NOACTIVATE);
-                        extern void layout_box_children(HWND box);
-                        if (GetPropA(content, "AureaBoxOrientation")) {
-                            layout_box_children(content);
-                        }
-                    }
-                }
+                ng_windows_fit_content(hwnd);
 
                 if (was_minimized) {
                     RemovePropA(hwnd, "AureaMinimized");
@@ -882,4 +870,19 @@ int ng_windows_locales(char* buf, int cap) {
     }
     free(wide);
     return need;
+}
+
+void ng_windows_fit_content(HWND window) {
+    HWND content = (HWND)GetPropA(window, "AureaContentHWND");
+    if (!content || !IsWindow(content)) return;
+    RECT client;
+    GetClientRect(window, &client);
+    int w = client.right - client.left;
+    int h = client.bottom - client.top;
+    if (w <= 0 || h <= 0) return;
+    SetWindowPos(content, NULL, 0, 0, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+    extern void layout_box_children(HWND box);
+    if (GetPropA(content, "AureaBoxOrientation")) {
+        layout_box_children(content);
+    }
 }

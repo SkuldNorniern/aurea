@@ -314,6 +314,15 @@ int ng_windows_set_window_content(NGHandle window_handle, NGHandle content_handl
     LONG_PTR style = GetWindowLongPtrA(content, GWL_STYLE);
     SetWindowLongPtrA(content, GWL_STYLE, style | WS_CHILD | WS_VISIBLE);
 
+    /* Known before anything below can resize the window, so its WM_SIZE
+       resizes this content too. */
+    SetPropA(window, "AureaContentHWND", (HANDLE)content);
+
+    /* A menu bar set before the window was laid out takes its height off
+       the client area only once drawn. Measured before that, the content
+       came out a bar taller than the window. */
+    DrawMenuBar(window);
+
     // Get client area - on Windows, this already excludes the menu bar area
     RECT client_rect;
     GetClientRect(window, &client_rect);
@@ -372,9 +381,6 @@ int ng_windows_set_window_content(NGHandle window_handle, NGHandle content_handl
         // Layout children to fill width
         layout_box_children(content);
     }
-
-    /* Store the content handle so WM_SIZE can resize it automatically. */
-    SetPropA(window, "AureaContentHWND", (HANDLE)content);
 
     /* Return keyboard focus to the NativeGuiWindow.  SetParent calls inside
        box_add / set_window_content can silently move focus to a child HWND. */

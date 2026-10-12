@@ -146,6 +146,8 @@ int ng_windows_attach_menu(NGHandle window, NGMenuHandle menu) {
         return NG_ERROR_PLATFORM_SPECIFIC;
     }
     DrawMenuBar((HWND)window);
+    /* The bar took its height off content laid out without it. */
+    ng_windows_fit_content((HWND)window);
     return NG_SUCCESS;
 }
 

@@ -22,6 +22,8 @@ void ng_windows_modal_begin(HWND hwnd);
 void ng_windows_modal_end(HWND hwnd);
 void ng_windows_modal_tick(void);
 void ng_windows_display_changed(void);
+/* Sizes the window's content to its client area and lays it out. */
+void ng_windows_fit_content(HWND window);
 unsigned int ng_windows_window_refresh_hz(void);
 void ng_windows_present(void);
 BOOL ng_windows_is_initialized(void);
