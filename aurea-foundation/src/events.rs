@@ -88,6 +88,76 @@ pub enum WindowEvent {
         /// Byte offset of the input method's caret in `text`, if it shows one.
         cursor: Option<usize>,
     },
+    /// A pen on or over a tablet or a pen display.
+    ///
+    /// Comes before the mouse events the platform makes of the same pen, so
+    /// an app that only reads the mouse keeps working, and one that paints
+    /// takes pressure and tilt from here. Samples the platform gathered
+    /// between two events come one by one, oldest first.
+    Pen(PenSample),
+}
+
+/// One reading of a pen.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct PenSample {
+    /// Position in logical pixels, like [`WindowEvent::MouseMove`], but not
+    /// rounded to whole pixels where the tablet reports finer.
+    pub x: f64,
+    pub y: f64,
+    /// How hard the pen presses, from 0.0 to 1.0. 0.0 while hovering; 1.0
+    /// on touch for a pen that does not report pressure.
+    pub pressure: f32,
+    /// Lean in degrees, -90 to 90: positive `tilt_x` toward the right,
+    /// positive `tilt_y` toward the user. 0.0 when upright or not reported.
+    pub tilt_x: f32,
+    pub tilt_y: f32,
+    /// Rotation about the pen's own axis in degrees, 0 to 360.
+    pub twist: f32,
+    pub phase: PenPhase,
+    pub tool: PenTool,
+    /// The barrel button is held.
+    pub barrel: bool,
+    pub modifiers: Modifiers,
+}
+
+/// Where a [`PenSample`] falls in a stroke.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum PenPhase {
+    /// In range but not touching.
+    #[default]
+    Hover,
+    /// Touched down; a stroke starts.
+    Down,
+    /// Moving while touching.
+    Move,
+    /// Lifted; the stroke ends.
+    Up,
+}
+
+/// Which end of the pen is used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum PenTool {
+    #[default]
+    Tip,
+    /// The eraser end, or the tip turned to erase.
+    Eraser,
+}
+
+impl PenPhase {
+    /// The number the platform layer hands over for this phase.
+    pub fn from_raw(phase: u32) -> Self {
+        match phase {
+            1 => Self::Down,
+            2 => Self::Move,
+            3 => Self::Up,
+            _ => Self::Hover,
+        }
+    }
+
+    /// Whether the pen touches the surface.
+    pub fn touching(self) -> bool {
+        matches!(self, Self::Down | Self::Move)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
