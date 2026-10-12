@@ -2,6 +2,7 @@
 
 use std::cmp::Ordering as CmpOrdering;
 use std::f32::consts::FRAC_1_SQRT_2;
+use std::mem;
 
 use crate::command::DrawCommand;
 use crate::cpu::blend::{ConstSrc, blend_pixel, linear_to_srgb_u8, srgb_to_linear};
@@ -94,6 +95,23 @@ impl CpuRasterizer {
 
     pub fn display_list(&self) -> &DisplayList {
         &self.display_list
+    }
+
+    /// The size it draws at, in logical pixels.
+    pub fn logical_size(&self) -> (u32, u32) {
+        (self.logical_width, self.logical_height)
+    }
+
+    /// Physical pixels per logical one.
+    pub fn scale_factor(&self) -> f32 {
+        self.scale_factor
+    }
+
+    pub(crate) fn render_recorded(&mut self, list: &mut DisplayList) -> AureaResult<FrameOutcome> {
+        mem::swap(&mut self.display_list, list);
+        let outcome = self.end_frame();
+        mem::swap(&mut self.display_list, list);
+        outcome
     }
 
     #[inline]

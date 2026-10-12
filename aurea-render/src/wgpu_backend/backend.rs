@@ -9,6 +9,7 @@ use wgpu::util::DeviceExt;
 use aurea_foundation::{AureaError, AureaResult};
 
 use crate::batch::{CircleInstance, DrawRef, RectInstance};
+use crate::capabilities::GpuFeatures;
 use crate::gpu2d::{FramePlan, Gpu2dBackend, Gpu2dRenderer};
 use crate::renderer::FrameOutcome;
 
@@ -369,6 +370,13 @@ impl Gpu2dBackend for WgpuBackend {
 
     fn evict_image(&mut self, shader_slot: u32) {
         self.slot_resources.remove(&shader_slot);
+    }
+
+    fn features(&self) -> GpuFeatures {
+        GpuFeatures {
+            gradients: true,
+            ..GpuFeatures::NONE
+        }
     }
 
     fn present_frame(

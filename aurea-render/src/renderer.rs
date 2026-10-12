@@ -12,6 +12,7 @@ use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::mem::{size_of, take};
 use std::ptr::null;
+use std::slice;
 use std::sync::LazyLock;
 
 thread_local! {
@@ -43,6 +44,11 @@ impl<'a> FrameOutput<'a> {
             height,
             _borrow: PhantomData,
         })
+    }
+    /// The pixel bytes.
+    pub fn bytes(&self) -> &'a [u8] {
+        // SAFETY: `new` takes pixels that stay valid, `size` bytes long, for
+        unsafe { slice::from_raw_parts(self.pixels, self.size) }
     }
 }
 
