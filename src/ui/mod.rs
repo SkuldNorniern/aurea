@@ -18,3 +18,4 @@ pub use widget::button::{Button, ButtonStyle, Tone};
 pub use widget::toggle::{Checkbox, CheckboxStyle, Toggle, ToggleStyle};
 pub use widget::slider::{Slider, SliderStyle};
 pub use widget::segmented::{Segmented, SegmentedStyle};
+pub use widget::progress::{ProgressBar, ProgressStyle};

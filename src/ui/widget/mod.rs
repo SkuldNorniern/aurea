@@ -1,6 +1,7 @@
 //! The top layer: widgets, each a few components and one call to [`Ui::interact`].
 
 pub mod button;
+pub mod progress;
 pub mod segmented;
 pub mod slider;
 pub mod toggle;
