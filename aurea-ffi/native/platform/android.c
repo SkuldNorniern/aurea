@@ -8,6 +8,12 @@ int ng_platform_reduced_motion(void) {
     return 0;
 }
 
+int ng_platform_locales(char* buf, int cap) {
+    (void)buf;
+    (void)cap;
+    return 0;
+}
+
 int ng_platform_init(void) {
     return ng_android_init();
 }

@@ -16,6 +16,7 @@ int ng_platform_get_abi_version(void);
 
 int ng_platform_init(void);
 int ng_platform_reduced_motion(void);
+int ng_platform_locales(char* buf, int cap);
 void ng_platform_cleanup(void);
 int ng_platform_run(void);
 int ng_platform_poll_events(void);

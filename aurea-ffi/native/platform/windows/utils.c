@@ -732,3 +732,21 @@ int ng_windows_reduced_motion(void) {
     if (!SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animate, 0)) return 0;
     return animate ? 0 : 1;
 }
+
+int ng_windows_locales(char* buf, int cap) {
+    ULONG count = 0;
+    ULONG len = 0;
+    if (!GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &count, NULL, &len) || len < 2) return 0;
+    WCHAR* wide = (WCHAR*)malloc(len * sizeof(WCHAR));
+    if (!wide) return 0;
+    int need = 0;
+    if (GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &count, wide, &len) && len >= 2) {
+        int chars = (int)len - 1;
+        need = WideCharToMultiByte(CP_UTF8, 0, wide, chars, NULL, 0, NULL, NULL);
+        if (buf && need > 0 && cap >= need) {
+            WideCharToMultiByte(CP_UTF8, 0, wide, chars, buf, cap, NULL, NULL);
+        }
+    }
+    free(wide);
+    return need;
+}

@@ -28,6 +28,7 @@ int ng_windows_window_set_shortcuts(NGHandle window, const unsigned int* keycode
 int ng_windows_take_shortcut(HWND root, WPARAM vk);
 
 int ng_windows_reduced_motion(void);
+int ng_windows_locales(char* buf, int cap);
 
 #ifdef __cplusplus
 }

@@ -47,6 +47,10 @@ int ng_platform_reduced_motion(void) {
     return (g_ops && g_ops->reduced_motion) ? g_ops->reduced_motion() : 0;
 }
 
+int ng_platform_locales(char* buf, int cap) {
+    ensure_ops();
+    return (g_ops && g_ops->locales) ? g_ops->locales(buf, cap) : 0;
+}
 void ng_platform_cleanup(void) {
     if (g_ops && g_ops->cleanup) g_ops->cleanup();
 }
