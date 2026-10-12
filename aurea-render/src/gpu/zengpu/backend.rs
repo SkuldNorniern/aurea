@@ -26,7 +26,7 @@ use crate::gpu::batch::{DrawRef, RectInstance, ShapeInstance};
 use crate::gpu::{FramePlan, Gpu2dBackend, Gpu2dRenderer};
 use crate::numeric::f32_to_u32_clamped;
 use crate::renderer::FrameOutcome;
-use crate::types::Rect;
+use crate::types::{GpuTexture, Rect};
 
 use super::buffer::GrowableBuffer;
 use super::pipelines::{GradientInstance, ImageInstance, Pipelines, TextInstance};
@@ -65,10 +65,6 @@ impl ZenGpuContext {
     pub fn device_context(&self) -> DeviceContext {
         self.device.context()
     }
-}
-
-struct ExternalImageDraw {
-    instance: ImageInstance,
 }
 
 /// This frame's instance-buffer handles, one per primitive kind. `None` when
@@ -124,7 +120,6 @@ pub struct ZenGpuBackend {
     text_instances: Vec<TextInstance>,
     /// Maps shader slot (global bindless index) → TextureHandle for cleanup.
     slot_textures: HashMap<u32, TextureHandle>,
-    external_images: Vec<ExternalImageDraw>,
 }
 
 /// Public renderer type alias — `Gpu2dRenderer` parameterized on `ZenGpuBackend`.
@@ -187,7 +182,6 @@ impl ZenGpuRenderer {
             image_instances: Vec::new(),
             text_instances: Vec::new(),
             slot_textures: HashMap::new(),
-            external_images: Vec::new(),
         };
         Ok(Gpu2dRenderer::from_backend(backend, width, height, scale))
     }
@@ -198,19 +192,6 @@ impl ZenGpuRenderer {
 
     pub fn context(&self) -> &Arc<ZenGpuContext> {
         &self.backend().context
-    }
-
-    /// Draw a caller-owned GPU texture after the ordinary display list. The
-    /// texture must be in `SHADER_READ_ONLY_OPTIMAL` (achieved via
-    /// [`zengpu_hal::ColorAttachment::sample_after`] or an explicit barrier).
-    pub fn draw_sampled_image(&mut self, texture: TextureHandle, dest: Rect) -> AureaResult<()> {
-        self.backend_mut().push_external_image(texture, dest)
-    }
-
-    /// Remove all caller-owned sampled images queued with [`draw_sampled_image`].
-    pub fn clear_sampled_images(&mut self) -> AureaResult<()> {
-        self.backend_mut().external_images.clear();
-        Ok(())
     }
 }
 
@@ -227,23 +208,6 @@ impl ZenGpuBackend {
 
     fn text_slot(&self, idx: u32) -> u32 {
         self.text_instances.get(idx as usize).map_or(0, |t| t.slot)
-    }
-
-    fn push_external_image(&mut self, texture: TextureHandle, dest: Rect) -> AureaResult<()> {
-        let device = self.context.device();
-        let slot = device
-            .bind_texture(texture, self.sampler)
-            .ok_or(AureaError::RenderingFailed)?;
-        self.external_images.push(ExternalImageDraw {
-            instance: ImageInstance {
-                rect: [dest.x, dest.y, dest.width, dest.height],
-                uv: [0.0, 0.0, 1.0, 1.0],
-                tint: [1.0; 4],
-                slot,
-                _pad: [0; 3],
-            },
-        });
-        Ok(())
     }
 
     /// Bind `pipeline`/`buffer`, push `scalars`+`textures`, and issue one
@@ -403,49 +367,9 @@ impl ZenGpuBackend {
             }
         }
     }
-
-    /// Record caller-owned images queued via `draw_sampled_image`, after the
-    /// display-list painter order. They occupy a contiguous tail of
-    /// `image_instances` starting at `ext_image_base`, so coalesce same-slot
-    /// runs the same way as `record_ordered_draws`.
-    fn record_external_images(
-        &self,
-        cmd: &mut VulkanCommandList,
-        image_handle: Option<BufferHandle>,
-        ext_image_base: u32,
-        viewport_scalars: &[Scalar],
-    ) {
-        let ext_count = self.external_images.len();
-        let mut j = 0;
-        while j < ext_count {
-            let slot = self.external_images[j].instance.slot;
-            let mut run = 1usize;
-            while j + run < ext_count && self.external_images[j + run].instance.slot == slot {
-                run += 1;
-            }
-            let start =
-                ext_image_base + u32::try_from(j).expect("external image index fits in u32");
-            let count = u32::try_from(run).expect("external image run length fits in u32");
-            Self::draw_run(
-                cmd,
-                self.pipelines.image,
-                image_handle,
-                viewport_scalars,
-                from_ref(&slot),
-                start,
-                count,
-            );
-            j += run;
-        }
-    }
 }
 
 impl Gpu2dBackend for ZenGpuBackend {
-    fn begin_frame(&mut self) -> AureaResult<()> {
-        self.external_images.clear();
-        Ok(())
-    }
-
     fn resize(&mut self, physical_width: u32, physical_height: u32) -> AureaResult<()> {
         self.surface
             .resize(physical_width, physical_height)
@@ -485,8 +409,18 @@ impl Gpu2dBackend for ZenGpuBackend {
         }
     }
 
+    /// Binds the app's texture with the backend's sampler. Its slot is its
+    /// own handle index, so binding it again each frame reuses one slot.
+    fn bind_texture(&mut self, texture: GpuTexture) -> AureaResult<u32> {
+        self.context
+            .device()
+            .bind_texture(texture.zengpu(), self.sampler)
+            .ok_or(AureaError::RenderingFailed)
+    }
+
     fn features(&self) -> GpuFeatures {
         GpuFeatures {
+            textures: true,
             gradients: true,
             images: true,
             text: true,
@@ -532,14 +466,10 @@ impl Gpu2dBackend for ZenGpuBackend {
                 rect: i.rect,
                 uv: i.uv,
                 tint: i.tint,
+                sampling: i.sampling,
                 slot: i.slot,
                 _pad: [0; 3],
             }));
-        // Append external (engine-side) images after display-list images.
-        let ext_image_base =
-            u32::try_from(self.image_instances.len()).expect("image instance count fits in u32");
-        self.image_instances
-            .extend(self.external_images.iter().map(|e| e.instance));
         self.text_instances.clear();
         self.text_instances
             .extend(plan.texts.iter().map(|t| TextInstance {
@@ -627,7 +557,6 @@ impl Gpu2dBackend for ZenGpuBackend {
             &buffers,
             &viewport_scalars,
         );
-        self.record_external_images(&mut cmd, image_handle, ext_image_base, &viewport_scalars);
 
         cmd.end_render_pass();
         self.surface.present(frame, cmd).map_err(gpu_err)?;

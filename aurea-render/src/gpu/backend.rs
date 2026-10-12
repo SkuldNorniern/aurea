@@ -6,11 +6,12 @@
 //! `cpu/`'s split and ZenGPU's split-HAL rule: *add a backend without
 //! re-duplicating the layer above it*.
 
-use aurea_foundation::AureaResult;
+use aurea_foundation::{AureaError, AureaResult};
 
 use crate::capabilities::GpuFeatures;
 use crate::gpu::batch::{DrawRef, RectInstance, ShapeInstance};
 use crate::renderer::FrameOutcome;
+use crate::types::GpuTexture;
 
 use super::frame_plan::{FramePlan, ImagePlanEntry};
 
@@ -44,6 +45,13 @@ pub trait Gpu2dBackend {
     /// [`upload_image`](Self::upload_image)).
     fn evict_image(&mut self, shader_slot: u32);
 
+    /// The shader slot an app-made texture draws from this frame. Only a
+    /// backend reporting [`GpuFeatures::textures`] gets asked.
+    fn bind_texture(&mut self, texture: GpuTexture) -> AureaResult<u32> {
+        let _ = texture;
+        Err(AureaError::RenderingFailed)
+    }
+
     /// The kinds of drawing this backend does itself. A frame needing more
     /// is not handed to [`present_frame`](Self::present_frame) unless the
     /// renderer's fallback says to draw what it can.
@@ -71,6 +79,7 @@ pub trait Gpu2dBackend {
             rect: [0.0, 0.0, width as f32, height as f32],
             uv: [0.0, 0.0, 1.0, 1.0],
             tint: [1.0; 4],
+            sampling: [width as f32, height as f32, 0.0, 0.0],
             slot,
         });
         plan.order.push(DrawRef::Image(0));

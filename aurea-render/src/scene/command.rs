@@ -7,7 +7,8 @@
 //! carries its own resolved state, which is what partial repaint needs.
 
 use crate::types::{
-    Color, Font, GlyphMask, Image, LinearGradient, Paint, Path, Point, RadialGradient, Rect,
+    Color, Font, GlyphMask, GpuTexture, Image, LinearGradient, Paint, Path, Point, RadialGradient,
+    Rect, Sampling,
 };
 
 #[derive(Debug, Clone)]
@@ -21,8 +22,11 @@ pub enum DrawCommand {
     DrawPath(Path, Paint),
     DrawText(String, Point, Paint),
     DrawTextWithFont(String, Point, Font, Paint),
-    DrawImageRect(Image, Rect),
-    DrawImageRegion(Image, Rect, Rect),
+    DrawImageRect(Image, Rect, Sampling),
+    /// Image, source rect in pixels, destination.
+    DrawImageRegion(Image, Rect, Rect, Sampling),
+    /// GPU texture, source rect in UV (0 to 1), destination.
+    DrawTexture(GpuTexture, Rect, Rect, Sampling),
     /// Subpixel-antialiased text: coverage mask, top-left position, text colour.
     DrawGlyphMask(GlyphMask, Point, Color),
     FillLinearGradient(LinearGradient, Rect),

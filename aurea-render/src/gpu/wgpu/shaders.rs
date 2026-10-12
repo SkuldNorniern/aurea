@@ -173,12 +173,14 @@ struct Instance {
     @location(0) rect: vec4<f32>,
     @location(1) uv: vec4<f32>,
     @location(2) tint: vec4<f32>,
+    @location(3) sampling: vec4<f32>,
 };
 
 struct VsOut {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) tint: vec4<f32>,
+    @location(2) sampling: vec4<f32>,
 };
 
 const CORNERS = array<vec2<f32>, 6>(
@@ -195,12 +197,18 @@ fn vs_main(@builtin(vertex_index) vidx: u32, instance: Instance) -> VsOut {
     out.position = vec4<f32>(ndc.x, -ndc.y, 0.0, 1.0);
     out.uv = mix(instance.uv.xy, instance.uv.zw, corner);
     out.tint = instance.tint;
+    out.sampling = instance.sampling;
     return out;
 }
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
-    return textureSample(image_tex, image_sampler, in.uv) * in.tint;
+    // Nearest: read a texel's centre, where linear filtering returns it whole.
+    var uv = in.uv;
+    if (in.sampling.z > 0.5) {
+        uv = (floor(uv * in.sampling.xy) + 0.5) / in.sampling.xy;
+    }
+    return textureSample(image_tex, image_sampler, uv) * in.tint;
 }
 "#;
 

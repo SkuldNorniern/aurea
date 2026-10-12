@@ -1,8 +1,8 @@
 //! The drawing contract: what a draw callback can ask of a canvas.
 
 use crate::types::{
-    BlendMode, Color, Font, Image, LinearGradient, Paint, Path, PathCommand, Point, RadialGradient,
-    Rect, TextMetrics, Transform,
+    BlendMode, Color, Font, GpuTexture, Image, LinearGradient, Paint, Path, PathCommand, Point,
+    RadialGradient, Rect, Sampling, TextMetrics, Transform,
 };
 use aurea_foundation::AureaResult;
 
@@ -53,6 +53,15 @@ pub trait DrawingContext {
 
     /// Draw part of an image (source rect) to a destination rect
     fn draw_image_region(&mut self, image: &Image, src: Rect, dest: Rect) -> AureaResult<()>;
+
+    /// How the image and texture draws that follow are filtered. Saved and
+    /// restored with the rest of the state; [`Sampling::Linear`] at first.
+    fn set_sampling(&mut self, sampling: Sampling) -> AureaResult<()>;
+
+    /// Draw part of an app-made GPU texture, `src` in UV (0 to 1), in
+    /// painter order with everything else. Call it each frame it should
+    /// show, like any draw. The texture must be ready to sample.
+    fn draw_texture(&mut self, texture: GpuTexture, src: Rect, dest: Rect) -> AureaResult<()>;
 
     /// Draw text with font configuration
     fn draw_text_with_font(

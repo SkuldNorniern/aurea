@@ -47,6 +47,7 @@ struct DrawingState {
     opacity: f32,
     clip_rect: Option<Rect>,
     blend_mode: BlendMode,
+    sampling: Sampling,
 }
 
 /// Saves this deep live in the context itself; only deeper ones reach the
@@ -144,6 +145,7 @@ pub struct RecordingContext<'list> {
     /// clip path leaves it at the enclosing rectangle it was already narrowed to.
     current_clip_rect: Option<Rect>,
     current_blend_mode: BlendMode,
+    current_sampling: Sampling,
     scale_factor: f32,
     current_interactive_id: Option<InteractiveId>,
     width: u32,
@@ -270,6 +272,7 @@ impl<'list> RecordingContext<'list> {
             current_opacity: 1.0,
             current_clip_rect: None,
             current_blend_mode: BlendMode::Normal,
+            current_sampling: Sampling::Linear,
             scale_factor: 1.0,
             current_interactive_id: None,
             width,
@@ -473,8 +476,9 @@ impl<'list> RecordingContext<'list> {
                 paint.style.hash(&mut hasher);
                 paint.stroke_width.to_bits().hash(&mut hasher);
             }
-            DrawCommand::DrawImageRect(image, dest) => {
+            DrawCommand::DrawImageRect(image, dest, sampling) => {
                 "DrawImageRect".hash(&mut hasher);
+                sampling.hash(&mut hasher);
                 image.width.hash(&mut hasher);
                 image.height.hash(&mut hasher);
                 dest.x.to_bits().hash(&mut hasher);
@@ -484,8 +488,20 @@ impl<'list> RecordingContext<'list> {
                 // Pixel data is reference-counted; same Arc => same contents.
                 (Arc::as_ptr(&image.data) as *const u8 as usize).hash(&mut hasher);
             }
-            DrawCommand::DrawImageRegion(image, src, dest) => {
+            DrawCommand::DrawTexture(texture, src, dest, sampling) => {
+                "DrawTexture".hash(&mut hasher);
+                texture.hash(&mut hasher);
+                sampling.hash(&mut hasher);
+                for r in [src, dest] {
+                    r.x.to_bits().hash(&mut hasher);
+                    r.y.to_bits().hash(&mut hasher);
+                    r.width.to_bits().hash(&mut hasher);
+                    r.height.to_bits().hash(&mut hasher);
+                }
+            }
+            DrawCommand::DrawImageRegion(image, src, dest, sampling) => {
                 "DrawImageRegion".hash(&mut hasher);
+                sampling.hash(&mut hasher);
                 image.width.hash(&mut hasher);
                 image.height.hash(&mut hasher);
                 src.x.to_bits().hash(&mut hasher);
@@ -633,8 +649,9 @@ impl<'list> RecordingContext<'list> {
                 }
                 bounds
             }
-            DrawCommand::DrawImageRect(_, dest) => *dest,
-            DrawCommand::DrawImageRegion(_, _, dest) => *dest,
+            DrawCommand::DrawImageRect(_, dest, _)
+            | DrawCommand::DrawImageRegion(_, _, dest, _)
+            | DrawCommand::DrawTexture(_, _, dest, _) => *dest,
             DrawCommand::DrawGlyphMask(mask, origin, _) => {
                 Rect::new(origin.x, origin.y, mask.width as f32, mask.height as f32)
             }
@@ -664,7 +681,9 @@ impl<'list> RecordingContext<'list> {
             DrawCommand::DrawCircle(_, _, paint) => {
                 paint.color.a == 255 && paint.style == PaintStyle::Fill
             }
-            DrawCommand::DrawImageRect(..) | DrawCommand::DrawImageRegion(..) => false,
+            DrawCommand::DrawImageRect(..)
+            | DrawCommand::DrawImageRegion(..)
+            | DrawCommand::DrawTexture(..) => false,
             DrawCommand::FillLinearGradient(..) | DrawCommand::FillRadialGradient(..) => false,
             _ => false,
         }
@@ -840,12 +859,20 @@ impl DrawingContext for RecordingContext<'_> {
             image.width as f32 * zoom,
             image.height as f32 * zoom,
         );
-        self.add_command(DrawCommand::DrawImageRect(image.clone(), dest));
+        self.add_command(DrawCommand::DrawImageRect(
+            image.clone(),
+            dest,
+            self.current_sampling,
+        ));
         Ok(())
     }
 
     fn draw_image_rect(&mut self, image: &Image, dest: Rect) -> AureaResult<()> {
-        self.add_command(DrawCommand::DrawImageRect(image.clone(), self.s_rect(dest)));
+        self.add_command(DrawCommand::DrawImageRect(
+            image.clone(),
+            self.s_rect(dest),
+            self.current_sampling,
+        ));
         Ok(())
     }
 
@@ -854,6 +881,22 @@ impl DrawingContext for RecordingContext<'_> {
             image.clone(),
             src,
             self.s_rect(dest),
+            self.current_sampling,
+        ));
+        Ok(())
+    }
+
+    fn set_sampling(&mut self, sampling: Sampling) -> AureaResult<()> {
+        self.current_sampling = sampling;
+        Ok(())
+    }
+
+    fn draw_texture(&mut self, texture: GpuTexture, src: Rect, dest: Rect) -> AureaResult<()> {
+        self.add_command(DrawCommand::DrawTexture(
+            texture,
+            src,
+            self.s_rect(dest),
+            self.current_sampling,
         ));
         Ok(())
     }
@@ -894,6 +937,7 @@ impl DrawingContext for RecordingContext<'_> {
             opacity: self.current_opacity,
             clip_rect: self.current_clip_rect,
             blend_mode: self.current_blend_mode,
+            sampling: self.current_sampling,
         });
         Ok(())
     }
@@ -904,6 +948,7 @@ impl DrawingContext for RecordingContext<'_> {
             self.current_opacity = state.opacity;
             self.current_clip_rect = state.clip_rect;
             self.current_blend_mode = state.blend_mode;
+            self.current_sampling = state.sampling;
         }
         Ok(())
     }
