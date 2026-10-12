@@ -4,7 +4,7 @@
 //! the display list themselves, so the rect-batching / instance-layout logic
 //! lives in exactly one place and both backends draw identical geometry.
 //!
-//! Lowered so far: `Clear`, solid fills of rects and circles, linear and radial
+//! Lowered so far: `Clear`, solid fills of rects and shapes, linear and radial
 //! gradients, images, and glyph masks. Per-item opacity folds into the colours,
 //! as it does on the CPU.
 //!
@@ -60,26 +60,34 @@ impl RectInstance {
     }
 }
 
-/// One solid-colour filled circle, ready to upload as a GPU instance.
+/// One rounded box, filled or stroked: a circle, a rounded rect, a pill.
 ///
-/// `center_radius` is `[cx, cy, radius, _]` in **physical** pixels; `color` is
-/// straight RGBA in `0.0..=1.0`. Same 32-byte `#[repr(C)]` layout as
-/// [`RectInstance`].
+/// `rect` is `[x, y, width, height]` in **physical** pixels, `color` is
+/// straight RGBA in `0.0..=1.0`, and `shape` is `[radius, stroke, _, _]`: the
+/// corner radius, kept to half the shorter side when drawn, and the width of
+/// a stroke centred on the outline, `0` for a fill. A circle is a square box
+/// whose radius is half its side. 48 bytes, `#[repr(C)]`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
-pub struct CircleInstance {
-    /// `[cx, cy, radius, _padding]` in physical pixels.
-    pub center_radius: [f32; 4],
-    /// Straight RGBA, each channel in `0.0..=1.0`.
+pub struct ShapeInstance {
+    pub rect: [f32; 4],
     pub color: [f32; 4],
+    pub shape: [f32; 4],
 }
 
-impl CircleInstance {
-    fn new(center: Point, radius: f32, color: Color) -> Self {
+impl ShapeInstance {
+    fn rounded(rect: Rect, radius: f32, stroke: f32, color: Color) -> Self {
         Self {
-            center_radius: [center.x, center.y, radius, 0.0],
+            rect: [rect.x, rect.y, rect.width, rect.height],
             color: color_f32(color),
+            shape: [radius.max(0.0), stroke.max(0.0), 0.0, 0.0],
         }
+    }
+
+    fn circle(center: Point, radius: f32, stroke: f32, color: Color) -> Self {
+        let side = radius * 2.0;
+        let rect = Rect::new(center.x - radius, center.y - radius, side, side);
+        Self::rounded(rect, radius, stroke, color)
     }
 }
 
@@ -260,6 +268,16 @@ fn representable(item: &DisplayItem) -> bool {
     item.blend_mode == BlendMode::Normal
 }
 
+/// The stroke width a shape is drawn with: `0` fills; `None` is a stroke of
+/// no width, which draws nothing.
+fn shape_stroke(paint: &Paint) -> Option<f32> {
+    match paint.style {
+        PaintStyle::Fill => Some(0.0),
+        PaintStyle::Stroke if paint.stroke_width > 0.0 => Some(paint.stroke_width),
+        PaintStyle::Stroke => None,
+    }
+}
+
 /// The four rects that make up a stroke of `width` centred on `rect`'s edges,
 /// the way the rasterizer draws one.
 ///
@@ -314,7 +332,7 @@ pub enum DrawRef {
     Gradient(u32),
     Image(u32),
     Text(u32),
-    Circle(u32),
+    Shape(u32),
 }
 
 /// A single frame's 2D draw work, lowered from a display list and independent
@@ -332,8 +350,8 @@ pub struct RenderBatches {
     pub images: Vec<ImageDraw>,
     /// HiDPI text-run masks in submission order.
     pub texts: Vec<TextDraw>,
-    /// Solid-colour filled circles in submission order.
-    pub circles: Vec<CircleInstance>,
+    /// Solid-colour filled shapes in submission order.
+    pub shapes: Vec<ShapeInstance>,
     /// Cross-kind painter order, indexing the per-kind instance arrays above.
     pub order: Vec<DrawRef>,
     /// The clip for each entry in [`Self::order`], in physical pixels.
@@ -397,7 +415,7 @@ impl RenderBatches {
         self.gradients.clear();
         self.images.clear();
         self.texts.clear();
-        self.circles.clear();
+        self.shapes.clear();
         self.order.clear();
         self.clips.clear();
         // Counted per frame, like everything else here. Left to accumulate it
@@ -418,20 +436,11 @@ impl RenderBatches {
         self.path_masks.retain(|_, (_, used)| mem::take(used));
     }
 
-    /// A rounded rect as a plain one. The GPU painter has no rounded rect
-    /// instance yet, and square corners keep buttons and cards on screen,
-    /// which lowering it as a path, which is dropped, would not.
-    fn push_square_round_rect(&mut self, rect: Rect, paint: &Paint, alpha: f32) {
-        let color = fade(paint.color, alpha);
-        match paint.style {
-            PaintStyle::Fill => self.push_rect(rect, color),
-            PaintStyle::Stroke if paint.stroke_width > 0.0 => {
-                for edge in stroke_edges(rect, paint.stroke_width) {
-                    self.push_rect(edge, color);
-                }
-            }
-            PaintStyle::Stroke => {}
-        }
+    fn push_shape(&mut self, shape: ShapeInstance) {
+        self.order.push(DrawRef::Shape(
+            u32::try_from(self.shapes.len()).expect("batch count fits in u32"),
+        ));
+        self.shapes.push(shape);
     }
 
     /// Turns one display item into draws, or counts it as one this layer has
@@ -460,7 +469,7 @@ impl RenderBatches {
                     self.gradients.clear();
                     self.images.clear();
                     self.texts.clear();
-                    self.circles.clear();
+                    self.shapes.clear();
                     self.order.clear();
                     self.clips.clear();
                 }
@@ -478,17 +487,11 @@ impl RenderBatches {
                         self.push_rect(edge, color);
                     }
                 }
-                DrawCommand::DrawCircle(center, radius, paint)
-                    if paint.style == PaintStyle::Fill =>
-                {
-                    self.order.push(DrawRef::Circle(
-                        u32::try_from(self.circles.len()).expect("batch count fits in u32"),
-                    ));
-                    self.circles.push(CircleInstance::new(
-                        *center,
-                        *radius,
-                        fade(paint.color, alpha),
-                    ));
+                DrawCommand::DrawCircle(center, radius, paint) => {
+                    if let Some(stroke) = shape_stroke(paint) {
+                        let color = fade(paint.color, alpha);
+                        self.push_shape(ShapeInstance::circle(*center, *radius, stroke, color));
+                    }
                 }
                 DrawCommand::FillLinearGradient(grad, rect) => {
                     let lut = self.gradient_lut(&faded_stops(&grad.stops, alpha));
@@ -549,8 +552,11 @@ impl RenderBatches {
                         });
                     }
                 }
-                DrawCommand::DrawRoundRect(rect, _, paint) => {
-                    self.push_square_round_rect(*rect, paint, alpha);
+                DrawCommand::DrawRoundRect(rect, radius, paint) => {
+                    if let Some(stroke) = shape_stroke(paint) {
+                        let color = fade(paint.color, alpha);
+                        self.push_shape(ShapeInstance::rounded(*rect, *radius, stroke, color));
+                    }
                 }
                 DrawCommand::DrawPath(path, paint) => {
                     self.push_path(item, path, paint, alpha);
@@ -609,7 +615,7 @@ impl RenderBatches {
             && self.gradients.is_empty()
             && self.images.is_empty()
             && self.texts.is_empty()
-            && self.circles.is_empty()
+            && self.shapes.is_empty()
             && self.order.is_empty()
     }
 
@@ -738,23 +744,42 @@ mod tests {
             paint,
         )));
         let b = RenderBatches::lower(&list);
-        assert_eq!(b.circles.len(), 1);
-        assert_eq!(b.circles[0].center_radius, [10.0, 20.0, 5.0, 0.0]);
+        assert_eq!(b.shapes.len(), 1);
+        assert_eq!(b.shapes[0].rect, [5.0, 15.0, 10.0, 10.0]);
+        assert_eq!(
+            b.shapes[0].shape,
+            [5.0, 0.0, 0.0, 0.0],
+            "a fill, round all over"
+        );
         assert!(b.rects.is_empty());
     }
 
     #[test]
-    fn stroke_circle_is_skipped() {
+    fn stroked_shapes_carry_their_width() {
         use crate::types::Point;
         let mut list = DisplayList::new();
-        let paint = Paint::new().style(PaintStyle::Stroke);
+        let ring = Paint::new().style(PaintStyle::Stroke).stroke_width(2.0);
         list.push(item(DrawCommand::DrawCircle(
             Point::new(0.0, 0.0),
             8.0,
-            paint,
+            ring.clone(),
+        )));
+        list.push(item(DrawCommand::DrawRoundRect(
+            Rect::new(0.0, 0.0, 20.0, 10.0),
+            4.0,
+            ring,
+        )));
+        let none = Paint::new().style(PaintStyle::Stroke).stroke_width(0.0);
+        list.push(item(DrawCommand::DrawCircle(
+            Point::new(0.0, 0.0),
+            8.0,
+            none,
         )));
         let b = RenderBatches::lower(&list);
-        assert!(b.circles.is_empty());
+        assert_eq!(b.shapes.len(), 2, "a stroke of no width draws nothing");
+        assert_eq!(b.shapes[0].shape[1], 2.0);
+        assert_eq!(b.shapes[1].shape, [4.0, 2.0, 0.0, 0.0]);
+        assert_eq!(b.dropped, 0);
     }
 
     #[test]
@@ -978,7 +1003,7 @@ mod tests {
         let b = RenderBatches::lower(&list);
         assert_eq!(
             b.order,
-            vec![DrawRef::Circle(0), DrawRef::Rect(0), DrawRef::Image(0)]
+            vec![DrawRef::Shape(0), DrawRef::Rect(0), DrawRef::Image(0)]
         );
     }
 

@@ -165,7 +165,7 @@ impl TextureCache {
 mod tests {
     use super::*;
     use crate::capabilities::GpuFeatures;
-    use crate::gpu::batch::{CircleInstance, RectInstance};
+    use crate::gpu::batch::{RectInstance, ShapeInstance};
     use crate::gpu::frame_plan::FramePlan;
     use crate::renderer::FrameOutcome;
 
@@ -201,7 +201,7 @@ mod tests {
             &mut self,
             _: &FramePlan,
             _: &[RectInstance],
-            _: &[CircleInstance],
+            _: &[ShapeInstance],
         ) -> AureaResult<FrameOutcome> {
             Ok(FrameOutcome::Presented)
         }

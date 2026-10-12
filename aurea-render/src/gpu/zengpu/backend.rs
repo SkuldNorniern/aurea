@@ -22,7 +22,7 @@ use zengpu_vulkan::instance::VulkanInstance;
 use zengpu_vulkan::{DeviceContext, VulkanCommandList, VulkanDevice, VulkanSurface};
 
 use crate::capabilities::GpuFeatures;
-use crate::gpu::batch::{CircleInstance, DrawRef, RectInstance};
+use crate::gpu::batch::{DrawRef, RectInstance, ShapeInstance};
 use crate::gpu::{FramePlan, Gpu2dBackend, Gpu2dRenderer};
 use crate::numeric::f32_to_u32_clamped;
 use crate::renderer::FrameOutcome;
@@ -32,9 +32,9 @@ use super::buffer::GrowableBuffer;
 use super::pipelines::{GradientInstance, ImageInstance, Pipelines, TextInstance};
 use super::surface::create_surface;
 
-// Guard that batch-layer rects/circles reinterpret to pipeline instances safely.
+// Guard that batch-layer rects/shapes reinterpret to pipeline instances safely.
 const _: () = assert!(size_of::<RectInstance>() == size_of::<super::pipelines::RectInstance>());
-const _: () = assert!(size_of::<CircleInstance>() == size_of::<super::pipelines::CircleInstance>());
+const _: () = assert!(size_of::<ShapeInstance>() == size_of::<super::pipelines::ShapeInstance>());
 
 /// Shareable ZenGPU instance/device ownership for Aurea UI and engine rendering.
 pub struct ZenGpuContext {
@@ -75,7 +75,7 @@ struct ExternalImageDraw {
 /// that kind has zero instances this frame (its buffer wasn't (re)uploaded).
 struct FrameBuffers {
     rect: Option<BufferHandle>,
-    circle: Option<BufferHandle>,
+    shape: Option<BufferHandle>,
     gradient: Option<BufferHandle>,
     image: Option<BufferHandle>,
     text: Option<BufferHandle>,
@@ -115,7 +115,7 @@ pub struct ZenGpuBackend {
     pipelines: Pipelines,
     sampler: SamplerHandle,
     rect_buf: GrowableBuffer,
-    circle_buf: GrowableBuffer,
+    shape_buf: GrowableBuffer,
     gradient_buf: GrowableBuffer,
     image_buf: GrowableBuffer,
     text_buf: GrowableBuffer,
@@ -179,7 +179,7 @@ impl ZenGpuRenderer {
             pipelines,
             sampler,
             rect_buf: GrowableBuffer::new(Default::default()),
-            circle_buf: GrowableBuffer::new(Default::default()),
+            shape_buf: GrowableBuffer::new(Default::default()),
             gradient_buf: GrowableBuffer::new(Default::default()),
             image_buf: GrowableBuffer::new(Default::default()),
             text_buf: GrowableBuffer::new(Default::default()),
@@ -338,13 +338,13 @@ impl ZenGpuBackend {
                     );
                     i += count as usize;
                 }
-                DrawRef::Circle(start) => {
+                DrawRef::Shape(start) => {
                     let count =
-                        coalesce_run(order, clips, i, |r, n| *r == DrawRef::Circle(start + n));
+                        coalesce_run(order, clips, i, |r, n| *r == DrawRef::Shape(start + n));
                     Self::draw_run(
                         cmd,
-                        self.pipelines.circle,
-                        buffers.circle,
+                        self.pipelines.shape,
+                        buffers.shape,
                         viewport_scalars,
                         &[],
                         start,
@@ -491,6 +491,8 @@ impl Gpu2dBackend for ZenGpuBackend {
             images: true,
             text: true,
             clips: true,
+            rounded_rects: true,
+            stroked_circles: true,
             ..GpuFeatures::NONE
         }
     }
@@ -503,7 +505,7 @@ impl Gpu2dBackend for ZenGpuBackend {
         &mut self,
         plan: &FramePlan,
         rects: &[RectInstance],
-        circles: &[CircleInstance],
+        shapes: &[ShapeInstance],
     ) -> AureaResult<FrameOutcome> {
         let frame = match self.surface.acquire().map_err(gpu_err)? {
             Acquire::Frame(f) => f,
@@ -552,9 +554,9 @@ impl Gpu2dBackend for ZenGpuBackend {
             .rect_buf
             .upload(device, as_bytes(rects))
             .map_err(gpu_err)?;
-        let circle_handle = self
-            .circle_buf
-            .upload(device, as_bytes(circles))
+        let shape_handle = self
+            .shape_buf
+            .upload(device, as_bytes(shapes))
             .map_err(gpu_err)?;
         let gradient_handle = self
             .gradient_buf
@@ -612,7 +614,7 @@ impl Gpu2dBackend for ZenGpuBackend {
         // texture slot per draw, so a run is split where the slot changes.
         let buffers = FrameBuffers {
             rect: rect_handle,
-            circle: circle_handle,
+            shape: shape_handle,
             gradient: gradient_handle,
             image: image_handle,
             text: text_handle,
@@ -641,7 +643,7 @@ impl Drop for ZenGpuBackend {
             device.destroy_texture(texture);
         }
         self.rect_buf.destroy(device);
-        self.circle_buf.destroy(device);
+        self.shape_buf.destroy(device);
         self.gradient_buf.destroy(device);
         self.image_buf.destroy(device);
         self.text_buf.destroy(device);

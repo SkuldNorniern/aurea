@@ -1,7 +1,8 @@
 //! SPIR-V shaders for the unified-API painter.
 //!
-//! Rect and circle are byte-for-byte the same shaders as the current
-//! production painter ([`crate::zengpu_surface`]). Gradient, image, and text
+//! Rects are solid quads; shapes are rounded boxes evaluated as a signed
+//! distance field, which draws circles, rounded rects and pills, filled or
+//! stroked, with one pipeline. Gradient, image, and text
 //! (+ dual-source text) are adapted for the device's *global* bindless
 //! texture table: `set = 0, binding = 1, textures[1024]` (was a private
 //! `binding = 0, textures[64]` set). The push-constant block layout is
@@ -68,26 +69,31 @@ pub const RECT_FRAG_SPV: &[u32] = inline_spirv!(
 
 // Circle: expand the instance's bounding-box quad, then evaluate a signed
 // distance field in the fragment shader for a 1px-antialiased edge.
-pub const CIRCLE_VERT_SPV: &[u32] = inline_spirv!(
+pub const SHAPE_VERT_SPV: &[u32] = inline_spirv!(
     r#"
     #version 450
-    layout(location = 0) in vec4 i_data;   // cx, cy, radius, _
+    layout(location = 0) in vec4 i_rect;   // x, y, w, h (px)
     layout(location = 1) in vec4 i_color;  // straight RGBA
+    layout(location = 2) in vec4 i_shape;  // radius, stroke (0 fills), _, _
     layout(push_constant) uniform PC { vec2 viewport; } pc;
-    layout(location = 0) out vec2 v_local;   // offset from centre (px)
+    layout(location = 0) out vec2 v_local;  // offset from the box centre (px)
     layout(location = 1) out vec4 v_color;
-    layout(location = 2) out float v_radius;
+    layout(location = 2) out vec2 v_half;
+    layout(location = 3) out vec2 v_shape;
     void main() {
         vec2 corners[6] = vec2[](
             vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0),
             vec2( 1.0, -1.0), vec2(1.0,  1.0), vec2(-1.0, 1.0)
         );
         vec2 corner = corners[gl_VertexIndex];
-        float r = i_data.z;
-        vec2 px = i_data.xy + corner * r;
-        v_local = corner * r;
-        v_radius = r;
+        vec2 half_size = i_rect.zw * 0.5;
+        // Room for the stroke past the outline and the antialiased edge.
+        vec2 reach = half_size + vec2(i_shape.y * 0.5 + 1.0);
+        v_local = corner * reach;
         v_color = i_color;
+        v_half = half_size;
+        v_shape = i_shape.xy;
+        vec2 px = i_rect.xy + half_size + v_local;
         vec2 ndc = (px / pc.viewport) * 2.0 - 1.0;
         gl_Position = vec4(ndc, 0.0, 1.0);
     }
@@ -96,16 +102,21 @@ pub const CIRCLE_VERT_SPV: &[u32] = inline_spirv!(
     vulkan1_0
 );
 
-pub const CIRCLE_FRAG_SPV: &[u32] = inline_spirv!(
+pub const SHAPE_FRAG_SPV: &[u32] = inline_spirv!(
     r#"
     #version 450
     layout(location = 0) in vec2 v_local;
     layout(location = 1) in vec4 v_color;
-    layout(location = 2) in float v_radius;
+    layout(location = 2) in vec2 v_half;
+    layout(location = 3) in vec2 v_shape;
     layout(location = 0) out vec4 o_color;
     void main() {
-        float dist = length(v_local);
-        float alpha = 1.0 - smoothstep(v_radius - 1.0, v_radius, dist);
+        float r = clamp(v_shape.x, 0.0, min(v_half.x, v_half.y));
+        vec2 q = abs(v_local) - v_half + r;
+        float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+        // A stroke is centred on the outline.
+        if (v_shape.y > 0.0) d = abs(d) - v_shape.y * 0.5;
+        float alpha = clamp(0.5 - d, 0.0, 1.0);
         if (alpha <= 0.0) discard;
         o_color = vec4(v_color.rgb, v_color.a * alpha);
     }

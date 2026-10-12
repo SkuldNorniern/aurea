@@ -9,7 +9,7 @@
 use aurea_foundation::AureaResult;
 
 use crate::capabilities::GpuFeatures;
-use crate::gpu::batch::{CircleInstance, DrawRef, RectInstance};
+use crate::gpu::batch::{DrawRef, RectInstance, ShapeInstance};
 use crate::renderer::FrameOutcome;
 
 use super::frame_plan::{FramePlan, ImagePlanEntry};
@@ -96,6 +96,6 @@ pub trait Gpu2dBackend {
         &mut self,
         plan: &FramePlan,
         rects: &[RectInstance],
-        circles: &[CircleInstance],
+        shapes: &[ShapeInstance],
     ) -> AureaResult<FrameOutcome>;
 }

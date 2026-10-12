@@ -49,7 +49,7 @@ pub mod text;
 pub use capabilities::{Fallback, GpuFeatures};
 pub use cpu::CpuRasterizer;
 pub use gpu::batch::{
-    CircleInstance, DrawRef, GradientInstance, ImageDraw, RectInstance, RenderBatches, TextDraw,
+    DrawRef, GradientInstance, ImageDraw, RectInstance, RenderBatches, ShapeInstance, TextDraw,
 };
 pub use gpu::{
     FramePlan, Gpu2dBackend, Gpu2dRenderer, GradientPlanEntry, ImagePlanEntry, TextPlanEntry,
