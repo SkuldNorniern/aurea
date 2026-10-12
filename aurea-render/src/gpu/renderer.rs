@@ -196,8 +196,8 @@ impl<B: Gpu2dBackend> Renderer for Gpu2dRenderer<B> {
         )
         .and_then(|()| {
             let rects = &self.batches.rects;
-            let circles = &self.batches.circles;
-            self.backend.present_frame(&self.frame_plan, rects, circles)
+            let shapes = &self.batches.shapes;
+            self.backend.present_frame(&self.frame_plan, rects, shapes)
         });
         recover(presented)
     }
@@ -230,7 +230,7 @@ fn physical(width: u32, height: u32, scale: f32) -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gpu::batch::{CircleInstance, RectInstance};
+    use crate::gpu::batch::{RectInstance, ShapeInstance};
     use crate::types::{Color, Paint};
 
     struct Probe {
@@ -261,7 +261,7 @@ mod tests {
             &mut self,
             _: &FramePlan,
             _: &[RectInstance],
-            _: &[CircleInstance],
+            _: &[ShapeInstance],
         ) -> AureaResult<FrameOutcome> {
             self.drawn += 1;
             Ok(self.outcome)

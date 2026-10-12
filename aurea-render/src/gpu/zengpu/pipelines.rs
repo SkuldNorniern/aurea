@@ -19,12 +19,13 @@ pub struct RectInstance {
     pub color: [f32; 4],
 }
 
-/// One filled circle.
+/// One rounded box, filled or stroked.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct CircleInstance {
-    pub center_radius: [f32; 4],
+pub struct ShapeInstance {
+    pub rect: [f32; 4],
     pub color: [f32; 4],
+    pub shape: [f32; 4],
 }
 
 /// One gradient-filled rectangle.
@@ -60,7 +61,7 @@ pub struct TextInstance {
 }
 
 const _: () = assert!(size_of::<RectInstance>() == 32);
-const _: () = assert!(size_of::<CircleInstance>() == 32);
+const _: () = assert!(size_of::<ShapeInstance>() == 48);
 const _: () = assert!(size_of::<GradientInstance>() == 64);
 const _: () = assert!(size_of::<ImageInstance>() == 64);
 const _: () = assert!(size_of::<TextInstance>() == 48);
@@ -74,6 +75,7 @@ const fn float4(location: u32, offset: u32) -> VertexAttribute {
 }
 
 const RECT_ATTRS: [VertexAttribute; 2] = [float4(0, 0), float4(1, 16)];
+const SHAPE_ATTRS: [VertexAttribute; 3] = [float4(0, 0), float4(1, 16), float4(2, 32)];
 const GRADIENT_ATTRS: [VertexAttribute; 3] = [float4(0, 0), float4(1, 16), float4(2, 32)];
 const IMAGE_ATTRS: [VertexAttribute; 3] = [float4(0, 0), float4(1, 16), float4(2, 32)];
 const TEXT_ATTRS: [VertexAttribute; 2] = [float4(0, 0), float4(1, 16)];
@@ -81,6 +83,11 @@ const TEXT_ATTRS: [VertexAttribute; 2] = [float4(0, 0), float4(1, 16)];
 const RECT_LAYOUT: VertexLayout = VertexLayout {
     stride: 32,
     attributes: &RECT_ATTRS,
+    step_mode: StepMode::Instance,
+};
+const SHAPE_LAYOUT: VertexLayout = VertexLayout {
+    stride: 48,
+    attributes: &SHAPE_ATTRS,
     step_mode: StepMode::Instance,
 };
 const GRADIENT_LAYOUT: VertexLayout = VertexLayout {
@@ -104,7 +111,7 @@ type PipelineSpec<'s> = (&'s [u32], &'s [u32], &'s [VertexLayout<'s>], BlendMode
 /// All five pipelines the painter draws with, in painter-order priority.
 pub struct Pipelines {
     pub rect: PipelineHandle,
-    pub circle: PipelineHandle,
+    pub shape: PipelineHandle,
     pub gradient: PipelineHandle,
     pub image: PipelineHandle,
     pub text: PipelineHandle,
@@ -144,9 +151,9 @@ impl Pipelines {
                 BlendMode::AlphaBlend,
             ),
             (
-                CIRCLE_VERT_SPV,
-                CIRCLE_FRAG_SPV,
-                &[RECT_LAYOUT],
+                SHAPE_VERT_SPV,
+                SHAPE_FRAG_SPV,
+                &[SHAPE_LAYOUT],
                 BlendMode::AlphaBlend,
             ),
             (
@@ -176,9 +183,9 @@ impl Pipelines {
             }
         }
         match made[..] {
-            [rect, circle, gradient, image, text] => Ok(Self {
+            [rect, shape, gradient, image, text] => Ok(Self {
                 rect,
-                circle,
+                shape,
                 gradient,
                 image,
                 text,
@@ -188,7 +195,7 @@ impl Pipelines {
     }
 
     pub fn destroy(&self, device: &VulkanDevice) {
-        for pipeline in [self.rect, self.circle, self.gradient, self.image, self.text] {
+        for pipeline in [self.rect, self.shape, self.gradient, self.image, self.text] {
             device.destroy_pipeline(pipeline);
         }
     }

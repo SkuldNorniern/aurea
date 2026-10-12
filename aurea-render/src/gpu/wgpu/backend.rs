@@ -9,13 +9,13 @@ use wgpu::util::DeviceExt;
 use aurea_foundation::{AureaError, AureaResult};
 
 use crate::capabilities::GpuFeatures;
-use crate::gpu::batch::{CircleInstance, DrawRef, RectInstance};
+use crate::gpu::batch::{DrawRef, RectInstance, ShapeInstance};
 use crate::gpu::{FramePlan, Gpu2dBackend, Gpu2dRenderer, ImagePlanEntry};
 use crate::renderer::FrameOutcome;
 use crate::types::Rect;
 
 use super::buffer::InstanceBuffer;
-use super::shaders::{CIRCLE_SHADER, GRADIENT_SHADER, IMAGE_SHADER, RECT_SHADER, TEXT_SHADER};
+use super::shaders::{GRADIENT_SHADER, IMAGE_SHADER, RECT_SHADER, SHAPE_SHADER, TEXT_SHADER};
 
 const GRADIENT_INSTANCE_STRIDE: usize = size_of::<f32>() * 12;
 const IMAGE_INSTANCE_STRIDE: usize = size_of::<f32>() * 12;
@@ -45,12 +45,12 @@ pub struct WgpuBackend<'w> {
     texture_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     rect_pipeline: wgpu::RenderPipeline,
-    circle_pipeline: wgpu::RenderPipeline,
+    shape_pipeline: wgpu::RenderPipeline,
     gradient_pipeline: wgpu::RenderPipeline,
     image_pipeline: wgpu::RenderPipeline,
     text_pipeline: wgpu::RenderPipeline,
     rect_buf: InstanceBuffer,
-    circle_buf: InstanceBuffer,
+    shape_buf: InstanceBuffer,
     gradient_buf: InstanceBuffer,
     image_buf: InstanceBuffer,
     text_buf: InstanceBuffer,
@@ -204,29 +204,29 @@ impl<'w> WgpuBackend<'w> {
             cache: None,
         });
 
-        let circle_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("aurea-wgpu2d-circle"),
-            source: wgpu::ShaderSource::Wgsl(CIRCLE_SHADER.into()),
+        let shape_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("aurea-wgpu2d-shape"),
+            source: wgpu::ShaderSource::Wgsl(SHAPE_SHADER.into()),
         });
-        let circle_attrs = wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4];
-        let circle_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("aurea-wgpu2d-circle-pipeline"),
+        let shape_attrs = wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4];
+        let shape_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("aurea-wgpu2d-shape-pipeline"),
             layout: Some(&prim_layout),
             vertex: wgpu::VertexState {
-                module: &circle_shader,
+                module: &shape_shader,
                 entry_point: Some("vs_main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: size_of::<CircleInstance>() as wgpu::BufferAddress,
+                    array_stride: size_of::<ShapeInstance>() as wgpu::BufferAddress,
                     step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &circle_attrs,
+                    attributes: &shape_attrs,
                 }],
             },
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             fragment: Some(wgpu::FragmentState {
-                module: &circle_shader,
+                module: &shape_shader,
                 entry_point: Some("fs_main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
@@ -267,10 +267,10 @@ impl<'w> WgpuBackend<'w> {
             "aurea-wgpu2d-rect-instances",
             size_of::<RectInstance>(),
         );
-        let circle_buf = InstanceBuffer::new(
+        let shape_buf = InstanceBuffer::new(
             &device,
-            "aurea-wgpu2d-circle-instances",
-            size_of::<CircleInstance>(),
+            "aurea-wgpu2d-shape-instances",
+            size_of::<ShapeInstance>(),
         );
         let gradient_buf = InstanceBuffer::new(
             &device,
@@ -296,12 +296,12 @@ impl<'w> WgpuBackend<'w> {
             texture_layout,
             sampler,
             rect_pipeline,
-            circle_pipeline,
+            shape_pipeline,
             gradient_pipeline,
             image_pipeline,
             text_pipeline,
             rect_buf,
-            circle_buf,
+            shape_buf,
             gradient_buf,
             image_buf,
             text_buf,
@@ -368,12 +368,12 @@ impl<'w> WgpuBackend<'w> {
         &mut self,
         plan: &FramePlan,
         rects: &[RectInstance],
-        circles: &[CircleInstance],
+        shapes: &[ShapeInstance],
     ) {
         self.rect_buf
             .upload(&self.device, &self.queue, cast_bytes(rects));
-        self.circle_buf
-            .upload(&self.device, &self.queue, cast_bytes(circles));
+        self.shape_buf
+            .upload(&self.device, &self.queue, cast_bytes(shapes));
         self.packed.clear();
         for g in &plan.gradients {
             for v in [&g.rect, &g.a, &g.b] {
@@ -407,9 +407,9 @@ impl<'w> WgpuBackend<'w> {
                 pass.set_vertex_buffer(0, self.rect_buf.buffer.slice(..));
                 pass.draw(0..6, idx..idx + 1);
             }
-            DrawRef::Circle(idx) => {
-                pass.set_pipeline(&self.circle_pipeline);
-                pass.set_vertex_buffer(0, self.circle_buf.buffer.slice(..));
+            DrawRef::Shape(idx) => {
+                pass.set_pipeline(&self.shape_pipeline);
+                pass.set_vertex_buffer(0, self.shape_buf.buffer.slice(..));
                 pass.draw(0..6, idx..idx + 1);
             }
             DrawRef::Gradient(idx) => {
@@ -566,6 +566,8 @@ impl Gpu2dBackend for WgpuBackend<'_> {
             images: true,
             text: true,
             clips: true,
+            rounded_rects: true,
+            stroked_circles: true,
             ..GpuFeatures::NONE
         }
     }
@@ -623,9 +625,9 @@ impl Gpu2dBackend for WgpuBackend<'_> {
         &mut self,
         plan: &FramePlan,
         rects: &[RectInstance],
-        circles: &[CircleInstance],
+        shapes: &[ShapeInstance],
     ) -> AureaResult<FrameOutcome> {
-        self.upload_instances(plan, rects, circles);
+        self.upload_instances(plan, rects, shapes);
 
         if self.lost {
             return Ok(FrameOutcome::Recreate);
