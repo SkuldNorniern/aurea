@@ -35,6 +35,8 @@ pub struct Response {
     pub focused: bool,
     /// Enter was pressed in a text field.
     pub submitted: bool,
+    /// Escape was pressed in a text field, which let go of the keyboard.
+    pub cancelled: bool,
 }
 
 impl Response {
@@ -48,6 +50,7 @@ impl Response {
             changed: false,
             focused: input.focused,
             submitted: false,
+            cancelled: false,
         }
     }
 }
