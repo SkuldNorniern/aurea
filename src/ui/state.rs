@@ -169,6 +169,8 @@ pub(crate) const BLINK_FOR: Duration = Duration::from_secs(8);
 pub struct UiState<Id: WidgetId> {
     pub(crate) tweens: Tweens<(Key<Id>, Channel)>,
     pointer: Option<Point>,
+    /// The modifier keys as the last pointer event had them.
+    pub(crate) modifiers: Modifiers,
     pointer_events: Vec<Pointer>,
     pub(crate) typed: Vec<Typed>,
     hits: Vec<Hit<Id>>,
@@ -219,6 +221,7 @@ impl<Id: WidgetId> UiState<Id> {
         Self {
             tweens: Tweens::new(),
             pointer: None,
+            modifiers: Modifiers::default(),
             pointer_events: Vec::new(),
             typed: Vec::new(),
             hits: Vec::new(),
@@ -265,7 +268,12 @@ impl<Id: WidgetId> UiState<Id> {
     /// app's to handle.
     pub fn handle(&mut self, event: &WindowEvent) -> bool {
         match event {
-            WindowEvent::MouseMove { x, y, .. } => self.pointer_moved(point(*x, *y)),
+            WindowEvent::MouseMove {
+                x, y, modifiers, ..
+            } => {
+                self.modifiers = *modifiers;
+                self.pointer_moved(point(*x, *y))
+            }
             WindowEvent::MouseExited => {
                 self.pointer = None;
                 mem::take(&mut self.hot).is_some()
@@ -280,6 +288,7 @@ impl<Id: WidgetId> UiState<Id> {
             } => {
                 let at = point(*x, *y);
                 self.pointer = Some(at);
+                self.modifiers = *modifiers;
                 self.pointer_events.push(if *pressed {
                     Pointer::Press(at, *click_count, *modifiers)
                 } else {

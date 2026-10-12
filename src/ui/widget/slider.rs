@@ -8,7 +8,7 @@ use crate::render::{Color, Rect};
 use crate::ui::component::{FocusRing, Knob, StateColors, Track};
 use crate::ui::frame::{Response, Ui};
 use crate::ui::paint::{Component, Shadow};
-use crate::ui::state::{Channel, Sense, WidgetId};
+use crate::ui::state::{Channel, Key, Sense, WidgetId};
 use crate::ui::theme::Theme;
 use crate::window::KeyCode;
 
@@ -42,15 +42,33 @@ impl SliderStyle {
 
 /// A horizontal slider over a range. Drag it, click the track, or use the
 /// arrow keys (Page Up and Down for bigger steps, Home and End for the
-/// ends) once it has focus.
+/// ends) once it has focus. Dragging with Shift held moves it a tenth as
+/// fast, for fine changes.
+///
+/// ```rust,no_run
+/// # use aurea::ui::{Slider, Ui};
+/// # fn f(ui: &mut Ui<'_, u8>, exposure: &mut f32) -> aurea::AureaResult<()> {
+/// let at = aurea::Rect::new(0.0, 0.0, 200.0, 24.0);
+/// // Filled out from 0 either way; a double click puts it back to 0.
+/// Slider::new(exposure, -100.0..=100.0).origin(0.0).reset_to(0.0).show(ui, 1, at)?;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug)]
 pub struct Slider<'v> {
     value: &'v mut f32,
     range: RangeInclusive<f32>,
     step: Option<f32>,
+    origin: Option<f32>,
+    reset: Option<f32>,
     style: Option<SliderStyle>,
     enabled: bool,
 }
+
+/// What a Shift drag moves, against a plain one.
+const FINE: f32 = 0.1;
+/// Where the pointer was last frame, for a fine drag's steps.
+const LAST_X: Channel = Channel::Custom(1);
 
 impl<'v> Slider<'v> {
     pub fn new(value: &'v mut f32, range: RangeInclusive<f32>) -> Self {
@@ -58,9 +76,24 @@ impl<'v> Slider<'v> {
             value,
             range,
             step: None,
+            origin: None,
+            reset: None,
             style: None,
             enabled: true,
         }
+    }
+
+    /// Fill from `origin` to the value rather than from the start: a
+    /// neutral middle, like 0 in -100 to 100.
+    pub fn origin(mut self, origin: f32) -> Self {
+        self.origin = Some(origin);
+        self
+    }
+
+    /// A double click sets the value back to `value`.
+    pub fn reset_to(mut self, value: f32) -> Self {
+        self.reset = Some(value);
+        self
     }
 
     /// Values snap to multiples of `step` from the range's start, and the
@@ -87,6 +120,35 @@ impl<'v> Slider<'v> {
         rect: Rect,
     ) -> AureaResult<Response> {
         Widget::show(self, ui, id, rect)
+    }
+
+    /// Follows the pointer while held: to where it is, a tenth as fast with
+    /// Shift, or back to the reset value on a double click.
+    fn pointer<Id: WidgetId>(
+        &mut self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        groove: Rect,
+        (lo, span): (f32, f32),
+    ) {
+        let press = ui.press(id, 0);
+        if let (Some(reset), Some(press)) = (self.reset, press)
+            && press.clicks >= 2
+        {
+            *self.value = reset;
+            return;
+        }
+        let Some(at) = ui.pointer() else {
+            return;
+        };
+        let width = groove.width.max(1.0);
+        match ui.state.tweens.get((Key::new(id, 0), LAST_X)) {
+            Some(last) if ui.modifiers().shift && press.is_none() => {
+                *self.value += (at.x - last) / width * span * FINE;
+            }
+            _ => *self.value = lo + ((at.x - groove.x) / width).clamp(0.0, 1.0) * span,
+        }
+        ui.set_animated(id, 0, LAST_X, at.x);
     }
 
     /// Moves the value by the keys pressed this frame.
@@ -118,11 +180,8 @@ impl<Id: WidgetId> Widget<Id> for Slider<'_> {
         let before = *self.value;
         // The knob's centre runs from one end of the groove to the other.
         let groove = rect.inset_xy(r, 0.0);
-        if input.held
-            && let Some(at) = ui.pointer()
-        {
-            let t = ((at.x - groove.x) / groove.width.max(1.0)).clamp(0.0, 1.0);
-            *self.value = lo + t * span;
+        if input.held {
+            self.pointer(ui, id, groove, (lo, span));
         }
         if input.focused {
             self.keys(ui, span);
@@ -148,7 +207,19 @@ impl<Id: WidgetId> Widget<Id> for Slider<'_> {
             ui.animate(id, 0, Channel::Value, t, rate)
         };
         let fade = state.enabled;
-        Track::new(shown, style.track.at(state), style.filled.fade(fade))
+        let empty = style.track.at(state);
+        // Disabled, the fill drops its accent so the slider reads as off.
+        let filled = if self.enabled {
+            style.filled
+        } else {
+            empty.mix(ui.theme.palette.dim, 0.5)
+        };
+        let from = match self.origin {
+            Some(origin) if span > 0.0 => ((origin.clamp(lo, hi) - lo) / span).clamp(0.0, 1.0),
+            _ => 0.0,
+        };
+        Track::new(shown, empty, filled)
+            .span(from.min(shown), from.max(shown))
             .thickness(style.thickness)
             .paint(ui, groove)?;
         let size = r * (1.0 + 0.12 * state.hover - 0.08 * state.press);
@@ -185,6 +256,94 @@ fn snap(value: f32, lo: f32, hi: f32, step: Option<f32>) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::{CpuRasterizer, Renderer};
+    use crate::ui::UiState;
+    use crate::window::{Modifiers, MouseButton, MouseButtons, WindowEvent};
+
+    fn frame(raster: &mut CpuRasterizer, state: &mut UiState<u8>, value: &mut f32) {
+        let theme = Theme::dark();
+        let mut ctx = raster.begin_frame().expect("frame");
+        {
+            let mut ui = state.frame(&mut *ctx, &theme);
+            Slider::new(value, -100.0..=100.0)
+                .origin(0.0)
+                .reset_to(0.0)
+                .show(&mut ui, 1, Rect::new(0.0, 0.0, 218.0, 24.0))
+                .expect("draw");
+        }
+        drop(ctx);
+        raster.end_frame().expect("end");
+    }
+
+    fn button(state: &mut UiState<u8>, x: f64, pressed: bool, clicks: u8) {
+        state.handle(&WindowEvent::MouseButton {
+            button: MouseButton::Left,
+            pressed,
+            modifiers: Modifiers::default(),
+            x,
+            y: 12.0,
+            click_count: clicks,
+        });
+    }
+
+    fn moved(state: &mut UiState<u8>, x: f64, shift: bool) {
+        state.handle(&WindowEvent::MouseMove {
+            x,
+            y: 12.0,
+            buttons: MouseButtons::from_bits(1),
+            modifiers: Modifiers {
+                shift,
+                ..Modifiers::default()
+            },
+        });
+    }
+
+    #[test]
+    fn a_double_click_resets() {
+        let (mut raster, mut state, mut value) =
+            (CpuRasterizer::new(218, 24), UiState::new(), 55.0);
+        frame(&mut raster, &mut state, &mut value);
+        button(&mut state, 150.0, true, 2);
+        frame(&mut raster, &mut state, &mut value);
+        assert_eq!(value, 0.0);
+    }
+
+    /// The groove is 200 px for 200 units: a plain drag lands where the
+    /// pointer is, a Shift drag moves a tenth of the way.
+    #[test]
+    fn shift_drags_finely() {
+        let (mut raster, mut state, mut value) = (CpuRasterizer::new(218, 24), UiState::new(), 0.0);
+        frame(&mut raster, &mut state, &mut value);
+        button(&mut state, 109.0, true, 1);
+        frame(&mut raster, &mut state, &mut value);
+        assert!(value.abs() < 0.01, "{value}");
+        moved(&mut state, 149.0, true);
+        frame(&mut raster, &mut state, &mut value);
+        assert!((value - 4.0).abs() < 0.01, "fine: {value}");
+        moved(&mut state, 149.0, false);
+        frame(&mut raster, &mut state, &mut value);
+        assert!((value - 40.0).abs() < 0.01, "plain: {value}");
+    }
+
+    /// From a middle origin, a negative value fills left of the middle and
+    /// not right of it.
+    #[test]
+    fn the_fill_starts_at_the_origin() {
+        let (mut raster, mut state, mut value) =
+            (CpuRasterizer::new(218, 24), UiState::new(), -50.0);
+        frame(&mut raster, &mut state, &mut value);
+        let out = raster.frame_output().expect("pixels");
+        let px = |x: usize| {
+            let i = (12 * out.width as usize + x) * 4;
+            u32::from(out.bytes()[i])
+                + u32::from(out.bytes()[i + 1])
+                + u32::from(out.bytes()[i + 2])
+        };
+        let accent = Theme::dark().palette.accent;
+        let accent = u32::from(accent.r) + u32::from(accent.g) + u32::from(accent.b);
+        assert!(px(80).abs_diff(accent) < 30, "filled left of the middle");
+        assert!(px(160).abs_diff(accent) > 60, "empty right of it");
+    }
 
     #[test]
     fn snapping_keeps_to_the_range_and_the_step() {
