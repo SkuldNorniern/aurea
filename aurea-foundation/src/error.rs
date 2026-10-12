@@ -32,6 +32,8 @@ pub enum AureaError {
     /// The native UI has to be brought up on the process main thread, and the thread asking for it
     /// is not that one.
     NotMainThread,
+    /// The GPU device is gone: reset by the driver, removed, or hung.
+    DeviceLost,
 }
 
 /// Result type for GUI operations.
@@ -78,6 +80,7 @@ impl Display for AureaError {
             ),
             AureaError::ElementOperationFailed => write!(f, "An operation on a GUI element failed"),
             AureaError::RenderingFailed => write!(f, "Rendering operation failed"),
+            AureaError::DeviceLost => write!(f, "The GPU device was lost"),
             AureaError::Unsupported {
                 operation,
                 platform,
