@@ -9,7 +9,10 @@ pub mod sync;
 
 pub use capability::{Capability, CapabilityChecker, Support};
 pub use error::{AureaError, AureaResult};
-pub use events::{EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons, WindowEvent};
+pub use events::{
+    EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons, PenPhase, PenSample, PenTool,
+    WindowEvent,
+};
 pub use geometry::{Point, Rect};
 pub use platform::{DesktopPlatform, MobilePlatform, Platform};
 pub use sync::lock;
