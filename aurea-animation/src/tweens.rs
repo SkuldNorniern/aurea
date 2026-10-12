@@ -12,6 +12,8 @@ use std::hash::Hash;
 use std::mem::take;
 use std::time::Instant;
 
+use aurea_foundation::FastBuild;
+
 /// How close counts as arrived, relative to the target's size.
 const SNAP: f32 = 0.002;
 /// Longest step one frame takes, so a frame after a quiet spell does not
@@ -26,7 +28,9 @@ struct Value {
 
 #[derive(Debug)]
 pub struct Tweens<K> {
-    values: HashMap<K, Value>,
+    /// Read several times a frame per widget, so not behind the standard
+    /// hasher, which guards against keys an app does not pick.
+    values: HashMap<K, Value, FastBuild>,
     start: Instant,
     last: Option<Instant>,
     dt: f32,
@@ -37,7 +41,7 @@ pub struct Tweens<K> {
 impl<K> Default for Tweens<K> {
     fn default() -> Self {
         Self {
-            values: HashMap::new(),
+            values: HashMap::default(),
             start: Instant::now(),
             last: None,
             dt: 0.0,
