@@ -30,8 +30,10 @@
 //! # let _ = Dock::new(tree);
 //! ```
 
+mod plan;
 mod tree;
 
+pub use plan::DockPlan;
 pub use tree::{DockAxis, DockBar, DockGroup, DockLayout, DockMetrics, DockSide, DockTree};
 
 use super::Widget;
