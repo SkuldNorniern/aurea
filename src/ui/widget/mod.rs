@@ -2,6 +2,7 @@
 
 pub mod button;
 pub mod chip;
+pub mod disclosure;
 pub mod dock;
 pub mod dropdown;
 pub mod pager;
