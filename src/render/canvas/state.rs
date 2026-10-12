@@ -1,5 +1,10 @@
 //! What a canvas keeps between frames, and its identity.
 
+#[cfg(feature = "zengpu")]
+use std::sync::Arc;
+
+#[cfg(feature = "zengpu")]
+use aurea_render::ZenGpuContext;
 use aurea_render::{Color, Rect};
 use aurea_runtime::DamageRegion;
 
@@ -15,6 +20,10 @@ pub(crate) struct CanvasState {
     pub needs_redraw: bool,
     /// Physical-pixel damage rect from the previous rendered frame.
     pub prev_frame_damage: Option<Rect>,
+    /// The device a ZenGPU canvas draws with, once known: given at creation, or made when its
+    /// renderer first is.
+    #[cfg(feature = "zengpu")]
+    pub gpu_context: Option<Arc<ZenGpuContext>>,
 }
 
 /// A canvas's identity, for as long as the process runs.

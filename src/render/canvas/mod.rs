@@ -14,7 +14,12 @@ use std::cell::RefCell;
 use std::os::raw::c_void;
 use std::rc::Rc;
 use std::slice::from_raw_parts;
+#[cfg(feature = "zengpu")]
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(feature = "zengpu")]
+use aurea_render::ZenGpuContext;
 #[cfg(feature = "wgpu")]
 use wgpu::{Instance, Surface as WgpuSurface, SurfaceTarget};
 
@@ -157,6 +162,8 @@ impl Canvas {
             draw_callback: None,
             needs_redraw: false,
             prev_frame_damage: None,
+            #[cfg(feature = "zengpu")]
+            gpu_context: None,
         }));
         let renderer_arc = Rc::new(RefCell::new(renderer));
         let interaction_registry = Rc::new(InteractionRegistry::new());
@@ -188,6 +195,26 @@ impl Canvas {
         register_canvas_state(id, handle_key(handle));
         canvas.register_with_scheduler(state, renderer_arc, backend);
         Ok(canvas)
+    }
+
+    /// A ZenGPU canvas drawing on `context`'s device, so textures the app makes there can be drawn
+    /// into it with [`DrawingContext::draw_texture`].
+    #[cfg(feature = "zengpu")]
+    pub fn with_gpu_context(
+        width: u32,
+        height: u32,
+        context: Arc<ZenGpuContext>,
+    ) -> AureaResult<Self> {
+        let canvas = Self::new(width, height, RendererBackend::ZenGpu)?;
+        canvas.state.borrow_mut().gpu_context = Some(context);
+        Ok(canvas)
+    }
+
+    /// The device a ZenGPU canvas draws with: the one it was given, or the one it made once it was
+    /// first shown.
+    #[cfg(feature = "zengpu")]
+    pub fn gpu_context(&self) -> Option<Arc<ZenGpuContext>> {
+        self.state.borrow().gpu_context.clone()
     }
 
     /// This canvas's identity, for as long as the process runs.
@@ -477,5 +504,18 @@ mod tests {
             .unwrap()
         );
         assert!(canvas.renderer.borrow().is_none());
+    }
+
+    #[test]
+    fn a_given_context_is_the_one_drawn_with() {
+        let context = Arc::new(ZenGpuContext::new().unwrap());
+        let canvas = Canvas::with_gpu_context(64, 64, Arc::clone(&context)).unwrap();
+        assert!(Arc::ptr_eq(&canvas.gpu_context().unwrap(), &context));
+        assert!(
+            Canvas::new(8, 8, RendererBackend::ZenGpu)
+                .unwrap()
+                .gpu_context()
+                .is_none()
+        );
     }
 }
