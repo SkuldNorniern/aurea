@@ -37,7 +37,7 @@ use crate::scene::display_list::{CacheKey, DisplayItem, DisplayList};
 use crate::surface::{Surface, SurfaceInfo};
 use crate::types::{
     BlendMode, Color, GlyphMask, GradientStop, Image, LinearGradient, Paint, PaintStyle, Path,
-    Point, RadialGradient, Rect,
+    PathCommand, Point, RadialGradient, Rect,
 };
 use aurea_foundation::AureaResult;
 
@@ -147,6 +147,54 @@ impl CpuRasterizer {
     /// size and scale, as `end_frame` would its own. The list is borrowed for
     /// the frame and handed back, so nothing is copied, and the damage diff
     /// against the last frame works as usual.
+    /// How `path` covers a `width` by `height` box whose top left is at
+    /// `origin`, drawn with `paint`'s style and stroke but not its colour, as
+    /// straight RGBA with the coverage in every channel. What a GPU backend
+    /// draws a path with: the text pipeline takes masks of this form.
+    pub(crate) fn path_coverage(
+        path: &Path,
+        paint: &Paint,
+        origin: Point,
+        (width, height): (u32, u32),
+    ) -> AureaResult<Vec<u8>> {
+        let shift = |p: Point| Point::new(p.x - origin.x, p.y - origin.y);
+        let mut moved = Path::new();
+        moved.commands.reserve(path.commands.len());
+        for command in &path.commands {
+            moved.commands.push(match *command {
+                PathCommand::MoveTo(p) => PathCommand::MoveTo(shift(p)),
+                PathCommand::LineTo(p) => PathCommand::LineTo(shift(p)),
+                PathCommand::QuadTo(c, p) => PathCommand::QuadTo(shift(c), shift(p)),
+                PathCommand::CubicTo(a, b, p) => PathCommand::CubicTo(shift(a), shift(b), shift(p)),
+                PathCommand::Close => PathCommand::Close,
+            });
+        }
+        let white = Paint {
+            color: Color::rgb(255, 255, 255),
+            ..paint.clone()
+        };
+        let mut buf = vec![0u32; width as usize * height as usize];
+        let (mut edges, mut xs, mut active) = (Vec::new(), Vec::new(), Vec::new());
+        Self::draw_path(
+            &moved,
+            &white,
+            BlendMode::Normal,
+            &mut buf,
+            &mut edges,
+            &mut xs,
+            &mut active,
+            width,
+            ClipBox::surface(width, height),
+        )?;
+        Ok(buf
+            .iter()
+            .flat_map(|px| {
+                let a = px.to_be_bytes()[0];
+                [a, a, a, a]
+            })
+            .collect())
+    }
+
     pub(crate) fn render_recorded(&mut self, list: &mut DisplayList) -> AureaResult<FrameOutcome> {
         mem::swap(&mut self.display_list, list);
         let outcome = self.end_frame();

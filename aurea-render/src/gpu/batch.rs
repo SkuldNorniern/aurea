@@ -17,15 +17,17 @@
 //! remains the backend with full fidelity.
 
 use crate::capabilities::GpuFeatures;
-use crate::numeric::f32_to_u8_clamped;
+use crate::cpu::CpuRasterizer;
+use crate::numeric::{f32_to_u8_clamped, f32_to_u32_clamped};
 use crate::scene::command::DrawCommand;
 use crate::scene::display_list::{DisplayItem, DisplayList};
 use crate::types::{
-    BlendMode, Color, GlyphMask, GradientStop, Image, LinearGradient, Paint, PaintStyle, Point,
-    RadialGradient, Rect,
+    BlendMode, Color, GlyphMask, GradientStop, Image, LinearGradient, Paint, PaintStyle, Path,
+    Point, RadialGradient, Rect,
 };
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::mem;
 use std::sync::{Arc, Weak};
 
 /// One solid-colour rectangle, ready to upload as a GPU instance.
@@ -200,6 +202,10 @@ pub struct TextDraw {
     pub color: Color,
 }
 
+/// The most pixels one path's mask covers; a bigger path is left out
+/// rather than rasterized into a texture the size of the screen and more.
+const MAX_PATH_PIXELS: u64 = 4096 * 4096;
+
 /// The item's opacity, or `None` when it is invisible and can be dropped.
 fn drawable_alpha(item: &DisplayItem) -> Option<f32> {
     let alpha = item.opacity.clamp(0.0, 1.0);
@@ -218,9 +224,12 @@ fn needs_of(item: &DisplayItem) -> GpuFeatures {
             stroked_circles: paint.style == PaintStyle::Stroke,
             ..GpuFeatures::NONE
         },
-        DrawCommand::DrawPath(..)
-        | DrawCommand::DrawText(..)
-        | DrawCommand::DrawTextWithFont(..) => GpuFeatures {
+        // A path goes up as a coverage mask, drawn the way text is.
+        DrawCommand::DrawPath(..) => GpuFeatures {
+            text: true,
+            ..GpuFeatures::NONE
+        },
+        DrawCommand::DrawText(..) | DrawCommand::DrawTextWithFont(..) => GpuFeatures {
             paths: true,
             ..GpuFeatures::NONE
         },
@@ -344,6 +353,10 @@ pub struct RenderBatches {
     /// backend supports before it is asked to draw the frame.
     pub needs: GpuFeatures,
     gradient_lut_cache: HashMap<u64, Weak<[u8]>>,
+    /// Paths rasterized to masks, by their item's cache key, with whether
+    /// this frame drew them. Kept while drawn, so a path that stays put is
+    /// rasterized and uploaded once.
+    path_masks: HashMap<u64, (Arc<[u8]>, bool)>,
     /// Converted RGBA per glyph mask, keyed by the mask's own identity.
     text_mask_cache: HashMap<u64, Weak<[u8]>>,
 }
@@ -402,6 +415,7 @@ impl RenderBatches {
             .retain(|_, lut| lut.strong_count() > 0);
         self.text_mask_cache
             .retain(|_, mask| mask.strong_count() > 0);
+        self.path_masks.retain(|_, (_, used)| mem::take(used));
     }
 
     /// A rounded rect as a plain one. The GPU painter has no rounded rect
@@ -538,6 +552,9 @@ impl RenderBatches {
                 DrawCommand::DrawRoundRect(rect, _, paint) => {
                     self.push_square_round_rect(*rect, paint, alpha);
                 }
+                DrawCommand::DrawPath(path, paint) => {
+                    self.push_path(item, path, paint, alpha);
+                }
                 // Paths and the legacy text commands have no GPU form yet.
                 // They are not drawn anywhere: "left to the CPU rasterizer"
                 // only holds for a canvas actually using it, and a canvas on
@@ -545,6 +562,44 @@ impl RenderBatches {
                 _ => self.dropped += 1,
             }
         }
+    }
+
+    /// A path as its coverage mask over its bounds, drawn the way text is.
+    fn push_path(&mut self, item: &DisplayItem, path: &Path, paint: &Paint, alpha: f32) {
+        let b = item.bounds;
+        let (x0, y0) = (b.x.floor(), b.y.floor());
+        let (x1, y1) = ((b.x + b.width).ceil(), (b.y + b.height).ceil());
+        let (w, h) = (f32_to_u32_clamped(x1 - x0), f32_to_u32_clamped(y1 - y0));
+        // Nothing to cover, or past what one mask should hold.
+        if w == 0 || h == 0 || u64::from(w) * u64::from(h) > MAX_PATH_PIXELS {
+            self.dropped += 1;
+            return;
+        }
+        let key = item.cache_key.0;
+        let mask = match self.path_masks.get_mut(&key) {
+            Some((mask, used)) => {
+                *used = true;
+                Arc::clone(mask)
+            }
+            None => {
+                let origin = Point::new(x0, y0);
+                let Ok(rgba) = CpuRasterizer::path_coverage(path, paint, origin, (w, h)) else {
+                    self.dropped += 1;
+                    return;
+                };
+                let mask: Arc<[u8]> = rgba.into();
+                self.path_masks.insert(key, (Arc::clone(&mask), true));
+                mask
+            }
+        };
+        self.order.push(DrawRef::Text(
+            u32::try_from(self.texts.len()).expect("batch count fits in u32"),
+        ));
+        self.texts.push(TextDraw {
+            mask,
+            rect: Rect::new(x0, y0, x1 - x0, y1 - y0),
+            color: fade(paint.color, alpha),
+        });
     }
 
     /// True when there's nothing to clear and nothing to draw.
@@ -622,8 +677,8 @@ mod tests {
     }
     use crate::scene::command::DrawCommand;
     use crate::scene::display_list::{CacheKey, DisplayIndex, DisplayItem};
-    use crate::types::Path;
     use crate::types::{BlendMode, Paint, Rect};
+    use crate::types::{Path, PathCommand};
 
     fn item(command: DrawCommand) -> DisplayItem {
         DisplayItem::new(
@@ -1129,6 +1184,42 @@ mod tests {
         assert_eq!(RenderBatches::lower(&list).clips, vec![None]);
     }
 
+    /// A path is drawn as its coverage over its bounds, the way text is, and
+    /// a path that stays put keeps the same mask, so it is uploaded once.
+    #[test]
+    fn a_path_becomes_a_cached_coverage_mask() {
+        let mut path = Path::new();
+        path.commands.extend_from_slice(&[
+            PathCommand::MoveTo(Point::new(2.0, 2.0)),
+            PathCommand::LineTo(Point::new(8.0, 2.0)),
+            PathCommand::LineTo(Point::new(8.0, 8.0)),
+            PathCommand::LineTo(Point::new(2.0, 8.0)),
+            PathCommand::Close,
+        ]);
+        let bounds = Rect::new(2.0, 2.0, 6.0, 6.0);
+        let mut list = DisplayList::new();
+        list.push(placed(
+            DrawCommand::DrawPath(path, Paint::new().color(Color::rgb(0, 128, 255))),
+            bounds,
+        ));
+        let mut batches = RenderBatches::default();
+        batches.lower_into(&list);
+        assert_eq!(batches.dropped, 0);
+        assert_eq!(batches.order, vec![DrawRef::Text(0)]);
+        let first = Arc::clone(&batches.texts[0].mask);
+        assert_eq!(batches.texts[0].rect, bounds);
+        // The middle of the square is fully covered, in every channel.
+        let at = (3 * 6 + 3) * 4;
+        assert_eq!(&first[at..at + 4], &[255, 255, 255, 255]);
+        batches.lower_into(&list);
+        assert!(
+            Arc::ptr_eq(&first, &batches.texts[0].mask),
+            "kept, not redrawn"
+        );
+        batches.lower_into(&DisplayList::new());
+        assert!(batches.path_masks.is_empty(), "let go once not drawn");
+    }
+
     /// `clips` is read positionally against `order`, so the two must not drift.
     #[test]
     fn every_draw_has_a_clip_entry() {
@@ -1140,7 +1231,7 @@ mod tests {
         list.push(placed(red_rect(bounds), bounds).with_clip(Some(clip)));
         // A command with no GPU form contributes neither a draw nor a clip.
         list.push(placed(
-            DrawCommand::DrawPath(Path::new(), Paint::new()),
+            DrawCommand::DrawText(String::new(), Point::new(0.0, 0.0), Paint::new()),
             bounds,
         ));
         list.push(placed(red_rect(bounds), bounds));
@@ -1158,7 +1249,7 @@ mod tests {
         let mut list = DisplayList::new();
         list.push(placed(red_rect(bounds), bounds));
         list.push(placed(
-            DrawCommand::DrawPath(Path::new(), Paint::new()),
+            DrawCommand::DrawText(String::new(), Point::new(0.0, 0.0), Paint::new()),
             bounds,
         ));
         let mut blended = placed(red_rect(bounds), bounds);
@@ -1167,7 +1258,7 @@ mod tests {
 
         let b = RenderBatches::lower(&list);
 
-        assert_eq!(b.dropped, 2, "the path and the blended rect");
+        assert_eq!(b.dropped, 2, "the legacy text and the blended rect");
         assert_eq!(b.rects.len(), 1);
     }
 
@@ -1176,15 +1267,15 @@ mod tests {
     #[test]
     fn the_dropped_count_is_per_frame() {
         let bounds = Rect::new(0.0, 0.0, 10.0, 10.0);
-        let mut with_path = DisplayList::new();
-        with_path.push(placed(
-            DrawCommand::DrawPath(Path::new(), Paint::new()),
+        let mut with_text = DisplayList::new();
+        with_text.push(placed(
+            DrawCommand::DrawText(String::new(), Point::new(0.0, 0.0), Paint::new()),
             bounds,
         ));
 
         let mut batches = RenderBatches::default();
-        batches.lower_into(&with_path);
-        batches.lower_into(&with_path);
+        batches.lower_into(&with_text);
+        batches.lower_into(&with_text);
 
         assert_eq!(batches.dropped, 1, "one per frame, not two");
 
