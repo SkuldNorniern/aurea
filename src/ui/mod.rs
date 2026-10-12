@@ -13,8 +13,8 @@ pub use component::{
 };
 pub use frame::{Align, Eased, PressAt, Response, Ui};
 pub use paint::{
-    Badge, BadgeTone, Border, Component, Label, Mark, MarkShape, Overflow, Separator, Shadow,
-    Spinner, Surface, TextSize,
+    Badge, BadgeTone, Border, Component, IconMark, IconSource, Label, Mark, MarkShape, Overflow,
+    Separator, Shadow, Spinner, Surface, TextSize,
 };
 pub use state::{Channel, Fonts, Interaction, Sense, UiState, WidgetId};
 pub use theme::{Motion, Palette, Theme};

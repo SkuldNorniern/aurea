@@ -5,7 +5,7 @@ mod decor;
 pub use decor::{Badge, BadgeTone, Separator, Spinner};
 
 use crate::AureaResult;
-use crate::render::{Color, Font, Point, Rect};
+use crate::render::{Color, Font, Icon, Image, Point, Rect, VectorImage};
 use crate::ui::frame::{Align, Ui};
 use crate::ui::state::WidgetId;
 
@@ -222,6 +222,75 @@ impl Component for Label<'_> {
                 .text_wrapped(self.text, rect, font, self.color, line)
                 .map(drop),
             Overflow::Visible => ui.text(self.text, rect, font, self.color, self.align),
+        }
+    }
+}
+
+/// What an icon is drawn from.
+#[derive(Clone, Copy, Debug)]
+pub enum IconSource<'t> {
+    /// One of the built-in line icons.
+    Builtin(Icon),
+    /// Any vector image, `currentColor` taking the icon's colour.
+    Vector(&'t VectorImage),
+    /// A bitmap, drawn as it is; the colour is ignored.
+    Image(&'t Image),
+}
+
+impl From<Icon> for IconSource<'_> {
+    fn from(icon: Icon) -> Self {
+        Self::Builtin(icon)
+    }
+}
+
+impl<'t> From<&'t VectorImage> for IconSource<'t> {
+    fn from(image: &'t VectorImage) -> Self {
+        Self::Vector(image)
+    }
+}
+
+impl<'t> From<&'t Image> for IconSource<'t> {
+    fn from(image: &'t Image) -> Self {
+        Self::Image(image)
+    }
+}
+
+/// An icon, fitted and centred in its rect, keeping its shape.
+#[derive(Clone, Copy, Debug)]
+pub struct IconMark<'t> {
+    pub source: IconSource<'t>,
+    pub color: Color,
+}
+
+impl<'t> IconMark<'t> {
+    pub fn new(source: impl Into<IconSource<'t>>, color: Color) -> Self {
+        Self {
+            source: source.into(),
+            color,
+        }
+    }
+}
+
+impl Component for IconMark<'_> {
+    fn paint<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>, rect: Rect) -> AureaResult<()> {
+        match self.source {
+            IconSource::Builtin(icon) => icon.draw(ui.ctx, rect, self.color),
+            IconSource::Vector(image) => image.draw(ui.ctx, rect, self.color),
+            IconSource::Image(image) => {
+                let (w, h) = (image.width as f32, image.height as f32);
+                if w <= 0.0 || h <= 0.0 {
+                    return Ok(());
+                }
+                let scale = (rect.width / w).min(rect.height / h);
+                let (dw, dh) = (w * scale, h * scale);
+                let at = Rect::new(
+                    rect.x + (rect.width - dw) / 2.0,
+                    rect.y + (rect.height - dh) / 2.0,
+                    dw,
+                    dh,
+                );
+                ui.ctx.draw_image_rect(image, at)
+            }
         }
     }
 }
