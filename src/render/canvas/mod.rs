@@ -502,45 +502,13 @@ impl Canvas {
         self.size().1
     }
 
-    /// Start a per-frame ticker animation tied to this canvas.
-    ///
-    /// The closure is invoked every frame with [`aurea_runtime::FrameInfo`]
-    /// (time, delta, frame counter). Return `true` to continue or `false` to
-    /// stop — the ticker unregisters itself automatically on `false`.
-    ///
-    /// Returns a [`aurea_runtime::TickerId`] that can be passed to
-    /// [`FrameScheduler::unregister_ticker`] for early cancellation.
-    ///
-    /// # Example
-    /// ```rust,ignore
-    /// use std::time::Duration;
-    /// use aurea::FrameInfo;
-    /// use aurea_animation::{Animation, EaseMode};
-    ///
-    /// let mut anim = Animation::new(Duration::from_secs(1)).ease(EaseMode::OutCubic);
-    /// let id = canvas.animate(move |info: FrameInfo| {
-    ///     match anim.tick(info.delta) {
-    ///         Some(t) => { /* update app state with t */ true }
-    ///         None    => false,
-    ///     }
-    /// });
-    /// ```
+    /// Old name for [`Self::on_frame`].
+    #[deprecated(note = "use `Canvas::on_frame`, which does the same")]
     pub fn animate<F>(&self, ticker: F) -> TickerId
     where
         F: FnMut(FrameInfo) -> bool + Send + 'static,
     {
-        let state = self.state.clone();
-        let handle_usize = self.handle as usize;
-        let mut user_ticker = ticker;
-
-        FrameScheduler::register_ticker(move |info| {
-            let keep = user_ticker(info);
-            // Mark the canvas dirty so the scheduler's needs_redraw gate is
-            // satisfied on every animation frame, including the final one.
-            state.borrow_mut().needs_redraw = true;
-            FrameScheduler::schedule_canvas(handle_usize as *mut c_void);
-            keep
-        })
+        self.on_frame(ticker)
     }
 
     pub fn scale_factor(&self) -> f32 {
