@@ -42,6 +42,15 @@ static const char* AUREA_WINDOW_ICON_PROPERTY = "AureaWindowIcon";
 
 #define AUREA_CURSOR_GRAB_PROP "AureaCursorGrabMode"
 
+static void ng_windows_set_client_size(HWND hwnd, int width, int height, UINT flags) {
+    RECT outer;
+    RECT client;
+    if (!GetWindowRect(hwnd, &outer) || !GetClientRect(hwnd, &client)) return;
+    int frame_w = (outer.right - outer.left) - (client.right - client.left);
+    int frame_h = (outer.bottom - outer.top) - (client.bottom - client.top);
+    SetWindowPos(hwnd, NULL, 0, 0, width + frame_w, height + frame_h,
+        flags | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
 NGHandle ng_windows_create_window(const char* title, int width, int height) {
     if (!title) return NULL;
     
@@ -63,6 +72,7 @@ NGHandle ng_windows_create_window(const char* title, int width, int height) {
     free(wide_title);
     
     if (hwnd) {
+        ng_windows_set_client_size(hwnd, width, height, 0);
         ShowWindow(hwnd, SW_SHOW);
         UpdateWindow(hwnd);
         SetFocus(hwnd);
@@ -129,6 +139,7 @@ NGHandle ng_windows_create_window_with_type(const char* title, int width, int he
     free(wide_title);
 
     if (hwnd) {
+        ng_windows_set_client_size(hwnd, width, height, 0);
         ShowWindow(hwnd, SW_SHOW);
         UpdateWindow(hwnd);
         SetFocus(hwnd);
@@ -424,12 +435,7 @@ int ng_windows_window_set_hide_on_close(NGHandle window, int hide) {
 
 void ng_windows_window_set_size(NGHandle window, int width, int height) {
     if (!window) return;
-    HWND hwnd = (HWND)window;
-    RECT rect;
-    GetWindowRect(hwnd, &rect);
-    int x = rect.left;
-    int y = rect.top;
-    SetWindowPos(hwnd, NULL, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+    ng_windows_set_client_size((HWND)window, width, height, 0);
 }
 
 void ng_windows_window_get_size(NGHandle window, int* width, int* height) {
