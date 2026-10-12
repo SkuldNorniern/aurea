@@ -13,7 +13,7 @@ use std::mem;
 use crate::command::DrawCommand;
 use crate::cpu::blend::{ConstSrc, blend_pixel, linear_to_srgb_u8, srgb_to_linear};
 use crate::cpu::clip::ClipBox;
-use crate::cpu::context::RecordingContext;
+use crate::recording::RecordingContext;
 use crate::cpu::path::{Edge, tessellate_path_into};
 use crate::cpu::scanline::fill_spans;
 use crate::cpu::stroke;

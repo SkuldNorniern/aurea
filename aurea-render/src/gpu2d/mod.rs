@@ -29,7 +29,7 @@ use aurea_foundation::AureaResult;
 use crate::batch::RenderBatches;
 use crate::capabilities::{Fallback, GpuFeatures};
 use crate::cpu::CpuRasterizer;
-use crate::cpu::RecordingContext;
+use crate::recording::RecordingContext;
 use crate::display_list::DisplayList;
 use crate::numeric::f32_to_u32_clamped;
 use crate::renderer::{DrawingContext, FrameOutcome, Renderer};

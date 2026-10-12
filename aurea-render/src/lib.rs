@@ -4,6 +4,7 @@
 //! - display_list: records draw commands with metadata (bounds, cache keys)
 //! - command: draw command types shared by display list and raster
 //! - batch: backend-agnostic 2D batches lowered from a display list (GPU path)
+//! - recording: resolves draw calls into display list items, for both executors
 //! - cpu: rasterizer executes commands, tile-based with damage
 //! - interaction: hit testing on display list items
 //!
@@ -39,6 +40,7 @@ mod viewport;
 
 pub mod capabilities;
 pub mod cpu;
+pub mod recording;
 pub mod text;
 
 #[cfg(feature = "zengpu")]
