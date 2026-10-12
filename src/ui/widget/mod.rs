@@ -15,6 +15,7 @@ pub mod radio;
 pub mod scroll;
 pub mod segmented;
 pub mod slider;
+pub mod stepper;
 pub mod text_field;
 pub mod toggle;
 pub(crate) mod tooltip;
