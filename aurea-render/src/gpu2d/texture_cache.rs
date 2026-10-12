@@ -166,6 +166,7 @@ mod tests {
     use super::*;
     use crate::batch::{CircleInstance, RectInstance};
     use crate::gpu2d::frame_plan::FramePlan;
+    use crate::renderer::FrameOutcome;
 
     /// Hands out slots in order and remembers which are live.
     #[derive(Default)]
@@ -196,8 +197,8 @@ mod tests {
             _: &FramePlan,
             _: &[RectInstance],
             _: &[CircleInstance],
-        ) -> AureaResult<()> {
-            Ok(())
+        ) -> AureaResult<FrameOutcome> {
+            Ok(FrameOutcome::Presented)
         }
     }
 

@@ -9,6 +9,7 @@
 use aurea_foundation::AureaResult;
 
 use crate::batch::{CircleInstance, RectInstance};
+use crate::renderer::FrameOutcome;
 
 use super::frame_plan::FramePlan;
 
@@ -50,10 +51,14 @@ pub trait Gpu2dBackend {
 
     /// Upload instance arrays from `plan`, record painter-order draws, and
     /// present one frame. Called after the core resolves all textures.
+    ///
+    /// A frame the surface could not take is not an error and not a
+    /// success: say [`FrameOutcome::Retry`], or [`FrameOutcome::Recreate`]
+    /// when the surface is gone, so the frame is drawn again.
     fn present_frame(
         &mut self,
         plan: &FramePlan,
         rects: &[RectInstance],
         circles: &[CircleInstance],
-    ) -> AureaResult<()>;
+    ) -> AureaResult<FrameOutcome>;
 }

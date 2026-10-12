@@ -30,7 +30,7 @@ use crate::batch::RenderBatches;
 use crate::cpu::RecordingContext;
 use crate::display_list::DisplayList;
 use crate::numeric::f32_to_u32_clamped;
-use crate::renderer::{DrawingContext, Renderer};
+use crate::renderer::{DrawingContext, FrameOutcome, Renderer};
 use crate::surface::{Surface, SurfaceInfo};
 use crate::types::Rect;
 
@@ -148,7 +148,7 @@ impl<B: Gpu2dBackend + Send + Sync> Renderer for Gpu2dRenderer<B> {
         Ok(Box::new(ctx))
     }
 
-    fn end_frame(&mut self) -> AureaResult<()> {
+    fn end_frame(&mut self) -> AureaResult<FrameOutcome> {
         self.batches.lower_into(&self.display_list);
         self.report_dropped();
         let (pw, ph) = self.physical_size();

@@ -23,6 +23,7 @@ use zengpu_vulkan::{DeviceContext, VulkanCommandList, VulkanDevice, VulkanSurfac
 
 use crate::batch::{CircleInstance, DrawRef, RectInstance};
 use crate::gpu2d::{FramePlan, Gpu2dBackend, Gpu2dRenderer};
+use crate::renderer::FrameOutcome;
 use crate::numeric::f32_to_u32_clamped;
 use crate::types::Rect;
 
@@ -487,10 +488,10 @@ impl Gpu2dBackend for ZenGpuBackend {
         plan: &FramePlan,
         rects: &[RectInstance],
         circles: &[CircleInstance],
-    ) -> AureaResult<()> {
+    ) -> AureaResult<FrameOutcome> {
         let frame = match self.surface.acquire().map_err(gpu_err)? {
             Acquire::Frame(f) => f,
-            Acquire::Skip => return Ok(()),
+            Acquire::Skip => return Ok(FrameOutcome::Retry),
         };
 
         let vw = plan.viewport_width as f32;
@@ -611,7 +612,8 @@ impl Gpu2dBackend for ZenGpuBackend {
         self.record_external_images(&mut cmd, image_handle, ext_image_base, &viewport_scalars);
 
         cmd.end_render_pass();
-        self.surface.present(frame, cmd).map_err(gpu_err)
+        self.surface.present(frame, cmd).map_err(gpu_err)?;
+        Ok(FrameOutcome::Presented)
     }
 }
 
