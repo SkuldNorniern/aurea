@@ -10,9 +10,9 @@
 use std::mem::size_of;
 
 use zengpu_hal::{
-    BlendMode, BlendState, ColorTargetState, DepthState, Format, GpuDevice, GraphicsDevice,
-    GraphicsPipelineDesc, PipelineHandle, PrimitiveTopology, RasterState, Result, ShaderDesc,
-    StepMode, VertexAttribute, VertexFormat, VertexLayout,
+    BlendMode, BlendState, ColorTargetState, DepthState, Format, GpuDevice, GpuError,
+    GraphicsDevice, GraphicsPipelineDesc, PipelineHandle, PrimitiveTopology, RasterState, Result,
+    ShaderDesc, StepMode, VertexAttribute, VertexFormat, VertexLayout,
 };
 use zengpu_vulkan::VulkanDevice;
 
@@ -116,6 +116,9 @@ const TEXT_LAYOUT: VertexLayout = VertexLayout {
     step_mode: StepMode::Instance,
 };
 
+/// Vertex and fragment SPIR-V, vertex layouts and blending for one pipeline.
+type PipelineSpec<'s> = (&'s [u32], &'s [u32], &'s [VertexLayout<'s>], BlendMode);
+
 /// All five pipelines the painter draws with, in painter-order priority.
 pub struct Pipelines {
     pub rect: PipelineHandle,
@@ -153,33 +156,63 @@ impl Pipelines {
             )
         };
 
-        Ok(Self {
-            rect: make(
+        let specs: [PipelineSpec<'_>; 5] = [
+            (
                 RECT_VERT_SPV,
                 RECT_FRAG_SPV,
                 &[RECT_LAYOUT],
                 BlendMode::AlphaBlend,
-            )?,
-            circle: make(
+            ),
+            (
                 CIRCLE_VERT_SPV,
                 CIRCLE_FRAG_SPV,
                 &[RECT_LAYOUT],
                 BlendMode::AlphaBlend,
-            )?,
-            gradient: make(
+            ),
+            (
                 GRADIENT_VERT_SPV,
                 GRADIENT_FRAG_SPV,
                 &[GRADIENT_LAYOUT],
                 BlendMode::AlphaBlend,
-            )?,
-            image: make(
+            ),
+            (
                 IMAGE_VERT_SPV,
                 IMAGE_FRAG_SPV,
                 &[IMAGE_LAYOUT],
                 BlendMode::AlphaBlend,
-            )?,
-            text: make(TEXT_VERT_SPV, text_frag_spv, &[TEXT_LAYOUT], text_blend)?,
-        })
+            ),
+            (TEXT_VERT_SPV, text_frag_spv, &[TEXT_LAYOUT], text_blend),
+        ];
+        // One failing leaves the ones before it made; they go with it, or a
+        // context shared across canvases collects them on every retry.
+        let mut made = Vec::with_capacity(specs.len());
+        for (vert, frag, layouts, blend) in specs {
+            match make(vert, frag, layouts, blend) {
+                Ok(pipeline) => made.push(pipeline),
+                Err(e) => {
+                    for pipeline in made {
+                        device.destroy_pipeline(pipeline);
+                    }
+                    return Err(e);
+                }
+            }
+        }
+        match made[..] {
+            [rect, circle, gradient, image, text] => Ok(Self {
+                rect,
+                circle,
+                gradient,
+                image,
+                text,
+            }),
+            _ => Err(GpuError::PipelineCreation("pipeline count".into())),
+        }
+    }
+
+    pub fn destroy(&self, device: &VulkanDevice) {
+        for pipeline in [self.rect, self.circle, self.gradient, self.image, self.text] {
+            device.destroy_pipeline(pipeline);
+        }
     }
 }
 
@@ -192,7 +225,13 @@ fn create_pipeline(
     color_format: Format,
 ) -> Result<PipelineHandle> {
     let vertex_shader = device.create_shader(ShaderDesc::spirv(spv_bytes(vert_spv)))?;
-    let fragment_shader = device.create_shader(ShaderDesc::spirv(spv_bytes(frag_spv)))?;
+    let fragment_shader = match device.create_shader(ShaderDesc::spirv(spv_bytes(frag_spv))) {
+        Ok(shader) => shader,
+        Err(e) => {
+            device.destroy_shader(vertex_shader);
+            return Err(e);
+        }
+    };
     let blend = match blend {
         BlendMode::Opaque => None,
         BlendMode::AlphaBlend => Some(BlendState::ALPHA_BLEND),
