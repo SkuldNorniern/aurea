@@ -3,8 +3,8 @@
 use super::super::types::{FontStyle, FontWeight, TextMetrics};
 use super::atlas::{GlyphBitmap, GlyphKey};
 use super::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph};
+use super::{GLYPH_BYTES, LruCache};
 use aurea_foundation::{AureaError, AureaResult, lock};
-use std::collections::HashMap;
 use std::mem::zeroed;
 use std::ptr;
 use std::sync::{Arc, Mutex};
@@ -64,8 +64,8 @@ const FALLBACK_FAMILIES: &[&str] = &[
 
 pub struct DirectWriteRasterizer {
     collection: FontCollection,
-    faces: Mutex<HashMap<FaceKey, Arc<FaceEntry>>>,
-    glyphs: Mutex<HashMap<GlyphKey, Arc<SubpixelGlyph>>>,
+    faces: Mutex<LruCache<FaceKey, Arc<FaceEntry>>>,
+    glyphs: Mutex<LruCache<GlyphKey, Arc<SubpixelGlyph>>>,
 }
 
 unsafe impl Send for DirectWriteRasterizer {}
@@ -76,8 +76,8 @@ impl DirectWriteRasterizer {
         let collection = FontCollection::system();
         Ok(Self {
             collection,
-            faces: Mutex::new(HashMap::new()),
-            glyphs: Mutex::new(HashMap::new()),
+            faces: Mutex::new(LruCache::new(32)),
+            glyphs: Mutex::new(LruCache::with_budget(512, GLYPH_BYTES)),
         })
     }
 
@@ -239,8 +239,9 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
             }
         };
 
+        let bytes = glyph.coverage.len();
         let glyph = Arc::new(glyph);
-        lock(&self.glyphs).insert(key, glyph.clone());
+        lock(&self.glyphs).insert_sized(key, glyph.clone(), bytes);
         Ok(glyph)
     }
 
@@ -320,5 +321,18 @@ mod tests {
 
         let glyph = r.rasterize_subpixel(font, u32::from('가')).expect("glyph");
         assert!(glyph.coverage.iter().any(|&c| c > 0));
+    }
+
+    #[test]
+    fn glyphs_at_many_sizes_stay_bounded() {
+        let r = DirectWriteRasterizer::new().expect("directwrite");
+        for step in 0..1024u16 {
+            let font = Font::new("Segoe UI", 8.0 + f32::from(step) * 0.25);
+            r.rasterize_subpixel((&font).into(), u32::from('W'))
+                .expect("glyph");
+        }
+        let glyphs = lock(&r.glyphs);
+        assert!(glyphs.len() <= 512);
+        assert!(glyphs.bytes() <= GLYPH_BYTES);
     }
 }

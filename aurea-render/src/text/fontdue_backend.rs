@@ -1,9 +1,9 @@
 //! fontdue glyph rasterizer — cross-platform fallback backend.
 
 use crate::numeric::{f32_to_i32_clamped, f32_to_u8_clamped};
-use crate::text::LruCache;
 use crate::text::atlas::{GlyphBitmap, GlyphKey};
 use crate::text::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph};
+use crate::text::{GLYPH_BYTES, LruCache};
 use crate::types::{FontStyle, FontWeight, TextMetrics};
 use aurea_foundation::{AureaError, AureaResult, lock};
 use fontdue::{Font, FontSettings};
@@ -234,7 +234,7 @@ impl FontDbTextRasterizer {
             files: OnceLock::new(),
             fallbacks: fallback_stems().iter().map(|_| OnceLock::new()).collect(),
             font_cache: Mutex::new(LruCache::new(32)),
-            subpixel_cache: Mutex::new(LruCache::new(512)),
+            subpixel_cache: Mutex::new(LruCache::with_budget(512, GLYPH_BYTES)),
         }
     }
 
@@ -411,8 +411,9 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
             }
         };
 
+        let bytes = glyph.coverage.len();
         let g = Arc::new(glyph);
-        lock(&self.subpixel_cache).insert(key, g.clone());
+        lock(&self.subpixel_cache).insert_sized(key, g.clone(), bytes);
         Ok(g)
     }
 

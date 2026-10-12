@@ -1,8 +1,8 @@
 //! Text rasterization orchestration.
 
 use crate::numeric::{f32_to_i32_clamped, f32_to_u32_clamped};
-use crate::text::LruCache;
 use crate::text::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
+use crate::text::{LruCache, MASK_BYTES};
 use crate::types::{Color, Font, FontStyle, FontWeight, GlyphMask, Point, TextMetrics};
 use aurea_foundation::{AureaResult, lock};
 use std::sync::{Arc, Mutex};
@@ -113,8 +113,8 @@ impl TextRenderer {
         Self {
             rasterizer: get_platform_rasterizer(),
             atlas: GlyphAtlas::new(4),
-            mask_cache: Mutex::new(LruCache::new(256)),
-            run_cache: Mutex::new(LruCache::new(512)),
+            mask_cache: Mutex::new(LruCache::with_budget(256, MASK_BYTES)),
+            run_cache: Mutex::new(LruCache::with_budget(512, MASK_BYTES)),
         }
     }
 
@@ -133,7 +133,8 @@ impl TextRenderer {
                 return Ok(cached);
             }
             let result = self.compute_mask(text, font)?;
-            lock(&self.mask_cache).insert(key, result.clone());
+            let bytes = result.0.coverage.len();
+            lock(&self.mask_cache).insert_sized(key, result.clone(), bytes);
             return Ok(result);
         }
 
@@ -142,7 +143,8 @@ impl TextRenderer {
             return Ok(cached);
         }
         let result = self.compute_mask(text, font)?;
-        lock(&self.run_cache).insert(run_key, result.clone());
+        let bytes = result.0.coverage.len();
+        lock(&self.run_cache).insert_sized(run_key, result.clone(), bytes);
         Ok(result)
     }
 
