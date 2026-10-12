@@ -8,13 +8,13 @@ use std::sync::Arc;
 use aurea_foundation::{AureaError, AureaResult};
 
 use zengpu_hal::{
-    Acquire, Bindings, BufferHandle, ColorAttachment, DeviceRequest, FilterMode, Format, Frame,
-    GpuDevice, GpuError, GraphicsDevice, LoadOp, PipelineHandle, Rect as HalRect, RenderCommands,
-    RenderPassDesc, SamplerDesc, SamplerHandle, Scalar, Surface, TexDim, TextureDesc,
-    TextureHandle, TextureUsage, Viewport, ViewportScissor, WindowHandles,
+    Acquire, Bindings, BufferHandle, ColorAttachment, DeviceRequest, DeviceType, FilterMode,
+    Format, Frame, GpuAdapter, GpuDevice, GpuError, GraphicsDevice, LoadOp, PipelineHandle,
+    Rect as HalRect, RenderCommands, RenderPassDesc, SamplerDesc, SamplerHandle, Scalar, Surface,
+    TexDim, TextureDesc, TextureHandle, TextureUsage, Viewport, ViewportScissor, WindowHandles,
 };
 use zengpu_vulkan::instance::VulkanInstance;
-use zengpu_vulkan::{DeviceContext, VulkanCommandList, VulkanDevice, VulkanSurface};
+use zengpu_vulkan::{DeviceContext, VulkanAdapter, VulkanCommandList, VulkanDevice, VulkanSurface};
 
 use crate::capabilities::GpuFeatures;
 use crate::gpu::batch::{DrawRef, RectInstance, ShapeInstance};
@@ -34,18 +34,72 @@ const _: () = assert!(size_of::<ShapeInstance>() == size_of::<super::pipelines::
 pub struct ZenGpuContext {
     instance: VulkanInstance,
     device: VulkanDevice,
+    adapter: [u8; 16],
+}
+
+/// A GPU a context can open, for a "which GPU" setting.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GpuChoice {
+    pub name: String,
+    /// The same for this GPU and driver from one run to the next: what to save, and give
+    /// [`ZenGpuContext::on_adapter`].
+    pub uuid: [u8; 16],
+    /// A separate card rather than one built into the CPU.
+    pub discrete: bool,
 }
 
 impl ZenGpuContext {
+    /// A context on the best GPU: a discrete one if there is one.
     pub fn new() -> AureaResult<Self> {
         let instance = VulkanInstance::new_with_surface().map_err(gpu_err)?;
         let adapter = instance
             .request_vulkan_adapter()
             .ok_or(AureaError::ElementOperationFailed)?;
+        Self::open(instance, &adapter)
+    }
+
+    /// The GPUs there are to choose from.
+    pub fn adapters() -> AureaResult<Vec<GpuChoice>> {
+        let instance = VulkanInstance::new_with_surface().map_err(gpu_err)?;
+        Ok(instance
+            .vulkan_adapters()
+            .iter()
+            .map(|a| GpuChoice {
+                name: a.info().name.clone(),
+                uuid: a.uuid(),
+                discrete: a.info().device_type == DeviceType::Discrete,
+            })
+            .collect())
+    }
+
+    /// A context on the GPU with this [`GpuChoice::uuid`].
+    pub fn on_adapter(uuid: [u8; 16]) -> AureaResult<Self> {
+        let instance = VulkanInstance::new_with_surface().map_err(gpu_err)?;
+        let adapter = instance
+            .vulkan_adapter_by_uuid(uuid)
+            .ok_or(AureaError::ElementOperationFailed)?;
+        Self::open(instance, &adapter)
+    }
+
+    /// A new context on this one's GPU, for after a device loss.
+    pub fn reopen(&self) -> AureaResult<Self> {
+        Self::on_adapter(self.adapter)
+    }
+
+    /// Which GPU this context is on.
+    pub fn adapter_uuid(&self) -> [u8; 16] {
+        self.adapter
+    }
+
+    fn open(instance: VulkanInstance, adapter: &VulkanAdapter) -> AureaResult<Self> {
         let device = adapter
             .open_with_surface(DeviceRequest::default())
             .map_err(gpu_err)?;
-        Ok(Self { instance, device })
+        Ok(Self {
+            adapter: adapter.uuid(),
+            instance,
+            device,
+        })
     }
 
     pub fn instance(&self) -> &VulkanInstance {
@@ -548,4 +602,22 @@ fn gpu_err(e: GpuError) -> AureaError {
 
 fn as_bytes<T: Copy>(slice: &[T]) -> &[u8] {
     unsafe { from_raw_parts(slice.as_ptr() as *const u8, size_of_val(slice)) }
+}
+
+#[cfg(test)]
+mod context_tests {
+    use super::*;
+
+    #[test]
+    fn a_context_reopens_on_its_own_gpu() {
+        let Ok(context) = ZenGpuContext::new() else {
+            return;
+        };
+        let uuid = context.adapter_uuid();
+        let listed = ZenGpuContext::adapters().expect("adapters");
+        assert!(listed.iter().any(|a| a.uuid == uuid), "{listed:?}");
+        let again = context.reopen().expect("reopen");
+        assert_eq!(again.adapter_uuid(), uuid);
+        assert!(ZenGpuContext::on_adapter([0xEE; 16]).is_err());
+    }
 }
