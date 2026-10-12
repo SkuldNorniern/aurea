@@ -6,6 +6,8 @@ use std::hash::Hash;
 use std::mem::take;
 use std::time::Instant;
 
+use aurea_foundation::FastBuild;
+
 const SNAP: f32 = 0.002;
 const MAX_STEP: f32 = 1.0 / 30.0;
 
@@ -17,7 +19,7 @@ struct Value {
 
 #[derive(Debug)]
 pub struct Tweens<K> {
-    values: HashMap<K, Value>,
+    values: HashMap<K, Value, FastBuild>,
     start: Instant,
     last: Option<Instant>,
     dt: f32,
@@ -28,7 +30,7 @@ pub struct Tweens<K> {
 impl<K> Default for Tweens<K> {
     fn default() -> Self {
         Self {
-            values: HashMap::new(),
+            values: HashMap::default(),
             start: Instant::now(),
             last: None,
             dt: 0.0,
