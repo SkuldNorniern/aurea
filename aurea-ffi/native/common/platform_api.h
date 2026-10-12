@@ -20,6 +20,7 @@ int ng_platform_locales(char* buf, int cap);
 void ng_platform_cleanup(void);
 int ng_platform_run(void);
 int ng_platform_poll_events(void);
+int ng_platform_wait_events(int timeout_ms);
 void ng_platform_request_frame(void);
 void ng_platform_frame_idle(void);
 

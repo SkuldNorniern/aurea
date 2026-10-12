@@ -50,6 +50,25 @@ int ng_linux_poll_events(void) {
     return NG_SUCCESS;
 }
 
+static gboolean ng_linux_wait_timed_out(gpointer user_data) {
+    *(gboolean*)user_data = TRUE;
+    return G_SOURCE_REMOVE;
+}
+
+int ng_linux_wait_events(int timeout_ms) {
+    if (timeout_ms == 0) return ng_linux_poll_events();
+    gboolean timed_out = FALSE;
+    guint timer = 0;
+    if (timeout_ms > 0) {
+        timer = g_timeout_add_full(G_PRIORITY_DEFAULT, (guint)timeout_ms,
+            ng_linux_wait_timed_out, &timed_out, NULL);
+    }
+    g_main_context_iteration(NULL, TRUE);
+    ng_linux_poll_events();
+    if (timer && !timed_out) g_source_remove(timer);
+    return NG_SUCCESS;
+}
+
 static gint g_request_posted = 0;
 
 static gboolean ng_linux_schedule_frame(gpointer user_data) {

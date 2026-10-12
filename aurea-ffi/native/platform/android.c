@@ -207,6 +207,11 @@ int ng_platform_poll_events(void) {
     return NG_ERROR_UNSUPPORTED;
 }
 
+int ng_platform_wait_events(int timeout_ms) {
+    (void)timeout_ms;
+    return NG_ERROR_UNSUPPORTED;
+}
+
 int ng_platform_set_window_content(NGHandle window, NGHandle content) {
     extern int ng_android_set_window_content(NGHandle window, NGHandle content);
     return ng_android_set_window_content(window, content);

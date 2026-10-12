@@ -146,7 +146,24 @@ void ng_macos_cleanup(void) {
     }
 }
 
+static atomic_int s_waiting = 0;
+static const short AUREA_WAKE_SUBTYPE = 0x4157;
+
+static void ng_macos_wake_wait(void) {
+    if (!atomic_exchange(&s_waiting, 0)) return;
+    NSEvent* wake = [NSEvent otherEventWithType:NSEventTypeApplicationDefined
+                                       location:NSZeroPoint
+                                  modifierFlags:0
+                                      timestamp:0
+                                   windowNumber:0
+                                        context:nil
+                                        subtype:AUREA_WAKE_SUBTYPE
+                                          data1:0
+                                          data2:0];
+    [NSApp postEvent:wake atStart:NO];
+}
 void ng_macos_request_frame(void) {
+    ng_macos_wake_wait();
     if (s_using_legacy) {
         legacy_display_link_request_frame();
     } else if (@available(macOS 14.0, *)) {
@@ -194,4 +211,23 @@ int ng_macos_poll_events(void) {
         [NSApp updateWindows];
     }
     return NG_SUCCESS;
+}
+
+int ng_macos_wait_events(int timeout_ms) {
+    if (timeout_ms == 0) return ng_macos_poll_events();
+    @autoreleasepool {
+        NSDate* until = timeout_ms < 0
+            ? [NSDate distantFuture]
+            : [NSDate dateWithTimeIntervalSinceNow:timeout_ms / 1000.0];
+        atomic_store(&s_waiting, 1);
+        NSEvent* event = [NSApp nextEventMatchingMask:NSEventMaskAny
+                                            untilDate:until
+                                               inMode:NSDefaultRunLoopMode
+                                              dequeue:YES];
+        atomic_store(&s_waiting, 0);
+        BOOL wake = event && event.type == NSEventTypeApplicationDefined
+            && event.subtype == AUREA_WAKE_SUBTYPE;
+        if (event && !wake) [NSApp sendEvent:event];
+    }
+    return ng_macos_poll_events();
 }

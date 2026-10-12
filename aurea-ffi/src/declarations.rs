@@ -20,6 +20,7 @@ unsafe extern "C" {
 
     pub fn ng_platform_run() -> c_int;
     pub fn ng_platform_poll_events() -> c_int;
+    pub fn ng_platform_wait_events(timeout_ms: c_int) -> c_int;
     pub fn ng_platform_request_frame();
     pub fn ng_platform_frame_idle();
 

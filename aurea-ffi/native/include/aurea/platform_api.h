@@ -20,6 +20,7 @@ int ng_platform_locales(char* buf, int cap);
 void ng_platform_cleanup(void);
 int ng_platform_run(void);
 int ng_platform_poll_events(void);
+int ng_platform_wait_events(int timeout_ms);
 
 char* ng_platform_get_clipboard_text(void);
 void ng_platform_free_clipboard_text(char* text);

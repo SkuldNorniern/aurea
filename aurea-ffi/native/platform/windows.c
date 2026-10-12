@@ -128,7 +128,8 @@ void ng_windows_modal_tick(void) {
     }
 }
 
-int ng_windows_run(void) {
+static void ng_windows_loop_init(void) {
+    if (g_frame_event) return;
     LARGE_INTEGER freq;
     QueryPerformanceFrequency(&freq);
     g_qpc_freq = freq.QuadPart;
@@ -141,47 +142,67 @@ int ng_windows_run(void) {
     g_frame_timer = CreateWaitableTimerExW(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
     if (!g_frame_timer) g_frame_timer = CreateWaitableTimerW(NULL, FALSE, NULL);
     SetEvent(g_frame_event);
+}
 
-    HANDLE handles[2] = { g_frame_event, g_frame_timer };
-    DWORD count = g_frame_timer ? 2 : 1;
-    for (;;) {
-        DWORD result = MsgWaitForMultipleObjectsEx(
-            count, handles,
-            INFINITE,
-            QS_ALLINPUT,
-            MWMO_ALERTABLE | MWMO_INPUTAVAILABLE);
-
-        BOOL wanted = FALSE;
-        if (result == WAIT_OBJECT_0) {
-            wanted = TRUE;
-        } else if (result == WAIT_OBJECT_0 + 1 && count == 2) {
-            g_timer_armed = FALSE;
-            wanted = TRUE;
-        } else if (result != WAIT_OBJECT_0 + count && result != WAIT_IO_COMPLETION) {
-            break;
-        }
-
-        if (!ng_windows_drain_messages()) goto done;
-
-        if (!wanted) {
-            DWORD due = WaitForMultipleObjects(count, handles, FALSE, 0);
-            if (due == WAIT_OBJECT_0 + 1) g_timer_armed = FALSE;
-            wanted = due == WAIT_OBJECT_0 || due == WAIT_OBJECT_0 + 1;
-        }
-
-        if (wanted || g_frame_pending) {
-            g_frame_pending = FALSE;
-            ng_windows_frame_wanted();
-        }
-    }
-done:
+static void ng_windows_loop_cleanup(void) {
     if (g_frame_timer) {
         CancelWaitableTimer(g_frame_timer);
         CloseHandle(g_frame_timer);
         g_frame_timer = NULL;
     }
-    CloseHandle(g_frame_event);
-    g_frame_event = NULL;
+    if (g_frame_event) {
+        CloseHandle(g_frame_event);
+        g_frame_event = NULL;
+    }
+}
+
+static BOOL ng_windows_turn(DWORD timeout_ms) {
+    HANDLE handles[2] = { g_frame_event, g_frame_timer };
+    DWORD count = g_frame_timer ? 2 : 1;
+    DWORD result = MsgWaitForMultipleObjectsEx(
+        count, handles,
+        timeout_ms,
+        QS_ALLINPUT,
+        MWMO_ALERTABLE | MWMO_INPUTAVAILABLE);
+
+    BOOL wanted = FALSE;
+    if (result == WAIT_OBJECT_0) {
+        wanted = TRUE;
+    } else if (result == WAIT_OBJECT_0 + 1 && count == 2) {
+        g_timer_armed = FALSE;
+        wanted = TRUE;
+    } else if (result == WAIT_TIMEOUT) {
+        return TRUE;
+    } else if (result != WAIT_OBJECT_0 + count && result != WAIT_IO_COMPLETION) {
+        return FALSE;
+    }
+
+    if (!ng_windows_drain_messages()) return FALSE;
+
+    if (!wanted) {
+        DWORD due = WaitForMultipleObjects(count, handles, FALSE, 0);
+        if (due == WAIT_OBJECT_0 + 1) g_timer_armed = FALSE;
+        wanted = due == WAIT_OBJECT_0 || due == WAIT_OBJECT_0 + 1;
+    }
+
+    if (wanted || g_frame_pending) {
+        g_frame_pending = FALSE;
+        ng_windows_frame_wanted();
+    }
+    return TRUE;
+}
+
+int ng_windows_run(void) {
+    ng_windows_loop_init();
+    while (ng_windows_turn(INFINITE)) {
+    }
+    ng_windows_loop_cleanup();
+    return NG_SUCCESS;
+}
+
+int ng_windows_wait_events(int timeout_ms) {
+    ng_windows_loop_init();
+    ng_windows_turn(timeout_ms < 0 ? INFINITE : (DWORD)timeout_ms);
     return NG_SUCCESS;
 }
 

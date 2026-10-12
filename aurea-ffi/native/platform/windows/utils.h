@@ -12,6 +12,7 @@ int ng_windows_init(void);
 void ng_windows_cleanup(void);
 int ng_windows_run(void);
 int ng_windows_poll_events(void);
+int ng_windows_wait_events(int timeout_ms);
 void ng_windows_request_frame(void);
 #define AUREA_FRAME_TIMER_ID 0xA0E2
 void ng_windows_modal_begin(HWND hwnd);
