@@ -319,11 +319,9 @@ impl Canvas {
     {
         let id = self.id();
         FrameScheduler::register_ticker(move |info| {
-            if !tick(info) {
-                return false;
-            }
+            let keep = tick(info);
             request_canvas_redraw(id);
-            true
+            keep
         })
     }
 
