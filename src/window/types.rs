@@ -27,7 +27,7 @@ pub enum WindowType {
 /// that outlives its window refers to nothing rather than to whichever window
 /// came afterwards. It used to be the native handle, which the platform is
 /// free to hand back out for the next window — the same reuse that
-/// [`WindowProxy`](crate::WindowProxy) was given its own ids to avoid.
+/// [`WindowProxy`](crate::window::WindowProxy) was given its own ids to avoid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct WindowId(u64);
 

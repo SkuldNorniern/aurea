@@ -39,8 +39,9 @@ pub struct TrayIcon {
 
 impl TrayIcon {
     /// Adds an icon showing `tooltip` when hovered; `on_click` runs on a
-    /// left click (or Enter on the icon). Until [`set_icon_rgba`]
-    /// (Self::set_icon_rgba), it shows the default application icon.
+    /// left click (or Enter on the icon). Until
+    /// [`set_icon_rgba`](Self::set_icon_rgba), it shows the default
+    /// application icon.
     pub fn new(tooltip: &str, on_click: impl Fn() + 'static) -> AureaResult<Self> {
         ui_thread::check("TrayIcon::new");
         if !cfg!(windows) {

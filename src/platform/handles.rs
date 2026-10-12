@@ -3,7 +3,7 @@
 //! [`NativeWindowHandle`] is Aurea's own handle representation, built from raw
 //! platform pointers returned by the FFI layer. It has no dependency on
 //! `raw-window-handle` or `wgpu` — those conversions live in [`super::rwh`] and
-//! [`super::zengpu`], which consume `NativeWindowHandle` as their common input.
+//! `super::zengpu`, which consume `NativeWindowHandle` as their common input.
 
 use std::os::raw::c_void;
 #[cfg(target_os = "linux")]
