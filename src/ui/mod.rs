@@ -7,3 +7,6 @@
 //!
 
 pub mod text_edit;
+mod theme;
+
+pub use theme::{Motion, Palette, Theme};
