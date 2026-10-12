@@ -7,6 +7,7 @@
 //! [`Ui::add`].
 
 pub mod button;
+pub mod toggle;
 pub(crate) mod tooltip;
 
 use super::frame::{Response, Ui};
