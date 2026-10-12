@@ -30,9 +30,9 @@ const CELL: u32 = 32;
 
 const VERT_SPV: &[u32] = zsl!(
     vertex vs(vi: vertex_index) -> (f32x4, f32x2) {
-        let x = f32((vi & 1) * 2)
-        let y = f32((vi >> 1) * 2)
-        (f32x4(x - 1.0, y - 1.0, 0.0, 1.0), f32x2(x * 0.5, y * 0.5))
+        let x = f32((vi << 1) & 2)
+        let y = f32(vi & 2)
+        (f32x4(x * 2.0 - 1.0, y * 2.0 - 1.0, 0.0, 1.0), f32x2(x, y))
     }
 )
 .spv;
