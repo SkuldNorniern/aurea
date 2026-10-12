@@ -66,6 +66,7 @@ pub mod files;
 pub mod ffi;
 pub mod integration;
 pub mod lifecycle;
+pub mod locale;
 pub mod logger;
 pub mod menu;
 pub mod platform;
@@ -102,6 +103,7 @@ pub use crate::render::{Canvas, Color, DrawingContext, Point, Rect, RendererBack
 
 pub use crate::platform::handles::NativeWindowHandle;
 pub use crate::files::{config_dir, data_dir, open_path, reveal_path};
+pub use crate::locale::{locale, locales};
 pub use aurea_foundation::{AureaError, AureaResult};
 pub use aurea_foundation::{
     Capability, CapabilityChecker, DesktopPlatform, MobilePlatform, Platform, Support,
