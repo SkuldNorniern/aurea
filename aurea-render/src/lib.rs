@@ -28,14 +28,13 @@
 //! place produce the same pixels and should share a key.
 
 mod batch;
-mod command;
-mod display_list;
 mod drawing;
 mod frame;
 mod gpu2d;
 mod interaction;
 mod numeric;
 mod renderer;
+mod scene;
 mod surface;
 mod types;
 mod viewport;
@@ -55,14 +54,14 @@ pub use batch::{
     CircleInstance, DrawRef, GradientInstance, ImageDraw, RectInstance, RenderBatches, TextDraw,
 };
 pub use capabilities::{Fallback, GpuFeatures};
-pub use command::DrawCommand;
 pub use cpu::CpuRasterizer;
-pub use display_list::*;
 pub use gpu2d::{
     FramePlan, Gpu2dBackend, Gpu2dRenderer, GradientPlanEntry, ImagePlanEntry, TextPlanEntry,
 };
 pub use interaction::*;
 pub use renderer::*;
+pub use scene::command::DrawCommand;
+pub use scene::display_list::*;
 pub use surface::*;
 pub use types::*;
 pub use viewport::*;

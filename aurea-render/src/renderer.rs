@@ -5,7 +5,7 @@
 pub use crate::drawing::DrawingContext;
 pub use crate::frame::{FrameOutcome, FrameOutput};
 
-use crate::display_list::DisplayList;
+use crate::scene::display_list::DisplayList;
 use crate::surface::{Surface, SurfaceInfo};
 use crate::types::Rect;
 use aurea_foundation::AureaResult;

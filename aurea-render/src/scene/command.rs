@@ -6,7 +6,7 @@
 //! commands here, but nothing emitted them and nothing executed them: each item
 //! carries its own resolved state, which is what partial repaint needs.
 
-use super::types::{
+use crate::types::{
     Color, Font, GlyphMask, Image, LinearGradient, Paint, Path, Point, RadialGradient, Rect,
 };
 

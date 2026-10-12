@@ -4,7 +4,8 @@
 //! a display index, cache key, bounds, clip, opacity and blend mode to each
 //! item, which is what partial redraw, caching and damage tracking work from.
 
-use super::types::Rect;
+use crate::scene::command::DrawCommand;
+use crate::types::{BlendMode, InteractiveId, Rect};
 
 /// Where an item sits in this frame's display list.
 ///
@@ -76,9 +77,9 @@ pub struct DisplayItem {
     /// Whether this item is fully opaque (skips damage for covered regions)
     pub opaque: bool,
     /// Interactive ID if this shape should respond to mouse/touch events
-    pub interactive_id: Option<super::types::InteractiveId>,
+    pub interactive_id: Option<InteractiveId>,
     /// Blend mode when compositing this item
-    pub blend_mode: super::types::BlendMode,
+    pub blend_mode: BlendMode,
     /// Opacity this item was recorded under, `0.0..=1.0`.
     ///
     /// Resolved at record time for the same reason as [`Self::clip`], and
@@ -94,7 +95,7 @@ pub struct DisplayItem {
     /// the frame is repainted in pieces.
     pub clip: Option<Rect>,
     /// The actual draw command
-    pub command: super::command::DrawCommand,
+    pub command: DrawCommand,
 }
 
 impl DisplayItem {
@@ -104,8 +105,8 @@ impl DisplayItem {
         cache_key: CacheKey,
         bounds: Rect,
         opaque: bool,
-        blend_mode: super::types::BlendMode,
-        command: super::command::DrawCommand,
+        blend_mode: BlendMode,
+        command: DrawCommand,
     ) -> Self {
         Self {
             index,
@@ -140,9 +141,9 @@ impl DisplayItem {
         cache_key: CacheKey,
         bounds: Rect,
         opaque: bool,
-        interactive_id: super::types::InteractiveId,
-        blend_mode: super::types::BlendMode,
-        command: super::command::DrawCommand,
+        interactive_id: InteractiveId,
+        blend_mode: BlendMode,
+        command: DrawCommand,
     ) -> Self {
         Self {
             index,

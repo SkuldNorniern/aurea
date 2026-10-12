@@ -2,9 +2,9 @@
 //!
 //! Enables mouse/touch events on custom-drawn shapes
 
-use crate::command::DrawCommand;
 use crate::cpu::hit_test;
-use crate::display_list::{DisplayItem, DisplayList};
+use crate::scene::command::DrawCommand;
+use crate::scene::display_list::{DisplayItem, DisplayList};
 use crate::types::{InteractiveId, Point};
 use aurea_foundation::{AureaResult, lock};
 use std::collections::HashMap;
@@ -187,8 +187,8 @@ impl Default for InteractionRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command::DrawCommand;
-    use crate::display_list::{CacheKey, DisplayIndex, DisplayItem};
+    use crate::scene::command::DrawCommand;
+    use crate::scene::display_list::{CacheKey, DisplayIndex, DisplayItem};
     use crate::types::{BlendMode, Paint, Rect};
     use std::sync::atomic::{AtomicUsize, Ordering};
 

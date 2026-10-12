@@ -17,9 +17,9 @@
 //! remains the backend with full fidelity.
 
 use crate::capabilities::GpuFeatures;
-use crate::command::DrawCommand;
-use crate::display_list::{DisplayItem, DisplayList};
 use crate::numeric::f32_to_u8_clamped;
+use crate::scene::command::DrawCommand;
+use crate::scene::display_list::{DisplayItem, DisplayList};
 use crate::types::{
     BlendMode, Color, GlyphMask, GradientStop, Image, LinearGradient, Paint, PaintStyle, Point,
     RadialGradient, Rect,
@@ -614,8 +614,8 @@ mod tests {
         let needs = RenderBatches::lower(&list).needs;
         assert!(needs.rounded_rects && !needs.paths && !needs.images);
     }
-    use crate::command::DrawCommand;
-    use crate::display_list::{CacheKey, DisplayIndex, DisplayItem};
+    use crate::scene::command::DrawCommand;
+    use crate::scene::display_list::{CacheKey, DisplayIndex, DisplayItem};
     use crate::types::Path;
     use crate::types::{BlendMode, Paint, Rect};
 
