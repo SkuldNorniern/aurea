@@ -147,6 +147,7 @@ impl<Id: WidgetId> Widget<Id> for TextField<'_> {
         let mut response = Response::new(rect, input);
         response.changed = outcome.changed;
         response.submitted = outcome.submitted;
+        response.cancelled = outcome.cancelled;
         Ok(response)
     }
 }

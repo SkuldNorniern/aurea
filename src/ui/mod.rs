@@ -328,6 +328,18 @@ mod tests {
     }
 
     #[test]
+    fn focusing_from_code_selects_the_field() {
+        let mut rig = Rig::new();
+        rig.app.name = "old".into();
+        rig.ui.focus(Id::Name, 0);
+        rig.frame();
+        assert!(rig.ui.text_focused());
+        assert!(rig.send(WindowEvent::TextInput { text: "new".into() }));
+        rig.frame();
+        assert_eq!(rig.app.name, "new", "typing replaced what was selected");
+    }
+
+    #[test]
     fn dragging_a_slider_and_its_keys() {
         let mut rig = Rig::new();
         rig.button(LEVEL.x + 2.0, LEVEL.y + 12.0, true);

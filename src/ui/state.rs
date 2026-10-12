@@ -339,6 +339,15 @@ impl<Id: WidgetId> UiState<Id> {
         self.wants_frame = true;
     }
 
+    /// Gives the keyboard to part `part` of widget `id`, as if Tab had got
+    /// there: a text field selects all of its text. For a shortcut that
+    /// jumps to a field, like Ctrl+L to an address bar.
+    pub fn focus(&mut self, id: Id, part: u16) {
+        self.focus = Some(Key::new(id, part));
+        self.focus_visible = true;
+        self.wants_frame = true;
+    }
+
     /// Whether another frame is needed: something is easing, a caret is
     /// blinking, or a click changed what a widget shows. Ask the canvas for
     /// one when it is.
