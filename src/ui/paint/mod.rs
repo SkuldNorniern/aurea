@@ -1,5 +1,9 @@
 //! The smallest pieces: things that only draw.
 
+mod decor;
+
+pub use decor::{Badge, BadgeTone, Separator, Spinner};
+
 use crate::AureaResult;
 use crate::render::{Color, Font, Point, Rect};
 use crate::ui::frame::{Align, Ui};

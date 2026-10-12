@@ -28,6 +28,8 @@ pub struct Palette {
     /// Something that cannot be undone.
     pub danger: Color,
     pub success: Color,
+    /// Needs a look, not yet wrong.
+    pub warning: Color,
     /// The ring around what the keyboard is on.
     pub focus: Color,
     /// Selected text behind the glyphs.
@@ -91,6 +93,7 @@ impl Palette {
             on_accent: Color::rgb(12, 16, 32),
             danger: Color::rgb(238, 112, 104),
             success: Color::rgb(110, 205, 140),
+            warning: Color::rgb(240, 190, 90),
             focus: Color::rgba(118, 146, 255, 170),
             selection: Color::rgba(118, 146, 255, 90),
             knob: Color::rgb(240, 242, 246),
@@ -114,6 +117,7 @@ impl Palette {
             on_accent: Color::rgb(255, 255, 255),
             danger: Color::rgb(206, 58, 50),
             success: Color::rgb(38, 150, 82),
+            warning: Color::rgb(196, 130, 20),
             focus: Color::rgba(56, 92, 230, 150),
             selection: Color::rgba(56, 92, 230, 64),
             knob: Color::rgb(255, 255, 255),
