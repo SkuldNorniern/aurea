@@ -58,6 +58,50 @@ pub fn linear_to_srgb_u8(c: f32) -> u32 {
     u32::from(LINEAR_TO_SRGB[idx])
 }
 
+/// sRGB 8-bit -> linear light scaled to `0..=4096`, for compositing with
+/// integers where a span of pixels each mix by their own coverage.
+static SRGB_TO_LINEAR_12: LazyLock<[u16; 256]> = LazyLock::new(|| {
+    let mut lut = [0u16; 256];
+    for (i, slot) in lut.iter_mut().enumerate() {
+        let linear = SRGB_TO_LINEAR[i];
+        *slot = u16::try_from(f32_to_u32_clamped((linear * 4096.0).round())).unwrap_or(4096);
+    }
+    lut
+});
+
+/// Both linear-light tables, looked up once for a run of pixels rather than
+/// through their lazy statics per channel.
+#[derive(Clone, Copy)]
+pub struct LinearLuts {
+    to_linear: &'static [u16; 256],
+    to_srgb: &'static [u8; 4097],
+}
+
+impl LinearLuts {
+    pub fn get() -> Self {
+        Self {
+            to_linear: &SRGB_TO_LINEAR_12,
+            to_srgb: &LINEAR_TO_SRGB,
+        }
+    }
+
+    /// `c` in linear light, `0..=4096`.
+    #[inline]
+    pub fn linear(self, c: u8) -> u32 {
+        u32::from(self.to_linear[usize::from(c)])
+    }
+
+    /// `src` (linear, `0..=4096`) over `dst` (sRGB) by `coverage` out of
+    /// 255, mixed in linear light and encoded back to sRGB.
+    #[inline]
+    pub fn mix(self, src: u32, dst: u8, coverage: u8) -> u32 {
+        let c = u32::from(coverage);
+        let d = self.linear(dst);
+        let v = (src * c + d * (255 - c) + 127) / 255;
+        u32::from(self.to_srgb[(v as usize).min(4096)])
+    }
+}
+
 /// Precomputed linear-light source channels for a constant-color span.
 ///
 /// When a draw call fills a span with the same source color for many pixels,
