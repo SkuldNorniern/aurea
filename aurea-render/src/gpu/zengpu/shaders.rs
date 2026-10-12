@@ -1,259 +1,221 @@
-//! SPIR-V shaders for the unified-API painter.
+//! The painter's shaders, in ZSL.
 
-use inline_spirv::inline_spirv;
 use std::mem::size_of_val;
 use std::slice::from_raw_parts;
+
+use zengpu_spirv::zsl;
 
 /// View SPIR-V words as the bytes [`zengpu_hal::ShaderDesc`] expects.
 pub fn spv_bytes(words: &[u32]) -> &[u8] {
     unsafe { from_raw_parts(words.as_ptr() as *const u8, size_of_val(words)) }
 }
 
-pub const RECT_VERT_SPV: &[u32] = inline_spirv!(
-    r#"
-    #version 450
-    layout(location = 0) in vec4 i_rect;   // x, y, w, h  (physical pixels)
-    layout(location = 1) in vec4 i_color;  // straight RGBA
-    layout(push_constant) uniform PC { vec2 viewport; } pc;
-    layout(location = 0) out vec4 v_color;
-    void main() {
-        vec2 corners[6] = vec2[](
-            vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(0.0, 1.0),
-            vec2(1.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0)
-        );
-        vec2 corner = corners[gl_VertexIndex];
-        vec2 px = i_rect.xy + corner * i_rect.zw;
-        // Vulkan NDC: top-left is (-1, -1), +y points down — matches pixel space.
-        vec2 ndc = (px / pc.viewport) * 2.0 - 1.0;
-        gl_Position = vec4(ndc, 0.0, 1.0);
-        v_color = i_color;
+pub const RECT_VERT_SPV: &[u32] = zsl!(
+    push Pc { viewport: f32x2 }
+    vertex rect_vs(
+        @location(0) rect: f32x4,
+        @location(1) color: f32x4,
+        vi: vertex_index,
+        pc: Pc,
+    ) -> (f32x4, f32x4) {
+        let corner = f32x2(f32((26 >> vi) & 1), f32((52 >> vi) & 1))
+        let px = rect.xy + corner * rect.zw
+        (f32x4(px / pc.viewport * 2.0 - 1.0, 0.0, 1.0), color)
     }
-    "#,
-    vert,
-    vulkan1_0
-);
+)
+.spv;
 
-pub const RECT_FRAG_SPV: &[u32] = inline_spirv!(
-    r#"
-    #version 450
-    layout(location = 0) in vec4 v_color;
-    layout(location = 0) out vec4 o_color;
-    void main() { o_color = v_color; }
-    "#,
-    frag,
-    vulkan1_0
-);
-
-pub const SHAPE_VERT_SPV: &[u32] = inline_spirv!(
-    r#"
-    #version 450
-    layout(location = 0) in vec4 i_rect;   // x, y, w, h (px)
-    layout(location = 1) in vec4 i_color;  // straight RGBA
-    layout(location = 2) in vec4 i_shape;  // radius, stroke (0 fills), _, _
-    layout(push_constant) uniform PC { vec2 viewport; } pc;
-    layout(location = 0) out vec2 v_local;  // offset from the box centre (px)
-    layout(location = 1) out vec4 v_color;
-    layout(location = 2) out vec2 v_half;
-    layout(location = 3) out vec2 v_shape;
-    void main() {
-        vec2 corners[6] = vec2[](
-            vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0),
-            vec2( 1.0, -1.0), vec2(1.0,  1.0), vec2(-1.0, 1.0)
-        );
-        vec2 corner = corners[gl_VertexIndex];
-        vec2 half_size = i_rect.zw * 0.5;
-        // Room for the stroke past the outline and the antialiased edge.
-        vec2 reach = half_size + vec2(i_shape.y * 0.5 + 1.0);
-        v_local = corner * reach;
-        v_color = i_color;
-        v_half = half_size;
-        v_shape = i_shape.xy;
-        vec2 px = i_rect.xy + half_size + v_local;
-        vec2 ndc = (px / pc.viewport) * 2.0 - 1.0;
-        gl_Position = vec4(ndc, 0.0, 1.0);
+pub const RECT_FRAG_SPV: &[u32] = zsl!(
+    fragment rect_fs(@location(0) color: f32x4) -> f32x4 {
+        color
     }
-    "#,
-    vert,
-    vulkan1_0
-);
+)
+.spv;
 
-pub const SHAPE_FRAG_SPV: &[u32] = inline_spirv!(
-    r#"
-    #version 450
-    layout(location = 0) in vec2 v_local;
-    layout(location = 1) in vec4 v_color;
-    layout(location = 2) in vec2 v_half;
-    layout(location = 3) in vec2 v_shape;
-    layout(location = 0) out vec4 o_color;
-    void main() {
-        float r = clamp(v_shape.x, 0.0, min(v_half.x, v_half.y));
-        vec2 q = abs(v_local) - v_half + r;
-        float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
-        // A stroke is centred on the outline.
-        if (v_shape.y > 0.0) d = abs(d) - v_shape.y * 0.5;
-        float alpha = clamp(0.5 - d, 0.0, 1.0);
-        if (alpha <= 0.0) discard;
-        o_color = vec4(v_color.rgb, v_color.a * alpha);
+pub const SHAPE_VERT_SPV: &[u32] = zsl!(
+    push Pc { viewport: f32x2 }
+    vertex shape_vs(
+        @location(0) rect: f32x4,
+        @location(1) color: f32x4,
+        @location(2) shape: f32x4,
+        vi: vertex_index,
+        pc: Pc,
+    ) -> (f32x4, f32x2, f32x4, f32x2, f32x2) {
+        let corner = f32x2(f32((26 >> vi) & 1), f32((52 >> vi) & 1)) * 2.0 - 1.0
+        let half_size = rect.zw * 0.5
+        let local = corner * (half_size + (shape.y * 0.5 + 1.0))
+        let px = rect.xy + half_size + local
+        (f32x4(px / pc.viewport * 2.0 - 1.0, 0.0, 1.0), local, color, half_size, shape.xy)
     }
-    "#,
-    frag,
-    vulkan1_0
-);
+)
+.spv;
 
-pub const GRADIENT_VERT_SPV: &[u32] = inline_spirv!(
-    r#"
-    #version 450
-    layout(location = 0) in vec4 i_rect;    // x, y, w, h (fill area, px)
-    layout(location = 1) in vec4 i_a;        // linear start.xy / radial centre.xy,.z=r,.w=kind
-    layout(location = 2) in vec4 i_b;        // linear end.xy
-    layout(push_constant) uniform PC { vec2 viewport; uint slot; } pc;
-    layout(location = 0) out vec2 v_px;
-    layout(location = 1) out vec4 v_a;
-    layout(location = 2) out vec4 v_b;
-    void main() {
-        vec2 corners[6] = vec2[](
-            vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(0.0, 1.0),
-            vec2(1.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0)
-        );
-        vec2 corner = corners[gl_VertexIndex];
-        vec2 px = i_rect.xy + corner * i_rect.zw;
-        v_px = px; v_a = i_a; v_b = i_b;
-        vec2 ndc = (px / pc.viewport) * 2.0 - 1.0;
-        gl_Position = vec4(ndc, 0.0, 1.0);
-    }
-    "#,
-    vert,
-    vulkan1_0
-);
-
-pub const GRADIENT_FRAG_SPV: &[u32] = inline_spirv!(
-    r#"
-    #version 450
-    layout(set = 0, binding = 1) uniform sampler2D textures[1024];
-    layout(push_constant) uniform PC { vec2 viewport; uint slot; } pc;
-    layout(location = 0) in vec2 v_px;
-    layout(location = 1) in vec4 v_a;
-    layout(location = 2) in vec4 v_b;
-    layout(location = 0) out vec4 o_color;
-    void main() {
-        float t;
-        if (v_a.w < 0.5) {
-            vec2 d = v_b.xy - v_a.xy;
-            t = dot(v_px - v_a.xy, d) / max(dot(d, d), 1e-6);
-        } else {
-            t = length(v_px - v_a.xy) / max(v_a.z, 1e-6);
+pub const SHAPE_FRAG_SPV: &[u32] = zsl!(
+    fragment shape_fs(
+        @location(0) local: f32x2,
+        @location(1) color: f32x4,
+        @location(2) half_size: f32x2,
+        @location(3) shape: f32x2,
+    ) -> f32x4 {
+        let r = clamp(shape.x, 0.0, min(half_size.x, half_size.y))
+        let q = abs(local) - half_size + r
+        let d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r
+        if shape.y > 0.0 {
+            d = abs(d) - shape.y * 0.5
         }
-        float lut_u = (clamp(t, 0.0, 1.0) * 255.0 + 0.5) / 256.0;
-        o_color = texture(textures[pc.slot], vec2(lut_u, 0.5));
+        let alpha = clamp(0.5 - d, 0.0, 1.0)
+        if alpha <= 0.0 {
+            discard
+        }
+        f32x4(color.rgb, color.a * alpha)
     }
-    "#,
-    frag,
-    vulkan1_0
-);
+)
+.spv;
 
-pub const IMAGE_VERT_SPV: &[u32] = inline_spirv!(
-    r#"
-    #version 450
-    layout(location = 0) in vec4 i_rect;   // dest x, y, w, h (px)
-    layout(location = 1) in vec4 i_uv;     // u0, v0, u1, v1
-    layout(location = 2) in vec4 i_tint;
-    layout(push_constant) uniform PC { vec2 viewport; uint slot; } pc;
-    layout(location = 0) out vec2 v_uv;
-    layout(location = 1) out vec4 v_tint;
-    void main() {
-        vec2 corners[6] = vec2[](
-            vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(0.0, 1.0),
-            vec2(1.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0)
-        );
-        vec2 corner = corners[gl_VertexIndex];
-        vec2 px = i_rect.xy + corner * i_rect.zw;
-        v_uv = mix(i_uv.xy, i_uv.zw, corner);
-        v_tint = i_tint;
-        vec2 ndc = (px / pc.viewport) * 2.0 - 1.0;
-        gl_Position = vec4(ndc, 0.0, 1.0);
+pub const GRADIENT_VERT_SPV: &[u32] = zsl!(
+    push Pc { viewport: f32x2 }
+    vertex gradient_vs(
+        @location(0) rect: f32x4,
+        @location(1) a: f32x4,
+        @location(2) b: f32x4,
+        vi: vertex_index,
+        pc: Pc,
+    ) -> (f32x4, f32x2, f32x4, f32x4) {
+        let corner = f32x2(f32((26 >> vi) & 1), f32((52 >> vi) & 1))
+        let px = rect.xy + corner * rect.zw
+        (f32x4(px / pc.viewport * 2.0 - 1.0, 0.0, 1.0), px, a, b)
     }
-    "#,
-    vert,
-    vulkan1_0
-);
+)
+.spv;
 
-pub const IMAGE_FRAG_SPV: &[u32] = inline_spirv!(
-    r#"
-    #version 450
-    layout(set = 0, binding = 1) uniform sampler2D textures[1024];
-    layout(push_constant) uniform PC { vec2 viewport; uint slot; } pc;
-    layout(location = 0) in vec2 v_uv;
-    layout(location = 1) in vec4 v_tint;
-    layout(location = 0) out vec4 o_color;
-    void main() {
-        o_color = texture(textures[pc.slot], v_uv) * v_tint;
+pub const GRADIENT_FRAG_SPV: &[u32] = zsl!(
+    push Pc { viewport: f32x2, slot: u32 }
+    fragment gradient_fs(
+        @location(0) px: f32x2,
+        @location(1) a: f32x4,
+        @location(2) b: f32x4,
+        lut: textures,
+        pc: Pc,
+    ) -> f32x4 {
+        let t = 0.0
+        if a.w < 0.5 {
+            let d = b.xy - a.xy
+            t = dot(px - a.xy, d) / max(dot(d, d), 1e-6)
+        } else {
+            t = length(px - a.xy) / max(a.z, 1e-6)
+        }
+        let u = (clamp(t, 0.0, 1.0) * 255.0 + 0.5) / 256.0
+        lut[pc.slot].sample(f32x2(u, 0.5))
     }
-    "#,
-    frag,
-    vulkan1_0
-);
+)
+.spv;
 
-pub const TEXT_VERT_SPV: &[u32] = inline_spirv!(
-    r#"
-    #version 450
-    layout(location = 0) in vec4 i_rect;
-    layout(location = 1) in vec4 i_color;
-    layout(push_constant) uniform PC { vec2 viewport; uint slot; } pc;
-    layout(location = 0) out vec2 v_uv;
-    layout(location = 1) out vec4 v_color;
-    void main() {
-        vec2 corners[6] = vec2[](
-            vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(0.0, 1.0),
-            vec2(1.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0)
-        );
-        vec2 corner = corners[gl_VertexIndex];
-        vec2 px = i_rect.xy + corner * i_rect.zw;
-        v_uv = corner;
-        v_color = i_color;
-        vec2 ndc = (px / pc.viewport) * 2.0 - 1.0;
-        gl_Position = vec4(ndc, 0.0, 1.0);
+pub const IMAGE_VERT_SPV: &[u32] = zsl!(
+    push Pc { viewport: f32x2 }
+    vertex image_vs(
+        @location(0) rect: f32x4,
+        @location(1) uv: f32x4,
+        @location(2) tint: f32x4,
+        vi: vertex_index,
+        pc: Pc,
+    ) -> (f32x4, f32x2, f32x4) {
+        let corner = f32x2(f32((26 >> vi) & 1), f32((52 >> vi) & 1))
+        let px = rect.xy + corner * rect.zw
+        (f32x4(px / pc.viewport * 2.0 - 1.0, 0.0, 1.0), mix(uv.xy, uv.zw, corner), tint)
     }
-    "#,
-    vert,
-    vulkan1_0
-);
+)
+.spv;
 
-pub const TEXT_FRAG_SPV: &[u32] = inline_spirv!(
-    r#"
-    #version 450
-    layout(set = 0, binding = 1) uniform sampler2D textures[1024];
-    layout(push_constant) uniform PC { vec2 viewport; uint slot; } pc;
-    layout(location = 0) in vec2 v_uv;
-    layout(location = 1) in vec4 v_color;
-    layout(location = 0) out vec4 o_color;
-    void main() {
-        vec4 coverage = texture(textures[pc.slot], v_uv);
-        float alpha = coverage.a * v_color.a;
-        if (alpha <= 0.0) discard;
-        o_color = vec4(v_color.rgb, alpha);
+pub const IMAGE_FRAG_SPV: &[u32] = zsl!(
+    push Pc { viewport: f32x2, slot: u32 }
+    fragment image_fs(@location(0) uv: f32x2, @location(1) tint: f32x4, tex: textures, pc: Pc) -> f32x4 {
+        tex[pc.slot].sample(uv) * tint
     }
-    "#,
-    frag,
-    vulkan1_0
-);
+)
+.spv;
 
-pub const TEXT_DUAL_SOURCE_FRAG_SPV: &[u32] = inline_spirv!(
-    r#"
-    #version 450
-    layout(set = 0, binding = 1) uniform sampler2D textures[1024];
-    layout(push_constant) uniform PC { vec2 viewport; uint slot; } pc;
-    layout(location = 0) in vec2 v_uv;
-    layout(location = 1) in vec4 v_color;
-    layout(location = 0, index = 0) out vec4 o_color;
-    layout(location = 0, index = 1) out vec4 o_coverage;
-    void main() {
-        vec3 coverage = texture(textures[pc.slot], v_uv).rgb * v_color.a;
-        float alpha = max(coverage.r, max(coverage.g, coverage.b));
-        if (alpha <= 0.0) discard;
-        o_color = vec4(v_color.rgb, 1.0);
-        o_coverage = vec4(coverage, alpha);
+pub const TEXT_VERT_SPV: &[u32] = zsl!(
+    push Pc { viewport: f32x2 }
+    vertex text_vs(
+        @location(0) rect: f32x4,
+        @location(1) color: f32x4,
+        vi: vertex_index,
+        pc: Pc,
+    ) -> (f32x4, f32x2, f32x4) {
+        let corner = f32x2(f32((26 >> vi) & 1), f32((52 >> vi) & 1))
+        let px = rect.xy + corner * rect.zw
+        (f32x4(px / pc.viewport * 2.0 - 1.0, 0.0, 1.0), corner, color)
     }
-    "#,
-    frag,
-    vulkan1_0
-);
+)
+.spv;
+
+pub const TEXT_FRAG_SPV: &[u32] = zsl!(
+    push Pc { viewport: f32x2, slot: u32 }
+    fragment text_fs(@location(0) uv: f32x2, @location(1) color: f32x4, tex: textures, pc: Pc) -> f32x4 {
+        let alpha = tex[pc.slot].sample(uv).a * color.a
+        if alpha <= 0.0 {
+            discard
+        }
+        f32x4(color.rgb, alpha)
+    }
+)
+.spv;
+
+pub const TEXT_DUAL_SOURCE_FRAG_SPV: &[u32] = zsl!(
+    push Pc { viewport: f32x2, slot: u32 }
+    fragment text_lcd_fs(@location(0) uv: f32x2, @location(1) color: f32x4, tex: textures, pc: Pc)
+        -> (@location(0) @blend_src(0) f32x4, @location(0) @blend_src(1) f32x4)
+    {
+        let coverage = tex[pc.slot].sample(uv).rgb * color.a
+        let alpha = max(coverage.r, max(coverage.g, coverage.b))
+        if alpha <= 0.0 {
+            discard
+        }
+        (f32x4(color.rgb, 1.0), f32x4(coverage, alpha))
+    }
+)
+.spv;
+
+#[cfg(test)]
+mod tests {
+    use std::env::temp_dir;
+    use std::fs::{remove_file, write};
+    use std::process::{Command, id};
+
+    use super::*;
+
+    #[test]
+    fn shaders_validate() {
+        let shaders = [
+            ("rect.vert", RECT_VERT_SPV),
+            ("rect.frag", RECT_FRAG_SPV),
+            ("shape.vert", SHAPE_VERT_SPV),
+            ("shape.frag", SHAPE_FRAG_SPV),
+            ("gradient.vert", GRADIENT_VERT_SPV),
+            ("gradient.frag", GRADIENT_FRAG_SPV),
+            ("image.vert", IMAGE_VERT_SPV),
+            ("image.frag", IMAGE_FRAG_SPV),
+            ("text.vert", TEXT_VERT_SPV),
+            ("text.frag", TEXT_FRAG_SPV),
+            ("text_lcd.frag", TEXT_DUAL_SOURCE_FRAG_SPV),
+        ];
+        for (name, words) in shaders {
+            let path = temp_dir().join(format!("aurea_{}_{name}.spv", id()));
+            write(&path, spv_bytes(words)).expect("write spv");
+            let out = Command::new("spirv-val")
+                .args(["--target-env", "vulkan1.2"])
+                .arg(&path)
+                .output();
+            let _ = remove_file(&path);
+            let Ok(out) = out else {
+                return;
+            };
+            assert!(
+                out.status.success(),
+                "{name}: {}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+    }
+}
