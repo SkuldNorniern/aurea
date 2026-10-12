@@ -3,10 +3,12 @@
 use aurea::{
     Window, WindowEvent,
     render::{
-        Color, GradientStop, Image, LinearGradient, Paint, Point, RadialGradient, Rect, Renderer,
+        Color, GpuTexture, GradientStop, Image, LinearGradient, Paint, Point, RadialGradient, Rect,
+        Renderer, Sampling,
     },
 };
 use std::error::Error;
+use zengpu::{Format, GpuDevice, TextureDesc, TextureUsage, hal::TexDim};
 
 const W: i32 = 800;
 const H: i32 = 600;
@@ -44,6 +46,20 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
 
     let image = test_image();
+    let device = renderer.context().device();
+    let app_texture = device.create_texture(TextureDesc {
+        width: image.width,
+        height: image.height,
+        depth: 1,
+        format: Format::Rgba8Unorm,
+        usage: TextureUsage::SAMPLED | TextureUsage::TRANSFER_DST,
+        samples: 1,
+        dimension: TexDim::D2,
+        mip_levels: 1,
+        array_layers: 1,
+    })?;
+    device.upload_texture_data(app_texture, &image.data)?;
+    let app_texture = GpuTexture::from_zengpu(app_texture, image.width, image.height);
     let mut frame: u64 = 0;
     'main: loop {
         for event in window.poll_events() {
@@ -129,6 +145,23 @@ fn main() -> Result<(), Box<dyn Error>> {
             &image,
             Rect::new(16.0, 16.0, 32.0, 32.0),
             Rect::new(445.0, 415.0, 80.0, 80.0),
+        )?;
+        ctx.save()?;
+        ctx.set_sampling(Sampling::Nearest)?;
+        ctx.draw_image_region(
+            &image,
+            Rect::new(4.0, 4.0, 12.0, 12.0),
+            Rect::new(810.0, 40.0, 160.0, 160.0),
+        )?;
+        ctx.restore()?;
+        ctx.draw_texture(
+            app_texture,
+            Rect::new(0.0, 0.0, 0.5, 0.5),
+            Rect::new(810.0, 230.0, 160.0, 160.0),
+        )?;
+        ctx.draw_rect(
+            Rect::new(840.0, 290.0, 100.0, 40.0),
+            &paint(255, 120, 160, 230),
         )?;
         ctx.draw_text(
             "Aurea GPU text",
