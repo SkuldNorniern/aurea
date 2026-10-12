@@ -146,6 +146,7 @@ int ng_windows_attach_menu(NGHandle window, NGMenuHandle menu) {
         return NG_ERROR_PLATFORM_SPECIFIC;
     }
     DrawMenuBar((HWND)window);
+    ng_windows_fit_content((HWND)window);
     return NG_SUCCESS;
 }
 

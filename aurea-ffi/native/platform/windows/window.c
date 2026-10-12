@@ -277,6 +277,10 @@ int ng_windows_set_window_content(NGHandle window_handle, NGHandle content_handl
     LONG_PTR style = GetWindowLongPtrA(content, GWL_STYLE);
     SetWindowLongPtrA(content, GWL_STYLE, style | WS_CHILD | WS_VISIBLE);
 
+    SetPropA(window, "AureaContentHWND", (HANDLE)content);
+
+    DrawMenuBar(window);
+
     RECT client_rect;
     GetClientRect(window, &client_rect);
     
@@ -323,8 +327,6 @@ int ng_windows_set_window_content(NGHandle window_handle, NGHandle content_handl
                     SWP_NOMOVE | SWP_NOZORDER);
         layout_box_children(content);
     }
-
-    SetPropA(window, "AureaContentHWND", (HANDLE)content);
 
     SetFocus(window);
 
