@@ -33,9 +33,10 @@ pub use proxy::WindowProxy;
 use crate::platform::handles::native_handle_from_window_ptr;
 use crate::platform::ui_thread;
 use crate::registry::window::{
-    dispatch_window_events, process_window_updates, register_event_callback, register_event_queue,
-    register_update_callback, register_update_callbacks, scale_factor_changed,
-    unregister_event_callbacks, unregister_event_queue, unregister_update_callbacks,
+    begin_event_capture, dispatch_window_events, end_event_capture, process_window_updates,
+    register_event_callback, register_event_queue, register_update_callback,
+    register_update_callbacks, scale_factor_changed, unregister_event_callbacks,
+    unregister_event_queue, unregister_update_callbacks,
 };
 use crate::render::Rect;
 use crate::{AureaError, AureaResult};
@@ -45,9 +46,10 @@ use aurea_foundation::{DesktopPlatform, Platform};
 use aurea_runtime::{DamageRegion, FrameScheduler};
 use std::{
     ffi::CString,
-    os::raw::c_void,
+    os::raw::{c_int, c_void},
     rc::Rc,
     sync::{Arc, LazyLock, Mutex, OnceLock},
+    time::Duration,
 };
 
 /// Whether the platform is up, and how many windows are relying on it.
@@ -578,6 +580,47 @@ impl Window {
         ui_thread::check("Window::poll_events");
         pump_platform_events();
         self.drain_events()
+    }
+
+    /// Waits until something happens, then hands back this window's events,
+    /// for an app that runs its own loop instead of [`Self::run`].
+    ///
+    /// Returns once input comes in, a frame is asked for from any thread (a
+    /// canvas redraw, a ticker, a [`WindowProxy`] dispatch) or `timeout`
+    /// passes; `None` waits with no limit. Frames that fall due run inside the
+    /// wait, paced to the display the way [`Self::run`] paces them. A loop
+    /// built on this needs neither [`Self::process_frames`] nor a sleep: it
+    /// takes no CPU while nothing happens and adds no delay when something
+    /// does.
+    ///
+    /// The events have already reached the [`Self::on_event`] callbacks, as
+    /// with [`Self::poll_events`]. Android and iOS run their own loop and only
+    /// hand back what is queued.
+    ///
+    /// ```rust,no_run
+    /// # fn main() -> aurea::AureaResult<()> {
+    /// let window = aurea::Window::new("App", 800, 600)?;
+    /// window.show();
+    /// loop {
+    ///     for event in window.wait_events(None) {
+    ///         if matches!(event, aurea::WindowEvent::CloseRequested) {
+    ///             return Ok(());
+    ///         }
+    ///     }
+    /// }
+    /// # }
+    /// ```
+    pub fn wait_events(&self, timeout: Option<Duration>) -> Vec<WindowEvent> {
+        ui_thread::check("Window::wait_events");
+        let timeout_ms =
+            timeout.map_or(-1, |t| c_int::try_from(t.as_millis()).unwrap_or(c_int::MAX));
+        // A frame inside the wait dispatches the queue to the callbacks, so
+        // what it dispatches for this window is kept for the caller too.
+        begin_event_capture(self.handle, Vec::new());
+        unsafe { ng_platform_wait_events(timeout_ms) };
+        let mut events = end_event_capture();
+        events.extend(self.drain_events());
+        events
     }
 
     /// Takes this window's events without pumping the platform queue.
