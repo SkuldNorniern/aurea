@@ -11,6 +11,7 @@ pub use crate::elements::{
     TextEditor, TextField, TextView,
 };
 
+pub use crate::keymap::{Chord, Keymap};
 pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
 
 pub use crate::render::{
