@@ -162,6 +162,17 @@ impl Modifiers {
         self.shift || self.ctrl || self.alt || self.meta
     }
 
+    /// Whether the platform's shortcut key is held: Command on macOS and
+    /// iOS, where it arrives as [`Modifiers::meta`], and Ctrl elsewhere.
+    /// Check this rather than `ctrl` for copy, paste and other shortcuts.
+    pub fn command(&self) -> bool {
+        if cfg!(any(target_os = "macos", target_os = "ios")) {
+            self.meta
+        } else {
+            self.ctrl
+        }
+    }
+
     /// The bits [`Modifiers::from_bits`] reads.
     pub fn bits(self) -> u32 {
         u32::from(self.shift)
@@ -375,6 +386,22 @@ pub type EventCallback = Rc<dyn Fn(WindowEvent)>;
 #[cfg(test)]
 mod keycode_tests {
     use super::{KeyCode, Modifiers};
+
+    #[test]
+    fn command_is_the_platform_shortcut_key() {
+        let ctrl = Modifiers {
+            ctrl: true,
+            ..Modifiers::default()
+        };
+        let meta = Modifiers {
+            meta: true,
+            ..Modifiers::default()
+        };
+        let apple = cfg!(any(target_os = "macos", target_os = "ios"));
+        assert_eq!(ctrl.command(), !apple);
+        assert_eq!(meta.command(), apple);
+        assert!(!Modifiers::default().command());
+    }
 
     #[test]
     fn from_raw_maps_letters_digits_and_modifiers() {
