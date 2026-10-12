@@ -4,7 +4,7 @@ use std::cmp::Ordering as CmpOrdering;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::mem;
 
-use crate::cpu::blend::{ConstSrc, blend_pixel, linear_to_srgb_u8, srgb_to_linear};
+use crate::cpu::blend::{ConstSrc, LinearLuts, blend_pixel};
 use crate::cpu::clip::ClipBox;
 #[cfg(test)]
 use crate::cpu::damage::*;
@@ -782,9 +782,12 @@ impl CpuRasterizer {
         if mask.width == 0 || mask.height == 0 {
             return;
         }
-        let tr = srgb_to_linear(color.r);
-        let tg = srgb_to_linear(color.g);
-        let tb = srgb_to_linear(color.b);
+        let luts = LinearLuts::get();
+        let (tr, tg, tb) = (
+            luts.linear(color.r),
+            luts.linear(color.g),
+            luts.linear(color.b),
+        );
         let opaque_pixel = 0xFF00_0000
             | (u32::from(color.r) << 16)
             | (u32::from(color.g) << 8)
@@ -824,21 +827,13 @@ impl CpuRasterizer {
                     continue;
                 }
 
-                let cr = f32::from(cr8) / 255.0;
-                let cg = f32::from(cg8) / 255.0;
-                let cb = f32::from(cb8) / 255.0;
-
                 let dst = buf[idx];
                 let da = (dst >> 24) & 0xff;
-                let dr = ((dst >> 16) & 0xff) as u8;
-                let dg = ((dst >> 8) & 0xff) as u8;
-                let db = (dst & 0xff) as u8;
-
-                let or_ = linear_to_srgb_u8(tr * cr + srgb_to_linear(dr) * (1.0 - cr));
-                let og = linear_to_srgb_u8(tg * cg + srgb_to_linear(dg) * (1.0 - cg));
-                let ob = linear_to_srgb_u8(tb * cb + srgb_to_linear(db) * (1.0 - cb));
-                let cmax = cr.max(cg).max(cb);
-                let sa = f32_to_u32_clamped((cmax * 255.0).round());
+                let [_, dr, dg, db] = dst.to_be_bytes();
+                let or_ = luts.mix(tr, dr, cr8);
+                let og = luts.mix(tg, dg, cg8);
+                let ob = luts.mix(tb, db, cb8);
+                let sa = u32::from(cr8.max(cg8).max(cb8));
                 let oa = sa + ((255 - sa) * da) / 255;
                 buf[idx] = (oa << 24) | (or_ << 16) | (og << 8) | ob;
             }
