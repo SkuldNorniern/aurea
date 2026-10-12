@@ -27,6 +27,7 @@ pub use widget::dock::{
 pub use widget::dropdown::{Dropdown, DropdownStyle};
 pub use widget::popup::MenuItem;
 pub use widget::progress::{ProgressBar, ProgressStyle};
+pub use widget::radio::{RadioGroup, RadioStyle};
 pub use widget::scroll::{
     ListRow, ListView, ScrollArea, ScrollStyle, scroll_into_view, visible_rows,
 };
