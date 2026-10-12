@@ -29,6 +29,8 @@ pub struct Response {
     pub held: bool,
     /// It was clicked, or activated from the keyboard.
     pub clicked: bool,
+    /// The secondary button went down on it: open its context menu.
+    pub secondary_clicked: bool,
     /// Its value changed this frame.
     pub changed: bool,
     /// It has the keyboard.
@@ -47,6 +49,7 @@ impl Response {
             hovered: input.hovered,
             held: input.held,
             clicked: input.clicked,
+            secondary_clicked: input.secondary_clicked,
             changed: false,
             focused: input.focused,
             submitted: false,
@@ -126,6 +129,9 @@ impl<Id: WidgetId> UiState<Id> {
 
 impl<Id: WidgetId> Drop for Ui<'_, Id> {
     fn drop(&mut self) {
+        if let Err(e) = super::widget::popup::draw(self) {
+            log::warn!("popup: {e}");
+        }
         if let Err(e) = super::widget::tooltip::draw(self) {
             log::warn!("tooltip: {e}");
         }
@@ -232,6 +238,21 @@ impl<Id: WidgetId> Ui<'_, Id> {
     /// Wheel movement since the last frame.
     pub fn wheel(&self) -> (f32, f32) {
         self.state.wheel()
+    }
+
+    /// Wheel movement since the last frame, taken so nothing drawn after scrolls with it too: the
+    /// innermost scrolling area under the pointer takes it first.
+    pub fn take_wheel(&mut self) -> (f32, f32) {
+        mem::take(&mut self.state.wheel)
+    }
+
+    /// Where the secondary button went down on that part this frame.
+    pub fn secondary_at(&self, id: Id, part: u16) -> Option<Point> {
+        let key = Key::new(id, part);
+        self.state
+            .secondary
+            .filter(|(k, _)| *k == key)
+            .map(|(_, at)| at)
     }
 
     /// Seconds since the state was made, for looping effects.
