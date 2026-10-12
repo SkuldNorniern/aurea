@@ -101,7 +101,7 @@ pub use crate::window::{
 pub use crate::render::{Canvas, Color, DrawingContext, Point, Rect, RendererBackend};
 
 pub use crate::platform::handles::NativeWindowHandle;
-pub use crate::files::{open_path, reveal_path};
+pub use crate::files::{config_dir, data_dir, open_path, reveal_path};
 pub use aurea_foundation::{AureaError, AureaResult};
 pub use aurea_foundation::{
     Capability, CapabilityChecker, DesktopPlatform, MobilePlatform, Platform, Support,
