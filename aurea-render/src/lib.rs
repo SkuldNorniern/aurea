@@ -28,7 +28,9 @@ pub use capabilities::{Fallback, GpuFeatures};
 pub use command::DrawCommand;
 pub use cpu::CpuRasterizer;
 pub use display_list::*;
-pub use gpu2d::{Gpu2dBackend, Gpu2dRenderer};
+pub use gpu2d::{
+    FramePlan, Gpu2dBackend, Gpu2dRenderer, GradientPlanEntry, ImagePlanEntry, TextPlanEntry,
+};
 pub use interaction::*;
 pub use renderer::*;
 pub use surface::*;
