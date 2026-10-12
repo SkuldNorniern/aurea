@@ -168,6 +168,7 @@ pub struct UiState<Id: WidgetId> {
     pub(crate) press: Option<Press<Id>>,
     pub(crate) secondary: Option<(Key<Id>, Point)>,
     pub(crate) popup: Popup<Id>,
+    pub(crate) clip: Option<Rect>,
     pub(crate) edit: TextEdit,
     pub(crate) edit_for: Option<Key<Id>>,
     pub(crate) blink_from: Instant,
@@ -211,6 +212,7 @@ impl<Id: WidgetId> UiState<Id> {
             press: None,
             secondary: None,
             popup: Popup::default(),
+            clip: None,
             edit: TextEdit::new(),
             edit_for: None,
             blink_from: Instant::now(),
@@ -416,6 +418,7 @@ impl<Id: WidgetId> UiState<Id> {
         self.cursor = CursorIcon::Default;
         self.ime_area = None;
         self.tip.anchor = None;
+        self.clip = None;
         self.focus_seen = false;
     }
 
@@ -547,6 +550,12 @@ impl<Id: WidgetId> UiState<Id> {
         sense: Sense,
         enabled: bool,
     ) -> Interaction {
+        let rect = match self.clip {
+            Some(clip) => rect
+                .intersection(clip)
+                .unwrap_or_else(|| Rect::new(rect.x, rect.y, 0.0, 0.0)),
+            None => rect,
+        };
         self.hits.push(Hit {
             rect,
             key,

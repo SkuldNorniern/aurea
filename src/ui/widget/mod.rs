@@ -5,6 +5,7 @@ pub mod dock;
 pub mod dropdown;
 pub(crate) mod popup;
 pub mod progress;
+pub mod scroll;
 pub mod segmented;
 pub mod slider;
 pub mod text_field;
