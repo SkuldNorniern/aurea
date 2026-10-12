@@ -13,15 +13,22 @@
 //! 1. [`Ui`] itself: [`Ui::interact`] puts something on the hit list and
 //!    reports the input on it, [`Ui::eased`] and [`Ui::animate`] keep values
 //!    moving, and shape and text calls draw.
-//! 2. [`paint`]: pieces that only draw. [`Surface`], [`Label`], [`Mark`].
+//! 2. [`paint`]: pieces that only draw. [`Surface`], [`Label`], [`Mark`],
+//!    [`Separator`], [`Badge`], [`Spinner`].
 //! 3. [`component`]: pieces that follow input. [`StateColors`],
 //!    [`FocusRing`], [`Track`], [`Knob`], [`EditableText`], and
 //!    [`PanZoom`] for an editor's view.
-//! 4. [`widget`]: [`Button`], [`Toggle`], [`Checkbox`], [`Slider`],
-//!    [`Segmented`], [`ProgressBar`] and [`TextField`], each one
-//!    [`Ui::interact`] call and a few components, with a style made from
-//!    the theme that can be changed field by field. [`DockView`] lays out
-//!    an app's panels in tabbed groups the user can split and drag.
+//! 4. [`widget`]: each a few components and [`Ui::interact`] calls, with a
+//!    style made from the theme that can be changed field by field.
+//!    - Actions: [`Button`], [`Link`].
+//!    - Choices: [`Toggle`], [`Checkbox`], [`RadioGroup`], [`Chip`],
+//!      [`Segmented`], [`Dropdown`], [`Swatches`].
+//!    - Values: [`Slider`], [`Stepper`], [`TextField`], [`ProgressBar`].
+//!    - Structure: [`TabBar`], [`Pager`], [`Disclosure`], [`ScrollArea`],
+//!      [`ListView`], [`EmptyState`], and [`DockView`] for panels in
+//!      tabbed groups the user can split and drag.
+//!    - Over the rest: tooltips ([`Ui::tooltip`]) and context menus
+//!      ([`Ui::open_menu`]).
 //!
 //! An app's own widget is the same shape as the built-in ones:
 //!
