@@ -186,6 +186,10 @@ pub struct UiState<Id: WidgetId> {
     /// The secondary button went down on this, there, this frame.
     pub(crate) secondary: Option<(Key<Id>, Point)>,
     pub(crate) popup: Popup<Id>,
+    /// Where widgets can be hit now: what [`Ui::clipped`] lets through.
+    ///
+    /// [`Ui::clipped`]: super::Ui::clipped
+    pub(crate) clip: Option<Rect>,
     pub(crate) edit: TextEdit,
     pub(crate) edit_for: Option<Key<Id>>,
     pub(crate) blink_from: Instant,
@@ -230,6 +234,7 @@ impl<Id: WidgetId> UiState<Id> {
             press: None,
             secondary: None,
             popup: Popup::default(),
+            clip: None,
             edit: TextEdit::new(),
             edit_for: None,
             blink_from: Instant::now(),
@@ -449,6 +454,7 @@ impl<Id: WidgetId> UiState<Id> {
         self.cursor = CursorIcon::Default;
         self.ime_area = None;
         self.tip.anchor = None;
+        self.clip = None;
         self.focus_seen = false;
     }
 
@@ -591,6 +597,13 @@ impl<Id: WidgetId> UiState<Id> {
         sense: Sense,
         enabled: bool,
     ) -> Interaction {
+        // Clipped out, it is still drawn into nothing; it takes no pointer.
+        let rect = match self.clip {
+            Some(clip) => rect
+                .intersection(clip)
+                .unwrap_or_else(|| Rect::new(rect.x, rect.y, 0.0, 0.0)),
+            None => rect,
+        };
         self.hits.push(Hit {
             rect,
             key,

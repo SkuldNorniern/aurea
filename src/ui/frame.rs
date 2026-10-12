@@ -268,6 +268,30 @@ impl<Id: WidgetId> Ui<'_, Id> {
         mem::take(&mut self.state.wheel)
     }
 
+    /// Runs `f` with drawing and the pointer both clipped to `rect`, inside
+    /// any clip already in force: what scrolls out of a list is neither
+    /// seen nor clicked.
+    pub fn clipped<R>(
+        &mut self,
+        rect: Rect,
+        f: impl FnOnce(&mut Self) -> AureaResult<R>,
+    ) -> AureaResult<R> {
+        let outer = self.state.clip;
+        let inner = match outer {
+            Some(clip) => rect
+                .intersection(clip)
+                .unwrap_or_else(|| Rect::new(rect.x, rect.y, 0.0, 0.0)),
+            None => rect,
+        };
+        self.ctx.save()?;
+        self.ctx.clip_rect(inner)?;
+        self.state.clip = Some(inner);
+        let result = f(self);
+        self.state.clip = outer;
+        self.ctx.restore()?;
+        result
+    }
+
     /// Where the secondary button went down on that part this frame.
     pub fn secondary_at(&self, id: Id, part: u16) -> Option<Point> {
         let key = Key::new(id, part);

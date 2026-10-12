@@ -133,6 +133,9 @@ pub use widget::dock::{
 pub use widget::dropdown::{Dropdown, DropdownStyle};
 pub use widget::popup::MenuItem;
 pub use widget::progress::{ProgressBar, ProgressStyle};
+pub use widget::scroll::{
+    ListRow, ListView, ScrollArea, ScrollStyle, scroll_into_view, visible_rows,
+};
 pub use widget::segmented::{Segmented, SegmentedStyle};
 pub use widget::slider::{Slider, SliderStyle};
 pub use widget::text_field::{FieldStyle, TextField};
