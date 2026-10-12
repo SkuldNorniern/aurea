@@ -3,8 +3,13 @@
 //! A [`Component`] paints itself into a rect and takes no input. A
 //! [`Surface`] is a rounded box with a fill, a border and a shadow, a
 //! [`Label`] is text, and a [`Mark`] is a small glyph drawn from lines: a
-//! tick, a chevron, a cross. Widgets are made of these, and so can an app's
+//! tick, a chevron, a cross. [`Separator`], [`Badge`] and [`Spinner`] say
+//! something small. Widgets are made of these, and so can an app's
 //! own: anything here can be drawn on its own or inside something larger.
+
+mod decor;
+
+pub use decor::{Badge, BadgeTone, Separator, Spinner};
 
 use crate::AureaResult;
 use crate::render::{Color, Font, Point, Rect};

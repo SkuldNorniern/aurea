@@ -121,7 +121,10 @@ pub use component::{
     EditableText, FocusRing, Knob, PanZoom, StateColors, TextOutcome, Track, card,
 };
 pub use frame::{Align, Eased, PressAt, Response, Ui};
-pub use paint::{Border, Component, Label, Mark, MarkShape, Overflow, Shadow, Surface, TextSize};
+pub use paint::{
+    Badge, BadgeTone, Border, Component, Label, Mark, MarkShape, Overflow, Separator, Shadow,
+    Spinner, Surface, TextSize,
+};
 pub use state::{Channel, Fonts, Interaction, Sense, UiState, WidgetId};
 pub use theme::{Motion, Palette, Theme};
 pub use widget::Widget;
