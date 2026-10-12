@@ -2,7 +2,7 @@
 
 use crate::numeric::f32_to_u32_clamped;
 use std::collections::HashMap;
-use std::mem::size_of;
+use std::mem::{self, size_of};
 
 use wgpu::util::DeviceExt;
 
@@ -10,17 +10,26 @@ use aurea_foundation::{AureaError, AureaResult};
 
 use crate::batch::{CircleInstance, DrawRef, RectInstance};
 use crate::capabilities::GpuFeatures;
-use crate::gpu2d::{FramePlan, Gpu2dBackend, Gpu2dRenderer};
+use crate::gpu2d::{FramePlan, Gpu2dBackend, Gpu2dRenderer, ImagePlanEntry};
 use crate::renderer::FrameOutcome;
+use crate::types::Rect;
 
 use super::buffer::InstanceBuffer;
-use super::shaders::{CIRCLE_SHADER, GRADIENT_SHADER, RECT_SHADER};
+use super::shaders::{CIRCLE_SHADER, GRADIENT_SHADER, IMAGE_SHADER, RECT_SHADER, TEXT_SHADER};
 
 const GRADIENT_INSTANCE_STRIDE: usize = size_of::<f32>() * 12;
+const IMAGE_INSTANCE_STRIDE: usize = size_of::<f32>() * 12;
+const TEXT_INSTANCE_STRIDE: usize = size_of::<f32>() * 8;
 
 struct SlotResource {
-    _texture: wgpu::Texture,
+    texture: wgpu::Texture,
     bind_group: wgpu::BindGroup,
+}
+
+struct CpuFrame {
+    slot: u32,
+    width: u32,
+    height: u32,
 }
 
 pub struct WgpuBackend {
@@ -36,11 +45,18 @@ pub struct WgpuBackend {
     rect_pipeline: wgpu::RenderPipeline,
     circle_pipeline: wgpu::RenderPipeline,
     gradient_pipeline: wgpu::RenderPipeline,
+    image_pipeline: wgpu::RenderPipeline,
+    text_pipeline: wgpu::RenderPipeline,
     rect_buf: InstanceBuffer,
     circle_buf: InstanceBuffer,
     gradient_buf: InstanceBuffer,
+    image_buf: InstanceBuffer,
+    text_buf: InstanceBuffer,
+    packed: Vec<u8>,
     next_slot: u32,
     slot_resources: HashMap<u32, SlotResource>,
+    cpu_frame: Option<CpuFrame>,
+    cpu_plan: FramePlan,
 }
 
 /// `Gpu2dRenderer` parameterised on `WgpuBackend`.
@@ -221,41 +237,28 @@ impl WgpuBackend {
             cache: None,
         });
 
-        let gradient_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("aurea-wgpu2d-gradient"),
-            source: wgpu::ShaderSource::Wgsl(GRADIENT_SHADER.into()),
-        });
-        let gradient_attrs =
-            wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4];
-        let gradient_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("aurea-wgpu2d-gradient-pipeline"),
-            layout: Some(&tex_layout),
-            vertex: wgpu::VertexState {
-                module: &gradient_shader,
-                entry_point: Some("vs_main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: GRADIENT_INSTANCE_STRIDE as wgpu::BufferAddress,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &gradient_attrs,
-                }],
-            },
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &gradient_shader,
-                entry_point: Some("fs_main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        let textured =
+            |label: &str, source: &str, attrs: &[wgpu::VertexAttribute], stride: usize| {
+                textured_pipeline(&device, &tex_layout, format, (label, source), attrs, stride)
+            };
+        let gradient_pipeline = textured(
+            "aurea-wgpu2d-gradient",
+            GRADIENT_SHADER,
+            &wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4],
+            GRADIENT_INSTANCE_STRIDE,
+        );
+        let image_pipeline = textured(
+            "aurea-wgpu2d-image",
+            IMAGE_SHADER,
+            &wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4],
+            IMAGE_INSTANCE_STRIDE,
+        );
+        let text_pipeline = textured(
+            "aurea-wgpu2d-text",
+            TEXT_SHADER,
+            &wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4],
+            TEXT_INSTANCE_STRIDE,
+        );
 
         let rect_buf = InstanceBuffer::new(
             &device,
@@ -272,6 +275,13 @@ impl WgpuBackend {
             "aurea-wgpu2d-gradient-instances",
             GRADIENT_INSTANCE_STRIDE,
         );
+        let image_buf = InstanceBuffer::new(
+            &device,
+            "aurea-wgpu2d-image-instances",
+            IMAGE_INSTANCE_STRIDE,
+        );
+        let text_buf =
+            InstanceBuffer::new(&device, "aurea-wgpu2d-text-instances", TEXT_INSTANCE_STRIDE);
 
         Self {
             device,
@@ -286,11 +296,18 @@ impl WgpuBackend {
             rect_pipeline,
             circle_pipeline,
             gradient_pipeline,
+            image_pipeline,
+            text_pipeline,
             rect_buf,
             circle_buf,
             gradient_buf,
+            image_buf,
+            text_buf,
+            packed: Vec::new(),
             next_slot: 0,
             slot_resources: HashMap::new(),
+            cpu_frame: None,
+            cpu_plan: FramePlan::new(),
         }
     }
 
@@ -341,10 +358,179 @@ impl WgpuBackend {
             ],
         });
         SlotResource {
-            _texture: texture,
+            texture,
             bind_group,
         }
     }
+    fn upload_instances(
+        &mut self,
+        plan: &FramePlan,
+        rects: &[RectInstance],
+        circles: &[CircleInstance],
+    ) {
+        self.rect_buf
+            .upload(&self.device, &self.queue, cast_bytes(rects));
+        self.circle_buf
+            .upload(&self.device, &self.queue, cast_bytes(circles));
+        self.packed.clear();
+        for g in &plan.gradients {
+            for v in [&g.rect, &g.a, &g.b] {
+                self.packed.extend_from_slice(cast_bytes(v.as_ref()));
+            }
+        }
+        self.gradient_buf
+            .upload(&self.device, &self.queue, &self.packed);
+        self.packed.clear();
+        for img in &plan.images {
+            for v in [&img.rect, &img.uv, &img.tint] {
+                self.packed.extend_from_slice(cast_bytes(v.as_ref()));
+            }
+        }
+        self.image_buf
+            .upload(&self.device, &self.queue, &self.packed);
+        self.packed.clear();
+        for t in &plan.texts {
+            for v in [&t.rect, &t.color] {
+                self.packed.extend_from_slice(cast_bytes(v.as_ref()));
+            }
+        }
+        self.text_buf
+            .upload(&self.device, &self.queue, &self.packed);
+    }
+
+    fn record(&self, pass: &mut wgpu::RenderPass<'_>, plan: &FramePlan, draw: DrawRef) {
+        match draw {
+            DrawRef::Rect(idx) => {
+                pass.set_pipeline(&self.rect_pipeline);
+                pass.set_vertex_buffer(0, self.rect_buf.buffer.slice(..));
+                pass.draw(0..6, idx..idx + 1);
+            }
+            DrawRef::Circle(idx) => {
+                pass.set_pipeline(&self.circle_pipeline);
+                pass.set_vertex_buffer(0, self.circle_buf.buffer.slice(..));
+                pass.draw(0..6, idx..idx + 1);
+            }
+            DrawRef::Gradient(idx) => {
+                let slot = plan.gradients.get(idx as usize).map(|g| g.slot);
+                let kind = (&self.gradient_pipeline, &self.gradient_buf);
+                self.textured_draw(pass, kind, slot, idx);
+            }
+            DrawRef::Image(idx) => {
+                let slot = plan.images.get(idx as usize).map(|i| i.slot);
+                let kind = (&self.image_pipeline, &self.image_buf);
+                self.textured_draw(pass, kind, slot, idx);
+            }
+            DrawRef::Text(idx) => {
+                let slot = plan.texts.get(idx as usize).map(|t| t.slot);
+                let kind = (&self.text_pipeline, &self.text_buf);
+                self.textured_draw(pass, kind, slot, idx);
+            }
+        }
+    }
+
+    fn textured_draw(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        (pipeline, instances): (&wgpu::RenderPipeline, &InstanceBuffer),
+        slot: Option<u32>,
+        idx: u32,
+    ) {
+        let Some(res) = slot.and_then(|slot| self.slot_resources.get(&slot)) else {
+            return;
+        };
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(1, &res.bind_group, &[]);
+        pass.set_vertex_buffer(0, instances.buffer.slice(..));
+        pass.draw(0..6, idx..idx + 1);
+    }
+}
+
+fn set_clip(pass: &mut wgpu::RenderPass<'_>, clip: Option<Rect>, vw: u32, vh: u32) -> bool {
+    let (x, y, w, h) = match clip {
+        None => (0, 0, vw, vh),
+        Some(r) => {
+            let x0 = f32_to_u32_clamped(r.x.max(0.0).round()).min(vw);
+            let y0 = f32_to_u32_clamped(r.y.max(0.0).round()).min(vh);
+            let x1 = f32_to_u32_clamped((r.x + r.width).round()).min(vw);
+            let y1 = f32_to_u32_clamped((r.y + r.height).round()).min(vh);
+            (x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0))
+        }
+    };
+    if w == 0 || h == 0 {
+        return false;
+    }
+    pass.set_scissor_rect(x, y, w, h);
+    true
+}
+
+fn write_rgba(
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    (width, height): (u32, u32),
+    rgba: &[u8],
+) {
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        rgba,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(width * 4),
+            rows_per_image: Some(height),
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
+}
+
+fn textured_pipeline(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    format: wgpu::TextureFormat,
+    (label, source): (&str, &str),
+    attributes: &[wgpu::VertexAttribute],
+    stride: usize,
+) -> wgpu::RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some(label),
+        source: wgpu::ShaderSource::Wgsl(source.into()),
+    });
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some(label),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: stride as wgpu::BufferAddress,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes,
+            }],
+        },
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        multiview_mask: None,
+        cache: None,
+    })
 }
 
 impl Gpu2dBackend for WgpuBackend {
@@ -375,8 +561,60 @@ impl Gpu2dBackend for WgpuBackend {
     fn features(&self) -> GpuFeatures {
         GpuFeatures {
             gradients: true,
+            images: true,
+            text: true,
+            clips: true,
             ..GpuFeatures::NONE
         }
+    }
+
+    fn present_pixels(
+        &mut self,
+        rgba: &[u8],
+        width: u32,
+        height: u32,
+    ) -> AureaResult<FrameOutcome> {
+        let reuse = self
+            .cpu_frame
+            .as_ref()
+            .filter(|f| f.width == width && f.height == height)
+            .map(|f| f.slot);
+        let slot = match reuse {
+            Some(slot) => {
+                if let Some(res) = self.slot_resources.get(&slot) {
+                    write_rgba(&self.queue, &res.texture, (width, height), rgba);
+                }
+                slot
+            }
+            None => {
+                if let Some(old) = self.cpu_frame.take() {
+                    self.slot_resources.remove(&old.slot);
+                }
+                let slot = self.upload_image(width, height, rgba)?;
+                self.cpu_frame = Some(CpuFrame {
+                    slot,
+                    width,
+                    height,
+                });
+                slot
+            }
+        };
+        let mut plan = mem::take(&mut self.cpu_plan);
+        plan.reset();
+        plan.viewport_width = width;
+        plan.viewport_height = height;
+        #[allow(clippy::cast_precision_loss)]
+        plan.images.push(ImagePlanEntry {
+            rect: [0.0, 0.0, width as f32, height as f32],
+            uv: [0.0, 0.0, 1.0, 1.0],
+            tint: [1.0; 4],
+            slot,
+        });
+        plan.order.push(DrawRef::Image(0));
+        plan.clips.push(None);
+        let outcome = self.present_frame(&plan, &[], &[]);
+        self.cpu_plan = plan;
+        outcome
     }
 
     fn present_frame(
@@ -385,20 +623,7 @@ impl Gpu2dBackend for WgpuBackend {
         rects: &[RectInstance],
         circles: &[CircleInstance],
     ) -> AureaResult<FrameOutcome> {
-        let mut gradient_bytes =
-            Vec::with_capacity(plan.gradients.len() * GRADIENT_INSTANCE_STRIDE);
-        for g in &plan.gradients {
-            gradient_bytes.extend_from_slice(cast_bytes(g.rect.as_ref()));
-            gradient_bytes.extend_from_slice(cast_bytes(g.a.as_ref()));
-            gradient_bytes.extend_from_slice(cast_bytes(g.b.as_ref()));
-        }
-
-        self.rect_buf
-            .upload(&self.device, &self.queue, cast_bytes(rects));
-        self.circle_buf
-            .upload(&self.device, &self.queue, cast_bytes(circles));
-        self.gradient_buf
-            .upload(&self.device, &self.queue, &gradient_bytes);
+        self.upload_instances(plan, rects, circles);
 
         if self.lost {
             return Ok(FrameOutcome::Recreate);
@@ -458,31 +683,12 @@ impl Gpu2dBackend for WgpuBackend {
             });
 
             pass.set_bind_group(0, &self.viewport_bind_group, &[]);
-
-            for draw in &plan.order {
-                match *draw {
-                    DrawRef::Rect(idx) => {
-                        pass.set_pipeline(&self.rect_pipeline);
-                        pass.set_vertex_buffer(0, self.rect_buf.buffer.slice(..));
-                        pass.draw(0..6, idx..idx + 1);
-                    }
-                    DrawRef::Circle(idx) => {
-                        pass.set_pipeline(&self.circle_pipeline);
-                        pass.set_vertex_buffer(0, self.circle_buf.buffer.slice(..));
-                        pass.draw(0..6, idx..idx + 1);
-                    }
-                    DrawRef::Gradient(idx) => {
-                        if let Some(slot) = plan.gradients.get(idx as usize).map(|g| g.slot)
-                            && let Some(res) = self.slot_resources.get(&slot)
-                        {
-                            pass.set_pipeline(&self.gradient_pipeline);
-                            pass.set_bind_group(1, &res.bind_group, &[]);
-                            pass.set_vertex_buffer(0, self.gradient_buf.buffer.slice(..));
-                            pass.draw(0..6, idx..idx + 1);
-                        }
-                    }
-                    DrawRef::Image(_) | DrawRef::Text(_) => {}
+            for (i, draw) in plan.order.iter().enumerate() {
+                let clip = plan.clips.get(i).copied().flatten();
+                if !set_clip(&mut pass, clip, plan.viewport_width, plan.viewport_height) {
+                    continue;
                 }
+                self.record(&mut pass, plan, *draw);
             }
         }
 

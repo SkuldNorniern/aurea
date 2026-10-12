@@ -142,3 +142,95 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     return textureSample(lut_tex, lut_sampler, vec2<f32>(u, 0.5));
 }
 "#;
+
+/// Samples an RGBA image over its rect, `uv` picking the part of the texture shown, tinted (for
+/// opacity) by `tint`.
+pub const IMAGE_SHADER: &str = r#"
+struct Viewport {
+    size: vec2<f32>,
+    _pad: vec2<f32>,
+};
+@group(0) @binding(0) var<uniform> viewport: Viewport;
+@group(1) @binding(0) var image_tex: texture_2d<f32>;
+@group(1) @binding(1) var image_sampler: sampler;
+
+struct Instance {
+    @location(0) rect: vec4<f32>,
+    @location(1) uv: vec4<f32>,
+    @location(2) tint: vec4<f32>,
+};
+
+struct VsOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) tint: vec4<f32>,
+};
+
+const CORNERS = array<vec2<f32>, 6>(
+    vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0), vec2<f32>(0.0, 1.0),
+    vec2<f32>(1.0, 0.0), vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0),
+);
+
+@vertex
+fn vs_main(@builtin(vertex_index) vidx: u32, instance: Instance) -> VsOut {
+    let corner = CORNERS[vidx];
+    let px = instance.rect.xy + corner * instance.rect.zw;
+    let ndc = (px / viewport.size) * 2.0 - 1.0;
+    var out: VsOut;
+    out.position = vec4<f32>(ndc.x, -ndc.y, 0.0, 1.0);
+    out.uv = instance.uv.xy + corner * instance.uv.zw;
+    out.tint = instance.tint;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    return textureSample(image_tex, image_sampler, in.uv) * in.tint;
+}
+"#;
+
+/// Draws a glyph run from its coverage mask: the mask's alpha is how much of each pixel the text
+/// covers, painted in `color`.
+pub const TEXT_SHADER: &str = r#"
+struct Viewport {
+    size: vec2<f32>,
+    _pad: vec2<f32>,
+};
+@group(0) @binding(0) var<uniform> viewport: Viewport;
+@group(1) @binding(0) var mask_tex: texture_2d<f32>;
+@group(1) @binding(1) var mask_sampler: sampler;
+
+struct Instance {
+    @location(0) rect: vec4<f32>,
+    @location(1) color: vec4<f32>,
+};
+
+struct VsOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) color: vec4<f32>,
+};
+
+const CORNERS = array<vec2<f32>, 6>(
+    vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0), vec2<f32>(0.0, 1.0),
+    vec2<f32>(1.0, 0.0), vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0),
+);
+
+@vertex
+fn vs_main(@builtin(vertex_index) vidx: u32, instance: Instance) -> VsOut {
+    let corner = CORNERS[vidx];
+    let px = instance.rect.xy + corner * instance.rect.zw;
+    let ndc = (px / viewport.size) * 2.0 - 1.0;
+    var out: VsOut;
+    out.position = vec4<f32>(ndc.x, -ndc.y, 0.0, 1.0);
+    out.uv = corner;
+    out.color = instance.color;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    let coverage = textureSample(mask_tex, mask_sampler, in.uv).a;
+    return vec4<f32>(in.color.rgb, in.color.a * coverage);
+}
+"#;
