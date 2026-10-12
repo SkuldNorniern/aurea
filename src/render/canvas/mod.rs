@@ -5,8 +5,8 @@ use crate::platform::handles::{NativeWindowHandle, native_handle_from_canvas_ptr
 use crate::registry::handle_key;
 use crate::{AureaError, AureaResult};
 use aurea_render::{
-    ClickCallback, Color, CpuRasterizer, DrawingContext, HoverCallback, InteractionRegistry,
-    InteractiveId, Point, Renderer, RendererBackend, Surface, SurfaceInfo,
+    ClickCallback, Color, CpuRasterizer, DrawingContext, FrameOutcome, HoverCallback,
+    InteractionRegistry, InteractiveId, Point, Renderer, RendererBackend, Surface, SurfaceInfo,
 };
 use aurea_runtime::{DamageRegion, FrameScheduler};
 use aurea_runtime::{FrameInfo, TickerId};
@@ -270,7 +270,9 @@ impl Canvas {
                     ctx.clear(bg_color)?;
                     draw_fn(ctx.as_mut())?;
                 }
-                renderer.end_frame()?;
+                if renderer.end_frame()? != FrameOutcome::Presented {
+                    return Ok(());
+                }
             }
         }
 
