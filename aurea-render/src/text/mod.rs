@@ -1,6 +1,7 @@
 //! Text rendering for Canvas.
 
 pub mod atlas;
+pub mod font;
 pub mod platform;
 
 #[cfg(windows)]
