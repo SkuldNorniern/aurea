@@ -15,9 +15,11 @@ use crate::platform::handles::NativeWindowHandle;
 use crate::platform::handles::native_handle_from_canvas_ptr;
 #[cfg(feature = "zengpu")]
 use crate::platform::zengpu::window_handles;
-#[cfg(feature = "zengpu")]
-use aurea_render::ZenGpuRenderer;
 use aurea_render::{Renderer, RendererBackend};
+#[cfg(feature = "zengpu")]
+use aurea_render::{ZenGpuContext, ZenGpuRenderer};
+#[cfg(feature = "zengpu")]
+use std::sync::Arc;
 #[cfg(feature = "zengpu")]
 use zengpu_hal::WindowHandles;
 
@@ -43,11 +45,22 @@ pub(super) fn ensure_canvas_renderer(
     }
 
     let handles = zengpu_canvas_handles(handle)?;
-    let (width, height, scale_factor) = {
+    let (width, height, scale_factor, context) = {
         let st = state.borrow_mut();
-        (st.width.max(1), st.height.max(1), st.scale_factor.max(1.0))
+        (
+            st.width.max(1),
+            st.height.max(1),
+            st.scale_factor.max(1.0),
+            st.gpu_context.clone(),
+        )
     };
-    let gpu = ZenGpuRenderer::new(&handles, width, height, scale_factor)?;
+    let context = match context {
+        Some(context) => context,
+        None => Arc::new(ZenGpuContext::new()?),
+    };
+    let gpu =
+        ZenGpuRenderer::with_context(&handles, Arc::clone(&context), width, height, scale_factor)?;
+    state.borrow_mut().gpu_context = Some(context);
     *renderer.borrow_mut() = Some(Box::new(gpu));
     Ok(true)
 }
