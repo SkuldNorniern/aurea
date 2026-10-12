@@ -4,7 +4,7 @@ use crate::command::DrawCommand;
 use crate::display_list::{DisplayItem, DisplayList};
 use crate::numeric::f32_to_u8_clamped;
 use crate::types::{
-    BlendMode, Color, GlyphMask, GradientStop, Image, LinearGradient, PaintStyle, Point,
+    BlendMode, Color, GlyphMask, GradientStop, Image, LinearGradient, Paint, PaintStyle, Point,
     RadialGradient, Rect,
 };
 use std::collections::HashMap;
@@ -278,6 +278,18 @@ impl RenderBatches {
         }
     }
 
+    fn push_square_round_rect(&mut self, rect: Rect, paint: &Paint, alpha: f32) {
+        let color = fade(paint.color, alpha);
+        match paint.style {
+            PaintStyle::Fill => self.push_rect(rect, color),
+            PaintStyle::Stroke if paint.stroke_width > 0.0 => {
+                for edge in stroke_edges(rect, paint.stroke_width) {
+                    self.push_rect(edge, color);
+                }
+            }
+            PaintStyle::Stroke => {}
+        }
+    }
     fn lower_item(&mut self, item: &DisplayItem) {
         {
             let Some(alpha) = drawable_alpha(item) else {
@@ -380,6 +392,9 @@ impl RenderBatches {
                             color: fade(*color, alpha),
                         });
                     }
+                }
+                DrawCommand::DrawRoundRect(rect, _, paint) => {
+                    self.push_square_round_rect(*rect, paint, alpha);
                 }
                 _ => self.dropped += 1,
             }

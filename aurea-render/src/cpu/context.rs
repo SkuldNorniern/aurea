@@ -341,6 +341,20 @@ impl<'list> RecordingContext<'list> {
                 paint.style.hash(&mut hasher);
                 paint.stroke_width.to_bits().hash(&mut hasher);
             }
+            super::super::command::DrawCommand::DrawRoundRect(rect, radius, paint) => {
+                "DrawRoundRect".hash(&mut hasher);
+                rect.x.to_bits().hash(&mut hasher);
+                rect.y.to_bits().hash(&mut hasher);
+                rect.width.to_bits().hash(&mut hasher);
+                rect.height.to_bits().hash(&mut hasher);
+                radius.to_bits().hash(&mut hasher);
+                paint.color.r.hash(&mut hasher);
+                paint.color.g.hash(&mut hasher);
+                paint.color.b.hash(&mut hasher);
+                paint.color.a.hash(&mut hasher);
+                paint.style.hash(&mut hasher);
+                paint.stroke_width.to_bits().hash(&mut hasher);
+            }
             super::super::command::DrawCommand::DrawCircle(center, radius, paint) => {
                 "DrawCircle".hash(&mut hasher);
                 center.x.to_bits().hash(&mut hasher);
@@ -459,6 +473,17 @@ impl<'list> RecordingContext<'list> {
         match command {
             super::super::command::DrawCommand::Clear(_) => Rect::new(0.0, 0.0, f32::MAX, f32::MAX),
             super::super::command::DrawCommand::DrawRect(rect, paint) => {
+                let mut bounds = *rect;
+                if paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0 {
+                    let half_stroke = paint.stroke_width / 2.0;
+                    bounds.x -= half_stroke;
+                    bounds.y -= half_stroke;
+                    bounds.width += paint.stroke_width;
+                    bounds.height += paint.stroke_width;
+                }
+                bounds
+            }
+            super::super::command::DrawCommand::DrawRoundRect(rect, _, paint) => {
                 let mut bounds = *rect;
                 if paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0 {
                     let half_stroke = paint.stroke_width / 2.0;
@@ -592,6 +617,17 @@ impl DrawingContext for RecordingContext<'_> {
         self.draw_path(&path, paint)
     }
 
+    fn draw_round_rect(&mut self, rect: Rect, radius: f32, paint: &Paint) -> AureaResult<()> {
+        if !self.transform_is_axis_aligned() {
+            return self.draw_path(&Path::rounded_rect(rect, radius), paint);
+        }
+        self.add_command(super::super::command::DrawCommand::DrawRoundRect(
+            self.s_rect(rect),
+            self.s(radius),
+            self.s_paint(paint),
+        ));
+        Ok(())
+    }
     fn draw_rect(&mut self, rect: Rect, paint: &Paint) -> AureaResult<()> {
         if !self.transform_is_axis_aligned() {
             let path = self.transformed_rect_path(rect);

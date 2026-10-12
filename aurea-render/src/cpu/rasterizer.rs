@@ -150,6 +150,17 @@ impl CpuRasterizer {
                     clip,
                 );
             }
+            DrawCommand::DrawRoundRect(rect, radius, paint) => {
+                super::round_rect::draw(
+                    *rect,
+                    *radius,
+                    &fade_paint(paint, alpha),
+                    item.blend_mode,
+                    buf,
+                    bw,
+                    clip,
+                );
+            }
             DrawCommand::DrawCircle(center, radius, paint) => {
                 Self::draw_circle(
                     *center,

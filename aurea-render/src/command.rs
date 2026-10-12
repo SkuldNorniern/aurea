@@ -8,6 +8,8 @@ use super::types::{
 pub enum DrawCommand {
     Clear(Color),
     DrawRect(Rect, Paint),
+    /// A rect with corners of the given radius; a stroke is centred on the outline.
+    DrawRoundRect(Rect, f32, Paint),
     DrawCircle(Point, f32, Paint),
     DrawPath(Path, Paint),
     DrawText(String, Point, Paint),
