@@ -1,4 +1,5 @@
-//! A switch and a checkbox: a [`Track`] or box, a [`Knob`] or tick, and a [`Label`].
+//! A switch and a checkbox: a [`Track`](crate::ui::Track) or box, a [`Knob`](crate::ui::Knob) or
+//! tick, and a [`Label`].
 
 use super::Widget;
 use crate::AureaResult;
