@@ -135,6 +135,7 @@ pub use widget::dock::{
     DockView,
 };
 pub use widget::dropdown::{Dropdown, DropdownStyle};
+pub use widget::pager::{Pager, PagerStyle};
 pub use widget::popup::MenuItem;
 pub use widget::progress::{ProgressBar, ProgressStyle};
 pub use widget::radio::{RadioGroup, RadioStyle};

@@ -10,6 +10,7 @@ pub mod button;
 pub mod chip;
 pub mod dock;
 pub mod dropdown;
+pub mod pager;
 pub(crate) mod popup;
 pub mod progress;
 pub mod radio;
