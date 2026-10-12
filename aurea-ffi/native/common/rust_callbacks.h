@@ -39,6 +39,17 @@ void ng_invoke_ime_preedit(void* window, const char* text, int cursor);
 void ng_invoke_focus_changed(void* window, int focused);
 void ng_invoke_cursor_entered(void* window, int entered);
 void ng_invoke_raw_mouse_motion(void* window, double delta_x, double delta_y);
+void ng_invoke_pen(
+    void* window,
+    double x,
+    double y,
+    float pressure,
+    float tilt_x,
+    float tilt_y,
+    float twist,
+    unsigned int phase,
+    unsigned int flags,
+    unsigned int modifiers);
 void ng_invoke_scale_factor_changed(void* window, float scale_factor);
 void ng_invoke_canvas_resized(void* canvas);
 

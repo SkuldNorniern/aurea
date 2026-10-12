@@ -3,6 +3,7 @@
 #include "window.h"
 #include "menu.h"
 #include "ime.h"
+#include "pen.h"
 #include "common/shortcuts.h"
 #include "elements/common.h"
 #include "common/errors.h"
@@ -147,7 +148,7 @@ void ng_windows_present(void) {
     }
 }
 
-static unsigned int ng_windows_modifiers(void) {
+unsigned int ng_windows_modifiers(void) {
     unsigned int mods = 0;
     if (GetKeyState(VK_SHIFT) & 0x8000) {
         mods |= NG_MOD_SHIFT;
@@ -449,6 +450,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 ng_windows_modifiers());
             break;
         }
+        case WM_POINTERDOWN:
+        case WM_POINTERUPDATE:
+        case WM_POINTERUP:
+            ng_windows_pen_message(hwnd, uMsg, wParam);
+            break;
         case WM_MOUSELEAVE:
             RemovePropA(hwnd, AUREA_TRACKING_PROP);
             ng_windows_recheck_pointer(hwnd);

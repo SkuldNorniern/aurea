@@ -1,10 +1,12 @@
 #include "common.h"
 #include "../elements.h"
 #include "../window.h"
+#include "../pen.h"
 #include "common/errors.h"
 #include "common/rust_callbacks.h"
 #include <windows.h>
 #include <windowsx.h>
+#include <tpcshrd.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -96,6 +98,15 @@ static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             }
             break;
         }
+
+        case WM_POINTERDOWN:
+        case WM_POINTERUPDATE:
+        case WM_POINTERUP:
+            ng_windows_pen_message(canvas_find_root_window(hwnd), msg, wParam);
+            break;
+
+        case WM_TABLET_QUERYSYSTEMGESTURESTATUS:
+            return TABLET_DISABLE_PRESSANDHOLD | TABLET_DISABLE_FLICKS | TABLET_DISABLE_FLICKFALLBACKKEYS;
 
         case WM_SIZE:
             ng_invoke_canvas_resized((void*)hwnd);
