@@ -144,6 +144,7 @@ pub use widget::scroll::{
 pub use widget::segmented::{Segmented, SegmentedStyle};
 pub use widget::slider::{Slider, SliderStyle};
 pub use widget::stepper::{Stepper, StepperStyle};
+pub use widget::tabs::{TabBar, TabStyle};
 pub use widget::text_field::{FieldStyle, TextField};
 pub use widget::toggle::{Checkbox, CheckboxStyle, Toggle, ToggleStyle};
 
