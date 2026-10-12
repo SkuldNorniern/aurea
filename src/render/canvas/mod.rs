@@ -377,21 +377,13 @@ impl Canvas {
         self.size().1
     }
 
-    /// Start a per-frame ticker animation tied to this canvas.
+    /// Old name for [`Self::on_frame`].
+    #[deprecated(note = "use `Canvas::on_frame`, which does the same")]
     pub fn animate<F>(&self, ticker: F) -> TickerId
     where
         F: FnMut(FrameInfo) -> bool + Send + 'static,
     {
-        let state = self.state.clone();
-        let handle_usize = self.handle as usize;
-        let mut user_ticker = ticker;
-
-        FrameScheduler::register_ticker(move |info| {
-            let keep = user_ticker(info);
-            state.borrow_mut().needs_redraw = true;
-            FrameScheduler::schedule_canvas(handle_usize as *mut c_void);
-            keep
-        })
+        self.on_frame(ticker)
     }
 
     pub fn scale_factor(&self) -> f32 {
