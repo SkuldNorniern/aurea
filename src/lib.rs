@@ -18,6 +18,7 @@ pub mod prelude;
 pub mod registry;
 pub mod render;
 pub mod tray;
+pub mod ui;
 pub mod window;
 
 pub use aurea_runtime::{DamageRegion, FrameInfo, FrameScheduler};
