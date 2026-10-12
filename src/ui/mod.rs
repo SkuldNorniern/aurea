@@ -15,11 +15,13 @@
 //!    moving, and shape and text calls draw.
 //! 2. [`paint`]: pieces that only draw. [`Surface`], [`Label`], [`Mark`].
 //! 3. [`component`]: pieces that follow input. [`StateColors`],
-//!    [`FocusRing`], [`Track`], [`Knob`], [`EditableText`].
+//!    [`FocusRing`], [`Track`], [`Knob`], [`EditableText`], and
+//!    [`PanZoom`] for an editor's view.
 //! 4. [`widget`]: [`Button`], [`Toggle`], [`Checkbox`], [`Slider`],
 //!    [`Segmented`], [`ProgressBar`] and [`TextField`], each one
 //!    [`Ui::interact`] call and a few components, with a style made from
-//!    the theme that can be changed field by field.
+//!    the theme that can be changed field by field. [`DockView`] lays out
+//!    an app's panels in tabbed groups the user can split and drag.
 //!
 //! An app's own widget is the same shape as the built-in ones:
 //!
