@@ -7,6 +7,7 @@
 //! [`Ui::add`].
 
 pub mod button;
+pub mod progress;
 pub mod segmented;
 pub mod slider;
 pub mod toggle;
