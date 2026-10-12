@@ -180,7 +180,10 @@ impl FrameOutcome {
 
 pub trait Renderer {
     fn init(&mut self, surface: Surface, info: SurfaceInfo) -> AureaResult<()>;
+    /// A new logical size at the current scale factor.
     fn resize(&mut self, width: u32, height: u32) -> AureaResult<()>;
+    /// A new logical size and scale factor together: the one call to make whenever either changes.
+    fn configure(&mut self, info: SurfaceInfo) -> AureaResult<()>;
     /// Starts a frame and hands back a context to record into.
     fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext + '_>>;
     fn end_frame(&mut self) -> AureaResult<FrameOutcome>;
@@ -606,6 +609,10 @@ impl Renderer for PlaceholderRenderer {
         self.height = height;
         self.buffer = vec![0; (self.width * self.height) as usize];
         Ok(())
+    }
+
+    fn configure(&mut self, info: SurfaceInfo) -> AureaResult<()> {
+        self.resize(info.width, info.height)
     }
 
     fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext + '_>> {
