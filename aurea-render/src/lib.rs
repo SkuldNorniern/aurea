@@ -3,6 +3,8 @@
 mod batch;
 mod command;
 mod display_list;
+mod drawing;
+mod frame;
 mod gpu2d;
 mod interaction;
 mod numeric;
