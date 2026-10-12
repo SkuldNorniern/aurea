@@ -2,8 +2,8 @@
 
 use aurea_foundation::AureaResult;
 
-use crate::batch::{CircleInstance, DrawRef, RectInstance};
 use crate::capabilities::GpuFeatures;
+use crate::gpu::batch::{CircleInstance, DrawRef, RectInstance};
 use crate::renderer::FrameOutcome;
 
 use super::frame_plan::{FramePlan, ImagePlanEntry};

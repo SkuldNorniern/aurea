@@ -1,18 +1,10 @@
-//! Backend-agnostic GPU-2D rendering core.
-
-mod backend;
-mod frame_plan;
-mod resolve;
-mod texture_cache;
-
-pub use backend::Gpu2dBackend;
-pub use frame_plan::{FramePlan, GradientPlanEntry, ImagePlanEntry, TextPlanEntry};
+//! The GPU renderer shared by every backend.
 
 use aurea_foundation::AureaResult;
 
-use crate::batch::RenderBatches;
 use crate::capabilities::{Fallback, GpuFeatures};
 use crate::cpu::CpuRasterizer;
+use crate::gpu::batch::RenderBatches;
 use crate::numeric::f32_to_u32_clamped;
 use crate::recording::RecordingContext;
 use crate::renderer::{DrawingContext, FrameOutcome, Renderer};
@@ -20,8 +12,10 @@ use crate::scene::display_list::DisplayList;
 use crate::surface::{Surface, SurfaceInfo};
 use crate::types::Rect;
 
-use resolve::resolve_frame;
-use texture_cache::TextureCache;
+use super::backend::Gpu2dBackend;
+use super::frame_plan::FramePlan;
+use super::resolve::resolve_frame;
+use super::texture_cache::TextureCache;
 
 /// A 2D GPU renderer parameterized over its device backend.
 pub struct Gpu2dRenderer<B: Gpu2dBackend> {
@@ -226,7 +220,7 @@ fn physical(width: u32, height: u32, scale: f32) -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::batch::{CircleInstance, RectInstance};
+    use crate::gpu::batch::{CircleInstance, RectInstance};
     use crate::types::{Color, Paint};
 
     struct Probe {

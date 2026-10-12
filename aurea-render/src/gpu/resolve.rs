@@ -2,12 +2,12 @@
 
 use aurea_foundation::{AureaError, AureaResult};
 
-use crate::batch::{GradientInstance as BatchGradient, ImageDraw, RenderBatches, TextDraw};
+use crate::gpu::batch::{GradientInstance as BatchGradient, ImageDraw, RenderBatches, TextDraw};
 use crate::numeric::f32_to_u32_clamped;
 
-use crate::gpu2d::backend::Gpu2dBackend;
-use crate::gpu2d::frame_plan::{FramePlan, GradientPlanEntry, ImagePlanEntry, TextPlanEntry};
-use crate::gpu2d::texture_cache::TextureCache;
+use crate::gpu::backend::Gpu2dBackend;
+use crate::gpu::frame_plan::{FramePlan, GradientPlanEntry, ImagePlanEntry, TextPlanEntry};
+use crate::gpu::texture_cache::TextureCache;
 
 /// Fill `plan` from `batches`, resolving all texture slots through `cache`.
 pub fn resolve_frame<B: Gpu2dBackend>(

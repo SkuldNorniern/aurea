@@ -2,7 +2,7 @@
 
 use crate::types::Color;
 
-use crate::batch::DrawRef;
+use crate::gpu::batch::DrawRef;
 use crate::types::Rect;
 
 /// A resolved gradient instance: LUT texture slot assigned.

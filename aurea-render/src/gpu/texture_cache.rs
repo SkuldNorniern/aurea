@@ -140,9 +140,9 @@ impl TextureCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::batch::{CircleInstance, RectInstance};
     use crate::capabilities::GpuFeatures;
-    use crate::gpu2d::frame_plan::FramePlan;
+    use crate::gpu::batch::{CircleInstance, RectInstance};
+    use crate::gpu::frame_plan::FramePlan;
     use crate::renderer::FrameOutcome;
 
     #[derive(Default)]

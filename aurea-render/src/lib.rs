@@ -1,9 +1,8 @@
 //! Aurea's native rendering framework.
 
-mod batch;
 mod drawing;
 mod frame;
-mod gpu2d;
+mod gpu;
 mod interaction;
 mod numeric;
 mod renderer;
@@ -17,18 +16,12 @@ pub mod cpu;
 pub mod recording;
 pub mod text;
 
-#[cfg(feature = "zengpu")]
-pub mod zengpu;
-
-#[cfg(feature = "wgpu")]
-pub mod wgpu_backend;
-
-pub use batch::{
-    CircleInstance, DrawRef, GradientInstance, ImageDraw, RectInstance, RenderBatches, TextDraw,
-};
 pub use capabilities::{Fallback, GpuFeatures};
 pub use cpu::CpuRasterizer;
-pub use gpu2d::{
+pub use gpu::batch::{
+    CircleInstance, DrawRef, GradientInstance, ImageDraw, RectInstance, RenderBatches, TextDraw,
+};
+pub use gpu::{
     FramePlan, Gpu2dBackend, Gpu2dRenderer, GradientPlanEntry, ImagePlanEntry, TextPlanEntry,
 };
 pub use interaction::*;
@@ -40,7 +33,7 @@ pub use types::*;
 pub use viewport::*;
 
 #[cfg(feature = "zengpu")]
-pub use zengpu::{ZenGpuContext, ZenGpuRenderer};
+pub use gpu::zengpu::{self, ZenGpuContext, ZenGpuRenderer};
 
 #[cfg(feature = "wgpu")]
-pub use wgpu_backend::WgpuRenderer;
+pub use gpu::wgpu::{self as wgpu_backend, WgpuRenderer};
