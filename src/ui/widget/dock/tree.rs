@@ -4,6 +4,7 @@
 use std::mem;
 use std::ops::Range;
 
+use super::plan::DockPlan;
 use crate::render::{Point, Rect};
 
 /// Where a panel goes next to another.
@@ -164,6 +165,16 @@ impl<P> Default for DockTree<P> {
 }
 
 impl<P: Copy + PartialEq> DockTree<P> {
+    pub(super) fn root_plan(&self) -> Option<DockPlan<P>> {
+        self.root.as_ref().map(node_plan)
+    }
+
+    pub(super) fn from_root_plan(plan: &DockPlan<P>, seen: &mut Vec<P>) -> Self {
+        Self {
+            root: node_from_plan(plan, seen),
+        }
+    }
+
     /// One group holding `panel`.
     pub fn new(panel: P) -> Self {
         Self {
@@ -447,6 +458,54 @@ fn divide(rect: Rect, axis: DockAxis, ratio: f32, metrics: DockMetrics) -> (Rect
             let (bar, b) = rest.split_top(metrics.gap.min(rest.height), 0.0);
             (a, bar, b)
         }
+    }
+}
+
+fn node_plan<P: Copy>(node: &Node<P>) -> DockPlan<P> {
+    match node {
+        Node::Tabs { panels, active } => DockPlan::Tabs {
+            panels: panels.clone(),
+            active: *active,
+        },
+        Node::Split { axis, ratio, parts } => DockPlan::Split {
+            axis: *axis,
+            ratio: *ratio,
+            first: Box::new(node_plan(&parts[0])),
+            second: Box::new(node_plan(&parts[1])),
+        },
+    }
+}
+
+fn node_from_plan<P: Copy + PartialEq>(plan: &DockPlan<P>, seen: &mut Vec<P>) -> Option<Node<P>> {
+    match plan {
+        DockPlan::Tabs { panels, active } => {
+            let start = seen.len();
+            for &p in panels {
+                if !seen.contains(&p) {
+                    seen.push(p);
+                }
+            }
+            let panels = seen[start..].to_vec();
+            let active = (*active).min(panels.len().checked_sub(1)?);
+            Some(Node::Tabs { panels, active })
+        }
+        DockPlan::Split {
+            axis,
+            ratio,
+            first,
+            second,
+        } => match (node_from_plan(first, seen), node_from_plan(second, seen)) {
+            (Some(a), Some(b)) => Some(Node::Split {
+                axis: *axis,
+                ratio: if ratio.is_nan() {
+                    0.5
+                } else {
+                    ratio.clamp(0.0, 1.0)
+                },
+                parts: Box::new([a, b]),
+            }),
+            (part, None) | (None, part) => part,
+        },
     }
 }
 

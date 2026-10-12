@@ -1,8 +1,10 @@
 //! Docked panels: groups of tabs split across a rect, bars between them that drag to resize, and
 //! tabs that drag into another group or to one of its sides.
 
+mod plan;
 mod tree;
 
+pub use plan::DockPlan;
 pub use tree::{DockAxis, DockBar, DockGroup, DockLayout, DockMetrics, DockSide, DockTree};
 
 use super::Widget;
