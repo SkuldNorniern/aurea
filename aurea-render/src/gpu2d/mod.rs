@@ -59,6 +59,9 @@ pub struct Gpu2dRenderer<B: Gpu2dBackend> {
     logical_width: u32,
     logical_height: u32,
     scale_factor: f32,
+    /// The physical size the backend's surface was last given, so a
+    /// configure that changes nothing in pixels leaves it alone.
+    configured: (u32, u32),
     /// Whether the shortfall has already been reported, so a frame that keeps
     /// dropping the same draw says so once instead of every frame.
     warned_about_dropped: bool,
@@ -79,7 +82,14 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
             logical_width: width,
             logical_height: height,
             scale_factor: scale_factor.max(1.0),
+            // The backend is built at this size.
+            configured: physical(width, height, scale_factor.max(1.0)),
         }
+    }
+
+    /// Whether the target has no size, so nothing can be drawn.
+    fn suspended(&self) -> bool {
+        self.logical_width == 0 || self.logical_height == 0
     }
 
     /// Shared access to the device backend (for backend-specific extensions
@@ -95,11 +105,7 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
 
     /// Logical size scaled to physical pixels (clamped to ≥ 1).
     fn physical_size(&self) -> (u32, u32) {
-        let s = self.scale_factor;
-        (
-            f32_to_u32_clamped((self.logical_width as f32 * s).round()).max(1),
-            f32_to_u32_clamped((self.logical_height as f32 * s).round()).max(1),
-        )
+        physical(self.logical_width, self.logical_height, self.scale_factor)
     }
 
     /// Says once that this backend is leaving draws out of the frame.
@@ -121,18 +127,33 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
 
 impl<B: Gpu2dBackend + Send + Sync> Renderer for Gpu2dRenderer<B> {
     fn init(&mut self, _surface: Surface, info: SurfaceInfo) -> AureaResult<()> {
-        self.logical_width = info.width;
-        self.logical_height = info.height;
-        self.scale_factor = info.scale_factor.max(1.0);
-        Ok(())
+        self.configure(info)
     }
 
     fn resize(&mut self, width: u32, height: u32) -> AureaResult<()> {
-        self.logical_width = width;
-        self.logical_height = height;
+        self.configure(SurfaceInfo {
+            width,
+            height,
+            scale_factor: self.scale_factor,
+        })
+    }
+
+    fn configure(&mut self, info: SurfaceInfo) -> AureaResult<()> {
+        self.logical_width = info.width;
+        self.logical_height = info.height;
+        self.scale_factor = info.scale_factor.max(1.0);
         self.display_list.clear();
-        let (pw, ph) = self.physical_size();
-        self.backend.resize(pw, ph)
+        if self.suspended() {
+            return Ok(());
+        }
+        // A scale change alone changes the pixel size too; the surface has
+        // to follow either.
+        let size = self.physical_size();
+        if size != self.configured {
+            self.backend.resize(size.0, size.1)?;
+            self.configured = size;
+        }
+        Ok(())
     }
 
     fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext + '_>> {
@@ -149,6 +170,9 @@ impl<B: Gpu2dBackend + Send + Sync> Renderer for Gpu2dRenderer<B> {
     }
 
     fn end_frame(&mut self) -> AureaResult<FrameOutcome> {
+        if self.suspended() {
+            return Ok(FrameOutcome::Suspended);
+        }
         self.batches.lower_into(&self.display_list);
         self.report_dropped();
         let (pw, ph) = self.physical_size();
@@ -176,5 +200,93 @@ impl<B: Gpu2dBackend + Send + Sync> Renderer for Gpu2dRenderer<B> {
 
     fn display_list(&self) -> Option<&DisplayList> {
         Some(&self.display_list)
+    }
+}
+
+fn physical(width: u32, height: u32, scale: f32) -> (u32, u32) {
+    (
+        f32_to_u32_clamped((width as f32 * scale).round()).max(1),
+        f32_to_u32_clamped((height as f32 * scale).round()).max(1),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::batch::{CircleInstance, RectInstance};
+
+    /// Records what the renderer asks of it; presents with `outcome`.
+    struct Probe {
+        resized: Vec<(u32, u32)>,
+        outcome: FrameOutcome,
+    }
+
+    impl Gpu2dBackend for Probe {
+        fn resize(&mut self, w: u32, h: u32) -> AureaResult<()> {
+            self.resized.push((w, h));
+            Ok(())
+        }
+
+        fn upload_image(&mut self, _: u32, _: u32, _: &[u8]) -> AureaResult<u32> {
+            Ok(0)
+        }
+
+        fn evict_image(&mut self, _: u32) {}
+
+        fn present_frame(
+            &mut self,
+            _: &FramePlan,
+            _: &[RectInstance],
+            _: &[CircleInstance],
+        ) -> AureaResult<FrameOutcome> {
+            Ok(self.outcome)
+        }
+    }
+
+    fn renderer(outcome: FrameOutcome) -> Gpu2dRenderer<Probe> {
+        let probe = Probe {
+            resized: Vec::new(),
+            outcome,
+        };
+        Gpu2dRenderer::from_backend(probe, 100, 50, 1.0)
+    }
+
+    fn info(width: u32, height: u32, scale_factor: f32) -> SurfaceInfo {
+        SurfaceInfo {
+            width,
+            height,
+            scale_factor,
+        }
+    }
+
+    #[test]
+    fn a_scale_change_alone_resizes_the_surface() {
+        let mut r = renderer(FrameOutcome::Presented);
+        r.configure(info(100, 50, 2.0)).expect("configure");
+        assert_eq!(r.backend().resized, vec![(200, 100)]);
+        // Nothing changed in pixels: the surface is left alone.
+        r.configure(info(100, 50, 2.0)).expect("configure");
+        assert_eq!(r.backend().resized.len(), 1);
+    }
+
+    #[test]
+    fn no_size_suspends_until_there_is_one() {
+        let mut r = renderer(FrameOutcome::Presented);
+        r.configure(info(0, 50, 1.0)).expect("configure");
+        drop(r.begin_frame().expect("begin"));
+        assert_eq!(r.end_frame().expect("end"), FrameOutcome::Suspended);
+        assert!(r.backend().resized.is_empty());
+        r.configure(info(80, 50, 1.0)).expect("configure");
+        drop(r.begin_frame().expect("begin"));
+        assert_eq!(r.end_frame().expect("end"), FrameOutcome::Presented);
+    }
+
+    #[test]
+    fn a_frame_the_surface_refused_is_reported() {
+        let mut r = renderer(FrameOutcome::Retry);
+        drop(r.begin_frame().expect("begin"));
+        let outcome = r.end_frame().expect("end");
+        assert_eq!(outcome, FrameOutcome::Retry);
+        assert!(outcome.needs_redraw());
     }
 }

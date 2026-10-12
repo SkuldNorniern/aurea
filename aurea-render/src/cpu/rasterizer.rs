@@ -1347,6 +1347,11 @@ impl Renderer for CpuRasterizer {
         Ok(())
     }
 
+    fn configure(&mut self, info: SurfaceInfo) -> AureaResult<()> {
+        self.scale_factor = info.scale_factor.max(1.0);
+        self.resize(info.width, info.height)
+    }
+
     fn resize(&mut self, lw: u32, lh: u32) -> AureaResult<()> {
         self.has_frame = false;
         self.logical_width = lw;
