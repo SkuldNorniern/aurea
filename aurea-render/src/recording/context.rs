@@ -1,9 +1,11 @@
 //! Records draw calls into a display list.
 
-use super::super::display_list::{CacheKey, DisplayIndex, DisplayItem, DisplayList};
-use super::super::renderer::DrawingContext;
-use super::super::text::TextRenderer;
-use super::super::types::*;
+use crate::command::DrawCommand;
+use crate::cpu::hit_test::{hit_test_path, path_bounds};
+use crate::display_list::{CacheKey, DisplayIndex, DisplayItem, DisplayList};
+use crate::renderer::DrawingContext;
+use crate::text::{FontRef, TextRenderer};
+use crate::types::*;
 use aurea_foundation::{AureaError, AureaResult, Platform};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -27,7 +29,7 @@ pub fn measure_text(text: &str, font: &Font) -> AureaResult<TextMetrics> {
     }
     TEXT_RENDERER.measure_text(
         text,
-        super::super::text::FontRef::with_size(font, font.size),
+        FontRef::with_size(font, font.size),
     )
 }
 const DEFAULT_FONT_SIZE: f32 = 16.0;
@@ -78,7 +80,7 @@ pub struct RecordingContext<'list> {
     current_clip_rect: Option<Rect>,
     current_blend_mode: BlendMode,
     scale_factor: f32,
-    current_interactive_id: Option<super::super::types::InteractiveId>,
+    current_interactive_id: Option<InteractiveId>,
     width: u32,
     height: u32,
 }
@@ -271,14 +273,14 @@ impl<'list> RecordingContext<'list> {
     }
 
     /// Sets the interactive ID for the next drawn shapes (used for hit testing).
-    pub fn set_interactive_id(&mut self, id: Option<super::super::types::InteractiveId>) {
+    pub fn set_interactive_id(&mut self, id: Option<InteractiveId>) {
         self.current_interactive_id = id;
     }
 
     /// Draws a rectangle and marks it as interactive with the given ID.
     pub fn draw_interactive_rect(
         &mut self,
-        id: super::super::types::InteractiveId,
+        id: InteractiveId,
         rect: Rect,
         paint: &Paint,
     ) -> AureaResult<()> {
@@ -292,7 +294,7 @@ impl<'list> RecordingContext<'list> {
     /// Draws a circle and marks it as interactive with the given ID.
     pub fn draw_interactive_circle(
         &mut self,
-        id: super::super::types::InteractiveId,
+        id: InteractiveId,
         center: Point,
         radius: f32,
         paint: &Paint,
@@ -307,7 +309,7 @@ impl<'list> RecordingContext<'list> {
     /// Draws a path and marks it as interactive with the given ID.
     pub fn draw_interactive_path(
         &mut self,
-        id: super::super::types::InteractiveId,
+        id: InteractiveId,
         path: &Path,
         paint: &Paint,
     ) -> AureaResult<()> {
@@ -318,17 +320,17 @@ impl<'list> RecordingContext<'list> {
         result
     }
 
-    fn compute_cache_key(&self, command: &super::super::command::DrawCommand) -> CacheKey {
+    fn compute_cache_key(&self, command: &DrawCommand) -> CacheKey {
         let mut hasher = DefaultHasher::new();
         match command {
-            super::super::command::DrawCommand::Clear(color) => {
+            DrawCommand::Clear(color) => {
                 "Clear".hash(&mut hasher);
                 color.r.hash(&mut hasher);
                 color.g.hash(&mut hasher);
                 color.b.hash(&mut hasher);
                 color.a.hash(&mut hasher);
             }
-            super::super::command::DrawCommand::DrawRect(rect, paint) => {
+            DrawCommand::DrawRect(rect, paint) => {
                 "DrawRect".hash(&mut hasher);
                 rect.x.to_bits().hash(&mut hasher);
                 rect.y.to_bits().hash(&mut hasher);
@@ -341,7 +343,7 @@ impl<'list> RecordingContext<'list> {
                 paint.style.hash(&mut hasher);
                 paint.stroke_width.to_bits().hash(&mut hasher);
             }
-            super::super::command::DrawCommand::DrawRoundRect(rect, radius, paint) => {
+            DrawCommand::DrawRoundRect(rect, radius, paint) => {
                 "DrawRoundRect".hash(&mut hasher);
                 rect.x.to_bits().hash(&mut hasher);
                 rect.y.to_bits().hash(&mut hasher);
@@ -355,7 +357,7 @@ impl<'list> RecordingContext<'list> {
                 paint.style.hash(&mut hasher);
                 paint.stroke_width.to_bits().hash(&mut hasher);
             }
-            super::super::command::DrawCommand::DrawCircle(center, radius, paint) => {
+            DrawCommand::DrawCircle(center, radius, paint) => {
                 "DrawCircle".hash(&mut hasher);
                 center.x.to_bits().hash(&mut hasher);
                 center.y.to_bits().hash(&mut hasher);
@@ -367,7 +369,7 @@ impl<'list> RecordingContext<'list> {
                 paint.style.hash(&mut hasher);
                 paint.stroke_width.to_bits().hash(&mut hasher);
             }
-            super::super::command::DrawCommand::DrawImageRect(image, dest) => {
+            DrawCommand::DrawImageRect(image, dest) => {
                 "DrawImageRect".hash(&mut hasher);
                 image.width.hash(&mut hasher);
                 image.height.hash(&mut hasher);
@@ -377,7 +379,7 @@ impl<'list> RecordingContext<'list> {
                 dest.height.to_bits().hash(&mut hasher);
                 (Arc::as_ptr(&image.data) as *const u8 as usize).hash(&mut hasher);
             }
-            super::super::command::DrawCommand::DrawImageRegion(image, src, dest) => {
+            DrawCommand::DrawImageRegion(image, src, dest) => {
                 "DrawImageRegion".hash(&mut hasher);
                 image.width.hash(&mut hasher);
                 image.height.hash(&mut hasher);
@@ -391,7 +393,7 @@ impl<'list> RecordingContext<'list> {
                 dest.height.to_bits().hash(&mut hasher);
                 (Arc::as_ptr(&image.data) as *const u8 as usize).hash(&mut hasher);
             }
-            super::super::command::DrawCommand::FillLinearGradient(grad, rect) => {
+            DrawCommand::FillLinearGradient(grad, rect) => {
                 "FillLinearGradient".hash(&mut hasher);
                 grad.start.x.to_bits().hash(&mut hasher);
                 grad.start.y.to_bits().hash(&mut hasher);
@@ -409,7 +411,7 @@ impl<'list> RecordingContext<'list> {
                     stop.color.a.hash(&mut hasher);
                 }
             }
-            super::super::command::DrawCommand::FillRadialGradient(grad, rect) => {
+            DrawCommand::FillRadialGradient(grad, rect) => {
                 "FillRadialGradient".hash(&mut hasher);
                 grad.center.x.to_bits().hash(&mut hasher);
                 grad.center.y.to_bits().hash(&mut hasher);
@@ -426,7 +428,7 @@ impl<'list> RecordingContext<'list> {
                     stop.color.a.hash(&mut hasher);
                 }
             }
-            super::super::command::DrawCommand::DrawPath(path, paint) => {
+            DrawCommand::DrawPath(path, paint) => {
                 "DrawPath".hash(&mut hasher);
                 hash_path(path, &mut hasher);
                 paint.color.r.hash(&mut hasher);
@@ -436,7 +438,7 @@ impl<'list> RecordingContext<'list> {
                 paint.style.hash(&mut hasher);
                 paint.stroke_width.to_bits().hash(&mut hasher);
             }
-            super::super::command::DrawCommand::DrawGlyphMask(mask, origin, color) => {
+            DrawCommand::DrawGlyphMask(mask, origin, color) => {
                 "DrawGlyphMask".hash(&mut hasher);
                 mask.id().hash(&mut hasher);
                 mask.width.hash(&mut hasher);
@@ -469,10 +471,10 @@ impl<'list> RecordingContext<'list> {
         CacheKey::from_hash(hasher.finish())
     }
 
-    fn compute_bounds(&self, command: &super::super::command::DrawCommand) -> Rect {
+    fn compute_bounds(&self, command: &DrawCommand) -> Rect {
         match command {
-            super::super::command::DrawCommand::Clear(_) => Rect::new(0.0, 0.0, f32::MAX, f32::MAX),
-            super::super::command::DrawCommand::DrawRect(rect, paint) => {
+            DrawCommand::Clear(_) => Rect::new(0.0, 0.0, f32::MAX, f32::MAX),
+            DrawCommand::DrawRect(rect, paint) => {
                 let mut bounds = *rect;
                 if paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0 {
                     let half_stroke = paint.stroke_width / 2.0;
@@ -483,7 +485,7 @@ impl<'list> RecordingContext<'list> {
                 }
                 bounds
             }
-            super::super::command::DrawCommand::DrawRoundRect(rect, _, paint) => {
+            DrawCommand::DrawRoundRect(rect, _, paint) => {
                 let mut bounds = *rect;
                 if paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0 {
                     let half_stroke = paint.stroke_width / 2.0;
@@ -494,7 +496,7 @@ impl<'list> RecordingContext<'list> {
                 }
                 bounds
             }
-            super::super::command::DrawCommand::DrawCircle(center, radius, paint) => {
+            DrawCommand::DrawCircle(center, radius, paint) => {
                 let mut bounds = Rect::new(
                     center.x - radius,
                     center.y - radius,
@@ -510,15 +512,15 @@ impl<'list> RecordingContext<'list> {
                 }
                 bounds
             }
-            super::super::command::DrawCommand::DrawImageRect(_, dest) => *dest,
-            super::super::command::DrawCommand::DrawImageRegion(_, _, dest) => *dest,
-            super::super::command::DrawCommand::DrawGlyphMask(mask, origin, _) => {
+            DrawCommand::DrawImageRect(_, dest) => *dest,
+            DrawCommand::DrawImageRegion(_, _, dest) => *dest,
+            DrawCommand::DrawGlyphMask(mask, origin, _) => {
                 Rect::new(origin.x, origin.y, mask.width as f32, mask.height as f32)
             }
-            super::super::command::DrawCommand::FillLinearGradient(_, rect) => *rect,
-            super::super::command::DrawCommand::FillRadialGradient(_, rect) => *rect,
-            super::super::command::DrawCommand::DrawPath(path, paint) => {
-                let mut bounds = super::hit_test::path_bounds(path);
+            DrawCommand::FillLinearGradient(_, rect) => *rect,
+            DrawCommand::FillRadialGradient(_, rect) => *rect,
+            DrawCommand::DrawPath(path, paint) => {
+                let mut bounds = path_bounds(path);
                 if paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0 {
                     let half_stroke = paint.stroke_width / 2.0;
                     bounds.x -= half_stroke;
@@ -532,24 +534,24 @@ impl<'list> RecordingContext<'list> {
         }
     }
 
-    fn is_opaque(&self, command: &super::super::command::DrawCommand) -> bool {
+    fn is_opaque(&self, command: &DrawCommand) -> bool {
         match command {
-            super::super::command::DrawCommand::Clear(color) => color.a == 255,
-            super::super::command::DrawCommand::DrawRect(_, paint) => {
+            DrawCommand::Clear(color) => color.a == 255,
+            DrawCommand::DrawRect(_, paint) => {
                 paint.color.a == 255 && paint.style == PaintStyle::Fill
             }
-            super::super::command::DrawCommand::DrawCircle(_, _, paint) => {
+            DrawCommand::DrawCircle(_, _, paint) => {
                 paint.color.a == 255 && paint.style == PaintStyle::Fill
             }
-            super::super::command::DrawCommand::DrawImageRect(..)
-            | super::super::command::DrawCommand::DrawImageRegion(..) => false,
-            super::super::command::DrawCommand::FillLinearGradient(..)
-            | super::super::command::DrawCommand::FillRadialGradient(..) => false,
+            DrawCommand::DrawImageRect(..)
+            | DrawCommand::DrawImageRegion(..) => false,
+            DrawCommand::FillLinearGradient(..)
+            | DrawCommand::FillRadialGradient(..) => false,
             _ => false,
         }
     }
 
-    fn add_command(&mut self, command: super::super::command::DrawCommand) {
+    fn add_command(&mut self, command: DrawCommand) {
         let cache_key = self.compute_cache_key(&command);
         let bounds = self.compute_bounds(&command);
         let opaque = self.is_opaque(&command) && self.current_opacity >= 1.0;
@@ -591,7 +593,7 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn clear(&mut self, color: Color) -> AureaResult<()> {
-        self.add_command(super::super::command::DrawCommand::Clear(color));
+        self.add_command(DrawCommand::Clear(color));
         Ok(())
     }
 
@@ -621,7 +623,7 @@ impl DrawingContext for RecordingContext<'_> {
         if !self.transform_is_axis_aligned() {
             return self.draw_path(&Path::rounded_rect(rect, radius), paint);
         }
-        self.add_command(super::super::command::DrawCommand::DrawRoundRect(
+        self.add_command(DrawCommand::DrawRoundRect(
             self.s_rect(rect),
             self.s(radius),
             self.s_paint(paint),
@@ -631,13 +633,13 @@ impl DrawingContext for RecordingContext<'_> {
     fn draw_rect(&mut self, rect: Rect, paint: &Paint) -> AureaResult<()> {
         if !self.transform_is_axis_aligned() {
             let path = self.transformed_rect_path(rect);
-            self.add_command(super::super::command::DrawCommand::DrawPath(
+            self.add_command(DrawCommand::DrawPath(
                 path,
                 self.s_paint(paint),
             ));
             return Ok(());
         }
-        self.add_command(super::super::command::DrawCommand::DrawRect(
+        self.add_command(DrawCommand::DrawRect(
             self.s_rect(rect),
             self.s_paint(paint),
         ));
@@ -645,7 +647,7 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn draw_circle(&mut self, center: Point, radius: f32, paint: &Paint) -> AureaResult<()> {
-        self.add_command(super::super::command::DrawCommand::DrawCircle(
+        self.add_command(DrawCommand::DrawCircle(
             self.s_pt(center),
             self.s(radius),
             self.s_paint(paint),
@@ -654,7 +656,7 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn draw_path(&mut self, path: &Path, paint: &Paint) -> AureaResult<()> {
-        self.add_command(super::super::command::DrawCommand::DrawPath(
+        self.add_command(DrawCommand::DrawPath(
             self.physical_path(path),
             self.s_paint(paint),
         ));
@@ -677,7 +679,7 @@ impl DrawingContext for RecordingContext<'_> {
             return Ok(());
         }
 
-        let physical_font = super::super::text::FontRef::with_size(font, self.s(font.size));
+        let physical_font = FontRef::with_size(font, self.s(font.size));
         let (mask, ascent, pad) = TEXT_RENDERER.render_text_subpixel(text, physical_font)?;
         if mask.width == 0 || mask.height == 0 {
             return Ok(());
@@ -685,7 +687,7 @@ impl DrawingContext for RecordingContext<'_> {
 
         let anchor = self.s_pt(point);
         let origin = Point::new(anchor.x - pad, anchor.y - ascent - pad);
-        self.add_command(super::super::command::DrawCommand::DrawGlyphMask(
+        self.add_command(DrawCommand::DrawGlyphMask(
             mask,
             origin,
             paint.color,
@@ -702,7 +704,7 @@ impl DrawingContext for RecordingContext<'_> {
             image.width as f32 * zoom,
             image.height as f32 * zoom,
         );
-        self.add_command(super::super::command::DrawCommand::DrawImageRect(
+        self.add_command(DrawCommand::DrawImageRect(
             image.clone(),
             dest,
         ));
@@ -710,7 +712,7 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn draw_image_rect(&mut self, image: &Image, dest: Rect) -> AureaResult<()> {
-        self.add_command(super::super::command::DrawCommand::DrawImageRect(
+        self.add_command(DrawCommand::DrawImageRect(
             image.clone(),
             self.s_rect(dest),
         ));
@@ -718,7 +720,7 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn draw_image_region(&mut self, image: &Image, src: Rect, dest: Rect) -> AureaResult<()> {
-        self.add_command(super::super::command::DrawCommand::DrawImageRegion(
+        self.add_command(DrawCommand::DrawImageRegion(
             image.clone(),
             src,
             self.s_rect(dest),
@@ -737,7 +739,7 @@ impl DrawingContext for RecordingContext<'_> {
             });
         }
         let sf = self.scale_factor;
-        let physical_font = super::super::text::FontRef::with_size(font, font.size * sf);
+        let physical_font = FontRef::with_size(font, font.size * sf);
         let m = TEXT_RENDERER.measure_text(text, physical_font)?;
         Ok(TextMetrics {
             width: m.width / sf,
@@ -832,7 +834,7 @@ impl DrawingContext for RecordingContext<'_> {
         let mut g = gradient.clone();
         g.start = self.s_pt(g.start);
         g.end = self.s_pt(g.end);
-        self.add_command(super::super::command::DrawCommand::FillLinearGradient(
+        self.add_command(DrawCommand::FillLinearGradient(
             g,
             self.s_rect(rect),
         ));
@@ -843,7 +845,7 @@ impl DrawingContext for RecordingContext<'_> {
         let mut g = gradient.clone();
         g.center = self.s_pt(g.center);
         g.radius = self.s(g.radius);
-        self.add_command(super::super::command::DrawCommand::FillRadialGradient(
+        self.add_command(DrawCommand::FillRadialGradient(
             g,
             self.s_rect(rect),
         ));
@@ -851,7 +853,7 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn hit_test_path(&mut self, path: &Path, point: Point) -> AureaResult<bool> {
-        Ok(super::hit_test::hit_test_path(path, point))
+        Ok(hit_test_path(path, point))
     }
 }
 

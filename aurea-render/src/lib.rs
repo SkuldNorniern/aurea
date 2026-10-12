@@ -13,6 +13,7 @@ mod viewport;
 
 pub mod capabilities;
 pub mod cpu;
+pub mod recording;
 pub mod text;
 
 #[cfg(feature = "zengpu")]
