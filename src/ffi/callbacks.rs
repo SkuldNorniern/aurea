@@ -11,7 +11,8 @@ use crate::registry::elements::{
 use crate::registry::menu::invoke_menu_callback;
 use crate::registry::window::scale_factor_changed;
 use crate::window::{
-    KeyCode, Modifiers, MouseButton, MouseButtons, WindowEvent, push_window_event,
+    KeyCode, Modifiers, MouseButton, MouseButtons, PenPhase, PenSample, PenTool, WindowEvent,
+    push_window_event,
 };
 use aurea_runtime::FrameScheduler;
 
@@ -258,6 +259,49 @@ pub extern "C" fn ng_invoke_raw_mouse_motion(window: *mut c_void, delta_x: f64, 
     });
 }
 
+/// The pen flag bits native code sets.
+const PEN_ERASER: u32 = 1;
+const PEN_BARREL: u32 = 2;
+
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub extern "C" fn ng_invoke_pen(
+    window: *mut c_void,
+    x: f64,
+    y: f64,
+    pressure: f32,
+    tilt_x: f32,
+    tilt_y: f32,
+    twist: f32,
+    phase: u32,
+    flags: u32,
+    modifiers: u32,
+) {
+    guard("ng_invoke_pen", || {
+        let sample = PenSample {
+            x,
+            y,
+            pressure: pressure.clamp(0.0, 1.0),
+            tilt_x: tilt_x.clamp(-90.0, 90.0),
+            tilt_y: tilt_y.clamp(-90.0, 90.0),
+            twist: twist.rem_euclid(360.0),
+            phase: PenPhase::from_raw(phase),
+            tool: pen_tool(flags),
+            barrel: flags & PEN_BARREL != 0,
+            modifiers: Modifiers::from_bits(modifiers),
+        };
+        push_window_event(window, WindowEvent::Pen(sample));
+    });
+}
+
+fn pen_tool(flags: u32) -> PenTool {
+    if flags & PEN_ERASER != 0 {
+        PenTool::Eraser
+    } else {
+        PenTool::Tip
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_scale_factor_changed(window: *mut c_void, scale_factor: f32) {
     guard("ng_invoke_scale_factor_changed", || {
@@ -295,6 +339,24 @@ pub extern "C" fn ng_invoke_custom_callback(id: u32) {
 mod tests {
     use super::*;
     use crate::registry::elements::{next_button_id, register_button_callback};
+
+    #[test]
+    fn pen_flags_and_phases_read_as_sent() {
+        assert_eq!(pen_tool(0), PenTool::Tip);
+        assert_eq!(pen_tool(PEN_ERASER | PEN_BARREL), PenTool::Eraser);
+        let phases = [0, 1, 2, 3, 9].map(PenPhase::from_raw);
+        assert_eq!(
+            phases,
+            [
+                PenPhase::Hover,
+                PenPhase::Down,
+                PenPhase::Move,
+                PenPhase::Up,
+                PenPhase::Hover
+            ]
+        );
+        assert!(PenPhase::Down.touching() && !PenPhase::Up.touching());
+    }
 
     #[test]
     fn control_characters_are_not_typed_text() {
