@@ -414,7 +414,8 @@ impl Canvas {
     /// it new data from a plain ticker paints once and then looks frozen: the
     /// data changed but nothing said so. This ties the two together.
     ///
-    /// Return `false` from `tick` to stop; the ticker unregisters itself.
+    /// Return `false` from `tick` to stop; the ticker unregisters itself
+    /// after that frame is drawn, so the state the last tick left is shown.
     /// Otherwise it stops when the canvas is dropped.
     ///
     /// `tick` runs on the UI thread but is declared `Send` because the frame
@@ -439,13 +440,11 @@ impl Canvas {
     {
         let id = self.id();
         FrameScheduler::register_ticker(move |info| {
-            if !tick(info) {
-                return false;
-            }
+            let keep = tick(info);
             // A canvas that has gone away makes this a no-op, so a ticker
             // outliving its canvas cannot touch a dead handle.
             request_canvas_redraw(id);
-            true
+            keep
         })
     }
 
