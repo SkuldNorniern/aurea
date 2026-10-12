@@ -52,6 +52,12 @@ typedef struct ng_platform_ops {
     int (*add_menu_item)(NGMenuHandle menu, const char* title, unsigned int id);
     int (*add_menu_separator)(NGMenuHandle menu);
     NGMenuHandle (*create_submenu)(NGMenuHandle parent, const char* title);
+    int (*add_menu_check_item)(NGMenuHandle menu, const char* title, unsigned int id, int checked, int radio);
+    int (*menu_item_set_enabled)(NGMenuHandle menu, unsigned int id, int enabled);
+    int (*menu_item_set_checked)(NGMenuHandle menu, unsigned int id, int checked);
+    int (*menu_item_set_title)(NGMenuHandle menu, unsigned int id, const char* title);
+    int (*menu_item_remove)(NGMenuHandle menu, unsigned int id);
+    int (*menu_clear)(NGMenuHandle menu);
 
     NGHandle (*create_button)(const char* title, unsigned int id);
     void (*button_invalidate)(NGHandle button);

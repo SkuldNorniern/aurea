@@ -190,12 +190,11 @@ NGMenuHandle ng_windows_create_submenu(NGMenuHandle parent_menu, const char* tit
 int ng_windows_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id) {
     if (!menu || !title) return NG_ERROR_INVALID_PARAMETER;
 
-    char display_buf[256];
-    const char* label = display_title(title, display_buf, sizeof(display_buf));
-
     UINT command_id = id + 1;
 
-    wchar_t* wide = ng_windows_utf8_to_wide(label);
+    /* "Save\tCtrl+S": Windows lines the part after the tab up on the right,
+       which is how its menus show shortcuts. */
+    wchar_t* wide = ng_windows_utf8_to_wide(title);
     if (!wide) return NG_ERROR_PLATFORM_SPECIFIC;
     BOOL added = AppendMenuW((HMENU)menu, MF_STRING, command_id, wide);
     free(wide);
@@ -226,8 +225,77 @@ int ng_windows_handle_menu_shortcut(NGHandle window, unsigned int keycode, unsig
         if (g_shortcuts[i].root != root) continue;
         if (g_shortcuts[i].keycode != keycode) continue;
         if (g_shortcuts[i].modifiers != modifiers) continue;
+        /* A greyed item's shortcut does nothing, as clicking it would. */
+        UINT state = GetMenuState(menu, g_shortcuts[i].id + 1, MF_BYCOMMAND);
+        if (state != (UINT)-1 && (state & MF_GRAYED)) continue;
         ng_invoke_menu_callback(g_shortcuts[i].id);
         return 1;
     }
     return 0;
+}
+
+/* Drops the shortcuts of item `id`, gone or relabelled. */
+static void forget_shortcuts(unsigned int id) {
+    int kept = 0;
+    for (int i = 0; i < g_shortcut_count; i++) {
+        if (g_shortcuts[i].id != id) g_shortcuts[kept++] = g_shortcuts[i];
+    }
+    g_shortcut_count = kept;
+}
+
+int ng_windows_add_menu_check_item(NGMenuHandle menu, const char* title, unsigned int id, int checked, int radio) {
+    int result = ng_windows_add_menu_item(menu, title, id);
+    if (result != NG_SUCCESS) return result;
+    MENUITEMINFOW info = {0};
+    info.cbSize = sizeof(info);
+    info.fMask = MIIM_FTYPE | MIIM_STATE;
+    if (!GetMenuItemInfoW((HMENU)menu, id + 1, FALSE, &info)) return NG_ERROR_PLATFORM_SPECIFIC;
+    if (radio) info.fType |= MFT_RADIOCHECK;
+    info.fState = checked ? MFS_CHECKED : MFS_UNCHECKED;
+    return SetMenuItemInfoW((HMENU)menu, id + 1, FALSE, &info) ? NG_SUCCESS : NG_ERROR_PLATFORM_SPECIFIC;
+}
+
+int ng_windows_menu_item_set_enabled(NGMenuHandle menu, unsigned int id, int enabled) {
+    if (!menu) return NG_ERROR_INVALID_HANDLE;
+    UINT flags = MF_BYCOMMAND | (enabled ? MF_ENABLED : MF_GRAYED);
+    return EnableMenuItem((HMENU)menu, id + 1, flags) == (BOOL)-1 ? NG_ERROR_INVALID_PARAMETER : NG_SUCCESS;
+}
+
+int ng_windows_menu_item_set_checked(NGMenuHandle menu, unsigned int id, int checked) {
+    if (!menu) return NG_ERROR_INVALID_HANDLE;
+    UINT flags = MF_BYCOMMAND | (checked ? MF_CHECKED : MF_UNCHECKED);
+    return CheckMenuItem((HMENU)menu, id + 1, flags) == (DWORD)-1 ? NG_ERROR_INVALID_PARAMETER : NG_SUCCESS;
+}
+
+int ng_windows_menu_item_set_title(NGMenuHandle menu, unsigned int id, const char* title) {
+    if (!menu || !title) return NG_ERROR_INVALID_PARAMETER;
+    wchar_t* wide = ng_windows_utf8_to_wide(title);
+    if (!wide) return NG_ERROR_PLATFORM_SPECIFIC;
+    MENUITEMINFOW info = {0};
+    info.cbSize = sizeof(info);
+    info.fMask = MIIM_STRING;
+    info.dwTypeData = wide;
+    BOOL ok = SetMenuItemInfoW((HMENU)menu, id + 1, FALSE, &info);
+    free(wide);
+    if (!ok) return NG_ERROR_INVALID_PARAMETER;
+    forget_shortcuts(id);
+    register_shortcut((HMENU)menu, title, id);
+    return NG_SUCCESS;
+}
+
+int ng_windows_menu_item_remove(NGMenuHandle menu, unsigned int id) {
+    if (!menu) return NG_ERROR_INVALID_HANDLE;
+    if (!DeleteMenu((HMENU)menu, id + 1, MF_BYCOMMAND)) return NG_ERROR_INVALID_PARAMETER;
+    forget_shortcuts(id);
+    return NG_SUCCESS;
+}
+
+int ng_windows_menu_clear(NGMenuHandle menu) {
+    if (!menu) return NG_ERROR_INVALID_HANDLE;
+    for (int i = GetMenuItemCount((HMENU)menu) - 1; i >= 0; i--) {
+        UINT command = GetMenuItemID((HMENU)menu, i);
+        if (command != (UINT)-1 && command > 0) forget_shortcuts(command - 1);
+        DeleteMenu((HMENU)menu, (UINT)i, MF_BYPOSITION);
+    }
+    return NG_SUCCESS;
 }

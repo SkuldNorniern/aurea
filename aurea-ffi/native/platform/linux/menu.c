@@ -15,6 +15,8 @@ typedef struct {
 
 typedef struct {
     GtkWidget* root;
+    /* The submenu holding the item, to find it again. */
+    GtkWidget* menu;
     unsigned int keycode;
     unsigned int modifiers;
     unsigned int id;
@@ -151,6 +153,7 @@ static void register_shortcut(GtkWidget* menu, const char* title, unsigned int i
     if (keycode == NG_KEY_UNKNOWN || g_shortcut_count >= 512) return;
 
     g_shortcuts[g_shortcut_count].root = find_menu_root(menu);
+    g_shortcuts[g_shortcut_count].menu = menu;
     g_shortcuts[g_shortcut_count].keycode = keycode;
     g_shortcuts[g_shortcut_count].modifiers = mods;
     g_shortcuts[g_shortcut_count].id = id;
@@ -160,6 +163,31 @@ static void register_shortcut(GtkWidget* menu, const char* title, unsigned int i
 static void menu_item_clicked(GtkMenuItem *item, gpointer user_data) {
     guint id = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(item), "menu-id"));
     ng_invoke_menu_callback(id);
+}
+
+/* The item `id` in `menu`, or NULL. */
+static GtkWidget* item_with_id(GtkWidget* menu, unsigned int id) {
+    if (!menu) return NULL;
+    GtkWidget* found = NULL;
+    GList* children = gtk_container_get_children(GTK_CONTAINER(menu));
+    for (GList* l = children; l && !found; l = l->next) {
+        GObject* child = G_OBJECT(l->data);
+        if (g_object_get_data(child, "aurea-item") &&
+            GPOINTER_TO_UINT(g_object_get_data(child, "menu-id")) == id) {
+            found = GTK_WIDGET(child);
+        }
+    }
+    g_list_free(children);
+    return found;
+}
+
+/* Drops the shortcuts of item `id`, gone or relabelled. */
+static void forget_shortcuts(unsigned int id) {
+    int kept = 0;
+    for (int i = 0; i < g_shortcut_count; i++) {
+        if (g_shortcuts[i].id != id) g_shortcuts[kept++] = g_shortcuts[i];
+    }
+    g_shortcut_count = kept;
 }
 
 /* The handle owns a reference. Its window destroys the menu bar along with
@@ -235,6 +263,7 @@ int ng_linux_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id
 
     GtkWidget *menu_item = gtk_menu_item_new_with_label(label);
     g_object_set_data(G_OBJECT(menu_item), "menu-id", GUINT_TO_POINTER(id));
+    g_object_set_data(G_OBJECT(menu_item), "aurea-item", GINT_TO_POINTER(1));
     g_signal_connect(G_OBJECT(menu_item), "activate", 
                      G_CALLBACK(menu_item_clicked), NULL);
     
@@ -261,8 +290,76 @@ int ng_linux_handle_menu_shortcut(NGHandle window, unsigned int keycode, unsigne
         if (g_shortcuts[i].root != root) continue;
         if (g_shortcuts[i].keycode != keycode) continue;
         if (g_shortcuts[i].modifiers != modifiers) continue;
+        /* A greyed item's shortcut does nothing, as clicking it would. */
+        GtkWidget* item = item_with_id(g_shortcuts[i].menu, g_shortcuts[i].id);
+        if (item && !gtk_widget_is_sensitive(item)) continue;
         ng_invoke_menu_callback(g_shortcuts[i].id);
         return 1;
     }
     return 0;
+}
+
+int ng_linux_add_menu_check_item(NGMenuHandle menu, const char* title, unsigned int id, int checked, int radio) {
+    if (!menu || !title) return NG_ERROR_INVALID_PARAMETER;
+    char display_buf[256];
+    GtkWidget* item = gtk_check_menu_item_new_with_label(display_title(title, display_buf, sizeof(display_buf)));
+    gtk_check_menu_item_set_draw_as_radio(GTK_CHECK_MENU_ITEM(item), radio ? TRUE : FALSE);
+    /* Before the handler, so setting it up does not count as a click. */
+    gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(item), checked ? TRUE : FALSE);
+    g_object_set_data(G_OBJECT(item), "menu-id", GUINT_TO_POINTER(id));
+    g_object_set_data(G_OBJECT(item), "aurea-item", GINT_TO_POINTER(1));
+    g_signal_connect(G_OBJECT(item), "activate", G_CALLBACK(menu_item_clicked), NULL);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+    gtk_widget_show(item);
+    register_shortcut((GtkWidget*)menu, title, id);
+    return NG_SUCCESS;
+}
+
+int ng_linux_menu_item_set_enabled(NGMenuHandle menu, unsigned int id, int enabled) {
+    GtkWidget* item = item_with_id((GtkWidget*)menu, id);
+    if (!item) return NG_ERROR_INVALID_PARAMETER;
+    gtk_widget_set_sensitive(item, enabled ? TRUE : FALSE);
+    return NG_SUCCESS;
+}
+
+int ng_linux_menu_item_set_checked(NGMenuHandle menu, unsigned int id, int checked) {
+    GtkWidget* item = item_with_id((GtkWidget*)menu, id);
+    if (!item || !GTK_IS_CHECK_MENU_ITEM(item)) return NG_ERROR_INVALID_PARAMETER;
+    /* Setting it activates it; that is the app's doing, not a click. */
+    g_signal_handlers_block_by_func(item, G_CALLBACK(menu_item_clicked), NULL);
+    gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(item), checked ? TRUE : FALSE);
+    g_signal_handlers_unblock_by_func(item, G_CALLBACK(menu_item_clicked), NULL);
+    return NG_SUCCESS;
+}
+
+int ng_linux_menu_item_set_title(NGMenuHandle menu, unsigned int id, const char* title) {
+    GtkWidget* item = item_with_id((GtkWidget*)menu, id);
+    if (!item || !title) return NG_ERROR_INVALID_PARAMETER;
+    char display_buf[256];
+    gtk_menu_item_set_label(GTK_MENU_ITEM(item), display_title(title, display_buf, sizeof(display_buf)));
+    forget_shortcuts(id);
+    register_shortcut((GtkWidget*)menu, title, id);
+    return NG_SUCCESS;
+}
+
+int ng_linux_menu_item_remove(NGMenuHandle menu, unsigned int id) {
+    GtkWidget* item = item_with_id((GtkWidget*)menu, id);
+    if (!item) return NG_ERROR_INVALID_PARAMETER;
+    gtk_widget_destroy(item);
+    forget_shortcuts(id);
+    return NG_SUCCESS;
+}
+
+int ng_linux_menu_clear(NGMenuHandle menu) {
+    if (!menu) return NG_ERROR_INVALID_HANDLE;
+    GList* children = gtk_container_get_children(GTK_CONTAINER(menu));
+    for (GList* l = children; l; l = l->next) {
+        GObject* child = G_OBJECT(l->data);
+        if (g_object_get_data(child, "aurea-item")) {
+            forget_shortcuts(GPOINTER_TO_UINT(g_object_get_data(child, "menu-id")));
+        }
+        gtk_widget_destroy(GTK_WIDGET(child));
+    }
+    g_list_free(children);
+    return NG_SUCCESS;
 }

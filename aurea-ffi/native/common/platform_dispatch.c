@@ -232,6 +232,30 @@ NGMenuHandle ng_platform_create_submenu(NGMenuHandle p, const char* t) {
     DISPATCH_INIT(NGMenuHandle, create_submenu, p, t);
 }
 
+int ng_platform_add_menu_check_item(NGMenuHandle m, const char* t, unsigned int id, int c, int r) {
+    DISPATCH_INT(add_menu_check_item, m, t, id, c, r);
+}
+
+int ng_platform_menu_item_set_enabled(NGMenuHandle m, unsigned int id, int e) {
+    DISPATCH_INT(menu_item_set_enabled, m, id, e);
+}
+
+int ng_platform_menu_item_set_checked(NGMenuHandle m, unsigned int id, int c) {
+    DISPATCH_INT(menu_item_set_checked, m, id, c);
+}
+
+int ng_platform_menu_item_set_title(NGMenuHandle m, unsigned int id, const char* t) {
+    DISPATCH_INT(menu_item_set_title, m, id, t);
+}
+
+int ng_platform_menu_item_remove(NGMenuHandle m, unsigned int id) {
+    DISPATCH_INT(menu_item_remove, m, id);
+}
+
+int ng_platform_menu_clear(NGMenuHandle m) {
+    DISPATCH_INT(menu_clear, m);
+}
+
 NGHandle ng_platform_create_button(const char* t, unsigned int id) {
     DISPATCH_INIT(NGHandle, create_button, t, id);
 }

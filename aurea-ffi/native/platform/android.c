@@ -578,3 +578,39 @@ NGHandle ng_platform_create_swiftui_host(int _w, int _h) {
     (void)_h;
     return NULL;
 }
+
+int ng_platform_add_menu_check_item(NGMenuHandle m, const char* t, unsigned int id, int c, int r) {
+    // No menu bar here.
+    (void)m; (void)t; (void)id; (void)c; (void)r;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_menu_item_set_enabled(NGMenuHandle m, unsigned int id, int e) {
+    // No menu bar here.
+    (void)m; (void)id; (void)e;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_menu_item_set_checked(NGMenuHandle m, unsigned int id, int c) {
+    // No menu bar here.
+    (void)m; (void)id; (void)c;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_menu_item_set_title(NGMenuHandle m, unsigned int id, const char* t) {
+    // No menu bar here.
+    (void)m; (void)id; (void)t;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_menu_item_remove(NGMenuHandle m, unsigned int id) {
+    // No menu bar here.
+    (void)m; (void)id;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_menu_clear(NGMenuHandle m) {
+    // No menu bar here.
+    (void)m;
+    return NG_ERROR_UNSUPPORTED;
+}

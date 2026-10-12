@@ -141,3 +141,59 @@ NGMenuHandle ng_macos_create_submenu(NGMenuHandle parentMenu, const char* title)
     
     return (__bridge_retained void*)submenu;
 }
+
+static NSMenuItem* item_with_id(NGMenuHandle menu, unsigned int id) {
+    if (!menu) return nil;
+    return [(__bridge NSMenu*)menu itemWithTag:(NSInteger)id];
+}
+
+int ng_macos_add_menu_check_item(NGMenuHandle menu, const char* title, unsigned int id, int checked, int radio) {
+    (void)radio; /* A radio item shows its state with the same mark on macOS. */
+    int result = ng_macos_add_menu_item(menu, title, id);
+    if (result != NG_SUCCESS) return result;
+    NSMenuItem* item = item_with_id(menu, id);
+    [item setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
+    return NG_SUCCESS;
+}
+
+int ng_macos_menu_item_set_enabled(NGMenuHandle menu, unsigned int id, int enabled) {
+    NSMenuItem* item = item_with_id(menu, id);
+    if (!item) return NG_ERROR_INVALID_PARAMETER;
+    /* Left to validate itself, a menu enables every item with a target. */
+    [(__bridge NSMenu*)menu setAutoenablesItems:NO];
+    [item setEnabled:enabled ? YES : NO];
+    return NG_SUCCESS;
+}
+
+int ng_macos_menu_item_set_checked(NGMenuHandle menu, unsigned int id, int checked) {
+    NSMenuItem* item = item_with_id(menu, id);
+    if (!item) return NG_ERROR_INVALID_PARAMETER;
+    [item setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
+    return NG_SUCCESS;
+}
+
+int ng_macos_menu_item_set_title(NGMenuHandle menu, unsigned int id, const char* title) {
+    NSMenuItem* item = item_with_id(menu, id);
+    if (!item || !title) return NG_ERROR_INVALID_PARAMETER;
+    NSString* displayTitle = nil;
+    NSString* keyEquiv = nil;
+    NSEventModifierFlags modMask = 0;
+    parse_title_and_shortcut(ng_macos_to_nsstring(title), &displayTitle, &keyEquiv, &modMask);
+    [item setTitle:displayTitle];
+    [item setKeyEquivalent:keyEquiv ? keyEquiv : @""];
+    [item setKeyEquivalentModifierMask:modMask];
+    return NG_SUCCESS;
+}
+
+int ng_macos_menu_item_remove(NGMenuHandle menu, unsigned int id) {
+    NSMenuItem* item = item_with_id(menu, id);
+    if (!item) return NG_ERROR_INVALID_PARAMETER;
+    [(__bridge NSMenu*)menu removeItem:item];
+    return NG_SUCCESS;
+}
+
+int ng_macos_menu_clear(NGMenuHandle menu) {
+    if (!menu) return NG_ERROR_INVALID_HANDLE;
+    [(__bridge NSMenu*)menu removeAllItems];
+    return NG_SUCCESS;
+}

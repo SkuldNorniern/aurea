@@ -12,6 +12,12 @@ void ng_linux_destroy_menu(NGMenuHandle handle);
 int ng_linux_attach_menu(NGHandle window, NGMenuHandle menu);
 int ng_linux_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id);
 int ng_linux_add_menu_separator(NGMenuHandle menu);
+int ng_linux_add_menu_check_item(NGMenuHandle menu, const char* title, unsigned int id, int checked, int radio);
+int ng_linux_menu_item_set_enabled(NGMenuHandle menu, unsigned int id, int enabled);
+int ng_linux_menu_item_set_checked(NGMenuHandle menu, unsigned int id, int checked);
+int ng_linux_menu_item_set_title(NGMenuHandle menu, unsigned int id, const char* title);
+int ng_linux_menu_item_remove(NGMenuHandle menu, unsigned int id);
+int ng_linux_menu_clear(NGMenuHandle menu);
 NGMenuHandle ng_linux_create_submenu(NGMenuHandle parent_menu, const char* title);
 int ng_linux_handle_menu_shortcut(NGHandle window, unsigned int keycode, unsigned int modifiers);
 

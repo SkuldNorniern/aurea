@@ -135,6 +135,22 @@ unsafe extern "C" {
     ) -> c_int;
     pub fn ng_platform_add_menu_separator(menu_handle: *mut c_void) -> c_int;
     pub fn ng_platform_create_submenu(parent: *mut c_void, title: *const c_char) -> *mut c_void;
+    pub fn ng_platform_add_menu_check_item(
+        menu_handle: *mut c_void,
+        title: *const c_char,
+        id: u32,
+        checked: c_int,
+        radio: c_int,
+    ) -> c_int;
+    pub fn ng_platform_menu_item_set_enabled(menu_handle: *mut c_void, id: u32, enabled: c_int) -> c_int;
+    pub fn ng_platform_menu_item_set_checked(menu_handle: *mut c_void, id: u32, checked: c_int) -> c_int;
+    pub fn ng_platform_menu_item_set_title(
+        menu_handle: *mut c_void,
+        id: u32,
+        title: *const c_char,
+    ) -> c_int;
+    pub fn ng_platform_menu_item_remove(menu_handle: *mut c_void, id: u32) -> c_int;
+    pub fn ng_platform_menu_clear(menu_handle: *mut c_void) -> c_int;
 
     // Clipboard
     pub fn ng_platform_get_clipboard_text() -> *mut c_char;
