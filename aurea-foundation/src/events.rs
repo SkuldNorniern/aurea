@@ -1,5 +1,6 @@
 //! Window event types for external event loop integration.
 
+use std::path::PathBuf;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
@@ -57,6 +58,20 @@ pub enum WindowEvent {
         key: KeyCode,
         pressed: bool,
         modifiers: Modifiers,
+    },
+    /// Files dragged over the window, at a position in its content.
+    FilesHovered {
+        paths: Vec<PathBuf>,
+        x: f64,
+        y: f64,
+    },
+    /// The drag of [`WindowEvent::FilesHovered`] left or was called off.
+    FilesHoverEnded,
+    /// Files dropped on the window, at a position in its content.
+    FilesDropped {
+        paths: Vec<PathBuf>,
+        x: f64,
+        y: f64,
     },
     /// Text typed into the window, to insert.
     TextInput {

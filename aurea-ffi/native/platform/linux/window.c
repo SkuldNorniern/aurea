@@ -6,6 +6,7 @@
 #include "common/errors.h"
 #include "common/input.h"
 #include "common/rust_callbacks.h"
+#include "common/types.h"
 #include <gtk/gtk.h>
 #include <gdk/gdkkeysyms.h>
 #include <string.h>
@@ -94,6 +95,63 @@ static gboolean on_window_state_event(GtkWidget* widget, GdkEventWindowState* ev
     return FALSE;
 }
 
+static char* drop_paths(GtkSelectionData* data) {
+    gchar** uris = gtk_selection_data_get_uris(data);
+    if (!uris) return NULL;
+    GString* out = g_string_new(NULL);
+    for (gchar** uri = uris; *uri; uri++) {
+        gchar* path = g_filename_from_uri(*uri, NULL, NULL);
+        if (!path) continue;
+        if (out->len) g_string_append_c(out, '\n');
+        g_string_append(out, path);
+        g_free(path);
+    }
+    g_strfreev(uris);
+    return g_string_free(out, out->len == 0);
+}
+
+static gboolean on_drag_motion(GtkWidget* w, GdkDragContext* ctx, gint x, gint y, guint time, gpointer d) {
+    (void)d;
+    g_object_set_data(G_OBJECT(w), "aurea-drag-x", GINT_TO_POINTER(x));
+    g_object_set_data(G_OBJECT(w), "aurea-drag-y", GINT_TO_POINTER(y));
+    g_object_set_data(G_OBJECT(w), "aurea-drag-drop", GINT_TO_POINTER(0));
+    GdkAtom target = gtk_drag_dest_find_target(w, ctx, NULL);
+    if (target == GDK_NONE) return FALSE;
+    gtk_drag_get_data(w, ctx, target, time);
+    gdk_drag_status(ctx, GDK_ACTION_COPY, time);
+    return TRUE;
+}
+
+static gboolean on_drag_drop(GtkWidget* w, GdkDragContext* ctx, gint x, gint y, guint time, gpointer d) {
+    (void)d;
+    g_object_set_data(G_OBJECT(w), "aurea-drag-x", GINT_TO_POINTER(x));
+    g_object_set_data(G_OBJECT(w), "aurea-drag-y", GINT_TO_POINTER(y));
+    g_object_set_data(G_OBJECT(w), "aurea-drag-drop", GINT_TO_POINTER(1));
+    GdkAtom target = gtk_drag_dest_find_target(w, ctx, NULL);
+    if (target == GDK_NONE) return FALSE;
+    gtk_drag_get_data(w, ctx, target, time);
+    return TRUE;
+}
+
+static void on_drag_data(GtkWidget* w, GdkDragContext* ctx, gint x, gint y, GtkSelectionData* data,
+                         guint info, guint time, gpointer d) {
+    (void)x; (void)y; (void)info; (void)d;
+    int dropping = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(w), "aurea-drag-drop"));
+    double dx = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(w), "aurea-drag-x"));
+    double dy = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(w), "aurea-drag-y"));
+    char* paths = drop_paths(data);
+    if (paths) {
+        ng_invoke_file_drop((void*)w, dropping ? NG_DROP_DROP : NG_DROP_HOVER, dx, dy, paths);
+        g_free(paths);
+    }
+    if (dropping) gtk_drag_finish(ctx, paths != NULL, FALSE, time);
+}
+
+static void on_drag_leave(GtkWidget* w, GdkDragContext* ctx, guint time, gpointer d) {
+    (void)ctx; (void)time; (void)d;
+    ng_invoke_file_drop((void*)w, NG_DROP_LEAVE, 0, 0, "");
+}
+
 NGHandle ng_linux_create_window(const char* title, int width, int height) {
     if (!title) return NULL;
     
@@ -118,6 +176,12 @@ NGHandle ng_linux_create_window(const char* title, int width, int height) {
     g_signal_connect(G_OBJECT(window), "focus-out-event", G_CALLBACK(on_focus_out), NULL);
     g_signal_connect(G_OBJECT(window), "enter-notify-event", G_CALLBACK(on_enter), NULL);
     g_signal_connect(G_OBJECT(window), "leave-notify-event", G_CALLBACK(on_leave), NULL);
+    gtk_drag_dest_set(window, 0, NULL, 0, GDK_ACTION_COPY);
+    gtk_drag_dest_add_uri_targets(window);
+    g_signal_connect(G_OBJECT(window), "drag-motion", G_CALLBACK(on_drag_motion), NULL);
+    g_signal_connect(G_OBJECT(window), "drag-drop", G_CALLBACK(on_drag_drop), NULL);
+    g_signal_connect(G_OBJECT(window), "drag-data-received", G_CALLBACK(on_drag_data), NULL);
+    g_signal_connect(G_OBJECT(window), "drag-leave", G_CALLBACK(on_drag_leave), NULL);
     
     g_signal_connect(G_OBJECT(window), "destroy", G_CALLBACK(on_window_destroy), NULL);
     g_signal_connect(G_OBJECT(window), "window-state-event", G_CALLBACK(on_window_state_event), NULL);

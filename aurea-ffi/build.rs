@@ -70,6 +70,7 @@ fn main() {
         "native/platform/windows/window.c",
         "native/platform/windows/menu.c",
         "native/platform/windows/dialog.c",
+        "native/platform/windows/drop.c",
         "native/platform/windows/tray.c",
         "native/platform/windows/ime.c",
         "native/platform/windows/pen.c",
