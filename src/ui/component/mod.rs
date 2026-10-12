@@ -2,8 +2,10 @@
 //! the widgets.
 
 mod editable;
+mod pan_zoom;
 
 pub use editable::{EditableText, TextOutcome};
+pub use pan_zoom::PanZoom;
 
 use super::frame::{Eased, Ui};
 use super::paint::{Component, Shadow, Surface};
