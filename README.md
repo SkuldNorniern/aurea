@@ -30,7 +30,15 @@ optional GPU backends.
 - Menu bars and submenus where the platform supports them.
 - Non-blocking event polling with retained callbacks for keys, mouse buttons,
   motion, wheel input, text input, focus, cursor enter/exit, raw mouse motion,
-  scale-factor changes, and lifecycle events.
+  scale-factor changes, and lifecycle events. An app running its own loop can
+  block in `Window::wait_events` instead, with frames still paced to the
+  display.
+- Canvas widgets in `aurea::ui`: buttons, switches, checkboxes, sliders,
+  segmented controls, progress bars, tooltips and a text field with selection,
+  undo, clipboard and IME, styled by a `Theme` and the same on every platform.
+- The user's UI languages (`aurea::locales`), per-user settings and data
+  folders (`aurea::config_dir`, `aurea::data_dir`), and opening or revealing
+  files in the file manager.
 - Canvas rendering through Aurea's renderer abstraction, with retained draw
   callbacks, explicit invalidation, damage regions, frame scheduling, and
   per-frame animation tickers.
@@ -131,6 +139,26 @@ at the same place gets the same key whether it got there through a transform or
 directly, so either is fine, but recomputing geometry in a way that jitters by a
 fraction of a pixel is not.
 
+## Canvas Widgets
+
+`aurea::ui` draws widgets on a canvas, immediate-mode: each frame the draw
+callback lays them out and each answers what the input did to it, with the
+app's own state as the only state. Feed window events to `UiState::handle`,
+draw inside `UiState::frame`, and redraw while `UiState::wants_frame` says
+something is still easing. Tab, Enter, Space, arrows and the platform's own
+editing shortcuts work throughout; an idle UI asks for no frames.
+
+It is built in layers an app can use at any height: `paint` pieces that
+only draw (`Surface`, `Label`, `Mark`), `component` pieces that follow
+input (`StateColors`, `FocusRing`, `Track`, `Knob`, `EditableText`), and
+widgets made of those, each with a style from the theme that can be changed
+field by field. A widget of the app's own implements `Widget` and uses the
+same `Ui::interact` the built-in ones do.
+
+```bash
+cargo run --example widgets
+```
+
 ## Examples
 
 Native UI and event examples:
@@ -170,6 +198,7 @@ everything.
 | CPU rasterizer | supported, and the backend the others are checked against |
 | Native widgets | supported, subset varies by platform |
 | Graph and scope | supported |
+| Canvas widgets (`aurea::ui`) | supported, keyboard and IME; no screen reader support yet |
 | Window lifetime, input, clipboard | supported |
 | ZenGPU renderer | experimental, and the GPU backend work goes into |
 | wgpu renderer | experimental, for fitting into apps already using wgpu |
@@ -182,8 +211,9 @@ everything.
 Limits to know about before relying on them:
 
 - GPU backends draw less than the CPU rasterizer. Paths, blend modes other
-  than `Normal` and the older text commands are not lowered. A frame counts
-  what it left out and says so once. Use the CPU renderer if you need them.
+  than `Normal` and the older text commands are not lowered, and rounded
+  rects are drawn with square corners. A frame counts what it left out and
+  says so once. Use the CPU renderer if you need them.
 - Rotation and skew move text and images but do not rotate the glyphs or the
   image. A circle stays a circle under a non-uniform scale.
 - A retained draw callback runs again on every frame that redraws. Damage
