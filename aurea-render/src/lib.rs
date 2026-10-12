@@ -29,9 +29,12 @@
 
 mod drawing;
 mod frame;
+mod geometry;
 mod gpu;
+mod image;
 mod interaction;
 mod numeric;
+mod paint;
 mod renderer;
 mod scene;
 mod surface;

@@ -6,6 +6,7 @@
 //! - `fontdue_backend` — cross-platform fallback (fontdb/fontdue, no hinting).
 
 pub mod atlas;
+pub mod font;
 pub mod platform;
 
 #[cfg(windows)]
