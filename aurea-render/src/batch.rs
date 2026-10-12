@@ -290,6 +290,7 @@ impl RenderBatches {
             PaintStyle::Stroke => {}
         }
     }
+
     fn lower_item(&mut self, item: &DisplayItem) {
         {
             let Some(alpha) = drawable_alpha(item) else {
