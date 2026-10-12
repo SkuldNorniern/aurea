@@ -9,6 +9,7 @@ pub mod context;
 pub mod hit_test;
 pub mod path;
 pub mod rasterizer;
+mod round_rect;
 pub mod scanline;
 pub mod stroke;
 

@@ -87,6 +87,19 @@ pub fn hit_test_rect(rect: Rect, point: Point) -> bool {
         && point.y <= rect.y + rect.height
 }
 
+/// Returns true if the point is inside `rect` with corners of `radius`.
+pub fn hit_test_round_rect(rect: Rect, radius: f32, point: Point) -> bool {
+    if !hit_test_rect(rect, point) {
+        return false;
+    }
+    let r = radius.min(rect.width / 2.0).min(rect.height / 2.0).max(0.0);
+    // Only the corner squares can be outside; find the nearest corner's
+    // centre and measure to it.
+    let cx = point.x.clamp(rect.x + r, rect.x + rect.width - r);
+    let cy = point.y.clamp(rect.y + r, rect.y + rect.height - r);
+    let (dx, dy) = (point.x - cx, point.y - cy);
+    dx * dx + dy * dy <= r * r
+}
 /// Returns true if the point is inside the circle (distance <= radius).
 pub fn hit_test_circle(center: Point, radius: f32, point: Point) -> bool {
     let dx = point.x - center.x;

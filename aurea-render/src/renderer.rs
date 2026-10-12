@@ -62,6 +62,15 @@ pub trait DrawingContext {
     /// Draw a rectangle
     fn draw_rect(&mut self, rect: Rect, paint: &Paint) -> AureaResult<()>;
 
+    /// Draw a rectangle with rounded corners, `radius` kept to half the
+    /// shorter side. A stroke is centred on the outline.
+    ///
+    /// Contexts that can draw one directly do; this default draws the
+    /// outline as a path.
+    fn draw_round_rect(&mut self, rect: Rect, radius: f32, paint: &Paint) -> AureaResult<()> {
+        self.draw_path(&Path::rounded_rect(rect, radius), paint)
+    }
+
     /// Draw a circle
     fn draw_circle(&mut self, center: Point, radius: f32, paint: &Paint) -> AureaResult<()>;
 
@@ -299,6 +308,11 @@ impl PlaceholderRenderer {
                 }
                 DrawCommand::DrawText(..) => {}
                 DrawCommand::DrawPath(..) => {}
+                // Without paths here the corners stay square.
+                DrawCommand::DrawRoundRect(rect, _, paint) if paint.style == PaintStyle::Fill => {
+                    self.draw_rect_filled(rect, paint.color);
+                }
+                DrawCommand::DrawRoundRect(..) => {}
                 DrawCommand::DrawTextWithFont(..) => {}
                 DrawCommand::DrawGlyphMask(..) => {}
                 DrawCommand::DrawImageRect(image, dest) => {

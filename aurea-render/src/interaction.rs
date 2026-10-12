@@ -167,6 +167,9 @@ fn item_hit(item: &DisplayItem, point: Point) -> bool {
 
     match &item.command {
         DrawCommand::DrawRect(rect, _) => hit_test::hit_test_rect(*rect, point),
+        DrawCommand::DrawRoundRect(rect, radius, _) => {
+            hit_test::hit_test_round_rect(*rect, *radius, point)
+        }
         DrawCommand::DrawCircle(center, radius, _) => {
             hit_test::hit_test_circle(*center, *radius, point)
         }

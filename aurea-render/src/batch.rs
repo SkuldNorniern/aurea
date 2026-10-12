@@ -20,7 +20,7 @@ use crate::command::DrawCommand;
 use crate::display_list::{DisplayItem, DisplayList};
 use crate::numeric::f32_to_u8_clamped;
 use crate::types::{
-    BlendMode, Color, GlyphMask, GradientStop, Image, LinearGradient, PaintStyle, Point,
+    BlendMode, Color, GlyphMask, GradientStop, Image, LinearGradient, Paint, PaintStyle, Point,
     RadialGradient, Rect,
 };
 use std::collections::HashMap;
@@ -363,6 +363,21 @@ impl RenderBatches {
     /// A blend mode needs pipeline state this layer cannot express, so an item
     /// relying on one is left out rather than drawn without it: a trace at the
     /// wrong opacity is worse than a missing one.
+    /// A rounded rect as a plain one. The GPU painter has no rounded rect
+    /// instance yet, and square corners keep buttons and cards on screen,
+    /// which lowering it as a path, which is dropped, would not.
+    fn push_square_round_rect(&mut self, rect: Rect, paint: &Paint, alpha: f32) {
+        let color = fade(paint.color, alpha);
+        match paint.style {
+            PaintStyle::Fill => self.push_rect(rect, color),
+            PaintStyle::Stroke if paint.stroke_width > 0.0 => {
+                for edge in stroke_edges(rect, paint.stroke_width) {
+                    self.push_rect(edge, color);
+                }
+            }
+            PaintStyle::Stroke => {}
+        }
+    }
     fn lower_item(&mut self, item: &DisplayItem) {
         {
             let Some(alpha) = drawable_alpha(item) else {
@@ -470,6 +485,9 @@ impl RenderBatches {
                             color: fade(*color, alpha),
                         });
                     }
+                }
+                DrawCommand::DrawRoundRect(rect, _, paint) => {
+                    self.push_square_round_rect(*rect, paint, alpha);
                 }
                 // Paths and the legacy text commands have no GPU form yet.
                 // They are not drawn anywhere: "left to the CPU rasterizer"
