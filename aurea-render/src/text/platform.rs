@@ -10,8 +10,8 @@
 //! [`get_platform_rasterizer`] picks the best available backend per platform.
 
 use crate::numeric::{f32_to_i32_clamped, f32_to_u32_clamped};
-use crate::text::LruCache;
 use crate::text::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
+use crate::text::{LruCache, MASK_BYTES};
 use crate::types::{Color, Font, FontStyle, FontWeight, GlyphMask, Point, TextMetrics};
 use aurea_foundation::{AureaResult, lock};
 use std::sync::{Arc, Mutex};
@@ -139,10 +139,11 @@ pub struct TextRenderer {
     rasterizer: Box<dyn PlatformTextRasterizer>,
     atlas: GlyphAtlas,
     /// Per-glyph mask cache for single-character calls (>99% of the hot path).
-    /// LRU cap: 256 entries — large enough for a full ASCII + common Unicode set.
+    /// LRU cap: 256 entries and [`MASK_BYTES`] — large enough for a full ASCII
+    /// + common Unicode set.
     mask_cache: Mutex<LruCache<GlyphKey, (GlyphMask, f32, f32)>>,
     /// Multi-character run cache. Prevents re-rasterizing unchanged text strings
-    /// on every frame. LRU cap: 512 entries.
+    /// on every frame. LRU cap: 512 entries and [`MASK_BYTES`].
     run_cache: Mutex<LruCache<RunKey, (GlyphMask, f32, f32)>>,
 }
 
@@ -151,8 +152,8 @@ impl TextRenderer {
         Self {
             rasterizer: get_platform_rasterizer(),
             atlas: GlyphAtlas::new(4), // 4MB cache budget
-            mask_cache: Mutex::new(LruCache::new(256)),
-            run_cache: Mutex::new(LruCache::new(512)),
+            mask_cache: Mutex::new(LruCache::with_budget(256, MASK_BYTES)),
+            run_cache: Mutex::new(LruCache::with_budget(512, MASK_BYTES)),
         }
     }
 
@@ -181,7 +182,8 @@ impl TextRenderer {
                 return Ok(cached);
             }
             let result = self.compute_mask(text, font)?;
-            lock(&self.mask_cache).insert(key, result.clone());
+            let bytes = result.0.coverage.len();
+            lock(&self.mask_cache).insert_sized(key, result.clone(), bytes);
             return Ok(result);
         }
 
@@ -191,7 +193,8 @@ impl TextRenderer {
             return Ok(cached);
         }
         let result = self.compute_mask(text, font)?;
-        lock(&self.run_cache).insert(run_key, result.clone());
+        let bytes = result.0.coverage.len();
+        lock(&self.run_cache).insert_sized(run_key, result.clone(), bytes);
         Ok(result)
     }
 
