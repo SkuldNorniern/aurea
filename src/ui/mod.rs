@@ -123,3 +123,4 @@ pub use theme::{Motion, Palette, Theme};
 pub use widget::Widget;
 pub use widget::button::{Button, ButtonStyle, Tone};
 pub use widget::toggle::{Checkbox, CheckboxStyle, Toggle, ToggleStyle};
+pub use widget::slider::{Slider, SliderStyle};

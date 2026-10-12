@@ -7,6 +7,7 @@
 //! [`Ui::add`].
 
 pub mod button;
+pub mod slider;
 pub mod toggle;
 pub(crate) mod tooltip;
 
