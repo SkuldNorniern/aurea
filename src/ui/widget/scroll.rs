@@ -208,11 +208,15 @@ pub struct ListRow {
 
 /// A long list of rows the same height, only those in sight drawn. With
 /// [`ListView::selected`] it picks one: a click, or Up and Down while it
-/// has the keyboard, which keep the pick in sight.
+/// has the keyboard, which keep the pick in sight. A double click or Enter
+/// on the pick sets [`Response::activated`]. With [`ListView::grid`] the
+/// items fill rows of cells instead, as thumbnails do.
 pub struct ListView<'v> {
     offset: &'v mut f32,
     count: usize,
     row: f32,
+    /// The narrowest a cell may be, for a grid; `None` for one per row.
+    cell_width: Option<f32>,
     selected: Option<&'v mut Option<usize>>,
     style: Option<ScrollStyle>,
 }
@@ -223,9 +227,19 @@ impl<'v> ListView<'v> {
             offset,
             count,
             row: row_height.max(1.0),
+            cell_width: None,
             selected: None,
             style: None,
         }
+    }
+
+    /// Lays the items out in cells at least `cell_width` wide, as many to a
+    /// row as fit, stretched to fill it. Left and Right then move the pick
+    /// along a row, Up and Down by one.
+    #[must_use]
+    pub fn grid(mut self, cell_width: f32) -> Self {
+        self.cell_width = Some(cell_width.max(1.0));
+        self
     }
 
     #[must_use]
@@ -252,24 +266,34 @@ impl<'v> ListView<'v> {
             offset,
             count,
             row: height,
+            cell_width,
             mut selected,
             style,
         } = self;
+        let columns = columns(cell_width, rect.width);
+        let rows = count.div_ceil(columns);
         // The list itself takes the keyboard, under its rows.
         let input = ui.interact(id, 1, rect, Sense::Adjust, selected.is_some());
         let mut changed = false;
+        let mut activated = false;
         if input.focused
             && let Some(picked) = selected.as_deref_mut()
         {
-            changed |= list_keys(ui, picked, count, rect.height / height);
+            let layout = Layout {
+                count,
+                columns,
+                page: rect.height / height,
+            };
+            changed |= list_keys(ui, picked, layout);
+            activated |= picked.is_some() && ui.keys().any(|(k, _)| k == KeyCode::Enter);
             if changed && let Some(at) = *picked {
                 #[allow(clippy::cast_precision_loss)]
-                let top = at as f32 * height;
+                let top = (at / columns) as f32 * height;
                 scroll_into_view(offset, top, top + height, rect.height);
             }
         }
         #[allow(clippy::cast_precision_loss)]
-        let content = count as f32 * height;
+        let content = rows as f32 * height;
         let mut area = ScrollArea::new(offset, content);
         if let Some(style) = style {
             area = area.style(style);
@@ -278,67 +302,99 @@ impl<'v> ListView<'v> {
         let ring = ui.eased(id, 1, input).focus;
         let (mut response, clicked) = area.show(ui, id, rect, |ui, content, view| {
             let mut clicked = None;
-            for i in visible_rows(content, view, height, count) {
-                #[allow(clippy::cast_precision_loss)]
-                let at = Rect::new(
-                    content.x,
-                    content.y + i as f32 * height,
-                    content.width,
-                    height,
-                );
-                let part = 2 + u16::try_from(i % 0xD000).unwrap_or(0);
-                let hit = ui.interact(id, part, at, Sense::Hover, true);
-                if ui.press(id, part).is_some() {
-                    clicked = Some(i);
+            #[allow(clippy::cast_precision_loss)]
+            let width = content.width / columns as f32;
+            for r in visible_rows(content, view, height, rows) {
+                for c in 0..columns {
+                    let i = r * columns + c;
+                    if i >= count {
+                        break;
+                    }
+                    #[allow(clippy::cast_precision_loss)]
+                    let at = Rect::new(
+                        content.x + c as f32 * width,
+                        content.y + r as f32 * height,
+                        width,
+                        height,
+                    );
+                    let part = 2 + u16::try_from(i % 0xD000).unwrap_or(0);
+                    let hit = ui.interact(id, part, at, Sense::Hover, true);
+                    if let Some(press) = ui.press(id, part) {
+                        clicked = Some((i, press.clicks));
+                    }
+                    let state = ListRow {
+                        index: i,
+                        rect: at,
+                        picked: picked_now == Some(i),
+                        hovered: hit.hovered,
+                    };
+                    row(ui, state)?;
                 }
-                let state = ListRow {
-                    index: i,
-                    rect: at,
-                    picked: picked_now == Some(i),
-                    hovered: hit.hovered,
-                };
-                row(ui, state)?;
             }
             Ok(clicked)
         })?;
         FocusRing::new(ui.theme, ui.theme.radius, ring).paint(ui, rect)?;
-        if let (Some(i), Some(picked)) = (clicked, selected) {
+        if let (Some((i, clicks)), Some(picked)) = (clicked, selected) {
             changed |= *picked != Some(i);
             *picked = Some(i);
+            activated |= clicks >= 2;
             ui.state.give_focus(Some(Key::new(id, 1)));
         }
         if changed {
             ui.mark_changed();
         }
         response.changed |= changed;
+        response.activated = activated;
         response.focused = input.focused;
         Ok(response)
     }
 }
 
-/// Up, Down, Page Up, Page Down, Home and End move the pick.
-fn list_keys<Id: WidgetId>(
-    ui: &Ui<'_, Id>,
-    picked: &mut Option<usize>,
+/// How a list's items sit, for moving its pick.
+#[derive(Clone, Copy)]
+struct Layout {
     count: usize,
+    columns: usize,
+    /// Rows in sight.
     page: f32,
-) -> bool {
+}
+
+/// How many cells at least `cell_width` wide fit across `width`.
+fn columns(cell_width: Option<f32>, width: f32) -> usize {
+    match cell_width {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        Some(cell) => ((width / cell).floor() as usize).max(1),
+        None => 1,
+    }
+}
+
+/// Up, Down, Page Up, Page Down, Home and End move the pick, and in a grid
+/// Left and Right too.
+fn list_keys<Id: WidgetId>(ui: &Ui<'_, Id>, picked: &mut Option<usize>, layout: Layout) -> bool {
+    let Layout {
+        count,
+        columns,
+        page,
+    } = layout;
     if count == 0 {
         return false;
     }
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let page = (page.floor() as usize).max(1);
+    let page = (page.floor() as usize).max(1) * columns;
     let before = *picked;
+    let last = count - 1;
     for (key, _) in ui.keys() {
         let at = picked.unwrap_or(0);
         *picked = Some(match key {
-            KeyCode::Down if picked.is_none() => 0,
-            KeyCode::Down => (at + 1).min(count - 1),
-            KeyCode::Up => at.saturating_sub(1),
-            KeyCode::PageDown => (at + page).min(count - 1),
+            KeyCode::Down | KeyCode::Right if picked.is_none() => 0,
+            KeyCode::Down => (at + columns).min(last),
+            KeyCode::Up => at.saturating_sub(columns),
+            KeyCode::Right if columns > 1 => (at + 1).min(last),
+            KeyCode::Left if columns > 1 => at.saturating_sub(1),
+            KeyCode::PageDown => (at + page).min(last),
             KeyCode::PageUp => at.saturating_sub(page),
             KeyCode::Home => 0,
-            KeyCode::End => count - 1,
+            KeyCode::End => last,
             _ => continue,
         });
     }
@@ -394,6 +450,98 @@ mod tests {
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::{Button, ListView, ScrollArea, ScrollStyle, Theme, UiState};
     use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, WindowEvent};
+
+    /// A 200 by 100 grid of 50 px cells, 20 high: four to a row.
+    struct Grid {
+        raster: CpuRasterizer,
+        ui: UiState<u8>,
+        theme: Theme,
+        offset: f32,
+        picked: Option<usize>,
+        activated: bool,
+    }
+
+    impl Grid {
+        fn new() -> Self {
+            let mut grid = Self {
+                raster: CpuRasterizer::new(200, 100),
+                ui: UiState::new(),
+                theme: Theme::dark(),
+                offset: 0.0,
+                picked: None,
+                activated: false,
+            };
+            grid.frame();
+            grid
+        }
+
+        fn frame(&mut self) {
+            let mut ctx = self.raster.begin_frame().expect("frame");
+            {
+                let mut ui = self.ui.frame(&mut *ctx, &self.theme);
+                let r = ListView::new(&mut self.offset, 10, ROW)
+                    .grid(50.0)
+                    .selected(&mut self.picked)
+                    .show(&mut ui, 1, Rect::new(0.0, 0.0, 200.0, 100.0), |_, _| Ok(()))
+                    .expect("grid");
+                self.activated = r.activated;
+            }
+            drop(ctx);
+            self.raster.end_frame().expect("end");
+        }
+
+        fn click(&mut self, x: f64, y: f64, clicks: u8) {
+            for pressed in [true, false] {
+                self.ui.handle(&WindowEvent::MouseButton {
+                    button: MouseButton::Left,
+                    pressed,
+                    modifiers: Modifiers::default(),
+                    x,
+                    y,
+                    click_count: clicks,
+                });
+                self.frame();
+                if pressed && self.activated {
+                    return;
+                }
+            }
+        }
+
+        fn key(&mut self, key: KeyCode) {
+            self.ui.handle(&WindowEvent::KeyInput {
+                key,
+                pressed: true,
+                modifiers: Modifiers::default(),
+            });
+            self.frame();
+        }
+    }
+
+    #[test]
+    fn a_grid_picks_by_cell_and_walks_rows_and_columns() {
+        let mut g = Grid::new();
+        g.click(130.0, 30.0, 1);
+        assert_eq!(g.picked, Some(6), "second row, third cell");
+        assert!(!g.activated, "a single click only picks");
+        g.key(KeyCode::Right);
+        assert_eq!(g.picked, Some(7));
+        g.key(KeyCode::Down);
+        assert_eq!(g.picked, Some(9), "clamped to the last item");
+        g.key(KeyCode::Up);
+        assert_eq!(g.picked, Some(5));
+    }
+
+    #[test]
+    fn a_double_click_or_enter_activates() {
+        let mut g = Grid::new();
+        g.click(30.0, 10.0, 2);
+        assert!(g.activated, "double click");
+        assert_eq!(g.picked, Some(0));
+        g.frame();
+        assert!(!g.activated, "once");
+        g.key(KeyCode::Enter);
+        assert!(g.activated, "Enter on the pick");
+    }
 
     const LIST: Rect = Rect::new(0.0, 0.0, 200.0, 100.0);
     const AREA: Rect = Rect::new(220.0, 0.0, 100.0, 100.0);
