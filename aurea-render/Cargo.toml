@@ -14,7 +14,7 @@ workspace = true
 default = []
 # Aurea's own GPU backend, and where accelerated work goes. Currently Vulkan
 # through ZenGPU. Opt-in; pulls in ash/Vulkan.
-zengpu = ["dep:inline-spirv", "dep:zengpu-hal", "dep:zengpu-vulkan"]
+zengpu = ["dep:zengpu-hal", "dep:zengpu-spirv", "dep:zengpu-vulkan"]
 # For fitting Aurea into an application already built around wgpu. A
 # compatibility path, not the backend Aurea is designed around.
 wgpu = ["dep:wgpu"]
@@ -26,9 +26,9 @@ fontdue = "0.9"
 log = "0.4"
 
 # ZenGPU: optional, enabled by the `zengpu` feature.
-zengpu-hal = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "9fa4fe70e661e046939acd1ef4f9af213415eeed", version = "0.0.1", optional = true }
-zengpu-vulkan = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "9fa4fe70e661e046939acd1ef4f9af213415eeed", version = "0.0.1", optional = true }
-inline-spirv = { version = "0.2", features = ["glsl"], optional = true }
+zengpu-hal = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "30f8a4ffdafcd9895271eccf0d45f2126ded492e", version = "0.0.1", optional = true }
+zengpu-vulkan = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "30f8a4ffdafcd9895271eccf0d45f2126ded492e", version = "0.0.1", optional = true }
+zengpu-spirv = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "30f8a4ffdafcd9895271eccf0d45f2126ded492e", version = "0.0.1", optional = true }
 
 # wgpu compatibility backend: optional, enabled by the `wgpu` feature.
 wgpu = { version = "29.0.1", optional = true }
