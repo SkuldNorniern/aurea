@@ -5,11 +5,19 @@
 //! GPU upload, and GPU teardown are delegated to the backend through
 //! `Gpu2dBackend::upload_image` / `evict_image`; this module owns only
 //! the LRU eviction policy, keepalive tracking, and dropped-image pruning.
+//!
+//! A texture the frame being built has already used is never evicted while
+//! that frame is built: its slot is in the frame plan, and freeing it would
+//! leave the plan pointing at nothing, or at the next texture given the same
+//! slot. A frame that uses more textures than the capacity runs over it, and
+//! the extra entries are evicted by later frames that no longer use them.
+//! Freeing a texture the GPU may still be reading for an earlier frame is the
+//! backend's to defer, in [`Gpu2dBackend::evict_image`].
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use aurea_foundation::{AureaError, AureaResult};
+use aurea_foundation::AureaResult;
 
 use super::backend::Gpu2dBackend;
 
@@ -45,6 +53,8 @@ struct Entry {
     /// Keeps the pixel buffer alive so strong_count pruning works.
     keepalive: Arc<[u8]>,
     last_used: u64,
+    /// The frame that last used it; that frame's plan may hold its slot.
+    frame: u64,
 }
 
 /// Backend-agnostic LRU texture cache.
@@ -83,11 +93,12 @@ impl TextureCache {
 
         if let Some(entry) = self.map.get_mut(&key) {
             entry.last_used = clock;
+            entry.frame = frame;
             return Ok(entry.slot);
         }
 
         if self.map.len() >= self.cap {
-            self.evict_lru(backend, frame)?;
+            self.evict_lru(backend, frame);
         }
 
         let slot = backend.upload_image(width, height, pixels)?;
@@ -97,6 +108,7 @@ impl TextureCache {
                 slot,
                 keepalive: Arc::clone(pixels),
                 last_used: clock,
+                frame,
             },
         );
         Ok(slot)
@@ -125,19 +137,124 @@ impl TextureCache {
         }
     }
 
-    fn evict_lru<B: Gpu2dBackend>(
-        &mut self,
-        backend: &mut B,
-        _current_frame: u64,
-    ) -> AureaResult<()> {
-        let key = self
+    /// Evicts the least recently used texture the current frame has not
+    /// used. Does nothing when every cached texture is in this frame.
+    fn evict_lru<B: Gpu2dBackend>(&mut self, backend: &mut B, current_frame: u64) {
+        let Some(key) = self
             .map
             .iter()
+            .filter(|(_, e)| e.frame != current_frame)
             .min_by_key(|(_, e)| e.last_used)
             .map(|(k, _)| *k)
-            .ok_or(AureaError::RenderingFailed)?;
-        let entry = self.map.remove(&key).expect("key came from map");
-        backend.evict_image(entry.slot);
-        Ok(())
+        else {
+            return;
+        };
+        if let Some(entry) = self.map.remove(&key) {
+            backend.evict_image(entry.slot);
+        }
+    }
+
+    /// How many textures are cached.
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.map.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::batch::{CircleInstance, RectInstance};
+    use crate::gpu2d::frame_plan::FramePlan;
+
+    /// Hands out slots in order and remembers which are live.
+    #[derive(Default)]
+    struct Slots {
+        next: u32,
+        live: Vec<u32>,
+        evicted: Vec<u32>,
+    }
+
+    impl Gpu2dBackend for Slots {
+        fn resize(&mut self, _: u32, _: u32) -> AureaResult<()> {
+            Ok(())
+        }
+
+        fn upload_image(&mut self, _: u32, _: u32, _: &[u8]) -> AureaResult<u32> {
+            self.next += 1;
+            self.live.push(self.next);
+            Ok(self.next)
+        }
+
+        fn evict_image(&mut self, slot: u32) {
+            self.live.retain(|s| *s != slot);
+            self.evicted.push(slot);
+        }
+
+        fn present_frame(
+            &mut self,
+            _: &FramePlan,
+            _: &[RectInstance],
+            _: &[CircleInstance],
+        ) -> AureaResult<()> {
+            Ok(())
+        }
+    }
+
+    fn pixels() -> Arc<[u8]> {
+        Arc::from(vec![0u8; 4])
+    }
+
+    #[test]
+    fn a_frame_keeps_every_texture_it_uses() {
+        let (mut cache, mut backend) = (TextureCache::with_capacity(2), Slots::default());
+        let images = [pixels(), pixels(), pixels()];
+        let slots: Vec<u32> = images
+            .iter()
+            .map(|p| cache.resolve(p, 1, 1, &mut backend, 1).expect("resolve"))
+            .collect();
+        assert!(
+            backend.evicted.is_empty(),
+            "nothing this frame uses is evicted"
+        );
+        for slot in &slots {
+            assert!(backend.live.contains(slot));
+        }
+        assert_eq!(cache.len(), 3, "the frame runs over the capacity");
+    }
+
+    #[test]
+    fn a_later_frame_evicts_what_it_no_longer_uses() {
+        let (mut cache, mut backend) = (TextureCache::with_capacity(2), Slots::default());
+        let images = [pixels(), pixels(), pixels()];
+        for p in &images {
+            cache.resolve(p, 1, 1, &mut backend, 1).expect("resolve");
+        }
+        let fresh = pixels();
+        let slot = cache
+            .resolve(&fresh, 1, 1, &mut backend, 2)
+            .expect("resolve");
+        assert_eq!(
+            backend.evicted,
+            vec![1],
+            "the oldest from the last frame goes"
+        );
+        assert!(backend.live.contains(&slot));
+    }
+
+    #[test]
+    fn a_reused_texture_is_pinned_for_its_new_frame() {
+        let (mut cache, mut backend) = (TextureCache::with_capacity(2), Slots::default());
+        let (a, b, c) = (pixels(), pixels(), pixels());
+        cache.resolve(&a, 1, 1, &mut backend, 1).expect("resolve");
+        cache.resolve(&b, 1, 1, &mut backend, 1).expect("resolve");
+        // Frame 2 uses `a` again first, then needs room for `c`.
+        cache.resolve(&a, 1, 1, &mut backend, 2).expect("resolve");
+        cache.resolve(&c, 1, 1, &mut backend, 2).expect("resolve");
+        assert_eq!(
+            backend.evicted,
+            vec![2],
+            "`b` goes, not the `a` frame 2 holds"
+        );
     }
 }
