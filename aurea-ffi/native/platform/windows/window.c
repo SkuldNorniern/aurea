@@ -1,4 +1,5 @@
 ﻿#include "window.h"
+#include "elements/common.h"
 #include "utils.h"
 #include "common/errors.h"
 #include "common/rust_callbacks.h"
@@ -43,20 +44,28 @@ static const char* AUREA_WINDOW_ICON_PROPERTY = "AureaWindowIcon";
 
 #define AUREA_CURSOR_GRAB_PROP "AureaCursorGrabMode"
 
-/* Sizes the window so its client area is width x height, the size every
-   other backend and ng_windows_window_get_size mean. CreateWindowEx and
-   SetWindowPos take the outer size, title bar and borders included, so a
-   window asked for at 480 x 370 had less room than that inside. The frame
-   is measured off the window itself, so its style, DPI and any menu bar
-   are all accounted for. */
+/* Sizes the window so its client area is width x height logical pixels,
+   the size every other backend and ng_windows_window_get_size mean.
+   CreateWindowEx and SetWindowPos take the outer size in device pixels,
+   title bar and borders included, so a window asked for at 480 x 370 had
+   less room than that inside, and less again on a scaled monitor. The
+   frame is measured off the window itself, so its style, DPI and any menu
+   bar are all accounted for. */
 static void ng_windows_set_client_size(HWND hwnd, int width, int height, UINT flags) {
     RECT outer;
     RECT client;
     if (!GetWindowRect(hwnd, &outer) || !GetClientRect(hwnd, &client)) return;
     int frame_w = (outer.right - outer.left) - (client.right - client.left);
     int frame_h = (outer.bottom - outer.top) - (client.bottom - client.top);
-    SetWindowPos(hwnd, NULL, 0, 0, width + frame_w, height + frame_h,
+    int w = ng_windows_px(hwnd, width);
+    int h = ng_windows_px(hwnd, height);
+    SetWindowPos(hwnd, NULL, 0, 0, w + frame_w, h + frame_h,
         flags | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+/* Device pixels on `hwnd` in logical pixels, rounded. */
+static int ng_windows_unscale(HWND hwnd, int device) {
+    return MulDiv(device, 96, (int)ng_windows_dpi(hwnd));
 }
 NGHandle ng_windows_create_window(const char* title, int width, int height) {
     if (!title) return NULL;
@@ -349,6 +358,9 @@ int ng_windows_set_window_content(NGHandle window_handle, NGHandle content_handl
     // Force redraw of menu bar
     DrawMenuBar(window);
 
+    /* Controls made before they had a window got the system DPI's font. */
+    ng_windows_refresh_dpi(window);
+
     // If content is a box, ensure it's properly sized and layout its children
     extern void layout_box_children(HWND box);
     #define BOX_ORIENTATION_PROP "AureaBoxOrientation"
@@ -495,8 +507,8 @@ void ng_windows_window_get_size(NGHandle window, int* width, int* height) {
     HWND hwnd = (HWND)window;
     RECT rect;
     GetClientRect(hwnd, &rect);
-    *width = rect.right - rect.left;
-    *height = rect.bottom - rect.top;
+    *width = ng_windows_unscale(hwnd, rect.right - rect.left);
+    *height = ng_windows_unscale(hwnd, rect.bottom - rect.top);
 }
 
 void ng_windows_window_set_position(NGHandle window, int x, int y) {

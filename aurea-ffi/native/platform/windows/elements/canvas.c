@@ -296,10 +296,13 @@ void ng_windows_canvas_update_buffer(NGHandle canvas, const unsigned char* buffe
 void ng_windows_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int* height) {
     if (!canvas || !width || !height) return;
     
+    /* Logical pixels, as on the other backends: the renderer multiplies by
+       the scale factor to size its buffer. */
     RECT rect;
     if (GetClientRect((HWND)canvas, &rect)) {
-        *width = (unsigned int)(rect.right - rect.left);
-        *height = (unsigned int)(rect.bottom - rect.top);
+        int dpi = (int)ng_windows_dpi((HWND)canvas);
+        *width = (unsigned int)MulDiv(rect.right - rect.left, 96, dpi);
+        *height = (unsigned int)MulDiv(rect.bottom - rect.top, 96, dpi);
     }
 }
 

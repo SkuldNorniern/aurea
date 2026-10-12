@@ -37,8 +37,37 @@ static BOOL g_mouse_inside[256] = {0};
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
+/* Per-monitor DPI awareness, so windows are drawn at the monitor's real
+   resolution instead of being stretched, blurry, by Windows. An app whose
+   manifest already says how it handles DPI keeps that: the call is then
+   refused, and nothing else is tried. */
+static void ng_windows_declare_dpi_awareness(void) {
+    typedef BOOL (WINAPI *SetContextFunc)(HANDLE);
+    typedef HRESULT (WINAPI *SetAwarenessFunc)(int);
+    HMODULE user32 = GetModuleHandleA("user32.dll");
+    SetContextFunc set_context = user32
+        ? (SetContextFunc)GetProcAddress(user32, "SetProcessDpiAwarenessContext")
+        : NULL;
+    if (set_context) {
+        /* DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 */
+        if (set_context((HANDLE)(INT_PTR)-4)) return;
+        if (GetLastError() == ERROR_ACCESS_DENIED) return;
+    }
+    HMODULE shcore = LoadLibraryA("shcore.dll");
+    SetAwarenessFunc set_awareness = shcore
+        ? (SetAwarenessFunc)GetProcAddress(shcore, "SetProcessDpiAwareness")
+        : NULL;
+    /* PROCESS_PER_MONITOR_DPI_AWARE; E_ACCESSDENIED means already set. */
+    if (set_awareness) {
+        HRESULT hr = set_awareness(2);
+        if (SUCCEEDED(hr) || hr == E_ACCESSDENIED) return;
+    }
+    SetProcessDPIAware();
+}
+
 int ng_windows_init(void) {
     if (!win_initialized) {
+        ng_windows_declare_dpi_awareness();
         g_wc.cbSize = sizeof(WNDCLASSEXW);
         g_wc.style = CS_DBLCLKS;
         g_wc.lpfnWndProc = WindowProc;
@@ -690,6 +719,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 suggestedRect->right - suggestedRect->left,
                 suggestedRect->bottom - suggestedRect->top,
                 SWP_NOZORDER | SWP_NOACTIVATE);
+            /* Native controls get the font for the new DPI and are laid out
+               again with padding to match. */
+            ng_windows_refresh_dpi(hwnd);
             return 0;
         }
         
