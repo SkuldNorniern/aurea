@@ -6,6 +6,7 @@
 //! app's own implements [`Widget`] and is shown the same way, with
 //! [`Ui::add`].
 
+pub mod button;
 pub(crate) mod tooltip;
 
 use super::frame::{Response, Ui};
