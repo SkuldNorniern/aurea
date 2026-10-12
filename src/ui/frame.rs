@@ -39,6 +39,8 @@ pub struct Response {
     pub submitted: bool,
     /// Escape was pressed in a text field, which let go of the keyboard.
     pub cancelled: bool,
+    /// A list's pick was opened: double-clicked, or Enter pressed on it.
+    pub activated: bool,
 }
 
 impl Response {
@@ -50,6 +52,7 @@ impl Response {
             held: input.held,
             clicked: input.clicked,
             secondary_clicked: input.secondary_clicked,
+            activated: false,
             changed: false,
             focused: input.focused,
             submitted: false,
