@@ -22,16 +22,16 @@ mod backend;
 mod driver;
 mod lifecycle;
 mod state;
+mod weak;
 
 use backend::ensure_canvas_renderer;
 pub use lifecycle::request_canvas_redraw;
 use lifecycle::{CanvasCleanup, next_canvas_id, register_canvas_state};
 pub use state::CanvasId;
 use state::CanvasState;
+pub use weak::WeakCanvas;
 
-/// Drawing callback — Arc so it can be cheaply cloned out of the state lock before the renderer
-/// lock is acquired, preventing deadlock when the callback reads canvas properties (size,
-/// background_color, etc.).
+/// What a canvas draws, held by the UI thread that runs it.
 pub type DrawCallback = Rc<RefCell<dyn FnMut(&mut dyn DrawingContext) -> AureaResult<()>>>;
 
 /// A drawable canvas element backed by a renderer.
