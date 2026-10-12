@@ -106,6 +106,22 @@ impl<K: Eq + Hash + Copy> Tweens<K> {
         v.now
     }
 
+    /// Like [`Tweens::to`], but a value seen for the first time starts at `start` and eases in from
+    /// there instead of starting at its target.
+    pub fn from_to(&mut self, key: K, start: f32, target: f32, rate: f32) -> f32 {
+        self.values.entry(key).or_insert(Value {
+            now: start,
+            used: true,
+        });
+        self.to(key, target, rate)
+    }
+
+    /// Where `key` is now, without reading it for this frame: a value only looked at here is still
+    /// forgotten at the next [`Tweens::frame`].
+    pub fn get(&self, key: K) -> Option<f32> {
+        self.values.get(&key).map(|v| v.now)
+    }
+
     /// Puts `key` at `value` now; it moves from there next time it is read.
     pub fn set(&mut self, key: K, value: f32) {
         self.values.insert(
@@ -168,6 +184,30 @@ mod tests {
         assert_eq!(t.to("x", 1.0, 10.0), 1.0);
         t.keep_busy();
         assert!(!t.busy());
+    }
+
+    #[test]
+    fn from_to_eases_in_from_its_start() {
+        let mut t = Tweens::new();
+        t.frame();
+        t.dt = 0.016;
+        let first = t.from_to("guide", 0.0, 1.0, 3.5);
+        assert!(first > 0.0 && first < 1.0);
+        assert!(t.busy());
+        assert!(t.from_to("guide", 0.0, 1.0, 3.5) > first);
+    }
+
+    #[test]
+    fn get_peeks_without_keeping_the_value() {
+        let mut t = Tweens::new();
+        assert_eq!(t.get("x"), None);
+        t.frame();
+        t.to("x", 2.0, 10.0);
+        assert_eq!(t.get("x"), Some(2.0));
+        t.frame();
+        assert_eq!(t.get("x"), Some(2.0));
+        t.frame();
+        assert_eq!(t.get("x"), None);
     }
 
     #[test]
