@@ -8,9 +8,10 @@ use crate::gpu::batch::RenderBatches;
 use crate::numeric::f32_to_u32_clamped;
 use crate::recording::RecordingContext;
 use crate::renderer::{DrawingContext, FrameOutcome, Renderer};
-use crate::scene::display_list::DisplayList;
+use crate::scene::command::DrawCommand;
+use crate::scene::display_list::{CacheKey, DisplayIndex, DisplayItem, DisplayList};
 use crate::surface::{Surface, SurfaceInfo};
-use crate::types::Rect;
+use crate::types::{BlendMode, Color, Image, Rect, Sampling};
 
 use super::backend::Gpu2dBackend;
 use super::frame_plan::FramePlan;
@@ -34,6 +35,10 @@ pub struct Gpu2dRenderer<B: Gpu2dBackend> {
     cpu_rgba: Vec<u8>,
     last_on_cpu: bool,
     warned_about_dropped: bool,
+    layers: Vec<CpuRasterizer>,
+    layer_lists: Vec<DisplayList>,
+    layer_images: Vec<Option<Image>>,
+    composite: DisplayList,
 }
 
 impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
@@ -51,6 +56,10 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
             cpu: None,
             cpu_rgba: Vec::new(),
             last_on_cpu: false,
+            layers: Vec::new(),
+            layer_lists: Vec::new(),
+            layer_images: Vec::new(),
+            composite: DisplayList::new(),
             logical_width: width,
             logical_height: height,
             scale_factor: scale_factor.max(1.0),
@@ -74,6 +83,14 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
     }
 
     fn present_on_cpu(&mut self) -> AureaResult<FrameOutcome> {
+        let has_textures = self
+            .display_list
+            .items()
+            .iter()
+            .any(|i| matches!(i.command, DrawCommand::DrawTexture(..)));
+        if has_textures && self.backend.features().textures {
+            return self.present_layered();
+        }
         let (lw, lh, scale) = (self.logical_width, self.logical_height, self.scale_factor);
         let cpu = self.cpu.get_or_insert_with(|| CpuRasterizer::new(lw, lh));
         if cpu.logical_size() != (lw, lh) || cpu.scale_factor() != scale {
@@ -100,6 +117,96 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         }
         self.last_on_cpu = true;
         self.backend.present_pixels(&self.cpu_rgba, width, height)
+    }
+
+    fn present_layered(&mut self) -> AureaResult<FrameOutcome> {
+        self.split_at_textures();
+        let (lw, lh, scale) = (self.logical_width, self.logical_height, self.scale_factor);
+        while self.layers.len() < self.layer_lists.len() {
+            self.layers.push(CpuRasterizer::new(lw, lh));
+            self.layer_images.push(None);
+        }
+        self.composite.clear();
+        let mut textures = self
+            .display_list
+            .items()
+            .iter()
+            .filter(|i| matches!(i.command, DrawCommand::DrawTexture(..)));
+        for (k, list) in self.layer_lists.iter_mut().enumerate() {
+            if k > 0
+                && let Some(texture) = textures.next()
+            {
+                self.composite.push(texture.clone());
+            }
+            let layer = &mut self.layers[k];
+            if layer.logical_size() != (lw, lh) || layer.scale_factor() != scale {
+                layer.configure(SurfaceInfo {
+                    width: lw,
+                    height: lh,
+                    scale_factor: scale,
+                })?;
+            }
+            let kept = &mut self.layer_images[k];
+            if layer.render_recorded(list)? != FrameOutcome::Unchanged || kept.is_none() {
+                *kept = layer_image(layer);
+            }
+            if let Some(image) = kept.clone() {
+                let full = Rect::new(0.0, 0.0, image.width as f32, image.height as f32);
+                self.composite.push(plain_item(DrawCommand::DrawImageRect(
+                    image,
+                    full,
+                    Sampling::Nearest,
+                )));
+            }
+        }
+        self.last_on_cpu = true;
+        self.batches.lower_into(&self.composite);
+        self.present_batches()
+    }
+
+    fn split_at_textures(&mut self) {
+        let mut count = 0;
+        let start_layer = |lists: &mut Vec<DisplayList>, count: &mut usize| {
+            if lists.len() <= *count {
+                lists.push(DisplayList::new());
+            }
+            let list = &mut lists[*count];
+            list.clear();
+            if *count > 0 {
+                list.push(plain_item(DrawCommand::Clear(Color::rgba(0, 0, 0, 0))));
+            }
+            *count += 1;
+        };
+        start_layer(&mut self.layer_lists, &mut count);
+        for item in self.display_list.items() {
+            if matches!(item.command, DrawCommand::DrawTexture(..)) {
+                start_layer(&mut self.layer_lists, &mut count);
+            } else {
+                self.layer_lists[count - 1].push(item.clone());
+            }
+        }
+        self.layer_lists.truncate(count);
+    }
+
+    fn present_batches(&mut self) -> AureaResult<FrameOutcome> {
+        let (pw, ph) = self.physical_size();
+        self.frame_plan.viewport_width = pw;
+        self.frame_plan.viewport_height = ph;
+        self.frame_counter += 1;
+        let fc = self.frame_counter;
+        let presented = resolve_frame(
+            &self.batches,
+            &mut self.texture_cache,
+            &mut self.backend,
+            fc,
+            &mut self.frame_plan,
+        )
+        .and_then(|()| {
+            let rects = &self.batches.rects;
+            let shapes = &self.batches.shapes;
+            self.backend.present_frame(&self.frame_plan, rects, shapes)
+        });
+        recover(presented)
     }
 
     /// Shared access to the device backend (for backend-specific extensions such as engine-side
@@ -182,24 +289,7 @@ impl<B: Gpu2dBackend> Renderer for Gpu2dRenderer<B> {
         }
         self.last_on_cpu = false;
         self.report_dropped();
-        let (pw, ph) = self.physical_size();
-        self.frame_plan.viewport_width = pw;
-        self.frame_plan.viewport_height = ph;
-        self.frame_counter += 1;
-        let fc = self.frame_counter;
-        let presented = resolve_frame(
-            &self.batches,
-            &mut self.texture_cache,
-            &mut self.backend,
-            fc,
-            &mut self.frame_plan,
-        )
-        .and_then(|()| {
-            let rects = &self.batches.rects;
-            let shapes = &self.batches.shapes;
-            self.backend.present_frame(&self.frame_plan, rects, shapes)
-        });
-        recover(presented)
+        self.present_batches()
     }
 
     fn cleanup(&mut self) {
@@ -211,6 +301,27 @@ impl<B: Gpu2dBackend> Renderer for Gpu2dRenderer<B> {
     fn display_list(&self) -> Option<&DisplayList> {
         Some(&self.display_list)
     }
+}
+
+fn plain_item(command: DrawCommand) -> DisplayItem {
+    DisplayItem::new(
+        DisplayIndex(0),
+        CacheKey::from_hash(0),
+        Rect::new(0.0, 0.0, 0.0, 0.0),
+        false,
+        BlendMode::Normal,
+        command,
+    )
+}
+
+fn layer_image(layer: &CpuRasterizer) -> Option<Image> {
+    let frame = layer.frame_output()?;
+    let (pixels, _) = frame.bytes().as_chunks::<4>();
+    let rgba = pixels
+        .iter()
+        .flat_map(|&[b, g, r, a]| [r, g, b, a])
+        .collect();
+    Some(Image::new(frame.width, frame.height, rgba))
 }
 
 fn recover(outcome: AureaResult<FrameOutcome>) -> AureaResult<FrameOutcome> {
@@ -230,7 +341,8 @@ fn physical(width: u32, height: u32, scale: f32) -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gpu::batch::{RectInstance, ShapeInstance};
+    use crate::gpu::batch::{DrawRef, RectInstance, ShapeInstance};
+    use crate::types::GpuTexture;
     use crate::types::{Color, Paint};
 
     struct Probe {
@@ -239,6 +351,9 @@ mod tests {
         features: GpuFeatures,
         drawn: usize,
         pixels: Vec<(u32, u32, [u8; 4])>,
+        orders: Vec<Vec<DrawRef>>,
+        uploads: usize,
+        bound: usize,
     }
 
     impl Gpu2dBackend for Probe {
@@ -248,7 +363,13 @@ mod tests {
         }
 
         fn upload_image(&mut self, _: u32, _: u32, _: &[u8]) -> AureaResult<u32> {
+            self.uploads += 1;
             Ok(0)
+        }
+
+        fn bind_texture(&mut self, texture: GpuTexture) -> AureaResult<u32> {
+            self.bound += 1;
+            Ok(texture.index)
         }
 
         fn features(&self) -> GpuFeatures {
@@ -259,11 +380,12 @@ mod tests {
 
         fn present_frame(
             &mut self,
-            _: &FramePlan,
+            plan: &FramePlan,
             _: &[RectInstance],
             _: &[ShapeInstance],
         ) -> AureaResult<FrameOutcome> {
             self.drawn += 1;
+            self.orders.push(plan.order.clone());
             Ok(self.outcome)
         }
 
@@ -286,6 +408,9 @@ mod tests {
             features,
             drawn: 0,
             pixels: Vec::new(),
+            orders: Vec::new(),
+            uploads: 0,
+            bound: 0,
         };
         Gpu2dRenderer::from_backend(probe, 100, 50, 1.0)
     }
@@ -298,6 +423,49 @@ mod tests {
                 .expect("draw");
         }
         r.end_frame().expect("end")
+    }
+
+    #[test]
+    fn a_cpu_frame_keeps_its_textures_in_order() {
+        let features = GpuFeatures {
+            rounded_rects: false,
+            textures: true,
+            ..GpuFeatures::ALL
+        };
+        let mut r = with_features(FrameOutcome::Presented, features);
+        let texture = GpuTexture {
+            index: 9,
+            generation: 0,
+            width: 4,
+            height: 4,
+        };
+        let frame = |r: &mut Gpu2dRenderer<Probe>| {
+            let mut ctx = r.begin_frame().expect("begin");
+            let paint = Paint::new().color(Color::rgb(220, 20, 60));
+            ctx.draw_rect(Rect::new(0.0, 0.0, 100.0, 50.0), &paint)
+                .expect("rect");
+            let all = Rect::new(0.0, 0.0, 1.0, 1.0);
+            ctx.draw_texture(texture, all, Rect::new(10.0, 10.0, 20.0, 20.0))
+                .expect("texture");
+            ctx.draw_round_rect(Rect::new(5.0, 5.0, 30.0, 30.0), 4.0, &paint)
+                .expect("rounded");
+            drop(ctx);
+            r.end_frame().expect("end")
+        };
+        frame(&mut r);
+        let probe = r.backend();
+        assert!(probe.pixels.is_empty(), "not a flat CPU frame");
+        assert_eq!(
+            probe.orders[0],
+            [DrawRef::Image(0), DrawRef::Image(1), DrawRef::Image(2)]
+        );
+        assert_eq!((probe.bound, probe.uploads), (1, 2));
+        frame(&mut r);
+        assert_eq!(
+            r.backend().uploads,
+            2,
+            "unchanged layers are not uploaded again"
+        );
     }
 
     #[test]
