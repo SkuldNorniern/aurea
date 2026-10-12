@@ -25,6 +25,19 @@ thread_local! {
         RefCell::new(HashMap::new());
     static WINDOW_UPDATE_CALLBACKS: RefCell<HashMap<usize, Vec<WindowUpdateCallback>>> =
         RefCell::new(HashMap::new());
+    static WAIT_CAPTURE: RefCell<Option<(usize, Vec<WindowEvent>)>> =
+        const { RefCell::new(None) };
+}
+
+pub(crate) fn begin_event_capture(handle: *mut c_void, events: Vec<WindowEvent>) {
+    WAIT_CAPTURE.with(|c| *c.borrow_mut() = Some((handle_key(handle), events)));
+}
+
+pub(crate) fn end_event_capture() -> Vec<WindowEvent> {
+    WAIT_CAPTURE
+        .with(|c| c.borrow_mut().take())
+        .map(|(_, events)| events)
+        .unwrap_or_default()
 }
 
 pub fn register_event_queue(handle: *mut c_void, queue: &Arc<EventQueue>) {
@@ -93,6 +106,14 @@ pub fn dispatch_window_events(handle: *mut c_void, events: &[WindowEvent]) {
             .get(&handle_key(handle))
             .cloned()
             .unwrap_or_default()
+    });
+
+    WAIT_CAPTURE.with(|c| {
+        if let Some((waiting, kept)) = &mut *c.borrow_mut()
+            && *waiting == handle_key(handle)
+        {
+            kept.extend_from_slice(events);
+        }
     });
 
     for event in events {
