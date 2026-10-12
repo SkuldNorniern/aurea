@@ -120,11 +120,119 @@ impl Rect {
         let bottom = self.bottom().max(other.bottom());
         Self::new(x, y, right - x, bottom - y)
     }
+
+    /// The middle point.
+    pub fn center(self) -> Point {
+        Point::new(self.x + self.width / 2.0, self.y + self.height / 2.0)
+    }
+
+    /// Shrunk by `by` on every side, never below zero size; a negative
+    /// `by` grows it.
+    pub fn inset(self, by: f32) -> Self {
+        self.inset_xy(by, by)
+    }
+
+    /// Shrunk by `x` on the left and right and `y` on the top and bottom.
+    pub fn inset_xy(self, x: f32, y: f32) -> Self {
+        Self::new(
+            self.x + x,
+            self.y + y,
+            (self.width - 2.0 * x).max(0.0),
+            (self.height - 2.0 * y).max(0.0),
+        )
+    }
+
+    /// The strip `width` wide on the left, and what is left past it and a
+    /// `gap`.
+    pub fn split_left(self, width: f32, gap: f32) -> (Self, Self) {
+        let width = width.clamp(0.0, self.width);
+        let rest = (self.width - width - gap).max(0.0);
+        (
+            Self::new(self.x, self.y, width, self.height),
+            Self::new(self.right() - rest, self.y, rest, self.height),
+        )
+    }
+
+    /// The strip `width` wide on the right, and what is left before it and
+    /// a `gap`.
+    pub fn split_right(self, width: f32, gap: f32) -> (Self, Self) {
+        let width = width.clamp(0.0, self.width);
+        let rest = (self.width - width - gap).max(0.0);
+        (
+            Self::new(self.right() - width, self.y, width, self.height),
+            Self::new(self.x, self.y, rest, self.height),
+        )
+    }
+
+    /// The strip `height` tall at the top, and what is left under it and a
+    /// `gap`.
+    pub fn split_top(self, height: f32, gap: f32) -> (Self, Self) {
+        let height = height.clamp(0.0, self.height);
+        let rest = (self.height - height - gap).max(0.0);
+        (
+            Self::new(self.x, self.y, self.width, height),
+            Self::new(self.x, self.bottom() - rest, self.width, rest),
+        )
+    }
+
+    /// The strip `height` tall at the bottom, and what is left above it and
+    /// a `gap`.
+    pub fn split_bottom(self, height: f32, gap: f32) -> (Self, Self) {
+        let height = height.clamp(0.0, self.height);
+        let rest = (self.height - height - gap).max(0.0);
+        (
+            Self::new(self.x, self.bottom() - height, self.width, height),
+            Self::new(self.x, self.y, self.width, rest),
+        )
+    }
+
+    /// Column `index` of `count` equal columns with `gap` between them.
+    pub fn column(self, index: usize, count: usize, gap: f32) -> Self {
+        let count = count.max(1);
+        #[allow(clippy::cast_precision_loss)]
+        let (n, i) = (count as f32, index.min(count - 1) as f32);
+        let width = ((self.width - gap * (n - 1.0)) / n).max(0.0);
+        Self::new(self.x + (width + gap) * i, self.y, width, self.height)
+    }
+
+    /// A `width` by `height` rectangle centred in this one.
+    pub fn centered(self, width: f32, height: f32) -> Self {
+        let c = self.center();
+        Self::new(c.x - width / 2.0, c.y - height / 2.0, width, height)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn splitting_leaves_the_gap_between() {
+        let r = Rect::new(0.0, 0.0, 100.0, 40.0);
+        let (left, rest) = r.split_left(30.0, 10.0);
+        assert_eq!(left, Rect::new(0.0, 0.0, 30.0, 40.0));
+        assert_eq!(rest, Rect::new(40.0, 0.0, 60.0, 40.0));
+        let (bar, body) = r.split_top(10.0, 5.0);
+        assert_eq!(bar.height + 5.0 + body.height, 40.0);
+        let (end, before) = r.split_right(200.0, 4.0);
+        assert_eq!((end.width, before.width), (100.0, 0.0));
+    }
+
+    #[test]
+    fn columns_share_the_width() {
+        let r = Rect::new(10.0, 0.0, 100.0, 20.0);
+        assert_eq!(r.column(0, 3, 5.0), Rect::new(10.0, 0.0, 30.0, 20.0));
+        assert_eq!(r.column(2, 3, 5.0).right(), r.right());
+        assert_eq!(r.column(9, 3, 5.0), r.column(2, 3, 5.0));
+    }
+
+    #[test]
+    fn inset_and_center() {
+        let r = Rect::new(0.0, 0.0, 10.0, 10.0);
+        assert_eq!(r.inset(2.0), Rect::new(2.0, 2.0, 6.0, 6.0));
+        assert_eq!(r.inset(8.0).width, 0.0);
+        assert_eq!(r.centered(4.0, 2.0), Rect::new(3.0, 4.0, 4.0, 2.0));
+    }
 
     #[test]
     fn a_rect_knows_its_far_edges() {
