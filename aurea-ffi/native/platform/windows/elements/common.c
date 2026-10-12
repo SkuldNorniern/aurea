@@ -19,17 +19,97 @@ HWND ng_windows_detached_parent(void) {
     return parking ? parking : GetDesktopWindow();
 }
 
-HFONT ng_windows_ui_font(void) {
-    static HFONT font = NULL;
-    if (!font) {
-        NONCLIENTMETRICSW metrics;
-        metrics.cbSize = sizeof(metrics);
-        if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0)) {
-            font = CreateFontIndirectW(&metrics.lfMessageFont);
-        }
-        if (!font) font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+UINT ng_windows_dpi(HWND hwnd) {
+    typedef UINT (WINAPI *GetDpiForWindowFunc)(HWND);
+    static GetDpiForWindowFunc get_dpi = NULL;
+    static BOOL looked_up = FALSE;
+    if (!looked_up) {
+        HMODULE user32 = GetModuleHandleA("user32.dll");
+        if (user32) get_dpi = (GetDpiForWindowFunc)GetProcAddress(user32, "GetDpiForWindow");
+        looked_up = TRUE;
     }
-    return font;
+    UINT dpi = (get_dpi && hwnd) ? get_dpi(hwnd) : 0;
+    if (dpi == 0) {
+        HDC screen = GetDC(NULL);
+        dpi = screen ? (UINT)GetDeviceCaps(screen, LOGPIXELSX) : 96;
+        if (screen) ReleaseDC(NULL, screen);
+    }
+    return dpi ? dpi : 96;
+}
+
+int ng_windows_px(HWND hwnd, int logical) {
+    return MulDiv(logical, (int)ng_windows_dpi(hwnd), 96);
+}
+
+/* One font per DPI seen, kept for the life of the process: there are only
+   ever as many as monitors with different scaling. */
+#define AUREA_FONT_SLOTS 8
+static struct { UINT dpi; HFONT font; } g_ui_fonts[AUREA_FONT_SLOTS];
+
+static HFONT ng_windows_make_ui_font(UINT dpi) {
+    typedef BOOL (WINAPI *ForDpiFunc)(UINT, UINT, PVOID, UINT, UINT);
+    HMODULE user32 = GetModuleHandleA("user32.dll");
+    ForDpiFunc for_dpi = user32
+        ? (ForDpiFunc)GetProcAddress(user32, "SystemParametersInfoForDpi")
+        : NULL;
+    NONCLIENTMETRICSW metrics;
+    metrics.cbSize = sizeof(metrics);
+    BOOL got = for_dpi
+        ? for_dpi(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0, dpi)
+        : SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0);
+    if (!got) return (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+    if (!for_dpi) {
+        /* Metrics come at the system DPI; scale them to this one. */
+        HDC screen = GetDC(NULL);
+        int system = screen ? GetDeviceCaps(screen, LOGPIXELSY) : 96;
+        if (screen) ReleaseDC(NULL, screen);
+        metrics.lfMessageFont.lfHeight = MulDiv(metrics.lfMessageFont.lfHeight, (int)dpi, system);
+    }
+    HFONT font = CreateFontIndirectW(&metrics.lfMessageFont);
+    return font ? font : (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+}
+
+HFONT ng_windows_ui_font(HWND hwnd) {
+    UINT dpi = ng_windows_dpi(hwnd);
+    for (int i = 0; i < AUREA_FONT_SLOTS; i++) {
+        if (g_ui_fonts[i].font && g_ui_fonts[i].dpi == dpi) return g_ui_fonts[i].font;
+    }
+    for (int i = 0; i < AUREA_FONT_SLOTS; i++) {
+        if (!g_ui_fonts[i].font) {
+            g_ui_fonts[i].dpi = dpi;
+            g_ui_fonts[i].font = ng_windows_make_ui_font(dpi);
+            return g_ui_fonts[i].font;
+        }
+    }
+    /* More DPIs than slots: make the last slot follow. */
+    g_ui_fonts[AUREA_FONT_SLOTS - 1].dpi = dpi;
+    g_ui_fonts[AUREA_FONT_SLOTS - 1].font = ng_windows_make_ui_font(dpi);
+    return g_ui_fonts[AUREA_FONT_SLOTS - 1].font;
+}
+
+static BOOL ng_windows_is_ui_font(HFONT font) {
+    for (int i = 0; i < AUREA_FONT_SLOTS; i++) {
+        if (g_ui_fonts[i].font && g_ui_fonts[i].font == font) return TRUE;
+    }
+    return FALSE;
+}
+
+static BOOL CALLBACK ng_windows_refont_child(HWND child, LPARAM font) {
+    /* Only controls that took Aurea's font; an app's own stays. */
+    HFONT current = (HFONT)SendMessageA(child, WM_GETFONT, 0, 0);
+    if (current && ng_windows_is_ui_font(current) && current != (HFONT)font) {
+        SendMessageA(child, WM_SETFONT, (WPARAM)font, TRUE);
+    }
+    return TRUE;
+}
+
+void ng_windows_refresh_dpi(HWND root) {
+    if (!root) return;
+    EnumChildWindows(root, ng_windows_refont_child, (LPARAM)ng_windows_ui_font(root));
+    HWND content = (HWND)GetPropA(root, "AureaContentHWND");
+    if (content && IsWindow(content) && is_box(content)) {
+        layout_box_children(content);
+    }
 }
 
 int is_box(HWND hwnd) {
@@ -74,7 +154,7 @@ static int box_padding(HWND box) {
     char parent_class[64];
     if (parent && GetClassNameA(parent, parent_class, sizeof(parent_class)) &&
         _stricmp(parent_class, "NativeGuiWindow") == 0) {
-        return PADDING;
+        return ng_windows_px(box, PADDING);
     }
     return 0;
 }
@@ -161,23 +241,28 @@ static void measure_child(BoxChild* c, int vertical, int cross) {
         if (vertical) {
             SIZE text = text_extent(c->hwnd, cross > 0 ? cross : 0);
             w = cross > 0 ? cross : text.cx;
-            h = empty ? 0 : text.cy + LABEL_PADDING * 2;
+            h = empty ? 0 : text.cy + ng_windows_px(c->hwnd, LABEL_PADDING * 2);
         } else {
             SIZE text = text_extent(c->hwnd, 0);
             w = empty ? 0 : text.cx + 2;
-            h = empty ? 0 : text.cy + LABEL_PADDING * 2;
+            h = empty ? 0 : text.cy + ng_windows_px(c->hwnd, LABEL_PADDING * 2);
         }
     } else if (_stricmp(cls, "BUTTON") == 0) {
         LONG_PTR type = GetWindowLongPtrA(c->hwnd, GWL_STYLE) & BS_TYPEMASK;
         SIZE text = text_extent(c->hwnd, 0);
         if (type == BS_AUTOCHECKBOX || type == BS_CHECKBOX || type == BS_AUTORADIOBUTTON ||
             type == BS_RADIOBUTTON || type == BS_AUTO3STATE || type == BS_3STATE) {
-            w = vertical && cross > 0 ? cross : text.cx + 24;
-            h = text.cy + 8 > 20 ? text.cy + 8 : 20;
+            int check = ng_windows_px(c->hwnd, 24);
+            int min_h = ng_windows_px(c->hwnd, 20);
+            w = vertical && cross > 0 ? cross : text.cx + check;
+            h = text.cy + ng_windows_px(c->hwnd, 8);
+            if (h < min_h) h = min_h;
         } else {
-            int natural = text.cx + 32;
-            w = natural > BUTTON_MIN_WIDTH ? natural : BUTTON_MIN_WIDTH;
-            if (h < BUTTON_MIN_HEIGHT) h = BUTTON_MIN_HEIGHT;
+            int natural = text.cx + ng_windows_px(c->hwnd, 32);
+            int min_w = ng_windows_px(c->hwnd, BUTTON_MIN_WIDTH);
+            int min_h = ng_windows_px(c->hwnd, BUTTON_MIN_HEIGHT);
+            w = natural > min_w ? natural : min_w;
+            if (h < min_h) h = min_h;
         }
     } else if (vertical && cross > 0 &&
                (_stricmp(cls, "RichEdit20A") == 0 || _stricmp(cls, "EDIT") == 0 ||
@@ -194,6 +279,7 @@ static void measure_box(HWND box, int in_vertical, int cross, int* out_w, int* o
     int n = box_children(box, children);
     int vertical = get_box_orientation(box);
     int pad = box_padding(box);
+    int spacing = ng_windows_px(box, SPACING);
     /* A box fills the width of a vertical box it sits in. */
     int width = in_vertical && cross > 0 ? cross : -1;
     int main = 0, across = 0;
@@ -202,7 +288,7 @@ static void measure_box(HWND box, int in_vertical, int cross, int* out_w, int* o
                       vertical && width > 0 ? width - 2 * pad : -1);
         int m = vertical ? children[i].h : children[i].w;
         int a = vertical ? children[i].w : children[i].h;
-        main += m + (i > 0 ? SPACING : 0);
+        main += m + (i > 0 ? spacing : 0);
         if (a > across) across = a;
     }
     if (vertical) {
@@ -253,8 +339,9 @@ void layout_box_children(HWND box) {
     }
 
     int pad = box_padding(box);
+    int spacing = ng_windows_px(box, SPACING);
     int cross = (vertical ? box_width : box_height) - 2 * pad;
-    int main_room = (vertical ? box_height : box_width) - 2 * pad - SPACING * (n - 1);
+    int main_room = (vertical ? box_height : box_width) - 2 * pad - spacing * (n - 1);
     float weights = 0.0f;
     for (int i = 0; i < n; i++) {
         measure_child(&children[i], vertical, cross);
@@ -287,14 +374,14 @@ void layout_box_children(HWND box) {
             y = at;
             w = is_box(c->hwnd) ? cross : c->w;
             h = c->h + extra;
-            at += h + SPACING;
+            at += h + spacing;
         } else {
             x = at;
             w = c->w + extra;
             h = is_box(c->hwnd) || c->h > cross ? cross : c->h;
             /* Row items sit on the row's middle. */
             y = pad + (cross - h) / 2;
-            at += w + SPACING;
+            at += w + spacing;
         }
         SetWindowPos(c->hwnd, NULL, x, y, w, h, SWP_NOZORDER | SWP_SHOWWINDOW);
 
