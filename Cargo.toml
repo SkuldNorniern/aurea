@@ -66,7 +66,7 @@ zengpu = [
     "dep:zengpu-hal",
     "dep:zen-window-handle",
     "dep:zengpu",
-    "dep:inline-spirv",
+    "dep:zengpu-spirv",
 ]
 
 [dependencies.wgpu]
@@ -91,10 +91,8 @@ rev = "30f8a4ffdafcd9895271eccf0d45f2126ded492e"
 version = "0.1.0"
 optional = true
 
-# Only the zengpu examples use these, but a dev-dependency is built for every
-# `cargo test` whether it is reachable or not, and inline-spirv needs shaderc
-# and a C++ toolchain. As plain optional dependencies they follow the feature
-# that actually wants them, so the tests build on a machine without it.
+# Only the zengpu examples use this. As an optional dependency it follows the
+# feature that wants it, not every `cargo test`.
 [dependencies.zengpu]
 git = "https://github.com/SkuldNorniern/ZenGPU"
 rev = "30f8a4ffdafcd9895271eccf0d45f2126ded492e"
@@ -102,9 +100,11 @@ version = "0.0.1"
 features = ["vulkan"]
 optional = true
 
-[dependencies.inline-spirv]
-version = "0.2"
-features = ["glsl"]
+# What the examples' `zsl!` shaders expand to.
+[dependencies.zengpu-spirv]
+git = "https://github.com/SkuldNorniern/ZenGPU"
+rev = "30f8a4ffdafcd9895271eccf0d45f2126ded492e"
+version = "0.0.1"
 optional = true
 
 [[example]]

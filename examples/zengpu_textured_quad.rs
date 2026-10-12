@@ -9,9 +9,9 @@
 //! Run: cargo run --example zengpu_textured_quad --features zengpu
 
 use std::{error::Error, result::Result as StdResult};
+use zengpu::zsl;
 use {
     aurea::{Window, WindowEvent},
-    inline_spirv::inline_spirv,
     std::{mem::size_of_val, slice::from_raw_parts},
     zengpu::{
         Acquire, Bindings, ColorAttachment, ColorTargetState, DepthState, DeviceRequest,
@@ -28,35 +28,22 @@ const CELL: u32 = 32;
 
 // ── Shaders ───────────────────────────────────────────────────────────────────
 
-const VERT_SPV: &[u32] = inline_spirv!(
-    r#"
-    #version 450
-    layout(location = 0) out vec2 v_uv;
-    void main() {
-        float x = float((gl_VertexIndex & 1) * 2);
-        float y = float((gl_VertexIndex >> 1) * 2);
-        v_uv = vec2(x * 0.5, y * 0.5);
-        gl_Position = vec4(x - 1.0, y - 1.0, 0.0, 1.0);
+const VERT_SPV: &[u32] = zsl!(
+    vertex vs(vi: vertex_index) -> (f32x4, f32x2) {
+        let x = f32((vi & 1) * 2)
+        let y = f32((vi >> 1) * 2)
+        (f32x4(x - 1.0, y - 1.0, 0.0, 1.0), f32x2(x * 0.5, y * 0.5))
     }
-    "#,
-    vert,
-    vulkan1_0
-);
+)
+.spv;
 
-const FRAG_SPV: &[u32] = inline_spirv!(
-    r#"
-    #version 450
-    layout(set = 0, binding = 1) uniform sampler2D textures[1024];
-    layout(push_constant) uniform PC { uint tex_index; } pc;
-    layout(location = 0) in vec2 v_uv;
-    layout(location = 0) out vec4 o_color;
-    void main() {
-        o_color = texture(textures[pc.tex_index], v_uv);
+const FRAG_SPV: &[u32] = zsl!(
+    push Pc { tex_index: u32 }
+    fragment fs(@location(0) uv: f32x2, tex: textures, pc: Pc) -> f32x4 {
+        tex[pc.tex_index].sample(uv)
     }
-    "#,
-    frag,
-    vulkan1_0
-);
+)
+.spv;
 
 /// View SPIR-V words as the bytes [`ShaderDesc`] expects.
 fn spv_bytes(words: &[u32]) -> &[u8] {
