@@ -22,6 +22,7 @@ use aurea_animation::Tweens;
 use super::paint::TextSize;
 use super::text_edit::TextEdit;
 use super::theme::Theme;
+use super::widget::popup::Popup;
 use crate::render::{Font, Path, Point, Rect, TextMetrics};
 use crate::window::{CursorIcon, KeyCode, Modifiers, MouseButton, Window, WindowEvent};
 
@@ -100,6 +101,8 @@ pub(crate) enum Typed {
 enum Pointer {
     Press(Point, u8, Modifiers),
     Release(Point),
+    /// The secondary button went down, for a context menu.
+    Secondary(Point),
 }
 
 /// The fonts widgets draw with, made once per theme rather than per call:
@@ -180,6 +183,9 @@ pub struct UiState<Id: WidgetId> {
     focus_seen: bool,
     pub(crate) clicked: Vec<Key<Id>>,
     pub(crate) press: Option<Press<Id>>,
+    /// The secondary button went down on this, there, this frame.
+    pub(crate) secondary: Option<(Key<Id>, Point)>,
+    pub(crate) popup: Popup<Id>,
     pub(crate) edit: TextEdit,
     pub(crate) edit_for: Option<Key<Id>>,
     pub(crate) blink_from: Instant,
@@ -222,6 +228,8 @@ impl<Id: WidgetId> UiState<Id> {
             focus_seen: false,
             clicked: Vec::new(),
             press: None,
+            secondary: None,
+            popup: Popup::default(),
             edit: TextEdit::new(),
             edit_for: None,
             blink_from: Instant::now(),
@@ -274,6 +282,18 @@ impl<Id: WidgetId> UiState<Id> {
                 });
                 true
             }
+            WindowEvent::MouseButton {
+                button: MouseButton::Right,
+                pressed: true,
+                x,
+                y,
+                ..
+            } => {
+                let at = point(*x, *y);
+                self.pointer = Some(at);
+                self.pointer_events.push(Pointer::Secondary(at));
+                true
+            }
             WindowEvent::MouseWheel {
                 delta_x, delta_y, ..
             } => {
@@ -307,7 +327,7 @@ impl<Id: WidgetId> UiState<Id> {
     }
 
     fn key(&mut self, key: KeyCode, modifiers: Modifiers) -> bool {
-        if self.focus.is_none() && key != KeyCode::Tab {
+        if self.focus.is_none() && key != KeyCode::Tab && !self.popup.is_open() {
             return false;
         }
         self.typed.push(Typed::Key(key, modifiers));
@@ -337,6 +357,13 @@ impl<Id: WidgetId> UiState<Id> {
     pub fn clear_focus(&mut self) {
         self.focus = None;
         self.wants_frame = true;
+    }
+
+    /// Hands the keyboard to `key` during a frame, after it may already
+    /// have been drawn, so the frame's end does not take it back.
+    pub(crate) fn give_focus(&mut self, key: Option<Key<Id>>) {
+        self.focus = key;
+        self.focus_seen = key.is_some();
     }
 
     /// Gives the keyboard to part `part` of widget `id`, as if Tab had got
@@ -427,6 +454,15 @@ impl<Id: WidgetId> UiState<Id> {
 
     fn resolve_pointer(&mut self, event: Pointer) {
         match event {
+            Pointer::Secondary(at) => {
+                if self.popup.is_open() {
+                    self.popup.close();
+                }
+                self.secondary = self
+                    .hit_at(at)
+                    .filter(|hit| hit.enabled)
+                    .map(|hit| (hit.key, at));
+            }
             Pointer::Press(at, clicks, modifiers) => {
                 let hit = self.hit_at(at).copied().filter(|hit| hit.enabled);
                 self.active = hit.map(|hit| hit.key);
@@ -469,6 +505,17 @@ impl<Id: WidgetId> UiState<Id> {
 
     /// Whether the frame used `key` up.
     fn resolve_key(&mut self, key: KeyCode, modifiers: Modifiers) -> bool {
+        if self.popup.is_open() {
+            let (used, closed) = self.popup.key(key);
+            if let Some(focus) = closed {
+                self.focus = focus.or(self.focus);
+                self.focus_visible = true;
+                self.changed = true;
+            }
+            if used {
+                return true;
+            }
+        }
         let sense = self.focused_sense();
         match key {
             KeyCode::Tab if !modifiers.ctrl && !modifiers.alt => {
@@ -528,6 +575,7 @@ impl<Id: WidgetId> UiState<Id> {
         self.clicked.clear();
         self.typed.clear();
         self.press = None;
+        self.secondary = None;
         self.wheel = (0.0, 0.0);
         self.measures.retain(|_, (_, used)| mem::take(used));
     }
@@ -569,6 +617,7 @@ impl<Id: WidgetId> UiState<Id> {
             hovered,
             held,
             clicked: enabled && self.clicked.contains(&key),
+            secondary_clicked: enabled && self.secondary.is_some_and(|(k, _)| k == key),
             focused,
             focus_visible: focused && self.focus_visible,
             enabled,
@@ -614,6 +663,9 @@ pub struct Interaction {
     pub held: bool,
     /// It was clicked, or pressed from the keyboard, this frame.
     pub clicked: bool,
+    /// The secondary button went down on it this frame, which asks for a
+    /// context menu.
+    pub secondary_clicked: bool,
     /// It has the keyboard.
     pub focused: bool,
     /// It has the keyboard and got it from the keyboard, so it should show

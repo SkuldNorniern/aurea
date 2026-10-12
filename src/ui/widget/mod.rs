@@ -8,6 +8,8 @@
 
 pub mod button;
 pub mod dock;
+pub mod dropdown;
+pub(crate) mod popup;
 pub mod progress;
 pub mod segmented;
 pub mod slider;

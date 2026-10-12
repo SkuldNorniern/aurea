@@ -130,6 +130,8 @@ pub use widget::dock::{
     Dock, DockAxis, DockBar, DockGroup, DockLayout, DockMetrics, DockSide, DockStyle, DockTree,
     DockView,
 };
+pub use widget::dropdown::{Dropdown, DropdownStyle};
+pub use widget::popup::MenuItem;
 pub use widget::progress::{ProgressBar, ProgressStyle};
 pub use widget::segmented::{Segmented, SegmentedStyle};
 pub use widget::slider::{Slider, SliderStyle};
