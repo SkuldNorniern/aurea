@@ -31,12 +31,48 @@ pub fn measure_text(text: &str, font: &Font) -> AureaResult<TextMetrics> {
 }
 const DEFAULT_FONT_SIZE: f32 = 16.0;
 
+#[derive(Clone, Copy)]
 struct DrawingState {
     transform: Transform,
     opacity: f32,
-    clip: Option<Path>,
     clip_rect: Option<Rect>,
     blend_mode: BlendMode,
+}
+
+const INLINE_SAVES: usize = 32;
+
+struct SaveStack {
+    inline: [Option<DrawingState>; INLINE_SAVES],
+    len: usize,
+    spill: Vec<DrawingState>,
+}
+
+impl SaveStack {
+    const fn new() -> Self {
+        Self {
+            inline: [None; INLINE_SAVES],
+            len: 0,
+            spill: Vec::new(),
+        }
+    }
+
+    fn push(&mut self, state: DrawingState) {
+        match self.inline.get_mut(self.len) {
+            Some(slot) => {
+                *slot = Some(state);
+                self.len += 1;
+            }
+            None => self.spill.push(state),
+        }
+    }
+
+    fn pop(&mut self) -> Option<DrawingState> {
+        if let Some(state) = self.spill.pop() {
+            return Some(state);
+        }
+        self.len = self.len.checked_sub(1)?;
+        self.inline[self.len].take()
+    }
 }
 
 /// Records drawing commands into a display list.
@@ -70,10 +106,9 @@ struct DrawingState {
 pub struct RecordingContext<'list> {
     display_list: &'list mut DisplayList,
     next_index: u64,
-    state_stack: Vec<DrawingState>,
+    state_stack: SaveStack,
     current_transform: Transform,
     current_opacity: f32,
-    current_clip: Option<Path>,
     current_clip_rect: Option<Rect>,
     current_blend_mode: BlendMode,
     scale_factor: f32,
@@ -83,18 +118,22 @@ pub struct RecordingContext<'list> {
 }
 
 fn axis_aligned_rect(path: &Path) -> Option<Rect> {
-    let mut points: Vec<Point> = Vec::with_capacity(5);
+    let mut points = [Point::default(); 5];
+    let mut n = 0;
     for command in &path.commands {
         match command {
-            PathCommand::MoveTo(p) | PathCommand::LineTo(p) => points.push(*p),
+            PathCommand::MoveTo(p) | PathCommand::LineTo(p) => {
+                *points.get_mut(n)? = *p;
+                n += 1;
+            }
             PathCommand::Close => {}
             PathCommand::QuadTo(..) | PathCommand::CubicTo(..) => return None,
         }
     }
-    if points.len() == 5 && near(points[0], points[4]) {
-        points.pop();
+    if n == 5 && near(points[0], points[4]) {
+        n = 4;
     }
-    if points.len() != 4 {
+    if n != 4 {
         return None;
     }
 
@@ -181,10 +220,9 @@ impl<'list> RecordingContext<'list> {
         Self {
             display_list,
             next_index: 0,
-            state_stack: Vec::new(),
+            state_stack: SaveStack::new(),
             current_transform: Transform::identity(),
             current_opacity: 1.0,
-            current_clip: None,
             current_clip_rect: None,
             current_blend_mode: BlendMode::Normal,
             scale_factor: 1.0,
@@ -733,14 +771,9 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn save(&mut self) -> AureaResult<()> {
-        let transform = self.current_transform;
-        let opacity = self.current_opacity;
-        let clip = self.current_clip.clone();
-
         self.state_stack.push(DrawingState {
-            transform,
-            opacity,
-            clip,
+            transform: self.current_transform,
+            opacity: self.current_opacity,
             clip_rect: self.current_clip_rect,
             blend_mode: self.current_blend_mode,
         });
@@ -751,7 +784,6 @@ impl DrawingContext for RecordingContext<'_> {
         if let Some(state) = self.state_stack.pop() {
             self.current_transform = state.transform;
             self.current_opacity = state.opacity;
-            self.current_clip = state.clip;
             self.current_clip_rect = state.clip_rect;
             self.current_blend_mode = state.blend_mode;
         }
@@ -765,19 +797,6 @@ impl DrawingContext for RecordingContext<'_> {
 
     fn clip_rect(&mut self, rect: Rect) -> AureaResult<()> {
         let r = self.s_rect(rect);
-        let mut path = Path::new();
-        path.commands
-            .push(PathCommand::MoveTo(Point::new(r.x, r.y)));
-        path.commands
-            .push(PathCommand::LineTo(Point::new(r.x + r.width, r.y)));
-        path.commands.push(PathCommand::LineTo(Point::new(
-            r.x + r.width,
-            r.y + r.height,
-        )));
-        path.commands
-            .push(PathCommand::LineTo(Point::new(r.x, r.y + r.height)));
-        path.commands.push(PathCommand::Close);
-        self.current_clip = Some(path);
         self.current_clip_rect = Some(match self.current_clip_rect {
             Some(current) => intersect_rects(current, r),
             None => r,
@@ -794,7 +813,6 @@ impl DrawingContext for RecordingContext<'_> {
             });
         };
 
-        self.current_clip = Some(physical);
         self.current_clip_rect = Some(match self.current_clip_rect {
             Some(current) => intersect_rects(current, rect),
             None => rect,
