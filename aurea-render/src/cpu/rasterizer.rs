@@ -1,14 +1,24 @@
 //! CPU rasterizer — flat framebuffer, no tile overhead.
 
 use std::cmp::Ordering as CmpOrdering;
-use std::f32::consts::FRAC_1_SQRT_2;
 use std::mem;
 
 use crate::cpu::blend::{ConstSrc, blend_pixel, linear_to_srgb_u8, srgb_to_linear};
 use crate::cpu::clip::ClipBox;
+#[cfg(test)]
+use crate::cpu::damage::*;
+use crate::cpu::damage::{
+    FrameDamage, is_known_bounds, mark_occluded, resolve_frame_damage, should_render_item,
+    union_rect,
+};
 use crate::cpu::path::{Edge, tessellate_path_into};
 use crate::cpu::scanline::fill_spans;
 use crate::cpu::stroke;
+#[cfg(test)]
+use crate::cpu::tiles::*;
+use crate::cpu::tiles::{
+    mark_tile_range_dirty, tile_grid_dims, tile_range, tile_rect, union_dirty_tile_rects,
+};
 use crate::numeric::{
     f32_to_i32_clamped, f32_to_u8_clamped, f32_to_u32_clamped, f32_to_usize_clamped,
 };
@@ -22,18 +32,6 @@ use crate::types::{
     Point, RadialGradient, Rect,
 };
 use aurea_foundation::AureaResult;
-
-const TILE_SIZE: u32 = 128;
-
-#[derive(Debug)]
-enum FrameDamage {
-    /// The list is positionally identical (same cache keys) to last frame.
-    Unchanged,
-    /// An item with unknown bounds changed; repaint everything.
-    Full,
-    /// Only this region changed.
-    Region(Rect),
-}
 
 pub struct CpuRasterizer {
     frame_buffer: Vec<u32>,
@@ -1402,47 +1400,6 @@ impl Renderer for CpuRasterizer {
     }
 }
 
-fn is_known_bounds(r: Rect) -> bool {
-    r.width > 0.0 && r.height > 0.0
-}
-
-fn resolve_frame_damage(
-    forced: Option<Rect>,
-    diff: FrameDamage,
-    bw: u32,
-    bh: u32,
-) -> Option<Option<Rect>> {
-    match (forced, diff) {
-        (None, FrameDamage::Unchanged) => None,
-        (None, FrameDamage::Full) | (Some(_), FrameDamage::Full) => Some(None),
-        (None, FrameDamage::Region(r)) => Some(Some(round_out_clamp(r, bw, bh))),
-        (Some(p), FrameDamage::Unchanged) => Some(Some(p)),
-        (Some(p), FrameDamage::Region(r)) => Some(Some(round_out_clamp(union_rect(p, r), bw, bh))),
-    }
-}
-
-fn union_dirty_tile_rects(
-    dirty_tiles: &[bool],
-    tiles_x: u32,
-    tiles_y: u32,
-    bw: u32,
-    bh: u32,
-) -> Option<Rect> {
-    let mut acc: Option<Rect> = None;
-    for ty in 0..tiles_y {
-        for tx in 0..tiles_x {
-            if dirty_tiles[(ty * tiles_x + tx) as usize] {
-                let tr = tile_rect(tx, ty, bw, bh);
-                acc = Some(match acc {
-                    None => tr,
-                    Some(a) => union_rect(a, tr),
-                });
-            }
-        }
-    }
-    acc
-}
-
 #[allow(clippy::too_many_arguments)]
 fn clear_dirty_tiles(
     frame_buffer: &mut [u32],
@@ -1463,148 +1420,6 @@ fn clear_dirty_tiles(
             }
         }
     }
-}
-
-fn should_render_item(
-    item: &DisplayItem,
-    occluded: &[bool],
-    i: usize,
-    dirty_tiles: &[bool],
-    tiles_x: u32,
-    tiles_y: u32,
-) -> bool {
-    if !is_known_bounds(item.bounds) {
-        return true;
-    }
-    item_overlaps_dirty_tiles(item.bounds, dirty_tiles, tiles_x, tiles_y) && !occluded[i]
-}
-
-fn mark_occluded(items: &[DisplayItem], tiles_x: u32, tiles_y: u32, bw: u32, bh: u32) -> Vec<bool> {
-    let tile_count = (tiles_x * tiles_y) as usize;
-    let mut covered = vec![false; tile_count];
-    let mut occluded = vec![false; items.len()];
-    if tile_count == 0 {
-        return occluded;
-    }
-
-    for (i, item) in items.iter().enumerate().rev() {
-        if !is_known_bounds(item.bounds) {
-            continue;
-        }
-        let (tx0, ty0, tx1, ty1) = tile_range(item.bounds, tiles_x, tiles_y);
-        if tx0 == tx1 || ty0 == ty1 {
-            continue;
-        }
-
-        occluded[i] = (ty0..ty1)
-            .flat_map(|ty| (tx0..tx1).map(move |tx| (tx, ty)))
-            .all(|(tx, ty)| covered[(ty * tiles_x + tx) as usize]);
-
-        if !item.opaque || item.blend_mode != BlendMode::Normal {
-            continue;
-        }
-        let Some(region) = covered_region(item) else {
-            continue;
-        };
-        let (cx0, cy0, cx1, cy1) = tile_range(region, tiles_x, tiles_y);
-        for ty in cy0..cy1 {
-            for tx in cx0..cx1 {
-                if rect_contains(region, tile_rect(tx, ty, bw, bh)) {
-                    covered[(ty * tiles_x + tx) as usize] = true;
-                }
-            }
-        }
-    }
-    occluded
-}
-
-fn union_rect(a: Rect, b: Rect) -> Rect {
-    let x0 = a.x.min(b.x);
-    let y0 = a.y.min(b.y);
-    let x1 = (a.x + a.width).max(b.x + b.width);
-    let y1 = (a.y + a.height).max(b.y + b.height);
-    Rect::new(x0, y0, x1 - x0, y1 - y0)
-}
-
-fn rect_contains(outer: Rect, inner: Rect) -> bool {
-    inner.x >= outer.x
-        && inner.y >= outer.y
-        && inner.x + inner.width <= outer.x + outer.width
-        && inner.y + inner.height <= outer.y + outer.height
-}
-
-fn covered_region(item: &DisplayItem) -> Option<Rect> {
-    let solid = match &item.command {
-        DrawCommand::DrawCircle(center, radius, _) => inscribed_square(*center, *radius),
-        _ => item.bounds,
-    };
-    match item.clip {
-        None => Some(solid),
-        Some(clip) => intersect_rect(solid, clip),
-    }
-}
-
-fn inscribed_square(center: Point, radius: f32) -> Rect {
-    let half = radius * FRAC_1_SQRT_2;
-    Rect::new(center.x - half, center.y - half, half * 2.0, half * 2.0)
-}
-
-fn intersect_rect(a: Rect, b: Rect) -> Option<Rect> {
-    let x0 = a.x.max(b.x);
-    let y0 = a.y.max(b.y);
-    let x1 = (a.x + a.width).min(b.x + b.width);
-    let y1 = (a.y + a.height).min(b.y + b.height);
-    if x1 <= x0 || y1 <= y0 {
-        return None;
-    }
-    Some(Rect::new(x0, y0, x1 - x0, y1 - y0))
-}
-
-fn tile_grid_dims(bw: u32, bh: u32) -> (u32, u32) {
-    (bw.div_ceil(TILE_SIZE), bh.div_ceil(TILE_SIZE))
-}
-
-fn tile_range(bounds: Rect, tiles_x: u32, tiles_y: u32) -> (u32, u32, u32, u32) {
-    let tile = TILE_SIZE as f32;
-    let x0 = f32_to_u32_clamped((bounds.x / tile).floor().max(0.0)).min(tiles_x);
-    let y0 = f32_to_u32_clamped((bounds.y / tile).floor().max(0.0)).min(tiles_y);
-    let x1 = f32_to_u32_clamped(((bounds.x + bounds.width) / tile).ceil().max(0.0))
-        .min(tiles_x)
-        .max(x0);
-    let y1 = f32_to_u32_clamped(((bounds.y + bounds.height) / tile).ceil().max(0.0))
-        .min(tiles_y)
-        .max(y0);
-    (x0, y0, x1, y1)
-}
-
-fn tile_rect(tx: u32, ty: u32, bw: u32, bh: u32) -> Rect {
-    let x0 = (tx * TILE_SIZE) as f32;
-    let y0 = (ty * TILE_SIZE) as f32;
-    let x1 = ((tx + 1) * TILE_SIZE).min(bw) as f32;
-    let y1 = ((ty + 1) * TILE_SIZE).min(bh) as f32;
-    Rect::new(x0, y0, x1 - x0, y1 - y0)
-}
-
-fn item_overlaps_dirty_tiles(bounds: Rect, dirty: &[bool], tiles_x: u32, tiles_y: u32) -> bool {
-    let (tx0, ty0, tx1, ty1) = tile_range(bounds, tiles_x, tiles_y);
-    (ty0..ty1).any(|ty| (tx0..tx1).any(|tx| dirty[(ty * tiles_x + tx) as usize]))
-}
-
-fn mark_tile_range_dirty(rect: Rect, tiles_x: u32, tiles_y: u32, dirty: &mut [bool]) {
-    let (tx0, ty0, tx1, ty1) = tile_range(rect, tiles_x, tiles_y);
-    for ty in ty0..ty1 {
-        for tx in tx0..tx1 {
-            dirty[(ty * tiles_x + tx) as usize] = true;
-        }
-    }
-}
-
-fn round_out_clamp(r: Rect, bw: u32, bh: u32) -> Rect {
-    let x0 = r.x.floor().max(0.0);
-    let y0 = r.y.floor().max(0.0);
-    let x1 = (r.x + r.width).ceil().min(bw as f32);
-    let y1 = (r.y + r.height).ceil().min(bh as f32);
-    Rect::new(x0, y0, (x1 - x0).max(0.0), (y1 - y0).max(0.0))
 }
 
 struct CircleFillCtx<'a> {
