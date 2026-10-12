@@ -142,14 +142,18 @@ impl ZenGpuRenderer {
         let color_format = Format::Bgra8Unorm;
         let surface = create_surface(context.device(), handles, pw, ph).map_err(gpu_err)?;
         let pipelines = Pipelines::new(context.device(), color_format).map_err(gpu_err)?;
-        let sampler = context
-            .device()
-            .create_sampler(SamplerDesc {
-                min_filter: FilterMode::Linear,
-                mag_filter: FilterMode::Linear,
-                ..SamplerDesc::default()
-            })
-            .map_err(gpu_err)?;
+        let sampler = context.device().create_sampler(SamplerDesc {
+            min_filter: FilterMode::Linear,
+            mag_filter: FilterMode::Linear,
+            ..SamplerDesc::default()
+        });
+        let sampler = match sampler {
+            Ok(sampler) => sampler,
+            Err(e) => {
+                pipelines.destroy(context.device());
+                return Err(gpu_err(e));
+            }
+        };
 
         let backend = ZenGpuBackend {
             surface,
@@ -431,9 +435,10 @@ impl Gpu2dBackend for ZenGpuBackend {
             device.destroy_texture(texture);
             return Err(gpu_err(e));
         }
-        let slot = device
-            .bind_texture(texture, self.sampler)
-            .ok_or(AureaError::RenderingFailed)?;
+        let Some(slot) = device.bind_texture(texture, self.sampler) else {
+            device.destroy_texture(texture);
+            return Err(AureaError::RenderingFailed);
+        };
         self.slot_textures.insert(slot, texture);
         Ok(slot)
     }
@@ -593,11 +598,7 @@ impl Drop for ZenGpuBackend {
         self.gradient_buf.destroy(device);
         self.image_buf.destroy(device);
         self.text_buf.destroy(device);
-        device.destroy_pipeline(self.pipelines.rect);
-        device.destroy_pipeline(self.pipelines.circle);
-        device.destroy_pipeline(self.pipelines.gradient);
-        device.destroy_pipeline(self.pipelines.image);
-        device.destroy_pipeline(self.pipelines.text);
+        self.pipelines.destroy(device);
         device.destroy_sampler(self.sampler);
     }
 }
