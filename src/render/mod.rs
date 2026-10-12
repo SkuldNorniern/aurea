@@ -18,4 +18,4 @@ pub use aurea_render::{
 pub use canvas::*;
 
 #[cfg(feature = "zengpu")]
-pub use aurea_render::{ZenGpuContext, ZenGpuRenderer};
+pub use aurea_render::{GpuChoice, ZenGpuContext, ZenGpuRenderer};
