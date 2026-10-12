@@ -356,13 +356,6 @@ impl RenderBatches {
         }
     }
 
-    /// Turns one display item into draws, or counts it as one this layer has
-    /// no form for.
-    ///
-    /// Opacity folds into the colours, which is what the CPU rasterizer does.
-    /// A blend mode needs pipeline state this layer cannot express, so an item
-    /// relying on one is left out rather than drawn without it: a trace at the
-    /// wrong opacity is worse than a missing one.
     /// A rounded rect as a plain one. The GPU painter has no rounded rect
     /// instance yet, and square corners keep buttons and cards on screen,
     /// which lowering it as a path, which is dropped, would not.
@@ -378,6 +371,14 @@ impl RenderBatches {
             PaintStyle::Stroke => {}
         }
     }
+
+    /// Turns one display item into draws, or counts it as one this layer has
+    /// no form for.
+    ///
+    /// Opacity folds into the colours, which is what the CPU rasterizer does.
+    /// A blend mode needs pipeline state this layer cannot express, so an item
+    /// relying on one is left out rather than drawn without it: a trace at the
+    /// wrong opacity is worse than a missing one.
     fn lower_item(&mut self, item: &DisplayItem) {
         {
             let Some(alpha) = drawable_alpha(item) else {
