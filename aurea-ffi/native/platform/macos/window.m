@@ -2,6 +2,7 @@
 #import "common/errors.h"
 #import "common/input.h"
 #import "common/rust_callbacks.h"
+#import "common/types.h"
 #import "common/shortcuts.h"
 #import "utils.h"
 #import <Cocoa/Cocoa.h>
@@ -147,6 +148,44 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
 @end
 
 @implementation AureaContentView
+
+/* The file paths a drag carries, one per line, or nil for none. */
+static NSString* drag_paths(id<NSDraggingInfo> info) {
+    NSArray<NSURL*>* urls = [[info draggingPasteboard]
+        readObjectsForClasses:@[[NSURL class]]
+                      options:@{NSPasteboardURLReadingFileURLsOnlyKey: @YES}];
+    NSMutableArray<NSString*>* paths = [NSMutableArray array];
+    for (NSURL* url in urls) {
+        if (url.path) [paths addObject:url.path];
+    }
+    return paths.count > 0 ? [paths componentsJoinedByString:@"\n"] : nil;
+}
+
+- (BOOL)reportDrag:(id<NSDraggingInfo>)info kind:(unsigned int)kind {
+    NSString* paths = drag_paths(info);
+    if (!paths) return NO;
+    NSPoint p = [self convertPoint:[info draggingLocation] fromView:nil];
+    CGFloat h = [self bounds].size.height;
+    ng_invoke_file_drop(self.windowHandle, kind, p.x, h - p.y, [paths UTF8String]);
+    return YES;
+}
+
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)info {
+    return [self reportDrag:info kind:NG_DROP_HOVER] ? NSDragOperationCopy : NSDragOperationNone;
+}
+
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)info {
+    return [self reportDrag:info kind:NG_DROP_HOVER] ? NSDragOperationCopy : NSDragOperationNone;
+}
+
+- (void)draggingExited:(id<NSDraggingInfo>)info {
+    (void)info;
+    ng_invoke_file_drop(self.windowHandle, NG_DROP_LEAVE, 0, 0, "");
+}
+
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)info {
+    return [self reportDrag:info kind:NG_DROP_DROP];
+}
 - (void)resetCursorRects {
     [self addCursorRect:[self bounds] cursor:(self.cursor ?: [NSCursor arrowCursor])];
 }
@@ -647,6 +686,7 @@ NGHandle ng_macos_create_window_with_type(const char* title, int width, int heig
     AureaContentView* contentView = [[AureaContentView alloc] initWithFrame:frame];
     contentView.windowHandle = (__bridge void*)window;
     [contentView setWantsLayer:YES];
+    [contentView registerForDraggedTypes:@[NSPasteboardTypeFileURL]];
     [window setContentView:contentView];
     [window makeFirstResponder:contentView];
     [contentView updateTrackingAreas];

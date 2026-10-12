@@ -1,4 +1,5 @@
 ﻿#include <stdlib.h>
+#include "drop.h"
 #include "utils.h"
 #include "window.h"
 #include "menu.h"
@@ -352,7 +353,7 @@ static void ng_windows_emit_text_input(HWND hwnd, wchar_t wc) {
 
 /* Mouse messages carry physical pixels. Everything past the FFI works in
  * logical ones, which is what macOS and GTK report already. */
-static double ng_windows_logical(HWND hwnd, int physical) {
+double ng_windows_logical(HWND hwnd, int physical) {
     float scale = ng_windows_get_scale_factor((NGHandle)hwnd);
     return (double)physical / (scale > 1.0f ? (double)scale : 1.0);
 }
@@ -810,6 +811,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             /* Also here for a window destroyed some way other than
                ng_windows_destroy_window. */
             ng_windows_release_window_input((void*)hwnd);
+            ng_windows_refuse_drops(hwnd);
             RemovePropA(hwnd, "AureaMonitor");
             RemovePropA(hwnd, AUREA_TRACKING_PROP);
             RemovePropA(hwnd, AUREA_HIGH_SURROGATE_PROP);

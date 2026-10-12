@@ -2,6 +2,7 @@ use log::error;
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_int, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::path::PathBuf;
 
 use crate::registry::custom::invoke_custom_callback;
 use crate::registry::elements::{
@@ -300,6 +301,34 @@ fn pen_tool(flags: u32) -> PenTool {
     } else {
         PenTool::Tip
     }
+}
+
+/// What [`ng_invoke_file_drop`] reports, as the native side numbers it.
+const DROP_HOVER: u32 = 0;
+const DROP_DROP: u32 = 1;
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_file_drop(
+    window: *mut c_void,
+    kind: u32,
+    x: f64,
+    y: f64,
+    paths: *const c_char,
+) {
+    guard("ng_invoke_file_drop", || {
+        let paths: Vec<PathBuf> = c_string(paths)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(PathBuf::from)
+            .collect();
+        let event = match kind {
+            DROP_HOVER => WindowEvent::FilesHovered { paths, x, y },
+            DROP_DROP => WindowEvent::FilesDropped { paths, x, y },
+            _ => WindowEvent::FilesHoverEnded,
+        };
+        push_window_event(window, event);
+    });
 }
 
 #[unsafe(no_mangle)]
