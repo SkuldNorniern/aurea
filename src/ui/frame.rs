@@ -7,7 +7,7 @@ use super::state::{Channel, Fonts, Interaction, Key, Press, Sense, Typed, UiStat
 use super::theme::Theme;
 use crate::AureaResult;
 use crate::render::{Color, DrawingContext, Font, Paint, PaintStyle, Point, Rect, TextMetrics};
-use crate::window::{KeyCode, Modifiers};
+use crate::window::{CursorIcon, KeyCode, Modifiers};
 
 /// Where text sits across the space it is given.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -218,6 +218,12 @@ impl<Id: WidgetId> Ui<'_, Id> {
     /// Where the pointer is over the canvas.
     pub fn pointer(&self) -> Option<Point> {
         self.state.pointer()
+    }
+
+    /// Shows `icon` over the canvas this frame, for a part whose pointer says more than a hand: a
+    /// splitter's arrows, a crosshair for a tool.
+    pub fn set_cursor(&mut self, icon: CursorIcon) {
+        self.state.cursor = icon;
     }
 
     /// Wheel movement since the last frame.
