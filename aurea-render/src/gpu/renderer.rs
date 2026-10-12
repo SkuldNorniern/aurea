@@ -1,6 +1,6 @@
 //! The GPU renderer shared by every backend.
 
-use aurea_foundation::AureaResult;
+use aurea_foundation::{AureaError, AureaResult};
 
 use crate::capabilities::{Fallback, GpuFeatures};
 use crate::cpu::CpuRasterizer;
@@ -223,16 +223,19 @@ impl<B: Gpu2dBackend> Renderer for Gpu2dRenderer<B> {
         self.frame_plan.viewport_height = ph;
         self.frame_counter += 1;
         let fc = self.frame_counter;
-        resolve_frame(
+        let presented = resolve_frame(
             &self.batches,
             &mut self.texture_cache,
             &mut self.backend,
             fc,
             &mut self.frame_plan,
-        )?;
-        let rects = &self.batches.rects;
-        let circles = &self.batches.circles;
-        self.backend.present_frame(&self.frame_plan, rects, circles)
+        )
+        .and_then(|()| {
+            let rects = &self.batches.rects;
+            let circles = &self.batches.circles;
+            self.backend.present_frame(&self.frame_plan, rects, circles)
+        });
+        recover(presented)
     }
 
     fn cleanup(&mut self) {
@@ -243,6 +246,15 @@ impl<B: Gpu2dBackend> Renderer for Gpu2dRenderer<B> {
 
     fn display_list(&self) -> Option<&DisplayList> {
         Some(&self.display_list)
+    }
+}
+
+/// A lost device is not an error to the caller: the renderer has to be
+/// made again, which is what [`FrameOutcome::Recreate`] asks for.
+fn recover(outcome: AureaResult<FrameOutcome>) -> AureaResult<FrameOutcome> {
+    match outcome {
+        Err(AureaError::DeviceLost) => Ok(FrameOutcome::Recreate),
+        other => other,
     }
 }
 
@@ -392,6 +404,19 @@ mod tests {
         r.configure(info(80, 50, 1.0)).expect("configure");
         drop(r.begin_frame().expect("begin"));
         assert_eq!(r.end_frame().expect("end"), FrameOutcome::Presented);
+    }
+
+    #[test]
+    fn a_lost_device_asks_for_a_new_renderer() {
+        assert_eq!(
+            recover(Err(AureaError::DeviceLost)).ok(),
+            Some(FrameOutcome::Recreate)
+        );
+        assert!(recover(Err(AureaError::RenderingFailed)).is_err());
+        assert_eq!(
+            recover(Ok(FrameOutcome::Presented)).ok(),
+            Some(FrameOutcome::Presented)
+        );
     }
 
     #[test]

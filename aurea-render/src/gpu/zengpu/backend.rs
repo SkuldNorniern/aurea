@@ -649,8 +649,13 @@ impl Drop for ZenGpuBackend {
     }
 }
 
-fn gpu_err(_e: GpuError) -> AureaError {
-    AureaError::ElementOperationFailed
+/// A lost device is told apart, so the renderer is made again on a new one
+/// instead of failing every frame.
+fn gpu_err(e: GpuError) -> AureaError {
+    match e {
+        GpuError::DeviceLost => AureaError::DeviceLost,
+        _ => AureaError::ElementOperationFailed,
+    }
 }
 
 fn as_bytes<T: Copy>(slice: &[T]) -> &[u8] {
