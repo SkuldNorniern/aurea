@@ -126,3 +126,4 @@ pub use widget::toggle::{Checkbox, CheckboxStyle, Toggle, ToggleStyle};
 pub use widget::slider::{Slider, SliderStyle};
 pub use widget::segmented::{Segmented, SegmentedStyle};
 pub use widget::progress::{ProgressBar, ProgressStyle};
+pub use widget::text_field::{FieldStyle, TextField};

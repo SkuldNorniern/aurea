@@ -10,6 +10,7 @@ pub mod button;
 pub mod progress;
 pub mod segmented;
 pub mod slider;
+pub mod text_field;
 pub mod toggle;
 pub(crate) mod tooltip;
 
