@@ -18,6 +18,7 @@ pub mod capabilities;
 pub mod cpu;
 pub mod recording;
 pub mod text;
+pub mod vector;
 
 pub use capabilities::{Fallback, GpuFeatures};
 pub use cpu::CpuRasterizer;
