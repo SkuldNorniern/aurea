@@ -69,6 +69,7 @@ unsafe extern "C" {
         height: f32,
     ) -> c_int;
     pub fn ng_platform_reduced_motion() -> c_int;
+    pub fn ng_platform_locales(buf: *mut c_char, cap: c_int) -> c_int;
     pub fn ng_platform_window_set_shortcuts(
         window: *mut c_void,
         keycodes: *const c_uint,

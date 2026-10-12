@@ -18,6 +18,10 @@ int ng_platform_get_abi_version(void);
 int ng_platform_init(void);
 /* 1 when the user asked the system for less motion, else 0. */
 int ng_platform_reduced_motion(void);
+/* The user's preferred UI languages as BCP 47 tags, most preferred first,
+   each ending in a NUL. Returns the bytes the whole list takes and writes it
+   only when cap is at least that; 0 when the platform says nothing. */
+int ng_platform_locales(char* buf, int cap);
 void ng_platform_cleanup(void);
 int ng_platform_run(void);
 int ng_platform_poll_events(void);

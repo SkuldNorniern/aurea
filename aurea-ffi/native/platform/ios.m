@@ -3,9 +3,27 @@
 #import "ios/elements.h"
 #import "../common/errors.h"
 #import <UIKit/UIKit.h>
+#include <string.h>
 
 int ng_platform_reduced_motion(void) {
     return UIAccessibilityIsReduceMotionEnabled() ? 1 : 0;
+}
+
+/* Settings > General > Language & Region, in order. */
+int ng_platform_locales(char* buf, int cap) {
+    int need = 0;
+    for (NSString* tag in [NSLocale preferredLanguages]) {
+        need += (int)strlen(tag.UTF8String) + 1;
+    }
+    if (buf && need > 0 && cap >= need) {
+        char* at = buf;
+        for (NSString* tag in [NSLocale preferredLanguages]) {
+            size_t n = strlen(tag.UTF8String) + 1;
+            memcpy(at, tag.UTF8String, n);
+            at += n;
+        }
+    }
+    return need;
 }
 
 int ng_platform_init(void) {

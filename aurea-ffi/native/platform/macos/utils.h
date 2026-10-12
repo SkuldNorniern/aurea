@@ -14,6 +14,7 @@ NSString* ng_macos_to_nsstring(const char* str);
 #endif
 
 int ng_macos_reduced_motion(void);
+int ng_macos_locales(char* buf, int cap);
 
 #ifdef __cplusplus
 }
