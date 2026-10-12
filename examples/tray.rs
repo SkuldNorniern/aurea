@@ -5,7 +5,7 @@
 //! through `aurea::on_ui_thread`, shown or not. Windows only for now.
 
 use aurea::elements::{Container, Label, Orientation, Stack};
-use aurea::{AureaResult, TrayIcon, Window};
+use aurea::{AureaResult, TrayIcon, Window, on_ui_thread};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::thread;
@@ -58,9 +58,11 @@ fn main() -> AureaResult<()> {
     TRAY.with(|held| *held.borrow_mut() = Some(tray));
 
     thread::spawn(|| {
-        for seconds in 1.. {
+        let mut seconds = 0u64;
+        loop {
             thread::sleep(Duration::from_secs(1));
-            aurea::on_ui_thread(move || {
+            seconds += 1;
+            on_ui_thread(move || {
                 TRAY.with(|held| {
                     if let Some(tray) = &*held.borrow() {
                         let _ = tray.set_tooltip(&format!("Running for {seconds} s"));
