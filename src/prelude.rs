@@ -2,7 +2,7 @@
 
 pub use crate::window::{
     CursorGrabMode, CursorIcon, EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons,
-    Window, WindowEvent, WindowId, WindowType,
+    PenPhase, PenSample, PenTool, Window, WindowEvent, WindowId, WindowType,
 };
 
 pub use crate::elements::{
