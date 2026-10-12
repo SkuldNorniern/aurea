@@ -65,6 +65,7 @@ pub mod embed;
 pub mod ffi;
 pub mod files;
 pub mod integration;
+pub mod keymap;
 pub mod lifecycle;
 pub mod locale;
 pub mod logger;
@@ -104,6 +105,7 @@ pub use crate::window::{
 pub use crate::render::{Canvas, Color, DrawingContext, Point, Rect, RendererBackend};
 
 pub use crate::files::{config_dir, data_dir, open_path, reveal_path};
+pub use crate::keymap::{Chord, Keymap};
 pub use crate::locale::{locale, locales};
 pub use crate::platform::handles::NativeWindowHandle;
 pub use aurea_foundation::{AureaError, AureaResult};
