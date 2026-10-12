@@ -54,8 +54,14 @@
 void layout_box_children(HWND box);
 int get_box_orientation(HWND box);
 int is_box(HWND hwnd);
-/* The font Windows uses for message boxes and dialogs, Segoe UI on current versions. */
-HFONT ng_windows_ui_font(void);
+/* The font Windows uses for message boxes and dialogs, Segoe UI on current versions, at the DPI of the monitor `hwnd` is on. */
+HFONT ng_windows_ui_font(HWND hwnd);
+/* The DPI `hwnd` is drawn at, 96 when Windows cannot say. */
+UINT ng_windows_dpi(HWND hwnd);
+/* `logical` pixels in `hwnd`'s device pixels. */
+int ng_windows_px(HWND hwnd, int logical);
+/* Gives every control under `root` the UI font for its DPI and lays the content out again, after a DPI change or new content. */
+void ng_windows_refresh_dpi(HWND root);
 /* Where a control lives until it is added somewhere: one hidden window. */
 #ifdef __cplusplus
 extern "C"

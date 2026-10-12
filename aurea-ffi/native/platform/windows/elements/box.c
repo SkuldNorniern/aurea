@@ -101,7 +101,7 @@ int ng_windows_box_add_weighted(NGHandle box, NGHandle element, float weight) {
     SetWindowLongPtrA(element_hwnd, GWL_STYLE, style | WS_CHILD | WS_VISIBLE);
 
     if (!is_box(element_hwnd) && !SendMessageA(element_hwnd, WM_GETFONT, 0, 0)) {
-        SendMessageA(element_hwnd, WM_SETFONT, (WPARAM)ng_windows_ui_font(), FALSE);
+        SendMessageA(element_hwnd, WM_SETFONT, (WPARAM)ng_windows_ui_font(box_hwnd), FALSE);
     }
 
     char class_name[256];
