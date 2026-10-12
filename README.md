@@ -1,96 +1,14 @@
 # Aurea
 
-Aurea is a pre-alpha Rust GUI toolkit for native windows, native widgets,
-event-driven canvases, and renderer experiments. It provides Rust APIs over
-platform-specific windowing code and a rendering layer that can target CPU and
-optional GPU backends.
+Pre-alpha Rust GUI toolkit: native windows and widgets, canvases, canvas
+widgets in `aurea::ui`, and a renderer with CPU and optional GPU backends.
 
-> Status: pre-alpha. The APIs, backend boundaries, and examples are still moving.
-> Use this crate for experimentation and development, not production software.
-
-## What Is In This Repository
-
-- `aurea`: root crate with windows, menus, widgets, event polling, lifecycle
-  hooks, and the public API.
-- `aurea-foundation`: shared errors, platform detection, capabilities, events,
-  and synchronization helpers.
-- `aurea-ffi`: Rust declarations and native platform build glue.
-- `aurea-render`: display lists, drawing types, CPU rasterizer, text support,
-  and optional GPU backends.
-- `aurea-runtime`: frame scheduling, event queues, and damage tracking.
-- `aurea-animation`: small animation primitives.
-
-## Current Capabilities
-
-- Native window backends for Windows, macOS, and Linux, with experimental iOS
-  and Android platform code.
-- Native widgets such as labels, buttons, boxes, split views, text fields, text
-  editors, sidebars, tabs, progress bars, sliders, combo boxes, checkboxes, and
-  image views. Availability still varies by platform.
-- Menu bars and submenus where the platform supports them.
-- Non-blocking event polling with retained callbacks for keys, mouse buttons,
-  motion, wheel input, text input, focus, cursor enter/exit, raw mouse motion,
-  scale-factor changes, and lifecycle events. An app running its own loop can
-  block in `Window::wait_events` instead, with frames still paced to the
-  display.
-- Canvas widgets in `aurea::ui`: buttons, switches, checkboxes, sliders,
-  segmented controls, progress bars, tooltips and a text field with selection,
-  undo, clipboard and IME, styled by a `Theme` and the same on every platform.
-- The user's UI languages (`aurea::locales`), per-user settings and data
-  folders (`aurea::config_dir`, `aurea::data_dir`), and opening or revealing
-  files in the file manager.
-- Canvas rendering through Aurea's renderer abstraction, with retained draw
-  callbacks, explicit invalidation, damage regions, frame scheduling, and
-  per-frame animation tickers.
-- CPU rasterizer with paths, rectangles, circles, images, gradients, blending,
-  text measurement, tile caching, and damage-driven redraw. Fills and strokes
-  are antialiased through the same coverage path.
-- Plots and oscilloscope views in `aurea::render::graph`, drawn onto a canvas:
-  linear and log axes, tick and grid generation, line, step, point, area and
-  bar series, cursors, and a scope with channels, timebase and trigger.
-- Optional GPU acceleration through the in-house ZenGPU backend.
-- Optional `wgpu` window integration.
-
-## Threads
-
-Windows, canvases and widgets belong to the thread that brought the platform
-up. `Window` is neither `Send` nor `Sync`, so the compiler stops them from
-travelling; native window systems are thread-affine and a window that could
-move between threads would be a standing invitation to undefined behaviour.
-
-To reach the UI from another thread, use a proxy. Work queued on it runs the
-next time the window pumps.
-
-```rust,no_run
-use aurea::Window;
-
-# fn main() -> aurea::AureaResult<()> {
-let window = Window::new("App", 800, 600)?;
-let proxy = window.proxy();
-
-std::thread::spawn(move || {
-    proxy.dispatch(|window| {
-        let _ = window.set_title("done");
-    });
-});
-
-window.run()
-# }
-```
-
-Event and widget callbacks run on the UI thread and are not required to be
-`Send` or `Sync`, so they can capture windows and widgets directly.
+> Pre-alpha. APIs still move. Not for production.
 
 ## Quick Start
 
 ```bash
 cargo add aurea
-```
-
-For local development from this repository:
-
-```bash
-cargo run --example window
 ```
 
 ```rust
@@ -100,86 +18,34 @@ use aurea::{AureaResult, Window};
 fn main() -> AureaResult<()> {
     let mut window = Window::new("Hello", 400, 300)?;
     window.set_content(Label::new("Hello, Aurea!")?)?;
-    window.run()?;
-    Ok(())
+    window.run()
 }
 ```
 
-## Canvas Rendering
+## Support
 
-The canvas API can use Aurea's renderer abstraction for drawing inside native UI
-layouts. `Canvas::set_draw_callback` is the preferred retained-mode path;
-`Canvas::draw` is still available for immediate drawing. Use
-`request_canvas_redraw(handle)` when a `Send + Sync` callback only has a raw
-canvas handle and needs to re-run the draw callback rather than only re-blit the
-cached platform buffer.
+| | Windows | macOS | Linux (GTK3) |
+| --- | --- | --- | --- |
+| Windows, native widgets | yes | yes | yes |
+| Canvas widgets | yes | yes | yes |
+| IME | yes | yes | yes |
+| Pen pressure and tilt | yes | not yet | not yet |
 
-```bash
-cargo run --example canvas_showcase
-cargo run --example canvas_gradient
-cargo run --example canvas_blend
-```
+iOS and Android are experimental. GPU backends draw less than the CPU one.
 
-The renderer layer lives in `aurea-render` and is shared by CPU and GPU paths.
-Display-list drawing commands are lowered either into the CPU rasterizer or into
-backend-specific GPU batches.
+## Features
 
-A draw callback runs every frame the canvas is dirty and rebuilds the whole
-display list; what makes that cheap is the diff underneath it. Each item carries
-a cache key covering everything that affects its pixels, the list is compared
-against the previous frame's, and only the tiles that changed are repainted —
-with every draw clipped to that region, so an item spanning changed and
-unchanged tiles only repaints the changed part.
-
-Two things follow for callers. Draw callbacks must be deterministic for the same
-application state: one that varies with wall-clock time or hash iteration order
-will produce a display list that hashes differently every frame and defeat the
-diff. And identical output should be produced identically — the same shape drawn
-at the same place gets the same key whether it got there through a transform or
-directly, so either is fine, but recomputing geometry in a way that jitters by a
-fraction of a pixel is not.
-
-## Canvas Widgets
-
-`aurea::ui` draws widgets on a canvas, immediate-mode: each frame the draw
-callback lays them out and each answers what the input did to it, with the
-app's own state as the only state. Feed window events to `UiState::handle`,
-draw inside `UiState::frame`, and redraw while `UiState::wants_frame` says
-something is still easing. Tab, Enter, Space, arrows and the platform's own
-editing shortcuts work throughout; an idle UI asks for no frames.
-
-It is built in layers an app can use at any height: `paint` pieces that
-only draw (`Surface`, `Label`, `Mark`), `component` pieces that follow
-input (`StateColors`, `FocusRing`, `Track`, `Knob`, `EditableText`), and
-widgets made of those, each with a style from the theme that can be changed
-field by field. A widget of the app's own implements `Widget` and uses the
-same `Ui::interact` the built-in ones do.
-
-```bash
-cargo run --example widgets
-```
+- `zengpu`: GPU rendering through ZenGPU. Experimental.
+- `wgpu`: wgpu renderer and surface helpers.
 
 ## Examples
 
-Native UI and event examples:
-
 ```bash
 cargo run --example window
-cargo run --example multi_window
-cargo run --example input_smoke
-cargo run --example ide_like
-cargo run --example hybrid_ui
+cargo run --example widgets
 ```
 
-Canvas examples:
-
-```bash
-cargo run --example canvas_demo
-cargo run --example canvas_text
-cargo run --example canvas_image
-cargo run --example animate_fade
-cargo run --example animate_bounce
-```
+More in [`examples/`](examples/).
 
 ## Projects Using Aurea
 
@@ -187,78 +53,10 @@ cargo run --example animate_bounce
 | --- | --- |
 | [Ozone](https://github.com/SkuldNorniern/ozone) | ![Ozone editor](https://github.com/SkuldNorniern/ozone/blob/main/assets/screenshots/ozone-editor.png) |
 
-## What Is Supported
-
-What each part does now, so `experimental` says something instead of covering
-everything.
-
-| Part | Status |
-| --- | --- |
-| Windows, macOS, Linux/GTK3 | supported |
-| CPU rasterizer | supported, and the backend the others are checked against |
-| Native widgets | supported, subset varies by platform |
-| Graph and scope | supported |
-| Canvas widgets (`aurea::ui`) | supported, keyboard and IME; no screen reader support yet |
-| Window lifetime, input, clipboard | supported |
-| ZenGPU renderer | experimental, and the GPU backend work goes into |
-| wgpu renderer | experimental, for fitting into apps already using wgpu |
-| External wgpu surface | supported |
-| iOS, Android | experimental, not a 0.1 target |
-| Arbitrary affine transforms on a canvas | partial, see below |
-| Complex-script text shaping | not yet |
-| Accessibility for canvas UI | not yet |
-
-Limits to know about before relying on them:
-
-- GPU backends draw less than the CPU rasterizer. Paths, blend modes other
-  than `Normal` and the older text commands are not lowered, and rounded
-  rects are drawn with square corners. A frame counts what it left out and
-  says so once. Use the CPU renderer if you need them.
-- Rotation and skew move text and images but do not rotate the glyphs or the
-  image. A circle stays a circle under a non-uniform scale.
-- A retained draw callback runs again on every frame that redraws. Damage
-  tracking keeps that off the screen, not off the CPU.
-
-Input and text per platform:
-
-| | Windows | macOS | Linux (GTK3) |
-| --- | --- | --- | --- |
-| Pointer position | logical px from the content | same | same |
-| Enter/leave for the content, not the title bar, held back while a button is down | yes | yes | yes, but a drawn (CSD) title bar counts as content |
-| Pointer kept while a button is held | yes | yes | yes |
-| Held buttons on `MouseMove` | all five | all | all, back and forward as 3 and 4 like the others |
-| Cursor shapes (`Window::set_cursor`) | yes | yes, no busy cursor | yes |
-| IME composition (`ImePreedit`, `set_ime_cursor_area`) | IMM32 | NSTextInputClient | GtkIMContext |
-| Glyph fallback for missing characters | DirectWrite, fixed family list | fontdue fallback list | fontdue fallback list |
-| Bold and italic faces | yes | when the font file is named for it | when the font file is named for it |
-| Scale factor changes | yes | yes | yes |
-
-## Features
-
-- `default`: no optional GPU backend.
-- `zengpu`: GPU rendering through ZenGPU. This is where the GPU work goes.
-  Experimental, still draws less than the CPU rasterizer and has no partial
-  repaint.
-- `wgpu`: wgpu integration helpers and a compatibility renderer, for apps
-  already built around wgpu.
-
 ## Building
 
-Requirements:
-
-- Rust 1.88 or later.
-- Windows: MSVC build tools.
-- macOS: Xcode command line tools.
-- Linux: GTK3 development libraries.
-- Mobile targets: platform SDK setup for iOS or Android. Those paths are less
-  complete than desktop.
-
-Useful checks:
-
-```bash
-cargo check
-cargo test
-```
+Rust 1.88+. Windows: MSVC. macOS: Xcode command line tools. Linux: GTK3 dev
+libraries.
 
 ## License
 
