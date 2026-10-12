@@ -167,7 +167,7 @@ impl CpuRasterizer {
                 );
             }
             DrawCommand::DrawRoundRect(rect, radius, paint) => {
-                super::round_rect::draw(
+                super::raster::round_rect::draw(
                     *rect,
                     *radius,
                     &fade_paint(paint, alpha),
