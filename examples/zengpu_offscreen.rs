@@ -1,9 +1,9 @@
 //! ZenGPU render-to-texture rendered into an aurea window — unified graphics API.
 
 use std::{error::Error, result::Result as StdResult};
+use zengpu::zsl;
 use {
     aurea::{Window, WindowEvent},
-    inline_spirv::inline_spirv,
     std::{mem::size_of_val, slice::from_raw_parts, time::Instant},
     zengpu::{
         Acquire, Bindings, ColorAttachment, ColorTargetState, DepthState, DeviceRequest,
@@ -17,70 +17,45 @@ use {
 
 const OFF_SIZE: u32 = 512;
 
-const OFF_VERT_SPV: &[u32] = inline_spirv!(
-    r#"
-    #version 450
-    layout(push_constant) uniform PC { float angle; } pc;
-    layout(location = 0) out vec3 v_color;
-    void main() {
-        vec2 pos[3] = vec2[](vec2(-0.6, 0.6), vec2(0.6, 0.6), vec2(0.0, -0.6));
-        vec3 col[3] = vec3[](vec3(1,0,0), vec3(0,1,0), vec3(0,0,1));
-        float c = cos(pc.angle), s = sin(pc.angle);
-        vec2 p = pos[gl_VertexIndex];
-        gl_Position = vec4(c*p.x - s*p.y, s*p.x + c*p.y, 0.0, 1.0);
-        v_color = col[gl_VertexIndex];
+const OFF_VERT_SPV: &[u32] = zsl!(
+    push Pc { angle: f32 }
+    vertex vs(vi: vertex_index, pc: Pc) -> (f32x4, f32x3) {
+        let pos = [f32x2(-0.6, 0.6), f32x2(0.6, 0.6), f32x2(0.0, -0.6)]
+        let col = [f32x3(1.0, 0.0, 0.0), f32x3(0.0, 1.0, 0.0), f32x3(0.0, 0.0, 1.0)]
+        let c = cos(pc.angle)
+        let s = sin(pc.angle)
+        let p = pos[vi]
+        (f32x4(c * p.x - s * p.y, s * p.x + c * p.y, 0.0, 1.0), col[vi])
     }
-    "#,
-    vert,
-    vulkan1_0
-);
+)
+.spv;
 
-const OFF_FRAG_SPV: &[u32] = inline_spirv!(
-    r#"
-    #version 450
-    layout(location = 0) in vec3 v_color;
-    layout(location = 0) out vec4 o_color;
-    void main() { o_color = vec4(v_color, 1.0); }
-    "#,
-    frag,
-    vulkan1_0
-);
-
-const SCR_VERT_SPV: &[u32] = inline_spirv!(
-    r#"
-    #version 450
-    layout(location = 0) out vec2 v_uv;
-    void main() {
-        const vec2 pos[6] = vec2[](
-            vec2(-1.0, -1.0), vec2( 1.0, -1.0), vec2(-1.0,  1.0),
-            vec2(-1.0,  1.0), vec2( 1.0, -1.0), vec2( 1.0,  1.0)
-        );
-        const vec2 uv[6] = vec2[](
-            vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(0.0, 1.0),
-            vec2(0.0, 1.0), vec2(1.0, 0.0), vec2(1.0, 1.0)
-        );
-        gl_Position = vec4(pos[gl_VertexIndex], 0.0, 1.0);
-        v_uv = uv[gl_VertexIndex];
+const OFF_FRAG_SPV: &[u32] = zsl!(
+    fragment fs(@location(0) color: f32x3) -> f32x4 {
+        color.extend(1.0)
     }
-    "#,
-    vert,
-    vulkan1_0
-);
+)
+.spv;
 
-const SCR_FRAG_SPV: &[u32] = inline_spirv!(
-    r#"
-    #version 450
-    layout(set = 0, binding = 1) uniform sampler2D textures[1024];
-    layout(push_constant) uniform PC { uint tex_index; } pc;
-    layout(location = 0) in vec2 v_uv;
-    layout(location = 0) out vec4 o_color;
-    void main() {
-        o_color = texture(textures[pc.tex_index], v_uv);
+const SCR_VERT_SPV: &[u32] = zsl!(
+    vertex vs(vi: vertex_index) -> (f32x4, f32x2) {
+        let pos = [
+            f32x2(-1.0, -1.0), f32x2(1.0, -1.0), f32x2(-1.0, 1.0),
+            f32x2(-1.0, 1.0), f32x2(1.0, -1.0), f32x2(1.0, 1.0),
+        ]
+        let p = pos[vi]
+        (f32x4(p, 0.0, 1.0), p * 0.5 + 0.5)
     }
-    "#,
-    frag,
-    vulkan1_0
-);
+)
+.spv;
+
+const SCR_FRAG_SPV: &[u32] = zsl!(
+    push Pc { tex_index: u32 }
+    fragment fs(@location(0) uv: f32x2, tex: textures, pc: Pc) -> f32x4 {
+        tex[pc.tex_index].sample(uv)
+    }
+)
+.spv;
 
 fn spv_bytes(words: &[u32]) -> &[u8] {
     unsafe { from_raw_parts(words.as_ptr() as *const u8, size_of_val(words)) }
