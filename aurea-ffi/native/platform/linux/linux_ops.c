@@ -18,6 +18,7 @@ static const ng_platform_ops_t linux_ops = {
     .cleanup = ng_linux_cleanup,
     .run = ng_linux_run,
     .poll_events = ng_linux_poll_events,
+    .wait_events = ng_linux_wait_events,
     .request_frame = ng_linux_request_frame,
     .create_window = ng_linux_create_window,
     .create_window_with_type = ng_linux_create_window_with_type,

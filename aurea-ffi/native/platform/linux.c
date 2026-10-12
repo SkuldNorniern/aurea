@@ -57,6 +57,30 @@ int ng_linux_poll_events(void) {
     return NG_SUCCESS;
 }
 
+static gboolean ng_linux_wait_timed_out(gpointer user_data) {
+    *(gboolean*)user_data = TRUE;
+    return G_SOURCE_REMOVE;
+}
+
+/* Blocks in the main context until any source runs: input, the frame
+   source once its refresh comes, a request handed over from another thread,
+   or the timer for timeout_ms. Then handles the rest that is waiting, in
+   the share ng_linux_poll_events gives. */
+int ng_linux_wait_events(int timeout_ms) {
+    if (timeout_ms == 0) return ng_linux_poll_events();
+    gboolean timed_out = FALSE;
+    guint timer = 0;
+    if (timeout_ms > 0) {
+        timer = g_timeout_add_full(G_PRIORITY_DEFAULT, (guint)timeout_ms,
+            ng_linux_wait_timed_out, &timed_out, NULL);
+    }
+    g_main_context_iteration(NULL, TRUE);
+    ng_linux_poll_events();
+    /* It points at this frame's flag, so it cannot outlive the call. */
+    if (timer && !timed_out) g_source_remove(timer);
+    return NG_SUCCESS;
+}
+
 /* Set while a request is on its way to the UI thread, so a burst of them
    from another thread posts one. */
 static gint g_request_posted = 0;

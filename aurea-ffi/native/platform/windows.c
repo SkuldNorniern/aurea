@@ -161,7 +161,11 @@ void ng_windows_modal_tick(void) {
     }
 }
 
-int ng_windows_run(void) {
+/* Makes the frame event and timer once. Both the run loop and a caller's
+   own loop through ng_windows_wait_events wait on them, and a frame asked
+   for before either starts sets the event, so it is not lost. */
+static void ng_windows_loop_init(void) {
+    if (g_frame_event) return;
     LARGE_INTEGER freq;
     QueryPerformanceFrequency(&freq);
     g_qpc_freq = freq.QuadPart;
@@ -175,58 +179,82 @@ int ng_windows_run(void) {
        something raised it, which is a frame at 60 Hz every other refresh. */
     g_frame_timer = CreateWaitableTimerExW(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
     if (!g_frame_timer) g_frame_timer = CreateWaitableTimerW(NULL, FALSE, NULL);
-    /* Flush any frames scheduled before the loop started (e.g. set_draw_callback
-       called before window.run()).  notify_platform() was a no-op then because
-       g_frame_event was NULL; signal it now so the first iteration fires. */
+    /* Frames scheduled before now (set_draw_callback before the loop, say)
+       found no event to set. Set it, so the first turn runs them. */
     SetEvent(g_frame_event);
+}
 
-    HANDLE handles[2] = { g_frame_event, g_frame_timer };
-    DWORD count = g_frame_timer ? 2 : 1;
-    for (;;) {
-        DWORD result = MsgWaitForMultipleObjectsEx(
-            count, handles,
-            INFINITE,
-            QS_ALLINPUT,
-            MWMO_ALERTABLE | MWMO_INPUTAVAILABLE);
-
-        BOOL wanted = FALSE;
-        if (result == WAIT_OBJECT_0) {
-            wanted = TRUE;
-        } else if (result == WAIT_OBJECT_0 + 1 && count == 2) {
-            g_timer_armed = FALSE;
-            wanted = TRUE;
-        } else if (result != WAIT_OBJECT_0 + count && result != WAIT_IO_COMPLETION) {
-            break;
-        }
-
-        /* Waiting messages first, frame after. Input handled here only
-           queues events, so a burst of mouse moves collapses into one before
-           the frame reads it, and a paint is not left behind a frame. What
-           the batch leaves over is handled on the next turn. */
-        if (!ng_windows_drain_messages()) goto done;
-
-        /* The wait reports waiting input ahead of the event and the timer, so
-           while input keeps coming it never says a frame is due. Look. */
-        if (!wanted) {
-            DWORD due = WaitForMultipleObjects(count, handles, FALSE, 0);
-            if (due == WAIT_OBJECT_0 + 1) g_timer_armed = FALSE;
-            wanted = due == WAIT_OBJECT_0 || due == WAIT_OBJECT_0 + 1;
-        }
-
-        /* A modal loop may have ended with a frame taken but not run. */
-        if (wanted || g_frame_pending) {
-            g_frame_pending = FALSE;
-            ng_windows_frame_wanted();
-        }
-    }
-done:
+static void ng_windows_loop_cleanup(void) {
     if (g_frame_timer) {
         CancelWaitableTimer(g_frame_timer);
         CloseHandle(g_frame_timer);
         g_frame_timer = NULL;
     }
-    CloseHandle(g_frame_event);
-    g_frame_event = NULL;
+    if (g_frame_event) {
+        CloseHandle(g_frame_event);
+        g_frame_event = NULL;
+    }
+}
+
+/* One turn of the loop: waits up to timeout_ms (INFINITE for no limit) for
+   a message, a frame request or the frame timer, handles a batch of
+   messages, then runs the frame if one is due. Returns FALSE on WM_QUIT. */
+static BOOL ng_windows_turn(DWORD timeout_ms) {
+    HANDLE handles[2] = { g_frame_event, g_frame_timer };
+    DWORD count = g_frame_timer ? 2 : 1;
+    DWORD result = MsgWaitForMultipleObjectsEx(
+        count, handles,
+        timeout_ms,
+        QS_ALLINPUT,
+        MWMO_ALERTABLE | MWMO_INPUTAVAILABLE);
+
+    BOOL wanted = FALSE;
+    if (result == WAIT_OBJECT_0) {
+        wanted = TRUE;
+    } else if (result == WAIT_OBJECT_0 + 1 && count == 2) {
+        g_timer_armed = FALSE;
+        wanted = TRUE;
+    } else if (result == WAIT_TIMEOUT) {
+        return TRUE;
+    } else if (result != WAIT_OBJECT_0 + count && result != WAIT_IO_COMPLETION) {
+        return FALSE;
+    }
+
+    /* Waiting messages first, frame after. Input handled here only
+       queues events, so a burst of mouse moves collapses into one before
+       the frame reads it, and a paint is not left behind a frame. What
+       the batch leaves over is handled on the next turn. */
+    if (!ng_windows_drain_messages()) return FALSE;
+
+    /* The wait reports waiting input ahead of the event and the timer, so
+       while input keeps coming it never says a frame is due. Look. */
+    if (!wanted) {
+        DWORD due = WaitForMultipleObjects(count, handles, FALSE, 0);
+        if (due == WAIT_OBJECT_0 + 1) g_timer_armed = FALSE;
+        wanted = due == WAIT_OBJECT_0 || due == WAIT_OBJECT_0 + 1;
+    }
+
+    /* A modal loop may have ended with a frame taken but not run. */
+    if (wanted || g_frame_pending) {
+        g_frame_pending = FALSE;
+        ng_windows_frame_wanted();
+    }
+    return TRUE;
+}
+
+int ng_windows_run(void) {
+    ng_windows_loop_init();
+    while (ng_windows_turn(INFINITE)) {
+    }
+    ng_windows_loop_cleanup();
+    return NG_SUCCESS;
+}
+
+int ng_windows_wait_events(int timeout_ms) {
+    ng_windows_loop_init();
+    /* A caller's loop ends when its windows close, not on WM_QUIT, which
+       is dropped here the same as ng_windows_poll_events drops it. */
+    ng_windows_turn(timeout_ms < 0 ? INFINITE : (DWORD)timeout_ms);
     return NG_SUCCESS;
 }
 

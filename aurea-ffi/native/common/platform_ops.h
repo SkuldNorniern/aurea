@@ -14,6 +14,7 @@ typedef struct ng_platform_ops {
     void (*cleanup)(void);
     int (*run)(void);
     int (*poll_events)(void);
+    int (*wait_events)(int timeout_ms);
     void (*request_frame)(void);
     void (*frame_idle)(void);
 

@@ -13,6 +13,7 @@ static const ng_platform_ops_t macos_ops = {
     .cleanup = ng_macos_cleanup,
     .run = ng_macos_run,
     .poll_events = ng_macos_poll_events,
+    .wait_events = ng_macos_wait_events,
     .request_frame = ng_macos_request_frame,
     .frame_idle = ng_macos_frame_idle,
     .create_window = ng_macos_create_window,

@@ -70,6 +70,13 @@ int ng_platform_poll_events(void) {
     return g_ops && g_ops->poll_events ? g_ops->poll_events() : NG_SUCCESS;
 }
 
+int ng_platform_wait_events(int timeout_ms) {
+    ensure_ops();
+    if (g_ops && g_ops->wait_events) return g_ops->wait_events(timeout_ms);
+    /* A backend that cannot wait still pumps. */
+    return g_ops && g_ops->poll_events ? g_ops->poll_events() : NG_SUCCESS;
+}
+
 void ng_platform_request_frame(void) {
     DISPATCH_VOID(request_frame);
 }
