@@ -31,7 +31,8 @@ fn main() -> AureaResult<()> {
 | IME | yes | yes | yes |
 | Pen pressure and tilt | yes | not yet | not yet |
 
-iOS and Android are experimental. GPU backends draw less than the CPU one.
+iOS and Android are experimental. On GPU backends, blend modes other than
+normal draw through the CPU.
 
 ## Features
 
