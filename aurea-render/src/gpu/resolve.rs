@@ -2,8 +2,11 @@
 
 use aurea_foundation::{AureaError, AureaResult};
 
-use crate::gpu::batch::{GradientInstance as BatchGradient, ImageDraw, RenderBatches, TextDraw};
+use crate::gpu::batch::{
+    GradientInstance as BatchGradient, ImageDraw, ImageSource, RenderBatches, TextDraw,
+};
 use crate::numeric::f32_to_u32_clamped;
+use crate::types::Sampling;
 
 use crate::gpu::backend::Gpu2dBackend;
 use crate::gpu::frame_plan::{FramePlan, GradientPlanEntry, ImagePlanEntry, TextPlanEntry};
@@ -62,16 +65,26 @@ fn resolve_images<B: Gpu2dBackend>(
     out: &mut Vec<ImagePlanEntry>,
 ) -> AureaResult<()> {
     for draw in images {
-        let (iw, ih) = (draw.image.width, draw.image.height);
+        let (iw, ih) = draw.source.size();
         if iw == 0 || ih == 0 {
             continue;
         }
-        let expected = (iw as usize).saturating_mul(ih as usize).saturating_mul(4);
-        if draw.image.data.len() != expected {
-            return Err(AureaError::RenderingFailed);
-        }
-        let slot = cache.resolve(&draw.image.data, iw, ih, backend, frame)?;
+        let slot = match &draw.source {
+            ImageSource::Pixels(image) => {
+                let expected = (iw as usize).saturating_mul(ih as usize).saturating_mul(4);
+                if image.data.len() != expected {
+                    return Err(AureaError::RenderingFailed);
+                }
+                cache.resolve(&image.data, iw, ih, backend, frame)?
+            }
+            ImageSource::Texture(texture) => backend.bind_texture(*texture)?,
+        };
         let (iwf, ihf) = (iw as f32, ih as f32);
+        let nearest = if draw.sampling == Sampling::Nearest {
+            1.0
+        } else {
+            0.0
+        };
         out.push(ImagePlanEntry {
             rect: [draw.dest.x, draw.dest.y, draw.dest.width, draw.dest.height],
             uv: [
@@ -86,6 +99,7 @@ fn resolve_images<B: Gpu2dBackend>(
                 f32::from(draw.tint.b) / 255.0,
                 f32::from(draw.tint.a) / 255.0,
             ],
+            sampling: [iwf, ihf, nearest, 0.0],
             slot,
         });
     }

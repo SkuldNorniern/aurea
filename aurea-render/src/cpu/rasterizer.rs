@@ -13,6 +13,7 @@ use crate::cpu::damage::{
     union_rect,
 };
 use crate::cpu::path::{Edge, tessellate_path_into};
+use crate::cpu::raster::sample;
 use crate::cpu::scanline::fill_spans;
 use crate::cpu::stroke;
 #[cfg(test)]
@@ -30,7 +31,7 @@ use crate::scene::display_list::{CacheKey, DisplayItem, DisplayList};
 use crate::surface::{Surface, SurfaceInfo};
 use crate::types::{
     BlendMode, Color, GlyphMask, GradientStop, Image, LinearGradient, Paint, PaintStyle, Path,
-    PathCommand, Point, RadialGradient, Rect,
+    PathCommand, Point, RadialGradient, Rect, Sampling,
 };
 use aurea_foundation::AureaResult;
 
@@ -257,12 +258,13 @@ impl CpuRasterizer {
             DrawCommand::DrawGlyphMask(mask, origin, color) => {
                 Self::draw_glyph(mask, *origin, fade_color(*color, alpha), buf, bw, clip);
             }
-            DrawCommand::DrawImageRect(image, dest) => {
+            DrawCommand::DrawImageRect(image, dest, sampling) => {
                 let src = Rect::new(0.0, 0.0, image.width as f32, image.height as f32);
                 Self::draw_image(
                     image,
                     src,
                     *dest,
+                    *sampling,
                     item.blend_mode,
                     alpha,
                     buf,
@@ -271,11 +273,12 @@ impl CpuRasterizer {
                     clip,
                 );
             }
-            DrawCommand::DrawImageRegion(image, src, dest) => {
+            DrawCommand::DrawImageRegion(image, src, dest, sampling) => {
                 Self::draw_image(
                     image,
                     *src,
                     *dest,
+                    *sampling,
                     item.blend_mode,
                     alpha,
                     buf,
@@ -889,6 +892,7 @@ impl CpuRasterizer {
         image: &Image,
         src: Rect,
         dest: Rect,
+        sampling: Sampling,
         mode: BlendMode,
         alpha: f32,
         buf: &mut [u32],
@@ -923,8 +927,21 @@ impl CpuRasterizer {
                 x1,
                 y1,
             );
-        } else {
+        } else if sampling == Sampling::Nearest {
             Self::draw_image_scaled(image, src, dest, mode, alpha, buf, bw, clip, x0, y0, x1, y1);
+        } else {
+            Self::draw_image_filtered(
+                image,
+                src,
+                dest,
+                sampling,
+                mode,
+                alpha,
+                buf,
+                bw,
+                clip,
+                (x0, y0, x1, y1),
+            );
         }
     }
 
@@ -979,6 +996,47 @@ impl CpuRasterizer {
                 for (i, &c) in row_buf.iter().enumerate() {
                     let xi = i32::try_from(i).expect("row width fits in i32");
                     Self::buf_set(buf, bw, clip, x0 + xi, cy, c, mode);
+                }
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_image_filtered(
+        image: &Image,
+        src: Rect,
+        dest: Rect,
+        sampling: Sampling,
+        mode: BlendMode,
+        alpha: f32,
+        buf: &mut [u32],
+        bw: u32,
+        clip: ClipBox,
+        (x0, y0, x1, y1): (i32, i32, i32, i32),
+    ) {
+        let (iw, ih) = (
+            i32::try_from(image.width).unwrap_or(i32::MAX),
+            i32::try_from(image.height).unwrap_or(i32::MAX),
+        );
+        let bounds = sample::Bounds {
+            x0: f32_to_i32_clamped(src.x.floor()).clamp(0, iw - 1),
+            y0: f32_to_i32_clamped(src.y.floor()).clamp(0, ih - 1),
+            x1: (f32_to_i32_clamped((src.x + src.width).ceil()) - 1).clamp(0, iw - 1),
+            y1: (f32_to_i32_clamped((src.y + src.height).ceil()) - 1).clamp(0, ih - 1),
+        };
+        let (sx, sy) = (src.width / dest.width, src.height / dest.height);
+        let shrink = sampling == Sampling::Smooth && (sx > 1.0 || sy > 1.0);
+        for cy in y0..y1 {
+            let v0 = (cy as f32 - dest.y) * sy + src.y;
+            for cx in x0..x1 {
+                let u0 = (cx as f32 - dest.x) * sx + src.x;
+                let c = if shrink {
+                    sample::area(image, bounds, (u0, v0), (u0 + sx, v0 + sy), alpha)
+                } else {
+                    sample::bilinear(image, bounds, u0 + sx * 0.5, v0 + sy * 0.5, alpha)
+                };
+                if c >> 24 != 0 {
+                    Self::buf_set(buf, bw, clip, cx, cy, c, mode);
                 }
             }
         }

@@ -1,10 +1,11 @@
 //! The single backend seam for the shared GPU-2D core ([`super::Gpu2dRenderer`]).
 
-use aurea_foundation::AureaResult;
+use aurea_foundation::{AureaError, AureaResult};
 
 use crate::capabilities::GpuFeatures;
 use crate::gpu::batch::{DrawRef, RectInstance, ShapeInstance};
 use crate::renderer::FrameOutcome;
+use crate::types::GpuTexture;
 
 use super::frame_plan::{FramePlan, ImagePlanEntry};
 
@@ -26,6 +27,12 @@ pub trait Gpu2dBackend {
     /// [`upload_image`](Self::upload_image)).
     fn evict_image(&mut self, shader_slot: u32);
 
+    /// The shader slot an app-made texture draws from this frame.
+    fn bind_texture(&mut self, texture: GpuTexture) -> AureaResult<u32> {
+        let _ = texture;
+        Err(AureaError::RenderingFailed)
+    }
+
     /// The kinds of drawing this backend does itself.
     fn features(&self) -> GpuFeatures;
 
@@ -46,6 +53,7 @@ pub trait Gpu2dBackend {
             rect: [0.0, 0.0, width as f32, height as f32],
             uv: [0.0, 0.0, 1.0, 1.0],
             tint: [1.0; 4],
+            sampling: [width as f32, height as f32, 0.0, 0.0],
             slot,
         });
         plan.order.push(DrawRef::Image(0));

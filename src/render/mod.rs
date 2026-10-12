@@ -6,10 +6,10 @@ pub mod graph;
 pub use aurea_render::cpu::measure_text;
 pub use aurea_render::{
     BlendMode, ClickCallback, Color, CpuRasterizer, DisplayIndex, DisplayItem, DisplayList,
-    DrawCommand, DrawingContext, Font, FontStyle, FontWeight, GradientStop, HoverCallback, Image,
-    InteractionRegistry, InteractiveId, LinearGradient, Paint, PaintStyle, Path, PathCommand,
-    Point, RadialGradient, Rect, Renderer, RendererBackend, Surface, SurfaceInfo, TextMetrics,
-    Transform, Viewport,
+    DrawCommand, DrawingContext, Font, FontStyle, FontWeight, GpuTexture, GradientStop,
+    HoverCallback, Image, InteractionRegistry, InteractiveId, LinearGradient, Paint, PaintStyle,
+    Path, PathCommand, Point, RadialGradient, Rect, Renderer, RendererBackend, Sampling, Surface,
+    SurfaceInfo, TextMetrics, Transform, Viewport,
 };
 pub use canvas::*;
 

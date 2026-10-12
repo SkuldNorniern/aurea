@@ -26,9 +26,9 @@ fontdue = "0.9"
 log = "0.4"
 
 # ZenGPU: optional, enabled by the `zengpu` feature.
-zengpu-hal = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "30f8a4ffdafcd9895271eccf0d45f2126ded492e", version = "0.0.1", optional = true }
-zengpu-vulkan = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "30f8a4ffdafcd9895271eccf0d45f2126ded492e", version = "0.0.1", optional = true }
-zengpu-spirv = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "30f8a4ffdafcd9895271eccf0d45f2126ded492e", version = "0.0.1", optional = true }
+zengpu-hal = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "c6ef15fe1b39d27b9b3dd29d62f18feef9a21333", version = "0.0.1", optional = true }
+zengpu-vulkan = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "c6ef15fe1b39d27b9b3dd29d62f18feef9a21333", version = "0.0.1", optional = true }
+zengpu-spirv = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "c6ef15fe1b39d27b9b3dd29d62f18feef9a21333", version = "0.0.1", optional = true }
 
 # wgpu compatibility backend: optional, enabled by the `wgpu` feature.
 wgpu = { version = "29.0.1", optional = true }

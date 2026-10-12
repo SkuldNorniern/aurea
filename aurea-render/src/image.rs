@@ -3,6 +3,9 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[cfg(feature = "zengpu")]
+use zengpu_hal::TextureHandle;
+
 /// Image for rendering.
 #[derive(Debug, Clone)]
 pub struct Image {
@@ -18,6 +21,48 @@ impl Image {
             height,
             data: data.into(),
         }
+    }
+}
+
+/// How an image is filtered when drawn at a size other than its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Sampling {
+    /// Blends the nearest four pixels: smooth when enlarged, but shrinking far below the image's
+    /// size skips pixels.
+    #[default]
+    Linear,
+    /// The nearest pixel, for hard pixel edges in a zoomed-in editor.
+    Nearest,
+    /// [`Linear`](Self::Linear) when enlarging; when shrinking, every pixel a destination pixel
+    /// covers is averaged, for clean zoomed-out views.
+    Smooth,
+}
+
+/// A texture the app made on the renderer's GPU device, drawn with
+/// [`DrawingContext::draw_texture`](crate::DrawingContext::draw_texture).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GpuTexture {
+    pub index: u32,
+    pub generation: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[cfg(feature = "zengpu")]
+impl GpuTexture {
+    /// A ZenGPU texture of `width` by `height` texels.
+    pub fn from_zengpu(texture: TextureHandle, width: u32, height: u32) -> Self {
+        Self {
+            index: texture.index(),
+            generation: texture.generation(),
+            width,
+            height,
+        }
+    }
+
+    /// The ZenGPU handle back.
+    pub fn zengpu(self) -> TextureHandle {
+        TextureHandle::from_parts(self.index, self.generation)
     }
 }
 

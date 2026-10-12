@@ -116,20 +116,31 @@ pub const IMAGE_VERT_SPV: &[u32] = zsl!(
         @location(0) rect: f32x4,
         @location(1) uv: f32x4,
         @location(2) tint: f32x4,
+        @location(3) sampling: f32x4,
         vi: vertex_index,
         pc: Pc,
-    ) -> (f32x4, f32x2, f32x4) {
+    ) -> (f32x4, f32x2, f32x4, f32x4) {
         let corner = f32x2(f32((26 >> vi) & 1), f32((52 >> vi) & 1))
         let px = rect.xy + corner * rect.zw
-        (f32x4(px / pc.viewport * 2.0 - 1.0, 0.0, 1.0), mix(uv.xy, uv.zw, corner), tint)
+        (f32x4(px / pc.viewport * 2.0 - 1.0, 0.0, 1.0), mix(uv.xy, uv.zw, corner), tint, sampling)
     }
 )
 .spv;
 
 pub const IMAGE_FRAG_SPV: &[u32] = zsl!(
     push Pc { viewport: f32x2, slot: u32 }
-    fragment image_fs(@location(0) uv: f32x2, @location(1) tint: f32x4, tex: textures, pc: Pc) -> f32x4 {
-        tex[pc.slot].sample(uv) * tint
+    fragment image_fs(
+        @location(0) uv: f32x2,
+        @location(1) tint: f32x4,
+        @location(2) sampling: f32x4,
+        tex: textures,
+        pc: Pc,
+    ) -> f32x4 {
+        let at = uv
+        if sampling.z > 0.5 {
+            at = (floor(uv * sampling.xy) + 0.5) / sampling.xy
+        }
+        tex[pc.slot].sample(at) * tint
     }
 )
 .spv;

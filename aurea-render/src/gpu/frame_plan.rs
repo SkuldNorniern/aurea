@@ -20,6 +20,8 @@ pub struct ImagePlanEntry {
     pub rect: [f32; 4],
     pub uv: [f32; 4],
     pub tint: [f32; 4],
+    /// The source's size in texels, then 1 for nearest filtering, else 0.
+    pub sampling: [f32; 4],
     pub slot: u32,
 }
 

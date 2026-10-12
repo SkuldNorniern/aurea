@@ -17,6 +17,8 @@ pub struct GpuFeatures {
     pub blend_modes: bool,
     /// Stroked circles, which the instanced circle path cannot draw.
     pub stroked_circles: bool,
+    /// App-made GPU textures.
+    pub textures: bool,
 }
 
 impl GpuFeatures {
@@ -30,6 +32,7 @@ impl GpuFeatures {
         paths: false,
         blend_modes: false,
         stroked_circles: false,
+        textures: false,
     };
 
     /// Everything the CPU rasterizer draws.
@@ -42,6 +45,7 @@ impl GpuFeatures {
         paths: true,
         blend_modes: true,
         stroked_circles: true,
+        textures: false,
     };
 
     /// What `needed` asks for that this set does not have.
@@ -55,6 +59,7 @@ impl GpuFeatures {
             paths: needed.paths && !self.paths,
             blend_modes: needed.blend_modes && !self.blend_modes,
             stroked_circles: needed.stroked_circles && !self.stroked_circles,
+            textures: needed.textures && !self.textures,
         }
     }
 
@@ -69,6 +74,7 @@ impl GpuFeatures {
             paths: self.paths || other.paths,
             blend_modes: self.blend_modes || other.blend_modes,
             stroked_circles: self.stroked_circles || other.stroked_circles,
+            textures: self.textures || other.textures,
         }
     }
 
@@ -80,7 +86,8 @@ impl GpuFeatures {
             || self.rounded_rects
             || self.paths
             || self.blend_modes
-            || self.stroked_circles)
+            || self.stroked_circles
+            || self.textures)
     }
 }
 

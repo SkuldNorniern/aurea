@@ -18,7 +18,7 @@ use super::buffer::InstanceBuffer;
 use super::shaders::{GRADIENT_SHADER, IMAGE_SHADER, RECT_SHADER, SHAPE_SHADER, TEXT_SHADER};
 
 const GRADIENT_INSTANCE_STRIDE: usize = size_of::<f32>() * 12;
-const IMAGE_INSTANCE_STRIDE: usize = size_of::<f32>() * 12;
+const IMAGE_INSTANCE_STRIDE: usize = size_of::<f32>() * 16;
 const TEXT_INSTANCE_STRIDE: usize = size_of::<f32>() * 8;
 
 struct SlotResource {
@@ -252,7 +252,7 @@ impl<'w> WgpuBackend<'w> {
         let image_pipeline = textured(
             "aurea-wgpu2d-image",
             IMAGE_SHADER,
-            &wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4],
+            &wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4],
             IMAGE_INSTANCE_STRIDE,
         );
         let text_pipeline = textured(
@@ -384,7 +384,7 @@ impl<'w> WgpuBackend<'w> {
             .upload(&self.device, &self.queue, &self.packed);
         self.packed.clear();
         for img in &plan.images {
-            for v in [&img.rect, &img.uv, &img.tint] {
+            for v in [&img.rect, &img.uv, &img.tint, &img.sampling] {
                 self.packed.extend_from_slice(cast_bytes(v.as_ref()));
             }
         }
@@ -612,6 +612,7 @@ impl Gpu2dBackend for WgpuBackend<'_> {
             rect: [0.0, 0.0, width as f32, height as f32],
             uv: [0.0, 0.0, 1.0, 1.0],
             tint: [1.0; 4],
+            sampling: [width as f32, height as f32, 0.0, 0.0],
             slot,
         });
         plan.order.push(DrawRef::Image(0));

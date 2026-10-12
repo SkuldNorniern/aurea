@@ -6,8 +6,8 @@ use crate::numeric::{f32_to_u8_clamped, f32_to_u32_clamped};
 use crate::scene::command::DrawCommand;
 use crate::scene::display_list::{DisplayItem, DisplayList};
 use crate::types::{
-    BlendMode, Color, GlyphMask, GradientStop, Image, LinearGradient, Paint, PaintStyle, Path,
-    Point, RadialGradient, Rect,
+    BlendMode, Color, GlyphMask, GpuTexture, GradientStop, Image, LinearGradient, Paint,
+    PaintStyle, Path, Point, RadialGradient, Rect, Sampling,
 };
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -159,10 +159,30 @@ fn build_gradient_lut(stops: &[GradientStop]) -> Arc<[u8]> {
 /// physical pixels, `src` the source sub-rect in image pixels, `tint` a straight-RGBA multiply.
 #[derive(Debug, Clone)]
 pub struct ImageDraw {
-    pub image: Image,
+    pub source: ImageSource,
     pub dest: Rect,
+    /// In the source's pixels.
     pub src: Rect,
     pub tint: Color,
+    pub sampling: Sampling,
+}
+
+/// Where an image draw's pixels come from.
+#[derive(Debug, Clone)]
+pub enum ImageSource {
+    /// CPU pixels, uploaded and cached by the renderer.
+    Pixels(Image),
+    /// A texture the app made on the device.
+    Texture(GpuTexture),
+}
+
+impl ImageSource {
+    pub fn size(&self) -> (u32, u32) {
+        match self {
+            Self::Pixels(image) => (image.width, image.height),
+            Self::Texture(texture) => (texture.width, texture.height),
+        }
+    }
 }
 
 /// A cached text-run coverage mask ready for GPU upload.
@@ -201,6 +221,10 @@ fn needs_of(item: &DisplayItem) -> GpuFeatures {
         },
         DrawCommand::DrawImageRect(..) | DrawCommand::DrawImageRegion(..) => GpuFeatures {
             images: true,
+            ..GpuFeatures::NONE
+        },
+        DrawCommand::DrawTexture(..) => GpuFeatures {
+            textures: true,
             ..GpuFeatures::NONE
         },
         DrawCommand::DrawGlyphMask(..) => GpuFeatures {
@@ -406,32 +430,9 @@ impl RenderBatches {
                     self.gradients
                         .push(GradientInstance::radial(*rect, grad, lut));
                 }
-                DrawCommand::DrawImageRect(image, dest)
-                    if valid_rgba_image(image.width, image.height, &image.data) =>
-                {
-                    self.order.push(DrawRef::Image(
-                        u32::try_from(self.images.len()).expect("batch count fits in u32"),
-                    ));
-                    self.images.push(ImageDraw {
-                        image: image.clone(),
-                        dest: *dest,
-                        src: Rect::new(0.0, 0.0, image.width as f32, image.height as f32),
-                        tint: fade(Color::rgb(255, 255, 255), alpha),
-                    });
-                }
-                DrawCommand::DrawImageRegion(image, src, dest)
-                    if valid_rgba_image(image.width, image.height, &image.data) =>
-                {
-                    self.order.push(DrawRef::Image(
-                        u32::try_from(self.images.len()).expect("batch count fits in u32"),
-                    ));
-                    self.images.push(ImageDraw {
-                        image: image.clone(),
-                        dest: *dest,
-                        src: *src,
-                        tint: fade(Color::rgb(255, 255, 255), alpha),
-                    });
-                }
+                command @ (DrawCommand::DrawImageRect(..)
+                | DrawCommand::DrawImageRegion(..)
+                | DrawCommand::DrawTexture(..)) => self.lower_image(command, alpha),
                 DrawCommand::DrawGlyphMask(mask, origin, color) => {
                     if let Some(rgba) = self.text_mask(mask) {
                         self.order.push(DrawRef::Text(
@@ -461,6 +462,54 @@ impl RenderBatches {
                 _ => self.dropped += 1,
             }
         }
+    }
+
+    fn lower_image(&mut self, command: &DrawCommand, alpha: f32) {
+        let (source, src, dest, sampling) = match command {
+            DrawCommand::DrawImageRect(image, dest, sampling)
+                if valid_rgba_image(image.width, image.height, &image.data) =>
+            {
+                let src = Rect::new(0.0, 0.0, image.width as f32, image.height as f32);
+                (ImageSource::Pixels(image.clone()), src, *dest, *sampling)
+            }
+            DrawCommand::DrawImageRegion(image, src, dest, sampling)
+                if valid_rgba_image(image.width, image.height, &image.data) =>
+            {
+                (ImageSource::Pixels(image.clone()), *src, *dest, *sampling)
+            }
+            DrawCommand::DrawTexture(texture, uv, dest, sampling)
+                if texture.width > 0 && texture.height > 0 =>
+            {
+                let (w, h) = (texture.width as f32, texture.height as f32);
+                let src = Rect::new(uv.x * w, uv.y * h, uv.width * w, uv.height * h);
+                (ImageSource::Texture(*texture), src, *dest, *sampling)
+            }
+            _ => {
+                self.dropped += 1;
+                return;
+            }
+        };
+        self.push_image(source, src, dest, sampling, alpha);
+    }
+
+    fn push_image(
+        &mut self,
+        source: ImageSource,
+        src: Rect,
+        dest: Rect,
+        sampling: Sampling,
+        alpha: f32,
+    ) {
+        self.order.push(DrawRef::Image(
+            u32::try_from(self.images.len()).expect("batch count fits in u32"),
+        ));
+        self.images.push(ImageDraw {
+            source,
+            dest,
+            src,
+            tint: fade(Color::rgb(255, 255, 255), alpha),
+            sampling,
+        });
     }
 
     fn push_path(&mut self, item: &DisplayItem, path: &Path, paint: &Paint, alpha: f32) {
@@ -805,6 +854,7 @@ mod tests {
         list.push(item(DrawCommand::DrawImageRect(
             image,
             Rect::new(10.0, 20.0, 30.0, 40.0),
+            Sampling::Linear,
         )));
 
         let b = RenderBatches::lower(&list);
@@ -821,12 +871,42 @@ mod tests {
             image,
             Rect::new(2.0, 3.0, 4.0, 5.0),
             Rect::new(20.0, 30.0, 40.0, 50.0),
+            Sampling::Nearest,
         )));
 
         let b = RenderBatches::lower(&list);
         assert_eq!(b.images.len(), 1);
         assert_eq!(b.images[0].src, Rect::new(2.0, 3.0, 4.0, 5.0));
         assert_eq!(b.images[0].dest, Rect::new(20.0, 30.0, 40.0, 50.0));
+        assert_eq!(b.images[0].sampling, Sampling::Nearest);
+    }
+
+    #[test]
+    fn textures_keep_their_place() {
+        let mut list = DisplayList::new();
+        list.push(item(red_rect(Rect::new(0.0, 0.0, 4.0, 4.0))));
+        let texture = GpuTexture {
+            index: 7,
+            generation: 1,
+            width: 100,
+            height: 50,
+        };
+        list.push(item(DrawCommand::DrawTexture(
+            texture,
+            Rect::new(0.5, 0.0, 0.5, 1.0),
+            Rect::new(0.0, 0.0, 10.0, 10.0),
+            Sampling::Linear,
+        )));
+        list.push(item(red_rect(Rect::new(1.0, 1.0, 2.0, 2.0))));
+
+        let b = RenderBatches::lower(&list);
+        assert!(b.needs.textures);
+        assert_eq!(
+            b.order,
+            [DrawRef::Rect(0), DrawRef::Image(0), DrawRef::Rect(1)]
+        );
+        assert!(matches!(b.images[0].source, ImageSource::Texture(t) if t == texture));
+        assert_eq!(b.images[0].src, Rect::new(50.0, 0.0, 50.0, 50.0));
     }
 
     #[test]
@@ -885,6 +965,7 @@ mod tests {
         list.push(item(DrawCommand::DrawImageRect(
             Image::new(1, 1, vec![255; 4]),
             Rect::new(0.0, 0.0, 1.0, 1.0),
+            Sampling::Linear,
         )));
 
         let b = RenderBatches::lower(&list);
