@@ -1,6 +1,6 @@
 //! Draw commands shared between display list and rasterizer.
 
-use super::types::{
+use crate::types::{
     Color, Font, GlyphMask, Image, LinearGradient, Paint, Path, Point, RadialGradient, Rect,
 };
 

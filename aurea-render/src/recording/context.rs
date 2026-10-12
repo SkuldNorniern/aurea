@@ -1,9 +1,9 @@
 //! Records draw calls into a display list.
 
-use crate::command::DrawCommand;
-use crate::cpu::hit_test::{hit_test_path, path_bounds};
-use crate::display_list::{CacheKey, DisplayIndex, DisplayItem, DisplayList};
 use crate::renderer::DrawingContext;
+use crate::scene::command::DrawCommand;
+use crate::scene::display_list::{CacheKey, DisplayIndex, DisplayItem, DisplayList};
+use crate::scene::hit_test::{hit_test_path, path_bounds};
 use crate::text::{FontRef, TextRenderer};
 use crate::types::*;
 use aurea_foundation::{AureaError, AureaResult, Platform};
@@ -27,10 +27,7 @@ pub fn measure_text(text: &str, font: &Font) -> AureaResult<TextMetrics> {
             advance: 0.0,
         });
     }
-    TEXT_RENDERER.measure_text(
-        text,
-        FontRef::with_size(font, font.size),
-    )
+    TEXT_RENDERER.measure_text(text, FontRef::with_size(font, font.size))
 }
 const DEFAULT_FONT_SIZE: f32 = 16.0;
 
@@ -543,10 +540,8 @@ impl<'list> RecordingContext<'list> {
             DrawCommand::DrawCircle(_, _, paint) => {
                 paint.color.a == 255 && paint.style == PaintStyle::Fill
             }
-            DrawCommand::DrawImageRect(..)
-            | DrawCommand::DrawImageRegion(..) => false,
-            DrawCommand::FillLinearGradient(..)
-            | DrawCommand::FillRadialGradient(..) => false,
+            DrawCommand::DrawImageRect(..) | DrawCommand::DrawImageRegion(..) => false,
+            DrawCommand::FillLinearGradient(..) | DrawCommand::FillRadialGradient(..) => false,
             _ => false,
         }
     }
@@ -633,10 +628,7 @@ impl DrawingContext for RecordingContext<'_> {
     fn draw_rect(&mut self, rect: Rect, paint: &Paint) -> AureaResult<()> {
         if !self.transform_is_axis_aligned() {
             let path = self.transformed_rect_path(rect);
-            self.add_command(DrawCommand::DrawPath(
-                path,
-                self.s_paint(paint),
-            ));
+            self.add_command(DrawCommand::DrawPath(path, self.s_paint(paint)));
             return Ok(());
         }
         self.add_command(DrawCommand::DrawRect(
@@ -687,11 +679,7 @@ impl DrawingContext for RecordingContext<'_> {
 
         let anchor = self.s_pt(point);
         let origin = Point::new(anchor.x - pad, anchor.y - ascent - pad);
-        self.add_command(DrawCommand::DrawGlyphMask(
-            mask,
-            origin,
-            paint.color,
-        ));
+        self.add_command(DrawCommand::DrawGlyphMask(mask, origin, paint.color));
         Ok(())
     }
 
@@ -704,18 +692,12 @@ impl DrawingContext for RecordingContext<'_> {
             image.width as f32 * zoom,
             image.height as f32 * zoom,
         );
-        self.add_command(DrawCommand::DrawImageRect(
-            image.clone(),
-            dest,
-        ));
+        self.add_command(DrawCommand::DrawImageRect(image.clone(), dest));
         Ok(())
     }
 
     fn draw_image_rect(&mut self, image: &Image, dest: Rect) -> AureaResult<()> {
-        self.add_command(DrawCommand::DrawImageRect(
-            image.clone(),
-            self.s_rect(dest),
-        ));
+        self.add_command(DrawCommand::DrawImageRect(image.clone(), self.s_rect(dest)));
         Ok(())
     }
 
@@ -834,10 +816,7 @@ impl DrawingContext for RecordingContext<'_> {
         let mut g = gradient.clone();
         g.start = self.s_pt(g.start);
         g.end = self.s_pt(g.end);
-        self.add_command(DrawCommand::FillLinearGradient(
-            g,
-            self.s_rect(rect),
-        ));
+        self.add_command(DrawCommand::FillLinearGradient(g, self.s_rect(rect)));
         Ok(())
     }
 
@@ -845,10 +824,7 @@ impl DrawingContext for RecordingContext<'_> {
         let mut g = gradient.clone();
         g.center = self.s_pt(g.center);
         g.radius = self.s(g.radius);
-        self.add_command(DrawCommand::FillRadialGradient(
-            g,
-            self.s_rect(rect),
-        ));
+        self.add_command(DrawCommand::FillRadialGradient(g, self.s_rect(rect)));
         Ok(())
     }
 

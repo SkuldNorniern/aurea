@@ -4,18 +4,18 @@ use std::cmp::Ordering as CmpOrdering;
 use std::f32::consts::FRAC_1_SQRT_2;
 use std::mem;
 
-use crate::command::DrawCommand;
 use crate::cpu::blend::{ConstSrc, blend_pixel, linear_to_srgb_u8, srgb_to_linear};
 use crate::cpu::clip::ClipBox;
-use crate::recording::RecordingContext;
 use crate::cpu::path::{Edge, tessellate_path_into};
 use crate::cpu::scanline::fill_spans;
 use crate::cpu::stroke;
-use crate::display_list::{CacheKey, DisplayItem, DisplayList};
 use crate::numeric::{
     f32_to_i32_clamped, f32_to_u8_clamped, f32_to_u32_clamped, f32_to_usize_clamped,
 };
+use crate::recording::RecordingContext;
 use crate::renderer::{DrawingContext, FrameOutcome, FrameOutput, Renderer};
+use crate::scene::command::DrawCommand;
+use crate::scene::display_list::{CacheKey, DisplayItem, DisplayList};
 use crate::surface::{Surface, SurfaceInfo};
 use crate::types::{
     BlendMode, Color, GlyphMask, GradientStop, Image, LinearGradient, Paint, PaintStyle, Path,
@@ -1754,8 +1754,8 @@ mod stroke_rect_tests {
 #[cfg(test)]
 mod diff_damage_tests {
     use super::*;
-    use crate::command::DrawCommand;
-    use crate::display_list::{DisplayIndex, DisplayItem};
+    use crate::scene::command::DrawCommand;
+    use crate::scene::display_list::{DisplayIndex, DisplayItem};
 
     fn item(key: u64, bounds: Rect) -> DisplayItem {
         DisplayItem::new(
@@ -1894,8 +1894,8 @@ mod diff_damage_tests {
 #[cfg(test)]
 mod occlusion_tests {
     use super::*;
-    use crate::command::DrawCommand;
-    use crate::display_list::{DisplayIndex, DisplayItem};
+    use crate::scene::command::DrawCommand;
+    use crate::scene::display_list::{DisplayIndex, DisplayItem};
 
     const W: u32 = TILE_SIZE * 4;
     const H: u32 = TILE_SIZE * 2;
@@ -2062,8 +2062,8 @@ mod occlusion_tests {
 #[cfg(test)]
 mod tile_cache_tests {
     use super::*;
-    use crate::command::DrawCommand;
-    use crate::display_list::{DisplayIndex, DisplayItem};
+    use crate::scene::command::DrawCommand;
+    use crate::scene::display_list::{DisplayIndex, DisplayItem};
     use crate::types::Paint;
 
     fn tile() -> f32 {
