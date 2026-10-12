@@ -185,7 +185,7 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
     }
 }
 
-impl<B: Gpu2dBackend + Send + Sync> Renderer for Gpu2dRenderer<B> {
+impl<B: Gpu2dBackend> Renderer for Gpu2dRenderer<B> {
     fn init(&mut self, _surface: Surface, info: SurfaceInfo) -> AureaResult<()> {
         self.configure(info)
     }
