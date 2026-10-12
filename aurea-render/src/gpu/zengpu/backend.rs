@@ -21,9 +21,9 @@ use zengpu_hal::{
 use zengpu_vulkan::instance::VulkanInstance;
 use zengpu_vulkan::{DeviceContext, VulkanCommandList, VulkanDevice, VulkanSurface};
 
-use crate::batch::{CircleInstance, DrawRef, RectInstance};
 use crate::capabilities::GpuFeatures;
-use crate::gpu2d::{FramePlan, Gpu2dBackend, Gpu2dRenderer};
+use crate::gpu::batch::{CircleInstance, DrawRef, RectInstance};
+use crate::gpu::{FramePlan, Gpu2dBackend, Gpu2dRenderer};
 use crate::numeric::f32_to_u32_clamped;
 use crate::renderer::FrameOutcome;
 use crate::types::Rect;

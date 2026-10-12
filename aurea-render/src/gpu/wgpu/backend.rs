@@ -14,9 +14,9 @@ use wgpu::util::DeviceExt;
 
 use aurea_foundation::{AureaError, AureaResult};
 
-use crate::batch::{CircleInstance, DrawRef, RectInstance};
 use crate::capabilities::GpuFeatures;
-use crate::gpu2d::{FramePlan, Gpu2dBackend, Gpu2dRenderer, ImagePlanEntry};
+use crate::gpu::batch::{CircleInstance, DrawRef, RectInstance};
+use crate::gpu::{FramePlan, Gpu2dBackend, Gpu2dRenderer, ImagePlanEntry};
 use crate::renderer::FrameOutcome;
 use crate::types::Rect;
 

@@ -8,7 +8,7 @@
 
 use crate::types::Color;
 
-use crate::batch::DrawRef;
+use crate::gpu::batch::DrawRef;
 use crate::types::Rect;
 
 /// A resolved gradient instance: LUT texture slot assigned.
@@ -43,7 +43,7 @@ pub struct TextPlanEntry {
 /// backend-agnostic texture cache. Passed to [`Gpu2dBackend::present_frame`]
 /// which owns only the GPU upload + record + present.
 ///
-/// [`RenderBatches`]: crate::batch::RenderBatches
+/// [`RenderBatches`]: crate::gpu::batch::RenderBatches
 #[derive(Default)]
 pub struct FramePlan {
     /// Resolved gradient instances (LUT slot filled in).

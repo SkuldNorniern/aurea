@@ -3,7 +3,7 @@
 //! Module boundaries:
 //! - display_list: records draw commands with metadata (bounds, cache keys)
 //! - command: draw command types shared by display list and raster
-//! - batch: backend-agnostic 2D batches lowered from a display list (GPU path)
+//! - gpu: display list lowered to batches, the shared GPU renderer, and its backends
 //! - recording: resolves draw calls into display list items, for both executors
 //! - cpu: rasterizer executes commands, tile-based with damage
 //! - interaction: hit testing on display list items
@@ -27,10 +27,9 @@
 //! is not part of its cache key: two transforms that put a shape in the same
 //! place produce the same pixels and should share a key.
 
-mod batch;
 mod drawing;
 mod frame;
-mod gpu2d;
+mod gpu;
 mod interaction;
 mod numeric;
 mod renderer;
@@ -44,18 +43,12 @@ pub mod cpu;
 pub mod recording;
 pub mod text;
 
-#[cfg(feature = "zengpu")]
-pub mod zengpu;
-
-#[cfg(feature = "wgpu")]
-pub mod wgpu_backend;
-
-pub use batch::{
-    CircleInstance, DrawRef, GradientInstance, ImageDraw, RectInstance, RenderBatches, TextDraw,
-};
 pub use capabilities::{Fallback, GpuFeatures};
 pub use cpu::CpuRasterizer;
-pub use gpu2d::{
+pub use gpu::batch::{
+    CircleInstance, DrawRef, GradientInstance, ImageDraw, RectInstance, RenderBatches, TextDraw,
+};
+pub use gpu::{
     FramePlan, Gpu2dBackend, Gpu2dRenderer, GradientPlanEntry, ImagePlanEntry, TextPlanEntry,
 };
 pub use interaction::*;
@@ -67,7 +60,8 @@ pub use types::*;
 pub use viewport::*;
 
 #[cfg(feature = "zengpu")]
-pub use zengpu::{ZenGpuContext, ZenGpuRenderer};
+pub use gpu::zengpu::{self, ZenGpuContext, ZenGpuRenderer};
 
 #[cfg(feature = "wgpu")]
-pub use wgpu_backend::WgpuRenderer;
+// The module kept its old name at the root.
+pub use gpu::wgpu::{self as wgpu_backend, WgpuRenderer};
