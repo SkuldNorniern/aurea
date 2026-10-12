@@ -22,9 +22,10 @@ use zengpu_vulkan::instance::VulkanInstance;
 use zengpu_vulkan::{DeviceContext, VulkanCommandList, VulkanDevice, VulkanSurface};
 
 use crate::batch::{CircleInstance, DrawRef, RectInstance};
+use crate::capabilities::GpuFeatures;
 use crate::gpu2d::{FramePlan, Gpu2dBackend, Gpu2dRenderer};
-use crate::renderer::FrameOutcome;
 use crate::numeric::f32_to_u32_clamped;
+use crate::renderer::FrameOutcome;
 use crate::types::Rect;
 
 use super::buffer::GrowableBuffer;
@@ -476,6 +477,16 @@ impl Gpu2dBackend for ZenGpuBackend {
     fn evict_image(&mut self, shader_slot: u32) {
         if let Some(texture) = self.slot_textures.remove(&shader_slot) {
             self.context.device().destroy_texture(texture);
+        }
+    }
+
+    fn features(&self) -> GpuFeatures {
+        GpuFeatures {
+            gradients: true,
+            images: true,
+            text: true,
+            clips: true,
+            ..GpuFeatures::NONE
         }
     }
 

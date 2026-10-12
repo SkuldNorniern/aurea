@@ -22,11 +22,13 @@ mod resolve;
 mod texture_cache;
 
 pub use backend::Gpu2dBackend;
-pub use frame_plan::FramePlan;
+pub use frame_plan::{FramePlan, GradientPlanEntry, ImagePlanEntry, TextPlanEntry};
 
 use aurea_foundation::AureaResult;
 
 use crate::batch::RenderBatches;
+use crate::capabilities::{Fallback, GpuFeatures};
+use crate::cpu::CpuRasterizer;
 use crate::cpu::RecordingContext;
 use crate::display_list::DisplayList;
 use crate::numeric::f32_to_u32_clamped;
@@ -62,6 +64,15 @@ pub struct Gpu2dRenderer<B: Gpu2dBackend> {
     /// The physical size the backend's surface was last given, so a
     /// configure that changes nothing in pixels leaves it alone.
     configured: (u32, u32),
+    /// What to do with a frame the backend cannot draw all of.
+    fallback: Fallback,
+    /// Draws frames the backend cannot, made the first time one comes.
+    cpu: Option<CpuRasterizer>,
+    /// The CPU frame converted to RGBA for upload, kept between frames.
+    cpu_rgba: Vec<u8>,
+    /// Whether the last frame came from the CPU, so a GPU frame after it
+    /// repaints the target in full.
+    last_on_cpu: bool,
     /// Whether the shortfall has already been reported, so a frame that keeps
     /// dropping the same draw says so once instead of every frame.
     warned_about_dropped: bool,
@@ -79,6 +90,10 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
             frame_plan: FramePlan::new(),
             frame_counter: 0,
             warned_about_dropped: false,
+            fallback: Fallback::default(),
+            cpu: None,
+            cpu_rgba: Vec::new(),
+            last_on_cpu: false,
             logical_width: width,
             logical_height: height,
             scale_factor: scale_factor.max(1.0),
@@ -90,6 +105,51 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
     /// Whether the target has no size, so nothing can be drawn.
     fn suspended(&self) -> bool {
         self.logical_width == 0 || self.logical_height == 0
+    }
+
+    /// What happens to a frame the backend cannot draw all of; by default
+    /// it is drawn on the CPU and shown through the backend.
+    pub fn set_fallback(&mut self, fallback: Fallback) {
+        self.fallback = fallback;
+    }
+
+    /// The kinds of drawing the last frame used that the backend lacks.
+    pub fn last_frame_missing(&self) -> GpuFeatures {
+        self.backend.features().missing(self.batches.needs)
+    }
+
+    /// Draws the recorded frame on the CPU and presents the pixels through
+    /// the backend.
+    fn present_on_cpu(&mut self) -> AureaResult<FrameOutcome> {
+        let (lw, lh, scale) = (self.logical_width, self.logical_height, self.scale_factor);
+        let cpu = self.cpu.get_or_insert_with(|| CpuRasterizer::new(lw, lh));
+        // Configuring at the same size and scale is cheap; at a new one it
+        // resizes the buffer, which a resize of this renderer has to do too.
+        if cpu.logical_size() != (lw, lh) || cpu.scale_factor() != scale {
+            cpu.configure(SurfaceInfo {
+                width: lw,
+                height: lh,
+                scale_factor: scale,
+            })?;
+        }
+        let outcome = cpu.render_recorded(&mut self.display_list)?;
+        if outcome == FrameOutcome::Unchanged && self.last_on_cpu {
+            return Ok(FrameOutcome::Unchanged);
+        }
+        let Some(frame) = cpu.frame_output() else {
+            return Ok(FrameOutcome::Retry);
+        };
+        let (width, height) = (frame.width, frame.height);
+        // The rasterizer keeps 0xAARRGGBB pixels: B, G, R, A in memory.
+        let bgra = frame.bytes();
+        self.cpu_rgba.clear();
+        self.cpu_rgba.reserve(bgra.len());
+        let (pixels, _) = bgra.as_chunks::<4>();
+        for &[b, g, r, a] in pixels {
+            self.cpu_rgba.extend_from_slice(&[r, g, b, a]);
+        }
+        self.last_on_cpu = true;
+        self.backend.present_pixels(&self.cpu_rgba, width, height)
     }
 
     /// Shared access to the device backend (for backend-specific extensions
@@ -174,6 +234,11 @@ impl<B: Gpu2dBackend + Send + Sync> Renderer for Gpu2dRenderer<B> {
             return Ok(FrameOutcome::Suspended);
         }
         self.batches.lower_into(&self.display_list);
+        let missing = self.backend.features().missing(self.batches.needs);
+        if !missing.is_empty() && self.fallback == Fallback::CpuFrame {
+            return self.present_on_cpu();
+        }
+        self.last_on_cpu = false;
         self.report_dropped();
         let (pw, ph) = self.physical_size();
         self.frame_plan.viewport_width = pw;
@@ -214,11 +279,17 @@ fn physical(width: u32, height: u32, scale: f32) -> (u32, u32) {
 mod tests {
     use super::*;
     use crate::batch::{CircleInstance, RectInstance};
+    use crate::types::{Color, Paint};
 
     /// Records what the renderer asks of it; presents with `outcome`.
     struct Probe {
         resized: Vec<(u32, u32)>,
         outcome: FrameOutcome,
+        features: GpuFeatures,
+        /// Frames presented as GPU draws.
+        drawn: usize,
+        /// Frames presented as CPU pixels: the size and one pixel's RGBA.
+        pixels: Vec<(u32, u32, [u8; 4])>,
     }
 
     impl Gpu2dBackend for Probe {
@@ -231,6 +302,10 @@ mod tests {
             Ok(0)
         }
 
+        fn features(&self) -> GpuFeatures {
+            self.features
+        }
+
         fn evict_image(&mut self, _: u32) {}
 
         fn present_frame(
@@ -239,16 +314,76 @@ mod tests {
             _: &[RectInstance],
             _: &[CircleInstance],
         ) -> AureaResult<FrameOutcome> {
+            self.drawn += 1;
             Ok(self.outcome)
+        }
+
+        fn present_pixels(&mut self, rgba: &[u8], w: u32, h: u32) -> AureaResult<FrameOutcome> {
+            // The pixel in the middle of the frame.
+            let at = ((h / 2 * w + w / 2) * 4) as usize;
+            let px = [rgba[at], rgba[at + 1], rgba[at + 2], rgba[at + 3]];
+            self.pixels.push((w, h, px));
+            Ok(FrameOutcome::Presented)
         }
     }
 
     fn renderer(outcome: FrameOutcome) -> Gpu2dRenderer<Probe> {
+        with_features(outcome, GpuFeatures::ALL)
+    }
+
+    fn with_features(outcome: FrameOutcome, features: GpuFeatures) -> Gpu2dRenderer<Probe> {
         let probe = Probe {
             resized: Vec::new(),
             outcome,
+            features,
+            drawn: 0,
+            pixels: Vec::new(),
         };
         Gpu2dRenderer::from_backend(probe, 100, 50, 1.0)
+    }
+
+    /// A frame of one red rounded rect filling the target.
+    fn rounded_frame(r: &mut Gpu2dRenderer<Probe>) -> FrameOutcome {
+        {
+            let mut ctx = r.begin_frame().expect("begin");
+            let paint = Paint::new().color(Color::rgb(220, 20, 60));
+            ctx.draw_round_rect(Rect::new(0.0, 0.0, 100.0, 50.0), 8.0, &paint)
+                .expect("draw");
+        }
+        r.end_frame().expect("end")
+    }
+
+    #[test]
+    fn a_frame_the_backend_cannot_draw_goes_through_the_cpu() {
+        let no_rounding = GpuFeatures {
+            rounded_rects: false,
+            ..GpuFeatures::ALL
+        };
+        let mut r = with_features(FrameOutcome::Presented, no_rounding);
+        assert_eq!(rounded_frame(&mut r), FrameOutcome::Presented);
+        assert_eq!(r.backend().drawn, 0, "nothing is handed over half drawn");
+        assert_eq!(r.backend().pixels, vec![(100, 50, [220, 20, 60, 255])]);
+        assert!(r.last_frame_missing().rounded_rects);
+        // The same frame again changed nothing, so nothing is uploaded.
+        assert_eq!(rounded_frame(&mut r), FrameOutcome::Unchanged);
+        assert_eq!(r.backend().pixels.len(), 1);
+    }
+
+    #[test]
+    fn a_frame_within_the_backend_is_drawn_on_the_gpu() {
+        let mut r = renderer(FrameOutcome::Presented);
+        assert_eq!(rounded_frame(&mut r), FrameOutcome::Presented);
+        assert_eq!(r.backend().drawn, 1);
+        assert!(r.backend().pixels.is_empty());
+    }
+
+    #[test]
+    fn partial_fallback_draws_what_it_can() {
+        let mut r = with_features(FrameOutcome::Presented, GpuFeatures::NONE);
+        r.set_fallback(Fallback::Partial);
+        assert_eq!(rounded_frame(&mut r), FrameOutcome::Presented);
+        assert_eq!(r.backend().drawn, 1);
+        assert!(r.backend().pixels.is_empty());
     }
 
     fn info(width: u32, height: u32, scale_factor: f32) -> SurfaceInfo {

@@ -8,10 +8,11 @@
 
 use aurea_foundation::AureaResult;
 
-use crate::batch::{CircleInstance, RectInstance};
+use crate::batch::{CircleInstance, DrawRef, RectInstance};
+use crate::capabilities::GpuFeatures;
 use crate::renderer::FrameOutcome;
 
-use super::frame_plan::FramePlan;
+use super::frame_plan::{FramePlan, ImagePlanEntry};
 
 /// Device-touching primitives driven by [`super::Gpu2dRenderer`] each frame.
 ///
@@ -42,6 +43,42 @@ pub trait Gpu2dBackend {
     /// Release the GPU texture at `shader_slot` (previously returned by
     /// [`upload_image`](Self::upload_image)).
     fn evict_image(&mut self, shader_slot: u32);
+
+    /// The kinds of drawing this backend does itself. A frame needing more
+    /// is not handed to [`present_frame`](Self::present_frame) unless the
+    /// renderer's fallback says to draw what it can.
+    fn features(&self) -> GpuFeatures;
+
+    /// Presents `rgba` (tightly packed RGBA8, `width` x `height` physical
+    /// pixels) as the whole frame: how a frame drawn on the CPU reaches this
+    /// backend's surface.
+    ///
+    /// The default uploads a texture, presents it as one image and frees
+    /// it. A backend that can update one texture in place should override
+    /// this and keep it.
+    fn present_pixels(
+        &mut self,
+        rgba: &[u8],
+        width: u32,
+        height: u32,
+    ) -> AureaResult<FrameOutcome> {
+        let slot = self.upload_image(width, height, rgba)?;
+        let mut plan = FramePlan::new();
+        plan.viewport_width = width;
+        plan.viewport_height = height;
+        #[allow(clippy::cast_precision_loss)]
+        plan.images.push(ImagePlanEntry {
+            rect: [0.0, 0.0, width as f32, height as f32],
+            uv: [0.0, 0.0, 1.0, 1.0],
+            tint: [1.0; 4],
+            slot,
+        });
+        plan.order.push(DrawRef::Image(0));
+        plan.clips.push(None);
+        let outcome = self.present_frame(&plan, &[], &[]);
+        self.evict_image(slot);
+        outcome
+    }
 
     /// Whether the backend supports a dual-source-blend text path (coverage
     /// composited per RGB channel). Default: `false` (portable alpha fallback).

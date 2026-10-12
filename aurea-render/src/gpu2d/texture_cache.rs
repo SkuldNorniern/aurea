@@ -165,6 +165,7 @@ impl TextureCache {
 mod tests {
     use super::*;
     use crate::batch::{CircleInstance, RectInstance};
+    use crate::capabilities::GpuFeatures;
     use crate::gpu2d::frame_plan::FramePlan;
     use crate::renderer::FrameOutcome;
 
@@ -185,6 +186,10 @@ mod tests {
             self.next += 1;
             self.live.push(self.next);
             Ok(self.next)
+        }
+
+        fn features(&self) -> GpuFeatures {
+            GpuFeatures::ALL
         }
 
         fn evict_image(&mut self, slot: u32) {
