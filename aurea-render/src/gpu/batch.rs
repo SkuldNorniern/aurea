@@ -396,6 +396,12 @@ impl RenderBatches {
             self.lower_item(item);
             self.clips.resize(self.order.len(), item.clip);
         }
+        // A dead `Weak` still holds its `Arc`'s allocation, and a scene whose
+        // gradients or text keep changing would pile them up for good.
+        self.gradient_lut_cache
+            .retain(|_, lut| lut.strong_count() > 0);
+        self.text_mask_cache
+            .retain(|_, mask| mask.strong_count() > 0);
     }
 
     /// A rounded rect as a plain one. The GPU painter has no rounded rect
@@ -768,6 +774,34 @@ mod tests {
         assert!(lut[middle + 1] > 250);
         assert!(lut[middle + 2] < 5);
         assert_eq!(lut[middle + 3], 255);
+    }
+
+    #[test]
+    fn changing_gradients_do_not_pile_up() {
+        let mut batches = RenderBatches::default();
+        for frame in 0..2000u32 {
+            let mut list = DisplayList::new();
+            let shade = u8::try_from(frame % 256).expect("in range");
+            list.push(item(DrawCommand::FillLinearGradient(
+                LinearGradient {
+                    start: Point::new(0.0, 0.0),
+                    end: Point::new(10.0, 0.0),
+                    stops: vec![
+                        GradientStop {
+                            offset: 0.0,
+                            color: Color::rgb(shade, 0, 0),
+                        },
+                        GradientStop {
+                            offset: 1.0,
+                            color: Color::rgb(0, 0, u8::try_from(frame / 256).expect("in range")),
+                        },
+                    ],
+                },
+                Rect::new(0.0, 0.0, 10.0, 10.0),
+            )));
+            batches.lower_into(&list);
+        }
+        assert_eq!(batches.gradient_lut_cache.len(), 1, "only the live one");
     }
 
     #[test]
