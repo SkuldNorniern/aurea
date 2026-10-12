@@ -358,7 +358,10 @@ impl<'list> RecordingContext<'list> {
                 PathCommand::Close => PathCommand::Close,
             })
             .collect();
-        Path { commands }
+        Path {
+            commands,
+            fill_rule: path.fill_rule,
+        }
     }
 
     /// Outline of a rect in physical pixels, for the rotated or skewed case a

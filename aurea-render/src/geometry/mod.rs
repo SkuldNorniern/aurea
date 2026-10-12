@@ -7,5 +7,5 @@ mod transform;
 // in rectangles too, and it should not need a renderer to do so.
 pub use aurea_foundation::{Point, Rect};
 
-pub use path::{Path, PathCommand};
+pub use path::{FillRule, Path, PathCommand};
 pub use transform::Transform;
