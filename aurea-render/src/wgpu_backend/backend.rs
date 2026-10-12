@@ -42,10 +42,12 @@ struct CpuFrame {
     height: u32,
 }
 
-pub struct WgpuBackend {
+/// Draws into a `wgpu::Surface` that lives as long as `'w`: one made from
+/// a borrowed window works as well as one that owns its window.
+pub struct WgpuBackend<'w> {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    surface: wgpu::Surface<'static>,
+    surface: wgpu::Surface<'w>,
     /// Set once the surface reports itself lost; it presents nothing more
     /// until the backend is made again.
     lost: bool,
@@ -76,16 +78,16 @@ pub struct WgpuBackend {
 }
 
 /// `Gpu2dRenderer` parameterised on `WgpuBackend`.
-pub type WgpuRenderer = Gpu2dRenderer<WgpuBackend>;
+pub type WgpuRenderer<'w> = Gpu2dRenderer<WgpuBackend<'w>>;
 
-impl WgpuRenderer {
+impl<'w> WgpuRenderer<'w> {
     /// Wrap an already-configured `wgpu::Surface`. `config` describes the
     /// surface in physical pixels; `scale_factor` maps it to the logical size
     /// the [`DrawingContext`](crate::renderer::DrawingContext) draws in.
     pub fn new(
         device: wgpu::Device,
         queue: wgpu::Queue,
-        surface: wgpu::Surface<'static>,
+        surface: wgpu::Surface<'w>,
         config: wgpu::SurfaceConfiguration,
         scale_factor: f32,
     ) -> Self {
@@ -103,11 +105,11 @@ impl WgpuRenderer {
     }
 }
 
-impl WgpuBackend {
+impl<'w> WgpuBackend<'w> {
     fn new(
         device: wgpu::Device,
         queue: wgpu::Queue,
-        surface: wgpu::Surface<'static>,
+        surface: wgpu::Surface<'w>,
         config: wgpu::SurfaceConfiguration,
     ) -> Self {
         surface.configure(&device, &config);
@@ -561,7 +563,7 @@ fn textured_pipeline(
     })
 }
 
-impl Gpu2dBackend for WgpuBackend {
+impl Gpu2dBackend for WgpuBackend<'_> {
     fn resize(&mut self, physical_width: u32, physical_height: u32) -> AureaResult<()> {
         self.config.width = physical_width.max(1);
         self.config.height = physical_height.max(1);
