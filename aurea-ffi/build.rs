@@ -69,6 +69,7 @@ fn main() {
         "native/platform/windows/utils.c",
         "native/platform/windows/window.c",
         "native/platform/windows/menu.c",
+        "native/platform/windows/dialog.c",
         "native/platform/windows/tray.c",
         "native/platform/windows/ime.c",
         "native/platform/windows/pen.c",
@@ -117,6 +118,7 @@ fn main() {
         "native/platform/macos/macos_ops.m",
         "native/platform/macos/window.m",
         "native/platform/macos/menu.m",
+        "native/platform/macos/dialog.m",
         "native/platform/macos/utils.m",
         "native/platform/macos/elements/button.m",
         "native/platform/macos/elements/label.m",
@@ -144,6 +146,7 @@ fn main() {
         "native/platform/linux/window.c",
         "native/platform/linux/ime.c",
         "native/platform/linux/menu.c",
+        "native/platform/linux/dialog.c",
         "native/platform/linux/elements/button.c",
         "native/platform/linux/elements/label.c",
         "native/platform/linux/elements/box.c",
@@ -199,6 +202,7 @@ fn main() {
         println!("cargo:rustc-link-lib=Shcore");
         println!("cargo:rustc-link-lib=gdiplus");
         println!("cargo:rustc-link-lib=ole32");
+        println!("cargo:rustc-link-lib=uuid");
         println!("cargo:rustc-link-lib=imm32");
 
         rerun_for(&root, common_c);

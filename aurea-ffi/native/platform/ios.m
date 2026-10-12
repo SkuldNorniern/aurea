@@ -1,4 +1,5 @@
 #import "ios/ios.h"
+#include <stdlib.h>
 #import "ios/window.h"
 #import "ios/elements.h"
 #import "../common/errors.h"
@@ -422,4 +423,14 @@ int ng_platform_menu_clear(NGMenuHandle m) {
     // No menu bar here.
     (void)m;
     return NG_ERROR_UNSUPPORTED;
+}
+
+char* ng_platform_file_dialog(NGHandle window, int kind, const char* title, const char* filters, const char* default_name, const char* directory, int multiple) {
+    (void)window; (void)kind; (void)title; (void)filters;
+    (void)default_name; (void)directory; (void)multiple;
+    return NULL;
+}
+
+void ng_platform_free_dialog_paths(char* paths) {
+    free(paths);
 }

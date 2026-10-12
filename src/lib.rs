@@ -59,6 +59,7 @@ mod android;
 
 pub use aurea_animation as animation;
 
+pub mod dialog;
 mod dispatch;
 pub mod elements;
 pub mod embed;

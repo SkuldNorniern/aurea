@@ -152,6 +152,17 @@ unsafe extern "C" {
     pub fn ng_platform_menu_item_remove(menu_handle: *mut c_void, id: u32) -> c_int;
     pub fn ng_platform_menu_clear(menu_handle: *mut c_void) -> c_int;
 
+    pub fn ng_platform_file_dialog(
+        window: *mut c_void,
+        kind: c_int,
+        title: *const c_char,
+        filters: *const c_char,
+        default_name: *const c_char,
+        directory: *const c_char,
+        multiple: c_int,
+    ) -> *mut c_char;
+    pub fn ng_platform_free_dialog_paths(paths: *mut c_char);
+
     // Clipboard
     pub fn ng_platform_get_clipboard_text() -> *mut c_char;
     pub fn ng_platform_free_clipboard_text(text: *mut c_char);
