@@ -377,6 +377,9 @@ impl TextRenderer {
     }
 
     /// `text` laid out in lines by `options`.
+    ///
+    /// Returns [`RenderingFailed`](aurea_foundation::AureaError::RenderingFailed)
+    /// for invalid layout dimensions.
     pub fn layout(
         &self,
         text: &str,
@@ -388,14 +391,23 @@ impl TextRenderer {
 
     /// A shaped glyph's grayscale coverage at `size`, for apps that
     /// composite text themselves.
-    pub fn glyph_coverage(&self, face: FaceId, glyph: u16, size: f32) -> AureaResult<GlyphCoverage> {
+    pub fn glyph_coverage(
+        &self,
+        face: FaceId,
+        glyph: u16,
+        size: f32,
+    ) -> AureaResult<GlyphCoverage> {
         self.rasterizer.rasterize_gray(face, glyph, size)
     }
 
     /// A shaped glyph's outline at `size`, pen at the origin on the
     /// baseline; `None` when it has none.
     pub fn glyph_outline(&self, face: FaceId, glyph: u16, size: f32) -> AureaResult<Option<Path>> {
-        Ok(glyph_outline(&*self.rasterizer.face_data(face)?, glyph, size))
+        Ok(glyph_outline(
+            &*self.rasterizer.face_data(face)?,
+            glyph,
+            size,
+        ))
     }
 
     /// The font file behind a face, for apps with their own text pipeline.
@@ -452,7 +464,10 @@ mod tests {
         let clusters: Vec<usize> = shaped.glyphs.iter().map(|g| g.cluster).collect();
         assert_eq!(clusters, [0, 1, 2]);
         assert!(shaped.glyphs.iter().all(|g| g.id != 0 && g.advance > 0.0));
-        assert_eq!(r.measure_text("abc", (&f).into()).expect("measure").width, shaped.width);
+        assert_eq!(
+            r.measure_text("abc", (&f).into()).expect("measure").width,
+            shaped.width
+        );
     }
 
     /// A combining accent becomes a mark positioned on its base, not a
@@ -462,7 +477,10 @@ mod tests {
         let r = TextRenderer::new();
         let f = font("");
         let plain = r.measure_text("e", (&f).into()).expect("measure").width;
-        let accented = r.measure_text("e\u{0301}", (&f).into()).expect("measure").width;
+        let accented = r
+            .measure_text("e\u{0301}", (&f).into())
+            .expect("measure")
+            .width;
         assert!((accented - plain).abs() < 0.5, "{accented} vs {plain}");
     }
 
