@@ -161,6 +161,9 @@ typedef struct ng_platform_ops {
     /* Closing the window hides it instead of destroying it. */
     int (*window_set_hide_on_close)(NGHandle w, int hide);
 
+    /* Guarded windows only report close requests and stay open. */
+    void (*window_set_close_guard)(NGHandle w, int guarded);
+
     /* Notification area icon. A menu item with a NULL title is a separator;
        clicks and items call back through the menu callback registry. */
     NGHandle (*create_tray)(const char* tooltip, unsigned int click_id);

@@ -49,6 +49,7 @@ use std::{
     ffi::CString,
     os::raw::{c_int, c_void},
     rc::Rc,
+    sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, LazyLock, Mutex, OnceLock},
     time::Duration,
 };
@@ -156,6 +157,9 @@ pub struct Window {
     #[cfg(feature = "wgpu")]
     surface_handle: Arc<NativeWindowHandle>,
     window_type: WindowType,
+    /// Set by [`Window::close`], so the close it asks for is not reported
+    /// again as a close request.
+    closing: Arc<AtomicBool>,
 }
 
 impl Window {
@@ -243,14 +247,22 @@ impl Window {
         register_update_callbacks(handle);
 
         // Register lifecycle bridge
+        let closing = Arc::new(AtomicBool::new(false));
         let eq_clone = event_queue.clone();
+        let closing_bridge = Arc::clone(&closing);
         let handle_usize = handle as usize;
         register_lifecycle_callback(
             handle,
             Arc::new(move |event| {
                 let handle_ptr = handle_usize as *mut c_void;
                 let event = match event {
-                    LifecycleEvent::WindowWillClose => WindowEvent::CloseRequested,
+                    LifecycleEvent::WindowWillClose => {
+                        if take_forced_close(&closing_bridge) {
+                            WindowEvent::Closed
+                        } else {
+                            WindowEvent::CloseRequested
+                        }
+                    }
                     LifecycleEvent::WindowMoved => {
                         let mut x = 0;
                         let mut y = 0;
@@ -311,6 +323,7 @@ impl Window {
             damage: Mutex::new(DamageRegion::new(16)),
             scale_factor: Mutex::new(scale_factor),
             event_queue,
+            closing,
             window_type,
         })
     }
@@ -975,10 +988,61 @@ impl Window {
         Ok(())
     }
 
+    /// Keeps the window open when the person asks it to close.
+    ///
+    /// While guarded, the close box, Alt+F4, Cmd+W and the window manager's
+    /// close only deliver [`WindowEvent::CloseRequested`]. The window, its
+    /// content and its state are left as they were. Unguarded, which is the
+    /// default, closing works as it always has.
+    ///
+    /// The pattern is to guard the window, ask on `CloseRequested`, then
+    /// either call [`close`](Self::close) or do nothing:
+    ///
+    /// ```text
+    /// window.set_close_guard(true);
+    /// // on WindowEvent::CloseRequested:
+    /// //   MessageDialog::new("Save changes?")
+    /// //       .buttons(MessageButtons::SaveDiscardCancel)
+    /// //       .show(&window)
+    /// //   Save    => save, then window.close()
+    /// //   Discard => window.close()
+    /// //   Cancel  => nothing; the window stays open
+    /// ```
+    pub fn set_close_guard(&self, guarded: bool) {
+        ui_thread::check("Window::set_close_guard");
+        unsafe {
+            ng_platform_window_set_close_guard(self.handle, i32::from(guarded));
+        }
+    }
+
+    /// Closes the window, even while it is guarded.
+    ///
+    /// This is how an app acts on a `CloseRequested` it held back. It clears
+    /// the guard and asks for the close the same way as
+    /// [`request_close`](Self::request_close). The `CloseRequested` that this
+    /// close produces arrives as [`WindowEvent::Closed`] rather than a second
+    /// `CloseRequested`, so the app is not asked again, and a loop pumping
+    /// the window by hand stops on `Closed`. Hide-on-close still applies, so
+    /// turn it off first if the window should really be destroyed.
+    ///
+    /// See [`set_close_guard`](Self::set_close_guard) for the pattern.
+    pub fn close(&self) {
+        ui_thread::check("Window::close");
+        self.set_close_guard(false);
+        self.closing.store(true, Ordering::Release);
+        self.request_close();
+    }
+
     /// Check if the window is visible
     pub fn is_visible(&self) -> bool {
         unsafe { ng_platform_window_is_visible(self.handle) != 0 }
     }
+}
+
+/// Whether a window-will-close notice is the one `close` asked for. It is
+/// consumed, so only the first such notice becomes `Closed`.
+fn take_forced_close(closing: &AtomicBool) -> bool {
+    closing.swap(false, Ordering::AcqRel)
 }
 
 /// Runs the platform's message queue.
@@ -1076,6 +1140,15 @@ mod event_queue_tests {
         assert!(matches!(out[0], WindowEvent::CloseRequested));
         assert!(matches!(out[1], WindowEvent::Focused));
         assert!(queue.pop_all().is_empty());
+    }
+
+    /// A close that `close` asked for is reported as such once; later
+    /// closes are requests again.
+    #[test]
+    fn forced_close_is_swallowed_once() {
+        let closing = AtomicBool::new(true);
+        assert!(take_forced_close(&closing));
+        assert!(!take_forced_close(&closing));
     }
 
     /// Handlers are keyed by window handle in a thread-local registry, and may

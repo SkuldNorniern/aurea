@@ -18,6 +18,8 @@ static int ng_macos_get_cursor_grab_mode(void* windowHandle);
 @property (nonatomic, assign) BOOL lifecycleCallbackEnabled;
 // Closing hides the window instead, for apps that live on in the menu bar.
 @property (nonatomic, assign) BOOL hideOnClose;
+// Guarded windows stay open until the app calls close().
+@property (nonatomic, assign) BOOL closeGuarded;
 @end
 
 static unsigned int ng_macos_modifiers(NSEvent* event) {
@@ -510,6 +512,10 @@ static void ng_macos_forget_held_shortcuts(void* window);
     // Invoke lifecycle callback if enabled
     if (self.lifecycleCallbackEnabled && self.windowHandle) {
         ng_invoke_lifecycle_callback(self.windowHandle, 5); // WindowWillClose = 5
+    }
+    if (self.closeGuarded) {
+        // Kept open: CloseRequested has gone out and the app decides.
+        return NO;
     }
     if (self.hideOnClose) {
         // Hidden, not closed: the window and its content stay, and hiding
@@ -1127,6 +1133,15 @@ int ng_macos_detach_element(NGHandle element) {
         [view removeFromSuperview];
     }
     return NG_SUCCESS;
+}
+
+void ng_macos_window_set_close_guard(NGHandle window, int guarded) {
+    if (!window || !windowDelegates) return;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)nsWindow];
+    WindowDelegate* delegate = [windowDelegates objectForKey:windowValue];
+    if (!delegate) return;
+    delegate.closeGuarded = guarded != 0;
 }
 
 int ng_macos_window_set_hide_on_close(NGHandle window, int hide) {

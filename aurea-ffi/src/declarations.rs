@@ -83,6 +83,7 @@ unsafe extern "C" {
     pub fn ng_platform_window_show(window: *mut c_void);
     pub fn ng_platform_window_hide(window: *mut c_void);
     pub fn ng_platform_window_set_hide_on_close(window: *mut c_void, hide: c_int) -> c_int;
+    pub fn ng_platform_window_set_close_guard(window: *mut c_void, guarded: c_int);
     pub fn ng_platform_create_tray(tooltip: *const c_char, click_id: c_uint) -> *mut c_void;
     pub fn ng_platform_destroy_tray(tray: *mut c_void);
     pub fn ng_platform_tray_set_icon_rgba(

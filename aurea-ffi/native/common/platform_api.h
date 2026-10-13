@@ -65,6 +65,10 @@ void ng_platform_window_hide(NGHandle window);
 /* Closing the window hides it instead of destroying it. */
 int ng_platform_window_set_hide_on_close(NGHandle window, int hide);
 
+/* A guarded window is not closed by its close box or the window manager. It
+   only delivers CloseRequested; close() is what really closes it. */
+void ng_platform_window_set_close_guard(NGHandle window, int guarded);
+
 /* Notification area icon. */
 NGHandle ng_platform_create_tray(const char* tooltip, unsigned int click_id);
 void ng_platform_destroy_tray(NGHandle tray);

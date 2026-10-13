@@ -6,6 +6,11 @@ use std::rc::Rc;
 #[derive(Debug, Clone)]
 pub enum WindowEvent {
     CloseRequested,
+    /// The window is closing because the app called `Window::close`. Comes
+    /// instead of a second [`Self::CloseRequested`], so an app that asked
+    /// "save changes?" is not asked again, and a loop pumping the window
+    /// by hand knows to stop.
+    Closed,
     Resized {
         width: u32,
         height: u32,

@@ -740,6 +740,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                     break;
                 }
             }
+            /* a guarded window stays open; the app decides through close(). */
+            if (GetPropA(hwnd, AUREA_CLOSE_GUARD_PROPERTY)) {
+                return 0;
+            }
             /* a window that hides on close stays alive, so the app keeps
                running, from a tray icon for example. */
             if (GetPropA(hwnd, AUREA_HIDE_ON_CLOSE_PROPERTY)) {
