@@ -10,7 +10,7 @@
 //!
 //! # How a frame gets drawn
 //!
-//! A caller records into a [`RecordingContext`], which resolves each draw
+//! A caller records into a [`RecordingContext`](recording::RecordingContext), which resolves each draw
 //! against the current transform, clip, opacity and blend mode and stores the
 //! result on the item. Nothing is left as pending state: partial repaint
 //! renders an arbitrary subset of the list, so anything that only existed

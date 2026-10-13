@@ -22,7 +22,7 @@ use super::texture_cache::TextureCache;
 ///
 /// Records draw calls into a [`DisplayList`] (the same [`RecordingContext`]
 /// the CPU rasterizer uses), lowers them to [`RenderBatches`] in `end_frame`,
-/// resolves textures through the backend-agnostic [`TextureCache`], and hands
+/// resolves textures through the backend-agnostic `TextureCache`, and hands
 /// the resulting [`FramePlan`] to the backend to upload, record, and present.
 /// Holds no `vk`/`wgpu` types.
 pub struct Gpu2dRenderer<B: Gpu2dBackend> {

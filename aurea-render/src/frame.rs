@@ -100,7 +100,7 @@ mod tests {
     }
 }
 
-/// What [`Renderer::end_frame`] did with the frame, so whoever drives the
+/// What [`Renderer::end_frame`](crate::Renderer::end_frame) did with the frame, so whoever drives the
 /// renderer knows whether to try again.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FrameOutcome {

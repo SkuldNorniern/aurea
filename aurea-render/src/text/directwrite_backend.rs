@@ -354,7 +354,11 @@ mod tests {
         let font = Font::new("Segoe UI", 14.0);
         let face = r.face((&font).into()).expect("segoe ui");
         let data = r.face_data(face).expect("font file");
-        let ours = data.shaping_font().charmap().map_unicode('A').map(|g| g.to_u32());
+        let ours = data
+            .shaping_font()
+            .charmap()
+            .map_unicode('A')
+            .map(|g| g.to_u32());
         let dw = r
             .get(face)
             .expect("face")

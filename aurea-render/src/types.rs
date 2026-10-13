@@ -7,9 +7,7 @@ pub use crate::paint::{
     BlendMode, Color, Dash, GradientStop, Hex, Hsv, LineCap, LineJoin, LinearGradient, Paint,
     PaintStyle, RadialGradient,
 };
-pub use crate::text::font::{
-    Font, FontFeature, FontStyle, FontVariation, FontWeight, TextMetrics,
-};
+pub use crate::text::font::{Font, FontFeature, FontStyle, FontVariation, FontWeight, TextMetrics};
 
 /// Which renderer draws a canvas.
 ///

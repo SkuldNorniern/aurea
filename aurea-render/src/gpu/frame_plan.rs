@@ -42,7 +42,7 @@ pub struct TextPlanEntry {
 /// The complete, resolved description of one frame.
 ///
 /// Produced by `gpu2d::resolve` from a lowered [`RenderBatches`] and the
-/// backend-agnostic texture cache. Passed to [`Gpu2dBackend::present_frame`]
+/// backend-agnostic texture cache. Passed to [`Gpu2dBackend::present_frame`](super::Gpu2dBackend::present_frame)
 /// which owns only the GPU upload + record + present.
 ///
 /// [`RenderBatches`]: crate::gpu::batch::RenderBatches

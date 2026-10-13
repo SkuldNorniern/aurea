@@ -371,7 +371,14 @@ mod tests {
     #[test]
     fn carets_and_hits_follow_clusters() {
         // "abc" as three glyphs of 10px.
-        let t = line(vec![glyph(0, 10.0, false), glyph(1, 10.0, false), glyph(2, 10.0, false)], 3);
+        let t = line(
+            vec![
+                glyph(0, 10.0, false),
+                glyph(1, 10.0, false),
+                glyph(2, 10.0, false),
+            ],
+            3,
+        );
         assert_eq!([0, 1, 2, 3].map(|i| t.caret_x(i)), [0.0, 10.0, 20.0, 30.0]);
         assert_eq!([2.0, 6.0, 25.0, 40.0].map(|x| t.hit(x)), [0, 1, 3, 3]);
     }

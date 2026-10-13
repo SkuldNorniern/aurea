@@ -57,7 +57,7 @@ More in [`examples/`](examples/).
 
 ## Building
 
-Rust 1.88+. Windows: MSVC. macOS: Xcode command line tools. Linux: GTK3 dev
+Rust 1.90+. Windows: MSVC. macOS: Xcode command line tools. Linux: GTK3 dev
 libraries.
 
 ## License
