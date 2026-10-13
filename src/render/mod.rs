@@ -8,10 +8,10 @@ pub use aurea_render::cpu::measure_text;
 pub use aurea_render::vector::{Icon, SvgError, VectorImage, parse_path_data};
 pub use aurea_render::{
     BlendMode, ClickCallback, Color, CpuRasterizer, DisplayIndex, DisplayItem, DisplayList,
-    DrawCommand, DrawingContext, Font, FontStyle, FontWeight, GpuTexture, GradientStop,
-    HoverCallback, Image, InteractionRegistry, InteractiveId, LinearGradient, Paint, PaintStyle,
-    Path, PathCommand, Point, RadialGradient, Rect, Renderer, RendererBackend, Sampling, Surface,
-    SurfaceInfo, TextMetrics, Transform, Viewport,
+    DrawCommand, DrawingContext, Font, FontStyle, FontWeight, GpuTexture, GradientStop, Hex,
+    HoverCallback, Hsv, Image, InteractionRegistry, InteractiveId, LinearGradient, Paint,
+    PaintStyle, Path, PathCommand, Point, RadialGradient, Rect, Renderer, RendererBackend,
+    Sampling, Surface, SurfaceInfo, TextMetrics, Transform, Viewport,
 };
 pub use canvas::*;
 

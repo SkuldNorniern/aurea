@@ -1,5 +1,7 @@
 //! Colours, paints, gradients and blend modes.
 
+use std::fmt;
+
 use crate::numeric::f32_to_u8_clamped;
 use crate::types::Point;
 
@@ -54,6 +56,104 @@ impl Color {
             b: lerp_u8(self.b, other.b, t),
             a: lerp_u8(self.a, other.a, t),
         }
+    }
+
+    /// Hue, saturation and value, for a picker to move through.
+    pub fn to_hsv(self) -> Hsv {
+        let (r, g, b, a) = self.to_f32();
+        let max = r.max(g).max(b);
+        let span = max - r.min(g).min(b);
+        let h = if span <= 0.0 {
+            0.0
+        } else if max == r {
+            60.0 * ((g - b) / span).rem_euclid(6.0)
+        } else if max == g {
+            60.0 * ((b - r) / span + 2.0)
+        } else {
+            60.0 * ((r - g) / span + 4.0)
+        };
+        let s = if max <= 0.0 { 0.0 } else { span / max };
+        Hsv { h, s, v: max, a }
+    }
+
+    /// `#rgb`, `#rrggbb` or `#rrggbbaa`, the `#` optional.
+    pub fn from_hex(text: &str) -> Option<Self> {
+        let digits = text.trim().strip_prefix('#').unwrap_or(text.trim());
+        if !digits.is_ascii() {
+            return None;
+        }
+        let byte = |at: usize| u8::from_str_radix(digits.get(at..at + 2)?, 16).ok();
+        let short = |at: usize| {
+            let nibble = u8::from_str_radix(digits.get(at..=at)?, 16).ok()?;
+            Some(nibble * 17)
+        };
+        match digits.len() {
+            3 => Some(Self::rgb(short(0)?, short(1)?, short(2)?)),
+            6 => Some(Self::rgb(byte(0)?, byte(2)?, byte(4)?)),
+            8 => Some(Self::rgba(byte(0)?, byte(2)?, byte(4)?, byte(6)?)),
+            _ => None,
+        }
+    }
+
+    /// Writes as `#rrggbb`, or `#rrggbbaa` when not opaque, without allocating until the caller
+    /// asks for a `String`.
+    pub fn hex(self) -> Hex {
+        Hex(self)
+    }
+}
+
+/// A colour by hue (degrees, `0..360`), saturation and value (`0..=1`) and alpha (`0..=1`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Hsv {
+    pub h: f32,
+    pub s: f32,
+    pub v: f32,
+    pub a: f32,
+}
+
+impl Hsv {
+    pub const fn new(h: f32, s: f32, v: f32, a: f32) -> Self {
+        Self { h, s, v, a }
+    }
+
+    /// The colour, rounded to 8 bits a channel.
+    pub fn to_color(self) -> Color {
+        let h = self.h.rem_euclid(360.0) / 60.0;
+        let s = self.s.clamp(0.0, 1.0);
+        let v = self.v.clamp(0.0, 1.0);
+        let c = v * s;
+        let x = c * (1.0 - (h.rem_euclid(2.0) - 1.0).abs());
+        let (r, g, b) = match h {
+            h if h < 1.0 => (c, x, 0.0),
+            h if h < 2.0 => (x, c, 0.0),
+            h if h < 3.0 => (0.0, c, x),
+            h if h < 4.0 => (0.0, x, c),
+            h if h < 5.0 => (x, 0.0, c),
+            _ => (c, 0.0, x),
+        };
+        let m = v - c;
+        let unit = |t: f32| f32_to_u8_clamped(((t + m) * 255.0).round());
+        Color::rgba(
+            unit(r),
+            unit(g),
+            unit(b),
+            f32_to_u8_clamped((self.a.clamp(0.0, 1.0) * 255.0).round()),
+        )
+    }
+}
+
+/// A colour written as hex, from [`Color::hex`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Hex(Color);
+
+impl fmt::Display for Hex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Color { r, g, b, a } = self.0;
+        write!(f, "#{r:02x}{g:02x}{b:02x}")?;
+        if a < 255 {
+            write!(f, "{a:02x}")?;
+        }
+        Ok(())
     }
 }
 
@@ -147,4 +247,53 @@ pub enum BlendMode {
     SoftLight,
     Difference,
     Exclusion,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hsv_round_trips_every_primary_and_grey() {
+        for color in [
+            Color::rgb(255, 0, 0),
+            Color::rgb(0, 255, 0),
+            Color::rgb(0, 0, 255),
+            Color::rgb(255, 255, 0),
+            Color::rgb(12, 200, 99),
+            Color::rgb(128, 128, 128),
+            Color::rgba(0, 0, 0, 40),
+        ] {
+            assert_eq!(color.to_hsv().to_color(), color);
+        }
+    }
+
+    #[test]
+    fn hsv_reads_the_usual_way() {
+        let hsv = Color::rgb(0, 255, 255).to_hsv();
+        assert!((hsv.h - 180.0).abs() < 1e-3 && hsv.s == 1.0 && hsv.v == 1.0);
+        assert_eq!(
+            Hsv::new(360.0, 1.0, 1.0, 1.0).to_color(),
+            Color::rgb(255, 0, 0)
+        );
+        assert_eq!(
+            Hsv::new(-120.0, 1.0, 1.0, 1.0).to_color(),
+            Color::rgb(0, 0, 255)
+        );
+    }
+
+    #[test]
+    fn hex_reads_and_writes() {
+        assert_eq!(Color::from_hex("#ff8000"), Some(Color::rgb(255, 128, 0)));
+        assert_eq!(Color::from_hex("f80"), Some(Color::rgb(255, 136, 0)));
+        assert_eq!(
+            Color::from_hex(" #11223344 "),
+            Some(Color::rgba(17, 34, 51, 68))
+        );
+        assert_eq!(Color::from_hex("#12345"), None);
+        assert_eq!(Color::from_hex("#gg0000"), None);
+        assert_eq!(Color::from_hex("#\u{e9}e9e9"), None, "not ascii");
+        assert_eq!(Color::rgb(255, 128, 0).hex().to_string(), "#ff8000");
+        assert_eq!(Color::rgba(1, 2, 3, 4).hex().to_string(), "#01020304");
+    }
 }
