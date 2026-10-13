@@ -117,15 +117,24 @@ pub(super) fn replace_lost_context(state: &Rc<RefCell<CanvasState>>) {
         };
         (lost, st.gpu_lost.take())
     };
-    let fresh = handler
-        .as_mut()
-        .and_then(|handler| handler(&lost))
-        .or_else(|| lost.reopen().ok().map(Arc::new));
+    let chosen = handler.as_mut().and_then(|handler| handler(&lost));
+    let replaced = state
+        .borrow()
+        .gpu_context
+        .as_ref()
+        .is_some_and(|current| !Arc::ptr_eq(current, &lost));
+    let fresh = if replaced {
+        None
+    } else {
+        chosen.or_else(|| lost.reopen().ok().map(Arc::new))
+    };
     let mut st = state.borrow_mut();
     if st.gpu_lost.is_none() {
         st.gpu_lost = handler;
     }
-    st.gpu_context = fresh;
+    if !replaced {
+        st.gpu_context = fresh;
+    }
 }
 
 fn sync_surface(
