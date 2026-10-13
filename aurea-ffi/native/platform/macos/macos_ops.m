@@ -6,6 +6,7 @@
 #import "menu.h"
 #import "elements.h"
 #import "swiftui_host.h"
+#import "utils.h"
 
 static const ng_platform_ops_t macos_ops = {
     .init = ng_macos_init,
