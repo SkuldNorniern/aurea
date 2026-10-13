@@ -466,6 +466,8 @@ static NSString* drag_paths(id<NSDraggingInfo> info) {
 }
 @end
 
+static void ng_macos_cursor_grab_focus(NSWindow* window, BOOL focused);
+
 @implementation WindowDelegate
 - (BOOL)windowShouldClose:(NSWindow*)sender {
     if (self.lifecycleCallbackEnabled && self.windowHandle) {
@@ -511,12 +513,14 @@ static NSString* drag_paths(id<NSDraggingInfo> info) {
 }
 
 - (void)windowDidBecomeKey:(NSNotification*)notification {
+    ng_macos_cursor_grab_focus([notification object], YES);
     if (self.windowHandle) {
         ng_invoke_focus_changed(self.windowHandle, 1);
     }
 }
 
 - (void)windowDidResignKey:(NSNotification*)notification {
+    ng_macos_cursor_grab_focus([notification object], NO);
     if (self.windowHandle) {
         ng_invoke_focus_changed(self.windowHandle, 0);
     }
@@ -538,6 +542,19 @@ static NSString* drag_paths(id<NSDraggingInfo> info) {
 static NSMutableDictionary* windowDelegates = nil;
 static NSMutableDictionary* windowCursorGrabModes = nil;
 static NSMutableDictionary* windowRawSuppress = nil;
+
+static NGHandle s_cursor_hidden_by = NULL;
+
+static BOOL ng_macos_cursor_locked(NSWindow* window) {
+    if (!windowCursorGrabModes) return NO;
+    NSValue* key = [NSValue valueWithPointer:(__bridge const void*)window];
+    return [[windowCursorGrabModes objectForKey:key] intValue] == 2;
+}
+
+static void ng_macos_cursor_grab_focus(NSWindow* window, BOOL focused) {
+    if (!window || !ng_macos_cursor_locked(window)) return;
+    CGAssociateMouseAndMouseCursorPosition(focused ? false : true);
+}
 
 static int ng_macos_get_cursor_grab_mode(void* windowHandle) {
     if (!windowCursorGrabModes || !windowHandle) {
@@ -688,8 +705,15 @@ void ng_macos_destroy_window(NGHandle handle) {
         [windowDelegates removeObjectForKey:windowValue];
     }
     if (windowCursorGrabModes) {
+        if (ng_macos_cursor_locked(window)) {
+            CGAssociateMouseAndMouseCursorPosition(true);
+        }
         NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)window];
         [windowCursorGrabModes removeObjectForKey:windowValue];
+    }
+    if (s_cursor_hidden_by == handle) {
+        CGDisplayShowCursor(kCGDirectMainDisplay);
+        s_cursor_hidden_by = NULL;
     }
     if (windowRawSuppress) {
         NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)window];
@@ -840,9 +864,13 @@ int ng_macos_window_is_focused(NGHandle window) {
 int ng_macos_window_set_cursor_visible(NGHandle window, int visible) {
     if (!window) return NG_ERROR_INVALID_HANDLE;
     if (visible) {
-        CGDisplayShowCursor(kCGDirectMainDisplay);
-    } else {
+        if (s_cursor_hidden_by) {
+            CGDisplayShowCursor(kCGDirectMainDisplay);
+            s_cursor_hidden_by = NULL;
+        }
+    } else if (!s_cursor_hidden_by) {
         CGDisplayHideCursor(kCGDirectMainDisplay);
+        s_cursor_hidden_by = window;
     }
     return NG_SUCCESS;
 }
