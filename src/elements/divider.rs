@@ -64,3 +64,20 @@ impl Element for Divider {
         }
     }
 }
+
+#[cfg(test)]
+mod divider_tests {
+    use crate::{AureaResult, Window};
+
+    #[test]
+    #[ignore = "creates a native widget; run with --ignored"]
+    fn dividers_can_be_created() -> AureaResult<()> {
+        use crate::elements::Divider;
+
+        let _window = Window::new("dividers", 200, 100)?;
+
+        assert!(Divider::horizontal(100).is_ok());
+        assert!(Divider::vertical(50).is_ok());
+        Ok(())
+    }
+}

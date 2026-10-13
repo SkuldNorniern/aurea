@@ -88,3 +88,44 @@ pub fn gpu_support(checker: &CapabilityChecker, capability: Capability) -> Suppo
         Support::Unimplemented
     }
 }
+
+#[cfg(test)]
+mod gpu_support_tests {
+    use super::*;
+
+    #[test]
+    fn gpu_capability_follows_the_compiled_backend() {
+        use crate::{Capability, CapabilityChecker, Support};
+
+        let checker = CapabilityChecker::new();
+        let narrowed = gpu_support(&checker, Capability::Vulkan);
+
+        if cfg!(any(feature = "zengpu", feature = "wgpu")) {
+            assert_eq!(narrowed, checker.support(Capability::Vulkan));
+        } else {
+            assert!(
+                matches!(narrowed, Support::Unimplemented | Support::Unavailable),
+                "no GPU backend is compiled in, so it cannot be usable: {narrowed:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn other_capabilities_are_not_narrowed() {
+        use crate::{Capability, CapabilityChecker};
+
+        let checker = CapabilityChecker::new();
+        for capability in [
+            Capability::MenuBar,
+            Capability::Clipboard,
+            Capability::FileDialogs,
+            Capability::KeyboardInput,
+        ] {
+            assert_eq!(
+                gpu_support(&checker, capability),
+                checker.support(capability),
+                "{capability:?} is not a GPU capability"
+            );
+        }
+    }
+}

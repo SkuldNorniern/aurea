@@ -1095,3 +1095,639 @@ mod event_queue_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod window_content_tests {
+    use crate::{AureaResult, Window};
+
+    #[test]
+    #[ignore = "creates native elements; run with --ignored"]
+    fn replacing_window_content_destroys_the_old_content() -> AureaResult<()> {
+        use crate::elements::{Element, Label};
+
+        let mut window = Window::new("replace", 300, 200)?;
+
+        let first = Label::new("first")?;
+        let first_handle = first.handle();
+        window.set_content(first)?;
+
+        let second = Label::new("second")?;
+        let second_handle = second.handle();
+        window.set_content(second)?;
+
+        assert_ne!(first_handle, second_handle);
+        window.set_title("replaced")?;
+        Ok(())
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod gtk_multi_window_tests {
+    //! Closing one window must not take the whole application with it.
+
+    use crate::{AureaResult, Window};
+    use std::mem::forget;
+    use std::os::raw::{c_int, c_void};
+    use std::ptr::null_mut;
+    use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
+
+    unsafe extern "C" {
+        fn gtk_widget_destroy(widget: *mut c_void);
+        fn gtk_main_level() -> c_uint;
+        fn g_idle_add(function: extern "C" fn(*mut c_void) -> c_int, data: *mut c_void) -> c_uint;
+        fn g_timeout_add(
+            interval: c_uint,
+            function: extern "C" fn(*mut c_void) -> c_int,
+            data: *mut c_void,
+        ) -> c_uint;
+    }
+    #[allow(non_camel_case_types)]
+    type c_uint = u32;
+
+    const REMOVE: c_int = 0;
+
+    static LEVEL_AFTER_FIRST_CLOSE: AtomicI32 = AtomicI32::new(-1);
+    static SECOND: AtomicI32 = AtomicI32::new(0);
+    static SECOND_PTR: AtomicUsize = AtomicUsize::new(0);
+    static FIRST_PTR: AtomicUsize = AtomicUsize::new(0);
+
+    extern "C" fn close_first(_: *mut c_void) -> c_int {
+        unsafe { gtk_widget_destroy(FIRST_PTR.load(Ordering::SeqCst) as *mut c_void) };
+        REMOVE
+    }
+
+    extern "C" fn observe_then_close_second(_: *mut c_void) -> c_int {
+        LEVEL_AFTER_FIRST_CLOSE.store(unsafe { gtk_main_level() } as i32, Ordering::SeqCst);
+        unsafe { gtk_widget_destroy(SECOND_PTR.load(Ordering::SeqCst) as *mut c_void) };
+        REMOVE
+    }
+
+    extern "C" fn bail_out(_: *mut c_void) -> c_int {
+        unsafe {
+            if gtk_main_level() > 0 {
+                gtk_main_quit();
+            }
+        }
+        REMOVE
+    }
+
+    unsafe extern "C" {
+        fn gtk_main_quit();
+    }
+
+    #[test]
+    #[ignore = "runs a real GTK main loop; run with --ignored"]
+    fn closing_one_window_leaves_the_others_running() -> AureaResult<()> {
+        let first = Window::new("first", 200, 150)?;
+        let second = Window::new("second", 200, 150)?;
+        first.show();
+        second.show();
+
+        FIRST_PTR.store(first.handle() as usize, Ordering::SeqCst);
+        SECOND_PTR.store(second.handle() as usize, Ordering::SeqCst);
+        SECOND.store(1, Ordering::SeqCst);
+
+        unsafe {
+            g_idle_add(close_first, null_mut());
+            g_timeout_add(150, observe_then_close_second, null_mut());
+            g_timeout_add(3000, bail_out, null_mut());
+        }
+
+        first.run()?;
+
+        forget(first);
+        forget(second);
+
+        assert!(
+            LEVEL_AFTER_FIRST_CLOSE.load(Ordering::SeqCst) > 0,
+            "the loop ended when the first of two windows closed, so the second \
+             window's application would have exited with it"
+        );
+        Ok(())
+    }
+}
+#[cfg(all(test, target_os = "linux"))]
+mod gtk_shortcuts_tests {
+    //! Window shortcuts reach the window while a child widget has focus, on GTK, and typing still
+    //! reaches a focused native entry.
+
+    use crate::elements::{Container, Element, Orientation, Stack, TextField};
+    use crate::{AureaResult, KeyCode, Modifiers, Window, WindowEvent};
+    use std::ffi::CStr;
+    use std::os::raw::{c_char, c_void};
+    use std::thread::sleep;
+    use std::time::Duration;
+
+    const GDK_KEY_PRESS: i32 = 8;
+    const GDK_KEY_F6: u32 = 0xffc3;
+    const GDK_KEY_B: u32 = 0x062;
+
+    #[repr(C)]
+    struct GdkEventKey {
+        kind: i32,
+        window: *mut c_void,
+        send_event: i8,
+        time: u32,
+        state: u32,
+        keyval: u32,
+        length: i32,
+        string: *mut c_char,
+        hardware_keycode: u16,
+        group: u8,
+        is_modifier: u32,
+    }
+
+    unsafe extern "C" {
+        fn gtk_widget_get_window(widget: *mut c_void) -> *mut c_void;
+        fn gtk_window_set_focus(window: *mut c_void, focus: *mut c_void);
+        fn gtk_entry_get_text(entry: *mut c_void) -> *const c_char;
+        fn gdk_event_new(kind: i32) -> *mut GdkEventKey;
+        fn gdk_event_free(event: *mut GdkEventKey);
+        fn gtk_main_do_event(event: *mut GdkEventKey);
+        fn g_object_ref(object: *mut c_void) -> *mut c_void;
+        fn gdk_keyval_to_unicode(keyval: u32) -> u32;
+    }
+
+    fn window_with_field() -> AureaResult<(Window, *mut c_void)> {
+        let mut window = Window::new("shortcuts", 300, 200)?;
+        let field = TextField::new()?;
+        let entry = field.handle();
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        stack.add(field)?;
+        window.set_content(stack)?;
+        window.show();
+        for _ in 0..100 {
+            let _ = window.poll_events();
+            if !unsafe { gtk_widget_get_window(window.handle()) }.is_null() {
+                break;
+            }
+            sleep(Duration::from_millis(5));
+        }
+        unsafe { gtk_window_set_focus(window.handle(), entry) };
+        Ok((window, entry))
+    }
+
+    fn press(window: &Window, keyval: u32) {
+        unsafe {
+            let event = gdk_event_new(GDK_KEY_PRESS);
+            let gdk_window = gtk_widget_get_window(window.handle());
+            (*event).window = g_object_ref(gdk_window);
+            (*event).send_event = 1;
+            (*event).keyval = keyval;
+            let text = char::from_u32(gdk_keyval_to_unicode(keyval)).filter(|c| !c.is_control());
+            (*event).length = i32::from(text.is_some());
+            gtk_main_do_event(event);
+            gdk_event_free(event);
+        }
+    }
+
+    fn pressed(window: &Window) -> Vec<KeyCode> {
+        window
+            .poll_events()
+            .into_iter()
+            .filter_map(|event| match event {
+                WindowEvent::KeyInput {
+                    key, pressed: true, ..
+                } => Some(key),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn entry_text(entry: *mut c_void) -> String {
+        unsafe { CStr::from_ptr(gtk_entry_get_text(entry)) }
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn a_shortcut_reaches_the_window_and_not_the_child() -> AureaResult<()> {
+        let (window, entry) = window_with_field()?;
+        window.set_shortcuts(&[(KeyCode::B, Modifiers::default())])?;
+
+        press(&window, GDK_KEY_B);
+        assert!(pressed(&window).contains(&KeyCode::B));
+        assert_eq!(entry_text(entry), "", "the entry must not see the shortcut");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn typing_still_reaches_a_focused_entry() -> AureaResult<()> {
+        let (window, entry) = window_with_field()?;
+        window.set_shortcuts(&[(KeyCode::F5, Modifiers::default())])?;
+
+        press(&window, GDK_KEY_B);
+        let _ = pressed(&window);
+        assert_eq!(entry_text(entry), "b");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn keys_that_are_not_shortcuts_are_still_reported() -> AureaResult<()> {
+        let (window, _entry) = window_with_field()?;
+        window.set_shortcuts(&[(KeyCode::F5, Modifiers::default())])?;
+
+        press(&window, GDK_KEY_F6);
+        assert!(pressed(&window).contains(&KeyCode::F6));
+        Ok(())
+    }
+}
+#[cfg(all(test, target_os = "linux"))]
+mod gtk_window_drop_tests {
+    //! Dropping a window the platform has already destroyed must be harmless.
+
+    use crate::{AureaResult, Window};
+    use std::os::raw::c_void;
+
+    unsafe extern "C" {
+        fn gtk_widget_destroy(widget: *mut c_void);
+        fn g_log_set_always_fatal(mask: u32) -> u32;
+    }
+
+    const G_LOG_LEVEL_CRITICAL: u32 = 1 << 3;
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn dropping_a_window_the_platform_already_closed_is_harmless() -> AureaResult<()> {
+        unsafe { g_log_set_always_fatal(G_LOG_LEVEL_CRITICAL) };
+
+        let window = Window::new("already closed", 200, 150)?;
+        window.show();
+
+        unsafe { gtk_widget_destroy(window.handle()) };
+
+        drop(window);
+        Ok(())
+    }
+}
+#[cfg(all(test, windows))]
+mod win32_ime_tests {
+    //! Input method messages reach the application as preedit and text events.
+
+    use crate::render::Rect;
+    use crate::{AureaResult, Window, WindowEvent};
+    use std::os::raw::c_void;
+
+    const WM_IME_ENDCOMPOSITION: u32 = 0x010E;
+    const WM_IME_COMPOSITION: u32 = 0x010F;
+    const GCS_RESULTSTR: isize = 0x0800;
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn SendMessageW(hwnd: *mut c_void, msg: u32, w: usize, l: isize) -> isize;
+    }
+
+    fn send(window: &Window, msg: u32, l: isize) {
+        unsafe { SendMessageW(window.handle(), msg, 0, l) };
+    }
+
+    fn opened() -> AureaResult<Window> {
+        let window = Window::new("ime", 300, 200)?;
+        window.show();
+        let _ = window.poll_events();
+        Ok(window)
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn ending_a_composition_clears_the_preedit() -> AureaResult<()> {
+        let window = opened()?;
+        send(&window, WM_IME_ENDCOMPOSITION, 0);
+
+        let preedits: Vec<_> = window
+            .poll_events()
+            .into_iter()
+            .filter_map(|event| match event {
+                WindowEvent::ImePreedit { text, cursor } => Some((text, cursor)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(preedits, [(String::new(), None)]);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn an_empty_result_types_nothing() -> AureaResult<()> {
+        let window = opened()?;
+        send(&window, WM_IME_COMPOSITION, GCS_RESULTSTR);
+
+        let typed = window
+            .poll_events()
+            .into_iter()
+            .any(|event| matches!(event, WindowEvent::TextInput { .. }));
+        assert!(!typed);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn the_caret_area_can_be_set() -> AureaResult<()> {
+        let window = opened()?;
+        window.set_ime_cursor_area(Rect::new(40.0, 20.0, 2.0, 18.0))
+    }
+}
+#[cfg(all(test, windows))]
+mod win32_multi_window_tests {
+    //! Closing one window must not take the whole application with it.
+
+    use crate::{AureaError, AureaResult, Window};
+    use std::mem::forget;
+    use std::os::raw::c_void;
+    use std::ptr::null_mut;
+
+    const WM_QUIT: u32 = 0x0012;
+    const PM_REMOVE: u32 = 0x0001;
+
+    #[repr(C)]
+    #[derive(Default)]
+    struct Msg {
+        hwnd: *mut c_void,
+        message: u32,
+        w_param: usize,
+        l_param: isize,
+        time: u32,
+        pt_x: i32,
+        pt_y: i32,
+    }
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn DestroyWindow(hwnd: *mut c_void) -> i32;
+        fn PeekMessageA(msg: *mut Msg, hwnd: *mut c_void, min: u32, max: u32, remove: u32) -> i32;
+    }
+
+    fn quit_was_posted() -> bool {
+        let mut msg = Msg {
+            hwnd: null_mut(),
+            ..Default::default()
+        };
+        let mut found = false;
+        unsafe {
+            while PeekMessageA(&mut msg, null_mut(), 0, 0, PM_REMOVE) != 0 {
+                if msg.message == WM_QUIT {
+                    found = true;
+                }
+            }
+        }
+        found
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn closing_one_window_leaves_the_others_running() -> AureaResult<()> {
+        let first = Window::new("first", 200, 150)?;
+        let second = Window::new("second", 200, 150)?;
+        first.show();
+        second.show();
+
+        assert!(!quit_was_posted(), "nothing has closed yet");
+
+        unsafe { DestroyWindow(first.handle()) };
+        assert!(
+            !quit_was_posted(),
+            "closing the first of two windows ended the loop, so the second \
+             window's application would have exited with it"
+        );
+
+        unsafe { DestroyWindow(second.handle()) };
+        assert!(
+            quit_was_posted(),
+            "closing the last window should end the loop"
+        );
+
+        forget(first);
+        forget(second);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn each_window_kind_gets_its_own_style() -> AureaResult<()> {
+        use crate::WindowType;
+
+        const GWL_STYLE: i32 = -16;
+        const GWL_EXSTYLE: i32 = -20;
+        const WS_POPUP: u32 = 0x8000_0000;
+        const WS_EX_TOOLWINDOW: u32 = 0x0000_0080;
+        const WS_EX_DLGMODALFRAME: u32 = 0x0000_0001;
+
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn GetWindowLongA(hwnd: *mut c_void, index: i32) -> i32;
+        }
+        let style =
+            |w: &Window, index| unsafe { GetWindowLongA(w.handle(), index).cast_unsigned() };
+
+        let normal = Window::new("normal", 200, 150)?;
+        let popup = Window::with_type("popup", 200, 150, WindowType::Popup)?;
+        let tool = Window::with_type("tool", 200, 150, WindowType::Tool)?;
+        let dialog = Window::with_type("dialog", 200, 150, WindowType::Dialog)?;
+
+        assert_eq!(
+            style(&normal, GWL_STYLE) & WS_POPUP,
+            0,
+            "normal is not a popup"
+        );
+        assert_ne!(
+            style(&popup, GWL_STYLE) & WS_POPUP,
+            0,
+            "a popup is borderless"
+        );
+        assert_ne!(
+            style(&tool, GWL_EXSTYLE) & WS_EX_TOOLWINDOW,
+            0,
+            "a tool window stays out of the taskbar"
+        );
+        assert_ne!(
+            style(&dialog, GWL_EXSTYLE) & WS_EX_DLGMODALFRAME,
+            0,
+            "a dialog has a dialog frame"
+        );
+
+        assert!(matches!(
+            Window::with_type("sheet", 200, 150, WindowType::Sheet),
+            Err(AureaError::Unsupported { .. })
+        ));
+        Ok(())
+    }
+}
+#[cfg(all(test, windows))]
+mod win32_shortcuts_tests {
+    //! Window shortcuts reach the window while a child control has focus.
+
+    use crate::elements::{Container, Element, Orientation, Stack, TextField};
+    use crate::{AureaResult, KeyCode, Modifiers, Window, WindowEvent};
+    use std::os::raw::c_void;
+
+    const WM_KEYDOWN: u32 = 0x0100;
+    const VK_F5: usize = 0x74;
+    const VK_F6: usize = 0x75;
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn PostMessageW(hwnd: *mut c_void, msg: u32, w: usize, l: isize) -> i32;
+    }
+
+    fn window_with_field() -> AureaResult<(Window, *mut c_void)> {
+        let mut window = Window::new("shortcuts", 300, 200)?;
+        let field = TextField::new()?;
+        let child = field.handle();
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        stack.add(field)?;
+        window.set_content(stack)?;
+        window.show();
+        let _ = window.poll_events();
+        Ok((window, child))
+    }
+
+    fn key_down_to(child: *mut c_void, vk: usize) {
+        unsafe { PostMessageW(child, WM_KEYDOWN, vk, 0) };
+    }
+
+    fn pressed(window: &Window) -> Vec<KeyCode> {
+        window
+            .poll_events()
+            .into_iter()
+            .filter_map(|event| match event {
+                WindowEvent::KeyInput {
+                    key, pressed: true, ..
+                } => Some(key),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn a_shortcut_typed_into_a_child_reaches_the_window() -> AureaResult<()> {
+        let (window, child) = window_with_field()?;
+        window.set_shortcuts(&[(KeyCode::F5, Modifiers::default())])?;
+
+        key_down_to(child, VK_F5);
+        assert_eq!(pressed(&window), [KeyCode::F5]);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn other_keys_stay_with_the_child() -> AureaResult<()> {
+        let (window, child) = window_with_field()?;
+        window.set_shortcuts(&[(KeyCode::F5, Modifiers::default())])?;
+
+        key_down_to(child, VK_F6);
+        assert!(!pressed(&window).contains(&KeyCode::F6));
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn clearing_shortcuts_gives_keys_back() -> AureaResult<()> {
+        let (window, child) = window_with_field()?;
+        window.set_shortcuts(&[(KeyCode::F5, Modifiers::default())])?;
+        window.set_shortcuts(&[])?;
+
+        key_down_to(child, VK_F5);
+        assert!(!pressed(&window).contains(&KeyCode::F5));
+        Ok(())
+    }
+}
+#[cfg(all(test, windows))]
+mod win32_text_input_tests {
+    //! Text typed in any script has to arrive intact.
+
+    use crate::{AureaResult, Window, WindowEvent};
+    use std::os::raw::c_void;
+
+    const WM_CHAR: u32 = 0x0102;
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn SendMessageW(hwnd: *mut c_void, msg: u32, w: usize, l: isize) -> isize;
+    }
+
+    fn type_unit(window: &Window, unit: u16) {
+        unsafe { SendMessageW(window.handle(), WM_CHAR, unit as usize, 0) };
+    }
+
+    fn typed_text(window: &Window) -> String {
+        window
+            .poll_events()
+            .into_iter()
+            .filter_map(|event| match event {
+                WindowEvent::TextInput { text } => Some(text),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn text_outside_the_ansi_codepage_arrives_intact() -> AureaResult<()> {
+        let window = Window::new("text", 300, 200)?;
+        window.show();
+        let _ = window.poll_events();
+
+        type_unit(&window, 0xD55C);
+        type_unit(&window, 0x0416);
+
+        assert_eq!(typed_text(&window), "한Ж");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn plain_ascii_still_arrives() -> AureaResult<()> {
+        let window = Window::new("text", 300, 200)?;
+        window.show();
+        let _ = window.poll_events();
+
+        for unit in "Hi!".encode_utf16() {
+            type_unit(&window, unit);
+        }
+
+        assert_eq!(typed_text(&window), "Hi!");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn a_surrogate_pair_arrives_as_one_character() -> AureaResult<()> {
+        let window = Window::new("text", 300, 200)?;
+        window.show();
+        let _ = window.poll_events();
+
+        for unit in "\u{1F600}".encode_utf16() {
+            type_unit(&window, unit);
+        }
+
+        assert_eq!(typed_text(&window), "\u{1F600}");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn a_window_title_keeps_its_script() -> AureaResult<()> {
+        const WM_GETTEXT: u32 = 0x000D;
+
+        let window = Window::new("한글 제목", 300, 200)?;
+        window.set_title("Ω 제목 テスト")?;
+
+        let mut buf = [0u16; 64];
+        let len = unsafe {
+            SendMessageW(
+                window.handle(),
+                WM_GETTEXT,
+                buf.len(),
+                buf.as_mut_ptr() as isize,
+            )
+        };
+        let len = usize::try_from(len).unwrap_or(0);
+
+        assert_eq!(String::from_utf16_lossy(&buf[..len]), "Ω 제목 テスト");
+        Ok(())
+    }
+}

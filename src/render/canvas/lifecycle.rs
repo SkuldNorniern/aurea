@@ -314,3 +314,93 @@ mod deadline_tests {
         assert_eq!(deadlines.take_due(now + Duration::from_secs(5)), vec![kept]);
     }
 }
+
+#[cfg(all(test, target_os = "windows"))]
+mod native_lifetime_tests {
+    //! Hidden native windows; kept in one process and on one UI thread.
+
+    use crate::AureaError;
+    use crate::elements::{Orientation, Stack};
+    use crate::render::{Canvas, Color, RendererBackend};
+    use crate::{Container, Label, Window};
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    #[test]
+    fn native_destruction_invalidates_all_canvas_handles() {
+        let mut window = Window::new("canvas lifetime test", 160, 100).expect("window");
+        let mut canvas = Canvas::new(32, 32, RendererBackend::Cpu).expect("canvas");
+        let weak = canvas.downgrade();
+        window.set_content(canvas.clone()).expect("content");
+        pixel_reads_and_failed_frames_recover(&mut canvas);
+        window
+            .set_content(Label::new("replacement").expect("label"))
+            .expect("replace");
+        assert!(weak.upgrade().is_none());
+        assert!(canvas.native_handle().is_null());
+        assert!(canvas.draw(|_| Ok(())).is_err());
+        canvas.invalidate_all();
+
+        let mut nested = Canvas::new(32, 32, RendererBackend::Cpu).expect("nested");
+        let weak = nested.downgrade();
+        let mut stack = Stack::new(Orientation::Vertical).expect("stack");
+        stack.add(nested.clone()).expect("add");
+        window.set_content(stack).expect("stack content");
+        drop(window);
+        assert!(weak.upgrade().is_none());
+        assert!(nested.draw(|_| Ok(())).is_err());
+
+        let mut window = Window::new("canvas draw teardown test", 160, 100).expect("window");
+        let mut canvas = Canvas::new(32, 32, RendererBackend::Cpu).expect("canvas");
+        window.set_content(canvas.clone()).expect("content");
+        let weak = canvas.downgrade();
+        let result = canvas.draw(|_| window.set_content(Label::new("replacement")?));
+        assert!(result.is_err());
+        assert!(weak.upgrade().is_none());
+        assert!(canvas.with_frame_pixels(|_, _, _| ()).is_none());
+    }
+
+    fn pixel_reads_and_failed_frames_recover(canvas: &mut Canvas) {
+        canvas
+            .draw(|ctx| ctx.clear(Color::rgb(255, 0, 0)))
+            .expect("draw");
+        canvas
+            .with_frame_pixels(|pixels, _, _| {
+                let nested = canvas
+                    .with_frame_pixels(|inner, _, _| inner.as_ptr())
+                    .expect("nested read");
+                assert_eq!(
+                    pixels.as_ptr(),
+                    nested,
+                    "both reads borrow the renderer's buffer"
+                );
+            })
+            .expect("pixels");
+        let attempts = Rc::new(Cell::new(0));
+        let count = Rc::clone(&attempts);
+        canvas
+            .set_draw_callback(move |ctx| {
+                count.set(count.get() + 1);
+                if count.get() == 1 {
+                    return Err(AureaError::RenderingFailed);
+                }
+                ctx.clear(Color::rgb(0, 255, 0))
+            })
+            .expect("callback");
+        assert!(canvas.redraw_if_needed().is_err());
+        canvas.redraw_if_needed().expect("retry");
+        assert_eq!(attempts.get(), 2, "the failed redraw stays pending");
+        let inner = canvas.downgrade();
+        canvas
+            .set_draw_callback(move |_| {
+                let mut inner = inner.upgrade().expect("live");
+                assert!(
+                    inner.draw(|_| Ok(())).is_err(),
+                    "recursive draw returns an error"
+                );
+                Ok(())
+            })
+            .expect("recursive callback");
+        canvas.redraw_if_needed().expect("outer draw");
+    }
+}

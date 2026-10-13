@@ -123,3 +123,20 @@ impl Element for TextField {
         }
     }
 }
+
+#[cfg(test)]
+mod text_field_tests {
+    use crate::{AureaResult, Window};
+
+    #[test]
+    #[ignore = "creates a native widget; run with --ignored"]
+    fn a_text_field_starts_empty() -> AureaResult<()> {
+        use crate::elements::TextField;
+
+        let _window = Window::new("text field", 200, 100)?;
+
+        let field = TextField::new()?;
+        assert_eq!(field.get_content()?, "");
+        Ok(())
+    }
+}

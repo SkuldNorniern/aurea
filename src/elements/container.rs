@@ -88,3 +88,76 @@ impl Container for Stack {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod container_ownership_tests {
+    use super::{Orientation, Stack};
+    use crate::{AureaResult, Container, Window};
+
+    #[test]
+    #[ignore = "creates native elements; run with --ignored"]
+    fn a_container_takes_ownership_of_what_it_is_given() -> AureaResult<()> {
+        use crate::elements::{Button, Element, Label};
+
+        let _window = Window::new("ownership", 200, 100)?;
+
+        let loose = Label::new("loose")?;
+        assert!(!loose.handle().is_null());
+        drop(loose);
+
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        let adopted = Button::new("adopted")?;
+        let handle = adopted.handle();
+        stack.add(adopted)?;
+
+        assert!(!stack.handle().is_null());
+        assert!(!handle.is_null());
+
+        drop(stack);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native elements; run with --ignored"]
+    fn wrapper_elements_forward_ownership() -> AureaResult<()> {
+        use crate::elements::{Divider, Spacer};
+
+        let _window = Window::new("wrappers", 300, 200)?;
+
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        stack.add(Spacer::new()?)?;
+        stack.add(Divider::horizontal(200)?)?;
+        drop(stack);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native widgets; run with --ignored"]
+    fn ownership_survives_repetition() -> AureaResult<()> {
+        use crate::elements::{Button, Label};
+
+        let mut window = Window::new("stress", 300, 200)?;
+
+        for round in 0..200 {
+            drop(Label::new("loose")?);
+
+            let mut stack = Stack::new(Orientation::Vertical)?;
+            stack.add(Button::new("adopted")?)?;
+            stack.add(Label::new("also adopted")?)?;
+            drop(stack);
+
+            let mut outer = Stack::new(Orientation::Vertical)?;
+            let mut inner = Stack::new(Orientation::Horizontal)?;
+            inner.add(Label::new("deep")?)?;
+            outer.add(inner)?;
+            drop(outer);
+
+            let mut content = Stack::new(Orientation::Vertical)?;
+            content.add(Label::new(&format!("round {round}"))?)?;
+            window.set_content(content)?;
+        }
+
+        window.set_title("done")?;
+        Ok(())
+    }
+}

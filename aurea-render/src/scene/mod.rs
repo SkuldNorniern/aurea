@@ -3,4 +3,5 @@
 
 pub mod command;
 pub mod display_list;
-pub mod hit_test;
+pub mod hit;
+pub use hit as hit_test;

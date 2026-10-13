@@ -70,3 +70,223 @@ impl Drop for Button {
         unregister_button_callback(self._id);
     }
 }
+
+#[cfg(test)]
+mod callback_lifetime_tests {
+    use crate::registry::elements::invoke_button_callback;
+    use crate::{AureaResult, Window};
+
+    #[test]
+    #[ignore = "creates a native widget; run with --ignored"]
+    fn dropping_a_button_drops_its_callback() -> AureaResult<()> {
+        use crate::elements::Button;
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        let _window = Window::new("callback lifetime", 200, 100)?;
+
+        let fired = Rc::new(Cell::new(0));
+        let f = Rc::clone(&fired);
+        let button = Button::with_callback("go", move || f.set(f.get() + 1))?;
+        let id = button.callback_id();
+
+        invoke_button_callback(id);
+        assert_eq!(fired.get(), 1, "callback should run while the button lives");
+
+        drop(button);
+        invoke_button_callback(id);
+
+        assert_eq!(fired.get(), 1, "callback should be gone with the button");
+        assert_eq!(
+            Rc::strong_count(&fired),
+            1,
+            "the registry still holds what the callback captured"
+        );
+        Ok(())
+    }
+}
+
+#[cfg(all(test, windows))]
+mod win32_click_tests {
+    //! A real click has to reach the callback.
+
+    use crate::elements::{Button, Container, Element, Orientation, Stack};
+    use crate::{AureaResult, Window};
+    use std::cell::Cell;
+    use std::os::raw::c_void;
+    use std::rc::Rc;
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn SendMessageA(hwnd: *mut c_void, msg: u32, w: usize, l: isize) -> isize;
+    }
+
+    const BM_CLICK: u32 = 0x00F5;
+
+    fn click(hwnd: *mut c_void) {
+        unsafe { SendMessageA(hwnd, BM_CLICK, 0, 0) };
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn clicking_a_button_runs_its_callback() -> AureaResult<()> {
+        let mut window = Window::new("click", 400, 200)?;
+
+        let fired = Rc::new(Cell::new(0));
+        let counter = Rc::clone(&fired);
+        let button = Button::with_callback("Go", move || counter.set(counter.get() + 1))?;
+        let hwnd = button.handle();
+
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        stack.add(button)?;
+        window.set_content(stack)?;
+        window.show();
+
+        click(hwnd);
+
+        assert_eq!(fired.get(), 1, "the click never reached the callback");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn a_click_survives_nested_containers() -> AureaResult<()> {
+        let mut window = Window::new("nested click", 400, 200)?;
+
+        let fired = Rc::new(Cell::new(false));
+        let flag = Rc::clone(&fired);
+        let button = Button::with_callback("Go", move || flag.set(true))?;
+        let hwnd = button.handle();
+
+        let mut inner = Stack::new(Orientation::Horizontal)?;
+        inner.add(button)?;
+        let mut outer = Stack::new(Orientation::Vertical)?;
+        outer.add(inner)?;
+        window.set_content(outer)?;
+        window.show();
+
+        click(hwnd);
+
+        assert!(fired.get(), "the click was lost between the containers");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn each_button_runs_its_own_callback() -> AureaResult<()> {
+        let mut window = Window::new("many buttons", 400, 200)?;
+
+        let hits = Rc::new(Cell::new(0usize));
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        let mut handles = Vec::new();
+
+        for index in 0..5 {
+            let counter = Rc::clone(&hits);
+            let button = Button::with_callback(&format!("B{index}"), move || {
+                counter.set(counter.get() | (1 << index));
+            })?;
+            handles.push(button.handle());
+            stack.add(button)?;
+        }
+        window.set_content(stack)?;
+        window.show();
+
+        for hwnd in &handles {
+            click(*hwnd);
+        }
+
+        assert_eq!(hits.get(), 0b1_1111, "got {:#b}", hits.get());
+        Ok(())
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod gtk_click_tests {
+    //! A real click has to reach the callback, on GTK.
+
+    use crate::elements::{Button, Container, Element, Orientation, Stack};
+    use crate::{AureaResult, Window};
+    use std::cell::Cell;
+    use std::os::raw::c_void;
+    use std::rc::Rc;
+
+    unsafe extern "C" {
+        fn gtk_button_clicked(button: *mut c_void);
+    }
+
+    fn click(handle: *mut c_void) {
+        unsafe { gtk_button_clicked(handle) };
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn clicking_a_button_runs_its_callback() -> AureaResult<()> {
+        let mut window = Window::new("click", 400, 200)?;
+
+        let fired = Rc::new(Cell::new(0));
+        let counter = Rc::clone(&fired);
+        let button = Button::with_callback("Go", move || counter.set(counter.get() + 1))?;
+        let handle = button.handle();
+
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        stack.add(button)?;
+        window.set_content(stack)?;
+        window.show();
+
+        click(handle);
+
+        assert_eq!(fired.get(), 1, "the click never reached the callback");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn a_click_survives_nested_containers() -> AureaResult<()> {
+        let mut window = Window::new("nested click", 400, 200)?;
+
+        let fired = Rc::new(Cell::new(false));
+        let flag = Rc::clone(&fired);
+        let button = Button::with_callback("Go", move || flag.set(true))?;
+        let handle = button.handle();
+
+        let mut inner = Stack::new(Orientation::Horizontal)?;
+        inner.add(button)?;
+        let mut outer = Stack::new(Orientation::Vertical)?;
+        outer.add(inner)?;
+        window.set_content(outer)?;
+        window.show();
+
+        click(handle);
+
+        assert!(fired.get(), "the click was lost between the containers");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn each_button_runs_its_own_callback() -> AureaResult<()> {
+        let mut window = Window::new("many buttons", 400, 200)?;
+
+        let hits = Rc::new(Cell::new(0usize));
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        let mut handles = Vec::new();
+
+        for index in 0..5 {
+            let counter = Rc::clone(&hits);
+            let button = Button::with_callback(&format!("B{index}"), move || {
+                counter.set(counter.get() | (1 << index));
+            })?;
+            handles.push(button.handle());
+            stack.add(button)?;
+        }
+        window.set_content(stack)?;
+        window.show();
+
+        for handle in &handles {
+            click(*handle);
+        }
+
+        assert_eq!(hits.get(), 0b1_1111, "got {:#b}", hits.get());
+        Ok(())
+    }
+}

@@ -553,3 +553,33 @@ mod tests {
         assert_eq!(windows_submenu_title("R&&D"), "R&&D");
     }
 }
+
+#[cfg(test)]
+mod menu_ownership_tests {
+    use crate::{AureaResult, Window};
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn a_menu_bar_belongs_to_its_window() -> AureaResult<()> {
+        use crate::Capability;
+
+        let mut window = Window::new("menus", 300, 200)?;
+        if !window.capabilities().has(Capability::MenuBar) {
+            return Ok(());
+        }
+
+        {
+            let menu_bar = window.create_menu_bar()?;
+            let mut file = menu_bar.add_submenu("File")?;
+            file.add_item("New", || {})?;
+        }
+
+        {
+            let menu_bar = window.create_menu_bar()?;
+            menu_bar.add_submenu("Edit")?;
+        }
+
+        drop(window);
+        Ok(())
+    }
+}

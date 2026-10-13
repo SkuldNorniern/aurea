@@ -93,3 +93,22 @@ impl Container for SplitView {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod split_view_tests {
+    use crate::{AureaResult, Container, Window};
+
+    #[test]
+    #[ignore = "creates native elements; run with --ignored"]
+    fn a_split_view_takes_ownership_of_what_it_is_given() -> AureaResult<()> {
+        use crate::elements::{Label, SplitOrientation, SplitView};
+
+        let _window = Window::new("split ownership", 300, 200)?;
+
+        let mut split = SplitView::new(SplitOrientation::Horizontal)?;
+        split.add(Label::new("left")?)?;
+        split.add(Label::new("right")?)?;
+        drop(split);
+        Ok(())
+    }
+}
