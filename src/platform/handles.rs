@@ -117,7 +117,7 @@ pub(crate) fn native_handle_from_window_ptr(window: *mut c_void) -> Option<Nativ
         if view_ptr.is_null() {
             return None;
         }
-        return Some(NativeWindowHandle::MacOS { ns_view: view_ptr });
+        Some(NativeWindowHandle::MacOS { ns_view: view_ptr })
     }
     #[cfg(target_os = "windows")]
     {
