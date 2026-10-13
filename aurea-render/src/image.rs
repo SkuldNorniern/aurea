@@ -12,15 +12,23 @@ pub struct Image {
     pub width: u32,
     pub height: u32,
     pub data: Arc<[u8]>,
+    id: u64,
 }
 
 impl Image {
     pub fn new(width: u32, height: u32, data: Vec<u8>) -> Self {
+        static NEXT_ID: AtomicU64 = AtomicU64::new(1);
         Self {
             width,
             height,
             data: data.into(),
+            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
         }
+    }
+
+    /// Identity of the pixel data; stable across clones.
+    pub fn id(&self) -> u64 {
+        self.id
     }
 }
 
