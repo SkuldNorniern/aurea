@@ -80,7 +80,7 @@ version = "0.6"
 # zengpu-hal: optional, for the window-level GPU surface API (feature `zengpu`).
 [dependencies.zengpu-hal]
 git = "https://github.com/SkuldNorniern/ZenGPU"
-rev = "19058d971f0d005dfdc74edb92d4894cd79da567"
+rev = "f047c9ed138a9a63439c2304d100b255fb32e80d"
 version = "0.0.1"
 optional = true
 
@@ -88,7 +88,7 @@ optional = true
 # by zengpu-hal's WindowHandles::from_raw (feature `zengpu`).
 [dependencies.zen-window-handle]
 git = "https://github.com/SkuldNorniern/ZenGPU"
-rev = "19058d971f0d005dfdc74edb92d4894cd79da567"
+rev = "f047c9ed138a9a63439c2304d100b255fb32e80d"
 version = "0.1.0"
 optional = true
 
@@ -96,7 +96,7 @@ optional = true
 # feature that wants it, not every `cargo test`.
 [dependencies.zengpu]
 git = "https://github.com/SkuldNorniern/ZenGPU"
-rev = "19058d971f0d005dfdc74edb92d4894cd79da567"
+rev = "f047c9ed138a9a63439c2304d100b255fb32e80d"
 version = "0.0.1"
 default-features = false
 features = ["vulkan", "metal"]
@@ -106,7 +106,7 @@ optional = true
 # on Vulkan and Metal alike.
 [dependencies.zengpu-spirv]
 git = "https://github.com/SkuldNorniern/ZenGPU"
-rev = "19058d971f0d005dfdc74edb92d4894cd79da567"
+rev = "f047c9ed138a9a63439c2304d100b255fb32e80d"
 version = "0.0.1"
 features = ["metal"]
 optional = true
