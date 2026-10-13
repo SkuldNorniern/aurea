@@ -132,8 +132,10 @@ void ng_macos_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer,
         s_canvas_colorspace = CGColorSpaceCreateDeviceRGB();
     }
 
-    CGDataProviderRef provider = CGDataProviderCreateWithData(
-        NULL, (const void*)buffer, (size_t)width * height * 4, NULL);
+    CFDataRef pixels = CFDataCreate(NULL, buffer, (CFIndex)((size_t)width * height * 4));
+    if (!pixels) return;
+    CGDataProviderRef provider = CGDataProviderCreateWithCFData(pixels);
+    CFRelease(pixels);
     CGImageRef image = CGImageCreate(width, height, 8, 32, (size_t)width * 4,
         s_canvas_colorspace,
         (CGBitmapInfo)kCGImageAlphaFirst | kCGBitmapByteOrder32Little,
