@@ -16,6 +16,7 @@ use crate::text::{FontRef, TextRenderer};
 use crate::types::*;
 use aurea_foundation::{AureaError, AureaResult, Platform};
 use std::collections::hash_map::DefaultHasher;
+use std::f32::consts::{SQRT_2, TAU};
 use std::hash::{Hash, Hasher};
 use std::mem::discriminant;
 use std::sync::LazyLock;
@@ -208,6 +209,36 @@ fn near_value(a: f32, b: f32) -> bool {
 }
 
 /// A solid fill in `color`.
+/// How far past its path a stroke can reach: half the width, further for
+/// a miter tip or a square cap's corner.
+fn stroke_reach(paint: &Paint) -> f32 {
+    let half = paint.stroke_width / 2.0;
+    let miter = if paint.line_join == LineJoin::Miter {
+        half * paint.miter_limit.max(1.0)
+    } else {
+        half
+    };
+    let cap = if paint.line_cap == LineCap::Square {
+        half * SQRT_2
+    } else {
+        half
+    };
+    miter.max(cap)
+}
+
+/// `rect`'s outline as a closed path, for the stroker.
+fn rect_path(rect: Rect) -> Path {
+    let mut path = Path::new();
+    path.commands.extend_from_slice(&[
+        PathCommand::MoveTo(Point::new(rect.x, rect.y)),
+        PathCommand::LineTo(Point::new(rect.x + rect.width, rect.y)),
+        PathCommand::LineTo(Point::new(rect.x + rect.width, rect.y + rect.height)),
+        PathCommand::LineTo(Point::new(rect.x, rect.y + rect.height)),
+        PathCommand::Close,
+    ]);
+    path
+}
+
 fn fill_with(color: Color) -> Paint {
     Paint::new().color(color).style(PaintStyle::Fill)
 }
@@ -347,7 +378,9 @@ impl<'list> RecordingContext<'list> {
     /// Scale paint properties (stroke width) to physical pixels.
     fn s_paint(&self, paint: &Paint) -> Paint {
         let mut p = paint.clone();
-        p.stroke_width *= self.transform_scale() * self.scale_factor;
+        let factor = self.transform_scale() * self.scale_factor;
+        p.stroke_width *= factor;
+        p.dash = p.dash.map(|dash| dash.scaled(factor));
         p
     }
 
@@ -575,6 +608,17 @@ impl<'list> RecordingContext<'list> {
                 paint.color.a.hash(&mut hasher);
                 paint.style.hash(&mut hasher);
                 paint.stroke_width.to_bits().hash(&mut hasher);
+                // Ends, corners and dashes change the pixels too: marching
+                // ants move only the dash offset each frame.
+                paint.line_cap.hash(&mut hasher);
+                paint.line_join.hash(&mut hasher);
+                paint.miter_limit.to_bits().hash(&mut hasher);
+                if let Some(dash) = &paint.dash {
+                    dash.offset.to_bits().hash(&mut hasher);
+                    for length in dash.lengths() {
+                        length.to_bits().hash(&mut hasher);
+                    }
+                }
             }
             DrawCommand::DrawGlyphMask(mask, origin, color) => {
                 "DrawGlyphMask".hash(&mut hasher);
@@ -677,11 +721,11 @@ impl<'list> RecordingContext<'list> {
             DrawCommand::DrawPath(path, paint) => {
                 let mut bounds = path_bounds(path);
                 if paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0 {
-                    let half_stroke = paint.stroke_width / 2.0;
-                    bounds.x -= half_stroke;
-                    bounds.y -= half_stroke;
-                    bounds.width += paint.stroke_width;
-                    bounds.height += paint.stroke_width;
+                    let reach = stroke_reach(paint);
+                    bounds.x -= reach;
+                    bounds.y -= reach;
+                    bounds.width += 2.0 * reach;
+                    bounds.height += 2.0 * reach;
                 }
                 bounds
             }
@@ -764,7 +808,11 @@ impl DrawingContext for RecordingContext<'_> {
     /// vertical one costs a scanline row per pixel of length, and the per-row
     /// setup dwarfs filling the single pixel in it.
     fn draw_line(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, paint: &Paint) -> AureaResult<()> {
-        if paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0 {
+        // A straight line as a filled rect has no caps or dashes.
+        if paint.style == PaintStyle::Stroke
+            && paint.stroke_width > 0.0
+            && !paint.needs_path_stroke()
+        {
             let half = paint.stroke_width / 2.0;
             let horizontal = (y1 - y2).abs() < 1e-4;
             let vertical = (x1 - x2).abs() < 1e-4;
@@ -787,7 +835,7 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn draw_round_rect(&mut self, rect: Rect, radius: f32, paint: &Paint) -> AureaResult<()> {
-        if !self.transform_is_axis_aligned() {
+        if !self.transform_is_axis_aligned() || paint.dash.is_some() {
             // Rotated, the corners are no longer the rect's own: draw the
             // outline as a path through the transform.
             return self.draw_path(&Path::rounded_rect(rect, radius), paint);
@@ -800,6 +848,11 @@ impl DrawingContext for RecordingContext<'_> {
         Ok(())
     }
     fn draw_rect(&mut self, rect: Rect, paint: &Paint) -> AureaResult<()> {
+        // The fast stroked rect has mitered corners and no dashes.
+        if paint.needs_path_stroke() && (paint.dash.is_some() || paint.line_join != LineJoin::Miter)
+        {
+            return self.draw_path(&rect_path(rect), paint);
+        }
         if !self.transform_is_axis_aligned() {
             // A rotated or skewed rectangle is no longer a `Rect`, so record
             // its outline as a path instead of silently drawing it upright.
@@ -815,6 +868,12 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn draw_circle(&mut self, center: Point, radius: f32, paint: &Paint) -> AureaResult<()> {
+        if paint.style == PaintStyle::Stroke && paint.dash.is_some() {
+            let mut path = Path::new();
+            path.arc(center, radius, (0.0, TAU), false);
+            path.commands.push(PathCommand::Close);
+            return self.draw_path(&path, paint);
+        }
         self.add_command(DrawCommand::DrawCircle(
             self.s_pt(center),
             self.s(radius),

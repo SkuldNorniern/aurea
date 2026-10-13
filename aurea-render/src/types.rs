@@ -4,7 +4,8 @@
 pub use crate::geometry::{FillRule, Path, PathCommand, Point, Rect, Transform};
 pub use crate::image::{GlyphMask, GpuTexture, Image, Sampling};
 pub use crate::paint::{
-    BlendMode, Color, GradientStop, Hex, Hsv, LinearGradient, Paint, PaintStyle, RadialGradient,
+    BlendMode, Color, Dash, GradientStop, Hex, Hsv, LineCap, LineJoin, LinearGradient, Paint,
+    PaintStyle, RadialGradient,
 };
 pub use crate::text::font::{Font, FontStyle, FontWeight, TextMetrics};
 

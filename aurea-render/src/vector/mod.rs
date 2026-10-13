@@ -1,7 +1,7 @@
 //! Vector images: SVG path data, a small SVG reader, and built-in icons.
 
 mod icons;
-mod path_data;
+pub(crate) mod path_data;
 mod svg;
 
 pub use icons::Icon;
