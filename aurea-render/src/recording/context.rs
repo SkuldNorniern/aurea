@@ -245,6 +245,18 @@ impl<'list> RecordingContext<'list> {
         t.m12.abs() < 1e-6 && t.m21.abs() < 1e-6
     }
 
+    fn ensure_image_transform(&self) -> AureaResult<()> {
+        let transform = self.current_transform;
+        if self.transform_is_axis_aligned() && transform.m11 >= 0.0 && transform.m22 >= 0.0 {
+            Ok(())
+        } else {
+            Err(AureaError::Unsupported {
+                operation: "image rotation, skew or reflection",
+                platform: Platform::current(),
+            })
+        }
+    }
+
     fn transform_scale(&self) -> f32 {
         let t = self.current_transform;
         let det = t.m11 * t.m22 - t.m12 * t.m21;
@@ -744,6 +756,7 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn draw_image(&mut self, image: &Image, position: Point) -> AureaResult<()> {
+        self.ensure_image_transform()?;
         let anchor = self.s_pt(position);
         let zoom = self.transform_scale();
         let dest = Rect::new(
@@ -761,6 +774,7 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn draw_image_rect(&mut self, image: &Image, dest: Rect) -> AureaResult<()> {
+        self.ensure_image_transform()?;
         self.add_command(DrawCommand::DrawImageRect(
             image.clone(),
             self.s_rect(dest),
@@ -770,6 +784,7 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn draw_image_region(&mut self, image: &Image, src: Rect, dest: Rect) -> AureaResult<()> {
+        self.ensure_image_transform()?;
         self.add_command(DrawCommand::DrawImageRegion(
             image.clone(),
             src,
@@ -785,6 +800,7 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn draw_texture(&mut self, texture: GpuTexture, src: Rect, dest: Rect) -> AureaResult<()> {
+        self.ensure_image_transform()?;
         self.add_command(DrawCommand::DrawTexture(
             texture,
             src,
