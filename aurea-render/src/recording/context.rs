@@ -843,7 +843,7 @@ impl DrawingContext for RecordingContext<'_> {
         }
 
         let anchor = self.s_pt(point);
-        let origin = Point::new(anchor.x - pad, anchor.y - ascent - pad);
+        let origin = Point::new((anchor.x - pad).round(), (anchor.y - ascent - pad).round());
         self.add_command(DrawCommand::DrawGlyphMask(mask, origin, paint.color));
         Ok(())
     }
@@ -1031,6 +1031,30 @@ mod tests {
         let mut ctx = RecordingContext::new(list, 100, 100);
         ctx.set_scale_factor(scale);
         ctx
+    }
+
+    #[test]
+    fn fractional_dpi_text_is_rasterized_at_device_size_and_pixel_aligned() {
+        let font = Font::new("", 14.0);
+        let mut heights = Vec::new();
+        for scale in [1.0, 1.25, 1.5, 2.0] {
+            let mut list = DisplayList::new();
+            {
+                let mut ctx = ctx_with(&mut list, scale);
+                ctx.draw_text_with_font("Hello", Point::new(4.25, 30.75), &font, &Paint::default())
+                    .expect("text");
+            }
+            let DrawCommand::DrawGlyphMask(mask, origin, _) = &list.items()[0].command else {
+                panic!("glyph mask")
+            };
+            assert_eq!(origin.x, origin.x.round());
+            assert_eq!(origin.y, origin.y.round());
+            heights.push(mask.height);
+        }
+        assert!(
+            heights[3] > heights[0],
+            "HiDPI text must have more raster pixels"
+        );
     }
 
     #[test]
