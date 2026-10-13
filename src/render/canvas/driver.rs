@@ -187,7 +187,7 @@ fn republish_current_buffer(
     let guard = renderer.borrow_mut();
     let output = guard.as_ref().and_then(|r| r.frame_output());
     if publishes_cpu_buffer && let Some(frame) = output {
-        let (ptr, size, w, h) = (frame.pixels, frame.size, frame.width, frame.height);
+        let (ptr, size, w, h) = (frame.pixels(), frame.size(), frame.width, frame.height);
         // The IOSurface double-buffer is 2 frames stale on the back surface, so
         // we must refresh any pixel that changed in either this frame OR the
         // previous frame. Read and update prev_frame_damage under a brief lock.
@@ -288,8 +288,8 @@ impl Canvas {
             unsafe {
                 publish_cpu_buffer(
                     self.handle,
-                    frame.pixels,
-                    frame.size,
+                    frame.pixels(),
+                    frame.size(),
                     frame.width,
                     frame.height,
                     None,

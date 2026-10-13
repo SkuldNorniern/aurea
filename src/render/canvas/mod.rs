@@ -13,7 +13,6 @@ use aurea_runtime::{FrameInfo, TickerId};
 use std::cell::RefCell;
 use std::os::raw::c_void;
 use std::rc::Rc;
-use std::slice::from_raw_parts;
 #[cfg(feature = "zengpu")]
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -310,9 +309,9 @@ impl Canvas {
     pub fn with_frame_pixels<R>(&self, f: impl FnOnce(&[u32], u32, u32) -> R) -> Option<R> {
         let guard = self.renderer.borrow_mut();
         let frame = guard.as_ref()?.frame_output()?;
-        // SAFETY: the renderer is held for the length of the call, so its
-        // buffer cannot be redrawn or reallocated underneath the slice.
-        let bytes = unsafe { from_raw_parts(frame.pixels, frame.size) };
+        // The renderer is held for the length of the call, so its buffer
+        // cannot be redrawn or reallocated underneath the slice.
+        let bytes = frame.bytes();
         let pixels: Vec<u32> = bytes
             .as_chunks::<4>()
             .0

@@ -1519,7 +1519,10 @@ impl Renderer for CpuRasterizer {
             return None;
         }
         let (ptr, size, width, height) = self.get_buffer();
-        FrameOutput::new(ptr, size, width, height)
+        // SAFETY: `get_buffer` hands out this renderer's own buffer, which
+        // stays put until the next draw or resize, both of which need
+        // `&mut self` and so end the borrow first.
+        unsafe { FrameOutput::new(ptr, size, width, height) }
     }
 
     fn last_frame_damage(&self) -> Option<Rect> {

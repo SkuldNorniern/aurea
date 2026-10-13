@@ -10,10 +10,10 @@ use std::slice;
 /// renderer next draws or is resized, which is why this borrows it.
 #[derive(Debug, Clone, Copy)]
 pub struct FrameOutput<'a> {
-    /// Start of the pixel data.
-    pub pixels: *const u8,
+    /// Start of the pixel data. Private so [`Self::bytes`] can trust it.
+    pixels: *const u8,
     /// Length in bytes.
-    pub size: usize,
+    size: usize,
     pub width: u32,
     pub height: u32,
     _borrow: PhantomData<&'a [u8]>,
@@ -21,7 +21,12 @@ pub struct FrameOutput<'a> {
 
 impl<'a> FrameOutput<'a> {
     /// Describes `pixels`, which must stay valid as long as `'a`.
-    pub fn new(pixels: *const u8, size: usize, width: u32, height: u32) -> Option<Self> {
+    ///
+    /// # Safety
+    ///
+    /// `pixels` must point to `size` initialised bytes that stay valid, and
+    /// are not written, for as long as `'a`.
+    pub unsafe fn new(pixels: *const u8, size: usize, width: u32, height: u32) -> Option<Self> {
         if pixels.is_null() || size == 0 {
             return None;
         }
@@ -32,6 +37,14 @@ impl<'a> FrameOutput<'a> {
             height,
             _borrow: PhantomData,
         })
+    }
+    /// Start of the pixel data.
+    pub fn pixels(&self) -> *const u8 {
+        self.pixels
+    }
+    /// Length of the pixel data in bytes.
+    pub fn size(&self) -> usize {
+        self.size
     }
     /// The pixel bytes.
     pub fn bytes(&self) -> &'a [u8] {
