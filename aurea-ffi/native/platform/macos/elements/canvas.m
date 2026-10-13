@@ -42,6 +42,13 @@
 
 @implementation AureaCanvasView
 
+// A GPU-owned canvas presents through a swapchain, which needs a
+// CAMetalLayer behind the view: MoltenVK refuses anything else.
+- (CALayer*)makeBackingLayer {
+    if (self.gpuOwned) return [CAMetalLayer layer];
+    return [super makeBackingLayer];
+}
+
 - (BOOL)isFlipped {
     return YES;
 }
@@ -134,6 +141,15 @@ void ng_macos_canvas_set_gpu_owned(NGHandle canvas, int gpu_owned) {
     AureaCanvasView* view = (__bridge AureaCanvasView*)canvas;
     if (![view isKindOfClass:[AureaCanvasView class]]) return;
     view.gpuOwned = gpu_owned != 0;
+    // makeBackingLayer only runs when the view gains a layer, so drop the
+    // one it has when it is the wrong kind.
+    BOOL isMetal = [[view layer] isKindOfClass:[CAMetalLayer class]];
+    if (isMetal != view.gpuOwned) {
+        [view setWantsLayer:NO];
+        [view setWantsLayer:YES];
+        view.layer.opaque = YES;
+        view->_lastContentsScale = 0.0;
+    }
     if (view.gpuOwned) {
         view.renderBuffer = NULL;
         view.bufferWidth = 0;
