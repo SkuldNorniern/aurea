@@ -1,7 +1,7 @@
 //! Surface bring-up for the unified-API painter — `device.create_surface()` only.
 
-use zengpu_hal::{Format, GraphicsDevice, PresentMode, Result, SurfaceConfig, WindowHandles};
 use zengpu::native::{NativeDevice, NativeSurface};
+use zengpu_hal::{Format, GraphicsDevice, PresentMode, Result, SurfaceConfig, WindowHandles};
 
 /// Create the painter's presentable surface.
 pub fn create_surface(
