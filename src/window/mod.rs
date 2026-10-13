@@ -958,11 +958,11 @@ impl Window {
     /// [`TrayIcon`](crate::TrayIcon) and [`show`](Self::show) the window
     /// again. To quit, turn this off and [`request_close`](Self::request_close).
     ///
-    /// Only Windows has this so far; elsewhere it reports
+    /// Windows and macOS have this; elsewhere it reports
     /// [`AureaError::Unsupported`].
     pub fn set_hide_on_close(&self, hide: bool) -> AureaResult<()> {
         ui_thread::check("Window::set_hide_on_close");
-        if !cfg!(windows) {
+        if !cfg!(any(windows, target_os = "macos")) {
             return Err(AureaError::Unsupported {
                 operation: "hide a window on close",
                 platform: Platform::current(),

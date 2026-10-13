@@ -1,4 +1,5 @@
-//! An icon in the notification area ("system tray").
+//! An icon in the notification area ("system tray"), or on macOS the menu
+//! bar's status area.
 //!
 //! Pairs with [`Window::set_hide_on_close`](crate::Window::set_hide_on_close):
 //! closing the window hides it, the icon stays, and clicking the icon or
@@ -18,7 +19,7 @@
 //! # }
 //! ```
 //!
-//! Only Windows has a tray so far; elsewhere [`TrayIcon::new`] reports
+//! Windows and macOS have a tray; elsewhere [`TrayIcon::new`] reports
 //! [`AureaError::Unsupported`].
 
 use std::ffi::CString;
@@ -39,12 +40,13 @@ pub struct TrayIcon {
 
 impl TrayIcon {
     /// Adds an icon showing `tooltip` when hovered; `on_click` runs on a
-    /// left click (or Enter on the icon). Until
+    /// left click (or Enter on the icon). A right click, or Control-click on
+    /// macOS, opens the menu. Until
     /// [`set_icon_rgba`](Self::set_icon_rgba), it shows the default
     /// application icon.
     pub fn new(tooltip: &str, on_click: impl Fn() + 'static) -> AureaResult<Self> {
         ui_thread::check("TrayIcon::new");
-        if !cfg!(windows) {
+        if !cfg!(any(windows, target_os = "macos")) {
             return Err(AureaError::Unsupported {
                 operation: "add a tray icon",
                 platform: Platform::current(),
@@ -64,7 +66,8 @@ impl TrayIcon {
     }
 
     /// The icon, from tightly packed RGBA8 pixels; 16 to 32 pixels a side
-    /// suits most screens, and Windows scales others.
+    /// suits most screens, and both platforms scale others. macOS shows it
+    /// 18 points tall in the menu bar.
     pub fn set_icon_rgba(&self, rgba: &[u8], width: u32, height: u32) -> AureaResult<()> {
         ui_thread::check("TrayIcon::set_icon_rgba");
         let expected = (width as usize)
@@ -119,6 +122,10 @@ impl TrayIcon {
     }
 
     /// Shows a notification from the icon, like "still running here".
+    ///
+    /// macOS only delivers notifications for an app bundle, asking the user
+    /// the first time; from a bare executable this reports
+    /// [`AureaError::PlatformError`].
     pub fn notify(&self, title: &str, body: &str) -> AureaResult<()> {
         ui_thread::check("TrayIcon::notify");
         let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
