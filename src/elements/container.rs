@@ -99,3 +99,96 @@ impl Container for Stack {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod container_ownership_tests {
+    use super::{Orientation, Stack};
+    use crate::{AureaResult, Container, Window};
+
+    /// A widget frees its native element when it is dropped, and stops doing so
+    /// once a container has taken it: the platform frees a container's children
+    /// along with the container, so freeing it again would be a double free.
+    #[test]
+    #[ignore = "creates native elements; run with --ignored"]
+    fn a_container_takes_ownership_of_what_it_is_given() -> AureaResult<()> {
+        use crate::elements::{Button, Element, Label};
+
+        let _window = Window::new("ownership", 200, 100)?;
+
+        let loose = Label::new("loose")?;
+        assert!(!loose.handle().is_null());
+        // Nothing has adopted it, so dropping it destroys the native label.
+        drop(loose);
+
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        let adopted = Button::new("adopted")?;
+        let handle = adopted.handle();
+        stack.add(adopted)?;
+
+        // Still a live native element: the stack holds it now.
+        assert!(!stack.handle().is_null());
+        assert!(!handle.is_null());
+
+        // Dropping the stack frees the stack and its child together. Doing it
+        // twice is what the handover prevents; this must not fault.
+        drop(stack);
+        Ok(())
+    }
+
+    /// A wrapper that forwards ownership behaves like the widget underneath. The
+    /// trait method has no default, so a wrapper that forgets does not compile.
+    #[test]
+    #[ignore = "creates native elements; run with --ignored"]
+    fn wrapper_elements_forward_ownership() -> AureaResult<()> {
+        use crate::elements::{Divider, Spacer};
+
+        let _window = Window::new("wrappers", 300, 200)?;
+
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        stack.add(Spacer::new()?)?;
+        stack.add(Divider::horizontal(200)?)?;
+        drop(stack);
+        Ok(())
+    }
+
+    /// Ownership held over many create/drop cycles.
+    ///
+    /// A double free or a leak usually survives one round trip and shows up under
+    /// repetition, so this exercises the shapes that transfer ownership: a loose
+    /// widget, an adopted one, nesting, and replacing a window's content.
+    #[test]
+    #[ignore = "creates native widgets; run with --ignored"]
+    fn ownership_survives_repetition() -> AureaResult<()> {
+        use crate::elements::{Button, Label};
+
+        let mut window = Window::new("stress", 300, 200)?;
+
+        for round in 0..200 {
+            // Created and dropped without ever being adopted: this one frees
+            // itself.
+            drop(Label::new("loose")?);
+
+            // Adopted, then the parent is dropped: the parent frees it.
+            let mut stack = Stack::new(Orientation::Vertical)?;
+            stack.add(Button::new("adopted")?)?;
+            stack.add(Label::new("also adopted")?)?;
+            drop(stack);
+
+            // Nested containers, dropped from the outside in.
+            let mut outer = Stack::new(Orientation::Vertical)?;
+            let mut inner = Stack::new(Orientation::Horizontal)?;
+            inner.add(Label::new("deep")?)?;
+            outer.add(inner)?;
+            drop(outer);
+
+            // Replacing content destroys what was there before.
+            let mut content = Stack::new(Orientation::Vertical)?;
+            content.add(Label::new(&format!("round {round}"))?)?;
+            window.set_content(content)?;
+        }
+
+        // Still usable after all that.
+        window.set_title("done")?;
+        Ok(())
+    }
+}

@@ -102,3 +102,20 @@ mod tests {
         assert!(aurea_embed_create_canvas(-1, 100).is_null());
     }
 }
+
+#[cfg(test)]
+mod canvas_embedding_tests {
+    use super::*;
+
+    /// The embedding entry point hands back a canvas for a sensible size. It needs
+    /// a display: with none it returns null, which is the right answer and the
+    /// wrong one to assert in a unit test.
+    #[test]
+    #[ignore = "creates a native widget; run with --ignored"]
+    fn embedding_creates_a_canvas() {
+        let handle = aurea_embed_create_canvas(100, 100);
+
+        assert!(!handle.is_null());
+        aurea_embed_destroy_canvas(handle);
+    }
+}

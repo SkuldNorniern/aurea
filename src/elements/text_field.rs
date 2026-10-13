@@ -129,3 +129,23 @@ impl Element for TextField {
         }
     }
 }
+
+#[cfg(test)]
+mod text_field_tests {
+    use crate::{AureaResult, Window};
+
+    /// A text field is a native control, so what it reports differs per platform.
+    /// On Windows and Linux it is real and starts empty; elsewhere it may fall
+    /// back. Either way it needs a display to exist.
+    #[test]
+    #[ignore = "creates a native widget; run with --ignored"]
+    fn a_text_field_starts_empty() -> AureaResult<()> {
+        use crate::elements::TextField;
+
+        let _window = Window::new("text field", 200, 100)?;
+
+        let field = TextField::new()?;
+        assert_eq!(field.get_content()?, "");
+        Ok(())
+    }
+}

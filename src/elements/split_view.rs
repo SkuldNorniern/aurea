@@ -98,3 +98,25 @@ impl Container for SplitView {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod split_view_tests {
+    use crate::{AureaResult, Container, Window};
+
+    /// A split view takes ownership of its children too. It used to attach them
+    /// and leave the child still believing it owned its handle, which is a double
+    /// free waiting for the split view to be dropped.
+    #[test]
+    #[ignore = "creates native elements; run with --ignored"]
+    fn a_split_view_takes_ownership_of_what_it_is_given() -> AureaResult<()> {
+        use crate::elements::{Label, SplitOrientation, SplitView};
+
+        let _window = Window::new("split ownership", 300, 200)?;
+
+        let mut split = SplitView::new(SplitOrientation::Horizontal)?;
+        split.add(Label::new("left")?)?;
+        split.add(Label::new("right")?)?;
+        drop(split);
+        Ok(())
+    }
+}

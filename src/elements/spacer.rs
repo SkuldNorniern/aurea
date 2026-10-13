@@ -42,3 +42,20 @@ impl Element for Spacer {
         }
     }
 }
+
+#[cfg(test)]
+mod spacer_tests {
+    use crate::{AureaResult, Window};
+
+    /// Same for a spacer, which is a native label underneath.
+    #[test]
+    #[ignore = "creates a native widget; run with --ignored"]
+    fn spacers_can_be_created() -> AureaResult<()> {
+        use crate::elements::Spacer;
+
+        let _window = Window::new("spacers", 200, 100)?;
+
+        assert!(Spacer::new().is_ok());
+        Ok(())
+    }
+}

@@ -780,3 +780,283 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod repaint_tests {
+    //! Repaint behaviour of a live canvas inside a real window.
+    //!
+    //! These need a display and create actual native windows, so they are
+    //! `#[ignore]`d by default. Run them with:
+    //!
+    //! ```text
+    //! cargo test --lib render::canvas::repaint_tests -- --ignored --test-threads=1
+    //! ```
+
+    use crate::elements::{Orientation, Stack};
+    use crate::render::{Canvas, Color, DrawingContext, Paint, PaintStyle, Rect, RendererBackend};
+    use crate::{AureaResult, Container, Window};
+    use aurea_runtime::FrameScheduler;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::thread::sleep;
+    use std::time::Duration;
+
+    const BG: Color = Color {
+        r: 240,
+        g: 240,
+        b: 240,
+        a: 255,
+    };
+
+    fn paint_a_square(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
+        let fill = Paint::new()
+            .color(Color::rgb(100, 150, 200))
+            .style(PaintStyle::Fill);
+        ctx.draw_rect(Rect::new(10.0, 10.0, 100.0, 100.0), &fill)
+    }
+
+    /// Pixels in the published buffer that are not the background colour.
+    /// Pixels this canvas drew that are not the background colour.
+    fn drawn_pixels(canvas: &Canvas) -> usize {
+        let bg = (u32::from(BG.a) << 24)
+            | (u32::from(BG.r) << 16)
+            | (u32::from(BG.g) << 8)
+            | u32::from(BG.b);
+        canvas
+            .with_frame_pixels(|pixels, _, _| pixels.iter().filter(|&&p| p != bg).count())
+            .unwrap_or(0)
+    }
+
+    /// Pumps the window for a while. GTK lays widgets out on its frame clock, so
+    /// a single non-blocking pump can finish before the canvas has its size.
+    fn settle(window: &Window) -> AureaResult<()> {
+        for _ in 0..20 {
+            window.poll_events();
+            window.process_frames()?;
+            sleep(Duration::from_millis(5));
+        }
+        Ok(())
+    }
+
+    fn window_with_canvas(title: &str) -> AureaResult<(Window, Canvas)> {
+        let mut window = Window::new(title, 400, 300)?;
+        let canvas = Canvas::new(400, 300, RendererBackend::Cpu)?;
+        canvas.set_background_color(BG);
+        let mut layout = Stack::new(Orientation::Vertical)?;
+        layout.add(canvas.clone())?;
+        window.set_content(layout)?;
+        window.show();
+        // Let the canvas settle at the size the window actually gave it.
+        settle(&window)?;
+        Ok((window, canvas))
+    }
+
+    /// A canvas drawn through `set_draw_callback` keeps its content across the
+    /// resize that happens when it is placed in a window.
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn retained_draw_survives_the_layout_resize() -> AureaResult<()> {
+        let mut window = Window::new("retained", 400, 300)?;
+        let canvas = Canvas::new(400, 300, RendererBackend::Cpu)?;
+        canvas.set_background_color(BG);
+        canvas.set_draw_callback(paint_a_square)?;
+
+        let mut layout = Stack::new(Orientation::Vertical)?;
+        layout.add(canvas.clone())?;
+        window.set_content(layout)?;
+        window.show();
+
+        for _ in 0..3 {
+            window.poll_events();
+            window.process_frames()?;
+        }
+
+        assert!(
+            drawn_pixels(&canvas) > 1000,
+            "retained canvas went blank after the window resized it"
+        );
+        Ok(())
+    }
+
+    /// `invalidate_all` must not erase what `Canvas::draw` put in the buffer.
+    /// There is no callback to re-run, so the pixels are all there is.
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn invalidate_keeps_immediate_mode_pixels() -> AureaResult<()> {
+        let (window, mut canvas) = window_with_canvas("immediate")?;
+
+        canvas.draw(paint_a_square)?;
+        let before = drawn_pixels(&canvas);
+        assert!(before > 1000, "immediate draw produced nothing");
+
+        canvas.invalidate_all();
+        for _ in 0..3 {
+            window.poll_events();
+            window.process_frames()?;
+        }
+
+        assert_eq!(
+            drawn_pixels(&canvas),
+            before,
+            "invalidate_all wiped an immediate-mode canvas"
+        );
+        Ok(())
+    }
+
+    /// A ticker that feeds a retained draw callback has to mark the canvas dirty,
+    /// or the callback runs once and the canvas sits there looking frozen.
+    /// `on_frame` is what ties the two together.
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn on_frame_keeps_the_draw_callback_running() -> AureaResult<()> {
+        let (window, canvas) = window_with_canvas("on_frame")?;
+
+        let draws = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&draws);
+        canvas.set_draw_callback(move |ctx| {
+            counter.fetch_add(1, Ordering::Relaxed);
+            // Something different every frame, so the damage diff cannot skip it.
+            let n = counter.load(Ordering::Relaxed) % 40;
+            let fill = Paint::new()
+                .color(Color::rgb(100, 150, 200))
+                .style(PaintStyle::Fill);
+            ctx.draw_rect(Rect::new(n as f32, 10.0, 20.0, 20.0), &fill)
+        })?;
+
+        let ticks = Arc::new(AtomicUsize::new(0));
+        let tick_counter = Arc::clone(&ticks);
+        let ticker = canvas.on_frame(move |_| {
+            tick_counter.fetch_add(1, Ordering::Relaxed);
+            true
+        });
+
+        for _ in 0..4 {
+            window.poll_events();
+            window.process_frames()?;
+        }
+        FrameScheduler::unregister_ticker(ticker);
+
+        assert!(
+            ticks.load(Ordering::Relaxed) >= 3,
+            "the ticker should run each frame"
+        );
+        assert!(
+            draws.load(Ordering::Relaxed) >= 3,
+            "the canvas redrew {} time(s); a ticker alone leaves it at 1",
+            draws.load(Ordering::Relaxed)
+        );
+        Ok(())
+    }
+
+    /// Returning false from `on_frame` stops it.
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn on_frame_stops_when_it_returns_false() -> AureaResult<()> {
+        let (window, canvas) = window_with_canvas("on_frame stop")?;
+        canvas.set_draw_callback(|_| Ok(()))?;
+
+        let ticks = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&ticks);
+        canvas.on_frame(move |_| {
+            counter.fetch_add(1, Ordering::Relaxed);
+            false
+        });
+
+        for _ in 0..4 {
+            window.poll_events();
+            window.process_frames()?;
+        }
+
+        assert_eq!(
+            ticks.load(Ordering::Relaxed),
+            1,
+            "it should run once and stop"
+        );
+        Ok(())
+    }
+
+    /// Dropping a canvas destroys its native object. It used to unregister from
+    /// the scheduler and leave the platform element behind.
+    #[test]
+    #[ignore = "creates native elements; run with --ignored"]
+    fn dropping_a_canvas_destroys_the_native_element() -> AureaResult<()> {
+        use crate::elements::Element;
+
+        let _window = Window::new("canvas ownership", 200, 100)?;
+
+        let canvas = Canvas::new(100, 100, RendererBackend::Cpu)?;
+        let handle = canvas.handle();
+        assert!(!handle.is_null());
+
+        // Clones share one native canvas and one cleanup, so it is freed once.
+        let clone = canvas.clone();
+        drop(canvas);
+        drop(clone);
+        Ok(())
+    }
+
+    /// A canvas is reference counted, so the native element must be destroyed once
+    /// when the last clone goes, not once per clone.
+    #[test]
+    #[ignore = "creates native widgets; run with --ignored"]
+    fn canvas_clones_free_once() -> AureaResult<()> {
+        let _window = Window::new("canvas clones", 300, 200)?;
+
+        for _ in 0..100 {
+            let canvas = Canvas::new(64, 64, RendererBackend::Cpu)?;
+            let a = canvas.clone();
+            let b = canvas.clone();
+            drop(canvas);
+            drop(a);
+            drop(b);
+        }
+        Ok(())
+    }
+
+    /// A draw callback may capture the canvas it draws on.
+    ///
+    /// It could not before: the callback had to be `Send + Sync`, and a canvas is
+    /// neither, so an application had to put its canvas behind a mutex and assert
+    /// `Send` onto it by hand. Nothing here is shared across threads, so nothing
+    /// needs to pretend it is.
+    #[test]
+    #[ignore = "creates native elements; run with --ignored"]
+    fn a_draw_callback_can_capture_its_own_canvas() -> AureaResult<()> {
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        let mut window = Window::new("capture", 300, 200)?;
+        let canvas = Canvas::new(300, 200, RendererBackend::Cpu)?;
+        canvas.set_background_color(BG);
+
+        // UI-local state, captured directly. `Rc` and `Cell` are not `Send`.
+        let frames = Rc::new(Cell::new(0usize));
+        let counted = Rc::clone(&frames);
+        let for_callback = canvas.clone();
+
+        canvas.set_draw_callback(move |ctx| {
+            counted.set(counted.get() + 1);
+            // The canvas itself, reachable from inside its own callback.
+            let (w, _h) = for_callback.size();
+            paint_a_square(ctx)?;
+            ctx.draw_rect(
+                Rect::new(0.0, 0.0, w as f32 / 4.0, 4.0),
+                &Paint::new().color(Color::rgb(200, 120, 60)),
+            )
+        })?;
+
+        let mut layout = Stack::new(Orientation::Vertical)?;
+        layout.add(canvas.clone())?;
+        window.set_content(layout)?;
+        window.show();
+
+        for _ in 0..3 {
+            window.poll_events();
+            window.process_frames()?;
+        }
+
+        assert!(frames.get() > 0, "the callback never ran");
+        assert!(drawn_pixels(&canvas) > 1000, "and it drew nothing");
+        Ok(())
+    }
+}
