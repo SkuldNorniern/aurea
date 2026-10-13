@@ -315,7 +315,9 @@ impl Arc {
         } else if !self.sweep && delta > 0.0 {
             delta -= TAU;
         }
-        let pieces = (delta.abs() / FRAC_PI_2).ceil().max(1.0);
+        // The slack keeps float error on an exact quarter-turn multiple from
+        // costing a whole extra piece (a half circle is two, not three).
+        let pieces = (delta.abs() / FRAC_PI_2 - 1e-3).ceil().max(1.0);
         let step = delta / pieces;
         // Control arm length for a cubic matching `step` of a circle.
         let arm = 4.0 / 3.0 * (step / 4.0).tan();
