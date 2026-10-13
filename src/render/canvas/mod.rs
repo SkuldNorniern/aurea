@@ -180,6 +180,8 @@ impl Canvas {
             prev_frame_damage: None,
             #[cfg(feature = "zengpu")]
             gpu_context: None,
+            #[cfg(feature = "zengpu")]
+            gpu_lost: None,
         }));
         let renderer_arc = Rc::new(RefCell::new(renderer));
         let interaction_registry = Rc::new(InteractionRegistry::new());
@@ -233,6 +235,41 @@ impl Canvas {
     #[cfg(feature = "zengpu")]
     pub fn gpu_context(&self) -> Option<Arc<ZenGpuContext>> {
         self.state.borrow().gpu_context.clone()
+    }
+
+    /// Draws on `context` from the next frame: the renderer on the old one goes first, since a
+    /// window takes one surface at a time.
+    #[cfg(feature = "zengpu")]
+    pub fn set_gpu_context(&self, context: Arc<ZenGpuContext>) {
+        *self.renderer.borrow_mut() = None;
+        let mut st = self.state.borrow_mut();
+        st.gpu_context = Some(context);
+        st.needs_redraw = true;
+        st.damage.add_all();
+        drop(st);
+        FrameScheduler::schedule_canvas(self.handle);
+    }
+
+    /// Asks `handler` for a context to draw on once this canvas's device is lost, after a driver
+    /// reset or a GPU being removed.
+    ///
+    /// ```rust,no_run
+    /// # use std::sync::Arc;
+    /// # use aurea::render::{Canvas, ZenGpuContext};
+    /// # fn f(canvas: &Canvas) {
+    /// canvas.on_gpu_lost(|lost| {
+    ///     let fresh = Arc::new(lost.reopen().ok()?);
+    ///     // upload the app's textures to `fresh` again here
+    ///     Some(fresh)
+    /// });
+    /// # }
+    /// ```
+    #[cfg(feature = "zengpu")]
+    pub fn on_gpu_lost(
+        &self,
+        handler: impl FnMut(&Arc<ZenGpuContext>) -> Option<Arc<ZenGpuContext>> + 'static,
+    ) {
+        self.state.borrow_mut().gpu_lost = Some(Box::new(handler));
     }
 
     /// This canvas's identity, for as long as the process runs.
@@ -532,6 +569,7 @@ impl Element for Canvas {
 #[cfg(all(test, feature = "zengpu"))]
 mod tests {
     use super::*;
+    use std::cell::Cell;
 
     #[test]
     fn zengpu_renderer_waits_for_canvas_attachment() {
@@ -548,6 +586,33 @@ mod tests {
             .unwrap()
         );
         assert!(canvas.renderer.borrow().is_none());
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn a_lost_context_is_replaced() {
+        let lost = Arc::new(ZenGpuContext::new().unwrap());
+        let canvas = Canvas::with_gpu_context(64, 64, Arc::clone(&lost)).unwrap();
+        lost.device().simulate_loss();
+        driver::replace_lost_context(&canvas.state);
+        let reopened = canvas.gpu_context().unwrap();
+        assert!(!Arc::ptr_eq(&reopened, &lost) && !reopened.is_lost());
+        assert_eq!(reopened.adapter_uuid(), lost.adapter_uuid(), "same GPU");
+
+        let given = Arc::new(ZenGpuContext::new().unwrap());
+        let handed = Arc::clone(&given);
+        let asked = Rc::new(Cell::new(0));
+        let count = Rc::clone(&asked);
+        canvas.on_gpu_lost(move |_| {
+            count.set(count.get() + 1);
+            Some(Arc::clone(&handed))
+        });
+        reopened.device().simulate_loss();
+        driver::replace_lost_context(&canvas.state);
+        assert!(Arc::ptr_eq(&canvas.gpu_context().unwrap(), &given));
+        assert_eq!(asked.get(), 1);
+        driver::replace_lost_context(&canvas.state);
+        assert_eq!(asked.get(), 1, "a live context is left alone");
     }
 
     #[test]

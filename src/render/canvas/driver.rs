@@ -10,6 +10,8 @@ use aurea_runtime::FrameScheduler;
 use std::cell::RefCell;
 use std::os::raw::c_void;
 use std::rc::Rc;
+#[cfg(feature = "zengpu")]
+use std::sync::Arc;
 
 fn union_opt_rects(a: Option<Rect>, b: Option<Rect>) -> Option<Rect> {
     match (a, b) {
@@ -95,6 +97,8 @@ pub(super) fn follow_outcome(
         }
         FrameOutcome::Recreate => {
             *renderer.borrow_mut() = None;
+            #[cfg(feature = "zengpu")]
+            replace_lost_context(state);
             let mut st = state.borrow_mut();
             st.needs_redraw = true;
             st.damage.add_all();
@@ -102,6 +106,26 @@ pub(super) fn follow_outcome(
             FrameScheduler::schedule_canvas(handle);
         }
     }
+}
+
+#[cfg(feature = "zengpu")]
+pub(super) fn replace_lost_context(state: &Rc<RefCell<CanvasState>>) {
+    let (lost, mut handler) = {
+        let mut st = state.borrow_mut();
+        let Some(lost) = st.gpu_context.clone().filter(|c| c.is_lost()) else {
+            return;
+        };
+        (lost, st.gpu_lost.take())
+    };
+    let fresh = handler
+        .as_mut()
+        .and_then(|handler| handler(&lost))
+        .or_else(|| lost.reopen().ok().map(Arc::new));
+    let mut st = state.borrow_mut();
+    if st.gpu_lost.is_none() {
+        st.gpu_lost = handler;
+    }
+    st.gpu_context = fresh;
 }
 
 fn sync_surface(
@@ -350,6 +374,8 @@ mod tests {
             prev_frame_damage: None,
             #[cfg(feature = "zengpu")]
             gpu_context: None,
+            #[cfg(feature = "zengpu")]
+            gpu_lost: None,
         }));
         let attempts = Rc::new(Cell::new(0));
         let renderer: Rc<RefCell<Option<Box<dyn Renderer>>>> =
