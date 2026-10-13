@@ -22,6 +22,7 @@ use zengpu_hal::{
 use crate::capabilities::GpuFeatures;
 use crate::gpu::batch::{DrawRef, RectInstance, ShapeInstance};
 use crate::gpu::{FramePlan, Gpu2dBackend, Gpu2dRenderer};
+use crate::memory::smaller_buffer;
 use crate::numeric::f32_to_u32_clamped;
 use crate::renderer::FrameOutcome;
 use crate::types::{GpuTexture, Rect};
@@ -544,6 +545,17 @@ impl Gpu2dBackend for ZenGpuBackend {
         let vh = plan.viewport_height as f32;
         let device = self.context.device();
 
+        if let Some(compact) =
+            smaller_buffer(self.gradient_instances.capacity(), plan.gradients.len())
+        {
+            self.gradient_instances = compact;
+        }
+        if let Some(compact) = smaller_buffer(self.image_instances.capacity(), plan.images.len()) {
+            self.image_instances = compact;
+        }
+        if let Some(compact) = smaller_buffer(self.text_instances.capacity(), plan.texts.len()) {
+            self.text_instances = compact;
+        }
         self.gradient_instances.clear();
         self.gradient_instances
             .extend(plan.gradients.iter().map(|g| GradientInstance {
