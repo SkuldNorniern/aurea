@@ -1,7 +1,7 @@
 //! What a frame comes to: the pixels a renderer produced, and whether the
 //! frame reached its target.
 
-use std::marker::PhantomData;
+use std::mem::size_of_val;
 use std::slice;
 
 /// A renderer's finished pixels, borrowed for as long as the renderer is.
@@ -16,28 +16,74 @@ pub struct FrameOutput<'a> {
     pub size: usize,
     pub width: u32,
     pub height: u32,
-    _borrow: PhantomData<&'a [u8]>,
+    words: &'a [u32],
 }
 
 impl<'a> FrameOutput<'a> {
-    /// Describes `pixels`, which must stay valid as long as `'a`.
-    pub fn new(pixels: *const u8, size: usize, width: u32, height: u32) -> Option<Self> {
-        if pixels.is_null() || size == 0 {
+    /// Borrows packed `0xAARRGGBB` pixels matching the supplied extent.
+    ///
+    /// The frame cannot outlive its storage:
+    /// ```compile_fail
+    /// use aurea_render::FrameOutput;
+    /// let frame = {
+    ///     let pixels = vec![0u32];
+    ///     FrameOutput::new(&pixels, 1, 1).unwrap()
+    /// };
+    /// let _ = frame.bytes();
+    /// ```
+    pub fn new(words: &'a [u32], width: u32, height: u32) -> Option<Self> {
+        let count = usize::try_from(width)
+            .ok()?
+            .checked_mul(usize::try_from(height).ok()?)?;
+        if count == 0 || words.len() != count {
             return None;
         }
         Some(Self {
-            pixels,
-            size,
+            pixels: words.as_ptr().cast(),
+            size: size_of_val(words),
             width,
             height,
-            _borrow: PhantomData,
+            words,
         })
     }
     /// The pixel bytes.
     pub fn bytes(&self) -> &'a [u8] {
-        // SAFETY: `new` takes pixels that stay valid, `size` bytes long, for
-        // as long as `'a`, which is what this borrows.
-        unsafe { slice::from_raw_parts(self.pixels, self.size) }
+        // SAFETY: all u32 bytes are initialized, and the slice carries the
+        // actual storage borrow. Public presentation metadata is not used
+        // to construct this slice.
+        unsafe { slice::from_raw_parts(self.words.as_ptr().cast(), size_of_val(self.words)) }
+    }
+
+    /// The borrowed ARGB words, without conversion or allocation.
+    pub fn words(&self) -> &'a [u32] {
+        self.words
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ptr::null;
+
+    #[test]
+    fn pixels_are_borrowed_and_extents_are_checked() {
+        let pixels = [0xFF11_2233u32];
+        let frame = FrameOutput::new(&pixels, 1, 1).expect("frame");
+        assert_eq!(frame.words().as_ptr(), pixels.as_ptr());
+        assert_eq!(frame.bytes(), pixels[0].to_ne_bytes());
+        assert!(FrameOutput::new(&pixels, 2, 1).is_none());
+        assert!(FrameOutput::new(&pixels, u32::MAX, u32::MAX).is_none());
+        assert!(FrameOutput::new(&[], 0, 0).is_none());
+    }
+
+    #[test]
+    fn presentation_metadata_cannot_invalidate_safe_pixel_access() {
+        let pixels = [123u32];
+        let mut frame = FrameOutput::new(&pixels, 1, 1).expect("frame");
+        frame.pixels = null();
+        frame.size = usize::MAX;
+        assert_eq!(frame.words(), &pixels);
+        assert_eq!(frame.bytes(), pixels[0].to_ne_bytes());
     }
 }
 

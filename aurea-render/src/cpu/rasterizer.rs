@@ -1518,8 +1518,7 @@ impl Renderer for CpuRasterizer {
         if !self.has_frame {
             return None;
         }
-        let (ptr, size, width, height) = self.get_buffer();
-        FrameOutput::new(ptr, size, width, height)
+        FrameOutput::new(&self.frame_buffer, self.width, self.height)
     }
 
     fn last_frame_damage(&self) -> Option<Rect> {
@@ -2084,21 +2083,31 @@ mod occlusion_tests {
             move |ctx: &mut dyn DrawingContext| {
                 ctx.clear(Color::rgb(16, 18, 22)).unwrap();
                 let panel = Paint::new().color(Color::rgb(30, 34, 40));
-                ctx.draw_rect(Rect::new(0.0, 0.0, 240.0, 40.0), &panel).unwrap();
+                ctx.draw_rect(Rect::new(0.0, 0.0, 240.0, 40.0), &panel)
+                    .unwrap();
                 let text = Paint::new().color(Color::rgb(200, 200, 210));
                 for row in 0..6u8 {
                     let y = 50.0 + f32::from(row) * 14.0;
                     ctx.draw_rect(Rect::new(8.0, y, 180.0, 8.0), &text).unwrap();
                 }
                 let caret = Paint::new().color(Color::rgb(255, 220, 120));
-                ctx.draw_rect(Rect::new(caret_x, 50.0, 2.0, 84.0), &caret).unwrap();
+                ctx.draw_rect(Rect::new(caret_x, 50.0, 2.0, 84.0), &caret)
+                    .unwrap();
             }
         };
         frame_of(&mut r, scene(20.0));
         let settled = frame_of(&mut r, scene(20.0));
-        assert_eq!(settled, frame_of(&mut r, scene(20.0)), "an unchanged scene changed");
+        assert_eq!(
+            settled,
+            frame_of(&mut r, scene(20.0)),
+            "an unchanged scene changed"
+        );
         frame_of(&mut r, scene(60.0));
-        assert_eq!(settled, frame_of(&mut r, scene(20.0)), "the caret left a mark");
+        assert_eq!(
+            settled,
+            frame_of(&mut r, scene(20.0)),
+            "the caret left a mark"
+        );
     }
 
     /// The frame an opaque overlay goes away has to bring back what it
@@ -2116,14 +2125,19 @@ mod occlusion_tests {
                 }
                 if overlay {
                     let panel = Paint::new().color(Color::rgb(40, 44, 52));
-                    ctx.draw_rect(Rect::new(0.0, 0.0, 240.0, 160.0), &panel).unwrap();
+                    ctx.draw_rect(Rect::new(0.0, 0.0, 240.0, 160.0), &panel)
+                        .unwrap();
                 }
             }
         };
         frame_of(&mut r, scene(false));
         let without = frame_of(&mut r, scene(false));
         frame_of(&mut r, scene(true));
-        assert_eq!(without, frame_of(&mut r, scene(false)), "covered content did not return");
+        assert_eq!(
+            without,
+            frame_of(&mut r, scene(false)),
+            "covered content did not return"
+        );
     }
 }
 
