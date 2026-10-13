@@ -12,13 +12,37 @@
 #import <QuartzCore/QuartzCore.h>
 #import <stdatomic.h>
 static BOOL app_initialized = FALSE;
+/* Inside [NSApp run], which only ng_macos_run enters. */
+static BOOL s_in_nsapp_run = NO;
 
 @interface AppDelegate : NSObject <NSApplicationDelegate>
 @end
 
 @implementation AppDelegate
+/* Only a loop AppKit owns ends with its last window. A Rust-driven loop
+   decides for itself, and may close one window before opening the next. */
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {
-    return YES;
+    (void)sender;
+    return s_in_nsapp_run;
+}
+
+/* Terminating calls exit(), which skips every Rust destructor. Stop the run
+   loop instead so ng_macos_run returns and the caller unwinds normally. */
+- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender {
+    if (!s_in_nsapp_run) return NSTerminateNow;
+    [sender stop:nil];
+    /* stop: is only noticed after the next event, so send one. */
+    NSEvent* nudge = [NSEvent otherEventWithType:NSEventTypeApplicationDefined
+                                        location:NSZeroPoint
+                                   modifierFlags:0
+                                       timestamp:0
+                                    windowNumber:0
+                                         context:nil
+                                         subtype:0
+                                           data1:0
+                                           data2:0];
+    [sender postEvent:nudge atStart:NO];
+    return NSTerminateCancel;
 }
 @end
 
@@ -215,7 +239,9 @@ void ng_macos_frame_idle(void) {
 }
 
 int ng_macos_run(void) {
+    s_in_nsapp_run = YES;
     [NSApp run];
+    s_in_nsapp_run = NO;
     return NG_SUCCESS;
 }
 
