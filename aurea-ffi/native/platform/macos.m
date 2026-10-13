@@ -11,13 +11,31 @@
 #import <QuartzCore/QuartzCore.h>
 #import <stdatomic.h>
 static BOOL app_initialized = FALSE;
+static BOOL s_in_nsapp_run = NO;
 
 @interface AppDelegate : NSObject <NSApplicationDelegate>
 @end
 
 @implementation AppDelegate
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {
-    return YES;
+    (void)sender;
+    return s_in_nsapp_run;
+}
+
+- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender {
+    if (!s_in_nsapp_run) return NSTerminateNow;
+    [sender stop:nil];
+    NSEvent* nudge = [NSEvent otherEventWithType:NSEventTypeApplicationDefined
+                                        location:NSZeroPoint
+                                   modifierFlags:0
+                                       timestamp:0
+                                    windowNumber:0
+                                         context:nil
+                                         subtype:0
+                                           data1:0
+                                           data2:0];
+    [sender postEvent:nudge atStart:NO];
+    return NSTerminateCancel;
 }
 @end
 
@@ -162,14 +180,24 @@ static void ng_macos_wake_wait(void) {
                                           data2:0];
     [NSApp postEvent:wake atStart:NO];
 }
-void ng_macos_request_frame(void) {
-    ng_macos_wake_wait();
+static void request_frame_on_main(void) {
     if (s_using_legacy) {
         legacy_display_link_request_frame();
     } else if (@available(macOS 14.0, *)) {
         if (s_display_link) {
             s_display_link.paused = NO;
         }
+    }
+}
+
+void ng_macos_request_frame(void) {
+    ng_macos_wake_wait();
+    if ([NSThread isMainThread]) {
+        request_frame_on_main();
+    } else {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            request_frame_on_main();
+        });
     }
 }
 
@@ -184,7 +212,9 @@ void ng_macos_frame_idle(void) {
 }
 
 int ng_macos_run(void) {
+    s_in_nsapp_run = YES;
     [NSApp run];
+    s_in_nsapp_run = NO;
     return NG_SUCCESS;
 }
 

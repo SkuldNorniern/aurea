@@ -15,7 +15,9 @@ pub struct Bounds {
 fn premul(image: &Image, x: i32, y: i32) -> [f32; 4] {
     let (x, y) = (x.unsigned_abs() as usize, y.unsigned_abs() as usize);
     let i = (y * image.width as usize + x) * 4;
-    let px = &image.data[i..i + 4];
+    let Some(px) = image.data.get(i..i + 4) else {
+        return [0.0; 4];
+    };
     let a = f32::from(px[3]) / 255.0;
     [
         f32::from(px[0]) * a,
@@ -37,6 +39,9 @@ fn pack(c: [f32; 4], alpha: f32) -> u32 {
 
 /// Bilinear sample at image position `(u, v)`, pixel centres at `n + 0.5`.
 pub fn bilinear(image: &Image, b: Bounds, u: f32, v: f32, alpha: f32) -> u32 {
+    if b.x0 > b.x1 || b.y0 > b.y1 {
+        return 0;
+    }
     let (u, v) = (u - 0.5, v - 0.5);
     let (fx, fy) = (u.floor(), v.floor());
     let (tx, ty) = (u - fx, v - fy);

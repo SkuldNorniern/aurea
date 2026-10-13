@@ -688,9 +688,11 @@ impl Gpu2dBackend for WgpuBackend<'_> {
             });
 
             pass.set_bind_group(0, &self.viewport_bind_group, &[]);
+            let vw = plan.viewport_width.min(self.config.width);
+            let vh = plan.viewport_height.min(self.config.height);
             for (i, draw) in plan.order.iter().enumerate() {
                 let clip = plan.clips.get(i).copied().flatten();
-                if !set_clip(&mut pass, clip, plan.viewport_width, plan.viewport_height) {
+                if !set_clip(&mut pass, clip, vw, vh) {
                     continue;
                 }
                 self.record(&mut pass, plan, *draw);

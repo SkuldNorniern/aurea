@@ -15,7 +15,8 @@ int ng_macos_combo_box_add_item(NGHandle combo_box, const char* item) {
     
     NSPopUpButton* comboBox = (__bridge NSPopUpButton*)combo_box;
     NSString* nsItem = ng_macos_to_nsstring(item);
-    [comboBox addItemWithTitle:nsItem];
+    [[comboBox menu] addItemWithTitle:nsItem action:nil keyEquivalent:@""];
+    [comboBox synchronizeTitleAndSelectedItem];
     
     return NG_SUCCESS;
 }

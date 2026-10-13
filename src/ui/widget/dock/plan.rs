@@ -4,6 +4,8 @@ use std::fmt::Write;
 
 use super::tree::{DockAxis, DockTree};
 
+const MAX_DEPTH: usize = 64;
+
 /// A dock arrangement: groups of tabs, split side by side or one above the other.
 #[derive(Clone, Debug, PartialEq)]
 pub enum DockPlan<P> {
@@ -58,7 +60,7 @@ impl<P: Copy + PartialEq> DockPlan<P> {
     /// Reads [`to_text`](Self::to_text)'s output, each name read back by `parse`.
     pub fn from_text(text: &str, parse: impl Fn(&str) -> Option<P> + Copy) -> Option<Self> {
         let mut r = Reader { s: text, i: 0 };
-        let plan = r.plan(parse)?;
+        let plan = r.plan(parse, 0)?;
         r.skip_spaces();
         (r.i == r.s.len()).then_some(plan)
     }
@@ -92,13 +94,20 @@ impl<'a> Reader<'a> {
         (!word.is_empty()).then_some(word)
     }
 
-    fn plan<P>(&mut self, parse: impl Fn(&str) -> Option<P> + Copy) -> Option<DockPlan<P>> {
+    fn plan<P>(
+        &mut self,
+        parse: impl Fn(&str) -> Option<P> + Copy,
+        depth: usize,
+    ) -> Option<DockPlan<P>> {
+        if depth > MAX_DEPTH {
+            return None;
+        }
         let kind = self.word()?;
         self.eat("(")?;
         let plan = match kind {
             "tabs" => self.tabs(parse)?,
-            "row" => self.split(DockAxis::Row, parse)?,
-            "col" => self.split(DockAxis::Column, parse)?,
+            "row" => self.split(DockAxis::Row, parse, depth)?,
+            "col" => self.split(DockAxis::Column, parse, depth)?,
             _ => return None,
         };
         self.eat(")")?;
@@ -119,12 +128,13 @@ impl<'a> Reader<'a> {
         &mut self,
         axis: DockAxis,
         parse: impl Fn(&str) -> Option<P> + Copy,
+        depth: usize,
     ) -> Option<DockPlan<P>> {
         let ratio = self.word()?.parse().ok()?;
         self.eat(",")?;
-        let first = Box::new(self.plan(parse)?);
+        let first = Box::new(self.plan(parse, depth + 1)?);
         self.eat(",")?;
-        let second = Box::new(self.plan(parse)?);
+        let second = Box::new(self.plan(parse, depth + 1)?);
         Some(DockPlan::Split {
             axis,
             ratio,
@@ -205,6 +215,19 @@ mod tests {
         );
         assert!(DockPlan::from_text("row(x, tabs(0: tools), tabs(0: canvas))", parse).is_none());
         assert!(DockPlan::from_text("tabs(0: tools) extra", parse).is_none());
+    }
+
+    #[test]
+    fn nesting_past_the_limit_is_refused() {
+        let nest = |depth: usize| {
+            let mut text = "tabs(0: tools)".to_string();
+            for _ in 0..depth {
+                text = format!("row(0.5, {text}, tabs(0: canvas))");
+            }
+            text
+        };
+        assert!(DockPlan::from_text(&nest(10), parse).is_some());
+        assert!(DockPlan::from_text(&nest(100), parse).is_none());
     }
 
     #[test]

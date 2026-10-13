@@ -5,6 +5,9 @@ use log::error;
 use std::sync::{LazyLock, Mutex};
 use std::thread::{ThreadId, current};
 
+#[cfg(target_vendor = "apple")]
+use std::os::raw::c_int;
+
 static UI_THREAD: LazyLock<Mutex<Option<ThreadId>>> = LazyLock::new(|| Mutex::new(None));
 
 pub(crate) fn claim() -> AureaResult<()> {
@@ -23,7 +26,7 @@ fn is_process_main_thread() -> bool {
 #[cfg(target_vendor = "apple")]
 fn is_process_main_thread() -> bool {
     unsafe extern "C" {
-        fn pthread_main_np() -> std::os::raw::c_int;
+        fn pthread_main_np() -> c_int;
     }
     unsafe { pthread_main_np() != 0 }
 }

@@ -6,10 +6,8 @@ use std::slice;
 /// A renderer's finished pixels, borrowed for as long as the renderer is.
 #[derive(Debug, Clone, Copy)]
 pub struct FrameOutput<'a> {
-    /// Start of the pixel data.
-    pub pixels: *const u8,
-    /// Length in bytes.
-    pub size: usize,
+    pixels: *const u8,
+    size: usize,
     pub width: u32,
     pub height: u32,
     words: &'a [u32],
@@ -40,6 +38,14 @@ impl<'a> FrameOutput<'a> {
             height,
             words,
         })
+    }
+    /// Start of the pixel data.
+    pub fn pixels(&self) -> *const u8 {
+        self.pixels
+    }
+    /// Length of the pixel data in bytes.
+    pub fn size(&self) -> usize {
+        self.size
     }
     /// The pixel bytes.
     pub fn bytes(&self) -> &'a [u8] {

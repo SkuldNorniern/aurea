@@ -13,7 +13,11 @@ pub fn open_path(path: &Path) -> AureaResult<()> {
         spawn(Command::new("explorer.exe").arg(path))
     } else if cfg!(target_os = "macos") {
         spawn(Command::new("open").arg(path))
-    } else if cfg!(all(unix, not(target_os = "android"), not(target_os = "ios"))) {
+    } else if cfg!(all(
+        unix,
+        not(target_os = "android"),
+        not(target_os = "ios")
+    )) {
         spawn(Command::new("xdg-open").arg(path))
     } else {
         unsupported("open_path")
@@ -33,7 +37,12 @@ pub fn reveal_path(path: &Path) -> AureaResult<()> {
     {
         return spawn(Command::new("open").arg("-R").arg(path));
     }
-    #[cfg(all(unix, not(target_os = "macos"), not(target_os = "android"), not(target_os = "ios")))]
+    #[cfg(all(
+        unix,
+        not(target_os = "macos"),
+        not(target_os = "android"),
+        not(target_os = "ios")
+    ))]
     {
         let uri = file_uri(path);
         let shown = Command::new("gdbus")

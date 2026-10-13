@@ -10,7 +10,7 @@ use crate::AureaResult;
 use crate::ffi::*;
 #[cfg(all(feature = "zengpu", target_os = "macos"))]
 use crate::platform::handles::NativeWindowHandle;
-#[cfg(feature = "zengpu")]
+#[cfg(all(feature = "zengpu", not(target_os = "macos")))]
 use crate::platform::handles::native_handle_from_canvas_ptr;
 #[cfg(feature = "zengpu")]
 use crate::platform::zengpu::window_handles;

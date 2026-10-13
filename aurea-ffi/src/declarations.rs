@@ -76,6 +76,8 @@ unsafe extern "C" {
         count: c_int,
     ) -> c_int;
     pub fn ng_platform_window_get_content_view(window: *mut c_void) -> *mut c_void;
+    #[cfg(target_os = "macos")]
+    pub fn ng_macos_window_use_metal_layer(window: *mut c_void) -> c_int;
     pub fn ng_platform_window_show(window: *mut c_void);
     pub fn ng_platform_window_hide(window: *mut c_void);
     pub fn ng_platform_window_set_hide_on_close(window: *mut c_void, hide: c_int) -> c_int;
@@ -140,8 +142,16 @@ unsafe extern "C" {
         checked: c_int,
         radio: c_int,
     ) -> c_int;
-    pub fn ng_platform_menu_item_set_enabled(menu_handle: *mut c_void, id: u32, enabled: c_int) -> c_int;
-    pub fn ng_platform_menu_item_set_checked(menu_handle: *mut c_void, id: u32, checked: c_int) -> c_int;
+    pub fn ng_platform_menu_item_set_enabled(
+        menu_handle: *mut c_void,
+        id: u32,
+        enabled: c_int,
+    ) -> c_int;
+    pub fn ng_platform_menu_item_set_checked(
+        menu_handle: *mut c_void,
+        id: u32,
+        checked: c_int,
+    ) -> c_int;
     pub fn ng_platform_menu_item_set_title(
         menu_handle: *mut c_void,
         id: u32,
