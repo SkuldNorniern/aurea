@@ -3,6 +3,9 @@
 //! Colors are packed as RGBA u32: alpha in the high byte, then red, green, blue.
 //! Each mode combines a source pixel with the existing destination pixel to produce
 //! the final color (e.g. Normal is "over", Multiply darkens, Screen lightens).
+//! Alpha uses source-over for every blend mode, with straight RGB normalized
+//! by the resulting alpha. Blend functions apply only where both layers overlap.
+//! See <https://www.w3.org/TR/compositing-1/#generalformula>.
 
 use crate::numeric::{f32_to_u8_clamped, f32_to_u32_clamped, f32_to_usize_clamped};
 use crate::types::BlendMode;
@@ -112,6 +115,7 @@ impl LinearLuts {
 /// fast path (`sa == 255`) callers already skip blending entirely.
 #[derive(Clone, Copy)]
 pub struct ConstSrc {
+    rgb: u32,
     pub sa: u32,
     pub da_scale: f32, // (255 - sa) / 255 — constant for alpha composition
     pub lr: f32,       // srgb_to_linear(src.r)
@@ -126,6 +130,7 @@ impl ConstSrc {
         let sa = sa(src);
         let cov = sa as f32 / 255.0;
         Self {
+            rgb: src & 0x00ff_ffff,
             sa,
             da_scale: (255 - sa) as f32 / 255.0,
             lr: srgb_to_linear(sr8(src)),
@@ -147,11 +152,20 @@ impl ConstSrc {
             return dst;
         }
         let da = da(dst);
+        if alpha == 255 || da == 0 {
+            return (alpha << 24) | self.rgb;
+        }
         let out_a = alpha + ((255 - alpha) * da) / 255;
         if out_a == 0 {
             return 0;
         }
-        let cov = alpha as f32 / 255.0;
+        let cov = if da == 255 {
+            alpha as f32 / 255.0
+        } else {
+            // Store straight RGB: normalize the premultiplied source-over
+            // result by its alpha instead of mixing with invisible RGB.
+            (alpha * 255) as f32 / (alpha * 255 + (255 - alpha) * da) as f32
+        };
         let inv = 1.0 - cov;
         let out_r = linear_to_srgb_u8(self.lr * cov + srgb_to_linear(dr8(dst)) * inv);
         let out_g = linear_to_srgb_u8(self.lg * cov + srgb_to_linear(dg8(dst)) * inv);
@@ -164,25 +178,44 @@ impl ConstSrc {
     /// `srgb_to_linear` calls.
     #[inline]
     pub fn over(self, dst: u32) -> u32 {
-        if self.sa == 0 {
-            return dst;
-        }
-        let da = da(dst);
-        let out_a = self.sa + ((255 - self.sa) * da) / 255;
-        if out_a == 0 {
-            return 0;
-        }
-        let inv = 1.0 - self.cov;
-        let out_r = linear_to_srgb_u8(self.lr * self.cov + srgb_to_linear(dr8(dst)) * inv);
-        let out_g = linear_to_srgb_u8(self.lg * self.cov + srgb_to_linear(dg8(dst)) * inv);
-        let out_b = linear_to_srgb_u8(self.lb * self.cov + srgb_to_linear(db8(dst)) * inv);
-        (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b
+        self.over_at_alpha(dst, self.sa)
     }
 }
 
 /// Composites a source pixel onto a destination pixel using the given blend mode.
 /// Returns the resulting color as RGBA u32.
 pub fn blend_pixel(src: u32, dst: u32, mode: BlendMode) -> u32 {
+    if mode == BlendMode::Normal {
+        return blend_over(src, dst);
+    }
+    let source_alpha = sa(src);
+    let dest_alpha = da(dst);
+    if source_alpha == 0 {
+        return dst;
+    }
+    if dest_alpha == 0 {
+        return src;
+    }
+    let blended = blend_opaque(src | 0xff00_0000, dst | 0xff00_0000, mode);
+    if source_alpha == 255 && dest_alpha == 255 {
+        return blended;
+    }
+    // Blend only the overlap; composite source-only and backdrop-only regions
+    // with source-over, then normalize back to straight RGB (W3C compositing).
+    let overlap = source_alpha * dest_alpha;
+    let source_only = source_alpha * (255 - dest_alpha);
+    let dest_only = dest_alpha * (255 - source_alpha);
+    let total = overlap + source_only + dest_only;
+    let channel = |s: u32, d: u32, b: u32| {
+        (s * source_only + d * dest_only + b * overlap + total / 2) / total
+    };
+    ((total / 255) << 24)
+        | (channel(sr(src), dr(dst), sr(blended)) << 16)
+        | (channel(sg(src), dg(dst), sg(blended)) << 8)
+        | channel(sb(src), db(dst), sb(blended))
+}
+
+fn blend_opaque(src: u32, dst: u32, mode: BlendMode) -> u32 {
     match mode {
         BlendMode::Normal => blend_over(src, dst),
         BlendMode::Multiply => blend_multiply(src, dst),
@@ -250,19 +283,7 @@ fn blend_over(src: u32, dst: u32) -> u32 {
     if sa == 0 {
         return dst;
     }
-    let da = da(dst);
-    let inv_sa = 255 - sa;
-    let out_a = sa + (inv_sa * da) / 255;
-    if out_a == 0 {
-        return 0;
-    }
-    // Composite the colour channels in linear light for smooth antialiased edges.
-    let cov = sa as f32 / 255.0;
-    let inv = 1.0 - cov;
-    let out_r = linear_to_srgb_u8(srgb_to_linear(sr8(src)) * cov + srgb_to_linear(dr8(dst)) * inv);
-    let out_g = linear_to_srgb_u8(srgb_to_linear(sg8(src)) * cov + srgb_to_linear(dg8(dst)) * inv);
-    let out_b = linear_to_srgb_u8(srgb_to_linear(sb8(src)) * cov + srgb_to_linear(db8(dst)) * inv);
-    (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b
+    ConstSrc::new(src).over(dst)
 }
 
 fn blend_multiply(src: u32, dst: u32) -> u32 {
@@ -485,6 +506,80 @@ mod tests {
 
     fn rgba(r: u8, g: u8, b: u8, a: u8) -> u32 {
         (u32::from(a) << 24) | (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
+    }
+
+    const MODES: [BlendMode; 12] = [
+        BlendMode::Normal,
+        BlendMode::Multiply,
+        BlendMode::Screen,
+        BlendMode::Overlay,
+        BlendMode::Darken,
+        BlendMode::Lighten,
+        BlendMode::ColorDodge,
+        BlendMode::ColorBurn,
+        BlendMode::HardLight,
+        BlendMode::SoftLight,
+        BlendMode::Difference,
+        BlendMode::Exclusion,
+    ];
+
+    #[test]
+    fn transparent_colors_do_not_affect_compositing() {
+        let src = rgba(210, 50, 130, 128);
+        let dst = rgba(30, 160, 90, 96);
+        for mode in MODES {
+            assert_eq!(
+                blend_pixel(rgba(250, 10, 200, 0), dst, mode),
+                dst,
+                "{mode:?}"
+            );
+            assert_eq!(
+                blend_pixel(src, rgba(10, 250, 20, 0), mode),
+                src,
+                "{mode:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn blend_modes_use_source_over_alpha() {
+        for mode in MODES {
+            for source_alpha in [1u8, 64, 128, 254, 255] {
+                for dest_alpha in [1u8, 96, 128, 254, 255] {
+                    let actual = blend_pixel(
+                        rgba(200, 80, 20, source_alpha),
+                        rgba(20, 100, 220, dest_alpha),
+                        mode,
+                    );
+                    let expected = u32::from(source_alpha)
+                        + (255 - u32::from(source_alpha)) * u32::from(dest_alpha) / 255;
+                    assert_eq!(actual >> 24, expected, "{mode:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn translucent_multiply_blends_only_the_overlap() {
+        assert_eq!(
+            blend_pixel(
+                rgba(255, 0, 0, 128),
+                rgba(0, 0, 255, 128),
+                BlendMode::Multiply
+            ),
+            rgba(85, 0, 85, 191)
+        );
+    }
+
+    #[test]
+    fn normal_translucent_layers_preserve_straight_rgb() {
+        let src = rgba(255, 0, 0, 128);
+        assert_eq!(blend_pixel(src, 0, BlendMode::Normal), src);
+        let result = blend_pixel(src, rgba(0, 0, 255, 128), BlendMode::Normal);
+        assert_eq!(result >> 24, 191);
+        assert!(sr(result).abs_diff(213) <= 1, "{result:#010x}");
+        assert!(sb(result).abs_diff(156) <= 1, "{result:#010x}");
+        assert_eq!(ConstSrc::new(src).over(0), src);
     }
 
     /// Hoisting the source colour out of the per-pixel loop has to produce the
