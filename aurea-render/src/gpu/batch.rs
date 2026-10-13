@@ -242,6 +242,9 @@ fn drawable_alpha(item: &DisplayItem) -> Option<f32> {
 
 /// The kinds of drawing `item` takes.
 fn needs_of(item: &DisplayItem) -> GpuFeatures {
+    if matches!(item.command, DrawCommand::Clear(_)) {
+        return GpuFeatures::NONE;
+    }
     let mut needs = match &item.command {
         DrawCommand::Clear(_) | DrawCommand::DrawRect(..) => GpuFeatures::NONE,
         DrawCommand::DrawRoundRect(..) => GpuFeatures {
@@ -446,7 +449,7 @@ impl RenderBatches {
         // would report every draw the backend has ever passed over.
         self.dropped = 0;
         self.needs = GpuFeatures::NONE;
-        for item in list.items() {
+        for item in list.items_since_clear() {
             self.needs = self.needs.union(needs_of(item));
             self.lower_item(item);
             self.clips.resize(self.order.len(), item.clip);
@@ -474,6 +477,12 @@ impl RenderBatches {
     /// relying on one is left out rather than drawn without it: a trace at the
     /// wrong opacity is worse than a missing one.
     fn lower_item(&mut self, item: &DisplayItem) {
+        // Clear replaces the frame, independent of opacity, clip or blending,
+        // matching the CPU rasterizer's clear command.
+        if let DrawCommand::Clear(color) = item.command {
+            self.clear = Some(color);
+            return;
+        }
         {
             let Some(alpha) = drawable_alpha(item) else {
                 // Fully transparent: leaving it out is what drawing it would
@@ -486,16 +495,7 @@ impl RenderBatches {
             }
 
             match &item.command {
-                DrawCommand::Clear(color) => {
-                    self.clear = Some(*color);
-                    self.rects.clear();
-                    self.gradients.clear();
-                    self.images.clear();
-                    self.texts.clear();
-                    self.shapes.clear();
-                    self.order.clear();
-                    self.clips.clear();
-                }
+                DrawCommand::Clear(_) => {}
                 DrawCommand::DrawRect(rect, paint) if paint.style == PaintStyle::Fill => {
                     self.push_rect(*rect, fade(paint.color, alpha));
                 }
@@ -1179,6 +1179,37 @@ mod tests {
             b.rects.is_empty(),
             "clear must discard rects drawn before it"
         );
+    }
+
+    #[test]
+    fn clear_discards_erased_requirements_and_ignores_drawing_state() {
+        let mut list = DisplayList::new();
+        let mut erased = item(DrawCommand::DrawRect(
+            Rect::new(0.0, 0.0, 4.0, 4.0),
+            Paint::new(),
+        ));
+        erased.blend_mode = BlendMode::Multiply;
+        list.push(erased);
+        let mut clear = item(DrawCommand::Clear(Color::rgba(10, 20, 30, 0)));
+        clear.opacity = 0.0;
+        clear.blend_mode = BlendMode::Multiply;
+        clear.clip = Some(Rect::new(0.0, 0.0, 1.0, 1.0));
+        list.push(clear);
+        let batches = RenderBatches::lower(&list);
+        assert_eq!(batches.clear, Some(Color::rgba(10, 20, 30, 0)));
+        assert_eq!(batches.dropped, 0);
+        assert_eq!(batches.needs, GpuFeatures::NONE);
+        assert!(batches.order.is_empty());
+
+        // Reusing the list for a frame without a clear must keep its draws.
+        list.clear();
+        list.push(item(DrawCommand::DrawRect(
+            Rect::new(0.0, 0.0, 4.0, 4.0),
+            Paint::new(),
+        )));
+        let batches = RenderBatches::lower(&list);
+        assert_eq!(batches.clear, None);
+        assert_eq!(batches.rects.len(), 1);
     }
 
     /// A border used to vanish on the GPU: the stroke arm fell through to the
