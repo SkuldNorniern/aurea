@@ -1021,6 +1021,17 @@ int ng_macos_window_set_ime_cursor_area(NGHandle window, float x, float y, float
     return NG_SUCCESS;
 }
 
+/* Diagonal resize cursors are private. Use one only if this macOS has it. */
+static NSCursor* diagonalResizeCursor(NSString* selectorName) {
+    SEL selector = NSSelectorFromString(selectorName);
+    if (![NSCursor respondsToSelector:selector]) return [NSCursor crosshairCursor];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+    NSCursor* cursor = [NSCursor performSelector:selector];
+#pragma clang diagnostic pop
+    return cursor ?: [NSCursor crosshairCursor];
+}
+
 int ng_macos_window_set_cursor_icon(NGHandle window, int icon) {
     if (!window) return NG_ERROR_INVALID_HANDLE;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
@@ -1036,6 +1047,8 @@ int ng_macos_window_set_cursor_icon(NGHandle window, int icon) {
         case 5: cursor = [NSCursor resizeLeftRightCursor]; break;
         case 6: cursor = [NSCursor resizeUpDownCursor]; break;
         case 7: cursor = [NSCursor operationNotAllowedCursor]; break;
+        case 9: cursor = diagonalResizeCursor(@"_windowResizeNorthWestSouthEastCursor"); break;
+        case 10: cursor = diagonalResizeCursor(@"_windowResizeNorthEastSouthWestCursor"); break;
         default: cursor = [NSCursor arrowCursor]; break; // no public busy cursor
     }
     ((AureaContentView*)view).cursor = cursor;

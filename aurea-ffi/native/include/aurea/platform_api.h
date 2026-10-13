@@ -53,7 +53,7 @@ int ng_platform_window_is_focused(NGHandle window);
 int ng_platform_window_set_cursor_visible(NGHandle window, int visible);
 int ng_platform_window_set_cursor_grab(NGHandle window, int mode);
 /* icon: 0 default, 1 pointer, 2 text, 3 crosshair, 4 move, 5 resize ew,
-   6 resize ns, 7 not allowed, 8 wait. */
+   6 resize ns, 7 not allowed, 8 wait, 9 resize nwse, 10 resize nesw. */
 int ng_platform_window_set_cursor_icon(NGHandle window, int icon);
 /* Where the text caret is, in logical pixels relative to the content, so the
    input method can place its candidate window next to it. */

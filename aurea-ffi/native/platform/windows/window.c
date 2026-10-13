@@ -592,6 +592,8 @@ int ng_windows_window_set_cursor_icon(NGHandle window, int icon) {
         case 6: id = IDC_SIZENS; break;
         case 7: id = IDC_NO; break;
         case 8: id = IDC_WAIT; break;
+        case 9: id = IDC_SIZENWSE; break;
+        case 10: id = IDC_SIZENESW; break;
         default: id = IDC_ARROW; break;
     }
     HCURSOR cursor = LoadCursor(NULL, id);
