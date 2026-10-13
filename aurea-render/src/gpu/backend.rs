@@ -23,6 +23,14 @@ pub trait Gpu2dBackend {
     /// fragment shader's bindless texture array.
     fn upload_image(&mut self, width: u32, height: u32, rgba: &[u8]) -> AureaResult<u32>;
 
+    /// Like [`upload_image`](Self::upload_image), with a mip chain made on the device, for an image
+    /// drawn with [`Sampling::Smooth`] smaller than it is.
+    ///
+    /// [`Sampling::Smooth`]: crate::Sampling::Smooth
+    fn upload_image_mipmapped(&mut self, width: u32, height: u32, rgba: &[u8]) -> AureaResult<u32> {
+        self.upload_image(width, height, rgba)
+    }
+
     /// Release the GPU texture at `shader_slot` (previously returned by
     /// [`upload_image`](Self::upload_image)).
     fn evict_image(&mut self, shader_slot: u32);
