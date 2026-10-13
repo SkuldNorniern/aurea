@@ -130,6 +130,7 @@ static const ng_platform_ops_t linux_ops = {
     .sidebar_list_clear = ng_linux_sidebar_list_clear,
     .sidebar_list_invalidate = ng_linux_sidebar_list_invalidate,
     .file_dialog = ng_linux_file_dialog,
+    .message_box = ng_linux_message_box,
     .get_clipboard_text = ng_linux_get_clipboard_text,
     .free_clipboard_text = ng_linux_free_clipboard_text,
     .set_clipboard_text = ng_linux_set_clipboard_text,

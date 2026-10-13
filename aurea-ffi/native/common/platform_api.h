@@ -98,6 +98,11 @@ int ng_platform_menu_clear(NGMenuHandle menu);
 char* ng_platform_file_dialog(NGHandle window, int kind, const char* title, const char* filters, const char* default_name, const char* directory, int multiple);
 void ng_platform_free_dialog_paths(char* paths);
 
+/* A message box: NG_MESSAGE_INFO, WARNING or ERROR, and NG_MESSAGE_BUTTONS_*.
+   Returns an NG_CHOICE_* once the person answers, or an NG_ERROR_* on failure.
+   Closing it without a button gives the answer the buttons leave room for. */
+int ng_platform_message_box(NGHandle window, int kind, const char* title, const char* text, int buttons);
+
 // Elements
 NGHandle ng_platform_create_button(const char* title, unsigned int id);
 void ng_platform_button_invalidate(NGHandle button);

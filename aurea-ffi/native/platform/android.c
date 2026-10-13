@@ -624,3 +624,8 @@ char* ng_platform_file_dialog(NGHandle window, int kind, const char* title, cons
 void ng_platform_free_dialog_paths(char* paths) {
     free(paths);
 }
+
+int ng_platform_message_box(NGHandle window, int kind, const char* title, const char* text, int buttons) {
+    (void)window; (void)kind; (void)title; (void)text; (void)buttons;
+    return NG_ERROR_UNSUPPORTED;
+}

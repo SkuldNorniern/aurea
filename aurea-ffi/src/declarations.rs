@@ -172,6 +172,13 @@ unsafe extern "C" {
         multiple: c_int,
     ) -> *mut c_char;
     pub fn ng_platform_free_dialog_paths(paths: *mut c_char);
+    pub fn ng_platform_message_box(
+        window: *mut c_void,
+        kind: c_int,
+        title: *const c_char,
+        text: *const c_char,
+        buttons: c_int,
+    ) -> c_int;
 
     // Clipboard
     pub fn ng_platform_get_clipboard_text() -> *mut c_char;

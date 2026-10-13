@@ -1,9 +1,12 @@
-/* Open, save and folder dialogs through the shell's IFileDialog. */
+/* Open, save and folder dialogs through the shell's IFileDialog, and message
+   boxes through TaskDialogIndirect. */
 
 #define COBJMACROS
 #include "dialog.h"
 #include "utils.h"
+#include "common/errors.h"
 #include <windows.h>
+#include <commctrl.h>
 #include <shobjidl.h>
 #include <stdlib.h>
 #include <string.h>
@@ -197,5 +200,146 @@ char* ng_windows_file_dialog(NGHandle window, int kind, const char* title, const
         IFileDialog_Release(dialog);
     }
     if (SUCCEEDED(init)) CoUninitialize();
+    return result;
+}
+
+/* Ids of the custom buttons; the standard ones have their own. */
+#define ID_SAVE 1001
+#define ID_DISCARD 1002
+
+/* The answer a button stands for. Closing the box gives Cancel where the
+   buttons have one, else No or OK. */
+static int choice_of(int button, int buttons) {
+    switch (button) {
+    case IDOK: return NG_CHOICE_OK;
+    case IDYES: return NG_CHOICE_YES;
+    case IDNO: return NG_CHOICE_NO;
+    case ID_SAVE: return NG_CHOICE_SAVE;
+    case ID_DISCARD: return NG_CHOICE_DISCARD;
+    default: break;
+    }
+    if (buttons == NG_MESSAGE_BUTTONS_YES_NO) return NG_CHOICE_NO;
+    if (buttons == NG_MESSAGE_BUTTONS_OK) return NG_CHOICE_OK;
+    return NG_CHOICE_CANCEL;
+}
+
+static TASKDIALOG_COMMON_BUTTON_FLAGS common_buttons_of(int buttons) {
+    switch (buttons) {
+    case NG_MESSAGE_BUTTONS_OK_CANCEL: return TDCBF_OK_BUTTON | TDCBF_CANCEL_BUTTON;
+    case NG_MESSAGE_BUTTONS_YES_NO: return TDCBF_YES_BUTTON | TDCBF_NO_BUTTON;
+    case NG_MESSAGE_BUTTONS_SAVE_DISCARD_CANCEL: return TDCBF_CANCEL_BUTTON;
+    default: return TDCBF_OK_BUTTON;
+    }
+}
+
+static const TASKDIALOG_BUTTON save_discard_buttons[] = {
+    {ID_SAVE, L"Save"},
+    {ID_DISCARD, L"Don't Save"},
+};
+
+static PCWSTR icon_of(int kind) {
+    switch (kind) {
+    case NG_MESSAGE_WARNING: return TD_WARNING_ICON;
+    case NG_MESSAGE_ERROR: return TD_ERROR_ICON;
+    default: return TD_INFORMATION_ICON;
+    }
+}
+
+typedef HRESULT (WINAPI* TaskDialogIndirectFn)(const TASKDIALOGCONFIG*, int*, int*, BOOL*);
+
+/* An activation context asking for comctl32 v6, made once, so the task
+   dialog works whatever manifest the program has. Windows keeps the v6
+   manifest as resource 124 of shell32, the one isolation-aware code uses.
+   INVALID_HANDLE_VALUE when it cannot be made. */
+static HANDLE common_controls_v6(void) {
+    static HANDLE context = NULL;
+    if (context) return context;
+    wchar_t dir[MAX_PATH];
+    wchar_t shell32[MAX_PATH];
+    UINT len = GetSystemDirectoryW(dir, MAX_PATH);
+    if (len == 0 || len >= MAX_PATH - 12) {
+        context = INVALID_HANDLE_VALUE;
+        return context;
+    }
+    wcscpy_s(shell32, MAX_PATH, dir);
+    wcscat_s(shell32, MAX_PATH, L"\\shell32.dll");
+    ACTCTXW act;
+    memset(&act, 0, sizeof act);
+    act.cbSize = sizeof act;
+    act.dwFlags = ACTCTX_FLAG_RESOURCE_NAME_VALID | ACTCTX_FLAG_ASSEMBLY_DIRECTORY_VALID;
+    act.lpSource = shell32;
+    act.lpAssemblyDirectory = dir;
+    act.lpResourceName = MAKEINTRESOURCEW(124);
+    context = CreateActCtxW(&act);
+    return context;
+}
+
+/* The same box through MessageBoxW, for a program without the comctl32 v6
+   manifest. It has no Save and Don't Save, so those ride on Yes and No. */
+static int plain_message_box(HWND owner, int kind, const wchar_t* title, const wchar_t* text, int buttons) {
+    UINT flags = MB_OK;
+    switch (buttons) {
+    case NG_MESSAGE_BUTTONS_OK_CANCEL: flags = MB_OKCANCEL; break;
+    case NG_MESSAGE_BUTTONS_YES_NO: flags = MB_YESNO; break;
+    case NG_MESSAGE_BUTTONS_SAVE_DISCARD_CANCEL: flags = MB_YESNOCANCEL; break;
+    default: break;
+    }
+    flags |= kind == NG_MESSAGE_ERROR ? MB_ICONERROR
+        : kind == NG_MESSAGE_WARNING ? MB_ICONWARNING : MB_ICONINFORMATION;
+    if (owner) ng_windows_modal_begin(owner);
+    int button = MessageBoxW(owner, text, title, flags);
+    if (owner) ng_windows_modal_end(owner);
+    if (button == 0) return NG_ERROR_PLATFORM_SPECIFIC;
+    if (buttons == NG_MESSAGE_BUTTONS_SAVE_DISCARD_CANCEL) {
+        if (button == IDYES) return NG_CHOICE_SAVE;
+        if (button == IDNO) return NG_CHOICE_DISCARD;
+    }
+    return choice_of(button, buttons);
+}
+
+int ng_windows_message_box(NGHandle window, int kind, const char* title, const char* text, int buttons) {
+    HWND owner = (HWND)window;
+    wchar_t* wide_title = ng_windows_utf8_to_wide(title);
+    wchar_t* wide_text = ng_windows_utf8_to_wide(text);
+    TASKDIALOGCONFIG config;
+    memset(&config, 0, sizeof config);
+    config.cbSize = sizeof config;
+    config.hwndParent = owner;
+    /* Escape and the close box answer as Cancel, or No or OK, see choice_of. */
+    config.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION;
+    config.pszWindowTitle = wide_title;
+    config.pszContent = wide_text;
+    config.pszMainIcon = icon_of(kind);
+    config.dwCommonButtons = common_buttons_of(buttons);
+    if (buttons == NG_MESSAGE_BUTTONS_SAVE_DISCARD_CANCEL) {
+        config.pButtons = save_discard_buttons;
+        config.cButtons = (UINT)(sizeof save_discard_buttons / sizeof save_discard_buttons[0]);
+    }
+
+    /* Looked up at run time, inside the v6 context: a static import fails
+       to start a program without the v6 manifest, and the v5 library has
+       no TaskDialogIndirect. Should both fail, MessageBoxW stands in. */
+    int result;
+    HANDLE v6 = common_controls_v6();
+    ULONG_PTR cookie = 0;
+    BOOL activated = v6 != INVALID_HANDLE_VALUE && ActivateActCtx(v6, &cookie);
+    HMODULE comctl = LoadLibraryW(L"comctl32.dll");
+    TaskDialogIndirectFn task_dialog = comctl
+        ? (TaskDialogIndirectFn)GetProcAddress(comctl, "TaskDialogIndirect")
+        : NULL;
+    if (task_dialog) {
+        /* The box runs its own message loop; frames keep coming. */
+        int button = 0;
+        if (owner) ng_windows_modal_begin(owner);
+        HRESULT shown = task_dialog(&config, &button, NULL, NULL);
+        if (owner) ng_windows_modal_end(owner);
+        result = FAILED(shown) ? NG_ERROR_PLATFORM_SPECIFIC : choice_of(button, buttons);
+    } else {
+        result = plain_message_box(owner, kind, wide_title, wide_text, buttons);
+    }
+    if (comctl) FreeLibrary(comctl);
+    if (activated) DeactivateActCtx(0, cookie);
+    free(wide_title);
+    free(wide_text);
     return result;
 }

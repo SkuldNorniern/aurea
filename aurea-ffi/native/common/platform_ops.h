@@ -151,6 +151,7 @@ typedef struct ng_platform_ops {
     NGHandle (*create_swiftui_host)(int width, int height);
 
     char* (*file_dialog)(NGHandle window, int kind, const char* title, const char* filters, const char* default_name, const char* directory, int multiple);
+    int (*message_box)(NGHandle window, int kind, const char* title, const char* text, int buttons);
 
     /* Clipboard (global, not per-window) */
     char* (*get_clipboard_text)(void);
