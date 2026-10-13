@@ -4,7 +4,6 @@ use std::cell::RefCell;
 use std::os::raw::c_void;
 use std::rc::Rc;
 
-#[cfg(feature = "zengpu")]
 use crate::AureaError;
 use crate::AureaResult;
 #[cfg(feature = "zengpu")]
@@ -32,7 +31,11 @@ pub(super) fn ensure_canvas_renderer(
     renderer: &Rc<RefCell<Option<Box<dyn Renderer>>>>,
     backend: RendererBackend,
 ) -> AureaResult<bool> {
-    if renderer.borrow_mut().is_some() {
+    if renderer
+        .try_borrow()
+        .map_err(|_| AureaError::RenderingFailed)?
+        .is_some()
+    {
         return Ok(true);
     }
     if backend != RendererBackend::ZenGpu {
@@ -72,7 +75,10 @@ pub(super) fn ensure_canvas_renderer(
     renderer: &Rc<RefCell<Option<Box<dyn Renderer>>>>,
     _backend: RendererBackend,
 ) -> AureaResult<bool> {
-    Ok(renderer.borrow_mut().is_some())
+    Ok(renderer
+        .try_borrow()
+        .map_err(|_| AureaError::RenderingFailed)?
+        .is_some())
 }
 
 #[cfg(feature = "zengpu")]
