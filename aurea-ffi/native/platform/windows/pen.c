@@ -43,6 +43,15 @@ static float ng_windows_pen_pressure(const POINTER_PEN_INFO* pen) {
     return (pen->pointerInfo.pointerFlags & POINTER_FLAG_INCONTACT) ? 1.0f : 0.0f;
 }
 
+static double ng_windows_pen_age(const POINTER_INFO* info) {
+    if (info->PerformanceCount == 0) return 0.0;
+    LARGE_INTEGER now, frequency;
+    if (!QueryPerformanceCounter(&now) || !QueryPerformanceFrequency(&frequency) || frequency.QuadPart == 0) {
+        return 0.0;
+    }
+    return (double)(now.QuadPart - (LONGLONG)info->PerformanceCount) / (double)frequency.QuadPart;
+}
+
 static void ng_windows_pen_emit(HWND root, const POINTER_PEN_INFO* pen, const RECT* device, const RECT* display,
                                 int mapped, POINT origin, double scale, unsigned int modifiers) {
     double sx, sy;
@@ -63,7 +72,8 @@ static void ng_windows_pen_emit(HWND root, const POINTER_PEN_INFO* pen, const RE
         twist,
         ng_windows_pen_phase(pen->pointerInfo.pointerFlags),
         flags,
-        modifiers);
+        modifiers,
+        ng_windows_pen_age(&pen->pointerInfo));
 }
 
 void ng_windows_pen_message(HWND root, UINT msg, WPARAM wParam) {

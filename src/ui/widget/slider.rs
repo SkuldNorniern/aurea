@@ -278,6 +278,7 @@ mod tests {
             x,
             y: 12.0,
             click_count: clicks,
+            time: Default::default(),
         });
     }
 
@@ -290,6 +291,7 @@ mod tests {
                 shift,
                 ..Modifiers::default()
             },
+            time: Default::default(),
         });
     }
 

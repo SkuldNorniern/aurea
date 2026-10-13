@@ -3,6 +3,8 @@ use std::ffi::CStr;
 use std::os::raw::{c_char, c_int, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
+use std::sync::LazyLock;
+use std::time::{Duration, Instant};
 
 use crate::registry::custom::invoke_custom_callback;
 use crate::registry::elements::{
@@ -143,6 +145,7 @@ pub extern "C" fn ng_invoke_mouse_button(
             y,
             click_count: u8::try_from(click_count.clamp(1, c_int::from(u8::MAX)))
                 .expect("clamped to u8 range"),
+            time: event_time(0.0),
         };
         push_window_event(window, event);
     });
@@ -163,6 +166,7 @@ pub extern "C" fn ng_invoke_mouse_move(
             y,
             buttons: MouseButtons::from_bits(buttons),
             modifiers: Modifiers::from_bits(modifiers),
+            time: event_time(0.0),
         };
         push_window_event(window, event);
     });
@@ -256,6 +260,16 @@ pub extern "C" fn ng_invoke_raw_mouse_motion(window: *mut c_void, delta_x: f64, 
 const PEN_ERASER: u32 = 1;
 const PEN_BARREL: u32 = 2;
 
+static EPOCH: LazyLock<Instant> = LazyLock::new(Instant::now);
+
+fn event_time(age: f64) -> Duration {
+    let now = Instant::now().saturating_duration_since(*EPOCH);
+    if !(0.0..1.0).contains(&age) {
+        return now;
+    }
+    now.saturating_sub(Duration::from_secs_f64(age))
+}
+
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
 pub extern "C" fn ng_invoke_pen(
@@ -269,9 +283,11 @@ pub extern "C" fn ng_invoke_pen(
     phase: u32,
     flags: u32,
     modifiers: u32,
+    age: f64,
 ) {
     guard("ng_invoke_pen", || {
         let sample = PenSample {
+            time: event_time(age),
             x,
             y,
             pressure: pressure.clamp(0.0, 1.0),
@@ -354,6 +370,7 @@ pub extern "C" fn ng_invoke_custom_callback(id: u32) {
 mod tests {
     use super::*;
     use crate::registry::elements::{next_button_id, register_button_callback};
+    use std::thread::sleep;
 
     #[test]
     fn pen_flags_and_phases_read_as_sent() {
@@ -416,5 +433,23 @@ mod tests {
 
         ng_invoke_button_callback(good);
         assert!(ran.get(), "the registry should still work after a panic");
+    }
+
+    #[test]
+    fn event_times_count_back_by_their_age_and_reject_strange_ones() {
+        let _ = *EPOCH;
+        sleep(Duration::from_millis(30));
+        let now = event_time(0.0);
+        let earlier = event_time(0.02);
+        assert!(
+            earlier < now && now - earlier >= Duration::from_millis(19),
+            "{earlier:?} {now:?}"
+        );
+        assert!(event_time(-1.0) >= now, "a negative age is now");
+        assert!(
+            event_time(5.0) >= now,
+            "an age past a second is a clock mismatch"
+        );
+        assert!(event_time(f64::NAN) >= now);
     }
 }

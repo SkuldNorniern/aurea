@@ -141,6 +141,7 @@ mod tests {
                     x: 50.0,
                     y: 15.0,
                     click_count: 1,
+                    time: Default::default(),
                 });
             }
             let mut ctx = raster.begin_frame().expect("frame");

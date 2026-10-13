@@ -142,6 +142,7 @@ mod tests {
             y: 0.0,
             buttons: MouseButtons::default(),
             modifiers: Modifiers::new(),
+            time: Default::default(),
         }
     }
 
@@ -248,12 +249,14 @@ mod tests {
             y: 1.0,
             buttons: MouseButtons::default(),
             modifiers: Modifiers::default(),
+            time: Default::default(),
         });
         q.push(WindowEvent::MouseMove {
             x: 9.0,
             y: 7.0,
             buttons: MouseButtons::default(),
             modifiers: Modifiers::default(),
+            time: Default::default(),
         });
 
         let events = q.pop_all();

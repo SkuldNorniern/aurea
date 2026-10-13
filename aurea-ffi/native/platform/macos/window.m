@@ -255,12 +255,56 @@ static NSString* drag_paths(id<NSDraggingInfo> info) {
     }
 }
 
+enum { AUREA_PEN_HOVER = 0, AUREA_PEN_DOWN = 1, AUREA_PEN_MOVE = 2, AUREA_PEN_UP = 3 };
+enum { AUREA_PEN_ERASER = 1, AUREA_PEN_BARREL = 2 };
+
+static BOOL g_pen_eraser = NO;
+
+static BOOL is_pen_event(NSEvent* event) {
+    switch (event.type) {
+        case NSEventTypeTabletPoint:
+            return YES;
+        case NSEventTypeLeftMouseDown:
+        case NSEventTypeLeftMouseUp:
+        case NSEventTypeLeftMouseDragged:
+        case NSEventTypeMouseMoved:
+            return event.subtype == NSEventSubtypeTabletPoint;
+        default:
+            return NO;
+    }
+}
+
+- (void)reportPen:(NSEvent*)event phase:(unsigned int)phase {
+    if (!self.windowHandle || !is_pen_event(event)) return;
+    NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
+    CGFloat h = [self bounds].size.height;
+    NSPoint tilt = event.tilt;
+    unsigned int flags = g_pen_eraser ? AUREA_PEN_ERASER : 0;
+    if (event.buttonMask & (NSEventButtonMaskPenLowerSide | NSEventButtonMaskPenUpperSide)) {
+        flags |= AUREA_PEN_BARREL;
+    }
+    double age = [[NSProcessInfo processInfo] systemUptime] - event.timestamp;
+    ng_invoke_pen(self.windowHandle, p.x, h - p.y, event.pressure, (float)(tilt.x * 90.0),
+                  (float)(tilt.y * 90.0), event.rotation, phase, flags, ng_macos_modifiers(event), age);
+}
+
+- (void)tabletProximity:(NSEvent*)event {
+    if (event.isEnteringProximity) {
+        g_pen_eraser = event.pointingDeviceType == NSPointingDeviceTypeEraser;
+    }
+}
+
+- (void)tabletPoint:(NSEvent*)event {
+    [self reportPen:event phase:(event.pressure > 0 ? AUREA_PEN_MOVE : AUREA_PEN_HOVER)];
+}
+
 - (void)mouseMoved:(NSEvent*)event {
     if (!self.windowHandle) return;
     NSPoint location = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
     unsigned int buttons = (unsigned int)([NSEvent pressedMouseButtons] & 0xFF);
     ng_invoke_mouse_move(self.windowHandle, location.x, h - location.y, buttons, ng_macos_modifiers(event));
+    [self reportPen:event phase:((buttons & 1) ? AUREA_PEN_MOVE : AUREA_PEN_HOVER)];
 
     int mode = ng_macos_get_cursor_grab_mode(self.windowHandle);
     if (mode == 2) {
@@ -289,6 +333,7 @@ static NSString* drag_paths(id<NSDraggingInfo> info) {
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
     ng_invoke_mouse_button(self.windowHandle, 0, 1, ng_macos_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
+    [self reportPen:event phase:AUREA_PEN_DOWN];
     [self buttonWentDown];
 }
 
@@ -297,6 +342,7 @@ static NSString* drag_paths(id<NSDraggingInfo> info) {
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
     ng_invoke_mouse_button(self.windowHandle, 0, 0, ng_macos_modifiers(event), p.x, h - p.y, 1);
+    [self reportPen:event phase:AUREA_PEN_UP];
     [self buttonWentUp];
 }
 

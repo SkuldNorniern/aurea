@@ -263,6 +263,7 @@ impl<Id: WidgetId> UiState<Id> {
                 y,
                 click_count,
                 modifiers,
+                ..
             } => {
                 let at = point(*x, *y);
                 self.pointer = Some(at);

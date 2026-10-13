@@ -206,6 +206,7 @@ mod tests {
                 x: 5.0,
                 y: 18.0,
                 click_count: 1,
+                time: Default::default(),
             });
             frame(&mut raster, &mut state, &mut picked);
         }

@@ -166,6 +166,7 @@ fn moved(x: f64, y: f64) -> WindowEvent {
         y,
         buttons: MouseButtons::default(),
         modifiers: Modifiers::default(),
+        time: Default::default(),
     }
 }
 

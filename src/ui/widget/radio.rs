@@ -190,6 +190,7 @@ mod tests {
                     x: 20.0,
                     y: 45.0,
                     click_count: 1,
+                    time: Default::default(),
                 },
             );
             frame(&mut raster, &mut state, &mut picked);

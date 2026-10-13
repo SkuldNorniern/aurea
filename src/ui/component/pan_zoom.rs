@@ -305,6 +305,7 @@ mod tests {
             y,
             buttons: MouseButtons::default(),
             modifiers: Modifiers::default(),
+            time: Default::default(),
         }
     }
 
@@ -316,6 +317,7 @@ mod tests {
             x,
             y,
             click_count: 1,
+            time: Default::default(),
         }
     }
 

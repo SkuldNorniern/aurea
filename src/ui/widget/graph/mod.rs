@@ -607,6 +607,7 @@ mod tests {
             y: f64::from(y),
             buttons: MouseButtons::default(),
             modifiers: Modifiers::default(),
+            time: Default::default(),
         });
         rig.send(WindowEvent::MouseWheel {
             delta_x: 0.0,
@@ -626,6 +627,7 @@ mod tests {
                 x: f64::from(x),
                 y: f64::from(y),
                 click_count: 2,
+                time: Default::default(),
             });
         }
         rig.show(&mut graph, None);

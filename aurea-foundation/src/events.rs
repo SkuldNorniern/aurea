@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub enum WindowEvent {
@@ -36,6 +37,7 @@ pub enum WindowEvent {
         y: f64,
         buttons: MouseButtons,
         modifiers: Modifiers,
+        time: Duration,
     },
     RawMouseMotion {
         delta_x: f64,
@@ -49,6 +51,7 @@ pub enum WindowEvent {
         x: f64,
         y: f64,
         click_count: u8,
+        time: Duration,
     },
     /// The wheel or a touchpad scrolled.
     MouseWheel {
@@ -110,6 +113,9 @@ pub struct PenSample {
     /// The barrel button is held.
     pub barrel: bool,
     pub modifiers: Modifiers,
+    /// When the pen was read, as time since a fixed point early in the process, on the host's
+    /// monotonic clock.
+    pub time: Duration,
 }
 
 /// Where a [`PenSample`] falls in a stroke.

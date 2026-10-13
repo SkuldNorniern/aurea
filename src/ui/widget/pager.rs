@@ -173,6 +173,7 @@ mod tests {
             x: 128.0,
             y: 15.0,
             click_count: 1,
+            time: Default::default(),
         });
         frame(&mut state, &mut page);
         assert_eq!(page, 3);

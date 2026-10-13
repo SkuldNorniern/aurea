@@ -50,7 +50,8 @@ void ng_invoke_pen(
     float twist,
     unsigned int phase,
     unsigned int flags,
-    unsigned int modifiers);
+    unsigned int modifiers,
+    double age);
 void ng_invoke_file_drop(void* window, unsigned int kind, double x, double y, const char* paths);
 void ng_invoke_scale_factor_changed(void* window, float scale_factor);
 void ng_invoke_canvas_resized(void* canvas);

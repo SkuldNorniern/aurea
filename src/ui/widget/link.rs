@@ -121,6 +121,7 @@ mod tests {
                     x,
                     y: 15.0,
                     click_count: 1,
+                    time: Default::default(),
                 });
                 frame(&mut state, &mut clicks);
             }
