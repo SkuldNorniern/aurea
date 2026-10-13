@@ -30,13 +30,15 @@ NGHandle ng_ios_create_window_impl(const char* title, int width, int height) {
         g_windowCallbacks = [[NSMutableDictionary alloc] init];
     }
     
+    NSString* nsTitle = title ? [NSString stringWithUTF8String:title] : nil;
+
     dispatch_async(dispatch_get_main_queue(), ^{
         g_mainWindow = delegate.window;
         if (g_mainWindow) {
             g_rootViewController = (AureaViewController*)g_mainWindow.rootViewController;
             
-            if (title && g_rootViewController) {
-                g_rootViewController.title = [NSString stringWithUTF8String:title];
+            if (nsTitle && g_rootViewController) {
+                g_rootViewController.title = nsTitle;
             }
             
             ng_ios_set_main_window_handle((__bridge void*)g_mainWindow);
