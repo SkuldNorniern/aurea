@@ -712,11 +712,7 @@ fn a_radial_gradient_moves_and_scales_with_the_transform() {
 fn an_image_moves_with_the_transform() {
     use aurea_render::Image;
 
-    let image = Image {
-        width: 4,
-        height: 4,
-        data: vec![255u8; 4 * 4 * 4].into(),
-    };
+    let image = Image::new(4, 4, vec![255u8; 4 * 4 * 4]);
 
     let buf = render(|ctx| {
         ctx.translate(10.0, 10.0).expect("translate");
@@ -742,11 +738,7 @@ fn an_image_moves_with_the_transform() {
 fn a_scaled_image_covers_more_ground() {
     use aurea_render::Image;
 
-    let image = Image {
-        width: 4,
-        height: 4,
-        data: vec![255u8; 4 * 4 * 4].into(),
-    };
+    let image = Image::new(4, 4, vec![255u8; 4 * 4 * 4]);
 
     let plain = render(|ctx| {
         ctx.draw_image(&image, Point::new(2.0, 2.0))
