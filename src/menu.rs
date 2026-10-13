@@ -231,7 +231,12 @@ impl MenuBar {
 
     /// Add a submenu to this menu bar.
     pub fn add_submenu(&mut self, title: &str) -> AureaResult<SubMenu> {
-        let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
+        let native = if cfg!(windows) {
+            windows_submenu_title(title)
+        } else {
+            title.to_string()
+        };
+        let title = CString::new(native).map_err(|_| AureaError::InvalidTitle)?;
         let handle = unsafe { ng_platform_create_submenu(self.handle, title.as_ptr()) };
 
         if handle.is_null() {
@@ -436,6 +441,21 @@ enum Kind {
 }
 
 /// `title`, then a tab and the shortcut, which each platform reads.
+/// The title of a top-level submenu on Windows. A title with no `&` gets one
+/// before its first letter or digit, so Alt+letter opens the menu.
+fn windows_submenu_title(title: &str) -> String {
+    if title.contains('&') {
+        return title.to_string();
+    }
+    match title.char_indices().find(|(_, c)| c.is_alphanumeric()) {
+        Some((i, _)) => {
+            let (head, tail) = title.split_at(i);
+            format!("{head}&{tail}")
+        }
+        None => title.to_string(),
+    }
+}
+
 fn label(title: &str, shortcut: Option<MenuShortcut>) -> String {
     match shortcut {
         Some(s) => format!("{}\t{}", title, s.encode_for_platform()),
@@ -537,5 +557,22 @@ mod tests {
         };
         assert_eq!(label("Undo", Some(s)), expected);
         assert_eq!(label("Undo", None), "Undo");
+    }
+
+    #[test]
+    fn windows_submenu_gets_a_mnemonic_on_its_first_letter() {
+        assert_eq!(windows_submenu_title("File"), "&File");
+        assert_eq!(windows_submenu_title("  Edit"), "  &Edit");
+        assert_eq!(windows_submenu_title("2nd"), "&2nd");
+        assert_eq!(windows_submenu_title("Файл"), "&Файл");
+        assert_eq!(windows_submenu_title("..."), "...");
+        assert_eq!(windows_submenu_title(""), "");
+    }
+
+    #[test]
+    fn windows_submenu_keeps_a_title_with_an_ampersand() {
+        assert_eq!(windows_submenu_title("&File"), "&File");
+        assert_eq!(windows_submenu_title("Save &As"), "Save &As");
+        assert_eq!(windows_submenu_title("R&&D"), "R&&D");
     }
 }

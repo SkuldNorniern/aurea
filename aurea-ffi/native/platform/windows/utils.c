@@ -36,6 +36,11 @@ static HWND g_tracked_windows[256] = {0};
 static int g_tracked_count = 0;
 static BOOL g_lifecycle_callbacks[256] = {0};
 static BOOL g_mouse_inside[256] = {0};
+/* The Alt+letter key a menu took, whose release is then not the app's. */
+static WPARAM g_menu_access_key = 0;
+/* An Alt+key a menu shortcut took: its WM_SYSCHAR must not reach
+   DefWindowProc, which would open the menu the letter marks as well. */
+static BOOL g_shortcut_took_syskey = FALSE;
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
@@ -608,8 +613,25 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_SYSKEYDOWN: {
             unsigned int keycode = ng_windows_keycode_from_vk(wParam);
             unsigned int modifiers = ng_windows_modifiers();
+            /* With a menu bar, a lone Alt goes to DefWindowProc, which
+               activates the bar. */
+            if (uMsg == WM_SYSKEYDOWN && wParam == VK_MENU && GetMenu(hwnd)) {
+                break;
+            }
+            /* Alt+letter that a menu title marks opens that menu, as the
+               mnemonic does in DefWindowProc, and the app does not get the
+               key. A menu shortcut on the same key wins, as an accelerator
+               does on Windows. */
+            if (uMsg == WM_SYSKEYDOWN && (modifiers & NG_MOD_ALT) && !(modifiers & NG_MOD_CTRL)
+                && !ng_windows_menu_has_shortcut((void*)hwnd, keycode, modifiers)
+                && ng_windows_menu_takes_key((void*)hwnd, (unsigned int)wParam)) {
+                g_menu_access_key = wParam;
+                break;
+            }
+            g_menu_access_key = 0;
             ng_invoke_key_event((void*)hwnd, keycode, 1, modifiers);
             if (ng_windows_handle_menu_shortcut((void*)hwnd, keycode, modifiers)) {
+                g_shortcut_took_syskey = uMsg == WM_SYSKEYDOWN;
                 return 0;
             }
             /* A lone Alt or F10 makes DefWindowProc enter the modal menu-bar
@@ -623,6 +645,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         }
         case WM_KEYUP:
         case WM_SYSKEYUP: {
+            if (uMsg == WM_SYSKEYUP && wParam == VK_MENU && GetMenu(hwnd)) {
+                break;
+            }
+            if (uMsg == WM_SYSKEYUP && g_menu_access_key != 0 && wParam == g_menu_access_key) {
+                g_menu_access_key = 0;
+                break;
+            }
             unsigned int keycode = ng_windows_keycode_from_vk(wParam);
             ng_invoke_key_event((void*)hwnd, keycode, 0, ng_windows_modifiers());
             if (wParam == VK_MENU || wParam == VK_F10) {
@@ -630,6 +659,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             }
             break;
         }
+        case WM_SYSCHAR:
+            if (g_shortcut_took_syskey) {
+                g_shortcut_took_syskey = FALSE;
+                return 0;
+            }
+            break;
         /* Not WM_SYSCHAR: Alt with a letter is a menu key or a shortcut,
            and in an editor it typed the letter as well. */
         case WM_CHAR: {

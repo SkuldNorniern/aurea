@@ -54,13 +54,29 @@ int ng_macos_attach_menu(NGHandle window, NGMenuHandle menu) {
     return NG_SUCCESS;
 }
 
+/* macOS menus have no access keys: "&&" is a literal "&", a lone "&" goes. */
+static NSString* strip_access_keys(NSString* title) {
+    NSMutableString* out = [NSMutableString stringWithCapacity:title.length];
+    NSUInteger n = title.length;
+    for (NSUInteger i = 0; i < n; i++) {
+        unichar c = [title characterAtIndex:i];
+        if (c != '&') {
+            [out appendFormat:@"%C", c];
+        } else if (i + 1 < n && [title characterAtIndex:i + 1] == '&') {
+            [out appendString:@"&"];
+            i++;
+        }
+    }
+    return out;
+}
+
 /* Parse "Title\tMod+Key" into display title and shortcut.
  * Mod can be Ctrl, Cmd, Alt, Shift or combinations (Ctrl+Shift+S).
  * On macOS, Ctrl in label typically maps to Cmd for standard shortcuts. */
 static void parse_title_and_shortcut(NSString* full, NSString** outTitle, NSString** outKey, NSEventModifierFlags* outMod) {
     NSArray* parts = [full componentsSeparatedByString:@"\t"];
     NSString* displayTitle = parts.count > 0 ? parts[0] : full;
-    *outTitle = [displayTitle stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+    *outTitle = strip_access_keys([displayTitle stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]]);
     *outKey = @"";
     *outMod = 0;
     if (parts.count < 2) return;
@@ -130,7 +146,7 @@ NGMenuHandle ng_macos_create_submenu(NGMenuHandle parentMenu, const char* title)
     if (!parentMenu || !title) return NULL;
     
     NSMenu* parent = (__bridge NSMenu*)parentMenu;
-    NSString* itemTitle = ng_macos_to_nsstring(title);
+    NSString* itemTitle = strip_access_keys(ng_macos_to_nsstring(title));
     
     NSMenuItem* menuItem = [[NSMenuItem alloc] init];
     NSMenu* submenu = [[NSMenu alloc] initWithTitle:itemTitle];

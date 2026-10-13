@@ -20,6 +20,9 @@ int ng_windows_menu_item_set_title(NGMenuHandle menu, unsigned int id, const cha
 int ng_windows_menu_item_remove(NGMenuHandle menu, unsigned int id);
 int ng_windows_menu_clear(NGMenuHandle menu);
 int ng_windows_handle_menu_shortcut(NGHandle window, unsigned int keycode, unsigned int modifiers);
+int ng_windows_menu_takes_key(NGHandle window, unsigned int key);
+/* Whether an enabled item of the window's menus has this key as its shortcut. */
+int ng_windows_menu_has_shortcut(NGHandle window, unsigned int keycode, unsigned int modifiers);
 
 #ifdef __cplusplus
 }

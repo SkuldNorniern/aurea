@@ -238,12 +238,36 @@ static const char* display_title(const char* title, char* buf, size_t buf_size) 
     return buf;
 }
 
+/* GTK marks an access key with "_" and writes a literal "_" as "__".
+   Our "&" marks the key and "&&" is a literal "&". Returns the label in buf. */
+static const char* gtk_mnemonic_label(const char* title, char* buf, size_t buf_size) {
+    size_t out = 0;
+    for (const char* p = title; *p && out + 2 < buf_size; p++) {
+        if (*p == '&') {
+            if (p[1] == '&') {
+                buf[out++] = '&';
+                p++;
+            } else if (p[1]) {
+                buf[out++] = '_';
+            }
+        } else if (*p == '_') {
+            buf[out++] = '_';
+            buf[out++] = '_';
+        } else {
+            buf[out++] = *p;
+        }
+    }
+    buf[out] = '\0';
+    return buf;
+}
+
 NGMenuHandle ng_linux_create_submenu(NGMenuHandle parent_menu, const char* title) {
     if (!parent_menu || !title) return NULL;
     
     char display_buf[256];
     const char* label = display_title(title, display_buf, sizeof(display_buf));
-    GtkWidget *menu_item = gtk_menu_item_new_with_label(label);
+    char label_buf[512];
+    GtkWidget *menu_item = gtk_menu_item_new_with_mnemonic(gtk_mnemonic_label(label, label_buf, sizeof(label_buf)));
     GtkWidget *submenu = gtk_menu_new();
     
     gtk_menu_item_set_submenu(GTK_MENU_ITEM(menu_item), submenu);
@@ -260,8 +284,9 @@ int ng_linux_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id
 
     char display_buf[256];
     const char* label = display_title(title, display_buf, sizeof(display_buf));
+    char label_buf[512];
 
-    GtkWidget *menu_item = gtk_menu_item_new_with_label(label);
+    GtkWidget *menu_item = gtk_menu_item_new_with_mnemonic(gtk_mnemonic_label(label, label_buf, sizeof(label_buf)));
     g_object_set_data(G_OBJECT(menu_item), "menu-id", GUINT_TO_POINTER(id));
     g_object_set_data(G_OBJECT(menu_item), "aurea-item", GINT_TO_POINTER(1));
     g_signal_connect(G_OBJECT(menu_item), "activate", 
@@ -302,7 +327,9 @@ int ng_linux_handle_menu_shortcut(NGHandle window, unsigned int keycode, unsigne
 int ng_linux_add_menu_check_item(NGMenuHandle menu, const char* title, unsigned int id, int checked, int radio) {
     if (!menu || !title) return NG_ERROR_INVALID_PARAMETER;
     char display_buf[256];
-    GtkWidget* item = gtk_check_menu_item_new_with_label(display_title(title, display_buf, sizeof(display_buf)));
+    char label_buf[512];
+    GtkWidget* item = gtk_check_menu_item_new_with_mnemonic(
+        gtk_mnemonic_label(display_title(title, display_buf, sizeof(display_buf)), label_buf, sizeof(label_buf)));
     gtk_check_menu_item_set_draw_as_radio(GTK_CHECK_MENU_ITEM(item), radio ? TRUE : FALSE);
     /* Before the handler, so setting it up does not count as a click. */
     gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(item), checked ? TRUE : FALSE);
@@ -336,7 +363,10 @@ int ng_linux_menu_item_set_title(NGMenuHandle menu, unsigned int id, const char*
     GtkWidget* item = item_with_id((GtkWidget*)menu, id);
     if (!item || !title) return NG_ERROR_INVALID_PARAMETER;
     char display_buf[256];
-    gtk_menu_item_set_label(GTK_MENU_ITEM(item), display_title(title, display_buf, sizeof(display_buf)));
+    char label_buf[512];
+    gtk_menu_item_set_use_underline(GTK_MENU_ITEM(item), TRUE);
+    gtk_menu_item_set_label(GTK_MENU_ITEM(item),
+        gtk_mnemonic_label(display_title(title, display_buf, sizeof(display_buf)), label_buf, sizeof(label_buf)));
     forget_shortcuts(id);
     register_shortcut((GtkWidget*)menu, title, id);
     return NG_SUCCESS;
