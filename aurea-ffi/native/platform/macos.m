@@ -217,14 +217,27 @@ static void ng_macos_wake_wait(void) {
 // Unpaused/started lazily on the first scheduled frame; paused/stopped again
 // via ng_macos_frame_idle once the scheduler has nothing pending, so the
 // display link doesn't fire while idle.
-void ng_macos_request_frame(void) {
-    ng_macos_wake_wait();
+static void request_frame_on_main(void) {
     if (s_using_legacy) {
         legacy_display_link_request_frame();
     } else if (@available(macOS 14.0, *)) {
         if (s_display_link) {
             s_display_link.paused = NO;
         }
+    }
+}
+
+/* Frames are requested from any thread, but the display link and its running
+   flag belong to the main thread, where ng_macos_frame_idle pauses it. Doing
+   it here would race that pause and lose the frame. */
+void ng_macos_request_frame(void) {
+    ng_macos_wake_wait();
+    if ([NSThread isMainThread]) {
+        request_frame_on_main();
+    } else {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            request_frame_on_main();
+        });
     }
 }
 
