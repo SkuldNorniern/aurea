@@ -5,6 +5,18 @@ widgets in `aurea::ui`, and a renderer with CPU and optional GPU backends.
 
 > Pre-alpha. APIs still move. Not for production.
 
+Default ZenGPU canvases share one GPU device per UI thread, opened when first
+needed and released when its last owner goes. `Canvas::with_gpu_context` and
+`set_gpu_context` still use the application's chosen device. Renderers on the
+same context also share their 2D pipelines. On Windows, compare
+process RAM with shared or independent devices using:
+
+```text
+cargo run --release --features zengpu --example gpu_memory -- shared
+cargo run --release --features zengpu --example gpu_memory -- isolated
+cargo run --release --features zengpu --example gpu_memory -- context
+```
+
 ## Quick Start
 
 ```bash

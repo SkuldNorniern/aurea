@@ -230,6 +230,8 @@ impl Canvas {
             #[cfg(feature = "zengpu")]
             gpu_context: None,
             #[cfg(feature = "zengpu")]
+            gpu_context_default: false,
+            #[cfg(feature = "zengpu")]
             gpu_lost: None,
         }));
         let renderer_arc = Rc::new(RefCell::new(renderer));
@@ -281,7 +283,8 @@ impl Canvas {
     }
 
     /// The device a ZenGPU canvas draws with: the one it was given, or the
-    /// one it made once it was first shown. `None` before then, and for
+    /// default device shared by GPU canvases on this UI thread. The default
+    /// device is released when its last owner goes. `None` before first use, and for
     /// other backends.
     #[cfg(feature = "zengpu")]
     pub fn gpu_context(&self) -> Option<Arc<ZenGpuContext>> {
@@ -297,6 +300,7 @@ impl Canvas {
         *self.renderer.borrow_mut() = None;
         let mut st = self.state.borrow_mut();
         st.gpu_context = Some(context);
+        st.gpu_context_default = false;
         st.needs_redraw = true;
         st.damage.add_all();
         drop(st);
@@ -805,6 +809,28 @@ mod tests {
                 .gpu_context()
                 .is_none()
         );
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    #[ignore = "creates native canvases and needs a GPU; run with --ignored"]
+    fn default_canvases_share_their_replacement_after_device_loss() {
+        let Ok(context) = backend::default_gpu_context(None) else {
+            return;
+        };
+        let _window = Window::new("shared default GPU recovery", 100, 100).unwrap();
+        let first = Canvas::with_gpu_context(32, 32, Arc::clone(&context)).unwrap();
+        let second = Canvas::with_gpu_context(32, 32, Arc::clone(&context)).unwrap();
+        first.state.borrow_mut().gpu_context_default = true;
+        second.state.borrow_mut().gpu_context_default = true;
+        context.device().simulate_loss();
+        driver::replace_lost_context(&first.state);
+        driver::replace_lost_context(&second.state);
+        let replacement = first.gpu_context().unwrap();
+        assert!(Arc::ptr_eq(&replacement, &second.gpu_context().unwrap()));
+        assert!(!replacement.is_lost());
+        assert!(first.state.borrow().gpu_context_default);
+        assert!(second.state.borrow().gpu_context_default);
     }
 }
 

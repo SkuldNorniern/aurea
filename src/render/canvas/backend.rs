@@ -18,11 +18,35 @@ use aurea_render::{Renderer, RendererBackend};
 #[cfg(feature = "zengpu")]
 use aurea_render::{ZenGpuContext, ZenGpuRenderer};
 #[cfg(feature = "zengpu")]
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 #[cfg(feature = "zengpu")]
 use zengpu_hal::WindowHandles;
 
 use super::state::CanvasState;
+
+#[cfg(feature = "zengpu")]
+thread_local! {
+    // The cache does not keep a device alive once its canvases are gone.
+    static DEFAULT_GPU_CONTEXT: RefCell<Weak<ZenGpuContext>> = const { RefCell::new(Weak::new()) };
+}
+
+#[cfg(feature = "zengpu")]
+pub(super) fn default_gpu_context(adapter: Option<[u8; 16]>) -> AureaResult<Arc<ZenGpuContext>> {
+    DEFAULT_GPU_CONTEXT.with(|slot| {
+        if let Some(context) = slot.borrow().upgrade()
+            && !context.is_lost()
+            && adapter.is_none_or(|uuid| context.adapter_uuid() == uuid)
+        {
+            return Ok(context);
+        }
+        let context = Arc::new(match adapter {
+            Some(uuid) => ZenGpuContext::on_adapter(uuid)?,
+            None => ZenGpuContext::new()?,
+        });
+        *slot.borrow_mut() = Arc::downgrade(&context);
+        Ok(context)
+    })
+}
 
 #[cfg(feature = "zengpu")]
 pub(super) fn ensure_canvas_renderer(
@@ -57,13 +81,20 @@ pub(super) fn ensure_canvas_renderer(
             st.gpu_context.clone(),
         )
     };
+    let default_context = context.is_none();
     let context = match context {
         Some(context) => context,
-        None => Arc::new(ZenGpuContext::new()?),
+        None => default_gpu_context(None)?,
     };
     let gpu =
         ZenGpuRenderer::with_context(&handles, Arc::clone(&context), width, height, scale_factor)?;
-    state.borrow_mut().gpu_context = Some(context);
+    {
+        let mut st = state.borrow_mut();
+        st.gpu_context = Some(context);
+        if default_context {
+            st.gpu_context_default = true;
+        }
+    }
     *renderer.borrow_mut() = Some(Box::new(gpu));
     Ok(true)
 }
@@ -97,5 +128,41 @@ fn zengpu_canvas_handles(handle: *mut c_void) -> AureaResult<WindowHandles> {
         let native =
             native_handle_from_canvas_ptr(handle).ok_or(AureaError::ElementOperationFailed)?;
         window_handles(&native)
+    }
+}
+
+#[cfg(all(test, feature = "zengpu"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_context_is_shared_without_a_permanent_owner() {
+        let Ok(first) = default_gpu_context(None) else {
+            return;
+        };
+        let second = default_gpu_context(None).expect("same device");
+        assert!(Arc::ptr_eq(&first, &second));
+        let weak = Arc::downgrade(&first);
+        drop(first);
+        drop(second);
+        assert!(
+            weak.upgrade().is_none(),
+            "the cache must not keep the GPU alive"
+        );
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn shared_context_loss_reopens_once_on_the_same_adapter() {
+        let Ok(lost) = default_gpu_context(None) else {
+            return;
+        };
+        lost.device().simulate_loss();
+        let first = default_gpu_context(Some(lost.adapter_uuid())).expect("replacement");
+        let second = default_gpu_context(Some(lost.adapter_uuid())).expect("shared replacement");
+        assert!(Arc::ptr_eq(&first, &second));
+        assert!(!Arc::ptr_eq(&first, &lost));
+        assert!(!first.is_lost());
+        assert_eq!(first.adapter_uuid(), lost.adapter_uuid());
     }
 }

@@ -7,8 +7,9 @@
 
 use std::collections::HashMap;
 use std::mem::{size_of, size_of_val};
+use std::ops::Deref;
 use std::slice::{from_raw_parts, from_ref};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, Weak};
 
 use aurea_foundation::{AureaError, AureaResult};
 
@@ -48,6 +49,7 @@ const _: () = assert!(size_of::<ShapeInstance>() == size_of::<super::pipelines::
 /// with `create_zengpu_2d_with_context`, and upload the app's textures
 /// again from its own copies.
 pub struct ZenGpuContext {
+    pipelines: Mutex<Weak<SharedPipelines>>,
     instance: NativeInstance,
     device: NativeDevice,
     adapter: [u8; 16],
@@ -119,6 +121,7 @@ impl ZenGpuContext {
             .open_graphics(DeviceRequest::default())
             .map_err(gpu_err)?;
         Ok(Self {
+            pipelines: Mutex::new(Weak::new()),
             adapter: adapter.uuid(),
             instance,
             device,
@@ -131,6 +134,22 @@ impl ZenGpuContext {
 
     pub fn device(&self) -> &NativeDevice {
         &self.device
+    }
+
+    fn shared_pipelines(self: &Arc<Self>) -> AureaResult<Arc<SharedPipelines>> {
+        let mut cached = self
+            .pipelines
+            .lock()
+            .map_err(|_| AureaError::RenderingFailed)?;
+        if let Some(pipelines) = cached.upgrade() {
+            return Ok(pipelines);
+        }
+        let pipelines = Arc::new(SharedPipelines {
+            pipelines: Pipelines::new(self.device(), Format::Bgra8Unorm).map_err(gpu_err)?,
+            context: Arc::clone(self),
+        });
+        *cached = Arc::downgrade(&pipelines);
+        Ok(pipelines)
     }
 
     /// The Vulkan device context, for frame graphs and engine-side Vulkan
@@ -177,12 +196,31 @@ fn coalesce_run(
     count
 }
 
+/// Pipelines shared by renderers without a strong cache cycle.
+struct SharedPipelines {
+    pipelines: Pipelines,
+    context: Arc<ZenGpuContext>,
+}
+
+impl Deref for SharedPipelines {
+    type Target = Pipelines;
+    fn deref(&self) -> &Pipelines {
+        &self.pipelines
+    }
+}
+
+impl Drop for SharedPipelines {
+    fn drop(&mut self) {
+        self.pipelines.destroy(self.context.device());
+    }
+}
+
 /// ZenGPU device backend for `Gpu2dRenderer`, using the unified graphics API.
 pub struct ZenGpuBackend {
-    // Drop order: surface → pipelines/buffers → context (Arc may outlive).
+    // Surface drops first; shared pipelines keep the context alive for cleanup.
     surface: NativeSurface,
     context: Arc<ZenGpuContext>,
-    pipelines: Pipelines,
+    pipelines: Arc<SharedPipelines>,
     sampler: SamplerHandle,
     rect_buf: GrowableBuffer,
     shape_buf: GrowableBuffer,
@@ -226,9 +264,8 @@ impl ZenGpuRenderer {
         let pw = f32_to_u32_clamped((width as f32 * scale).round()).max(1);
         let ph = f32_to_u32_clamped((height as f32 * scale).round()).max(1);
 
-        let color_format = Format::Bgra8Unorm;
         let surface = create_surface(context.device(), handles, pw, ph).map_err(gpu_err)?;
-        let pipelines = Pipelines::new(context.device(), color_format).map_err(gpu_err)?;
+        let pipelines = context.shared_pipelines()?;
         // Trilinear: a texture with mips is averaged as it shrinks, which is
         // `Sampling::Smooth`; one without has a single level to read.
         let sampler = context.device().create_sampler(SamplerDesc {
@@ -682,7 +719,6 @@ impl Drop for ZenGpuBackend {
         self.gradient_buf.destroy(device);
         self.image_buf.destroy(device);
         self.text_buf.destroy(device);
-        self.pipelines.destroy(device);
         device.destroy_sampler(self.sampler);
     }
 }
@@ -703,6 +739,23 @@ fn as_bytes<T: Copy>(slice: &[T]) -> &[u8] {
 #[cfg(test)]
 mod context_tests {
     use super::*;
+
+    #[test]
+    fn renderers_share_pipelines_without_retaining_the_device_forever() {
+        let Ok(context) = ZenGpuContext::new() else {
+            return;
+        };
+        let context = Arc::new(context);
+        let first = context.shared_pipelines().expect("pipelines");
+        let second = context.shared_pipelines().expect("shared pipelines");
+        assert!(Arc::ptr_eq(&first, &second));
+        let weak = Arc::downgrade(&first);
+        drop(first);
+        assert!(weak.upgrade().is_some());
+        drop(second);
+        assert!(weak.upgrade().is_none());
+        assert_eq!(Arc::strong_count(&context), 1);
+    }
 
     #[test]
     fn mip_chains_run_down_to_one_texel() {

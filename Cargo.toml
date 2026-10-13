@@ -118,5 +118,9 @@ required-features = ["zengpu"]
 name = "zengpu_shared_context"
 required-features = ["zengpu"]
 
+[[example]]
+name = "gpu_memory"
+required-features = ["zengpu"]
+
 [dev-dependencies]
 aurea-render = { path = "aurea-render", version = "0.1.0" }
