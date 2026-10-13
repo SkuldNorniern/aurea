@@ -1377,7 +1377,6 @@ mod gtk_multi_window_tests {
     //! ```
 
     use crate::{AureaResult, Window};
-    use std::mem::forget;
     use std::os::raw::{c_int, c_void};
     use std::ptr::null_mut;
     use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
@@ -1453,11 +1452,11 @@ mod gtk_multi_window_tests {
         // Returns when the last window goes, or when bail_out fires.
         first.run()?;
 
-        // Both widgets are already gone, destroyed above. Dropping the Rust values
-        // would destroy them a second time, which GTK reports and ignores; leaking
-        // them keeps that noise out of the test output.
-        forget(first);
-        forget(second);
+        // The owners still hold Rust registrations and platform claims even though
+        // the widgets are gone. Release them before the next test changes threads.
+        drop(first);
+        drop(second);
+        assert_eq!(super::lock(&super::PLATFORM).windows, 0);
 
         assert!(
             LEVEL_AFTER_FIRST_CLOSE.load(Ordering::SeqCst) > 0,
@@ -1748,7 +1747,6 @@ mod win32_multi_window_tests {
     //! ```
 
     use crate::{AureaError, AureaResult, Window};
-    use std::mem::forget;
     use std::os::raw::c_void;
     use std::ptr::null_mut;
 
@@ -1818,10 +1816,11 @@ mod win32_multi_window_tests {
             "closing the last window should end the loop"
         );
 
-        // Both windows are already destroyed. Dropping the Rust values would call
-        // DestroyWindow again on stale handles.
-        forget(first);
-        forget(second);
+        // Native destruction does not release the Rust registrations or platform
+        // claims. Drop the owners so subsequent tests can initialise on their thread.
+        drop(first);
+        drop(second);
+        assert_eq!(super::lock(&super::PLATFORM).windows, 0);
         Ok(())
     }
 

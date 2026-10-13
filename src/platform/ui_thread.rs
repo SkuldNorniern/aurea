@@ -3,9 +3,9 @@
 //! Native window systems are thread-affine: AppKit and UIKit require their
 //! objects to be touched from the main thread, GTK from the thread that called
 //! `gtk_init`, and Win32 delivers messages only to the thread that created the
-//! window. Aurea inherits that constraint, but nothing in the type system
-//! expresses it — [`Window`](crate::Window) is `Send + Sync` so that event
-//! callbacks, which run on the UI thread, can capture an `Arc<Window>`.
+//! window. [`Window`](crate::Window) is neither `Send` nor `Sync`, keeping its
+//! owner on the creating thread. Other native entry points also need this
+//! runtime check against the thread that initialised the platform.
 //!
 //! This module records the thread that initialised the platform so the
 //! constraint is at least *checked*: a debug build reports the violation at
