@@ -92,6 +92,17 @@ impl GlyphAtlas {
         let mut sizes = lock(&self.sizes);
         let mut current_memory = lock(&self.current_memory);
 
+        // Replacing a cached glyph: drop the old entry first, so it is not
+        // listed twice in `order` or counted twice against the budget.
+        if cache.remove(&key).is_some() {
+            if let Some(pos) = order.iter().position(|k| *k == key) {
+                order.remove(pos);
+            }
+            if let Some(size) = sizes.remove(&key) {
+                *current_memory = current_memory.saturating_sub(size);
+            }
+        }
+
         if memory_used > self.memory_budget {
             cache.clear();
             order.clear();
@@ -164,5 +175,24 @@ mod tests {
         let k1 = GlyphKey::new((&Font::new("Sans", 16.0)).into(), 'A' as u32);
         let k2 = GlyphKey::new((&Font::new("Sans", 24.0)).into(), 'A' as u32);
         assert_ne!(k1, k2);
+    }
+
+    #[test]
+    fn putting_a_cached_key_again_replaces_it() {
+        let atlas = GlyphAtlas::new(1);
+        let key = GlyphKey::new((&Font::new("Sans", 16.0)).into(), 'A' as u32);
+        let bitmap = |w| GlyphBitmap {
+            width: w,
+            height: 2,
+            data: vec![0; (w * 2 * 4) as usize],
+            bearing_x: 0.0,
+            bearing_y: 0.0,
+            advance: 0.0,
+        };
+        atlas.put(key, bitmap(2)).expect("put");
+        atlas.put(key, bitmap(3)).expect("put again");
+        assert_eq!(lock(&atlas.order).len(), 1);
+        assert_eq!(*lock(&atlas.current_memory), 3 * 2 * 4);
+        assert_eq!(atlas.get(&key).map(|g| g.width), Some(3));
     }
 }

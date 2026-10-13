@@ -12,14 +12,17 @@ use std::sync::Arc;
 
 use aurea_foundation::{AureaError, AureaResult};
 
+#[cfg(not(target_os = "macos"))]
+use zengpu::DeviceContext;
+use zengpu::native::{
+    NativeAdapter, NativeCommandList, NativeDevice, NativeInstance, NativeSurface,
+};
 use zengpu_hal::{
     Acquire, Bindings, BufferHandle, ColorAttachment, DeviceRequest, DeviceType, FilterMode,
     Format, Frame, GpuAdapter, GpuDevice, GpuError, GraphicsDevice, LoadOp, PipelineHandle,
     Rect as HalRect, RenderCommands, RenderPassDesc, SamplerDesc, SamplerHandle, Scalar, Surface,
     TexDim, TextureDesc, TextureHandle, TextureUsage, Viewport, ViewportScissor, WindowHandles,
 };
-use zengpu_vulkan::instance::VulkanInstance;
-use zengpu_vulkan::{DeviceContext, VulkanAdapter, VulkanCommandList, VulkanDevice, VulkanSurface};
 
 use crate::capabilities::GpuFeatures;
 use crate::gpu::batch::{DrawRef, RectInstance, ShapeInstance};
@@ -45,8 +48,8 @@ const _: () = assert!(size_of::<ShapeInstance>() == size_of::<super::pipelines::
 /// with `create_zengpu_2d_with_context`, and upload the app's textures
 /// again from its own copies.
 pub struct ZenGpuContext {
-    instance: VulkanInstance,
-    device: VulkanDevice,
+    instance: NativeInstance,
+    device: NativeDevice,
     adapter: [u8; 16],
 }
 
@@ -64,18 +67,18 @@ pub struct GpuChoice {
 impl ZenGpuContext {
     /// A context on the best GPU: a discrete one if there is one.
     pub fn new() -> AureaResult<Self> {
-        let instance = VulkanInstance::new_with_surface().map_err(gpu_err)?;
+        let instance = NativeInstance::new_with_surface().map_err(gpu_err)?;
         let adapter = instance
-            .request_vulkan_adapter()
+            .request_graphics_adapter()
             .ok_or(AureaError::ElementOperationFailed)?;
         Self::open(instance, &adapter)
     }
 
     /// The GPUs there are to choose from.
     pub fn adapters() -> AureaResult<Vec<GpuChoice>> {
-        let instance = VulkanInstance::new_with_surface().map_err(gpu_err)?;
+        let instance = NativeInstance::new_with_surface().map_err(gpu_err)?;
         Ok(instance
-            .vulkan_adapters()
+            .graphics_adapters()
             .iter()
             .map(|a| GpuChoice {
                 name: a.info().name.clone(),
@@ -88,9 +91,9 @@ impl ZenGpuContext {
     /// A context on the GPU with this [`GpuChoice::uuid`]. Fails when it
     /// is gone, unplugged or its driver changed.
     pub fn on_adapter(uuid: [u8; 16]) -> AureaResult<Self> {
-        let instance = VulkanInstance::new_with_surface().map_err(gpu_err)?;
+        let instance = NativeInstance::new_with_surface().map_err(gpu_err)?;
         let adapter = instance
-            .vulkan_adapter_by_uuid(uuid)
+            .graphics_adapter_by_uuid(uuid)
             .ok_or(AureaError::ElementOperationFailed)?;
         Self::open(instance, &adapter)
     }
@@ -105,9 +108,9 @@ impl ZenGpuContext {
         self.adapter
     }
 
-    fn open(instance: VulkanInstance, adapter: &VulkanAdapter) -> AureaResult<Self> {
+    fn open(instance: NativeInstance, adapter: &NativeAdapter) -> AureaResult<Self> {
         let device = adapter
-            .open_with_surface(DeviceRequest::default())
+            .open_graphics(DeviceRequest::default())
             .map_err(gpu_err)?;
         Ok(Self {
             adapter: adapter.uuid(),
@@ -116,14 +119,17 @@ impl ZenGpuContext {
         })
     }
 
-    pub fn instance(&self) -> &VulkanInstance {
+    pub fn instance(&self) -> &NativeInstance {
         &self.instance
     }
 
-    pub fn device(&self) -> &VulkanDevice {
+    pub fn device(&self) -> &NativeDevice {
         &self.device
     }
 
+    /// The Vulkan device context, for frame graphs and engine-side Vulkan
+    /// resources. Vulkan only; macOS runs on Metal.
+    #[cfg(not(target_os = "macos"))]
     pub fn device_context(&self) -> DeviceContext {
         self.device.context()
     }
@@ -168,7 +174,7 @@ fn coalesce_run(
 /// ZenGPU device backend for `Gpu2dRenderer`, using the unified graphics API.
 pub struct ZenGpuBackend {
     // Drop order: surface → pipelines/buffers → context (Arc may outlive).
-    surface: VulkanSurface,
+    surface: NativeSurface,
     context: Arc<ZenGpuContext>,
     pipelines: Pipelines,
     sampler: SamplerHandle,
@@ -275,7 +281,7 @@ impl ZenGpuBackend {
     /// Bind `pipeline`/`buffer`, push `scalars`+`textures`, and issue one
     /// instanced draw over `start..start + count`.
     fn draw_run(
-        cmd: &mut VulkanCommandList,
+        cmd: &mut NativeCommandList,
         pipeline: PipelineHandle,
         buffer: Option<BufferHandle>,
         scalars: &[Scalar],
@@ -303,7 +309,7 @@ impl ZenGpuBackend {
     /// with the same origin as the viewport, so it needs clamping but no
     /// conversion; an empty result would draw nothing, which is what a clip
     /// that excludes everything should do.
-    fn set_scissor(cmd: &mut VulkanCommandList, viewport: (f32, f32), clip: Option<Rect>) {
+    fn set_scissor(cmd: &mut NativeCommandList, viewport: (f32, f32), clip: Option<Rect>) {
         let (vw, vh) = viewport;
         let scissor = clip.map(|c| {
             let x = c.x.clamp(0.0, vw);
@@ -331,7 +337,7 @@ impl ZenGpuBackend {
     #[allow(clippy::too_many_arguments)]
     fn record_ordered_draws(
         &self,
-        cmd: &mut VulkanCommandList,
+        cmd: &mut NativeCommandList,
         order: &[DrawRef],
         clips: &[Option<Rect>],
         viewport: (f32, f32),

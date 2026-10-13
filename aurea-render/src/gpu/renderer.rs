@@ -149,8 +149,12 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         for &[b, g, r, a] in pixels {
             self.cpu_rgba.extend_from_slice(&[r, g, b, a]);
         }
-        self.last_on_cpu = true;
-        self.backend.present_pixels(&self.cpu_rgba, width, height)
+        let presented = self.backend.present_pixels(&self.cpu_rgba, width, height);
+        // Only a frame that reached the target lets the next identical one
+        // be skipped; after a retry the rasterizer reports it unchanged, but
+        // the target never got it.
+        self.last_on_cpu = presented.as_ref().is_ok_and(|o| !o.needs_redraw());
+        presented
     }
 
     /// A CPU frame with GPU textures in it. The CPU can't read the textures,

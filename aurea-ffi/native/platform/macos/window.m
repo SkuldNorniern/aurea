@@ -7,6 +7,7 @@
 #import "utils.h"
 #import <Cocoa/Cocoa.h>
 #import <CoreGraphics/CoreGraphics.h>
+#import <QuartzCore/QuartzCore.h>
 #include <string.h>
 
 static int ng_macos_get_cursor_grab_mode(void* windowHandle);
@@ -144,10 +145,18 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
 }
 @property (nonatomic, assign) void* windowHandle;
 @property (nonatomic, strong) NSCursor* cursor;
+// Back the view with a CAMetalLayer, which Vulkan (MoltenVK) and Metal
+// need to present to it. Off until a GPU surface asks for it.
+@property (nonatomic, assign) BOOL usesMetalLayer;
 - (void)setImeArea:(NSRect)area;
 @end
 
 @implementation AureaContentView
+
+- (CALayer*)makeBackingLayer {
+    if (self.usesMetalLayer) return [CAMetalLayer layer];
+    return [super makeBackingLayer];
+}
 
 /* The file paths a drag carries, one per line, or nil for none. */
 static NSString* drag_paths(id<NSDraggingInfo> info) {
@@ -491,6 +500,9 @@ static NSString* drag_paths(id<NSDraggingInfo> info) {
 }
 @end
 
+static void ng_macos_cursor_grab_focus(NSWindow* window, BOOL focused);
+static void ng_macos_forget_held_shortcuts(void* window);
+
 @implementation WindowDelegate
 - (BOOL)windowShouldClose:(NSWindow*)sender {
     // Invoke lifecycle callback if enabled
@@ -537,12 +549,14 @@ static NSString* drag_paths(id<NSDraggingInfo> info) {
 }
 
 - (void)windowDidBecomeKey:(NSNotification*)notification {
+    ng_macos_cursor_grab_focus([notification object], YES);
     if (self.windowHandle) {
         ng_invoke_focus_changed(self.windowHandle, 1);
     }
 }
 
 - (void)windowDidResignKey:(NSNotification*)notification {
+    ng_macos_cursor_grab_focus([notification object], NO);
     if (self.windowHandle) {
         ng_invoke_focus_changed(self.windowHandle, 0);
     }
@@ -564,6 +578,23 @@ static NSString* drag_paths(id<NSDraggingInfo> info) {
 static NSMutableDictionary* windowDelegates = nil;
 static NSMutableDictionary* windowCursorGrabModes = nil;
 static NSMutableDictionary* windowRawSuppress = nil;
+
+/* The window that hid the cursor, if any. CGDisplayHideCursor counts, so a
+   second hide would need a second show; this keeps it to one of each. */
+static NGHandle s_cursor_hidden_by = NULL;
+
+static BOOL ng_macos_cursor_locked(NSWindow* window) {
+    if (!windowCursorGrabModes) return NO;
+    NSValue* key = [NSValue valueWithPointer:(__bridge const void*)window];
+    return [[windowCursorGrabModes objectForKey:key] intValue] == 2;
+}
+
+/* A locked cursor is detached from the mouse for the whole system, so it is
+   only locked while its window has focus: Cmd-Tab gives it back. */
+static void ng_macos_cursor_grab_focus(NSWindow* window, BOOL focused) {
+    if (!window || !ng_macos_cursor_locked(window)) return;
+    CGAssociateMouseAndMouseCursorPosition(focused ? false : true);
+}
 
 static int ng_macos_get_cursor_grab_mode(void* windowHandle) {
     if (!windowCursorGrabModes || !windowHandle) {
@@ -714,9 +745,19 @@ void ng_macos_destroy_window(NGHandle handle) {
         [windowDelegates removeObjectForKey:windowValue];
     }
     if (windowCursorGrabModes) {
+        if (ng_macos_cursor_locked(window)) {
+            CGAssociateMouseAndMouseCursorPosition(true);
+        }
         NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)window];
         [windowCursorGrabModes removeObjectForKey:windowValue];
     }
+    if (s_cursor_hidden_by == handle) {
+        CGDisplayShowCursor(kCGDirectMainDisplay);
+        s_cursor_hidden_by = NULL;
+    }
+    /* The tables hold the raw pointer, which the next window may reuse. */
+    ng_shortcuts_clear(handle);
+    ng_macos_forget_held_shortcuts(handle);
     if (windowRawSuppress) {
         NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)window];
         [windowRawSuppress removeObjectForKey:windowValue];
@@ -876,9 +917,13 @@ int ng_macos_window_is_focused(NGHandle window) {
 int ng_macos_window_set_cursor_visible(NGHandle window, int visible) {
     if (!window) return NG_ERROR_INVALID_HANDLE;
     if (visible) {
-        CGDisplayShowCursor(kCGDirectMainDisplay);
-    } else {
+        if (s_cursor_hidden_by) {
+            CGDisplayShowCursor(kCGDirectMainDisplay);
+            s_cursor_hidden_by = NULL;
+        }
+    } else if (!s_cursor_hidden_by) {
         CGDisplayHideCursor(kCGDirectMainDisplay);
+        s_cursor_hidden_by = window;
     }
     return NG_SUCCESS;
 }
@@ -888,16 +933,66 @@ int ng_macos_window_set_cursor_visible(NGHandle window, int visible) {
    keys through keyDown:, so those pass. One monitor serves every window. */
 static id g_shortcut_monitor = nil;
 
+/* Shortcut keys reported pressed whose release is still owed. The release
+   goes to the first responder too, and the modifiers may be up by then, so
+   it is matched by key rather than by shortcut. */
+#define NG_SHORTCUTS_HELD 8
+static struct { void* window; unsigned int keycode; } g_shortcuts_held[NG_SHORTCUTS_HELD];
+
+static BOOL ng_macos_take_held_shortcut(void* window, unsigned int keycode) {
+    for (int i = 0; i < NG_SHORTCUTS_HELD; i++) {
+        if (g_shortcuts_held[i].window == window && g_shortcuts_held[i].keycode == keycode) {
+            g_shortcuts_held[i].window = NULL;
+            return YES;
+        }
+    }
+    return NO;
+}
+
+static void ng_macos_hold_shortcut(void* window, unsigned int keycode) {
+    for (int i = 0; i < NG_SHORTCUTS_HELD; i++) {
+        if (!g_shortcuts_held[i].window) {
+            g_shortcuts_held[i].window = window;
+            g_shortcuts_held[i].keycode = keycode;
+            return;
+        }
+    }
+}
+
+static void ng_macos_forget_held_shortcuts(void* window) {
+    for (int i = 0; i < NG_SHORTCUTS_HELD; i++) {
+        if (g_shortcuts_held[i].window == window) g_shortcuts_held[i].window = NULL;
+    }
+}
+
 static void ng_macos_ensure_shortcut_monitor(void) {
     if (g_shortcut_monitor) return;
-    g_shortcut_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
+    NSEventMask mask = NSEventMaskKeyDown | NSEventMaskKeyUp | NSEventMaskFlagsChanged;
+    g_shortcut_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:mask
                                                                handler:^NSEvent*(NSEvent* event) {
         NSWindow* window = [event window];
-        if (!window || [window firstResponder] == [window contentView]) return event;
+        NSView* content = [window contentView];
+        if (!window || [window firstResponder] == content) return event;
         void* handle = (__bridge void*)window;
+        /* A shortcut tells Aurea its modifiers are down, so it must hear them
+           come up; the content view keeps track. The child still gets them. */
+        if ([event type] == NSEventTypeFlagsChanged) {
+            if ([content isKindOfClass:[AureaContentView class]]) {
+                [(AureaContentView*)content flagsChanged:event];
+            }
+            return event;
+        }
         unsigned int keycode = ng_macos_keycode_from_event([event keyCode]);
         unsigned int mods = ng_macos_modifiers(event);
+        if ([event type] == NSEventTypeKeyUp) {
+            if (!ng_macos_take_held_shortcut(handle, keycode)) return event;
+            ng_invoke_key_event(handle, keycode, 0, mods);
+            return nil;
+        }
         if (!ng_shortcuts_match(handle, keycode, mods)) return event;
+        if (![event isARepeat]) {
+            ng_macos_hold_shortcut(handle, keycode);
+        }
         ng_invoke_key_event(handle, keycode, 1, mods);
         return nil;
     }];
@@ -1034,6 +1129,22 @@ int ng_macos_window_is_visible(NGHandle window) {
     if (!window) return 0;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
     return [nsWindow isVisible] ? 1 : 0;
+}
+
+/* Backs the content view with a CAMetalLayer so a GPU swapchain can present
+   to it: MoltenVK refuses a view without one. The view stays layer-backed
+   rather than layer-hosting, so native widgets inside it keep working. */
+int ng_macos_window_use_metal_layer(NGHandle window) {
+    if (!window) return NG_ERROR_INVALID_HANDLE;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    NSView* view = [nsWindow contentView];
+    if (![view isKindOfClass:[AureaContentView class]]) return NG_ERROR_PLATFORM_SPECIFIC;
+    if ([[view layer] isKindOfClass:[CAMetalLayer class]]) return NG_SUCCESS;
+    ((AureaContentView*)view).usesMetalLayer = YES;
+    /* makeBackingLayer only runs when the view gains a layer. */
+    if ([view wantsLayer]) [view setWantsLayer:NO];
+    [view setWantsLayer:YES];
+    return [[view layer] isKindOfClass:[CAMetalLayer class]] ? NG_SUCCESS : NG_ERROR_PLATFORM_SPECIFIC;
 }
 
 NGHandle ng_macos_window_get_content_view(NGHandle window) {

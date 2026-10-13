@@ -18,7 +18,7 @@ use aurea_foundation::{AureaError, AureaResult, Platform};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::mem::discriminant;
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 
 static TEXT_RENDERER: LazyLock<TextRenderer> = LazyLock::new(TextRenderer::new);
 const DEFAULT_FONT_FAMILY: &str = "Sans";
@@ -501,8 +501,9 @@ impl<'list> RecordingContext<'list> {
                 dest.y.to_bits().hash(&mut hasher);
                 dest.width.to_bits().hash(&mut hasher);
                 dest.height.to_bits().hash(&mut hasher);
-                // Pixel data is reference-counted; same Arc => same contents.
-                (Arc::as_ptr(&image.data) as *const u8 as usize).hash(&mut hasher);
+                // The image's id, not its `Arc` address: a freed image's
+                // replacement can land at the same address.
+                image.id().hash(&mut hasher);
             }
             DrawCommand::DrawTexture(texture, src, dest, sampling) => {
                 "DrawTexture".hash(&mut hasher);
@@ -528,7 +529,7 @@ impl<'list> RecordingContext<'list> {
                 dest.y.to_bits().hash(&mut hasher);
                 dest.width.to_bits().hash(&mut hasher);
                 dest.height.to_bits().hash(&mut hasher);
-                (Arc::as_ptr(&image.data) as *const u8 as usize).hash(&mut hasher);
+                image.id().hash(&mut hasher);
             }
             DrawCommand::FillLinearGradient(grad, rect) => {
                 "FillLinearGradient".hash(&mut hasher);

@@ -117,7 +117,7 @@ pub(crate) fn native_handle_from_window_ptr(window: *mut c_void) -> Option<Nativ
         if view_ptr.is_null() {
             return None;
         }
-        return Some(NativeWindowHandle::MacOS { ns_view: view_ptr });
+        Some(NativeWindowHandle::MacOS { ns_view: view_ptr })
     }
     #[cfg(target_os = "windows")]
     {
@@ -161,14 +161,14 @@ pub(crate) fn native_handle_from_window_ptr(window: *mut c_void) -> Option<Nativ
 
 /// The native handle behind a canvas pointer. Crate-only, for the same
 /// reason as [`native_handle_from_window_ptr`].
-#[cfg(any(feature = "wgpu", feature = "zengpu"))]
+#[cfg(any(feature = "wgpu", all(feature = "zengpu", not(target_os = "macos"))))]
 pub(crate) fn native_handle_from_canvas_ptr(canvas: *mut c_void) -> Option<NativeWindowHandle> {
     #[cfg(target_os = "macos")]
     {
         if canvas.is_null() {
             return None;
         }
-        return Some(NativeWindowHandle::MacOS { ns_view: canvas });
+        Some(NativeWindowHandle::MacOS { ns_view: canvas })
     }
     #[cfg(target_os = "windows")]
     {

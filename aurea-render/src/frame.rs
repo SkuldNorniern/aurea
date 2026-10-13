@@ -10,10 +10,10 @@ use std::slice;
 /// renderer next draws or is resized, which is why this borrows it.
 #[derive(Debug, Clone, Copy)]
 pub struct FrameOutput<'a> {
-    /// Start of the pixel data.
-    pub pixels: *const u8,
+    /// Start of the pixel data, for handing to native code.
+    pixels: *const u8,
     /// Length in bytes.
-    pub size: usize,
+    size: usize,
     pub width: u32,
     pub height: u32,
     words: &'a [u32],
@@ -45,6 +45,14 @@ impl<'a> FrameOutput<'a> {
             height,
             words,
         })
+    }
+    /// Start of the pixel data.
+    pub fn pixels(&self) -> *const u8 {
+        self.pixels
+    }
+    /// Length of the pixel data in bytes.
+    pub fn size(&self) -> usize {
+        self.size
     }
     /// The pixel bytes.
     pub fn bytes(&self) -> &'a [u8] {

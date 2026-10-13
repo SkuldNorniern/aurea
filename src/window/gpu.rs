@@ -1,4 +1,6 @@
 use super::Window;
+#[cfg(target_os = "macos")]
+use crate::ffi::ng_macos_window_use_metal_layer;
 use crate::platform::handles::native_handle_from_window_ptr;
 use crate::platform::zengpu::window_handles;
 use crate::render::{ZenGpuContext, ZenGpuRenderer};
@@ -60,6 +62,11 @@ impl Window {
     /// instead of [`create_zengpu_2d`](Self::create_zengpu_2d)'s managed 2D
     /// renderer, e.g. for a custom 3D pipeline hosted in an Aurea window.
     pub fn zengpu_handles(&self) -> AureaResult<WindowHandles> {
+        // MoltenVK only presents to a view backed by a CAMetalLayer.
+        #[cfg(target_os = "macos")]
+        if unsafe { ng_macos_window_use_metal_layer(self.handle) } != 0 {
+            return Err(AureaError::ElementOperationFailed);
+        }
         let native =
             native_handle_from_window_ptr(self.handle).ok_or(AureaError::ElementOperationFailed)?;
         window_handles(&native)
