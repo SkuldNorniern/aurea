@@ -252,7 +252,15 @@ impl CpuRasterizer {
                 )?;
             }
             DrawCommand::DrawGlyphMask(mask, origin, color) => {
-                Self::draw_glyph(mask, *origin, fade_color(*color, alpha), buf, bw, clip);
+                Self::draw_glyph_blended(
+                    mask,
+                    *origin,
+                    fade_color(*color, alpha),
+                    item.blend_mode,
+                    buf,
+                    bw,
+                    clip,
+                );
             }
             DrawCommand::DrawImageRect(image, dest, sampling) => {
                 let src = Rect::new(0.0, 0.0, image.width as f32, image.height as f32);
@@ -746,10 +754,24 @@ impl CpuRasterizer {
         Ok(())
     }
 
+    #[cfg(test)]
     fn draw_glyph(
         mask: &GlyphMask,
         origin: Point,
         color: Color,
+        buf: &mut [u32],
+        bw: u32,
+        clip: ClipBox,
+    ) {
+        Self::draw_glyph_blended(mask, origin, color, BlendMode::Normal, buf, bw, clip);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_glyph_blended(
+        mask: &GlyphMask,
+        origin: Point,
+        color: Color,
+        mode: BlendMode,
         buf: &mut [u32],
         bw: u32,
         clip: ClipBox,
@@ -771,6 +793,7 @@ impl CpuRasterizer {
             | (u32::from(color.r) << 16)
             | (u32::from(color.g) << 8)
             | u32::from(color.b);
+        let source = ConstSrc::new(opaque_pixel);
         let dx = f32_to_i32_clamped(origin.x.round());
         let dy = f32_to_i32_clamped(origin.y.round());
 
@@ -807,11 +830,19 @@ impl CpuRasterizer {
                     continue;
                 }
 
-                if cr8 == 255 && cg8 == 255 && cb8 == 255 {
+                if mode == BlendMode::Normal && cr8 == 255 && cg8 == 255 && cb8 == 255 {
                     *dst = opaque_pixel;
                     continue;
                 }
-
+                if mode != BlendMode::Normal || (*dst >> 24) != 255 {
+                    let coverage = u32::from(cr8.max(cg8).max(cb8));
+                    *dst = if mode == BlendMode::Normal {
+                        source.over_at_alpha(*dst, coverage)
+                    } else {
+                        blend_pixel((coverage << 24) | (opaque_pixel & 0x00ff_ffff), *dst, mode)
+                    };
+                    continue;
+                }
                 let da = (*dst >> 24) & 0xff;
                 let [_, dr, dg, db] = dst.to_be_bytes();
                 let or_ = luts.mix(tr, dr, cr8);
@@ -1647,6 +1678,39 @@ mod glyph_tests {
         )
         .expect("render");
         assert_eq!(pixels[0] >> 24, 64);
+    }
+
+    #[test]
+    fn glyph_blends_respect_transparency_and_multiply() {
+        let mask = GlyphMask::new(1, 1, vec![128, 64, 32].into());
+        let mut transparent = [0];
+        CpuRasterizer::draw_glyph(
+            &mask,
+            Point::new(0.0, 0.0),
+            Color::rgb(255, 0, 0),
+            &mut transparent,
+            1,
+            ClipBox::surface(1, 1),
+        );
+        assert_eq!(
+            transparent[0], 0x80ff_0000,
+            "straight RGB on a transparent layer"
+        );
+        let mask = GlyphMask::new(1, 1, vec![255; 3].into());
+        let mut background = [0xff12_3456];
+        CpuRasterizer::draw_glyph_blended(
+            &mask,
+            Point::new(0.0, 0.0),
+            Color::rgb(255, 255, 255),
+            BlendMode::Multiply,
+            &mut background,
+            1,
+            ClipBox::surface(1, 1),
+        );
+        assert_eq!(
+            background[0], 0xff12_3456,
+            "white multiply preserves its backdrop"
+        );
     }
 
     #[test]
