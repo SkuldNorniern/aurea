@@ -1,15 +1,17 @@
-//! The platform's file dialogs: open, save as, and pick a folder.
+//! The platform's dialogs: file open, save as and pick a folder, and message boxes.
 
 use std::ffi::{CStr, CString, c_int};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
 
-use crate::ffi::{ng_platform_file_dialog, ng_platform_free_dialog_paths};
-use crate::{AureaError, AureaResult, Window};
+use crate::ffi::{ng_platform_file_dialog, ng_platform_free_dialog_paths, ng_platform_message_box};
+use crate::{AureaError, AureaResult, Platform, Window};
 
 const OPEN: c_int = 0;
 const SAVE: c_int = 1;
 const FOLDER: c_int = 2;
+
+const NG_ERROR_UNSUPPORTED: c_int = -5;
 
 /// A file dialog to set up, then show with [`open`](Self::open), [`save`](Self::save) or
 /// [`pick_folder`](Self::pick_folder).
@@ -119,6 +121,132 @@ impl FileDialog {
     }
 }
 
+/// How a message box looks: its icon.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MessageKind {
+    #[default]
+    Info,
+    Warning,
+    Error,
+}
+
+impl MessageKind {
+    fn code(self) -> c_int {
+        match self {
+            Self::Info => 0,
+            Self::Warning => 1,
+            Self::Error => 2,
+        }
+    }
+}
+
+/// The buttons a message box has.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MessageButtons {
+    #[default]
+    Ok,
+    OkCancel,
+    YesNo,
+    SaveDiscardCancel,
+}
+
+impl MessageButtons {
+    fn code(self) -> c_int {
+        match self {
+            Self::Ok => 0,
+            Self::OkCancel => 1,
+            Self::YesNo => 2,
+            Self::SaveDiscardCancel => 3,
+        }
+    }
+}
+
+/// The button the person answered with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MessageChoice {
+    Ok,
+    Cancel,
+    Yes,
+    No,
+    Save,
+    Discard,
+}
+
+impl MessageChoice {
+    fn from_code(code: c_int) -> Option<Self> {
+        Some(match code {
+            0 => Self::Ok,
+            1 => Self::Cancel,
+            2 => Self::Yes,
+            3 => Self::No,
+            4 => Self::Save,
+            5 => Self::Discard,
+            _ => return None,
+        })
+    }
+}
+
+/// A message box to set up, then show with [`show`](Self::show).
+#[derive(Clone, Debug)]
+pub struct MessageDialog {
+    title: String,
+    message: String,
+    kind: MessageKind,
+    buttons: MessageButtons,
+}
+
+impl MessageDialog {
+    pub fn new(title: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            message: String::new(),
+            kind: MessageKind::default(),
+            buttons: MessageButtons::default(),
+        }
+    }
+
+    /// The body text.
+    pub fn message(mut self, text: impl Into<String>) -> Self {
+        self.message = text.into();
+        self
+    }
+
+    /// The icon: information when not set.
+    pub fn kind(mut self, kind: MessageKind) -> Self {
+        self.kind = kind;
+        self
+    }
+
+    /// The buttons: OK when not set.
+    pub fn buttons(mut self, buttons: MessageButtons) -> Self {
+        self.buttons = buttons;
+        self
+    }
+
+    /// Waits for the person to answer.
+    pub fn show(self, window: &Window) -> AureaResult<MessageChoice> {
+        let text = |s: &str| CString::new(s).map_err(|_| AureaError::InvalidTitle);
+        let title = text(&self.title)?;
+        let message = text(&self.message)?;
+        let answer = unsafe {
+            ng_platform_message_box(
+                window.handle(),
+                self.kind.code(),
+                title.as_ptr(),
+                message.as_ptr(),
+                self.buttons.code(),
+            )
+        };
+        if answer == NG_ERROR_UNSUPPORTED {
+            return Err(AureaError::Unsupported {
+                operation: "message_box",
+                platform: Platform::current(),
+            });
+        }
+        MessageChoice::from_code(answer).ok_or(AureaError::PlatformError(answer))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,5 +263,40 @@ mod tests {
     fn separators_in_names_cannot_break_the_list() {
         let d = FileDialog::new().filter("A|B\nC", &["x;y"]);
         assert_eq!(d.filters, "A B C|x y");
+    }
+
+    #[test]
+    fn message_kinds_and_buttons_are_numbered_as_native() {
+        assert_eq!(
+            [MessageKind::Info, MessageKind::Warning, MessageKind::Error].map(MessageKind::code),
+            [0, 1, 2]
+        );
+        assert_eq!(
+            [
+                MessageButtons::Ok,
+                MessageButtons::OkCancel,
+                MessageButtons::YesNo,
+                MessageButtons::SaveDiscardCancel,
+            ]
+            .map(MessageButtons::code),
+            [0, 1, 2, 3]
+        );
+    }
+
+    #[test]
+    fn message_choices_come_back_as_native_numbers() {
+        assert_eq!(
+            [0, 1, 2, 3, 4, 5, 6, -1].map(MessageChoice::from_code),
+            [
+                Some(MessageChoice::Ok),
+                Some(MessageChoice::Cancel),
+                Some(MessageChoice::Yes),
+                Some(MessageChoice::No),
+                Some(MessageChoice::Save),
+                Some(MessageChoice::Discard),
+                None,
+                None,
+            ]
+        );
     }
 }

@@ -582,6 +582,13 @@ void ng_platform_free_dialog_paths(char* paths) {
     free(paths);
 }
 
+int ng_platform_message_box(NGHandle window, int kind, const char* title, const char* text, int buttons) {
+    ensure_ops();
+    return (g_ops && g_ops->message_box)
+        ? g_ops->message_box(window, kind, title, text, buttons)
+        : NG_ERROR_UNSUPPORTED;
+}
+
 char* ng_platform_get_clipboard_text(void) {
     ensure_ops();
     return (g_ops && g_ops->get_clipboard_text) ? g_ops->get_clipboard_text() : NULL;

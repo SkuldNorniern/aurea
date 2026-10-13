@@ -59,3 +59,57 @@ char* ng_linux_file_dialog(NGHandle window, int kind, const char* title, const c
     g_object_unref(native);
     return out;
 }
+
+#define RESPONSE_SAVE 100
+#define RESPONSE_DISCARD 101
+
+static void add_buttons(GtkDialog* dialog, int buttons) {
+    switch (buttons) {
+    case NG_MESSAGE_BUTTONS_OK_CANCEL:
+        gtk_dialog_add_button(dialog, "_OK", GTK_RESPONSE_OK);
+        gtk_dialog_add_button(dialog, "_Cancel", GTK_RESPONSE_CANCEL);
+        break;
+    case NG_MESSAGE_BUTTONS_YES_NO:
+        gtk_dialog_add_button(dialog, "_Yes", GTK_RESPONSE_YES);
+        gtk_dialog_add_button(dialog, "_No", GTK_RESPONSE_NO);
+        break;
+    case NG_MESSAGE_BUTTONS_SAVE_DISCARD_CANCEL:
+        gtk_dialog_add_button(dialog, "_Save", RESPONSE_SAVE);
+        gtk_dialog_add_button(dialog, "_Cancel", GTK_RESPONSE_CANCEL);
+        gtk_dialog_add_button(dialog, "_Don't Save", RESPONSE_DISCARD);
+        break;
+    default:
+        gtk_dialog_add_button(dialog, "_OK", GTK_RESPONSE_OK);
+        break;
+    }
+}
+
+static int choice_of(gint response, int buttons) {
+    switch (response) {
+    case GTK_RESPONSE_OK: return NG_CHOICE_OK;
+    case GTK_RESPONSE_CANCEL: return NG_CHOICE_CANCEL;
+    case GTK_RESPONSE_YES: return NG_CHOICE_YES;
+    case GTK_RESPONSE_NO: return NG_CHOICE_NO;
+    case RESPONSE_SAVE: return NG_CHOICE_SAVE;
+    case RESPONSE_DISCARD: return NG_CHOICE_DISCARD;
+    default: break;
+    }
+    if (buttons == NG_MESSAGE_BUTTONS_YES_NO) return NG_CHOICE_NO;
+    if (buttons == NG_MESSAGE_BUTTONS_OK) return NG_CHOICE_OK;
+    return NG_CHOICE_CANCEL;
+}
+
+int ng_linux_message_box(NGHandle window, int kind, const char* title, const char* text, int buttons) {
+    GtkWindow* parent = window ? GTK_WINDOW(window) : NULL;
+    GtkMessageType type = kind == NG_MESSAGE_ERROR ? GTK_MESSAGE_ERROR
+        : kind == NG_MESSAGE_WARNING ? GTK_MESSAGE_WARNING
+        : GTK_MESSAGE_INFO;
+    GtkWidget* dialog = gtk_message_dialog_new(parent, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+                                               type, GTK_BUTTONS_NONE, "%s", text ? text : "");
+    if (title && *title) gtk_window_set_title(GTK_WINDOW(dialog), title);
+    add_buttons(GTK_DIALOG(dialog), buttons);
+
+    gint response = gtk_dialog_run(GTK_DIALOG(dialog));
+    gtk_widget_destroy(dialog);
+    return choice_of(response, buttons);
+}

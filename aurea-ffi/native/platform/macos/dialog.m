@@ -67,3 +67,58 @@ char* ng_macos_file_dialog(NGHandle window, int kind, const char* title, const c
         return joined([(NSOpenPanel*)panel URLs]);
     }
 }
+
+typedef struct {
+    const char* title;
+    int choice;
+} Button;
+
+static const Button ok_buttons[] = {{"OK", NG_CHOICE_OK}};
+static const Button ok_cancel_buttons[] = {{"OK", NG_CHOICE_OK}, {"Cancel", NG_CHOICE_CANCEL}};
+static const Button yes_no_buttons[] = {{"Yes", NG_CHOICE_YES}, {"No", NG_CHOICE_NO}};
+static const Button save_discard_buttons[] = {
+    {"Save", NG_CHOICE_SAVE}, {"Cancel", NG_CHOICE_CANCEL}, {"Don't Save", NG_CHOICE_DISCARD}};
+
+static const Button* buttons_of(int buttons, NSInteger* count) {
+    switch (buttons) {
+    case NG_MESSAGE_BUTTONS_OK_CANCEL:
+        *count = 2;
+        return ok_cancel_buttons;
+    case NG_MESSAGE_BUTTONS_YES_NO:
+        *count = 2;
+        return yes_no_buttons;
+    case NG_MESSAGE_BUTTONS_SAVE_DISCARD_CANCEL:
+        *count = 3;
+        return save_discard_buttons;
+    default:
+        *count = 1;
+        return ok_buttons;
+    }
+}
+
+static int closed_choice(int buttons) {
+    if (buttons == NG_MESSAGE_BUTTONS_YES_NO) return NG_CHOICE_NO;
+    if (buttons == NG_MESSAGE_BUTTONS_OK) return NG_CHOICE_OK;
+    return NG_CHOICE_CANCEL;
+}
+
+int ng_macos_message_box(NGHandle window, int kind, const char* title, const char* text, int buttons) {
+    (void)window;
+    @autoreleasepool {
+        NSAlert* alert = [[NSAlert alloc] init];
+        alert.alertStyle = kind == NG_MESSAGE_ERROR ? NSAlertStyleCritical
+            : kind == NG_MESSAGE_WARNING ? NSAlertStyleWarning
+            : NSAlertStyleInformational;
+        if (title && *title) alert.messageText = ng_macos_to_nsstring(title);
+        if (text && *text) alert.informativeText = ng_macos_to_nsstring(text);
+        NSInteger count = 0;
+        const Button* list = buttons_of(buttons, &count);
+        for (NSInteger i = 0; i < count; i++) {
+            [alert addButtonWithTitle:ng_macos_to_nsstring(list[i].title)];
+        }
+        if (buttons == NG_MESSAGE_BUTTONS_YES_NO) [alert.buttons[1] setKeyEquivalent:@"\e"];
+        NSInteger index = [alert runModal] - NSAlertFirstButtonReturn;
+        if (index < 0 || index >= count) return closed_choice(buttons);
+        return list[index].choice;
+    }
+}
