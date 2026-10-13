@@ -48,6 +48,14 @@ aurea-animation = { path = "aurea-animation", version = "0.1.0" }
 libc = "0.2"
 log = "0.4.29"
 jni = { version = "0.21", optional = true }
+raw-window-handle = "0.6"
+wgpu = { version = "29.0.1", optional = true }
+
+# ZenGPU surface integration and example shaders (feature `zengpu`).
+zengpu-hal = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "f047c9ed138a9a63439c2304d100b255fb32e80d", version = "0.0.1", optional = true }
+zen-window-handle = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "f047c9ed138a9a63439c2304d100b255fb32e80d", version = "0.1.0", optional = true }
+zengpu = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "f047c9ed138a9a63439c2304d100b255fb32e80d", version = "0.0.1", default-features = false, features = ["vulkan", "metal"], optional = true }
+zengpu-spirv = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "f047c9ed138a9a63439c2304d100b255fb32e80d", version = "0.0.1", features = ["metal"], optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
@@ -69,47 +77,6 @@ zengpu = [
     "dep:zengpu",
     "dep:zengpu-spirv",
 ]
-
-[dependencies.wgpu]
-version = "29.0.1"
-optional = true
-
-[dependencies.raw-window-handle]
-version = "0.6"
-
-# zengpu-hal: optional, for the window-level GPU surface API (feature `zengpu`).
-[dependencies.zengpu-hal]
-git = "https://github.com/SkuldNorniern/ZenGPU"
-rev = "f047c9ed138a9a63439c2304d100b255fb32e80d"
-version = "0.0.1"
-optional = true
-
-# zen-window-handle: dependency-free WindowHandle/DisplayHandle types consumed
-# by zengpu-hal's WindowHandles::from_raw (feature `zengpu`).
-[dependencies.zen-window-handle]
-git = "https://github.com/SkuldNorniern/ZenGPU"
-rev = "f047c9ed138a9a63439c2304d100b255fb32e80d"
-version = "0.1.0"
-optional = true
-
-# Only the zengpu examples use this. As an optional dependency it follows the
-# feature that wants it, not every `cargo test`.
-[dependencies.zengpu]
-git = "https://github.com/SkuldNorniern/ZenGPU"
-rev = "f047c9ed138a9a63439c2304d100b255fb32e80d"
-version = "0.0.1"
-default-features = false
-features = ["vulkan", "metal"]
-optional = true
-
-# What the examples' `zsl!` shaders expand to: SPIR-V and MSL, so they run
-# on Vulkan and Metal alike.
-[dependencies.zengpu-spirv]
-git = "https://github.com/SkuldNorniern/ZenGPU"
-rev = "f047c9ed138a9a63439c2304d100b255fb32e80d"
-version = "0.0.1"
-features = ["metal"]
-optional = true
 
 [[example]]
 name = "wgpu_window"
