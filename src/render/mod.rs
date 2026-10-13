@@ -4,7 +4,6 @@
 //! Canvas stays here as it bridges elements, view, and the renderer.
 
 mod canvas;
-pub mod graph;
 
 pub use aurea_render::cpu::measure_text;
 pub use aurea_render::vector::{Icon, SvgError, VectorImage, parse_path_data};

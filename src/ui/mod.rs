@@ -14,16 +14,19 @@
 //!    reports the input on it, [`Ui::eased`] and [`Ui::animate`] keep values
 //!    moving, and shape and text calls draw.
 //! 2. [`paint`]: pieces that only draw. [`Surface`], [`Label`], [`Mark`],
-//!    [`Separator`], [`Badge`], [`Spinner`].
+//!    [`Separator`], [`Badge`], [`Spinner`], and a plot's [`GridLines`],
+//!    [`AxisMarks`], [`Trace`] and [`Marker`].
 //! 3. [`component`]: pieces that follow input. [`StateColors`],
-//!    [`FocusRing`], [`Track`], [`Knob`], [`EditableText`], and
-//!    [`PanZoom`] for an editor's view.
+//!    [`FocusRing`], [`Track`], [`Knob`], [`EditableText`],
+//!    [`PanZoom`] for an editor's view, and [`PlotView`] for a plot's.
 //! 4. [`widget`]: each a few components and [`Ui::interact`] calls, with a
 //!    style made from the theme that can be changed field by field.
 //!    - Actions: [`Button`], [`Link`].
 //!    - Choices: [`Toggle`], [`Checkbox`], [`RadioGroup`], [`Chip`],
 //!      [`Segmented`], [`Dropdown`], [`Swatches`].
 //!    - Values: [`Slider`], [`Stepper`], [`TextField`], [`ProgressBar`].
+//!    - Data: [`GraphView`] and [`ScopeView`], over the app's own
+//!      [`graph::Graph`] and [`graph::Scope`].
 //!    - Structure: [`TabBar`], [`Pager`], [`Disclosure`], [`ScrollArea`],
 //!      [`ListView`], [`EmptyState`], and [`DockView`] for panels in
 //!      tabbed groups the user can split and drag.
@@ -125,12 +128,13 @@ mod theme;
 pub mod widget;
 
 pub use component::{
-    EditableText, FocusRing, Knob, PanZoom, StateColors, TextOutcome, Track, card,
+    EditableText, FocusRing, Knob, PanZoom, PlotView, StateColors, TextOutcome, Track, card,
 };
 pub use frame::{Align, Eased, PressAt, Response, Ui};
 pub use paint::{
-    Badge, BadgeTone, Border, Component, IconMark, IconSource, Label, Mark, MarkShape, Overflow,
-    Separator, Shadow, Spinner, Surface, TextSize,
+    AxisMarks, AxisSide, AxisStyle, Badge, BadgeTone, Border, Component, GridLines, GridStyle,
+    IconMark, IconSource, Label, Mark, MarkShape, Marker, Overflow, Separator, Shadow, Spinner,
+    Stroke, Surface, TextSize, Trace,
 };
 pub use state::{Channel, Fonts, Interaction, Sense, UiState, WidgetId};
 pub use theme::{Motion, Palette, Theme};
@@ -144,6 +148,8 @@ pub use widget::dock::{
 };
 pub use widget::dropdown::{Dropdown, DropdownStyle};
 pub use widget::empty::EmptyState;
+pub use widget::graph;
+pub use widget::graph::{GraphStyle, GraphView, ScopeStyle, ScopeView};
 pub use widget::link::{Link, LinkStyle};
 pub use widget::pager::{Pager, PagerStyle};
 pub use widget::popup::MenuItem;

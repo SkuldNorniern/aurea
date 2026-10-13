@@ -6,17 +6,17 @@
 //! Each of these returns a plain [`Graph`] or [`Scope`], so anything can be
 //! changed afterwards.
 
-use aurea_render::Color;
+use crate::render::Color;
 
-use super::plot::{Axis, Graph};
+use super::axis::Axis;
+use super::plot::Graph;
 use super::scope::{Channel, Scope, Timebase, Trigger};
 use super::series::{Plot, Series};
-use super::style::{GraphStyle, Margin};
 
 /// A line chart over explicit points.
 ///
 /// ```rust
-/// use aurea::render::graph::quick;
+/// use aurea::ui::graph::quick;
 ///
 /// let graph = quick::line("temperature", vec![(0.0, 20.0), (1.0, 21.5)]);
 /// assert_eq!(graph.series.len(), 1);
@@ -59,7 +59,7 @@ pub fn bars(name: impl Into<String>, points: Vec<(f64, f64)>) -> Graph {
 /// Feed it with [`Graph::push`] and the series index this returns.
 ///
 /// ```rust
-/// use aurea::render::graph::quick;
+/// use aurea::ui::graph::quick;
 ///
 /// let (mut graph, signal) = quick::live("cpu", 600);
 /// graph.push(signal, 0.42);
@@ -86,18 +86,15 @@ pub fn live_multi(names: &[&str], capacity: usize) -> (Graph, Vec<usize>) {
     (graph, indices)
 }
 
-/// A bare trace with no grid, axes or background, for a chart that sits inline
-/// in a row of text or a table cell.
+/// A thin trace over `values`, for a chart inline in a row of text or a
+/// table cell. Show it with [`GraphView::bare`](crate::ui::GraphView::bare).
 pub fn sparkline(values: &[f64]) -> Graph {
     let points = values
         .iter()
         .enumerate()
         .map(|(i, v)| (super::numeric::count_to_f64(i), *v))
         .collect();
-    let mut graph = Graph::new().with_style(GraphStyle {
-        margin: Margin::uniform(2.0),
-        ..GraphStyle::bare()
-    });
+    let mut graph = Graph::new();
     graph.add_series(Series::xy("", points).with_width(1.0));
     graph
 }
@@ -106,7 +103,7 @@ pub fn sparkline(values: &[f64]) -> Graph {
 /// on a rising edge through zero.
 ///
 /// ```rust
-/// use aurea::render::graph::quick;
+/// use aurea::ui::graph::quick;
 ///
 /// let mut scope = quick::scope(2, 20_000.0);
 /// scope.push(0, 0.5);
@@ -118,11 +115,9 @@ pub fn scope(channels: usize, sample_rate: f64) -> Scope {
     scope.timebase = Timebase::new(0.001, sample_rate);
     scope.trigger = Trigger::rising(0.0);
 
+    // Colours come from the view's palette, in channel order.
     for i in 0..channels {
-        let color = scope.style.palette_color(i);
-        scope.add_channel(
-            Channel::with_capacity(format!("CH{}", i + 1), capacity).with_color(color),
-        );
+        scope.add_channel(Channel::with_capacity(format!("CH{}", i + 1), capacity));
     }
     scope
 }
@@ -204,11 +199,8 @@ mod tests {
     }
 
     #[test]
-    fn a_sparkline_has_no_furniture() {
-        let graph = sparkline(&[1.0, 2.0, 3.0]);
-        assert!(graph.style.background.is_none());
-        assert!(!graph.style.grid.show_horizontal);
-        assert_eq!(graph.series[0].points.len(), 3);
+    fn a_sparkline_holds_its_values() {
+        assert_eq!(sparkline(&[1.0, 2.0, 3.0]).series[0].points.len(), 3);
     }
 
     #[test]
@@ -217,11 +209,10 @@ mod tests {
     }
 
     #[test]
-    fn a_scope_gets_named_channels_in_palette_order() {
+    fn a_scope_gets_named_channels() {
         let scope = scope(3, 20_000.0);
         let names: Vec<&str> = scope.channels.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, vec!["CH1", "CH2", "CH3"]);
-        assert!(scope.channels.iter().all(|c| c.color.is_some()));
     }
 
     #[test]
