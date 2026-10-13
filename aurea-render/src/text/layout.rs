@@ -10,7 +10,7 @@ use unicode_linebreak::{BreakOpportunity, linebreaks};
 use crate::geometry::{Point, Rect};
 use crate::text::platform::{FontRef, TextRenderer};
 use crate::text::shape::ShapedText;
-use aurea_foundation::AureaResult;
+use aurea_foundation::{AureaError, AureaResult};
 
 /// Where lines may break inside a run of letters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -44,7 +44,7 @@ pub struct LayoutOptions {
     /// only at newlines.
     pub max_width: Option<f32>,
     pub align: TextAlign,
-    /// Line spacing as a multiple of the font's ascent plus descent.
+    /// Line spacing as a positive, finite multiple of the font's ascent plus descent.
     pub line_height: f32,
     pub word_break: WordBreak,
 }
@@ -222,6 +222,10 @@ fn wrap(
         .filter(|&i| may_break(paragraph, i, word_break))
         .peekable();
     while let Some(&at) = breaks.peek() {
+        if at <= start {
+            breaks.next();
+            continue;
+        }
         if span_width(paragraph, &clusters, start..at) <= max_width {
             fits = Some(at);
             breaks.next();
@@ -270,12 +274,9 @@ fn align(lines: &mut [LayoutLine], text: &str, options: LayoutOptions) -> f32 {
             .sum();
         (l.shaped.width - hang, hang)
     };
-    let width = options.max_width.unwrap_or_else(|| {
-        lines
-            .iter()
-            .map(|l| content(l).0)
-            .fold(0.0, f32::max)
-    });
+    let width = options
+        .max_width
+        .unwrap_or_else(|| lines.iter().map(|l| content(l).0).fold(0.0, f32::max));
     for line in lines.iter_mut() {
         let (w, hang) = content(line);
         let right = match (options.align, line.rtl) {
@@ -299,6 +300,14 @@ pub(crate) fn layout_text(
     options: LayoutOptions,
     renderer: &TextRenderer,
 ) -> AureaResult<TextLayout> {
+    if options.max_width.is_some_and(|w| !w.is_finite() || w < 0.0)
+        || !options.line_height.is_finite()
+        || options.line_height <= 0.0
+        || !font.size.is_finite()
+        || font.size < 0.0
+    {
+        return Err(AureaError::RenderingFailed);
+    }
     let mut lines = Vec::new();
     let mut top = 0.0;
     for para in paragraphs(text) {
@@ -369,7 +378,63 @@ mod tests {
     }
 
     fn lines(l: &TextLayout) -> Vec<&str> {
-        l.lines.iter().map(|line| &l.text[line.range.clone()]).collect()
+        l.lines
+            .iter()
+            .map(|line| &l.text[line.range.clone()])
+            .collect()
+    }
+
+    #[test]
+    fn invalid_layout_dimensions_are_rejected() {
+        let renderer = TextRenderer::new();
+        let font = Font::new("", 16.0);
+        for width in [-1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let options = LayoutOptions {
+                max_width: Some(width),
+                ..LayoutOptions::default()
+            };
+            assert!(layout_text("word", (&font).into(), options, &renderer).is_err());
+        }
+        for height in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            let options = LayoutOptions {
+                line_height: height,
+                ..LayoutOptions::default()
+            };
+            assert!(layout_text("word", (&font).into(), options, &renderer).is_err());
+        }
+        for size in [-1.0, f32::NAN, f32::INFINITY] {
+            let font = Font::new("", size);
+            assert!(
+                layout_text("word", (&font).into(), LayoutOptions::default(), &renderer).is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn wrapping_skips_opportunities_crossed_by_a_cluster() {
+        let text = "aa aa";
+        let layout = lay(text, LayoutOptions::default());
+        let mut shaped = (*layout.lines[0].shaped).clone();
+        for glyph in &mut shaped.glyphs {
+            if glyph.cluster < 4 {
+                glyph.cluster = 0;
+            }
+        }
+        let ranges = wrap(text, &shaped, 0.0, WordBreak::Normal);
+        assert_eq!(ranges, [0..4, 4..5]);
+    }
+
+    #[test]
+    fn zero_width_wrapping_makes_progress() {
+        let layout = lay(
+            "abc",
+            LayoutOptions {
+                max_width: Some(0.0),
+                ..LayoutOptions::default()
+            },
+        );
+        assert_eq!(lines(&layout).concat(), "abc");
+        assert!(layout.lines.iter().all(|line| !line.range.is_empty()));
     }
 
     #[test]
@@ -451,8 +516,13 @@ mod tests {
     fn vertical_text_lays_out_in_columns_from_the_right() {
         let r = TextRenderer::new();
         let font = Font::new("", 16.0).with_vertical(true);
-        let l = layout_text("縦書き\n二行目", (&font).into(), LayoutOptions::default(), &r)
-            .expect("layout");
+        let l = layout_text(
+            "縦書き\n二行目",
+            (&font).into(),
+            LayoutOptions::default(),
+            &r,
+        )
+        .expect("layout");
         assert!(l.vertical);
         assert_eq!(l.lines.len(), 2);
         let (first, second) = (&l.lines[0], &l.lines[1]);
