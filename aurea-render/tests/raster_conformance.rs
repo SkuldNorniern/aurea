@@ -8,8 +8,8 @@
 //! instead of silently rendering the wrong frame.
 
 use aurea_render::{
-    Color, CpuRasterizer, DrawingContext, Paint, PaintStyle, Path, PathCommand, Point, Rect,
-    Renderer, Surface, SurfaceInfo,
+    Color, CpuRasterizer, DrawingContext, Image, Paint, PaintStyle, Path, PathCommand, Point, Rect,
+    Renderer, Surface, SurfaceInfo, Transform,
 };
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
 use std::slice::from_raw_parts;
@@ -24,6 +24,23 @@ fn f32_to_u32(v: f32) -> u32 {
 /// Size of the test surface. Small enough that a failure dump is readable.
 const W: u32 = 32;
 const H: u32 = 32;
+
+#[test]
+fn unsupported_image_transforms_are_errors_instead_of_missing_pixels() {
+    let image = Image::new(8, 8, [255, 0, 0, 255].repeat(64));
+    let mut renderer = CpuRasterizer::new(W, H);
+    let mut ctx = renderer.begin_frame().expect("frame");
+    ctx.rotate(FRAC_PI_4).expect("rotation");
+    let rect = Rect::new(0.0, 0.0, 8.0, 8.0);
+    assert!(ctx.draw_image(&image, Point::new(0.0, 0.0)).is_err());
+    assert!(ctx.draw_image_rect(&image, rect).is_err());
+    assert!(ctx.draw_image_region(&image, rect, rect).is_err());
+    ctx.transform(Transform::rotate(-FRAC_PI_4))
+        .expect("undo rotation");
+    assert!(ctx.draw_image_rect(&image, rect).is_ok());
+    ctx.scale(-1.0, 1.0).expect("reflection");
+    assert!(ctx.draw_image_rect(&image, rect).is_err());
+}
 
 /// Renders one frame and returns the physical pixel buffer as `0xAARRGGBB`.
 fn render(draw: impl FnOnce(&mut dyn DrawingContext)) -> Vec<u32> {

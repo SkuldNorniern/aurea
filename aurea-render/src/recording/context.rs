@@ -293,6 +293,19 @@ impl<'list> RecordingContext<'list> {
         t.m12.abs() < 1e-6 && t.m21.abs() < 1e-6
     }
 
+    /// Image commands carry an upright rectangle, not an affine texture mapping.
+    fn ensure_image_transform(&self) -> AureaResult<()> {
+        let transform = self.current_transform;
+        if self.transform_is_axis_aligned() && transform.m11 >= 0.0 && transform.m22 >= 0.0 {
+            Ok(())
+        } else {
+            Err(AureaError::Unsupported {
+                operation: "image rotation, skew or reflection",
+                platform: Platform::current(),
+            })
+        }
+    }
+
     /// Uniform scale implied by the current transform, used where a shape can
     /// only carry a single radius or width.
     fn transform_scale(&self) -> f32 {
@@ -852,6 +865,7 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn draw_image(&mut self, image: &Image, position: Point) -> AureaResult<()> {
+        self.ensure_image_transform()?;
         // Drawn at its own pixel size so it stays crisp, positioned and scaled
         // by the transform like everything else.
         let anchor = self.s_pt(position);
@@ -871,6 +885,7 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn draw_image_rect(&mut self, image: &Image, dest: Rect) -> AureaResult<()> {
+        self.ensure_image_transform()?;
         self.add_command(DrawCommand::DrawImageRect(
             image.clone(),
             self.s_rect(dest),
@@ -880,6 +895,7 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn draw_image_region(&mut self, image: &Image, src: Rect, dest: Rect) -> AureaResult<()> {
+        self.ensure_image_transform()?;
         self.add_command(DrawCommand::DrawImageRegion(
             image.clone(),
             src,
@@ -895,6 +911,7 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn draw_texture(&mut self, texture: GpuTexture, src: Rect, dest: Rect) -> AureaResult<()> {
+        self.ensure_image_transform()?;
         self.add_command(DrawCommand::DrawTexture(
             texture,
             src,
