@@ -1,23 +1,25 @@
-//! ZenGPU render-to-texture rendered into an aurea window — unified graphics API.
+//! ZenGPU render-to-texture rendered into an aurea window — unified graphics API, on the platform's
+//! native backend (Metal on macOS, Vulkan elsewhere).
 
 use std::{error::Error, result::Result as StdResult};
 use zengpu::zsl;
 use {
     aurea::{Window, WindowEvent},
-    std::{mem::size_of_val, slice::from_raw_parts, time::Instant},
+    std::time::Instant,
     zengpu::{
         Acquire, Bindings, ColorAttachment, ColorTargetState, DepthState, DeviceRequest,
         FilterMode, Format, Frame, GpuAdapter, GpuDevice, GpuError, GraphicsDevice,
         GraphicsPipelineDesc, LoadOp, PresentMode, PrimitiveTopology, RenderCommands,
-        RenderPassDesc, Result, SamplerDesc, Scalar, ShaderDesc, Surface, SurfaceConfig,
-        TextureDesc, TextureUsage, Viewport, ViewportScissor, VulkanInstance,
+        RenderPassDesc, Result, SamplerDesc, Scalar, Surface, SurfaceConfig, TextureDesc,
+        TextureUsage, Viewport, ViewportScissor, ZslShader,
         hal::{RasterState, TexDim},
+        native::{NativeInstance, shader},
     },
 };
 
 const OFF_SIZE: u32 = 512;
 
-const OFF_VERT_SPV: &[u32] = zsl!(
+const OFF_VERT_ZSL: ZslShader = zsl!(
     push Pc { angle: f32 }
     vertex vs(vi: vertex_index, pc: Pc) -> (f32x4, f32x3) {
         let pos = [f32x2(-0.6, 0.6), f32x2(0.6, 0.6), f32x2(0.0, -0.6)]
@@ -27,17 +29,15 @@ const OFF_VERT_SPV: &[u32] = zsl!(
         let p = pos[vi]
         (f32x4(c * p.x - s * p.y, s * p.x + c * p.y, 0.0, 1.0), col[vi])
     }
-)
-.spv;
+);
 
-const OFF_FRAG_SPV: &[u32] = zsl!(
+const OFF_FRAG_ZSL: ZslShader = zsl!(
     fragment fs(@location(0) color: f32x3) -> f32x4 {
         color.extend(1.0)
     }
-)
-.spv;
+);
 
-const SCR_VERT_SPV: &[u32] = zsl!(
+const SCR_VERT_ZSL: ZslShader = zsl!(
     vertex vs(vi: vertex_index) -> (f32x4, f32x2) {
         let pos = [
             f32x2(-1.0, -1.0), f32x2(1.0, -1.0), f32x2(-1.0, 1.0),
@@ -46,31 +46,25 @@ const SCR_VERT_SPV: &[u32] = zsl!(
         let p = pos[vi]
         (f32x4(p, 0.0, 1.0), p * 0.5 + 0.5)
     }
-)
-.spv;
+);
 
-const SCR_FRAG_SPV: &[u32] = zsl!(
+const SCR_FRAG_ZSL: ZslShader = zsl!(
     push Pc { tex_index: u32 }
     fragment fs(@location(0) uv: f32x2, tex: textures, pc: Pc) -> f32x4 {
         tex[pc.tex_index].sample(uv)
     }
-)
-.spv;
-
-fn spv_bytes(words: &[u32]) -> &[u8] {
-    unsafe { from_raw_parts(words.as_ptr() as *const u8, size_of_val(words)) }
-}
+);
 
 fn run() -> Result<()> {
     let window = Window::new("ZenGPU — Offscreen (render-to-texture)", 800, 600)
         .map_err(|e| GpuError::Backend(format!("window: {e}")))?;
 
-    let inst = VulkanInstance::new_with_surface()?;
+    let inst = NativeInstance::new_with_surface()?;
     let adapter = inst
-        .request_vulkan_adapter()
-        .ok_or_else(|| GpuError::Backend("no Vulkan adapter found".into()))?;
+        .request_graphics_adapter()
+        .ok_or_else(|| GpuError::Backend("no GPU adapter found".into()))?;
     eprintln!("ZenGPU: {}", adapter.info().name);
-    let device = adapter.open_with_surface(DeviceRequest::default())?;
+    let device = adapter.open_graphics(DeviceRequest::default())?;
 
     let handles = window
         .zengpu_handles()
@@ -84,8 +78,8 @@ fn run() -> Result<()> {
     };
     let surface = device.create_surface(&handles, config)?;
 
-    let off_vert = device.create_shader(ShaderDesc::spirv(spv_bytes(OFF_VERT_SPV)))?;
-    let off_frag = device.create_shader(ShaderDesc::spirv(spv_bytes(OFF_FRAG_SPV)))?;
+    let off_vert = device.create_shader(shader(&OFF_VERT_ZSL))?;
+    let off_frag = device.create_shader(shader(&OFF_FRAG_ZSL))?;
     let off_pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader: off_vert,
         fragment_shader: off_frag,
@@ -102,8 +96,8 @@ fn run() -> Result<()> {
         samples: 1,
     })?;
 
-    let scr_vert = device.create_shader(ShaderDesc::spirv(spv_bytes(SCR_VERT_SPV)))?;
-    let scr_frag = device.create_shader(ShaderDesc::spirv(spv_bytes(SCR_FRAG_SPV)))?;
+    let scr_vert = device.create_shader(shader(&SCR_VERT_ZSL))?;
+    let scr_frag = device.create_shader(shader(&SCR_FRAG_ZSL))?;
     let scr_pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader: scr_vert,
         fragment_shader: scr_frag,
