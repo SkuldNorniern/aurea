@@ -4,7 +4,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::os::raw::c_void;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 
@@ -16,6 +16,46 @@ use super::state::CanvasId;
 use crate::ffi::*;
 
 static NEXT_CANVAS_ID: AtomicU64 = AtomicU64::new(1);
+
+thread_local! {
+    static NATIVE_CANVASES: RefCell<HashMap<usize, Weak<CanvasCleanup>>> = RefCell::new(HashMap::new());
+}
+
+pub(super) fn register_native_canvas(cleanup: &Rc<CanvasCleanup>) {
+    NATIVE_CANVASES.with(|registry| {
+        registry
+            .borrow_mut()
+            .insert(cleanup.handle, Rc::downgrade(cleanup));
+    });
+}
+
+pub(super) fn canvas_is_live(handle: *mut c_void) -> bool {
+    NATIVE_CANVASES.with(|registry| {
+        registry
+            .borrow()
+            .get(&(handle as usize))
+            .and_then(Weak::upgrade)
+            .is_some_and(|cleanup| cleanup.live.load(Ordering::Acquire))
+    })
+}
+
+pub(crate) fn notify_canvas_destroyed(handle: *mut c_void) {
+    let cleanup = NATIVE_CANVASES.with(|registry| {
+        registry
+            .borrow_mut()
+            .remove(&(handle as usize))
+            .and_then(|weak| weak.upgrade())
+    });
+    if let Some(cleanup) = cleanup {
+        cleanup.live.store(false, Ordering::Release);
+        cleanup.owns_native.store(false, Ordering::Release);
+        FrameScheduler::unregister_canvas(handle);
+        unregister_canvas_state(cleanup.id);
+        if let Ok(mut renderer) = cleanup.renderer.try_borrow_mut() {
+            *renderer = None;
+        }
+    }
+}
 
 static CANVAS_HANDLES: LazyLock<Mutex<HashMap<CanvasId, usize>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -54,16 +94,21 @@ pub(super) struct CanvasCleanup {
     pub(super) id: CanvasId,
     pub(super) renderer: Rc<RefCell<Option<Box<dyn Renderer>>>>,
     pub(super) owns_native: AtomicBool,
+    pub(super) live: AtomicBool,
     pub(super) warned_about_mixed_drawing: AtomicBool,
 }
 
 impl Drop for CanvasCleanup {
     fn drop(&mut self) {
+        NATIVE_CANVASES.with(|registry| {
+            registry.borrow_mut().remove(&self.handle);
+        });
+        self.live.store(false, Ordering::Release);
         FrameScheduler::unregister_canvas(self.handle as *mut c_void);
         unregister_canvas_state(self.id);
         {
-            let mut r = self.renderer.borrow_mut();
-            if let Some(ref mut renderer) = *r {
+            let renderer = self.renderer.borrow_mut().take();
+            if let Some(mut renderer) = renderer {
                 renderer.cleanup();
             }
         }

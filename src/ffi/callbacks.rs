@@ -11,6 +11,7 @@ use crate::registry::elements::{
 };
 use crate::registry::menu::invoke_menu_callback;
 use crate::registry::window::scale_factor_changed;
+use crate::render::notify_canvas_destroyed;
 use crate::window::{
     KeyCode, Modifiers, MouseButton, MouseButtons, PenPhase, PenSample, PenTool, WindowEvent,
     push_window_event,
@@ -21,6 +22,13 @@ fn guard(entry: &str, call: impl FnOnce()) {
     if catch_unwind(AssertUnwindSafe(call)).is_err() {
         error!("aurea: application callback panicked in {entry}; the panic was contained");
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_canvas_destroyed(canvas: *mut c_void) {
+    guard("ng_invoke_canvas_destroyed", || {
+        notify_canvas_destroyed(canvas)
+    });
 }
 
 #[inline]

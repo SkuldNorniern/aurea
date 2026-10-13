@@ -1,4 +1,4 @@
-use super::lifecycle::take_full_redraw_request;
+use super::lifecycle::{canvas_is_live, take_full_redraw_request};
 use crate::ffi::*;
 use crate::platform::presentation::cpu::publish_cpu_buffer;
 use crate::render::SurfaceInfo;
@@ -48,8 +48,8 @@ fn render_frame(
     }
 
     let current_damage = {
-        let mut r = renderer.borrow_mut();
-        if let Some(ref mut r) = *r {
+        let mut slot = renderer.borrow_mut();
+        if let Some(ref mut r) = *slot {
             r.set_damage(damage_rect);
             {
                 let mut ctx = r.begin_frame()?;
@@ -60,6 +60,10 @@ fn render_frame(
                 {
                     cb(ctx.as_mut())?;
                 }
+            }
+            if !canvas_is_live(handle) {
+                *slot = None;
+                return Err(AureaError::ElementOperationFailed);
             }
             let outcome = r.end_frame()?;
             (outcome, r.last_frame_damage())
@@ -76,7 +80,7 @@ fn render_frame(
     Ok(outcome)
 }
 
-fn follow_outcome(
+pub(super) fn follow_outcome(
     outcome: FrameOutcome,
     handle: *mut c_void,
     state: &Rc<RefCell<CanvasState>>,
@@ -181,6 +185,9 @@ impl Canvas {
 
         let callback: Rc<dyn Fn() -> AureaResult<()>> = Rc::new(move || {
             let handle = handle_usize as *mut c_void;
+            if !canvas_is_live(handle) {
+                return Ok(());
+            }
 
             if take_full_redraw_request(id) {
                 let mut st = state.borrow_mut();
@@ -228,6 +235,7 @@ impl Canvas {
     }
 
     pub(super) fn check_and_resize(&mut self) -> AureaResult<()> {
+        self.ensure_live()?;
         if ensure_canvas_renderer(self.handle, &self.state, &self.renderer, self.backend)? {
             sync_surface(self.handle, &self.state, &self.renderer)?;
         }

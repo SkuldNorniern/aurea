@@ -58,6 +58,7 @@
 }
 
 - (void)dealloc {
+    ng_invoke_canvas_destroyed((__bridge void*)self);
     self.renderBuffer = NULL;
     for (int i = 0; i < 2; i++) {
         if (_ioSurfaces[i]) {

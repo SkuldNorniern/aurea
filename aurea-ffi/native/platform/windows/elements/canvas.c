@@ -189,6 +189,7 @@ static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             return 0;
         }
         case WM_DESTROY:
+            ng_invoke_canvas_destroyed((void*)hwnd);
             if (data) {
                 free(data);
             }
