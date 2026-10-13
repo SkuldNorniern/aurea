@@ -191,29 +191,45 @@ pub const TEXT_DUAL_SOURCE_FRAG: ZslShader = zsl!(
 mod tests {
     use std::env::temp_dir;
     use std::fs::{remove_file, write};
+    use std::mem::size_of_val;
     use std::process::{Command, id};
+    use std::slice::from_raw_parts;
 
     use super::*;
+
+    const SHADERS: [(&str, &ZslShader); 11] = [
+        ("rect.vert", &RECT_VERT),
+        ("rect.frag", &RECT_FRAG),
+        ("shape.vert", &SHAPE_VERT),
+        ("shape.frag", &SHAPE_FRAG),
+        ("gradient.vert", &GRADIENT_VERT),
+        ("gradient.frag", &GRADIENT_FRAG),
+        ("image.vert", &IMAGE_VERT),
+        ("image.frag", &IMAGE_FRAG),
+        ("text.vert", &TEXT_VERT),
+        ("text.frag", &TEXT_FRAG),
+        ("text_lcd.frag", &TEXT_DUAL_SOURCE_FRAG),
+    ];
+
+    /// Every shader has MSL for Metal as well as SPIR-V for Vulkan.
+    #[test]
+    fn shaders_have_every_native_backend() {
+        for (name, shader) in SHADERS {
+            assert!(!shader.spv.is_empty(), "{name}: no SPIR-V");
+            assert!(!shader.msl.is_empty(), "{name}: no MSL");
+        }
+    }
 
     /// Every shader passes `spirv-val`, when the Vulkan SDK's copy is there.
     #[test]
     fn shaders_validate() {
-        let shaders = [
-            ("rect.vert", RECT_VERT_SPV),
-            ("rect.frag", RECT_FRAG_SPV),
-            ("shape.vert", SHAPE_VERT_SPV),
-            ("shape.frag", SHAPE_FRAG_SPV),
-            ("gradient.vert", GRADIENT_VERT_SPV),
-            ("gradient.frag", GRADIENT_FRAG_SPV),
-            ("image.vert", IMAGE_VERT_SPV),
-            ("image.frag", IMAGE_FRAG_SPV),
-            ("text.vert", TEXT_VERT_SPV),
-            ("text.frag", TEXT_FRAG_SPV),
-            ("text_lcd.frag", TEXT_DUAL_SOURCE_FRAG_SPV),
-        ];
-        for (name, words) in shaders {
+        for (name, shader) in SHADERS {
             let path = temp_dir().join(format!("aurea_{}_{name}.spv", id()));
-            write(&path, spv_bytes(words)).expect("write spv");
+            // SAFETY: SPIR-V words viewed as their bytes.
+            let bytes = unsafe {
+                from_raw_parts(shader.spv.as_ptr().cast::<u8>(), size_of_val(shader.spv))
+            };
+            write(&path, bytes).expect("write spv");
             let out = Command::new("spirv-val")
                 .args(["--target-env", "vulkan1.2"])
                 .arg(&path)
