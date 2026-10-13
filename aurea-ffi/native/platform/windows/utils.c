@@ -26,6 +26,7 @@ static BOOL g_lifecycle_callbacks[256] = {0};
 static BOOL g_mouse_inside[256] = {0};
 static WPARAM g_menu_access_key = 0;
 static BOOL g_shortcut_took_syskey = FALSE;
+static WPARAM g_menu_took_key = 0;
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
@@ -547,11 +548,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 break;
             }
             g_menu_access_key = 0;
-            ng_invoke_key_event((void*)hwnd, keycode, 1, modifiers);
             if (ng_windows_handle_menu_shortcut((void*)hwnd, keycode, modifiers)) {
                 g_shortcut_took_syskey = uMsg == WM_SYSKEYDOWN;
+                g_menu_took_key = wParam;
                 return 0;
             }
+            ng_invoke_key_event((void*)hwnd, keycode, 1, modifiers);
             if (wParam == VK_MENU || wParam == VK_F10) {
                 return 0;
             }
@@ -565,6 +567,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             if (uMsg == WM_SYSKEYUP && g_menu_access_key != 0 && wParam == g_menu_access_key) {
                 g_menu_access_key = 0;
                 break;
+            }
+            if (g_menu_took_key != 0 && wParam == g_menu_took_key) {
+                g_menu_took_key = 0;
+                return 0;
             }
             unsigned int keycode = ng_windows_keycode_from_vk(wParam);
             ng_invoke_key_event((void*)hwnd, keycode, 0, ng_windows_modifiers());

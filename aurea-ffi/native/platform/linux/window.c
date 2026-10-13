@@ -417,10 +417,11 @@ static gboolean on_key_press(GtkWidget* widget, GdkEventKey* event, gpointer use
     unsigned int keycode = ng_linux_keycode_from_keyval(event->keyval);
 
     if (!ng_linux_ime_composing(widget)) {
-        ng_invoke_key_event((void*)widget, keycode, 1, mods);
         if (ng_linux_handle_menu_shortcut((void*)widget, keycode, mods)) {
+            g_object_set_data(G_OBJECT(widget), "aurea-menu-took-key", GUINT_TO_POINTER(event->keyval));
             return TRUE;
         }
+        ng_invoke_key_event((void*)widget, keycode, 1, mods);
         if (ng_shortcuts_match((void*)widget, keycode, mods)) {
             return TRUE;
         }
@@ -437,6 +438,11 @@ static gboolean on_key_press(GtkWidget* widget, GdkEventKey* event, gpointer use
 
 static gboolean on_key_release(GtkWidget* widget, GdkEventKey* event, gpointer user_data) {
     (void)user_data;
+    guint took = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(widget), "aurea-menu-took-key"));
+    if (took != 0 && took == event->keyval) {
+        g_object_set_data(G_OBJECT(widget), "aurea-menu-took-key", NULL);
+        return TRUE;
+    }
     unsigned int mods = ng_linux_modifiers(event->state);
     unsigned int keycode = ng_linux_keycode_from_keyval(event->keyval);
     int composing = ng_linux_ime_composing(widget);
