@@ -36,7 +36,8 @@ normal draw through the CPU.
 
 ## Features
 
-- `zengpu`: GPU rendering through ZenGPU. Experimental.
+- `zengpu`: GPU rendering through ZenGPU, on Metal on macOS and Vulkan
+  elsewhere. Experimental.
 - `wgpu`: wgpu renderer and surface helpers.
 
 ## Examples
