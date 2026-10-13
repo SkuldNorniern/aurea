@@ -601,6 +601,8 @@ fn valid_rgba_image(width: u32, height: u32, data: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "zengpu")]
+    use zengpu_hal::TextureHandle;
 
     #[test]
     fn lowering_records_what_the_frame_needs() {
@@ -886,6 +888,8 @@ mod tests {
         let mut list = DisplayList::new();
         list.push(item(red_rect(Rect::new(0.0, 0.0, 4.0, 4.0))));
         let texture = GpuTexture {
+            #[cfg(feature = "zengpu")]
+            handle: TextureHandle::from_parts(7, 1),
             index: 7,
             generation: 1,
             width: 100,

@@ -345,6 +345,8 @@ mod tests {
     use crate::gpu::batch::{DrawRef, RectInstance, ShapeInstance};
     use crate::types::GpuTexture;
     use crate::types::{Color, Paint};
+    #[cfg(feature = "zengpu")]
+    use zengpu_hal::TextureHandle;
 
     struct Probe {
         resized: Vec<(u32, u32)>,
@@ -435,6 +437,8 @@ mod tests {
         };
         let mut r = with_features(FrameOutcome::Presented, features);
         let texture = GpuTexture {
+            #[cfg(feature = "zengpu")]
+            handle: TextureHandle::from_parts(9, 0),
             index: 9,
             generation: 0,
             width: 4,
