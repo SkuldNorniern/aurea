@@ -7,6 +7,7 @@
 #import "utils.h"
 #import <Cocoa/Cocoa.h>
 #import <CoreGraphics/CoreGraphics.h>
+#import <QuartzCore/QuartzCore.h>
 #include <string.h>
 
 static int ng_macos_get_cursor_grab_mode(void* windowHandle);
@@ -144,10 +145,18 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
 }
 @property (nonatomic, assign) void* windowHandle;
 @property (nonatomic, strong) NSCursor* cursor;
+// Back the view with a CAMetalLayer, which Vulkan (MoltenVK) and Metal
+// need to present to it. Off until a GPU surface asks for it.
+@property (nonatomic, assign) BOOL usesMetalLayer;
 - (void)setImeArea:(NSRect)area;
 @end
 
 @implementation AureaContentView
+
+- (CALayer*)makeBackingLayer {
+    if (self.usesMetalLayer) return [CAMetalLayer layer];
+    return [super makeBackingLayer];
+}
 
 /* The file paths a drag carries, one per line, or nil for none. */
 static NSString* drag_paths(id<NSDraggingInfo> info) {
@@ -1120,6 +1129,22 @@ int ng_macos_window_is_visible(NGHandle window) {
     if (!window) return 0;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
     return [nsWindow isVisible] ? 1 : 0;
+}
+
+/* Backs the content view with a CAMetalLayer so a GPU swapchain can present
+   to it: MoltenVK refuses a view without one. The view stays layer-backed
+   rather than layer-hosting, so native widgets inside it keep working. */
+int ng_macos_window_use_metal_layer(NGHandle window) {
+    if (!window) return NG_ERROR_INVALID_HANDLE;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    NSView* view = [nsWindow contentView];
+    if (![view isKindOfClass:[AureaContentView class]]) return NG_ERROR_PLATFORM_SPECIFIC;
+    if ([[view layer] isKindOfClass:[CAMetalLayer class]]) return NG_SUCCESS;
+    ((AureaContentView*)view).usesMetalLayer = YES;
+    /* makeBackingLayer only runs when the view gains a layer. */
+    if ([view wantsLayer]) [view setWantsLayer:NO];
+    [view setWantsLayer:YES];
+    return [[view layer] isKindOfClass:[CAMetalLayer class]] ? NG_SUCCESS : NG_ERROR_PLATFORM_SPECIFIC;
 }
 
 NGHandle ng_macos_window_get_content_view(NGHandle window) {
