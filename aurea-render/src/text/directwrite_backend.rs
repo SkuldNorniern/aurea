@@ -1,6 +1,6 @@
 //! DirectWrite glyph rasterizer (Windows) — hinted ClearType subpixel coverage.
 
-use super::super::types::{FontStyle, FontWeight};
+use super::super::types::{FontStyle, FontVariation, FontWeight};
 use super::glyph::{FaceData, FaceId, GlyphKey};
 use super::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph};
 use super::{GLYPH_BYTES, LruCache};
@@ -16,15 +16,17 @@ use dwrote::{
 };
 use winapi::um::dcommon::DWRITE_MEASURING_MODE_NATURAL;
 use winapi::um::dwrite::{
-    DWRITE_FONT_METRICS, DWRITE_GLYPH_RUN, DWRITE_RENDERING_MODE_NATURAL,
-    DWRITE_TEXTURE_CLEARTYPE_3x1, IDWriteFontFace,
+    DWRITE_FONT_METRICS, DWRITE_FONT_SIMULATIONS_NONE, DWRITE_GLYPH_RUN,
+    DWRITE_RENDERING_MODE_NATURAL, DWRITE_TEXTURE_CLEARTYPE_3x1, IDWriteFontFace,
 };
+use winapi::um::dwrite_3::DWRITE_FONT_AXIS_VALUE;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct FaceKey {
     family_hash: u64,
     weight: FontWeight,
     style: FontStyle,
+    variations: u64,
 }
 
 impl FaceKey {
@@ -38,6 +40,7 @@ impl FaceKey {
             family_hash: hasher.finish(),
             weight: font.weight,
             style: font.style,
+            variations: font.variation_hash(),
         }
     }
 }
@@ -47,6 +50,7 @@ struct FaceEntry {
     ascent: f32,
     descent: f32,
     units_per_em: f32,
+    variations: Vec<FontVariation>,
     data: OnceLock<Option<Arc<FaceData>>>,
 }
 
@@ -106,10 +110,15 @@ impl DirectWriteRasterizer {
             .filter(|name| !name.is_empty())
             .find_map(|name| self.collection.font_family_by_name(name).ok().flatten())
             .ok_or(AureaError::RenderingFailed)?;
-        let face = family
+        let mut face = family
             .first_matching_font(weight, DwStretch::Normal, style)
             .map_err(|_| AureaError::RenderingFailed)?
             .create_font_face();
+        if !font.variations.is_empty()
+            && let Some(varied) = vary(&face, font.variations)
+        {
+            face = varied;
+        }
 
         let mut fm: DWRITE_FONT_METRICS = unsafe { zeroed() };
         unsafe {
@@ -121,6 +130,7 @@ impl DirectWriteRasterizer {
             ascent: f32::from(fm.ascent),
             descent: f32::from(fm.descent),
             units_per_em: f32::from(fm.designUnitsPerEm.max(1)),
+            variations: font.variations.to_vec(),
             data: OnceLock::new(),
         })
     }
@@ -170,7 +180,7 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
             .get_or_init(|| {
                 let file = entry.face.files().ok()?.into_iter().next()?;
                 let bytes = Arc::new(file.font_file_bytes().ok()?);
-                FaceData::new(bytes, entry.face.get_index()).map(Arc::new)
+                FaceData::new(bytes, entry.face.get_index(), &entry.variations).map(Arc::new)
             })
             .clone()
             .ok_or(AureaError::RenderingFailed)
@@ -252,6 +262,24 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
         lock(&self.glyphs).insert_sized(key, glyph.clone(), bytes);
         Ok(glyph)
     }
+}
+
+fn vary(face: &FontFace, variations: &[FontVariation]) -> Option<FontFace> {
+    let mut axes = face.variations().ok()?;
+    if axes.is_empty() {
+        return None;
+    }
+    for v in variations {
+        let tag = u32::from_le_bytes(v.tag);
+        match axes.iter_mut().find(|a| a.axisTag == tag) {
+            Some(axis) => axis.value = v.value,
+            None => axes.push(DWRITE_FONT_AXIS_VALUE {
+                axisTag: tag,
+                value: v.value,
+            }),
+        }
+    }
+    face.create_font_face_with_variations(DWRITE_FONT_SIMULATIONS_NONE, &axes)
 }
 
 fn candidates(family: &str) -> [&str; 4] {

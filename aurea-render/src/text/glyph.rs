@@ -3,8 +3,13 @@
 
 use std::sync::Arc;
 
-use harfrust::Font;
-use harfrust::font::Blob;
+use harfrust::font::{Blob, NormalizedCoord, Variation};
+use harfrust::{Font, Tag};
+use skrifa::instance::{LocationRef, Size};
+use skrifa::raw::TableProvider;
+use skrifa::{FontRef as SkrifaFont, GlyphId, MetadataProvider};
+
+use crate::types::FontVariation;
 
 /// One font face a rasterizer has loaded, by its own numbering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -28,7 +33,7 @@ impl GlyphKey {
     }
 }
 
-/// A face's font file, for shaping and glyph outlines.
+/// A face's font file, at one position on its variable axes, for shaping and glyph outlines.
 pub struct FaceData {
     bytes: Arc<Vec<u8>>,
     index: u32,
@@ -36,12 +41,48 @@ pub struct FaceData {
 }
 
 impl FaceData {
-    /// The face at `index` of the font file `bytes` (0 unless it is a collection), or `None` when
-    /// it holds no font.
-    pub fn new(bytes: Arc<Vec<u8>>, index: u32) -> Option<Self> {
+    /// The face at `index` of the font file `bytes` (0 unless it is a collection) at `variations`,
+    /// or `None` when it holds no font.
+    pub fn new(bytes: Arc<Vec<u8>>, index: u32, variations: &[FontVariation]) -> Option<Self> {
         let blob: Arc<dyn AsRef<[u8]> + Send + Sync> = bytes.clone();
-        let font = Font::new(Blob::from(blob), index)?;
+        let mut font = Font::new(Blob::from(blob), index)?;
+        if !variations.is_empty() {
+            font = font
+                .instance_builder()
+                .variations(
+                    variations
+                        .iter()
+                        .map(|v| Variation::new(Tag::new(&v.tag), v.value)),
+                )
+                .build();
+        }
         Some(Self { bytes, index, font })
+    }
+
+    /// Where on its axes the face is, normalized; empty at the defaults.
+    pub fn coords(&self) -> &[NormalizedCoord] {
+        self.font.normalized_coords()
+    }
+
+    pub(crate) fn advance_deltas(&self, glyphs: &[u32]) -> Vec<f32> {
+        if self.coords().is_empty() {
+            return Vec::new();
+        }
+        let Ok(font) = SkrifaFont::from_index(&self.bytes, self.index) else {
+            return Vec::new();
+        };
+        if font.hvar().is_ok() {
+            return Vec::new();
+        }
+        let varied = font.glyph_metrics(Size::unscaled(), self.coords());
+        let plain = font.glyph_metrics(Size::unscaled(), LocationRef::default());
+        glyphs
+            .iter()
+            .map(|&g| {
+                let g = GlyphId::new(g);
+                varied.advance_width(g).unwrap_or(0.0) - plain.advance_width(g).unwrap_or(0.0)
+            })
+            .collect()
     }
 
     /// The font file the face is in.

@@ -4,6 +4,7 @@ use crate::types::{
     BlendMode, Color, Font, GpuTexture, Image, LinearGradient, Paint, Path, PathCommand, Point,
     RadialGradient, Rect, Sampling, TextMetrics, Transform,
 };
+use crate::text::TextLayout;
 use aurea_foundation::AureaResult;
 
 pub trait DrawingContext {
@@ -65,6 +66,41 @@ pub trait DrawingContext {
         font: &Font,
         paint: &Paint,
     ) -> AureaResult<()>;
+
+    /// Draw one line of a paragraph read right to left when `rtl`, so a wrapped line starting in
+    /// the other direction keeps its paragraph's order.
+    fn draw_text_directed(
+        &mut self,
+        text: &str,
+        position: Point,
+        font: &Font,
+        paint: &Paint,
+        rtl: Option<bool>,
+    ) -> AureaResult<()> {
+        let _ = rtl;
+        self.draw_text_with_font(text, position, font, paint)
+    }
+
+    /// Draw `layout`, laid out in `font`, with its top-left at `origin`.
+    fn draw_text_layout(
+        &mut self,
+        layout: &TextLayout,
+        origin: Point,
+        font: &Font,
+        paint: &Paint,
+    ) -> AureaResult<()> {
+        for line in &layout.lines {
+            let at = if layout.vertical {
+                let inset = (line.height - font.size) / 2.0;
+                Point::new(origin.x + line.x + inset, origin.y + line.top)
+            } else {
+                Point::new(origin.x + line.x, origin.y + line.baseline)
+            };
+            let text = &layout.text[line.range.clone()];
+            self.draw_text_directed(text, at, font, paint, Some(line.rtl))?;
+        }
+        Ok(())
+    }
 
     /// Measure text dimensions.
     fn measure_text(&mut self, text: &str, font: &Font) -> AureaResult<TextMetrics>;

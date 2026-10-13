@@ -4,7 +4,9 @@ use crate::renderer::DrawingContext;
 use crate::scene::command::DrawCommand;
 use crate::scene::display_list::{CacheKey, DisplayIndex, DisplayItem, DisplayList};
 use crate::scene::hit_test::{hit_test_path, path_bounds};
-use crate::text::{FaceData, FaceId, FontRef, GlyphCoverage, ShapedText, TextRenderer};
+use crate::text::{
+    FaceData, FaceId, FontRef, GlyphCoverage, LayoutOptions, ShapedText, TextLayout, TextRenderer,
+};
 use crate::types::*;
 use aurea_foundation::{AureaError, AureaResult, Platform};
 use std::collections::hash_map::DefaultHasher;
@@ -35,6 +37,12 @@ pub fn measure_text(text: &str, font: &Font) -> AureaResult<TextMetrics> {
 /// faces drawing them (fallbacks included), clusters and positions.
 pub fn shape_text(text: &str, font: &Font) -> AureaResult<Arc<ShapedText>> {
     TEXT_RENDERER.shape(text, FontRef::with_size(font, font.size))
+}
+
+/// `text` in `font` laid out in lines by `options`, at logical size: for paragraphs, wrapping and
+/// editors.
+pub fn layout_text(text: &str, font: &Font, options: LayoutOptions) -> AureaResult<TextLayout> {
+    TEXT_RENDERER.layout(text, FontRef::with_size(font, font.size), options)
 }
 
 /// A shaped glyph's outline at `size` pixels, pen at the origin on the baseline; `None` for one
@@ -813,12 +821,23 @@ impl DrawingContext for RecordingContext<'_> {
         font: &Font,
         paint: &Paint,
     ) -> AureaResult<()> {
+        self.draw_text_directed(text, point, font, paint, None)
+    }
+
+    fn draw_text_directed(
+        &mut self,
+        text: &str,
+        point: Point,
+        font: &Font,
+        paint: &Paint,
+        rtl: Option<bool>,
+    ) -> AureaResult<()> {
         if text.is_empty() {
             return Ok(());
         }
 
         let physical_font = FontRef::with_size(font, self.s(font.size));
-        let (mask, ascent, pad) = TEXT_RENDERER.render_text_subpixel(text, physical_font)?;
+        let (mask, ascent, pad) = TEXT_RENDERER.render_text_directed(text, physical_font, rtl)?;
         if mask.width == 0 || mask.height == 0 {
             return Ok(());
         }

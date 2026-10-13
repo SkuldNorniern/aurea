@@ -23,10 +23,12 @@ wgpu = ["dep:wgpu"]
 aurea-foundation = { path = "../aurea-foundation", version = "0.1.0" }
 fontdb = "0.16"
 fontdue = "0.9"
-# Text shaping (OpenType, every script), glyph outlines, and bidi order.
+# Text shaping (OpenType, every script), glyph outlines, bidi order and
+# line breaking.
 harfrust = "0.14"
 skrifa = "0.48"
 unicode-bidi = "0.3"
+unicode-linebreak = "0.1"
 log = "0.4"
 
 # ZenGPU: optional, enabled by the `zengpu` feature.
@@ -40,4 +42,4 @@ wgpu = { version = "29.0.1", optional = true }
 # Windows: hinted ClearType glyph rasterization via DirectWrite.
 [target.'cfg(windows)'.dependencies]
 dwrote = "0.11"
-winapi = { version = "0.3", features = ["dwrite", "dcommon", "winnt", "windef", "winerror"] }
+winapi = { version = "0.3", features = ["dwrite", "dwrite_3", "dcommon", "winnt", "windef", "winerror"] }

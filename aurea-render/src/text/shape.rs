@@ -2,8 +2,8 @@
 
 use std::ops::Range;
 
-use harfrust::{Buffer, Direction, ShapeOptions, ShaperFont, shape};
-use unicode_bidi::{BidiClass, BidiInfo, bidi_class};
+use harfrust::{Buffer, Direction, Feature, ShapeOptions, ShaperFont, Tag, shape};
+use unicode_bidi::{BidiClass, BidiInfo, Level, bidi_class};
 
 use crate::text::glyph::FaceId;
 use crate::text::platform::{FontRef, PlatformTextRasterizer};
@@ -18,7 +18,7 @@ pub struct ShapedGlyph {
     pub id: u16,
     /// Byte offset in the text of the first character the glyph draws.
     pub cluster: usize,
-    /// How far the pen moves after it.
+    /// How far the pen moves after it: right, or down in vertical text.
     pub advance: f32,
     /// Where it sits from the pen, right and down positive.
     pub offset_x: f32,
@@ -27,11 +27,12 @@ pub struct ShapedGlyph {
     pub rtl: bool,
 }
 
-/// A line of text as glyphs in visual order, left to right, with its metrics.
+/// A line of text as glyphs in visual order, left to right (top to bottom when vertical), with its
+/// metrics.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShapedText {
     pub glyphs: Vec<ShapedGlyph>,
-    /// Total advance.
+    /// Total advance, along the line.
     pub width: f32,
     /// The requested face's ascent and descent, which set the line height.
     pub ascent: f32,
@@ -43,6 +44,8 @@ pub struct ShapedText {
     pub size: f32,
     /// Length of the text in bytes.
     pub len: usize,
+    /// Set top to bottom.
+    pub vertical: bool,
 }
 
 impl ShapedText {
@@ -107,6 +110,23 @@ impl ShapedText {
         }
     }
 
+    /// Where the text in byte `range` shows, as left and right edges from the line's start: more
+    /// than one span when right-to-left runs split it.
+    pub fn selection_spans(&self, range: Range<usize>) -> Vec<(f32, f32)> {
+        let mut spans: Vec<(f32, f32)> = Vec::new();
+        for (pen, g) in self.pen_positions() {
+            if !range.contains(&g.cluster) {
+                continue;
+            }
+            let (l, r) = (pen, pen + g.advance);
+            match spans.last_mut() {
+                Some(last) if (last.1 - l).abs() < 0.01 => last.1 = r,
+                _ => spans.push((l, r)),
+            }
+        }
+        spans
+    }
+
     fn next_cluster(&self, cluster: usize) -> usize {
         self.glyphs
             .iter()
@@ -157,10 +177,19 @@ fn face_pieces(
     pieces
 }
 
-/// Shape `text` in `font` as one line.
+/// Shape `text` in `font` as one line, in the direction its first strong character reads.
 pub fn shape_text(
     text: &str,
     font: FontRef,
+    raster: &dyn PlatformTextRasterizer,
+) -> AureaResult<ShapedText> {
+    shape_line(text, font, None, raster)
+}
+
+pub(crate) fn shape_line(
+    text: &str,
+    font: FontRef,
+    rtl: Option<bool>,
     raster: &dyn PlatformTextRasterizer,
 ) -> AureaResult<ShapedText> {
     let primary = raster.face(font)?;
@@ -174,8 +203,27 @@ pub fn shape_text(
         ink_descent: descent,
         size: font.size,
         len: text.len(),
+        vertical: font.vertical,
     };
-    let bidi = BidiInfo::new(text, None);
+    let features: Vec<Feature> = font
+        .features
+        .iter()
+        .map(|f| Feature::new(Tag::new(&f.tag), f.value, ..))
+        .collect();
+    let shaping = Shaping {
+        size: font.size,
+        features: &features,
+        raster,
+    };
+    if font.vertical {
+        for (range, face) in face_pieces(text, 0..text.len(), font, primary, raster) {
+            shaping.piece(text, range, face, Direction::TopToBottom, &mut shaped)?;
+        }
+        shaped.width = shaped.glyphs.iter().map(|g| g.advance).sum();
+        return Ok(shaped);
+    }
+    let level = rtl.map(|rtl| if rtl { Level::rtl() } else { Level::ltr() });
+    let bidi = BidiInfo::new(text, level);
     for paragraph in &bidi.paragraphs {
         let (levels, runs) = bidi.visual_runs(paragraph, paragraph.range.clone());
         for run in runs {
@@ -184,8 +232,13 @@ pub fn shape_text(
             if rtl {
                 pieces.reverse();
             }
+            let direction = if rtl {
+                Direction::RightToLeft
+            } else {
+                Direction::LeftToRight
+            };
             for (range, face) in pieces {
-                shape_piece(text, range, face, rtl, font.size, raster, &mut shaped)?;
+                shaping.piece(text, range, face, direction, &mut shaped)?;
             }
         }
     }
@@ -193,43 +246,67 @@ pub fn shape_text(
     Ok(shaped)
 }
 
-fn shape_piece(
-    text: &str,
-    range: Range<usize>,
-    face: FaceId,
-    rtl: bool,
+struct Shaping<'a> {
     size: f32,
-    raster: &dyn PlatformTextRasterizer,
-    shaped: &mut ShapedText,
-) -> AureaResult<()> {
-    let data = raster.face_data(face)?;
-    let (a, d) = raster.face_metrics(face, size);
-    shaped.ink_ascent = shaped.ink_ascent.max(a);
-    shaped.ink_descent = shaped.ink_descent.max(d);
-    let mut buffer = Buffer::new();
-    buffer.push_str(&text[range.clone()]);
-    buffer.set_direction(if rtl {
-        Direction::RightToLeft
-    } else {
-        Direction::LeftToRight
-    });
-    buffer.guess_segment_properties();
-    let shaper = ShaperFont::new(data.shaping_font());
-    shape(&shaper, &mut buffer, ShapeOptions::new())
+    features: &'a [Feature],
+    raster: &'a dyn PlatformTextRasterizer,
+}
+
+impl Shaping<'_> {
+    fn piece(
+        &self,
+        text: &str,
+        range: Range<usize>,
+        face: FaceId,
+        direction: Direction,
+        shaped: &mut ShapedText,
+    ) -> AureaResult<()> {
+        let data = self.raster.face_data(face)?;
+        let (a, d) = self.raster.face_metrics(face, self.size);
+        shaped.ink_ascent = shaped.ink_ascent.max(a);
+        shaped.ink_descent = shaped.ink_descent.max(d);
+        let mut buffer = Buffer::new();
+        buffer.push_str(&text[range.clone()]);
+        buffer.set_direction(direction);
+        buffer.guess_segment_properties();
+        let shaper = ShaperFont::new(data.shaping_font());
+        shape(
+            &shaper,
+            &mut buffer,
+            ShapeOptions::new().features(self.features),
+        )
         .map_err(|_| AureaError::RenderingFailed)?;
-    let scale = size / data.units_per_em();
-    for (info, pos) in buffer.glyph_infos().iter().zip(buffer.glyph_positions()) {
-        shaped.glyphs.push(ShapedGlyph {
-            face,
-            id: u16::try_from(info.glyph_id).unwrap_or(0),
-            cluster: range.start + info.cluster as usize,
-            advance: pos.x_advance as f32 * scale,
-            offset_x: pos.x_offset as f32 * scale,
-            offset_y: -(pos.y_offset as f32) * scale,
-            rtl,
-        });
+        let scale = self.size / data.units_per_em();
+        let vertical = direction == Direction::TopToBottom;
+        let deltas = if vertical {
+            Vec::new()
+        } else {
+            let ids: Vec<u32> = buffer.glyph_infos().iter().map(|i| i.glyph_id).collect();
+            data.advance_deltas(&ids)
+        };
+        for (i, (info, pos)) in buffer
+            .glyph_infos()
+            .iter()
+            .zip(buffer.glyph_positions())
+            .enumerate()
+        {
+            let advance = if vertical {
+                -pos.y_advance as f32
+            } else {
+                pos.x_advance as f32 + deltas.get(i).copied().unwrap_or(0.0)
+            };
+            shaped.glyphs.push(ShapedGlyph {
+                face,
+                id: u16::try_from(info.glyph_id).unwrap_or(0),
+                cluster: range.start + info.cluster as usize,
+                advance: advance * scale,
+                offset_x: pos.x_offset as f32 * scale,
+                offset_y: -(pos.y_offset as f32) * scale,
+                rtl: direction == Direction::RightToLeft,
+            });
+        }
+        Ok(())
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -259,6 +336,7 @@ mod tests {
             ink_descent: 3.0,
             size: 12.0,
             len,
+            vertical: false,
         }
     }
 
