@@ -1,20 +1,24 @@
 //! Text rendering for Canvas.
 //!
-//! `platform` orchestrates the backend seam and run shaping. Concrete glyph
-//! rasterizers are modular:
+//! `shape` turns text into positioned glyphs (harfrust, bidi, per-character
+//! font fallback); `platform` holds the backend seam and lays shaped glyphs
+//! into masks. Concrete glyph rasterizers are modular:
 //! - `directwrite_backend` — hinted ClearType via DirectWrite (Windows only).
 //! - `fontdue_backend` — cross-platform fallback (fontdb/fontdue, no hinting).
 
-pub mod atlas;
 pub mod font;
+pub mod glyph;
+pub mod outline;
 pub mod platform;
+pub mod shape;
 
 #[cfg(windows)]
 mod directwrite_backend;
 mod fontdue_backend;
 
-pub use atlas::*;
+pub use glyph::*;
 pub use platform::*;
+pub use shape::*;
 
 /// Bytes of glyph coverage a rasterizer keeps; at large sizes a few hundred
 /// glyphs would otherwise be tens of megabytes.

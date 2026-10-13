@@ -1,18 +1,21 @@
 //! Text rasterization orchestration.
 //!
 //! Defines the [`PlatformTextRasterizer`] backend seam, the [`SubpixelGlyph`]
-//! exchange type, and [`TextRenderer`], which shapes a run of per-glyph subpixel
-//! coverage into a single [`GlyphMask`]. Concrete backends live in sibling
-//! modules:
+//! exchange type, and [`TextRenderer`], which shapes text (see
+//! [`crate::text::shape`]) and lays the shaped glyphs' subpixel coverage into
+//! a single [`GlyphMask`]. Concrete backends live in sibling modules:
 //! - `directwrite_backend` — hinted ClearType via DirectWrite (Windows only).
 //! - `fontdue_backend` — cross-platform fallback (no hinting).
 //!
 //! [`get_platform_rasterizer`] picks the best available backend per platform.
 
+use crate::geometry::Path;
 use crate::numeric::{f32_to_i32_clamped, f32_to_u32_clamped};
-use crate::text::atlas::{GlyphAtlas, GlyphBitmap, GlyphKey};
+use crate::text::glyph::{FaceData, FaceId, GlyphCoverage};
+use crate::text::outline::glyph_outline;
+use crate::text::shape::{ShapedText, shape_text};
 use crate::text::{LruCache, MASK_BYTES};
-use crate::types::{Color, Font, FontStyle, FontWeight, GlyphMask, Point, TextMetrics};
+use crate::types::{Font, FontStyle, FontWeight, GlyphMask, TextMetrics};
 use aurea_foundation::{AureaResult, lock};
 use std::sync::{Arc, Mutex};
 
@@ -64,22 +67,56 @@ pub struct SubpixelGlyph {
     pub left: i32,
     /// Y offset from the baseline to the bitmap's top edge (down = positive).
     pub top: i32,
-    /// Horizontal advance in device pixels.
-    pub advance: f32,
     /// Subpixel coverage, `width * height * 3` bytes in R, G, B order.
     pub coverage: Vec<u8>,
 }
 
-/// Platform text rasterizer trait — the backend seam.
+/// Platform text rasterizer trait — the backend seam. Backends find and load
+/// faces and turn glyph ids into coverage; shaping is shared.
 pub trait PlatformTextRasterizer: Send + Sync {
-    /// Rasterize a single grayscale glyph (legacy / generic path).
-    fn rasterize_glyph(&self, font: FontRef, char_code: u32) -> AureaResult<GlyphBitmap>;
+    /// The face for `font`: its family in its weight and style when
+    /// installed, else the first installed fallback.
+    fn face(&self, font: FontRef) -> AureaResult<FaceId>;
 
-    /// Rasterize a single glyph to hinted RGB subpixel coverage (cached).
-    fn rasterize_subpixel(&self, font: FontRef, char_code: u32) -> AureaResult<Arc<SubpixelGlyph>>;
+    /// The face that draws `ch` in `font`: `primary` when it has the glyph,
+    /// else the first fallback that does, else `primary`.
+    fn face_for_char(&self, font: FontRef, primary: FaceId, ch: char) -> FaceId;
 
-    /// Measure text dimensions.
-    fn measure_text(&self, text: &str, font: FontRef) -> AureaResult<TextMetrics>;
+    /// The face's font file, for shaping and outlines.
+    fn face_data(&self, face: FaceId) -> AureaResult<Arc<FaceData>>;
+
+    /// The face's ascent and descent at `size`, both positive.
+    fn face_metrics(&self, face: FaceId, size: f32) -> (f32, f32);
+
+    /// `glyph` of `face` at `size` as hinted RGB subpixel coverage (cached).
+    fn rasterize_subpixel(
+        &self,
+        face: FaceId,
+        glyph: u16,
+        size: f32,
+    ) -> AureaResult<Arc<SubpixelGlyph>>;
+
+    /// `glyph` of `face` at `size` as grayscale coverage. By default the
+    /// average of the subpixel coverage.
+    fn rasterize_gray(&self, face: FaceId, glyph: u16, size: f32) -> AureaResult<GlyphCoverage> {
+        let g = self.rasterize_subpixel(face, glyph, size)?;
+        Ok(GlyphCoverage {
+            width: g.width,
+            height: g.height,
+            left: g.left,
+            top: g.top,
+            coverage: g
+                .coverage
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .map(|[r, g, b]| {
+                    let sum = u16::from(*r) + u16::from(*g) + u16::from(*b);
+                    u8::try_from(sum / 3).unwrap_or(u8::MAX)
+                })
+                .collect(),
+        })
+    }
 }
 
 /// Get the best available platform text rasterizer.
@@ -100,11 +137,11 @@ pub fn get_platform_rasterizer() -> Box<dyn PlatformTextRasterizer> {
     Box::new(FontDbTextRasterizer::new())
 }
 
-/// Cache key for a multi-character glyph run.
+/// Cache key for a run of text in a font.
 ///
 /// A `u64` fingerprint of the text + normalized family + size/weight/style,
-/// so looking up the run cache (the common case, including hits) never
-/// allocates a `String`. The owned text is only needed to render on a miss.
+/// so looking up a cache (the common case, including hits) never allocates
+/// a `String`. The owned text is only needed to render on a miss.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct RunKey {
     hash: u64,
@@ -134,27 +171,41 @@ impl RunKey {
     }
 }
 
-/// Text renderer: owns a backend + a glyph atlas, and shapes runs.
+/// Text renderer: owns a backend, shapes text, and lays shaped glyphs into
+/// masks.
 pub struct TextRenderer {
     rasterizer: Box<dyn PlatformTextRasterizer>,
-    atlas: GlyphAtlas,
-    /// Per-glyph mask cache for single-character calls (>99% of the hot path).
-    /// LRU cap: 256 entries and [`MASK_BYTES`] — large enough for a full ASCII
-    /// + common Unicode set.
-    mask_cache: Mutex<LruCache<GlyphKey, (GlyphMask, f32, f32)>>,
-    /// Multi-character run cache. Prevents re-rasterizing unchanged text strings
-    /// on every frame. LRU cap: 512 entries and [`MASK_BYTES`].
-    run_cache: Mutex<LruCache<RunKey, (GlyphMask, f32, f32)>>,
+    /// Shaped lines, which measuring and drawing the same text share. LRU
+    /// cap: 512 entries.
+    shaped: Mutex<LruCache<RunKey, Arc<ShapedText>>>,
+    /// Text masks. LRU cap: 512 entries and [`MASK_BYTES`]: unchanged text
+    /// is not drawn again every frame.
+    masks: Mutex<LruCache<RunKey, (GlyphMask, f32, f32)>>,
 }
 
 impl TextRenderer {
     pub fn new() -> Self {
+        Self::with_rasterizer(get_platform_rasterizer())
+    }
+
+    pub(crate) fn with_rasterizer(rasterizer: Box<dyn PlatformTextRasterizer>) -> Self {
         Self {
-            rasterizer: get_platform_rasterizer(),
-            atlas: GlyphAtlas::new(4), // 4MB cache budget
-            mask_cache: Mutex::new(LruCache::with_budget(256, MASK_BYTES)),
-            run_cache: Mutex::new(LruCache::with_budget(512, MASK_BYTES)),
+            rasterizer,
+            shaped: Mutex::new(LruCache::new(512)),
+            masks: Mutex::new(LruCache::with_budget(512, MASK_BYTES)),
         }
+    }
+
+    /// `text` in `font` as one shaped line: glyph ids, the faces that draw
+    /// them (fallbacks included), clusters and positions.
+    pub fn shape(&self, text: &str, font: FontRef) -> AureaResult<Arc<ShapedText>> {
+        let key = RunKey::new(text, font);
+        if let Some(hit) = lock(&self.shaped).get(&key).cloned() {
+            return Ok(hit);
+        }
+        let shaped = Arc::new(shape_text(text, font, self.rasterizer.as_ref())?);
+        lock(&self.shaped).insert(key, shaped.clone());
+        Ok(shaped)
     }
 
     /// Shape a text run into a subpixel (LCD) coverage mask.
@@ -162,175 +213,92 @@ impl TextRenderer {
     /// Returns the mask plus the run's ascent and padding so the caller can
     /// position it: the mask's top-left sits at `(point.x - pad, point.y -
     /// ascent - pad)`. Per-glyph coverage comes pre-hinted from the backend;
-    /// this just lays glyphs out along the pen and max-combines overlaps.
-    ///
-    /// Single-character calls use the per-glyph mask cache (256-entry LRU).
-    /// Multi-character runs use the run cache (512-entry LRU) — no per-frame
-    /// heap allocation for unchanged text.
+    /// this lays the shaped glyphs along the pen and max-combines overlaps.
     pub fn render_text_subpixel(
         &self,
         text: &str,
         font: FontRef,
     ) -> AureaResult<(GlyphMask, f32, f32)> {
-        let mut chars = text.chars();
-        if let Some(ch) = chars.next()
-            && chars.next().is_none()
-        {
-            // Single character — per-glyph mask cache.
-            let key = GlyphKey::new(font, ch as u32);
-            if let Some(cached) = lock(&self.mask_cache).get(&key).cloned() {
-                return Ok(cached);
-            }
-            let result = self.compute_mask(text, font)?;
-            let bytes = result.0.coverage.len();
-            lock(&self.mask_cache).insert_sized(key, result.clone(), bytes);
-            return Ok(result);
-        }
-
-        // Multi-character run — run-mask cache.
-        let run_key = RunKey::new(text, font);
-        if let Some(cached) = lock(&self.run_cache).get(&run_key).cloned() {
+        let key = RunKey::new(text, font);
+        if let Some(cached) = lock(&self.masks).get(&key).cloned() {
             return Ok(cached);
         }
-        let result = self.compute_mask(text, font)?;
+        let result = self.compute_mask(&*self.shape(text, font)?)?;
         let bytes = result.0.coverage.len();
-        lock(&self.run_cache).insert_sized(run_key, result.clone(), bytes);
+        lock(&self.masks).insert_sized(key, result.clone(), bytes);
         Ok(result)
     }
 
-    fn compute_mask(&self, text: &str, font: FontRef) -> AureaResult<(GlyphMask, f32, f32)> {
-        let tm = self.rasterizer.measure_text(text, font)?;
+    fn compute_mask(&self, shaped: &ShapedText) -> AureaResult<(GlyphMask, f32, f32)> {
         let pad = 3.0f32;
-        let ascent = tm.ascent.max(0.0);
-        let dev_w = f32_to_u32_clamped((tm.width + pad * 2.0).ceil().max(1.0));
-        let dev_h = f32_to_u32_clamped((tm.height + pad * 2.0).ceil().max(1.0));
+        let ascent = shaped.ink_ascent.max(0.0);
+        let height = ascent + shaped.ink_descent.max(0.0);
+        let dev_w = f32_to_u32_clamped((shaped.width + pad * 2.0).ceil().max(1.0));
+        let dev_h = f32_to_u32_clamped((height + pad * 2.0).ceil().max(1.0));
         let mut coverage = vec![0u8; (dev_w * dev_h * 3) as usize];
 
         let baseline = f32_to_i32_clamped((ascent + pad).round());
-        let mut pen = pad;
-
-        for ch in text.chars() {
-            let g = self.rasterizer.rasterize_subpixel(font, ch as u32)?;
-            if g.width > 0 && g.height > 0 {
-                let gx = f32_to_i32_clamped(pen.round()) + g.left;
-                let gy = baseline + g.top;
-                let gw = g.width as i32;
-                for row in 0..g.height as i32 {
-                    let dy = gy + row;
-                    if dy < 0 || dy >= dev_h as i32 {
+        for (pen, glyph) in shaped.pen_positions() {
+            let g = self
+                .rasterizer
+                .rasterize_subpixel(glyph.face, glyph.id, shaped.size)?;
+            if g.width == 0 || g.height == 0 {
+                continue;
+            }
+            let gx = f32_to_i32_clamped((pad + pen + glyph.offset_x).round()) + g.left;
+            let gy = baseline + f32_to_i32_clamped(glyph.offset_y.round()) + g.top;
+            let gw = g.width as i32;
+            for row in 0..g.height as i32 {
+                let dy = gy + row;
+                if dy < 0 || dy >= dev_h as i32 {
+                    continue;
+                }
+                for col in 0..gw {
+                    let dx = gx + col;
+                    if dx < 0 || dx >= dev_w as i32 {
                         continue;
                     }
-                    for col in 0..gw {
-                        let dx = gx + col;
-                        if dx < 0 || dx >= dev_w as i32 {
-                            continue;
-                        }
-                        let si = ((row * gw + col) * 3).unsigned_abs() as usize;
-                        let di = ((dy * dev_w as i32 + dx) * 3).unsigned_abs() as usize;
-                        for c in 0..3 {
-                            if g.coverage[si + c] > coverage[di + c] {
-                                coverage[di + c] = g.coverage[si + c];
-                            }
+                    let si = ((row * gw + col) * 3).unsigned_abs() as usize;
+                    let di = ((dy * dev_w as i32 + dx) * 3).unsigned_abs() as usize;
+                    for c in 0..3 {
+                        if g.coverage[si + c] > coverage[di + c] {
+                            coverage[di + c] = g.coverage[si + c];
                         }
                     }
                 }
             }
-            pen += g.advance;
         }
 
         Ok((GlyphMask::new(dev_w, dev_h, coverage.into()), ascent, pad))
     }
 
-    /// Render grayscale text into an RGBA buffer (legacy generic path).
-    #[allow(clippy::too_many_arguments)]
-    pub fn render_text(
-        &self,
-        text: &str,
-        position: Point,
-        font: FontRef,
-        color: Color,
-        buffer: &mut [u32],
-        buffer_width: u32,
-        buffer_height: u32,
-    ) -> AureaResult<()> {
-        let mut x = position.x;
-        let y = position.y;
-
-        for ch in text.chars() {
-            let char_code = ch as u32;
-            let key = GlyphKey::new(font, char_code);
-
-            let glyph = match self.atlas.get(&key) {
-                Some(bitmap) => bitmap,
-                None => {
-                    let bitmap = self.rasterizer.rasterize_glyph(font, char_code)?;
-                    self.atlas.put(key, bitmap.clone())?;
-                    self.atlas
-                        .get(&key)
-                        .expect("glyph present after atlas put; we just inserted this key")
-                }
-            };
-
-            self.blit_glyph(&glyph, x, y, color, buffer, buffer_width, buffer_height)?;
-            x += glyph.advance;
-        }
-
-        Ok(())
+    /// Measure text dimensions, from the same shaping drawing uses.
+    pub fn measure_text(&self, text: &str, font: FontRef) -> AureaResult<TextMetrics> {
+        let shaped = self.shape(text, font)?;
+        Ok(TextMetrics {
+            width: shaped.width,
+            height: (shaped.ascent + shaped.descent).max(0.0),
+            ascent: shaped.ascent,
+            descent: shaped.descent,
+            advance: shaped.width,
+        })
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn blit_glyph(
-        &self,
-        glyph: &GlyphBitmap,
-        x: f32,
-        y: f32,
-        color: Color,
-        buffer: &mut [u32],
-        buffer_width: u32,
-        buffer_height: u32,
-    ) -> AureaResult<()> {
-        let start_x = f32_to_i32_clamped((x + glyph.bearing_x).round());
-        let start_y = f32_to_i32_clamped((y - glyph.bearing_y).round());
-
-        for gy in 0..glyph.height {
-            for gx in 0..glyph.width {
-                let buffer_x = start_x + gx as i32;
-                let buffer_y = start_y + gy as i32;
-
-                if buffer_x >= 0
-                    && buffer_x < buffer_width as i32
-                    && buffer_y >= 0
-                    && buffer_y < buffer_height as i32
-                {
-                    let glyph_idx = (gy * glyph.width + gx) as usize;
-                    if glyph_idx * 4 + 3 < glyph.data.len() {
-                        let out_a = glyph.data[glyph_idx * 4 + 3];
-                        if out_a == 0 {
-                            continue;
-                        }
-                        let buffer_idx = buffer_y.unsigned_abs() as usize * (buffer_width as usize)
-                            + buffer_x.unsigned_abs() as usize;
-                        if buffer_idx < buffer.len() {
-                            buffer[buffer_idx] = (u32::from(out_a) << 24)
-                                | (u32::from(color.r) << 16)
-                                | (u32::from(color.g) << 8)
-                                | u32::from(color.b);
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(())
+    /// A shaped glyph's grayscale coverage at `size`, for apps that
+    /// composite text themselves.
+    pub fn glyph_coverage(&self, face: FaceId, glyph: u16, size: f32) -> AureaResult<GlyphCoverage> {
+        self.rasterizer.rasterize_gray(face, glyph, size)
     }
 
-    /// Measure text dimensions.
-    pub fn measure_text(
-        &self,
-        text: &str,
-        font: FontRef,
-    ) -> AureaResult<super::super::types::TextMetrics> {
-        self.rasterizer.measure_text(text, font)
+    /// A shaped glyph's outline at `size`, pen at the origin on the
+    /// baseline; `None` when it has none.
+    pub fn glyph_outline(&self, face: FaceId, glyph: u16, size: f32) -> AureaResult<Option<Path>> {
+        Ok(glyph_outline(&*self.rasterizer.face_data(face)?, glyph, size))
+    }
+
+    /// The font file behind a face, for apps with their own text pipeline.
+    pub fn face_data(&self, face: FaceId) -> AureaResult<Arc<FaceData>> {
+        self.rasterizer.face_data(face)
     }
 }
 
@@ -343,27 +311,99 @@ impl Default for TextRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::Font;
+
+    fn font(family: &str) -> Font {
+        Font::new(family, 24.0)
+    }
 
     #[test]
     fn measure_text_returns_positive_for_non_empty() {
-        let rasterizer = get_platform_rasterizer();
-        let font = Font::new("", 24.0);
-        let metrics = rasterizer
-            .measure_text("Hello", (&font).into())
-            .expect("measure_text should succeed with system fonts");
+        let r = TextRenderer::new();
+        let f = font("");
+        let metrics = r.measure_text("Hello", (&f).into()).expect("measure");
         assert!(metrics.width > 0.0, "width should be positive");
         assert!(metrics.ascent > 0.0, "ascent should be positive");
         assert!(metrics.advance > 0.0, "advance should be positive");
     }
 
     #[test]
-    fn subpixel_mask_has_rgb_stride() {
-        let rasterizer = get_platform_rasterizer();
-        let font = Font::new("", 24.0);
-        let g = rasterizer
-            .rasterize_subpixel((&font).into(), 'A' as u32)
-            .expect("rasterize_subpixel A should succeed");
-        assert_eq!(g.coverage.len(), (g.width * g.height * 3) as usize);
+    fn subpixel_glyphs_have_rgb_stride() {
+        let r = TextRenderer::new();
+        let f = font("");
+        let shaped = r.shape("A", (&f).into()).expect("shape");
+        let g = shaped.glyphs[0];
+        let sub = r
+            .rasterizer
+            .rasterize_subpixel(g.face, g.id, 24.0)
+            .expect("rasterize");
+        assert_eq!(sub.coverage.len(), (sub.width * sub.height * 3) as usize);
+        let gray = r.glyph_coverage(g.face, g.id, 24.0).expect("gray");
+        assert_eq!(gray.coverage.len(), (gray.width * gray.height) as usize);
+        assert!(gray.coverage.iter().any(|&c| c > 0));
+    }
+
+    #[test]
+    fn text_shapes_to_one_glyph_per_letter_with_clusters() {
+        let r = TextRenderer::new();
+        let f = font("");
+        let shaped = r.shape("abc", (&f).into()).expect("shape");
+        let clusters: Vec<usize> = shaped.glyphs.iter().map(|g| g.cluster).collect();
+        assert_eq!(clusters, [0, 1, 2]);
+        assert!(shaped.glyphs.iter().all(|g| g.id != 0 && g.advance > 0.0));
+        assert_eq!(r.measure_text("abc", (&f).into()).expect("measure").width, shaped.width);
+    }
+
+    /// A combining accent becomes a mark positioned on its base, not a
+    /// glyph of its own width.
+    #[test]
+    fn combining_marks_cost_no_advance() {
+        let r = TextRenderer::new();
+        let f = font("");
+        let plain = r.measure_text("e", (&f).into()).expect("measure").width;
+        let accented = r.measure_text("e\u{0301}", (&f).into()).expect("measure").width;
+        assert!((accented - plain).abs() < 0.5, "{accented} vs {plain}");
+    }
+
+    /// Hangul in a Latin UI font comes from a fallback face that has it,
+    /// when one is installed.
+    #[test]
+    fn mixed_latin_and_hangul_use_two_faces() {
+        let r = TextRenderer::new();
+        let f = font("");
+        let shaped = r.shape("A가", (&f).into()).expect("shape");
+        let (latin, hangul) = (shaped.glyphs[0], shaped.glyphs[1]);
+        assert_eq!(hangul.cluster, 1);
+        if hangul.id != 0 {
+            assert_ne!(latin.face, hangul.face, "the UI font has no Hangul");
+            let (mask, _, _) = r.render_text_subpixel("A가", (&f).into()).expect("mask");
+            assert!(mask.coverage.iter().any(|&c| c > 0));
+        }
+    }
+
+    #[test]
+    fn right_to_left_text_is_laid_out_from_the_right() {
+        let r = TextRenderer::new();
+        let f = font("");
+        // "a" then two Hebrew letters: visually a, then the Hebrew reversed.
+        let shaped = r.shape("a\u{05D0}\u{05D1}", (&f).into()).expect("shape");
+        let clusters: Vec<usize> = shaped.glyphs.iter().map(|g| g.cluster).collect();
+        assert_eq!(clusters, [0, 3, 1]);
+        assert!(shaped.glyphs[1].rtl && !shaped.glyphs[0].rtl);
+    }
+
+    #[test]
+    fn glyphs_have_outlines() {
+        let r = TextRenderer::new();
+        let f = font("");
+        let shaped = r.shape("O ", (&f).into()).expect("shape");
+        let o = r
+            .glyph_outline(shaped.glyphs[0].face, shaped.glyphs[0].id, 24.0)
+            .expect("face")
+            .expect("an O has an outline");
+        assert!(o.commands.len() > 4);
+        let space = r
+            .glyph_outline(shaped.glyphs[1].face, shaped.glyphs[1].id, 24.0)
+            .expect("face");
+        assert!(space.is_none());
     }
 }
