@@ -2,7 +2,6 @@
 
 use std::collections::HashMap;
 use std::mem::{size_of, size_of_val};
-use std::ops::Deref;
 use std::slice::{from_raw_parts, from_ref};
 use std::sync::{Arc, Mutex, Weak};
 
@@ -130,7 +129,7 @@ impl ZenGpuContext {
             return Ok(pipelines);
         }
         let pipelines = Arc::new(SharedPipelines {
-            pipelines: Pipelines::new(self.device(), Format::Bgra8Unorm).map_err(gpu_err)?,
+            pipelines: Mutex::new(Pipelines::default()),
             context: Arc::clone(self),
         });
         *cached = Arc::downgrade(&pipelines);
@@ -171,20 +170,17 @@ fn coalesce_run(
 }
 
 struct SharedPipelines {
-    pipelines: Pipelines,
+    pipelines: Mutex<Pipelines>,
     context: Arc<ZenGpuContext>,
-}
-
-impl Deref for SharedPipelines {
-    type Target = Pipelines;
-    fn deref(&self) -> &Pipelines {
-        &self.pipelines
-    }
 }
 
 impl Drop for SharedPipelines {
     fn drop(&mut self) {
-        self.pipelines.destroy(self.context.device());
+        let pipelines = self
+            .pipelines
+            .get_mut()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        pipelines.destroy(self.context.device());
     }
 }
 
@@ -244,13 +240,7 @@ impl ZenGpuRenderer {
             lod_max: 32.0,
             ..SamplerDesc::default()
         });
-        let sampler = match sampler {
-            Ok(sampler) => sampler,
-            Err(e) => {
-                pipelines.destroy(context.device());
-                return Err(gpu_err(e));
-            }
-        };
+        let sampler = sampler.map_err(gpu_err)?;
 
         let backend = ZenGpuBackend {
             surface,
@@ -349,7 +339,8 @@ impl ZenGpuBackend {
         viewport: (f32, f32),
         buffers: &FrameBuffers,
         viewport_scalars: &[Scalar],
-    ) {
+        pipelines: Pipelines,
+    ) -> AureaResult<()> {
         let mut i = 0;
         let mut active_clip: Option<Option<Rect>> = None;
         while i < order.len() {
@@ -365,7 +356,7 @@ impl ZenGpuBackend {
                         coalesce_run(order, clips, i, |r, n| *r == DrawRef::Rect(start + n));
                     Self::draw_run(
                         cmd,
-                        self.pipelines.rect,
+                        pipelines.rect.ok_or(AureaError::RenderingFailed)?,
                         buffers.rect,
                         viewport_scalars,
                         &[],
@@ -379,7 +370,7 @@ impl ZenGpuBackend {
                         coalesce_run(order, clips, i, |r, n| *r == DrawRef::Shape(start + n));
                     Self::draw_run(
                         cmd,
-                        self.pipelines.shape,
+                        pipelines.shape.ok_or(AureaError::RenderingFailed)?,
                         buffers.shape,
                         viewport_scalars,
                         &[],
@@ -395,7 +386,7 @@ impl ZenGpuBackend {
                     });
                     Self::draw_run(
                         cmd,
-                        self.pipelines.gradient,
+                        pipelines.gradient.ok_or(AureaError::RenderingFailed)?,
                         buffers.gradient,
                         viewport_scalars,
                         from_ref(&slot),
@@ -411,7 +402,7 @@ impl ZenGpuBackend {
                     });
                     Self::draw_run(
                         cmd,
-                        self.pipelines.image,
+                        pipelines.image.ok_or(AureaError::RenderingFailed)?,
                         buffers.image,
                         viewport_scalars,
                         from_ref(&slot),
@@ -427,7 +418,7 @@ impl ZenGpuBackend {
                     });
                     Self::draw_run(
                         cmd,
-                        self.pipelines.text,
+                        pipelines.text.ok_or(AureaError::RenderingFailed)?,
                         buffers.text,
                         viewport_scalars,
                         from_ref(&slot),
@@ -438,6 +429,7 @@ impl ZenGpuBackend {
                 }
             }
         }
+        Ok(())
     }
 }
 
@@ -536,9 +528,16 @@ impl Gpu2dBackend for ZenGpuBackend {
         rects: &[RectInstance],
         shapes: &[ShapeInstance],
     ) -> AureaResult<FrameOutcome> {
-        let frame = match self.surface.acquire().map_err(gpu_err)? {
-            Acquire::Frame(f) => f,
-            Acquire::Skip => return Ok(FrameOutcome::Retry),
+        let pipelines = {
+            let mut pipelines = self
+                .pipelines
+                .pipelines
+                .lock()
+                .map_err(|_| AureaError::RenderingFailed)?;
+            pipelines
+                .ensure(self.context.device(), Format::Bgra8Unorm, &plan.order)
+                .map_err(gpu_err)?;
+            *pipelines
         };
 
         let vw = plan.viewport_width as f32;
@@ -573,6 +572,27 @@ impl Gpu2dBackend for ZenGpuBackend {
                 _pad: [0; 3],
             }));
 
+        self.rect_buf
+            .prepare(device, size_of_val(rects))
+            .map_err(gpu_err)?;
+        self.shape_buf
+            .prepare(device, size_of_val(shapes))
+            .map_err(gpu_err)?;
+        self.gradient_buf
+            .prepare(device, size_of_val(self.gradient_instances.as_slice()))
+            .map_err(gpu_err)?;
+        self.image_buf
+            .prepare(device, size_of_val(self.image_instances.as_slice()))
+            .map_err(gpu_err)?;
+        self.text_buf
+            .prepare(device, size_of_val(self.text_instances.as_slice()))
+            .map_err(gpu_err)?;
+        let mut cmd = device.create_command_list().map_err(gpu_err)?;
+        let frame = match self.surface.acquire().map_err(gpu_err)? {
+            Acquire::Frame(f) => f,
+            Acquire::Skip => return Ok(FrameOutcome::Retry),
+        };
+
         let rect_handle = self
             .rect_buf
             .upload(device, as_bytes(rects))
@@ -593,8 +613,6 @@ impl Gpu2dBackend for ZenGpuBackend {
             .text_buf
             .upload(device, as_bytes(&self.text_instances))
             .map_err(gpu_err)?;
-
-        let mut cmd = device.create_command_list().map_err(gpu_err)?;
 
         let load = match plan.clear {
             Some(c) => LoadOp::clear_rgb(
@@ -641,7 +659,8 @@ impl Gpu2dBackend for ZenGpuBackend {
             (vw, vh),
             &buffers,
             &viewport_scalars,
-        );
+            pipelines,
+        )?;
 
         cmd.end_render_pass();
         self.surface.present(frame, cmd).map_err(gpu_err)?;
@@ -695,6 +714,56 @@ mod context_tests {
         drop(second);
         assert!(weak.upgrade().is_none());
         assert_eq!(Arc::strong_count(&context), 1);
+    }
+
+    #[test]
+    fn pipelines_are_created_only_when_drawn_and_reused_afterward() {
+        let Ok(context) = ZenGpuContext::new() else {
+            return;
+        };
+        let context = Arc::new(context);
+        let shared = context.shared_pipelines().expect("cache");
+        let mut pipelines = shared.pipelines.lock().expect("lock");
+        pipelines
+            .ensure(context.device(), Format::Bgra8Unorm, &[])
+            .expect("clear-only frame");
+        assert!(pipelines.rect.is_none() && pipelines.text.is_none());
+        assert!(
+            pipelines.shape.is_none() && pipelines.image.is_none() && pipelines.gradient.is_none()
+        );
+        pipelines
+            .ensure(
+                context.device(),
+                Format::Bgra8Unorm,
+                &[DrawRef::Rect(0), DrawRef::Rect(1)],
+            )
+            .expect("rects");
+        let rect = pipelines.rect.expect("rect pipeline");
+        assert!(
+            pipelines.text.is_none()
+                && pipelines.shape.is_none()
+                && pipelines.image.is_none()
+                && pipelines.gradient.is_none()
+        );
+        pipelines
+            .ensure(
+                context.device(),
+                Format::Bgra8Unorm,
+                &[DrawRef::Rect(0), DrawRef::Text(0)],
+            )
+            .expect("text");
+        assert_eq!(pipelines.rect, Some(rect));
+        assert!(pipelines.text.is_some());
+        pipelines
+            .ensure(
+                context.device(),
+                Format::Bgra8Unorm,
+                &[DrawRef::Shape(0), DrawRef::Gradient(0), DrawRef::Image(0)],
+            )
+            .expect("remaining kinds");
+        assert!(
+            pipelines.shape.is_some() && pipelines.image.is_some() && pipelines.gradient.is_some()
+        );
     }
 
     #[test]
