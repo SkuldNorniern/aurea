@@ -44,7 +44,9 @@ void ng_invoke_focus_changed(void* window, int focused);
 void ng_invoke_cursor_entered(void* window, int entered);
 void ng_invoke_raw_mouse_motion(void* window, double delta_x, double delta_y);
 /* One pen sample. pressure 0..1; tilts in degrees -90..90; twist 0..360.
-   phase: 0 hover, 1 down, 2 move, 3 up. flags: 1 eraser, 2 barrel button. */
+   phase: 0 hover, 1 down, 2 move, 3 up. flags: 1 eraser, 2 barrel button.
+   age: seconds since the sample was taken, on the platform's input clock;
+   0 when unknown. */
 void ng_invoke_pen(
     void* window,
     double x,
@@ -55,7 +57,8 @@ void ng_invoke_pen(
     float twist,
     unsigned int phase,
     unsigned int flags,
-    unsigned int modifiers);
+    unsigned int modifiers,
+    double age);
 /* Files dragged over a window or dropped on it: kind is NG_DROP_HOVER,
    DROP or LEAVE; x, y in the content's logical pixels; paths one per line. */
 void ng_invoke_file_drop(void* window, unsigned int kind, double x, double y, const char* paths);

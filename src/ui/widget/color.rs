@@ -456,6 +456,7 @@ mod tests {
                 y: f64::from(at.y),
                 buttons: MouseButtons::default(),
                 modifiers: Modifiers::default(),
+                time: Default::default(),
             });
             self.ui.handle(&WindowEvent::MouseButton {
                 button: MouseButton::Left,
@@ -464,6 +465,7 @@ mod tests {
                 x: f64::from(at.x),
                 y: f64::from(at.y),
                 click_count: 1,
+                time: Default::default(),
             });
         }
     }

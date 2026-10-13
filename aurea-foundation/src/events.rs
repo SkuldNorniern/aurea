@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub enum WindowEvent {
@@ -44,6 +45,8 @@ pub enum WindowEvent {
         y: f64,
         buttons: MouseButtons,
         modifiers: Modifiers,
+        /// When it happened, on the same clock as [`PenSample::time`].
+        time: Duration,
     },
     RawMouseMotion {
         delta_x: f64,
@@ -59,6 +62,8 @@ pub enum WindowEvent {
         x: f64,
         y: f64,
         click_count: u8,
+        /// When it happened, on the same clock as [`PenSample::time`].
+        time: Duration,
     },
     /// The wheel or a touchpad scrolled. Positive `delta_y` is up, the wheel
     /// turned away from the user, and positive `delta_x` is right, on every
@@ -139,6 +144,12 @@ pub struct PenSample {
     /// The barrel button is held.
     pub barrel: bool,
     pub modifiers: Modifiers,
+    /// When the pen was read, as time since a fixed point early in the
+    /// process, on the host's monotonic clock. Mouse events share it, so a
+    /// stroke's latency and speed can be measured; it is not comparable
+    /// with another process's. Samples gathered between two events keep
+    /// their own times, not the event's.
+    pub time: Duration,
 }
 
 /// Where a [`PenSample`] falls in a stroke.

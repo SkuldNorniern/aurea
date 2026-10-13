@@ -283,6 +283,7 @@ mod tests {
                     x,
                     y: 15.0,
                     click_count: 1,
+                    time: Default::default(),
                 });
             }
         }
@@ -314,6 +315,7 @@ mod tests {
             y: 15.0,
             buttons: MouseButtons::default(),
             modifiers: Modifiers::default(),
+            time: Default::default(),
         });
         rig.send(WindowEvent::MouseWheel {
             delta_x: 0.0,

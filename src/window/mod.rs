@@ -1231,6 +1231,7 @@ mod event_queue_tests {
             x: 10.0,
             y: 20.0,
             click_count: 1,
+            time: Default::default(),
         });
         let out = queue.pop_all();
         assert_eq!(out.len(), 1);

@@ -181,6 +181,12 @@ static void on_drag_leave(GtkWidget* w, GdkDragContext* ctx, guint time, gpointe
     ng_invoke_file_drop((void*)w, NG_DROP_LEAVE, 0, 0, "");
 }
 
+static void on_realize_uncompressed(GtkWidget* widget, gpointer data) {
+    (void)data;
+    GdkWindow* window = gtk_widget_get_window(widget);
+    if (window) gdk_window_set_event_compression(window, FALSE);
+}
+
 NGHandle ng_linux_create_window(const char* title, int width, int height) {
     if (!title) return NULL;
     
@@ -195,6 +201,9 @@ NGHandle ng_linux_create_window(const char* title, int width, int height) {
             GDK_ENTER_NOTIFY_MASK | GDK_LEAVE_NOTIFY_MASK | GDK_FOCUS_CHANGE_MASK);
 
     ng_linux_ime_attach(window);
+    /* Every motion sample, not one merged per frame: a fast pen stroke
+       would otherwise come out as a polyline. */
+    g_signal_connect(G_OBJECT(window), "realize", G_CALLBACK(on_realize_uncompressed), NULL);
     g_signal_connect(G_OBJECT(window), "key-press-event", G_CALLBACK(on_key_press), NULL);
     g_signal_connect(G_OBJECT(window), "key-release-event", G_CALLBACK(on_key_release), NULL);
     g_signal_connect(G_OBJECT(window), "button-press-event", G_CALLBACK(on_button_press), NULL);
@@ -566,6 +575,46 @@ static int ng_linux_click_count(GtkWidget* widget, GdkEventButton* event) {
     return p->count;
 }
 
+/* Pen phases and flags as ng_invoke_pen takes them. */
+enum { PEN_HOVER = 0, PEN_DOWN = 1, PEN_MOVE = 2, PEN_UP = 3 };
+enum { PEN_ERASER = 1, PEN_BARREL = 2 };
+
+/* How long ago GDK stamped `event`, in seconds: its time is milliseconds on
+   the monotonic clock under Wayland and, in practice, X. 0 when unknown. */
+static double pen_age(GdkEvent* event) {
+    guint32 stamp = gdk_event_get_time(event);
+    if (stamp == GDK_CURRENT_TIME) return 0.0;
+    guint32 now = (guint32)(g_get_monotonic_time() / 1000);
+    return (double)(guint32)(now - stamp) / 1000.0;
+}
+
+/* An axis of a pen event, or `fallback` when the device has none. */
+static double pen_axis(GdkEvent* event, GdkAxisUse axis, double fallback) {
+    double value = 0.0;
+    return gdk_event_get_axis(event, axis, &value) ? value : fallback;
+}
+
+/* Reports `event` as a pen sample when a pen or eraser made it, at the
+   content point (x, y). The mouse event still goes out as well, so an app
+   that reads only the mouse keeps working. */
+static void report_pen(GtkWidget* widget, GdkEvent* event, double x, double y, guint state, unsigned int phase) {
+    GdkDevice* device = gdk_event_get_source_device(event);
+    if (!device) return;
+    GdkInputSource source = gdk_device_get_source(device);
+    if (source != GDK_SOURCE_PEN && source != GDK_SOURCE_ERASER) return;
+    double pressure = pen_axis(event, GDK_AXIS_PRESSURE, phase == PEN_HOVER ? 0.0 : 1.0);
+    /* GDK tilts run -1..1, right and toward the user positive, as on
+       Windows; rotation is 0..1 of a turn. */
+    float tilt_x = (float)(pen_axis(event, GDK_AXIS_XTILT, 0.0) * 90.0);
+    float tilt_y = (float)(pen_axis(event, GDK_AXIS_YTILT, 0.0) * 90.0);
+    float twist = (float)(pen_axis(event, GDK_AXIS_ROTATION, 0.0) * 360.0);
+    unsigned int flags = 0;
+    if (source == GDK_SOURCE_ERASER) flags |= PEN_ERASER;
+    if (state & (GDK_BUTTON2_MASK | GDK_BUTTON3_MASK)) flags |= PEN_BARREL;
+    ng_invoke_pen((void*)widget, x, y, (float)pressure, tilt_x, tilt_y, twist, phase, flags,
+                  ng_linux_modifiers(state), pen_age(event));
+}
+
 static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpointer user_data) {
     (void)user_data;
     if (event->type != GDK_BUTTON_PRESS) return FALSE;
@@ -578,6 +627,7 @@ static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpoint
     ng_linux_content_point(widget, event->window, &x, &y);
     if (button < 8) ng_linux_pointer(widget)->held |= 1u << button;
     ng_invoke_mouse_button((void*)widget, button, 1, mods, x, y, click_count);
+    if (event->button == 1) report_pen(widget, (GdkEvent*)event, x, y, event->state, PEN_DOWN);
     return FALSE;
 }
 
@@ -591,6 +641,7 @@ static gboolean on_button_release(GtkWidget* widget, GdkEventButton* event, gpoi
     ng_linux_content_point(widget, event->window, &x, &y);
     if (button < 8) ng_linux_pointer(widget)->held &= ~(1u << button);
     ng_invoke_mouse_button((void*)widget, button, 0, mods, x, y, 1);
+    if (event->button == 1) report_pen(widget, (GdkEvent*)event, x, y, event->state, PEN_UP);
     return FALSE;
 }
 
@@ -607,6 +658,8 @@ static gboolean on_motion_notify(GtkWidget* widget, GdkEventMotion* event, gpoin
     /* The state has no bits for back, forward and beyond. */
     buttons |= ng_linux_pointer(widget)->held & ~7u;
     ng_invoke_mouse_move((void*)widget, x, y, buttons, ng_linux_modifiers(event->state));
+    report_pen(widget, (GdkEvent*)event, x, y, event->state,
+               (event->state & GDK_BUTTON1_MASK) ? PEN_MOVE : PEN_HOVER);
 
     int index = ng_linux_find_window_index(widget);
     if (index >= 0 && g_cursor_grab_mode[index] == 2) {
