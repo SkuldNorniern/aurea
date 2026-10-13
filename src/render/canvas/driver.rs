@@ -152,28 +152,57 @@ fn sync_surface(
     if width == 0 || height == 0 {
         return Ok(false);
     }
-    let changed = {
-        let mut st = state.borrow_mut();
-        let changed = width != st.width
-            || height != st.height
-            || (scale - st.scale_factor).abs() > f32::EPSILON;
-        if changed {
-            st.width = width;
-            st.height = height;
-            st.scale_factor = scale;
-            st.needs_redraw = true;
-            st.damage.add_all();
-        }
-        changed
-    };
-    if changed && let Some(r) = renderer.borrow_mut().as_mut() {
-        r.configure(SurfaceInfo {
+    configure_surface(
+        state,
+        renderer,
+        SurfaceInfo {
             width,
             height,
             scale_factor: scale,
-        })?;
-    }
+        },
+    )?;
     Ok(true)
+}
+
+fn configure_surface(
+    state: &Rc<RefCell<CanvasState>>,
+    renderer: &Rc<RefCell<Option<Box<dyn Renderer>>>>,
+    info: SurfaceInfo,
+) -> AureaResult<()> {
+    let changed = {
+        let st = state.borrow();
+        info.width != st.width
+            || info.height != st.height
+            || (info.scale_factor - st.scale_factor).abs() > f32::EPSILON
+    };
+    if changed {
+        // Commit the new extent only after the renderer accepts it. Otherwise
+        // the next frame would mistake an unsuccessful resize for a completed one.
+        if let Some(r) = renderer
+            .try_borrow_mut()
+            .map_err(|_| AureaError::RenderingFailed)?
+            .as_mut()
+        {
+            r.configure(info.clone())?;
+        }
+        let mut st = state.borrow_mut();
+        st.width = info.width;
+        st.height = info.height;
+        st.scale_factor = info.scale_factor;
+        st.needs_redraw = true;
+        st.damage.add_all();
+    }
+    Ok(())
+}
+
+pub(super) fn retry_failed_frame(handle: *mut c_void, state: &Rc<RefCell<CanvasState>>) {
+    if canvas_is_live(handle) {
+        let mut st = state.borrow_mut();
+        st.needs_redraw = true;
+        st.damage.add_all();
+        drop(st);
+        FrameScheduler::schedule_canvas(handle);
+    }
 }
 
 /// Hands the renderer's current pixels to the platform.
@@ -233,13 +262,17 @@ impl Canvas {
                 st.needs_redraw = true;
             }
 
-            if !ensure_canvas_renderer(handle, &state, &renderer, backend)? {
+            if !ensure_canvas_renderer(handle, &state, &renderer, backend)
+                .inspect_err(|_| retry_failed_frame(handle, &state))?
+            {
                 state.borrow_mut().needs_redraw = true;
                 return Ok(());
             }
             // A canvas with no size, a minimized window's, draws nothing
             // until it has one again; the frame stays owed.
-            if !sync_surface(handle, &state, &renderer)? {
+            if !sync_surface(handle, &state, &renderer)
+                .inspect_err(|_| retry_failed_frame(handle, &state))?
+            {
                 state.borrow_mut().needs_redraw = true;
                 return Ok(());
             }
@@ -255,7 +288,8 @@ impl Canvas {
             };
 
             if should_redraw {
-                let outcome = render_frame(&state, &renderer, handle, backend)?;
+                let outcome = render_frame(&state, &renderer, handle, backend)
+                    .inspect_err(|_| retry_failed_frame(handle, &state))?;
                 follow_outcome(outcome, handle, &state, &renderer);
             }
 
@@ -271,7 +305,8 @@ impl Canvas {
         if !ensure_canvas_renderer(self.handle, &self.state, &self.renderer, self.backend)? {
             return Err(AureaError::ElementOperationFailed);
         }
-        let outcome = render_frame(&self.state, &self.renderer, self.handle, self.backend)?;
+        let outcome = render_frame(&self.state, &self.renderer, self.handle, self.backend)
+            .inspect_err(|_| retry_failed_frame(self.handle, &self.state))?;
         follow_outcome(outcome, self.handle, &self.state, &self.renderer);
         Ok(())
     }
@@ -279,7 +314,8 @@ impl Canvas {
     pub(super) fn check_and_resize(&mut self) -> AureaResult<()> {
         self.ensure_live()?;
         if ensure_canvas_renderer(self.handle, &self.state, &self.renderer, self.backend)? {
-            sync_surface(self.handle, &self.state, &self.renderer)?;
+            sync_surface(self.handle, &self.state, &self.renderer)
+                .inspect_err(|_| retry_failed_frame(self.handle, &self.state))?;
         }
         Ok(())
     }
@@ -304,5 +340,94 @@ impl Canvas {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aurea_render::{Color, CpuRasterizer, DrawingContext, FrameOutput, Surface};
+    use aurea_runtime::DamageRegion;
+    use std::cell::Cell;
+
+    struct FailOnce {
+        raster: CpuRasterizer,
+        attempts: Rc<Cell<u32>>,
+    }
+
+    impl Renderer for FailOnce {
+        fn init(&mut self, surface: Surface, info: SurfaceInfo) -> AureaResult<()> {
+            self.raster.init(surface, info)
+        }
+        fn resize(&mut self, width: u32, height: u32) -> AureaResult<()> {
+            self.raster.resize(width, height)
+        }
+        fn configure(&mut self, info: SurfaceInfo) -> AureaResult<()> {
+            self.attempts.set(self.attempts.get() + 1);
+            if self.attempts.get() == 1 {
+                return Err(AureaError::RenderingFailed);
+            }
+            self.raster.configure(info)
+        }
+        fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext + '_>> {
+            self.raster.begin_frame()
+        }
+        fn end_frame(&mut self) -> AureaResult<FrameOutcome> {
+            self.raster.end_frame()
+        }
+        fn cleanup(&mut self) {
+            self.raster.cleanup();
+        }
+        fn frame_output(&self) -> Option<FrameOutput<'_>> {
+            self.raster.frame_output()
+        }
+    }
+
+    #[test]
+    fn a_failed_configuration_is_retried_before_committing_the_extent() {
+        let state = Rc::new(RefCell::new(CanvasState {
+            width: 16,
+            height: 16,
+            scale_factor: 1.0,
+            damage: DamageRegion::new(16),
+            background_color: Color::rgb(0, 0, 0),
+            draw_callback: None,
+            needs_redraw: false,
+            prev_frame_damage: None,
+            #[cfg(feature = "zengpu")]
+            gpu_context: None,
+        }));
+        let attempts = Rc::new(Cell::new(0));
+        let renderer: Rc<RefCell<Option<Box<dyn Renderer>>>> =
+            Rc::new(RefCell::new(Some(Box::new(FailOnce {
+                raster: CpuRasterizer::new(16, 16),
+                attempts: Rc::clone(&attempts),
+            }))));
+        let info = SurfaceInfo {
+            width: 32,
+            height: 24,
+            scale_factor: 2.0,
+        };
+        assert!(configure_surface(&state, &renderer, info.clone()).is_err());
+        assert_eq!(
+            (
+                state.borrow().width,
+                state.borrow().height,
+                state.borrow().scale_factor
+            ),
+            (16, 16, 1.0)
+        );
+        configure_surface(&state, &renderer, info.clone()).expect("retry");
+        configure_surface(&state, &renderer, info).expect("unchanged extent");
+        assert_eq!(attempts.get(), 2);
+        assert_eq!(
+            (
+                state.borrow().width,
+                state.borrow().height,
+                state.borrow().scale_factor
+            ),
+            (32, 24, 2.0)
+        );
+        assert!(state.borrow().needs_redraw);
     }
 }

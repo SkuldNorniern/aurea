@@ -393,7 +393,12 @@ impl Canvas {
         F: FnOnce(&mut dyn DrawingContext) -> AureaResult<()>,
     {
         self.check_and_resize()?;
-        if self.renderer.borrow_mut().is_none() {
+        if self
+            .renderer
+            .try_borrow_mut()
+            .map_err(|_| AureaError::RenderingFailed)?
+            .is_none()
+        {
             return Err(AureaError::ElementOperationFailed);
         }
         self.warn_if_also_retained();
@@ -416,15 +421,20 @@ impl Canvas {
             if let Some(ref mut renderer) = *r {
                 renderer.set_damage(damage_rect);
                 {
-                    let mut ctx = renderer.begin_frame()?;
+                    let mut ctx = renderer
+                        .begin_frame()
+                        .inspect_err(|_| driver::retry_failed_frame(self.handle, &self.state))?;
                     ctx.clear(bg_color)?;
-                    draw_fn(ctx.as_mut())?;
+                    draw_fn(ctx.as_mut())
+                        .inspect_err(|_| driver::retry_failed_frame(self.handle, &self.state))?;
                 }
                 if self.ensure_live().is_err() {
                     *r = None;
                     return Err(AureaError::ElementOperationFailed);
                 }
-                let outcome = renderer.end_frame()?;
+                let outcome = renderer
+                    .end_frame()
+                    .inspect_err(|_| driver::retry_failed_frame(self.handle, &self.state))?;
                 if outcome != FrameOutcome::Presented {
                     drop(r);
                     driver::follow_outcome(outcome, self.handle, &self.state, &self.renderer);
