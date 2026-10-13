@@ -1,4 +1,6 @@
 use super::Window;
+#[cfg(target_os = "macos")]
+use crate::ffi::ng_macos_window_use_metal_layer;
 use crate::platform::handles::native_handle_from_window_ptr;
 use crate::platform::zengpu::window_handles;
 use crate::render::{ZenGpuContext, ZenGpuRenderer};
@@ -40,6 +42,10 @@ impl Window {
 
     /// Native window/display handles for building a `zengpu_hal` surface directly.
     pub fn zengpu_handles(&self) -> AureaResult<WindowHandles> {
+        #[cfg(target_os = "macos")]
+        if unsafe { ng_macos_window_use_metal_layer(self.handle) } != 0 {
+            return Err(AureaError::ElementOperationFailed);
+        }
         let native =
             native_handle_from_window_ptr(self.handle).ok_or(AureaError::ElementOperationFailed)?;
         window_handles(&native)

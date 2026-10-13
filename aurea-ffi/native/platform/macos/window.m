@@ -7,6 +7,7 @@
 #import "utils.h"
 #import <Cocoa/Cocoa.h>
 #import <CoreGraphics/CoreGraphics.h>
+#import <QuartzCore/QuartzCore.h>
 #include <string.h>
 
 static int ng_macos_get_cursor_grab_mode(void* windowHandle);
@@ -141,10 +142,16 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
 }
 @property (nonatomic, assign) void* windowHandle;
 @property (nonatomic, strong) NSCursor* cursor;
+@property (nonatomic, assign) BOOL usesMetalLayer;
 - (void)setImeArea:(NSRect)area;
 @end
 
 @implementation AureaContentView
+
+- (CALayer*)makeBackingLayer {
+    if (self.usesMetalLayer) return [CAMetalLayer layer];
+    return [super makeBackingLayer];
+}
 
 static NSString* drag_paths(id<NSDraggingInfo> info) {
     NSArray<NSURL*>* urls = [[info draggingPasteboard]
@@ -1055,6 +1062,18 @@ int ng_macos_window_is_visible(NGHandle window) {
     if (!window) return 0;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
     return [nsWindow isVisible] ? 1 : 0;
+}
+
+int ng_macos_window_use_metal_layer(NGHandle window) {
+    if (!window) return NG_ERROR_INVALID_HANDLE;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    NSView* view = [nsWindow contentView];
+    if (![view isKindOfClass:[AureaContentView class]]) return NG_ERROR_PLATFORM_SPECIFIC;
+    if ([[view layer] isKindOfClass:[CAMetalLayer class]]) return NG_SUCCESS;
+    ((AureaContentView*)view).usesMetalLayer = YES;
+    if ([view wantsLayer]) [view setWantsLayer:NO];
+    [view setWantsLayer:YES];
+    return [[view layer] isKindOfClass:[CAMetalLayer class]] ? NG_SUCCESS : NG_ERROR_PLATFORM_SPECIFIC;
 }
 
 NGHandle ng_macos_window_get_content_view(NGHandle window) {
