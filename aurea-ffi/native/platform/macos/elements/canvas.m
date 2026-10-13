@@ -30,11 +30,6 @@
 
 @implementation AureaCanvasView
 
-- (CALayer*)makeBackingLayer {
-    if (self.gpuOwned) return [CAMetalLayer layer];
-    return [super makeBackingLayer];
-}
-
 - (BOOL)isFlipped {
     return YES;
 }
@@ -114,13 +109,6 @@ void ng_macos_canvas_set_gpu_owned(NGHandle canvas, int gpu_owned) {
     AureaCanvasView* view = (__bridge AureaCanvasView*)canvas;
     if (![view isKindOfClass:[AureaCanvasView class]]) return;
     view.gpuOwned = gpu_owned != 0;
-    BOOL isMetal = [[view layer] isKindOfClass:[CAMetalLayer class]];
-    if (isMetal != view.gpuOwned) {
-        [view setWantsLayer:NO];
-        [view setWantsLayer:YES];
-        view.layer.opaque = YES;
-        view->_lastContentsScale = 0.0;
-    }
     if (view.gpuOwned) {
         view.renderBuffer = NULL;
         view.bufferWidth = 0;
