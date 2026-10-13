@@ -86,8 +86,8 @@ impl CpuRasterizer {
         )
     }
 
-    /// The last frame's pixels as [`FrameOutput`](crate::FrameOutput) describes them: `0xAARRGGBB`
-    /// words, sRGB, straight alpha, rows top to bottom.
+    /// The last frame's pixels as [`FrameOutput`] describes them: `0xAARRGGBB` words, sRGB,
+    /// straight alpha, rows top to bottom.
     pub fn pixels(&self) -> &[u32] {
         &self.frame_buffer
     }

@@ -12,7 +12,7 @@ repository.workspace = true
 workspace = true
 
 [workspace]
-resolver = "2"
+resolver = "3"
 members = ["aurea-foundation", "aurea-ffi", "aurea-render", "aurea-runtime", "aurea-animation"]
 exclude = ["ZenGPU"]
 
@@ -22,7 +22,7 @@ exclude = ["ZenGPU"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.90"
 license = "Apache-2.0"
 repository = "https://github.com/SkuldNorniern/aurea"
 

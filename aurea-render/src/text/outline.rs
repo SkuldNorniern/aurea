@@ -23,9 +23,10 @@ impl OutlinePen for PathPen {
     }
 
     fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
-        self.0
-            .commands
-            .push(PathCommand::QuadTo(Point::new(cx0, -cy0), Point::new(x, -y)));
+        self.0.commands.push(PathCommand::QuadTo(
+            Point::new(cx0, -cy0),
+            Point::new(x, -y),
+        ));
     }
 
     fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
@@ -48,7 +49,10 @@ pub fn glyph_outline(face: &FaceData, glyph: u16, size: f32) -> Option<Path> {
     let outline = font.outline_glyphs().get(GlyphId::new(u32::from(glyph)))?;
     let mut pen = PathPen(Path::new());
     outline
-        .draw(DrawSettings::unhinted(Size::new(size), face.coords()), &mut pen)
+        .draw(
+            DrawSettings::unhinted(Size::new(size), face.coords()),
+            &mut pen,
+        )
         .ok()?;
     (!pen.0.commands.is_empty()).then_some(pen.0)
 }
@@ -80,7 +84,10 @@ pub(crate) fn outline_coverage(
     let Some(mut path) = glyph_outline(face, glyph, size) else {
         return GlyphCoverage::default();
     };
-    let (mut lo, mut hi) = (Point::new(f32::MAX, f32::MAX), Point::new(f32::MIN, f32::MIN));
+    let (mut lo, mut hi) = (
+        Point::new(f32::MAX, f32::MAX),
+        Point::new(f32::MIN, f32::MIN),
+    );
     each_point(&mut path, |p| {
         p.x *= x_scale;
         lo = Point::new(lo.x.min(p.x), lo.y.min(p.y));

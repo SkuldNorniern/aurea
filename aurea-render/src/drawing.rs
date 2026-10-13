@@ -1,10 +1,10 @@
 //! The drawing contract: what a draw callback can ask of a canvas.
 
+use crate::text::TextLayout;
 use crate::types::{
     BlendMode, Color, Font, GpuTexture, Image, LinearGradient, Paint, Path, PathCommand, Point,
     RadialGradient, Rect, Sampling, TextMetrics, Transform,
 };
-use crate::text::TextLayout;
 use aurea_foundation::AureaResult;
 
 pub trait DrawingContext {

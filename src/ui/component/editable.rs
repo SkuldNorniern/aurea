@@ -7,8 +7,8 @@ use crate::AureaResult;
 use crate::render::{Font, Paint, PaintStyle, Point, Rect, shape_text};
 use crate::ui::frame::{Align, Ui, baseline_in, fill};
 use crate::ui::state::{BLINK_FOR, Interaction, Key, Typed, WidgetId};
-use crate::ui::theme::Palette;
 use crate::ui::text_edit::{Direction, Rules, Step, TextEdit};
+use crate::ui::theme::Palette;
 use crate::window::{KeyCode, Modifiers, clipboard_text, set_clipboard_text};
 
 const MASK: char = '\u{2022}';

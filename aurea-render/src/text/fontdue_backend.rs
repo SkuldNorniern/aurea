@@ -8,10 +8,10 @@ use crate::text::{GLYPH_BYTES, LruCache};
 use crate::types::{FontStyle, FontVariation, FontWeight};
 use aurea_foundation::{AureaError, AureaResult, lock};
 use fontdue::{Font, FontSettings};
+use std::collections::HashMap;
 use std::env::var;
 #[cfg(target_os = "windows")]
 use std::env::var_os;
-use std::collections::HashMap;
 use std::fs::{read, read_dir};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -517,7 +517,9 @@ mod tests {
     fn loads_a_font_or_fallback() {
         let r = FontDbTextRasterizer::new();
         let font = Font::new("__no_such_font__", 14.0);
-        let face = r.face((&font).into()).expect("should fall back to a system font");
+        let face = r
+            .face((&font).into())
+            .expect("should fall back to a system font");
         assert!(r.face_metrics(face, 14.0).0 > 0.0);
         assert!(r.has_glyph(face, 'A'));
     }
