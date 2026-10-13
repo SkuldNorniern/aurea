@@ -1,15 +1,13 @@
-//! An oscilloscope view.
+//! An oscilloscope's capture.
 
-use aurea_foundation::AureaResult;
-use aurea_render::{Color, DrawingContext, Paint, PaintStyle, Point, Rect};
+use crate::render::{Color, Rect};
 
+use super::axis::Axis;
 use super::buffer::SampleBuffer;
 use super::numeric::count_to_f64;
-use super::plot::{Axis, Cursor, Graph};
-use super::scale::Range;
-use super::series::{Points, Series};
-use super::style::GraphStyle;
-use super::ticks::TickPlan;
+use super::project::Projection;
+use super::scale::{Mapping, Range};
+use super::ticks::{Tick, TickPlan};
 
 /// Which way the signal has to cross the level to fire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -228,37 +226,37 @@ impl Channel {
 }
 
 /// An oscilloscope over one or more channels.
+#[derive(Debug, Clone)]
 pub struct Scope {
     pub channels: Vec<Channel>,
     pub timebase: Timebase,
     pub trigger: Trigger,
-    pub style: GraphStyle,
     /// Divisions above and below the centre line.
     pub vertical_divisions: usize,
     last_trigger: Option<usize>,
     frozen: Option<Vec<Vec<f64>>>,
     single_done: bool,
-    graph: Graph,
     default_capacity: usize,
+    x: Axis,
+    y: Axis,
+    pub(crate) projection: Projection,
 }
 
 impl Scope {
     /// A scope whose channels each hold `capacity` samples.
     pub fn new(capacity: usize) -> Self {
-        let mut style = GraphStyle::dark();
-        style.grid.zero = Some(style.grid.major);
-
         Self {
             channels: Vec::new(),
             timebase: Timebase::default(),
             trigger: Trigger::default(),
-            style,
             vertical_divisions: 4,
             last_trigger: None,
             frozen: None,
             single_done: false,
-            graph: Graph::new(),
             default_capacity: capacity,
+            x: Axis::default().with_ticks(graticule("s")),
+            y: Axis::default().with_ticks(graticule("V")),
+            projection: Projection::default(),
         }
     }
 
@@ -395,215 +393,52 @@ impl Scope {
         }
     }
 
-    /// Builds the plot for the current capture and draws it into `area`.
-    pub fn draw(&mut self, ctx: &mut dyn DrawingContext, area: Rect) -> AureaResult<()> {
+    pub(crate) fn settle(&mut self) {
         let window = self.timebase.window_samples();
-        let interval = self.timebase.sample_interval();
-        let vertical = self.vertical_range();
-        let columns = super::numeric::f64_to_count(f64::from(area.width.max(1.0)));
-
-        self.graph.style = self.style.clone();
-        self.graph.x = Axis::fixed(0.0, self.timebase.window_seconds()).with_ticks(
-            TickPlan::default()
-                .with_even_divisions(self.timebase.divisions)
-                .with_engineering(true)
-                .with_suffix("s"),
-        );
-        self.graph.y = Axis::fixed(vertical.min, vertical.max).with_ticks(
-            TickPlan::default()
-                .with_even_divisions(self.vertical_divisions * 2)
-                .with_engineering(true)
-                .with_suffix("V"),
-        );
-
-        self.graph.cursors.clear();
-        if self.trigger.enabled {
-            let color = self
-                .channels
-                .get(self.trigger.source)
-                .and_then(|c| c.color)
-                .unwrap_or(Color::rgb(255, 210, 120));
-            self.graph
-                .cursors
-                .push(Cursor::horizontal(self.trigger.level, dim(color, 160)).with_label("T"));
-        }
-
-        self.graph.series.clear();
-        let mut fired = self.last_trigger;
-
-        for (index, channel) in self.channels.iter().enumerate() {
-            if !channel.visible {
-                continue;
+        if self.trigger.enabled && !self.is_stopped() {
+            let source = self.channels.get(self.trigger.source).filter(|c| c.visible);
+            if let Some(start) = source.and_then(|channel| self.find_trigger(channel, window)) {
+                self.last_trigger = Some(start);
             }
-            let (start, take) = self.window_for(channel, window);
-            if index == self.trigger.source && self.trigger.enabled && !self.is_stopped() {
-                fired = self.find_trigger(channel, window).or(fired);
-            }
-
-            let points = match &self.frozen {
-                Some(frozen) => sweep_points_from(
-                    frozen.get(index).map_or(&[][..], Vec::as_slice),
-                    &[],
-                    channel.offset,
-                    interval,
-                    columns,
-                ),
-                None => sweep_points(channel, start, take, interval, columns),
-            };
-
-            let mut series = Series::new(channel.name.clone(), Points::Xy(points));
-            series.color = channel.color;
-            series.width = 1.25;
-            self.graph.series.push(series);
         }
-
-        self.last_trigger = fired;
-        if self.trigger.mode == TriggerMode::Single && fired.is_some() && !self.single_done {
+        if self.trigger.mode == TriggerMode::Single
+            && self.last_trigger.is_some()
+            && !self.single_done
+        {
             self.freeze_sweep(window);
         }
-
-        self.graph.draw(ctx, area)?;
-        self.draw_readout(ctx)
     }
 
-    fn draw_readout(&self, ctx: &mut dyn DrawingContext) -> AureaResult<()> {
-        let area = self.graph.plot_area();
-        if area.width <= 0.0 || area.height <= 0.0 || self.style.margin.top < 12.0 {
-            return Ok(());
+    pub(crate) fn sweep(&self, index: usize) -> (&[f64], &[f64]) {
+        if let Some(frozen) = &self.frozen {
+            return (frozen.get(index).map_or(&[][..], Vec::as_slice), &[]);
         }
-
-        let font = self.style.x_axis.label_font.clone();
-        let mut x = area.x;
-        let y = area.y - 6.0;
-
-        let (per_div, prefix) = engineering_value(self.timebase.seconds_per_division);
-        let timebase = format!("{per_div:.0}{prefix}s/div");
-        let paint = Paint::new()
-            .color(self.style.x_axis.label_color)
-            .style(PaintStyle::Fill);
-        ctx.draw_text_with_font(&timebase, Point::new(x, y), &font, &paint)?;
-        x += ctx.measure_text(&timebase, &font)?.width + 12.0;
-
-        for (index, channel) in self.channels.iter().enumerate() {
-            if !channel.visible {
-                continue;
-            }
-            let (volts, prefix) = engineering_value(channel.volts_per_division);
-            let text = format!("{}: {volts:.0}{prefix}V/div", channel.name);
-            let color = channel
-                .color
-                .unwrap_or_else(|| self.style.palette_color(index));
-            let paint = Paint::new().color(color).style(PaintStyle::Fill);
-            ctx.draw_text_with_font(&text, Point::new(x, y), &font, &paint)?;
-            x += ctx.measure_text(&text, &font)?.width + 12.0;
-        }
-        Ok(())
+        let Some(channel) = self.channels.get(index) else {
+            return (&[], &[]);
+        };
+        let (start, take) = self.window_for(channel, self.timebase.window_samples());
+        channel.samples.range(start, take)
     }
 
-    /// The plot behind the scope, for anything the scope API does not cover.
-    pub fn graph(&self) -> &Graph {
-        &self.graph
+    pub(crate) fn graticule(&mut self, area: Rect) -> (Mapping, Mapping) {
+        let vertical = self.vertical_range();
+        let seconds = self.timebase.window_seconds();
+        self.x.ticks.even_divisions = Some(self.timebase.divisions);
+        self.y.ticks.even_divisions = Some(self.vertical_divisions * 2);
+        self.x.resolve(None, Some(Range::new(0.0, seconds)));
+        self.y.resolve(None, Some(vertical));
+        let x_map = Mapping::new(self.x.range(), self.x.scale, area.x, area.right());
+        let y_map = Mapping::new(self.y.range(), self.y.scale, area.bottom(), area.y);
+        (x_map, y_map)
+    }
+
+    pub(crate) fn ticks(&self) -> (&[Tick], &[Tick]) {
+        (self.x.resolved_ticks(), self.y.resolved_ticks())
     }
 }
 
-fn dim(color: Color, alpha: u8) -> Color {
-    Color::rgba(color.r, color.g, color.b, alpha)
-}
-
-fn engineering_value(value: f64) -> (f64, &'static str) {
-    const STEPS: [(f64, &str); 7] = [
-        (1e9, "G"),
-        (1e6, "M"),
-        (1e3, "k"),
-        (1.0, ""),
-        (1e-3, "m"),
-        (1e-6, "µ"),
-        (1e-9, "n"),
-    ];
-    let magnitude = value.abs();
-    if magnitude == 0.0 || !magnitude.is_finite() {
-        return (0.0, "");
-    }
-    for (factor, prefix) in STEPS {
-        if magnitude >= factor {
-            return (value / factor, prefix);
-        }
-    }
-    (value / 1e-9, "n")
-}
-
-fn sweep_points(
-    channel: &Channel,
-    start: usize,
-    take: usize,
-    interval: f64,
-    columns: usize,
-) -> Vec<(f64, f64)> {
-    let (head, tail) = channel.samples.range(start, take);
-    sweep_points_from(head, tail, channel.offset, interval, columns)
-}
-
-fn sweep_points_from(
-    head: &[f64],
-    tail: &[f64],
-    offset: f64,
-    interval: f64,
-    columns: usize,
-) -> Vec<(f64, f64)> {
-    let take = head.len() + tail.len();
-    let budget = columns.saturating_mul(2).max(64);
-
-    if take <= budget {
-        return head
-            .iter()
-            .chain(tail)
-            .enumerate()
-            .map(|(i, value)| (interval * count_to_f64(i), value + offset))
-            .collect();
-    }
-
-    let mut points = Vec::with_capacity(budget);
-    let total = head.len() + tail.len();
-    let per_column = count_to_f64(total) / count_to_f64(columns.max(1));
-
-    let mut column = 0usize;
-    let mut low = f64::INFINITY;
-    let mut high = f64::NEG_INFINITY;
-    let mut column_start = 0usize;
-
-    for (index, value) in head.iter().chain(tail).copied().enumerate() {
-        let this_column = super::numeric::f64_to_count(count_to_f64(index) / per_column);
-        if this_column != column {
-            if low.is_finite() {
-                push_envelope(&mut points, interval, column_start, low, high, offset);
-            }
-            column = this_column;
-            column_start = index;
-            low = f64::INFINITY;
-            high = f64::NEG_INFINITY;
-        }
-        low = low.min(value);
-        high = high.max(value);
-    }
-    if low.is_finite() {
-        push_envelope(&mut points, interval, column_start, low, high, offset);
-    }
-    points
-}
-
-fn push_envelope(
-    points: &mut Vec<(f64, f64)>,
-    interval: f64,
-    index: usize,
-    low: f64,
-    high: f64,
-    offset: f64,
-) {
-    let t = interval * count_to_f64(index);
-    points.push((t, low + offset));
-    if (high - low).abs() > f64::EPSILON {
-        points.push((t, high + offset));
-    }
+fn graticule(unit: &str) -> TickPlan {
+    TickPlan::default().with_engineering(true).with_suffix(unit)
 }
 
 #[cfg(test)]

@@ -475,12 +475,11 @@ impl<Id: WidgetId> Ui<'_, Id> {
             return Ok(());
         }
         let half = width / 2.0;
-        let paint = Paint::new()
-            .color(color)
-            .style(PaintStyle::Stroke)
-            .stroke_width(width);
-        self.ctx
-            .draw_round_rect(rect.inset(half), (radius - half).max(0.0), &paint)
+        self.ctx.draw_round_rect(
+            rect.inset(half),
+            (radius - half).max(0.0),
+            &stroke(color, width),
+        )
     }
 
     pub fn circle(&mut self, center: Point, radius: f32, color: Color) -> AureaResult<()> {
@@ -490,24 +489,63 @@ impl<Id: WidgetId> Ui<'_, Id> {
         self.ctx.draw_circle(center, radius, &fill(color))
     }
 
+    /// A straight line from `a` to `b`, `width` wide.
+    pub fn line(&mut self, a: Point, b: Point, width: f32, color: Color) -> AureaResult<()> {
+        if color.a == 0 || width <= 0.0 {
+            return Ok(());
+        }
+        self.ctx
+            .draw_line(a.x, a.y, b.x, b.y, &stroke(color, width))
+    }
+
     /// A polyline through `points`, `width` wide, drawn from a path the state keeps so it allocates
     /// nothing once warm.
     pub fn polyline(&mut self, points: &[Point], width: f32, color: Color) -> AureaResult<()> {
+        self.stroke_through(points.iter().copied(), width, color)
+    }
+
+    /// Like [`Self::polyline`], over points that are not in a slice: a stepped trace's corners,
+    /// made as they are drawn.
+    pub fn stroke_through(
+        &mut self,
+        points: impl IntoIterator<Item = Point>,
+        width: f32,
+        color: Color,
+    ) -> AureaResult<()> {
+        if color.a == 0 {
+            return Ok(());
+        }
+        self.trace_path(points, false);
+        self.ctx.draw_path(&self.state.path, &stroke(color, width))
+    }
+
+    /// The shape through `points`, closed and filled.
+    pub fn fill_through(
+        &mut self,
+        points: impl IntoIterator<Item = Point>,
+        color: Color,
+    ) -> AureaResult<()> {
+        if color.a == 0 {
+            return Ok(());
+        }
+        self.trace_path(points, true);
+        self.ctx.draw_path(&self.state.path, &fill(color))
+    }
+
+    fn trace_path(&mut self, points: impl IntoIterator<Item = Point>, closed: bool) {
         use crate::render::PathCommand;
         let path = &mut self.state.path;
         path.commands.clear();
-        for (i, p) in points.iter().enumerate() {
+        for (i, p) in points.into_iter().enumerate() {
             path.commands.push(if i == 0 {
-                PathCommand::MoveTo(*p)
+                PathCommand::MoveTo(p)
             } else {
-                PathCommand::LineTo(*p)
+                PathCommand::LineTo(p)
             });
         }
-        let paint = Paint::new()
-            .color(color)
-            .style(PaintStyle::Stroke)
-            .stroke_width(width);
-        self.ctx.draw_path(&self.state.path, &paint)
+        if closed && !path.commands.is_empty() {
+            path.commands.push(PathCommand::Close);
+        }
     }
 }
 
@@ -517,6 +555,13 @@ fn flag(on: bool) -> f32 {
 
 pub(crate) fn fill(color: Color) -> Paint {
     Paint::new().color(color).style(PaintStyle::Fill)
+}
+
+fn stroke(color: Color, width: f32) -> Paint {
+    Paint::new()
+        .color(color)
+        .style(PaintStyle::Stroke)
+        .stroke_width(width)
 }
 
 pub(crate) fn baseline_in(rect: Rect, m: &TextMetrics, font: &Font) -> f32 {

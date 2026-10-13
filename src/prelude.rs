@@ -19,7 +19,7 @@ pub use crate::render::{
 };
 
 /// Plots and scope views.
-pub use crate::render::graph;
+pub use crate::ui::graph;
 
 pub use crate::{AureaError, AureaResult};
 

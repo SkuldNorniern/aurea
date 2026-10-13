@@ -14,7 +14,7 @@ pub struct Tick {
 }
 
 /// How ticks are chosen for an axis.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TickPlan {
     /// Roughly how many major ticks to aim for.
     pub target: usize,
@@ -231,7 +231,7 @@ impl TickPlan {
     }
 }
 
-fn engineering(value: f64) -> (f64, &'static str) {
+pub(crate) fn engineering(value: f64) -> (f64, &'static str) {
     const STEPS: [(f64, &str); 7] = [
         (1e9, "G"),
         (1e6, "M"),
