@@ -4,7 +4,8 @@ mod canvas;
 
 pub(crate) use canvas::notify_canvas_destroyed;
 
-pub use aurea_render::cpu::measure_text;
+pub use aurea_render::cpu::{face_data, glyph_coverage, glyph_outline, measure_text, shape_text};
+pub use aurea_render::text::{FaceData, FaceId, GlyphCoverage, ShapedGlyph, ShapedText};
 pub use aurea_render::vector::{Icon, SvgError, VectorImage, parse_path_data};
 pub use aurea_render::{
     BlendMode, ClickCallback, Color, CpuRasterizer, Dash, DisplayIndex, DisplayItem, DisplayList,
