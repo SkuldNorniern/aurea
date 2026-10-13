@@ -32,8 +32,8 @@ mod weak;
 pub(crate) use lifecycle::notify_canvas_destroyed;
 
 use backend::ensure_canvas_renderer;
-pub use lifecycle::request_canvas_redraw;
 use lifecycle::{CanvasCleanup, next_canvas_id, register_canvas_state};
+pub use lifecycle::{request_canvas_redraw, request_canvas_redraw_at};
 pub use state::CanvasId;
 use state::CanvasState;
 pub use weak::WeakCanvas;
