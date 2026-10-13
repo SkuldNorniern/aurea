@@ -569,10 +569,13 @@ impl Element for Canvas {
 #[cfg(all(test, feature = "zengpu"))]
 mod tests {
     use super::*;
+    use crate::Window;
     use std::cell::Cell;
 
     #[test]
+    #[ignore = "creates native elements; run with --ignored"]
     fn zengpu_renderer_waits_for_canvas_attachment() {
+        let _window = Window::new("deferred GPU canvas", 100, 100).unwrap();
         let canvas = Canvas::new(64, 64, RendererBackend::ZenGpu).unwrap();
 
         assert!(canvas.renderer.borrow().is_none());
@@ -590,8 +593,14 @@ mod tests {
 
     #[cfg(not(target_os = "macos"))]
     #[test]
+    #[ignore = "creates native elements and needs a GPU; run with --ignored"]
     fn a_lost_context_is_replaced() {
-        let lost = Arc::new(ZenGpuContext::new().unwrap());
+        let Ok(lost) = ZenGpuContext::new() else {
+            eprintln!("skipping GPU context replacement: no compatible adapter");
+            return;
+        };
+        let _window = Window::new("GPU context replacement", 100, 100).unwrap();
+        let lost = Arc::new(lost);
         let canvas = Canvas::with_gpu_context(64, 64, Arc::clone(&lost)).unwrap();
         lost.device().simulate_loss();
         driver::replace_lost_context(&canvas.state);
@@ -616,8 +625,14 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "creates native elements and needs a GPU; run with --ignored"]
     fn a_given_context_is_the_one_drawn_with() {
-        let context = Arc::new(ZenGpuContext::new().unwrap());
+        let Ok(context) = ZenGpuContext::new() else {
+            eprintln!("skipping shared GPU canvas context: no compatible adapter");
+            return;
+        };
+        let _window = Window::new("shared GPU canvas context", 100, 100).unwrap();
+        let context = Arc::new(context);
         let canvas = Canvas::with_gpu_context(64, 64, Arc::clone(&context)).unwrap();
         assert!(Arc::ptr_eq(&canvas.gpu_context().unwrap(), &context));
         assert!(

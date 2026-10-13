@@ -1127,7 +1127,6 @@ mod gtk_multi_window_tests {
     //! Closing one window must not take the whole application with it.
 
     use crate::{AureaResult, Window};
-    use std::mem::forget;
     use std::os::raw::{c_int, c_void};
     use std::ptr::null_mut;
     use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
@@ -1196,8 +1195,9 @@ mod gtk_multi_window_tests {
 
         first.run()?;
 
-        forget(first);
-        forget(second);
+        drop(first);
+        drop(second);
+        assert_eq!(super::lock(&super::PLATFORM).windows, 0);
 
         assert!(
             LEVEL_AFTER_FIRST_CLOSE.load(Ordering::SeqCst) > 0,
@@ -1436,7 +1436,6 @@ mod win32_multi_window_tests {
     //! Closing one window must not take the whole application with it.
 
     use crate::{AureaError, AureaResult, Window};
-    use std::mem::forget;
     use std::os::raw::c_void;
     use std::ptr::null_mut;
 
@@ -1500,8 +1499,9 @@ mod win32_multi_window_tests {
             "closing the last window should end the loop"
         );
 
-        forget(first);
-        forget(second);
+        drop(first);
+        drop(second);
+        assert_eq!(super::lock(&super::PLATFORM).windows, 0);
         Ok(())
     }
 

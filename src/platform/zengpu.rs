@@ -45,7 +45,7 @@ pub fn window_handles(native: &NativeWindowHandle) -> AureaResult<WindowHandles>
     #[cfg(target_os = "linux")]
     {
         let NativeWindowHandle::Linux(handle) = native;
-        return match handle {
+        match handle {
             LinuxWindowHandle::Xcb { window, connection } => {
                 let window = NonZeroU32::new(*window).ok_or(AureaError::ElementOperationFailed)?;
                 let connection =
@@ -65,7 +65,7 @@ pub fn window_handles(native: &NativeWindowHandle) -> AureaResult<WindowHandles>
                     DisplayHandle::Wayland(WaylandDisplayHandle { display }),
                 ))
             }
-        };
+        }
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
