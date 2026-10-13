@@ -66,6 +66,8 @@ pub use surface_error::{
     notify_surface_recreated_for_handle, notify_surface_recreated_for_window,
 };
 
+#[cfg(all(feature = "wgpu", target_os = "macos"))]
+use crate::ffi::ng_platform_window_get_content_view;
 #[cfg(all(feature = "wgpu", target_os = "linux"))]
 use crate::platform::handles::linux_window_handle_from_ptr;
 #[cfg(feature = "wgpu")]
@@ -78,7 +80,6 @@ use crate::{AureaError, AureaResult};
 use raw_window_handle::{
     DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, WindowHandle,
 };
-#[cfg(feature = "wgpu")]
 #[cfg(feature = "wgpu")]
 use wgpu::{Instance, Surface, SurfaceTarget};
 
