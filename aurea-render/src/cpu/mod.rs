@@ -14,7 +14,8 @@ pub use raster::{blend, clip, path, scanline, stroke};
 pub use clip::ClipBox;
 // Recording moved up a level; kept reachable here for existing callers.
 pub use crate::recording::{
-    RecordingContext, face_data, glyph_coverage, glyph_outline, measure_text, shape_text,
+    RecordingContext, face_data, glyph_coverage, glyph_outline, layout_text, measure_text,
+    shape_text,
 };
 // Moved to the scene; kept reachable here.
 pub use crate::scene::hit_test::{self, *};

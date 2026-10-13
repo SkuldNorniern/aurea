@@ -12,10 +12,13 @@
 use crate::geometry::Path;
 use crate::numeric::{f32_to_i32_clamped, f32_to_u32_clamped};
 use crate::text::glyph::{FaceData, FaceId, GlyphCoverage};
+use crate::text::layout::{LayoutOptions, TextLayout, layout_text};
 use crate::text::outline::glyph_outline;
-use crate::text::shape::{ShapedText, shape_text};
+use crate::text::shape::{ShapedText, shape_line};
 use crate::text::{LruCache, MASK_BYTES};
-use crate::types::{Font, FontStyle, FontWeight, GlyphMask, TextMetrics};
+use crate::types::{
+    Font, FontFeature, FontStyle, FontVariation, FontWeight, GlyphMask, TextMetrics,
+};
 use aurea_foundation::{AureaResult, lock};
 use std::sync::{Arc, Mutex};
 
@@ -30,6 +33,9 @@ pub struct FontRef<'a> {
     pub size: f32,
     pub weight: FontWeight,
     pub style: FontStyle,
+    pub features: &'a [FontFeature],
+    pub variations: &'a [FontVariation],
+    pub vertical: bool,
 }
 
 impl<'a> FontRef<'a> {
@@ -41,7 +47,15 @@ impl<'a> FontRef<'a> {
             size,
             weight: font.weight,
             style: font.style,
+            features: &font.features,
+            variations: &font.variations,
+            vertical: font.vertical,
         }
+    }
+
+    /// A hash of the variations, which pick the face instance.
+    pub(crate) fn variation_hash(&self) -> u64 {
+        variation_hash(self.variations)
     }
 }
 
@@ -49,6 +63,19 @@ impl<'a> From<&'a Font> for FontRef<'a> {
     fn from(font: &'a Font) -> Self {
         Self::with_size(font, font.size)
     }
+}
+
+/// A hash of `variations`, for keying face instances.
+pub(crate) fn variation_hash(variations: &[FontVariation]) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    for v in variations {
+        v.tag.hash(&mut hasher);
+        v.value.to_bits().hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 /// A single glyph rasterized to device-resolution RGB subpixel coverage.
@@ -148,12 +175,15 @@ struct RunKey {
 }
 
 impl RunKey {
-    fn new(text: &str, font: FontRef) -> Self {
+    /// For `text` read right to left when `rtl`, or as it reads when
+    /// `None`.
+    fn new(text: &str, font: FontRef, rtl: Option<bool>) -> Self {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
         let mut hasher = DefaultHasher::new();
         text.hash(&mut hasher);
+        rtl.hash(&mut hasher);
         // ASCII case folding rather than Unicode: font family names are ASCII
         // in practice, and `to_lowercase` per character is a real cost on a
         // path taken once per text item per frame. A family name that differs
@@ -165,8 +195,40 @@ impl RunKey {
         font.size.to_bits().hash(&mut hasher);
         font.weight.hash(&mut hasher);
         font.style.hash(&mut hasher);
+        font.features.hash(&mut hasher);
+        font.variation_hash().hash(&mut hasher);
+        font.vertical.hash(&mut hasher);
         Self {
             hash: hasher.finish(),
+        }
+    }
+}
+
+/// Lays `g` into `coverage` (`dev_w` by `dev_h` pixels, 3 bytes each)
+/// with its top-left at `(gx, gy)`, keeping the larger coverage where
+/// glyphs overlap.
+fn blit_max(
+    coverage: &mut [u8],
+    (dev_w, dev_h): (u32, u32),
+    g: &SubpixelGlyph,
+    (gx, gy): (i32, i32),
+) {
+    let gw = g.width as i32;
+    for row in 0..g.height as i32 {
+        let dy = gy + row;
+        if dy < 0 || dy >= dev_h as i32 {
+            continue;
+        }
+        for col in 0..gw {
+            let dx = gx + col;
+            if dx < 0 || dx >= dev_w as i32 {
+                continue;
+            }
+            let si = ((row * gw + col) * 3).unsigned_abs() as usize;
+            let di = ((dy * dev_w as i32 + dx) * 3).unsigned_abs() as usize;
+            for c in 0..3 {
+                coverage[di + c] = coverage[di + c].max(g.coverage[si + c]);
+            }
         }
     }
 }
@@ -199,11 +261,22 @@ impl TextRenderer {
     /// `text` in `font` as one shaped line: glyph ids, the faces that draw
     /// them (fallbacks included), clusters and positions.
     pub fn shape(&self, text: &str, font: FontRef) -> AureaResult<Arc<ShapedText>> {
-        let key = RunKey::new(text, font);
+        self.shape_directed(text, font, None)
+    }
+
+    /// As [`Self::shape`], for a line of a paragraph read right to left
+    /// when `rtl`, or found from the text when `None`.
+    pub fn shape_directed(
+        &self,
+        text: &str,
+        font: FontRef,
+        rtl: Option<bool>,
+    ) -> AureaResult<Arc<ShapedText>> {
+        let key = RunKey::new(text, font, rtl);
         if let Some(hit) = lock(&self.shaped).get(&key).cloned() {
             return Ok(hit);
         }
-        let shaped = Arc::new(shape_text(text, font, self.rasterizer.as_ref())?);
+        let shaped = Arc::new(shape_line(text, font, rtl, self.rasterizer.as_ref())?);
         lock(&self.shaped).insert(key, shaped.clone());
         Ok(shaped)
     }
@@ -212,18 +285,30 @@ impl TextRenderer {
     ///
     /// Returns the mask plus the run's ascent and padding so the caller can
     /// position it: the mask's top-left sits at `(point.x - pad, point.y -
-    /// ascent - pad)`. Per-glyph coverage comes pre-hinted from the backend;
+    /// ascent - pad)`. Vertical text has an ascent of 0: its point is the
+    /// top-left of its column, one em wide. Per-glyph coverage comes pre-hinted from the backend;
     /// this lays the shaped glyphs along the pen and max-combines overlaps.
     pub fn render_text_subpixel(
         &self,
         text: &str,
         font: FontRef,
     ) -> AureaResult<(GlyphMask, f32, f32)> {
-        let key = RunKey::new(text, font);
+        self.render_text_directed(text, font, None)
+    }
+
+    /// As [`Self::render_text_subpixel`], for a line of a paragraph read
+    /// right to left when `rtl`, or found from the text when `None`.
+    pub fn render_text_directed(
+        &self,
+        text: &str,
+        font: FontRef,
+        rtl: Option<bool>,
+    ) -> AureaResult<(GlyphMask, f32, f32)> {
+        let key = RunKey::new(text, font, rtl);
         if let Some(cached) = lock(&self.masks).get(&key).cloned() {
             return Ok(cached);
         }
-        let result = self.compute_mask(&*self.shape(text, font)?)?;
+        let result = self.compute_mask(&*self.shape_directed(text, font, rtl)?)?;
         let bytes = result.0.coverage.len();
         lock(&self.masks).insert_sized(key, result.clone(), bytes);
         Ok(result)
@@ -231,13 +316,24 @@ impl TextRenderer {
 
     fn compute_mask(&self, shaped: &ShapedText) -> AureaResult<(GlyphMask, f32, f32)> {
         let pad = 3.0f32;
-        let ascent = shaped.ink_ascent.max(0.0);
-        let height = ascent + shaped.ink_descent.max(0.0);
-        let dev_w = f32_to_u32_clamped((shaped.width + pad * 2.0).ceil().max(1.0));
-        let dev_h = f32_to_u32_clamped((height + pad * 2.0).ceil().max(1.0));
+        let ascent = if shaped.vertical {
+            0.0
+        } else {
+            shaped.ink_ascent.max(0.0)
+        };
+        // A column is an em wide; a line is as tall as its faces reach.
+        let (w, h) = if shaped.vertical {
+            (shaped.size, shaped.width)
+        } else {
+            (shaped.width, ascent + shaped.ink_descent.max(0.0))
+        };
+        let dev_w = f32_to_u32_clamped((w + pad * 2.0).ceil().max(1.0));
+        let dev_h = f32_to_u32_clamped((h + pad * 2.0).ceil().max(1.0));
         let mut coverage = vec![0u8; (dev_w * dev_h * 3) as usize];
 
-        let baseline = f32_to_i32_clamped((ascent + pad).round());
+        // The pen runs along the baseline, or down the column's centre.
+        let baseline = (ascent + pad).round();
+        let centre = pad + shaped.size / 2.0;
         for (pen, glyph) in shaped.pen_positions() {
             let g = self
                 .rasterizer
@@ -245,36 +341,32 @@ impl TextRenderer {
             if g.width == 0 || g.height == 0 {
                 continue;
             }
-            let gx = f32_to_i32_clamped((pad + pen + glyph.offset_x).round()) + g.left;
-            let gy = baseline + f32_to_i32_clamped(glyph.offset_y.round()) + g.top;
-            let gw = g.width as i32;
-            for row in 0..g.height as i32 {
-                let dy = gy + row;
-                if dy < 0 || dy >= dev_h as i32 {
-                    continue;
-                }
-                for col in 0..gw {
-                    let dx = gx + col;
-                    if dx < 0 || dx >= dev_w as i32 {
-                        continue;
-                    }
-                    let si = ((row * gw + col) * 3).unsigned_abs() as usize;
-                    let di = ((dy * dev_w as i32 + dx) * 3).unsigned_abs() as usize;
-                    for c in 0..3 {
-                        if g.coverage[si + c] > coverage[di + c] {
-                            coverage[di + c] = g.coverage[si + c];
-                        }
-                    }
-                }
-            }
+            let (x, y) = if shaped.vertical {
+                (centre + glyph.offset_x, pad + pen + glyph.offset_y)
+            } else {
+                (pad + pen + glyph.offset_x, baseline + glyph.offset_y)
+            };
+            let gx = f32_to_i32_clamped(x.round()) + g.left;
+            let gy = f32_to_i32_clamped(y.round()) + g.top;
+            blit_max(&mut coverage, (dev_w, dev_h), &g, (gx, gy));
         }
 
         Ok((GlyphMask::new(dev_w, dev_h, coverage.into()), ascent, pad))
     }
 
-    /// Measure text dimensions, from the same shaping drawing uses.
+    /// Measure text dimensions, from the same shaping drawing uses. Vertical
+    /// text is a column one em wide and its advance tall, ascent 0.
     pub fn measure_text(&self, text: &str, font: FontRef) -> AureaResult<TextMetrics> {
         let shaped = self.shape(text, font)?;
+        if shaped.vertical {
+            return Ok(TextMetrics {
+                width: shaped.size,
+                height: shaped.width,
+                ascent: 0.0,
+                descent: 0.0,
+                advance: shaped.width,
+            });
+        }
         Ok(TextMetrics {
             width: shaped.width,
             height: (shaped.ascent + shaped.descent).max(0.0),
@@ -282,6 +374,16 @@ impl TextRenderer {
             descent: shaped.descent,
             advance: shaped.width,
         })
+    }
+
+    /// `text` laid out in lines by `options`.
+    pub fn layout(
+        &self,
+        text: &str,
+        font: FontRef,
+        options: LayoutOptions,
+    ) -> AureaResult<TextLayout> {
+        layout_text(text, font, options, self)
     }
 
     /// A shaped glyph's grayscale coverage at `size`, for apps that
@@ -389,6 +491,52 @@ mod tests {
         let clusters: Vec<usize> = shaped.glyphs.iter().map(|g| g.cluster).collect();
         assert_eq!(clusters, [0, 3, 1]);
         assert!(shaped.glyphs[1].rtl && !shaped.glyphs[0].rtl);
+    }
+
+    /// Turning `liga` off keeps "fi" as two glyphs in a font that ligates
+    /// it.
+    #[cfg(windows)]
+    #[test]
+    fn features_switch_ligatures() {
+        let r = TextRenderer::new();
+        let on = Font::new("Calibri", 24.0);
+        let off = on.clone().with_feature("liga", 0);
+        let ligated = r.shape("fi", (&on).into()).expect("shape").glyphs.len();
+        let apart = r.shape("fi", (&off).into()).expect("shape").glyphs.len();
+        assert_eq!((ligated, apart), (1, 2));
+    }
+
+    /// A heavier weight on a variable font draws darker glyphs. (Bahnschrift
+    /// keeps its widths across weights.)
+    #[cfg(windows)]
+    #[test]
+    fn variations_move_a_variable_font() {
+        let r = TextRenderer::new();
+        let light = Font::new("Bahnschrift", 24.0).with_variation("wght", 300.0);
+        let heavy = light.clone().with_variation("wght", 700.0);
+        let ink = |font: &Font| {
+            let shaped = r.shape("H", font.into()).expect("shape");
+            let g = shaped.glyphs[0];
+            let cov = r.glyph_coverage(g.face, g.id, 24.0).expect("coverage");
+            cov.coverage.iter().map(|&c| u32::from(c)).sum::<u32>()
+        };
+        let (light_ink, heavy_ink) = (ink(&light), ink(&heavy));
+        assert!(heavy_ink > light_ink * 5 / 4, "{heavy_ink} vs {light_ink}");
+    }
+
+    #[test]
+    fn vertical_text_runs_down_a_column() {
+        let r = TextRenderer::new();
+        let f = Font::new("", 24.0).with_vertical(true);
+        let shaped = r.shape("日本", (&f).into()).expect("shape");
+        assert!(shaped.vertical);
+        assert!(shaped.glyphs.iter().all(|g| g.advance > 0.0));
+        let m = r.measure_text("日本", (&f).into()).expect("measure");
+        assert_eq!((m.width, m.ascent), (24.0, 0.0));
+        assert!(m.height > 30.0);
+        let (mask, ascent, _) = r.render_text_subpixel("日本", (&f).into()).expect("mask");
+        assert_eq!(ascent, 0.0);
+        assert!(mask.height > mask.width);
     }
 
     #[test]

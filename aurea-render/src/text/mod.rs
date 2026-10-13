@@ -8,6 +8,7 @@
 
 pub mod font;
 pub mod glyph;
+pub mod layout;
 pub mod outline;
 pub mod platform;
 pub mod shape;
@@ -17,6 +18,7 @@ mod directwrite_backend;
 mod fontdue_backend;
 
 pub use glyph::*;
+pub use layout::*;
 pub use platform::*;
 pub use shape::*;
 

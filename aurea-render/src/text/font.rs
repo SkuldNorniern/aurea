@@ -7,6 +7,39 @@ pub struct Font {
     pub size: f32,
     pub weight: FontWeight,
     pub style: FontStyle,
+    /// OpenType features turned on or off, over the font's defaults.
+    pub features: Vec<FontFeature>,
+    /// Positions on a variable font's axes; axes left out stay at their
+    /// defaults, and a font without the axis ignores it.
+    pub variations: Vec<FontVariation>,
+    /// Set top to bottom, glyphs upright, as CJK text is written in
+    /// columns.
+    pub vertical: bool,
+}
+
+/// An OpenType feature setting, such as `liga` off or `ss01` on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FontFeature {
+    pub tag: [u8; 4],
+    /// 0 turns it off, 1 on; some features pick an alternate by number.
+    pub value: u32,
+}
+
+/// A position on a variable font's axis, such as `wght` 650.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FontVariation {
+    pub tag: [u8; 4],
+    /// In the axis's own units: weight 100 to 900, width in percent.
+    pub value: f32,
+}
+
+/// The four bytes of an OpenType tag, space-padded: "wdth", "ss1" → "ss1 ".
+fn tag(name: &str) -> [u8; 4] {
+    let mut out = *b"    ";
+    for (o, b) in out.iter_mut().zip(name.bytes()) {
+        *o = b;
+    }
+    out
 }
 
 impl Font {
@@ -16,7 +49,33 @@ impl Font {
             size,
             weight: FontWeight::Normal,
             style: FontStyle::Normal,
+            features: Vec::new(),
+            variations: Vec::new(),
+            vertical: false,
         }
+    }
+
+    /// With OpenType feature `name` set to `value`, e.g. `("liga", 0)` for
+    /// no ligatures or `("tnum", 1)` for figures of equal width.
+    pub fn with_feature(mut self, name: &str, value: u32) -> Self {
+        let tag = tag(name);
+        self.features.retain(|f| f.tag != tag);
+        self.features.push(FontFeature { tag, value });
+        self
+    }
+
+    /// At `value` on variable axis `name`, e.g. `("wght", 650.0)`.
+    pub fn with_variation(mut self, name: &str, value: f32) -> Self {
+        let tag = tag(name);
+        self.variations.retain(|v| v.tag != tag);
+        self.variations.push(FontVariation { tag, value });
+        self
+    }
+
+    /// Set in a column, top to bottom.
+    pub fn with_vertical(mut self, vertical: bool) -> Self {
+        self.vertical = vertical;
+        self
     }
 
     pub fn with_weight(mut self, weight: FontWeight) -> Self {
@@ -70,6 +129,26 @@ mod tests {
         assert_eq!(bold.weight, FontWeight::Bold);
         let italic = f.clone().with_style(FontStyle::Italic);
         assert_eq!(italic.style, FontStyle::Italic);
+
+        let styled = f
+            .with_feature("liga", 0)
+            .with_feature("ss1", 1)
+            .with_feature("liga", 1)
+            .with_variation("wght", 650.0);
+        assert_eq!(
+            styled.features,
+            [
+                FontFeature {
+                    tag: *b"ss1 ",
+                    value: 1
+                },
+                FontFeature {
+                    tag: *b"liga",
+                    value: 1
+                }
+            ]
+        );
+        assert_eq!(styled.variations[0].tag, *b"wght");
     }
 
     #[test]
