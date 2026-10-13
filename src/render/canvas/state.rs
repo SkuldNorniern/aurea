@@ -10,6 +10,10 @@ use aurea_runtime::DamageRegion;
 
 use super::DrawCallback;
 
+/// Asked for the context to draw on once the canvas's device is lost.
+#[cfg(feature = "zengpu")]
+pub(crate) type GpuLostHandler = Box<dyn FnMut(&Arc<ZenGpuContext>) -> Option<Arc<ZenGpuContext>>>;
+
 /// All per-frame mutable canvas properties in one lock.
 /// Renderer lives in a separate Arc<Mutex<>> so render_frame can release this
 /// lock before invoking the draw callback.
@@ -29,6 +33,9 @@ pub(crate) struct CanvasState {
     /// or made when its renderer first is.
     #[cfg(feature = "zengpu")]
     pub gpu_context: Option<Arc<ZenGpuContext>>,
+    /// Set by [`Canvas::on_gpu_lost`](super::Canvas::on_gpu_lost).
+    #[cfg(feature = "zengpu")]
+    pub gpu_lost: Option<GpuLostHandler>,
 }
 
 /// A canvas's identity, for as long as the process runs.

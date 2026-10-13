@@ -103,6 +103,12 @@ impl ZenGpuContext {
         Self::on_adapter(self.adapter)
     }
 
+    /// Whether the device is gone, after a driver reset or a GPU removal.
+    /// Nothing made on it works again; [`Self::reopen`] makes a new one.
+    pub fn is_lost(&self) -> bool {
+        self.device.is_lost()
+    }
+
     /// Which GPU this context is on.
     pub fn adapter_uuid(&self) -> [u8; 16] {
         self.adapter
