@@ -63,11 +63,13 @@ pub enum Sampling {
 /// A texture the app made on the renderer's GPU device, drawn with
 /// [`DrawingContext::draw_texture`](crate::DrawingContext::draw_texture).
 ///
-/// It is the handle's index and generation plus the texture's size; the
+/// It preserves the complete backend handle plus the texture's size; the
 /// renderer checks the handle is still live when it draws. Only GPU
 /// renderers draw it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GpuTexture {
+    #[cfg(feature = "zengpu")]
+    pub(crate) handle: TextureHandle,
     pub index: u32,
     pub generation: u32,
     pub width: u32,
@@ -76,9 +78,11 @@ pub struct GpuTexture {
 
 #[cfg(feature = "zengpu")]
 impl GpuTexture {
-    /// A ZenGPU texture of `width` by `height` texels.
+    /// A ZenGPU texture of `width` by `height` texels. Preserves the backend's
+    /// full identity rather than reconstructing it from index and generation.
     pub fn from_zengpu(texture: TextureHandle, width: u32, height: u32) -> Self {
         Self {
+            handle: texture,
             index: texture.index(),
             generation: texture.generation(),
             width,
@@ -88,7 +92,7 @@ impl GpuTexture {
 
     /// The ZenGPU handle back.
     pub fn zengpu(self) -> TextureHandle {
-        TextureHandle::from_parts(self.index, self.generation)
+        self.handle
     }
 }
 
@@ -140,6 +144,20 @@ impl GlyphMask {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "zengpu")]
+    #[test]
+    fn gpu_texture_preserves_the_complete_backend_handle() {
+        use zengpu_hal::{SlotMap, marker::Texture};
+        let mut first = SlotMap::<Texture, ()>::new();
+        let mut second = SlotMap::<Texture, ()>::new();
+        for handle in [first.insert(()), second.insert(())] {
+            let wrapped = GpuTexture::from_zengpu(handle, 4, 4);
+            assert_eq!(wrapped.zengpu(), handle);
+            assert_eq!(wrapped.index, handle.index());
+            assert_eq!(wrapped.generation, handle.generation());
+        }
+    }
 
     #[test]
     fn glyph_mask_ids_are_unique_and_survive_cloning() {
