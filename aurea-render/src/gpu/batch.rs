@@ -28,7 +28,7 @@ use crate::types::{
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::mem;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 
 /// One solid-colour rectangle, ready to upload as a GPU instance.
 ///
@@ -394,13 +394,13 @@ pub struct RenderBatches {
     /// The kinds of drawing this frame uses, for checking against what a
     /// backend supports before it is asked to draw the frame.
     pub needs: GpuFeatures,
-    gradient_lut_cache: HashMap<u64, Weak<[u8]>>,
+    gradient_lut_cache: HashMap<u64, (Arc<[u8]>, bool)>,
     /// Paths rasterized to masks, by their item's cache key, with whether
     /// this frame drew them. Kept while drawn, so a path that stays put is
     /// rasterized and uploaded once.
     path_masks: HashMap<u64, (Arc<[u8]>, bool)>,
     /// Converted RGBA per glyph mask, keyed by the mask's own identity.
-    text_mask_cache: HashMap<u64, Weak<[u8]>>,
+    text_mask_cache: HashMap<u64, (Arc<[u8]>, bool)>,
 }
 
 impl RenderBatches {
@@ -451,12 +451,11 @@ impl RenderBatches {
             self.lower_item(item);
             self.clips.resize(self.order.len(), item.clip);
         }
-        // A dead `Weak` still holds its `Arc`'s allocation, and a scene whose
-        // gradients or text keep changing would pile them up for good.
+        // Keep conversions alive across lowering even when the GPU cache has
+        // evicted their textures; release anything this frame no longer draws.
         self.gradient_lut_cache
-            .retain(|_, lut| lut.strong_count() > 0);
-        self.text_mask_cache
-            .retain(|_, mask| mask.strong_count() > 0);
+            .retain(|_, (_, used)| mem::take(used));
+        self.text_mask_cache.retain(|_, (_, used)| mem::take(used));
         self.path_masks.retain(|_, (_, used)| mem::take(used));
     }
 
@@ -544,8 +543,11 @@ impl RenderBatches {
                         self.texts.push(TextDraw {
                             mask: rgba,
                             rect: Rect::new(
-                                origin.x,
-                                origin.y,
+                                // Masks already contain device-pixel coverage.
+                                // Match CPU placement instead of filtering the
+                                // same glyph a second time at fractional UVs.
+                                origin.x.round(),
+                                origin.y.round(),
                                 mask.width as f32,
                                 mask.height as f32,
                             ),
@@ -672,11 +674,13 @@ impl RenderBatches {
 
     fn gradient_lut(&mut self, stops: &[GradientStop]) -> Arc<[u8]> {
         let key = gradient_lut_key(stops);
-        if let Some(lut) = self.gradient_lut_cache.get(&key).and_then(Weak::upgrade) {
-            return lut;
+        if let Some((lut, used)) = self.gradient_lut_cache.get_mut(&key) {
+            *used = true;
+            return Arc::clone(lut);
         }
         let lut = build_gradient_lut(stops);
-        self.gradient_lut_cache.insert(key, Arc::downgrade(&lut));
+        self.gradient_lut_cache
+            .insert(key, (Arc::clone(&lut), true));
         lut
     }
 
@@ -687,10 +691,11 @@ impl RenderBatches {
         }
         // Keyed by the mask's own id, not by the address of its coverage. An
         // evicted mask can be replaced by a different one at the same address,
-        // and a surviving `Weak` would then hand back the wrong glyphs.
+        // which would otherwise hand back the wrong glyphs.
         let key = mask.id();
-        if let Some(rgba) = self.text_mask_cache.get(&key).and_then(Weak::upgrade) {
-            return Some(rgba);
+        if let Some((rgba, used)) = self.text_mask_cache.get_mut(&key) {
+            *used = true;
+            return Some(Arc::clone(rgba));
         }
         let mut rgba = Vec::with_capacity(pixel_count * 4);
         let (pixels, _) = mask.coverage.as_chunks::<3>();
@@ -698,7 +703,7 @@ impl RenderBatches {
             rgba.extend_from_slice(&[r, g, b, r.max(g).max(b)]);
         }
         let rgba: Arc<[u8]> = rgba.into();
-        self.text_mask_cache.insert(key, Arc::downgrade(&rgba));
+        self.text_mask_cache.insert(key, (Arc::clone(&rgba), true));
         Some(rgba)
     }
 }
@@ -959,9 +964,15 @@ mod tests {
         )));
         let mut batches = RenderBatches::default();
         batches.lower_into(&list);
-        let first = Arc::clone(&batches.gradients[0].lut);
+        let first = Arc::downgrade(&batches.gradients[0].lut);
         batches.lower_into(&list);
-        assert!(Arc::ptr_eq(&first, &batches.gradients[0].lut));
+        assert!(Arc::ptr_eq(
+            &first.upgrade().expect("active gradient retained"),
+            &batches.gradients[0].lut
+        ));
+        batches.lower_into(&DisplayList::new());
+        assert!(first.upgrade().is_none());
+        assert!(batches.gradient_lut_cache.is_empty());
     }
 
     #[test]
@@ -1055,9 +1066,48 @@ mod tests {
         )));
         let mut batches = RenderBatches::default();
         batches.lower_into(&list);
-        let first = Arc::clone(&batches.texts[0].mask);
+        // No caller or GPU texture cache keeps a strong reference between frames.
+        let first = Arc::downgrade(&batches.texts[0].mask);
         batches.lower_into(&list);
-        assert!(Arc::ptr_eq(&first, &batches.texts[0].mask));
+        assert!(Arc::ptr_eq(
+            &first.upgrade().expect("active mask retained"),
+            &batches.texts[0].mask
+        ));
+        batches.lower_into(&DisplayList::new());
+        assert!(first.upgrade().is_none());
+        assert!(batches.text_mask_cache.is_empty());
+    }
+
+    #[test]
+    fn fractional_glyph_origins_match_cpu_pixel_placement() {
+        for origin in [Point::new(4.25, 5.75), Point::new(-0.75, -0.25)] {
+            let mut list = DisplayList::new();
+            list.push(item(DrawCommand::DrawGlyphMask(
+                GlyphMask::new(2, 1, vec![255; 6].into()),
+                origin,
+                Color::rgb(0, 0, 0),
+            )));
+            let batches = RenderBatches::lower(&list);
+            assert_eq!(
+                batches.texts[0].rect,
+                Rect::new(origin.x.round(), origin.y.round(), 2.0, 1.0)
+            );
+        }
+    }
+
+    #[test]
+    fn changing_text_masks_release_unused_conversions() {
+        let mut batches = RenderBatches::default();
+        for shade in 0..=255 {
+            let mut list = DisplayList::new();
+            list.push(item(DrawCommand::DrawGlyphMask(
+                GlyphMask::new(1, 1, vec![shade; 3].into()),
+                Point::new(0.0, 0.0),
+                Color::rgb(0, 0, 0),
+            )));
+            batches.lower_into(&list);
+            assert_eq!(batches.text_mask_cache.len(), 1);
+        }
     }
 
     #[test]
