@@ -91,5 +91,25 @@ fn draw_text_showcase(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
     let y2 = box2.y + box2.height / 2.0 + m2.ascent / 2.0 - m2.descent / 2.0;
     ctx.draw_text_with_font(line2, Point::new(x2, y2), &small, &gray)?;
 
+    // Shaping: fallback faces, ligatures, joining scripts, marks and bidi.
+    let shaped = Font::new("", 20.0);
+    let samples = [
+        "Hello 안녕하세요 世界",
+        "مرحبا بالعالم",
+        "cafe\u{301} re\u{301}sume\u{301}",
+        "abc עברית 123",
+    ];
+    for (i, sample) in samples.iter().enumerate() {
+        let y = 60.0 + i as f32 * 40.0;
+        ctx.draw_text_with_font(sample, Point::new(420.0, y), &shaped, &blue)?;
+    }
+    let ligatures = Font::new("Calibri", 22.0);
+    ctx.draw_text_with_font(
+        "office affine fjord",
+        Point::new(420.0, 230.0),
+        &ligatures,
+        &black,
+    )?;
+
     Ok(())
 }
