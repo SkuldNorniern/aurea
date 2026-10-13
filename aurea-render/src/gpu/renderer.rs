@@ -86,7 +86,7 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
     fn present_on_cpu(&mut self) -> AureaResult<FrameOutcome> {
         let has_textures = self
             .display_list
-            .items()
+            .items_since_clear()
             .iter()
             .any(|i| matches!(i.command, DrawCommand::DrawTexture(..)));
         if has_textures && self.backend.features().textures {
@@ -111,14 +111,16 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         };
         let (width, height) = (frame.width, frame.height);
         let bgra = frame.bytes();
-        if let Some(compact) = smaller_buffer(self.cpu_rgba.capacity(), bgra.len()) {
-            self.cpu_rgba = compact;
-        }
-        self.cpu_rgba.clear();
-        self.cpu_rgba.reserve(bgra.len());
-        let (pixels, _) = bgra.as_chunks::<4>();
-        for &[b, g, r, a] in pixels {
-            self.cpu_rgba.extend_from_slice(&[r, g, b, a]);
+        if outcome != FrameOutcome::Unchanged || self.cpu_rgba.len() != bgra.len() {
+            if let Some(compact) = smaller_buffer(self.cpu_rgba.capacity(), bgra.len()) {
+                self.cpu_rgba = compact;
+            }
+            self.cpu_rgba.clear();
+            self.cpu_rgba.reserve(bgra.len());
+            let (pixels, _) = bgra.as_chunks::<4>();
+            for &[b, g, r, a] in pixels {
+                self.cpu_rgba.extend_from_slice(&[r, g, b, a]);
+            }
         }
         let presented = self.backend.present_pixels(&self.cpu_rgba, width, height);
         self.last_on_cpu = presented.as_ref().is_ok_and(|o| !o.needs_redraw());
@@ -137,7 +139,7 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         self.composite.clear();
         let mut textures = self
             .display_list
-            .items()
+            .items_since_clear()
             .iter()
             .filter(|i| matches!(i.command, DrawCommand::DrawTexture(..)));
         for (k, list) in self.layer_lists.iter_mut().enumerate() {
@@ -186,7 +188,7 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
             *count += 1;
         };
         start_layer(&mut self.layer_lists, &mut count);
-        for item in self.display_list.items() {
+        for item in self.display_list.items_since_clear() {
             if matches!(item.command, DrawCommand::DrawTexture(..)) {
                 start_layer(&mut self.layer_lists, &mut count);
             } else {
@@ -307,6 +309,7 @@ impl<B: Gpu2dBackend> Renderer for Gpu2dRenderer<B> {
             self.report_dropped();
             self.present_batches()
         };
+        let presented = recover(presented);
         if presented.is_ok() {
             self.texture_cache.prune_dropped(&mut self.backend);
             self.texture_cache
@@ -381,6 +384,7 @@ mod tests {
         uploads: usize,
         evicted: usize,
         bound: usize,
+        pixels_device_lost: bool,
     }
 
     impl Gpu2dBackend for Probe {
@@ -419,10 +423,13 @@ mod tests {
         }
 
         fn present_pixels(&mut self, rgba: &[u8], w: u32, h: u32) -> AureaResult<FrameOutcome> {
+            if self.pixels_device_lost {
+                return Err(AureaError::DeviceLost);
+            }
             let at = ((h / 2 * w + w / 2) * 4) as usize;
             let px = [rgba[at], rgba[at + 1], rgba[at + 2], rgba[at + 3]];
             self.pixels.push((w, h, px));
-            Ok(FrameOutcome::Presented)
+            Ok(self.outcome)
         }
     }
 
@@ -441,6 +448,7 @@ mod tests {
             uploads: 0,
             evicted: 0,
             bound: 0,
+            pixels_device_lost: false,
         };
         Gpu2dRenderer::from_backend(probe, 100, 50, 1.0)
     }
@@ -760,5 +768,66 @@ mod tests {
         let outcome = r.end_frame().expect("end");
         assert_eq!(outcome, FrameOutcome::Retry);
         assert!(outcome.needs_redraw());
+    }
+
+    #[test]
+    fn cpu_presentation_device_loss_requests_recreation_and_does_not_skip_retry() {
+        let mut r = with_features(FrameOutcome::Presented, GpuFeatures::NONE);
+        r.backend_mut().pixels_device_lost = true;
+        assert_eq!(rounded_frame(&mut r), FrameOutcome::Recreate);
+        assert!(!r.last_on_cpu);
+        r.backend_mut().pixels_device_lost = false;
+        assert_eq!(rounded_frame(&mut r), FrameOutcome::Presented);
+        assert_eq!(r.backend().pixels, vec![(100, 50, [220, 20, 60, 255])]);
+    }
+
+    #[test]
+    fn refused_cpu_frames_are_presented_again_until_they_reach_the_surface() {
+        let mut r = with_features(FrameOutcome::Retry, GpuFeatures::NONE);
+        assert_eq!(rounded_frame(&mut r), FrameOutcome::Retry);
+        assert_eq!(rounded_frame(&mut r), FrameOutcome::Retry);
+        r.backend_mut().outcome = FrameOutcome::Presented;
+        assert_eq!(rounded_frame(&mut r), FrameOutcome::Presented);
+        assert_eq!(rounded_frame(&mut r), FrameOutcome::Unchanged);
+        assert_eq!(r.backend().pixels, vec![(100, 50, [220, 20, 60, 255]); 3]);
+    }
+
+    #[test]
+    fn clearing_a_texture_before_cpu_fallback_does_not_bind_it_or_keep_layers() {
+        let mut r = with_features(
+            FrameOutcome::Presented,
+            GpuFeatures {
+                rounded_rects: false,
+                ..GpuFeatures::ALL
+            },
+        );
+        let texture = GpuTexture {
+            #[cfg(feature = "zengpu")]
+            handle: TextureHandle::from_parts(9, 0),
+            index: 9,
+            generation: 0,
+            width: 4,
+            height: 4,
+        };
+        {
+            let mut ctx = r.begin_frame().expect("begin");
+            ctx.draw_texture(
+                texture,
+                Rect::new(0.0, 0.0, 1.0, 1.0),
+                Rect::new(0.0, 0.0, 4.0, 4.0),
+            )
+            .expect("texture");
+            ctx.clear(Color::rgb(10, 20, 30)).expect("clear");
+            ctx.draw_round_rect(
+                Rect::new(0.0, 0.0, 100.0, 50.0),
+                3.0,
+                &Paint::new().color(Color::rgb(220, 20, 60)),
+            )
+            .expect("fallback");
+        }
+        assert_eq!(r.end_frame().expect("end"), FrameOutcome::Presented);
+        assert_eq!(r.backend().bound, 0);
+        assert!(r.layers.is_empty());
+        assert_eq!(r.backend().pixels, vec![(100, 50, [220, 20, 60, 255])]);
     }
 }

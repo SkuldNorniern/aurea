@@ -143,6 +143,7 @@ impl DisplayItem {
 #[derive(Debug, Default)]
 pub struct DisplayList {
     items: Vec<DisplayItem>,
+    last_clear: usize,
 }
 
 impl DisplayList {
@@ -153,6 +154,9 @@ impl DisplayList {
 
     /// Appends an item.
     pub fn push(&mut self, item: DisplayItem) {
+        if matches!(item.command, DrawCommand::Clear(_)) {
+            self.last_clear = self.items.len();
+        }
         self.items.push(item);
     }
 
@@ -161,9 +165,14 @@ impl DisplayList {
         &self.items
     }
 
+    pub(crate) fn items_since_clear(&self) -> &[DisplayItem] {
+        &self.items[self.last_clear..]
+    }
+
     /// Drops every item, keeping the allocation for the next frame.
     pub fn clear(&mut self) {
         self.items.clear();
+        self.last_clear = 0;
     }
 
     /// How many items the list holds.
