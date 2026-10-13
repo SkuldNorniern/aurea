@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 void ng_process_frames(void);
+void ng_invoke_canvas_destroyed(void* canvas);
 
 void ng_log_error(const char* msg);
 void ng_log_warn(const char* msg);

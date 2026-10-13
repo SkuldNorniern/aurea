@@ -1,4 +1,4 @@
-use super::lifecycle::take_full_redraw_request;
+use super::lifecycle::{canvas_is_live, take_full_redraw_request};
 use crate::ffi::*;
 use crate::platform::presentation::cpu::publish_cpu_buffer;
 use crate::render::SurfaceInfo;
@@ -67,8 +67,8 @@ fn render_frame(
     }
 
     let current_damage = {
-        let mut r = renderer.borrow_mut();
-        if let Some(ref mut r) = *r {
+        let mut slot = renderer.borrow_mut();
+        if let Some(ref mut r) = *slot {
             r.set_damage(damage_rect);
             // The context borrows the renderer, so it has to go out of scope
             // before the frame can be ended.
@@ -83,6 +83,10 @@ fn render_frame(
                 {
                     cb(ctx.as_mut())?; // state lock NOT held here
                 }
+            }
+            if !canvas_is_live(handle) {
+                *slot = None;
+                return Err(AureaError::ElementOperationFailed);
             }
             let outcome = r.end_frame()?;
             (outcome, r.last_frame_damage())
@@ -103,7 +107,7 @@ fn render_frame(
 /// Acts on what a frame came to: a frame the target could not take is owed
 /// and asked for again, and a renderer whose target is gone is dropped so
 /// the next frame makes a new one.
-fn follow_outcome(
+pub(super) fn follow_outcome(
     outcome: FrameOutcome,
     handle: *mut c_void,
     state: &Rc<RefCell<CanvasState>>,
@@ -216,6 +220,9 @@ impl Canvas {
 
         let callback: Rc<dyn Fn() -> AureaResult<()>> = Rc::new(move || {
             let handle = handle_usize as *mut c_void;
+            if !canvas_is_live(handle) {
+                return Ok(());
+            }
 
             // Somebody off the UI thread asked for a full redraw. Marking the
             // canvas dirty is this thread's job: the state holds the draw
@@ -270,6 +277,7 @@ impl Canvas {
     }
 
     pub(super) fn check_and_resize(&mut self) -> AureaResult<()> {
+        self.ensure_live()?;
         if ensure_canvas_renderer(self.handle, &self.state, &self.renderer, self.backend)? {
             sync_surface(self.handle, &self.state, &self.renderer)?;
         }

@@ -12,6 +12,7 @@ use aurea_runtime::{DamageRegion, FrameScheduler};
 use aurea_runtime::{FrameInfo, TickerId};
 use std::cell::RefCell;
 use std::os::raw::c_void;
+use std::ptr::null_mut;
 use std::rc::Rc;
 use std::slice::from_raw_parts;
 #[cfg(feature = "zengpu")]
@@ -28,6 +29,8 @@ mod driver;
 mod lifecycle;
 mod state;
 mod weak;
+
+pub(crate) use lifecycle::notify_canvas_destroyed;
 
 use backend::ensure_canvas_renderer;
 pub use lifecycle::request_canvas_redraw;
@@ -101,6 +104,13 @@ impl Drop for CanvasBuildGuard {
 }
 
 impl Canvas {
+    fn ensure_live(&self) -> AureaResult<()> {
+        if self._cleanup.live.load(Ordering::Acquire) {
+            Ok(())
+        } else {
+            Err(AureaError::ElementOperationFailed)
+        }
+    }
     /// Get the native window handle for this canvas
     ///
     /// This can be used to create platform-specific surfaces (e.g., WGPU, Vulkan, Metal).
@@ -109,11 +119,17 @@ impl Canvas {
     /// - Windows: HWND
     /// - Linux: X11 Window or Wayland Surface
     pub fn native_handle(&self) -> *mut c_void {
+        if self.ensure_live().is_err() {
+            return null_mut();
+        }
         unsafe { ng_platform_canvas_get_native_handle(self.handle) }
     }
 
     /// Get the parent window handle for this canvas
     pub fn window_handle(&self) -> *mut c_void {
+        if self.ensure_live().is_err() {
+            return null_mut();
+        }
         unsafe { ng_platform_canvas_get_window(self.handle) }
     }
 
@@ -151,6 +167,7 @@ impl Canvas {
         &'canvas self,
         instance: &Instance,
     ) -> AureaResult<WgpuSurface<'canvas>> {
+        self.ensure_live()?;
         instance
             .create_surface(SurfaceTarget::from(&*self.surface_handle))
             .map_err(|_| AureaError::ElementOperationFailed)
@@ -236,11 +253,13 @@ impl Canvas {
                 id,
                 renderer: renderer_arc.clone(),
                 owns_native: AtomicBool::new(true),
+                live: AtomicBool::new(true),
                 warned_about_mixed_drawing: AtomicBool::new(false),
             }),
         };
 
         guard.disarm();
+        lifecycle::register_native_canvas(&canvas._cleanup);
         register_canvas_state(id, handle_key(handle));
         canvas.register_with_scheduler(state, renderer_arc, backend);
         Ok(canvas)
@@ -346,6 +365,7 @@ impl Canvas {
     where
         F: FnMut(&mut dyn DrawingContext) -> AureaResult<()> + 'static,
     {
+        self.ensure_live()?;
         {
             let mut st = self.state.borrow_mut();
             st.draw_callback = Some(Rc::new(RefCell::new(callback)));
@@ -410,7 +430,14 @@ impl Canvas {
                     ctx.clear(bg_color)?;
                     draw_fn(ctx.as_mut())?;
                 }
-                if renderer.end_frame()? != FrameOutcome::Presented {
+                if self.ensure_live().is_err() {
+                    *r = None;
+                    return Err(AureaError::ElementOperationFailed);
+                }
+                let outcome = renderer.end_frame()?;
+                if outcome != FrameOutcome::Presented {
+                    drop(r);
+                    driver::follow_outcome(outcome, self.handle, &self.state, &self.renderer);
                     // Nothing new for the platform to show.
                     return Ok(());
                 }
@@ -490,6 +517,9 @@ impl Canvas {
 
     /// Mark the entire canvas as damaged and schedule a redraw.
     pub fn invalidate_all(&self) {
+        if self.ensure_live().is_err() {
+            return;
+        }
         {
             let mut st = self.state.borrow_mut();
             st.damage.add_all();
@@ -522,6 +552,9 @@ impl Canvas {
 
     /// Invalidate a specific rectangle.
     pub fn invalidate_rect(&self, rect: super::Rect) {
+        if self.ensure_live().is_err() {
+            return;
+        }
         {
             let mut st = self.state.borrow_mut();
             st.damage.add(rect);
@@ -601,6 +634,9 @@ impl Canvas {
 
 impl Element for Canvas {
     fn released_to_parent(&self) {
+        if self.ensure_live().is_err() {
+            return;
+        }
         // Clones share one cleanup, so this is recorded once for the canvas
         // however many handles exist. The swap is what makes that true: a
         // second call must not tell the platform to release again, which on
@@ -614,10 +650,17 @@ impl Element for Canvas {
     }
 
     fn handle(&self) -> *mut c_void {
-        self.handle
+        if self.ensure_live().is_ok() {
+            self.handle
+        } else {
+            null_mut()
+        }
     }
 
     unsafe fn invalidate_platform(&self, rect: Option<super::Rect>) {
+        if self.ensure_live().is_err() {
+            return;
+        }
         if let Some(r) = rect {
             unsafe {
                 ng_platform_canvas_invalidate_rect(self.handle, r.x, r.y, r.width, r.height);

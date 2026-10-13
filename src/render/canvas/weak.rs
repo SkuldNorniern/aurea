@@ -4,6 +4,7 @@
 use std::cell::RefCell;
 use std::os::raw::c_void;
 use std::rc::{Rc, Weak};
+use std::sync::atomic::Ordering;
 
 use aurea_render::{InteractionRegistry, Renderer, RendererBackend};
 
@@ -35,9 +36,13 @@ pub struct WeakCanvas {
 impl WeakCanvas {
     /// The canvas, while any `Canvas` for it is still around.
     pub fn upgrade(&self) -> Option<Canvas> {
+        let cleanup = self.cleanup.upgrade()?;
+        if !cleanup.live.load(Ordering::Acquire) {
+            return None;
+        }
         Some(Canvas {
             handle: self.handle,
-            _cleanup: self.cleanup.upgrade()?,
+            _cleanup: cleanup,
             state: self.state.upgrade()?,
             renderer: self.renderer.upgrade()?,
             backend: self.backend,

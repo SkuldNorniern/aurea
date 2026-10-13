@@ -19,6 +19,11 @@ typedef struct {
     int allocated_height;
 } CanvasData;
 
+static void ng_linux_canvas_destroy(GtkWidget* widget, gpointer user_data) {
+    (void)user_data;
+    ng_invoke_canvas_destroyed((void*)widget);
+}
+
 static void ng_linux_canvas_size_allocate(GtkWidget* widget, GdkRectangle* allocation, gpointer user_data) {
     CanvasData* data = (CanvasData*)user_data;
     if (allocation->width == data->allocated_width && allocation->height == data->allocated_height) return;
@@ -83,6 +88,7 @@ NGHandle ng_linux_create_canvas(int width, int height) {
     g_object_set_data_full(G_OBJECT(drawing_area), "aurea-canvas-data", data, g_free);
     g_signal_connect(G_OBJECT(drawing_area), "draw", G_CALLBACK(ng_linux_canvas_draw), data);
     g_signal_connect(G_OBJECT(drawing_area), "size-allocate", G_CALLBACK(ng_linux_canvas_size_allocate), data);
+    g_signal_connect(G_OBJECT(drawing_area), "destroy", G_CALLBACK(ng_linux_canvas_destroy), NULL);
     
     return (NGHandle)drawing_area;
 }

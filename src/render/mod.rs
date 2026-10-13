@@ -5,6 +5,8 @@
 
 mod canvas;
 
+pub(crate) use canvas::notify_canvas_destroyed;
+
 pub use aurea_render::cpu::measure_text;
 pub use aurea_render::vector::{Icon, SvgError, VectorImage, parse_path_data};
 pub use aurea_render::{
