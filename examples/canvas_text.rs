@@ -2,8 +2,8 @@
 
 use aurea::elements::{Orientation, Stack};
 use aurea::render::{
-    Canvas, Color, DrawingContext, Font, FontStyle, FontWeight, Paint, PaintStyle, Point, Rect,
-    RendererBackend,
+    Canvas, Color, DrawingContext, Font, FontStyle, FontWeight, LayoutOptions, Paint, PaintStyle,
+    Point, Rect, RendererBackend, TextAlign, WordBreak, layout_text,
 };
 use aurea::{AureaResult, Container, Window};
 
@@ -107,6 +107,37 @@ fn draw_text_showcase(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
         &ligatures,
         &black,
     )?;
+    let apart = ligatures.clone().with_feature("liga", 0);
+    ctx.draw_text_with_font("office (liga off)", Point::new(420.0, 258.0), &apart, &gray)?;
+
+    let body = Font::new("", 14.0);
+    let paragraph = "Text wraps at word boundaries, 줄바꿈도 됩니다, and keeps \
+                     right-to-left words like שלום in order.";
+    let options = LayoutOptions {
+        max_width: Some(230.0),
+        align: TextAlign::Center,
+        line_height: 1.2,
+        word_break: WordBreak::KeepAll,
+    };
+    let layout = layout_text(paragraph, &body, options)?;
+    let frame = Rect::new(436.0, 280.0, 238.0, layout.height + 8.0);
+    ctx.draw_rect(frame, &stroke)?;
+    ctx.draw_text_layout(&layout, Point::new(440.0, 284.0), &body, &black)?;
+
+    let column = Font::new("", 20.0).with_vertical(true);
+    let columns = LayoutOptions {
+        max_width: Some(180.0),
+        ..LayoutOptions::default()
+    };
+    let vertical = layout_text("縦書きの文字は右から左へ並びます", &column, columns)?;
+    let at = Point::new(704.0 - vertical.width, 40.0);
+    ctx.draw_text_layout(&vertical, at, &column, &blue)?;
+
+    for (i, weight) in [300.0, 500.0, 700.0].into_iter().enumerate() {
+        let face = Font::new("Bahnschrift", 20.0).with_variation("wght", weight);
+        let x = 24.0 + i as f32 * 130.0;
+        ctx.draw_text_with_font("Variable", Point::new(x, 450.0), &face, &black)?;
+    }
 
     Ok(())
 }

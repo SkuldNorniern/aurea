@@ -4,9 +4,10 @@ use std::mem;
 use std::time::Instant;
 
 use crate::AureaResult;
-use crate::render::{Font, Paint, PaintStyle, Point, Rect};
+use crate::render::{Font, Paint, PaintStyle, Point, Rect, shape_text};
 use crate::ui::frame::{Align, Ui, baseline_in, fill};
 use crate::ui::state::{BLINK_FOR, Interaction, Key, Typed, WidgetId};
+use crate::ui::theme::Palette;
 use crate::ui::text_edit::{Direction, Rules, Step, TextEdit};
 use crate::window::{KeyCode, Modifiers, clipboard_text, set_clipboard_text};
 
@@ -163,26 +164,13 @@ impl<'v> EditableText<'v> {
     fn index_at<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>, font: &Font, x: f32) -> usize {
         let mut shown = mem::take(&mut ui.state.scratch);
         self.shown_into(&mut shown);
-        let count = shown.chars().count();
-        let end_of = |s: &str, n: usize| s.char_indices().nth(n).map_or(s.len(), |(i, _)| i);
-        let (mut lo, mut hi) = (0, count);
-        while lo < hi {
-            let mid = (lo + hi).div_ceil(2);
-            if ui.text_width(&shown[..end_of(&shown, mid)], font) <= x {
-                lo = mid;
-            } else {
-                hi = mid - 1;
-            }
-        }
-        if lo < count {
-            let left = ui.text_width(&shown[..end_of(&shown, lo)], font);
-            let right = ui.text_width(&shown[..end_of(&shown, lo + 1)], font);
-            if x - left > right - x {
-                lo += 1;
-            }
-        }
+        let at = shape_text(&shown, font).map_or(0, |shaped| shaped.hit(x));
+        let count = shown[..at].chars().count();
         ui.state.scratch = shown;
-        end_of(self.text, lo)
+        self.text
+            .char_indices()
+            .nth(count)
+            .map_or(self.text.len(), |(i, _)| i)
     }
 
     fn shown_into(&self, out: &mut String) {
@@ -258,16 +246,38 @@ impl<'v> EditableText<'v> {
     ) -> AureaResult<()> {
         let p = ui.theme.palette;
         let in_preedit = ui.state.edit.preedit_caret().unwrap_or(preedit.len());
-        let caret_x =
-            ui.text_width(&shown[..caret], font) + ui.text_width(&preedit[..in_preedit], font);
         let after_start = if preedit.is_empty() {
             caret
         } else {
             self.shown_offset(ui.state.edit.selection().end)
         };
-        let total = ui.text_width(&shown[..caret], font)
-            + ui.text_width(&shown[after_start..], font)
-            + ui.text_width(preedit, font);
+        let mut line = mem::take(&mut ui.state.scratch);
+        line.clear();
+        line.push_str(&shown[..caret]);
+        line.push_str(preedit);
+        line.push_str(&shown[after_start..]);
+        let result = self.draw_line(
+            ui,
+            rect,
+            font,
+            (&line, caret, preedit.len(), in_preedit),
+            (editing, fade, p),
+        );
+        ui.state.scratch = line;
+        result
+    }
+
+    fn draw_line<Id: WidgetId>(
+        &self,
+        ui: &mut Ui<'_, Id>,
+        rect: Rect,
+        font: &Font,
+        (line, caret, preedit, in_preedit): (&str, usize, usize, usize),
+        (editing, fade, p): (bool, f32, Palette),
+    ) -> AureaResult<()> {
+        let shaped = shape_text(line, font)?;
+        let caret_x = shaped.caret_x(caret + in_preedit);
+        let total = shaped.width;
         let scroll = keep_in_sight(ui.state.edit.scroll, caret_x, total, rect.width);
         ui.state.edit.scroll = if editing { scroll } else { 0.0 };
         let x0 = rect.x - ui.state.edit.scroll;
@@ -279,34 +289,26 @@ impl<'v> EditableText<'v> {
             rect.width + 2.0,
             rect.height,
         ))?;
-        if editing && ui.state.edit.has_selection() && preedit.is_empty() {
+        if editing && ui.state.edit.has_selection() && preedit == 0 {
             let sel = ui.state.edit.selection();
             let (a, b) = (self.shown_offset(sel.start), self.shown_offset(sel.end));
-            let xa = ui.text_width(&shown[..a], font);
-            let xb = ui.text_width(&shown[..b], font);
             let h = font.size * 1.35;
-            let band = Rect::new(x0 + xa, rect.y + (rect.height - h) / 2.0, xb - xa, h);
-            ui.round(band, 3.0, p.selection)?;
+            for (l, r) in shaped.selection_spans(a..b) {
+                let band = Rect::new(x0 + l, rect.y + (rect.height - h) / 2.0, r - l, h);
+                ui.round(band, 3.0, p.selection)?;
+            }
         }
         let color = p.text.fade(fade);
-        let m = ui.measure(shown, font);
+        let m = ui.measure(line, font);
         let baseline = baseline_in(rect, &m, font);
-        let before = &shown[..caret];
-        let after = &shown[after_start..];
-        let before_w = ui.text_width(before, font);
-        let preedit_w = ui.text_width(preedit, font);
         let paint = fill(color);
         ui.ctx
-            .draw_text_with_font(before, Point::new(x0, baseline), font, &paint)?;
-        if !preedit.is_empty() {
-            let at = Point::new(x0 + before_w, baseline);
-            ui.ctx.draw_text_with_font(preedit, at, font, &paint)?;
-            let line = Rect::new(x0 + before_w, baseline + 2.0, preedit_w, 1.0);
-            ui.ctx
-                .draw_rect(line, &Paint::new().color(color).style(PaintStyle::Fill))?;
+            .draw_text_with_font(line, Point::new(x0, baseline), font, &paint)?;
+        let underline = Paint::new().color(color).style(PaintStyle::Fill);
+        for (l, r) in shaped.selection_spans(caret..caret + preedit) {
+            let under = Rect::new(x0 + l, baseline + 2.0, r - l, 1.0);
+            ui.ctx.draw_rect(under, &underline)?;
         }
-        let after_at = Point::new(x0 + before_w + preedit_w, baseline);
-        ui.ctx.draw_text_with_font(after, after_at, font, &paint)?;
         if editing {
             caret_at(ui, rect, font, x0 + caret_x)?;
         }
