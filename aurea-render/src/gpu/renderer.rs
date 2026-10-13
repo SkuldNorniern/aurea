@@ -115,8 +115,9 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         for &[b, g, r, a] in pixels {
             self.cpu_rgba.extend_from_slice(&[r, g, b, a]);
         }
-        self.last_on_cpu = true;
-        self.backend.present_pixels(&self.cpu_rgba, width, height)
+        let presented = self.backend.present_pixels(&self.cpu_rgba, width, height);
+        self.last_on_cpu = presented.as_ref().is_ok_and(|o| !o.needs_redraw());
+        presented
     }
 
     fn present_layered(&mut self) -> AureaResult<FrameOutcome> {
