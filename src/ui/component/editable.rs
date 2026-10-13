@@ -77,18 +77,18 @@ impl<'v> EditableText<'v> {
     ) -> AureaResult<TextOutcome> {
         let key = Key::new(id, part);
         let mut outcome = TextOutcome::default();
-        if input.focused {
+        if input.focused || ui.state.typed_targets.contains(&Some(key)) {
             self.start_editing(ui, key);
-            let typed = self.type_in(ui);
+            let typed = self.type_in(ui, key);
             outcome = TextOutcome {
                 changed: typed.changed,
                 submitted: typed.submitted,
                 cancelled: typed.cancelled,
             };
-            if typed.cancelled {
+            if typed.cancelled && input.focused {
                 ui.clear_focus();
             }
-            if self.point(ui, key, rect, input.held) || typed.moved {
+            if (input.focused && self.point(ui, key, rect, input.held)) || typed.moved {
                 ui.state.blink_from = Instant::now();
             }
             if typed.changed {
@@ -105,10 +105,15 @@ impl<'v> EditableText<'v> {
     fn start_editing<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>, key: Key<Id>) {
         let state = &mut *ui.state;
         if state.edit_for != Some(key) {
-            state.edit = TextEdit::new();
-            if state.focus_visible {
+            if let Some(previous) = state.edit_for.take() {
+                state.edits.insert(previous, mem::take(&mut state.edit));
+            }
+            let cached = state.edits.remove(&key);
+            let fresh = cached.is_none();
+            state.edit = cached.unwrap_or_default();
+            if state.focus_visible && state.focus == Some(key) {
                 state.edit.select_all(self.text);
-            } else {
+            } else if fresh {
                 state.edit.set_caret(self.text, self.text.len(), false);
             }
             state.edit_for = Some(key);
@@ -117,13 +122,16 @@ impl<'v> EditableText<'v> {
         state.edit.clamp(self.text);
     }
 
-    fn type_in<Id: WidgetId>(&mut self, ui: &mut Ui<'_, Id>) -> Typing {
+    fn type_in<Id: WidgetId>(&mut self, ui: &mut Ui<'_, Id>, key: Key<Id>) -> Typing {
         let state = &mut *ui.state;
         let mut typing = Typing::default();
         let mut clipboard = SystemClipboard {
             enabled: !self.password,
         };
-        for typed in &state.typed {
+        for (typed, target) in state.typed.iter().zip(&state.typed_targets) {
+            if *target != Some(key) {
+                continue;
+            }
             typing.merge(apply(
                 &mut state.edit,
                 self.text,
@@ -229,7 +237,9 @@ impl<'v> EditableText<'v> {
         };
         let mut shown = mem::take(&mut ui.state.probe);
         self.shown_into(&mut shown);
-        let caret = if editing {
+        let caret = if editing && !ui.state.edit.preedit().is_empty() {
+            self.shown_offset(ui.state.edit.selection().start)
+        } else if editing {
             self.shown_offset(ui.state.edit.caret())
         } else {
             0
@@ -272,7 +282,14 @@ impl<'v> EditableText<'v> {
         let in_preedit = ui.state.edit.preedit_caret().unwrap_or(preedit.len());
         let caret_x =
             ui.text_width(&shown[..caret], font) + ui.text_width(&preedit[..in_preedit], font);
-        let total = ui.text_width(shown, font) + ui.text_width(preedit, font);
+        let after_start = if preedit.is_empty() {
+            caret
+        } else {
+            self.shown_offset(ui.state.edit.selection().end)
+        };
+        let total = ui.text_width(&shown[..caret], font)
+            + ui.text_width(&shown[after_start..], font)
+            + ui.text_width(preedit, font);
         let scroll = keep_in_sight(ui.state.edit.scroll, caret_x, total, rect.width);
         ui.state.edit.scroll = if editing { scroll } else { 0.0 };
         let x0 = rect.x - ui.state.edit.scroll;
@@ -284,7 +301,7 @@ impl<'v> EditableText<'v> {
             rect.width + 2.0,
             rect.height,
         ))?;
-        if editing && ui.state.edit.has_selection() {
+        if editing && ui.state.edit.has_selection() && preedit.is_empty() {
             let sel = ui.state.edit.selection();
             let (a, b) = (self.shown_offset(sel.start), self.shown_offset(sel.end));
             let xa = ui.text_width(&shown[..a], font);
@@ -296,7 +313,8 @@ impl<'v> EditableText<'v> {
         let color = p.text.fade(fade);
         let m = ui.measure(shown, font);
         let baseline = baseline_in(rect, &m, font);
-        let (before, after) = shown.split_at(caret);
+        let before = &shown[..caret];
+        let after = &shown[after_start..];
         let before_w = ui.text_width(before, font);
         let preedit_w = ui.text_width(preedit, font);
         let paint = fill(color);
@@ -327,7 +345,7 @@ fn caret_at<Id: WidgetId>(ui: &mut Ui<'_, Id>, rect: Rect, font: &Font, x: f32) 
     ui.state.ime_area = Some(bar);
     let since = ui.state.blink_from.elapsed();
     let on = !ui.theme.caret_blink || since >= BLINK_FOR || since.as_secs_f32().fract() < 0.6;
-    if !on || ui.state.edit.has_selection() {
+    if !on || (ui.state.edit.has_selection() && ui.state.edit.preedit().is_empty()) {
         return Ok(());
     }
     ui.fill(bar, ui.theme.palette.accent)
@@ -460,10 +478,13 @@ fn apply_key(
             submitted: true,
             ..Typing::default()
         },
-        KeyCode::Escape => Typing {
-            cancelled: true,
-            ..Typing::default()
-        },
+        KeyCode::Escape => {
+            edit.set_preedit(text, "", None);
+            Typing {
+                cancelled: true,
+                ..Typing::default()
+            }
+        }
         _ if mods.command() => shortcut(edit, text, (key, mods), rules, clip),
         _ => Typing::default(),
     }
