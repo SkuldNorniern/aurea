@@ -33,6 +33,9 @@ NGHandle ng_ios_create_window_impl(const char* title, int width, int height) {
         g_windowCallbacks = [[NSMutableDictionary alloc] init];
     }
     
+    // The caller frees `title` when this returns, before the block runs.
+    NSString* nsTitle = title ? [NSString stringWithUTF8String:title] : nil;
+
     // Wait a bit for the app delegate to finish initialization
     // In a real app, this would be called after didFinishLaunchingWithOptions
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -41,8 +44,8 @@ NGHandle ng_ios_create_window_impl(const char* title, int width, int height) {
             g_rootViewController = (AureaViewController*)g_mainWindow.rootViewController;
             
             // Set window title (iOS doesn't have window titles, but we can set the view controller title)
-            if (title && g_rootViewController) {
-                g_rootViewController.title = [NSString stringWithUTF8String:title];
+            if (nsTitle && g_rootViewController) {
+                g_rootViewController.title = nsTitle;
             }
             
             // Set main window handle for lifecycle callbacks
