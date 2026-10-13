@@ -14,7 +14,6 @@ use std::cell::RefCell;
 use std::os::raw::c_void;
 use std::ptr::null_mut;
 use std::rc::Rc;
-use std::slice::from_raw_parts;
 #[cfg(feature = "zengpu")]
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -259,17 +258,9 @@ impl Canvas {
 
     /// Runs `f` with the pixels this canvas last drew, as `0xAARRGGBB` words.
     pub fn with_frame_pixels<R>(&self, f: impl FnOnce(&[u32], u32, u32) -> R) -> Option<R> {
-        let guard = self.renderer.borrow_mut();
+        let guard = self.renderer.try_borrow().ok()?;
         let frame = guard.as_ref()?.frame_output()?;
-        // SAFETY: the renderer is held for the length of the call, so its
-        let bytes = unsafe { from_raw_parts(frame.pixels, frame.size) };
-        let pixels: Vec<u32> = bytes
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|&c| u32::from_le_bytes(c))
-            .collect();
-        Some(f(&pixels, frame.width, frame.height))
+        Some(f(frame.words(), frame.width, frame.height))
     }
 
     /// Set the drawing callback (retained-mode style).
