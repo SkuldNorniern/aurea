@@ -1,4 +1,5 @@
-//! ZenGPU triangle rendered into an aurea window — unified graphics API.
+//! ZenGPU triangle rendered into an aurea window — unified graphics API, on
+//! the platform's native backend (Metal on macOS, Vulkan elsewhere).
 //!
 //! No raw `ash`/`vk` types: surface, pipeline, and recording all go through
 //! `zengpu_hal::{GraphicsDevice, Surface, RenderCommands}`.
@@ -9,45 +10,39 @@ use std::{error::Error, result::Result as StdResult};
 use zengpu::zsl;
 use {
     aurea::{Window, WindowEvent},
-    std::{mem::size_of_val, slice::from_raw_parts},
     zengpu::{
         Acquire, ColorAttachment, ColorTargetState, DepthState, DeviceRequest, Format, Frame,
         GpuAdapter, GpuDevice, GpuError, GraphicsDevice, GraphicsPipelineDesc, LoadOp, PresentMode,
-        PrimitiveTopology, RenderCommands, RenderPassDesc, Result, ShaderDesc, Surface,
-        SurfaceConfig, Viewport, ViewportScissor, VulkanInstance, hal::RasterState,
+        PrimitiveTopology, RenderCommands, RenderPassDesc, Result, Surface, SurfaceConfig,
+        Viewport, ViewportScissor, ZslShader,
+        hal::RasterState,
+        native::{NativeInstance, shader},
     },
 };
 
-const VERT_SPV: &[u32] = zsl!(
+const VERT_ZSL: ZslShader = zsl!(
     vertex vs(vi: vertex_index) -> f32x4 {
         let pos = [f32x2(-0.5, 0.5), f32x2(0.5, 0.5), f32x2(0.0, -0.5)]
         f32x4(pos[vi], 0.0, 1.0)
     }
-)
-.spv;
+);
 
-const FRAG_SPV: &[u32] = zsl!(
+const FRAG_ZSL: ZslShader = zsl!(
     fragment fs() -> f32x4 {
         f32x4(0.1, 0.6, 1.0, 1.0)
     }
-)
-.spv;
-
-/// View SPIR-V words as the bytes [`ShaderDesc`] expects.
-fn spv_bytes(words: &[u32]) -> &[u8] {
-    unsafe { from_raw_parts(words.as_ptr() as *const u8, size_of_val(words)) }
-}
+);
 
 fn run() -> Result<()> {
     let window = Window::new("ZenGPU — Triangle", 800, 600)
         .map_err(|e| GpuError::Backend(format!("window: {e}")))?;
 
-    let inst = VulkanInstance::new_with_surface()?;
+    let inst = NativeInstance::new_with_surface()?;
     let adapter = inst
-        .request_vulkan_adapter()
-        .ok_or_else(|| GpuError::Backend("no Vulkan adapter found".into()))?;
+        .request_graphics_adapter()
+        .ok_or_else(|| GpuError::Backend("no GPU adapter found".into()))?;
     eprintln!("ZenGPU: {}", adapter.info().name);
-    let device = adapter.open_with_surface(DeviceRequest::default())?;
+    let device = adapter.open_graphics(DeviceRequest::default())?;
 
     let handles = window
         .zengpu_handles()
@@ -62,8 +57,8 @@ fn run() -> Result<()> {
 
     let surface = device.create_surface(&handles, config)?;
 
-    let vert_shader = device.create_shader(ShaderDesc::spirv(spv_bytes(VERT_SPV)))?;
-    let frag_shader = device.create_shader(ShaderDesc::spirv(spv_bytes(FRAG_SPV)))?;
+    let vert_shader = device.create_shader(shader(&VERT_ZSL))?;
+    let frag_shader = device.create_shader(shader(&FRAG_ZSL))?;
 
     let pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader: vert_shader,
