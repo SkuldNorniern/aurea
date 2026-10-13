@@ -599,6 +599,13 @@ int ng_platform_message_box(NGHandle window, int kind, const char* title, const 
         : NG_ERROR_UNSUPPORTED;
 }
 
+int ng_platform_color_dialog(NGHandle window, const char* title, unsigned int argb_in, int alpha, unsigned int* argb_out) {
+    ensure_ops();
+    return (g_ops && g_ops->color_dialog)
+        ? g_ops->color_dialog(window, title, argb_in, alpha, argb_out)
+        : NG_ERROR_UNSUPPORTED;
+}
+
 char* ng_platform_get_clipboard_text(void) {
     ensure_ops();
     return (g_ops && g_ops->get_clipboard_text) ? g_ops->get_clipboard_text() : NULL;

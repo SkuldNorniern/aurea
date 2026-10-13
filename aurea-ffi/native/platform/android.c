@@ -635,3 +635,8 @@ int ng_platform_message_box(NGHandle window, int kind, const char* title, const 
     (void)window; (void)kind; (void)title; (void)text; (void)buttons;
     return NG_ERROR_UNSUPPORTED;
 }
+
+int ng_platform_color_dialog(NGHandle window, const char* title, unsigned int argb_in, int alpha, unsigned int* argb_out) {
+    (void)window; (void)title; (void)argb_in; (void)alpha; (void)argb_out;
+    return NG_ERROR_UNSUPPORTED;
+}

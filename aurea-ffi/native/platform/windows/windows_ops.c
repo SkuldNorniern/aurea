@@ -131,6 +131,7 @@ static const ng_platform_ops_t windows_ops = {
     .sidebar_list_invalidate = ng_windows_sidebar_list_invalidate,
     .file_dialog = ng_windows_file_dialog,
     .message_box = ng_windows_message_box,
+    .color_dialog = ng_windows_color_dialog,
     .get_clipboard_text = ng_windows_get_clipboard_text,
     .free_clipboard_text = ng_windows_free_clipboard_text,
     .set_clipboard_text = ng_windows_set_clipboard_text,

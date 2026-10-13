@@ -110,6 +110,11 @@ void ng_platform_free_dialog_paths(char* paths);
    Closing it without a button gives the answer the buttons leave room for. */
 int ng_platform_message_box(NGHandle window, int kind, const char* title, const char* text, int buttons);
 
+/* A colour chooser, starting at `argb_in` (0xAARRGGBB). Returns 1 with the
+   pick in `argb_out`, 0 when cancelled, or an NG_ERROR_* on failure. Without
+   `alpha` the alpha is kept from `argb_in`. */
+int ng_platform_color_dialog(NGHandle window, const char* title, unsigned int argb_in, int alpha, unsigned int* argb_out);
+
 // Elements
 NGHandle ng_platform_create_button(const char* title, unsigned int id);
 void ng_platform_button_invalidate(NGHandle button);

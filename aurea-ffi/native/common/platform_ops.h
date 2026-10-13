@@ -152,6 +152,7 @@ typedef struct ng_platform_ops {
 
     char* (*file_dialog)(NGHandle window, int kind, const char* title, const char* filters, const char* default_name, const char* directory, int multiple);
     int (*message_box)(NGHandle window, int kind, const char* title, const char* text, int buttons);
+    int (*color_dialog)(NGHandle window, const char* title, unsigned int argb_in, int alpha, unsigned int* argb_out);
 
     /* Clipboard (global, not per-window) */
     char* (*get_clipboard_text)(void);

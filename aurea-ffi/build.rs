@@ -205,6 +205,7 @@ fn main() {
         println!("cargo:rustc-link-lib=ole32");
         println!("cargo:rustc-link-lib=uuid");
         println!("cargo:rustc-link-lib=imm32");
+        println!("cargo:rustc-link-lib=comdlg32");
 
         rerun_for(&root, common_c);
         rerun_for(&root, windows_c);

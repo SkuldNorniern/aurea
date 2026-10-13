@@ -1,7 +1,8 @@
-// Open, save and folder panels, and message boxes.
+// Open, save and folder panels, message boxes, and the colour panel.
 
 #import "dialog.h"
 #import "utils.h"
+#import "common/errors.h"
 #import <Cocoa/Cocoa.h>
 #include <stdlib.h>
 #include <string.h>
@@ -129,5 +130,91 @@ int ng_macos_message_box(NGHandle window, int kind, const char* title, const cha
         NSInteger index = [alert runModal] - NSAlertFirstButtonReturn;
         if (index < 0 || index >= count) return closed_choice(buttons);
         return list[index].choice;
+    }
+}
+
+/* A 0..1 value as a channel, 0..255. */
+static unsigned int channel_of(CGFloat v) {
+    CGFloat scaled = v * 255.0 + 0.5;
+    if (scaled < 0) return 0;
+    if (scaled > 255) return 255;
+    return (unsigned int)scaled;
+}
+
+/* The OK and Cancel buttons put under the colour panel while it is shown
+   modally: each ends the session with its answer. */
+@interface AureaColorPanelButtons : NSObject
+- (void)pick:(id)sender;
+- (void)cancel:(id)sender;
+@end
+
+@implementation AureaColorPanelButtons
+- (void)pick:(id)sender {
+    (void)sender;
+    [NSApp stopModalWithCode:NSModalResponseOK];
+}
+- (void)cancel:(id)sender {
+    (void)sender;
+    [NSApp stopModalWithCode:NSModalResponseCancel];
+}
+@end
+
+/* Cancel and OK in a row, OK on the right as macOS places it. */
+static NSView* color_panel_buttons(AureaColorPanelButtons* target) {
+    NSView* row = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 220, 44)];
+    NSButton* cancel = [NSButton buttonWithTitle:@"Cancel" target:target action:@selector(cancel:)];
+    cancel.keyEquivalent = @"\e";
+    cancel.frame = NSMakeRect(20, 8, 88, 28);
+    NSButton* ok = [NSButton buttonWithTitle:@"OK" target:target action:@selector(pick:)];
+    ok.keyEquivalent = @"\r";
+    ok.frame = NSMakeRect(112, 8, 88, 28);
+    [row addSubview:cancel];
+    [row addSubview:ok];
+    return row;
+}
+
+/* The colour panel is not modal, so a modal session runs until OK, Cancel
+   or the close box ends it; only OK picks. */
+int ng_macos_color_dialog(NGHandle window, const char* title, unsigned int argb_in, int alpha, unsigned int* argb_out) {
+    (void)window;
+    @autoreleasepool {
+        unsigned int a_in = (argb_in >> 24) & 0xFF;
+        NSColor* start = [NSColor colorWithSRGBRed:((argb_in >> 16) & 0xFF) / 255.0
+                                             green:((argb_in >> 8) & 0xFF) / 255.0
+                                              blue:(argb_in & 0xFF) / 255.0
+                                             alpha:alpha ? a_in / 255.0 : 1.0];
+        NSColorPanel* panel = [NSColorPanel sharedColorPanel];
+        if (title && *title) panel.title = ng_macos_to_nsstring(title);
+        panel.showsAlpha = alpha ? YES : NO;
+        [panel setColor:start];
+
+        AureaColorPanelButtons* target = [[AureaColorPanelButtons alloc] init];
+        NSView* previous = panel.accessoryView;
+        panel.accessoryView = color_panel_buttons(target);
+
+        /* The close box ends the session as a cancel. */
+        id observer = [[NSNotificationCenter defaultCenter]
+            addObserverForName:NSWindowWillCloseNotification
+                        object:panel
+                         queue:nil
+                    usingBlock:^(NSNotification* note) {
+                        (void)note;
+                        [NSApp stopModalWithCode:NSModalResponseCancel];
+                    }];
+        [panel makeKeyAndOrderFront:nil];
+        NSModalResponse answer = [NSApp runModalForWindow:panel];
+        [[NSNotificationCenter defaultCenter] removeObserver:observer];
+        /* The panel is shared: leave it as it was found. */
+        panel.accessoryView = previous;
+        [panel orderOut:nil];
+        if (answer != NSModalResponseOK) return 0;
+
+        NSColor* picked = [panel.color colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
+        if (!picked) return NG_ERROR_PLATFORM_SPECIFIC;
+        CGFloat r = 0, g = 0, b = 0, a = 1;
+        [picked getRed:&r green:&g blue:&b alpha:&a];
+        unsigned int a_out = alpha ? channel_of(a) : a_in;
+        *argb_out = (a_out << 24) | (channel_of(r) << 16) | (channel_of(g) << 8) | channel_of(b);
+        return 1;
     }
 }
