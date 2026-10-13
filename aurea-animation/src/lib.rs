@@ -64,9 +64,11 @@ impl Animation {
 
         if self.elapsed >= self.duration {
             if self.looping {
-                while self.elapsed >= self.duration {
-                    self.elapsed -= self.duration;
-                }
+                const NANOS_PER_SEC: u128 = 1_000_000_000;
+                let rem = self.elapsed.as_nanos() % self.duration.as_nanos();
+                let secs = u64::try_from(rem / NANOS_PER_SEC).unwrap_or(0);
+                let nanos = u32::try_from(rem % NANOS_PER_SEC).unwrap_or(0);
+                self.elapsed = Duration::new(secs, nanos);
             } else {
                 self.elapsed = self.duration + Duration::from_nanos(1);
                 return Some(self.easing.eval(1.0));
