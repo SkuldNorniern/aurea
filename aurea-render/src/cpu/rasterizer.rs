@@ -719,10 +719,8 @@ impl CpuRasterizer {
         clip: ClipBox,
     ) -> AureaResult<()> {
         if paint.style == PaintStyle::Stroke {
-            for piece in stroke::outline(path, paint.stroke_width) {
-                Self::fill_path(&piece, paint, mode, buf, scratch_path, bw, clip)?;
-            }
-            return Ok(());
+            let outline = stroke::outline_path(path, &stroke::StrokeStyle::of(paint));
+            return Self::fill_path(&outline, paint, mode, buf, scratch_path, bw, clip);
         }
 
         Self::fill_path(path, paint, mode, buf, scratch_path, bw, clip)

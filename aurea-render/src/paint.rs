@@ -170,12 +170,86 @@ pub enum PaintStyle {
     Stroke,
 }
 
+/// How an open stroke ends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum LineCap {
+    /// Flat, at the end point.
+    #[default]
+    Butt,
+    /// A half disc past the end point.
+    Round,
+    /// Flat, half the width past the end point.
+    Square,
+}
+
+/// How a stroke turns a corner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum LineJoin {
+    /// A sharp point, cut to a bevel past [`Paint::miter_limit`].
+    #[default]
+    Miter,
+    /// Rounded.
+    Round,
+    /// Cut straight across.
+    Bevel,
+}
+
+/// A dash pattern: on and off lengths in turn, as SVG's `stroke-dasharray`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Dash {
+    lengths: [f32; Dash::MAX],
+    count: u8,
+    /// How far into the pattern the stroke starts.
+    pub offset: f32,
+}
+
+impl Dash {
+    /// The most lengths a pattern holds; more are dropped.
+    pub const MAX: usize = 8;
+
+    /// `lengths` from `offset` into them.
+    pub fn new(lengths: &[f32], offset: f32) -> Option<Self> {
+        let mut dash = Self {
+            lengths: [0.0; Self::MAX],
+            count: 0,
+            offset,
+        };
+        let take = lengths.len().min(Self::MAX);
+        let doubled = if take % 2 == 1 { take * 2 } else { take }.min(Self::MAX);
+        for i in 0..doubled {
+            dash.lengths[i] = lengths[i % take].max(0.0);
+        }
+        dash.count = u8::try_from(doubled).unwrap_or(0);
+        (dash.lengths().iter().sum::<f32>() > 0.0).then_some(dash)
+    }
+
+    /// The on and off lengths, starting with on.
+    pub fn lengths(&self) -> &[f32] {
+        &self.lengths[..usize::from(self.count)]
+    }
+
+    /// The same pattern `factor` times larger, for a scaled drawing.
+    pub fn scaled(mut self, factor: f32) -> Self {
+        for length in &mut self.lengths {
+            *length *= factor;
+        }
+        self.offset *= factor;
+        self
+    }
+}
+
 /// Paint configuration for drawing.
 #[derive(Debug, Clone)]
 pub struct Paint {
     pub color: Color,
     pub style: PaintStyle,
     pub stroke_width: f32,
+    pub line_cap: LineCap,
+    pub line_join: LineJoin,
+    /// How long a miter may be, in stroke widths, before it is beveled.
+    pub miter_limit: f32,
+    /// `None` strokes solid.
+    pub dash: Option<Dash>,
 }
 
 impl Paint {
@@ -184,7 +258,41 @@ impl Paint {
             color: Color::rgb(0, 0, 0),
             style: PaintStyle::Fill,
             stroke_width: 1.0,
+            line_cap: LineCap::Butt,
+            line_join: LineJoin::Miter,
+            miter_limit: 4.0,
+            dash: None,
         }
+    }
+
+    pub fn line_cap(mut self, cap: LineCap) -> Self {
+        self.line_cap = cap;
+        self
+    }
+
+    pub fn line_join(mut self, join: LineJoin) -> Self {
+        self.line_join = join;
+        self
+    }
+
+    pub fn miter_limit(mut self, limit: f32) -> Self {
+        self.miter_limit = limit.max(1.0);
+        self
+    }
+
+    /// Dashes the stroke: `lengths` on and off in turn, from `offset` into them.
+    pub fn dash(mut self, lengths: &[f32], offset: f32) -> Self {
+        self.dash = Dash::new(lengths, offset);
+        self
+    }
+
+    /// Whether only the general path stroker draws this stroke as asked, not the fast rect, circle
+    /// and line paths.
+    pub fn needs_path_stroke(&self) -> bool {
+        self.style == PaintStyle::Stroke
+            && (self.dash.is_some()
+                || self.line_cap != LineCap::Butt
+                || self.line_join != LineJoin::Miter)
     }
 
     pub fn color(mut self, color: Color) -> Self {
