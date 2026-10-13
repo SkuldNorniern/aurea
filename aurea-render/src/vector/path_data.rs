@@ -301,7 +301,7 @@ impl Arc {
         } else if !self.sweep && delta > 0.0 {
             delta -= TAU;
         }
-        let pieces = (delta.abs() / FRAC_PI_2).ceil().max(1.0);
+        let pieces = (delta.abs() / FRAC_PI_2 - 1e-3).ceil().max(1.0);
         let step = delta / pieces;
         let arm = 4.0 / 3.0 * (step / 4.0).tan();
         let on = |t: f32| {
