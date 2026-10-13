@@ -118,6 +118,7 @@ fn main() {
         "native/platform/macos/macos_ops.m",
         "native/platform/macos/window.m",
         "native/platform/macos/menu.m",
+        "native/platform/macos/tray.m",
         "native/platform/macos/dialog.m",
         "native/platform/macos/utils.m",
         "native/platform/macos/elements/button.m",
@@ -234,6 +235,7 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=CoreVideo");
         println!("cargo:rustc-link-lib=framework=IOSurface");
         println!("cargo:rustc-link-lib=framework=QuartzCore");
+        println!("cargo:rustc-link-lib=framework=UserNotifications");
 
         add_sources(&mut build, &root, common_c);
         add_sources(&mut build, &root, macos_sources);
@@ -297,6 +299,7 @@ fn main() {
         "native/platform/macos/window.h",
         "native/platform/macos/menu.h",
         "native/platform/macos/utils.h",
+        "native/platform/macos/tray.h",
         "native/platform/macos/elements.h",
     ];
 

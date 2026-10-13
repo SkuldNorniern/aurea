@@ -7,6 +7,7 @@
 #import "elements.h"
 #import "swiftui_host.h"
 #import "utils.h"
+#import "tray.h"
 
 static const ng_platform_ops_t macos_ops = {
     .init = ng_macos_init,
@@ -130,6 +131,13 @@ static const ng_platform_ops_t macos_ops = {
     .get_clipboard_text = ng_macos_get_clipboard_text,
     .free_clipboard_text = ng_macos_free_clipboard_text,
     .set_clipboard_text = ng_macos_set_clipboard_text,
+    .window_set_hide_on_close = ng_macos_window_set_hide_on_close,
+    .create_tray = ng_macos_create_tray,
+    .destroy_tray = ng_macos_destroy_tray,
+    .tray_set_icon_rgba = ng_macos_tray_set_icon_rgba,
+    .tray_set_tooltip = ng_macos_tray_set_tooltip,
+    .tray_add_item = ng_macos_tray_add_item,
+    .tray_notify = ng_macos_tray_notify,
 };
 
 void macos_register_ops(void) {

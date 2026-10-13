@@ -16,6 +16,8 @@ static int ng_macos_get_cursor_grab_mode(void* windowHandle);
 @property (nonatomic, assign) void* windowHandle;
 @property (nonatomic, assign) ScaleFactorCallback scaleFactorCallback;
 @property (nonatomic, assign) BOOL lifecycleCallbackEnabled;
+// Closing hides the window instead, for apps that live on in the menu bar.
+@property (nonatomic, assign) BOOL hideOnClose;
 @end
 
 static unsigned int ng_macos_modifiers(NSEvent* event) {
@@ -508,6 +510,12 @@ static void ng_macos_forget_held_shortcuts(void* window);
     // Invoke lifecycle callback if enabled
     if (self.lifecycleCallbackEnabled && self.windowHandle) {
         ng_invoke_lifecycle_callback(self.windowHandle, 5); // WindowWillClose = 5
+    }
+    if (self.hideOnClose) {
+        // Hidden, not closed: the window and its content stay, and hiding
+        // does not count as the last window closing.
+        [sender orderOut:nil];
+        return NO;
     }
     return YES; // Allow the window to close
 }
@@ -1105,6 +1113,16 @@ int ng_macos_detach_element(NGHandle element) {
         (void)reclaimed;
         [view removeFromSuperview];
     }
+    return NG_SUCCESS;
+}
+
+int ng_macos_window_set_hide_on_close(NGHandle window, int hide) {
+    if (!window || !windowDelegates) return NG_ERROR_INVALID_HANDLE;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)nsWindow];
+    WindowDelegate* delegate = [windowDelegates objectForKey:windowValue];
+    if (!delegate) return NG_ERROR_INVALID_HANDLE;
+    delegate.hideOnClose = hide != 0;
     return NG_SUCCESS;
 }
 
