@@ -2,14 +2,15 @@
 //!
 //! This proves the ownership and binding contract required for embedded views:
 //! Aurea's 2D renderer and engine-side offscreen resources use one logical
-//! Vulkan device, and the target is drawn without a CPU readback.
+//! device (Metal on macOS, Vulkan elsewhere), and the target is drawn without
+//! a CPU readback.
 
 use aurea::{
     Window,
     render::{GpuTexture, Rect, Renderer, ZenGpuContext},
 };
 use std::{error::Error, sync::Arc};
-use zengpu::{Format, vulkan::OffscreenTarget};
+use zengpu::{Format, native::NativeOffscreenTarget as OffscreenTarget};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let window = Window::new("Aurea - shared ZenGPU context", 1280, 720)?;
@@ -33,7 +34,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     host_renderer.end_frame()?;
 
     println!(
-        "host={}x{}, embedded_view={gw}x{gh}, drawn on one Vulkan device without CPU readback",
+        "host={}x{}, embedded_view={gw}x{gh}, drawn on one GPU device without CPU readback",
         host_renderer.size().0,
         host_renderer.size().1,
     );
