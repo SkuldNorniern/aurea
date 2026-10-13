@@ -897,6 +897,7 @@ int ng_linux_window_set_cursor_icon(NGHandle window, int icon) {
     static const char* const names[] = {
         NULL, "pointer", "text", "crosshair", "move",
         "ew-resize", "ns-resize", "not-allowed", "wait",
+        "nwse-resize", "nesw-resize",
     };
     int count = (int)(sizeof(names) / sizeof(names[0]));
     const char* name = (icon > 0 && icon < count) ? names[icon] : NULL;

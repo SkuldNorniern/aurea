@@ -74,6 +74,10 @@ pub enum CursorIcon {
     NotAllowed = 7,
     /// Busy.
     Wait = 8,
+    /// Diagonal arrows from top-left to bottom-right, like a corner handle.
+    ResizeNwSe = 9,
+    /// Diagonal arrows from top-right to bottom-left, like a corner handle.
+    ResizeNeSw = 10,
 }
 
 /// Cursor grab modes.
@@ -86,4 +90,16 @@ pub enum CursorGrabMode {
     Confined = 1,
     /// Lock cursor to the window and enable raw motion.
     Locked = 2,
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::*;
+
+    #[test]
+    fn diagonal_cursors_follow_the_native_table() {
+        assert_eq!(CursorIcon::Wait as i32, 8);
+        assert_eq!(CursorIcon::ResizeNwSe as i32, 9);
+        assert_eq!(CursorIcon::ResizeNeSw as i32, 10);
+    }
 }
