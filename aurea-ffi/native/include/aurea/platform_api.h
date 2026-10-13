@@ -51,6 +51,8 @@ void ng_platform_window_hide(NGHandle window);
 
 int ng_platform_window_set_hide_on_close(NGHandle window, int hide);
 
+void ng_platform_window_set_close_guard(NGHandle window, int guarded);
+
 NGHandle ng_platform_create_tray(const char* tooltip, unsigned int click_id);
 void ng_platform_destroy_tray(NGHandle tray);
 int ng_platform_tray_set_icon_rgba(NGHandle tray, const unsigned char* rgba, unsigned int width, unsigned int height);

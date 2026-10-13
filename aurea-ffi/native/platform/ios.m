@@ -330,6 +330,11 @@ void ng_platform_window_request_close(NGHandle window) {
     ng_ios_window_request_close(window);
 }
 
+void ng_platform_window_set_close_guard(NGHandle window, int guarded) {
+    (void)window;
+    (void)guarded;
+}
+
 int ng_platform_window_is_focused(NGHandle window) {
     return ng_ios_window_is_focused(window);
 }

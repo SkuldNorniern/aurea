@@ -6,6 +6,8 @@ use std::rc::Rc;
 #[derive(Debug, Clone)]
 pub enum WindowEvent {
     CloseRequested,
+    /// The window is closing because the app called `Window::close`.
+    Closed,
     Resized {
         width: u32,
         height: u32,

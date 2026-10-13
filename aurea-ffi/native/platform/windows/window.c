@@ -447,6 +447,16 @@ int ng_windows_window_set_hide_on_close(NGHandle window, int hide) {
     return NG_SUCCESS;
 }
 
+void ng_windows_window_set_close_guard(NGHandle window, int guarded) {
+    if (!window) return;
+    HWND hwnd = (HWND)window;
+    if (guarded) {
+        SetPropA(hwnd, AUREA_CLOSE_GUARD_PROPERTY, (HANDLE)1);
+    } else {
+        RemovePropA(hwnd, AUREA_CLOSE_GUARD_PROPERTY);
+    }
+}
+
 void ng_windows_window_set_size(NGHandle window, int width, int height) {
     if (!window) return;
     ng_windows_set_client_size((HWND)window, width, height, 0);

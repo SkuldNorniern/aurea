@@ -135,6 +135,7 @@ static const ng_platform_ops_t windows_ops = {
     .free_clipboard_text = ng_windows_free_clipboard_text,
     .set_clipboard_text = ng_windows_set_clipboard_text,
     .window_set_hide_on_close = ng_windows_window_set_hide_on_close,
+    .window_set_close_guard = ng_windows_window_set_close_guard,
     .create_tray = ng_windows_tray_create,
     .destroy_tray = ng_windows_tray_destroy,
     .tray_set_icon_rgba = ng_windows_tray_set_icon_rgba,

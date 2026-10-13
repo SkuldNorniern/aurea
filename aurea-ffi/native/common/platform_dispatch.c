@@ -157,6 +157,10 @@ int ng_platform_window_set_hide_on_close(NGHandle w, int hide) {
     DISPATCH_INT(window_set_hide_on_close, w, hide);
 }
 
+void ng_platform_window_set_close_guard(NGHandle w, int guarded) {
+    DISPATCH_VOID(window_set_close_guard, w, guarded);
+}
+
 NGHandle ng_platform_create_tray(const char* tooltip, unsigned int click_id) {
     DISPATCH_INIT(NGHandle, create_tray, tooltip, click_id);
 }

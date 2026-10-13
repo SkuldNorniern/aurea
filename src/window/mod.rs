@@ -49,6 +49,7 @@ use std::{
     ffi::CString,
     os::raw::{c_int, c_void},
     rc::Rc,
+    sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, LazyLock, Mutex, OnceLock},
     time::Duration,
 };
@@ -118,6 +119,7 @@ pub struct Window {
     #[cfg(feature = "wgpu")]
     surface_handle: Arc<NativeWindowHandle>,
     window_type: WindowType,
+    closing: Arc<AtomicBool>,
 }
 
 impl Window {
@@ -195,14 +197,22 @@ impl Window {
         scale_factor_changed(handle, scale_factor);
         register_update_callbacks(handle);
 
+        let closing = Arc::new(AtomicBool::new(false));
         let eq_clone = event_queue.clone();
+        let closing_bridge = Arc::clone(&closing);
         let handle_usize = handle as usize;
         register_lifecycle_callback(
             handle,
             Arc::new(move |event| {
                 let handle_ptr = handle_usize as *mut c_void;
                 let event = match event {
-                    LifecycleEvent::WindowWillClose => WindowEvent::CloseRequested,
+                    LifecycleEvent::WindowWillClose => {
+                        if take_forced_close(&closing_bridge) {
+                            WindowEvent::Closed
+                        } else {
+                            WindowEvent::CloseRequested
+                        }
+                    }
                     LifecycleEvent::WindowMoved => {
                         let mut x = 0;
                         let mut y = 0;
@@ -260,6 +270,7 @@ impl Window {
             damage: Mutex::new(DamageRegion::new(16)),
             scale_factor: Mutex::new(scale_factor),
             event_queue,
+            closing,
             window_type,
         })
     }
@@ -805,10 +816,30 @@ impl Window {
         Ok(())
     }
 
+    /// Keeps the window open when the person asks it to close.
+    pub fn set_close_guard(&self, guarded: bool) {
+        ui_thread::check("Window::set_close_guard");
+        unsafe {
+            ng_platform_window_set_close_guard(self.handle, i32::from(guarded));
+        }
+    }
+
+    /// Closes the window, even while it is guarded.
+    pub fn close(&self) {
+        ui_thread::check("Window::close");
+        self.set_close_guard(false);
+        self.closing.store(true, Ordering::Release);
+        self.request_close();
+    }
+
     /// Check if the window is visible.
     pub fn is_visible(&self) -> bool {
         unsafe { ng_platform_window_is_visible(self.handle) != 0 }
     }
+}
+
+fn take_forced_close(closing: &AtomicBool) -> bool {
+    closing.swap(false, Ordering::AcqRel)
 }
 
 pub(super) fn pump_platform_events() {
@@ -880,6 +911,13 @@ mod event_queue_tests {
         assert!(matches!(out[0], WindowEvent::CloseRequested));
         assert!(matches!(out[1], WindowEvent::Focused));
         assert!(queue.pop_all().is_empty());
+    }
+
+    #[test]
+    fn forced_close_is_swallowed_once() {
+        let closing = AtomicBool::new(true);
+        assert!(take_forced_close(&closing));
+        assert!(!take_forced_close(&closing));
     }
 
     #[test]

@@ -23,6 +23,7 @@ static GtkWidget* g_lifecycle_windows[256] = {0};
 static int g_lifecycle_callback_count = 0;
 
 static const char* AUREA_MAIN_VBOX_KEY = "aurea-main-vbox";
+static const char* AUREA_CLOSE_GUARD_KEY = "aurea-close-guard";
 
 static GtkWidget* ng_linux_window_main_vbox(GtkWidget* window) {
     if (!window) return NULL;
@@ -51,6 +52,19 @@ static gboolean on_focus_in(GtkWidget* widget, GdkEventFocus* event, gpointer us
 static gboolean on_focus_out(GtkWidget* widget, GdkEventFocus* event, gpointer user_data);
 static gboolean on_enter(GtkWidget* widget, GdkEventCrossing* event, gpointer user_data);
 static gboolean on_leave(GtkWidget* widget, GdkEventCrossing* event, gpointer user_data);
+
+static gboolean on_delete_event(GtkWidget* widget, GdkEvent* event, gpointer data) {
+    (void)event;
+    (void)data;
+    if (!g_object_get_data(G_OBJECT(widget), AUREA_CLOSE_GUARD_KEY)) return FALSE;
+    for (int i = 0; i < g_lifecycle_callback_count; i++) {
+        if (g_lifecycle_windows[i] == widget && g_lifecycle_callbacks[i]) {
+            ng_invoke_lifecycle_callback((void*)widget, 5);
+            break;
+        }
+    }
+    return TRUE;
+}
 
 static void on_window_destroy(GtkWidget* widget, gpointer data) {
     for (int i = 0; i < g_lifecycle_callback_count; i++) {
@@ -184,6 +198,7 @@ NGHandle ng_linux_create_window(const char* title, int width, int height) {
     g_signal_connect(G_OBJECT(window), "drag-leave", G_CALLBACK(on_drag_leave), NULL);
     
     g_signal_connect(G_OBJECT(window), "destroy", G_CALLBACK(on_window_destroy), NULL);
+    g_signal_connect(G_OBJECT(window), "delete-event", G_CALLBACK(on_delete_event), NULL);
     g_signal_connect(G_OBJECT(window), "window-state-event", G_CALLBACK(on_window_state_event), NULL);
     
     GtkWidget* main_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -705,6 +720,11 @@ int ng_linux_detach_element(NGHandle element) {
 void ng_linux_window_show(NGHandle window) {
     if (!window) return;
     gtk_widget_show(GTK_WIDGET(window));
+}
+
+void ng_linux_window_set_close_guard(NGHandle window, int guarded) {
+    if (!window) return;
+    g_object_set_data(G_OBJECT(window), AUREA_CLOSE_GUARD_KEY, guarded ? GINT_TO_POINTER(1) : NULL);
 }
 
 void ng_linux_window_hide(NGHandle window) {

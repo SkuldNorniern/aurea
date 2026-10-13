@@ -159,6 +159,8 @@ typedef struct ng_platform_ops {
 
     int (*window_set_hide_on_close)(NGHandle w, int hide);
 
+    void (*window_set_close_guard)(NGHandle w, int guarded);
+
     NGHandle (*create_tray)(const char* tooltip, unsigned int click_id);
     void (*destroy_tray)(NGHandle tray);
     int (*tray_set_icon_rgba)(NGHandle tray, const unsigned char* rgba, unsigned int width, unsigned int height);

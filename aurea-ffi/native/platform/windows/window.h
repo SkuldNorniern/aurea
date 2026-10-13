@@ -6,6 +6,7 @@
 
 /* window property set while closing the window only hides it. */
 #define AUREA_HIDE_ON_CLOSE_PROPERTY "AureaHideOnClose"
+#define AUREA_CLOSE_GUARD_PROPERTY "AureaCloseGuard"
 
 #ifdef __cplusplus
 extern "C" {
@@ -32,6 +33,7 @@ int ng_windows_window_set_icon_rgba(
 );
 HICON ng_windows_icon_from_rgba(const unsigned char* rgba, unsigned int width, unsigned int height);
 int ng_windows_window_set_hide_on_close(NGHandle window, int hide);
+void ng_windows_window_set_close_guard(NGHandle window, int guarded);
 void ng_windows_window_set_size(NGHandle window, int width, int height);
 void ng_windows_window_get_size(NGHandle window, int* width, int* height);
 void ng_windows_window_set_position(NGHandle window, int x, int y);

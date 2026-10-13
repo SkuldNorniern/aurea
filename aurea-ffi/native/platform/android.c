@@ -43,6 +43,11 @@ void ng_platform_window_hide(NGHandle window) {
     (void)window;
 }
 
+void ng_platform_window_set_close_guard(NGHandle window, int guarded) {
+    (void)window;
+    (void)guarded;
+}
+
 int ng_platform_window_is_visible(NGHandle window) {
     (void)window;
     return 1;

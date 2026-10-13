@@ -45,6 +45,7 @@ int ng_macos_window_is_visible(NGHandle window);
 NGHandle ng_macos_window_get_content_view(NGHandle window);
 int ng_macos_window_use_metal_layer(NGHandle window);
 int ng_macos_window_set_hide_on_close(NGHandle window, int hide);
+void ng_macos_window_set_close_guard(NGHandle window, int guarded);
 
 char* ng_macos_get_clipboard_text(void);
 void ng_macos_free_clipboard_text(char* text);
