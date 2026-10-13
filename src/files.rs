@@ -100,21 +100,57 @@ pub fn data_dir(app: &str) -> Option<PathBuf> {
     user_dir(app, "XDG_DATA_HOME", ".local/share")
 }
 
-fn user_dir(app: &str, xdg: &str, home_relative: &str) -> Option<PathBuf> {
-    // An empty variable counts as unset, as the XDG spec says.
-    let var = |name: &str| {
-        env::var_os(name)
-            .filter(|v| !v.is_empty())
-            .map(PathBuf::from)
-    };
-    let base = if cfg!(windows) {
-        var("APPDATA")
+/// The folder `app` keeps large per-machine data in, such as checkpoints or
+/// thumbnails. It does not roam with the user profile: `%LOCALAPPDATA%\app`
+/// on Windows, the same as [`data_dir`] on macOS, and `$XDG_STATE_HOME/app`
+/// (or `~/.local/state/app`) elsewhere.
+///
+/// `None` when the environment names no home to put it in. The folder may
+/// not exist yet.
+pub fn local_data_dir(app: &str) -> Option<PathBuf> {
+    if cfg!(windows) {
+        env_path("LOCALAPPDATA").map(|base| base.join(app))
     } else if cfg!(target_os = "macos") {
-        var("HOME").map(|home| home.join("Library").join("Application Support"))
+        data_dir(app)
     } else {
-        var(xdg).or_else(|| var("HOME").map(|home| home.join(home_relative)))
+        user_dir(app, "XDG_STATE_HOME", ".local/state")
+    }
+}
+
+/// The folder `app` keeps caches in. Anything here may be deleted at any
+/// time, so the app must cope with it going away: `%LOCALAPPDATA%\app\Cache`
+/// on Windows, `~/Library/Caches/app` on macOS and `$XDG_CACHE_HOME/app` (or
+/// `~/.cache/app`) elsewhere.
+///
+/// `None` when the environment names no home to put it in. The folder may
+/// not exist yet.
+pub fn cache_dir(app: &str) -> Option<PathBuf> {
+    if cfg!(windows) {
+        env_path("LOCALAPPDATA").map(|base| base.join(app).join("Cache"))
+    } else if cfg!(target_os = "macos") {
+        env_path("HOME").map(|home| home.join("Library").join("Caches").join(app))
+    } else {
+        user_dir(app, "XDG_CACHE_HOME", ".cache")
+    }
+}
+
+fn user_dir(app: &str, xdg: &str, home_relative: &str) -> Option<PathBuf> {
+    let base = if cfg!(windows) {
+        env_path("APPDATA")
+    } else if cfg!(target_os = "macos") {
+        env_path("HOME").map(|home| home.join("Library").join("Application Support"))
+    } else {
+        env_path(xdg).or_else(|| env_path("HOME").map(|home| home.join(home_relative)))
     };
     base.map(|base| base.join(app))
+}
+
+/// The variable `name` as a path. An empty variable counts as unset, as the
+/// XDG spec says.
+fn env_path(name: &str) -> Option<PathBuf> {
+    env::var_os(name)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
 }
 
 /// `path` as a `file://` URI, every byte outside the unreserved set and `/`
@@ -178,6 +214,39 @@ mod tests {
             .flatten()
         {
             assert!(dir.ends_with("Aurea Test"));
+        }
+    }
+
+    #[test]
+    fn local_and_cache_folders_end_in_the_app_name() {
+        if let Some(dir) = local_data_dir("Aurea Test") {
+            assert!(dir.ends_with("Aurea Test"));
+        }
+        if let Some(dir) = cache_dir("Aurea Test") {
+            // On Windows the cache sits in a `Cache` folder under the app.
+            let app = if cfg!(windows) {
+                dir.parent().unwrap_or(dir.as_path())
+            } else {
+                dir.as_path()
+            };
+            assert!(app.ends_with("Aurea Test"));
+        }
+    }
+
+    #[test]
+    fn windows_local_folders_sit_under_local_app_data() {
+        if !cfg!(windows) {
+            return;
+        }
+        let Some(local) = env_path("LOCALAPPDATA") else {
+            return;
+        };
+        if let Some(dir) = local_data_dir("Aurea Test") {
+            assert!(dir.starts_with(&local));
+        }
+        if let Some(dir) = cache_dir("Aurea Test") {
+            assert!(dir.starts_with(&local));
+            assert!(dir.ends_with(Path::new("Aurea Test").join("Cache")));
         }
     }
 }

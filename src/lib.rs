@@ -105,7 +105,7 @@ pub use crate::window::{
 // Re-export the canvas rendering surface and its core drawing types
 pub use crate::render::{Canvas, Color, DrawingContext, Point, Rect, RendererBackend};
 
-pub use crate::files::{config_dir, data_dir, open_path, reveal_path};
+pub use crate::files::{cache_dir, config_dir, data_dir, local_data_dir, open_path, reveal_path};
 pub use crate::keymap::{Chord, Keymap};
 pub use crate::locale::{locale, locales};
 pub use crate::platform::handles::NativeWindowHandle;
