@@ -5,6 +5,7 @@ use aurea_foundation::{AureaError, AureaResult};
 use crate::capabilities::{Fallback, GpuFeatures};
 use crate::cpu::CpuRasterizer;
 use crate::gpu::batch::RenderBatches;
+use crate::memory::smaller_buffer;
 use crate::numeric::f32_to_u32_clamped;
 use crate::recording::RecordingContext;
 use crate::renderer::{DrawingContext, FrameOutcome, Renderer};
@@ -122,6 +123,7 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         if has_textures && self.backend.features().textures {
             return self.present_layered();
         }
+        self.release_layers();
         let (lw, lh, scale) = (self.logical_width, self.logical_height, self.scale_factor);
         let cpu = self.cpu.get_or_insert_with(|| CpuRasterizer::new(lw, lh));
         // Configuring at the same size and scale is cheap; at a new one it
@@ -143,6 +145,9 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         let (width, height) = (frame.width, frame.height);
         // The rasterizer keeps 0xAARRGGBB pixels: B, G, R, A in memory.
         let bgra = frame.bytes();
+        if let Some(compact) = smaller_buffer(self.cpu_rgba.capacity(), bgra.len()) {
+            self.cpu_rgba = compact;
+        }
         self.cpu_rgba.clear();
         self.cpu_rgba.reserve(bgra.len());
         let (pixels, _) = bgra.as_chunks::<4>();
@@ -164,6 +169,8 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
     /// not the texture under it.
     fn present_layered(&mut self) -> AureaResult<FrameOutcome> {
         self.split_at_textures();
+        self.layers.truncate(self.layer_lists.len());
+        self.layer_images.truncate(self.layer_lists.len());
         let (lw, lh, scale) = (self.logical_width, self.logical_height, self.scale_factor);
         while self.layers.len() < self.layer_lists.len() {
             self.layers.push(CpuRasterizer::new(lw, lh));
@@ -202,7 +209,9 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
                 )));
             }
         }
-        self.last_on_cpu = true;
+        // A layered presentation is different from the single CPU buffer.
+        // Returning to that buffer must present it even if its pixels are cached.
+        self.last_on_cpu = false;
         self.batches.lower_into(&self.composite);
         self.present_batches()
     }
@@ -231,6 +240,13 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
             }
         }
         self.layer_lists.truncate(count);
+    }
+
+    fn release_layers(&mut self) {
+        self.layers.clear();
+        self.layer_images.clear();
+        self.layer_lists.clear();
+        self.composite.clear();
     }
 
     /// Resolves the lowered batches and hands them to the backend.
@@ -341,11 +357,13 @@ impl<B: Gpu2dBackend> Renderer for Gpu2dRenderer<B> {
         let presented = if !missing.is_empty() && self.fallback == Fallback::CpuFrame {
             self.present_on_cpu()
         } else {
+            self.release_layers();
             self.last_on_cpu = false;
             self.report_dropped();
             self.present_batches()
         };
         if presented.is_ok() {
+            self.texture_cache.prune_dropped(&mut self.backend);
             self.texture_cache
                 .finish_frame(&mut self.backend, self.frame_counter);
         }
@@ -409,6 +427,7 @@ mod tests {
     use crate::gpu::batch::{DrawRef, RectInstance, ShapeInstance};
     use crate::types::GpuTexture;
     use crate::types::{Color, Paint, Point};
+    use std::sync::Arc;
     #[cfg(feature = "zengpu")]
     use zengpu_hal::TextureHandle;
 
@@ -589,6 +608,145 @@ mod tests {
             2,
             "unchanged layers are not uploaded again"
         );
+        assert_eq!(r.layers.len(), 2);
+        // A simple GPU frame no longer needs full-window CPU layer buffers.
+        {
+            r.begin_frame()
+                .expect("begin")
+                .draw_rect(Rect::new(0.0, 0.0, 4.0, 4.0), &Paint::new())
+                .expect("rect");
+        }
+        r.end_frame().expect("GPU frame");
+        assert!(r.layers.is_empty() && r.layer_images.is_empty());
+        assert!(r.layer_lists.is_empty() && r.composite.items().is_empty());
+    }
+
+    #[test]
+    fn returning_from_layers_presents_the_cached_cpu_frame() {
+        let mut r = with_features(
+            FrameOutcome::Presented,
+            GpuFeatures {
+                rounded_rects: false,
+                textures: true,
+                ..GpuFeatures::ALL
+            },
+        );
+        let cpu_frame = |r: &mut Gpu2dRenderer<Probe>| {
+            {
+                r.begin_frame()
+                    .expect("begin")
+                    .draw_round_rect(Rect::new(0.0, 0.0, 20.0, 20.0), 3.0, &Paint::new())
+                    .expect("round rect");
+            }
+            r.end_frame().expect("CPU frame")
+        };
+        assert_eq!(cpu_frame(&mut r), FrameOutcome::Presented);
+        let texture = GpuTexture {
+            #[cfg(feature = "zengpu")]
+            handle: TextureHandle::from_parts(9, 0),
+            index: 9,
+            generation: 0,
+            width: 4,
+            height: 4,
+        };
+        {
+            let mut ctx = r.begin_frame().expect("begin");
+            ctx.draw_round_rect(Rect::new(0.0, 0.0, 20.0, 20.0), 3.0, &Paint::new())
+                .expect("round rect");
+            ctx.draw_texture(
+                texture,
+                Rect::new(0.0, 0.0, 1.0, 1.0),
+                Rect::new(2.0, 2.0, 4.0, 4.0),
+            )
+            .expect("texture");
+        }
+        r.end_frame().expect("layered frame");
+        assert_eq!(r.layers.len(), 2);
+        assert_eq!(
+            cpu_frame(&mut r),
+            FrameOutcome::Presented,
+            "layered pixels must be replaced"
+        );
+        assert_eq!(r.backend().pixels.len(), 2);
+        assert!(r.layers.is_empty() && r.layer_images.is_empty());
+        assert_eq!(
+            cpu_frame(&mut r),
+            FrameOutcome::Unchanged,
+            "standalone repeats still skip presentation"
+        );
+    }
+
+    #[test]
+    fn fewer_embedded_textures_release_unused_cpu_layers_and_their_images() {
+        let mut r = with_features(
+            FrameOutcome::Presented,
+            GpuFeatures {
+                rounded_rects: false,
+                textures: true,
+                ..GpuFeatures::ALL
+            },
+        );
+        let texture = GpuTexture {
+            #[cfg(feature = "zengpu")]
+            handle: TextureHandle::from_parts(9, 0),
+            index: 9,
+            generation: 0,
+            width: 4,
+            height: 4,
+        };
+        let draw = |r: &mut Gpu2dRenderer<Probe>, count: u16| {
+            {
+                let mut ctx = r.begin_frame().expect("begin");
+                for _ in 0..count {
+                    ctx.draw_round_rect(Rect::new(0.0, 0.0, 20.0, 20.0), 3.0, &Paint::new())
+                        .expect("round rect");
+                    ctx.draw_texture(
+                        texture,
+                        Rect::new(0.0, 0.0, 1.0, 1.0),
+                        Rect::new(2.0, 2.0, 4.0, 4.0),
+                    )
+                    .expect("texture");
+                }
+            }
+            r.end_frame().expect("layered frame");
+        };
+        draw(&mut r, 2);
+        assert_eq!(r.layers.len(), 3);
+        let old_image = Arc::downgrade(&r.layer_images[2].as_ref().expect("last layer").data);
+        draw(&mut r, 1);
+        assert_eq!(r.layers.len(), 2);
+        assert_eq!(r.layer_images.len(), 2);
+        assert!(
+            old_image.upgrade().is_none(),
+            "unused layer pixels should not remain cached"
+        );
+    }
+
+    #[test]
+    fn shrinking_a_cpu_fallback_frame_releases_pixel_conversion_capacity() {
+        let mut r = with_features(
+            FrameOutcome::Presented,
+            GpuFeatures {
+                rounded_rects: false,
+                ..GpuFeatures::ALL
+            },
+        );
+        let draw = |r: &mut Gpu2dRenderer<Probe>| {
+            {
+                r.begin_frame()
+                    .expect("begin")
+                    .draw_round_rect(Rect::new(0.0, 0.0, 20.0, 20.0), 3.0, &Paint::new())
+                    .expect("round rect");
+            }
+            r.end_frame().expect("fallback frame");
+        };
+        r.resize(2048, 1024).expect("large resize");
+        draw(&mut r);
+        assert!(r.cpu_rgba.capacity() >= 8 << 20);
+        r.resize(128, 128).expect("shrink");
+        draw(&mut r);
+        assert_eq!(r.cpu_rgba.len(), 128 * 128 * 4);
+        assert!(r.cpu_rgba.capacity() <= 2 * r.cpu_rgba.len());
     }
 
     #[test]

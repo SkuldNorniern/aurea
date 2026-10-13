@@ -33,6 +33,7 @@ mod geometry;
 mod gpu;
 mod image;
 mod interaction;
+mod memory;
 mod numeric;
 mod paint;
 mod renderer;

@@ -26,6 +26,7 @@ use crate::cpu::tiles::*;
 use crate::cpu::tiles::{
     mark_tile_range_dirty, tile_grid_dims, tile_range, union_dirty_tile_rects,
 };
+use crate::memory::smaller_buffer;
 use crate::numeric::{
     f32_to_i32_clamped, f32_to_u8_clamped, f32_to_u32_clamped, f32_to_usize_clamped,
 };
@@ -1441,6 +1442,11 @@ impl CpuRasterizer {
         self.frame_buffer
             .try_reserve(new_len.saturating_sub(self.frame_buffer.len()))
             .map_err(|_| AureaError::RenderingFailed)?;
+        // Keep modest resize slack, but do not retain a large window's entire
+        // framebuffer after a substantial shrink. Trimming is best effort.
+        if let Some(compact) = smaller_buffer(self.frame_buffer.capacity(), new_len) {
+            self.frame_buffer = compact;
+        }
         self.frame_buffer.clear();
         self.frame_buffer.resize(new_len, 0);
         self.has_frame = false;
@@ -2220,6 +2226,23 @@ mod diff_damage_tests {
         assert!(r.display_list.items().is_empty());
         assert!(r.pending_damage.is_none());
         assert!(r.pixels().iter().all(|&pixel| pixel == 0));
+    }
+
+    #[test]
+    fn substantial_window_shrink_releases_oversized_framebuffer_capacity() {
+        let mut r = CpuRasterizer::new(2048, 1024);
+        let large_capacity = r.frame_buffer.capacity();
+        r.resize(128, 128).expect("shrink");
+        assert_eq!(r.pixels().len(), 128 * 128);
+        assert!(r.frame_buffer.capacity() <= 2 * r.pixels().len());
+        assert!(large_capacity - r.frame_buffer.capacity() >= (1 << 20));
+        let small_storage = r.frame_buffer.as_ptr();
+        r.resize(120, 120).expect("small resize");
+        assert_eq!(
+            r.frame_buffer.as_ptr(),
+            small_storage,
+            "modest changes retain useful slack"
+        );
     }
 }
 
