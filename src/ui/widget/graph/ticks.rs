@@ -124,7 +124,7 @@ impl TickPlan {
             if value >= lo - step * 1e-9 {
                 ticks.push(Tick {
                     value,
-                    label: self.format(value, decimals),
+                    label: self.format(value, decimals, step),
                     major: true,
                 });
                 self.push_minor(&mut ticks, value, minor_step, lo, hi);
@@ -147,7 +147,7 @@ impl TickPlan {
             let value = step.mul_add(super::numeric::count_to_f64(i), lo);
             ticks.push(Tick {
                 value,
-                label: self.format(value, decimals),
+                label: self.format(value, decimals, step),
                 major: true,
             });
             if i < count {
@@ -200,7 +200,7 @@ impl TickPlan {
             if base >= lo && base <= hi {
                 ticks.push(Tick {
                     value: base,
-                    label: self.format(base, decimals.unwrap_or_else(|| decimals_for(base))),
+                    label: self.format(base, decimals.unwrap_or_else(|| decimals_for(base)), base),
                     major: true,
                 });
             }
@@ -221,11 +221,19 @@ impl TickPlan {
         ticks
     }
 
-    fn format(&self, value: f64, decimals: usize) -> String {
+    fn format(&self, value: f64, decimals: usize, step: f64) -> String {
         let value = if value == 0.0 { 0.0 } else { value };
         if self.engineering {
             let (scaled, prefix) = engineering(value);
-            return format!("{scaled:.0}{prefix}{}", self.suffix);
+            let factor = if scaled == 0.0 { 1.0 } else { value / scaled };
+            let decimals = self.decimals.unwrap_or_else(|| decimals_for(step / factor));
+            let mut text = format!("{scaled:.decimals$}");
+            if text.contains('.') {
+                text.truncate(text.trim_end_matches('0').trim_end_matches('.').len());
+            }
+            text.push_str(prefix);
+            text.push_str(&self.suffix);
+            return text;
         }
         format!("{value:.decimals$}{}", self.suffix)
     }
@@ -496,5 +504,23 @@ mod tests {
     fn an_absurd_tick_count_is_refused() {
         let plan = TickPlan::default().with_target(100_000_000);
         assert!(plan.ticks(Range::new(0.0, 1e9), Scale::Linear).is_empty());
+    }
+
+    #[test]
+    fn engineering_labels_keep_ticks_apart() {
+        let plan = TickPlan::default()
+            .with_even_divisions(8)
+            .with_engineering(true)
+            .with_suffix("V");
+        let labels: Vec<String> = plan
+            .ticks(Range::new(-2.0, 2.0), Scale::Linear)
+            .into_iter()
+            .map(|t| t.label)
+            .collect();
+        let mut seen = labels.clone();
+        seen.dedup();
+        assert_eq!(seen, labels, "two ticks share a label: {labels:?}");
+        assert!(labels.contains(&"1.5V".to_owned()), "{labels:?}");
+        assert!(labels.contains(&"500mV".to_owned()), "{labels:?}");
     }
 }
