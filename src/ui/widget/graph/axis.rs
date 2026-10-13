@@ -142,7 +142,7 @@ impl Axis {
         }
     }
 
-    /// The ticks for the range in use. Empty until [`Self::resolve`] has run.
+    /// The ticks for the range in use. Empty until the axis is first drawn.
     pub fn resolved_ticks(&self) -> &[Tick] {
         &self.resolved_ticks
     }
