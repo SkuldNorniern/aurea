@@ -28,10 +28,10 @@ pub fn window_handles(native: &NativeWindowHandle) -> AureaResult<WindowHandles>
     {
         let NativeWindowHandle::MacOS { ns_view } = native;
         let view = NonNull::new(*ns_view).ok_or(AureaError::ElementOperationFailed)?;
-        return Ok(WindowHandles::from_raw(
+        Ok(WindowHandles::from_raw(
             WindowHandle::AppKit(AppKitWindowHandle::new(view)),
             DisplayHandle::AppKit,
-        ));
+        ))
     }
     #[cfg(target_os = "windows")]
     {
