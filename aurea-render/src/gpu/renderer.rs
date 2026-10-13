@@ -238,7 +238,6 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         let (pw, ph) = self.physical_size();
         self.frame_plan.viewport_width = pw;
         self.frame_plan.viewport_height = ph;
-        self.frame_counter += 1;
         let fc = self.frame_counter;
         let presented = resolve_frame(
             &self.batches,
@@ -336,14 +335,21 @@ impl<B: Gpu2dBackend> Renderer for Gpu2dRenderer<B> {
         if self.suspended() {
             return Ok(FrameOutcome::Suspended);
         }
+        self.frame_counter += 1;
         self.batches.lower_into(&self.display_list);
         let missing = self.backend.features().missing(self.batches.needs);
-        if !missing.is_empty() && self.fallback == Fallback::CpuFrame {
-            return self.present_on_cpu();
+        let presented = if !missing.is_empty() && self.fallback == Fallback::CpuFrame {
+            self.present_on_cpu()
+        } else {
+            self.last_on_cpu = false;
+            self.report_dropped();
+            self.present_batches()
+        };
+        if presented.is_ok() {
+            self.texture_cache
+                .finish_frame(&mut self.backend, self.frame_counter);
         }
-        self.last_on_cpu = false;
-        self.report_dropped();
-        self.present_batches()
+        presented
     }
 
     fn cleanup(&mut self) {
@@ -402,7 +408,7 @@ mod tests {
     use super::*;
     use crate::gpu::batch::{DrawRef, RectInstance, ShapeInstance};
     use crate::types::GpuTexture;
-    use crate::types::{Color, Paint};
+    use crate::types::{Color, Paint, Point};
     #[cfg(feature = "zengpu")]
     use zengpu_hal::TextureHandle;
 
@@ -418,6 +424,7 @@ mod tests {
         /// Each GPU frame's painter order.
         orders: Vec<Vec<DrawRef>>,
         uploads: usize,
+        evicted: usize,
         bound: usize,
     }
 
@@ -441,7 +448,9 @@ mod tests {
             self.features
         }
 
-        fn evict_image(&mut self, _: u32) {}
+        fn evict_image(&mut self, _: u32) {
+            self.evicted += 1;
+        }
 
         fn present_frame(
             &mut self,
@@ -476,9 +485,51 @@ mod tests {
             pixels: Vec::new(),
             orders: Vec::new(),
             uploads: 0,
+            evicted: 0,
             bound: 0,
         };
         Gpu2dRenderer::from_backend(probe, 100, 50, 1.0)
+    }
+
+    #[test]
+    fn smaller_gpu_and_cpu_frames_trim_an_oversized_texture_cache() {
+        for cpu_fallback in [false, true] {
+            let mut r = with_features(
+                FrameOutcome::Presented,
+                GpuFeatures {
+                    rounded_rects: false,
+                    ..GpuFeatures::ALL
+                },
+            );
+            r.texture_cache = TextureCache::with_capacity(2);
+            let images = [
+                Image::new(1, 1, vec![255; 4]),
+                Image::new(1, 1, vec![255; 4]),
+                Image::new(1, 1, vec![255; 4]),
+            ];
+            {
+                let mut ctx = r.begin_frame().expect("begin");
+                for image in &images {
+                    ctx.draw_image(image, Point::new(0.0, 0.0)).expect("image");
+                }
+            }
+            r.end_frame().expect("large frame");
+            assert_eq!(r.backend().uploads, 3);
+            assert_eq!(r.backend().evicted, 0);
+            {
+                let mut ctx = r.begin_frame().expect("begin");
+                if cpu_fallback {
+                    ctx.draw_round_rect(Rect::new(0.0, 0.0, 20.0, 20.0), 2.0, &Paint::new())
+                        .expect("fallback");
+                } else {
+                    ctx.draw_image(&images[0], Point::new(0.0, 0.0))
+                        .expect("cache hit");
+                }
+            }
+            r.end_frame().expect("smaller frame");
+            assert_eq!(r.backend().uploads, 3);
+            assert_eq!(r.backend().evicted, 1);
+        }
     }
 
     /// A frame of one red rounded rect filling the target.

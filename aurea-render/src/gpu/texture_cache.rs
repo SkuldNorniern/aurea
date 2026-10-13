@@ -147,15 +147,36 @@ impl TextureCache {
     /// Release entries whose source pixel buffer has been dropped by the caller
     /// (i.e. `strong_count == 1` — only the cache's keepalive remains).
     pub fn prune_dropped<B: Gpu2dBackend>(&mut self, backend: &mut B) {
-        let mut to_evict = Vec::new();
-        for (key, entry) in &self.map {
+        self.map.retain(|_, entry| {
             if Arc::strong_count(&entry.keepalive) == 1 {
-                to_evict.push((*key, entry.slot));
+                backend.evict_image(entry.slot);
+                false
+            } else {
+                true
             }
+        });
+    }
+
+    /// Finish cache housekeeping even when this frame uploaded no textures.
+    /// Current-frame slots stay pinned; excess older entries leave in LRU order.
+    pub fn finish_frame<B: Gpu2dBackend>(&mut self, backend: &mut B, frame: u64) {
+        self.free_retired(backend, frame);
+        let excess = self.map.len().saturating_sub(self.cap);
+        if excess == 0 {
+            return;
         }
-        for (key, slot) in to_evict {
-            self.map.remove(&key);
-            backend.evict_image(slot);
+        // Sort once instead of rescanning the cache for every excess entry.
+        let mut candidates: Vec<_> = self
+            .map
+            .iter()
+            .filter(|(_, entry)| entry.frame != frame)
+            .map(|(key, entry)| (*key, entry.last_used))
+            .collect();
+        candidates.sort_unstable_by_key(|(_, used)| *used);
+        for (key, _) in candidates.into_iter().take(excess) {
+            if let Some(entry) = self.map.remove(&key) {
+                backend.evict_image(entry.slot);
+            }
         }
     }
 
@@ -276,6 +297,46 @@ mod tests {
             assert!(backend.live.contains(slot));
         }
         assert_eq!(cache.len(), 3, "the frame runs over the capacity");
+        cache.finish_frame(&mut backend, 1);
+        assert!(backend.evicted.is_empty());
+    }
+
+    #[test]
+    fn cache_hit_only_frames_trim_excess_older_textures() {
+        let (mut cache, mut backend) = (TextureCache::with_capacity(2), Slots::default());
+        let images = [pixels(), pixels(), pixels(), pixels()];
+        for image in &images {
+            cache
+                .resolve(image, (1, 1), false, &mut backend, 1)
+                .expect("resolve");
+        }
+        cache.finish_frame(&mut backend, 1);
+        assert_eq!(cache.len(), 4);
+        let kept = cache
+            .resolve(&images[0], (1, 1), false, &mut backend, 2)
+            .expect("cache hit");
+        cache.finish_frame(&mut backend, 2);
+        assert_eq!(cache.len(), 2);
+        assert_eq!(backend.next, 4, "no new uploads");
+        assert_eq!(backend.evicted, [2, 3], "oldest unpinned entries leave");
+        assert!(backend.live.contains(&kept));
+    }
+
+    #[test]
+    fn texture_free_frames_release_retired_slots() {
+        let (mut cache, mut backend) = (TextureCache::new(), Slots::default());
+        let image = pixels();
+        let plain = cache
+            .resolve(&image, (1, 1), false, &mut backend, 1)
+            .expect("plain");
+        cache
+            .resolve(&image, (1, 1), true, &mut backend, 1)
+            .expect("mips");
+        cache.finish_frame(&mut backend, 1);
+        assert!(backend.live.contains(&plain));
+        cache.finish_frame(&mut backend, 2);
+        assert_eq!(backend.evicted, [plain]);
+        assert!(cache.retired.is_empty());
     }
 
     #[test]
