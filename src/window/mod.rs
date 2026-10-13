@@ -792,7 +792,7 @@ impl Window {
     /// Makes closing the window hide it instead of destroying it.
     pub fn set_hide_on_close(&self, hide: bool) -> AureaResult<()> {
         ui_thread::check("Window::set_hide_on_close");
-        if !cfg!(windows) {
+        if !cfg!(any(windows, target_os = "macos")) {
             return Err(AureaError::Unsupported {
                 operation: "hide a window on close",
                 platform: Platform::current(),

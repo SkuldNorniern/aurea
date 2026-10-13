@@ -1,4 +1,4 @@
-//! An icon in the notification area ("system tray").
+//! An icon in the notification area ("system tray"), or on macOS the menu bar's status area.
 
 use std::ffi::CString;
 use std::os::raw::c_void;
@@ -20,7 +20,7 @@ impl TrayIcon {
     /// the icon).
     pub fn new(tooltip: &str, on_click: impl Fn() + 'static) -> AureaResult<Self> {
         ui_thread::check("TrayIcon::new");
-        if !cfg!(windows) {
+        if !cfg!(any(windows, target_os = "macos")) {
             return Err(AureaError::Unsupported {
                 operation: "add a tray icon",
                 platform: Platform::current(),
@@ -40,7 +40,7 @@ impl TrayIcon {
     }
 
     /// The icon, from tightly packed RGBA8 pixels; 16 to 32 pixels a side suits most screens, and
-    /// Windows scales others.
+    /// both platforms scale others.
     pub fn set_icon_rgba(&self, rgba: &[u8], width: u32, height: u32) -> AureaResult<()> {
         ui_thread::check("TrayIcon::set_icon_rgba");
         let expected = (width as usize)
