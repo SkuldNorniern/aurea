@@ -492,6 +492,7 @@ static NSString* drag_paths(id<NSDraggingInfo> info) {
 @end
 
 static void ng_macos_cursor_grab_focus(NSWindow* window, BOOL focused);
+static void ng_macos_forget_held_shortcuts(void* window);
 
 @implementation WindowDelegate
 - (BOOL)windowShouldClose:(NSWindow*)sender {
@@ -745,6 +746,9 @@ void ng_macos_destroy_window(NGHandle handle) {
         CGDisplayShowCursor(kCGDirectMainDisplay);
         s_cursor_hidden_by = NULL;
     }
+    /* The tables hold the raw pointer, which the next window may reuse. */
+    ng_shortcuts_clear(handle);
+    ng_macos_forget_held_shortcuts(handle);
     if (windowRawSuppress) {
         NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)window];
         [windowRawSuppress removeObjectForKey:windowValue];
@@ -920,16 +924,66 @@ int ng_macos_window_set_cursor_visible(NGHandle window, int visible) {
    keys through keyDown:, so those pass. One monitor serves every window. */
 static id g_shortcut_monitor = nil;
 
+/* Shortcut keys reported pressed whose release is still owed. The release
+   goes to the first responder too, and the modifiers may be up by then, so
+   it is matched by key rather than by shortcut. */
+#define NG_SHORTCUTS_HELD 8
+static struct { void* window; unsigned int keycode; } g_shortcuts_held[NG_SHORTCUTS_HELD];
+
+static BOOL ng_macos_take_held_shortcut(void* window, unsigned int keycode) {
+    for (int i = 0; i < NG_SHORTCUTS_HELD; i++) {
+        if (g_shortcuts_held[i].window == window && g_shortcuts_held[i].keycode == keycode) {
+            g_shortcuts_held[i].window = NULL;
+            return YES;
+        }
+    }
+    return NO;
+}
+
+static void ng_macos_hold_shortcut(void* window, unsigned int keycode) {
+    for (int i = 0; i < NG_SHORTCUTS_HELD; i++) {
+        if (!g_shortcuts_held[i].window) {
+            g_shortcuts_held[i].window = window;
+            g_shortcuts_held[i].keycode = keycode;
+            return;
+        }
+    }
+}
+
+static void ng_macos_forget_held_shortcuts(void* window) {
+    for (int i = 0; i < NG_SHORTCUTS_HELD; i++) {
+        if (g_shortcuts_held[i].window == window) g_shortcuts_held[i].window = NULL;
+    }
+}
+
 static void ng_macos_ensure_shortcut_monitor(void) {
     if (g_shortcut_monitor) return;
-    g_shortcut_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
+    NSEventMask mask = NSEventMaskKeyDown | NSEventMaskKeyUp | NSEventMaskFlagsChanged;
+    g_shortcut_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:mask
                                                                handler:^NSEvent*(NSEvent* event) {
         NSWindow* window = [event window];
-        if (!window || [window firstResponder] == [window contentView]) return event;
+        NSView* content = [window contentView];
+        if (!window || [window firstResponder] == content) return event;
         void* handle = (__bridge void*)window;
+        /* A shortcut tells Aurea its modifiers are down, so it must hear them
+           come up; the content view keeps track. The child still gets them. */
+        if ([event type] == NSEventTypeFlagsChanged) {
+            if ([content isKindOfClass:[AureaContentView class]]) {
+                [(AureaContentView*)content flagsChanged:event];
+            }
+            return event;
+        }
         unsigned int keycode = ng_macos_keycode_from_event([event keyCode]);
         unsigned int mods = ng_macos_modifiers(event);
+        if ([event type] == NSEventTypeKeyUp) {
+            if (!ng_macos_take_held_shortcut(handle, keycode)) return event;
+            ng_invoke_key_event(handle, keycode, 0, mods);
+            return nil;
+        }
         if (!ng_shortcuts_match(handle, keycode, mods)) return event;
+        if (![event isARepeat]) {
+            ng_macos_hold_shortcut(handle, keycode);
+        }
         ng_invoke_key_event(handle, keycode, 1, mods);
         return nil;
     }];
