@@ -59,6 +59,11 @@ impl Range {
         Self::new(mid - half, mid + half)
     }
 
+    /// The smallest interval holding both.
+    pub fn union(self, other: Self) -> Self {
+        Self::new(self.min.min(other.min), self.max.max(other.max))
+    }
+
     /// Whether `value` falls inside, ends included.
     pub fn contains(self, value: f64) -> bool {
         let (lo, hi) = if self.min <= self.max {

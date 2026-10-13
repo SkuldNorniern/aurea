@@ -11,9 +11,11 @@
 
 mod editable;
 mod pan_zoom;
+mod plot_view;
 
 pub use editable::{EditableText, TextOutcome};
 pub use pan_zoom::PanZoom;
+pub use plot_view::PlotView;
 
 use super::frame::{Eased, Ui};
 use super::paint::{Component, Shadow, Surface};

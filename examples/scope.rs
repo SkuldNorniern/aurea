@@ -2,17 +2,20 @@
 //!
 //! Run with: cargo run --example scope
 //!
-//! Feeds a sine and a square into a `Scope` from a frame ticker and draws it
-//! through the canvas. The trigger keeps the trace still; turn it off and the
+//! Feeds a sine and a square into a `Scope` from a frame ticker and shows
+//! it with a `ScopeView`. The trigger keeps the trace still; turn it off and the
 //! signal slides across the screen instead.
 
 use aurea::elements::{Orientation, Stack};
-use aurea::render::graph::{Channel, GridStyle, Margin, Scope, Stroke, Timebase, Trigger};
 use aurea::render::{Canvas, Color, Rect, RendererBackend};
+use aurea::ui::graph::{Channel, Scope, Timebase, Trigger};
+use aurea::ui::{ScopeStyle, ScopeView, Stroke, Theme, UiState};
 use aurea::{AureaResult, Container, Window};
 use aurea_foundation::lock;
 use aurea_runtime::FrameScheduler;
+use std::cell::RefCell;
 use std::f64::consts::TAU;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 const W: u32 = 900;
@@ -30,27 +33,22 @@ fn samples_for(seconds: f64) -> usize {
 fn main() -> AureaResult<()> {
     let mut window = Window::new("Scope", W as i32, H as i32)?;
     let canvas = Canvas::new(W, H, RendererBackend::Cpu)?;
-    canvas.set_background_color(Color::rgb(16, 18, 22));
+    let theme = Theme::dark();
+    canvas.set_background_color(theme.palette.background);
+
+    // A faint, even graticule in the trace colour, the way an instrument's
+    // screen is ruled.
+    let mut style = ScopeStyle::new(&theme);
+    style.graph.plot_background = Some(Color::rgb(8, 10, 13));
+    style.graph.grid.major = Stroke::new(Color::rgba(120, 200, 255, 26), 1.0);
+    style.graph.grid.minor = Stroke::new(Color::rgba(120, 200, 255, 12), 1.0);
+    style.graph.grid.zero = Some(Stroke::new(Color::rgba(180, 220, 255, 70), 1.0));
+    style.graph.border = Some(Stroke::new(Color::rgba(120, 200, 255, 70), 1.0));
 
     let mut scope = Scope::new(CAPTURE);
     scope.timebase = Timebase::new(0.0005, SAMPLE_RATE);
     scope.vertical_divisions = 4;
     scope.trigger = Trigger::rising(0.0).with_position(0.1);
-
-    // A graticule wants a faint, even grid and room for the readout along the
-    // top, not the default plot furniture.
-    scope.style.plot_background = Some(Color::rgb(8, 10, 13));
-    scope.style.margin = Margin::new(56.0, 16.0, 24.0, 30.0);
-    scope.style.grid = GridStyle {
-        major: Stroke::new(Color::rgba(120, 200, 255, 26), 1.0),
-        minor: Stroke::new(Color::rgba(120, 200, 255, 12), 1.0),
-        zero: Some(Stroke::new(Color::rgba(180, 220, 255, 70), 1.0)),
-        show_vertical: true,
-        show_horizontal: true,
-    };
-    scope.style.border = Some(Stroke::new(Color::rgba(120, 200, 255, 70), 1.0));
-    scope.style.x_axis.minor_tick_length = 3.0;
-    scope.style.y_axis.minor_tick_length = 3.0;
 
     scope.add_channel(
         Channel::with_capacity("CH1", CAPTURE)
@@ -88,11 +86,15 @@ fn main() -> AureaResult<()> {
         true
     });
 
-    let draw = Arc::clone(&scope);
+    let ui = Rc::new(RefCell::new(UiState::<u8>::new()));
     canvas.set_draw_callback(move |ctx| {
-        let mut scope = lock(&draw);
         let area = Rect::new(0.0, 0.0, ctx.width() as f32, ctx.height() as f32);
-        scope.draw(ctx, area)
+        let mut state = ui.borrow_mut();
+        let mut ui = state.frame(ctx, &theme);
+        ScopeView::new(&mut lock(&scope))
+            .style(style)
+            .show(&mut ui, 0, area)?;
+        Ok(())
     })?;
 
     let mut layout = Stack::new(Orientation::Vertical)?;

@@ -51,7 +51,7 @@ pub use crate::render::{
 /// (`Axis`, `Range`, `Series`) that pulling them into every app would be rude.
 /// Use `graph::quick` for the common shapes, or `graph::prelude::*` to bring
 /// the lot in where you actually draw.
-pub use crate::render::graph;
+pub use crate::ui::graph;
 
 pub use crate::{AureaError, AureaResult};
 

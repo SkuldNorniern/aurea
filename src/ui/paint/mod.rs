@@ -8,8 +8,10 @@
 //! own: anything here can be drawn on its own or inside something larger.
 
 mod decor;
+mod graph;
 
 pub use decor::{Badge, BadgeTone, Separator, Spinner};
+pub use graph::{AxisMarks, AxisSide, AxisStyle, GridLines, GridStyle, Marker, Stroke, Trace};
 
 use crate::AureaResult;
 use crate::render::{Color, Font, Icon, Image, Point, Rect, VectorImage};

@@ -12,6 +12,7 @@ pub mod disclosure;
 pub mod dock;
 pub mod dropdown;
 pub mod empty;
+pub mod graph;
 pub mod link;
 pub mod pager;
 pub(crate) mod popup;
