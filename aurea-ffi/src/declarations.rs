@@ -144,8 +144,16 @@ unsafe extern "C" {
         checked: c_int,
         radio: c_int,
     ) -> c_int;
-    pub fn ng_platform_menu_item_set_enabled(menu_handle: *mut c_void, id: u32, enabled: c_int) -> c_int;
-    pub fn ng_platform_menu_item_set_checked(menu_handle: *mut c_void, id: u32, checked: c_int) -> c_int;
+    pub fn ng_platform_menu_item_set_enabled(
+        menu_handle: *mut c_void,
+        id: u32,
+        enabled: c_int,
+    ) -> c_int;
+    pub fn ng_platform_menu_item_set_checked(
+        menu_handle: *mut c_void,
+        id: u32,
+        checked: c_int,
+    ) -> c_int;
     pub fn ng_platform_menu_item_set_title(
         menu_handle: *mut c_void,
         id: u32,
