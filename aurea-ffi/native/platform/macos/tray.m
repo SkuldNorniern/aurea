@@ -10,6 +10,7 @@
 @property (nonatomic, strong) NSMenu* menu;
 @property (nonatomic, assign) unsigned int clickId;
 - (void)clicked:(id)sender;
+- (BOOL)showMenu;
 - (void)itemChosen:(NSMenuItem*)sender;
 @end
 
@@ -19,21 +20,24 @@
     BOOL wantsMenu = event.type == NSEventTypeRightMouseUp
         || (event.modifierFlags & NSEventModifierFlagControl) != 0;
     if (wantsMenu) {
-        if (self.menu.numberOfItems == 0) return;
-        self.item.menu = self.menu;
-        [self.item.button performClick:sender];
-        self.item.menu = nil;
+        [self showMenu];
         return;
     }
     ng_invoke_menu_callback(self.clickId);
+}
+
+- (BOOL)showMenu {
+    if (self.menu.numberOfItems == 0) return NO;
+    self.item.menu = self.menu;
+    [self.item.button performClick:nil];
+    self.item.menu = nil;
+    return YES;
 }
 
 - (void)itemChosen:(NSMenuItem*)sender {
     ng_invoke_menu_callback((unsigned int)sender.tag);
 }
 @end
-
-int ng_macos_tray_count = 0;
 
 static const CGFloat TRAY_ICON_POINTS = 18.0;
 
@@ -54,7 +58,8 @@ NGHandle ng_macos_create_tray(const char* tooltip, unsigned int click_id) {
     button.target = tray;
     button.action = @selector(clicked:);
     [button sendActionOn:NSEventMaskLeftMouseUp | NSEventMaskRightMouseUp];
-    ng_macos_tray_count++;
+    button.accessibilityCustomActions = @[[[NSAccessibilityCustomAction alloc]
+        initWithName:@"Show Menu" target:tray selector:@selector(showMenu)]];
     return (__bridge_retained void*)tray;
 }
 
@@ -63,7 +68,6 @@ void ng_macos_destroy_tray(NGHandle handle) {
     AureaTray* tray = (__bridge_transfer AureaTray*)handle;
     tray.item.button.target = nil;
     [[NSStatusBar systemStatusBar] removeStatusItem:tray.item];
-    ng_macos_tray_count--;
 }
 
 int ng_macos_tray_set_icon_rgba(NGHandle handle, const unsigned char* rgba, unsigned int width, unsigned int height) {

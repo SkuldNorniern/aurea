@@ -3,8 +3,6 @@
 
 #include "../../common/types.h"
 
-extern int ng_macos_tray_count;
-
 NGHandle ng_macos_create_tray(const char* tooltip, unsigned int click_id);
 void ng_macos_destroy_tray(NGHandle tray);
 int ng_macos_tray_set_icon_rgba(NGHandle tray, const unsigned char* rgba, unsigned int width, unsigned int height);
