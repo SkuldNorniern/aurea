@@ -161,6 +161,7 @@ static void register_shortcut(GtkWidget* menu, const char* title, unsigned int i
 }
 
 static void menu_item_clicked(GtkMenuItem *item, gpointer user_data) {
+    (void)user_data;
     guint id = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(item), "menu-id"));
     ng_invoke_menu_callback(id);
 }

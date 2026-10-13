@@ -68,6 +68,7 @@ static gboolean on_delete_event(GtkWidget* widget, GdkEvent* event, gpointer dat
 }
 
 static void on_window_destroy(GtkWidget* widget, gpointer data) {
+    (void)data;
     // Invoke lifecycle callback if enabled
     for (int i = 0; i < g_lifecycle_callback_count; i++) {
         if (g_lifecycle_windows[i] == widget && g_lifecycle_callbacks[i]) {
@@ -94,6 +95,7 @@ static void on_window_destroy(GtkWidget* widget, gpointer data) {
 }
 
 static gboolean on_window_state_event(GtkWidget* widget, GdkEventWindowState* event, gpointer user_data) {
+    (void)user_data;
     if (event->changed_mask & GDK_WINDOW_STATE_ICONIFIED) {
         if (event->new_window_state & GDK_WINDOW_STATE_ICONIFIED) {
             // Window minimized
@@ -424,6 +426,7 @@ static int ng_linux_mouse_button_from_event(guint button) {
 }
 
 static gboolean on_key_press(GtkWidget* widget, GdkEventKey* event, gpointer user_data) {
+    (void)user_data;
     unsigned int mods = ng_linux_modifiers(event->state);
     unsigned int keycode = ng_linux_keycode_from_keyval(event->keyval);
 
@@ -451,6 +454,7 @@ static gboolean on_key_press(GtkWidget* widget, GdkEventKey* event, gpointer use
 }
 
 static gboolean on_key_release(GtkWidget* widget, GdkEventKey* event, gpointer user_data) {
+    (void)user_data;
     unsigned int mods = ng_linux_modifiers(event->state);
     unsigned int keycode = ng_linux_keycode_from_keyval(event->keyval);
     int composing = ng_linux_ime_composing(widget);
@@ -563,6 +567,7 @@ static int ng_linux_click_count(GtkWidget* widget, GdkEventButton* event) {
 }
 
 static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpointer user_data) {
+    (void)user_data;
     if (event->type != GDK_BUTTON_PRESS) return FALSE;
     if (ng_linux_already_seen((GdkEvent*)event)) return FALSE;
     unsigned int mods = ng_linux_modifiers(event->state);
@@ -577,6 +582,7 @@ static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpoint
 }
 
 static gboolean on_button_release(GtkWidget* widget, GdkEventButton* event, gpointer user_data) {
+    (void)user_data;
     if (ng_linux_already_seen((GdkEvent*)event)) return FALSE;
     unsigned int mods = ng_linux_modifiers(event->state);
     int button = ng_linux_mouse_button_from_event(event->button);
@@ -589,6 +595,7 @@ static gboolean on_button_release(GtkWidget* widget, GdkEventButton* event, gpoi
 }
 
 static gboolean on_motion_notify(GtkWidget* widget, GdkEventMotion* event, gpointer user_data) {
+    (void)user_data;
     if (ng_linux_already_seen((GdkEvent*)event)) return FALSE;
     double x = event->x;
     double y = event->y;
@@ -619,6 +626,7 @@ static gboolean on_motion_notify(GtkWidget* widget, GdkEventMotion* event, gpoin
 }
 
 static gboolean on_scroll(GtkWidget* widget, GdkEventScroll* event, gpointer user_data) {
+    (void)user_data;
     unsigned int mods = ng_linux_modifiers(event->state);
     double dx = 0.0;
     double dy = 0.0;
@@ -648,12 +656,14 @@ static gboolean on_scroll(GtkWidget* widget, GdkEventScroll* event, gpointer use
 }
 
 static gboolean on_focus_in(GtkWidget* widget, GdkEventFocus* event, gpointer user_data) {
+    (void)event; (void)user_data;
     ng_linux_ime_focus(widget, 1);
     ng_invoke_focus_changed((void*)widget, 1);
     return FALSE;
 }
 
 static gboolean on_focus_out(GtkWidget* widget, GdkEventFocus* event, gpointer user_data) {
+    (void)event; (void)user_data;
     ng_linux_ime_focus(widget, 0);
     ng_invoke_focus_changed((void*)widget, 0);
     return FALSE;
@@ -671,18 +681,21 @@ static gboolean ng_linux_crossing_is_inside(GtkWidget* widget, GdkEventCrossing*
 }
 
 static gboolean on_enter(GtkWidget* widget, GdkEventCrossing* event, gpointer user_data) {
+    (void)user_data;
     if (ng_linux_crossing_is_inside(widget, event)) return FALSE;
     ng_invoke_cursor_entered((void*)widget, 1);
     return FALSE;
 }
 
 static gboolean on_leave(GtkWidget* widget, GdkEventCrossing* event, gpointer user_data) {
+    (void)user_data;
     if (ng_linux_crossing_is_inside(widget, event)) return FALSE;
     ng_invoke_cursor_entered((void*)widget, 0);
     return FALSE;
 }
 
 static gboolean on_configure_event(GtkWidget* widget, GdkEventConfigure* event, gpointer user_data) {
+    (void)user_data;
     // Check for scale factor changes
     GdkWindow* gdkWindow = gtk_widget_get_window(widget);
     if (gdkWindow) {
