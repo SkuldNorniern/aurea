@@ -8,6 +8,7 @@
 
 pub mod button;
 pub mod chip;
+pub mod color;
 pub mod disclosure;
 pub mod dock;
 pub mod dropdown;

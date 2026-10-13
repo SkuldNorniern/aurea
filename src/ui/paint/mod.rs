@@ -7,9 +7,11 @@
 //! something small. Widgets are made of these, and so can an app's
 //! own: anything here can be drawn on its own or inside something larger.
 
+mod color;
 mod decor;
 mod graph;
 
+pub use color::{AlphaStrip, Checker, HueStrip, PickRing, SvField};
 pub use decor::{Badge, BadgeTone, Separator, Spinner};
 pub use graph::{AxisMarks, AxisSide, AxisStyle, GridLines, GridStyle, Marker, Stroke, Trace};
 

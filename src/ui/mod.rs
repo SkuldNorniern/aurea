@@ -23,7 +23,7 @@
 //!    style made from the theme that can be changed field by field.
 //!    - Actions: [`Button`], [`Link`].
 //!    - Choices: [`Toggle`], [`Checkbox`], [`RadioGroup`], [`Chip`],
-//!      [`Segmented`], [`Dropdown`], [`Swatches`].
+//!      [`Segmented`], [`Dropdown`], [`Swatches`], [`ColorPicker`].
 //!    - Values: [`Slider`], [`Stepper`], [`TextField`], [`ProgressBar`].
 //!    - Data: [`GraphView`] and [`ScopeView`], over the app's own
 //!      [`graph::Graph`] and [`graph::Scope`].
@@ -141,6 +141,7 @@ pub use theme::{Motion, Palette, Theme};
 pub use widget::Widget;
 pub use widget::button::{Button, ButtonStyle, Tone};
 pub use widget::chip::{Chip, ChipStyle};
+pub use widget::color::{ColorPicker, PickerStyle};
 pub use widget::disclosure::{Disclosure, DisclosureStyle};
 pub use widget::dock::{
     Dock, DockAxis, DockBar, DockGroup, DockLayout, DockMetrics, DockPlan, DockSide, DockStyle,

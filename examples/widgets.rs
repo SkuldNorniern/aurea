@@ -1,15 +1,16 @@
 //! Canvas widgets: a small settings panel.
 //!
-//! Tab through it, type in the fields, drag the slider; the theme switch
-//! restyles everything live.
+//! Tab through it, type in the fields, drag the slider, pick a colour; the
+//! theme switch restyles everything live.
 
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
 use aurea::elements::{Container, Orientation, Stack};
-use aurea::render::{Canvas, RendererBackend, request_canvas_redraw};
+use aurea::render::{Canvas, Hsv, RendererBackend, request_canvas_redraw};
 use aurea::ui::{
-    Align, Button, Checkbox, ProgressBar, Segmented, Slider, TextField, Theme, Toggle, Ui, UiState,
+    Align, Button, Checkbox, ColorPicker, ProgressBar, Segmented, Slider, TextField, Theme, Toggle,
+    Ui, UiState,
 };
 use aurea::{AureaResult, Rect, Window, WindowEvent, reduced_motion};
 
@@ -24,6 +25,7 @@ enum Id {
     Meter,
     Reset,
     Save,
+    Color,
 }
 
 struct Settings {
@@ -34,6 +36,8 @@ struct Settings {
     usage: bool,
     look: usize,
     saved: u32,
+    color: Hsv,
+    hex: String,
 }
 
 impl Default for Settings {
@@ -46,6 +50,8 @@ impl Default for Settings {
             usage: true,
             look: 1,
             saved: 0,
+            color: Hsv::new(210.0, 0.7, 0.9, 1.0),
+            hex: String::new(),
         }
     }
 }
@@ -142,8 +148,8 @@ fn panel(ui: &mut Ui<'_, Id>, s: &mut Settings, width: f32) -> AureaResult<()> {
 }
 
 fn main() -> AureaResult<()> {
-    let mut window = Window::new("Widgets", 480, 370)?;
-    let canvas = Canvas::new(480, 370, RendererBackend::Cpu)?;
+    let mut window = Window::new("Widgets", 760, 370)?;
+    let canvas = Canvas::new(760, 370, RendererBackend::Cpu)?;
     let id = canvas.id();
 
     let state = Rc::new(RefCell::new(UiState::<Id>::new()));
@@ -163,7 +169,14 @@ fn main() -> AureaResult<()> {
         let width = ctx.width() as f32;
         {
             let mut ui = state.frame(ctx, theme);
-            panel(&mut ui, &mut s, width)?;
+            let split = width.min(760.0) - 280.0;
+            panel(&mut ui, &mut s, split)?;
+            let at = Rect::new(split + 8.0, 56.0, 248.0, 270.0);
+            let Settings { color, hex, .. } = &mut *s;
+            ColorPicker::new(color)
+                .alpha(true)
+                .hex_field(hex)
+                .show(&mut ui, Id::Color, at)?;
         }
         if let Some(window) = seen.borrow().upgrade() {
             state.sync_window(&window);
