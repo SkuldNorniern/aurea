@@ -156,7 +156,7 @@ fn republish_current_buffer(
     let guard = renderer.borrow_mut();
     let output = guard.as_ref().and_then(|r| r.frame_output());
     if publishes_cpu_buffer && let Some(frame) = output {
-        let (ptr, size, w, h) = (frame.pixels, frame.size, frame.width, frame.height);
+        let (ptr, size, w, h) = (frame.pixels(), frame.size(), frame.width, frame.height);
         let refresh = {
             let mut st = state.borrow_mut();
             let prev = st.prev_frame_damage;
@@ -244,8 +244,8 @@ impl Canvas {
             unsafe {
                 publish_cpu_buffer(
                     self.handle,
-                    frame.pixels,
-                    frame.size,
+                    frame.pixels(),
+                    frame.size(),
                     frame.width,
                     frame.height,
                     None,

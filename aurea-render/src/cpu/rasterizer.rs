@@ -1404,7 +1404,8 @@ impl Renderer for CpuRasterizer {
             return None;
         }
         let (ptr, size, width, height) = self.get_buffer();
-        FrameOutput::new(ptr, size, width, height)
+        // SAFETY: `get_buffer` hands out this renderer's own buffer, which
+        unsafe { FrameOutput::new(ptr, size, width, height) }
     }
 
     fn last_frame_damage(&self) -> Option<Rect> {
