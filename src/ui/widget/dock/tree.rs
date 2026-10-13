@@ -297,7 +297,7 @@ impl<P: Copy + PartialEq> DockTree<P> {
         };
         let mut seen = 0;
         split_at(root, index, &mut seen).is_some_and(|slot| {
-            *slot = ratio.clamp(0.0, 1.0);
+            *slot = ratio_of(ratio);
             true
         })
     }
@@ -336,6 +336,15 @@ fn group_of_mut<P: Copy + PartialEq>(node: &mut Node<P>, panel: P) -> Option<&mu
     }
 }
 
+/// A split's first part as a ratio in `0..=1`. NaN is an even split.
+fn ratio_of(ratio: f32) -> f32 {
+    if ratio.is_nan() {
+        0.5
+    } else {
+        ratio.clamp(0.0, 1.0)
+    }
+}
+
 fn place<P>(node: &mut Node<P>, panel: P, side: DockSide, share: f32) {
     if let (DockSide::Center, Node::Tabs { panels, active }) = (side, &mut *node) {
         panels.push(panel);
@@ -347,7 +356,11 @@ fn place<P>(node: &mut Node<P>, panel: P, side: DockSide, share: f32) {
         panels: vec![panel],
         active: 0,
     };
-    let share = share.clamp(0.05, 0.95);
+    let share = if share.is_nan() {
+        0.5
+    } else {
+        share.clamp(0.05, 0.95)
+    };
     let (axis, ratio, parts) = match side {
         DockSide::Left => (DockAxis::Row, share, [new, old]),
         DockSide::Top => (DockAxis::Column, share, [new, old]),
@@ -498,9 +511,21 @@ fn node_from_plan<P: Copy + PartialEq>(plan: &DockPlan<P>, seen: &mut Vec<P>) ->
                     seen.push(p);
                 }
             }
-            let panels = seen[start..].to_vec();
-            let active = (*active).min(panels.len().checked_sub(1)?);
-            Some(Node::Tabs { panels, active })
+            let own = seen[start..].to_vec();
+            if own.is_empty() {
+                return None;
+            }
+            // The active tab is the one the plan named, found after the
+            // repeats went. If that panel was a dropped repeat, or the index
+            // was past the end, it clamps to the last tab kept.
+            let active = panels
+                .get(*active)
+                .and_then(|named| own.iter().position(|p| p == named))
+                .unwrap_or_else(|| (*active).min(own.len() - 1));
+            Some(Node::Tabs {
+                panels: own,
+                active,
+            })
         }
         DockPlan::Split {
             axis,
@@ -510,11 +535,7 @@ fn node_from_plan<P: Copy + PartialEq>(plan: &DockPlan<P>, seen: &mut Vec<P>) ->
         } => match (node_from_plan(first, seen), node_from_plan(second, seen)) {
             (Some(a), Some(b)) => Some(Node::Split {
                 axis: *axis,
-                ratio: if ratio.is_nan() {
-                    0.5
-                } else {
-                    ratio.clamp(0.0, 1.0)
-                },
+                ratio: ratio_of(*ratio),
                 parts: Box::new([a, b]),
             }),
             (part, None) | (None, part) => part,
