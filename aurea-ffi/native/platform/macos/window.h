@@ -47,6 +47,10 @@ NGHandle ng_macos_window_get_content_view(NGHandle window);
 int ng_macos_window_use_metal_layer(NGHandle window);
 int ng_macos_window_set_hide_on_close(NGHandle window, int hide);
 void ng_macos_window_set_close_guard(NGHandle window, int guarded);
+/* Windows that hide rather than close. While there is one the app is still
+   in use, so its last window going does not end it; AppKit counts a hidden
+   window as gone. */
+extern int ng_macos_hide_on_close_count;
 
 char* ng_macos_get_clipboard_text(void);
 void ng_macos_free_clipboard_text(char* text);
