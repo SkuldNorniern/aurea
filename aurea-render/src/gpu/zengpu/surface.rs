@@ -3,8 +3,8 @@
 //! internally on resize/loss (`acquire`/`present`/`resize`/`size` from
 //! [`zengpu_hal::Surface`]); no raw `vk::SwapchainKHR`/sync objects here.
 
-use zengpu_hal::{Format, GraphicsDevice, PresentMode, Result, SurfaceConfig, WindowHandles};
 use zengpu::native::{NativeDevice, NativeSurface};
+use zengpu_hal::{Format, GraphicsDevice, PresentMode, Result, SurfaceConfig, WindowHandles};
 
 /// Create the painter's presentable surface. `width`/`height` are physical pixels.
 pub fn create_surface(

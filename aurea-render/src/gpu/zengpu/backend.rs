@@ -12,15 +12,17 @@ use std::sync::Arc;
 
 use aurea_foundation::{AureaError, AureaResult};
 
+#[cfg(not(target_os = "macos"))]
+use zengpu::DeviceContext;
+use zengpu::native::{
+    NativeAdapter, NativeCommandList, NativeDevice, NativeInstance, NativeSurface,
+};
 use zengpu_hal::{
     Acquire, Bindings, BufferHandle, ColorAttachment, DeviceRequest, DeviceType, FilterMode,
     Format, Frame, GpuAdapter, GpuDevice, GpuError, GraphicsDevice, LoadOp, PipelineHandle,
     Rect as HalRect, RenderCommands, RenderPassDesc, SamplerDesc, SamplerHandle, Scalar, Surface,
     TexDim, TextureDesc, TextureHandle, TextureUsage, Viewport, ViewportScissor, WindowHandles,
 };
-#[cfg(not(target_os = "macos"))]
-use zengpu::DeviceContext;
-use zengpu::native::{NativeAdapter, NativeCommandList, NativeDevice, NativeInstance, NativeSurface};
 
 use crate::capabilities::GpuFeatures;
 use crate::gpu::batch::{DrawRef, RectInstance, ShapeInstance};

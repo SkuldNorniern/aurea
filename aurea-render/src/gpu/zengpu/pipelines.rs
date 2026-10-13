@@ -9,12 +9,12 @@
 
 use std::mem::size_of;
 
+use zengpu::native::{NativeDevice, shader};
 use zengpu_hal::{
     BlendMode, BlendState, ColorTargetState, DepthState, Format, GpuDevice, GpuError,
     GraphicsDevice, GraphicsPipelineDesc, PipelineHandle, PrimitiveTopology, RasterState, Result,
     StepMode, VertexAttribute, VertexFormat, VertexLayout,
 };
-use zengpu::native::{NativeDevice, shader};
 use zengpu_spirv::ZslShader;
 
 use super::shaders::*;
@@ -128,7 +128,12 @@ const TEXT_LAYOUT: VertexLayout = VertexLayout {
 };
 
 /// Vertex and fragment SPIR-V, vertex layouts and blending for one pipeline.
-type PipelineSpec<'s> = (&'s ZslShader, &'s ZslShader, &'s [VertexLayout<'s>], BlendMode);
+type PipelineSpec<'s> = (
+    &'s ZslShader,
+    &'s ZslShader,
+    &'s [VertexLayout<'s>],
+    BlendMode,
+);
 
 /// All five pipelines the painter draws with, in painter-order priority.
 pub struct Pipelines {
@@ -157,14 +162,7 @@ impl Pipelines {
         };
 
         let make = |vert, frag, vertex_layouts, blend| {
-            create_pipeline(
-                device,
-                vert,
-                frag,
-                vertex_layouts,
-                blend,
-                color_format,
-            )
+            create_pipeline(device, vert, frag, vertex_layouts, blend, color_format)
         };
 
         let specs: [PipelineSpec<'_>; 5] = [
