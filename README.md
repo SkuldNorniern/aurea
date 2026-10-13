@@ -8,7 +8,8 @@ widgets in `aurea::ui`, and a renderer with CPU and optional GPU backends.
 Default ZenGPU canvases share one GPU device per UI thread, opened when first
 needed and released when its last owner goes. `Canvas::with_gpu_context` and
 `set_gpu_context` still use the application's chosen device. Renderers on the
-same context also share their 2D pipelines. On Windows, compare
+same context also share their 2D pipelines, created only when that kind of draw
+first appears. On Windows, compare
 process RAM with shared or independent devices using:
 
 ```text
@@ -16,6 +17,10 @@ cargo run --release --features zengpu --example gpu_memory -- shared
 cargo run --release --features zengpu --example gpu_memory -- isolated
 cargo run --release --features zengpu --example gpu_memory -- context
 ```
+
+The probe separates resident private RAM, total working set, and private commit;
+commit includes memory that is not resident. Private working set requires a
+recent Windows build; older versions still report the other counters.
 
 ## Quick Start
 

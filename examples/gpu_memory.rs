@@ -7,7 +7,14 @@ mod probe {
         AureaResult, Window,
         render::{Canvas, Color, Paint, Point, Rect, RendererBackend, ZenGpuContext},
     };
-    use std::{env, error::Error, ffi::c_void, io, mem::size_of, sync::Arc};
+    use std::{
+        env,
+        error::Error,
+        ffi::c_void,
+        io,
+        mem::{offset_of, size_of},
+        sync::Arc,
+    };
 
     #[repr(C)]
     #[derive(Default)]
@@ -23,6 +30,8 @@ mod probe {
         pagefile: usize,
         peak_pagefile: usize,
         private_usage: usize,
+        private_working_set: usize,
+        shared_commit: u64,
     }
 
     #[link(name = "kernel32")]
@@ -40,15 +49,30 @@ mod probe {
             cb: size,
             ..Memory::default()
         };
-        // SAFETY: current-process pseudo handle and writable PROCESS_MEMORY_COUNTERS_EX layout.
-        if unsafe { GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, size) } == 0 {
-            return Err(io::Error::last_os_error());
+        // SAFETY: pseudo handle and writable PROCESS_MEMORY_COUNTERS_EX2 layout.
+        let extended =
+            unsafe { GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, size) } != 0;
+        if !extended {
+            let legacy_size =
+                u32::try_from(offset_of!(Memory, private_working_set)).expect("legacy ABI size");
+            counters.cb = legacy_size;
+            // SAFETY: the EX prefix is valid on older Windows versions.
+            if unsafe { GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, legacy_size) } == 0
+            {
+                return Err(io::Error::last_os_error());
+            }
         }
         println!(
             "{stage:<24} working set {:>7.1} MiB; private commit {:>7.1} MiB",
             counters.working_set as f64 / 1048576.0,
             counters.private_usage as f64 / 1048576.0
         );
+        if extended {
+            println!(
+                "                         private working set {:>7.1} MiB",
+                counters.private_working_set as f64 / 1048576.0
+            );
+        }
         Ok(())
     }
 
@@ -69,7 +93,9 @@ mod probe {
         if mode != "shared" && mode != "isolated" && mode != "context" {
             return Err("use shared, isolated, or context".into());
         }
-        println!("{mode} devices; counters differ from Task Manager's private working-set column");
+        println!(
+            "{mode} devices; private working set tracks resident private RAM; commit includes nonresident memory"
+        );
         report("before window/GPU")?;
         if mode == "context" {
             let context = ZenGpuContext::new()?;
