@@ -811,7 +811,11 @@ impl CpuRasterizer {
         bw: u32,
         clip: ClipBox,
     ) {
-        if mask.width == 0 || mask.height == 0 {
+        // A mask whose coverage is short of its size would index past it.
+        if mask.width == 0
+            || mask.height == 0
+            || !bytes_fit(mask.width, mask.height, 3, mask.coverage.len())
+        {
             return;
         }
         let luts = LinearLuts::get();
@@ -888,7 +892,16 @@ impl CpuRasterizer {
         bw: u32,
         clip: ClipBox,
     ) {
-        if image.data.is_empty() || dest.width <= 0.0 || dest.height <= 0.0 {
+        // Images whose data is short of their size, and empty source rects,
+        // are skipped as the GPU path skips them: sampling would index past
+        // the data or clamp to an inverted range.
+        if image.width == 0
+            || image.height == 0
+            || !bytes_fit(image.width, image.height, 4, image.data.len())
+            || !(src.width > 0.0 && src.height > 0.0)
+            || dest.width <= 0.0
+            || dest.height <= 0.0
+        {
             return;
         }
         let x0 = f32_to_i32_clamped(dest.x.max(clip.left()).ceil());
@@ -1012,6 +1025,9 @@ impl CpuRasterizer {
             i32::try_from(image.width).unwrap_or(i32::MAX),
             i32::try_from(image.height).unwrap_or(i32::MAX),
         );
+        if iw == 0 || ih == 0 {
+            return;
+        }
         let bounds = sample::Bounds {
             x0: f32_to_i32_clamped(src.x.floor()).clamp(0, iw - 1),
             y0: f32_to_i32_clamped(src.y.floor()).clamp(0, ih - 1),
@@ -1615,6 +1631,15 @@ fn rect_cov_y(y: u32, yl: f32, yr: f32) -> f32 {
 }
 
 /// Scales an 8-bit alpha channel by a `0.0..=1.0` factor.
+/// Whether `len` bytes hold a `width` by `height` grid at `per_pixel` bytes
+/// each.
+fn bytes_fit(width: u32, height: u32, per_pixel: usize, len: usize) -> bool {
+    (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|n| n.checked_mul(per_pixel))
+        .is_some_and(|need| len >= need)
+}
+
 fn scale_u8(v: u8, factor: f32) -> u8 {
     if factor >= 1.0 {
         return v;
@@ -1683,6 +1708,65 @@ fn circle_coverage(center: Point, radius: f32, px: f32, py: f32) -> f32 {
 fn pixel_at(buf: &[u32], w: u32, x: u32, y: u32) -> u32 {
     let idx = (y * w + x) as usize;
     if idx < buf.len() { buf[idx] } else { 0 }
+}
+
+#[cfg(test)]
+mod bad_source_tests {
+    use super::*;
+
+    const CLIP: ClipBox = ClipBox {
+        x0: 0,
+        y0: 0,
+        x1: 8,
+        y1: 8,
+    };
+
+    fn draw(image: &Image, src: Rect, sampling: Sampling) -> Vec<u32> {
+        let mut buf = vec![0u32; 64];
+        CpuRasterizer::draw_image(
+            image,
+            src,
+            Rect::new(0.0, 0.0, 8.0, 8.0),
+            sampling,
+            BlendMode::Normal,
+            1.0,
+            &mut buf,
+            &mut Vec::new(),
+            8,
+            CLIP,
+        );
+        buf
+    }
+
+    #[test]
+    fn empty_source_rects_and_images_draw_nothing() {
+        let image = Image::new(2, 2, vec![255; 16]);
+        for sampling in [Sampling::Linear, Sampling::Smooth, Sampling::Nearest] {
+            for src in [
+                Rect::new(0.0, 0.0, 0.0, 2.0),
+                Rect::new(1.0, 1.0, -1.0, -1.0),
+            ] {
+                assert!(draw(&image, src, sampling).iter().all(|&p| p == 0));
+            }
+        }
+        let empty = Image::new(0, 2, vec![255; 16]);
+        let src = Rect::new(0.0, 0.0, 1.0, 1.0);
+        assert!(draw(&empty, src, Sampling::Linear).iter().all(|&p| p == 0));
+    }
+
+    #[test]
+    fn short_image_data_and_masks_are_skipped() {
+        let short = Image::new(4, 4, vec![255; 8]);
+        for sampling in [Sampling::Linear, Sampling::Smooth, Sampling::Nearest] {
+            let src = Rect::new(0.0, 0.0, 2.0, 2.0);
+            assert!(draw(&short, src, sampling).iter().all(|&p| p == 0));
+        }
+        let mask = GlyphMask::new(4, 4, vec![255; 6].into());
+        let mut buf = vec![0u32; 64];
+        let origin = Point::new(0.0, 0.0);
+        CpuRasterizer::draw_glyph(&mask, origin, Color::rgb(0, 0, 0), &mut buf, 8, CLIP);
+        assert!(buf.iter().all(|&p| p == 0));
+    }
 }
 
 #[cfg(test)]
@@ -1863,7 +1947,7 @@ mod diff_damage_tests {
 
         assert_eq!((a.width, a.height), (16, 16), "the first renderer's own");
         assert_eq!((b.width, b.height), (32, 32), "and the second's own");
-        assert_ne!(a.pixels, b.pixels, "two buffers, not one shared slot");
+        assert_ne!(a.pixels(), b.pixels(), "two buffers, not one shared slot");
     }
 
     /// A resized buffer is the right size and holds nothing, so there is
