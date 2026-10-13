@@ -67,6 +67,7 @@ fn resolve_images<B: Gpu2dBackend>(
     for draw in images {
         let (iw, ih) = draw.source.size();
         if iw == 0 || ih == 0 {
+            out.push(ImagePlanEntry::default());
             continue;
         }
         let slot = match &draw.source {
@@ -117,6 +118,7 @@ fn resolve_texts<B: Gpu2dBackend>(
         let w = f32_to_u32_clamped(text.rect.width);
         let h = f32_to_u32_clamped(text.rect.height);
         if w == 0 || h == 0 {
+            out.push(TextPlanEntry::default());
             continue;
         }
         let slot = cache.resolve(&text.mask, w, h, backend, frame)?;
