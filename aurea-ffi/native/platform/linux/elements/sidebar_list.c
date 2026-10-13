@@ -29,6 +29,7 @@ static void sidebar_data_free(gpointer p) {
 }
 
 static void on_row_selected(GtkListBox* box, GtkListBoxRow* row, gpointer user_data) {
+    (void)box;
     SidebarData* data = (SidebarData*)user_data;
     if (!row) return;
     RowInfo* info = g_object_get_data(G_OBJECT(row), "row-info");

@@ -4,6 +4,7 @@
 #include <gtk/gtk.h>
 
 static void button_clicked(GtkButton *button, gpointer user_data) {
+    (void)user_data;
     guint id = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(button), "button-id"));
     ng_invoke_button_callback(id);
 }
