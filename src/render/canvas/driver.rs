@@ -149,16 +149,27 @@ pub(super) fn replace_lost_context(state: &Rc<RefCell<CanvasState>>) {
         // Taken out while it runs, so it may reach the canvas itself.
         (lost, st.gpu_lost.take())
     };
-    let fresh = handler
-        .as_mut()
-        .and_then(|handler| handler(&lost))
-        .or_else(|| lost.reopen().ok().map(Arc::new));
+    let chosen = handler.as_mut().and_then(|handler| handler(&lost));
+    // The handler may install a context directly through the canvas. Preserve
+    // that choice instead of reopening and overwriting it after the callback.
+    let replaced = state
+        .borrow()
+        .gpu_context
+        .as_ref()
+        .is_some_and(|current| !Arc::ptr_eq(current, &lost));
+    let fresh = if replaced {
+        None
+    } else {
+        chosen.or_else(|| lost.reopen().ok().map(Arc::new))
+    };
     let mut st = state.borrow_mut();
     if st.gpu_lost.is_none() {
         st.gpu_lost = handler;
     }
     // None: no GPU opened, so the next frame tries a context of its own.
-    st.gpu_context = fresh;
+    if !replaced {
+        st.gpu_context = fresh;
+    }
 }
 
 /// Reads the canvas's logical size and scale from the platform and, when

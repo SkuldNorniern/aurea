@@ -774,6 +774,18 @@ mod tests {
         assert_eq!(asked.get(), 1);
         driver::replace_lost_context(&canvas.state);
         assert_eq!(asked.get(), 1, "a live context is left alone");
+
+        let installed = Arc::new(ZenGpuContext::new().unwrap());
+        let handed = Arc::clone(&installed);
+        let state = Rc::downgrade(&canvas.state);
+        canvas.on_gpu_lost(move |_| {
+            // The same state change made by Canvas::set_gpu_context.
+            state.upgrade().unwrap().borrow_mut().gpu_context = Some(Arc::clone(&handed));
+            None
+        });
+        given.device().simulate_loss();
+        driver::replace_lost_context(&canvas.state);
+        assert!(Arc::ptr_eq(&canvas.gpu_context().unwrap(), &installed));
     }
 
     #[test]
