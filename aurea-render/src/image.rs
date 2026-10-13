@@ -50,7 +50,13 @@ pub enum Sampling {
     Nearest,
     /// [`Linear`](Self::Linear) when enlarging; when shrinking, every pixel
     /// a destination pixel covers is averaged, for clean zoomed-out views.
-    /// GPU renderers draw it as `Linear` for now.
+    ///
+    /// On the ZenGPU renderer an image gets a mip chain, made on the device,
+    /// the first time it is drawn this way, and is read trilinearly. An
+    /// app's own texture is averaged only if it has mips: make it with
+    /// `mip_levels` above 1 and `TRANSFER_SRC | TRANSFER_DST`, then call the
+    /// device's `generate_mipmaps` after each upload; without them it draws
+    /// as `Linear`.
     Smooth,
 }
 

@@ -229,9 +229,13 @@ impl ZenGpuRenderer {
         let color_format = Format::Bgra8Unorm;
         let surface = create_surface(context.device(), handles, pw, ph).map_err(gpu_err)?;
         let pipelines = Pipelines::new(context.device(), color_format).map_err(gpu_err)?;
+        // Trilinear: a texture with mips is averaged as it shrinks, which is
+        // `Sampling::Smooth`; one without has a single level to read.
         let sampler = context.device().create_sampler(SamplerDesc {
             min_filter: FilterMode::Linear,
             mag_filter: FilterMode::Linear,
+            mip_filter: FilterMode::Linear,
+            lod_max: 32.0,
             ..SamplerDesc::default()
         });
         let sampler = match sampler {
@@ -443,29 +447,36 @@ impl ZenGpuBackend {
     }
 }
 
-impl Gpu2dBackend for ZenGpuBackend {
-    fn resize(&mut self, physical_width: u32, physical_height: u32) -> AureaResult<()> {
-        self.surface
-            .resize(physical_width, physical_height)
-            .map_err(gpu_err)
-    }
-
-    fn upload_image(&mut self, width: u32, height: u32, rgba: &[u8]) -> AureaResult<u32> {
+impl ZenGpuBackend {
+    /// Uploads RGBA8 `rgba` as a texture of `levels` mip levels, the ones
+    /// past the first made on the device, and binds it.
+    fn upload(&mut self, width: u32, height: u32, rgba: &[u8], levels: u32) -> AureaResult<u32> {
         let device = self.context.device();
+        let mut usage = TextureUsage::SAMPLED | TextureUsage::TRANSFER_DST;
+        if levels > 1 {
+            usage |= TextureUsage::TRANSFER_SRC;
+        }
         let texture = device
             .create_texture(TextureDesc {
                 width,
                 height,
                 depth: 1,
                 format: Format::Rgba8Unorm,
-                usage: TextureUsage::SAMPLED | TextureUsage::TRANSFER_DST,
+                usage,
                 samples: 1,
                 dimension: TexDim::D2,
-                mip_levels: 1,
+                mip_levels: levels,
                 array_layers: 1,
             })
             .map_err(gpu_err)?;
-        if let Err(e) = device.upload_texture_data(texture, rgba) {
+        let filled = device.upload_texture_data(texture, rgba).and_then(|()| {
+            if levels > 1 {
+                device.generate_mipmaps(texture)
+            } else {
+                Ok(())
+            }
+        });
+        if let Err(e) = filled {
             device.destroy_texture(texture);
             return Err(gpu_err(e));
         }
@@ -475,6 +486,27 @@ impl Gpu2dBackend for ZenGpuBackend {
         };
         self.slot_textures.insert(slot, texture);
         Ok(slot)
+    }
+}
+
+/// Mip levels down to one texel for an image this size.
+fn mip_levels(width: u32, height: u32) -> u32 {
+    u32::BITS - width.max(height).max(1).leading_zeros()
+}
+
+impl Gpu2dBackend for ZenGpuBackend {
+    fn resize(&mut self, physical_width: u32, physical_height: u32) -> AureaResult<()> {
+        self.surface
+            .resize(physical_width, physical_height)
+            .map_err(gpu_err)
+    }
+
+    fn upload_image(&mut self, width: u32, height: u32, rgba: &[u8]) -> AureaResult<u32> {
+        self.upload(width, height, rgba, 1)
+    }
+
+    fn upload_image_mipmapped(&mut self, width: u32, height: u32, rgba: &[u8]) -> AureaResult<u32> {
+        self.upload(width, height, rgba, mip_levels(width, height))
     }
 
     fn evict_image(&mut self, shader_slot: u32) {
@@ -671,6 +703,46 @@ fn as_bytes<T: Copy>(slice: &[T]) -> &[u8] {
 #[cfg(test)]
 mod context_tests {
     use super::*;
+
+    #[test]
+    fn mip_chains_run_down_to_one_texel() {
+        assert_eq!(mip_levels(1, 1), 1);
+        assert_eq!(mip_levels(256, 1), 9);
+        assert_eq!(mip_levels(4096, 300), 13);
+        assert_eq!(mip_levels(4097, 1), 13);
+        assert_eq!(mip_levels(0, 0), 1, "an empty image still has one");
+    }
+
+    /// What a smooth image upload asks of the device: a full mip chain,
+    /// level 0 uploaded, the rest made on the device.
+    #[test]
+    fn a_mipmapped_image_uploads() {
+        let Ok(context) = ZenGpuContext::new() else {
+            return;
+        };
+        let device = context.device();
+        let (w, h) = (64, 32);
+        let texture = device
+            .create_texture(TextureDesc {
+                width: w,
+                height: h,
+                depth: 1,
+                format: Format::Rgba8Unorm,
+                usage: TextureUsage::SAMPLED
+                    | TextureUsage::TRANSFER_DST
+                    | TextureUsage::TRANSFER_SRC,
+                samples: 1,
+                dimension: TexDim::D2,
+                mip_levels: mip_levels(w, h),
+                array_layers: 1,
+            })
+            .expect("texture");
+        device
+            .upload_texture_data(texture, &vec![0x80u8; (w * h * 4) as usize])
+            .expect("level 0");
+        device.generate_mipmaps(texture).expect("mips");
+        device.destroy_texture(texture);
+    }
 
     #[test]
     fn a_context_reopens_on_its_own_gpu() {

@@ -56,7 +56,7 @@ fn resolve_gradients<B: Gpu2dBackend>(
     out: &mut Vec<GradientPlanEntry>,
 ) -> AureaResult<()> {
     for g in gradients {
-        let slot = cache.resolve(&g.lut, 256, 1, backend, frame)?;
+        let slot = cache.resolve(&g.lut, (256, 1), false, backend, frame)?;
         out.push(GradientPlanEntry {
             rect: g.rect,
             a: g.a,
@@ -88,7 +88,8 @@ fn resolve_images<B: Gpu2dBackend>(
                 if image.data.len() != expected {
                     return Err(AureaError::RenderingFailed);
                 }
-                cache.resolve(&image.data, iw, ih, backend, frame)?
+                let smooth = draw.sampling == Sampling::Smooth;
+                cache.resolve(&image.data, (iw, ih), smooth, backend, frame)?
             }
             ImageSource::Texture(texture) => backend.bind_texture(*texture)?,
         };
@@ -134,7 +135,7 @@ fn resolve_texts<B: Gpu2dBackend>(
             out.push(TextPlanEntry::default());
             continue;
         }
-        let slot = cache.resolve(&text.mask, w, h, backend, frame)?;
+        let slot = cache.resolve(&text.mask, (w, h), false, backend, frame)?;
         out.push(TextPlanEntry {
             rect: [text.rect.x, text.rect.y, text.rect.width, text.rect.height],
             color: [

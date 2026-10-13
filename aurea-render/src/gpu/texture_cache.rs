@@ -55,11 +55,16 @@ struct Entry {
     last_used: u64,
     /// The frame that last used it; that frame's plan may hold its slot.
     frame: u64,
+    /// Uploaded with a mip chain, for `Sampling::Smooth`.
+    mipmapped: bool,
 }
 
 /// Backend-agnostic LRU texture cache.
 pub struct TextureCache {
     map: HashMap<CacheKey, Entry>,
+    /// Slots replaced by a mipmapped upload while the frame that last drew
+    /// them may still hold them, freed once a later frame starts.
+    retired: Vec<(u32, u64)>,
     clock: u64,
     cap: usize,
 }
@@ -72,6 +77,7 @@ impl TextureCache {
     pub fn with_capacity(cap: usize) -> Self {
         Self {
             map: HashMap::new(),
+            retired: Vec::new(),
             clock: 0,
             cap,
         }
@@ -79,21 +85,40 @@ impl TextureCache {
 
     /// Return the shader slot for `pixels`/`width`/`height`, uploading via the
     /// backend if not already cached, and evicting the LRU entry if at capacity.
+    ///
+    /// `mipmapped` asks for a mip chain, which `Sampling::Smooth` needs. An
+    /// image cached without one is uploaded again with it the first time it
+    /// is asked for; images never drawn smooth never pay the extra third.
     pub fn resolve<B: Gpu2dBackend>(
         &mut self,
         pixels: &Arc<[u8]>,
-        width: u32,
-        height: u32,
+        (width, height): (u32, u32),
+        mipmapped: bool,
         backend: &mut B,
         frame: u64,
     ) -> AureaResult<u32> {
         let key = CacheKey::from_pixels(pixels, width, height);
         self.clock += 1;
         let clock = self.clock;
+        self.free_retired(backend, frame);
 
         if let Some(entry) = self.map.get_mut(&key) {
             entry.last_used = clock;
+            let drawn_this_frame = entry.frame == frame;
             entry.frame = frame;
+            if entry.mipmapped || !mipmapped {
+                return Ok(entry.slot);
+            }
+            let plain = entry.slot;
+            entry.slot = backend.upload_image_mipmapped(width, height, pixels)?;
+            entry.mipmapped = true;
+            // This frame's plan may already draw the plain slot; it goes
+            // once a later frame starts.
+            if drawn_this_frame {
+                self.retired.push((plain, frame));
+            } else {
+                backend.evict_image(plain);
+            }
             return Ok(entry.slot);
         }
 
@@ -101,7 +126,11 @@ impl TextureCache {
             self.evict_lru(backend, frame);
         }
 
-        let slot = backend.upload_image(width, height, pixels)?;
+        let slot = if mipmapped {
+            backend.upload_image_mipmapped(width, height, pixels)?
+        } else {
+            backend.upload_image(width, height, pixels)?
+        };
         self.map.insert(
             key,
             Entry {
@@ -109,6 +138,7 @@ impl TextureCache {
                 keepalive: Arc::clone(pixels),
                 last_used: clock,
                 frame,
+                mipmapped,
             },
         );
         Ok(slot)
@@ -135,6 +165,9 @@ impl TextureCache {
         for (_, entry) in self.map.drain() {
             backend.evict_image(entry.slot);
         }
+        for (slot, _) in self.retired.drain(..) {
+            backend.evict_image(slot);
+        }
     }
 
     /// Evicts the least recently used texture the current frame has not
@@ -152,6 +185,18 @@ impl TextureCache {
         if let Some(entry) = self.map.remove(&key) {
             backend.evict_image(entry.slot);
         }
+    }
+
+    /// Frees slots retired before `frame`, whose frames are done with them.
+    fn free_retired<B: Gpu2dBackend>(&mut self, backend: &mut B, frame: u64) {
+        self.retired.retain(|&(slot, used)| {
+            if used < frame {
+                backend.evict_image(slot);
+                false
+            } else {
+                true
+            }
+        });
     }
 
     /// How many textures are cached.
@@ -217,7 +262,11 @@ mod tests {
         let images = [pixels(), pixels(), pixels()];
         let slots: Vec<u32> = images
             .iter()
-            .map(|p| cache.resolve(p, 1, 1, &mut backend, 1).expect("resolve"))
+            .map(|p| {
+                cache
+                    .resolve(p, (1, 1), false, &mut backend, 1)
+                    .expect("resolve")
+            })
             .collect();
         assert!(
             backend.evicted.is_empty(),
@@ -234,11 +283,13 @@ mod tests {
         let (mut cache, mut backend) = (TextureCache::with_capacity(2), Slots::default());
         let images = [pixels(), pixels(), pixels()];
         for p in &images {
-            cache.resolve(p, 1, 1, &mut backend, 1).expect("resolve");
+            cache
+                .resolve(p, (1, 1), false, &mut backend, 1)
+                .expect("resolve");
         }
         let fresh = pixels();
         let slot = cache
-            .resolve(&fresh, 1, 1, &mut backend, 2)
+            .resolve(&fresh, (1, 1), false, &mut backend, 2)
             .expect("resolve");
         assert_eq!(
             backend.evicted,
@@ -252,15 +303,56 @@ mod tests {
     fn a_reused_texture_is_pinned_for_its_new_frame() {
         let (mut cache, mut backend) = (TextureCache::with_capacity(2), Slots::default());
         let (a, b, c) = (pixels(), pixels(), pixels());
-        cache.resolve(&a, 1, 1, &mut backend, 1).expect("resolve");
-        cache.resolve(&b, 1, 1, &mut backend, 1).expect("resolve");
+        cache
+            .resolve(&a, (1, 1), false, &mut backend, 1)
+            .expect("resolve");
+        cache
+            .resolve(&b, (1, 1), false, &mut backend, 1)
+            .expect("resolve");
         // Frame 2 uses `a` again first, then needs room for `c`.
-        cache.resolve(&a, 1, 1, &mut backend, 2).expect("resolve");
-        cache.resolve(&c, 1, 1, &mut backend, 2).expect("resolve");
+        cache
+            .resolve(&a, (1, 1), false, &mut backend, 2)
+            .expect("resolve");
+        cache
+            .resolve(&c, (1, 1), false, &mut backend, 2)
+            .expect("resolve");
         assert_eq!(
             backend.evicted,
             vec![2],
             "`b` goes, not the `a` frame 2 holds"
         );
+    }
+
+    /// A smooth draw of an image cached plain uploads it again with mips,
+    /// once, and frees the plain one; later draws of either kind keep it.
+    #[test]
+    fn smooth_draws_get_a_mipmapped_upload_once() {
+        let mut cache = TextureCache::new();
+        let mut backend = Slots::default();
+        let image = pixels();
+        let plain = cache
+            .resolve(&image, (1, 1), false, &mut backend, 1)
+            .expect("resolve");
+        let smooth = cache
+            .resolve(&image, (1, 1), true, &mut backend, 1)
+            .expect("resolve");
+        assert_ne!(plain, smooth);
+        assert!(
+            backend.evicted.is_empty(),
+            "this frame still draws the plain one"
+        );
+        let again = cache
+            .resolve(&image, (1, 1), true, &mut backend, 2)
+            .expect("resolve");
+        assert_eq!(
+            backend.evicted,
+            vec![plain],
+            "freed once the next frame starts"
+        );
+        let linear = cache
+            .resolve(&image, (1, 1), false, &mut backend, 2)
+            .expect("resolve");
+        assert_eq!((again, linear), (smooth, smooth));
+        assert_eq!(cache.len(), 1);
     }
 }
