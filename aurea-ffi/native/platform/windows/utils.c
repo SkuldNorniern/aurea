@@ -41,6 +41,9 @@ static WPARAM g_menu_access_key = 0;
 /* An Alt+key a menu shortcut took: its WM_SYSCHAR must not reach
    DefWindowProc, which would open the menu the letter marks as well. */
 static BOOL g_shortcut_took_syskey = FALSE;
+/* The key a menu shortcut took on its way down: it ran the menu item, so
+   the app hears neither its press nor its release, as on macOS. */
+static WPARAM g_menu_took_key = 0;
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
@@ -629,11 +632,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 break;
             }
             g_menu_access_key = 0;
-            ng_invoke_key_event((void*)hwnd, keycode, 1, modifiers);
             if (ng_windows_handle_menu_shortcut((void*)hwnd, keycode, modifiers)) {
                 g_shortcut_took_syskey = uMsg == WM_SYSKEYDOWN;
+                g_menu_took_key = wParam;
                 return 0;
             }
+            ng_invoke_key_event((void*)hwnd, keycode, 1, modifiers);
             /* A lone Alt or F10 makes DefWindowProc enter the modal menu-bar
                loop, which swallows the matching WM_SYSKEYUP — leaving modifier
                state stuck "down". We deliver the key ourselves, so suppress
@@ -651,6 +655,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             if (uMsg == WM_SYSKEYUP && g_menu_access_key != 0 && wParam == g_menu_access_key) {
                 g_menu_access_key = 0;
                 break;
+            }
+            if (g_menu_took_key != 0 && wParam == g_menu_took_key) {
+                g_menu_took_key = 0;
+                return 0;
             }
             unsigned int keycode = ng_windows_keycode_from_vk(wParam);
             ng_invoke_key_event((void*)hwnd, keycode, 0, ng_windows_modifiers());

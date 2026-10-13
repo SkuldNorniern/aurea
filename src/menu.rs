@@ -268,6 +268,12 @@ impl SubMenu {
     }
 
     /// Add a clickable menu item with a portable keyboard shortcut.
+    ///
+    /// Pressing the shortcut runs the item, and the window gets no
+    /// [`KeyInput`](crate::WindowEvent::KeyInput) for that press or its
+    /// release, on every platform; an app's own keymap need not handle the
+    /// key again. A greyed item's shortcut does nothing and leaves the key
+    /// to the app.
     pub fn add_item_with_shortcut<F>(
         &mut self,
         title: &str,
@@ -281,7 +287,9 @@ impl SubMenu {
     }
 
     /// Add an item showing a keymap chord, so the menu and the keys agree.
-    /// A chord menus can't show adds a plain item.
+    /// A chord menus can't show adds a plain item. The chord then runs the
+    /// item instead of reaching the app as a key, as with
+    /// [`add_item_with_shortcut`](Self::add_item_with_shortcut).
     pub fn add_item_with_chord<F>(
         &mut self,
         title: &str,
