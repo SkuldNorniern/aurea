@@ -7,6 +7,7 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wctype.h>
 
 typedef struct {
     HMENU menu;
@@ -209,10 +210,40 @@ int ng_windows_add_menu_separator(NGMenuHandle menu) {
     return NG_SUCCESS;
 }
 
-int ng_windows_handle_menu_shortcut(NGHandle window, unsigned int keycode, unsigned int modifiers) {
+static int title_access_key(const wchar_t* text, wchar_t* key) {
+    for (const wchar_t* p = text; *p; p++) {
+        if (*p != L'&') continue;
+        if (p[1] == L'&') {
+            p++;
+            continue;
+        }
+        if (!p[1]) return 0;
+        *key = p[1];
+        return 1;
+    }
+    return 0;
+}
+
+int ng_windows_menu_takes_key(NGHandle window, unsigned int key) {
     if (!window) return 0;
+    HMENU bar = GetMenu((HWND)window);
+    if (!bar) return 0;
+    if (!((key >= 'A' && key <= 'Z') || (key >= '0' && key <= '9'))) return 0;
+
+    int count = GetMenuItemCount(bar);
+    for (int i = 0; i < count; i++) {
+        wchar_t text[256];
+        if (GetMenuStringW(bar, (UINT)i, text, 256, MF_BYPOSITION) <= 0) continue;
+        wchar_t access = 0;
+        if (title_access_key(text, &access) && (unsigned int)towupper(access) == key) return 1;
+    }
+    return 0;
+}
+
+static int shortcut_item(NGHandle window, unsigned int keycode, unsigned int modifiers) {
+    if (!window) return -1;
     HMENU menu = GetMenu((HWND)window);
-    if (!menu) return 0;
+    if (!menu) return -1;
 
     HMENU root = find_menu_root(menu);
     for (int i = 0; i < g_shortcut_count; i++) {
@@ -221,10 +252,20 @@ int ng_windows_handle_menu_shortcut(NGHandle window, unsigned int keycode, unsig
         if (g_shortcuts[i].modifiers != modifiers) continue;
         UINT state = GetMenuState(menu, g_shortcuts[i].id + 1, MF_BYCOMMAND);
         if (state != (UINT)-1 && (state & MF_GRAYED)) continue;
-        ng_invoke_menu_callback(g_shortcuts[i].id);
-        return 1;
+        return (int)g_shortcuts[i].id;
     }
-    return 0;
+    return -1;
+}
+
+int ng_windows_menu_has_shortcut(NGHandle window, unsigned int keycode, unsigned int modifiers) {
+    return shortcut_item(window, keycode, modifiers) >= 0;
+}
+
+int ng_windows_handle_menu_shortcut(NGHandle window, unsigned int keycode, unsigned int modifiers) {
+    int id = shortcut_item(window, keycode, modifiers);
+    if (id < 0) return 0;
+    ng_invoke_menu_callback((unsigned int)id);
+    return 1;
 }
 
 static void forget_shortcuts(unsigned int id) {

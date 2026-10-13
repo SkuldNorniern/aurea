@@ -24,6 +24,8 @@ static HWND g_tracked_windows[256] = {0};
 static int g_tracked_count = 0;
 static BOOL g_lifecycle_callbacks[256] = {0};
 static BOOL g_mouse_inside[256] = {0};
+static WPARAM g_menu_access_key = 0;
+static BOOL g_shortcut_took_syskey = FALSE;
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
@@ -535,8 +537,19 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_SYSKEYDOWN: {
             unsigned int keycode = ng_windows_keycode_from_vk(wParam);
             unsigned int modifiers = ng_windows_modifiers();
+            if (uMsg == WM_SYSKEYDOWN && wParam == VK_MENU && GetMenu(hwnd)) {
+                break;
+            }
+            if (uMsg == WM_SYSKEYDOWN && (modifiers & NG_MOD_ALT) && !(modifiers & NG_MOD_CTRL)
+                && !ng_windows_menu_has_shortcut((void*)hwnd, keycode, modifiers)
+                && ng_windows_menu_takes_key((void*)hwnd, (unsigned int)wParam)) {
+                g_menu_access_key = wParam;
+                break;
+            }
+            g_menu_access_key = 0;
             ng_invoke_key_event((void*)hwnd, keycode, 1, modifiers);
             if (ng_windows_handle_menu_shortcut((void*)hwnd, keycode, modifiers)) {
+                g_shortcut_took_syskey = uMsg == WM_SYSKEYDOWN;
                 return 0;
             }
             if (wParam == VK_MENU || wParam == VK_F10) {
@@ -546,6 +559,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         }
         case WM_KEYUP:
         case WM_SYSKEYUP: {
+            if (uMsg == WM_SYSKEYUP && wParam == VK_MENU && GetMenu(hwnd)) {
+                break;
+            }
+            if (uMsg == WM_SYSKEYUP && g_menu_access_key != 0 && wParam == g_menu_access_key) {
+                g_menu_access_key = 0;
+                break;
+            }
             unsigned int keycode = ng_windows_keycode_from_vk(wParam);
             ng_invoke_key_event((void*)hwnd, keycode, 0, ng_windows_modifiers());
             if (wParam == VK_MENU || wParam == VK_F10) {
@@ -553,6 +573,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             }
             break;
         }
+        case WM_SYSCHAR:
+            if (g_shortcut_took_syskey) {
+                g_shortcut_took_syskey = FALSE;
+                return 0;
+            }
+            break;
         case WM_CHAR: {
             wchar_t wc = (wchar_t)wParam;
             ng_windows_emit_text_input(hwnd, wc);
