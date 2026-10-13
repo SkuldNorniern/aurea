@@ -211,10 +211,15 @@ impl<Id: WidgetId> Ui<'_, Id> {
 
     /// The keys pressed since the last frame, in order, for the widget that has the keyboard.
     pub fn keys(&self) -> impl Iterator<Item = (KeyCode, Modifiers)> + '_ {
-        self.state.typed.iter().filter_map(|typed| match typed {
-            Typed::Key(key, mods) => Some((*key, *mods)),
-            _ => None,
-        })
+        self.state
+            .typed
+            .iter()
+            .zip(&self.state.typed_targets)
+            .filter_map(|(typed, target)| match typed {
+                _ if *target != self.state.focus => None,
+                Typed::Key(key, mods) => Some((*key, *mods)),
+                _ => None,
+            })
     }
 
     /// Notes that a widget's value changed, so the frame after shows it everywhere it is drawn.

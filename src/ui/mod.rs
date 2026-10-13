@@ -50,6 +50,50 @@ pub use widget::toggle::{Checkbox, CheckboxStyle, Toggle, ToggleStyle};
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_on_either_side_of_tab_goes_to_its_own_field() {
+        for reverse in [false, true] {
+            let mut state = UiState::<u8>::new();
+            let theme = Theme::dark();
+            let mut raster = CpuRasterizer::new(160, 100);
+            let (mut first, mut second) = (String::new(), String::new());
+            let frame = |state: &mut UiState<u8>,
+                         raster: &mut CpuRasterizer,
+                         first: &mut String,
+                         second: &mut String,
+                         reverse: bool| {
+                let mut ctx = raster.begin_frame().expect("frame");
+                let mut ui = state.frame(&mut *ctx, &theme);
+                let a = Rect::new(0.0, 0.0, 120.0, 32.0);
+                let b = Rect::new(0.0, 40.0, 120.0, 32.0);
+                if reverse {
+                    TextField::new(second).show(&mut ui, 2, b).expect("second");
+                    TextField::new(first).show(&mut ui, 1, a).expect("first");
+                } else {
+                    TextField::new(first).show(&mut ui, 1, a).expect("first");
+                    TextField::new(second).show(&mut ui, 2, b).expect("second");
+                }
+            };
+            let tab = WindowEvent::KeyInput {
+                key: KeyCode::Tab,
+                pressed: true,
+                modifiers: Modifiers::default(),
+            };
+            frame(&mut state, &mut raster, &mut first, &mut second, false);
+            state.handle(&tab);
+            frame(&mut state, &mut raster, &mut first, &mut second, false);
+            state.handle(&WindowEvent::TextInput { text: "a".into() });
+            state.handle(&tab);
+            state.handle(&WindowEvent::TextInput { text: "b".into() });
+            frame(&mut state, &mut raster, &mut first, &mut second, reverse);
+            assert_eq!(first, "a");
+            assert_eq!(second, "b");
+            state.handle(&WindowEvent::TextInput { text: "c".into() });
+            frame(&mut state, &mut raster, &mut first, &mut second, reverse);
+            assert_eq!(second, "bc");
+        }
+    }
     use crate::Rect;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, WindowEvent};

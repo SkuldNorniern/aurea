@@ -177,7 +177,7 @@ impl TextEdit {
     /// Types `typed` over the selection, kept to `rules`.
     pub fn insert(&mut self, text: &mut String, typed: &str, rules: Rules<'_>) -> bool {
         let kept = allowed(text, self.selection(), typed, rules);
-        if kept.is_empty() && !self.has_selection() {
+        if kept.is_empty() {
             return false;
         }
         let word_break = kept.chars().any(char::is_whitespace);
@@ -186,6 +186,8 @@ impl TextEdit {
         text.replace_range(range.clone(), &kept);
         self.caret = range.start + kept.len();
         self.anchor = self.caret;
+        self.preedit.clear();
+        self.preedit_caret = None;
         true
     }
 
@@ -218,9 +220,9 @@ impl TextEdit {
     }
 
     /// Sets what the input method is composing; empty ends it.
-    pub fn set_preedit(&mut self, text: &mut String, preedit: &str, caret: Option<usize>) {
-        if !preedit.is_empty() && self.has_selection() {
-            self.delete(text, Step::Char, Direction::Back);
+    pub fn set_preedit(&mut self, _text: &mut String, preedit: &str, caret: Option<usize>) {
+        if self.preedit.is_empty() && !preedit.is_empty() {
+            self.last = Kind::None;
         }
         self.preedit.clear();
         self.preedit.push_str(preedit);
@@ -478,7 +480,7 @@ mod tests {
         let (mut text, mut edit) = editing("old");
         edit.select_all(&text);
         edit.set_preedit(&mut text, "ㅎ", Some(3));
-        assert_eq!((text.as_str(), edit.preedit()), ("", "ㅎ"));
+        assert_eq!((text.as_str(), edit.preedit()), ("old", "ㅎ"));
         edit.insert(&mut text, "한", Rules::default());
         edit.set_preedit(&mut text, "", None);
         assert_eq!((text.as_str(), edit.preedit()), ("한", ""));
@@ -500,6 +502,39 @@ mod tests {
         edit.redo(&mut text);
         assert_eq!(text, "hi");
         assert_eq!(edit.caret(), 2);
+    }
+
+    #[test]
+    fn cancelling_composition_preserves_selection_and_undo_history() {
+        let (mut text, mut edit) = editing("old");
+        edit.select_all(&text);
+        edit.set_preedit(&mut text, "ㅎ", Some(3));
+        edit.set_preedit(&mut text, "", None);
+        assert_eq!(text, "old");
+        assert_eq!(edit.selection(), 0..3);
+        assert!(!edit.undo(&mut text));
+        edit.set_preedit(&mut text, "ㅎ", Some(3));
+        assert!(edit.insert(&mut text, "한", Rules::default()));
+        assert!(edit.preedit().is_empty());
+        assert!(edit.undo(&mut text));
+        assert_eq!(text, "old");
+    }
+
+    #[test]
+    fn wholly_rejected_input_keeps_selected_text() {
+        let (mut text, mut edit) = editing("123");
+        edit.select_all(&text);
+        let accept = |c: char| c.is_ascii_digit();
+        let rules = Rules {
+            max_chars: None,
+            accept: Some(&accept),
+        };
+        assert!(!edit.insert(&mut text, "x", rules));
+        assert_eq!(text, "123");
+        assert_eq!(edit.selection(), 0..3);
+        assert!(!edit.undo(&mut text));
+        assert!(edit.insert(&mut text, "x4", rules));
+        assert_eq!(text, "4");
     }
 
     #[test]

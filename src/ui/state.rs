@@ -156,6 +156,7 @@ pub struct UiState<Id: WidgetId> {
     pub(crate) modifiers: Modifiers,
     pointer_events: Vec<Pointer>,
     pub(crate) typed: Vec<Typed>,
+    pub(crate) typed_targets: Vec<Option<Key<Id>>>,
     hits: Vec<Hit<Id>>,
     last_hits: Vec<Hit<Id>>,
     order: Vec<Key<Id>>,
@@ -172,6 +173,7 @@ pub struct UiState<Id: WidgetId> {
     pub(crate) clip: Option<Rect>,
     pub(crate) edit: TextEdit,
     pub(crate) edit_for: Option<Key<Id>>,
+    pub(crate) edits: HashMap<Key<Id>, TextEdit>,
     pub(crate) blink_from: Instant,
     pub(crate) wheel: (f32, f32),
     pub(crate) path: Path,
@@ -201,6 +203,7 @@ impl<Id: WidgetId> UiState<Id> {
             modifiers: Modifiers::default(),
             pointer_events: Vec::new(),
             typed: Vec::new(),
+            typed_targets: Vec::new(),
             hits: Vec::new(),
             last_hits: Vec::new(),
             order: Vec::new(),
@@ -217,6 +220,7 @@ impl<Id: WidgetId> UiState<Id> {
             clip: None,
             edit: TextEdit::new(),
             edit_for: None,
+            edits: HashMap::new(),
             blink_from: Instant::now(),
             wheel: (0.0, 0.0),
             path: Path::new(),
@@ -333,7 +337,7 @@ impl<Id: WidgetId> UiState<Id> {
     /// Whether a text field has the keyboard, so the app should leave typing and editing shortcuts
     /// to it.
     pub fn text_focused(&self) -> bool {
-        self.focus.is_some() && self.edit_for == self.focus
+        self.focused_sense() == Some(Sense::Text)
     }
 
     /// Whether anything has the keyboard.
@@ -470,9 +474,15 @@ impl<Id: WidgetId> UiState<Id> {
 
     fn resolve_keys(&mut self) {
         let mut typed = mem::take(&mut self.typed);
-        typed.retain(|typed| match typed {
-            Typed::Key(key, modifiers) => !self.resolve_key(*key, *modifiers),
-            _ => true,
+        self.typed_targets.clear();
+        typed.retain(|typed| {
+            if let Typed::Key(key, modifiers) = typed
+                && self.resolve_key(*key, *modifiers)
+            {
+                return false;
+            }
+            self.typed_targets.push(self.focus);
+            true
         });
         self.typed = typed;
     }
@@ -536,8 +546,18 @@ impl<Id: WidgetId> UiState<Id> {
             self.focus = None;
         }
         if self.edit_for != self.focus {
-            self.edit_for = None;
+            if let Some(key) = self.edit_for.take() {
+                self.edits.insert(key, mem::take(&mut self.edit));
+            }
+            if let Some(key) = self.focus
+                && let Some(edit) = self.edits.remove(&key)
+            {
+                self.edit = edit;
+                self.edit_for = Some(key);
+            }
         }
+        self.edits
+            .retain(|key, _| self.hits.iter().any(|hit| hit.key == *key));
         mem::swap(&mut self.hits, &mut self.last_hits);
         mem::swap(&mut self.order, &mut self.last_order);
         let blinking = self.text_focused() && self.blink_from.elapsed() < BLINK_FOR;
@@ -545,6 +565,7 @@ impl<Id: WidgetId> UiState<Id> {
             self.tweens.busy() || self.changed || !self.clicked.is_empty() || blinking;
         self.clicked.clear();
         self.typed.clear();
+        self.typed_targets.clear();
         self.press = None;
         self.secondary = None;
         self.wheel = (0.0, 0.0);
