@@ -37,6 +37,18 @@
 /// - **External Integration**: wgpu surface support for hybrid rendering
 /// - **Cross-Platform**: macOS, Windows, Linux, iOS, Android
 ///
+/// # Units
+///
+/// Everything an app gives or gets is in logical pixels: window and canvas
+/// sizes, [`WindowEvent::Resized`], pointer and pen positions, every
+/// [`DrawingContext`] coordinate and stroke width, [`ui`] layout, and
+/// [`ui::PanZoom`] views. Logical pixels are device pixels divided by the
+/// display's scale ([`WindowEvent::ScaleFactorChanged`]), so a layout keeps
+/// its size at 125%, 150% or 200%. Renderers multiply by the scale
+/// themselves and draw at device resolution; only raw frame buffers
+/// ([`render::CpuRasterizer::pixels`]) and GPU textures an app makes are in
+/// device pixels.
+///
 /// # Implementation note
 ///
 /// Interior mutability uses `Mutex`; `aurea_foundation::lock` is used throughout because we do not
