@@ -83,6 +83,8 @@ void ng_platform_free_dialog_paths(char* paths);
 
 int ng_platform_message_box(NGHandle window, int kind, const char* title, const char* text, int buttons);
 
+int ng_platform_color_dialog(NGHandle window, const char* title, unsigned int argb_in, int alpha, unsigned int* argb_out);
+
 NGHandle ng_platform_create_button(const char* title, unsigned int id);
 void ng_platform_button_invalidate(NGHandle button);
 NGHandle ng_platform_create_label(const char* text);

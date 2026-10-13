@@ -129,6 +129,7 @@ static const ng_platform_ops_t macos_ops = {
     .create_swiftui_host = ng_macos_try_create_swiftui_host,
     .file_dialog = ng_macos_file_dialog,
     .message_box = ng_macos_message_box,
+    .color_dialog = ng_macos_color_dialog,
     .get_clipboard_text = ng_macos_get_clipboard_text,
     .free_clipboard_text = ng_macos_free_clipboard_text,
     .set_clipboard_text = ng_macos_set_clipboard_text,

@@ -5,6 +5,7 @@
 #include "common/errors.h"
 #include <windows.h>
 #include <commctrl.h>
+#include <commdlg.h>
 #include <shobjidl.h>
 #include <stdlib.h>
 #include <string.h>
@@ -320,4 +321,46 @@ int ng_windows_message_box(NGHandle window, int kind, const char* title, const c
     free(wide_title);
     free(wide_text);
     return result;
+}
+
+static COLORREF custom_colors[16];
+
+static UINT_PTR CALLBACK color_hook(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam) {
+    (void)wparam;
+    if (message == WM_INITDIALOG) {
+        const CHOOSECOLORW* cc = (const CHOOSECOLORW*)lparam;
+        const wchar_t* title = (const wchar_t*)cc->lCustData;
+        if (title && *title) SetWindowTextW(dialog, title);
+    }
+    return 0;
+}
+
+int ng_windows_color_dialog(NGHandle window, const char* title, unsigned int argb_in, int alpha, unsigned int* argb_out) {
+    (void)alpha;
+    HWND owner = (HWND)window;
+    wchar_t* wide_title = title && *title ? ng_windows_utf8_to_wide(title) : NULL;
+    CHOOSECOLORW cc;
+    memset(&cc, 0, sizeof cc);
+    cc.lStructSize = sizeof cc;
+    cc.hwndOwner = owner;
+    cc.rgbResult = RGB((argb_in >> 16) & 0xFF, (argb_in >> 8) & 0xFF, argb_in & 0xFF);
+    cc.lpCustColors = custom_colors;
+    cc.Flags = CC_RGBINIT | CC_FULLOPEN;
+    if (wide_title) {
+        cc.Flags |= CC_ENABLEHOOK;
+        cc.lpfnHook = color_hook;
+        cc.lCustData = (LPARAM)wide_title;
+    }
+
+    if (owner) ng_windows_modal_begin(owner);
+    BOOL picked = ChooseColorW(&cc);
+    if (owner) ng_windows_modal_end(owner);
+    free(wide_title);
+    if (!picked) return CommDlgExtendedError() ? NG_ERROR_PLATFORM_SPECIFIC : 0;
+
+    unsigned int r = GetRValue(cc.rgbResult);
+    unsigned int g = GetGValue(cc.rgbResult);
+    unsigned int b = GetBValue(cc.rgbResult);
+    *argb_out = (argb_in & 0xFF000000u) | (r << 16) | (g << 8) | b;
+    return 1;
 }

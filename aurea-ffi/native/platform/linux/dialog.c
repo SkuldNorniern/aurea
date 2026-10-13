@@ -113,3 +113,37 @@ int ng_linux_message_box(NGHandle window, int kind, const char* title, const cha
     gtk_widget_destroy(dialog);
     return choice_of(response, buttons);
 }
+
+static unsigned int channel_of(double v) {
+    double scaled = v * 255.0 + 0.5;
+    if (scaled < 0) return 0;
+    if (scaled > 255) return 255;
+    return (unsigned int)scaled;
+}
+
+int ng_linux_color_dialog(NGHandle window, const char* title, unsigned int argb_in, int alpha, unsigned int* argb_out) {
+    GtkWindow* parent = window ? GTK_WINDOW(window) : NULL;
+    GtkWidget* dialog = gtk_color_chooser_dialog_new(title && *title ? title : "Pick a Color", parent);
+    gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
+    gtk_window_set_destroy_with_parent(GTK_WINDOW(dialog), TRUE);
+    GtkColorChooser* chooser = GTK_COLOR_CHOOSER(dialog);
+    gtk_color_chooser_set_use_alpha(chooser, alpha ? TRUE : FALSE);
+    GdkRGBA start = {
+        .red = ((argb_in >> 16) & 0xFF) / 255.0,
+        .green = ((argb_in >> 8) & 0xFF) / 255.0,
+        .blue = (argb_in & 0xFF) / 255.0,
+        .alpha = alpha ? ((argb_in >> 24) & 0xFF) / 255.0 : 1.0,
+    };
+    gtk_color_chooser_set_rgba(chooser, &start);
+
+    int result = 0;
+    if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_OK) {
+        GdkRGBA picked;
+        gtk_color_chooser_get_rgba(chooser, &picked);
+        unsigned int a = alpha ? channel_of(picked.alpha) : (argb_in >> 24) & 0xFF;
+        *argb_out = (a << 24) | (channel_of(picked.red) << 16) | (channel_of(picked.green) << 8) | channel_of(picked.blue);
+        result = 1;
+    }
+    gtk_widget_destroy(dialog);
+    return result;
+}

@@ -6,5 +6,6 @@
 char* ng_macos_file_dialog(NGHandle window, int kind, const char* title, const char* filters,
                            const char* default_name, const char* directory, int multiple);
 int ng_macos_message_box(NGHandle window, int kind, const char* title, const char* text, int buttons);
+int ng_macos_color_dialog(NGHandle window, const char* title, unsigned int argb_in, int alpha, unsigned int* argb_out);
 
 #endif

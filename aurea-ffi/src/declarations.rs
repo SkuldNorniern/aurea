@@ -178,6 +178,13 @@ unsafe extern "C" {
         text: *const c_char,
         buttons: c_int,
     ) -> c_int;
+    pub fn ng_platform_color_dialog(
+        window: *mut c_void,
+        title: *const c_char,
+        argb_in: c_uint,
+        alpha: c_int,
+        argb_out: *mut c_uint,
+    ) -> c_int;
 
     pub fn ng_platform_get_clipboard_text() -> *mut c_char;
     pub fn ng_platform_free_clipboard_text(text: *mut c_char);

@@ -1,10 +1,15 @@
-//! The platform's dialogs: file open, save as and pick a folder, and message boxes.
+//! The platform's dialogs: file open, save as and pick a folder, message boxes, and the colour
+//! chooser.
 
-use std::ffi::{CStr, CString, c_int};
+use std::ffi::{CStr, CString, c_int, c_uint};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
 
-use crate::ffi::{ng_platform_file_dialog, ng_platform_free_dialog_paths, ng_platform_message_box};
+use crate::ffi::{
+    ng_platform_color_dialog, ng_platform_file_dialog, ng_platform_free_dialog_paths,
+    ng_platform_message_box,
+};
+use crate::render::Color;
 use crate::{AureaError, AureaResult, Platform, Window};
 
 const OPEN: c_int = 0;
@@ -247,6 +252,82 @@ impl MessageDialog {
     }
 }
 
+/// A colour chooser to set up, then show with [`show`](Self::show).
+#[derive(Clone, Debug)]
+pub struct ColorDialog {
+    title: String,
+    start: Color,
+    alpha: bool,
+}
+
+impl Default for ColorDialog {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ColorDialog {
+    /// Starts at black, without alpha.
+    pub fn new() -> Self {
+        Self {
+            title: String::new(),
+            start: Color::rgb(0, 0, 0),
+            alpha: false,
+        }
+    }
+
+    /// The window title.
+    pub fn title(mut self, title: impl Into<String>) -> Self {
+        self.title = title.into();
+        self
+    }
+
+    /// The colour shown first.
+    pub fn color(mut self, start: Color) -> Self {
+        self.start = start;
+        self
+    }
+
+    /// Offers opacity where the platform can (not Windows, whose chooser has none).
+    pub fn alpha(mut self, alpha: bool) -> Self {
+        self.alpha = alpha;
+        self
+    }
+
+    /// Waits for the person to pick; `None` when they cancel, including by closing the chooser.
+    pub fn show(self, window: &Window) -> AureaResult<Option<Color>> {
+        let title = CString::new(self.title).map_err(|_| AureaError::InvalidTitle)?;
+        let mut picked: c_uint = 0;
+        let answer = unsafe {
+            ng_platform_color_dialog(
+                window.handle(),
+                title.as_ptr(),
+                argb_of(self.start),
+                c_int::from(self.alpha),
+                &mut picked,
+            )
+        };
+        match answer {
+            1 => Ok(Some(color_of(picked))),
+            0 => Ok(None),
+            NG_ERROR_UNSUPPORTED => Err(AureaError::Unsupported {
+                operation: "color_dialog",
+                platform: Platform::current(),
+            }),
+            code => Err(AureaError::PlatformError(code)),
+        }
+    }
+}
+
+fn argb_of(color: Color) -> c_uint {
+    u32::from_be_bytes([color.a, color.r, color.g, color.b])
+}
+
+fn color_of(argb: c_uint) -> Color {
+    let [a, r, g, b] = argb.to_be_bytes();
+    Color::rgba(r, g, b, a)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -297,6 +378,32 @@ mod tests {
                 None,
                 None,
             ]
+        );
+    }
+
+    #[test]
+    fn colours_are_packed_as_argb_words() {
+        assert_eq!(argb_of(Color::rgba(0x11, 0x22, 0x33, 0x44)), 0x4411_2233);
+        assert_eq!(argb_of(Color::rgb(0, 0, 0)), 0xFF00_0000);
+    }
+
+    #[test]
+    fn argb_words_come_back_as_colours() {
+        assert_eq!(color_of(0x4411_2233), Color::rgba(0x11, 0x22, 0x33, 0x44));
+        assert_eq!(color_of(0x00FF_8000), Color::rgba(0xFF, 0x80, 0x00, 0x00));
+        let c = Color::rgba(9, 8, 7, 6);
+        assert_eq!(color_of(argb_of(c)), c);
+    }
+
+    #[test]
+    fn colour_dialog_starts_at_black_without_alpha() {
+        let d = ColorDialog::new();
+        assert_eq!(d.start, Color::rgb(0, 0, 0));
+        assert!(!d.alpha);
+        let d = d.color(Color::rgba(1, 2, 3, 4)).alpha(true).title("Pick");
+        assert_eq!(
+            (d.start, d.alpha, d.title.as_str()),
+            (Color::rgba(1, 2, 3, 4), true, "Pick")
         );
     }
 }
