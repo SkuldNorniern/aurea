@@ -64,6 +64,7 @@ pub struct Slider<'v> {
 
 const FINE: f32 = 0.1;
 const LAST_X: Channel = Channel::Custom(1);
+const RESET_HELD: Channel = Channel::Custom(2);
 
 impl<'v> Slider<'v> {
     pub fn new(value: &'v mut f32, range: RangeInclusive<f32>) -> Self {
@@ -124,9 +125,12 @@ impl<'v> Slider<'v> {
         (lo, span): (f32, f32),
     ) {
         let press = ui.press(id, 0);
-        if let (Some(reset), Some(press)) = (self.reset, press)
-            && press.clicks >= 2
+        let resetting = ui.state.tweens.get((Key::new(id, 0), RESET_HELD));
+        let double = press.is_some_and(|press| press.clicks >= 2);
+        if let Some(reset) = self.reset
+            && (double || resetting.is_some_and(|held| held > 0.5))
         {
+            ui.set_animated(id, 0, RESET_HELD, 1.0);
             *self.value = reset;
             return;
         }
@@ -172,6 +176,8 @@ impl<Id: WidgetId> Widget<Id> for Slider<'_> {
         let groove = rect.inset_xy(r, 0.0);
         if input.held {
             self.pointer(ui, id, groove, (lo, span));
+        } else {
+            ui.set_animated(id, 0, RESET_HELD, 0.0);
         }
         if input.focused {
             self.keys(ui, span);
@@ -235,8 +241,10 @@ fn snap(value: f32, lo: f32, hi: f32, step: Option<f32>) -> f32 {
         value.clamp(lo, hi)
     };
     match step {
-        Some(step) => (lo + ((value - lo) / step).round() * step).min(hi),
-        None => value,
+        Some(step) if step.is_finite() && step > 0.0 => {
+            (lo + ((value - lo) / step).round() * step).min(hi)
+        }
+        _ => value,
     }
 }
 
@@ -296,6 +304,27 @@ mod tests {
     }
 
     #[test]
+    fn a_reset_holds_until_release() {
+        let (mut raster, mut state, mut value) =
+            (CpuRasterizer::new(218, 24), UiState::new(), 55.0);
+        frame(&mut raster, &mut state, &mut value);
+        button(&mut state, 150.0, true, 2);
+        frame(&mut raster, &mut state, &mut value);
+        assert_eq!(value, 0.0);
+        moved(&mut state, 180.0, false);
+        frame(&mut raster, &mut state, &mut value);
+        assert_eq!(value, 0.0, "held reset ignores the drag");
+        button(&mut state, 180.0, false, 1);
+        frame(&mut raster, &mut state, &mut value);
+        button(&mut state, 180.0, true, 1);
+        frame(&mut raster, &mut state, &mut value);
+        assert!(
+            (value - 71.0).abs() < 0.01,
+            "a new press drags again: {value}"
+        );
+    }
+
+    #[test]
     fn shift_drags_finely() {
         let (mut raster, mut state, mut value) = (CpuRasterizer::new(218, 24), UiState::new(), 0.0);
         frame(&mut raster, &mut state, &mut value);
@@ -335,5 +364,8 @@ mod tests {
         assert_eq!(snap(f32::NEG_INFINITY, 2.0, 4.0, Some(0.5)), 2.0);
         assert_eq!(snap(f32::NAN, 2.0, 4.0, None), 2.0);
         assert_eq!(snap(9.9, 0.0, 10.0, Some(3.0)), 9.0);
+        assert_eq!(snap(0.37, 0.0, 1.0, Some(0.0)), 0.37);
+        assert_eq!(snap(0.37, 0.0, 1.0, Some(f32::NAN)), 0.37);
+        assert_eq!(snap(0.37, 0.0, 1.0, Some(-0.5)), 0.37);
     }
 }
