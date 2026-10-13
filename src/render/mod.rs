@@ -1,7 +1,6 @@
 //! Aurea's native rendering framework for custom drawing.
 
 mod canvas;
-pub mod graph;
 
 pub use aurea_render::cpu::measure_text;
 pub use aurea_render::vector::{Icon, SvgError, VectorImage, parse_path_data};

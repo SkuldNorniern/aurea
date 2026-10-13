@@ -9,12 +9,13 @@ mod theme;
 pub mod widget;
 
 pub use component::{
-    EditableText, FocusRing, Knob, PanZoom, StateColors, TextOutcome, Track, card,
+    EditableText, FocusRing, Knob, PanZoom, PlotView, StateColors, TextOutcome, Track, card,
 };
 pub use frame::{Align, Eased, PressAt, Response, Ui};
 pub use paint::{
-    Badge, BadgeTone, Border, Component, IconMark, IconSource, Label, Mark, MarkShape, Overflow,
-    Separator, Shadow, Spinner, Surface, TextSize,
+    AxisMarks, AxisSide, AxisStyle, Badge, BadgeTone, Border, Component, GridLines, GridStyle,
+    IconMark, IconSource, Label, Mark, MarkShape, Marker, Overflow, Separator, Shadow, Spinner,
+    Stroke, Surface, TextSize, Trace,
 };
 pub use state::{Channel, Fonts, Interaction, Sense, UiState, WidgetId};
 pub use theme::{Motion, Palette, Theme};
@@ -28,6 +29,8 @@ pub use widget::dock::{
 };
 pub use widget::dropdown::{Dropdown, DropdownStyle};
 pub use widget::empty::EmptyState;
+pub use widget::graph;
+pub use widget::graph::{GraphStyle, GraphView, ScopeStyle, ScopeView};
 pub use widget::link::{Link, LinkStyle};
 pub use widget::pager::{Pager, PagerStyle};
 pub use widget::popup::MenuItem;

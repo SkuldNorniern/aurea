@@ -1,8 +1,10 @@
 //! The smallest pieces: things that only draw.
 
 mod decor;
+mod graph;
 
 pub use decor::{Badge, BadgeTone, Separator, Spinner};
+pub use graph::{AxisMarks, AxisSide, AxisStyle, GridLines, GridStyle, Marker, Stroke, Trace};
 
 use crate::AureaResult;
 use crate::render::{Color, Font, Icon, Image, Point, Rect, VectorImage};

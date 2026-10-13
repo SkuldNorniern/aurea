@@ -1,6 +1,9 @@
 //! What a set of points looks like once it is drawn.
 
-use aurea_render::Color;
+use std::iter::Chain;
+use std::slice;
+
+use crate::render::Color;
 
 use super::buffer::SampleBuffer;
 
@@ -57,18 +60,22 @@ impl Points {
     }
 
     /// The points, in drawing order.
-    pub fn iter(&self) -> Box<dyn Iterator<Item = (f64, f64)> + '_> {
+    pub fn iter(&self) -> PointIter<'_> {
         match self {
             Self::Rolling {
                 samples,
                 x_start,
                 x_step,
             } => {
-                Box::new(samples.iter().enumerate().map(move |(i, y)| {
-                    (x_step.mul_add(super::numeric::count_to_f64(i), *x_start), y)
-                }))
+                let (head, tail) = samples.slices();
+                PointIter::Rolling {
+                    samples: head.iter().chain(tail),
+                    index: 0,
+                    x_start: *x_start,
+                    x_step: *x_step,
+                }
             }
-            Self::Xy(points) => Box::new(points.iter().copied()),
+            Self::Xy(points) => PointIter::Xy(points.iter()),
         }
     }
 
@@ -93,6 +100,38 @@ impl Points {
             ))
         } else {
             None
+        }
+    }
+}
+
+/// The points of a [`Points`], oldest first.
+pub enum PointIter<'p> {
+    Rolling {
+        samples: Chain<slice::Iter<'p, f64>, slice::Iter<'p, f64>>,
+        index: usize,
+        x_start: f64,
+        x_step: f64,
+    },
+    Xy(slice::Iter<'p, (f64, f64)>),
+}
+
+impl Iterator for PointIter<'_> {
+    type Item = (f64, f64);
+
+    fn next(&mut self) -> Option<(f64, f64)> {
+        match self {
+            Self::Rolling {
+                samples,
+                index,
+                x_start,
+                x_step,
+            } => {
+                let y = *samples.next()?;
+                let x = x_step.mul_add(super::numeric::count_to_f64(*index), *x_start);
+                *index += 1;
+                Some((x, y))
+            }
+            Self::Xy(points) => points.next().copied(),
         }
     }
 }

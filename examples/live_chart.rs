@@ -1,7 +1,11 @@
-//! A scrolling live chart in about a dozen lines.
+//! A scrolling live chart.
 
 use aurea::prelude::*;
+use aurea::render::request_canvas_redraw;
+use aurea::ui::{GraphView, Theme, UiState};
 use aurea_foundation::lock;
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 const W: u32 = 800;
@@ -10,12 +14,12 @@ const H: u32 = 400;
 fn main() -> AureaResult<()> {
     let mut window = Window::new("Live chart", W as i32, H as i32)?;
     let canvas = Canvas::new(W, H, RendererBackend::Cpu)?;
-    canvas.set_background_color(Color::rgb(16, 18, 22));
+    let theme = Theme::dark();
+    canvas.set_background_color(theme.palette.background);
 
     let (mut chart, load) = graph::quick::live("load", 600);
     let latency = chart.add_series(graph::Series::rolling("latency", 600));
     chart.y = graph::Axis::fixed(0.0, 100.0);
-
     let chart = Arc::new(Mutex::new(chart));
 
     let feed = Arc::clone(&chart);
@@ -28,11 +32,22 @@ fn main() -> AureaResult<()> {
         true
     });
 
-    let draw = Arc::clone(&chart);
+    let ui = Rc::new(RefCell::new(UiState::<u8>::new()));
+    let drawn = Rc::clone(&ui);
     canvas.set_draw_callback(move |ctx| {
         let area = Rect::new(0.0, 0.0, ctx.width() as f32, ctx.height() as f32);
-        lock(&draw).draw(ctx, area)
+        let mut state = drawn.borrow_mut();
+        let mut ui = state.frame(ctx, &theme);
+        GraphView::new(&mut lock(&chart)).show(&mut ui, 0, area.inset(12.0))?;
+        Ok(())
     })?;
+
+    let id = canvas.id();
+    window.on_event(move |event| {
+        if ui.borrow_mut().handle(&event) {
+            request_canvas_redraw(id);
+        }
+    });
 
     let mut layout = Stack::new(Orientation::Vertical)?;
     layout.add(canvas.clone())?;
