@@ -73,11 +73,13 @@ impl Animation {
 
         if self.elapsed >= self.duration {
             if self.looping {
-                // Duration has no Rem<Duration>; subtract in a loop (≤few iters in practice).
-                // The zero-duration case is handled above, so this terminates.
-                while self.elapsed >= self.duration {
-                    self.elapsed -= self.duration;
-                }
+                // The zero-duration case is handled above, so the modulo is safe.
+                // The remainder is below the duration, so its seconds fit in u64.
+                const NANOS_PER_SEC: u128 = 1_000_000_000;
+                let rem = self.elapsed.as_nanos() % self.duration.as_nanos();
+                let secs = u64::try_from(rem / NANOS_PER_SEC).unwrap_or(0);
+                let nanos = u32::try_from(rem % NANOS_PER_SEC).unwrap_or(0);
+                self.elapsed = Duration::new(secs, nanos);
             } else {
                 // Yield the terminal value once, then set sentinel for next call.
                 self.elapsed = self.duration + Duration::from_nanos(1);
