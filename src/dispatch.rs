@@ -69,8 +69,11 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    static TEST_QUEUE: Mutex<()> = Mutex::new(());
+
     #[test]
     fn queued_calls_run_once_in_order_and_may_queue_more() {
+        let _serial = lock(&TEST_QUEUE);
         let seen = Arc::new(Mutex::new(Vec::new()));
         let runs = Arc::new(AtomicUsize::new(0));
         for n in 0..3 {
@@ -95,6 +98,7 @@ mod tests {
 
     #[test]
     fn put_off_calls_run_at_the_next_drain_and_may_hold_rc() {
+        let _serial = lock(&TEST_QUEUE);
         use std::rc::Rc;
         let seen = Rc::new(RefCell::new(Vec::new()));
         let held = Rc::clone(&seen);
