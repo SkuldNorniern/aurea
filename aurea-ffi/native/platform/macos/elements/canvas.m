@@ -159,12 +159,14 @@ void ng_macos_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer,
         s_canvas_colorspace = CGColorSpaceCreateDeviceRGB();
     }
 
-    // Buffer is BGRA (u32 ARGB little-endian). No copy — wraps Rust's
-    // frame_buffer directly. Safe as long as the buffer outlives the image;
-    // the image is released at the end of this call and any reference held
-    // by the layer is replaced wholesale on the next update.
-    CGDataProviderRef provider = CGDataProviderCreateWithData(
-        NULL, (const void*)buffer, (size_t)width * height * 4, NULL);
+    // Buffer is BGRA (u32 ARGB little-endian). Copied: the layer keeps the
+    // image as its contents after this returns and Core Animation may read
+    // it again at any commit, long after Rust has resized or freed the
+    // buffer. Only reached when no IOSurface could be had.
+    CFDataRef pixels = CFDataCreate(NULL, buffer, (CFIndex)((size_t)width * height * 4));
+    if (!pixels) return;
+    CGDataProviderRef provider = CGDataProviderCreateWithCFData(pixels);
+    CFRelease(pixels);
     CGImageRef image = CGImageCreate(width, height, 8, 32, (size_t)width * 4,
         s_canvas_colorspace,
         (CGBitmapInfo)kCGImageAlphaFirst | kCGBitmapByteOrder32Little,
