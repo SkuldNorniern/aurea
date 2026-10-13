@@ -31,7 +31,7 @@ use crate::types::{
     BlendMode, Color, GlyphMask, GradientStop, Image, LinearGradient, Paint, PaintStyle, Path,
     PathCommand, Point, RadialGradient, Rect, Sampling,
 };
-use aurea_foundation::AureaResult;
+use aurea_foundation::{AureaError, AureaResult};
 
 pub struct CpuRasterizer {
     frame_buffer: Vec<u32>,
@@ -1330,49 +1330,44 @@ impl CpuRasterizer {
                 .map(|item| (item.cache_key, item.bounds)),
         );
     }
+
+    fn resize_buffer(&mut self, lw: u32, lh: u32, scale: f32) -> AureaResult<()> {
+        let scale = scale.max(1.0);
+        let (rw, rh) = Self::raster_dimensions(lw, lh, scale);
+        let new_len = (rw as usize)
+            .checked_mul(rh as usize)
+            .ok_or(AureaError::RenderingFailed)?;
+        self.frame_buffer
+            .try_reserve(new_len.saturating_sub(self.frame_buffer.len()))
+            .map_err(|_| AureaError::RenderingFailed)?;
+        self.frame_buffer.clear();
+        self.frame_buffer.resize(new_len, 0);
+        self.has_frame = false;
+        self.logical_width = lw;
+        self.logical_height = lh;
+        self.width = rw;
+        self.height = rh;
+        self.scale_factor = scale;
+        self.display_list.clear();
+        self.pending_damage = None;
+        self.prev_items.clear();
+        self.tile_hashes.clear();
+        self.last_frame_damage = None;
+        Ok(())
+    }
 }
 
 impl Renderer for CpuRasterizer {
     fn init(&mut self, _surface: Surface, info: SurfaceInfo) -> AureaResult<()> {
-        self.scale_factor = info.scale_factor.max(1.0);
-        self.logical_width = info.width;
-        self.logical_height = info.height;
-        let (rw, rh) = Self::raster_dimensions(info.width, info.height, info.scale_factor);
-        self.width = rw;
-        self.height = rh;
-        self.frame_buffer = vec![0u32; (rw * rh) as usize];
-        self.prev_items.clear();
-        self.tile_hashes.clear();
-        self.last_frame_damage = None;
-        Ok(())
+        self.configure(info)
     }
 
     fn configure(&mut self, info: SurfaceInfo) -> AureaResult<()> {
-        self.scale_factor = info.scale_factor.max(1.0);
-        self.resize(info.width, info.height)
+        self.resize_buffer(info.width, info.height, info.scale_factor)
     }
 
     fn resize(&mut self, lw: u32, lh: u32) -> AureaResult<()> {
-        self.has_frame = false;
-        self.logical_width = lw;
-        self.logical_height = lh;
-        let (rw, rh) = Self::raster_dimensions(lw, lh, self.scale_factor);
-        self.width = rw;
-        self.height = rh;
-
-        let new_len = (rw * rh) as usize;
-        self.frame_buffer.clear();
-        if new_len > self.frame_buffer.capacity() {
-            self.frame_buffer
-                .reserve(new_len - self.frame_buffer.capacity());
-        }
-        self.frame_buffer.resize(new_len, 0);
-
-        self.display_list.clear();
-        self.prev_items.clear();
-        self.tile_hashes.clear();
-        self.last_frame_damage = None;
-        Ok(())
+        self.resize_buffer(lw, lh, self.scale_factor)
     }
 
     fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext + '_>> {
@@ -2043,6 +2038,34 @@ mod diff_damage_tests {
             r.frame_output().is_none(),
             "an empty buffer of the new size is not a frame"
         );
+    }
+
+    #[test]
+    fn reinitialization_reuses_storage_and_invalidates_old_frame_state() {
+        let mut r = CpuRasterizer::new(32, 32);
+        {
+            r.begin_frame()
+                .expect("begin")
+                .clear(Color::rgb(255, 0, 0))
+                .expect("clear");
+        }
+        r.end_frame().expect("end");
+        r.set_damage(Some(Rect::new(4.0, 4.0, 1.0, 1.0)));
+        let storage = r.frame_buffer.as_ptr();
+        r.init(
+            Surface::Cpu,
+            SurfaceInfo {
+                width: 16,
+                height: 16,
+                scale_factor: 1.0,
+            },
+        )
+        .expect("reinit");
+        assert_eq!(r.frame_buffer.as_ptr(), storage);
+        assert!(r.frame_output().is_none());
+        assert!(r.display_list.items().is_empty());
+        assert!(r.pending_damage.is_none());
+        assert!(r.pixels().iter().all(|&pixel| pixel == 0));
     }
 }
 
