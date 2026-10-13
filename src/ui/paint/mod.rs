@@ -1,8 +1,10 @@
 //! The smallest pieces: things that only draw.
 
+mod color;
 mod decor;
 mod graph;
 
+pub use color::{AlphaStrip, Checker, HueStrip, PickRing, SvField};
 pub use decor::{Badge, BadgeTone, Separator, Spinner};
 pub use graph::{AxisMarks, AxisSide, AxisStyle, GridLines, GridStyle, Marker, Stroke, Trace};
 
