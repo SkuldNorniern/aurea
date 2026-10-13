@@ -1,10 +1,11 @@
-//! ZenGPU 3D cube rendered into an aurea window — unified graphics API.
+//! ZenGPU 3D cube rendered into an aurea window — unified graphics API, on
+//! the platform's native backend (Metal on macOS, Vulkan elsewhere).
 //!
 //! Depth-tested, indexed mesh with a per-vertex color and a push-constant MVP
 //! matrix. No raw `ash`/`vk` types: surface, pipeline, buffers, and recording
 //! all go through `zengpu_hal::{GraphicsDevice, Surface, RenderCommands}`. The
-//! depth attachment is a `DepthTarget` registered as a `TargetHandle` via
-//! `VulkanDevice::register_depth_target`.
+//! depth attachment is a `NativeDepthTarget` registered as a `TargetHandle` via
+//! `NativeDevice::register_depth_target`.
 //!
 //! Run: cargo run --example zengpu_cube --features zengpu
 
@@ -22,10 +23,10 @@ use {
         Acquire, Bindings, BufferDesc, BufferUsage, ColorAttachment, ColorTargetState,
         DepthAttachment, DepthState, DeviceRequest, Format, Frame, GpuAdapter, GpuDevice, GpuError,
         GraphicsDevice, GraphicsPipelineDesc, LoadOp, MemoryUsage, PresentMode, PrimitiveTopology,
-        Rect, RenderCommands, RenderPassDesc, Result, Scalar, ShaderDesc, Surface, SurfaceConfig,
-        VertexAttribute, VertexFormat, VertexLayout, Viewport, ViewportScissor, VulkanInstance,
+        Rect, RenderCommands, RenderPassDesc, Result, Scalar, Surface, SurfaceConfig,
+        VertexAttribute, VertexFormat, VertexLayout, Viewport, ViewportScissor, ZslShader,
         hal::{CompareFn, RasterState},
-        vulkan::DepthTarget,
+        native::{NativeInstance, shader},
     },
 };
 
@@ -118,7 +119,7 @@ fn rotate_x(a: f32) -> Mat4 {
 }
 
 /// Standard right-handed perspective. The viewport's negative height (set in
-/// `main`'s render loop) flips Y for Vulkan's +Y-down NDC, so no manual Y-flip
+/// `main`'s render loop) flips Y for ZSL's (Vulkan's) +Y-down NDC, so no manual Y-flip
 /// is needed here.
 fn perspective(fovy: f32, aspect: f32, near: f32, far: f32) -> Mat4 {
     let f = 1.0 / (fovy * 0.5).tan();
@@ -133,25 +134,18 @@ fn perspective(fovy: f32, aspect: f32, near: f32, far: f32) -> Mat4 {
 
 // ── Shaders ───────────────────────────────────────────────────────────────────
 
-const VERT_SPV: &[u32] = zsl!(
+const VERT_ZSL: ZslShader = zsl!(
     push Pc { mvp: mat4x4<f32> }
     vertex vs(@location(0) pos: f32x3, @location(1) color: f32x3, pc: Pc) -> (f32x4, f32x3) {
         (pc.mvp * pos.extend(1.0), color)
     }
-)
-.spv;
+);
 
-const FRAG_SPV: &[u32] = zsl!(
+const FRAG_ZSL: ZslShader = zsl!(
     fragment fs(@location(0) color: f32x3) -> f32x4 {
         color.extend(1.0)
     }
-)
-.spv;
-
-/// View SPIR-V words as the bytes [`ShaderDesc`] expects.
-fn spv_bytes(words: &[u32]) -> &[u8] {
-    unsafe { from_raw_parts(words.as_ptr() as *const u8, size_of_val(words)) }
-}
+);
 
 fn as_bytes<T: Copy>(slice: &[T]) -> &[u8] {
     unsafe { from_raw_parts(slice.as_ptr() as *const u8, size_of_val(slice)) }
@@ -163,12 +157,12 @@ fn run() -> Result<()> {
     let window = Window::new("ZenGPU — 3D Cube", 800, 600)
         .map_err(|e| GpuError::Backend(format!("window: {e}")))?;
 
-    let inst = VulkanInstance::new_with_surface()?;
+    let inst = NativeInstance::new_with_surface()?;
     let adapter = inst
-        .request_vulkan_adapter()
-        .ok_or_else(|| GpuError::Backend("no Vulkan adapter found".into()))?;
+        .request_graphics_adapter()
+        .ok_or_else(|| GpuError::Backend("no GPU adapter found".into()))?;
     eprintln!("ZenGPU: {}", adapter.info().name);
-    let device = adapter.open_with_surface(DeviceRequest::default())?;
+    let device = adapter.open_graphics(DeviceRequest::default())?;
 
     let handles = window
         .zengpu_handles()
@@ -182,8 +176,8 @@ fn run() -> Result<()> {
     };
     let surface = device.create_surface(&handles, config)?;
 
-    let vert_shader = device.create_shader(ShaderDesc::spirv(spv_bytes(VERT_SPV)))?;
-    let frag_shader = device.create_shader(ShaderDesc::spirv(spv_bytes(FRAG_SPV)))?;
+    let vert_shader = device.create_shader(shader(&VERT_ZSL))?;
+    let frag_shader = device.create_shader(shader(&FRAG_ZSL))?;
 
     let pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader: vert_shader,
@@ -237,8 +231,7 @@ fn run() -> Result<()> {
     })?;
     device.write_buffer(index_buf, 0, ibytes)?;
 
-    let ctx = device.context();
-    let mut depth = DepthTarget::new(&ctx, w.max(1), h.max(1))?;
+    let mut depth = device.create_depth_target(w.max(1), h.max(1))?;
     let mut depth_target = device.register_depth_target(&depth);
 
     let start = Instant::now();
@@ -257,7 +250,7 @@ fn run() -> Result<()> {
         let (sw, sh) = surface.size();
         if depth.extent() != (sw, sh) {
             device.unregister_render_target(depth_target);
-            depth = DepthTarget::new(&ctx, sw.max(1), sh.max(1))?;
+            depth = device.create_depth_target(sw.max(1), sh.max(1))?;
             depth_target = device.register_depth_target(&depth);
         }
 
