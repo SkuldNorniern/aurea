@@ -85,6 +85,12 @@ impl VectorImage {
             }
             let parent = *stack.last().unwrap_or(&Style::default());
             let style = apply_style(parent, attrs, at)?;
+            if matches!(name, "svg" | "g") && style.opacity != 1.0 {
+                return Err(SvgError {
+                    at,
+                    reason: "isolated SVG group opacity is unsupported",
+                });
+            }
             match name {
                 "svg" => {
                     image.view_box = view_box(attrs, at)?;
@@ -92,6 +98,16 @@ impl VectorImage {
                 "g" => {}
                 _ => {
                     if let Some(path) = shape_path(name, attrs, at)? {
+                        if style.opacity != 1.0
+                            && style.fill != Ink::None
+                            && style.stroke != Ink::None
+                            && style.stroke_width > 0.0
+                        {
+                            return Err(SvgError {
+                                at,
+                                reason: "isolated SVG object opacity is unsupported",
+                            });
+                        }
                         image.push(path, style);
                     }
                 }
@@ -620,6 +636,49 @@ mod tests {
             Some(PathCommand::MoveTo(p)) => Some(*p),
             _ => None,
         }
+    }
+
+    #[test]
+    fn translucent_groups_are_rejected_instead_of_double_composited() {
+        let overlapping = "<svg viewBox='0 0 4 4'><g opacity='0.5'><rect width='4' height='4' fill='red'/><rect width='4' height='4' fill='red'/></g></svg>";
+        let err = VectorImage::parse(overlapping).unwrap_err();
+        assert_eq!(err.reason, "isolated SVG group opacity is unsupported");
+        assert!(VectorImage::parse("<svg opacity='0.5' viewBox='0 0 4 4'/>").is_err());
+        assert!(
+            VectorImage::parse("<svg viewBox='0 0 4 4'><g style='opacity:0.5'/></svg>").is_err()
+        );
+        assert!(VectorImage::parse("<svg viewBox='0 0 4 4'><g opacity='1'><rect opacity='0.5' width='4' height='4'/></g></svg>").is_ok());
+    }
+
+    #[test]
+    fn supported_shape_opacity_has_the_expected_pixel_alpha() {
+        use crate::{CpuRasterizer, Renderer};
+        let image = VectorImage::parse(
+            "<svg viewBox='0 0 4 4'><rect opacity='0.5' width='4' height='4' fill='red'/></svg>",
+        )
+        .unwrap();
+        let mut raster = CpuRasterizer::new(4, 4);
+        {
+            let mut ctx = raster.begin_frame().unwrap();
+            ctx.clear(Color {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
+            })
+            .unwrap();
+            image
+                .draw(
+                    ctx.as_mut(),
+                    Rect::new(0.0, 0.0, 4.0, 4.0),
+                    Color::rgb(0, 0, 0),
+                )
+                .unwrap();
+        }
+        raster.end_frame().unwrap();
+        let frame = raster.frame_output().unwrap();
+        assert!((127..=128).contains(&(frame.words()[10] >> 24)));
+        assert!(VectorImage::parse("<svg viewBox='0 0 4 4'><rect opacity='0.5' width='4' height='4' fill='red' stroke='red'/></svg>").is_err());
     }
 
     #[test]
