@@ -150,10 +150,15 @@
     NSPoint screenLoc = [self.window convertPointToScreen:[event locationInWindow]];
     NSRect winFrame = self.window.frame;
 
-    if (_isDragging) {
+    NSInteger dragged = _dragStartIndex;
+    BOOL wasDragging = _isDragging;
+    _dragStartIndex = -1;
+    _isDragging = NO;
+
+    if (wasDragging) {
         if (screenLoc.x < winFrame.origin.x || screenLoc.x > winFrame.origin.x + winFrame.size.width ||
             screenLoc.y < winFrame.origin.y || screenLoc.y > winFrame.origin.y + winFrame.size.height) {
-            ng_invoke_tab_bar_detach(_tabBarId, (int)_dragStartIndex);
+            ng_invoke_tab_bar_detach(_tabBarId, (int)dragged);
         }
     } else {
         NSInteger seg = [self segmentAtPoint:loc];
@@ -163,8 +168,6 @@
             ng_invoke_tab_bar_selected(_tabBarId, (int)seg);
         }
     }
-    _dragStartIndex = -1;
-    _isDragging = NO;
 }
 @end
 
