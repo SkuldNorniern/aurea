@@ -1,15 +1,15 @@
 //! Surface bring-up for the unified-API painter — `device.create_surface()` only.
 
 use zengpu_hal::{Format, GraphicsDevice, PresentMode, Result, SurfaceConfig, WindowHandles};
-use zengpu_vulkan::{VulkanDevice, VulkanSurface};
+use zengpu::native::{NativeDevice, NativeSurface};
 
 /// Create the painter's presentable surface.
 pub fn create_surface(
-    device: &VulkanDevice,
+    device: &NativeDevice,
     window: &WindowHandles,
     width: u32,
     height: u32,
-) -> Result<VulkanSurface> {
+) -> Result<NativeSurface> {
     device.create_surface(
         window,
         SurfaceConfig {

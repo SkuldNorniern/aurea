@@ -6,7 +6,7 @@
 use std::array::from_fn;
 
 use zengpu_hal::{BufferDesc, BufferHandle, BufferUsage, GpuDevice, MemoryUsage, Result};
-use zengpu_vulkan::VulkanDevice;
+use zengpu::native::NativeDevice;
 
 const BUFFER_RING: usize = 3;
 
@@ -34,7 +34,7 @@ impl GrowableBuffer {
     }
 
     /// Upload `data`, growing the backing buffer if it doesn't fit.
-    pub fn upload(&mut self, device: &VulkanDevice, data: &[u8]) -> Result<Option<BufferHandle>> {
+    pub fn upload(&mut self, device: &NativeDevice, data: &[u8]) -> Result<Option<BufferHandle>> {
         if data.is_empty() {
             return Ok(None);
         }
@@ -62,7 +62,7 @@ impl GrowableBuffer {
         Ok(Some(handle))
     }
 
-    pub fn destroy(&mut self, device: &VulkanDevice) {
+    pub fn destroy(&mut self, device: &NativeDevice) {
         for slot in &mut self.slots {
             if let Some(handle) = slot.handle.take() {
                 device.destroy_buffer(handle);

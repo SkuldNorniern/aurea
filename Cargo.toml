@@ -58,7 +58,8 @@ jni = "0.21"
 # so it stays opt-in until it does.
 default = []
 wgpu = ["dep:wgpu"]
-# GPU 2D backend via ZenGPU (Vulkan). Opt-in, experimental.
+# GPU 2D backend via ZenGPU: Metal on macOS, Vulkan elsewhere. Opt-in,
+# experimental.
 # Forwards to aurea-render (which owns the ZenGpuRenderer) and pulls in
 # zengpu-hal so the root crate can build WindowHandles for the window-level API.
 zengpu = [
@@ -97,14 +98,17 @@ optional = true
 git = "https://github.com/SkuldNorniern/ZenGPU"
 rev = "52dc95be434ad9567bd8a09fb412d963aeb96a11"
 version = "0.0.1"
-features = ["vulkan"]
+default-features = false
+features = ["vulkan", "metal"]
 optional = true
 
-# What the examples' `zsl!` shaders expand to.
+# What the examples' `zsl!` shaders expand to: SPIR-V and MSL, so they run
+# on Vulkan and Metal alike.
 [dependencies.zengpu-spirv]
 git = "https://github.com/SkuldNorniern/ZenGPU"
 rev = "52dc95be434ad9567bd8a09fb412d963aeb96a11"
 version = "0.0.1"
+features = ["metal"]
 optional = true
 
 [[example]]

@@ -1,16 +1,8 @@
 //! The painter's shaders, in ZSL.
 
-use std::mem::size_of_val;
-use std::slice::from_raw_parts;
+use zengpu_spirv::{ZslShader, zsl};
 
-use zengpu_spirv::zsl;
-
-/// View SPIR-V words as the bytes [`zengpu_hal::ShaderDesc`] expects.
-pub fn spv_bytes(words: &[u32]) -> &[u8] {
-    unsafe { from_raw_parts(words.as_ptr() as *const u8, size_of_val(words)) }
-}
-
-pub const RECT_VERT_SPV: &[u32] = zsl!(
+pub const RECT_VERT: ZslShader = zsl!(
     push Pc { viewport: f32x2 }
     vertex rect_vs(
         @location(0) rect: f32x4,
@@ -22,17 +14,15 @@ pub const RECT_VERT_SPV: &[u32] = zsl!(
         let px = rect.xy + corner * rect.zw
         (f32x4(px / pc.viewport * 2.0 - 1.0, 0.0, 1.0), color)
     }
-)
-.spv;
+);
 
-pub const RECT_FRAG_SPV: &[u32] = zsl!(
+pub const RECT_FRAG: ZslShader = zsl!(
     fragment rect_fs(@location(0) color: f32x4) -> f32x4 {
         color
     }
-)
-.spv;
+);
 
-pub const SHAPE_VERT_SPV: &[u32] = zsl!(
+pub const SHAPE_VERT: ZslShader = zsl!(
     push Pc { viewport: f32x2 }
     vertex shape_vs(
         @location(0) rect: f32x4,
@@ -47,10 +37,9 @@ pub const SHAPE_VERT_SPV: &[u32] = zsl!(
         let px = rect.xy + half_size + local
         (f32x4(px / pc.viewport * 2.0 - 1.0, 0.0, 1.0), local, color, half_size, shape.xy)
     }
-)
-.spv;
+);
 
-pub const SHAPE_FRAG_SPV: &[u32] = zsl!(
+pub const SHAPE_FRAG: ZslShader = zsl!(
     fragment shape_fs(
         @location(0) local: f32x2,
         @location(1) color: f32x4,
@@ -69,10 +58,9 @@ pub const SHAPE_FRAG_SPV: &[u32] = zsl!(
         }
         f32x4(color.rgb, color.a * alpha)
     }
-)
-.spv;
+);
 
-pub const GRADIENT_VERT_SPV: &[u32] = zsl!(
+pub const GRADIENT_VERT: ZslShader = zsl!(
     push Pc { viewport: f32x2 }
     vertex gradient_vs(
         @location(0) rect: f32x4,
@@ -85,10 +73,9 @@ pub const GRADIENT_VERT_SPV: &[u32] = zsl!(
         let px = rect.xy + corner * rect.zw
         (f32x4(px / pc.viewport * 2.0 - 1.0, 0.0, 1.0), px, a, b)
     }
-)
-.spv;
+);
 
-pub const GRADIENT_FRAG_SPV: &[u32] = zsl!(
+pub const GRADIENT_FRAG: ZslShader = zsl!(
     push Pc { viewport: f32x2, slot: u32 }
     fragment gradient_fs(
         @location(0) px: f32x2,
@@ -107,10 +94,9 @@ pub const GRADIENT_FRAG_SPV: &[u32] = zsl!(
         let u = (clamp(t, 0.0, 1.0) * 255.0 + 0.5) / 256.0
         lut[pc.slot].sample(f32x2(u, 0.5))
     }
-)
-.spv;
+);
 
-pub const IMAGE_VERT_SPV: &[u32] = zsl!(
+pub const IMAGE_VERT: ZslShader = zsl!(
     push Pc { viewport: f32x2 }
     vertex image_vs(
         @location(0) rect: f32x4,
@@ -124,10 +110,9 @@ pub const IMAGE_VERT_SPV: &[u32] = zsl!(
         let px = rect.xy + corner * rect.zw
         (f32x4(px / pc.viewport * 2.0 - 1.0, 0.0, 1.0), mix(uv.xy, uv.zw, corner), tint, sampling)
     }
-)
-.spv;
+);
 
-pub const IMAGE_FRAG_SPV: &[u32] = zsl!(
+pub const IMAGE_FRAG: ZslShader = zsl!(
     push Pc { viewport: f32x2, slot: u32 }
     fragment image_fs(
         @location(0) uv: f32x2,
@@ -142,10 +127,9 @@ pub const IMAGE_FRAG_SPV: &[u32] = zsl!(
         }
         tex[pc.slot].sample(at) * tint
     }
-)
-.spv;
+);
 
-pub const TEXT_VERT_SPV: &[u32] = zsl!(
+pub const TEXT_VERT: ZslShader = zsl!(
     push Pc { viewport: f32x2 }
     vertex text_vs(
         @location(0) rect: f32x4,
@@ -157,10 +141,9 @@ pub const TEXT_VERT_SPV: &[u32] = zsl!(
         let px = rect.xy + corner * rect.zw
         (f32x4(px / pc.viewport * 2.0 - 1.0, 0.0, 1.0), corner, color)
     }
-)
-.spv;
+);
 
-pub const TEXT_FRAG_SPV: &[u32] = zsl!(
+pub const TEXT_FRAG: ZslShader = zsl!(
     push Pc { viewport: f32x2, slot: u32 }
     fragment text_fs(@location(0) uv: f32x2, @location(1) color: f32x4, tex: textures, pc: Pc) -> f32x4 {
         let alpha = tex[pc.slot].sample(uv).a * color.a
@@ -169,10 +152,9 @@ pub const TEXT_FRAG_SPV: &[u32] = zsl!(
         }
         f32x4(color.rgb, alpha)
     }
-)
-.spv;
+);
 
-pub const TEXT_DUAL_SOURCE_FRAG_SPV: &[u32] = zsl!(
+pub const TEXT_DUAL_SOURCE_FRAG: ZslShader = zsl!(
     push Pc { viewport: f32x2, slot: u32 }
     fragment text_lcd_fs(@location(0) uv: f32x2, @location(1) color: f32x4, tex: textures, pc: Pc)
         -> (@location(0) @blend_src(0) f32x4, @location(0) @blend_src(1) f32x4)
@@ -184,8 +166,7 @@ pub const TEXT_DUAL_SOURCE_FRAG_SPV: &[u32] = zsl!(
         }
         (f32x4(color.rgb, 1.0), f32x4(coverage, alpha))
     }
-)
-.spv;
+);
 
 #[cfg(test)]
 mod tests {
