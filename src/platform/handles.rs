@@ -161,7 +161,7 @@ pub(crate) fn native_handle_from_window_ptr(window: *mut c_void) -> Option<Nativ
 
 /// The native handle behind a canvas pointer. Crate-only, for the same
 /// reason as [`native_handle_from_window_ptr`].
-#[cfg(any(feature = "wgpu", feature = "zengpu"))]
+#[cfg(any(feature = "wgpu", all(feature = "zengpu", not(target_os = "macos"))))]
 pub(crate) fn native_handle_from_canvas_ptr(canvas: *mut c_void) -> Option<NativeWindowHandle> {
     #[cfg(target_os = "macos")]
     {
