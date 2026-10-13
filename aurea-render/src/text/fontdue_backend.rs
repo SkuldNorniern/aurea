@@ -1,15 +1,16 @@
 //! fontdue glyph rasterizer — cross-platform fallback backend.
 
 use crate::numeric::{f32_to_i32_clamped, f32_to_u8_clamped};
-use crate::text::atlas::{GlyphBitmap, GlyphKey};
+use crate::text::glyph::{FaceData, FaceId, GlyphCoverage, GlyphKey};
 use crate::text::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph};
 use crate::text::{GLYPH_BYTES, LruCache};
-use crate::types::{FontStyle, FontWeight, TextMetrics};
+use crate::types::{FontStyle, FontWeight};
 use aurea_foundation::{AureaError, AureaResult, lock};
 use fontdue::{Font, FontSettings};
 use std::env::var;
 #[cfg(target_os = "windows")]
 use std::env::var_os;
+use std::collections::HashMap;
 use std::fs::{read, read_dir};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -207,97 +208,100 @@ fn find_font_file<'a>(
         .map(|(_, _, path)| path.as_path())
 }
 
-fn load_font_file(path: &Path) -> Option<Font> {
-    let data = read(path).ok()?;
-    Font::from_bytes(
-        data,
-        FontSettings {
-            collection_index: 0,
-            ..FontSettings::default()
-        },
-    )
-    .ok()
+struct Face {
+    font: Font,
+    data: Arc<FaceData>,
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum FaceSource {
+    File(PathBuf),
+    Embedded,
 }
 
 pub struct FontDbTextRasterizer {
     dirs: Vec<PathBuf>,
     files: OnceLock<Vec<FontFile>>,
-    fallbacks: Vec<OnceLock<Option<Arc<Font>>>>,
-    font_cache: Mutex<LruCache<FontKey, Arc<Font>>>,
+    faces: Mutex<Vec<Arc<Face>>>,
+    loaded: Mutex<HashMap<FaceSource, FaceId>>,
+    fallbacks: Vec<OnceLock<Option<FaceId>>>,
+    font_cache: Mutex<LruCache<FontKey, FaceId>>,
     subpixel_cache: Mutex<LruCache<GlyphKey, Arc<SubpixelGlyph>>>,
 }
+
+static EMBEDDED: &[u8] = include_bytes!("../../fonts/Tuffy.ttf");
 
 impl FontDbTextRasterizer {
     pub fn new() -> Self {
         Self {
             dirs: font_search_dirs(),
             files: OnceLock::new(),
+            faces: Mutex::new(Vec::new()),
+            loaded: Mutex::new(HashMap::new()),
             fallbacks: fallback_stems().iter().map(|_| OnceLock::new()).collect(),
             font_cache: Mutex::new(LruCache::new(32)),
             subpixel_cache: Mutex::new(LruCache::with_budget(512, GLYPH_BYTES)),
         }
     }
 
-    fn resolve_font(&self, font: FontRef) -> AureaResult<Arc<Font>> {
-        let key = FontKey::from_font(font);
-
-        if let Some(hit) = lock(&self.font_cache).get(&key).cloned() {
-            return Ok(hit);
-        }
-
-        let loaded = self.load_for_key(font)?;
-        lock(&self.font_cache).insert(key, loaded.clone());
-        Ok(loaded)
-    }
-
     fn files(&self) -> &[FontFile] {
         self.files.get_or_init(|| scan_font_files(&self.dirs))
     }
 
-    fn fallback(&self, slot: usize) -> Option<Arc<Font>> {
-        let stem = fallback_stems().get(slot)?;
-        self.fallbacks
-            .get(slot)?
-            .get_or_init(|| {
-                let (_, path) = self.files().iter().find(|(s, _)| s == stem)?;
-                load_font_file(path).map(Arc::new)
-            })
-            .clone()
+    fn get(&self, face: FaceId) -> AureaResult<Arc<Face>> {
+        lock(&self.faces)
+            .get(face.0 as usize)
+            .cloned()
+            .ok_or(AureaError::RenderingFailed)
     }
 
-    fn font_for_char(&self, primary: &Arc<Font>, ch: char) -> Arc<Font> {
-        if ch.is_whitespace() || ch.is_control() || primary.has_glyph(ch) {
-            return primary.clone();
+    fn load(&self, source: FaceSource) -> Option<FaceId> {
+        if let Some(&id) = lock(&self.loaded).get(&source) {
+            return Some(id);
         }
-        (0..self.fallbacks.len())
-            .filter_map(|slot| self.fallback(slot))
-            .find(|font| font.has_glyph(ch))
-            .unwrap_or_else(|| primary.clone())
-    }
-
-    fn load_for_key(&self, font: FontRef) -> AureaResult<Arc<Font>> {
-        if let Some(path) = find_font_file(font.family, font.weight, font.style, self.files())
-            && let Some(f) = load_font_file(path)
-        {
-            return Ok(Arc::new(f));
-        }
-
-        if let Some(f) = (0..self.fallbacks.len()).find_map(|slot| self.fallback(slot)) {
-            return Ok(f);
-        }
-
-        static EMBEDDED: &[u8] = include_bytes!("../../fonts/Tuffy.ttf");
-        if let Ok(f) = Font::from_bytes(
-            EMBEDDED,
+        let bytes = match &source {
+            FaceSource::File(path) => read(path).ok()?,
+            FaceSource::Embedded => EMBEDDED.to_vec(),
+        };
+        let font = Font::from_bytes(
+            &bytes[..],
             FontSettings {
                 collection_index: 0,
                 ..FontSettings::default()
             },
-        ) {
-            return Ok(Arc::new(f));
-        }
+        )
+        .ok()?;
+        let data = Arc::new(FaceData::new(Arc::new(bytes), 0)?);
+        let mut faces = lock(&self.faces);
+        let id = FaceId(u32::try_from(faces.len()).ok()?);
+        faces.push(Arc::new(Face { font, data }));
+        lock(&self.loaded).insert(source, id);
+        Some(id)
+    }
 
-        Err(AureaError::RenderingFailed)
+    fn fallback(&self, slot: usize) -> Option<FaceId> {
+        let stem = fallback_stems().get(slot)?;
+        *self.fallbacks.get(slot)?.get_or_init(|| {
+            let (_, path) = self.files().iter().find(|(s, _)| s == stem)?;
+            self.load(FaceSource::File(path.clone()))
+        })
+    }
+
+    fn has_glyph(&self, face: FaceId, ch: char) -> bool {
+        self.get(face)
+            .is_ok_and(|f| f.font.lookup_glyph_index(ch) != 0)
+    }
+
+    fn load_for_key(&self, font: FontRef) -> AureaResult<FaceId> {
+        if let Some(path) = find_font_file(font.family, font.weight, font.style, self.files())
+            && let Some(id) = self.load(FaceSource::File(path.to_path_buf()))
+        {
+            return Ok(id);
+        }
+        (0..self.fallbacks.len())
+            .find_map(|slot| self.fallback(slot))
+            .or_else(|| self.load(FaceSource::Embedded))
+            .ok_or(AureaError::RenderingFailed)
     }
 }
 
@@ -308,44 +312,49 @@ impl Default for FontDbTextRasterizer {
 }
 
 impl PlatformTextRasterizer for FontDbTextRasterizer {
-    fn rasterize_glyph(&self, font: FontRef, char_code: u32) -> AureaResult<GlyphBitmap> {
-        let ch = char::from_u32(char_code).unwrap_or('\u{FFFD}');
-        let fnt = self.font_for_char(&self.resolve_font(font)?, ch);
-        let (m, bmp) = fnt.rasterize(ch, font.size);
-
-        let width = u32::try_from(m.width).expect("glyph width fits in u32");
-        let height = u32::try_from(m.height).expect("glyph height fits in u32");
-        let mut data = vec![0u8; (width * height * 4) as usize];
-        for (i, alpha) in bmp.iter().copied().enumerate() {
-            let base = i * 4;
-            if base + 3 < data.len() {
-                data[base] = 255;
-                data[base + 1] = 255;
-                data[base + 2] = 255;
-                data[base + 3] = alpha;
-            }
+    fn face(&self, font: FontRef) -> AureaResult<FaceId> {
+        let key = FontKey::from_font(font);
+        if let Some(&hit) = lock(&self.font_cache).get(&key) {
+            return Ok(hit);
         }
-
-        Ok(GlyphBitmap {
-            width,
-            height,
-            data,
-            bearing_x: m.xmin as f32,
-            bearing_y: m.height as f32 + m.ymin as f32,
-            advance: m.advance_width,
-        })
+        let id = self.load_for_key(font)?;
+        lock(&self.font_cache).insert(key, id);
+        Ok(id)
     }
 
-    fn rasterize_subpixel(&self, font: FontRef, char_code: u32) -> AureaResult<Arc<SubpixelGlyph>> {
-        let key = GlyphKey::new(font, char_code);
+    fn face_for_char(&self, _font: FontRef, primary: FaceId, ch: char) -> FaceId {
+        if ch.is_whitespace() || ch.is_control() || self.has_glyph(primary, ch) {
+            return primary;
+        }
+        (0..self.fallbacks.len())
+            .filter_map(|slot| self.fallback(slot))
+            .find(|&face| self.has_glyph(face, ch))
+            .unwrap_or(primary)
+    }
+
+    fn face_data(&self, face: FaceId) -> AureaResult<Arc<FaceData>> {
+        Ok(self.get(face)?.data.clone())
+    }
+
+    fn face_metrics(&self, face: FaceId, size: f32) -> (f32, f32) {
+        self.get(face)
+            .ok()
+            .and_then(|f| f.font.horizontal_line_metrics(size))
+            .map_or((size * 0.8, size * 0.2), |lm| (lm.ascent, lm.descent.abs()))
+    }
+
+    fn rasterize_subpixel(
+        &self,
+        face: FaceId,
+        glyph: u16,
+        size: f32,
+    ) -> AureaResult<Arc<SubpixelGlyph>> {
+        let key = GlyphKey::new(face, glyph, size);
         if let Some(hit) = lock(&self.subpixel_cache).get(&key).cloned() {
             return Ok(hit);
         }
 
-        let ch = char::from_u32(char_code).unwrap_or('\u{FFFD}');
-        let fnt = self.font_for_char(&self.resolve_font(font)?, ch);
-
-        let (m, bmp) = fnt.rasterize(ch, font.size * 3.0);
+        let (m, bmp) = self.get(face)?.font.rasterize_indexed(glyph, size * 3.0);
         let w3 = i32::try_from(m.width).expect("glyph width fits in i32");
         let h3 = i32::try_from(m.height).expect("glyph height fits in i32");
 
@@ -355,7 +364,6 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
                 height: 0,
                 left: 0,
                 top: 0,
-                advance: m.advance_width / 3.0,
                 coverage: Vec::new(),
             }
         } else {
@@ -406,7 +414,6 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
                 height: u32::try_from(dev_h).expect("glyph height fits in u32"),
                 left: f32_to_i32_clamped((m.xmin as f32 / 3.0).round()),
                 top: -f32_to_i32_clamped(((h3 + m.ymin) as f32 / 3.0).round()),
-                advance: m.advance_width / 3.0,
                 coverage,
             }
         };
@@ -417,28 +424,15 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
         Ok(g)
     }
 
-    fn measure_text(&self, text: &str, font: FontRef) -> AureaResult<TextMetrics> {
-        let fnt = self.resolve_font(font)?;
-        let advance: f32 = text
-            .chars()
-            .map(|c| {
-                self.font_for_char(&fnt, c)
-                    .metrics(c, font.size)
-                    .advance_width
-            })
-            .sum();
-
-        let (ascent, descent) = fnt
-            .horizontal_line_metrics(font.size)
-            .map(|lm| (lm.ascent, lm.descent.abs()))
-            .unwrap_or((font.size * 0.8, font.size * 0.2));
-
-        Ok(TextMetrics {
-            width: advance,
-            height: (ascent + descent).max(0.0),
-            ascent,
-            descent,
-            advance,
+    fn rasterize_gray(&self, face: FaceId, glyph: u16, size: f32) -> AureaResult<GlyphCoverage> {
+        let (m, coverage) = self.get(face)?.font.rasterize_indexed(glyph, size);
+        let height = i32::try_from(m.height).expect("glyph height fits in i32");
+        Ok(GlyphCoverage {
+            width: u32::try_from(m.width).expect("glyph width fits in u32"),
+            height: height.unsigned_abs(),
+            left: m.xmin,
+            top: -(height + m.ymin),
+            coverage,
         })
     }
 }
@@ -456,22 +450,22 @@ mod tests {
     fn loads_a_font_or_fallback() {
         let r = FontDbTextRasterizer::new();
         let font = Font::new("__no_such_font__", 14.0);
-        let m = r
-            .measure_text("A", (&font).into())
-            .expect("should fall back to a system font");
-        assert!(m.ascent > 0.0);
+        let face = r.face((&font).into()).expect("should fall back to a system font");
+        assert!(r.face_metrics(face, 14.0).0 > 0.0);
+        assert!(r.has_glyph(face, 'A'));
     }
 
     #[test]
     fn a_missing_glyph_comes_from_a_fallback() {
         let r = FontDbTextRasterizer::new();
         let font = Font::new("__no_such_font__", 14.0);
-        let primary = r.resolve_font((&font).into()).expect("some font");
+        let primary = r.face((&font).into()).expect("some font");
         let covered = (0..r.fallbacks.len())
             .filter_map(|slot| r.fallback(slot))
-            .any(|f| f.has_glyph('가'));
-        assert_eq!(r.font_for_char(&primary, '가').has_glyph('가'), covered);
-        assert!(Arc::ptr_eq(&r.font_for_char(&primary, ' '), &primary));
+            .any(|f| r.has_glyph(f, '가'));
+        let drawn = r.face_for_char((&font).into(), primary, '가');
+        assert_eq!(r.has_glyph(drawn, '가'), covered);
+        assert_eq!(r.face_for_char((&font).into(), primary, ' '), primary);
     }
 
     fn files(stems: &[&str]) -> Vec<FontFile> {

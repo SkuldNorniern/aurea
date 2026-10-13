@@ -4,14 +4,14 @@ use crate::renderer::DrawingContext;
 use crate::scene::command::DrawCommand;
 use crate::scene::display_list::{CacheKey, DisplayIndex, DisplayItem, DisplayList};
 use crate::scene::hit_test::{hit_test_path, path_bounds};
-use crate::text::{FontRef, TextRenderer};
+use crate::text::{FaceData, FaceId, FontRef, GlyphCoverage, ShapedText, TextRenderer};
 use crate::types::*;
 use aurea_foundation::{AureaError, AureaResult, Platform};
 use std::collections::hash_map::DefaultHasher;
 use std::f32::consts::{SQRT_2, TAU};
 use std::hash::{Hash, Hasher};
 use std::mem::discriminant;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 static TEXT_RENDERER: LazyLock<TextRenderer> = LazyLock::new(TextRenderer::new);
 const DEFAULT_FONT_FAMILY: &str = "Sans";
@@ -29,6 +29,28 @@ pub fn measure_text(text: &str, font: &Font) -> AureaResult<TextMetrics> {
         });
     }
     TEXT_RENDERER.measure_text(text, FontRef::with_size(font, font.size))
+}
+
+/// `text` in `font` shaped as one line at logical size, by the engine that draws it: glyph ids, the
+/// faces drawing them (fallbacks included), clusters and positions.
+pub fn shape_text(text: &str, font: &Font) -> AureaResult<Arc<ShapedText>> {
+    TEXT_RENDERER.shape(text, FontRef::with_size(font, font.size))
+}
+
+/// A shaped glyph's outline at `size` pixels, pen at the origin on the baseline; `None` for one
+/// with no outline, like a space.
+pub fn glyph_outline(face: FaceId, glyph: u16, size: f32) -> AureaResult<Option<Path>> {
+    TEXT_RENDERER.glyph_outline(face, glyph, size)
+}
+
+/// A shaped glyph's grayscale coverage at `size` pixels.
+pub fn glyph_coverage(face: FaceId, glyph: u16, size: f32) -> AureaResult<GlyphCoverage> {
+    TEXT_RENDERER.glyph_coverage(face, glyph, size)
+}
+
+/// The font file behind a shaped glyph's face.
+pub fn face_data(face: FaceId) -> AureaResult<Arc<FaceData>> {
+    TEXT_RENDERER.face_data(face)
 }
 const DEFAULT_FONT_SIZE: f32 = 16.0;
 

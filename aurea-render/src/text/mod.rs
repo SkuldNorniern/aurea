@@ -1,15 +1,18 @@
 //! Text rendering for Canvas.
 
-pub mod atlas;
 pub mod font;
+pub mod glyph;
+pub mod outline;
 pub mod platform;
+pub mod shape;
 
 #[cfg(windows)]
 mod directwrite_backend;
 mod fontdue_backend;
 
-pub use atlas::*;
+pub use glyph::*;
 pub use platform::*;
+pub use shape::*;
 
 pub(crate) const GLYPH_BYTES: usize = 4 << 20;
 pub(crate) const MASK_BYTES: usize = 8 << 20;
