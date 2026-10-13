@@ -2293,3 +2293,87 @@ mod tile_cache_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod scale_tests {
+    use super::*;
+
+    fn frame_at(scale: f32, draw: impl FnOnce(&mut dyn DrawingContext)) -> CpuRasterizer {
+        let mut r = CpuRasterizer::new(40, 40);
+        r.init(
+            Surface::Cpu,
+            SurfaceInfo {
+                width: 40,
+                height: 40,
+                scale_factor: scale,
+            },
+        )
+        .unwrap();
+        let mut ctx = r.begin_frame().unwrap();
+        draw(&mut *ctx);
+        drop(ctx);
+        r.end_frame().unwrap();
+        r
+    }
+
+    #[test]
+    fn logical_rects_land_on_their_physical_pixels() {
+        let red = Color::rgb(255, 0, 0);
+        for scale in [1.25f32, 1.5, 2.0] {
+            let r = frame_at(scale, |ctx| {
+                ctx.clear(Color::rgb(0, 0, 0)).unwrap();
+                ctx.draw_rect(Rect::new(10.0, 10.0, 20.0, 20.0), &Paint::new().color(red))
+                    .unwrap();
+            });
+            let (_, _, w, h) = r.get_buffer();
+            let side = f32_to_u32_clamped((40.0 * scale).round());
+            assert_eq!((w, h), (side, side), "buffer at {scale}");
+            let at = |logical: f32| f32_to_u32_clamped((logical * scale).floor());
+            let buf = r.pixels();
+            assert_eq!(
+                pixel_at(buf, w, at(10.5), at(10.5)),
+                color_to_u32(red),
+                "inside at {scale}"
+            );
+            assert_eq!(
+                pixel_at(buf, w, at(29.5), at(29.5)),
+                color_to_u32(red),
+                "far corner at {scale}"
+            );
+            assert_ne!(
+                pixel_at(buf, w, at(9.0), at(9.0)),
+                color_to_u32(red),
+                "outside at {scale}"
+            );
+            assert_ne!(
+                pixel_at(buf, w, at(31.0), at(31.0)),
+                color_to_u32(red),
+                "past it at {scale}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_stroke_scales_its_width_with_the_display() {
+        for scale in [1.25f32, 1.5, 2.0] {
+            let r = frame_at(scale, |ctx| {
+                ctx.clear(Color::rgb(0, 0, 0)).unwrap();
+                let paint = Paint::new()
+                    .color(Color::rgb(255, 255, 255))
+                    .style(PaintStyle::Stroke)
+                    .stroke_width(4.0);
+                ctx.draw_line(0.0, 20.0, 40.0, 20.0, &paint).unwrap();
+            });
+            let (_, _, w, h) = r.get_buffer();
+            let column: Vec<u32> = (0..h).map(|y| pixel_at(r.pixels(), w, w / 2, y)).collect();
+            let lit = column.iter().filter(|&&p| p & 0xFF > 0x80).count();
+            let want = 4.0 * scale;
+            #[allow(clippy::cast_precision_loss)]
+            let got = lit as f32;
+            assert!(
+                (got - want).abs() <= 1.0,
+                "a 4px line is {want} device pixels at {scale}, got {got}"
+            );
+        }
+    }
+}
