@@ -259,7 +259,6 @@ mod tests {
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::graph::{Channel, Timebase, Trigger};
     use crate::ui::state::UiState;
-    use std::slice::from_raw_parts;
 
     const W: u32 = 240;
     const H: u32 = 160;
@@ -275,14 +274,7 @@ mod tests {
             ScopeView::new(scope).show(&mut ui, 0, rect).expect("draw");
         }
         raster.end_frame().expect("end");
-        let (ptr, len, _, _) = raster.get_buffer();
-        let bytes = unsafe { from_raw_parts(ptr, len) };
-        bytes
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|&c| u32::from_le_bytes(c))
-            .collect()
+        raster.pixels().to_vec()
     }
 
     #[test]

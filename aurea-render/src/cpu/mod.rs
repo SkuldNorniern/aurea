@@ -23,7 +23,6 @@ mod conformance_tests {
         Rect, Renderer, Surface, SurfaceInfo, Transform,
     };
     use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
-    use std::slice::from_raw_parts;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -70,15 +69,8 @@ mod conformance_tests {
         }
         r.end_frame().expect("end_frame");
 
-        let (ptr, len, bw, _bh) = r.get_buffer();
-        assert_eq!(bw, W, "unexpected buffer width");
-        let bytes = unsafe { from_raw_parts(ptr, len) };
-        bytes
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|&c| u32::from_le_bytes(c))
-            .collect()
+        assert_eq!(r.get_buffer().2, W, "unexpected buffer width");
+        r.pixels().to_vec()
     }
 
     fn px(buf: &[u32], x: u32, y: u32) -> u32 {
@@ -886,14 +878,7 @@ mod conformance_tests {
         }
         r.end_frame().expect("end");
 
-        let (ptr, len, _, _) = r.get_buffer();
-        let bytes = unsafe { from_raw_parts(ptr, len) };
-        let buf: Vec<u32> = bytes
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|&c| u32::from_le_bytes(c))
-            .collect();
+        let buf: Vec<u32> = r.pixels().to_vec();
 
         assert_px(&buf, 4, 4, opaque(Color::rgb(0, 200, 0)));
         assert_px(&buf, 24, 22, opaque(RED));
