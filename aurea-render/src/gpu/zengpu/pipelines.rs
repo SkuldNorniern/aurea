@@ -9,11 +9,12 @@
 
 use std::mem::size_of;
 
+use crate::gpu::batch::DrawRef;
 use zengpu::native::{NativeDevice, shader};
 use zengpu_hal::{
-    BlendMode, BlendState, ColorTargetState, DepthState, Format, GpuDevice, GpuError,
-    GraphicsDevice, GraphicsPipelineDesc, PipelineHandle, PrimitiveTopology, RasterState, Result,
-    StepMode, VertexAttribute, VertexFormat, VertexLayout,
+    BlendMode, BlendState, ColorTargetState, DepthState, Format, GpuDevice, GraphicsDevice,
+    GraphicsPipelineDesc, PipelineHandle, PrimitiveTopology, RasterState, Result, StepMode,
+    VertexAttribute, VertexFormat, VertexLayout,
 };
 use zengpu_spirv::ZslShader;
 
@@ -136,19 +137,26 @@ type PipelineSpec<'s> = (
 );
 
 /// All five pipelines the painter draws with, in painter-order priority.
+#[derive(Clone, Copy, Default)]
 pub struct Pipelines {
-    pub rect: PipelineHandle,
-    pub shape: PipelineHandle,
-    pub gradient: PipelineHandle,
-    pub image: PipelineHandle,
-    pub text: PipelineHandle,
+    pub rect: Option<PipelineHandle>,
+    pub shape: Option<PipelineHandle>,
+    pub gradient: Option<PipelineHandle>,
+    pub image: Option<PipelineHandle>,
+    pub text: Option<PipelineHandle>,
 }
 
 impl Pipelines {
-    /// Create all five pipelines for `color_format`. Text uses
+    /// Create only the pipeline kinds used by this order, keeping successful
+    /// creations for future frames and retries. Text uses
     /// [`BlendMode::DualSourceAlpha`] when the device supports it, falling
     /// back to [`BlendMode::AlphaBlend`] (coverage in `.a` only) otherwise.
-    pub fn new(device: &NativeDevice, color_format: Format) -> Result<Self> {
+    pub fn ensure(
+        &mut self,
+        device: &NativeDevice,
+        color_format: Format,
+        order: &[DrawRef],
+    ) -> Result<()> {
         let text_dual_source = device.supports_dual_source_blending();
         let text_frag = if text_dual_source {
             &TEXT_DUAL_SOURCE_FRAG
@@ -161,65 +169,69 @@ impl Pipelines {
             BlendMode::AlphaBlend
         };
 
-        let make = |vert, frag, vertex_layouts, blend| {
-            create_pipeline(device, vert, frag, vertex_layouts, blend, color_format)
-        };
-
-        let specs: [PipelineSpec<'_>; 5] = [
-            (
-                &RECT_VERT,
-                &RECT_FRAG,
-                &[RECT_LAYOUT],
-                BlendMode::AlphaBlend,
-            ),
-            (
-                &SHAPE_VERT,
-                &SHAPE_FRAG,
-                &[SHAPE_LAYOUT],
-                BlendMode::AlphaBlend,
-            ),
-            (
-                &GRADIENT_VERT,
-                &GRADIENT_FRAG,
-                &[GRADIENT_LAYOUT],
-                BlendMode::AlphaBlend,
-            ),
-            (
-                &IMAGE_VERT,
-                &IMAGE_FRAG,
-                &[IMAGE_LAYOUT],
-                BlendMode::AlphaBlend,
-            ),
-            (&TEXT_VERT, text_frag, &[TEXT_LAYOUT], text_blend),
-        ];
-        // One failing leaves the ones before it made; they go with it, or a
-        // context shared across canvases collects them on every retry.
-        let mut made = Vec::with_capacity(specs.len());
-        for (vert, frag, layouts, blend) in specs {
-            match make(vert, frag, layouts, blend) {
-                Ok(pipeline) => made.push(pipeline),
-                Err(e) => {
-                    for pipeline in made {
-                        device.destroy_pipeline(pipeline);
-                    }
-                    return Err(e);
-                }
+        for draw in order {
+            let (slot, spec): (&mut Option<PipelineHandle>, PipelineSpec<'_>) = match draw {
+                DrawRef::Rect(_) => (
+                    &mut self.rect,
+                    (
+                        &RECT_VERT,
+                        &RECT_FRAG,
+                        &[RECT_LAYOUT],
+                        BlendMode::AlphaBlend,
+                    ),
+                ),
+                DrawRef::Shape(_) => (
+                    &mut self.shape,
+                    (
+                        &SHAPE_VERT,
+                        &SHAPE_FRAG,
+                        &[SHAPE_LAYOUT],
+                        BlendMode::AlphaBlend,
+                    ),
+                ),
+                DrawRef::Gradient(_) => (
+                    &mut self.gradient,
+                    (
+                        &GRADIENT_VERT,
+                        &GRADIENT_FRAG,
+                        &[GRADIENT_LAYOUT],
+                        BlendMode::AlphaBlend,
+                    ),
+                ),
+                DrawRef::Image(_) => (
+                    &mut self.image,
+                    (
+                        &IMAGE_VERT,
+                        &IMAGE_FRAG,
+                        &[IMAGE_LAYOUT],
+                        BlendMode::AlphaBlend,
+                    ),
+                ),
+                DrawRef::Text(_) => (
+                    &mut self.text,
+                    (&TEXT_VERT, text_frag, &[TEXT_LAYOUT], text_blend),
+                ),
+            };
+            if slot.is_none() {
+                let (vert, frag, layouts, blend) = spec;
+                *slot = Some(create_pipeline(
+                    device,
+                    vert,
+                    frag,
+                    layouts,
+                    blend,
+                    color_format,
+                )?);
             }
         }
-        match made[..] {
-            [rect, shape, gradient, image, text] => Ok(Self {
-                rect,
-                shape,
-                gradient,
-                image,
-                text,
-            }),
-            _ => Err(GpuError::PipelineCreation("pipeline count".into())),
-        }
+        Ok(())
     }
 
     pub fn destroy(&self, device: &NativeDevice) {
-        for pipeline in [self.rect, self.shape, self.gradient, self.image, self.text] {
+        for pipeline in [self.rect, self.shape, self.gradient, self.image, self.text]
+            .into_iter()
+            .flatten()
+        {
             device.destroy_pipeline(pipeline);
         }
     }
