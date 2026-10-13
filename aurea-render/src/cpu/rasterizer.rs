@@ -17,7 +17,7 @@ use crate::cpu::stroke;
 #[cfg(test)]
 use crate::cpu::tiles::*;
 use crate::cpu::tiles::{
-    mark_tile_range_dirty, tile_grid_dims, tile_range, tile_rect, union_dirty_tile_rects,
+    mark_tile_range_dirty, tile_grid_dims, tile_range, union_dirty_tile_rects,
 };
 use crate::numeric::{
     f32_to_i32_clamped, f32_to_u8_clamped, f32_to_u32_clamped, f32_to_usize_clamped,
@@ -756,6 +756,7 @@ impl CpuRasterizer {
     ) {
         if mask.width == 0
             || mask.height == 0
+            || color.a == 0
             || !bytes_fit(mask.width, mask.height, 3, mask.coverage.len())
         {
             return;
@@ -773,47 +774,52 @@ impl CpuRasterizer {
         let dx = f32_to_i32_clamped(origin.x.round());
         let dy = f32_to_i32_clamped(origin.y.round());
 
-        let mw = mask.width as i32;
-        let x_lo = (i32::try_from(clip.x0).unwrap_or(0) - dx).max(0);
-        let x_hi = (i32::try_from(clip.x1).unwrap_or(i32::MAX) - dx).min(mw);
-        if x_lo >= x_hi {
+        let offset = |edge: u32, origin: i32, limit: u32| {
+            usize::try_from((i64::from(edge) - i64::from(origin)).clamp(0, i64::from(limit)))
+                .unwrap_or(0)
+        };
+        let x_lo = offset(clip.x0, dx, mask.width);
+        let x_hi = offset(clip.x1, dx, mask.width);
+        let y_lo = offset(clip.y0, dy, mask.height);
+        let y_hi = offset(clip.y1, dy, mask.height);
+        if x_lo >= x_hi || y_lo >= y_hi {
             return;
         }
 
-        for my in 0..mask.height as i32 {
-            let py = dy + my;
-            if !clip.contains(dx + x_lo, py) {
-                continue;
-            }
-            let row = (my.unsigned_abs() * mask.width) as usize;
-            let cov_row = &mask.coverage[row * 3..(row + mask.width as usize) * 3];
-            let buf_row = (py.unsigned_abs() * bw) as usize;
+        let px = usize::try_from(i64::from(dx) + x_lo as i64).unwrap_or(0);
+        let py = usize::try_from(i64::from(dy) + y_lo as i64).unwrap_or(0);
+        let alpha = u16::from(color.a);
+        let fade =
+            |coverage: u8| u8::try_from((u16::from(coverage) * alpha + 127) / 255).unwrap_or(255);
+        for my in y_lo..y_hi {
+            let row = my * mask.width as usize;
+            let cov_row = &mask.coverage[(row + x_lo) * 3..(row + x_hi) * 3];
+            let start = (py + my - y_lo) * bw as usize + px;
+            let dst_row = &mut buf[start..start + x_hi - x_lo];
 
-            for mx in x_lo..x_hi {
-                let ci = mx.unsigned_abs() as usize * 3;
-                let cr8 = cov_row[ci];
-                let cg8 = cov_row[ci + 1];
-                let cb8 = cov_row[ci + 2];
+            for (coverage, dst) in cov_row.as_chunks::<3>().0.iter().zip(dst_row) {
+                let (cr8, cg8, cb8) = if color.a == 255 {
+                    (coverage[0], coverage[1], coverage[2])
+                } else {
+                    (fade(coverage[0]), fade(coverage[1]), fade(coverage[2]))
+                };
                 if cr8 == 0 && cg8 == 0 && cb8 == 0 {
                     continue;
                 }
 
-                let idx = buf_row + (dx + mx).unsigned_abs() as usize;
-
                 if cr8 == 255 && cg8 == 255 && cb8 == 255 {
-                    buf[idx] = opaque_pixel;
+                    *dst = opaque_pixel;
                     continue;
                 }
 
-                let dst = buf[idx];
-                let da = (dst >> 24) & 0xff;
+                let da = (*dst >> 24) & 0xff;
                 let [_, dr, dg, db] = dst.to_be_bytes();
                 let or_ = luts.mix(tr, dr, cr8);
                 let og = luts.mix(tg, dg, cg8);
                 let ob = luts.mix(tb, db, cb8);
                 let sa = u32::from(cr8.max(cg8).max(cb8));
                 let oa = sa + ((255 - sa) * da) / 255;
-                buf[idx] = (oa << 24) | (or_ << 16) | (og << 8) | ob;
+                *dst = (oa << 24) | (or_ << 16) | (og << 8) | ob;
             }
         }
     }
@@ -1357,11 +1363,28 @@ impl Renderer for CpuRasterizer {
         let Some(damage) = resolve_frame_damage(pending, diff, bw, bh) else {
             return Ok(FrameOutcome::Unchanged);
         };
+        if damage.is_some_and(|r| {
+            r.width <= 0.0
+                || r.height <= 0.0
+                || r.x >= bw as f32
+                || r.y >= bh as f32
+                || r.x + r.width <= 0.0
+                || r.y + r.height <= 0.0
+        }) {
+            self.last_frame_damage = None;
+            self.capture_prev_items();
+            return Ok(FrameOutcome::Unchanged);
+        }
 
         let (tiles_x, tiles_y) = tile_grid_dims(bw, bh);
         let dirty_tiles = self.compute_dirty_tiles(damage, pending, tiles_x, tiles_y);
 
         self.last_frame_damage = union_dirty_tile_rects(&dirty_tiles, tiles_x, tiles_y, bw, bh);
+        if self.last_frame_damage.is_none() {
+            self.scratch_dirty = dirty_tiles;
+            self.capture_prev_items();
+            return Ok(FrameOutcome::Unchanged);
+        }
 
         let mut dirty_tiles = dirty_tiles;
         if let Some(region) = self.last_frame_damage {
@@ -1382,14 +1405,11 @@ impl Renderer for CpuRasterizer {
         );
         for (i, item) in items.iter().enumerate() {
             if let DrawCommand::Clear(color) = &item.command {
-                clear_dirty_tiles(
+                Self::clear_rect(
+                    &Rect::new(0.0, 0.0, bw as f32, bh as f32),
+                    color_to_u32(*color),
                     &mut self.frame_buffer,
-                    *color,
-                    &dirty_tiles,
-                    tiles_x,
-                    tiles_y,
                     bw,
-                    bh,
                     surface_clip.intersect_opt(item.clip),
                 );
                 continue;
@@ -1448,28 +1468,6 @@ impl Renderer for CpuRasterizer {
 
     fn display_list(&self) -> Option<&DisplayList> {
         Some(&self.display_list)
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn clear_dirty_tiles(
-    frame_buffer: &mut [u32],
-    color: Color,
-    dirty_tiles: &[bool],
-    tiles_x: u32,
-    tiles_y: u32,
-    bw: u32,
-    bh: u32,
-    clip: ClipBox,
-) {
-    let c = color_to_u32(color);
-    for ty in 0..tiles_y {
-        for tx in 0..tiles_x {
-            if dirty_tiles[(ty * tiles_x + tx) as usize] {
-                let rect = tile_rect(tx, ty, bw, bh);
-                CpuRasterizer::clear_rect(&rect, c, frame_buffer, bw, clip);
-            }
-        }
     }
 }
 
@@ -1573,6 +1571,146 @@ fn circle_coverage(center: Point, radius: f32, px: f32, py: f32) -> f32 {
 fn pixel_at(buf: &[u32], w: u32, x: u32, y: u32) -> u32 {
     let idx = (y * w + x) as usize;
     if idx < buf.len() { buf[idx] } else { 0 }
+}
+
+#[cfg(test)]
+mod glyph_tests {
+    use super::*;
+    use crate::scene::display_list::DisplayIndex;
+    use std::hint::black_box;
+    use std::time::Instant;
+
+    #[test]
+    #[ignore = "manual CPU glyph clipping timing"]
+    fn clipped_glyph_benchmark() {
+        let mask = GlyphMask::new(256, 16384, vec![128; 256 * 16384 * 3].into());
+        let mut pixels = vec![0u32; 256 * 256];
+        let clip = ClipBox::surface(256, 256).intersect(Rect::new(0.0, 120.0, 256.0, 8.0));
+        let start = Instant::now();
+        for _ in 0..2000 {
+            CpuRasterizer::draw_glyph(
+                black_box(&mask),
+                Point::new(0.0, -8192.0),
+                Color::rgb(20, 30, 40),
+                black_box(&mut pixels),
+                256,
+                clip,
+            );
+        }
+        eprintln!(
+            "clipped glyph: {:.2} us/draw",
+            start.elapsed().as_secs_f64() * 1e6 / 2000.0
+        );
+        black_box(pixels);
+    }
+
+    #[test]
+    fn glyph_color_alpha_scales_coverage() {
+        let mask = GlyphMask::new(1, 1, vec![255; 3].into());
+        for alpha in [0, 64, 128, 255] {
+            let mut pixels = vec![0u32; 1];
+            CpuRasterizer::draw_glyph(
+                &mask,
+                Point::new(0.0, 0.0),
+                Color::rgba(255, 255, 255, alpha),
+                &mut pixels,
+                1,
+                ClipBox::surface(1, 1),
+            );
+            assert_eq!(pixels[0] >> 24, u32::from(alpha));
+        }
+    }
+
+    #[test]
+    fn glyph_item_opacity_combines_with_color_alpha() {
+        let item = DisplayItem::new(
+            DisplayIndex(0),
+            CacheKey::from_hash(1),
+            Rect::new(0.0, 0.0, 1.0, 1.0),
+            false,
+            BlendMode::Normal,
+            DrawCommand::DrawGlyphMask(
+                GlyphMask::new(1, 1, vec![255; 3].into()),
+                Point::new(0.0, 0.0),
+                Color::rgba(255, 255, 255, 128),
+            ),
+        )
+        .with_opacity(0.5);
+        let mut pixels = [0];
+        CpuRasterizer::render_item(
+            &item,
+            &mut pixels,
+            &mut PathScratch::default(),
+            &mut Vec::new(),
+            1,
+            ClipBox::surface(1, 1),
+        )
+        .expect("render");
+        assert_eq!(pixels[0] >> 24, 64);
+    }
+
+    #[test]
+    fn clipped_glyph_pixels_match_full_render() {
+        let data: Vec<_> = (0..12 * 16 * 3)
+            .map(|i| u8::try_from((i * 73) % 256).expect("byte"))
+            .collect();
+        let mask = GlyphMask::new(12, 16, data.into());
+        for origin in [
+            Point::new(0.0, 0.0),
+            Point::new(-4.0, -7.0),
+            Point::new(8.0, 10.0),
+        ] {
+            for alpha in [64, 255] {
+                let mut full = vec![0xff12_3456; 20 * 20];
+                let mut clipped = full.clone();
+                let clip = ClipBox::surface(20, 20).intersect(Rect::new(3.0, 4.0, 11.0, 9.0));
+                let color = Color::rgba(240, 120, 60, alpha);
+                CpuRasterizer::draw_glyph(
+                    &mask,
+                    origin,
+                    color,
+                    &mut full,
+                    20,
+                    ClipBox::surface(20, 20),
+                );
+                CpuRasterizer::draw_glyph(&mask, origin, color, &mut clipped, 20, clip);
+                for y in 0..20 {
+                    for x in 0..20 {
+                        let expected = if clip.contains(x, y) {
+                            full[usize::try_from(y * 20 + x).expect("pixel index")]
+                        } else {
+                            0xff12_3456
+                        };
+                        assert_eq!(
+                            clipped[usize::try_from(y * 20 + x).expect("pixel index")],
+                            expected
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn far_offscreen_glyphs_do_not_overflow_clip_arithmetic() {
+        let mask = GlyphMask::new(1, 1, vec![255; 3].into());
+        for origin in [
+            Point::new(f32::MIN, 0.0),
+            Point::new(0.0, f32::MIN),
+            Point::new(f32::MAX, f32::MAX),
+        ] {
+            let mut pixels = vec![0u32; 4];
+            CpuRasterizer::draw_glyph(
+                &mask,
+                origin,
+                Color::rgb(255, 255, 255),
+                &mut pixels,
+                2,
+                ClipBox::surface(2, 2),
+            );
+            assert_eq!(pixels, [0; 4]);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1708,6 +1846,27 @@ mod diff_damage_tests {
         r.prev_items.push((CacheKey::from_hash(1), bounds));
 
         assert!(matches!(r.diff_damage(), FrameDamage::Unchanged));
+    }
+
+    #[test]
+    fn offscreen_changes_skip_presentation_and_update_previous_items() {
+        let mut r = CpuRasterizer::new(32, 32);
+        for step in 0..3 {
+            {
+                let mut ctx = r.begin_frame().expect("begin");
+                ctx.clear(Color::rgb(10, 20, 30)).expect("clear");
+                ctx.draw_rect(Rect::new(64.0 + step as f32, 4.0, 2.0, 2.0), &Paint::new())
+                    .expect("offscreen rect");
+            }
+            let expected = if step == 0 {
+                FrameOutcome::Presented
+            } else {
+                FrameOutcome::Unchanged
+            };
+            assert_eq!(r.end_frame().expect("end"), expected);
+            assert!(r.pixels().iter().all(|&pixel| pixel == 0xff0a_141e));
+            assert!(matches!(r.diff_damage(), FrameDamage::Unchanged));
+        }
     }
 
     #[test]
