@@ -8,6 +8,11 @@ use std::slice;
 ///
 /// The pointer is the renderer's own buffer. It stays valid until the
 /// renderer next draws or is resized, which is why this borrows it.
+///
+/// Pixels are `u32` words of `0xAARRGGBB`, rows top to bottom with no
+/// padding (`width` words a row), so in memory a little-endian machine has
+/// the bytes B, G, R, A. Colour is sRGB-encoded and alpha is straight, not
+/// premultiplied; blending happens in linear light before it is encoded.
 #[derive(Debug, Clone, Copy)]
 pub struct FrameOutput<'a> {
     /// Start of the pixel data, for handing to native code.

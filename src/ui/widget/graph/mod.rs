@@ -508,7 +508,6 @@ mod tests {
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::state::UiState;
     use crate::window::{Modifiers, MouseButton, MouseButtons, WindowEvent};
-    use std::slice::from_raw_parts;
 
     const W: u32 = 240;
     const H: u32 = 160;
@@ -538,15 +537,7 @@ mod tests {
                 show(&mut ui);
             }
             self.raster.end_frame().expect("end");
-            let (ptr, len, _, _) = self.raster.get_buffer();
-            // The rasterizer's own buffer, alive for the borrow.
-            let bytes = unsafe { from_raw_parts(ptr, len) };
-            bytes
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .map(|&c| u32::from_le_bytes(c))
-                .collect()
+            self.raster.pixels().to_vec()
         }
 
         fn show(&mut self, graph: &mut Graph, style: Option<GraphStyle>) -> Vec<u32> {
