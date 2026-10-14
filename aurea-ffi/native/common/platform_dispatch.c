@@ -640,3 +640,7 @@ int ng_platform_clipboard_write(const NGClipboardEntry* entries, size_t count) {
         ? g_ops->clipboard_write(entries, count) : NG_ERROR_UNSUPPORTED;
 }
 void ng_platform_clipboard_free(unsigned char* data) { free(data); }
+
+int ng_platform_window_set_cursor_rgba(NGHandle w, const unsigned char* rgba, unsigned int width, unsigned int height, unsigned int hot_x, unsigned int hot_y) {
+    DISPATCH_INT(window_set_cursor_rgba, w, rgba, width, height, hot_x, hot_y);
+}

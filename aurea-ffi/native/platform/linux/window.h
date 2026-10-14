@@ -39,6 +39,7 @@ int ng_linux_window_get_wayland_handle(NGHandle window, void** surface, void** d
 int ng_linux_window_set_cursor_visible(NGHandle window, int visible);
 int ng_linux_window_set_cursor_grab(NGHandle window, int mode);
 int ng_linux_window_set_cursor_icon(NGHandle window, int icon);
+int ng_linux_window_set_cursor_rgba(NGHandle window, const unsigned char* rgba, unsigned int width, unsigned int height, unsigned int hot_x, unsigned int hot_y);
 NGHandle ng_linux_window_get_content_view(NGHandle window);
 
 char* ng_linux_get_clipboard_text(void);

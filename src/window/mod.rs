@@ -39,7 +39,7 @@ use crate::registry::window::{
     register_update_callbacks, scale_factor_changed, unregister_event_callbacks,
     unregister_event_queue, unregister_update_callbacks,
 };
-use crate::render::Rect;
+use crate::render::{Image, Rect};
 use crate::{AureaError, AureaResult};
 use aurea_foundation::lock;
 use aurea_foundation::{Capability, CapabilityChecker};
@@ -875,6 +875,41 @@ impl Window {
     pub fn set_cursor(&self, icon: CursorIcon) -> AureaResult<()> {
         ui_thread::check("Window::set_cursor");
         let result = unsafe { ng_platform_window_set_cursor_icon(self.handle, icon as i32) };
+        if result != 0 {
+            return Err(AureaError::ElementOperationFailed);
+        }
+        Ok(())
+    }
+
+    /// Sets an RGBA8 cursor with a hotspot in image pixels. The native window
+    /// copies the pixels and releases the previous cursor. Call when the image
+    /// changes, rather than every frame; [`Self::set_cursor`] restores an icon.
+    ///
+    /// Pixels are physical: for a 2x display supply twice the logical size.
+    /// Reapply after a scale change to update its logical size on macOS/Linux.
+    pub fn set_cursor_image(&self, image: &Image, hotspot: (u32, u32)) -> AureaResult<()> {
+        ui_thread::check("Window::set_cursor_image");
+        if image.width == 0
+            || image.height == 0
+            || hotspot.0 >= image.width
+            || hotspot.1 >= image.height
+            || (image.width as usize)
+                .checked_mul(image.height as usize)
+                .and_then(|n| n.checked_mul(4))
+                != Some(image.data.len())
+        {
+            return Err(AureaError::ElementOperationFailed);
+        }
+        let result = unsafe {
+            ng_platform_window_set_cursor_rgba(
+                self.handle,
+                image.data.as_ptr(),
+                image.width,
+                image.height,
+                hotspot.0,
+                hotspot.1,
+            )
+        };
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
         }
@@ -2077,5 +2112,56 @@ mod win32_text_input_tests {
 
         assert_eq!(String::from_utf16_lossy(&buf[..len]), "Ω 제목 テスト");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod custom_cursor_tests {
+    use super::*;
+    use crate::render::Image;
+
+    #[test]
+    #[ignore = "creates a native window; run on the platform UI thread"]
+    fn custom_cursors_replace_release_and_validate_pixels() -> AureaResult<()> {
+        let window = Window::new("cursor lifecycle", 80, 80)?;
+        let image = Image::new(16, 16, [255, 0, 0, 128].repeat(256));
+        assert!(window.set_cursor_image(&image, (16, 0)).is_err());
+        assert!(
+            window
+                .set_cursor_image(&Image::new(16, 16, vec![0; 4]), (0, 0))
+                .is_err()
+        );
+        #[cfg(windows)]
+        let before = handles();
+        for _ in 0..300 {
+            window.set_cursor_image(&image, (8, 8))?;
+            window.set_cursor_image(&image, (0, 0))?;
+            window.set_cursor(CursorIcon::ResizeNwSe)?;
+            window.set_cursor(CursorIcon::ResizeNeSw)?;
+        }
+        #[cfg(windows)]
+        assert!(handles() <= before + 2, "native cursor objects leaked");
+        window.set_cursor_image(&image, (8, 8))?;
+        drop(window);
+        #[cfg(windows)]
+        assert!(
+            handles() <= before + 2,
+            "window destruction leaked its cursor"
+        );
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    fn handles() -> u32 {
+        use std::ffi::c_void;
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn GetGuiResources(process: *mut c_void, flags: u32) -> u32;
+        }
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn GetCurrentProcess() -> *mut c_void;
+        }
+        unsafe { GetGuiResources(GetCurrentProcess(), 1) }
     }
 }

@@ -69,6 +69,14 @@ unsafe extern "C" {
     pub fn ng_platform_window_set_cursor_visible(window: *mut c_void, visible: c_int) -> c_int;
     pub fn ng_platform_window_set_cursor_grab(window: *mut c_void, mode: c_int) -> c_int;
     pub fn ng_platform_window_set_cursor_icon(window: *mut c_void, icon: c_int) -> c_int;
+    pub fn ng_platform_window_set_cursor_rgba(
+        window: *mut c_void,
+        rgba: *const u8,
+        width: c_uint,
+        height: c_uint,
+        hot_x: c_uint,
+        hot_y: c_uint,
+    ) -> c_int;
     pub fn ng_platform_window_set_ime_cursor_area(
         window: *mut c_void,
         x: f32,
