@@ -42,7 +42,7 @@ use crate::render::{Color, Point, Rect};
 use crate::ui::component::{FocusRing, StateColors};
 use crate::ui::frame::{Eased, Response, Ui};
 use crate::ui::paint::{Component, Label, Mark, MarkShape, Surface, TextSize};
-use crate::ui::state::{Interaction, Sense, WidgetId};
+use crate::ui::state::{Channel, Interaction, Sense, WidgetId};
 use crate::ui::theme::Theme;
 use crate::window::CursorIcon;
 use std::mem;
@@ -310,6 +310,8 @@ fn tabs<'t, Id: WidgetId, P: Copy + PartialEq>(
     ui.fill(group.content, style.active_tab)?;
     let mut x = group.strip.x;
     let mut held = false;
+    let mut target_x = group.strip.x;
+    let mut target_width = 0.0;
     for (i, at) in group.tabs.clone().enumerate() {
         let panel = dock.layout.panels[at];
         let label = Label::new(title(panel), style.text).size(style.text_size);
@@ -337,7 +339,18 @@ fn tabs<'t, Id: WidgetId, P: Copy + PartialEq>(
         press_tab(ui, id, part, dock, panel, input, change);
         held |= input.held && dock.drag == Some(panel);
         let shown = i == group.active;
-        paint_tab(ui, cell, label, shown, state, style, close_width)?;
+        if shown {
+            target_x = cell.x + 6.0;
+            target_width = (cell.width - 12.0).max(0.0);
+        }
+        let active = ui.animate(
+            id,
+            part,
+            Channel::Value,
+            f32::from(u8::from(shown)),
+            ui.theme.motion.slide,
+        );
+        paint_tab(ui, cell, label, active, state, style, close_width)?;
         if close_buttons && cell.width > 0.0 {
             let close = Rect::new(
                 cell.right() - close_width.min(cell.width),
@@ -365,6 +378,19 @@ fn tabs<'t, Id: WidgetId, P: Copy + PartialEq>(
             Mark::new(MarkShape::Cross, style.text).paint(ui, close.inset(5.0))?;
         }
     }
+    // Animate geometry rather than painting the previous panel twice: content
+    // callbacks keep their normal input, focus and accessibility semantics.
+    let part = BAR_PART + u16::try_from(g).unwrap_or(BAR_PART - 1).min(BAR_PART - 1);
+    let rate = ui.theme.motion.slide;
+    let x = ui.animate(id, part, Channel::Custom(0xD001), target_x, rate);
+    let width = ui.animate(id, part, Channel::Custom(0xD002), target_width, rate);
+    ui.clipped(group.strip, |ui| {
+        ui.round(
+            Rect::new(x, group.strip.y, width.max(0.0), 2.0),
+            1.0,
+            style.accent,
+        )
+    })?;
     Ok(held)
 }
 
@@ -406,27 +432,19 @@ fn paint_tab<Id: WidgetId>(
     ui: &mut Ui<'_, Id>,
     cell: Rect,
     label: Label<'_>,
-    shown: bool,
+    active: f32,
     state: Eased,
     style: &DockStyle,
     close_width: f32,
 ) -> AureaResult<()> {
     let top = Rect::new(cell.x, cell.y, cell.width, cell.height + style.radius);
-    let fill = if shown {
-        style.active_tab
-    } else {
-        style.tab.at(state)
-    };
+    let fill = style.tab.at(state).mix(style.active_tab, active);
     ui.ctx.save()?;
     ui.ctx.clip_rect(cell)?;
     Surface::new(fill).radius(style.radius).paint(ui, top)?;
     ui.ctx.restore()?;
-    if shown {
-        let line = Rect::new(cell.x + 6.0, cell.y, (cell.width - 12.0).max(0.0), 2.0);
-        ui.round(line, 1.0, style.accent)?;
-    }
     FocusRing::new(ui.theme, style.radius, state.focus).paint(ui, cell.inset(2.0))?;
-    let color = if shown { style.active_text } else { style.text };
+    let color = style.text.mix(style.active_text, active);
     Label { color, ..label }.centered().paint(
         ui,
         Rect::new(
@@ -645,6 +663,20 @@ mod tests {
         let rig = Rig::new();
         assert_eq!(rig.shown(), [1, 3]);
         assert_eq!(rig.drawn[0].1, Rect::new(0.0, 28.0, 200.0, 272.0));
+    }
+
+    #[test]
+    fn tab_motion_requests_frames_and_reduced_motion_settles_it() {
+        let mut rig = Rig::new();
+        rig.ui.set_reduced_motion(false);
+        rig.dock.tree.activate(2);
+        rig.frame();
+        assert!(rig.ui.tweens.busy());
+        assert_eq!(rig.shown(), [1, 2], "only active content is called");
+        rig.ui.set_reduced_motion(true);
+        rig.frame();
+        assert!(!rig.ui.tweens.busy());
+        assert_eq!(rig.shown(), [1, 2]);
     }
 
     #[test]
