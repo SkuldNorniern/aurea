@@ -87,8 +87,20 @@ fn resolve_images<B: Gpu2dBackend>(
         } else {
             0.0
         };
+        let (rect, affine) = if let Some(q) = draw.quad {
+            (
+                [q[0].x, q[0].y, q[1].x - q[0].x, q[2].y - q[0].y],
+                [q[1].y - q[0].y, q[2].x - q[0].x, 0.0, 0.0],
+            )
+        } else {
+            (
+                [draw.dest.x, draw.dest.y, draw.dest.width, draw.dest.height],
+                [0.0; 4],
+            )
+        };
         out.push(ImagePlanEntry {
-            rect: [draw.dest.x, draw.dest.y, draw.dest.width, draw.dest.height],
+            rect,
+            affine,
             uv: [
                 draw.src.x / iwf,
                 draw.src.y / ihf,
@@ -101,7 +113,12 @@ fn resolve_images<B: Gpu2dBackend>(
                 f32::from(draw.tint.b) / 255.0,
                 f32::from(draw.tint.a) / 255.0,
             ],
-            sampling: [iwf, ihf, nearest, 0.0],
+            sampling: [
+                iwf,
+                ihf,
+                nearest,
+                f32::from(u8::from(draw.sampling == Sampling::Smooth)),
+            ],
             slot,
         });
     }

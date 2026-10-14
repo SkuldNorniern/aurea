@@ -58,6 +58,7 @@ pub trait Gpu2dBackend {
         plan.viewport_height = height;
         #[allow(clippy::cast_precision_loss)]
         plan.images.push(ImagePlanEntry {
+            affine: [0.0; 4],
             rect: [0.0, 0.0, width as f32, height as f32],
             uv: [0.0, 0.0, 1.0, 1.0],
             tint: [1.0; 4],

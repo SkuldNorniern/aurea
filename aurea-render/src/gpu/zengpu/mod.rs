@@ -6,4 +6,4 @@ mod pipelines;
 mod shaders;
 mod surface;
 
-pub use backend::{GpuChoice, ZenGpuBackend, ZenGpuContext, ZenGpuRenderer};
+pub use backend::{GpuChoice, ZenGpuBackend, ZenGpuContext, ZenGpuImage, ZenGpuRenderer};

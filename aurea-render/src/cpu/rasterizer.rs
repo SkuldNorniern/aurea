@@ -25,7 +25,7 @@ use crate::numeric::{
 };
 use crate::recording::RecordingContext;
 use crate::renderer::{DrawingContext, FrameOutcome, FrameOutput, Renderer};
-use crate::scene::command::DrawCommand;
+use crate::scene::command::{DrawCommand, quad_bounds};
 use crate::scene::display_list::{CacheKey, DisplayItem, DisplayList};
 use crate::surface::{Surface, SurfaceInfo};
 use crate::types::{
@@ -258,6 +258,19 @@ impl CpuRasterizer {
                     *origin,
                     fade_color(*color, alpha),
                     item.blend_mode,
+                    buf,
+                    bw,
+                    clip,
+                );
+            }
+            DrawCommand::DrawImageQuad(image, src, quad, sampling) => {
+                Self::draw_image_quad(
+                    image,
+                    *src,
+                    *quad,
+                    *sampling,
+                    item.blend_mode,
+                    alpha,
                     buf,
                     bw,
                     clip,
@@ -852,6 +865,82 @@ impl CpuRasterizer {
                 let sa = u32::from(cr8.max(cg8).max(cb8));
                 let oa = sa + ((255 - sa) * da) / 255;
                 *dst = (oa << 24) | (or_ << 16) | (og << 8) | ob;
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_image_quad(
+        image: &Image,
+        src: Rect,
+        q: [Point; 3],
+        sampling: Sampling,
+        mode: BlendMode,
+        alpha: f32,
+        buf: &mut [u32],
+        bw: u32,
+        clip: ClipBox,
+    ) {
+        if image.width == 0
+            || image.height == 0
+            || !bytes_fit(image.width, image.height, 4, image.data.len())
+            || !(src.width > 0.0 && src.height > 0.0)
+            || ![src.x, src.y, src.width, src.height]
+                .iter()
+                .all(|v| v.is_finite())
+            || !q.iter().all(|p| p.x.is_finite() && p.y.is_finite())
+        {
+            return;
+        }
+        let ax = q[1].x - q[0].x;
+        let ay = q[1].y - q[0].y;
+        let bx = q[2].x - q[0].x;
+        let by = q[2].y - q[0].y;
+        let det = ax * by - ay * bx;
+        if !det.is_finite() || det.abs() < 1e-12 {
+            return;
+        }
+        let inverse = det.recip();
+        let b = quad_bounds(&q);
+        let x0 = f32_to_i32_clamped(b.x.floor().max(clip.left()));
+        let y0 = f32_to_i32_clamped(b.y.floor().max(clip.top()));
+        let x1 = f32_to_i32_clamped(b.right().ceil().min(clip.right()));
+        let y1 = f32_to_i32_clamped(b.bottom().ceil().min(clip.bottom()));
+        let iw = i32::try_from(image.width).unwrap_or(i32::MAX);
+        let ih = i32::try_from(image.height).unwrap_or(i32::MAX);
+        let bounds = sample::Bounds {
+            x0: f32_to_i32_clamped(src.x.floor()).clamp(0, iw - 1),
+            y0: f32_to_i32_clamped(src.y.floor()).clamp(0, ih - 1),
+            x1: (f32_to_i32_clamped(src.right().ceil()).saturating_sub(1)).clamp(0, iw - 1),
+            y1: (f32_to_i32_clamped(src.bottom().ceil()).saturating_sub(1)).clamp(0, ih - 1),
+        };
+        let footprint_x = ((by.abs() + bx.abs()) / det.abs() * src.width).max(1.0);
+        let footprint_y = ((ay.abs() + ax.abs()) / det.abs() * src.height).max(1.0);
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let dx = x as f32 + 0.5 - q[0].x;
+                let dy = y as f32 + 0.5 - q[0].y;
+                let u = (dx * by - dy * bx) * inverse;
+                let v = (dy * ax - dx * ay) * inverse;
+                if !(0.0..1.0).contains(&u) || !(0.0..1.0).contains(&v) {
+                    continue;
+                }
+                let u = src.x + u * src.width;
+                let v = src.y + v * src.height;
+                let c = match sampling {
+                    Sampling::Nearest => sample::nearest(image, bounds, u, v, alpha),
+                    Sampling::Smooth if footprint_x > 1.0 || footprint_y > 1.0 => sample::area(
+                        image,
+                        bounds,
+                        (u - footprint_x * 0.5, v - footprint_y * 0.5),
+                        (u + footprint_x * 0.5, v + footprint_y * 0.5),
+                        alpha,
+                    ),
+                    _ => sample::bilinear(image, bounds, u, v, alpha),
+                };
+                if c >> 24 != 0 {
+                    Self::buf_set(buf, bw, clip, x, y, c, mode);
+                }
             }
         }
     }

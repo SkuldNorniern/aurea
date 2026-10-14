@@ -171,6 +171,7 @@ struct Instance {
     @location(1) uv: vec4<f32>,
     @location(2) tint: vec4<f32>,
     @location(3) sampling: vec4<f32>,
+    @location(4) affine: vec4<f32>,
 };
 
 struct VsOut {
@@ -188,7 +189,7 @@ const CORNERS = array<vec2<f32>, 6>(
 @vertex
 fn vs_main(@builtin(vertex_index) vidx: u32, instance: Instance) -> VsOut {
     let corner = CORNERS[vidx];
-    let px = instance.rect.xy + corner * instance.rect.zw;
+    let px = instance.rect.xy + corner * instance.rect.zw + vec2<f32>(corner.y * instance.affine.y, corner.x * instance.affine.x);
     let ndc = (px / viewport.size) * 2.0 - 1.0;
     var out: VsOut;
     out.position = vec4<f32>(ndc.x, -ndc.y, 0.0, 1.0);
@@ -205,7 +206,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     if (in.sampling.z > 0.5) {
         uv = (floor(uv * in.sampling.xy) + 0.5) / in.sampling.xy;
     }
-    return textureSample(image_tex, image_sampler, uv) * in.tint;
+    let filtered = textureSample(image_tex, image_sampler, uv);
+    let base = textureSampleLevel(image_tex, image_sampler, uv, 0.0);
+    return select(base, filtered, in.sampling.w > 0.5) * in.tint;
 }
 "#;
 
@@ -268,6 +271,7 @@ mod tests {
             ("shape", SHAPE_SHADER),
             ("gradient", GRADIENT_SHADER),
             ("image", IMAGE_SHADER),
+            ("mip", super::super::backend::MIP_SHADER),
             ("text", TEXT_SHADER),
         ] {
             let module = wgsl::parse_str(source).unwrap_or_else(|e| panic!("{name}: {e}"));

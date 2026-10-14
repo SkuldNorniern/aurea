@@ -17,6 +17,8 @@ pub struct GradientPlanEntry {
 /// A resolved image instance: RGBA texture slot assigned, UV mapped.
 #[derive(Clone, Copy, Default)]
 pub struct ImagePlanEntry {
+    /// Cross terms: x-axis y and y-axis x, then padding.
+    pub affine: [f32; 4],
     pub rect: [f32; 4],
     pub uv: [f32; 4],
     pub tint: [f32; 4],

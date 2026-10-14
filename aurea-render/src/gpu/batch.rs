@@ -3,7 +3,7 @@
 use crate::capabilities::GpuFeatures;
 use crate::cpu::CpuRasterizer;
 use crate::numeric::{f32_to_u8_clamped, f32_to_u32_clamped};
-use crate::scene::command::DrawCommand;
+use crate::scene::command::{DrawCommand, quad_bounds};
 use crate::scene::display_list::{DisplayItem, DisplayList};
 use crate::types::{
     BlendMode, Color, GlyphMask, GpuTexture, GradientStop, Image, LinearGradient, Paint,
@@ -165,6 +165,7 @@ pub struct ImageDraw {
     pub src: Rect,
     pub tint: Color,
     pub sampling: Sampling,
+    pub quad: Option<[Point; 3]>,
 }
 
 /// Where an image draw's pixels come from.
@@ -222,11 +223,13 @@ fn needs_of(item: &DisplayItem) -> GpuFeatures {
             paths: true,
             ..GpuFeatures::NONE
         },
-        DrawCommand::DrawImageRect(..) | DrawCommand::DrawImageRegion(..) => GpuFeatures {
+        DrawCommand::DrawImageRect(..)
+        | DrawCommand::DrawImageRegion(..)
+        | DrawCommand::DrawImageQuad(..) => GpuFeatures {
             images: true,
             ..GpuFeatures::NONE
         },
-        DrawCommand::DrawTexture(..) => GpuFeatures {
+        DrawCommand::DrawTexture(..) | DrawCommand::DrawTextureQuad(..) => GpuFeatures {
             textures: true,
             ..GpuFeatures::NONE
         },
@@ -429,7 +432,9 @@ impl RenderBatches {
                 }
                 command @ (DrawCommand::DrawImageRect(..)
                 | DrawCommand::DrawImageRegion(..)
-                | DrawCommand::DrawTexture(..)) => self.lower_image(command, alpha),
+                | DrawCommand::DrawTexture(..)
+                | DrawCommand::DrawImageQuad(..)
+                | DrawCommand::DrawTextureQuad(..)) => self.lower_image(command, alpha),
                 DrawCommand::DrawGlyphMask(mask, origin, color) => {
                     if let Some(rgba) = self.text_mask(mask) {
                         self.order.push(DrawRef::Text(
@@ -462,6 +467,41 @@ impl RenderBatches {
     }
 
     fn lower_image(&mut self, command: &DrawCommand, alpha: f32) {
+        match command {
+            DrawCommand::DrawImageQuad(image, src, quad, sampling)
+                if valid_rgba_image(image.width, image.height, &image.data) =>
+            {
+                self.push_image(
+                    ImageSource::Pixels(image.clone()),
+                    *src,
+                    quad_bounds(quad),
+                    *sampling,
+                    alpha,
+                );
+                self.images.last_mut().expect("image was appended").quad = Some(*quad);
+                return;
+            }
+            DrawCommand::DrawTextureQuad(texture, uv, quad, sampling)
+                if texture.width > 0 && texture.height > 0 =>
+            {
+                let src = Rect::new(
+                    uv.x * texture.width as f32,
+                    uv.y * texture.height as f32,
+                    uv.width * texture.width as f32,
+                    uv.height * texture.height as f32,
+                );
+                self.push_image(
+                    ImageSource::Texture(*texture),
+                    src,
+                    quad_bounds(quad),
+                    *sampling,
+                    alpha,
+                );
+                self.images.last_mut().expect("image was appended").quad = Some(*quad);
+                return;
+            }
+            _ => {}
+        }
         let (source, src, dest, sampling) = match command {
             DrawCommand::DrawImageRect(image, dest, sampling)
                 if valid_rgba_image(image.width, image.height, &image.data) =>
@@ -506,6 +546,7 @@ impl RenderBatches {
             src,
             tint: fade(Color::rgb(255, 255, 255), alpha),
             sampling,
+            quad: None,
         });
     }
 

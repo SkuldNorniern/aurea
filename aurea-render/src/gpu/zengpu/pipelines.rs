@@ -50,6 +50,7 @@ pub struct ImageInstance {
     pub tint: [f32; 4],
     /// Source size in texels, then 1 for nearest filtering.
     pub sampling: [f32; 4],
+    pub affine: [f32; 4],
     pub slot: u32,
     pub _pad: [u32; 3],
 }
@@ -67,7 +68,7 @@ pub struct TextInstance {
 const _: () = assert!(size_of::<RectInstance>() == 32);
 const _: () = assert!(size_of::<ShapeInstance>() == 48);
 const _: () = assert!(size_of::<GradientInstance>() == 64);
-const _: () = assert!(size_of::<ImageInstance>() == 80);
+const _: () = assert!(size_of::<ImageInstance>() == 96);
 const _: () = assert!(size_of::<TextInstance>() == 48);
 
 const fn float4(location: u32, offset: u32) -> VertexAttribute {
@@ -81,8 +82,13 @@ const fn float4(location: u32, offset: u32) -> VertexAttribute {
 const RECT_ATTRS: [VertexAttribute; 2] = [float4(0, 0), float4(1, 16)];
 const SHAPE_ATTRS: [VertexAttribute; 3] = [float4(0, 0), float4(1, 16), float4(2, 32)];
 const GRADIENT_ATTRS: [VertexAttribute; 3] = [float4(0, 0), float4(1, 16), float4(2, 32)];
-const IMAGE_ATTRS: [VertexAttribute; 4] =
-    [float4(0, 0), float4(1, 16), float4(2, 32), float4(3, 48)];
+const IMAGE_ATTRS: [VertexAttribute; 5] = [
+    float4(0, 0),
+    float4(1, 16),
+    float4(2, 32),
+    float4(3, 48),
+    float4(4, 64),
+];
 const TEXT_ATTRS: [VertexAttribute; 2] = [float4(0, 0), float4(1, 16)];
 
 const RECT_LAYOUT: VertexLayout = VertexLayout {
@@ -101,7 +107,7 @@ const GRADIENT_LAYOUT: VertexLayout = VertexLayout {
     step_mode: StepMode::Instance,
 };
 const IMAGE_LAYOUT: VertexLayout = VertexLayout {
-    stride: 80,
+    stride: 96,
     attributes: &IMAGE_ATTRS,
     step_mode: StepMode::Instance,
 };
