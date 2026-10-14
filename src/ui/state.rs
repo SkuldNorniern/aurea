@@ -21,6 +21,15 @@ use crate::window::{CursorIcon, KeyCode, Modifiers, MouseButton, Window, WindowE
 /// `Hit::Volume`.
 pub trait WidgetId: Copy + Eq + Hash + Debug {}
 
+/// Event routing and repaint decisions are independent: a UI-owned event need not change any
+/// pixels.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct InputResponse {
+    /// The widgets or popup own this event; do not forward it to app tools.
+    pub consumed: bool,
+    pub redraw: bool,
+}
+
 impl<T: Copy + Eq + Hash + Debug> WidgetId for T {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -159,7 +168,7 @@ pub struct UiState<Id: WidgetId> {
     pub(crate) typed_targets: Vec<Option<Key<Id>>>,
     hits: Vec<Hit<Id>>,
     last_hits: Vec<Hit<Id>>,
-    order: Vec<Key<Id>>,
+    pub(crate) order: Vec<Key<Id>>,
     last_order: Vec<Key<Id>>,
     hot: Option<Key<Id>>,
     pub(crate) active: Option<Key<Id>>,
@@ -245,6 +254,64 @@ impl<Id: WidgetId> UiState<Id> {
 
     /// Takes one window event, in the canvas's coordinates.
     pub fn handle(&mut self, event: &WindowEvent) -> bool {
+        self.handle_event(event)
+    }
+
+    /// Whether any canvas popup is open, including dropdowns and context menus.
+    pub fn popup_open(&self) -> bool {
+        self.popup.is_open()
+    }
+
+    /// Routes input to the UI and separately reports whether it needs repainting.
+    ///
+    /// ```
+    /// use aurea::ui::UiState;
+    /// use aurea::WindowEvent;
+    /// let mut state = UiState::<u32>::new();
+    /// let event = WindowEvent::Focused;
+    /// let input = state.handle_input(&event);
+    /// if input.redraw {
+    ///     // Request a redraw of this canvas.
+    /// }
+    /// if !input.consumed {
+    ///     // Route the event to application tools or window handling.
+    /// }
+    /// ```
+    pub fn handle_input(&mut self, event: &WindowEvent) -> InputResponse {
+        let captured = self.active.is_some()
+            || self.pointer_events.last().is_some_and(
+                |event| matches!(event, Pointer::Press(at, ..) if self.hit_at(*at).is_some()),
+            );
+        let popup = self.popup_open();
+        let redraw = self.handle_event(event);
+        let consumed = match event {
+            WindowEvent::MouseMove { .. } => popup || captured || self.hot.is_some(),
+            WindowEvent::MouseButton { x, y, .. } => {
+                popup || captured || self.hit_at(point(*x, *y)).is_some()
+            }
+            WindowEvent::MouseWheel { .. } | WindowEvent::RawMouseMotion { .. } => {
+                popup || captured || self.pointer.is_some_and(|at| self.hit_at(at).is_some())
+            }
+            WindowEvent::KeyInput { key, modifiers, .. } => {
+                popup
+                    || self.has_focus()
+                    || (*key == KeyCode::Tab
+                        && !modifiers.ctrl
+                        && !modifiers.alt
+                        && !self.last_order.is_empty())
+            }
+            WindowEvent::TextInput { .. } | WindowEvent::ImePreedit { .. } => {
+                popup || self.text_focused()
+            }
+            WindowEvent::Pen(sample) => {
+                popup || captured || self.hit_at(point(sample.x, sample.y)).is_some()
+            }
+            _ => false,
+        };
+        InputResponse { consumed, redraw }
+    }
+
+    fn handle_event(&mut self, event: &WindowEvent) -> bool {
         match event {
             WindowEvent::MouseMove {
                 x, y, modifiers, ..
@@ -299,12 +366,17 @@ impl<Id: WidgetId> UiState<Id> {
                 pressed: true,
                 modifiers,
             } => self.key(*key, *modifiers),
-            WindowEvent::TextInput { text } => self.text_input(Typed::Text(text.clone())),
+            WindowEvent::TextInput { text } => {
+                self.text_focused() && self.text_input(Typed::Text(text.clone()))
+            }
             WindowEvent::ImePreedit { text, cursor } => {
                 self.text_input(Typed::Preedit(text.clone(), *cursor))
             }
             WindowEvent::Unfocused => {
                 self.active = None;
+                if self.popup.is_open() {
+                    self.focus = self.popup.close();
+                }
                 self.pointer_events.clear();
                 self.press = None;
                 self.secondary = None;
@@ -331,7 +403,9 @@ impl<Id: WidgetId> UiState<Id> {
     }
 
     fn text_input(&mut self, typed: Typed) -> bool {
-        if !self.text_focused() {
+        if (self.popup.is_open() && (!self.popup.is_card() || !self.popup.owns_focus(self.focus)))
+            || !self.text_focused()
+        {
             return false;
         }
         self.typed.push(typed);
@@ -413,7 +487,7 @@ impl<Id: WidgetId> UiState<Id> {
         self.last_hits
             .iter()
             .rev()
-            .find(|hit| hit.rect.contains(at))
+            .find(|hit| !hit.rect.is_empty() && hit.rect.contains(at))
     }
 
     pub(crate) fn begin(&mut self, theme: &Theme) {
@@ -421,6 +495,7 @@ impl<Id: WidgetId> UiState<Id> {
             self.fonts = Some(Rc::new(Fonts::new(theme)));
         }
         self.changed = false;
+        self.popup.begin_frame();
         let mut pointer_events = mem::take(&mut self.pointer_events);
         for event in pointer_events.drain(..) {
             self.resolve_pointer(event);
@@ -494,14 +569,29 @@ impl<Id: WidgetId> UiState<Id> {
     }
 
     fn resolve_key(&mut self, key: KeyCode, modifiers: Modifiers) -> bool {
-        if self.popup.is_open() {
+        if self.popup.is_card() {
+            if key == KeyCode::Escape {
+                self.focus = self.popup.close();
+                self.focus_visible = true;
+                self.changed = true;
+                return true;
+            }
+            if key == KeyCode::Tab && !modifiers.ctrl && !modifiers.alt {
+                self.focus = self.popup.next_focus(self.focus, modifiers.shift);
+                self.focus_visible = true;
+                return true;
+            }
+            if !self.popup.owns_focus(self.focus) {
+                return true;
+            }
+        } else if self.popup.is_open() {
             let (used, closed) = self.popup.key(key);
             if let Some(focus) = closed {
                 self.focus = focus.or(self.focus);
                 self.focus_visible = true;
                 self.changed = true;
             }
-            if used {
+            if used || closed.is_none() {
                 return true;
             }
         }
@@ -591,6 +681,7 @@ impl<Id: WidgetId> UiState<Id> {
                 .unwrap_or_else(|| Rect::new(rect.x, rect.y, 0.0, 0.0)),
             None => rect,
         };
+        let enabled = enabled && rect.width > 0.0 && rect.height > 0.0;
         self.hits.push(Hit {
             rect,
             key,
@@ -690,6 +781,160 @@ fn to_f32(v: f64) -> f32 {
 mod tests {
     use super::*;
     use std::cell::Cell;
+
+    fn move_to(x: f64, y: f64) -> WindowEvent {
+        WindowEvent::MouseMove {
+            x,
+            y,
+            buttons: Default::default(),
+            modifiers: Modifiers::default(),
+            time: Default::default(),
+        }
+    }
+
+    #[test]
+    fn event_ownership_is_independent_of_redrawing_and_tracks_queued_drags() {
+        let mut state = UiState::<u8>::new();
+        let theme = Theme::dark();
+        state.begin(&theme);
+        state.interact(
+            Key::new(1, 0),
+            Rect::new(0.0, 0.0, 40.0, 30.0),
+            Sense::Click,
+            true,
+        );
+        state.end();
+        assert_eq!(
+            state.handle_input(&move_to(10.0, 10.0)),
+            InputResponse {
+                consumed: true,
+                redraw: true
+            }
+        );
+        assert_eq!(
+            state.handle_input(&move_to(11.0, 10.0)),
+            InputResponse {
+                consumed: true,
+                redraw: false
+            }
+        );
+        let press = WindowEvent::MouseButton {
+            button: MouseButton::Left,
+            pressed: true,
+            modifiers: Modifiers::default(),
+            x: 10.0,
+            y: 10.0,
+            click_count: 1,
+            time: Default::default(),
+        };
+        assert!(state.handle_input(&press).consumed);
+        assert!(
+            state.handle_input(&move_to(90.0, 90.0)).consumed,
+            "pending drag owns motion outside"
+        );
+        let release = WindowEvent::MouseButton {
+            button: MouseButton::Left,
+            pressed: false,
+            modifiers: Modifiers::default(),
+            x: 90.0,
+            y: 90.0,
+            click_count: 1,
+            time: Default::default(),
+        };
+        assert!(state.handle_input(&release).consumed);
+        assert!(!state.handle_input(&move_to(91.0, 90.0)).consumed);
+        assert!(
+            !state
+                .handle_input(&WindowEvent::Resized {
+                    width: 200,
+                    height: 200
+                })
+                .consumed
+        );
+    }
+
+    #[test]
+    fn popups_own_input_and_prevent_editing_the_field_behind_them() {
+        use crate::ui::MenuItem;
+        let mut state = UiState::<u8>::new();
+        let theme = Theme::dark();
+        let field = Key::new(1, 0);
+        state.begin(&theme);
+        state.interact(field, Rect::new(0.0, 0.0, 40.0, 30.0), Sense::Text, true);
+        state.give_focus(Some(field));
+        state.end();
+        state.popup.open(
+            Key::new(2, 0),
+            Rect::default(),
+            0.0,
+            [MenuItem::new("Brush")],
+            Some(field),
+        );
+        assert!(state.popup_open());
+        let input = state.handle_input(&WindowEvent::TextInput {
+            text: "must not type".into(),
+        });
+        assert!(input.consumed);
+        assert!(state.typed.is_empty());
+        assert!(
+            state
+                .handle_input(&WindowEvent::KeyInput {
+                    key: KeyCode::Left,
+                    pressed: true,
+                    modifiers: Modifiers::default()
+                })
+                .consumed
+        );
+        state.begin(&theme);
+        assert!(
+            state.typed.is_empty(),
+            "menu-unhandled keys do not edit background text"
+        );
+        assert!(
+            state
+                .handle_input(&WindowEvent::KeyInput {
+                    key: KeyCode::Escape,
+                    pressed: true,
+                    modifiers: Modifiers::default()
+                })
+                .consumed
+        );
+        state.begin(&theme);
+        assert!(!state.popup_open());
+        assert_eq!(state.focus, Some(field));
+    }
+
+    #[test]
+    fn window_focus_loss_dismisses_popups() {
+        use crate::ui::MenuItem;
+        let mut state = UiState::<u8>::new();
+        let field = Key::new(1, 0);
+        state.popup.open(
+            Key::new(2, 0),
+            Rect::default(),
+            0.0,
+            [MenuItem::new("Brush")],
+            Some(field),
+        );
+        assert!(!state.handle_input(&WindowEvent::Unfocused).consumed);
+        assert!(!state.popup_open(), "window focus loss dismisses popups");
+    }
+
+    #[test]
+    fn controls_outside_the_clip_are_not_keyboard_focus_targets() {
+        let mut state = UiState::<u8>::new();
+        let theme = Theme::dark();
+        let key = Key::new(1, 0);
+        state.begin(&theme);
+        state.give_focus(Some(key));
+        state.clip = Some(Rect::new(0.0, 0.0, 20.0, 20.0));
+        let input = state.interact(key, Rect::new(100.0, 100.0, 40.0, 30.0), Sense::Text, true);
+        assert!(!input.enabled);
+        state.end();
+        assert!(!state.has_focus());
+        assert!(state.last_order.is_empty());
+        assert!(!state.handle_input(&move_to(100.0, 100.0)).consumed);
+    }
 
     #[test]
     fn text_measurements_distinguish_all_shaping_settings_and_reuse_exact_matches() {

@@ -12,12 +12,14 @@ use crate::AureaResult;
 use crate::render::{Color, Point, Rect};
 use crate::ui::component::{FocusRing, StateColors};
 use crate::ui::frame::{Eased, Response, Ui};
-use crate::ui::paint::{Component, Label, Surface, TextSize};
+use crate::ui::paint::{Component, Label, Mark, MarkShape, Surface, TextSize};
 use crate::ui::state::{Interaction, Sense, WidgetId};
 use crate::ui::theme::Theme;
 use crate::window::CursorIcon;
+use std::mem;
 
 const BAR_PART: u16 = 0x4000;
+const CLOSE_PART: u16 = 0x8000;
 const DRAG_FROM: f32 = 6.0;
 
 /// How a dock looks.
@@ -77,6 +79,18 @@ pub struct Dock<P> {
     press: Option<(P, Point)>,
     drag: Option<P>,
     target: Option<(P, DockSide)>,
+    tab_events: Vec<DockTabEvent<P>>,
+}
+
+/// A tab action for the app to handle after drawing the dock.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum DockTabEvent<P> {
+    ContextMenu {
+        panel: P,
+        at: Point,
+    },
+    /// The panel stays in the tree until the app chooses to remove it.
+    CloseRequested(P),
 }
 
 impl<P: Copy + PartialEq> Dock<P> {
@@ -87,6 +101,7 @@ impl<P: Copy + PartialEq> Dock<P> {
             press: None,
             drag: None,
             target: None,
+            tab_events: Vec::new(),
         }
     }
 
@@ -98,6 +113,27 @@ impl<P: Copy + PartialEq> Dock<P> {
     /// The tab being dragged.
     pub fn dragging(&self) -> Option<P> {
         self.drag
+    }
+
+    /// Takes this frame's tab actions.
+    ///
+    /// ```
+    /// use aurea::ui::{Dock, DockTabEvent, DockTree};
+    /// let mut dock = Dock::new(DockTree::new(1u8));
+    /// for event in dock.take_tab_events() {
+    ///     match event {
+    ///         DockTabEvent::ContextMenu { panel, at } => {
+    ///             // Open the panel menu at `at`.
+    ///         }
+    ///         DockTabEvent::CloseRequested(panel) => {
+    ///             // Save or confirm first if needed; removal is explicit.
+    ///             dock.tree.remove(panel);
+    ///         }
+    ///     }
+    /// }
+    /// ```
+    pub fn take_tab_events(&mut self) -> Vec<DockTabEvent<P>> {
+        mem::take(&mut self.tab_events)
     }
 }
 
@@ -113,6 +149,7 @@ pub struct DockView<'d, P, T, C> {
     title: T,
     content: C,
     style: Option<DockStyle>,
+    close_buttons: bool,
 }
 
 impl<'d, P, T, C> DockView<'d, P, T, C> {
@@ -122,12 +159,20 @@ impl<'d, P, T, C> DockView<'d, P, T, C> {
             title,
             content,
             style: None,
+            close_buttons: false,
         }
     }
 
     #[must_use]
     pub fn style(mut self, style: DockStyle) -> Self {
         self.style = Some(style);
+        self
+    }
+
+    /// Shows keyboard-accessible close controls.
+    #[must_use]
+    pub fn close_buttons(mut self, show: bool) -> Self {
+        self.close_buttons = show;
         self
     }
 
@@ -159,7 +204,9 @@ where
             title,
             mut content,
             style,
+            close_buttons,
         } = self;
+        dock.tab_events.clear();
         let style = style.unwrap_or_else(|| DockStyle::new(ui.theme));
         dock.tree.layout(rect, style.metrics, &mut dock.layout);
         let mut response = Response {
@@ -170,7 +217,17 @@ where
         let mut change = None;
         let mut held = false;
         for g in 0..dock.layout.groups.len() {
-            held |= tabs(ui, id, dock, g, &title, &style, &mut change, &mut response)?;
+            held |= tabs(
+                ui,
+                id,
+                dock,
+                g,
+                &title,
+                &style,
+                close_buttons,
+                &mut change,
+                &mut response,
+            )?;
         }
         for (panel, at) in dock.layout.visible() {
             ui.ctx.save()?;
@@ -207,6 +264,7 @@ fn tabs<'t, Id: WidgetId, P: Copy + PartialEq>(
     g: usize,
     title: &impl Fn(P) -> &'t str,
     style: &DockStyle,
+    close_buttons: bool,
     change: &mut Option<Change<P>>,
     response: &mut Response,
 ) -> AureaResult<bool> {
@@ -218,7 +276,12 @@ fn tabs<'t, Id: WidgetId, P: Copy + PartialEq>(
     for (i, at) in group.tabs.clone().enumerate() {
         let panel = dock.layout.panels[at];
         let label = Label::new(title(panel), style.text).size(style.text_size);
-        let width = (label.width(ui) + style.tab_padding * 2.0).min(style.max_tab);
+        let close_width = if close_buttons {
+            group.strip.height * 0.75
+        } else {
+            0.0
+        };
+        let width = (label.width(ui) + style.tab_padding * 2.0 + close_width).min(style.max_tab);
         let room = (group.strip.right() - x).max(0.0);
         let cell = Rect::new(x, group.strip.y, width.min(room), group.strip.height);
         x += cell.width;
@@ -227,10 +290,43 @@ fn tabs<'t, Id: WidgetId, P: Copy + PartialEq>(
         let state = ui.eased(id, part, input);
         response.hovered |= input.hovered;
         response.focused |= input.focused;
+        if input.secondary_clicked
+            && let Some(at) = ui.secondary_at(id, part)
+        {
+            dock.tab_events
+                .push(DockTabEvent::ContextMenu { panel, at });
+            response.secondary_clicked = true;
+        }
         press_tab(ui, id, part, dock, panel, input, change);
         held |= input.held && dock.drag == Some(panel);
         let shown = i == group.active;
-        paint_tab(ui, cell, label, shown, state, style)?;
+        paint_tab(ui, cell, label, shown, state, style, close_width)?;
+        if close_buttons && cell.width > 0.0 {
+            let close = Rect::new(
+                cell.right() - close_width.min(cell.width),
+                cell.y,
+                close_width.min(cell.width),
+                cell.height,
+            );
+            let close_part = CLOSE_PART + part;
+            let close_input = ui.interact(id, close_part, close, Sense::Click, true);
+            if close_input.clicked {
+                dock.tab_events.push(DockTabEvent::CloseRequested(panel));
+            }
+            if close_input.secondary_clicked
+                && let Some(at) = ui.secondary_at(id, close_part)
+            {
+                dock.tab_events
+                    .push(DockTabEvent::ContextMenu { panel, at });
+                response.secondary_clicked = true;
+            }
+            let eased = ui.eased(id, close_part, close_input);
+            if close_input.hovered || close_input.held {
+                ui.round(close.inset(2.0), style.radius, style.tab.at(eased))?;
+            }
+            FocusRing::new(ui.theme, style.radius, eased.focus).paint(ui, close.inset(2.0))?;
+            Mark::new(MarkShape::Cross, style.text).paint(ui, close.inset(5.0))?;
+        }
     }
     Ok(held)
 }
@@ -276,6 +372,7 @@ fn paint_tab<Id: WidgetId>(
     shown: bool,
     state: Eased,
     style: &DockStyle,
+    close_width: f32,
 ) -> AureaResult<()> {
     let top = Rect::new(cell.x, cell.y, cell.width, cell.height + style.radius);
     let fill = if shown {
@@ -293,9 +390,16 @@ fn paint_tab<Id: WidgetId>(
     }
     FocusRing::new(ui.theme, style.radius, state.focus).paint(ui, cell.inset(2.0))?;
     let color = if shown { style.active_text } else { style.text };
-    Label { color, ..label }
-        .centered()
-        .paint(ui, cell.inset_xy(style.tab_padding / 2.0, 0.0))
+    Label { color, ..label }.centered().paint(
+        ui,
+        Rect::new(
+            cell.x,
+            cell.y,
+            (cell.width - close_width).max(0.0),
+            cell.height,
+        )
+        .inset_xy(style.tab_padding / 2.0, 0.0),
+    )
 }
 
 fn bar_part<Id: WidgetId, P>(
@@ -411,7 +515,7 @@ mod tests {
     use super::*;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::UiState;
-    use crate::window::{Modifiers, MouseButton, MouseButtons, WindowEvent};
+    use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, WindowEvent};
 
     const AREA: Rect = Rect::new(0.0, 0.0, 404.0, 300.0);
 
@@ -421,6 +525,7 @@ mod tests {
         theme: Theme,
         dock: Dock<u8>,
         drawn: Vec<(u8, Rect)>,
+        tab_events: Vec<DockTabEvent<u8>>,
     }
 
     impl Rig {
@@ -436,6 +541,7 @@ mod tests {
                 theme: Theme::dark(),
                 dock: Dock::new(tree),
                 drawn: Vec::new(),
+                tab_events: Vec::new(),
             };
             rig.frame();
             rig
@@ -452,10 +558,12 @@ mod tests {
                     drawn.push((panel, rect));
                     Ok(())
                 })
+                .close_buttons(true)
                 .show(&mut ui, 0, AREA)
                 .expect("draw");
             }
             drop(ctx);
+            self.tab_events = self.dock.take_tab_events();
             self.raster.end_frame().expect("end");
         }
 
@@ -503,6 +611,53 @@ mod tests {
         rig.button(210.0, 14.0, false);
         rig.frame();
         assert_eq!(rig.shown(), [1, 2]);
+    }
+
+    #[test]
+    fn tab_context_actions_identify_inactive_panels_without_activating_them() {
+        let mut rig = Rig::new();
+        rig.ui.handle(&WindowEvent::MouseButton {
+            button: MouseButton::Right,
+            pressed: true,
+            modifiers: Modifiers::default(),
+            x: 210.0,
+            y: 14.0,
+            click_count: 1,
+            time: Default::default(),
+        });
+        rig.frame();
+        assert_eq!(
+            rig.tab_events,
+            [DockTabEvent::ContextMenu {
+                panel: 2,
+                at: Point::new(210.0, 14.0)
+            }]
+        );
+        assert_eq!(rig.shown(), [1, 3]);
+        assert!(rig.dock.take_tab_events().is_empty(), "delivered once");
+        rig.frame();
+        assert!(rig.tab_events.is_empty());
+    }
+
+    #[test]
+    fn keyboard_close_requests_leave_the_panel_in_the_tree() {
+        let mut rig = Rig::new();
+        rig.ui.focus(0, CLOSE_PART);
+        rig.frame();
+        rig.ui.handle(&WindowEvent::KeyInput {
+            key: KeyCode::Enter,
+            pressed: true,
+            modifiers: Modifiers::default(),
+        });
+        rig.frame();
+        assert_eq!(rig.tab_events, [DockTabEvent::CloseRequested(1)]);
+        assert_eq!(
+            rig.shown(),
+            [1, 3],
+            "the app decides whether to remove a panel"
+        );
+        rig.frame();
+        assert!(rig.tab_events.is_empty());
     }
 
     #[test]
