@@ -13,6 +13,28 @@ pub struct ClipboardImage {
     pub rgba: Vec<u8>,
 }
 
+impl ClipboardImage {
+    /// Encodes straight RGBA8 as PNG.
+    pub fn to_png(&self) -> AureaResult<Vec<u8>> {
+        encode_png(self)
+    }
+
+    /// Decodes PNG on any thread.
+    pub fn from_png(bytes: &[u8], max_bytes: usize) -> AureaResult<Self> {
+        decode_png(bytes, max_bytes)
+    }
+
+    /// Encodes a top-down Windows DIBV5 with explicit straight-alpha masks.
+    pub fn to_dib(&self) -> AureaResult<Vec<u8>> {
+        encode_dib(self)
+    }
+
+    /// Decodes supported 24/32-bit Windows DIBs on any thread.
+    pub fn from_dib(bytes: &[u8], max_bytes: usize) -> AureaResult<Self> {
+        decode_dib(bytes, max_bytes)
+    }
+}
+
 fn pixel_bytes(width: u32, height: u32, max_bytes: usize) -> AureaResult<usize> {
     if width == 0 || height == 0 {
         return Err(AureaError::ElementOperationFailed);
@@ -128,7 +150,6 @@ pub(super) fn decode_png(bytes: &[u8], max_bytes: usize) -> AureaResult<Clipboar
     })
 }
 
-#[cfg(any(windows, test))]
 pub(super) fn encode_dib(image: &ClipboardImage) -> AureaResult<Vec<u8>> {
     let count = pixel_bytes(image.width, image.height, usize::MAX)?;
     if count != image.rgba.len()
@@ -169,7 +190,6 @@ pub(super) fn encode_dib(image: &ClipboardImage) -> AureaResult<Vec<u8>> {
     Ok(bytes)
 }
 
-#[cfg(any(windows, test))]
 fn word(bytes: &[u8], at: usize) -> AureaResult<u32> {
     bytes
         .get(at..at + 4)
@@ -177,7 +197,6 @@ fn word(bytes: &[u8], at: usize) -> AureaResult<u32> {
         .map(u32::from_le_bytes)
         .ok_or(AureaError::ElementOperationFailed)
 }
-#[cfg(any(windows, test))]
 fn dib_masks(
     bytes: &[u8],
     header: usize,
@@ -211,8 +230,10 @@ fn dib_masks(
     Ok((offset, alpha != 0))
 }
 
-#[cfg(any(windows, test))]
 pub(super) fn decode_dib(bytes: &[u8], max_bytes: usize) -> AureaResult<ClipboardImage> {
+    if bytes.len() > max_bytes {
+        return Err(limit_error());
+    }
     let header = usize::try_from(word(bytes, 0)?).map_err(invalid)?;
     if header < 40 || header > bytes.len() || word(bytes, 4)? > i32::MAX as u32 {
         return Err(AureaError::ElementOperationFailed);
@@ -276,6 +297,29 @@ pub(super) fn decode_dib(bytes: &[u8], max_bytes: usize) -> AureaResult<Clipboar
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::thread;
+
+    #[test]
+    fn public_codecs_run_on_a_worker_and_obey_read_budgets() {
+        thread::spawn(|| {
+            let image = sample();
+            let png = image.to_png().expect("PNG");
+            let dib = image.to_dib().expect("DIB");
+            assert_eq!(ClipboardImage::from_png(&png, 4096).unwrap(), image);
+            assert_eq!(ClipboardImage::from_dib(&dib, 4096).unwrap(), image);
+            assert!(ClipboardImage::from_png(&png, png.len() - 1).is_err());
+            assert!(ClipboardImage::from_dib(&dib, dib.len() - 1).is_err());
+            let large = ClipboardImage {
+                width: 64,
+                height: 64,
+                rgba: vec![0; 64 * 64 * 4],
+            };
+            let png = large.to_png().unwrap();
+            assert!(ClipboardImage::from_png(&png, 1024).is_err());
+        })
+        .join()
+        .expect("worker");
+    }
 
     fn sample() -> ClipboardImage {
         ClipboardImage {
