@@ -52,6 +52,10 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      - name: Main-thread native smoke (macOS)
+        if: runner.os == 'macOS'
+        run: cargo run --example native_gaps -- --check
+
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
@@ -63,9 +67,8 @@ jobs:
       matrix:
         # macOS is missing on purpose. AppKit only takes orders from the
         # process main thread, and libtest runs every test on a worker, so a
-        # test that opens a window is refused there rather than quietly
-        # mis-driving AppKit. Running these on macOS needs a main-thread
-        # harness first.
+        # test that opens a window is refused there. The check job runs the
+        # native_gaps executable on the process main thread instead.
         os: [ubuntu-latest, windows-latest]
 
     steps:
