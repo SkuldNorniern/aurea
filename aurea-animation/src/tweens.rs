@@ -94,7 +94,7 @@ impl<K: Eq + Hash + Copy> Tweens<K> {
             used: true,
         });
         v.used = true;
-        if instant {
+        if instant || v.now == target {
             v.now = target;
             return target;
         }

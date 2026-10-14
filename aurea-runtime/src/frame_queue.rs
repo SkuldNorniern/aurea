@@ -48,15 +48,6 @@ thread_local! {
 
 pub struct FrameScheduler;
 
-enum Redraw {
-    /// Nobody dirtied anything.
-    Nothing,
-    /// These canvases were dirtied.
-    These(Vec<usize>),
-    /// Everything, because something asked for a full repaint.
-    All,
-}
-
 impl FrameScheduler {
     pub fn set_request_frame_hook<F: Fn() + Send + Sync + 'static>(f: F) {
         *lock(&REQUEST_FRAME_HOOK) = Some(Box::new(f));
@@ -186,15 +177,7 @@ impl FrameScheduler {
         Ok(())
     }
 
-    fn run_redraws(registry: &HashMap<usize, CanvasRedrawCallback>, redraw: Redraw) {
-        let callbacks: Vec<&CanvasRedrawCallback> = match redraw {
-            Redraw::Nothing => return,
-            Redraw::All => registry.values().collect(),
-            Redraw::These(handles) => handles
-                .into_iter()
-                .filter_map(|handle| registry.get(&handle))
-                .collect(),
-        };
+    fn run_redraws(callbacks: Vec<CanvasRedrawCallback>) {
         for callback in callbacks {
             if let Err(e) = callback() {
                 log::warn!("Canvas redraw error: {:?}", e);
@@ -204,24 +187,24 @@ impl FrameScheduler {
 
     fn redraw_canvases() {
         let process_all_canvases = ALL_CANVASES_SCHEDULED.swap(false, Ordering::Relaxed);
-        let registry: HashMap<usize, CanvasRedrawCallback> =
-            CANVAS_REGISTRY.with(|r| r.borrow().clone());
-        let global_callbacks: Vec<FrameCallback> =
-            FRAME_CALLBACKS.with(|c| c.borrow().values().cloned().collect());
-
-        let redraw = {
+        let callbacks = CANVAS_REGISTRY.with(|registry| {
+            let registry = registry.borrow();
             let mut pending = lock(&PENDING_CANVASES);
             if process_all_canvases {
                 pending.clear();
-                Redraw::All
-            } else if pending.is_empty() {
-                Redraw::Nothing
+                drop(pending);
+                registry.values().cloned().collect()
             } else {
-                Redraw::These(pending.drain().collect::<Vec<_>>())
+                pending
+                    .drain()
+                    .filter_map(|handle| registry.get(&handle).cloned())
+                    .collect()
             }
-        };
+        });
+        let global_callbacks: Vec<FrameCallback> =
+            FRAME_CALLBACKS.with(|c| c.borrow().values().cloned().collect());
 
-        Self::run_redraws(&registry, redraw);
+        Self::run_redraws(callbacks);
 
         for callback in global_callbacks {
             callback();
@@ -321,6 +304,43 @@ mod tests {
 
         assert_eq!(first.load(Ordering::Relaxed), 1);
         assert_eq!(second.load(Ordering::Relaxed), 0, "not dirty, not redrawn");
+    }
+
+    #[test]
+    fn targeted_redraws_release_removed_idle_canvases_and_allow_rescheduling() {
+        let _guard = TestGuard::new();
+        let idle: CanvasRedrawCallback = Rc::new(|| Ok(()));
+        let idle_owner = Rc::downgrade(&idle);
+        FrameScheduler::register_canvas(handle(2), idle);
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let first_seen = Rc::clone(&seen);
+        FrameScheduler::register_canvas(
+            handle(1),
+            Rc::new(move || {
+                first_seen.borrow_mut().push(1);
+                FrameScheduler::unregister_canvas(handle(2));
+                assert!(
+                    idle_owner.upgrade().is_none(),
+                    "idle canvas is not held by the frame snapshot"
+                );
+                FrameScheduler::unregister_canvas(handle(1));
+                let next_seen = Rc::clone(&first_seen);
+                FrameScheduler::register_canvas(
+                    handle(3),
+                    Rc::new(move || {
+                        next_seen.borrow_mut().push(3);
+                        Ok(())
+                    }),
+                );
+                FrameScheduler::schedule_canvas(handle(3));
+                Ok(())
+            }),
+        );
+        FrameScheduler::schedule_canvas(handle(1));
+        FrameScheduler::process_frames().expect("first frame");
+        assert_eq!(*seen.borrow(), [1]);
+        FrameScheduler::process_frames().expect("rescheduled frame");
+        assert_eq!(*seen.borrow(), [1, 3]);
     }
 
     #[test]
