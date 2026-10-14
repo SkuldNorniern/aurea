@@ -3,7 +3,7 @@
 use crate::ffi::*;
 use crate::registry::menu::{next_menu_item_id, register_menu_callback, unregister_menu_callback};
 use crate::{AureaError, AureaResult};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::os::raw::c_int;
 use std::rc::{Rc, Weak};
 use std::{ffi::CString, os::raw::c_void};
@@ -197,6 +197,23 @@ fn shortcut_key(key: KeyCode) -> Option<ShortcutKey> {
 /// gone they refuse to touch the native menu, which went with it.
 type ItemIds = Rc<RefCell<Vec<u32>>>;
 
+#[derive(Default)]
+struct Branch {
+    removed: Cell<bool>,
+    ids: RefCell<Vec<u32>>,
+    children: RefCell<Vec<Rc<Branch>>>,
+}
+
+impl Branch {
+    fn clear(&self, removed: &mut Vec<u32>) {
+        removed.extend(self.ids.borrow_mut().drain(..));
+        for child in self.children.borrow_mut().drain(..) {
+            child.removed.set(true);
+            child.clear(removed);
+        }
+    }
+}
+
 /// A native menu bar attached to a window.
 pub struct MenuBar {
     pub handle: *mut c_void,
@@ -208,7 +225,7 @@ pub struct SubMenu {
     pub handle: *mut c_void,
     item_ids: Weak<RefCell<Vec<u32>>>,
     /// The items added through this submenu, for [`SubMenu::clear`].
-    own: Rc<RefCell<Vec<u32>>>,
+    own: Rc<Branch>,
 }
 
 /// One item of a submenu, to change after it is added: greyed out,
@@ -259,6 +276,24 @@ impl MenuBar {
 }
 
 impl SubMenu {
+    /// Adds a native child menu. Clearing any ancestor invalidates this
+    /// child's handles and removes its callbacks and shortcuts.
+    pub fn add_submenu(&mut self, title: &str) -> AureaResult<SubMenu> {
+        self.alive()?;
+        let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
+        let handle = unsafe { ng_platform_create_submenu(self.handle, title.as_ptr()) };
+        if handle.is_null() {
+            return Err(AureaError::MenuItemAddFailed);
+        }
+        let own = Rc::new(Branch::default());
+        self.own.children.borrow_mut().push(Rc::clone(&own));
+        Ok(SubMenu {
+            handle,
+            item_ids: self.item_ids.clone(),
+            own,
+        })
+    }
+
     /// Add a clickable menu item with a callback.
     pub fn add_item<F>(&mut self, title: &str, callback: F) -> AureaResult<MenuItem>
     where
@@ -370,15 +405,12 @@ impl SubMenu {
         if unsafe { ng_platform_menu_clear(self.handle) } != 0 {
             return Err(AureaError::ElementOperationFailed);
         }
-        let mut ids = ids.borrow_mut();
-        ids.retain(|&id| {
-            let mine = self.mine(id);
-            if mine {
-                unregister_menu_callback(id);
-            }
-            !mine
-        });
-        self.own.borrow_mut().clear();
+        let mut removed = Vec::new();
+        self.own.clear(&mut removed);
+        ids.borrow_mut().retain(|id| !removed.contains(id));
+        for id in removed {
+            unregister_menu_callback(id);
+        }
         Ok(())
     }
 
@@ -388,13 +420,12 @@ impl SubMenu {
     }
 
     fn alive(&self) -> AureaResult<ItemIds> {
+        if self.own.removed.get() {
+            return Err(AureaError::ElementOperationFailed);
+        }
         self.item_ids
             .upgrade()
             .ok_or(AureaError::ElementOperationFailed)
-    }
-
-    fn mine(&self, id: u32) -> bool {
-        self.own.borrow().contains(&id)
     }
 
     fn add<F>(
@@ -427,7 +458,7 @@ impl SubMenu {
         }
         register_menu_callback(id, callback);
         ids.borrow_mut().push(id);
-        self.own.borrow_mut().push(id);
+        self.own.ids.borrow_mut().push(id);
         debug!(
             "Added menu item '{}' with id {}",
             label.to_string_lossy(),
@@ -588,6 +619,38 @@ mod tests {
 #[cfg(test)]
 mod menu_ownership_tests {
     use crate::{AureaResult, Window};
+
+    #[test]
+    #[ignore = "creates a native window; run on the platform UI thread"]
+    fn clearing_a_parent_invalidates_descendants_and_releases_callbacks() -> AureaResult<()> {
+        use std::rc::Rc;
+        let mut window = Window::new("nested menus", 300, 200)?;
+        let bar = window.create_menu_bar()?;
+        let mut root = bar.add_submenu("Layers")?;
+        // Exceeds the old native root-table capacity if clearing leaks entries.
+        for _ in 0..300 {
+            let mut child = root.add_submenu("Adjustment")?;
+            let mut grandchild = child.add_submenu("More")?;
+            let captured = Rc::new(());
+            let weak = Rc::downgrade(&captured);
+            let item = grandchild.add_item_with_shortcut(
+                "Levels",
+                super::MenuShortcut::new(super::ShortcutKey::Char('L')).primary(),
+                move || {
+                    let _ = &captured;
+                },
+            )?;
+            assert!(weak.upgrade().is_some());
+            root.clear()?;
+            assert!(weak.upgrade().is_none());
+            assert!(child.add_separator().is_err());
+            assert!(grandchild.clear().is_err());
+            assert!(item.set_enabled(false).is_err());
+            assert!(item.remove().is_err());
+        }
+        root.add_item("Still alive", || {})?;
+        Ok(())
+    }
 
     /// A menu belongs to the window it is attached to. It used to be handed back
     /// owned, so dropping it destroyed the menu of a window still showing it.

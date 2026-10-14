@@ -26,6 +26,14 @@ static int g_menu_root_count = 0;
 static MenuShortcutEntry g_shortcuts[512] = {0};
 static int g_shortcut_count = 0;
 
+static void forget_menu_root(HMENU menu) {
+    int kept = 0;
+    for (int i = 0; i < g_menu_root_count; i++) {
+        if (g_menu_roots[i].menu != menu) g_menu_roots[kept++] = g_menu_roots[i];
+    }
+    g_menu_root_count = kept;
+}
+
 static void register_menu_root(HMENU menu, HMENU root) {
     if (!menu) return;
     for (int i = 0; i < g_menu_root_count; i++) {
@@ -137,6 +145,8 @@ NGMenuHandle ng_windows_create_menu(void) {
 
 void ng_windows_destroy_menu(NGMenuHandle handle) {
     if (!handle) return;
+    ng_windows_menu_clear(handle);
+    forget_menu_root((HMENU)handle);
     DestroyMenu((HMENU)handle);
 }
 
@@ -262,7 +272,7 @@ static int shortcut_item(NGHandle window, unsigned int keycode, unsigned int mod
         if (g_shortcuts[i].modifiers != modifiers) continue;
         /* A greyed item's shortcut does nothing, as clicking it would. */
         UINT state = GetMenuState(menu, g_shortcuts[i].id + 1, MF_BYCOMMAND);
-        if (state != (UINT)-1 && (state & MF_GRAYED)) continue;
+        if (state == (UINT)-1 || (state & (MF_GRAYED | MF_DISABLED))) continue;
         return (int)g_shortcuts[i].id;
     }
     return -1;
@@ -338,6 +348,11 @@ int ng_windows_menu_item_remove(NGMenuHandle menu, unsigned int id) {
 int ng_windows_menu_clear(NGMenuHandle menu) {
     if (!menu) return NG_ERROR_INVALID_HANDLE;
     for (int i = GetMenuItemCount((HMENU)menu) - 1; i >= 0; i--) {
+        HMENU child = GetSubMenu((HMENU)menu, i);
+        if (child) {
+            ng_windows_menu_clear((NGMenuHandle)child);
+            forget_menu_root(child);
+        }
         UINT command = GetMenuItemID((HMENU)menu, i);
         if (command != (UINT)-1 && command > 0) forget_shortcuts(command - 1);
         DeleteMenu((HMENU)menu, (UINT)i, MF_BYPOSITION);
