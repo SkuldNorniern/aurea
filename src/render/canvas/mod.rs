@@ -74,7 +74,7 @@ impl Drop for CanvasBuildGuard {
 }
 
 impl Canvas {
-    fn ensure_live(&self) -> AureaResult<()> {
+    pub(crate) fn ensure_live(&self) -> AureaResult<()> {
         if self._cleanup.live.load(Ordering::Acquire) {
             Ok(())
         } else {

@@ -160,6 +160,8 @@ pub(crate) const BLINK_FOR: Duration = Duration::from_secs(8);
 /// The state canvas widgets keep between frames.
 #[derive(Debug)]
 pub struct UiState<Id: WidgetId> {
+    #[cfg(feature = "accessibility")]
+    pub(crate) accessibility: Option<Box<super::accessibility::Bridge<Id>>>,
     pub(crate) tweens: Tweens<(Key<Id>, Channel)>,
     pointer: Option<Point>,
     pub(crate) modifiers: Modifiers,
@@ -208,6 +210,8 @@ impl<Id: WidgetId> UiState<Id> {
     pub fn new() -> Self {
         Self {
             tweens: Tweens::new(),
+            #[cfg(feature = "accessibility")]
+            accessibility: None,
             pointer: None,
             modifiers: Modifiers::default(),
             pointer_events: Vec::new(),
@@ -312,6 +316,12 @@ impl<Id: WidgetId> UiState<Id> {
     }
 
     fn handle_event(&mut self, event: &WindowEvent) -> bool {
+        #[cfg(feature = "accessibility")]
+        if matches!(event, WindowEvent::Focused | WindowEvent::Unfocused)
+            && let Some(bridge) = &mut self.accessibility
+        {
+            bridge.focused(matches!(event, WindowEvent::Focused));
+        }
         match event {
             WindowEvent::MouseMove {
                 x, y, modifiers, ..
@@ -495,6 +505,8 @@ impl<Id: WidgetId> UiState<Id> {
             self.fonts = Some(Rc::new(Fonts::new(theme)));
         }
         self.changed = false;
+        #[cfg(feature = "accessibility")]
+        self.accessibility_begin();
         self.popup.begin_frame();
         let mut pointer_events = mem::take(&mut self.pointer_events);
         for event in pointer_events.drain(..) {
@@ -585,6 +597,10 @@ impl<Id: WidgetId> UiState<Id> {
                 return true;
             }
         } else if self.popup.is_open() {
+            if key == KeyCode::Tab {
+                self.last_order
+                    .retain(|key| !self.popup.owns_menu_part(*key));
+            }
             let (used, closed) = self.popup.key(key);
             if let Some(focus) = closed {
                 self.focus = focus;
@@ -595,6 +611,10 @@ impl<Id: WidgetId> UiState<Id> {
                 return true;
             }
         }
+        self.resolve_widget_key(key, modifiers)
+    }
+
+    fn resolve_widget_key(&mut self, key: KeyCode, modifiers: Modifiers) -> bool {
         let sense = self.focused_sense();
         match key {
             KeyCode::Tab if !modifiers.ctrl && !modifiers.alt => {
@@ -657,6 +677,15 @@ impl<Id: WidgetId> UiState<Id> {
         mem::swap(&mut self.hits, &mut self.last_hits);
         mem::swap(&mut self.order, &mut self.last_order);
         let blinking = self.text_focused() && self.blink_from.elapsed() < BLINK_FOR;
+        #[cfg(feature = "accessibility")]
+        if let Some(bridge) = &mut self.accessibility {
+            let modal = self.popup.is_open().then_some(self.popup.focus_order());
+            bridge.finish(
+                self.focus,
+                modal,
+                self.popup.is_open() && !self.popup.is_card(),
+            );
+        }
         self.wants_frame =
             self.tweens.busy() || self.changed || !self.clicked.is_empty() || blinking;
         self.clicked.clear();
@@ -682,6 +711,10 @@ impl<Id: WidgetId> UiState<Id> {
             None => rect,
         };
         let enabled = enabled && rect.width > 0.0 && rect.height > 0.0;
+        #[cfg(feature = "accessibility")]
+        if let Some(bridge) = &mut self.accessibility {
+            bridge.register(key, rect, sense, enabled);
+        }
         self.hits.push(Hit {
             rect,
             key,
