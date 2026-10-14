@@ -9,7 +9,7 @@
 //! widget calls [`Ui::interact`](super::Ui::interact) once and hands the
 //! result down.
 
-mod editable;
+pub(crate) mod editable;
 mod pan_zoom;
 mod plot_view;
 

@@ -35,6 +35,8 @@ pub struct Rules<'a> {
     pub max_chars: Option<usize>,
     /// Which characters may be typed or pasted; others are dropped.
     pub accept: Option<&'a dyn Fn(char) -> bool>,
+    /// Keep line breaks and tabs. CRLF and CR input become LF.
+    pub multiline: bool,
 }
 
 /// Undo keeps this many steps; older ones are dropped.
@@ -67,6 +69,7 @@ pub struct TextEdit {
     undo: Vec<Snapshot>,
     redo: Vec<Snapshot>,
     last: Kind,
+    pub(crate) multiline: Option<Box<super::widget::text_area::EditorView>>,
 }
 
 impl Default for TextEdit {
@@ -86,6 +89,7 @@ impl TextEdit {
             undo: Vec::new(),
             redo: Vec::new(),
             last: Kind::None,
+            multiline: None,
         }
     }
 
@@ -299,11 +303,27 @@ fn allowed(text: &str, replacing: Range<usize>, typed: &str, rules: Rules<'_>) -
         let staying = text.chars().count() - text[replacing].chars().count();
         max.saturating_sub(staying)
     });
+    let normalized;
+    let typed = if rules.multiline && typed.contains('\r') {
+        normalized = typed.replace("\r\n", "\n").replace('\r', "\n");
+        normalized.as_str()
+    } else {
+        typed
+    };
     typed
         .chars()
         // A single line holds no line breaks; a pasted one becomes a space.
-        .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
-        .filter(|&c| !c.is_control() && rules.accept.is_none_or(|accept| accept(c)))
+        .map(|c| {
+            if !rules.multiline && (c == '\n' || c == '\r') {
+                ' '
+            } else {
+                c
+            }
+        })
+        .filter(|&c| {
+            ((!c.is_control()) || (rules.multiline && (c == '\n' || c == '\t')))
+                && rules.accept.is_none_or(|accept| accept(c))
+        })
         .take(left)
         .collect()
 }
@@ -484,6 +504,7 @@ mod tests {
         let rules = Rules {
             max_chars: Some(5),
             accept: Some(&digits),
+            ..Rules::default()
         };
         edit.insert(&mut text, "3a4b5678", rules);
         assert_eq!(text, "12345");
@@ -550,6 +571,7 @@ mod tests {
         let rules = Rules {
             max_chars: None,
             accept: Some(&accept),
+            ..Rules::default()
         };
         assert!(!edit.insert(&mut text, "x", rules));
         assert_eq!(text, "123");
