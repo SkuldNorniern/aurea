@@ -305,6 +305,9 @@ impl<Id: WidgetId> UiState<Id> {
             }
             WindowEvent::Unfocused => {
                 self.active = None;
+                self.pointer_events.clear();
+                self.press = None;
+                self.secondary = None;
                 true
             }
             _ => false,
@@ -418,9 +421,11 @@ impl<Id: WidgetId> UiState<Id> {
             self.fonts = Some(Rc::new(Fonts::new(theme)));
         }
         self.changed = false;
-        for event in mem::take(&mut self.pointer_events) {
+        let mut pointer_events = mem::take(&mut self.pointer_events);
+        for event in pointer_events.drain(..) {
             self.resolve_pointer(event);
         }
+        self.pointer_events = pointer_events;
         self.resolve_keys();
         if let Some(at) = self.pointer {
             self.hot = self.hit_at(at).map(|hit| hit.key);
@@ -635,6 +640,13 @@ impl<Id: WidgetId> UiState<Id> {
         font.size.to_bits().hash(&mut hasher);
         font.weight.hash(&mut hasher);
         font.style.hash(&mut hasher);
+        font.features.hash(&mut hasher);
+        font.variations.len().hash(&mut hasher);
+        for variation in &font.variations {
+            variation.tag.hash(&mut hasher);
+            variation.value.to_bits().hash(&mut hasher);
+        }
+        font.vertical.hash(&mut hasher);
         let entry = self
             .measures
             .entry(hasher.finish())
@@ -672,4 +684,44 @@ fn point(x: f64, y: f64) -> Point {
 #[allow(clippy::cast_possible_truncation)]
 fn to_f32(v: f64) -> f32 {
     v as f32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn text_measurements_distinguish_all_shaping_settings_and_reuse_exact_matches() {
+        let mut state = UiState::<u8>::new();
+        let base = Font::new("Sans", 16.0);
+        let fonts = [
+            base.clone(),
+            base.clone().with_feature("liga", 0),
+            base.clone().with_variation("wdth", 75.0),
+            base.clone().with_variation("wdth", 125.0),
+            base.with_vertical(true),
+        ];
+        let calls = Cell::new(0u8);
+        for (index, font) in (1u8..).zip(&fonts) {
+            for _ in 0..2 {
+                let measured = state.measure("office", font, || {
+                    calls.set(calls.get() + 1);
+                    TextMetrics {
+                        width: f32::from(index),
+                        height: 16.0,
+                        ascent: 12.0,
+                        descent: 4.0,
+                        advance: f32::from(index),
+                    }
+                });
+                assert_eq!(measured.width, f32::from(index));
+            }
+        }
+        assert_eq!(
+            calls.get(),
+            5,
+            "one measurement per distinct shaping configuration"
+        );
+    }
 }
