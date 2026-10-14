@@ -8,7 +8,7 @@ use crate::render::{Point, Rect};
 use crate::ui::component::card;
 use crate::ui::frame::{Align, Ui};
 use crate::ui::paint::{Component, Label, Mark, MarkShape};
-use crate::ui::state::{Channel, Key, Sense, WidgetId};
+use crate::ui::state::{Channel, Interaction, Key, Sense, WidgetId};
 use crate::window::KeyCode;
 
 const ROW_PART: u16 = 0xF000;
@@ -28,6 +28,8 @@ pub struct MenuItem<'a> {
     pub checked: bool,
     /// A line between groups instead of a row.
     pub separator: bool,
+    /// Child rows opened with the pointer, Right, or Enter.
+    pub children: &'a [MenuItem<'a>],
 }
 
 impl<'a> MenuItem<'a> {
@@ -38,6 +40,7 @@ impl<'a> MenuItem<'a> {
             enabled: true,
             checked: false,
             separator: false,
+            children: &[],
         }
     }
 
@@ -48,6 +51,7 @@ impl<'a> MenuItem<'a> {
             enabled: false,
             checked: false,
             separator: true,
+            children: &[],
         }
     }
 
@@ -68,6 +72,26 @@ impl<'a> MenuItem<'a> {
         self.checked = checked;
         self
     }
+
+    #[must_use]
+    /// Adds a submenu.
+    ///
+    /// ```rust,no_run
+    /// # use aurea::ui::{MenuItem, Ui};
+    /// # fn menu(ui: &mut Ui<'_, u8>) {
+    /// let export = [MenuItem::new("PNG"), MenuItem::new("SVG")];
+    /// ui.open_menu(1, aurea::Point::new(20.0, 20.0), [
+    ///     MenuItem::new("Export").submenu(&export),
+    /// ]);
+    /// if let Some(path) = ui.menu_picked_path(1) {
+    ///     // [0, 1] selects Export > SVG.
+    /// }
+    /// # }
+    /// ```
+    pub const fn submenu(mut self, children: &'a [MenuItem<'a>]) -> Self {
+        self.children = children;
+        self
+    }
 }
 
 impl<'a> From<&'a str> for MenuItem<'a> {
@@ -83,6 +107,40 @@ struct Row {
     enabled: bool,
     checked: bool,
     separator: bool,
+    children: Vec<Row>,
+    has_children: bool,
+    rect: Rect,
+}
+
+impl Row {
+    fn assign(&mut self, item: MenuItem<'_>) {
+        self.label.clear();
+        self.label.push_str(item.label);
+        self.shortcut.clear();
+        self.shortcut.push_str(item.shortcut.unwrap_or(""));
+        self.enabled = item.enabled && !item.separator;
+        self.checked = item.checked;
+        self.separator = item.separator;
+        self.has_children = !item.children.is_empty();
+        self.children
+            .resize_with(item.children.len(), Self::default);
+        for (row, item) in self.children.iter_mut().zip(item.children) {
+            row.assign(*item);
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Parent {
+    rows: Vec<Row>,
+    len: usize,
+    highlight: Option<usize>,
+    scroll: f32,
+    anchor: Rect,
+    min_width: f32,
+    selected: usize,
+    nested: bool,
+    reveal: bool,
 }
 
 #[derive(Debug)]
@@ -95,7 +153,10 @@ pub(crate) struct Popup<Id> {
     highlight: Option<usize>,
     scroll: f32,
     return_focus: Option<Key<Id>>,
-    picked: Option<(Key<Id>, usize)>,
+    picked: Option<(Key<Id>, Vec<usize>)>,
+    parents: Vec<Parent>,
+    nested: bool,
+    reveal: bool,
     card: bool,
     card_drawn: bool,
     focus_order: Vec<Key<Id>>,
@@ -113,6 +174,9 @@ impl<Id> Default for Popup<Id> {
             scroll: 0.0,
             return_focus: None,
             picked: None,
+            parents: Vec::new(),
+            nested: false,
+            reveal: false,
             card: false,
             card_drawn: false,
             focus_order: Vec::new(),
@@ -129,6 +193,11 @@ impl<Id: WidgetId> Popup<Id> {
         items: impl IntoIterator<Item = MenuItem<'a>>,
         return_focus: Option<Key<Id>>,
     ) {
+        while !self.parents.is_empty() {
+            self.back();
+        }
+        self.nested = false;
+        self.reveal = false;
         self.owner = Some(owner);
         self.card = false;
         self.card_drawn = false;
@@ -143,13 +212,7 @@ impl<Id: WidgetId> Popup<Id> {
                 self.rows.push(Row::default());
             }
             let row = &mut self.rows[self.len];
-            row.label.clear();
-            row.label.push_str(item.label);
-            row.shortcut.clear();
-            row.shortcut.push_str(item.shortcut.unwrap_or(""));
-            row.enabled = item.enabled && !item.separator;
-            row.checked = item.checked;
-            row.separator = item.separator;
+            row.assign(item);
             self.len += 1;
         }
         self.highlight = self.rows[..self.len]
@@ -193,18 +256,84 @@ impl<Id: WidgetId> Popup<Id> {
     }
 
     pub(crate) fn close(&mut self) -> Option<Key<Id>> {
+        while !self.parents.is_empty() {
+            self.back();
+        }
         self.owner = None;
         self.return_focus.take()
     }
 
     pub(crate) fn take_pick(&mut self, owner: Key<Id>) -> Option<usize> {
-        match self.picked {
-            Some((key, row)) if key == owner => {
-                self.picked = None;
-                Some(row)
-            }
-            _ => None,
+        if self
+            .picked
+            .as_ref()
+            .is_some_and(|(key, path)| *key == owner && path.len() == 1)
+        {
+            return self.picked.take().map(|(_, path)| path[0]);
         }
+        None
+    }
+
+    fn take_path(&mut self, owner: Key<Id>) -> Option<Vec<usize>> {
+        if self.picked.as_ref().is_some_and(|(key, _)| *key == owner) {
+            return self.picked.take().map(|(_, path)| path);
+        }
+        None
+    }
+
+    fn swap_parent(&mut self, depth: usize) {
+        let parent = &mut self.parents[depth];
+        mem::swap(&mut self.rows, &mut parent.rows);
+        mem::swap(&mut self.len, &mut parent.len);
+        mem::swap(&mut self.highlight, &mut parent.highlight);
+        mem::swap(&mut self.scroll, &mut parent.scroll);
+        mem::swap(&mut self.anchor, &mut parent.anchor);
+        mem::swap(&mut self.min_width, &mut parent.min_width);
+        mem::swap(&mut self.nested, &mut parent.nested);
+        mem::swap(&mut self.reveal, &mut parent.reveal);
+    }
+
+    fn back(&mut self) {
+        let Some(mut parent) = self.parents.pop() else {
+            return;
+        };
+        parent.rows[parent.selected].children = mem::take(&mut self.rows);
+        self.rows = parent.rows;
+        self.len = parent.len;
+        self.highlight = parent.highlight;
+        self.scroll = parent.scroll;
+        self.anchor = parent.anchor;
+        self.min_width = parent.min_width;
+        self.nested = parent.nested;
+        self.reveal = parent.reveal;
+    }
+
+    fn descend(&mut self, row: usize) -> bool {
+        if row >= self.len || !self.rows[row].enabled || !self.rows[row].has_children {
+            return false;
+        }
+        let children = mem::take(&mut self.rows[row].children);
+        let anchor = self.rows[row].rect;
+        let parent = Parent {
+            rows: mem::replace(&mut self.rows, children),
+            len: self.len,
+            highlight: Some(row),
+            scroll: self.scroll,
+            anchor: self.anchor,
+            min_width: self.min_width,
+            selected: row,
+            nested: self.nested,
+            reveal: self.reveal,
+        };
+        self.parents.push(parent);
+        self.len = self.rows.len();
+        self.highlight = self.step(None, true);
+        self.scroll = 0.0;
+        self.anchor = anchor;
+        self.min_width = 0.0;
+        self.nested = true;
+        self.reveal = true;
+        true
     }
 
     fn pick(&mut self, row: usize) -> Option<Key<Id>> {
@@ -212,7 +341,12 @@ impl<Id: WidgetId> Popup<Id> {
         if !self.rows.get(row).is_some_and(|r| r.enabled) || row >= self.len {
             return None;
         }
-        self.picked = Some((owner, row));
+        if self.descend(row) {
+            return None;
+        }
+        let mut path: Vec<_> = self.parents.iter().map(|parent| parent.selected).collect();
+        path.push(row);
+        self.picked = Some((owner, path));
         self.close()
     }
 
@@ -237,15 +371,28 @@ impl<Id: WidgetId> Popup<Id> {
     }
 
     pub(crate) fn key(&mut self, key: KeyCode) -> (bool, Option<Option<Key<Id>>>) {
+        self.reveal = true;
         match key {
             KeyCode::Down => self.highlight = self.step(self.highlight, true),
             KeyCode::Up => self.highlight = self.step(self.highlight, false),
             KeyCode::Home => self.highlight = self.step(None, true),
             KeyCode::End => self.highlight = self.step(None, false),
             KeyCode::Enter | KeyCode::Space => {
+                if self.highlight.is_some_and(|row| self.descend(row)) {
+                    return (true, None);
+                }
+                if self.highlight.is_none() {
+                    return (true, None);
+                }
                 let focus = self.highlight.and_then(|row| self.pick(row));
                 return (true, Some(focus.or(self.return_focus)));
             }
+            KeyCode::Right => {
+                if let Some(row) = self.highlight {
+                    self.descend(row);
+                }
+            }
+            KeyCode::Left | KeyCode::Escape if !self.parents.is_empty() => self.back(),
             KeyCode::Escape => return (true, Some(self.close())),
             KeyCode::Tab => return (false, Some(self.close())),
             _ => return (false, None),
@@ -288,23 +435,74 @@ pub(crate) fn draw<Id: WidgetId>(ui: &mut Ui<'_, Id>) -> AureaResult<()> {
     let canvas = Rect::new(0.0, 0.0, ui.ctx.width() as f32, ui.ctx.height() as f32);
     ui.interact(owner.id, BACKDROP_PART, canvas, Sense::Hover, true);
     if ui.press(owner.id, BACKDROP_PART).is_some() {
-        if let Some(focus) = ui.state.popup.close() {
-            ui.state.give_focus(Some(focus));
-        }
+        let focus = ui.state.popup.close();
+        ui.state.give_focus(focus);
         ui.mark_changed();
         return Ok(());
     }
     let m = Metrics::of(ui.theme.control_height);
-    let rect = place(ui, canvas, &m);
     let rate = ui.theme.motion.focus * 1.5;
     let shown = ui.state.tweens.from_to((owner, FADE), 0.0, 1.0, rate);
-    card(ui.theme).fade(shown).paint(ui, rect)?;
-    scroll(ui, rect, &m);
-    ui.ctx.save()?;
-    ui.ctx.clip_rect(rect.inset(1.0))?;
-    let drawn = rows(ui, owner, rect, &m, shown);
-    ui.ctx.restore()?;
-    drawn
+    let depth = ui.state.popup.parents.len();
+    let mut action = None;
+    for level in 0..=depth {
+        if level > 0 {
+            let parent = &ui.state.popup.parents[level - 1];
+            let anchor = parent.rows[parent.selected].rect;
+            if level < depth {
+                ui.state.popup.parents[level].anchor = anchor;
+            } else {
+                ui.state.popup.anchor = anchor;
+            }
+        }
+        if level < depth {
+            ui.state.popup.swap_parent(level);
+        }
+        let rect = place(ui, canvas, &m);
+        let drawn = (|| {
+            card(ui.theme).fade(shown).paint(ui, rect)?;
+            scroll(ui, rect, &m);
+            let input = u16::try_from(level)
+                .ok()
+                .and_then(|part| ROW_PART.checked_add(part))
+                .map(|part| ui.interact(owner.id, part, rect, Sense::Click, true))
+                .unwrap_or_default();
+            ui.clipped(rect.inset(1.0), |ui| rows(ui, rect, &m, shown, input))
+        })();
+        if level < depth {
+            ui.state.popup.swap_parent(level);
+        }
+        if let Some((row, clicked)) = drawn? {
+            action = Some((level, row, clicked));
+        }
+    }
+    apply_action(ui, action, depth);
+    Ok(())
+}
+
+fn apply_action<Id: WidgetId>(
+    ui: &mut Ui<'_, Id>,
+    action: Option<(usize, usize, bool)>,
+    depth: usize,
+) {
+    if let Some((level, row, clicked)) = action {
+        let already_open = level < depth && ui.state.popup.parents[level].selected == row;
+        if !already_open {
+            while ui.state.popup.parents.len() > level {
+                ui.state.popup.back();
+            }
+            ui.state.popup.highlight = Some(row);
+            if clicked {
+                let focus = ui.state.popup.pick(row);
+                if !ui.state.popup.is_open() {
+                    ui.state.give_focus(focus);
+                }
+            } else {
+                ui.state.popup.descend(row);
+            }
+            ui.mark_changed();
+        }
+    }
 }
 
 fn place<Id: WidgetId>(ui: &mut Ui<'_, Id>, canvas: Rect, m: &Metrics) -> Rect {
@@ -327,6 +525,9 @@ fn place<Id: WidgetId>(ui: &mut Ui<'_, Id>, canvas: Rect, m: &Metrics) -> Rect {
         if !shortcut.is_empty() {
             width += ui.text_width(&shortcut, &fonts.small) + pad * 2.0;
         }
+        if ui.state.popup.rows[i].has_children {
+            width += m.row;
+        }
         let row = &mut ui.state.popup.rows[i];
         (row.label, row.shortcut) = (label, shortcut);
         widest = widest.max(width);
@@ -334,14 +535,32 @@ fn place<Id: WidgetId>(ui: &mut Ui<'_, Id>, canvas: Rect, m: &Metrics) -> Rect {
     let check = m.row * 0.75;
     let width = (widest + check + pad * 2.0)
         .max(min_width)
-        .min(canvas.width - 8.0);
-    let height = height.min(TALLEST).min(canvas.height - 8.0);
-    let x = anchor.x.clamp(4.0, (canvas.right() - width - 4.0).max(4.0));
+        .min((canvas.width - 8.0).max(0.0));
+    let height = height.min(TALLEST).min((canvas.height - 8.0).max(0.0));
+    let margin = 4.0f32.min(canvas.width / 2.0).min(canvas.height / 2.0);
+    if ui.state.popup.nested {
+        let x = if anchor.right() + width <= canvas.right() - margin {
+            anchor.right()
+        } else {
+            anchor.x - width
+        };
+        return Rect::new(
+            x.clamp(margin, (canvas.right() - width - margin).max(margin)),
+            anchor
+                .y
+                .clamp(margin, (canvas.bottom() - height - margin).max(margin)),
+            width,
+            height,
+        );
+    }
+    let x = anchor
+        .x
+        .clamp(margin, (canvas.right() - width - margin).max(margin));
     let below = anchor.bottom() + 4.0;
     let y = if below + height <= canvas.bottom() - 4.0 {
         below
     } else {
-        (anchor.y - 4.0 - height).max(4.0)
+        (anchor.y - 4.0 - height).max(margin)
     };
     Rect::new(x, y, width, height)
 }
@@ -357,77 +576,132 @@ fn scroll<Id: WidgetId>(ui: &mut Ui<'_, Id>, rect: Rect, m: &Metrics) {
     let wheel = if over { ui.take_wheel().1 } else { 0.0 };
     let p = &mut ui.state.popup;
     p.scroll = (p.scroll - wheel * m.row).clamp(0.0, room);
+    if p.reveal
+        && let Some(index) = p.highlight
+    {
+        let top = m.pad
+            + p.rows[..index]
+                .iter()
+                .map(|row| m.height(row.separator))
+                .sum::<f32>();
+        let bottom = top + m.height(p.rows[index].separator);
+        if top < p.scroll + m.pad {
+            p.scroll = (top - m.pad).max(0.0);
+        }
+        if bottom > p.scroll + rect.height - m.pad {
+            p.scroll = (bottom - rect.height + m.pad).clamp(0.0, room);
+        }
+    }
+    p.reveal = false;
 }
 
 fn rows<Id: WidgetId>(
     ui: &mut Ui<'_, Id>,
-    owner: Key<Id>,
     rect: Rect,
     m: &Metrics,
     shown: f32,
-) -> AureaResult<()> {
+    input: Interaction,
+) -> AureaResult<Option<(usize, bool)>> {
     let p = ui.theme.palette;
     let pad = ui.theme.padding;
     let mut y = rect.y + m.pad - ui.state.popup.scroll;
+    let mut action = None;
     for i in 0..ui.state.popup.len {
         let row = &ui.state.popup.rows[i];
-        let (separator, enabled, checked) = (row.separator, row.enabled, row.checked);
+        let separator = row.separator;
         let h = m.height(separator);
-        let cell = Rect::new(rect.x + m.pad, y, rect.width - m.pad * 2.0, h);
+        let cell = Rect::new(rect.x + m.pad, y, (rect.width - m.pad * 2.0).max(0.0), h);
         y += h;
+        ui.state.popup.rows[i].rect = cell;
         if separator {
-            let line = Rect::new(cell.x + pad / 2.0, cell.center().y, cell.width - pad, 1.0);
+            let line = Rect::new(
+                cell.x + pad / 2.0,
+                cell.center().y,
+                (cell.width - pad).max(0.0),
+                1.0,
+            );
             ui.fill(line, p.border.fade(shown))?;
             continue;
         }
         if cell.bottom() < rect.y || cell.y > rect.bottom() {
             continue;
         }
-        let part = ROW_PART.saturating_add(u16::try_from(i).unwrap_or(u16::MAX));
-        let input = ui.interact(owner.id, part, cell, Sense::Click, enabled);
-        if input.hovered {
-            ui.state.popup.highlight = Some(i);
+        if row_action(ui, rect, cell, i, input) {
+            action = Some((i, input.clicked));
         }
-        if input.clicked {
-            let focus = ui.state.popup.pick(i);
-            ui.state.give_focus(focus);
-            ui.mark_changed();
-            return Ok(());
-        }
-        let lit = ui.state.popup.highlight == Some(i) && enabled;
-        if lit {
-            ui.round(cell, ui.theme.radius.min(5.0), p.hover.fade(shown))?;
-        }
-        let ink = if enabled { p.text } else { p.faint };
-        let check = Rect::new(cell.x, cell.y, m.row * 0.75, h);
-        if checked {
-            Mark::new(MarkShape::Check, p.accent.fade(shown)).paint(ui, check.inset(4.0))?;
-        }
-        let text = Rect::new(
-            check.right(),
-            cell.y,
-            cell.right() - check.right() - pad / 2.0,
-            h,
-        );
-        let label = mem::take(&mut ui.state.popup.rows[i].label);
-        let drawn = Label::new(&label, ink.fade(shown)).paint(ui, text);
-        ui.state.popup.rows[i].label = label;
-        drawn?;
-        let shortcut = mem::take(&mut ui.state.popup.rows[i].shortcut);
-        let drawn = if shortcut.is_empty() {
-            Ok(())
-        } else {
-            Label::new(&shortcut, p.dim.fade(shown))
-                .small()
-                .align(Align::End)
-                .paint(ui, text)
-        };
-        ui.state.popup.rows[i].shortcut = shortcut;
-        drawn?;
+        paint_row(ui, cell, m, shown, i)?;
+    }
+    Ok(action)
+}
+
+fn paint_row<Id: WidgetId>(
+    ui: &mut Ui<'_, Id>,
+    cell: Rect,
+    m: &Metrics,
+    shown: f32,
+    i: usize,
+) -> AureaResult<()> {
+    let p = ui.theme.palette;
+    let pad = ui.theme.padding;
+    let row = &ui.state.popup.rows[i];
+    let (enabled, checked, children) = (row.enabled, row.checked, row.has_children);
+    let h = cell.height;
+    let lit = ui.state.popup.highlight == Some(i) && enabled;
+    if lit {
+        ui.round(cell, ui.theme.radius.min(5.0), p.hover.fade(shown))?;
+    }
+    let ink = if enabled { p.text } else { p.faint };
+    let check = Rect::new(cell.x, cell.y, m.row * 0.75, h);
+    if checked {
+        Mark::new(MarkShape::Check, p.accent.fade(shown)).paint(ui, check.inset(4.0))?;
+    }
+    let text = Rect::new(
+        check.right(),
+        cell.y,
+        cell.right() - check.right() - pad / 2.0 - if children { m.row * 0.75 } else { 0.0 },
+        h,
+    );
+    let label = mem::take(&mut ui.state.popup.rows[i].label);
+    let drawn = Label::new(&label, ink.fade(shown)).paint(ui, text);
+    ui.state.popup.rows[i].label = label;
+    drawn?;
+    let shortcut = mem::take(&mut ui.state.popup.rows[i].shortcut);
+    let drawn = if shortcut.is_empty() {
+        Ok(())
+    } else {
+        Label::new(&shortcut, p.dim.fade(shown))
+            .small()
+            .align(Align::End)
+            .paint(ui, text)
+    };
+    ui.state.popup.rows[i].shortcut = shortcut;
+    drawn?;
+    if children {
+        Label::new("›", ink.fade(shown))
+            .align(Align::End)
+            .paint(ui, cell)?;
     }
     Ok(())
 }
 
+fn row_action<Id: WidgetId>(
+    ui: &Ui<'_, Id>,
+    rect: Rect,
+    cell: Rect,
+    i: usize,
+    input: Interaction,
+) -> bool {
+    let row = &ui.state.popup.rows[i];
+    let over = ui
+        .pointer()
+        .is_some_and(|point| rect.inset(1.0).contains(point) && cell.contains(point));
+    row.enabled
+        && over
+        && (input.clicked
+            || (input.hovered
+                && (ui.state.popup.highlight != Some(i)
+                    || (row.has_children && !row.children.is_empty()))))
+}
 impl<Id: WidgetId> Ui<'_, Id> {
     /// Opens a card at logical canvas coordinates.
     pub fn open_popup_card(&mut self, id: Id, rect: Rect) {
@@ -531,6 +805,11 @@ impl<Id: WidgetId> Ui<'_, Id> {
         self.state.popup.take_pick(Key::new(id, MENU_PART))
     }
 
+    /// The selected leaf's indices, from the root through its submenus, once.
+    pub fn menu_picked_path(&mut self, id: Id) -> Option<Vec<usize>> {
+        self.state.popup.take_path(Key::new(id, MENU_PART))
+    }
+
     /// Whether `id`'s context menu is open.
     pub fn menu_open(&self, id: Id) -> bool {
         self.state.popup.is_open_for(Key::new(id, MENU_PART))
@@ -554,6 +833,144 @@ mod tests {
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::{Button, TextField, Theme, UiState};
     use crate::window::{Modifiers, MouseButton, WindowEvent};
+
+    fn menu_frame(state: &mut UiState<u8>, raster: &mut CpuRasterizer) {
+        let theme = Theme::dark();
+        let mut ctx = raster.begin_frame().unwrap();
+        {
+            let _ui = state.frame(&mut *ctx, &theme);
+        }
+        drop(ctx);
+        raster.end_frame().unwrap();
+    }
+
+    #[test]
+    fn nested_keyboard_menus_return_leaf_paths() {
+        let leaves = [
+            MenuItem::new("Disabled").enabled(false),
+            MenuItem::new("Leaf"),
+        ];
+        let children = [
+            MenuItem::separator(),
+            MenuItem::new("Deep").submenu(&leaves),
+        ];
+        let items = [
+            MenuItem::new("Branch").submenu(&children),
+            MenuItem::new("Root leaf"),
+        ];
+        let owner = Key::new(9u8, MENU_PART);
+        let focus = Key::new(1, 0);
+        let mut popup = Popup::default();
+        popup.open(owner, Rect::default(), 0.0, items, Some(focus));
+        popup.key(KeyCode::Down);
+        assert_eq!(popup.key(KeyCode::Right), (true, None));
+        assert_eq!(popup.highlight, Some(1));
+        popup.key(KeyCode::Enter);
+        assert_eq!(popup.parents.len(), 2);
+        assert_eq!(popup.highlight, Some(1));
+        assert_eq!(popup.key(KeyCode::Enter), (true, Some(Some(focus))));
+        assert!(!popup.is_open());
+        assert_eq!(
+            popup.take_pick(owner),
+            None,
+            "legacy calls must not lose a nested pick"
+        );
+        assert_eq!(popup.take_path(owner), Some(vec![0, 1, 1]));
+        assert_eq!(popup.take_path(owner), None);
+    }
+
+    #[test]
+    fn left_and_escape_return_to_the_parent_before_dismissing() {
+        let leaves = [MenuItem::new("Leaf")];
+        let items = [MenuItem::new("Branch").submenu(&leaves)];
+        let mut popup = Popup::default();
+        popup.open(Key::new(9u8, MENU_PART), Rect::default(), 0.0, items, None);
+        popup.key(KeyCode::Home);
+        popup.key(KeyCode::Right);
+        popup.key(KeyCode::Left);
+        assert_eq!(popup.highlight, Some(0));
+        popup.key(KeyCode::Enter);
+        assert_eq!(popup.key(KeyCode::Escape), (true, None));
+        assert!(popup.is_open());
+        assert_eq!(popup.key(KeyCode::Escape), (true, Some(None)));
+    }
+
+    #[test]
+    fn pointer_can_open_checked_submenus_and_pick_without_clicking_through() {
+        let children = [MenuItem::new("Child")];
+        let items = [MenuItem::new("Branch").checked(true).submenu(&children)];
+        let mut state = UiState::<u8>::new();
+        state.set_reduced_motion(true);
+        state.popup.open(
+            Key::new(9, MENU_PART),
+            Rect::new(250.0, 20.0, 0.0, 0.0),
+            0.0,
+            items,
+            None,
+        );
+        let mut raster = CpuRasterizer::new(320, 240);
+        menu_frame(&mut state, &mut raster);
+        let point = state.popup.rows[0].rect.center();
+        state.handle(&WindowEvent::MouseMove {
+            x: f64::from(point.x),
+            y: f64::from(point.y),
+            buttons: Default::default(),
+            modifiers: Default::default(),
+            time: Default::default(),
+        });
+        menu_frame(&mut state, &mut raster);
+        assert_eq!(state.popup.parents.len(), 1);
+        menu_frame(&mut state, &mut raster);
+        let point = state.popup.rows[0].rect.center();
+        assert!(
+            point.x < state.popup.parents[0].rows[0].rect.x,
+            "child flips left at the edge"
+        );
+        for pressed in [true, false] {
+            state.handle(&WindowEvent::MouseButton {
+                button: MouseButton::Left,
+                pressed,
+                modifiers: Default::default(),
+                x: f64::from(point.x),
+                y: f64::from(point.y),
+                click_count: 1,
+                time: Default::default(),
+            });
+            menu_frame(&mut state, &mut raster);
+        }
+        assert!(!state.popup.is_open());
+        assert_eq!(
+            state.popup.take_path(Key::new(9, MENU_PART)),
+            Some(vec![0, 0])
+        );
+    }
+
+    #[test]
+    fn keyboard_reveals_scrolled_rows_and_tiny_menu_canvases_stay_valid() {
+        let items = (0..80).map(|_| MenuItem::new("Row"));
+        let mut state = UiState::<u8>::new();
+        state.set_reduced_motion(true);
+        state
+            .popup
+            .open(Key::new(9, MENU_PART), Rect::default(), 0.0, items, None);
+        let mut raster = CpuRasterizer::new(320, 240);
+        menu_frame(&mut state, &mut raster);
+        state.popup.key(KeyCode::End);
+        menu_frame(&mut state, &mut raster);
+        assert!(state.popup.scroll > 0.0);
+        let last = state.popup.rows[79].rect;
+        assert!(last.bottom() <= 240.0);
+        let theme = Theme::dark();
+        let mut tiny = CpuRasterizer::new(2, 3);
+        let mut ctx = tiny.begin_frame().unwrap();
+        let mut ui = state.frame(&mut *ctx, &theme);
+        let rect = place(
+            &mut ui,
+            Rect::new(0.0, 0.0, 2.0, 3.0),
+            &Metrics::of(theme.control_height),
+        );
+        assert!(rect.width >= 0.0 && rect.height >= 0.0);
+    }
 
     struct Rig {
         state: UiState<u8>,

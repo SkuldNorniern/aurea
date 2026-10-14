@@ -587,7 +587,7 @@ impl<Id: WidgetId> UiState<Id> {
         } else if self.popup.is_open() {
             let (used, closed) = self.popup.key(key);
             if let Some(focus) = closed {
-                self.focus = focus.or(self.focus);
+                self.focus = focus;
                 self.focus_visible = true;
                 self.changed = true;
             }
