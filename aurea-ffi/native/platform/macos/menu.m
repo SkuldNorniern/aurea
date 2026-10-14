@@ -19,24 +19,26 @@
 static MenuItemTarget* menuItemTarget = nil;
 
 NGMenuHandle ng_macos_create_menu(void) {
-    if (!menuItemTarget) {
-        menuItemTarget = [[MenuItemTarget alloc] init];
-    }
+    @autoreleasepool {
+        if (!menuItemTarget) {
+            menuItemTarget = [[MenuItemTarget alloc] init];
+        }
 
-    NSMenu* mainMenu = [[NSMenu alloc] init];
+        NSMenu* mainMenu = [[NSMenu alloc] init];
     
-    NSMenuItem* appMenuItem = [[NSMenuItem alloc] init];
-    NSMenu* appMenu = [[NSMenu alloc] init];
-    NSString* appName = [[NSProcessInfo processInfo] processName];
+        NSMenuItem* appMenuItem = [[NSMenuItem alloc] init];
+        NSMenu* appMenu = [[NSMenu alloc] init];
+        NSString* appName = [[NSProcessInfo processInfo] processName];
     
-    [appMenu addItemWithTitle:[NSString stringWithFormat:@"Quit %@", appName]
-                      action:@selector(terminate:)
-               keyEquivalent:@"q"];
+        [appMenu addItemWithTitle:[NSString stringWithFormat:@"Quit %@", appName]
+                          action:@selector(terminate:)
+                   keyEquivalent:@"q"];
     
-    [appMenuItem setSubmenu:appMenu];
-    [mainMenu addItem:appMenuItem];
+        [appMenuItem setSubmenu:appMenu];
+        [mainMenu addItem:appMenuItem];
     
-    return (__bridge_retained void*)mainMenu;
+        return (__bridge_retained void*)mainMenu;
+    }
 }
 
 void ng_macos_destroy_menu(NGMenuHandle handle) {
@@ -136,19 +138,21 @@ int ng_macos_add_menu_separator(NGMenuHandle menu) {
 }
 
 NGMenuHandle ng_macos_create_submenu(NGMenuHandle parentMenu, const char* title) {
-    if (!parentMenu || !title) return NULL;
+    @autoreleasepool {
+        if (!parentMenu || !title) return NULL;
     
-    NSMenu* parent = (__bridge NSMenu*)parentMenu;
-    NSString* itemTitle = strip_access_keys(ng_macos_to_nsstring(title));
+        NSMenu* parent = (__bridge NSMenu*)parentMenu;
+        NSString* itemTitle = strip_access_keys(ng_macos_to_nsstring(title));
     
-    NSMenuItem* menuItem = [[NSMenuItem alloc] init];
-    NSMenu* submenu = [[NSMenu alloc] initWithTitle:itemTitle];
+        NSMenuItem* menuItem = [[NSMenuItem alloc] init];
+        NSMenu* submenu = [[NSMenu alloc] initWithTitle:itemTitle];
     
-    [menuItem setTitle:itemTitle];
-    [menuItem setSubmenu:submenu];
-    [parent addItem:menuItem];
+        [menuItem setTitle:itemTitle];
+        [menuItem setSubmenu:submenu];
+        [parent addItem:menuItem];
     
-    return (__bridge_retained void*)submenu;
+        return (__bridge void*)submenu;
+    }
 }
 
 static NSMenuItem* item_with_id(NGMenuHandle menu, unsigned int id) {

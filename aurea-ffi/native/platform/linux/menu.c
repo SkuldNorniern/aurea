@@ -33,6 +33,26 @@ static int g_shortcut_count = 0;
 static WindowMenuBinding g_window_bindings[256] = {0};
 static int g_window_binding_count = 0;
 
+static void menu_destroyed(GtkWidget* menu, gpointer data) {
+    (void)data;
+    int kept = 0;
+    for (int i = 0; i < g_shortcut_count; i++) {
+        if (g_shortcuts[i].menu != menu && g_shortcuts[i].root != menu)
+            g_shortcuts[kept++] = g_shortcuts[i];
+    }
+    g_shortcut_count = kept;
+    kept = 0;
+    for (int i = 0; i < g_menu_root_count; i++) {
+        if (g_menu_roots[i].menu != menu) g_menu_roots[kept++] = g_menu_roots[i];
+    }
+    g_menu_root_count = kept;
+    kept = 0;
+    for (int i = 0; i < g_window_binding_count; i++) {
+        if (g_window_bindings[i].root != menu) g_window_bindings[kept++] = g_window_bindings[i];
+    }
+    g_window_binding_count = kept;
+}
+
 static void register_menu_root(GtkWidget* menu, GtkWidget* root) {
     if (!menu) return;
     for (int i = 0; i < g_menu_root_count; i++) {
@@ -46,6 +66,7 @@ static void register_menu_root(GtkWidget* menu, GtkWidget* root) {
         g_menu_roots[g_menu_root_count].root = root;
         g_menu_root_count++;
     }
+    g_signal_connect(menu, "destroy", G_CALLBACK(menu_destroyed), NULL);
 }
 
 static GtkWidget* find_menu_root(GtkWidget* menu) {
