@@ -155,7 +155,7 @@ pub use widget::graph;
 pub use widget::graph::{GraphStyle, GraphView, ScopeStyle, ScopeView};
 pub use widget::link::{Link, LinkStyle};
 pub use widget::pager::{Pager, PagerStyle};
-pub use widget::popup::MenuItem;
+pub use widget::popup::{MenuItem, PopupStyle};
 pub use widget::progress::{ProgressBar, ProgressStyle};
 pub use widget::radio::{RadioGroup, RadioStyle};
 pub use widget::scroll::{

@@ -2,7 +2,7 @@
 //! the popup list of the options when clicked.
 
 use super::Widget;
-use super::popup::MenuItem;
+use super::popup::{MenuItem, PopupStyle};
 use crate::AureaResult;
 use crate::render::{Color, Rect};
 use crate::ui::component::{FocusRing, StateColors};
@@ -15,6 +15,7 @@ use crate::window::KeyCode;
 /// How a dropdown looks.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DropdownStyle {
+    pub popup: PopupStyle,
     pub face: StateColors,
     pub border: Color,
     pub open_border: Color,
@@ -29,6 +30,7 @@ impl DropdownStyle {
     pub fn new(theme: &Theme) -> Self {
         let p = theme.palette;
         Self {
+            popup: PopupStyle::new(theme),
             face: StateColors::new(p.raised, p.hover, p.pressed),
             border: p.border,
             open_border: p.accent,
@@ -130,9 +132,13 @@ impl<Id: WidgetId> Widget<Id> for Dropdown<'_> {
                     .enumerate()
                     .map(|(i, label)| MenuItem::new(label).checked(i == current));
                 ui.state.popup.open(key, rect, rect.width, items, Some(key));
+                ui.state.popup.style = Some(style.popup);
             } else if input.focused && !open && self.keys(ui) {
                 response.changed = true;
             }
+        }
+        if ui.state.popup.is_open_for(key) {
+            ui.state.popup.style = Some(style.popup);
         }
         if response.changed {
             ui.mark_changed();
