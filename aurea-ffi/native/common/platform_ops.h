@@ -158,6 +158,9 @@ typedef struct ng_platform_ops {
     char* (*get_clipboard_text)(void);
     void (*free_clipboard_text)(char* text);
     int (*set_clipboard_text)(const char* text);
+    int (*clipboard_formats)(size_t max_bytes, unsigned char** data, size_t* len);
+    int (*clipboard_read)(const char* format, size_t max_bytes, unsigned char** data, size_t* len);
+    int (*clipboard_write)(const NGClipboardEntry* entries, size_t count);
 
     /* Closing the window hides it instead of destroying it. */
     int (*window_set_hide_on_close)(NGHandle w, int hide);

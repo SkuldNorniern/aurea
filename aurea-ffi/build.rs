@@ -68,6 +68,7 @@ fn main() {
         "native/platform/windows/windows_ops.c",
         "native/platform/windows/utils.c",
         "native/platform/windows/window.c",
+        "native/platform/windows/clipboard.c",
         "native/platform/windows/menu.c",
         "native/platform/windows/dialog.c",
         "native/platform/windows/drop.c",
@@ -117,6 +118,7 @@ fn main() {
         "native/platform/macos.m",
         "native/platform/macos/macos_ops.m",
         "native/platform/macos/window.m",
+        "native/platform/macos/clipboard.m",
         "native/platform/macos/menu.m",
         "native/platform/macos/tray.m",
         "native/platform/macos/dialog.m",
@@ -145,6 +147,7 @@ fn main() {
         "native/platform/linux/linux_ops.c",
         "native/platform/linux/utils.c",
         "native/platform/linux/window.c",
+        "native/platform/linux/clipboard.c",
         "native/platform/linux/ime.c",
         "native/platform/linux/menu.c",
         "native/platform/linux/dialog.c",
@@ -237,6 +240,7 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=IOSurface");
         println!("cargo:rustc-link-lib=framework=QuartzCore");
         println!("cargo:rustc-link-lib=framework=UserNotifications");
+        println!("cargo:rustc-link-lib=framework=ImageIO");
 
         add_sources(&mut build, &root, common_c);
         add_sources(&mut build, &root, macos_sources);

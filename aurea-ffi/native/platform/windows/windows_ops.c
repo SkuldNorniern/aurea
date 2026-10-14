@@ -1,4 +1,5 @@
 #include "common/platform_ops.h"
+#include "common/clipboard.h"
 #include "dialog.h"
 #include "common/errors.h"
 #include "platform/windows/utils.h"
@@ -135,6 +136,9 @@ static const ng_platform_ops_t windows_ops = {
     .get_clipboard_text = ng_windows_get_clipboard_text,
     .free_clipboard_text = ng_windows_free_clipboard_text,
     .set_clipboard_text = ng_windows_set_clipboard_text,
+    .clipboard_formats = ng_windows_clipboard_formats,
+    .clipboard_read = ng_windows_clipboard_read,
+    .clipboard_write = ng_windows_clipboard_write,
     .window_set_hide_on_close = ng_windows_window_set_hide_on_close,
     .window_set_close_guard = ng_windows_window_set_close_guard,
     .create_tray = ng_windows_tray_create,

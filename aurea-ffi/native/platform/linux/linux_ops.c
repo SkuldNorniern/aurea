@@ -1,4 +1,5 @@
 #include "common/platform_ops.h"
+#include "common/clipboard.h"
 #include "dialog.h"
 #include "common/errors.h"
 #include "platform/linux/utils.h"
@@ -136,6 +137,9 @@ static const ng_platform_ops_t linux_ops = {
     .get_clipboard_text = ng_linux_get_clipboard_text,
     .free_clipboard_text = ng_linux_free_clipboard_text,
     .set_clipboard_text = ng_linux_set_clipboard_text,
+    .clipboard_formats = ng_linux_clipboard_formats,
+    .clipboard_read = ng_linux_clipboard_read,
+    .clipboard_write = ng_linux_clipboard_write,
 };
 
 void linux_register_ops(void) {

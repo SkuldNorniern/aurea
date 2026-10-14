@@ -1,5 +1,12 @@
 use std::os::raw::{c_char, c_int, c_uint, c_void};
 
+#[repr(C)]
+pub struct RawClipboardEntry {
+    pub format: *const c_char,
+    pub data: *const u8,
+    pub len: usize,
+}
+
 #[cfg(target_os = "android")]
 #[allow(clippy::missing_safety_doc, dead_code)]
 unsafe extern "C" {
@@ -192,6 +199,19 @@ unsafe extern "C" {
     pub fn ng_platform_get_clipboard_text() -> *mut c_char;
     pub fn ng_platform_free_clipboard_text(text: *mut c_char);
     pub fn ng_platform_set_clipboard_text(text: *const c_char) -> c_int;
+    pub fn ng_platform_clipboard_formats(
+        max_bytes: usize,
+        data: *mut *mut u8,
+        len: *mut usize,
+    ) -> c_int;
+    pub fn ng_platform_clipboard_read(
+        format: *const c_char,
+        max_bytes: usize,
+        data: *mut *mut u8,
+        len: *mut usize,
+    ) -> c_int;
+    pub fn ng_platform_clipboard_write(entries: *const RawClipboardEntry, count: usize) -> c_int;
+    pub fn ng_platform_clipboard_free(data: *mut u8);
 
     pub fn ng_platform_create_button(title: *const c_char, id: u32) -> *mut c_void;
     pub fn ng_platform_button_invalidate(button: *mut c_void);
