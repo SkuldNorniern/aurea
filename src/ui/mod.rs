@@ -119,6 +119,8 @@
 //! own modifiers. [`UiState::sync_window`] keeps the pointer shape and an
 //! input method's window following the widgets.
 
+#[cfg(feature = "accessibility")]
+pub mod accessibility;
 pub mod component;
 mod frame;
 pub mod paint;

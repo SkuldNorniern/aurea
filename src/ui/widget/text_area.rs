@@ -9,6 +9,10 @@ use super::Widget;
 use super::text_field::FieldStyle;
 use crate::AureaResult;
 use crate::render::{Font, LayoutLine, LayoutOptions, Point, Rect, TextLayout, layout_text};
+#[cfg(feature = "accessibility")]
+use crate::ui::accessibility::edit_value;
+#[cfg(feature = "accessibility")]
+use crate::ui::accessibility::{Action, Role};
 use crate::ui::component::editable::{SystemClipboard, Typing, apply};
 use crate::ui::component::{EditableText, FocusRing};
 use crate::ui::frame::{Response, Ui, fill};
@@ -234,6 +238,13 @@ impl<'a> TextArea<'a> {
         (font, options): (&Font, LayoutOptions),
     ) -> AureaResult<Typing> {
         let mut outcome = Typing::default();
+        #[cfg(feature = "accessibility")]
+        outcome.merge(edit_value(
+            edit,
+            self.text,
+            self.rules,
+            ui.accessibility_actions(key.id, key.part),
+        ));
         for (typed, target) in ui.state.typed.iter().zip(&ui.state.typed_targets) {
             if *target == Some(key) {
                 outcome.merge(edit_input(
@@ -342,6 +353,21 @@ impl<Id: WidgetId> Widget<Id> for TextArea<'_> {
         inner.width = inner.width.max(0.0);
         inner.height = inner.height.max(0.0);
         let outcome = self.edit(ui, id, inner, input)?;
+        #[cfg(feature = "accessibility")]
+        {
+            ui.accessible_description(
+                id,
+                0,
+                Role::MultilineTextInput,
+                self.placeholder,
+                Some(self.text),
+            );
+            if let Some(bridge) = &mut ui.state.accessibility
+                && let Some(node) = bridge.node(Key::new(id, 0))
+            {
+                node.add_action(Action::SetValue);
+            }
+        }
         let mut response = Response::new(rect, input);
         response.changed = outcome.changed;
         response.submitted = outcome.submitted;

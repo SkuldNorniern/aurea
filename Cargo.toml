@@ -48,6 +48,7 @@ aurea-animation = { path = "aurea-animation", version = "0.1.0" }
 libc = "0.2"
 log = "0.4.29"
 png = "0.18"
+accesskit = { version = "0.25", optional = true }
 jni = { version = "0.21", optional = true }
 raw-window-handle = "0.6"
 wgpu = { version = "29.0.1", optional = true }
@@ -61,11 +62,22 @@ zengpu-spirv = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "f047c9e
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
 
+[target.'cfg(target_os = "windows")'.dependencies]
+accesskit_windows = { version = "0.35.1", optional = true }
+windows = { version = "0.62", optional = true, features = ["Win32_System_Com", "Win32_UI_Accessibility"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+accesskit_macos = { version = "0.27.1", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+accesskit_unix = { version = "0.23", optional = true }
+
 [features]
 # No GPU backend by default: the GPU 2D path does not yet reach parity with the
 # CPU rasterizer (strokes and damage-driven partial repaint are still missing),
 # so it stays opt-in until it does.
 default = []
+accessibility = ["dep:accesskit", "dep:accesskit_windows", "dep:accesskit_macos", "dep:accesskit_unix", "dep:windows"]
 wgpu = ["dep:wgpu"]
 # GPU 2D backend via ZenGPU: Metal on macOS, Vulkan elsewhere. Opt-in,
 # experimental.

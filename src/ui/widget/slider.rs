@@ -5,6 +5,8 @@ use std::ops::RangeInclusive;
 use super::Widget;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
+#[cfg(feature = "accessibility")]
+use crate::ui::accessibility::{Action, ActionData};
 use crate::ui::component::{FocusRing, Knob, StateColors, Track};
 use crate::ui::frame::{Response, Ui};
 use crate::ui::paint::{Component, Shadow};
@@ -183,6 +185,8 @@ impl<Id: WidgetId> Widget<Id> for Slider<'_> {
         let (lo, hi) = (*self.range.start(), *self.range.end());
         let span = hi - lo;
         let before = *self.value;
+        #[cfg(feature = "accessibility")]
+        self.accessibility(ui, id, (lo, hi));
         // The knob's centre runs from one end of the groove to the other.
         let groove = rect.inset_xy(r, 0.0);
         if input.held {
@@ -194,6 +198,8 @@ impl<Id: WidgetId> Widget<Id> for Slider<'_> {
             self.keys(ui, span);
         }
         *self.value = snap(*self.value, lo, hi, self.step);
+        #[cfg(feature = "accessibility")]
+        self.describe_accessibility(ui, id, (lo, hi));
         if (*self.value - before).abs() > f32::EPSILON {
             response.changed = true;
             ui.mark_changed();
@@ -243,6 +249,51 @@ impl<Id: WidgetId> Widget<Id> for Slider<'_> {
         }
         knob.paint(ui, at)?;
         Ok(response)
+    }
+}
+
+#[cfg(feature = "accessibility")]
+impl Slider<'_> {
+    fn accessibility<Id: WidgetId>(&mut self, ui: &mut Ui<'_, Id>, id: Id, (lo, hi): (f32, f32)) {
+        let (lo, hi) = (lo.min(hi), lo.max(hi));
+        let step = self.step.unwrap_or((hi - lo) / 100.0);
+        for action in ui.accessibility_actions(id, 0) {
+            match (action.action, action.data) {
+                (Action::Increment, _) => *self.value += step,
+                (Action::Decrement, _) => *self.value -= step,
+                (Action::SetValue, Some(ActionData::NumericValue(value)))
+                    if value.is_finite() && lo.is_finite() && hi.is_finite() =>
+                {
+                    // Clamp in f64 before conversion so overflowing requests
+                    // cannot create NaNs or infinities in the slider state.
+                    #[allow(clippy::cast_possible_truncation)]
+                    {
+                        *self.value = value.clamp(f64::from(lo), f64::from(hi)) as f32;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    fn describe_accessibility<Id: WidgetId>(
+        &self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        (lo, hi): (f32, f32),
+    ) {
+        let (lo, hi) = (lo.min(hi), lo.max(hi));
+        let step = self.step.unwrap_or((hi - lo) / 100.0);
+        if let Some(bridge) = &mut ui.state.accessibility
+            && let Some(node) = bridge.node(Key::new(id, 0))
+        {
+            node.set_numeric_value(f64::from(snap(*self.value, lo, hi, self.step)));
+            node.set_min_numeric_value(f64::from(lo));
+            node.set_max_numeric_value(f64::from(hi));
+            node.set_numeric_value_step(f64::from(step));
+            node.add_action(Action::Increment);
+            node.add_action(Action::Decrement);
+            node.add_action(Action::SetValue);
+        }
     }
 }
 

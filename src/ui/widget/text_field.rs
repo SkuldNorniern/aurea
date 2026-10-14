@@ -4,9 +4,13 @@
 use super::Widget;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
+#[cfg(feature = "accessibility")]
+use crate::ui::accessibility::{Action, Role};
 use crate::ui::component::{EditableText, FocusRing, StateColors};
 use crate::ui::frame::{Response, Ui};
 use crate::ui::paint::{Component, Surface};
+#[cfg(feature = "accessibility")]
+use crate::ui::state::Key;
 use crate::ui::state::{Channel, Sense, WidgetId};
 use crate::ui::text_edit::Rules;
 use crate::ui::theme::Theme;
@@ -144,6 +148,28 @@ impl<Id: WidgetId> Widget<Id> for TextField<'_> {
             .password(self.password)
             .rules(self.rules)
             .show(ui, (id, 0), inner, input)?;
+        #[cfg(feature = "accessibility")]
+        {
+            ui.accessible_description(
+                id,
+                0,
+                if self.password {
+                    Role::PasswordInput
+                } else {
+                    Role::TextInput
+                },
+                self.placeholder,
+                (!self.password).then_some(self.text.as_str()),
+            );
+            if let Some(bridge) = &mut ui.state.accessibility
+                && let Some(node) = bridge.node(Key::new(id, 0))
+            {
+                node.add_action(Action::SetValue);
+                if self.password {
+                    node.clear_value();
+                }
+            }
+        }
         let mut response = Response::new(rect, input);
         response.changed = outcome.changed;
         response.submitted = outcome.submitted;

@@ -175,6 +175,8 @@ pub(crate) struct Popup<Id> {
     card: bool,
     card_drawn: bool,
     focus_order: Vec<Key<Id>>,
+    #[cfg(feature = "accessibility")]
+    generation: u64,
 }
 
 impl<Id> Default for Popup<Id> {
@@ -195,6 +197,8 @@ impl<Id> Default for Popup<Id> {
             card: false,
             card_drawn: false,
             focus_order: Vec::new(),
+            #[cfg(feature = "accessibility")]
+            generation: 0,
         }
     }
 }
@@ -208,6 +212,13 @@ impl<Id: WidgetId> Popup<Id> {
         items: impl IntoIterator<Item = MenuItem<'a>>,
         return_focus: Option<Key<Id>>,
     ) {
+        #[cfg(feature = "accessibility")]
+        {
+            self.generation = self
+                .generation
+                .checked_add(1)
+                .expect("menu generation exhausted");
+        }
         while !self.parents.is_empty() {
             self.back();
         }
@@ -247,8 +258,52 @@ impl<Id: WidgetId> Popup<Id> {
         self.is_open() && self.card
     }
 
+    pub(crate) fn owns_menu_part(&self, key: Key<Id>) -> bool {
+        !self.card
+            && self
+                .owner
+                .is_some_and(|owner| owner.id == key.id && key.part >= ROW_PART)
+    }
+
     pub(crate) fn owns_focus(&self, focus: Option<Key<Id>>) -> bool {
         focus.is_some_and(|key| self.focus_order.contains(&key))
+    }
+
+    #[cfg(feature = "accessibility")]
+    pub(crate) fn focus_order(&self) -> &[Key<Id>] {
+        &self.focus_order
+    }
+
+    #[cfg(feature = "accessibility")]
+    pub(crate) fn accessible_action(
+        &mut self,
+        owner: Key<Id>,
+        generation: u64,
+        path: &[usize],
+        activate: bool,
+    ) -> Option<Option<Key<Id>>> {
+        if self.owner != Some(owner) || self.generation != generation || self.card {
+            return None;
+        }
+        let (&leaf, ancestors) = path.split_last()?;
+        while !self.parents.is_empty() {
+            self.back();
+        }
+        for &row in ancestors {
+            if !self.descend(row) {
+                return None;
+            }
+        }
+        if leaf >= self.len || !self.rows[leaf].enabled {
+            return None;
+        }
+        self.highlight = Some(leaf);
+        self.reveal = true;
+        if !activate {
+            return None;
+        }
+        let focus = self.pick(leaf);
+        (!self.is_open()).then_some(focus)
     }
 
     pub(crate) fn next_focus(&self, focus: Option<Key<Id>>, back: bool) -> Option<Key<Id>> {
@@ -491,7 +546,9 @@ pub(crate) fn draw<Id: WidgetId>(ui: &mut Ui<'_, Id>) -> AureaResult<()> {
                 .and_then(|part| ROW_PART.checked_add(part))
                 .map(|part| ui.interact(owner.id, part, rect, Sense::Click, true))
                 .unwrap_or_default();
-            ui.clipped(rect.inset(1.0), |ui| rows(ui, rect, &m, shown, input))
+            ui.clipped(rect.inset(1.0), |ui| {
+                rows(ui, rect, &m, shown, input, level)
+            })
         })();
         if level < depth {
             ui.state.popup.swap_parent(level);
@@ -630,7 +687,10 @@ fn rows<Id: WidgetId>(
     m: &Metrics,
     shown: f32,
     input: Interaction,
+    level: usize,
 ) -> AureaResult<Option<(usize, bool)>> {
+    #[cfg(not(feature = "accessibility"))]
+    let _ = level;
     let p = ui.theme.palette;
     let pad = ui.theme.padding;
     let mut y = rect.y + m.pad - ui.state.popup.scroll;
@@ -658,9 +718,37 @@ fn rows<Id: WidgetId>(
         if row_action(ui, rect, cell, i, input) {
             action = Some((i, input.clicked));
         }
+        #[cfg(feature = "accessibility")]
+        accessible_row(ui, cell, i, level);
         paint_row(ui, cell, m, shown, i)?;
     }
     Ok(action)
+}
+
+#[cfg(feature = "accessibility")]
+fn accessible_row<Id: WidgetId>(ui: &mut Ui<'_, Id>, cell: Rect, i: usize, level: usize) {
+    let p = &ui.state.popup;
+    let row = &p.rows[i];
+    let rect = cell
+        .intersection(ui.state.clip.unwrap_or(cell))
+        .unwrap_or_default();
+    if let Some(bridge) = &mut ui.state.accessibility
+        && let Some(owner) = p.owner
+    {
+        let mut path: Vec<_> = p.parents[..level]
+            .iter()
+            .map(|parent| parent.selected)
+            .collect();
+        path.push(i);
+        bridge.menu(
+            owner,
+            p.generation,
+            path,
+            (row.label.as_str(), row.enabled, row.checked),
+            rect,
+            level == p.parents.len() && p.highlight == Some(i),
+        );
+    }
 }
 
 fn paint_row<Id: WidgetId>(
@@ -874,7 +962,10 @@ mod tests {
         let theme = Theme::dark();
         let mut ctx = raster.begin_frame().unwrap();
         {
-            let _ui = state.frame(&mut *ctx, &theme);
+            let mut ui = state.frame(&mut *ctx, &theme);
+            Button::new("Background")
+                .show(&mut ui, 1, Rect::new(0.0, 210.0, 80.0, 30.0))
+                .expect("background");
         }
         drop(ctx);
         raster.end_frame().unwrap();
@@ -929,6 +1020,57 @@ mod tests {
         assert_eq!(popup.key(KeyCode::Escape), (true, None));
         assert!(popup.is_open());
         assert_eq!(popup.key(KeyCode::Escape), (true, Some(None)));
+    }
+
+    #[test]
+    fn tab_dismissal_skips_the_closed_menu_in_the_focus_order() {
+        let mut state = UiState::<u8>::new();
+        state.set_reduced_motion(true);
+        state.focus(1, 0);
+        state.popup.open(
+            Key::new(9, MENU_PART),
+            Rect::default(),
+            0.0,
+            [MenuItem::new("Leaf")],
+            Some(Key::new(1, 0)),
+        );
+        let mut raster = CpuRasterizer::new(320, 240);
+        menu_frame(&mut state, &mut raster);
+        state.handle(&WindowEvent::KeyInput {
+            key: KeyCode::Tab,
+            pressed: true,
+            modifiers: Default::default(),
+        });
+        menu_frame(&mut state, &mut raster);
+        assert!(!state.popup.is_open());
+        assert_eq!(state.focus, Some(Key::new(1, 0)));
+    }
+
+    #[cfg(feature = "accessibility")]
+    #[test]
+    fn assistive_menu_actions_reject_old_openings_and_disabled_leaves() {
+        let leaves = [
+            MenuItem::new("Disabled").enabled(false),
+            MenuItem::new("Leaf"),
+        ];
+        let items = [MenuItem::new("Branch").submenu(&leaves)];
+        let owner = Key::new(9u8, MENU_PART);
+        let mut popup = Popup::default();
+        popup.open(owner, Rect::default(), 0.0, items, None);
+        let old = popup.generation;
+        popup.open(owner, Rect::default(), 0.0, items, None);
+        assert_eq!(popup.accessible_action(owner, old, &[0, 1], true), None);
+        assert_eq!(popup.take_path(owner), None);
+        assert_eq!(
+            popup.accessible_action(owner, popup.generation, &[0, 0], true),
+            None
+        );
+        assert!(popup.is_open());
+        assert_eq!(
+            popup.accessible_action(owner, popup.generation, &[0, 1], true),
+            Some(None)
+        );
+        assert_eq!(popup.take_path(owner), Some(vec![0, 1]));
     }
 
     #[test]

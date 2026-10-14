@@ -4,9 +4,13 @@
 use super::Widget;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
+#[cfg(feature = "accessibility")]
+use crate::ui::accessibility::Role;
 use crate::ui::component::{FocusRing, StateColors};
 use crate::ui::frame::{Eased, Response, Ui};
 use crate::ui::paint::{Component, Label, Mark, MarkShape, Shadow, Surface};
+#[cfg(feature = "accessibility")]
+use crate::ui::state::Key;
 use crate::ui::state::{Channel, Sense, WidgetId};
 use crate::ui::theme::Theme;
 
@@ -95,6 +99,15 @@ impl<Id: WidgetId> Widget<Id> for Toggle<'_> {
             ui.mark_changed();
         }
         let state = ui.eased(id, 0, input);
+        #[cfg(feature = "accessibility")]
+        {
+            ui.accessible_description(id, 0, Role::Switch, self.label.unwrap_or(""), None);
+            if let Some(bridge) = &mut ui.state.accessibility
+                && let Some(node) = bridge.node(Key::new(id, 0))
+            {
+                node.set_toggled((*self.on).into());
+            }
+        }
         let slide = ui.theme.motion.slide;
         let t = ui.animate(id, 0, Channel::Value, f32::from(u8::from(*self.on)), slide);
         let style = self.style.unwrap_or_else(|| ToggleStyle::new(ui.theme));
