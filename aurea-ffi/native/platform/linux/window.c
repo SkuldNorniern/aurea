@@ -970,6 +970,32 @@ int ng_linux_window_get_wayland_handle(NGHandle window, void** surface, void** d
     return 0;
 }
 
+int ng_linux_window_set_cursor_rgba(NGHandle window, const unsigned char* rgba, unsigned int width, unsigned int height, unsigned int hot_x, unsigned int hot_y) {
+    if (!window || !rgba || !width || !height || width > INT_MAX / 4 || height > INT_MAX || hot_x >= width || hot_y >= height) return NG_ERROR_INVALID_PARAMETER;
+    GdkWindow* native = gtk_widget_get_window((GtkWidget*)window);
+    if (!native) return NG_ERROR_INVALID_HANDLE;
+    cairo_surface_t* image = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, (int)width, (int)height);
+    if (cairo_surface_status(image) != CAIRO_STATUS_SUCCESS) { cairo_surface_destroy(image); return NG_ERROR_PLATFORM_SPECIFIC; }
+    unsigned char* data = cairo_image_surface_get_data(image);
+    int stride = cairo_image_surface_get_stride(image);
+    for (unsigned int y = 0; y < height; y++) {
+        uint32_t* dst = (uint32_t*)(data + (size_t)y * stride);
+        for (unsigned int x = 0; x < width; x++) {
+            const unsigned char* p = rgba + ((size_t)y * width + x) * 4;
+            dst[x] = ((uint32_t)p[3] << 24) | ((uint32_t)((p[0] * p[3] + 127) / 255) << 16) | ((uint32_t)((p[1] * p[3] + 127) / 255) << 8) | (uint32_t)((p[2] * p[3] + 127) / 255);
+        }
+    }
+    int scale = MAX(1, gdk_window_get_scale_factor(native));
+    cairo_surface_mark_dirty(image);
+    cairo_surface_set_device_scale(image, scale, scale);
+    GdkCursor* cursor = gdk_cursor_new_from_surface(gdk_window_get_display(native), image, (double)hot_x / scale, (double)hot_y / scale);
+    cairo_surface_destroy(image);
+    if (!cursor) return NG_ERROR_PLATFORM_SPECIFIC;
+    gdk_window_set_cursor(native, cursor);
+    g_object_unref(cursor);
+    return NG_SUCCESS;
+}
+
 int ng_linux_window_set_cursor_icon(NGHandle window, int icon) {
     if (!window) return NG_ERROR_INVALID_HANDLE;
     GdkWindow* gdkWindow = gtk_widget_get_window((GtkWidget*)window);

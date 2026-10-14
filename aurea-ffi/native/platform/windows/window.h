@@ -43,6 +43,7 @@ int ng_windows_window_is_focused(NGHandle window);
 int ng_windows_window_set_cursor_visible(NGHandle window, int visible);
 int ng_windows_window_set_cursor_grab(NGHandle window, int mode);
 int ng_windows_window_set_cursor_icon(NGHandle window, int icon);
+int ng_windows_window_set_cursor_rgba(NGHandle window, const unsigned char* rgba, unsigned int width, unsigned int height, unsigned int hot_x, unsigned int hot_y);
 void ng_windows_cursor_grab_activate(void* hwnd, int active);
 void ng_windows_cursor_grab_refresh(void* hwnd);
 void ng_windows_release_window_input(void* hwnd);

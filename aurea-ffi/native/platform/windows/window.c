@@ -345,10 +345,10 @@ void ng_windows_window_set_title(NGHandle window, const char* title) {
     free(wide);
 }
 
-HICON ng_windows_icon_from_rgba(
+static HICON image_handle(
     const unsigned char* rgba,
     unsigned int width,
-    unsigned int height
+    unsigned int height, BOOL is_icon, unsigned int hot_x, unsigned int hot_y
 ) {
     if (!rgba || width == 0 || height == 0 || width > INT_MAX || height > INT_MAX) {
         return NULL;
@@ -385,26 +385,35 @@ HICON ng_windows_icon_from_rgba(
     unsigned char* bgra = (unsigned char*)dib_pixels;
     size_t pixel_count = (size_t)width * (size_t)height;
     for (size_t i = 0; i < pixel_count; ++i) {
-        bgra[i * 4] = rgba[i * 4 + 2];
-        bgra[i * 4 + 1] = rgba[i * 4 + 1];
-        bgra[i * 4 + 2] = rgba[i * 4];
+        bgra[i * 4] = (unsigned char)((rgba[i * 4 + 2] * rgba[i * 4 + 3] + 127) / 255);
+        bgra[i * 4 + 1] = (unsigned char)((rgba[i * 4 + 1] * rgba[i * 4 + 3] + 127) / 255);
+        bgra[i * 4 + 2] = (unsigned char)((rgba[i * 4] * rgba[i * 4 + 3] + 127) / 255);
         bgra[i * 4 + 3] = rgba[i * 4 + 3];
     }
 
-    HBITMAP mask = CreateBitmap((int)width, (int)height, 1, 1, NULL);
+    size_t mask_size = ((size_t)width + 15) / 16 * 2 * height;
+    void* zeros = calloc(1, mask_size);
+    HBITMAP mask = zeros ? CreateBitmap((int)width, (int)height, 1, 1, zeros) : NULL;
+    free(zeros);
     if (!mask) {
         DeleteObject(color);
         return NULL;
     }
 
     ICONINFO info = {0};
-    info.fIcon = TRUE;
+    info.fIcon = is_icon;
+    info.xHotspot = hot_x;
+    info.yHotspot = hot_y;
     info.hbmColor = color;
     info.hbmMask = mask;
     HICON icon = CreateIconIndirect(&info);
     DeleteObject(mask);
     DeleteObject(color);
     return icon;
+}
+
+HICON ng_windows_icon_from_rgba(const unsigned char* rgba, unsigned int width, unsigned int height) {
+    return image_handle(rgba, width, height, TRUE, 0, 0);
 }
 
 int ng_windows_window_set_icon_rgba(
@@ -520,10 +529,46 @@ int ng_windows_window_set_cursor_visible(NGHandle window, int visible) {
 }
 
 #define AUREA_CURSOR_ICON_PROP "AureaCursorIcon"
+#define AUREA_CUSTOM_CURSOR_PROP "AureaCustomCursor"
 
 void* ng_windows_window_cursor(NGHandle window) {
     HANDLE cursor = window ? GetPropA((HWND)window, AUREA_CURSOR_ICON_PROP) : NULL;
     return cursor ? (void*)cursor : (void*)LoadCursor(NULL, IDC_ARROW);
+}
+
+static int install_cursor(HWND hwnd, HCURSOR cursor, BOOL owned) {
+    if (!cursor) return NG_ERROR_PLATFORM_SPECIFIC;
+    HCURSOR previous = (HCURSOR)GetPropA(hwnd, AUREA_CUSTOM_CURSOR_PROP);
+    if (!SetPropA(hwnd, AUREA_CURSOR_ICON_PROP, (HANDLE)cursor)) {
+        if (owned) DestroyCursor(cursor);
+        return NG_ERROR_PLATFORM_SPECIFIC;
+    }
+    if (owned && !SetPropA(hwnd, AUREA_CUSTOM_CURSOR_PROP, (HANDLE)cursor)) {
+        SetPropA(hwnd, AUREA_CURSOR_ICON_PROP, (HANDLE)(previous ? previous : LoadCursor(NULL, IDC_ARROW)));
+        DestroyCursor(cursor);
+        return NG_ERROR_PLATFORM_SPECIFIC;
+    }
+    if (!owned) RemovePropA(hwnd, AUREA_CUSTOM_CURSOR_PROP);
+    POINT pt;
+    RECT client;
+    if (GetCursorPos(&pt) && GetClientRect(hwnd, &client)) {
+        HWND under = WindowFromPoint(pt);
+        ScreenToClient(hwnd, &pt);
+        if ((under == hwnd || IsChild(hwnd, under)) && PtInRect(&client, pt)) {
+            SetCursor(cursor);
+        }
+    }
+    if (previous) {
+        if (GetCursor() == previous) SetCursor(cursor);
+        DestroyCursor(previous);
+    }
+    return NG_SUCCESS;
+}
+
+int ng_windows_window_set_cursor_rgba(NGHandle window, const unsigned char* rgba, unsigned int width, unsigned int height, unsigned int hot_x, unsigned int hot_y) {
+    if (!window || !rgba || hot_x >= width || hot_y >= height) return NG_ERROR_INVALID_PARAMETER;
+    HCURSOR cursor = (HCURSOR)image_handle(rgba, width, height, FALSE, hot_x, hot_y);
+    return install_cursor((HWND)window, cursor, TRUE);
 }
 
 int ng_windows_window_set_cursor_icon(NGHandle window, int icon) {
@@ -544,18 +589,7 @@ int ng_windows_window_set_cursor_icon(NGHandle window, int icon) {
         default: id = IDC_ARROW; break;
     }
     HCURSOR cursor = LoadCursor(NULL, id);
-    SetPropA(hwnd, AUREA_CURSOR_ICON_PROP, (HANDLE)cursor);
-
-    POINT pt;
-    RECT client;
-    if (GetCursorPos(&pt) && GetClientRect(hwnd, &client)) {
-        HWND under = WindowFromPoint(pt);
-        ScreenToClient(hwnd, &pt);
-        if ((under == hwnd || IsChild(hwnd, under)) && PtInRect(&client, pt)) {
-            SetCursor(cursor);
-        }
-    }
-    return NG_SUCCESS;
+    return install_cursor(hwnd, cursor, FALSE);
 }
 
 static HWND g_grab_holder = NULL;
@@ -627,6 +661,12 @@ void ng_windows_cursor_grab_refresh(void* window) {
 void ng_windows_release_window_input(void* window) {
     HWND hwnd = (HWND)window;
     ng_windows_give_up_grab(hwnd);
+    HCURSOR cursor = (HCURSOR)RemovePropA(hwnd, AUREA_CUSTOM_CURSOR_PROP);
+    if (cursor) {
+        if (GetCursor() == cursor) SetCursor(LoadCursor(NULL, IDC_ARROW));
+        DestroyCursor(cursor);
+    }
+    RemovePropA(hwnd, AUREA_CURSOR_ICON_PROP);
     RemovePropA(hwnd, AUREA_CURSOR_GRAB_PROP);
     if (g_cursor_hidden_by == hwnd) {
         ShowCursor(TRUE);

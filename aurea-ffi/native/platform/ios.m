@@ -429,3 +429,8 @@ int ng_platform_color_dialog(NGHandle window, const char* title, unsigned int ar
     (void)window; (void)title; (void)argb_in; (void)alpha; (void)argb_out;
     return NG_ERROR_UNSUPPORTED;
 }
+
+int ng_platform_window_set_cursor_rgba(NGHandle window, const unsigned char* rgba, unsigned int width, unsigned int height, unsigned int hot_x, unsigned int hot_y) {
+    (void)window; (void)rgba; (void)width; (void)height; (void)hot_x; (void)hot_y;
+    return NG_ERROR_UNSUPPORTED;
+}

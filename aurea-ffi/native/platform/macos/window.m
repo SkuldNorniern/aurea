@@ -9,6 +9,7 @@
 #import <CoreGraphics/CoreGraphics.h>
 #import <QuartzCore/QuartzCore.h>
 #include <string.h>
+#include <limits.h>
 
 static int ng_macos_get_cursor_grab_mode(void* windowHandle);
 
@@ -1017,39 +1018,71 @@ int ng_macos_window_set_ime_cursor_area(NGHandle window, float x, float y, float
     return NG_SUCCESS;
 }
 
-static NSCursor* diagonalResizeCursor(NSString* selectorName) {
-    SEL selector = NSSelectorFromString(selectorName);
-    if (![NSCursor respondsToSelector:selector]) return [NSCursor crosshairCursor];
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-    NSCursor* cursor = [NSCursor performSelector:selector];
-#pragma clang diagnostic pop
-    return cursor ?: [NSCursor crosshairCursor];
+static NSCursor* diagonalResizeCursor(BOOL reverse) {
+    static NSCursor* cursors[2] = { nil, nil };
+    if (cursors[reverse]) return cursors[reverse];
+    NSImage* image = [[NSImage alloc] initWithSize:NSMakeSize(16, 16)];
+    [image lockFocus];
+    NSBezierPath* path = [NSBezierPath bezierPath];
+    NSPoint a = NSMakePoint(reverse ? 13 : 3, 13);
+    NSPoint b = NSMakePoint(reverse ? 3 : 13, 3);
+    [path moveToPoint:a]; [path lineToPoint:b];
+    [path moveToPoint:NSMakePoint(a.x, 8)]; [path lineToPoint:a]; [path lineToPoint:NSMakePoint(8, 13)];
+    [path moveToPoint:NSMakePoint(b.x, 8)]; [path lineToPoint:b]; [path lineToPoint:NSMakePoint(8, 3)];
+    path.lineCapStyle = NSLineCapStyleRound;
+    path.lineJoinStyle = NSLineJoinStyleRound;
+    [[NSColor blackColor] setStroke]; path.lineWidth = 3; [path stroke];
+    [[NSColor whiteColor] setStroke]; path.lineWidth = 1; [path stroke];
+    [image unlockFocus];
+    cursors[reverse] = [[NSCursor alloc] initWithImage:image hotSpot:NSMakePoint(8, 8)];
+    return cursors[reverse];
+}
+
+int ng_macos_window_set_cursor_rgba(NGHandle window, const unsigned char* rgba, unsigned int width, unsigned int height, unsigned int hot_x, unsigned int hot_y) {
+    @autoreleasepool {
+        if (!window || !rgba || !width || !height || hot_x >= width || hot_y >= height || width > INT_MAX / 4 || height > INT_MAX) return NG_ERROR_INVALID_PARAMETER;
+        NSWindow* nsWindow = (__bridge NSWindow*)window;
+        NSView* view = nsWindow.contentView;
+        if (![view isKindOfClass:[AureaContentView class]]) return NG_ERROR_PLATFORM_SPECIFIC;
+        NSBitmapImageRep* bitmap = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL pixelsWide:width pixelsHigh:height bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSDeviceRGBColorSpace bitmapFormat:NSBitmapFormatAlphaNonpremultiplied bytesPerRow:(NSInteger)width * 4 bitsPerPixel:32];
+        if (!bitmap || !bitmap.bitmapData) return NG_ERROR_PLATFORM_SPECIFIC;
+        memcpy(bitmap.bitmapData, rgba, (size_t)width * height * 4);
+        CGFloat scale = MAX(1.0, nsWindow.backingScaleFactor);
+        NSImage* image = [[NSImage alloc] initWithSize:NSMakeSize(width / scale, height / scale)];
+        [image addRepresentation:bitmap];
+        NSCursor* cursor = [[NSCursor alloc] initWithImage:image hotSpot:NSMakePoint(hot_x / scale, hot_y / scale)];
+        ((AureaContentView*)view).cursor = cursor;
+        [nsWindow invalidateCursorRectsForView:view];
+        [cursor set];
+        return NG_SUCCESS;
+    }
 }
 
 int ng_macos_window_set_cursor_icon(NGHandle window, int icon) {
-    if (!window) return NG_ERROR_INVALID_HANDLE;
-    NSWindow* nsWindow = (__bridge NSWindow*)window;
-    NSView* view = [nsWindow contentView];
-    if (![view isKindOfClass:[AureaContentView class]]) return NG_ERROR_PLATFORM_SPECIFIC;
+    @autoreleasepool {
+        if (!window) return NG_ERROR_INVALID_HANDLE;
+        NSWindow* nsWindow = (__bridge NSWindow*)window;
+        NSView* view = [nsWindow contentView];
+        if (![view isKindOfClass:[AureaContentView class]]) return NG_ERROR_PLATFORM_SPECIFIC;
 
-    NSCursor* cursor;
-    switch (icon) {
-        case 1: cursor = [NSCursor pointingHandCursor]; break;
-        case 2: cursor = [NSCursor IBeamCursor]; break;
-        case 3: cursor = [NSCursor crosshairCursor]; break;
-        case 4: cursor = [NSCursor openHandCursor]; break;
-        case 5: cursor = [NSCursor resizeLeftRightCursor]; break;
-        case 6: cursor = [NSCursor resizeUpDownCursor]; break;
-        case 7: cursor = [NSCursor operationNotAllowedCursor]; break;
-        case 9: cursor = diagonalResizeCursor(@"_windowResizeNorthWestSouthEastCursor"); break;
-        case 10: cursor = diagonalResizeCursor(@"_windowResizeNorthEastSouthWestCursor"); break;
-        default: cursor = [NSCursor arrowCursor]; break;
+        NSCursor* cursor;
+        switch (icon) {
+            case 1: cursor = [NSCursor pointingHandCursor]; break;
+            case 2: cursor = [NSCursor IBeamCursor]; break;
+            case 3: cursor = [NSCursor crosshairCursor]; break;
+            case 4: cursor = [NSCursor openHandCursor]; break;
+            case 5: cursor = [NSCursor resizeLeftRightCursor]; break;
+            case 6: cursor = [NSCursor resizeUpDownCursor]; break;
+            case 7: cursor = [NSCursor operationNotAllowedCursor]; break;
+            case 9: cursor = diagonalResizeCursor(NO); break;
+            case 10: cursor = diagonalResizeCursor(YES); break;
+            default: cursor = [NSCursor arrowCursor]; break;
+        }
+        ((AureaContentView*)view).cursor = cursor;
+        [nsWindow invalidateCursorRectsForView:view];
+        [cursor set];
+        return NG_SUCCESS;
     }
-    ((AureaContentView*)view).cursor = cursor;
-    [nsWindow invalidateCursorRectsForView:view];
-    [cursor set];
-    return NG_SUCCESS;
 }
 
 int ng_macos_window_set_cursor_grab(NGHandle window, int mode) {
