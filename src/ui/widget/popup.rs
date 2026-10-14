@@ -4,11 +4,12 @@ use std::iter;
 use std::mem;
 
 use crate::AureaResult;
-use crate::render::{Point, Rect};
+use crate::render::{Color, Point, Rect};
 use crate::ui::component::card;
 use crate::ui::frame::{Align, Ui};
 use crate::ui::paint::{Component, Label, Mark, MarkShape};
 use crate::ui::state::{Channel, Interaction, Key, Sense, WidgetId};
+use crate::ui::theme::Theme;
 use crate::window::KeyCode;
 
 const ROW_PART: u16 = 0xF000;
@@ -16,6 +17,22 @@ const BACKDROP_PART: u16 = 0xEFFF;
 const CARD_PART: u16 = 0xEFFE;
 const FADE: Channel = Channel::Custom(0xF0F0);
 const TALLEST: f32 = 360.0;
+
+/// Selection colors shared by a popup and its nested menus.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PopupStyle {
+    pub check: Color,
+    pub highlight: Color,
+}
+
+impl PopupStyle {
+    pub fn new(theme: &Theme) -> Self {
+        Self {
+            check: theme.palette.accent,
+            highlight: theme.palette.hover,
+        }
+    }
+}
 
 /// One row of a menu.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -145,6 +162,7 @@ struct Parent {
 
 #[derive(Debug)]
 pub(crate) struct Popup<Id> {
+    pub(crate) style: Option<PopupStyle>,
     owner: Option<Key<Id>>,
     anchor: Rect,
     min_width: f32,
@@ -167,6 +185,7 @@ pub(crate) struct Popup<Id> {
 impl<Id> Default for Popup<Id> {
     fn default() -> Self {
         Self {
+            style: None,
             owner: None,
             anchor: Rect::default(),
             min_width: 0.0,
@@ -208,6 +227,7 @@ impl<Id: WidgetId> Popup<Id> {
             self.back();
         }
         self.nested = false;
+        self.style = None;
         self.reveal = false;
         self.owner = Some(owner);
         self.card = false;
@@ -730,18 +750,23 @@ fn paint_row<Id: WidgetId>(
     i: usize,
 ) -> AureaResult<()> {
     let p = ui.theme.palette;
+    let style = ui
+        .state
+        .popup
+        .style
+        .unwrap_or_else(|| PopupStyle::new(ui.theme));
     let pad = ui.theme.padding;
     let row = &ui.state.popup.rows[i];
     let (enabled, checked, children) = (row.enabled, row.checked, row.has_children);
     let h = cell.height;
     let lit = ui.state.popup.highlight == Some(i) && enabled;
     if lit {
-        ui.round(cell, ui.theme.radius.min(5.0), p.hover.fade(shown))?;
+        ui.round(cell, ui.theme.radius.min(5.0), style.highlight.fade(shown))?;
     }
     let ink = if enabled { p.text } else { p.faint };
     let check = Rect::new(cell.x, cell.y, m.row * 0.75, h);
     if checked {
-        Mark::new(MarkShape::Check, p.accent.fade(shown)).paint(ui, check.inset(4.0))?;
+        Mark::new(MarkShape::Check, style.check.fade(shown)).paint(ui, check.inset(4.0))?;
     }
     let text = Rect::new(
         check.right(),
@@ -888,6 +913,18 @@ impl<Id: WidgetId> Ui<'_, Id> {
         self.mark_changed();
     }
 
+    /// Opens a context menu with explicit check and highlight colors.
+    pub fn open_menu_styled<'a>(
+        &mut self,
+        id: Id,
+        at: Point,
+        items: impl IntoIterator<Item = MenuItem<'a>>,
+        style: PopupStyle,
+    ) {
+        self.open_menu(id, at, items);
+        self.state.popup.style = Some(style);
+    }
+
     /// The row picked from `id`'s context menu, once.
     pub fn menu_picked(&mut self, id: Id) -> Option<usize> {
         self.state.popup.take_pick(Key::new(id, MENU_PART))
@@ -933,6 +970,45 @@ mod tests {
         }
         drop(ctx);
         raster.end_frame().unwrap();
+    }
+
+    #[test]
+    fn popup_selection_colors_are_applied_and_do_not_leak_to_the_next_menu() {
+        let mut state = UiState::<u8>::new();
+        state.set_reduced_motion(true);
+        let mut raster = CpuRasterizer::new(320, 240);
+        let theme = Theme::dark();
+        let mut ctx = raster.begin_frame().unwrap();
+        {
+            let mut ui = state.frame(&mut *ctx, &theme);
+            ui.open_menu_styled(
+                9,
+                Point::new(20.0, 20.0),
+                [MenuItem::new("Picked").checked(true)],
+                PopupStyle {
+                    check: Color::rgb(255, 0, 255),
+                    highlight: Color::rgb(0, 255, 0),
+                },
+            );
+        }
+        drop(ctx);
+        raster.end_frame().unwrap();
+        assert!(raster.pixels().contains(&0xff00_ff00), "custom highlight");
+        assert!(
+            raster
+                .pixels()
+                .iter()
+                .any(|pixel| pixel & 0x00ff_00ff == 0x00ff_00ff),
+            "custom check"
+        );
+        state.popup.open(
+            Key::new(9, MENU_PART),
+            Rect::default(),
+            0.0,
+            [MenuItem::new("Plain")],
+            None,
+        );
+        assert!(state.popup.style.is_none());
     }
 
     #[test]
