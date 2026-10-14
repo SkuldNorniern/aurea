@@ -356,6 +356,24 @@ mod tests {
     }
 
     #[test]
+    fn losing_window_focus_cancels_queued_pointer_actions() {
+        let mut rig = Rig::new();
+        rig.button(GO.x + 20.0, GO.y + 12.0, true);
+        rig.button(GO.x + 20.0, GO.y + 12.0, false);
+        rig.send(WindowEvent::Unfocused);
+        rig.frame();
+        assert_eq!(
+            rig.app.clicks, 0,
+            "queued click was cancelled on focus loss"
+        );
+        rig.button(GO.x + 20.0, GO.y + 12.0, false);
+        rig.frame();
+        assert_eq!(rig.app.clicks, 0, "no stale press survives focus loss");
+        rig.click(GO);
+        assert_eq!(rig.app.clicks, 1, "subsequent clicks still work");
+    }
+
+    #[test]
     fn a_switch_flips_on_click() {
         let mut rig = Rig::new();
         rig.click(SWITCH);
