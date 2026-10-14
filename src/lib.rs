@@ -34,6 +34,7 @@ pub use crate::elements::{
 use crate::ffi::ng_platform_reduced_motion;
 pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
 pub use crate::tray::TrayIcon;
+pub use crate::window::clipboard;
 pub use crate::window::{
     CursorGrabMode, CursorIcon, Window, WindowId, WindowManager, WindowType, clipboard_text,
     set_clipboard_text,

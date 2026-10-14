@@ -612,3 +612,25 @@ void ng_platform_free_clipboard_text(char* text) {
 int ng_platform_set_clipboard_text(const char* text) {
     DISPATCH_INT(set_clipboard_text, text);
 }
+
+int ng_platform_clipboard_formats(size_t max_bytes, unsigned char** data, size_t* len) {
+    if (!data || !len) return NG_ERROR_INVALID_PARAMETER;
+    *data = NULL; *len = 0;
+    ensure_ops();
+    return (g_ops && g_ops->clipboard_formats)
+        ? g_ops->clipboard_formats(max_bytes, data, len) : NG_ERROR_UNSUPPORTED;
+}
+int ng_platform_clipboard_read(const char* format, size_t max_bytes, unsigned char** data, size_t* len) {
+    if (!format || !data || !len) return NG_ERROR_INVALID_PARAMETER;
+    *data = NULL; *len = 0;
+    ensure_ops();
+    return (g_ops && g_ops->clipboard_read)
+        ? g_ops->clipboard_read(format, max_bytes, data, len) : NG_ERROR_UNSUPPORTED;
+}
+int ng_platform_clipboard_write(const NGClipboardEntry* entries, size_t count) {
+    if (count && !entries) return NG_ERROR_INVALID_PARAMETER;
+    ensure_ops();
+    return (g_ops && g_ops->clipboard_write)
+        ? g_ops->clipboard_write(entries, count) : NG_ERROR_UNSUPPORTED;
+}
+void ng_platform_clipboard_free(unsigned char* data) { free(data); }

@@ -3,6 +3,7 @@
 
 #include "types.h"
 #include <stdint.h>
+#include <stddef.h>
 
 #define AUREA_FFI_ABI_VERSION 2
 
@@ -177,6 +178,15 @@ void ng_platform_sidebar_list_invalidate(NGHandle sidebar);
 
 NGHandle ng_platform_create_swiftui_host(int width, int height);
 
+typedef struct NGClipboardEntry {
+    const char* format;
+    const unsigned char* data;
+    size_t len;
+} NGClipboardEntry;
+int ng_platform_clipboard_formats(size_t max_bytes, unsigned char** data, size_t* len);
+int ng_platform_clipboard_read(const char* format, size_t max_bytes, unsigned char** data, size_t* len);
+int ng_platform_clipboard_write(const NGClipboardEntry* entries, size_t count);
+void ng_platform_clipboard_free(unsigned char* data);
 char* ng_platform_get_clipboard_text(void);
 void ng_platform_free_clipboard_text(char* text);
 int ng_platform_set_clipboard_text(const char* text);

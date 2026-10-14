@@ -9,5 +9,7 @@
 #define NG_ERROR_PLATFORM_SPECIFIC -4
 /* The platform backend has no implementation for this operation. */
 #define NG_ERROR_UNSUPPORTED -5
+#define NG_ERROR_LIMIT_EXCEEDED -6
+#define NG_ERROR_BUSY -7
 
 #endif

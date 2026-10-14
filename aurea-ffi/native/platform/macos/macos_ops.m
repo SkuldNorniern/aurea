@@ -1,6 +1,7 @@
 ﻿#import "platform/macos.h"
 #import "dialog.h"
 #import "common/platform_ops.h"
+#import "common/clipboard.h"
 #import "common/errors.h"
 #import "window.h"
 #import "menu.h"
@@ -133,6 +134,9 @@ static const ng_platform_ops_t macos_ops = {
     .get_clipboard_text = ng_macos_get_clipboard_text,
     .free_clipboard_text = ng_macos_free_clipboard_text,
     .set_clipboard_text = ng_macos_set_clipboard_text,
+    .clipboard_formats = ng_macos_clipboard_formats,
+    .clipboard_read = ng_macos_clipboard_read,
+    .clipboard_write = ng_macos_clipboard_write,
     .window_set_hide_on_close = ng_macos_window_set_hide_on_close,
     .window_set_close_guard = ng_macos_window_set_close_guard,
     .create_tray = ng_macos_create_tray,

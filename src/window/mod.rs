@@ -1,6 +1,6 @@
 //! Window management, events, and lifecycle integration.
 
-mod clipboard;
+pub mod clipboard;
 #[cfg(feature = "zengpu")]
 mod gpu;
 mod manager;
