@@ -9,7 +9,7 @@
 //! batches. It used to be called `CpuDrawingContext`, which said otherwise.
 
 use crate::renderer::DrawingContext;
-use crate::scene::command::DrawCommand;
+use crate::scene::command::{DrawCommand, quad_bounds};
 use crate::scene::display_list::{CacheKey, DisplayIndex, DisplayItem, DisplayList};
 use crate::scene::hit_test::{hit_test_path, path_bounds};
 use crate::text::{
@@ -325,6 +325,16 @@ fn hash_path(path: &Path, hasher: &mut DefaultHasher) {
     }
 }
 
+fn hash_image_quad(src: &Rect, quad: &[Point; 3], hasher: &mut impl Hasher) {
+    for v in [src.x, src.y, src.width, src.height] {
+        v.to_bits().hash(hasher);
+    }
+    for p in quad {
+        p.x.to_bits().hash(hasher);
+        p.y.to_bits().hash(hasher);
+    }
+}
+
 impl<'list> RecordingContext<'list> {
     /// Creates a context that appends display items to the given display list.
     pub fn new(display_list: &'list mut DisplayList, width: u32, height: u32) -> Self {
@@ -357,17 +367,38 @@ impl<'list> RecordingContext<'list> {
         t.m12.abs() < 1e-6 && t.m21.abs() < 1e-6
     }
 
-    /// Image commands carry an upright rectangle, not an affine texture mapping.
     fn ensure_image_transform(&self) -> AureaResult<()> {
-        let transform = self.current_transform;
-        if self.transform_is_axis_aligned() && transform.m11 >= 0.0 && transform.m22 >= 0.0 {
+        let t = self.current_transform;
+        if [
+            t.m11, t.m12, t.m13, t.m21, t.m22, t.m23, t.m31, t.m32, t.m33,
+        ]
+        .iter()
+        .all(|v| v.is_finite())
+            && t.m13.abs() < 1e-6
+            && t.m23.abs() < 1e-6
+            && (t.m33 - 1.0).abs() < 1e-6
+        {
             Ok(())
         } else {
             Err(AureaError::Unsupported {
-                operation: "image rotation, skew or reflection",
+                operation: "non-affine image transform",
                 platform: Platform::current(),
             })
         }
+    }
+
+    fn image_quad(&self, dest: Rect) -> [Point; 3] {
+        [
+            self.s_pt(Point::new(dest.x, dest.y)),
+            self.s_pt(Point::new(dest.right(), dest.y)),
+            self.s_pt(Point::new(dest.x, dest.bottom())),
+        ]
+    }
+
+    fn upright_image(&self) -> bool {
+        self.transform_is_axis_aligned()
+            && self.current_transform.m11 >= 0.0
+            && self.current_transform.m22 >= 0.0
     }
 
     /// Uniform scale implied by the current transform, used where a shape can
@@ -571,6 +602,18 @@ impl<'list> RecordingContext<'list> {
                 // replacement can land at the same address.
                 image.id().hash(&mut hasher);
             }
+            DrawCommand::DrawImageQuad(image, src, quad, sampling) => {
+                "DrawImageQuad".hash(&mut hasher);
+                image.id().hash(&mut hasher);
+                sampling.hash(&mut hasher);
+                hash_image_quad(src, quad, &mut hasher);
+            }
+            DrawCommand::DrawTextureQuad(texture, src, quad, sampling) => {
+                "DrawTextureQuad".hash(&mut hasher);
+                texture.hash(&mut hasher);
+                sampling.hash(&mut hasher);
+                hash_image_quad(src, quad, &mut hasher);
+            }
             DrawCommand::DrawTexture(texture, src, dest, sampling) => {
                 "DrawTexture".hash(&mut hasher);
                 texture.hash(&mut hasher);
@@ -746,6 +789,8 @@ impl<'list> RecordingContext<'list> {
             DrawCommand::DrawImageRect(_, dest, _)
             | DrawCommand::DrawImageRegion(_, _, dest, _)
             | DrawCommand::DrawTexture(_, _, dest, _) => *dest,
+            DrawCommand::DrawImageQuad(_, _, quad, _)
+            | DrawCommand::DrawTextureQuad(_, _, quad, _) => quad_bounds(quad),
             DrawCommand::DrawGlyphMask(mask, origin, _) => {
                 Rect::new(origin.x, origin.y, mask.width as f32, mask.height as f32)
             }
@@ -777,7 +822,9 @@ impl<'list> RecordingContext<'list> {
             }
             DrawCommand::DrawImageRect(..)
             | DrawCommand::DrawImageRegion(..)
-            | DrawCommand::DrawTexture(..) => false,
+            | DrawCommand::DrawTexture(..)
+            | DrawCommand::DrawImageQuad(..)
+            | DrawCommand::DrawTextureQuad(..) => false,
             DrawCommand::FillLinearGradient(..) | DrawCommand::FillRadialGradient(..) => false,
             _ => false,
         }
@@ -972,43 +1019,51 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn draw_image(&mut self, image: &Image, position: Point) -> AureaResult<()> {
-        self.ensure_image_transform()?;
-        // Drawn at its own pixel size so it stays crisp, positioned and scaled
-        // by the transform like everything else.
-        let anchor = self.s_pt(position);
-        let zoom = self.transform_scale();
-        let dest = Rect::new(
-            anchor.x,
-            anchor.y,
-            image.width as f32 * zoom,
-            image.height as f32 * zoom,
-        );
-        self.add_command(DrawCommand::DrawImageRect(
-            image.clone(),
-            dest,
-            self.current_sampling,
-        ));
-        Ok(())
+        self.draw_image_rect(
+            image,
+            Rect::new(
+                position.x,
+                position.y,
+                image.width as f32,
+                image.height as f32,
+            ),
+        )
     }
 
     fn draw_image_rect(&mut self, image: &Image, dest: Rect) -> AureaResult<()> {
         self.ensure_image_transform()?;
-        self.add_command(DrawCommand::DrawImageRect(
-            image.clone(),
-            self.s_rect(dest),
-            self.current_sampling,
-        ));
+        let command = if self.upright_image() {
+            DrawCommand::DrawImageRect(image.clone(), self.s_rect(dest), self.current_sampling)
+        } else {
+            DrawCommand::DrawImageQuad(
+                image.clone(),
+                Rect::new(0.0, 0.0, image.width as f32, image.height as f32),
+                self.image_quad(dest),
+                self.current_sampling,
+            )
+        };
+        self.add_command(command);
         Ok(())
     }
 
     fn draw_image_region(&mut self, image: &Image, src: Rect, dest: Rect) -> AureaResult<()> {
         self.ensure_image_transform()?;
-        self.add_command(DrawCommand::DrawImageRegion(
-            image.clone(),
-            src,
-            self.s_rect(dest),
-            self.current_sampling,
-        ));
+        let command = if self.upright_image() {
+            DrawCommand::DrawImageRegion(
+                image.clone(),
+                src,
+                self.s_rect(dest),
+                self.current_sampling,
+            )
+        } else {
+            DrawCommand::DrawImageQuad(
+                image.clone(),
+                src,
+                self.image_quad(dest),
+                self.current_sampling,
+            )
+        };
+        self.add_command(command);
         Ok(())
     }
 
@@ -1019,12 +1074,12 @@ impl DrawingContext for RecordingContext<'_> {
 
     fn draw_texture(&mut self, texture: GpuTexture, src: Rect, dest: Rect) -> AureaResult<()> {
         self.ensure_image_transform()?;
-        self.add_command(DrawCommand::DrawTexture(
-            texture,
-            src,
-            self.s_rect(dest),
-            self.current_sampling,
-        ));
+        let command = if self.upright_image() {
+            DrawCommand::DrawTexture(texture, src, self.s_rect(dest), self.current_sampling)
+        } else {
+            DrawCommand::DrawTextureQuad(texture, src, self.image_quad(dest), self.current_sampling)
+        };
+        self.add_command(command);
         Ok(())
     }
 

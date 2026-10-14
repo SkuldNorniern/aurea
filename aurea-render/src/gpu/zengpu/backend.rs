@@ -30,7 +30,7 @@ use crate::gpu::{FramePlan, Gpu2dBackend, Gpu2dRenderer};
 use crate::memory::smaller_buffer;
 use crate::numeric::f32_to_u32_clamped;
 use crate::renderer::FrameOutcome;
-use crate::types::{GpuTexture, Rect};
+use crate::types::{GpuTexture, Image, Rect, Sampling};
 
 use super::buffer::GrowableBuffer;
 use super::pipelines::{GradientInstance, ImageInstance, Pipelines, TextInstance};
@@ -67,6 +67,33 @@ pub struct GpuChoice {
 }
 
 impl ZenGpuContext {
+    /// Uploads an app-owned image on the shared device. `Smooth` allocates a
+    /// full mip chain and generates it on the GPU. Keep the returned owner
+    /// alive while any canvas draws its [`ZenGpuImage::texture`].
+    pub fn upload_image(
+        self: &Arc<Self>,
+        image: &Image,
+        sampling: Sampling,
+    ) -> AureaResult<ZenGpuImage> {
+        let levels = if sampling == Sampling::Smooth {
+            mip_levels(image.width, image.height)
+        } else {
+            1
+        };
+        let handle = make_image_texture(
+            self.device(),
+            image.width,
+            image.height,
+            &image.data,
+            levels,
+        )?;
+        Ok(ZenGpuImage {
+            context: Arc::clone(self),
+            texture: GpuTexture::from_zengpu(handle, image.width, image.height),
+            levels,
+        })
+    }
+
     /// A context on the best GPU: a discrete one if there is one.
     pub fn new() -> AureaResult<Self> {
         let instance = NativeInstance::new_with_surface().map_err(gpu_err)?;
@@ -158,6 +185,97 @@ impl ZenGpuContext {
     pub fn device_context(&self) -> DeviceContext {
         self.device.context()
     }
+}
+
+/// An image texture owned by its shared GPU context. Dropping it releases the
+/// native texture; a copied draw handle does not extend its lifetime.
+pub struct ZenGpuImage {
+    context: Arc<ZenGpuContext>,
+    texture: GpuTexture,
+    levels: u32,
+}
+
+impl ZenGpuImage {
+    pub fn texture(&self) -> GpuTexture {
+        self.texture
+    }
+
+    /// Updates equal-sized RGBA8 pixels and regenerates this image's mips.
+    /// No readback or CPU pyramid is made. Reupload to change the size.
+    pub fn update(&mut self, image: &Image) -> AureaResult<()> {
+        if image.width != self.texture.width
+            || image.height != self.texture.height
+            || !valid_image(image.width, image.height, &image.data)
+        {
+            return Err(AureaError::RenderingFailed);
+        }
+        let device = self.context.device();
+        device
+            .upload_texture_data(self.texture.zengpu(), &image.data)
+            .map_err(gpu_err)?;
+        if self.levels > 1 {
+            device
+                .generate_mipmaps(self.texture.zengpu())
+                .map_err(gpu_err)?;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for ZenGpuImage {
+    fn drop(&mut self) {
+        self.context.device().destroy_texture(self.texture.zengpu());
+    }
+}
+
+fn valid_image(width: u32, height: u32, rgba: &[u8]) -> bool {
+    width > 0
+        && height > 0
+        && (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|n| n.checked_mul(4))
+            == Some(rgba.len())
+}
+
+fn make_image_texture(
+    device: &NativeDevice,
+    width: u32,
+    height: u32,
+    rgba: &[u8],
+    levels: u32,
+) -> AureaResult<TextureHandle> {
+    if !valid_image(width, height, rgba) {
+        return Err(AureaError::RenderingFailed);
+    }
+    let mut usage = TextureUsage::SAMPLED | TextureUsage::TRANSFER_DST;
+    if levels > 1 {
+        usage |= TextureUsage::TRANSFER_SRC;
+    }
+    let texture = device
+        .create_texture(TextureDesc {
+            width,
+            height,
+            depth: 1,
+            format: Format::Rgba8Unorm,
+            usage,
+            samples: 1,
+            dimension: TexDim::D2,
+            mip_levels: levels,
+            array_layers: 1,
+        })
+        .map_err(gpu_err)?;
+    let filled = device.upload_texture_data(texture, rgba).and_then(|()| {
+        if levels > 1 {
+            device.generate_mipmaps(texture)
+        } else {
+            Ok(())
+        }
+    });
+    if let Err(e) = filled {
+        device.destroy_texture(texture);
+        return Err(gpu_err(e));
+    }
+    Ok(texture)
 }
 
 /// This frame's instance-buffer handles, one per primitive kind. `None` when
@@ -482,34 +600,7 @@ impl ZenGpuBackend {
     /// past the first made on the device, and binds it.
     fn upload(&mut self, width: u32, height: u32, rgba: &[u8], levels: u32) -> AureaResult<u32> {
         let device = self.context.device();
-        let mut usage = TextureUsage::SAMPLED | TextureUsage::TRANSFER_DST;
-        if levels > 1 {
-            usage |= TextureUsage::TRANSFER_SRC;
-        }
-        let texture = device
-            .create_texture(TextureDesc {
-                width,
-                height,
-                depth: 1,
-                format: Format::Rgba8Unorm,
-                usage,
-                samples: 1,
-                dimension: TexDim::D2,
-                mip_levels: levels,
-                array_layers: 1,
-            })
-            .map_err(gpu_err)?;
-        let filled = device.upload_texture_data(texture, rgba).and_then(|()| {
-            if levels > 1 {
-                device.generate_mipmaps(texture)
-            } else {
-                Ok(())
-            }
-        });
-        if let Err(e) = filled {
-            device.destroy_texture(texture);
-            return Err(gpu_err(e));
-        }
+        let texture = make_image_texture(device, width, height, rgba, levels)?;
         let Some(slot) = device.bind_texture(texture, self.sampler) else {
             device.destroy_texture(texture);
             return Err(AureaError::RenderingFailed);
@@ -623,6 +714,7 @@ impl Gpu2dBackend for ZenGpuBackend {
                 uv: i.uv,
                 tint: i.tint,
                 sampling: i.sampling,
+                affine: i.affine,
                 slot: i.slot,
                 _pad: [0; 3],
             }));
@@ -853,6 +945,38 @@ mod context_tests {
 
     /// What a smooth image upload asks of the device: a full mip chain,
     /// level 0 uploaded, the rest made on the device.
+    #[test]
+    fn owned_shared_images_update_and_release_their_native_texture() {
+        let Ok(context) = ZenGpuContext::new() else {
+            return;
+        };
+        let context = Arc::new(context);
+        let image = Image::new(17, 9, vec![128; 17 * 9 * 4]);
+        let mut owned = context
+            .upload_image(&image, Sampling::Smooth)
+            .expect("upload");
+        assert_eq!(owned.levels, 5);
+        owned.update(&image).expect("regenerate mips");
+        assert!(owned.update(&Image::new(1, 1, vec![0; 4])).is_err());
+        assert!(
+            context
+                .upload_image(&Image::new(17, 9, vec![0; 4]), Sampling::Smooth)
+                .is_err()
+        );
+        let texture = owned.texture().zengpu();
+        let sampler = context
+            .device()
+            .create_sampler(SamplerDesc::default())
+            .expect("sampler");
+        assert!(context.device().bind_texture(texture, sampler).is_some());
+        drop(owned);
+        assert!(
+            context.device().bind_texture(texture, sampler).is_none(),
+            "owner releases the texture"
+        );
+        context.device().destroy_sampler(sampler);
+    }
+
     #[test]
     fn a_mipmapped_image_uploads() {
         let Ok(context) = ZenGpuContext::new() else {

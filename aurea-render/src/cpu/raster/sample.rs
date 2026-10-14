@@ -43,6 +43,21 @@ fn pack(c: [f32; 4], alpha: f32) -> u32 {
     (byte(a) << 24) | (byte(c[0] * un) << 16) | (byte(c[1] * un) << 8) | byte(c[2] * un)
 }
 
+/// Nearest texel, clamped to the source region.
+pub fn nearest(image: &Image, b: Bounds, u: f32, v: f32, alpha: f32) -> u32 {
+    if b.x0 > b.x1 || b.y0 > b.y1 {
+        return 0;
+    }
+    pack(
+        premul(
+            image,
+            f32_to_i32_clamped(u.floor()).clamp(b.x0, b.x1),
+            f32_to_i32_clamped(v.floor()).clamp(b.y0, b.y1),
+        ),
+        alpha,
+    )
+}
+
 /// Bilinear sample at image position `(u, v)`, pixel centres at `n + 0.5`.
 pub fn bilinear(image: &Image, b: Bounds, u: f32, v: f32, alpha: f32) -> u32 {
     // An inverted range (an empty source rect, or an image with no pixels)

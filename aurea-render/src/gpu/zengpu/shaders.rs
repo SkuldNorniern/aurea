@@ -120,11 +120,12 @@ pub const IMAGE_VERT: ZslShader = zsl!(
         @location(1) uv: f32x4,
         @location(2) tint: f32x4,
         @location(3) sampling: f32x4,
+        @location(4) affine: f32x4,
         vi: vertex_index,
         pc: Pc,
     ) -> (f32x4, f32x2, f32x4, f32x4) {
         let corner = f32x2(f32((26 >> vi) & 1), f32((52 >> vi) & 1))
-        let px = rect.xy + corner * rect.zw
+        let px = rect.xy + corner * rect.zw + f32x2(corner.y * affine.y, corner.x * affine.x)
         (f32x4(px / pc.viewport * 2.0 - 1.0, 0.0, 1.0), mix(uv.xy, uv.zw, corner), tint, sampling)
     }
 );
@@ -143,7 +144,11 @@ pub const IMAGE_FRAG: ZslShader = zsl!(
         if sampling.z > 0.5 {
             at = (floor(uv * sampling.xy) + 0.5) / sampling.xy
         }
-        tex[pc.slot].sample(at) * tint
+        let color = tex[pc.slot].sample_level(at, 0.0)
+        if sampling.w > 0.5 {
+            color = tex[pc.slot].sample(at)
+        }
+        color * tint
     }
 );
 

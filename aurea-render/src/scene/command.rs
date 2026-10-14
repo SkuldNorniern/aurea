@@ -27,10 +27,28 @@ pub enum DrawCommand {
     DrawImageRegion(Image, Rect, Rect, Sampling),
     /// GPU texture, source rect in UV (0 to 1), destination.
     DrawTexture(GpuTexture, Rect, Rect, Sampling),
+    /// Image, source pixels, physical origin/right/bottom corners, sampling.
+    DrawImageQuad(Image, Rect, [Point; 3], Sampling),
+    /// GPU texture, source UV, physical origin/right/bottom corners, sampling.
+    DrawTextureQuad(GpuTexture, Rect, [Point; 3], Sampling),
     /// Subpixel-antialiased text: coverage mask, top-left position, text colour.
     DrawGlyphMask(GlyphMask, Point, Color),
     FillLinearGradient(LinearGradient, Rect),
     FillRadialGradient(RadialGradient, Rect),
+}
+
+pub(crate) fn quad_bounds(q: &[Point; 3]) -> Rect {
+    let fourth = Point::new(q[1].x + q[2].x - q[0].x, q[1].y + q[2].y - q[0].y);
+    let xs = [q[0].x, q[1].x, q[2].x, fourth.x];
+    let ys = [q[0].y, q[1].y, q[2].y, fourth.y];
+    let x = xs.into_iter().fold(f32::INFINITY, f32::min);
+    let y = ys.into_iter().fold(f32::INFINITY, f32::min);
+    Rect::new(
+        x,
+        y,
+        xs.into_iter().fold(f32::NEG_INFINITY, f32::max) - x,
+        ys.into_iter().fold(f32::NEG_INFINITY, f32::max) - y,
+    )
 }
 
 #[cfg(test)]

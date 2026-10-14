@@ -9,6 +9,7 @@
 use crate::numeric::f32_to_u32_clamped;
 use std::collections::HashMap;
 use std::mem::{self, size_of};
+use std::sync::OnceLock;
 
 use wgpu::util::DeviceExt;
 
@@ -26,7 +27,7 @@ use super::shaders::{GRADIENT_SHADER, IMAGE_SHADER, RECT_SHADER, SHAPE_SHADER, T
 /// `[rect, a, b]` — 12 f32, matching the GRADIENT_SHADER `Instance` layout.
 const GRADIENT_INSTANCE_STRIDE: usize = size_of::<f32>() * 12;
 /// `[rect, uv, tint, sampling]` — 16 f32, matching IMAGE_SHADER.
-const IMAGE_INSTANCE_STRIDE: usize = size_of::<f32>() * 16;
+const IMAGE_INSTANCE_STRIDE: usize = size_of::<f32>() * 20;
 /// `[rect, color]` — 8 f32, matching TEXT_SHADER.
 const TEXT_INSTANCE_STRIDE: usize = size_of::<f32>() * 8;
 
@@ -58,6 +59,7 @@ pub struct WgpuBackend<'w> {
     /// text masks): `texture_2d<f32>` at binding 0, `sampler` at binding 1.
     texture_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
+    mip_pipeline: OnceLock<wgpu::ComputePipeline>,
     rect_pipeline: wgpu::RenderPipeline,
     shape_pipeline: wgpu::RenderPipeline,
     gradient_pipeline: wgpu::RenderPipeline,
@@ -173,6 +175,7 @@ impl<'w> WgpuBackend<'w> {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
 
@@ -270,7 +273,7 @@ impl<'w> WgpuBackend<'w> {
         let image_pipeline = textured(
             "aurea-wgpu2d-image",
             IMAGE_SHADER,
-            &wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4],
+            &wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4, 4 => Float32x4],
             IMAGE_INSTANCE_STRIDE,
         );
         let text_pipeline = textured(
@@ -313,6 +316,7 @@ impl<'w> WgpuBackend<'w> {
             viewport_bind_group,
             texture_layout,
             sampler,
+            mip_pipeline: OnceLock::new(),
             rect_pipeline,
             shape_pipeline,
             gradient_pipeline,
@@ -331,7 +335,13 @@ impl<'w> WgpuBackend<'w> {
         }
     }
 
-    fn make_slot_resource(&self, width: u32, height: u32, rgba: &[u8]) -> SlotResource {
+    fn make_slot_resource(
+        &self,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+        levels: u32,
+    ) -> SlotResource {
         let size = wgpu::Extent3d {
             width,
             height,
@@ -340,11 +350,17 @@ impl<'w> WgpuBackend<'w> {
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("aurea-wgpu2d-slot-tex"),
             size,
-            mip_level_count: 1,
+            mip_level_count: levels,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | if levels > 1 {
+                    wgpu::TextureUsages::STORAGE_BINDING
+                } else {
+                    wgpu::TextureUsages::empty()
+                },
             view_formats: &[],
         });
         self.queue.write_texture(
@@ -362,6 +378,9 @@ impl<'w> WgpuBackend<'w> {
             },
             size,
         );
+        if levels > 1 {
+            self.generate_mips(&texture, levels);
+        }
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("aurea-wgpu2d-slot-bg"),
@@ -382,6 +401,11 @@ impl<'w> WgpuBackend<'w> {
             bind_group,
         }
     }
+    fn generate_mips(&self, texture: &wgpu::Texture, levels: u32) {
+        let pipeline = self.mip_pipeline.get_or_init(|| mip_pipeline(&self.device));
+        generate_mips(&self.device, &self.queue, texture, levels, pipeline);
+    }
+
     /// Packs and uploads this frame's instances. The packing buffer is kept
     /// between frames.
     fn upload_instances(
@@ -405,7 +429,7 @@ impl<'w> WgpuBackend<'w> {
             .upload(&self.device, &self.queue, &self.packed);
         self.packed.clear();
         for img in &plan.images {
-            for v in [&img.rect, &img.uv, &img.tint, &img.sampling] {
+            for v in [&img.rect, &img.uv, &img.tint, &img.sampling, &img.affine] {
                 self.packed.extend_from_slice(cast_bytes(v.as_ref()));
             }
         }
@@ -577,7 +601,25 @@ impl Gpu2dBackend for WgpuBackend<'_> {
     }
 
     fn upload_image(&mut self, width: u32, height: u32, rgba: &[u8]) -> AureaResult<u32> {
-        let resource = self.make_slot_resource(width, height, rgba);
+        let resource = self.make_slot_resource(width, height, rgba, 1);
+        let slot = self.next_slot;
+        self.next_slot += 1;
+        self.slot_resources.insert(slot, resource);
+        Ok(slot)
+    }
+
+    fn upload_image_mipmapped(&mut self, width: u32, height: u32, rgba: &[u8]) -> AureaResult<u32> {
+        if width == 0
+            || height == 0
+            || (width as usize)
+                .checked_mul(height as usize)
+                .and_then(|n| n.checked_mul(4))
+                != Some(rgba.len())
+        {
+            return Err(AureaError::RenderingFailed);
+        }
+        let levels = u32::BITS - width.max(height).leading_zeros();
+        let resource = self.make_slot_resource(width, height, rgba, levels);
         let slot = self.next_slot;
         self.next_slot += 1;
         self.slot_resources.insert(slot, resource);
@@ -639,6 +681,7 @@ impl Gpu2dBackend for WgpuBackend<'_> {
         plan.viewport_height = height;
         #[allow(clippy::cast_precision_loss)]
         plan.images.push(ImagePlanEntry {
+            affine: [0.0; 4],
             rect: [0.0, 0.0, width as f32, height as f32],
             uv: [0.0, 0.0, 1.0, 1.0],
             tint: [1.0; 4],
@@ -746,4 +789,210 @@ fn f32x4_bytes(v: &[f32; 4]) -> &[u8] {
 
 fn cast_bytes<T: Copy>(slice: &[T]) -> &[u8] {
     unsafe { std::slice::from_raw_parts(slice.as_ptr() as *const u8, std::mem::size_of_val(slice)) }
+}
+
+// Include odd edge texels; average premultiplied colors, store straight alpha.
+pub(super) const MIP_SHADER: &str = r#"
+@group(0) @binding(0) var source: texture_2d<f32>;
+@group(0) @binding(1) var destination: texture_storage_2d<rgba8unorm, write>;
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let dst = textureDimensions(destination);
+    if any(id.xy >= dst) { return; }
+    let ratio = vec2<f32>(textureDimensions(source)) / vec2<f32>(dst);
+    let lo = vec2<f32>(id.xy) * ratio;
+    let hi = vec2<f32>(id.xy + vec2<u32>(1)) * ratio;
+    var color = vec4<f32>(0.0);
+    for (var y = i32(floor(lo.y)); y < i32(ceil(hi.y)); y++) {
+        for (var x = i32(floor(lo.x)); x < i32(ceil(hi.x)); x++) {
+            let weight = max(0.0, min(hi.x, f32(x + 1)) - max(lo.x, f32(x)))
+                       * max(0.0, min(hi.y, f32(y + 1)) - max(lo.y, f32(y)));
+            let pixel = textureLoad(source, vec2<i32>(x, y), 0);
+            color += vec4<f32>(pixel.rgb * pixel.a, pixel.a) * weight;
+        }
+    }
+    let alpha = color.a / (ratio.x * ratio.y);
+    var rgb = vec3<f32>(0.0);
+    if color.a > 0.0 { rgb = color.rgb / color.a; }
+    textureStore(destination, vec2<i32>(id.xy), vec4<f32>(rgb, alpha));
+}
+"#;
+
+fn mip_pipeline(device: &wgpu::Device) -> wgpu::ComputePipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("aurea-mip-area-filter"),
+        source: wgpu::ShaderSource::Wgsl(MIP_SHADER.into()),
+    });
+    device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("aurea-mip-area-filter"),
+        layout: None,
+        module: &shader,
+        entry_point: Some("main"),
+        compilation_options: Default::default(),
+        cache: None,
+    })
+}
+
+fn generate_mips(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    levels: u32,
+    pipeline: &wgpu::ComputePipeline,
+) {
+    let layout = pipeline.get_bind_group_layout(0);
+    let mut encoder = device.create_command_encoder(&Default::default());
+    for level in 1..levels {
+        let view = |level| {
+            texture.create_view(&wgpu::TextureViewDescriptor {
+                base_mip_level: level,
+                mip_level_count: Some(1),
+                ..Default::default()
+            })
+        };
+        let source = view(level - 1);
+        let destination = view(level);
+        let bindings = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("aurea-mip-level"),
+            layout: &layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&source),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&destination),
+                },
+            ],
+        });
+        let mut pass = encoder.begin_compute_pass(&Default::default());
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, &bindings, &[]);
+        pass.dispatch_workgroups(
+            (texture.width() >> level).max(1).div_ceil(8),
+            (texture.height() >> level).max(1).div_ceil(8),
+            1,
+        );
+    }
+    queue.submit([encoder.finish()]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::future::Future;
+    use std::sync::Arc;
+    use std::task::{Context, Poll, Wake, Waker};
+
+    fn wait<F: Future>(future: F) -> F::Output {
+        struct Thread(std::thread::Thread);
+        impl Wake for Thread {
+            fn wake(self: Arc<Self>) {
+                self.0.unpark();
+            }
+        }
+        let waker = Waker::from(Arc::new(Thread(std::thread::current())));
+        let mut context = Context::from_waker(&waker);
+        let mut future = std::pin::pin!(future);
+        loop {
+            match future.as_mut().poll(&mut context) {
+                Poll::Ready(value) => return value,
+                Poll::Pending => std::thread::park(),
+            }
+        }
+    }
+
+    #[test]
+    fn gpu_mips_include_odd_edges_and_do_not_mix_transparent_rgb() {
+        let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+        descriptor.backends = if cfg!(target_os = "macos") {
+            wgpu::Backends::METAL
+        } else {
+            wgpu::Backends::VULKAN
+        };
+        let instance = wgpu::Instance::new(descriptor);
+        let Ok(adapter) = wait(instance.request_adapter(&Default::default())) else {
+            eprintln!("no native GPU adapter for mip readback");
+            return;
+        };
+        let (device, queue) = wait(adapter.request_device(&Default::default())).expect("device");
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("mip test"),
+            size: wgpu::Extent3d {
+                width: 3,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 2,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            texture.as_image_copy(),
+            &[255, 0, 0, 255, 0, 255, 0, 0, 0, 0, 255, 255],
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(12),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width: 3,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+        generate_mips(&device, &queue, &texture, 2, &mip_pipeline(&device));
+        let output = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: 256,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 1,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &output,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(256),
+                    rows_per_image: Some(1),
+                },
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+        queue.submit([encoder.finish()]);
+        let (tx, rx) = std::sync::mpsc::channel();
+        output
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                tx.send(result).unwrap();
+            });
+        device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .expect("poll");
+        rx.recv().unwrap().expect("map");
+        let bytes = output.slice(..).get_mapped_range();
+        for (&actual, expected) in bytes[..4].iter().zip([128u8, 0, 128, 170]) {
+            assert!(actual.abs_diff(expected) <= 1, "mip = {:?}", &bytes[..4]);
+        }
+        drop(bytes);
+        output.unmap();
+    }
 }

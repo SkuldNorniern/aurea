@@ -36,7 +36,7 @@ mod conformance_tests {
 
     use crate::{
         Color, CpuRasterizer, DrawingContext, Image, Paint, PaintStyle, Path, PathCommand, Point,
-        Rect, Renderer, Surface, SurfaceInfo, Transform,
+        Rect, Renderer, Sampling, Surface, SurfaceInfo, Transform,
     };
     use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
     use std::sync::Arc;
@@ -52,20 +52,92 @@ mod conformance_tests {
     const H: u32 = 32;
 
     #[test]
-    fn unsupported_image_transforms_are_errors_instead_of_missing_pixels() {
-        let image = Image::new(8, 8, [255, 0, 0, 255].repeat(64));
+    fn affine_images_preserve_orientation_and_source_regions() {
+        let image = Image::new(
+            2,
+            2,
+            vec![
+                255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+            ],
+        );
+        let rotated = render(|ctx| {
+            ctx.set_sampling(Sampling::Nearest).unwrap();
+            ctx.transform(Transform::rotate(FRAC_PI_2).multiply(Transform::translate(4.0, 2.0)))
+                .unwrap();
+            ctx.draw_image(&image, Point::new(0.0, 0.0)).unwrap();
+        });
+        let pixel = |pixels: &[u32], x: usize, y: usize| pixels[y * W as usize + x];
+        assert_eq!(pixel(&rotated, 3, 2), 0xffff0000);
+        assert_eq!(pixel(&rotated, 3, 3), 0xff00ff00);
+        assert_eq!(pixel(&rotated, 2, 2), 0xff0000ff);
+        assert_eq!(pixel(&rotated, 2, 3), 0xffffffff);
+        assert_eq!(pixel(&rotated, 4, 2), 0);
+        let reflected = render(|ctx| {
+            ctx.set_sampling(Sampling::Nearest).unwrap();
+            ctx.transform(Transform::scale(-1.0, 1.0).multiply(Transform::translate(4.0, 2.0)))
+                .unwrap();
+            ctx.draw_image_region(
+                &image,
+                Rect::new(0.0, 0.0, 2.0, 1.0),
+                Rect::new(0.0, 0.0, 2.0, 1.0),
+            )
+            .unwrap();
+        });
+        assert_eq!(pixel(&reflected, 3, 2), 0xffff0000);
+        assert_eq!(pixel(&reflected, 2, 2), 0xff00ff00);
+    }
+
+    #[test]
+    fn changing_image_orientation_repaints_equal_bounds() {
+        let image = Image::new(
+            2,
+            2,
+            vec![
+                255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+            ],
+        );
         let mut renderer = CpuRasterizer::new(W, H);
-        let mut ctx = renderer.begin_frame().expect("frame");
-        ctx.rotate(FRAC_PI_4).expect("rotation");
-        let rect = Rect::new(0.0, 0.0, 8.0, 8.0);
-        assert!(ctx.draw_image(&image, Point::new(0.0, 0.0)).is_err());
-        assert!(ctx.draw_image_rect(&image, rect).is_err());
-        assert!(ctx.draw_image_region(&image, rect, rect).is_err());
-        ctx.transform(Transform::rotate(-FRAC_PI_4))
-            .expect("undo rotation");
-        assert!(ctx.draw_image_rect(&image, rect).is_ok());
-        ctx.scale(-1.0, 1.0).expect("reflection");
-        assert!(ctx.draw_image_rect(&image, rect).is_err());
+        for (angle, translation, expected) in [
+            (FRAC_PI_2, (4.0, 2.0), 0xffff0000),
+            (-FRAC_PI_2, (2.0, 4.0), 0xffffffff),
+        ] {
+            {
+                let mut ctx = renderer.begin_frame().unwrap();
+                ctx.set_sampling(Sampling::Nearest).unwrap();
+                ctx.transform(
+                    Transform::rotate(angle)
+                        .multiply(Transform::translate(translation.0, translation.1)),
+                )
+                .unwrap();
+                ctx.draw_image(&image, Point::new(0.0, 0.0)).unwrap();
+            }
+            renderer.end_frame().unwrap();
+            assert_eq!(
+                renderer.pixels()[2 * W as usize + 3],
+                expected,
+                "orientation must affect the cache key"
+            );
+        }
+    }
+
+    #[test]
+    fn intrinsic_images_follow_nonuniform_scale() {
+        let image = Image::new(
+            2,
+            2,
+            vec![
+                255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+            ],
+        );
+        let pixel = |pixels: &[u32], x: usize, y: usize| pixels[y * W as usize + x];
+        let scaled = render(|ctx| {
+            ctx.set_sampling(Sampling::Nearest).unwrap();
+            ctx.scale(2.0, 1.0).unwrap();
+            ctx.draw_image(&image, Point::new(1.0, 2.0)).unwrap();
+        });
+        assert_eq!(pixel(&scaled, 2, 2), 0xffff0000);
+        assert_eq!(pixel(&scaled, 5, 2), 0xff00ff00);
+        assert_eq!(pixel(&scaled, 6, 2), 0);
     }
 
     /// Renders one frame and returns the physical pixel buffer as `0xAARRGGBB`.

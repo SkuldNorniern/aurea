@@ -115,11 +115,12 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
     /// Draws the recorded frame on the CPU and presents the pixels through
     /// the backend.
     fn present_on_cpu(&mut self) -> AureaResult<FrameOutcome> {
-        let has_textures = self
-            .display_list
-            .items_since_clear()
-            .iter()
-            .any(|i| matches!(i.command, DrawCommand::DrawTexture(..)));
+        let has_textures = self.display_list.items_since_clear().iter().any(|i| {
+            matches!(
+                i.command,
+                DrawCommand::DrawTexture(..) | DrawCommand::DrawTextureQuad(..)
+            )
+        });
         if has_textures && self.backend.features().textures {
             return self.present_layered();
         }
@@ -180,11 +181,12 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
             self.layer_images.push(None);
         }
         self.composite.clear();
-        let mut textures = self
-            .display_list
-            .items_since_clear()
-            .iter()
-            .filter(|i| matches!(i.command, DrawCommand::DrawTexture(..)));
+        let mut textures = self.display_list.items_since_clear().iter().filter(|i| {
+            matches!(
+                i.command,
+                DrawCommand::DrawTexture(..) | DrawCommand::DrawTextureQuad(..)
+            )
+        });
         for (k, list) in self.layer_lists.iter_mut().enumerate() {
             if k > 0
                 && let Some(texture) = textures.next()
@@ -236,7 +238,10 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         };
         start_layer(&mut self.layer_lists, &mut count);
         for item in self.display_list.items_since_clear() {
-            if matches!(item.command, DrawCommand::DrawTexture(..)) {
+            if matches!(
+                item.command,
+                DrawCommand::DrawTexture(..) | DrawCommand::DrawTextureQuad(..)
+            ) {
                 start_layer(&mut self.layer_lists, &mut count);
             } else {
                 self.layer_lists[count - 1].push(item.clone());
@@ -596,8 +601,11 @@ mod tests {
             ctx.draw_rect(Rect::new(0.0, 0.0, 100.0, 50.0), &paint)
                 .expect("rect");
             let all = Rect::new(0.0, 0.0, 1.0, 1.0);
+            ctx.save().expect("save");
+            ctx.rotate(0.2).expect("rotate imported texture");
             ctx.draw_texture(texture, all, Rect::new(10.0, 10.0, 20.0, 20.0))
                 .expect("texture");
+            ctx.restore().expect("restore");
             ctx.draw_round_rect(Rect::new(5.0, 5.0, 30.0, 30.0), 4.0, &paint)
                 .expect("rounded");
             drop(ctx);
@@ -611,6 +619,10 @@ mod tests {
             [DrawRef::Image(0), DrawRef::Image(1), DrawRef::Image(2)]
         );
         assert_eq!((probe.bound, probe.uploads), (1, 2));
+        assert!(
+            r.frame_plan.images[1].affine[0].abs() > 1.0,
+            "rotated texture geometry survives layered resolve"
+        );
         frame(&mut r);
         assert_eq!(
             r.backend().uploads,
