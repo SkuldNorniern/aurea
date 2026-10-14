@@ -19,6 +19,7 @@ pub mod slider;
 pub mod stepper;
 pub mod swatch;
 pub mod tabs;
+pub mod text_area;
 pub mod text_field;
 pub mod toggle;
 pub(crate) mod tooltip;

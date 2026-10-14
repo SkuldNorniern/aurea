@@ -45,6 +45,7 @@ pub use widget::slider::{Slider, SliderStyle};
 pub use widget::stepper::{Stepper, StepperStyle};
 pub use widget::swatch::{SwatchStyle, Swatches};
 pub use widget::tabs::{TabBar, TabStyle};
+pub use widget::text_area::TextArea;
 pub use widget::text_field::{FieldStyle, TextField};
 pub use widget::toggle::{Checkbox, CheckboxStyle, Toggle, ToggleStyle};
 

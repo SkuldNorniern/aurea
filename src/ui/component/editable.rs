@@ -91,7 +91,7 @@ impl<'v> EditableText<'v> {
         Ok(outcome)
     }
 
-    fn start_editing<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>, key: Key<Id>) {
+    pub(crate) fn start_editing<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>, key: Key<Id>) {
         let state = &mut *ui.state;
         if state.edit_for != Some(key) {
             if let Some(previous) = state.edit_for.take() {
@@ -341,15 +341,15 @@ fn keep_in_sight(scroll: f32, caret: f32, total: f32, width: f32) -> f32 {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct Typing {
-    changed: bool,
-    moved: bool,
-    submitted: bool,
-    cancelled: bool,
+pub(crate) struct Typing {
+    pub(crate) changed: bool,
+    pub(crate) moved: bool,
+    pub(crate) submitted: bool,
+    pub(crate) cancelled: bool,
 }
 
 impl Typing {
-    fn merge(&mut self, other: Self) {
+    pub(crate) fn merge(&mut self, other: Self) {
         self.changed |= other.changed;
         self.moved |= other.moved;
         self.submitted |= other.submitted;
@@ -372,15 +372,15 @@ impl Typing {
     }
 }
 
-trait Clipboard {
+pub(crate) trait Clipboard {
     /// Whether text may leave: not from a password.
     fn can_copy(&self) -> bool;
     fn get(&mut self) -> Option<String>;
     fn set(&mut self, text: &str);
 }
 
-struct SystemClipboard {
-    enabled: bool,
+pub(crate) struct SystemClipboard {
+    pub(crate) enabled: bool,
 }
 
 impl Clipboard for SystemClipboard {
@@ -399,7 +399,7 @@ impl Clipboard for SystemClipboard {
     }
 }
 
-fn apply(
+pub(crate) fn apply(
     edit: &mut TextEdit,
     text: &mut String,
     typed: &Typed,

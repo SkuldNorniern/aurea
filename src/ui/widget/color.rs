@@ -277,6 +277,7 @@ fn hex<Id: WidgetId>(
     let rules = Rules {
         max_chars: Some(9),
         accept: Some(&accept),
+        ..Rules::default()
     };
     let inner = field.inset_xy(8.0, 0.0);
     let outcome = EditableText::new(text)

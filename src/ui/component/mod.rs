@@ -1,7 +1,7 @@
 //! The middle layer: small pieces that follow input, built from [`paint`](super::paint) and used by
 //! the widgets.
 
-mod editable;
+pub(crate) mod editable;
 mod pan_zoom;
 mod plot_view;
 
