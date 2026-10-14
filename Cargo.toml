@@ -54,10 +54,10 @@ raw-window-handle = "0.6"
 wgpu = { version = "29.0.1", optional = true }
 
 # ZenGPU surface integration and example shaders (feature `zengpu`).
-zengpu-hal = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "f047c9ed138a9a63439c2304d100b255fb32e80d", version = "0.0.1", optional = true }
-zen-window-handle = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "f047c9ed138a9a63439c2304d100b255fb32e80d", version = "0.1.0", optional = true }
-zengpu = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "f047c9ed138a9a63439c2304d100b255fb32e80d", version = "0.0.1", default-features = false, features = ["vulkan", "metal"], optional = true }
-zengpu-spirv = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "f047c9ed138a9a63439c2304d100b255fb32e80d", version = "0.0.1", features = ["metal"], optional = true }
+zengpu-hal = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "33b832df4e9276417a80778f2ddbcca14c94586e", version = "0.0.1", optional = true }
+zen-window-handle = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "33b832df4e9276417a80778f2ddbcca14c94586e", version = "0.1.0", optional = true }
+zengpu = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "33b832df4e9276417a80778f2ddbcca14c94586e", version = "0.0.1", default-features = false, features = ["vulkan", "metal"], optional = true }
+zengpu-spirv = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "33b832df4e9276417a80778f2ddbcca14c94586e", version = "0.0.1", features = ["metal"], optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
