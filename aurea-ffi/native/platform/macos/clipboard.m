@@ -25,7 +25,6 @@ int ng_macos_clipboard_write(const NGClipboardEntry* entries, size_t count) {
             [clipboard clearContents];
             if (![clipboard writeObjects:@[item]]) result = NG_ERROR_PLATFORM_SPECIFIC;
         }
-        [item release];
         return result;
     }
 }
@@ -33,12 +32,11 @@ int ng_macos_clipboard_write(const NGClipboardEntry* entries, size_t count) {
 /* Inspect TIFF dimensions before asking ImageIO to allocate decoded pixels. */
 static NSData* png_from_tiff(NSData* tiff, size_t max_bytes, int* result) {
     if (!tiff || tiff.length > max_bytes) { *result = NG_ERROR_LIMIT_EXCEEDED; return nil; }
-    CGImageSourceRef source = CGImageSourceCreateWithData((CFDataRef)tiff, NULL);
+    CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)tiff, NULL);
     if (!source) { *result = NG_ERROR_INVALID_PARAMETER; return nil; }
-    NSDictionary* properties = (NSDictionary*)CGImageSourceCopyPropertiesAtIndex(source, 0, NULL);
-    unsigned long long width = [[properties objectForKey:(NSString*)kCGImagePropertyPixelWidth] unsignedLongLongValue];
-    unsigned long long height = [[properties objectForKey:(NSString*)kCGImagePropertyPixelHeight] unsignedLongLongValue];
-    [properties release];
+    NSDictionary* properties = CFBridgingRelease(CGImageSourceCopyPropertiesAtIndex(source, 0, NULL));
+    unsigned long long width = [[properties objectForKey:(__bridge NSString*)kCGImagePropertyPixelWidth] unsignedLongLongValue];
+    unsigned long long height = [[properties objectForKey:(__bridge NSString*)kCGImagePropertyPixelHeight] unsignedLongLongValue];
     if (!width || !height) { *result = NG_ERROR_INVALID_PARAMETER; CFRelease(source); return nil; }
     if (width > SIZE_MAX / 4 || height > max_bytes / (width * 4)) {
         *result = NG_ERROR_LIMIT_EXCEEDED; CFRelease(source); return nil;
@@ -49,7 +47,6 @@ static NSData* png_from_tiff(NSData* tiff, size_t max_bytes, int* result) {
     NSBitmapImageRep* bitmap = [[NSBitmapImageRep alloc] initWithCGImage:image];
     CGImageRelease(image);
     NSData* png = [bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
-    [bitmap release];
     if (!png) *result = NG_ERROR_PLATFORM_SPECIFIC;
     return png;
 }
