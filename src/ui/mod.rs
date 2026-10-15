@@ -15,9 +15,9 @@ pub use component::{
 };
 pub use frame::{Align, Eased, PressAt, Response, Ui};
 pub use paint::{
-    AxisMarks, AxisSide, AxisStyle, Badge, BadgeTone, Border, Component, GridLines, GridStyle,
-    IconMark, IconSource, Label, Mark, MarkShape, Marker, Overflow, Separator, Shadow, Spinner,
-    Stroke, Surface, TextSize, Trace,
+    AxisMarks, AxisSide, AxisStyle, Badge, BadgeTone, Border, Component, DetailRow, GridLines,
+    GridStyle, IconMark, IconSource, Label, Mark, MarkShape, Marker, Overflow, PromptLine,
+    Separator, Shadow, Spinner, Stroke, Surface, TextSize, Trace,
 };
 pub use state::{Channel, Fonts, InputResponse, Interaction, Sense, UiState, WidgetId};
 pub use theme::{Motion, Palette, Theme};

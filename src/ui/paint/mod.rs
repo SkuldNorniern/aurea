@@ -2,10 +2,12 @@
 
 mod color;
 mod decor;
+mod editor;
 mod graph;
 
 pub use color::{AlphaStrip, Checker, HueStrip, PickRing, SvField};
 pub use decor::{Badge, BadgeTone, Separator, Spinner};
+pub use editor::{DetailRow, PromptLine};
 pub use graph::{AxisMarks, AxisSide, AxisStyle, GridLines, GridStyle, Marker, Stroke, Trace};
 
 use crate::AureaResult;
