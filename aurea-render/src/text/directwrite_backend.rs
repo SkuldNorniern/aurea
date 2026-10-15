@@ -113,10 +113,7 @@ impl DirectWriteRasterizer {
     }
 
     fn resolve(&self, font: FontRef) -> AureaResult<FaceEntry> {
-        let weight = match font.weight {
-            FontWeight::Bold => DwWeight::Bold,
-            FontWeight::Normal => DwWeight::Regular,
-        };
+        let weight = DwWeight::from_u32(u32::from(font.weight.number()));
         let style = match font.style {
             FontStyle::Italic => DwStyle::Italic,
             FontStyle::Normal => DwStyle::Normal,
@@ -327,6 +324,26 @@ fn candidates(family: &str) -> [&str; 4] {
 mod tests {
     use super::*;
     use crate::types::Font;
+
+    #[test]
+    fn numeric_face_selection_distinguishes_light_regular_and_semibold() {
+        let raster = DirectWriteRasterizer::new().expect("directwrite");
+        let font = Font::new("Segoe UI", 18.0);
+        let light = font.clone().with_weight(FontWeight::from_number(300));
+        let semibold = font.clone().with_weight(FontWeight::from_number(600));
+        let regular_face = raster.face((&font).into()).expect("regular");
+        let light_face = raster.face((&light).into()).expect("light");
+        let semibold_face = raster.face((&semibold).into()).expect("semibold");
+        let data = |face| raster.face_data(face).expect("face bytes");
+        let weight = |face| {
+            let data = data(face);
+            use skrifa::raw::TableProvider;
+            let parsed = skrifa::FontRef::from_index(data.bytes(), data.index()).expect("font");
+            parsed.os2().expect("weight table").us_weight_class()
+        };
+        assert!(weight(light_face) < weight(regular_face));
+        assert!(weight(semibold_face) > weight(regular_face));
+    }
 
     #[test]
     fn generic_names_pick_the_system_faces() {

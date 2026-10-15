@@ -94,6 +94,31 @@ impl Font {
 pub enum FontWeight {
     Normal,
     Bold,
+    /// Numeric face weight, as used by CSS. Clamped to 1..=1000 by backends.
+    Number(u16),
+}
+
+impl FontWeight {
+    /// Numeric weight with the familiar 400/700 aliases kept canonical.
+    pub const fn from_number(value: u16) -> Self {
+        match value {
+            400 => Self::Normal,
+            700 => Self::Bold,
+            0 => Self::Number(1),
+            1001.. => Self::Number(1000),
+            n => Self::Number(n),
+        }
+    }
+
+    pub const fn number(self) -> u16 {
+        match self {
+            Self::Normal => 400,
+            Self::Bold => 700,
+            Self::Number(0) => 1,
+            Self::Number(1001..) => 1000,
+            Self::Number(n) => n,
+        }
+    }
 }
 
 /// Font style
@@ -116,6 +141,22 @@ pub struct TextMetrics {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn numeric_weights_keep_aliases_and_bound_native_values() {
+        assert_eq!(FontWeight::from_number(400), FontWeight::Normal);
+        assert_eq!(FontWeight::from_number(700), FontWeight::Bold);
+        assert_eq!(FontWeight::from_number(350).number(), 350);
+        assert_eq!(FontWeight::Number(0).number(), 1);
+        assert_eq!(FontWeight::Number(u16::MAX).number(), 1000);
+        assert_eq!(
+            Font::new("Sans", 16.0)
+                .with_weight(FontWeight::from_number(600))
+                .weight
+                .number(),
+            600
+        );
+    }
 
     #[test]
     fn font_new_and_builders() {
