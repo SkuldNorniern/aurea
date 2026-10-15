@@ -167,13 +167,63 @@ fn scan_font_files(dirs: &[PathBuf]) -> Vec<FontFile> {
 }
 
 fn face_suffixes(weight: FontWeight, style: FontStyle) -> &'static [&'static str] {
-    match (weight, style) {
-        (FontWeight::Normal, FontStyle::Normal) => &["", "regular", "book", "roman"],
-        (FontWeight::Bold, FontStyle::Normal) => &["bold", "", "regular"],
-        (FontWeight::Normal, FontStyle::Italic) => &["italic", "oblique", "", "regular"],
-        (FontWeight::Bold, FontStyle::Italic) => {
-            &["bolditalic", "boldoblique", "bold", "", "regular"]
+    match (weight.number(), style) {
+        (1..=149, FontStyle::Normal) => &["thin", "hairline", "light", "", "regular"],
+        (150..=249, FontStyle::Normal) => &["extralight", "ultralight", "light", "", "regular"],
+        (250..=349, FontStyle::Normal) => &["light", "semilight", "", "regular"],
+        (450..=549, FontStyle::Normal) => &["medium", "", "regular", "bold"],
+        (550..=649, FontStyle::Normal) => &["semibold", "demibold", "bold", "", "regular"],
+        (650..=749, FontStyle::Normal) => &["bold", "", "regular"],
+        (750..=849, FontStyle::Normal) => &["extrabold", "ultrabold", "bold", "", "regular"],
+        (850..=1000, FontStyle::Normal) => &["black", "heavy", "extrabold", "bold", "", "regular"],
+        (_, FontStyle::Normal) => &["", "regular", "book", "roman"],
+        (1..=149, FontStyle::Italic) => &[
+            "thinitalic",
+            "hairlineitalic",
+            "lightitalic",
+            "italic",
+            "",
+            "regular",
+        ],
+        (150..=249, FontStyle::Italic) => &[
+            "extralightitalic",
+            "ultralightitalic",
+            "lightitalic",
+            "italic",
+            "",
+            "regular",
+        ],
+        (250..=349, FontStyle::Italic) => &["lightitalic", "lightoblique", "italic", "", "regular"],
+        (450..=549, FontStyle::Italic) => {
+            &["mediumitalic", "mediumoblique", "italic", "", "regular"]
         }
+        (550..=649, FontStyle::Italic) => &[
+            "semibolditalic",
+            "demibolditalic",
+            "bolditalic",
+            "bold",
+            "",
+            "regular",
+        ],
+        (650..=749, FontStyle::Italic) => &["bolditalic", "boldoblique", "bold", "", "regular"],
+        (750..=849, FontStyle::Italic) => &[
+            "extrabolditalic",
+            "ultrabolditalic",
+            "bolditalic",
+            "bold",
+            "",
+            "regular",
+        ],
+        (850..=1000, FontStyle::Italic) => &[
+            "blackitalic",
+            "heavyitalic",
+            "extrabolditalic",
+            "bolditalic",
+            "bold",
+            "",
+            "regular",
+        ],
+        (_, FontStyle::Italic) => &["italic", "oblique", "", "regular"],
     }
 }
 
@@ -576,6 +626,53 @@ mod tests {
             .and_then(Path::to_str)
             .unwrap_or("")
             .to_owned()
+    }
+
+    #[test]
+    fn picks_numeric_face_weights_without_collapsing_them_to_bold() {
+        let list = files(&[
+            "notosanslight",
+            "notosansregular",
+            "notosansmedium",
+            "notosanssemibold",
+            "notosansbold",
+            "notosansblackitalic",
+        ]);
+        for (weight, expected) in [
+            (300, "notosanslight.ttf"),
+            (400, "notosansregular.ttf"),
+            (500, "notosansmedium.ttf"),
+            (600, "notosanssemibold.ttf"),
+            (700, "notosansbold.ttf"),
+        ] {
+            assert_eq!(
+                pick(
+                    "Noto Sans",
+                    FontWeight::from_number(weight),
+                    FontStyle::Normal,
+                    &list
+                ),
+                expected
+            );
+        }
+        assert_eq!(
+            pick(
+                "Noto Sans",
+                FontWeight::from_number(900),
+                FontStyle::Italic,
+                &list
+            ),
+            "notosansblackitalic.ttf"
+        );
+        assert_eq!(
+            pick(
+                "Noto Sans",
+                FontWeight::from_number(200),
+                FontStyle::Normal,
+                &list
+            ),
+            "notosanslight.ttf"
+        );
     }
 
     #[test]
