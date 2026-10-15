@@ -15,7 +15,9 @@
 //!    moving, and shape and text calls draw.
 //! 2. [`paint`]: pieces that only draw. [`Surface`], [`Label`], [`Mark`],
 //!    [`Separator`], [`Badge`], [`Spinner`], and a plot's [`GridLines`],
-//!    [`AxisMarks`], [`Trace`] and [`Marker`].
+//!    [`AxisMarks`], [`Trace`] and [`Marker`]. [`PromptLine`] and
+//!    [`DetailRow`] paint editor prompts and picker rows whose input the
+//!    application owns.
 //! 3. [`component`]: pieces that follow input. [`StateColors`],
 //!    [`FocusRing`], [`Track`], [`Knob`], [`EditableText`],
 //!    [`PanZoom`] for an editor's view, and [`PlotView`] for a plot's.
@@ -134,9 +136,9 @@ pub use component::{
 };
 pub use frame::{Align, Eased, PressAt, Response, Ui};
 pub use paint::{
-    AxisMarks, AxisSide, AxisStyle, Badge, BadgeTone, Border, Component, GridLines, GridStyle,
-    IconMark, IconSource, Label, Mark, MarkShape, Marker, Overflow, Separator, Shadow, Spinner,
-    Stroke, Surface, TextSize, Trace,
+    AxisMarks, AxisSide, AxisStyle, Badge, BadgeTone, Border, Component, DetailRow, GridLines,
+    GridStyle, IconMark, IconSource, Label, Mark, MarkShape, Marker, Overflow, PromptLine,
+    Separator, Shadow, Spinner, Stroke, Surface, TextSize, Trace,
 };
 pub use state::{Channel, Fonts, InputResponse, Interaction, Sense, UiState, WidgetId};
 pub use theme::{Motion, Palette, Theme};
