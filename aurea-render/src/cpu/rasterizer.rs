@@ -956,10 +956,12 @@ impl CpuRasterizer {
         if image.width == 0
             || image.height == 0
             || !bytes_fit(image.width, image.height, 4, image.data.len())
-            || !(src.width > 0.0 && src.height > 0.0)
+            // Finite first, so the size tests below never see a NaN.
             || ![src.x, src.y, src.width, src.height]
                 .iter()
                 .all(|v| v.is_finite())
+            || src.width <= 0.0
+            || src.height <= 0.0
             || !q.iter().all(|p| p.x.is_finite() && p.y.is_finite())
         {
             return;
