@@ -46,11 +46,30 @@ int ng_macos_box_add(NGHandle box, NGHandle element, float weight) {
     }
     cross.active = YES;
 
-    if ([view isKindOfClass:[NSStackView class]]) {
+    BOOL nested = [view isKindOfClass:[NSStackView class]];
+    BOOL stretched = fills || (!vertical && nested);
+    if (stretched) {
+        if (vertical) {
+            [view.leadingAnchor constraintEqualToAnchor:stack.leadingAnchor
+                                               constant:stack.edgeInsets.left].active = YES;
+        } else {
+            [view.topAnchor constraintEqualToAnchor:stack.topAnchor
+                                           constant:stack.edgeInsets.top].active = YES;
+            if (!fills) {
+                [view.bottomAnchor constraintEqualToAnchor:stack.bottomAnchor
+                                                  constant:-stack.edgeInsets.bottom].active = YES;
+            }
+        }
+    }
+
+    if (nested) {
         NSLayoutConstraintOrientation axis = vertical ? NSLayoutConstraintOrientationVertical
                                                       : NSLayoutConstraintOrientationHorizontal;
+        NSLayoutConstraintOrientation across = vertical ? NSLayoutConstraintOrientationHorizontal
+                                                        : NSLayoutConstraintOrientationVertical;
         [(NSStackView*)view setHuggingPriority:fills ? NSLayoutPriorityDefaultLow : NSLayoutPriorityDefaultHigh
                                 forOrientation:axis];
+        if (stretched) [(NSStackView*)view setHuggingPriority:200 forOrientation:across];
     }
     
     if (fills) {
