@@ -23,7 +23,7 @@ use crate::capabilities::GpuFeatures;
 use crate::gpu::batch::{DrawRef, RectInstance, ShapeInstance};
 use crate::gpu::{FramePlan, Gpu2dBackend, Gpu2dRenderer};
 use crate::memory::smaller_buffer;
-use crate::numeric::{f32_to_u32_clamped, f32_to_u8_clamped};
+use crate::numeric::{f32_to_u8_clamped, f32_to_u32_clamped};
 use crate::renderer::FrameOutcome;
 use crate::types::{GpuTexture, Image, Rect, Sampling};
 
