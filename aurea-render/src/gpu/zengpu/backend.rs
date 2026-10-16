@@ -28,7 +28,7 @@ use crate::capabilities::GpuFeatures;
 use crate::gpu::batch::{DrawRef, RectInstance, ShapeInstance};
 use crate::gpu::{FramePlan, Gpu2dBackend, Gpu2dRenderer};
 use crate::memory::smaller_buffer;
-use crate::numeric::f32_to_u32_clamped;
+use crate::numeric::{f32_to_u32_clamped, f32_to_u8_clamped};
 use crate::renderer::FrameOutcome;
 use crate::types::{GpuTexture, Image, Rect, Sampling};
 
@@ -68,7 +68,7 @@ pub struct GpuChoice {
 
 impl ZenGpuContext {
     /// Uploads an app-owned image on the shared device. `Smooth` allocates a
-    /// full mip chain and generates it on the GPU. Keep the returned owner
+    /// full mip chain, area-filtered like the other renderers'. Keep the returned owner
     /// alive while any canvas draws its [`ZenGpuImage::texture`].
     pub fn upload_image(
         self: &Arc<Self>,
@@ -201,7 +201,7 @@ impl ZenGpuImage {
     }
 
     /// Updates equal-sized RGBA8 pixels and regenerates this image's mips.
-    /// No readback or CPU pyramid is made. Reupload to change the size.
+    /// No readback is made. Reupload to change the size.
     pub fn update(&mut self, image: &Image) -> AureaResult<()> {
         if image.width != self.texture.width
             || image.height != self.texture.height
@@ -210,15 +210,20 @@ impl ZenGpuImage {
             return Err(AureaError::RenderingFailed);
         }
         let device = self.context.device();
+        let texture = self.texture.zengpu();
         device
-            .upload_texture_data(self.texture.zengpu(), &image.data)
-            .map_err(gpu_err)?;
-        if self.levels > 1 {
-            device
-                .generate_mipmaps(self.texture.zengpu())
-                .map_err(gpu_err)?;
-        }
-        Ok(())
+            .upload_texture_data(texture, &image.data)
+            .and_then(|()| {
+                upload_mips(
+                    device,
+                    texture,
+                    image.width,
+                    image.height,
+                    &image.data,
+                    self.levels,
+                )
+            })
+            .map_err(gpu_err)
     }
 }
 
@@ -264,18 +269,99 @@ fn make_image_texture(
             array_layers: 1,
         })
         .map_err(gpu_err)?;
-    let filled = device.upload_texture_data(texture, rgba).and_then(|()| {
-        if levels > 1 {
-            device.generate_mipmaps(texture)
-        } else {
-            Ok(())
-        }
-    });
+    let filled = device
+        .upload_texture_data(texture, rgba)
+        .and_then(|()| upload_mips(device, texture, width, height, rgba, levels));
     if let Err(e) = filled {
         device.destroy_texture(texture);
         return Err(gpu_err(e));
     }
     Ok(texture)
+}
+
+/// Fills mips 1.. of `texture` from its RGBA8 base. Each level averages the
+/// texels it covers, odd edges included, with premultiplied alpha, as the
+/// wgpu renderer's shader does: the device's own blit resamples bilinearly,
+/// which drifts on odd sizes and darkens transparent edges. A backend that
+/// cannot write single levels falls back to that blit.
+fn upload_mips(
+    device: &NativeDevice,
+    texture: TextureHandle,
+    width: u32,
+    height: u32,
+    rgba: &[u8],
+    levels: u32,
+) -> Result<(), GpuError> {
+    let (mut w, mut h) = (width, height);
+    let mut level = rgba.to_vec();
+    for mip in 1..levels {
+        let (dw, dh) = ((w >> 1).max(1), (h >> 1).max(1));
+        level = area_downsample(&level, (w, h), (dw, dh));
+        match device.upload_texture_data_region(texture, mip, 0, &level) {
+            Ok(()) => {}
+            Err(GpuError::UnsupportedFeatures(_)) if mip == 1 => {
+                return device.generate_mipmaps(texture);
+            }
+            Err(e) => return Err(e),
+        }
+        (w, h) = (dw, dh);
+    }
+    Ok(())
+}
+
+/// `src` (`sw` x `sh` RGBA8) averaged down to `dw` x `dh`: each texel
+/// weighs by the share of the destination texel it covers.
+fn area_downsample(src: &[u8], (sw, sh): (u32, u32), (dw, dh): (u32, u32)) -> Vec<u8> {
+    /// Source texels a destination one covers, and the weight of each.
+    fn spans(src: u32, dst: u32) -> Vec<Vec<(usize, f32)>> {
+        let ratio = src as f32 / dst as f32;
+        (0..dst)
+            .map(|i| {
+                let (lo, hi) = (i as f32 * ratio, (i + 1) as f32 * ratio);
+                let first = f32_to_u32_clamped(lo.floor());
+                let last = f32_to_u32_clamped(hi.ceil()).min(src);
+                (first..last)
+                    .map(|t| {
+                        let weight = hi.min((t + 1) as f32) - lo.max(t as f32);
+                        (t as usize, weight.max(0.0) / ratio)
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+    let (xs, ys) = (spans(sw, dw), spans(sh, dh));
+    let mut out = Vec::with_capacity(dw as usize * dh as usize * 4);
+    for row in &ys {
+        for column in &xs {
+            let mut sum = [0.0f32; 4];
+            for &(y, wy) in row {
+                for &(x, wx) in column {
+                    let at = (y * sw as usize + x) * 4;
+                    let p = &src[at..at + 4];
+                    let a = f32::from(p[3]) * wx * wy;
+                    sum[0] += f32::from(p[0]) * a;
+                    sum[1] += f32::from(p[1]) * a;
+                    sum[2] += f32::from(p[2]) * a;
+                    sum[3] += a;
+                }
+            }
+            let alpha = sum[3];
+            let straight = |c: f32| {
+                if alpha > 0.0 {
+                    f32_to_u8_clamped((c / alpha).round())
+                } else {
+                    0
+                }
+            };
+            out.extend_from_slice(&[
+                straight(sum[0]),
+                straight(sum[1]),
+                straight(sum[2]),
+                f32_to_u8_clamped(alpha.round()),
+            ]);
+        }
+    }
+    out
 }
 
 /// This frame's instance-buffer handles, one per primitive kind. `None` when
@@ -932,6 +1018,17 @@ mod context_tests {
         assert!(
             pipelines.shape.is_some() && pipelines.image.is_some() && pipelines.gradient.is_some()
         );
+    }
+
+    #[test]
+    fn area_mips_cover_odd_edges_without_darkening_clear_texels() {
+        // Three texels into one: the odd last one counts as much as the rest.
+        let src = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255];
+        assert_eq!(area_downsample(&src, (3, 1), (1, 1)), [85, 85, 85, 255]);
+        // A clear black texel lowers alpha but leaves the color white.
+        let src = [255, 255, 255, 255, 0, 0, 0, 0];
+        assert_eq!(area_downsample(&src, (2, 1), (1, 1)), [255, 255, 255, 128]);
+        assert_eq!(area_downsample(&[0; 16], (2, 2), (1, 1)), [0; 4]);
     }
 
     #[test]
