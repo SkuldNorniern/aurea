@@ -494,6 +494,12 @@ impl CpuRasterizer {
             if ctx.opaque_fast {
                 let row_start = (y * bw) as usize;
                 buf[row_start + xi0 as usize..row_start + xi1 as usize].fill(ctx.c_full);
+            } else if let Some(src) = ctx.const_src {
+                let row_start = (y * bw) as usize;
+                let span = row_start + xi0 as usize..row_start + xi1 as usize;
+                if let Some(pixels) = buf.get_mut(span) {
+                    src.over_span(pixels);
+                }
             } else {
                 for x in xi0..xi1 {
                     Self::buf_set(buf, bw, ctx.clip, x as i32, y as i32, ctx.c_full, ctx.mode);
@@ -642,6 +648,8 @@ impl CpuRasterizer {
             r_out: radius + 0.5,
             c_full: color_to_u32(paint.color),
             opaque_fast: mode == BlendMode::Normal && paint.color.a == 255,
+            const_src: (mode == BlendMode::Normal)
+                .then(|| ConstSrc::new(color_to_u32(paint.color))),
         };
 
         for y in y0..y1 {
@@ -676,11 +684,13 @@ impl CpuRasterizer {
         Self::fill_circle_edge_span(buf, bw, ctx, xo0, xi0, y);
 
         if xi0 < xi1 {
+            let row_start = (y * bw) as usize;
+            let span =
+                row_start + xi0.unsigned_abs() as usize..row_start + xi1.unsigned_abs() as usize;
             if ctx.opaque_fast {
-                let row_start = (y * bw) as usize;
-                buf[row_start + xi0.unsigned_abs() as usize
-                    ..row_start + xi1.unsigned_abs() as usize]
-                    .fill(ctx.c_full);
+                buf[span].fill(ctx.c_full);
+            } else if let (Some(src), Some(pixels)) = (ctx.const_src, buf.get_mut(span)) {
+                src.over_span(pixels);
             } else {
                 for x in xi0..xi1 {
                     Self::buf_set(buf, bw, ctx.clip, x, y as i32, ctx.c_full, ctx.mode);
@@ -701,9 +711,21 @@ impl CpuRasterizer {
     ) {
         for x in xa..xb {
             let cov = circle_coverage(ctx.center, ctx.radius, x as f32, y as f32);
-            if cov > 0.0 {
-                let c = color_to_u32_with_coverage(ctx.paint.color, cov);
-                Self::buf_set(buf, bw, ctx.clip, x, y as i32, c, ctx.mode);
+            if cov <= 0.0 {
+                continue;
+            }
+            match ctx.const_src {
+                Some(src) if ctx.clip.contains(x, y as i32) => {
+                    let alpha = f32_to_u32_clamped((f32::from(ctx.paint.color.a) * cov).round());
+                    if let Some(p) = buf.get_mut((y * bw) as usize + x.unsigned_abs() as usize) {
+                        *p = src.over_at_alpha(*p, alpha);
+                    }
+                }
+                Some(_) => {}
+                None => {
+                    let c = color_to_u32_with_coverage(ctx.paint.color, cov);
+                    Self::buf_set(buf, bw, ctx.clip, x, y as i32, c, ctx.mode);
+                }
             }
         }
     }
@@ -1601,6 +1623,7 @@ struct CircleFillCtx<'a> {
     r_out: f32,
     c_full: u32,
     opaque_fast: bool,
+    const_src: Option<ConstSrc>,
 }
 
 struct RectFillCtx<'a> {
