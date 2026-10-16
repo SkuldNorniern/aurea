@@ -11,6 +11,7 @@
 //! odd-even rule, so where two parts of one shape overlap the crossings cancel
 //! and a hole opens up in the middle of the join.
 
+use super::path::{cubic_steps, quad_steps};
 use crate::types::{Dash, FillRule, LineCap, LineJoin, Paint, Path, PathCommand, Point};
 use std::f32::consts::PI;
 use std::mem::take;
@@ -70,7 +71,7 @@ pub fn flatten(path: &Path) -> Vec<SubPath> {
                 current.push(cursor);
             }
             PathCommand::QuadTo(c, p) => {
-                let steps: u16 = 4;
+                let steps = quad_steps(cursor, *c, *p);
                 for i in 1..=steps {
                     let t = f32::from(i) / f32::from(steps);
                     current.push(quadratic(cursor, *c, *p, t));
@@ -78,7 +79,7 @@ pub fn flatten(path: &Path) -> Vec<SubPath> {
                 cursor = *p;
             }
             PathCommand::CubicTo(c1, c2, p) => {
-                let steps: u16 = 8;
+                let steps = cubic_steps(cursor, *c1, *c2, *p);
                 for i in 1..=steps {
                     let t = f32::from(i) / f32::from(steps);
                     current.push(cubic(cursor, *c1, *c2, *p, t));

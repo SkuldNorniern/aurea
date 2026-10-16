@@ -3,6 +3,7 @@
 //! Turns path commands into edges (y range, x at y_min, slope) so the scanline
 //! filler can find crossings and fill between them.
 
+use crate::numeric::f32_to_u32_clamped;
 use crate::types::{Path, PathCommand, Point};
 
 /// One edge for scanline filling: y range, x at the top, and dx/dy slope.
@@ -100,8 +101,38 @@ pub fn tessellate_path_into(path: &Path, edges: &mut Vec<Edge>) {
     }
 }
 
+/// How far, in pixels, a flattened curve may stray from the true one.
+const FLATNESS: f32 = 0.25;
+
+/// Chords that keep a curve of degree `degree` within [`FLATNESS`] of
+/// itself, given the largest second difference `dd` of its control points
+/// (Wang's formula). A fixed count left large curves visibly faceted and
+/// spent chords on small ones.
+fn curve_steps(degree: f32, dd: f32) -> u16 {
+    let n = (degree * (degree - 1.0) / 8.0 * dd / FLATNESS)
+        .sqrt()
+        .ceil();
+    // NaN, from a non-finite control point, takes one chord.
+    u16::try_from(f32_to_u32_clamped(n).clamp(1, 256)).unwrap_or(256)
+}
+
+fn second_difference(a: Point, b: Point, c: Point) -> f32 {
+    (a.x - 2.0 * b.x + c.x).hypot(a.y - 2.0 * b.y + c.y)
+}
+
+/// Chords for the quadratic `p0, p1, p2`.
+pub fn quad_steps(p0: Point, p1: Point, p2: Point) -> u16 {
+    curve_steps(2.0, second_difference(p0, p1, p2))
+}
+
+/// Chords for the cubic `p0, p1, p2, p3`.
+pub fn cubic_steps(p0: Point, p1: Point, p2: Point, p3: Point) -> u16 {
+    let dd = second_difference(p0, p1, p2).max(second_difference(p1, p2, p3));
+    curve_steps(3.0, dd)
+}
+
 fn tessellate_quad(p0: Point, p1: Point, p2: Point, edges: &mut Vec<Edge>) {
-    let steps: u16 = 4;
+    let steps = quad_steps(p0, p1, p2);
     let mut prev = p0;
     for i in 1..=steps {
         let t = f32::from(i) / f32::from(steps);
@@ -114,7 +145,7 @@ fn tessellate_quad(p0: Point, p1: Point, p2: Point, edges: &mut Vec<Edge>) {
 }
 
 fn tessellate_cubic(p0: Point, p1: Point, p2: Point, p3: Point, edges: &mut Vec<Edge>) {
-    let steps: u16 = 8;
+    let steps = cubic_steps(p0, p1, p2, p3);
     let mut prev = p0;
     for i in 1..=steps {
         let t = f32::from(i) / f32::from(steps);
@@ -150,4 +181,56 @@ fn cubic_bezier(p0: Point, p1: Point, p2: Point, p3: Point, t: f32) -> Point {
         mt3 * p0.x + 3.0 * mt2 * t * p1.x + 3.0 * mt * t2 * p2.x + t3 * p3.x,
         mt3 * p0.y + 3.0 * mt2 * t * p1.y + 3.0 * mt * t2 * p2.y + t3 * p3.y,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Each chord's midpoint stays within the flatness of the curve's own
+    /// midpoint, on a wide curve and a tight one alike.
+    #[test]
+    fn curves_flatten_within_the_tolerance() {
+        let wide = [
+            Point::new(0.0, 0.0),
+            Point::new(400.0, 260.0),
+            Point::new(800.0, -200.0),
+            Point::new(1280.0, 0.0),
+        ];
+        let tight = [
+            Point::new(10.0, 10.0),
+            Point::new(14.0, 2.0),
+            Point::new(18.0, 18.0),
+            Point::new(12.0, 11.0),
+        ];
+        for [p0, p1, p2, p3] in [wide, tight] {
+            let n = cubic_steps(p0, p1, p2, p3);
+            let at = |t: f32| cubic_bezier(p0, p1, p2, p3, t);
+            for i in 0..n {
+                let (a, b) = (f32::from(i), f32::from(n));
+                let (s, e, m) = (at(a / b), at((a + 1.0) / b), at((a + 0.5) / b));
+                let chord = Point::new((s.x + e.x) / 2.0, (s.y + e.y) / 2.0);
+                assert!(
+                    (chord.x - m.x).hypot(chord.y - m.y) <= FLATNESS + 1e-3,
+                    "{n} chords"
+                );
+            }
+        }
+        assert!(cubic_steps(wide[0], wide[1], wide[2], wide[3]) > 8);
+        assert!(
+            quad_steps(
+                Point::new(0.0, 0.0),
+                Point::new(1.0, 1.0),
+                Point::new(2.0, 0.0)
+            ) <= 2
+        );
+        assert_eq!(
+            quad_steps(
+                Point::new(0.0, 0.0),
+                Point::new(1.0, 0.0),
+                Point::new(2.0, 0.0)
+            ),
+            1
+        );
+    }
 }
