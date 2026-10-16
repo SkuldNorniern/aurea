@@ -4,7 +4,6 @@
 #import "common/errors.h"
 #import "common/rust_callbacks.h"
 #import "macos/elements.h"
-#import "macos/tray.h"
 
 
 #import <Cocoa/Cocoa.h>
@@ -24,7 +23,7 @@ static BOOL s_in_nsapp_run = NO;
    decides for itself, and may close one window before opening the next. */
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {
     (void)sender;
-    return s_in_nsapp_run && ng_macos_tray_count == 0;
+    return s_in_nsapp_run && ng_macos_hide_on_close_count == 0;
 }
 
 /* Terminating calls exit(), which skips every Rust destructor. Stop the run

@@ -540,9 +540,15 @@ impl CpuRasterizer {
             if ctx.opaque_fast {
                 let row_start = (y * bw) as usize;
                 buf[row_start + xi0 as usize..row_start + xi1 as usize].fill(ctx.c_full);
+            } else if let Some(src) = ctx.const_src {
+                // The span lies inside the clip already, and one colour
+                // covers it: composite with the source prepared once.
+                let row_start = (y * bw) as usize;
+                let span = row_start + xi0 as usize..row_start + xi1 as usize;
+                if let Some(pixels) = buf.get_mut(span) {
+                    src.over_span(pixels);
+                }
             } else {
-                // A fully covered span has one colour, so the coverage-scaling
-                // path buys nothing here.
                 for x in xi0..xi1 {
                     Self::buf_set(buf, bw, ctx.clip, x as i32, y as i32, ctx.c_full, ctx.mode);
                 }
@@ -700,6 +706,8 @@ impl CpuRasterizer {
             r_out: radius + 0.5,
             c_full: color_to_u32(paint.color),
             opaque_fast: mode == BlendMode::Normal && paint.color.a == 255,
+            const_src: (mode == BlendMode::Normal)
+                .then(|| ConstSrc::new(color_to_u32(paint.color))),
         };
 
         for y in y0..y1 {
@@ -736,11 +744,14 @@ impl CpuRasterizer {
 
         // Fully-covered interior span.
         if xi0 < xi1 {
+            let row_start = (y * bw) as usize;
+            let span =
+                row_start + xi0.unsigned_abs() as usize..row_start + xi1.unsigned_abs() as usize;
             if ctx.opaque_fast {
-                let row_start = (y * bw) as usize;
-                buf[row_start + xi0.unsigned_abs() as usize
-                    ..row_start + xi1.unsigned_abs() as usize]
-                    .fill(ctx.c_full);
+                buf[span].fill(ctx.c_full);
+            } else if let (Some(src), Some(pixels)) = (ctx.const_src, buf.get_mut(span)) {
+                // Inside the clip already, like the opaque span above.
+                src.over_span(pixels);
             } else {
                 for x in xi0..xi1 {
                     Self::buf_set(buf, bw, ctx.clip, x, y as i32, ctx.c_full, ctx.mode);
@@ -762,9 +773,21 @@ impl CpuRasterizer {
     ) {
         for x in xa..xb {
             let cov = circle_coverage(ctx.center, ctx.radius, x as f32, y as f32);
-            if cov > 0.0 {
-                let c = color_to_u32_with_coverage(ctx.paint.color, cov);
-                Self::buf_set(buf, bw, ctx.clip, x, y as i32, c, ctx.mode);
+            if cov <= 0.0 {
+                continue;
+            }
+            match ctx.const_src {
+                Some(src) if ctx.clip.contains(x, y as i32) => {
+                    let alpha = f32_to_u32_clamped((f32::from(ctx.paint.color.a) * cov).round());
+                    if let Some(p) = buf.get_mut((y * bw) as usize + x.unsigned_abs() as usize) {
+                        *p = src.over_at_alpha(*p, alpha);
+                    }
+                }
+                Some(_) => {}
+                None => {
+                    let c = color_to_u32_with_coverage(ctx.paint.color, cov);
+                    Self::buf_set(buf, bw, ctx.clip, x, y as i32, c, ctx.mode);
+                }
             }
         }
     }
@@ -956,10 +979,12 @@ impl CpuRasterizer {
         if image.width == 0
             || image.height == 0
             || !bytes_fit(image.width, image.height, 4, image.data.len())
-            || !(src.width > 0.0 && src.height > 0.0)
+            // Finite first, so the size tests below never see a NaN.
             || ![src.x, src.y, src.width, src.height]
                 .iter()
                 .all(|v| v.is_finite())
+            || src.width <= 0.0
+            || src.height <= 0.0
             || !q.iter().all(|p| p.x.is_finite() && p.y.is_finite())
         {
             return;
@@ -1174,17 +1199,46 @@ impl CpuRasterizer {
         };
         let (sx, sy) = (src.width / dest.width, src.height / dest.height);
         let shrink = sampling == Sampling::Smooth && (sx > 1.0 || sy > 1.0);
-        for cy in y0..y1 {
-            let v0 = (cy as f32 - dest.y) * sy + src.y;
+        // Where a column or row reads depends on it alone: work it out once,
+        // not again for every pixel.
+        let u0 = |cx: i32| (cx as f32 - dest.x) * sx + src.x;
+        let v0 = |cy: i32| (cy as f32 - dest.y) * sy + src.y;
+        let mut put = |cx: i32, cy: i32, c: u32| {
+            if c >> 24 != 0 {
+                Self::buf_set(buf, bw, clip, cx, cy, c, mode);
+            }
+        };
+        if shrink {
+            let mut columns = Vec::new();
+            let mut offsets = Vec::with_capacity((x1 - x0).max(0).unsigned_abs() as usize + 1);
             for cx in x0..x1 {
-                let u0 = (cx as f32 - dest.x) * sx + src.x;
-                let c = if shrink {
-                    sample::area(image, bounds, (u0, v0), (u0 + sx, v0 + sy), alpha)
-                } else {
-                    sample::bilinear(image, bounds, u0 + sx * 0.5, v0 + sy * 0.5, alpha)
-                };
-                if c >> 24 != 0 {
-                    Self::buf_set(buf, bw, clip, cx, cy, c, mode);
+                offsets.push(columns.len());
+                let u = u0(cx);
+                columns.extend(sample::area_weights(u, u + sx, bounds.x0, bounds.x1));
+            }
+            offsets.push(columns.len());
+            let mut rows = Vec::new();
+            for cy in y0..y1 {
+                let v = v0(cy);
+                rows.clear();
+                rows.extend(sample::area_weights(v, v + sy, bounds.y0, bounds.y1));
+                for (i, cx) in (x0..x1).enumerate() {
+                    let xs = columns[offsets[i]..offsets[i + 1]].iter().copied();
+                    put(
+                        cx,
+                        cy,
+                        sample::area_from(image, xs, rows.iter().copied(), alpha),
+                    );
+                }
+            }
+        } else if bounds.x0 <= bounds.x1 && bounds.y0 <= bounds.y1 {
+            let columns: Vec<sample::Taps> = (x0..x1)
+                .map(|cx| sample::Taps::at(u0(cx) + sx * 0.5, bounds.x0, bounds.x1))
+                .collect();
+            for cy in y0..y1 {
+                let row = sample::Taps::at(v0(cy) + sy * 0.5, bounds.y0, bounds.y1);
+                for (&column, cx) in columns.iter().zip(x0..x1) {
+                    put(cx, cy, sample::bilinear_taps(image, column, row, alpha));
                 }
             }
         }
@@ -1729,6 +1783,7 @@ struct CircleFillCtx<'a> {
     r_out: f32,
     c_full: u32,
     opaque_fast: bool,
+    const_src: Option<ConstSrc>,
 }
 
 /// Shared per-call state for the translucent rect-fill row/span helpers.

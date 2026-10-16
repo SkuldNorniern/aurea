@@ -724,6 +724,7 @@ impl Element for Canvas {
 mod tests {
     use super::*;
     use crate::Window;
+    #[cfg(not(target_os = "macos"))]
     use std::cell::Cell;
 
     #[test]

@@ -2,6 +2,7 @@
 //!
 //! Answers whether a point lies inside a path (odd-even ray cast), rect, or circle.
 
+use crate::cpu::path::{cubic_steps, quad_steps};
 use crate::types::{Path, PathCommand, Point, Rect};
 
 /// Returns true if the point is inside the path (odd-even rule: ray to the right, count crossings).
@@ -54,7 +55,8 @@ fn count_line_intersection(point: Point, a: Point, b: Point) -> u32 {
 }
 
 fn count_quad_intersections(point: Point, p0: Point, p1: Point, p2: Point) -> u32 {
-    let steps: u16 = 8;
+    // The chords the renderer fills, so a hit agrees with what is drawn.
+    let steps = quad_steps(p0, p1, p2);
     let mut prev = p0;
     let mut count = 0;
     for i in 1..=steps {
@@ -67,7 +69,7 @@ fn count_quad_intersections(point: Point, p0: Point, p1: Point, p2: Point) -> u3
 }
 
 fn count_cubic_intersections(point: Point, p0: Point, p1: Point, p2: Point, p3: Point) -> u32 {
-    let steps: u16 = 16;
+    let steps = cubic_steps(p0, p1, p2, p3);
     let mut prev = p0;
     let mut count = 0;
     for i in 1..=steps {
@@ -150,11 +152,10 @@ pub(crate) fn path_bounds(path: &Path) -> Rect {
                 current_point = *p;
                 has_point = true;
             }
+            // A curve stays inside its control points' box, which bounds it
+            // whole, where points sampled along it can miss its extremes.
             PathCommand::QuadTo(p1, p2) => {
-                let steps = 8;
-                for i in 0..=steps {
-                    let t = i as f32 / steps as f32;
-                    let p = quadratic_bezier(current_point, *p1, *p2, t);
+                for p in [current_point, *p1, *p2] {
                     min_x = min_x.min(p.x);
                     min_y = min_y.min(p.y);
                     max_x = max_x.max(p.x);
@@ -163,10 +164,7 @@ pub(crate) fn path_bounds(path: &Path) -> Rect {
                 current_point = *p2;
             }
             PathCommand::CubicTo(p1, p2, p3) => {
-                let steps = 16;
-                for i in 0..=steps {
-                    let t = i as f32 / steps as f32;
-                    let p = cubic_bezier(current_point, *p1, *p2, *p3, t);
+                for p in [current_point, *p1, *p2, *p3] {
                     min_x = min_x.min(p.x);
                     min_y = min_y.min(p.y);
                     max_x = max_x.max(p.x);
@@ -209,4 +207,32 @@ fn cubic_bezier(p0: Point, p1: Point, p2: Point, p3: Point, t: f32) -> Point {
         mt3 * p0.x + 3.0 * mt2 * t * p1.x + 3.0 * mt * t2 * p2.x + t3 * p3.x,
         mt3 * p0.y + 3.0 * mt2 * t * p1.y + 3.0 * mt * t2 * p2.y + t3 * p3.y,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The bounds hold the whole curve, extremes between samples included.
+    #[test]
+    fn path_bounds_hold_every_point_of_a_curve() {
+        let (p0, p1, p2, p3) = (
+            Point::new(0.0, 0.0),
+            Point::new(7.0, 93.0),
+            Point::new(61.0, -71.0),
+            Point::new(100.0, 13.0),
+        );
+        let path = Path {
+            commands: vec![PathCommand::MoveTo(p0), PathCommand::CubicTo(p1, p2, p3)],
+            ..Path::new()
+        };
+        let b = path_bounds(&path);
+        for i in 0..=1000u16 {
+            let p = cubic_bezier(p0, p1, p2, p3, f32::from(i) / 1000.0);
+            assert!(
+                p.x >= b.x && p.x <= b.x + b.width && p.y >= b.y && p.y <= b.y + b.height,
+                "{p:?} outside {b:?}"
+            );
+        }
+    }
 }
