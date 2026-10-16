@@ -6,9 +6,11 @@
 //! `upload_image` are the global bindless indices the shaders see directly.
 
 use std::collections::HashMap;
+use std::iter::once;
 use std::mem::{size_of, size_of_val};
 use std::slice::{from_raw_parts, from_ref};
 use std::sync::{Arc, Mutex, Weak};
+use std::time::Duration;
 
 use aurea_foundation::{AureaError, AureaResult};
 
@@ -21,7 +23,8 @@ use zengpu_hal::{
     Acquire, Bindings, BufferHandle, ColorAttachment, DeviceRequest, DeviceType, FilterMode,
     Format, Frame, GpuAdapter, GpuDevice, GpuError, GraphicsDevice, LoadOp, PipelineHandle,
     Rect as HalRect, RenderCommands, RenderPassDesc, SamplerDesc, SamplerHandle, Scalar, Surface,
-    TexDim, TextureDesc, TextureHandle, TextureUsage, Viewport, ViewportScissor, WindowHandles,
+    TexDim, TextureDesc, TextureHandle, TextureRegion, TextureUsage, TextureWrite, Viewport,
+    ViewportScissor, WindowHandles,
 };
 
 use crate::capabilities::GpuFeatures;
@@ -211,19 +214,15 @@ impl ZenGpuImage {
         }
         let device = self.context.device();
         let texture = self.texture.zengpu();
-        device
-            .upload_texture_data(texture, &image.data)
-            .and_then(|()| {
-                upload_mips(
-                    device,
-                    texture,
-                    image.width,
-                    image.height,
-                    &image.data,
-                    self.levels,
-                )
-            })
-            .map_err(gpu_err)
+        upload_levels(
+            device,
+            texture,
+            image.width,
+            image.height,
+            &image.data,
+            self.levels,
+        )
+        .map_err(gpu_err)
     }
 }
 
@@ -269,9 +268,7 @@ fn make_image_texture(
             array_layers: 1,
         })
         .map_err(gpu_err)?;
-    let filled = device
-        .upload_texture_data(texture, rgba)
-        .and_then(|()| upload_mips(device, texture, width, height, rgba, levels));
+    let filled = upload_levels(device, texture, width, height, rgba, levels);
     if let Err(e) = filled {
         device.destroy_texture(texture);
         return Err(gpu_err(e));
@@ -279,12 +276,14 @@ fn make_image_texture(
     Ok(texture)
 }
 
-/// Fills mips 1.. of `texture` from its RGBA8 base. Each level averages the
-/// texels it covers, odd edges included, with premultiplied alpha, as the
-/// wgpu renderer's shader does: the device's own blit resamples bilinearly,
-/// which drifts on odd sizes and darkens transparent edges. A backend that
+/// Uploads the RGBA8 base of `texture` and fills its mips 1.. from it. Each
+/// level averages the texels it covers, odd edges included, with
+/// premultiplied alpha, as the wgpu renderer's shader does: the device's own
+/// blit resamples bilinearly, which drifts on odd sizes and darkens
+/// transparent edges. All levels go in one batch, waited on once, where the
+/// backend writes regions; otherwise level by level, and a backend that
 /// cannot write single levels falls back to that blit.
-fn upload_mips(
+fn upload_levels(
     device: &NativeDevice,
     texture: TextureHandle,
     width: u32,
@@ -292,19 +291,42 @@ fn upload_mips(
     rgba: &[u8],
     levels: u32,
 ) -> Result<(), GpuError> {
+    let mut chain = Vec::with_capacity(levels.saturating_sub(1) as usize);
     let (mut w, mut h) = (width, height);
-    let mut level = rgba.to_vec();
-    for mip in 1..levels {
+    for _ in 1..levels {
         let (dw, dh) = ((w >> 1).max(1), (h >> 1).max(1));
-        level = area_downsample(&level, (w, h), (dw, dh));
-        match device.upload_texture_data_region(texture, mip, 0, &level) {
+        let level = area_downsample(chain.last().map_or(rgba, Vec::as_slice), (w, h), (dw, dh));
+        chain.push(level);
+        (w, h) = (dw, dh);
+    }
+    if device.capabilities().transfers.texture_region_write {
+        let writes: Vec<TextureWrite<'_>> = once(rgba)
+            .chain(chain.iter().map(Vec::as_slice))
+            .zip(0u32..)
+            .map(|(data, mip)| {
+                let (lw, lh) = ((width >> mip).max(1), (height >> mip).max(1));
+                TextureWrite {
+                    texture,
+                    region: TextureRegion {
+                        mip_level: mip,
+                        ..TextureRegion::rect(0, 0, lw, lh)
+                    },
+                    data,
+                    bytes_per_row: lw * 4,
+                }
+            })
+            .collect();
+        return device.write_textures(&writes)?.wait(Duration::MAX);
+    }
+    device.upload_texture_data(texture, rgba)?;
+    for (mip, level) in (1..).zip(&chain) {
+        match device.upload_texture_data_region(texture, mip, 0, level) {
             Ok(()) => {}
             Err(GpuError::UnsupportedFeatures(_)) if mip == 1 => {
                 return device.generate_mipmaps(texture);
             }
             Err(e) => return Err(e),
         }
-        (w, h) = (dw, dh);
     }
     Ok(())
 }
@@ -1042,6 +1064,51 @@ mod context_tests {
 
     /// What a smooth image upload asks of the device: a full mip chain,
     /// level 0 uploaded, the rest made on the device.
+    #[test]
+    fn smooth_images_carry_area_filtered_mips() {
+        use zengpu_hal::{BufferDesc, BufferUsage, MemoryUsage};
+        let Ok(context) = ZenGpuContext::new() else {
+            return;
+        };
+        let context = Arc::new(context);
+        // Red, green, blue: level 1 is their even mix, level 0 untouched.
+        let image = Image::new(3, 1, vec![255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255]);
+        let owned = context
+            .upload_image(&image, Sampling::Smooth)
+            .expect("upload");
+        let device = context.device();
+        let buffer = device
+            .create_buffer(BufferDesc {
+                size: 12,
+                usage: BufferUsage::READBACK | BufferUsage::TRANSFER_DST,
+                memory: MemoryUsage::Readback,
+            })
+            .expect("buffer");
+        let read = |mip_level: u32, width: u32| {
+            let region = TextureRegion {
+                mip_level,
+                ..TextureRegion::rect(0, 0, width, 1)
+            };
+            device
+                .copy_texture_region_to_buffer(
+                    owned.texture().zengpu(),
+                    region,
+                    buffer,
+                    0,
+                    width * 4,
+                )
+                .expect("copy")
+                .wait(Duration::MAX)
+                .expect("wait");
+            device
+                .read_buffer(buffer, 0, u64::from(width) * 4)
+                .expect("read")
+        };
+        assert_eq!(read(0, 3), &image.data[..]);
+        assert_eq!(read(1, 1), [85, 85, 85, 255]);
+        device.destroy_buffer(buffer);
+    }
+
     #[test]
     fn owned_shared_images_update_and_release_their_native_texture() {
         let Ok(context) = ZenGpuContext::new() else {
