@@ -59,13 +59,38 @@ int ng_macos_box_add(NGHandle box, NGHandle element, float weight) {
     }
     cross.active = YES;
 
+    // A growing child, and a stack in a row, also hold the leading (or top)
+    // edge: the stack's alignment alone lets a view with no width of its
+    // own, like a split view, slide to the far side. A stack in a row runs
+    // the row's height, so a column beside a canvas starts at the top.
+    BOOL nested = [view isKindOfClass:[NSStackView class]];
+    BOOL stretched = fills || (!vertical && nested);
+    if (stretched) {
+        if (vertical) {
+            [view.leadingAnchor constraintEqualToAnchor:stack.leadingAnchor
+                                               constant:stack.edgeInsets.left].active = YES;
+        } else {
+            [view.topAnchor constraintEqualToAnchor:stack.topAnchor
+                                           constant:stack.edgeInsets.top].active = YES;
+            if (!fills) {
+                [view.bottomAnchor constraintEqualToAnchor:stack.bottomAnchor
+                                                  constant:-stack.edgeInsets.bottom].active = YES;
+            }
+        }
+    }
+
     // A nested stack sizes itself by its own hugging, not content hugging:
     // a fixed one stays the size of its children along this stack's axis.
-    if ([view isKindOfClass:[NSStackView class]]) {
+    // Across it, a stretched one gives way below a split view's holding
+    // priority (250), or it would pull the split's pane down to its children.
+    if (nested) {
         NSLayoutConstraintOrientation axis = vertical ? NSLayoutConstraintOrientationVertical
                                                       : NSLayoutConstraintOrientationHorizontal;
+        NSLayoutConstraintOrientation across = vertical ? NSLayoutConstraintOrientationHorizontal
+                                                        : NSLayoutConstraintOrientationVertical;
         [(NSStackView*)view setHuggingPriority:fills ? NSLayoutPriorityDefaultLow : NSLayoutPriorityDefaultHigh
                                 forOrientation:axis];
+        if (stretched) [(NSStackView*)view setHuggingPriority:200 forOrientation:across];
     }
     
     /* Weight > 0: expand to fill. Use low hugging so the view can grow; keep compression
