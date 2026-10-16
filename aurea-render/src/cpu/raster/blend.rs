@@ -95,6 +95,8 @@ pub struct ConstSrc {
     pub lg: f32,
     pub lb: f32,
     pub cov: f32,
+    to_linear: &'static [f32; 256],
+    to_srgb: &'static [u8; 4097],
 }
 
 impl ConstSrc {
@@ -110,6 +112,8 @@ impl ConstSrc {
             lg: srgb_to_linear(sg8(src)),
             lb: srgb_to_linear(sb8(src)),
             cov,
+            to_linear: &SRGB_TO_LINEAR,
+            to_srgb: &LINEAR_TO_SRGB,
         }
     }
 
@@ -133,10 +137,36 @@ impl ConstSrc {
             (alpha * 255) as f32 / (alpha * 255 + (255 - alpha) * da) as f32
         };
         let inv = 1.0 - cov;
-        let out_r = linear_to_srgb_u8(self.lr * cov + srgb_to_linear(dr8(dst)) * inv);
-        let out_g = linear_to_srgb_u8(self.lg * cov + srgb_to_linear(dg8(dst)) * inv);
-        let out_b = linear_to_srgb_u8(self.lb * cov + srgb_to_linear(db8(dst)) * inv);
+        let mix = |src: f32, dst: u8| {
+            let c = src * cov + self.to_linear[usize::from(dst)] * inv;
+            u32::from(self.to_srgb[f32_to_usize_clamped(c.clamp(0.0, 1.0) * 4096.0)])
+        };
+        let out_r = mix(self.lr, dr8(dst));
+        let out_g = mix(self.lg, dg8(dst));
+        let out_b = mix(self.lb, db8(dst));
         (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b
+    }
+
+    /// Composite this constant source over a run of pixels.
+    #[inline]
+    pub fn over_span(self, pixels: &mut [u32]) {
+        self.over_span_at_alpha(pixels, self.sa);
+    }
+
+    /// [`Self::over_span`] at a per-span alpha, in `0..=255`.
+    #[inline]
+    pub fn over_span_at_alpha(self, pixels: &mut [u32], alpha: u32) {
+        let Some(&first) = pixels.first() else {
+            return;
+        };
+        let (mut last_dst, mut last_out) = (first, self.over_at_alpha(first, alpha));
+        for p in pixels {
+            if *p != last_dst {
+                last_dst = *p;
+                last_out = self.over_at_alpha(last_dst, alpha);
+            }
+            *p = last_out;
+        }
     }
 
     /// Composite this constant source onto a single destination pixel.
@@ -467,6 +497,41 @@ mod tests {
 
     fn rgba(r: u8, g: u8, b: u8, a: u8) -> u32 {
         (u32::from(a) << 24) | (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
+    }
+
+    #[test]
+    fn span_blending_matches_pixel_blending() {
+        let row: Vec<u32> = (0..64u8)
+            .map(|i| match i / 8 {
+                0 | 3 => rgba(20, 20, 24, 255),
+                1 => rgba(200, 40, 10, 128),
+                2 => 0,
+                _ => rgba(i.wrapping_mul(7), i.wrapping_mul(13), 90, i.wrapping_mul(5)),
+            })
+            .collect();
+        for src in [
+            rgba(90, 160, 220, 200),
+            rgba(255, 0, 0, 1),
+            rgba(10, 250, 30, 254),
+        ] {
+            let source = ConstSrc::new(src);
+            for alpha in [0, 1, 77, 200, 255] {
+                let mut span = row.clone();
+                source.over_span_at_alpha(&mut span, alpha);
+                let each: Vec<u32> = row
+                    .iter()
+                    .map(|&d| source.over_at_alpha(d, alpha))
+                    .collect();
+                assert_eq!(span, each, "src {src:08x} at {alpha}");
+            }
+            let mut span = row.clone();
+            source.over_span(&mut span);
+            let each: Vec<u32> = row
+                .iter()
+                .map(|&d| blend_pixel(src, d, BlendMode::Normal))
+                .collect();
+            assert_eq!(span, each, "src {src:08x}");
+        }
     }
 
     const MODES: [BlendMode; 12] = [
