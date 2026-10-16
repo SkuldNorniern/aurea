@@ -1116,17 +1116,44 @@ impl CpuRasterizer {
         };
         let (sx, sy) = (src.width / dest.width, src.height / dest.height);
         let shrink = sampling == Sampling::Smooth && (sx > 1.0 || sy > 1.0);
-        for cy in y0..y1 {
-            let v0 = (cy as f32 - dest.y) * sy + src.y;
+        let u0 = |cx: i32| (cx as f32 - dest.x) * sx + src.x;
+        let v0 = |cy: i32| (cy as f32 - dest.y) * sy + src.y;
+        let mut put = |cx: i32, cy: i32, c: u32| {
+            if c >> 24 != 0 {
+                Self::buf_set(buf, bw, clip, cx, cy, c, mode);
+            }
+        };
+        if shrink {
+            let mut columns = Vec::new();
+            let mut offsets = Vec::with_capacity((x1 - x0).max(0).unsigned_abs() as usize + 1);
             for cx in x0..x1 {
-                let u0 = (cx as f32 - dest.x) * sx + src.x;
-                let c = if shrink {
-                    sample::area(image, bounds, (u0, v0), (u0 + sx, v0 + sy), alpha)
-                } else {
-                    sample::bilinear(image, bounds, u0 + sx * 0.5, v0 + sy * 0.5, alpha)
-                };
-                if c >> 24 != 0 {
-                    Self::buf_set(buf, bw, clip, cx, cy, c, mode);
+                offsets.push(columns.len());
+                let u = u0(cx);
+                columns.extend(sample::area_weights(u, u + sx, bounds.x0, bounds.x1));
+            }
+            offsets.push(columns.len());
+            let mut rows = Vec::new();
+            for cy in y0..y1 {
+                let v = v0(cy);
+                rows.clear();
+                rows.extend(sample::area_weights(v, v + sy, bounds.y0, bounds.y1));
+                for (i, cx) in (x0..x1).enumerate() {
+                    let xs = columns[offsets[i]..offsets[i + 1]].iter().copied();
+                    put(
+                        cx,
+                        cy,
+                        sample::area_from(image, xs, rows.iter().copied(), alpha),
+                    );
+                }
+            }
+        } else if bounds.x0 <= bounds.x1 && bounds.y0 <= bounds.y1 {
+            let columns: Vec<sample::Taps> = (x0..x1)
+                .map(|cx| sample::Taps::at(u0(cx) + sx * 0.5, bounds.x0, bounds.x1))
+                .collect();
+            for cy in y0..y1 {
+                let row = sample::Taps::at(v0(cy) + sy * 0.5, bounds.y0, bounds.y1);
+                for (&column, cx) in columns.iter().zip(x0..x1) {
+                    put(cx, cy, sample::bilinear_taps(image, column, row, alpha));
                 }
             }
         }
