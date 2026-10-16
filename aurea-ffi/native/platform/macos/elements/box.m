@@ -8,8 +8,11 @@ NGHandle ng_macos_create_box(int is_vertical) {
     [stack setOrientation:is_vertical ? NSUserInterfaceLayoutOrientationVertical 
                                     : NSUserInterfaceLayoutOrientationHorizontal];
     [stack setSpacing:4.0];
-    [stack setAlignment:is_vertical ? NSLayoutAttributeLeading : NSLayoutAttributeTop];
-    [stack setDistribution:NSStackViewDistributionFill];
+    [stack setAlignment:is_vertical ? NSLayoutAttributeLeading : NSLayoutAttributeCenterY];
+    [stack setDistribution:NSStackViewDistributionGravityAreas];
+    [stack setHuggingPriority:300
+               forOrientation:is_vertical ? NSLayoutConstraintOrientationVertical
+                                          : NSLayoutConstraintOrientationHorizontal];
     [stack setEdgeInsets:NSEdgeInsetsMake(4.0, 4.0, 4.0, 4.0)];
     
     return (__bridge_retained void*)stack;
@@ -22,15 +25,54 @@ int ng_macos_box_add(NGHandle box, NGHandle element, float weight) {
     NSView* view = (__bridge NSView*)element;
     
     [view setTranslatesAutoresizingMaskIntoConstraints:NO];
-    [stack addArrangedSubview:view];
-    
-    if ([stack orientation] == NSUserInterfaceLayoutOrientationVertical) {
-        [view.trailingAnchor constraintEqualToAnchor:stack.trailingAnchor constant:-stack.edgeInsets.right].active = YES;
+    [stack addView:view inGravity:NSStackViewGravityLeading];
+
+    BOOL vertical = [stack orientation] == NSUserInterfaceLayoutOrientationVertical;
+    BOOL asksToGrow = ![view isKindOfClass:[NSStackView class]]
+        && [view contentHuggingPriorityForOrientation:NSLayoutConstraintOrientationHorizontal] <= NSLayoutPriorityDefaultLow
+        && [view contentHuggingPriorityForOrientation:NSLayoutConstraintOrientationVertical] <= NSLayoutPriorityDefaultLow;
+    BOOL fills = weight > 0.0f || asksToGrow;
+    NSLayoutConstraint* cross;
+    if (vertical) {
+        NSLayoutXAxisAnchor* edge = stack.trailingAnchor;
+        CGFloat inset = -stack.edgeInsets.right;
+        cross = fills ? [view.trailingAnchor constraintEqualToAnchor:edge constant:inset]
+                      : [view.trailingAnchor constraintLessThanOrEqualToAnchor:edge constant:inset];
     } else {
-        [view.bottomAnchor constraintEqualToAnchor:stack.bottomAnchor constant:-stack.edgeInsets.bottom].active = YES;
+        NSLayoutYAxisAnchor* edge = stack.bottomAnchor;
+        CGFloat inset = -stack.edgeInsets.bottom;
+        cross = fills ? [view.bottomAnchor constraintEqualToAnchor:edge constant:inset]
+                      : [view.bottomAnchor constraintLessThanOrEqualToAnchor:edge constant:inset];
+    }
+    cross.active = YES;
+
+    BOOL nested = [view isKindOfClass:[NSStackView class]];
+    BOOL stretched = fills || (!vertical && nested);
+    if (stretched) {
+        if (vertical) {
+            [view.leadingAnchor constraintEqualToAnchor:stack.leadingAnchor
+                                               constant:stack.edgeInsets.left].active = YES;
+        } else {
+            [view.topAnchor constraintEqualToAnchor:stack.topAnchor
+                                           constant:stack.edgeInsets.top].active = YES;
+            if (!fills) {
+                [view.bottomAnchor constraintEqualToAnchor:stack.bottomAnchor
+                                                  constant:-stack.edgeInsets.bottom].active = YES;
+            }
+        }
+    }
+
+    if (nested) {
+        NSLayoutConstraintOrientation axis = vertical ? NSLayoutConstraintOrientationVertical
+                                                      : NSLayoutConstraintOrientationHorizontal;
+        NSLayoutConstraintOrientation across = vertical ? NSLayoutConstraintOrientationHorizontal
+                                                        : NSLayoutConstraintOrientationVertical;
+        [(NSStackView*)view setHuggingPriority:fills ? NSLayoutPriorityDefaultLow : NSLayoutPriorityDefaultHigh
+                                forOrientation:axis];
+        if (stretched) [(NSStackView*)view setHuggingPriority:200 forOrientation:across];
     }
     
-    if (weight > 0.0f) {
+    if (fills) {
         [view setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
         [view setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationVertical];
         [view setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];

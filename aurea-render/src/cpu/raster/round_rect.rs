@@ -261,11 +261,7 @@ impl<'a> Pixels<'a> {
         let row = &mut self.buf[start..=last];
         match self.src {
             Some(_) if alpha == 255 => row.fill(self.full),
-            Some(src) => {
-                for p in row {
-                    *p = src.over_at_alpha(*p, alpha);
-                }
-            }
+            Some(src) => src.over_span_at_alpha(row, alpha),
             None => {
                 let c = (alpha << 24) | (self.full & 0x00FF_FFFF);
                 for p in row {

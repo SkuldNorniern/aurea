@@ -120,9 +120,7 @@ fn fill_interior(
     if opaque_fast {
         buf[start..end].fill(full_src);
     } else if let Some(cs) = const_src {
-        for p in &mut buf[start..end] {
-            *p = cs.over(*p);
-        }
+        cs.over_span(&mut buf[start..end]);
     } else {
         for p in &mut buf[start..end] {
             *p = blend_pixel(full_src, *p, blend_mode);

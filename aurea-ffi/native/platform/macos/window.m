@@ -766,6 +766,8 @@ void ng_macos_destroy_window(NGHandle handle) {
     NSWindow* window = (__bridge_transfer NSWindow*)handle;
     if (windowDelegates) {
         NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)window];
+        WindowDelegate* delegate = [windowDelegates objectForKey:windowValue];
+        if (delegate.hideOnClose) ng_macos_hide_on_close_count--;
         [windowDelegates removeObjectForKey:windowValue];
     }
     if (windowCursorGrabModes) {
@@ -1150,13 +1152,17 @@ void ng_macos_window_set_close_guard(NGHandle window, int guarded) {
     delegate.closeGuarded = guarded != 0;
 }
 
+int ng_macos_hide_on_close_count = 0;
+
 int ng_macos_window_set_hide_on_close(NGHandle window, int hide) {
     if (!window || !windowDelegates) return NG_ERROR_INVALID_HANDLE;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
     NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)nsWindow];
     WindowDelegate* delegate = [windowDelegates objectForKey:windowValue];
     if (!delegate) return NG_ERROR_INVALID_HANDLE;
-    delegate.hideOnClose = hide != 0;
+    BOOL want = hide != 0;
+    if (want != delegate.hideOnClose) ng_macos_hide_on_close_count += want ? 1 : -1;
+    delegate.hideOnClose = want;
     return NG_SUCCESS;
 }
 

@@ -52,28 +52,66 @@ pub fn nearest(image: &Image, b: Bounds, u: f32, v: f32, alpha: f32) -> u32 {
     )
 }
 
+/// The two pixels a bilinear read blends along one axis, and how far toward the second it sits.
+#[derive(Clone, Copy)]
+pub struct Taps {
+    lo: i32,
+    hi: i32,
+    t: f32,
+}
+
+impl Taps {
+    /// The taps at pixel coordinate `u`, clamped to `lo..=hi`.
+    pub fn at(u: f32, lo: i32, hi: i32) -> Self {
+        let u = u - 0.5;
+        let f = u.floor();
+        let x = f32_to_i32_clamped(f);
+        Self {
+            lo: x.clamp(lo, hi),
+            hi: (x + 1).clamp(lo, hi),
+            t: u - f,
+        }
+    }
+}
+
 /// Bilinear sample at image position `(u, v)`, pixel centres at `n + 0.5`.
 pub fn bilinear(image: &Image, b: Bounds, u: f32, v: f32, alpha: f32) -> u32 {
     if b.x0 > b.x1 || b.y0 > b.y1 {
         return 0;
     }
-    let (u, v) = (u - 0.5, v - 0.5);
-    let (fx, fy) = (u.floor(), v.floor());
-    let (tx, ty) = (u - fx, v - fy);
-    let (x, y) = (f32_to_i32_clamped(fx), f32_to_i32_clamped(fy));
-    let cx = |x: i32| x.clamp(b.x0, b.x1);
-    let cy = |y: i32| y.clamp(b.y0, b.y1);
-    let p00 = premul(image, cx(x), cy(y));
-    let p10 = premul(image, cx(x + 1), cy(y));
-    let p01 = premul(image, cx(x), cy(y + 1));
-    let p11 = premul(image, cx(x + 1), cy(y + 1));
+    bilinear_taps(
+        image,
+        Taps::at(u, b.x0, b.x1),
+        Taps::at(v, b.y0, b.y1),
+        alpha,
+    )
+}
+
+/// [`bilinear`] with its taps worked out, as a draw does once per column and row.
+pub fn bilinear_taps(image: &Image, x: Taps, y: Taps, alpha: f32) -> u32 {
+    let p00 = premul(image, x.lo, y.lo);
+    let p10 = premul(image, x.hi, y.lo);
+    let p01 = premul(image, x.lo, y.hi);
+    let p11 = premul(image, x.hi, y.hi);
     let mut out = [0.0; 4];
     for (k, o) in out.iter_mut().enumerate() {
-        let top = p00[k] + (p10[k] - p00[k]) * tx;
-        let bottom = p01[k] + (p11[k] - p01[k]) * tx;
-        *o = top + (bottom - top) * ty;
+        let top = p00[k] + (p10[k] - p00[k]) * x.t;
+        let bottom = p01[k] + (p11[k] - p01[k]) * x.t;
+        *o = top + (bottom - top) * y.t;
     }
     pack(out, alpha)
+}
+
+/// The pixels `[u0, u1)` covers along one axis, clamped to `lo..=hi`, each with the length of it
+/// covered, as `area` weighs them.
+pub fn area_weights(
+    u0: f32,
+    u1: f32,
+    lo: i32,
+    hi: i32,
+) -> impl Iterator<Item = (i32, f32)> + Clone {
+    let xs = f32_to_i32_clamped(u0.floor()).max(lo)..=(f32_to_i32_clamped(u1.ceil()) - 1).min(hi);
+    xs.map(move |x| (x, ((x + 1) as f32).min(u1) - (x as f32).max(u0)))
 }
 
 /// The area-weighted average of the image over `[u0, u1) x [v0, v1)`.
@@ -84,16 +122,26 @@ pub fn area(
     (u1, v1): (f32, f32),
     alpha: f32,
 ) -> u32 {
-    let xs =
-        f32_to_i32_clamped(u0.floor()).max(b.x0)..=(f32_to_i32_clamped(u1.ceil()) - 1).min(b.x1);
-    let ys =
-        f32_to_i32_clamped(v0.floor()).max(b.y0)..=(f32_to_i32_clamped(v1.ceil()) - 1).min(b.y1);
+    area_from(
+        image,
+        area_weights(u0, u1, b.x0, b.x1),
+        area_weights(v0, v1, b.y0, b.y1),
+        alpha,
+    )
+}
+
+/// [`area`] over weights from [`area_weights`], which a draw can work out once per column and row.
+pub fn area_from(
+    image: &Image,
+    xs: impl Iterator<Item = (i32, f32)> + Clone,
+    ys: impl Iterator<Item = (i32, f32)>,
+    alpha: f32,
+) -> u32 {
     let mut sum = [0.0f32; 4];
     let mut total = 0.0;
-    for y in ys {
-        let wy = ((y + 1) as f32).min(v1) - (y as f32).max(v0);
-        for x in xs.clone() {
-            let w = wy * (((x + 1) as f32).min(u1) - (x as f32).max(u0));
+    for (y, wy) in ys {
+        for (x, wx) in xs.clone() {
+            let w = wy * wx;
             if w <= 0.0 {
                 continue;
             }
