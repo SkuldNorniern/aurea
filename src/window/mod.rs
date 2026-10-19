@@ -1813,3 +1813,166 @@ mod custom_cursor_tests {
         unsafe { GetGuiResources(GetCurrentProcess(), 1) }
     }
 }
+#[cfg(all(test, windows))]
+mod win32_dpi_tests {
+    //! A canvas on a 150% monitor and a 100% one: its buffer is the client area to the pixel, so it
+    //! shows 1:1 and not stretched.
+
+    use crate::render::{Canvas, Color, RendererBackend};
+    use crate::{AureaResult, Window};
+    use std::os::raw::c_void;
+    use std::ptr::{null, null_mut};
+    use std::thread::sleep;
+    use std::time::{Duration, Instant};
+
+    #[repr(C)]
+    #[derive(Default, Clone, Copy)]
+    struct Rect {
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    }
+
+    type MonitorProc = unsafe extern "system" fn(*mut c_void, *mut c_void, *mut Rect, isize) -> i32;
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn EnumDisplayMonitors(
+            dc: *mut c_void,
+            clip: *const Rect,
+            f: MonitorProc,
+            data: isize,
+        ) -> i32;
+        fn GetClientRect(hwnd: *mut c_void, rect: *mut Rect) -> i32;
+        fn SetWindowPos(
+            hwnd: *mut c_void,
+            after: *mut c_void,
+            x: i32,
+            y: i32,
+            w: i32,
+            h: i32,
+            flags: u32,
+        ) -> i32;
+    }
+
+    const SWP_NOMOVE: u32 = 0x0002;
+    const SWP_NOZORDER: u32 = 0x0004;
+
+    #[link(name = "shcore")]
+    unsafe extern "system" {
+        fn GetDpiForMonitor(monitor: *mut c_void, kind: i32, x: *mut u32, y: *mut u32) -> i32;
+    }
+
+    unsafe extern "system" fn collect(
+        monitor: *mut c_void,
+        _: *mut c_void,
+        rect: *mut Rect,
+        data: isize,
+    ) -> i32 {
+        let out = unsafe { &mut *(data as *mut Vec<(Rect, u32)>) };
+        let (mut x, mut y) = (0, 0);
+        unsafe { GetDpiForMonitor(monitor, 0, &mut x, &mut y) };
+        out.push((unsafe { *rect }, x));
+        1
+    }
+
+    fn monitors() -> Vec<(Rect, u32)> {
+        let mut out: Vec<(Rect, u32)> = Vec::new();
+        unsafe { EnumDisplayMonitors(null_mut(), null(), collect, &mut out as *mut _ as isize) };
+        out
+    }
+
+    fn client_size(hwnd: *mut c_void) -> (u32, u32) {
+        let mut r = Rect::default();
+        unsafe { GetClientRect(hwnd, &mut r) };
+        (
+            (r.right - r.left).cast_unsigned(),
+            (r.bottom - r.top).cast_unsigned(),
+        )
+    }
+
+    fn move_to(window: &Window, monitor: Rect, scale: f32) {
+        window.set_position(monitor.left + 80, monitor.top + 80);
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while (window.scale_factor() - scale).abs() > 0.01 && Instant::now() < deadline {
+            let _ = window.poll_events();
+            sleep(Duration::from_millis(10));
+        }
+        assert!(
+            (window.scale_factor() - scale).abs() <= 0.01,
+            "scale {} on a {scale} monitor",
+            window.scale_factor()
+        );
+    }
+
+    fn check(window: &Window, canvas: &mut Canvas, what: &str) -> AureaResult<()> {
+        let _ = window.poll_events();
+        canvas.draw(|ctx| ctx.clear(Color::rgb(255, 0, 0)))?;
+        let client = client_size(canvas.native_handle());
+        let (w, h, corner) = canvas
+            .with_frame_pixels(|px, w, h| (w, h, px[(w * h - 1) as usize]))
+            .expect("a frame");
+        assert_eq!((w, h), client, "buffer vs client {what}");
+        assert_eq!(corner & 0x00FF_FFFF, 0x00FF_0000, "last pixel {what}");
+        let (lw, lh) = canvas.size();
+        let s = canvas.scale_factor();
+        assert!(
+            lw as f32 * s >= client.0 as f32 && (lw as f32 - 1.0) * s < client.0 as f32,
+            "logical width {lw} covers {} at {s} {what}",
+            client.0
+        );
+        assert!(
+            lh as f32 * s >= client.1 as f32,
+            "logical height {lh} {what}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window on two monitors; run with --ignored"]
+    fn a_canvas_matches_its_client_at_150_and_100_percent() -> AureaResult<()> {
+        let mut window = Window::new("dpi", 320, 240)?;
+        let all = monitors();
+        let scaled = all.iter().find(|(_, dpi)| *dpi == 144);
+        let plain = all.iter().find(|(_, dpi)| *dpi == 96);
+        let (Some(&(scaled, _)), Some(&(plain, _))) = (scaled, plain) else {
+            eprintln!(
+                "needs a 150% and a 100% monitor; found {:?}",
+                all.iter().map(|m| m.1).collect::<Vec<_>>()
+            );
+            return Ok(());
+        };
+        let mut canvas = Canvas::new(320, 240, RendererBackend::Cpu)?;
+        window.set_content(canvas.clone())?;
+        window.show();
+
+        move_to(&window, scaled, 1.5);
+        for (lw, lh) in [(667, 401), (668, 400), (333, 211)] {
+            window.set_size(lw, lh);
+            check(&window, &mut canvas, &format!("at 150%, set {lw}x{lh}"))?;
+        }
+        for outer in 900..903 {
+            unsafe {
+                SetWindowPos(
+                    window.handle,
+                    null_mut(),
+                    0,
+                    0,
+                    outer,
+                    outer - 200,
+                    SWP_NOMOVE | SWP_NOZORDER,
+                )
+            };
+            check(&window, &mut canvas, &format!("at 150%, outer {outer}"))?;
+        }
+
+        move_to(&window, plain, 1.0);
+        window.set_size(667, 401);
+        check(&window, &mut canvas, "at 100%")?;
+
+        move_to(&window, scaled, 1.5);
+        check(&window, &mut canvas, "back at 150%")?;
+        Ok(())
+    }
+}

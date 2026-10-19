@@ -17,6 +17,8 @@ pub(crate) struct CanvasState {
     pub width: u32,
     pub height: u32,
     pub scale_factor: f32,
+    /// The device size the platform last reported, if it reports one.
+    pub pixels: Option<(u32, u32)>,
     pub damage: DamageRegion,
     pub background_color: Color,
     pub draw_callback: Option<DrawCallback>,

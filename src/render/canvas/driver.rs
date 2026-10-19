@@ -151,8 +151,10 @@ fn sync_surface(
     renderer: &Rc<RefCell<Option<Box<dyn Renderer>>>>,
 ) -> AureaResult<bool> {
     let (mut width, mut height) = (0u32, 0u32);
+    let (mut pixel_width, mut pixel_height) = (0u32, 0u32);
     unsafe {
         ng_platform_canvas_get_size(handle, &mut width, &mut height);
+        ng_platform_canvas_get_pixel_size(handle, &mut pixel_width, &mut pixel_height);
     }
     let window = unsafe { ng_platform_canvas_get_window(handle) };
     let scale = if window.is_null() {
@@ -170,6 +172,7 @@ fn sync_surface(
             width,
             height,
             scale_factor: scale,
+            pixels: (pixel_width > 0 && pixel_height > 0).then_some((pixel_width, pixel_height)),
         },
     )?;
     Ok(true)
@@ -184,6 +187,7 @@ fn configure_surface(
         let st = state.borrow();
         info.width != st.width
             || info.height != st.height
+            || info.pixels != st.pixels
             || (info.scale_factor - st.scale_factor).abs() > f32::EPSILON
     };
     if changed {
@@ -198,6 +202,7 @@ fn configure_surface(
         st.width = info.width;
         st.height = info.height;
         st.scale_factor = info.scale_factor;
+        st.pixels = info.pixels;
         st.needs_redraw = true;
         st.damage.add_all();
     }
@@ -384,6 +389,7 @@ mod tests {
             width: 16,
             height: 16,
             scale_factor: 1.0,
+            pixels: None,
             damage: DamageRegion::new(16),
             background_color: Color::rgb(0, 0, 0),
             draw_callback: None,
@@ -406,6 +412,7 @@ mod tests {
             width: 32,
             height: 24,
             scale_factor: 2.0,
+            pixels: None,
         };
         assert!(configure_surface(&state, &renderer, info.clone()).is_err());
         assert_eq!(

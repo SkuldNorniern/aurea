@@ -149,6 +149,7 @@ impl Canvas {
                         width,
                         height,
                         scale_factor: 1.0,
+                        pixels: None,
                     },
                 )?;
                 Some(renderer)
@@ -173,6 +174,7 @@ impl Canvas {
             width,
             height,
             scale_factor,
+            pixels: None,
             damage: DamageRegion::new(16),
             background_color: Color::rgb(255, 255, 255),
             draw_callback: None,
