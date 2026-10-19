@@ -106,19 +106,19 @@ impl Capability {
 
     fn is_available_on_mobile(&self, mobile: MobilePlatform) -> bool {
         match self {
-            Capability::MultipleWindows => false,
-            Capability::WindowResizing => false,
+            Capability::MultipleWindows => true,
+            Capability::WindowResizing => true,
             Capability::WindowMinimization => false,
             Capability::WindowMaximization => false,
             Capability::FullscreenMode => true,
             Capability::MenuBar => false,
             Capability::ContextMenus => true,
-            Capability::KeyboardShortcuts => false,
+            Capability::KeyboardShortcuts => true,
             Capability::FileDialogs => matches!(mobile, MobilePlatform::IOS),
             Capability::ColorPicker => true,
             Capability::FontPicker => false,
             Capability::SystemNotifications => true,
-            Capability::MouseInput => false,
+            Capability::MouseInput => true,
             Capability::TouchInput => true,
             Capability::KeyboardInput => true,
             Capability::StylusInput => true,
@@ -144,21 +144,29 @@ impl Capability {
         if !self.is_available_on(platform) {
             return Support::Unavailable;
         }
-        let desktop = platform.is_desktop();
+        let Platform::Desktop(desktop) = platform else {
+            return Support::Unimplemented;
+        };
         match self {
             Self::MultipleWindows | Self::WindowResizing => Support::Supported,
             Self::MenuBar | Self::KeyboardShortcuts => Support::Supported,
             Self::MouseInput | Self::KeyboardInput => Support::Supported,
             Self::Clipboard => Support::Supported,
+            Self::FileDialogs | Self::ColorPicker => Support::Supported,
+            Self::DragAndDrop => Support::Experimental,
+            Self::StylusInput => Support::Experimental,
+            Self::SystemTray | Self::SystemNotifications => {
+                if desktop == DesktopPlatform::Linux {
+                    Support::Unimplemented
+                } else {
+                    Support::Supported
+                }
+            }
             Self::HardwareAcceleration
             | Self::Vulkan
             | Self::Metal
             | Self::DirectX
             | Self::OpenGL => Support::Experimental,
-            Self::TouchInput | Self::StylusInput => Support::Unimplemented,
-            Self::WindowMinimization | Self::WindowMaximization if desktop => {
-                Support::Unimplemented
-            }
             _ => Support::Unimplemented,
         }
     }
@@ -309,12 +317,13 @@ mod tests {
     fn a_checker_reports_what_aurea_does_not_what_the_platform_could() {
         let checker = CapabilityChecker::for_platform(Platform::Desktop(DesktopPlatform::Windows));
 
-        assert!(Capability::FileDialogs.is_available_on(checker.platform()));
+        assert!(Capability::ScreenCapture.is_available_on(checker.platform()));
         assert_eq!(
-            checker.support(Capability::FileDialogs),
+            checker.support(Capability::ScreenCapture),
             Support::Unimplemented
         );
-        assert!(!checker.has(Capability::FileDialogs));
+        assert!(!checker.has(Capability::ScreenCapture));
+        assert_eq!(checker.support(Capability::FileDialogs), Support::Supported);
     }
 
     #[test]
@@ -355,6 +364,39 @@ mod tests {
             checker.support(Capability::TouchInput),
             Support::Unimplemented
         );
+    }
+
+    #[test]
+    fn tablets_can_but_aurea_does_not_yet() {
+        for mobile in [MobilePlatform::IOS, MobilePlatform::Android] {
+            let checker = CapabilityChecker::for_platform(Platform::Mobile(mobile));
+            for capability in [
+                Capability::MouseInput,
+                Capability::KeyboardShortcuts,
+                Capability::WindowResizing,
+                Capability::KeyboardInput,
+                Capability::Clipboard,
+                Capability::HardwareAcceleration,
+            ] {
+                assert!(capability.is_available_on(checker.platform()));
+                assert_eq!(
+                    checker.support(capability),
+                    Support::Unimplemented,
+                    "{capability:?} on {mobile:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_tray_is_not_claimed_on_gtk() {
+        let support = |desktop| {
+            CapabilityChecker::for_platform(Platform::Desktop(desktop))
+                .support(Capability::SystemTray)
+        };
+        assert_eq!(support(DesktopPlatform::Windows), Support::Supported);
+        assert_eq!(support(DesktopPlatform::MacOS), Support::Supported);
+        assert_eq!(support(DesktopPlatform::Linux), Support::Unimplemented);
     }
 
     #[test]
