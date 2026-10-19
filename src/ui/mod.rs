@@ -43,7 +43,7 @@ pub use widget::scroll::{
     ListRow, ListView, ScrollArea, ScrollStyle, scroll_into_view, visible_rows,
 };
 pub use widget::segmented::{Segmented, SegmentedStyle};
-pub use widget::slider::{Slider, SliderStyle};
+pub use widget::slider::{Slider, SliderStyle, SliderTrack};
 pub use widget::stepper::{Stepper, StepperStyle};
 pub use widget::swatch::{SwatchStyle, Swatches};
 pub use widget::tabs::{TabBar, TabStyle};
@@ -347,3 +347,6 @@ mod tests {
         assert!(rig.move_to(20.0, 20.0), "moving onto a button does");
     }
 }
+
+#[cfg(test)]
+mod integration;
