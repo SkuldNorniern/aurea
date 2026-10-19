@@ -1,7 +1,9 @@
 //! CPU rasterizer — flat framebuffer, no tile overhead.
 
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::mem;
+use std::mem::{self, size_of_val};
+use std::slice::from_raw_parts;
+use std::sync::Arc;
 
 use crate::cpu::blend::{ConstSrc, LinearLuts, blend_pixel};
 use crate::cpu::clip::ClipBox;
@@ -46,7 +48,7 @@ pub struct CpuRasterizer {
     prev_items: Vec<(CacheKey, Rect)>,
     tile_hashes: Vec<u64>,
     scratch_path: PathScratch,
-    scratch_row: Vec<u32>,
+    scratch_row: ImageScratch,
     scratch_dirty: Vec<bool>,
     scratch_hashers: Vec<DefaultHasher>,
     scratch_covered: Vec<bool>,
@@ -69,7 +71,7 @@ impl CpuRasterizer {
             prev_items: Vec::new(),
             tile_hashes: Vec::new(),
             scratch_path: PathScratch::default(),
-            scratch_row: Vec::new(),
+            scratch_row: ImageScratch::default(),
             scratch_dirty: Vec::new(),
             scratch_hashers: Vec::new(),
             scratch_covered: Vec::new(),
@@ -119,7 +121,7 @@ impl CpuRasterizer {
         paint: &Paint,
         origin: Point,
         (width, height): (u32, u32),
-    ) -> AureaResult<Vec<u8>> {
+    ) -> AureaResult<Arc<[u8]>> {
         let shift = |p: Point| Point::new(p.x - origin.x, p.y - origin.y);
         let mut moved = Path::new();
         moved.fill_rule = path.fill_rule;
@@ -148,13 +150,13 @@ impl CpuRasterizer {
             width,
             ClipBox::surface(width, height),
         )?;
-        Ok(buf
-            .iter()
-            .flat_map(|px| {
-                let a = px.to_be_bytes()[0];
-                [a, a, a, a]
-            })
-            .collect())
+        for px in &mut buf {
+            let a = px.to_be_bytes()[0];
+            *px = u32::from_ne_bytes([a; 4]);
+        }
+        let bytes =
+            unsafe { from_raw_parts(buf.as_ptr().cast::<u8>(), size_of_val(buf.as_slice())) };
+        Ok(Arc::from(bytes))
     }
 
     pub(crate) fn render_recorded(&mut self, list: &mut DisplayList) -> AureaResult<FrameOutcome> {
@@ -194,7 +196,7 @@ impl CpuRasterizer {
         item: &DisplayItem,
         buf: &mut [u32],
         scratch_path: &mut PathScratch,
-        scratch_row: &mut Vec<u32>,
+        scratch_row: &mut ImageScratch,
         bw: u32,
         clip: ClipBox,
     ) -> AureaResult<()> {
@@ -1014,7 +1016,7 @@ impl CpuRasterizer {
         mode: BlendMode,
         alpha: f32,
         buf: &mut [u32],
-        scratch_row: &mut Vec<u32>,
+        scratch: &mut ImageScratch,
         bw: u32,
         clip: ClipBox,
     ) {
@@ -1047,7 +1049,7 @@ impl CpuRasterizer {
                 mode,
                 alpha,
                 buf,
-                scratch_row,
+                &mut scratch.row,
                 bw,
                 clip,
                 x0,
@@ -1066,6 +1068,7 @@ impl CpuRasterizer {
                 mode,
                 alpha,
                 buf,
+                scratch,
                 bw,
                 clip,
                 (x0, y0, x1, y1),
@@ -1138,6 +1141,7 @@ impl CpuRasterizer {
         mode: BlendMode,
         alpha: f32,
         buf: &mut [u32],
+        scratch: &mut ImageScratch,
         bw: u32,
         clip: ClipBox,
         (x0, y0, x1, y1): (i32, i32, i32, i32),
@@ -1164,16 +1168,22 @@ impl CpuRasterizer {
                 Self::buf_set(buf, bw, clip, cx, cy, c, mode);
             }
         };
+        let ImageScratch {
+            columns,
+            offsets,
+            rows,
+            taps,
+            ..
+        } = scratch;
         if shrink {
-            let mut columns = Vec::new();
-            let mut offsets = Vec::with_capacity((x1 - x0).max(0).unsigned_abs() as usize + 1);
+            columns.clear();
+            offsets.clear();
             for cx in x0..x1 {
                 offsets.push(columns.len());
                 let u = u0(cx);
                 columns.extend(sample::area_weights(u, u + sx, bounds.x0, bounds.x1));
             }
             offsets.push(columns.len());
-            let mut rows = Vec::new();
             for cy in y0..y1 {
                 let v = v0(cy);
                 rows.clear();
@@ -1188,12 +1198,13 @@ impl CpuRasterizer {
                 }
             }
         } else if bounds.x0 <= bounds.x1 && bounds.y0 <= bounds.y1 {
-            let columns: Vec<sample::Taps> = (x0..x1)
-                .map(|cx| sample::Taps::at(u0(cx) + sx * 0.5, bounds.x0, bounds.x1))
-                .collect();
+            taps.clear();
+            taps.extend(
+                (x0..x1).map(|cx| sample::Taps::at(u0(cx) + sx * 0.5, bounds.x0, bounds.x1)),
+            );
             for cy in y0..y1 {
                 let row = sample::Taps::at(v0(cy) + sy * 0.5, bounds.y0, bounds.y1);
-                for (&column, cx) in columns.iter().zip(x0..x1) {
+                for (&column, cx) in taps.iter().zip(x0..x1) {
                     put(cx, cy, sample::bilinear_taps(image, column, row, alpha));
                 }
             }
@@ -1695,6 +1706,15 @@ struct CircleFillCtx<'a> {
     const_src: Option<ConstSrc>,
 }
 
+#[derive(Default)]
+struct ImageScratch {
+    row: Vec<u32>,
+    columns: Vec<(i32, f32)>,
+    offsets: Vec<usize>,
+    rows: Vec<(i32, f32)>,
+    taps: Vec<sample::Taps>,
+}
+
 struct RectFillCtx<'a> {
     clip: ClipBox,
     paint: &'a Paint,
@@ -1859,7 +1879,7 @@ mod glyph_tests {
             &item,
             &mut pixels,
             &mut PathScratch::default(),
-            &mut Vec::new(),
+            &mut ImageScratch::default(),
             1,
             ClipBox::surface(1, 1),
         )
@@ -1985,7 +2005,7 @@ mod bad_source_tests {
             BlendMode::Normal,
             1.0,
             &mut buf,
-            &mut Vec::new(),
+            &mut ImageScratch::default(),
             8,
             CLIP,
         );

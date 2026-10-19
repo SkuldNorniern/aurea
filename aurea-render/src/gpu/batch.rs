@@ -583,11 +583,10 @@ impl RenderBatches {
             }
             None => {
                 let origin = Point::new(x0, y0);
-                let Ok(rgba) = CpuRasterizer::path_coverage(path, paint, origin, (w, h)) else {
+                let Ok(mask) = CpuRasterizer::path_coverage(path, paint, origin, (w, h)) else {
                     self.dropped += 1;
                     return;
                 };
-                let mask: Arc<[u8]> = rgba.into();
                 self.path_masks.insert(key, (Arc::clone(&mask), true));
                 mask
             }
