@@ -142,6 +142,7 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
     unsigned int modifiersDown;
     NSString* markedText;
     NSRect imeArea;
+    unsigned int menuTookKey;
 }
 @property (nonatomic, assign) void* windowHandle;
 @property (nonatomic, strong) NSCursor* cursor;
@@ -393,6 +394,10 @@ static BOOL is_pen_event(NSEvent* event) {
 - (void)keyDown:(NSEvent*)event {
     if (!self.windowHandle) return;
     if (![self hasMarkedText]) {
+        if ([[NSApp mainMenu] performKeyEquivalent:event]) {
+            menuTookKey = (unsigned int)[event keyCode] + 1;
+            return;
+        }
         unsigned int keycode = ng_macos_keycode_from_event([event keyCode]);
         ng_invoke_key_event(self.windowHandle, keycode, 1, ng_macos_modifiers(event));
     }
@@ -491,6 +496,10 @@ static BOOL is_pen_event(NSEvent* event) {
 
 - (void)keyUp:(NSEvent*)event {
     if (!self.windowHandle) return;
+    if (menuTookKey != 0 && menuTookKey == (unsigned int)[event keyCode] + 1) {
+        menuTookKey = 0;
+        return;
+    }
     unsigned int keycode = ng_macos_keycode_from_event([event keyCode]);
     ng_invoke_key_event(self.windowHandle, keycode, 0, ng_macos_modifiers(event));
 }
