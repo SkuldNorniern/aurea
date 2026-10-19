@@ -51,14 +51,19 @@ static void ng_windows_set_client_size(HWND hwnd, int width, int height, UINT fl
     if (!GetWindowRect(hwnd, &outer) || !GetClientRect(hwnd, &client)) return;
     int frame_w = (outer.right - outer.left) - (client.right - client.left);
     int frame_h = (outer.bottom - outer.top) - (client.bottom - client.top);
-    int w = ng_windows_px(hwnd, width);
-    int h = ng_windows_px(hwnd, height);
+    int dpi = (int)ng_windows_dpi(hwnd);
+    if (dpi <= 0) dpi = 96;
+    int w = (int)(((long long)width * dpi) / 96);
+    int h = (int)(((long long)height * dpi) / 96);
     SetWindowPos(hwnd, NULL, 0, 0, w + frame_w, h + frame_h,
         flags | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 static int ng_windows_unscale(HWND hwnd, int device) {
-    return MulDiv(device, 96, (int)ng_windows_dpi(hwnd));
+    long long dpi = (long long)ng_windows_dpi(hwnd);
+    if (dpi <= 0) dpi = 96;
+    if (device <= 0) return 0;
+    return (int)(((long long)device * 96 + dpi - 1) / dpi);
 }
 NGHandle ng_windows_create_window(const char* title, int width, int height) {
     if (!title) return NULL;
