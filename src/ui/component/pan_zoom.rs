@@ -189,6 +189,32 @@ impl PanZoom {
         self.hold(held, at);
     }
 
+    /// Screen pixels are logical, so on a display at `scale` a zoom of 1 draws each content unit
+    /// over `scale` device pixels and an image never shows sharp.
+    pub fn device_zoom(&self, scale: f32) -> f32 {
+        self.zoom * scale.max(f32::EPSILON)
+    }
+
+    /// Sets the zoom in device pixels per content unit (1 for actual pixels), keeping the content
+    /// under `at` where it is, then [`snaps`](Self::snap_to_device_pixels) it to the device grid.
+    pub fn set_device_zoom_at(&mut self, at: Point, device_zoom: f32, scale: f32) {
+        let scale = scale.max(f32::EPSILON);
+        self.set_zoom_at(at, device_zoom / scale);
+        self.snap_to_device_pixels(scale);
+    }
+
+    /// Moves the content by under a device pixel so its origin lands on a whole device pixel.
+    pub fn snap_to_device_pixels(&mut self, scale: f32) {
+        if self.rotation != 0.0 || scale <= 0.0 {
+            return;
+        }
+        let snap = |view: f32, offset: f32| ((view + offset) * scale).round() / scale - view;
+        self.offset = Point::new(
+            snap(self.view.x, self.offset.x),
+            snap(self.view.y, self.offset.y),
+        );
+    }
+
     fn hold(&mut self, held: Point, at: Point) {
         let turned = self.turn(Point::new(held.x * self.zoom, held.y * self.zoom));
         self.offset = Point::new(at.x - self.view.x - turned.x, at.y - self.view.y - turned.y);
@@ -557,5 +583,24 @@ mod tests {
         pz.fit(300.0, 800.0, 0.0);
         assert!((pz.zoom() - 0.5).abs() < 1e-4, "{}", pz.zoom());
         assert!(close(pz.to_screen(Point::new(150.0, 400.0)), VIEW.center()));
+    }
+
+    #[test]
+    fn actual_pixels_put_one_content_unit_on_one_device_pixel() {
+        let mut pz = view();
+        pz.pan_by(0.37, 0.81);
+        pz.set_device_zoom_at(Point::new(250.0, 200.0), 1.0, 1.5);
+        assert!((pz.zoom() - 1.0 / 1.5).abs() < 1e-6);
+        assert!((pz.device_zoom(1.5) - 1.0).abs() < 1e-6);
+        for x in [0.0, 1.0, 17.0, 333.0] {
+            let device = pz.to_screen(Point::new(x, x)).x * 1.5;
+            assert!(
+                (device - device.round()).abs() < 1e-3,
+                "unit {x} at {device}"
+            );
+        }
+        pz.set_device_zoom_at(Point::new(250.0, 200.0), 2.0, 1.25);
+        let device = pz.to_screen(Point::new(5.0, 0.0)).x * 1.25;
+        assert!((device - device.round()).abs() < 1e-3, "{device}");
     }
 }
