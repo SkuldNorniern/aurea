@@ -95,6 +95,11 @@ zengpu = [
 ]
 
 [[example]]
+name = "android_demo"
+crate-type = ["cdylib"]
+required-features = ["mobile"]
+
+[[example]]
 name = "wgpu_window"
 required-features = ["wgpu"]
 

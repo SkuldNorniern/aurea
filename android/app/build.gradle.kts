@@ -41,7 +41,7 @@ android {
     )
 }
 
-/** Builds `libaurea.so` for every ABI with cargo and the NDK's clang. */
+/** Builds the demo app's library for every ABI with cargo and the NDK's clang. */
 abstract class CargoBuild @Inject constructor(private val exec: ExecOperations) : DefaultTask() {
     @get:Internal abstract val repoRoot: DirectoryProperty
     @get:Internal abstract val ndkDir: DirectoryProperty
@@ -66,18 +66,19 @@ abstract class CargoBuild @Inject constructor(private val exec: ExecOperations) 
             exec.exec {
                 workingDir = root
                 commandLine(
-                    "cargo", "build", "--lib", "--release", "--features", "mobile",
-                    "--target", triple,
+                    "cargo", "build", "--example", "android_demo", "--release",
+                    "--features", "mobile", "--target", triple,
                 )
                 environment("CC_$env", clang)
                 environment("AR_$env", bin.resolve("llvm-ar$exe").path)
                 environment("CARGO_TARGET_${env.uppercase()}_LINKER", clang)
                 environment("CARGO_TARGET_DIR", targetDir.path)
             }
-            val so = targetDir.resolve("$triple/release/libaurea.so")
+            val so = targetDir.resolve("$triple/release/examples/libandroid_demo.so")
             val dest = outDir.get().asFile.resolve(abi)
+            dest.deleteRecursively()
             dest.mkdirs()
-            so.copyTo(dest.resolve("libaurea.so"), overwrite = true)
+            so.copyTo(dest.resolve("libandroid_demo.so"), overwrite = true)
         }
     }
 }
