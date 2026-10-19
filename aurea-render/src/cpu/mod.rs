@@ -136,6 +136,7 @@ mod conformance_tests {
             width: f32_to_u32(W as f32 / scale),
             height: f32_to_u32(H as f32 / scale),
             scale_factor: scale,
+            pixels: None,
         };
         r.init(Surface::Cpu, info).expect("init");
         {
@@ -894,6 +895,7 @@ mod conformance_tests {
                 width: W,
                 height: H,
                 scale_factor: 1.0,
+                pixels: None,
             },
         )
         .expect("init");
@@ -928,6 +930,7 @@ mod conformance_tests {
                 width: W,
                 height: H,
                 scale_factor: 1.0,
+                pixels: None,
             },
         )
         .expect("init");

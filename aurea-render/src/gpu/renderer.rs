@@ -6,12 +6,11 @@ use crate::capabilities::{Fallback, GpuFeatures};
 use crate::cpu::CpuRasterizer;
 use crate::gpu::batch::RenderBatches;
 use crate::memory::smaller_buffer;
-use crate::numeric::f32_to_u32_clamped;
 use crate::recording::RecordingContext;
 use crate::renderer::{DrawingContext, FrameOutcome, Renderer};
 use crate::scene::command::DrawCommand;
 use crate::scene::display_list::{CacheKey, DisplayIndex, DisplayItem, DisplayList};
-use crate::surface::{Surface, SurfaceInfo};
+use crate::surface::{Surface, SurfaceInfo, pixel_size};
 use crate::types::{BlendMode, Color, Image, Rect, Sampling};
 
 use super::backend::Gpu2dBackend;
@@ -30,6 +29,7 @@ pub struct Gpu2dRenderer<B: Gpu2dBackend> {
     logical_width: u32,
     logical_height: u32,
     scale_factor: f32,
+    pixels: Option<(u32, u32)>,
     configured: (u32, u32),
     fallback: Fallback,
     cpu: Option<CpuRasterizer>,
@@ -64,7 +64,8 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
             logical_width: width,
             logical_height: height,
             scale_factor: scale_factor.max(1.0),
-            configured: physical(width, height, scale_factor.max(1.0)),
+            pixels: None,
+            configured: pixel_size(width, height, scale_factor, None),
         }
     }
 
@@ -95,13 +96,13 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         }
         self.release_layers();
         let (lw, lh, scale) = (self.logical_width, self.logical_height, self.scale_factor);
+        let info = self.surface_info();
         let cpu = self.cpu.get_or_insert_with(|| CpuRasterizer::new(lw, lh));
-        if cpu.logical_size() != (lw, lh) || cpu.scale_factor() != scale {
-            cpu.configure(SurfaceInfo {
-                width: lw,
-                height: lh,
-                scale_factor: scale,
-            })?;
+        if cpu.logical_size() != (lw, lh)
+            || cpu.scale_factor() != scale
+            || cpu.pixel_size() != info.pixel_size()
+        {
+            cpu.configure(info)?;
         }
         let outcome = cpu.render_recorded(&mut self.display_list)?;
         if outcome == FrameOutcome::Unchanged && self.last_on_cpu {
@@ -151,12 +152,17 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
                 self.composite.push(texture.clone());
             }
             let layer = &mut self.layers[k];
-            if layer.logical_size() != (lw, lh) || layer.scale_factor() != scale {
-                layer.configure(SurfaceInfo {
-                    width: lw,
-                    height: lh,
-                    scale_factor: scale,
-                })?;
+            let info = SurfaceInfo {
+                width: lw,
+                height: lh,
+                scale_factor: scale,
+                pixels: self.pixels,
+            };
+            if layer.logical_size() != (lw, lh)
+                || layer.scale_factor() != scale
+                || layer.pixel_size() != info.pixel_size()
+            {
+                layer.configure(info)?;
             }
             let kept = &mut self.layer_images[k];
             if layer.render_recorded(list)? != FrameOutcome::Unchanged || kept.is_none() {
@@ -242,7 +248,16 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
     }
 
     fn physical_size(&self) -> (u32, u32) {
-        physical(self.logical_width, self.logical_height, self.scale_factor)
+        self.surface_info().pixel_size()
+    }
+
+    fn surface_info(&self) -> SurfaceInfo {
+        SurfaceInfo {
+            width: self.logical_width,
+            height: self.logical_height,
+            scale_factor: self.scale_factor,
+            pixels: self.pixels,
+        }
     }
 
     fn report_dropped(&mut self) {
@@ -263,17 +278,14 @@ impl<B: Gpu2dBackend> Renderer for Gpu2dRenderer<B> {
     }
 
     fn resize(&mut self, width: u32, height: u32) -> AureaResult<()> {
-        self.configure(SurfaceInfo {
-            width,
-            height,
-            scale_factor: self.scale_factor,
-        })
+        self.configure(SurfaceInfo::new(width, height, self.scale_factor))
     }
 
     fn configure(&mut self, info: SurfaceInfo) -> AureaResult<()> {
         self.logical_width = info.width;
         self.logical_height = info.height;
         self.scale_factor = info.scale_factor.max(1.0);
+        self.pixels = info.pixels;
         self.display_list.clear();
         if self.suspended() {
             return Ok(());
@@ -360,13 +372,6 @@ fn recover(outcome: AureaResult<FrameOutcome>) -> AureaResult<FrameOutcome> {
         Err(AureaError::DeviceLost) => Ok(FrameOutcome::Recreate),
         other => other,
     }
-}
-
-fn physical(width: u32, height: u32, scale: f32) -> (u32, u32) {
-    (
-        f32_to_u32_clamped((width as f32 * scale).round()).max(1),
-        f32_to_u32_clamped((height as f32 * scale).round()).max(1),
-    )
 }
 
 #[cfg(test)]
@@ -736,6 +741,7 @@ mod tests {
             width,
             height,
             scale_factor,
+            pixels: None,
         }
     }
 

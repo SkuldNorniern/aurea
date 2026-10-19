@@ -79,14 +79,6 @@ impl CpuRasterizer {
         }
     }
 
-    fn raster_dimensions(lw: u32, lh: u32, scale: f32) -> (u32, u32) {
-        let s = scale.max(1.0);
-        (
-            f32_to_u32_clamped((lw as f32 * s).round()).max(1),
-            f32_to_u32_clamped((lh as f32 * s).round()).max(1),
-        )
-    }
-
     /// The last frame's pixels as [`FrameOutput`] describes them: `0xAARRGGBB` words, sRGB,
     /// straight alpha, rows top to bottom.
     pub fn pixels(&self) -> &[u32] {
@@ -110,6 +102,11 @@ impl CpuRasterizer {
     /// The size it draws at, in logical pixels.
     pub fn logical_size(&self) -> (u32, u32) {
         (self.logical_width, self.logical_height)
+    }
+
+    /// The buffer's size, in device pixels.
+    pub fn pixel_size(&self) -> (u32, u32) {
+        (self.width, self.height)
     }
 
     /// Physical pixels per logical one.
@@ -1471,9 +1468,10 @@ impl CpuRasterizer {
         );
     }
 
-    fn resize_buffer(&mut self, lw: u32, lh: u32, scale: f32) -> AureaResult<()> {
-        let scale = scale.max(1.0);
-        let (rw, rh) = Self::raster_dimensions(lw, lh, scale);
+    fn resize_buffer(&mut self, info: &SurfaceInfo) -> AureaResult<()> {
+        let (lw, lh) = (info.width, info.height);
+        let scale = info.scale_factor.max(1.0);
+        let (rw, rh) = info.pixel_size();
         let new_len = (rw as usize)
             .checked_mul(rh as usize)
             .ok_or(AureaError::RenderingFailed)?;
@@ -1506,11 +1504,11 @@ impl Renderer for CpuRasterizer {
     }
 
     fn configure(&mut self, info: SurfaceInfo) -> AureaResult<()> {
-        self.resize_buffer(info.width, info.height, info.scale_factor)
+        self.resize_buffer(&info)
     }
 
     fn resize(&mut self, lw: u32, lh: u32) -> AureaResult<()> {
-        self.resize_buffer(lw, lh, self.scale_factor)
+        self.resize_buffer(&SurfaceInfo::new(lw, lh, self.scale_factor))
     }
 
     fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext + '_>> {
@@ -2202,6 +2200,7 @@ mod diff_damage_tests {
                 width: 16,
                 height: 16,
                 scale_factor: 1.0,
+                pixels: None,
             },
         )
         .expect("reinit");
@@ -2714,6 +2713,7 @@ mod scale_tests {
                 width: 40,
                 height: 40,
                 scale_factor: scale,
+                pixels: None,
             },
         )
         .unwrap();
