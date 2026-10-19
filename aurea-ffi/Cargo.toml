@@ -12,6 +12,10 @@ workspace = true
 
 [lib]
 
+[features]
+# iOS and Android native hosts; experimental, see the root crate's `mobile`.
+mobile = []
+
 [build-dependencies]
 cc = "1.2"
 pkg-config = "0.3"

@@ -1,3 +1,20 @@
+/// A native GUI toolkit providing cross-platform windowing and widgets with native look and feel.
+///
+/// ```rust,no_run
+/// use aurea::prelude::*;
+///
+/// fn main() -> AureaResult<()> {
+///     let mut window = Window::new("Hello", 400, 300)?;
+///     window.set_content(Label::new("Hello, Aurea!")?)?;
+///     window.run()?;
+///     Ok(())
+/// }
+/// ```
+#[cfg(all(any(target_os = "ios", target_os = "android"), not(feature = "mobile")))]
+compile_error!(
+    "Aurea's iOS and Android hosts are experimental: enable the `mobile` feature to build them"
+);
+
 #[cfg(target_os = "android")]
 mod android;
 

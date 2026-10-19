@@ -79,6 +79,9 @@ accesskit_unix = { version = "0.23", optional = true }
 default = []
 accessibility = ["dep:accesskit", "dep:accesskit_windows", "dep:accesskit_macos", "dep:accesskit_unix", "dep:windows"]
 wgpu = ["dep:wgpu"]
+# iOS and Android hosts. Experimental: the native hosts are placeholders
+# that draw nothing yet, so a mobile build has to ask for them.
+mobile = ["aurea-ffi/mobile"]
 # GPU 2D backend via ZenGPU: Metal on macOS, Vulkan elsewhere. Opt-in,
 # experimental.
 # Forwards to aurea-render (which owns the ZenGpuRenderer) and pulls in
