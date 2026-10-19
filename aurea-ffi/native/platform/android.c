@@ -634,3 +634,19 @@ int ng_platform_window_set_cursor_rgba(NGHandle window, const unsigned char* rgb
     (void)window; (void)rgba; (void)width; (void)height; (void)hot_x; (void)hot_y;
     return NG_ERROR_UNSUPPORTED;
 }
+
+void* ng_platform_canvas_acquire_buffer(NGHandle canvas, unsigned int width, unsigned int height, unsigned int* stride_px, unsigned int* buffer_index) {
+    (void)canvas; (void)width; (void)height; (void)stride_px; (void)buffer_index;
+    return NULL;
+}
+
+void ng_platform_canvas_present(NGHandle canvas) {
+    (void)canvas;
+}
+
+void ng_platform_destroy_element(NGHandle element) {
+    (void)element;
+}
+
+void ng_platform_frame_idle(void) {
+}
