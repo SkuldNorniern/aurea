@@ -16,7 +16,7 @@ compile_error!(
 );
 
 #[cfg(target_os = "android")]
-mod android;
+pub mod android;
 
 pub use aurea_animation as animation;
 
