@@ -39,6 +39,12 @@ pub struct Response {
     pub submitted: bool,
     /// Escape was pressed in a text field, which let go of the keyboard.
     pub cancelled: bool,
+    /// A text editor acquired focus this frame.
+    pub editing_started: bool,
+    /// A text editor released focus this frame, including Escape or disabling.
+    pub focus_lost: bool,
+    /// Explicit submission, or dirty text committed by opt-in commit-on-blur.
+    pub committed: bool,
     /// A list's pick was opened: double-clicked, or Enter pressed on it.
     pub activated: bool,
 }
@@ -57,6 +63,9 @@ impl Response {
             focused: input.focused,
             submitted: false,
             cancelled: false,
+            editing_started: false,
+            focus_lost: false,
+            committed: false,
         }
     }
 }
@@ -256,6 +265,22 @@ impl<Id: WidgetId> Ui<'_, Id> {
     /// innermost scrolling area under the pointer takes it first.
     pub fn take_wheel(&mut self) -> (f32, f32) {
         mem::take(&mut self.state.wheel)
+    }
+
+    /// Consumes only the used wheel movement, leaving each axis's remainder for an enclosing scroll
+    /// area.
+    pub fn consume_wheel(&mut self, used: (f32, f32)) {
+        fn remaining(available: f32, used: f32) -> f32 {
+            if used.is_finite() && available.signum() == used.signum() {
+                available - used.abs().min(available.abs()).copysign(available)
+            } else {
+                available
+            }
+        }
+        self.state.wheel = (
+            remaining(self.state.wheel.0, used.0),
+            remaining(self.state.wheel.1, used.1),
+        );
     }
 
     /// Runs `f` with drawing and the pointer both clipped to `rect`, inside any clip already in

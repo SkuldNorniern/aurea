@@ -23,6 +23,39 @@ pub struct TextOutcome {
     pub submitted: bool,
     /// Escape was pressed; the keyboard has been let go.
     pub cancelled: bool,
+    pub editing_started: bool,
+    pub focus_lost: bool,
+    pub committed: bool,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct EditingSession {
+    focused: bool,
+    dirty: bool,
+}
+
+impl TextOutcome {
+    pub(crate) fn lifecycle<Id: WidgetId>(
+        &mut self,
+        ui: &mut Ui<'_, Id>,
+        key: Key<Id>,
+        input: Interaction,
+        commit_on_blur: bool,
+    ) {
+        let targeted = input.enabled && ui.state.typed_targets.contains(&Some(key));
+        let focused = input.enabled && ui.state.focus == Some(key);
+        let session = ui.state.editing.entry(key).or_default();
+        self.editing_started = !session.focused && (focused || targeted);
+        self.focus_lost = (session.focused || self.editing_started) && !focused;
+        session.dirty |= self.changed;
+        self.committed = !self.cancelled
+            && input.enabled
+            && (self.submitted || (commit_on_blur && self.focus_lost && session.dirty));
+        if self.submitted || self.cancelled || self.focus_lost {
+            session.dirty = false;
+        }
+        session.focused = focused;
+    }
 }
 
 /// Editable text over a rect: typing, the caret and selection, clipboard, undo and input methods,
@@ -32,6 +65,7 @@ pub struct EditableText<'v> {
     placeholder: &'v str,
     password: bool,
     rules: Rules<'v>,
+    commit_on_blur: bool,
 }
 
 impl<'v> EditableText<'v> {
@@ -41,6 +75,7 @@ impl<'v> EditableText<'v> {
             placeholder: "",
             password: false,
             rules: Rules::default(),
+            commit_on_blur: false,
         }
     }
 
@@ -62,6 +97,12 @@ impl<'v> EditableText<'v> {
         self
     }
 
+    /// Commit dirty text when focus leaves, unless editing was cancelled.
+    pub fn commit_on_blur(mut self, commit: bool) -> Self {
+        self.commit_on_blur = commit;
+        self
+    }
+
     pub fn show<Id: WidgetId>(
         mut self,
         ui: &mut Ui<'_, Id>,
@@ -71,13 +112,14 @@ impl<'v> EditableText<'v> {
     ) -> AureaResult<TextOutcome> {
         let key = Key::new(id, part);
         let mut outcome = TextOutcome::default();
-        if input.focused || ui.state.typed_targets.contains(&Some(key)) {
+        if input.enabled && (input.focused || ui.state.typed_targets.contains(&Some(key))) {
             self.start_editing(ui, key);
             let typed = self.type_in(ui, key);
             outcome = TextOutcome {
                 changed: typed.changed,
                 submitted: typed.submitted,
                 cancelled: typed.cancelled,
+                ..TextOutcome::default()
             };
             if typed.cancelled && input.focused {
                 ui.clear_focus();
@@ -89,7 +131,8 @@ impl<'v> EditableText<'v> {
                 ui.mark_changed();
             }
         }
-        self.draw(ui, rect, input.focused, input.enabled)?;
+        outcome.lifecycle(ui, key, input, self.commit_on_blur);
+        self.draw(ui, rect, input.focused && !outcome.cancelled, input.enabled)?;
         Ok(outcome)
     }
 

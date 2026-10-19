@@ -59,6 +59,7 @@ pub struct TextField<'v> {
     rules: Rules<'v>,
     style: Option<FieldStyle>,
     enabled: bool,
+    commit_on_blur: bool,
 }
 
 impl<'v> TextField<'v> {
@@ -70,6 +71,7 @@ impl<'v> TextField<'v> {
             rules: Rules::default(),
             style: None,
             enabled: true,
+            commit_on_blur: false,
         }
     }
 
@@ -99,6 +101,12 @@ impl<'v> TextField<'v> {
 
     pub fn style(mut self, style: FieldStyle) -> Self {
         self.style = Some(style);
+        self
+    }
+
+    /// Emit `committed` when dirty text loses focus.
+    pub fn commit_on_blur(mut self, commit: bool) -> Self {
+        self.commit_on_blur = commit;
         self
     }
 
@@ -145,6 +153,7 @@ impl<Id: WidgetId> Widget<Id> for TextField<'_> {
             .placeholder(self.placeholder)
             .password(self.password)
             .rules(self.rules)
+            .commit_on_blur(self.commit_on_blur)
             .show(ui, (id, 0), inner, input)?;
         #[cfg(feature = "accessibility")]
         {
@@ -172,6 +181,10 @@ impl<Id: WidgetId> Widget<Id> for TextField<'_> {
         response.changed = outcome.changed;
         response.submitted = outcome.submitted;
         response.cancelled = outcome.cancelled;
+        response.editing_started = outcome.editing_started;
+        response.focus_lost = outcome.focus_lost;
+        response.committed = outcome.committed;
+        response.focused = input.focused && !outcome.cancelled;
         Ok(response)
     }
 }

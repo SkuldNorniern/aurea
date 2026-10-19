@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use aurea_animation::Tweens;
 use aurea_foundation::{FastBuild, FastHasher};
 
+use super::component::editable::EditingSession;
 use super::paint::TextSize;
 use super::text_edit::TextEdit;
 use super::theme::Theme;
@@ -165,7 +166,7 @@ pub struct UiState<Id: WidgetId> {
     pub(crate) tweens: Tweens<(Key<Id>, Channel)>,
     pointer: Option<Point>,
     pub(crate) modifiers: Modifiers,
-    pointer_events: Vec<Pointer>,
+    pointer_events: Vec<(usize, Pointer)>,
     pub(crate) typed: Vec<Typed>,
     pub(crate) typed_targets: Vec<Option<Key<Id>>>,
     hits: Vec<Hit<Id>>,
@@ -185,6 +186,7 @@ pub struct UiState<Id: WidgetId> {
     pub(crate) edit: TextEdit,
     pub(crate) edit_for: Option<Key<Id>>,
     pub(crate) edits: HashMap<Key<Id>, TextEdit>,
+    pub(crate) editing: HashMap<Key<Id>, EditingSession>,
     pub(crate) blink_from: Instant,
     pub(crate) wheel: (f32, f32),
     pub(crate) path: Path,
@@ -234,6 +236,7 @@ impl<Id: WidgetId> UiState<Id> {
             edit: TextEdit::new(),
             edit_for: None,
             edits: HashMap::new(),
+            editing: HashMap::new(),
             blink_from: Instant::now(),
             wheel: (0.0, 0.0),
             path: Path::new(),
@@ -284,7 +287,7 @@ impl<Id: WidgetId> UiState<Id> {
     pub fn handle_input(&mut self, event: &WindowEvent) -> InputResponse {
         let captured = self.active.is_some()
             || self.pointer_events.last().is_some_and(
-                |event| matches!(event, Pointer::Press(at, ..) if self.hit_at(*at).is_some()),
+                |(_, event)| matches!(event, Pointer::Press(at, ..) if self.hit_at(*at).is_some()),
             );
         let popup = self.popup_open();
         let redraw = self.handle_event(event);
@@ -345,11 +348,14 @@ impl<Id: WidgetId> UiState<Id> {
                 let at = point(*x, *y);
                 self.pointer = Some(at);
                 self.modifiers = *modifiers;
-                self.pointer_events.push(if *pressed {
-                    Pointer::Press(at, *click_count, *modifiers)
-                } else {
-                    Pointer::Release(at)
-                });
+                self.pointer_events.push((
+                    self.typed.len(),
+                    if *pressed {
+                        Pointer::Press(at, *click_count, *modifiers)
+                    } else {
+                        Pointer::Release(at)
+                    },
+                ));
                 true
             }
             WindowEvent::MouseButton {
@@ -361,7 +367,8 @@ impl<Id: WidgetId> UiState<Id> {
             } => {
                 let at = point(*x, *y);
                 self.pointer = Some(at);
-                self.pointer_events.push(Pointer::Secondary(at));
+                self.pointer_events
+                    .push((self.typed.len(), Pointer::Secondary(at)));
                 true
             }
             WindowEvent::MouseWheel {
@@ -508,11 +515,6 @@ impl<Id: WidgetId> UiState<Id> {
         #[cfg(feature = "accessibility")]
         self.accessibility_begin();
         self.popup.begin_frame();
-        let mut pointer_events = mem::take(&mut self.pointer_events);
-        for event in pointer_events.drain(..) {
-            self.resolve_pointer(event);
-        }
-        self.pointer_events = pointer_events;
         self.resolve_keys();
         if let Some(at) = self.pointer {
             self.hot = self.hit_at(at).map(|hit| hit.key);
@@ -567,8 +569,17 @@ impl<Id: WidgetId> UiState<Id> {
 
     fn resolve_keys(&mut self) {
         let mut typed = mem::take(&mut self.typed);
+        let mut pointer_events = mem::take(&mut self.pointer_events);
+        let mut pointers = pointer_events.drain(..).peekable();
         self.typed_targets.clear();
+        let mut index = 0;
         typed.retain(|typed| {
+            while pointers.peek().is_some_and(|(at, _)| *at <= index) {
+                if let Some((_, event)) = pointers.next() {
+                    self.resolve_pointer(event);
+                }
+            }
+            index += 1;
             if let Typed::Key(key, modifiers) = typed
                 && self.resolve_key(*key, *modifiers)
             {
@@ -577,6 +588,10 @@ impl<Id: WidgetId> UiState<Id> {
             self.typed_targets.push(self.focus);
             true
         });
+        for (_, event) in pointers {
+            self.resolve_pointer(event);
+        }
+        self.pointer_events = pointer_events;
         self.typed = typed;
     }
 
@@ -673,6 +688,8 @@ impl<Id: WidgetId> UiState<Id> {
             }
         }
         self.edits
+            .retain(|key, _| self.hits.iter().any(|hit| hit.key == *key));
+        self.editing
             .retain(|key, _| self.hits.iter().any(|hit| hit.key == *key));
         mem::swap(&mut self.hits, &mut self.last_hits);
         mem::swap(&mut self.order, &mut self.last_order);

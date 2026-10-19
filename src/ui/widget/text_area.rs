@@ -14,7 +14,7 @@ use crate::ui::accessibility::edit_value;
 #[cfg(feature = "accessibility")]
 use crate::ui::accessibility::{Action, Role};
 use crate::ui::component::editable::{SystemClipboard, Typing, apply};
-use crate::ui::component::{EditableText, FocusRing};
+use crate::ui::component::{EditableText, FocusRing, TextOutcome};
 use crate::ui::frame::{Response, Ui, fill};
 use crate::ui::paint::{Component, Surface};
 use crate::ui::state::{BLINK_FOR, Interaction, Key, Sense, Typed, WidgetId};
@@ -118,6 +118,7 @@ pub struct TextArea<'a> {
     rules: Rules<'a>,
     style: Option<FieldStyle>,
     enabled: bool,
+    commit_on_blur: bool,
     wrap: bool,
     line_height: f32,
 }
@@ -133,6 +134,7 @@ impl<'a> TextArea<'a> {
             },
             style: None,
             enabled: true,
+            commit_on_blur: false,
             wrap: true,
             line_height: 1.2,
         }
@@ -154,6 +156,12 @@ impl<'a> TextArea<'a> {
         self.style = Some(style);
         self
     }
+    /// Emit `committed` when dirty text loses focus.
+    pub fn commit_on_blur(mut self, commit: bool) -> Self {
+        self.commit_on_blur = commit;
+        self
+    }
+
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
@@ -186,7 +194,8 @@ impl<'a> TextArea<'a> {
         input: Interaction,
     ) -> AureaResult<Typing> {
         let key = Key::new(id, 0);
-        let editing = input.focused || ui.state.typed_targets.contains(&Some(key));
+        let editing =
+            input.enabled && (input.focused || ui.state.typed_targets.contains(&Some(key)));
         if editing {
             EditableText::new(self.text).start_editing(ui, key);
         }
@@ -232,13 +241,21 @@ impl<'a> TextArea<'a> {
     ) -> AureaResult<Typing> {
         let mut outcome = Typing::default();
         #[cfg(feature = "accessibility")]
-        outcome.merge(edit_value(
-            edit,
-            self.text,
-            self.rules,
-            ui.accessibility_actions(key.id, key.part),
-        ));
-        for (typed, target) in ui.state.typed.iter().zip(&ui.state.typed_targets) {
+        if input.enabled {
+            outcome.merge(edit_value(
+                edit,
+                self.text,
+                self.rules,
+                ui.accessibility_actions(key.id, key.part),
+            ));
+        }
+        for (typed, target) in ui
+            .state
+            .typed
+            .iter()
+            .zip(&ui.state.typed_targets)
+            .filter(|_| input.enabled)
+        {
             if *target == Some(key) {
                 outcome.merge(edit_input(
                     edit,
@@ -345,7 +362,14 @@ impl<Id: WidgetId> Widget<Id> for TextArea<'_> {
         let mut inner = rect.inset(style.padding);
         inner.width = inner.width.max(0.0);
         inner.height = inner.height.max(0.0);
-        let outcome = self.edit(ui, id, inner, input)?;
+        let typed = self.edit(ui, id, inner, input)?;
+        let mut outcome = TextOutcome {
+            changed: typed.changed,
+            submitted: typed.submitted,
+            cancelled: typed.cancelled,
+            ..TextOutcome::default()
+        };
+        outcome.lifecycle(ui, Key::new(id, 0), input, self.commit_on_blur);
         #[cfg(feature = "accessibility")]
         {
             ui.accessible_description(
@@ -365,6 +389,10 @@ impl<Id: WidgetId> Widget<Id> for TextArea<'_> {
         response.changed = outcome.changed;
         response.submitted = outcome.submitted;
         response.cancelled = outcome.cancelled;
+        response.editing_started = outcome.editing_started;
+        response.focus_lost = outcome.focus_lost;
+        response.committed = outcome.committed;
+        response.focused = input.focused && !outcome.cancelled;
         Ok(response)
     }
 }
@@ -494,10 +522,30 @@ fn scroll<Id: WidgetId>(
     index: usize,
     (reveal, hovered): (bool, bool),
 ) {
-    let wheel = if hovered { ui.take_wheel() } else { (0.0, 0.0) };
+    let wheel = if hovered { ui.wheel() } else { (0.0, 0.0) };
+    let before = (edit.scroll, view.scroll_y);
     let layout = view.layout();
     let caret = view.caret(index);
     let step = caret.height.max(1.0) * 3.0;
+    let wheel_x = viewport_scroll(
+        before.0 - wheel.0 * step,
+        0.0,
+        0.0,
+        layout.width,
+        rect.width,
+        false,
+    );
+    let wheel_y = viewport_scroll(
+        before.1 - wheel.1 * step,
+        0.0,
+        0.0,
+        layout.height,
+        rect.height,
+        false,
+    );
+    if hovered {
+        ui.consume_wheel(((before.0 - wheel_x) / step, (before.1 - wheel_y) / step));
+    }
     edit.scroll = viewport_scroll(
         edit.scroll - wheel.0 * step,
         caret.x,
