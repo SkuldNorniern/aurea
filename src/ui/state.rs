@@ -165,6 +165,7 @@ pub struct UiState<Id: WidgetId> {
     pub(crate) accessibility: Option<Box<super::accessibility::Bridge<Id>>>,
     pub(crate) tweens: Tweens<(Key<Id>, Channel)>,
     pointer: Option<Point>,
+    window_focused: bool,
     pub(crate) modifiers: Modifiers,
     pointer_events: Vec<(usize, Pointer)>,
     pub(crate) typed: Vec<Typed>,
@@ -215,6 +216,7 @@ impl<Id: WidgetId> UiState<Id> {
             #[cfg(feature = "accessibility")]
             accessibility: None,
             pointer: None,
+            window_focused: true,
             modifiers: Modifiers::default(),
             pointer_events: Vec::new(),
             typed: Vec::new(),
@@ -306,12 +308,13 @@ impl<Id: WidgetId> UiState<Id> {
                 popup || captured || self.pointer.is_some_and(|at| self.hit_at(at).is_some())
             }
             WindowEvent::KeyInput { key, modifiers, .. } => {
-                popup
-                    || focused
-                    || (*key == KeyCode::Tab
-                        && !modifiers.ctrl
-                        && !modifiers.alt
-                        && !self.last_order.is_empty())
+                self.window_focused
+                    && (popup
+                        || focused
+                        || (*key == KeyCode::Tab
+                            && !modifiers.ctrl
+                            && !modifiers.alt
+                            && !self.last_order.is_empty()))
             }
             WindowEvent::TextInput { .. } | WindowEvent::ImePreedit { .. } => popup || text_focused,
             WindowEvent::Pen(sample) => {
@@ -323,6 +326,16 @@ impl<Id: WidgetId> UiState<Id> {
     }
 
     fn handle_event(&mut self, event: &WindowEvent) -> bool {
+        if !self.window_focused
+            && matches!(
+                event,
+                WindowEvent::KeyInput { .. }
+                    | WindowEvent::TextInput { .. }
+                    | WindowEvent::ImePreedit { .. }
+            )
+        {
+            return false;
+        }
         #[cfg(feature = "accessibility")]
         if matches!(event, WindowEvent::Focused | WindowEvent::Unfocused)
             && let Some(bridge) = &mut self.accessibility
@@ -392,13 +405,27 @@ impl<Id: WidgetId> UiState<Id> {
                 self.text_input(Typed::Preedit(text.clone(), *cursor))
             }
             WindowEvent::Unfocused => {
+                self.window_focused = false;
+                self.modifiers = Modifiers::default();
                 self.active = None;
                 if self.popup.is_open() {
                     self.focus = self.popup.close();
                 }
                 self.pointer_events.clear();
+                self.typed.clear();
+                self.typed_targets.clear();
+                self.clicked.clear();
+                self.wheel = (0.0, 0.0);
+                self.edit.cancel_composition();
+                for edit in self.edits.values_mut() {
+                    edit.cancel_composition();
+                }
                 self.press = None;
                 self.secondary = None;
+                true
+            }
+            WindowEvent::Focused => {
+                self.window_focused = true;
                 true
             }
             _ => false,
@@ -432,6 +459,9 @@ impl<Id: WidgetId> UiState<Id> {
     }
 
     fn pending_focus(&self) -> Option<Key<Id>> {
+        if !self.window_focused {
+            return None;
+        }
         if self.popup.is_open() {
             return self.focus;
         }
@@ -471,12 +501,12 @@ impl<Id: WidgetId> UiState<Id> {
     /// Whether a text field has the keyboard, so the app should leave typing and editing shortcuts
     /// to it.
     pub fn text_focused(&self) -> bool {
-        self.focused_sense() == Some(Sense::Text)
+        self.window_focused && self.focused_sense() == Some(Sense::Text)
     }
 
     /// Whether anything has the keyboard.
     pub fn has_focus(&self) -> bool {
-        self.focus.is_some()
+        self.window_focused && self.focus.is_some()
     }
 
     /// Takes the keyboard away from whatever has it.
@@ -796,7 +826,7 @@ impl<Id: WidgetId> UiState<Id> {
                 Sense::Click | Sense::Adjust => CursorIcon::Pointer,
             };
         }
-        let focused = enabled && self.focus == Some(key);
+        let focused = self.window_focused && enabled && self.focus == Some(key);
         Interaction {
             hovered,
             held,

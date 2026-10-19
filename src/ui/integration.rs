@@ -497,3 +497,92 @@ fn clicking_outside_an_editor_leaves_following_text_for_the_application() {
     rig.frame(|ui| editor(ui, &mut text, false, true));
     assert!(text.is_empty());
 }
+
+#[test]
+fn losing_window_focus_cancels_queued_keyboard_activation() {
+    let mut rig = Rig::new();
+    let draw = |ui: &mut Ui<'_, u8>| {
+        Button::new("Delete")
+            .show(ui, 1, Rect::new(0.0, 0.0, 120.0, 30.0))
+            .expect("button")
+    };
+    rig.frame(draw);
+    rig.state.focus(1, 0);
+    rig.key(KeyCode::Enter);
+    rig.state.handle(&WindowEvent::Unfocused);
+    assert!(
+        !rig.frame(draw).clicked,
+        "no delayed action after focus loss"
+    );
+    let input = rig.state.handle_input(&WindowEvent::KeyInput {
+        key: KeyCode::Enter,
+        pressed: true,
+        modifiers: Modifiers::default(),
+    });
+    assert!(!input.consumed && !input.redraw);
+    assert!(!rig.frame(draw).clicked);
+    rig.state.handle(&WindowEvent::Focused);
+    rig.key(KeyCode::Enter);
+    assert!(
+        rig.frame(draw).clicked,
+        "focus is restored without losing its target"
+    );
+}
+
+#[test]
+fn losing_window_focus_ends_editing_and_rejects_background_typing() {
+    let mut rig = Rig::new();
+    let mut text = String::new();
+    rig.frame(|ui| editor(ui, &mut text, false, true));
+    rig.state.focus(1, 0);
+    rig.state.handle(&WindowEvent::TextInput {
+        text: "saved".into(),
+    });
+    rig.frame(|ui| editor(ui, &mut text, false, true));
+    rig.state.handle(&WindowEvent::Unfocused);
+    let response = rig.frame(|ui| editor(ui, &mut text, false, true));
+    assert!(response.focus_lost && response.committed && !response.focused);
+    assert!(!rig.state.text_focused());
+    assert!(
+        !rig.state
+            .handle_input(&WindowEvent::TextInput {
+                text: "background".into()
+            })
+            .consumed
+    );
+    rig.frame(|ui| editor(ui, &mut text, false, true));
+    assert_eq!(text, "saved");
+    rig.state.handle(&WindowEvent::Focused);
+    assert!(
+        rig.frame(|ui| editor(ui, &mut text, false, true))
+            .editing_started
+    );
+}
+
+#[test]
+fn focus_loss_discards_uncommitted_ime_composition() {
+    for window_loss in [false, true] {
+        let mut rig = Rig::new();
+        let mut text = "saved".to_string();
+        rig.frame(|ui| editor(ui, &mut text, false, true));
+        rig.state.focus(1, 0);
+        rig.frame(|ui| editor(ui, &mut text, false, true));
+        rig.state.handle(&WindowEvent::ImePreedit {
+            text: "draft".into(),
+            cursor: Some(5),
+        });
+        rig.frame(|ui| editor(ui, &mut text, false, true));
+        assert_eq!(rig.state.edit.preedit(), "draft");
+        if window_loss {
+            rig.state.handle(&WindowEvent::Unfocused);
+            rig.state.handle(&WindowEvent::Focused);
+        } else {
+            rig.click(230.0, 150.0);
+        }
+        rig.frame(|ui| editor(ui, &mut text, false, true));
+        rig.state.focus(1, 0);
+        rig.frame(|ui| editor(ui, &mut text, false, true));
+        assert!(rig.state.edit.preedit().is_empty());
+        assert_eq!(text, "saved");
+    }
+}

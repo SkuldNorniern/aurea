@@ -233,6 +233,12 @@ impl TextEdit {
         self.preedit_caret = caret.filter(|&c| preedit.is_char_boundary(c));
     }
 
+    /// Discard uncommitted IME text without modifying the document or selection.
+    pub fn cancel_composition(&mut self) {
+        self.preedit.clear();
+        self.preedit_caret = None;
+    }
+
     /// Goes back one step.
     pub fn undo(&mut self, text: &mut String) -> bool {
         self.step_history(text, true)

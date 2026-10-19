@@ -43,7 +43,7 @@ impl TextOutcome {
         commit_on_blur: bool,
     ) {
         let targeted = input.enabled && ui.state.typed_targets.contains(&Some(key));
-        let focused = input.enabled && ui.state.focus == Some(key);
+        let focused = input.focused && ui.state.focus == Some(key);
         let session = ui.state.editing.entry(key).or_default();
         self.editing_started = !session.focused && (focused || targeted);
         self.focus_lost = (session.focused || self.editing_started) && !focused;
@@ -55,6 +55,13 @@ impl TextOutcome {
             session.dirty = false;
         }
         session.focused = focused;
+        if self.focus_lost {
+            if ui.state.edit_for == Some(key) {
+                ui.state.edit.cancel_composition();
+            } else if let Some(edit) = ui.state.edits.get_mut(&key) {
+                edit.cancel_composition();
+            }
+        }
     }
 }
 
