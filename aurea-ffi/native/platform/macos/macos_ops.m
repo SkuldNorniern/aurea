@@ -83,6 +83,7 @@ static const ng_platform_ops_t macos_ops = {
     .canvas_present = ng_macos_canvas_present,
     .canvas_set_gpu_owned = ng_macos_canvas_set_gpu_owned,
     .canvas_get_size = ng_macos_canvas_get_size,
+    .canvas_get_pixel_size = ng_macos_canvas_get_pixel_size,
     .canvas_get_window = ng_macos_canvas_get_window,
     .canvas_get_native_handle = ng_macos_canvas_get_native_handle,
     .get_scale_factor = ng_macos_get_scale_factor,

@@ -8,6 +8,7 @@
 #import <CoreVideo/CVPixelBuffer.h>
 #import <stdlib.h>
 #import <string.h>
+#import <math.h>
 
 @interface AureaCanvasView : NSView
 {
@@ -41,8 +42,8 @@
 - (void)layout {
     [super layout];
     NSSize size = self.bounds.size;
-    unsigned int width = (unsigned int)size.width;
-    unsigned int height = (unsigned int)size.height;
+    unsigned int width = (unsigned int)ceil(size.width);
+    unsigned int height = (unsigned int)ceil(size.height);
     if (width != self.cachedWidth || height != self.cachedHeight) {
         self.cachedWidth = width;
         self.cachedHeight = height;
@@ -213,6 +214,14 @@ void ng_macos_canvas_present(NGHandle canvas) {
     }
 
     view->_ioBackIndex = 1 - view->_ioBackIndex;
+}
+
+void ng_macos_canvas_get_pixel_size(NGHandle canvas, unsigned int* width, unsigned int* height) {
+    if (!canvas || !width || !height) return;
+    NSView* view = (__bridge NSView*)canvas;
+    NSSize pixels = [view convertSizeToBacking:[view bounds].size];
+    *width = (unsigned int)lround(pixels.width);
+    *height = (unsigned int)lround(pixels.height);
 }
 
 void ng_macos_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int* height) {
