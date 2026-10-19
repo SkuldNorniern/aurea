@@ -362,10 +362,16 @@ impl CpuRasterizer {
         bw: u32,
         clip: ClipBox,
     ) {
-        let x0 = f32_to_u32_clamped(rect.x.max(clip.left())).min(clip.x1);
-        let y0 = f32_to_u32_clamped(rect.y.max(clip.top())).min(clip.y1);
-        let x1 = f32_to_u32_clamped((rect.x + rect.width).ceil().max(clip.left())).min(clip.x1);
-        let y1 = f32_to_u32_clamped((rect.y + rect.height).ceil().max(clip.top())).min(clip.y1);
+        let reach = match paint.style {
+            PaintStyle::Fill => 0.0,
+            PaintStyle::Stroke => paint.stroke_width / 2.0,
+        };
+        let x0 = f32_to_u32_clamped((rect.x - reach).floor().max(clip.left())).min(clip.x1);
+        let y0 = f32_to_u32_clamped((rect.y - reach).floor().max(clip.top())).min(clip.y1);
+        let x1 =
+            f32_to_u32_clamped((rect.x + rect.width + reach).ceil().max(clip.left())).min(clip.x1);
+        let y1 =
+            f32_to_u32_clamped((rect.y + rect.height + reach).ceil().max(clip.top())).min(clip.y1);
         if x0 >= x1 || y0 >= y1 {
             return;
         }
@@ -393,7 +399,7 @@ impl CpuRasterizer {
         x1: u32,
         y1: u32,
     ) {
-        if paint.color.a == 255 && mode == BlendMode::Normal {
+        if paint.color.a == 255 && mode == BlendMode::Normal && on_pixel_grid(rect) {
             let c = color_to_u32(paint.color);
             for y in y0..y1 {
                 let start = (y * bw + x0) as usize;
@@ -562,33 +568,67 @@ impl CpuRasterizer {
         x1: u32,
         y1: u32,
     ) {
-        let sw = i32::try_from(f32_to_u32_clamped(paint.stroke_width)).unwrap_or(i32::MAX);
-        if sw == 0 {
+        let half = paint.stroke_width / 2.0;
+        if half <= 0.0 {
             return;
         }
-        let c = color_to_u32(paint.color);
-        let left = f32_to_i32_clamped(rect.x.floor());
-        let top = f32_to_i32_clamped(rect.y.floor());
-        let right = f32_to_i32_clamped((rect.x + rect.width).ceil());
-        let bottom = f32_to_i32_clamped((rect.y + rect.height).ceil());
-        let sw_x = sw.min(right.saturating_sub(left));
-        let sw_y = sw.min(bottom.saturating_sub(top));
-        let (vx0, vx1) = (x0 as i32, x1 as i32);
-
-        let span = |from: i32, to: i32| from.clamp(vx0, vx1)..to.clamp(vx0, vx1);
-        let left_band = span(left, left.saturating_add(sw_x));
-        let right_band = span(
-            right.saturating_sub(sw_x).max(left.saturating_add(sw_x)),
-            right,
+        let outer = Rect::new(
+            rect.x - half,
+            rect.y - half,
+            rect.width + 2.0 * half,
+            rect.height + 2.0 * half,
         );
-
-        for y in y0 as i32..y1 as i32 {
-            let mut set = |x: i32| Self::buf_set(buf, bw, clip, x, y, c, mode);
-            if y < top.saturating_add(sw_y) || y >= bottom.saturating_sub(sw_y) {
-                (vx0..vx1).for_each(&mut set);
+        let inner = Rect::new(
+            rect.x + half,
+            rect.y + half,
+            (rect.width - 2.0 * half).max(0.0),
+            (rect.height - 2.0 * half).max(0.0),
+        );
+        if inner.width <= 0.0 || inner.height <= 0.0 {
+            let fill = paint.clone().style(PaintStyle::Fill);
+            return Self::fill_rect_region(&outer, &fill, mode, buf, bw, clip, x0, y0, x1, y1);
+        }
+        let const_src =
+            (mode == BlendMode::Normal).then(|| ConstSrc::new(color_to_u32(paint.color)));
+        let ctx = RectFillCtx {
+            clip,
+            paint,
+            mode,
+            xl: outer.x,
+            xr: outer.right(),
+            c_full: color_to_u32(paint.color),
+            opaque_fast: mode == BlendMode::Normal && paint.color.a == 255,
+            const_src,
+        };
+        let band = |from: f32, to: f32| {
+            f32_to_u32_clamped(from.floor()).clamp(x0, x1)
+                ..f32_to_u32_clamped(to.ceil()).clamp(x0, x1)
+        };
+        let left = band(outer.x, inner.x);
+        let right = band(inner.right(), outer.right());
+        for y in y0..y1 {
+            let out_y = rect_cov_y(y, outer.y, outer.bottom());
+            if out_y <= 0.0 {
+                continue;
+            }
+            let in_y = rect_cov_y(y, inner.y, inner.bottom());
+            let mut stroke_at = |x: u32| {
+                let cov = out_y * rect_cov_x(x, outer.x, outer.right())
+                    - in_y * rect_cov_x(x, inner.x, inner.right());
+                if cov <= 0.0 {
+                    return;
+                }
+                if cov >= 1.0 && ctx.opaque_fast {
+                    Self::buf_set(buf, bw, clip, x as i32, y as i32, ctx.c_full, mode);
+                } else {
+                    Self::blend_at(buf, bw, &ctx, x, y, cov.min(1.0));
+                }
+            };
+            if in_y >= 1.0 {
+                left.clone().for_each(&mut stroke_at);
+                right.clone().for_each(&mut stroke_at);
             } else {
-                left_band.clone().for_each(&mut set);
-                right_band.clone().for_each(&mut set);
+                (x0..x1).for_each(&mut stroke_at);
             }
         }
     }
@@ -987,10 +1027,14 @@ impl CpuRasterizer {
         {
             return;
         }
-        let x0 = f32_to_i32_clamped(dest.x.max(clip.left()).ceil());
-        let y0 = f32_to_i32_clamped(dest.y.max(clip.top()).ceil());
-        let x1 = f32_to_i32_clamped((dest.x + dest.width).min(clip.right()).floor());
-        let y1 = f32_to_i32_clamped((dest.y + dest.height).min(clip.bottom()).floor());
+        let centre_span = |from: f32, to: f32, lo: u32, hi: u32| {
+            (
+                f32_to_i32_clamped((from - 0.5).ceil()).max(lo as i32),
+                f32_to_i32_clamped((to - 0.5).ceil()).min(hi as i32),
+            )
+        };
+        let (x0, x1) = centre_span(dest.x, dest.x + dest.width, clip.x0, clip.x1);
+        let (y0, y1) = centre_span(dest.y, dest.y + dest.height, clip.y0, clip.y1);
         if x0 >= x1 || y0 >= y1 {
             return;
         }
@@ -1174,11 +1218,11 @@ impl CpuRasterizer {
         let max_sx = image.width as f32 - 0.001;
         let max_sy = image.height as f32 - 0.001;
         for cy in y0..y1 {
-            let v = (cy as f32 - dest.y) / dest.height * src.height + src.y;
+            let v = (cy as f32 + 0.5 - dest.y) / dest.height * src.height + src.y;
             let sy = f32_to_u32_clamped(v.clamp(0.0, max_sy));
             let src_row = &image.data[sy as usize * image.width as usize * 4..];
             for cx in x0..x1 {
-                let u = (cx as f32 - dest.x) / dest.width * src.width + src.x;
+                let u = (cx as f32 + 0.5 - dest.x) / dest.width * src.width + src.x;
                 let sx = f32_to_u32_clamped(u.clamp(0.0, max_sx));
                 let ii = sx as usize * 4;
                 if ii + 3 >= src_row.len() {
@@ -1660,6 +1704,12 @@ struct RectFillCtx<'a> {
     c_full: u32,
     opaque_fast: bool,
     const_src: Option<ConstSrc>,
+}
+
+fn on_pixel_grid(rect: &Rect) -> bool {
+    [rect.x, rect.y, rect.right(), rect.bottom()]
+        .iter()
+        .all(|v| (v - v.round()).abs() < 1e-3)
 }
 
 fn rect_cov_x(x: u32, xl: f32, xr: f32) -> f32 {

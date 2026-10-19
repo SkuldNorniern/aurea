@@ -259,6 +259,12 @@ fn shape_stroke(paint: &Paint) -> Option<f32> {
     }
 }
 
+fn on_pixel_grid(rect: Rect) -> bool {
+    [rect.x, rect.y, rect.x + rect.width, rect.y + rect.height]
+        .iter()
+        .all(|v| (v - v.round()).abs() < 1e-3)
+}
+
 fn stroke_edges(rect: Rect, width: f32) -> [Rect; 4] {
     let half = width / 2.0;
     let (l, t) = (rect.x - half, rect.y - half);
@@ -374,6 +380,26 @@ impl RenderBatches {
         self.path_masks.retain(|_, (_, used)| mem::take(used));
     }
 
+    fn lower_rect(&mut self, rect: Rect, paint: &Paint, alpha: f32) {
+        let color = fade(paint.color, alpha);
+        match paint.style {
+            PaintStyle::Fill if on_pixel_grid(rect) => self.push_rect(rect, color),
+            PaintStyle::Fill => self.push_shape(ShapeInstance::rounded(rect, 0.0, 0.0, color)),
+            PaintStyle::Stroke if paint.stroke_width <= 0.0 => {}
+            PaintStyle::Stroke => {
+                let edges = stroke_edges(rect, paint.stroke_width);
+                if edges.iter().all(|edge| on_pixel_grid(*edge)) {
+                    for edge in edges {
+                        self.push_rect(edge, color);
+                    }
+                } else {
+                    let stroke = ShapeInstance::rounded(rect, 0.0, paint.stroke_width, color);
+                    self.push_shape(stroke);
+                }
+            }
+        }
+    }
+
     fn push_shape(&mut self, shape: ShapeInstance) {
         self.order.push(DrawRef::Shape(
             u32::try_from(self.shapes.len()).expect("batch count fits in u32"),
@@ -397,17 +423,7 @@ impl RenderBatches {
 
             match &item.command {
                 DrawCommand::Clear(_) => {}
-                DrawCommand::DrawRect(rect, paint) if paint.style == PaintStyle::Fill => {
-                    self.push_rect(*rect, fade(paint.color, alpha));
-                }
-                DrawCommand::DrawRect(rect, paint)
-                    if paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0 =>
-                {
-                    let color = fade(paint.color, alpha);
-                    for edge in stroke_edges(*rect, paint.stroke_width) {
-                        self.push_rect(edge, color);
-                    }
-                }
+                DrawCommand::DrawRect(rect, paint) => self.lower_rect(*rect, paint, alpha),
                 DrawCommand::DrawCircle(center, radius, paint) => {
                     if let Some(stroke) = shape_stroke(paint) {
                         let color = fade(paint.color, alpha);
