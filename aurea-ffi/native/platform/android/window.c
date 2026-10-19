@@ -14,20 +14,7 @@ extern JavaVM* g_jvm;
 extern jobject g_activity;
 
 static JNIEnv* get_jni_env(void) {
-    if (!g_jvm) return NULL;
-    
-    JNIEnv* env = NULL;
-    int status = (*g_jvm)->GetEnv(g_jvm, (void**)&env, JNI_VERSION_1_6);
-    
-    if (status == JNI_EDETACHED) {
-        if ((*g_jvm)->AttachCurrentThread(g_jvm, &env, NULL) != JNI_OK) {
-            return NULL;
-        }
-    } else if (status != JNI_OK) {
-        return NULL;
-    }
-    
-    return env;
+    return ng_android_jni_env();
 }
 
 NGHandle ng_android_create_window_impl(const char* title, int width, int height) {

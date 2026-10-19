@@ -5,12 +5,44 @@
 #include <jni.h>
 #include <android/native_window.h>
 #include <android/log.h>
+#include <pthread.h>
 
 void* g_mainWindowHandle = NULL;
 ScaleFactorCallback g_scaleFactorCallback = NULL;
 int g_lifecycleCallbackEnabled = 0;
 JavaVM* g_jvm = NULL;
 jobject g_activity = NULL;
+
+static pthread_key_t g_attached_key;
+static pthread_once_t g_attached_once = PTHREAD_ONCE_INIT;
+
+static void ng_android_detach_thread(void* value) {
+    (void)value;
+    if (g_jvm) (*g_jvm)->DetachCurrentThread(g_jvm);
+}
+
+static void ng_android_make_attached_key(void) {
+    pthread_key_create(&g_attached_key, ng_android_detach_thread);
+}
+
+JNIEnv* ng_android_jni_env(void) {
+    if (!g_jvm) return NULL;
+    JNIEnv* env = NULL;
+    int status = (*g_jvm)->GetEnv(g_jvm, (void**)&env, JNI_VERSION_1_6);
+    if (status == JNI_OK) return env;
+    if (status != JNI_EDETACHED) return NULL;
+    if ((*g_jvm)->AttachCurrentThread(g_jvm, &env, NULL) != JNI_OK) return NULL;
+    pthread_once(&g_attached_once, ng_android_make_attached_key);
+    pthread_setspecific(g_attached_key, (void*)1);
+    return env;
+}
+
+static void ng_android_release_activity(void) {
+    if (!g_activity) return;
+    JNIEnv* env = ng_android_jni_env();
+    if (env) (*env)->DeleteGlobalRef(env, g_activity);
+    g_activity = NULL;
+}
 
 int ng_android_init(void) {
     return NG_SUCCESS;
@@ -86,6 +118,7 @@ void ng_android_on_destroy(void) {
     if (g_lifecycleCallbackEnabled && g_mainWindowHandle) {
         ng_invoke_lifecycle_callback(g_mainWindowHandle, 4);
     }
+    ng_android_release_activity();
 }
 
 void ng_android_on_memory_warning(void) {
@@ -108,12 +141,9 @@ void ng_android_on_surface_recreated(void) {
 
 void ng_android_set_activity(JavaVM* jvm, jobject activity) {
     g_jvm = jvm;
+    ng_android_release_activity();
     if (activity) {
-        JNIEnv* env = NULL;
-        int status = (*g_jvm)->GetEnv(g_jvm, (void**)&env, JNI_VERSION_1_6);
-        if (status == JNI_EDETACHED) {
-            (*g_jvm)->AttachCurrentThread(g_jvm, &env, NULL);
-        }
+        JNIEnv* env = ng_android_jni_env();
         if (env) {
             g_activity = (*env)->NewGlobalRef(env, activity);
         }

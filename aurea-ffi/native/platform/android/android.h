@@ -23,6 +23,7 @@ void ng_android_window_request_close(NGHandle window);
 int ng_android_window_is_focused(NGHandle window);
 
 void ng_android_set_activity(JavaVM* jvm, jobject activity);
+JNIEnv* ng_android_jni_env(void);
 
 void ng_android_on_pause(void);
 void ng_android_on_resume(void);
