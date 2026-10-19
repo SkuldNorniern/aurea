@@ -32,12 +32,8 @@ impl Window {
     ) -> AureaResult<ZenGpuRenderer> {
         let handles = self.zengpu_handles()?;
         let scale = self.scale_factor().max(1.0);
-        let (pw, ph) = self.size();
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let lw = ((pw as f32 / scale).round() as u32).max(1);
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let lh = ((ph as f32 / scale).round() as u32).max(1);
-        ZenGpuRenderer::with_context(&handles, context, lw, lh, scale)
+        let (lw, lh) = self.size();
+        ZenGpuRenderer::with_context(&handles, context, lw.max(1), lh.max(1), scale)
     }
 
     /// Native window/display handles for building a `zengpu_hal` surface directly.
