@@ -285,6 +285,12 @@ impl<Id: WidgetId> UiState<Id> {
     /// }
     /// ```
     pub fn handle_input(&mut self, event: &WindowEvent) -> InputResponse {
+        let focused =
+            matches!(event, WindowEvent::KeyInput { .. }) && self.pending_focus().is_some();
+        let text_focused = matches!(
+            event,
+            WindowEvent::TextInput { .. } | WindowEvent::ImePreedit { .. }
+        ) && self.pending_sense() == Some(Sense::Text);
         let captured = self.active.is_some()
             || self.pointer_events.last().is_some_and(
                 |(_, event)| matches!(event, Pointer::Press(at, ..) if self.hit_at(*at).is_some()),
@@ -301,15 +307,13 @@ impl<Id: WidgetId> UiState<Id> {
             }
             WindowEvent::KeyInput { key, modifiers, .. } => {
                 popup
-                    || self.has_focus()
+                    || focused
                     || (*key == KeyCode::Tab
                         && !modifiers.ctrl
                         && !modifiers.alt
                         && !self.last_order.is_empty())
             }
-            WindowEvent::TextInput { .. } | WindowEvent::ImePreedit { .. } => {
-                popup || self.text_focused()
-            }
+            WindowEvent::TextInput { .. } | WindowEvent::ImePreedit { .. } => popup || text_focused,
             WindowEvent::Pen(sample) => {
                 popup || captured || self.hit_at(point(sample.x, sample.y)).is_some()
             }
@@ -383,9 +387,7 @@ impl<Id: WidgetId> UiState<Id> {
                 pressed: true,
                 modifiers,
             } => self.key(*key, *modifiers),
-            WindowEvent::TextInput { text } => {
-                self.text_focused() && self.text_input(Typed::Text(text.clone()))
-            }
+            WindowEvent::TextInput { text } => self.text_input(Typed::Text(text.clone())),
             WindowEvent::ImePreedit { text, cursor } => {
                 self.text_input(Typed::Preedit(text.clone(), *cursor))
             }
@@ -412,7 +414,7 @@ impl<Id: WidgetId> UiState<Id> {
     }
 
     fn key(&mut self, key: KeyCode, modifiers: Modifiers) -> bool {
-        if self.focus.is_none() && key != KeyCode::Tab && !self.popup.is_open() {
+        if self.pending_focus().is_none() && key != KeyCode::Tab && !self.popup.is_open() {
             return false;
         }
         self.typed.push(Typed::Key(key, modifiers));
@@ -421,12 +423,49 @@ impl<Id: WidgetId> UiState<Id> {
 
     fn text_input(&mut self, typed: Typed) -> bool {
         if (self.popup.is_open() && (!self.popup.is_card() || !self.popup.owns_focus(self.focus)))
-            || !self.text_focused()
+            || self.pending_sense() != Some(Sense::Text)
         {
             return false;
         }
         self.typed.push(typed);
         true
+    }
+
+    fn pending_focus(&self) -> Option<Key<Id>> {
+        if self.popup.is_open() {
+            return self.focus;
+        }
+        let mut focus = self.focus;
+        let mut start = 0;
+        for (index, pointer) in &self.pointer_events {
+            focus = self.focus_after_keys(focus, &self.typed[start..*index]);
+            start = *index;
+            if let Pointer::Press(at, ..) = pointer {
+                focus = self
+                    .hit_at(*at)
+                    .filter(|hit| hit.enabled && hit.sense != Sense::Hover)
+                    .map(|hit| hit.key);
+            }
+        }
+        self.focus_after_keys(focus, &self.typed[start..])
+    }
+
+    fn focus_after_keys(&self, focus: Option<Key<Id>>, keys: &[Typed]) -> Option<Key<Id>> {
+        keys.iter().fold(focus, |focus, typed| match typed {
+            Typed::Key(KeyCode::Tab, modifiers) if !modifiers.ctrl && !modifiers.alt => {
+                self.tab_focus(focus, modifiers.shift)
+            }
+            Typed::Key(KeyCode::Escape, _) => None,
+            _ => focus,
+        })
+    }
+
+    fn pending_sense(&self) -> Option<Sense> {
+        let focus = self.pending_focus()?;
+        self.last_hits
+            .iter()
+            .find(|hit| hit.key == focus)
+            .map(|hit| hit.sense)
     }
 
     /// Whether a text field has the keyboard, so the app should leave typing and editing shortcuts
@@ -657,19 +696,23 @@ impl<Id: WidgetId> UiState<Id> {
     }
 
     fn move_focus(&mut self, back: bool) {
+        self.focus = self.tab_focus(self.focus, back);
+        self.focus_visible = true;
+    }
+
+    fn tab_focus(&self, focus: Option<Key<Id>>, back: bool) -> Option<Key<Id>> {
         let order = &self.last_order;
         if order.is_empty() {
-            return;
+            return focus;
         }
-        let at = self.focus.and_then(|f| order.iter().position(|k| *k == f));
+        let at = focus.and_then(|f| order.iter().position(|k| *k == f));
         let next = match (at, back) {
             (None, false) => 0,
             (None, true) => order.len() - 1,
             (Some(i), false) => (i + 1) % order.len(),
             (Some(i), true) => (i + order.len() - 1) % order.len(),
         };
-        self.focus = order.get(next).copied();
-        self.focus_visible = true;
+        order.get(next).copied()
     }
 
     pub(crate) fn end(&mut self) {

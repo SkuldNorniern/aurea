@@ -439,3 +439,61 @@ fn a_stepper_at_its_limit_leaves_wheel_input_for_the_parent() {
     }
 }
 
+#[test]
+fn typing_after_a_click_or_tab_survives_until_the_next_frame() {
+    for by_tab in [false, true] {
+        let mut rig = Rig::new();
+        let mut text = String::new();
+        rig.frame(|ui| editor(ui, &mut text, false, true));
+        if by_tab {
+            rig.key(KeyCode::Tab);
+        } else {
+            rig.click(30.0, 20.0);
+        }
+        let input = rig.state.handle_input(&WindowEvent::TextInput {
+            text: "first".into(),
+        });
+        assert!(input.consumed && input.redraw);
+        let response = rig.frame(|ui| editor(ui, &mut text, false, true));
+        assert_eq!(text, "first");
+        assert!(response.editing_started && response.changed);
+    }
+}
+
+#[test]
+fn a_queued_click_can_focus_a_slider_for_keyboard_input() {
+    let mut rig = Rig::new();
+    let mut value = 0.0;
+    let mut draw = |ui: &mut Ui<'_, u8>| {
+        Slider::new(&mut value, 0.0..=1.0)
+            .step(0.1)
+            .show(ui, 1, Rect::new(0.0, 0.0, 220.0, 24.0))
+            .expect("slider")
+    };
+    rig.frame(&mut draw);
+    rig.click(9.0, 12.0);
+    let input = rig.state.handle_input(&WindowEvent::KeyInput {
+        key: KeyCode::Right,
+        pressed: true,
+        modifiers: Modifiers::default(),
+    });
+    assert!(input.consumed && input.redraw);
+    assert!(rig.frame(&mut draw).changed);
+    assert!((value - 0.1).abs() < 0.0001);
+}
+
+#[test]
+fn clicking_outside_an_editor_leaves_following_text_for_the_application() {
+    let mut rig = Rig::new();
+    let mut text = String::new();
+    rig.frame(|ui| editor(ui, &mut text, false, true));
+    rig.state.focus(1, 0);
+    rig.frame(|ui| editor(ui, &mut text, false, true));
+    rig.click(230.0, 150.0);
+    let input = rig.state.handle_input(&WindowEvent::TextInput {
+        text: "outside".into(),
+    });
+    assert!(!input.consumed);
+    rig.frame(|ui| editor(ui, &mut text, false, true));
+    assert!(text.is_empty());
+}
