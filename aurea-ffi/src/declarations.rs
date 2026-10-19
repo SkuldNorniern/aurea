@@ -273,6 +273,12 @@ unsafe extern "C" {
     pub fn ng_platform_canvas_present(canvas: *mut c_void);
     pub fn ng_platform_canvas_set_gpu_owned(canvas: *mut c_void, gpu_owned: c_int);
     pub fn ng_platform_canvas_get_size(canvas: *mut c_void, width: *mut u32, height: *mut u32);
+    /// The canvas in device pixels; 0 x 0 when that is its logical size times the scale.
+    pub fn ng_platform_canvas_get_pixel_size(
+        canvas: *mut c_void,
+        width: *mut u32,
+        height: *mut u32,
+    );
     pub fn ng_platform_canvas_get_window(canvas: *mut c_void) -> *mut c_void;
     pub fn ng_platform_canvas_get_native_handle(canvas: *mut c_void) -> *mut c_void;
     pub fn ng_platform_get_scale_factor(window: *mut c_void) -> f32;

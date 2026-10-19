@@ -93,6 +93,7 @@ typedef struct ng_platform_ops {
     void (*canvas_present)(NGHandle canvas);
     void (*canvas_set_gpu_owned)(NGHandle canvas, int gpu_owned);
     void (*canvas_get_size)(NGHandle canvas, unsigned int* w, unsigned int* h);
+    void (*canvas_get_pixel_size)(NGHandle canvas, unsigned int* w, unsigned int* h);
     NGHandle (*canvas_get_window)(NGHandle canvas);
     NGHandle (*canvas_get_native_handle)(NGHandle canvas);
     int (*canvas_get_xcb_handle)(NGHandle canvas, uint32_t* xcb_window, void** xcb_connection);

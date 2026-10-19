@@ -125,6 +125,12 @@ void ng_platform_canvas_get_size(NGHandle _canvas, unsigned int* width, unsigned
     if (height) *height = 0;
 }
 
+void ng_platform_canvas_get_pixel_size(NGHandle _canvas, unsigned int* width, unsigned int* height) {
+    (void)_canvas;
+    if (width) *width = 0;
+    if (height) *height = 0;
+}
+
 NGHandle ng_platform_canvas_get_window(NGHandle _canvas) {
     (void)_canvas;
     return NULL;
