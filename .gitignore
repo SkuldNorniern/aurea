@@ -30,3 +30,6 @@ Cargo.lock
 # Android build output
 android/.gradle/
 android/build/
+
+android/local.properties
+android/app/build/

@@ -3,21 +3,23 @@ package com.aurea.smoke
 import android.os.Bundle
 import android.view.SurfaceHolder
 import android.view.SurfaceView
-import androidx.appcompat.app.AppCompatActivity
+import android.app.Activity
 
-class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
+class MainActivity : Activity(), SurfaceHolder.Callback {
 
     companion object {
         init {
             System.loadLibrary("aurea")
         }
 
-        external fun nativeInit(activity: android.app.Activity)
-        external fun nativeOnPause()
-        external fun nativeOnResume()
-        external fun nativeOnDestroy()
-        external fun nativeOnSurfaceLost()
-        external fun nativeOnSurfaceRecreated()
+        // Static, so JNI looks for Java_com_aurea_smoke_MainActivity_*;
+        // without it they live on the Companion class and none is found.
+        @JvmStatic external fun nativeInit(activity: Activity)
+        @JvmStatic external fun nativeOnPause()
+        @JvmStatic external fun nativeOnResume()
+        @JvmStatic external fun nativeOnDestroy()
+        @JvmStatic external fun nativeOnSurfaceLost()
+        @JvmStatic external fun nativeOnSurfaceRecreated()
     }
 
     private var surfaceWasLost = false
