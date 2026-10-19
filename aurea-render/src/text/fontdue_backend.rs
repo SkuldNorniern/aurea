@@ -9,6 +9,7 @@ use crate::types::{FontStyle, FontVariation, FontWeight};
 use aurea_foundation::{AureaError, AureaResult, lock};
 use fontdue::{Font, FontSettings};
 use std::collections::HashMap;
+#[cfg(not(target_os = "android"))]
 use std::env::var;
 #[cfg(target_os = "windows")]
 use std::env::var_os;
@@ -42,6 +43,12 @@ impl FontKey {
     }
 }
 
+#[cfg(target_os = "android")]
+fn font_search_dirs() -> Vec<PathBuf> {
+    vec![PathBuf::from("/system/fonts")]
+}
+
+#[cfg(not(target_os = "android"))]
 fn font_search_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
 
@@ -100,7 +107,17 @@ fn fallback_stems() -> &'static [&'static str] {
     {
         &["segoeui", "arial", "malgun", "msyh", "yugothr", "consola"]
     }
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(target_os = "android")]
+    {
+        &[
+            "robotostaticregular",
+            "robotoregular",
+            "droidsans",
+            "notosanscjkregular",
+            "droidsansmono",
+        ]
+    }
+    #[cfg(all(unix, not(any(target_os = "macos", target_os = "android"))))]
     {
         &[
             "dejavusans",
