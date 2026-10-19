@@ -4,6 +4,7 @@ use aurea_foundation::{AureaError, AureaResult};
 
 use crate::capabilities::{Fallback, GpuFeatures};
 use crate::cpu::CpuRasterizer;
+use crate::frame::FrameOutput;
 use crate::gpu::batch::RenderBatches;
 use crate::memory::smaller_buffer;
 use crate::recording::RecordingContext;
@@ -343,6 +344,11 @@ impl<B: Gpu2dBackend> Renderer for Gpu2dRenderer<B> {
 
     fn display_list(&self) -> Option<&DisplayList> {
         Some(&self.display_list)
+    }
+
+    fn frame_output(&self) -> Option<FrameOutput<'_>> {
+        let (words, width, height) = self.backend.frame_pixels()?;
+        FrameOutput::new(words, width, height)
     }
 }
 

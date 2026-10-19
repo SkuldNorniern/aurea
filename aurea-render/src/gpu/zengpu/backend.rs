@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::iter::once;
 use std::mem::{size_of, size_of_val};
-use std::slice::{from_raw_parts, from_ref};
+use std::slice::{from_raw_parts, from_raw_parts_mut, from_ref};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -12,14 +12,15 @@ use aurea_foundation::{AureaError, AureaResult};
 #[cfg(not(target_os = "macos"))]
 use zengpu::DeviceContext;
 use zengpu::native::{
-    NativeAdapter, NativeCommandList, NativeDevice, NativeInstance, NativeSurface,
+    NativeAdapter, NativeCommandList, NativeDevice, NativeInstance, NativeOffscreenTarget,
+    NativeSurface,
 };
 use zengpu_hal::{
-    Acquire, Bindings, BufferHandle, ColorAttachment, DeviceRequest, DeviceType, FilterMode,
-    Format, Frame, GpuAdapter, GpuDevice, GpuError, GraphicsDevice, LoadOp, PipelineHandle,
-    Rect as HalRect, RenderCommands, RenderPassDesc, SamplerDesc, SamplerHandle, Scalar, Surface,
-    TexDim, TextureDesc, TextureHandle, TextureRegion, TextureUsage, TextureWrite, Viewport,
-    ViewportScissor, WindowHandles,
+    Acquire, Bindings, BufferDesc, BufferHandle, BufferUsage, ColorAttachment, DeviceRequest,
+    DeviceType, FilterMode, Format, Frame, GpuAdapter, GpuDevice, GpuError, GraphicsDevice, LoadOp,
+    MemoryUsage, PipelineHandle, Rect as HalRect, RenderCommands, RenderPassDesc, SamplerDesc,
+    SamplerHandle, Scalar, Surface, TexDim, TextureDesc, TextureHandle, TextureRegion,
+    TextureUsage, TextureWrite, Viewport, ViewportScissor, WindowHandles,
 };
 
 use crate::capabilities::GpuFeatures;
@@ -28,6 +29,7 @@ use crate::gpu::{FramePlan, Gpu2dBackend, Gpu2dRenderer};
 use crate::memory::smaller_buffer;
 use crate::numeric::{f32_to_u8_clamped, f32_to_u32_clamped};
 use crate::renderer::FrameOutcome;
+use crate::surface::pixel_size;
 use crate::types::{GpuTexture, Image, Rect, Sampling};
 
 use super::buffer::GrowableBuffer;
@@ -397,9 +399,78 @@ impl Drop for SharedPipelines {
     }
 }
 
+enum Target {
+    /// A window's swapchain: presented, never read back.
+    Window(Box<NativeSurface>),
+    /// A texture of its own, read back after each frame.
+    Offscreen(Offscreen),
+}
+
+struct Offscreen {
+    target: NativeOffscreenTarget,
+    readback: Option<(BufferHandle, u64)>,
+    pixels: Vec<u32>,
+}
+
+impl Offscreen {
+    fn read_back(&mut self, device: &NativeDevice) -> AureaResult<()> {
+        let (width, height) = self.target.extent();
+        let row = width.checked_mul(4).ok_or(AureaError::RenderingFailed)?;
+        let len = u64::from(row) * u64::from(height);
+        let count = usize::try_from(u64::from(width) * u64::from(height))
+            .map_err(|_| AureaError::RenderingFailed)?;
+        let buffer = match self.readback {
+            Some((buffer, size)) if size >= len => buffer,
+            stale => {
+                if let Some((buffer, _)) = stale {
+                    device.destroy_buffer(buffer);
+                    self.readback = None;
+                }
+                let buffer = device
+                    .create_buffer(BufferDesc {
+                        size: len,
+                        usage: BufferUsage::READBACK | BufferUsage::TRANSFER_DST,
+                        memory: MemoryUsage::Readback,
+                    })
+                    .map_err(gpu_err)?;
+                self.readback = Some((buffer, len));
+                buffer
+            }
+        };
+        device
+            .copy_texture_region_to_buffer(
+                self.target.texture_handle(),
+                TextureRegion::rect(0, 0, width, height),
+                buffer,
+                0,
+                row,
+            )
+            .map_err(gpu_err)?
+            .wait(Duration::MAX)
+            .map_err(gpu_err)?;
+        if let Some(compact) = smaller_buffer(self.pixels.capacity(), count) {
+            self.pixels = compact;
+        }
+        self.pixels.resize(count, 0);
+        let bytes = unsafe {
+            from_raw_parts_mut(
+                self.pixels.as_mut_ptr().cast::<u8>(),
+                size_of_val(self.pixels.as_slice()),
+            )
+        };
+        device.read_buffer_into(buffer, 0, bytes).map_err(gpu_err)
+    }
+
+    fn release(&mut self, device: &NativeDevice) {
+        if let Some((buffer, _)) = self.readback.take() {
+            device.destroy_buffer(buffer);
+        }
+    }
+}
+
 /// ZenGPU device backend for `Gpu2dRenderer`, using the unified graphics API.
 pub struct ZenGpuBackend {
-    surface: NativeSurface,
+    target: Target,
     context: Arc<ZenGpuContext>,
     pipelines: Arc<SharedPipelines>,
     sampler: SamplerHandle,
@@ -445,6 +516,42 @@ impl ZenGpuRenderer {
         let ph = f32_to_u32_clamped((height as f32 * scale).round()).max(1);
 
         let surface = create_surface(context.device(), handles, pw, ph).map_err(gpu_err)?;
+        Self::on_target(
+            Target::Window(Box::new(surface)),
+            context,
+            width,
+            height,
+            scale,
+        )
+    }
+
+    /// A renderer drawing into a texture of its own instead of a window, `width` by `height`
+    /// logical pixels at `scale_factor`.
+    pub fn offscreen(
+        context: Arc<ZenGpuContext>,
+        width: u32,
+        height: u32,
+        scale_factor: f32,
+    ) -> AureaResult<Self> {
+        let scale = scale_factor.max(1.0);
+        let (pw, ph) = pixel_size(width, height, scale, None);
+        let target = NativeOffscreenTarget::new(context.device(), Format::Bgra8Unorm, pw, ph)
+            .map_err(gpu_err)?;
+        let offscreen = Offscreen {
+            target,
+            readback: None,
+            pixels: Vec::new(),
+        };
+        Self::on_target(Target::Offscreen(offscreen), context, width, height, scale)
+    }
+
+    fn on_target(
+        target: Target,
+        context: Arc<ZenGpuContext>,
+        width: u32,
+        height: u32,
+        scale: f32,
+    ) -> AureaResult<Self> {
         let pipelines = context.shared_pipelines()?;
         let sampler = context.device().create_sampler(SamplerDesc {
             min_filter: FilterMode::Linear,
@@ -456,7 +563,7 @@ impl ZenGpuRenderer {
         let sampler = sampler.map_err(gpu_err)?;
 
         let backend = ZenGpuBackend {
-            surface,
+            target,
             context,
             pipelines,
             sampler,
@@ -473,8 +580,12 @@ impl ZenGpuRenderer {
         Ok(Gpu2dRenderer::from_backend(backend, width, height, scale))
     }
 
+    /// The target's size in device pixels.
     pub fn size(&self) -> (u32, u32) {
-        self.backend().surface.size()
+        match &self.backend().target {
+            Target::Window(surface) => surface.size(),
+            Target::Offscreen(offscreen) => offscreen.target.extent(),
+        }
     }
 
     pub fn context(&self) -> &Arc<ZenGpuContext> {
@@ -665,9 +776,30 @@ fn mip_levels(width: u32, height: u32) -> u32 {
 
 impl Gpu2dBackend for ZenGpuBackend {
     fn resize(&mut self, physical_width: u32, physical_height: u32) -> AureaResult<()> {
-        self.surface
-            .resize(physical_width, physical_height)
-            .map_err(gpu_err)
+        match &mut self.target {
+            Target::Window(surface) => surface
+                .resize(physical_width, physical_height)
+                .map_err(gpu_err),
+            Target::Offscreen(offscreen) => {
+                let size = (physical_width.max(1), physical_height.max(1));
+                if offscreen.target.extent() == size {
+                    return Ok(());
+                }
+                offscreen
+                    .target
+                    .resize(self.context.device(), size.0, size.1)
+                    .map_err(gpu_err)
+            }
+        }
+    }
+
+    fn frame_pixels(&self) -> Option<(&[u32], u32, u32)> {
+        let Target::Offscreen(offscreen) = &self.target else {
+            return None;
+        };
+        let (width, height) = offscreen.target.extent();
+        let full = usize::try_from(u64::from(width) * u64::from(height)).ok()?;
+        (offscreen.pixels.len() == full).then_some((offscreen.pixels.as_slice(), width, height))
     }
 
     fn upload_image(&mut self, width: u32, height: u32, rgba: &[u8]) -> AureaResult<u32> {
@@ -786,9 +918,17 @@ impl Gpu2dBackend for ZenGpuBackend {
             .prepare(device, size_of_val(self.text_instances.as_slice()))
             .map_err(gpu_err)?;
         let mut cmd = device.create_command_list().map_err(gpu_err)?;
-        let frame = match self.surface.acquire().map_err(gpu_err)? {
-            Acquire::Frame(f) => f,
-            Acquire::Skip => return Ok(FrameOutcome::Retry),
+        let frame = match &self.target {
+            Target::Window(surface) => match surface.acquire().map_err(gpu_err)? {
+                Acquire::Frame(f) => Some(f),
+                Acquire::Skip => return Ok(FrameOutcome::Retry),
+            },
+            Target::Offscreen(_) => None,
+        };
+        let (target, sample_after) = match (&frame, &self.target) {
+            (Some(frame), _) => (frame.target(), false),
+            (None, Target::Offscreen(offscreen)) => (offscreen.target.target_handle(), true),
+            (None, Target::Window(_)) => return Ok(FrameOutcome::Retry),
         };
 
         let rect_handle = self
@@ -822,10 +962,10 @@ impl Gpu2dBackend for ZenGpuBackend {
         };
         cmd.begin_render_pass(&RenderPassDesc {
             color: &[ColorAttachment {
-                target: frame.target(),
+                target,
                 load,
                 store: true,
-                sample_after: false,
+                sample_after,
             }],
             depth: None,
         });
@@ -861,7 +1001,17 @@ impl Gpu2dBackend for ZenGpuBackend {
         )?;
 
         cmd.end_render_pass();
-        self.surface.present(frame, cmd).map_err(gpu_err)?;
+        match (&mut self.target, frame) {
+            (Target::Window(surface), Some(frame)) => {
+                surface.present(frame, cmd).map_err(gpu_err)?;
+            }
+            (Target::Offscreen(offscreen), _) => {
+                let device = self.context.device();
+                device.submit_and_wait(cmd).map_err(gpu_err)?;
+                offscreen.read_back(device)?;
+            }
+            (Target::Window(_), None) => return Ok(FrameOutcome::Retry),
+        }
         Ok(FrameOutcome::Presented)
     }
 }
@@ -870,6 +1020,9 @@ impl Drop for ZenGpuBackend {
     fn drop(&mut self) {
         let device = self.context.device();
         let _ = device.wait_idle();
+        if let Target::Offscreen(offscreen) = &mut self.target {
+            offscreen.release(device);
+        }
         for (_, texture) in self.slot_textures.drain() {
             device.destroy_texture(texture);
         }
@@ -896,6 +1049,102 @@ fn as_bytes<T: Copy>(slice: &[T]) -> &[u8] {
 #[cfg(test)]
 mod context_tests {
     use super::*;
+    use crate::cpu::CpuRasterizer;
+    use crate::renderer::{DrawingContext, Renderer};
+    use crate::surface::{Surface as RenderSurface, SurfaceInfo};
+    use crate::types::{Color, Paint, PaintStyle, Point};
+
+    fn scene(ctx: &mut dyn DrawingContext, image: &Image) {
+        ctx.clear(Color::rgb(20, 24, 30)).unwrap();
+        ctx.draw_rect(
+            Rect::new(3.0, 4.0, 22.0, 9.0),
+            &Paint::new().color(Color::rgb(200, 60, 40)),
+        )
+        .unwrap();
+        let border = Paint::new()
+            .color(Color::rgb(240, 240, 240))
+            .style(PaintStyle::Stroke)
+            .stroke_width(1.0);
+        ctx.set_pixel_snap(true).unwrap();
+        ctx.draw_rect(Rect::new(2.0, 16.0, 30.0, 10.0), &border)
+            .unwrap();
+        ctx.set_pixel_snap(false).unwrap();
+        ctx.draw_circle(
+            Point::new(33.0, 8.0),
+            5.0,
+            &Paint::new().color(Color::rgb(60, 180, 90)),
+        )
+        .unwrap();
+        ctx.set_sampling(Sampling::Nearest).unwrap();
+        ctx.draw_image_rect(image, Rect::new(6.0, 18.0, 8.0, 6.0))
+            .unwrap();
+    }
+
+    #[test]
+    fn offscreen_frames_match_the_cpu_at_150_percent() {
+        let Ok(context) = ZenGpuContext::new() else {
+            return;
+        };
+        let context = Arc::new(context);
+        let (w, h, scale) = (40, 30, 1.5);
+        let image = Image::new(
+            2,
+            2,
+            [
+                [255, 0, 0, 255],
+                [0, 0, 255, 255],
+                [0, 255, 0, 255],
+                [255, 255, 0, 255],
+            ]
+            .concat(),
+        );
+
+        let mut cpu = CpuRasterizer::new(w, h);
+        cpu.init(RenderSurface::Cpu, SurfaceInfo::new(w, h, scale))
+            .unwrap();
+        scene(&mut *cpu.begin_frame().unwrap(), &image);
+        cpu.end_frame().unwrap();
+
+        let mut gpu = ZenGpuRenderer::offscreen(Arc::clone(&context), w, h, scale).unwrap();
+        scene(&mut *gpu.begin_frame().unwrap(), &image);
+        assert_eq!(gpu.end_frame().unwrap(), FrameOutcome::Presented);
+
+        let want = cpu.frame_output().expect("cpu frame");
+        let got = gpu.frame_output().expect("gpu frame");
+        assert_eq!((got.width, got.height), (60, 45));
+        assert_eq!((got.width, got.height), (want.width, want.height));
+        let channel = |p: u32, s: u32| (p >> s) & 0xFF;
+        let mut off = 0;
+        for (i, (&a, &b)) in got.words().iter().zip(want.words()).enumerate() {
+            let worst = [0, 8, 16]
+                .iter()
+                .map(|&s| channel(a, s).abs_diff(channel(b, s)))
+                .max()
+                .unwrap_or(0);
+            if worst > 48 {
+                off += 1;
+                assert!(
+                    off <= 12,
+                    "pixel {} {}: gpu {a:08x} cpu {b:08x}",
+                    i % 60,
+                    i / 60
+                );
+            }
+        }
+
+        let backend = gpu.backend();
+        let Target::Offscreen(first) = &backend.target else {
+            unreachable!("made offscreen")
+        };
+        let (buffer, storage) = (first.readback.map(|r| r.0), first.pixels.as_ptr());
+        scene(&mut *gpu.begin_frame().unwrap(), &image);
+        gpu.end_frame().unwrap();
+        let Target::Offscreen(second) = &gpu.backend().target else {
+            unreachable!("made offscreen")
+        };
+        assert_eq!(second.readback.map(|r| r.0), buffer);
+        assert_eq!(second.pixels.as_ptr(), storage);
+    }
 
     #[test]
     fn renderers_share_pipelines_without_retaining_the_device_forever() {

@@ -72,6 +72,12 @@ pub trait Gpu2dBackend {
         outcome
     }
 
+    /// The last frame's pixels, `0xAARRGGBB` rows top to bottom, with its width and height, for a
+    /// backend that draws somewhere it can read back.
+    fn frame_pixels(&self) -> Option<(&[u32], u32, u32)> {
+        None
+    }
+
     /// Whether the backend supports a dual-source-blend text path (coverage composited per RGB
     /// channel).
     fn supports_dual_source(&self) -> bool {
