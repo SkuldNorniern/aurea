@@ -125,6 +125,7 @@ pub(crate) fn native_handle_from_window_ptr(window: *mut c_void) -> Option<Nativ
         return Some(NativeWindowHandle::IOS { ui_view: window });
     }
     #[cfg(target_os = "android")]
+    #[allow(clippy::needless_return)]
     {
         if window.is_null() {
             return None;
@@ -299,13 +300,13 @@ pub fn raw_handles(
         }
         #[cfg(target_os = "android")]
         NativeWindowHandle::Android { native_window } => {
-            use raw_window_handle::{AndroidNdkDisplayHandle, AndroidNdkWindowHandle};
+            use raw_window_handle::{AndroidDisplayHandle, AndroidNdkWindowHandle};
             use std::ptr::NonNull;
             // SAFETY: native_window is a valid window handle from Aurea window creation.
             let window = NonNull::new(*native_window).ok_or(HandleError::Unavailable)?;
             Ok((
                 RawWindowHandle::AndroidNdk(AndroidNdkWindowHandle::new(window)),
-                RawDisplayHandle::AndroidNdk(AndroidNdkDisplayHandle::new()),
+                RawDisplayHandle::Android(AndroidDisplayHandle::new()),
             ))
         }
         #[cfg(not(any(

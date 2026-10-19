@@ -1,18 +1,22 @@
 //! JNI glue for Android: loads native library, forwards Activity to C backend.
 
-use jni::JNIEnv;
-use jni::objects::JObject;
 use std::os::raw::c_void;
 
-const JNI_VERSION: jni::sys::jint = jni::sys::JNI_VERSION_1_6;
+use aurea_ffi::{
+    ng_android_on_destroy, ng_android_on_pause, ng_android_on_resume, ng_android_on_surface_lost,
+    ng_android_on_surface_recreated, ng_android_set_activity,
+};
+use jni::JNIEnv;
+use jni::objects::JObject;
+use jni::sys::{JNI_VERSION_1_6, JavaVM, jint};
 
-#[no_mangle]
-pub extern "system" fn JNI_OnLoad(vm: jni::sys::JavaVM, _reserved: *mut c_void) -> jni::sys::jint {
+#[unsafe(no_mangle)]
+pub extern "system" fn JNI_OnLoad(_vm: JavaVM, _reserved: *mut c_void) -> jint {
     log::info!("Aurea JNI_OnLoad");
-    JNI_VERSION
+    JNI_VERSION_1_6
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeInit(
     env: JNIEnv,
     _thiz: JObject,
@@ -21,63 +25,62 @@ pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeInit(
     if activity.is_null() {
         return;
     }
-    let vm = match env.get_java_vm() {
-        Ok(v) => v,
-        Err(_) => return,
+    let Ok(vm) = env.get_java_vm() else {
+        return;
     };
-    let java_vm_ptr = vm.get_java_vm_pointer();
-    let activity_raw = activity.as_raw() as *mut c_void;
+    let java_vm = vm.get_java_vm_pointer().cast::<c_void>();
+    let activity = activity.as_raw().cast::<c_void>();
     unsafe {
-        aurea_ffi::ng_android_set_activity(java_vm_ptr as *mut c_void, activity_raw);
+        ng_android_set_activity(java_vm, activity);
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeOnPause(
     _env: JNIEnv,
     _thiz: JObject,
 ) {
     unsafe {
-        aurea_ffi::ng_android_on_pause();
+        ng_android_on_pause();
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeOnResume(
     _env: JNIEnv,
     _thiz: JObject,
 ) {
     unsafe {
-        aurea_ffi::ng_android_on_resume();
+        ng_android_on_resume();
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeOnDestroy(
     _env: JNIEnv,
     _thiz: JObject,
 ) {
     unsafe {
-        aurea_ffi::ng_android_on_destroy();
+        ng_android_on_destroy();
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeOnSurfaceLost(
     _env: JNIEnv,
     _thiz: JObject,
 ) {
     unsafe {
-        aurea_ffi::ng_android_on_surface_lost();
+        ng_android_on_surface_lost();
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeOnSurfaceRecreated(
     _env: JNIEnv,
     _thiz: JObject,
 ) {
     unsafe {
-        aurea_ffi::ng_android_on_surface_recreated();
+        ng_android_on_surface_recreated();
     }
 }
