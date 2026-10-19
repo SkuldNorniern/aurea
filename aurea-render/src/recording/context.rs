@@ -69,6 +69,7 @@ struct DrawingState {
     clip_rect: Option<Rect>,
     blend_mode: BlendMode,
     sampling: Sampling,
+    pixel_snap: bool,
 }
 
 const INLINE_SAVES: usize = 32;
@@ -144,6 +145,7 @@ pub struct RecordingContext<'list> {
     current_clip_rect: Option<Rect>,
     current_blend_mode: BlendMode,
     current_sampling: Sampling,
+    current_pixel_snap: bool,
     scale_factor: f32,
     current_interactive_id: Option<InteractiveId>,
     width: u32,
@@ -226,6 +228,27 @@ fn rect_path(rect: Rect) -> Path {
     path
 }
 
+fn snap_rect(rect: Rect, paint: &Paint) -> (Rect, f32) {
+    let span = |start: f32, len: f32, inset: f32| {
+        if len <= 0.0 {
+            return (start.round(), 0.0);
+        }
+        let outer = (start - inset).round();
+        let size = (len + 2.0 * inset).round().max(1.0 + 2.0 * inset);
+        (outer + inset, size - 2.0 * inset)
+    };
+    let stroke = paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0;
+    let width = if stroke {
+        paint.stroke_width.round().max(1.0)
+    } else {
+        paint.stroke_width
+    };
+    let inset = if stroke { width / 2.0 } else { 0.0 };
+    let (x, w) = span(rect.x, rect.width, inset);
+    let (y, h) = span(rect.y, rect.height, inset);
+    (Rect::new(x, y, w, h), width)
+}
+
 fn fill_with(color: Color) -> Paint {
     Paint::new().color(color).style(PaintStyle::Fill)
 }
@@ -296,6 +319,7 @@ impl<'list> RecordingContext<'list> {
             current_clip_rect: None,
             current_blend_mode: BlendMode::Normal,
             current_sampling: Sampling::Linear,
+            current_pixel_snap: false,
             scale_factor: 1.0,
             current_interactive_id: None,
             width,
@@ -827,10 +851,11 @@ impl DrawingContext for RecordingContext<'_> {
             self.add_command(DrawCommand::DrawPath(path, self.s_paint(paint)));
             return Ok(());
         }
-        self.add_command(DrawCommand::DrawRect(
-            self.s_rect(rect),
-            self.s_paint(paint),
-        ));
+        let (mut rect, mut paint) = (self.s_rect(rect), self.s_paint(paint));
+        if self.current_pixel_snap {
+            (rect, paint.stroke_width) = snap_rect(rect, &paint);
+        }
+        self.add_command(DrawCommand::DrawRect(rect, paint));
         Ok(())
     }
 
@@ -950,6 +975,11 @@ impl DrawingContext for RecordingContext<'_> {
         Ok(())
     }
 
+    fn set_pixel_snap(&mut self, snap: bool) -> AureaResult<()> {
+        self.current_pixel_snap = snap;
+        Ok(())
+    }
+
     fn draw_texture(&mut self, texture: GpuTexture, src: Rect, dest: Rect) -> AureaResult<()> {
         self.ensure_image_transform()?;
         let command = if self.upright_image() {
@@ -990,6 +1020,7 @@ impl DrawingContext for RecordingContext<'_> {
             clip_rect: self.current_clip_rect,
             blend_mode: self.current_blend_mode,
             sampling: self.current_sampling,
+            pixel_snap: self.current_pixel_snap,
         });
         Ok(())
     }
@@ -1001,6 +1032,7 @@ impl DrawingContext for RecordingContext<'_> {
             self.current_clip_rect = state.clip_rect;
             self.current_blend_mode = state.blend_mode;
             self.current_sampling = state.sampling;
+            self.current_pixel_snap = state.pixel_snap;
         }
         Ok(())
     }

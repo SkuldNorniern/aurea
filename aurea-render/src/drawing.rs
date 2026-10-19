@@ -54,6 +54,12 @@ pub trait DrawingContext {
     /// How the image and texture draws that follow are filtered.
     fn set_sampling(&mut self, sampling: Sampling) -> AureaResult<()>;
 
+    /// Whether the rects and straight lines that follow land on whole device pixels.
+    fn set_pixel_snap(&mut self, snap: bool) -> AureaResult<()> {
+        let _ = snap;
+        Ok(())
+    }
+
     /// Draw part of an app-made GPU texture, `src` in UV (0 to 1), in painter order with everything
     /// else.
     fn draw_texture(&mut self, texture: GpuTexture, src: Rect, dest: Rect) -> AureaResult<()>;

@@ -2786,6 +2786,55 @@ mod scale_tests {
     }
 
     #[test]
+    fn snapped_borders_have_no_soft_edges() {
+        let white = Color::rgb(255, 255, 255);
+        for scale in [1.25f32, 1.5, 1.75] {
+            for snap in [false, true] {
+                let r = frame_at(scale, |ctx| {
+                    ctx.clear(Color::rgb(0, 0, 0)).unwrap();
+                    ctx.set_pixel_snap(snap).unwrap();
+                    let line = Paint::new()
+                        .color(white)
+                        .style(PaintStyle::Stroke)
+                        .stroke_width(1.0);
+                    ctx.draw_line(0.0, 10.3, 40.0, 10.3, &line).unwrap();
+                    ctx.draw_rect(Rect::new(5.2, 15.1, 20.0, 12.0), &line)
+                        .unwrap();
+                    let hair = Paint::new().color(white);
+                    ctx.draw_rect(Rect::new(0.0, 33.3, 40.0, 0.4), &hair)
+                        .unwrap();
+                });
+                let (_, _, w, h) = r.get_buffer();
+                let column: Vec<u32> = (0..h)
+                    .map(|y| pixel_at(r.pixels(), w, f32_to_u32_clamped(2.5 * scale), y) & 0xFF)
+                    .collect();
+                let soft = column.iter().filter(|&&v| v > 8 && v < 247).count();
+                let lit = column.iter().filter(|&&v| v >= 247).count();
+                if snap {
+                    let rule = f32_to_u32_clamped(scale.round()) as usize;
+                    assert_eq!(soft, 0, "soft rows at {scale}: {column:?}");
+                    assert_eq!(
+                        lit,
+                        rule + 1,
+                        "the rule and the hairline at {scale}: {column:?}"
+                    );
+                }
+                if snap {
+                    let border = f32_to_u32_clamped(scale.round()) as usize;
+                    let row = f32_to_u32_clamped(20.0 * scale);
+                    let line: Vec<u32> = (0..w)
+                        .map(|x| pixel_at(r.pixels(), w, x, row) & 0xFF)
+                        .collect();
+                    let soft = line.iter().filter(|&&v| v > 8 && v < 247).count();
+                    assert_eq!(soft, 0, "{line:?}");
+                    let lit = line.iter().filter(|&&v| v >= 247).count();
+                    assert_eq!(lit, 2 * border, "{line:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn image_dest_rects_land_on_their_physical_pixels() {
         let green = Color::rgb(0, 255, 0);
         let image = Image::new(4, 4, [0, 255, 0, 255].repeat(16));
