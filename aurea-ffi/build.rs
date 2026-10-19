@@ -221,15 +221,23 @@ fn main() {
 
         add_sources(&mut build, &root, common_c);
         add_sources(&mut build, &root, ios_sources);
+        // Simulator objects carry their own platform; built with the device
+        // flag they fail to link into a simulator app. `TARGET_OS_*` comes
+        // from <TargetConditionals.h>, so it is not defined here.
+        let simulator = target.ends_with("-sim") || target.starts_with("x86_64-apple-ios");
+        let min_version = if simulator {
+            "-mios-simulator-version-min=13.0"
+        } else {
+            "-mios-version-min=13.0"
+        };
         build
             .include(native.join("platform/ios"))
             .define("__APPLE__", None)
-            .define("TARGET_OS_IPHONE", Some("1"))
             .flag("-x")
             .flag("objective-c")
             .flag("-fmodules")
             .flag("-fobjc-arc")
-            .flag("-mios-version-min=13.0")
+            .flag(min_version)
             .flag("-Wno-error=unused-command-line-argument");
 
         rerun_for(&root, common_c);
