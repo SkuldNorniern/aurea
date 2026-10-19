@@ -2704,6 +2704,7 @@ mod tile_cache_tests {
 #[cfg(test)]
 mod scale_tests {
     use super::*;
+    use crate::geometry::Transform;
 
     fn frame_at(scale: f32, draw: impl FnOnce(&mut dyn DrawingContext)) -> CpuRasterizer {
         let mut r = CpuRasterizer::new(40, 40);
@@ -2781,6 +2782,41 @@ mod scale_tests {
                 (got - want).abs() <= 1.0,
                 "a 4px line is {want} device pixels at {scale}, got {got}"
             );
+        }
+    }
+
+    #[test]
+    fn image_dest_rects_land_on_their_physical_pixels() {
+        let green = Color::rgb(0, 255, 0);
+        let image = Image::new(4, 4, [0, 255, 0, 255].repeat(16));
+        for scale in [1.25f32, 1.5, 2.0] {
+            for zoomed in [false, true] {
+                let r = frame_at(scale, |ctx| {
+                    ctx.clear(Color::rgb(0, 0, 0)).unwrap();
+                    ctx.set_sampling(Sampling::Nearest).unwrap();
+                    if zoomed {
+                        ctx.save().unwrap();
+                        ctx.transform(
+                            Transform::scale(5.0, 5.0).multiply(Transform::translate(10.0, 10.0)),
+                        )
+                        .unwrap();
+                        ctx.draw_image_rect(&image, Rect::new(0.0, 0.0, 4.0, 4.0))
+                            .unwrap();
+                        ctx.restore().unwrap();
+                    } else {
+                        ctx.draw_image_rect(&image, Rect::new(10.0, 10.0, 20.0, 20.0))
+                            .unwrap();
+                    }
+                });
+                let (_, _, w, _) = r.get_buffer();
+                let at = |logical: f32| f32_to_u32_clamped((logical * scale).floor());
+                let px = |x: f32, y: f32| pixel_at(r.pixels(), w, at(x), at(y));
+                let case = format!("at {scale}, zoomed {zoomed}");
+                assert_eq!(px(10.5, 10.5), color_to_u32(green), "inside {case}");
+                assert_eq!(px(29.5, 29.5), color_to_u32(green), "far corner {case}");
+                assert_ne!(px(9.0, 9.0), color_to_u32(green), "outside {case}");
+                assert_ne!(px(31.0, 31.0), color_to_u32(green), "past it {case}");
+            }
         }
     }
 }
