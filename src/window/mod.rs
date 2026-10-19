@@ -1962,6 +1962,7 @@ mod win32_dpi_tests {
         move_to(&window, scaled, 1.5);
         for (lw, lh) in [(667, 401), (668, 400), (333, 211)] {
             window.set_size(lw, lh);
+            assert_eq!(window.size(), (lw, lh), "a size set reads back at 150%");
             check(&window, &mut canvas, &format!("at 150%, set {lw}x{lh}"))?;
         }
         for outer in 900..903 {
@@ -1976,6 +1977,12 @@ mod win32_dpi_tests {
                     SWP_NOMOVE | SWP_NOZORDER,
                 )
             };
+            let (w, h) = window.size();
+            let client = client_size(window.handle);
+            assert!(
+                w as f32 * 1.5 >= client.0 as f32 && h as f32 * 1.5 >= client.1 as f32,
+                "window size {w}x{h} covers its {client:?} client"
+            );
             check(&window, &mut canvas, &format!("at 150%, outer {outer}"))?;
         }
 
