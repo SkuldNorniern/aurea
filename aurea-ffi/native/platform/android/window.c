@@ -45,7 +45,6 @@ NGHandle ng_android_create_window_impl(const char* title, int width, int height)
 void ng_android_destroy_window_impl(NGHandle handle) {
     if (handle == g_mainWindowHandle) {
         g_mainWindowHandle = NULL;
-        g_window = NULL;
     }
 }
 
