@@ -65,7 +65,49 @@ impl<'v> ScrollArea<'v> {
         self
     }
 
-    /// Scrolls the area, then draws `body` clipped to it.
+    /// Creates an area whose content height will be supplied by [`Self::show_measured`].
+    pub fn measured(offset: &'v mut f32) -> Self {
+        Self::new(offset, 0.0)
+    }
+
+    /// Measures at the available width before drawing.
+    ///
+    /// ```rust,no_run
+    /// # use aurea::ui::{ScrollArea, Ui};
+    /// # use aurea::render::{Font, LayoutOptions, Paint, Point, Rect, layout_text};
+    /// # fn paragraph(ui: &mut Ui<'_, u8>, offset: &mut f32, text: &str) -> aurea::AureaResult<()> {
+    /// let font = Font::new("sans-serif", 14.0);
+    /// let color = ui.theme.palette.text;
+    /// ScrollArea::measured(offset).show_measured(
+    ///     ui, 1, Rect::new(0.0, 0.0, 200.0, 100.0),
+    ///     |_, width| {
+    ///         let layout = layout_text(text, &font, LayoutOptions {
+    ///             max_width: Some(width), ..LayoutOptions::default()
+    ///         })?;
+    ///         Ok((layout.height, layout))
+    ///     },
+    ///     |ui, content, _, layout| ui.ctx.draw_text_layout(
+    ///         &layout, Point::new(content.x, content.y), &font, &Paint { color, ..Paint::new() },
+    ///     ),
+    /// )?;
+    /// # Ok(()) }
+    /// ```
+    pub fn show_measured<Id: WidgetId, L, R>(
+        mut self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        measure: impl FnOnce(&mut Ui<'_, Id>, f32) -> AureaResult<(f32, L)>,
+        body: impl FnOnce(&mut Ui<'_, Id>, Rect, Rect, L) -> AureaResult<R>,
+    ) -> AureaResult<(Response, R)> {
+        let (height, layout) = measure(ui, rect.width)?;
+        self.content = height.max(0.0);
+        self.show(ui, id, rect, |ui, content, view| {
+            body(ui, content, view, layout)
+        })
+    }
+
+    /// Draws `body` clipped to the area, then routes unused wheel movement.
     pub fn show<Id: WidgetId, R>(
         self,
         ui: &mut Ui<'_, Id>,
@@ -78,14 +120,10 @@ impl<'v> ScrollArea<'v> {
         let input = ui.interact(id, 0, rect, Sense::Hover, true);
         let over = ui.pointer().is_some_and(|at| rect.contains(at));
         let before = *self.offset;
-        if over && room > 0.0 {
-            let (_, dy) = ui.take_wheel();
-            *self.offset -= dy * style.step;
-        }
         let dragged = thumb_drag(ui, id, rect, room, self.content, self.offset);
         *self.offset = self.offset.clamp(0.0, room);
         let track = rect.split_right(14.0, 0.0).0;
-        let moved = (*self.offset - before).abs() > f32::EPSILON;
+        let mut moved = (*self.offset - before).abs() > f32::EPSILON;
         let shown = if style.smooth && !dragged {
             ui.animate(id, 0, OFFSET, *self.offset, ui.theme.motion.slide * 1.4)
         } else {
@@ -94,6 +132,16 @@ impl<'v> ScrollArea<'v> {
         };
         let content = Rect::new(rect.x, rect.y - shown, rect.width, self.content);
         let out = ui.clipped(rect, |ui| body(ui, content, rect))?;
+        if over && room > 0.0 && style.step.is_finite() && style.step > 0.0 {
+            let previous = *self.offset;
+            *self.offset = (previous - ui.wheel().1 * style.step).clamp(0.0, room);
+            let distance = *self.offset - previous;
+            ui.consume_wheel((0.0, -distance / style.step));
+            if distance.abs() > f32::EPSILON {
+                moved = true;
+                ui.mark_changed();
+            }
+        }
         if room > 0.0 {
             ui.interact(id, THUMB_PART, track, Sense::Hover, true);
         }
@@ -608,6 +656,7 @@ mod tests {
                 delta_y: notches,
                 modifiers: Modifiers::default(),
             });
+            self.frame();
             self.frame();
         }
 
