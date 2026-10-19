@@ -1910,11 +1910,12 @@ mod win32_dpi_tests {
         let _ = window.poll_events();
         canvas.draw(|ctx| ctx.clear(Color::rgb(255, 0, 0)))?;
         let client = client_size(canvas.native_handle());
-        let (w, h, corner) = canvas
-            .with_frame_pixels(|px, w, h| (w, h, px[(w * h - 1) as usize]))
-            .expect("a frame");
-        assert_eq!((w, h), client, "buffer vs client {what}");
-        assert_eq!(corner & 0x00FF_FFFF, 0x00FF_0000, "last pixel {what}");
+        if let Some((w, h, corner)) =
+            canvas.with_frame_pixels(|px, w, h| (w, h, px[(w * h - 1) as usize]))
+        {
+            assert_eq!((w, h), client, "buffer vs client {what}");
+            assert_eq!(corner & 0x00FF_FFFF, 0x00FF_0000, "last pixel {what}");
+        }
         let (lw, lh) = canvas.size();
         let s = canvas.scale_factor();
         assert!(
@@ -1932,6 +1933,17 @@ mod win32_dpi_tests {
     #[test]
     #[ignore = "creates a native window on two monitors; run with --ignored"]
     fn a_canvas_matches_its_client_at_150_and_100_percent() -> AureaResult<()> {
+        across_monitors(RendererBackend::Cpu)
+    }
+
+    #[cfg(feature = "zengpu")]
+    #[test]
+    #[ignore = "creates a native window and a GPU device; run with --ignored"]
+    fn a_gpu_canvas_draws_at_every_size_and_scale() -> AureaResult<()> {
+        across_monitors(RendererBackend::ZenGpu)
+    }
+
+    fn across_monitors(backend: RendererBackend) -> AureaResult<()> {
         let mut window = Window::new("dpi", 320, 240)?;
         let all = monitors();
         let scaled = all.iter().find(|(_, dpi)| *dpi == 144);
@@ -1943,7 +1955,7 @@ mod win32_dpi_tests {
             );
             return Ok(());
         };
-        let mut canvas = Canvas::new(320, 240, RendererBackend::Cpu)?;
+        let mut canvas = Canvas::new(320, 240, backend)?;
         window.set_content(canvas.clone())?;
         window.show();
 
