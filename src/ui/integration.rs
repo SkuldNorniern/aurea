@@ -1,7 +1,8 @@
 //! Contracts shared by applications embedding editors and custom controls.
 
 use super::{
-    Button, Response, ScrollArea, ScrollStyle, Slider, TextArea, TextField, Theme, Ui, UiState,
+    Button, Response, ScrollArea, ScrollStyle, Slider, Stepper, TextArea, TextField, Theme, Ui,
+    UiState,
 };
 use crate::render::{Color, CpuRasterizer, Rect, Renderer};
 use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, WindowEvent};
@@ -396,3 +397,45 @@ fn blur_commit_is_opt_in() {
     let response = rig.frame(&mut draw);
     assert!(response.focus_lost && !response.committed && !response.submitted);
 }
+
+#[test]
+fn a_stepper_at_its_limit_leaves_wheel_input_for_the_parent() {
+    for (initial, delta, expected) in [
+        (0.0, -1.0, (0.0, 20.0)),
+        (1.0, -3.0, (0.0, 40.0)),
+        (5.0, -2.0, (3.0, 0.0)),
+    ] {
+        let mut rig = Rig::new();
+        let (mut value, mut offset) = (initial, 0.0);
+        let mut draw = |ui: &mut Ui<'_, u8>| {
+            let style = ScrollStyle {
+                step: 20.0,
+                smooth: false,
+                ..ScrollStyle::new(ui.theme)
+            };
+            ScrollArea::new(&mut offset, 300.0)
+                .style(style)
+                .show(
+                    ui,
+                    1,
+                    Rect::new(0.0, 0.0, 220.0, 100.0),
+                    |ui, content, _| {
+                        Stepper::new(&mut value, 0.0..=10.0).show(
+                            ui,
+                            2,
+                            Rect::new(content.x, content.y, 180.0, 24.0),
+                        )?;
+                        Ok(())
+                    },
+                )
+                .expect("stepper scroll");
+            ui.wheel()
+        };
+        rig.frame(&mut draw);
+        rig.wheel(12.0, 12.0, 2.0, delta);
+        let remaining = rig.frame(&mut draw);
+        assert_eq!(remaining, (2.0, 0.0), "preserve the horizontal axis");
+        assert_eq!((value, offset), expected);
+    }
+}
+

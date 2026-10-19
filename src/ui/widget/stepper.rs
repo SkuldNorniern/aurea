@@ -174,17 +174,21 @@ impl<Id: WidgetId> Widget<Id> for Stepper<'_> {
         if input.focused {
             steps += self.key_steps(ui);
         }
-        if self.enabled && input.hovered {
-            let wheel = ui.take_wheel().1;
-            if wheel != 0.0 {
-                steps += wheel.signum();
-            }
-        }
         let before = *self.value;
         if steps != 0.0 {
             let stepped =
                 lo + (((*self.value + steps * self.step) - lo) / self.step).round() * self.step;
             *self.value = stepped.clamp(lo.min(hi), hi.max(lo));
+        }
+        if input.enabled && ui.pointer().is_some_and(|at| rect.contains(at)) {
+            let previous = *self.value;
+            let wheel = ui.wheel().1;
+            if wheel != 0.0 {
+                let stepped =
+                    lo + (((previous + wheel * self.step) - lo) / self.step).round() * self.step;
+                *self.value = stepped.clamp(lo.min(hi), hi.max(lo));
+                ui.consume_wheel((0.0, (*self.value - previous) / self.step));
+            }
         }
         if (*self.value - before).abs() > f32::EPSILON {
             response.changed = true;
