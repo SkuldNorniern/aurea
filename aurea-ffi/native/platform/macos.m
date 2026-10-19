@@ -124,6 +124,7 @@ int ng_macos_init(void) {
     if (!app_initialized) {
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+        [NSEvent setMouseCoalescingEnabled:NO];
 
         app_delegate = [[AppDelegate alloc] init];
         [NSApp setDelegate:app_delegate];
