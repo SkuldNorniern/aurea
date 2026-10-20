@@ -65,6 +65,7 @@ typedef struct ng_platform_ops {
     NGHandle (*create_label)(const char* text);
     void (*label_invalidate)(NGHandle label);
     int (*label_set_text)(NGHandle label, const char* text);
+    int (*label_set_style)(NGHandle label, int style);
     NGHandle (*create_box)(int is_vertical);
     void (*box_invalidate)(NGHandle box);
     int (*box_add)(NGHandle box, NGHandle element, float weight);

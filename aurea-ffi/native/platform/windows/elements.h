@@ -27,6 +27,7 @@ int ng_windows_text_undo(NGHandle text, int redo);
 int ng_windows_text_can_undo(NGHandle text, int redo);
 int ng_windows_text_set_feature(NGHandle text, int feature, int on);
 int ng_windows_label_set_text(NGHandle label, const char* text);
+int ng_windows_label_set_style(NGHandle label, int style);
 NGHandle ng_windows_create_box(int is_vertical);
 void ng_windows_box_invalidate(NGHandle box);
 int ng_windows_box_add(NGHandle box, NGHandle element);

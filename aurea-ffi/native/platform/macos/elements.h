@@ -12,6 +12,7 @@ void ng_macos_button_invalidate(NGHandle button);
 NGHandle ng_macos_create_label(const char* text);
 void ng_macos_label_invalidate(NGHandle label);
 int ng_macos_label_set_text(NGHandle label, const char* text);
+int ng_macos_label_set_style(NGHandle label, int style);
 int ng_macos_text_unit(void);
 int ng_macos_text_get_selection(NGHandle text, int* start, int* end);
 int ng_macos_text_set_selection(NGHandle text, int start, int end);

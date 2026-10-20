@@ -64,6 +64,7 @@ static const ng_platform_ops_t windows_ops = {
     .create_label = ng_windows_create_label,
     .label_invalidate = ng_windows_label_invalidate,
     .label_set_text = ng_windows_label_set_text,
+    .label_set_style = ng_windows_label_set_style,
     .element_set_change_id = ng_windows_element_set_change_id,
     .element_set_visible = ng_windows_element_set_visible,
     .element_set_min_size = ng_windows_element_set_min_size,

@@ -3,6 +3,7 @@
 #include "../utils.h"
 #include "common/errors.h"
 #include "common/rust_callbacks.h"
+#include "common/platform_api.h"
 #include <commctrl.h>
 #include <richedit.h>
 #include <stdlib.h>
@@ -65,7 +66,7 @@ int ng_windows_px(HWND hwnd, int logical) {
 }
 
 #define AUREA_FONT_SLOTS 8
-enum { FONT_UI, FONT_MONO, FONT_KINDS };
+enum { FONT_UI, FONT_STRONG, FONT_SMALL, FONT_HEADING, FONT_MONO, FONT_KINDS };
 static struct { UINT dpi; HFONT font; } g_fonts[FONT_KINDS][AUREA_FONT_SLOTS];
 
 static HFONT ng_windows_make_font(int kind, UINT dpi) {
@@ -92,7 +93,11 @@ static HFONT ng_windows_make_font(int kind, UINT dpi) {
         if (screen) ReleaseDC(NULL, screen);
         metrics.lfMessageFont.lfHeight = MulDiv(metrics.lfMessageFont.lfHeight, (int)dpi, system);
     }
-    HFONT font = CreateFontIndirectW(&metrics.lfMessageFont);
+    LOGFONTW lf = metrics.lfMessageFont;
+    if (kind == FONT_STRONG || kind == FONT_HEADING) lf.lfWeight = FW_SEMIBOLD;
+    if (kind == FONT_SMALL) lf.lfHeight = MulDiv(lf.lfHeight, 9, 10);
+    if (kind == FONT_HEADING) lf.lfHeight = MulDiv(lf.lfHeight, 7, 5);
+    HFONT font = CreateFontIndirectW(&lf);
     return font ? font : (HFONT)GetStockObject(DEFAULT_GUI_FONT);
 }
 
@@ -114,6 +119,14 @@ static HFONT ng_windows_font(int kind, UINT dpi) {
 
 HFONT ng_windows_ui_font(HWND hwnd) {
     return ng_windows_font(FONT_UI, ng_windows_dpi(hwnd));
+}
+
+HFONT ng_windows_style_font(HWND hwnd, int style) {
+    int kind = style == NG_TEXT_STYLE_STRONG ? FONT_STRONG
+             : style == NG_TEXT_STYLE_SMALL  ? FONT_SMALL
+             : style == NG_TEXT_STYLE_HEADING ? FONT_HEADING
+                                              : FONT_UI;
+    return ng_windows_font(kind, ng_windows_dpi(hwnd));
 }
 
 HFONT ng_windows_mono_font(HWND hwnd) {

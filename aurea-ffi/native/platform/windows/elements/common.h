@@ -69,6 +69,8 @@ int is_box(HWND hwnd);
 HFONT ng_windows_ui_font(HWND hwnd);
 /* A fixed-width face for source text, at the DPI `hwnd` is on, kept up to date the same way. */
 HFONT ng_windows_mono_font(HWND hwnd);
+/* The UI font in one of the NG_TEXT_STYLE_* styles, at the DPI `hwnd` is on. */
+HFONT ng_windows_style_font(HWND hwnd, int style);
 /* The DPI `hwnd` is drawn at, 96 when Windows cannot say. */
 UINT ng_windows_dpi(HWND hwnd);
 /* `logical` pixels in `hwnd`'s device pixels. */

@@ -62,6 +62,7 @@ static const ng_platform_ops_t linux_ops = {
     .create_label = ng_linux_create_label,
     .label_invalidate = ng_linux_label_invalidate,
     .label_set_text = ng_linux_label_set_text,
+    .label_set_style = ng_linux_label_set_style,
     .element_set_change_id = ng_linux_element_set_change_id,
     .element_set_visible = ng_linux_element_set_visible,
     .element_set_min_size = ng_linux_element_set_min_size,

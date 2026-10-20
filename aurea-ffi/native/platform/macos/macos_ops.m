@@ -77,6 +77,7 @@ static const ng_platform_ops_t macos_ops = {
     .create_label = ng_macos_create_label,
     .label_invalidate = ng_macos_label_invalidate,
     .label_set_text = ng_macos_label_set_text,
+    .label_set_style = ng_macos_label_set_style,
     .create_box = ng_macos_create_box,
     .box_invalidate = ng_macos_box_invalidate,
     .box_add = ng_macos_box_add,

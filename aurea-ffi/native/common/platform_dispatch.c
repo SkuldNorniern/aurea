@@ -275,6 +275,10 @@ int ng_platform_label_set_text(NGHandle l, const char* t) {
     DISPATCH_INT(label_set_text, l, t);
 }
 
+int ng_platform_label_set_style(NGHandle l, int style) {
+    DISPATCH_INT(label_set_style, l, style);
+}
+
 NGHandle ng_platform_create_box(int v) {
     DISPATCH_INIT(NGHandle, create_box, v);
 }

@@ -45,6 +45,12 @@ void ng_platform_button_invalidate(NGHandle handle) {
 void ng_platform_label_invalidate(NGHandle handle) {
 }
 
+int ng_platform_label_set_style(NGHandle label, int style) {
+    (void)label;
+    (void)style;
+    return NG_ERROR_UNSUPPORTED;
+}
+
 int ng_platform_label_set_text(NGHandle handle, const char* text) {
     if (!handle) return NG_ERROR_INVALID_HANDLE;
     if (!text) return NG_ERROR_INVALID_PARAMETER;

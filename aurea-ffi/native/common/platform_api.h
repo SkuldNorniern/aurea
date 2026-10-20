@@ -90,6 +90,11 @@ void ng_platform_button_invalidate(NGHandle button);
 NGHandle ng_platform_create_label(const char* text);
 void ng_platform_label_invalidate(NGHandle label);
 int ng_platform_label_set_text(NGHandle label, const char* text);
+#define NG_TEXT_STYLE_BODY 0
+#define NG_TEXT_STYLE_STRONG 1
+#define NG_TEXT_STYLE_SMALL 2
+#define NG_TEXT_STYLE_HEADING 3
+int ng_platform_label_set_style(NGHandle label, int style);
 NGHandle ng_platform_create_box(int is_vertical);
 void ng_platform_box_invalidate(NGHandle box_handle);
 int ng_platform_box_add(NGHandle box_handle, NGHandle element, float weight);

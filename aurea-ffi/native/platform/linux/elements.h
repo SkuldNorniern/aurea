@@ -13,6 +13,7 @@ void ng_linux_button_invalidate(NGHandle button);
 NGHandle ng_linux_create_label(const char* text);
 void ng_linux_label_invalidate(NGHandle label);
 int ng_linux_label_set_text(NGHandle label, const char* text);
+int ng_linux_label_set_style(NGHandle label, int style);
 NGHandle ng_linux_create_box(int is_vertical);
 void ng_linux_box_invalidate(NGHandle box);
 int ng_linux_box_add(NGHandle box, NGHandle element, float weight);

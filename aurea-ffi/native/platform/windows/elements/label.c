@@ -2,6 +2,7 @@
 #include "../elements.h"
 #include "../utils.h"
 #include "common/errors.h"
+#include "common/platform_api.h"
 #include <windows.h>
 
 NGHandle ng_windows_create_label(const char* text) {
@@ -43,6 +44,15 @@ int ng_windows_label_set_text(NGHandle label, const char* text) {
     int result = ng_windows_set_window_text((HWND)label, text);
     if (result == NG_SUCCESS) ng_windows_relayout((HWND)label);
     return result;
+}
+
+int ng_windows_label_set_style(NGHandle label, int style) {
+    HWND hwnd = (HWND)label;
+    if (!hwnd || !IsWindow(hwnd)) return NG_ERROR_INVALID_HANDLE;
+    if (style < NG_TEXT_STYLE_BODY || style > NG_TEXT_STYLE_HEADING) return NG_ERROR_INVALID_PARAMETER;
+    SendMessageW(hwnd, WM_SETFONT, (WPARAM)ng_windows_style_font(hwnd, style), TRUE);
+    ng_windows_relayout(hwnd);
+    return NG_SUCCESS;
 }
 
 void ng_windows_label_invalidate(NGHandle label) {

@@ -253,6 +253,7 @@ unsafe extern "C" {
     pub fn ng_platform_create_label(text: *const c_char) -> *mut c_void;
     pub fn ng_platform_label_invalidate(label: *mut c_void);
     pub fn ng_platform_label_set_text(label: *mut c_void, text: *const c_char) -> c_int;
+    pub fn ng_platform_label_set_style(label: *mut c_void, style: c_int) -> c_int;
     pub fn ng_platform_create_box(is_vertical: c_int) -> *mut c_void;
     pub fn ng_platform_box_invalidate(box_handle: *mut c_void);
     pub fn ng_platform_box_add(box_handle: *mut c_void, element: *mut c_void, weight: f32)

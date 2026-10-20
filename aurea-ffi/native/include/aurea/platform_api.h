@@ -92,6 +92,11 @@ void ng_platform_button_invalidate(NGHandle button);
 NGHandle ng_platform_create_label(const char* text);
 void ng_platform_label_invalidate(NGHandle label);
 int ng_platform_label_set_text(NGHandle label, const char* text);
+#define NG_TEXT_STYLE_BODY 0
+#define NG_TEXT_STYLE_STRONG 1
+#define NG_TEXT_STYLE_SMALL 2
+#define NG_TEXT_STYLE_HEADING 3
+int ng_platform_label_set_style(NGHandle label, int style);
 int ng_platform_element_set_change_id(NGHandle element, unsigned int id);
 int ng_platform_element_set_visible(NGHandle element, int visible);
 int ng_platform_element_set_min_size(NGHandle element, int width, int height);
