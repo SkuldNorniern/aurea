@@ -49,6 +49,11 @@ jobs:
       - name: Build
         run: cargo build --workspace
 
+      - name: Win32 imports stay XP safe
+        if: runner.os == 'Windows'
+        run: .github/compat/check-win32-imports.ps1
+        shell: pwsh
+
       - name: Test
         run: cargo test --workspace
 
@@ -59,16 +64,53 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+  old-os:
+    name: Old OS floor (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS 10.12
+            os: macos-latest
+            target: x86_64-apple-darwin
+            deployment: "10.12"
+          - name: Ubuntu 18.04
+            os: ubuntu-latest
+            container: ubuntu:18.04
+            target: x86_64-unknown-linux-gnu
+
+    steps:
+      - name: Checkout (container)
+        if: matrix.container
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq git curl build-essential pkg-config libgtk-3-dev libx11-xcb-dev
+          git clone -q https://x-access-token:${{ github.token }}@github.com/${{ github.repository }} .
+          git checkout -q ${{ github.sha }}
+          curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/checkout@v7.0.1
+        if: ${{ !matrix.container }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: ${{ !matrix.container }}
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Check
+        run: cargo check --workspace --target ${{ matrix.target }}
+        env:
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment }}
+
   native:
     name: Native tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        # macOS is missing on purpose. AppKit only takes orders from the
-        # process main thread, and libtest runs every test on a worker, so a
-        # test that opens a window is refused there. The check job runs the
-        # native_gaps executable on the process main thread instead.
         os: [ubuntu-latest, windows-latest]
 
     steps:
@@ -92,9 +134,6 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y libgtk-3-dev libx11-xcb-dev pkg-config xvfb
 
-      # These open real windows and are #[ignore]d for that reason. They are
-      # the tests that catch the ownership, lifetime and input bugs the unit
-      # tests cannot see, so they need to run somewhere.
       - name: Run display tests (Linux)
         if: runner.os == 'Linux'
         run: xvfb-run -a cargo test --workspace --features zengpu -- --ignored --test-threads=1
@@ -135,7 +174,6 @@ jobs:
           sudo apt-get install -y libgtk-3-dev libx11-xcb-dev pkg-config \
             libvulkan-dev
 
-      # Check each backend separately, then test their combined feature surface.
       - name: wgpu
         run: cargo clippy --workspace --all-targets --features wgpu -- -D warnings
 
