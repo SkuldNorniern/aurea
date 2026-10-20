@@ -21,7 +21,8 @@ NGHandle ng_linux_create_text_editor(unsigned int id) {
     GtkWidget* text_view = gtk_text_view_new();
     
     gtk_text_view_set_editable(GTK_TEXT_VIEW(text_view), TRUE);
-    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(text_view), GTK_WRAP_WORD);
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(text_view), GTK_WRAP_NONE);
+    gtk_text_view_set_monospace(GTK_TEXT_VIEW(text_view), TRUE);
     
     if (id != 0) {
         GtkTextBuffer* buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text_view));
