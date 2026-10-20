@@ -1,84 +1,45 @@
-use super::native::NativeElement;
-use super::traits::Element;
-use crate::registry::elements::{
-    next_text_editor_id, register_text_editor_callback, unregister_text_editor_callback,
-};
-use crate::render::Rect;
-use crate::{AureaError, AureaResult, ffi::*};
-use std::{ffi::CString, os::raw::c_void};
+//! Multi-line text for source.
 
+use super::base::TextBase;
+use super::{TextControl, TextFeatures, text_widget};
+use crate::AureaResult;
+use crate::ffi::ng_platform_create_text_editor;
+
+/// Source text: a fixed-width face, lines running on, undo.
 pub struct TextEditor {
-    handle: NativeElement,
-    _id: u32,
+    base: TextBase,
 }
+
+text_widget!(TextEditor);
 
 impl TextEditor {
     pub fn new() -> AureaResult<Self> {
-        Self::with_callback(|_| {})
+        Self::with_features(TextFeatures::EDITOR)
     }
 
+    pub fn with_features(features: TextFeatures) -> AureaResult<Self> {
+        let handle = unsafe { ng_platform_create_text_editor() };
+        Ok(Self {
+            base: TextBase::new(handle, true, features)?,
+        })
+    }
+
+    /// `callback` gets the whole text after each edit the user makes.
     pub fn with_callback<F>(callback: F) -> AureaResult<Self>
     where
         F: Fn(String) + 'static,
     {
-        let id = next_text_editor_id();
-
-        let handle = unsafe { ng_platform_create_text_editor(id) };
-
-        if handle.is_null() {
-            return Err(AureaError::ElementOperationFailed);
-        }
-
-        register_text_editor_callback(id, callback);
-
-        Ok(Self {
-            handle: NativeElement::new(handle),
-            _id: id,
-        })
+        let editor = Self::new()?;
+        editor
+            .base
+            .on_change(move |_, text| callback(text.to_owned()))?;
+        Ok(editor)
     }
 
     /// Create a text editor with initial content.
     pub fn with_content(content: &str) -> AureaResult<Self> {
-        let mut editor = Self::new()?;
-        editor.set_content(content)?;
+        let editor = Self::new()?;
+        editor.set_text(content)?;
         Ok(editor)
-    }
-
-    pub fn set_content(&mut self, content: &str) -> AureaResult<()> {
-        let content = CString::new(content).map_err(|_| AureaError::InvalidTitle)?;
-        let result =
-            unsafe { ng_platform_set_text_content(self.handle.handle(), content.as_ptr()) };
-
-        if result != 0 {
-            return Err(AureaError::ElementOperationFailed);
-        }
-
-        Ok(())
-    }
-
-    pub fn get_content(&self) -> AureaResult<String> {
-        self.handle.text()
-    }
-}
-
-impl Element for TextEditor {
-    fn handle(&self) -> *mut c_void {
-        self.handle.handle()
-    }
-
-    fn released_to_parent(&self) {
-        self.handle.released_to_parent();
-    }
-
-    unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
-        unsafe {
-            ng_platform_text_editor_invalidate(self.handle.handle());
-        }
-    }
-}
-
-impl Drop for TextEditor {
-    fn drop(&mut self) {
-        unregister_text_editor_callback(self._id);
     }
 }

@@ -1,84 +1,45 @@
-use super::native::NativeElement;
-use super::traits::Element;
-use crate::registry::elements::{
-    next_text_view_id, register_text_view_callback, unregister_text_view_callback,
-};
-use crate::render::Rect;
-use crate::{AureaError, AureaResult, ffi::*};
-use std::{ffi::CString, os::raw::c_void};
+//! Multi-line text that wraps.
 
+use super::base::TextBase;
+use super::{TextControl, TextFeatures, text_widget};
+use crate::AureaResult;
+use crate::ffi::ng_platform_create_text_view;
+use std::os::raw::c_int;
+
+/// Several lines of text, wrapped at the edge: for prose, notes and logs.
 pub struct TextView {
-    handle: NativeElement,
-    _id: u32,
+    base: TextBase,
 }
+
+text_widget!(TextView);
 
 impl TextView {
     pub fn new(editable: bool) -> AureaResult<Self> {
-        Self::with_callback(editable, |_| {})
+        Self::with_features(TextFeatures::VIEW.with_read_only(!editable))
     }
 
+    pub fn with_features(features: TextFeatures) -> AureaResult<Self> {
+        let handle = unsafe { ng_platform_create_text_view(c_int::from(!features.read_only)) };
+        Ok(Self {
+            base: TextBase::new(handle, true, features)?,
+        })
+    }
+
+    /// `callback` gets the whole text after each edit the user makes.
     pub fn with_callback<F>(editable: bool, callback: F) -> AureaResult<Self>
     where
         F: Fn(String) + 'static,
     {
-        let id = next_text_view_id();
-
-        let handle = unsafe { ng_platform_create_text_view(if editable { 1 } else { 0 }, id) };
-
-        if handle.is_null() {
-            return Err(AureaError::ElementOperationFailed);
-        }
-
-        register_text_view_callback(id, callback);
-
-        Ok(Self {
-            handle: NativeElement::new(handle),
-            _id: id,
-        })
+        let view = Self::new(editable)?;
+        view.base
+            .on_change(move |_, text| callback(text.to_owned()))?;
+        Ok(view)
     }
 
     /// Create a text view with initial content.
     pub fn with_content(editable: bool, content: &str) -> AureaResult<Self> {
-        let mut view = Self::new(editable)?;
-        view.set_content(content)?;
+        let view = Self::new(editable)?;
+        view.set_text(content)?;
         Ok(view)
-    }
-
-    pub fn set_content(&mut self, content: &str) -> AureaResult<()> {
-        let content = CString::new(content).map_err(|_| AureaError::InvalidTitle)?;
-        let result =
-            unsafe { ng_platform_set_text_content(self.handle.handle(), content.as_ptr()) };
-
-        if result != 0 {
-            return Err(AureaError::ElementOperationFailed);
-        }
-
-        Ok(())
-    }
-
-    pub fn get_content(&self) -> AureaResult<String> {
-        self.handle.text()
-    }
-}
-
-impl Element for TextView {
-    fn handle(&self) -> *mut c_void {
-        self.handle.handle()
-    }
-
-    fn released_to_parent(&self) {
-        self.handle.released_to_parent();
-    }
-
-    unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
-        unsafe {
-            ng_platform_text_view_invalidate(self.handle.handle());
-        }
-    }
-}
-
-impl Drop for TextView {
-    fn drop(&mut self) {
-        unregister_text_view_callback(self._id);
     }
 }

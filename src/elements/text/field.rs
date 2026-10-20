@@ -1,107 +1,34 @@
 //! Single-line text input field.
 
-use super::native::NativeElement;
-use super::traits::Element;
-#[cfg(not(target_os = "macos"))]
-use crate::registry::elements::next_text_view_id;
-use crate::render::Rect;
-use crate::{AureaError, AureaResult, ffi::*};
-use std::{ffi::CString, os::raw::c_void};
+use super::base::TextBase;
+use super::{TextControl, TextFeatures, text_widget};
+use crate::AureaResult;
+use crate::ffi::ng_platform_create_text_field;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TextFieldKind {
-    NativeField,
-    EditableTextViewFallback,
-}
-
-/// Single-line editable text field.
+/// One line of editable text: a native EDIT, GtkEntry or NSTextField.
 pub struct TextField {
-    handle: NativeElement,
-    kind: TextFieldKind,
+    base: TextBase,
 }
+
+text_widget!(TextField);
 
 impl TextField {
-    /// Create a new text field.
     pub fn new() -> AureaResult<Self> {
-        Self::with_content("")
+        Self::with_features(TextFeatures::FIELD)
+    }
+
+    pub fn with_features(features: TextFeatures) -> AureaResult<Self> {
+        let handle = unsafe { ng_platform_create_text_field() };
+        Ok(Self {
+            base: TextBase::new(handle, false, features)?,
+        })
     }
 
     /// Create a text field with initial content.
     pub fn with_content(content: &str) -> AureaResult<Self> {
-        let (handle, kind) = unsafe {
-            let handle = ng_platform_create_text_field();
-            if !handle.is_null() {
-                (handle, TextFieldKind::NativeField)
-            } else {
-                #[cfg(target_os = "macos")]
-                {
-                    return Err(AureaError::ElementOperationFailed);
-                }
-
-                #[cfg(not(target_os = "macos"))]
-                {
-                    let fallback_id = next_text_view_id();
-                    let fallback = ng_platform_create_text_view(1, fallback_id);
-                    if fallback.is_null() {
-                        return Err(AureaError::ElementOperationFailed);
-                    }
-                    (fallback, TextFieldKind::EditableTextViewFallback)
-                }
-            }
-        };
-
-        let mut field = Self {
-            handle: NativeElement::new(handle),
-            kind,
-        };
-        field.set_content(content)?;
+        let field = Self::new()?;
+        field.set_text(content)?;
         Ok(field)
-    }
-
-    /// Returns true when this field is backed by an editable TextView fallback.
-    pub fn is_fallback(&self) -> bool {
-        self.kind == TextFieldKind::EditableTextViewFallback
-    }
-
-    /// Set the text content.
-    pub fn set_content(&mut self, content: &str) -> AureaResult<()> {
-        let content = CString::new(content).map_err(|_| AureaError::InvalidTitle)?;
-        let result =
-            unsafe { ng_platform_set_text_content(self.handle.handle(), content.as_ptr()) };
-
-        if result != 0 {
-            return Err(AureaError::ElementOperationFailed);
-        }
-
-        Ok(())
-    }
-
-    /// Get the text content.
-    pub fn get_content(&self) -> AureaResult<String> {
-        self.handle.text()
-    }
-}
-
-impl Element for TextField {
-    fn handle(&self) -> *mut c_void {
-        self.handle.handle()
-    }
-
-    fn released_to_parent(&self) {
-        self.handle.released_to_parent();
-    }
-
-    unsafe fn invalidate_platform(&self, _rect: Option<Rect>) {
-        unsafe {
-            match self.kind {
-                TextFieldKind::NativeField => {
-                    ng_platform_text_editor_invalidate(self.handle.handle())
-                }
-                TextFieldKind::EditableTextViewFallback => {
-                    ng_platform_text_view_invalidate(self.handle.handle())
-                }
-            }
-        }
     }
 }
 

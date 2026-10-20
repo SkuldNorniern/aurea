@@ -9,7 +9,6 @@ use std::time::{Duration, Instant};
 use crate::registry::custom::invoke_custom_callback;
 use crate::registry::elements::{
     invoke_button_callback, invoke_sidebar_selected, invoke_tab_detach, invoke_tab_selected,
-    invoke_text_editor_callback, invoke_text_view_callback,
 };
 use crate::registry::menu::invoke_menu_callback;
 use crate::registry::window::scale_factor_changed;
@@ -75,24 +74,6 @@ pub extern "C" fn ng_invoke_tab_bar_detach(id: u32, index: i32) {
 pub extern "C" fn ng_invoke_sidebar_list_selected(id: u32, index: i32) {
     guard("ng_invoke_sidebar_list_selected", || {
         invoke_sidebar_selected(id, index);
-    });
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn ng_invoke_text_callback(id: u32, content: *const c_char) {
-    guard("ng_invoke_text_callback", || {
-        if let Some(content) = c_string(content) {
-            invoke_text_editor_callback(id, content);
-        }
-    });
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn ng_invoke_textview_callback(id: u32, content: *const c_char) {
-    guard("ng_invoke_textview_callback", || {
-        if let Some(content) = c_string(content) {
-            invoke_text_view_callback(id, content);
-        }
     });
 }
 

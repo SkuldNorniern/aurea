@@ -102,9 +102,6 @@ pub use crate::registry::window::{
 
 use log::{error, info};
 
-const NG_SUCCESS: i32 = 0;
-const NG_ERROR_UNSUPPORTED: i32 = -5;
-
 /// A native platform window with menu, content, and event handling.
 pub struct Window {
     handle: *mut c_void,
@@ -1845,6 +1842,7 @@ mod win32_dpi_tests {
             data: isize,
         ) -> i32;
         fn GetClientRect(hwnd: *mut c_void, rect: *mut Rect) -> i32;
+        fn SendMessageW(hwnd: *mut c_void, msg: u32, w: usize, l: isize) -> isize;
         fn SetWindowPos(
             hwnd: *mut c_void,
             after: *mut c_void,
@@ -1941,6 +1939,56 @@ mod win32_dpi_tests {
     #[ignore = "creates a native window and a GPU device; run with --ignored"]
     fn a_gpu_canvas_draws_at_every_size_and_scale() -> AureaResult<()> {
         across_monitors(RendererBackend::ZenGpu)
+    }
+
+    #[link(name = "gdi32")]
+    unsafe extern "system" {
+        fn GetObjectW(object: *mut c_void, size: i32, out: *mut c_void) -> i32;
+    }
+
+    fn font_height(hwnd: *mut c_void) -> i32 {
+        const WM_GETFONT: u32 = 0x0031;
+        let mut logfont = [0i32; 23];
+        unsafe {
+            let font = SendMessageW(hwnd, WM_GETFONT, 0, 0) as *mut c_void;
+            GetObjectW(font, 92, logfont.as_mut_ptr().cast());
+        }
+        logfont[0].abs()
+    }
+
+    #[test]
+    #[ignore = "needs a 150% and a 100% monitor; run with --ignored"]
+    fn native_fonts_follow_the_monitor() -> AureaResult<()> {
+        use crate::elements::{Container, Element, Label, Orientation, Stack, TextEditor};
+        let mut window = Window::new("fonts", 320, 240)?;
+        let all = monitors();
+        let scaled = all.iter().find(|(_, dpi)| *dpi == 144);
+        let plain = all.iter().find(|(_, dpi)| *dpi == 96);
+        let (Some(&(scaled, _)), Some(&(plain, _))) = (scaled, plain) else {
+            eprintln!("needs a 150% and a 100% monitor");
+            return Ok(());
+        };
+        let label = Label::new("label")?;
+        let editor = TextEditor::new()?;
+        let (l, e) = (label.handle(), editor.handle());
+        let mut root = Stack::new(Orientation::Vertical)?;
+        root.add(label)?;
+        root.add_weighted(editor, 1.0)?;
+        window.set_content(root)?;
+        window.show();
+        move_to(&window, plain, 1.0);
+        let (label_at_1, editor_at_1) = (font_height(l), font_height(e));
+        move_to(&window, scaled, 1.5);
+        for (what, before, after) in [
+            ("label", label_at_1, font_height(l)),
+            ("editor", editor_at_1, font_height(e)),
+        ] {
+            assert!(
+                (after * 2 - before * 3).abs() <= 2,
+                "{what} font {before} px at 100%, {after} px at 150%"
+            );
+        }
+        Ok(())
     }
 
     fn across_monitors(backend: RendererBackend) -> AureaResult<()> {

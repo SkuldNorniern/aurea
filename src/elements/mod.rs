@@ -16,9 +16,7 @@ mod spacer;
 mod split_view;
 mod swiftui_host;
 mod tab_bar;
-mod text_editor;
-mod text_field;
-mod text_view;
+mod text;
 mod traits;
 
 pub use button::Button;
@@ -37,9 +35,7 @@ pub use spacer::Spacer;
 pub use split_view::{SplitOrientation, SplitView};
 pub use swiftui_host::{SwiftUIHost, SwiftUIHostNotAvailable};
 pub use tab_bar::TabBar;
-pub use text_editor::TextEditor;
-pub use text_field::TextField;
-pub use text_view::TextView;
+pub use text::{TextChange, TextControl, TextEditor, TextFeatures, TextField, TextView};
 pub use traits::{Container, Element};
 
 #[cfg(all(test, target_os = "linux"))]
@@ -837,6 +833,35 @@ mod win32_tests {
         };
         assert_eq!(pixel(100, 75), 0x0000_00FF, "no image in the middle");
         assert_ne!(pixel(100, 5), 0x0000_00FF, "stretched over the letterbox");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn line_breaks_round_trip() -> AureaResult<()> {
+        let _window = Window::new("lines", 400, 300)?;
+        let mut view = TextView::new(true)?;
+        view.set_content(
+            "one
+two
+",
+        )?;
+        assert_eq!(
+            view.get_content()?,
+            "one
+two
+"
+        );
+        let mut editor = TextEditor::new()?;
+        editor.set_content(
+            "a
+b",
+        )?;
+        assert_eq!(
+            editor.get_content()?,
+            "a
+b"
+        );
         Ok(())
     }
 

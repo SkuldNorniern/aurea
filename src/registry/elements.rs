@@ -5,16 +5,6 @@ thread_local! {
     static BUTTON_CALLBACKS: CallbackRegistry<()> = CallbackRegistry::new();
 }
 
-static TEXT_EDITOR_ID: IdAllocator = IdAllocator::new();
-thread_local! {
-    static TEXT_EDITOR_CALLBACKS: CallbackRegistry<String> = CallbackRegistry::new();
-}
-
-static TEXT_VIEW_ID: IdAllocator = IdAllocator::new();
-thread_local! {
-    static TEXT_VIEW_CALLBACKS: CallbackRegistry<String> = CallbackRegistry::new();
-}
-
 static TAB_ID: IdAllocator = IdAllocator::new();
 thread_local! {
     static TAB_SELECTED_CALLBACKS: CallbackRegistry<i32> = CallbackRegistry::new();
@@ -43,40 +33,6 @@ pub fn unregister_button_callback(id: u32) {
 
 pub fn invoke_button_callback(id: u32) {
     BUTTON_CALLBACKS.with(|r| r.invoke(id, ()));
-}
-
-pub fn next_text_editor_id() -> u32 {
-    TEXT_EDITOR_ID.next()
-}
-
-pub fn register_text_editor_callback(id: u32, callback: impl Fn(String) + 'static) {
-    TEXT_EDITOR_CALLBACKS.with(|r| r.insert(id, callback));
-}
-
-/// Drops the text editor callback registered for `id`.
-pub fn unregister_text_editor_callback(id: u32) {
-    TEXT_EDITOR_CALLBACKS.with(|r| r.remove(id));
-}
-
-pub fn invoke_text_editor_callback(id: u32, content: String) {
-    TEXT_EDITOR_CALLBACKS.with(|r| r.invoke(id, content));
-}
-
-pub fn next_text_view_id() -> u32 {
-    TEXT_VIEW_ID.next()
-}
-
-pub fn register_text_view_callback(id: u32, callback: impl Fn(String) + 'static) {
-    TEXT_VIEW_CALLBACKS.with(|r| r.insert(id, callback));
-}
-
-/// Drops the text view callback registered for `id`.
-pub fn unregister_text_view_callback(id: u32) {
-    TEXT_VIEW_CALLBACKS.with(|r| r.remove(id));
-}
-
-pub fn invoke_text_view_callback(id: u32, content: String) {
-    TEXT_VIEW_CALLBACKS.with(|r| r.invoke(id, content));
 }
 
 pub fn next_tab_id() -> u32 {

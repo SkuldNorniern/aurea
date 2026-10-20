@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
 
 use crate::ffi::{
-    ng_platform_color_dialog, ng_platform_file_dialog, ng_platform_free_dialog_paths,
-    ng_platform_message_box,
+    NG_ERROR_UNSUPPORTED, ng_platform_color_dialog, ng_platform_file_dialog,
+    ng_platform_free_dialog_paths, ng_platform_message_box,
 };
 use crate::render::Color;
 use crate::{AureaError, AureaResult, Platform, Window};
@@ -15,8 +15,6 @@ use crate::{AureaError, AureaResult, Platform, Window};
 const OPEN: c_int = 0;
 const SAVE: c_int = 1;
 const FOLDER: c_int = 2;
-
-const NG_ERROR_UNSUPPORTED: c_int = -5;
 
 /// A file dialog to set up, then show with [`open`](Self::open), [`save`](Self::save) or
 /// [`pick_folder`](Self::pick_folder).
