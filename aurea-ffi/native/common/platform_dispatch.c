@@ -332,6 +332,14 @@ NGHandle ng_platform_creation_parent(void) {
     return g_ops && g_ops->creation_parent ? g_ops->creation_parent() : NULL;
 }
 
+int ng_platform_element_set_enabled(NGHandle e, int enabled) {
+    DISPATCH_INT(element_set_enabled, e, enabled);
+}
+
+int ng_platform_element_watch_destroy(NGHandle e, unsigned int id) {
+    DISPATCH_INT(element_watch_destroy, e, id);
+}
+
 int ng_platform_detach_element(NGHandle e) {
     ensure_ops();
     if (!e) return NG_ERROR_INVALID_HANDLE;

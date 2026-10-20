@@ -279,6 +279,18 @@ int ng_platform_box_set_padding(NGHandle box, int padding) {
     return NG_ERROR_UNSUPPORTED;
 }
 
+int ng_platform_element_set_enabled(NGHandle element, int enabled) {
+    (void)element;
+    (void)enabled;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_element_watch_destroy(NGHandle element, unsigned int id) {
+    (void)element;
+    (void)id;
+    return NG_ERROR_UNSUPPORTED;
+}
+
 NGHandle ng_platform_creation_parent(void) {
     return NULL;
 }

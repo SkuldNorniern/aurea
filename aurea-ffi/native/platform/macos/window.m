@@ -10,6 +10,8 @@
 #import <QuartzCore/QuartzCore.h>
 #include <string.h>
 #import <objc/runtime.h>
+
+static void ng_macos_notify_destroyed(NSView* view);
 #include <limits.h>
 
 static int ng_macos_get_cursor_grab_mode(void* windowHandle);
@@ -797,6 +799,7 @@ void ng_macos_destroy_window(NGHandle handle) {
         NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)window];
         [windowRawSuppress removeObjectForKey:windowValue];
     }
+    ng_macos_notify_destroyed([window contentView]);
     [window close];
 }
 
@@ -1129,6 +1132,7 @@ int ng_macos_window_set_cursor_grab(NGHandle window, int mode) {
 void ng_macos_destroy_element(NGHandle element) {
     if (!element) return;
     NSView* view = (__bridge_transfer NSView*)element;
+    if ([view isKindOfClass:[NSView class]]) ng_macos_notify_destroyed(view);
     if ([view isKindOfClass:[NSView class]] && [view superview]) {
         [view removeFromSuperview];
     }
@@ -1149,6 +1153,51 @@ void ng_macos_element_release(NGHandle element) {
 }
 
 static char kChangeIdKey;
+static char kDestroyIdKey;
+static char kEditableKey;
+
+static void ng_macos_enable_view(NSView* view, BOOL enabled) {
+    if ([view isKindOfClass:[NSControl class]]) {
+        [(NSControl*)view setEnabled:enabled];
+    } else if ([view isKindOfClass:[NSTextView class]]) {
+        NSTextView* text = (NSTextView*)view;
+        NSNumber* was = objc_getAssociatedObject(text, &kEditableKey);
+        if (!enabled && !was) {
+            objc_setAssociatedObject(text, &kEditableKey, @([text isEditable]), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [text setEditable:NO];
+            [text setSelectable:NO];
+            [text setTextColor:[NSColor disabledControlTextColor]];
+        } else if (enabled && was) {
+            objc_setAssociatedObject(text, &kEditableKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [text setEditable:[was boolValue]];
+            [text setSelectable:YES];
+            [text setTextColor:[NSColor textColor]];
+        }
+    }
+    for (NSView* sub in [view subviews]) ng_macos_enable_view(sub, enabled);
+}
+
+int ng_macos_element_set_enabled(NGHandle element, int enabled) {
+    if (!element) return NG_ERROR_INVALID_HANDLE;
+    ng_macos_enable_view((__bridge NSView*)element, enabled ? YES : NO);
+    return NG_SUCCESS;
+}
+
+int ng_macos_element_watch_destroy(NGHandle element, unsigned int id) {
+    if (!element) return NG_ERROR_INVALID_HANDLE;
+    objc_setAssociatedObject((__bridge NSView*)element, &kDestroyIdKey, @(id), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return NG_SUCCESS;
+}
+
+static void ng_macos_notify_destroyed(NSView* view) {
+    if (!view) return;
+    for (NSView* sub in [[view subviews] copy]) ng_macos_notify_destroyed(sub);
+    NSNumber* watch = objc_getAssociatedObject(view, &kDestroyIdKey);
+    if (watch) {
+        objc_setAssociatedObject(view, &kDestroyIdKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        ng_invoke_custom_callback(watch.unsignedIntValue);
+    }
+}
 static char kMinWidthKey;
 static char kMinHeightKey;
 

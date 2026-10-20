@@ -108,6 +108,8 @@ int ng_platform_element_set_min_size(NGHandle element, int width, int height);
 int ng_platform_box_set_spacing(NGHandle box, int spacing);
 int ng_platform_box_set_padding(NGHandle box, int padding);
 NGHandle ng_platform_creation_parent(void);
+int ng_platform_element_set_enabled(NGHandle element, int enabled);
+int ng_platform_element_watch_destroy(NGHandle element, unsigned int id);
 
 NGHandle ng_platform_create_split_view(int is_vertical);
 int ng_platform_split_view_add(NGHandle split_handle, NGHandle element);

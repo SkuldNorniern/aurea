@@ -21,6 +21,8 @@ int ng_linux_box_set_padding(NGHandle box, int padding);
 int ng_linux_element_set_change_id(NGHandle element, unsigned int id);
 int ng_linux_element_set_visible(NGHandle element, int visible);
 int ng_linux_element_set_min_size(NGHandle element, int width, int height);
+int ng_linux_element_set_enabled(NGHandle element, int enabled);
+int ng_linux_element_watch_destroy(NGHandle element, unsigned int id);
 void ng_linux_set_quiet(void* object, int quiet);
 int ng_linux_is_quiet(void* object);
 NGHandle ng_linux_create_split_view(int is_vertical);

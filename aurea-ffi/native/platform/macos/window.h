@@ -24,6 +24,8 @@ int ng_macos_element_set_visible(NGHandle element, int visible);
 int ng_macos_element_set_min_size(NGHandle element, int width, int height);
 int ng_macos_box_set_spacing(NGHandle box, int spacing);
 int ng_macos_box_set_padding(NGHandle box, int padding);
+int ng_macos_element_set_enabled(NGHandle element, int enabled);
+int ng_macos_element_watch_destroy(NGHandle element, unsigned int id);
 int ng_macos_set_window_content(NGHandle window, NGHandle content);
 float ng_macos_get_scale_factor(NGHandle window);
 void ng_macos_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallback callback);

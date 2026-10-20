@@ -26,6 +26,23 @@ int ng_linux_element_set_change_id(NGHandle element, unsigned int id) {
     return NG_SUCCESS;
 }
 
+int ng_linux_element_set_enabled(NGHandle element, int enabled) {
+    if (!element || !GTK_IS_WIDGET(element)) return NG_ERROR_INVALID_HANDLE;
+    gtk_widget_set_sensitive((GtkWidget*)element, enabled ? TRUE : FALSE);
+    return NG_SUCCESS;
+}
+
+static void on_destroyed(GtkWidget* widget, gpointer id) {
+    (void)widget;
+    ng_invoke_custom_callback(GPOINTER_TO_UINT(id));
+}
+
+int ng_linux_element_watch_destroy(NGHandle element, unsigned int id) {
+    if (!element || !GTK_IS_WIDGET(element)) return NG_ERROR_INVALID_HANDLE;
+    g_signal_connect(element, "destroy", G_CALLBACK(on_destroyed), GUINT_TO_POINTER(id));
+    return NG_SUCCESS;
+}
+
 int ng_linux_element_set_visible(NGHandle element, int visible) {
     if (!element || !GTK_IS_WIDGET(element)) return NG_ERROR_INVALID_HANDLE;
     gtk_widget_set_visible((GtkWidget*)element, visible ? TRUE : FALSE);
