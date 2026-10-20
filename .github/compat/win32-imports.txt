@@ -70,6 +70,8 @@ GetClassNameW
 GetClientRect
 GetClipboardData
 GetClipboardFormatNameW
+GetCurrentProcessId
+GetCurrentThreadId
 GetCursor
 GetCursorPos
 GetDC
@@ -95,6 +97,7 @@ GetParent
 GetProcAddress
 GetPropA
 GetRawInputData
+GetScrollInfo
 GetStockObject
 GetSubMenu
 GetSysColor
@@ -180,6 +183,7 @@ SetMenu
 SetMenuItemInfoW
 SetParent
 SetPropA
+SetScrollInfo
 SetStretchBltMode
 SetTextColor
 SetTimer
@@ -188,6 +192,7 @@ SetWindowLongPtrA
 SetWindowLongPtrW
 SetWindowPos
 SetWindowTextW
+SetWinEventHook
 Shell_NotifyIconW
 ShowCursor
 ShowWindow

@@ -267,6 +267,8 @@ unsafe extern "C" {
         index: c_int,
         position: f32,
     ) -> c_int;
+    pub fn ng_platform_create_scroll_view() -> *mut c_void;
+    pub fn ng_platform_scroll_view_set_content(scroll: *mut c_void, element: *mut c_void) -> c_int;
 
     pub fn ng_platform_create_text_editor() -> *mut c_void;
     pub fn ng_platform_text_editor_invalidate(text_editor: *mut c_void);

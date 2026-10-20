@@ -80,6 +80,7 @@ fn main() {
         "native/platform/windows/elements/label.c",
         "native/platform/windows/elements/box.c",
         "native/platform/windows/elements/split_view.c",
+        "native/platform/windows/elements/scroll_view.c",
         "native/platform/windows/elements/text_common.c",
         "native/platform/windows/elements/text_editor.c",
         "native/platform/windows/elements/text_view.c",
@@ -138,6 +139,7 @@ fn main() {
         "native/platform/macos/elements/tab_bar.m",
         "native/platform/macos/elements/sidebar_list.m",
         "native/platform/macos/elements/split_view.m",
+        "native/platform/macos/elements/scroll_view.m",
         "native/platform/macos/swiftui_host.m",
     ];
 
@@ -155,6 +157,7 @@ fn main() {
         "native/platform/linux/elements/label.c",
         "native/platform/linux/elements/box.c",
         "native/platform/linux/elements/split_view.c",
+        "native/platform/linux/elements/scroll_view.c",
         "native/platform/linux/elements/text_common.c",
         "native/platform/linux/elements/text_undo.c",
         "native/platform/linux/elements/text_editor.c",

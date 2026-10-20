@@ -33,6 +33,8 @@ void ng_platform_button_invalidate(NGHandle handle);
 void ng_platform_label_invalidate(NGHandle handle);
 int ng_platform_label_set_text(NGHandle handle, const char* text);
 int ng_platform_label_set_style(NGHandle handle, int style);
+NGHandle ng_platform_create_scroll_view(void);
+int ng_platform_scroll_view_set_content(NGHandle scroll, NGHandle element);
 void ng_platform_canvas_invalidate(NGHandle handle);
 void ng_platform_text_editor_invalidate(NGHandle handle);
 void ng_platform_text_view_invalidate(NGHandle handle);

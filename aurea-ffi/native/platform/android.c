@@ -85,6 +85,16 @@ void ng_platform_box_invalidate(NGHandle _box) {
     (void)_box;
 }
 
+NGHandle ng_platform_create_scroll_view(void) {
+    return NULL;
+}
+
+int ng_platform_scroll_view_set_content(NGHandle scroll, NGHandle element) {
+    (void)scroll;
+    (void)element;
+    return NG_ERROR_UNSUPPORTED;
+}
+
 NGHandle ng_platform_create_split_view(int is_vertical) {
     (void)is_vertical;
     return NULL;

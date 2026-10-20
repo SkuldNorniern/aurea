@@ -132,6 +132,8 @@ int ng_platform_text_set_feature(NGHandle text, int feature, int on);
 NGHandle ng_platform_create_split_view(int is_vertical);
 int ng_platform_split_view_add(NGHandle split_handle, NGHandle element);
 int ng_platform_split_view_set_divider_position(NGHandle split_handle, int index, float position);
+NGHandle ng_platform_create_scroll_view(void);
+int ng_platform_scroll_view_set_content(NGHandle scroll, NGHandle element);
 
 NGHandle ng_platform_create_text_editor(void);
 void ng_platform_text_editor_invalidate(NGHandle text_editor);

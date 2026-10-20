@@ -59,6 +59,7 @@
 #define MIN_HEIGHT_PROP "AureaMinHeight"
 #define BOX_SPACING_PROP "AureaBoxSpacing"
 #define BOX_PADDING_PROP "AureaBoxPadding"
+#define SCROLL_VIEW_OLD_PROC_PROP "AureaScrollViewOldProc"
 /* Control ids for buttons start here; menu item ids sit below it. */
 #define BUTTON_COMMAND_BASE 0x8000
 
@@ -102,5 +103,10 @@ void ng_windows_forward_to_window(HWND from, UINT msg, WPARAM wParam, LPARAM lPa
 int ng_windows_control_changed(UINT msg, WPARAM wParam, LPARAM lParam);
 /* A tab bar's size; 0 when `bar` is not one. */
 int ng_windows_tab_bar_measure(HWND bar, int* width, int* height);
+/* The height `hwnd` wants at `width`. */
+int ng_windows_measure_height(HWND hwnd, int width);
+int ng_windows_is_scroll_view(HWND hwnd);
+/* Sizes the content to its height and updates the scroll range. */
+void ng_windows_scroll_view_layout(HWND scroll);
 
 #endif

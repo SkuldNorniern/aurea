@@ -94,6 +94,8 @@ typedef struct ng_platform_ops {
     NGHandle (*create_split_view)(int is_vertical);
     int (*split_view_add)(NGHandle split, NGHandle element);
     int (*split_view_set_divider_position)(NGHandle split, int index, float position);
+    NGHandle (*create_scroll_view)(void);
+    int (*scroll_view_set_content)(NGHandle scroll, NGHandle element);
 
     NGHandle (*create_text_editor)(void);
     void (*text_editor_invalidate)(NGHandle h);

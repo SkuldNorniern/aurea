@@ -396,6 +396,15 @@ int ng_platform_split_view_set_divider_position(NGHandle s, int i, float p) {
     DISPATCH_INT(split_view_set_divider_position, s, i, p);
 }
 
+NGHandle ng_platform_create_scroll_view(void) {
+    ensure_ops();
+    return g_ops && g_ops->create_scroll_view ? g_ops->create_scroll_view() : NULL;
+}
+
+int ng_platform_scroll_view_set_content(NGHandle s, NGHandle e) {
+    DISPATCH_INT(scroll_view_set_content, s, e);
+}
+
 NGHandle ng_platform_create_text_editor(void) {
     ensure_ops();
     return g_ops && g_ops->create_text_editor ? g_ops->create_text_editor() : NULL;

@@ -45,6 +45,16 @@ void ng_platform_button_invalidate(NGHandle handle) {
 void ng_platform_label_invalidate(NGHandle handle) {
 }
 
+NGHandle ng_platform_create_scroll_view(void) {
+    return NULL;
+}
+
+int ng_platform_scroll_view_set_content(NGHandle scroll, NGHandle element) {
+    (void)scroll;
+    (void)element;
+    return NG_ERROR_UNSUPPORTED;
+}
+
 int ng_platform_label_set_style(NGHandle label, int style) {
     (void)label;
     (void)style;

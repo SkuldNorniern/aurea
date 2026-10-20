@@ -297,6 +297,8 @@ void ng_windows_relayout(HWND hwnd) {
     HWND top = NULL;
     for (HWND at = GetParent(hwnd); at && is_box(at); at = GetParent(at)) top = at;
     if (top) layout_box_children(top);
+    HWND outer = GetParent(top ? top : hwnd);
+    if (ng_windows_is_scroll_view(outer)) ng_windows_scroll_view_layout(outer);
 }
 
 void calculate_text_size(HDC hdc, const char* text, int* width, int* height) {
@@ -338,7 +340,7 @@ static int box_padding(HWND box) {
     char parent_class[64];
     if (parent && ((GetClassNameA(parent, parent_class, sizeof(parent_class)) &&
                     _stricmp(parent_class, "NativeGuiWindow") == 0) ||
-                   GetPropA(parent, "AureaSplitViewOldProc"))) {
+                   GetPropA(parent, "AureaSplitViewOldProc") || ng_windows_is_scroll_view(parent))) {
         return ng_windows_px(box, PADDING);
     }
     return 0;
@@ -490,6 +492,14 @@ static void measure_box(HWND box, int in_vertical, int cross, int* out_w, int* o
         *out_w = width > 0 ? width : main + 2 * pad;
         *out_h = across + 2 * pad;
     }
+}
+
+int ng_windows_measure_height(HWND hwnd, int width) {
+    BoxChild c = {0};
+    c.hwnd = hwnd;
+    GetClassNameA(hwnd, c.class_name, sizeof(c.class_name));
+    measure_child(&c, 1, width);
+    return c.h;
 }
 
 void layout_box_children(HWND box) {
