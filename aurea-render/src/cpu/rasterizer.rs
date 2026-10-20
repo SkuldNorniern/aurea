@@ -229,6 +229,18 @@ impl CpuRasterizer {
                     clip,
                 );
             }
+            DrawCommand::DrawShadow(rect, radius, blur, color) => {
+                super::raster::round_rect::shadow(
+                    *rect,
+                    *radius,
+                    *blur,
+                    fade_color(*color, alpha),
+                    item.blend_mode,
+                    buf,
+                    bw,
+                    clip,
+                );
+            }
             DrawCommand::DrawCircle(center, radius, paint) => {
                 Self::draw_circle(
                     *center,

@@ -1081,6 +1081,62 @@ mod context_tests {
     }
 
     #[test]
+    fn shadows_match_the_cpu() {
+        let Ok(context) = ZenGpuContext::new() else {
+            return;
+        };
+        let (w, h) = (48, 40);
+        let draw = |ctx: &mut dyn DrawingContext| {
+            ctx.clear(Color::rgb(255, 255, 255)).unwrap();
+            ctx.draw_shadow(
+                Rect::new(12.0, 10.0, 24.0, 18.0),
+                5.0,
+                3.0,
+                Color::rgba(0, 0, 0, 200),
+            )
+            .unwrap();
+        };
+        let mut cpu = CpuRasterizer::new(w, h);
+        cpu.init(RenderSurface::Cpu, SurfaceInfo::new(w, h, 1.0))
+            .unwrap();
+        draw(&mut *cpu.begin_frame().unwrap());
+        cpu.end_frame().unwrap();
+        let mut gpu = ZenGpuRenderer::offscreen(Arc::new(context), w, h, 1.0).unwrap();
+        draw(&mut *gpu.begin_frame().unwrap());
+        assert_eq!(gpu.end_frame().unwrap(), FrameOutcome::Presented);
+
+        let (want, got) = (
+            cpu.frame_output().expect("cpu"),
+            gpu.frame_output().expect("gpu"),
+        );
+        let linear = |v: u32| {
+            let c = v as f32 / 255.0;
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        let alpha = 200.0 / 255.0;
+        let worst = got
+            .words()
+            .iter()
+            .zip(want.words())
+            .map(|(&g, &c)| {
+                let gpu = (255.0 - (g & 0xFF) as f32) / 255.0 / alpha;
+                let cpu = (1.0 - linear(c & 0xFF)) / alpha;
+                (gpu - cpu).abs()
+            })
+            .fold(0.0, f32::max);
+        assert!(
+            worst < 0.04,
+            "gpu and cpu shadow coverage differ by {worst}"
+        );
+        let middle = got.words()[(19 * w + 24) as usize] & 0xFF;
+        assert!(middle < 80, "no shadow under the middle: {middle}");
+    }
+
+    #[test]
     fn offscreen_frames_match_the_cpu_at_150_percent() {
         let Ok(context) = ZenGpuContext::new() else {
             return;

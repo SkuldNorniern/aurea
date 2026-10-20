@@ -56,6 +56,14 @@ impl ShapeInstance {
         }
     }
 
+    fn shadow(rect: Rect, radius: f32, blur: f32, color: Color) -> Self {
+        Self {
+            rect: [rect.x, rect.y, rect.width, rect.height],
+            color: color_f32(color),
+            shape: [radius.max(0.0), 0.0, blur.max(0.0), 0.0],
+        }
+    }
+
     fn circle(center: Point, radius: f32, stroke: f32, color: Color) -> Self {
         let side = radius * 2.0;
         let rect = Rect::new(center.x - radius, center.y - radius, side, side);
@@ -207,7 +215,7 @@ fn needs_of(item: &DisplayItem) -> GpuFeatures {
     }
     let mut needs = match &item.command {
         DrawCommand::Clear(_) | DrawCommand::DrawRect(..) => GpuFeatures::NONE,
-        DrawCommand::DrawRoundRect(..) => GpuFeatures {
+        DrawCommand::DrawRoundRect(..) | DrawCommand::DrawShadow(..) => GpuFeatures {
             rounded_rects: true,
             ..GpuFeatures::NONE
         },
@@ -473,6 +481,10 @@ impl RenderBatches {
                         let color = fade(paint.color, alpha);
                         self.push_shape(ShapeInstance::rounded(*rect, *radius, stroke, color));
                     }
+                }
+                DrawCommand::DrawShadow(rect, radius, blur, color) => {
+                    let color = fade(*color, alpha);
+                    self.push_shape(ShapeInstance::shadow(*rect, *radius, *blur, color));
                 }
                 DrawCommand::DrawPath(path, paint) => {
                     self.push_path(item, path, paint, alpha);

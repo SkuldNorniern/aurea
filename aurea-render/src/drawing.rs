@@ -28,6 +28,12 @@ pub trait DrawingContext {
     /// Draw a circle.
     fn draw_circle(&mut self, center: Point, radius: f32, paint: &Paint) -> AureaResult<()>;
 
+    /// A soft shadow: `rect` with corner `radius`, blurred by a Gaussian of sigma `blur`.
+    fn draw_shadow(&mut self, rect: Rect, radius: f32, blur: f32, color: Color) -> AureaResult<()> {
+        let _ = blur;
+        self.draw_round_rect(rect, radius, &Paint::new().color(color))
+    }
+
     /// Draw text at a position.
     fn draw_text(&mut self, text: &str, position: Point, paint: &Paint) -> AureaResult<()>;
 

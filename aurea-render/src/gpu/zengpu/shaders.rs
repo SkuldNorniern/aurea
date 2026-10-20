@@ -30,12 +30,12 @@ pub const SHAPE_VERT: ZslShader = zsl!(
         @location(2) shape: f32x4,
         vi: vertex_index,
         pc: Pc,
-    ) -> (f32x4, f32x2, f32x4, f32x2, f32x2) {
+    ) -> (f32x4, f32x2, f32x4, f32x2, f32x3) {
         let corner = f32x2(f32((26 >> vi) & 1), f32((52 >> vi) & 1)) * 2.0 - 1.0
         let half_size = rect.zw * 0.5
-        let local = corner * (half_size + (shape.y * 0.5 + 1.0))
+        let local = corner * (half_size + (shape.y * 0.5 + 1.0 + shape.z * 3.0))
         let px = rect.xy + half_size + local
-        (f32x4(px / pc.viewport * 2.0 - 1.0, 0.0, 1.0), local, color, half_size, shape.xy)
+        (f32x4(px / pc.viewport * 2.0 - 1.0, 0.0, 1.0), local, color, half_size, shape.xyz)
     }
 );
 
@@ -44,7 +44,7 @@ pub const SHAPE_FRAG: ZslShader = zsl!(
         @location(0) local: f32x2,
         @location(1) color: f32x4,
         @location(2) half_size: f32x2,
-        @location(3) shape: f32x2,
+        @location(3) shape: f32x3,
     ) -> f32x4 {
         let r = clamp(shape.x, 0.0, min(half_size.x, half_size.y))
         let q = abs(local) - half_size + r
@@ -53,6 +53,15 @@ pub const SHAPE_FRAG: ZslShader = zsl!(
             d = abs(d) - shape.y * 0.5
         }
         let alpha = clamp(0.5 - d, 0.0, 1.0)
+        if shape.z > 0.0 {
+            let x = abs(d) / (shape.z * 1.41421356)
+            let t = 1.0 / (1.0 + 0.3275911 * x)
+            let tail = 0.5 * t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429)))) * exp(-x * x)
+            alpha = tail
+            if d < 0.0 {
+                alpha = 1.0 - tail
+            }
+        }
         if alpha <= 0.0 {
             discard
         }

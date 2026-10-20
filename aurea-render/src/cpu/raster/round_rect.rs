@@ -1,5 +1,6 @@
 //! Rounded rectangles, filled or stroked, antialiased analytically.
 
+use std::f32::consts::SQRT_2;
 use std::ops::Range;
 
 use crate::cpu::blend::{ConstSrc, blend_pixel};
@@ -28,6 +29,49 @@ pub(crate) fn draw(
         }
         PaintStyle::Stroke => {}
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn shadow(
+    rect: Rect,
+    radius: f32,
+    blur: f32,
+    color: Color,
+    mode: BlendMode,
+    buf: &mut [u32],
+    bw: u32,
+    clip: ClipBox,
+) {
+    if clip.is_empty() || rect.width <= 0.0 || rect.height <= 0.0 || color.a == 0 {
+        return;
+    }
+    let shape = Shape::new(rect, radius);
+    let mut px = Pixels::new(buf, bw, clip, color, mode);
+    if blur <= 0.0 {
+        fill(&shape, &mut px);
+        return;
+    }
+    let reach = blur * 3.0;
+    for y in rows(&shape, reach, px.clip) {
+        let Some(outer) = shape.outer_half(shape.row_q(y as f32 + 0.5), reach) else {
+            continue;
+        };
+        let span = columns(&shape, outer, px.clip, false);
+        let solid = deep_run(&shape, y, reach, px.clip, true);
+        row(&shape, y, span, solid, &mut px, |d| {
+            shadow_coverage(d, blur)
+        });
+    }
+}
+
+pub(crate) fn shadow_coverage(d: f32, blur: f32) -> f32 {
+    let x = d.abs() / (blur * SQRT_2);
+    let t = 1.0 / (1.0 + 0.327_591_1 * x);
+    let poly = t
+        * (0.254_829_6
+            + t * (-0.284_496_74 + t * (1.421_413_7 + t * (-1.453_152 + t * 1.061_405_4))));
+    let tail = 0.5 * poly * (-x * x).exp();
+    if d < 0.0 { 1.0 - tail } else { tail }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -290,6 +334,43 @@ mod tests {
 
     fn paint(color: Color, style: PaintStyle, width: f32) -> Paint {
         Paint::new().color(color).style(style).stroke_width(width)
+    }
+
+    #[test]
+    fn shadow_coverage_is_a_gaussian_edge() {
+        assert!((shadow_coverage(0.0, 4.0) - 0.5).abs() < 1e-3);
+        for d in [0.5, 2.0, 5.0, 9.0] {
+            let sum = shadow_coverage(d, 4.0) + shadow_coverage(-d, 4.0);
+            assert!((sum - 1.0).abs() < 1e-4, "{d}: {sum}");
+        }
+        assert!(shadow_coverage(12.0, 4.0) < 0.002);
+        assert!(shadow_coverage(-12.0, 4.0) > 0.998);
+    }
+
+    #[test]
+    fn a_shadow_ramps_without_steps() {
+        let mut buf = canvas();
+        shadow(
+            Rect::new(20.0, 16.0, 24.0, 32.0),
+            6.0,
+            4.0,
+            Color::rgb(0, 0, 0),
+            BlendMode::Normal,
+            &mut buf,
+            W,
+            ClipBox::surface(W, W),
+        );
+        let row: Vec<u32> = (0..W).map(|x| alpha(&buf, x, 32)).collect();
+        assert_eq!(row[2], 0, "{row:?}");
+        assert!(row[32] > 250, "{row:?}");
+        assert!(
+            row[19].abs_diff(128) < 24 && row[20].abs_diff(128) < 24,
+            "{row:?}"
+        );
+        for x in 1..32 {
+            assert!(row[x] >= row[x - 1], "not rising at {x}: {row:?}");
+            assert!(row[x] - row[x - 1] < 40, "hard step at {x}: {row:?}");
+        }
     }
 
     #[test]

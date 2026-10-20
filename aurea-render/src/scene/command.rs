@@ -12,6 +12,8 @@ pub enum DrawCommand {
     /// A rect with corners of the given radius; a stroke is centred on the outline.
     DrawRoundRect(Rect, f32, Paint),
     DrawCircle(Point, f32, Paint),
+    /// A rounded rect blurred by a Gaussian of the given sigma: rect, radius, sigma, colour.
+    DrawShadow(Rect, f32, f32, Color),
     DrawPath(Path, Paint),
     DrawText(String, Point, Paint),
     DrawTextWithFont(String, Point, Font, Paint),

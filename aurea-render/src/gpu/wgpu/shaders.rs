@@ -57,7 +57,7 @@ struct VsOut {
     @location(0) local: vec2<f32>,
     @location(1) color: vec4<f32>,
     @location(2) half_size: vec2<f32>,
-    @location(3) shape: vec2<f32>,
+    @location(3) shape: vec3<f32>,
 };
 
 const CORNERS = array<vec2<f32>, 6>(
@@ -70,7 +70,7 @@ fn vs_main(@builtin(vertex_index) vidx: u32, instance: Instance) -> VsOut {
     let corner = CORNERS[vidx];
     let half_size = instance.rect.zw * 0.5;
     // Room for the stroke past the outline and the antialiased edge.
-    let reach = half_size + vec2<f32>(instance.shape.y * 0.5 + 1.0);
+    let reach = half_size + vec2<f32>(instance.shape.y * 0.5 + 1.0 + instance.shape.z * 3.0);
     let local = corner * reach;
     let px = instance.rect.xy + half_size + local;
     let ndc = (px / viewport.size) * 2.0 - 1.0;
@@ -79,7 +79,7 @@ fn vs_main(@builtin(vertex_index) vidx: u32, instance: Instance) -> VsOut {
     out.local = local;
     out.color = instance.color;
     out.half_size = half_size;
-    out.shape = instance.shape.xy;
+    out.shape = instance.shape.xyz;
     return out;
 }
 
@@ -92,7 +92,13 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     if (in.shape.y > 0.0) {
         d = abs(d) - in.shape.y * 0.5;
     }
-    let alpha = clamp(0.5 - d, 0.0, 1.0);
+    var alpha = clamp(0.5 - d, 0.0, 1.0);
+    if (in.shape.z > 0.0) {
+        let x = abs(d) / (in.shape.z * 1.41421356);
+        let t = 1.0 / (1.0 + 0.3275911 * x);
+        let tail = 0.5 * t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429)))) * exp(-x * x);
+        alpha = select(tail, 1.0 - tail, d < 0.0);
+    }
     if (alpha <= 0.0) {
         discard;
     }

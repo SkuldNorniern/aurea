@@ -512,6 +512,13 @@ impl<'list> RecordingContext<'list> {
                 paint.style.hash(&mut hasher);
                 paint.stroke_width.to_bits().hash(&mut hasher);
             }
+            DrawCommand::DrawShadow(rect, radius, blur, color) => {
+                "DrawShadow".hash(&mut hasher);
+                for v in [rect.x, rect.y, rect.width, rect.height, *radius, *blur] {
+                    v.to_bits().hash(&mut hasher);
+                }
+                [color.r, color.g, color.b, color.a].hash(&mut hasher);
+            }
             DrawCommand::DrawRoundRect(rect, radius, paint) => {
                 "DrawRoundRect".hash(&mut hasher);
                 rect.x.to_bits().hash(&mut hasher);
@@ -688,6 +695,15 @@ impl<'list> RecordingContext<'list> {
                 }
                 bounds
             }
+            DrawCommand::DrawShadow(rect, _, blur, _) => {
+                let reach = blur * 3.0;
+                Rect::new(
+                    rect.x - reach,
+                    rect.y - reach,
+                    rect.width + reach * 2.0,
+                    rect.height + reach * 2.0,
+                )
+            }
             DrawCommand::DrawRoundRect(rect, _, paint) => {
                 let mut bounds = *rect;
                 if paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0 {
@@ -856,6 +872,25 @@ impl DrawingContext for RecordingContext<'_> {
             (rect, paint.stroke_width) = snap_rect(rect, &paint);
         }
         self.add_command(DrawCommand::DrawRect(rect, paint));
+        Ok(())
+    }
+
+    fn draw_shadow(&mut self, rect: Rect, radius: f32, blur: f32, color: Color) -> AureaResult<()> {
+        if color.a == 0 {
+            return Ok(());
+        }
+        if !self.transform_is_axis_aligned() {
+            return self.draw_path(
+                &Path::rounded_rect(rect, radius),
+                &Paint::new().color(color),
+            );
+        }
+        self.add_command(DrawCommand::DrawShadow(
+            self.s_rect(rect),
+            self.s(radius),
+            self.s(blur.max(0.0)),
+            color,
+        ));
         Ok(())
     }
 
