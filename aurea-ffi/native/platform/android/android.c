@@ -126,26 +126,26 @@ void ng_android_set_activity(JavaVM* jvm, jobject activity) {
 }
 
 NGMenuHandle ng_android_create_menu(void) {
-    // TODO: Create Android menu
     return NULL;
 }
 
 void ng_android_destroy_menu(NGMenuHandle handle) {
-    // TODO: Destroy Android menu
+    (void)handle;
 }
 
 NGHandle ng_android_create_button(const char* title) {
-    // TODO: Create Android button view
+    (void)title;
     return NULL;
 }
 
 NGHandle ng_android_create_label(const char* text) {
-    // TODO: Create Android text view
+    (void)text;
     return NULL;
 }
 
 NGHandle ng_android_create_canvas(int width, int height) {
-    // TODO: Create Android canvas/view for rendering (SurfaceView, GLSurfaceView, etc.)
+    (void)width;
+    (void)height;
     return NULL;
 }
 

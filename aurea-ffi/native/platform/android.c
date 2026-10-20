@@ -243,7 +243,6 @@ NGHandle ng_platform_create_label(const char* text) {
 }
 
 NGHandle ng_platform_create_box(int is_vertical) {
-    // TODO: Implement for Android
     (void)is_vertical;
     return NULL;
 }
@@ -341,7 +340,6 @@ NGHandle ng_platform_creation_parent(void) {
 }
 
 int ng_platform_box_add(NGHandle box, NGHandle element, float weight) {
-    // TODO: Implement for Android
     (void)box;
     (void)element;
     (void)weight;
@@ -349,25 +347,21 @@ int ng_platform_box_add(NGHandle box, NGHandle element, float weight) {
 }
 
 NGHandle ng_platform_create_text_editor(void) {
-    // TODO: Implement for Android
     return NULL;
 }
 
 NGHandle ng_platform_create_text_view(int _is_editable) {
-    // TODO: Implement for Android
     (void)_is_editable;
     return NULL;
 }
 
 int ng_platform_set_text_content(NGHandle _text_handle, const char* _content) {
-    // TODO: Implement for Android
     (void)_text_handle;
     (void)_content;
     return NG_ERROR_UNSUPPORTED;
 }
 
 char* ng_platform_get_text_content(NGHandle _text_handle) {
-    // TODO: Implement for Android
     (void)_text_handle;
     return NULL;
 }
@@ -383,7 +377,6 @@ NGHandle ng_platform_create_canvas(int width, int height) {
 }
 
 void ng_platform_canvas_invalidate(NGHandle _canvas) {
-    // TODO: Implement canvas invalidation for Android
     (void)_canvas;
 }
 

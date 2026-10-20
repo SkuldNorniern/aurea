@@ -20,12 +20,11 @@ void ng_ios_destroy_window(NGHandle handle) {
 }
 
 NGMenuHandle ng_ios_create_menu(void) {
-    // TODO: Create iOS menu (limited support)
     return NULL;
 }
 
 void ng_ios_destroy_menu(NGMenuHandle handle) {
-    // TODO: Destroy iOS menu
+    (void)handle;
 }
 
 NGHandle ng_ios_create_button(const char* title, unsigned int id) {

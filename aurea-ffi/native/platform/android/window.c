@@ -18,6 +18,9 @@ static JNIEnv* get_jni_env(void) {
 }
 
 NGHandle ng_android_create_window_impl(const char* title, int width, int height) {
+    (void)title;
+    (void)width;
+    (void)height;
     
     if (!g_mainWindowHandle) {
         static int window_id = 1;
@@ -37,10 +40,30 @@ void ng_android_destroy_window_impl(NGHandle handle) {
 
 int ng_android_set_window_content(NGHandle window_handle, NGHandle content_handle) {
     if (!window_handle || !content_handle) return NG_ERROR_INVALID_HANDLE;
-    
-    // TODO: Implement JNI call to setContentView
-    
-    return NG_SUCCESS;
+    return NG_ERROR_UNSUPPORTED;
+}
+/* Calls `name` with signature `sig` on the activity; 0 when there is none. */
+static jvalue call_activity(const char* name, const char* sig, char kind, jobject arg) {
+    jvalue out = {0};
+    JNIEnv* env = get_jni_env();
+    if (!env || !g_activity) return out;
+    jclass activity_class = (*env)->GetObjectClass(env, g_activity);
+    jmethodID method = activity_class ? (*env)->GetMethodID(env, activity_class, name, sig) : NULL;
+    if (method) {
+        if (kind == 'Z') {
+            out.z = (*env)->CallBooleanMethod(env, g_activity, method);
+        } else if (arg) {
+            (*env)->CallVoidMethod(env, g_activity, method, arg);
+        } else {
+            (*env)->CallVoidMethod(env, g_activity, method);
+        }
+    }
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+        out.z = 0;
+    }
+    if (activity_class) (*env)->DeleteLocalRef(env, activity_class);
+    return out;
 }
 
 float ng_android_get_scale_factor_impl(NGHandle window) {
@@ -129,9 +152,16 @@ void ng_android_set_lifecycle_callback_enabled(int enabled) {
 }
 
 void ng_android_window_set_title(NGHandle window, const char* title) {
-    (void)window;
-    (void)title;
-    // TODO: Implement JNI call to setTitle
+    if (!window || !title) return;
+    JNIEnv* env = get_jni_env();
+    if (!env) return;
+    jstring text = (*env)->NewStringUTF(env, title);
+    if (!text) {
+        (*env)->ExceptionClear(env);
+        return;
+    }
+    call_activity("setTitle", "(Ljava/lang/CharSequence;)V", 'V', text);
+    (*env)->DeleteLocalRef(env, text);
 }
 
 void ng_android_window_set_size(NGHandle window, int width, int height) {
@@ -238,13 +268,10 @@ void ng_android_window_get_size(NGHandle window, int* width, int* height) {
 }
 
 void ng_android_window_request_close(NGHandle window) {
-    (void)window;
-    // TODO: Implement JNI call to finish()
+    if (window) call_activity("finish", "()V", 'V', NULL);
 }
 
 int ng_android_window_is_focused(NGHandle window) {
-    (void)window;
-    // TODO: Implement JNI call to hasWindowFocus()
-    return 1;
+    return window && call_activity("hasWindowFocus", "()Z", 'Z', NULL).z ? 1 : 0;
 }
 

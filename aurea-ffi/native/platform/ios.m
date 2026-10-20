@@ -104,25 +104,21 @@ int ng_platform_box_add(NGHandle box, NGHandle element, float weight) {
 }
 
 NGHandle ng_platform_create_text_editor(void) {
-    // TODO: Implement text editor for iOS
     return NULL;
 }
 
 NGHandle ng_platform_create_text_view(int _is_editable) {
-    // TODO: Implement text view for iOS
     (void)_is_editable;
     return NULL;
 }
 
 int ng_platform_set_text_content(NGHandle _text_handle, const char* _content) {
-    // TODO: Implement for iOS
     (void)_text_handle;
     (void)_content;
     return NG_ERROR_UNSUPPORTED;
 }
 
 char* ng_platform_get_text_content(NGHandle _text_handle) {
-    // TODO: Implement for iOS
     (void)_text_handle;
     return NULL;
 }
@@ -137,9 +133,8 @@ NGHandle ng_platform_create_canvas(int width, int height) {
     return ng_ios_create_canvas(width, height);
 }
 
-void ng_platform_canvas_invalidate(NGHandle _canvas) {
-    // TODO: Implement canvas invalidation for iOS
-    (void)_canvas;
+void ng_platform_canvas_invalidate(NGHandle canvas) {
+    if (canvas) [(__bridge UIView*)canvas setNeedsDisplay];
 }
 
 NGHandle ng_platform_create_image_view(void) {
