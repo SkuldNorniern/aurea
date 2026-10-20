@@ -86,6 +86,8 @@ void ng_windows_watch_text(HWND edit, unsigned int id, int kind);
 void ng_windows_text_changed(HWND edit);
 /* Lays out the outermost box above `hwnd`, after its size may have changed. */
 void ng_windows_relayout(HWND hwnd);
+/* RichEdit stops typing at 32K characters unless told otherwise. */
+void ng_windows_unlimit_text(HWND edit);
 /* Messages a control sends its parent, which containers pass up. */
 int ng_windows_is_notification(UINT msg);
 void ng_windows_forward_to_window(HWND from, UINT msg, WPARAM wParam, LPARAM lParam);

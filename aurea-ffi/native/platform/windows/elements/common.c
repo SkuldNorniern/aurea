@@ -273,6 +273,10 @@ static int stored_px(HWND hwnd, const char* prop) {
     return stored > 0 ? ng_windows_px(hwnd, (int)(stored - 1)) : -1;
 }
 
+void ng_windows_unlimit_text(HWND edit) {
+    SendMessageW(edit, EM_EXLIMITTEXT, 0, 0x7FFFFFFE);
+}
+
 void ng_windows_relayout(HWND hwnd) {
     HWND top = NULL;
     for (HWND at = GetParent(hwnd); at && is_box(at); at = GetParent(at)) top = at;

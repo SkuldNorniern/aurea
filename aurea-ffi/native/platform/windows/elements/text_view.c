@@ -16,6 +16,7 @@ NGHandle ng_windows_create_text_view(int is_editable, unsigned int id) {
         WS_EX_CLIENTEDGE, RICHEDIT_CLASSW, "", style | WS_VISIBLE,
         400, 100, ng_windows_detached_parent(), 0);
 
+    if (edit) ng_windows_unlimit_text(edit);
     if (edit && id != 0 && is_editable) {
         ng_windows_watch_text(edit, id, TEXT_CHANGE_VIEW);
     }
