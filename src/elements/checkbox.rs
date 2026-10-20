@@ -1,4 +1,4 @@
-use super::native::NativeElement;
+use super::native::{ChangeWatch, NativeElement};
 use super::traits::Element;
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
@@ -6,6 +6,7 @@ use std::{ffi::CString, os::raw::c_void};
 
 pub struct Checkbox {
     handle: NativeElement,
+    change: Option<ChangeWatch>,
 }
 
 impl Checkbox {
@@ -24,9 +25,21 @@ impl Checkbox {
 
         let mut checkbox = Self {
             handle: NativeElement::new(handle),
+            change: None,
         };
         let _ = checkbox.set_checked(checked);
         Ok(checkbox)
+    }
+
+    /// Calls `on_change` with the new state when the user toggles it; [`Checkbox::set_checked`]
+    /// does not.
+    pub fn on_change(&mut self, on_change: impl Fn(bool) + 'static) -> AureaResult<()> {
+        let handle = self.handle.handle();
+        self.change = None;
+        self.change = Some(self.handle.watch_change(move || {
+            on_change(unsafe { ng_platform_checkbox_get_checked(handle) } != 0);
+        })?);
+        Ok(())
     }
 
     pub fn set_checked(&mut self, checked: bool) -> AureaResult<()> {

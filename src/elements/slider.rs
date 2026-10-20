@@ -1,11 +1,13 @@
-use super::native::NativeElement;
+use super::native::{ChangeWatch, NativeElement};
 use super::traits::Element;
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
+use std::cmp::Ordering;
 use std::os::raw::c_void;
 
 pub struct Slider {
     handle: NativeElement,
+    change: Option<ChangeWatch>,
 }
 
 impl Slider {
@@ -15,7 +17,7 @@ impl Slider {
 
     /// Create a slider with initial value.
     pub fn with_value(min: f64, max: f64, value: f64) -> AureaResult<Self> {
-        if min >= max {
+        if min.partial_cmp(&max) != Some(Ordering::Less) {
             return Err(AureaError::ElementOperationFailed);
         }
 
@@ -27,6 +29,7 @@ impl Slider {
 
         let mut slider = Self {
             handle: NativeElement::new(handle),
+            change: None,
         };
         let clamped = value.clamp(min, max);
         let _ = slider.set_value(clamped);
@@ -40,6 +43,16 @@ impl Slider {
             return Err(AureaError::ElementOperationFailed);
         }
 
+        Ok(())
+    }
+
+    /// Calls `on_change` with the value while the user drags; [`Slider::set_value`] does not.
+    pub fn on_change(&mut self, on_change: impl Fn(f64) + 'static) -> AureaResult<()> {
+        let handle = self.handle.handle();
+        self.change = None;
+        self.change = Some(self.handle.watch_change(move || {
+            on_change(unsafe { ng_platform_slider_get_value(handle) });
+        })?);
         Ok(())
     }
 

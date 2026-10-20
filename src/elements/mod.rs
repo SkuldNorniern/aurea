@@ -64,6 +64,9 @@ mod gtk_tests {
         fn g_list_nth_data(list: *mut c_void, n: u32) -> *mut c_void;
         fn g_list_length(list: *mut c_void) -> u32;
         fn g_list_free(list: *mut c_void);
+        fn gtk_combo_box_set_active(combo: *mut c_void, index: c_int);
+        fn gtk_widget_get_visible(widget: *mut c_void) -> c_int;
+        fn g_signal_emit_by_name(instance: *mut c_void, signal: *const c_char, ...);
     }
 
     const TEXT: &str = "연결 · 日本語 🙂 …";
@@ -154,6 +157,89 @@ mod gtk_tests {
         Ok(())
     }
 
+    fn recorder<T: 'static>() -> (Rc<RefCell<Vec<T>>>, impl Fn(T) + 'static) {
+        let got = Rc::new(RefCell::new(Vec::new()));
+        let seen = Rc::clone(&got);
+        (got, move |v| seen.borrow_mut().push(v))
+    }
+
+    #[test]
+    #[ignore = "needs a display; run with --ignored"]
+    fn value_controls_report_only_the_user() -> AureaResult<()> {
+        let _window = Window::new("changes", 400, 300)?;
+        let (checks, on_check) = recorder();
+        let (picks, on_pick) = recorder();
+        let (moves, on_move) = recorder();
+        let mut check = Checkbox::new("Share")?;
+        check.on_change(on_check)?;
+        let mut combo = ComboBox::with_items(["a", "b", "c"])?;
+        combo.on_change(on_pick)?;
+        let mut slider = Slider::new(0.0, 1.0)?;
+        slider.on_change(on_move)?;
+
+        check.set_checked(true)?;
+        combo.set_selected(1)?;
+        slider.set_value(0.5)?;
+        assert!(
+            checks.borrow().is_empty() && picks.borrow().is_empty() && moves.borrow().is_empty()
+        );
+
+        unsafe {
+            gtk_button_clicked(check.handle());
+            gtk_combo_box_set_active(combo.handle(), 2);
+        }
+        assert_eq!(*checks.borrow(), [false]);
+        assert_eq!(*picks.borrow(), [2]);
+        let mut stop: c_int = 0;
+        unsafe {
+            g_signal_emit_by_name(
+                slider.handle(),
+                c"change-value".as_ptr(),
+                1,
+                0.37,
+                &raw mut stop,
+            );
+        }
+        assert!(
+            (slider.get_value() - 0.37).abs() < 1e-9,
+            "dragged to {}",
+            slider.get_value()
+        );
+        assert_eq!(moves.borrow().len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "needs a display; run with --ignored"]
+    fn a_text_view_ignores_its_own_set() -> AureaResult<()> {
+        let _window = Window::new("text", 400, 300)?;
+        let (got, on_text) = recorder();
+        let mut view = TextView::with_callback(true, on_text)?;
+        view.set_content("from code")?;
+        assert!(got.borrow().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "needs a display; run with --ignored"]
+    fn hidden_and_sized_children_lay_out() -> AureaResult<()> {
+        let mut window = Window::new("layout", 400, 300)?;
+        let first = Shared::new(Label::new("first")?);
+        let button = Button::new("Go")?;
+        let b = button.handle();
+        button.set_min_size(0, 90)?;
+        let mut root = Stack::new(Orientation::Vertical)?;
+        root.set_spacing(0)?;
+        root.add(first.clone())?;
+        root.add(button)?;
+        window.set_content(root)?;
+        first.set_visible(false)?;
+        settle(&window);
+        assert!(unsafe { gtk_widget_get_allocated_height(b) } >= 90);
+        assert_eq!(unsafe { gtk_widget_get_visible(first.handle()) }, 0);
+        Ok(())
+    }
+
     #[test]
     #[ignore = "needs a display; run with --ignored"]
     fn a_shared_label_outlives_its_window() -> AureaResult<()> {
@@ -226,6 +312,11 @@ mod win32_tests {
     const EM_REPLACESEL: u32 = 0x00C2;
     const WS_CHILD: u32 = 0x4000_0000;
     const WS_VISIBLE: u32 = 0x1000_0000;
+    const WM_COMMAND: u32 = 0x0111;
+    const WM_HSCROLL: u32 = 0x0114;
+    const CB_SETCURSEL: u32 = 0x014E;
+    const CBN_SELCHANGE: usize = 1;
+    const TBM_SETPOS: u32 = 0x0405;
 
     fn wide(s: &str) -> Vec<u16> {
         s.encode_utf16().chain([0]).collect()
@@ -419,6 +510,105 @@ mod win32_tests {
             inner.bottom - inner.top > 200,
             "weighted child did not grow"
         );
+        Ok(())
+    }
+
+    fn recorder<T: 'static>() -> (Rc<RefCell<Vec<T>>>, impl Fn(T) + 'static) {
+        let got = Rc::new(RefCell::new(Vec::new()));
+        let seen = Rc::clone(&got);
+        (got, move |v| seen.borrow_mut().push(v))
+    }
+
+    fn as_user(msg: u32, code: usize, control: *mut c_void) {
+        unsafe {
+            SendMessageW(
+                ng_windows_detached_parent(),
+                msg,
+                code << 16,
+                control as isize,
+            )
+        };
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_slider_keeps_fractions() -> AureaResult<()> {
+        let _window = Window::new("slider", 400, 300)?;
+        let mut slider = Slider::with_value(0.0, 1.0, 0.37)?;
+        assert!(
+            (slider.get_value() - 0.37).abs() < 1e-3,
+            "{}",
+            slider.get_value()
+        );
+        slider.set_value(2.0)?;
+        assert!((slider.get_value() - 1.0).abs() < 1e-9);
+        assert!(Slider::new(f64::NAN, 1.0).is_err());
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn value_controls_report_the_user() -> AureaResult<()> {
+        let mut window = Window::new("changes", 400, 300)?;
+        let (checks, on_check) = recorder();
+        let (picks, on_pick) = recorder();
+        let (moves, on_move) = recorder();
+        let mut check = Checkbox::new("Share")?;
+        check.on_change(on_check)?;
+        let mut combo = ComboBox::with_items(["a", "b", "c"])?;
+        combo.on_change(on_pick)?;
+        let mut slider = Slider::new(0.0, 1.0)?;
+        slider.on_change(on_move)?;
+        let (c, k, s) = (check.handle(), combo.handle(), slider.handle());
+        let mut root = Stack::new(Orientation::Vertical)?;
+        root.add(check)?;
+        root.add(combo)?;
+        root.add(slider)?;
+        window.set_content(root)?;
+
+        unsafe { SendMessageW(c, BM_CLICK, 0, 0) };
+        assert_eq!(*checks.borrow(), [true]);
+        unsafe { SendMessageW(k, CB_SETCURSEL, 2, 0) };
+        as_user(WM_COMMAND, CBN_SELCHANGE, k);
+        assert_eq!(*picks.borrow(), [2]);
+        unsafe { SendMessageW(s, TBM_SETPOS, 1, 2500) };
+        as_user(WM_HSCROLL, 0, s);
+        assert_eq!(moves.borrow().len(), 1);
+        assert!((moves.borrow()[0] - 0.25).abs() < 1e-3);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_hidden_child_leaves_no_gap() -> AureaResult<()> {
+        let mut window = Window::new("hidden", 400, 300)?;
+        let first = Shared::new(Label::new("first")?);
+        let second = Label::new("second")?;
+        let s = second.handle();
+        let mut root = Stack::new(Orientation::Vertical)?;
+        let r = root.handle();
+        root.set_padding(0)?;
+        root.add(first.clone())?;
+        root.add(second)?;
+        window.set_content(root)?;
+        let before = rect(s).top;
+        first.set_visible(false)?;
+        assert!(rect(s).top < before, "the gap stayed");
+        assert_eq!(rect(s).top, rect(r).top, "padding 0 still padded");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_min_size_holds() -> AureaResult<()> {
+        let mut window = Window::new("min", 400, 300)?;
+        let button = Button::new("Go")?;
+        let b = button.handle();
+        button.set_min_size(0, 90)?;
+        let mut root = Stack::new(Orientation::Vertical)?;
+        root.add(button)?;
+        window.set_content(root)?;
+        assert!(rect(b).bottom - rect(b).top >= 90);
         Ok(())
     }
 

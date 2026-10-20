@@ -1,4 +1,4 @@
-use super::native::NativeElement;
+use super::native::{ChangeWatch, NativeElement};
 use super::traits::Element;
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
@@ -6,6 +6,7 @@ use std::{ffi::CString, os::raw::c_void};
 
 pub struct ComboBox {
     handle: NativeElement,
+    change: Option<ChangeWatch>,
 }
 
 impl ComboBox {
@@ -18,7 +19,19 @@ impl ComboBox {
 
         Ok(Self {
             handle: NativeElement::new(handle),
+            change: None,
         })
+    }
+
+    /// Calls `on_change` with the new index when the user picks an item; [`ComboBox::set_selected`]
+    /// does not.
+    pub fn on_change(&mut self, on_change: impl Fn(i32) + 'static) -> AureaResult<()> {
+        let handle = self.handle.handle();
+        self.change = None;
+        self.change = Some(self.handle.watch_change(move || {
+            on_change(unsafe { ng_platform_combo_box_get_selected(handle) });
+        })?);
+        Ok(())
     }
 
     /// Create a combo box and populate it with items.

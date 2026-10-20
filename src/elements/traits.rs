@@ -1,6 +1,7 @@
-use crate::AureaResult;
+use crate::ffi::{ng_platform_element_set_min_size, ng_platform_element_set_visible};
 use crate::render::Rect;
-use std::os::raw::c_void;
+use crate::{AureaError, AureaResult};
+use std::os::raw::{c_int, c_void};
 
 /// Base trait for all native GUI elements.
 pub trait Element {
@@ -40,6 +41,27 @@ pub trait Element {
     unsafe fn invalidate_platform(&self, rect: Option<Rect>);
 
     fn request_layout(&self) {}
+
+    /// Shows or hides the element; its container closes the gap.
+    fn set_visible(&self, visible: bool) -> AureaResult<()> {
+        let result =
+            unsafe { ng_platform_element_set_visible(self.handle(), c_int::from(visible)) };
+        if result != 0 {
+            return Err(AureaError::ElementOperationFailed);
+        }
+        Ok(())
+    }
+
+    /// The smallest size layout gives it, in logical pixels.
+    fn set_min_size(&self, width: u16, height: u16) -> AureaResult<()> {
+        let result = unsafe {
+            ng_platform_element_set_min_size(self.handle(), c_int::from(width), c_int::from(height))
+        };
+        if result != 0 {
+            return Err(AureaError::ElementOperationFailed);
+        }
+        Ok(())
+    }
 }
 
 /// A container element that can hold child elements.

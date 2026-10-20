@@ -2,12 +2,24 @@
 
 use crate::ffi::{
     ng_platform_destroy_element, ng_platform_element_released_to_parent,
-    ng_platform_free_text_content, ng_platform_get_text_content,
+    ng_platform_element_set_change_id, ng_platform_free_text_content, ng_platform_get_text_content,
+};
+use crate::registry::custom::{
+    next_custom_id, register_custom_callback, unregister_custom_callback,
 };
 use crate::{AureaError, AureaResult};
 use std::cell::Cell;
 use std::ffi::CStr;
 use std::os::raw::c_void;
+
+#[derive(Debug)]
+pub(crate) struct ChangeWatch(u32);
+
+impl Drop for ChangeWatch {
+    fn drop(&mut self) {
+        unregister_custom_callback(self.0);
+    }
+}
 
 /// A native element handle, freed on drop unless a parent took it over.
 #[derive(Debug)]
@@ -28,6 +40,15 @@ impl NativeElement {
             .map_err(|_| AureaError::ElementOperationFailed);
         unsafe { ng_platform_free_text_content(ptr) };
         text
+    }
+
+    pub(crate) fn watch_change(&self, on_change: impl Fn() + 'static) -> AureaResult<ChangeWatch> {
+        let id = next_custom_id();
+        if unsafe { ng_platform_element_set_change_id(self.handle, id) } != 0 {
+            return Err(AureaError::ElementOperationFailed);
+        }
+        register_custom_callback(id, on_change);
+        Ok(ChangeWatch(id))
     }
 
     /// Takes ownership of a handle the caller has just created.

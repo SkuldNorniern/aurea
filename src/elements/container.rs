@@ -3,7 +3,7 @@ use super::traits::{Container, Element};
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::any::Any;
-use std::os::raw::c_void;
+use std::os::raw::{c_int, c_void};
 
 /// Layout orientation for a Stack container.
 #[derive(Debug, Clone, Copy)]
@@ -38,6 +38,26 @@ impl Stack {
             _orientation: orientation,
             _children: Vec::new(),
         })
+    }
+
+    /// The gap between children, in logical pixels.
+    pub fn set_spacing(&mut self, spacing: u16) -> AureaResult<()> {
+        let result =
+            unsafe { ng_platform_box_set_spacing(self.handle.handle(), c_int::from(spacing)) };
+        if result != 0 {
+            return Err(AureaError::ElementOperationFailed);
+        }
+        Ok(())
+    }
+
+    /// The margin inside the edges, in logical pixels.
+    pub fn set_padding(&mut self, padding: u16) -> AureaResult<()> {
+        let result =
+            unsafe { ng_platform_box_set_padding(self.handle.handle(), c_int::from(padding)) };
+        if result != 0 {
+            return Err(AureaError::ElementOperationFailed);
+        }
+        Ok(())
     }
 }
 
