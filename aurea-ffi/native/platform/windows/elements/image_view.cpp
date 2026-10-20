@@ -2,6 +2,7 @@
 #include "../elements.h"
 #include "../utils.h"
 #include "common/errors.h"
+#include "common/image_fit.h"
 #include <windows.h>
 #include <gdiplus.h>
 #include <objidl.h>
@@ -11,11 +12,6 @@
 #pragma comment(lib, "gdiplus.lib")
 #pragma comment(lib, "ole32.lib")
 
-#define IMAGE_SCALING_NONE 0
-#define IMAGE_SCALING_ASPECT_FIT 1
-#define IMAGE_SCALING_ASPECT_FILL 2
-#define IMAGE_SCALING_FILL 3
-
 typedef struct {
     HWND hwnd;
     HBITMAP hBitmap;
@@ -23,22 +19,12 @@ typedef struct {
 } ImageViewData;
 
 static RECT image_rect(int mode, RECT area, int w, int h) {
-    int aw = area.right - area.left;
-    int ah = area.bottom - area.top;
-    if (mode == IMAGE_SCALING_FILL || w <= 0 || h <= 0) return area;
-    double scale = 1.0;
-    if (mode == IMAGE_SCALING_ASPECT_FIT || mode == IMAGE_SCALING_ASPECT_FILL) {
-        double sx = (double)aw / w;
-        double sy = (double)ah / h;
-        scale = mode == IMAGE_SCALING_ASPECT_FIT ? (sx < sy ? sx : sy) : (sx > sy ? sx : sy);
-    }
-    int dw = (int)(w * scale + 0.5);
-    int dh = (int)(h * scale + 0.5);
+    NGImageRect fit = ng_image_fit(mode, area.right - area.left, area.bottom - area.top, w, h);
     RECT r;
-    r.left = area.left + (aw - dw) / 2;
-    r.top = area.top + (ah - dh) / 2;
-    r.right = r.left + dw;
-    r.bottom = r.top + dh;
+    r.left = area.left + (int)(fit.x + 0.5);
+    r.top = area.top + (int)(fit.y + 0.5);
+    r.right = r.left + (int)(fit.width + 0.5);
+    r.bottom = r.top + (int)(fit.height + 0.5);
     return r;
 }
 
@@ -165,7 +151,7 @@ NGHandle ng_windows_create_image_view(void) {
     }
 
     data->hwnd = hwnd;
-    data->scaling_mode = IMAGE_SCALING_ASPECT_FIT;
+    data->scaling_mode = NG_IMAGE_SCALING_ASPECT_FIT;
     SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)data);
 
     return (NGHandle)hwnd;

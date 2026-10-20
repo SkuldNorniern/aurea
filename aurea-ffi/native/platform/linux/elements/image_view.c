@@ -1,12 +1,8 @@
 #include "../elements.h"
 #include "common/errors.h"
+#include "common/image_fit.h"
 #include <gtk/gtk.h>
 #include <gdk-pixbuf/gdk-pixbuf.h>
-
-#define IMAGE_SCALING_NONE 0
-#define IMAGE_SCALING_ASPECT_FIT 1
-#define IMAGE_SCALING_ASPECT_FILL 2
-#define IMAGE_SCALING_FILL 3
 
 #define PIXBUF_KEY "aurea-pixbuf"
 #define SCALING_KEY "aurea-scaling"
@@ -22,19 +18,12 @@ static gboolean on_draw(GtkWidget* widget, cairo_t* cr, gpointer unused) {
     double h = gdk_pixbuf_get_height(pixbuf);
     if (w <= 0 || h <= 0) return FALSE;
 
-    double sx = aw / w, sy = ah / h;
-    if (mode == IMAGE_SCALING_NONE) {
-        sx = sy = 1.0;
-    } else if (mode == IMAGE_SCALING_ASPECT_FIT) {
-        sx = sy = sx < sy ? sx : sy;
-    } else if (mode == IMAGE_SCALING_ASPECT_FILL) {
-        sx = sy = sx > sy ? sx : sy;
-    }
+    NGImageRect r = ng_image_fit(mode, aw, ah, w, h);
     cairo_save(cr);
     cairo_rectangle(cr, 0, 0, aw, ah);
     cairo_clip(cr);
-    cairo_translate(cr, (aw - w * sx) / 2.0, (ah - h * sy) / 2.0);
-    cairo_scale(cr, sx, sy);
+    cairo_translate(cr, r.x, r.y);
+    cairo_scale(cr, r.width / w, r.height / h);
     gdk_cairo_set_source_pixbuf(cr, pixbuf, 0, 0);
     cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_GOOD);
     cairo_paint(cr);
@@ -45,7 +34,7 @@ static gboolean on_draw(GtkWidget* widget, cairo_t* cr, gpointer unused) {
 NGHandle ng_linux_create_image_view(void) {
     GtkWidget* imageView = gtk_drawing_area_new();
     gtk_widget_set_size_request(imageView, 200, 150);
-    g_object_set_data(G_OBJECT(imageView), SCALING_KEY, GINT_TO_POINTER(IMAGE_SCALING_ASPECT_FIT));
+    g_object_set_data(G_OBJECT(imageView), SCALING_KEY, GINT_TO_POINTER(NG_IMAGE_SCALING_ASPECT_FIT));
     g_signal_connect(imageView, "draw", G_CALLBACK(on_draw), NULL);
     gtk_widget_show(imageView);
     return (NGHandle)imageView;
