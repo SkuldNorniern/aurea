@@ -9,6 +9,7 @@ mod image_view;
 mod label;
 mod native;
 mod progress_bar;
+mod scroll_view;
 mod shared;
 mod sidebar_list;
 mod slider;
@@ -28,6 +29,7 @@ pub use image_view::{ImageScaling, ImageView};
 pub use label::{Label, TextStyle};
 pub use native::NativeElement;
 pub use progress_bar::ProgressBar;
+pub use scroll_view::ScrollView;
 pub use shared::Shared;
 pub use sidebar_list::SidebarList;
 pub use slider::Slider;
@@ -86,6 +88,61 @@ mod gtk_tests {
             window.poll_events();
             sleep(Duration::from_millis(10));
         }
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_scroll_view_scrolls_tall_content() -> AureaResult<()> {
+        unsafe extern "C" {
+            fn gtk_scrolled_window_get_vadjustment(scroll: *mut c_void) -> *mut c_void;
+            fn gtk_adjustment_get_upper(adjustment: *mut c_void) -> f64;
+            fn gtk_adjustment_get_page_size(adjustment: *mut c_void) -> f64;
+        }
+        let mut window = Window::new("scroll", 300, 200)?;
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        for i in 0..40 {
+            stack.add(Label::new(&format!("row {i}"))?)?;
+        }
+        let scroll = Shared::new(ScrollView::with_content(stack)?);
+        window.set_content(scroll.clone())?;
+        settle(&window);
+        let adjustment = unsafe { gtk_scrolled_window_get_vadjustment(scroll.handle()) };
+        let (upper, page) = unsafe {
+            (
+                gtk_adjustment_get_upper(adjustment),
+                gtk_adjustment_get_page_size(adjustment),
+            )
+        };
+        assert!(page > 0.0 && upper > 4.0 * page, "{upper} {page}");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_scroll_view_reveals_the_focused_control() -> AureaResult<()> {
+        unsafe extern "C" {
+            fn gtk_scrolled_window_get_vadjustment(scroll: *mut c_void) -> *mut c_void;
+            fn gtk_adjustment_get_value(adjustment: *mut c_void) -> f64;
+            fn gtk_widget_grab_focus(widget: *mut c_void);
+        }
+        let mut window = Window::new("scroll focus", 300, 200)?;
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        for i in 0..20 {
+            stack.add(Button::new(&format!("button {i}"))?)?;
+        }
+        let last = Button::new("last")?;
+        let l = last.handle();
+        stack.add(last)?;
+        let scroll = Shared::new(ScrollView::with_content(stack)?);
+        window.set_content(scroll.clone())?;
+        settle(&window);
+        let adjustment = unsafe { gtk_scrolled_window_get_vadjustment(scroll.handle()) };
+        assert_eq!(unsafe { gtk_adjustment_get_value(adjustment) }, 0.0);
+
+        unsafe { gtk_widget_grab_focus(l) };
+        settle(&window);
+        assert!(unsafe { gtk_adjustment_get_value(adjustment) } > 0.0);
+        Ok(())
     }
 
     fn tabs(bar: *mut c_void) -> Vec<*mut c_void> {
@@ -772,6 +829,61 @@ mod win32_tests {
             SendMessageW(s, WM_LBUTTONUP, 0, at(start + 202));
         }
         assert_eq!(width(l), start + 200);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_scroll_view_scrolls_tall_content() -> AureaResult<()> {
+        const WM_VSCROLL: u32 = 0x0115;
+        const SB_PAGEDOWN: usize = 3;
+        const SB_BOTTOM: usize = 7;
+        let mut window = Window::new("scroll", 300, 200)?;
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        for i in 0..40 {
+            stack.add(Label::new(&format!("row {i}"))?)?;
+        }
+        let content = stack.handle();
+        let scroll = Shared::new(ScrollView::with_content(stack)?);
+        window.set_content(scroll.clone())?;
+        let s = scroll.handle();
+        let (view, top) = (rect(s), rect(content));
+        assert_eq!(top.top, view.top);
+        assert!(top.bottom - top.top > 4 * (view.bottom - view.top));
+
+        unsafe { SendMessageW(s, WM_VSCROLL, SB_PAGEDOWN, 0) };
+        assert!(rect(content).top < view.top);
+        unsafe { SendMessageW(s, WM_VSCROLL, SB_BOTTOM, 0) };
+        assert_eq!(rect(content).bottom, view.bottom);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_scroll_view_reveals_the_focused_control() -> AureaResult<()> {
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn SetFocus(hwnd: *mut c_void) -> *mut c_void;
+        }
+        let mut window = Window::new("scroll focus", 300, 200)?;
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        for i in 0..20 {
+            stack.add(Button::new(&format!("button {i}"))?)?;
+        }
+        let last = Button::new("last")?;
+        let l = last.handle();
+        stack.add(last)?;
+        let scroll = Shared::new(ScrollView::with_content(stack)?);
+        window.set_content(scroll.clone())?;
+        let view = rect(scroll.handle());
+        assert!(rect(l).top > view.bottom);
+
+        window.show();
+        unsafe { SetFocus(l) };
+        for _ in 0..5 {
+            window.poll_events();
+        }
+        assert!(rect(l).top >= view.top && rect(l).bottom <= view.bottom);
         Ok(())
     }
 
