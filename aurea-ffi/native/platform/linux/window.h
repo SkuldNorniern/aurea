@@ -13,6 +13,8 @@ NGHandle ng_linux_create_window_with_type(const char* title, int width, int heig
 void ng_linux_destroy_window(NGHandle handle);
 void ng_linux_destroy_element(NGHandle element);
 int ng_linux_detach_element(NGHandle element);
+void ng_linux_element_retain(NGHandle element);
+void ng_linux_element_release(NGHandle element);
 void ng_linux_window_show(NGHandle window);
 void ng_linux_window_hide(NGHandle window);
 void ng_linux_window_set_close_guard(NGHandle window, int guarded);

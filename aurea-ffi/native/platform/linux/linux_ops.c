@@ -9,11 +9,6 @@
 #include "common/shortcuts.h"
 #include "platform/linux/elements.h"
 
-static int box_add_wrapper(NGHandle b, NGHandle e, float w) {
-    (void)w;
-    return ng_linux_box_add(b, e);
-}
-
 static const ng_platform_ops_t linux_ops = {
     .init = ng_linux_init,
     .reduced_motion = ng_linux_reduced_motion,
@@ -27,6 +22,8 @@ static const ng_platform_ops_t linux_ops = {
     .destroy_window = ng_linux_destroy_window,
     .destroy_element = ng_linux_destroy_element,
     .detach_element = ng_linux_detach_element,
+    .element_retain = ng_linux_element_retain,
+    .element_release = ng_linux_element_release,
     .window_set_title = ng_linux_window_set_title,
     .window_set_icon_rgba = ng_linux_window_set_icon_rgba,
     .window_set_size = ng_linux_window_set_size,
@@ -64,9 +61,10 @@ static const ng_platform_ops_t linux_ops = {
     .button_invalidate = ng_linux_button_invalidate,
     .create_label = ng_linux_create_label,
     .label_invalidate = ng_linux_label_invalidate,
+    .label_set_text = ng_linux_label_set_text,
     .create_box = ng_linux_create_box,
     .box_invalidate = ng_linux_box_invalidate,
-    .box_add = box_add_wrapper,
+    .box_add = ng_linux_box_add,
     .set_window_content = ng_linux_set_window_content,
     .create_split_view = ng_linux_create_split_view,
     .split_view_add = ng_linux_split_view_add,

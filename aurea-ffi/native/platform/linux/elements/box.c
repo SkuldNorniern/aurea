@@ -15,12 +15,11 @@ void ng_linux_box_invalidate(NGHandle box) {
     gtk_widget_queue_draw((GtkWidget*)box);
 }
 
-int ng_linux_box_add(NGHandle box, NGHandle element) {
+int ng_linux_box_add(NGHandle box, NGHandle element, float weight) {
     if (!box || !element) return NG_ERROR_INVALID_HANDLE;
-    
-    gtk_container_add(GTK_CONTAINER(box), (GtkWidget*)element);
+
+    gtk_box_pack_start(GTK_BOX(box), (GtkWidget*)element, weight > 0.0f, TRUE, 0);
     gtk_widget_show((GtkWidget*)element);
     
     return NG_SUCCESS;
 }
-

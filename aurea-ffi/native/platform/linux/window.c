@@ -764,6 +764,14 @@ void ng_linux_destroy_element(NGHandle element) {
     gtk_widget_destroy(widget);
 }
 
+void ng_linux_element_retain(NGHandle element) {
+    g_object_ref(element);
+}
+
+void ng_linux_element_release(NGHandle element) {
+    g_object_unref(element);
+}
+
 int ng_linux_detach_element(NGHandle element) {
     if (!element) return NG_ERROR_INVALID_HANDLE;
     GtkWidget* widget = (GtkWidget*)element;
