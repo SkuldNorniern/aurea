@@ -63,6 +63,7 @@ static const ng_platform_ops_t windows_ops = {
     .button_invalidate = ng_windows_button_invalidate,
     .create_label = ng_windows_create_label,
     .label_invalidate = ng_windows_label_invalidate,
+    .label_set_text = ng_windows_label_set_text,
     .create_box = ng_windows_create_box,
     .box_invalidate = ng_windows_box_invalidate,
     .box_add = box_add_wrapper,

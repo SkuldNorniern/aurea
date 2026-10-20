@@ -1,11 +1,31 @@
 #include "common.h"
 #include "../elements.h"
+#include "../utils.h"
 #include "common/errors.h"
+#include "common/rust_callbacks.h"
 #include <richedit.h>
+#include <stdlib.h>
 #include <string.h>
+
+#define TEXT_ID_PROP "AureaTextId"
+#define TEXT_KIND_PROP "AureaTextKind"
 
 int get_box_orientation(HWND box) {
     return (INT_PTR)GetPropA(box, BOX_ORIENTATION_PROP) != BOX_HORIZONTAL;
+}
+
+static WNDPROC g_parking_proc = NULL;
+
+static LRESULT CALLBACK parking_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    HWND from = NULL;
+    if (msg == WM_COMMAND) from = (HWND)lParam;
+    else if (msg == WM_NOTIFY && lParam) from = ((NMHDR*)lParam)->hwndFrom;
+    else if (msg >= WM_CTLCOLORMSGBOX && msg <= WM_CTLCOLORSTATIC) from = (HWND)lParam;
+    if (from) {
+        HWND parent = GetParent(from);
+        if (parent && parent != hwnd) return SendMessageW(parent, msg, wParam, lParam);
+    }
+    return CallWindowProcA(g_parking_proc, hwnd, msg, wParam, lParam);
 }
 
 HWND ng_windows_detached_parent(void) {
@@ -13,6 +33,9 @@ HWND ng_windows_detached_parent(void) {
     if (!parking || !IsWindow(parking)) {
         parking = CreateWindowExA(WS_EX_TOOLWINDOW, "STATIC", NULL, WS_POPUP,
                                   0, 0, 0, 0, NULL, NULL, GetModuleHandleA(NULL), NULL);
+        if (parking) {
+            g_parking_proc = (WNDPROC)SetWindowLongPtrA(parking, GWLP_WNDPROC, (LONG_PTR)parking_proc);
+        }
     }
     return parking ? parking : GetDesktopWindow();
 }
@@ -109,6 +132,42 @@ int is_box(HWND hwnd) {
     return GetPropA(hwnd, BOX_ORIENTATION_PROP) != NULL;
 }
 
+HWND ng_windows_create_control(DWORD ex_style, const wchar_t* cls, const char* text,
+                               DWORD style, int width, int height, HWND parent, UINT id) {
+    wchar_t* wide = ng_windows_utf8_to_wide(text ? text : "");
+    if (!wide) return NULL;
+    HWND hwnd = CreateWindowExW(ex_style, cls, wide, style, 0, 0, width, height, parent,
+                                (HMENU)(UINT_PTR)id, GetModuleHandleW(NULL), NULL);
+    free(wide);
+    return hwnd;
+}
+
+void ng_windows_watch_text(HWND edit, unsigned int id, int kind) {
+    SetPropA(edit, TEXT_ID_PROP, (HANDLE)(UINT_PTR)id);
+    SetPropA(edit, TEXT_KIND_PROP, (HANDLE)(INT_PTR)kind);
+    LRESULT mask = SendMessageW(edit, EM_GETEVENTMASK, 0, 0);
+    SendMessageW(edit, EM_SETEVENTMASK, 0, mask | ENM_CHANGE);
+}
+
+void ng_windows_text_changed(HWND edit) {
+    unsigned int id = (unsigned int)(UINT_PTR)GetPropA(edit, TEXT_ID_PROP);
+    if (!id) return;
+    char* text = ng_windows_window_text(edit);
+    if (!text) return;
+    if ((INT_PTR)GetPropA(edit, TEXT_KIND_PROP) == TEXT_CHANGE_EDITOR) {
+        ng_invoke_text_callback(id, text);
+    } else {
+        ng_invoke_textview_callback(id, text);
+    }
+    free(text);
+}
+
+void ng_windows_relayout(HWND hwnd) {
+    HWND top = NULL;
+    for (HWND at = GetParent(hwnd); at && is_box(at); at = GetParent(at)) top = at;
+    if (top) layout_box_children(top);
+}
+
 void calculate_text_size(HDC hdc, const char* text, int* width, int* height) {
     LOG_TRACE("calculate_text_size: called with text='%s'", text ? text : "(null)");
     
@@ -118,15 +177,16 @@ void calculate_text_size(HDC hdc, const char* text, int* width, int* height) {
     }
     
     SIZE text_size;
-    int text_len = (int)strlen(text);
-    
-    if (GetTextExtentPoint32A(hdc, text, text_len, &text_size)) {
+    wchar_t* wide = ng_windows_utf8_to_wide(text);
+
+    if (wide && GetTextExtentPoint32W(hdc, wide, (int)wcslen(wide), &text_size)) {
         *width = text_size.cx;
         *height = text_size.cy;
     } else {
         *width = 100;
         *height = 20;
     }
+    free(wide);
 }
 
 typedef struct {
@@ -172,30 +232,36 @@ static int box_children(HWND box, BoxChild* out) {
 }
 
 static HFONT control_font(HWND hwnd) {
-    HFONT font = (HFONT)SendMessageA(hwnd, WM_GETFONT, 0, 0);
+    HFONT font = (HFONT)SendMessageW(hwnd, WM_GETFONT, 0, 0);
     return font ? font : (HFONT)GetStockObject(SYSTEM_FONT);
 }
 
 static SIZE text_extent(HWND hwnd, int wrap) {
     SIZE size = {0, 0};
-    char text[1024];
-    int len = GetWindowTextA(hwnd, text, sizeof(text));
+    int len = GetWindowTextLengthW(hwnd);
+    wchar_t* text = (wchar_t*)malloc(((size_t)len + 1) * sizeof(wchar_t));
+    if (!text) return size;
+    len = len > 0 ? GetWindowTextW(hwnd, text, len + 1) : 0;
     HDC hdc = GetDC(hwnd);
-    if (!hdc) return size;
+    if (!hdc) {
+        free(text);
+        return size;
+    }
     HFONT old = (HFONT)SelectObject(hdc, control_font(hwnd));
     if (len > 0) {
         RECT r = {0, 0, wrap > 0 ? wrap : 0, 0};
         UINT flags = DT_LEFT | DT_CALCRECT | (wrap > 0 ? DT_WORDBREAK : DT_SINGLELINE);
-        DrawTextA(hdc, text, len, &r, flags);
+        DrawTextW(hdc, text, len, &r, flags);
         size.cx = r.right;
         size.cy = r.bottom;
     } else {
-        TEXTMETRICA tm;
-        GetTextMetricsA(hdc, &tm);
+        TEXTMETRICW tm;
+        GetTextMetricsW(hdc, &tm);
         size.cy = tm.tmHeight;
     }
     SelectObject(hdc, old);
     ReleaseDC(hwnd, hdc);
+    free(text);
     return size;
 }
 
@@ -215,12 +281,15 @@ static void measure_child(BoxChild* c, int vertical, int cross) {
 
     if (is_box(c->hwnd)) {
         measure_box(c->hwnd, vertical, cross, &w, &h);
+    } else if (ng_windows_tab_bar_measure(c->hwnd, &w, &h)) {
+    } else if (_stricmp(cls, "STATIC") == 0 && !GetPropA(c->hwnd, BOX_LABEL_PROP)) {
+        if (vertical && cross > 0) w = cross;
     } else if (_stricmp(cls, "STATIC") == 0) {
         LONG_PTR style = GetWindowLongPtrA(c->hwnd, GWL_STYLE);
         if ((style & SS_TYPEMASK) == SS_LEFTNOWORDWRAP) {
             SetWindowLongPtrA(c->hwnd, GWL_STYLE, (style & ~SS_TYPEMASK) | SS_LEFT);
         }
-        int empty = GetWindowTextLengthA(c->hwnd) == 0;
+        int empty = GetWindowTextLengthW(c->hwnd) == 0;
         if (vertical) {
             SIZE text = text_extent(c->hwnd, cross > 0 ? cross : 0);
             w = cross > 0 ? cross : text.cx;
@@ -248,7 +317,7 @@ static void measure_child(BoxChild* c, int vertical, int cross) {
             if (h < min_h) h = min_h;
         }
     } else if (vertical && cross > 0 &&
-               (_stricmp(cls, "RichEdit20A") == 0 || _stricmp(cls, "EDIT") == 0 ||
+               (c->weight > 0.0f || _stricmp(cls, "RichEdit20W") == 0 || _stricmp(cls, "EDIT") == 0 ||
                 _stricmp(cls, "AureaCanvas") == 0 || _stricmp(cls, "msctls_progress32") == 0 ||
                 _stricmp(cls, "COMBOBOX") == 0)) {
         w = cross;
@@ -349,23 +418,25 @@ void layout_box_children(HWND box) {
         if (vertical) {
             x = pad;
             y = at;
-            w = is_box(c->hwnd) ? cross : c->w;
+            w = is_box(c->hwnd) || c->weight > 0.0f ? cross : c->w;
             h = c->h + extra;
             at += h + spacing;
         } else {
             x = at;
             w = c->w + extra;
-            h = is_box(c->hwnd) || c->h > cross ? cross : c->h;
+            h = is_box(c->hwnd) || c->weight > 0.0f || c->h > cross ? cross : c->h;
             y = pad + (cross - h) / 2;
             at += w + spacing;
         }
+        RECT was;
+        GetClientRect(c->hwnd, &was);
         SetWindowPos(c->hwnd, NULL, x, y, w, h, SWP_NOZORDER | SWP_SHOWWINDOW);
 
         if (is_box(c->hwnd)) {
-            layout_box_children(c->hwnd);
-        } else if (_stricmp(c->class_name, "RichEdit20A") == 0) {
-            SendMessageA(c->hwnd, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELONG(0, 0));
-            SendMessageA(c->hwnd, EM_SETTARGETDEVICE, 0, 0);
+            if (was.right == w && was.bottom == h) layout_box_children(c->hwnd);
+        } else if (_stricmp(c->class_name, "RichEdit20W") == 0) {
+            SendMessageW(c->hwnd, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELONG(0, 0));
+            SendMessageW(c->hwnd, EM_SETTARGETDEVICE, 0, 0);
         }
     }
 }

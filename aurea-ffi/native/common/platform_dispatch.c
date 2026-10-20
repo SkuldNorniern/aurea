@@ -271,6 +271,10 @@ void ng_platform_label_invalidate(NGHandle l) {
     DISPATCH_VOID(label_invalidate, l);
 }
 
+int ng_platform_label_set_text(NGHandle l, const char* t) {
+    DISPATCH_INT(label_set_text, l, t);
+}
+
 NGHandle ng_platform_create_box(int v) {
     DISPATCH_INIT(NGHandle, create_box, v);
 }
@@ -291,6 +295,16 @@ void ng_platform_destroy_element(NGHandle e) {
 void ng_platform_element_released_to_parent(NGHandle e) {
     if (!e) return;
     DISPATCH_VOID(element_released_to_parent, e);
+}
+
+void ng_platform_element_retain(NGHandle e) {
+    if (!e) return;
+    DISPATCH_VOID(element_retain, e);
+}
+
+void ng_platform_element_release(NGHandle e) {
+    if (!e) return;
+    DISPATCH_VOID(element_release, e);
 }
 
 int ng_platform_detach_element(NGHandle e) {

@@ -91,6 +91,7 @@ NGHandle ng_platform_create_button(const char* title, unsigned int id);
 void ng_platform_button_invalidate(NGHandle button);
 NGHandle ng_platform_create_label(const char* text);
 void ng_platform_label_invalidate(NGHandle label);
+int ng_platform_label_set_text(NGHandle label, const char* text);
 NGHandle ng_platform_create_box(int is_vertical);
 void ng_platform_box_invalidate(NGHandle box_handle);
 int ng_platform_box_add(NGHandle box_handle, NGHandle element, float weight);

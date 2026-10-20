@@ -95,6 +95,35 @@ wchar_t* ng_windows_utf8_to_wide(const char* utf8) {
     return wide;
 }
 
+char* ng_windows_wide_to_utf8(const wchar_t* wide, int len) {
+    if (!wide) return NULL;
+    int bytes = len > 0 ? WideCharToMultiByte(CP_UTF8, 0, wide, len, NULL, 0, NULL, NULL) : 0;
+    char* utf8 = (char*)malloc((size_t)bytes + 1);
+    if (!utf8) return NULL;
+    if (bytes > 0) WideCharToMultiByte(CP_UTF8, 0, wide, len, utf8, bytes, NULL, NULL);
+    utf8[bytes] = '\0';
+    return utf8;
+}
+
+char* ng_windows_window_text(HWND hwnd) {
+    int len = GetWindowTextLengthW(hwnd);
+    wchar_t* wide = (wchar_t*)malloc(((size_t)len + 1) * sizeof(wchar_t));
+    if (!wide) return NULL;
+    len = len > 0 ? GetWindowTextW(hwnd, wide, len + 1) : 0;
+    char* utf8 = ng_windows_wide_to_utf8(wide, len);
+    free(wide);
+    return utf8;
+}
+
+int ng_windows_set_window_text(HWND hwnd, const char* utf8) {
+    if (!IsWindow(hwnd)) return NG_ERROR_INVALID_HANDLE;
+    wchar_t* wide = ng_windows_utf8_to_wide(utf8);
+    if (!wide) return NG_ERROR_INVALID_PARAMETER;
+    BOOL ok = SetWindowTextW(hwnd, wide);
+    free(wide);
+    return ok ? NG_SUCCESS : NG_ERROR_PLATFORM_SPECIFIC;
+}
+
 const wchar_t* ng_windows_get_class_name(void) {
     return CLASS_NAME;
 }
@@ -647,7 +676,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             break;
         }
         case WM_COMMAND:
-            if (HIWORD(wParam) == 0) {
+            if (HIWORD(wParam) == EN_CHANGE && lParam) {
+                ng_windows_text_changed((HWND)lParam);
+            } else if (HIWORD(wParam) == 0) {
                 unsigned int command_id = LOWORD(wParam);
                 if (command_id >= BUTTON_COMMAND_BASE) {
                     unsigned int id = command_id - BUTTON_COMMAND_BASE;

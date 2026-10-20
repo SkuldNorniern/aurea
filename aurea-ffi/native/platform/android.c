@@ -69,6 +69,12 @@ void ng_platform_label_invalidate(NGHandle _label) {
     (void)_label;
 }
 
+int ng_platform_label_set_text(NGHandle _label, const char* _text) {
+    (void)_label;
+    (void)_text;
+    return NG_ERROR_UNSUPPORTED;
+}
+
 void ng_platform_box_invalidate(NGHandle _box) {
     (void)_box;
 }

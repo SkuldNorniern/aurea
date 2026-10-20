@@ -48,6 +48,11 @@
 #define BOX_WEIGHT_PROP "AureaBoxWeight"
 /* A child's size when it was added, width << 16 | height. */
 #define BOX_NATURAL_PROP "AureaBoxNatural"
+/* Set on labels, so layout can tell them from other STATIC windows. */
+#define BOX_LABEL_PROP "AureaLabel"
+/* Which callback a RichEdit's changes go to: text editor or text view. */
+#define TEXT_CHANGE_EDITOR 1
+#define TEXT_CHANGE_VIEW 2
 /* Control ids for buttons start here; menu item ids sit below it. */
 #define BUTTON_COMMAND_BASE 0x8000
 
@@ -68,5 +73,15 @@ extern "C"
 #endif
 HWND ng_windows_detached_parent(void);
 void calculate_text_size(HDC hdc, const char* text, int* width, int* height);
+/* A control under `parent` with UTF-8 `text`, through the wide API. */
+HWND ng_windows_create_control(DWORD ex_style, const wchar_t* cls, const char* text,
+                               DWORD style, int width, int height, HWND parent, UINT id);
+/* Calls back with the text when the control's EN_CHANGE reaches the window. */
+void ng_windows_watch_text(HWND edit, unsigned int id, int kind);
+void ng_windows_text_changed(HWND edit);
+/* Lays out the outermost box above `hwnd`, after its size may have changed. */
+void ng_windows_relayout(HWND hwnd);
+/* A tab bar's size; 0 when `bar` is not one. */
+int ng_windows_tab_bar_measure(HWND bar, int* width, int* height);
 
 #endif

@@ -1,18 +1,20 @@
 #include "common.h"
 #include "../elements.h"
+#include "../utils.h"
 #include "common/errors.h"
 #include <windows.h>
+#include <stdlib.h>
 
 NGHandle ng_windows_create_combo_box(void) {
-    HWND hwnd = CreateWindowExA(
+    HWND hwnd = CreateWindowExW(
         WS_EX_CLIENTEDGE,
-        "COMBOBOX",
+        L"COMBOBOX",
         NULL,
         WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | CBS_HASSTRINGS,
         0, 0, 200, 200,
         ng_windows_detached_parent(),
         NULL,
-        GetModuleHandleA(NULL),
+        GetModuleHandleW(NULL),
         NULL
     );
     
@@ -23,7 +25,10 @@ int ng_windows_combo_box_add_item(NGHandle combo_box, const char* item) {
     if (!combo_box || !item) return NG_ERROR_INVALID_PARAMETER;
     
     HWND hwnd = (HWND)combo_box;
-    int index = (int)SendMessageA(hwnd, CB_ADDSTRING, 0, (LPARAM)item);
+    wchar_t* wide = ng_windows_utf8_to_wide(item);
+    if (!wide) return NG_ERROR_INVALID_PARAMETER;
+    int index = (int)SendMessageW(hwnd, CB_ADDSTRING, 0, (LPARAM)wide);
+    free(wide);
     
     if (index == CB_ERR || index == CB_ERRSPACE) {
         return NG_ERROR_CREATION_FAILED;

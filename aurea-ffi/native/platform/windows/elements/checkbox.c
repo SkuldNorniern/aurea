@@ -4,19 +4,10 @@
 #include <windows.h>
 
 NGHandle ng_windows_create_checkbox(const char* label) {
-    HWND hwnd = CreateWindowExA(
-        0,
-        "BUTTON",
-        label ? label : "",
+    return (NGHandle)ng_windows_create_control(
+        0, L"BUTTON", label ? label : "",
         WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-        0, 0, 200, 25,
-        ng_windows_detached_parent(),
-        NULL,
-        GetModuleHandleA(NULL),
-        NULL
-    );
-    
-    return (NGHandle)hwnd;
+        200, 25, ng_windows_detached_parent(), 0);
 }
 
 int ng_windows_checkbox_set_checked(NGHandle checkbox, int checked) {
@@ -45,4 +36,3 @@ void ng_windows_checkbox_invalidate(NGHandle checkbox) {
     if (!checkbox) return;
     InvalidateRect((HWND)checkbox, NULL, FALSE);
 }
-

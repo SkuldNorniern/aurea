@@ -89,6 +89,7 @@ NGHandle ng_platform_create_button(const char* title, unsigned int id);
 void ng_platform_button_invalidate(NGHandle button);
 NGHandle ng_platform_create_label(const char* text);
 void ng_platform_label_invalidate(NGHandle label);
+int ng_platform_label_set_text(NGHandle label, const char* text);
 NGHandle ng_platform_create_box(int is_vertical);
 void ng_platform_box_invalidate(NGHandle box_handle);
 int ng_platform_box_add(NGHandle box_handle, NGHandle element, float weight);
@@ -99,6 +100,8 @@ void ng_platform_destroy_element(NGHandle element);
 int ng_platform_detach_element(NGHandle element);
 
 void ng_platform_element_released_to_parent(NGHandle element);
+void ng_platform_element_retain(NGHandle element);
+void ng_platform_element_release(NGHandle element);
 
 NGHandle ng_platform_create_split_view(int is_vertical);
 int ng_platform_split_view_add(NGHandle split_handle, NGHandle element);

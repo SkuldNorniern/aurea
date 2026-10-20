@@ -34,6 +34,8 @@ static LRESULT CALLBACK BoxProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         FillRect(hdc, &client, GetSysColorBrush(COLOR_BTNFACE));
         RestoreDC(hdc, saved);
         return 1;
+    } else if (msg == WM_SIZE) {
+        layout_box_children(hwnd);
     } else if (msg == WM_NCDESTROY) {
         RemovePropA(hwnd, BOX_OLD_PROC_PROP);
     }

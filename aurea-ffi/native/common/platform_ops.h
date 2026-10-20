@@ -64,12 +64,15 @@ typedef struct ng_platform_ops {
     void (*button_invalidate)(NGHandle button);
     NGHandle (*create_label)(const char* text);
     void (*label_invalidate)(NGHandle label);
+    int (*label_set_text)(NGHandle label, const char* text);
     NGHandle (*create_box)(int is_vertical);
     void (*box_invalidate)(NGHandle box);
     int (*box_add)(NGHandle box, NGHandle element, float weight);
     void (*destroy_element)(NGHandle element);
     int (*detach_element)(NGHandle element);
     void (*element_released_to_parent)(NGHandle element);
+    void (*element_retain)(NGHandle element);
+    void (*element_release)(NGHandle element);
     int (*set_window_content)(NGHandle window, NGHandle content);
 
     NGHandle (*create_split_view)(int is_vertical);

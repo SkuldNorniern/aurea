@@ -7,25 +7,15 @@
 NGHandle ng_windows_create_button(const char* title, unsigned int id) {
     if (!title) return NULL;
 
-    HWND temp_parent = ng_windows_detached_parent();
-    UINT command_id = id + BUTTON_COMMAND_BASE;
-
-    HWND button = CreateWindowExA(
-        0,
-        "BUTTON",
-        title,
-        WS_CHILD | BS_PUSHBUTTON | WS_VISIBLE,
-        0, 0, BUTTON_MIN_WIDTH, BUTTON_MIN_HEIGHT,
-        temp_parent,
-        (HMENU)(UINT_PTR)command_id,
-        GetModuleHandleA(NULL),
-        NULL
-    );
+    HWND button = ng_windows_create_control(
+        0, L"BUTTON", title, WS_CHILD | BS_PUSHBUTTON | WS_VISIBLE,
+        BUTTON_MIN_WIDTH, BUTTON_MIN_HEIGHT,
+        ng_windows_detached_parent(), id + BUTTON_COMMAND_BASE);
 
     if (button) {
         HDC hdc = GetDC(button);
         if (hdc) {
-            HFONT hfont = (HFONT)SendMessageA(button, WM_GETFONT, 0, 0);
+            HFONT hfont = (HFONT)SendMessageW(button, WM_GETFONT, 0, 0);
             if (!hfont) {
                 hfont = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
             }

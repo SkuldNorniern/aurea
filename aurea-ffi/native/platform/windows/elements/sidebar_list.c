@@ -84,18 +84,10 @@ int ng_windows_sidebar_list_add_section(NGHandle sidebar, const char* title) {
     HWND bar = (HWND)sidebar;
     int y = get_current_y(bar);
 
-    HWND label = CreateWindowExA(
-        0,
-        "STATIC",
-        title,
-        WS_CHILD | SS_LEFT | WS_VISIBLE,
-        LEFT_MARGIN, y, 200, ROW_HEIGHT,
-        bar,
-        NULL,
-        GetModuleHandleA(NULL),
-        NULL
-    );
+    HWND label = ng_windows_create_control(
+        0, L"STATIC", title, WS_CHILD | SS_LEFT | WS_VISIBLE, 200, ROW_HEIGHT, bar, 0);
     if (!label) return NG_ERROR_CREATION_FAILED;
+    SetWindowPos(label, NULL, LEFT_MARGIN, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
     set_current_y(bar, y + ROW_HEIGHT + SECTION_PADDING);
     return NG_SUCCESS;
 }
@@ -111,18 +103,11 @@ int ng_windows_sidebar_list_add_item(NGHandle sidebar, const char* title, int in
     UINT btn_id = SIDEBAR_BASE_ID + item_idx;
     int x = LEFT_MARGIN + indent * INDENT_STEP;
 
-    HWND btn = CreateWindowExA(
-        0,
-        "BUTTON",
-        title,
-        WS_CHILD | BS_PUSHBUTTON | BS_FLAT | WS_VISIBLE,
-        x, y, 200 - x, ROW_HEIGHT - 2,
-        bar,
-        (HMENU)(UINT_PTR)btn_id,
-        GetModuleHandleA(NULL),
-        NULL
-    );
+    HWND btn = ng_windows_create_control(
+        0, L"BUTTON", title, WS_CHILD | BS_PUSHBUTTON | BS_FLAT | WS_VISIBLE,
+        200 - x, ROW_HEIGHT - 2, bar, btn_id);
     if (!btn) return NG_ERROR_CREATION_FAILED;
+    SetWindowPos(btn, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
     set_current_y(bar, y + ROW_HEIGHT);
     return NG_SUCCESS;
 }

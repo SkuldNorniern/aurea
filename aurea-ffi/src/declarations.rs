@@ -53,6 +53,8 @@ unsafe extern "C" {
 
     /// Tells the platform a container has taken ownership of this element.
     pub fn ng_platform_element_released_to_parent(element: *mut c_void);
+    pub fn ng_platform_element_retain(element: *mut c_void);
+    pub fn ng_platform_element_release(element: *mut c_void);
     pub fn ng_platform_window_set_title(window: *mut c_void, title: *const c_char);
     pub fn ng_platform_window_set_icon_rgba(
         window: *mut c_void,
@@ -222,6 +224,7 @@ unsafe extern "C" {
     pub fn ng_platform_button_invalidate(button: *mut c_void);
     pub fn ng_platform_create_label(text: *const c_char) -> *mut c_void;
     pub fn ng_platform_label_invalidate(label: *mut c_void);
+    pub fn ng_platform_label_set_text(label: *mut c_void, text: *const c_char) -> c_int;
     pub fn ng_platform_create_box(is_vertical: c_int) -> *mut c_void;
     pub fn ng_platform_box_invalidate(box_handle: *mut c_void);
     pub fn ng_platform_box_add(box_handle: *mut c_void, element: *mut c_void, weight: f32)
