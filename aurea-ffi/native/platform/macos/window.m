@@ -754,7 +754,11 @@ NGHandle ng_macos_create_window_with_type(const char* title, int width, int heig
     AureaContentView* contentView = [[AureaContentView alloc] initWithFrame:frame];
     contentView.windowHandle = (__bridge void*)window;
     [contentView setWantsLayer:YES];
-    [contentView registerForDraggedTypes:@[NSPasteboardTypeFileURL]];
+    if (@available(macOS 10.13, *)) {
+        [contentView registerForDraggedTypes:@[NSPasteboardTypeFileURL]];
+    } else {
+        [contentView registerForDraggedTypes:@[@"public.file-url"]];
+    }
     [window setContentView:contentView];
     [window makeFirstResponder:contentView];
     [contentView updateTrackingAreas];

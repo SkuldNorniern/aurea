@@ -58,8 +58,10 @@ NGHandle ng_macos_create_tray(const char* tooltip, unsigned int click_id) {
     button.target = tray;
     button.action = @selector(clicked:);
     [button sendActionOn:NSEventMaskLeftMouseUp | NSEventMaskRightMouseUp];
-    button.accessibilityCustomActions = @[[[NSAccessibilityCustomAction alloc]
-        initWithName:@"Show Menu" target:tray selector:@selector(showMenu)]];
+    if (@available(macOS 10.13, *)) {
+        button.accessibilityCustomActions = @[[[NSAccessibilityCustomAction alloc]
+            initWithName:@"Show Menu" target:tray selector:@selector(showMenu)]];
+    }
     return (__bridge_retained void*)tray;
 }
 
@@ -117,9 +119,8 @@ int ng_macos_tray_add_item(NGHandle handle, const char* title, unsigned int id) 
     return NG_SUCCESS;
 }
 
-int ng_macos_tray_notify(NGHandle handle, const char* title, const char* body) {
-    if (!handle || !title || !body) return NG_ERROR_INVALID_PARAMETER;
-    if (![[NSBundle mainBundle] bundleIdentifier]) return NG_ERROR_PLATFORM_SPECIFIC;
+API_AVAILABLE(macos(10.14))
+static int ng_macos_tray_notify_center(const char* title, const char* body) {
     UNMutableNotificationContent* content = [[UNMutableNotificationContent alloc] init];
     content.title = ng_macos_to_nsstring(title);
     content.body = ng_macos_to_nsstring(body);
@@ -133,5 +134,21 @@ int ng_macos_tray_notify(NGHandle handle, const char* title, const char* body) {
         (void)error;
         if (granted) [center addNotificationRequest:request withCompletionHandler:nil];
     }];
+    return NG_SUCCESS;
+}
+
+int ng_macos_tray_notify(NGHandle handle, const char* title, const char* body) {
+    if (!handle || !title || !body) return NG_ERROR_INVALID_PARAMETER;
+    if (![[NSBundle mainBundle] bundleIdentifier]) return NG_ERROR_PLATFORM_SPECIFIC;
+    if (@available(macOS 10.14, *)) {
+        return ng_macos_tray_notify_center(title, body);
+    }
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    NSUserNotification* note = [[NSUserNotification alloc] init];
+    note.title = ng_macos_to_nsstring(title);
+    note.informativeText = ng_macos_to_nsstring(body);
+    [[NSUserNotificationCenter defaultUserNotificationCenter] deliverNotification:note];
+#pragma clang diagnostic pop
     return NG_SUCCESS;
 }

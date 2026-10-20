@@ -262,8 +262,14 @@ int ng_macos_text_set_feature(NGHandle text, int feature, int on) {
             return NG_SUCCESS;
         case NG_TEXT_FEATURE_MONOSPACE: {
             CGFloat size = [NSFont systemFontSize];
-            NSFont* font = on ? [NSFont monospacedSystemFontOfSize:size weight:NSFontWeightRegular]
-                              : [NSFont systemFontOfSize:size];
+            NSFont* font = [NSFont systemFontOfSize:size];
+            if (on) {
+                if (@available(macOS 10.15, *)) {
+                    font = [NSFont monospacedSystemFontOfSize:size weight:NSFontWeightRegular];
+                } else {
+                    font = [NSFont userFixedPitchFontOfSize:size];
+                }
+            }
             if (view) [view setFont:font];
             else [field setFont:font];
             return NG_SUCCESS;

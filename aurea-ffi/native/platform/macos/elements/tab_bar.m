@@ -105,7 +105,11 @@
         if (selected) {
             [[NSColor controlBackgroundColor] setFill];
             [path fill];
-            [[NSColor separatorColor] setStroke];
+            if (@available(macOS 10.14, *)) {
+                [[NSColor separatorColor] setStroke];
+            } else {
+                [[NSColor gridColor] setStroke];
+            }
             [path setLineWidth:1];
             [path stroke];
         }

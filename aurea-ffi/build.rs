@@ -258,6 +258,8 @@ fn main() {
             .flag("objective-c")
             .flag("-fmodules")
             .flag("-fobjc-arc")
+            .flag("-Werror=unguarded-availability")
+            .flag("-Werror=unguarded-availability-new")
             .flag("-Wno-error=unused-command-line-argument");
 
         rerun_for(&root, common_c);
@@ -350,7 +352,7 @@ fn configure_linux_build(build: &mut Build) {
         process::exit(1);
     }
 
-    match PkgConfig::new().atleast_version("3.0").probe("gtk+-3.0") {
+    match PkgConfig::new().atleast_version("3.22").probe("gtk+-3.0") {
         Ok(gtk) => {
             for include in gtk.include_paths {
                 build.include(include);
@@ -358,6 +360,12 @@ fn configure_linux_build(build: &mut Build) {
             for (name, value) in gtk.defines {
                 build.define(&name, value.as_deref());
             }
+            build
+                .define("GDK_VERSION_MIN_REQUIRED", "GDK_VERSION_3_22")
+                .define("GDK_VERSION_MAX_ALLOWED", "GDK_VERSION_3_22")
+                .define("GLIB_VERSION_MIN_REQUIRED", "GLIB_VERSION_2_56")
+                .define("GLIB_VERSION_MAX_ALLOWED", "GLIB_VERSION_2_56")
+                .flag("-Werror=deprecated-declarations");
         }
         Err(error) => {
             println!("cargo:warning=GTK3 development files not found: {}", error);

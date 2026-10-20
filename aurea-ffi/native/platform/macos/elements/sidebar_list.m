@@ -122,7 +122,11 @@ typedef NS_ENUM(NSInteger, NGSidebarRowType) {
                 BOOL selected = (row.itemIndex == _selectedIndex);
                 if (selected) {
                     NSRect rowRect = NSMakeRect(0, y, self.bounds.size.width, ROW_HEIGHT);
-                    [[NSColor selectedContentBackgroundColor] setFill];
+                    if (@available(macOS 10.14, *)) {
+                        [[NSColor selectedContentBackgroundColor] setFill];
+                    } else {
+                        [[NSColor alternateSelectedControlColor] setFill];
+                    }
                     NSRectFill(rowRect);
                 }
                 CGFloat indent = 6 + row.indent * INDENT_STEP;
