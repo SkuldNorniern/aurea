@@ -48,8 +48,8 @@
 - (void)removeTabAtIndex:(NSInteger)index {
     if (index >= 0 && index < (NSInteger)_tabTitles.count) {
         [_tabTitles removeObjectAtIndex:index];
-        if (_selectedIndex >= (NSInteger)_tabTitles.count) {
-            _selectedIndex = _tabTitles.count > 0 ? _tabTitles.count - 1 : 0;
+        if (_selectedIndex > index || _selectedIndex >= (NSInteger)_tabTitles.count) {
+            _selectedIndex--;
         }
         if (_selectedIndex < 0) _selectedIndex = 0;
         [self setNeedsDisplay:YES];
@@ -64,7 +64,7 @@
 }
 
 - (NSInteger)selectedIndex {
-    return _selectedIndex;
+    return _tabTitles.count > 0 ? _selectedIndex : -1;
 }
 
 - (NSInteger)segmentAtPoint:(NSPoint)point {
@@ -194,6 +194,7 @@ int ng_macos_tab_bar_add_tab(NGHandle tab_bar, const char* title) {
 int ng_macos_tab_bar_remove_tab(NGHandle tab_bar, int index) {
     if (!tab_bar) return NG_ERROR_INVALID_HANDLE;
     NGTabBarView* view = (__bridge NGTabBarView*)tab_bar;
+    if (index < 0 || index >= (int)view.tabTitles.count) return NG_ERROR_INVALID_PARAMETER;
     [view removeTabAtIndex:index];
     return NG_SUCCESS;
 }
@@ -201,6 +202,7 @@ int ng_macos_tab_bar_remove_tab(NGHandle tab_bar, int index) {
 int ng_macos_tab_bar_set_selected(NGHandle tab_bar, int index) {
     if (!tab_bar) return NG_ERROR_INVALID_HANDLE;
     NGTabBarView* view = (__bridge NGTabBarView*)tab_bar;
+    if (index < 0 || index >= (int)view.tabTitles.count) return NG_ERROR_INVALID_PARAMETER;
     [view setSelectedIndex:index];
     return NG_SUCCESS;
 }

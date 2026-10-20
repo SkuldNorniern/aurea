@@ -1139,6 +1139,14 @@ void ng_macos_element_released_to_parent(NGHandle element) {
     (void)view;
 }
 
+void ng_macos_element_retain(NGHandle element) {
+    CFRetain(element);
+}
+
+void ng_macos_element_release(NGHandle element) {
+    CFRelease(element);
+}
+
 int ng_macos_detach_element(NGHandle element) {
     if (!element) return NG_ERROR_INVALID_HANDLE;
     NSView* view = (__bridge NSView*)element;

@@ -11,6 +11,7 @@ NGHandle ng_macos_create_button(const char* title, unsigned int id);
 void ng_macos_button_invalidate(NGHandle button);
 NGHandle ng_macos_create_label(const char* text);
 void ng_macos_label_invalidate(NGHandle label);
+int ng_macos_label_set_text(NGHandle label, const char* text);
 NGHandle ng_macos_create_box(int is_vertical);
 void ng_macos_box_invalidate(NGHandle box);
 int ng_macos_box_add(NGHandle box, NGHandle element, float weight);

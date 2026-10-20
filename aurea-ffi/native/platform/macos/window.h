@@ -17,6 +17,8 @@ void ng_macos_destroy_window(NGHandle handle);
 void ng_macos_destroy_element(NGHandle element);
 int ng_macos_detach_element(NGHandle element);
 void ng_macos_element_released_to_parent(NGHandle element);
+void ng_macos_element_retain(NGHandle element);
+void ng_macos_element_release(NGHandle element);
 int ng_macos_set_window_content(NGHandle window, NGHandle content);
 float ng_macos_get_scale_factor(NGHandle window);
 void ng_macos_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallback callback);

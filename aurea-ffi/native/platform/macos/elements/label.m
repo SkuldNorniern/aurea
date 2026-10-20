@@ -17,6 +17,15 @@ NGHandle ng_macos_create_label(const char* text) {
     return (__bridge_retained void*)label;
 }
 
+int ng_macos_label_set_text(NGHandle label, const char* text) {
+    if (!label) return NG_ERROR_INVALID_HANDLE;
+    if (!text) return NG_ERROR_INVALID_PARAMETER;
+    NSTextField* lbl = (__bridge NSTextField*)label;
+    [lbl setStringValue:ng_macos_to_nsstring(text)];
+    [lbl invalidateIntrinsicContentSize];
+    return NG_SUCCESS;
+}
+
 void ng_macos_label_invalidate(NGHandle label) {
     if (!label) return;
     NSTextField* lbl = (__bridge NSTextField*)label;
