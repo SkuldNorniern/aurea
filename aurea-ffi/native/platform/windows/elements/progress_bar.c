@@ -48,15 +48,12 @@ int ng_windows_progress_bar_set_value(NGHandle progress_bar, double value) {
 
 int ng_windows_progress_bar_set_indeterminate(NGHandle progress_bar, int indeterminate) {
     if (!progress_bar) return NG_ERROR_INVALID_HANDLE;
-    
     HWND hwnd = (HWND)progress_bar;
-    
-    if (indeterminate) {
-        SendMessage(hwnd, PBM_SETMARQUEE, TRUE, 0);
-    } else {
-        SendMessage(hwnd, PBM_SETMARQUEE, FALSE, 0);
-    }
-    
+    LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+    style = indeterminate ? (style | PBS_MARQUEE) : (style & ~(LONG_PTR)PBS_MARQUEE);
+    SetWindowLongPtrW(hwnd, GWL_STYLE, style);
+    SendMessageW(hwnd, PBM_SETMARQUEE, indeterminate ? TRUE : FALSE, 0);
+    InvalidateRect(hwnd, NULL, TRUE);
     return NG_SUCCESS;
 }
 
