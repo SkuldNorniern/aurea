@@ -66,6 +66,7 @@ mod gtk_tests {
         fn g_list_free(list: *mut c_void);
         fn gtk_combo_box_set_active(combo: *mut c_void, index: c_int);
         fn gtk_widget_get_visible(widget: *mut c_void) -> c_int;
+        fn gtk_list_box_select_row(list: *mut c_void, row: *mut c_void);
         fn g_signal_emit_by_name(instance: *mut c_void, signal: *const c_char, ...);
     }
 
@@ -206,6 +207,33 @@ mod gtk_tests {
             slider.get_value()
         );
         assert_eq!(moves.borrow().len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "needs a display; run with --ignored"]
+    fn a_sidebar_shows_rows_and_reports_the_user() -> AureaResult<()> {
+        let mut window = Window::new("sidebar", 400, 300)?;
+        let (picked, on_pick) = recorder();
+        let list = Shared::new(SidebarList::with_callback(on_pick)?);
+        list.borrow_mut().add_section("Machines")?;
+        list.borrow_mut().add_item("one", 0)?;
+        let mut root = Stack::new(Orientation::Vertical)?;
+        root.add_weighted(list.clone(), 1.0)?;
+        window.set_content(root)?;
+        list.borrow_mut().add_item("late", 0)?;
+        let rows = tabs(list.handle());
+        let shown = |w: *mut c_void| unsafe { gtk_widget_get_visible(w) } != 0;
+        assert!(
+            rows.iter().all(|&r| shown(r) && shown(tabs(r)[0])),
+            "rows hidden"
+        );
+
+        list.borrow_mut().set_selected(1)?;
+        assert!(picked.borrow().is_empty());
+        assert!(list.borrow_mut().set_selected(2).is_err());
+        unsafe { gtk_list_box_select_row(list.handle(), rows[1]) };
+        assert_eq!(*picked.borrow(), [0]);
         Ok(())
     }
 
@@ -528,6 +556,64 @@ mod win32_tests {
                 control as isize,
             )
         };
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_sidebar_shows_its_selection() -> AureaResult<()> {
+        let mut window = Window::new("sidebar", 400, 300)?;
+        let (picked, on_pick) = recorder();
+        let list = Shared::new(SidebarList::with_callback(on_pick)?);
+        list.borrow_mut().add_section("Machines")?;
+        list.borrow_mut().add_items(["one", "two", "three"], 0)?;
+        let mut root = Stack::new(Orientation::Vertical)?;
+        root.add_weighted(list.clone(), 1.0)?;
+        window.set_content(root)?;
+
+        let item = |i: i32| unsafe { GetDlgItem(list.handle(), 9500 + i) };
+        let checked = |i: i32| unsafe { SendMessageW(item(i), BM_GETCHECK, 0, 0) == 1 };
+        list.borrow_mut().set_selected(1)?;
+        assert!(checked(1) && !checked(0));
+        assert!(list.borrow_mut().set_selected(3).is_err());
+        unsafe { SendMessageW(item(2), BM_CLICK, 0, 0) };
+        assert_eq!(*picked.borrow(), [2]);
+        assert_eq!(list.borrow().get_selected(), 2);
+        assert!(checked(2) && !checked(1));
+        let (row, all) = (rect(item(0)), rect(list.handle()));
+        assert!(
+            row.right - row.left > (all.right - all.left) / 2,
+            "rows kept 200 px"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_split_divider_drags() -> AureaResult<()> {
+        const WM_MOUSEMOVE: u32 = 0x0200;
+        const WM_LBUTTONDOWN: u32 = 0x0201;
+        const WM_LBUTTONUP: u32 = 0x0202;
+        let mut window = Window::new("drag", 800, 400)?;
+        let left = Label::new("left")?;
+        let l = left.handle();
+        let split = Shared::new(SplitView::with_children(
+            SplitOrientation::Horizontal,
+            left,
+            Label::new("right")?,
+        )?);
+        window.set_content(split.clone())?;
+        split.borrow().set_divider_position(0, 300.0)?;
+        let width = |h| rect(h).right - rect(h).left;
+        let start = width(l);
+        let at = |x: i32| ((10 << 16) | (x & 0xFFFF)) as isize;
+        let s = split.handle();
+        unsafe {
+            SendMessageW(s, WM_LBUTTONDOWN, 1, at(start + 2));
+            SendMessageW(s, WM_MOUSEMOVE, 1, at(start + 202));
+            SendMessageW(s, WM_LBUTTONUP, 0, at(start + 202));
+        }
+        assert_eq!(width(l), start + 200);
+        Ok(())
     }
 
     #[test]

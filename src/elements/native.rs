@@ -1,8 +1,9 @@
 //! Who owns a native element, and who frees it.
 
 use crate::ffi::{
-    ng_platform_destroy_element, ng_platform_element_released_to_parent,
-    ng_platform_element_set_change_id, ng_platform_free_text_content, ng_platform_get_text_content,
+    ng_platform_creation_parent, ng_platform_destroy_element,
+    ng_platform_element_released_to_parent, ng_platform_element_set_change_id,
+    ng_platform_free_text_content, ng_platform_get_text_content,
 };
 use crate::registry::custom::{
     next_custom_id, register_custom_callback, unregister_custom_callback,
@@ -49,6 +50,12 @@ impl NativeElement {
         }
         register_custom_callback(id, on_change);
         Ok(ChangeWatch(id))
+    }
+
+    /// What a custom native control is created under before a container adopts it: a hidden `HWND`
+    /// on Windows, null elsewhere.
+    pub fn creation_parent() -> *mut c_void {
+        unsafe { ng_platform_creation_parent() }
     }
 
     /// Takes ownership of a handle the caller has just created.
