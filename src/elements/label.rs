@@ -6,7 +6,6 @@ use std::{ffi::CString, os::raw::c_void};
 
 pub struct Label {
     handle: NativeElement,
-    _text: CString,
 }
 
 impl Label {
@@ -20,8 +19,17 @@ impl Label {
 
         Ok(Self {
             handle: NativeElement::new(handle),
-            _text: text,
         })
+    }
+
+    /// Replaces the text; the layout makes room for it.
+    pub fn set_text(&mut self, text: &str) -> AureaResult<()> {
+        let text = CString::new(text).map_err(|_| AureaError::InvalidTitle)?;
+        let result = unsafe { ng_platform_label_set_text(self.handle.handle(), text.as_ptr()) };
+        if result != 0 {
+            return Err(AureaError::ElementOperationFailed);
+        }
+        Ok(())
     }
 }
 
