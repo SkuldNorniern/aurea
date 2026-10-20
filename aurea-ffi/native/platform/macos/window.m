@@ -5,6 +5,7 @@
 #import "common/types.h"
 #import "common/shortcuts.h"
 #import "utils.h"
+#import "elements.h"
 #import <Cocoa/Cocoa.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <QuartzCore/QuartzCore.h>
@@ -1214,6 +1215,7 @@ static char kMinHeightKey;
 
 int ng_macos_element_set_change_id(NGHandle element, unsigned int id) {
     if (!element) return NG_ERROR_INVALID_HANDLE;
+    if (ng_macos_text_watch_change(element, id)) return NG_SUCCESS;
     NSView* view = (__bridge NSView*)element;
     if (![view isKindOfClass:[NSControl class]]) return NG_ERROR_UNSUPPORTED;
     static NGChangeTarget* target = nil;

@@ -100,6 +100,19 @@ int ng_platform_box_set_padding(NGHandle box, int padding);
 NGHandle ng_platform_creation_parent(void);
 int ng_platform_element_set_enabled(NGHandle element, int enabled);
 int ng_platform_element_watch_destroy(NGHandle element, unsigned int id);
+#define NG_TEXT_UNIT_UTF16 0
+#define NG_TEXT_UNIT_CHAR 1
+#define NG_TEXT_FEATURE_READ_ONLY 0
+#define NG_TEXT_FEATURE_WRAP 1
+#define NG_TEXT_FEATURE_MONOSPACE 2
+#define NG_TEXT_FEATURE_UNDO 3
+int ng_platform_text_unit(void);
+int ng_platform_text_get_selection(NGHandle text, int* start, int* end);
+int ng_platform_text_set_selection(NGHandle text, int start, int end);
+int ng_platform_text_replace(NGHandle text, int start, int end, const char* replacement);
+int ng_platform_text_undo(NGHandle text, int redo);
+int ng_platform_text_can_undo(NGHandle text, int redo);
+int ng_platform_text_set_feature(NGHandle text, int feature, int on);
 NGHandle ng_platform_create_box(int is_vertical);
 void ng_platform_box_invalidate(NGHandle box_handle);
 int ng_platform_box_add(NGHandle box_handle, NGHandle element, float weight);
@@ -109,9 +122,9 @@ NGHandle ng_platform_create_split_view(int is_vertical);
 int ng_platform_split_view_add(NGHandle split_handle, NGHandle element);
 int ng_platform_split_view_set_divider_position(NGHandle split_handle, int index, float position);
 
-NGHandle ng_platform_create_text_editor(unsigned int id);
+NGHandle ng_platform_create_text_editor(void);
 void ng_platform_text_editor_invalidate(NGHandle text_editor);
-NGHandle ng_platform_create_text_view(int is_editable, unsigned int id);
+NGHandle ng_platform_create_text_view(int is_editable);
 void ng_platform_text_view_invalidate(NGHandle text_view);
 NGHandle ng_platform_create_text_field(void);
 int ng_platform_set_text_content(NGHandle text_handle, const char* content);

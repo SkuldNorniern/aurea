@@ -67,6 +67,22 @@ unsafe extern "C" {
     pub fn ng_platform_creation_parent() -> *mut c_void;
     pub fn ng_platform_element_set_enabled(element: *mut c_void, enabled: c_int) -> c_int;
     pub fn ng_platform_element_watch_destroy(element: *mut c_void, id: u32) -> c_int;
+    pub fn ng_platform_text_unit() -> c_int;
+    pub fn ng_platform_text_get_selection(
+        text: *mut c_void,
+        start: *mut c_int,
+        end: *mut c_int,
+    ) -> c_int;
+    pub fn ng_platform_text_set_selection(text: *mut c_void, start: c_int, end: c_int) -> c_int;
+    pub fn ng_platform_text_replace(
+        text: *mut c_void,
+        start: c_int,
+        end: c_int,
+        replacement: *const c_char,
+    ) -> c_int;
+    pub fn ng_platform_text_undo(text: *mut c_void, redo: c_int) -> c_int;
+    pub fn ng_platform_text_can_undo(text: *mut c_void, redo: c_int) -> c_int;
+    pub fn ng_platform_text_set_feature(text: *mut c_void, feature: c_int, on: c_int) -> c_int;
     pub fn ng_platform_window_set_title(window: *mut c_void, title: *const c_char);
     pub fn ng_platform_window_set_icon_rgba(
         window: *mut c_void,
@@ -251,9 +267,9 @@ unsafe extern "C" {
         position: f32,
     ) -> c_int;
 
-    pub fn ng_platform_create_text_editor(id: u32) -> *mut c_void;
+    pub fn ng_platform_create_text_editor() -> *mut c_void;
     pub fn ng_platform_text_editor_invalidate(text_editor: *mut c_void);
-    pub fn ng_platform_create_text_view(is_editable: c_int, id: u32) -> *mut c_void;
+    pub fn ng_platform_create_text_view(is_editable: c_int) -> *mut c_void;
     pub fn ng_platform_text_view_invalidate(text_view: *mut c_void);
     pub fn ng_platform_create_text_field() -> *mut c_void;
     pub fn ng_platform_set_text_content(text_handle: *mut c_void, content: *const c_char) -> c_int;

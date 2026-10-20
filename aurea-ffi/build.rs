@@ -156,6 +156,7 @@ fn main() {
         "native/platform/linux/elements/box.c",
         "native/platform/linux/elements/split_view.c",
         "native/platform/linux/elements/text_common.c",
+        "native/platform/linux/elements/text_undo.c",
         "native/platform/linux/elements/text_editor.c",
         "native/platform/linux/elements/text_view.c",
         "native/platform/linux/elements/canvas.c",

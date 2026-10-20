@@ -683,8 +683,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_COMMAND:
             if (ng_windows_control_changed(uMsg, wParam, lParam)) {
                 break;
-            } else if (HIWORD(wParam) == EN_CHANGE && lParam) {
-                ng_windows_text_changed((HWND)lParam);
             } else if (HIWORD(wParam) == 0) {
                 unsigned int command_id = LOWORD(wParam);
                 if (command_id >= BUTTON_COMMAND_BASE) {

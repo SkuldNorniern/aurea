@@ -11,13 +11,20 @@ int ng_linux_is_quiet(void* object) {
     return g_object_get_data(G_OBJECT(object), "aurea-quiet") != NULL;
 }
 
-static void on_changed(GtkWidget* widget, gpointer id) {
-    if (!ng_linux_is_quiet(widget)) ng_invoke_custom_callback(GPOINTER_TO_UINT(id));
+static void on_changed(gpointer source, gpointer id) {
+    if (!ng_linux_is_quiet(source)) ng_invoke_custom_callback(GPOINTER_TO_UINT(id));
 }
 
 int ng_linux_element_set_change_id(NGHandle element, unsigned int id) {
     if (!element || !GTK_IS_WIDGET(element)) return NG_ERROR_INVALID_HANDLE;
-    const char* signal = GTK_IS_TOGGLE_BUTTON(element) ? "toggled"
+    GtkWidget* child = GTK_IS_BIN(element) ? gtk_bin_get_child(GTK_BIN(element)) : NULL;
+    if (GTK_IS_TEXT_VIEW(child)) {
+        g_signal_connect(gtk_text_view_get_buffer(GTK_TEXT_VIEW(child)), "changed",
+                         G_CALLBACK(on_changed), GUINT_TO_POINTER(id));
+        return NG_SUCCESS;
+    }
+    const char* signal = GTK_IS_ENTRY(element)         ? "changed"
+                       : GTK_IS_TOGGLE_BUTTON(element) ? "toggled"
                        : GTK_IS_COMBO_BOX(element)     ? "changed"
                        : GTK_IS_RANGE(element)         ? "value-changed"
                                                        : NULL;

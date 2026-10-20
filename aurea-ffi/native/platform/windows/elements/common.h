@@ -50,9 +50,10 @@
 #define BOX_NATURAL_PROP "AureaBoxNatural"
 /* Set on labels, so layout can tell them from other STATIC windows. */
 #define BOX_LABEL_PROP "AureaLabel"
-/* Which callback a RichEdit's changes go to: text editor or text view. */
-#define TEXT_CHANGE_EDITOR 1
-#define TEXT_CHANGE_VIEW 2
+/* Set while Aurea changes a text control, so the change is not the user's. */
+#define TEXT_QUIET_PROP "AureaTextQuiet"
+/* Set on a RichEdit whose lines run on instead of wrapping. */
+#define TEXT_NO_WRAP_PROP "AureaTextNoWrap"
 /* Logical sizes stored plus 1, so 0 still means unset. */
 #define MIN_WIDTH_PROP "AureaMinWidth"
 #define MIN_HEIGHT_PROP "AureaMinHeight"
@@ -66,6 +67,8 @@ int get_box_orientation(HWND box);
 int is_box(HWND hwnd);
 /* The font Windows uses for message boxes and dialogs, Segoe UI on current versions, at the DPI of the monitor `hwnd` is on. */
 HFONT ng_windows_ui_font(HWND hwnd);
+/* A fixed-width face for source text, at the DPI `hwnd` is on, kept up to date the same way. */
+HFONT ng_windows_mono_font(HWND hwnd);
 /* The DPI `hwnd` is drawn at, 96 when Windows cannot say. */
 UINT ng_windows_dpi(HWND hwnd);
 /* `logical` pixels in `hwnd`'s device pixels. */
@@ -81,13 +84,14 @@ void calculate_text_size(HDC hdc, const char* text, int* width, int* height);
 /* A control under `parent` with UTF-8 `text`, through the wide API. */
 HWND ng_windows_create_control(DWORD ex_style, const wchar_t* cls, const char* text,
                                DWORD style, int width, int height, HWND parent, UINT id);
-/* Calls back with the text when the control's EN_CHANGE reaches the window. */
-void ng_windows_watch_text(HWND edit, unsigned int id, int kind);
-void ng_windows_text_changed(HWND edit);
+/* A multi-line RichEdit, the base of text views and editors. */
+HWND ng_windows_create_rich_text(int editable);
 /* Lays out the outermost box above `hwnd`, after its size may have changed. */
 void ng_windows_relayout(HWND hwnd);
 /* RichEdit stops typing at 32K characters unless told otherwise. */
 void ng_windows_unlimit_text(HWND edit);
+/* A text control's content as UTF-8 with " " line breaks; the caller frees it. */
+char* ng_windows_text_content(HWND hwnd);
 /* Messages a control sends its parent, which containers pass up. */
 int ng_windows_is_notification(UINT msg);
 void ng_windows_forward_to_window(HWND from, UINT msg, WPARAM wParam, LPARAM lParam);

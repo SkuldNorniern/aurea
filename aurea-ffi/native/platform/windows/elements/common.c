@@ -8,9 +8,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define TEXT_ID_PROP "AureaTextId"
-#define TEXT_KIND_PROP "AureaTextKind"
-
 int get_box_orientation(HWND box) {
     return (INT_PTR)GetPropA(box, BOX_ORIENTATION_PROP) != BOX_HORIZONTAL;
 }
@@ -68,9 +65,16 @@ int ng_windows_px(HWND hwnd, int logical) {
 }
 
 #define AUREA_FONT_SLOTS 8
-static struct { UINT dpi; HFONT font; } g_ui_fonts[AUREA_FONT_SLOTS];
+enum { FONT_UI, FONT_MONO, FONT_KINDS };
+static struct { UINT dpi; HFONT font; } g_fonts[FONT_KINDS][AUREA_FONT_SLOTS];
 
-static HFONT ng_windows_make_ui_font(UINT dpi) {
+static HFONT ng_windows_make_font(int kind, UINT dpi) {
+    if (kind == FONT_MONO) {
+        HFONT mono = CreateFontW(-MulDiv(10, (int)dpi, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE,
+                                 FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                 CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN, L"Consolas");
+        return mono ? mono : (HFONT)GetStockObject(ANSI_FIXED_FONT);
+    }
     typedef BOOL (WINAPI *ForDpiFunc)(UINT, UINT, PVOID, UINT, UINT);
     HMODULE user32 = GetModuleHandleA("user32.dll");
     ForDpiFunc for_dpi = user32
@@ -92,41 +96,51 @@ static HFONT ng_windows_make_ui_font(UINT dpi) {
     return font ? font : (HFONT)GetStockObject(DEFAULT_GUI_FONT);
 }
 
-HFONT ng_windows_ui_font(HWND hwnd) {
-    UINT dpi = ng_windows_dpi(hwnd);
+static HFONT ng_windows_font(int kind, UINT dpi) {
     for (int i = 0; i < AUREA_FONT_SLOTS; i++) {
-        if (g_ui_fonts[i].font && g_ui_fonts[i].dpi == dpi) return g_ui_fonts[i].font;
+        if (g_fonts[kind][i].font && g_fonts[kind][i].dpi == dpi) return g_fonts[kind][i].font;
     }
+    int slot = AUREA_FONT_SLOTS - 1;
     for (int i = 0; i < AUREA_FONT_SLOTS; i++) {
-        if (!g_ui_fonts[i].font) {
-            g_ui_fonts[i].dpi = dpi;
-            g_ui_fonts[i].font = ng_windows_make_ui_font(dpi);
-            return g_ui_fonts[i].font;
+        if (!g_fonts[kind][i].font) {
+            slot = i;
+            break;
         }
     }
-    g_ui_fonts[AUREA_FONT_SLOTS - 1].dpi = dpi;
-    g_ui_fonts[AUREA_FONT_SLOTS - 1].font = ng_windows_make_ui_font(dpi);
-    return g_ui_fonts[AUREA_FONT_SLOTS - 1].font;
+    g_fonts[kind][slot].dpi = dpi;
+    g_fonts[kind][slot].font = ng_windows_make_font(kind, dpi);
+    return g_fonts[kind][slot].font;
 }
 
-static BOOL ng_windows_is_ui_font(HFONT font) {
-    for (int i = 0; i < AUREA_FONT_SLOTS; i++) {
-        if (g_ui_fonts[i].font && g_ui_fonts[i].font == font) return TRUE;
-    }
-    return FALSE;
+HFONT ng_windows_ui_font(HWND hwnd) {
+    return ng_windows_font(FONT_UI, ng_windows_dpi(hwnd));
 }
 
-static BOOL CALLBACK ng_windows_refont_child(HWND child, LPARAM font) {
-    HFONT current = (HFONT)SendMessageA(child, WM_GETFONT, 0, 0);
-    if (current && ng_windows_is_ui_font(current) && current != (HFONT)font) {
-        SendMessageA(child, WM_SETFONT, (WPARAM)font, TRUE);
+HFONT ng_windows_mono_font(HWND hwnd) {
+    return ng_windows_font(FONT_MONO, ng_windows_dpi(hwnd));
+}
+
+static int ng_windows_font_kind(HFONT font) {
+    for (int kind = 0; kind < FONT_KINDS; kind++) {
+        for (int i = 0; i < AUREA_FONT_SLOTS; i++) {
+            if (g_fonts[kind][i].font && g_fonts[kind][i].font == font) return kind;
+        }
     }
+    return -1;
+}
+
+static BOOL CALLBACK ng_windows_refont_child(HWND child, LPARAM dpi) {
+    HFONT current = (HFONT)SendMessageW(child, WM_GETFONT, 0, 0);
+    int kind = current ? ng_windows_font_kind(current) : -1;
+    if (kind < 0) return TRUE;
+    HFONT font = ng_windows_font(kind, (UINT)dpi);
+    if (font != current) SendMessageW(child, WM_SETFONT, (WPARAM)font, TRUE);
     return TRUE;
 }
 
 void ng_windows_refresh_dpi(HWND root) {
     if (!root) return;
-    EnumChildWindows(root, ng_windows_refont_child, (LPARAM)ng_windows_ui_font(root));
+    EnumChildWindows(root, ng_windows_refont_child, (LPARAM)ng_windows_dpi(root));
     HWND content = (HWND)GetPropA(root, "AureaContentHWND");
     if (content && IsWindow(content) && is_box(content)) {
         layout_box_children(content);
@@ -147,26 +161,6 @@ HWND ng_windows_create_control(DWORD ex_style, const wchar_t* cls, const char* t
     return hwnd;
 }
 
-void ng_windows_watch_text(HWND edit, unsigned int id, int kind) {
-    SetPropA(edit, TEXT_ID_PROP, (HANDLE)(UINT_PTR)id);
-    SetPropA(edit, TEXT_KIND_PROP, (HANDLE)(INT_PTR)kind);
-    LRESULT mask = SendMessageW(edit, EM_GETEVENTMASK, 0, 0);
-    SendMessageW(edit, EM_SETEVENTMASK, 0, mask | ENM_CHANGE);
-}
-
-void ng_windows_text_changed(HWND edit) {
-    unsigned int id = (unsigned int)(UINT_PTR)GetPropA(edit, TEXT_ID_PROP);
-    if (!id) return;
-    char* text = ng_windows_window_text(edit);
-    if (!text) return;
-    if ((INT_PTR)GetPropA(edit, TEXT_KIND_PROP) == TEXT_CHANGE_EDITOR) {
-        ng_invoke_text_callback(id, text);
-    } else {
-        ng_invoke_textview_callback(id, text);
-    }
-    free(text);
-}
-
 #define CHANGE_ID_PROP "AureaChangeId"
 
 int ng_windows_is_notification(UINT msg) {
@@ -185,7 +179,13 @@ void ng_windows_forward_to_window(HWND from, UINT msg, WPARAM wParam, LPARAM lPa
 
 int ng_windows_element_set_change_id(NGHandle element, unsigned int id) {
     if (!element || !IsWindow((HWND)element)) return NG_ERROR_INVALID_HANDLE;
-    SetPropA((HWND)element, CHANGE_ID_PROP, (HANDLE)(UINT_PTR)id);
+    HWND hwnd = (HWND)element;
+    SetPropA(hwnd, CHANGE_ID_PROP, (HANDLE)(UINT_PTR)id);
+    wchar_t cls[32];
+    if (GetClassNameW(hwnd, cls, 32) && _wcsicmp(cls, RICHEDIT_CLASSW) == 0) {
+        LRESULT mask = SendMessageW(hwnd, EM_GETEVENTMASK, 0, 0);
+        SendMessageW(hwnd, EM_SETEVENTMASK, 0, mask | ENM_CHANGE);
+    }
     return NG_SUCCESS;
 }
 
@@ -195,7 +195,10 @@ int ng_windows_control_changed(UINT msg, WPARAM wParam, LPARAM lParam) {
     unsigned int id = (unsigned int)(UINT_PTR)GetPropA(control, CHANGE_ID_PROP);
     if (!id) return 0;
     int changed = 0;
-    if (msg == WM_COMMAND) {
+    if (msg == WM_COMMAND && HIWORD(wParam) == EN_CHANGE) {
+        if (GetPropA(control, TEXT_QUIET_PROP)) return 1;
+        changed = 1;
+    } else if (msg == WM_COMMAND) {
         changed = HIWORD(wParam) == BN_CLICKED || HIWORD(wParam) == CBN_SELCHANGE;
     } else if (msg == WM_HSCROLL || msg == WM_VSCROLL) {
         changed = LOWORD(wParam) != TB_ENDTRACK;
@@ -560,7 +563,7 @@ void layout_box_children(HWND box) {
             if (was.right == w && was.bottom == h) layout_box_children(c->hwnd);
         } else if (_stricmp(c->class_name, "RichEdit20W") == 0) {
             SendMessageW(c->hwnd, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELONG(0, 0));
-            SendMessageW(c->hwnd, EM_SETTARGETDEVICE, 0, 0);
+            SendMessageW(c->hwnd, EM_SETTARGETDEVICE, 0, GetPropA(c->hwnd, TEXT_NO_WRAP_PROP) ? 1 : 0);
         }
     }
 }

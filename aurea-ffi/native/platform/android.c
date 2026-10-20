@@ -291,6 +291,51 @@ int ng_platform_element_watch_destroy(NGHandle element, unsigned int id) {
     return NG_ERROR_UNSUPPORTED;
 }
 
+int ng_platform_text_unit(void) {
+    return NG_TEXT_UNIT_UTF16;
+}
+
+int ng_platform_text_get_selection(NGHandle text, int* start, int* end) {
+    (void)text;
+    (void)start;
+    (void)end;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_text_set_selection(NGHandle text, int start, int end) {
+    (void)text;
+    (void)start;
+    (void)end;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_text_replace(NGHandle text, int start, int end, const char* replacement) {
+    (void)text;
+    (void)start;
+    (void)end;
+    (void)replacement;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_text_undo(NGHandle text, int redo) {
+    (void)text;
+    (void)redo;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_text_can_undo(NGHandle text, int redo) {
+    (void)text;
+    (void)redo;
+    return 0;
+}
+
+int ng_platform_text_set_feature(NGHandle text, int feature, int on) {
+    (void)text;
+    (void)feature;
+    (void)on;
+    return NG_ERROR_UNSUPPORTED;
+}
+
 NGHandle ng_platform_creation_parent(void) {
     return NULL;
 }
@@ -303,16 +348,14 @@ int ng_platform_box_add(NGHandle box, NGHandle element, float weight) {
     return NG_ERROR_UNSUPPORTED;
 }
 
-NGHandle ng_platform_create_text_editor(unsigned int _id) {
+NGHandle ng_platform_create_text_editor(void) {
     // TODO: Implement for Android
-    (void)_id;
     return NULL;
 }
 
-NGHandle ng_platform_create_text_view(int _is_editable, unsigned int _id) {
+NGHandle ng_platform_create_text_view(int _is_editable) {
     // TODO: Implement for Android
     (void)_is_editable;
-    (void)_id;
     return NULL;
 }
 

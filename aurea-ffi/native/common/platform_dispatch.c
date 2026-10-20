@@ -340,6 +340,36 @@ int ng_platform_element_watch_destroy(NGHandle e, unsigned int id) {
     DISPATCH_INT(element_watch_destroy, e, id);
 }
 
+int ng_platform_text_unit(void) {
+    ensure_ops();
+    return g_ops && g_ops->text_unit ? g_ops->text_unit() : NG_TEXT_UNIT_UTF16;
+}
+
+int ng_platform_text_get_selection(NGHandle t, int* start, int* end) {
+    DISPATCH_INT(text_get_selection, t, start, end);
+}
+
+int ng_platform_text_set_selection(NGHandle t, int start, int end) {
+    DISPATCH_INT(text_set_selection, t, start, end);
+}
+
+int ng_platform_text_replace(NGHandle t, int start, int end, const char* replacement) {
+    DISPATCH_INT(text_replace, t, start, end, replacement);
+}
+
+int ng_platform_text_undo(NGHandle t, int redo) {
+    DISPATCH_INT(text_undo, t, redo);
+}
+
+int ng_platform_text_can_undo(NGHandle t, int redo) {
+    ensure_ops();
+    return g_ops && g_ops->text_can_undo ? g_ops->text_can_undo(t, redo) : 0;
+}
+
+int ng_platform_text_set_feature(NGHandle t, int feature, int on) {
+    DISPATCH_INT(text_set_feature, t, feature, on);
+}
+
 int ng_platform_detach_element(NGHandle e) {
     ensure_ops();
     if (!e) return NG_ERROR_INVALID_HANDLE;
@@ -362,16 +392,17 @@ int ng_platform_split_view_set_divider_position(NGHandle s, int i, float p) {
     DISPATCH_INT(split_view_set_divider_position, s, i, p);
 }
 
-NGHandle ng_platform_create_text_editor(unsigned int id) {
-    DISPATCH_INIT(NGHandle, create_text_editor, id);
+NGHandle ng_platform_create_text_editor(void) {
+    ensure_ops();
+    return g_ops && g_ops->create_text_editor ? g_ops->create_text_editor() : NULL;
 }
 
 void ng_platform_text_editor_invalidate(NGHandle h) {
     DISPATCH_VOID(text_editor_invalidate, h);
 }
 
-NGHandle ng_platform_create_text_view(int e, unsigned int id) {
-    DISPATCH_INIT(NGHandle, create_text_view, e, id);
+NGHandle ng_platform_create_text_view(int e) {
+    DISPATCH_INIT(NGHandle, create_text_view, e);
 }
 
 void ng_platform_text_view_invalidate(NGHandle h) {

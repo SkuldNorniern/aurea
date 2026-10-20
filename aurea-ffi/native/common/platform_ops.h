@@ -81,15 +81,22 @@ typedef struct ng_platform_ops {
     NGHandle (*creation_parent)(void);
     int (*element_set_enabled)(NGHandle element, int enabled);
     int (*element_watch_destroy)(NGHandle element, unsigned int id);
+    int (*text_unit)(void);
+    int (*text_get_selection)(NGHandle text, int* start, int* end);
+    int (*text_set_selection)(NGHandle text, int start, int end);
+    int (*text_replace)(NGHandle text, int start, int end, const char* replacement);
+    int (*text_undo)(NGHandle text, int redo);
+    int (*text_can_undo)(NGHandle text, int redo);
+    int (*text_set_feature)(NGHandle text, int feature, int on);
     int (*set_window_content)(NGHandle window, NGHandle content);
 
     NGHandle (*create_split_view)(int is_vertical);
     int (*split_view_add)(NGHandle split, NGHandle element);
     int (*split_view_set_divider_position)(NGHandle split, int index, float position);
 
-    NGHandle (*create_text_editor)(unsigned int id);
+    NGHandle (*create_text_editor)(void);
     void (*text_editor_invalidate)(NGHandle h);
-    NGHandle (*create_text_view)(int is_editable, unsigned int id);
+    NGHandle (*create_text_view)(int is_editable);
     void (*text_view_invalidate)(NGHandle h);
     NGHandle (*create_text_field)(void);
     int (*set_text_content)(NGHandle h, const char* content);

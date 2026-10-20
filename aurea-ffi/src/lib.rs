@@ -5,6 +5,8 @@ compile_error!(
     "Aurea's iOS and Android hosts are experimental: enable the `mobile` feature to build them"
 );
 
+mod codes;
 mod declarations;
 
+pub use codes::*;
 pub use declarations::*;

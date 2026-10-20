@@ -103,16 +103,14 @@ int ng_platform_box_add(NGHandle box, NGHandle element, float weight) {
     return ng_ios_box_add(box, element);
 }
 
-NGHandle ng_platform_create_text_editor(unsigned int _id) {
+NGHandle ng_platform_create_text_editor(void) {
     // TODO: Implement text editor for iOS
-    (void)_id;
     return NULL;
 }
 
-NGHandle ng_platform_create_text_view(int _is_editable, unsigned int _id) {
+NGHandle ng_platform_create_text_view(int _is_editable) {
     // TODO: Implement text view for iOS
     (void)_is_editable;
-    (void)_id;
     return NULL;
 }
 
