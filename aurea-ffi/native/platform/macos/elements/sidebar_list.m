@@ -54,6 +54,7 @@ typedef NS_ENUM(NSInteger, NGSidebarRowType) {
     row.indent = 0;
     row.itemIndex = -1;
     [_rows addObject:row];
+    [self setNeedsDisplay:YES];
 }
 
 - (void)addItem:(NSString*)title indent:(NSInteger)indent {
@@ -63,6 +64,7 @@ typedef NS_ENUM(NSInteger, NGSidebarRowType) {
     row.indent = indent;
     row.itemIndex = _nextItemIndex++;
     [_rows addObject:row];
+    [self setNeedsDisplay:YES];
 }
 
 - (void)setSelectedIndex:(NSInteger)index {
@@ -108,7 +110,7 @@ typedef NS_ENUM(NSInteger, NGSidebarRowType) {
     };
     NSDictionary* selectedAttrs = @{
         NSFontAttributeName: [NSFont systemFontOfSize:12],
-        NSForegroundColorAttributeName: [NSColor controlTextColor]
+        NSForegroundColorAttributeName: [NSColor alternateSelectedControlTextColor]
     };
 
     CGFloat y = 2;
@@ -171,6 +173,7 @@ int ng_macos_sidebar_list_add_item(NGHandle sidebar, const char* title, int inde
 int ng_macos_sidebar_list_set_selected(NGHandle sidebar, int index) {
     if (!sidebar) return NG_ERROR_INVALID_HANDLE;
     NGSidebarListView* view = (__bridge NGSidebarListView*)sidebar;
+    if (index < -1 || index >= view.nextItemIndex) return NG_ERROR_INVALID_PARAMETER;
     [view setSelectedIndex:index];
     return NG_SUCCESS;
 }

@@ -29,9 +29,8 @@ static void sidebar_data_free(gpointer p) {
 }
 
 static void on_row_selected(GtkListBox* box, GtkListBoxRow* row, gpointer user_data) {
-    (void)box;
     SidebarData* data = (SidebarData*)user_data;
-    if (!row) return;
+    if (!row || ng_linux_is_quiet(box)) return;
     RowInfo* info = g_object_get_data(G_OBJECT(row), "row-info");
     if (!info || info->type != ROW_ITEM) return;
     if (info->item_index >= 0) {
@@ -75,6 +74,7 @@ int ng_linux_sidebar_list_add_section(NGHandle sidebar, const char* title) {
     gtk_widget_set_margin_bottom(row, 4);
     gtk_container_add(GTK_CONTAINER(row), label);
     gtk_container_add(GTK_CONTAINER(box), row);
+    gtk_widget_show_all(row);
 
     RowInfo* info = g_new0(RowInfo, 1);
     info->type = ROW_SECTION;
@@ -99,6 +99,7 @@ int ng_linux_sidebar_list_add_item(NGHandle sidebar, const char* title, int inde
     gtk_widget_set_halign(label, GTK_ALIGN_START);
     gtk_container_add(GTK_CONTAINER(row), label);
     gtk_container_add(GTK_CONTAINER(box), row);
+    gtk_widget_show_all(row);
 
     RowInfo* info = g_new0(RowInfo, 1);
     info->type = ROW_ITEM;
@@ -135,11 +136,16 @@ int ng_linux_sidebar_list_set_selected(NGHandle sidebar, int index) {
     SidebarData* data = g_object_get_data(G_OBJECT(box), "sidebar-data");
     if (!data) return NG_ERROR_INVALID_HANDLE;
 
+    GtkListBoxRow* row = index >= 0 ? get_item_row(box, index) : NULL;
+    if (index != -1 && !row) return NG_ERROR_INVALID_PARAMETER;
     data->selected = index;
-    GtkListBoxRow* row = get_item_row(box, index);
+    ng_linux_set_quiet(box, 1);
     if (row) {
         gtk_list_box_select_row(box, row);
+    } else {
+        gtk_list_box_unselect_all(box);
     }
+    ng_linux_set_quiet(box, 0);
     return NG_SUCCESS;
 }
 
