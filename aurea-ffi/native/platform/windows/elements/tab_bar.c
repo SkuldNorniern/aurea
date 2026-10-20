@@ -98,6 +98,11 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         }
     } else if (msg == WM_SIZE) {
         tab_bar_layout(hwnd);
+    } else if (msg == WM_ERASEBKGND) {
+        RECT client;
+        GetClientRect(hwnd, &client);
+        FillRect((HDC)wParam, &client, GetSysColorBrush(COLOR_BTNFACE));
+        return 1;
     } else if (msg == WM_NCDESTROY) {
         free(data);
         RemovePropA(hwnd, TABBAR_DATA_PROP);
@@ -134,7 +139,6 @@ NGHandle ng_windows_create_tab_bar(unsigned int id) {
     data->id = id;
     data->selected = -1;
     SetPropA(container, TABBAR_DATA_PROP, (HANDLE)data);
-    SetClassLongPtrA(container, GCLP_HBRBACKGROUND, (LONG_PTR)GetStockObject(NULL_BRUSH));
     WNDPROC old_proc = (WNDPROC)SetWindowLongPtrA(container, GWLP_WNDPROC, (LONG_PTR)TabBarProc);
     if (old_proc) {
         SetPropA(container, TABBAR_OLD_PROC_PROP, (HANDLE)old_proc);

@@ -56,7 +56,6 @@ NGHandle ng_windows_create_box(int is_vertical) {
     if (container) {
         SetPropA(container, BOX_ORIENTATION_PROP,
                  (HANDLE)(INT_PTR)(is_vertical ? BOX_VERTICAL : BOX_HORIZONTAL));
-        SetClassLongPtrA(container, GCLP_HBRBACKGROUND, (LONG_PTR)GetStockObject(NULL_BRUSH));
         WNDPROC old_proc = (WNDPROC)SetWindowLongPtrA(container, GWLP_WNDPROC, (LONG_PTR)BoxProc);
         if (old_proc) {
             SetPropA(container, BOX_OLD_PROC_PROP, (HANDLE)old_proc);
