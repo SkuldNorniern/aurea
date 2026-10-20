@@ -473,6 +473,8 @@ mod win32_tests {
     const BM_GETCHECK: u32 = 0x00F0;
     const BM_CLICK: u32 = 0x00F5;
     const EM_REPLACESEL: u32 = 0x00C2;
+    const EM_SETSEL: u32 = 0x00B1;
+    const WM_CHAR: u32 = 0x0102;
     const WS_CHILD: u32 = 0x4000_0000;
     const WS_VISIBLE: u32 = 0x1000_0000;
     const WM_COMMAND: u32 = 0x0111;
@@ -835,6 +837,30 @@ mod win32_tests {
         };
         assert_eq!(pixel(100, 75), 0x0000_00FF, "no image in the middle");
         assert_ne!(pixel(100, 5), 0x0000_00FF, "stretched over the letterbox");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn long_text_is_kept_whole() -> AureaResult<()> {
+        let _window = Window::new("long", 400, 300)?;
+        let text = "0123456789".repeat(10_000);
+        let mut view = TextView::new(true)?;
+        view.set_content(&text)?;
+        assert_eq!(view.get_content()?.len(), text.len());
+        let mut editor = TextEditor::new()?;
+        let text = "a".repeat(32_767);
+        editor.set_content(&text)?;
+        assert_eq!(editor.get_content()?.len(), text.len());
+        unsafe {
+            SendMessageW(editor.handle(), EM_SETSEL, usize::MAX >> 1, -1);
+            SendMessageW(editor.handle(), WM_CHAR, usize::from(b'x'), 0);
+        }
+        assert_eq!(
+            editor.get_content()?.len(),
+            text.len() + 1,
+            "typing stopped at the limit"
+        );
         Ok(())
     }
 
