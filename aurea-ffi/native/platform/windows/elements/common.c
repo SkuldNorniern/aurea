@@ -29,6 +29,10 @@ static LRESULT CALLBACK parking_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     return CallWindowProcA(g_parking_proc, hwnd, msg, wParam, lParam);
 }
 
+NGHandle ng_windows_creation_parent(void) {
+    return (NGHandle)ng_windows_detached_parent();
+}
+
 HWND ng_windows_detached_parent(void) {
     static HWND parking = NULL;
     if (!parking || !IsWindow(parking)) {

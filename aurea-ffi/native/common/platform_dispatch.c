@@ -327,6 +327,11 @@ int ng_platform_box_set_padding(NGHandle b, int padding) {
     DISPATCH_INT(box_set_padding, b, padding);
 }
 
+NGHandle ng_platform_creation_parent(void) {
+    ensure_ops();
+    return g_ops && g_ops->creation_parent ? g_ops->creation_parent() : NULL;
+}
+
 int ng_platform_detach_element(NGHandle e) {
     ensure_ops();
     if (!e) return NG_ERROR_INVALID_HANDLE;

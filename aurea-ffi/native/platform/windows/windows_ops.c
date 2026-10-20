@@ -69,6 +69,7 @@ static const ng_platform_ops_t windows_ops = {
     .element_set_min_size = ng_windows_element_set_min_size,
     .box_set_spacing = ng_windows_box_set_spacing,
     .box_set_padding = ng_windows_box_set_padding,
+    .creation_parent = ng_windows_creation_parent,
     .create_box = ng_windows_create_box,
     .box_invalidate = ng_windows_box_invalidate,
     .box_add = box_add_wrapper,

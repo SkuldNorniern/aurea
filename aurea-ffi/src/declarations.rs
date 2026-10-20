@@ -64,6 +64,7 @@ unsafe extern "C" {
     ) -> c_int;
     pub fn ng_platform_box_set_spacing(box_handle: *mut c_void, spacing: c_int) -> c_int;
     pub fn ng_platform_box_set_padding(box_handle: *mut c_void, padding: c_int) -> c_int;
+    pub fn ng_platform_creation_parent() -> *mut c_void;
     pub fn ng_platform_window_set_title(window: *mut c_void, title: *const c_char);
     pub fn ng_platform_window_set_icon_rgba(
         window: *mut c_void,

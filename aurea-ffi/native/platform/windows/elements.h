@@ -16,6 +16,7 @@ int ng_windows_element_set_visible(NGHandle element, int visible);
 int ng_windows_element_set_min_size(NGHandle element, int width, int height);
 int ng_windows_box_set_spacing(NGHandle box, int spacing);
 int ng_windows_box_set_padding(NGHandle box, int padding);
+NGHandle ng_windows_creation_parent(void);
 int ng_windows_label_set_text(NGHandle label, const char* text);
 NGHandle ng_windows_create_box(int is_vertical);
 void ng_windows_box_invalidate(NGHandle box);

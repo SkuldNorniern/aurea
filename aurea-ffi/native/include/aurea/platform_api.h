@@ -97,6 +97,7 @@ int ng_platform_element_set_visible(NGHandle element, int visible);
 int ng_platform_element_set_min_size(NGHandle element, int width, int height);
 int ng_platform_box_set_spacing(NGHandle box, int spacing);
 int ng_platform_box_set_padding(NGHandle box, int padding);
+NGHandle ng_platform_creation_parent(void);
 NGHandle ng_platform_create_box(int is_vertical);
 void ng_platform_box_invalidate(NGHandle box_handle);
 int ng_platform_box_add(NGHandle box_handle, NGHandle element, float weight);

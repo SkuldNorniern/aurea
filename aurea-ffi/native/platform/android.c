@@ -279,6 +279,10 @@ int ng_platform_box_set_padding(NGHandle box, int padding) {
     return NG_ERROR_UNSUPPORTED;
 }
 
+NGHandle ng_platform_creation_parent(void) {
+    return NULL;
+}
+
 int ng_platform_box_add(NGHandle box, NGHandle element, float weight) {
     // TODO: Implement for Android
     (void)box;
