@@ -20,6 +20,8 @@ pub enum AureaError {
     EventLoopError,
     /// An operation on a GUI element failed.
     ElementOperationFailed,
+    /// The native element is gone: its window or parent tore it down.
+    ElementDestroyed,
     /// Rendering operation failed.
     RenderingFailed,
     /// FFI ABI version mismatch between Rust and native library.
@@ -79,6 +81,7 @@ impl Display for AureaError {
                 "The native UI must be created on the process main thread on this platform."
             ),
             AureaError::ElementOperationFailed => write!(f, "An operation on a GUI element failed"),
+            AureaError::ElementDestroyed => write!(f, "The native element was destroyed"),
             AureaError::RenderingFailed => write!(f, "Rendering operation failed"),
             AureaError::DeviceLost => write!(f, "The GPU device was lost"),
             AureaError::Unsupported {
