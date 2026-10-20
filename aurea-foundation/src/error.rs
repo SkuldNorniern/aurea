@@ -14,6 +14,8 @@ pub enum AureaError {
     MenuItemAddFailed,
     /// The provided title contains invalid characters.
     InvalidTitle,
+    /// Text for a control or message holds a NUL byte.
+    InvalidText,
     /// A platform-specific error occurred.
     PlatformError(i32),
     /// The event loop encountered an error.
@@ -27,10 +29,17 @@ pub enum AureaError {
     /// Rendering operation failed.
     RenderingFailed,
     /// FFI ABI version mismatch between Rust and native library.
-    AbiVersionMismatch { expected: i32, got: i32 },
+    AbiVersionMismatch {
+        /// The version Rust expects.
+        expected: i32,
+        /// The version the native library reports.
+        got: i32,
+    },
     /// The platform backend has no implementation for this operation.
     Unsupported {
+        /// The operation that has no implementation.
         operation: &'static str,
+        /// The platform that lacks the operation.
         platform: Platform,
     },
     /// The native UI has to be brought up on the process main thread, and the thread asking for it
@@ -50,6 +59,7 @@ impl Display for AureaError {
             AureaError::MenuCreationFailed => write!(f, "Failed to create a menu"),
             AureaError::MenuItemAddFailed => write!(f, "Failed to add a menu item"),
             AureaError::InvalidTitle => write!(f, "The provided title contains invalid characters"),
+            AureaError::InvalidText => write!(f, "The text contains a NUL byte"),
             AureaError::PlatformError(code) => {
                 let hint = if *code == 1 {
                     #[cfg(target_os = "linux")]
