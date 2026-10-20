@@ -68,6 +68,15 @@ mod gtk_tests {
         fn gtk_widget_get_visible(widget: *mut c_void) -> c_int;
         fn gtk_list_box_select_row(list: *mut c_void, row: *mut c_void);
         fn gtk_widget_is_sensitive(widget: *mut c_void) -> c_int;
+        fn gtk_widget_get_allocated_width(widget: *mut c_void) -> c_int;
+        fn gtk_widget_draw(widget: *mut c_void, cr: *mut c_void);
+        fn cairo_image_surface_create(format: c_int, w: c_int, h: c_int) -> *mut c_void;
+        fn cairo_create(surface: *mut c_void) -> *mut c_void;
+        fn cairo_destroy(cr: *mut c_void);
+        fn cairo_surface_flush(surface: *mut c_void);
+        fn cairo_surface_destroy(surface: *mut c_void);
+        fn cairo_image_surface_get_data(surface: *mut c_void) -> *mut u8;
+        fn cairo_image_surface_get_stride(surface: *mut c_void) -> c_int;
         fn g_signal_emit_by_name(instance: *mut c_void, signal: *const c_char, ...);
     }
 
@@ -274,6 +283,79 @@ mod gtk_tests {
         Ok(())
     }
 
+    fn bmp(w: u32, h: u32, bgr: [u8; 3]) -> Vec<u8> {
+        let row = (w * 3).div_ceil(4) * 4;
+        let size = 54 + row * h;
+        let mut out = Vec::new();
+        out.extend_from_slice(b"BM");
+        for v in [size, 0, 54, 40] {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        out.extend_from_slice(&w.to_le_bytes());
+        out.extend_from_slice(&h.to_le_bytes());
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&24u16.to_le_bytes());
+        out.extend_from_slice(&[0; 24]);
+        for _ in 0..h {
+            let start = out.len();
+            for _ in 0..w {
+                out.extend_from_slice(&bgr);
+            }
+            out.resize(start + row as usize, 0);
+        }
+        out
+    }
+
+    fn render(widget: *mut c_void) -> (Vec<u32>, usize, usize) {
+        unsafe {
+            let w = gtk_widget_get_allocated_width(widget);
+            let h = gtk_widget_get_allocated_height(widget);
+            let surface = cairo_image_surface_create(0, w, h);
+            let cr = cairo_create(surface);
+            gtk_widget_draw(widget, cr);
+            cairo_destroy(cr);
+            cairo_surface_flush(surface);
+            let stride = usize::try_from(cairo_image_surface_get_stride(surface)).unwrap_or(0) / 4;
+            let (w, h) = (
+                usize::try_from(w).unwrap_or(0),
+                usize::try_from(h).unwrap_or(0),
+            );
+            let data = cairo_image_surface_get_data(surface).cast::<u32>();
+            let pixels = (0..h)
+                .flat_map(|y| (0..w).map(move |x| *data.add(y * stride + x)))
+                .collect();
+            cairo_surface_destroy(surface);
+            (pixels, w, h)
+        }
+    }
+
+    #[test]
+    #[ignore = "needs a display; run with --ignored"]
+    fn an_image_keeps_its_aspect() -> AureaResult<()> {
+        let mut window = Window::new("image", 400, 300)?;
+        let view = ImageView::with_data(&bmp(40, 20, [0, 0, 255]))?;
+        let v = view.handle();
+        let mut root = Stack::new(Orientation::Vertical)?;
+        root.add_weighted(view, 1.0)?;
+        window.set_content(root)?;
+        settle(&window);
+        let (pixels, w, h) = render(v);
+        let at = |x: usize, y: usize| pixels[y * w + x];
+        assert_eq!(at(w / 2, h / 2), 0xFFFF_0000, "no image in the middle");
+        let reach = h.min(w / 2) / 4;
+        assert!(
+            reach > 10 && at(w / 2, h / 2 + reach) == 0xFFFF_0000,
+            "not scaled"
+        );
+        let bar = if w > 2 * h {
+            at(1, h / 2)
+        } else {
+            at(w / 2, 1)
+        };
+        assert_eq!(bar >> 24, 0, "the image covers the letterbox");
+        Ok(())
+    }
+
     #[test]
     #[ignore = "needs a display; run with --ignored"]
     fn a_text_view_ignores_its_own_set() -> AureaResult<()> {
@@ -351,6 +433,8 @@ mod win32_tests {
         fn GetDlgItem(hwnd: *mut c_void, id: i32) -> *mut c_void;
         fn IsWindow(hwnd: *mut c_void) -> i32;
         fn IsWindowEnabled(hwnd: *mut c_void) -> i32;
+        fn GetDC(hwnd: *mut c_void) -> *mut c_void;
+        fn ReleaseDC(hwnd: *mut c_void, dc: *mut c_void) -> i32;
         fn SendMessageW(hwnd: *mut c_void, msg: u32, w: usize, l: isize) -> isize;
         fn CreateWindowExW(
             ex: u32,
@@ -371,6 +455,19 @@ mod win32_tests {
     unsafe extern "C" {
         fn ng_windows_detached_parent() -> *mut c_void;
     }
+
+    #[link(name = "gdi32")]
+    unsafe extern "system" {
+        fn CreateCompatibleDC(dc: *mut c_void) -> *mut c_void;
+        fn CreateCompatibleBitmap(dc: *mut c_void, w: i32, h: i32) -> *mut c_void;
+        fn SelectObject(dc: *mut c_void, object: *mut c_void) -> *mut c_void;
+        fn GetPixel(dc: *mut c_void, x: i32, y: i32) -> u32;
+        fn DeleteObject(object: *mut c_void) -> i32;
+        fn DeleteDC(dc: *mut c_void) -> i32;
+    }
+
+    const WM_PRINTCLIENT: u32 = 0x0318;
+    const PRF_CLIENT: isize = 4;
 
     const TEXT: &str = "연결 · 日本語 🙂 …";
     const BM_GETCHECK: u32 = 0x00F0;
@@ -692,6 +789,52 @@ mod win32_tests {
             Err(AureaError::ElementDestroyed)
         ));
         drop(Shared::new(Label::new("loose")?));
+        Ok(())
+    }
+
+    fn bmp(w: u32, h: u32, bgr: [u8; 3]) -> Vec<u8> {
+        let row = (w * 3).div_ceil(4) * 4;
+        let size = 54 + row * h;
+        let mut out = Vec::new();
+        out.extend_from_slice(b"BM");
+        for v in [size, 0, 54, 40] {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        out.extend_from_slice(&w.to_le_bytes());
+        out.extend_from_slice(&h.to_le_bytes());
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&24u16.to_le_bytes());
+        out.extend_from_slice(&[0; 24]);
+        for _ in 0..h {
+            let start = out.len();
+            for _ in 0..w {
+                out.extend_from_slice(&bgr);
+            }
+            out.resize(start + row as usize, 0);
+        }
+        out
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn an_image_keeps_its_aspect() -> AureaResult<()> {
+        let _window = Window::new("image", 400, 300)?;
+        let view = ImageView::with_data(&bmp(40, 20, [0, 0, 255]))?;
+        let pixel = |x, y| unsafe {
+            let dc = CreateCompatibleDC(null_mut());
+            let screen = GetDC(null_mut());
+            let bitmap = CreateCompatibleBitmap(screen, 200, 150);
+            ReleaseDC(null_mut(), screen);
+            let old = SelectObject(dc, bitmap);
+            SendMessageW(view.handle(), WM_PRINTCLIENT, dc as usize, PRF_CLIENT);
+            let color = GetPixel(dc, x, y);
+            SelectObject(dc, old);
+            DeleteObject(bitmap);
+            DeleteDC(dc);
+            color
+        };
+        assert_eq!(pixel(100, 75), 0x0000_00FF, "no image in the middle");
+        assert_ne!(pixel(100, 5), 0x0000_00FF, "stretched over the letterbox");
         Ok(())
     }
 
