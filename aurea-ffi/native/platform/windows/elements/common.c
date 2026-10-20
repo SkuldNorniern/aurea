@@ -182,7 +182,7 @@ int ng_windows_element_set_change_id(NGHandle element, unsigned int id) {
     HWND hwnd = (HWND)element;
     SetPropA(hwnd, CHANGE_ID_PROP, (HANDLE)(UINT_PTR)id);
     wchar_t cls[32];
-    if (GetClassNameW(hwnd, cls, 32) && _wcsicmp(cls, RICHEDIT_CLASSW) == 0) {
+    if (ng_windows_is_rich_edit(hwnd)) {
         LRESULT mask = SendMessageW(hwnd, EM_GETEVENTMASK, 0, 0);
         SendMessageW(hwnd, EM_SETEVENTMASK, 0, mask | ENM_CHANGE);
     }
@@ -323,8 +323,9 @@ static int box_padding(HWND box) {
     if (set >= 0) return set;
     HWND parent = GetParent(box);
     char parent_class[64];
-    if (parent && GetClassNameA(parent, parent_class, sizeof(parent_class)) &&
-        _stricmp(parent_class, "NativeGuiWindow") == 0) {
+    if (parent && ((GetClassNameA(parent, parent_class, sizeof(parent_class)) &&
+                    _stricmp(parent_class, "NativeGuiWindow") == 0) ||
+                   GetPropA(parent, "AureaSplitViewOldProc"))) {
         return ng_windows_px(box, PADDING);
     }
     return 0;
@@ -422,7 +423,7 @@ static void measure_child(BoxChild* c, int vertical, int cross) {
         } else {
             SIZE text = text_extent(c->hwnd, 0);
             w = empty ? 0 : text.cx + 2;
-            h = empty ? 0 : text.cy + ng_windows_px(c->hwnd, LABEL_PADDING * 2);
+            h = empty ? 0 : text.cy;
         }
     } else if (_stricmp(cls, "BUTTON") == 0) {
         LONG_PTR type = GetWindowLongPtrA(c->hwnd, GWL_STYLE) & BS_TYPEMASK;
@@ -442,7 +443,7 @@ static void measure_child(BoxChild* c, int vertical, int cross) {
             if (h < min_h) h = min_h;
         }
     } else if (vertical && cross > 0 &&
-               (c->weight > 0.0f || _stricmp(cls, "RichEdit20W") == 0 || _stricmp(cls, "EDIT") == 0 ||
+               (c->weight > 0.0f || ng_windows_is_rich_edit(c->hwnd) || _stricmp(cls, "EDIT") == 0 ||
                 _stricmp(cls, "AureaCanvas") == 0 || _stricmp(cls, "msctls_progress32") == 0 ||
                 _stricmp(cls, "COMBOBOX") == 0 || _stricmp(cls, TRACKBAR_CLASSA) == 0)) {
         w = cross;
@@ -561,7 +562,7 @@ void layout_box_children(HWND box) {
 
         if (is_box(c->hwnd)) {
             if (was.right == w && was.bottom == h) layout_box_children(c->hwnd);
-        } else if (_stricmp(c->class_name, "RichEdit20W") == 0) {
+        } else if (ng_windows_is_rich_edit(c->hwnd)) {
             SendMessageW(c->hwnd, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELONG(0, 0));
             SendMessageW(c->hwnd, EM_SETTARGETDEVICE, 0, GetPropA(c->hwnd, TEXT_NO_WRAP_PROP) ? 1 : 0);
         }

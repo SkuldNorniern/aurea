@@ -9,6 +9,7 @@
 #include "elements/common.h"
 #include "common/errors.h"
 #include "common/input.h"
+#include <commctrl.h>
 #include "common/rust_callbacks.h"
 #include <windowsx.h>
 #include <string.h>
@@ -66,6 +67,12 @@ int ng_windows_init(void) {
         if (!RegisterClassExW(&g_wc)) {
             return NG_ERROR_PLATFORM_SPECIFIC;
         }
+        /* Themed controls without an app manifest; it stays active for the UI thread. */
+        HANDLE v6 = ng_windows_common_controls_v6();
+        ULONG_PTR cookie = 0;
+        if (v6 != INVALID_HANDLE_VALUE) ActivateActCtx(v6, &cookie);
+        INITCOMMONCONTROLSEX classes = {sizeof(classes), ICC_STANDARD_CLASSES | ICC_WIN95_CLASSES};
+        InitCommonControlsEx(&classes);
         win_initialized = TRUE;
     }
     return NG_SUCCESS;

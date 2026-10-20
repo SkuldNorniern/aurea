@@ -86,6 +86,7 @@ HWND ng_windows_create_control(DWORD ex_style, const wchar_t* cls, const char* t
                                DWORD style, int width, int height, HWND parent, UINT id);
 /* A multi-line RichEdit, the base of text views and editors. */
 HWND ng_windows_create_rich_text(int editable);
+int ng_windows_is_rich_edit(HWND hwnd);
 /* Lays out the outermost box above `hwnd`, after its size may have changed. */
 void ng_windows_relayout(HWND hwnd);
 /* RichEdit stops typing at 32K characters unless told otherwise. */

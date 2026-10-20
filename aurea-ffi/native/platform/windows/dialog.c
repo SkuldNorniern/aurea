@@ -237,7 +237,7 @@ static PCWSTR icon_of(int kind) {
 
 typedef HRESULT (WINAPI* TaskDialogIndirectFn)(const TASKDIALOGCONFIG*, int*, int*, BOOL*);
 
-static HANDLE common_controls_v6(void) {
+HANDLE ng_windows_common_controls_v6(void) {
     static HANDLE context = NULL;
     if (context) return context;
     wchar_t dir[MAX_PATH];
@@ -300,7 +300,7 @@ int ng_windows_message_box(NGHandle window, int kind, const char* title, const c
     }
 
     int result;
-    HANDLE v6 = common_controls_v6();
+    HANDLE v6 = ng_windows_common_controls_v6();
     ULONG_PTR cookie = 0;
     BOOL activated = v6 != INVALID_HANDLE_VALUE && ActivateActCtx(v6, &cookie);
     HMODULE comctl = LoadLibraryW(L"comctl32.dll");

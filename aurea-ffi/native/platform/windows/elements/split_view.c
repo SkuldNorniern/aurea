@@ -13,6 +13,7 @@
 typedef struct {
     int is_vertical;
     int divider_pos;
+    int shown;
     int grab;
     int dragging;
     HWND child1;
@@ -58,7 +59,7 @@ static void split_view_layout(HWND hwnd, SplitViewData* data) {
         pos = (total - bar) / 2;
     }
     pos = clamp_divider(pos, total - bar, ng_windows_px(hwnd, SPLIT_VIEW_MIN_PANE));
-    data->divider_pos = pos;
+    data->shown = pos;
 
     if (data->is_vertical) {
         SetWindowPos(data->child1, NULL, 0, 0, width, pos,
@@ -78,8 +79,8 @@ static int along(SplitViewData* data, LPARAM lParam) {
 }
 
 static int on_divider(HWND hwnd, SplitViewData* data, int at) {
-    return data->child2 && at >= data->divider_pos &&
-           at < data->divider_pos + ng_windows_px(hwnd, SPLIT_VIEW_DIVIDER);
+    return data->child2 && at >= data->shown &&
+           at < data->shown + ng_windows_px(hwnd, SPLIT_VIEW_DIVIDER);
 }
 
 static LRESULT CALLBACK SplitViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -102,7 +103,7 @@ static LRESULT CALLBACK SplitViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
         }
     } else if (msg == WM_LBUTTONDOWN && data && on_divider(hwnd, data, along(data, lParam))) {
         data->dragging = 1;
-        data->grab = along(data, lParam) - data->divider_pos;
+        data->grab = along(data, lParam) - data->shown;
         SetCapture(hwnd);
         return 0;
     } else if (msg == WM_MOUSEMOVE && data && data->dragging) {

@@ -1,5 +1,6 @@
 #include "common.h"
 #include "../elements.h"
+#include "../utils.h"
 #include "common/errors.h"
 #include "common/rust_callbacks.h"
 #include <windows.h>
@@ -7,124 +8,139 @@
 
 #define SIDEBAR_OLD_PROC_PROP "AureaSidebarOldProc"
 #define SIDEBAR_DATA_PROP "AureaSidebarData"
-#define SIDEBAR_BASE_ID 9500
-#define ROW_HEIGHT 24
-#define SECTION_PADDING 4
-#define INDENT_STEP 10
-#define LEFT_MARGIN 6
+#define SIDEBAR_LIST_ID 1
+#define ITEM_HEIGHT 30
+#define SECTION_HEIGHT 28
+#define SIDE_MARGIN 6
+#define TEXT_INSET 14
+#define INDENT_STEP 14
+#define ACCENT_WIDTH 3
 
-typedef struct {
-    HWND hwnd;
-    int indent;
-    int item;
-} SidebarRow;
+/* Packed into each row's item data: kind in the top bit, indent, item index. */
+#define ROW_SECTION 0x80000000u
+#define ROW_INDENT(v) (((v) >> 16) & 0x7FFF)
+#define ROW_ITEM(v) ((int)((v) & 0xFFFF))
 
 typedef struct {
     unsigned int id;
-    SidebarRow* rows;
-    int row_count;
-    int row_cap;
+    HWND list;
     int item_count;
     int selected;
-    int scroll;
 } SidebarData;
 
 static SidebarData* sidebar_data(HWND bar) {
     return (SidebarData*)GetPropA(bar, SIDEBAR_DATA_PROP);
 }
 
-static void sidebar_show_selected(SidebarData* data) {
-    for (int i = 0; i < data->row_count; i++) {
-        SidebarRow* row = &data->rows[i];
-        if (row->item < 0) continue;
-        SendMessageW(row->hwnd, BM_SETCHECK,
-                     row->item == data->selected ? BST_CHECKED : BST_UNCHECKED, 0);
+static UINT_PTR row_data(HWND list, int row) {
+    LRESULT v = SendMessageW(list, LB_GETITEMDATA, (WPARAM)row, 0);
+    return v == LB_ERR ? ROW_SECTION : (UINT_PTR)v;
+}
+
+static int row_of_item(HWND list, int item) {
+    int count = (int)SendMessageW(list, LB_GETCOUNT, 0, 0);
+    for (int row = 0; row < count; row++) {
+        UINT_PTR v = row_data(list, row);
+        if (!(v & ROW_SECTION) && ROW_ITEM(v) == item) return row;
     }
+    return -1;
 }
 
-static int sidebar_row_height(HWND bar, const SidebarRow* row) {
-    int h = ng_windows_px(bar, ROW_HEIGHT);
-    return row->item < 0 ? h + ng_windows_px(bar, SECTION_PADDING) : h;
+static COLORREF mix(COLORREF a, COLORREF b, int b_percent) {
+    int keep = 100 - b_percent;
+    return RGB((GetRValue(a) * keep + GetRValue(b) * b_percent) / 100,
+               (GetGValue(a) * keep + GetGValue(b) * b_percent) / 100,
+               (GetBValue(a) * keep + GetBValue(b) * b_percent) / 100);
 }
 
-static void sidebar_layout(HWND bar) {
-    SidebarData* data = sidebar_data(bar);
-    if (!data) return;
-    RECT client;
-    GetClientRect(bar, &client);
-    int total = 0;
-    for (int i = 0; i < data->row_count; i++) total += sidebar_row_height(bar, &data->rows[i]);
+static void fill_round(HDC hdc, RECT r, int radius, COLORREF color) {
+    HBRUSH brush = CreateSolidBrush(color);
+    HGDIOBJ old_brush = SelectObject(hdc, brush);
+    HGDIOBJ old_pen = SelectObject(hdc, GetStockObject(NULL_PEN));
+    RoundRect(hdc, r.left, r.top, r.right + 1, r.bottom + 1, radius, radius);
+    SelectObject(hdc, old_pen);
+    SelectObject(hdc, old_brush);
+    DeleteObject(brush);
+}
 
-    int room = client.bottom > 0 ? client.bottom : 0;
-    int max_scroll = total > room ? total - room : 0;
-    if (data->scroll > max_scroll) data->scroll = max_scroll;
-    if (data->scroll < 0) data->scroll = 0;
-    SCROLLINFO info = {sizeof(info), SIF_RANGE | SIF_PAGE | SIF_POS, 0, total > 0 ? total - 1 : 0,
-                       (UINT)room, data->scroll, 0};
-    SetScrollInfo(bar, SB_VERT, &info, TRUE);
+static void draw_row(HWND bar, const DRAWITEMSTRUCT* item) {
+    if (item->itemID == (UINT)-1) return;
+    HDC hdc = item->hDC;
+    RECT r = item->rcItem;
+    COLORREF face = GetSysColor(COLOR_BTNFACE);
+    HBRUSH bg = CreateSolidBrush(face);
+    FillRect(hdc, &r, bg);
+    DeleteObject(bg);
 
-    int y = -data->scroll;
-    for (int i = 0; i < data->row_count; i++) {
-        SidebarRow* row = &data->rows[i];
-        int x = ng_windows_px(bar, LEFT_MARGIN + row->indent * INDENT_STEP);
-        int h = ng_windows_px(bar, ROW_HEIGHT) - (row->item < 0 ? 0 : ng_windows_px(bar, 2));
-        int w = client.right - x;
-        SetWindowPos(row->hwnd, NULL, x, y, w > 0 ? w : 0, h, SWP_NOZORDER | SWP_NOACTIVATE);
-        y += sidebar_row_height(bar, row);
+    UINT_PTR v = (UINT_PTR)item->itemData;
+    int section = (v & ROW_SECTION) != 0;
+    int selected = !section && (item->itemState & ODS_SELECTED);
+    COLORREF accent = GetSysColor(COLOR_HIGHLIGHT);
+    if (selected) {
+        RECT pill = r;
+        InflateRect(&pill, -ng_windows_px(bar, SIDE_MARGIN), -ng_windows_px(bar, 2));
+        fill_round(hdc, pill, ng_windows_px(bar, 8), mix(face, accent, 18));
+        RECT bar_rect = pill;
+        bar_rect.right = bar_rect.left + ng_windows_px(bar, ACCENT_WIDTH);
+        InflateRect(&bar_rect, 0, -ng_windows_px(bar, 7));
+        fill_round(hdc, bar_rect, ng_windows_px(bar, 3), accent);
     }
+
+    int len = (int)SendMessageW(item->hwndItem, LB_GETTEXTLEN, item->itemID, 0);
+    if (len <= 0) return;
+    wchar_t* text = (wchar_t*)malloc(((size_t)len + 1) * sizeof(wchar_t));
+    if (!text) return;
+    SendMessageW(item->hwndItem, LB_GETTEXT, item->itemID, (LPARAM)text);
+
+    RECT t = r;
+    t.left += ng_windows_px(bar, SIDE_MARGIN + TEXT_INSET + (section ? 0 : (int)ROW_INDENT(v) * INDENT_STEP));
+    t.right -= ng_windows_px(bar, SIDE_MARGIN);
+    if (section) t.top += ng_windows_px(bar, 6);
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, GetSysColor(section ? COLOR_GRAYTEXT : COLOR_BTNTEXT));
+    HGDIOBJ old_font = SelectObject(hdc, ng_windows_ui_font(bar));
+    DrawTextW(hdc, text, len, &t, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+    SelectObject(hdc, old_font);
+    free(text);
 }
 
-static void sidebar_scroll_to(HWND bar, SidebarData* data, int scroll) {
-    data->scroll = scroll;
-    sidebar_layout(bar);
-    InvalidateRect(bar, NULL, TRUE);
+static void sidebar_select_row(SidebarData* data, int row) {
+    SendMessageW(data->list, LB_SETCURSEL, (WPARAM)row, 0);
 }
 
 static LRESULT CALLBACK SidebarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     SidebarData* data = sidebar_data(hwnd);
-    if (msg == WM_COMMAND && data && HIWORD(wParam) == BN_CLICKED) {
-        int idx = (int)LOWORD(wParam) - SIDEBAR_BASE_ID;
-        if (idx >= 0 && idx < data->item_count) {
-            int changed = idx != data->selected;
-            data->selected = idx;
-            sidebar_show_selected(data);
-            if (changed) ng_invoke_sidebar_list_selected(data->id, idx);
+    if (data && msg == WM_MEASUREITEM) {
+        MEASUREITEMSTRUCT* m = (MEASUREITEMSTRUCT*)lParam;
+        int section = (m->itemData & ROW_SECTION) != 0;
+        m->itemHeight = (UINT)ng_windows_px(hwnd, section ? SECTION_HEIGHT : ITEM_HEIGHT);
+        return TRUE;
+    } else if (data && msg == WM_DRAWITEM) {
+        draw_row(hwnd, (const DRAWITEMSTRUCT*)lParam);
+        return TRUE;
+    } else if (data && msg == WM_COMMAND && (HWND)lParam == data->list && HIWORD(wParam) == LBN_SELCHANGE) {
+        int row = (int)SendMessageW(data->list, LB_GETCURSEL, 0, 0);
+        UINT_PTR v = row_data(data->list, row);
+        if (v & ROW_SECTION) {
+            sidebar_select_row(data, data->selected >= 0 ? row_of_item(data->list, data->selected) : -1);
             return 0;
         }
-    } else if (msg == WM_SIZE) {
-        sidebar_layout(hwnd);
-    } else if (msg == WM_ERASEBKGND) {
-        RECT client;
-        GetClientRect(hwnd, &client);
-        FillRect((HDC)wParam, &client, GetSysColorBrush(COLOR_BTNFACE));
-        return 1;
-    } else if (msg == WM_VSCROLL && data && !lParam) {
-        int line = ng_windows_px(hwnd, ROW_HEIGHT);
-        RECT client;
-        GetClientRect(hwnd, &client);
-        int at = data->scroll;
-        switch (LOWORD(wParam)) {
-            case SB_LINEUP: at -= line; break;
-            case SB_LINEDOWN: at += line; break;
-            case SB_PAGEUP: at -= client.bottom; break;
-            case SB_PAGEDOWN: at += client.bottom; break;
-            case SB_THUMBTRACK:
-            case SB_THUMBPOSITION: {
-                SCROLLINFO info = {sizeof(info), SIF_TRACKPOS};
-                GetScrollInfo(hwnd, SB_VERT, &info);
-                at = info.nTrackPos;
-                break;
-            }
-            default: break;
+        int item = ROW_ITEM(v);
+        if (item != data->selected) {
+            data->selected = item;
+            /* The handler may destroy this list. */
+            ng_invoke_sidebar_list_selected(data->id, item);
         }
-        sidebar_scroll_to(hwnd, data, at);
         return 0;
-    } else if (msg == WM_MOUSEWHEEL && data) {
-        int notches = GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA;
-        sidebar_scroll_to(hwnd, data, data->scroll - notches * 3 * ng_windows_px(hwnd, ROW_HEIGHT));
-        return 0;
+    } else if (data && msg == WM_SIZE) {
+        SetWindowPos(data->list, NULL, 0, 0, LOWORD(lParam), HIWORD(lParam), SWP_NOZORDER | SWP_NOACTIVATE);
+    } else if (data && msg == WM_SETFONT) {
+        SendMessageW(data->list, WM_SETFONT, wParam, lParam);
+    } else if (data && msg == WM_CTLCOLORLISTBOX) {
+        return (LRESULT)GetSysColorBrush(COLOR_BTNFACE);
+    } else if (msg == WM_ERASEBKGND) {
+        return 1;
     } else if (msg == WM_NCDESTROY) {
-        if (data) free(data->rows);
         free(data);
         RemovePropA(hwnd, SIDEBAR_DATA_PROP);
     }
@@ -142,7 +158,7 @@ NGHandle ng_windows_create_sidebar_list(unsigned int id) {
         0,
         "STATIC",
         NULL,
-        WS_CHILD | SS_LEFT | WS_VISIBLE | WS_VSCROLL | WS_CLIPCHILDREN,
+        WS_CHILD | SS_LEFT | WS_VISIBLE | WS_CLIPCHILDREN,
         0, 0, 200, 400,
         ng_windows_detached_parent(),
         NULL,
@@ -163,47 +179,44 @@ NGHandle ng_windows_create_sidebar_list(unsigned int id) {
     if (old_proc) {
         SetPropA(container, SIDEBAR_OLD_PROC_PROP, (HANDLE)old_proc);
     }
+
+    data->list = CreateWindowExW(
+        0, L"LISTBOX", NULL,
+        WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_TABSTOP | LBS_NOTIFY | LBS_OWNERDRAWVARIABLE |
+            LBS_HASSTRINGS | LBS_NOINTEGRALHEIGHT,
+        0, 0, 200, 400, container, (HMENU)(UINT_PTR)SIDEBAR_LIST_ID, GetModuleHandleW(NULL), NULL);
+    if (!data->list) {
+        DestroyWindow(container);
+        return NULL;
+    }
+    SendMessageW(data->list, WM_SETFONT, (WPARAM)ng_windows_ui_font(container), FALSE);
     return (NGHandle)container;
 }
 
-static int sidebar_add_row(HWND bar, SidebarData* data, HWND row, int indent, int item) {
-    if (data->row_count == data->row_cap) {
-        int cap = data->row_cap ? data->row_cap * 2 : 16;
-        SidebarRow* grown = (SidebarRow*)realloc(data->rows, (size_t)cap * sizeof(SidebarRow));
-        if (!grown) {
-            DestroyWindow(row);
-            return NG_ERROR_CREATION_FAILED;
-        }
-        data->rows = grown;
-        data->row_cap = cap;
-    }
-    data->rows[data->row_count++] = (SidebarRow){row, indent > 0 ? indent : 0, item};
-    SendMessageW(row, WM_SETFONT, (WPARAM)ng_windows_ui_font(bar), FALSE);
-    sidebar_layout(bar);
+static int sidebar_add_row(SidebarData* data, const char* title, UINT_PTR v) {
+    wchar_t* wide = ng_windows_utf8_to_wide(title);
+    if (!wide) return NG_ERROR_INVALID_PARAMETER;
+    LRESULT row = SendMessageW(data->list, LB_ADDSTRING, 0, (LPARAM)wide);
+    free(wide);
+    if (row == LB_ERR || row == LB_ERRSPACE) return NG_ERROR_CREATION_FAILED;
+    SendMessageW(data->list, LB_SETITEMDATA, (WPARAM)row, (LPARAM)v);
     return NG_SUCCESS;
 }
 
 int ng_windows_sidebar_list_add_section(NGHandle sidebar, const char* title) {
     if (!sidebar || !title) return NG_ERROR_INVALID_PARAMETER;
-    HWND bar = (HWND)sidebar;
-    SidebarData* data = sidebar_data(bar);
+    SidebarData* data = sidebar_data((HWND)sidebar);
     if (!data) return NG_ERROR_INVALID_HANDLE;
-    HWND label = ng_windows_create_control(
-        0, L"STATIC", title, WS_CHILD | SS_LEFT | SS_CENTERIMAGE | WS_VISIBLE, 200, ROW_HEIGHT, bar, 0);
-    if (!label) return NG_ERROR_CREATION_FAILED;
-    return sidebar_add_row(bar, data, label, 0, -1);
+    return sidebar_add_row(data, title, ROW_SECTION);
 }
 
 int ng_windows_sidebar_list_add_item(NGHandle sidebar, const char* title, int indent) {
     if (!sidebar || !title) return NG_ERROR_INVALID_PARAMETER;
-    HWND bar = (HWND)sidebar;
-    SidebarData* data = sidebar_data(bar);
+    SidebarData* data = sidebar_data((HWND)sidebar);
     if (!data) return NG_ERROR_INVALID_HANDLE;
-    HWND btn = ng_windows_create_control(
-        0, L"BUTTON", title, WS_CHILD | WS_VISIBLE | BS_CHECKBOX | BS_PUSHLIKE | BS_LEFT,
-        200, ROW_HEIGHT, bar, SIDEBAR_BASE_ID + data->item_count);
-    if (!btn) return NG_ERROR_CREATION_FAILED;
-    int result = sidebar_add_row(bar, data, btn, indent, data->item_count);
+    if (data->item_count > 0xFFFF) return NG_ERROR_LIMIT_EXCEEDED;
+    UINT_PTR depth = (UINT_PTR)(indent > 0 ? (indent > 0x7FFF ? 0x7FFF : indent) : 0);
+    int result = sidebar_add_row(data, title, (depth << 16) | (UINT_PTR)data->item_count);
     if (result == NG_SUCCESS) data->item_count++;
     return result;
 }
@@ -213,7 +226,7 @@ int ng_windows_sidebar_list_set_selected(NGHandle sidebar, int index) {
     if (!data) return NG_ERROR_INVALID_HANDLE;
     if (index < -1 || index >= data->item_count) return NG_ERROR_INVALID_PARAMETER;
     data->selected = index;
-    sidebar_show_selected(data);
+    sidebar_select_row(data, index >= 0 ? row_of_item(data->list, index) : -1);
     return NG_SUCCESS;
 }
 
@@ -225,16 +238,13 @@ int ng_windows_sidebar_list_get_selected(NGHandle sidebar) {
 int ng_windows_sidebar_list_clear(NGHandle sidebar) {
     SidebarData* data = sidebar ? sidebar_data((HWND)sidebar) : NULL;
     if (!data) return NG_ERROR_INVALID_HANDLE;
-    for (int i = 0; i < data->row_count; i++) DestroyWindow(data->rows[i].hwnd);
-    data->row_count = 0;
+    SendMessageW(data->list, LB_RESETCONTENT, 0, 0);
     data->item_count = 0;
     data->selected = -1;
-    data->scroll = 0;
-    sidebar_layout((HWND)sidebar);
     return NG_SUCCESS;
 }
 
 void ng_windows_sidebar_list_invalidate(NGHandle sidebar) {
-    if (!sidebar) return;
-    InvalidateRect((HWND)sidebar, NULL, FALSE);
+    SidebarData* data = sidebar ? sidebar_data((HWND)sidebar) : NULL;
+    if (data) InvalidateRect(data->list, NULL, FALSE);
 }

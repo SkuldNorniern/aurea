@@ -8,15 +8,20 @@
 #include <stdlib.h>
 #include <string.h>
 
-static int is_rich(HWND hwnd) {
+int ng_windows_is_rich_edit(HWND hwnd) {
     wchar_t cls[32];
-    return GetClassNameW(hwnd, cls, 32) && _wcsicmp(cls, RICHEDIT_CLASSW) == 0;
+    return GetClassNameW(hwnd, cls, 32) &&
+           (_wcsicmp(cls, MSFTEDIT_CLASS) == 0 || _wcsicmp(cls, RICHEDIT_CLASSW) == 0);
+}
+
+static int is_rich(HWND hwnd) {
+    return ng_windows_is_rich_edit(hwnd);
 }
 
 static int is_text(HWND hwnd) {
     wchar_t cls[32];
-    return hwnd && IsWindow(hwnd) && GetClassNameW(hwnd, cls, 32) &&
-           (_wcsicmp(cls, RICHEDIT_CLASSW) == 0 || _wcsicmp(cls, L"EDIT") == 0);
+    return hwnd && IsWindow(hwnd) &&
+           (is_rich(hwnd) || (GetClassNameW(hwnd, cls, 32) && _wcsicmp(cls, L"EDIT") == 0));
 }
 
 static char* normalized(wchar_t* wide, int len) {
@@ -63,11 +68,12 @@ void ng_windows_free_text_content(char* content) {
 }
 
 HWND ng_windows_create_rich_text(int editable) {
-    LoadLibraryW(L"riched20.dll");
+    const wchar_t* cls = LoadLibraryW(L"msftedit.dll") ? MSFTEDIT_CLASS : RICHEDIT_CLASSW;
+    if (cls == RICHEDIT_CLASSW) LoadLibraryW(L"riched20.dll");
     DWORD style = WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE |
                   ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_WANTRETURN;
     if (!editable) style |= ES_READONLY;
-    HWND edit = ng_windows_create_control(WS_EX_CLIENTEDGE, RICHEDIT_CLASSW, "", style,
+    HWND edit = ng_windows_create_control(WS_EX_CLIENTEDGE, cls, "", style,
                                           400, 100, ng_windows_detached_parent(), 0);
     if (edit) ng_windows_unlimit_text(edit);
     return edit;
