@@ -491,6 +491,15 @@ impl<Id: WidgetId> Ui<'_, Id> {
         self.ctx.draw_rect(rect, &fill(color))
     }
 
+    /// A shadow of `rect` with corners of `radius`, blurred by `blur` pixels as in CSS.
+    pub fn shadow(&mut self, rect: Rect, radius: f32, blur: f32, color: Color) -> AureaResult<()> {
+        if color.a == 0 {
+            return Ok(());
+        }
+        self.ctx
+            .draw_shadow(rect, radius, blur.max(0.0) / 2.0, color)
+    }
+
     /// `rect` filled with corners of `radius`.
     pub fn round(&mut self, rect: Rect, radius: f32, color: Color) -> AureaResult<()> {
         if color.a == 0 {

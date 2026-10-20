@@ -14,7 +14,7 @@ use super::paint::{Component, Shadow, Surface};
 use super::state::WidgetId;
 use super::theme::Theme;
 use crate::AureaResult;
-use crate::render::{Color, Point, Rect};
+use crate::render::{Color, Rect};
 
 /// A colour for each of rest, hover and press, blended by how far along each is, and faded when
 /// disabled.
@@ -186,11 +186,9 @@ impl Component for Knob {
     fn paint<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>, rect: Rect) -> AureaResult<()> {
         let c = rect.center();
         if let Some(s) = self.shadow {
-            ui.circle(
-                Point::new(c.x + s.dx, c.y + s.dy),
-                self.radius + s.grow,
-                s.color,
-            )?;
+            let r = self.radius + s.grow;
+            let at = Rect::new(c.x + s.dx - r, c.y + s.dy - r, r * 2.0, r * 2.0);
+            ui.shadow(at, r, s.blur, s.color)?;
         }
         ui.circle(c, self.radius, self.color)?;
         match self.dot {
@@ -206,7 +204,7 @@ pub fn card(theme: &Theme) -> Surface {
     Surface::new(p.raised.mix(p.hover, 0.5))
         .radius(theme.radius.min(6.0))
         .border(theme.border_width, p.border)
-        .shadow(Shadow::new(p.shadow).offset(0.0, 2.0))
+        .shadow(Shadow::new(p.shadow).offset(0.0, 2.0).blur(8.0))
 }
 
 #[cfg(test)]

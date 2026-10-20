@@ -20,7 +20,7 @@ pub trait Component {
     fn paint<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>, rect: Rect) -> AureaResult<()>;
 }
 
-/// A shadow under a surface: the same shape, offset and grown, in one colour.
+/// A soft shadow under a surface: the same shape, offset, grown and blurred.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Shadow {
     pub color: Color,
@@ -28,17 +28,25 @@ pub struct Shadow {
     pub dy: f32,
     /// How much bigger than the surface on each side.
     pub grow: f32,
+    /// Blur radius in logical pixels, as in CSS; 0 is a hard edge.
+    pub blur: f32,
 }
 
 impl Shadow {
-    /// One pixel straight down.
+    /// One pixel down, with a 3 pixel blur.
     pub const fn new(color: Color) -> Self {
         Self {
             color,
             dx: 0.0,
             dy: 1.0,
             grow: 0.0,
+            blur: 3.0,
         }
+    }
+
+    pub const fn blur(mut self, blur: f32) -> Self {
+        self.blur = blur;
+        self
     }
 
     pub const fn offset(mut self, dx: f32, dy: f32) -> Self {
@@ -118,7 +126,7 @@ impl Component for Surface {
         let radius = self.radius.min(rect.width / 2.0).min(rect.height / 2.0);
         if let Some(s) = self.shadow {
             let under = Rect::new(rect.x + s.dx, rect.y + s.dy, rect.width, rect.height);
-            ui.round(under.inset(-s.grow), radius + s.grow, s.color)?;
+            ui.shadow(under.inset(-s.grow), radius + s.grow, s.blur, s.color)?;
         }
         ui.round(rect, radius, self.fill)?;
         match self.border {
