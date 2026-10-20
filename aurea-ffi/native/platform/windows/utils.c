@@ -50,7 +50,9 @@ static void ng_windows_declare_dpi_awareness(void) {
         HRESULT hr = set_awareness(2);
         if (SUCCEEDED(hr) || hr == E_ACCESSDENIED) return;
     }
-    SetProcessDPIAware();
+    typedef BOOL (WINAPI *SetAwareFunc)(void);
+    SetAwareFunc set_aware = (SetAwareFunc)ng_windows_api("user32.dll", "SetProcessDPIAware");
+    if (set_aware) set_aware();
 }
 
 int ng_windows_init(void) {
@@ -100,6 +102,12 @@ wchar_t* ng_windows_utf8_to_wide(const char* utf8) {
         return NULL;
     }
     return wide;
+}
+
+FARPROC ng_windows_api(const char* module, const char* name) {
+    HMODULE dll = GetModuleHandleA(module);
+    if (!dll) dll = LoadLibraryA(module);
+    return dll ? GetProcAddress(dll, name) : NULL;
 }
 
 char* ng_windows_wide_to_utf8(const wchar_t* wide, int len) {
@@ -830,21 +838,43 @@ int ng_windows_reduced_motion(void) {
     return animate ? 0 : 1;
 }
 
+/* XP has no preferred-language list: the user's locale as `lang-REGION`. */
+static int ng_windows_user_locale(WCHAR* out, int cap) {
+    WCHAR lang[16], region[16];
+    if (!GetLocaleInfoW(LOCALE_USER_DEFAULT, LOCALE_SISO639LANGNAME, lang, 16)) return 0;
+    if (!GetLocaleInfoW(LOCALE_USER_DEFAULT, LOCALE_SISO3166CTRYNAME, region, 16)) region[0] = 0;
+    int n = region[0] ? _snwprintf_s(out, cap, _TRUNCATE, L"%s-%s", lang, region)
+                      : _snwprintf_s(out, cap, _TRUNCATE, L"%s", lang);
+    if (n < 0 || n + 2 > cap) return 0;
+    out[n + 1] = 0;
+    return n + 2;
+}
+
 int ng_windows_locales(char* buf, int cap) {
+    typedef BOOL (WINAPI *PreferredFunc)(DWORD, PULONG, PZZWSTR, PULONG);
+    PreferredFunc preferred = (PreferredFunc)ng_windows_api("kernel32.dll", "GetUserPreferredUILanguages");
     ULONG count = 0;
     ULONG len = 0;
-    if (!GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &count, NULL, &len) || len < 2) return 0;
-    WCHAR* wide = (WCHAR*)malloc(len * sizeof(WCHAR));
-    if (!wide) return 0;
+    WCHAR fallback[40];
+    WCHAR* wide = NULL;
+    if (preferred) {
+        if (!preferred(MUI_LANGUAGE_NAME, &count, NULL, &len) || len < 2) return 0;
+        wide = (WCHAR*)malloc(len * sizeof(WCHAR));
+        if (!wide) return 0;
+    } else {
+        len = (ULONG)ng_windows_user_locale(fallback, 40);
+        if (len < 2) return 0;
+    }
     int need = 0;
-    if (GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &count, wide, &len) && len >= 2) {
+    if (!preferred || (preferred(MUI_LANGUAGE_NAME, &count, wide, &len) && len >= 2)) {
+        if (!preferred) wide = fallback;
         int chars = (int)len - 1;
         need = WideCharToMultiByte(CP_UTF8, 0, wide, chars, NULL, 0, NULL, NULL);
         if (buf && need > 0 && cap >= need) {
             WideCharToMultiByte(CP_UTF8, 0, wide, chars, buf, cap, NULL, NULL);
         }
     }
-    free(wide);
+    if (preferred) free(wide);
     return need;
 }
 

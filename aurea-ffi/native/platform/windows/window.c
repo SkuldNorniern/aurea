@@ -189,7 +189,9 @@ float ng_windows_get_scale_factor(NGHandle window) {
     if (monitor) {
         UINT dpiX = 96;
         UINT dpiY = 96;
-        if (GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY) == S_OK) {
+        typedef HRESULT (WINAPI *MonitorDpiFunc)(HMONITOR, int, UINT*, UINT*);
+        MonitorDpiFunc monitor_dpi = (MonitorDpiFunc)ng_windows_api("shcore.dll", "GetDpiForMonitor");
+        if (monitor_dpi && monitor_dpi(monitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY) == S_OK) {
             return (float)dpiX / 96.0f;
         }
     }

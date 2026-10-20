@@ -139,7 +139,9 @@ static void ng_windows_loop_init(void) {
     g_frame_pending = FALSE;
 
     g_frame_event = CreateEventA(NULL, FALSE, FALSE, NULL);
-    g_frame_timer = CreateWaitableTimerExW(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    typedef HANDLE (WINAPI *TimerExFunc)(LPSECURITY_ATTRIBUTES, LPCWSTR, DWORD, DWORD);
+    TimerExFunc timer_ex = (TimerExFunc)ng_windows_api("kernel32.dll", "CreateWaitableTimerExW");
+    g_frame_timer = timer_ex ? timer_ex(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS) : NULL;
     if (!g_frame_timer) g_frame_timer = CreateWaitableTimerW(NULL, FALSE, NULL);
     SetEvent(g_frame_event);
 }

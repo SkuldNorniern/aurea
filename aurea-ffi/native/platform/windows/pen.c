@@ -76,17 +76,43 @@ static void ng_windows_pen_emit(HWND root, const POINTER_PEN_INFO* pen, const RE
         ng_windows_pen_age(&pen->pointerInfo));
 }
 
+typedef BOOL (WINAPI *PointerTypeFunc)(UINT32, POINTER_INPUT_TYPE*);
+typedef BOOL (WINAPI *PenInfoFunc)(UINT32, POINTER_PEN_INFO*);
+typedef BOOL (WINAPI *PenHistoryFunc)(UINT32, UINT32*, POINTER_PEN_INFO*);
+typedef BOOL (WINAPI *DeviceRectsFunc)(HANDLE, RECT*, RECT*);
+
+/* Windows 8 and later; pointer messages never come before that. */
+static struct {
+    int looked_up;
+    PointerTypeFunc type;
+    PenInfoFunc info;
+    PenHistoryFunc history;
+    DeviceRectsFunc rects;
+} g_pointer;
+
+static int ng_windows_pointer_api(void) {
+    if (!g_pointer.looked_up) {
+        g_pointer.looked_up = 1;
+        g_pointer.type = (PointerTypeFunc)ng_windows_api("user32.dll", "GetPointerType");
+        g_pointer.info = (PenInfoFunc)ng_windows_api("user32.dll", "GetPointerPenInfo");
+        g_pointer.history = (PenHistoryFunc)ng_windows_api("user32.dll", "GetPointerPenInfoHistory");
+        g_pointer.rects = (DeviceRectsFunc)ng_windows_api("user32.dll", "GetPointerDeviceRects");
+    }
+    return g_pointer.type && g_pointer.info && g_pointer.history && g_pointer.rects;
+}
+
 void ng_windows_pen_message(HWND root, UINT msg, WPARAM wParam) {
     if (!root || (msg != WM_POINTERDOWN && msg != WM_POINTERUPDATE && msg != WM_POINTERUP)) return;
+    if (!ng_windows_pointer_api()) return;
     UINT32 id = GET_POINTERID_WPARAM(wParam);
     POINTER_INPUT_TYPE type;
-    if (!GetPointerType(id, &type) || type != PT_PEN) return;
+    if (!g_pointer.type(id, &type) || type != PT_PEN) return;
 
     POINTER_PEN_INFO samples[AUREA_PEN_HISTORY];
     UINT32 count = AUREA_PEN_HISTORY;
-    if (!GetPointerPenInfoHistory(id, &count, samples) || count == 0) {
+    if (!g_pointer.history(id, &count, samples) || count == 0) {
         count = 1;
-        if (!GetPointerPenInfo(id, &samples[0])) return;
+        if (!g_pointer.info(id, &samples[0])) return;
     }
     if (count > AUREA_PEN_HISTORY) count = AUREA_PEN_HISTORY;
     UINT32 frame = samples[0].pointerInfo.frameId;
@@ -96,7 +122,7 @@ void ng_windows_pen_message(HWND root, UINT msg, WPARAM wParam) {
     g_pen_last_frame = frame;
 
     RECT device, display;
-    int mapped = GetPointerDeviceRects(samples[0].pointerInfo.sourceDevice, &device, &display) &&
+    int mapped = g_pointer.rects(samples[0].pointerInfo.sourceDevice, &device, &display) &&
                  device.right > device.left && device.bottom > device.top;
     POINT origin = {0, 0};
     ClientToScreen(root, &origin);

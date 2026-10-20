@@ -26,6 +26,8 @@ void ng_windows_present(void);
 BOOL ng_windows_is_initialized(void);
 const wchar_t* ng_windows_get_class_name(void);
 wchar_t* ng_windows_utf8_to_wide(const char* utf8);
+/* `name` from `module`, loading it if needed; NULL on systems without it. */
+FARPROC ng_windows_api(const char* module, const char* name);
 /* The activation context for common controls 6, from shell32; INVALID_HANDLE_VALUE when missing. */
 HANDLE ng_windows_common_controls_v6(void);
 char* ng_windows_wide_to_utf8(const wchar_t* wide, int len);

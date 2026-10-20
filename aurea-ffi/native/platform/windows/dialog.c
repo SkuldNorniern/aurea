@@ -93,8 +93,10 @@ static void set_folder(IFileDialog* dialog, const char* directory) {
     for (wchar_t* c = wide; *c; c++) {
         if (*c == L'/') *c = L'\\';
     }
+    typedef HRESULT (WINAPI *ParseFunc)(PCWSTR, IBindCtx*, REFIID, void**);
+    ParseFunc parse = (ParseFunc)ng_windows_api("shell32.dll", "SHCreateItemFromParsingName");
     IShellItem* folder = NULL;
-    if (SUCCEEDED(SHCreateItemFromParsingName(wide, NULL, &IID_IShellItem, (void**)&folder))) {
+    if (parse && SUCCEEDED(parse(wide, NULL, &IID_IShellItem, (void**)&folder))) {
         IFileDialog_SetFolder(dialog, folder);
         IShellItem_Release(folder);
     }
