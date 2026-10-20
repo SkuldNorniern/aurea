@@ -1,5 +1,6 @@
 use super::native::NativeElement;
 use super::traits::Element;
+use crate::ffi::c_title;
 use crate::registry::elements::{
     next_button_id, register_button_callback, unregister_button_callback,
 };
@@ -7,6 +8,7 @@ use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use std::{ffi::CString, os::raw::c_void};
 
+/// A push button that runs a callback when clicked.
 pub struct Button {
     handle: NativeElement,
     _title: CString,
@@ -14,17 +16,19 @@ pub struct Button {
 }
 
 impl Button {
+    /// Create a button with a title and no callback.
     pub fn new(title: &str) -> AureaResult<Self> {
         Self::with_callback(title, || {})
     }
 
+    /// Create a button with a title that runs a callback when clicked.
     pub fn with_callback<F>(title: &str, callback: F) -> AureaResult<Self>
     where
         F: Fn() + 'static,
     {
         let id = next_button_id();
 
-        let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
+        let title = c_title(title)?;
         let handle = unsafe { ng_platform_create_button(title.as_ptr(), id) };
 
         if handle.is_null() {

@@ -9,6 +9,7 @@ use std::os::raw::c_int;
 /// What a text control does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TextFeatures {
+    /// The text cannot be changed by the user.
     pub read_only: bool,
     /// Long lines wrap at the edge instead of scrolling sideways.
     pub wrap: bool,
@@ -42,24 +43,28 @@ impl TextFeatures {
         undo: true,
     };
 
+    /// Returns these features with `read_only` set to `on`.
     #[must_use]
     pub const fn with_read_only(mut self, on: bool) -> Self {
         self.read_only = on;
         self
     }
 
+    /// Returns these features with `wrap` set to `on`.
     #[must_use]
     pub const fn with_wrap(mut self, on: bool) -> Self {
         self.wrap = on;
         self
     }
 
+    /// Returns these features with `monospace` set to `on`.
     #[must_use]
     pub const fn with_monospace(mut self, on: bool) -> Self {
         self.monospace = on;
         self
     }
 
+    /// Returns these features with `undo` set to `on`.
     #[must_use]
     pub const fn with_undo(mut self, on: bool) -> Self {
         self.undo = on;

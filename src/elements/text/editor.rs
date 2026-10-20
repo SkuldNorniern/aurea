@@ -13,10 +13,12 @@ pub struct TextEditor {
 text_widget!(TextEditor);
 
 impl TextEditor {
+    /// Creates a text editor with the default editor features.
     pub fn new() -> AureaResult<Self> {
         Self::with_features(TextFeatures::EDITOR)
     }
 
+    /// Creates a text editor with the given features.
     pub fn with_features(features: TextFeatures) -> AureaResult<Self> {
         let handle = unsafe { ng_platform_create_text_editor() };
         Ok(Self {

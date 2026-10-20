@@ -1,22 +1,30 @@
 use super::native::NativeElement;
 use super::traits::Element;
+use crate::ffi::c_text;
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
-use std::{ffi::CString, os::raw::c_void};
+use std::os::raw::c_void;
 
+/// How an image is scaled to fit its view.
 #[derive(Debug, Clone, Copy)]
 pub enum ImageScaling {
+    /// No scaling.
     None = 0,
+    /// Scale to fit inside the view, keeping the aspect ratio.
     AspectFit = 1,
+    /// Scale to cover the view, keeping the aspect ratio.
     AspectFill = 2,
+    /// Stretch to fill the view, ignoring the aspect ratio.
     Fill = 3,
 }
 
+/// An element that displays an image.
 pub struct ImageView {
     handle: NativeElement,
 }
 
 impl ImageView {
+    /// Create an empty image view.
     pub fn new() -> AureaResult<Self> {
         let handle = unsafe { ng_platform_create_image_view() };
 
@@ -50,8 +58,9 @@ impl ImageView {
         Ok(image)
     }
 
+    /// Load the image at a file path into the view.
     pub fn load_from_path(&mut self, path: &str) -> AureaResult<()> {
-        let path = CString::new(path).map_err(|_| AureaError::InvalidTitle)?;
+        let path = c_text(path)?;
         let result =
             unsafe { ng_platform_image_view_load_from_path(self.handle.handle(), path.as_ptr()) };
 
@@ -62,6 +71,7 @@ impl ImageView {
         Ok(())
     }
 
+    /// Load an image from raw image bytes into the view.
     pub fn load_from_data(&mut self, data: &[u8]) -> AureaResult<()> {
         let result = unsafe {
             ng_platform_image_view_load_from_data(
@@ -78,6 +88,7 @@ impl ImageView {
         Ok(())
     }
 
+    /// Set how the image is scaled to the view.
     pub fn set_scaling(&mut self, scaling: ImageScaling) -> AureaResult<()> {
         unsafe {
             ng_platform_image_view_set_scaling(self.handle.handle(), scaling as i32);

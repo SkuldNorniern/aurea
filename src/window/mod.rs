@@ -17,6 +17,7 @@ pub use types::{CursorGrabMode, CursorIcon, WindowId, WindowType};
 
 use crate::dispatch;
 use crate::elements::Element;
+use crate::ffi::c_title;
 use crate::ffi::ng_platform_request_frame;
 use crate::ffi::*;
 #[cfg(feature = "wgpu")]
@@ -46,7 +47,6 @@ use aurea_foundation::{Capability, CapabilityChecker};
 use aurea_foundation::{DesktopPlatform, Platform};
 use aurea_runtime::{DamageRegion, FrameScheduler};
 use std::{
-    ffi::CString,
     os::raw::{c_int, c_void},
     rc::Rc,
     sync::atomic::{AtomicBool, Ordering},
@@ -169,7 +169,7 @@ impl Window {
             });
         }
 
-        let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
+        let title = c_title(title)?;
         let window_type_int = match window_type {
             WindowType::Normal => 0,
             WindowType::Popup => 1,
@@ -310,10 +310,12 @@ impl Window {
         Ok(self.menu_bar.insert(MenuBar::new(handle)))
     }
 
+    /// The platform this window runs on.
     pub fn platform(&self) -> Platform {
         self.platform
     }
 
+    /// Returns the capability checker for this window.
     pub fn capabilities(&self) -> &CapabilityChecker {
         &self.capabilities
     }
@@ -337,6 +339,7 @@ impl Window {
         self.id
     }
 
+    /// Runs the platform event loop.
     pub fn run(&self) -> AureaResult<()> {
         ui_thread::check("Window::run");
         let result = unsafe { ng_platform_run() };
@@ -390,30 +393,36 @@ impl Window {
         Ok(())
     }
 
+    /// Schedules a frame to be drawn.
     pub fn schedule_frame(&self) {
         FrameScheduler::schedule();
     }
 
+    /// Adds `rect` to the damage that needs redrawing, and schedules a frame.
     pub fn add_damage(&self, rect: Rect) {
         let mut damage = lock(&self.damage);
         damage.add(rect);
         self.schedule_frame();
     }
 
+    /// Takes the accumulated damage, if any.
     pub fn take_damage(&self) -> Option<Rect> {
         let mut damage = lock(&self.damage);
         damage.take()
     }
 
+    /// Returns the window's current scale factor.
     pub fn scale_factor(&self) -> f32 {
         *lock(&self.scale_factor)
     }
 
+    /// Reads the scale factor from the native window.
     pub fn update_scale_factor(&self) {
         let new_scale = unsafe { ng_platform_get_scale_factor(self.handle) };
         *lock(&self.scale_factor) = new_scale;
     }
 
+    /// Registers a callback for window lifecycle events.
     pub fn on_lifecycle_event<F>(&self, callback: F)
     where
         F: Fn(LifecycleEvent) + Send + Sync + 'static,
@@ -616,7 +625,7 @@ impl Window {
     /// ```
     pub fn set_title(&self, title: &str) -> AureaResult<()> {
         ui_thread::check("Window::set_title");
-        let title_cstr = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
+        let title_cstr = c_title(title)?;
         unsafe {
             ng_platform_window_set_title(self.handle, title_cstr.as_ptr());
         }

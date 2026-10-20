@@ -14,10 +14,12 @@ pub struct TextView {
 text_widget!(TextView);
 
 impl TextView {
+    /// Creates a text view that is editable if `editable` is true.
     pub fn new(editable: bool) -> AureaResult<Self> {
         Self::with_features(TextFeatures::VIEW.with_read_only(!editable))
     }
 
+    /// Creates a text view with the given features.
     pub fn with_features(features: TextFeatures) -> AureaResult<Self> {
         let handle = unsafe { ng_platform_create_text_view(c_int::from(!features.read_only)) };
         Ok(Self {

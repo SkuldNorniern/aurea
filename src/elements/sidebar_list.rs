@@ -2,23 +2,27 @@
 
 use super::native::NativeElement;
 use super::traits::Element;
+use crate::ffi::c_title;
 use crate::registry::elements::{
     next_sidebar_id, register_sidebar_callback, unregister_sidebar_callback,
 };
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
-use std::{ffi::CString, os::raw::c_void};
+use std::os::raw::c_void;
 
+/// A sidebar list of sections and indented items with a selection.
 pub struct SidebarList {
     handle: NativeElement,
     _id: u32,
 }
 
 impl SidebarList {
+    /// Create a sidebar list with no selection callback.
     pub fn new() -> AureaResult<Self> {
         Self::with_callback(|_| {})
     }
 
+    /// Create a sidebar list that calls `on_selected` with the selected index.
     pub fn with_callback<F>(on_selected: F) -> AureaResult<Self>
     where
         F: Fn(i32) + 'static,
@@ -50,8 +54,9 @@ impl SidebarList {
         Ok(sidebar)
     }
 
+    /// Append a section header with the given title.
     pub fn add_section(&mut self, title: &str) -> AureaResult<()> {
-        let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
+        let title = c_title(title)?;
         let result =
             unsafe { ng_platform_sidebar_list_add_section(self.handle.handle(), title.as_ptr()) };
         if result != 0 {
@@ -60,8 +65,9 @@ impl SidebarList {
         Ok(())
     }
 
+    /// Append one item with the given title at an indent level.
     pub fn add_item(&mut self, title: &str, indent: i32) -> AureaResult<()> {
-        let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
+        let title = c_title(title)?;
         let result = unsafe {
             ng_platform_sidebar_list_add_item(self.handle.handle(), title.as_ptr(), indent)
         };
@@ -83,6 +89,7 @@ impl SidebarList {
         Ok(())
     }
 
+    /// Select the item at the given index.
     pub fn set_selected(&mut self, index: i32) -> AureaResult<()> {
         let result = unsafe { ng_platform_sidebar_list_set_selected(self.handle.handle(), index) };
         if result != 0 {
@@ -91,10 +98,12 @@ impl SidebarList {
         Ok(())
     }
 
+    /// Returns the index of the selected item.
     pub fn get_selected(&self) -> i32 {
         unsafe { ng_platform_sidebar_list_get_selected(self.handle.handle()) }
     }
 
+    /// Remove all sections and items.
     pub fn clear(&mut self) -> AureaResult<()> {
         let result = unsafe { ng_platform_sidebar_list_clear(self.handle.handle()) };
         if result != 0 {

@@ -1,6 +1,6 @@
 //! An icon in the notification area ("system tray"), or on macOS the menu bar's status area.
 
-use std::ffi::CString;
+use crate::ffi::{c_text, c_title};
 use std::os::raw::c_void;
 use std::ptr;
 
@@ -26,7 +26,7 @@ impl TrayIcon {
                 platform: Platform::current(),
             });
         }
-        let tooltip = CString::new(tooltip).map_err(|_| AureaError::InvalidTitle)?;
+        let tooltip = c_title(tooltip)?;
         let click = next_menu_item_id();
         let handle = unsafe { ng_platform_create_tray(tooltip.as_ptr(), click) };
         if handle.is_null() {
@@ -61,7 +61,7 @@ impl TrayIcon {
     /// The text shown when the pointer rests on the icon; Windows keeps the first 127 characters.
     pub fn set_tooltip(&self, tooltip: &str) -> AureaResult<()> {
         ui_thread::check("TrayIcon::set_tooltip");
-        let tooltip = CString::new(tooltip).map_err(|_| AureaError::InvalidTitle)?;
+        let tooltip = c_title(tooltip)?;
         let result = unsafe { ng_platform_tray_set_tooltip(self.handle, tooltip.as_ptr()) };
         if result != 0 {
             return Err(AureaError::PlatformError(result));
@@ -72,7 +72,7 @@ impl TrayIcon {
     /// Adds an item to the menu a right click opens.
     pub fn add_item(&mut self, title: &str, callback: impl Fn() + 'static) -> AureaResult<()> {
         ui_thread::check("TrayIcon::add_item");
-        let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
+        let title = c_title(title)?;
         let id = next_menu_item_id();
         let result = unsafe { ng_platform_tray_add_item(self.handle, title.as_ptr(), id) };
         if result != 0 {
@@ -96,8 +96,8 @@ impl TrayIcon {
     /// Shows a notification from the icon, like "still running here".
     pub fn notify(&self, title: &str, body: &str) -> AureaResult<()> {
         ui_thread::check("TrayIcon::notify");
-        let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
-        let body = CString::new(body).map_err(|_| AureaError::InvalidTitle)?;
+        let title = c_title(title)?;
+        let body = c_text(body)?;
         let result = unsafe { ng_platform_tray_notify(self.handle, title.as_ptr(), body.as_ptr()) };
         if result != 0 {
             return Err(AureaError::PlatformError(result));

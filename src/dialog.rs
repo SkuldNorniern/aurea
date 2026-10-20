@@ -1,7 +1,8 @@
 //! The platform's dialogs: file open, save as and pick a folder, message boxes, and the colour
 //! chooser.
 
-use std::ffi::{CStr, CString, c_int, c_uint};
+use crate::ffi::{c_text, c_title};
+use std::ffi::{CStr, c_int, c_uint};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
 
@@ -28,10 +29,12 @@ pub struct FileDialog {
 }
 
 impl FileDialog {
+    /// Starts a dialog with no title, filters or folder.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Sets the dialog title.
     pub fn title(mut self, title: &str) -> Self {
         self.title = title.to_string();
         self
@@ -87,8 +90,8 @@ impl FileDialog {
     }
 
     fn run(&self, parent: Option<&Window>, kind: c_int) -> AureaResult<Vec<PathBuf>> {
-        let text = |s: &str| CString::new(s).map_err(|_| AureaError::InvalidTitle);
-        let title = text(&self.title)?;
+        let text = |s: &str| c_text(s);
+        let title = c_title(self.title.as_str())?;
         let filters = text(&self.filters)?;
         let name = text(&self.file_name)?;
         let directory = text(
@@ -127,9 +130,12 @@ impl FileDialog {
 /// How a message box looks: its icon.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum MessageKind {
+    /// The information icon.
     #[default]
     Info,
+    /// The warning icon.
     Warning,
+    /// The error icon.
     Error,
 }
 
@@ -146,10 +152,14 @@ impl MessageKind {
 /// The buttons a message box has.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum MessageButtons {
+    /// A single OK button.
     #[default]
     Ok,
+    /// OK and Cancel buttons.
     OkCancel,
+    /// Yes and No buttons.
     YesNo,
+    /// Save, Discard and Cancel buttons.
     SaveDiscardCancel,
 }
 
@@ -167,11 +177,17 @@ impl MessageButtons {
 /// The button the person answered with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MessageChoice {
+    /// The OK button.
     Ok,
+    /// The Cancel button.
     Cancel,
+    /// The Yes button.
     Yes,
+    /// The No button.
     No,
+    /// The Save button.
     Save,
+    /// The Discard button.
     Discard,
 }
 
@@ -199,6 +215,7 @@ pub struct MessageDialog {
 }
 
 impl MessageDialog {
+    /// Starts a message box with the given title.
     pub fn new(title: impl Into<String>) -> Self {
         Self {
             title: title.into(),
@@ -228,8 +245,8 @@ impl MessageDialog {
 
     /// Waits for the person to answer.
     pub fn show(self, window: &Window) -> AureaResult<MessageChoice> {
-        let text = |s: &str| CString::new(s).map_err(|_| AureaError::InvalidTitle);
-        let title = text(&self.title)?;
+        let text = |s: &str| c_text(s);
+        let title = c_title(self.title.as_str())?;
         let message = text(&self.message)?;
         let answer = unsafe {
             ng_platform_message_box(
@@ -294,7 +311,7 @@ impl ColorDialog {
 
     /// Waits for the person to pick; `None` when they cancel, including by closing the chooser.
     pub fn show(self, window: &Window) -> AureaResult<Option<Color>> {
-        let title = CString::new(self.title).map_err(|_| AureaError::InvalidTitle)?;
+        let title = c_title(self.title)?;
         let mut picked: c_uint = 0;
         let answer = unsafe {
             ng_platform_color_dialog(

@@ -27,6 +27,7 @@ mod sealed {
 
 /// What every text control can do.
 pub trait TextControl: Element + sealed::Sealed {
+    /// Returns the whole text.
     fn text(&self) -> AureaResult<String> {
         self.text_base().text()
     }
@@ -56,31 +57,38 @@ pub trait TextControl: Element + sealed::Sealed {
         self.text_base().replace(range, with)
     }
 
+    /// Replaces the selected text with `with`, as one undoable edit.
     fn replace_selection(&self, with: &str) -> AureaResult<()> {
         let base = self.text_base();
         base.replace(base.selection()?, with)
     }
 
+    /// Undoes the last edit.
     fn undo(&self) -> AureaResult<()> {
         self.text_base().undo(false)
     }
 
+    /// Redoes the last undone edit.
     fn redo(&self) -> AureaResult<()> {
         self.text_base().undo(true)
     }
 
+    /// Returns whether there is an edit to undo.
     fn can_undo(&self) -> bool {
         self.text_base().can_undo(false)
     }
 
+    /// Returns whether there is an undone edit to redo.
     fn can_redo(&self) -> bool {
         self.text_base().can_undo(true)
     }
 
+    /// Returns the features this control has.
     fn features(&self) -> TextFeatures {
         self.text_base().features()
     }
 
+    /// Sets the features this control has.
     fn set_features(&self, features: TextFeatures) -> AureaResult<()> {
         self.text_base().set_features(features)
     }
@@ -127,6 +135,7 @@ macro_rules! text_widget {
                 self.base.set_text(content)
             }
 
+            /// Returns the whole text.
             pub fn get_content(&self) -> crate::AureaResult<String> {
                 self.base.text()
             }

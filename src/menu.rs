@@ -1,12 +1,13 @@
 //! Menu bar and submenu support.
 
+use crate::ffi::c_title;
 use crate::ffi::*;
 use crate::registry::menu::{next_menu_item_id, register_menu_callback, unregister_menu_callback};
 use crate::{AureaError, AureaResult};
 use std::cell::{Cell, RefCell};
 use std::os::raw::c_int;
+use std::os::raw::c_void;
 use std::rc::{Rc, Weak};
-use std::{ffi::CString, os::raw::c_void};
 
 use crate::keymap::Chord;
 use crate::window::KeyCode;
@@ -16,13 +17,21 @@ use log::debug;
 /// A keyboard shortcut key for menu items.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShortcutKey {
+    /// A character key.
     Char(char),
+    /// A function key, by number.
     F(u8),
+    /// The Enter key.
     Enter,
+    /// The Tab key.
     Tab,
+    /// The Escape key.
     Escape,
+    /// The Space bar.
     Space,
+    /// The Backspace key.
     Backspace,
+    /// The Delete key.
     Delete,
 }
 
@@ -38,6 +47,7 @@ pub struct MenuShortcut {
 }
 
 impl MenuShortcut {
+    /// Starts a shortcut on the given key, with no modifiers.
     pub fn new(key: ShortcutKey) -> Self {
         Self {
             key,
@@ -49,26 +59,31 @@ impl MenuShortcut {
         }
     }
 
+    /// Adds the primary modifier: Cmd on macOS, Ctrl elsewhere.
     pub fn primary(mut self) -> Self {
         self.primary = true;
         self
     }
 
+    /// Adds the Shift modifier.
     pub fn shift(mut self) -> Self {
         self.shift = true;
         self
     }
 
+    /// Adds the Alt modifier.
     pub fn alt(mut self) -> Self {
         self.alt = true;
         self
     }
 
+    /// Adds the Ctrl modifier.
     pub fn ctrl(mut self) -> Self {
         self.ctrl = true;
         self
     }
 
+    /// Adds the Meta modifier.
     pub fn meta(mut self) -> Self {
         self.meta = true;
         self
@@ -208,12 +223,14 @@ impl Branch {
 
 /// A native menu bar attached to a window.
 pub struct MenuBar {
+    /// The native menu bar handle.
     pub handle: *mut c_void,
     item_ids: ItemIds,
 }
 
 /// A submenu inside a menu bar.
 pub struct SubMenu {
+    /// The native submenu handle.
     pub handle: *mut c_void,
     item_ids: Weak<RefCell<Vec<u32>>>,
     own: Rc<Branch>,
@@ -229,6 +246,7 @@ pub struct MenuItem {
 }
 
 impl MenuBar {
+    /// Creates a menu bar from a native handle.
     pub fn new(handle: *mut c_void) -> Self {
         Self {
             handle,
@@ -243,7 +261,7 @@ impl MenuBar {
         } else {
             title.to_string()
         };
-        let title = CString::new(native).map_err(|_| AureaError::InvalidTitle)?;
+        let title = c_title(native)?;
         let handle = unsafe { ng_platform_create_submenu(self.handle, title.as_ptr()) };
 
         if handle.is_null() {
@@ -269,7 +287,7 @@ impl SubMenu {
     /// Adds a native child menu.
     pub fn add_submenu(&mut self, title: &str) -> AureaResult<SubMenu> {
         self.alive()?;
-        let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
+        let title = c_title(title)?;
         let handle = unsafe { ng_platform_create_submenu(self.handle, title.as_ptr()) };
         if handle.is_null() {
             return Err(AureaError::MenuItemAddFailed);
@@ -416,7 +434,7 @@ impl SubMenu {
     {
         let ids = self.alive()?;
         let id = next_menu_item_id();
-        let label = CString::new(label(title, shortcut)).map_err(|_| AureaError::InvalidTitle)?;
+        let label = c_title(label(title, shortcut))?;
         let result = match kind {
             Kind::Plain => unsafe { ng_platform_add_menu_item(self.handle, label.as_ptr(), id) },
             Kind::Check { checked, radio } => unsafe {
@@ -488,6 +506,7 @@ impl MenuItem {
         })
     }
 
+    /// Checks or unchecks the item.
     pub fn set_checked(&self, checked: bool) -> AureaResult<()> {
         self.native(|menu, id| unsafe {
             ng_platform_menu_item_set_checked(menu, id, c_int::from(checked))
@@ -496,8 +515,7 @@ impl MenuItem {
 
     /// A new label, the shortcut kept: "Undo Brush Stroke", or another language.
     pub fn set_label(&self, title: &str) -> AureaResult<()> {
-        let label =
-            CString::new(label(title, self.shortcut)).map_err(|_| AureaError::InvalidTitle)?;
+        let label = c_title(label(title, self.shortcut))?;
         self.native(|menu, id| unsafe { ng_platform_menu_item_set_title(menu, id, label.as_ptr()) })
     }
 

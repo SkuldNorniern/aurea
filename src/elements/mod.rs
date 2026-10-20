@@ -427,6 +427,7 @@ mod win32_tests {
         fn SetWindowTextW(hwnd: *mut c_void, text: *const u16) -> i32;
         fn GetWindowRect(hwnd: *mut c_void, rect: *mut Rect) -> i32;
         fn GetDlgItem(hwnd: *mut c_void, id: i32) -> *mut c_void;
+        fn GetWindow(hwnd: *mut c_void, cmd: u32) -> *mut c_void;
         fn IsWindow(hwnd: *mut c_void) -> i32;
         fn IsWindowEnabled(hwnd: *mut c_void) -> i32;
         fn GetDC(hwnd: *mut c_void) -> *mut c_void;
@@ -474,6 +475,7 @@ mod win32_tests {
     const WS_CHILD: u32 = 0x4000_0000;
     const WS_VISIBLE: u32 = 0x1000_0000;
     const WM_COMMAND: u32 = 0x0111;
+    const GW_CHILD: u32 = 5;
     const WM_HSCROLL: u32 = 0x0114;
     const CB_SETCURSEL: u32 = 0x014E;
     const CBN_SELCHANGE: usize = 1;
@@ -703,20 +705,31 @@ mod win32_tests {
         root.add_weighted(list.clone(), 1.0)?;
         window.set_content(root)?;
 
-        let item = |i: i32| unsafe { GetDlgItem(list.handle(), 9500 + i) };
-        let checked = |i: i32| unsafe { SendMessageW(item(i), BM_GETCHECK, 0, 0) == 1 };
+        const LB_SETCURSEL: u32 = 0x0186;
+        const LB_GETCURSEL: u32 = 0x0188;
+        const LBN_SELCHANGE: usize = 1;
+        let rows = unsafe { GetWindow(list.handle(), GW_CHILD) };
+        let row = || unsafe { SendMessageW(rows, LB_GETCURSEL, 0, 0) };
         list.borrow_mut().set_selected(1)?;
-        assert!(checked(1) && !checked(0));
+        assert_eq!(row(), 2, "item 1 sits under the section");
         assert!(list.borrow_mut().set_selected(3).is_err());
-        unsafe { SendMessageW(item(2), BM_CLICK, 0, 0) };
+        let click = |r: usize| unsafe {
+            SendMessageW(rows, LB_SETCURSEL, r, 0);
+            SendMessageW(
+                list.handle(),
+                WM_COMMAND,
+                LBN_SELCHANGE << 16,
+                rows as isize,
+            );
+        };
+        click(3);
         assert_eq!(*picked.borrow(), [2]);
         assert_eq!(list.borrow().get_selected(), 2);
-        assert!(checked(2) && !checked(1));
-        let (row, all) = (rect(item(0)), rect(list.handle()));
-        assert!(
-            row.right - row.left > (all.right - all.left) / 2,
-            "rows kept 200 px"
-        );
+        click(0);
+        assert_eq!(row(), 3, "a section took the selection");
+        assert_eq!(*picked.borrow(), [2]);
+        let (inner, all) = (rect(rows), rect(list.handle()));
+        assert_eq!(inner.right - inner.left, all.right - all.left);
         Ok(())
     }
 

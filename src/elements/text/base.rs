@@ -5,6 +5,7 @@ use super::change::{TextChange, diff};
 use super::features::TextFeatures;
 use super::offsets::{Unit, to_bytes, to_units};
 use crate::elements::native::{CallbackWatch, NativeElement, read_text};
+use crate::ffi::c_text;
 use crate::ffi::{
     NG_ERROR_UNSUPPORTED, ng_platform_set_text_content, ng_platform_text_can_undo,
     ng_platform_text_get_selection, ng_platform_text_replace, ng_platform_text_set_feature,
@@ -12,7 +13,6 @@ use crate::ffi::{
 };
 use crate::{AureaError, AureaResult, Platform};
 use std::cell::{Cell, RefCell};
-use std::ffi::CString;
 use std::ops::Range;
 use std::os::raw::{c_int, c_void};
 use std::rc::Rc;
@@ -123,7 +123,7 @@ impl TextBase {
     }
 
     pub(crate) fn set_text(&self, text: &str) -> AureaResult<()> {
-        let text = CString::new(text).map_err(|_| AureaError::InvalidTitle)?;
+        let text = c_text(text)?;
         check(
             unsafe { ng_platform_set_text_content(self.handle(), text.as_ptr()) },
             "set_text",
@@ -169,7 +169,7 @@ impl TextBase {
 
     pub(crate) fn replace(&self, range: Range<usize>, with: &str) -> AureaResult<()> {
         let (start, end) = self.to_native(&self.text()?, &range)?;
-        let with = CString::new(with).map_err(|_| AureaError::InvalidTitle)?;
+        let with = c_text(with)?;
         check(
             unsafe { ng_platform_text_replace(self.handle(), start, end, with.as_ptr()) },
             "replace",

@@ -13,10 +13,12 @@ pub struct TextField {
 text_widget!(TextField);
 
 impl TextField {
+    /// Creates an empty text field with the default field features.
     pub fn new() -> AureaResult<Self> {
         Self::with_features(TextFeatures::FIELD)
     }
 
+    /// Creates a text field with the given features.
     pub fn with_features(features: TextFeatures) -> AureaResult<Self> {
         let handle = unsafe { ng_platform_create_text_field() };
         Ok(Self {

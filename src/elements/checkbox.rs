@@ -1,22 +1,25 @@
 use super::native::{CallbackWatch, NativeElement};
 use super::traits::Element;
+use crate::ffi::c_title;
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
-use std::{ffi::CString, os::raw::c_void};
+use std::os::raw::c_void;
 
+/// A checkbox with a text label and a checked state.
 pub struct Checkbox {
     handle: NativeElement,
     change: Option<CallbackWatch>,
 }
 
 impl Checkbox {
+    /// Create an unchecked checkbox with a label.
     pub fn new(label: &str) -> AureaResult<Self> {
         Self::with_checked(label, false)
     }
 
     /// Create a checkbox with initial checked state.
     pub fn with_checked(label: &str, checked: bool) -> AureaResult<Self> {
-        let label = CString::new(label).map_err(|_| AureaError::InvalidTitle)?;
+        let label = c_title(label)?;
         let handle = unsafe { ng_platform_create_checkbox(label.as_ptr()) };
 
         if handle.is_null() {
@@ -42,6 +45,7 @@ impl Checkbox {
         Ok(())
     }
 
+    /// Set the checked state.
     pub fn set_checked(&mut self, checked: bool) -> AureaResult<()> {
         let result = unsafe {
             ng_platform_checkbox_set_checked(self.handle.handle(), if checked { 1 } else { 0 })
@@ -54,10 +58,12 @@ impl Checkbox {
         Ok(())
     }
 
+    /// Returns whether the checkbox is checked.
     pub fn get_checked(&self) -> bool {
         unsafe { ng_platform_checkbox_get_checked(self.handle.handle()) != 0 }
     }
 
+    /// Enables or disables user interaction with the checkbox.
     pub fn set_enabled(&self, enabled: bool) -> AureaResult<()> {
         let result = unsafe {
             ng_platform_checkbox_set_enabled(self.handle.handle(), if enabled { 1 } else { 0 })

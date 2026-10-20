@@ -5,7 +5,9 @@ use std::ops::Range;
 /// An edit by the user: `range` of the text before it, in UTF-8 bytes, became `inserted`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TextChange {
+    /// The replaced range, in UTF-8 bytes, of the text before the edit.
     pub range: Range<usize>,
+    /// The text put in place of `range`.
     pub inserted: String,
     /// The control's revision after this edit; see
     /// [`TextControl::revision`](super::TextControl::revision).

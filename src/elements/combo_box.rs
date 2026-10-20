@@ -1,15 +1,18 @@
 use super::native::{CallbackWatch, NativeElement};
 use super::traits::Element;
+use crate::ffi::c_text;
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
-use std::{ffi::CString, os::raw::c_void};
+use std::os::raw::c_void;
 
+/// A drop-down list of text items with one selectable index.
 pub struct ComboBox {
     handle: NativeElement,
     change: Option<CallbackWatch>,
 }
 
 impl ComboBox {
+    /// Create an empty combo box.
     pub fn new() -> AureaResult<Self> {
         let handle = unsafe { ng_platform_create_combo_box() };
 
@@ -56,8 +59,9 @@ impl ComboBox {
         Ok(combo)
     }
 
+    /// Append one item to the list.
     pub fn add_item(&mut self, item: &str) -> AureaResult<()> {
-        let item = CString::new(item).map_err(|_| AureaError::InvalidTitle)?;
+        let item = c_text(item)?;
         let result = unsafe { ng_platform_combo_box_add_item(self.handle.handle(), item.as_ptr()) };
 
         if result != 0 {
@@ -79,6 +83,7 @@ impl ComboBox {
         Ok(())
     }
 
+    /// Select the item at the given index.
     pub fn set_selected(&mut self, index: i32) -> AureaResult<()> {
         let result = unsafe { ng_platform_combo_box_set_selected(self.handle.handle(), index) };
 
@@ -89,10 +94,12 @@ impl ComboBox {
         Ok(())
     }
 
+    /// Returns the index of the selected item.
     pub fn get_selected(&self) -> i32 {
         unsafe { ng_platform_combo_box_get_selected(self.handle.handle()) }
     }
 
+    /// Remove all items from the list.
     pub fn clear(&mut self) -> AureaResult<()> {
         let result = unsafe { ng_platform_combo_box_clear(self.handle.handle()) };
 
@@ -103,6 +110,7 @@ impl ComboBox {
         Ok(())
     }
 
+    /// Enables or disables user interaction with the combo box.
     pub fn set_enabled(&self, enabled: bool) -> AureaResult<()> {
         let result = unsafe {
             ng_platform_combo_box_set_enabled(self.handle.handle(), if enabled { 1 } else { 0 })

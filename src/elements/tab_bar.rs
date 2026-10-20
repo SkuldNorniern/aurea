@@ -2,21 +2,25 @@
 
 use super::native::NativeElement;
 use super::traits::Element;
+use crate::ffi::c_title;
 use crate::registry::elements::{next_tab_id, register_tab_callbacks, unregister_tab_callbacks};
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
-use std::{ffi::CString, os::raw::c_void};
+use std::os::raw::c_void;
 
+/// A row of selectable tabs.
 pub struct TabBar {
     handle: NativeElement,
     _id: u32,
 }
 
 impl TabBar {
+    /// Create a tab bar with no callbacks.
     pub fn new() -> AureaResult<Self> {
         Self::with_callbacks(|_| {}, |_| {})
     }
 
+    /// Create a tab bar with selection and detach callbacks.
     pub fn with_callbacks<F, G>(on_selected: F, on_detach: G) -> AureaResult<Self>
     where
         F: Fn(i32) + 'static,
@@ -66,8 +70,9 @@ impl TabBar {
         Ok(bar)
     }
 
+    /// Append one tab with the given title.
     pub fn add_tab(&mut self, title: &str) -> AureaResult<()> {
-        let title = CString::new(title).map_err(|_| AureaError::InvalidTitle)?;
+        let title = c_title(title)?;
         let result = unsafe { ng_platform_tab_bar_add_tab(self.handle.handle(), title.as_ptr()) };
         if result != 0 {
             return Err(AureaError::ElementOperationFailed);
@@ -87,6 +92,7 @@ impl TabBar {
         Ok(())
     }
 
+    /// Remove the tab at the given index.
     pub fn remove_tab(&mut self, index: i32) -> AureaResult<()> {
         let result = unsafe { ng_platform_tab_bar_remove_tab(self.handle.handle(), index) };
         if result != 0 {
@@ -95,6 +101,7 @@ impl TabBar {
         Ok(())
     }
 
+    /// Select the tab at the given index.
     pub fn set_selected(&mut self, index: i32) -> AureaResult<()> {
         let result = unsafe { ng_platform_tab_bar_set_selected(self.handle.handle(), index) };
         if result != 0 {
@@ -103,6 +110,7 @@ impl TabBar {
         Ok(())
     }
 
+    /// Returns the index of the selected tab.
     pub fn get_selected(&self) -> i32 {
         unsafe { ng_platform_tab_bar_get_selected(self.handle.handle()) }
     }
