@@ -5,6 +5,7 @@ pub mod error;
 pub mod events;
 pub mod geometry;
 pub mod hash;
+pub mod os_version;
 pub mod platform;
 pub mod sync;
 
@@ -16,5 +17,6 @@ pub use events::{
 };
 pub use geometry::{Point, Rect};
 pub use hash::{FastBuild, FastHasher};
+pub use os_version::OsVersion;
 pub use platform::{DesktopPlatform, MobilePlatform, Platform};
 pub use sync::lock;
