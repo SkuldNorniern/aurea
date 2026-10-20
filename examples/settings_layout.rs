@@ -2,7 +2,7 @@
 
 use aurea::elements::{
     Button, Checkbox, ComboBox, Container, Element, Label, Orientation, Shared, SidebarList,
-    Slider, SplitOrientation, SplitView, Stack, TextEditor, TextField,
+    Slider, SplitOrientation, SplitView, Stack, TextEditor, TextField, TextStyle,
 };
 use aurea::{AureaResult, Window};
 
@@ -45,7 +45,7 @@ fn form(title: Shared<Label>) -> AureaResult<Stack> {
 fn main() -> AureaResult<()> {
     let mut window = Window::new("Aurea settings layout", 760, 520)?;
     window.show();
-    let title = Shared::new(Label::new(PAGES[0])?);
+    let title = Shared::new(Label::with_style(PAGES[0], TextStyle::Heading)?);
     let heading = title.clone();
     let mut pages = SidebarList::with_callback(move |index| {
         let page = usize::try_from(index).ok().and_then(|i| PAGES.get(i));

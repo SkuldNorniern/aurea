@@ -25,7 +25,7 @@ pub use combo_box::ComboBox;
 pub use container::{Orientation, Stack};
 pub use divider::Divider;
 pub use image_view::{ImageScaling, ImageView};
-pub use label::Label;
+pub use label::{Label, TextStyle};
 pub use native::NativeElement;
 pub use progress_bar::ProgressBar;
 pub use shared::Shared;
@@ -64,6 +64,7 @@ mod gtk_tests {
         fn gtk_widget_get_visible(widget: *mut c_void) -> c_int;
         fn gtk_list_box_select_row(list: *mut c_void, row: *mut c_void);
         fn gtk_widget_is_sensitive(widget: *mut c_void) -> c_int;
+        fn gtk_label_get_attributes(label: *mut c_void) -> *mut c_void;
         fn gtk_widget_get_allocated_width(widget: *mut c_void) -> c_int;
         fn gtk_widget_draw(widget: *mut c_void, cr: *mut c_void);
         fn cairo_image_surface_create(format: c_int, w: c_int, h: c_int) -> *mut c_void;
@@ -354,6 +355,17 @@ mod gtk_tests {
 
     #[test]
     #[ignore = "needs a display; run with --ignored"]
+    fn a_heading_label_carries_its_style() -> AureaResult<()> {
+        let _window = Window::new("styles", 400, 300)?;
+        let body = Label::new("body")?;
+        let heading = Label::with_style("heading", TextStyle::Heading)?;
+        assert!(unsafe { gtk_label_get_attributes(body.handle()) }.is_null());
+        assert!(!unsafe { gtk_label_get_attributes(heading.handle()) }.is_null());
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "needs a display; run with --ignored"]
     fn a_text_view_ignores_its_own_set() -> AureaResult<()> {
         let _window = Window::new("text", 400, 300)?;
         let (got, on_text) = recorder();
@@ -461,6 +473,7 @@ mod win32_tests {
         fn GetPixel(dc: *mut c_void, x: i32, y: i32) -> u32;
         fn DeleteObject(object: *mut c_void) -> i32;
         fn DeleteDC(dc: *mut c_void) -> i32;
+        fn GetObjectW(object: *mut c_void, size: i32, out: *mut c_void) -> i32;
     }
 
     const WM_PRINTCLIENT: u32 = 0x0318;
@@ -899,6 +912,30 @@ b"
             text.len() + 1,
             "typing stopped at the limit"
         );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_heading_label_is_larger_and_bold() -> AureaResult<()> {
+        const WM_GETFONT: u32 = 0x0031;
+        let _window = Window::new("styles", 400, 300)?;
+        let font = |label: &Label| {
+            let mut logfont = [0i32; 23];
+            unsafe {
+                let font = SendMessageW(label.handle(), WM_GETFONT, 0, 0) as *mut c_void;
+                GetObjectW(font, 92, logfont.as_mut_ptr().cast());
+            }
+            (logfont[0].abs(), logfont[4])
+        };
+        let body = Label::with_style("body", TextStyle::Body)?;
+        let heading = Label::with_style("heading", TextStyle::Heading)?;
+        let ((body_height, _), (heading_height, weight)) = (font(&body), font(&heading));
+        assert!(
+            heading_height > body_height,
+            "{heading_height} vs {body_height}"
+        );
+        assert!(weight >= 600, "weight {weight}");
         Ok(())
     }
 
