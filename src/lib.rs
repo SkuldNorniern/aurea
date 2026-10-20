@@ -70,7 +70,7 @@ pub use crate::locale::{locale, locales};
 pub use crate::platform::handles::NativeWindowHandle;
 pub use aurea_foundation::{AureaError, AureaResult};
 pub use aurea_foundation::{
-    Capability, CapabilityChecker, DesktopPlatform, MobilePlatform, Platform, Support,
+    Capability, CapabilityChecker, DesktopPlatform, MobilePlatform, OsVersion, Platform, Support,
 };
 
 /// Whether the user asked the system for less motion: Windows' "animation effects", macOS' "reduce
