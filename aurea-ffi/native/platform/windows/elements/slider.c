@@ -3,58 +3,83 @@
 #include "common/errors.h"
 #include <windows.h>
 #include <commctrl.h>
+#include <stdlib.h>
 
 #pragma comment(lib, "comctl32.lib")
 
+#define SLIDER_STEPS 10000
+#define SLIDER_SUBCLASS_ID 1
+
+typedef struct {
+    double min;
+    double max;
+} SliderRange;
+
+static LRESULT CALLBACK slider_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                    UINT_PTR id, DWORD_PTR data) {
+    if (msg == WM_NCDESTROY) {
+        RemoveWindowSubclass(hwnd, slider_proc, id);
+        free((SliderRange*)data);
+    }
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+static SliderRange* slider_range(HWND hwnd) {
+    DWORD_PTR data = 0;
+    return GetWindowSubclass(hwnd, slider_proc, SLIDER_SUBCLASS_ID, &data) ? (SliderRange*)data : NULL;
+}
+
 NGHandle ng_windows_create_slider(double min, double max) {
-    if (min >= max) return NULL;
-    
-    HWND hwnd = CreateWindowEx(
+    if (!(min < max)) return NULL;
+
+    HWND hwnd = CreateWindowExW(
         0,
-        TRACKBAR_CLASS,
+        TRACKBAR_CLASSW,
         NULL,
-        WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_AUTOTICKS,
+        WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS,
         0, 0, 200, 30,
         ng_windows_detached_parent(),
         NULL,
-        GetModuleHandle(NULL),
+        GetModuleHandleW(NULL),
         NULL
     );
-    
     if (!hwnd) return NULL;
-    
-    SendMessage(hwnd, TBM_SETRANGEMIN, FALSE, (LPARAM)(int)min);
-    SendMessage(hwnd, TBM_SETRANGEMAX, TRUE, (LPARAM)(int)max);
-    SendMessage(hwnd, TBM_SETPOS, TRUE, (LPARAM)(int)((min + max) / 2.0));
-    
+
+    SliderRange* range = (SliderRange*)malloc(sizeof(SliderRange));
+    if (!range || !SetWindowSubclass(hwnd, slider_proc, SLIDER_SUBCLASS_ID, (DWORD_PTR)range)) {
+        free(range);
+        DestroyWindow(hwnd);
+        return NULL;
+    }
+    range->min = min;
+    range->max = max;
+    SendMessageW(hwnd, TBM_SETRANGEMIN, FALSE, 0);
+    SendMessageW(hwnd, TBM_SETRANGEMAX, FALSE, SLIDER_STEPS);
+    SendMessageW(hwnd, TBM_SETLINESIZE, 0, SLIDER_STEPS / 100);
+    SendMessageW(hwnd, TBM_SETPAGESIZE, 0, SLIDER_STEPS / 10);
+    SendMessageW(hwnd, TBM_SETPOS, TRUE, SLIDER_STEPS / 2);
     return (NGHandle)hwnd;
 }
 
 int ng_windows_slider_set_value(NGHandle slider, double value) {
-    if (!slider) return NG_ERROR_INVALID_HANDLE;
-    
-    HWND hwnd = (HWND)slider;
-    int minVal = (int)SendMessage(hwnd, TBM_GETRANGEMIN, 0, 0);
-    int maxVal = (int)SendMessage(hwnd, TBM_GETRANGEMAX, 0, 0);
-    int intValue = (int)value;
-    
-    if (intValue < minVal) intValue = minVal;
-    if (intValue > maxVal) intValue = maxVal;
-    
-    SendMessage(hwnd, TBM_SETPOS, TRUE, (LPARAM)intValue);
+    SliderRange* range = slider ? slider_range((HWND)slider) : NULL;
+    if (!range) return NG_ERROR_INVALID_HANDLE;
+    double t = (value - range->min) / (range->max - range->min);
+    if (!(t > 0.0)) t = 0.0;
+    if (t > 1.0) t = 1.0;
+    SendMessageW((HWND)slider, TBM_SETPOS, TRUE, (LPARAM)(t * SLIDER_STEPS + 0.5));
     return NG_SUCCESS;
 }
 
 double ng_windows_slider_get_value(NGHandle slider) {
-    if (!slider) return 0.0;
-    
-    HWND hwnd = (HWND)slider;
-    return (double)SendMessage(hwnd, TBM_GETPOS, 0, 0);
+    SliderRange* range = slider ? slider_range((HWND)slider) : NULL;
+    if (!range) return 0.0;
+    double t = (double)SendMessageW((HWND)slider, TBM_GETPOS, 0, 0) / SLIDER_STEPS;
+    return range->min + t * (range->max - range->min);
 }
 
 int ng_windows_slider_set_enabled(NGHandle slider, int enabled) {
     if (!slider) return NG_ERROR_INVALID_HANDLE;
-    
     EnableWindow((HWND)slider, enabled ? TRUE : FALSE);
     return NG_SUCCESS;
 }
@@ -63,4 +88,3 @@ void ng_windows_slider_invalidate(NGHandle slider) {
     if (!slider) return;
     InvalidateRect((HWND)slider, NULL, FALSE);
 }
-

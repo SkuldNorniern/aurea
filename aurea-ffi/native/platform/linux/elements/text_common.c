@@ -21,11 +21,13 @@ int ng_linux_set_text_content(NGHandle text_handle, const char* content) {
         return NG_SUCCESS;
     }
 
-    GtkWidget* child = gtk_bin_get_child(GTK_BIN(widget));
+    GtkWidget* child = GTK_IS_BIN(widget) ? gtk_bin_get_child(GTK_BIN(widget)) : NULL;
 
     if (GTK_IS_TEXT_VIEW(child)) {
         GtkTextBuffer* buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(child));
+        ng_linux_set_quiet(buffer, 1);
         gtk_text_buffer_set_text(buffer, content, -1);
+        ng_linux_set_quiet(buffer, 0);
         return NG_SUCCESS;
     }
 
@@ -42,7 +44,7 @@ char* ng_linux_get_text_content(NGHandle text_handle) {
         return text ? g_strdup(text) : NULL;
     }
 
-    GtkWidget* child = gtk_bin_get_child(GTK_BIN(widget));
+    GtkWidget* child = GTK_IS_BIN(widget) ? gtk_bin_get_child(GTK_BIN(widget)) : NULL;
 
     if (GTK_IS_TEXT_VIEW(child)) {
         GtkTextBuffer* buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(child));

@@ -7,8 +7,10 @@ NGHandle ng_linux_create_slider(double min, double max) {
     
     GtkWidget* scale = gtk_scale_new_with_range(
         GTK_ORIENTATION_HORIZONTAL,
-        min, max, 1.0
+        min, max, (max - min) / 100.0
     );
+    gtk_range_set_round_digits(GTK_RANGE(scale), -1);
+    gtk_scale_set_draw_value(GTK_SCALE(scale), FALSE);
     
     gtk_range_set_value(GTK_RANGE(scale), (min + max) / 2.0);
     gtk_widget_show(scale);
@@ -27,7 +29,9 @@ int ng_linux_slider_set_value(NGHandle slider, double value) {
     if (value < minVal) value = minVal;
     if (value > maxVal) value = maxVal;
     
+    ng_linux_set_quiet(slider, 1);
     gtk_range_set_value(range, value);
+    ng_linux_set_quiet(slider, 0);
     return NG_SUCCESS;
 }
 

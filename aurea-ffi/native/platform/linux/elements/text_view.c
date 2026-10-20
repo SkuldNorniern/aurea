@@ -5,6 +5,7 @@
 
 static void text_buffer_changed(GtkTextBuffer* buffer, gpointer user_data) {
     unsigned int id = GPOINTER_TO_UINT(user_data);
+    if (ng_linux_is_quiet(buffer)) return;
     GtkTextIter start, end;
     gtk_text_buffer_get_start_iter(buffer, &start);
     gtk_text_buffer_get_end_iter(buffer, &end);
