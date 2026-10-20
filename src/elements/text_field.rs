@@ -6,10 +6,7 @@ use super::traits::Element;
 use crate::registry::elements::next_text_view_id;
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
-use std::{
-    ffi::{CStr, CString},
-    os::raw::c_void,
-};
+use std::{ffi::CString, os::raw::c_void};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TextFieldKind {
@@ -57,7 +54,7 @@ impl TextField {
             handle: NativeElement::new(handle),
             kind,
         };
-        let _ = field.set_content(content);
+        field.set_content(content)?;
         Ok(field)
     }
 
@@ -81,23 +78,7 @@ impl TextField {
 
     /// Get the text content.
     pub fn get_content(&self) -> AureaResult<String> {
-        let content_ptr = unsafe { ng_platform_get_text_content(self.handle.handle()) };
-
-        if content_ptr.is_null() {
-            return Err(AureaError::ElementOperationFailed);
-        }
-
-        let content = unsafe {
-            let cstr = CStr::from_ptr(content_ptr);
-            let result = cstr
-                .to_str()
-                .map_err(|_| AureaError::ElementOperationFailed)?
-                .to_string();
-            ng_platform_free_text_content(content_ptr);
-            result
-        };
-
-        Ok(content)
+        self.handle.text()
     }
 }
 

@@ -1,7 +1,12 @@
 //! Who owns a native element, and who frees it.
 
-use crate::ffi::{ng_platform_destroy_element, ng_platform_element_released_to_parent};
+use crate::ffi::{
+    ng_platform_destroy_element, ng_platform_element_released_to_parent,
+    ng_platform_free_text_content, ng_platform_get_text_content,
+};
+use crate::{AureaError, AureaResult};
 use std::cell::Cell;
+use std::ffi::CStr;
 use std::os::raw::c_void;
 
 /// A native element handle, freed on drop unless a parent took it over.
@@ -12,6 +17,19 @@ pub struct NativeElement {
 }
 
 impl NativeElement {
+    pub(crate) fn text(&self) -> AureaResult<String> {
+        let ptr = unsafe { ng_platform_get_text_content(self.handle) };
+        if ptr.is_null() {
+            return Err(AureaError::ElementOperationFailed);
+        }
+        let text = unsafe { CStr::from_ptr(ptr) }
+            .to_str()
+            .map(str::to_owned)
+            .map_err(|_| AureaError::ElementOperationFailed);
+        unsafe { ng_platform_free_text_content(ptr) };
+        text
+    }
+
     /// Takes ownership of a handle the caller has just created.
     pub fn new(handle: *mut c_void) -> Self {
         Self {
