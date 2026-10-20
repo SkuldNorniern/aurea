@@ -78,8 +78,8 @@ fn run() -> Result<()> {
     };
     let surface = device.create_surface(&handles, config)?;
 
-    let off_vert = device.create_shader(shader(&OFF_VERT_ZSL))?;
-    let off_frag = device.create_shader(shader(&OFF_FRAG_ZSL))?;
+    let off_vert = device.create_shader(shader(&OFF_VERT_ZSL)?)?;
+    let off_frag = device.create_shader(shader(&OFF_FRAG_ZSL)?)?;
     let off_pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader: off_vert,
         fragment_shader: off_frag,
@@ -96,8 +96,8 @@ fn run() -> Result<()> {
         samples: 1,
     })?;
 
-    let scr_vert = device.create_shader(shader(&SCR_VERT_ZSL))?;
-    let scr_frag = device.create_shader(shader(&SCR_FRAG_ZSL))?;
+    let scr_vert = device.create_shader(shader(&SCR_VERT_ZSL)?)?;
+    let scr_frag = device.create_shader(shader(&SCR_FRAG_ZSL)?)?;
     let scr_pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader: scr_vert,
         fragment_shader: scr_frag,

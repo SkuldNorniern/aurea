@@ -231,8 +231,9 @@ fn create_pipeline(
     blend: BlendMode,
     color_format: Format,
 ) -> Result<PipelineHandle> {
-    let vertex_shader = device.create_shader(shader(vert))?;
-    let fragment_shader = match device.create_shader(shader(frag)) {
+    let (vert, frag) = (shader(vert)?, shader(frag)?);
+    let vertex_shader = device.create_shader(vert)?;
+    let fragment_shader = match device.create_shader(frag) {
         Ok(shader) => shader,
         Err(e) => {
             device.destroy_shader(vertex_shader);

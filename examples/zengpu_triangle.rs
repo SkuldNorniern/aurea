@@ -52,8 +52,8 @@ fn run() -> Result<()> {
 
     let surface = device.create_surface(&handles, config)?;
 
-    let vert_shader = device.create_shader(shader(&VERT_ZSL))?;
-    let frag_shader = device.create_shader(shader(&FRAG_ZSL))?;
+    let vert_shader = device.create_shader(shader(&VERT_ZSL)?)?;
+    let frag_shader = device.create_shader(shader(&FRAG_ZSL)?)?;
 
     let pipeline = device.create_graphics_pipeline(GraphicsPipelineDesc {
         vertex_shader: vert_shader,

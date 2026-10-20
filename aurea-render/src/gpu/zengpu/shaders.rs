@@ -209,8 +209,10 @@ mod tests {
     #[test]
     fn shaders_have_every_native_backend() {
         for (name, shader) in SHADERS {
-            assert!(!shader.spv.is_empty(), "{name}: no SPIR-V");
-            assert!(!shader.msl.is_empty(), "{name}: no MSL");
+            let spv = shader.spv.unwrap_or_else(|e| panic!("{name}: {e}"));
+            let msl = shader.msl.unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert!(!spv.is_empty(), "{name}: no SPIR-V");
+            assert!(!msl.is_empty(), "{name}: no MSL");
         }
     }
 
@@ -218,10 +220,9 @@ mod tests {
     fn shaders_validate() {
         for (name, shader) in SHADERS {
             let path = temp_dir().join(format!("aurea_{}_{name}.spv", id()));
+            let spv = shader.spv.unwrap_or_else(|e| panic!("{name}: {e}"));
             // SAFETY: SPIR-V words viewed as their bytes.
-            let bytes = unsafe {
-                from_raw_parts(shader.spv.as_ptr().cast::<u8>(), size_of_val(shader.spv))
-            };
+            let bytes = unsafe { from_raw_parts(spv.as_ptr().cast::<u8>(), size_of_val(spv)) };
             write(&path, bytes).expect("write spv");
             let out = Command::new("spirv-val")
                 .args(["--target-env", "vulkan1.2"])
