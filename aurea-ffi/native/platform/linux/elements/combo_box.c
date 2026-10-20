@@ -26,7 +26,9 @@ int ng_linux_combo_box_set_selected(NGHandle combo_box, int index) {
         return NG_ERROR_INVALID_PARAMETER;
     }
     
+    ng_linux_set_quiet(combo_box, 1);
     gtk_combo_box_set_active(comboBox, index);
+    ng_linux_set_quiet(combo_box, 0);
     return NG_SUCCESS;
 }
 
@@ -40,7 +42,9 @@ int ng_linux_combo_box_clear(NGHandle combo_box) {
     if (!combo_box) return NG_ERROR_INVALID_HANDLE;
     
     GtkComboBoxText* comboBox = GTK_COMBO_BOX_TEXT(combo_box);
+    ng_linux_set_quiet(combo_box, 1);
     gtk_combo_box_text_remove_all(comboBox);
+    ng_linux_set_quiet(combo_box, 0);
     return NG_SUCCESS;
 }
 

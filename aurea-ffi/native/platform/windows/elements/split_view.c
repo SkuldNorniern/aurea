@@ -68,17 +68,8 @@ static void split_view_layout(HWND hwnd, SplitViewData* data) {
 }
 
 static LRESULT CALLBACK SplitViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    if (msg == WM_COMMAND) {
-        HWND parent = GetParent(hwnd);
-        while (parent && parent != GetDesktopWindow()) {
-            char class_name[256];
-            GetClassNameA(parent, class_name, sizeof(class_name));
-            if (_stricmp(class_name, "NativeGuiWindow") == 0) {
-                SendMessageA(parent, msg, wParam, lParam);
-                break;
-            }
-            parent = GetParent(parent);
-        }
+    if (ng_windows_is_notification(msg)) {
+        ng_windows_forward_to_window(hwnd, msg, wParam, lParam);
     }
 
     if (msg == WM_SIZE) {

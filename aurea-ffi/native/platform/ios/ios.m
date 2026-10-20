@@ -66,3 +66,34 @@ void ng_platform_text_view_invalidate(NGHandle handle) {
 void ng_platform_progress_bar_invalidate(NGHandle handle) {
 }
 
+int ng_platform_element_set_change_id(NGHandle element, unsigned int id) {
+    (void)element;
+    (void)id;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_element_set_visible(NGHandle element, int visible) {
+    (void)element;
+    (void)visible;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_element_set_min_size(NGHandle element, int width, int height) {
+    (void)element;
+    (void)width;
+    (void)height;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_box_set_spacing(NGHandle box, int spacing) {
+    (void)box;
+    (void)spacing;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_box_set_padding(NGHandle box, int padding) {
+    (void)box;
+    (void)padding;
+    return NG_ERROR_UNSUPPORTED;
+}
+

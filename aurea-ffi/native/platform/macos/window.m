@@ -9,6 +9,7 @@
 #import <CoreGraphics/CoreGraphics.h>
 #import <QuartzCore/QuartzCore.h>
 #include <string.h>
+#import <objc/runtime.h>
 #include <limits.h>
 
 static int ng_macos_get_cursor_grab_mode(void* windowHandle);
@@ -1145,6 +1146,80 @@ void ng_macos_element_retain(NGHandle element) {
 
 void ng_macos_element_release(NGHandle element) {
     CFRelease(element);
+}
+
+static char kChangeIdKey;
+static char kMinWidthKey;
+static char kMinHeightKey;
+
+@interface NGChangeTarget : NSObject
+- (void)changed:(id)sender;
+@end
+
+@implementation NGChangeTarget
+- (void)changed:(id)sender {
+    NSNumber* changeId = objc_getAssociatedObject(sender, &kChangeIdKey);
+    if (changeId) ng_invoke_custom_callback(changeId.unsignedIntValue);
+}
+@end
+
+int ng_macos_element_set_change_id(NGHandle element, unsigned int id) {
+    if (!element) return NG_ERROR_INVALID_HANDLE;
+    NSView* view = (__bridge NSView*)element;
+    if (![view isKindOfClass:[NSControl class]]) return NG_ERROR_UNSUPPORTED;
+    static NGChangeTarget* target = nil;
+    if (!target) target = [[NGChangeTarget alloc] init];
+    NSControl* control = (NSControl*)view;
+    objc_setAssociatedObject(control, &kChangeIdKey, @(id), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [control setTarget:target];
+    [control setAction:@selector(changed:)];
+    if ([control isKindOfClass:[NSSlider class]]) [control setContinuous:YES];
+    return NG_SUCCESS;
+}
+
+int ng_macos_element_set_visible(NGHandle element, int visible) {
+    if (!element) return NG_ERROR_INVALID_HANDLE;
+    [(__bridge NSView*)element setHidden:visible ? NO : YES];
+    return NG_SUCCESS;
+}
+
+static void ng_macos_min_constraint(NSView* view, void* key, NSLayoutDimension* dimension, int value) {
+    NSLayoutConstraint* old = objc_getAssociatedObject(view, key);
+    if (old) old.active = NO;
+    NSLayoutConstraint* min = nil;
+    if (value > 0) {
+        min = [dimension constraintGreaterThanOrEqualToConstant:value];
+        min.priority = NSLayoutPriorityRequired - 1;
+        min.active = YES;
+    }
+    objc_setAssociatedObject(view, key, min, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+int ng_macos_element_set_min_size(NGHandle element, int width, int height) {
+    if (!element) return NG_ERROR_INVALID_HANDLE;
+    if (width < 0 || height < 0) return NG_ERROR_INVALID_PARAMETER;
+    NSView* view = (__bridge NSView*)element;
+    ng_macos_min_constraint(view, &kMinWidthKey, view.widthAnchor, width);
+    ng_macos_min_constraint(view, &kMinHeightKey, view.heightAnchor, height);
+    return NG_SUCCESS;
+}
+
+int ng_macos_box_set_spacing(NGHandle box, int spacing) {
+    if (!box) return NG_ERROR_INVALID_HANDLE;
+    NSView* view = (__bridge NSView*)box;
+    if (![view isKindOfClass:[NSStackView class]]) return NG_ERROR_INVALID_HANDLE;
+    if (spacing < 0) return NG_ERROR_INVALID_PARAMETER;
+    [(NSStackView*)view setSpacing:spacing];
+    return NG_SUCCESS;
+}
+
+int ng_macos_box_set_padding(NGHandle box, int padding) {
+    if (!box) return NG_ERROR_INVALID_HANDLE;
+    NSView* view = (__bridge NSView*)box;
+    if (![view isKindOfClass:[NSStackView class]]) return NG_ERROR_INVALID_HANDLE;
+    if (padding < 0) return NG_ERROR_INVALID_PARAMETER;
+    [(NSStackView*)view setEdgeInsets:NSEdgeInsetsMake(padding, padding, padding, padding)];
+    return NG_SUCCESS;
 }
 
 int ng_macos_detach_element(NGHandle element) {

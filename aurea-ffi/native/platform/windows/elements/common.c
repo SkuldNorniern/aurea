@@ -3,6 +3,7 @@
 #include "../utils.h"
 #include "common/errors.h"
 #include "common/rust_callbacks.h"
+#include <commctrl.h>
 #include <richedit.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,7 +19,7 @@ static WNDPROC g_parking_proc = NULL;
 
 static LRESULT CALLBACK parking_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     HWND from = NULL;
-    if (msg == WM_COMMAND) from = (HWND)lParam;
+    if (msg == WM_COMMAND || msg == WM_HSCROLL || msg == WM_VSCROLL) from = (HWND)lParam;
     else if (msg == WM_NOTIFY && lParam) from = ((NMHDR*)lParam)->hwndFrom;
     else if (msg >= WM_CTLCOLORMSGBOX && msg <= WM_CTLCOLORSTATIC) from = (HWND)lParam;
     if (from) {
@@ -162,6 +163,84 @@ void ng_windows_text_changed(HWND edit) {
     free(text);
 }
 
+#define CHANGE_ID_PROP "AureaChangeId"
+
+int ng_windows_is_notification(UINT msg) {
+    return msg == WM_COMMAND || msg == WM_NOTIFY || msg == WM_HSCROLL || msg == WM_VSCROLL;
+}
+
+void ng_windows_forward_to_window(HWND from, UINT msg, WPARAM wParam, LPARAM lParam) {
+    for (HWND at = GetParent(from); at; at = GetParent(at)) {
+        char cls[64];
+        if (GetClassNameA(at, cls, sizeof(cls)) && _stricmp(cls, "NativeGuiWindow") == 0) {
+            SendMessageW(at, msg, wParam, lParam);
+            return;
+        }
+    }
+}
+
+int ng_windows_element_set_change_id(NGHandle element, unsigned int id) {
+    if (!element || !IsWindow((HWND)element)) return NG_ERROR_INVALID_HANDLE;
+    SetPropA((HWND)element, CHANGE_ID_PROP, (HANDLE)(UINT_PTR)id);
+    return NG_SUCCESS;
+}
+
+int ng_windows_control_changed(UINT msg, WPARAM wParam, LPARAM lParam) {
+    HWND control = (HWND)lParam;
+    if (!control) return 0;
+    unsigned int id = (unsigned int)(UINT_PTR)GetPropA(control, CHANGE_ID_PROP);
+    if (!id) return 0;
+    int changed = 0;
+    if (msg == WM_COMMAND) {
+        changed = HIWORD(wParam) == BN_CLICKED || HIWORD(wParam) == CBN_SELCHANGE;
+    } else if (msg == WM_HSCROLL || msg == WM_VSCROLL) {
+        changed = LOWORD(wParam) != TB_ENDTRACK;
+    }
+    if (changed) ng_invoke_custom_callback(id);
+    return changed;
+}
+
+int ng_windows_element_set_visible(NGHandle element, int visible) {
+    HWND hwnd = (HWND)element;
+    if (!hwnd || !IsWindow(hwnd)) return NG_ERROR_INVALID_HANDLE;
+    ShowWindow(hwnd, visible ? SW_SHOW : SW_HIDE);
+    ng_windows_relayout(hwnd);
+    return NG_SUCCESS;
+}
+
+int ng_windows_element_set_min_size(NGHandle element, int width, int height) {
+    HWND hwnd = (HWND)element;
+    if (!hwnd || !IsWindow(hwnd)) return NG_ERROR_INVALID_HANDLE;
+    if (width < 0 || height < 0) return NG_ERROR_INVALID_PARAMETER;
+    SetPropA(hwnd, MIN_WIDTH_PROP, (HANDLE)(INT_PTR)(width + 1));
+    SetPropA(hwnd, MIN_HEIGHT_PROP, (HANDLE)(INT_PTR)(height + 1));
+    ng_windows_relayout(hwnd);
+    return NG_SUCCESS;
+}
+
+static int box_setting(NGHandle handle, const char* prop, int value) {
+    HWND box = (HWND)handle;
+    if (!box || !IsWindow(box) || !is_box(box)) return NG_ERROR_INVALID_HANDLE;
+    if (value < 0) return NG_ERROR_INVALID_PARAMETER;
+    SetPropA(box, prop, (HANDLE)(INT_PTR)(value + 1));
+    layout_box_children(box);
+    ng_windows_relayout(box);
+    return NG_SUCCESS;
+}
+
+int ng_windows_box_set_spacing(NGHandle box, int spacing) {
+    return box_setting(box, BOX_SPACING_PROP, spacing);
+}
+
+int ng_windows_box_set_padding(NGHandle box, int padding) {
+    return box_setting(box, BOX_PADDING_PROP, padding);
+}
+
+static int stored_px(HWND hwnd, const char* prop) {
+    INT_PTR stored = (INT_PTR)GetPropA(hwnd, prop);
+    return stored > 0 ? ng_windows_px(hwnd, (int)(stored - 1)) : -1;
+}
+
 void ng_windows_relayout(HWND hwnd) {
     HWND top = NULL;
     for (HWND at = GetParent(hwnd); at && is_box(at); at = GetParent(at)) top = at;
@@ -201,6 +280,8 @@ typedef struct {
 #define MAX_BOX_CHILDREN 256
 
 static int box_padding(HWND box) {
+    int set = stored_px(box, BOX_PADDING_PROP);
+    if (set >= 0) return set;
     HWND parent = GetParent(box);
     char parent_class[64];
     if (parent && GetClassNameA(parent, parent_class, sizeof(parent_class)) &&
@@ -208,6 +289,11 @@ static int box_padding(HWND box) {
         return ng_windows_px(box, PADDING);
     }
     return 0;
+}
+
+static int box_spacing(HWND box) {
+    int set = stored_px(box, BOX_SPACING_PROP);
+    return set >= 0 ? set : ng_windows_px(box, SPACING);
 }
 
 static int box_children(HWND box, BoxChild* out) {
@@ -319,11 +405,13 @@ static void measure_child(BoxChild* c, int vertical, int cross) {
     } else if (vertical && cross > 0 &&
                (c->weight > 0.0f || _stricmp(cls, "RichEdit20W") == 0 || _stricmp(cls, "EDIT") == 0 ||
                 _stricmp(cls, "AureaCanvas") == 0 || _stricmp(cls, "msctls_progress32") == 0 ||
-                _stricmp(cls, "COMBOBOX") == 0)) {
+                _stricmp(cls, "COMBOBOX") == 0 || _stricmp(cls, TRACKBAR_CLASSA) == 0)) {
         w = cross;
     }
-    c->w = w;
-    c->h = h;
+    int min_w = stored_px(c->hwnd, MIN_WIDTH_PROP);
+    int min_h = stored_px(c->hwnd, MIN_HEIGHT_PROP);
+    c->w = w > min_w ? w : min_w;
+    c->h = h > min_h ? h : min_h;
 }
 
 static void measure_box(HWND box, int in_vertical, int cross, int* out_w, int* out_h) {
@@ -331,7 +419,7 @@ static void measure_box(HWND box, int in_vertical, int cross, int* out_w, int* o
     int n = box_children(box, children);
     int vertical = get_box_orientation(box);
     int pad = box_padding(box);
-    int spacing = ng_windows_px(box, SPACING);
+    int spacing = box_spacing(box);
     int width = in_vertical && cross > 0 ? cross : -1;
     int main = 0, across = 0;
     for (int i = 0; i < n; i++) {
@@ -389,7 +477,7 @@ void layout_box_children(HWND box) {
     }
 
     int pad = box_padding(box);
-    int spacing = ng_windows_px(box, SPACING);
+    int spacing = box_spacing(box);
     int cross = (vertical ? box_width : box_height) - 2 * pad;
     int main_room = (vertical ? box_height : box_width) - 2 * pad - spacing * (n - 1);
     float weights = 0.0f;

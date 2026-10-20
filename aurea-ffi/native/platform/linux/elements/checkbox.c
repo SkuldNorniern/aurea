@@ -12,7 +12,9 @@ NGHandle ng_linux_create_checkbox(const char* label) {
 int ng_linux_checkbox_set_checked(NGHandle checkbox, int checked) {
     if (!checkbox) return NG_ERROR_INVALID_HANDLE;
     
+    ng_linux_set_quiet(checkbox, 1);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(checkbox), checked ? TRUE : FALSE);
+    ng_linux_set_quiet(checkbox, 0);
     return NG_SUCCESS;
 }
 

@@ -73,6 +73,11 @@ typedef struct ng_platform_ops {
     void (*element_released_to_parent)(NGHandle element);
     void (*element_retain)(NGHandle element);
     void (*element_release)(NGHandle element);
+    int (*element_set_change_id)(NGHandle element, unsigned int id);
+    int (*element_set_visible)(NGHandle element, int visible);
+    int (*element_set_min_size)(NGHandle element, int width, int height);
+    int (*box_set_spacing)(NGHandle box, int spacing);
+    int (*box_set_padding)(NGHandle box, int padding);
     int (*set_window_content)(NGHandle window, NGHandle content);
 
     NGHandle (*create_split_view)(int is_vertical);

@@ -1,6 +1,57 @@
 #include "../elements.h"
 #include "common/errors.h"
+#include "common/rust_callbacks.h"
 #include <gtk/gtk.h>
+
+void ng_linux_set_quiet(void* object, int quiet) {
+    g_object_set_data(G_OBJECT(object), "aurea-quiet", GINT_TO_POINTER(quiet));
+}
+
+int ng_linux_is_quiet(void* object) {
+    return g_object_get_data(G_OBJECT(object), "aurea-quiet") != NULL;
+}
+
+static void on_changed(GtkWidget* widget, gpointer id) {
+    if (!ng_linux_is_quiet(widget)) ng_invoke_custom_callback(GPOINTER_TO_UINT(id));
+}
+
+int ng_linux_element_set_change_id(NGHandle element, unsigned int id) {
+    if (!element || !GTK_IS_WIDGET(element)) return NG_ERROR_INVALID_HANDLE;
+    const char* signal = GTK_IS_TOGGLE_BUTTON(element) ? "toggled"
+                       : GTK_IS_COMBO_BOX(element)     ? "changed"
+                       : GTK_IS_RANGE(element)         ? "value-changed"
+                                                       : NULL;
+    if (!signal) return NG_ERROR_UNSUPPORTED;
+    g_signal_connect(element, signal, G_CALLBACK(on_changed), GUINT_TO_POINTER(id));
+    return NG_SUCCESS;
+}
+
+int ng_linux_element_set_visible(NGHandle element, int visible) {
+    if (!element || !GTK_IS_WIDGET(element)) return NG_ERROR_INVALID_HANDLE;
+    gtk_widget_set_visible((GtkWidget*)element, visible ? TRUE : FALSE);
+    return NG_SUCCESS;
+}
+
+int ng_linux_element_set_min_size(NGHandle element, int width, int height) {
+    if (!element || !GTK_IS_WIDGET(element)) return NG_ERROR_INVALID_HANDLE;
+    if (width < 0 || height < 0) return NG_ERROR_INVALID_PARAMETER;
+    gtk_widget_set_size_request((GtkWidget*)element, width ? width : -1, height ? height : -1);
+    return NG_SUCCESS;
+}
+
+int ng_linux_box_set_spacing(NGHandle box, int spacing) {
+    if (!box || !GTK_IS_BOX(box)) return NG_ERROR_INVALID_HANDLE;
+    if (spacing < 0) return NG_ERROR_INVALID_PARAMETER;
+    gtk_box_set_spacing(GTK_BOX(box), spacing);
+    return NG_SUCCESS;
+}
+
+int ng_linux_box_set_padding(NGHandle box, int padding) {
+    if (!box || !GTK_IS_BOX(box)) return NG_ERROR_INVALID_HANDLE;
+    if (padding < 0) return NG_ERROR_INVALID_PARAMETER;
+    gtk_container_set_border_width(GTK_CONTAINER(box), (guint)padding);
+    return NG_SUCCESS;
+}
 
 NGHandle ng_linux_create_box(int is_vertical) {
     GtkOrientation orientation = is_vertical ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL;

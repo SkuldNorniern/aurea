@@ -675,17 +675,23 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             ng_invoke_mouse_wheel((void*)hwnd, delta, 0.0, ng_windows_modifiers());
             break;
         }
+        case WM_HSCROLL:
+        case WM_VSCROLL:
+            ng_windows_control_changed(uMsg, wParam, lParam);
+            break;
+
         case WM_COMMAND:
-            if (HIWORD(wParam) == EN_CHANGE && lParam) {
+            if (ng_windows_control_changed(uMsg, wParam, lParam)) {
+                break;
+            } else if (HIWORD(wParam) == EN_CHANGE && lParam) {
                 ng_windows_text_changed((HWND)lParam);
             } else if (HIWORD(wParam) == 0) {
                 unsigned int command_id = LOWORD(wParam);
                 if (command_id >= BUTTON_COMMAND_BASE) {
                     unsigned int id = command_id - BUTTON_COMMAND_BASE;
                     ng_invoke_button_callback(id);
-                } else {
-                    unsigned int id = command_id - 1;
-                    ng_invoke_menu_callback(id);
+                } else if (!lParam) {
+                    ng_invoke_menu_callback(command_id - 1);
                 }
             }
             break;

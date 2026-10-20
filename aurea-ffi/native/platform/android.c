@@ -248,6 +248,37 @@ NGHandle ng_platform_create_box(int is_vertical) {
     return NULL;
 }
 
+int ng_platform_element_set_change_id(NGHandle element, unsigned int id) {
+    (void)element;
+    (void)id;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_element_set_visible(NGHandle element, int visible) {
+    (void)element;
+    (void)visible;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_element_set_min_size(NGHandle element, int width, int height) {
+    (void)element;
+    (void)width;
+    (void)height;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_box_set_spacing(NGHandle box, int spacing) {
+    (void)box;
+    (void)spacing;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_box_set_padding(NGHandle box, int padding) {
+    (void)box;
+    (void)padding;
+    return NG_ERROR_UNSUPPORTED;
+}
+
 int ng_platform_box_add(NGHandle box, NGHandle element, float weight) {
     // TODO: Implement for Android
     (void)box;

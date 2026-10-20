@@ -53,6 +53,11 @@
 /* Which callback a RichEdit's changes go to: text editor or text view. */
 #define TEXT_CHANGE_EDITOR 1
 #define TEXT_CHANGE_VIEW 2
+/* Logical sizes stored plus 1, so 0 still means unset. */
+#define MIN_WIDTH_PROP "AureaMinWidth"
+#define MIN_HEIGHT_PROP "AureaMinHeight"
+#define BOX_SPACING_PROP "AureaBoxSpacing"
+#define BOX_PADDING_PROP "AureaBoxPadding"
 /* Control ids for buttons start here; menu item ids sit below it. */
 #define BUTTON_COMMAND_BASE 0x8000
 
@@ -81,6 +86,11 @@ void ng_windows_watch_text(HWND edit, unsigned int id, int kind);
 void ng_windows_text_changed(HWND edit);
 /* Lays out the outermost box above `hwnd`, after its size may have changed. */
 void ng_windows_relayout(HWND hwnd);
+/* Messages a control sends its parent, which containers pass up. */
+int ng_windows_is_notification(UINT msg);
+void ng_windows_forward_to_window(HWND from, UINT msg, WPARAM wParam, LPARAM lParam);
+/* For the window's procedure: a control's notification, 1 if it was a change. */
+int ng_windows_control_changed(UINT msg, WPARAM wParam, LPARAM lParam);
 /* A tab bar's size; 0 when `bar` is not one. */
 int ng_windows_tab_bar_measure(HWND bar, int* width, int* height);
 

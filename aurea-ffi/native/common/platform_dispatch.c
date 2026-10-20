@@ -307,6 +307,26 @@ void ng_platform_element_release(NGHandle e) {
     DISPATCH_VOID(element_release, e);
 }
 
+int ng_platform_element_set_change_id(NGHandle e, unsigned int id) {
+    DISPATCH_INT(element_set_change_id, e, id);
+}
+
+int ng_platform_element_set_visible(NGHandle e, int visible) {
+    DISPATCH_INT(element_set_visible, e, visible);
+}
+
+int ng_platform_element_set_min_size(NGHandle e, int width, int height) {
+    DISPATCH_INT(element_set_min_size, e, width, height);
+}
+
+int ng_platform_box_set_spacing(NGHandle b, int spacing) {
+    DISPATCH_INT(box_set_spacing, b, spacing);
+}
+
+int ng_platform_box_set_padding(NGHandle b, int padding) {
+    DISPATCH_INT(box_set_padding, b, padding);
+}
+
 int ng_platform_detach_element(NGHandle e) {
     ensure_ops();
     if (!e) return NG_ERROR_INVALID_HANDLE;
