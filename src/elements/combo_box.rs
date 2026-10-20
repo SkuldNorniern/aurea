@@ -1,4 +1,4 @@
-use super::native::{ChangeWatch, NativeElement};
+use super::native::{CallbackWatch, NativeElement};
 use super::traits::Element;
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
@@ -6,7 +6,7 @@ use std::{ffi::CString, os::raw::c_void};
 
 pub struct ComboBox {
     handle: NativeElement,
-    change: Option<ChangeWatch>,
+    change: Option<CallbackWatch>,
 }
 
 impl ComboBox {
@@ -103,7 +103,7 @@ impl ComboBox {
         Ok(())
     }
 
-    pub fn set_enabled(&mut self, enabled: bool) -> AureaResult<()> {
+    pub fn set_enabled(&self, enabled: bool) -> AureaResult<()> {
         let result = unsafe {
             ng_platform_combo_box_set_enabled(self.handle.handle(), if enabled { 1 } else { 0 })
         };

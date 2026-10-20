@@ -1,4 +1,4 @@
-use super::native::{ChangeWatch, NativeElement};
+use super::native::{CallbackWatch, NativeElement};
 use super::traits::Element;
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
@@ -6,7 +6,7 @@ use std::{ffi::CString, os::raw::c_void};
 
 pub struct Checkbox {
     handle: NativeElement,
-    change: Option<ChangeWatch>,
+    change: Option<CallbackWatch>,
 }
 
 impl Checkbox {
@@ -58,7 +58,7 @@ impl Checkbox {
         unsafe { ng_platform_checkbox_get_checked(self.handle.handle()) != 0 }
     }
 
-    pub fn set_enabled(&mut self, enabled: bool) -> AureaResult<()> {
+    pub fn set_enabled(&self, enabled: bool) -> AureaResult<()> {
         let result = unsafe {
             ng_platform_checkbox_set_enabled(self.handle.handle(), if enabled { 1 } else { 0 })
         };

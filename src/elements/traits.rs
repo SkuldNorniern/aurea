@@ -1,4 +1,7 @@
-use crate::ffi::{ng_platform_element_set_min_size, ng_platform_element_set_visible};
+use crate::ffi::{
+    ng_platform_element_set_enabled, ng_platform_element_set_min_size,
+    ng_platform_element_set_visible,
+};
 use crate::render::Rect;
 use crate::{AureaError, AureaResult};
 use std::os::raw::{c_int, c_void};
@@ -41,6 +44,16 @@ pub trait Element {
     unsafe fn invalidate_platform(&self, rect: Option<Rect>);
 
     fn request_layout(&self) {}
+
+    /// Greys the element out and stops its input.
+    fn set_enabled(&self, enabled: bool) -> AureaResult<()> {
+        let result =
+            unsafe { ng_platform_element_set_enabled(self.handle(), c_int::from(enabled)) };
+        if result != 0 {
+            return Err(AureaError::ElementOperationFailed);
+        }
+        Ok(())
+    }
 
     /// Shows or hides the element; its container closes the gap.
     fn set_visible(&self, visible: bool) -> AureaResult<()> {

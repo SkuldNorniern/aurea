@@ -47,7 +47,7 @@ mod gtk_tests {
     //! Native GTK widgets, read back through GTK.
 
     use super::*;
-    use crate::{AureaResult, Window};
+    use crate::{AureaError, AureaResult, Window};
     use std::cell::RefCell;
     use std::ffi::CStr;
     use std::os::raw::{c_char, c_int, c_void};
@@ -67,6 +67,7 @@ mod gtk_tests {
         fn gtk_combo_box_set_active(combo: *mut c_void, index: c_int);
         fn gtk_widget_get_visible(widget: *mut c_void) -> c_int;
         fn gtk_list_box_select_row(list: *mut c_void, row: *mut c_void);
+        fn gtk_widget_is_sensitive(widget: *mut c_void) -> c_int;
         fn g_signal_emit_by_name(instance: *mut c_void, signal: *const c_char, ...);
     }
 
@@ -239,6 +240,42 @@ mod gtk_tests {
 
     #[test]
     #[ignore = "needs a display; run with --ignored"]
+    fn a_disabled_stack_greys_its_children() -> AureaResult<()> {
+        let mut window = Window::new("enabled", 400, 300)?;
+        let button = Button::new("Go")?;
+        let b = button.handle();
+        let mut root = Stack::new(Orientation::Vertical)?;
+        root.add(button)?;
+        let root = Shared::new(root);
+        window.set_content(root.clone())?;
+        root.set_enabled(false)?;
+        assert_eq!(unsafe { gtk_widget_is_sensitive(b) }, 0);
+        root.set_enabled(true)?;
+        assert_ne!(unsafe { gtk_widget_is_sensitive(b) }, 0);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "needs a display; run with --ignored"]
+    fn a_shared_element_hears_its_window_close() -> AureaResult<()> {
+        let mut window = Window::new("destroy", 400, 300)?;
+        let label = Shared::new(Label::new("Ready")?);
+        let (heard, on_heard) = recorder();
+        label.on_destroyed(move || on_heard(()));
+        let mut root = Stack::new(Orientation::Vertical)?;
+        root.add(label.clone())?;
+        window.set_content(root)?;
+        drop(window);
+        assert_eq!(heard.borrow().len(), 1);
+        assert!(matches!(
+            label.try_borrow_mut(),
+            Err(AureaError::ElementDestroyed)
+        ));
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "needs a display; run with --ignored"]
     fn a_text_view_ignores_its_own_set() -> AureaResult<()> {
         let _window = Window::new("text", 400, 300)?;
         let (got, on_text) = recorder();
@@ -291,7 +328,7 @@ mod win32_tests {
 
     use super::*;
     use crate::render::Rect as AreaRect;
-    use crate::{AureaResult, Window};
+    use crate::{AureaError, AureaResult, Window};
     use std::cell::RefCell;
     use std::os::raw::c_void;
     use std::ptr::null_mut;
@@ -313,6 +350,7 @@ mod win32_tests {
         fn GetWindowRect(hwnd: *mut c_void, rect: *mut Rect) -> i32;
         fn GetDlgItem(hwnd: *mut c_void, id: i32) -> *mut c_void;
         fn IsWindow(hwnd: *mut c_void) -> i32;
+        fn IsWindowEnabled(hwnd: *mut c_void) -> i32;
         fn SendMessageW(hwnd: *mut c_void, msg: u32, w: usize, l: isize) -> isize;
         fn CreateWindowExW(
             ex: u32,
@@ -613,6 +651,47 @@ mod win32_tests {
             SendMessageW(s, WM_LBUTTONUP, 0, at(start + 202));
         }
         assert_eq!(width(l), start + 200);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_disabled_stack_greys_its_children() -> AureaResult<()> {
+        let mut window = Window::new("enabled", 400, 300)?;
+        let button = Button::new("Go")?;
+        let field = TextField::new()?;
+        let (b, f) = (button.handle(), field.handle());
+        let mut root = Stack::new(Orientation::Vertical)?;
+        root.add(button)?;
+        root.add(field)?;
+        let root = Shared::new(root);
+        window.set_content(root.clone())?;
+        root.set_enabled(false)?;
+        assert!(unsafe { IsWindowEnabled(b) == 0 && IsWindowEnabled(f) == 0 });
+        root.set_enabled(true)?;
+        assert!(unsafe { IsWindowEnabled(b) != 0 && IsWindowEnabled(f) != 0 });
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_shared_element_hears_its_window_close() -> AureaResult<()> {
+        let mut window = Window::new("destroy", 400, 300)?;
+        let label = Shared::new(Label::new("Ready")?);
+        let (heard, on_heard) = recorder();
+        label.on_destroyed(move || on_heard(()));
+        let mut root = Stack::new(Orientation::Vertical)?;
+        root.add(label.clone())?;
+        window.set_content(root)?;
+        assert!(label.is_alive());
+        drop(window);
+        assert_eq!(heard.borrow().len(), 1);
+        assert!(!label.is_alive());
+        assert!(matches!(
+            label.try_borrow_mut(),
+            Err(AureaError::ElementDestroyed)
+        ));
+        drop(Shared::new(Label::new("loose")?));
         Ok(())
     }
 
