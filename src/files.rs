@@ -9,6 +9,7 @@ use crate::{AureaError, AureaResult, Platform};
 
 /// Opens `path` the way double-clicking it in the file manager would.
 pub fn open_path(path: &Path) -> AureaResult<()> {
+    let path = &not_an_option(path);
     if cfg!(windows) {
         spawn(Command::new("explorer.exe").arg(path))
     } else if cfg!(target_os = "macos") {
@@ -27,6 +28,7 @@ pub fn open_path(path: &Path) -> AureaResult<()> {
 /// Shows the folder holding `path` in the file manager, with `path` selected where the file manager
 /// can do that.
 pub fn reveal_path(path: &Path) -> AureaResult<()> {
+    let path = &not_an_option(path);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -146,6 +148,16 @@ fn file_uri(path: &Path) -> String {
     uri
 }
 
+/// A relative path starting with `-` reads as an option to `open` or `xdg-open`; `./-x` names the
+/// same file and does not.
+fn not_an_option(path: &Path) -> PathBuf {
+    if path.as_os_str().as_encoded_bytes().first() == Some(&b'-') {
+        Path::new(".").join(path)
+    } else {
+        path.to_path_buf()
+    }
+}
+
 fn spawn(command: &mut Command) -> AureaResult<()> {
     command
         .spawn()
@@ -163,6 +175,16 @@ fn unsupported(operation: &'static str) -> AureaResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_path_starting_with_a_dash_is_not_an_option() {
+        assert_eq!(not_an_option(Path::new("-n")), PathBuf::from("./-n"));
+        assert_eq!(
+            not_an_option(Path::new("/tmp/-n")),
+            PathBuf::from("/tmp/-n")
+        );
+        assert_eq!(not_an_option(Path::new("a-b")), PathBuf::from("a-b"));
+    }
 
     #[test]
     fn file_uri_escapes_what_a_uri_or_gvariant_string_cannot_hold() {
