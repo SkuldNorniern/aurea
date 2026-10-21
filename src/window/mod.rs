@@ -673,6 +673,23 @@ impl Window {
         }
     }
 
+    /// Sets the smallest content size, in logical pixels, the user can resize the window to; 0
+    /// leaves that axis free. A window already smaller grows to it.
+    pub fn set_min_size(&self, width: u32, height: u32) -> AureaResult<()> {
+        ui_thread::check("Window::set_min_size");
+        let (Ok(width), Ok(height)) = (i32::try_from(width), i32::try_from(height)) else {
+            return Err(AureaError::ElementOperationFailed);
+        };
+        match unsafe { ng_platform_window_set_min_size(self.handle, width, height) } {
+            0 => Ok(()),
+            NG_ERROR_UNSUPPORTED => Err(AureaError::Unsupported {
+                operation: "Window::set_min_size",
+                platform: Platform::current(),
+            }),
+            _ => Err(AureaError::ElementOperationFailed),
+        }
+    }
+
     /// Get the window size.
     ///
     /// ```rust,no_run
