@@ -4,6 +4,7 @@
 #import "common/errors.h"
 #import "common/rust_callbacks.h"
 #import "macos/elements.h"
+#import "macos/utils.h"
 
 #import <Cocoa/Cocoa.h>
 #import <CoreFoundation/CoreFoundation.h>
@@ -158,6 +159,7 @@ int ng_macos_init(void) {
         if (![NSApp mainMenu]) {
             [NSApp setMainMenu:ng_macos_standard_menu_bar()];
         }
+        ng_macos_watch_appearance();
 
         [NSApp finishLaunching];
         [NSApp activateIgnoringOtherApps:YES];

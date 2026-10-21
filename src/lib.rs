@@ -122,6 +122,14 @@ pub fn gpu_support(checker: &CapabilityChecker, capability: Capability) -> Suppo
     }
 }
 
+#[cfg(all(test, target_os = "macos"))]
+mod appearance_tests {
+    #[test]
+    fn macos_always_knows_its_appearance() {
+        assert!(super::prefers_dark().is_some());
+    }
+}
+
 #[cfg(test)]
 mod gpu_support_tests {
     use super::*;

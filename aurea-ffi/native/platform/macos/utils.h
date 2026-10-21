@@ -16,6 +16,8 @@ NSBitmapImageRep* ng_macos_rgba_bitmap(const unsigned char* rgba, unsigned int w
 #endif
 
 int ng_macos_reduced_motion(void);
+int ng_macos_prefers_dark(void);
+void ng_macos_watch_appearance(void);
 int ng_macos_locales(char* buf, int cap);
 
 #ifdef __cplusplus

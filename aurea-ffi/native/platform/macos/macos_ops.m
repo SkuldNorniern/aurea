@@ -13,6 +13,7 @@
 static const ng_platform_ops_t macos_ops = {
     .init = ng_macos_init,
     .reduced_motion = ng_macos_reduced_motion,
+    .prefers_dark = ng_macos_prefers_dark,
     .locales = ng_macos_locales,
     .cleanup = ng_macos_cleanup,
     .run = ng_macos_run,
