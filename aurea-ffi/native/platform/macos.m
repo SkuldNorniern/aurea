@@ -128,6 +128,9 @@ int ng_macos_init(void) {
 
         app_delegate = [[AppDelegate alloc] init];
         [NSApp setDelegate:app_delegate];
+        if (![NSApp mainMenu]) {
+            [NSApp setMainMenu:ng_macos_standard_menu_bar()];
+        }
 
         [NSApp finishLaunching];
         [NSApp activateIgnoringOtherApps:YES];

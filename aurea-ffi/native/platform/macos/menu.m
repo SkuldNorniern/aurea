@@ -18,27 +18,95 @@
 
 static MenuItemTarget* menuItemTarget = nil;
 
-NGMenuHandle ng_macos_create_menu(void) {
-    @autoreleasepool {
-        if (!menuItemTarget) {
-            menuItemTarget = [[MenuItemTarget alloc] init];
-        }
+/* Edit's shortcuts are claimed only when something can act on them: in a
+   text field they edit, on a canvas they reach the app as plain keys. A plain
+   menu would swallow them even with every item disabled. */
+@interface NGEditMenu : NSMenu
+@end
 
-        NSMenu* mainMenu = [[NSMenu alloc] init];
-    
-        NSMenuItem* appMenuItem = [[NSMenuItem alloc] init];
-        NSMenu* appMenu = [[NSMenu alloc] init];
-        NSString* appName = [[NSProcessInfo processInfo] processName];
-    
-        [appMenu addItemWithTitle:[NSString stringWithFormat:@"Quit %@", appName]
-                          action:@selector(terminate:)
-                   keyEquivalent:@"q"];
-    
-        [appMenuItem setSubmenu:appMenu];
-        [mainMenu addItem:appMenuItem];
-    
-        return (__bridge_retained void*)mainMenu;
+@implementation NGEditMenu
+- (BOOL)performKeyEquivalent:(NSEvent*)event {
+    const NSEventModifierFlags relevant = NSEventModifierFlagCommand | NSEventModifierFlagShift
+        | NSEventModifierFlagOption | NSEventModifierFlagControl;
+    NSEventModifierFlags mods = event.modifierFlags & relevant;
+    NSString* key = [event.charactersIgnoringModifiers lowercaseString];
+    for (NSMenuItem* item in self.itemArray) {
+        if (!item.action || item.keyEquivalent.length == 0) continue;
+        if (![[item.keyEquivalent lowercaseString] isEqualToString:key]) continue;
+        if ((item.keyEquivalentModifierMask & relevant) != mods) continue;
+        id handler = item.target ?: [NSApp targetForAction:item.action to:nil from:item];
+        if (!handler || ([handler respondsToSelector:@selector(validateMenuItem:)]
+                         && ![handler validateMenuItem:item])) {
+            return NO;
+        }
+        return [super performKeyEquivalent:event];
     }
+    return [super performKeyEquivalent:event];
+}
+@end
+
+static NSMenuItem* add_standard(NSMenu* menu, NSString* title, SEL action, NSString* key, NSEventModifierFlags mods) {
+    NSMenuItem* item = [menu addItemWithTitle:title action:action keyEquivalent:key];
+    [item setKeyEquivalentModifierMask:mods];
+    return item;
+}
+
+static NSMenuItem* top_level(NSMenu* bar, NSString* title, NSMenu** out) {
+    NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:title action:nil keyEquivalent:@""];
+    Class kind = [title isEqualToString:@"Edit"] ? [NGEditMenu class] : [NSMenu class];
+    NSMenu* menu = [[kind alloc] initWithTitle:title];
+    [item setSubmenu:menu];
+    [bar addItem:item];
+    *out = menu;
+    return item;
+}
+
+/* The menus every Mac app has. Edit carries the standard first-responder
+   actions, which is what makes Cmd-C, Cmd-V and the rest work in native text
+   fields; on a canvas they find no responder, stay disabled, and the key goes
+   to the app as usual. */
+NSMenu* ng_macos_standard_menu_bar(void) {
+    @autoreleasepool {
+        NSMenu* bar = [[NSMenu alloc] init];
+        NSString* appName = [[NSProcessInfo processInfo] processName];
+        const NSEventModifierFlags cmd = NSEventModifierFlagCommand;
+
+        NSMenu* app = nil;
+        top_level(bar, appName, &app);
+        add_standard(app, [NSString stringWithFormat:@"Hide %@", appName], @selector(hide:), @"h", cmd);
+        add_standard(app, @"Hide Others", @selector(hideOtherApplications:), @"h", cmd | NSEventModifierFlagOption);
+        add_standard(app, @"Show All", @selector(unhideAllApplications:), @"", 0);
+        [app addItem:[NSMenuItem separatorItem]];
+        add_standard(app, [NSString stringWithFormat:@"Quit %@", appName], @selector(terminate:), @"q", cmd);
+
+        NSMenu* edit = nil;
+        top_level(bar, @"Edit", &edit);
+        add_standard(edit, @"Undo", @selector(undo:), @"z", cmd);
+        add_standard(edit, @"Redo", @selector(redo:), @"z", cmd | NSEventModifierFlagShift);
+        [edit addItem:[NSMenuItem separatorItem]];
+        add_standard(edit, @"Cut", @selector(cut:), @"x", cmd);
+        add_standard(edit, @"Copy", @selector(copy:), @"c", cmd);
+        add_standard(edit, @"Paste", @selector(paste:), @"v", cmd);
+        add_standard(edit, @"Select All", @selector(selectAll:), @"a", cmd);
+
+        NSMenu* window = nil;
+        top_level(bar, @"Window", &window);
+        add_standard(window, @"Minimize", @selector(performMiniaturize:), @"m", cmd);
+        add_standard(window, @"Zoom", @selector(performZoom:), @"", 0);
+        add_standard(window, @"Close", @selector(performClose:), @"w", cmd);
+        [window addItem:[NSMenuItem separatorItem]];
+        add_standard(window, @"Bring All to Front", @selector(arrangeInFront:), @"", 0);
+        [NSApp setWindowsMenu:window];
+
+        return bar;
+    }
+}
+
+NGMenuHandle ng_macos_create_menu(void) {
+    if (!menuItemTarget) {
+        menuItemTarget = [[MenuItemTarget alloc] init];
+    }
+    return (__bridge_retained void*)ng_macos_standard_menu_bar();
 }
 
 void ng_macos_destroy_menu(NGMenuHandle handle) {
@@ -170,12 +238,30 @@ NGMenuHandle ng_macos_create_submenu(NGMenuHandle parentMenu, const char* title)
         NSMenu* parent = (__bridge NSMenu*)parentMenu;
         NSString* itemTitle = strip_access_keys(ng_macos_to_nsstring(title));
     
+        /* The app's own Edit or Window menu is the standard one, its items
+           added after. */
+        NSInteger window = parent.supermenu ? -1 : [parent indexOfItemWithTitle:@"Window"];
+        BOOL isBar = window > 0;
+        NSMenuItem* existing = isBar ? [parent itemWithTitle:itemTitle] : nil;
+        if (existing.submenu && ([itemTitle isEqualToString:@"Edit"] || [itemTitle isEqualToString:@"Window"])) {
+            [existing.submenu addItem:[NSMenuItem separatorItem]];
+            return (__bridge void*)existing.submenu;
+        }
+
         NSMenuItem* menuItem = [[NSMenuItem alloc] init];
         NSMenu* submenu = [[NSMenu alloc] initWithTitle:itemTitle];
     
         [menuItem setTitle:itemTitle];
         [menuItem setSubmenu:submenu];
-        [parent addItem:menuItem];
+        /* In the bar, File goes straight after the app menu, Help last and
+           the rest before Window, the order Mac apps keep. */
+        if (isBar && [itemTitle isEqualToString:@"File"]) {
+            [parent insertItem:menuItem atIndex:1];
+        } else if (isBar && ![itemTitle isEqualToString:@"Help"]) {
+            [parent insertItem:menuItem atIndex:window];
+        } else {
+            [parent addItem:menuItem];
+        }
     
         return (__bridge void*)submenu;
     }

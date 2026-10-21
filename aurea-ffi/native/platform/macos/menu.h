@@ -23,6 +23,9 @@ int ng_macos_menu_item_set_title(NGMenuHandle menu, unsigned int id, const char*
 int ng_macos_menu_item_remove(NGMenuHandle menu, unsigned int id);
 int ng_macos_menu_clear(NGMenuHandle menu);
 NGMenuHandle ng_macos_create_submenu(NGMenuHandle parentMenu, const char* title);
+#ifdef __OBJC__
+NSMenu* ng_macos_standard_menu_bar(void);
+#endif
 
 #ifdef __cplusplus
 }
