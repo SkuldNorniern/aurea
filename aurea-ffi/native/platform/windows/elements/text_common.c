@@ -68,8 +68,9 @@ void ng_windows_free_text_content(char* content) {
 }
 
 HWND ng_windows_create_rich_text(int editable) {
-    const wchar_t* cls = LoadLibraryW(L"msftedit.dll") ? MSFTEDIT_CLASS : RICHEDIT_CLASSW;
-    if (cls == RICHEDIT_CLASSW) LoadLibraryW(L"riched20.dll");
+    int modern = LoadLibraryW(L"msftedit.dll") != NULL;
+    if (!modern) LoadLibraryW(L"riched20.dll");
+    const wchar_t* cls = modern ? MSFTEDIT_CLASS : RICHEDIT_CLASSW;
     DWORD style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE |
                   ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_WANTRETURN;
     if (!editable) style |= ES_READONLY;
