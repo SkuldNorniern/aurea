@@ -1200,11 +1200,11 @@ void ng_macos_element_released_to_parent(NGHandle element) {
 }
 
 void ng_macos_element_retain(NGHandle element) {
-    CFRetain(element);
+    if (element) CFRetain(element);
 }
 
 void ng_macos_element_release(NGHandle element) {
-    CFRelease(element);
+    if (element) CFRelease(element);
 }
 
 static char kChangeIdKey;
