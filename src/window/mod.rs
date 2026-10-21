@@ -385,7 +385,7 @@ impl Window {
                     unsafe { ng_platform_destroy_element(stale) };
                 } else {
                     error!(
-                        "could not reclaim the previous window content                          (error {detached}); leaving it rather than freeing                          something this window no longer owns"
+                        "could not reclaim the previous window content (error {detached}); leaving it rather than freeing something this window no longer owns"
                     );
                 }
             }

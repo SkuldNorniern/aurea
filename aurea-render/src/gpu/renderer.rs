@@ -267,7 +267,7 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         }
         self.warned_about_dropped = true;
         log::warn!(
-            "GPU backend has no form for {} draw(s) in this frame; they are              missing from it. Paths, non-normal blend modes and the legacy              text commands are not implemented here yet — a canvas needing              them wants the CPU renderer.",
+            "GPU backend has no form for {} draw(s) in this frame; they are missing from it. Paths, non-normal blend modes and the legacy text commands are not implemented here yet — a canvas needing them wants the CPU renderer.",
             self.batches.dropped,
         );
     }

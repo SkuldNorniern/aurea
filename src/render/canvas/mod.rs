@@ -294,7 +294,7 @@ impl Canvas {
             return;
         }
         log::warn!(
-            "Canvas::draw called on a canvas that also has a draw callback.              Both paint the same buffer and the scheduler re-runs the              callback on its own, so the two will take turns and the region              will flicker. Use one or the other for a given canvas."
+            "Canvas::draw called on a canvas that also has a draw callback. Both paint the same buffer and the scheduler re-runs the callback on its own, so the two will take turns and the region will flicker. Use one or the other for a given canvas."
         );
     }
 
