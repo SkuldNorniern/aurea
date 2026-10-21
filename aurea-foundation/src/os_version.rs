@@ -95,6 +95,7 @@ fn read() -> Option<OsVersion> {
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 fn read() -> Option<OsVersion> {
     use std::ffi::{CStr, c_char, c_int, c_void};
+    use std::ptr::null_mut;
 
     unsafe extern "C" {
         fn sysctlbyname(
@@ -113,7 +114,7 @@ fn read() -> Option<OsVersion> {
             c"kern.osproductversion".as_ptr(),
             buf.as_mut_ptr().cast(),
             &raw mut len,
-            std::ptr::null_mut(),
+            null_mut(),
             0,
         )
     };
