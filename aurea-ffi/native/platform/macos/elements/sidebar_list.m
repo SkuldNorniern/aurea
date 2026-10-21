@@ -125,7 +125,10 @@ typedef NS_ENUM(NSInteger, NGSidebarRowType) {
                     if (@available(macOS 10.14, *)) {
                         [[NSColor selectedContentBackgroundColor] setFill];
                     } else {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
                         [[NSColor alternateSelectedControlColor] setFill];
+#pragma clang diagnostic pop
                     }
                     NSRectFill(rowRect);
                 }
