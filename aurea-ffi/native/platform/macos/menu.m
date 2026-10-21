@@ -18,9 +18,6 @@
 
 static MenuItemTarget* menuItemTarget = nil;
 
-/* Edit's shortcuts are claimed only when something can act on them: in a
-   text field they edit, on a canvas they reach the app as plain keys. A plain
-   menu would swallow them even with every item disabled. */
 @interface NGEditMenu : NSMenu
 @end
 
@@ -61,10 +58,6 @@ static NSMenuItem* top_level(NSMenu* bar, NSString* title, NSMenu** out) {
     return item;
 }
 
-/* The menus every Mac app has. Edit carries the standard first-responder
-   actions, which is what makes Cmd-C, Cmd-V and the rest work in native text
-   fields; on a canvas they find no responder, stay disabled, and the key goes
-   to the app as usual. */
 NSMenu* ng_macos_standard_menu_bar(void) {
     @autoreleasepool {
         NSMenu* bar = [[NSMenu alloc] init];
@@ -159,8 +152,6 @@ static NSString* key_named(NSString* name) {
     return [NSString stringWithCharacters:&c length:1];
 }
 
-/* "Ctrl" stays Cmd so a title written for Windows ("Save\tCtrl+S") gets the
-   Mac shortcut; "Control" is the Control key itself. */
 static void parse_title_and_shortcut(NSString* full, NSString** outTitle, NSString** outKey, NSEventModifierFlags* outMod) {
     NSArray* parts = [full componentsSeparatedByString:@"\t"];
     NSString* displayTitle = parts.count > 0 ? parts[0] : full;
@@ -198,6 +189,20 @@ static void parse_title_and_shortcut(NSString* full, NSString** outTitle, NSStri
     }
 }
 
+static void drop_standard_twin(NSMenu* menu, NSMenuItem* item) {
+    for (NSMenuItem* other in [menu.itemArray copy]) {
+        if (other.isSeparatorItem || other.submenu || other.action == @selector(menuItemClicked:)) continue;
+        BOOL sameKey = item.keyEquivalent.length > 0
+            && [other.keyEquivalent isEqualToString:item.keyEquivalent]
+            && other.keyEquivalentModifierMask == item.keyEquivalentModifierMask;
+        if (sameKey || [other.title isEqualToString:item.title]) [menu removeItem:other];
+    }
+    for (NSInteger i = menu.numberOfItems - 1; i >= 0; i--) {
+        if (![menu itemAtIndex:i].isSeparatorItem) continue;
+        if (i == 0 || [menu itemAtIndex:i - 1].isSeparatorItem) [menu removeItemAtIndex:i];
+    }
+}
+
 int ng_macos_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id) {
     if (!menu || !title) return NG_ERROR_INVALID_PARAMETER;
 
@@ -217,6 +222,7 @@ int ng_macos_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id
 
     [menuItem setTarget:menuItemTarget];
     [menuItem setTag:id];
+    drop_standard_twin(parentMenu, menuItem);
     [parentMenu addItem:menuItem];
 
     return NG_SUCCESS;
@@ -238,8 +244,6 @@ NGMenuHandle ng_macos_create_submenu(NGMenuHandle parentMenu, const char* title)
         NSMenu* parent = (__bridge NSMenu*)parentMenu;
         NSString* itemTitle = strip_access_keys(ng_macos_to_nsstring(title));
     
-        /* The app's own Edit or Window menu is the standard one, its items
-           added after. */
         NSInteger window = parent.supermenu ? -1 : [parent indexOfItemWithTitle:@"Window"];
         BOOL isBar = window > 0;
         NSMenuItem* existing = isBar ? [parent itemWithTitle:itemTitle] : nil;
