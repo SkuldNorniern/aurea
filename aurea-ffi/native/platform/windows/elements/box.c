@@ -29,6 +29,7 @@ static LRESULT CALLBACK BoxProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         layout_box_children(hwnd);
     } else if (msg == WM_NCDESTROY) {
         RemovePropA(hwnd, BOX_OLD_PROC_PROP);
+        ng_windows_unmark_container(hwnd);
     }
     
     WNDPROC old_proc = (WNDPROC)GetPropA(hwnd, BOX_OLD_PROC_PROP);
@@ -60,6 +61,7 @@ NGHandle ng_windows_create_box(int is_vertical) {
         if (old_proc) {
             SetPropA(container, BOX_OLD_PROC_PROP, (HANDLE)old_proc);
         }
+        ng_windows_mark_container(container);
     }
 
     return (NGHandle)container;

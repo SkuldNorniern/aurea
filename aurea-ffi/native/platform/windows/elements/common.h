@@ -97,6 +97,11 @@ int ng_windows_is_rich_edit(HWND hwnd);
 void ng_windows_relayout(HWND hwnd);
 /* RichEdit stops typing at 32K characters unless told otherwise. */
 void ng_windows_unlimit_text(HWND edit);
+void ng_windows_mark_container(HWND hwnd);
+void ng_windows_unmark_container(HWND hwnd);
+/* Screen readers ask `value` for the control's value text, in place of the native control's own. */
+void ng_windows_serve_value(HWND hwnd, int (*value)(HWND hwnd, wchar_t* out, int len));
+void ng_windows_stop_serving_value(HWND hwnd);
 /* A text control's content as UTF-8 with " " line breaks; the caller frees it. */
 char* ng_windows_text_content(HWND hwnd);
 /* Messages a control sends its parent, which containers pass up. */

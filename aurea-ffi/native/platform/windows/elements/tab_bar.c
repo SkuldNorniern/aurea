@@ -110,7 +110,10 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
     }
 
     WNDPROC old_proc = (WNDPROC)GetPropA(hwnd, TABBAR_OLD_PROC_PROP);
-    if (msg == WM_NCDESTROY) RemovePropA(hwnd, TABBAR_OLD_PROC_PROP);
+    if (msg == WM_NCDESTROY) {
+        RemovePropA(hwnd, TABBAR_OLD_PROC_PROP);
+        ng_windows_unmark_container(hwnd);
+    }
     if (old_proc) {
         return CallWindowProcA(old_proc, hwnd, msg, wParam, lParam);
     }
@@ -143,6 +146,7 @@ NGHandle ng_windows_create_tab_bar(unsigned int id) {
     WNDPROC old_proc = (WNDPROC)SetWindowLongPtrA(container, GWLP_WNDPROC, (LONG_PTR)TabBarProc);
     if (old_proc) {
         SetPropA(container, TABBAR_OLD_PROC_PROP, (HANDLE)old_proc);
+        ng_windows_mark_container(container);
     }
     return (NGHandle)container;
 }

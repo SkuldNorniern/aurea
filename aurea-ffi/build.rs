@@ -209,6 +209,8 @@ fn main() {
         println!("cargo:rustc-link-lib=shell32");
         println!("cargo:rustc-link-lib=gdiplus");
         println!("cargo:rustc-link-lib=ole32");
+        println!("cargo:rustc-link-lib=oleacc");
+        println!("cargo:rustc-link-lib=oleaut32");
         println!("cargo:rustc-link-lib=uuid");
         println!("cargo:rustc-link-lib=imm32");
         println!("cargo:rustc-link-lib=comdlg32");

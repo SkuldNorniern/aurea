@@ -5,6 +5,8 @@
 #include "common/rust_callbacks.h"
 #include "common/platform_api.h"
 #include <commctrl.h>
+#include <initguid.h>
+#include <oleacc.h>
 #include <richedit.h>
 #include <stdlib.h>
 #include <string.h>
@@ -291,6 +293,96 @@ int ng_windows_box_set_padding(NGHandle box, int padding) {
 static int stored_px(HWND hwnd, const char* prop) {
     INT_PTR stored = (INT_PTR)GetPropA(hwnd, prop);
     return stored > 0 ? ng_windows_px(hwnd, (int)(stored - 1)) : -1;
+}
+
+static IAccPropServices* acc_props(void) {
+    static IAccPropServices* props;
+    static int tried;
+    if (!tried) {
+        tried = 1;
+        HRESULT init = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+        if (SUCCEEDED(init) || init == RPC_E_CHANGED_MODE) {
+            CoCreateInstance(&CLSID_AccPropServices, NULL, CLSCTX_INPROC_SERVER,
+                             &IID_IAccPropServices, (void**)&props);
+        }
+    }
+    return props;
+}
+
+/* Layout containers are STATIC windows; without this a screen reader stops on each as empty text. */
+void ng_windows_mark_container(HWND hwnd) {
+    IAccPropServices* props = acc_props();
+    if (!props) return;
+    VARIANT role;
+    VariantInit(&role);
+    role.vt = VT_I4;
+    role.lVal = ROLE_SYSTEM_PANE;
+    props->lpVtbl->SetHwndProp(props, hwnd, (DWORD)OBJID_CLIENT, CHILDID_SELF, PROPID_ACC_ROLE, role);
+}
+
+void ng_windows_unmark_container(HWND hwnd) {
+    IAccPropServices* props = acc_props();
+    if (!props) return;
+    MSAAPROPID role = PROPID_ACC_ROLE;
+    props->lpVtbl->ClearHwndProps(props, hwnd, (DWORD)OBJID_CLIENT, CHILDID_SELF, &role, 1);
+}
+
+#define VALUE_SERVER_PROP "AureaAccValue"
+
+static HRESULT STDMETHODCALLTYPE value_query(IAccPropServer* self, REFIID iid, void** out) {
+    if (IsEqualIID(iid, &IID_IUnknown) || IsEqualIID(iid, &IID_IAccPropServer)) {
+        *out = self;
+        return S_OK;
+    }
+    *out = NULL;
+    return E_NOINTERFACE;
+}
+
+static ULONG STDMETHODCALLTYPE value_ref(IAccPropServer* self) {
+    (void)self;
+    return 1;
+}
+
+static HRESULT STDMETHODCALLTYPE value_get(IAccPropServer* self, const BYTE* id, DWORD id_len,
+                                           MSAAPROPID prop, VARIANT* out, BOOL* has) {
+    (void)self;
+    (void)prop;
+    VariantInit(out);
+    *has = FALSE;
+    IAccPropServices* props = acc_props();
+    HWND hwnd = NULL;
+    DWORD object = 0, child = 0;
+    if (!props || FAILED(props->lpVtbl->DecomposeHwndIdentityString(props, id, id_len, &hwnd,
+                                                                    &object, &child))) {
+        return S_OK;
+    }
+    int (*value)(HWND, wchar_t*, int) = (int (*)(HWND, wchar_t*, int))GetPropA(hwnd, VALUE_SERVER_PROP);
+    wchar_t text[64];
+    if (!value || !value(hwnd, text, 64)) return S_OK;
+    out->vt = VT_BSTR;
+    out->bstrVal = SysAllocString(text);
+    *has = out->bstrVal != NULL;
+    return S_OK;
+}
+
+static IAccPropServerVtbl g_value_vtbl = {value_query, value_ref, value_ref, value_get};
+static IAccPropServer g_value_server = {&g_value_vtbl};
+
+void ng_windows_serve_value(HWND hwnd, int (*value)(HWND hwnd, wchar_t* out, int len)) {
+    IAccPropServices* props = acc_props();
+    if (!props) return;
+    SetPropA(hwnd, VALUE_SERVER_PROP, (HANDLE)value);
+    MSAAPROPID prop = PROPID_ACC_VALUE;
+    props->lpVtbl->SetHwndPropServer(props, hwnd, (DWORD)OBJID_CLIENT, CHILDID_SELF, &prop, 1,
+                                     &g_value_server, ANNO_THIS);
+}
+
+void ng_windows_stop_serving_value(HWND hwnd) {
+    IAccPropServices* props = acc_props();
+    RemovePropA(hwnd, VALUE_SERVER_PROP);
+    if (!props) return;
+    MSAAPROPID prop = PROPID_ACC_VALUE;
+    props->lpVtbl->ClearHwndProps(props, hwnd, (DWORD)OBJID_CLIENT, CHILDID_SELF, &prop, 1);
 }
 
 void ng_windows_unlimit_text(HWND edit) {

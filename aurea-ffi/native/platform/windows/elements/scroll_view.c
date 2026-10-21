@@ -171,6 +171,7 @@ static LRESULT CALLBACK ScrollViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         RemovePropA(hwnd, SCROLL_WHEEL_REST_PROP);
         RemovePropA(hwnd, SCROLL_ALWAYS_PROP);
         RemovePropA(hwnd, SCROLL_LAYOUT_PROP);
+        ng_windows_unmark_container(hwnd);
     }
     return old_proc ? CallWindowProcA(old_proc, hwnd, msg, wParam, lParam)
                     : DefWindowProcA(hwnd, msg, wParam, lParam);
@@ -190,6 +191,7 @@ NGHandle ng_windows_create_scroll_view(void) {
     }
     WNDPROC old_proc = (WNDPROC)SetWindowLongPtrA(scroll, GWLP_WNDPROC, (LONG_PTR)ScrollViewProc);
     SetPropA(scroll, SCROLL_VIEW_OLD_PROC_PROP, (HANDLE)old_proc);
+    ng_windows_mark_container(scroll);
     ng_windows_scroll_view_layout(scroll);
     return (NGHandle)scroll;
 }

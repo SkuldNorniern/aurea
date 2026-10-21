@@ -6,6 +6,7 @@
 #include <commctrl.h>
 #include <math.h>
 #include <stdlib.h>
+#include <wchar.h>
 
 
 #define SLIDER_STEPS 10000
@@ -19,6 +20,7 @@ typedef struct {
 static LRESULT CALLBACK slider_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                     UINT_PTR id, DWORD_PTR data) {
     if (msg == WM_NCDESTROY) {
+        ng_windows_stop_serving_value(hwnd);
         ng_windows_remove_subclass(hwnd, slider_proc, id);
         free((SliderRange*)data);
     }
@@ -28,6 +30,22 @@ static LRESULT CALLBACK slider_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 static SliderRange* slider_range(HWND hwnd) {
     DWORD_PTR data = 0;
     return ng_windows_get_subclass(hwnd, slider_proc, SLIDER_SUBCLASS_ID, &data) ? (SliderRange*)data : NULL;
+}
+
+/* Only as many decimals as one step of the trackbar can tell apart. */
+static int slider_value_text(HWND hwnd, wchar_t* out, int len) {
+    SliderRange* range = slider_range(hwnd);
+    if (!range) return 0;
+    int digits = (int)ceil(-log10((range->max - range->min) / SLIDER_STEPS));
+    if (digits < 0) digits = 0;
+    if (digits > 9) digits = 9;
+    int n = swprintf(out, (size_t)len, L"%.*f", digits, ng_windows_slider_get_value((NGHandle)hwnd));
+    if (n <= 0) return 0;
+    if (digits > 0) {
+        while (out[n - 1] == L'0') out[--n] = 0;
+        if (out[n - 1] == L'.') out[--n] = 0;
+    }
+    return 1;
 }
 
 NGHandle ng_windows_create_slider(double min, double max) {
@@ -59,6 +77,7 @@ NGHandle ng_windows_create_slider(double min, double max) {
     SendMessageW(hwnd, TBM_SETLINESIZE, 0, SLIDER_STEPS / 100);
     SendMessageW(hwnd, TBM_SETPAGESIZE, 0, SLIDER_STEPS / 10);
     SendMessageW(hwnd, TBM_SETPOS, TRUE, SLIDER_STEPS / 2);
+    ng_windows_serve_value(hwnd, slider_value_text);
     return (NGHandle)hwnd;
 }
 

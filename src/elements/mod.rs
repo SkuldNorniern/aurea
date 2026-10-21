@@ -1278,6 +1278,87 @@ mod win32_tests {
         Ok(())
     }
 
+    #[repr(C)]
+    #[derive(Default)]
+    struct Variant {
+        vt: u16,
+        reserved: [u16; 3],
+        value: i32,
+        rest: [u32; 3],
+    }
+
+    /// Role and value text as a screen reader reads them through MSAA.
+    fn accessible(hwnd: *mut c_void) -> (i32, String) {
+        type Get = unsafe extern "system" fn(*mut c_void, Variant, *mut Variant) -> i32;
+        type GetText = unsafe extern "system" fn(*mut c_void, Variant, *mut *mut u16) -> i32;
+        #[link(name = "oleacc")]
+        unsafe extern "system" {
+            fn AccessibleObjectFromWindow(
+                hwnd: *mut c_void,
+                object: u32,
+                iid: *const [u8; 16],
+                out: *mut *mut c_void,
+            ) -> i32;
+        }
+        #[link(name = "oleaut32")]
+        unsafe extern "system" {
+            fn SysStringLen(text: *const u16) -> u32;
+            fn SysFreeString(text: *mut u16);
+        }
+        use std::mem::transmute;
+        use std::slice::from_raw_parts;
+        const OBJID_CLIENT: u32 = 0xFFFF_FFFC;
+        const VT_I4: u16 = 3;
+        const IID_IACCESSIBLE: [u8; 16] = [
+            0xe0, 0x36, 0x87, 0x61, 0x3d, 0x3c, 0xcf, 0x11, 0x81, 0x0c, 0x00, 0xaa, 0x00, 0x38,
+            0x9b, 0x71,
+        ];
+        let me = || Variant {
+            vt: VT_I4,
+            ..Variant::default()
+        };
+        unsafe {
+            let mut acc = null_mut();
+            assert_eq!(
+                AccessibleObjectFromWindow(hwnd, OBJID_CLIENT, &IID_IACCESSIBLE, &raw mut acc),
+                0
+            );
+            let vtable = *(acc as *const *const usize);
+            let get_value: GetText = transmute(*vtable.add(11));
+            let get_role: Get = transmute(*vtable.add(13));
+            let release: unsafe extern "system" fn(*mut c_void) -> u32 = transmute(*vtable.add(2));
+            let mut role = Variant::default();
+            get_role(acc, me(), &raw mut role);
+            let mut text = null_mut();
+            let value = if get_value(acc, me(), &raw mut text) == 0 && !text.is_null() {
+                let units = from_raw_parts(text, SysStringLen(text) as usize);
+                let value = String::from_utf16_lossy(units);
+                SysFreeString(text);
+                value
+            } else {
+                String::new()
+            };
+            release(acc);
+            (role.value, value)
+        }
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn screen_readers_skip_stacks_and_read_slider_values() -> AureaResult<()> {
+        const ROLE_SYSTEM_PANE: i32 = 0x10;
+        const ROLE_SYSTEM_SLIDER: i32 = 0x33;
+        let mut window = Window::new("accessible", 400, 300)?;
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        let slider = Slider::with_value(512.0, 16384.0, 4096.0)?;
+        let (st, s) = (stack.handle(), slider.handle());
+        stack.add(slider)?;
+        window.set_content(stack)?;
+        assert_eq!(accessible(st).0, ROLE_SYSTEM_PANE);
+        assert_eq!(accessible(s), (ROLE_SYSTEM_SLIDER, "4096".to_owned()));
+        Ok(())
+    }
+
     #[test]
     #[ignore = "creates native windows; run with --ignored"]
     fn a_slider_thumb_fits() -> AureaResult<()> {
