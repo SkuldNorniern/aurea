@@ -103,8 +103,16 @@ impl MenuShortcut {
             }
         }
 
+        // The macOS menu reads "Ctrl" as Cmd, so the Control key itself is spelled out.
         if self.ctrl {
-            parts.push("Ctrl".to_string());
+            parts.push(
+                if cfg!(target_os = "macos") {
+                    "Control"
+                } else {
+                    "Ctrl"
+                }
+                .to_string(),
+            );
         }
         if self.shift {
             parts.push("Shift".to_string());
@@ -582,6 +590,17 @@ mod tests {
         };
         assert_eq!(label("Undo", Some(s)), expected);
         assert_eq!(label("Undo", None), "Undo");
+    }
+
+    #[test]
+    fn the_control_key_is_not_read_as_cmd_on_macos() {
+        let s = MenuShortcut::new(ShortcutKey::Tab).ctrl();
+        let expected = if cfg!(target_os = "macos") {
+            "Next\tControl+Tab"
+        } else {
+            "Next\tCtrl+Tab"
+        };
+        assert_eq!(label("Next", Some(s)), expected);
     }
 
     #[test]
