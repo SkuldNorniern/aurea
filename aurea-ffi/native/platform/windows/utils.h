@@ -37,6 +37,8 @@ int ng_windows_set_window_text(HWND hwnd, const char* utf8);
 char* ng_windows_escape_mnemonics(const char* utf8);
 /* Moves focus to the next or previous tab stop under `root` for a Tab press; 0 when the control keeps the key. */
 int ng_windows_tab_focus(HWND root, HWND focus, int back, int ctrl);
+/* Clicks a focused push button for Enter, as GTK and macOS do; 0 for anything else. */
+int ng_windows_enter_clicks(HWND focus);
 void ng_windows_register_scale_callback(HWND hwnd, ScaleFactorCallback callback);
 int ng_windows_window_set_shortcuts(NGHandle window, const unsigned int* keycodes, const unsigned int* modifiers, int count);
 int ng_windows_take_shortcut(HWND root, WPARAM vk);

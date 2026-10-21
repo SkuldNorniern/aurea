@@ -70,6 +70,10 @@ static BOOL ng_windows_drain_messages(void) {
                                      GetKeyState(VK_CONTROL) < 0)) {
                 continue;
             }
+            if (msg.message == WM_KEYDOWN && msg.wParam == VK_RETURN && root != msg.hwnd &&
+                ng_windows_enter_clicks(msg.hwnd)) {
+                continue;
+            }
         }
         TranslateMessage(&msg);
         DispatchMessageW(&msg);

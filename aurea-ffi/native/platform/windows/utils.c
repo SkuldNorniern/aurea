@@ -147,7 +147,8 @@ int ng_windows_set_window_text(HWND hwnd, const char* utf8) {
 int ng_windows_tab_focus(HWND root, HWND focus, int back, int ctrl) {
     if (!root || !focus || focus == root || !IsChild(root, focus)) return 0;
     LRESULT code = SendMessageW(focus, WM_GETDLGCODE, VK_TAB, 0);
-    if ((code & (DLGC_WANTTAB | DLGC_WANTALLKEYS)) && !ctrl) return 0;
+    int read_only = (GetWindowLongPtrW(focus, GWL_STYLE) & ES_READONLY) && (code & DLGC_HASSETSEL);
+    if ((code & (DLGC_WANTTAB | DLGC_WANTALLKEYS)) && !ctrl && !read_only) return 0;
     HWND next = GetNextDlgTabItem(root, focus, back ? TRUE : FALSE);
     if (!next || next == focus) return 0;
     SetFocus(next);
@@ -155,6 +156,14 @@ int ng_windows_tab_focus(HWND root, HWND focus, int back, int ctrl) {
         !(GetWindowLongPtrW(next, GWL_STYLE) & ES_MULTILINE)) {
         SendMessageW(next, EM_SETSEL, 0, -1);
     }
+    return 1;
+}
+
+int ng_windows_enter_clicks(HWND focus) {
+    if (!focus || !(SendMessageW(focus, WM_GETDLGCODE, 0, 0) & (DLGC_BUTTON | DLGC_DEFPUSHBUTTON | DLGC_UNDEFPUSHBUTTON))) return 0;
+    LONG_PTR type = GetWindowLongPtrW(focus, GWL_STYLE) & BS_TYPEMASK;
+    if (type != BS_PUSHBUTTON && type != BS_DEFPUSHBUTTON) return 0;
+    SendMessageW(focus, BM_CLICK, 0, 0);
     return 1;
 }
 
