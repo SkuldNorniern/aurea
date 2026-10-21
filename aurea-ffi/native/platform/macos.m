@@ -23,7 +23,9 @@ static BOOL s_in_nsapp_run = NO;
 }
 
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender {
-    if (!s_in_nsapp_run) return NSTerminateNow;
+    /* Outside run, quitting would exit() under the app's own loop. Its
+       windows are asked to close instead, so the app shuts down its way. */
+    if (!s_in_nsapp_run) return ng_macos_request_close_all() > 0 ? NSTerminateCancel : NSTerminateNow;
     [sender stop:nil];
     NSEvent* nudge = [NSEvent otherEventWithType:NSEventTypeApplicationDefined
                                         location:NSZeroPoint

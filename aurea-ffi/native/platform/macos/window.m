@@ -1305,6 +1305,17 @@ void ng_macos_window_set_close_guard(NGHandle window, int guarded) {
 
 int ng_macos_hide_on_close_count = 0;
 
+int ng_macos_request_close_all(void) {
+    int asked = 0;
+    for (WindowDelegate* delegate in [[windowDelegates allValues] copy]) {
+        if (!delegate.lifecycleCallbackEnabled || !delegate.windowHandle) continue;
+        ng_invoke_lifecycle_callback(delegate.windowHandle, 5);
+        asked++;
+    }
+    return asked;
+}
+
+
 int ng_macos_window_set_hide_on_close(NGHandle window, int hide) {
     if (!window || !windowDelegates) return NG_ERROR_INVALID_HANDLE;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
