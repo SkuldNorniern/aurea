@@ -3,11 +3,14 @@
 /// A position, in whatever space the caller is working in.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Point {
+    /// Horizontal position.
     pub x: f32,
+    /// Vertical position.
     pub y: f32,
 }
 
 impl Point {
+    /// A point at `x`, `y`.
     pub const fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
@@ -21,13 +24,18 @@ impl Point {
 /// A rectangle, given by its top-left corner and its size.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Rect {
+    /// Left edge.
     pub x: f32,
+    /// Top edge.
     pub y: f32,
+    /// Width.
     pub width: f32,
+    /// Height.
     pub height: f32,
 }
 
 impl Rect {
+    /// A rectangle from its top-left corner and size.
     pub const fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
         Self {
             x,

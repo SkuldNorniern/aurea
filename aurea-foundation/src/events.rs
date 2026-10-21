@@ -4,27 +4,43 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
+/// A window event delivered to the app.
 #[derive(Debug, Clone)]
 pub enum WindowEvent {
+    /// The user asked to close the window.
     CloseRequested,
     /// The window is closing because the app called `Window::close`.
     Closed,
+    /// The window's content size changed.
     Resized {
+        /// Width in logical pixels.
         width: u32,
+        /// Height in logical pixels.
         height: u32,
     },
+    /// The window moved on screen.
     Moved {
+        /// Left edge on screen.
         x: i32,
+        /// Top edge on screen.
         y: i32,
     },
+    /// The window gained keyboard focus.
     Focused,
+    /// The window lost keyboard focus.
     Unfocused,
+    /// The window was minimized.
     Minimized,
+    /// The window was restored from minimized.
     Restored,
+    /// The display scale factor changed.
     ScaleFactorChanged {
+        /// New scale factor.
         scale_factor: f32,
     },
+    /// The rendering surface was lost.
     SurfaceLost,
+    /// The rendering surface was recreated.
     SurfaceRecreated,
     /// The pointer came into the window.
     MouseEntered,
@@ -33,59 +49,90 @@ pub enum WindowEvent {
     /// Pointer position in logical pixels, relative to the window's content (below any title bar or
     /// menu bar).
     MouseMove {
+        /// Horizontal pointer position.
         x: f64,
+        /// Vertical pointer position.
         y: f64,
+        /// Buttons held down.
         buttons: MouseButtons,
+        /// Modifier keys held down.
         modifiers: Modifiers,
+        /// When the event happened.
         time: Duration,
     },
+    /// Unaccelerated mouse movement.
     RawMouseMotion {
+        /// Horizontal movement.
         delta_x: f64,
+        /// Vertical movement.
         delta_y: f64,
     },
     /// A button went down or up, at the same kind of position as [`WindowEvent::MouseMove`].
     MouseButton {
+        /// The button that changed.
         button: MouseButton,
+        /// True when the button went down.
         pressed: bool,
+        /// Modifier keys held down.
         modifiers: Modifiers,
+        /// Horizontal pointer position.
         x: f64,
+        /// Vertical pointer position.
         y: f64,
+        /// Clicks in quick succession, including this one.
         click_count: u8,
+        /// When the event happened.
         time: Duration,
     },
     /// The wheel or a touchpad scrolled.
     MouseWheel {
+        /// Horizontal scroll amount.
         delta_x: f64,
+        /// Vertical scroll amount.
         delta_y: f64,
+        /// Modifier keys held down.
         modifiers: Modifiers,
     },
+    /// A key was pressed or released.
     KeyInput {
+        /// The key that changed.
         key: KeyCode,
+        /// True when the key went down.
         pressed: bool,
+        /// Modifier keys held down.
         modifiers: Modifiers,
     },
     /// Files dragged over the window, at a position in its content.
     FilesHovered {
+        /// Paths of the dragged files.
         paths: Vec<PathBuf>,
+        /// Horizontal pointer position.
         x: f64,
+        /// Vertical pointer position.
         y: f64,
     },
     /// The drag of [`WindowEvent::FilesHovered`] left or was called off.
     FilesHoverEnded,
     /// Files dropped on the window, at a position in its content.
     FilesDropped {
+        /// Paths of the dropped files.
         paths: Vec<PathBuf>,
+        /// Horizontal pointer position.
         x: f64,
+        /// Vertical pointer position.
         y: f64,
     },
     /// Text typed into the window, to insert.
     TextInput {
+        /// Text to insert.
         text: String,
     },
     /// Text an input method is still composing, such as a Hangul syllable being built or a kana run
     /// before conversion.
     ImePreedit {
+        /// Text still being composed.
         text: String,
+        /// Cursor position within `text`, if shown.
         cursor: Option<usize>,
     },
     /// A pen on or over a tablet or a pen display.
@@ -98,6 +145,7 @@ pub struct PenSample {
     /// Position in logical pixels, like [`WindowEvent::MouseMove`], but not rounded to whole pixels
     /// where the tablet reports finer.
     pub x: f64,
+    /// Vertical position, as for `x`.
     pub y: f64,
     /// How hard the pen presses, from 0.0 to 1.0. 0.0 while hovering; 1.0 on touch for a pen that
     /// does not report pressure.
@@ -105,13 +153,17 @@ pub struct PenSample {
     /// Lean in degrees, -90 to 90: positive `tilt_x` toward the right, positive `tilt_y` toward the
     /// user.
     pub tilt_x: f32,
+    /// Lean in degrees, as for `tilt_x`.
     pub tilt_y: f32,
     /// Rotation about the pen's own axis in degrees, 0 to 360.
     pub twist: f32,
+    /// Where the pen is in its stroke.
     pub phase: PenPhase,
+    /// Which end of the pen is in use.
     pub tool: PenTool,
     /// The barrel button is held.
     pub barrel: bool,
+    /// Modifier keys held down.
     pub modifiers: Modifiers,
     /// When the pen was read, as time since a fixed point early in the process, on the host's
     /// monotonic clock.
@@ -135,6 +187,7 @@ pub enum PenPhase {
 /// Which end of the pen is used.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum PenTool {
+    /// The writing tip.
     #[default]
     Tip,
     /// The eraser end, or the tip turned to erase.
@@ -158,15 +211,21 @@ impl PenPhase {
     }
 }
 
+/// A mouse button.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MouseButton {
+    /// The left button.
     Left,
+    /// The right button.
     Right,
+    /// The middle button.
     Middle,
+    /// Any other button, by its raw number.
     Other(u8),
 }
 
 impl MouseButton {
+    /// Reads a button from its raw number.
     pub fn from_raw(button: u8) -> Self {
         match button {
             0 => Self::Left,
@@ -194,37 +253,48 @@ impl MouseButton {
 pub struct MouseButtons(u8);
 
 impl MouseButtons {
+    /// Reads the buttons from a bit set.
     pub fn from_bits(bits: u32) -> Self {
         Self(u8::try_from(bits & 0xFF).unwrap_or(0))
     }
 
+    /// The buttons as a bit set.
     pub fn bits(self) -> u8 {
         self.0
     }
 
+    /// Whether no buttons are held.
     pub fn is_empty(self) -> bool {
         self.0 == 0
     }
 
+    /// Whether `button` is held.
     pub fn contains(self, button: MouseButton) -> bool {
         let n = button.to_raw();
         n < 8 && self.0 & (1 << n) != 0
     }
 }
 
+/// Modifier keys held at one moment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Modifiers {
+    /// Shift is held.
     pub shift: bool,
+    /// Ctrl is held.
     pub ctrl: bool,
+    /// Alt is held.
     pub alt: bool,
+    /// Meta (Windows key or Command) is held.
     pub meta: bool,
 }
 
 impl Modifiers {
+    /// Modifiers with no keys held.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Whether any modifier is held.
     pub fn is_any(&self) -> bool {
         self.shift || self.ctrl || self.alt || self.meta
     }
@@ -247,6 +317,7 @@ impl Modifiers {
             | u32::from(self.meta) << 3
     }
 
+    /// Reads modifiers from a bit set.
     pub fn from_bits(bits: u32) -> Self {
         Self {
             shift: bits & 0b0001 != 0,
@@ -257,87 +328,166 @@ impl Modifiers {
     }
 }
 
+/// A keyboard key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum KeyCode {
+    /// The A key.
     A,
+    /// The B key.
     B,
+    /// The C key.
     C,
+    /// The D key.
     D,
+    /// The E key.
     E,
+    /// The F key.
     F,
+    /// The G key.
     G,
+    /// The H key.
     H,
+    /// The I key.
     I,
+    /// The J key.
     J,
+    /// The K key.
     K,
+    /// The L key.
     L,
+    /// The M key.
     M,
+    /// The N key.
     N,
+    /// The O key.
     O,
+    /// The P key.
     P,
+    /// The Q key.
     Q,
+    /// The R key.
     R,
+    /// The S key.
     S,
+    /// The T key.
     T,
+    /// The U key.
     U,
+    /// The V key.
     V,
+    /// The W key.
     W,
+    /// The X key.
     X,
+    /// The Y key.
     Y,
+    /// The Z key.
     Z,
+    /// The 0 key.
     Key0,
+    /// The 1 key.
     Key1,
+    /// The 2 key.
     Key2,
+    /// The 3 key.
     Key3,
+    /// The 4 key.
     Key4,
+    /// The 5 key.
     Key5,
+    /// The 6 key.
     Key6,
+    /// The 7 key.
     Key7,
+    /// The 8 key.
     Key8,
+    /// The 9 key.
     Key9,
+    /// The space bar.
     Space,
+    /// The Enter or Return key.
     Enter,
+    /// The Escape key.
     Escape,
+    /// The Tab key.
     Tab,
+    /// The Backspace key.
     Backspace,
+    /// The Delete key.
     Delete,
+    /// The Insert key.
     Insert,
+    /// The Home key.
     Home,
+    /// The End key.
     End,
+    /// The Page Up key.
     PageUp,
+    /// The Page Down key.
     PageDown,
+    /// The up arrow key.
     Up,
+    /// The down arrow key.
     Down,
+    /// The left arrow key.
     Left,
+    /// The right arrow key.
     Right,
+    /// The F1 key.
     F1,
+    /// The F2 key.
     F2,
+    /// The F3 key.
     F3,
+    /// The F4 key.
     F4,
+    /// The F5 key.
     F5,
+    /// The F6 key.
     F6,
+    /// The F7 key.
     F7,
+    /// The F8 key.
     F8,
+    /// The F9 key.
     F9,
+    /// The F10 key.
     F10,
+    /// The F11 key.
     F11,
+    /// The F12 key.
     F12,
+    /// The Shift key.
     Shift,
+    /// The Control key.
     Control,
+    /// The Alt key.
     Alt,
+    /// The Meta key.
     Meta,
     /// Punctuation / OEM keys, named by their unshifted US-layout character.
     Minus,
+    /// The = key.
     Equals,
+    /// The [ key.
     LeftBracket,
+    /// The ] key.
     RightBracket,
+    /// The \ key.
     Backslash,
+    /// The ; key.
     Semicolon,
+    /// The ' key.
     Apostrophe,
+    /// The ` key.
     Grave,
+    /// The , key.
     Comma,
+    /// The . key.
     Period,
+    /// The / key.
     Slash,
+    /// A key this list does not name, by its raw code.
     Unknown(u32),
 }
 
@@ -350,6 +500,7 @@ impl KeyCode {
         (0..=77).find(|&code| Self::from_raw(code) == self)
     }
 
+    /// Reads a key from its raw code.
     pub fn from_raw(code: u32) -> Self {
         match code {
             0..=25 => [

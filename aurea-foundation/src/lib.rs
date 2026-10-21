@@ -1,6 +1,7 @@
 //! Core shared types, errors, platform detection, and events for Aurea.
 
 pub mod capability;
+/// Error type and result alias.
 pub mod error;
 pub mod events;
 pub mod geometry;

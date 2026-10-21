@@ -5,24 +5,34 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 /// Represents the target platform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Platform {
+    /// A desktop platform.
     Desktop(DesktopPlatform),
+    /// A mobile platform.
     Mobile(MobilePlatform),
 }
 
+/// A desktop operating system.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DesktopPlatform {
+    /// macOS.
     MacOS,
+    /// Windows.
     Windows,
+    /// Linux.
     Linux,
 }
 
+/// A mobile operating system.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MobilePlatform {
+    /// iOS.
     IOS,
+    /// Android.
     Android,
 }
 
 impl Platform {
+    /// The platform this build targets.
     pub fn current() -> Self {
         #[cfg(target_os = "macos")]
         {
@@ -61,14 +71,17 @@ impl Platform {
         }
     }
 
+    /// Whether this is a desktop platform.
     pub fn is_desktop(&self) -> bool {
         matches!(self, Platform::Desktop(_))
     }
 
+    /// Whether this is a mobile platform.
     pub fn is_mobile(&self) -> bool {
         matches!(self, Platform::Mobile(_))
     }
 
+    /// The desktop platform, if this is one.
     pub fn as_desktop(&self) -> Option<DesktopPlatform> {
         match self {
             Platform::Desktop(platform) => Some(*platform),
@@ -76,6 +89,7 @@ impl Platform {
         }
     }
 
+    /// The mobile platform, if this is one.
     pub fn as_mobile(&self) -> Option<MobilePlatform> {
         match self {
             Platform::Desktop(_) => None,
@@ -83,6 +97,7 @@ impl Platform {
         }
     }
 
+    /// Display name, such as `macOS`.
     pub fn name(&self) -> &'static str {
         match self {
             Platform::Desktop(DesktopPlatform::MacOS) => "macOS",
@@ -93,6 +108,7 @@ impl Platform {
         }
     }
 
+    /// `Desktop` or `Mobile`.
     pub fn family(&self) -> &'static str {
         match self {
             Platform::Desktop(_) => "Desktop",
@@ -102,6 +118,7 @@ impl Platform {
 }
 
 impl DesktopPlatform {
+    /// Display name.
     pub fn name(&self) -> &'static str {
         match self {
             DesktopPlatform::MacOS => "macOS",
@@ -112,6 +129,7 @@ impl DesktopPlatform {
 }
 
 impl MobilePlatform {
+    /// Display name.
     pub fn name(&self) -> &'static str {
         match self {
             MobilePlatform::IOS => "iOS",

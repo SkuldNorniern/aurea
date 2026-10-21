@@ -25,39 +25,70 @@ impl Support {
 /// Represents a capability or feature that may or may not be available.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Capability {
+    /// Multiple windows.
     MultipleWindows,
+    /// Resizing a window.
     WindowResizing,
+    /// Minimizing a window.
     WindowMinimization,
+    /// Maximizing a window.
     WindowMaximization,
+    /// Fullscreen display mode.
     FullscreenMode,
+    /// A menu bar.
     MenuBar,
+    /// Context menus.
     ContextMenus,
+    /// Keyboard shortcuts.
     KeyboardShortcuts,
+    /// File open and save dialogs.
     FileDialogs,
+    /// Color picker dialog.
     ColorPicker,
+    /// Font picker dialog.
     FontPicker,
+    /// System notifications.
     SystemNotifications,
+    /// Mouse input.
     MouseInput,
+    /// Touch input.
     TouchInput,
+    /// Keyboard input.
     KeyboardInput,
+    /// Stylus or pen input.
     StylusInput,
+    /// Hardware-accelerated rendering.
     HardwareAcceleration,
+    /// OpenGL rendering.
     OpenGL,
+    /// Metal rendering.
     Metal,
+    /// Vulkan rendering.
     Vulkan,
+    /// DirectX rendering.
     DirectX,
+    /// System tray icon.
     SystemTray,
+    /// Dock integration.
     DockIntegration,
+    /// Taskbar integration.
     TaskbarIntegration,
+    /// App indicators.
     AppIndicators,
+    /// Drag and drop.
     DragAndDrop,
+    /// Clipboard.
     Clipboard,
+    /// Screen capture.
     ScreenCapture,
+    /// Window transparency.
     WindowTransparency,
+    /// Window shadows.
     WindowShadows,
 }
 
 impl Capability {
+    /// Whether `platform` offers this capability.
     pub fn is_available_on(&self, platform: Platform) -> bool {
         match platform {
             Platform::Desktop(desktop) => self.is_available_on_desktop(desktop),
@@ -171,6 +202,7 @@ impl Capability {
         }
     }
 
+    /// A human-readable name.
     pub fn description(&self) -> &'static str {
         match self {
             Capability::MultipleWindows => "Multiple Windows",
@@ -240,18 +272,21 @@ const ALL: &[Capability] = &[
     Capability::WindowShadows,
 ];
 
+/// Answers what Aurea can do on a platform.
 #[derive(Debug, Clone, Copy)]
 pub struct CapabilityChecker {
     platform: Platform,
 }
 
 impl CapabilityChecker {
+    /// A checker for the current platform.
     pub fn new() -> Self {
         Self {
             platform: Platform::current(),
         }
     }
 
+    /// A checker for `platform`.
     pub fn for_platform(platform: Platform) -> Self {
         Self { platform }
     }
@@ -298,6 +333,7 @@ impl CapabilityChecker {
             .collect()
     }
 
+    /// The platform this checker is for.
     pub fn platform(&self) -> Platform {
         self.platform
     }
