@@ -176,6 +176,20 @@ mod gtk_tests {
         Ok(())
     }
 
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_window_keeps_its_minimum_size() -> AureaResult<()> {
+        let window = Window::new("min size", 400, 300)?;
+        window.set_min_size(500, 350)?;
+        settle(&window);
+        assert_eq!(window.size(), (500, 350));
+        window.set_size(100, 100);
+        settle(&window);
+        settle(&window);
+        assert_eq!(window.size(), (500, 350));
+        Ok(())
+    }
+
     fn tabs(bar: *mut c_void) -> Vec<*mut c_void> {
         unsafe {
             let list = gtk_container_get_children(bar);
@@ -596,6 +610,48 @@ mod win32_tests {
         let mut r = Rect::default();
         unsafe { GetWindowRect(hwnd, &raw mut r) };
         r
+    }
+
+    #[test]
+    fn wheel_steps_follow_the_scroll_setting() {
+        unsafe extern "C" {
+            fn ng_windows_wheel_step(
+                delta: i32,
+                lines: u32,
+                line: i32,
+                page: i32,
+                rest: *mut i32,
+            ) -> i32;
+        }
+        let step = |delta, lines, rest: &mut i32| unsafe {
+            ng_windows_wheel_step(delta, lines, 16, 200, rest)
+        };
+        let mut rest = 0;
+        assert_eq!(step(-120, 3, &mut rest), 48);
+        assert_eq!(step(120, 3, &mut rest), -48);
+        assert_eq!(step(-120, u32::MAX, &mut rest), 200);
+        assert_eq!(step(120, u32::MAX, &mut rest), -200);
+        assert_eq!(step(-120, 40, &mut rest), 200);
+        assert_eq!(step(-120, 0, &mut rest), 0);
+        let mut moved = 0;
+        for _ in 0..120 {
+            moved += step(-1, 3, &mut rest);
+        }
+        assert_eq!(moved, 48);
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_window_keeps_its_minimum_size() -> AureaResult<()> {
+        let window = Window::new("min size", 400, 300)?;
+        window.set_min_size(500, 350)?;
+        assert_eq!(window.size(), (500, 350));
+        window.set_size(100, 100);
+        assert_eq!(window.size(), (500, 350));
+        window.set_min_size(0, 0)?;
+        window.set_size(300, 200);
+        assert_eq!(window.size(), (300, 200));
+        Ok(())
     }
 
     #[test]
