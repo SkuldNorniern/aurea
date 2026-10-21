@@ -1124,7 +1124,9 @@ int ng_macos_window_set_cursor_grab(NGHandle window, int mode) {
         [windowRawSuppress setObject:@(YES) forKey:key];
         CGAssociateMouseAndMouseCursorPosition(false);
         NSRect frame = [nsWindow frame];
-        CGPoint center = CGPointMake(NSMidX(frame), NSMidY(frame));
+        /* Quartz counts y down from the top of the primary display; Cocoa up from its bottom. */
+        CGFloat primaryHeight = NSMaxY([[[NSScreen screens] firstObject] frame]);
+        CGPoint center = CGPointMake(NSMidX(frame), primaryHeight - NSMidY(frame));
         CGWarpMouseCursorPosition(center);
         CGAssociateMouseAndMouseCursorPosition(false);
     } else {
