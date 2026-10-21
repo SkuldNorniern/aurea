@@ -22,6 +22,8 @@ typedef struct {
     wchar_t* item_titles[TRAY_MAX_ITEMS];
     int item_count;
     wchar_t tip[128];
+    DWORD size;
+    int modern;
 } Tray;
 
 static const wchar_t* TRAY_CLASS = L"AureaTrayWindow";
@@ -30,7 +32,8 @@ static UINT g_next_uid = 1;
 
 static void tray_fill(Tray* tray, NOTIFYICONDATAW* data, UINT flags) {
     memset(data, 0, sizeof(*data));
-    data->cbSize = sizeof(*data);
+    data->cbSize = tray->size ? tray->size : sizeof(*data);
+    if (data->cbSize < sizeof(*data)) flags &= ~(UINT)NIF_SHOWTIP;
     data->hWnd = tray->hwnd;
     data->uID = tray->uid;
     data->uFlags = flags;
@@ -42,9 +45,13 @@ static void tray_fill(Tray* tray, NOTIFYICONDATAW* data, UINT flags) {
 static int tray_add(Tray* tray) {
     NOTIFYICONDATAW data;
     tray_fill(tray, &data, NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP);
-    if (!Shell_NotifyIconW(NIM_ADD, &data)) return 0;
+    if (!Shell_NotifyIconW(NIM_ADD, &data)) {
+        tray->size = NOTIFYICONDATAW_V3_SIZE;
+        tray_fill(tray, &data, NIF_MESSAGE | NIF_ICON | NIF_TIP);
+        if (!Shell_NotifyIconW(NIM_ADD, &data)) return 0;
+    }
     data.uVersion = NOTIFYICON_VERSION_4;
-    Shell_NotifyIconW(NIM_SETVERSION, &data);
+    tray->modern = Shell_NotifyIconW(NIM_SETVERSION, &data) ? 1 : 0;
     return 1;
 }
 
@@ -73,6 +80,15 @@ static void tray_show_menu(Tray* tray, int x, int y) {
 
 static LRESULT CALLBACK tray_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     Tray* tray = (Tray*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+    if (tray && msg == TRAY_MESSAGE && !tray->modern) {
+        POINT at;
+        if (LOWORD(lParam) == WM_LBUTTONUP) {
+            ng_invoke_menu_callback(tray->click_id);
+        } else if (LOWORD(lParam) == WM_RBUTTONUP && GetCursorPos(&at)) {
+            tray_show_menu(tray, at.x, at.y);
+        }
+        return 0;
+    }
     if (tray && msg == TRAY_MESSAGE) {
         switch (LOWORD(lParam)) {
             case NIN_SELECT:
@@ -190,7 +206,9 @@ int ng_windows_tray_add_item(NGHandle handle, const char* title, unsigned int id
     if (tray->item_count >= TRAY_MAX_ITEMS) return NG_ERROR_PLATFORM_SPECIFIC;
     wchar_t* wide = NULL;
     if (title) {
-        wide = ng_windows_utf8_to_wide(title);
+        char* shown = ng_windows_escape_mnemonics(title);
+        wide = shown ? ng_windows_utf8_to_wide(shown) : NULL;
+        free(shown);
         if (!wide) return NG_ERROR_INVALID_PARAMETER;
     }
     tray->item_titles[tray->item_count] = wide;
@@ -204,8 +222,8 @@ int ng_windows_tray_notify(NGHandle handle, const char* title, const char* body)
     if (!tray) return NG_ERROR_INVALID_PARAMETER;
     NOTIFYICONDATAW data;
     tray_fill(tray, &data, NIF_INFO);
-    data.dwInfoFlags = NIIF_USER | NIIF_LARGE_ICON;
-    if (tray->icon) data.hBalloonIcon = tray->icon;
+    data.dwInfoFlags = data.cbSize < sizeof(data) ? NIIF_INFO : NIIF_USER | NIIF_LARGE_ICON;
+    if (tray->icon && data.cbSize >= sizeof(data)) data.hBalloonIcon = tray->icon;
     wchar_t* wide_title = ng_windows_utf8_to_wide(title ? title : "");
     wchar_t* wide_body = ng_windows_utf8_to_wide(body ? body : "");
     if (wide_title) {
