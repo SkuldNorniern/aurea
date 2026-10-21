@@ -34,17 +34,6 @@ impl Element for Calendar {
 fn native_calendar(parent: *mut c_void) -> *mut c_void {
     use std::ptr::null_mut;
 
-    #[repr(C)]
-    struct InitCommonControls {
-        size: u32,
-        classes: u32,
-    }
-
-    #[link(name = "comctl32")]
-    unsafe extern "system" {
-        fn InitCommonControlsEx(init: *const InitCommonControls) -> i32;
-    }
-
     #[link(name = "user32")]
     unsafe extern "system" {
         fn CreateWindowExW(
@@ -63,16 +52,10 @@ fn native_calendar(parent: *mut c_void) -> *mut c_void {
         ) -> *mut c_void;
     }
 
-    const ICC_DATE_CLASSES: u32 = 0x100;
     const WS_CHILD: u32 = 0x4000_0000;
     const WS_VISIBLE: u32 = 0x1000_0000;
     let class: Vec<u16> = "SysMonthCal32".encode_utf16().chain([0]).collect();
-    let init = InitCommonControls {
-        size: 8,
-        classes: ICC_DATE_CLASSES,
-    };
     unsafe {
-        InitCommonControlsEx(&raw const init);
         CreateWindowExW(
             0,
             class.as_ptr(),

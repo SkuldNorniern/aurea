@@ -1,5 +1,6 @@
 //! Subclass the canvas through comctl32 so attachment works for an existing, visible canvas and
-//! removal cannot overwrite another component's window proc.
+//! removal cannot overwrite another component's window proc. The calls go through aurea-ffi, which
+//! finds them in comctl32 v6 at run time, so apps never import v5.
 
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
@@ -14,10 +15,12 @@ use crate::{AureaError, AureaResult};
 
 type SubclassProc = unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM, usize, usize) -> LRESULT;
 
-#[link(name = "comctl32")]
 unsafe extern "system" {
+    #[link_name = "ng_windows_set_subclass"]
     fn SetWindowSubclass(hwnd: HWND, callback: SubclassProc, id: usize, data: usize) -> i32;
+    #[link_name = "ng_windows_remove_subclass"]
     fn RemoveWindowSubclass(hwnd: HWND, callback: SubclassProc, id: usize) -> i32;
+    #[link_name = "ng_windows_def_subclass"]
     fn DefSubclassProc(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT;
 }
 
