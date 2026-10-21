@@ -92,6 +92,7 @@ GetMenuStringW
 GetModuleHandleA
 GetModuleHandleW
 GetMonitorInfoW
+GetNextDlgTabItem
 GetObjectA
 GetParent
 GetProcAddress

@@ -10,7 +10,7 @@ NGHandle ng_windows_create_combo_box(void) {
         0,
         L"COMBOBOX",
         NULL,
-        WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | CBS_HASSTRINGS,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | CBS_HASSTRINGS,
         0, 0, 200, 200,
         ng_windows_detached_parent(),
         NULL,

@@ -139,6 +139,20 @@ int ng_windows_set_window_text(HWND hwnd, const char* utf8) {
     return ok ? NG_SUCCESS : NG_ERROR_PLATFORM_SPECIFIC;
 }
 
+int ng_windows_tab_focus(HWND root, HWND focus, int back, int ctrl) {
+    if (!root || !focus || focus == root || !IsChild(root, focus)) return 0;
+    LRESULT code = SendMessageW(focus, WM_GETDLGCODE, VK_TAB, 0);
+    if ((code & (DLGC_WANTTAB | DLGC_WANTALLKEYS)) && !ctrl) return 0;
+    HWND next = GetNextDlgTabItem(root, focus, back ? TRUE : FALSE);
+    if (!next || next == focus) return 0;
+    SetFocus(next);
+    if ((SendMessageW(next, WM_GETDLGCODE, 0, 0) & DLGC_HASSETSEL) &&
+        !(GetWindowLongPtrW(next, GWL_STYLE) & ES_MULTILINE)) {
+        SendMessageW(next, EM_SETSEL, 0, -1);
+    }
+    return 1;
+}
+
 char* ng_windows_escape_mnemonics(const char* utf8) {
     size_t len = strlen(utf8), amps = 0;
     for (size_t i = 0; i < len; i++) amps += utf8[i] == '&';

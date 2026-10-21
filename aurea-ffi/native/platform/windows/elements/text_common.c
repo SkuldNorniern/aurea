@@ -70,7 +70,7 @@ void ng_windows_free_text_content(char* content) {
 HWND ng_windows_create_rich_text(int editable) {
     const wchar_t* cls = LoadLibraryW(L"msftedit.dll") ? MSFTEDIT_CLASS : RICHEDIT_CLASSW;
     if (cls == RICHEDIT_CLASSW) LoadLibraryW(L"riched20.dll");
-    DWORD style = WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE |
+    DWORD style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE |
                   ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_WANTRETURN;
     if (!editable) style |= ES_READONLY;
     HWND edit = ng_windows_create_control(WS_EX_CLIENTEDGE, cls, "", style,
@@ -82,7 +82,7 @@ HWND ng_windows_create_rich_text(int editable) {
 NGHandle ng_windows_create_text_field(void) {
     return (NGHandle)ng_windows_create_control(
         WS_EX_CLIENTEDGE, L"EDIT", "",
-        WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
         200, 24, ng_windows_detached_parent(), 0);
 }
 

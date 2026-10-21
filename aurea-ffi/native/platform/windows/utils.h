@@ -35,6 +35,8 @@ char* ng_windows_window_text(HWND hwnd);
 int ng_windows_set_window_text(HWND hwnd, const char* utf8);
 /* `utf8` with each `&` doubled, so buttons show it instead of underlining; the caller frees it. */
 char* ng_windows_escape_mnemonics(const char* utf8);
+/* Moves focus to the next or previous tab stop under `root` for a Tab press; 0 when the control keeps the key. */
+int ng_windows_tab_focus(HWND root, HWND focus, int back, int ctrl);
 void ng_windows_register_scale_callback(HWND hwnd, ScaleFactorCallback callback);
 int ng_windows_window_set_shortcuts(NGHandle window, const unsigned int* keycodes, const unsigned int* modifiers, int count);
 int ng_windows_take_shortcut(HWND root, WPARAM vk);

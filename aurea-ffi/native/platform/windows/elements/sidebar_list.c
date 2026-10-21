@@ -155,7 +155,7 @@ static LRESULT CALLBACK SidebarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 
 NGHandle ng_windows_create_sidebar_list(unsigned int id) {
     HWND container = CreateWindowExA(
-        0,
+        WS_EX_CONTROLPARENT,
         "STATIC",
         NULL,
         WS_CHILD | SS_LEFT | WS_VISIBLE | WS_CLIPCHILDREN,

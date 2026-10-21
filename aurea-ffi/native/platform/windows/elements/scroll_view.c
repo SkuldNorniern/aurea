@@ -127,7 +127,7 @@ static LRESULT CALLBACK ScrollViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
 }
 
 NGHandle ng_windows_create_scroll_view(void) {
-    HWND scroll = CreateWindowExA(0, "STATIC", NULL,
+    HWND scroll = CreateWindowExA(WS_EX_CONTROLPARENT, "STATIC", NULL,
                                   WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
                                   0, 0, 100, 100, ng_windows_detached_parent(), NULL,
                                   GetModuleHandleA(NULL), NULL);

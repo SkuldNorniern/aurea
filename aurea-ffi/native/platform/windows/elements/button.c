@@ -12,7 +12,7 @@ NGHandle ng_windows_create_button(const char* title, unsigned int id) {
     if (!shown) return NULL;
 
     HWND button = ng_windows_create_control(
-        0, L"BUTTON", shown, WS_CHILD | BS_PUSHBUTTON | WS_VISIBLE,
+        0, L"BUTTON", shown, WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON | WS_VISIBLE,
         BUTTON_MIN_WIDTH, BUTTON_MIN_HEIGHT,
         ng_windows_detached_parent(), id + BUTTON_COMMAND_BASE);
     free(shown);

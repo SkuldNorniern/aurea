@@ -42,7 +42,7 @@ NGHandle ng_windows_create_box(int is_vertical) {
     HWND temp_parent = ng_windows_detached_parent();
 
     HWND container = CreateWindowExA(
-        0,
+        WS_EX_CONTROLPARENT,
         "STATIC",
         NULL,
         WS_CHILD | SS_LEFT | WS_VISIBLE,
@@ -77,6 +77,7 @@ int ng_windows_box_add_weighted(NGHandle box, NGHandle element, float weight) {
 
     static INT_PTR next_index = 1;
     SetParent(element_hwnd, box_hwnd);
+    SetWindowPos(element_hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     SetPropA(element_hwnd, BOX_INDEX_PROP, (HANDLE)next_index++);
     RECT added;
     GetWindowRect(element_hwnd, &added);

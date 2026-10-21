@@ -10,7 +10,7 @@ NGHandle ng_windows_create_checkbox(const char* label) {
     if (!shown) return NULL;
     HWND checkbox = ng_windows_create_control(
         0, L"BUTTON", shown,
-        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
         200, 25, ng_windows_detached_parent(), 0);
     free(shown);
     return (NGHandle)checkbox;

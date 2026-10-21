@@ -139,7 +139,7 @@ NGHandle ng_windows_create_split_view(int is_vertical) {
     HWND temp_parent = ng_windows_detached_parent();
 
     HWND container = CreateWindowExA(
-        0,
+        WS_EX_CONTROLPARENT,
         "STATIC",
         NULL,
         WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
@@ -185,6 +185,7 @@ int ng_windows_split_view_add(NGHandle split_handle, NGHandle element) {
     }
 
     SetParent(element_hwnd, split_hwnd);
+    SetWindowPos(element_hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 
     LONG_PTR style = GetWindowLongPtrA(element_hwnd, GWL_STYLE);
     SetWindowLongPtrA(element_hwnd, GWL_STYLE, style | WS_CHILD | WS_VISIBLE);

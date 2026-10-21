@@ -65,6 +65,11 @@ static BOOL ng_windows_drain_messages(void) {
         if (msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN) {
             HWND root = GetAncestor(msg.hwnd, GA_ROOT);
             if (root && root != msg.hwnd && ng_windows_take_shortcut(root, msg.wParam)) continue;
+            if (msg.message == WM_KEYDOWN && msg.wParam == VK_TAB &&
+                ng_windows_tab_focus(root, msg.hwnd, GetKeyState(VK_SHIFT) < 0,
+                                     GetKeyState(VK_CONTROL) < 0)) {
+                continue;
+            }
         }
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
