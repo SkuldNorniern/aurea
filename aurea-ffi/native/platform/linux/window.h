@@ -31,6 +31,7 @@ int ng_linux_window_set_icon_rgba(
     unsigned int height
 );
 void ng_linux_window_set_size(NGHandle window, int width, int height);
+int ng_linux_window_set_min_size(NGHandle window, int width, int height);
 void ng_linux_window_get_size(NGHandle window, int* width, int* height);
 void ng_linux_window_set_position(NGHandle window, int x, int y);
 void ng_linux_window_get_position(NGHandle window, int* x, int* y);

@@ -126,6 +126,12 @@ unsafe extern "C" {
     ) -> c_int;
     /// Sets a window's size.
     pub fn ng_platform_window_set_size(window: *mut c_void, width: c_int, height: c_int);
+    /// Sets the smallest content size a window can be resized to; 0 leaves an axis free.
+    pub fn ng_platform_window_set_min_size(
+        window: *mut c_void,
+        width: c_int,
+        height: c_int,
+    ) -> c_int;
     /// Gets a window's size.
     pub fn ng_platform_window_get_size(window: *mut c_void, width: *mut c_int, height: *mut c_int);
     /// Asks a window to close.

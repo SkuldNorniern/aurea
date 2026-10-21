@@ -30,6 +30,7 @@ typedef struct ng_platform_ops {
         unsigned int height
     );
     void (*window_set_size)(NGHandle window, int width, int height);
+    int (*window_set_min_size)(NGHandle window, int width, int height);
     void (*window_get_size)(NGHandle window, int* width, int* height);
     void (*window_request_close)(NGHandle window);
     int (*window_is_focused)(NGHandle window);

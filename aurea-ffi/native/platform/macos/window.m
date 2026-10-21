@@ -936,6 +936,18 @@ void ng_macos_window_set_size(NGHandle window, int width, int height) {
     [nsWindow setContentSize:NSMakeSize(width, height)];
 }
 
+int ng_macos_window_set_min_size(NGHandle window, int width, int height) {
+    if (!window) return NG_ERROR_INVALID_HANDLE;
+    if (width < 0 || height < 0) return NG_ERROR_INVALID_PARAMETER;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    [nsWindow setContentMinSize:NSMakeSize(width, height)];
+    NSSize size = [nsWindow contentRectForFrameRect:[nsWindow frame]].size;
+    if (size.width < width || size.height < height) {
+        [nsWindow setContentSize:NSMakeSize(MAX(size.width, width), MAX(size.height, height))];
+    }
+    return NG_SUCCESS;
+}
+
 void ng_macos_window_get_size(NGHandle window, int* width, int* height) {
     if (!window || !width || !height) return;
     NSWindow* nsWindow = (__bridge NSWindow*)window;

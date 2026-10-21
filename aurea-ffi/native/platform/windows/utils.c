@@ -787,6 +787,22 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             break;
         }
         
+        case WM_GETMINMAXINFO: {
+            int min_w = (int)(INT_PTR)GetPropA(hwnd, AUREA_MIN_CLIENT_W_PROP) - 1;
+            int min_h = (int)(INT_PTR)GetPropA(hwnd, AUREA_MIN_CLIENT_H_PROP) - 1;
+            if (min_w <= 0 && min_h <= 0) break;
+            RECT outer, client;
+            if (!GetWindowRect(hwnd, &outer) || !GetClientRect(hwnd, &client)) break;
+            MINMAXINFO* info = (MINMAXINFO*)lParam;
+            if (min_w > 0) {
+                info->ptMinTrackSize.x = ng_windows_px(hwnd, min_w) + (outer.right - outer.left) - client.right;
+            }
+            if (min_h > 0) {
+                info->ptMinTrackSize.y = ng_windows_px(hwnd, min_h) + (outer.bottom - outer.top) - client.bottom;
+            }
+            return 0;
+        }
+
         case WM_SIZE: {
             ng_windows_cursor_grab_refresh((void*)hwnd);
             BOOL was_minimized = GetPropA(hwnd, "AureaMinimized") != NULL;

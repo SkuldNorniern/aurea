@@ -38,6 +38,7 @@ int ng_platform_window_set_icon_rgba(
     unsigned int height
 );
 void ng_platform_window_set_size(NGHandle window, int width, int height);
+int ng_platform_window_set_min_size(NGHandle window, int width, int height);
 void ng_platform_window_get_size(NGHandle window, int* width, int* height);
 void ng_platform_window_request_close(NGHandle window);
 int ng_platform_window_is_focused(NGHandle window);

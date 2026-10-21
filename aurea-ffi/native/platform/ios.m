@@ -311,6 +311,13 @@ void ng_platform_window_set_title(NGHandle window, const char* title) {
     ng_ios_window_set_title(window, title);
 }
 
+int ng_platform_window_set_min_size(NGHandle window, int width, int height) {
+    (void)window;
+    (void)width;
+    (void)height;
+    return NG_ERROR_UNSUPPORTED;
+}
+
 void ng_platform_window_set_size(NGHandle window, int width, int height) {
     ng_ios_window_set_size(window, width, height);
 }

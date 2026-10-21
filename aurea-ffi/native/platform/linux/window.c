@@ -907,6 +907,21 @@ void ng_linux_window_set_size(NGHandle window, int width, int height) {
     gtk_window_resize(GTK_WINDOW(widget), width, height);
 }
 
+int ng_linux_window_set_min_size(NGHandle window, int width, int height) {
+    if (!window || !GTK_IS_WINDOW(window)) return NG_ERROR_INVALID_HANDLE;
+    if (width < 0 || height < 0) return NG_ERROR_INVALID_PARAMETER;
+    GtkWidget* vbox = ng_linux_window_main_vbox((GtkWidget*)window);
+    if (!vbox) return NG_ERROR_PLATFORM_SPECIFIC;
+    gtk_widget_set_size_request(vbox, width ? width : -1, height ? height : -1);
+    int current_w = 0, current_h = 0;
+    gtk_window_get_size(GTK_WINDOW(window), &current_w, &current_h);
+    if (current_w < width || current_h < height) {
+        gtk_window_resize(GTK_WINDOW(window), current_w > width ? current_w : width,
+                          current_h > height ? current_h : height);
+    }
+    return NG_SUCCESS;
+}
+
 void ng_linux_window_get_size(NGHandle window, int* width, int* height) {
     if (!window || !width || !height) return;
     GtkWidget* widget = (GtkWidget*)window;

@@ -114,6 +114,10 @@ void ng_platform_window_set_size(NGHandle w, int wd, int h) {
     DISPATCH_VOID(window_set_size, w, wd, h);
 }
 
+int ng_platform_window_set_min_size(NGHandle w, int wd, int h) {
+    DISPATCH_INT(window_set_min_size, w, wd, h);
+}
+
 void ng_platform_window_get_size(NGHandle w, int* wd, int* h) {
     DISPATCH_VOID(window_get_size, w, wd, h);
 }

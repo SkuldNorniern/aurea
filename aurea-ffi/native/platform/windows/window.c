@@ -479,6 +479,21 @@ void ng_windows_window_set_size(NGHandle window, int width, int height) {
     ng_windows_set_client_size((HWND)window, width, height, 0);
 }
 
+int ng_windows_window_set_min_size(NGHandle window, int width, int height) {
+    HWND hwnd = (HWND)window;
+    if (!hwnd || !IsWindow(hwnd)) return NG_ERROR_INVALID_HANDLE;
+    if (width < 0 || height < 0) return NG_ERROR_INVALID_PARAMETER;
+    SetPropA(hwnd, AUREA_MIN_CLIENT_W_PROP, (HANDLE)(INT_PTR)(width ? width + 1 : 0));
+    SetPropA(hwnd, AUREA_MIN_CLIENT_H_PROP, (HANDLE)(INT_PTR)(height ? height + 1 : 0));
+    int current_w = 0, current_h = 0;
+    ng_windows_window_get_size(window, &current_w, &current_h);
+    if (current_w < width || current_h < height) {
+        ng_windows_set_client_size(hwnd, current_w > width ? current_w : width,
+                                   current_h > height ? current_h : height, 0);
+    }
+    return NG_SUCCESS;
+}
+
 void ng_windows_window_get_size(NGHandle window, int* width, int* height) {
     if (!window || !width || !height) return;
     HWND hwnd = (HWND)window;

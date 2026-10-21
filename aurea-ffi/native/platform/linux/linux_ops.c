@@ -28,6 +28,7 @@ static const ng_platform_ops_t linux_ops = {
     .window_set_title = ng_linux_window_set_title,
     .window_set_icon_rgba = ng_linux_window_set_icon_rgba,
     .window_set_size = ng_linux_window_set_size,
+    .window_set_min_size = ng_linux_window_set_min_size,
     .window_get_size = ng_linux_window_get_size,
     .window_request_close = ng_linux_window_request_close,
     .window_is_focused = ng_linux_window_is_focused,
