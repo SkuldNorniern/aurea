@@ -68,6 +68,31 @@ static NSString* strip_access_keys(NSString* title) {
     return out;
 }
 
+static NSString* key_named(NSString* name) {
+    if (name.length == 1) return [name lowercaseString];
+    if (name.length >= 2 && name.length <= 3 && [name characterAtIndex:0] == 'F') {
+        NSInteger n = [[name substringFromIndex:1] integerValue];
+        if (n >= 1 && n <= 35) {
+            unichar f = (unichar)(NSF1FunctionKey + n - 1);
+            return [NSString stringWithCharacters:&f length:1];
+        }
+    }
+    static NSDictionary<NSString*, NSNumber*>* names = nil;
+    if (!names) {
+        names = @{
+            @"enter": @('\r'), @"return": @('\r'), @"tab": @('\t'), @"escape": @(0x1B),
+            @"esc": @(0x1B), @"space": @(' '), @"backspace": @(NSBackspaceCharacter),
+            @"delete": @(NSDeleteFunctionKey), @"plus": @('+'),
+        };
+    }
+    NSNumber* code = names[[name lowercaseString]];
+    if (!code) return nil;
+    unichar c = (unichar)code.unsignedShortValue;
+    return [NSString stringWithCharacters:&c length:1];
+}
+
+/* "Ctrl" stays Cmd so a title written for Windows ("Save\tCtrl+S") gets the
+   Mac shortcut; "Control" is the Control key itself. */
 static void parse_title_and_shortcut(NSString* full, NSString** outTitle, NSString** outKey, NSEventModifierFlags* outMod) {
     NSArray* parts = [full componentsSeparatedByString:@"\t"];
     NSString* displayTitle = parts.count > 0 ? parts[0] : full;
@@ -79,26 +104,29 @@ static void parse_title_and_shortcut(NSString* full, NSString** outTitle, NSStri
     if (keyCombo.length == 0) return;
     NSArray* tokens = [keyCombo componentsSeparatedByString:@"+"];
     NSString* keyChar = nil;
+    NSEventModifierFlags mods = 0;
     for (NSString* t in tokens) {
         NSString* s = [t stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
         if (s.length == 0) continue;
-        if ([s caseInsensitiveCompare:@"Ctrl"] == NSOrderedSame) {
-            *outMod |= NSEventModifierFlagCommand;
-        } else if ([s caseInsensitiveCompare:@"Cmd"] == NSOrderedSame || [s caseInsensitiveCompare:@"Command"] == NSOrderedSame) {
-            *outMod |= NSEventModifierFlagCommand;
+        if ([s caseInsensitiveCompare:@"Ctrl"] == NSOrderedSame
+            || [s caseInsensitiveCompare:@"Cmd"] == NSOrderedSame
+            || [s caseInsensitiveCompare:@"Command"] == NSOrderedSame
+            || [s caseInsensitiveCompare:@"Meta"] == NSOrderedSame) {
+            mods |= NSEventModifierFlagCommand;
+        } else if ([s caseInsensitiveCompare:@"Control"] == NSOrderedSame) {
+            mods |= NSEventModifierFlagControl;
         } else if ([s caseInsensitiveCompare:@"Alt"] == NSOrderedSame || [s caseInsensitiveCompare:@"Option"] == NSOrderedSame) {
-            *outMod |= NSEventModifierFlagOption;
+            mods |= NSEventModifierFlagOption;
         } else if ([s caseInsensitiveCompare:@"Shift"] == NSOrderedSame) {
-            *outMod |= NSEventModifierFlagShift;
-        } else if (s.length == 1) {
-            keyChar = [s lowercaseString];
-        } else if (s.length > 1 && [s caseInsensitiveCompare:@"Alt"] != NSOrderedSame) {
-            keyChar = [s substringToIndex:1];
-            keyChar = [keyChar lowercaseString];
+            mods |= NSEventModifierFlagShift;
+        } else {
+            keyChar = key_named(s);
         }
     }
-    if (keyChar && keyChar.length > 0) {
+    if ([keyCombo hasSuffix:@"++"] || [keyCombo isEqualToString:@"+"]) keyChar = @"+";
+    if (keyChar.length > 0) {
         *outKey = keyChar;
+        *outMod = mods;
     }
 }
 
@@ -117,9 +145,7 @@ int ng_macos_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id
         action:@selector(menuItemClicked:)
         keyEquivalent:keyEquiv ? keyEquiv : @""];
 
-    if (modMask != 0) {
-        [menuItem setKeyEquivalentModifierMask:modMask];
-    }
+    [menuItem setKeyEquivalentModifierMask:modMask];
 
     [menuItem setTarget:menuItemTarget];
     [menuItem setTag:id];
