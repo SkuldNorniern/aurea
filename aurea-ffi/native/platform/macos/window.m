@@ -1393,8 +1393,11 @@ void ng_macos_window_show(NGHandle window) {
     NSWindow* nsWindow = (__bridge NSWindow*)window;
     [NSApp activateIgnoringOtherApps:YES];
     [nsWindow makeKeyAndOrderFront:nil];
+    /* Focus goes to the content only if nothing in the window has it, so a
+       text field the user was typing in keeps it. */
     NSView* contentView = [nsWindow contentView];
-    if (contentView) {
+    id responder = [nsWindow firstResponder];
+    if (contentView && (!responder || responder == nsWindow)) {
         [nsWindow makeFirstResponder:contentView];
     }
 }
