@@ -105,7 +105,8 @@ fn native_calendar(_parent: *mut c_void) -> *mut c_void {
 
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
 fn native_calendar(_parent: *mut c_void) -> *mut c_void {
-    std::ptr::null_mut()
+    use std::ptr::null_mut;
+    null_mut()
 }
 
 fn main() -> AureaResult<()> {
