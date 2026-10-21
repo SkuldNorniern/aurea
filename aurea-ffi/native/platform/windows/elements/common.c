@@ -622,7 +622,8 @@ void layout_box_children(HWND box) {
         if (is_box(c->hwnd)) {
             if (was.right == w && was.bottom == h) layout_box_children(c->hwnd);
         } else if (ng_windows_is_rich_edit(c->hwnd)) {
-            SendMessageW(c->hwnd, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELONG(0, 0));
+            int margin = ng_windows_px(c->hwnd, LABEL_PADDING);
+            SendMessageW(c->hwnd, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELONG(margin, margin));
             SendMessageW(c->hwnd, EM_SETTARGETDEVICE, 0, GetPropA(c->hwnd, TEXT_NO_WRAP_PROP) ? 1 : 0);
         }
     }
