@@ -67,9 +67,16 @@ void ng_windows_free_text_content(char* content) {
     }
 }
 
+static __declspec(thread) int g_old_rich_edit;
+
+/* Lets tests take the path for Windows without msftedit.dll. */
+void ng_windows_force_old_rich_edit(int on) {
+    g_old_rich_edit = on;
+}
+
 HWND ng_windows_create_rich_text(int editable) {
-    int modern = LoadLibraryW(L"msftedit.dll") != NULL;
-    if (!modern) LoadLibraryW(L"riched20.dll");
+    int modern = !g_old_rich_edit && LoadLibraryW(L"msftedit.dll") != NULL;
+    if (!modern && !LoadLibraryW(L"riched20.dll")) return NULL;
     const wchar_t* cls = modern ? MSFTEDIT_CLASS : RICHEDIT_CLASSW;
     DWORD style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE |
                   ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_WANTRETURN;

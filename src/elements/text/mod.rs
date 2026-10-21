@@ -205,20 +205,26 @@ mod native_tests {
         Ok(editor)
     }
 
-    #[test]
-    #[ignore = "creates native windows; run with --ignored"]
-    fn selection_and_replace_work_in_bytes() -> AureaResult<()> {
-        let mut window = Window::new("select", 400, 300)?;
-        let editor = editor_in(&mut window)?;
-        let editor = editor.borrow();
-        editor.set_text("a한🙂b\nc")?;
+    fn selects_and_replaces_in_bytes(editor: &TextEditor) -> AureaResult<()> {
+        editor.set_text(
+            "a한🙂b
+c",
+        )?;
         editor.set_selection(4..8)?;
         assert_eq!(editor.selection()?, 4..8);
         editor.replace_selection("X")?;
-        assert_eq!(editor.text()?, "a한Xb\nc");
+        assert_eq!(
+            editor.text()?,
+            "a한Xb
+c"
+        );
         assert_eq!(editor.selection()?, 5..5, "cursor after the replacement");
         editor.replace(7..8, "line")?;
-        assert_eq!(editor.text()?, "a한Xb\nline");
+        assert_eq!(
+            editor.text()?,
+            "a한Xb
+line"
+        );
         assert!(matches!(
             editor.set_selection(2..3),
             Err(AureaError::InvalidTextRange)
@@ -230,12 +236,7 @@ mod native_tests {
         Ok(())
     }
 
-    #[test]
-    #[ignore = "creates native windows; run with --ignored"]
-    fn edits_undo_and_redo() -> AureaResult<()> {
-        let mut window = Window::new("undo", 400, 300)?;
-        let editor = editor_in(&mut window)?;
-        let editor = editor.borrow();
+    fn undoes_and_redoes(editor: &TextEditor) -> AureaResult<()> {
         editor.set_text("one")?;
         assert!(!editor.can_undo(), "new text starts a new history");
         editor.replace(3..3, " two")?;
@@ -248,11 +249,7 @@ mod native_tests {
         Ok(())
     }
 
-    #[test]
-    #[ignore = "creates native windows; run with --ignored"]
-    fn only_the_users_edits_are_reported() -> AureaResult<()> {
-        let mut window = Window::new("changes", 400, 300)?;
-        let editor = editor_in(&mut window)?;
+    fn reports_only_the_users_edits(editor: &Shared<TextEditor>) -> AureaResult<()> {
         let seen = Rc::new(RefCell::new(Vec::new()));
         let log = Rc::clone(&seen);
         editor
@@ -274,23 +271,83 @@ mod native_tests {
         Ok(())
     }
 
-    #[test]
-    #[ignore = "creates native windows; run with --ignored"]
-    fn features_switch_at_runtime() -> AureaResult<()> {
-        let mut window = Window::new("features", 400, 300)?;
-        let editor = editor_in(&mut window)?;
-        let editor = editor.borrow();
+    fn switches_features(editor: &TextEditor) -> AureaResult<()> {
         assert_eq!(editor.features(), TextFeatures::EDITOR);
         editor.set_text("fixed")?;
         editor.set_features(TextFeatures::EDITOR.with_read_only(true))?;
         editor.set_selection(5..5)?;
-        type_text(&*editor, "!");
+        type_text(editor, "!");
         assert_eq!(editor.text()?, "fixed", "typed into a read-only editor");
         editor.set_features(TextFeatures::VIEW)?;
         assert_eq!(editor.features(), TextFeatures::VIEW);
-        type_text(&*editor, "!");
+        type_text(editor, "!");
         assert_eq!(editor.text()?, "fixed!");
         Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn selection_and_replace_work_in_bytes() -> AureaResult<()> {
+        let mut window = Window::new("select", 400, 300)?;
+        selects_and_replaces_in_bytes(&editor_in(&mut window)?.borrow())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn edits_undo_and_redo() -> AureaResult<()> {
+        let mut window = Window::new("undo", 400, 300)?;
+        undoes_and_redoes(&editor_in(&mut window)?.borrow())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn only_the_users_edits_are_reported() -> AureaResult<()> {
+        let mut window = Window::new("changes", 400, 300)?;
+        reports_only_the_users_edits(&editor_in(&mut window)?)
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn features_switch_at_runtime() -> AureaResult<()> {
+        let mut window = Window::new("features", 400, 300)?;
+        switches_features(&editor_in(&mut window)?.borrow())
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn the_richedit_2_fallback_shares_the_api() -> AureaResult<()> {
+        use std::ffi::c_void;
+        use std::os::raw::c_int;
+        unsafe extern "C" {
+            fn ng_windows_force_old_rich_edit(on: c_int);
+        }
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn GetClassNameW(hwnd: *mut c_void, name: *mut u16, len: i32) -> i32;
+        }
+        let old = || -> AureaResult<(Window, Shared<TextEditor>)> {
+            let mut window = Window::new("richedit 2", 400, 300)?;
+            unsafe { ng_windows_force_old_rich_edit(1) };
+            let editor = editor_in(&mut window);
+            unsafe { ng_windows_force_old_rich_edit(0) };
+            let editor = editor?;
+            let mut name = [0u16; 32];
+            let len = unsafe { GetClassNameW(editor.handle(), name.as_mut_ptr(), 32) };
+            assert_eq!(
+                String::from_utf16_lossy(&name[..usize::try_from(len).unwrap_or(0)]),
+                "RichEdit20W"
+            );
+            Ok((window, editor))
+        };
+        let (_window, editor) = old()?;
+        selects_and_replaces_in_bytes(&editor.borrow())?;
+        let (_window, editor) = old()?;
+        undoes_and_redoes(&editor.borrow())?;
+        let (_window, editor) = old()?;
+        reports_only_the_users_edits(&editor)?;
+        let (_window, editor) = old()?;
+        switches_features(&editor.borrow())
     }
 
     #[cfg(target_os = "linux")]
