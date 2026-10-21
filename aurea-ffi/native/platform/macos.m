@@ -140,6 +140,8 @@ int ng_macos_init(void) {
                                                         selector:@selector(onDisplayLink:)];
                 s_display_link.paused = YES;
                 [s_display_link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+            } else {
+                legacy_display_link_init();
             }
         } else {
             legacy_display_link_init();
