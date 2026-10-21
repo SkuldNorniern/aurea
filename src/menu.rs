@@ -33,6 +33,24 @@ pub enum ShortcutKey {
     Backspace,
     /// The Delete key.
     Delete,
+    /// The Insert key.
+    Insert,
+    /// The Home key.
+    Home,
+    /// The End key.
+    End,
+    /// The Page Up key.
+    PageUp,
+    /// The Page Down key.
+    PageDown,
+    /// The up arrow.
+    Up,
+    /// The down arrow.
+    Down,
+    /// The left arrow.
+    Left,
+    /// The right arrow.
+    Right,
 }
 
 /// A portable menu shortcut description.
@@ -132,6 +150,15 @@ impl MenuShortcut {
             ShortcutKey::Space => "Space".to_string(),
             ShortcutKey::Backspace => "Backspace".to_string(),
             ShortcutKey::Delete => "Delete".to_string(),
+            ShortcutKey::Insert => "Insert".to_string(),
+            ShortcutKey::Home => "Home".to_string(),
+            ShortcutKey::End => "End".to_string(),
+            ShortcutKey::PageUp => "PageUp".to_string(),
+            ShortcutKey::PageDown => "PageDown".to_string(),
+            ShortcutKey::Up => "Up".to_string(),
+            ShortcutKey::Down => "Down".to_string(),
+            ShortcutKey::Left => "Left".to_string(),
+            ShortcutKey::Right => "Right".to_string(),
         };
         parts.push(key);
 
@@ -205,6 +232,26 @@ fn shortcut_key(key: KeyCode) -> Option<ShortcutKey> {
         KeyCode::Space => ShortcutKey::Space,
         KeyCode::Backspace => ShortcutKey::Backspace,
         KeyCode::Delete => ShortcutKey::Delete,
+        KeyCode::Insert => ShortcutKey::Insert,
+        KeyCode::Home => ShortcutKey::Home,
+        KeyCode::End => ShortcutKey::End,
+        KeyCode::PageUp => ShortcutKey::PageUp,
+        KeyCode::PageDown => ShortcutKey::PageDown,
+        KeyCode::Up => ShortcutKey::Up,
+        KeyCode::Down => ShortcutKey::Down,
+        KeyCode::Left => ShortcutKey::Left,
+        KeyCode::Right => ShortcutKey::Right,
+        KeyCode::Minus => ShortcutKey::Char('-'),
+        KeyCode::Equals => ShortcutKey::Char('='),
+        KeyCode::LeftBracket => ShortcutKey::Char('['),
+        KeyCode::RightBracket => ShortcutKey::Char(']'),
+        KeyCode::Backslash => ShortcutKey::Char('\\'),
+        KeyCode::Semicolon => ShortcutKey::Char(';'),
+        KeyCode::Apostrophe => ShortcutKey::Char('\''),
+        KeyCode::Grave => ShortcutKey::Char('`'),
+        KeyCode::Comma => ShortcutKey::Char(','),
+        KeyCode::Period => ShortcutKey::Char('.'),
+        KeyCode::Slash => ShortcutKey::Char('/'),
         _ => return None,
     })
 }
@@ -576,7 +623,58 @@ mod tests {
         assert_eq!(f5, MenuShortcut::new(ShortcutKey::F(5)));
         let zoom = MenuShortcut::from_chord(Chord::command(KeyCode::Key0)).expect("digit");
         assert_eq!(zoom, MenuShortcut::new(ShortcutKey::Char('0')).primary());
-        assert_eq!(MenuShortcut::from_chord(Chord::key(KeyCode::Up)), None);
+        let up = MenuShortcut::from_chord(Chord::key(KeyCode::Up)).expect("arrow");
+        assert_eq!(up, MenuShortcut::new(ShortcutKey::Up));
+        let bigger =
+            MenuShortcut::from_chord(Chord::command(KeyCode::Equals)).expect("punctuation");
+        assert_eq!(bigger, MenuShortcut::new(ShortcutKey::Char('=')).primary());
+        assert_eq!(MenuShortcut::from_chord(Chord::key(KeyCode::Shift)), None);
+    }
+
+    #[cfg(any(windows, target_os = "linux"))]
+    #[test]
+    fn native_menus_read_every_shortcut_a_label_can_carry() {
+        use crate::window::Modifiers;
+        use std::ffi::{CString, c_char, c_int};
+        unsafe extern "C" {
+            fn ng_shortcut_parse(
+                title: *const c_char,
+                keycode: *mut u32,
+                modifiers: *mut u32,
+            ) -> c_int;
+        }
+        let parse = |title: &str| {
+            let title = CString::new(title).expect("title");
+            let (mut key, mut mods) = (0, 0);
+            (unsafe { ng_shortcut_parse(title.as_ptr(), &raw mut key, &raw mut mods) } == 1)
+                .then(|| (KeyCode::from_raw(key), Modifiers::from_bits(mods)))
+        };
+        let ctrl = Modifiers::from_bits(0x2);
+        assert_eq!(parse("Zoom In\tCtrl++"), Some((KeyCode::Equals, ctrl)));
+        assert_eq!(parse("Zoom In\tCtrl+Plus"), Some((KeyCode::Equals, ctrl)));
+        assert_eq!(
+            parse("Save\tCmd+S"),
+            Some((KeyCode::S, ctrl)),
+            "a title written for macOS"
+        );
+        assert_eq!(parse("Top\tCtrl + Home"), Some((KeyCode::Home, ctrl)));
+        assert_eq!(
+            parse("Back\tAlt+Left"),
+            Some((KeyCode::Left, Modifiers::from_bits(0x4)))
+        );
+        assert_eq!(parse("Plain"), None);
+        assert_eq!(parse("Odd\tCtrl+Hyper"), None);
+        for key in [
+            ShortcutKey::Char(','),
+            ShortcutKey::Char('\\'),
+            ShortcutKey::Insert,
+            ShortcutKey::PageDown,
+            ShortcutKey::Right,
+            ShortcutKey::F(12),
+        ] {
+            let title = label("Item", Some(MenuShortcut::new(key).primary().shift()));
+            assert!(parse(&title).is_some(), "{title:?}");
+        }
     }
 
     #[test]
