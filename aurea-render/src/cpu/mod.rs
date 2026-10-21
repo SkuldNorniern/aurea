@@ -739,6 +739,33 @@ mod conformance_tests {
     }
 
     #[test]
+    fn a_fade_reaches_both_end_colours() {
+        use crate::{GradientStop, LinearGradient};
+
+        let (from, to) = (Color::rgb(255, 255, 255), Color::rgb(0, 0, 0));
+        let gradient = LinearGradient {
+            start: Point::new(0.0, 0.0),
+            end: Point::new(0.0, H as f32),
+            stops: vec![
+                GradientStop {
+                    offset: 0.0,
+                    color: from,
+                },
+                GradientStop {
+                    offset: 1.0,
+                    color: to,
+                },
+            ],
+        };
+        let buf = render(|ctx| {
+            ctx.fill_linear_gradient(&gradient, Rect::new(0.0, 0.0, 4.0, H as f32))
+                .expect("gradient");
+        });
+        assert_eq!(px(&buf, 1, 0), 0xFFFF_FFFF);
+        assert_eq!(px(&buf, 1, H - 1), 0xFF00_0000);
+    }
+
+    #[test]
     fn a_radial_gradient_moves_and_scales_with_the_transform() {
         use crate::{GradientStop, RadialGradient};
 

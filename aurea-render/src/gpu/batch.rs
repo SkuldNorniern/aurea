@@ -89,10 +89,11 @@ pub struct GradientInstance {
 
 impl GradientInstance {
     fn linear(rect: Rect, grad: &LinearGradient, lut: Arc<[u8]>) -> Self {
+        let (start, end) = grad.pixel_axis();
         Self {
             rect: [rect.x, rect.y, rect.width, rect.height],
-            a: [grad.start.x, grad.start.y, 0.0, 0.0],
-            b: [grad.end.x, grad.end.y, 0.0, 0.0],
+            a: [start.x, start.y, 0.0, 0.0],
+            b: [end.x, end.y, 0.0, 0.0],
             lut,
         }
     }

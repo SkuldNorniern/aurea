@@ -351,6 +351,22 @@ pub struct LinearGradient {
     pub stops: Vec<GradientStop>,
 }
 
+impl LinearGradient {
+    /// The axis moved half a pixel in at each end, so the pixels at the ends take the end colours.
+    pub(crate) fn pixel_axis(&self) -> (Point, Point) {
+        let (dx, dy) = (self.end.x - self.start.x, self.end.y - self.start.y);
+        let len = (dx * dx + dy * dy).sqrt();
+        if len.is_nan() || len <= 1.0 {
+            return (self.start, self.end);
+        }
+        let (ix, iy) = (dx / len * 0.5, dy / len * 0.5);
+        (
+            Point::new(self.start.x + ix, self.start.y + iy),
+            Point::new(self.end.x - ix, self.end.y - iy),
+        )
+    }
+}
+
 /// Radial gradient.
 #[derive(Debug, Clone)]
 pub struct RadialGradient {

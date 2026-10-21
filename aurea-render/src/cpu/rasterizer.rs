@@ -1323,8 +1323,9 @@ impl CpuRasterizer {
         bw: u32,
         clip: ClipBox,
     ) {
-        let dx = grad.end.x - grad.start.x;
-        let dy = grad.end.y - grad.start.y;
+        let (start, end) = grad.pixel_axis();
+        let dx = end.x - start.x;
+        let dy = end.y - start.y;
         let len_sq = dx * dx + dy * dy;
         if len_sq < 1e-10 {
             return;
@@ -1343,9 +1344,8 @@ impl CpuRasterizer {
 
         for cy in y0..y1 {
             let row = (cy.unsigned_abs() * bw) as usize;
-            let mut t = ((x0 as f32 + 0.5 - grad.start.x) * dx
-                + (cy as f32 + 0.5 - grad.start.y) * dy)
-                / len_sq;
+            let mut t =
+                ((x0 as f32 + 0.5 - start.x) * dx + (cy as f32 + 0.5 - start.y) * dy) / len_sq;
             for cx in x0..x1 {
                 let t_idx = f32_to_usize_clamped((t.clamp(0.0, 1.0) * 255.0).round());
                 let src = lut[t_idx];
