@@ -1210,6 +1210,7 @@ void ng_macos_element_release(NGHandle element) {
 static char kChangeIdKey;
 static char kDestroyIdKey;
 static char kEditableKey;
+static char kTextColorKey;
 
 static void ng_macos_enable_view(NSView* view, BOOL enabled) {
     if ([view isKindOfClass:[NSControl class]]) {
@@ -1219,14 +1220,17 @@ static void ng_macos_enable_view(NSView* view, BOOL enabled) {
         NSNumber* was = objc_getAssociatedObject(text, &kEditableKey);
         if (!enabled && !was) {
             objc_setAssociatedObject(text, &kEditableKey, @([text isEditable]), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(text, &kTextColorKey, [text textColor], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             [text setEditable:NO];
             [text setSelectable:NO];
             [text setTextColor:[NSColor disabledControlTextColor]];
         } else if (enabled && was) {
+            NSColor* color = objc_getAssociatedObject(text, &kTextColorKey);
             objc_setAssociatedObject(text, &kEditableKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(text, &kTextColorKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             [text setEditable:[was boolValue]];
             [text setSelectable:YES];
-            [text setTextColor:[NSColor textColor]];
+            [text setTextColor:color ?: [NSColor textColor]];
         }
     }
     for (NSView* sub in [view subviews]) ng_macos_enable_view(sub, enabled);
