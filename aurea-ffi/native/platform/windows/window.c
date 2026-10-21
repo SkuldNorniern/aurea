@@ -714,7 +714,12 @@ char* ng_windows_get_clipboard_text(void) {
         result = (char*)malloc((size_t)len + 1);
         if (result) {
             if (len) WideCharToMultiByte(CP_UTF8, 0, wide, (int)units, result, len, NULL, NULL);
-            result[len] = 0;
+            int out = 0;
+            for (int i = 0; i < len; i++) {
+                if (result[i] == '\r' && i + 1 < len && result[i + 1] == '\n') continue;
+                result[out++] = result[i];
+            }
+            result[out] = 0;
         }
     }
     GlobalUnlock(h);
@@ -730,11 +735,19 @@ int ng_windows_set_clipboard_text(const char* text) {
     if (!text) return NG_ERROR_INVALID_PARAMETER;
     int wlen = MultiByteToWideChar(CP_UTF8, 0, text, -1, NULL, 0);
     if (wlen <= 0) return NG_ERROR_PLATFORM_SPECIFIC;
-    HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, (SIZE_T)wlen * sizeof(WCHAR));
+    int breaks = 0;
+    for (const char* c = text; *c; c++) breaks += *c == '\n' && (c == text || c[-1] != '\r');
+    HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, ((SIZE_T)wlen + (SIZE_T)breaks) * sizeof(WCHAR));
     if (!h) return NG_ERROR_PLATFORM_SPECIFIC;
     WCHAR* dst = (WCHAR*)GlobalLock(h);
     if (!dst) { GlobalFree(h); return NG_ERROR_PLATFORM_SPECIFIC; }
-    MultiByteToWideChar(CP_UTF8, 0, text, -1, dst, wlen);
+    MultiByteToWideChar(CP_UTF8, 0, text, -1, dst + breaks, wlen);
+    WCHAR* at = dst;
+    for (WCHAR* from = dst + breaks; ; from++) {
+        if (*from == L'\n' && (at == dst || at[-1] != L'\r')) *at++ = L'\r';
+        *at++ = *from;
+        if (!*from) break;
+    }
     GlobalUnlock(h);
     HWND owner = (HWND)ng_windows_clipboard_owner();
     if (!owner) { GlobalFree(h); return NG_ERROR_PLATFORM_SPECIFIC; }
