@@ -502,19 +502,27 @@ static GtkWidget* ng_linux_window_content(GtkWidget* window) {
     return content;
 }
 
+void ng_linux_content_origin(GtkWidget* window, int* x, int* y) {
+    GtkWidget* content = ng_linux_window_content(window);
+    *x = 0;
+    *y = 0;
+    if (content && !gtk_widget_translate_coordinates(content, window, 0, 0, x, y)) {
+        *x = 0;
+        *y = 0;
+    }
+}
+
 static void ng_linux_content_point(GtkWidget* window, GdkWindow* from, double* x, double* y) {
     GdkWindow* top = gtk_widget_get_window(window);
     while (from && from != top) {
         gdk_window_coords_to_parent(from, *x, *y, x, y);
         from = gdk_window_get_parent(from);
     }
-    GtkWidget* content = ng_linux_window_content(window);
     int ox = 0;
     int oy = 0;
-    if (content && gtk_widget_translate_coordinates(content, window, 0, 0, &ox, &oy)) {
-        *x -= ox;
-        *y -= oy;
-    }
+    ng_linux_content_origin(window, &ox, &oy);
+    *x -= ox;
+    *y -= oy;
 }
 
 static int ng_linux_click_count(GtkWidget* widget, GdkEventButton* event) {

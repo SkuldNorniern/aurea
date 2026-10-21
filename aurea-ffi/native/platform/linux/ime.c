@@ -1,5 +1,6 @@
 
 #include "ime.h"
+#include <math.h>
 #include "common/errors.h"
 #include "common/rust_callbacks.h"
 
@@ -89,7 +90,15 @@ int ng_linux_ime_filter(GtkWidget* window, GdkEventKey* event) {
 int ng_linux_window_set_ime_cursor_area(NGHandle window, float x, float y, float width, float height) {
     GtkIMContext* im = ng_linux_im((GtkWidget*)window);
     if (!im) return NG_ERROR_INVALID_HANDLE;
-    GdkRectangle area = {(int)x, (int)y, (int)width, (int)height};
+    if (!(x > -1e7f && y > -1e7f && x < 1e7f && y < 1e7f)) return NG_ERROR_INVALID_PARAMETER;
+    if (!(width >= 0.0f && width < 1e7f)) width = 0.0f;
+    if (!(height >= 0.0f && height < 1e7f)) height = 0.0f;
+    int ox = 0;
+    int oy = 0;
+    ng_linux_content_origin((GtkWidget*)window, &ox, &oy);
+    int left = (int)floor(x);
+    int top = (int)floor(y);
+    GdkRectangle area = {left + ox, top + oy, (int)ceil(x + width) - left, (int)ceil(y + height) - top};
     gtk_im_context_set_cursor_location(im, &area);
     return NG_SUCCESS;
 }

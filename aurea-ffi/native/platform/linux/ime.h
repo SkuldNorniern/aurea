@@ -18,6 +18,9 @@ int ng_linux_ime_filter(GtkWidget* window, GdkEventKey* event);
 /* Whether typing goes to Aurea's input method rather than a focused native widget with its own. */
 int ng_linux_ime_active(GtkWidget* window);
 
+/* Where the window content sits inside the toplevel, in logical pixels. */
+void ng_linux_content_origin(GtkWidget* window, int* x, int* y);
+
 int ng_linux_window_set_ime_cursor_area(NGHandle window, float x, float y, float width, float height);
 
 #endif
