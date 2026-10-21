@@ -12,6 +12,7 @@
 static const ng_platform_ops_t linux_ops = {
     .init = ng_linux_init,
     .reduced_motion = ng_linux_reduced_motion,
+    .prefers_dark = ng_linux_prefers_dark,
     .cleanup = ng_linux_cleanup,
     .run = ng_linux_run,
     .poll_events = ng_linux_poll_events,

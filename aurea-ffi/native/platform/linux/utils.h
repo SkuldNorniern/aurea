@@ -15,6 +15,7 @@ int ng_linux_wait_events(int timeout_ms);
 void ng_linux_request_frame(void);
 
 int ng_linux_reduced_motion(void);
+int ng_linux_prefers_dark(void);
 
 #ifdef __cplusplus
 }
