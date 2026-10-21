@@ -145,6 +145,37 @@ mod gtk_tests {
         Ok(())
     }
 
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn labels_wrap_from_the_leading_edge() -> AureaResult<()> {
+        unsafe extern "C" {
+            fn gtk_label_get_line_wrap(label: *mut c_void) -> c_int;
+            fn gtk_label_get_xalign(label: *mut c_void) -> f32;
+        }
+        let _window = Window::new("wrap", 300, 200)?;
+        let label = Label::new("long help text")?;
+        assert_eq!(unsafe { gtk_label_get_line_wrap(label.handle()) }, 1);
+        assert!(unsafe { gtk_label_get_xalign(label.handle()) }.abs() < f32::EPSILON);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn an_indeterminate_bar_keeps_pulsing() -> AureaResult<()> {
+        unsafe extern "C" {
+            fn g_object_get_data(object: *mut c_void, key: *const c_char) -> *mut c_void;
+        }
+        let window = Window::new("pulse", 300, 200)?;
+        let mut bar = ProgressBar::new()?;
+        let key = c"aurea-pulse".as_ptr();
+        bar.set_indeterminate(true)?;
+        settle(&window);
+        assert!(!unsafe { g_object_get_data(bar.handle(), key) }.is_null());
+        bar.set_indeterminate(false)?;
+        assert!(unsafe { g_object_get_data(bar.handle(), key) }.is_null());
+        Ok(())
+    }
+
     fn tabs(bar: *mut c_void) -> Vec<*mut c_void> {
         unsafe {
             let list = gtk_container_get_children(bar);
@@ -565,6 +596,27 @@ mod win32_tests {
         let mut r = Rect::default();
         unsafe { GetWindowRect(hwnd, &raw mut r) };
         r
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn ampersands_show_as_typed() -> AureaResult<()> {
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn GetWindowLongPtrW(hwnd: *mut c_void, index: i32) -> isize;
+        }
+        const GWL_STYLE: i32 = -16;
+        const SS_NOPREFIX: isize = 0x80;
+        let _window = Window::new("ampersand", 400, 300)?;
+        let label = Label::new("Save & Load")?;
+        let button = Button::new("Save & Load")?;
+        let checkbox = Checkbox::new("Save & Load")?;
+        let style = unsafe { GetWindowLongPtrW(label.handle(), GWL_STYLE) };
+        assert_ne!(style & SS_NOPREFIX, 0);
+        assert_eq!(native_text(label.handle()), "Save & Load");
+        assert_eq!(native_text(button.handle()), "Save && Load");
+        assert_eq!(native_text(checkbox.handle()), "Save && Load");
+        Ok(())
     }
 
     #[test]
