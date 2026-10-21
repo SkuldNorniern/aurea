@@ -23,3 +23,13 @@ if ($new) {
     exit 1
 }
 Write-Host "$(($imports | Sort-Object -Unique).Count) Win32 imports, all allowed"
+
+$exes = Get-ChildItem "$Target\debug\deps\aurea-*.exe", "$Target\debug\examples\*.exe" -ErrorAction SilentlyContinue |
+    Where-Object { $_.LastWriteTime -ge ($libs | Measure-Object LastWriteTime -Maximum).Maximum }
+$v5 = $exes | Where-Object { (& $dumpbin /nologo /dependents $_.FullName) -match '^\s+comctl32\.dll$' }
+if ($v5) {
+    Write-Host "Linked to comctl32 v5, which loads before Aurea switches to v6:"
+    $v5 | ForEach-Object { Write-Host "  $($_.Name)" }
+    exit 1
+}
+Write-Host "$(@($exes).Count) executables, none linked to comctl32"

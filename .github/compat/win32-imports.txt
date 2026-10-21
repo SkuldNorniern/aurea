@@ -121,7 +121,6 @@ GlobalLock
 GlobalSize
 GlobalUnlock
 InflateRect
-InitCommonControlsEx
 IntersectClipRect
 InvalidateRect
 IsChild

@@ -49,13 +49,13 @@ jobs:
       - name: Build
         run: cargo build --workspace
 
+      - name: Test
+        run: cargo test --workspace
+
       - name: Win32 imports stay XP safe
         if: runner.os == 'Windows'
         run: .github/compat/check-win32-imports.ps1
         shell: pwsh
-
-      - name: Test
-        run: cargo test --workspace
 
       - name: Main-thread native smoke (macOS)
         if: runner.os == 'macOS'
