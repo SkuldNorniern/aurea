@@ -14,6 +14,7 @@
 #import <objc/runtime.h>
 
 static void ng_macos_notify_destroyed(NSView* view);
+static void ng_macos_cursor_refresh(NSWindow* window);
 #include <limits.h>
 
 static int ng_macos_get_cursor_grab_mode(void* windowHandle);
@@ -153,6 +154,7 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
 @property (nonatomic, assign) void* windowHandle;
 @property (nonatomic, strong) NSCursor* cursor;
 @property (nonatomic, assign) BOOL usesMetalLayer;
+@property (nonatomic, assign) BOOL hidesCursor;
 - (void)setImeArea:(NSRect)area;
 @end
 
@@ -230,6 +232,7 @@ static NSString* drag_paths(id<NSDraggingInfo> info) {
 }
 
 - (void)mouseEntered:(NSEvent*)event {
+    ng_macos_cursor_refresh([self window]);
     if (exitHeld) {
         exitHeld = NO;
         return;
@@ -240,6 +243,7 @@ static NSString* drag_paths(id<NSDraggingInfo> info) {
 }
 
 - (void)mouseExited:(NSEvent*)event {
+    ng_macos_cursor_refresh([self window]);
     if (buttonsHeld > 0) {
         exitHeld = YES;
         return;
@@ -598,6 +602,7 @@ static void ng_macos_forget_held_shortcuts(void* window);
 }
 
 - (void)windowDidBecomeKey:(NSNotification*)notification {
+    ng_macos_cursor_refresh([notification object]);
     ng_macos_display_link_follow([[notification object] screen]);
     ng_macos_cursor_grab_focus([notification object], YES);
     if (self.windowHandle) {
@@ -606,6 +611,7 @@ static void ng_macos_forget_held_shortcuts(void* window);
 }
 
 - (void)windowDidResignKey:(NSNotification*)notification {
+    ng_macos_cursor_refresh([notification object]);
     ng_macos_cursor_grab_focus([notification object], NO);
     if (self.windowHandle) {
         ng_invoke_focus_changed(self.windowHandle, 0);
@@ -629,7 +635,33 @@ static NSMutableDictionary* windowDelegates = nil;
 static NSMutableDictionary* windowCursorGrabModes = nil;
 static NSMutableDictionary* windowRawSuppress = nil;
 
-static NGHandle s_cursor_hidden_by = NULL;
+/* The cursor is hidden only while it is over a window that asked, and that
+   window is key; one hide is held at most, so shows and hides stay paired. */
+static BOOL s_cursor_hidden = NO;
+
+static void ng_macos_cursor_set_hidden(BOOL hidden) {
+    if (hidden == s_cursor_hidden) return;
+    s_cursor_hidden = hidden;
+    if (hidden) {
+        CGDisplayHideCursor(kCGDirectMainDisplay);
+    } else {
+        CGDisplayShowCursor(kCGDirectMainDisplay);
+    }
+}
+
+static BOOL ng_macos_pointer_inside(NSWindow* window) {
+    NSView* content = [window contentView];
+    NSPoint p = [content convertPoint:[window mouseLocationOutsideOfEventStream] fromView:nil];
+    return NSPointInRect(p, [content bounds]);
+}
+
+static void ng_macos_cursor_refresh(NSWindow* window) {
+    NSView* content = [window contentView];
+    if (![content isKindOfClass:[AureaContentView class]]) return;
+    BOOL wants = ((AureaContentView*)content).hidesCursor;
+    if (!wants && window != [NSApp keyWindow]) return;
+    ng_macos_cursor_set_hidden(wants && [window isKeyWindow] && ng_macos_pointer_inside(window));
+}
 
 static BOOL ng_macos_cursor_locked(NSWindow* window) {
     if (!windowCursorGrabModes) return NO;
@@ -804,9 +836,9 @@ void ng_macos_destroy_window(NGHandle handle) {
         NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)window];
         [windowCursorGrabModes removeObjectForKey:windowValue];
     }
-    if (s_cursor_hidden_by == handle) {
-        CGDisplayShowCursor(kCGDirectMainDisplay);
-        s_cursor_hidden_by = NULL;
+    if ([[window contentView] isKindOfClass:[AureaContentView class]]
+        && ((AureaContentView*)[window contentView]).hidesCursor) {
+        ng_macos_cursor_set_hidden(NO);
     }
     ng_shortcuts_clear(handle);
     ng_macos_forget_held_shortcuts(handle);
@@ -959,15 +991,14 @@ int ng_macos_window_is_focused(NGHandle window) {
 
 int ng_macos_window_set_cursor_visible(NGHandle window, int visible) {
     if (!window) return NG_ERROR_INVALID_HANDLE;
-    if (visible) {
-        if (s_cursor_hidden_by) {
-            CGDisplayShowCursor(kCGDirectMainDisplay);
-            s_cursor_hidden_by = NULL;
-        }
-    } else if (!s_cursor_hidden_by) {
-        CGDisplayHideCursor(kCGDirectMainDisplay);
-        s_cursor_hidden_by = window;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    NSView* content = [nsWindow contentView];
+    if (![content isKindOfClass:[AureaContentView class]]) return NG_ERROR_PLATFORM_SPECIFIC;
+    ((AureaContentView*)content).hidesCursor = visible ? NO : YES;
+    if (visible && s_cursor_hidden) {
+        ng_macos_cursor_set_hidden(NO);
     }
+    ng_macos_cursor_refresh(nsWindow);
     return NG_SUCCESS;
 }
 
