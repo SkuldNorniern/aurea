@@ -48,6 +48,11 @@ int ng_platform_reduced_motion(void) {
     return (g_ops && g_ops->reduced_motion) ? g_ops->reduced_motion() : 0;
 }
 
+int ng_platform_wheel_lines(void) {
+    ensure_ops();
+    return (g_ops && g_ops->wheel_lines) ? g_ops->wheel_lines() : 3;
+}
+
 int ng_platform_prefers_dark(void) {
     ensure_ops();
     return (g_ops && g_ops->prefers_dark) ? g_ops->prefers_dark() : -1;

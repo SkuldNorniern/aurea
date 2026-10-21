@@ -165,6 +165,8 @@ unsafe extern "C" {
     pub fn ng_platform_reduced_motion() -> c_int;
     /// Tells whether the system prefers dark: 1 dark, 0 light, -1 unknown.
     pub fn ng_platform_prefers_dark() -> c_int;
+    /// Lines a wheel notch scrolls, -1 for a page, 3 where the system has no setting.
+    pub fn ng_platform_wheel_lines() -> c_int;
     /// Writes the system locales into `buf`.
     pub fn ng_platform_locales(buf: *mut c_char, cap: c_int) -> c_int;
     /// Sets a window's keyboard shortcuts.

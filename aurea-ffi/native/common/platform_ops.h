@@ -11,6 +11,7 @@ typedef struct ng_platform_ops {
     int (*init)(void);
     int (*reduced_motion)(void);
     int (*prefers_dark)(void);
+    int (*wheel_lines)(void);
     int (*locales)(char* buf, int cap);
     void (*cleanup)(void);
     int (*run)(void);

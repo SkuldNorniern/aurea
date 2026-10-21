@@ -921,6 +921,12 @@ static void ng_windows_theme_check(void) {
     if (known) ng_invoke_theme_changed(dark);
 }
 
+int ng_windows_wheel_lines(void) {
+    UINT lines = 3;
+    if (!SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0)) return 3;
+    return lines == WHEEL_PAGESCROLL || lines > 1000 ? -1 : (int)lines;
+}
+
 int ng_windows_reduced_motion(void) {
     BOOL animate = TRUE;
     if (!SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animate, 0)) return 0;

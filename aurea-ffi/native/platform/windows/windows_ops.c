@@ -17,6 +17,7 @@ static const ng_platform_ops_t windows_ops = {
     .init = ng_windows_init,
     .reduced_motion = ng_windows_reduced_motion,
     .prefers_dark = ng_windows_prefers_dark,
+    .wheel_lines = ng_windows_wheel_lines,
     .locales = ng_windows_locales,
     .cleanup = ng_windows_cleanup,
     .run = ng_windows_run,

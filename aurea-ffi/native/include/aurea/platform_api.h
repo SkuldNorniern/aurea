@@ -17,6 +17,10 @@ int ng_platform_get_abi_version(void);
 
 int ng_platform_init(void);
 int ng_platform_reduced_motion(void);
+/* 1 when the system appearance is dark, 0 light, -1 when unknown. */
+int ng_platform_prefers_dark(void);
+/* Lines a wheel notch scrolls, -1 for a page; 3 where the system has no setting. */
+int ng_platform_wheel_lines(void);
 int ng_platform_locales(char* buf, int cap);
 void ng_platform_cleanup(void);
 int ng_platform_run(void);

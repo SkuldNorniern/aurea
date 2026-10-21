@@ -47,6 +47,7 @@ unsigned int ng_windows_modifiers(void);
 
 int ng_windows_reduced_motion(void);
 int ng_windows_prefers_dark(void);
+int ng_windows_wheel_lines(void);
 int ng_windows_locales(char* buf, int cap);
 
 #ifdef __cplusplus

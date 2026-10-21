@@ -8,6 +8,10 @@ int ng_platform_reduced_motion(void) {
     return 0;
 }
 
+int ng_platform_wheel_lines(void) {
+    return 3;
+}
+
 int ng_platform_prefers_dark(void) {
     return -1;
 }
