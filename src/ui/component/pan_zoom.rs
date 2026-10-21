@@ -3,6 +3,7 @@
 use std::f32::consts::TAU;
 
 use crate::render::{Point, Rect, Transform};
+use crate::ui::widget::scroll::wheel_line_pixels;
 use crate::window::{CursorIcon, KeyCode, MouseButton, WindowEvent};
 
 /// Where content sits in a view and how large it is drawn.
@@ -38,7 +39,7 @@ impl PanZoom {
         let (wheel_zoom, wheel_pan) = if cfg!(target_os = "macos") {
             (0.01, 1.0)
         } else {
-            (0.18, 48.0)
+            (0.18, wheel_line_pixels())
         };
         Self {
             zoom: 1.0,

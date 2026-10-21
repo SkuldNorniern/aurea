@@ -4,7 +4,6 @@
 use std::ops::Range;
 
 use super::Widget;
-use crate::AureaResult;
 use crate::render::{Color, Rect};
 use crate::ui::component::FocusRing;
 use crate::ui::frame::{Response, Ui};
@@ -12,6 +11,7 @@ use crate::ui::paint::Component;
 use crate::ui::state::{Channel, Key, Sense, WidgetId};
 use crate::ui::theme::Theme;
 use crate::window::KeyCode;
+use crate::{AureaResult, WheelScroll, wheel_scroll};
 
 const THUMB_PART: u16 = 0xE000;
 const SHOWN: Channel = Channel::Custom(0xE001);
@@ -27,7 +27,7 @@ pub struct ScrollStyle {
     pub thumb_hover: Color,
     /// Bar width.
     pub width: f32,
-    /// Pixels a wheel notch scrolls.
+    /// Pixels a wheel notch scrolls; infinite scrolls a whole view, 0 not at all.
     pub step: f32,
     /// Scrolling eases instead of jumping.
     pub smooth: bool,
@@ -41,9 +41,29 @@ impl ScrollStyle {
             thumb: p.faint.fade(0.55),
             thumb_hover: p.dim.fade(0.85),
             width: 6.0,
-            step: if cfg!(target_os = "macos") { 1.0 } else { 48.0 },
+            step: wheel_step(),
             smooth: true,
         }
+    }
+}
+
+/// The default notch from the user's wheel setting: 16 px a line, or a whole view. macOS wheel
+/// events already arrive in points.
+fn wheel_step() -> f32 {
+    if cfg!(target_os = "macos") {
+        return 1.0;
+    }
+    match wheel_scroll() {
+        WheelScroll::Lines(_) => wheel_line_pixels(),
+        WheelScroll::Page => f32::INFINITY,
+    }
+}
+
+/// Logical pixels a notch moves under the user's line setting: 16 a line, 48 when it is a page.
+pub(crate) fn wheel_line_pixels() -> f32 {
+    match wheel_scroll() {
+        WheelScroll::Lines(lines) => 16.0 * f32::from(u16::try_from(lines).unwrap_or(u16::MAX)),
+        WheelScroll::Page => 48.0,
     }
 }
 
@@ -138,11 +158,16 @@ impl<'v> ScrollArea<'v> {
         };
         let content = Rect::new(rect.x, rect.y - shown, rect.width, self.content);
         let out = ui.clipped(rect, |ui| body(ui, content, rect))?;
-        if over && room > 0.0 && style.step.is_finite() && style.step > 0.0 {
+        let step = if style.step == f32::INFINITY {
+            rect.height
+        } else {
+            style.step
+        };
+        if over && room > 0.0 && step.is_finite() && step > 0.0 {
             let previous = *self.offset;
-            *self.offset = (previous - ui.wheel().1 * style.step).clamp(0.0, room);
+            *self.offset = (previous - ui.wheel().1 * step).clamp(0.0, room);
             let distance = *self.offset - previous;
-            ui.consume_wheel((0.0, -distance / style.step));
+            ui.consume_wheel((0.0, -distance / step));
             if distance.abs() > f32::EPSILON {
                 moved = true;
                 ui.mark_changed();
@@ -586,6 +611,7 @@ mod tests {
         area: f32,
         picked: Option<usize>,
         pressed: u32,
+        step: f32,
     }
 
     impl Rig {
@@ -600,6 +626,7 @@ mod tests {
                 area: 0.0,
                 picked: None,
                 pressed: 0,
+                step: ROW,
             };
             rig.frame();
             rig
@@ -611,7 +638,7 @@ mod tests {
                 let mut ui = self.ui.frame(&mut *ctx, &self.theme);
                 let style = ScrollStyle {
                     smooth: false,
-                    step: ROW,
+                    step: self.step,
                     ..ScrollStyle::new(&self.theme)
                 };
                 ListView::new(&mut self.list, 1000, ROW)
@@ -692,6 +719,17 @@ mod tests {
         assert_eq!(rig.list, 0.0, "not past the top");
         rig.wheel(250.0, 50.0, -100.0);
         assert_eq!(rig.area, 200.0, "not past the bottom");
+    }
+
+    #[test]
+    fn a_page_setting_scrolls_a_view_a_notch() {
+        let mut rig = Rig::new();
+        rig.step = f32::INFINITY;
+        rig.wheel(250.0, 50.0, -1.0);
+        assert_eq!(rig.area, AREA.height);
+        rig.step = 0.0;
+        rig.wheel(250.0, 50.0, -1.0);
+        assert_eq!(rig.area, AREA.height, "0 lines does not scroll");
     }
 
     #[test]
