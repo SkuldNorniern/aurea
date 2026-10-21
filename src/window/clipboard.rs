@@ -1,7 +1,7 @@
 //! Desktop clipboard text, RGBA8 images and application byte formats.
 
 use crate::Platform;
-use crate::ffi::RawClipboardEntry;
+use crate::ffi::{RawClipboardEntry, c_text};
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 use crate::ffi::{
     ng_platform_clipboard_formats, ng_platform_clipboard_free, ng_platform_clipboard_read,
@@ -229,9 +229,7 @@ pub fn clipboard_text() -> Option<String> {
 /// Write a UTF-8 string to the OS clipboard.
 pub fn set_clipboard_text(text: &str) -> AureaResult<()> {
     ui_thread::check("set_clipboard_text");
-    let Ok(cstr) = CString::new(text) else {
-        return Err(AureaError::ElementOperationFailed);
-    };
+    let cstr = c_text(text)?;
     let result = unsafe { ng_platform_set_clipboard_text(cstr.as_ptr()) };
     if result != 0 {
         Err(AureaError::ElementOperationFailed)
@@ -320,6 +318,11 @@ mod tests {
         let text = retry(|| clipboard_text().ok_or(AureaError::PlatformError(CLIPBOARD_BUSY)))
             .expect("read legacy text after clipboard listeners finish");
         assert_eq!(text, "Aurea 한글 🙂");
+        assert!(matches!(
+            set_clipboard_text("a\0b"),
+            Err(AureaError::InvalidText)
+        ));
+        assert_eq!(clipboard_text().as_deref(), Some("Aurea 한글 🙂"));
         #[cfg(windows)]
         {
             retry(|| {
