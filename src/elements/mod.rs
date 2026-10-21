@@ -912,6 +912,54 @@ mod win32_tests {
 
     #[test]
     #[ignore = "creates native windows; run with --ignored"]
+    fn a_dpi_change_relays_out_scrolled_content() -> AureaResult<()> {
+        #[link(name = "gdi32")]
+        unsafe extern "system" {
+            fn CreateFontW(
+                height: i32,
+                width: i32,
+                escapement: i32,
+                orientation: i32,
+                weight: i32,
+                italic: u32,
+                underline: u32,
+                strike: u32,
+                charset: u32,
+                precision: u32,
+                clip: u32,
+                quality: u32,
+                pitch: u32,
+                face: *const u16,
+            ) -> *mut c_void;
+        }
+        const WM_SETFONT: u32 = 0x0030;
+        const WM_DPICHANGED: u32 = 0x02E0;
+        let mut window = Window::new("dpi scroll", 300, 200)?;
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        let mut labels = Vec::new();
+        for i in 0..10 {
+            let label = Label::new(&format!("row {i}"))?;
+            labels.push(label.handle());
+            stack.add(label)?;
+        }
+        let content = stack.handle();
+        window.set_content(Shared::new(ScrollView::with_content(stack)?))?;
+        let height = |h| rect(h).bottom - rect(h).top;
+        let before = height(content);
+
+        let big = unsafe { CreateFontW(-48, 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 0, 0, null_mut()) };
+        for label in labels {
+            unsafe { SendMessageW(label, WM_SETFONT, big as usize, 0) };
+        }
+        let root = window.handle();
+        let mut at = rect(root);
+        unsafe { SendMessageW(root, WM_DPICHANGED, 0x0060_0060, (&raw mut at) as isize) };
+        assert!(height(content) > before);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
     fn a_scroll_view_reveals_the_focused_control() -> AureaResult<()> {
         #[link(name = "user32")]
         unsafe extern "system" {
