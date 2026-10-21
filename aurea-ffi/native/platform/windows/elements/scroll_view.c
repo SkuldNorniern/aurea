@@ -4,6 +4,7 @@
 #include <windows.h>
 
 #define SCROLL_LINE 16
+#define SCROLL_WHEEL_REST_PROP "AureaScrollWheelRest"
 
 static LRESULT CALLBACK ScrollViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -67,6 +68,21 @@ static void scroll_by(HWND scroll, int code) {
     scroll_to(scroll, pos);
 }
 
+int ng_windows_wheel_step(int delta, unsigned int lines, int line_px, int page, int* rest) {
+    if (lines == 0 || delta == 0 || page <= 0) {
+        *rest = 0;
+        return 0;
+    }
+    long long unit = lines == WHEEL_PAGESCROLL || (long long)lines * line_px >= page
+                         ? page
+                         : (long long)lines * line_px;
+    if ((*rest < 0) != (delta < 0)) *rest = 0;
+    long long total = *rest + (long long)delta * unit;
+    long long step = total / WHEEL_DELTA;
+    *rest = (int)(total - step * WHEEL_DELTA);
+    return (int)-step;
+}
+
 static void reveal(HWND scroll, HWND focus) {
     SCROLLINFO si = {sizeof(si), SIF_POS};
     GetScrollInfo(scroll, SB_VERT, &si);
@@ -103,12 +119,15 @@ static LRESULT CALLBACK ScrollViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
     if (msg == WM_SIZE) {
         ng_windows_scroll_view_layout(hwnd);
     } else if (msg == WM_MOUSEWHEEL) {
-        SCROLLINFO si = {sizeof(si), SIF_POS};
+        SCROLLINFO si = {sizeof(si), SIF_POS | SIF_PAGE};
         GetScrollInfo(hwnd, SB_VERT, &si);
         UINT lines = 3;
         SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
-        int delta = GET_WHEEL_DELTA_WPARAM(wParam);
-        scroll_to(hwnd, si.nPos - delta * (int)lines * ng_windows_px(hwnd, SCROLL_LINE) / WHEEL_DELTA);
+        int rest = (int)(INT_PTR)GetPropA(hwnd, SCROLL_WHEEL_REST_PROP);
+        int by = ng_windows_wheel_step(GET_WHEEL_DELTA_WPARAM(wParam), lines,
+                                       ng_windows_px(hwnd, SCROLL_LINE), (int)si.nPage, &rest);
+        SetPropA(hwnd, SCROLL_WHEEL_REST_PROP, (HANDLE)(INT_PTR)rest);
+        if (by) scroll_to(hwnd, si.nPos + by);
         return 0;
     } else if (msg == WM_NCHITTEST) {
         LRESULT hit = DefWindowProcA(hwnd, msg, wParam, lParam);
@@ -121,7 +140,10 @@ static LRESULT CALLBACK ScrollViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
     }
 
     WNDPROC old_proc = (WNDPROC)GetPropA(hwnd, SCROLL_VIEW_OLD_PROC_PROP);
-    if (msg == WM_NCDESTROY) RemovePropA(hwnd, SCROLL_VIEW_OLD_PROC_PROP);
+    if (msg == WM_NCDESTROY) {
+        RemovePropA(hwnd, SCROLL_VIEW_OLD_PROC_PROP);
+        RemovePropA(hwnd, SCROLL_WHEEL_REST_PROP);
+    }
     return old_proc ? CallWindowProcA(old_proc, hwnd, msg, wParam, lParam)
                     : DefWindowProcA(hwnd, msg, wParam, lParam);
 }

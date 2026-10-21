@@ -108,5 +108,7 @@ int ng_windows_measure_height(HWND hwnd, int width);
 int ng_windows_is_scroll_view(HWND hwnd);
 /* Sizes the content to its height and updates the scroll range. */
 void ng_windows_scroll_view_layout(HWND scroll);
+/* Pixels to scroll for a wheel `delta`; `rest` carries the remainder between events. */
+int ng_windows_wheel_step(int delta, unsigned int lines, int line_px, int page, int* rest);
 
 #endif
