@@ -384,6 +384,40 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn old_windows_dialog_results_become_path_lists() {
+        unsafe extern "C" {
+            fn ng_windows_legacy_dialog_paths(buffer: *const u16) -> *mut c_char;
+        }
+        let read = |buffer: &str| {
+            let wide: Vec<u16> = buffer.encode_utf16().collect();
+            let raw = unsafe { ng_windows_legacy_dialog_paths(wide.as_ptr()) };
+            if raw.is_null() {
+                return Vec::new();
+            }
+            let paths = unsafe { path_list(raw) };
+            unsafe { ng_platform_free_dialog_paths(raw) };
+            paths
+        };
+        assert_eq!(
+            read("C:\\a 한.txt\0\0"),
+            vec![PathBuf::from("C:\\a 한.txt")]
+        );
+        assert_eq!(
+            read("C:\\dir\0a.txt\0b.txt\0\0"),
+            vec![
+                PathBuf::from("C:\\dir\\a.txt"),
+                PathBuf::from("C:\\dir\\b.txt")
+            ]
+        );
+        assert_eq!(
+            read("C:\\\0a\0b\0\0"),
+            vec![PathBuf::from("C:\\a"), PathBuf::from("C:\\b")]
+        );
+        assert!(read("\0\0").is_empty());
+    }
+
     #[test]
     fn filters_are_written_one_per_line() {
         let d = FileDialog::new()
