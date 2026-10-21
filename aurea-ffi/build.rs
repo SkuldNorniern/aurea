@@ -1,3 +1,4 @@
+//! Compiles the native GUI sources and emits link flags for the target.
 use cc::Build;
 use pkg_config::Config as PkgConfig;
 use std::env;
