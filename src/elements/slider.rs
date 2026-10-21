@@ -126,4 +126,19 @@ mod tests {
         assert_eq!(slider.get_value(), 10.0);
         Ok(())
     }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "creates a native widget; run with --ignored"]
+    fn native_controls_are_v6_without_an_app_manifest() -> AureaResult<()> {
+        unsafe extern "system" {
+            fn SendMessageW(hwnd: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> isize;
+        }
+        const CCM_GETVERSION: u32 = 0x2008;
+        let _window = Window::new("v6", 200, 100)?;
+        let slider = Slider::new(0.0, 1.0)?;
+        let version = unsafe { SendMessageW(slider.handle(), CCM_GETVERSION, 0, 0) };
+        assert_eq!(version, 6);
+        Ok(())
+    }
 }
