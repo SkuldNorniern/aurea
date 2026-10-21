@@ -107,21 +107,48 @@ fn read() -> Option<OsVersion> {
         ) -> c_int;
     }
 
-    let mut buf = [0u8; 64];
-    let mut len = buf.len();
-    let status = unsafe {
-        sysctlbyname(
-            c"kern.osproductversion".as_ptr(),
-            buf.as_mut_ptr().cast(),
-            &raw mut len,
-            null_mut(),
-            0,
+    let sysctl_str = |name: &CStr| -> Option<String> {
+        let mut buf = [0u8; 64];
+        let mut len = buf.len();
+        let status = unsafe {
+            sysctlbyname(
+                name.as_ptr(),
+                buf.as_mut_ptr().cast(),
+                &raw mut len,
+                null_mut(),
+                0,
+            )
+        };
+        if status != 0 {
+            return None;
+        }
+        Some(
+            CStr::from_bytes_until_nul(&buf)
+                .ok()?
+                .to_str()
+                .ok()?
+                .to_owned(),
         )
     };
-    if status != 0 {
-        return None;
+
+    if let Some(version) = sysctl_str(c"kern.osproductversion") {
+        return OsVersion::parse(&version);
     }
-    OsVersion::parse(CStr::from_bytes_until_nul(&buf).ok()?.to_str().ok()?)
+    // `kern.osproductversion` arrived in macOS 10.13.4; older systems only
+    // report the Darwin kernel release.
+    if cfg!(target_os = "macos") {
+        return OsVersion::parse(&sysctl_str(c"kern.osrelease")?).and_then(macos_from_darwin);
+    }
+    None
+}
+
+/// The macOS release a pre-10.13.4 Darwin kernel shipped with. Darwin 16 is
+/// 10.12, and its minor number stands in for the patch level (it can run one
+/// ahead: Darwin 16.7 is 10.12.6).
+#[cfg(any(target_os = "macos", target_os = "ios", test))]
+fn macos_from_darwin(darwin: OsVersion) -> Option<OsVersion> {
+    let minor = darwin.major.checked_sub(4).filter(|_| darwin.major < 20)?;
+    Some(OsVersion::new(10, minor, darwin.minor))
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -188,6 +215,15 @@ mod tests {
         assert!(OsVersion::WINDOWS_11.at_least(OsVersion::WINDOWS_10));
         assert!(OsVersion::WINDOWS_7.at_least(OsVersion::WINDOWS_XP));
         assert!(!OsVersion::WINDOWS_8.at_least(OsVersion::WINDOWS_8_1));
+    }
+
+    #[test]
+    fn old_darwin_kernels_map_to_their_macos_release() {
+        let from = |release| macos_from_darwin(OsVersion::parse(release).unwrap_or_default());
+        assert_eq!(from("16.7.0"), Some(OsVersion::new(10, 12, 7)));
+        assert_eq!(from("17.4.0"), Some(OsVersion::new(10, 13, 4)));
+        assert_eq!(from("20.1.0"), None);
+        assert_eq!(from("3.0.0"), None);
     }
 
     #[test]
