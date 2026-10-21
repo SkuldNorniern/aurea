@@ -10,12 +10,14 @@ pub struct EventQueue {
 }
 
 impl EventQueue {
+    /// Creates an empty queue.
     pub fn new() -> Self {
         Self {
             events: Mutex::new(Vec::new()),
         }
     }
 
+    /// Queues `event`, merging it into a pending one of the same kind when possible.
     pub fn push(&self, event: WindowEvent) {
         let mut events = lock(&self.events);
         match &event {
@@ -74,6 +76,7 @@ impl EventQueue {
         events.push(event);
     }
 
+    /// Takes every queued event, leaving the queue empty.
     pub fn pop_all(&self) -> Vec<WindowEvent> {
         let mut events = lock(&self.events);
         take(&mut *events)

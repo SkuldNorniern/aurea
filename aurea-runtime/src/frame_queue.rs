@@ -14,17 +14,22 @@ type FrameCallback = Rc<dyn Fn() + 'static>;
 type TickerFn = Rc<RefCell<dyn FnMut(FrameInfo) -> bool>>;
 type RequestFrameHook = Option<Box<dyn Fn() + Send + Sync>>;
 
+/// Handle for a per-frame callback.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FrameCallbackId(u64);
 
+/// Handle for a registered ticker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TickerId(u64);
 
 /// Time information passed to every ticker each frame.
 #[derive(Debug, Clone, Copy)]
 pub struct FrameInfo {
+    /// When the frame started.
     pub time: Instant,
+    /// Time since the previous frame.
     pub delta: Duration,
+    /// Frame number since startup.
     pub frame: u64,
 }
 
@@ -46,9 +51,11 @@ thread_local! {
     static TICKERS: RefCell<HashMap<TickerId, TickerFn>> = RefCell::new(HashMap::new());
 }
 
+/// Requests frames and runs per-frame work.
 pub struct FrameScheduler;
 
 impl FrameScheduler {
+    /// Sets the hook that wakes the platform when a frame is requested.
     pub fn set_request_frame_hook<F: Fn() + Send + Sync + 'static>(f: F) {
         *lock(&REQUEST_FRAME_HOOK) = Some(Box::new(f));
     }
@@ -72,6 +79,7 @@ impl FrameScheduler {
         Self::notify_platform();
     }
 
+    /// Asks for a frame that repaints the canvas `handle`.
     pub fn schedule_canvas(handle: *mut c_void) {
         let mut pending = lock(&PENDING_CANVASES);
         pending.insert(handle as usize);
@@ -80,18 +88,22 @@ impl FrameScheduler {
         Self::notify_platform();
     }
 
+    /// Clears the scheduled flag, returning whether it was set.
     pub fn take() -> bool {
         FRAME_SCHEDULED.swap(false, Ordering::Relaxed)
     }
 
+    /// Whether a frame is pending.
     pub fn is_scheduled() -> bool {
         FRAME_SCHEDULED.load(Ordering::Relaxed)
     }
 
+    /// Registers the redraw callback for canvas `handle`.
     pub fn register_canvas(handle: *mut c_void, callback: CanvasRedrawCallback) {
         CANVAS_REGISTRY.with(|r| r.borrow_mut().insert(handle as usize, callback));
     }
 
+    /// Drops the redraw callback and any pending redraw for canvas `handle`.
     pub fn unregister_canvas(handle: *mut c_void) {
         CANVAS_REGISTRY.with(|r| r.borrow_mut().remove(&(handle as usize)));
         lock(&PENDING_CANVASES).remove(&(handle as usize));
@@ -107,6 +119,7 @@ impl FrameScheduler {
         id
     }
 
+    /// Drops the per-frame callback `id`.
     pub fn unregister_frame_callback(id: FrameCallbackId) {
         FRAME_CALLBACKS.with(|c| c.borrow_mut().remove(&id));
     }
@@ -123,6 +136,7 @@ impl FrameScheduler {
         id
     }
 
+    /// Drops the ticker `id`.
     pub fn unregister_ticker(id: TickerId) {
         TICKERS.with(|t| t.borrow_mut().remove(&id));
     }
@@ -146,6 +160,7 @@ impl FrameScheduler {
         }
     }
 
+    /// Runs one frame if one is scheduled.
     pub fn process_frames() -> Result<(), AureaError> {
         if !Self::take() {
             return Ok(());
