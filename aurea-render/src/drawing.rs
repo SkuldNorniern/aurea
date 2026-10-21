@@ -145,7 +145,8 @@ pub trait DrawingContext {
     /// Set a clipping rectangle.
     fn clip_rect(&mut self, rect: Rect) -> AureaResult<()>;
 
-    /// Set a clipping path.
+    /// Clips to `path`. The CPU renderer takes any shape, antialiased; GPU renderers take only
+    /// rectangles and return `Unsupported` for other shapes.
     fn clip_path(&mut self, path: &Path) -> AureaResult<()>;
 
     /// Set the global alpha (opacity).

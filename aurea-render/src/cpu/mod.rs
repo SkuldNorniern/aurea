@@ -901,8 +901,7 @@ mod conformance_tests {
         assert_px(&buf, 20, 20, 0);
     }
 
-    #[test]
-    fn clip_path_refuses_a_shape_it_cannot_enforce() {
+    fn triangle() -> Path {
         let mut triangle = Path::new();
         triangle
             .commands
@@ -914,23 +913,56 @@ mod conformance_tests {
             .commands
             .push(PathCommand::LineTo(Point::new(16.0, 28.0)));
         triangle.commands.push(PathCommand::Close);
+        triangle
+    }
 
-        let mut r = CpuRasterizer::new(W, H);
-        r.init(
-            Surface::Cpu,
-            SurfaceInfo {
-                width: W,
-                height: H,
-                scale_factor: 1.0,
-                pixels: None,
-            },
-        )
-        .expect("init");
+    #[test]
+    fn clip_path_takes_any_shape() {
+        let buf = render(|ctx| {
+            ctx.clip_path(&triangle()).expect("clip_path");
+            ctx.draw_rect(Rect::new(0.0, 0.0, 32.0, 32.0), &fill(RED))
+                .expect("draw_rect");
+        });
 
-        let mut ctx = r.begin_frame().expect("begin_frame");
-        let result = ctx.clip_path(&triangle);
+        assert_px(&buf, 16, 8, opaque(RED));
+        assert_px(&buf, 4, 24, 0);
+        assert_px(&buf, 28, 24, 0);
+        assert_px(&buf, 16, 30, 0);
+        let edge = px(&buf, 10, 16) >> 24;
+        assert!(
+            edge > 0 && edge < 255,
+            "the edge is antialiased{}",
+            dump(&buf)
+        );
+    }
 
-        assert!(result.is_err(), "a triangular clip cannot be enforced");
+    #[test]
+    fn a_rounded_clip_trims_the_corners_and_restore_lifts_it() {
+        let round = Path::rounded_rect(Rect::new(0.0, 0.0, 16.0, 16.0), 6.0);
+        let buf = render(|ctx| {
+            ctx.save().expect("save");
+            ctx.clip_path(&round).expect("clip_path");
+            ctx.draw_rect(Rect::new(0.0, 0.0, 32.0, 32.0), &fill(RED))
+                .expect("draw_rect");
+            ctx.restore().expect("restore");
+            ctx.draw_rect(Rect::new(24.0, 24.0, 4.0, 4.0), &fill(RED))
+                .expect("draw_rect");
+        });
+
+        assert_px(&buf, 0, 0, 0);
+        assert_px(&buf, 8, 8, opaque(RED));
+        assert_px(&buf, 20, 8, 0);
+        assert_px(&buf, 25, 25, opaque(RED));
+    }
+
+    #[test]
+    fn a_plain_recording_still_refuses_shaped_clips() {
+        use crate::DisplayList;
+        use crate::cpu::RecordingContext;
+
+        let mut list = DisplayList::new();
+        let mut ctx = RecordingContext::new(&mut list, W, H);
+        assert!(ctx.clip_path(&triangle()).is_err());
     }
 
     #[test]

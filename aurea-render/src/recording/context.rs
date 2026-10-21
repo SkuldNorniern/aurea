@@ -67,6 +67,7 @@ struct DrawingState {
     transform: Transform,
     opacity: f32,
     clip_rect: Option<Rect>,
+    clip_paths: usize,
     blend_mode: BlendMode,
     sampling: Sampling,
     pixel_snap: bool,
@@ -143,6 +144,9 @@ pub struct RecordingContext<'list> {
     current_transform: Transform,
     current_opacity: f32,
     current_clip_rect: Option<Rect>,
+    clip_paths: Vec<Path>,
+    current_clip_paths: Option<Arc<[Path]>>,
+    path_clips: bool,
     current_blend_mode: BlendMode,
     current_sampling: Sampling,
     current_pixel_snap: bool,
@@ -317,6 +321,9 @@ impl<'list> RecordingContext<'list> {
             current_transform: Transform::identity(),
             current_opacity: 1.0,
             current_clip_rect: None,
+            clip_paths: Vec::new(),
+            current_clip_paths: None,
+            path_clips: false,
             current_blend_mode: BlendMode::Normal,
             current_sampling: Sampling::Linear,
             current_pixel_snap: false,
@@ -324,6 +331,19 @@ impl<'list> RecordingContext<'list> {
             current_interactive_id: None,
             width,
             height,
+        }
+    }
+
+    /// Lets `clip_path` take any shape, for renderers that apply [`DisplayItem::clip_paths`].
+    pub fn set_path_clips(&mut self, enabled: bool) {
+        self.path_clips = enabled;
+    }
+
+    fn set_clip_paths_len(&mut self, len: usize) {
+        if len != self.clip_paths.len() {
+            self.clip_paths.truncate(len);
+            self.current_clip_paths =
+                (!self.clip_paths.is_empty()).then(|| Arc::from(self.clip_paths.as_slice()));
         }
     }
 
@@ -776,9 +796,19 @@ impl<'list> RecordingContext<'list> {
     }
 
     fn add_command(&mut self, command: DrawCommand) {
-        let cache_key = self.compute_cache_key(&command);
+        let mut cache_key = self.compute_cache_key(&command);
+        if let Some(paths) = &self.current_clip_paths {
+            let mut hasher = DefaultHasher::new();
+            cache_key.0.hash(&mut hasher);
+            for path in paths.iter() {
+                hash_path(path, &mut hasher);
+            }
+            cache_key = CacheKey(hasher.finish());
+        }
         let bounds = self.compute_bounds(&command);
-        let opaque = self.is_opaque(&command) && self.current_opacity >= 1.0;
+        let opaque = self.is_opaque(&command)
+            && self.current_opacity >= 1.0
+            && self.current_clip_paths.is_none();
 
         let index = DisplayIndex(self.next_index);
         self.next_index += 1;
@@ -801,7 +831,8 @@ impl<'list> RecordingContext<'list> {
             DisplayItem::new(index, cache_key, bounds, opaque, blend, command)
                 .with_clip(clip)
                 .with_opacity(self.current_opacity)
-        };
+        }
+        .with_clip_paths(self.current_clip_paths.clone());
 
         self.display_list.push(item);
     }
@@ -1053,6 +1084,7 @@ impl DrawingContext for RecordingContext<'_> {
             transform: self.current_transform,
             opacity: self.current_opacity,
             clip_rect: self.current_clip_rect,
+            clip_paths: self.clip_paths.len(),
             blend_mode: self.current_blend_mode,
             sampling: self.current_sampling,
             pixel_snap: self.current_pixel_snap,
@@ -1065,6 +1097,7 @@ impl DrawingContext for RecordingContext<'_> {
             self.current_transform = state.transform;
             self.current_opacity = state.opacity;
             self.current_clip_rect = state.clip_rect;
+            self.set_clip_paths_len(state.clip_paths);
             self.current_blend_mode = state.blend_mode;
             self.current_sampling = state.sampling;
             self.current_pixel_snap = state.pixel_snap;
@@ -1088,11 +1121,27 @@ impl DrawingContext for RecordingContext<'_> {
 
     fn clip_path(&mut self, path: &Path) -> AureaResult<()> {
         let physical = self.physical_path(path);
-        let Some(rect) = axis_aligned_rect(&physical) else {
-            return Err(AureaError::Unsupported {
-                operation: "clip_path with a non-rectangular path",
-                platform: Platform::current(),
-            });
+        let rect = match axis_aligned_rect(&physical) {
+            Some(rect) => rect,
+            None if self.path_clips => {
+                let b = path_bounds(&physical);
+                let (x, y) = (b.x.floor(), b.y.floor());
+                let rect = Rect::new(
+                    x,
+                    y,
+                    (b.x + b.width).ceil() - x,
+                    (b.y + b.height).ceil() - y,
+                );
+                self.clip_paths.push(physical);
+                self.current_clip_paths = Some(Arc::from(self.clip_paths.as_slice()));
+                rect
+            }
+            None => {
+                return Err(AureaError::Unsupported {
+                    operation: "clip_path with a non-rectangular path",
+                    platform: Platform::current(),
+                });
+            }
         };
 
         self.current_clip_rect = Some(match self.current_clip_rect {

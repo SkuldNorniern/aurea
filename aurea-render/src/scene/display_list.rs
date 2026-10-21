@@ -1,7 +1,8 @@
 //! Display list management with cacheability metadata.
 
 use crate::scene::command::DrawCommand;
-use crate::types::{BlendMode, InteractiveId, Rect};
+use crate::types::{BlendMode, InteractiveId, Path, Rect};
+use std::sync::Arc;
 
 /// Where an item sits in this frame's display list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -66,6 +67,9 @@ pub struct DisplayItem {
     pub opacity: f32,
     /// Active clip when this item was recorded, in physical pixels.
     pub clip: Option<Rect>,
+    /// Non-rectangular clips this item was recorded under, in physical pixels; `clip` holds
+    /// their bounds.
+    pub clip_paths: Option<Arc<[Path]>>,
     /// The actual draw command.
     pub command: DrawCommand,
 }
@@ -89,6 +93,7 @@ impl DisplayItem {
             blend_mode,
             opacity: 1.0,
             clip: None,
+            clip_paths: None,
             command,
         }
     }
@@ -97,6 +102,13 @@ impl DisplayItem {
     #[must_use]
     pub fn with_clip(mut self, clip: Option<Rect>) -> Self {
         self.clip = clip;
+        self
+    }
+
+    /// Sets the non-rectangular clips this item was recorded under.
+    #[must_use]
+    pub fn with_clip_paths(mut self, paths: Option<Arc<[Path]>>) -> Self {
+        self.clip_paths = paths;
         self
     }
 
@@ -126,6 +138,7 @@ impl DisplayItem {
             blend_mode,
             opacity: 1.0,
             clip: None,
+            clip_paths: None,
             command,
         }
     }

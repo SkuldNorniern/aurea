@@ -194,6 +194,60 @@ impl CpuRasterizer {
         }
     }
 
+    /// Renders `item`, then keeps only what falls inside its clip paths, antialiased.
+    fn render_clipped_item(
+        item: &DisplayItem,
+        buf: &mut [u32],
+        scratch_path: &mut PathScratch,
+        scratch_row: &mut ImageScratch,
+        bw: u32,
+        clip: ClipBox,
+    ) -> AureaResult<()> {
+        let Some(paths) = item.clip_paths.as_deref() else {
+            return Self::render_item(item, buf, scratch_path, scratch_row, bw, clip);
+        };
+        if clip.is_empty() {
+            return Ok(());
+        }
+        let (x0, x1) = (clip.x0 as usize, clip.x1 as usize);
+        let (w, h) = (clip.x1 - clip.x0, clip.y1 - clip.y0);
+        let mut saved = Vec::with_capacity(w as usize * h as usize);
+        for y in clip.y0..clip.y1 {
+            let row = y as usize * bw as usize;
+            saved.extend_from_slice(&buf[row + x0..row + x1]);
+        }
+        Self::render_item(item, buf, scratch_path, scratch_row, bw, clip)?;
+
+        let origin = Point::new(clip.x0 as f32, clip.y0 as f32);
+        let mut coverage = vec![255u8; saved.len()];
+        for path in paths {
+            let mask = Self::path_coverage(path, &Paint::new(), origin, (w, h))?;
+            for (c, m) in coverage.iter_mut().zip(mask.as_chunks::<4>().0) {
+                *c = f32_to_u8_clamped((f32::from(*c) * f32::from(m[0]) / 255.0).round());
+            }
+        }
+        let mut at = 0;
+        for y in clip.y0..clip.y1 {
+            let row = y as usize * bw as usize;
+            for px in &mut buf[row + x0..row + x1] {
+                let (old, cov) = (saved[at], u32::from(coverage[at]));
+                at += 1;
+                *px = match cov {
+                    255 => *px,
+                    0 => old,
+                    _ => {
+                        let mix = |shift: u32| {
+                            let (o, n) = ((old >> shift) & 0xFF, (*px >> shift) & 0xFF);
+                            ((o * (255 - cov) + n * cov + 127) / 255) << shift
+                        };
+                        mix(24) | mix(16) | mix(8) | mix(0)
+                    }
+                };
+            }
+        }
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn render_item(
         item: &DisplayItem,
@@ -1589,6 +1643,7 @@ impl Renderer for CpuRasterizer {
             self.logical_height,
         );
         ctx.set_scale_factor(self.scale_factor);
+        ctx.set_path_clips(true);
         Ok(Box::new(ctx))
     }
 
@@ -1655,7 +1710,7 @@ impl Renderer for CpuRasterizer {
             if !should_render_item(item, &occluded, i, &dirty_tiles, tiles_x, tiles_y) {
                 continue;
             }
-            Self::render_item(
+            Self::render_clipped_item(
                 item,
                 &mut self.frame_buffer,
                 &mut self.scratch_path,
