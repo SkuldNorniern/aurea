@@ -1,18 +1,31 @@
 /// Easing function selector.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EaseMode {
+    /// No easing.
     Linear,
+    /// Quadratic ease in.
     InQuad,
+    /// Quadratic ease out.
     OutQuad,
+    /// Quadratic ease in and out.
     InOutQuad,
+    /// Cubic ease in.
     InCubic,
+    /// Cubic ease out.
     OutCubic,
+    /// Cubic ease in and out.
     InOutCubic,
+    /// Quartic ease in.
     InQuart,
+    /// Quartic ease out.
     OutQuart,
+    /// Quartic ease in and out.
     InOutQuart,
+    /// Quintic ease in.
     InQuint,
+    /// Quintic ease out.
     OutQuint,
+    /// Quintic ease in and out.
     InOutQuint,
 }
 

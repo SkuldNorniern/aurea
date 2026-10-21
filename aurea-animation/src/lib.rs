@@ -1,3 +1,5 @@
+//! Time-based animations and eased values.
+/// Easing functions.
 pub mod easing;
 pub mod tweens;
 pub use easing::EaseMode;
@@ -24,6 +26,7 @@ pub struct Animation {
 }
 
 impl Animation {
+    /// Creates an animation of `duration` with linear easing.
     pub fn new(duration: Duration) -> Self {
         Self {
             duration,
@@ -33,11 +36,13 @@ impl Animation {
         }
     }
 
+    /// Sets the easing mode.
     pub fn ease(mut self, mode: EaseMode) -> Self {
         self.easing = mode;
         self
     }
 
+    /// Sets whether the animation repeats.
     pub fn looping(mut self, looping: bool) -> Self {
         self.looping = looping;
         self
@@ -87,10 +92,12 @@ impl Animation {
         (self.elapsed.as_secs_f32() / self.duration.as_secs_f32()).clamp(0.0, 1.0)
     }
 
+    /// Whether the animation has finished.
     pub fn is_done(&self) -> bool {
         self.elapsed > self.duration
     }
 
+    /// Restarts the animation from the beginning.
     pub fn reset(&mut self) {
         self.elapsed = Duration::ZERO;
     }

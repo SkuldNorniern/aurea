@@ -17,6 +17,7 @@ struct Value {
     used: bool,
 }
 
+/// Eased values keyed by `K`, one per key.
 #[derive(Debug)]
 pub struct Tweens<K> {
     values: HashMap<K, Value, FastBuild>,
@@ -41,6 +42,7 @@ impl<K> Default for Tweens<K> {
 }
 
 impl<K: Eq + Hash + Copy> Tweens<K> {
+    /// Creates an empty set of tweens.
     pub fn new() -> Self {
         Self::default()
     }
