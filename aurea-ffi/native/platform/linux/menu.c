@@ -1,5 +1,6 @@
 #include "menu.h"
 #include "window.h"
+#include "common/shortcuts.h"
 #include "common/errors.h"
 #include "common/input.h"
 #include "common/rust_callbacks.h"
@@ -101,76 +102,10 @@ static GtkWidget* root_for_window(GtkWidget* window) {
     return NULL;
 }
 
-static int token_eq(const char* a, const char* b) {
-    while (*a && *b) {
-        if (tolower((unsigned char)*a) != tolower((unsigned char)*b)) {
-            return 0;
-        }
-        a++;
-        b++;
-    }
-    return *a == '\0' && *b == '\0';
-}
-
-static int shortcut_keycode(const char* token, unsigned int* keycode) {
-    size_t len = strlen(token);
-    if (len == 1) {
-        char c = (char)toupper((unsigned char)token[0]);
-        if (c >= 'A' && c <= 'Z') {
-            *keycode = NG_KEY_A + (unsigned int)(c - 'A');
-            return 1;
-        }
-        if (c >= '0' && c <= '9') {
-            *keycode = NG_KEY_0 + (unsigned int)(c - '0');
-            return 1;
-        }
-    }
-
-    if (token_eq(token, "Enter")) { *keycode = NG_KEY_ENTER; return 1; }
-    if (token_eq(token, "Tab")) { *keycode = NG_KEY_TAB; return 1; }
-    if (token_eq(token, "Esc") || token_eq(token, "Escape")) { *keycode = NG_KEY_ESCAPE; return 1; }
-    if (token_eq(token, "Space")) { *keycode = NG_KEY_SPACE; return 1; }
-    if (token_eq(token, "Backspace")) { *keycode = NG_KEY_BACKSPACE; return 1; }
-    if (token_eq(token, "Delete")) { *keycode = NG_KEY_DELETE; return 1; }
-
-    if ((token[0] == 'F' || token[0] == 'f') && len <= 3) {
-        int n = atoi(token + 1);
-        if (n >= 1 && n <= 12) {
-            *keycode = NG_KEY_F1 + (unsigned int)(n - 1);
-            return 1;
-        }
-    }
-    return 0;
-}
-
 static void register_shortcut(GtkWidget* menu, const char* title, unsigned int id) {
-    const char* tab = strchr(title, '\t');
-    if (!tab || tab[1] == '\0') return;
-
     unsigned int mods = 0;
     unsigned int keycode = NG_KEY_UNKNOWN;
-    char buf[128];
-    strncpy(buf, tab + 1, sizeof(buf) - 1);
-    buf[sizeof(buf) - 1] = '\0';
-
-    char* part = strtok(buf, "+");
-    while (part) {
-        while (*part == ' ') part++;
-        if (token_eq(part, "Ctrl") || token_eq(part, "Control")) {
-            mods |= NG_MOD_CTRL;
-        } else if (token_eq(part, "Shift")) {
-            mods |= NG_MOD_SHIFT;
-        } else if (token_eq(part, "Alt") || token_eq(part, "Option")) {
-            mods |= NG_MOD_ALT;
-        } else if (token_eq(part, "Cmd") || token_eq(part, "Command") || token_eq(part, "Meta")) {
-            mods |= NG_MOD_META;
-        } else {
-            shortcut_keycode(part, &keycode);
-        }
-        part = strtok(NULL, "+");
-    }
-
-    if (keycode == NG_KEY_UNKNOWN || g_shortcut_count >= 512) return;
+    if (!ng_shortcut_parse(title, &keycode, &mods) || g_shortcut_count >= 512) return;
 
     g_shortcuts[g_shortcut_count].root = find_menu_root(menu);
     g_shortcuts[g_shortcut_count].menu = menu;

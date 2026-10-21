@@ -10,4 +10,7 @@ int ng_shortcuts_match(void* window, unsigned int keycode, unsigned int modifier
 /* Forgets the window. */
 void ng_shortcuts_clear(void* window);
 
+/* Reads the shortcut after the tab in a menu title such as "Save\tCtrl+S"; 0 when it has none. */
+int ng_shortcut_parse(const char* title, unsigned int* keycode, unsigned int* modifiers);
+
 #endif

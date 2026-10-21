@@ -143,7 +143,11 @@ static NSString* key_named(NSString* name) {
         names = @{
             @"enter": @('\r'), @"return": @('\r'), @"tab": @('\t'), @"escape": @(0x1B),
             @"esc": @(0x1B), @"space": @(' '), @"backspace": @(NSBackspaceCharacter),
-            @"delete": @(NSDeleteFunctionKey), @"plus": @('+'),
+            @"delete": @(NSDeleteFunctionKey), @"plus": @('+'), @"insert": @(NSInsertFunctionKey),
+            @"home": @(NSHomeFunctionKey), @"end": @(NSEndFunctionKey),
+            @"pageup": @(NSPageUpFunctionKey), @"pagedown": @(NSPageDownFunctionKey),
+            @"up": @(NSUpArrowFunctionKey), @"down": @(NSDownArrowFunctionKey),
+            @"left": @(NSLeftArrowFunctionKey), @"right": @(NSRightArrowFunctionKey),
         };
     }
     NSNumber* code = names[[name lowercaseString]];
