@@ -7,9 +7,10 @@ use super::offsets::{Unit, to_bytes, to_units};
 use crate::elements::native::{CallbackWatch, NativeElement, read_text};
 use crate::ffi::c_text;
 use crate::ffi::{
-    NG_ERROR_UNSUPPORTED, ng_platform_set_text_content, ng_platform_text_can_undo,
-    ng_platform_text_get_selection, ng_platform_text_replace, ng_platform_text_set_feature,
-    ng_platform_text_set_selection, ng_platform_text_undo, ng_platform_text_view_invalidate,
+    NG_ERROR_UNSUPPORTED, NG_TEXT_FEATURE_SECRET, ng_platform_set_text_content,
+    ng_platform_text_can_undo, ng_platform_text_get_selection, ng_platform_text_replace,
+    ng_platform_text_set_feature, ng_platform_text_set_selection, ng_platform_text_undo,
+    ng_platform_text_view_invalidate,
 };
 use crate::{AureaError, AureaResult, Platform};
 use std::cell::{Cell, RefCell};
@@ -201,6 +202,10 @@ impl TextBase {
         }
         self.features.set(features);
         Ok(())
+    }
+
+    pub(crate) fn set_secret(&self, on: bool) -> AureaResult<()> {
+        self.switch(NG_TEXT_FEATURE_SECRET, on)
     }
 
     fn switch(&self, feature: c_int, on: bool) -> AureaResult<()> {
