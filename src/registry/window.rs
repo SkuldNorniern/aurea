@@ -150,6 +150,20 @@ pub fn push_window_event(handle: *mut c_void, event: WindowEvent) {
     }
 }
 
+/// Queues `event` for every live window, for a change that belongs to none in particular.
+pub fn push_event_to_all_windows(event: WindowEvent) {
+    let queues: Vec<Arc<EventQueue>> = {
+        let by_handle = lock(&WINDOW_QUEUE_BY_HANDLE);
+        by_handle.values().filter_map(Weak::upgrade).collect()
+    };
+    for queue in &queues {
+        queue.push(event.clone());
+    }
+    if !queues.is_empty() {
+        FrameScheduler::wake();
+    }
+}
+
 /// Dispatches queued events for every live window.
 pub fn process_all_window_events() {
     let live: Vec<(usize, Arc<EventQueue>)> = {
@@ -218,5 +232,25 @@ mod tests {
             "a new window starts fresh"
         );
         unregister_event_queue(window);
+    }
+
+    #[test]
+    fn a_theme_change_reaches_every_window() {
+        let (a, b) = (0x7e1a as *mut c_void, 0x7e1b as *mut c_void);
+        let (qa, qb) = (Arc::new(EventQueue::new()), Arc::new(EventQueue::new()));
+        register_event_queue(a, &qa);
+        register_event_queue(b, &qb);
+        push_event_to_all_windows(WindowEvent::ThemeChanged { dark: true });
+        for queue in [&qa, &qb] {
+            let events = queue.pop_all();
+            assert!(
+                events
+                    .iter()
+                    .any(|e| matches!(e, WindowEvent::ThemeChanged { dark: true })),
+                "{events:?}"
+            );
+        }
+        unregister_event_queue(a);
+        unregister_event_queue(b);
     }
 }

@@ -11,7 +11,7 @@ use crate::registry::elements::{
     invoke_button_callback, invoke_sidebar_selected, invoke_tab_detach, invoke_tab_selected,
 };
 use crate::registry::menu::invoke_menu_callback;
-use crate::registry::window::scale_factor_changed;
+use crate::registry::window::{push_event_to_all_windows, scale_factor_changed};
 use crate::render::notify_canvas_destroyed;
 use crate::window::{
     KeyCode, Modifiers, MouseButton, MouseButtons, PenPhase, PenSample, PenTool, WindowEvent,
@@ -228,6 +228,14 @@ pub extern "C" fn ng_invoke_focus_changed(window: *mut c_void, focused: c_int) {
             WindowEvent::Unfocused
         };
         push_window_event(window, event);
+    });
+}
+
+/// Tells every window the system switched between light and dark.
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_theme_changed(dark: c_int) {
+    guard("ng_invoke_theme_changed", || {
+        push_event_to_all_windows(WindowEvent::ThemeChanged { dark: dark != 0 });
     });
 }
 

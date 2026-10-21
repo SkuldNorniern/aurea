@@ -53,7 +53,7 @@ pub use crate::elements::{
     ProgressBar, ScrollView, SidebarList, Slider, Spacer, SplitOrientation, SplitView, Stack,
     TabBar, TextEditor, TextField, TextView,
 };
-use crate::ffi::ng_platform_reduced_motion;
+use crate::ffi::{ng_platform_prefers_dark, ng_platform_reduced_motion};
 pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
 pub use crate::tray::TrayIcon;
 pub use crate::window::clipboard;
@@ -82,6 +82,16 @@ pub use aurea_foundation::{
 /// motion", GTK's animation switch, iOS' "reduce motion".
 pub fn reduced_motion() -> bool {
     unsafe { ng_platform_reduced_motion() != 0 }
+}
+
+/// Whether the system appearance is dark, or `None` where Aurea cannot tell yet. A change arrives
+/// as [`crate::WindowEvent::ThemeChanged`] on every window.
+pub fn prefers_dark() -> Option<bool> {
+    match unsafe { ng_platform_prefers_dark() } {
+        0 => Some(false),
+        1 => Some(true),
+        _ => None,
+    }
 }
 
 /// How well Aurea supports `capability` in this build, on this platform.
