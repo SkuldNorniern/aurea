@@ -122,6 +122,9 @@ int ng_macos_tray_add_item(NGHandle handle, const char* title, unsigned int id) 
     return NG_SUCCESS;
 }
 
+/* The settings arrive on a queue of the notification center's own, so the
+   UI thread can wait for them briefly. Denied notifications are an error the
+   app can see; undecided ones ask the user and post once allowed. */
 API_AVAILABLE(macos(10.14))
 static int ng_macos_tray_notify_center(const char* title, const char* body) {
     UNMutableNotificationContent* content = [[UNMutableNotificationContent alloc] init];
@@ -132,6 +135,20 @@ static int ng_macos_tray_notify_center(const char* title, const char* body) {
                                              content:content
                                              trigger:nil];
     UNUserNotificationCenter* center = [UNUserNotificationCenter currentNotificationCenter];
+
+    dispatch_semaphore_t answered = dispatch_semaphore_create(0);
+    __block UNAuthorizationStatus status = UNAuthorizationStatusNotDetermined;
+    [center getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings* settings) {
+        status = settings.authorizationStatus;
+        dispatch_semaphore_signal(answered);
+    }];
+    BOOL known = dispatch_semaphore_wait(answered, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) == 0;
+
+    if (known && status == UNAuthorizationStatusDenied) return NG_ERROR_PLATFORM_SPECIFIC;
+    if (known && status != UNAuthorizationStatusNotDetermined) {
+        [center addNotificationRequest:request withCompletionHandler:nil];
+        return NG_SUCCESS;
+    }
     [center requestAuthorizationWithOptions:UNAuthorizationOptionAlert | UNAuthorizationOptionSound
                           completionHandler:^(BOOL granted, NSError* error) {
         (void)error;

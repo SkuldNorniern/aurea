@@ -93,7 +93,8 @@ impl TrayIcon {
         Ok(())
     }
 
-    /// Shows a notification from the icon, like "still running here".
+    /// Shows a notification from the icon, like "still running here". Fails where the user has
+    /// turned the app's notifications off.
     pub fn notify(&self, title: &str, body: &str) -> AureaResult<()> {
         ui_thread::check("TrayIcon::notify");
         let title = c_title(title)?;
