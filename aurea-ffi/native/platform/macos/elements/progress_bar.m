@@ -47,7 +47,9 @@ int ng_macos_progress_bar_set_enabled(NGHandle progress_bar, int enabled) {
     if (!progress_bar) return NG_ERROR_INVALID_HANDLE;
     
     NSProgressIndicator* progressBar = (__bridge NSProgressIndicator*)progress_bar;
-    [progressBar setControlSize:enabled ? NSControlSizeRegular : NSControlSizeSmall];
+    /* A progress indicator has no disabled look of its own; dimming it is
+       what AppKit does to disabled controls. */
+    [progressBar setAlphaValue:enabled ? 1.0 : 0.5];
     return NG_SUCCESS;
 }
 
