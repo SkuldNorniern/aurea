@@ -66,6 +66,7 @@ int ng_linux_sidebar_list_add_section(NGHandle sidebar, const char* title) {
     gtk_widget_set_margin_start(label, 6);
     gtk_widget_set_margin_end(label, 6);
     gtk_widget_set_halign(label, GTK_ALIGN_START);
+    gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
     PangoAttrList* attrs = pango_attr_list_new();
     pango_attr_list_insert(attrs, pango_attr_weight_new(PANGO_WEIGHT_BOLD));
     pango_attr_list_insert(attrs, pango_attr_scale_new(0.9));
@@ -93,10 +94,11 @@ int ng_linux_sidebar_list_add_item(NGHandle sidebar, const char* title, int inde
     GtkWidget* row = gtk_list_box_row_new();
     gtk_list_box_row_set_selectable(GTK_LIST_BOX_ROW(row), TRUE);
     GtkWidget* label = gtk_label_new(title);
-    int margin = 6 + indent * INDENT_STEP;
+    int margin = 6 + (indent > 0 ? (indent > 0x7FFF ? 0x7FFF : indent) : 0) * INDENT_STEP;
     gtk_widget_set_margin_start(label, margin);
     gtk_widget_set_margin_end(label, 6);
     gtk_widget_set_halign(label, GTK_ALIGN_START);
+    gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
     gtk_container_add(GTK_CONTAINER(row), label);
     gtk_container_add(GTK_CONTAINER(box), row);
     gtk_widget_show_all(row);

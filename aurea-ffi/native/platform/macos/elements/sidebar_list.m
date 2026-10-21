@@ -61,7 +61,7 @@ typedef NS_ENUM(NSInteger, NGSidebarRowType) {
     NGSidebarRow* row = [[NGSidebarRow alloc] init];
     row.type = NGSidebarRowTypeItem;
     row.title = title ?: @"";
-    row.indent = indent;
+    row.indent = MAX(indent, 0);
     row.itemIndex = _nextItemIndex++;
     [_rows addObject:row];
     [self setNeedsDisplay:YES];
