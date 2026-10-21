@@ -2,13 +2,14 @@
 //! manager, and find the folders an app keeps its own files in.
 
 use std::env;
-use std::path::{Path, PathBuf};
+use std::path::{self, Path, PathBuf};
 use std::process::Command;
 
 use crate::{AureaError, AureaResult, Platform};
 
 /// Opens `path` the way double-clicking it in the file manager would.
 pub fn open_path(path: &Path) -> AureaResult<()> {
+    let path = &launch_path(path);
     if cfg!(windows) {
         spawn(Command::new("explorer.exe").arg(path))
     } else if cfg!(target_os = "macos") {
@@ -27,6 +28,7 @@ pub fn open_path(path: &Path) -> AureaResult<()> {
 /// Shows the folder holding `path` in the file manager, with `path` selected where the file manager
 /// can do that.
 pub fn reveal_path(path: &Path) -> AureaResult<()> {
+    let path = &launch_path(path);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -146,6 +148,17 @@ fn file_uri(path: &Path) -> String {
     uri
 }
 
+/// `path` made absolute, since file managers do not resolve against this process's directory and
+/// a leading `-` reads as an option to `open` or `xdg-open`.
+fn launch_path(path: &Path) -> PathBuf {
+    let path = path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    if path.as_os_str().as_encoded_bytes().first() == Some(&b'-') {
+        Path::new(".").join(path)
+    } else {
+        path
+    }
+}
+
 fn spawn(command: &mut Command) -> AureaResult<()> {
     command
         .spawn()
@@ -163,6 +176,15 @@ fn unsupported(operation: &'static str) -> AureaResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn launched_paths_are_absolute() {
+        let cwd = env::current_dir().expect("cwd");
+        assert_eq!(launch_path(Path::new("-n")), cwd.join("-n"));
+        assert_eq!(launch_path(Path::new("a-b")), cwd.join("a-b"));
+        let root = cwd.ancestors().last().expect("root").join("-n");
+        assert_eq!(launch_path(&root), root);
+    }
 
     #[test]
     fn file_uri_escapes_what_a_uri_or_gvariant_string_cannot_hold() {
