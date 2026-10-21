@@ -94,10 +94,12 @@ GetModuleHandleW
 GetMonitorInfoW
 GetNextDlgTabItem
 GetObjectA
+GetOpenFileNameW
 GetParent
 GetProcAddress
 GetPropA
 GetRawInputData
+GetSaveFileNameW
 GetScrollInfo
 GetStockObject
 GetSubMenu
@@ -198,7 +200,9 @@ SetWindowLongPtrW
 SetWindowPos
 SetWindowTextW
 SetWinEventHook
+SHBrowseForFolderW
 Shell_NotifyIconW
+SHGetPathFromIDListW
 ShowCursor
 ShowWindow
 strcpy_s
@@ -220,6 +224,7 @@ UpdateWindow
 WaitForMultipleObjects
 wcscat_s
 wcscmp
+wcscpy
 wcscpy_s
 wcslen
 wcsncmp

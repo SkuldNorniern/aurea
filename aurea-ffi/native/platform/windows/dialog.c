@@ -7,6 +7,7 @@
 #include <commctrl.h>
 #include <commdlg.h>
 #include <shobjidl.h>
+#include <shlobj.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -72,18 +73,124 @@ static int parse_filters(const char* filters, Filter* out) {
     return count;
 }
 
-static void append_path(IShellItem* item, char** out, size_t* len) {
-    wchar_t* path = NULL;
-    if (FAILED(IShellItem_GetDisplayName(item, SIGDN_FILESYSPATH, &path)) || !path) return;
+static void append_wide(const wchar_t* path, char** out, size_t* len) {
     int n = WideCharToMultiByte(CP_UTF8, 0, path, -1, NULL, 0, NULL, NULL);
-    char* grown = n > 0 ? (char*)realloc(*out, *len + (size_t)n + 1) : NULL;
+    char* grown = n > 1 ? (char*)realloc(*out, *len + (size_t)n + 1) : NULL;
     if (grown) {
         *out = grown;
         WideCharToMultiByte(CP_UTF8, 0, path, -1, *out + *len, n, NULL, NULL);
         *len += (size_t)n;
         (*out)[*len] = '\0';
     }
+}
+
+static void append_path(IShellItem* item, char** out, size_t* len) {
+    wchar_t* path = NULL;
+    if (FAILED(IShellItem_GetDisplayName(item, SIGDN_FILESYSPATH, &path)) || !path) return;
+    append_wide(path, out, len);
     CoTaskMemFree(path);
+}
+
+char* ng_windows_legacy_dialog_paths(const wchar_t* buffer) {
+    char* out = NULL;
+    size_t len = 0;
+    const wchar_t* first = buffer;
+    const wchar_t* next = first + wcslen(first) + 1;
+    if (!*first) return NULL;
+    if (!*next) {
+        append_wide(first, &out, &len);
+        return out;
+    }
+    for (; *next; next += wcslen(next) + 1) {
+        size_t dir = wcslen(first);
+        size_t name = wcslen(next);
+        wchar_t* joined = (wchar_t*)malloc((dir + name + 2) * sizeof(wchar_t));
+        if (!joined) break;
+        memcpy(joined, first, dir * sizeof(wchar_t));
+        size_t at = dir;
+        if (at && joined[at - 1] != L'\\') joined[at++] = L'\\';
+        memcpy(joined + at, next, (name + 1) * sizeof(wchar_t));
+        append_wide(joined, &out, &len);
+        free(joined);
+    }
+    return out;
+}
+
+static wchar_t* backslashed(const char* utf8) {
+    wchar_t* wide = utf8 && *utf8 ? ng_windows_utf8_to_wide(utf8) : NULL;
+    for (wchar_t* c = wide; c && *c; c++) {
+        if (*c == L'/') *c = L'\\';
+    }
+    return wide;
+}
+
+static char* legacy_folder(HWND owner, const char* title) {
+    wchar_t* wide_title = title && *title ? ng_windows_utf8_to_wide(title) : NULL;
+    BROWSEINFOW info = {0};
+    info.hwndOwner = owner;
+    info.lpszTitle = wide_title;
+    info.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+    PIDLIST_ABSOLUTE chosen = SHBrowseForFolderW(&info);
+    free(wide_title);
+    if (!chosen) return NULL;
+    wchar_t path[MAX_PATH + 1] = {0};
+    char* out = NULL;
+    size_t len = 0;
+    if (SHGetPathFromIDListW(chosen, path)) append_wide(path, &out, &len);
+    CoTaskMemFree(chosen);
+    return out;
+}
+
+#define LEGACY_BUFFER 32768
+
+static char* legacy_file(HWND owner, int kind, const char* title, Filter* list, int count,
+                         const char* default_name, const char* directory, int multiple) {
+    size_t filter_len = 1;
+    for (int i = 0; i < count; i++) filter_len += wcslen(list[i].name) + wcslen(list[i].spec) + 2;
+    wchar_t* filter = count ? (wchar_t*)calloc(filter_len, sizeof(wchar_t)) : NULL;
+    for (int i = 0, at = 0; filter && i < count; i++) {
+        wcscpy(filter + at, list[i].name);
+        at += (int)wcslen(list[i].name) + 1;
+        wcscpy(filter + at, list[i].spec);
+        at += (int)wcslen(list[i].spec) + 1;
+    }
+    wchar_t* buffer = (wchar_t*)calloc(LEGACY_BUFFER, sizeof(wchar_t));
+    wchar_t* name = backslashed(default_name);
+    wchar_t* folder = backslashed(directory);
+    wchar_t* wide_title = title && *title ? ng_windows_utf8_to_wide(title) : NULL;
+    wchar_t ext[32] = {0};
+    if (count && wcsncmp(list[0].spec, L"*.", 2) == 0 && wcscmp(list[0].spec, L"*.*") != 0) {
+        wcsncpy(ext, list[0].spec + 2, 31);
+        wchar_t* semi = wcschr(ext, L';');
+        if (semi) *semi = L'\0';
+    }
+    char* out = NULL;
+    if (buffer) {
+        if (name) wcsncpy(buffer, name, LEGACY_BUFFER - 1);
+        OPENFILENAMEW ofn = {0};
+        ofn.lStructSize = sizeof(ofn);
+        ofn.hwndOwner = owner;
+        ofn.lpstrFilter = filter;
+        ofn.lpstrFile = buffer;
+        ofn.nMaxFile = LEGACY_BUFFER;
+        ofn.lpstrInitialDir = folder;
+        ofn.lpstrTitle = wide_title;
+        ofn.lpstrDefExt = ext[0] ? ext : NULL;
+        ofn.Flags = OFN_EXPLORER | OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST;
+        if (kind == NG_DIALOG_SAVE) {
+            ofn.Flags |= OFN_OVERWRITEPROMPT;
+        } else {
+            ofn.Flags |= OFN_FILEMUSTEXIST | (multiple ? OFN_ALLOWMULTISELECT : 0);
+        }
+        BOOL ok = kind == NG_DIALOG_SAVE ? GetSaveFileNameW(&ofn) : GetOpenFileNameW(&ofn);
+        if (ok) out = ng_windows_legacy_dialog_paths(buffer);
+    }
+    free(filter);
+    free(buffer);
+    free(name);
+    free(folder);
+    free(wide_title);
+    return out;
 }
 
 static void set_folder(IFileDialog* dialog, const char* directory) {
@@ -139,7 +246,20 @@ char* ng_windows_file_dialog(NGHandle window, int kind, const char* title, const
         ? CoCreateInstance(&CLSID_FileSaveDialog, NULL, CLSCTX_INPROC_SERVER, &IID_IFileSaveDialog, (void**)&dialog)
         : CoCreateInstance(&CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, &IID_IFileOpenDialog, (void**)&dialog);
     char* result = NULL;
-    if (SUCCEEDED(made) && dialog) {
+    if (FAILED(made) || !dialog) {
+        HWND owner = (HWND)window;
+        Filter list[MAX_FILTERS];
+        int count = kind == NG_DIALOG_FOLDER ? 0 : parse_filters(filters, list);
+        if (owner) ng_windows_modal_begin(owner);
+        result = kind == NG_DIALOG_FOLDER
+            ? legacy_folder(owner, title)
+            : legacy_file(owner, kind, title, list, count, default_name, directory, multiple);
+        if (owner) ng_windows_modal_end(owner);
+        for (int i = 0; i < count; i++) {
+            free(list[i].name);
+            free(list[i].spec);
+        }
+    } else {
         FILEOPENDIALOGOPTIONS options = 0;
         IFileDialog_GetOptions(dialog, &options);
         options |= FOS_FORCEFILESYSTEM;
