@@ -52,9 +52,6 @@
     }
 }
 
-/* The frame is the layer's contents. Drawing through drawRect: would have
-   AppKit replace them on every redisplay (a resize, a light/dark switch), so
-   the layer is updated in place and only its background is set here. */
 - (BOOL)wantsUpdateLayer {
     return YES;
 }
@@ -169,8 +166,6 @@ static IOSurfaceRef ng_macos_create_io_surface(unsigned int width, unsigned int 
         (id)kIOSurfacePixelFormat: @(kCVPixelFormatType_32BGRA),
     };
     IOSurfaceRef surface = IOSurfaceCreate((CFDictionaryRef)props);
-    /* Frames are drawn in sRGB; untagged, the compositor would show them as
-       the display's own colours and oversaturate them on a wide-gamut screen. */
     static CFPropertyListRef srgb = NULL;
     if (!srgb) {
         CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);

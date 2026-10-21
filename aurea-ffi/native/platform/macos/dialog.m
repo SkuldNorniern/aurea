@@ -42,8 +42,6 @@ static void allow_filter(NSSavePanel* panel, NGDialogFilter* filter) {
 #pragma clang diagnostic pop
 }
 
-/* macOS panels have no file-type list of their own, so with more than one
-   filter a pop-up below the browser picks between them, as Mac apps do. */
 @interface NGFilterPicker : NSObject
 @property (weak) NSSavePanel* panel;
 @property (copy) NSArray<NGDialogFilter*>* filters;
@@ -77,8 +75,6 @@ static NSView* filter_picker_view(NGFilterPicker* picker) {
     return row;
 }
 
-/* Each path ends in a NUL and an empty one ends the list: a file name may
-   hold a line break, never a NUL. */
 static char* joined(NSArray<NSURL*>* urls) {
     NSMutableData* list = [NSMutableData data];
     for (NSURL* url in urls) {
@@ -115,7 +111,6 @@ char* ng_macos_file_dialog(NGHandle window, int kind, const char* title, const c
             [panel setTitle:ng_macos_to_nsstring(title)];
         }
         NSArray<NGDialogFilter*>* list = kind == NG_DIALOG_FOLDER ? @[] : filters_of(filters);
-        /* The pop-up holds its target weakly; this keeps it for the whole panel. */
         __attribute__((objc_precise_lifetime)) NGFilterPicker* picker = nil;
         if (list.count > 0) allow_filter(panel, list[0]);
         if (list.count > 1) {

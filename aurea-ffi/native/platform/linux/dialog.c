@@ -48,8 +48,6 @@ char* ng_linux_file_dialog(NGHandle window, int kind, const char* title, const c
     if (gtk_native_dialog_run(GTK_NATIVE_DIALOG(native)) == GTK_RESPONSE_ACCEPT) {
         GSList* names = gtk_file_chooser_get_filenames(chooser);
         GString* joined = g_string_new(NULL);
-        /* Each path ends in a NUL and an empty one ends the list: a file
-           name may hold a line break, never a NUL. */
         for (GSList* l = names; l; l = l->next) {
             const char* name = (const char*)l->data;
             if (name && *name) g_string_append_len(joined, name, (gssize)strlen(name) + 1);

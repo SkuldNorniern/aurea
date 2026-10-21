@@ -896,8 +896,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
     return DefWindowProcW(hwnd, uMsg, wParam, lParam);
 }
 
-/* "Choose your app mode" in Settings. Before Windows 10 1809 there is no
-   such key, and apps are light. */
 int ng_windows_prefers_dark(void) {
     HKEY key = NULL;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",

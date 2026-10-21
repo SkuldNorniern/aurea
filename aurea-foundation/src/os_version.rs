@@ -134,8 +134,6 @@ fn read() -> Option<OsVersion> {
     if let Some(version) = sysctl_str(c"kern.osproductversion") {
         return OsVersion::parse(&version);
     }
-    // `kern.osproductversion` arrived in macOS 10.13.4; older systems only
-    // report the Darwin kernel release.
     if cfg!(target_os = "macos") {
         return OsVersion::parse(&sysctl_str(c"kern.osrelease")?).and_then(macos_from_darwin);
     }

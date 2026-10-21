@@ -76,7 +76,6 @@ static void append_path(IShellItem* item, char** out, size_t* len) {
     wchar_t* path = NULL;
     if (FAILED(IShellItem_GetDisplayName(item, SIGDN_FILESYSPATH, &path)) || !path) return;
     int n = WideCharToMultiByte(CP_UTF8, 0, path, -1, NULL, 0, NULL, NULL);
-    /* Each path keeps its NUL, and one more always follows to end the list. */
     char* grown = n > 0 ? (char*)realloc(*out, *len + (size_t)n + 1) : NULL;
     if (grown) {
         *out = grown;

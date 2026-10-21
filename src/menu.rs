@@ -103,7 +103,6 @@ impl MenuShortcut {
             }
         }
 
-        // The macOS menu reads "Ctrl" as Cmd, so the Control key itself is spelled out.
         if self.ctrl {
             parts.push(
                 if cfg!(target_os = "macos") {

@@ -91,8 +91,6 @@ int ng_macos_tray_set_icon_rgba(NGHandle handle, const unsigned char* rgba, unsi
     CGFloat w = TRAY_ICON_POINTS * (CGFloat)width / (CGFloat)height;
     NSImage* image = [[NSImage alloc] initWithSize:NSMakeSize(w, TRAY_ICON_POINTS)];
     [image addRepresentation:rep];
-    /* A one-colour icon is a template: the menu bar tints it for light, dark
-       and highlighted, as it does the system's own. */
     image.template = rgba_is_monochrome(rgba, (size_t)width * height);
     tray.item.button.image = image;
     tray.item.length = width == height ? NSSquareStatusItemLength : NSVariableStatusItemLength;
@@ -122,9 +120,6 @@ int ng_macos_tray_add_item(NGHandle handle, const char* title, unsigned int id) 
     return NG_SUCCESS;
 }
 
-/* The settings arrive on a queue of the notification center's own, so the
-   UI thread can wait for them briefly. Denied notifications are an error the
-   app can see; undecided ones ask the user and post once allowed. */
 API_AVAILABLE(macos(10.14))
 static int ng_macos_tray_notify_center(const char* title, const char* body) {
     UNMutableNotificationContent* content = [[UNMutableNotificationContent alloc] init];

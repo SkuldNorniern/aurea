@@ -24,8 +24,6 @@ static BOOL s_in_nsapp_run = NO;
 }
 
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender {
-    /* Outside run, quitting would exit() under the app's own loop. Its
-       windows are asked to close instead, so the app shuts down its way. */
     if (!s_in_nsapp_run) return ng_macos_request_close_all() > 0 ? NSTerminateCancel : NSTerminateNow;
     [sender stop:nil];
     NSEvent* nudge = [NSEvent otherEventWithType:NSEventTypeApplicationDefined
@@ -131,8 +129,6 @@ static void legacy_display_link_frame_idle(void) {
 }
 #pragma clang diagnostic pop
 
-/* Frames are paced by the display the key window is on, so a window moved
-   to a 120 Hz screen draws at 120 Hz. */
 void ng_macos_display_link_follow(NSScreen* screen) {
     if (!screen || screen == s_display_link_screen) return;
     s_display_link_screen = screen;

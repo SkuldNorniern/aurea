@@ -8,8 +8,6 @@ NSString* ng_macos_to_nsstring(const char* str) {
     return str ? [NSString stringWithUTF8String:str] : nil;
 }
 
-/* Straight RGBA8 pixels from the app, tagged sRGB so they look the same on a
-   wide-gamut display as everywhere else. */
 NSBitmapImageRep* ng_macos_rgba_bitmap(const unsigned char* rgba, unsigned int width, unsigned int height) {
     if (!rgba || width == 0 || height == 0 || width > INT_MAX / 4 || height > INT_MAX) return nil;
     NSBitmapImageRep* bitmap = [[NSBitmapImageRep alloc]
@@ -46,8 +44,6 @@ int ng_macos_prefers_dark(void) {
     return 0;
 }
 
-/* Tells the app when the appearance flips, light to dark or back, whether
-   the user switched it or it followed the time of day. */
 @interface NGAppearanceWatch : NSObject
 @property (nonatomic, assign) int dark;
 @end

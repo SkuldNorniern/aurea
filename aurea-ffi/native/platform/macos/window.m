@@ -395,8 +395,6 @@ static BOOL is_pen_event(NSEvent* event) {
     [self buttonWentUp];
 }
 
-/* A wheel without precise deltas reports lines; scrolling on macOS is in
-   points, so a line is taken as 40 of them, as browsers do. */
 static const double NG_MACOS_POINTS_PER_LINE = 40.0;
 
 - (void)scrollWheel:(NSEvent*)event {
@@ -638,8 +636,6 @@ static NSMutableDictionary* windowDelegates = nil;
 static NSMutableDictionary* windowCursorGrabModes = nil;
 static NSMutableDictionary* windowRawSuppress = nil;
 
-/* The cursor is hidden only while it is over a window that asked, and that
-   window is key; one hide is held at most, so shows and hides stay paired. */
 static BOOL s_cursor_hidden = NO;
 
 static void ng_macos_cursor_set_hidden(BOOL hidden) {
@@ -667,7 +663,6 @@ static void ng_macos_cursor_refresh(NSWindow* window) {
 }
 
 static void ng_macos_warp_cursor(NSPoint cocoa) {
-    /* Quartz counts y down from the top of the primary display; Cocoa up from its bottom. */
     CGFloat primaryHeight = NSMaxY([[[NSScreen screens] firstObject] frame]);
     CGWarpMouseCursorPosition(CGPointMake(cocoa.x, primaryHeight - cocoa.y));
 }
@@ -1010,8 +1005,6 @@ int ng_macos_window_set_cursor_visible(NGHandle window, int visible) {
     return NG_SUCCESS;
 }
 
-/* macOS has no confinement, so a confined cursor that reaches the edge of
-   the content area is put back just inside it. */
 static void ng_macos_cursor_confine(NSWindow* window) {
     if (!window || ![window isKeyWindow]) return;
     if (ng_macos_get_cursor_grab_mode((__bridge void*)window) != 1) return;
@@ -1394,8 +1387,6 @@ void ng_macos_window_show(NGHandle window) {
     NSWindow* nsWindow = (__bridge NSWindow*)window;
     [NSApp activateIgnoringOtherApps:YES];
     [nsWindow makeKeyAndOrderFront:nil];
-    /* Focus goes to the content only if nothing in the window has it, so a
-       text field the user was typing in keeps it. */
     NSView* contentView = [nsWindow contentView];
     id responder = [nsWindow firstResponder];
     if (contentView && (!responder || responder == nsWindow)) {

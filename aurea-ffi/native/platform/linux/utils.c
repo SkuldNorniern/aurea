@@ -28,9 +28,6 @@ gboolean ng_linux_is_initialized(void) {
     return gtk_initialized;
 }
 
-/* GNOME 42 and later keep the light/dark choice in the desktop's
-   color-scheme key; older desktops only switch the GTK theme. The schema is
-   looked up first, since asking GSettings for a missing one aborts. */
 static GSettings* ng_linux_interface_settings(void) {
     static gboolean looked = FALSE;
     static GSettings* settings = NULL;
@@ -104,7 +101,6 @@ static void ng_linux_watch_theme(void) {
     if (desktop) {
         g_signal_connect(desktop, "changed::color-scheme", G_CALLBACK(ng_linux_on_desktop_setting), NULL);
     }
-    /* Reading the key is also what subscribes GSettings to its changes. */
     g_theme_dark = ng_linux_prefers_dark();
 }
 
