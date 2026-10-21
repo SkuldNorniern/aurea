@@ -126,10 +126,17 @@ static char* drop_paths(GtkSelectionData* data) {
     return g_string_free(out, out->len == 0);
 }
 
+static void drag_at(GtkWidget* w, gint x, gint y) {
+    int ox = 0;
+    int oy = 0;
+    ng_linux_content_origin(w, &ox, &oy);
+    g_object_set_data(G_OBJECT(w), "aurea-drag-x", GINT_TO_POINTER(x - ox));
+    g_object_set_data(G_OBJECT(w), "aurea-drag-y", GINT_TO_POINTER(y - oy));
+}
+
 static gboolean on_drag_motion(GtkWidget* w, GdkDragContext* ctx, gint x, gint y, guint time, gpointer d) {
     (void)d;
-    g_object_set_data(G_OBJECT(w), "aurea-drag-x", GINT_TO_POINTER(x));
-    g_object_set_data(G_OBJECT(w), "aurea-drag-y", GINT_TO_POINTER(y));
+    drag_at(w, x, y);
     g_object_set_data(G_OBJECT(w), "aurea-drag-drop", GINT_TO_POINTER(0));
     GdkAtom target = gtk_drag_dest_find_target(w, ctx, NULL);
     if (target == GDK_NONE) return FALSE;
@@ -140,8 +147,7 @@ static gboolean on_drag_motion(GtkWidget* w, GdkDragContext* ctx, gint x, gint y
 
 static gboolean on_drag_drop(GtkWidget* w, GdkDragContext* ctx, gint x, gint y, guint time, gpointer d) {
     (void)d;
-    g_object_set_data(G_OBJECT(w), "aurea-drag-x", GINT_TO_POINTER(x));
-    g_object_set_data(G_OBJECT(w), "aurea-drag-y", GINT_TO_POINTER(y));
+    drag_at(w, x, y);
     g_object_set_data(G_OBJECT(w), "aurea-drag-drop", GINT_TO_POINTER(1));
     GdkAtom target = gtk_drag_dest_find_target(w, ctx, NULL);
     if (target == GDK_NONE) return FALSE;
