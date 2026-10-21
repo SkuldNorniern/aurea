@@ -12,6 +12,8 @@ void ng_macos_request_frame(void);
 void ng_macos_frame_idle(void);
 
 #ifdef __OBJC__
+@class NSScreen;
+void ng_macos_display_link_follow(NSScreen* screen);
 @class NSWindow;
 @class NSMenu;
 @class NSView;

@@ -6,6 +6,7 @@
 #import "common/shortcuts.h"
 #import "utils.h"
 #import "elements.h"
+#import "../macos.h"
 #import <Cocoa/Cocoa.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <QuartzCore/QuartzCore.h>
@@ -569,6 +570,7 @@ static void ng_macos_forget_held_shortcuts(void* window);
 }
 
 - (void)windowDidChangeScreen:(NSNotification*)notification {
+    if ([[notification object] isKeyWindow]) ng_macos_display_link_follow([[notification object] screen]);
     if (self.scaleFactorCallback && self.windowHandle) {
         NSWindow* window = (NSWindow*)self.windowHandle;
         NSScreen* screen = [window screen];
@@ -591,6 +593,7 @@ static void ng_macos_forget_held_shortcuts(void* window);
 }
 
 - (void)windowDidBecomeKey:(NSNotification*)notification {
+    ng_macos_display_link_follow([[notification object] screen]);
     ng_macos_cursor_grab_focus([notification object], YES);
     if (self.windowHandle) {
         ng_invoke_focus_changed(self.windowHandle, 1);

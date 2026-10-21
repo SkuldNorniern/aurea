@@ -56,6 +56,7 @@ API_AVAILABLE(macos(14.0))
 @end
 
 static CADisplayLink* s_display_link API_AVAILABLE(macos(14.0)) = nil;
+static __weak NSScreen* s_display_link_screen = nil;
 static NgDisplayLinkProxy* s_display_link_proxy API_AVAILABLE(macos(14.0)) = nil;
 
 #pragma clang diagnostic push
@@ -107,6 +108,13 @@ static void legacy_display_link_cleanup(void) {
     }
 }
 
+static void legacy_display_link_follow(NSScreen* screen) {
+    NSNumber* display = screen.deviceDescription[@"NSScreenNumber"];
+    if (s_cv_display_link && display) {
+        CVDisplayLinkSetCurrentCGDisplay(s_cv_display_link, display.unsignedIntValue);
+    }
+}
+
 static void legacy_display_link_request_frame(void) {
     if (s_cv_display_link && !s_cv_link_running) {
         CVDisplayLinkStart(s_cv_display_link);
@@ -121,6 +129,23 @@ static void legacy_display_link_frame_idle(void) {
     }
 }
 #pragma clang diagnostic pop
+
+/* Frames are paced by the display the key window is on, so a window moved
+   to a 120 Hz screen draws at 120 Hz. */
+void ng_macos_display_link_follow(NSScreen* screen) {
+    if (!screen || screen == s_display_link_screen) return;
+    s_display_link_screen = screen;
+    if (s_using_legacy) {
+        legacy_display_link_follow(screen);
+    } else if (@available(macOS 14.0, *)) {
+        if (!s_display_link_proxy) return;
+        BOOL paused = s_display_link ? s_display_link.paused : YES;
+        [s_display_link invalidate];
+        s_display_link = [screen displayLinkWithTarget:s_display_link_proxy selector:@selector(onDisplayLink:)];
+        s_display_link.paused = paused;
+        [s_display_link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+    }
+}
 
 int ng_macos_init(void) {
     if (!app_initialized) {
