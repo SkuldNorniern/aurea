@@ -7,6 +7,8 @@ NGHandle ng_linux_create_label(const char* text) {
     if (!text) return NULL;
     
     GtkWidget* label = gtk_label_new(text);
+    gtk_label_set_line_wrap(GTK_LABEL(label), TRUE);
+    gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
     gtk_widget_show(label);
     
     return (NGHandle)label;
