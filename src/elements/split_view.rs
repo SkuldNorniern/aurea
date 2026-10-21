@@ -9,7 +9,9 @@ use std::os::raw::c_void;
 /// Layout orientation for a split view divider.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SplitOrientation {
+    /// Panes arranged horizontally.
     Horizontal,
+    /// Panes arranged vertically.
     Vertical,
 }
 

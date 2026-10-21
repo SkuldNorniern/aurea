@@ -99,7 +99,9 @@ struct MenuTarget<Id> {
 /// An action requested by an assistive technology for a custom control.
 #[derive(Clone, Debug)]
 pub struct AccessibleAction {
+    /// The action requested.
     pub action: Action,
+    /// Its data, if any.
     pub data: Option<ActionData>,
 }
 
@@ -417,6 +419,7 @@ impl<Id: WidgetId> UiState<Id> {
         Ok(())
     }
 
+    /// Stops the accessibility bridge.
     pub fn disable_accessibility(&mut self) {
         self.accessibility = None;
     }

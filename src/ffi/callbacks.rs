@@ -25,6 +25,7 @@ fn guard(entry: &str, call: impl FnOnce()) {
     }
 }
 
+/// Tells Aurea a canvas's native view was destroyed.
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_canvas_destroyed(canvas: *mut c_void) {
     guard("ng_invoke_canvas_destroyed", || {
@@ -42,6 +43,7 @@ fn c_string(ptr: *const c_char) -> Option<String> {
     c_str.to_str().ok().map(str::to_owned)
 }
 
+/// Runs the menu item callback `id`.
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_menu_callback(id: u32) {
     guard("ng_invoke_menu_callback", || {
@@ -49,6 +51,7 @@ pub extern "C" fn ng_invoke_menu_callback(id: u32) {
     });
 }
 
+/// Runs the button callback `id`.
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_button_callback(id: u32) {
     guard("ng_invoke_button_callback", || {
@@ -56,6 +59,7 @@ pub extern "C" fn ng_invoke_button_callback(id: u32) {
     });
 }
 
+/// Reports that tab `index` of tab bar `id` was selected.
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_tab_bar_selected(id: u32, index: i32) {
     guard("ng_invoke_tab_bar_selected", || {
@@ -63,6 +67,7 @@ pub extern "C" fn ng_invoke_tab_bar_selected(id: u32, index: i32) {
     });
 }
 
+/// Reports that tab `index` of tab bar `id` was detached.
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_tab_bar_detach(id: u32, index: i32) {
     guard("ng_invoke_tab_bar_detach", || {
@@ -70,6 +75,7 @@ pub extern "C" fn ng_invoke_tab_bar_detach(id: u32, index: i32) {
     });
 }
 
+/// Reports that row `index` of sidebar list `id` was selected.
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_sidebar_list_selected(id: u32, index: i32) {
     guard("ng_invoke_sidebar_list_selected", || {
@@ -88,6 +94,7 @@ pub extern "C" fn ng_invoke_lifecycle_callback(window: *mut c_void, event_id: u3
     });
 }
 
+/// Queues a key press or release for `window`.
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_key_event(
     window: *mut c_void,
@@ -105,6 +112,7 @@ pub extern "C" fn ng_invoke_key_event(
     });
 }
 
+/// Queues a mouse button press or release for `window`.
 #[unsafe(no_mangle)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn ng_invoke_mouse_button(
@@ -132,6 +140,7 @@ pub extern "C" fn ng_invoke_mouse_button(
     });
 }
 
+/// Queues a mouse move for `window`.
 #[unsafe(no_mangle)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn ng_invoke_mouse_move(
@@ -153,6 +162,7 @@ pub extern "C" fn ng_invoke_mouse_move(
     });
 }
 
+/// Queues a mouse wheel scroll for `window`.
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_mouse_wheel(
     window: *mut c_void,
@@ -170,6 +180,7 @@ pub extern "C" fn ng_invoke_mouse_wheel(
     });
 }
 
+/// Queues typed text for `window`, dropping control characters.
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_text_input(window: *mut c_void, text: *const c_char) {
     guard("ng_invoke_text_input", || {
@@ -180,6 +191,7 @@ pub extern "C" fn ng_invoke_text_input(window: *mut c_void, text: *const c_char)
     });
 }
 
+/// Queues IME preedit `text` with the cursor at byte `cursor`, if valid.
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_ime_preedit(window: *mut c_void, text: *const c_char, cursor: c_int) {
     guard("ng_invoke_ime_preedit", || {
@@ -206,6 +218,7 @@ fn typed_text(text: String) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
+/// Queues a focus gain or loss for `window`.
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_focus_changed(window: *mut c_void, focused: c_int) {
     guard("ng_invoke_focus_changed", || {
@@ -218,6 +231,7 @@ pub extern "C" fn ng_invoke_focus_changed(window: *mut c_void, focused: c_int) {
     });
 }
 
+/// Queues a cursor enter or exit for `window`.
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_cursor_entered(window: *mut c_void, entered: c_int) {
     guard("ng_invoke_cursor_entered", || {
@@ -230,6 +244,7 @@ pub extern "C" fn ng_invoke_cursor_entered(window: *mut c_void, entered: c_int) 
     });
 }
 
+/// Queues a raw mouse delta for `window`.
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_raw_mouse_motion(window: *mut c_void, delta_x: f64, delta_y: f64) {
     guard("ng_invoke_raw_mouse_motion", || {
@@ -251,6 +266,7 @@ fn event_time(age: f64) -> Duration {
     now.saturating_sub(Duration::from_secs_f64(age))
 }
 
+/// Queues a pen sample for `window`.
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
 pub extern "C" fn ng_invoke_pen(
@@ -295,6 +311,7 @@ fn pen_tool(flags: u32) -> PenTool {
 const DROP_HOVER: u32 = 0;
 const DROP_DROP: u32 = 1;
 
+/// Queues a file hover or drop for `window`.
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_file_drop(
     window: *mut c_void,
@@ -319,6 +336,7 @@ pub extern "C" fn ng_invoke_file_drop(
     });
 }
 
+/// Queues a scale factor change for `window`.
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_scale_factor_changed(window: *mut c_void, scale_factor: f32) {
     guard("ng_invoke_scale_factor_changed", || {

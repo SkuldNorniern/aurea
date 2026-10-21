@@ -14,6 +14,7 @@ pub trait Element {
     /// Tells the element that a container has taken it into its native hierarchy and will free it.
     fn released_to_parent(&self);
 
+    /// Invalidates the whole element, or only `rect` when given.
     fn invalidate(&self, rect: Option<Rect>) {
         if let Some(r) = rect {
             self.invalidate_rect(r);
@@ -22,12 +23,14 @@ pub trait Element {
         }
     }
 
+    /// Invalidates the whole element.
     fn invalidate_all(&self) {
         unsafe {
             self.invalidate_platform(None);
         }
     }
 
+    /// Invalidates `rect` of the element.
     fn invalidate_rect(&self, rect: Rect) {
         unsafe {
             self.invalidate_platform(Some(rect));
@@ -43,6 +46,7 @@ pub trait Element {
     /// platform main-thread requirements for the underlying toolkit.
     unsafe fn invalidate_platform(&self, rect: Option<Rect>);
 
+    /// Asks for a new layout pass. Does nothing by default.
     fn request_layout(&self) {}
 
     /// Greys the element out and stops its input.
@@ -79,12 +83,15 @@ pub trait Element {
 
 /// A container element that can hold child elements.
 pub trait Container: Element {
+    /// Adds `element` with no layout weight.
     fn add<E: Element + 'static>(&mut self, element: E) -> AureaResult<()> {
         self.add_weighted(element, 0.0)
     }
 
+    /// Adds `element` with the given layout weight.
     fn add_weighted<E: Element + 'static>(&mut self, element: E, weight: f32) -> AureaResult<()>;
 
+    /// Adds each element with no layout weight.
     fn add_all<E, I>(&mut self, elements: I) -> AureaResult<()>
     where
         E: Element + 'static,
@@ -93,6 +100,7 @@ pub trait Container: Element {
         self.add_all_weighted(elements, 0.0)
     }
 
+    /// Adds each element with the given layout weight.
     fn add_all_weighted<E, I>(&mut self, elements: I, weight: f32) -> AureaResult<()>
     where
         E: Element + 'static,

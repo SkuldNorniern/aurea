@@ -17,20 +17,30 @@ const LINE_W: u16 = u16::MAX - 1;
 /// How a tab bar looks.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TabStyle {
+    /// Tab fill by state.
     pub tab: StateColors,
+    /// Unpicked label colour.
     pub text: Color,
+    /// Picked label colour.
     pub picked_text: Color,
+    /// Line under the picked tab.
     pub line: Color,
     /// Under the whole bar, across its width.
     pub rule: Color,
+    /// Line thickness.
     pub line_width: f32,
+    /// Space either side of a label.
     pub padding: f32,
+    /// Space between tabs.
     pub gap: f32,
+    /// Corner radius of each tab.
     pub radius: f32,
+    /// Label size.
     pub text_size: TextSize,
 }
 
 impl TabStyle {
+    /// Default style from the theme.
     pub fn new(theme: &Theme) -> Self {
         let p = theme.palette;
         Self {
@@ -58,6 +68,7 @@ pub struct TabBar<'v> {
 }
 
 impl<'v> TabBar<'v> {
+    /// Creates a tab bar for `labels`.
     pub fn new(labels: &'v [&'v str], selected: &'v mut usize) -> Self {
         Self {
             labels,
@@ -67,18 +78,21 @@ impl<'v> TabBar<'v> {
         }
     }
 
+    /// Sets the look; defaults to the theme's.
     #[must_use]
     pub fn style(mut self, style: TabStyle) -> Self {
         self.style = Some(style);
         self
     }
 
+    /// Whether tabs take input.
     #[must_use]
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
     }
 
+    /// Draws the tab bar in `rect`.
     pub fn show<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,

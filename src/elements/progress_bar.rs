@@ -57,6 +57,7 @@ impl AnimationState {
     }
 }
 
+/// A native progress bar, determinate or animated.
 pub struct ProgressBar {
     handle: NativeElement,
     animation_state: Arc<Mutex<AnimationState>>,
@@ -64,6 +65,7 @@ pub struct ProgressBar {
 }
 
 impl ProgressBar {
+    /// Creates a progress bar at zero.
     pub fn new() -> AureaResult<Self> {
         let handle = unsafe { ng_platform_create_progress_bar() };
 
@@ -132,6 +134,7 @@ impl ProgressBar {
         }
     }
 
+    /// Sets the value, stopping any animation.
     pub fn set_value(&mut self, value: f64) -> AureaResult<()> {
         {
             let mut state = lock(&self.animation_state);
@@ -186,6 +189,7 @@ impl ProgressBar {
         Ok(())
     }
 
+    /// Switches between determinate and indeterminate mode.
     pub fn set_indeterminate(&mut self, indeterminate: bool) -> AureaResult<()> {
         {
             let mut state = lock(&self.animation_state);
@@ -206,6 +210,7 @@ impl ProgressBar {
         Ok(())
     }
 
+    /// Enables or disables the bar.
     pub fn set_enabled(&self, enabled: bool) -> AureaResult<()> {
         let result = unsafe {
             ng_platform_progress_bar_set_enabled(self.handle.handle(), if enabled { 1 } else { 0 })

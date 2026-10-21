@@ -17,17 +17,24 @@ use crate::window::KeyCode;
 /// How a slider looks.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SliderStyle {
+    /// Fill colours of the track, by state.
     pub track: StateColors,
+    /// Colour of the filled part.
     pub filled: Color,
+    /// Track thickness in pixels.
     pub thickness: f32,
+    /// Knob colour.
     pub knob: Color,
+    /// Knob radius in pixels.
     pub knob_radius: f32,
+    /// Shadow under the knob, if any.
     pub knob_shadow: Option<Shadow>,
     /// The dot in the knob, brighter while held.
     pub dot: Color,
 }
 
 impl SliderStyle {
+    /// Creates the default style from `theme`.
     pub fn new(theme: &Theme) -> Self {
         let p = theme.palette;
         Self {
@@ -73,6 +80,7 @@ pub struct SliderTrack {
     pub track: Track,
     /// Knob position as a share of the track width.
     pub position: f32,
+    /// Whether the track is drawn enabled.
     pub enabled: bool,
     /// Disabled opacity, already applied to the painter's drawing context.
     pub opacity: f32,
@@ -83,6 +91,7 @@ const LAST_X: Channel = Channel::Custom(1);
 const RESET_HELD: Channel = Channel::Custom(2);
 
 impl<'v> Slider<'v> {
+    /// Creates a slider editing `value` over `range`.
     pub fn new(value: &'v mut f32, range: RangeInclusive<f32>) -> Self {
         Self {
             value,
@@ -114,16 +123,19 @@ impl<'v> Slider<'v> {
         self
     }
 
+    /// Sets the style.
     pub fn style(mut self, style: SliderStyle) -> Self {
         self.style = Some(style);
         self
     }
 
+    /// Sets whether the slider takes input.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
     }
 
+    /// Shows the slider as `id` at `rect`.
     pub fn show<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,

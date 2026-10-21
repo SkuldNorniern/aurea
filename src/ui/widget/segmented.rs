@@ -13,17 +13,24 @@ use crate::ui::theme::Theme;
 /// How a segmented control looks.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SegmentedStyle {
+    /// Fill behind the options.
     pub background: Color,
+    /// Fill of the sliding highlight.
     pub highlight: Color,
+    /// Colours of unpicked options, by state.
     pub text: StateColors,
+    /// Colour of the picked option.
     pub picked_text: Color,
+    /// Corner radius in pixels.
     pub radius: f32,
     /// Space between the highlight and the control's edge.
     pub inset: f32,
+    /// Size of the option text.
     pub text_size: TextSize,
 }
 
 impl SegmentedStyle {
+    /// Creates the default style from `theme`.
     pub fn new(theme: &Theme) -> Self {
         let p = theme.palette;
         Self {
@@ -48,6 +55,7 @@ pub struct Segmented<'v> {
 }
 
 impl<'v> Segmented<'v> {
+    /// Creates a control over `options` editing `selected`.
     pub fn new(options: &'v [&'v str], selected: &'v mut usize) -> Self {
         Self {
             options,
@@ -57,16 +65,19 @@ impl<'v> Segmented<'v> {
         }
     }
 
+    /// Sets the style.
     pub fn style(mut self, style: SegmentedStyle) -> Self {
         self.style = Some(style);
         self
     }
 
+    /// Sets whether the control takes input.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
     }
 
+    /// Shows the control as `id` at `rect`.
     pub fn show<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,

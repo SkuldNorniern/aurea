@@ -40,13 +40,18 @@ use crate::window::CursorIcon;
 /// Space around the plotting area, for the axes and their labels.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Margin {
+    /// Space on the left.
     pub left: f32,
+    /// Space on the right.
     pub right: f32,
+    /// Space above.
     pub top: f32,
+    /// Space below.
     pub bottom: f32,
 }
 
 impl Margin {
+    /// Creates a margin with the given sides.
     pub const fn new(left: f32, right: f32, top: f32, bottom: f32) -> Self {
         Self {
             left,
@@ -79,11 +84,17 @@ pub struct GraphStyle {
     pub background: Option<Color>,
     /// Behind the plotting area only.
     pub plot_background: Option<Color>,
+    /// Frame around the graph.
     pub border: Option<Stroke>,
+    /// Grid lines.
     pub grid: GridStyle,
+    /// X axis style.
     pub x_axis: AxisStyle,
+    /// Y axis style.
     pub y_axis: AxisStyle,
+    /// Space around the plot area.
     pub margin: Margin,
+    /// Corner radius of the background and border.
     pub radius: f32,
     /// Colours handed out, in order, to series that do not pick one.
     pub palette: [Color; 6],
@@ -96,6 +107,7 @@ pub struct GraphStyle {
 }
 
 impl GraphStyle {
+    /// Default style from the theme.
     pub fn new(theme: &Theme) -> Self {
         let p = theme.palette;
         let axis = AxisStyle {
@@ -190,6 +202,7 @@ pub struct GraphView<'g> {
 }
 
 impl<'g> GraphView<'g> {
+    /// Creates a view of `graph`.
     pub fn new(graph: &'g mut Graph) -> Self {
         Self {
             graph,
@@ -199,6 +212,7 @@ impl<'g> GraphView<'g> {
         }
     }
 
+    /// Sets the look; defaults to the theme's.
     pub fn style(mut self, style: GraphStyle) -> Self {
         self.style = Some(style);
         self
@@ -217,6 +231,7 @@ impl<'g> GraphView<'g> {
         self
     }
 
+    /// Draws the graph in `rect`.
     pub fn show<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,

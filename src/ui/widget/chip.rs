@@ -12,17 +12,26 @@ use crate::ui::theme::Theme;
 /// How a chip looks.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ChipStyle {
+    /// Fill colours when off, by state.
     pub off: StateColors,
+    /// Fill when on.
     pub on: Color,
+    /// Outline when off.
     pub border: Color,
+    /// Outline when on.
     pub on_border: Color,
+    /// Label colour when off.
     pub text: Color,
+    /// Label colour when on.
     pub on_text: Color,
+    /// Horizontal inset from the pill's edge, in pixels.
     pub padding: f32,
+    /// Size of the label text.
     pub text_size: TextSize,
 }
 
 impl ChipStyle {
+    /// Creates the default style from `theme`.
     pub fn new(theme: &Theme) -> Self {
         let p = theme.palette;
         Self {
@@ -48,6 +57,7 @@ pub struct Chip<'v> {
 }
 
 impl<'v> Chip<'v> {
+    /// Creates a chip showing `label` and toggling `on`.
     pub fn new(label: &'v str, on: &'v mut bool) -> Self {
         Self {
             label,
@@ -57,12 +67,14 @@ impl<'v> Chip<'v> {
         }
     }
 
+    /// Sets the style.
     #[must_use]
     pub fn style(mut self, style: ChipStyle) -> Self {
         self.style = Some(style);
         self
     }
 
+    /// Sets whether the chip takes input.
     #[must_use]
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
@@ -78,6 +90,7 @@ impl<'v> Chip<'v> {
         text + style.padding * 2.0 + height * 0.55
     }
 
+    /// Shows the chip as `id` at `rect`.
     pub fn show<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,

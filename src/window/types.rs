@@ -59,18 +59,22 @@ impl WindowId {
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CursorIcon {
+    /// The platform's default cursor.
     #[default]
     Default = 0,
     /// A hand, for something clickable.
     Pointer = 1,
     /// An I-beam, for text that can be edited or selected.
     Text = 2,
+    /// A crosshair.
     Crosshair = 3,
+    /// Four-way arrows, for moving.
     Move = 4,
     /// Left-right arrows, like a slider or a column edge.
     ResizeHorizontal = 5,
     /// Up-down arrows, like a row edge.
     ResizeVertical = 6,
+    /// A circle with a slash, for a blocked action.
     NotAllowed = 7,
     /// Busy.
     Wait = 8,

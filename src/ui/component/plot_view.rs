@@ -13,7 +13,9 @@ pub struct PlotView {
     y: Option<Range>,
     drag: Option<Point>,
     hover: Option<(f64, f64)>,
+    /// Whether the x axis zooms and pans.
     pub zoom_x: bool,
+    /// Whether the y axis zooms and pans.
     pub zoom_y: bool,
     /// How much a wheel unit zooms: the span is multiplied by `e` to the minus this times the
     /// wheel's travel.

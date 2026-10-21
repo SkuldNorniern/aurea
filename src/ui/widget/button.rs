@@ -28,11 +28,15 @@ pub enum Tone {
 /// How a button looks.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ButtonStyle {
+    /// Fill colours by state.
     pub face: StateColors,
+    /// Label colours by state.
     pub text: StateColors,
     /// The outline, faded out as the face lights up; `None` for none.
     pub border: Option<Color>,
+    /// Corner radius.
     pub radius: f32,
+    /// Label font size.
     pub text_size: TextSize,
     /// Space each side of the label.
     pub padding: f32,
@@ -41,6 +45,7 @@ pub struct ButtonStyle {
 }
 
 impl ButtonStyle {
+    /// A button style for `tone` from the theme.
     pub fn new(theme: &Theme, tone: Tone) -> Self {
         let p = theme.palette;
         let lit = |c: Color| c.mix(Color::rgba(255, 255, 255, c.a), 0.12);
@@ -103,6 +108,7 @@ pub struct Button<'t> {
 }
 
 impl<'t> Button<'t> {
+    /// A button showing `label`.
     pub fn new(label: &'t str) -> Self {
         Self {
             label,
@@ -143,19 +149,23 @@ impl<'t> Button<'t> {
         self
     }
 
+    /// Sets the tone.
     pub fn tone(mut self, tone: Tone) -> Self {
         self.tone = tone;
         self
     }
 
+    /// Uses the primary tone.
     pub fn primary(self) -> Self {
         self.tone(Tone::Primary)
     }
 
+    /// Uses the quiet tone.
     pub fn quiet(self) -> Self {
         self.tone(Tone::Quiet)
     }
 
+    /// Uses the danger tone.
     pub fn danger(self) -> Self {
         self.tone(Tone::Danger)
     }
@@ -206,6 +216,7 @@ impl<'t> Button<'t> {
         }
     }
 
+    /// Draws it in `rect` and reports the input.
     pub fn show<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,

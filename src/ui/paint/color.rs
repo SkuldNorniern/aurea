@@ -11,13 +11,16 @@ use super::Component;
 /// Light and dark squares under a see-through colour.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Checker {
+    /// Light square colour.
     pub light: Color,
+    /// Dark square colour.
     pub dark: Color,
     /// One square's side.
     pub cell: f32,
 }
 
 impl Checker {
+    /// The default checkerboard.
     pub const fn new() -> Self {
         Self {
             light: Color::rgb(255, 255, 255),
@@ -93,7 +96,9 @@ impl Component for HueStrip {
 /// `color` from clear to opaque over a checkerboard.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AlphaStrip {
+    /// The colour to fade.
     pub color: Color,
+    /// Background squares.
     pub checker: Checker,
     /// Opaque at the top and clear at the bottom, else clear on the left.
     pub vertical: bool,
@@ -115,7 +120,9 @@ impl Component for AlphaStrip {
 /// A ring round the picked spot, light inside a dark edge so it shows on any colour.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PickRing {
+    /// Centre of the ring.
     pub at: Point,
+    /// Radius of the ring.
     pub radius: f32,
 }
 

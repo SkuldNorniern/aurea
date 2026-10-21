@@ -18,13 +18,17 @@ const MASK: char = '\u{2022}';
 /// What editing did this frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TextOutcome {
+    /// Text changed this frame.
     pub changed: bool,
     /// Enter was pressed.
     pub submitted: bool,
     /// Escape was pressed; the keyboard has been let go.
     pub cancelled: bool,
+    /// Editing began this frame.
     pub editing_started: bool,
+    /// Focus left this frame.
     pub focus_lost: bool,
+    /// Text was committed this frame.
     pub committed: bool,
 }
 
@@ -76,6 +80,7 @@ pub struct EditableText<'v> {
 }
 
 impl<'v> EditableText<'v> {
+    /// Editing `text` with no placeholder or rules.
     pub fn new(text: &'v mut String) -> Self {
         Self {
             text,
@@ -110,6 +115,7 @@ impl<'v> EditableText<'v> {
         self
     }
 
+    /// Draws the text in `rect` and applies this frame's typing.
     pub fn show<Id: WidgetId>(
         mut self,
         ui: &mut Ui<'_, Id>,

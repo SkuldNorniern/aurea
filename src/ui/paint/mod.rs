@@ -17,14 +17,18 @@ use crate::ui::state::WidgetId;
 
 /// Something that draws itself into a rect.
 pub trait Component {
+    /// Draws the component into `rect`.
     fn paint<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>, rect: Rect) -> AureaResult<()>;
 }
 
 /// A soft shadow under a surface: the same shape, offset, grown and blurred.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Shadow {
+    /// Shadow colour.
     pub color: Color,
+    /// Horizontal offset.
     pub dx: f32,
+    /// Vertical offset.
     pub dy: f32,
     /// How much bigger than the surface on each side.
     pub grow: f32,
@@ -44,17 +48,20 @@ impl Shadow {
         }
     }
 
+    /// Sets the blur radius.
     pub const fn blur(mut self, blur: f32) -> Self {
         self.blur = blur;
         self
     }
 
+    /// Sets the offset.
     pub const fn offset(mut self, dx: f32, dy: f32) -> Self {
         self.dx = dx;
         self.dy = dy;
         self
     }
 
+    /// Sets how much bigger than the surface it is.
     pub const fn grow(mut self, grow: f32) -> Self {
         self.grow = grow;
         self
@@ -64,21 +71,27 @@ impl Shadow {
 /// A line just inside a surface's edge.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Border {
+    /// Border line width.
     pub width: f32,
+    /// Border colour.
     pub color: Color,
 }
 
 /// A rounded box: shadow, fill and border, drawn in that order.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Surface {
+    /// Fill colour.
     pub fill: Color,
     /// Corner radius; half the shorter side or more makes a pill.
     pub radius: f32,
+    /// Border, if any.
     pub border: Option<Border>,
+    /// Shadow, if any.
     pub shadow: Option<Shadow>,
 }
 
 impl Surface {
+    /// A surface of `fill` with square corners and no border or shadow.
     pub const fn new(fill: Color) -> Self {
         Self {
             fill,
@@ -88,6 +101,7 @@ impl Surface {
         }
     }
 
+    /// Sets the corner radius.
     pub const fn radius(mut self, radius: f32) -> Self {
         self.radius = radius;
         self
@@ -98,11 +112,13 @@ impl Surface {
         self.radius(f32::MAX)
     }
 
+    /// Adds a border `width` wide in `color`.
     pub const fn border(mut self, width: f32, color: Color) -> Self {
         self.border = Some(Border { width, color });
         self
     }
 
+    /// Adds a shadow.
     pub const fn shadow(mut self, shadow: Shadow) -> Self {
         self.shadow = Some(shadow);
         self
@@ -139,6 +155,7 @@ impl Component for Surface {
 /// Which of the theme's fonts a label uses.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TextSize {
+    /// Body size, the default.
     #[default]
     Body,
     /// Body size, bold: button labels and headings.
@@ -162,12 +179,17 @@ pub enum Overflow {
 /// A line of text, or a wrapped paragraph.
 #[derive(Clone, Copy, Debug)]
 pub struct Label<'t> {
+    /// The text to draw.
     pub text: &'t str,
+    /// Text colour.
     pub color: Color,
+    /// Which theme font to use.
     pub size: TextSize,
     /// A font of the app's own instead of one of the theme's.
     pub font: Option<&'t Font>,
+    /// Alignment within the rect.
     pub align: Align,
+    /// What happens to text wider than the rect.
     pub overflow: Overflow,
 }
 
@@ -184,33 +206,40 @@ impl<'t> Label<'t> {
         }
     }
 
+    /// Sets the text size.
     pub const fn size(mut self, size: TextSize) -> Self {
         self.size = size;
         self
     }
 
+    /// Uses the bold size.
     pub const fn strong(self) -> Self {
         self.size(TextSize::Strong)
     }
 
+    /// Uses the small size.
     pub const fn small(self) -> Self {
         self.size(TextSize::Small)
     }
 
+    /// Uses `font` instead of a theme font.
     pub const fn font(mut self, font: &'t Font) -> Self {
         self.font = Some(font);
         self
     }
 
+    /// Sets the alignment.
     pub const fn align(mut self, align: Align) -> Self {
         self.align = align;
         self
     }
 
+    /// Centres the text.
     pub const fn centered(self) -> Self {
         self.align(Align::Center)
     }
 
+    /// Sets the overflow behaviour.
     pub const fn overflow(mut self, overflow: Overflow) -> Self {
         self.overflow = overflow;
         self
@@ -272,11 +301,14 @@ impl<'t> From<&'t Image> for IconSource<'t> {
 /// An icon, fitted and centred in its rect, keeping its shape.
 #[derive(Clone, Copy, Debug)]
 pub struct IconMark<'t> {
+    /// What to draw.
     pub source: IconSource<'t>,
+    /// Colour for builtin and vector icons.
     pub color: Color,
 }
 
 impl<'t> IconMark<'t> {
+    /// An icon from `source` in `color`.
     pub fn new(source: impl Into<IconSource<'t>>, color: Color) -> Self {
         Self {
             source: source.into(),
@@ -312,20 +344,30 @@ impl Component for IconMark<'_> {
 /// The glyphs a [`Mark`] draws.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MarkShape {
+    /// Check mark.
     Check,
+    /// Chevron pointing down.
     ChevronDown,
+    /// Chevron pointing up.
     ChevronUp,
+    /// Chevron pointing left.
     ChevronLeft,
+    /// Chevron pointing right.
     ChevronRight,
+    /// Diagonal cross.
     Cross,
+    /// Horizontal line.
     Minus,
+    /// Horizontal and vertical lines.
     Plus,
 }
 
 /// A small line glyph, drawn in a square centred in its rect.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Mark {
+    /// Which glyph to draw.
     pub shape: MarkShape,
+    /// Stroke colour.
     pub color: Color,
     /// Line width as a share of the glyph's size.
     pub weight: f32,
@@ -334,6 +376,7 @@ pub struct Mark {
 }
 
 impl Mark {
+    /// A `shape` in `color`, drawn in full.
     pub const fn new(shape: MarkShape, color: Color) -> Self {
         Self {
             shape,
@@ -343,11 +386,13 @@ impl Mark {
         }
     }
 
+    /// Sets the line width.
     pub const fn weight(mut self, weight: f32) -> Self {
         self.weight = weight;
         self
     }
 
+    /// Sets how much of the stroke is drawn.
     pub const fn progress(mut self, progress: f32) -> Self {
         self.progress = progress;
         self

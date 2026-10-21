@@ -16,7 +16,9 @@ use crate::ui::widget::Widget;
 /// How a scope looks: a graph's furniture, plus its traces and readout.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ScopeStyle {
+    /// Graph furniture.
     pub graph: GraphStyle,
+    /// Width of each trace.
     pub trace_width: f32,
     /// How opaque the trigger level's line is, 0 to 1, so it does not compete with the trace.
     pub trigger_alpha: f32,
@@ -25,6 +27,7 @@ pub struct ScopeStyle {
 }
 
 impl ScopeStyle {
+    /// A scope style from the theme.
     pub fn new(theme: &Theme) -> Self {
         let mut graph = GraphStyle::new(theme);
         graph.grid.zero = Some(graph.grid.major);
@@ -59,15 +62,18 @@ pub struct ScopeView<'s> {
 }
 
 impl<'s> ScopeView<'s> {
+    /// A view of `scope`.
     pub fn new(scope: &'s mut Scope) -> Self {
         Self { scope, style: None }
     }
 
+    /// Sets the look.
     pub fn style(mut self, style: ScopeStyle) -> Self {
         self.style = Some(style);
         self
     }
 
+    /// Draws it in `rect` and reports the input.
     pub fn show<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,

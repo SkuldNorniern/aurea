@@ -24,7 +24,9 @@ pub use image::ClipboardImage;
 /// Borrowed custom-format data to publish alongside other representations.
 #[derive(Clone, Copy, Debug)]
 pub struct ClipboardData<'a> {
+    /// Format name of the custom data.
     pub format: &'a str,
+    /// The data bytes.
     pub bytes: &'a [u8],
 }
 

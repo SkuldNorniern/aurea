@@ -15,18 +15,28 @@ use crate::window::KeyCode;
 /// How a dropdown looks.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DropdownStyle {
+    /// Style of the popup list.
     pub popup: PopupStyle,
+    /// Fill colours by state.
     pub face: StateColors,
+    /// Border colour.
     pub border: Color,
+    /// Border colour while open.
     pub open_border: Color,
+    /// Selected text colour.
     pub text: Color,
+    /// Placeholder text colour.
     pub placeholder: Color,
+    /// Chevron colour.
     pub chevron: Color,
+    /// Corner radius.
     pub radius: f32,
+    /// Horizontal inset of the text.
     pub padding: f32,
 }
 
 impl DropdownStyle {
+    /// A dropdown style from the theme.
     pub fn new(theme: &Theme) -> Self {
         let p = theme.palette;
         Self {
@@ -54,6 +64,7 @@ pub struct Dropdown<'v> {
 }
 
 impl<'v> Dropdown<'v> {
+    /// A dropdown showing `selected` of `options`.
     pub fn new(options: &'v [&'v str], selected: &'v mut usize) -> Self {
         Self {
             options,
@@ -71,18 +82,21 @@ impl<'v> Dropdown<'v> {
         self
     }
 
+    /// Sets the look.
     #[must_use]
     pub fn style(mut self, style: DropdownStyle) -> Self {
         self.style = Some(style);
         self
     }
 
+    /// Sets whether it takes input.
     #[must_use]
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
     }
 
+    /// Draws it in `rect` and reports the input.
     pub fn show<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,

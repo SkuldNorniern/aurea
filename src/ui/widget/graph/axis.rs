@@ -11,9 +11,15 @@ pub enum Bounds {
     /// A range the caller sets and the plot never changes.
     Fixed(Range),
     /// Grows to hold the data, with `padding` as a fraction of the span.
-    Auto { padding: f64 },
+    Auto {
+        /// Margin as a fraction of the span.
+        padding: f64,
+    },
     /// Follows the newest data, keeping a window this wide.
-    Window { span: f64 },
+    Window {
+        /// Width of the window in data units.
+        span: f64,
+    },
 }
 
 impl Bounds {
@@ -31,8 +37,11 @@ impl Default for Bounds {
 /// One axis of a plot.
 #[derive(Debug, Clone)]
 pub struct Axis {
+    /// How the range is chosen.
     pub bounds: Bounds,
+    /// Linear or log scale.
     pub scale: Scale,
+    /// Tick spacing and count.
     pub ticks: TickPlan,
     /// Written alongside the axis.
     pub label: String,
@@ -78,16 +87,19 @@ impl Axis {
         }
     }
 
+    /// Sets the scale.
     pub fn with_scale(mut self, scale: Scale) -> Self {
         self.scale = scale;
         self
     }
 
+    /// Sets the tick plan.
     pub fn with_ticks(mut self, ticks: TickPlan) -> Self {
         self.ticks = ticks;
         self
     }
 
+    /// Sets the label.
     pub fn with_label(mut self, label: impl Into<String>) -> Self {
         self.label = label.into();
         self
@@ -148,6 +160,7 @@ pub struct Cursor {
 }
 
 impl Cursor {
+    /// A vertical cursor at `value`.
     pub fn vertical(value: f64) -> Self {
         Self {
             value,
@@ -157,6 +170,7 @@ impl Cursor {
         }
     }
 
+    /// A horizontal cursor at `value`.
     pub fn horizontal(value: f64) -> Self {
         Self {
             vertical: false,
@@ -164,11 +178,13 @@ impl Cursor {
         }
     }
 
+    /// Sets the colour.
     pub fn with_color(mut self, color: Color) -> Self {
         self.color = Some(color);
         self
     }
 
+    /// Sets the label.
     pub fn with_label(mut self, label: impl Into<String>) -> Self {
         self.label = label.into();
         self

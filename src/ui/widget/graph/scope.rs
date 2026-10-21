@@ -36,10 +36,13 @@ pub enum TriggerMode {
 /// When to start the drawn window.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Trigger {
+    /// Whether the trigger is used at all.
     pub enabled: bool,
     /// The value the signal has to cross.
     pub level: f64,
+    /// Which crossing fires it.
     pub edge: TriggerEdge,
+    /// What is drawn when it does not fire.
     pub mode: TriggerMode,
     /// Which channel is watched, by index.
     pub source: usize,
@@ -81,11 +84,13 @@ impl Trigger {
         }
     }
 
+    /// Sets what is drawn when the trigger does not fire.
     pub fn with_mode(mut self, mode: TriggerMode) -> Self {
         self.mode = mode;
         self
     }
 
+    /// Sets the channel watched, by index.
     pub fn with_source(mut self, source: usize) -> Self {
         self.source = source;
         self
@@ -165,6 +170,7 @@ impl Timebase {
 /// One input.
 #[derive(Debug, Clone)]
 pub struct Channel {
+    /// Channel name.
     pub name: String,
     /// Everything captured, not just what fits on screen.
     pub samples: SampleBuffer,
@@ -172,7 +178,9 @@ pub struct Channel {
     pub volts_per_division: f64,
     /// Shifts the trace up or down, in volts.
     pub offset: f64,
+    /// Colour of the trace, or the palette's next one when unset.
     pub color: Option<Color>,
+    /// Whether the channel is drawn.
     pub visible: bool,
 }
 
@@ -194,21 +202,25 @@ impl Channel {
         Self::with_capacity(name, 4096)
     }
 
+    /// Sets the volts per vertical division.
     pub fn with_volts_per_division(mut self, volts: f64) -> Self {
         self.volts_per_division = volts;
         self
     }
 
+    /// Sets the vertical offset, in volts.
     pub fn with_offset(mut self, offset: f64) -> Self {
         self.offset = offset;
         self
     }
 
+    /// Sets an explicit colour.
     pub fn with_color(mut self, color: Color) -> Self {
         self.color = Some(color);
         self
     }
 
+    /// Sets whether the channel is drawn.
     pub fn with_visible(mut self, visible: bool) -> Self {
         self.visible = visible;
         self
@@ -228,8 +240,11 @@ impl Channel {
 /// An oscilloscope over one or more channels.
 #[derive(Debug, Clone)]
 pub struct Scope {
+    /// The inputs, by index.
     pub channels: Vec<Channel>,
+    /// Horizontal scale and sample rate.
     pub timebase: Timebase,
+    /// When to start the drawn window.
     pub trigger: Trigger,
     /// Divisions above and below the centre line.
     pub vertical_divisions: usize,

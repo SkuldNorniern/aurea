@@ -12,13 +12,16 @@ use crate::ui::theme::Theme;
 /// How a progress bar looks.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ProgressStyle {
+    /// Colour of the empty track.
     pub track: Color,
+    /// Colour of the filled part.
     pub filled: Color,
     /// How many times a second an unknown amount sweeps across.
     pub sweep: f32,
 }
 
 impl ProgressStyle {
+    /// Creates the default style from `theme`.
     pub fn new(theme: &Theme) -> Self {
         Self {
             track: theme.palette.raised,
@@ -44,11 +47,13 @@ impl ProgressBar {
         }
     }
 
+    /// Sets the style.
     pub fn style(mut self, style: ProgressStyle) -> Self {
         self.style = Some(style);
         self
     }
 
+    /// Shows the bar as `id` at `rect`.
     pub fn show<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,

@@ -55,6 +55,7 @@ impl Drop for Retained {
 }
 
 impl<T: Element> Shared<T> {
+    /// Wraps `element` so that clones share it.
     pub fn new(element: T) -> Self {
         let handle = element.handle();
         unsafe { ng_platform_element_retain(handle) };
@@ -69,10 +70,12 @@ impl<T: Element> Shared<T> {
         }))
     }
 
+    /// Shared borrow of the element.
     pub fn borrow(&self) -> Ref<'_, T> {
         self.0.element.borrow()
     }
 
+    /// Mutable borrow of the element; panics if it is already borrowed.
     pub fn borrow_mut(&self) -> RefMut<'_, T> {
         self.0.element.borrow_mut()
     }

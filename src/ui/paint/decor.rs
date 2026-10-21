@@ -13,13 +13,16 @@ use crate::ui::theme::Theme;
 /// A thin line across the middle of its rect, along its longer side.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Separator {
+    /// Line colour.
     pub color: Color,
+    /// Line thickness.
     pub width: f32,
     /// Space kept clear at both ends.
     pub inset: f32,
 }
 
 impl Separator {
+    /// A separator in the theme's border colour and width.
     pub fn new(theme: &Theme) -> Self {
         Self {
             color: theme.palette.border,
@@ -28,6 +31,7 @@ impl Separator {
         }
     }
 
+    /// Sets the space kept clear at both ends.
     #[must_use]
     pub const fn inset(mut self, inset: f32) -> Self {
         self.inset = inset;
@@ -60,24 +64,32 @@ impl Component for Separator {
 /// What a badge says about something.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum BadgeTone {
+    /// Muted.
     #[default]
     Neutral,
+    /// The accent colour.
     Accent,
+    /// Good news.
     Success,
+    /// Needs attention.
     Warning,
+    /// Errors and destructive actions.
     Danger,
 }
 
 /// A count or a short state in a pill: "3", "Beta", "Offline".
 #[derive(Clone, Copy, Debug)]
 pub struct Badge<'t> {
+    /// The text shown.
     pub text: &'t str,
+    /// Which colour it takes.
     pub tone: BadgeTone,
     /// Filled with the tone's colour; otherwise a tint of it.
     pub solid: bool,
 }
 
 impl<'t> Badge<'t> {
+    /// A badge showing `text`, neutral and tinted.
     pub const fn new(text: &'t str) -> Self {
         Self {
             text,
@@ -86,12 +98,14 @@ impl<'t> Badge<'t> {
         }
     }
 
+    /// Sets the tone.
     #[must_use]
     pub const fn tone(mut self, tone: BadgeTone) -> Self {
         self.tone = tone;
         self
     }
 
+    /// Fills the badge with its tone.
     #[must_use]
     pub const fn solid(mut self) -> Self {
         self.solid = true;
@@ -144,12 +158,14 @@ impl Component for Badge<'_> {
 /// Work going on: dots round a circle, the brightest one going round.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Spinner {
+    /// Dot colour.
     pub color: Color,
     /// Turns a second.
     pub speed: f32,
 }
 
 impl Spinner {
+    /// A spinner in the theme's accent colour.
     pub fn new(theme: &Theme) -> Self {
         Self {
             color: theme.palette.accent,

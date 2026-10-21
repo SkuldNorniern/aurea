@@ -17,16 +17,20 @@ use crate::ui::theme::Theme;
 /// How a text field looks.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FieldStyle {
+    /// Fill colours by state.
     pub face: StateColors,
+    /// Border colour.
     pub border: Color,
     /// The border while typing.
     pub active_border: Color,
+    /// Corner radius.
     pub radius: f32,
     /// Space between the box and the text.
     pub padding: f32,
 }
 
 impl FieldStyle {
+    /// A field style from the theme.
     pub fn new(theme: &Theme) -> Self {
         let p = theme.palette;
         Self {
@@ -63,6 +67,7 @@ pub struct TextField<'v> {
 }
 
 impl<'v> TextField<'v> {
+    /// A field editing `text`.
     pub fn new(text: &'v mut String) -> Self {
         Self {
             text,
@@ -99,6 +104,7 @@ impl<'v> TextField<'v> {
         self
     }
 
+    /// Sets the look.
     pub fn style(mut self, style: FieldStyle) -> Self {
         self.style = Some(style);
         self
@@ -110,11 +116,13 @@ impl<'v> TextField<'v> {
         self
     }
 
+    /// Sets whether it takes input.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
     }
 
+    /// Draws it in `rect` and reports the input.
     pub fn show<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,

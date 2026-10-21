@@ -22,27 +22,51 @@ use crate::ffi::{ng_platform_window_get_wayland_handle, ng_platform_window_get_x
 /// manipulation across threads.
 #[derive(Debug, Clone, Copy)]
 pub enum NativeWindowHandle {
+    /// AppKit view.
     #[cfg(target_os = "macos")]
-    MacOS { ns_view: *mut c_void },
+    MacOS {
+        /// `NSView` pointer.
+        ns_view: *mut c_void,
+    },
+    /// Win32 window.
     #[cfg(target_os = "windows")]
-    Windows { hwnd: *mut c_void },
+    Windows {
+        /// `HWND`.
+        hwnd: *mut c_void,
+    },
+    /// X11 or Wayland window.
     #[cfg(target_os = "linux")]
     Linux(LinuxWindowHandle),
+    /// UIKit view.
     #[cfg(target_os = "ios")]
-    IOS { ui_view: *mut c_void },
+    IOS {
+        /// `UIView` pointer.
+        ui_view: *mut c_void,
+    },
+    /// Android window.
     #[cfg(target_os = "android")]
-    Android { native_window: *mut c_void },
+    Android {
+        /// `ANativeWindow` pointer.
+        native_window: *mut c_void,
+    },
 }
 
+/// A Linux window under X11 or Wayland.
 #[cfg(target_os = "linux")]
 #[derive(Debug, Clone, Copy)]
 pub enum LinuxWindowHandle {
+    /// X11 window, through XCB.
     Xcb {
+        /// XCB window id.
         window: u32,
+        /// `xcb_connection_t` pointer.
         connection: *mut c_void,
     },
+    /// Wayland surface.
     Wayland {
+        /// `wl_surface` pointer.
         surface: *mut c_void,
+        /// `wl_display` pointer.
         display: *mut c_void,
     },
 }

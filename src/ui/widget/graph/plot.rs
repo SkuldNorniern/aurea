@@ -11,9 +11,13 @@ use super::series::Series;
 /// A plot with axes and any number of series.
 #[derive(Debug, Clone)]
 pub struct Graph {
+    /// The x axis.
     pub x: Axis,
+    /// The y axis.
     pub y: Axis,
+    /// The series drawn on the plot.
     pub series: Vec<Series>,
+    /// Cursors drawn on the plot.
     pub cursors: Vec<Cursor>,
     /// What the user zoomed and panned to, and what is under the pointer.
     pub view: PlotView,
@@ -41,11 +45,13 @@ impl Graph {
         }
     }
 
+    /// Sets the x axis.
     pub fn with_x(mut self, axis: Axis) -> Self {
         self.x = axis;
         self
     }
 
+    /// Sets the y axis.
     pub fn with_y(mut self, axis: Axis) -> Self {
         self.y = axis;
         self

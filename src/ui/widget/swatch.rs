@@ -13,16 +13,22 @@ use crate::window::KeyCode;
 /// How swatches look.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SwatchStyle {
+    /// Side of each square, in pixels.
     pub size: f32,
+    /// Space between squares, in pixels.
     pub gap: f32,
+    /// Corner radius in pixels.
     pub radius: f32,
+    /// Border colour.
     pub border: Color,
     /// The ring round the picked one.
     pub ring: Color,
+    /// Colours of the checkerboard behind transparent colours.
     pub checker: (Color, Color),
 }
 
 impl SwatchStyle {
+    /// Creates the default style from `theme`.
     pub fn new(theme: &Theme) -> Self {
         let p = theme.palette;
         Self {
@@ -45,6 +51,7 @@ pub struct Swatches<'v> {
 }
 
 impl<'v> Swatches<'v> {
+    /// Creates swatches for `colors` editing `selected`.
     pub fn new(colors: &'v [Color], selected: &'v mut Option<usize>) -> Self {
         Self {
             colors,
@@ -53,12 +60,14 @@ impl<'v> Swatches<'v> {
         }
     }
 
+    /// Sets the style.
     #[must_use]
     pub fn style(mut self, style: SwatchStyle) -> Self {
         self.style = Some(style);
         self
     }
 
+    /// Shows the swatches as `id` at `rect`.
     pub fn show<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,

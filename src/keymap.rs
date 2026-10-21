@@ -6,7 +6,9 @@ use crate::window::{KeyCode, Modifiers, Window, WindowEvent};
 /// A key and the modifiers held with it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Chord {
+    /// The key pressed.
     pub key: KeyCode,
+    /// Modifiers held with the key.
     pub modifiers: Modifiers,
 }
 
@@ -33,18 +35,21 @@ impl Chord {
         chord
     }
 
+    /// Adds Shift to the chord.
     #[must_use]
     pub const fn shift(mut self) -> Self {
         self.modifiers.shift = true;
         self
     }
 
+    /// Adds Alt to the chord.
     #[must_use]
     pub const fn alt(mut self) -> Self {
         self.modifiers.alt = true;
         self
     }
 
+    /// Adds Ctrl to the chord.
     #[must_use]
     pub const fn ctrl(mut self) -> Self {
         self.modifiers.ctrl = true;
@@ -252,6 +257,7 @@ impl<A> Default for Keymap<A> {
 }
 
 impl<A> Keymap<A> {
+    /// Creates an empty keymap.
     pub const fn new() -> Self {
         Self {
             bindings: Vec::new(),
@@ -300,6 +306,7 @@ impl<A> Keymap<A> {
             .map(|(c, _)| *c)
     }
 
+    /// Iterates over every binding.
     pub fn iter(&self) -> impl Iterator<Item = (Chord, &A)> {
         self.bindings.iter().map(|(c, a)| (*c, a))
     }

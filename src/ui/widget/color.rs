@@ -21,17 +21,22 @@ pub struct PickerStyle {
     pub gap: f32,
     /// How wide a strip is.
     pub strip: f32,
+    /// Corner radius of the square and strips.
     pub radius: f32,
+    /// Outline colour.
     pub border: Color,
+    /// Checkerboard behind transparent colour.
     pub checker: Checker,
     /// The picked spot's ring.
     pub ring: f32,
     /// The hex field's face and text.
     pub field: Color,
+    /// Hex text colour.
     pub text: Color,
 }
 
 impl PickerStyle {
+    /// Default style from the theme.
     pub fn new(theme: &Theme) -> Self {
         let p = theme.palette;
         Self {
@@ -83,6 +88,7 @@ struct Layout {
 }
 
 impl<'v> ColorPicker<'v> {
+    /// Creates a picker editing `value`.
     pub fn new(value: &'v mut Hsv) -> Self {
         Self {
             value,
@@ -105,16 +111,19 @@ impl<'v> ColorPicker<'v> {
         self
     }
 
+    /// Sets the look; defaults to the theme's.
     pub fn style(mut self, style: PickerStyle) -> Self {
         self.style = Some(style);
         self
     }
 
+    /// Whether the picker takes input.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
     }
 
+    /// Draws the picker in `rect`.
     pub fn show<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,

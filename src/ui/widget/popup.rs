@@ -21,11 +21,14 @@ const TALLEST: f32 = 360.0;
 /// Selection colors shared by a popup and its nested menus.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PopupStyle {
+    /// Check mark colour.
     pub check: Color,
+    /// Highlight colour of the selected row.
     pub highlight: Color,
 }
 
 impl PopupStyle {
+    /// Popup colours from the theme.
     pub fn new(theme: &Theme) -> Self {
         Self {
             check: theme.palette.accent,
@@ -37,9 +40,11 @@ impl PopupStyle {
 /// One row of a menu.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MenuItem<'a> {
+    /// Text of the row.
     pub label: &'a str,
     /// Shown dimmed at the right, like `Ctrl+S`.
     pub shortcut: Option<&'a str>,
+    /// Whether it can be picked.
     pub enabled: bool,
     /// A tick in front: the option in use.
     pub checked: bool,
@@ -50,6 +55,7 @@ pub struct MenuItem<'a> {
 }
 
 impl<'a> MenuItem<'a> {
+    /// A row showing `label`.
     pub const fn new(label: &'a str) -> Self {
         Self {
             label,
@@ -61,6 +67,7 @@ impl<'a> MenuItem<'a> {
         }
     }
 
+    /// A separator row.
     pub const fn separator() -> Self {
         Self {
             label: "",
@@ -72,25 +79,27 @@ impl<'a> MenuItem<'a> {
         }
     }
 
+    /// Sets the shortcut text.
     #[must_use]
     pub const fn shortcut(mut self, shortcut: &'a str) -> Self {
         self.shortcut = Some(shortcut);
         self
     }
 
+    /// Sets whether it can be picked.
     #[must_use]
     pub const fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
     }
 
+    /// Sets whether it has a tick.
     #[must_use]
     pub const fn checked(mut self, checked: bool) -> Self {
         self.checked = checked;
         self
     }
 
-    #[must_use]
     /// Adds a submenu.
     ///
     /// ```rust,no_run
@@ -105,6 +114,7 @@ impl<'a> MenuItem<'a> {
     /// }
     /// # }
     /// ```
+    #[must_use]
     pub const fn submenu(mut self, children: &'a [MenuItem<'a>]) -> Self {
         self.children = children;
         self

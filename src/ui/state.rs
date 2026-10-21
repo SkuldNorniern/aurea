@@ -28,6 +28,7 @@ pub trait WidgetId: Copy + Eq + Hash + Debug {}
 pub struct InputResponse {
     /// The widgets or popup own this event; do not forward it to app tools.
     pub consumed: bool,
+    /// Whether the caller should request a repaint.
     pub redraw: bool,
 }
 
@@ -48,11 +49,15 @@ impl<Id> Key<Id> {
 /// Which eased value of a widget.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Channel {
+    /// Pointer hover.
     Hover,
+    /// Press progress.
     Press,
+    /// Keyboard focus.
     Focus,
     /// What the widget shows: a switch's position, a knob, a highlight.
     Value,
+    /// Widget-specific value, by number.
     Custom(u16),
 }
 
@@ -210,6 +215,7 @@ impl<Id: WidgetId> Default for UiState<Id> {
 }
 
 impl<Id: WidgetId> UiState<Id> {
+    /// Creates an empty state with nothing focused or hovered.
     pub fn new() -> Self {
         Self {
             tweens: Tweens::new(),

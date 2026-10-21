@@ -40,11 +40,13 @@ pub(crate) fn end_event_capture() -> Vec<WindowEvent> {
         .unwrap_or_default()
 }
 
+/// Associates `queue` with the window handle.
 pub fn register_event_queue(handle: *mut c_void, queue: &Arc<EventQueue>) {
     let mut by_handle = lock(&WINDOW_QUEUE_BY_HANDLE);
     by_handle.insert(handle_key(handle), Arc::downgrade(queue));
 }
 
+/// Forgets the event queue and scale of the window handle.
 pub fn unregister_event_queue(handle: *mut c_void) {
     let mut by_handle = lock(&WINDOW_QUEUE_BY_HANDLE);
     by_handle.remove(&handle_key(handle));
@@ -57,18 +59,21 @@ pub fn scale_factor_changed(handle: *mut c_void, scale: f32) -> bool {
     previous.is_none_or(|old| (old - scale).abs() > f32::EPSILON)
 }
 
+/// Creates an empty update callback list for the window.
 pub fn register_update_callbacks(handle: *mut c_void) {
     WINDOW_UPDATE_CALLBACKS.with(|registry| {
         registry.borrow_mut().insert(handle_key(handle), Vec::new());
     });
 }
 
+/// Drops the update callbacks for the window.
 pub fn unregister_update_callbacks(handle: *mut c_void) {
     WINDOW_UPDATE_CALLBACKS.with(|registry| {
         registry.borrow_mut().remove(&handle_key(handle));
     });
 }
 
+/// Adds `callback` to the window's update callbacks.
 pub fn register_update_callback(handle: *mut c_void, callback: impl Fn(WindowId) + 'static) {
     WINDOW_UPDATE_CALLBACKS.with(|registry| {
         if let Some(list) = registry.borrow_mut().get_mut(&handle_key(handle)) {
@@ -123,6 +128,7 @@ pub fn dispatch_window_events(handle: *mut c_void, events: &[WindowEvent]) {
     }
 }
 
+/// Queues `event` for the window and wakes the frame loop.
 pub fn push_window_event(handle: *mut c_void, event: WindowEvent) {
     let queue = {
         let mut by_handle = lock(&WINDOW_QUEUE_BY_HANDLE);
@@ -144,6 +150,7 @@ pub fn push_window_event(handle: *mut c_void, event: WindowEvent) {
     }
 }
 
+/// Dispatches queued events for every live window.
 pub fn process_all_window_events() {
     let live: Vec<(usize, Arc<EventQueue>)> = {
         let mut by_handle = lock(&WINDOW_QUEUE_BY_HANDLE);
@@ -160,6 +167,7 @@ pub fn process_all_window_events() {
     }
 }
 
+/// Runs update callbacks for every window.
 pub fn process_all_window_updates() {
     let callbacks = WINDOW_UPDATE_CALLBACKS.with(|registry| {
         registry
@@ -176,6 +184,7 @@ pub fn process_all_window_updates() {
     }
 }
 
+/// Runs the update callbacks of one window.
 pub fn process_window_updates(handle: *mut c_void) {
     let callbacks = WINDOW_UPDATE_CALLBACKS.with(|registry| {
         registry

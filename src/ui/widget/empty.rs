@@ -21,6 +21,7 @@ pub struct EmptyState<'t> {
 }
 
 impl<'t> EmptyState<'t> {
+    /// An empty state titled `title`.
     pub fn new(title: &'t str) -> Self {
         Self {
             title,
@@ -30,6 +31,7 @@ impl<'t> EmptyState<'t> {
         }
     }
 
+    /// Sets the help text.
     #[must_use]
     pub fn help(mut self, help: &'t str) -> Self {
         self.help = help;
@@ -50,6 +52,7 @@ impl<'t> EmptyState<'t> {
         self
     }
 
+    /// Draws it in `rect` and reports the button's input.
     pub fn show<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,

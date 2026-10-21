@@ -70,6 +70,7 @@ impl PanZoom {
         self.view = view;
     }
 
+    /// The view set by `set_view`.
     pub fn view(&self) -> Rect {
         self.view
     }

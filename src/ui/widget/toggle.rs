@@ -19,16 +19,22 @@ use crate::ui::theme::Theme;
 pub struct ToggleStyle {
     /// The track when off; on, it turns to `on`.
     pub off: StateColors,
+    /// Track colour when on.
     pub on: Color,
+    /// Knob colour.
     pub knob: Color,
+    /// Shadow under the knob.
     pub knob_shadow: Option<Shadow>,
+    /// Track outline.
     pub border: Color,
+    /// Label text colour.
     pub label: Color,
     /// The switch's height; it is 1.7 times as wide.
     pub height: f32,
 }
 
 impl ToggleStyle {
+    /// Default style from the theme.
     pub fn new(theme: &Theme) -> Self {
         let p = theme.palette;
         Self {
@@ -53,6 +59,7 @@ pub struct Toggle<'v> {
 }
 
 impl<'v> Toggle<'v> {
+    /// Creates a switch bound to `on`.
     pub fn new(on: &'v mut bool) -> Self {
         Self {
             on,
@@ -68,16 +75,19 @@ impl<'v> Toggle<'v> {
         self
     }
 
+    /// Sets the look; defaults to the theme's.
     pub fn style(mut self, style: ToggleStyle) -> Self {
         self.style = Some(style);
         self
     }
 
+    /// Whether the switch takes input.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
     }
 
+    /// Draws the switch in `rect`.
     pub fn show<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,
@@ -154,16 +164,24 @@ fn switch<Id: WidgetId>(
 /// How a checkbox looks.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CheckboxStyle {
+    /// Box fill by state.
     pub empty: StateColors,
+    /// Fill when ticked.
     pub checked: Color,
+    /// Tick colour.
     pub mark: Color,
+    /// Box outline.
     pub border: Color,
+    /// Label text colour.
     pub label: Color,
+    /// Box side length.
     pub size: f32,
+    /// Corner radius of the box.
     pub radius: f32,
 }
 
 impl CheckboxStyle {
+    /// Default style from the theme.
     pub fn new(theme: &Theme) -> Self {
         let p = theme.palette;
         Self {
@@ -188,6 +206,7 @@ pub struct Checkbox<'v> {
 }
 
 impl<'v> Checkbox<'v> {
+    /// Creates a box bound to `checked`.
     pub fn new(checked: &'v mut bool) -> Self {
         Self {
             checked,
@@ -197,21 +216,25 @@ impl<'v> Checkbox<'v> {
         }
     }
 
+    /// Text after the box.
     pub fn label(mut self, label: &'v str) -> Self {
         self.label = Some(label);
         self
     }
 
+    /// Sets the look; defaults to the theme's.
     pub fn style(mut self, style: CheckboxStyle) -> Self {
         self.style = Some(style);
         self
     }
 
+    /// Whether the box takes input.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
     }
 
+    /// Draws the box in `rect`.
     pub fn show<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,

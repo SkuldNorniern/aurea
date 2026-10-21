@@ -15,7 +15,9 @@ pub struct Palette {
     pub hover: Color,
     /// A control held down.
     pub pressed: Color,
+    /// Outlines of controls and dividers.
     pub border: Color,
+    /// Primary text.
     pub text: Color,
     /// Secondary text: values, hints.
     pub dim: Color,
@@ -27,6 +29,7 @@ pub struct Palette {
     pub on_accent: Color,
     /// Something that cannot be undone.
     pub danger: Color,
+    /// Something that went right.
     pub success: Color,
     /// Needs a look, not yet wrong.
     pub warning: Color,
@@ -43,17 +46,22 @@ pub struct Palette {
 /// How fast eased values move, per second.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Motion {
+    /// Speed of the hover highlight.
     pub hover: f32,
+    /// Speed of the press highlight.
     pub press: f32,
+    /// Speed of the release back to rest.
     pub release: f32,
     /// Switches, segment highlights and knobs sliding.
     pub slide: f32,
+    /// Speed of the focus ring.
     pub focus: f32,
 }
 
 /// Everything a widget needs to know to draw itself.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Theme {
+    /// Colours.
     pub palette: Palette,
     /// The font family for every widget's text.
     pub font_family: String,
@@ -67,10 +75,13 @@ pub struct Theme {
     pub radius: f32,
     /// Space between a control's edge and its content.
     pub padding: f32,
+    /// Outline width in pixels.
     pub border_width: f32,
+    /// Focus ring width in pixels.
     pub focus_width: f32,
     /// How opaque a disabled widget is drawn.
     pub disabled_alpha: f32,
+    /// Speeds of eased values.
     pub motion: Motion,
     /// Whether a text field's caret blinks.
     pub caret_blink: bool,
@@ -157,10 +168,12 @@ impl Theme {
         }
     }
 
+    /// The dark theme.
     pub fn dark() -> Self {
         Self::new(Palette::dark())
     }
 
+    /// The light theme.
     pub fn light() -> Self {
         Self::new(Palette::light())
     }

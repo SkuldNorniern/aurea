@@ -13,17 +13,24 @@ use crate::window::KeyCode;
 /// How radio buttons look.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RadioStyle {
+    /// Ring fill by state.
     pub ring: StateColors,
+    /// Ring outline.
     pub border: Color,
+    /// Ring colour when picked.
     pub picked: Color,
+    /// Dot colour when picked.
     pub dot: Color,
+    /// Label text colour.
     pub label: Color,
+    /// Ring diameter.
     pub size: f32,
     /// Height of one option's row.
     pub row: f32,
 }
 
 impl RadioStyle {
+    /// Default style from the theme.
     pub fn new(theme: &Theme) -> Self {
         let p = theme.palette;
         Self {
@@ -48,6 +55,7 @@ pub struct RadioGroup<'v> {
 }
 
 impl<'v> RadioGroup<'v> {
+    /// Creates a group for `options`.
     pub fn new(options: &'v [&'v str], selected: &'v mut usize) -> Self {
         Self {
             options,
@@ -57,18 +65,21 @@ impl<'v> RadioGroup<'v> {
         }
     }
 
+    /// Sets the look; defaults to the theme's.
     #[must_use]
     pub fn style(mut self, style: RadioStyle) -> Self {
         self.style = Some(style);
         self
     }
 
+    /// Whether the options take input.
     #[must_use]
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
     }
 
+    /// Draws the options in `rect`.
     pub fn show<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,

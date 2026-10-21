@@ -20,12 +20,16 @@ use crate::render::{Color, Rect};
 /// disabled.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StateColors {
+    /// Colour at rest.
     pub rest: Color,
+    /// Colour under the pointer.
     pub hover: Color,
+    /// Colour while pressed.
     pub pressed: Color,
 }
 
 impl StateColors {
+    /// Creates colours for rest, hover and press.
     pub const fn new(rest: Color, hover: Color, pressed: Color) -> Self {
         Self {
             rest,
@@ -51,16 +55,20 @@ impl StateColors {
 /// The ring around what has keyboard focus, `amount` of the way in.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FocusRing {
+    /// Ring colour.
     pub color: Color,
+    /// Ring width.
     pub width: f32,
     /// Space between the ring and what it surrounds.
     pub gap: f32,
     /// The corner radius of what it surrounds; the ring's follows it.
     pub radius: f32,
+    /// How far in the ring is, from 0 to 1.
     pub amount: f32,
 }
 
 impl FocusRing {
+    /// Ring in the theme's focus colour and width.
     pub fn new(theme: &Theme, radius: f32, amount: f32) -> Self {
         Self {
             color: theme.palette.focus,
@@ -94,10 +102,13 @@ impl Component for FocusRing {
 pub struct Track {
     /// Where the filled part starts and ends, as shares of the length.
     pub from: f32,
+    /// End of the filled part.
     pub to: f32,
     /// Height of the bar; `None` fills the rect.
     pub thickness: Option<f32>,
+    /// Colour of the unfilled part.
     pub empty: Color,
+    /// Colour of the filled part.
     pub filled: Color,
 }
 
@@ -120,6 +131,7 @@ impl Track {
         self
     }
 
+    /// Sets the bar's height instead of filling the rect.
     pub fn thickness(mut self, thickness: f32) -> Self {
         self.thickness = Some(thickness);
         self
@@ -154,14 +166,18 @@ impl Component for Track {
 /// A round handle centred in its rect.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Knob {
+    /// Radius in logical pixels.
     pub radius: f32,
+    /// Fill colour.
     pub color: Color,
+    /// Shadow under the knob, if any.
     pub shadow: Option<Shadow>,
     /// A dot in the middle: its share of the radius, and its colour.
     pub dot: Option<(f32, Color)>,
 }
 
 impl Knob {
+    /// Knob with no shadow or dot.
     pub const fn new(radius: f32, color: Color) -> Self {
         Self {
             radius,
@@ -171,11 +187,13 @@ impl Knob {
         }
     }
 
+    /// Adds a shadow.
     pub const fn shadow(mut self, shadow: Shadow) -> Self {
         self.shadow = Some(shadow);
         self
     }
 
+    /// Adds a dot of `share` of the radius in `color`.
     pub const fn dot(mut self, share: f32, color: Color) -> Self {
         self.dot = Some((share, color));
         self

@@ -12,11 +12,14 @@ use super::Component;
 /// How a line is drawn.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Stroke {
+    /// Colour of the line.
     pub color: Color,
+    /// Width in pixels.
     pub width: f32,
 }
 
 impl Stroke {
+    /// Creates a stroke of the given colour and width.
     pub const fn new(color: Color, width: f32) -> Self {
         Self { color, width }
     }
@@ -31,7 +34,9 @@ pub struct GridStyle {
     pub minor: Stroke,
     /// The line at zero, drawn over the grid.
     pub zero: Option<Stroke>,
+    /// Draws lines at the x ticks.
     pub vertical: bool,
+    /// Draws lines at the y ticks.
     pub horizontal: bool,
 }
 
@@ -44,6 +49,7 @@ pub struct AxisStyle {
     pub tick: Option<Stroke>,
     /// How far a major tick sticks out, in pixels.
     pub tick_length: f32,
+    /// How far a minor tick sticks out, in pixels.
     pub minor_tick_length: f32,
     /// The labels' colour, in the theme's small font.
     pub label: Option<Color>,
@@ -54,9 +60,13 @@ pub struct AxisStyle {
 /// The grid over a plotting area, at the axes' ticks.
 #[derive(Clone, Copy, Debug)]
 pub struct GridLines<'t> {
+    /// X-axis ticks, each a vertical line.
     pub x: &'t [Tick],
+    /// Y-axis ticks, each a horizontal line.
     pub y: &'t [Tick],
+    /// Mappings from values to pixels, for x and y.
     pub maps: (Mapping, Mapping),
+    /// Line styles.
     pub style: GridStyle,
 }
 
@@ -123,9 +133,13 @@ pub enum AxisSide {
 /// An axis line, its ticks and their labels, along one side of a plotting area.
 #[derive(Clone, Copy, Debug)]
 pub struct AxisMarks<'t> {
+    /// Ticks to mark and label.
     pub ticks: &'t [Tick],
+    /// Maps tick values to pixels.
     pub map: Mapping,
+    /// Side of the plotting area the axis runs along.
     pub side: AxisSide,
+    /// Line, tick and label styles.
     pub style: AxisStyle,
 }
 
@@ -173,11 +187,15 @@ impl Component for AxisMarks<'_> {
 /// One series, already projected to the screen.
 #[derive(Clone, Copy, Debug)]
 pub struct Trace<'p> {
+    /// Points in pixels.
     pub points: &'p [Point],
     /// The points are per-column spans rather than the trace itself.
     pub envelope: bool,
+    /// How the points are drawn.
     pub plot: Plot,
+    /// Colour of the trace.
     pub color: Color,
+    /// Line width in pixels.
     pub width: f32,
     /// A mark at every point too, this big.
     pub marks: Option<f32>,
@@ -272,7 +290,9 @@ fn steps(points: &[Point]) -> impl Iterator<Item = Point> + '_ {
 pub struct Marker<'l> {
     /// The pixel it sits at: x for a vertical marker, y for a horizontal.
     pub at: f32,
+    /// Whether the line is vertical.
     pub vertical: bool,
+    /// Line colour and width.
     pub stroke: Stroke,
     /// Written beside it in the small font.
     pub label: &'l str,

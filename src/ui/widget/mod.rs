@@ -31,6 +31,7 @@ use crate::render::Rect;
 
 /// Something drawn at a rect that answers input.
 pub trait Widget<Id: WidgetId> {
+    /// Draws the widget at `rect` and reports what happened.
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response>;
 }
 

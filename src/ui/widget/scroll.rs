@@ -21,8 +21,11 @@ const LINGER: f32 = 0.9;
 /// How an area's bar looks and how far the wheel moves it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ScrollStyle {
+    /// Bar colour.
     pub thumb: Color,
+    /// Bar colour under the pointer.
     pub thumb_hover: Color,
+    /// Bar width.
     pub width: f32,
     /// Pixels a wheel notch scrolls.
     pub step: f32,
@@ -31,6 +34,7 @@ pub struct ScrollStyle {
 }
 
 impl ScrollStyle {
+    /// Default style from the theme.
     pub fn new(theme: &Theme) -> Self {
         let p = theme.palette;
         Self {
@@ -51,6 +55,7 @@ pub struct ScrollArea<'v> {
 }
 
 impl<'v> ScrollArea<'v> {
+    /// Creates an area showing `offset` of content `content_height` tall.
     pub fn new(offset: &'v mut f32, content_height: f32) -> Self {
         Self {
             offset,
@@ -59,6 +64,7 @@ impl<'v> ScrollArea<'v> {
         }
     }
 
+    /// Sets the look; defaults to the theme's.
     #[must_use]
     pub fn style(mut self, style: ScrollStyle) -> Self {
         self.style = Some(style);
@@ -233,10 +239,13 @@ pub fn scroll_into_view(offset: &mut f32, top: f32, bottom: f32, height: f32) {
 /// One row of a [`ListView`], as it is drawn.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ListRow {
+    /// Index of the item.
     pub index: usize,
+    /// Where the row is drawn.
     pub rect: Rect,
     /// It is the list's pick.
     pub picked: bool,
+    /// The pointer is over the row.
     pub hovered: bool,
 }
 
@@ -251,6 +260,7 @@ pub struct ListView<'v> {
 }
 
 impl<'v> ListView<'v> {
+    /// Creates a list of `count` rows, each `row_height` tall.
     pub fn new(offset: &'v mut f32, count: usize, row_height: f32) -> Self {
         Self {
             offset,
@@ -270,12 +280,14 @@ impl<'v> ListView<'v> {
         self
     }
 
+    /// Sets the variable that holds the pick.
     #[must_use]
     pub fn selected(mut self, selected: &'v mut Option<usize>) -> Self {
         self.selected = Some(selected);
         self
     }
 
+    /// Sets the look; defaults to the theme's.
     #[must_use]
     pub fn style(mut self, style: ScrollStyle) -> Self {
         self.style = Some(style);

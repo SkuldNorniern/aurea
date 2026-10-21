@@ -8,7 +8,9 @@ use std::os::raw::{c_int, c_void};
 /// Layout orientation for a Stack container.
 #[derive(Debug, Clone, Copy)]
 pub enum Orientation {
+    /// Children arranged horizontally.
     Horizontal,
+    /// Children arranged vertically.
     Vertical,
 }
 

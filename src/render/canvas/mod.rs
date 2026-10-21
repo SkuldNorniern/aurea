@@ -461,6 +461,7 @@ impl Canvas {
         Ok(())
     }
 
+    /// Invalidates the whole canvas.
     pub fn invalidate(&self) {
         self.invalidate_all();
     }
@@ -478,9 +479,11 @@ impl Canvas {
         FrameScheduler::schedule_canvas(self.handle);
     }
 
+    /// Width of the canvas.
     pub fn width(&self) -> u32 {
         self.size().0
     }
+    /// Height of the canvas.
     pub fn height(&self) -> u32 {
         self.size().1
     }
@@ -494,6 +497,7 @@ impl Canvas {
         self.on_frame(ticker)
     }
 
+    /// Display scale factor of the canvas.
     pub fn scale_factor(&self) -> f32 {
         self.state.borrow_mut().scale_factor
     }

@@ -28,8 +28,11 @@ pub enum Plot {
 pub enum Points {
     /// Evenly spaced y values.
     Rolling {
+        /// The y values, oldest first.
         samples: SampleBuffer,
+        /// X of the first sample.
         x_start: f64,
+        /// X distance between samples.
         x_step: f64,
     },
     /// Explicit pairs, in the order they are drawn.
@@ -106,12 +109,18 @@ impl Points {
 
 /// The points of a [`Points`], oldest first.
 pub enum PointIter<'p> {
+    /// A rolling series, walked in order.
     Rolling {
+        /// The sample halves, oldest first.
         samples: Chain<slice::Iter<'p, f64>, slice::Iter<'p, f64>>,
+        /// Index of the next sample.
         index: usize,
+        /// X of the first sample.
         x_start: f64,
+        /// X distance between samples.
         x_step: f64,
     },
+    /// An explicit series.
     Xy(slice::Iter<'p, (f64, f64)>),
 }
 
@@ -141,10 +150,13 @@ impl Iterator for PointIter<'_> {
 pub struct Series {
     /// Shown in a legend and in cursor readouts.
     pub name: String,
+    /// The points to draw.
     pub points: Points,
+    /// How the points are joined.
     pub plot: Plot,
     /// `None` takes the next colour from the style palette.
     pub color: Option<Color>,
+    /// Line width in pixels.
     pub width: f32,
     /// Radius of the mark for [`Plot::Points`], and of the point markers drawn on a line when
     /// [`Self::show_points`] is set.
@@ -186,36 +198,43 @@ impl Series {
         Self::new(name, Points::Xy(points))
     }
 
+    /// Sets how the points are drawn.
     pub fn with_plot(mut self, plot: Plot) -> Self {
         self.plot = plot;
         self
     }
 
+    /// Sets an explicit colour instead of the palette's next one.
     pub fn with_color(mut self, color: Color) -> Self {
         self.color = Some(color);
         self
     }
 
+    /// Sets the line width in pixels.
     pub fn with_width(mut self, width: f32) -> Self {
         self.width = width;
         self
     }
 
+    /// Sets whether a mark is drawn at each point.
     pub fn with_points_shown(mut self, shown: bool) -> Self {
         self.show_points = shown;
         self
     }
 
+    /// Sets the level that areas and bars fill down to.
     pub fn with_baseline(mut self, baseline: f64) -> Self {
         self.baseline = baseline;
         self
     }
 
+    /// Sets the area's fill opacity, clamped to 0 to 1.
     pub fn with_fill_alpha(mut self, alpha: f32) -> Self {
         self.fill_alpha = alpha.clamp(0.0, 1.0);
         self
     }
 
+    /// Sets whether the series is drawn.
     pub fn with_visible(mut self, visible: bool) -> Self {
         self.visible = visible;
         self

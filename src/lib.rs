@@ -1,15 +1,16 @@
-/// A native GUI toolkit providing cross-platform windowing and widgets with native look and feel.
-///
-/// ```rust,no_run
-/// use aurea::prelude::*;
-///
-/// fn main() -> AureaResult<()> {
-///     let mut window = Window::new("Hello", 400, 300)?;
-///     window.set_content(Label::new("Hello, Aurea!")?)?;
-///     window.run()?;
-///     Ok(())
-/// }
-/// ```
+//! Native GUI toolkit: windowing, widgets and rendering.
+//!
+//! ```rust,no_run
+//! use aurea::prelude::*;
+//!
+//! fn main() -> AureaResult<()> {
+//!     let mut window = Window::new("Hello", 400, 300)?;
+//!     window.set_content(Label::new("Hello, Aurea!")?)?;
+//!     window.run()?;
+//!     Ok(())
+//! }
+//! ```
+
 #[cfg(all(any(target_os = "ios", target_os = "android"), not(feature = "mobile")))]
 compile_error!(
     "Aurea's iOS and Android hosts are experimental: enable the `mobile` feature to build them"
@@ -24,16 +25,20 @@ pub mod dialog;
 mod dispatch;
 pub mod elements;
 pub mod embed;
+/// C ABI entry points for the native layers.
 pub mod ffi;
 pub mod files;
 pub mod integration;
 pub mod keymap;
+/// App lifecycle notifications.
 pub mod lifecycle;
 pub mod locale;
+/// Logging setup.
 pub mod logger;
 pub mod menu;
 pub mod platform;
 pub mod prelude;
+/// Callback registries that native code calls back into.
 pub mod registry;
 pub mod render;
 pub mod tray;

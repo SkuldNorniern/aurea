@@ -15,11 +15,14 @@ pub enum Scale {
 /// A closed interval of data values.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Range {
+    /// Lower end.
     pub min: f64,
+    /// Upper end.
     pub max: f64,
 }
 
 impl Range {
+    /// Creates an interval from `min` to `max`.
     pub fn new(min: f64, max: f64) -> Self {
         Self { min, max }
     }
@@ -112,10 +115,12 @@ impl Mapping {
         }
     }
 
+    /// The data range.
     pub fn range(&self) -> Range {
         self.range
     }
 
+    /// The scale.
     pub fn scale(&self) -> Scale {
         self.scale
     }

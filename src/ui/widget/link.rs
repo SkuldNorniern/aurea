@@ -13,12 +13,16 @@ use crate::ui::theme::Theme;
 /// How a link looks.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LinkStyle {
+    /// Text colour.
     pub text: Color,
+    /// Text colour under the pointer.
     pub hover: Color,
+    /// Text size.
     pub text_size: TextSize,
 }
 
 impl LinkStyle {
+    /// Default style from the theme.
     pub fn new(theme: &Theme) -> Self {
         let p = theme.palette;
         Self {
@@ -37,10 +41,12 @@ pub struct Link<'t> {
 }
 
 impl<'t> Link<'t> {
+    /// Creates a link with `text`.
     pub fn new(text: &'t str) -> Self {
         Self { text, style: None }
     }
 
+    /// Sets the look; defaults to the theme's.
     #[must_use]
     pub fn style(mut self, style: LinkStyle) -> Self {
         self.style = Some(style);
@@ -55,6 +61,7 @@ impl<'t> Link<'t> {
             .width(ui)
     }
 
+    /// Draws the link in `rect`.
     pub fn show<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,

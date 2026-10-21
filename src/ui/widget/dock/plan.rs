@@ -10,12 +10,21 @@ const MAX_DEPTH: usize = 64;
 #[derive(Clone, Debug, PartialEq)]
 pub enum DockPlan<P> {
     /// One group: its panels in tab order, and which shows.
-    Tabs { panels: Vec<P>, active: usize },
+    Tabs {
+        /// Panels in tab order.
+        panels: Vec<P>,
+        /// Index of the shown panel.
+        active: usize,
+    },
     /// Two parts sharing the room, `ratio` of it the first's.
     Split {
+        /// Direction of the split.
         axis: DockAxis,
+        /// Share of the room given to the first part.
         ratio: f32,
+        /// The first part.
         first: Box<DockPlan<P>>,
+        /// The second part.
         second: Box<DockPlan<P>>,
     },
 }

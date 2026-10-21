@@ -13,30 +13,35 @@ fn with_log_message(msg: *const c_char, f: impl FnOnce(&str)) {
     }
 }
 
+/// Logs `msg` at error level.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_log_error(msg: *const c_char) {
     with_log_message(msg, |s| log::error!("{}", s));
 }
 
+/// Logs `msg` at warn level.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_log_warn(msg: *const c_char) {
     with_log_message(msg, |s| log::warn!("{}", s));
 }
 
+/// Logs `msg` at info level.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_log_info(msg: *const c_char) {
     with_log_message(msg, |s| log::info!("{}", s));
 }
 
+/// Logs `msg` at debug level.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_log_debug(msg: *const c_char) {
     with_log_message(msg, |s| log::debug!("{}", s));
 }
 
+/// Logs `msg` at trace level.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_log_trace(msg: *const c_char) {

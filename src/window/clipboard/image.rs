@@ -8,8 +8,11 @@ use std::io::Cursor;
 /// Tightly packed RGBA8 pixels in top-to-bottom rows, with straight alpha.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClipboardImage {
+    /// Width in pixels.
     pub width: u32,
+    /// Height in pixels.
     pub height: u32,
+    /// Pixel data, four bytes per pixel.
     pub rgba: Vec<u8>,
 }
 

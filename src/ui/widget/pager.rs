@@ -13,16 +13,22 @@ use crate::window::{CursorIcon, KeyCode};
 /// How a pager looks.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PagerStyle {
+    /// Dot colour.
     pub dot: Color,
+    /// Dot colour under the pointer.
     pub hover: Color,
+    /// Colour of the current page's dot.
     pub current: Color,
+    /// Dot diameter.
     pub size: f32,
     /// How long the current page's dot is, in dots.
     pub stretch: f32,
+    /// Space between dots.
     pub gap: f32,
 }
 
 impl PagerStyle {
+    /// Default style from the theme.
     pub fn new(theme: &Theme) -> Self {
         let p = theme.palette;
         Self {
@@ -45,6 +51,7 @@ pub struct Pager<'v> {
 }
 
 impl<'v> Pager<'v> {
+    /// Creates a pager for `count` pages, showing `page`.
     pub fn new(count: usize, page: &'v mut usize) -> Self {
         Self {
             count,
@@ -53,12 +60,14 @@ impl<'v> Pager<'v> {
         }
     }
 
+    /// Sets the look; defaults to the theme's.
     #[must_use]
     pub fn style(mut self, style: PagerStyle) -> Self {
         self.style = Some(style);
         self
     }
 
+    /// Draws the pager in `rect`.
     pub fn show<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,

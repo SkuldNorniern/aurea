@@ -4,6 +4,7 @@ use aurea_runtime::FrameScheduler;
 use std::os::raw::c_void;
 use wgpu::CurrentSurfaceTexture;
 
+/// What to do after a surface acquire fails.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SurfaceErrorAction {
     /// Surface should be reconfigured/recreated.
@@ -60,6 +61,7 @@ pub fn notify_surface_recreated_for_window(window: &Window) {
     FrameScheduler::schedule();
 }
 
+/// Emits `SurfaceRecreated` for a raw handle and schedules a redraw.
 pub fn notify_surface_recreated_for_handle(handle: *mut c_void) {
     if handle.is_null() {
         return;

@@ -27,25 +27,36 @@ const DRAG_FROM: f32 = 6.0;
 pub struct DockStyle {
     /// Behind the panels.
     pub background: Color,
+    /// Tab strip background.
     pub strip: Color,
+    /// Tab fill by state.
     pub tab: StateColors,
+    /// Fill of the shown tab.
     pub active_tab: Color,
+    /// Inactive tab text.
     pub text: Color,
+    /// Shown tab text.
     pub active_text: Color,
     /// The line under the shown tab, and the bar being dragged.
     pub accent: Color,
+    /// Divider between groups.
     pub bar: Color,
     /// Where a dragged tab would land.
     pub preview: Color,
+    /// Corner radius of tabs and panels.
     pub radius: f32,
     /// Space either side of a tab's title.
     pub tab_padding: f32,
+    /// Widest a tab may be.
     pub max_tab: f32,
+    /// Tab title size.
     pub text_size: TextSize,
+    /// Strip height, gap and minimum part size.
     pub metrics: DockMetrics,
 }
 
 impl DockStyle {
+    /// Default style from the theme.
     pub fn new(theme: &Theme) -> Self {
         let p = theme.palette;
         Self {
@@ -74,6 +85,7 @@ impl DockStyle {
 /// A [`DockTree`] and what its view keeps between frames.
 #[derive(Clone, Debug)]
 pub struct Dock<P> {
+    /// The panels and how they are split.
     pub tree: DockTree<P>,
     layout: DockLayout<P>,
     press: Option<(P, Point)>,
@@ -85,8 +97,11 @@ pub struct Dock<P> {
 /// A tab action for the app to handle after drawing the dock.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum DockTabEvent<P> {
+    /// Context menu requested for a tab.
     ContextMenu {
+        /// The tab's panel.
         panel: P,
+        /// Where the menu should open.
         at: Point,
     },
     /// The panel stays in the tree until the app chooses to remove it.
@@ -94,6 +109,7 @@ pub enum DockTabEvent<P> {
 }
 
 impl<P: Copy + PartialEq> Dock<P> {
+    /// Creates a dock showing `tree`.
     pub fn new(tree: DockTree<P>) -> Self {
         Self {
             tree,
@@ -153,6 +169,7 @@ pub struct DockView<'d, P, T, C> {
 }
 
 impl<'d, P, T, C> DockView<'d, P, T, C> {
+    /// Creates a view that draws `dock`.
     pub fn new(dock: &'d mut Dock<P>, title: T, content: C) -> Self {
         Self {
             dock,
@@ -163,6 +180,7 @@ impl<'d, P, T, C> DockView<'d, P, T, C> {
         }
     }
 
+    /// Sets the look; defaults to the theme's.
     #[must_use]
     pub fn style(mut self, style: DockStyle) -> Self {
         self.style = Some(style);
@@ -176,6 +194,7 @@ impl<'d, P, T, C> DockView<'d, P, T, C> {
         self
     }
 
+    /// Draws the dock in `rect`.
     pub fn show<'t, Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,

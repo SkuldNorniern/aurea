@@ -22,15 +22,22 @@ const REPEATS: Channel = Channel::Custom(2);
 /// How a stepper looks.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StepperStyle {
+    /// Fill colour.
     pub face: Color,
+    /// Fill colours of the step buttons.
     pub button: StateColors,
+    /// Border colour.
     pub border: Color,
+    /// Value colour.
     pub text: Color,
+    /// Button glyph colour.
     pub mark: Color,
+    /// Corner radius.
     pub radius: f32,
 }
 
 impl StepperStyle {
+    /// A stepper style from the theme.
     pub fn new(theme: &Theme) -> Self {
         let p = theme.palette;
         Self {
@@ -58,6 +65,7 @@ pub struct Stepper<'v> {
 }
 
 impl<'v> Stepper<'v> {
+    /// A stepper on `value`, limited to `range`.
     pub fn new(value: &'v mut f32, range: RangeInclusive<f32>) -> Self {
         Self {
             value,
@@ -70,12 +78,14 @@ impl<'v> Stepper<'v> {
         }
     }
 
+    /// Sets how much each step changes the value.
     #[must_use]
     pub fn step(mut self, step: f32) -> Self {
         self.step = step.abs().max(f32::EPSILON);
         self
     }
 
+    /// Digits shown after the point.
     #[must_use]
     pub fn decimals(mut self, decimals: usize) -> Self {
         self.decimals = decimals.min(6);
@@ -89,18 +99,21 @@ impl<'v> Stepper<'v> {
         self
     }
 
+    /// Sets the look.
     #[must_use]
     pub fn style(mut self, style: StepperStyle) -> Self {
         self.style = Some(style);
         self
     }
 
+    /// Sets whether it takes input.
     #[must_use]
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
     }
 
+    /// Draws it in `rect` and reports the input.
     pub fn show<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,

@@ -8,15 +8,22 @@ use crate::ui::{Align, Ui, WidgetId};
 /// A prompt followed by text and an optional caret at its end.
 #[derive(Clone, Copy, Debug)]
 pub struct PromptLine<'t> {
+    /// Text before the editable text.
     pub prompt: &'t str,
+    /// The editable text.
     pub text: &'t str,
+    /// Font for the text, or the theme's text font when unset.
     pub font: Option<&'t Font>,
+    /// Colour of the text.
     pub color: Color,
+    /// Colour of the prompt.
     pub prompt_color: Color,
+    /// Whether a caret is drawn after the text.
     pub caret: bool,
 }
 
 impl<'t> PromptLine<'t> {
+    /// Creates a line with no font and a caret.
     pub const fn new(prompt: &'t str, text: &'t str, color: Color, prompt_color: Color) -> Self {
         Self {
             prompt,
@@ -28,11 +35,13 @@ impl<'t> PromptLine<'t> {
         }
     }
 
+    /// Sets the font.
     pub const fn font(mut self, font: &'t Font) -> Self {
         self.font = Some(font);
         self
     }
 
+    /// Sets whether a caret is drawn.
     pub const fn caret(mut self, caret: bool) -> Self {
         self.caret = caret;
         self
@@ -119,18 +128,28 @@ impl Component for PromptLine<'_> {
 /// ```
 #[derive(Clone, Copy, Debug)]
 pub struct DetailRow<'t> {
+    /// Main label, on the left.
     pub primary: &'t str,
+    /// Right-aligned text, dropped when it does not fit.
     pub detail: &'t str,
+    /// Font for both labels, or the theme's text font when unset.
     pub font: Option<&'t Font>,
+    /// Colour of the primary text.
     pub color: Color,
+    /// Colour of the detail text.
     pub detail_color: Color,
+    /// Background fill when selected.
     pub selection: Option<Color>,
+    /// Horizontal inset from the row's edges, in pixels.
     pub padding: f32,
+    /// Space between the labels, in pixels.
     pub gap: f32,
+    /// Corner radius of the selection, in pixels.
     pub radius: f32,
 }
 
 impl<'t> DetailRow<'t> {
+    /// Creates a row with no selection and the default spacing.
     pub const fn new(primary: &'t str, detail: &'t str, color: Color, detail_color: Color) -> Self {
         Self {
             primary,
@@ -145,11 +164,13 @@ impl<'t> DetailRow<'t> {
         }
     }
 
+    /// Sets the font.
     pub const fn font(mut self, font: &'t Font) -> Self {
         self.font = Some(font);
         self
     }
 
+    /// Marks the row as selected, with a background of this colour.
     pub const fn selected(mut self, color: Color) -> Self {
         self.selection = Some(color);
         self

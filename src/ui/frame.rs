@@ -12,9 +12,12 @@ use crate::window::{CursorIcon, KeyCode, Modifiers};
 /// Where text sits across the space it is given.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Align {
+    /// At the start.
     #[default]
     Start,
+    /// In the middle.
     Center,
+    /// At the end.
     End,
 }
 
@@ -74,7 +77,9 @@ impl Response {
 /// motion.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Eased {
+    /// Hover amount.
     pub hover: f32,
+    /// Press amount.
     pub press: f32,
     /// The focus ring: only for focus that came from the keyboard.
     pub focus: f32,
@@ -85,9 +90,11 @@ pub struct Eased {
 /// A press that landed on a widget this frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PressAt {
+    /// Where the press landed.
     pub at: Point,
     /// 1 for a click, 2 for a double click, and so on.
     pub clicks: u8,
+    /// Whether shift was held.
     pub shift: bool,
 }
 
@@ -95,6 +102,7 @@ pub struct PressAt {
 pub struct Ui<'a, Id: WidgetId> {
     /// The canvas, for drawing anything the widgets do not.
     pub ctx: &'a mut dyn DrawingContext,
+    /// Colours, sizes and fonts.
     pub theme: &'a Theme,
     pub(crate) state: &'a mut UiState<Id>,
 }
@@ -241,11 +249,12 @@ impl<Id: WidgetId> Ui<'_, Id> {
         self.state.clear_focus();
     }
 
-    /// Where the pointer is over the canvas.
+    /// Modifier keys held now.
     pub fn modifiers(&self) -> Modifiers {
         self.state.modifiers
     }
 
+    /// The pointer position over the canvas, if any.
     pub fn pointer(&self) -> Option<Point> {
         self.state.pointer()
     }
@@ -484,6 +493,7 @@ impl<Id: WidgetId> Ui<'_, Id> {
         Ok(y - rect.y)
     }
 
+    /// `rect` filled with `color`.
     pub fn fill(&mut self, rect: Rect, color: Color) -> AureaResult<()> {
         if color.a == 0 {
             return Ok(());
@@ -521,6 +531,7 @@ impl<Id: WidgetId> Ui<'_, Id> {
         )
     }
 
+    /// A filled circle at `center`.
     pub fn circle(&mut self, center: Point, radius: f32, color: Color) -> AureaResult<()> {
         if color.a == 0 {
             return Ok(());

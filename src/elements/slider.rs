@@ -5,12 +5,14 @@ use crate::{AureaError, AureaResult, ffi::*};
 use std::cmp::Ordering;
 use std::os::raw::c_void;
 
+/// A native slider over a numeric range.
 pub struct Slider {
     handle: NativeElement,
     change: Option<CallbackWatch>,
 }
 
 impl Slider {
+    /// Creates a slider over `min..max`, starting at `min`.
     pub fn new(min: f64, max: f64) -> AureaResult<Self> {
         Self::with_value(min, max, min)
     }
@@ -36,6 +38,7 @@ impl Slider {
         Ok(slider)
     }
 
+    /// Sets the value. Does not call `on_change`.
     pub fn set_value(&mut self, value: f64) -> AureaResult<()> {
         let result = unsafe { ng_platform_slider_set_value(self.handle.handle(), value) };
 
@@ -56,10 +59,12 @@ impl Slider {
         Ok(())
     }
 
+    /// The current value.
     pub fn get_value(&self) -> f64 {
         unsafe { ng_platform_slider_get_value(self.handle.handle()) }
     }
 
+    /// Enables or disables the slider.
     pub fn set_enabled(&self, enabled: bool) -> AureaResult<()> {
         let result = unsafe {
             ng_platform_slider_set_enabled(self.handle.handle(), if enabled { 1 } else { 0 })

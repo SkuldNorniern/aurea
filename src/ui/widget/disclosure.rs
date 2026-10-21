@@ -15,14 +15,20 @@ use crate::ui::theme::Theme;
 /// How a disclosure header looks.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DisclosureStyle {
+    /// Fill of the header, by state.
     pub face: StateColors,
+    /// Colour of the title.
     pub text: Color,
+    /// Colour of the chevron.
     pub chevron: Color,
+    /// Corner radius in pixels.
     pub radius: f32,
+    /// Size of the title text.
     pub text_size: TextSize,
 }
 
 impl DisclosureStyle {
+    /// Creates the default style from `theme`.
     pub fn new(theme: &Theme) -> Self {
         let p = theme.palette;
         Self {
@@ -44,6 +50,7 @@ pub struct Disclosure<'v> {
 }
 
 impl<'v> Disclosure<'v> {
+    /// Creates a disclosure titled `title` driven by `open`.
     pub fn new(title: &'v str, open: &'v mut bool) -> Self {
         Self {
             title,
@@ -52,12 +59,14 @@ impl<'v> Disclosure<'v> {
         }
     }
 
+    /// Sets the style.
     #[must_use]
     pub fn style(mut self, style: DisclosureStyle) -> Self {
         self.style = Some(style);
         self
     }
 
+    /// Shows the header as `id` at `rect`.
     pub fn show<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,

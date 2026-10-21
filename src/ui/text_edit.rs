@@ -18,7 +18,9 @@ pub enum Step {
 /// Which way a caret motion or a deletion goes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Direction {
+    /// Towards the start.
     Back,
+    /// Towards the end.
     Forward,
 }
 
@@ -71,6 +73,7 @@ impl Default for TextEdit {
 }
 
 impl TextEdit {
+    /// Creates an empty field with the caret at the start.
     pub const fn new() -> Self {
         Self {
             caret: 0,
@@ -95,6 +98,7 @@ impl TextEdit {
         self.caret.min(self.anchor)..self.caret.max(self.anchor)
     }
 
+    /// Whether anything is selected.
     pub fn has_selection(&self) -> bool {
         self.caret != self.anchor
     }
@@ -130,6 +134,7 @@ impl TextEdit {
         self.last = Kind::None;
     }
 
+    /// Selects all the text.
     pub fn select_all(&mut self, text: &str) {
         self.anchor = 0;
         self.caret = text.len();

@@ -124,6 +124,7 @@ pub struct TextArea<'a> {
 }
 
 impl<'a> TextArea<'a> {
+    /// Creates a field editing `text`.
     pub fn new(text: &'a mut String) -> Self {
         Self {
             text,
@@ -140,18 +141,22 @@ impl<'a> TextArea<'a> {
         }
     }
 
+    /// Sets the hint shown while the text is empty.
     pub fn placeholder(mut self, placeholder: &'a str) -> Self {
         self.placeholder = placeholder;
         self
     }
+    /// Limits the length to `max` characters.
     pub fn max_chars(mut self, max: usize) -> Self {
         self.rules.max_chars = Some(max);
         self
     }
+    /// Accepts only characters `accept` returns true for.
     pub fn accept(mut self, accept: &'a dyn Fn(char) -> bool) -> Self {
         self.rules.accept = Some(accept);
         self
     }
+    /// Sets the style.
     pub fn style(mut self, style: FieldStyle) -> Self {
         self.style = Some(style);
         self
@@ -162,6 +167,7 @@ impl<'a> TextArea<'a> {
         self
     }
 
+    /// Sets whether the field takes input.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
@@ -177,6 +183,7 @@ impl<'a> TextArea<'a> {
         self
     }
 
+    /// Shows the field as `id` at `rect`.
     pub fn show<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,

@@ -1,3 +1,5 @@
+//! Callbacks for buttons, tabs and sidebar lists, by id.
+
 use super::callback::{CallbackRegistry, IdAllocator};
 
 static BUTTON_ID: IdAllocator = IdAllocator::new();
@@ -18,10 +20,12 @@ thread_local! {
     static SIDEBAR_SELECTED_CALLBACKS: CallbackRegistry<i32> = CallbackRegistry::new();
 }
 
+/// Allocates a button callback ID.
 pub fn next_button_id() -> u32 {
     BUTTON_ID.next()
 }
 
+/// Registers `callback` for button `id`.
 pub fn register_button_callback(id: u32, callback: impl Fn() + 'static) {
     BUTTON_CALLBACKS.with(|r| r.insert(id, move |()| callback()));
 }
@@ -31,14 +35,17 @@ pub fn unregister_button_callback(id: u32) {
     BUTTON_CALLBACKS.with(|r| r.remove(id));
 }
 
+/// Runs the callback registered for button `id`, if any.
 pub fn invoke_button_callback(id: u32) {
     BUTTON_CALLBACKS.with(|r| r.invoke(id, ()));
 }
 
+/// Allocates a tab bar callback ID.
 pub fn next_tab_id() -> u32 {
     TAB_ID.next()
 }
 
+/// Registers selection and detach callbacks for tab bar `id`.
 pub fn register_tab_callbacks(
     id: u32,
     on_selected: impl Fn(i32) + 'static,
@@ -54,18 +61,22 @@ pub fn unregister_tab_callbacks(id: u32) {
     TAB_DETACH_CALLBACKS.with(|r| r.remove(id));
 }
 
+/// Runs the selection callback for tab bar `id`.
 pub fn invoke_tab_selected(id: u32, index: i32) {
     TAB_SELECTED_CALLBACKS.with(|r| r.invoke(id, index));
 }
 
+/// Runs the detach callback for tab bar `id`.
 pub fn invoke_tab_detach(id: u32, index: i32) {
     TAB_DETACH_CALLBACKS.with(|r| r.invoke(id, index));
 }
 
+/// Allocates a sidebar list callback ID.
 pub fn next_sidebar_id() -> u32 {
     SIDEBAR_ID.next()
 }
 
+/// Registers the selection callback for sidebar list `id`.
 pub fn register_sidebar_callback(id: u32, on_selected: impl Fn(i32) + 'static) {
     SIDEBAR_SELECTED_CALLBACKS.with(|r| r.insert(id, on_selected));
 }
@@ -75,6 +86,7 @@ pub fn unregister_sidebar_callback(id: u32) {
     SIDEBAR_SELECTED_CALLBACKS.with(|r| r.remove(id));
 }
 
+/// Runs the selection callback for sidebar list `id`.
 pub fn invoke_sidebar_selected(id: u32, index: i32) {
     SIDEBAR_SELECTED_CALLBACKS.with(|r| r.invoke(id, index));
 }

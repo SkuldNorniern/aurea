@@ -10,9 +10,13 @@ use crate::render::{Point, Rect};
 /// Where a panel goes next to another.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum DockSide {
+    /// Left of the group.
     Left,
+    /// Right of the group.
     Right,
+    /// Above the group.
     Top,
+    /// Below the group.
     Bottom,
     /// Into the same group, as another tab.
     Center,
@@ -88,7 +92,9 @@ impl<P> Node<P> {
 pub struct DockGroup {
     /// The whole group: its tab strip and its content.
     pub rect: Rect,
+    /// Tab strip.
     pub strip: Rect,
+    /// Panel content area.
     pub content: Rect,
     /// Its panels' place in [`DockLayout::panels`].
     pub tabs: Range<usize>,
@@ -99,9 +105,11 @@ pub struct DockGroup {
 /// The space between the two parts of a split, which drags to resize it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DockBar {
+    /// Where the bar is drawn.
     pub rect: Rect,
     /// The room the split shares out.
     pub span: Rect,
+    /// Direction of the split.
     pub axis: DockAxis,
     /// Which split, in [`DockTree::set_ratio`]'s numbering.
     pub index: usize,
@@ -110,8 +118,11 @@ pub struct DockBar {
 /// Where the groups and bars of a [`DockTree`] land in a rect.
 #[derive(Clone, Debug)]
 pub struct DockLayout<P> {
+    /// Tab groups, in layout order.
     pub groups: Vec<DockGroup>,
+    /// All panels, in group order.
     pub panels: Vec<P>,
+    /// Split bars, for dragging.
     pub bars: Vec<DockBar>,
 }
 
@@ -145,6 +156,7 @@ impl<P: Copy> DockLayout<P> {
 /// Sizes a layout works with.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DockMetrics {
+    /// Height of a group's tab strip.
     pub strip: f32,
     /// The bar between split parts.
     pub gap: f32,
@@ -185,10 +197,12 @@ impl<P: Copy + PartialEq> DockTree<P> {
         }
     }
 
+    /// Whether there are no panels.
     pub fn is_empty(&self) -> bool {
         self.root.is_none()
     }
 
+    /// Whether `panel` is docked anywhere.
     pub fn contains(&self, panel: P) -> bool {
         self.root
             .as_ref()
