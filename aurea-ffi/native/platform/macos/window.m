@@ -782,6 +782,7 @@ float ng_macos_get_scale_factor(NGHandle window) {
 void ng_macos_destroy_window(NGHandle handle) {
     if (!handle) return;
     NSWindow* window = (__bridge_transfer NSWindow*)handle;
+    [window setDelegate:nil];
     if (windowDelegates) {
         NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)window];
         WindowDelegate* delegate = [windowDelegates objectForKey:windowValue];
