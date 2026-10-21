@@ -32,6 +32,7 @@ static const ng_platform_ops_t macos_ops = {
     .element_set_change_id = ng_macos_element_set_change_id,
     .element_set_visible = ng_macos_element_set_visible,
     .element_set_min_size = ng_macos_element_set_min_size,
+    .element_set_accessible_name = ng_macos_element_set_accessible_name,
     .box_set_spacing = ng_macos_box_set_spacing,
     .box_set_padding = ng_macos_box_set_padding,
     .element_set_enabled = ng_macos_element_set_enabled,

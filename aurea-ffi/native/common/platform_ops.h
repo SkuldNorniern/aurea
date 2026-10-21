@@ -80,6 +80,7 @@ typedef struct ng_platform_ops {
     int (*element_set_change_id)(NGHandle element, unsigned int id);
     int (*element_set_visible)(NGHandle element, int visible);
     int (*element_set_min_size)(NGHandle element, int width, int height);
+    int (*element_set_accessible_name)(NGHandle element, const char* name);
     int (*box_set_spacing)(NGHandle box, int spacing);
     int (*box_set_padding)(NGHandle box, int padding);
     NGHandle (*creation_parent)(void);

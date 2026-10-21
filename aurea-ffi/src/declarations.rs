@@ -82,6 +82,11 @@ unsafe extern "C" {
         width: c_int,
         height: c_int,
     ) -> c_int;
+    /// Sets the name screen readers give an element.
+    pub fn ng_platform_element_set_accessible_name(
+        element: *mut c_void,
+        name: *const c_char,
+    ) -> c_int;
     /// Sets a box's spacing.
     pub fn ng_platform_box_set_spacing(box_handle: *mut c_void, spacing: c_int) -> c_int;
     /// Sets a box's padding.

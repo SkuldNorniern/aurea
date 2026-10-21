@@ -116,6 +116,7 @@ void ng_platform_element_release(NGHandle element);
 int ng_platform_element_set_change_id(NGHandle element, unsigned int id);
 int ng_platform_element_set_visible(NGHandle element, int visible);
 int ng_platform_element_set_min_size(NGHandle element, int width, int height);
+int ng_platform_element_set_accessible_name(NGHandle element, const char* name);
 int ng_platform_box_set_spacing(NGHandle box, int spacing);
 int ng_platform_box_set_padding(NGHandle box, int padding);
 NGHandle ng_platform_creation_parent(void);

@@ -119,6 +119,32 @@ mod gtk_tests {
 
     #[test]
     #[ignore = "creates native windows; run with --ignored"]
+    fn an_element_takes_an_accessible_name() -> AureaResult<()> {
+        unsafe extern "C" {
+            fn gtk_widget_get_accessible(widget: *mut c_void) -> *mut c_void;
+            fn atk_object_get_name(object: *mut c_void) -> *const c_char;
+            fn gtk_bin_get_child(bin: *mut c_void) -> *mut c_void;
+        }
+        let name = |widget: *mut c_void| unsafe {
+            CStr::from_ptr(atk_object_get_name(gtk_widget_get_accessible(widget)))
+                .to_string_lossy()
+                .into_owned()
+        };
+        let _window = Window::new("names", 300, 200)?;
+        let button = Button::new("+")?;
+        button.set_accessible_name("New tab")?;
+        assert_eq!(name(button.handle()), "New tab");
+        let editor = TextEditor::new()?;
+        editor.set_accessible_name("Source")?;
+        assert_eq!(
+            name(unsafe { gtk_bin_get_child(editor.handle()) }),
+            "Source"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
     fn a_scroll_view_reveals_the_focused_control() -> AureaResult<()> {
         unsafe extern "C" {
             fn gtk_scrolled_window_get_vadjustment(scroll: *mut c_void) -> *mut c_void;
@@ -1410,6 +1436,25 @@ mod win32_tests {
             two.state & (STATE_SYSTEM_SELECTED | STATE_SYSTEM_CHECKED),
             STATE_SYSTEM_SELECTED
         );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn an_element_takes_an_accessible_name() -> AureaResult<()> {
+        let mut window = Window::new("names", 400, 300)?;
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        let editor = TextEditor::new()?;
+        let button = Button::new("+")?;
+        editor.set_accessible_name("Source")?;
+        button.set_accessible_name("New tab")?;
+        let (e, b) = (editor.handle(), button.handle());
+        stack.add_weighted(editor, 1.0)?;
+        stack.add(button)?;
+        window.set_content(stack)?;
+        assert_eq!(accessible(e).name, "Source");
+        assert_eq!(accessible(b).name, "New tab");
+        Shared::new(Button::new("x")?).set_accessible_name("")?;
         Ok(())
     }
 

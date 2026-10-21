@@ -163,6 +163,12 @@ int ng_platform_element_set_min_size(NGHandle element, int width, int height) {
     return NG_ERROR_UNSUPPORTED;
 }
 
+int ng_platform_element_set_accessible_name(NGHandle element, const char* name) {
+    (void)element;
+    (void)name;
+    return NG_ERROR_UNSUPPORTED;
+}
+
 int ng_platform_box_set_spacing(NGHandle box, int spacing) {
     (void)box;
     (void)spacing;

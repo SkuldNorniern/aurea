@@ -1,9 +1,10 @@
 use crate::ffi::{
+    NG_ERROR_UNSUPPORTED, c_text, ng_platform_element_set_accessible_name,
     ng_platform_element_set_enabled, ng_platform_element_set_min_size,
     ng_platform_element_set_visible,
 };
 use crate::render::Rect;
-use crate::{AureaError, AureaResult};
+use crate::{AureaError, AureaResult, Platform};
 use std::os::raw::{c_int, c_void};
 
 /// Base trait for all native GUI elements.
@@ -78,6 +79,20 @@ pub trait Element {
             return Err(AureaError::ElementOperationFailed);
         }
         Ok(())
+    }
+
+    /// The name screen readers give the element when no label names it, such as an icon button
+    /// or an editor; empty clears it.
+    fn set_accessible_name(&self, name: &str) -> AureaResult<()> {
+        let name = c_text(name)?;
+        match unsafe { ng_platform_element_set_accessible_name(self.handle(), name.as_ptr()) } {
+            0 => Ok(()),
+            NG_ERROR_UNSUPPORTED => Err(AureaError::Unsupported {
+                operation: "Element::set_accessible_name",
+                platform: Platform::current(),
+            }),
+            _ => Err(AureaError::ElementOperationFailed),
+        }
     }
 }
 

@@ -1318,6 +1318,18 @@ int ng_macos_element_set_min_size(NGHandle element, int width, int height) {
     return NG_SUCCESS;
 }
 
+int ng_macos_element_set_accessible_name(NGHandle element, const char* name) {
+    if (!element) return NG_ERROR_INVALID_HANDLE;
+    if (!name) return NG_ERROR_INVALID_PARAMETER;
+    NSView* view = (__bridge NSView*)element;
+    if ([view isKindOfClass:[NSScrollView class]] &&
+        [((NSScrollView*)view).documentView isKindOfClass:[NSTextView class]]) {
+        view = ((NSScrollView*)view).documentView;
+    }
+    view.accessibilityLabel = *name ? [NSString stringWithUTF8String:name] : nil;
+    return NG_SUCCESS;
+}
+
 int ng_macos_box_set_spacing(NGHandle box, int spacing) {
     if (!box) return NG_ERROR_INVALID_HANDLE;
     NSView* view = (__bridge NSView*)box;

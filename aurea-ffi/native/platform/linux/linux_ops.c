@@ -68,6 +68,7 @@ static const ng_platform_ops_t linux_ops = {
     .element_set_change_id = ng_linux_element_set_change_id,
     .element_set_visible = ng_linux_element_set_visible,
     .element_set_min_size = ng_linux_element_set_min_size,
+    .element_set_accessible_name = ng_linux_element_set_accessible_name,
     .box_set_spacing = ng_linux_box_set_spacing,
     .box_set_padding = ng_linux_box_set_padding,
     .element_set_enabled = ng_linux_element_set_enabled,

@@ -71,6 +71,7 @@ static const ng_platform_ops_t windows_ops = {
     .element_set_change_id = ng_windows_element_set_change_id,
     .element_set_visible = ng_windows_element_set_visible,
     .element_set_min_size = ng_windows_element_set_min_size,
+    .element_set_accessible_name = ng_windows_element_set_accessible_name,
     .box_set_spacing = ng_windows_box_set_spacing,
     .box_set_padding = ng_windows_box_set_padding,
     .creation_parent = ng_windows_creation_parent,

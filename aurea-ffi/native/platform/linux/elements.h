@@ -22,6 +22,7 @@ int ng_linux_box_set_padding(NGHandle box, int padding);
 int ng_linux_element_set_change_id(NGHandle element, unsigned int id);
 int ng_linux_element_set_visible(NGHandle element, int visible);
 int ng_linux_element_set_min_size(NGHandle element, int width, int height);
+int ng_linux_element_set_accessible_name(NGHandle element, const char* name);
 int ng_linux_element_set_enabled(NGHandle element, int enabled);
 int ng_linux_element_watch_destroy(NGHandle element, unsigned int id);
 int ng_linux_text_unit(void);

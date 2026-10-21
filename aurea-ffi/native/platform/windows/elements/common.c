@@ -416,6 +416,25 @@ void ng_windows_serve_state(HWND hwnd, long (*state)(HWND hwnd)) {
     serve(hwnd, STATE_SERVER_PROP, (void*)state, PROPID_ACC_STATE);
 }
 
+int ng_windows_element_set_accessible_name(NGHandle element, const char* name) {
+    HWND hwnd = (HWND)element;
+    if (!hwnd || !IsWindow(hwnd)) return NG_ERROR_INVALID_HANDLE;
+    if (!name) return NG_ERROR_INVALID_PARAMETER;
+    IAccPropServices* props = annotate(hwnd);
+    if (!props) return NG_ERROR_PLATFORM_SPECIFIC;
+    if (!*name) {
+        MSAAPROPID prop = PROPID_ACC_NAME;
+        props->lpVtbl->ClearHwndProps(props, hwnd, (DWORD)OBJID_CLIENT, CHILDID_SELF, &prop, 1);
+        return NG_SUCCESS;
+    }
+    wchar_t* wide = ng_windows_utf8_to_wide(name);
+    if (!wide) return NG_ERROR_INVALID_PARAMETER;
+    HRESULT set = props->lpVtbl->SetHwndPropStr(props, hwnd, (DWORD)OBJID_CLIENT, CHILDID_SELF,
+                                                PROPID_ACC_NAME, wide);
+    free(wide);
+    return SUCCEEDED(set) ? NG_SUCCESS : NG_ERROR_PLATFORM_SPECIFIC;
+}
+
 void ng_windows_unlimit_text(HWND edit) {
     SendMessageW(edit, EM_EXLIMITTEXT, 0, 0x7FFFFFFE);
 }

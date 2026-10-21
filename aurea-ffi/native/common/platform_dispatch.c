@@ -337,6 +337,10 @@ int ng_platform_element_set_min_size(NGHandle e, int width, int height) {
     DISPATCH_INT(element_set_min_size, e, width, height);
 }
 
+int ng_platform_element_set_accessible_name(NGHandle e, const char* name) {
+    DISPATCH_INT(element_set_accessible_name, e, name);
+}
+
 int ng_platform_box_set_spacing(NGHandle b, int spacing) {
     DISPATCH_INT(box_set_spacing, b, spacing);
 }

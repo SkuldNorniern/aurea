@@ -63,6 +63,16 @@ int ng_linux_element_set_min_size(NGHandle element, int width, int height) {
     return NG_SUCCESS;
 }
 
+int ng_linux_element_set_accessible_name(NGHandle element, const char* name) {
+    if (!element || !GTK_IS_WIDGET(element)) return NG_ERROR_INVALID_HANDLE;
+    if (!name) return NG_ERROR_INVALID_PARAMETER;
+    GtkWidget* widget = (GtkWidget*)element;
+    GtkWidget* inner = GTK_IS_SCROLLED_WINDOW(widget) ? gtk_bin_get_child(GTK_BIN(widget)) : NULL;
+    if (inner && GTK_IS_TEXT_VIEW(inner)) widget = inner;
+    atk_object_set_name(gtk_widget_get_accessible(widget), name);
+    return NG_SUCCESS;
+}
+
 int ng_linux_box_set_spacing(NGHandle box, int spacing) {
     if (!box || !GTK_IS_BOX(box)) return NG_ERROR_INVALID_HANDLE;
     if (spacing < 0) return NG_ERROR_INVALID_PARAMETER;
