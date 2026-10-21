@@ -2,6 +2,7 @@
 #include "common/errors.h"
 #include "common/rust_callbacks.h"
 #include <gtk/gtk.h>
+#include <math.h>
 #if defined(GDK_WINDOWING_X11) && defined(AUREA_HAVE_X11_XCB)
 #include <gdk/gdkx.h>
 #include <X11/Xlib-xcb.h>
@@ -96,12 +97,22 @@ void ng_linux_canvas_invalidate(NGHandle canvas) {
 void ng_linux_canvas_invalidate_rect(NGHandle canvas, float x, float y, float width, float height) {
     if (!canvas) return;
     GtkWidget* widget = (GtkWidget*)canvas;
-    cairo_region_t* region = cairo_region_create_rectangle((cairo_rectangle_int_t*)&(cairo_rectangle_int_t){
-        .x = (int)x,
-        .y = (int)y,
-        .width = (int)width,
-        .height = (int)height
-    });
+    if (!(width > 0.0f) || !(height > 0.0f)) return;
+    if (!(x > -1e7f && y > -1e7f && x + width < 1e7f && y + height < 1e7f)) {
+        gtk_widget_queue_draw(widget);
+        return;
+    }
+    int scale = gtk_widget_get_scale_factor(widget);
+    if (scale < 1) scale = 1;
+    int left = (int)floor(x / scale);
+    int top = (int)floor(y / scale);
+    cairo_rectangle_int_t dirty = {
+        .x = left,
+        .y = top,
+        .width = (int)ceil((x + width) / scale) - left,
+        .height = (int)ceil((y + height) / scale) - top,
+    };
+    cairo_region_t* region = cairo_region_create_rectangle(&dirty);
     gtk_widget_queue_draw_region(widget, region);
     cairo_region_destroy(region);
 }

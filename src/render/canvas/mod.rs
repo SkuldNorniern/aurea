@@ -572,8 +572,15 @@ impl Element for Canvas {
             return;
         }
         if let Some(r) = rect {
+            let s = self.state.try_borrow().map_or(1.0, |st| st.scale_factor);
             unsafe {
-                ng_platform_canvas_invalidate_rect(self.handle, r.x, r.y, r.width, r.height);
+                ng_platform_canvas_invalidate_rect(
+                    self.handle,
+                    r.x * s,
+                    r.y * s,
+                    r.width * s,
+                    r.height * s,
+                );
             }
         } else {
             unsafe {
