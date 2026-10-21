@@ -418,6 +418,34 @@ mod tests {
         assert!(read("\0\0").is_empty());
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn gtk_filters_ignore_case_and_saves_take_the_filter_extension() {
+        unsafe extern "C" {
+            fn ng_linux_filter_pattern(ext: *const c_char) -> *mut c_char;
+            fn ng_linux_with_extension(path: *const c_char, ext: *const c_char) -> *mut c_char;
+        }
+        let take = |raw: *mut c_char| {
+            let out = unsafe { CStr::from_ptr(raw) }
+                .to_string_lossy()
+                .into_owned();
+            unsafe { ng_platform_free_dialog_paths(raw) };
+            out
+        };
+        let pattern = |ext: &CStr| take(unsafe { ng_linux_filter_pattern(ext.as_ptr()) });
+        assert_eq!(pattern(c"png"), "*.[pP][nN][gG]");
+        assert_eq!(pattern(c"mp3"), "*.[mM][pP]3");
+        assert_eq!(pattern(c"*"), "*");
+        let named = |path: &CStr, ext: &CStr| {
+            take(unsafe { ng_linux_with_extension(path.as_ptr(), ext.as_ptr()) })
+        };
+        assert_eq!(named(c"/tmp/a", c"png"), "/tmp/a.png");
+        assert_eq!(named(c"/tmp/a.jpg", c"png"), "/tmp/a.jpg");
+        assert_eq!(named(c"/tmp.d/a", c"png"), "/tmp.d/a.png");
+        assert_eq!(named(c"/tmp/a", c"*"), "/tmp/a");
+        assert_eq!(named(c"/tmp/a", c""), "/tmp/a");
+    }
+
     #[test]
     fn filters_are_written_one_per_line() {
         let d = FileDialog::new()
