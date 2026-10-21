@@ -1,13 +1,19 @@
 #include "common.h"
 #include "../elements.h"
 #include "common/errors.h"
+#include "../utils.h"
 #include <windows.h>
+#include <stdlib.h>
 
 NGHandle ng_windows_create_checkbox(const char* label) {
-    return (NGHandle)ng_windows_create_control(
-        0, L"BUTTON", label ? label : "",
+    char* shown = ng_windows_escape_mnemonics(label ? label : "");
+    if (!shown) return NULL;
+    HWND checkbox = ng_windows_create_control(
+        0, L"BUTTON", shown,
         WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
         200, 25, ng_windows_detached_parent(), 0);
+    free(shown);
+    return (NGHandle)checkbox;
 }
 
 int ng_windows_checkbox_set_checked(NGHandle checkbox, int checked) {

@@ -33,6 +33,8 @@ HANDLE ng_windows_common_controls_v6(void);
 char* ng_windows_wide_to_utf8(const wchar_t* wide, int len);
 char* ng_windows_window_text(HWND hwnd);
 int ng_windows_set_window_text(HWND hwnd, const char* utf8);
+/* `utf8` with each `&` doubled, so buttons show it instead of underlining; the caller frees it. */
+char* ng_windows_escape_mnemonics(const char* utf8);
 void ng_windows_register_scale_callback(HWND hwnd, ScaleFactorCallback callback);
 int ng_windows_window_set_shortcuts(NGHandle window, const unsigned int* keycodes, const unsigned int* modifiers, int count);
 int ng_windows_take_shortcut(HWND root, WPARAM vk);

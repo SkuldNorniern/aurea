@@ -9,7 +9,7 @@ NGHandle ng_windows_create_label(const char* text) {
     if (!text) return NULL;
 
     HWND label = ng_windows_create_control(
-        0, L"STATIC", text, WS_CHILD | SS_LEFT | WS_VISIBLE,
+        0, L"STATIC", text, WS_CHILD | SS_LEFT | SS_NOPREFIX | WS_VISIBLE,
         200, 20, ng_windows_detached_parent(), 0);
 
     if (label) {

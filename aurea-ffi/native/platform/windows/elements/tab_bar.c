@@ -2,6 +2,7 @@
 #include "../elements.h"
 #include "common/errors.h"
 #include "common/rust_callbacks.h"
+#include "../utils.h"
 #include <windows.h>
 #include <stdlib.h>
 
@@ -119,7 +120,7 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
 NGHandle ng_windows_create_tab_bar(unsigned int id) {
     HWND temp_parent = ng_windows_detached_parent();
     HWND container = CreateWindowExA(
-        0,
+        WS_EX_CONTROLPARENT,
         "STATIC",
         NULL,
         WS_CHILD | SS_LEFT | WS_VISIBLE | WS_CLIPCHILDREN,
@@ -152,9 +153,12 @@ int ng_windows_tab_bar_add_tab(NGHandle tab_bar, const char* title) {
     TabBarData* data = tab_data(bar);
     if (!data) return NG_ERROR_INVALID_HANDLE;
 
+    char* shown = ng_windows_escape_mnemonics(title);
+    if (!shown) return NG_ERROR_INVALID_PARAMETER;
     HWND btn = ng_windows_create_control(
-        0, L"BUTTON", title, WS_CHILD | WS_VISIBLE | BS_CHECKBOX | BS_PUSHLIKE,
+        0, L"BUTTON", shown, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_CHECKBOX | BS_PUSHLIKE,
         80, 24, bar, TABBAR_BASE_ID + data->count);
+    free(shown);
     if (!btn) return NG_ERROR_CREATION_FAILED;
     SendMessageW(btn, WM_SETFONT, (WPARAM)ng_windows_ui_font(bar), FALSE);
 

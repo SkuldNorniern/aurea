@@ -139,6 +139,20 @@ int ng_windows_set_window_text(HWND hwnd, const char* utf8) {
     return ok ? NG_SUCCESS : NG_ERROR_PLATFORM_SPECIFIC;
 }
 
+char* ng_windows_escape_mnemonics(const char* utf8) {
+    size_t len = strlen(utf8), amps = 0;
+    for (size_t i = 0; i < len; i++) amps += utf8[i] == '&';
+    char* out = (char*)malloc(len + amps + 1);
+    if (!out) return NULL;
+    char* at = out;
+    for (size_t i = 0; i < len; i++) {
+        *at++ = utf8[i];
+        if (utf8[i] == '&') *at++ = '&';
+    }
+    *at = 0;
+    return out;
+}
+
 const wchar_t* ng_windows_get_class_name(void) {
     return CLASS_NAME;
 }

@@ -2,15 +2,20 @@
 #include "../elements.h"
 #include "common/errors.h"
 #include "common/rust_callbacks.h"
+#include "../utils.h"
 #include <windows.h>
+#include <stdlib.h>
 
 NGHandle ng_windows_create_button(const char* title, unsigned int id) {
     if (!title) return NULL;
+    char* shown = ng_windows_escape_mnemonics(title);
+    if (!shown) return NULL;
 
     HWND button = ng_windows_create_control(
-        0, L"BUTTON", title, WS_CHILD | BS_PUSHBUTTON | WS_VISIBLE,
+        0, L"BUTTON", shown, WS_CHILD | BS_PUSHBUTTON | WS_VISIBLE,
         BUTTON_MIN_WIDTH, BUTTON_MIN_HEIGHT,
         ng_windows_detached_parent(), id + BUTTON_COMMAND_BASE);
+    free(shown);
 
     if (button) {
         HDC hdc = GetDC(button);

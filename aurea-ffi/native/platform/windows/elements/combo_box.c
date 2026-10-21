@@ -7,7 +7,7 @@
 
 NGHandle ng_windows_create_combo_box(void) {
     HWND hwnd = CreateWindowExW(
-        WS_EX_CLIENTEDGE,
+        0,
         L"COMBOBOX",
         NULL,
         WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | CBS_HASSTRINGS,

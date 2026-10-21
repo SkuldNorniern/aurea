@@ -392,6 +392,7 @@ static SIZE text_extent(HWND hwnd, int wrap) {
     if (len > 0) {
         RECT r = {0, 0, wrap > 0 ? wrap : 0, 0};
         UINT flags = DT_LEFT | DT_CALCRECT | (wrap > 0 ? DT_WORDBREAK : DT_SINGLELINE);
+        if (GetPropA(hwnd, BOX_LABEL_PROP)) flags |= DT_NOPREFIX;
         DrawTextW(hdc, text, len, &r, flags);
         size.cx = r.right;
         size.cy = r.bottom;
