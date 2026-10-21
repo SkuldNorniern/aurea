@@ -474,6 +474,12 @@ unsafe extern "C" {
     ) -> c_int;
     /// Sets how an image view scales its image.
     pub fn ng_platform_image_view_set_scaling(image_view: *mut c_void, scaling_mode: c_int);
+    /// Reads the shown image's size in pixels, after any EXIF rotation.
+    pub fn ng_platform_image_view_get_size(
+        image_view: *mut c_void,
+        width: *mut u32,
+        height: *mut u32,
+    ) -> c_int;
     /// Marks an image view for redraw.
     pub fn ng_platform_image_view_invalidate(image_view: *mut c_void);
 

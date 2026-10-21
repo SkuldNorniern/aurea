@@ -537,6 +537,10 @@ void ng_platform_image_view_set_scaling(NGHandle v, int m) {
     DISPATCH_VOID(image_view_set_scaling, v, m);
 }
 
+int ng_platform_image_view_get_size(NGHandle v, unsigned int* w, unsigned int* h) {
+    DISPATCH_INT(image_view_get_size, v, w, h);
+}
+
 void ng_platform_image_view_invalidate(NGHandle v) {
     DISPATCH_VOID(image_view_invalidate, v);
 }

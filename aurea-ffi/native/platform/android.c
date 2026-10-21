@@ -505,6 +505,13 @@ void ng_platform_image_view_set_scaling(NGHandle _v, int _mode) {
     (void)_mode;
 }
 
+int ng_platform_image_view_get_size(NGHandle _v, unsigned int* _w, unsigned int* _h) {
+    (void)_v;
+    (void)_w;
+    (void)_h;
+    return NG_ERROR_UNSUPPORTED;
+}
+
 void ng_platform_image_view_invalidate(NGHandle _v) {
     (void)_v;
 }

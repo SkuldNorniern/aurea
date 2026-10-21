@@ -161,6 +161,13 @@ void ng_platform_image_view_set_scaling(NGHandle image_view, int scaling_mode) {
     ng_ios_image_view_set_scaling(image_view, scaling_mode);
 }
 
+int ng_platform_image_view_get_size(NGHandle image_view, unsigned int* width, unsigned int* height) {
+    (void)image_view;
+    (void)width;
+    (void)height;
+    return NG_ERROR_UNSUPPORTED;
+}
+
 NGHandle ng_platform_create_slider(double min, double max) {
     return ng_ios_create_slider(min, max);
 }

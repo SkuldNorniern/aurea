@@ -59,6 +59,7 @@ NGHandle ng_windows_create_image_view(void);
 int ng_windows_image_view_load_from_path(NGHandle image_view, const char* path);
 int ng_windows_image_view_load_from_data(NGHandle image_view, const unsigned char* data, unsigned int size);
 void ng_windows_image_view_set_scaling(NGHandle image_view, int scaling_mode);
+int ng_windows_image_view_get_size(NGHandle image_view, unsigned int* width, unsigned int* height);
 void ng_windows_image_view_invalidate(NGHandle image_view);
 
 NGHandle ng_windows_create_slider(double min, double max);

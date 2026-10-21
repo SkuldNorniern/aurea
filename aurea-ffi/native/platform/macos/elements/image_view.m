@@ -80,6 +80,32 @@ void ng_macos_image_view_set_scaling(NGHandle image_view, int scaling_mode) {
     [imageView setNeedsDisplay:YES];
 }
 
+
+int ng_macos_image_view_get_size(NGHandle image_view, unsigned int* width, unsigned int* height) {
+    if (!image_view || !width || !height) return NG_ERROR_INVALID_PARAMETER;
+    NSImage* image = ((__bridge NGImageView*)image_view).image;
+    if (!image) return NG_ERROR_INVALID_HANDLE;
+    NSInteger w = 0;
+    NSInteger h = 0;
+    for (NSImageRep* rep in image.representations) {
+        if (rep.pixelsWide * rep.pixelsHigh > w * h) {
+            w = rep.pixelsWide;
+            h = rep.pixelsHigh;
+        }
+    }
+    if (w <= 0 || h <= 0) {
+        w = (NSInteger)image.size.width;
+        h = (NSInteger)image.size.height;
+    } else if ((w > h) != (image.size.width > image.size.height)) {
+        NSInteger turned = w;
+        w = h;
+        h = turned;
+    }
+    *width = (unsigned int)w;
+    *height = (unsigned int)h;
+    return NG_SUCCESS;
+}
+
 void ng_macos_image_view_invalidate(NGHandle image_view) {
     if (!image_view) return;
     [(__bridge NGImageView*)image_view setNeedsDisplay:YES];

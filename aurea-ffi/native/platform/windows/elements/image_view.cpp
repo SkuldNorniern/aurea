@@ -90,9 +90,28 @@ static LRESULT CALLBACK ImageViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
     return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
+static void upright(Gdiplus::Bitmap* bitmap) {
+    static const Gdiplus::RotateFlipType turns[] = {
+        Gdiplus::RotateNoneFlipNone, Gdiplus::RotateNoneFlipNone, Gdiplus::RotateNoneFlipX,
+        Gdiplus::Rotate180FlipNone, Gdiplus::RotateNoneFlipY, Gdiplus::Rotate90FlipX,
+        Gdiplus::Rotate90FlipNone, Gdiplus::Rotate270FlipX, Gdiplus::Rotate270FlipNone,
+    };
+    UINT size = bitmap->GetPropertyItemSize(PropertyTagOrientation);
+    if (size < sizeof(Gdiplus::PropertyItem)) return;
+    Gdiplus::PropertyItem* item = (Gdiplus::PropertyItem*)malloc(size);
+    if (!item) return;
+    if (bitmap->GetPropertyItem(PropertyTagOrientation, size, item) == Gdiplus::Ok &&
+        item->type == PropertyTagTypeShort && item->length >= sizeof(USHORT)) {
+        USHORT turn = *(USHORT*)item->value;
+        if (turn >= 2 && turn <= 8) bitmap->RotateFlip(turns[turn]);
+    }
+    free(item);
+}
+
 static HBITMAP decode(Gdiplus::Bitmap* bitmap) {
     HBITMAP result = NULL;
     if (bitmap && bitmap->GetLastStatus() == Gdiplus::Ok) {
+        upright(bitmap);
         COLORREF bg = GetSysColor(COLOR_WINDOW);
         Gdiplus::Color under(255, GetRValue(bg), GetGValue(bg), GetBValue(bg));
         if (bitmap->GetHBITMAP(under, &result) != Gdiplus::Ok) result = NULL;
@@ -220,6 +239,16 @@ void ng_windows_image_view_set_scaling(NGHandle image_view, int scaling_mode) {
         data->scaling_mode = scaling_mode;
         InvalidateRect(hwnd, NULL, FALSE);
     }
+}
+
+int ng_windows_image_view_get_size(NGHandle image_view, unsigned int* width, unsigned int* height) {
+    if (!image_view || !width || !height) return NG_ERROR_INVALID_PARAMETER;
+    ImageViewData* data = (ImageViewData*)GetWindowLongPtr((HWND)image_view, GWLP_USERDATA);
+    BITMAP info;
+    if (!data || !data->hBitmap || !GetObject(data->hBitmap, sizeof(info), &info)) return NG_ERROR_INVALID_HANDLE;
+    *width = (unsigned int)info.bmWidth;
+    *height = (unsigned int)(info.bmHeight < 0 ? -info.bmHeight : info.bmHeight);
+    return NG_SUCCESS;
 }
 
 void ng_windows_image_view_invalidate(NGHandle image_view) {

@@ -113,6 +113,7 @@ static const ng_platform_ops_t linux_ops = {
     .image_view_load_from_path = ng_linux_image_view_load_from_path,
     .image_view_load_from_data = ng_linux_image_view_load_from_data,
     .image_view_set_scaling = ng_linux_image_view_set_scaling,
+    .image_view_get_size = ng_linux_image_view_get_size,
     .image_view_invalidate = ng_linux_image_view_invalidate,
     .create_slider = ng_linux_create_slider,
     .slider_set_value = ng_linux_slider_set_value,

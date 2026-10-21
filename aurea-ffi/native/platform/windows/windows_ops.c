@@ -118,6 +118,7 @@ static const ng_platform_ops_t windows_ops = {
     .image_view_load_from_path = ng_windows_image_view_load_from_path,
     .image_view_load_from_data = ng_windows_image_view_load_from_data,
     .image_view_set_scaling = ng_windows_image_view_set_scaling,
+    .image_view_get_size = ng_windows_image_view_get_size,
     .image_view_invalidate = ng_windows_image_view_invalidate,
     .create_slider = ng_windows_create_slider,
     .slider_set_value = ng_windows_slider_set_value,

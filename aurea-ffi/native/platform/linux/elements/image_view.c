@@ -42,6 +42,10 @@ NGHandle ng_linux_create_image_view(void) {
 
 static int set_pixbuf(NGHandle image_view, GdkPixbuf* pixbuf) {
     if (!pixbuf) return NG_ERROR_CREATION_FAILED;
+    GdkPixbuf* upright = gdk_pixbuf_apply_embedded_orientation(pixbuf);
+    g_object_unref(pixbuf);
+    pixbuf = upright;
+    if (!pixbuf) return NG_ERROR_CREATION_FAILED;
     g_object_set_data_full(G_OBJECT(image_view), PIXBUF_KEY, pixbuf, g_object_unref);
     gtk_widget_queue_draw((GtkWidget*)image_view);
     return NG_SUCCESS;
@@ -75,6 +79,16 @@ void ng_linux_image_view_set_scaling(NGHandle image_view, int scaling_mode) {
     if (!image_view) return;
     g_object_set_data(G_OBJECT(image_view), SCALING_KEY, GINT_TO_POINTER(scaling_mode));
     gtk_widget_queue_draw((GtkWidget*)image_view);
+}
+
+
+int ng_linux_image_view_get_size(NGHandle image_view, unsigned int* width, unsigned int* height) {
+    if (!image_view || !width || !height) return NG_ERROR_INVALID_PARAMETER;
+    GdkPixbuf* pixbuf = g_object_get_data(G_OBJECT(image_view), PIXBUF_KEY);
+    if (!pixbuf) return NG_ERROR_INVALID_HANDLE;
+    *width = (unsigned int)gdk_pixbuf_get_width(pixbuf);
+    *height = (unsigned int)gdk_pixbuf_get_height(pixbuf);
+    return NG_SUCCESS;
 }
 
 void ng_linux_image_view_invalidate(NGHandle image_view) {

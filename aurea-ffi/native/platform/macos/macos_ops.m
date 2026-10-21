@@ -115,6 +115,7 @@ static const ng_platform_ops_t macos_ops = {
     .image_view_load_from_path = ng_macos_image_view_load_from_path,
     .image_view_load_from_data = ng_macos_image_view_load_from_data,
     .image_view_set_scaling = ng_macos_image_view_set_scaling,
+    .image_view_get_size = ng_macos_image_view_get_size,
     .image_view_invalidate = ng_macos_image_view_invalidate,
     .create_slider = ng_macos_create_slider,
     .slider_set_value = ng_macos_slider_set_value,

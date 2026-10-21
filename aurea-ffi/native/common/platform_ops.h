@@ -131,6 +131,7 @@ typedef struct ng_platform_ops {
     int (*image_view_load_from_path)(NGHandle v, const char* path);
     int (*image_view_load_from_data)(NGHandle v, const unsigned char* data, unsigned int size);
     void (*image_view_set_scaling)(NGHandle v, int mode);
+    int (*image_view_get_size)(NGHandle v, unsigned int* w, unsigned int* h);
     void (*image_view_invalidate)(NGHandle v);
 
     NGHandle (*create_slider)(double min, double max);
