@@ -6,20 +6,75 @@
 #include <stdlib.h>
 #include <string.h>
 
-static NSArray<NSString*>* extensions_of(const char* filters) {
-    if (!filters || !*filters) return nil;
-    NSMutableArray<NSString*>* out = [NSMutableArray array];
-    NSString* all = ng_macos_to_nsstring(filters);
-    for (NSString* line in [all componentsSeparatedByString:@"\n"]) {
+/* Each filter is a name and the extensions it allows; nil allows every file. */
+@interface NGDialogFilter : NSObject
+@property (copy) NSString* name;
+@property (copy) NSArray<NSString*>* extensions;
+@end
+
+@implementation NGDialogFilter
+@end
+
+static NSArray<NGDialogFilter*>* filters_of(const char* filters) {
+    NSMutableArray<NGDialogFilter*>* out = [NSMutableArray array];
+    if (!filters || !*filters) return out;
+    for (NSString* line in [ng_macos_to_nsstring(filters) componentsSeparatedByString:@"\n"]) {
         NSRange bar = [line rangeOfString:@"|"];
         if (bar.location == NSNotFound) continue;
-        NSString* exts = [line substringFromIndex:bar.location + 1];
-        for (NSString* ext in [exts componentsSeparatedByString:@";"]) {
-            if ([ext isEqualToString:@"*"]) return nil;
-            if (ext.length > 0) [out addObject:ext];
+        NGDialogFilter* filter = [[NGDialogFilter alloc] init];
+        filter.name = [line substringToIndex:bar.location];
+        NSMutableArray<NSString*>* exts = [NSMutableArray array];
+        BOOL any = NO;
+        for (NSString* ext in [[line substringFromIndex:bar.location + 1] componentsSeparatedByString:@";"]) {
+            if ([ext isEqualToString:@"*"]) any = YES;
+            else if (ext.length > 0) [exts addObject:ext];
         }
+        filter.extensions = (any || exts.count == 0) ? nil : exts;
+        [out addObject:filter];
     }
-    return out.count > 0 ? out : nil;
+    return out;
+}
+
+static void allow_filter(NSSavePanel* panel, NGDialogFilter* filter) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    [panel setAllowedFileTypes:filter.extensions];
+#pragma clang diagnostic pop
+}
+
+/* macOS panels have no file-type list of their own, so with more than one
+   filter a pop-up below the browser picks between them, as Mac apps do. */
+@interface NGFilterPicker : NSObject
+@property (weak) NSSavePanel* panel;
+@property (copy) NSArray<NGDialogFilter*>* filters;
+- (void)picked:(NSPopUpButton*)sender;
+@end
+
+@implementation NGFilterPicker
+- (void)picked:(NSPopUpButton*)sender {
+    NSInteger index = [sender indexOfSelectedItem];
+    if (index >= 0 && index < (NSInteger)self.filters.count) allow_filter(self.panel, self.filters[index]);
+}
+@end
+
+static NSView* filter_picker_view(NGFilterPicker* picker) {
+    NSTextField* label = [NSTextField labelWithString:@"Format:"];
+    NSPopUpButton* popup = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    for (NGDialogFilter* filter in picker.filters) {
+        [[popup menu] addItemWithTitle:filter.name action:nil keyEquivalent:@""];
+    }
+    popup.target = picker;
+    popup.action = @selector(picked:);
+    [label sizeToFit];
+    [popup sizeToFit];
+    CGFloat height = MAX(label.frame.size.height, popup.frame.size.height) + 16;
+    CGFloat width = label.frame.size.width + popup.frame.size.width + 48;
+    NSView* row = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
+    [label setFrameOrigin:NSMakePoint(16, (height - label.frame.size.height) / 2)];
+    [popup setFrameOrigin:NSMakePoint(NSMaxX(label.frame) + 8, (height - popup.frame.size.height) / 2)];
+    [row addSubview:label];
+    [row addSubview:popup];
+    return row;
 }
 
 static char* joined(NSArray<NSURL*>* urls) {
@@ -53,12 +108,18 @@ char* ng_macos_file_dialog(NGHandle window, int kind, const char* title, const c
             [panel setMessage:ng_macos_to_nsstring(title)];
             [panel setTitle:ng_macos_to_nsstring(title)];
         }
-        NSArray<NSString*>* exts = kind == NG_DIALOG_FOLDER ? nil : extensions_of(filters);
-        if (exts) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-            [panel setAllowedFileTypes:exts];
-#pragma clang diagnostic pop
+        NSArray<NGDialogFilter*>* list = kind == NG_DIALOG_FOLDER ? @[] : filters_of(filters);
+        /* The pop-up holds its target weakly; this keeps it for the whole panel. */
+        __attribute__((objc_precise_lifetime)) NGFilterPicker* picker = nil;
+        if (list.count > 0) allow_filter(panel, list[0]);
+        if (list.count > 1) {
+            picker = [[NGFilterPicker alloc] init];
+            picker.panel = panel;
+            picker.filters = list;
+            panel.accessoryView = filter_picker_view(picker);
+            if ([panel isKindOfClass:[NSOpenPanel class]]) {
+                ((NSOpenPanel*)panel).accessoryViewDisclosed = YES;
+            }
         }
         if (directory && *directory) {
             [panel setDirectoryURL:[NSURL fileURLWithPath:ng_macos_to_nsstring(directory) isDirectory:YES]];
