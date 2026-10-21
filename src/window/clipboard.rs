@@ -230,11 +230,10 @@ pub fn clipboard_text() -> Option<String> {
 pub fn set_clipboard_text(text: &str) -> AureaResult<()> {
     ui_thread::check("set_clipboard_text");
     let cstr = c_text(text)?;
-    let result = unsafe { ng_platform_set_clipboard_text(cstr.as_ptr()) };
-    if result != 0 {
-        Err(AureaError::ElementOperationFailed)
-    } else {
-        Ok(())
+    match unsafe { ng_platform_set_clipboard_text(cstr.as_ptr()) } {
+        0 => Ok(()),
+        CLIPBOARD_BUSY => Err(AureaError::PlatformError(CLIPBOARD_BUSY)),
+        _ => Err(AureaError::ElementOperationFailed),
     }
 }
 
@@ -293,6 +292,41 @@ mod tests {
     }
 
     #[cfg(any(windows, target_os = "linux"))]
+    fn read_text() -> String {
+        retry(|| clipboard_text().ok_or(AureaError::PlatformError(CLIPBOARD_BUSY)))
+            .expect("read text after clipboard listeners finish")
+    }
+
+    #[cfg(any(windows, target_os = "linux"))]
+    fn exercise_text() {
+        retry(|| set_clipboard_text("Aurea 한글 🙂")).expect("write text");
+        assert_eq!(read_text(), "Aurea 한글 🙂");
+        assert!(matches!(
+            set_clipboard_text("a\0b"),
+            Err(AureaError::InvalidText)
+        ));
+        assert_eq!(read_text(), "Aurea 한글 🙂");
+        retry(|| set_clipboard_text("a\nb\nc")).expect("write lines");
+        assert_eq!(read_text(), "a\nb\nc");
+        #[cfg(windows)]
+        {
+            let raw = retry(|| clipboard_data("CF_UNICODETEXT", usize::MAX))
+                .expect("read raw text")
+                .expect("raw text");
+            let wide: Vec<u16> = raw
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|p| u16::from_le_bytes(*p))
+                .collect();
+            assert_eq!(
+                String::from_utf16_lossy(&wide).trim_end_matches('\0'),
+                "a\r\nb\r\nc"
+            );
+        }
+    }
+
+    #[cfg(any(windows, target_os = "linux"))]
     #[test]
     #[ignore = "uses a native desktop clipboard; run serially with --ignored"]
     fn native_clipboard_round_trips_images_formats_and_empty_payloads() {
@@ -314,15 +348,7 @@ mod tests {
         }
         let _restore = Restore(saved);
         exercise_native_round_trip();
-        retry(|| set_clipboard_text("Aurea 한글 🙂")).expect("write text");
-        let text = retry(|| clipboard_text().ok_or(AureaError::PlatformError(CLIPBOARD_BUSY)))
-            .expect("read legacy text after clipboard listeners finish");
-        assert_eq!(text, "Aurea 한글 🙂");
-        assert!(matches!(
-            set_clipboard_text("a\0b"),
-            Err(AureaError::InvalidText)
-        ));
-        assert_eq!(clipboard_text().as_deref(), Some("Aurea 한글 🙂"));
+        exercise_text();
         #[cfg(windows)]
         {
             retry(|| {
