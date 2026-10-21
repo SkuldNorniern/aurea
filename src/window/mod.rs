@@ -2077,6 +2077,7 @@ mod gtk_ime_tests {
 
     unsafe extern "C" {
         fn ng_linux_content_origin(window: *mut c_void, x: *mut c_int, y: *mut c_int);
+        fn gtk_container_check_resize(container: *mut c_void);
     }
 
     #[test]
@@ -2093,6 +2094,9 @@ mod gtk_ime_tests {
             window.set_content(Label::new("body")?)?;
             window.show();
             let _ = window.poll_events();
+            // Mapping can precede GTK's next layout tick. Compare allocated
+            // content origins, not a child's initial (-1, -1) allocation.
+            unsafe { gtk_container_check_resize(window.handle()) };
             let (mut x, mut y) = (0, 0);
             unsafe { ng_linux_content_origin(window.handle(), &mut x, &mut y) };
             Ok((x, y))
