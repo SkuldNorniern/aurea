@@ -52,10 +52,15 @@
     }
 }
 
-- (void)drawRect:(NSRect)dirtyRect {
-    if (self.gpuOwned) return;
-    [[NSColor windowBackgroundColor] setFill];
-    NSRectFill(dirtyRect);
+/* The frame is the layer's contents. Drawing through drawRect: would have
+   AppKit replace them on every redisplay (a resize, a light/dark switch), so
+   the layer is updated in place and only its background is set here. */
+- (BOOL)wantsUpdateLayer {
+    return YES;
+}
+
+- (void)updateLayer {
+    self.layer.backgroundColor = self.gpuOwned ? nil : [[NSColor windowBackgroundColor] CGColor];
 }
 
 - (void)dealloc {
@@ -111,6 +116,7 @@ void ng_macos_canvas_set_gpu_owned(NGHandle canvas, int gpu_owned) {
     AureaCanvasView* view = (__bridge AureaCanvasView*)canvas;
     if (![view isKindOfClass:[AureaCanvasView class]]) return;
     view.gpuOwned = gpu_owned != 0;
+    [view setNeedsDisplay:YES];
     if (view.gpuOwned) {
         view.renderBuffer = NULL;
         view.bufferWidth = 0;
