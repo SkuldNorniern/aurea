@@ -105,6 +105,8 @@ impl Element for Slider {
 mod tests {
     use super::*;
     use crate::Window;
+    #[cfg(windows)]
+    use std::ptr::null_mut;
 
     #[test]
     fn endless_ranges_are_refused() {
@@ -139,6 +141,51 @@ mod tests {
         let slider = Slider::new(0.0, 1.0)?;
         let version = unsafe { SendMessageW(slider.handle(), CCM_GETVERSION, 0, 0) };
         assert_eq!(version, 6);
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "creates a native widget; run with --ignored"]
+    fn comctl32_v5_is_never_loaded() -> AureaResult<()> {
+        unsafe extern "system" {
+            fn GetCurrentProcess() -> *mut c_void;
+            fn K32EnumProcessModules(
+                process: *mut c_void,
+                modules: *mut *mut c_void,
+                bytes: u32,
+                needed: *mut u32,
+            ) -> i32;
+            fn GetModuleFileNameW(module: *mut c_void, name: *mut u16, size: u32) -> u32;
+            fn GetSystemDirectoryW(buffer: *mut u16, size: u32) -> u32;
+        }
+        let text = |buffer: &[u16], len: u32| {
+            String::from_utf16_lossy(&buffer[..len as usize]).to_lowercase()
+        };
+        let _window = Window::new("v5", 200, 100)?;
+        let mut slider = Slider::new(0.0, 1.0)?;
+        slider.on_change(|_| {})?;
+        let mut system = [0u16; 260];
+        let len = unsafe { GetSystemDirectoryW(system.as_mut_ptr(), 260) };
+        let v5 = format!(r"{}\comctl32.dll", text(&system, len));
+        let mut modules = vec![null_mut(); 1024];
+        let mut needed = 0;
+        let bytes = u32::try_from(modules.len() * size_of::<*mut c_void>()).unwrap_or(u32::MAX);
+        let listed = unsafe {
+            K32EnumProcessModules(
+                GetCurrentProcess(),
+                modules.as_mut_ptr(),
+                bytes,
+                &mut needed,
+            )
+        };
+        assert_ne!(listed, 0);
+        let count = (needed as usize / size_of::<*mut c_void>()).min(modules.len());
+        for &module in &modules[..count] {
+            let mut name = [0u16; 1024];
+            let len = unsafe { GetModuleFileNameW(module, name.as_mut_ptr(), 1024) };
+            assert_ne!(text(&name, len), v5, "comctl32 v5 got loaded");
+        }
         Ok(())
     }
 }
