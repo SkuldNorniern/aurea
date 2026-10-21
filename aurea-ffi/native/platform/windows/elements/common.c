@@ -411,6 +411,31 @@ static SIZE text_extent(HWND hwnd, int wrap) {
     return size;
 }
 
+static int is_line_edit(const BoxChild* c) {
+    return _stricmp(c->class_name, "EDIT") == 0 &&
+           !(GetWindowLongPtrA(c->hwnd, GWL_STYLE) & ES_MULTILINE);
+}
+
+/* Sized by their font; stretching them across a row only leaves the text hanging at the top. */
+static int fixed_height(const BoxChild* c) {
+    return is_line_edit(c) || _stricmp(c->class_name, "COMBOBOX") == 0;
+}
+
+static int line_edit_height(HWND hwnd) {
+    HDC hdc = GetDC(hwnd);
+    if (!hdc) return 0;
+    HFONT old = (HFONT)SelectObject(hdc, control_font(hwnd));
+    TEXTMETRICW tm = {0};
+    GetTextMetricsW(hdc, &tm);
+    SelectObject(hdc, old);
+    ReleaseDC(hwnd, hdc);
+    RECT outer, inner;
+    GetWindowRect(hwnd, &outer);
+    GetClientRect(hwnd, &inner);
+    int border = (outer.bottom - outer.top) - inner.bottom;
+    return tm.tmHeight + border + ng_windows_px(hwnd, LINE_EDIT_PADDING);
+}
+
 static void measure_box(HWND box, int in_vertical, int cross, int* out_w, int* out_h);
 
 static void measure_child(BoxChild* c, int vertical, int cross) {
@@ -420,8 +445,8 @@ static void measure_child(BoxChild* c, int vertical, int cross) {
     int h = r.bottom - r.top;
     INT_PTR natural = (INT_PTR)GetPropA(c->hwnd, BOX_NATURAL_PROP);
     if (natural) {
-        w = (int)((natural >> 16) & 0xFFFF);
-        h = (int)(natural & 0xFFFF);
+        w = ng_windows_px(c->hwnd, (int)((natural >> 16) & 0xFFFF));
+        h = ng_windows_px(c->hwnd, (int)(natural & 0xFFFF));
     }
     const char* cls = c->class_name;
 
@@ -462,10 +487,15 @@ static void measure_child(BoxChild* c, int vertical, int cross) {
             w = natural > min_w ? natural : min_w;
             if (h < min_h) h = min_h;
         }
+    } else if (fixed_height(c)) {
+        if (vertical && cross > 0) w = cross;
+        h = is_line_edit(c) ? line_edit_height(c->hwnd) : r.bottom - r.top;
+    } else if (_stricmp(cls, TRACKBAR_CLASSA) == 0 || _stricmp(cls, "msctls_progress32") == 0) {
+        if (vertical && cross > 0) w = cross;
+        h = ng_windows_px(c->hwnd, _stricmp(cls, TRACKBAR_CLASSA) == 0 ? SLIDER_HEIGHT : PROGRESS_HEIGHT);
     } else if (vertical && cross > 0 &&
                (c->weight > 0.0f || ng_windows_is_rich_edit(c->hwnd) || _stricmp(cls, "EDIT") == 0 ||
-                _stricmp(cls, "AureaCanvas") == 0 || _stricmp(cls, "msctls_progress32") == 0 ||
-                _stricmp(cls, "COMBOBOX") == 0 || _stricmp(cls, TRACKBAR_CLASSA) == 0)) {
+                _stricmp(cls, "AureaCanvas") == 0)) {
         w = cross;
     }
     int min_w = stored_px(c->hwnd, MIN_WIDTH_PROP);
@@ -580,7 +610,8 @@ void layout_box_children(HWND box) {
         } else {
             x = at;
             w = c->w + extra;
-            h = is_box(c->hwnd) || c->weight > 0.0f || c->h > cross ? cross : c->h;
+            h = is_box(c->hwnd) || (c->weight > 0.0f && !fixed_height(c)) || c->h > cross
+                    ? cross : c->h;
             y = pad + (cross - h) / 2;
             at += w + spacing;
         }

@@ -40,13 +40,16 @@
 #define BUTTON_MIN_WIDTH 80
 #define BUTTON_MIN_HEIGHT 32
 #define LABEL_PADDING 4
+#define LINE_EDIT_PADDING 4
+#define SLIDER_HEIGHT 22
+#define PROGRESS_HEIGHT 20
 #define BOX_ORIENTATION_PROP "AureaBoxOrientation"
 #define BOX_VERTICAL 2
 #define BOX_HORIZONTAL 1
 /* Set on each child when it is added: its place in the box, and its layout weight times 1000 plus 1, so that 0 still means unset. */
 #define BOX_INDEX_PROP "AureaBoxIndex"
 #define BOX_WEIGHT_PROP "AureaBoxWeight"
-/* A child's size when it was added, width << 16 | height. */
+/* A child's logical size when it was added, width << 16 | height. */
 #define BOX_NATURAL_PROP "AureaBoxNatural"
 /* Set on labels, so layout can tell them from other STATIC windows. */
 #define BOX_LABEL_PROP "AureaLabel"

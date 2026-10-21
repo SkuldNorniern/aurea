@@ -38,7 +38,7 @@ NGHandle ng_windows_create_slider(double min, double max) {
         TRACKBAR_CLASSW,
         NULL,
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_HORZ | TBS_NOTICKS,
-        0, 0, 200, 30,
+        0, 0, 200, SLIDER_HEIGHT,
         ng_windows_detached_parent(),
         NULL,
         GetModuleHandleW(NULL),

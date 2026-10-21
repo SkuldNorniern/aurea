@@ -1141,6 +1141,158 @@ mod win32_tests {
         Ok(())
     }
 
+    fn font_fits(field: *mut c_void) -> (i32, i32) {
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn GetClientRect(hwnd: *mut c_void, rect: *mut Rect) -> i32;
+        }
+        #[link(name = "gdi32")]
+        unsafe extern "system" {
+            fn GetTextMetricsW(dc: *mut c_void, metrics: *mut i32) -> i32;
+        }
+        const WM_GETFONT: u32 = 0x0031;
+        let mut client = Rect::default();
+        let mut metrics = [0i32; 15];
+        unsafe {
+            GetClientRect(field, &raw mut client);
+            let dc = GetDC(field);
+            let font = SendMessageW(field, WM_GETFONT, 0, 0) as *mut c_void;
+            let old = SelectObject(dc, font);
+            GetTextMetricsW(dc, metrics.as_mut_ptr());
+            SelectObject(dc, old);
+            ReleaseDC(field, dc);
+        }
+        (client.bottom - client.top, metrics[0])
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_lone_text_field_fits_its_font() -> AureaResult<()> {
+        #[link(name = "gdi32")]
+        unsafe extern "system" {
+            fn CreateFontW(
+                height: i32,
+                width: i32,
+                escapement: i32,
+                orientation: i32,
+                weight: i32,
+                italic: u32,
+                underline: u32,
+                strike: u32,
+                charset: u32,
+                precision: u32,
+                clip: u32,
+                quality: u32,
+                pitch: u32,
+                face: *const u16,
+            ) -> *mut c_void;
+        }
+        const WM_SETFONT: u32 = 0x0030;
+        const WM_DPICHANGED: u32 = 0x02E0;
+        let mut window = Window::new("field height", 400, 300)?;
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        let field = TextField::with_content("Agjpqy 한글 日本語")?;
+        let f = field.handle();
+        stack.add(field)?;
+        window.set_content(stack)?;
+        let (client, font) = font_fits(f);
+        assert!(client >= font, "{client} < {font}");
+
+        let big = unsafe { CreateFontW(-40, 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 0, 0, null_mut()) };
+        unsafe { SendMessageW(f, WM_SETFONT, big as usize, 0) };
+        let root = window.handle();
+        let mut at = rect(root);
+        unsafe { SendMessageW(root, WM_DPICHANGED, 0x0060_0060, (&raw mut at) as isize) };
+        let (client, font) = font_fits(f);
+        assert!(client >= font, "{client} < {font} after refont");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_canvas_keeps_its_logical_size() -> AureaResult<()> {
+        use crate::render::{Canvas, RendererBackend};
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn GetDpiForWindow(hwnd: *mut c_void) -> u32;
+        }
+        let mut window = Window::new("canvas size", 400, 400)?;
+        let mut stack = Stack::new(Orientation::Horizontal)?;
+        let canvas = Canvas::new(120, 80, RendererBackend::Cpu)?;
+        let c = canvas.handle();
+        stack.add(canvas)?;
+        stack.add(Label::new("after")?)?;
+        window.set_content(stack)?;
+        let dpi = unsafe { GetDpiForWindow(c) } as i32;
+        let r = rect(c);
+        assert_eq!(r.right - r.left, 120 * dpi / 96);
+        assert_eq!(r.bottom - r.top, 80 * dpi / 96);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_weighted_field_keeps_its_height_in_a_row() -> AureaResult<()> {
+        let mut window = Window::new("field row", 400, 300)?;
+        let mut row = Stack::new(Orientation::Horizontal)?;
+        let field = TextField::with_content("Agjpqy")?;
+        let button = Button::new("Go")?;
+        let (f, b) = (field.handle(), button.handle());
+        row.add_weighted(field, 1.0)?;
+        row.add(button)?;
+        window.set_content(row)?;
+        let (field, button) = (rect(f), rect(b));
+        let (client, font) = font_fits(f);
+        assert!(client >= font, "{client} < {font}");
+        assert!(field.bottom - field.top < button.bottom - button.top);
+        assert!(field.top >= button.top && field.bottom <= button.bottom);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_slider_thumb_fits() -> AureaResult<()> {
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn SetWindowPos(
+                hwnd: *mut c_void,
+                after: *mut c_void,
+                x: i32,
+                y: i32,
+                w: i32,
+                h: i32,
+                flags: u32,
+            ) -> i32;
+        }
+        const TBM_GETTHUMBRECT: u32 = 0x0419;
+        const SWP_NOMOVE_NOZORDER: u32 = 0x0006;
+        let mut window = Window::new("slider height", 400, 300)?;
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        let slider = Slider::new(0.0, 1.0)?;
+        let s = slider.handle();
+        stack.add(slider)?;
+        window.set_content(stack)?;
+        let thumb = || {
+            let mut t = Rect::default();
+            unsafe { SendMessageW(s, TBM_GETTHUMBRECT, 0, (&raw mut t) as isize) };
+            t.bottom - t.top
+        };
+        let (laid_out, r) = (thumb(), rect(s));
+        unsafe {
+            SetWindowPos(
+                s,
+                null_mut(),
+                0,
+                0,
+                r.right - r.left,
+                400,
+                SWP_NOMOVE_NOZORDER,
+            )
+        };
+        assert_eq!(laid_out, thumb(), "thumb squashed");
+        Ok(())
+    }
+
     #[test]
     #[ignore = "creates native windows; run with --ignored"]
     fn a_disabled_stack_greys_its_children() -> AureaResult<()> {

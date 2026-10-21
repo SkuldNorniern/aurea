@@ -16,7 +16,7 @@ NGHandle ng_windows_create_progress_bar(void) {
         PROGRESS_CLASS,
         NULL,
         WS_CHILD | WS_VISIBLE | PBS_SMOOTH,
-        0, 0, 200, 20,
+        0, 0, 200, PROGRESS_HEIGHT,
         ng_windows_detached_parent(),
         NULL,
         GetModuleHandle(NULL),
