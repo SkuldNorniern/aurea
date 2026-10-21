@@ -77,13 +77,19 @@ static NSView* filter_picker_view(NGFilterPicker* picker) {
     return row;
 }
 
+/* Each path ends in a NUL and an empty one ends the list: a file name may
+   hold a line break, never a NUL. */
 static char* joined(NSArray<NSURL*>* urls) {
-    NSMutableArray<NSString*>* paths = [NSMutableArray array];
+    NSMutableData* list = [NSMutableData data];
     for (NSURL* url in urls) {
-        if (url.path) [paths addObject:url.path];
+        const char* path = url.fileURL ? url.fileSystemRepresentation : NULL;
+        if (path && *path) [list appendBytes:path length:strlen(path) + 1];
     }
-    if (paths.count == 0) return NULL;
-    return strdup([[paths componentsJoinedByString:@"\n"] UTF8String]);
+    if (list.length == 0) return NULL;
+    [list appendBytes:"" length:1];
+    char* out = (char*)malloc(list.length);
+    if (out) memcpy(out, list.bytes, list.length);
+    return out;
 }
 
 char* ng_macos_file_dialog(NGHandle window, int kind, const char* title, const char* filters,

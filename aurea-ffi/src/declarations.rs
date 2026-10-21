@@ -284,7 +284,8 @@ unsafe extern "C" {
     /// Removes all items from a menu.
     pub fn ng_platform_menu_clear(menu_handle: *mut c_void) -> c_int;
 
-    /// Opens a file dialog; returns the chosen paths.
+    /// Opens a file dialog; returns the chosen paths, each ending in a NUL, with an empty one
+    /// after the last.
     pub fn ng_platform_file_dialog(
         window: *mut c_void,
         kind: c_int,

@@ -2,7 +2,7 @@
 //! chooser.
 
 use crate::ffi::{c_text, c_title};
-use std::ffi::{CStr, c_int, c_uint};
+use std::ffi::{CStr, c_char, c_int, c_uint};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
 
@@ -116,12 +116,7 @@ impl FileDialog {
         if raw.is_null() {
             return Ok(Vec::new());
         }
-        let paths = unsafe { CStr::from_ptr(raw) }
-            .to_string_lossy()
-            .lines()
-            .filter(|l| !l.is_empty())
-            .map(PathBuf::from)
-            .collect();
+        let paths = unsafe { path_list(raw) };
         unsafe { ng_platform_free_dialog_paths(raw) };
         Ok(paths)
     }
@@ -334,6 +329,38 @@ impl ColorDialog {
     }
 }
 
+/// Reads the paths a native dialog returns: each ends in a NUL and an empty one ends the list, so
+/// a file name with a line break in it survives.
+///
+/// # Safety
+///
+/// `raw` must point at such a list.
+unsafe fn path_list(raw: *const c_char) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let mut at = raw;
+    loop {
+        let bytes = unsafe { CStr::from_ptr(at) }.to_bytes();
+        if bytes.is_empty() {
+            return paths;
+        }
+        paths.push(path_from_bytes(bytes));
+        at = unsafe { at.add(bytes.len() + 1) };
+    }
+}
+
+/// A Unix file name is bytes, not necessarily UTF-8; elsewhere the platform hands over UTF-8.
+#[cfg(unix)]
+fn path_from_bytes(bytes: &[u8]) -> PathBuf {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+    PathBuf::from(OsStr::from_bytes(bytes))
+}
+
+#[cfg(not(unix))]
+fn path_from_bytes(bytes: &[u8]) -> PathBuf {
+    PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
+}
+
 fn argb_of(color: Color) -> c_uint {
     u32::from_be_bytes([color.a, color.r, color.g, color.b])
 }
@@ -346,6 +373,16 @@ fn color_of(argb: c_uint) -> Color {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_line_break_in_a_file_name_survives() {
+        let list = b"/tmp/a\nb.txt\0/tmp/c.txt\0\0";
+        let paths = unsafe { path_list(list.as_ptr().cast()) };
+        assert_eq!(
+            paths,
+            vec![PathBuf::from("/tmp/a\nb.txt"), PathBuf::from("/tmp/c.txt")]
+        );
+    }
 
     #[test]
     fn filters_are_written_one_per_line() {

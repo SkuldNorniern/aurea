@@ -48,12 +48,20 @@ char* ng_linux_file_dialog(NGHandle window, int kind, const char* title, const c
     if (gtk_native_dialog_run(GTK_NATIVE_DIALOG(native)) == GTK_RESPONSE_ACCEPT) {
         GSList* names = gtk_file_chooser_get_filenames(chooser);
         GString* joined = g_string_new(NULL);
+        /* Each path ends in a NUL and an empty one ends the list: a file
+           name may hold a line break, never a NUL. */
         for (GSList* l = names; l; l = l->next) {
-            if (joined->len) g_string_append_c(joined, '\n');
-            g_string_append(joined, (const char*)l->data);
+            const char* name = (const char*)l->data;
+            if (name && *name) g_string_append_len(joined, name, (gssize)strlen(name) + 1);
         }
         g_slist_free_full(names, g_free);
-        if (joined->len) out = strdup(joined->str);
+        if (joined->len) {
+            out = (char*)malloc(joined->len + 1);
+            if (out) {
+                memcpy(out, joined->str, joined->len);
+                out[joined->len] = '\0';
+            }
+        }
         g_string_free(joined, TRUE);
     }
     g_object_unref(native);
