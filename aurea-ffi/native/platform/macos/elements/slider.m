@@ -23,7 +23,7 @@ int ng_macos_slider_set_value(NGHandle slider, double value) {
     double minValue = [nsSlider minValue];
     double maxValue = [nsSlider maxValue];
     
-    if (value < minValue) value = minValue;
+    if (!(value >= minValue)) value = minValue;
     if (value > maxValue) value = maxValue;
     
     [nsSlider setDoubleValue:value];

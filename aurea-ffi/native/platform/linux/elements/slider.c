@@ -1,9 +1,10 @@
 #include "../elements.h"
 #include "common/errors.h"
 #include <gtk/gtk.h>
+#include <math.h>
 
 NGHandle ng_linux_create_slider(double min, double max) {
-    if (min >= max) return NULL;
+    if (!(min < max) || !(min > -HUGE_VAL) || !(max < HUGE_VAL)) return NULL;
     
     GtkWidget* scale = gtk_scale_new_with_range(
         GTK_ORIENTATION_HORIZONTAL,
@@ -26,7 +27,7 @@ int ng_linux_slider_set_value(NGHandle slider, double value) {
     double minVal = gtk_adjustment_get_lower(adjustment);
     double maxVal = gtk_adjustment_get_upper(adjustment);
     
-    if (value < minVal) value = minVal;
+    if (!(value >= minVal)) value = minVal;
     if (value > maxVal) value = maxVal;
     
     ng_linux_set_quiet(slider, 1);

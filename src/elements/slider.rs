@@ -19,7 +19,7 @@ impl Slider {
 
     /// Create a slider with initial value.
     pub fn with_value(min: f64, max: f64, value: f64) -> AureaResult<Self> {
-        if min.partial_cmp(&max) != Some(Ordering::Less) {
+        if !min.is_finite() || !max.is_finite() || min.partial_cmp(&max) != Some(Ordering::Less) {
             return Err(AureaError::ElementOperationFailed);
         }
 
@@ -33,13 +33,20 @@ impl Slider {
             handle: NativeElement::new(handle),
             change: None,
         };
-        let clamped = value.clamp(min, max);
+        let clamped = if value.is_nan() {
+            min
+        } else {
+            value.clamp(min, max)
+        };
         let _ = slider.set_value(clamped);
         Ok(slider)
     }
 
-    /// Sets the value. Does not call `on_change`.
+    /// Sets the value, clamped to the range. Does not call `on_change`.
     pub fn set_value(&mut self, value: f64) -> AureaResult<()> {
+        if value.is_nan() {
+            return Err(AureaError::ElementOperationFailed);
+        }
         let result = unsafe { ng_platform_slider_set_value(self.handle.handle(), value) };
 
         if result != 0 {
@@ -91,5 +98,32 @@ impl Element for Slider {
         unsafe {
             ng_platform_slider_invalidate(self.handle.handle());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Window;
+
+    #[test]
+    fn endless_ranges_are_refused() {
+        assert!(Slider::new(0.0, f64::INFINITY).is_err());
+        assert!(Slider::new(f64::NEG_INFINITY, 0.0).is_err());
+        assert!(Slider::new(f64::NAN, 1.0).is_err());
+    }
+
+    #[test]
+    #[ignore = "creates a native widget; run with --ignored"]
+    fn a_nan_value_leaves_the_slider_where_it_was() -> AureaResult<()> {
+        let _window = Window::new("slider", 200, 100)?;
+        let mut slider = Slider::with_value(0.0, 10.0, f64::NAN)?;
+        assert_eq!(slider.get_value(), 0.0);
+        slider.set_value(4.0)?;
+        assert!(slider.set_value(f64::NAN).is_err());
+        assert!((slider.get_value() - 4.0).abs() < 0.01);
+        slider.set_value(99.0)?;
+        assert_eq!(slider.get_value(), 10.0);
+        Ok(())
     }
 }

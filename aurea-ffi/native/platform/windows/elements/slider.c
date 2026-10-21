@@ -3,6 +3,7 @@
 #include "common/errors.h"
 #include <windows.h>
 #include <commctrl.h>
+#include <math.h>
 #include <stdlib.h>
 
 #pragma comment(lib, "comctl32.lib")
@@ -30,7 +31,7 @@ static SliderRange* slider_range(HWND hwnd) {
 }
 
 NGHandle ng_windows_create_slider(double min, double max) {
-    if (!(min < max)) return NULL;
+    if (!(min < max) || !(min > -HUGE_VAL) || !(max < HUGE_VAL)) return NULL;
 
     HWND hwnd = CreateWindowExW(
         0,
