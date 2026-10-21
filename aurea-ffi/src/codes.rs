@@ -40,3 +40,5 @@ pub const NG_TEXT_FEATURE_WRAP: c_int = 1;
 pub const NG_TEXT_FEATURE_MONOSPACE: c_int = 2;
 /// Undo text feature.
 pub const NG_TEXT_FEATURE_UNDO: c_int = 3;
+/// Secret text feature: dots in place of the text, single-line fields only.
+pub const NG_TEXT_FEATURE_SECRET: c_int = 4;

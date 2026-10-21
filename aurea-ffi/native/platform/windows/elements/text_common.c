@@ -177,6 +177,11 @@ int ng_windows_text_set_feature(NGHandle text, int feature, int on) {
             if (!is_rich(hwnd)) return NG_ERROR_UNSUPPORTED;
             SendMessageW(hwnd, EM_SETUNDOLIMIT, on ? 100 : 0, 0);
             return NG_SUCCESS;
+        case NG_TEXT_FEATURE_SECRET:
+            if (is_rich(hwnd) || (GetWindowLongPtrW(hwnd, GWL_STYLE) & ES_MULTILINE)) return NG_ERROR_UNSUPPORTED;
+            SendMessageW(hwnd, EM_SETPASSWORDCHAR, on ? 0x25CF : 0, 0);
+            InvalidateRect(hwnd, NULL, TRUE);
+            return NG_SUCCESS;
         default:
             return NG_ERROR_INVALID_PARAMETER;
     }

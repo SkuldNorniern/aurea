@@ -205,6 +205,11 @@ int ng_linux_text_set_feature(NGHandle text, int feature, int on) {
             if (!view) return NG_ERROR_UNSUPPORTED;
             ng_linux_undo_enable(gtk_text_view_get_buffer(view), on);
             return NG_SUCCESS;
+        case NG_TEXT_FEATURE_SECRET:
+            if (!entry) return NG_ERROR_UNSUPPORTED;
+            gtk_entry_set_visibility(entry, !on);
+            gtk_entry_set_input_purpose(entry, on ? GTK_INPUT_PURPOSE_PASSWORD : GTK_INPUT_PURPOSE_FREE_FORM);
+            return NG_SUCCESS;
         default:
             return NG_ERROR_INVALID_PARAMETER;
     }

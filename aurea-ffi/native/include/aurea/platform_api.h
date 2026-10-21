@@ -116,6 +116,7 @@ int ng_platform_element_watch_destroy(NGHandle element, unsigned int id);
 #define NG_TEXT_FEATURE_WRAP 1
 #define NG_TEXT_FEATURE_MONOSPACE 2
 #define NG_TEXT_FEATURE_UNDO 3
+#define NG_TEXT_FEATURE_SECRET 4
 int ng_platform_text_unit(void);
 int ng_platform_text_get_selection(NGHandle text, int* start, int* end);
 int ng_platform_text_set_selection(NGHandle text, int start, int end);

@@ -279,6 +279,33 @@ int ng_macos_text_set_feature(NGHandle text, int feature, int on) {
             [view setAllowsUndo:on ? YES : NO];
             if (!on) [[view undoManager] removeAllActions];
             return NG_SUCCESS;
+        case NG_TEXT_FEATURE_SECRET: {
+            if (!field) return NG_ERROR_UNSUPPORTED;
+            NSTextFieldCell* old = field.cell;
+            if ([old isKindOfClass:[NSSecureTextFieldCell class]] == (on != 0)) return NG_SUCCESS;
+            NSString* value = field.stringValue;
+            [field abortEditing];
+            NSTextFieldCell* cell = on ? [[NSSecureTextFieldCell alloc] initTextCell:value]
+                                       : [[NSTextFieldCell alloc] initTextCell:value];
+            cell.editable = old.editable;
+            cell.selectable = old.selectable;
+            cell.bezeled = old.bezeled;
+            cell.bezelStyle = old.bezelStyle;
+            cell.bordered = old.bordered;
+            cell.drawsBackground = old.drawsBackground;
+            cell.backgroundColor = old.backgroundColor;
+            cell.textColor = old.textColor;
+            cell.font = old.font;
+            cell.alignment = old.alignment;
+            cell.placeholderString = old.placeholderString;
+            cell.scrollable = YES;
+            cell.usesSingleLineMode = YES;
+            cell.target = old.target;
+            cell.action = old.action;
+            field.cell = cell;
+            [field setNeedsDisplay:YES];
+            return NG_SUCCESS;
+        }
         default:
             return NG_ERROR_INVALID_PARAMETER;
     }
