@@ -84,7 +84,8 @@ pub enum WindowEvent {
         /// When the event happened.
         time: Duration,
     },
-    /// The wheel or a touchpad scrolled.
+    /// The wheel or a touchpad scrolled: in notches on Windows and Linux (fractions from touchpads
+    /// and fine wheels), in points on macOS.
     MouseWheel {
         /// Horizontal scroll amount.
         delta_x: f64,
