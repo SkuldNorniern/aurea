@@ -202,7 +202,7 @@ int ng_windows_split_view_add(NGHandle split_handle, NGHandle element) {
 int ng_windows_split_view_set_divider_position(NGHandle split_handle, int index, float position) {
     if (!split_handle) return NG_ERROR_INVALID_HANDLE;
     if (index != 0) return NG_ERROR_INVALID_PARAMETER;
-    if (!(position >= 0.0f)) return NG_ERROR_INVALID_PARAMETER;
+    if (!(position >= 0.0f) || !(position < 1e7f)) return NG_ERROR_INVALID_PARAMETER;
 
     HWND split_hwnd = (HWND)split_handle;
     SplitViewData* data = (SplitViewData*)GetWindowLongPtrA(split_hwnd, GWLP_USERDATA);

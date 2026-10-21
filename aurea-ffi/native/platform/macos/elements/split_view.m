@@ -88,9 +88,10 @@ int ng_macos_split_view_add(NGHandle split_handle, NGHandle element) {
 
 int ng_macos_split_view_set_divider_position(NGHandle split_handle, int index, float position) {
     if (!split_handle) return NG_ERROR_INVALID_HANDLE;
-    
+    if (index != 0 || !(position >= 0.0f) || !(position < 1e7f)) return NG_ERROR_INVALID_PARAMETER;
+
     AureaSplitView* split = (__bridge AureaSplitView*)split_handle;
-    
+
     dispatch_async(dispatch_get_main_queue(), ^{
         [split applyPosition:position ofDividerAtIndex:index];
     });

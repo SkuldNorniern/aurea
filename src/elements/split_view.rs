@@ -43,8 +43,11 @@ impl SplitView {
         })
     }
 
-    /// Set the divider position for the given split index.
+    /// Moves divider `index` (only 0) to `position` logical pixels from the leading edge.
     pub fn set_divider_position(&self, index: i32, position: f32) -> AureaResult<()> {
+        if index != 0 || !(0.0..1e7).contains(&position) {
+            return Err(AureaError::ElementOperationFailed);
+        }
         let result = unsafe {
             ng_platform_split_view_set_divider_position(self.handle.handle(), index, position)
         };
@@ -110,6 +113,11 @@ mod split_view_tests {
         let mut split = SplitView::new(SplitOrientation::Horizontal)?;
         split.add(Label::new("left")?)?;
         split.add(Label::new("right")?)?;
+        split.set_divider_position(0, 120.0)?;
+        assert!(split.set_divider_position(1, 120.0).is_err());
+        assert!(split.set_divider_position(0, -1.0).is_err());
+        assert!(split.set_divider_position(0, f32::NAN).is_err());
+        assert!(split.set_divider_position(0, f32::INFINITY).is_err());
         drop(split);
         Ok(())
     }

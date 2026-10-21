@@ -33,8 +33,9 @@ int ng_linux_split_view_add(NGHandle split_handle, NGHandle element) {
 int ng_linux_split_view_set_divider_position(NGHandle split_handle, int index, float position) {
     if (!split_handle) return NG_ERROR_INVALID_HANDLE;
     if (index != 0) return NG_ERROR_INVALID_PARAMETER;
+    if (!(position >= 0.0f) || !(position < 1e7f)) return NG_ERROR_INVALID_PARAMETER;
 
     GtkPaned* paned = GTK_PANED(split_handle);
-    gtk_paned_set_position(paned, (int)position);
+    gtk_paned_set_position(paned, (int)(position + 0.5f));
     return NG_SUCCESS;
 }
