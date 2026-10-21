@@ -117,3 +117,21 @@ impl Drop for TrayIcon {
         }
     }
 }
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::TrayIcon;
+    use crate::{AureaResult, Window};
+
+    #[test]
+    #[ignore = "puts an icon in the notification area; run with --ignored"]
+    fn a_tray_icon_takes_items_and_tooltips() -> AureaResult<()> {
+        let _window = Window::new("tray", 100, 100)?;
+        let mut tray = TrayIcon::new("Aurea test", || {})?;
+        tray.add_item("Save & Load", || {})?;
+        tray.add_separator()?;
+        tray.set_tooltip("Aurea test 2")?;
+        tray.set_icon_rgba(&[255; 16 * 16 * 4], 16, 16)?;
+        Ok(())
+    }
+}
