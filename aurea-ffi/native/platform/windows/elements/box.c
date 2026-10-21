@@ -85,6 +85,7 @@ int ng_windows_box_add_weighted(NGHandle box, NGHandle element, float weight) {
              (HANDLE)(((INT_PTR)(added.right - added.left) & 0xFFFF) << 16 |
                       ((INT_PTR)(added.bottom - added.top) & 0xFFFF)));
     if (weight > 0.0f) {
+        if (weight > 1e6f) weight = 1e6f;
         SetPropA(element_hwnd, BOX_WEIGHT_PROP, (HANDLE)(INT_PTR)(weight * 1000.0f + 1.0f));
     } else {
         RemovePropA(element_hwnd, BOX_WEIGHT_PROP);
