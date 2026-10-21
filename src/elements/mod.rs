@@ -1287,8 +1287,16 @@ mod win32_tests {
         rest: [u32; 3],
     }
 
-    /// Role and value text as a screen reader reads them through MSAA.
-    fn accessible(hwnd: *mut c_void) -> (i32, String) {
+    #[derive(Debug)]
+    struct Accessible {
+        role: i32,
+        name: String,
+        value: String,
+        state: i32,
+    }
+
+    /// What a screen reader reads through MSAA.
+    fn accessible(hwnd: *mut c_void) -> Accessible {
         type Get = unsafe extern "system" fn(*mut c_void, Variant, *mut Variant) -> i32;
         type GetText = unsafe extern "system" fn(*mut c_void, Variant, *mut *mut u16) -> i32;
         #[link(name = "oleacc")]
@@ -1324,22 +1332,32 @@ mod win32_tests {
                 0
             );
             let vtable = *(acc as *const *const usize);
-            let get_value: GetText = transmute(*vtable.add(11));
-            let get_role: Get = transmute(*vtable.add(13));
             let release: unsafe extern "system" fn(*mut c_void) -> u32 = transmute(*vtable.add(2));
-            let mut role = Variant::default();
-            get_role(acc, me(), &raw mut role);
-            let mut text = null_mut();
-            let value = if get_value(acc, me(), &raw mut text) == 0 && !text.is_null() {
-                let units = from_raw_parts(text, SysStringLen(text) as usize);
-                let value = String::from_utf16_lossy(units);
+            let text = |slot: usize| {
+                let get: GetText = transmute(*vtable.add(slot));
+                let mut text = null_mut();
+                if get(acc, me(), &raw mut text) != 0 || text.is_null() {
+                    return String::new();
+                }
+                let read =
+                    String::from_utf16_lossy(from_raw_parts(text, SysStringLen(text) as usize));
                 SysFreeString(text);
-                value
-            } else {
-                String::new()
+                read
+            };
+            let number = |slot: usize| {
+                let get: Get = transmute(*vtable.add(slot));
+                let mut out = Variant::default();
+                get(acc, me(), &raw mut out);
+                out.value
+            };
+            let read = Accessible {
+                role: number(13),
+                name: text(10),
+                value: text(11),
+                state: number(14),
             };
             release(acc);
-            (role.value, value)
+            read
         }
     }
 
@@ -1354,8 +1372,44 @@ mod win32_tests {
         let (st, s) = (stack.handle(), slider.handle());
         stack.add(slider)?;
         window.set_content(stack)?;
-        assert_eq!(accessible(st).0, ROLE_SYSTEM_PANE);
-        assert_eq!(accessible(s), (ROLE_SYSTEM_SLIDER, "4096".to_owned()));
+        assert_eq!(accessible(st).role, ROLE_SYSTEM_PANE);
+        let slider = accessible(s);
+        assert_eq!(
+            (slider.role, slider.value.as_str()),
+            (ROLE_SYSTEM_SLIDER, "4096")
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn tabs_read_as_page_tabs() -> AureaResult<()> {
+        const ROLE_SYSTEM_PAGETAB: i32 = 0x25;
+        const ROLE_SYSTEM_PAGETABLIST: i32 = 0x3C;
+        const STATE_SYSTEM_SELECTED: i32 = 0x2;
+        const STATE_SYSTEM_CHECKED: i32 = 0x10;
+        const GW_CHILD: u32 = 5;
+        const GW_HWNDNEXT: u32 = 2;
+        let mut window = Window::new("tabs", 400, 300)?;
+        let mut tabs = TabBar::new()?;
+        tabs.add_tab("One")?;
+        tabs.add_tab("Two")?;
+        let bar = tabs.handle();
+        let tabs = Shared::new(tabs);
+        window.set_content(tabs.clone())?;
+        tabs.borrow_mut().set_selected(1)?;
+        assert_eq!(accessible(bar).role, ROLE_SYSTEM_PAGETABLIST);
+        let first = unsafe { GetWindow(bar, GW_CHILD) };
+        let (one, two) = (
+            accessible(first),
+            accessible(unsafe { GetWindow(first, GW_HWNDNEXT) }),
+        );
+        assert_eq!((one.role, one.name.as_str()), (ROLE_SYSTEM_PAGETAB, "One"));
+        assert_eq!(one.state & STATE_SYSTEM_SELECTED, 0);
+        assert_eq!(
+            two.state & (STATE_SYSTEM_SELECTED | STATE_SYSTEM_CHECKED),
+            STATE_SYSTEM_SELECTED
+        );
         Ok(())
     }
 

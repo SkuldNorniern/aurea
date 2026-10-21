@@ -148,7 +148,6 @@ static LRESULT CALLBACK SidebarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     WNDPROC old_proc = (WNDPROC)GetPropA(hwnd, SIDEBAR_OLD_PROC_PROP);
     if (msg == WM_NCDESTROY) {
         RemovePropA(hwnd, SIDEBAR_OLD_PROC_PROP);
-        ng_windows_unmark_container(hwnd);
     }
     if (old_proc) {
         return CallWindowProcA(old_proc, hwnd, msg, wParam, lParam);

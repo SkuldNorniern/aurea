@@ -130,7 +130,6 @@ static LRESULT CALLBACK SplitViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
     WNDPROC old_proc = (WNDPROC)GetPropA(hwnd, SPLIT_VIEW_OLD_PROC_PROP);
     if (msg == WM_NCDESTROY) {
         RemovePropA(hwnd, SPLIT_VIEW_OLD_PROC_PROP);
-        ng_windows_unmark_container(hwnd);
     }
     if (old_proc) {
         return CallWindowProcA(old_proc, hwnd, msg, wParam, lParam);

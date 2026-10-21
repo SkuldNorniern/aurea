@@ -171,7 +171,6 @@ static LRESULT CALLBACK ScrollViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         RemovePropA(hwnd, SCROLL_WHEEL_REST_PROP);
         RemovePropA(hwnd, SCROLL_ALWAYS_PROP);
         RemovePropA(hwnd, SCROLL_LAYOUT_PROP);
-        ng_windows_unmark_container(hwnd);
     }
     return old_proc ? CallWindowProcA(old_proc, hwnd, msg, wParam, lParam)
                     : DefWindowProcA(hwnd, msg, wParam, lParam);

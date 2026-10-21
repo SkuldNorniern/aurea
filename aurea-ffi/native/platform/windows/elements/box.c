@@ -29,7 +29,6 @@ static LRESULT CALLBACK BoxProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         layout_box_children(hwnd);
     } else if (msg == WM_NCDESTROY) {
         RemovePropA(hwnd, BOX_OLD_PROC_PROP);
-        ng_windows_unmark_container(hwnd);
     }
     
     WNDPROC old_proc = (WNDPROC)GetPropA(hwnd, BOX_OLD_PROC_PROP);

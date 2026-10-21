@@ -20,7 +20,6 @@ typedef struct {
 static LRESULT CALLBACK slider_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                     UINT_PTR id, DWORD_PTR data) {
     if (msg == WM_NCDESTROY) {
-        ng_windows_stop_serving_value(hwnd);
         ng_windows_remove_subclass(hwnd, slider_proc, id);
         free((SliderRange*)data);
     }

@@ -5,6 +5,7 @@
 #include "../utils.h"
 #include <windows.h>
 #include <stdlib.h>
+#include <oleacc.h>
 
 #define TABBAR_OLD_PROC_PROP "AureaTabBarOldProc"
 #define TABBAR_DATA_PROP "AureaTabBarData"
@@ -80,9 +81,23 @@ static void tab_bar_layout(HWND bar) {
 static void tab_bar_show_selected(HWND bar) {
     TabBarData* data = tab_data(bar);
     for (int i = 0; i < data->count; i++) {
-        SendMessageW(tab_button(bar, i), BM_SETCHECK,
-                     i == data->selected ? BST_CHECKED : BST_UNCHECKED, 0);
+        HWND btn = tab_button(bar, i);
+        int on = i == data->selected;
+        if ((SendMessageW(btn, BM_GETCHECK, 0, 0) == BST_CHECKED) == on) continue;
+        SendMessageW(btn, BM_SETCHECK, on ? BST_CHECKED : BST_UNCHECKED, 0);
+        if (on) NotifyWinEvent(EVENT_OBJECT_SELECTION, btn, OBJID_CLIENT, CHILDID_SELF);
     }
+}
+
+/* Read as a selected page tab, not a checked check box. */
+static long tab_state(HWND btn) {
+    TabBarData* data = tab_data(GetParent(btn));
+    long state = STATE_SYSTEM_SELECTABLE | STATE_SYSTEM_FOCUSABLE;
+    if (data && GetDlgCtrlID(btn) - TABBAR_BASE_ID == data->selected) state |= STATE_SYSTEM_SELECTED;
+    if (GetFocus() == btn) state |= STATE_SYSTEM_FOCUSED;
+    if (!IsWindowEnabled(btn)) state |= STATE_SYSTEM_UNAVAILABLE;
+    if (!IsWindowVisible(btn)) state |= STATE_SYSTEM_INVISIBLE;
+    return state;
 }
 
 static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -112,7 +127,6 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
     WNDPROC old_proc = (WNDPROC)GetPropA(hwnd, TABBAR_OLD_PROC_PROP);
     if (msg == WM_NCDESTROY) {
         RemovePropA(hwnd, TABBAR_OLD_PROC_PROP);
-        ng_windows_unmark_container(hwnd);
     }
     if (old_proc) {
         return CallWindowProcA(old_proc, hwnd, msg, wParam, lParam);
@@ -146,7 +160,7 @@ NGHandle ng_windows_create_tab_bar(unsigned int id) {
     WNDPROC old_proc = (WNDPROC)SetWindowLongPtrA(container, GWLP_WNDPROC, (LONG_PTR)TabBarProc);
     if (old_proc) {
         SetPropA(container, TABBAR_OLD_PROC_PROP, (HANDLE)old_proc);
-        ng_windows_mark_container(container);
+        ng_windows_set_role(container, ROLE_SYSTEM_PAGETABLIST);
     }
     return (NGHandle)container;
 }
@@ -165,6 +179,8 @@ int ng_windows_tab_bar_add_tab(NGHandle tab_bar, const char* title) {
     free(shown);
     if (!btn) return NG_ERROR_CREATION_FAILED;
     SendMessageW(btn, WM_SETFONT, (WPARAM)ng_windows_ui_font(bar), FALSE);
+    ng_windows_set_role(btn, ROLE_SYSTEM_PAGETAB);
+    ng_windows_serve_state(btn, tab_state);
 
     data->count++;
     if (data->selected < 0) data->selected = 0;
