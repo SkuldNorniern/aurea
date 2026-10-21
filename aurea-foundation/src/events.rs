@@ -137,6 +137,12 @@ pub enum WindowEvent {
     },
     /// A pen on or over a tablet or a pen display.
     Pen(PenSample),
+    /// The system switched between light and dark appearance. Sent to every window; see
+    /// `aurea::prefers_dark` for the current setting.
+    ThemeChanged {
+        /// True when the system now prefers dark.
+        dark: bool,
+    },
 }
 
 /// One reading of a pen.
