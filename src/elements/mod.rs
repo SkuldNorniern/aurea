@@ -29,7 +29,7 @@ pub use image_view::{ImageScaling, ImageView};
 pub use label::{Label, TextStyle};
 pub use native::NativeElement;
 pub use progress_bar::ProgressBar;
-pub use scroll_view::ScrollView;
+pub use scroll_view::{ScrollView, ScrollbarPolicy};
 pub use shared::Shared;
 pub use sidebar_list::SidebarList;
 pub use slider::Slider;
@@ -1138,6 +1138,35 @@ mod win32_tests {
             window.poll_events();
         }
         assert!(rect(l).top >= view.top && rect(l).bottom <= view.bottom);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_scroll_bar_shows_by_policy() -> AureaResult<()> {
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn GetWindowLongPtrW(hwnd: *mut c_void, index: i32) -> isize;
+        }
+        const GWL_STYLE: i32 = -16;
+        const WS_VSCROLL: isize = 0x0020_0000;
+        let mut window = Window::new("scroll policy", 300, 400)?;
+        let scroll = Shared::new(ScrollView::with_content(Label::new("short")?)?);
+        window.set_content(scroll.clone())?;
+        let s = scroll.handle();
+        let bar = || unsafe { GetWindowLongPtrW(s, GWL_STYLE) } & WS_VSCROLL != 0;
+        assert!(!bar());
+        scroll.borrow_mut().set_scrollbar(ScrollbarPolicy::Always)?;
+        assert!(bar());
+        scroll.borrow_mut().set_scrollbar(ScrollbarPolicy::Auto)?;
+        assert!(!bar());
+
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        for i in 0..40 {
+            stack.add(Label::new(&format!("row {i}"))?)?;
+        }
+        scroll.borrow_mut().set_content(stack)?;
+        assert!(bar());
         Ok(())
     }
 

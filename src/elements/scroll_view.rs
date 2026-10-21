@@ -1,10 +1,20 @@
 use super::native::NativeElement;
 use super::traits::Element;
 use crate::render::Rect;
-use crate::{AureaError, AureaResult, ffi::*};
+use crate::{AureaError, AureaResult, Platform, ffi::*};
 use std::any::Any;
 use std::boxed::Box as StdBox;
 use std::os::raw::c_void;
+
+/// When a [`ScrollView`] shows its scroll bar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScrollbarPolicy {
+    /// Only while the content overflows.
+    #[default]
+    Auto,
+    /// Always; disabled while the content fits, so the width never changes.
+    Always,
+}
 
 /// A native container that scrolls one content element vertically.
 pub struct ScrollView {
@@ -42,6 +52,22 @@ impl ScrollView {
         content.released_to_parent();
         self.content = Some(StdBox::new(content));
         Ok(())
+    }
+
+    /// Sets when the scroll bar shows.
+    pub fn set_scrollbar(&mut self, policy: ScrollbarPolicy) -> AureaResult<()> {
+        let code = match policy {
+            ScrollbarPolicy::Auto => NG_SCROLLBAR_AUTO,
+            ScrollbarPolicy::Always => NG_SCROLLBAR_ALWAYS,
+        };
+        match unsafe { ng_platform_scroll_view_set_scrollbar(self.handle.handle(), code) } {
+            0 => Ok(()),
+            NG_ERROR_UNSUPPORTED => Err(AureaError::Unsupported {
+                operation: "ScrollView::set_scrollbar",
+                platform: Platform::current(),
+            }),
+            _ => Err(AureaError::ElementOperationFailed),
+        }
     }
 }
 

@@ -50,8 +50,8 @@ pub use aurea_runtime::{DamageRegion, FrameInfo, FrameScheduler};
 pub use crate::dispatch::{after_frame, on_ui_thread};
 pub use crate::elements::{
     Button, Checkbox, ComboBox, Container, Divider, Element, ImageView, Label, Orientation,
-    ProgressBar, ScrollView, SidebarList, Slider, Spacer, SplitOrientation, SplitView, Stack,
-    TabBar, TextEditor, TextField, TextView,
+    ProgressBar, ScrollView, ScrollbarPolicy, SidebarList, Slider, Spacer, SplitOrientation,
+    SplitView, Stack, TabBar, TextEditor, TextField, TextView,
 };
 use crate::ffi::{ng_platform_prefers_dark, ng_platform_reduced_motion, ng_platform_wheel_lines};
 pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
