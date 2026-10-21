@@ -6,6 +6,8 @@
 
 #pragma comment(lib, "comctl32.lib")
 
+#define PROGRESS_STEPS 10000
+
 NGHandle ng_windows_create_progress_bar(void) {
     INITCOMMONCONTROLSEX icex;
     icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
@@ -26,7 +28,7 @@ NGHandle ng_windows_create_progress_bar(void) {
     
     if (!hwnd) return NULL;
     
-    SendMessage(hwnd, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
+    SendMessage(hwnd, PBM_SETRANGE32, 0, PROGRESS_STEPS);
     SendMessage(hwnd, PBM_SETPOS, 0, 0);
     
     return (NGHandle)hwnd;
@@ -35,11 +37,12 @@ NGHandle ng_windows_create_progress_bar(void) {
 int ng_windows_progress_bar_set_value(NGHandle progress_bar, double value) {
     if (!progress_bar) return NG_ERROR_INVALID_HANDLE;
     
-    if (value < 0.0) value = 0.0;
+    if (!(value >= 0.0)) value = 0.0;
     if (value > 1.0) value = 1.0;
     
     HWND hwnd = (HWND)progress_bar;
-    int pos = (int)(value * 100.0);
+    if (GetWindowLongPtrW(hwnd, GWL_STYLE) & PBS_MARQUEE) ng_windows_progress_bar_set_indeterminate(progress_bar, 0);
+    int pos = (int)(value * PROGRESS_STEPS + 0.5);
     SendMessage(hwnd, PBM_SETPOS, pos, 0);
     InvalidateRect(hwnd, NULL, FALSE);
     

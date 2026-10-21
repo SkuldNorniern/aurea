@@ -19,9 +19,10 @@ int ng_macos_progress_bar_set_value(NGHandle progress_bar, double value) {
     
     NSProgressIndicator* progressBar = (__bridge NSProgressIndicator*)progress_bar;
     
-    if (value < 0.0) value = 0.0;
+    if (!(value >= 0.0)) value = 0.0;
     if (value > 1.0) value = 1.0;
     
+    [progressBar stopAnimation:nil];
     [progressBar setIndeterminate:NO];
     [progressBar setDoubleValue:value];
     [progressBar setNeedsDisplay:YES];

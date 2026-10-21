@@ -134,7 +134,7 @@ impl ProgressBar {
         }
     }
 
-    /// Sets the value, stopping any animation.
+    /// Sets the value, leaving indeterminate mode and stopping any animation.
     pub fn set_value(&mut self, value: f64) -> AureaResult<()> {
         {
             let mut state = lock(&self.animation_state);

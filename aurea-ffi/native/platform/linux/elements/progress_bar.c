@@ -10,12 +10,15 @@ NGHandle ng_linux_create_progress_bar(void) {
     return (NGHandle)progressBar;
 }
 
+static void stop_pulse(GtkWidget* bar);
+
 int ng_linux_progress_bar_set_value(NGHandle progress_bar, double value) {
     if (!progress_bar) return NG_ERROR_INVALID_HANDLE;
     
-    if (value < 0.0) value = 0.0;
+    if (!(value >= 0.0)) value = 0.0;
     if (value > 1.0) value = 1.0;
     
+    stop_pulse((GtkWidget*)progress_bar);
     gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress_bar), value);
     gtk_widget_queue_draw((GtkWidget*)progress_bar);
     return NG_SUCCESS;
