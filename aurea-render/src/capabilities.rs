@@ -4,11 +4,15 @@
 /// Kinds of drawing, as a set.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct GpuFeatures {
+    /// Gradient fills.
     pub gradients: bool,
+    /// Images.
     pub images: bool,
+    /// Text glyphs.
     pub text: bool,
     /// Rectangular clips, applied as scissors.
     pub clips: bool,
+    /// Rounded rects and shadows.
     pub rounded_rects: bool,
     /// Arbitrary filled and stroked paths, and the older text commands, which only the CPU
     /// rasterizer draws.
@@ -78,6 +82,7 @@ impl GpuFeatures {
         }
     }
 
+    /// True when no kind of drawing is set.
     pub const fn is_empty(self) -> bool {
         !(self.gradients
             || self.images

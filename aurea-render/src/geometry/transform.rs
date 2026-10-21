@@ -3,18 +3,28 @@ use super::Point;
 /// 2D transformation matrix (3x3 homogeneous coordinates).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Transform {
+    /// Row 1, column 1.
     pub m11: f32,
+    /// Row 1, column 2.
     pub m12: f32,
+    /// Row 1, column 3.
     pub m13: f32,
+    /// Row 2, column 1.
     pub m21: f32,
+    /// Row 2, column 2.
     pub m22: f32,
+    /// Row 2, column 3.
     pub m23: f32,
+    /// Row 3, column 1.
     pub m31: f32,
+    /// Row 3, column 2.
     pub m32: f32,
+    /// Row 3, column 3.
     pub m33: f32,
 }
 
 impl Transform {
+    /// Identity transform.
     pub fn identity() -> Self {
         Self {
             m11: 1.0,
@@ -29,6 +39,7 @@ impl Transform {
         }
     }
 
+    /// Translation by `(x, y)`.
     pub fn translate(x: f32, y: f32) -> Self {
         Self {
             m11: 1.0,
@@ -43,6 +54,7 @@ impl Transform {
         }
     }
 
+    /// Scale by `(sx, sy)`.
     pub fn scale(sx: f32, sy: f32) -> Self {
         Self {
             m11: sx,
@@ -57,6 +69,7 @@ impl Transform {
         }
     }
 
+    /// Rotation by `angle` radians.
     pub fn rotate(angle: f32) -> Self {
         let cos_a = angle.cos();
         let sin_a = angle.sin();
@@ -73,6 +86,7 @@ impl Transform {
         }
     }
 
+    /// Composes two transforms; `self` is applied first.
     pub fn multiply(self, other: Self) -> Self {
         Self {
             m11: self.m11 * other.m11 + self.m12 * other.m21 + self.m13 * other.m31,
@@ -87,6 +101,7 @@ impl Transform {
         }
     }
 
+    /// Inverse, or identity if the matrix is singular.
     pub fn inverse(self) -> Self {
         let det = self.m11 * (self.m22 * self.m33 - self.m23 * self.m32)
             - self.m12 * (self.m21 * self.m33 - self.m23 * self.m31)

@@ -14,36 +14,64 @@ use crate::types::{Color, Rect};
 pub enum Icon {
     /// The selection pointer.
     Arrow,
+    /// Pan tool.
     Hand,
+    /// Zoom tool.
     Zoom,
+    /// Zoom in.
     ZoomIn,
+    /// Zoom out.
     ZoomOut,
+    /// Paint brush.
     Brush,
+    /// Eraser.
     Eraser,
+    /// Crop tool.
     Crop,
+    /// Layer shown.
     Eye,
+    /// Layer hidden.
     EyeOff,
+    /// Layer locked.
     Lock,
+    /// Layer unlocked.
     Unlock,
+    /// Plus sign.
     Plus,
+    /// Minus sign.
     Minus,
+    /// Close (X).
     Close,
+    /// Checkmark.
     Check,
+    /// Folder.
     Folder,
+    /// File.
     File,
+    /// Trash can.
     Trash,
+    /// Undo arrow.
     Undo,
+    /// Redo arrow.
     Redo,
+    /// Left chevron.
     ChevronLeft,
+    /// Right chevron.
     ChevronRight,
+    /// Up chevron.
     ChevronUp,
+    /// Down chevron.
     ChevronDown,
+    /// Move tool.
     Move,
+    /// Text tool.
     Text,
+    /// Stacked layers.
     Layers,
 }
 
 impl Icon {
+    /// Every icon, in declaration order.
     pub const ALL: [Icon; 28] = [
         Icon::Arrow,
         Icon::Hand,

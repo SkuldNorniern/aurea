@@ -8,14 +8,20 @@ use std::mem::take;
 /// How a path is stroked: half its width, its ends, corners and dashes.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StrokeStyle {
+    /// Half the stroke width.
     pub half: f32,
+    /// End style of open strokes.
     pub cap: LineCap,
+    /// Corner style.
     pub join: LineJoin,
+    /// Miter limit.
     pub miter_limit: f32,
+    /// Dash pattern, if any.
     pub dash: Option<Dash>,
 }
 
 impl StrokeStyle {
+    /// The style for `paint`.
     pub fn of(paint: &Paint) -> Self {
         Self {
             half: (paint.stroke_width / 2.0).max(0.05),
@@ -34,7 +40,9 @@ impl StrokeStyle {
 
 /// A run of points from one `MoveTo` to the next, with whether it closed.
 pub struct SubPath {
+    /// Points of the run.
     pub points: Vec<Point>,
+    /// Whether the run closed back to its start.
     pub closed: bool,
 }
 

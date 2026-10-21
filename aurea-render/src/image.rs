@@ -9,13 +9,17 @@ use zengpu_hal::TextureHandle;
 /// Image for rendering.
 #[derive(Debug, Clone)]
 pub struct Image {
+    /// Width in pixels.
     pub width: u32,
+    /// Height in pixels.
     pub height: u32,
+    /// RGBA8 pixel data.
     pub data: Arc<[u8]>,
     id: u64,
 }
 
 impl Image {
+    /// An image of `width` by `height` RGBA8 pixels.
     pub fn new(width: u32, height: u32, data: Vec<u8>) -> Self {
         static NEXT_ID: AtomicU64 = AtomicU64::new(1);
         Self {
@@ -52,9 +56,13 @@ pub enum Sampling {
 pub struct GpuTexture {
     #[cfg(feature = "zengpu")]
     pub(crate) handle: TextureHandle,
+    /// Slot index in the texture table.
     pub index: u32,
+    /// Slot generation, to catch reuse.
     pub generation: u32,
+    /// Width in texels.
     pub width: u32,
+    /// Height in texels.
     pub height: u32,
 }
 

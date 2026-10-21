@@ -5,18 +5,26 @@ use crate::types::{
     Rect, Sampling,
 };
 
+/// A single drawing operation.
 #[derive(Debug, Clone)]
 pub enum DrawCommand {
+    /// Fills the surface with a color.
     Clear(Color),
+    /// Rect filled or stroked with a paint.
     DrawRect(Rect, Paint),
     /// A rect with corners of the given radius; a stroke is centred on the outline.
     DrawRoundRect(Rect, f32, Paint),
+    /// Circle at a center, with a radius and paint.
     DrawCircle(Point, f32, Paint),
     /// A rounded rect blurred by a Gaussian of the given sigma: rect, radius, sigma, colour.
     DrawShadow(Rect, f32, f32, Color),
+    /// Path filled or stroked with a paint.
     DrawPath(Path, Paint),
+    /// Text, origin and paint.
     DrawText(String, Point, Paint),
+    /// Text, origin, font and paint.
     DrawTextWithFont(String, Point, Font, Paint),
+    /// Image drawn into a destination rect.
     DrawImageRect(Image, Rect, Sampling),
     /// Image, source rect in pixels, destination.
     DrawImageRegion(Image, Rect, Rect, Sampling),
@@ -28,7 +36,9 @@ pub enum DrawCommand {
     DrawTextureQuad(GpuTexture, Rect, [Point; 3], Sampling),
     /// Subpixel-antialiased text: coverage mask, top-left position, text colour.
     DrawGlyphMask(GlyphMask, Point, Color),
+    /// Linear gradient filling a rect.
     FillLinearGradient(LinearGradient, Rect),
+    /// Radial gradient filling a rect.
     FillRadialGradient(RadialGradient, Rect),
 }
 

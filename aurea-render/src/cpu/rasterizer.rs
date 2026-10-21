@@ -36,6 +36,7 @@ use crate::types::{
 };
 use aurea_foundation::{AureaError, AureaResult};
 
+/// CPU software rasterizer drawing into a frame buffer.
 pub struct CpuRasterizer {
     frame_buffer: Vec<u32>,
     width: u32,
@@ -58,6 +59,7 @@ pub struct CpuRasterizer {
 }
 
 impl CpuRasterizer {
+    /// Creates a rasterizer for a `width` by `height` frame.
     pub fn new(width: u32, height: u32) -> Self {
         Self {
             frame_buffer: vec![0u32; (width * height) as usize],
@@ -97,6 +99,7 @@ impl CpuRasterizer {
         )
     }
 
+    /// The current display list.
     pub fn display_list(&self) -> &DisplayList {
         &self.display_list
     }

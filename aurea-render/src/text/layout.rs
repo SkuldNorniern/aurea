@@ -32,8 +32,11 @@ pub enum TextAlign {
     Start,
     /// Where it ends reading.
     End,
+    /// Left edge.
     Left,
+    /// Centered.
     Center,
+    /// Right edge.
     Right,
 }
 
@@ -43,9 +46,11 @@ pub struct LayoutOptions {
     /// Wrap lines longer than this (columns taller than this, for vertical text); `None` breaks
     /// only at newlines.
     pub max_width: Option<f32>,
+    /// Where lines sit across the width.
     pub align: TextAlign,
     /// Line spacing as a positive, finite multiple of the font's ascent plus descent.
     pub line_height: f32,
+    /// How words may break at the wrap width.
     pub word_break: WordBreak,
 }
 
@@ -72,6 +77,7 @@ pub struct LayoutLine {
     /// Its top, and its baseline, from the layout's top: where a column's text starts, and the
     /// same.
     pub top: f32,
+    /// Baseline, from the layout's top.
     pub baseline: f32,
     /// How tall the line is: how wide, for a column.
     pub height: f32,
@@ -82,11 +88,14 @@ pub struct LayoutLine {
 /// Text laid out in lines, or in columns from the right for vertical text.
 #[derive(Debug, Clone)]
 pub struct TextLayout {
+    /// The laid-out text.
     pub text: Arc<str>,
+    /// Laid-out lines, or columns.
     pub lines: Vec<LayoutLine>,
     /// The widest line, or the wrapping width when one is set; for vertical text, all the columns
     /// together.
     pub width: f32,
+    /// Total height.
     pub height: f32,
     /// Set in columns, top to bottom, the first on the right.
     pub vertical: bool,

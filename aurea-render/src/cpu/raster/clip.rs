@@ -6,9 +6,13 @@ use crate::types::Rect;
 /// A half-open pixel rectangle, `x0..x1` by `y0..y1`, in physical pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ClipBox {
+    /// Left edge, inclusive.
     pub x0: u32,
+    /// Top edge, inclusive.
     pub y0: u32,
+    /// Right edge, exclusive.
     pub x1: u32,
+    /// Bottom edge, exclusive.
     pub y1: u32,
 }
 

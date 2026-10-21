@@ -10,6 +10,7 @@ use aurea_foundation::AureaResult;
 
 /// A renderer belongs to the thread that draws with it.
 pub trait Renderer {
+    /// Attaches a surface and its initial size.
     fn init(&mut self, surface: Surface, info: SurfaceInfo) -> AureaResult<()>;
     /// A new logical size at the current scale factor.
     fn resize(&mut self, width: u32, height: u32) -> AureaResult<()>;
@@ -17,7 +18,9 @@ pub trait Renderer {
     fn configure(&mut self, info: SurfaceInfo) -> AureaResult<()>;
     /// Starts a frame and hands back a context to record into.
     fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext + '_>>;
+    /// Finishes the frame and presents it.
     fn end_frame(&mut self) -> AureaResult<FrameOutcome>;
+    /// Releases resources held by the renderer.
     fn cleanup(&mut self);
 
     /// Set damage region for partial redraw (optional, defaults to full canvas) This is called
@@ -34,6 +37,7 @@ pub trait Renderer {
         None
     }
 
+    /// Damage region of the last frame, if known.
     fn last_frame_damage(&self) -> Option<Rect> {
         None
     }

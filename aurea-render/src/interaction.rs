@@ -22,6 +22,7 @@ pub struct InteractionRegistry {
 }
 
 impl InteractionRegistry {
+    /// Creates an empty registry.
     pub fn new() -> Self {
         Self {
             click_callbacks: Mutex::new(HashMap::new()),

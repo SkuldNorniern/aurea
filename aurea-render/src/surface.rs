@@ -11,11 +11,20 @@ pub enum Surface {
     /// CPU rasterizer target — no native surface object.
     Cpu,
     /// macOS Metal layer.
-    Metal { layer: *mut c_void },
+    Metal {
+        /// `CAMetalLayer` pointer.
+        layer: *mut c_void,
+    },
     /// Vulkan surface.
-    Vulkan { surface: *mut c_void },
+    Vulkan {
+        /// `VkSurfaceKHR` handle.
+        surface: *mut c_void,
+    },
     /// DirectX swap chain.
-    DirectX { swap_chain: *mut c_void },
+    DirectX {
+        /// `IDXGISwapChain` pointer.
+        swap_chain: *mut c_void,
+    },
 }
 
 impl Surface {
@@ -35,7 +44,9 @@ impl Surface {
 pub struct SurfaceInfo {
     /// Logical size.
     pub width: u32,
+    /// Logical height.
     pub height: u32,
+    /// Logical to device pixel scale.
     pub scale_factor: f32,
     /// The size in device pixels, when the platform knows it.
     pub pixels: Option<(u32, u32)>,

@@ -3,9 +3,13 @@
 /// Font for text rendering.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Font {
+    /// Font family name.
     pub family: String,
+    /// Size.
     pub size: f32,
+    /// Weight.
     pub weight: FontWeight,
+    /// Upright or italic.
     pub style: FontStyle,
     /// OpenType features turned on or off, over the font's defaults.
     pub features: Vec<FontFeature>,
@@ -19,6 +23,7 @@ pub struct Font {
 /// An OpenType feature setting, such as `liga` off or `ss01` on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FontFeature {
+    /// Four-byte OpenType feature tag.
     pub tag: [u8; 4],
     /// 0 turns it off, 1 on; some features pick an alternate by number.
     pub value: u32,
@@ -27,6 +32,7 @@ pub struct FontFeature {
 /// A position on a variable font's axis, such as `wght` 650.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FontVariation {
+    /// Four-byte axis tag.
     pub tag: [u8; 4],
     /// In the axis's own units: weight 100 to 900, width in percent.
     pub value: f32,
@@ -41,6 +47,7 @@ fn tag(name: &str) -> [u8; 4] {
 }
 
 impl Font {
+    /// An upright, normal-weight font of `family` at `size`.
     pub fn new(family: &str, size: f32) -> Self {
         Self {
             family: family.to_string(),
@@ -76,11 +83,13 @@ impl Font {
         self
     }
 
+    /// Sets the weight.
     pub fn with_weight(mut self, weight: FontWeight) -> Self {
         self.weight = weight;
         self
     }
 
+    /// Sets the style.
     pub fn with_style(mut self, style: FontStyle) -> Self {
         self.style = style;
         self
@@ -90,7 +99,9 @@ impl Font {
 /// Font weight.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FontWeight {
+    /// Weight 400.
     Normal,
+    /// Weight 700.
     Bold,
     /// Numeric face weight, as used by CSS.
     Number(u16),
@@ -108,6 +119,7 @@ impl FontWeight {
         }
     }
 
+    /// The numeric CSS weight.
     pub const fn number(self) -> u16 {
         match self {
             Self::Normal => 400,
@@ -122,17 +134,24 @@ impl FontWeight {
 /// Font style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FontStyle {
+    /// Upright.
     Normal,
+    /// Slanted.
     Italic,
 }
 
 /// Text metrics from text measurement.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TextMetrics {
+    /// Width of the text.
     pub width: f32,
+    /// Line height.
     pub height: f32,
+    /// Distance above the baseline.
     pub ascent: f32,
+    /// Distance below the baseline.
     pub descent: f32,
+    /// Advance width.
     pub advance: f32,
 }
 

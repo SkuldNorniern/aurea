@@ -8,9 +8,13 @@ use crate::types::Rect;
 /// A resolved gradient instance: LUT texture slot assigned.
 #[derive(Clone, Copy, Default)]
 pub struct GradientPlanEntry {
+    /// Destination rectangle.
     pub rect: [f32; 4],
+    /// Start point, or centre and radius.
     pub a: [f32; 4],
+    /// End point, for linear gradients.
     pub b: [f32; 4],
+    /// LUT texture slot.
     pub slot: u32,
 }
 
@@ -19,19 +23,26 @@ pub struct GradientPlanEntry {
 pub struct ImagePlanEntry {
     /// Cross terms: x-axis y and y-axis x, then padding.
     pub affine: [f32; 4],
+    /// Destination rectangle.
     pub rect: [f32; 4],
+    /// Source UV rectangle.
     pub uv: [f32; 4],
+    /// Tint colour, RGBA.
     pub tint: [f32; 4],
     /// The source's size in texels, then 1 for nearest filtering, else 0.
     pub sampling: [f32; 4],
+    /// Texture slot.
     pub slot: u32,
 }
 
 /// A resolved text instance: coverage-mask texture slot assigned.
 #[derive(Clone, Copy, Default)]
 pub struct TextPlanEntry {
+    /// Destination rectangle.
     pub rect: [f32; 4],
+    /// Text colour, RGBA.
     pub color: [f32; 4],
+    /// Mask texture slot.
     pub slot: u32,
 }
 
@@ -53,10 +64,12 @@ pub struct FramePlan {
     pub clear: Option<Color>,
     /// Physical width/height for viewport setup.
     pub viewport_width: u32,
+    /// Physical height in pixels.
     pub viewport_height: u32,
 }
 
 impl FramePlan {
+    /// Creates an empty plan.
     pub fn new() -> Self {
         Self::default()
     }

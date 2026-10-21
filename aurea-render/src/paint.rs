@@ -8,9 +8,13 @@ use crate::types::Point;
 /// Color representation in RGBA format.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Color {
+    /// Red channel.
     pub r: u8,
+    /// Green channel.
     pub g: u8,
+    /// Blue channel.
     pub b: u8,
+    /// Alpha channel.
     pub a: u8,
 }
 
@@ -105,13 +109,18 @@ impl Color {
 /// A colour by hue (degrees, `0..360`), saturation and value (`0..=1`) and alpha (`0..=1`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Hsv {
+    /// Hue in degrees, `0..360`.
     pub h: f32,
+    /// Saturation, `0..=1`.
     pub s: f32,
+    /// Value, `0..=1`.
     pub v: f32,
+    /// Alpha, `0..=1`.
     pub a: f32,
 }
 
 impl Hsv {
+    /// Creates a colour from hue, saturation, value and alpha.
     pub const fn new(h: f32, s: f32, v: f32, a: f32) -> Self {
         Self { h, s, v, a }
     }
@@ -166,7 +175,9 @@ fn lerp_u8(from: u8, to: u8, t: f32) -> u8 {
 /// Paint style for drawing operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PaintStyle {
+    /// Fills the shape.
     Fill,
+    /// Strokes the outline.
     Stroke,
 }
 
@@ -241,10 +252,15 @@ impl Dash {
 /// Paint configuration for drawing.
 #[derive(Debug, Clone)]
 pub struct Paint {
+    /// Fill or stroke colour.
     pub color: Color,
+    /// Fill or stroke.
     pub style: PaintStyle,
+    /// Stroke width.
     pub stroke_width: f32,
+    /// End style of open strokes.
     pub line_cap: LineCap,
+    /// Corner style.
     pub line_join: LineJoin,
     /// How long a miter may be, in stroke widths, before it is beveled.
     pub miter_limit: f32,
@@ -253,6 +269,7 @@ pub struct Paint {
 }
 
 impl Paint {
+    /// A black fill, width 1, butt caps and miter joins.
     pub fn new() -> Self {
         Self {
             color: Color::rgb(0, 0, 0),
@@ -265,16 +282,19 @@ impl Paint {
         }
     }
 
+    /// Sets the end style of open strokes.
     pub fn line_cap(mut self, cap: LineCap) -> Self {
         self.line_cap = cap;
         self
     }
 
+    /// Sets the corner style.
     pub fn line_join(mut self, join: LineJoin) -> Self {
         self.line_join = join;
         self
     }
 
+    /// Sets the miter limit, at least 1.
     pub fn miter_limit(mut self, limit: f32) -> Self {
         self.miter_limit = limit.max(1.0);
         self
@@ -295,16 +315,19 @@ impl Paint {
                 || self.line_join != LineJoin::Miter)
     }
 
+    /// Sets the colour.
     pub fn color(mut self, color: Color) -> Self {
         self.color = color;
         self
     }
 
+    /// Sets fill or stroke.
     pub fn style(mut self, style: PaintStyle) -> Self {
         self.style = style;
         self
     }
 
+    /// Sets the stroke width.
     pub fn stroke_width(mut self, width: f32) -> Self {
         self.stroke_width = width;
         self
@@ -320,40 +343,60 @@ impl Default for Paint {
 /// Linear gradient.
 #[derive(Debug, Clone)]
 pub struct LinearGradient {
+    /// Start point.
     pub start: Point,
+    /// End point.
     pub end: Point,
+    /// Colour stops, by offset.
     pub stops: Vec<GradientStop>,
 }
 
 /// Radial gradient.
 #[derive(Debug, Clone)]
 pub struct RadialGradient {
+    /// Centre point.
     pub center: Point,
+    /// Radius.
     pub radius: f32,
+    /// Colour stops, by offset.
     pub stops: Vec<GradientStop>,
 }
 
 /// Gradient stop.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GradientStop {
+    /// Position along the gradient, `0..=1`.
     pub offset: f32,
+    /// Colour at this offset.
     pub color: Color,
 }
 
 /// Blend mode for compositing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BlendMode {
+    /// Source over destination.
     Normal,
+    /// Multiplies the channels.
     Multiply,
+    /// Inverts, multiplies and inverts again.
     Screen,
+    /// Multiplies or screens, by the destination.
     Overlay,
+    /// Keeps the darker channel.
     Darken,
+    /// Keeps the lighter channel.
     Lighten,
+    /// Brightens the destination by the source.
     ColorDodge,
+    /// Darkens the destination by the source.
     ColorBurn,
+    /// Overlay with the roles of source and destination swapped.
     HardLight,
+    /// A gentler hard light.
     SoftLight,
+    /// Absolute difference of the channels.
     Difference,
+    /// Difference with lower contrast.
     Exclusion,
 }
 

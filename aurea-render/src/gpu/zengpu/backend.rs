@@ -50,6 +50,7 @@ pub struct ZenGpuContext {
 /// A GPU a context can open, for a "which GPU" setting.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GpuChoice {
+    /// Display name.
     pub name: String,
     /// The same for this GPU and driver from one run to the next: what to save, and give
     /// [`ZenGpuContext::on_adapter`].
@@ -143,10 +144,12 @@ impl ZenGpuContext {
         })
     }
 
+    /// The ZenGPU instance this context owns.
     pub fn instance(&self) -> &NativeInstance {
         &self.instance
     }
 
+    /// The ZenGPU device this context owns.
     pub fn device(&self) -> &NativeDevice {
         &self.device
     }
@@ -182,6 +185,7 @@ pub struct ZenGpuImage {
 }
 
 impl ZenGpuImage {
+    /// The texture handle.
     pub fn texture(&self) -> GpuTexture {
         self.texture
     }
@@ -489,6 +493,7 @@ pub struct ZenGpuBackend {
 pub type ZenGpuRenderer = Gpu2dRenderer<ZenGpuBackend>;
 
 impl ZenGpuRenderer {
+    /// Creates a renderer on a new context.
     pub fn new(
         handles: &WindowHandles,
         width: u32,
@@ -504,6 +509,7 @@ impl ZenGpuRenderer {
         )
     }
 
+    /// Creates a renderer sharing `context`.
     pub fn with_context(
         handles: &WindowHandles,
         context: Arc<ZenGpuContext>,
@@ -588,6 +594,7 @@ impl ZenGpuRenderer {
         }
     }
 
+    /// The shared GPU context.
     pub fn context(&self) -> &Arc<ZenGpuContext> {
         &self.backend().context
     }

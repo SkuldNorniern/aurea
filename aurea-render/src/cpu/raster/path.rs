@@ -6,15 +6,20 @@ use crate::types::{Path, PathCommand, Point};
 /// One edge for scanline filling: y range, x at the top, and dx/dy slope.
 #[derive(Debug, Clone, Copy)]
 pub struct Edge {
+    /// Top of the edge.
     pub y_min: f32,
+    /// Bottom of the edge.
     pub y_max: f32,
+    /// X at the top.
     pub x_at_y_min: f32,
+    /// Change in x per unit y.
     pub slope: f32,
     /// 1 where the outline runs down, -1 where it runs up.
     pub dir: i32,
 }
 
 impl Edge {
+    /// An edge between two points, or None when horizontal.
     pub fn new(p1: Point, p2: Point) -> Option<Self> {
         let dir = if p1.y <= p2.y { 1 } else { -1 };
         let (p1, p2) = if p1.y <= p2.y { (p1, p2) } else { (p2, p1) };
@@ -34,6 +39,7 @@ impl Edge {
         })
     }
 
+    /// X where the edge crosses row `y`.
     pub fn x_at_y(&self, y: f32) -> f32 {
         if y < self.y_min {
             self.x_at_y_min

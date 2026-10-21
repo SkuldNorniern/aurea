@@ -24,6 +24,7 @@ pub struct GlyphKey {
 }
 
 impl GlyphKey {
+    /// Key for `glyph` of `face` at `size`.
     pub fn new(face: FaceId, glyph: u16, size: f32) -> Self {
         Self {
             face,

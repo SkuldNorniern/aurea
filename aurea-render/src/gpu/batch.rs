@@ -42,8 +42,11 @@ impl RectInstance {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct ShapeInstance {
+    /// `[x, y, width, height]` in physical pixels.
     pub rect: [f32; 4],
+    /// Straight RGBA, each channel in `0.0..=1.0`.
     pub color: [f32; 4],
+    /// Corner radius, stroke width, shadow blur, unused.
     pub shape: [f32; 4],
 }
 
@@ -76,8 +79,11 @@ impl ShapeInstance {
 pub struct GradientInstance {
     /// Fill area `[x, y, w, h]` in physical pixels.
     pub rect: [f32; 4],
+    /// Linear start point, or radial center, radius and kind.
     pub a: [f32; 4],
+    /// Linear end point; unused for radial.
     pub b: [f32; 4],
+    /// Color lookup table, 256 RGBA entries.
     pub lut: Arc<[u8]>,
 }
 
@@ -167,12 +173,17 @@ fn build_gradient_lut(stops: &[GradientStop]) -> Arc<[u8]> {
 /// physical pixels, `src` the source sub-rect in image pixels, `tint` a straight-RGBA multiply.
 #[derive(Debug, Clone)]
 pub struct ImageDraw {
+    /// Pixel or texture source.
     pub source: ImageSource,
+    /// Destination rect in physical pixels.
     pub dest: Rect,
     /// In the source's pixels.
     pub src: Rect,
+    /// Straight-RGBA tint, multiplied into the pixels.
     pub tint: Color,
+    /// Resampling filter.
     pub sampling: Sampling,
+    /// Origin, right and bottom corners, for quad draws.
     pub quad: Option<[Point; 3]>,
 }
 
@@ -197,8 +208,11 @@ impl ImageSource {
 /// A cached text-run coverage mask ready for GPU upload.
 #[derive(Debug, Clone)]
 pub struct TextDraw {
+    /// Coverage mask as RGBA bytes.
     pub mask: Arc<[u8]>,
+    /// Destination rect in physical pixels.
     pub rect: Rect,
+    /// Text color.
     pub color: Color,
 }
 
@@ -315,10 +329,15 @@ fn scale_u8(value: u8, factor: f32) -> u8 {
 /// One primitive reference in original display-list submission order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DrawRef {
+    /// Index into `rects`.
     Rect(u32),
+    /// Index into `gradients`.
     Gradient(u32),
+    /// Index into `images`.
     Image(u32),
+    /// Index into `texts`.
     Text(u32),
+    /// Index into `shapes`.
     Shape(u32),
 }
 
@@ -366,6 +385,7 @@ impl RenderBatches {
         self.rects.push(RectInstance::from_rect(rect, color));
     }
 
+    /// Lowers a display list into these batches, reusing their buffers.
     pub fn lower_into(&mut self, list: &DisplayList) {
         self.clear = None;
         self.rects.clear();

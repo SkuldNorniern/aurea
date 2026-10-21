@@ -22,6 +22,7 @@ pub struct ShapedGlyph {
     pub advance: f32,
     /// Where it sits from the pen, right and down positive.
     pub offset_x: f32,
+    /// Vertical offset from the pen.
     pub offset_y: f32,
     /// Whether it is in a right-to-left run.
     pub rtl: bool,
@@ -31,14 +32,17 @@ pub struct ShapedGlyph {
 /// metrics.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShapedText {
+    /// Glyphs in visual order.
     pub glyphs: Vec<ShapedGlyph>,
     /// Total advance, along the line.
     pub width: f32,
     /// The requested face's ascent and descent, which set the line height.
     pub ascent: f32,
+    /// Descent of the requested face.
     pub descent: f32,
     /// The tallest reach of any face drawn, so no glyph is cut off.
     pub ink_ascent: f32,
+    /// Deepest reach of any face drawn, below the baseline.
     pub ink_descent: f32,
     /// Size of the text in pixels.
     pub size: f32,

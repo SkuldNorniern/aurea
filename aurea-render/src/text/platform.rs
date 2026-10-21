@@ -16,12 +16,19 @@ use std::sync::{Arc, Mutex};
 /// Borrowed font reference for the text-rendering hot path.
 #[derive(Clone, Copy)]
 pub struct FontRef<'a> {
+    /// Font family name.
     pub family: &'a str,
+    /// Font size in pixels.
     pub size: f32,
+    /// Font weight.
     pub weight: FontWeight,
+    /// Font style.
     pub style: FontStyle,
+    /// OpenType feature settings.
     pub features: &'a [FontFeature],
+    /// Variable font axis settings.
     pub variations: &'a [FontVariation],
+    /// Whether the text runs vertically.
     pub vertical: bool,
 }
 
@@ -198,6 +205,7 @@ pub struct TextRenderer {
 }
 
 impl TextRenderer {
+    /// Creates a renderer with the platform's rasterizer.
     pub fn new() -> Self {
         Self::with_rasterizer(get_platform_rasterizer())
     }

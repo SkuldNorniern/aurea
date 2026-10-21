@@ -8,7 +8,9 @@ use std::slice;
 pub struct FrameOutput<'a> {
     pixels: *const u8,
     size: usize,
+    /// Width in physical pixels.
     pub width: u32,
+    /// Height in physical pixels.
     pub height: u32,
     words: &'a [u32],
 }

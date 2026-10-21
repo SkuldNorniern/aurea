@@ -7,6 +7,7 @@ use crate::types::{
 };
 use aurea_foundation::AureaResult;
 
+/// The canvas a draw callback records into.
 pub trait DrawingContext {
     /// Get the width of the drawing area.
     fn width(&self) -> u32;

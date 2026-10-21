@@ -11,7 +11,9 @@ use crate::types::{Path, PathCommand, Point};
 /// Why some SVG text didn't parse, and the byte it stopped at.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SvgError {
+    /// Byte offset where parsing stopped.
     pub at: usize,
+    /// What went wrong.
     pub reason: &'static str,
 }
 

@@ -61,6 +61,7 @@ pub struct LinearLuts {
 }
 
 impl LinearLuts {
+    /// Loads both tables.
     pub fn get() -> Self {
         Self {
             to_linear: &SRGB_TO_LINEAR_12,
@@ -89,17 +90,24 @@ impl LinearLuts {
 #[derive(Clone, Copy)]
 pub struct ConstSrc {
     rgb: u32,
+    /// Source alpha, `0..=255`.
     pub sa: u32,
+    /// Destination factor, `(255 - sa) / 255`.
     pub da_scale: f32,
+    /// Red, in linear light.
     pub lr: f32,
+    /// Green, in linear light.
     pub lg: f32,
+    /// Blue, in linear light.
     pub lb: f32,
+    /// Source alpha as coverage, `0.0..=1.0`.
     pub cov: f32,
     to_linear: &'static [f32; 256],
     to_srgb: &'static [u8; 4097],
 }
 
 impl ConstSrc {
+    /// Precomputes the channels of the packed `0xAARRGGBB` color `src`.
     #[inline]
     pub fn new(src: u32) -> Self {
         let sa = sa(src);

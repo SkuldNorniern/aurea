@@ -32,7 +32,9 @@ pub enum FillRule {
 /// Path for drawing shapes.
 #[derive(Debug, Clone)]
 pub struct Path {
+    /// Commands in order.
     pub commands: Vec<PathCommand>,
+    /// Rule for filling self-intersecting shapes.
     pub fill_rule: FillRule,
 }
 
@@ -123,6 +125,7 @@ impl Path {
         }
     }
 
+    /// An empty path.
     pub fn new() -> Self {
         Self {
             commands: Vec::new(),
