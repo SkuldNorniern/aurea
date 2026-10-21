@@ -1,9 +1,10 @@
 #import "../elements.h"
 #import "../../../common/errors.h"
 #import <Cocoa/Cocoa.h>
+#import <math.h>
 
 NGHandle ng_macos_create_slider(double min, double max) {
-    if (min >= max) return NULL;
+    if (!(min < max) || isinf(min) || isinf(max)) return NULL;
     
     NSSlider* slider = [[NSSlider alloc] init];
     [slider setMinValue:min];
@@ -16,6 +17,7 @@ NGHandle ng_macos_create_slider(double min, double max) {
 
 int ng_macos_slider_set_value(NGHandle slider, double value) {
     if (!slider) return NG_ERROR_INVALID_HANDLE;
+    if (isnan(value)) return NG_ERROR_INVALID_PARAMETER;
     
     NSSlider* nsSlider = (__bridge NSSlider*)slider;
     double minValue = [nsSlider minValue];
