@@ -75,20 +75,8 @@ void ng_macos_destroy_tray(NGHandle handle) {
 int ng_macos_tray_set_icon_rgba(NGHandle handle, const unsigned char* rgba, unsigned int width, unsigned int height) {
     if (!handle || !rgba || width == 0 || height == 0) return NG_ERROR_INVALID_PARAMETER;
     AureaTray* tray = (__bridge AureaTray*)handle;
-    NSBitmapImageRep* rep = [[NSBitmapImageRep alloc]
-        initWithBitmapDataPlanes:NULL
-                      pixelsWide:(NSInteger)width
-                      pixelsHigh:(NSInteger)height
-                   bitsPerSample:8
-                 samplesPerPixel:4
-                        hasAlpha:YES
-                        isPlanar:NO
-                  colorSpaceName:NSDeviceRGBColorSpace
-                    bitmapFormat:NSBitmapFormatAlphaNonpremultiplied
-                     bytesPerRow:(NSInteger)width * 4
-                    bitsPerPixel:32];
+    NSBitmapImageRep* rep = ng_macos_rgba_bitmap(rgba, width, height);
     if (!rep) return NG_ERROR_PLATFORM_SPECIFIC;
-    memcpy([rep bitmapData], rgba, (size_t)width * height * 4);
     CGFloat w = TRAY_ICON_POINTS * (CGFloat)width / (CGFloat)height;
     NSImage* image = [[NSImage alloc] initWithSize:NSMakeSize(w, TRAY_ICON_POINTS)];
     [image addRepresentation:rep];

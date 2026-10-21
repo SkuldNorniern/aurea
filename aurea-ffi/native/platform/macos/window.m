@@ -921,21 +921,8 @@ int ng_macos_window_set_icon_rgba(
     if (!window || !rgba || width == 0 || height == 0) {
         return NG_ERROR_INVALID_PARAMETER;
     }
-    NSBitmapImageRep* bitmap = [[NSBitmapImageRep alloc]
-        initWithBitmapDataPlanes:NULL
-        pixelsWide:(NSInteger)width
-        pixelsHigh:(NSInteger)height
-        bitsPerSample:8
-        samplesPerPixel:4
-        hasAlpha:YES
-        isPlanar:NO
-        colorSpaceName:NSDeviceRGBColorSpace
-        bitmapFormat:NSBitmapFormatAlphaNonpremultiplied
-        bytesPerRow:(NSInteger)width * 4
-        bitsPerPixel:32];
+    NSBitmapImageRep* bitmap = ng_macos_rgba_bitmap(rgba, width, height);
     if (!bitmap) return NG_ERROR_PLATFORM_SPECIFIC;
-
-    memcpy([bitmap bitmapData], rgba, (size_t)width * (size_t)height * 4);
     NSImage* image = [[NSImage alloc]
         initWithSize:NSMakeSize((CGFloat)width, (CGFloat)height)];
     [image addRepresentation:bitmap];
@@ -1129,9 +1116,8 @@ int ng_macos_window_set_cursor_rgba(NGHandle window, const unsigned char* rgba, 
         NSWindow* nsWindow = (__bridge NSWindow*)window;
         NSView* view = nsWindow.contentView;
         if (![view isKindOfClass:[AureaContentView class]]) return NG_ERROR_PLATFORM_SPECIFIC;
-        NSBitmapImageRep* bitmap = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL pixelsWide:width pixelsHigh:height bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSDeviceRGBColorSpace bitmapFormat:NSBitmapFormatAlphaNonpremultiplied bytesPerRow:(NSInteger)width * 4 bitsPerPixel:32];
-        if (!bitmap || !bitmap.bitmapData) return NG_ERROR_PLATFORM_SPECIFIC;
-        memcpy(bitmap.bitmapData, rgba, (size_t)width * height * 4);
+        NSBitmapImageRep* bitmap = ng_macos_rgba_bitmap(rgba, width, height);
+        if (!bitmap) return NG_ERROR_PLATFORM_SPECIFIC;
         CGFloat scale = MAX(1.0, nsWindow.backingScaleFactor);
         NSImage* image = [[NSImage alloc] initWithSize:NSMakeSize(width / scale, height / scale)];
         [image addRepresentation:bitmap];
@@ -1374,7 +1360,6 @@ int ng_macos_request_close_all(void) {
     }
     return asked;
 }
-
 
 int ng_macos_window_set_hide_on_close(NGHandle window, int hide) {
     if (!window || !windowDelegates) return NG_ERROR_INVALID_HANDLE;
