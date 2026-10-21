@@ -656,24 +656,67 @@ mod win32_tests {
 
     #[test]
     #[ignore = "creates native windows; run with --ignored"]
+    fn enter_clicks_the_focused_button() -> AureaResult<()> {
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn SetFocus(hwnd: *mut c_void) -> *mut c_void;
+            fn PostMessageW(hwnd: *mut c_void, msg: u32, w: usize, l: isize) -> i32;
+        }
+        const WM_KEYDOWN: u32 = 0x0100;
+        const VK_RETURN: usize = 0x0D;
+        let mut window = Window::new("enter", 300, 200)?;
+        let clicks = Rc::new(RefCell::new(0));
+        let counted = clicks.clone();
+        let button = Button::with_callback("Go", move || *counted.borrow_mut() += 1)?;
+        let b = button.handle();
+        let checkbox = Checkbox::new("Check")?;
+        let c = checkbox.handle();
+        let mut root = Stack::new(Orientation::Vertical)?;
+        root.add(button)?;
+        root.add(checkbox)?;
+        window.set_content(root)?;
+        window.show();
+        unsafe { SetFocus(b) };
+        unsafe { PostMessageW(b, WM_KEYDOWN, VK_RETURN, 0) };
+        window.poll_events();
+        assert_eq!(*clicks.borrow(), 1);
+        unsafe { SetFocus(c) };
+        unsafe { PostMessageW(c, WM_KEYDOWN, VK_RETURN, 0) };
+        window.poll_events();
+        assert!(!checkbox_checked(c));
+        Ok(())
+    }
+
+    fn checkbox_checked(hwnd: *mut c_void) -> bool {
+        const BM_GETCHECK: u32 = 0x00F0;
+        unsafe { SendMessageW(hwnd, BM_GETCHECK, 0, 0) == 1 }
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
     fn tab_moves_focus_between_controls() -> AureaResult<()> {
         #[link(name = "user32")]
         unsafe extern "system" {
             fn SetFocus(hwnd: *mut c_void) -> *mut c_void;
             fn GetFocus() -> *mut c_void;
             fn PostMessageW(hwnd: *mut c_void, msg: u32, w: usize, l: isize) -> i32;
+            fn GetKeyboardState(state: *mut u8) -> i32;
+            fn SetKeyboardState(state: *const u8) -> i32;
         }
         const WM_KEYDOWN: u32 = 0x0100;
         const VK_TAB: usize = 0x09;
+        const VK_SHIFT: usize = 0x10;
         let mut window = Window::new("tab order", 400, 300)?;
         let field = TextField::new()?;
         let button = Button::new("Go")?;
         let checkbox = Checkbox::new("Check")?;
+        let view = TextView::new(false)?;
         let editor = TextEditor::new()?;
         let order = [
             field.handle(),
             button.handle(),
             checkbox.handle(),
+            view.handle(),
             editor.handle(),
         ];
         let mut root = Stack::new(Orientation::Vertical)?;
@@ -682,6 +725,7 @@ mod win32_tests {
         row.add(button)?;
         root.add(row)?;
         root.add(checkbox)?;
+        root.add(view)?;
         root.add(editor)?;
         window.set_content(root)?;
         window.show();
@@ -694,7 +738,17 @@ mod win32_tests {
         for pair in order.windows(2) {
             assert_eq!(tab(&window), pair[1]);
         }
-        assert_eq!(tab(&window), order[3], "the editor keeps Tab");
+        assert_eq!(tab(&window), order[4], "the editor keeps Tab");
+
+        let mut keys = [0u8; 256];
+        unsafe { GetKeyboardState(keys.as_mut_ptr()) };
+        keys[VK_SHIFT] = 0x80;
+        unsafe { SetKeyboardState(keys.as_ptr()) };
+        unsafe { SetFocus(order[1]) };
+        let back = tab(&window);
+        keys[VK_SHIFT] = 0;
+        unsafe { SetKeyboardState(keys.as_ptr()) };
+        assert_eq!(back, order[0], "Shift+Tab goes back");
         Ok(())
     }
 
