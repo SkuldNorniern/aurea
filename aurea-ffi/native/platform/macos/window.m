@@ -84,7 +84,8 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
         case 45: return NG_KEY_N;
         case 46: return NG_KEY_M;
         case 49: return NG_KEY_SPACE;
-        case 36: return NG_KEY_ENTER;
+        case 36:
+        case 76: return NG_KEY_ENTER;
         case 48: return NG_KEY_TAB;
         case 51: return NG_KEY_BACKSPACE;
         case 117: return NG_KEY_DELETE;
