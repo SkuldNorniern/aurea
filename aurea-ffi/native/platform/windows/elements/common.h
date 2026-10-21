@@ -41,7 +41,8 @@
 #define BUTTON_MIN_HEIGHT 32
 #define LABEL_PADDING 4
 #define LINE_EDIT_PADDING 4
-#define SLIDER_HEIGHT 22
+/* Leave room around the native thumb; at 22px it is clipped by one pixel. */
+#define SLIDER_HEIGHT 24
 #define PROGRESS_HEIGHT 20
 #define BOX_ORIENTATION_PROP "AureaBoxOrientation"
 #define BOX_VERTICAL 2
