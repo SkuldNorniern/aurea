@@ -137,7 +137,7 @@ void ng_macos_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer,
     view.bufferHeight = height;
 
     if (!s_canvas_colorspace) {
-        s_canvas_colorspace = CGColorSpaceCreateDeviceRGB();
+        s_canvas_colorspace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
     }
 
     CFDataRef pixels = CFDataCreate(NULL, buffer, (CFIndex)((size_t)width * height * 4));
@@ -168,7 +168,17 @@ static IOSurfaceRef ng_macos_create_io_surface(unsigned int width, unsigned int 
         (id)kIOSurfaceBytesPerElement: @4,
         (id)kIOSurfacePixelFormat: @(kCVPixelFormatType_32BGRA),
     };
-    return IOSurfaceCreate((CFDictionaryRef)props);
+    IOSurfaceRef surface = IOSurfaceCreate((CFDictionaryRef)props);
+    /* Frames are drawn in sRGB; untagged, the compositor would show them as
+       the display's own colours and oversaturate them on a wide-gamut screen. */
+    static CFPropertyListRef srgb = NULL;
+    if (!srgb) {
+        CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+        srgb = space ? CGColorSpaceCopyPropertyList(space) : NULL;
+        CGColorSpaceRelease(space);
+    }
+    if (surface && srgb) IOSurfaceSetValue(surface, CFSTR("IOSurfaceColorSpace"), srgb);
+    return surface;
 }
 
 void* ng_macos_canvas_acquire_buffer(NGHandle canvas, unsigned int width, unsigned int height, unsigned int* stride_px, unsigned int* buffer_index) {
