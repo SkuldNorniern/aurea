@@ -2069,3 +2069,41 @@ mod win32_dpi_tests {
         Ok(())
     }
 }
+#[cfg(all(test, target_os = "linux"))]
+mod gtk_ime_tests {
+    use crate::elements::Label;
+    use crate::{AureaResult, Window};
+    use std::os::raw::{c_int, c_void};
+
+    unsafe extern "C" {
+        fn ng_linux_content_origin(window: *mut c_void, x: *mut c_int, y: *mut c_int);
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn the_caret_area_counts_from_below_the_menu_bar() -> AureaResult<()> {
+        let origin = |menu: bool| -> AureaResult<(c_int, c_int)> {
+            let mut window = Window::new("ime menu", 300, 200)?;
+            if menu {
+                window
+                    .create_menu_bar()?
+                    .add_submenu("File")?
+                    .add_item("Quit", || {})?;
+            }
+            window.set_content(Label::new("body")?)?;
+            window.show();
+            let _ = window.poll_events();
+            let (mut x, mut y) = (0, 0);
+            unsafe { ng_linux_content_origin(window.handle(), &mut x, &mut y) };
+            Ok((x, y))
+        };
+        let (plain_x, plain_y) = origin(false)?;
+        let (menu_x, menu_y) = origin(true)?;
+        assert_eq!(menu_x, plain_x);
+        assert!(
+            menu_y > plain_y,
+            "menu bar pushes content down: {plain_y} -> {menu_y}"
+        );
+        Ok(())
+    }
+}
