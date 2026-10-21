@@ -2,6 +2,7 @@
 #define NATIVE_GUI_WINDOWS_UTILS_H
 
 #include <windows.h>
+#include <commctrl.h>
 #include "common/platform_api.h"
 
 #ifdef __cplusplus
@@ -30,6 +31,12 @@ wchar_t* ng_windows_utf8_to_wide(const char* utf8);
 FARPROC ng_windows_api(const char* module, const char* name);
 /* The activation context for common controls 6, from shell32; INVALID_HANDLE_VALUE when missing. */
 HANDLE ng_windows_common_controls_v6(void);
+/* comctl32 calls, looked up in the v6 DLL at run time so the app never imports v5. */
+BOOL WINAPI ng_windows_set_subclass(HWND hwnd, SUBCLASSPROC proc, UINT_PTR id, DWORD_PTR data);
+BOOL WINAPI ng_windows_get_subclass(HWND hwnd, SUBCLASSPROC proc, UINT_PTR id, DWORD_PTR* data);
+BOOL WINAPI ng_windows_remove_subclass(HWND hwnd, SUBCLASSPROC proc, UINT_PTR id);
+LRESULT WINAPI ng_windows_def_subclass(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+BOOL ng_windows_init_common_controls(DWORD classes);
 char* ng_windows_wide_to_utf8(const wchar_t* wide, int len);
 char* ng_windows_window_text(HWND hwnd);
 int ng_windows_set_window_text(HWND hwnd, const char* utf8);

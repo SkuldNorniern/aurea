@@ -1,12 +1,12 @@
 #include "common.h"
 #include "../elements.h"
+#include "../utils.h"
 #include "common/errors.h"
 #include <windows.h>
 #include <commctrl.h>
 #include <math.h>
 #include <stdlib.h>
 
-#pragma comment(lib, "comctl32.lib")
 
 #define SLIDER_STEPS 10000
 #define SLIDER_SUBCLASS_ID 1
@@ -19,15 +19,15 @@ typedef struct {
 static LRESULT CALLBACK slider_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                     UINT_PTR id, DWORD_PTR data) {
     if (msg == WM_NCDESTROY) {
-        RemoveWindowSubclass(hwnd, slider_proc, id);
+        ng_windows_remove_subclass(hwnd, slider_proc, id);
         free((SliderRange*)data);
     }
-    return DefSubclassProc(hwnd, msg, wParam, lParam);
+    return ng_windows_def_subclass(hwnd, msg, wParam, lParam);
 }
 
 static SliderRange* slider_range(HWND hwnd) {
     DWORD_PTR data = 0;
-    return GetWindowSubclass(hwnd, slider_proc, SLIDER_SUBCLASS_ID, &data) ? (SliderRange*)data : NULL;
+    return ng_windows_get_subclass(hwnd, slider_proc, SLIDER_SUBCLASS_ID, &data) ? (SliderRange*)data : NULL;
 }
 
 NGHandle ng_windows_create_slider(double min, double max) {
@@ -47,7 +47,7 @@ NGHandle ng_windows_create_slider(double min, double max) {
     if (!hwnd) return NULL;
 
     SliderRange* range = (SliderRange*)malloc(sizeof(SliderRange));
-    if (!range || !SetWindowSubclass(hwnd, slider_proc, SLIDER_SUBCLASS_ID, (DWORD_PTR)range)) {
+    if (!range || !ng_windows_set_subclass(hwnd, slider_proc, SLIDER_SUBCLASS_ID, (DWORD_PTR)range)) {
         free(range);
         DestroyWindow(hwnd);
         return NULL;

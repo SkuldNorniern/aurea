@@ -77,8 +77,9 @@ int ng_windows_init(void) {
         HANDLE v6 = ng_windows_common_controls_v6();
         ULONG_PTR cookie = 0;
         if (v6 != INVALID_HANDLE_VALUE) ActivateActCtx(v6, &cookie);
-        INITCOMMONCONTROLSEX classes = {sizeof(classes), ICC_STANDARD_CLASSES | ICC_WIN95_CLASSES};
-        InitCommonControlsEx(&classes);
+        ng_windows_init_common_controls(ICC_STANDARD_CLASSES | ICC_WIN95_CLASSES | ICC_DATE_CLASSES |
+                                        ICC_USEREX_CLASSES | ICC_COOL_CLASSES | ICC_INTERNET_CLASSES |
+                                        ICC_PAGESCROLLER_CLASS | ICC_NATIVEFNTCTL_CLASS | ICC_LINK_CLASS);
         g_theme_dark = ng_windows_prefers_dark();
         win_initialized = TRUE;
     }
@@ -107,6 +108,58 @@ wchar_t* ng_windows_utf8_to_wide(const char* utf8) {
         return NULL;
     }
     return wide;
+}
+
+static FARPROC ng_windows_comctl(const char* name, WORD ordinal) {
+    static HMODULE comctl = NULL;
+    static int loaded = 0;
+    if (!loaded) {
+        loaded = 1;
+        HANDLE v6 = ng_windows_common_controls_v6();
+        ULONG_PTR cookie = 0;
+        BOOL active = v6 != INVALID_HANDLE_VALUE && ActivateActCtx(v6, &cookie);
+        comctl = LoadLibraryW(L"comctl32.dll");
+        if (active) DeactivateActCtx(0, cookie);
+    }
+    if (!comctl) return NULL;
+    FARPROC proc = GetProcAddress(comctl, name);
+    return proc || !ordinal ? proc : GetProcAddress(comctl, MAKEINTRESOURCEA(ordinal));
+}
+
+BOOL WINAPI ng_windows_set_subclass(HWND hwnd, SUBCLASSPROC proc, UINT_PTR id, DWORD_PTR data) {
+    typedef BOOL (WINAPI *Fn)(HWND, SUBCLASSPROC, UINT_PTR, DWORD_PTR);
+    static Fn fn = NULL;
+    if (!fn) fn = (Fn)ng_windows_comctl("SetWindowSubclass", 410);
+    return fn ? fn(hwnd, proc, id, data) : FALSE;
+}
+
+BOOL WINAPI ng_windows_get_subclass(HWND hwnd, SUBCLASSPROC proc, UINT_PTR id, DWORD_PTR* data) {
+    typedef BOOL (WINAPI *Fn)(HWND, SUBCLASSPROC, UINT_PTR, DWORD_PTR*);
+    static Fn fn = NULL;
+    if (!fn) fn = (Fn)ng_windows_comctl("GetWindowSubclass", 411);
+    return fn ? fn(hwnd, proc, id, data) : FALSE;
+}
+
+BOOL WINAPI ng_windows_remove_subclass(HWND hwnd, SUBCLASSPROC proc, UINT_PTR id) {
+    typedef BOOL (WINAPI *Fn)(HWND, SUBCLASSPROC, UINT_PTR);
+    static Fn fn = NULL;
+    if (!fn) fn = (Fn)ng_windows_comctl("RemoveWindowSubclass", 412);
+    return fn ? fn(hwnd, proc, id) : FALSE;
+}
+
+LRESULT WINAPI ng_windows_def_subclass(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    typedef LRESULT (WINAPI *Fn)(HWND, UINT, WPARAM, LPARAM);
+    static Fn fn = NULL;
+    if (!fn) fn = (Fn)ng_windows_comctl("DefSubclassProc", 413);
+    return fn ? fn(hwnd, msg, wParam, lParam) : DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+BOOL ng_windows_init_common_controls(DWORD classes) {
+    typedef BOOL (WINAPI *Fn)(const INITCOMMONCONTROLSEX*);
+    static Fn fn = NULL;
+    if (!fn) fn = (Fn)ng_windows_comctl("InitCommonControlsEx", 0);
+    INITCOMMONCONTROLSEX init = {sizeof(init), classes};
+    return fn ? fn(&init) : FALSE;
 }
 
 FARPROC ng_windows_api(const char* module, const char* name) {

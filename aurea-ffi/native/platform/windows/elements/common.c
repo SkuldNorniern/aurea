@@ -240,16 +240,16 @@ int ng_windows_element_set_enabled(NGHandle element, int enabled) {
 static LRESULT CALLBACK destroy_watch_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                            UINT_PTR subclass, DWORD_PTR id) {
     if (msg == WM_NCDESTROY) {
-        RemoveWindowSubclass(hwnd, destroy_watch_proc, subclass);
+        ng_windows_remove_subclass(hwnd, destroy_watch_proc, subclass);
         ng_invoke_custom_callback((unsigned int)id);
     }
-    return DefSubclassProc(hwnd, msg, wParam, lParam);
+    return ng_windows_def_subclass(hwnd, msg, wParam, lParam);
 }
 
 int ng_windows_element_watch_destroy(NGHandle element, unsigned int id) {
     HWND hwnd = (HWND)element;
     if (!hwnd || !IsWindow(hwnd)) return NG_ERROR_INVALID_HANDLE;
-    return SetWindowSubclass(hwnd, destroy_watch_proc, id, id) ? NG_SUCCESS : NG_ERROR_PLATFORM_SPECIFIC;
+    return ng_windows_set_subclass(hwnd, destroy_watch_proc, id, id) ? NG_SUCCESS : NG_ERROR_PLATFORM_SPECIFIC;
 }
 
 int ng_windows_element_set_visible(NGHandle element, int visible) {
