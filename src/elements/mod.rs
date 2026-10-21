@@ -600,6 +600,50 @@ mod win32_tests {
 
     #[test]
     #[ignore = "creates native windows; run with --ignored"]
+    fn tab_moves_focus_between_controls() -> AureaResult<()> {
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn SetFocus(hwnd: *mut c_void) -> *mut c_void;
+            fn GetFocus() -> *mut c_void;
+            fn PostMessageW(hwnd: *mut c_void, msg: u32, w: usize, l: isize) -> i32;
+        }
+        const WM_KEYDOWN: u32 = 0x0100;
+        const VK_TAB: usize = 0x09;
+        let mut window = Window::new("tab order", 400, 300)?;
+        let field = TextField::new()?;
+        let button = Button::new("Go")?;
+        let checkbox = Checkbox::new("Check")?;
+        let editor = TextEditor::new()?;
+        let order = [
+            field.handle(),
+            button.handle(),
+            checkbox.handle(),
+            editor.handle(),
+        ];
+        let mut root = Stack::new(Orientation::Vertical)?;
+        let mut row = Stack::new(Orientation::Horizontal)?;
+        row.add(field)?;
+        row.add(button)?;
+        root.add(row)?;
+        root.add(checkbox)?;
+        root.add(editor)?;
+        window.set_content(root)?;
+        window.show();
+        let tab = |window: &Window| {
+            unsafe { PostMessageW(GetFocus(), WM_KEYDOWN, VK_TAB, 0) };
+            window.poll_events();
+            unsafe { GetFocus() }
+        };
+        unsafe { SetFocus(order[0]) };
+        for pair in order.windows(2) {
+            assert_eq!(tab(&window), pair[1]);
+        }
+        assert_eq!(tab(&window), order[3], "the editor keeps Tab");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
     fn ampersands_show_as_typed() -> AureaResult<()> {
         #[link(name = "user32")]
         unsafe extern "system" {
