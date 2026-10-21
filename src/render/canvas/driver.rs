@@ -9,6 +9,7 @@ use aurea_render::{FrameOutcome, Renderer, RendererBackend};
 use aurea_runtime::FrameScheduler;
 use std::cell::RefCell;
 use std::os::raw::c_void;
+use std::ptr::null;
 use std::rc::Rc;
 #[cfg(feature = "zengpu")]
 use std::sync::Arc;
@@ -165,7 +166,7 @@ fn sync_surface(
     if width == 0 || height == 0 {
         return Ok(false);
     }
-    configure_surface(
+    let changed = configure_surface(
         state,
         renderer,
         SurfaceInfo {
@@ -175,6 +176,11 @@ fn sync_surface(
             pixels: (pixel_width > 0 && pixel_height > 0).then_some((pixel_width, pixel_height)),
         },
     )?;
+    if changed {
+        // SAFETY: a null buffer tells the canvas to drop its pointer into the old frame buffer,
+        // which configuring may have freed.
+        unsafe { ng_platform_canvas_update_buffer(handle, null(), 0, 0, 0) };
+    }
     Ok(true)
 }
 
@@ -182,7 +188,7 @@ fn configure_surface(
     state: &Rc<RefCell<CanvasState>>,
     renderer: &Rc<RefCell<Option<Box<dyn Renderer>>>>,
     info: SurfaceInfo,
-) -> AureaResult<()> {
+) -> AureaResult<bool> {
     let changed = {
         let st = state.borrow();
         info.width != st.width
@@ -206,7 +212,7 @@ fn configure_surface(
         st.needs_redraw = true;
         st.damage.add_all();
     }
-    Ok(())
+    Ok(changed)
 }
 
 pub(super) fn retry_failed_frame(handle: *mut c_void, state: &Rc<RefCell<CanvasState>>) {
@@ -423,8 +429,8 @@ mod tests {
             ),
             (16, 16, 1.0)
         );
-        configure_surface(&state, &renderer, info.clone()).expect("retry");
-        configure_surface(&state, &renderer, info).expect("unchanged extent");
+        assert!(configure_surface(&state, &renderer, info.clone()).expect("retry"));
+        assert!(!configure_surface(&state, &renderer, info).expect("unchanged extent"));
         assert_eq!(attempts.get(), 2);
         assert_eq!(
             (

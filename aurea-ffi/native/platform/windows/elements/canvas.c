@@ -273,10 +273,16 @@ void ng_windows_canvas_set_gpu_owned(NGHandle canvas, int gpu_owned) {
 
 void ng_windows_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size, unsigned int width, unsigned int height) {
     (void)size;
-    if (!canvas || !buffer || width == 0 || height == 0) return;
+    if (!canvas) return;
     
     CanvasData* data = (CanvasData*)GetWindowLongPtrA((HWND)canvas, GWLP_USERDATA);
     if (!data) return;
+    if (!buffer || width == 0 || height == 0) {
+        data->buffer = NULL;
+        data->width = 0;
+        data->height = 0;
+        return;
+    }
     
     data->buffer = buffer;
     data->width = width;
