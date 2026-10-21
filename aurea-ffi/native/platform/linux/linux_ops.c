@@ -88,6 +88,7 @@ static const ng_platform_ops_t linux_ops = {
     .split_view_set_divider_position = ng_linux_split_view_set_divider_position,
     .create_scroll_view = ng_linux_create_scroll_view,
     .scroll_view_set_content = ng_linux_scroll_view_set_content,
+    .scroll_view_set_scrollbar = ng_linux_scroll_view_set_scrollbar,
     .create_text_editor = ng_linux_create_text_editor,
     .text_editor_invalidate = ng_linux_text_editor_invalidate,
     .create_text_view = ng_linux_create_text_view,

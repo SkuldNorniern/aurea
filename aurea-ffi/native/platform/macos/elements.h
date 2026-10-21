@@ -39,6 +39,7 @@ int ng_macos_split_view_add(NGHandle split_handle, NGHandle element);
 int ng_macos_split_view_set_divider_position(NGHandle split_handle, int index, float position);
 NGHandle ng_macos_create_scroll_view(void);
 int ng_macos_scroll_view_set_content(NGHandle scroll, NGHandle element);
+int ng_macos_scroll_view_set_scrollbar(NGHandle scroll, int policy);
 
 NGHandle ng_macos_create_canvas(int width, int height);
 void ng_macos_canvas_invalidate(NGHandle canvas);

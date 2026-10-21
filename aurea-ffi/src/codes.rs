@@ -42,3 +42,7 @@ pub const NG_TEXT_FEATURE_MONOSPACE: c_int = 2;
 pub const NG_TEXT_FEATURE_UNDO: c_int = 3;
 /// Secret text feature: dots in place of the text, single-line fields only.
 pub const NG_TEXT_FEATURE_SECRET: c_int = 4;
+/// Scroll bar shown only when the content overflows.
+pub const NG_SCROLLBAR_AUTO: c_int = 0;
+/// Scroll bar always shown, disabled while the content fits.
+pub const NG_SCROLLBAR_ALWAYS: c_int = 1;

@@ -45,6 +45,7 @@ int ng_linux_split_view_add(NGHandle split_handle, NGHandle element);
 int ng_linux_split_view_set_divider_position(NGHandle split_handle, int index, float position);
 NGHandle ng_linux_create_scroll_view(void);
 int ng_linux_scroll_view_set_content(NGHandle scroll, NGHandle element);
+int ng_linux_scroll_view_set_scrollbar(NGHandle scroll, int policy);
 NGHandle ng_linux_create_text_editor(void);
 void ng_linux_text_editor_invalidate(NGHandle text_editor);
 NGHandle ng_linux_create_text_view(int is_editable);

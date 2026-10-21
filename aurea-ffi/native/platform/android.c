@@ -103,6 +103,12 @@ int ng_platform_scroll_view_set_content(NGHandle scroll, NGHandle element) {
     return NG_ERROR_UNSUPPORTED;
 }
 
+int ng_platform_scroll_view_set_scrollbar(NGHandle scroll, int policy) {
+    (void)scroll;
+    (void)policy;
+    return NG_ERROR_UNSUPPORTED;
+}
+
 NGHandle ng_platform_create_split_view(int is_vertical) {
     (void)is_vertical;
     return NULL;

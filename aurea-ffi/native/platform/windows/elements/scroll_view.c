@@ -1,10 +1,13 @@
 #include "common.h"
 #include "../elements.h"
 #include "common/errors.h"
+#include "common/platform_api.h"
 #include <windows.h>
 
 #define SCROLL_LINE 16
 #define SCROLL_WHEEL_REST_PROP "AureaScrollWheelRest"
+#define SCROLL_ALWAYS_PROP "AureaScrollAlways"
+#define SCROLL_LAYOUT_PROP "AureaScrollLayout"
 
 static LRESULT CALLBACK ScrollViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -17,25 +20,48 @@ int ng_windows_is_scroll_view(HWND hwnd) {
 }
 
 void ng_windows_scroll_view_layout(HWND scroll) {
-    if (!ng_windows_is_scroll_view(scroll)) return;
+    if (!ng_windows_is_scroll_view(scroll) || GetPropA(scroll, SCROLL_LAYOUT_PROP)) return;
+    SetPropA(scroll, SCROLL_LAYOUT_PROP, (HANDLE)1);
     HWND content = scroll_content(scroll);
+    UINT keep = GetPropA(scroll, SCROLL_ALWAYS_PROP) ? SIF_DISABLENOSCROLL : 0;
     RECT client;
-    GetClientRect(scroll, &client);
-    int width = client.right;
-    int page = client.bottom;
-    int height = content ? ng_windows_measure_height(content, width) : 0;
-    if (height < page) height = page;
-
-    SCROLLINFO si = {sizeof(si), SIF_RANGE | SIF_PAGE | SIF_DISABLENOSCROLL};
-    si.nMax = height > 0 ? height - 1 : 0;
-    si.nPage = (UINT)(page > 0 ? page : 0);
-    SetScrollInfo(scroll, SB_VERT, &si, TRUE);
-    si.fMask = SIF_POS;
+    int height = 0;
+    /* Showing or hiding the bar changes the width, and so the content's height. */
+    for (int pass = 0; pass < 3; pass++) {
+        GetClientRect(scroll, &client);
+        height = content ? ng_windows_measure_height(content, client.right) : 0;
+        if (height < client.bottom) height = client.bottom;
+        SCROLLINFO si = {sizeof(si), SIF_RANGE | SIF_PAGE | keep};
+        si.nMax = height > 0 ? height - 1 : 0;
+        si.nPage = (UINT)(client.bottom > 0 ? client.bottom : 0);
+        SetScrollInfo(scroll, SB_VERT, &si, TRUE);
+        RECT now;
+        GetClientRect(scroll, &now);
+        if (now.right == client.right && now.bottom == client.bottom) break;
+    }
+    SCROLLINFO si = {sizeof(si), SIF_POS};
     GetScrollInfo(scroll, SB_VERT, &si);
 
     if (content) {
-        SetWindowPos(content, NULL, 0, -si.nPos, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(content, NULL, 0, -si.nPos, client.right, height, SWP_NOZORDER | SWP_NOACTIVATE);
     }
+    RemovePropA(scroll, SCROLL_LAYOUT_PROP);
+}
+
+int ng_windows_scroll_view_set_scrollbar(NGHandle scroll_handle, int policy) {
+    HWND scroll = (HWND)scroll_handle;
+    if (!ng_windows_is_scroll_view(scroll)) return NG_ERROR_INVALID_HANDLE;
+    if (policy == NG_SCROLLBAR_ALWAYS) {
+        SetPropA(scroll, SCROLL_ALWAYS_PROP, (HANDLE)1);
+        ShowScrollBar(scroll, SB_VERT, TRUE);
+    } else if (policy == NG_SCROLLBAR_AUTO) {
+        RemovePropA(scroll, SCROLL_ALWAYS_PROP);
+        ShowScrollBar(scroll, SB_VERT, FALSE);
+    } else {
+        return NG_ERROR_INVALID_PARAMETER;
+    }
+    ng_windows_scroll_view_layout(scroll);
+    return NG_SUCCESS;
 }
 
 static void scroll_to(HWND scroll, int pos) {
@@ -143,6 +169,8 @@ static LRESULT CALLBACK ScrollViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
     if (msg == WM_NCDESTROY) {
         RemovePropA(hwnd, SCROLL_VIEW_OLD_PROC_PROP);
         RemovePropA(hwnd, SCROLL_WHEEL_REST_PROP);
+        RemovePropA(hwnd, SCROLL_ALWAYS_PROP);
+        RemovePropA(hwnd, SCROLL_LAYOUT_PROP);
     }
     return old_proc ? CallWindowProcA(old_proc, hwnd, msg, wParam, lParam)
                     : DefWindowProcA(hwnd, msg, wParam, lParam);

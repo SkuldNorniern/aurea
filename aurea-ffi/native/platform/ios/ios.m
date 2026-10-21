@@ -55,6 +55,12 @@ int ng_platform_scroll_view_set_content(NGHandle scroll, NGHandle element) {
     return NG_ERROR_UNSUPPORTED;
 }
 
+int ng_platform_scroll_view_set_scrollbar(NGHandle scroll, int policy) {
+    (void)scroll;
+    (void)policy;
+    return NG_ERROR_UNSUPPORTED;
+}
+
 int ng_platform_label_set_style(NGHandle label, int style) {
     (void)label;
     (void)style;

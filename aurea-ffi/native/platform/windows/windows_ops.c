@@ -92,6 +92,7 @@ static const ng_platform_ops_t windows_ops = {
     .split_view_set_divider_position = ng_windows_split_view_set_divider_position,
     .create_scroll_view = ng_windows_create_scroll_view,
     .scroll_view_set_content = ng_windows_scroll_view_set_content,
+    .scroll_view_set_scrollbar = ng_windows_scroll_view_set_scrollbar,
     .create_text_editor = ng_windows_create_text_editor,
     .text_editor_invalidate = ng_windows_text_editor_invalidate,
     .create_text_view = ng_windows_create_text_view,

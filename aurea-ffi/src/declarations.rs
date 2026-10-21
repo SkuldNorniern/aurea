@@ -382,6 +382,8 @@ unsafe extern "C" {
     pub fn ng_platform_create_scroll_view() -> *mut c_void;
     /// Sets a scroll view's content.
     pub fn ng_platform_scroll_view_set_content(scroll: *mut c_void, element: *mut c_void) -> c_int;
+    /// Sets when a scroll view shows its scroll bar.
+    pub fn ng_platform_scroll_view_set_scrollbar(scroll: *mut c_void, policy: c_int) -> c_int;
 
     /// Creates a text editor.
     pub fn ng_platform_create_text_editor() -> *mut c_void;

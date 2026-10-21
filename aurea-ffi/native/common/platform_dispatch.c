@@ -419,6 +419,10 @@ int ng_platform_scroll_view_set_content(NGHandle s, NGHandle e) {
     DISPATCH_INT(scroll_view_set_content, s, e);
 }
 
+int ng_platform_scroll_view_set_scrollbar(NGHandle s, int policy) {
+    DISPATCH_INT(scroll_view_set_scrollbar, s, policy);
+}
+
 NGHandle ng_platform_create_text_editor(void) {
     ensure_ops();
     return g_ops && g_ops->create_text_editor ? g_ops->create_text_editor() : NULL;

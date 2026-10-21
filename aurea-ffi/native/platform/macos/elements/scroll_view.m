@@ -1,5 +1,6 @@
 #import "../elements.h"
 #import "../../../common/errors.h"
+#import "../../../common/platform_api.h"
 #import <Cocoa/Cocoa.h>
 
 @interface AureaScrollDocument : NSView
@@ -48,5 +49,14 @@ int ng_macos_scroll_view_set_content(NGHandle scroll_handle, NGHandle element) {
         [content.bottomAnchor constraintEqualToAnchor:document.bottomAnchor],
     ]];
     [document scrollPoint:NSZeroPoint];
+    return NG_SUCCESS;
+}
+
+int ng_macos_scroll_view_set_scrollbar(NGHandle scroll_handle, int policy) {
+    if (!scroll_handle) return NG_ERROR_INVALID_HANDLE;
+    if (policy != NG_SCROLLBAR_AUTO && policy != NG_SCROLLBAR_ALWAYS) return NG_ERROR_INVALID_PARAMETER;
+    NSScrollView* scroll = (__bridge NSScrollView*)scroll_handle;
+    scroll.autohidesScrollers = policy == NG_SCROLLBAR_AUTO;
+    scroll.scrollerStyle = policy == NG_SCROLLBAR_ALWAYS ? NSScrollerStyleLegacy : [NSScroller preferredScrollerStyle];
     return NG_SUCCESS;
 }
