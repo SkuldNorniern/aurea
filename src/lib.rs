@@ -53,7 +53,7 @@ pub use crate::elements::{
     ProgressBar, ScrollView, SidebarList, Slider, Spacer, SplitOrientation, SplitView, Stack,
     TabBar, TextEditor, TextField, TextView,
 };
-use crate::ffi::{ng_platform_prefers_dark, ng_platform_reduced_motion};
+use crate::ffi::{ng_platform_prefers_dark, ng_platform_reduced_motion, ng_platform_wheel_lines};
 pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
 pub use crate::tray::TrayIcon;
 pub use crate::window::clipboard;
@@ -91,6 +91,23 @@ pub fn prefers_dark() -> Option<bool> {
         0 => Some(false),
         1 => Some(true),
         _ => None,
+    }
+}
+
+/// How far one wheel notch should scroll, from Windows' mouse settings; three lines elsewhere.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WheelScroll {
+    /// This many lines; 0 turns wheel scrolling off.
+    Lines(u32),
+    /// One screen at a time.
+    Page,
+}
+
+/// The user's wheel setting, read each call so a change takes effect at once.
+pub fn wheel_scroll() -> WheelScroll {
+    match u32::try_from(unsafe { ng_platform_wheel_lines() }) {
+        Ok(lines) => WheelScroll::Lines(lines),
+        Err(_) => WheelScroll::Page,
     }
 }
 
