@@ -18,6 +18,10 @@
 
 static WNDCLASSEXW g_wc = {0};
 static const wchar_t* CLASS_NAME = L"NativeGuiWindow";
+
+/* Every top-level window hears a theme broadcast; the app is told once. */
+static int g_theme_dark = -1;
+static void ng_windows_theme_check(void);
 static BOOL win_initialized = FALSE;
 
 static ScaleFactorCallback g_window_scale_callbacks[256] = {0};
@@ -75,6 +79,7 @@ int ng_windows_init(void) {
         if (v6 != INVALID_HANDLE_VALUE) ActivateActCtx(v6, &cookie);
         INITCOMMONCONTROLSEX classes = {sizeof(classes), ICC_STANDARD_CLASSES | ICC_WIN95_CLASSES};
         InitCommonControlsEx(&classes);
+        g_theme_dark = ng_windows_prefers_dark();
         win_initialized = TRUE;
     }
     return NG_SUCCESS;
@@ -737,6 +742,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             }
             break;
         
+        case WM_SETTINGCHANGE:
+            if (lParam && lstrcmpiW((LPCWSTR)lParam, L"ImmersiveColorSet") == 0) {
+                ng_windows_theme_check();
+            }
+            break;
+
         case WM_DPICHANGED: {
             UINT newDpiX = LOWORD(wParam);
             UINT newDpiY = HIWORD(wParam);
@@ -858,6 +869,31 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         }
     }
     return DefWindowProcW(hwnd, uMsg, wParam, lParam);
+}
+
+/* "Choose your app mode" in Settings. Before Windows 10 1809 there is no
+   such key, and apps are light. */
+int ng_windows_prefers_dark(void) {
+    HKEY key = NULL;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                      0, KEY_QUERY_VALUE, &key) != ERROR_SUCCESS) {
+        return 0;
+    }
+    DWORD light = 1;
+    DWORD size = sizeof(light);
+    DWORD type = 0;
+    LONG status = RegQueryValueExW(key, L"AppsUseLightTheme", NULL, &type, (LPBYTE)&light, &size);
+    RegCloseKey(key);
+    if (status != ERROR_SUCCESS || type != REG_DWORD) return 0;
+    return light ? 0 : 1;
+}
+
+static void ng_windows_theme_check(void) {
+    int dark = ng_windows_prefers_dark();
+    if (dark == g_theme_dark) return;
+    BOOL known = g_theme_dark >= 0;
+    g_theme_dark = dark;
+    if (known) ng_invoke_theme_changed(dark);
 }
 
 int ng_windows_reduced_motion(void) {

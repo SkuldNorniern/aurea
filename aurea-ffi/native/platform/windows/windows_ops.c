@@ -16,6 +16,7 @@ static int box_add_wrapper(NGHandle b, NGHandle e, float w) {
 static const ng_platform_ops_t windows_ops = {
     .init = ng_windows_init,
     .reduced_motion = ng_windows_reduced_motion,
+    .prefers_dark = ng_windows_prefers_dark,
     .locales = ng_windows_locales,
     .cleanup = ng_windows_cleanup,
     .run = ng_windows_run,
