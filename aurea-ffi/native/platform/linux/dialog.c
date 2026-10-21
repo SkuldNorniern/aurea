@@ -4,6 +4,26 @@
 #include <stdlib.h>
 #include <string.h>
 
+char* ng_linux_filter_pattern(const char* ext) {
+    if (strcmp(ext, "*") == 0) return g_strdup("*");
+    GString* out = g_string_new("*.");
+    for (const char* c = ext; *c; c++) {
+        if (g_ascii_isalpha(*c)) {
+            g_string_append_printf(out, "[%c%c]", g_ascii_tolower(*c), g_ascii_toupper(*c));
+        } else {
+            g_string_append_c(out, *c);
+        }
+    }
+    return g_string_free(out, FALSE);
+}
+
+char* ng_linux_with_extension(const char* path, const char* ext) {
+    const char* slash = strrchr(path, '/');
+    const char* base = slash ? slash + 1 : path;
+    if (!ext || !*ext || strcmp(ext, "*") == 0 || !*base || strchr(base, '.')) return g_strdup(path);
+    return g_strconcat(path, ".", ext, NULL);
+}
+
 static void add_filters(GtkFileChooser* chooser, const char* filters) {
     if (!filters || !*filters) return;
     gchar** lines = g_strsplit(filters, "\n", -1);
@@ -16,9 +36,12 @@ static void add_filters(GtkFileChooser* chooser, const char* filters) {
         gchar** exts = g_strsplit(bar + 1, ";", -1);
         for (gchar** ext = exts; *ext; ext++) {
             if (!**ext) continue;
-            gchar* pattern = strcmp(*ext, "*") == 0 ? g_strdup("*") : g_strconcat("*.", *ext, NULL);
+            gchar* pattern = ng_linux_filter_pattern(*ext);
             gtk_file_filter_add_pattern(filter, pattern);
             g_free(pattern);
+            if (!g_object_get_data(G_OBJECT(filter), "ng-ext")) {
+                g_object_set_data_full(G_OBJECT(filter), "ng-ext", g_strdup(*ext), g_free);
+            }
         }
         g_strfreev(exts);
         gtk_file_chooser_add_filter(chooser, filter);
@@ -47,6 +70,25 @@ char* ng_linux_file_dialog(NGHandle window, int kind, const char* title, const c
     char* out = NULL;
     if (gtk_native_dialog_run(GTK_NATIVE_DIALOG(native)) == GTK_RESPONSE_ACCEPT) {
         GSList* names = gtk_file_chooser_get_filenames(chooser);
+        if (kind == NG_DIALOG_SAVE && names) {
+            GtkFileFilter* chosen = gtk_file_chooser_get_filter(chooser);
+            const char* ext = chosen ? g_object_get_data(G_OBJECT(chosen), "ng-ext") : NULL;
+            char* named = ng_linux_with_extension((const char*)names->data, ext);
+            if (strcmp(named, (const char*)names->data) != 0 && g_file_test(named, G_FILE_TEST_EXISTS)) {
+                gchar* base = g_path_get_basename(named);
+                gchar* ask = g_strdup_printf("\"%s\" already exists. Replace it?", base);
+                int replace = ng_linux_message_box(window, NG_MESSAGE_WARNING, title, ask,
+                                                   NG_MESSAGE_BUTTONS_YES_NO) == NG_CHOICE_YES;
+                g_free(ask);
+                g_free(base);
+                if (!replace) {
+                    g_free(named);
+                    named = NULL;
+                }
+            }
+            g_free(names->data);
+            names->data = named;
+        }
         GString* joined = g_string_new(NULL);
         for (GSList* l = names; l; l = l->next) {
             const char* name = (const char*)l->data;
@@ -72,20 +114,24 @@ char* ng_linux_file_dialog(NGHandle window, int kind, const char* title, const c
 static void add_buttons(GtkDialog* dialog, int buttons) {
     switch (buttons) {
     case NG_MESSAGE_BUTTONS_OK_CANCEL:
-        gtk_dialog_add_button(dialog, "_OK", GTK_RESPONSE_OK);
         gtk_dialog_add_button(dialog, "_Cancel", GTK_RESPONSE_CANCEL);
+        gtk_dialog_add_button(dialog, "_OK", GTK_RESPONSE_OK);
+        gtk_dialog_set_default_response(dialog, GTK_RESPONSE_OK);
         break;
     case NG_MESSAGE_BUTTONS_YES_NO:
-        gtk_dialog_add_button(dialog, "_Yes", GTK_RESPONSE_YES);
         gtk_dialog_add_button(dialog, "_No", GTK_RESPONSE_NO);
+        gtk_dialog_add_button(dialog, "_Yes", GTK_RESPONSE_YES);
+        gtk_dialog_set_default_response(dialog, GTK_RESPONSE_YES);
         break;
     case NG_MESSAGE_BUTTONS_SAVE_DISCARD_CANCEL:
-        gtk_dialog_add_button(dialog, "_Save", RESPONSE_SAVE);
-        gtk_dialog_add_button(dialog, "_Cancel", GTK_RESPONSE_CANCEL);
         gtk_dialog_add_button(dialog, "_Don't Save", RESPONSE_DISCARD);
+        gtk_dialog_add_button(dialog, "_Cancel", GTK_RESPONSE_CANCEL);
+        gtk_dialog_add_button(dialog, "_Save", RESPONSE_SAVE);
+        gtk_dialog_set_default_response(dialog, RESPONSE_SAVE);
         break;
     default:
         gtk_dialog_add_button(dialog, "_OK", GTK_RESPONSE_OK);
+        gtk_dialog_set_default_response(dialog, GTK_RESPONSE_OK);
         break;
     }
 }

@@ -6,6 +6,8 @@
 char* ng_linux_file_dialog(NGHandle window, int kind, const char* title, const char* filters,
                            const char* default_name, const char* directory, int multiple);
 int ng_linux_message_box(NGHandle window, int kind, const char* title, const char* text, int buttons);
+char* ng_linux_filter_pattern(const char* ext);
+char* ng_linux_with_extension(const char* path, const char* ext);
 int ng_linux_color_dialog(NGHandle window, const char* title, unsigned int argb_in, int alpha, unsigned int* argb_out);
 
 #endif
