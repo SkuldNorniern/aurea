@@ -41,6 +41,17 @@
 
 static const CGFloat TRAY_ICON_POINTS = 18.0;
 
+static BOOL rgba_is_monochrome(const unsigned char* rgba, size_t pixels) {
+    BOOL any = NO;
+    for (size_t i = 0; i < pixels; i++) {
+        const unsigned char* p = rgba + i * 4;
+        if (p[3] == 0) continue;
+        if (p[0] > 24 || p[1] > 24 || p[2] > 24) return NO;
+        any = YES;
+    }
+    return any;
+}
+
 NGHandle ng_macos_create_tray(const char* tooltip, unsigned int click_id) {
     AureaTray* tray = [[AureaTray alloc] init];
     tray.clickId = click_id;
@@ -80,7 +91,11 @@ int ng_macos_tray_set_icon_rgba(NGHandle handle, const unsigned char* rgba, unsi
     CGFloat w = TRAY_ICON_POINTS * (CGFloat)width / (CGFloat)height;
     NSImage* image = [[NSImage alloc] initWithSize:NSMakeSize(w, TRAY_ICON_POINTS)];
     [image addRepresentation:rep];
+    /* A one-colour icon is a template: the menu bar tints it for light, dark
+       and highlighted, as it does the system's own. */
+    image.template = rgba_is_monochrome(rgba, (size_t)width * height);
     tray.item.button.image = image;
+    tray.item.length = width == height ? NSSquareStatusItemLength : NSVariableStatusItemLength;
     return NG_SUCCESS;
 }
 
