@@ -15,6 +15,7 @@
 
 static void ng_macos_notify_destroyed(NSView* view);
 static void ng_macos_cursor_refresh(NSWindow* window);
+static void ng_macos_cursor_confine(NSWindow* window);
 #include <limits.h>
 
 static int ng_macos_get_cursor_grab_mode(void* windowHandle);
@@ -243,6 +244,7 @@ static NSString* drag_paths(id<NSDraggingInfo> info) {
 }
 
 - (void)mouseExited:(NSEvent*)event {
+    ng_macos_cursor_confine([self window]);
     ng_macos_cursor_refresh([self window]);
     if (buttonsHeld > 0) {
         exitHeld = YES;
@@ -319,6 +321,7 @@ static BOOL is_pen_event(NSEvent* event) {
     [self reportPen:event phase:((buttons & 1) ? AUREA_PEN_MOVE : AUREA_PEN_HOVER)];
 
     int mode = ng_macos_get_cursor_grab_mode(self.windowHandle);
+    if (mode == 1) ng_macos_cursor_confine([self window]);
     if (mode == 2) {
         if (ng_macos_consume_raw_suppress(self.windowHandle)) {
             return;
@@ -663,6 +666,12 @@ static void ng_macos_cursor_refresh(NSWindow* window) {
     ng_macos_cursor_set_hidden(wants && [window isKeyWindow] && ng_macos_pointer_inside(window));
 }
 
+static void ng_macos_warp_cursor(NSPoint cocoa) {
+    /* Quartz counts y down from the top of the primary display; Cocoa up from its bottom. */
+    CGFloat primaryHeight = NSMaxY([[[NSScreen screens] firstObject] frame]);
+    CGWarpMouseCursorPosition(CGPointMake(cocoa.x, primaryHeight - cocoa.y));
+}
+
 static BOOL ng_macos_cursor_locked(NSWindow* window) {
     if (!windowCursorGrabModes) return NO;
     NSValue* key = [NSValue valueWithPointer:(__bridge const void*)window];
@@ -1002,6 +1011,21 @@ int ng_macos_window_set_cursor_visible(NGHandle window, int visible) {
     return NG_SUCCESS;
 }
 
+/* macOS has no confinement, so a confined cursor that reaches the edge of
+   the content area is put back just inside it. */
+static void ng_macos_cursor_confine(NSWindow* window) {
+    if (!window || ![window isKeyWindow]) return;
+    if (ng_macos_get_cursor_grab_mode((__bridge void*)window) != 1) return;
+    NSRect area = NSInsetRect([window convertRectToScreen:[[window contentView] frame]], 1, 1);
+    if (NSIsEmptyRect(area)) return;
+    NSPoint p = [NSEvent mouseLocation];
+    if (NSPointInRect(p, area)) return;
+    NSPoint clamped = NSMakePoint(MIN(MAX(p.x, NSMinX(area)), NSMaxX(area) - 1),
+                                  MIN(MAX(p.y, NSMinY(area) + 1), NSMaxY(area)));
+    ng_macos_warp_cursor(clamped);
+    CGAssociateMouseAndMouseCursorPosition(true);
+}
+
 static id g_shortcut_monitor = nil;
 
 #define NG_SHORTCUTS_HELD 8
@@ -1164,10 +1188,7 @@ int ng_macos_window_set_cursor_grab(NGHandle window, int mode) {
         [windowRawSuppress setObject:@(YES) forKey:key];
         CGAssociateMouseAndMouseCursorPosition(false);
         NSRect frame = [nsWindow frame];
-        /* Quartz counts y down from the top of the primary display; Cocoa up from its bottom. */
-        CGFloat primaryHeight = NSMaxY([[[NSScreen screens] firstObject] frame]);
-        CGPoint center = CGPointMake(NSMidX(frame), primaryHeight - NSMidY(frame));
-        CGWarpMouseCursorPosition(center);
+        ng_macos_warp_cursor(NSMakePoint(NSMidX(frame), NSMidY(frame)));
         CGAssociateMouseAndMouseCursorPosition(false);
     } else {
         CGAssociateMouseAndMouseCursorPosition(true);
