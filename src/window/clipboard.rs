@@ -340,10 +340,10 @@ mod tests {
             ) {
                 continue;
             }
-            if let Some(bytes) =
-                retry(|| clipboard_data(&format, usize::MAX)).expect("save clipboard")
-            {
-                saved.push((format, bytes));
+            match retry(|| clipboard_data(&format, usize::MAX)) {
+                Ok(Some(bytes)) => saved.push((format, bytes)),
+                Ok(None) | Err(AureaError::Unsupported { .. }) => {}
+                Err(error) => panic!("save clipboard {format}: {error:?}"),
             }
         }
         let _restore = Restore(saved);
