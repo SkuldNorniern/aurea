@@ -388,12 +388,17 @@ static BOOL is_pen_event(NSEvent* event) {
     [self buttonWentUp];
 }
 
+/* A wheel without precise deltas reports lines; scrolling on macOS is in
+   points, so a line is taken as 40 of them, as browsers do. */
+static const double NG_MACOS_POINTS_PER_LINE = 40.0;
+
 - (void)scrollWheel:(NSEvent*)event {
     if (!self.windowHandle) return;
+    double scale = [event hasPreciseScrollingDeltas] ? 1.0 : NG_MACOS_POINTS_PER_LINE;
     ng_invoke_mouse_wheel(
         self.windowHandle,
-        -(double)[event scrollingDeltaX],
-        (double)[event scrollingDeltaY],
+        -(double)[event scrollingDeltaX] * scale,
+        (double)[event scrollingDeltaY] * scale,
         ng_macos_modifiers(event));
 }
 
