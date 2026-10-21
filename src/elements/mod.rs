@@ -119,6 +119,27 @@ mod gtk_tests {
 
     #[test]
     #[ignore = "creates native windows; run with --ignored"]
+    fn a_scroll_bar_follows_its_policy() -> AureaResult<()> {
+        unsafe extern "C" {
+            fn gtk_scrolled_window_get_policy(scroll: *mut c_void, h: *mut c_int, v: *mut c_int);
+        }
+        const GTK_POLICY_ALWAYS: c_int = 0;
+        const GTK_POLICY_AUTOMATIC: c_int = 1;
+        let _window = Window::new("scroll policy", 300, 200)?;
+        let mut scroll = ScrollView::with_content(Label::new("short")?)?;
+        let vertical = |scroll: &ScrollView| {
+            let (mut h, mut v) = (0, 0);
+            unsafe { gtk_scrolled_window_get_policy(scroll.handle(), &raw mut h, &raw mut v) };
+            v
+        };
+        assert_eq!(vertical(&scroll), GTK_POLICY_AUTOMATIC);
+        scroll.set_scrollbar(ScrollbarPolicy::Always)?;
+        assert_eq!(vertical(&scroll), GTK_POLICY_ALWAYS);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
     fn an_element_takes_an_accessible_name() -> AureaResult<()> {
         unsafe extern "C" {
             fn gtk_widget_get_accessible(widget: *mut c_void) -> *mut c_void;
