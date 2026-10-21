@@ -151,13 +151,17 @@ static BOOL CALLBACK ng_windows_refont_child(HWND child, LPARAM dpi) {
     return TRUE;
 }
 
+static BOOL CALLBACK ng_windows_relayout_child(HWND child, LPARAM unused) {
+    (void)unused;
+    if (is_box(child) && !is_box(GetParent(child))) layout_box_children(child);
+    else if (ng_windows_is_scroll_view(child)) ng_windows_scroll_view_layout(child);
+    return TRUE;
+}
+
 void ng_windows_refresh_dpi(HWND root) {
     if (!root) return;
     EnumChildWindows(root, ng_windows_refont_child, (LPARAM)ng_windows_dpi(root));
-    HWND content = (HWND)GetPropA(root, "AureaContentHWND");
-    if (content && IsWindow(content) && is_box(content)) {
-        layout_box_children(content);
-    }
+    EnumChildWindows(root, ng_windows_relayout_child, 0);
 }
 
 int is_box(HWND hwnd) {
