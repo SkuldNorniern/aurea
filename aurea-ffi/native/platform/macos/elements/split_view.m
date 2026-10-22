@@ -73,6 +73,7 @@ int ng_macos_split_view_add(NGHandle split_handle, NGHandle element) {
     
     NSSplitView* split = (__bridge NSSplitView*)split_handle;
     NSView* view = (__bridge NSView*)element;
+    if (split.arrangedSubviews.count >= 2) return NG_ERROR_INVALID_PARAMETER;
     
     [view setTranslatesAutoresizingMaskIntoConstraints:NO];
     [split addArrangedSubview:view];

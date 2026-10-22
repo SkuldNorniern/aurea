@@ -113,6 +113,10 @@ mod split_view_tests {
         let mut split = SplitView::new(SplitOrientation::Horizontal)?;
         split.add(Label::new("left")?)?;
         split.add(Label::new("right")?)?;
+        assert!(
+            split.add(Label::new("third")?).is_err(),
+            "two panes, as on every platform"
+        );
         split.set_divider_position(0, 120.0)?;
         assert!(split.set_divider_position(1, 120.0).is_err());
         assert!(split.set_divider_position(0, -1.0).is_err());
