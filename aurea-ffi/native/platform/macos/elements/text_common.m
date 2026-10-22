@@ -51,9 +51,32 @@ static void set_quiet(id object, BOOL quiet) {
     objc_setAssociatedObject(object, &kQuietKey, quiet ? @YES : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
+/* AppKit only lets a secure cell edit inside an NSSecureTextField, so every
+   field is one, with a plain cell until it is made secret. */
+@interface NGTextField : NSSecureTextField
+@end
+
+@implementation NGTextField
++ (Class)cellClass {
+    return [NSTextFieldCell class];
+}
+
+- (BOOL)isSecret {
+    return [self.cell isKindOfClass:[NSSecureTextFieldCell class]];
+}
+
+- (NSAccessibilitySubrole)accessibilitySubrole {
+    return [self isSecret] ? NSAccessibilitySecureTextFieldSubrole : nil;
+}
+
+- (id)accessibilityValue {
+    return [self isSecret] ? [super accessibilityValue] : self.stringValue;
+}
+@end
+
 NGHandle ng_macos_create_text_field(void) {
     @autoreleasepool {
-        NSTextField* field = [[NSTextField alloc] init];
+        NSTextField* field = [[NGTextField alloc] init];
         [field setEditable:YES];
         [field setSelectable:YES];
         [field setBordered:YES];
@@ -280,7 +303,7 @@ int ng_macos_text_set_feature(NGHandle text, int feature, int on) {
             if (!on) [[view undoManager] removeAllActions];
             return NG_SUCCESS;
         case NG_TEXT_FEATURE_SECRET: {
-            if (!field) return NG_ERROR_UNSUPPORTED;
+            if (![field isKindOfClass:[NSSecureTextField class]]) return NG_ERROR_UNSUPPORTED;
             NSTextFieldCell* old = field.cell;
             if ([old isKindOfClass:[NSSecureTextFieldCell class]] == (on != 0)) return NG_SUCCESS;
             NSString* value = field.stringValue;
