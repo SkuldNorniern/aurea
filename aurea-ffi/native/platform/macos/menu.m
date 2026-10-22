@@ -11,6 +11,16 @@
 @implementation MenuItemTarget
 - (void)menuItemClicked:(id)sender {
     NSMenuItem* item = (NSMenuItem*)sender;
+    /* An item that took a standard one's place still edits a focused text
+       field; the app hears it everywhere else. */
+    if ([item.representedObject isKindOfClass:[NSString class]]) {
+        SEL standard = NSSelectorFromString(item.representedObject);
+        id target = [NSApp targetForAction:standard to:nil from:item];
+        if ([target isKindOfClass:[NSText class]]) {
+            [NSApp sendAction:standard to:target from:item];
+            return;
+        }
+    }
     unsigned int id = (unsigned int)[item tag];
     ng_invoke_menu_callback(id);
 }
@@ -199,7 +209,9 @@ static void drop_standard_twin(NSMenu* menu, NSMenuItem* item) {
         BOOL sameKey = item.keyEquivalent.length > 0
             && [other.keyEquivalent isEqualToString:item.keyEquivalent]
             && other.keyEquivalentModifierMask == item.keyEquivalentModifierMask;
-        if (sameKey || [other.title isEqualToString:item.title]) [menu removeItem:other];
+        if (!sameKey && ![other.title isEqualToString:item.title]) continue;
+        if (other.action && !item.representedObject) item.representedObject = NSStringFromSelector(other.action);
+        [menu removeItem:other];
     }
     for (NSInteger i = menu.numberOfItems - 1; i >= 0; i--) {
         if (![menu itemAtIndex:i].isSeparatorItem) continue;
