@@ -32,8 +32,8 @@ fn main() -> AureaResult<()> {
 | Pen pressure and tilt | yes | untested on a tablet | untested on a tablet |
 | Fractional scaling | yes | yes | whole scales only |
 
-iOS and Android are experimental. On GPU backends, blend modes other than
-normal draw through the CPU.
+iOS and Android are experimental; their sample apps are in [`mobile/`](mobile/). On GPU
+backends, blend modes other than normal draw through the CPU.
 
 ## Features
 
