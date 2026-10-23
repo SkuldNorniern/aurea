@@ -36,7 +36,7 @@ impl Default for PanZoom {
 impl PanZoom {
     /// Content at its own size, its origin at the view's top left, zoom kept between 1/64 and 64.
     pub fn new() -> Self {
-        let (wheel_zoom, wheel_pan) = if cfg!(target_os = "macos") {
+        let (wheel_zoom, wheel_pan) = if cfg!(any(target_os = "macos", target_os = "ios")) {
             (0.01, 1.0)
         } else {
             (0.18, wheel_line_pixels())
@@ -272,6 +272,15 @@ impl PanZoom {
                 modifiers.command(),
                 modifiers.shift,
             ),
+            WindowEvent::Magnify { factor, x, y } => {
+                let at = point(x, y);
+                self.pointer = Some(at);
+                if !self.view.contains(at) {
+                    return false;
+                }
+                self.zoom_at(at, to_f32(factor));
+                true
+            }
             WindowEvent::KeyInput {
                 key: KeyCode::Space,
                 pressed,
@@ -459,6 +468,18 @@ mod tests {
         pz.zoom_at(at, 1e9);
         assert_eq!(pz.zoom(), 64.0, "held to the limit");
         assert!(close(pz.to_content(at), under));
+    }
+
+    #[test]
+    fn a_pinch_zooms_about_the_fingers() {
+        let mut pz = view();
+        let at = Point::new(260.0, 180.0);
+        let under = pz.to_content(at);
+        let pinch = |factor, x, y| WindowEvent::Magnify { factor, x, y };
+        assert!(pz.handle(&pinch(2.0, f64::from(at.x), f64::from(at.y))));
+        assert_eq!(pz.zoom(), 2.0);
+        assert!(close(pz.to_content(at), under));
+        assert!(!pz.handle(&pinch(2.0, -10.0, -10.0)), "outside the view");
     }
 
     #[test]

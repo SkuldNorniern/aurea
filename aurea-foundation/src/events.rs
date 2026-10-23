@@ -138,6 +138,16 @@ pub enum WindowEvent {
     },
     /// A pen on or over a tablet or a pen display.
     Pen(PenSample),
+    /// A pinch: the content should grow by `factor` about (`x`, `y`), in logical pixels. Two
+    /// fingers moving together come as [`WindowEvent::MouseWheel`] instead.
+    Magnify {
+        /// How much bigger since the last one: above 1 grows, below 1 shrinks.
+        factor: f64,
+        /// Where the fingers meet, horizontally.
+        x: f64,
+        /// Where the fingers meet, vertically.
+        y: f64,
+    },
     /// The system switched between light and dark appearance. Sent to every window; see
     /// `aurea::prefers_dark` for the current setting.
     ThemeChanged {
