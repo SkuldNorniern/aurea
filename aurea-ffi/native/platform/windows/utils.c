@@ -856,11 +856,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             RECT outer, client;
             if (!GetWindowRect(hwnd, &outer) || !GetClientRect(hwnd, &client)) break;
             MINMAXINFO* info = (MINMAXINFO*)lParam;
+            /* Floored like a size set, so the minimum reads back as itself. */
+            long long dpi = ng_windows_dpi(hwnd);
             if (min_w > 0) {
-                info->ptMinTrackSize.x = ng_windows_px(hwnd, min_w) + (outer.right - outer.left) - client.right;
+                info->ptMinTrackSize.x = (LONG)(min_w * dpi / 96) + (outer.right - outer.left) - client.right;
             }
             if (min_h > 0) {
-                info->ptMinTrackSize.y = ng_windows_px(hwnd, min_h) + (outer.bottom - outer.top) - client.bottom;
+                info->ptMinTrackSize.y = (LONG)(min_h * dpi / 96) + (outer.bottom - outer.top) - client.bottom;
             }
             return 0;
         }

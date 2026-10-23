@@ -1955,6 +1955,22 @@ mod win32_dpi_tests {
     }
 
     #[test]
+    #[ignore = "needs a 150% monitor; run with --ignored"]
+    fn an_odd_minimum_reads_back_at_150_percent() -> AureaResult<()> {
+        let window = Window::new("odd minimum", 320, 240)?;
+        let Some(&(scaled, _)) = monitors().iter().find(|(_, dpi)| *dpi == 144) else {
+            eprintln!("needs a 150% monitor");
+            return Ok(());
+        };
+        window.show();
+        move_to(&window, scaled, 1.5);
+        window.set_min_size(333, 251)?;
+        window.set_size(100, 100);
+        assert_eq!(window.size(), (333, 251));
+        Ok(())
+    }
+
+    #[test]
     #[ignore = "creates a native window on two monitors; run with --ignored"]
     fn a_canvas_matches_its_client_at_150_and_100_percent() -> AureaResult<()> {
         across_monitors(RendererBackend::Cpu)
