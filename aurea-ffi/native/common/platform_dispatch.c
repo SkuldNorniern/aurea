@@ -737,6 +737,30 @@ int ng_platform_table_get_selected(NGHandle t) {
     DISPATCH_INIT_DEFAULT(int, -1, table_get_selected, t);
 }
 
+NGHandle ng_platform_create_row_list(unsigned int id) {
+    DISPATCH_INIT(NGHandle, create_row_list, id);
+}
+
+int ng_platform_row_list_insert(NGHandle l, int index, NGHandle row) {
+    DISPATCH_INT(row_list_insert, l, index, row);
+}
+
+int ng_platform_row_list_remove(NGHandle l, int index) {
+    DISPATCH_INT(row_list_remove, l, index);
+}
+
+int ng_platform_row_list_clear(NGHandle l) {
+    DISPATCH_INT(row_list_clear, l);
+}
+
+int ng_platform_row_list_set_selected(NGHandle l, int index) {
+    DISPATCH_INT(row_list_set_selected, l, index);
+}
+
+int ng_platform_row_list_get_selected(NGHandle l) {
+    DISPATCH_INIT_DEFAULT(int, -1, row_list_get_selected, l);
+}
+
 NGHandle ng_platform_create_swiftui_host(int w, int h) {
     DISPATCH_INIT(NGHandle, create_swiftui_host, w, h);
 }

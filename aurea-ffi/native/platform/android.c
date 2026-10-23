@@ -762,6 +762,40 @@ int ng_platform_table_get_selected(NGHandle table) {
     return -1;
 }
 
+NGHandle ng_platform_create_row_list(unsigned int id) {
+    (void)id;
+    return NULL;
+}
+
+int ng_platform_row_list_insert(NGHandle list, int index, NGHandle row) {
+    (void)list;
+    (void)index;
+    (void)row;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_row_list_remove(NGHandle list, int index) {
+    (void)list;
+    (void)index;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_row_list_clear(NGHandle list) {
+    (void)list;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_row_list_set_selected(NGHandle list, int index) {
+    (void)list;
+    (void)index;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_row_list_get_selected(NGHandle list) {
+    (void)list;
+    return -1;
+}
+
 NGHandle ng_platform_create_swiftui_host(int _w, int _h) {
     (void)_w;
     (void)_h;

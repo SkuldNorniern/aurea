@@ -1,4 +1,4 @@
-//! Callbacks for buttons, tabs, sidebar lists and tables, by id.
+//! Callbacks for buttons, tabs, sidebar lists, tables and row lists, by id.
 
 use super::callback::{CallbackRegistry, IdAllocator};
 
@@ -24,6 +24,12 @@ static TABLE_ID: IdAllocator = IdAllocator::new();
 thread_local! {
     static TABLE_SELECTED_CALLBACKS: CallbackRegistry<i32> = CallbackRegistry::new();
     static TABLE_ACTIVATED_CALLBACKS: CallbackRegistry<i32> = CallbackRegistry::new();
+}
+
+static ROW_LIST_ID: IdAllocator = IdAllocator::new();
+thread_local! {
+    static ROW_LIST_SELECTED_CALLBACKS: CallbackRegistry<i32> = CallbackRegistry::new();
+    static ROW_LIST_ACTIVATED_CALLBACKS: CallbackRegistry<i32> = CallbackRegistry::new();
 }
 
 /// Allocates a button callback ID.
@@ -126,4 +132,35 @@ pub fn invoke_table_selected(id: u32, index: i32) {
 /// Runs the activation callback for table `id`.
 pub fn invoke_table_activated(id: u32, index: i32) {
     TABLE_ACTIVATED_CALLBACKS.with(|r| r.invoke(id, index));
+}
+
+/// Allocates a row list callback ID.
+pub fn next_row_list_id() -> u32 {
+    ROW_LIST_ID.next()
+}
+
+/// Registers the selection and activation callbacks for row list `id`, by row index.
+pub fn register_row_list_callbacks(
+    id: u32,
+    on_selected: impl Fn(i32) + 'static,
+    on_activated: impl Fn(i32) + 'static,
+) {
+    ROW_LIST_SELECTED_CALLBACKS.with(|r| r.insert(id, on_selected));
+    ROW_LIST_ACTIVATED_CALLBACKS.with(|r| r.insert(id, on_activated));
+}
+
+/// Drops both row list callbacks registered for `id`.
+pub fn unregister_row_list_callbacks(id: u32) {
+    ROW_LIST_SELECTED_CALLBACKS.with(|r| r.remove(id));
+    ROW_LIST_ACTIVATED_CALLBACKS.with(|r| r.remove(id));
+}
+
+/// Runs the selection callback for row list `id`.
+pub fn invoke_row_list_selected(id: u32, index: i32) {
+    ROW_LIST_SELECTED_CALLBACKS.with(|r| r.invoke(id, index));
+}
+
+/// Runs the activation callback for row list `id`.
+pub fn invoke_row_list_activated(id: u32, index: i32) {
+    ROW_LIST_ACTIVATED_CALLBACKS.with(|r| r.invoke(id, index));
 }

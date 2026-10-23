@@ -230,6 +230,13 @@ int ng_platform_table_clear(NGHandle table);
 int ng_platform_table_set_selected(NGHandle table, int index);
 int ng_platform_table_get_selected(NGHandle table);
 
+NGHandle ng_platform_create_row_list(unsigned int id);
+int ng_platform_row_list_insert(NGHandle list, int index, NGHandle row);
+int ng_platform_row_list_remove(NGHandle list, int index);
+int ng_platform_row_list_clear(NGHandle list);
+int ng_platform_row_list_set_selected(NGHandle list, int index);
+int ng_platform_row_list_get_selected(NGHandle list);
+
 NGHandle ng_platform_create_swiftui_host(int width, int height);
 
 typedef struct NGClipboardEntry {

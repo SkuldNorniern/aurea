@@ -125,6 +125,10 @@ static void reveal(HWND scroll, HWND focus) {
     }
 }
 
+void ng_windows_scroll_view_reveal(HWND scroll, HWND child) {
+    if (ng_windows_is_scroll_view(scroll)) reveal(scroll, child);
+}
+
 static void CALLBACK focus_changed(HWINEVENTHOOK hook, DWORD event, HWND hwnd, LONG object,
                                    LONG child, DWORD thread, DWORD time) {
     (void)hook; (void)event; (void)object; (void)child; (void)thread; (void)time;
@@ -161,7 +165,8 @@ static LRESULT CALLBACK ScrollViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
     } else if (msg == WM_ERASEBKGND) {
         RECT client;
         GetClientRect(hwnd, &client);
-        FillRect((HDC)wParam, &client, GetSysColorBrush(COLOR_BTNFACE));
+        HBRUSH row = ng_windows_row_brush(hwnd);
+        FillRect((HDC)wParam, &client, row ? row : GetSysColorBrush(COLOR_BTNFACE));
         return 1;
     }
 

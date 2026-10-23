@@ -606,4 +606,17 @@ unsafe extern "C" {
     pub fn ng_platform_table_set_selected(table: *mut c_void, index: c_int) -> c_int;
     /// The selected row, or -1.
     pub fn ng_platform_table_get_selected(table: *mut c_void) -> c_int;
+
+    /// Creates a row list whose user selections and activations report `id`.
+    pub fn ng_platform_create_row_list(id: c_uint) -> *mut c_void;
+    /// Inserts element `row` as the row at `index`; the list owns it from then on.
+    pub fn ng_platform_row_list_insert(list: *mut c_void, index: c_int, row: *mut c_void) -> c_int;
+    /// Removes and destroys row `index`.
+    pub fn ng_platform_row_list_remove(list: *mut c_void, index: c_int) -> c_int;
+    /// Removes and destroys every row.
+    pub fn ng_platform_row_list_clear(list: *mut c_void) -> c_int;
+    /// Selects row `index`, or nothing for -1, without reporting it.
+    pub fn ng_platform_row_list_set_selected(list: *mut c_void, index: c_int) -> c_int;
+    /// The selected row, or -1.
+    pub fn ng_platform_row_list_get_selected(list: *mut c_void) -> c_int;
 }

@@ -22,6 +22,8 @@ void ng_invoke_tab_bar_detach(unsigned int id, int index);
 void ng_invoke_sidebar_list_selected(unsigned int id, int index);
 void ng_invoke_table_selected(unsigned int id, int index);
 void ng_invoke_table_activated(unsigned int id, int index);
+void ng_invoke_row_list_selected(unsigned int id, int index);
+void ng_invoke_row_list_activated(unsigned int id, int index);
 
 void ng_invoke_lifecycle_callback(void* window, unsigned int event_id);
 void ng_invoke_key_event(void* window, unsigned int keycode, int pressed, unsigned int modifiers);

@@ -68,7 +68,8 @@ int ng_linux_element_set_accessible_name(NGHandle element, const char* name) {
     if (!name) return NG_ERROR_INVALID_PARAMETER;
     GtkWidget* widget = (GtkWidget*)element;
     GtkWidget* inner = GTK_IS_SCROLLED_WINDOW(widget) ? gtk_bin_get_child(GTK_BIN(widget)) : NULL;
-    if (inner && (GTK_IS_TEXT_VIEW(inner) || GTK_IS_TREE_VIEW(inner))) widget = inner;
+    if (inner && GTK_IS_VIEWPORT(inner)) inner = gtk_bin_get_child(GTK_BIN(inner));
+    if (inner && (GTK_IS_TEXT_VIEW(inner) || GTK_IS_TREE_VIEW(inner) || GTK_IS_LIST_BOX(inner))) widget = inner;
     atk_object_set_name(gtk_widget_get_accessible(widget), name);
     return NG_SUCCESS;
 }

@@ -22,9 +22,22 @@ static LRESULT CALLBACK BoxProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         }
         RECT client;
         GetClientRect(hwnd, &client);
-        FillRect(hdc, &client, GetSysColorBrush(COLOR_BTNFACE));
+        HBRUSH row = ng_windows_row_brush(hwnd);
+        FillRect(hdc, &client, row ? row : GetSysColorBrush(COLOR_BTNFACE));
         RestoreDC(hdc, saved);
         return 1;
+    } else if ((msg == WM_CTLCOLORSTATIC || msg == WM_CTLCOLORBTN) && ng_windows_row_brush(hwnd)) {
+        LOGBRUSH fill;
+        HBRUSH row = ng_windows_row_brush(hwnd);
+        GetObject(row, sizeof(fill), &fill);
+        SetBkColor((HDC)wParam, fill.lbColor);
+        return (LRESULT)row;
+    } else if (msg == WM_PAINT) {
+        /* A box has no text; STATIC would paint over the erase in its parent's colour. */
+        PAINTSTRUCT ps;
+        BeginPaint(hwnd, &ps);
+        EndPaint(hwnd, &ps);
+        return 0;
     } else if (msg == WM_SIZE) {
         layout_box_children(hwnd);
     } else if (msg == WM_NCDESTROY) {

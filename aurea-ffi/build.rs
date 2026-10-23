@@ -93,6 +93,7 @@ fn main() {
         "native/platform/windows/elements/tab_bar.c",
         "native/platform/windows/elements/sidebar_list.c",
         "native/platform/windows/elements/table.c",
+        "native/platform/windows/elements/row_list.c",
     ];
 
     let windows_cpp: &[&str] = &["native/platform/windows/elements/image_view.cpp"];
@@ -174,6 +175,7 @@ fn main() {
         "native/platform/linux/elements/tab_bar.c",
         "native/platform/linux/elements/sidebar_list.c",
         "native/platform/linux/elements/table.c",
+        "native/platform/linux/elements/row_list.c",
     ];
 
     let mut build = Build::new();

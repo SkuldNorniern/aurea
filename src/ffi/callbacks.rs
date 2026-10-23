@@ -8,8 +8,9 @@ use std::time::{Duration, Instant};
 
 use crate::registry::custom::invoke_custom_callback;
 use crate::registry::elements::{
-    invoke_button_callback, invoke_sidebar_selected, invoke_tab_detach, invoke_tab_selected,
-    invoke_table_activated, invoke_table_selected,
+    invoke_button_callback, invoke_row_list_activated, invoke_row_list_selected,
+    invoke_sidebar_selected, invoke_tab_detach, invoke_tab_selected, invoke_table_activated,
+    invoke_table_selected,
 };
 use crate::registry::menu::invoke_menu_callback;
 use crate::registry::window::{push_event_to_all_windows, scale_factor_changed};
@@ -97,6 +98,22 @@ pub extern "C" fn ng_invoke_table_selected(id: u32, index: i32) {
 pub extern "C" fn ng_invoke_table_activated(id: u32, index: i32) {
     guard("ng_invoke_table_activated", || {
         invoke_table_activated(id, index);
+    });
+}
+
+/// Reports that the user selected row `index` of row list `id`, or no row for -1.
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_row_list_selected(id: u32, index: i32) {
+    guard("ng_invoke_row_list_selected", || {
+        invoke_row_list_selected(id, index);
+    });
+}
+
+/// Reports that the user activated row `index` of row list `id`.
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_row_list_activated(id: u32, index: i32) {
+    guard("ng_invoke_row_list_activated", || {
+        invoke_row_list_activated(id, index);
     });
 }
 

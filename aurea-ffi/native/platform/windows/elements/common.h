@@ -109,6 +109,7 @@ void ng_windows_set_role(HWND hwnd, long role);
 void ng_windows_mark_container(HWND hwnd);
 void ng_windows_serve_value(HWND hwnd, int (*value)(HWND hwnd, wchar_t* out, int len));
 void ng_windows_serve_state(HWND hwnd, long (*state)(HWND hwnd));
+void ng_windows_serve_name(HWND hwnd, int (*name)(HWND hwnd, wchar_t* out, int len));
 /* A text control's content as UTF-8 with " " line breaks; the caller frees it. */
 char* ng_windows_text_content(HWND hwnd);
 /* Messages a control sends its parent, which containers pass up. */
@@ -123,6 +124,13 @@ int ng_windows_measure_height(HWND hwnd, int width);
 int ng_windows_is_scroll_view(HWND hwnd);
 /* Sizes the content to its height and updates the scroll range. */
 void ng_windows_scroll_view_layout(HWND scroll);
+void ng_windows_scroll_view_reveal(HWND scroll, HWND child);
+/* Set on the selected row of a row list; boxes and labels inside paint its colour. */
+#define ROW_SELECTED_PROP "AureaRowSelected"
+/* Set on a row list and its rows, which paint the window colour, not the dialog's. */
+#define ROW_LIST_PROP "AureaRowList"
+/* The brush of the row list `hwnd` sits in, selected or not, or NULL outside one. */
+HBRUSH ng_windows_row_brush(HWND hwnd);
 /* Pixels to scroll for a wheel `delta`; `rest` carries the remainder between events. */
 int ng_windows_wheel_step(int delta, unsigned int lines, int line_px, int page, int* rest);
 

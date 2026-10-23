@@ -13,7 +13,7 @@ use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_void};
 use std::rc::Rc;
 
-type Handler<T> = Rc<RefCell<Option<Rc<dyn Fn(T)>>>>;
+pub(super) type Handler<T> = Rc<RefCell<Option<Rc<dyn Fn(T)>>>>;
 
 /// Rows of text under column headings, one selectable at a time. Each row carries an id chosen by
 /// the app, which stays with it as rows are added and removed around it.
@@ -34,7 +34,7 @@ fn check(result: c_int) -> AureaResult<()> {
     }
 }
 
-fn call<T>(handler: &Handler<T>, value: T) {
+pub(super) fn call<T>(handler: &Handler<T>, value: T) {
     let current = handler.borrow().clone();
     if let Some(handler) = current {
         handler(value);

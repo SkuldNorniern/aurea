@@ -9,6 +9,7 @@ mod image_view;
 mod label;
 mod native;
 mod progress_bar;
+mod row_list;
 mod scroll_view;
 mod shared;
 mod sidebar_list;
@@ -30,6 +31,7 @@ pub use image_view::{ImageScaling, ImageView};
 pub use label::{Label, TextStyle};
 pub use native::NativeElement;
 pub use progress_bar::ProgressBar;
+pub use row_list::RowList;
 pub use scroll_view::{ScrollView, ScrollbarPolicy};
 pub use shared::Shared;
 pub use sidebar_list::SidebarList;
@@ -232,6 +234,10 @@ mod gtk_tests {
             name(unsafe { gtk_bin_get_child(table.handle()) }),
             "Adapters"
         );
+        let rows = RowList::new()?;
+        rows.set_accessible_name("Buses")?;
+        let list_box = unsafe { gtk_bin_get_child(gtk_bin_get_child(rows.handle())) };
+        assert_eq!(name(list_box), "Buses");
         Ok(())
     }
 
@@ -1624,6 +1630,47 @@ mod win32_tests {
         assert_eq!(accessible(l).role, ROLE_SYSTEM_PANE);
         label.borrow_mut().set_text("back")?;
         assert_eq!(accessible(l).role, ROLE_SYSTEM_STATICTEXT);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn row_lists_read_as_lists_of_their_labels() -> AureaResult<()> {
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn GetParent(hwnd: *mut c_void) -> *mut c_void;
+        }
+        const ROLE_SYSTEM_LIST: i32 = 0x21;
+        const ROLE_SYSTEM_LISTITEM: i32 = 0x22;
+        const STATE_SYSTEM_SELECTED: i32 = 0x2;
+        let mut window = Window::new("row list names", 400, 300)?;
+        let list = Shared::new(RowList::new()?);
+        let mut inner = Vec::new();
+        for (id, name, detail) in [(1, "FT4232H", "UART"), (2, "CP2112", "I2C")] {
+            let mut row = Stack::new(Orientation::Horizontal)?;
+            row.add(Label::new(name)?)?;
+            row.add(Label::new(detail)?)?;
+            row.add(Button::new("Open")?)?;
+            inner.push(row.handle());
+            list.borrow_mut().add_row(id, row)?;
+        }
+        let mut root = Stack::new(Orientation::Vertical)?;
+        root.add_weighted(list.clone(), 1.0)?;
+        window.set_content(root)?;
+        list.borrow_mut().set_selected(Some(2))?;
+        assert_eq!(accessible(list.handle()).role, ROLE_SYSTEM_LIST);
+        let (first, second) = unsafe {
+            (
+                accessible(GetParent(inner[0])),
+                accessible(GetParent(inner[1])),
+            )
+        };
+        assert_eq!(
+            (first.role, first.name.as_str()),
+            (ROLE_SYSTEM_LISTITEM, "FT4232H, UART")
+        );
+        assert_eq!(first.state & STATE_SYSTEM_SELECTED, 0);
+        assert_eq!(second.state & STATE_SYSTEM_SELECTED, STATE_SYSTEM_SELECTED);
         Ok(())
     }
 

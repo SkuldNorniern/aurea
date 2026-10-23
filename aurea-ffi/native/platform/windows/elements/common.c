@@ -250,6 +250,28 @@ void ng_windows_refresh_dpi(HWND root) {
     EnumChildWindows(root, ng_windows_relayout_child, 0);
 }
 
+HBRUSH ng_windows_row_brush(HWND hwnd) {
+    static HBRUSH brush;
+    static COLORREF made = CLR_INVALID;
+    for (HWND at = hwnd; at; at = GetParent(at)) {
+        if (!GetPropA(at, ROW_SELECTED_PROP)) {
+            if (GetPropA(at, ROW_LIST_PROP)) return GetSysColorBrush(COLOR_WINDOW);
+            continue;
+        }
+        /* A quarter of the highlight over the window colour, so text keeps its own colour. */
+        COLORREF hi = GetSysColor(COLOR_HIGHLIGHT), bg = GetSysColor(COLOR_WINDOW);
+        COLORREF mix = RGB((GetRValue(hi) + 3 * GetRValue(bg)) / 4, (GetGValue(hi) + 3 * GetGValue(bg)) / 4,
+                           (GetBValue(hi) + 3 * GetBValue(bg)) / 4);
+        if (mix != made) {
+            if (brush) DeleteObject(brush);
+            brush = CreateSolidBrush(mix);
+            made = mix;
+        }
+        return brush;
+    }
+    return NULL;
+}
+
 int is_box(HWND hwnd) {
     return GetPropA(hwnd, BOX_ORIENTATION_PROP) != NULL;
 }
@@ -395,12 +417,14 @@ static IAccPropServices* acc_props(void) {
 
 #define VALUE_SERVER_PROP "AureaAccValue"
 #define STATE_SERVER_PROP "AureaAccState"
+#define NAME_SERVER_PROP "AureaAccName"
 #define ACCESSIBLE_SUBCLASS_ID 0xACC
 
 /* Annotations outlive their window; a later window given the same handle would inherit them. */
 static void forget_accessible(HWND hwnd) {
     RemovePropA(hwnd, VALUE_SERVER_PROP);
     RemovePropA(hwnd, STATE_SERVER_PROP);
+    RemovePropA(hwnd, NAME_SERVER_PROP);
     IAccPropServices* props = acc_props();
     if (!props) return;
     MSAAPROPID all[] = {PROPID_ACC_NAME, PROPID_ACC_ROLE, PROPID_ACC_VALUE, PROPID_ACC_STATE};
@@ -469,10 +493,11 @@ static HRESULT STDMETHODCALLTYPE server_get(IAccPropServer* self, const BYTE* id
                                                                     &object, &child))) {
         return S_OK;
     }
-    if (IsEqualGUID(&prop, &PROPID_ACC_VALUE)) {
-        int (*value)(HWND, wchar_t*, int) = (int (*)(HWND, wchar_t*, int))GetPropA(hwnd, VALUE_SERVER_PROP);
-        wchar_t text[64];
-        if (!value || !value(hwnd, text, 64)) return S_OK;
+    if (IsEqualGUID(&prop, &PROPID_ACC_VALUE) || IsEqualGUID(&prop, &PROPID_ACC_NAME)) {
+        const char* key = IsEqualGUID(&prop, &PROPID_ACC_NAME) ? NAME_SERVER_PROP : VALUE_SERVER_PROP;
+        int (*value)(HWND, wchar_t*, int) = (int (*)(HWND, wchar_t*, int))GetPropA(hwnd, key);
+        wchar_t text[256];
+        if (!value || !value(hwnd, text, 256)) return S_OK;
         out->vt = VT_BSTR;
         out->bstrVal = SysAllocString(text);
         *has = out->bstrVal != NULL;
@@ -503,6 +528,10 @@ void ng_windows_serve_value(HWND hwnd, int (*value)(HWND hwnd, wchar_t* out, int
 
 void ng_windows_serve_state(HWND hwnd, long (*state)(HWND hwnd)) {
     serve(hwnd, STATE_SERVER_PROP, (void*)state, PROPID_ACC_STATE);
+}
+
+void ng_windows_serve_name(HWND hwnd, int (*name)(HWND hwnd, wchar_t* out, int len)) {
+    serve(hwnd, NAME_SERVER_PROP, (void*)name, PROPID_ACC_NAME);
 }
 
 int ng_windows_element_set_accessible_name(NGHandle element, const char* name) {

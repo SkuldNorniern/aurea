@@ -186,6 +186,13 @@ typedef struct ng_platform_ops {
     int (*table_set_selected)(NGHandle t, int index);
     int (*table_get_selected)(NGHandle t);
 
+    NGHandle (*create_row_list)(unsigned int id);
+    int (*row_list_insert)(NGHandle l, int index, NGHandle row);
+    int (*row_list_remove)(NGHandle l, int index);
+    int (*row_list_clear)(NGHandle l);
+    int (*row_list_set_selected)(NGHandle l, int index);
+    int (*row_list_get_selected)(NGHandle l);
+
     NGHandle (*create_swiftui_host)(int width, int height);
 
     char* (*file_dialog)(NGHandle window, int kind, const char* title, const char* filters, const char* default_name, const char* directory, int multiple);
