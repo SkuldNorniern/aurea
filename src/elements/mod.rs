@@ -226,6 +226,12 @@ mod gtk_tests {
             name(unsafe { gtk_bin_get_child(editor.handle()) }),
             "Source"
         );
+        let table = Table::new(["Adapter"])?;
+        table.set_accessible_name("Adapters")?;
+        assert_eq!(
+            name(unsafe { gtk_bin_get_child(table.handle()) }),
+            "Adapters"
+        );
         Ok(())
     }
 
@@ -1669,6 +1675,13 @@ mod win32_tests {
         assert_eq!(accessible(e).name, "Source");
         assert_eq!(accessible(b).name, "New tab");
         Shared::new(Button::new("x")?).set_accessible_name("")?;
+
+        let table = Table::new(["Adapter"])?;
+        table.set_accessible_name("Adapters")?;
+        assert_eq!(
+            accessible(unsafe { GetWindow(table.handle(), 5) }).name,
+            "Adapters"
+        );
         Ok(())
     }
 

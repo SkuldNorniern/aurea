@@ -509,6 +509,10 @@ int ng_windows_element_set_accessible_name(NGHandle element, const char* name) {
     HWND hwnd = (HWND)element;
     if (!hwnd || !IsWindow(hwnd)) return NG_ERROR_INVALID_HANDLE;
     if (!name) return NG_ERROR_INVALID_PARAMETER;
+    if (GetPropA(hwnd, SIDEBAR_DATA_PROP) || GetPropA(hwnd, TABLE_DATA_PROP)) {
+        HWND list = GetWindow(hwnd, GW_CHILD);
+        if (list) hwnd = list;
+    }
     IAccPropServices* props = annotate(hwnd);
     if (!props) return NG_ERROR_PLATFORM_SPECIFIC;
     if (!*name) {

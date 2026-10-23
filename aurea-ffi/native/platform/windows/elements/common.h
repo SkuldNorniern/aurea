@@ -54,6 +54,9 @@
 #define BOX_NATURAL_PROP "AureaBoxNatural"
 /* Set on labels, so layout can tell them from other STATIC windows. */
 #define BOX_LABEL_PROP "AureaLabel"
+/* On the containers of a sidebar list and a table; the list inside is what a screen reader reads. */
+#define SIDEBAR_DATA_PROP "AureaSidebarData"
+#define TABLE_DATA_PROP "AureaTableData"
 /* Set while Aurea changes a text control, so the change is not the user's. */
 #define TEXT_QUIET_PROP "AureaTextQuiet"
 /* Set on a RichEdit whose lines run on instead of wrapping. */

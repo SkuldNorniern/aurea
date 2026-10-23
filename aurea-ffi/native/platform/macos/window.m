@@ -1335,7 +1335,8 @@ int ng_macos_element_set_accessible_name(NGHandle element, const char* name) {
     if (!name) return NG_ERROR_INVALID_PARAMETER;
     NSView* view = (__bridge NSView*)element;
     if ([view isKindOfClass:[NSScrollView class]] &&
-        [((NSScrollView*)view).documentView isKindOfClass:[NSTextView class]]) {
+        ([((NSScrollView*)view).documentView isKindOfClass:[NSTextView class]] ||
+         [((NSScrollView*)view).documentView isKindOfClass:[NSTableView class]])) {
         view = ((NSScrollView*)view).documentView;
     }
     view.accessibilityLabel = *name ? [NSString stringWithUTF8String:name] : nil;

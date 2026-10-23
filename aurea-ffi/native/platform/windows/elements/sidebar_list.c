@@ -7,7 +7,6 @@
 #include <stdlib.h>
 
 #define SIDEBAR_OLD_PROC_PROP "AureaSidebarOldProc"
-#define SIDEBAR_DATA_PROP "AureaSidebarData"
 #define SIDEBAR_LIST_ID 1
 #define ITEM_HEIGHT 30
 #define SECTION_HEIGHT 28

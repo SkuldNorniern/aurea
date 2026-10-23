@@ -7,7 +7,6 @@
 #include <commctrl.h>
 #include <stdlib.h>
 
-#define TABLE_DATA_PROP "AureaTableData"
 #define TABLE_OLD_PROC_PROP "AureaTableOldProc"
 #define TABLE_LIST_ID 1
 /* Posted so a selection moving from one row to another reports once, after both halves. */
