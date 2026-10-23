@@ -2,7 +2,7 @@
 
 use std::cmp::Ordering;
 
-use crate::cpu::blend::blend_pixel;
+use crate::cpu::blend::{ConstSrc, blend_pixel};
 use crate::cpu::clip::ClipBox;
 use crate::cpu::path::{Edge, tessellate_path_into};
 use crate::geometry::FillRule;
@@ -28,6 +28,20 @@ pub fn fill_path(
     bw: u32,
     clip: ClipBox,
     s: &mut PathScratch,
+) {
+    fill_path_with(path, buf, bw, clip, s, |area, row, rule| {
+        composite_row(area, row, rule, color, mode);
+    });
+}
+
+/// [`fill_path`] with the per-row compositing supplied by `composite`.
+fn fill_path_with(
+    path: &Path,
+    buf: &mut [u32],
+    bw: u32,
+    clip: ClipBox,
+    s: &mut PathScratch,
+    mut composite: impl FnMut(&[f32], &mut [u32], FillRule),
 ) {
     tessellate_path_into(path, &mut s.edges);
     if s.edges.is_empty() || clip.is_empty() {
@@ -77,12 +91,10 @@ pub fn fill_path(
         let last = touched.1.min(right_px.saturating_sub(1));
         let row = y as usize * bw as usize;
         if touched.0 <= last {
-            composite_row(
+            composite(
                 &s.coverage[touched.0..=last],
                 &mut buf[row + touched.0..],
                 path.fill_rule,
-                color,
-                mode,
             );
         }
         s.coverage[touched.0..=touched.1].fill(0.0);
@@ -123,6 +135,7 @@ fn composite_row(area: &[f32], row: &mut [u32], rule: FillRule, color: Color, mo
         | (u32::from(color.g) << 8)
         | u32::from(color.b);
     let solid = mode == BlendMode::Normal && color.a == 255;
+    let source = ConstSrc::new(opaque);
     let mut sum = 0.0;
     for (c, px) in area.iter().zip(row.iter_mut()) {
         sum += c;
@@ -135,7 +148,11 @@ fn composite_row(area: &[f32], row: &mut [u32], rule: FillRule, color: Color, mo
             continue;
         }
         let a = f32_to_u32_clamped((f32::from(color.a) * cov).round());
-        *px = blend_pixel((a << 24) | (opaque & 0x00FF_FFFF), *px, mode);
+        *px = if mode == BlendMode::Normal {
+            source.over_at_alpha(*px, a)
+        } else {
+            blend_pixel((a << 24) | (opaque & 0x00FF_FFFF), *px, mode)
+        };
     }
 }
 
@@ -143,6 +160,8 @@ fn composite_row(area: &[f32], row: &mut [u32], rule: FillRule, color: Color, mo
 mod tests {
     use super::*;
     use crate::types::{PathCommand, Point};
+    use std::f32::consts::{FRAC_PI_2, TAU};
+    use std::time::Instant;
 
     fn square(path: &mut Path, x: f32, y: f32, size: f32, clockwise: bool) {
         let mut corners = [
@@ -269,5 +288,126 @@ mod tests {
         assert_eq!(buf[3 * 16 + 4] >> 24, 255);
         assert_eq!(buf[3 * 16 + 9] >> 24, 255);
         assert_eq!(buf[3 * 16 + 10] >> 24, 0);
+    }
+
+    fn reference_composite(
+        color: Color,
+        mode: BlendMode,
+    ) -> impl FnMut(&[f32], &mut [u32], FillRule) {
+        let opaque = u32::from_be_bytes([color.a, color.r, color.g, color.b]);
+        let solid = mode == BlendMode::Normal && color.a == 255;
+        move |area, row, rule| {
+            let mut sum = 0.0;
+            for (c, px) in area.iter().zip(row.iter_mut()) {
+                sum += c;
+                let cov = rule_coverage(sum, rule);
+                if cov < NO_COVERAGE {
+                    continue;
+                }
+                if solid && cov >= 0.999 {
+                    *px = opaque;
+                    continue;
+                }
+                let a = f32_to_u32_clamped((f32::from(color.a) * cov).round());
+                *px = blend_pixel((a << 24) | (opaque & 0x00FF_FFFF), *px, mode);
+            }
+        }
+    }
+
+    #[test]
+    fn composite_matches_per_pixel_blend() {
+        let (w, h) = (48u32, 40u32);
+        let backdrop: Vec<u32> = (0..w * h)
+            .map(|i| {
+                let v = i.wrapping_mul(2_654_435_761);
+                ((v >> 24) << 24) | (v & 0x00ff_ffff)
+            })
+            .collect();
+        let circle: Vec<(f32, f32)> = (0..64)
+            .map(|i| {
+                let t = i as f32 / 64.0 * TAU;
+                (24.3 + 15.2 * t.cos(), 20.1 + 15.2 * t.sin())
+            })
+            .collect();
+        let star: Vec<(f32, f32)> = (0..10)
+            .map(|i| {
+                let t = i as f32 / 10.0 * TAU - FRAC_PI_2;
+                let r = if i % 2 == 0 { 18.0 } else { 8.0 };
+                (24.0 + r * t.cos(), 20.0 + r * t.sin())
+            })
+            .collect();
+        let mut star_path = polygon(&star);
+        star_path.fill_rule = FillRule::EvenOdd;
+        let paths = [
+            polygon(&[(3.3, 4.1), (41.7, 9.6), (17.2, 36.4)]),
+            star_path,
+            polygon(&circle),
+        ];
+        let colors = [
+            Color::rgba(200, 80, 40, 160),
+            Color::rgba(20, 140, 230, 255),
+            Color::rgba(255, 255, 0, 7),
+        ];
+        for path in &paths {
+            for color in colors {
+                for mode in [BlendMode::Normal, BlendMode::Multiply] {
+                    let mut actual = backdrop.clone();
+                    fill_path(
+                        path,
+                        color,
+                        mode,
+                        &mut actual,
+                        w,
+                        ClipBox::surface(w, h),
+                        &mut PathScratch::default(),
+                    );
+                    let mut expected = backdrop.clone();
+                    fill_path_with(
+                        path,
+                        &mut expected,
+                        w,
+                        ClipBox::surface(w, h),
+                        &mut PathScratch::default(),
+                        reference_composite(color, mode),
+                    );
+                    assert_ne!(actual, backdrop, "{color:?} {mode:?} painted nothing");
+                    assert_eq!(actual, expected, "{color:?} {mode:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "manual timing: cargo test --release -- --include-ignored --nocapture"]
+    fn timing_large_translucent_fill() {
+        const W: u32 = 2000;
+        const H: u32 = 1500;
+        const FILLS: u32 = 20;
+        let mut points = Vec::new();
+        for i in 0..720 {
+            let t = i as f32 / 720.0 * TAU;
+            let r = if i % 2 == 0 { 700.0 } else { 520.0 };
+            points.push((1000.0 + r * t.cos(), 750.0 + r * t.sin()));
+        }
+        let path = polygon(&points);
+        let color = Color::rgba(200, 80, 40, 160);
+        let mut buf: Vec<u32> = (0..W * H)
+            .map(|i| 0xff00_0000 | (i * 2654435761) & 0xffffff)
+            .collect();
+        let mut s = PathScratch::default();
+        let start = Instant::now();
+        for _ in 0..FILLS {
+            fill_path(
+                &path,
+                color,
+                BlendMode::Normal,
+                &mut buf,
+                W,
+                ClipBox::surface(W, H),
+                &mut s,
+            );
+        }
+        let ms = start.elapsed().as_secs_f64() * 1000.0 / f64::from(FILLS);
+        eprintln!("fill {W}x{H}: {ms:.3} ms/fill");
     }
 }
