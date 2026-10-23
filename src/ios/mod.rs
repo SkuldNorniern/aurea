@@ -75,13 +75,16 @@ pub fn run(
         light_theme,
         wake,
         background,
+        lifecycle,
     };
     exit(unsafe { ng_ios_run_host(host) })
 }
 
 /// Calls `listener` with each touch, as mouse events, and each Apple Pencil sample, as
-/// [`WindowEvent::Pen`] with pressure and tilt, the way a desktop window reports a pen. The next
-/// frame is drawn after each.
+/// [`WindowEvent::Pen`] with pressure and tilt, the way a desktop window reports a pen. It also
+/// hears the app's lifecycle: focus, [`WindowEvent::Minimized`] on going to the background (save
+/// there; iOS may stop the app after), and [`WindowEvent::MemoryWarning`]. The next frame is drawn
+/// after each.
 pub fn on_event(listener: impl FnMut(&WindowEvent) + 'static) {
     LISTENER.set(Some(Box::new(listener)));
 }
@@ -138,6 +141,23 @@ unsafe extern "C" fn background() -> u32 {
         let c = host.theme.palette.background;
         u32::from(c.r) << 16 | u32::from(c.g) << 8 | u32::from(c.b)
     })
+}
+
+/// The app going to and from the background: [`WindowEvent::Focused`] and
+/// [`WindowEvent::Unfocused`] as it gains and loses the screen, [`WindowEvent::Minimized`] when it
+/// goes to the background, where iOS may stop it without warning, so save then, and
+/// [`WindowEvent::Restored`] when it comes back.
+unsafe extern "C" fn lifecycle(state: i32) {
+    let event = match state {
+        0 => WindowEvent::Focused,
+        1 => WindowEvent::Unfocused,
+        2 => WindowEvent::Minimized,
+        3 => WindowEvent::Restored,
+        4 => WindowEvent::MemoryWarning,
+        _ => return,
+    };
+    HOST.with_borrow_mut(|host| host.state.handle(&event));
+    hear(&[event]);
 }
 
 unsafe extern "C" fn wake() -> i32 {

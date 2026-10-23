@@ -18,6 +18,13 @@ extern "C" {
 #define NG_IOS_PEN_MOVE 2
 #define NG_IOS_PEN_UP 3
 
+/* What the app is going through, for `lifecycle`. */
+#define NG_IOS_ACTIVE 0
+#define NG_IOS_INACTIVE 1
+#define NG_IOS_BACKGROUND 2
+#define NG_IOS_FOREGROUND 3
+#define NG_IOS_MEMORY_WARNING 4
+
 /* The app side of the host. Sizes are physical pixels, insets and touches points. `frame` is given
    the whole view and its safe area, and draws only the safe area: `words` is that many pixels,
    kept until the next call, or NULL when the picture has not changed. It returns nonzero when it
@@ -38,6 +45,8 @@ typedef struct NGIosHost {
     int (*wake)(void);
     /* The colour around the safe area, 0xRRGGBB. */
     uint32_t (*background)(void);
+    /* One of the NG_IOS_ACTIVE ... NG_IOS_MEMORY_WARNING states. */
+    void (*lifecycle)(int state);
 } NGIosHost;
 
 /* Runs UIKit with the host filling the screen; doesn't return. */

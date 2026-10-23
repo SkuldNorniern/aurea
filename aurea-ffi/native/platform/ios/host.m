@@ -38,6 +38,10 @@ static __weak AureaHostView* g_view;
         _background = UINT32_MAX;
         _dirty = YES;
         g_view = self;
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(memoryWarning:)
+                                                     name:UIApplicationDidReceiveMemoryWarningNotification
+                                                   object:nil];
         if (@available(iOS 13.0, *)) {
             [self addGestureRecognizer:[[UIHoverGestureRecognizer alloc] initWithTarget:self action:@selector(hovered:)]];
         }
@@ -49,6 +53,7 @@ static __weak AureaHostView* g_view;
 
 - (void)removeFromSuperview {
     [_link invalidate];
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     [super removeFromSuperview];
 }
 
@@ -60,6 +65,12 @@ static __weak AureaHostView* g_view;
 - (void)markDirty {
     _dirty = YES;
     [self wakeLink];
+}
+
+- (void)memoryWarning:(NSNotification*)note {
+    (void)note;
+    if (g_host.lifecycle) g_host.lifecycle(NG_IOS_MEMORY_WARNING);
+    [self markDirty];
 }
 
 - (void)layoutSubviews {
@@ -231,6 +242,11 @@ static double ng_ios_age(NSTimeInterval timestamp) {
 
 @end
 
+static void ng_ios_lifecycle(int state) {
+    if (g_host.lifecycle) g_host.lifecycle(state);
+    [g_view markDirty];
+}
+
 static UIWindow* ng_ios_host_window(UIWindow* window) {
     window.rootViewController = [[AureaHostController alloc] init];
     [window makeKeyAndVisible];
@@ -253,6 +269,26 @@ API_AVAILABLE(ios(13.0))
     self.window = ng_ios_host_window([[UIWindow alloc] initWithWindowScene:(UIWindowScene*)scene]);
 }
 
+- (void)sceneDidBecomeActive:(UIScene*)scene {
+    (void)scene;
+    ng_ios_lifecycle(NG_IOS_ACTIVE);
+}
+
+- (void)sceneWillResignActive:(UIScene*)scene {
+    (void)scene;
+    ng_ios_lifecycle(NG_IOS_INACTIVE);
+}
+
+- (void)sceneWillEnterForeground:(UIScene*)scene {
+    (void)scene;
+    ng_ios_lifecycle(NG_IOS_FOREGROUND);
+}
+
+- (void)sceneDidEnterBackground:(UIScene*)scene {
+    (void)scene;
+    ng_ios_lifecycle(NG_IOS_BACKGROUND);
+}
+
 @end
 
 @interface AureaHostDelegate : UIResponder <UIApplicationDelegate>
@@ -267,6 +303,31 @@ API_AVAILABLE(ios(13.0))
     if (@available(iOS 13.0, *)) return YES;
     self.window = ng_ios_host_window([[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds]);
     return YES;
+}
+
+/* Before iOS 13 there are no scenes; the app itself reports its state. */
+- (void)applicationDidBecomeActive:(UIApplication*)application {
+    (void)application;
+    if (@available(iOS 13.0, *)) return;
+    ng_ios_lifecycle(NG_IOS_ACTIVE);
+}
+
+- (void)applicationWillResignActive:(UIApplication*)application {
+    (void)application;
+    if (@available(iOS 13.0, *)) return;
+    ng_ios_lifecycle(NG_IOS_INACTIVE);
+}
+
+- (void)applicationWillEnterForeground:(UIApplication*)application {
+    (void)application;
+    if (@available(iOS 13.0, *)) return;
+    ng_ios_lifecycle(NG_IOS_FOREGROUND);
+}
+
+- (void)applicationDidEnterBackground:(UIApplication*)application {
+    (void)application;
+    if (@available(iOS 13.0, *)) return;
+    ng_ios_lifecycle(NG_IOS_BACKGROUND);
 }
 
 - (UISceneConfiguration*)application:(UIApplication*)application

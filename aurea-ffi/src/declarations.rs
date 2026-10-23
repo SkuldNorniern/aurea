@@ -41,6 +41,7 @@ pub struct NGIosHost {
     pub light_theme: unsafe extern "C" fn() -> i32,
     pub wake: unsafe extern "C" fn() -> i32,
     pub background: unsafe extern "C" fn() -> u32,
+    pub lifecycle: unsafe extern "C" fn(state: i32),
 }
 
 #[cfg(target_os = "ios")]
