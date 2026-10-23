@@ -31,6 +31,9 @@ typedef struct NGIosHost {
     void (*pen)(int phase, double x, double y, float pressure, float tilt_x, float tilt_y, float twist,
                 double age);
     int (*light_theme)(void);
+    /* Polled each display refresh while no frame is due; nonzero draws one. Safe to set from any
+       thread on the app side. */
+    int (*wake)(void);
 } NGIosHost;
 
 /* Runs UIKit with the host filling the screen; doesn't return. */

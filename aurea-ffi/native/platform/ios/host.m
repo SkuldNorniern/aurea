@@ -54,7 +54,9 @@ static NGIosHost g_host;
 
 - (void)tick:(CADisplayLink*)link {
     (void)link;
-    if (!_dirty || !g_host.frame) return;
+    if (!g_host.frame) return;
+    /* `wake` is how other threads, and touches still being told apart, ask for a frame. */
+    if (!_dirty && !(g_host.wake && g_host.wake())) return;
     CGFloat scale = self.window.screen.scale ?: UIScreen.mainScreen.scale;
     CGSize size = self.bounds.size;
     unsigned width = (unsigned)lround(size.width * scale);

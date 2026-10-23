@@ -5,6 +5,7 @@
 use std::cell::RefCell;
 use std::process::exit;
 use std::ptr::null;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use aurea_ffi::{NGIosHost, ng_ios_run_host};
@@ -29,6 +30,9 @@ struct Host {
     insets: [f32; 4],
     touches: Touches,
 }
+
+/// Set from any thread by [`request_frame`]; the display link polls it.
+static WAKE: AtomicBool = AtomicBool::new(false);
 
 /// Hears what the user does, before the UI does.
 type Listener = Box<dyn FnMut(&WindowEvent)>;
@@ -63,6 +67,7 @@ pub fn run(
         touch,
         pen,
         light_theme,
+        wake,
     };
     exit(unsafe { ng_ios_run_host(host) })
 }
@@ -82,6 +87,12 @@ fn hear(events: &[WindowEvent]) {
     });
 }
 
+/// Asks for a frame from any thread, such as when background work finishes. The UI's own
+/// animations and input already draw frames; this is for what they cannot see.
+pub fn request_frame() {
+    WAKE.store(true, Ordering::Release);
+}
+
 /// Switches the theme from the next frame.
 pub fn set_theme(theme: Theme) {
     NEXT_THEME.set(Some(theme));
@@ -92,6 +103,11 @@ unsafe extern "C" fn light_theme() -> i32 {
         let c = host.theme.palette.background;
         i32::from(u32::from(c.r) * 299 + u32::from(c.g) * 587 + u32::from(c.b) * 114 > 128_000)
     })
+}
+
+unsafe extern "C" fn wake() -> i32 {
+    let asked = WAKE.swap(false, Ordering::AcqRel);
+    i32::from(asked || HOST.with_borrow(|host| host.touches.waiting()))
 }
 
 unsafe extern "C" fn touch(action: i32, x: f32, y: f32, id: usize, pencil: i32) {
@@ -201,7 +217,6 @@ unsafe extern "C" fn frame(
             raster,
             state,
             insets: [left, top, right, bottom],
-            touches,
             ..
         } = host
         else {
@@ -242,7 +257,6 @@ unsafe extern "C" fn frame(
             *theme = next;
             return 1;
         }
-        // a finger still being told apart needs the frames that settle it.
-        i32::from(state.wants_frame() || touches.waiting())
+        i32::from(state.wants_frame())
     })
 }
