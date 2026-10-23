@@ -1,6 +1,7 @@
 //! Android: JNI glue for the host Activity, and the app's UI on its `SurfaceView`.
 
 mod host;
+mod logcat;
 mod window;
 
 use std::os::raw::c_void;
@@ -32,6 +33,7 @@ pub fn set_theme(theme: Theme) {
 
 #[unsafe(no_mangle)]
 pub extern "system" fn JNI_OnLoad(_vm: JavaVM, _reserved: *mut c_void) -> jint {
+    logcat::install();
     log::info!("Aurea JNI_OnLoad");
     JNI_VERSION_1_6
 }
