@@ -196,7 +196,7 @@ pub(crate) fn native_handle_from_canvas_ptr(canvas: *mut c_void) -> Option<Nativ
         if canvas.is_null() {
             return None;
         }
-        return Some(NativeWindowHandle::IOS { ui_view: canvas });
+        Some(NativeWindowHandle::IOS { ui_view: canvas })
     }
     #[cfg(target_os = "android")]
     {

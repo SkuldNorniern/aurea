@@ -8,10 +8,12 @@ use crate::{AureaError, AureaResult};
 use std::num::NonZeroIsize;
 #[cfg(target_os = "linux")]
 use std::num::NonZeroU32;
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "linux"))]
 use std::ptr::NonNull;
 #[cfg(target_os = "macos")]
 use zen_window_handle::{AppKitWindowHandle, DisplayHandle, WindowHandle};
+#[cfg(target_os = "ios")]
+use zen_window_handle::{DisplayHandle, UiKitWindowHandle, WindowHandle};
 #[cfg(target_os = "linux")]
 use zen_window_handle::{
     DisplayHandle, WaylandDisplayHandle, WaylandWindowHandle, WindowHandle, XcbDisplayHandle,
@@ -31,6 +33,15 @@ pub fn window_handles(native: &NativeWindowHandle) -> AureaResult<WindowHandles>
         Ok(WindowHandles::from_raw(
             WindowHandle::AppKit(AppKitWindowHandle::new(view)),
             DisplayHandle::AppKit,
+        ))
+    }
+    #[cfg(target_os = "ios")]
+    {
+        let NativeWindowHandle::IOS { ui_view } = native;
+        let view = NonNull::new(*ui_view).ok_or(AureaError::ElementOperationFailed)?;
+        Ok(WindowHandles::from_raw(
+            WindowHandle::UiKit(UiKitWindowHandle::new(view)),
+            DisplayHandle::UiKit,
         ))
     }
     #[cfg(target_os = "windows")]
@@ -67,7 +78,12 @@ pub fn window_handles(native: &NativeWindowHandle) -> AureaResult<WindowHandles>
             }
         }
     }
-    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "windows",
+        target_os = "linux"
+    )))]
     {
         let _ = native;
         Err(AureaError::ElementOperationFailed)

@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use aurea_foundation::{AureaError, AureaResult};
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
 use zengpu::DeviceContext;
 use zengpu::native::{
     NativeAdapter, NativeCommandList, NativeDevice, NativeInstance, NativeOffscreenTarget,
@@ -171,7 +171,7 @@ impl ZenGpuContext {
     }
 
     /// The Vulkan device context, for frame graphs and engine-side Vulkan resources.
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
     pub fn device_context(&self) -> DeviceContext {
         self.device.context()
     }
