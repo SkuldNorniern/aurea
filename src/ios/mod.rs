@@ -8,7 +8,7 @@ use std::ptr::null;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
-use aurea_ffi::{NGIosHost, ng_ios_run_host};
+use aurea_ffi::{NGIosHost, ng_ios_run_host, ng_ios_wake};
 
 use crate::ffi::callbacks::event_time;
 use crate::render::{CpuRasterizer, Renderer, SurfaceInfo};
@@ -94,6 +94,8 @@ fn hear(events: &[WindowEvent]) {
 /// animations and input already draw frames; this is for what they cannot see.
 pub fn request_frame() {
     WAKE.store(true, Ordering::Release);
+    // the display link pauses when idle; this starts it again on the main thread.
+    unsafe { ng_ios_wake() };
 }
 
 /// The screen's pixels per point: 2 or 3 on current devices, 1 before the host draws a frame.

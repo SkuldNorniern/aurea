@@ -39,6 +39,9 @@ typedef struct NGIosHost {
 /* Runs UIKit with the host filling the screen; doesn't return. */
 int ng_ios_run_host(NGIosHost host);
 
+/* Restarts the paused display link so `wake` is polled again. Safe from any thread. */
+void ng_ios_wake(void);
+
 #ifdef __cplusplus
 }
 #endif

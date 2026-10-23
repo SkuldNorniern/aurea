@@ -5,14 +5,23 @@
 #include <math.h>
 
 /* One Aurea UI filling the screen: the app draws each frame into a pixel buffer, which becomes the
-   view's layer contents. A display link asks for frames while the UI wants them. */
+   view's layer contents. A display link asks for frames while the UI wants them, and pauses when
+   it has had nothing to do for a while. */
 
 static NGIosHost g_host;
+
+/* How many idle refreshes before the display link pauses: a quarter second at 120 Hz. */
+#define NG_IOS_IDLE_TICKS 30
 
 @interface AureaHostView : UIView
 @property (strong) CADisplayLink* link;
 @property (assign) BOOL dirty;
+@property (assign) int idle;
+- (void)wakeLink;
+- (void)markDirty;
 @end
+
+static __weak AureaHostView* g_view;
 
 @implementation AureaHostView
 
@@ -23,6 +32,7 @@ static NGIosHost g_host;
         self.layer.contentsGravity = kCAGravityTopLeft;
         self.layer.magnificationFilter = kCAFilterNearest;
         _dirty = YES;
+        g_view = self;
         if (@available(iOS 13.0, *)) {
             [self addGestureRecognizer:[[UIHoverGestureRecognizer alloc] initWithTarget:self action:@selector(hovered:)]];
         }
@@ -37,26 +47,39 @@ static NGIosHost g_host;
     [super removeFromSuperview];
 }
 
+- (void)wakeLink {
+    _idle = 0;
+    _link.paused = NO;
+}
+
+- (void)markDirty {
+    _dirty = YES;
+    [self wakeLink];
+}
+
 - (void)layoutSubviews {
     [super layoutSubviews];
-    _dirty = YES;
+    [self markDirty];
 }
 
 - (void)safeAreaInsetsDidChange {
     [super safeAreaInsetsDidChange];
-    _dirty = YES;
+    [self markDirty];
 }
 
 - (void)traitCollectionDidChange:(UITraitCollection*)previous {
     [super traitCollectionDidChange:previous];
-    _dirty = YES;
+    [self markDirty];
 }
 
 - (void)tick:(CADisplayLink*)link {
-    (void)link;
     if (!g_host.frame) return;
     /* `wake` is how other threads, and touches still being told apart, ask for a frame. */
-    if (!_dirty && !(g_host.wake && g_host.wake())) return;
+    if (!_dirty && !(g_host.wake && g_host.wake())) {
+        if (++_idle >= NG_IOS_IDLE_TICKS) link.paused = YES;
+        return;
+    }
+    _idle = 0;
     CGFloat scale = self.window.screen.scale ?: UIScreen.mainScreen.scale;
     CGSize size = self.bounds.size;
     unsigned width = (unsigned)lround(size.width * scale);
@@ -134,7 +157,7 @@ static double ng_ios_age(NSTimeInterval timestamp) {
             g_host.touch(action, (float)at.x, (float)at.y, (uintptr_t)(__bridge void*)touch, pencil);
         }
     }
-    _dirty = YES;
+    [self markDirty];
 }
 
 /* A pencil held over the screen, on iPads that sense it. */
@@ -148,7 +171,7 @@ static double ng_ios_age(NSTimeInterval timestamp) {
         ng_ios_tilt(hover.altitudeAngle, [hover azimuthAngleInView:self], &tilt_x, &tilt_y);
         if (@available(iOS 17.5, *)) twist = (float)(hover.rollAngle * 180.0 / M_PI);
         g_host.pen(NG_IOS_PEN_HOVER, at.x, at.y, 0.0f, tilt_x, tilt_y, twist, 0.0);
-        _dirty = YES;
+        [self markDirty];
     }
 }
 
@@ -244,4 +267,10 @@ int ng_ios_run_host(NGIosHost host) {
     @autoreleasepool {
         return UIApplicationMain(*_NSGetArgc(), *_NSGetArgv(), nil, NSStringFromClass([AureaHostDelegate class]));
     }
+}
+
+void ng_ios_wake(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [g_view wakeLink];
+    });
 }

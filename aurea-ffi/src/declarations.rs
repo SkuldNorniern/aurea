@@ -46,6 +46,7 @@ pub struct NGIosHost {
 #[allow(clippy::missing_safety_doc, dead_code)]
 unsafe extern "C" {
     pub fn ng_ios_run_host(host: NGIosHost) -> i32;
+    pub fn ng_ios_wake();
 }
 
 #[cfg(target_os = "android")]
