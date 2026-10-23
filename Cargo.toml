@@ -94,6 +94,10 @@ zengpu = [
     "dep:zengpu-spirv",
 ]
 
+[[test]]
+name = "macos_native"
+harness = false
+
 [[example]]
 name = "android_demo"
 crate-type = ["cdylib"]
