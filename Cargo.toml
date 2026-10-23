@@ -104,6 +104,11 @@ crate-type = ["cdylib"]
 required-features = ["mobile"]
 
 [[example]]
+name = "ios_demo"
+crate-type = ["staticlib"]
+required-features = ["mobile"]
+
+[[example]]
 name = "wgpu_window"
 required-features = ["wgpu"]
 

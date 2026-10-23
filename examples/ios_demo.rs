@@ -1,5 +1,5 @@
-//! A small Aurea app run as a whole iOS app: counter, slider, toggles, and a pad that draws with
-//! Apple Pencil pressure. Bundle the binary as an `.app` and run it on a device or the simulator.
+//! A small Aurea app for the iOS sample in `mobile/ios/`: counter, slider, toggles, and a pad that
+//! draws with Apple Pencil pressure. The sample's `main` calls [`aurea_main`].
 
 #[cfg(target_os = "ios")]
 mod app {
@@ -173,13 +173,11 @@ mod app {
 }
 
 #[cfg(target_os = "ios")]
-fn main() {
-    app::run()
-}
+use std::os::raw::c_int;
 
-#[cfg(not(target_os = "ios"))]
-fn main() {
-    println!(
-        "ios_demo runs on iOS; build it with --target aarch64-apple-ios-sim --features mobile"
-    );
+/// The app's entry point, called by the Xcode sample's `main`; UIKit runs from here on.
+#[cfg(target_os = "ios")]
+#[unsafe(no_mangle)]
+pub extern "C" fn aurea_main() -> c_int {
+    app::run()
 }

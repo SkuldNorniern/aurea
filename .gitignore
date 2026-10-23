@@ -33,3 +33,7 @@ mobile/android/build/
 mobile/android/local.properties
 mobile/android/app/build/
 
+# Xcode output and per-user state
+mobile/ios/build/
+mobile/ios/**/xcuserdata/
+mobile/ios/**/*.xcworkspace/xcuserdata/
