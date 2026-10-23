@@ -146,7 +146,7 @@ pub(crate) fn native_handle_from_window_ptr(window: *mut c_void) -> Option<Nativ
         if window.is_null() {
             return None;
         }
-        return Some(NativeWindowHandle::IOS { ui_view: window });
+        Some(NativeWindowHandle::IOS { ui_view: window })
     }
     #[cfg(target_os = "android")]
     #[allow(clippy::needless_return)]
