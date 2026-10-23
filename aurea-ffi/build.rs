@@ -92,6 +92,7 @@ fn main() {
         "native/platform/windows/elements/combo_box.c",
         "native/platform/windows/elements/tab_bar.c",
         "native/platform/windows/elements/sidebar_list.c",
+        "native/platform/windows/elements/table.c",
     ];
 
     let windows_cpp: &[&str] = &["native/platform/windows/elements/image_view.cpp"];
@@ -139,6 +140,7 @@ fn main() {
         "native/platform/macos/elements/combo_box.m",
         "native/platform/macos/elements/tab_bar.m",
         "native/platform/macos/elements/sidebar_list.m",
+        "native/platform/macos/elements/table.m",
         "native/platform/macos/elements/split_view.m",
         "native/platform/macos/elements/scroll_view.m",
         "native/platform/macos/swiftui_host.m",
@@ -171,6 +173,7 @@ fn main() {
         "native/platform/linux/elements/combo_box.c",
         "native/platform/linux/elements/tab_bar.c",
         "native/platform/linux/elements/sidebar_list.c",
+        "native/platform/linux/elements/table.c",
     ];
 
     let mut build = Build::new();

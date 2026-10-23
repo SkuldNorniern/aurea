@@ -1,4 +1,4 @@
-//! Callbacks for buttons, tabs and sidebar lists, by id.
+//! Callbacks for buttons, tabs, sidebar lists and tables, by id.
 
 use super::callback::{CallbackRegistry, IdAllocator};
 
@@ -18,6 +18,12 @@ thread_local! {
 static SIDEBAR_ID: IdAllocator = IdAllocator::new();
 thread_local! {
     static SIDEBAR_SELECTED_CALLBACKS: CallbackRegistry<i32> = CallbackRegistry::new();
+}
+
+static TABLE_ID: IdAllocator = IdAllocator::new();
+thread_local! {
+    static TABLE_SELECTED_CALLBACKS: CallbackRegistry<i32> = CallbackRegistry::new();
+    static TABLE_ACTIVATED_CALLBACKS: CallbackRegistry<i32> = CallbackRegistry::new();
 }
 
 /// Allocates a button callback ID.
@@ -89,4 +95,35 @@ pub fn unregister_sidebar_callback(id: u32) {
 /// Runs the selection callback for sidebar list `id`.
 pub fn invoke_sidebar_selected(id: u32, index: i32) {
     SIDEBAR_SELECTED_CALLBACKS.with(|r| r.invoke(id, index));
+}
+
+/// Allocates a table callback ID.
+pub fn next_table_id() -> u32 {
+    TABLE_ID.next()
+}
+
+/// Registers the selection and activation callbacks for table `id`, by row index.
+pub fn register_table_callbacks(
+    id: u32,
+    on_selected: impl Fn(i32) + 'static,
+    on_activated: impl Fn(i32) + 'static,
+) {
+    TABLE_SELECTED_CALLBACKS.with(|r| r.insert(id, on_selected));
+    TABLE_ACTIVATED_CALLBACKS.with(|r| r.insert(id, on_activated));
+}
+
+/// Drops both table callbacks registered for `id`.
+pub fn unregister_table_callbacks(id: u32) {
+    TABLE_SELECTED_CALLBACKS.with(|r| r.remove(id));
+    TABLE_ACTIVATED_CALLBACKS.with(|r| r.remove(id));
+}
+
+/// Runs the selection callback for table `id`.
+pub fn invoke_table_selected(id: u32, index: i32) {
+    TABLE_SELECTED_CALLBACKS.with(|r| r.invoke(id, index));
+}
+
+/// Runs the activation callback for table `id`.
+pub fn invoke_table_activated(id: u32, index: i32) {
+    TABLE_ACTIVATED_CALLBACKS.with(|r| r.invoke(id, index));
 }

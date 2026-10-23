@@ -579,4 +579,31 @@ unsafe extern "C" {
     pub fn ng_platform_sidebar_list_clear(sidebar: *mut c_void) -> c_int;
     /// Marks a sidebar list for redraw.
     pub fn ng_platform_sidebar_list_invalidate(sidebar: *mut c_void);
+
+    /// Creates a table whose user selections and activations report `id`.
+    pub fn ng_platform_create_table(id: c_uint) -> *mut c_void;
+    /// Adds a column; columns come before rows.
+    pub fn ng_platform_table_add_column(table: *mut c_void, title: *const c_char) -> c_int;
+    /// Inserts a row of `count` cells at `index`.
+    pub fn ng_platform_table_insert_row(
+        table: *mut c_void,
+        index: c_int,
+        cells: *const *const c_char,
+        count: c_int,
+    ) -> c_int;
+    /// Replaces the cells of row `index`.
+    pub fn ng_platform_table_set_row(
+        table: *mut c_void,
+        index: c_int,
+        cells: *const *const c_char,
+        count: c_int,
+    ) -> c_int;
+    /// Removes row `index`.
+    pub fn ng_platform_table_remove_row(table: *mut c_void, index: c_int) -> c_int;
+    /// Removes every row.
+    pub fn ng_platform_table_clear(table: *mut c_void) -> c_int;
+    /// Selects row `index`, or nothing for -1, without reporting it.
+    pub fn ng_platform_table_set_selected(table: *mut c_void, index: c_int) -> c_int;
+    /// The selected row, or -1.
+    pub fn ng_platform_table_get_selected(table: *mut c_void) -> c_int;
 }

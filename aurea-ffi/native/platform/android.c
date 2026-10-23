@@ -713,6 +713,55 @@ void ng_platform_sidebar_list_invalidate(NGHandle _s) {
     (void)_s;
 }
 
+NGHandle ng_platform_create_table(unsigned int id) {
+    (void)id;
+    return NULL;
+}
+
+int ng_platform_table_add_column(NGHandle table, const char* title) {
+    (void)table;
+    (void)title;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_table_insert_row(NGHandle table, int index, const char* const* cells, int count) {
+    (void)table;
+    (void)index;
+    (void)cells;
+    (void)count;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_table_set_row(NGHandle table, int index, const char* const* cells, int count) {
+    (void)table;
+    (void)index;
+    (void)cells;
+    (void)count;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_table_remove_row(NGHandle table, int index) {
+    (void)table;
+    (void)index;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_table_clear(NGHandle table) {
+    (void)table;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_table_set_selected(NGHandle table, int index) {
+    (void)table;
+    (void)index;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_table_get_selected(NGHandle table) {
+    (void)table;
+    return -1;
+}
+
 NGHandle ng_platform_create_swiftui_host(int _w, int _h) {
     (void)_w;
     (void)_h;

@@ -17,6 +17,7 @@ mod spacer;
 mod split_view;
 mod swiftui_host;
 mod tab_bar;
+mod table;
 mod text;
 mod traits;
 
@@ -37,6 +38,7 @@ pub use spacer::Spacer;
 pub use split_view::{SplitOrientation, SplitView};
 pub use swiftui_host::{SwiftUIHost, SwiftUIHostNotAvailable};
 pub use tab_bar::TabBar;
+pub use table::Table;
 pub use text::{TextChange, TextControl, TextEditor, TextFeatures, TextField, TextView};
 pub use traits::{Container, Element};
 

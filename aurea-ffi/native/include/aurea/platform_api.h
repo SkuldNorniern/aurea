@@ -212,6 +212,15 @@ int ng_platform_sidebar_list_get_selected(NGHandle sidebar);
 int ng_platform_sidebar_list_clear(NGHandle sidebar);
 void ng_platform_sidebar_list_invalidate(NGHandle sidebar);
 
+NGHandle ng_platform_create_table(unsigned int id);
+int ng_platform_table_add_column(NGHandle table, const char* title);
+int ng_platform_table_insert_row(NGHandle table, int index, const char* const* cells, int count);
+int ng_platform_table_set_row(NGHandle table, int index, const char* const* cells, int count);
+int ng_platform_table_remove_row(NGHandle table, int index);
+int ng_platform_table_clear(NGHandle table);
+int ng_platform_table_set_selected(NGHandle table, int index);
+int ng_platform_table_get_selected(NGHandle table);
+
 #ifdef __cplusplus
 }
 #endif

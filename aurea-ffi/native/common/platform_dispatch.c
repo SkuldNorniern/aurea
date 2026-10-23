@@ -705,6 +705,38 @@ void ng_platform_sidebar_list_invalidate(NGHandle s) {
     DISPATCH_VOID(sidebar_list_invalidate, s);
 }
 
+NGHandle ng_platform_create_table(unsigned int id) {
+    DISPATCH_INIT(NGHandle, create_table, id);
+}
+
+int ng_platform_table_add_column(NGHandle t, const char* title) {
+    DISPATCH_INT(table_add_column, t, title);
+}
+
+int ng_platform_table_insert_row(NGHandle t, int index, const char* const* cells, int count) {
+    DISPATCH_INT(table_insert_row, t, index, cells, count);
+}
+
+int ng_platform_table_set_row(NGHandle t, int index, const char* const* cells, int count) {
+    DISPATCH_INT(table_set_row, t, index, cells, count);
+}
+
+int ng_platform_table_remove_row(NGHandle t, int index) {
+    DISPATCH_INT(table_remove_row, t, index);
+}
+
+int ng_platform_table_clear(NGHandle t) {
+    DISPATCH_INT(table_clear, t);
+}
+
+int ng_platform_table_set_selected(NGHandle t, int index) {
+    DISPATCH_INT(table_set_selected, t, index);
+}
+
+int ng_platform_table_get_selected(NGHandle t) {
+    DISPATCH_INIT_DEFAULT(int, -1, table_get_selected, t);
+}
+
 NGHandle ng_platform_create_swiftui_host(int w, int h) {
     DISPATCH_INIT(NGHandle, create_swiftui_host, w, h);
 }

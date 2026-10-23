@@ -100,6 +100,14 @@ int ng_macos_sidebar_list_set_selected(NGHandle sidebar, int index);
 int ng_macos_sidebar_list_get_selected(NGHandle sidebar);
 int ng_macos_sidebar_list_clear(NGHandle sidebar);
 void ng_macos_sidebar_list_invalidate(NGHandle sidebar);
+NGHandle ng_macos_create_table(unsigned int id);
+int ng_macos_table_add_column(NGHandle table, const char* title);
+int ng_macos_table_insert_row(NGHandle table, int index, const char* const* cells, int count);
+int ng_macos_table_set_row(NGHandle table, int index, const char* const* cells, int count);
+int ng_macos_table_remove_row(NGHandle table, int index);
+int ng_macos_table_clear(NGHandle table);
+int ng_macos_table_set_selected(NGHandle table, int index);
+int ng_macos_table_get_selected(NGHandle table);
 
 #ifdef __cplusplus
 }
