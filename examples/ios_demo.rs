@@ -69,6 +69,9 @@ mod app {
                 key, pressed: true, ..
             } => format!("key {key:?}"),
             WindowEvent::TextInput { text } => format!("typed {text:?}"),
+            WindowEvent::ImePreedit { text, .. } if !text.is_empty() => {
+                format!("composing {text:?}")
+            }
             WindowEvent::Magnify { factor, .. } => format!("pinch x{factor:.2}"),
             WindowEvent::MouseWheel {
                 delta_x, delta_y, ..
