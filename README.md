@@ -29,7 +29,8 @@ fn main() -> AureaResult<()> {
 | Windows, native widgets | yes | yes | yes |
 | Canvas widgets | yes | yes | yes |
 | IME | yes | yes | yes |
-| Pen pressure and tilt | yes | not yet | not yet |
+| Pen pressure and tilt | yes | untested on a tablet | untested on a tablet |
+| Fractional scaling | yes | yes | whole scales only |
 
 iOS and Android are experimental. On GPU backends, blend modes other than
 normal draw through the CPU.
