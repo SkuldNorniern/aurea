@@ -57,6 +57,10 @@ mod appkit {
     sender!(boolean, () -> bool);
     sender!(void_id, (a: Id) -> ());
     sender!(void_id_bool, (a: Id, b: bool) -> ());
+    sender!(id_id_float, (a: Id, b: f64) -> Id);
+    sender!(id_float4, (a: f64, b: f64, c: f64, d: f64) -> Id);
+    sender!(float, () -> f64);
+    sender!(boolean_id, (a: Id) -> bool);
 
     pub fn string(text: Id) -> String {
         if text.is_null() {
@@ -149,7 +153,7 @@ mod checks {
     use super::appkit::{self, Id};
     use aurea::elements::{
         Button, Container, Label, Orientation, RowList, ScrollView, ScrollbarPolicy, Shared,
-        SidebarList, Slider, Spacer, Stack, Table, TextControl, TextEditor, TextFeatures,
+        SidebarList, Slider, Spacer, Stack, Table, TextControl, TextEditor, TextFeatures, TextView,
     };
     use aurea::{AureaError, AureaResult, Element, Window};
     use std::cell::RefCell;
@@ -534,6 +538,41 @@ mod checks {
         Ok(())
     }
 
+    pub fn a_styled_text_view_keeps_its_look_when_attached() -> AureaResult<()> {
+        let mut window = Window::new("text look", 400, 300)?;
+        let view = TextView::with_content(false, "light on dark")?;
+        let text = appkit::document(view.handle());
+        let font = appkit::id_id_float(
+            appkit::class(c"NSFont"),
+            c"fontWithName:size:",
+            appkit::ns_string("Menlo"),
+            15.0,
+        );
+        let color = appkit::id_float4(
+            appkit::class(c"NSColor"),
+            c"colorWithSRGBRed:green:blue:alpha:",
+            0.84,
+            0.89,
+            0.93,
+            1.0,
+        );
+        appkit::void_id(text, c"setFont:", font);
+        appkit::void_id(text, c"setTextColor:", color);
+        let mut root = Stack::new(Orientation::Vertical)?;
+        root.add_weighted(view, 1.0)?;
+        window.set_content(root)?;
+        settle(&window);
+        let now = appkit::id(text, c"font");
+        assert_eq!(appkit::string(appkit::id(now, c"familyName")), "Menlo");
+        assert!((appkit::float(now, c"pointSize") - 15.0).abs() < f64::EPSILON);
+        assert!(appkit::boolean_id(
+            appkit::id(text, c"textColor"),
+            c"isEqual:",
+            color
+        ));
+        Ok(())
+    }
+
     pub fn a_window_keeps_its_minimum_size() -> AureaResult<()> {
         let window = Window::new("min size", 400, 300)?;
         window.set_min_size(501, 351)?;
@@ -585,6 +624,7 @@ fn main() {
         an_oversized_window_fits_the_screen,
         wrapped_labels_keep_the_window_height,
         a_window_keeps_its_minimum_size,
+        a_styled_text_view_keeps_its_look_when_attached,
     ];
     let mut failed = Vec::new();
     for (name, test) in tests {
