@@ -1,11 +1,13 @@
-//! A small Aurea app run as a whole iOS app: counter, slider, toggles. Bundle the binary as an
-//! `.app` and run it on a device or the simulator.
+//! A small Aurea app run as a whole iOS app: counter, slider, toggles, and a pad that draws with
+//! Apple Pencil pressure. Bundle the binary as an `.app` and run it on a device or the simulator.
 
 #[cfg(target_os = "ios")]
 mod app {
-    use aurea::ios::set_theme;
+    use aurea::ios::{on_event, run as run_app, set_theme};
     use aurea::ui::{Align, Button, Checkbox, ProgressBar, Segmented, Slider, Theme, Toggle, Ui};
-    use aurea::{AureaResult, Rect};
+    use aurea::{AureaResult, PenPhase, PenSample, Point, Rect, WindowEvent};
+    use std::cell::RefCell;
+    use std::rc::Rc;
 
     const ADD: u64 = 1;
     const RESET: u64 = 2;
@@ -14,6 +16,42 @@ mod app {
     const SHARE: u64 = 5;
     const LOOK: u64 = 6;
     const METER: u64 = 7;
+    const CLEAR: u64 = 8;
+
+    /// Where the pad starts, below the controls.
+    const PAD_TOP: f32 = 448.0;
+
+    /// Pencil strokes: each point with the width its pressure gave it.
+    #[derive(Default)]
+    struct Sketch {
+        strokes: Vec<Vec<(Point, f32)>>,
+        drawing: bool,
+        last: Option<PenSample>,
+    }
+
+    impl Sketch {
+        fn pen(&mut self, sample: PenSample) {
+            #[allow(clippy::cast_possible_truncation)]
+            let at = Point::new(sample.x as f32, sample.y as f32);
+            let width = 1.0 + sample.pressure * 9.0;
+            match sample.phase {
+                PenPhase::Down => {
+                    self.drawing = at.y > PAD_TOP;
+                    if self.drawing {
+                        self.strokes.push(vec![(at, width)]);
+                    }
+                }
+                PenPhase::Move | PenPhase::Up if self.drawing => {
+                    if let Some(stroke) = self.strokes.last_mut() {
+                        stroke.push((at, width));
+                    }
+                    self.drawing = sample.phase == PenPhase::Move;
+                }
+                _ => {}
+            }
+            self.last = Some(sample);
+        }
+    }
 
     #[derive(Default)]
     struct State {
@@ -22,6 +60,41 @@ mod app {
         muted: bool,
         share: bool,
         look: usize,
+    }
+
+    fn pad(ui: &mut Ui<'_, u64>, sketch: &mut Sketch, width: f32, height: f32) -> AureaResult<()> {
+        let p = ui.theme.palette;
+        let fonts = ui.fonts();
+        let area = Rect::new(
+            20.0,
+            PAD_TOP,
+            (width - 40.0).max(160.0),
+            (height - PAD_TOP - 20.0).max(80.0),
+        );
+        ui.border(area, 12.0, 1.0, p.dim)?;
+        let reading = sketch
+            .last
+            .map_or("Draw here with Apple Pencil".to_owned(), |s| {
+                format!(
+                    "pressure {:.2}  tilt {:.0}°, {:.0}°",
+                    s.pressure, s.tilt_x, s.tilt_y
+                )
+            });
+        let caption = Rect::new(area.x + 12.0, area.y + 8.0, area.width - 100.0, 24.0);
+        ui.text(&reading, caption, &fonts.small, p.dim, Align::Start)?;
+        let clear = Rect::new(area.x + area.width - 84.0, area.y + 4.0, 76.0, 32.0);
+        if Button::new("Clear").quiet().show(ui, CLEAR, clear)?.clicked {
+            sketch.strokes.clear();
+        }
+        for stroke in &sketch.strokes {
+            for pair in stroke.windows(2) {
+                let ((a, wa), (b, wb)) = (pair[0], pair[1]);
+                let width = (wa + wb) / 2.0;
+                ui.line(a, b, width, p.text)?;
+                ui.circle(b, width / 2.0, p.text)?;
+            }
+        }
+        Ok(())
     }
 
     fn panel(ui: &mut Ui<'_, u64>, s: &mut State, width: f32) -> AureaResult<()> {
@@ -85,8 +158,16 @@ mod app {
             look: 1,
             ..State::default()
         };
-        aurea::ios::run(Theme::dark(), move |ui, width, _height| {
-            panel(ui, &mut state, width)
+        let sketch = Rc::new(RefCell::new(Sketch::default()));
+        let heard = Rc::clone(&sketch);
+        on_event(move |event| {
+            if let WindowEvent::Pen(sample) = event {
+                heard.borrow_mut().pen(*sample);
+            }
+        });
+        run_app(Theme::dark(), move |ui, width, height| {
+            panel(ui, &mut state, width)?;
+            pad(ui, &mut sketch.borrow_mut(), width, height)
         })
     }
 }
