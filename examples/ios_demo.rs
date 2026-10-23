@@ -1,11 +1,13 @@
 //! A small Aurea app for the iOS sample in `mobile/ios/`: counter, slider, toggles, and a pad that
-//! draws with Apple Pencil pressure, with Open for the document picker. The top right line shows
-//! the last key, pinch, lifecycle event or picked file it heard. The sample's `main` calls
-//! [`aurea_main`].
+//! draws with Apple Pencil pressure, with Type for the on-screen keyboard and Open for the document
+//! picker. The top right line shows the last key, text, pinch, lifecycle event or picked file it
+//! heard. The sample's `main` calls [`aurea_main`].
 
 #[cfg(target_os = "ios")]
 mod app {
-    use aurea::ios::{on_event, pick_files, run as run_app, set_theme};
+    use aurea::ios::{
+        keyboard_height, on_event, pick_files, run as run_app, set_theme, show_keyboard,
+    };
     use aurea::logger::init_from_env;
     use aurea::ui::{Align, Button, Checkbox, ProgressBar, Segmented, Slider, Theme, Toggle, Ui};
     use aurea::{AureaResult, PenPhase, PenSample, Point, Rect, WindowEvent};
@@ -21,6 +23,7 @@ mod app {
     const METER: u64 = 7;
     const CLEAR: u64 = 8;
     const OPEN: u64 = 9;
+    const TYPE: u64 = 10;
 
     /// Where the pad starts, below the controls.
     const PAD_TOP: f32 = 448.0;
@@ -31,6 +34,8 @@ mod app {
         strokes: Vec<Vec<(Point, f32)>>,
         drawing: bool,
         last: Option<PenSample>,
+        /// Whether the on-screen keyboard is up.
+        typing: bool,
     }
 
     impl Sketch {
@@ -115,6 +120,18 @@ mod app {
         let clear = Rect::new(area.x + area.width - 84.0, area.y + 4.0, 76.0, 32.0);
         if Button::new("Clear").quiet().show(ui, CLEAR, clear)?.clicked {
             sketch.strokes.clear();
+        }
+        let typing = Rect::new(clear.x - 168.0, clear.y, 76.0, 32.0);
+        let label = if sketch.typing { "Done" } else { "Type" };
+        if Button::new(label).quiet().show(ui, TYPE, typing)?.clicked {
+            // the on-screen keyboard; what it types shows top right.
+            sketch.typing = !sketch.typing;
+            show_keyboard(sketch.typing);
+        }
+        if sketch.typing {
+            let covered = format!("keyboard covers {:.0} pt", keyboard_height());
+            let at = Rect::new(area.x + 12.0, area.y + 36.0, area.width - 24.0, 24.0);
+            ui.text(&covered, at, &fonts.small, p.dim, Align::Start)?;
         }
         let open = Rect::new(clear.x - 84.0, clear.y, 76.0, 32.0);
         if Button::new("Open").quiet().show(ui, OPEN, open)?.clicked {
