@@ -40,9 +40,11 @@ NGHandle ng_ios_create_canvas(int width, int height) {
 }
 
 void ng_platform_button_invalidate(NGHandle handle) {
+    (void)handle;
 }
 
 void ng_platform_label_invalidate(NGHandle handle) {
+    (void)handle;
 }
 
 NGHandle ng_platform_create_scroll_view(void) {
@@ -76,15 +78,19 @@ int ng_platform_label_set_text(NGHandle handle, const char* text) {
 }
 
 void ng_platform_canvas_invalidate(NGHandle handle) {
+    (void)handle;
 }
 
 void ng_platform_text_editor_invalidate(NGHandle handle) {
+    (void)handle;
 }
 
 void ng_platform_text_view_invalidate(NGHandle handle) {
+    (void)handle;
 }
 
 void ng_platform_progress_bar_invalidate(NGHandle handle) {
+    (void)handle;
 }
 
 int ng_platform_element_set_enabled(NGHandle element, int enabled) {

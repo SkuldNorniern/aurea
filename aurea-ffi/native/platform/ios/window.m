@@ -103,6 +103,7 @@ void ng_ios_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallbac
                                                       object:nil
                                                        queue:[NSOperationQueue mainQueue]
                                                   usingBlock:^(NSNotification* note) {
+        (void)note;
         if (callback && window) {
             float scale = ng_ios_get_scale_factor(window);
             callback(window, scale);

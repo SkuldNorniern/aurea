@@ -26,7 +26,7 @@
 }
 
 - (NSString*)pickerView:(UIPickerView*)pickerView titleForRow:(NSInteger)row forComponent:(NSInteger)component {
-    if (row >= 0 && row < [self.items count]) {
+    if (row >= 0 && row < (NSInteger)[self.items count]) {
         return [self.items objectAtIndex:row];
     }
     return @"";
@@ -68,7 +68,7 @@ int ng_ios_combo_box_set_selected(NGHandle combo_box, int index) {
     
     if (!delegate) return NG_ERROR_INVALID_HANDLE;
     
-    if (index < 0 || index >= [delegate.items count]) {
+    if (index < 0 || index >= (int)[delegate.items count]) {
         return NG_ERROR_INVALID_PARAMETER;
     }
     
