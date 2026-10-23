@@ -192,6 +192,7 @@ fn main() -> AureaResult<()> {
     });
 
     let mut layout = Stack::new(Orientation::Vertical)?;
+    layout.set_padding(0)?;
     layout.add(canvas)?;
     window.set_content(layout)?;
     let window = Rc::new(window);

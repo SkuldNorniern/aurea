@@ -18,6 +18,7 @@ fn main() -> AureaResult<()> {
     canvas.set_draw_callback(draw_fontkit)?;
 
     let mut main_box = Stack::new(Orientation::Vertical)?;
+    main_box.set_padding(0)?;
     main_box.add_weighted(canvas, 1.0)?;
     window.set_content(main_box)?;
     window.run()?;

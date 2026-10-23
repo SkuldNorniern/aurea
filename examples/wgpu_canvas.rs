@@ -14,6 +14,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let _surface = surface_canvas.create_wgpu_surface(&instance)?;
 
     let mut layout = Stack::new(Orientation::Vertical)?;
+    layout.set_padding(0)?;
     layout.add(canvas)?;
     window.set_content(layout)?;
     window.run()?;

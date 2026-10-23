@@ -11,6 +11,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let canvas = Canvas::new(640, 480, RendererBackend::Cpu)?;
     canvas.set_background_color(Color::rgb(240, 240, 240));
     let mut content = Stack::new(Orientation::Vertical)?;
+    content.set_padding(0)?;
     content.add(canvas)?;
     window.set_content(content)?;
 

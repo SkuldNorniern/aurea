@@ -30,6 +30,7 @@ fn main() -> AureaResult<()> {
         badge.draw(ctx, Rect::new(748.0, 222.0, 40.0, 40.0), ink)
     })?;
     let mut stack = Stack::new(Orientation::Vertical)?;
+    stack.set_padding(0)?;
     stack.add(canvas)?;
     window.set_content(stack)?;
     window.run()

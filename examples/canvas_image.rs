@@ -21,6 +21,7 @@ fn main() -> AureaResult<()> {
     canvas.set_draw_callback(draw_image_scene)?;
 
     let mut main_box = Stack::new(Orientation::Vertical)?;
+    main_box.set_padding(0)?;
     main_box.add(canvas)?;
     window.set_content(main_box)?;
     window.run()?;
