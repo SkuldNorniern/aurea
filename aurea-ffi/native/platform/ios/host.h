@@ -60,6 +60,13 @@ int ng_ios_run_host(NGIosHost host);
 /* Restarts the paused display link so `wake` is polled again. Safe from any thread. */
 void ng_ios_wake(void);
 
+/* The UIView the GPU draws into, over the safe area, made on first use; touches pass through it.
+   Main thread only. */
+void* ng_ios_gpu_view(void);
+
+/* Removes the GPU view, when the GPU could not start. Main thread only. */
+void ng_ios_drop_gpu_view(void);
+
 #ifdef __cplusplus
 }
 #endif

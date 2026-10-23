@@ -1,4 +1,5 @@
-//! iOS: the app's UI filling the screen, drawn on the CPU each frame. Touches come in as the
+//! iOS: the app's UI filling the screen, drawn on the GPU with the `zengpu` feature and on the CPU
+//! otherwise, or when the GPU cannot start. Touches come in as the
 //! mouse, two-finger scrolls and pinches as the wheel and [`WindowEvent::Magnify`]; see
 //! `crate::touch`.
 
@@ -10,8 +11,12 @@ use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
-use aurea_ffi::{NGIosHost, ng_ios_run_host, ng_ios_wake};
+#[cfg(feature = "zengpu")]
+use aurea_ffi::ng_ios_gpu_view;
+use aurea_ffi::{NGIosHost, ng_ios_drop_gpu_view, ng_ios_run_host, ng_ios_wake};
 
+#[cfg(not(feature = "zengpu"))]
+use crate::AureaError;
 use crate::ffi::callbacks::event_time;
 use crate::render::{CanvasId, CpuRasterizer, Renderer, SurfaceInfo, register_host_canvas};
 use crate::touch::{Phase, Touches};
@@ -19,7 +24,14 @@ use crate::ui::{Theme, Ui, UiState};
 use crate::{
     AureaResult, KeyCode, Modifiers, PenPhase, PenSample, PenTool, Point, Rect, WindowEvent,
 };
+#[cfg(feature = "zengpu")]
+use crate::{
+    platform::{handles::NativeWindowHandle, zengpu::window_handles},
+    render::{ZenGpuContext, ZenGpuRenderer},
+};
 use aurea_render::FrameOutcome;
+#[cfg(feature = "zengpu")]
+use std::sync::Arc;
 
 /// Draws the app's UI each frame, `width` x `height` logical pixels.
 type App = Box<dyn FnMut(&mut Ui<'_, u64>, f32, f32) -> AureaResult<()>>;
@@ -27,13 +39,69 @@ type App = Box<dyn FnMut(&mut Ui<'_, u64>, f32, f32) -> AureaResult<()>>;
 struct Host {
     app: Option<App>,
     theme: Theme,
-    raster: CpuRasterizer,
+    raster: Box<dyn Renderer>,
+    /// Whether the GPU was tried yet; it is, on the first frame.
+    gpu_tried: bool,
     state: UiState<u64>,
     pixels: (u32, u32),
     scale: f32,
     insets: [f32; 4],
     touches: Touches,
 }
+
+impl Host {
+    /// Sizes the surface to the safe area of a `width` x `height` pixel screen, trying the GPU on
+    /// the first call; false when the surface could not take the size.
+    fn fit(&mut self, width: u32, height: u32, scale: f32, insets: [f32; 4]) -> bool {
+        self.insets = insets.map(|v| v.max(0.0));
+        let [left, top, right, bottom] = self.insets;
+        // the surface is the safe area alone, so the UI's size is the size it can use.
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_precision_loss,
+            clippy::cast_sign_loss
+        )]
+        let inside = |px: u32, before: f32, after: f32| {
+            ((px as f32 - (before + after) * scale).round().max(1.0)) as u32
+        };
+        let pixels = (inside(width, left, right), inside(height, top, bottom));
+        if self.pixels == pixels && (self.scale - scale).abs() <= f32::EPSILON {
+            return true;
+        }
+        self.pixels = pixels;
+        self.scale = scale;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let logical = |px: u32| (f64::from(px) / f64::from(scale)).ceil() as u32;
+        let info = SurfaceInfo::new(logical(pixels.0).max(1), logical(pixels.1).max(1), scale)
+            .with_pixels(pixels.0, pixels.1);
+        if !self.gpu_tried {
+            self.gpu_tried = true;
+            self.try_gpu(&info);
+        }
+        if let Err(e) = self.raster.configure(info) {
+            log::warn!("ios surface: {e}");
+            return false;
+        }
+        true
+    }
+
+    fn try_gpu(&mut self, info: &SurfaceInfo) {
+        if !GPU_WANTED.load(Ordering::Relaxed) || !cfg!(feature = "zengpu") {
+            return;
+        }
+        match gpu_renderer(info) {
+            Ok(renderer) => self.raster = renderer,
+            Err(e) => {
+                log::warn!("ios: no gpu, drawing on the cpu: {e}");
+                // SAFETY: on the main thread, as frames are.
+                unsafe { ng_ios_drop_gpu_view() };
+            }
+        }
+    }
+}
+
+/// Whether the host may draw on the GPU; see [`use_gpu`].
+static GPU_WANTED: AtomicBool = AtomicBool::new(true);
 
 /// Set from any thread by [`request_frame`]; the display link polls it.
 static WAKE: AtomicBool = AtomicBool::new(false);
@@ -49,10 +117,13 @@ thread_local! {
     static SCREEN: Cell<(f32, [f32; 4])> = const { Cell::new((1.0, [0.0; 4])) };
     static LISTENER: RefCell<Option<Listener>> = const { RefCell::new(None) };
     static NEXT_THEME: RefCell<Option<Theme>> = const { RefCell::new(None) };
+    #[cfg(feature = "zengpu")]
+    static GPU: RefCell<Option<Arc<ZenGpuContext>>> = const { RefCell::new(None) };
     static HOST: RefCell<Host> = RefCell::new(Host {
         app: None,
         theme: Theme::dark(),
-        raster: CpuRasterizer::new(1, 1),
+        raster: Box::new(CpuRasterizer::new(1, 1)),
+        gpu_tried: false,
         state: UiState::new(),
         pixels: (0, 0),
         scale: 1.0,
@@ -126,6 +197,44 @@ pub fn scale() -> f32 {
 /// background fills the rest of the screen.
 pub fn safe_area() -> [f32; 4] {
     SCREEN.get().1
+}
+
+/// Whether to draw on the GPU, through ZenGPU's Metal backend; call before [`run`]. On by default
+/// with the `zengpu` feature, which it needs; the CPU draws when it is off, or when the GPU cannot
+/// start.
+pub fn use_gpu(on: bool) {
+    GPU_WANTED.store(on, Ordering::Relaxed);
+}
+
+/// The GPU the host draws with, once it has drawn a frame on it, for the app's own textures and
+/// renderers to share.
+#[cfg(feature = "zengpu")]
+pub fn gpu_context() -> Option<Arc<ZenGpuContext>> {
+    GPU.with_borrow(Clone::clone)
+}
+
+/// A renderer on the host's GPU view, the safe area's size.
+#[cfg(feature = "zengpu")]
+fn gpu_renderer(info: &SurfaceInfo) -> AureaResult<Box<dyn Renderer>> {
+    // SAFETY: called on the main thread while the host view exists.
+    let ui_view = unsafe { ng_ios_gpu_view() };
+    let handles = window_handles(&NativeWindowHandle::IOS { ui_view })?;
+    let context = Arc::new(ZenGpuContext::new()?);
+    let renderer = ZenGpuRenderer::with_context(
+        &handles,
+        Arc::clone(&context),
+        info.width,
+        info.height,
+        info.scale_factor,
+    )?;
+    GPU.set(Some(context));
+    log::info!("ios: drawing with the gpu");
+    Ok(Box::new(renderer))
+}
+
+#[cfg(not(feature = "zengpu"))]
+fn gpu_renderer(_: &SurfaceInfo) -> AureaResult<Box<dyn Renderer>> {
+    Err(AureaError::RenderingFailed)
 }
 
 /// Switches the theme from the next frame.
@@ -281,29 +390,8 @@ unsafe extern "C" fn frame(
     settle_touches();
     HOST.with_borrow_mut(|host| {
         let scale = scale.max(1.0);
-        host.insets = [left, top, right, bottom].map(|v| v.max(0.0));
-        let [left, top, right, bottom] = host.insets;
-        // the surface is the safe area alone, so the UI's size is the size it can use.
-        #[allow(
-            clippy::cast_possible_truncation,
-            clippy::cast_precision_loss,
-            clippy::cast_sign_loss
-        )]
-        let inside = |px: u32, before: f32, after: f32| {
-            ((px as f32 - (before + after) * scale).round().max(1.0)) as u32
-        };
-        let pixels = (inside(width, left, right), inside(height, top, bottom));
-        if host.pixels != pixels || (host.scale - scale).abs() > f32::EPSILON {
-            host.pixels = pixels;
-            host.scale = scale;
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let logical = |px: u32| (f64::from(px) / f64::from(scale)).ceil() as u32;
-            let info = SurfaceInfo::new(logical(pixels.0).max(1), logical(pixels.1).max(1), scale)
-                .with_pixels(pixels.0, pixels.1);
-            if let Err(e) = host.raster.configure(info) {
-                log::warn!("ios surface: {e}");
-                return 0;
-            }
+        if !host.fit(width, height, scale, [left, top, right, bottom]) {
+            return 0;
         }
         SCREEN.set((host.scale, host.insets));
         let Host {

@@ -51,6 +51,8 @@ pub struct NGIosHost {
 unsafe extern "C" {
     pub fn ng_ios_run_host(host: NGIosHost) -> i32;
     pub fn ng_ios_wake();
+    pub fn ng_ios_gpu_view() -> *mut c_void;
+    pub fn ng_ios_drop_gpu_view();
 }
 
 #[cfg(target_os = "android")]

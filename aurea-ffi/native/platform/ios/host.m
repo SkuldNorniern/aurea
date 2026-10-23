@@ -25,6 +25,7 @@ static NGIosHost g_host;
 @property (strong) CALayer* content;
 @property (assign) uint32_t background;
 @property (strong) NSMutableArray<CALayer*>* tiles;
+@property (strong) UIView* gpuView;
 @property (assign) unsigned gridWidth;
 @property (assign) unsigned gridHeight;
 @property (assign) CGFloat gridScale;
@@ -122,6 +123,12 @@ static __weak AureaHostView* g_view;
     unsigned height = (unsigned)lround(size.height * scale);
     if (width == 0 || height == 0) return;
     UIEdgeInsets safe = self.safeAreaInsets;
+    if (_gpuView) {
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        _gpuView.frame = UIEdgeInsetsInsetRect(self.bounds, safe);
+        [CATransaction commit];
+    }
     const uint32_t* words = NULL;
     unsigned out_w = 0, out_h = 0;
     unsigned damage[4] = {0, 0, 0, 0};
@@ -503,4 +510,23 @@ void ng_ios_wake(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         [g_view wakeLink];
     });
+}
+
+void* ng_ios_gpu_view(void) {
+    AureaHostView* host = g_view;
+    if (!host) return NULL;
+    if (!host.gpuView) {
+        UIView* view = [[UIView alloc] initWithFrame:UIEdgeInsetsInsetRect(host.bounds, host.safeAreaInsets)];
+        view.userInteractionEnabled = NO;
+        view.contentScaleFactor = host.window.screen.scale ?: UIScreen.mainScreen.scale;
+        [host addSubview:view];
+        host.gpuView = view;
+    }
+    return (__bridge void*)host.gpuView;
+}
+
+void ng_ios_drop_gpu_view(void) {
+    AureaHostView* host = g_view;
+    [host.gpuView removeFromSuperview];
+    host.gpuView = nil;
 }
