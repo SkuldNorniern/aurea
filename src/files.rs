@@ -76,14 +76,14 @@ pub fn reveal_path(path: &Path) -> AureaResult<()> {
 }
 
 /// The folder `app` keeps its settings in, for the current user: `%APPDATA%\app` on Windows,
-/// `~/Library/Application Support/app` on macOS and `$XDG_CONFIG_HOME/app` (or `~/.config/app`)
-/// elsewhere.
+/// `~/Library/Application Support/app` on macOS and iOS (inside the app's sandbox there) and
+/// `$XDG_CONFIG_HOME/app` (or `~/.config/app`) elsewhere.
 pub fn config_dir(app: &str) -> Option<PathBuf> {
     user_dir(app, "XDG_CONFIG_HOME", ".config")
 }
 
-/// The folder `app` keeps its data in, for the current user: the same as [`config_dir`] on Windows
-/// and macOS, and `$XDG_DATA_HOME/app` (or `~/.local/share/app`) elsewhere.
+/// The folder `app` keeps its data in, for the current user: the same as [`config_dir`] on
+/// Windows, macOS and iOS, and `$XDG_DATA_HOME/app` (or `~/.local/share/app`) elsewhere.
 pub fn data_dir(app: &str) -> Option<PathBuf> {
     user_dir(app, "XDG_DATA_HOME", ".local/share")
 }
@@ -92,7 +92,7 @@ pub fn data_dir(app: &str) -> Option<PathBuf> {
 pub fn local_data_dir(app: &str) -> Option<PathBuf> {
     if cfg!(windows) {
         env_path("LOCALAPPDATA").map(|base| base.join(app))
-    } else if cfg!(target_os = "macos") {
+    } else if cfg!(any(target_os = "macos", target_os = "ios")) {
         data_dir(app)
     } else {
         user_dir(app, "XDG_STATE_HOME", ".local/state")
@@ -103,17 +103,29 @@ pub fn local_data_dir(app: &str) -> Option<PathBuf> {
 pub fn cache_dir(app: &str) -> Option<PathBuf> {
     if cfg!(windows) {
         env_path("LOCALAPPDATA").map(|base| base.join(app).join("Cache"))
-    } else if cfg!(target_os = "macos") {
+    } else if cfg!(any(target_os = "macos", target_os = "ios")) {
         env_path("HOME").map(|home| home.join("Library").join("Caches").join(app))
     } else {
         user_dir(app, "XDG_CACHE_HOME", ".cache")
     }
 }
 
+/// The folder the user's own files go in: `~/Documents`. On iOS it is the app's Documents, which
+/// the Files app shows when the app's Info.plist sets `UIFileSharingEnabled` and
+/// `LSSupportsOpeningDocumentsInPlace`.
+pub fn documents_dir() -> Option<PathBuf> {
+    if cfg!(windows) {
+        env_path("USERPROFILE").map(|home| home.join("Documents"))
+    } else {
+        env_path("HOME").map(|home| home.join("Documents"))
+    }
+}
+
 fn user_dir(app: &str, xdg: &str, home_relative: &str) -> Option<PathBuf> {
     let base = if cfg!(windows) {
         env_path("APPDATA")
-    } else if cfg!(target_os = "macos") {
+    } else if cfg!(any(target_os = "macos", target_os = "ios")) {
+        // an iOS app's HOME is its sandbox; only Library, Documents and tmp in it can be written.
         env_path("HOME").map(|home| home.join("Library").join("Application Support"))
     } else {
         env_path(xdg).or_else(|| env_path("HOME").map(|home| home.join(home_relative)))

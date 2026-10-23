@@ -71,7 +71,9 @@ pub use crate::window::{
 
 pub use crate::render::{Canvas, Color, DrawingContext, Point, Rect, RendererBackend};
 
-pub use crate::files::{cache_dir, config_dir, data_dir, local_data_dir, open_path, reveal_path};
+pub use crate::files::{
+    cache_dir, config_dir, data_dir, documents_dir, local_data_dir, open_path, reveal_path,
+};
 pub use crate::keymap::{Chord, Keymap};
 pub use crate::locale::{locale, locales};
 pub use crate::platform::handles::NativeWindowHandle;
