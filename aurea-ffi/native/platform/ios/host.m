@@ -186,6 +186,30 @@ static double ng_ios_age(NSTimeInterval timestamp) {
 
 @end
 
+static UIWindow* ng_ios_host_window(UIWindow* window) {
+    window.rootViewController = [[AureaHostController alloc] init];
+    [window makeKeyAndVisible];
+    return window;
+}
+
+/* iOS 13 and later show the host through a scene; newer releases stop apps that don't. The app's
+   Info.plist needs a UIApplicationSceneManifest for UIKit to ask for one. */
+API_AVAILABLE(ios(13.0))
+@interface AureaSceneDelegate : UIResponder <UIWindowSceneDelegate>
+@property (nonatomic, strong) UIWindow* window;
+@end
+
+@implementation AureaSceneDelegate
+
+- (void)scene:(UIScene*)scene willConnectToSession:(UISceneSession*)session options:(UISceneConnectionOptions*)options {
+    (void)session;
+    (void)options;
+    if (![scene isKindOfClass:[UIWindowScene class]]) return;
+    self.window = ng_ios_host_window([[UIWindow alloc] initWithWindowScene:(UIWindowScene*)scene]);
+}
+
+@end
+
 @interface AureaHostDelegate : UIResponder <UIApplicationDelegate>
 @property (nonatomic, strong) UIWindow* window;
 @end
@@ -195,10 +219,19 @@ static double ng_ios_age(NSTimeInterval timestamp) {
 - (BOOL)application:(UIApplication*)application didFinishLaunchingWithOptions:(NSDictionary*)options {
     (void)application;
     (void)options;
-    self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
-    self.window.rootViewController = [[AureaHostController alloc] init];
-    [self.window makeKeyAndVisible];
+    if (@available(iOS 13.0, *)) return YES;
+    self.window = ng_ios_host_window([[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds]);
     return YES;
+}
+
+- (UISceneConfiguration*)application:(UIApplication*)application
+    configurationForConnectingSceneSession:(UISceneSession*)session
+                                   options:(UISceneConnectionOptions*)options API_AVAILABLE(ios(13.0)) {
+    (void)application;
+    (void)options;
+    UISceneConfiguration* config = [[UISceneConfiguration alloc] initWithName:@"Aurea" sessionRole:session.role];
+    config.delegateClass = [AureaSceneDelegate class];
+    return config;
 }
 
 @end
