@@ -80,7 +80,9 @@ int ng_macos_box_add(NGHandle box, NGHandle element, float weight) {
     } else {
         [view setContentHuggingPriority:NSLayoutPriorityDefaultHigh forOrientation:NSLayoutConstraintOrientationHorizontal];
         [view setContentHuggingPriority:NSLayoutPriorityDefaultHigh forOrientation:NSLayoutConstraintOrientationVertical];
-        [view setContentCompressionResistancePriority:NSLayoutPriorityDefaultHigh forOrientation:NSLayoutConstraintOrientationHorizontal];
+        /* A label wraps instead of widening the window. */
+        NSLayoutPriority squeeze = ng_macos_is_wrapping_label(view) ? NSLayoutPriorityDefaultLow : NSLayoutPriorityDefaultHigh;
+        [view setContentCompressionResistancePriority:squeeze forOrientation:NSLayoutConstraintOrientationHorizontal];
         [view setContentCompressionResistancePriority:NSLayoutPriorityDefaultHigh forOrientation:NSLayoutConstraintOrientationVertical];
     }
     

@@ -4,6 +4,7 @@
 #ifdef __OBJC__
 @class NSString;
 @class NSBitmapImageRep;
+@class NSView;
 #endif
 
 #ifdef __cplusplus
@@ -13,6 +14,7 @@ extern "C" {
 #ifdef __OBJC__
 NSString* ng_macos_to_nsstring(const char* str);
 NSBitmapImageRep* ng_macos_rgba_bitmap(const unsigned char* rgba, unsigned int width, unsigned int height);
+int ng_macos_is_wrapping_label(NSView* view);
 #endif
 
 int ng_macos_reduced_motion(void);
