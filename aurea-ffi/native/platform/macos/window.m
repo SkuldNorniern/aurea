@@ -1210,6 +1210,10 @@ void ng_macos_destroy_element(NGHandle element) {
     }
 }
 
+void ng_macos_element_destroyed(NGHandle element) {
+    if (element) ng_macos_notify_destroyed((__bridge NSView*)element);
+}
+
 void ng_macos_element_released_to_parent(NGHandle element) {
     if (!element) return;
     NSView* view = (__bridge_transfer NSView*)element;

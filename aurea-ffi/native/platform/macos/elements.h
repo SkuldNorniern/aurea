@@ -108,6 +108,12 @@ int ng_macos_table_remove_row(NGHandle table, int index);
 int ng_macos_table_clear(NGHandle table);
 int ng_macos_table_set_selected(NGHandle table, int index);
 int ng_macos_table_get_selected(NGHandle table);
+NGHandle ng_macos_create_row_list(unsigned int id);
+int ng_macos_row_list_insert(NGHandle list, int index, NGHandle row);
+int ng_macos_row_list_remove(NGHandle list, int index);
+int ng_macos_row_list_clear(NGHandle list);
+int ng_macos_row_list_set_selected(NGHandle list, int index);
+int ng_macos_row_list_get_selected(NGHandle list);
 
 #ifdef __cplusplus
 }

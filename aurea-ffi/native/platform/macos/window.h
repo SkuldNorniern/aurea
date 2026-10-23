@@ -15,6 +15,8 @@ NGHandle ng_macos_create_window(const char* title, int width, int height);
 NGHandle ng_macos_create_window_with_type(const char* title, int width, int height, int window_type);
 void ng_macos_destroy_window(NGHandle handle);
 void ng_macos_destroy_element(NGHandle element);
+/* Tells destroy watchers on element and everything inside it that they are gone. */
+void ng_macos_element_destroyed(NGHandle element);
 int ng_macos_detach_element(NGHandle element);
 void ng_macos_element_released_to_parent(NGHandle element);
 void ng_macos_element_retain(NGHandle element);
