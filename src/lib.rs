@@ -67,8 +67,8 @@ pub use crate::window::{
 };
 
 pub use crate::window::{
-    EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons, PenPhase, PenSample, PenTool,
-    WindowEvent,
+    EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons, PenPhase, PenSample,
+    PenTapAction, PenTool, WindowEvent,
 };
 
 pub use crate::render::{Canvas, Color, DrawingContext, Point, Rect, RendererBackend};

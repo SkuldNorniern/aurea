@@ -33,6 +33,13 @@ pub enum WindowEvent {
     Minimized,
     /// The window was restored from minimized.
     Restored,
+    /// A pen's own gesture: a double tap on an Apple Pencil, or a squeeze of a Pencil Pro.
+    PenTap {
+        /// A squeeze rather than a tap.
+        squeeze: bool,
+        /// What the user set this gesture to do in the system's settings, for the app to follow.
+        action: PenTapAction,
+    },
     /// The system is short of memory: drop caches that can be rebuilt. On iOS an app that does not
     /// may be stopped.
     MemoryWarning,
@@ -202,6 +209,35 @@ pub enum PenPhase {
     Move,
     /// Lifted; the stroke ends.
     Up,
+}
+
+/// What the user set a pen's tap or squeeze to do; see [`WindowEvent::PenTap`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum PenTapAction {
+    /// Nothing: the app should ignore it.
+    Ignore,
+    /// Switch between the current tool and the eraser.
+    #[default]
+    SwitchEraser,
+    /// Switch between the current tool and the one before.
+    SwitchPrevious,
+    /// Show the colour or tool palette.
+    ShowPalette,
+    /// Something the system does itself, such as a shortcut.
+    System,
+}
+
+impl PenTapAction {
+    /// The number the platform layer hands over for this action.
+    pub fn from_raw(action: u32) -> Self {
+        match action {
+            0 => Self::Ignore,
+            1 => Self::SwitchEraser,
+            2 => Self::SwitchPrevious,
+            3 => Self::ShowPalette,
+            _ => Self::System,
+        }
+    }
 }
 
 /// Which end of the pen is used.
