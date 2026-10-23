@@ -44,6 +44,7 @@ pub struct NGIosHost {
     pub background: unsafe extern "C" fn() -> u32,
     pub lifecycle: unsafe extern "C" fn(state: i32),
     pub key: unsafe extern "C" fn(code: u32, pressed: i32, modifiers: u32, text: *const c_char),
+    pub preedit: unsafe extern "C" fn(text: *const c_char, cursor: c_int),
 }
 
 #[cfg(target_os = "ios")]
@@ -55,6 +56,7 @@ unsafe extern "C" {
     pub fn ng_ios_drop_gpu_view();
     pub fn ng_ios_show_keyboard(show: c_int);
     pub fn ng_ios_keyboard_height() -> f32;
+    pub fn ng_ios_set_text_area(x: f32, y: f32, width: f32, height: f32);
     pub fn ng_ios_pick_files(
         extensions: *const c_char,
         multiple: c_int,

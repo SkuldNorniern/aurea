@@ -18,8 +18,8 @@ use std::time::Instant;
 #[cfg(feature = "zengpu")]
 use aurea_ffi::ng_ios_gpu_view;
 use aurea_ffi::{
-    NGIosHost, ng_ios_drop_gpu_view, ng_ios_keyboard_height, ng_ios_run_host, ng_ios_show_keyboard,
-    ng_ios_wake,
+    NGIosHost, ng_ios_drop_gpu_view, ng_ios_keyboard_height, ng_ios_run_host, ng_ios_set_text_area,
+    ng_ios_show_keyboard, ng_ios_wake,
 };
 
 #[cfg(not(feature = "zengpu"))]
@@ -158,6 +158,7 @@ pub fn run(
         background,
         lifecycle,
         key,
+        preedit,
     };
     exit(unsafe { ng_ios_run_host(host) })
 }
@@ -246,10 +247,18 @@ fn gpu_renderer(_: &SurfaceInfo) -> AureaResult<Box<dyn Renderer>> {
 
 /// Shows the on-screen keyboard, or hides it; call on the main thread, such as from the UI when a
 /// text field takes or loses focus. What it types comes as [`WindowEvent::TextInput`], delete and
-/// return as [`KeyCode::Backspace`] and [`KeyCode::Enter`] presses.
+/// return as [`KeyCode::Backspace`] and [`KeyCode::Enter`] presses, and what an input method such
+/// as Korean or Japanese is still composing as [`WindowEvent::ImePreedit`].
 pub fn show_keyboard(show: bool) {
     // SAFETY: on the main thread, as documented.
     unsafe { ng_ios_show_keyboard(c_int::from(show)) };
+}
+
+/// Where text is being typed, in points from the safe area's top left, so input methods show
+/// their candidates beside it; call on the main thread when the caret moves.
+pub fn set_text_area(area: Rect) {
+    // SAFETY: on the main thread, as documented.
+    unsafe { ng_ios_set_text_area(area.x, area.y, area.width, area.height) };
 }
 
 /// How much of the safe area the on-screen keyboard covers from the bottom, in points; 0 when it
@@ -323,6 +332,24 @@ unsafe extern "C" fn key(code: u32, pressed: i32, modifiers: u32, text: *const c
         }
     });
     hear(&events);
+}
+
+/// What an input method is composing, before it becomes text.
+unsafe extern "C" fn preedit(text: *const c_char, cursor: c_int) {
+    // SAFETY: the host passes a NUL-terminated string that lives for the call, or null.
+    let text = if text.is_null() {
+        String::new()
+    } else {
+        unsafe { CStr::from_ptr(text) }
+            .to_string_lossy()
+            .into_owned()
+    };
+    let event = WindowEvent::ImePreedit {
+        text,
+        cursor: usize::try_from(cursor).ok(),
+    };
+    HOST.with_borrow_mut(|host| host.state.handle(&event));
+    hear(&[event]);
 }
 
 unsafe extern "C" fn wake() -> i32 {

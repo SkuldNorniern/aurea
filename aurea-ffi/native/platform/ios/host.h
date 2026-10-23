@@ -52,6 +52,9 @@ typedef struct NGIosHost {
     /* A key: an NG_KEY_* code, NG_MOD_* modifiers, and on a press the text it types (UTF-8, empty
        when none). Text from the on-screen keyboard comes with NG_KEY_UNKNOWN: text alone. */
     void (*key)(uint32_t code, int pressed, uint32_t modifiers, const char* text);
+    /* Text an input method is composing (UTF-8, empty when it stops) and the cursor in it in
+       bytes, -1 for none. */
+    void (*preedit)(const char* text, int cursor);
 } NGIosHost;
 
 /* Runs UIKit with the host filling the screen; doesn't return. */
@@ -69,6 +72,10 @@ void ng_ios_drop_gpu_view(void);
 
 /* Shows the on-screen keyboard, or hides it. Main thread only. */
 void ng_ios_show_keyboard(int show);
+
+/* Where text is being typed, in points from the safe area's top left, for input methods to show
+   their candidates beside. Main thread only. */
+void ng_ios_set_text_area(float x, float y, float width, float height);
 
 /* How many points of the view the on-screen keyboard covers from the bottom, 0 when it is down. */
 float ng_ios_keyboard_height(void);

@@ -18,6 +18,8 @@ static NGIosHost g_host;
 /* The side of a presented tile in pixels: a multiple of the rasterizer's 128 pixel tiles. */
 #define NG_IOS_TILE 256u
 
+@class AureaKeyInput;
+
 @interface AureaHostView : UIView
 @property (strong) CADisplayLink* link;
 @property (assign) BOOL dirty;
@@ -29,7 +31,7 @@ static NGIosHost g_host;
 @property (assign) unsigned gridWidth;
 @property (assign) unsigned gridHeight;
 @property (assign) CGFloat gridScale;
-@property (strong) UIView* keys;
+@property (strong) AureaKeyInput* keys;
 @property (assign) CGFloat keyboardHeight;
 - (void)wakeLink;
 - (void)markDirty;
@@ -38,19 +40,66 @@ static NGIosHost g_host;
 
 static __weak AureaHostView* g_view;
 
-/* Takes text from the on-screen keyboard while it is up; see ng_ios_show_keyboard. Typed text goes
-   to `key` with no key code, delete and return as Backspace and Enter. A hardware keyboard's
+/* A place in the text being composed, as a UTF-16 index into it. */
+@interface AureaTextPosition : UITextPosition
+@property (assign) NSInteger index;
++ (instancetype)at:(NSInteger)index;
+@end
+
+@implementation AureaTextPosition
++ (instancetype)at:(NSInteger)index {
+    AureaTextPosition* position = [[AureaTextPosition alloc] init];
+    position.index = index;
+    return position;
+}
+@end
+
+@interface AureaTextRange : UITextRange
+@property (strong) AureaTextPosition* from;
+@property (strong) AureaTextPosition* to;
++ (instancetype)from:(NSInteger)from to:(NSInteger)to;
+@end
+
+@implementation AureaTextRange
++ (instancetype)from:(NSInteger)from to:(NSInteger)to {
+    AureaTextRange* range = [[AureaTextRange alloc] init];
+    range.from = [AureaTextPosition at:MIN(from, to)];
+    range.to = [AureaTextPosition at:MAX(from, to)];
+    return range;
+}
+- (UITextPosition*)start {
+    return _from;
+}
+- (UITextPosition*)end {
+    return _to;
+}
+- (BOOL)isEmpty {
+    return _from.index == _to.index;
+}
+@end
+
+/* Takes text from the on-screen keyboard while it is up; see ng_ios_show_keyboard. Its document is
+   only the text an input method is composing, sent as `preedit`; what is typed or composed goes to
+   `key` as text with no key code, delete and return as Backspace and Enter. A hardware keyboard's
    presses go where the host view's do, so text does not come twice. */
-@interface AureaKeyInput : UIView <UIKeyInput>
+@interface AureaKeyInput : UIView <UITextInput>
+@property (copy) NSString* marked;
+@property (assign) NSInteger caret;
+@property (assign) CGRect area;
 @end
 
 @implementation AureaKeyInput
 
-- (BOOL)canBecomeFirstResponder {
-    return YES;
+@synthesize inputDelegate;
+@synthesize markedTextStyle;
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) _marked = @"";
+    return self;
 }
 
-- (BOOL)hasText {
+- (BOOL)canBecomeFirstResponder {
     return YES;
 }
 
@@ -72,20 +121,193 @@ static void ng_ios_tap_key(uint32_t code) {
     g_host.key(code, 0, 0, "");
 }
 
+static void ng_ios_type(NSString* text) {
+    if (g_host.key && text.length) g_host.key(NG_KEY_UNKNOWN, 1, 0, text.UTF8String ?: "");
+}
+
+/* The composition as the app sees it, the cursor in UTF-8 bytes. */
+- (void)sendPreedit {
+    if (g_host.preedit) {
+        NSInteger caret = MIN(MAX(_caret, 0), (NSInteger)_marked.length);
+        NSString* head = [_marked substringToIndex:(NSUInteger)caret];
+        int cursor = _marked.length ? (int)[head lengthOfBytesUsingEncoding:NSUTF8StringEncoding] : -1;
+        g_host.preedit(_marked.UTF8String ?: "", cursor);
+    }
+    [g_view markDirty];
+}
+
+- (void)endComposing {
+    if (!_marked.length) return;
+    _marked = @"";
+    _caret = 0;
+    [self sendPreedit];
+}
+
+/* UIKeyInput. */
+
+- (BOOL)hasText {
+    return YES;
+}
+
 - (void)insertText:(NSString*)text {
-    if (!g_host.key) return;
+    [self endComposing];
     if ([text isEqualToString:@"\n"]) {
         ng_ios_tap_key(NG_KEY_ENTER);
     } else {
-        g_host.key(NG_KEY_UNKNOWN, 1, 0, text.UTF8String ?: "");
+        ng_ios_type(text);
     }
     [g_view markDirty];
 }
 
 - (void)deleteBackward {
+    if (_marked.length) {
+        NSRange last = [_marked rangeOfComposedCharacterSequenceAtIndex:_marked.length - 1];
+        _marked = [_marked substringToIndex:last.location];
+        _caret = (NSInteger)_marked.length;
+        [self sendPreedit];
+        return;
+    }
     ng_ios_tap_key(NG_KEY_BACKSPACE);
     [g_view markDirty];
 }
+
+/* Composition. */
+
+- (UITextRange*)markedTextRange {
+    return _marked.length ? [AureaTextRange from:0 to:(NSInteger)_marked.length] : nil;
+}
+
+- (void)setMarkedText:(NSString*)text selectedRange:(NSRange)selected {
+    _marked = [text copy] ?: @"";
+    _caret = selected.location == NSNotFound ? (NSInteger)_marked.length : (NSInteger)selected.location;
+    [self sendPreedit];
+}
+
+/* The input method is done with the composition: it is typed as it stands. */
+- (void)unmarkText {
+    NSString* done = _marked;
+    [self endComposing];
+    ng_ios_type(done);
+}
+
+/* The document: the composition alone. */
+
+- (NSString*)textInRange:(UITextRange*)range {
+    AureaTextRange* r = (AureaTextRange*)range;
+    NSInteger from = MIN(MAX(r.from.index, 0), (NSInteger)_marked.length);
+    NSInteger to = MIN(MAX(r.to.index, from), (NSInteger)_marked.length);
+    return [_marked substringWithRange:NSMakeRange((NSUInteger)from, (NSUInteger)(to - from))];
+}
+
+- (void)replaceRange:(UITextRange*)range withText:(NSString*)text {
+    (void)range;
+    [self insertText:text];
+}
+
+- (UITextRange*)selectedTextRange {
+    return [AureaTextRange from:_caret to:_caret];
+}
+
+- (void)setSelectedTextRange:(UITextRange*)range {
+    _caret = ((AureaTextRange*)range).from.index;
+}
+
+- (UITextPosition*)beginningOfDocument {
+    return [AureaTextPosition at:0];
+}
+
+- (UITextPosition*)endOfDocument {
+    return [AureaTextPosition at:(NSInteger)_marked.length];
+}
+
+- (UITextRange*)textRangeFromPosition:(UITextPosition*)from toPosition:(UITextPosition*)to {
+    return [AureaTextRange from:((AureaTextPosition*)from).index to:((AureaTextPosition*)to).index];
+}
+
+- (UITextPosition*)positionFromPosition:(UITextPosition*)position offset:(NSInteger)offset {
+    NSInteger at = ((AureaTextPosition*)position).index + offset;
+    if (at < 0 || at > (NSInteger)_marked.length) return nil;
+    return [AureaTextPosition at:at];
+}
+
+- (UITextPosition*)positionFromPosition:(UITextPosition*)position
+                            inDirection:(UITextLayoutDirection)direction
+                                 offset:(NSInteger)offset {
+    BOOL back = direction == UITextLayoutDirectionLeft || direction == UITextLayoutDirectionUp;
+    return [self positionFromPosition:position offset:back ? -offset : offset];
+}
+
+- (NSComparisonResult)comparePosition:(UITextPosition*)position toPosition:(UITextPosition*)other {
+    NSInteger a = ((AureaTextPosition*)position).index, b = ((AureaTextPosition*)other).index;
+    return a < b ? NSOrderedAscending : a > b ? NSOrderedDescending : NSOrderedSame;
+}
+
+- (NSInteger)offsetFromPosition:(UITextPosition*)from toPosition:(UITextPosition*)to {
+    return ((AureaTextPosition*)to).index - ((AureaTextPosition*)from).index;
+}
+
+- (id<UITextInputTokenizer>)tokenizer {
+    return [[UITextInputStringTokenizer alloc] initWithTextInput:self];
+}
+
+- (UITextPosition*)positionWithinRange:(UITextRange*)range farthestInDirection:(UITextLayoutDirection)direction {
+    BOOL back = direction == UITextLayoutDirectionLeft || direction == UITextLayoutDirectionUp;
+    return back ? range.start : range.end;
+}
+
+- (UITextRange*)characterRangeByExtendingPosition:(UITextPosition*)position
+                                      inDirection:(UITextLayoutDirection)direction {
+    NSInteger at = ((AureaTextPosition*)position).index;
+    BOOL back = direction == UITextLayoutDirectionLeft || direction == UITextLayoutDirectionUp;
+    return [AureaTextRange from:at to:back ? MAX(at - 1, 0) : MIN(at + 1, (NSInteger)_marked.length)];
+}
+
+- (NSWritingDirection)baseWritingDirectionForPosition:(UITextPosition*)position
+                                          inDirection:(UITextStorageDirection)direction {
+    (void)position;
+    (void)direction;
+    return NSWritingDirectionNatural;
+}
+
+- (void)setBaseWritingDirection:(NSWritingDirection)direction forRange:(UITextRange*)range {
+    (void)direction;
+    (void)range;
+}
+
+/* Geometry: the app says where text is being typed with ng_ios_set_text_area, so candidate lists
+   show beside it. */
+
+- (CGRect)firstRectForRange:(UITextRange*)range {
+    (void)range;
+    return _area;
+}
+
+- (CGRect)caretRectForPosition:(UITextPosition*)position {
+    (void)position;
+    return CGRectMake(CGRectGetMaxX(_area), _area.origin.y, 2, _area.size.height);
+}
+
+- (NSArray<UITextSelectionRect*>*)selectionRectsForRange:(UITextRange*)range {
+    (void)range;
+    return @[];
+}
+
+- (UITextPosition*)closestPositionToPoint:(CGPoint)point {
+    (void)point;
+    return [self endOfDocument];
+}
+
+- (UITextPosition*)closestPositionToPoint:(CGPoint)point withinRange:(UITextRange*)range {
+    (void)point;
+    return range.end;
+}
+
+- (UITextRange*)characterRangeAtPoint:(CGPoint)point {
+    (void)point;
+    return nil;
+}
+
+/* Hardware keys go to the host's handler. */
 
 - (void)pressesBegan:(NSSet<UIPress*>*)presses withEvent:(UIPressesEvent*)event {
     NSSet<UIPress*>* rest = [g_view keys:presses pressed:1];
@@ -628,4 +850,11 @@ void ng_ios_show_keyboard(int show) {
 float ng_ios_keyboard_height(void) {
     AureaHostView* host = g_view;
     return host && host.keys.isFirstResponder ? (float)host.keyboardHeight : 0.0f;
+}
+
+void ng_ios_set_text_area(float x, float y, float width, float height) {
+    AureaHostView* host = g_view;
+    if (!host) return;
+    UIEdgeInsets safe = host.safeAreaInsets;
+    host.keys.area = CGRectMake(x + safe.left, y + safe.top, width, height);
 }
