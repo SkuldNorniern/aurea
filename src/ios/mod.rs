@@ -2,7 +2,7 @@
 //! mouse, two-finger scrolls and pinches as the wheel and [`WindowEvent::Magnify`]; see
 //! `crate::touch`.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::process::exit;
 use std::ptr::null;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -38,6 +38,9 @@ static WAKE: AtomicBool = AtomicBool::new(false);
 type Listener = Box<dyn FnMut(&WindowEvent)>;
 
 thread_local! {
+    /// The screen's scale and safe area as of the last frame, apart from `HOST` so the app can read
+    /// them while it draws.
+    static SCREEN: Cell<(f32, [f32; 4])> = const { Cell::new((1.0, [0.0; 4])) };
     static LISTENER: RefCell<Option<Listener>> = const { RefCell::new(None) };
     static NEXT_THEME: RefCell<Option<Theme>> = const { RefCell::new(None) };
     static HOST: RefCell<Host> = RefCell::new(Host {
@@ -91,6 +94,17 @@ fn hear(events: &[WindowEvent]) {
 /// animations and input already draw frames; this is for what they cannot see.
 pub fn request_frame() {
     WAKE.store(true, Ordering::Release);
+}
+
+/// The screen's pixels per point: 2 or 3 on current devices, 1 before the host draws a frame.
+pub fn scale() -> f32 {
+    SCREEN.get().0
+}
+
+/// The safe area's insets, left, top, right and bottom, in points. The app draws inside them: the
+/// UI's origin is the safe area's top left, and the width and height `run` passes are its size.
+pub fn safe_area() -> [f32; 4] {
+    SCREEN.get().1
 }
 
 /// Switches the theme from the next frame.
@@ -211,6 +225,7 @@ unsafe extern "C" fn frame(
             }
         }
         host.insets = [left, top, right, bottom].map(|v| v.max(0.0));
+        SCREEN.set((host.scale, host.insets));
         let Host {
             app: Some(app),
             theme,
