@@ -5,6 +5,7 @@
 #[cfg(target_os = "ios")]
 mod app {
     use aurea::ios::{on_event, run as run_app, set_theme};
+    use aurea::logger::init_from_env;
     use aurea::ui::{Align, Button, Checkbox, ProgressBar, Segmented, Slider, Theme, Toggle, Ui};
     use aurea::{AureaResult, PenPhase, PenSample, Point, Rect, WindowEvent};
     use std::cell::RefCell;
@@ -176,7 +177,7 @@ mod app {
 
     pub fn run() -> ! {
         // RUST_LOG=info shows, among others, whether it draws on the GPU.
-        let _ = aurea::logger::init_from_env();
+        let _ = init_from_env();
         let mut state = State {
             level: 0.6,
             look: 1,
