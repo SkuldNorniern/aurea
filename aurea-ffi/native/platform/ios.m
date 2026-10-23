@@ -4,6 +4,7 @@
 #import "ios/elements.h"
 #import "../common/errors.h"
 #import <UIKit/UIKit.h>
+#include <math.h>
 #include <string.h>
 
 int ng_platform_wheel_lines(void) {
@@ -143,6 +144,41 @@ NGHandle ng_platform_create_canvas(int width, int height) {
 
 void ng_platform_canvas_invalidate(NGHandle canvas) {
     if (canvas) [(__bridge UIView*)canvas setNeedsDisplay];
+}
+
+void ng_platform_canvas_invalidate_rect(NGHandle canvas, float x, float y, float width, float height) {
+    if (canvas) [(__bridge UIView*)canvas setNeedsDisplayInRect:CGRectMake(x, y, width, height)];
+}
+
+void ng_platform_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size, unsigned int width, unsigned int height) {
+    (void)canvas; (void)buffer; (void)size; (void)width; (void)height;
+}
+
+void* ng_platform_canvas_acquire_buffer(NGHandle canvas, unsigned int width, unsigned int height, unsigned int* stride_px, unsigned int* buffer_index) {
+    (void)canvas; (void)width; (void)height; (void)stride_px; (void)buffer_index;
+    return NULL;
+}
+
+void ng_platform_canvas_present(NGHandle canvas) {
+    (void)canvas;
+}
+
+void ng_platform_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int* height) {
+    CGSize size = canvas ? ((__bridge UIView*)canvas).bounds.size : CGSizeZero;
+    if (width) *width = (unsigned int)size.width;
+    if (height) *height = (unsigned int)size.height;
+}
+
+void ng_platform_canvas_get_pixel_size(NGHandle canvas, unsigned int* width, unsigned int* height) {
+    UIView* view = (__bridge UIView*)canvas;
+    CGFloat scale = view ? view.contentScaleFactor : 1.0;
+    CGSize size = view ? view.bounds.size : CGSizeZero;
+    if (width) *width = (unsigned int)lround(size.width * scale);
+    if (height) *height = (unsigned int)lround(size.height * scale);
+}
+
+NGHandle ng_platform_canvas_get_window(NGHandle canvas) {
+    return canvas ? (__bridge NGHandle)((__bridge UIView*)canvas).window : NULL;
 }
 
 NGHandle ng_platform_create_image_view(void) {
@@ -531,4 +567,219 @@ int ng_platform_color_dialog(NGHandle window, const char* title, unsigned int ar
 int ng_platform_window_set_cursor_rgba(NGHandle window, const unsigned char* rgba, unsigned int width, unsigned int height, unsigned int hot_x, unsigned int hot_y) {
     (void)window; (void)rgba; (void)width; (void)height; (void)hot_x; (void)hot_y;
     return NG_ERROR_UNSUPPORTED;
+}
+
+void ng_platform_destroy_element(NGHandle element) {
+    if (!element) return;
+    UIView* view = (__bridge_transfer UIView*)element;
+    if ([view isKindOfClass:[UIView class]]) [view removeFromSuperview];
+}
+
+void ng_platform_frame_idle(void) {
+}
+
+void ng_platform_request_frame(void) {
+}
+
+NGHandle ng_platform_create_window_with_type(const char* title, int width, int height, int window_type) {
+    (void)window_type;
+    return ng_platform_create_window(title, width, height);
+}
+
+NGHandle ng_platform_window_get_content_view(NGHandle window) {
+    if (!window) return NULL;
+    return (__bridge NGHandle)((__bridge UIWindow*)window).rootViewController.view;
+}
+
+void ng_platform_window_show(NGHandle window) {
+    if (window) ((__bridge UIWindow*)window).hidden = NO;
+}
+
+void ng_platform_window_hide(NGHandle window) {
+    if (window) ((__bridge UIWindow*)window).hidden = YES;
+}
+
+int ng_platform_window_is_visible(NGHandle window) {
+    return window && !((__bridge UIWindow*)window).hidden ? 1 : 0;
+}
+
+int ng_platform_window_set_hide_on_close(NGHandle window, int hide) {
+    (void)window; (void)hide;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_window_set_icon_rgba(NGHandle window, const unsigned char* rgba, unsigned int width, unsigned int height) {
+    (void)window; (void)rgba; (void)width; (void)height;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+void ng_platform_window_set_position(NGHandle window, int x, int y) {
+    (void)window; (void)x; (void)y;
+}
+
+void ng_platform_window_get_position(NGHandle window, int* x, int* y) {
+    (void)window;
+    if (x) *x = 0;
+    if (y) *y = 0;
+}
+
+int ng_platform_window_get_xcb_handle(NGHandle window, uint32_t* xcb_window, void** xcb_connection) {
+    (void)window; (void)xcb_window; (void)xcb_connection;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_window_get_wayland_handle(NGHandle window, void** surface, void** display) {
+    (void)window; (void)surface; (void)display;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+NGHandle ng_platform_create_tray(const char* tooltip, unsigned int click_id) {
+    (void)tooltip; (void)click_id;
+    return NULL;
+}
+
+void ng_platform_destroy_tray(NGHandle tray) {
+    (void)tray;
+}
+
+int ng_platform_tray_set_icon_rgba(NGHandle tray, const unsigned char* rgba, unsigned int width, unsigned int height) {
+    (void)tray; (void)rgba; (void)width; (void)height;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_tray_set_tooltip(NGHandle tray, const char* tooltip) {
+    (void)tray; (void)tooltip;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_tray_add_item(NGHandle tray, const char* title, unsigned int id) {
+    (void)tray; (void)title; (void)id;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_tray_notify(NGHandle tray, const char* title, const char* body) {
+    (void)tray; (void)title; (void)body;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_add_menu_separator(NGMenuHandle menu) {
+    (void)menu;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+void ng_platform_box_invalidate(NGHandle box) {
+    if (box) [(__bridge UIView*)box setNeedsLayout];
+}
+
+void ng_platform_image_view_invalidate(NGHandle image_view) {
+    if (image_view) [(__bridge UIView*)image_view setNeedsDisplay];
+}
+
+void ng_platform_slider_invalidate(NGHandle slider) {
+    if (slider) [(__bridge UIView*)slider setNeedsDisplay];
+}
+
+void ng_platform_checkbox_invalidate(NGHandle checkbox) {
+    if (checkbox) [(__bridge UIView*)checkbox setNeedsDisplay];
+}
+
+void ng_platform_combo_box_invalidate(NGHandle combo_box) {
+    if (combo_box) [(__bridge UIView*)combo_box setNeedsDisplay];
+}
+
+int ng_platform_detach_element(NGHandle element) {
+    if (!element) return NG_ERROR_INVALID_HANDLE;
+    UIView* view = (__bridge UIView*)element;
+    if (view.superview) {
+        CFRetain(element);
+        [view removeFromSuperview];
+    }
+    return NG_SUCCESS;
+}
+
+void ng_platform_element_released_to_parent(NGHandle element) {
+    if (element) CFRelease(element);
+}
+
+void ng_platform_element_retain(NGHandle element) {
+    if (element) CFRetain(element);
+}
+
+void ng_platform_element_release(NGHandle element) {
+    if (element) CFRelease(element);
+}
+
+NGHandle ng_platform_creation_parent(void) {
+    return NULL;
+}
+
+NGHandle ng_platform_create_split_view(int is_vertical) {
+    (void)is_vertical;
+    return NULL;
+}
+
+int ng_platform_split_view_add(NGHandle split_handle, NGHandle element) {
+    (void)split_handle; (void)element;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_split_view_set_divider_position(NGHandle split_handle, int index, float position) {
+    (void)split_handle; (void)index; (void)position;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+NGHandle ng_platform_create_text_field(void) {
+    return NULL;
+}
+
+void ng_platform_canvas_set_gpu_owned(NGHandle canvas, int gpu_owned) {
+    (void)canvas; (void)gpu_owned;
+}
+
+NGHandle ng_platform_canvas_get_native_handle(NGHandle canvas) {
+    return canvas;
+}
+
+int ng_platform_canvas_get_xcb_handle(NGHandle canvas, uint32_t* xcb_window, void** xcb_connection) {
+    (void)canvas; (void)xcb_window; (void)xcb_connection;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_canvas_get_wayland_handle(NGHandle canvas, void** surface, void** display) {
+    (void)canvas; (void)surface; (void)display;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+char* ng_platform_get_clipboard_text(void) {
+    NSString* text = [UIPasteboard generalPasteboard].string;
+    return text ? strdup(text.UTF8String) : NULL;
+}
+
+void ng_platform_free_clipboard_text(char* text) {
+    free(text);
+}
+
+int ng_platform_set_clipboard_text(const char* text) {
+    if (!text) return NG_ERROR_INVALID_PARAMETER;
+    [UIPasteboard generalPasteboard].string = [NSString stringWithUTF8String:text] ?: @"";
+    return NG_SUCCESS;
+}
+
+int ng_platform_clipboard_formats(size_t max_bytes, unsigned char** data, size_t* len) {
+    (void)max_bytes; (void)data; (void)len;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_clipboard_read(const char* format, size_t max_bytes, unsigned char** data, size_t* len) {
+    (void)format; (void)max_bytes; (void)data; (void)len;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_clipboard_write(const NGClipboardEntry* entries, size_t count) {
+    (void)entries; (void)count;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+void ng_platform_clipboard_free(unsigned char* data) {
+    free(data);
 }

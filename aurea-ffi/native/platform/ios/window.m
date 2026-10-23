@@ -115,3 +115,32 @@ void ng_ios_window_set_lifecycle_callback(NGHandle window) {
     
     ng_ios_set_lifecycle_callback_enabled(YES);
 }
+
+void ng_ios_window_set_title(NGHandle window, const char* title) {
+    if (!window) return;
+    UIWindow* uiWindow = (__bridge UIWindow*)window;
+    NSString* nsTitle = title ? [NSString stringWithUTF8String:title] : @"";
+    dispatch_async(dispatch_get_main_queue(), ^{
+        uiWindow.rootViewController.title = nsTitle;
+    });
+}
+
+// An iOS window always fills its screen; the app can't resize it.
+void ng_ios_window_set_size(NGHandle window, int width, int height) {
+    (void)window; (void)width; (void)height;
+}
+
+void ng_ios_window_get_size(NGHandle window, int* width, int* height) {
+    CGSize size = window ? ((__bridge UIWindow*)window).bounds.size : CGSizeZero;
+    if (width) *width = (int)size.width;
+    if (height) *height = (int)size.height;
+}
+
+// iOS apps don't close their own windows.
+void ng_ios_window_request_close(NGHandle window) {
+    (void)window;
+}
+
+int ng_ios_window_is_focused(NGHandle window) {
+    return window && ((__bridge UIWindow*)window).isKeyWindow ? 1 : 0;
+}
