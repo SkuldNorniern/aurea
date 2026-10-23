@@ -16,7 +16,9 @@ use crate::ffi::callbacks::event_time;
 use crate::render::{CanvasId, CpuRasterizer, Renderer, SurfaceInfo, register_host_canvas};
 use crate::touch::{Phase, Touches};
 use crate::ui::{Theme, Ui, UiState};
-use crate::{AureaResult, KeyCode, Modifiers, PenPhase, PenSample, PenTool, Point, WindowEvent};
+use crate::{
+    AureaResult, KeyCode, Modifiers, PenPhase, PenSample, PenTool, Point, Rect, WindowEvent,
+};
 use aurea_render::FrameOutcome;
 
 /// Draws the app's UI each frame, `width` x `height` logical pixels.
@@ -267,12 +269,14 @@ unsafe extern "C" fn frame(
     words: *mut *const u32,
     out_width: *mut u32,
     out_height: *mut u32,
+    damage: *mut u32,
 ) -> i32 {
-    // SAFETY: the host passes valid out pointers for the length of the call.
+    // SAFETY: the host passes valid out pointers for the length of the call, `damage` four words.
     unsafe {
         *words = null();
         *out_width = 0;
         *out_height = 0;
+        damage.write_bytes(0, 4);
     }
     settle_touches();
     HOST.with_borrow_mut(|host| {
@@ -334,10 +338,14 @@ unsafe extern "C" fn frame(
         // an unchanged frame keeps the layer's picture: no copy, no upload.
         if let (FrameOutcome::Presented, Some(out)) = (outcome, raster.frame_output()) {
             // SAFETY: as above; the words stay alive in the rasterizer until the next frame.
+            let changed = changed_pixels(raster.last_frame_damage(), out.width, out.height);
             unsafe {
                 *words = out.words().as_ptr();
                 *out_width = out.width;
                 *out_height = out.height;
+                for (i, v) in changed.into_iter().enumerate() {
+                    *damage.add(i) = v;
+                }
             }
         }
         if let Some(next) = NEXT_THEME.take() {
@@ -346,4 +354,18 @@ unsafe extern "C" fn frame(
         }
         i32::from(state.wants_frame())
     })
+}
+
+/// The part of a `width` x `height` frame that changed, as x, y, width and height in whole pixels;
+/// all of it when the rasterizer does not say.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn changed_pixels(damage: Option<Rect>, width: u32, height: u32) -> [u32; 4] {
+    let Some(r) = damage else {
+        return [0, 0, width, height];
+    };
+    let x0 = (r.x.floor().max(0.0) as u32).min(width);
+    let y0 = (r.y.floor().max(0.0) as u32).min(height);
+    let x1 = ((r.x + r.width).ceil().max(0.0) as u32).min(width);
+    let y1 = ((r.y + r.height).ceil().max(0.0) as u32).min(height);
+    [x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0)]
 }

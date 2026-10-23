@@ -4,6 +4,7 @@
 #import <QuartzCore/QuartzCore.h>
 #include <crt_externs.h>
 #include <math.h>
+#include <string.h>
 
 /* One Aurea UI filling the screen: the app draws each frame of its safe area into a pixel buffer,
    which becomes a sublayer's contents; the view's own colour fills the rest. A display link asks for frames while the UI wants them, and pauses when
@@ -14,12 +15,19 @@ static NGIosHost g_host;
 /* How many idle refreshes before the display link pauses: a quarter second at 120 Hz. */
 #define NG_IOS_IDLE_TICKS 30
 
+/* The side of a presented tile in pixels: a multiple of the rasterizer's 128 pixel tiles. */
+#define NG_IOS_TILE 256u
+
 @interface AureaHostView : UIView
 @property (strong) CADisplayLink* link;
 @property (assign) BOOL dirty;
 @property (assign) int idle;
 @property (strong) CALayer* content;
 @property (assign) uint32_t background;
+@property (strong) NSMutableArray<CALayer*>* tiles;
+@property (assign) unsigned gridWidth;
+@property (assign) unsigned gridHeight;
+@property (assign) CGFloat gridScale;
 - (void)wakeLink;
 - (void)markDirty;
 @end
@@ -33,8 +41,7 @@ static __weak AureaHostView* g_view;
     if (self) {
         self.multipleTouchEnabled = YES;
         _content = [CALayer layer];
-        _content.contentsGravity = kCAGravityTopLeft;
-        _content.magnificationFilter = kCAFilterNearest;
+        _tiles = [NSMutableArray array];
         [self.layer addSublayer:_content];
         _background = UINT32_MAX;
         _dirty = YES;
@@ -117,29 +124,73 @@ static __weak AureaHostView* g_view;
     UIEdgeInsets safe = self.safeAreaInsets;
     const uint32_t* words = NULL;
     unsigned out_w = 0, out_h = 0;
-    _dirty = g_host.frame(width, height, (float)scale, (float)safe.left, (float)safe.top,
-                          (float)safe.right, (float)safe.bottom, &words, &out_w, &out_h) != 0;
+    unsigned damage[4] = {0, 0, 0, 0};
+    _dirty = g_host.frame(width, height, (float)scale, (float)safe.left, (float)safe.top, (float)safe.right,
+                          (float)safe.bottom, &words, &out_w, &out_h, damage) != 0;
     [self paintBackground];
     if (!words || out_w == 0 || out_h == 0) return;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    _content.frame = CGRectMake(safe.left, safe.top, out_w / scale, out_h / scale);
+    [self present:words width:out_w height:out_h damage:damage scale:scale];
+    [CATransaction commit];
+}
 
-    /* The buffer is reused next frame, so the layer gets its own copy. */
-    CFDataRef pixels = CFDataCreate(NULL, (const UInt8*)words, (CFIndex)out_w * out_h * 4);
-    CGDataProviderRef data = CGDataProviderCreateWithCFData(pixels);
+/* The frame goes up in tiles, and only the tiles it changed get new pictures: a brush dab costs
+   its own few tiles rather than the whole screen. */
+- (void)present:(const uint32_t*)words
+          width:(unsigned)w
+         height:(unsigned)h
+         damage:(const unsigned*)damage
+          scale:(CGFloat)scale {
+    unsigned cols = (w + NG_IOS_TILE - 1) / NG_IOS_TILE;
+    unsigned rows = (h + NG_IOS_TILE - 1) / NG_IOS_TILE;
+    unsigned dx = damage[0], dy = damage[1], dw = damage[2], dh = damage[3];
+    if (w != _gridWidth || h != _gridHeight || fabs(scale - _gridScale) > 0.001) {
+        for (CALayer* tile in _tiles) [tile removeFromSuperlayer];
+        [_tiles removeAllObjects];
+        for (unsigned r = 0; r < rows; r++) {
+            for (unsigned c = 0; c < cols; c++) {
+                CALayer* tile = [CALayer layer];
+                unsigned tw = MIN(NG_IOS_TILE, w - c * NG_IOS_TILE), th = MIN(NG_IOS_TILE, h - r * NG_IOS_TILE);
+                tile.frame = CGRectMake(c * NG_IOS_TILE / scale, r * NG_IOS_TILE / scale, tw / scale, th / scale);
+                tile.contentsScale = scale;
+                tile.contentsGravity = kCAGravityTopLeft;
+                tile.magnificationFilter = kCAFilterNearest;
+                [_content addSublayer:tile];
+                [_tiles addObject:tile];
+            }
+        }
+        _gridWidth = w;
+        _gridHeight = h;
+        _gridScale = scale;
+        dx = 0, dy = 0, dw = w, dh = h;
+    }
+    if (dw == 0 || dh == 0) return;
     CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
-    CGImageRef image = CGImageCreate(out_w, out_h, 8, 32, (size_t)out_w * 4, space,
-                                     kCGBitmapByteOrder32Little | kCGImageAlphaNoneSkipFirst, data, NULL,
-                                     false, kCGRenderingIntentDefault);
-    if (image) {
-        [CATransaction begin];
-        [CATransaction setDisableActions:YES];
-        _content.frame = CGRectMake(safe.left, safe.top, out_w / scale, out_h / scale);
-        _content.contentsScale = scale;
-        _content.contents = (__bridge_transfer id)image;
-        [CATransaction commit];
+    unsigned c0 = dx / NG_IOS_TILE, c1 = MIN(cols, (dx + dw + NG_IOS_TILE - 1) / NG_IOS_TILE);
+    unsigned r0 = dy / NG_IOS_TILE, r1 = MIN(rows, (dy + dh + NG_IOS_TILE - 1) / NG_IOS_TILE);
+    for (unsigned r = r0; r < r1; r++) {
+        for (unsigned c = c0; c < c1; c++) {
+            unsigned x = c * NG_IOS_TILE, y = r * NG_IOS_TILE;
+            unsigned tw = MIN(NG_IOS_TILE, w - x), th = MIN(NG_IOS_TILE, h - y);
+            /* The buffer is reused next frame, so the tile gets its own copy of its rows. */
+            CFMutableDataRef pixels = CFDataCreateMutable(NULL, (CFIndex)tw * th * 4);
+            CFDataSetLength(pixels, (CFIndex)tw * th * 4);
+            UInt8* to = CFDataGetMutableBytePtr(pixels);
+            for (unsigned row = 0; row < th; row++) {
+                memcpy(to + (size_t)row * tw * 4, words + (size_t)(y + row) * w + x, (size_t)tw * 4);
+            }
+            CGDataProviderRef data = CGDataProviderCreateWithCFData(pixels);
+            CGImageRef image = CGImageCreate(tw, th, 8, 32, (size_t)tw * 4, space,
+                                             kCGBitmapByteOrder32Little | kCGImageAlphaNoneSkipFirst, data,
+                                             NULL, false, kCGRenderingIntentDefault);
+            if (image) _tiles[r * cols + c].contents = (__bridge_transfer id)image;
+            CGDataProviderRelease(data);
+            CFRelease(pixels);
+        }
     }
     CGColorSpaceRelease(space);
-    CGDataProviderRelease(data);
-    CFRelease(pixels);
 }
 
 /* Lean of the pen in degrees from the screen's normal, as PenSample reads it: positive x toward

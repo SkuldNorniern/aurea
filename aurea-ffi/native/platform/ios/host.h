@@ -27,11 +27,13 @@ extern "C" {
 
 /* The app side of the host. Sizes are physical pixels, insets and touches points. `frame` is given
    the whole view and its safe area, and draws only the safe area: `words` is that many pixels,
-   kept until the next call, or NULL when the picture has not changed. It returns nonzero when it
+   kept until the next call, or NULL when the picture has not changed. `damage` gets the x, y, width
+   and height of the pixels that changed. It returns nonzero when it
    wants another frame. Touches are relative to the view, not the safe area. */
 typedef struct NGIosHost {
     int (*frame)(unsigned width, unsigned height, float scale, float left, float top, float right,
-                 float bottom, const uint32_t** words, unsigned* out_width, unsigned* out_height);
+                 float bottom, const uint32_t** words, unsigned* out_width, unsigned* out_height,
+                 unsigned* damage);
     /* One finger or pencil touching: `id` tells the touches apart while they last, and `pencil`
        is nonzero for an Apple Pencil, whose samples also come through `pen`. */
     void (*touch)(int action, float x, float y, uintptr_t id, int pencil);
