@@ -119,6 +119,49 @@ mod gtk_tests {
 
     #[test]
     #[ignore = "creates native windows; run with --ignored"]
+    fn an_oversized_window_fits_its_work_area() -> AureaResult<()> {
+        #[repr(C)]
+        #[derive(Default)]
+        struct Area {
+            x: c_int,
+            y: c_int,
+            width: c_int,
+            height: c_int,
+        }
+        unsafe extern "C" {
+            fn gdk_display_get_default() -> *mut c_void;
+            fn gdk_display_get_monitor(display: *mut c_void, n: c_int) -> *mut c_void;
+            fn gdk_monitor_get_workarea(monitor: *mut c_void, area: *mut Area);
+        }
+        let mut window = Window::new("oversized", 20_000, 20_000)?;
+        let root = Stack::new(Orientation::Vertical)?;
+        let r = root.handle();
+        window.set_content(root)?;
+        settle(&window);
+        let mut work = Area::default();
+        unsafe {
+            gdk_monitor_get_workarea(
+                gdk_display_get_monitor(gdk_display_get_default(), 0),
+                &raw mut work,
+            )
+        };
+        let (w, h) = unsafe {
+            (
+                gtk_widget_get_allocated_width(r),
+                gtk_widget_get_allocated_height(r),
+            )
+        };
+        assert!(
+            w <= work.width && h <= work.height,
+            "{w}x{h} in {}x{}",
+            work.width,
+            work.height
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
     fn wrapped_labels_keep_the_window_height() -> AureaResult<()> {
         const LONG: &str = "Permission is hereby granted, free of charge, to any person obtaining a copy \
                             of this software and its documentation files.";

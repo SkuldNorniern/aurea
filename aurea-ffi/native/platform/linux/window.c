@@ -180,11 +180,25 @@ static void on_realize_uncompressed(GtkWidget* widget, gpointer data) {
     if (window) gdk_window_set_event_compression(window, FALSE);
 }
 
+/* A window asked bigger than the monitor's work area would hide its own edges. */
+static void ng_linux_fit_work_area(int* width, int* height) {
+    GdkDisplay* display = gdk_display_get_default();
+    if (!display) return;
+    GdkMonitor* monitor = gdk_display_get_primary_monitor(display);
+    if (!monitor && gdk_display_get_n_monitors(display) > 0) monitor = gdk_display_get_monitor(display, 0);
+    if (!monitor) return;
+    GdkRectangle work;
+    gdk_monitor_get_workarea(monitor, &work);
+    if (work.width > 0 && *width > work.width) *width = work.width;
+    if (work.height > 0 && *height > work.height) *height = work.height;
+}
+
 NGHandle ng_linux_create_window(const char* title, int width, int height) {
     if (!title) return NULL;
     
     GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(window), title);
+    ng_linux_fit_work_area(&width, &height);
     gtk_window_set_default_size(GTK_WINDOW(window), width, height);
 
     gtk_widget_add_events(

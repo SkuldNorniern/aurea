@@ -790,7 +790,19 @@ NGHandle ng_macos_create_window_with_type(const char* title, int width, int heig
     [windowDelegates setObject:delegate forKey:windowValue];
     
     [window setTitle:ng_macos_to_nsstring(title)];
-    
+
+    /* A window asked bigger than the screen's visible frame would hide its own edges. */
+    NSScreen* screen = window.screen ? window.screen : [NSScreen mainScreen];
+    if (screen) {
+        NSRect visible = screen.visibleFrame;
+        NSRect outer = window.frame;
+        if (outer.size.width > visible.size.width || outer.size.height > visible.size.height) {
+            outer.size.width = MIN(outer.size.width, visible.size.width);
+            outer.size.height = MIN(outer.size.height, visible.size.height);
+            [window setFrame:outer display:NO];
+        }
+    }
+
     if (!isSheet) {
         [window center];
     }

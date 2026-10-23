@@ -1955,6 +1955,51 @@ mod win32_dpi_tests {
     }
 
     #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn an_oversized_window_fits_its_work_area() -> AureaResult<()> {
+        #[repr(C)]
+        struct MonitorInfo {
+            size: u32,
+            monitor: Rect,
+            work: Rect,
+            flags: u32,
+        }
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn GetWindowRect(hwnd: *mut c_void, rect: *mut Rect) -> i32;
+            fn MonitorFromWindow(hwnd: *mut c_void, flags: u32) -> *mut c_void;
+            fn GetMonitorInfoW(monitor: *mut c_void, info: *mut MonitorInfo) -> i32;
+        }
+        const MONITOR_DEFAULTTONEAREST: u32 = 2;
+        let window = Window::new("oversized", 20_000, 20_000)?;
+        let mut info = MonitorInfo {
+            size: u32::try_from(size_of::<MonitorInfo>()).unwrap_or(0),
+            monitor: Rect::default(),
+            work: Rect::default(),
+            flags: 0,
+        };
+        let mut outer = Rect::default();
+        unsafe {
+            GetMonitorInfoW(
+                MonitorFromWindow(window.handle, MONITOR_DEFAULTTONEAREST),
+                &mut info,
+            );
+            GetWindowRect(window.handle, &mut outer);
+        }
+        let work = info.work;
+        assert!(
+            outer.left >= work.left
+                && outer.top >= work.top
+                && outer.right <= work.right
+                && outer.bottom <= work.bottom,
+            "{:?} outside {:?}",
+            (outer.left, outer.top, outer.right, outer.bottom),
+            (work.left, work.top, work.right, work.bottom)
+        );
+        Ok(())
+    }
+
+    #[test]
     #[ignore = "needs a 150% monitor; run with --ignored"]
     fn an_odd_minimum_reads_back_at_150_percent() -> AureaResult<()> {
         let window = Window::new("odd minimum", 320, 240)?;

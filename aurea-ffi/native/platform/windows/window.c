@@ -65,6 +65,28 @@ static int ng_windows_unscale(HWND hwnd, int device) {
     if (device <= 0) return 0;
     return (int)(((long long)device * 96 + dpi - 1) / dpi);
 }
+/* A window asked bigger than its monitor's work area would hide its own edges. */
+static void ng_windows_fit_work_area(HWND hwnd) {
+    MONITORINFO info = {sizeof(info)};
+    RECT r;
+    if (!GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &info) ||
+        !GetWindowRect(hwnd, &r)) {
+        return;
+    }
+    RECT work = info.rcWork;
+    int w = r.right - r.left, h = r.bottom - r.top;
+    if (w > work.right - work.left) w = work.right - work.left;
+    if (h > work.bottom - work.top) h = work.bottom - work.top;
+    int x = r.left, y = r.top;
+    if (x + w > work.right) x = work.right - w;
+    if (y + h > work.bottom) y = work.bottom - h;
+    if (x < work.left) x = work.left;
+    if (y < work.top) y = work.top;
+    if (x != r.left || y != r.top || w != r.right - r.left || h != r.bottom - r.top) {
+        SetWindowPos(hwnd, NULL, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+}
+
 NGHandle ng_windows_create_window(const char* title, int width, int height) {
     if (!title) return NULL;
     
@@ -87,6 +109,7 @@ NGHandle ng_windows_create_window(const char* title, int width, int height) {
     
     if (hwnd) {
         ng_windows_set_client_size(hwnd, width, height, 0);
+        ng_windows_fit_work_area(hwnd);
         ng_windows_accept_drops(hwnd);
         ShowWindow(hwnd, SW_SHOW);
         UpdateWindow(hwnd);
@@ -155,6 +178,7 @@ NGHandle ng_windows_create_window_with_type(const char* title, int width, int he
 
     if (hwnd) {
         ng_windows_set_client_size(hwnd, width, height, 0);
+        ng_windows_fit_work_area(hwnd);
         ng_windows_accept_drops(hwnd);
         ShowWindow(hwnd, SW_SHOW);
         UpdateWindow(hwnd);
