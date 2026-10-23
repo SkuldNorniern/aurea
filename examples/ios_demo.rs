@@ -1,7 +1,7 @@
 //! A small Aurea app for the iOS sample in `mobile/ios/`: counter, slider, toggles, and a pad that
 //! draws with Apple Pencil pressure, with Type for the on-screen keyboard and Open for the document
-//! picker. The top right line shows the last key, text, pinch, lifecycle event or picked file it
-//! heard. The sample's `main` calls [`aurea_main`].
+//! picker. The top right line shows the last key, text, pinch, pencil tap, lifecycle event or picked
+//! file it heard. The sample's `main` calls [`aurea_main`].
 
 #[cfg(target_os = "ios")]
 mod app {
@@ -81,6 +81,10 @@ mod app {
             WindowEvent::Minimized => "background".to_owned(),
             WindowEvent::Restored => "foreground".to_owned(),
             WindowEvent::MemoryWarning => "memory warning".to_owned(),
+            WindowEvent::PenTap { squeeze, action } => {
+                let what = if *squeeze { "squeeze" } else { "double tap" };
+                format!("pencil {what}: {action:?}")
+            }
             _ => return None,
         })
     }
