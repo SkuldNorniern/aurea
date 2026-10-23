@@ -20,7 +20,7 @@ static NGIosHost g_host;
 
 @class AureaKeyInput;
 
-@interface AureaHostView : UIView
+@interface AureaHostView : UIView <UIPencilInteractionDelegate>
 @property (strong) CADisplayLink* link;
 @property (assign) BOOL dirty;
 @property (assign) int idle;
@@ -338,6 +338,11 @@ static void ng_ios_type(NSString* text) {
         _background = UINT32_MAX;
         _dirty = YES;
         g_view = self;
+        if (@available(iOS 12.1, *)) {
+            UIPencilInteraction* pencil = [[UIPencilInteraction alloc] init];
+            pencil.delegate = self;
+            [self addInteraction:pencil];
+        }
         _keys = [[AureaKeyInput alloc] initWithFrame:CGRectMake(0, 0, 1, 1)];
         _keys.hidden = YES;
         [self addSubview:_keys];
@@ -652,6 +657,50 @@ static uint32_t ng_ios_modifiers(UIKeyModifierFlags flags) {
     NSSet<UIPress*>* rest = [self keys:presses pressed:0];
     if (rest.count) [super pressesCancelled:rest withEvent:event];
 }
+
+/* What the user set a pencil gesture to do, as PenTapAction codes: palettes of any kind are one,
+   and system shortcuts another. Compared as numbers, since the later actions are newer than the
+   oldest iOS this builds for. */
+static int ng_ios_pen_action(long action) {
+    switch (action) {
+        case 0: return 0;
+        case 1: return 1;
+        case 2: return 2;
+        case 3: case 4: case 5: return 3;
+        default: return 4;
+    }
+}
+
+- (void)penTap:(int)squeeze action:(long)action {
+    if (g_host.pen_tap) g_host.pen_tap(squeeze, ng_ios_pen_action(action));
+    [self markDirty];
+}
+
+/* A double tap on an Apple Pencil's flat side. */
+- (void)pencilInteraction:(UIPencilInteraction*)interaction
+            didReceiveTap:(UIPencilInteractionTap*)tap API_AVAILABLE(ios(17.5)) {
+    (void)interaction;
+    (void)tap;
+    [self penTap:0 action:(long)UIPencilInteraction.preferredTapAction];
+}
+
+/* A squeeze of a Pencil Pro, once it lets go. */
+- (void)pencilInteraction:(UIPencilInteraction*)interaction
+        didReceiveSqueeze:(UIPencilInteractionSqueeze*)squeeze API_AVAILABLE(ios(17.5)) {
+    (void)interaction;
+    if (squeeze.phase != UIPencilInteractionPhaseEnded) return;
+    [self penTap:1 action:(long)UIPencilInteraction.preferredSqueezeAction];
+}
+
+/* Before iOS 17.5 a tap comes here; later ones come above instead. */
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#pragma clang diagnostic ignored "-Wdeprecated-implementations"
+- (void)pencilInteractionDidTap:(UIPencilInteraction*)interaction API_AVAILABLE(ios(12.1)) {
+    (void)interaction;
+    [self penTap:0 action:(long)UIPencilInteraction.preferredTapAction];
+}
+#pragma clang diagnostic pop
 
 /* A pencil held over the screen, on iPads that sense it. */
 - (void)hovered:(UIHoverGestureRecognizer*)hover API_AVAILABLE(ios(13.0)) {

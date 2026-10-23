@@ -31,7 +31,8 @@ use crate::render::{CanvasId, CpuRasterizer, Renderer, SurfaceInfo, register_hos
 use crate::touch::{Phase, Touches};
 use crate::ui::{Theme, Ui, UiState};
 use crate::{
-    AureaResult, KeyCode, Modifiers, PenPhase, PenSample, PenTool, Point, Rect, WindowEvent,
+    AureaResult, KeyCode, Modifiers, PenPhase, PenSample, PenTapAction, PenTool, Point, Rect,
+    WindowEvent,
 };
 #[cfg(feature = "zengpu")]
 use crate::{
@@ -161,6 +162,7 @@ pub fn run(
         lifecycle,
         key,
         preedit,
+        pen_tap,
     };
     exit(unsafe { ng_ios_run_host(host) })
 }
@@ -349,6 +351,16 @@ unsafe extern "C" fn preedit(text: *const c_char, cursor: c_int) {
     let event = WindowEvent::ImePreedit {
         text,
         cursor: usize::try_from(cursor).ok(),
+    };
+    HOST.with_borrow_mut(|host| host.state.handle(&event));
+    hear(&[event]);
+}
+
+/// An Apple Pencil double tap or Pencil Pro squeeze.
+unsafe extern "C" fn pen_tap(squeeze: c_int, action: c_int) {
+    let event = WindowEvent::PenTap {
+        squeeze: squeeze != 0,
+        action: PenTapAction::from_raw(u32::try_from(action).unwrap_or(u32::MAX)),
     };
     HOST.with_borrow_mut(|host| host.state.handle(&event));
     hear(&[event]);

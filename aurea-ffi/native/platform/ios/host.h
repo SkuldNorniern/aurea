@@ -55,6 +55,9 @@ typedef struct NGIosHost {
     /* Text an input method is composing (UTF-8, empty when it stops) and the cursor in it in
        bytes, -1 for none. */
     void (*preedit)(const char* text, int cursor);
+    /* An Apple Pencil double tap, or a Pencil Pro squeeze, with what the user set it to do as a
+       PenTapAction code. */
+    void (*pen_tap)(int squeeze, int action);
 } NGIosHost;
 
 /* Runs UIKit with the host filling the screen; doesn't return. */
