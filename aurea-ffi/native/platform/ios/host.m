@@ -545,6 +545,12 @@ static double ng_ios_age(NSTimeInterval timestamp) {
                                                                          : phase;
         [self pen:at touch:sample];
     }
+    /* Where it will likely go next, while it is down, for the stroke to seem to keep up. */
+    if (phase == NG_IOS_PEN_DOWN || phase == NG_IOS_PEN_MOVE) {
+        for (UITouch* ahead in [event predictedTouchesForTouch:touch]) {
+            [self pen:NG_IOS_PEN_PREDICTED touch:ahead];
+        }
+    }
 }
 
 - (void)send:(int)action touches:(NSSet<UITouch*>*)touches event:(UIEvent*)event {

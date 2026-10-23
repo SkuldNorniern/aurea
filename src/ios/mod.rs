@@ -114,6 +114,9 @@ impl Host {
 /// Whether the host may draw on the GPU; see [`use_gpu`].
 static GPU_WANTED: AtomicBool = AtomicBool::new(true);
 
+/// The pen phase code the host uses for a predicted sample; see `host.h`.
+const NG_IOS_PEN_PREDICTED: i32 = 4;
+
 /// Set from any thread by [`request_frame`]; the display link polls it.
 static WAKE: AtomicBool = AtomicBool::new(false);
 
@@ -169,7 +172,8 @@ pub fn run(
 }
 
 /// Calls `listener` with each touch, as mouse events, and each Apple Pencil sample, as
-/// [`WindowEvent::Pen`] with pressure and tilt, the way a desktop window reports a pen. It also
+/// [`WindowEvent::Pen`] with pressure and tilt, the way a desktop window reports a pen, with the
+/// samples iOS predicts ahead of it as [`WindowEvent::PenPredicted`]. It also
 /// hears the app's lifecycle: focus, [`WindowEvent::Minimized`] on going to the background (save
 /// there; iOS may stop the app after), and [`WindowEvent::MemoryWarning`]. The next frame is drawn
 /// after each.
@@ -419,7 +423,7 @@ unsafe extern "C" fn pen(
 ) {
     let event = HOST.with_borrow_mut(|host| {
         let [left, top, ..] = host.insets;
-        let event = WindowEvent::Pen(PenSample {
+        let sample = PenSample {
             x: x - f64::from(left),
             y: y - f64::from(top),
             pressure: pressure.clamp(0.0, 1.0),
@@ -431,7 +435,15 @@ unsafe extern "C" fn pen(
             barrel: false,
             modifiers: Modifiers::default(),
             time: event_time(age),
-        });
+        };
+        // a predicted sample is ahead of the pen; the UI waits for the real one.
+        if phase == NG_IOS_PEN_PREDICTED {
+            return WindowEvent::PenPredicted(PenSample {
+                phase: PenPhase::Move,
+                ..sample
+            });
+        }
+        let event = WindowEvent::Pen(sample);
         host.state.handle(&event);
         event
     });
