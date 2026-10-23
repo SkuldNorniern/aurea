@@ -73,7 +73,7 @@ static void tab_bar_layout(HWND bar) {
     for (int i = 0; i < data->count; i++) {
         HWND btn = tab_button(bar, i);
         int w = tab_width(btn);
-        SetWindowPos(btn, NULL, x, 0, w, client.bottom, SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(btn, NULL, x, 0, w, client.bottom, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS);
         x += w;
     }
 }

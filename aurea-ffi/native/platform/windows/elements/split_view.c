@@ -65,12 +65,12 @@ static void split_view_layout(HWND hwnd, SplitViewData* data) {
         SetWindowPos(data->child1, NULL, 0, 0, width, pos,
                      SWP_NOZORDER | SWP_NOACTIVATE);
         SetWindowPos(data->child2, NULL, 0, pos + bar, width, height - pos - bar,
-                     SWP_NOZORDER | SWP_NOACTIVATE);
+                     SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS);
     } else {
         SetWindowPos(data->child1, NULL, 0, 0, pos, height,
                      SWP_NOZORDER | SWP_NOACTIVATE);
         SetWindowPos(data->child2, NULL, pos + bar, 0, width - pos - bar, height,
-                     SWP_NOZORDER | SWP_NOACTIVATE);
+                     SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS);
     }
 }
 

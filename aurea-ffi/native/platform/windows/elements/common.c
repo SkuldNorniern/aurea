@@ -843,7 +843,8 @@ void layout_box_children(HWND box) {
         }
         RECT was;
         GetClientRect(c->hwnd, &was);
-        SetWindowPos(c->hwnd, NULL, x, y, w, h, SWP_NOZORDER | SWP_SHOWWINDOW);
+        /* Copied bits land on siblings not yet moved, and the next move carries them along. */
+        SetWindowPos(c->hwnd, NULL, x, y, w, h, SWP_NOZORDER | SWP_SHOWWINDOW | SWP_NOCOPYBITS);
 
         if (is_box(c->hwnd)) {
             if (was.right == w && was.bottom == h) layout_box_children(c->hwnd);
