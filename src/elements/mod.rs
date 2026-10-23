@@ -119,6 +119,26 @@ mod gtk_tests {
 
     #[test]
     #[ignore = "creates native windows; run with --ignored"]
+    fn wrapped_labels_keep_the_window_height() -> AureaResult<()> {
+        const LONG: &str = "Permission is hereby granted, free of charge, to any person obtaining a copy \
+                            of this software and its documentation files.";
+        let mut window = Window::new("labels", 600, 300)?;
+        let mut root = Stack::new(Orientation::Vertical)?;
+        let mut later = Label::new("short")?;
+        later.set_text(LONG)?;
+        root.add(later)?;
+        for _ in 0..2 {
+            root.add(Label::new(LONG)?)?;
+        }
+        let r = root.handle();
+        window.set_content(root)?;
+        settle(&window);
+        assert_eq!(unsafe { gtk_widget_get_allocated_height(r) }, 300);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
     fn a_scroll_bar_follows_its_policy() -> AureaResult<()> {
         unsafe extern "C" {
             fn gtk_scrolled_window_get_policy(scroll: *mut c_void, h: *mut c_int, v: *mut c_int);
