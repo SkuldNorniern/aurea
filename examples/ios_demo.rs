@@ -34,12 +34,23 @@ mod app {
         strokes: Vec<Vec<(Point, f32)>>,
         drawing: bool,
         last: Option<PenSample>,
+        /// Where iOS thinks the pen goes next: drawn faintly, dropped at the next real sample.
+        ahead: Vec<(Point, f32)>,
         /// Whether the on-screen keyboard is up.
         typing: bool,
     }
 
     impl Sketch {
+        fn predicted(&mut self, sample: PenSample) {
+            if self.drawing {
+                #[allow(clippy::cast_possible_truncation)]
+                let at = Point::new(sample.x as f32, sample.y as f32);
+                self.ahead.push((at, 1.0 + sample.pressure * 9.0));
+            }
+        }
+
         fn pen(&mut self, sample: PenSample) {
+            self.ahead.clear();
             #[allow(clippy::cast_possible_truncation)]
             let at = Point::new(sample.x as f32, sample.y as f32);
             let width = 1.0 + sample.pressure * 9.0;
@@ -163,6 +174,16 @@ mod app {
                 ui.circle(b, width / 2.0, p.text)?;
             }
         }
+        // the predicted tail, from the stroke's end.
+        let end = sketch.strokes.last().and_then(|s| s.last().copied());
+        let tail: Vec<_> = end
+            .into_iter()
+            .chain(sketch.ahead.iter().copied())
+            .collect();
+        for pair in tail.windows(2) {
+            let ((a, wa), (b, wb)) = (pair[0], pair[1]);
+            ui.line(a, b, (wa + wb) / 2.0, p.dim)?;
+        }
         Ok(())
     }
 
@@ -236,6 +257,8 @@ mod app {
         on_event(move |event| {
             if let WindowEvent::Pen(sample) = event {
                 pen.borrow_mut().pen(*sample);
+            } else if let WindowEvent::PenPredicted(sample) = event {
+                pen.borrow_mut().predicted(*sample);
             } else if let Some(text) = heard(event) {
                 *shown.borrow_mut() = text;
             }
