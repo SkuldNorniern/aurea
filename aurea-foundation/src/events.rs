@@ -33,6 +33,10 @@ pub enum WindowEvent {
     Minimized,
     /// The window was restored from minimized.
     Restored,
+    /// Where the pen will likely be next, ahead of its real samples, on systems that predict it
+    /// (iOS). Draw it as a provisional tail of the stroke and drop it at the next [`Self::Pen`]:
+    /// the stroke then seems to keep up with the pen.
+    PenPredicted(PenSample),
     /// A pen's own gesture: a double tap on an Apple Pencil, or a squeeze of a Pencil Pro.
     PenTap {
         /// A squeeze rather than a tap.
