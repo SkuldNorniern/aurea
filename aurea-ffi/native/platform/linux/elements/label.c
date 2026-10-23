@@ -15,6 +15,8 @@ static void keep_short_lines(GtkLabel* label, const char* text) {
         if (run > longest) longest = run;
     }
     gtk_label_set_width_chars(label, (gint)MIN(longest, LABEL_MIN_CHARS));
+    /* An empty label is a spacer; screen readers skip a filler. */
+    atk_object_set_role(gtk_widget_get_accessible(GTK_WIDGET(label)), *text ? ATK_ROLE_LABEL : ATK_ROLE_FILLER);
 }
 
 NGHandle ng_linux_create_label(const char* text) {

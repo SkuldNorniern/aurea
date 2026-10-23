@@ -243,6 +243,26 @@ mod gtk_tests {
 
     #[test]
     #[ignore = "creates native windows; run with --ignored"]
+    fn screen_readers_skip_empty_labels() -> AureaResult<()> {
+        unsafe extern "C" {
+            fn gtk_widget_get_accessible(widget: *mut c_void) -> *mut c_void;
+            fn atk_object_get_role(object: *mut c_void) -> c_int;
+        }
+        const ATK_ROLE_FILLER: c_int = 20;
+        const ATK_ROLE_LABEL: c_int = 28;
+        let role =
+            |widget: *mut c_void| unsafe { atk_object_get_role(gtk_widget_get_accessible(widget)) };
+        let _window = Window::new("spacers", 300, 200)?;
+        let spacer = Spacer::new()?;
+        assert_eq!(role(spacer.handle()), ATK_ROLE_FILLER);
+        let mut label = Label::new("")?;
+        label.set_text("shown")?;
+        assert_eq!(role(label.handle()), ATK_ROLE_LABEL);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
     fn a_scroll_view_reveals_the_focused_control() -> AureaResult<()> {
         unsafe extern "C" {
             fn gtk_scrolled_window_get_vadjustment(scroll: *mut c_void) -> *mut c_void;
