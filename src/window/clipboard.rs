@@ -1,8 +1,8 @@
-//! Desktop clipboard text, RGBA8 images and application byte formats.
+//! Clipboard text, RGBA8 images and application byte formats, on the desktop and iOS.
 
 use crate::Platform;
 use crate::ffi::{RawClipboardEntry, c_text};
-#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "ios"))]
 use crate::ffi::{
     ng_platform_clipboard_formats, ng_platform_clipboard_free, ng_platform_clipboard_read,
     ng_platform_clipboard_write,
@@ -15,7 +15,7 @@ use crate::{AureaError, AureaResult};
 use std::collections::HashSet;
 use std::ffi::{CStr, CString};
 use std::str;
-#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "ios"))]
 use std::{ptr, slice};
 
 mod image;
@@ -35,12 +35,12 @@ pub const READ_LIMIT_EXCEEDED: i32 = -6;
 /// Windows reports this while another process has the clipboard open.
 pub const CLIPBOARD_BUSY: i32 = -7;
 
-#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "ios"))]
 struct NativeBytes(*mut u8);
-#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "ios"))]
 impl Drop for NativeBytes {
     fn drop(&mut self) {
-        #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+        #[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "ios"))]
         unsafe {
             ng_platform_clipboard_free(self.0);
         }
@@ -48,7 +48,7 @@ impl Drop for NativeBytes {
 }
 
 fn native_bytes(format: Option<&CStr>, max_bytes: usize) -> AureaResult<Option<Vec<u8>>> {
-    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "ios"))]
     {
         let mut buffer = NativeBytes(ptr::null_mut());
         let mut len = 0;
@@ -73,7 +73,7 @@ fn native_bytes(format: Option<&CStr>, max_bytes: usize) -> AureaResult<Option<V
         data.extend_from_slice(unsafe { slice::from_raw_parts(buffer.0, len) });
         Ok(Some(data))
     }
-    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos", target_os = "ios")))]
     {
         let _ = (format, max_bytes);
         status(-5)?;
@@ -104,11 +104,11 @@ fn format_name(format: &str) -> AureaResult<CString> {
 /// Clears all clipboard representations on the UI thread.
 pub fn clear_clipboard() -> AureaResult<()> {
     ui_thread::check("clear_clipboard");
-    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "ios"))]
     {
         status(unsafe { ng_platform_clipboard_write(ptr::null(), 0) })
     }
-    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos", target_os = "ios")))]
     {
         status(-5)
     }
@@ -148,11 +148,11 @@ pub fn set_clipboard_data(items: &[ClipboardData<'_>]) -> AureaResult<()> {
             len: item.bytes.len(),
         })
         .collect();
-    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "ios"))]
     {
         status(unsafe { ng_platform_clipboard_write(entries.as_ptr(), entries.len()) })
     }
-    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos", target_os = "ios")))]
     {
         let _ = entries;
         status(-5)

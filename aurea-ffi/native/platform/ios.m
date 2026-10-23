@@ -3,6 +3,7 @@
 #import "ios/window.h"
 #import "ios/elements.h"
 #import "../common/errors.h"
+#import "../common/clipboard.h"
 #import <UIKit/UIKit.h>
 #include <math.h>
 #include <string.h>
@@ -765,19 +766,70 @@ int ng_platform_set_clipboard_text(const char* text) {
     return NG_SUCCESS;
 }
 
+/* Clipboard formats are MIME-style names for images and the app's own type names otherwise; iOS
+   calls a PNG `public.png`. */
+static NSString* ng_ios_pasteboard_type(const char* format) {
+    if (!strcmp(format, "image/png")) return @"public.png";
+    return [NSString stringWithUTF8String:format];
+}
+
 int ng_platform_clipboard_formats(size_t max_bytes, unsigned char** data, size_t* len) {
-    (void)max_bytes; (void)data; (void)len;
-    return NG_ERROR_UNSUPPORTED;
+    @autoreleasepool {
+        int result = NG_SUCCESS;
+        for (NSString* type in [UIPasteboard generalPasteboard].pasteboardTypes) {
+            const char* name = [type isEqualToString:@"public.png"] ? "image/png" : type.UTF8String;
+            if (name && (result = ng_clipboard_append(data, len, name, max_bytes))) break;
+        }
+        return result;
+    }
 }
 
 int ng_platform_clipboard_read(const char* format, size_t max_bytes, unsigned char** data, size_t* len) {
-    (void)format; (void)max_bytes; (void)data; (void)len;
-    return NG_ERROR_UNSUPPORTED;
+    @autoreleasepool {
+        if (!format) return NG_ERROR_INVALID_PARAMETER;
+        NSString* type = ng_ios_pasteboard_type(format);
+        if (!type) return NG_ERROR_INVALID_PARAMETER;
+        UIPasteboard* clipboard = [UIPasteboard generalPasteboard];
+        NSData* bytes = [clipboard dataForPasteboardType:type];
+        /* A picture copied as JPEG or HEIC still pastes as PNG. */
+        if (!bytes && !strcmp(format, "image/png") && clipboard.hasImages) {
+            UIImage* image = clipboard.image;
+            if (image) {
+                CGImageRef pixels = image.CGImage;
+                if (pixels && CGImageGetHeight(pixels) &&
+                    CGImageGetWidth(pixels) > max_bytes / 4 / CGImageGetHeight(pixels)) {
+                    return NG_ERROR_LIMIT_EXCEEDED;
+                }
+                bytes = UIImagePNGRepresentation(image);
+            }
+        }
+        if (!bytes) return NG_SUCCESS;
+        if (bytes.length > max_bytes) return NG_ERROR_LIMIT_EXCEEDED;
+        unsigned char* copy = (unsigned char*)malloc(bytes.length ? bytes.length : 1);
+        if (!copy) return NG_ERROR_PLATFORM_SPECIFIC;
+        if (bytes.length) memcpy(copy, bytes.bytes, bytes.length);
+        *data = copy;
+        *len = bytes.length;
+        return NG_SUCCESS;
+    }
 }
 
 int ng_platform_clipboard_write(const NGClipboardEntry* entries, size_t count) {
-    (void)entries; (void)count;
-    return NG_ERROR_UNSUPPORTED;
+    @autoreleasepool {
+        UIPasteboard* clipboard = [UIPasteboard generalPasteboard];
+        if (!count) {
+            clipboard.items = @[];
+            return NG_SUCCESS;
+        }
+        NSMutableDictionary<NSString*, id>* item = [NSMutableDictionary dictionary];
+        for (size_t i = 0; i < count; ++i) {
+            NSString* type = entries[i].format ? ng_ios_pasteboard_type(entries[i].format) : nil;
+            if (!type || (entries[i].len && !entries[i].data) || item[type]) return NG_ERROR_INVALID_PARAMETER;
+            item[type] = [NSData dataWithBytes:entries[i].data length:entries[i].len];
+        }
+        clipboard.items = @[ item ];
+        return NG_SUCCESS;
+    }
 }
 
 void ng_platform_clipboard_free(unsigned char* data) {
