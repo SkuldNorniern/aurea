@@ -18,6 +18,8 @@ compile_error!(
 
 #[cfg(target_os = "android")]
 pub mod android;
+#[cfg(target_os = "ios")]
+pub mod ios;
 
 pub use aurea_animation as animation;
 

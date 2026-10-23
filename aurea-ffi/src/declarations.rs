@@ -11,6 +11,32 @@ pub struct RawClipboardEntry {
     pub len: usize,
 }
 
+/// The app side of the iOS host; see `native/platform/ios/host.h`.
+#[cfg(target_os = "ios")]
+#[repr(C)]
+pub struct NGIosHost {
+    pub frame: unsafe extern "C" fn(
+        width: u32,
+        height: u32,
+        scale: f32,
+        left: f32,
+        top: f32,
+        right: f32,
+        bottom: f32,
+        words: *mut *const u32,
+        out_width: *mut u32,
+        out_height: *mut u32,
+    ) -> i32,
+    pub touch: unsafe extern "C" fn(action: i32, x: f32, y: f32),
+    pub light_theme: unsafe extern "C" fn() -> i32,
+}
+
+#[cfg(target_os = "ios")]
+#[allow(clippy::missing_safety_doc, dead_code)]
+unsafe extern "C" {
+    pub fn ng_ios_run_host(host: NGIosHost) -> i32;
+}
+
 #[cfg(target_os = "android")]
 #[allow(clippy::missing_safety_doc, dead_code)]
 unsafe extern "C" {

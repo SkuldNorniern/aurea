@@ -106,6 +106,7 @@ fn main() {
         "native/platform/ios/view_controller.m",
         "native/platform/ios/window.m",
         "native/platform/ios/utils.m",
+        "native/platform/ios/host.m",
         "native/platform/ios/elements/button.m",
         "native/platform/ios/elements/label.m",
         "native/platform/ios/elements/box.m",
