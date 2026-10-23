@@ -72,6 +72,8 @@ int get_box_orientation(HWND box);
 int is_box(HWND hwnd);
 /* The font Windows uses for message boxes and dialogs, Segoe UI on current versions, at the DPI of the monitor `hwnd` is on. */
 HFONT ng_windows_ui_font(HWND hwnd);
+/* WM_SETFONT, except a RichEdit keeps the face, size, colour and weight the app gave it since. */
+void ng_windows_set_font(HWND hwnd, HFONT font, BOOL redraw, BOOL keep_format);
 /* A fixed-width face for source text, at the DPI `hwnd` is on, kept up to date the same way. */
 HFONT ng_windows_mono_font(HWND hwnd);
 /* The UI font in one of the NG_TEXT_STYLE_* styles, at the DPI `hwnd` is on. */

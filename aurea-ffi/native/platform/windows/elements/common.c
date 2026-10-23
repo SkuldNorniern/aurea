@@ -144,12 +144,96 @@ static int ng_windows_font_kind(HFONT font) {
     return -1;
 }
 
+typedef struct {
+    LONG height;
+    DWORD effects;
+    COLORREF color;
+    WCHAR face[LF_FACESIZE];
+} RichBase;
+
+#define RICH_BASE_PROP "AureaRichBase"
+#define RICH_BASE_SUBCLASS_ID 0xF0
+
+static LRESULT CALLBACK rich_base_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                       UINT_PTR id, DWORD_PTR data) {
+    if (msg == WM_NCDESTROY) {
+        free((RichBase*)data);
+        RemovePropA(hwnd, RICH_BASE_PROP);
+        ng_windows_remove_subclass(hwnd, rich_base_proc, id);
+    }
+    return ng_windows_def_subclass(hwnd, msg, wParam, lParam);
+}
+
+static void rich_default(HWND hwnd, CHARFORMAT2W* format) {
+    memset(format, 0, sizeof(*format));
+    format->cbSize = sizeof(*format);
+    SendMessageW(hwnd, EM_GETCHARFORMAT, SCF_DEFAULT, (LPARAM)format);
+}
+
+#define RICH_WEIGHT (CFE_BOLD | CFE_ITALIC | CFE_UNDERLINE | CFE_STRIKEOUT)
+
+void ng_windows_set_font(HWND hwnd, HFONT font, BOOL redraw, BOOL keep_format) {
+    if (!ng_windows_is_rich_edit(hwnd)) {
+        SendMessageW(hwnd, WM_SETFONT, (WPARAM)font, redraw);
+        return;
+    }
+    /* WM_SETFONT resets every character to the font; what differs from the format Aurea set
+       last time is the app's own, and goes back on after. */
+    RichBase* base = (RichBase*)GetPropA(hwnd, RICH_BASE_PROP);
+    CHARFORMAT2W now, keep = {0};
+    keep.cbSize = sizeof(keep);
+    rich_default(hwnd, &now);
+    if (base && keep_format) {
+        if (now.yHeight != base->height) {
+            keep.dwMask |= CFM_SIZE;
+            keep.yHeight = now.yHeight;
+        }
+        if (wcscmp(now.szFaceName, base->face) != 0) {
+            keep.dwMask |= CFM_FACE | CFM_CHARSET;
+            keep.bCharSet = now.bCharSet;
+            keep.bPitchAndFamily = now.bPitchAndFamily;
+            wcscpy_s(keep.szFaceName, LF_FACESIZE, now.szFaceName);
+        }
+        if (!(now.dwEffects & CFE_AUTOCOLOR) &&
+            ((base->effects & CFE_AUTOCOLOR) || now.crTextColor != base->color)) {
+            keep.dwMask |= CFM_COLOR;
+            keep.crTextColor = now.crTextColor;
+        }
+        if ((now.dwEffects & RICH_WEIGHT) != (base->effects & RICH_WEIGHT)) {
+            keep.dwMask |= CFM_BOLD | CFM_ITALIC | CFM_UNDERLINE | CFM_STRIKEOUT;
+            keep.dwEffects |= now.dwEffects & RICH_WEIGHT;
+        }
+    }
+    SendMessageW(hwnd, WM_SETFONT, (WPARAM)font, keep.dwMask ? FALSE : redraw);
+    if (!base) {
+        base = (RichBase*)calloc(1, sizeof(RichBase));
+        if (base && !ng_windows_set_subclass(hwnd, rich_base_proc, RICH_BASE_SUBCLASS_ID, (DWORD_PTR)base)) {
+            free(base);
+            base = NULL;
+        }
+        if (base) SetPropA(hwnd, RICH_BASE_PROP, (HANDLE)base);
+    }
+    if (base) {
+        CHARFORMAT2W fresh;
+        rich_default(hwnd, &fresh);
+        base->height = fresh.yHeight;
+        base->effects = fresh.dwEffects;
+        base->color = fresh.crTextColor;
+        wcscpy_s(base->face, LF_FACESIZE, fresh.szFaceName);
+    }
+    if (keep.dwMask) {
+        SendMessageW(hwnd, EM_SETCHARFORMAT, SCF_DEFAULT, (LPARAM)&keep);
+        SendMessageW(hwnd, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&keep);
+        if (redraw) InvalidateRect(hwnd, NULL, TRUE);
+    }
+}
+
 static BOOL CALLBACK ng_windows_refont_child(HWND child, LPARAM dpi) {
     HFONT current = (HFONT)SendMessageW(child, WM_GETFONT, 0, 0);
     int kind = current ? ng_windows_font_kind(current) : -1;
     if (kind < 0) return TRUE;
     HFONT font = ng_windows_font(kind, (UINT)dpi);
-    if (font != current) SendMessageW(child, WM_SETFONT, (WPARAM)font, TRUE);
+    if (font != current) ng_windows_set_font(child, font, TRUE, TRUE);
     return TRUE;
 }
 

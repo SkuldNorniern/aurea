@@ -193,7 +193,7 @@ int ng_windows_split_view_add(NGHandle split_handle, NGHandle element) {
     LONG_PTR style = GetWindowLongPtrA(element_hwnd, GWL_STYLE);
     SetWindowLongPtrA(element_hwnd, GWL_STYLE, style | WS_CHILD | WS_VISIBLE);
     if (!is_box(element_hwnd) && !SendMessageW(element_hwnd, WM_GETFONT, 0, 0)) {
-        SendMessageW(element_hwnd, WM_SETFONT, (WPARAM)ng_windows_ui_font(split_hwnd), FALSE);
+        ng_windows_set_font(element_hwnd, ng_windows_ui_font(split_hwnd), FALSE, TRUE);
     }
 
     ShowWindow(element_hwnd, SW_SHOW);

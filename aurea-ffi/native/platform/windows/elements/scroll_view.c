@@ -206,7 +206,7 @@ int ng_windows_scroll_view_set_content(NGHandle scroll_handle, NGHandle element)
     LONG_PTR style = GetWindowLongPtrA(content, GWL_STYLE);
     SetWindowLongPtrA(content, GWL_STYLE, style | WS_CHILD | WS_VISIBLE);
     if (!is_box(content) && !SendMessageW(content, WM_GETFONT, 0, 0)) {
-        SendMessageW(content, WM_SETFONT, (WPARAM)ng_windows_ui_font(scroll), FALSE);
+        ng_windows_set_font(content, ng_windows_ui_font(scroll), FALSE, TRUE);
     }
     if (old) DestroyWindow(old);
 

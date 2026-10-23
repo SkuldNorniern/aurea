@@ -955,6 +955,88 @@ mod win32_tests {
         Ok(())
     }
 
+    #[repr(C)]
+    struct CharFormat {
+        size: u32,
+        mask: u32,
+        effects: u32,
+        height: i32,
+        offset: i32,
+        color: u32,
+        charset: u8,
+        pitch: u8,
+        face: [u16; 32],
+        rest: [u8; 26],
+    }
+
+    impl CharFormat {
+        fn new() -> Self {
+            Self {
+                size: u32::try_from(size_of::<Self>()).unwrap_or(0),
+                mask: 0,
+                effects: 0,
+                height: 0,
+                offset: 0,
+                color: 0,
+                charset: 0,
+                pitch: 0,
+                face: [0; 32],
+                rest: [0; 26],
+            }
+        }
+    }
+
+    const EM_GETCHARFORMAT: u32 = 0x043A;
+    const EM_SETCHARFORMAT: u32 = 0x0444;
+    const SCF_DEFAULT: usize = 0;
+    const SCF_ALL: usize = 4;
+
+    fn char_format(hwnd: *mut c_void) -> (u32, i32, String) {
+        let mut f = CharFormat::new();
+        unsafe { SendMessageW(hwnd, EM_GETCHARFORMAT, SCF_DEFAULT, (&raw mut f) as isize) };
+        let face =
+            String::from_utf16_lossy(&f.face[..f.face.iter().position(|&c| c == 0).unwrap_or(32)]);
+        (f.color, f.height, face)
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_styled_text_view_keeps_its_look_when_attached() -> AureaResult<()> {
+        const CFM_COLOR_SIZE_FACE: u32 = 0x4000_0000 | 0x8000_0000 | 0x2000_0000;
+        let mut window = Window::new("text look", 400, 300)?;
+        let view = TextView::with_content(false, "light on dark")?;
+        let v = view.handle();
+        let mut f = CharFormat::new();
+        f.mask = CFM_COLOR_SIZE_FACE;
+        f.height = 220;
+        f.color = 0x00EC_E2D7;
+        for (to, from) in f.face.iter_mut().zip("Consolas".encode_utf16()) {
+            *to = from;
+        }
+        unsafe {
+            SendMessageW(v, EM_SETCHARFORMAT, SCF_DEFAULT, (&raw mut f) as isize);
+            SendMessageW(v, EM_SETCHARFORMAT, SCF_ALL, (&raw mut f) as isize);
+        }
+        let styled = char_format(v);
+        assert_eq!(styled, (0x00EC_E2D7, 220, "Consolas".to_owned()));
+        let mut root = Stack::new(Orientation::Vertical)?;
+        root.add_weighted(view, 1.0)?;
+        window.set_content(root)?;
+        assert_eq!(char_format(v), styled);
+
+        unsafe extern "C" {
+            fn ng_windows_set_font(hwnd: *mut c_void, font: *mut c_void, redraw: i32, keep: i32);
+        }
+        #[link(name = "gdi32")]
+        unsafe extern "system" {
+            fn GetStockObject(object: i32) -> *mut c_void;
+        }
+        const DEFAULT_GUI_FONT: i32 = 17;
+        unsafe { ng_windows_set_font(v, GetStockObject(DEFAULT_GUI_FONT), 1, 1) };
+        assert_eq!(char_format(v), styled, "a new font for a new scale");
+        Ok(())
+    }
+
     struct Custom(*mut c_void);
 
     impl Element for Custom {
@@ -1149,6 +1231,7 @@ mod win32_tests {
         let before = height(content);
 
         let big = unsafe { CreateFontW(-48, 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 0, 0, null_mut()) };
+
         for label in labels {
             unsafe { SendMessageW(label, WM_SETFONT, big as usize, 0) };
         }

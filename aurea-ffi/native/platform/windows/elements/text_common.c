@@ -83,7 +83,10 @@ HWND ng_windows_create_rich_text(int editable) {
     if (!editable) style |= ES_READONLY;
     HWND edit = ng_windows_create_control(WS_EX_CLIENTEDGE, cls, "", style,
                                           400, 100, ng_windows_detached_parent(), 0);
-    if (edit) ng_windows_unlimit_text(edit);
+    if (edit) {
+        ng_windows_unlimit_text(edit);
+        ng_windows_set_font(edit, ng_windows_ui_font(edit), FALSE, FALSE);
+    }
     return edit;
 }
 
@@ -176,8 +179,8 @@ int ng_windows_text_set_feature(NGHandle text, int feature, int on) {
             SendMessageW(hwnd, EM_SETTARGETDEVICE, 0, on ? 0 : 1);
             return NG_SUCCESS;
         case NG_TEXT_FEATURE_MONOSPACE:
-            SendMessageW(hwnd, WM_SETFONT,
-                         (WPARAM)(on ? ng_windows_mono_font(hwnd) : ng_windows_ui_font(hwnd)), TRUE);
+            ng_windows_set_font(hwnd, on ? ng_windows_mono_font(hwnd) : ng_windows_ui_font(hwnd), TRUE,
+                                FALSE);
             ng_windows_relayout(hwnd);
             return NG_SUCCESS;
         case NG_TEXT_FEATURE_UNDO:
