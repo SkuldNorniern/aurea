@@ -307,6 +307,8 @@ int ng_macos_text_set_feature(NGHandle text, int feature, int on) {
             NSTextFieldCell* old = field.cell;
             if ([old isKindOfClass:[NSSecureTextFieldCell class]] == (on != 0)) return NG_SUCCESS;
             NSString* value = field.stringValue;
+            NSText* editor = field.currentEditor;
+            NSRange selection = editor ? editor.selectedRange : NSMakeRange(value.length, 0);
             [field abortEditing];
             NSTextFieldCell* cell = on ? [[NSSecureTextFieldCell alloc] initTextCell:value]
                                        : [[NSTextFieldCell alloc] initTextCell:value];
@@ -326,6 +328,7 @@ int ng_macos_text_set_feature(NGHandle text, int feature, int on) {
             cell.target = old.target;
             cell.action = old.action;
             field.cell = cell;
+            if (editor && [field.window makeFirstResponder:field]) field.currentEditor.selectedRange = selection;
             [field setNeedsDisplay:YES];
             return NG_SUCCESS;
         }
