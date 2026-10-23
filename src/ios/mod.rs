@@ -8,7 +8,7 @@ mod documents;
 pub use documents::{export_files, pick_files};
 
 use std::cell::{Cell, RefCell};
-use std::ffi::{CStr, c_char};
+use std::ffi::{CStr, c_char, c_int};
 use std::process::exit;
 use std::ptr::null;
 use std::sync::LazyLock;
@@ -17,7 +17,10 @@ use std::time::Instant;
 
 #[cfg(feature = "zengpu")]
 use aurea_ffi::ng_ios_gpu_view;
-use aurea_ffi::{NGIosHost, ng_ios_drop_gpu_view, ng_ios_run_host, ng_ios_wake};
+use aurea_ffi::{
+    NGIosHost, ng_ios_drop_gpu_view, ng_ios_keyboard_height, ng_ios_run_host, ng_ios_show_keyboard,
+    ng_ios_wake,
+};
 
 #[cfg(not(feature = "zengpu"))]
 use crate::AureaError;
@@ -241,6 +244,22 @@ fn gpu_renderer(_: &SurfaceInfo) -> AureaResult<Box<dyn Renderer>> {
     Err(AureaError::RenderingFailed)
 }
 
+/// Shows the on-screen keyboard, or hides it; call on the main thread, such as from the UI when a
+/// text field takes or loses focus. What it types comes as [`WindowEvent::TextInput`], delete and
+/// return as [`KeyCode::Backspace`] and [`KeyCode::Enter`] presses.
+pub fn show_keyboard(show: bool) {
+    // SAFETY: on the main thread, as documented.
+    unsafe { ng_ios_show_keyboard(c_int::from(show)) };
+}
+
+/// How much of the safe area the on-screen keyboard covers from the bottom, in points; 0 when it
+/// is down. Keep what is being typed into above it.
+pub fn keyboard_height() -> f32 {
+    // SAFETY: reads host state on the main thread, where the app draws.
+    let covered = unsafe { ng_ios_keyboard_height() };
+    (covered - safe_area()[3]).max(0.0)
+}
+
 /// Switches the theme from the next frame.
 pub fn set_theme(theme: Theme) {
     NEXT_THEME.set(Some(theme));
@@ -277,16 +296,23 @@ unsafe extern "C" fn lifecycle(state: i32) {
     hear(&[event]);
 }
 
-/// A hardware keyboard key, and the text a press types.
+/// A key, and the text a press types: from a hardware keyboard, or text alone from the on-screen
+/// one.
 unsafe extern "C" fn key(code: u32, pressed: i32, modifiers: u32, text: *const c_char) {
-    let mut events = vec![WindowEvent::KeyInput {
-        key: KeyCode::from_raw(code),
-        pressed: pressed != 0,
-        modifiers: Modifiers::from_bits(modifiers),
-    }];
     // SAFETY: the host passes a NUL-terminated string that lives for the call, or null.
     let text = (!text.is_null()).then(|| unsafe { CStr::from_ptr(text) }.to_string_lossy());
-    if let Some(text) = text.filter(|t| !t.is_empty()) {
+    let text = text.filter(|t| !t.is_empty());
+    let key = KeyCode::from_raw(code);
+    let mut events = Vec::new();
+    // the on-screen keyboard types text with no key.
+    if !matches!(key, KeyCode::Unknown(_)) || text.is_none() {
+        events.push(WindowEvent::KeyInput {
+            key,
+            pressed: pressed != 0,
+            modifiers: Modifiers::from_bits(modifiers),
+        });
+    }
+    if let Some(text) = text {
         events.push(WindowEvent::TextInput {
             text: text.into_owned(),
         });

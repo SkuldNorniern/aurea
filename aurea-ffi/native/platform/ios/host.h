@@ -49,8 +49,8 @@ typedef struct NGIosHost {
     uint32_t (*background)(void);
     /* One of the NG_IOS_ACTIVE ... NG_IOS_MEMORY_WARNING states. */
     void (*lifecycle)(int state);
-    /* A hardware keyboard key: an NG_KEY_* code, NG_MOD_* modifiers, and on a press the text it
-       types (UTF-8, empty when none). */
+    /* A key: an NG_KEY_* code, NG_MOD_* modifiers, and on a press the text it types (UTF-8, empty
+       when none). Text from the on-screen keyboard comes with NG_KEY_UNKNOWN: text alone. */
     void (*key)(uint32_t code, int pressed, uint32_t modifiers, const char* text);
 } NGIosHost;
 
@@ -66,6 +66,12 @@ void* ng_ios_gpu_view(void);
 
 /* Removes the GPU view, when the GPU could not start. Main thread only. */
 void ng_ios_drop_gpu_view(void);
+
+/* Shows the on-screen keyboard, or hides it. Main thread only. */
+void ng_ios_show_keyboard(int show);
+
+/* How many points of the view the on-screen keyboard covers from the bottom, 0 when it is down. */
+float ng_ios_keyboard_height(void);
 
 /* Hears the files a document picker chose: NUL-terminated paths ended by an empty one, none when
    the user cancelled. On the main thread, once. */

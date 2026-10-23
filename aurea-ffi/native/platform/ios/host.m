@@ -29,11 +29,80 @@ static NGIosHost g_host;
 @property (assign) unsigned gridWidth;
 @property (assign) unsigned gridHeight;
 @property (assign) CGFloat gridScale;
+@property (strong) UIView* keys;
+@property (assign) CGFloat keyboardHeight;
 - (void)wakeLink;
 - (void)markDirty;
+- (NSSet<UIPress*>*)keys:(NSSet<UIPress*>*)presses pressed:(int)pressed;
 @end
 
 static __weak AureaHostView* g_view;
+
+/* Takes text from the on-screen keyboard while it is up; see ng_ios_show_keyboard. Typed text goes
+   to `key` with no key code, delete and return as Backspace and Enter. A hardware keyboard's
+   presses go where the host view's do, so text does not come twice. */
+@interface AureaKeyInput : UIView <UIKeyInput>
+@end
+
+@implementation AureaKeyInput
+
+- (BOOL)canBecomeFirstResponder {
+    return YES;
+}
+
+- (BOOL)hasText {
+    return YES;
+}
+
+- (UITextAutocorrectionType)autocorrectionType {
+    return UITextAutocorrectionTypeNo;
+}
+
+- (UITextAutocapitalizationType)autocapitalizationType {
+    return UITextAutocapitalizationTypeNone;
+}
+
+- (UITextSpellCheckingType)spellCheckingType {
+    return UITextSpellCheckingTypeNo;
+}
+
+static void ng_ios_tap_key(uint32_t code) {
+    if (!g_host.key) return;
+    g_host.key(code, 1, 0, "");
+    g_host.key(code, 0, 0, "");
+}
+
+- (void)insertText:(NSString*)text {
+    if (!g_host.key) return;
+    if ([text isEqualToString:@"\n"]) {
+        ng_ios_tap_key(NG_KEY_ENTER);
+    } else {
+        g_host.key(NG_KEY_UNKNOWN, 1, 0, text.UTF8String ?: "");
+    }
+    [g_view markDirty];
+}
+
+- (void)deleteBackward {
+    ng_ios_tap_key(NG_KEY_BACKSPACE);
+    [g_view markDirty];
+}
+
+- (void)pressesBegan:(NSSet<UIPress*>*)presses withEvent:(UIPressesEvent*)event {
+    NSSet<UIPress*>* rest = [g_view keys:presses pressed:1];
+    if (rest.count) [super pressesBegan:rest withEvent:event];
+}
+
+- (void)pressesEnded:(NSSet<UIPress*>*)presses withEvent:(UIPressesEvent*)event {
+    NSSet<UIPress*>* rest = [g_view keys:presses pressed:0];
+    if (rest.count) [super pressesEnded:rest withEvent:event];
+}
+
+- (void)pressesCancelled:(NSSet<UIPress*>*)presses withEvent:(UIPressesEvent*)event {
+    NSSet<UIPress*>* rest = [g_view keys:presses pressed:0];
+    if (rest.count) [super pressesCancelled:rest withEvent:event];
+}
+
+@end
 
 @implementation AureaHostView
 
@@ -47,6 +116,13 @@ static __weak AureaHostView* g_view;
         _background = UINT32_MAX;
         _dirty = YES;
         g_view = self;
+        _keys = [[AureaKeyInput alloc] initWithFrame:CGRectMake(0, 0, 1, 1)];
+        _keys.hidden = YES;
+        [self addSubview:_keys];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(keyboardChanged:)
+                                                     name:UIKeyboardWillChangeFrameNotification
+                                                   object:nil];
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(memoryWarning:)
                                                      name:UIApplicationDidReceiveMemoryWarningNotification
@@ -74,6 +150,14 @@ static __weak AureaHostView* g_view;
 - (void)markDirty {
     _dirty = YES;
     [self wakeLink];
+}
+
+/* How much of the view the on-screen keyboard covers, for ng_ios_keyboard_height. */
+- (void)keyboardChanged:(NSNotification*)note {
+    CGRect end = [note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+    CGRect mine = [self convertRect:end fromCoordinateSpace:self.window.screen.coordinateSpace];
+    _keyboardHeight = MAX(0, CGRectGetMaxY(self.bounds) - CGRectGetMinY(mine));
+    [self markDirty];
 }
 
 - (void)memoryWarning:(NSNotification*)note {
@@ -529,4 +613,19 @@ void ng_ios_drop_gpu_view(void) {
     AureaHostView* host = g_view;
     [host.gpuView removeFromSuperview];
     host.gpuView = nil;
+}
+
+void ng_ios_show_keyboard(int show) {
+    AureaHostView* host = g_view;
+    if (!host) return;
+    if (show) {
+        [host.keys becomeFirstResponder];
+    } else if (host.keys.isFirstResponder) {
+        [host becomeFirstResponder];
+    }
+}
+
+float ng_ios_keyboard_height(void) {
+    AureaHostView* host = g_view;
+    return host && host.keys.isFirstResponder ? (float)host.keyboardHeight : 0.0f;
 }

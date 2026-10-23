@@ -53,6 +53,8 @@ unsafe extern "C" {
     pub fn ng_ios_wake();
     pub fn ng_ios_gpu_view() -> *mut c_void;
     pub fn ng_ios_drop_gpu_view();
+    pub fn ng_ios_show_keyboard(show: c_int);
+    pub fn ng_ios_keyboard_height() -> f32;
     pub fn ng_ios_pick_files(
         extensions: *const c_char,
         multiple: c_int,
