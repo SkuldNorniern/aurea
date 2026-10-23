@@ -3,7 +3,7 @@
 use crate::numeric::f32_to_u32_clamped;
 use crate::types::{Path, PathCommand, Point};
 
-/// One edge for scanline filling: y range, x at the top, and dx/dy slope.
+/// One edge for path filling: y range, x at the top, and dx/dy slope.
 #[derive(Debug, Clone, Copy)]
 pub struct Edge {
     /// Top of the edge.
@@ -51,7 +51,7 @@ impl Edge {
     }
 }
 
-/// Converts a path into a list of edges for the scanline filler (lines, quads and cubics
+/// Converts a path into a list of edges for the path filler (lines, quads and cubics
 /// subdivided), reusing `out`'s existing allocation instead of allocating a fresh `Vec`.
 pub fn tessellate_path_into(path: &Path, edges: &mut Vec<Edge>) {
     edges.clear();

@@ -5,7 +5,7 @@ pub mod raster;
 pub mod rasterizer;
 mod tiles;
 
-pub use raster::{blend, clip, path, scanline, stroke};
+pub use raster::{blend, clip, path, stroke};
 
 pub use crate::recording::{
     RecordingContext, face_data, glyph_coverage, glyph_outline, layout_text, measure_text,
@@ -15,7 +15,6 @@ pub use crate::scene::hit_test::{self, *};
 pub use clip::ClipBox;
 pub use path::*;
 pub use rasterizer::*;
-pub use scanline::*;
 
 #[cfg(test)]
 mod conformance_tests {
