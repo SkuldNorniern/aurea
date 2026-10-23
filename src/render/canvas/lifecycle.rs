@@ -66,6 +66,39 @@ static CANVAS_HANDLES: LazyLock<Mutex<HashMap<CanvasId, usize>>> =
 static FULL_REDRAW_REQUESTS: LazyLock<Mutex<HashSet<CanvasId>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
 
+/// Canvases with no native view that a function wakes instead, such as the iOS host's screen.
+#[cfg(target_os = "ios")]
+static HOST_CANVASES: Mutex<Vec<HostCanvas>> = Mutex::new(Vec::new());
+
+/// A host canvas's id and what wakes it.
+#[cfg(target_os = "ios")]
+type HostCanvas = (CanvasId, fn());
+
+/// A canvas id whose redraw requests call `wake`, for a host that draws without a [`Canvas`].
+///
+/// [`Canvas`]: super::Canvas
+#[cfg(target_os = "ios")]
+pub(crate) fn register_host_canvas(wake: fn()) -> CanvasId {
+    let id = next_canvas_id();
+    lock(&HOST_CANVASES).push((id, wake));
+    id
+}
+
+fn host_wake(id: CanvasId) -> Option<fn()> {
+    #[cfg(target_os = "ios")]
+    {
+        lock(&HOST_CANVASES)
+            .iter()
+            .find(|(host, _)| *host == id)
+            .map(|(_, wake)| *wake)
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = id;
+        None
+    }
+}
+
 pub(super) fn next_canvas_id() -> CanvasId {
     CanvasId(NEXT_CANVAS_ID.fetch_add(1, Ordering::Relaxed))
 }
@@ -126,6 +159,9 @@ pub(super) fn take_full_redraw_request(id: CanvasId) -> bool {
 /// Request a full redraw of a canvas from anywhere.
 pub fn request_canvas_redraw(id: CanvasId) {
     let Some(handle) = lock(&CANVAS_HANDLES).get(&id).copied() else {
+        if let Some(wake) = host_wake(id) {
+            wake();
+        }
         return;
     };
     lock(&FULL_REDRAW_REQUESTS).insert(id);
@@ -134,7 +170,7 @@ pub fn request_canvas_redraw(id: CanvasId) {
 
 /// Request a redraw of a canvas at `at`, or as soon as possible if `at` has already passed.
 pub fn request_canvas_redraw_at(id: CanvasId, at: Instant) {
-    if !lock(&CANVAS_HANDLES).contains_key(&id) {
+    if !lock(&CANVAS_HANDLES).contains_key(&id) && host_wake(id).is_none() {
         return;
     }
     let (deadlines, wake) = &*CANVAS_DEADLINES;

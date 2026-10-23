@@ -5,13 +5,14 @@
 use std::cell::{Cell, RefCell};
 use std::process::exit;
 use std::ptr::null;
+use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use aurea_ffi::{NGIosHost, ng_ios_run_host, ng_ios_wake};
 
 use crate::ffi::callbacks::event_time;
-use crate::render::{CpuRasterizer, Renderer, SurfaceInfo};
+use crate::render::{CanvasId, CpuRasterizer, Renderer, SurfaceInfo, register_host_canvas};
 use crate::touch::{Phase, Touches};
 use crate::ui::{Theme, Ui, UiState};
 use crate::{AureaResult, Modifiers, PenPhase, PenSample, PenTool, Point, WindowEvent};
@@ -33,6 +34,8 @@ struct Host {
 
 /// Set from any thread by [`request_frame`]; the display link polls it.
 static WAKE: AtomicBool = AtomicBool::new(false);
+
+static CANVAS: LazyLock<CanvasId> = LazyLock::new(|| register_host_canvas(request_frame));
 
 /// Hears what the user does, before the UI does.
 type Listener = Box<dyn FnMut(&WindowEvent)>;
@@ -96,6 +99,13 @@ pub fn request_frame() {
     WAKE.store(true, Ordering::Release);
     // the display link pauses when idle; this starts it again on the main thread.
     unsafe { ng_ios_wake() };
+}
+
+/// The screen as a canvas id, so code that wakes a [`crate::Canvas`] with
+/// [`crate::render::request_canvas_redraw`] or [`crate::render::request_canvas_redraw_at`], such
+/// as background jobs, wakes the iOS host the same way. Any thread may use it.
+pub fn canvas_id() -> CanvasId {
+    *CANVAS
 }
 
 /// The screen's pixels per point: 2 or 3 on current devices, 1 before the host draws a frame.

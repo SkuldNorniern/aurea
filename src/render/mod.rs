@@ -3,6 +3,8 @@
 mod canvas;
 
 pub(crate) use canvas::notify_canvas_destroyed;
+#[cfg(target_os = "ios")]
+pub(crate) use canvas::register_host_canvas;
 
 pub use aurea_render::cpu::{
     face_data, glyph_coverage, glyph_outline, layout_text, measure_text, shape_text,
