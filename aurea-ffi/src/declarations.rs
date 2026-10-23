@@ -64,6 +64,9 @@ unsafe extern "C" {
         done: unsafe extern "C" fn(ctx: *mut c_void, paths: *const c_char),
         ctx: *mut c_void,
     ) -> c_int;
+    pub fn ng_ios_preview_path(path: *const c_char) -> c_int;
+    pub fn ng_ios_reveal_path(path: *const c_char) -> c_int;
+    pub fn ng_ios_open_url(url: *const c_char) -> c_int;
     pub fn ng_ios_alert(
         title: *const c_char,
         message: *const c_char,

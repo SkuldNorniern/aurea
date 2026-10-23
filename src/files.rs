@@ -5,11 +5,19 @@ use std::env;
 use std::path::{self, Path, PathBuf};
 use std::process::Command;
 
+#[cfg(target_os = "ios")]
+use crate::ios;
 use crate::{AureaError, AureaResult, Platform};
 
-/// Opens `path` the way double-clicking it in the file manager would.
+/// Opens `path` the way double-clicking it in the file manager would. On iOS, Quick Look shows it
+/// over the app.
 pub fn open_path(path: &Path) -> AureaResult<()> {
     let path = &launch_path(path);
+    #[cfg(target_os = "ios")]
+    {
+        return ios::preview_path(path);
+    }
+    #[allow(unreachable_code)]
     if cfg!(windows) {
         spawn(Command::new("explorer.exe").arg(path))
     } else if cfg!(target_os = "macos") {
@@ -26,9 +34,13 @@ pub fn open_path(path: &Path) -> AureaResult<()> {
 }
 
 /// Shows the folder holding `path` in the file manager, with `path` selected where the file manager
-/// can do that.
+/// can do that. On iOS the Files app opens at the folder, if it is in the app's Documents.
 pub fn reveal_path(path: &Path) -> AureaResult<()> {
     let path = &launch_path(path);
+    #[cfg(target_os = "ios")]
+    {
+        return ios::reveal_path(path);
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

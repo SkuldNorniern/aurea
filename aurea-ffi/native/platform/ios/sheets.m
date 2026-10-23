@@ -1,7 +1,8 @@
 #import "host.h"
 #import "present.h"
+#import <QuickLook/QuickLook.h>
 
-/* Alerts and the share sheet. Neither blocks: the app keeps drawing, and `done` hears the answer
+/* Alerts, the share sheet, Quick Look and handing things to other apps. None of them blocks: the app keeps drawing, and `done` hears the answer
    later on the main thread. */
 
 /* UIKit's own word for a button, in the user's language, when it has one. */
@@ -83,3 +84,65 @@ int ng_ios_share_files(const char* paths, float x, float y, float width, float h
     [presenter presentViewController:share animated:YES completion:nil];
     return 1;
 }
+
+/* Quick Look shows one file; the data source lives as long as the preview. */
+@interface AureaPreview : NSObject <QLPreviewControllerDataSource, QLPreviewControllerDelegate>
+@property (strong) NSURL* url;
+@end
+
+static AureaPreview* g_preview;
+
+@implementation AureaPreview
+- (NSInteger)numberOfPreviewItemsInPreviewController:(QLPreviewController*)controller {
+    (void)controller;
+    return 1;
+}
+- (id<QLPreviewItem>)previewController:(QLPreviewController*)controller previewItemAtIndex:(NSInteger)index {
+    (void)controller;
+    (void)index;
+    return _url;
+}
+- (void)previewControllerDidDismiss:(QLPreviewController*)controller {
+    (void)controller;
+    if (g_preview == self) g_preview = nil;
+    ng_ios_wake();
+}
+@end
+
+int ng_ios_preview_path(const char* path) {
+    UIViewController* presenter = ng_ios_presenter();
+    if (!presenter || !path) return 0;
+    NSURL* url = [NSURL fileURLWithFileSystemRepresentation:path isDirectory:NO relativeToURL:nil];
+    if (![QLPreviewController canPreviewItem:url]) return 0;
+    AureaPreview* source = [[AureaPreview alloc] init];
+    source.url = url;
+    g_preview = source;
+    QLPreviewController* preview = [[QLPreviewController alloc] init];
+    preview.dataSource = source;
+    preview.delegate = source;
+    [presenter presentViewController:preview animated:YES completion:nil];
+    return 1;
+}
+
+/* The Files app opens at a folder of the app's own Documents with this scheme. */
+int ng_ios_reveal_path(const char* path) {
+    if (!path) return 0;
+    NSString* folder = [@(path) stringByDeletingLastPathComponent];
+    NSURLComponents* parts = [[NSURLComponents alloc] init];
+    parts.scheme = @"shareddocuments";
+    /* An empty host keeps the `//`: shareddocuments:///path. */
+    parts.host = @"";
+    parts.path = folder;
+    NSURL* url = parts.URL;
+    if (!url || ![UIApplication.sharedApplication canOpenURL:url]) return 0;
+    [UIApplication.sharedApplication openURL:url options:@{} completionHandler:nil];
+    return 1;
+}
+
+int ng_ios_open_url(const char* text) {
+    NSURL* url = text ? [NSURL URLWithString:@(text)] : nil;
+    if (!url || !url.scheme) return 0;
+    [UIApplication.sharedApplication openURL:url options:@{} completionHandler:nil];
+    return 1;
+}
+

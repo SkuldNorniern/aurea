@@ -1,17 +1,21 @@
-//! Alerts and the share sheet. Neither blocks, as a desktop message box does: the app keeps
-//! drawing, and `done` hears the answer on the main thread.
+//! Alerts, the share sheet, Quick Look and handing things to other apps. None of them blocks, as a
+//! desktop message box does: the app keeps drawing, and `done` hears any answer on the main thread.
 
 use std::ffi::c_void;
 use std::os::raw::{c_char, c_int};
 use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 
-use aurea_ffi::{ng_ios_alert, ng_ios_share_files};
+use std::path::Path;
+
+use aurea_ffi::{
+    ng_ios_alert, ng_ios_open_url, ng_ios_preview_path, ng_ios_reveal_path, ng_ios_share_files,
+};
 
 use super::documents::nul_list;
 use crate::dialog::{MessageButtons, MessageChoice};
 use crate::ffi::c_text;
-use crate::{AureaError, AureaResult, Rect};
+use crate::{AureaError, AureaResult, Platform, Rect};
 
 type Answered = Box<dyn FnOnce(c_int)>;
 
@@ -94,4 +98,51 @@ unsafe extern "C" fn answered(ctx: *mut c_void, answer: c_int) {
     // SAFETY: `ctx` came from `into_ctx`, and each sheet answers once.
     let done = unsafe { Box::from_raw(ctx.cast::<Answered>()) };
     done(answer);
+}
+
+/// Opens `url`, such as a web page in Safari or a `mailto:` link in Mail.
+///
+/// # Errors
+///
+/// [`AureaError::InvalidText`] when it holds a NUL, and [`AureaError::ElementOperationFailed`]
+/// when it is not a URL.
+pub fn open_url(url: &str) -> AureaResult<()> {
+    let url = c_text(url)?;
+    // SAFETY: the string lives for the call.
+    ok_or_failed(unsafe { ng_ios_open_url(url.as_ptr()) })
+}
+
+/// [`crate::open_path`] on iOS: Quick Look shows the file over the app.
+pub(crate) fn preview_path(path: &Path) -> AureaResult<()> {
+    let path = c_text(path.as_os_str().as_bytes())?;
+    // SAFETY: the string lives for the call.
+    if unsafe { ng_ios_preview_path(path.as_ptr()) } == 0 {
+        return unsupported("open_path");
+    }
+    Ok(())
+}
+
+/// [`crate::reveal_path`] on iOS: the Files app opens at the folder, which it can only do for the
+/// app's own Documents.
+pub(crate) fn reveal_path(path: &Path) -> AureaResult<()> {
+    let path = c_text(path.as_os_str().as_bytes())?;
+    // SAFETY: the string lives for the call.
+    if unsafe { ng_ios_reveal_path(path.as_ptr()) } == 0 {
+        return unsupported("reveal_path");
+    }
+    Ok(())
+}
+
+fn ok_or_failed(done: c_int) -> AureaResult<()> {
+    if done == 0 {
+        return Err(AureaError::ElementOperationFailed);
+    }
+    Ok(())
+}
+
+fn unsupported(operation: &'static str) -> AureaResult<()> {
+    Err(AureaError::Unsupported {
+        operation,
+        platform: Platform::current(),
+    })
 }

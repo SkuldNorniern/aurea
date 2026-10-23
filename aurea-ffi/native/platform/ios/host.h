@@ -104,6 +104,16 @@ int ng_ios_alert(const char* title, const char* message, int buttons, NGIosAnswe
 int ng_ios_share_files(const char* paths, float x, float y, float width, float height, NGIosAnswered done,
                        void* ctx);
 
+/* Shows the file at `path` in Quick Look. Returns 0 when it cannot. */
+int ng_ios_preview_path(const char* path);
+
+/* Opens the Files app at the folder holding `path`, which must be in the app's Documents for the
+   Files app to see it. Returns 0 when it cannot. */
+int ng_ios_reveal_path(const char* path);
+
+/* Opens `url`, such as a web page in Safari. Returns 0 when it is not a URL. */
+int ng_ios_open_url(const char* url);
+
 /* Lets the user save copies of the NUL-separated `paths` elsewhere, such as iCloud Drive; `done`
    hears where they went. Returns 0 when it cannot show, and `done` is not called. */
 int ng_ios_export_files(const char* paths, NGIosPicked done, void* ctx);

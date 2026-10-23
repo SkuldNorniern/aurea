@@ -7,7 +7,8 @@ mod documents;
 mod sheets;
 
 pub use documents::{export_files, pick_files};
-pub use sheets::{alert, share_files};
+pub use sheets::{alert, open_url, share_files};
+pub(crate) use sheets::{preview_path, reveal_path};
 
 use std::cell::{Cell, RefCell};
 use std::ffi::{CStr, c_char, c_int};
