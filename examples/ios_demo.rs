@@ -1,10 +1,11 @@
 //! A small Aurea app for the iOS sample in `mobile/ios/`: counter, slider, toggles, and a pad that
-//! draws with Apple Pencil pressure. The top right line shows the last key, pinch or lifecycle
-//! event it heard. The sample's `main` calls [`aurea_main`].
+//! draws with Apple Pencil pressure, with Open for the document picker. The top right line shows
+//! the last key, pinch, lifecycle event or picked file it heard. The sample's `main` calls
+//! [`aurea_main`].
 
 #[cfg(target_os = "ios")]
 mod app {
-    use aurea::ios::{on_event, run as run_app, set_theme};
+    use aurea::ios::{on_event, pick_files, run as run_app, set_theme};
     use aurea::logger::init_from_env;
     use aurea::ui::{Align, Button, Checkbox, ProgressBar, Segmented, Slider, Theme, Toggle, Ui};
     use aurea::{AureaResult, PenPhase, PenSample, Point, Rect, WindowEvent};
@@ -19,6 +20,7 @@ mod app {
     const LOOK: u64 = 6;
     const METER: u64 = 7;
     const CLEAR: u64 = 8;
+    const OPEN: u64 = 9;
 
     /// Where the pad starts, below the controls.
     const PAD_TOP: f32 = 448.0;
@@ -84,7 +86,13 @@ mod app {
         look: usize,
     }
 
-    fn pad(ui: &mut Ui<'_, u64>, sketch: &mut Sketch, width: f32, height: f32) -> AureaResult<()> {
+    fn pad(
+        ui: &mut Ui<'_, u64>,
+        sketch: &mut Sketch,
+        last: &Rc<RefCell<String>>,
+        width: f32,
+        height: f32,
+    ) -> AureaResult<()> {
         let p = ui.theme.palette;
         let fonts = ui.fonts();
         let area = Rect::new(
@@ -107,6 +115,21 @@ mod app {
         let clear = Rect::new(area.x + area.width - 84.0, area.y + 4.0, 76.0, 32.0);
         if Button::new("Clear").quiet().show(ui, CLEAR, clear)?.clicked {
             sketch.strokes.clear();
+        }
+        let open = Rect::new(clear.x - 84.0, clear.y, 76.0, 32.0);
+        if Button::new("Open").quiet().show(ui, OPEN, open)?.clicked {
+            // the system picker; the top right line says what came back.
+            let shown = Rc::clone(last);
+            let asked = pick_files(&[], true, move |paths| {
+                *shown.borrow_mut() = match paths.as_slice() {
+                    [] => "picked nothing".to_owned(),
+                    [one] => format!("picked {}", one.display()),
+                    many => format!("picked {} files", many.len()),
+                };
+            });
+            if let Err(e) = asked {
+                *last.borrow_mut() = format!("picker: {e}");
+            }
         }
         for stroke in &sketch.strokes {
             for pair in stroke.windows(2) {
@@ -195,7 +218,7 @@ mod app {
         });
         run_app(Theme::dark(), move |ui, width, height| {
             panel(ui, &mut state, &last.borrow(), width)?;
-            pad(ui, &mut sketch.borrow_mut(), width, height)
+            pad(ui, &mut sketch.borrow_mut(), &last, width, height)
         })
     }
 }
