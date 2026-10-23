@@ -101,6 +101,7 @@ void ng_windows_relayout(HWND hwnd);
 /* RichEdit stops typing at 32K characters unless told otherwise. */
 void ng_windows_unlimit_text(HWND edit);
 /* What screen readers are told in place of the native control's own role, value or state. */
+/* 0 gives the native role back. */
 void ng_windows_set_role(HWND hwnd, long role);
 void ng_windows_mark_container(HWND hwnd);
 void ng_windows_serve_value(HWND hwnd, int (*value)(HWND hwnd, wchar_t* out, int len));

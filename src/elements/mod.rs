@@ -1599,6 +1599,28 @@ mod win32_tests {
 
     #[test]
     #[ignore = "creates native windows; run with --ignored"]
+    fn screen_readers_skip_empty_labels() -> AureaResult<()> {
+        const ROLE_SYSTEM_PANE: i32 = 0x10;
+        const ROLE_SYSTEM_STATICTEXT: i32 = 0x29;
+        let mut window = Window::new("spacers", 400, 300)?;
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        let spacer = Spacer::new()?;
+        let label = Shared::new(Label::new("shown")?);
+        let (sp, l) = (spacer.handle(), label.handle());
+        stack.add(spacer)?;
+        stack.add(label.clone())?;
+        window.set_content(stack)?;
+        assert_eq!(accessible(sp).role, ROLE_SYSTEM_PANE);
+        assert_eq!(accessible(l).role, ROLE_SYSTEM_STATICTEXT);
+        label.borrow_mut().set_text("")?;
+        assert_eq!(accessible(l).role, ROLE_SYSTEM_PANE);
+        label.borrow_mut().set_text("back")?;
+        assert_eq!(accessible(l).role, ROLE_SYSTEM_STATICTEXT);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
     fn tabs_read_as_page_tabs() -> AureaResult<()> {
         const ROLE_SYSTEM_PAGETAB: i32 = 0x25;
         const ROLE_SYSTEM_PAGETABLIST: i32 = 0x3C;

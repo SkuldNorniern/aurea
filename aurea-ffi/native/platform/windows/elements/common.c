@@ -426,6 +426,11 @@ static IAccPropServices* annotate(HWND hwnd) {
 void ng_windows_set_role(HWND hwnd, long role) {
     IAccPropServices* props = annotate(hwnd);
     if (!props) return;
+    if (!role) {
+        MSAAPROPID prop = PROPID_ACC_ROLE;
+        props->lpVtbl->ClearHwndProps(props, hwnd, (DWORD)OBJID_CLIENT, CHILDID_SELF, &prop, 1);
+        return;
+    }
     VARIANT value;
     VariantInit(&value);
     value.vt = VT_I4;
