@@ -785,9 +785,18 @@ impl<'list> RecordingContext<'list> {
             DrawCommand::DrawCircle(_, _, paint) => {
                 paint.color.a == 255 && paint.style == PaintStyle::Fill
             }
-            DrawCommand::DrawImageRect(..)
-            | DrawCommand::DrawImageRegion(..)
-            | DrawCommand::DrawTexture(..)
+            DrawCommand::DrawImageRect(image, ..) => image.is_opaque(),
+            // A source reaching past the image leaves its edge pixels unwritten when shrinking.
+            DrawCommand::DrawImageRegion(image, src, ..) => {
+                src.width > 0.0
+                    && src.height > 0.0
+                    && src.x >= 0.0
+                    && src.y >= 0.0
+                    && src.right() <= image.width as f32
+                    && src.bottom() <= image.height as f32
+                    && image.is_opaque()
+            }
+            DrawCommand::DrawTexture(..)
             | DrawCommand::DrawImageQuad(..)
             | DrawCommand::DrawTextureQuad(..) => false,
             DrawCommand::FillLinearGradient(..) | DrawCommand::FillRadialGradient(..) => false,

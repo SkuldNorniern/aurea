@@ -1,7 +1,7 @@
 //! Pixels to draw: images, and the coverage masks text is drawn from.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 
 #[cfg(feature = "zengpu")]
 use zengpu_hal::TextureHandle;
@@ -16,6 +16,8 @@ pub struct Image {
     /// RGBA8 pixel data.
     pub data: Arc<[u8]>,
     id: u64,
+    /// The data this was worked out for, by address, and whether it was all opaque.
+    opaque: Arc<OnceLock<(usize, bool)>>,
 }
 
 impl Image {
@@ -27,12 +29,30 @@ impl Image {
             height,
             data: data.into(),
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            opaque: Arc::default(),
         }
     }
 
     /// Identity of the pixel data; stable across clones.
     pub fn id(&self) -> u64 {
         self.id
+    }
+
+    /// Whether the data covers every pixel at full alpha. Read once per data and kept, so
+    /// renderers can skip what an opaque image hides.
+    pub fn is_opaque(&self) -> bool {
+        let scan = || {
+            let len = (self.width as usize)
+                .checked_mul(self.height as usize)
+                .and_then(|n| n.checked_mul(4));
+            len.is_some_and(|len| len > 0 && self.data.len() >= len)
+                && self.data.iter().skip(3).step_by(4).all(|&a| a == 255)
+        };
+        let at = self.data.as_ptr() as usize;
+        match *self.opaque.get_or_init(|| (at, scan())) {
+            (seen, opaque) if seen == at => opaque,
+            _ => scan(),
+        }
     }
 }
 
@@ -131,6 +151,20 @@ mod tests {
             assert_eq!(wrapped.index, handle.index());
             assert_eq!(wrapped.generation, handle.generation());
         }
+    }
+
+    #[test]
+    fn opacity_follows_the_pixel_data() {
+        let mut image = Image::new(2, 1, vec![9, 9, 9, 255, 1, 2, 3, 255]);
+        assert!(image.is_opaque());
+        assert!(image.clone().is_opaque());
+        image.data = vec![9, 9, 9, 255, 1, 2, 3, 254].into();
+        assert!(!image.is_opaque(), "new data is read again");
+        assert!(
+            !Image::new(2, 2, vec![255; 8]).is_opaque(),
+            "short data covers nothing"
+        );
+        assert!(!Image::new(0, 0, Vec::new()).is_opaque());
     }
 
     #[test]

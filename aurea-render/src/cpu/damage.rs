@@ -52,22 +52,30 @@ pub(super) fn should_render_item(
     item_overlaps_dirty_tiles(item.bounds, dirty_tiles, tiles_x, tiles_y) && !occluded[i]
 }
 
+/// Marks the items opaque draws after them hide. Returns the last clear, with the tiles the draws
+/// after it cover in `under_clear`.
 pub(super) fn mark_occluded(
     items: &[DisplayItem],
     (tiles_x, tiles_y, bw, bh): (u32, u32, u32, u32),
     covered: &mut Vec<bool>,
     occluded: &mut Vec<bool>,
-) {
+    under_clear: &mut Vec<bool>,
+) -> Option<usize> {
     let tile_count = (tiles_x * tiles_y) as usize;
     covered.clear();
     covered.resize(tile_count, false);
     occluded.clear();
     occluded.resize(items.len(), false);
     if tile_count == 0 {
-        return;
+        return None;
     }
 
+    let mut last_clear = None;
     for (i, item) in items.iter().enumerate().rev() {
+        if last_clear.is_none() && matches!(item.command, DrawCommand::Clear(_)) {
+            last_clear = Some(i);
+            under_clear.clone_from(covered);
+        }
         if !is_known_bounds(item.bounds) {
             continue;
         }
@@ -80,19 +88,57 @@ pub(super) fn mark_occluded(
             .flat_map(|ty| (tx0..tx1).map(move |tx| (tx, ty)))
             .all(|(tx, ty)| covered[(ty * tiles_x + tx) as usize]);
 
-        if !item.opaque || item.blend_mode != BlendMode::Normal {
-            continue;
-        }
-        let Some(region) = covered_region(item) else {
-            continue;
-        };
-        let (cx0, cy0, cx1, cy1) = tile_range(region, tiles_x, tiles_y);
-        for ty in cy0..cy1 {
-            for tx in cx0..cx1 {
-                if rect_contains(region, tile_rect(tx, ty, bw, bh)) {
-                    covered[(ty * tiles_x + tx) as usize] = true;
-                }
+        cover(item, (tiles_x, tiles_y, bw, bh), covered);
+    }
+    last_clear
+}
+
+/// Marks the tiles an opaque `item` paints over entirely.
+fn cover(
+    item: &DisplayItem,
+    (tiles_x, tiles_y, bw, bh): (u32, u32, u32, u32),
+    covered: &mut [bool],
+) {
+    if !item.opaque || item.blend_mode != BlendMode::Normal {
+        return;
+    }
+    let Some(region) = covered_region(item) else {
+        return;
+    };
+    let (cx0, cy0, cx1, cy1) = tile_range(region, tiles_x, tiles_y);
+    for ty in cy0..cy1 {
+        for tx in cx0..cx1 {
+            if rect_contains(region, tile_rect(tx, ty, bw, bh)) {
+                covered[(ty * tiles_x + tx) as usize] = true;
             }
+        }
+    }
+}
+
+/// Each run of tiles along a tile row that `covered` does not mark, as one rect.
+pub(super) fn uncovered_runs(
+    covered: &[bool],
+    (tiles_x, tiles_y, bw, bh): (u32, u32, u32, u32),
+    mut run: impl FnMut(Rect),
+) {
+    for ty in 0..tiles_y {
+        let mut tx = 0;
+        while tx < tiles_x {
+            if covered[(ty * tiles_x + tx) as usize] {
+                tx += 1;
+                continue;
+            }
+            let first = tile_rect(tx, ty, bw, bh);
+            while tx < tiles_x && !covered[(ty * tiles_x + tx) as usize] {
+                tx += 1;
+            }
+            let last = tile_rect(tx - 1, ty, bw, bh);
+            run(Rect::new(
+                first.x,
+                first.y,
+                last.right() - first.x,
+                first.height,
+            ));
         }
     }
 }

@@ -11,7 +11,7 @@ use crate::cpu::clip::ClipBox;
 use crate::cpu::damage::*;
 use crate::cpu::damage::{
     FrameDamage, is_known_bounds, mark_occluded, resolve_frame_damage, should_render_item,
-    union_rect,
+    uncovered_runs, union_rect,
 };
 use crate::cpu::raster::fill::{self, PathScratch};
 use crate::cpu::raster::sample;
@@ -54,6 +54,7 @@ pub struct CpuRasterizer {
     scratch_hashers: Vec<DefaultHasher>,
     scratch_covered: Vec<bool>,
     scratch_occluded: Vec<bool>,
+    scratch_under_clear: Vec<bool>,
     last_frame_damage: Option<Rect>,
     has_frame: bool,
 }
@@ -78,6 +79,7 @@ impl CpuRasterizer {
             scratch_hashers: Vec::new(),
             scratch_covered: Vec::new(),
             scratch_occluded: Vec::new(),
+            scratch_under_clear: Vec::new(),
             last_frame_damage: None,
             has_frame: false,
         }
@@ -1698,21 +1700,26 @@ impl Renderer for CpuRasterizer {
         };
         let items = self.display_list.items();
         let mut occluded = mem::take(&mut self.scratch_occluded);
-        mark_occluded(
+        let last_clear = mark_occluded(
             items,
             (tiles_x, tiles_y, bw, bh),
             &mut self.scratch_covered,
             &mut occluded,
+            &mut self.scratch_under_clear,
         );
         for (i, item) in items.iter().enumerate() {
             if let DrawCommand::Clear(color) = &item.command {
-                Self::clear_rect(
-                    &Rect::new(0.0, 0.0, bw as f32, bh as f32),
-                    color_to_u32(*color),
-                    &mut self.frame_buffer,
-                    bw,
-                    surface_clip.intersect_opt(item.clip),
-                );
+                let (color, clip) = (color_to_u32(*color), surface_clip.intersect_opt(item.clip));
+                let buf = &mut self.frame_buffer;
+                if last_clear == Some(i) {
+                    let dims = (tiles_x, tiles_y, bw, bh);
+                    uncovered_runs(&self.scratch_under_clear, dims, |run| {
+                        Self::clear_rect(&run, color, buf, bw, clip);
+                    });
+                } else {
+                    let whole = Rect::new(0.0, 0.0, bw as f32, bh as f32);
+                    Self::clear_rect(&whole, color, buf, bw, clip);
+                }
                 continue;
             }
 
@@ -2531,9 +2538,80 @@ mod occlusion_tests {
     }
 
     fn occluded(items: &[DisplayItem]) -> Vec<bool> {
-        let (mut covered, mut occluded) = (Vec::new(), Vec::new());
-        mark_occluded(items, (TILES_X, TILES_Y, W, H), &mut covered, &mut occluded);
+        let (mut covered, mut occluded, mut under) = (Vec::new(), Vec::new(), Vec::new());
+        mark_occluded(
+            items,
+            (TILES_X, TILES_Y, W, H),
+            &mut covered,
+            &mut occluded,
+            &mut under,
+        );
         occluded
+    }
+
+    fn image_item(image: &Image, src: Rect, bounds: Rect) -> DisplayItem {
+        let mut list = DisplayList::new();
+        let mut ctx = RecordingContext::new(&mut list, W, H);
+        ctx.draw_image_region(image, src, bounds).expect("draw");
+        drop(ctx);
+        list.items()[0].clone()
+    }
+
+    #[test]
+    fn opaque_images_hide_what_is_under_them() {
+        let solid = Image::new(4, 4, vec![255; 64]);
+        let mut see_through = vec![255; 64];
+        see_through[63] = 254;
+        let see_through = Image::new(4, 4, see_through);
+        let all = Rect::new(0.0, 0.0, 4.0, 4.0);
+        let hides = |image: &Image, src: Rect| {
+            occluded(&[plain_item(first_tile()), image_item(image, src, whole())])[0]
+        };
+        assert!(hides(&solid, all));
+        assert!(hides(&solid, Rect::new(1.0, 1.0, 2.0, 2.0)));
+        assert!(!hides(&see_through, all));
+        assert!(
+            !hides(&solid, Rect::new(-1.0, 0.0, 4.0, 4.0)),
+            "reaches past the image"
+        );
+    }
+
+    #[test]
+    fn the_last_clear_learns_what_later_draws_cover() {
+        let left = Rect::new(0.0, 0.0, TILE_SIZE as f32, H as f32);
+        let items = vec![
+            plain_item(first_tile()),
+            occluder_item(Rect::new(0.0, 0.0, f32::MAX, f32::MAX), BlendMode::Normal),
+            occluder_item(left, BlendMode::Normal),
+        ];
+        let (mut covered, mut occluded, mut under) = (Vec::new(), Vec::new(), Vec::new());
+        let dims = (TILES_X, TILES_Y, W, H);
+        let last = mark_occluded(&items, dims, &mut covered, &mut occluded, &mut under);
+        assert_eq!(last, Some(2), "the covering draw is itself a clear here");
+        let mut runs = Vec::new();
+        uncovered_runs(
+            &[true, false, false, true, false, true, true, false],
+            dims,
+            |r| {
+                runs.push((r.x, r.y, r.width));
+            },
+        );
+        let t = TILE_SIZE as f32;
+        assert_eq!(runs, [(t, 0.0, 2.0 * t), (0.0, t, t), (3.0 * t, t, t)]);
+    }
+
+    #[test]
+    fn a_clear_under_an_opaque_image_still_shows_around_it() {
+        let mut r = CpuRasterizer::new(W, H);
+        let image = Image::new(1, 1, vec![10, 20, 30, 255]);
+        let pixels = frame_of(&mut r, |ctx| {
+            ctx.clear(Color::rgb(200, 0, 0)).unwrap();
+            ctx.draw_image_rect(&image, Rect::new(0.0, 0.0, (W / 2) as f32, H as f32))
+                .unwrap();
+        });
+        assert_eq!(pixels[0], 0xff0a_141e);
+        assert_eq!(pixels[(W - 1) as usize], 0xffc8_0000);
+        assert_eq!(pixels[(W * H - 1) as usize], 0xffc8_0000);
     }
 
     fn whole() -> Rect {
