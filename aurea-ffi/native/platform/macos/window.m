@@ -940,7 +940,9 @@ int ng_macos_window_set_icon_rgba(
 void ng_macos_window_set_size(NGHandle window, int width, int height) {
     if (!window) return;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
-    [nsWindow setContentSize:NSMakeSize(width, height)];
+    /* setContentSize: skips the minimum a user resize keeps. */
+    NSSize min = nsWindow.contentMinSize;
+    [nsWindow setContentSize:NSMakeSize(MAX(width, min.width), MAX(height, min.height))];
 }
 
 int ng_macos_window_set_min_size(NGHandle window, int width, int height) {
@@ -959,8 +961,8 @@ void ng_macos_window_get_size(NGHandle window, int* width, int* height) {
     if (!window || !width || !height) return;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
     NSRect content = [nsWindow contentRectForFrameRect:[nsWindow frame]];
-    *width = (int)content.size.width;
-    *height = (int)content.size.height;
+    *width = (int)lround(content.size.width);
+    *height = (int)lround(content.size.height);
 }
 
 void ng_macos_window_set_position(NGHandle window, int x, int y) {
