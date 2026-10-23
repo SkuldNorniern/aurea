@@ -1,4 +1,4 @@
-//! A small Aurea app for the Android sample in `android/`: counter, slider, toggles.
+//! A small Aurea app for the Android sample in `mobile/android/`: counter, slider, toggles.
 
 #[cfg(target_os = "android")]
 mod app {

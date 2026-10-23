@@ -28,8 +28,8 @@ Cargo.lock
 .DS_Store
 
 # Android build output
-android/.gradle/
-android/build/
+mobile/android/.gradle/
+mobile/android/build/
+mobile/android/local.properties
+mobile/android/app/build/
 
-android/local.properties
-android/app/build/

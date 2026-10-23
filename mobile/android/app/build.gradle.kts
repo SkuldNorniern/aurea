@@ -84,7 +84,7 @@ abstract class CargoBuild @Inject constructor(private val exec: ExecOperations) 
 }
 
 val cargoBuild = tasks.register<CargoBuild>("cargoBuild") {
-    repoRoot.set(rootProject.layout.projectDirectory.dir(".."))
+    repoRoot.set(rootProject.layout.projectDirectory.dir("../.."))
     ndkDir.set(androidComponents.sdkComponents.ndkDirectory)
     outDir.set(layout.buildDirectory.dir("rustJniLibs"))
     abis.set(rustAbis)
