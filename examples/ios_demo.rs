@@ -1,5 +1,6 @@
 //! A small Aurea app for the iOS sample in `mobile/ios/`: counter, slider, toggles, and a pad that
-//! draws with Apple Pencil pressure. The sample's `main` calls [`aurea_main`].
+//! draws with Apple Pencil pressure. The top right line shows the last key, pinch or lifecycle
+//! event it heard. The sample's `main` calls [`aurea_main`].
 
 #[cfg(target_os = "ios")]
 mod app {
@@ -53,6 +54,26 @@ mod app {
         }
     }
 
+    /// The last event worth showing that is not a touch or the pen.
+    fn heard(event: &WindowEvent) -> Option<String> {
+        Some(match event {
+            WindowEvent::KeyInput {
+                key, pressed: true, ..
+            } => format!("key {key:?}"),
+            WindowEvent::TextInput { text } => format!("typed {text:?}"),
+            WindowEvent::Magnify { factor, .. } => format!("pinch x{factor:.2}"),
+            WindowEvent::MouseWheel {
+                delta_x, delta_y, ..
+            } => format!("scroll {delta_x:.0}, {delta_y:.0}"),
+            WindowEvent::Focused => "active".to_owned(),
+            WindowEvent::Unfocused => "inactive".to_owned(),
+            WindowEvent::Minimized => "background".to_owned(),
+            WindowEvent::Restored => "foreground".to_owned(),
+            WindowEvent::MemoryWarning => "memory warning".to_owned(),
+            _ => return None,
+        })
+    }
+
     #[derive(Default)]
     struct State {
         count: u32,
@@ -97,7 +118,7 @@ mod app {
         Ok(())
     }
 
-    fn panel(ui: &mut Ui<'_, u64>, s: &mut State, width: f32) -> AureaResult<()> {
+    fn panel(ui: &mut Ui<'_, u64>, s: &mut State, last: &str, width: f32) -> AureaResult<()> {
         let p = ui.theme.palette;
         let fonts = ui.fonts();
         let (x, w) = (20.0, (width - 40.0).max(160.0));
@@ -110,6 +131,7 @@ mod app {
             p.text,
             Align::Start,
         )?;
+        ui.text(last, row(12.0, 32.0), &fonts.small, p.dim, Align::End)?;
         let shown = format!("Tapped {} times", s.count);
         ui.text(&shown, row(60.0, 24.0), &fonts.text, p.dim, Align::Start)?;
         let half = (w - 12.0) / 2.0;
@@ -159,14 +181,17 @@ mod app {
             ..State::default()
         };
         let sketch = Rc::new(RefCell::new(Sketch::default()));
-        let heard = Rc::clone(&sketch);
+        let last = Rc::new(RefCell::new(String::new()));
+        let (pen, shown) = (Rc::clone(&sketch), Rc::clone(&last));
         on_event(move |event| {
             if let WindowEvent::Pen(sample) = event {
-                heard.borrow_mut().pen(*sample);
+                pen.borrow_mut().pen(*sample);
+            } else if let Some(text) = heard(event) {
+                *shown.borrow_mut() = text;
             }
         });
         run_app(Theme::dark(), move |ui, width, height| {
-            panel(ui, &mut state, width)?;
+            panel(ui, &mut state, &last.borrow(), width)?;
             pad(ui, &mut sketch.borrow_mut(), width, height)
         })
     }
