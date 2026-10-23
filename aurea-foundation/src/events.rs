@@ -33,6 +33,9 @@ pub enum WindowEvent {
     Minimized,
     /// The window was restored from minimized.
     Restored,
+    /// The system is short of memory: drop caches that can be rebuilt. On iOS an app that does not
+    /// may be stopped.
+    MemoryWarning,
     /// The display scale factor changed.
     ScaleFactorChanged {
         /// New scale factor.
