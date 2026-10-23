@@ -10,6 +10,7 @@ use super::window::NativeWindow;
 use crate::render::{CpuRasterizer, Renderer, SurfaceInfo};
 use crate::ui::{Theme, Ui, UiState};
 use crate::{AureaResult, Modifiers, MouseButton, MouseButtons, WindowEvent};
+use aurea_render::FrameOutcome;
 
 /// Draws the app's UI each frame, `width` x `height` logical pixels.
 pub type App = Box<dyn FnMut(&mut Ui<'_, u64>, f32, f32) -> AureaResult<()>>;
@@ -154,7 +155,7 @@ pub(super) fn frame() -> bool {
             logical.0 as f32 - left - right,
             logical.1 as f32 - top - bottom,
         );
-        let drawn = (|| -> AureaResult<()> {
+        let drawn = (|| -> AureaResult<FrameOutcome> {
             let mut ctx = raster.begin_frame()?;
             ctx.clear(theme.palette.background)?;
             ctx.translate(left, top)?;
@@ -162,15 +163,20 @@ pub(super) fn frame() -> bool {
             app(&mut ui, w, h)?;
             drop(ui);
             drop(ctx);
-            raster.end_frame()?;
-            Ok(())
+            raster.end_frame()
         })();
-        if let Err(e) = drawn {
-            log::warn!("android frame: {e}");
-            return false;
-        }
-        if let Some(out) = raster.frame_output() {
-            window.post(out.words(), out.width, out.height);
+        match drawn {
+            Err(e) => {
+                log::warn!("android frame: {e}");
+                return false;
+            }
+            Ok(FrameOutcome::Unchanged) => {}
+            Ok(_) => {
+                let damage = raster.last_frame_damage();
+                if let Some(out) = raster.frame_output() {
+                    window.post(out.words(), out.width, out.height, damage);
+                }
+            }
         }
         if let Some(next) = NEXT_THEME.take() {
             *theme = next;
