@@ -1465,6 +1465,22 @@ mod win32_ime_tests {
 
     #[test]
     #[ignore = "creates a native window; run with --ignored"]
+    fn a_preedit_clears_once() -> AureaResult<()> {
+        let window = opened()?;
+        send(&window, WM_IME_ENDCOMPOSITION, 0);
+        send(&window, WM_IME_ENDCOMPOSITION, 0);
+
+        let clears = window
+            .poll_events()
+            .into_iter()
+            .filter(|event| matches!(event, WindowEvent::ImePreedit { .. }))
+            .count();
+        assert_eq!(clears, 1);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
     fn an_empty_result_types_nothing() -> AureaResult<()> {
         let window = opened()?;
         send(&window, WM_IME_COMPOSITION, GCS_RESULTSTR);

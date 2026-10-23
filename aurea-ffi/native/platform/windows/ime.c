@@ -11,6 +11,16 @@
 #define AUREA_IME_W_PROP "AureaImeW"
 #define AUREA_IME_H_PROP "AureaImeH"
 #define AUREA_IME_SET_PROP "AureaImeSet"
+#define AUREA_IME_CLEARED_PROP "AureaImeCleared"
+
+/* A commit clears the preedit and then ends the composition; the app hears the clear once. */
+static void ng_windows_ime_preedit(HWND hwnd, const char* text, int cursor) {
+    int empty = !*text;
+    if (empty && GetPropA(hwnd, AUREA_IME_CLEARED_PROP)) return;
+    if (empty) SetPropA(hwnd, AUREA_IME_CLEARED_PROP, (HANDLE)1);
+    else RemovePropA(hwnd, AUREA_IME_CLEARED_PROP);
+    ng_invoke_ime_preedit((void*)hwnd, text, cursor);
+}
 
 static int ng_windows_ime_physical(HWND hwnd, float logical) {
     float scale = ng_windows_get_scale_factor((NGHandle)hwnd);
@@ -116,10 +126,10 @@ static void ng_windows_ime_composition(HWND hwnd, LPARAM flags) {
     if (flags & GCS_COMPSTR) {
         char* composing = ng_windows_ime_string(imc, GCS_COMPSTR, NULL);
         int cursor = (flags & GCS_CURSORPOS) ? ng_windows_ime_cursor(imc) : -1;
-        ng_invoke_ime_preedit((void*)hwnd, composing ? composing : "", cursor);
+        ng_windows_ime_preedit(hwnd, composing ? composing : "", cursor);
         free(composing);
     } else if (flags & GCS_RESULTSTR) {
-        ng_invoke_ime_preedit((void*)hwnd, "", -1);
+        ng_windows_ime_preedit(hwnd, "", -1);
     }
 
     ImmReleaseContext(hwnd, imc);
@@ -141,7 +151,7 @@ int ng_windows_ime_message(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LR
             *result = 0;
             return 1;
         case WM_IME_ENDCOMPOSITION:
-            ng_invoke_ime_preedit((void*)hwnd, "", -1);
+            ng_windows_ime_preedit(hwnd, "", -1);
             *result = 0;
             return 1;
         default:
@@ -155,4 +165,5 @@ void ng_windows_ime_release(HWND hwnd) {
     RemovePropA(hwnd, AUREA_IME_W_PROP);
     RemovePropA(hwnd, AUREA_IME_H_PROP);
     RemovePropA(hwnd, AUREA_IME_SET_PROP);
+    RemovePropA(hwnd, AUREA_IME_CLEARED_PROP);
 }
