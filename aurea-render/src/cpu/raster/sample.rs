@@ -58,6 +58,8 @@ pub struct Taps {
     lo: i32,
     hi: i32,
     t: f32,
+    /// `t` in 256ths, for the integer read of opaque pixels.
+    w: u32,
 }
 
 impl Taps {
@@ -70,6 +72,7 @@ impl Taps {
             lo: x.clamp(lo, hi),
             hi: (x + 1).clamp(lo, hi),
             t: u - f,
+            w: f32_to_u32_clamped(((u - f) * 256.0 + 0.5).min(256.0)),
         }
     }
 }
@@ -100,6 +103,54 @@ pub fn bilinear_taps(image: &Image, x: Taps, y: Taps, alpha: f32) -> u32 {
         *o = top + (bottom - top) * y.t;
     }
     pack(out, alpha)
+}
+
+/// One row of [`bilinear_taps`] reads into `out`, one per column; returns whether all came out
+/// opaque. Where all four texels are opaque it blends two channels per integer multiply instead,
+/// within 1 of the float read.
+pub fn bilinear_row(image: &Image, columns: &[Taps], y: Taps, alpha: f32, out: &mut [u32]) -> bool {
+    let stride = image.width as usize * 4;
+    let row = |at: i32| {
+        let start = at.unsigned_abs() as usize * stride;
+        image.data.get(start..start + stride)
+    };
+    let (Some(top), Some(bottom)) = (row(y.lo), row(y.hi)) else {
+        out.fill(0);
+        return false;
+    };
+    let texel = |row: &[u8], at: i32| {
+        let i = at.unsigned_abs() as usize * 4;
+        row.get(i..i + 4)
+            .map(|p| u32::from_le_bytes([p[0], p[1], p[2], p[3]]))
+    };
+    let mut all_opaque = true;
+    for (o, x) in out.iter_mut().zip(columns) {
+        let (Some(p00), Some(p10), Some(p01), Some(p11)) = (
+            texel(top, x.lo),
+            texel(top, x.hi),
+            texel(bottom, x.lo),
+            texel(bottom, x.hi),
+        ) else {
+            *o = 0;
+            all_opaque = false;
+            continue;
+        };
+        if alpha < 1.0 || p00 & p10 & p01 & p11 < 0xFF00_0000 {
+            *o = bilinear_taps(image, *x, y, alpha);
+            all_opaque &= *o >> 24 == 255;
+            continue;
+        }
+        // Bytes are r, g, b, a: red and blue share one word, green the other.
+        let lerp =
+            |a: u32, b: u32, t: u32| ((a * (256 - t) + b * t + 0x0080_0080) >> 8) & 0x00FF_00FF;
+        let pair = |shift: u32| {
+            let m = |p: u32| (p >> shift) & 0x00FF_00FF;
+            lerp(lerp(m(p00), m(p10), x.w), lerp(m(p01), m(p11), x.w), y.w)
+        };
+        let (rb, g) = (pair(0), pair(8) & 0xFF);
+        *o = 0xFF00_0000 | ((rb & 0xFF) << 16) | (g << 8) | (rb >> 16);
+    }
+    all_opaque
 }
 
 /// The pixels `[u0, u1)` covers along one axis, clamped to `lo..=hi`, each with the length of it
@@ -203,5 +254,35 @@ mod tests {
         let mid = bilinear(&img, b, 1.0, 0.5, 1.0);
         assert_eq!(mid & 0x00FF_FFFF, 0x00FF_0000, "no green: {mid:08x}");
         assert_eq!(mid >> 24, 0x80);
+    }
+
+    #[test]
+    fn opaque_rows_stay_within_one_of_the_float_read() {
+        let data: Vec<u8> = (0..=255u8)
+            .flat_map(|i| {
+                [
+                    i.wrapping_mul(37),
+                    i.wrapping_mul(91),
+                    i.wrapping_mul(13),
+                    255,
+                ]
+            })
+            .collect();
+        let img = Image::new(16, 16, data);
+        let columns: Vec<_> = (0..40)
+            .map(|x| Taps::at(x as f32 * 0.37 + 0.2, 0, 15))
+            .collect();
+        let mut row = vec![0; columns.len()];
+        for y in 0..40 {
+            let y = Taps::at(y as f32 * 0.41 + 0.1, 0, 15);
+            assert!(bilinear_row(&img, &columns, y, 1.0, &mut row));
+            for (&got, &x) in row.iter().zip(&columns) {
+                let want = bilinear_taps(&img, x, y, 1.0);
+                for shift in [0, 8, 16, 24] {
+                    let (a, b) = ((got >> shift) & 255, (want >> shift) & 255);
+                    assert!(a.abs_diff(b) <= 1, "{got:08x} vs {want:08x}");
+                }
+            }
+        }
     }
 }

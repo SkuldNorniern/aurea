@@ -1232,17 +1232,17 @@ impl CpuRasterizer {
         let shrink = sampling == Sampling::Smooth && (sx > 1.0 || sy > 1.0);
         let u0 = |cx: i32| (cx as f32 - dest.x) * sx + src.x;
         let v0 = |cy: i32| (cy as f32 - dest.y) * sy + src.y;
-        let mut put = |cx: i32, cy: i32, c: u32| {
+        let put = |buf: &mut [u32], cx: i32, cy: i32, c: u32| {
             if c >> 24 != 0 {
                 Self::buf_set(buf, bw, clip, cx, cy, c, mode);
             }
         };
         let ImageScratch {
+            row: line,
             columns,
             offsets,
             rows,
             taps,
-            ..
         } = scratch;
         if shrink {
             columns.clear();
@@ -1260,6 +1260,7 @@ impl CpuRasterizer {
                 for (i, cx) in (x0..x1).enumerate() {
                     let xs = columns[offsets[i]..offsets[i + 1]].iter().copied();
                     put(
+                        buf,
                         cx,
                         cy,
                         sample::area_from(image, xs, rows.iter().copied(), alpha),
@@ -1271,10 +1272,18 @@ impl CpuRasterizer {
             taps.extend(
                 (x0..x1).map(|cx| sample::Taps::at(u0(cx) + sx * 0.5, bounds.x0, bounds.x1)),
             );
+            line.clear();
+            line.resize(taps.len(), 0);
             for cy in y0..y1 {
                 let row = sample::Taps::at(v0(cy) + sy * 0.5, bounds.y0, bounds.y1);
-                for (&column, cx) in taps.iter().zip(x0..x1) {
-                    put(cx, cy, sample::bilinear_taps(image, column, row, alpha));
+                if sample::bilinear_row(image, taps, row, alpha, line) && mode == BlendMode::Normal
+                {
+                    let start = (cy.unsigned_abs() * bw + x0.unsigned_abs()) as usize;
+                    buf[start..start + line.len()].copy_from_slice(line);
+                } else {
+                    for (&c, cx) in line.iter().zip(x0..x1) {
+                        put(buf, cx, cy, c);
+                    }
                 }
             }
         }
@@ -2110,6 +2119,125 @@ mod bad_source_tests {
         let origin = Point::new(0.0, 0.0);
         CpuRasterizer::draw_glyph(&mask, origin, Color::rgb(0, 0, 0), &mut buf, 8, CLIP);
         assert!(buf.iter().all(|&p| p == 0));
+    }
+}
+
+#[cfg(test)]
+mod image_draw_tests {
+    use super::*;
+    use std::hint::black_box;
+    use std::time::Instant;
+
+    fn pattern(w: u32, h: u32, alpha: impl Fn(u32, u32) -> u8) -> Image {
+        let mut data = Vec::with_capacity((w * h * 4) as usize);
+        for y in 0..h {
+            for x in 0..w {
+                let v = x.to_le_bytes()[0].wrapping_mul(37) ^ y.to_le_bytes()[0].wrapping_mul(91);
+                data.extend([v, v.wrapping_mul(3), 255 - v, alpha(x, y)]);
+            }
+        }
+        Image::new(w, h, data)
+    }
+
+    /// A per-pixel bilinear read.
+    fn reference(image: &Image, src: Rect, dest: Rect, mode: BlendMode, alpha: f32) -> Vec<u32> {
+        let mut buf = vec![0xff20_4060; 24 * 24];
+        let b = sample::Bounds {
+            x0: 0,
+            y0: 0,
+            x1: image.width as i32 - 1,
+            y1: image.height as i32 - 1,
+        };
+        let (sx, sy) = (src.width / dest.width, src.height / dest.height);
+        for y in 0..24 {
+            for x in 0..24 {
+                let (cx, cy) = (x as f32 + 0.5, y as f32 + 0.5);
+                if cx < dest.x || cy < dest.y || cx >= dest.right() || cy >= dest.bottom() {
+                    continue;
+                }
+                let u = (x as f32 - dest.x) * sx + src.x + sx * 0.5;
+                let v = (y as f32 - dest.y) * sy + src.y + sy * 0.5;
+                let c = sample::bilinear(image, b, u, v, alpha);
+                if c >> 24 != 0 {
+                    CpuRasterizer::buf_set(&mut buf, 24, ClipBox::surface(24, 24), x, y, c, mode);
+                }
+            }
+        }
+        buf
+    }
+
+    #[test]
+    fn enlarged_draws_stay_within_one_of_a_per_pixel_read() {
+        let opaque = pattern(6, 5, |_, _| 255);
+        let mixed = pattern(6, 5, |x, y| [255, 0, 128, 255, 7][((x + y) % 5) as usize]);
+        let src = Rect::new(0.0, 0.0, 6.0, 5.0);
+        let dest = Rect::new(1.3, 2.0, 21.0, 19.5);
+        for image in [&opaque, &mixed] {
+            for mode in [BlendMode::Normal, BlendMode::Multiply] {
+                for alpha in [1.0, 0.5] {
+                    let mut buf = vec![0xff20_4060; 24 * 24];
+                    CpuRasterizer::draw_image(
+                        image,
+                        src,
+                        dest,
+                        Sampling::Linear,
+                        mode,
+                        alpha,
+                        &mut buf,
+                        &mut ImageScratch::default(),
+                        24,
+                        ClipBox::surface(24, 24),
+                    );
+                    let want = reference(image, src, dest, mode, alpha);
+                    for (&got, &want) in buf.iter().zip(&want) {
+                        let off =
+                            [0, 8, 16, 24].map(|s| ((got >> s) & 255).abs_diff((want >> s) & 255));
+                        assert!(
+                            off.iter().all(|&d| d <= 1),
+                            "{mode:?} {alpha}: {got:08x} {want:08x}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Lunia's zoom frame: a canvas-sized clear under ~80 enlarged opaque tiles.
+    #[test]
+    #[ignore = "manual CPU image draw timing"]
+    fn zoomed_tiles_benchmark() {
+        let (w, h) = (2732, 2048);
+        let tile = pattern(256, 256, |_, _| 255);
+        let mut r = CpuRasterizer::new(w, h);
+        let frames = 20;
+        let mut total = 0.0;
+        for frame in 0..frames {
+            let mut ctx = r.begin_frame().expect("frame");
+            ctx.clear(Color::rgb(40, 40, 40)).expect("clear");
+            let size = 256.0 * 1.3;
+            let shift = frame as f32 * 1.7;
+            for row in 0..8 {
+                for col in 0..10 {
+                    let dest = Rect::new(
+                        col as f32 * size - shift,
+                        row as f32 * size - shift,
+                        size,
+                        size,
+                    );
+                    ctx.draw_image_region(&tile, Rect::new(0.0, 0.0, 256.0, 256.0), dest)
+                        .expect("draw");
+                }
+            }
+            drop(ctx);
+            let start = Instant::now();
+            r.end_frame().expect("end");
+            total += start.elapsed().as_secs_f64();
+        }
+        eprintln!(
+            "zoomed tiles: {:.2} ms/frame",
+            total * 1e3 / f64::from(frames)
+        );
+        black_box(r.pixels());
     }
 }
 
