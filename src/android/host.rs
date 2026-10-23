@@ -22,7 +22,15 @@ struct Host {
     state: UiState<u64>,
     scale: f32,
     logical: (u32, u32),
+    /// System bar insets in buffer pixels; they can arrive before the surface and its scale.
     insets: [f32; 4],
+}
+
+impl Host {
+    /// Left, top, right, bottom insets in logical pixels.
+    fn logical_insets(&self) -> [f32; 4] {
+        self.insets.map(|v| v / self.scale)
+    }
 }
 
 thread_local! {
@@ -74,7 +82,7 @@ pub(super) fn surface_changed(
 
 pub(super) fn set_insets(left: f32, top: f32, right: f32, bottom: f32) {
     HOST.with_borrow_mut(|host| {
-        host.insets = [left, top, right, bottom].map(|v| v.max(0.0) / host.scale);
+        host.insets = [left, top, right, bottom].map(|v| v.max(0.0));
     });
 }
 
@@ -91,7 +99,7 @@ pub(super) fn surface_destroyed() {
 
 pub(super) fn touch(action: i32, x: f32, y: f32) {
     HOST.with_borrow_mut(|host| {
-        let [left, top, ..] = host.insets;
+        let [left, top, ..] = host.logical_insets();
         let (x, y) = (
             f64::from(x / host.scale - left),
             f64::from(y / host.scale - top),
@@ -129,6 +137,7 @@ pub(super) fn touch(action: i32, x: f32, y: f32) {
 
 pub(super) fn frame() -> bool {
     HOST.with_borrow_mut(|host| {
+        let [left, top, right, bottom] = host.logical_insets();
         let Host {
             app: Some(app),
             theme,
@@ -136,20 +145,19 @@ pub(super) fn frame() -> bool {
             raster,
             state,
             logical,
-            insets: [left, top, right, bottom],
             ..
         } = host
         else {
             return false;
         };
         let (w, h) = (
-            logical.0 as f32 - *left - *right,
-            logical.1 as f32 - *top - *bottom,
+            logical.0 as f32 - left - right,
+            logical.1 as f32 - top - bottom,
         );
         let drawn = (|| -> AureaResult<()> {
             let mut ctx = raster.begin_frame()?;
             ctx.clear(theme.palette.background)?;
-            ctx.translate(*left, *top)?;
+            ctx.translate(left, top)?;
             let mut ui = state.frame(&mut *ctx, theme);
             app(&mut ui, w, h)?;
             drop(ui);
