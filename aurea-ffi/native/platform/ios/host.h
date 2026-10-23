@@ -88,6 +88,19 @@ typedef void (*NGIosPicked)(void* ctx, const char* paths);
    are copied into the app's sandbox. Returns 0 when it cannot show, and `done` is not called. */
 int ng_ios_pick_files(const char* extensions, int multiple, NGIosPicked done, void* ctx);
 
+/* Hears the answer to an alert or sheet. On the main thread, once. */
+typedef void (*NGIosAnswered)(void* ctx, int answer);
+
+/* An alert with `buttons` as MessageButtons codes; `done` hears the MessageChoice code. Returns 0
+   when it cannot show, and `done` is not called. */
+int ng_ios_alert(const char* title, const char* message, int buttons, NGIosAnswered done, void* ctx);
+
+/* The share sheet for the NUL-separated `paths`, pointing at the given rectangle in points from the
+   safe area's top left on an iPad (centred when it is empty); `done` hears 1 when they went
+   somewhere. Returns 0 when it cannot show, and `done` is not called. */
+int ng_ios_share_files(const char* paths, float x, float y, float width, float height, NGIosAnswered done,
+                       void* ctx);
+
 /* Lets the user save copies of the NUL-separated `paths` elsewhere, such as iCloud Drive; `done`
    hears where they went. Returns 0 when it cannot show, and `done` is not called. */
 int ng_ios_export_files(const char* paths, NGIosPicked done, void* ctx);

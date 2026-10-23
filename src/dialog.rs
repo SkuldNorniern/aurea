@@ -159,7 +159,7 @@ pub enum MessageButtons {
 }
 
 impl MessageButtons {
-    fn code(self) -> c_int {
+    pub(crate) fn code(self) -> c_int {
         match self {
             Self::Ok => 0,
             Self::OkCancel => 1,
@@ -187,7 +187,7 @@ pub enum MessageChoice {
 }
 
 impl MessageChoice {
-    fn from_code(code: c_int) -> Option<Self> {
+    pub(crate) fn from_code(code: c_int) -> Option<Self> {
         Some(match code {
             0 => Self::Ok,
             1 => Self::Cancel,

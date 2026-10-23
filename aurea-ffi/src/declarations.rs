@@ -63,6 +63,23 @@ unsafe extern "C" {
         done: unsafe extern "C" fn(ctx: *mut c_void, paths: *const c_char),
         ctx: *mut c_void,
     ) -> c_int;
+    pub fn ng_ios_alert(
+        title: *const c_char,
+        message: *const c_char,
+        buttons: c_int,
+        done: unsafe extern "C" fn(ctx: *mut c_void, answer: c_int),
+        ctx: *mut c_void,
+    ) -> c_int;
+    #[allow(clippy::too_many_arguments)]
+    pub fn ng_ios_share_files(
+        paths: *const c_char,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        done: unsafe extern "C" fn(ctx: *mut c_void, answer: c_int),
+        ctx: *mut c_void,
+    ) -> c_int;
     pub fn ng_ios_export_files(
         paths: *const c_char,
         done: unsafe extern "C" fn(ctx: *mut c_void, paths: *const c_char),

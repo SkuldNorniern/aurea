@@ -4,8 +4,10 @@
 //! `crate::touch`.
 
 mod documents;
+mod sheets;
 
 pub use documents::{export_files, pick_files};
+pub use sheets::{alert, share_files};
 
 use std::cell::{Cell, RefCell};
 use std::ffi::{CStr, c_char, c_int};

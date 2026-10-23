@@ -69,7 +69,7 @@ fn shown_or_drop(shown: c_int, ctx: *mut c_void) -> AureaResult<()> {
 }
 
 /// Entries, each ended by a NUL, then an empty one.
-fn nul_list<'a>(entries: impl Iterator<Item = &'a [u8]>) -> Vec<c_char> {
+pub(super) fn nul_list<'a>(entries: impl Iterator<Item = &'a [u8]>) -> Vec<c_char> {
     let mut list = Vec::new();
     for entry in entries.filter(|e| !e.is_empty() && !e.contains(&0)) {
         list.extend(entry.iter().map(|b| b.cast_signed()));

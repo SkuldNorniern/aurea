@@ -1,12 +1,12 @@
 #import "host.h"
+#import "present.h"
 #import <UIKit/UIKit.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 /* The system document picker, for files to open and files to save elsewhere. It is not modal: the
    app keeps running, and `done` hears the paths later on the main thread. */
 
-/* The view controller on top, for the picker to present over. */
-static UIViewController* ng_ios_presenter(void) {
+UIViewController* ng_ios_presenter(void) {
     for (UIScene* scene in UIApplication.sharedApplication.connectedScenes) {
         if (![scene isKindOfClass:[UIWindowScene class]]) continue;
         for (UIWindow* window in ((UIWindowScene*)scene).windows) {
