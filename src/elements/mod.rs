@@ -1230,8 +1230,31 @@ mod win32_tests {
         let height = |h| rect(h).bottom - rect(h).top;
         let before = height(content);
 
-        let big = unsafe { CreateFontW(-48, 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 0, 0, null_mut()) };
-
+        const WM_GETFONT: u32 = 0x0031;
+        let mut logfont = [0i32; 23];
+        unsafe {
+            let font = SendMessageW(labels[0], WM_GETFONT, 0, 0) as *mut c_void;
+            GetObjectW(font, 92, logfont.as_mut_ptr().cast());
+        }
+        let three_times = -3 * logfont[0].abs();
+        let big = unsafe {
+            CreateFontW(
+                three_times,
+                0,
+                0,
+                0,
+                400,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                null_mut(),
+            )
+        };
         for label in labels {
             unsafe { SendMessageW(label, WM_SETFONT, big as usize, 0) };
         }
