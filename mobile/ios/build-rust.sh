@@ -1,6 +1,7 @@
 #!/bin/sh
 # Builds the ios_demo example for the platform and architectures Xcode is building, and leaves
-# the static library where the app target links it.
+# the static library where the app target links it. AUREA_FEATURES adds cargo features, such as
+# `zengpu` to draw on the GPU.
 set -eu
 export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
@@ -34,7 +35,8 @@ for arch in $ARCHS; do
     # the Mac, so it gets a clean one.
     (cd "$repo" && env -i HOME="$HOME" USER="${USER:-}" PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
         DEVELOPER_DIR="$DEVELOPER_DIR" CARGO_TARGET_DIR="$target_dir" \
-        cargo build --example ios_demo --features mobile --target "$triple" $release_flag)
+        cargo build --example ios_demo --features "mobile${AUREA_FEATURES:+,$AUREA_FEATURES}" \
+            --target "$triple" $release_flag)
     set -- "$@" "$target_dir/$triple/$profile/examples/libios_demo.a"
 done
 

@@ -175,6 +175,8 @@ mod app {
     }
 
     pub fn run() -> ! {
+        // RUST_LOG=info shows, among others, whether it draws on the GPU.
+        let _ = aurea::logger::init_from_env();
         let mut state = State {
             level: 0.6,
             look: 1,
