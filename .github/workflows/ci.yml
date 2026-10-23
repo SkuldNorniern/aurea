@@ -112,7 +112,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v7.0.1
@@ -142,6 +142,11 @@ jobs:
       - name: Run display tests (Windows)
         if: runner.os == 'Windows'
         run: cargo test --workspace --features zengpu -- --ignored --test-threads=1
+
+      # AppKit needs the main thread, which libtest never gives a test.
+      - name: Run display tests (macOS)
+        if: runner.os == 'macOS'
+        run: cargo test --test macos_native -- --ignored
 
   backends:
     name: GPU backends (${{ matrix.os }})
