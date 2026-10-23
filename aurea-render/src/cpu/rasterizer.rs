@@ -171,6 +171,9 @@ impl CpuRasterizer {
         outcome
     }
 
+    /// Padding, in pixels, on each outer-chord span edge so rounding never drops a pixel.
+    const STROKE_SPAN_PAD: i32 = 2;
+
     #[inline]
     fn buf_set(
         buf: &mut [u32],
@@ -854,17 +857,64 @@ impl CpuRasterizer {
         x1: u32,
         y1: u32,
     ) {
-        let sw = paint.stroke_width;
-        let inner_r = (radius - sw).max(0.0);
-        let c = color_to_u32(paint.color);
+        let ctx = CircleStrokeCtx {
+            clip,
+            center,
+            radius,
+            inner_r: (radius - paint.stroke_width).max(0.0),
+            c: color_to_u32(paint.color),
+            mode,
+        };
         for y in y0..y1 {
-            for x in x0..x1 {
-                let dx = x as f32 + 0.5 - center.x;
-                let dy = y as f32 + 0.5 - center.y;
-                let d = (dx * dx + dy * dy).sqrt();
-                if d <= radius && d >= inner_r {
-                    Self::buf_set(buf, bw, clip, x as i32, y as i32, c, mode);
-                }
+            Self::stroke_circle_row(buf, bw, &ctx, x0, x1, y);
+        }
+    }
+
+    /// Splits a row into the spans that can hold stroke pixels: the outer chord, minus the
+    /// inner chord when it is wide enough to skip. Pixels outside those spans fail the
+    /// per-pixel test in `stroke_circle_span` by a margin, so they are never tested.
+    fn stroke_circle_row(
+        buf: &mut [u32],
+        bw: u32,
+        ctx: &CircleStrokeCtx,
+        x0: u32,
+        x1: u32,
+        y: u32,
+    ) {
+        let dy = y as f32 + 0.5 - ctx.center.y;
+        let half_out = (ctx.radius * ctx.radius - dy * dy).max(0.0).sqrt();
+        let pad = Self::STROKE_SPAN_PAD;
+        let lo = (f32_to_i32_clamped((ctx.center.x - half_out).floor()) - pad).max(x0 as i32);
+        let hi = (f32_to_i32_clamped((ctx.center.x + half_out).ceil()) + pad).min(x1 as i32);
+        if lo >= hi {
+            return;
+        }
+        let half_in = (ctx.inner_r * ctx.inner_r - dy * dy).max(0.0).sqrt();
+        if half_in < 1.0 {
+            Self::stroke_circle_span(buf, bw, ctx, y, lo, hi);
+            return;
+        }
+        // Centres in [skip_lo, skip_hi) lie at least a pixel inside the hole.
+        let skip_lo = f32_to_i32_clamped((ctx.center.x - half_in + 0.5).ceil());
+        let skip_hi = f32_to_i32_clamped((ctx.center.x + half_in - 1.5).floor()) + 1;
+        Self::stroke_circle_span(buf, bw, ctx, y, lo, skip_lo.min(hi));
+        Self::stroke_circle_span(buf, bw, ctx, y, skip_hi.max(lo), hi);
+    }
+
+    fn stroke_circle_span(
+        buf: &mut [u32],
+        bw: u32,
+        ctx: &CircleStrokeCtx,
+        y: u32,
+        xa: i32,
+        xb: i32,
+    ) {
+        let dy = y as f32 + 0.5 - ctx.center.y;
+        for x in xa..xb {
+            let dx = x as f32 + 0.5 - ctx.center.x;
+            let d = (dx * dx + dy * dy).sqrt();
+            if d <= ctx.radius && d >= ctx.inner_r {
+                Self::buf_set(buf, bw, ctx.clip, x, y as i32, ctx.c, ctx.mode);
             }
         }
     }
@@ -1781,6 +1831,16 @@ impl Renderer for CpuRasterizer {
     fn display_list(&self) -> Option<&DisplayList> {
         Some(&self.display_list)
     }
+}
+
+/// Per-circle values shared by every row of a stroked circle.
+struct CircleStrokeCtx {
+    clip: ClipBox,
+    center: Point,
+    radius: f32,
+    inner_r: f32,
+    c: u32,
+    mode: BlendMode,
 }
 
 struct CircleFillCtx<'a> {
@@ -3404,5 +3464,159 @@ mod scale_tests {
                 assert_ne!(px(31.0, 31.0), color_to_u32(green), "past it {case}");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod stroke_circle_tests {
+    use super::*;
+    use std::hint::black_box;
+    use std::time::{Duration, Instant};
+
+    const SIDE: u32 = 700;
+
+    /// The stroke loop as it was before the row-span rewrite, with the same bounding box.
+    #[allow(clippy::too_many_arguments)]
+    fn reference_draw_circle(
+        center: Point,
+        radius: f32,
+        paint: &Paint,
+        mode: BlendMode,
+        buf: &mut [u32],
+        bw: u32,
+        clip: ClipBox,
+    ) {
+        let x0 = f32_to_u32_clamped((center.x - radius).floor().max(clip.left())).min(clip.x1);
+        let y0 = f32_to_u32_clamped((center.y - radius).floor().max(clip.top())).min(clip.y1);
+        let x1 = f32_to_u32_clamped((center.x + radius).ceil().max(clip.left())).min(clip.x1);
+        let y1 = f32_to_u32_clamped((center.y + radius).ceil().max(clip.top())).min(clip.y1);
+        let inner_r = (radius - paint.stroke_width).max(0.0);
+        let c = color_to_u32(paint.color);
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let dx = x as f32 + 0.5 - center.x;
+                let dy = y as f32 + 0.5 - center.y;
+                let d = (dx * dx + dy * dy).sqrt();
+                if d <= radius && d >= inner_r {
+                    CpuRasterizer::buf_set(buf, bw, clip, x as i32, y as i32, c, mode);
+                }
+            }
+        }
+    }
+
+    /// A non-uniform backdrop with varied alpha, so blends and overwrites are both visible.
+    fn backdrop() -> Vec<u32> {
+        let mut state = 0x2545_f491_u32;
+        (0..SIDE * SIDE)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                state
+            })
+            .collect()
+    }
+
+    fn assert_matches_reference(
+        center: Point,
+        radius: f32,
+        paint: &Paint,
+        mode: BlendMode,
+        clip: ClipBox,
+    ) {
+        let mut expected = backdrop();
+        let mut actual = expected.clone();
+        reference_draw_circle(center, radius, paint, mode, &mut expected, SIDE, clip);
+        CpuRasterizer::draw_circle(center, radius, paint, mode, &mut actual, SIDE, clip);
+        assert!(
+            actual == expected,
+            "r={radius} w={} center=({}, {}) clip={clip:?} mode={mode:?} color={:?}",
+            paint.stroke_width,
+            center.x,
+            center.y,
+            paint.color,
+        );
+    }
+
+    fn check_ring(radius: f32, width: f32) {
+        let centers = [
+            Point::new(350.0, 350.0),
+            Point::new(350.37, 349.61),
+            Point::new(-40.2, 120.7),
+            Point::new(620.5, 640.25),
+        ];
+        let clips = [
+            ClipBox::surface(SIDE, SIDE),
+            ClipBox {
+                x0: 90,
+                y0: 70,
+                x1: 510,
+                y1: 600,
+            },
+        ];
+        let colors = [
+            Color::rgba(200, 40, 90, 255),
+            Color::rgba(30, 220, 120, 128),
+        ];
+        for center in centers {
+            for clip in clips {
+                for color in colors {
+                    for mode in [BlendMode::Normal, BlendMode::Multiply] {
+                        let paint = Paint::new()
+                            .color(color)
+                            .style(PaintStyle::Stroke)
+                            .stroke_width(width);
+                        assert_matches_reference(center, radius, &paint, mode, clip);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn stroked_circles_match_reference_exactly() {
+        let radii = [0.5_f32, 1.0, 3.3, 10.0, 57.5, 300.0];
+        for radius in radii {
+            let widths = [0.5_f32, 1.0, 2.5, 12.0, radius * 1.5 + 1.0];
+            for width in widths {
+                check_ring(radius, width);
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "timing; run with --include-ignored --nocapture"]
+    fn timing_200_stroked_circles_r300_w3() {
+        const SIDE_T: u32 = 1024;
+        let clip = ClipBox::surface(SIDE_T, SIDE_T);
+        let paint = Paint::new()
+            .color(Color::rgba(200, 40, 90, 255))
+            .style(PaintStyle::Stroke)
+            .stroke_width(3.0);
+        let centers: Vec<Point> = (0..200)
+            .map(|i| {
+                let t = i as f32;
+                Point::new(150.0 + (t * 37.3) % 724.0, 150.0 + (t * 91.7) % 724.0)
+            })
+            .collect();
+        let mut best = Duration::MAX;
+        for _ in 0..3 {
+            let mut buf = vec![0u32; (SIDE_T * SIDE_T) as usize];
+            let start = Instant::now();
+            for &center in &centers {
+                CpuRasterizer::draw_circle(
+                    center,
+                    300.0,
+                    &paint,
+                    BlendMode::Normal,
+                    &mut buf,
+                    SIDE_T,
+                    clip,
+                );
+            }
+            best = best.min(start.elapsed());
+            black_box(&buf);
+        }
+        println!("best of 3 run: {best:?}");
     }
 }
