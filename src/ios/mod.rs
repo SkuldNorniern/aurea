@@ -7,9 +7,12 @@ use std::ptr::null;
 
 use aurea_ffi::{NGIosHost, ng_ios_run_host};
 
+use crate::ffi::callbacks::event_time;
 use crate::render::{CpuRasterizer, Renderer, SurfaceInfo};
 use crate::ui::{Theme, Ui, UiState};
-use crate::{AureaResult, Modifiers, MouseButton, MouseButtons, WindowEvent};
+use crate::{
+    AureaResult, Modifiers, MouseButton, MouseButtons, PenPhase, PenSample, PenTool, WindowEvent,
+};
 
 /// Draws the app's UI each frame, `width` x `height` logical pixels.
 type App = Box<dyn FnMut(&mut Ui<'_, u64>, f32, f32) -> AureaResult<()>>;
@@ -24,7 +27,11 @@ struct Host {
     insets: [f32; 4],
 }
 
+/// Hears what the user does, before the UI does.
+type Listener = Box<dyn FnMut(&WindowEvent)>;
+
 thread_local! {
+    static LISTENER: RefCell<Option<Listener>> = const { RefCell::new(None) };
     static NEXT_THEME: RefCell<Option<Theme>> = const { RefCell::new(None) };
     static HOST: RefCell<Host> = RefCell::new(Host {
         app: None,
@@ -50,9 +57,25 @@ pub fn run(
     let host = NGIosHost {
         frame,
         touch,
+        pen,
         light_theme,
     };
     exit(unsafe { ng_ios_run_host(host) })
+}
+
+/// Calls `listener` with each touch, as mouse events, and each Apple Pencil sample, as
+/// [`WindowEvent::Pen`] with pressure and tilt, the way a desktop window reports a pen. The next
+/// frame is drawn after each.
+pub fn on_event(listener: impl FnMut(&WindowEvent) + 'static) {
+    LISTENER.set(Some(Box::new(listener)));
+}
+
+fn hear(events: &[WindowEvent]) {
+    LISTENER.with_borrow_mut(|listener| {
+        if let Some(listener) = listener {
+            events.iter().for_each(listener);
+        }
+    });
 }
 
 /// Switches the theme from the next frame.
@@ -68,7 +91,7 @@ unsafe extern "C" fn light_theme() -> i32 {
 }
 
 unsafe extern "C" fn touch(action: i32, x: f32, y: f32) {
-    HOST.with_borrow_mut(|host| {
+    let events = HOST.with_borrow_mut(|host| {
         let [left, top, ..] = host.insets;
         let (x, y) = (f64::from(x - left), f64::from(y - top));
         let modifiers = Modifiers::default();
@@ -89,17 +112,51 @@ unsafe extern "C" fn touch(action: i32, x: f32, y: f32) {
             click_count: 1,
             time: Default::default(),
         };
-        let events: &[WindowEvent] = match action {
-            0 => &[at(MouseButtons::default()), button(true)],
-            2 => &[at(held)],
-            1 => &[button(false), WindowEvent::MouseExited],
-            3 => &[WindowEvent::MouseExited],
-            _ => &[],
+        let events = match action {
+            0 => vec![at(MouseButtons::default()), button(true)],
+            2 => vec![at(held)],
+            1 => vec![button(false), WindowEvent::MouseExited],
+            3 => vec![WindowEvent::MouseExited],
+            _ => Vec::new(),
         };
-        for event in events {
+        for event in &events {
             host.state.handle(event);
         }
+        events
     });
+    hear(&events);
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe extern "C" fn pen(
+    phase: i32,
+    x: f64,
+    y: f64,
+    pressure: f32,
+    tilt_x: f32,
+    tilt_y: f32,
+    twist: f32,
+    age: f64,
+) {
+    let event = HOST.with_borrow_mut(|host| {
+        let [left, top, ..] = host.insets;
+        let event = WindowEvent::Pen(PenSample {
+            x: x - f64::from(left),
+            y: y - f64::from(top),
+            pressure: pressure.clamp(0.0, 1.0),
+            tilt_x: tilt_x.clamp(-90.0, 90.0),
+            tilt_y: tilt_y.clamp(-90.0, 90.0),
+            twist: twist.rem_euclid(360.0),
+            phase: PenPhase::from_raw(u32::try_from(phase).unwrap_or(0)),
+            tool: PenTool::Tip,
+            barrel: false,
+            modifiers: Modifiers::default(),
+            time: event_time(age),
+        });
+        host.state.handle(&event);
+        event
+    });
+    hear(&[event]);
 }
 
 #[allow(clippy::too_many_arguments)]

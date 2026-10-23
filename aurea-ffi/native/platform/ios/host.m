@@ -2,6 +2,7 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 #include <crt_externs.h>
+#include <math.h>
 
 /* One Aurea UI filling the screen: the app draws each frame into a pixel buffer, which becomes the
    view's layer contents. A display link asks for frames while the UI wants them. */
@@ -22,6 +23,9 @@ static NGIosHost g_host;
         self.layer.contentsGravity = kCAGravityTopLeft;
         self.layer.magnificationFilter = kCAFilterNearest;
         _dirty = YES;
+        if (@available(iOS 13.0, *)) {
+            [self addGestureRecognizer:[[UIHoverGestureRecognizer alloc] initWithTarget:self action:@selector(hovered:)]];
+        }
         _link = [CADisplayLink displayLinkWithTarget:self selector:@selector(tick:)];
         [_link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
     }
@@ -82,32 +86,83 @@ static NGIosHost g_host;
     CFRelease(pixels);
 }
 
-- (void)send:(int)action touches:(NSSet<UITouch*>*)touches {
+/* Lean of the pen in degrees from the screen's normal, as PenSample reads it: positive x toward
+   the right, positive y toward the user. */
+static void ng_ios_tilt(CGFloat altitude, CGFloat azimuth, float* tilt_x, float* tilt_y) {
+    CGFloat flat = cos(altitude);
+    CGFloat up = sin(altitude);
+    *tilt_x = (float)(atan2(flat * cos(azimuth), up) * 180.0 / M_PI);
+    *tilt_y = (float)(atan2(flat * sin(azimuth), up) * 180.0 / M_PI);
+}
+
+static double ng_ios_age(NSTimeInterval timestamp) {
+    return NSProcessInfo.processInfo.systemUptime - timestamp;
+}
+
+- (void)pen:(int)phase touch:(UITouch*)touch {
+    CGPoint at = [touch preciseLocationInView:self];
+    CGFloat most = touch.maximumPossibleForce;
+    float pressure = most > 0 ? (float)(touch.force / most) : 1.0f;
+    float tilt_x = 0, tilt_y = 0, twist = 0;
+    ng_ios_tilt(touch.altitudeAngle, [touch azimuthAngleInView:self], &tilt_x, &tilt_y);
+    if (@available(iOS 17.5, *)) twist = (float)(touch.rollAngle * 180.0 / M_PI);
+    g_host.pen(phase, at.x, at.y, pressure, tilt_x, tilt_y, twist, ng_ios_age(touch.timestamp));
+}
+
+/* An Apple Pencil also reports every sample between frames, with pressure and tilt. */
+- (void)pens:(int)phase touch:(UITouch*)touch event:(UIEvent*)event {
+    if (touch.type != UITouchTypePencil || !g_host.pen) return;
+    NSArray<UITouch*>* samples = [event coalescedTouchesForTouch:touch] ?: @[ touch ];
+    for (UITouch* sample in samples) {
+        BOOL last = sample == samples.lastObject;
+        int at = phase == NG_IOS_PEN_DOWN && sample != samples.firstObject ? NG_IOS_PEN_MOVE
+               : phase == NG_IOS_PEN_UP && !last                         ? NG_IOS_PEN_MOVE
+                                                                         : phase;
+        [self pen:at touch:sample];
+    }
+}
+
+- (void)send:(int)action touches:(NSSet<UITouch*>*)touches event:(UIEvent*)event {
     UITouch* touch = touches.anyObject;
-    if (!touch || !g_host.touch) return;
-    CGPoint at = [touch locationInView:self];
-    g_host.touch(action, (float)at.x, (float)at.y);
+    if (!touch) return;
+    static const int pen_phase[] = {NG_IOS_PEN_DOWN, NG_IOS_PEN_UP, NG_IOS_PEN_MOVE, NG_IOS_PEN_UP};
+    [self pens:pen_phase[action] touch:touch event:event];
+    if (g_host.touch) {
+        CGPoint at = [touch locationInView:self];
+        g_host.touch(action, (float)at.x, (float)at.y);
+    }
     _dirty = YES;
 }
 
+/* A pencil held over the screen, on iPads that sense it. */
+- (void)hovered:(UIHoverGestureRecognizer*)hover API_AVAILABLE(ios(13.0)) {
+    if (!g_host.pen) return;
+    if (@available(iOS 16.4, *)) {
+        if (hover.zOffset <= 0) return;
+        if (hover.state != UIGestureRecognizerStateBegan && hover.state != UIGestureRecognizerStateChanged) return;
+        CGPoint at = [hover locationInView:self];
+        float tilt_x = 0, tilt_y = 0, twist = 0;
+        ng_ios_tilt(hover.altitudeAngle, [hover azimuthAngleInView:self], &tilt_x, &tilt_y);
+        if (@available(iOS 17.5, *)) twist = (float)(hover.rollAngle * 180.0 / M_PI);
+        g_host.pen(NG_IOS_PEN_HOVER, at.x, at.y, 0.0f, tilt_x, tilt_y, twist, 0.0);
+        _dirty = YES;
+    }
+}
+
 - (void)touchesBegan:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
-    (void)event;
-    [self send:NG_IOS_TOUCH_DOWN touches:touches];
+    [self send:NG_IOS_TOUCH_DOWN touches:touches event:event];
 }
 
 - (void)touchesMoved:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
-    (void)event;
-    [self send:NG_IOS_TOUCH_MOVE touches:touches];
+    [self send:NG_IOS_TOUCH_MOVE touches:touches event:event];
 }
 
 - (void)touchesEnded:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
-    (void)event;
-    [self send:NG_IOS_TOUCH_UP touches:touches];
+    [self send:NG_IOS_TOUCH_UP touches:touches event:event];
 }
 
 - (void)touchesCancelled:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
-    (void)event;
-    [self send:NG_IOS_TOUCH_CANCEL touches:touches];
+    [self send:NG_IOS_TOUCH_CANCEL touches:touches event:event];
 }
 
 @end

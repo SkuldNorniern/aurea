@@ -1,4 +1,4 @@
-mod callbacks;
+pub(crate) mod callbacks;
 mod exports;
 mod logging;
 

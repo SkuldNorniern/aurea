@@ -300,7 +300,7 @@ const PEN_BARREL: u32 = 2;
 
 static EPOCH: LazyLock<Instant> = LazyLock::new(Instant::now);
 
-fn event_time(age: f64) -> Duration {
+pub(crate) fn event_time(age: f64) -> Duration {
     let now = Instant::now().saturating_duration_since(*EPOCH);
     if !(0.0..1.0).contains(&age) {
         return now;

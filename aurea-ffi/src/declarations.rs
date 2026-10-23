@@ -28,6 +28,16 @@ pub struct NGIosHost {
         out_height: *mut u32,
     ) -> i32,
     pub touch: unsafe extern "C" fn(action: i32, x: f32, y: f32),
+    pub pen: unsafe extern "C" fn(
+        phase: i32,
+        x: f64,
+        y: f64,
+        pressure: f32,
+        tilt_x: f32,
+        tilt_y: f32,
+        twist: f32,
+        age: f64,
+    ),
     pub light_theme: unsafe extern "C" fn() -> i32,
 }
 
