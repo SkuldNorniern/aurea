@@ -14,7 +14,7 @@ void ng_platform_register_ops(const ng_platform_ops_t* ops) {
     g_ops = ops;
 }
 
-static void ensure_ops(void) {
+static void load_ops(void) {
     if (g_ops != NULL) return;
 #if defined(__APPLE__)
 #if TARGET_OS_IPHONE
@@ -33,33 +33,44 @@ static void ensure_ops(void) {
 #endif
 }
 
-#define DISPATCH_INIT(ret, name, ...) do { ensure_ops(); if (!g_ops || !g_ops->name) return (ret)(0); return g_ops->name(__VA_ARGS__); } while(0)
-#define DISPATCH_INIT_DEFAULT(ret, def, name, ...) do { ensure_ops(); if (!g_ops || !g_ops->name) return (ret)(def); return g_ops->name(__VA_ARGS__); } while(0)
-#define DISPATCH_VOID(name, ...) do { ensure_ops(); if (g_ops && g_ops->name) g_ops->name(__VA_ARGS__); } while(0)
-#define DISPATCH_INT(name, ...) do { ensure_ops(); return (g_ops && g_ops->name) ? g_ops->name(__VA_ARGS__) : NG_ERROR_PLATFORM_SPECIFIC; } while(0)
+/* On Apple each call drains what it autoreleases, so an app pumping its own loop instead of NSApp's
+   run doesn't pile up autoreleased objects between polls. */
+#if defined(__APPLE__)
+void* objc_autoreleasePoolPush(void);
+void objc_autoreleasePoolPop(void* pool);
+static void pop_pool(void** pool) { objc_autoreleasePoolPop(*pool); }
+#define ENTER() __attribute__((cleanup(pop_pool))) void* pool_ = objc_autoreleasePoolPush(); load_ops()
+#else
+#define ENTER() load_ops()
+#endif
+
+#define DISPATCH_INIT(ret, name, ...) do { ENTER(); if (!g_ops || !g_ops->name) return (ret)(0); return g_ops->name(__VA_ARGS__); } while(0)
+#define DISPATCH_INIT_DEFAULT(ret, def, name, ...) do { ENTER(); if (!g_ops || !g_ops->name) return (ret)(def); return g_ops->name(__VA_ARGS__); } while(0)
+#define DISPATCH_VOID(name, ...) do { ENTER(); if (g_ops && g_ops->name) g_ops->name(__VA_ARGS__); } while(0)
+#define DISPATCH_INT(name, ...) do { ENTER(); return (g_ops && g_ops->name) ? g_ops->name(__VA_ARGS__) : NG_ERROR_PLATFORM_SPECIFIC; } while(0)
 
 int ng_platform_init(void) {
-    ensure_ops();
+    ENTER();
     return g_ops && g_ops->init ? g_ops->init() : NG_SUCCESS;
 }
 
 int ng_platform_reduced_motion(void) {
-    ensure_ops();
+    ENTER();
     return (g_ops && g_ops->reduced_motion) ? g_ops->reduced_motion() : 0;
 }
 
 int ng_platform_wheel_lines(void) {
-    ensure_ops();
+    ENTER();
     return (g_ops && g_ops->wheel_lines) ? g_ops->wheel_lines() : 3;
 }
 
 int ng_platform_prefers_dark(void) {
-    ensure_ops();
+    ENTER();
     return (g_ops && g_ops->prefers_dark) ? g_ops->prefers_dark() : -1;
 }
 
 int ng_platform_locales(char* buf, int cap) {
-    ensure_ops();
+    ENTER();
     return (g_ops && g_ops->locales) ? g_ops->locales(buf, cap) : 0;
 }
 void ng_platform_cleanup(void) {
@@ -67,17 +78,17 @@ void ng_platform_cleanup(void) {
 }
 
 int ng_platform_run(void) {
-    ensure_ops();
+    ENTER();
     return g_ops && g_ops->run ? g_ops->run() : NG_SUCCESS;
 }
 
 int ng_platform_poll_events(void) {
-    ensure_ops();
+    ENTER();
     return g_ops && g_ops->poll_events ? g_ops->poll_events() : NG_SUCCESS;
 }
 
 int ng_platform_wait_events(int timeout_ms) {
-    ensure_ops();
+    ENTER();
     if (g_ops && g_ops->wait_events) return g_ops->wait_events(timeout_ms);
     return g_ops && g_ops->poll_events ? g_ops->poll_events() : NG_SUCCESS;
 }
@@ -350,7 +361,7 @@ int ng_platform_box_set_padding(NGHandle b, int padding) {
 }
 
 NGHandle ng_platform_creation_parent(void) {
-    ensure_ops();
+    ENTER();
     return g_ops && g_ops->creation_parent ? g_ops->creation_parent() : NULL;
 }
 
@@ -363,7 +374,7 @@ int ng_platform_element_watch_destroy(NGHandle e, unsigned int id) {
 }
 
 int ng_platform_text_unit(void) {
-    ensure_ops();
+    ENTER();
     return g_ops && g_ops->text_unit ? g_ops->text_unit() : NG_TEXT_UNIT_UTF16;
 }
 
@@ -384,7 +395,7 @@ int ng_platform_text_undo(NGHandle t, int redo) {
 }
 
 int ng_platform_text_can_undo(NGHandle t, int redo) {
-    ensure_ops();
+    ENTER();
     return g_ops && g_ops->text_can_undo ? g_ops->text_can_undo(t, redo) : 0;
 }
 
@@ -393,7 +404,7 @@ int ng_platform_text_set_feature(NGHandle t, int feature, int on) {
 }
 
 int ng_platform_detach_element(NGHandle e) {
-    ensure_ops();
+    ENTER();
     if (!e) return NG_ERROR_INVALID_HANDLE;
     return g_ops && g_ops->detach_element ? g_ops->detach_element(e) : NG_ERROR_UNSUPPORTED;
 }
@@ -415,7 +426,7 @@ int ng_platform_split_view_set_divider_position(NGHandle s, int i, float p) {
 }
 
 NGHandle ng_platform_create_scroll_view(void) {
-    ensure_ops();
+    ENTER();
     return g_ops && g_ops->create_scroll_view ? g_ops->create_scroll_view() : NULL;
 }
 
@@ -428,7 +439,7 @@ int ng_platform_scroll_view_set_scrollbar(NGHandle s, int policy) {
 }
 
 NGHandle ng_platform_create_text_editor(void) {
-    ensure_ops();
+    ENTER();
     return g_ops && g_ops->create_text_editor ? g_ops->create_text_editor() : NULL;
 }
 
@@ -517,7 +528,7 @@ int ng_platform_canvas_get_wayland_handle(NGHandle c, void** s, void** d) {
 #endif
 
 float ng_platform_get_scale_factor(NGHandle w) {
-    ensure_ops();
+    ENTER();
     return g_ops && g_ops->get_scale_factor ? g_ops->get_scale_factor(w) : 1.0f;
 }
 
@@ -562,7 +573,7 @@ int ng_platform_slider_set_value(NGHandle s, double v) {
 }
 
 double ng_platform_slider_get_value(NGHandle s) {
-    ensure_ops();
+    ENTER();
     return g_ops && g_ops->slider_get_value ? g_ops->slider_get_value(s) : 0.0;
 }
 
@@ -699,7 +710,7 @@ NGHandle ng_platform_create_swiftui_host(int w, int h) {
 }
 
 char* ng_platform_file_dialog(NGHandle window, int kind, const char* title, const char* filters, const char* default_name, const char* directory, int multiple) {
-    ensure_ops();
+    ENTER();
     return (g_ops && g_ops->file_dialog)
         ? g_ops->file_dialog(window, kind, title, filters, default_name, directory, multiple)
         : NULL;
@@ -710,21 +721,21 @@ void ng_platform_free_dialog_paths(char* paths) {
 }
 
 int ng_platform_message_box(NGHandle window, int kind, const char* title, const char* text, int buttons) {
-    ensure_ops();
+    ENTER();
     return (g_ops && g_ops->message_box)
         ? g_ops->message_box(window, kind, title, text, buttons)
         : NG_ERROR_UNSUPPORTED;
 }
 
 int ng_platform_color_dialog(NGHandle window, const char* title, unsigned int argb_in, int alpha, unsigned int* argb_out) {
-    ensure_ops();
+    ENTER();
     return (g_ops && g_ops->color_dialog)
         ? g_ops->color_dialog(window, title, argb_in, alpha, argb_out)
         : NG_ERROR_UNSUPPORTED;
 }
 
 char* ng_platform_get_clipboard_text(void) {
-    ensure_ops();
+    ENTER();
     return (g_ops && g_ops->get_clipboard_text) ? g_ops->get_clipboard_text() : NULL;
 }
 
@@ -739,20 +750,20 @@ int ng_platform_set_clipboard_text(const char* text) {
 int ng_platform_clipboard_formats(size_t max_bytes, unsigned char** data, size_t* len) {
     if (!data || !len) return NG_ERROR_INVALID_PARAMETER;
     *data = NULL; *len = 0;
-    ensure_ops();
+    ENTER();
     return (g_ops && g_ops->clipboard_formats)
         ? g_ops->clipboard_formats(max_bytes, data, len) : NG_ERROR_UNSUPPORTED;
 }
 int ng_platform_clipboard_read(const char* format, size_t max_bytes, unsigned char** data, size_t* len) {
     if (!format || !data || !len) return NG_ERROR_INVALID_PARAMETER;
     *data = NULL; *len = 0;
-    ensure_ops();
+    ENTER();
     return (g_ops && g_ops->clipboard_read)
         ? g_ops->clipboard_read(format, max_bytes, data, len) : NG_ERROR_UNSUPPORTED;
 }
 int ng_platform_clipboard_write(const NGClipboardEntry* entries, size_t count) {
     if (count && !entries) return NG_ERROR_INVALID_PARAMETER;
-    ensure_ops();
+    ENTER();
     return (g_ops && g_ops->clipboard_write)
         ? g_ops->clipboard_write(entries, count) : NG_ERROR_UNSUPPORTED;
 }
