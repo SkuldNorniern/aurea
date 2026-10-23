@@ -67,6 +67,18 @@ void* ng_ios_gpu_view(void);
 /* Removes the GPU view, when the GPU could not start. Main thread only. */
 void ng_ios_drop_gpu_view(void);
 
+/* Hears the files a document picker chose: NUL-terminated paths ended by an empty one, none when
+   the user cancelled. On the main thread, once. */
+typedef void (*NGIosPicked)(void* ctx, const char* paths);
+
+/* Lets the user choose files to open, of the NUL-separated `extensions` (any, when empty); they
+   are copied into the app's sandbox. Returns 0 when it cannot show, and `done` is not called. */
+int ng_ios_pick_files(const char* extensions, int multiple, NGIosPicked done, void* ctx);
+
+/* Lets the user save copies of the NUL-separated `paths` elsewhere, such as iCloud Drive; `done`
+   hears where they went. Returns 0 when it cannot show, and `done` is not called. */
+int ng_ios_export_files(const char* paths, NGIosPicked done, void* ctx);
+
 #ifdef __cplusplus
 }
 #endif

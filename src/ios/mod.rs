@@ -3,6 +3,10 @@
 //! mouse, two-finger scrolls and pinches as the wheel and [`WindowEvent::Magnify`]; see
 //! `crate::touch`.
 
+mod documents;
+
+pub use documents::{export_files, pick_files};
+
 use std::cell::{Cell, RefCell};
 use std::ffi::{CStr, c_char};
 use std::process::exit;

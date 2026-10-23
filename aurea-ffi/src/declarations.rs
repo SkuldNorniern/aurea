@@ -53,6 +53,17 @@ unsafe extern "C" {
     pub fn ng_ios_wake();
     pub fn ng_ios_gpu_view() -> *mut c_void;
     pub fn ng_ios_drop_gpu_view();
+    pub fn ng_ios_pick_files(
+        extensions: *const c_char,
+        multiple: c_int,
+        done: unsafe extern "C" fn(ctx: *mut c_void, paths: *const c_char),
+        ctx: *mut c_void,
+    ) -> c_int;
+    pub fn ng_ios_export_files(
+        paths: *const c_char,
+        done: unsafe extern "C" fn(ctx: *mut c_void, paths: *const c_char),
+        ctx: *mut c_void,
+    ) -> c_int;
 }
 
 #[cfg(target_os = "android")]

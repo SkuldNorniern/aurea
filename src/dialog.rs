@@ -335,7 +335,7 @@ impl ColorDialog {
 /// # Safety
 ///
 /// `raw` must point at such a list.
-unsafe fn path_list(raw: *const c_char) -> Vec<PathBuf> {
+pub(crate) unsafe fn path_list(raw: *const c_char) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     let mut at = raw;
     loop {
