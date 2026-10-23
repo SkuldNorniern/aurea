@@ -14,6 +14,7 @@ use crate::render::{CpuRasterizer, Renderer, SurfaceInfo};
 use crate::touch::{Phase, Touches};
 use crate::ui::{Theme, Ui, UiState};
 use crate::{AureaResult, Modifiers, PenPhase, PenSample, PenTool, Point, WindowEvent};
+use aurea_render::FrameOutcome;
 
 /// Draws the app's UI each frame, `width` x `height` logical pixels.
 type App = Box<dyn FnMut(&mut Ui<'_, u64>, f32, f32) -> AureaResult<()>>;
@@ -211,7 +212,7 @@ unsafe extern "C" fn frame(
             width as f32 / scale - *left - *right,
             height as f32 / scale - *top - *bottom,
         );
-        let drawn = (|| -> AureaResult<()> {
+        let drawn = (|| -> AureaResult<FrameOutcome> {
             let mut ctx = raster.begin_frame()?;
             ctx.clear(theme.palette.background)?;
             ctx.translate(*left, *top)?;
@@ -219,14 +220,17 @@ unsafe extern "C" fn frame(
             app(&mut ui, w, h)?;
             drop(ui);
             drop(ctx);
-            raster.end_frame()?;
-            Ok(())
+            raster.end_frame()
         })();
-        if let Err(e) = drawn {
-            log::warn!("ios frame: {e}");
-            return 0;
-        }
-        if let Some(out) = raster.frame_output() {
+        let outcome = match drawn {
+            Ok(outcome) => outcome,
+            Err(e) => {
+                log::warn!("ios frame: {e}");
+                return 0;
+            }
+        };
+        // an unchanged frame keeps the layer's picture: no copy, no upload.
+        if let (FrameOutcome::Presented, Some(out)) = (outcome, raster.frame_output()) {
             // SAFETY: as above; the words stay alive in the rasterizer until the next frame.
             unsafe {
                 *words = out.words().as_ptr();
