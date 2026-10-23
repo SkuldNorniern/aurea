@@ -51,7 +51,8 @@ changed. The app hears, through `aurea::ios::on_event`:
   down a moment, or lifts (a tap), so a second finger can still turn it into a gesture.
 - **Two-finger gestures.** Moving together scrolls (`MouseWheel`, content following the fingers);
   spreading or closing zooms (`Magnify`). `ui::PanZoom` handles both.
-- **Apple Pencil samples** as `Pen`, with pressure, tilt, twist and hover.
+- **Apple Pencil samples** as `Pen`, with pressure, tilt, twist and hover, and its double tap or
+  Pencil Pro squeeze as `PenTap`, with what the user set it to do in Settings.
 - **A hardware keyboard** as `KeyInput` and `TextInput`.
 - **The on-screen keyboard**, while `aurea::ios::show_keyboard(true)` holds it up, as `TextInput`,
   with delete and return as Backspace and Enter, and what an input method such as Korean or
@@ -64,8 +65,10 @@ Work on other threads asks for a frame with `aurea::ios::request_frame()`, or th
 `aurea::ios::canvas_id()` with `request_canvas_redraw` like a desktop canvas. The display link
 pauses when nothing changes. `aurea::ios::scale()` and `safe_area()` describe the screen.
 
-`aurea::ios::pick_files` and `export_files` show the system document picker, without blocking:
-files picked to open are copies in the sandbox, and exported files are copies saved elsewhere.
+`aurea::ios::pick_files` and `export_files` show the system document picker, `share_files` the
+share sheet, and `alert` an alert with the same buttons as a desktop `MessageDialog`. None of them
+blocks: `done` hears the answer later. Files picked to open are copies in the sandbox. The
+clipboard carries text, images and the app's own byte formats, as on the desktop.
 
 `aurea::config_dir`, `data_dir` and `cache_dir` live in the app's `Library`, and `documents_dir()`
 in its `Documents`, which the Files app shows when the Info.plist sets `UIFileSharingEnabled` and
