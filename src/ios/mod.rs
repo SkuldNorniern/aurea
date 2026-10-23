@@ -3,6 +3,7 @@
 //! `crate::touch`.
 
 use std::cell::{Cell, RefCell};
+use std::ffi::{CStr, c_char};
 use std::process::exit;
 use std::ptr::null;
 use std::sync::LazyLock;
@@ -15,7 +16,7 @@ use crate::ffi::callbacks::event_time;
 use crate::render::{CanvasId, CpuRasterizer, Renderer, SurfaceInfo, register_host_canvas};
 use crate::touch::{Phase, Touches};
 use crate::ui::{Theme, Ui, UiState};
-use crate::{AureaResult, Modifiers, PenPhase, PenSample, PenTool, Point, WindowEvent};
+use crate::{AureaResult, KeyCode, Modifiers, PenPhase, PenSample, PenTool, Point, WindowEvent};
 use aurea_render::FrameOutcome;
 
 /// Draws the app's UI each frame, `width` x `height` logical pixels.
@@ -76,6 +77,7 @@ pub fn run(
         wake,
         background,
         lifecycle,
+        key,
     };
     exit(unsafe { ng_ios_run_host(host) })
 }
@@ -158,6 +160,28 @@ unsafe extern "C" fn lifecycle(state: i32) {
     };
     HOST.with_borrow_mut(|host| host.state.handle(&event));
     hear(&[event]);
+}
+
+/// A hardware keyboard key, and the text a press types.
+unsafe extern "C" fn key(code: u32, pressed: i32, modifiers: u32, text: *const c_char) {
+    let mut events = vec![WindowEvent::KeyInput {
+        key: KeyCode::from_raw(code),
+        pressed: pressed != 0,
+        modifiers: Modifiers::from_bits(modifiers),
+    }];
+    // SAFETY: the host passes a NUL-terminated string that lives for the call, or null.
+    let text = (!text.is_null()).then(|| unsafe { CStr::from_ptr(text) }.to_string_lossy());
+    if let Some(text) = text.filter(|t| !t.is_empty()) {
+        events.push(WindowEvent::TextInput {
+            text: text.into_owned(),
+        });
+    }
+    HOST.with_borrow_mut(|host| {
+        for event in &events {
+            host.state.handle(event);
+        }
+    });
+    hear(&events);
 }
 
 unsafe extern "C" fn wake() -> i32 {

@@ -1,4 +1,5 @@
 #import "host.h"
+#import "../../common/input.h"
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 #include <crt_externs.h>
@@ -188,6 +189,104 @@ static double ng_ios_age(NSTimeInterval timestamp) {
         }
     }
     [self markDirty];
+}
+
+/* A hardware keyboard: UIKit's HID usage codes as NG_KEY_* codes. */
+static uint32_t ng_ios_key(long usage) {
+    if (usage >= 0x04 && usage <= 0x1D) return NG_KEY_A + (uint32_t)(usage - 0x04);
+    if (usage >= 0x1E && usage <= 0x26) return NG_KEY_1 + (uint32_t)(usage - 0x1E);
+    if (usage >= 0x3A && usage <= 0x45) return NG_KEY_F1 + (uint32_t)(usage - 0x3A);
+    switch (usage) {
+        case 0x27: return NG_KEY_0;
+        case 0x28: case 0x58: return NG_KEY_ENTER;
+        case 0x29: return NG_KEY_ESCAPE;
+        case 0x2A: return NG_KEY_BACKSPACE;
+        case 0x2B: return NG_KEY_TAB;
+        case 0x2C: return NG_KEY_SPACE;
+        case 0x2D: return NG_KEY_MINUS;
+        case 0x2E: return NG_KEY_EQUALS;
+        case 0x2F: return NG_KEY_LEFT_BRACKET;
+        case 0x30: return NG_KEY_RIGHT_BRACKET;
+        case 0x31: return NG_KEY_BACKSLASH;
+        case 0x33: return NG_KEY_SEMICOLON;
+        case 0x34: return NG_KEY_APOSTROPHE;
+        case 0x35: return NG_KEY_GRAVE;
+        case 0x36: return NG_KEY_COMMA;
+        case 0x37: return NG_KEY_PERIOD;
+        case 0x38: return NG_KEY_SLASH;
+        case 0x49: return NG_KEY_INSERT;
+        case 0x4A: return NG_KEY_HOME;
+        case 0x4B: return NG_KEY_PAGE_UP;
+        case 0x4C: return NG_KEY_DELETE;
+        case 0x4D: return NG_KEY_END;
+        case 0x4E: return NG_KEY_PAGE_DOWN;
+        case 0x4F: return NG_KEY_RIGHT;
+        case 0x50: return NG_KEY_LEFT;
+        case 0x51: return NG_KEY_DOWN;
+        case 0x52: return NG_KEY_UP;
+        case 0xE0: case 0xE4: return NG_KEY_CONTROL;
+        case 0xE1: case 0xE5: return NG_KEY_SHIFT;
+        case 0xE2: case 0xE6: return NG_KEY_ALT;
+        case 0xE3: case 0xE7: return NG_KEY_META;
+        default: return NG_KEY_UNKNOWN;
+    }
+}
+
+static uint32_t ng_ios_modifiers(UIKeyModifierFlags flags) {
+    uint32_t mods = 0;
+    if (flags & UIKeyModifierShift) mods |= NG_MOD_SHIFT;
+    if (flags & UIKeyModifierControl) mods |= NG_MOD_CTRL;
+    if (flags & UIKeyModifierAlternate) mods |= NG_MOD_ALT;
+    if (flags & UIKeyModifierCommand) mods |= NG_MOD_META;
+    return mods;
+}
+
+- (BOOL)canBecomeFirstResponder {
+    return YES;
+}
+
+- (void)didMoveToWindow {
+    [super didMoveToWindow];
+    if (self.window) [self becomeFirstResponder];
+}
+
+/* Returns the presses it did not take, for UIKit to pass on. */
+- (NSSet<UIPress*>*)keys:(NSSet<UIPress*>*)presses pressed:(int)pressed {
+    if (!g_host.key) return presses;
+    NSMutableSet<UIPress*>* rest = [NSMutableSet set];
+    for (UIPress* press in presses) {
+        if (@available(iOS 13.4, *)) {
+            UIKey* key = press.key;
+            if (!key) {
+                [rest addObject:press];
+                continue;
+            }
+            uint32_t mods = ng_ios_modifiers(key.modifierFlags);
+            /* Text comes with presses alone, and not with shortcuts or control characters. */
+            NSString* typed = pressed && !(mods & (NG_MOD_CTRL | NG_MOD_META)) ? key.characters : @"";
+            if (typed.length == 1 && [typed characterAtIndex:0] < 0x20) typed = @"";
+            g_host.key(ng_ios_key(key.keyCode), pressed, mods, typed.UTF8String ?: "");
+        } else {
+            [rest addObject:press];
+        }
+    }
+    if (presses.count != rest.count) [self markDirty];
+    return rest;
+}
+
+- (void)pressesBegan:(NSSet<UIPress*>*)presses withEvent:(UIPressesEvent*)event {
+    NSSet<UIPress*>* rest = [self keys:presses pressed:1];
+    if (rest.count) [super pressesBegan:rest withEvent:event];
+}
+
+- (void)pressesEnded:(NSSet<UIPress*>*)presses withEvent:(UIPressesEvent*)event {
+    NSSet<UIPress*>* rest = [self keys:presses pressed:0];
+    if (rest.count) [super pressesEnded:rest withEvent:event];
+}
+
+- (void)pressesCancelled:(NSSet<UIPress*>*)presses withEvent:(UIPressesEvent*)event {
+    NSSet<UIPress*>* rest = [self keys:presses pressed:0];
+    if (rest.count) [super pressesCancelled:rest withEvent:event];
 }
 
 /* A pencil held over the screen, on iPads that sense it. */

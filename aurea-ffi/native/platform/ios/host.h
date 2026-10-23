@@ -47,6 +47,9 @@ typedef struct NGIosHost {
     uint32_t (*background)(void);
     /* One of the NG_IOS_ACTIVE ... NG_IOS_MEMORY_WARNING states. */
     void (*lifecycle)(int state);
+    /* A hardware keyboard key: an NG_KEY_* code, NG_MOD_* modifiers, and on a press the text it
+       types (UTF-8, empty when none). */
+    void (*key)(uint32_t code, int pressed, uint32_t modifiers, const char* text);
 } NGIosHost;
 
 /* Runs UIKit with the host filling the screen; doesn't return. */
