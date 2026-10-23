@@ -8,8 +8,16 @@
 #define TAB_PADDING 8
 #define DRAG_THRESHOLD 30
 
+@class NGTabBarView;
+
+@interface NGTabAXButton : NSAccessibilityElement
+@property (weak) NGTabBarView* owner;
+@property (assign) NSInteger index;
+@end
+
 @interface NGTabBarView : NSView
 @property (assign) unsigned int tabBarId;
+@property (strong) NSArray<NGTabAXButton*>* axTabs;
 @property (strong) NSMutableArray<NSString*>* tabTitles;
 @property (assign) NSInteger selectedIndex;
 @property (assign) NSInteger dragStartIndex;
@@ -42,7 +50,13 @@
 
 - (void)addTabWithTitle:(NSString*)title {
     [_tabTitles addObject:title ?: @""];
+    [self tabsChanged];
+}
+
+- (void)tabsChanged {
+    _axTabs = nil;
     [self setNeedsDisplay:YES];
+    NSAccessibilityPostNotification(self, NSAccessibilityLayoutChangedNotification);
 }
 
 - (void)removeTabAtIndex:(NSInteger)index {
@@ -52,7 +66,7 @@
             _selectedIndex--;
         }
         if (_selectedIndex < 0) _selectedIndex = 0;
-        [self setNeedsDisplay:YES];
+        [self tabsChanged];
     }
 }
 
@@ -65,6 +79,72 @@
 
 - (NSInteger)selectedIndex {
     return _tabTitles.count > 0 ? _selectedIndex : -1;
+}
+
+- (NSRect)rectOfTab:(NSInteger)index {
+    CGFloat width = ([self bounds].size.width - TAB_PADDING * 2) / (CGFloat)MAX(_tabTitles.count, 1);
+    return NSMakeRect(TAB_PADDING + width * index, 2, width - 2, TAB_HEIGHT - 4);
+}
+
+- (void)userSelect:(NSInteger)index {
+    if (index < 0 || index >= (NSInteger)_tabTitles.count || index == _selectedIndex) return;
+    _selectedIndex = index;
+    [self setNeedsDisplay:YES];
+    NSAccessibilityPostNotification(self, NSAccessibilityValueChangedNotification);
+    ng_invoke_tab_bar_selected(_tabBarId, (int)index);
+}
+
+- (BOOL)acceptsFirstResponder {
+    return [NSApp isFullKeyboardAccessEnabled] && _tabTitles.count > 0;
+}
+
+- (NSRect)focusRingMaskBounds {
+    return [self rectOfTab:_selectedIndex];
+}
+
+- (void)drawFocusRingMask {
+    [[NSBezierPath bezierPathWithRoundedRect:[self rectOfTab:_selectedIndex] xRadius:4 yRadius:4] fill];
+}
+
+- (void)keyDown:(NSEvent*)event {
+    NSString* chars = event.charactersIgnoringModifiers;
+    unichar key = chars.length ? [chars characterAtIndex:0] : 0;
+    if (key == NSLeftArrowFunctionKey) [self userSelect:_selectedIndex - 1];
+    else if (key == NSRightArrowFunctionKey) [self userSelect:_selectedIndex + 1];
+    else { [super keyDown:event]; return; }
+    [self noteFocusRingMaskChanged];
+}
+
+- (BOOL)isAccessibilityElement {
+    return YES;
+}
+
+- (NSAccessibilityRole)accessibilityRole {
+    return NSAccessibilityTabGroupRole;
+}
+
+- (NSArray*)accessibilityChildren {
+    if (!_axTabs) {
+        NSMutableArray* tabs = [NSMutableArray arrayWithCapacity:_tabTitles.count];
+        for (NSUInteger i = 0; i < _tabTitles.count; i++) {
+            NGTabAXButton* tab = [[NGTabAXButton alloc] init];
+            tab.owner = self;
+            tab.index = (NSInteger)i;
+            tab.accessibilityParent = self;
+            [tabs addObject:tab];
+        }
+        _axTabs = tabs;
+    }
+    return _axTabs;
+}
+
+- (NSArray*)accessibilityTabs {
+    return [self accessibilityChildren];
+}
+
+- (id)accessibilityValue {
+    NSArray* tabs = [self accessibilityChildren];
+    return _selectedIndex >= 0 && _selectedIndex < (NSInteger)tabs.count ? tabs[_selectedIndex] : nil;
 }
 
 - (NSInteger)segmentAtPoint:(NSPoint)point {
@@ -165,13 +245,36 @@
             ng_invoke_tab_bar_detach(_tabBarId, (int)dragged);
         }
     } else {
-        NSInteger seg = [self segmentAtPoint:loc];
-        if (seg >= 0 && seg != _selectedIndex) {
-            _selectedIndex = seg;
-            [self setNeedsDisplay:YES];
-            ng_invoke_tab_bar_selected(_tabBarId, (int)seg);
-        }
+        [self userSelect:[self segmentAtPoint:loc]];
+        [self noteFocusRingMaskChanged];
     }
+}
+@end
+
+@implementation NGTabAXButton
+- (NSAccessibilityRole)accessibilityRole {
+    return NSAccessibilityRadioButtonRole;
+}
+
+- (NSString*)accessibilityLabel {
+    NGTabBarView* owner = self.owner;
+    return self.index < (NSInteger)owner.tabTitles.count ? owner.tabTitles[self.index] : nil;
+}
+
+- (id)accessibilityValue {
+    return @(self.index == self.owner.selectedIndex);
+}
+
+- (NSRect)accessibilityFrame {
+    NGTabBarView* owner = self.owner;
+    return owner ? NSAccessibilityFrameInView(owner, [owner rectOfTab:self.index]) : NSZeroRect;
+}
+
+- (BOOL)accessibilityPerformPress {
+    NGTabBarView* owner = self.owner;
+    if (!owner) return NO;
+    [owner userSelect:self.index];
+    return YES;
 }
 @end
 
