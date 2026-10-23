@@ -4,8 +4,8 @@
 #include <crt_externs.h>
 #include <math.h>
 
-/* One Aurea UI filling the screen: the app draws each frame into a pixel buffer, which becomes the
-   view's layer contents. A display link asks for frames while the UI wants them, and pauses when
+/* One Aurea UI filling the screen: the app draws each frame of its safe area into a pixel buffer,
+   which becomes a sublayer's contents; the view's own colour fills the rest. A display link asks for frames while the UI wants them, and pauses when
    it has had nothing to do for a while. */
 
 static NGIosHost g_host;
@@ -17,6 +17,8 @@ static NGIosHost g_host;
 @property (strong) CADisplayLink* link;
 @property (assign) BOOL dirty;
 @property (assign) int idle;
+@property (strong) CALayer* content;
+@property (assign) uint32_t background;
 - (void)wakeLink;
 - (void)markDirty;
 @end
@@ -29,8 +31,11 @@ static __weak AureaHostView* g_view;
     self = [super initWithFrame:frame];
     if (self) {
         self.multipleTouchEnabled = YES;
-        self.layer.contentsGravity = kCAGravityTopLeft;
-        self.layer.magnificationFilter = kCAFilterNearest;
+        _content = [CALayer layer];
+        _content.contentsGravity = kCAGravityTopLeft;
+        _content.magnificationFilter = kCAFilterNearest;
+        [self.layer addSublayer:_content];
+        _background = UINT32_MAX;
         _dirty = YES;
         g_view = self;
         if (@available(iOS 13.0, *)) {
@@ -72,6 +77,18 @@ static __weak AureaHostView* g_view;
     [self markDirty];
 }
 
+/* The colour around the safe area follows the theme's background. */
+- (void)paintBackground {
+    if (!g_host.background) return;
+    uint32_t rgb = g_host.background() & 0xFFFFFF;
+    if (rgb == _background) return;
+    _background = rgb;
+    self.backgroundColor = [UIColor colorWithRed:((rgb >> 16) & 0xFF) / 255.0
+                                           green:((rgb >> 8) & 0xFF) / 255.0
+                                            blue:(rgb & 0xFF) / 255.0
+                                           alpha:1.0];
+}
+
 - (void)tick:(CADisplayLink*)link {
     if (!g_host.frame) return;
     /* `wake` is how other threads, and touches still being told apart, ask for a frame. */
@@ -90,6 +107,7 @@ static __weak AureaHostView* g_view;
     unsigned out_w = 0, out_h = 0;
     _dirty = g_host.frame(width, height, (float)scale, (float)safe.left, (float)safe.top,
                           (float)safe.right, (float)safe.bottom, &words, &out_w, &out_h) != 0;
+    [self paintBackground];
     if (!words || out_w == 0 || out_h == 0) return;
 
     /* The buffer is reused next frame, so the layer gets its own copy. */
@@ -102,8 +120,9 @@ static __weak AureaHostView* g_view;
     if (image) {
         [CATransaction begin];
         [CATransaction setDisableActions:YES];
-        self.layer.contentsScale = scale;
-        self.layer.contents = (__bridge_transfer id)image;
+        _content.frame = CGRectMake(safe.left, safe.top, out_w / scale, out_h / scale);
+        _content.contentsScale = scale;
+        _content.contents = (__bridge_transfer id)image;
         [CATransaction commit];
     }
     CGColorSpaceRelease(space);

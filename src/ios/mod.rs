@@ -74,6 +74,7 @@ pub fn run(
         pen,
         light_theme,
         wake,
+        background,
     };
     exit(unsafe { ng_ios_run_host(host) })
 }
@@ -113,8 +114,9 @@ pub fn scale() -> f32 {
     SCREEN.get().0
 }
 
-/// The safe area's insets, left, top, right and bottom, in points. The app draws inside them: the
-/// UI's origin is the safe area's top left, and the width and height `run` passes are its size.
+/// The safe area's insets, left, top, right and bottom, in points. The app draws only inside them:
+/// the UI's origin is the safe area's top left, the drawing context is its size, and the theme's
+/// background fills the rest of the screen.
 pub fn safe_area() -> [f32; 4] {
     SCREEN.get().1
 }
@@ -128,6 +130,13 @@ unsafe extern "C" fn light_theme() -> i32 {
     HOST.with_borrow(|host| {
         let c = host.theme.palette.background;
         i32::from(u32::from(c.r) * 299 + u32::from(c.g) * 587 + u32::from(c.b) * 114 > 128_000)
+    })
+}
+
+unsafe extern "C" fn background() -> u32 {
+    HOST.with_borrow(|host| {
+        let c = host.theme.palette.background;
+        u32::from(c.r) << 16 | u32::from(c.g) << 8 | u32::from(c.b)
     })
 }
 
@@ -224,40 +233,47 @@ unsafe extern "C" fn frame(
     settle_touches();
     HOST.with_borrow_mut(|host| {
         let scale = scale.max(1.0);
-        if host.pixels != (width, height) || (host.scale - scale).abs() > f32::EPSILON {
-            host.pixels = (width, height);
+        host.insets = [left, top, right, bottom].map(|v| v.max(0.0));
+        let [left, top, right, bottom] = host.insets;
+        // the surface is the safe area alone, so the UI's size is the size it can use.
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_precision_loss,
+            clippy::cast_sign_loss
+        )]
+        let inside = |px: u32, before: f32, after: f32| {
+            ((px as f32 - (before + after) * scale).round().max(1.0)) as u32
+        };
+        let pixels = (inside(width, left, right), inside(height, top, bottom));
+        if host.pixels != pixels || (host.scale - scale).abs() > f32::EPSILON {
+            host.pixels = pixels;
             host.scale = scale;
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let logical = |px: u32| (f64::from(px) / f64::from(scale)).ceil() as u32;
-            let info = SurfaceInfo::new(logical(width).max(1), logical(height).max(1), scale)
-                .with_pixels(width, height);
+            let info = SurfaceInfo::new(logical(pixels.0).max(1), logical(pixels.1).max(1), scale)
+                .with_pixels(pixels.0, pixels.1);
             if let Err(e) = host.raster.configure(info) {
                 log::warn!("ios surface: {e}");
                 return 0;
             }
         }
-        host.insets = [left, top, right, bottom].map(|v| v.max(0.0));
         SCREEN.set((host.scale, host.insets));
         let Host {
             app: Some(app),
             theme,
             raster,
             state,
-            insets: [left, top, right, bottom],
+            pixels: (pw, ph),
             ..
         } = host
         else {
             return 0;
         };
         #[allow(clippy::cast_precision_loss)]
-        let (w, h) = (
-            width as f32 / scale - *left - *right,
-            height as f32 / scale - *top - *bottom,
-        );
+        let (w, h) = (*pw as f32 / scale, *ph as f32 / scale);
         let drawn = (|| -> AureaResult<FrameOutcome> {
             let mut ctx = raster.begin_frame()?;
             ctx.clear(theme.palette.background)?;
-            ctx.translate(*left, *top)?;
             let mut ui = state.frame(&mut *ctx, theme);
             app(&mut ui, w, h)?;
             drop(ui);

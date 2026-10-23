@@ -18,8 +18,10 @@ extern "C" {
 #define NG_IOS_PEN_MOVE 2
 #define NG_IOS_PEN_UP 3
 
-/* The app side of the host. Sizes are physical pixels, insets and touches points. `frame` draws
-   into a buffer it keeps until the next call, and returns nonzero when it wants another frame. */
+/* The app side of the host. Sizes are physical pixels, insets and touches points. `frame` is given
+   the whole view and its safe area, and draws only the safe area: `words` is that many pixels,
+   kept until the next call, or NULL when the picture has not changed. It returns nonzero when it
+   wants another frame. Touches are relative to the view, not the safe area. */
 typedef struct NGIosHost {
     int (*frame)(unsigned width, unsigned height, float scale, float left, float top, float right,
                  float bottom, const uint32_t** words, unsigned* out_width, unsigned* out_height);
@@ -34,6 +36,8 @@ typedef struct NGIosHost {
     /* Polled each display refresh while no frame is due; nonzero draws one. Safe to set from any
        thread on the app side. */
     int (*wake)(void);
+    /* The colour around the safe area, 0xRRGGBB. */
+    uint32_t (*background)(void);
 } NGIosHost;
 
 /* Runs UIKit with the host filling the screen; doesn't return. */
