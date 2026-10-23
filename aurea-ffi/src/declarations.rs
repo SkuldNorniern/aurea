@@ -27,7 +27,7 @@ pub struct NGIosHost {
         out_width: *mut u32,
         out_height: *mut u32,
     ) -> i32,
-    pub touch: unsafe extern "C" fn(action: i32, x: f32, y: f32),
+    pub touch: unsafe extern "C" fn(action: i32, x: f32, y: f32, id: usize, pencil: i32),
     pub pen: unsafe extern "C" fn(
         phase: i32,
         x: f64,

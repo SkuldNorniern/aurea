@@ -19,7 +19,7 @@ static NGIosHost g_host;
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
-        self.multipleTouchEnabled = NO;
+        self.multipleTouchEnabled = YES;
         self.layer.contentsGravity = kCAGravityTopLeft;
         self.layer.magnificationFilter = kCAFilterNearest;
         _dirty = YES;
@@ -123,13 +123,14 @@ static double ng_ios_age(NSTimeInterval timestamp) {
 }
 
 - (void)send:(int)action touches:(NSSet<UITouch*>*)touches event:(UIEvent*)event {
-    UITouch* touch = touches.anyObject;
-    if (!touch) return;
     static const int pen_phase[] = {NG_IOS_PEN_DOWN, NG_IOS_PEN_UP, NG_IOS_PEN_MOVE, NG_IOS_PEN_UP};
-    [self pens:pen_phase[action] touch:touch event:event];
-    if (g_host.touch) {
-        CGPoint at = [touch locationInView:self];
-        g_host.touch(action, (float)at.x, (float)at.y);
+    for (UITouch* touch in touches) {
+        [self pens:pen_phase[action] touch:touch event:event];
+        if (g_host.touch) {
+            CGPoint at = [touch locationInView:self];
+            int pencil = touch.type == UITouchTypePencil;
+            g_host.touch(action, (float)at.x, (float)at.y, (uintptr_t)(__bridge void*)touch, pencil);
+        }
     }
     _dirty = YES;
 }

@@ -23,7 +23,9 @@ extern "C" {
 typedef struct NGIosHost {
     int (*frame)(unsigned width, unsigned height, float scale, float left, float top, float right,
                  float bottom, const uint32_t** words, unsigned* out_width, unsigned* out_height);
-    void (*touch)(int action, float x, float y);
+    /* One finger or pencil touching: `id` tells the touches apart while they last, and `pencil`
+       is nonzero for an Apple Pencil, whose samples also come through `pen`. */
+    void (*touch)(int action, float x, float y, uintptr_t id, int pencil);
     /* An Apple Pencil sample: position in points, pressure 0 to 1, tilt and twist in degrees, age
        in seconds. */
     void (*pen)(int phase, double x, double y, float pressure, float tilt_x, float tilt_y, float twist,

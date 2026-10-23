@@ -1,18 +1,19 @@
-//! iOS: the app's UI filling the screen, drawn on the CPU each frame, touches fed in as the
-//! pointer.
+//! iOS: the app's UI filling the screen, drawn on the CPU each frame. Touches come in as the
+//! mouse, two-finger scrolls and pinches as the wheel and [`WindowEvent::Magnify`]; see
+//! `crate::touch`.
 
 use std::cell::RefCell;
 use std::process::exit;
 use std::ptr::null;
+use std::time::Instant;
 
 use aurea_ffi::{NGIosHost, ng_ios_run_host};
 
 use crate::ffi::callbacks::event_time;
 use crate::render::{CpuRasterizer, Renderer, SurfaceInfo};
+use crate::touch::{Phase, Touches};
 use crate::ui::{Theme, Ui, UiState};
-use crate::{
-    AureaResult, Modifiers, MouseButton, MouseButtons, PenPhase, PenSample, PenTool, WindowEvent,
-};
+use crate::{AureaResult, Modifiers, PenPhase, PenSample, PenTool, Point, WindowEvent};
 
 /// Draws the app's UI each frame, `width` x `height` logical pixels.
 type App = Box<dyn FnMut(&mut Ui<'_, u64>, f32, f32) -> AureaResult<()>>;
@@ -25,6 +26,7 @@ struct Host {
     pixels: (u32, u32),
     scale: f32,
     insets: [f32; 4],
+    touches: Touches,
 }
 
 /// Hears what the user does, before the UI does.
@@ -41,6 +43,7 @@ thread_local! {
         pixels: (0, 0),
         scale: 1.0,
         insets: [0.0; 4],
+        touches: Touches::new(),
     });
 }
 
@@ -90,35 +93,32 @@ unsafe extern "C" fn light_theme() -> i32 {
     })
 }
 
-unsafe extern "C" fn touch(action: i32, x: f32, y: f32) {
+unsafe extern "C" fn touch(action: i32, x: f32, y: f32, id: usize, pencil: i32) {
+    let phase = match action {
+        0 => Phase::Down,
+        1 => Phase::Up,
+        2 => Phase::Move,
+        3 => Phase::Cancel,
+        _ => return,
+    };
     let events = HOST.with_borrow_mut(|host| {
         let [left, top, ..] = host.insets;
-        let (x, y) = (f64::from(x - left), f64::from(y - top));
-        let modifiers = Modifiers::default();
-        let held = MouseButtons::from_bits(1 << MouseButton::Left.to_raw());
-        let at = |buttons| WindowEvent::MouseMove {
-            x,
-            y,
-            buttons,
-            modifiers,
-            time: Default::default(),
-        };
-        let button = |pressed| WindowEvent::MouseButton {
-            button: MouseButton::Left,
-            pressed,
-            modifiers,
-            x,
-            y,
-            click_count: 1,
-            time: Default::default(),
-        };
-        let events = match action {
-            0 => vec![at(MouseButtons::default()), button(true)],
-            2 => vec![at(held)],
-            1 => vec![button(false), WindowEvent::MouseExited],
-            3 => vec![WindowEvent::MouseExited],
-            _ => Vec::new(),
-        };
+        let at = Point::new(x - left, y - top);
+        let events = host
+            .touches
+            .touch(phase, id, at, pencil != 0, Instant::now());
+        for event in &events {
+            host.state.handle(event);
+        }
+        events
+    });
+    hear(&events);
+}
+
+/// A finger held still long enough becomes the mouse; checked before each frame.
+fn settle_touches() {
+    let events = HOST.with_borrow_mut(|host| {
+        let events = host.touches.tick(Instant::now());
         for event in &events {
             host.state.handle(event);
         }
@@ -178,6 +178,7 @@ unsafe extern "C" fn frame(
         *out_width = 0;
         *out_height = 0;
     }
+    settle_touches();
     HOST.with_borrow_mut(|host| {
         let scale = scale.max(1.0);
         if host.pixels != (width, height) || (host.scale - scale).abs() > f32::EPSILON {
@@ -199,6 +200,7 @@ unsafe extern "C" fn frame(
             raster,
             state,
             insets: [left, top, right, bottom],
+            touches,
             ..
         } = host
         else {
@@ -236,6 +238,7 @@ unsafe extern "C" fn frame(
             *theme = next;
             return 1;
         }
-        i32::from(state.wants_frame())
+        // a finger still being told apart needs the frames that settle it.
+        i32::from(state.wants_frame() || touches.waiting())
     })
 }

@@ -20,6 +20,8 @@ compile_error!(
 pub mod android;
 #[cfg(target_os = "ios")]
 pub mod ios;
+#[cfg(any(target_os = "ios", test))]
+mod touch;
 
 pub use aurea_animation as animation;
 
