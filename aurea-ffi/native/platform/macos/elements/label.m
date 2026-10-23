@@ -4,11 +4,17 @@
 #import "../../../common/platform_api.h"
 #import <Cocoa/Cocoa.h>
 
+/* An empty label is a spacer; VoiceOver skips a filler. */
+static void ng_macos_label_show_text(NSTextField* label, const char* text) {
+    label.stringValue = ng_macos_to_nsstring(text) ?: @"";
+    label.accessibilityElement = *text != '\0';
+}
+
 NGHandle ng_macos_create_label(const char* text) {
     if (!text) return NULL;
     
     NSTextField* label = [[NSTextField alloc] init];
-    [label setStringValue:ng_macos_to_nsstring(text)];
+    ng_macos_label_show_text(label, text);
     [label setBezeled:NO];
     [label setDrawsBackground:NO];
     [label setEditable:NO];
@@ -22,7 +28,7 @@ int ng_macos_label_set_text(NGHandle label, const char* text) {
     if (!label) return NG_ERROR_INVALID_HANDLE;
     if (!text) return NG_ERROR_INVALID_PARAMETER;
     NSTextField* lbl = (__bridge NSTextField*)label;
-    [lbl setStringValue:ng_macos_to_nsstring(text)];
+    ng_macos_label_show_text(lbl, text);
     [lbl invalidateIntrinsicContentSize];
     return NG_SUCCESS;
 }
