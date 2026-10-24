@@ -5,10 +5,15 @@ use std::sync::Arc;
 
 use aurea_foundation::AureaResult;
 
+use crate::types::GpuTexture;
+
 use super::backend::Gpu2dBackend;
 
 /// Default maximum number of concurrently cached textures.
 pub const DEFAULT_CACHE_CAP: usize = 64;
+
+/// Past this many remembered app-texture bindings the map starts over, costing one rebind each.
+const BOUND_CAP: usize = 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct CacheKey {
@@ -43,6 +48,7 @@ pub struct TextureCache {
     retired: Vec<(u32, u64)>,
     clock: u64,
     cap: usize,
+    bound: HashMap<(u32, u32), u32>,
 }
 
 impl TextureCache {
@@ -56,7 +62,27 @@ impl TextureCache {
             retired: Vec::new(),
             clock: 0,
             cap,
+            bound: HashMap::new(),
         }
+    }
+
+    /// The shader slot for an app-made `texture`. Binding writes a descriptor, so each texture
+    /// (keyed by its table index and generation) is bound once and its slot reused after that.
+    pub fn bind_texture<B: Gpu2dBackend>(
+        &mut self,
+        texture: GpuTexture,
+        backend: &mut B,
+    ) -> AureaResult<u32> {
+        let key = (texture.index, texture.generation);
+        if let Some(&slot) = self.bound.get(&key) {
+            return Ok(slot);
+        }
+        if self.bound.len() >= BOUND_CAP {
+            self.bound.clear();
+        }
+        let slot = backend.bind_texture(texture)?;
+        self.bound.insert(key, slot);
+        Ok(slot)
     }
 
     /// Return the shader slot for `pixels`/`width`/`height`, uploading via the backend if not

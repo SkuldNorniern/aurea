@@ -41,6 +41,17 @@ pub struct Gpu2dRenderer<B: Gpu2dBackend> {
     layer_lists: Vec<DisplayList>,
     layer_images: Vec<Option<Image>>,
     composite: DisplayList,
+    presented: Vec<(CacheKey, Rect)>,
+    presented_target: Option<PresentedTarget>,
+}
+
+/// The target a presented frame was drawn to; any change to it means the frame must be presented again.
+#[derive(Clone, Copy, PartialEq)]
+struct PresentedTarget {
+    logical: (u32, u32),
+    scale: f32,
+    pixels: Option<(u32, u32)>,
+    physical: (u32, u32),
 }
 
 impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
@@ -62,6 +73,8 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
             layer_lists: Vec::new(),
             layer_images: Vec::new(),
             composite: DisplayList::new(),
+            presented: Vec::new(),
+            presented_target: None,
             logical_width: width,
             logical_height: height,
             scale_factor: scale_factor.max(1.0),
@@ -72,6 +85,49 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
 
     fn suspended(&self) -> bool {
         self.logical_width == 0 || self.logical_height == 0
+    }
+
+    fn target_now(&self) -> PresentedTarget {
+        PresentedTarget {
+            logical: (self.logical_width, self.logical_height),
+            scale: self.scale_factor,
+            pixels: self.pixels,
+            physical: self.physical_size(),
+        }
+    }
+
+    /// Whether the display list draws exactly what the target already shows.
+    fn matches_presented(&self) -> bool {
+        if self.presented_target != Some(self.target_now()) {
+            return false;
+        }
+        let items = self.display_list.items();
+        // An app texture can change in place under the same handle, so a frame drawing one is
+        // always presented.
+        if items.iter().any(|item| {
+            matches!(
+                item.command,
+                DrawCommand::DrawTexture(..) | DrawCommand::DrawTextureQuad(..)
+            )
+        }) {
+            return false;
+        }
+        items.len() == self.presented.len()
+            && items
+                .iter()
+                .zip(&self.presented)
+                .all(|(item, &(key, bounds))| item.cache_key == key && item.bounds == bounds)
+    }
+
+    fn remember_presented(&mut self) {
+        self.presented_target = Some(self.target_now());
+        self.presented.clear();
+        self.presented.extend(
+            self.display_list
+                .items()
+                .iter()
+                .map(|item| (item.cache_key, item.bounds)),
+        );
     }
 
     /// What happens to a frame the backend cannot draw all of; by default it is drawn on the CPU
@@ -314,7 +370,11 @@ impl<B: Gpu2dBackend> Renderer for Gpu2dRenderer<B> {
 
     fn end_frame(&mut self) -> AureaResult<FrameOutcome> {
         if self.suspended() {
+            self.presented_target = None;
             return Ok(FrameOutcome::Suspended);
+        }
+        if self.matches_presented() {
+            return Ok(FrameOutcome::Unchanged);
         }
         self.frame_counter += 1;
         self.batches.lower_into(&self.display_list);
@@ -332,6 +392,11 @@ impl<B: Gpu2dBackend> Renderer for Gpu2dRenderer<B> {
             self.texture_cache.prune_dropped(&mut self.backend);
             self.texture_cache
                 .finish_frame(&mut self.backend, self.frame_counter);
+        }
+        match &presented {
+            Ok(FrameOutcome::Presented) => self.remember_presented(),
+            Ok(FrameOutcome::Unchanged) => {}
+            _ => self.presented_target = None,
         }
         presented
     }
@@ -853,5 +918,76 @@ mod tests {
         assert_eq!(r.backend().bound, 0);
         assert!(r.layers.is_empty());
         assert_eq!(r.backend().pixels, vec![(100, 50, [220, 20, 60, 255])]);
+    }
+
+    fn rect_frame(r: &mut Gpu2dRenderer<Probe>, width: f32) -> FrameOutcome {
+        {
+            let mut ctx = r.begin_frame().expect("begin");
+            ctx.draw_rect(Rect::new(0.0, 0.0, width, 10.0), &Paint::new())
+                .expect("rect");
+        }
+        r.end_frame().expect("end")
+    }
+
+    #[test]
+    fn an_identical_frame_is_not_submitted_again() {
+        let mut r = renderer(FrameOutcome::Presented);
+        assert_eq!(rect_frame(&mut r, 20.0), FrameOutcome::Presented);
+        assert_eq!(rect_frame(&mut r, 20.0), FrameOutcome::Unchanged);
+        assert_eq!(r.backend().drawn, 1);
+        assert_eq!(rect_frame(&mut r, 30.0), FrameOutcome::Presented);
+        assert_eq!(r.backend().drawn, 2);
+        r.configure(info(80, 50, 1.0)).expect("configure");
+        assert_eq!(rect_frame(&mut r, 30.0), FrameOutcome::Presented);
+        assert_eq!(rect_frame(&mut r, 30.0), FrameOutcome::Unchanged);
+        assert_eq!(r.backend().drawn, 3);
+    }
+
+    #[test]
+    fn a_frame_the_surface_refused_is_presented_again() {
+        let mut r = renderer(FrameOutcome::Retry);
+        assert_eq!(rect_frame(&mut r, 20.0), FrameOutcome::Retry);
+        r.backend_mut().outcome = FrameOutcome::Presented;
+        assert_eq!(rect_frame(&mut r, 20.0), FrameOutcome::Presented);
+        assert_eq!(rect_frame(&mut r, 20.0), FrameOutcome::Unchanged);
+    }
+
+    #[test]
+    fn a_texture_is_bound_once_per_handle_and_generation() {
+        let texture = |generation: u32| GpuTexture {
+            #[cfg(feature = "zengpu")]
+            handle: TextureHandle::from_parts(9, generation),
+            index: 9,
+            generation,
+            width: 4,
+            height: 4,
+        };
+        let mut r = with_features(
+            FrameOutcome::Presented,
+            GpuFeatures {
+                textures: true,
+                ..GpuFeatures::ALL
+            },
+        );
+        let draw = |r: &mut Gpu2dRenderer<Probe>, texture: GpuTexture| {
+            {
+                let mut ctx = r.begin_frame().expect("begin");
+                for _ in 0..2 {
+                    ctx.draw_texture(
+                        texture,
+                        Rect::new(0.0, 0.0, 1.0, 1.0),
+                        Rect::new(0.0, 0.0, 4.0, 4.0),
+                    )
+                    .expect("texture");
+                }
+            }
+            r.end_frame().expect("end")
+        };
+        draw(&mut r, texture(0));
+        assert_eq!(r.backend().bound, 1);
+        draw(&mut r, texture(0));
+        assert_eq!(r.backend().bound, 1, "a known handle keeps its slot");
+        draw(&mut r, texture(1));
+        assert_eq!(r.backend().bound, 2, "a reused index binds again");
     }
 }
