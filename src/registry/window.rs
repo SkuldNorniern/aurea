@@ -21,7 +21,8 @@ static SCALE_BY_HANDLE: LazyLock<Mutex<HashMap<usize, f32>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 thread_local! {
-    static WINDOW_EVENT_CALLBACKS: RefCell<HashMap<usize, Vec<EventCallback>>> =
+    /// Shared so a dispatch can hold a snapshot without copying the list.
+    static WINDOW_EVENT_CALLBACKS: RefCell<HashMap<usize, Rc<Vec<EventCallback>>>> =
         RefCell::new(HashMap::new());
     static WINDOW_UPDATE_CALLBACKS: RefCell<HashMap<usize, Vec<WindowUpdateCallback>>> =
         RefCell::new(HashMap::new());
@@ -85,11 +86,9 @@ pub fn register_update_callback(handle: *mut c_void, callback: impl Fn(WindowId)
 /// Registers an event handler for a window.
 pub fn register_event_callback(handle: *mut c_void, callback: EventCallback) {
     WINDOW_EVENT_CALLBACKS.with(|registry| {
-        registry
-            .borrow_mut()
-            .entry(handle_key(handle))
-            .or_default()
-            .push(callback);
+        // Copy-on-write: a dispatch in flight keeps its snapshot and does not see this callback.
+        let mut registry = registry.borrow_mut();
+        Rc::make_mut(registry.entry(handle_key(handle)).or_default()).push(callback);
     });
 }
 
@@ -122,9 +121,73 @@ pub fn dispatch_window_events(handle: *mut c_void, events: &[WindowEvent]) {
     });
 
     for event in events {
-        for callback in &callbacks {
+        for callback in callbacks.iter() {
             callback(event.clone());
         }
+    }
+}
+
+#[cfg(test)]
+mod dispatch_tests {
+    use super::*;
+    use std::cell::{Cell, RefCell};
+
+    #[test]
+    fn callbacks_added_during_dispatch_run_next_time() {
+        let window = 0xd15a as *mut c_void;
+        let log = Rc::new(RefCell::new(Vec::<String>::new()));
+        let added = Rc::new(Cell::new(false));
+
+        let first_log = log.clone();
+        let first_added = added.clone();
+        register_event_callback(
+            window,
+            Rc::new(move |e: WindowEvent| {
+                first_log.borrow_mut().push(format!("a {e:?}"));
+                if !first_added.replace(true) {
+                    let late_log = first_log.clone();
+                    register_event_callback(
+                        window,
+                        Rc::new(move |e: WindowEvent| {
+                            late_log.borrow_mut().push(format!("late {e:?}"));
+                        }),
+                    );
+                }
+            }),
+        );
+        let second_log = log.clone();
+        register_event_callback(
+            window,
+            Rc::new(move |e: WindowEvent| second_log.borrow_mut().push(format!("b {e:?}"))),
+        );
+
+        let events = [
+            WindowEvent::ThemeChanged { dark: true },
+            WindowEvent::ThemeChanged { dark: false },
+        ];
+        dispatch_window_events(window, &events);
+        let first_pass = log.borrow().clone();
+        assert_eq!(
+            first_pass,
+            [
+                "a ThemeChanged { dark: true }",
+                "b ThemeChanged { dark: true }",
+                "a ThemeChanged { dark: false }",
+                "b ThemeChanged { dark: false }",
+            ]
+        );
+
+        log.borrow_mut().clear();
+        dispatch_window_events(window, &events[..1]);
+        assert_eq!(
+            *log.borrow(),
+            [
+                "a ThemeChanged { dark: true }",
+                "b ThemeChanged { dark: true }",
+                "late ThemeChanged { dark: true }",
+            ]
+        );
+        unregister_event_callbacks(window);
     }
 }
 
