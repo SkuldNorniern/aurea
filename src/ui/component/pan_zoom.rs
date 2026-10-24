@@ -60,10 +60,15 @@ impl PanZoom {
     /// Keeps the zoom between `min` and `max`.
     #[must_use]
     pub fn with_limits(mut self, min: f32, max: f32) -> Self {
+        self.set_limits(min, max);
+        self
+    }
+
+    /// Changes the zoom limits set by `with_limits`, and clamps the zoom into them.
+    pub fn set_limits(&mut self, min: f32, max: f32) {
         self.min_zoom = min.max(f32::EPSILON);
         self.max_zoom = max.max(self.min_zoom);
         self.zoom = self.clamped(self.zoom);
-        self
     }
 
     /// The screen rect the content shows in.
@@ -480,6 +485,20 @@ mod tests {
         assert_eq!(pz.zoom(), 2.0);
         assert!(close(pz.to_content(at), under));
         assert!(!pz.handle(&pinch(2.0, -10.0, -10.0)), "outside the view");
+    }
+
+    #[test]
+    fn set_limits_clamps_the_zoom_into_the_new_range() {
+        let mut pz = view();
+        pz.set_zoom_at(Point::new(0.0, 0.0), 8.0);
+        pz.set_limits(0.5, 4.0);
+        assert_eq!(pz.zoom(), 4.0);
+        pz.set_limits(0.25, 16.0);
+        assert_eq!(pz.zoom(), 4.0, "in range, kept");
+        pz.set_limits(5.0, 10.0);
+        assert_eq!(pz.zoom(), 5.0);
+        pz.set_limits(1.0, 0.5);
+        assert_eq!(pz.zoom(), 1.0, "max is raised to min");
     }
 
     #[test]
