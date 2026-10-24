@@ -238,7 +238,8 @@ fn snap_rect(rect: Rect, paint: &Paint) -> (Rect, f32) {
             return (start.round(), 0.0);
         }
         let outer = (start - inset).round();
-        let size = (len + 2.0 * inset).round().max(1.0 + 2.0 * inset);
+        let end = (start + len + inset).round();
+        let size = (end - outer).max(1.0 + 2.0 * inset);
         (outer + inset, size - 2.0 * inset)
     };
     let stroke = paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0;
@@ -251,6 +252,25 @@ fn snap_rect(rect: Rect, paint: &Paint) -> (Rect, f32) {
     let (x, w) = span(rect.x, rect.width, inset);
     let (y, h) = span(rect.y, rect.height, inset);
     (Rect::new(x, y, w, h), width)
+}
+
+/// A straight rule snapped: its ends round on their own like a fill's edges, its thickness rounds
+/// as a whole so every rule of one width comes out alike.
+fn snap_rule(rect: Rect, horizontal: bool) -> Rect {
+    let keep = |start: f32, len: f32| {
+        let size = len.round().max(1.0);
+        ((start + (len - size) / 2.0).round(), size)
+    };
+    let edges = |start: f32, len: f32| {
+        let outer = start.round();
+        (outer, ((start + len).round() - outer).max(1.0))
+    };
+    let ((x, w), (y, h)) = if horizontal {
+        (edges(rect.x, rect.width), keep(rect.y, rect.height))
+    } else {
+        (keep(rect.x, rect.width), edges(rect.y, rect.height))
+    };
+    Rect::new(x, y, w, h)
 }
 
 fn fill_with(color: Color) -> Paint {
@@ -776,6 +796,17 @@ impl<'list> RecordingContext<'list> {
         }
     }
 
+    /// A straight line drawn as a filled `rect`, snapped by [`snap_rule`] when snapping is on.
+    fn draw_rule(&mut self, rect: Rect, color: Color) -> AureaResult<()> {
+        if !self.current_pixel_snap || !self.transform_is_axis_aligned() {
+            return self.draw_rect(rect, &fill_with(color));
+        }
+        let device = self.s_rect(rect);
+        let rect = snap_rule(device, device.width >= device.height);
+        self.add_command(DrawCommand::DrawRect(rect, fill_with(color)));
+        Ok(())
+    }
+
     fn is_opaque(&self, command: &DrawCommand) -> bool {
         match command {
             DrawCommand::Clear(color) => color.a == 255,
@@ -872,11 +903,11 @@ impl DrawingContext for RecordingContext<'_> {
 
             if horizontal && !vertical {
                 let rect = Rect::new(x1.min(x2), y1 - half, (x2 - x1).abs(), paint.stroke_width);
-                return self.draw_rect(rect, &fill_with(paint.color));
+                return self.draw_rule(rect, paint.color);
             }
             if vertical && !horizontal {
                 let rect = Rect::new(x1 - half, y1.min(y2), paint.stroke_width, (y2 - y1).abs());
-                return self.draw_rect(rect, &fill_with(paint.color));
+                return self.draw_rule(rect, paint.color);
             }
         }
 
@@ -1238,6 +1269,38 @@ mod tests {
             heights[3] > heights[0],
             "HiDPI text must have more raster pixels"
         );
+    }
+
+    fn snapped_rects(rects: &[Rect]) -> Vec<Rect> {
+        let mut list = DisplayList::new();
+        {
+            let mut ctx = ctx_with(&mut list, 1.0);
+            ctx.set_pixel_snap(true).expect("snap");
+            for &rect in rects {
+                ctx.draw_rect(rect, &Paint::default()).expect("draw_rect");
+            }
+        }
+        list.items()
+            .iter()
+            .map(|item| match &item.command {
+                DrawCommand::DrawRect(rect, _) => *rect,
+                other => panic!("unexpected {other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn touching_snapped_rects_share_an_edge() {
+        let out = snapped_rects(&[Rect::new(0.4, 0.0, 3.4, 1.0), Rect::new(3.8, 0.0, 2.0, 1.0)]);
+        let (a, b) = (out[0], out[1]);
+        assert_eq!(a.x + a.width, b.x, "no gap, no overlap: {a:?} {b:?}");
+    }
+
+    #[test]
+    fn snapped_fill_edges_round_independently() {
+        let out = snapped_rects(&[Rect::new(4.3, 0.0, 6.4, 1.0)]);
+        assert_eq!(out[0].x, 4.0);
+        assert_eq!(out[0].x + out[0].width, 11.0);
     }
 
     #[test]

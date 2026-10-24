@@ -61,7 +61,9 @@ pub trait DrawingContext {
     /// How the image and texture draws that follow are filtered.
     fn set_sampling(&mut self, sampling: Sampling) -> AureaResult<()>;
 
-    /// Whether the rects and straight lines that follow land on whole device pixels.
+    /// Whether the rects and the horizontal and vertical `draw_line`s that follow land on whole
+    /// device pixels. Rect edges round on their own, so touching rects stay touching; a line keeps
+    /// one rounded thickness. Paths are not snapped.
     fn set_pixel_snap(&mut self, snap: bool) -> AureaResult<()> {
         let _ = snap;
         Ok(())
