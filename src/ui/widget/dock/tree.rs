@@ -209,6 +209,12 @@ impl<P: Copy + PartialEq> DockTree<P> {
             .is_some_and(|root| group_of(root, panel).is_some())
     }
 
+    /// The tabs of the group holding `panel`, in order.
+    pub fn group_of(&self, panel: &P) -> Option<&[P]> {
+        let root = self.root.as_ref()?;
+        group_of(root, *panel).map(|(panels, _)| panels)
+    }
+
     /// Puts `panel` on `side` of the group holding `beside`, the new part taking half the room.
     pub fn insert(&mut self, panel: P, beside: P, side: DockSide) -> bool {
         self.insert_sized(panel, beside, side, 0.5)
@@ -610,6 +616,16 @@ mod tests {
         assert_eq!(layout(&tree).groups.len(), 1);
         assert!(tree.activate(2));
         assert!(tree.is_active(2) && !tree.is_active(1));
+    }
+
+    #[test]
+    fn group_of_lists_tabs_in_order() {
+        let mut tree = DockTree::new(1);
+        tree.insert(2, 1, DockSide::Center);
+        tree.insert(3, 2, DockSide::Right);
+        assert_eq!(tree.group_of(&1), Some(&[1, 2][..]));
+        assert_eq!(tree.group_of(&3), Some(&[3][..]));
+        assert_eq!(tree.group_of(&9), None);
     }
 
     #[test]
