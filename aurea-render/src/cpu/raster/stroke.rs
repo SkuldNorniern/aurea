@@ -2,6 +2,7 @@
 
 use super::path::{cubic_steps, quad_steps};
 use crate::types::{Dash, FillRule, LineCap, LineJoin, Paint, Path, PathCommand, Point};
+use std::cell::RefCell;
 use std::f32::consts::PI;
 use std::mem::take;
 
@@ -114,11 +115,12 @@ pub fn outline(path: &Path, style: &StrokeStyle) -> Vec<Path> {
             continue;
         }
         match style.dash {
-            Some(dash) => {
-                for piece in dashes(&points, run.closed, &dash) {
-                    outline_open(&mut pieces, &piece, style);
+            Some(dash) => DASH_RUNS.with_borrow_mut(|runs| {
+                dashes(&points, run.closed, &dash, runs);
+                for piece in runs.iter() {
+                    outline_open(&mut pieces, piece, style);
                 }
-            }
+            }),
             None if run.closed => append_pieces(&mut pieces, &points, style, true),
             None => outline_open(&mut pieces, &points, style),
         }
@@ -234,8 +236,39 @@ fn fan(center: Point, radius: f32, from: f32, sweep: f32) -> Path {
     polygon(&ring)
 }
 
-fn dashes(points: &[Point], closed: bool, dash: &Dash) -> Vec<Vec<Point>> {
-    let mut dasher = Dasher::new(dash, points[0]);
+thread_local! {
+    /// Reused by every dashed subpath on this thread, so dashing does not allocate per stroke.
+    static DASH_RUNS: RefCell<DashRuns> = RefCell::new(DashRuns::default());
+}
+
+/// The dashed runs of one subpath: their points back to back, and where each run starts and ends
+/// in `points`.
+#[derive(Default)]
+struct DashRuns {
+    points: Vec<Point>,
+    starts: Vec<usize>,
+    ends: Vec<usize>,
+}
+
+impl DashRuns {
+    fn clear(&mut self) {
+        self.points.clear();
+        self.starts.clear();
+        self.ends.clear();
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &[Point]> {
+        self.starts
+            .iter()
+            .zip(&self.ends)
+            .map(|(&start, &end)| &self.points[start..end])
+    }
+}
+
+/// Splits `points` into the on-runs of `dash` into `runs`, which is cleared first.
+fn dashes(points: &[Point], closed: bool, dash: &Dash, runs: &mut DashRuns) {
+    runs.clear();
+    let mut dasher = Dasher::new(dash, points[0], runs);
     let count = if closed {
         points.len()
     } else {
@@ -244,36 +277,42 @@ fn dashes(points: &[Point], closed: bool, dash: &Dash) -> Vec<Vec<Point>> {
     for i in 0..count {
         dasher.segment(points[i], points[(i + 1) % points.len()]);
     }
-    dasher.finish()
+    dasher.finish();
 }
 
 struct Dasher<'d> {
     lengths: &'d [f32],
     index: usize,
     left: f32,
-    current: Vec<Point>,
-    out: Vec<Vec<Point>>,
+    /// Where the open run starts in `runs.points`.
+    open: usize,
+    runs: &'d mut DashRuns,
 }
 
 impl<'d> Dasher<'d> {
-    fn new(dash: &'d Dash, start: Point) -> Self {
+    fn new(dash: &'d Dash, start: Point, runs: &'d mut DashRuns) -> Self {
         let lengths = dash.lengths();
         let period: f32 = lengths.iter().sum();
         let mut dasher = Self {
             lengths,
             index: 0,
             left: lengths[0],
-            current: Vec::new(),
-            out: Vec::new(),
+            open: 0,
+            runs,
         };
-        let mut skip = dash.offset.rem_euclid(period);
+        let phase = if dash.anchored {
+            dash.offset + start.x + start.y
+        } else {
+            dash.offset
+        };
+        let mut skip = phase.rem_euclid(period);
         while skip >= dasher.left {
             skip -= dasher.left;
             dasher.advance();
         }
         dasher.left -= skip;
         if dasher.on() {
-            dasher.current.push(start);
+            dasher.open_run(start);
         }
         dasher
     }
@@ -287,6 +326,11 @@ impl<'d> Dasher<'d> {
         self.left = self.lengths[self.index];
     }
 
+    fn open_run(&mut self, at: Point) {
+        self.open = self.runs.points.len();
+        self.runs.points.push(at);
+    }
+
     fn segment(&mut self, mut a: Point, b: Point) {
         let mut remaining = (b.x - a.x).hypot(b.y - a.y);
         while remaining > 0.0 {
@@ -296,7 +340,7 @@ impl<'d> Dasher<'d> {
             remaining -= step;
             self.left -= step;
             if self.on() {
-                self.current.push(a);
+                self.runs.points.push(a);
             }
             if self.left <= 1e-6 {
                 self.boundary(a);
@@ -306,20 +350,29 @@ impl<'d> Dasher<'d> {
 
     fn boundary(&mut self, at: Point) {
         if self.on() {
-            self.out.push(take(&mut self.current));
+            self.close_run();
         }
         self.advance();
         if self.on() {
-            self.current.push(at);
+            self.open_run(at);
         }
     }
 
-    fn finish(mut self) -> Vec<Vec<Point>> {
-        if self.on() {
-            self.out.push(take(&mut self.current));
+    /// Keeps the open run if it has two points, otherwise drops it.
+    fn close_run(&mut self) {
+        let end = self.runs.points.len();
+        if end - self.open >= 2 {
+            self.runs.starts.push(self.open);
+            self.runs.ends.push(end);
+        } else {
+            self.runs.points.truncate(self.open);
         }
-        self.out.retain(|piece| piece.len() >= 2);
-        self.out
+    }
+
+    fn finish(mut self) {
+        if self.on() {
+            self.close_run();
+        }
     }
 }
 
@@ -844,5 +897,154 @@ mod tests {
         }
         assert!(rings.len() > 3, "pieces, joins and caps");
         assert!(rings.iter().all(|ring| signed_area(ring) >= 0.0));
+    }
+
+    /// The stroker's dashing before `DashRuns`, to pin unanchored output.
+    fn legacy_dashes(points: &[Point], closed: bool, dash: &Dash) -> Vec<Vec<Point>> {
+        struct Old<'d> {
+            lengths: &'d [f32],
+            index: usize,
+            left: f32,
+            current: Vec<Point>,
+            out: Vec<Vec<Point>>,
+        }
+        impl<'d> Old<'d> {
+            fn new(dash: &'d Dash, start: Point) -> Self {
+                let lengths = dash.lengths();
+                let period: f32 = lengths.iter().sum();
+                let mut dasher = Self {
+                    lengths,
+                    index: 0,
+                    left: lengths[0],
+                    current: Vec::new(),
+                    out: Vec::new(),
+                };
+                let mut skip = dash.offset.rem_euclid(period);
+                while skip >= dasher.left {
+                    skip -= dasher.left;
+                    dasher.advance();
+                }
+                dasher.left -= skip;
+                if dasher.on() {
+                    dasher.current.push(start);
+                }
+                dasher
+            }
+            fn on(&self) -> bool {
+                self.index.is_multiple_of(2)
+            }
+            fn advance(&mut self) {
+                self.index = (self.index + 1) % self.lengths.len();
+                self.left = self.lengths[self.index];
+            }
+            fn segment(&mut self, mut a: Point, b: Point) {
+                let mut remaining = (b.x - a.x).hypot(b.y - a.y);
+                while remaining > 0.0 {
+                    let step = self.left.min(remaining);
+                    let t = step / remaining;
+                    a = Point::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
+                    remaining -= step;
+                    self.left -= step;
+                    if self.on() {
+                        self.current.push(a);
+                    }
+                    if self.left <= 1e-6 {
+                        self.boundary(a);
+                    }
+                }
+            }
+            fn boundary(&mut self, at: Point) {
+                if self.on() {
+                    self.out.push(take(&mut self.current));
+                }
+                self.advance();
+                if self.on() {
+                    self.current.push(at);
+                }
+            }
+            fn finish(mut self) -> Vec<Vec<Point>> {
+                if self.on() {
+                    self.out.push(take(&mut self.current));
+                }
+                self.out.retain(|piece| piece.len() >= 2);
+                self.out
+            }
+        }
+
+        let mut dasher = Old::new(dash, points[0]);
+        let count = if closed {
+            points.len()
+        } else {
+            points.len() - 1
+        };
+        for i in 0..count {
+            dasher.segment(points[i], points[(i + 1) % points.len()]);
+        }
+        dasher.finish()
+    }
+
+    /// The x extent of each dashed run of `points`, subpaths in order.
+    fn dash_spans(subpaths: &[&[Point]], dash: &Dash) -> Vec<(f32, f32)> {
+        let mut runs = DashRuns::default();
+        let mut spans = Vec::new();
+        for subpath in subpaths {
+            dashes(subpath, false, dash, &mut runs);
+            spans.extend(runs.iter().map(|run| (run[0].x, run[run.len() - 1].x)));
+        }
+        spans
+    }
+
+    #[test]
+    fn unanchored_dashes_match_the_old_stroker() {
+        let zigzag: Vec<Point> = [
+            (0.0, 0.0),
+            (13.0, 0.5),
+            (13.0, 9.0),
+            (-4.0, 9.0),
+            (-4.0, 0.0),
+        ]
+        .iter()
+        .map(|&(x, y)| Point::new(x, y))
+        .collect();
+        let mut runs = DashRuns::default();
+        let patterns: [(&[f32], f32); 4] = [
+            (&[5.0, 5.0], 0.0),
+            (&[3.0, 1.0, 2.0], 2.5),
+            (&[1.0, 4.0], -7.0),
+            (&[0.5, 0.25], 100.0),
+        ];
+        for (lengths, offset) in patterns {
+            let dash = Dash::new(lengths, offset).expect("pattern");
+            for closed in [false, true] {
+                dashes(&zigzag, closed, &dash, &mut runs);
+                let new: Vec<Vec<Point>> = runs.iter().map(<[Point]>::to_vec).collect();
+                assert_eq!(new, legacy_dashes(&zigzag, closed, &dash));
+            }
+        }
+    }
+
+    #[test]
+    fn anchored_subpaths_dash_on_the_same_grid() {
+        let a = [Point::new(0.0, 0.0), Point::new(12.0, 0.0)];
+        let b = [Point::new(7.0, 0.0), Point::new(20.0, 0.0)];
+        let whole = [Point::new(0.0, 0.0), Point::new(20.0, 0.0)];
+        let plain = Dash::new(&[4.0, 4.0], 0.0).expect("pattern");
+        let anchored = plain.anchored();
+
+        assert_eq!(
+            dash_spans(&[&whole], &anchored),
+            vec![(0.0, 4.0), (8.0, 12.0), (16.0, 20.0)],
+            "one line"
+        );
+        assert_eq!(
+            dash_spans(&[&a, &b], &anchored),
+            vec![(0.0, 4.0), (8.0, 12.0), (8.0, 12.0), (16.0, 20.0)],
+            "the second subpath joins the grid"
+        );
+        assert_eq!(
+            dash_spans(&[&a, &b], &plain),
+            vec![(0.0, 4.0), (8.0, 12.0), (7.0, 11.0), (15.0, 19.0)],
+            "unanchored, the second starts its pattern at 0"
+        );
     }
 }
