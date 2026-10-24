@@ -213,7 +213,7 @@ impl<'v> EditableText<'v> {
             let at = self.index_at(ui, font, press.at.x - origin);
             let edit = &mut ui.state.edit;
             match press.clicks {
-                0 | 1 => edit.set_caret(self.text, at, press.shift),
+                0 | 1 => edit.set_caret(self.text, at, press.modifiers.shift),
                 2 => edit.select_word_at(self.text, at),
                 _ => edit.select_all(self.text),
             }

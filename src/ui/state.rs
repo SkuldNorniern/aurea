@@ -93,7 +93,7 @@ pub(crate) struct Press<Id> {
     pub key: Key<Id>,
     pub at: Point,
     pub clicks: u8,
-    pub shift: bool,
+    pub modifiers: Modifiers,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -636,7 +636,7 @@ impl<Id: WidgetId> UiState<Id> {
                         key: hit.key,
                         at,
                         clicks,
-                        shift: modifiers.shift,
+                        modifiers,
                     });
                 }
             }

@@ -269,6 +269,32 @@ fn submission_does_not_commit_again_on_blur_and_escape_does_not_commit() {
     assert!(!cancelled.focused);
 }
 
+#[test]
+fn a_press_carries_every_modifier() {
+    let mut rig = Rig::new();
+    let area = Rect::new(0.0, 0.0, 100.0, 40.0);
+    rig.frame(|ui| ui.interact(1, 0, area, super::Sense::Click, true));
+    let alt = Modifiers {
+        alt: true,
+        ..Modifiers::default()
+    };
+    rig.state.handle(&WindowEvent::MouseButton {
+        button: MouseButton::Left,
+        pressed: true,
+        x: 10.0,
+        y: 10.0,
+        click_count: 1,
+        modifiers: alt,
+        time: Default::default(),
+    });
+    let press = rig.frame(|ui| {
+        ui.interact(1, 0, area, super::Sense::Click, true);
+        ui.press(1, 0)
+    });
+    let press = press.expect("pressed");
+    assert!(press.modifiers.alt && !press.shift);
+}
+
 /// A field scrolled out of a list for a few frames, then back.
 #[test]
 fn a_field_that_leaves_the_frame_keeps_its_undo_and_commits_when_back() {

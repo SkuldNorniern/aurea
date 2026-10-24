@@ -510,7 +510,7 @@ fn point<Id: WidgetId>(
     if let Some(press) = press {
         edit.set_preedit(text, "", None);
         match press.clicks {
-            0 | 1 => edit.set_caret(text, at, press.shift),
+            0 | 1 => edit.set_caret(text, at, press.modifiers.shift),
             2 => edit.select_word_at(text, at),
             _ => edit.select_all(text),
         }

@@ -97,8 +97,10 @@ pub struct PressAt {
     pub at: Point,
     /// 1 for a click, 2 for a double click, and so on.
     pub clicks: u8,
-    /// Whether shift was held.
+    /// Whether shift was held; also in `modifiers`.
     pub shift: bool,
+    /// The modifier keys held: alt for another caret, ctrl or command to follow a link.
+    pub modifiers: Modifiers,
 }
 
 /// One frame's drawing with widgets.
@@ -225,7 +227,8 @@ impl<Id: WidgetId> Ui<'_, Id> {
             .map(|press| PressAt {
                 at: press.at,
                 clicks: press.clicks,
-                shift: press.shift,
+                shift: press.modifiers.shift,
+                modifiers: press.modifiers,
             })
     }
 
