@@ -88,6 +88,150 @@ struct Hit<Id> {
     enabled: bool,
 }
 
+/// Hits bucketed into a grid of cells, so finding the one under the pointer looks at a cell's few
+/// hits instead of all of them. Each list keeps draw order; the last match wins, as in a scan.
+#[derive(Debug, Default)]
+struct HitGrid {
+    origin: Point,
+    cell: (f32, f32),
+    cols: usize,
+    rows: usize,
+    /// Where each cell's hit indices start in `items`; one more entry than there are cells.
+    starts: Vec<u32>,
+    items: Vec<u32>,
+    /// Hits spanning too many cells to list in each; always checked.
+    big: Vec<u32>,
+}
+
+impl HitGrid {
+    /// Below this many hits a scan is as quick.
+    const MIN_HITS: usize = 64;
+    const MAX_SIDE: usize = 32;
+    const MAX_CELLS_PER_HIT: usize = 16;
+
+    fn build(&mut self, rects: impl Iterator<Item = Rect> + Clone) {
+        self.cols = 0;
+        self.rows = 0;
+        let count = rects.clone().count();
+        if count < Self::MIN_HITS {
+            return;
+        }
+        let Some(bounds) = rects.clone().filter(|r| !r.is_empty()).reduce(|a, b| {
+            let (x0, y0) = (a.x.min(b.x), a.y.min(b.y));
+            let (x1, y1) = (a.right().max(b.right()), a.bottom().max(b.bottom()));
+            Rect::new(x0, y0, x1 - x0, y1 - y0)
+        }) else {
+            return;
+        };
+        let side = |len: f32| {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let n = (len / 48.0).ceil() as usize;
+            n.clamp(1, Self::MAX_SIDE)
+        };
+        let (cols, rows) = (side(bounds.width), side(bounds.height));
+        #[allow(clippy::cast_precision_loss)]
+        let cell = (bounds.width / cols as f32, bounds.height / rows as f32);
+        if !(cell.0 > 0.0 && cell.1 > 0.0) {
+            return;
+        }
+        (self.origin, self.cell, self.cols, self.rows) =
+            (Point::new(bounds.x, bounds.y), cell, cols, rows);
+        self.starts.clear();
+        self.starts.resize(cols * rows + 1, 0);
+        self.items.clear();
+        self.big.clear();
+        // Two passes: count per cell, then place, keeping each cell's hits in draw order.
+        let layout = (self.origin, self.cell, cols, rows);
+        let mut counts = mem::take(&mut self.starts);
+        self.each_cell(rects.clone(), layout, |_, c| counts[c + 1] += 1);
+        for c in 1..counts.len() {
+            counts[c] += counts[c - 1];
+        }
+        let mut items = mem::take(&mut self.items);
+        items.resize(counts[cols * rows] as usize, 0);
+        let mut next: Vec<u32> = counts[..cols * rows].to_vec();
+        self.each_cell(rects, layout, |i, c| {
+            items[next[c] as usize] = i;
+            next[c] += 1;
+        });
+        self.starts = counts;
+        self.items = items;
+    }
+
+    /// Calls `visit` with each hit's index and every cell it is listed in, in draw order; hits
+    /// spanning too many cells go to `big` instead.
+    fn each_cell(
+        &mut self,
+        rects: impl Iterator<Item = Rect>,
+        layout: (Point, (f32, f32), usize, usize),
+        mut visit: impl FnMut(u32, usize),
+    ) {
+        let first_pass = self.big.is_empty();
+        let cols = layout.2;
+        for (i, rect) in rects.enumerate() {
+            let i = u32::try_from(i).unwrap_or(u32::MAX);
+            let Some((c0, r0, c1, r1)) = Self::span(layout, rect) else {
+                continue;
+            };
+            if (c1 - c0) * (r1 - r0) > Self::MAX_CELLS_PER_HIT {
+                if first_pass {
+                    self.big.push(i);
+                }
+                continue;
+            }
+            for row in r0..r1 {
+                for col in c0..c1 {
+                    visit(i, row * cols + col);
+                }
+            }
+        }
+    }
+
+    /// The cells `rect` touches, as column and row ranges, or `None` when empty.
+    fn span(
+        (origin, cell, cols, rows): (Point, (f32, f32), usize, usize),
+        rect: Rect,
+    ) -> Option<(usize, usize, usize, usize)> {
+        if rect.is_empty() {
+            return None;
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let index = |v: f32, origin: f32, size: f32, n: usize| {
+            (((v - origin) / size).floor().max(0.0) as usize).min(n - 1)
+        };
+        let c0 = index(rect.x, origin.x, cell.0, cols);
+        let r0 = index(rect.y, origin.y, cell.1, rows);
+        let c1 = index(rect.right(), origin.x, cell.0, cols) + 1;
+        let r1 = index(rect.bottom(), origin.y, cell.1, rows) + 1;
+        Some((c0, r0, c1, r1))
+    }
+
+    /// The hits in the cell under `at` and the big ones, or `None` when there is no grid and every
+    /// hit has to be scanned.
+    fn candidates(&self, at: Point) -> Option<(&[u32], &[u32])> {
+        if self.cols == 0 {
+            return None;
+        }
+        let (dx, dy) = (at.x - self.origin.x, at.y - self.origin.y);
+        #[allow(clippy::cast_precision_loss)]
+        let outside = dx < 0.0
+            || dy < 0.0
+            || dx >= self.cell.0 * self.cols as f32
+            || dy >= self.cell.1 * self.rows as f32;
+        if outside {
+            return Some((&[], &self.big));
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let (col, row) = (
+            ((dx / self.cell.0) as usize).min(self.cols - 1),
+            ((dy / self.cell.1) as usize).min(self.rows - 1),
+        );
+        let c = row * self.cols + col;
+        let cell = &self.items[self.starts[c] as usize..self.starts[c + 1] as usize];
+        Some((cell, &self.big))
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Press<Id> {
     pub key: Key<Id>,
@@ -182,6 +326,8 @@ pub struct UiState<Id: WidgetId> {
     pub(crate) typed_targets: Vec<Option<Key<Id>>>,
     hits: Vec<Hit<Id>>,
     last_hits: Vec<Hit<Id>>,
+    /// `last_hits` by where they are, for the pointer's hit test.
+    hit_grid: HitGrid,
     pub(crate) order: Vec<Key<Id>>,
     last_order: Vec<Key<Id>>,
     hot: Option<Key<Id>>,
@@ -237,6 +383,7 @@ impl<Id: WidgetId> UiState<Id> {
             typed_targets: Vec::new(),
             hits: Vec::new(),
             last_hits: Vec::new(),
+            hit_grid: HitGrid::default(),
             order: Vec::new(),
             last_order: Vec::new(),
             hot: None,
@@ -585,10 +732,21 @@ impl<Id: WidgetId> UiState<Id> {
     }
 
     fn hit_at(&self, at: Point) -> Option<&Hit<Id>> {
-        self.last_hits
-            .iter()
-            .rev()
-            .find(|hit| !hit.rect.is_empty() && hit.rect.contains(at))
+        let hits = &self.last_hits;
+        let found = |i: &u32| {
+            let hit = &hits[*i as usize];
+            (!hit.rect.is_empty() && hit.rect.contains(at)).then_some(*i)
+        };
+        match self.hit_grid.candidates(at) {
+            None => hits
+                .iter()
+                .rev()
+                .find(|hit| !hit.rect.is_empty() && hit.rect.contains(at)),
+            Some((cell, big)) => {
+                let last = |list: &[u32]| list.iter().rev().find_map(found);
+                last(cell).max(last(big)).map(|i| &hits[i as usize])
+            }
+        }
     }
 
     pub(crate) fn begin(&mut self, theme: &Theme) {
@@ -801,6 +959,8 @@ impl<Id: WidgetId> UiState<Id> {
         }
         self.forget_old_edits();
         mem::swap(&mut self.hits, &mut self.last_hits);
+        self.hit_grid
+            .build(self.last_hits.iter().map(|hit| hit.rect));
         mem::swap(&mut self.order, &mut self.last_order);
         let blinking = self.text_focused() && self.blink_from.elapsed() < BLINK_FOR;
         #[cfg(feature = "accessibility")]
@@ -1061,6 +1221,49 @@ mod tests {
         state.begin(&theme);
         assert!(!state.popup_open());
         assert_eq!(state.focus, Some(field));
+    }
+
+    #[test]
+    fn the_hit_grid_finds_what_a_scan_finds() {
+        // Overlapping hits of mixed sizes: cells, panels spanning many cells, empty ones.
+        let mut seed = 7u32;
+        let mut next = |n: u32| {
+            seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+            (seed >> 8) % n
+        };
+        #[allow(clippy::cast_precision_loss)]
+        let rects: Vec<Rect> = (0..400)
+            .map(|i| {
+                let big = i % 37 == 0;
+                let (w, h) = if big {
+                    (300, 200)
+                } else {
+                    (next(60), next(40))
+                };
+                Rect::new(next(900) as f32, next(700) as f32, w as f32, h as f32)
+            })
+            .collect();
+        let mut grid = HitGrid::default();
+        grid.build(rects.iter().copied());
+        assert!(grid.cols > 0, "built");
+        let scan = |at: Point| rects.iter().rposition(|r| !r.is_empty() && r.contains(at));
+        for _ in 0..5000 {
+            #[allow(clippy::cast_precision_loss)]
+            let at = Point::new(next(1300) as f32 - 100.0, next(1000) as f32 - 100.0);
+            let found = |list: &[u32]| {
+                list.iter()
+                    .rev()
+                    .find(|i| {
+                        let r = rects[**i as usize];
+                        !r.is_empty() && r.contains(at)
+                    })
+                    .map(|i| *i as usize)
+            };
+            let from_grid = grid
+                .candidates(at)
+                .and_then(|(cell, big)| found(cell).max(found(big)));
+            assert_eq!(from_grid, scan(at), "at {at:?}");
+        }
     }
 
     #[test]
