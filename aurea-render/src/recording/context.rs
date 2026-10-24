@@ -146,6 +146,7 @@ pub struct RecordingContext<'list> {
     current_clip_rect: Option<Rect>,
     clip_paths: Vec<Path>,
     current_clip_paths: Option<Arc<[Path]>>,
+    current_clip_paths_hash: u64,
     path_clips: bool,
     current_blend_mode: BlendMode,
     current_sampling: Sampling,
@@ -321,6 +322,15 @@ fn hash_path(path: &Path, hasher: &mut DefaultHasher) {
     }
 }
 
+fn clip_paths_hash(paths: &[Path]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    for path in paths {
+        path.commands.len().hash(&mut hasher);
+        hash_path(path, &mut hasher);
+    }
+    hasher.finish()
+}
+
 fn hash_image_quad(src: &Rect, quad: &[Point; 3], hasher: &mut impl Hasher) {
     for v in [src.x, src.y, src.width, src.height] {
         v.to_bits().hash(hasher);
@@ -343,6 +353,7 @@ impl<'list> RecordingContext<'list> {
             current_clip_rect: None,
             clip_paths: Vec::new(),
             current_clip_paths: None,
+            current_clip_paths_hash: 0,
             path_clips: false,
             current_blend_mode: BlendMode::Normal,
             current_sampling: Sampling::Linear,
@@ -362,9 +373,15 @@ impl<'list> RecordingContext<'list> {
     fn set_clip_paths_len(&mut self, len: usize) {
         if len != self.clip_paths.len() {
             self.clip_paths.truncate(len);
-            self.current_clip_paths =
-                (!self.clip_paths.is_empty()).then(|| Arc::from(self.clip_paths.as_slice()));
+            self.sync_clip_paths();
         }
+    }
+
+    /// Rebuilds the shared clip stack and its hash after `clip_paths` changed.
+    fn sync_clip_paths(&mut self) {
+        self.current_clip_paths =
+            (!self.clip_paths.is_empty()).then(|| Arc::from(self.clip_paths.as_slice()));
+        self.current_clip_paths_hash = clip_paths_hash(&self.clip_paths);
     }
 
     /// Sets the scale factor used when computing cache keys (e.g. for HiDPI).
@@ -837,12 +854,10 @@ impl<'list> RecordingContext<'list> {
 
     fn add_command(&mut self, command: DrawCommand) {
         let mut cache_key = self.compute_cache_key(&command);
-        if let Some(paths) = &self.current_clip_paths {
+        if self.current_clip_paths.is_some() {
             let mut hasher = DefaultHasher::new();
             cache_key.0.hash(&mut hasher);
-            for path in paths.iter() {
-                hash_path(path, &mut hasher);
-            }
+            self.current_clip_paths_hash.hash(&mut hasher);
             cache_key = CacheKey(hasher.finish());
         }
         let bounds = self.compute_bounds(&command);
@@ -1173,7 +1188,7 @@ impl DrawingContext for RecordingContext<'_> {
                     (b.y + b.height).ceil() - y,
                 );
                 self.clip_paths.push(physical);
-                self.current_clip_paths = Some(Arc::from(self.clip_paths.as_slice()));
+                self.sync_clip_paths();
                 rect
             }
             None => {
@@ -1406,5 +1421,108 @@ mod tests {
         }
         let items = list.items();
         assert_ne!(items[0].cache_key, items[1].cache_key);
+    }
+
+    fn clipped_keys(clip: &Path, rects: usize) -> Vec<CacheKey> {
+        let mut list = DisplayList::new();
+        {
+            let mut ctx = ctx_with(&mut list, 1.0);
+            ctx.set_path_clips(true);
+            ctx.clip_path(clip).expect("clip_path");
+            for _ in 0..rects {
+                ctx.draw_rect(Rect::new(10.0, 10.0, 5.0, 5.0), &Paint::default())
+                    .expect("draw_rect");
+            }
+        }
+        list.items().iter().map(|item| item.cache_key).collect()
+    }
+
+    #[test]
+    fn items_under_one_clip_share_keys_across_recordings() {
+        let clip = polygon_clip(12, 50.0, 50.0, 40.0);
+        let first = clipped_keys(&clip, 2);
+        assert_eq!(first[0], first[1], "same pixels under the same clip");
+        assert_eq!(first, clipped_keys(&clip, 2));
+    }
+
+    #[test]
+    fn different_clip_paths_change_cache_keys() {
+        let a = polygon_clip(12, 50.0, 50.0, 40.0);
+        let b = polygon_clip(12, 51.0, 50.0, 40.0);
+        assert_ne!(clipped_keys(&a, 1)[0], clipped_keys(&b, 1)[0]);
+        let mut list = DisplayList::new();
+        {
+            let mut ctx = ctx_with(&mut list, 1.0);
+            ctx.draw_rect(Rect::new(10.0, 10.0, 5.0, 5.0), &Paint::default())
+                .expect("draw_rect");
+        }
+        assert_ne!(clipped_keys(&a, 1)[0], list.items()[0].cache_key);
+    }
+
+    #[test]
+    fn restoring_past_a_clip_path_restores_unclipped_keys() {
+        let clip = polygon_clip(12, 50.0, 50.0, 40.0);
+        let rect = Rect::new(10.0, 10.0, 5.0, 5.0);
+        let mut list = DisplayList::new();
+        {
+            let mut ctx = ctx_with(&mut list, 1.0);
+            ctx.set_path_clips(true);
+            ctx.save().expect("save");
+            ctx.clip_path(&clip).expect("clip_path");
+            ctx.draw_rect(rect, &Paint::default()).expect("draw_rect");
+            ctx.restore().expect("restore");
+            ctx.draw_rect(rect, &Paint::default()).expect("draw_rect");
+        }
+        let mut plain = DisplayList::new();
+        {
+            let mut ctx = ctx_with(&mut plain, 1.0);
+            ctx.draw_rect(rect, &Paint::default()).expect("draw_rect");
+        }
+        let items = list.items();
+        assert_ne!(items[0].cache_key, plain.items()[0].cache_key);
+        assert_eq!(items[1].cache_key, plain.items()[0].cache_key);
+    }
+
+    fn polygon_clip(points: usize, cx: f32, cy: f32, radius: f32) -> Path {
+        use std::f32::consts::TAU;
+
+        let mut path = Path::new();
+        for i in 0..points {
+            let angle = i as f32 / points as f32 * TAU;
+            let p = Point::new(cx + radius * angle.cos(), cy + radius * angle.sin());
+            path.commands.push(if i == 0 {
+                PathCommand::MoveTo(p)
+            } else {
+                PathCommand::LineTo(p)
+            });
+        }
+        path.commands.push(PathCommand::Close);
+        path
+    }
+
+    #[test]
+    #[ignore]
+    fn clipped_recording_frame_time() {
+        use std::time::Instant;
+
+        let clip = polygon_clip(64, 50.0, 50.0, 40.0);
+        let paint = Paint::default();
+        let frames = 50u32;
+        let start = Instant::now();
+        for _ in 0..frames {
+            let mut list = DisplayList::new();
+            {
+                let mut ctx = RecordingContext::new(&mut list, 100, 100);
+                ctx.set_path_clips(true);
+                ctx.clip_path(&clip).expect("clip_path");
+                for i in 0..2000 {
+                    let rect = Rect::new((i % 50) as f32, (i / 50) as f32, 4.0, 4.0);
+                    ctx.draw_rect(rect, &paint).expect("draw_rect");
+                }
+            }
+            assert_eq!(list.items().len(), 2000);
+        }
+        let ms = start.elapsed().as_secs_f64() * 1000.0 / f64::from(frames);
+        println!("clipped recording: {ms:.3} ms/frame");
     }
 }
