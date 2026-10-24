@@ -172,6 +172,11 @@ NGHandle ng_platform_canvas_get_window(NGHandle _canvas) {
     return NULL;
 }
 
+void ng_platform_canvas_set_gpu_owned(NGHandle canvas, int gpu_owned) {
+    (void)canvas;
+    (void)gpu_owned;
+}
+
 NGHandle ng_platform_canvas_get_native_handle(NGHandle _canvas) {
     (void)_canvas;
     return NULL;
@@ -265,6 +270,7 @@ int ng_platform_set_window_content(NGHandle window, NGHandle content) {
 }
 
 NGHandle ng_platform_create_button(const char* title, unsigned int id) {
+    (void)id;
     return ng_android_create_button(title);
 }
 
