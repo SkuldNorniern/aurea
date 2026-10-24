@@ -199,6 +199,7 @@ pub(crate) fn native_handle_from_canvas_ptr(canvas: *mut c_void) -> Option<Nativ
         Some(NativeWindowHandle::IOS { ui_view: canvas })
     }
     #[cfg(target_os = "android")]
+    #[allow(clippy::needless_return)]
     {
         if canvas.is_null() {
             return None;

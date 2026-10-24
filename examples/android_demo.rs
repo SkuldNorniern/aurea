@@ -2,11 +2,11 @@
 
 #[cfg(target_os = "android")]
 mod app {
-    use aurea::android::{set_app, set_theme};
+    use std::ffi::c_int;
+
+    use aurea::android::{run, set_theme};
     use aurea::ui::{Align, Button, Checkbox, ProgressBar, Segmented, Slider, Theme, Toggle, Ui};
     use aurea::{AureaResult, Rect};
-    use jni::JNIEnv;
-    use jni::objects::JObject;
 
     const ADD: u64 = 1;
     const RESET: u64 = 2;
@@ -80,18 +80,17 @@ mod app {
         Ok(())
     }
 
+    /// The app's entry; `AureaActivity` calls it once.
     #[unsafe(no_mangle)]
-    pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeCreateApp(
-        _env: JNIEnv,
-        _thiz: JObject,
-    ) {
+    pub extern "C" fn aurea_main() -> c_int {
         let mut state = State {
             level: 0.6,
             look: 1,
             ..State::default()
         };
-        set_app(Theme::dark(), move |ui, width, _height| {
+        run(Theme::dark(), move |ui, width, _height| {
             panel(ui, &mut state, width)
         });
+        0
     }
 }

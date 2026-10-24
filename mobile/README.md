@@ -5,7 +5,7 @@ as the whole app. Both need the `mobile` feature, which the projects turn on.
 
 | | Project | App code | Entry point |
 | --- | --- | --- | --- |
-| Android | [`android/`](android/) (Gradle) | [`examples/android_demo.rs`](../examples/android_demo.rs) | JNI functions the Activity calls |
+| Android | [`android/`](android/) (Gradle) | [`examples/android_demo.rs`](../examples/android_demo.rs) | `aurea_main`, called by `AureaActivity` |
 | iOS and iPadOS | [`ios/`](ios/) (Xcode) | [`examples/ios_demo.rs`](../examples/ios_demo.rs) | `aurea_main`, called by `main.m` |
 
 ## Android
@@ -15,8 +15,13 @@ Needs the Android SDK with the NDK version `app/build.gradle.kts` pins, and the 
 
 ```bash
 cd mobile/android
-./gradlew installDebug
+./gradlew installDebug                    # CPU drawing
+./gradlew installDebug -Paurea.gpu=true   # GPU through ZenGPU's Vulkan, the CPU if it cannot start
 ```
+
+The `aurea` module holds `dev.aurea.AureaActivity`, the Activity an app runs in. An app's own
+Activity subclasses it and names its native library; the library defines `aurea_main`, which calls
+`aurea::android::run`.
 
 ## iOS and iPadOS
 

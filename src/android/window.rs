@@ -61,6 +61,12 @@ impl NativeWindow {
         (set == 0).then_some(window)
     }
 
+    /// The `ANativeWindow`, held while this lives.
+    #[cfg(feature = "zengpu")]
+    pub(super) fn raw(&self) -> *mut c_void {
+        self.0.as_ptr()
+    }
+
     /// Copies `damage` of the frame, or all of it, into the next buffer and posts it. Android
     /// keeps the rest from the last buffer, and may widen the region to what that needs.
     pub(super) fn post(

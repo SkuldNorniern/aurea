@@ -1,29 +1,109 @@
-//! Android: JNI glue for the host Activity, and the app's UI on its `SurfaceView`.
+//! Android: the app's UI filling an `AureaActivity`, drawn on the GPU with the `zengpu` feature
+//! and on the CPU otherwise, or when the GPU cannot start. Fingers come in as the mouse, two-finger
+//! scrolls and pinches as the wheel and [`WindowEvent::Magnify`], a pen also as
+//! [`WindowEvent::Pen`] with its pressure and lean; see `crate::touch`.
+//!
+//! The Java side is `dev.aurea.AureaActivity`, in the `aurea` Gradle module next to the sample in
+//! `mobile/android/`. An app subclasses it, names its native library, and defines `aurea_main`,
+//! which calls [`run`]:
+//!
+//! ```rust,ignore
+//! #[unsafe(no_mangle)]
+//! pub extern "C" fn aurea_main() -> std::ffi::c_int {
+//!     aurea::android::run(Theme::dark(), |ui, width, height| draw(ui, width, height));
+//!     0
+//! }
+//! ```
 
 mod host;
 mod logcat;
 mod window;
 
-use std::os::raw::c_void;
+use std::ffi::{c_int, c_void};
+#[cfg(feature = "zengpu")]
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::atomic::Ordering;
 
 use aurea_ffi::{
     ng_android_on_destroy, ng_android_on_pause, ng_android_on_resume, ng_android_on_surface_lost,
     ng_android_on_surface_recreated, ng_android_set_activity,
 };
-use jni::JNIEnv;
-use jni::objects::JObject;
-use jni::sys::{JNI_FALSE, JNI_TRUE, JNI_VERSION_1_6, JavaVM, jboolean, jfloat, jint};
+use jni::objects::{GlobalRef, JClass, JObject};
+use jni::sys::{JNI_FALSE, JNI_TRUE, JNI_VERSION_1_6, jboolean, jdouble, jfloat, jint};
+use jni::{JNIEnv, JavaVM};
 
-use crate::AureaResult;
 use crate::ui::{Theme, Ui};
+use crate::{AureaResult, WindowEvent};
+#[cfg(feature = "zengpu")]
+use aurea_render::ZenGpuContext;
 
-/// Shows `app` in the host Activity: it draws the UI each frame, given the view's logical width and
-/// height.
-pub fn set_app(
-    theme: Theme,
-    app: impl FnMut(&mut Ui<'_, u64>, f32, f32) -> AureaResult<()> + 'static,
-) {
+unsafe extern "C" {
+    /// The app's entry: it calls [`run`]. `AureaActivity` calls it once, when it is first made.
+    fn aurea_main() -> c_int;
+}
+
+/// The Activity, for asking it for frames from any thread.
+static ACTIVITY: Mutex<Option<(JavaVM, GlobalRef)>> = Mutex::new(None);
+
+/// Runs `app` as the app's UI: it draws the UI each frame, given the safe area's logical width and
+/// height. Call it from `aurea_main`; it returns, and the Activity drives frames from then on.
+pub fn run(theme: Theme, app: impl FnMut(&mut Ui<'_, u64>, f32, f32) -> AureaResult<()> + 'static) {
     host::set_app(Box::new(app), theme);
+}
+
+/// Calls `listener` with each finger, as mouse events, and each pen reading, as
+/// [`WindowEvent::Pen`] with pressure and tilt, the way a desktop window reports a pen. It also
+/// hears the app's lifecycle: focus, [`WindowEvent::Minimized`] on going to the background (save
+/// there; Android may stop the app after), and [`WindowEvent::MemoryWarning`].
+pub fn on_event(listener: impl FnMut(&WindowEvent) + 'static) {
+    host::set_listener(Box::new(listener));
+}
+
+/// Asks for a frame from any thread, such as when background work finishes. The UI's own
+/// animations and input already draw frames; this is for what they cannot see.
+pub fn request_frame() {
+    let Ok(activity) = ACTIVITY.lock() else {
+        return;
+    };
+    let Some((vm, activity)) = activity.as_ref() else {
+        return;
+    };
+    let Ok(mut env) = vm.attach_current_thread_permanently() else {
+        return;
+    };
+    if env
+        .call_method(activity, "requestFrameFromNative", "()V", &[])
+        .is_err()
+    {
+        let _ = env.exception_clear();
+    }
+}
+
+/// The screen's pixels per logical pixel: about 2.6 on a typical phone, 1 before the first surface.
+pub fn scale() -> f32 {
+    host::scale()
+}
+
+/// The safe area's insets, left, top, right and bottom, in logical pixels. The app draws only
+/// inside them: the UI's origin is the safe area's top left, and the theme's background fills the
+/// rest of the screen.
+pub fn safe_area() -> [f32; 4] {
+    host::safe_area()
+}
+
+/// Whether to draw on the GPU, through ZenGPU's Vulkan backend; call before [`run`]. On by default
+/// with the `zengpu` feature, which it needs; the CPU draws when it is off, or when the GPU cannot
+/// start.
+pub fn use_gpu(on: bool) {
+    host::GPU_WANTED.store(on, Ordering::Relaxed);
+}
+
+/// The GPU the host draws with, once it has a surface on it, for the app's own textures and
+/// renderers to share.
+#[cfg(feature = "zengpu")]
+pub fn gpu_context() -> Option<Arc<ZenGpuContext>> {
+    host::gpu_context()
 }
 
 /// Switches the theme from the next frame.
@@ -32,16 +112,15 @@ pub fn set_theme(theme: Theme) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn JNI_OnLoad(_vm: JavaVM, _reserved: *mut c_void) -> jint {
+pub extern "system" fn JNI_OnLoad(_vm: *mut c_void, _reserved: *mut c_void) -> jint {
     logcat::install();
-    log::info!("Aurea JNI_OnLoad");
     JNI_VERSION_1_6
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeInit(
+pub extern "system" fn Java_dev_aurea_AureaActivity_nativeCreate(
     env: JNIEnv,
-    _thiz: JObject,
+    _class: JClass,
     activity: JObject,
 ) {
     if activity.is_null() {
@@ -51,66 +130,40 @@ pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeInit(
         return;
     };
     let java_vm = vm.get_java_vm_pointer().cast::<c_void>();
-    let activity = activity.as_raw().cast::<c_void>();
-    unsafe {
-        ng_android_set_activity(java_vm, activity);
+    unsafe { ng_android_set_activity(java_vm, activity.as_raw().cast::<c_void>()) };
+    let first = match (ACTIVITY.lock(), env.new_global_ref(&activity)) {
+        (Ok(mut slot), Ok(global)) => slot.replace((vm, global)).is_none(),
+        _ => false,
+    };
+    // the Activity is made again on rotation; the app keeps running.
+    if first {
+        unsafe { aurea_main() };
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeOnPause(
+pub extern "system" fn Java_dev_aurea_AureaActivity_nativeDestroy(_env: JNIEnv, _class: JClass) {
+    unsafe { ng_android_on_destroy() };
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_aurea_AureaActivity_nativeLifecycle(
     _env: JNIEnv,
-    _thiz: JObject,
+    _class: JClass,
+    state: jint,
 ) {
-    unsafe {
-        ng_android_on_pause();
+    match state {
+        0 => unsafe { ng_android_on_resume() },
+        1 => unsafe { ng_android_on_pause() },
+        _ => {}
     }
+    host::lifecycle(state);
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeOnResume(
-    _env: JNIEnv,
-    _thiz: JObject,
-) {
-    unsafe {
-        ng_android_on_resume();
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeOnDestroy(
-    _env: JNIEnv,
-    _thiz: JObject,
-) {
-    unsafe {
-        ng_android_on_destroy();
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeOnSurfaceLost(
-    _env: JNIEnv,
-    _thiz: JObject,
-) {
-    unsafe {
-        ng_android_on_surface_lost();
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeOnSurfaceRecreated(
-    _env: JNIEnv,
-    _thiz: JObject,
-) {
-    unsafe {
-        ng_android_on_surface_recreated();
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeSurfaceChanged(
+pub extern "system" fn Java_dev_aurea_AureaActivity_nativeSurfaceChanged(
     env: JNIEnv,
-    _thiz: JObject,
+    _class: JClass,
     surface: JObject,
     width: jint,
     height: jint,
@@ -119,32 +172,51 @@ pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeSurfaceChanged(
     let (Ok(width), Ok(height)) = (u32::try_from(width), u32::try_from(height)) else {
         return;
     };
+    unsafe { ng_android_on_surface_recreated() };
     host::surface_changed(&env, &surface, width, height, density);
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeSurfaceDestroyed(
+pub extern "system" fn Java_dev_aurea_AureaActivity_nativeSurfaceDestroyed(
     _env: JNIEnv,
-    _thiz: JObject,
+    _class: JClass,
 ) {
     host::surface_destroyed();
+    unsafe { ng_android_on_surface_lost() };
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeTouch(
+#[allow(clippy::too_many_arguments)]
+pub extern "system" fn Java_dev_aurea_AureaActivity_nativePointer(
     _env: JNIEnv,
-    _thiz: JObject,
-    action: jint,
+    _class: JClass,
+    phase: jint,
+    id: jint,
+    tool: jint,
     x: jfloat,
     y: jfloat,
+    pressure: jfloat,
+    tilt: jfloat,
+    orientation: jfloat,
+    barrel: jboolean,
+    age: jdouble,
 ) {
-    host::touch(action, x, y);
+    host::pointer(
+        phase,
+        id,
+        tool,
+        (x, y),
+        pressure,
+        (tilt, orientation),
+        barrel != JNI_FALSE,
+        age,
+    );
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeInsets(
+pub extern "system" fn Java_dev_aurea_AureaActivity_nativeInsets(
     _env: JNIEnv,
-    _thiz: JObject,
+    _class: JClass,
     left: jfloat,
     top: jfloat,
     right: jfloat,
@@ -154,9 +226,9 @@ pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeInsets(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeLightTheme(
+pub extern "system" fn Java_dev_aurea_AureaActivity_nativeLightTheme(
     _env: JNIEnv,
-    _thiz: JObject,
+    _class: JClass,
 ) -> jboolean {
     if host::light_theme() {
         JNI_TRUE
@@ -165,11 +237,10 @@ pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeLightTheme(
     }
 }
 
-/// Draws a frame; true when the UI wants another.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeFrame(
+pub extern "system" fn Java_dev_aurea_AureaActivity_nativeFrame(
     _env: JNIEnv,
-    _thiz: JObject,
+    _class: JClass,
 ) -> jboolean {
     if host::frame() { JNI_TRUE } else { JNI_FALSE }
 }
