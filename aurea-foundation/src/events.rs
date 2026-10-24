@@ -150,7 +150,10 @@ pub enum WindowEvent {
         /// Cursor position within `text`, if shown.
         cursor: Option<usize>,
     },
-    /// A pen on or over a tablet or a pen display.
+    /// A pen on or over a tablet or a pen display. Every host also sends the pen's contact as
+    /// mouse events, and those are what widgets react to; this carries what a drawing needs on top
+    /// (pressure, tilt, every sample between frames), so a `UiState` fed only `Pen` events never
+    /// hovers or presses anything.
     Pen(PenSample),
     /// A pinch: the content should grow by `factor` about (`x`, `y`), in logical pixels. Two
     /// fingers moving together come as [`WindowEvent::MouseWheel`] instead.
