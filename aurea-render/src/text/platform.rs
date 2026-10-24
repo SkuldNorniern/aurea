@@ -5,12 +5,13 @@ use crate::numeric::{f32_to_i32_clamped, f32_to_u32_clamped};
 use crate::text::glyph::{FaceData, FaceId, GlyphCoverage};
 use crate::text::layout::{LayoutOptions, TextLayout, layout_text};
 use crate::text::outline::glyph_outline;
-use crate::text::shape::{ShapedText, shape_line};
-use crate::text::{LruCache, MASK_BYTES};
+use crate::text::shape::{ShapedGlyph, ShapedText, shape_line};
+use crate::text::{LruCache, MASK_BYTES, SHAPED_BYTES};
 use crate::types::{
     Font, FontFeature, FontStyle, FontVariation, FontWeight, GlyphMask, TextMetrics,
 };
 use aurea_foundation::{AureaResult, lock};
+use std::mem::size_of;
 use std::sync::{Arc, Mutex};
 
 /// Borrowed font reference for the text-rendering hot path.
@@ -213,7 +214,7 @@ impl TextRenderer {
     pub(crate) fn with_rasterizer(rasterizer: Box<dyn PlatformTextRasterizer>) -> Self {
         Self {
             rasterizer,
-            shaped: Mutex::new(LruCache::new(512)),
+            shaped: Mutex::new(LruCache::with_budget(512, SHAPED_BYTES)),
             masks: Mutex::new(LruCache::with_budget(512, MASK_BYTES)),
         }
     }
@@ -237,7 +238,8 @@ impl TextRenderer {
             return Ok(hit);
         }
         let shaped = Arc::new(shape_line(text, font, rtl, self.rasterizer.as_ref())?);
-        lock(&self.shaped).insert(key, shaped.clone());
+        let bytes = shaped.glyphs.len() * size_of::<ShapedGlyph>();
+        lock(&self.shaped).insert_sized(key, shaped.clone(), bytes);
         Ok(shaped)
     }
 
@@ -509,5 +511,14 @@ mod tests {
             .glyph_outline(shaped.glyphs[1].face, shaped.glyphs[1].id, 24.0)
             .expect("face");
         assert!(space.is_none());
+    }
+
+    #[test]
+    fn shaped_runs_count_their_glyph_bytes() {
+        let r = TextRenderer::new();
+        let f = font("");
+        let shaped = r.shape("Hello", (&f).into()).expect("shape");
+        let bytes = lock(&r.shaped).bytes();
+        assert_eq!(bytes, shaped.glyphs.len() * size_of::<ShapedGlyph>());
     }
 }
