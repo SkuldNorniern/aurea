@@ -36,6 +36,21 @@ use crate::types::{
 };
 use aurea_foundation::{AureaError, AureaResult};
 
+/// Start and multiplier of the per-tile fold of item hashes in draw order.
+const TILE_HASH_SEED: u64 = 0x9E37_79B9_7F4A_7C15;
+const TILE_HASH_MUL: u64 = 0xBF58_476D_1CE4_E5B9;
+
+/// An item's cache key and bounds as one hash, for the tile fold.
+fn item_hash(item: &DisplayItem) -> u64 {
+    let mut h = DefaultHasher::new();
+    item.cache_key.0.hash(&mut h);
+    let b = item.bounds;
+    for v in [b.x, b.y, b.width, b.height] {
+        v.to_bits().hash(&mut h);
+    }
+    h.finish()
+}
+
 /// CPU software rasterizer drawing into a frame buffer.
 pub struct CpuRasterizer {
     frame_buffer: Vec<u32>,
@@ -51,7 +66,7 @@ pub struct CpuRasterizer {
     scratch_path: PathScratch,
     scratch_row: ImageScratch,
     scratch_dirty: Vec<bool>,
-    scratch_hashers: Vec<DefaultHasher>,
+    scratch_hashers: Vec<u64>,
     scratch_covered: Vec<bool>,
     scratch_occluded: Vec<bool>,
     scratch_under_clear: Vec<bool>,
@@ -1543,43 +1558,51 @@ impl CpuRasterizer {
         }
     }
 
+    /// What changed since the last frame. Items the two lists share at the start and the end are
+    /// matched by cache key, so drawing a different number of items in the middle (a tile pyramid
+    /// changing level) damages only the middle, not everything after it.
     fn diff_damage(&self) -> FrameDamage {
         let new_items = self.display_list.items();
         let old_items = &self.prev_items;
-        let max_len = new_items.len().max(old_items.len());
+        let same = |n: &DisplayItem, o: &(CacheKey, Rect)| n.cache_key == o.0;
+        let prefix = new_items
+            .iter()
+            .zip(old_items)
+            .take_while(|(n, o)| same(n, o))
+            .count();
+        let suffix = new_items[prefix..]
+            .iter()
+            .rev()
+            .zip(old_items[prefix..].iter().rev())
+            .take_while(|(n, o)| same(n, o))
+            .count();
+        let new_mid = &new_items[prefix..new_items.len() - suffix];
+        let old_mid = &old_items[prefix..old_items.len() - suffix];
+
         let mut acc: Option<Rect> = None;
-
-        for i in 0..max_len {
-            let new = new_items.get(i).map(|item| (item.cache_key, item.bounds));
-            let old = old_items.get(i).copied();
-
-            let contribution = match (new, old) {
-                (Some((nk, nb)), Some((ok, ob))) if nk != ok => {
-                    if !is_known_bounds(nb) || !is_known_bounds(ob) {
-                        return FrameDamage::Full;
-                    }
-                    Some(union_rect(nb, ob))
+        let mut add = |r: Rect| -> bool {
+            if !is_known_bounds(r) {
+                return false;
+            }
+            acc = Some(acc.map_or(r, |a| union_rect(a, r)));
+            true
+        };
+        if new_mid.len() == old_mid.len() {
+            for (n, o) in new_mid.iter().zip(old_mid) {
+                if !same(n, o) && !(add(n.bounds) && add(o.1)) {
+                    return FrameDamage::Full;
                 }
-                (Some((_, nb)), None) => {
-                    if !is_known_bounds(nb) {
-                        return FrameDamage::Full;
-                    }
-                    Some(nb)
+            }
+        } else {
+            let bounds = new_mid
+                .iter()
+                .map(|n| n.bounds)
+                .chain(old_mid.iter().map(|o| o.1));
+            for r in bounds {
+                if !add(r) {
+                    return FrameDamage::Full;
                 }
-                (None, Some((_, ob))) => {
-                    if !is_known_bounds(ob) {
-                        return FrameDamage::Full;
-                    }
-                    Some(ob)
-                }
-                _ => None,
-            };
-
-            acc = match (acc, contribution) {
-                (Some(a), Some(b)) => Some(union_rect(a, b)),
-                (None, Some(b)) => Some(b),
-                (acc, None) => acc,
-            };
+            }
         }
 
         match acc {
@@ -1629,9 +1652,9 @@ impl CpuRasterizer {
             return;
         }
         let range_w = (tx1 - tx0) as usize;
-        let mut hashers = mem::take(&mut self.scratch_hashers);
-        hashers.clear();
-        hashers.resize(range_w * (ty1 - ty0) as usize, DefaultHasher::new());
+        let mut tiles = mem::take(&mut self.scratch_hashers);
+        tiles.clear();
+        tiles.resize(range_w * (ty1 - ty0) as usize, TILE_HASH_SEED);
 
         for item in self.display_list.items() {
             if !is_known_bounds(item.bounds) {
@@ -1642,22 +1665,22 @@ impl CpuRasterizer {
             let hi_x = itx1.min(tx1);
             let lo_y = ity0.max(ty0);
             let hi_y = ity1.min(ty1);
+            if lo_x >= hi_x || lo_y >= hi_y {
+                continue;
+            }
+            // Hashed once, then folded into each tile it covers, in draw order.
+            let item_hash = item_hash(item);
             for ty in lo_y..hi_y {
-                for tx in lo_x..hi_x {
-                    let h = &mut hashers[(ty - ty0) as usize * range_w + (tx - tx0) as usize];
-                    item.cache_key.0.hash(h);
-                    item.bounds.x.to_bits().hash(h);
-                    item.bounds.y.to_bits().hash(h);
-                    item.bounds.width.to_bits().hash(h);
-                    item.bounds.height.to_bits().hash(h);
+                let row = (ty - ty0) as usize * range_w;
+                for tile in &mut tiles[row + (lo_x - tx0) as usize..row + (hi_x - tx0) as usize] {
+                    *tile = (tile.rotate_left(23) ^ item_hash).wrapping_mul(TILE_HASH_MUL);
                 }
             }
         }
 
         for ty in ty0..ty1 {
             for tx in tx0..tx1 {
-                let new_hash =
-                    hashers[(ty - ty0) as usize * range_w + (tx - tx0) as usize].finish();
+                let new_hash = tiles[(ty - ty0) as usize * range_w + (tx - tx0) as usize];
                 let idx = (ty * tiles_x + tx) as usize;
                 if new_hash != self.tile_hashes[idx] {
                     dirty[idx] = true;
@@ -1665,7 +1688,7 @@ impl CpuRasterizer {
                 self.tile_hashes[idx] = new_hash;
             }
         }
-        self.scratch_hashers = hashers;
+        self.scratch_hashers = tiles;
     }
 
     fn capture_prev_items(&mut self) {
@@ -2635,6 +2658,26 @@ mod diff_damage_tests {
         r.prev_items.push((CacheKey::from_hash(1), bounds));
 
         assert!(matches!(r.diff_damage(), FrameDamage::Unchanged));
+    }
+
+    #[test]
+    fn a_middle_that_changes_length_damages_only_the_middle() {
+        let mut r = CpuRasterizer::new(100, 100);
+        let rect = |x: f32| Rect::new(x, 0.0, 10.0, 10.0);
+        for (key, x) in [(1, 0.0), (2, 20.0), (3, 40.0), (9, 80.0)] {
+            r.prev_items.push((CacheKey::from_hash(key), rect(x)));
+        }
+        for (key, x) in [(1, 0.0), (4, 30.0), (9, 80.0)] {
+            r.display_list.push(item(key, rect(x)));
+        }
+        let FrameDamage::Region(damage) = r.diff_damage() else {
+            panic!("expected a region");
+        };
+        assert_eq!(
+            damage,
+            Rect::new(20.0, 0.0, 30.0, 10.0),
+            "the panel after stays clean"
+        );
     }
 
     #[test]
