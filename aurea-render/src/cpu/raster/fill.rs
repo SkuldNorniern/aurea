@@ -129,30 +129,89 @@ fn rule_coverage(sum: f32, rule: FillRule) -> f32 {
     }
 }
 
-fn composite_row(area: &[f32], row: &mut [u32], rule: FillRule, color: Color, mode: BlendMode) {
-    let opaque = (u32::from(color.a) << 24)
-        | (u32::from(color.r) << 16)
-        | (u32::from(color.g) << 8)
-        | u32::from(color.b);
-    let solid = mode == BlendMode::Normal && color.a == 255;
-    let source = ConstSrc::new(opaque);
-    let mut sum = 0.0;
-    for (c, px) in area.iter().zip(row.iter_mut()) {
-        sum += c;
-        let cov = rule_coverage(sum, rule);
-        if cov < NO_COVERAGE {
-            continue;
+/// Runs shorter than this are shaded one pixel at a time.
+const SHORT_RUN: usize = 8;
+
+/// One colour and blend mode, prepared for compositing rows.
+struct Paint {
+    source: ConstSrc,
+    opaque: u32,
+    alpha: f32,
+    solid: bool,
+    mode: BlendMode,
+}
+
+impl Paint {
+    fn new(color: Color, mode: BlendMode) -> Self {
+        let opaque = (u32::from(color.a) << 24)
+            | (u32::from(color.r) << 16)
+            | (u32::from(color.g) << 8)
+            | u32::from(color.b);
+        Self {
+            source: ConstSrc::new(opaque),
+            opaque,
+            alpha: f32::from(color.a),
+            solid: mode == BlendMode::Normal && color.a == 255,
+            mode,
         }
-        if solid && cov >= 0.999 {
-            *px = opaque;
-            continue;
+    }
+
+    fn alpha_at(&self, cov: f32) -> u32 {
+        f32_to_u32_clamped((self.alpha * cov).round())
+    }
+
+    /// One pixel at coverage `cov` (at least [`NO_COVERAGE`]).
+    fn pixel(&self, dst: u32, cov: f32) -> u32 {
+        if self.solid && cov >= 0.999 {
+            return self.opaque;
         }
-        let a = f32_to_u32_clamped((f32::from(color.a) * cov).round());
-        *px = if mode == BlendMode::Normal {
-            source.over_at_alpha(*px, a)
+        let a = self.alpha_at(cov);
+        if self.mode == BlendMode::Normal {
+            self.source.over_at_alpha(dst, a)
         } else {
-            blend_pixel((a << 24) | (opaque & 0x00FF_FFFF), *px, mode)
-        };
+            blend_pixel((a << 24) | (self.opaque & 0x00FF_FFFF), dst, self.mode)
+        }
+    }
+
+    /// A run of pixels that all share coverage `cov` (at least [`NO_COVERAGE`]).
+    fn run(&self, px: &mut [u32], cov: f32) {
+        if self.solid && cov >= 0.999 {
+            px.fill(self.opaque);
+            return;
+        }
+        let a = self.alpha_at(cov);
+        if self.mode == BlendMode::Normal {
+            self.source.over_span_at_alpha(px, a);
+        } else {
+            let src = (a << 24) | (self.opaque & 0x00FF_FFFF);
+            for p in px {
+                *p = blend_pixel(src, *p, self.mode);
+            }
+        }
+    }
+}
+
+fn composite_row(area: &[f32], row: &mut [u32], rule: FillRule, color: Color, mode: BlendMode) {
+    let paint = Paint::new(color, mode);
+    let n = area.len().min(row.len());
+    let (area, row) = (&area[..n], &mut row[..n]);
+    let mut sum = 0.0;
+    let mut i = 0;
+    while i < n {
+        sum += area[i];
+        // A zero adds nothing to `sum`, so the run `i..end` shares one coverage value.
+        let end = i + 1 + area[i + 1..].iter().take_while(|&&c| c == 0.0).count();
+        let cov = rule_coverage(sum, rule);
+        if cov >= NO_COVERAGE {
+            if end - i < SHORT_RUN {
+                for px in &mut row[i..end] {
+                    *px = paint.pixel(*px, cov);
+                }
+            } else {
+                paint.run(&mut row[i..end], cov);
+            }
+        }
+        i = end;
     }
 }
 
@@ -314,64 +373,88 @@ mod tests {
         }
     }
 
+    fn star_points(cx: f32, cy: f32, points: usize, outer: f32, inner: f32) -> Vec<(f32, f32)> {
+        (0..points * 2)
+            .map(|i| {
+                let t = i as f32 / (points * 2) as f32 * TAU - FRAC_PI_2;
+                let r = if i % 2 == 0 { outer } else { inner };
+                (cx + r * t.cos(), cy + r * t.sin())
+            })
+            .collect()
+    }
+
+    fn circle_points(cx: f32, cy: f32, r: f32, n: usize, clockwise: bool) -> Vec<(f32, f32)> {
+        let mut pts: Vec<(f32, f32)> = (0..n)
+            .map(|i| {
+                let t = i as f32 / n as f32 * TAU;
+                (cx + r * t.cos(), cy + r * t.sin())
+            })
+            .collect();
+        if !clockwise {
+            pts.reverse();
+        }
+        pts
+    }
+
     #[test]
     fn composite_matches_per_pixel_blend() {
-        let (w, h) = (48u32, 40u32);
-        let backdrop: Vec<u32> = (0..w * h)
-            .map(|i| {
-                let v = i.wrapping_mul(2_654_435_761);
-                ((v >> 24) << 24) | (v & 0x00ff_ffff)
-            })
-            .collect();
-        let circle: Vec<(f32, f32)> = (0..64)
-            .map(|i| {
-                let t = i as f32 / 64.0 * TAU;
-                (24.3 + 15.2 * t.cos(), 20.1 + 15.2 * t.sin())
-            })
-            .collect();
-        let star: Vec<(f32, f32)> = (0..10)
-            .map(|i| {
-                let t = i as f32 / 10.0 * TAU - FRAC_PI_2;
-                let r = if i % 2 == 0 { 18.0 } else { 8.0 };
-                (24.0 + r * t.cos(), 20.0 + r * t.sin())
-            })
-            .collect();
-        let mut star_path = polygon(&star);
-        star_path.fill_rule = FillRule::EvenOdd;
-        let paths = [
-            polygon(&[(3.3, 4.1), (41.7, 9.6), (17.2, 36.4)]),
-            star_path,
-            polygon(&circle),
-        ];
         let colors = [
             Color::rgba(200, 80, 40, 160),
             Color::rgba(20, 140, 230, 255),
             Color::rgba(255, 255, 0, 7),
         ];
-        for path in &paths {
-            for color in colors {
-                for mode in [BlendMode::Normal, BlendMode::Multiply] {
-                    let mut actual = backdrop.clone();
-                    fill_path(
-                        path,
-                        color,
-                        mode,
-                        &mut actual,
-                        w,
-                        ClipBox::surface(w, h),
-                        &mut PathScratch::default(),
-                    );
-                    let mut expected = backdrop.clone();
-                    fill_path_with(
-                        path,
-                        &mut expected,
-                        w,
-                        ClipBox::surface(w, h),
-                        &mut PathScratch::default(),
-                        reference_composite(color, mode),
-                    );
-                    assert_ne!(actual, backdrop, "{color:?} {mode:?} painted nothing");
-                    assert_eq!(actual, expected, "{color:?} {mode:?}");
+        let mut small_star = polygon(&star_points(24.0, 20.0, 5, 18.0, 8.0));
+        small_star.fill_rule = FillRule::EvenOdd;
+        let small = [
+            polygon(&[(3.3, 4.1), (41.7, 9.6), (17.2, 36.4)]),
+            small_star,
+            polygon(&circle_points(24.3, 20.1, 15.2, 64, true)),
+        ];
+
+        // Large shapes give long zero-area interiors, which the run fast path skips over.
+        let mut big_star = polygon(&star_points(240.0, 180.0, 13, 170.0, 60.0));
+        big_star.fill_rule = FillRule::EvenOdd;
+        let mut ring = polygon(&circle_points(240.0, 180.0, 165.0, 128, true));
+        ring.commands
+            .extend(polygon(&circle_points(240.0, 180.0, 90.0, 96, false)).commands);
+        let big = [big_star, ring];
+
+        let cases = [(48u32, 40u32, small.as_slice()), (480, 360, big.as_slice())];
+        for (w, h, paths) in cases {
+            let backdrop: Vec<u32> = (0..w * h)
+                .map(|i| {
+                    let v = i.wrapping_mul(2_654_435_761);
+                    ((v >> 24) << 24) | (v & 0x00ff_ffff)
+                })
+                .collect();
+            for path in paths {
+                for color in colors {
+                    for mode in [BlendMode::Normal, BlendMode::Multiply] {
+                        let mut actual = backdrop.clone();
+                        fill_path(
+                            path,
+                            color,
+                            mode,
+                            &mut actual,
+                            w,
+                            ClipBox::surface(w, h),
+                            &mut PathScratch::default(),
+                        );
+                        let mut expected = backdrop.clone();
+                        fill_path_with(
+                            path,
+                            &mut expected,
+                            w,
+                            ClipBox::surface(w, h),
+                            &mut PathScratch::default(),
+                            reference_composite(color, mode),
+                        );
+                        assert_ne!(
+                            actual, backdrop,
+                            "{w}x{h} {color:?} {mode:?} painted nothing"
+                        );
+                        assert_eq!(actual, expected, "{w}x{h} {color:?} {mode:?}");
+                    }
                 }
             }
         }
@@ -409,5 +492,47 @@ mod tests {
         }
         let ms = start.elapsed().as_secs_f64() * 1000.0 / f64::from(FILLS);
         eprintln!("fill {W}x{H}: {ms:.3} ms/fill");
+    }
+
+    #[test]
+    #[ignore = "manual timing: cargo test --release -p aurea-render --lib timing_large_polygon -- --include-ignored --nocapture"]
+    fn timing_large_polygon_fill() {
+        const W: u32 = 1500;
+        const H: u32 = 1000;
+        const FILLS: u32 = 20;
+        let mut points = Vec::new();
+        for i in 0..720 {
+            let t = i as f32 / 720.0 * TAU;
+            let r = if i % 2 == 0 { 480.0 } else { 360.0 };
+            points.push((750.0 + r * t.cos(), 500.0 + r * t.sin()));
+        }
+        let path = polygon(&points);
+        let backdrop: Vec<u32> = (0..W * H)
+            .map(|i| 0xff00_0000 | (i.wrapping_mul(2_654_435_761) & 0x00ff_ffff))
+            .collect();
+        for (label, color) in [
+            ("opaque", Color::rgb(20, 140, 230)),
+            ("translucent", Color::rgba(200, 80, 40, 160)),
+        ] {
+            let mut buf = backdrop.clone();
+            let mut s = PathScratch::default();
+            let mut best = f64::MAX;
+            for _ in 0..3 {
+                let start = Instant::now();
+                for _ in 0..FILLS {
+                    fill_path(
+                        &path,
+                        color,
+                        BlendMode::Normal,
+                        &mut buf,
+                        W,
+                        ClipBox::surface(W, H),
+                        &mut s,
+                    );
+                }
+                best = best.min(start.elapsed().as_secs_f64() * 1000.0 / f64::from(FILLS));
+            }
+            eprintln!("{label} fill {W}x{H}: {best:.3} ms/fill (best of 3)");
+        }
     }
 }
