@@ -18,6 +18,8 @@ typedef struct {
 } CanvasData;
 
 static const char* CANVAS_CLASS_NAME = "AureaCanvas";
+/* Registered wide so typed text stays UTF-16: an ANSI window gets WM_CHAR as code page bytes. */
+static const wchar_t* CANVAS_CLASS_NAME_W = L"AureaCanvas";
 static int canvas_class_registered = 0;
 
 static HWND canvas_find_root_window(HWND start) {
@@ -57,7 +59,7 @@ static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         case WM_SYSKEYDOWN:
         case WM_SYSKEYUP: {
             HWND root = canvas_find_root_window(hwnd);
-            if (root) return SendMessageA(root, msg, wParam, lParam);
+            if (root) return SendMessageW(root, msg, wParam, lParam);
             break;
         }
 
@@ -94,7 +96,7 @@ static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
                     MapWindowPoints(hwnd, root, &pt, 1);
                     out_lParam = MAKELPARAM(pt.x, pt.y);
                 }
-                return SendMessageA(root, msg, wParam, out_lParam);
+                return SendMessageW(root, msg, wParam, out_lParam);
             }
             break;
         }
@@ -196,28 +198,28 @@ static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             return 0;
     }
     
-    return DefWindowProcA(hwnd, msg, wParam, lParam);
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
 NGHandle ng_windows_create_canvas(int width, int height) {
     HWND temp_parent = ng_windows_detached_parent();
 
     if (!canvas_class_registered) {
-        WNDCLASSEXA wc = {0};
-        wc.cbSize = sizeof(WNDCLASSEXA);
+        WNDCLASSEXW wc = {0};
+        wc.cbSize = sizeof(WNDCLASSEXW);
         wc.style = CS_DBLCLKS;
         wc.lpfnWndProc = CanvasProc;
         wc.hInstance = GetModuleHandleA(NULL);
-        wc.lpszClassName = CANVAS_CLASS_NAME;
+        wc.lpszClassName = CANVAS_CLASS_NAME_W;
         wc.hCursor = LoadCursor(NULL, IDC_ARROW);
         wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-        RegisterClassExA(&wc);
+        RegisterClassExW(&wc);
         canvas_class_registered = 1;
     }
     
-    HWND hwnd = CreateWindowExA(
+    HWND hwnd = CreateWindowExW(
         0,
-        CANVAS_CLASS_NAME,
+        CANVAS_CLASS_NAME_W,
         NULL,
         WS_CHILD | WS_VISIBLE,
         0, 0, width, height,

@@ -1741,7 +1741,11 @@ mod win32_wheel_tests {
         window.show();
         let _ = window.poll_events();
         assert_eq!(wheel_down(&window, 0), [(0.0, -1.0)]);
-        assert_eq!(wheel_down(&window, MK_SHIFT), [(1.0, 0.0)], "down goes right");
+        assert_eq!(
+            wheel_down(&window, MK_SHIFT),
+            [(1.0, 0.0)],
+            "down goes right"
+        );
         Ok(())
     }
 }
@@ -1758,6 +1762,7 @@ mod win32_text_input_tests {
     #[link(name = "user32")]
     unsafe extern "system" {
         fn SendMessageW(hwnd: *mut c_void, msg: u32, w: usize, l: isize) -> isize;
+        fn PostMessageW(hwnd: *mut c_void, msg: u32, w: usize, l: isize) -> i32;
     }
 
     fn type_unit(window: &Window, unit: u16) {
@@ -1786,6 +1791,29 @@ mod win32_text_input_tests {
         type_unit(&window, 0x0416);
 
         assert_eq!(typed_text(&window), "한Ж");
+        Ok(())
+    }
+
+    /// A focused canvas gets keys through the message loop, as dispatched `WM_CHAR`s.
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn text_typed_into_a_canvas_arrives_intact() -> AureaResult<()> {
+        use crate::elements::Element;
+        use crate::render::{Canvas, RendererBackend};
+
+        let mut window = Window::new("canvas text", 300, 200)?;
+        let canvas = Canvas::new(200, 100, RendererBackend::Cpu)?;
+        let handle = canvas.handle();
+        window.set_content(canvas)?;
+        window.show();
+        let _ = window.poll_events();
+
+        // Thai and an emoji sit outside every East Asian ANSI code page.
+        for unit in "가ก😀".encode_utf16() {
+            unsafe { PostMessageW(handle, WM_CHAR, usize::from(unit), 0) };
+        }
+
+        assert_eq!(typed_text(&window), "가ก😀");
         Ok(())
     }
 
