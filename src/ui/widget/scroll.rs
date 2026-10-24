@@ -364,6 +364,11 @@ impl<'v> ListView<'v> {
         }
         let picked_now = selected.as_deref().copied().flatten();
         let ring = ui.eased(id, 1, input).focus;
+        // Rows get no hits of their own: a u16 part cannot tell every row apart. The scroll area's
+        // part 0 covers the list and is hit over it, so presses and the pointer are read here and
+        // matched to rows by position.
+        let press = ui.press(id, 0);
+        let pointer = ui.pointer();
         let (mut response, clicked) = area.show(ui, id, rect, |ui, content, view| {
             let mut clicked = None;
             #[allow(clippy::cast_precision_loss)]
@@ -381,16 +386,16 @@ impl<'v> ListView<'v> {
                         width,
                         height,
                     );
-                    let part = 2 + u16::try_from(i % 0xD000).unwrap_or(0);
-                    let hit = ui.interact(id, part, at, Sense::Hover, true);
-                    if let Some(press) = ui.press(id, part) {
+                    if let Some(press) = press
+                        && at.contains(press.at)
+                    {
                         clicked = Some((i, press.clicks));
                     }
                     let state = ListRow {
                         index: i,
                         rect: at,
                         picked: picked_now == Some(i),
-                        hovered: hit.hovered,
+                        hovered: pointer.is_some_and(|p| rect.contains(p) && at.contains(p)),
                     };
                     row(ui, state)?;
                 }
@@ -398,12 +403,16 @@ impl<'v> ListView<'v> {
             Ok(clicked)
         })?;
         FocusRing::new(ui.theme, ui.theme.radius, ring).paint(ui, rect)?;
-        if let (Some((i, clicks)), Some(picked)) = (clicked, selected) {
+        let row_clicked = clicked.map(|(i, _)| i);
+        if let Some((i, clicks)) = clicked
+            && let Some(picked) = selected
+        {
             changed |= *picked != Some(i);
             *picked = Some(i);
             activated |= clicks >= 2;
             ui.state.give_focus(Some(Key::new(id, 1)));
         }
+        response.row_clicked = row_clicked;
         if changed {
             ui.mark_changed();
         }
@@ -609,8 +618,10 @@ mod tests {
         theme: Theme,
         list: f32,
         area: f32,
+        count: usize,
         picked: Option<usize>,
         pressed: u32,
+        clicks: Vec<(usize, bool)>,
         step: f32,
     }
 
@@ -624,8 +635,10 @@ mod tests {
                 theme: Theme::dark(),
                 list: 0.0,
                 area: 0.0,
+                count: 1000,
                 picked: None,
                 pressed: 0,
+                clicks: Vec::new(),
                 step: ROW,
             };
             rig.frame();
@@ -641,13 +654,16 @@ mod tests {
                     step: self.step,
                     ..ScrollStyle::new(&self.theme)
                 };
-                ListView::new(&mut self.list, 1000, ROW)
+                let list = ListView::new(&mut self.list, self.count, ROW)
                     .selected(&mut self.picked)
                     .style(style)
                     .show(&mut ui, 1, LIST, |ui, row| {
                         ui.fill(row.rect, ui.theme.palette.surface)
                     })
                     .expect("list");
+                if let Some(row) = list.row_clicked {
+                    self.clicks.push((row, list.changed));
+                }
                 let pressed = &mut self.pressed;
                 ScrollArea::new(&mut self.area, 300.0)
                     .style(style)
@@ -752,6 +768,31 @@ mod tests {
         rig.button(240.0, 5.0, true);
         rig.button(240.0, 5.0, false);
         assert_eq!(rig.pressed, 1, "gone above the area");
+    }
+
+    #[test]
+    fn rows_far_apart_are_told_apart() {
+        let mut rig = Rig::new();
+        rig.count = 100_000;
+        rig.list = 53_248.0 * ROW;
+        rig.frame();
+        rig.button(50.0, 10.0, true);
+        rig.button(50.0, 10.0, false);
+        assert_eq!(rig.picked, Some(53_248), "the top row, not row 0");
+        rig.list = 0.0;
+        rig.button(50.0, 10.0, true);
+        rig.button(50.0, 10.0, false);
+        assert_eq!(rig.picked, Some(0));
+    }
+
+    #[test]
+    fn clicking_the_pick_reports_the_row_without_a_change() {
+        let mut rig = Rig::new();
+        rig.picked = Some(2);
+        rig.button(50.0, 50.0, true);
+        rig.button(50.0, 50.0, false);
+        assert_eq!(rig.clicks, vec![(2, false)]);
+        assert_eq!(rig.picked, Some(2));
     }
 
     #[test]

@@ -50,6 +50,8 @@ pub struct Response {
     pub committed: bool,
     /// A list's pick was opened: double-clicked, or Enter pressed on it.
     pub activated: bool,
+    /// A list row was pressed: its index, even when it was already the pick.
+    pub row_clicked: Option<usize>,
 }
 
 impl Response {
@@ -69,6 +71,7 @@ impl Response {
             editing_started: false,
             focus_lost: false,
             committed: false,
+            row_clicked: None,
         }
     }
 }
