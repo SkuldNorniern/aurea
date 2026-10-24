@@ -6,12 +6,13 @@ pub(crate) use canvas::notify_canvas_destroyed;
 #[cfg(target_os = "ios")]
 pub(crate) use canvas::register_host_canvas;
 
+pub use aurea_foundation::{AureaError, AureaResult};
 pub use aurea_render::cpu::{
     face_data, glyph_coverage, glyph_outline, layout_text, measure_text, shape_text,
 };
 pub use aurea_render::text::{
     FaceData, FaceId, GlyphCoverage, LayoutLine, LayoutOptions, ShapedGlyph, ShapedText, TextAlign,
-    TextLayout, WordBreak,
+    TextCacheStats, TextCacheStatsSet, TextLayout, WordBreak, cache_stats,
 };
 pub use aurea_render::vector::{Icon, SvgError, VectorImage, parse_path_data};
 pub use aurea_render::{
