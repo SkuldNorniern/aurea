@@ -68,11 +68,17 @@ const FALLBACK_FAMILIES: &[&str] = &[
     "Segoe UI Historic",
 ];
 
+/// Entries kept in the char-to-face cache before it starts over.
+const CHAR_FACE_CAP: usize = 4096;
+
 pub struct DirectWriteRasterizer {
     collection: FontCollection,
     faces: Mutex<Vec<Arc<FaceEntry>>>,
     by_key: Mutex<HashMap<FaceKey, FaceId>>,
     glyphs: Mutex<LruCache<GlyphKey, Arc<SubpixelGlyph>>>,
+    /// Chosen face per (primary face, char). A primary face already fixes the weight, style and
+    /// variations the fallbacks are resolved with, so the pair fully determines the answer.
+    char_faces: Mutex<HashMap<(FaceId, char), FaceId>>,
 }
 
 // SAFETY: DirectWrite factory objects and font faces are free-threaded, and
@@ -86,6 +92,7 @@ impl DirectWriteRasterizer {
             faces: Mutex::new(Vec::new()),
             by_key: Mutex::new(HashMap::new()),
             glyphs: Mutex::new(LruCache::with_budget(512, GLYPH_BYTES)),
+            char_faces: Mutex::new(HashMap::new()),
         })
     }
 
@@ -160,14 +167,28 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
     }
 
     fn face_for_char(&self, font: FontRef, primary: FaceId, ch: char) -> FaceId {
-        if ch.is_whitespace() || ch.is_control() || self.has_glyph(primary, ch) {
+        if ch.is_whitespace() || ch.is_control() {
             return primary;
         }
-        FALLBACK_FAMILIES
-            .iter()
-            .filter_map(|family| self.face(FontRef { family, ..font }).ok())
-            .find(|&face| self.has_glyph(face, ch))
-            .unwrap_or(primary)
+        if let Some(&face) = lock(&self.char_faces).get(&(primary, ch)) {
+            return face;
+        }
+        let face = if self.has_glyph(primary, ch) {
+            primary
+        } else {
+            FALLBACK_FAMILIES
+                .iter()
+                .filter_map(|family| self.face(FontRef { family, ..font }).ok())
+                .filter(|&face| face != primary)
+                .find(|&face| self.has_glyph(face, ch))
+                .unwrap_or(primary)
+        };
+        let mut cache = lock(&self.char_faces);
+        if cache.len() >= CHAR_FACE_CAP {
+            cache.clear();
+        }
+        cache.insert((primary, ch), face);
+        face
     }
 
     fn face_data(&self, face: FaceId) -> AureaResult<Arc<FaceData>> {
@@ -295,7 +316,9 @@ fn candidates(family: &str) -> [&str; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::text::shape::shape_text;
     use crate::types::Font;
+    use std::time::Instant;
 
     #[test]
     fn numeric_face_selection_distinguishes_light_regular_and_semibold() {
@@ -333,6 +356,54 @@ mod tests {
         let face = r.face_for_char(font, primary, '가');
         assert_ne!(face, primary);
         assert!(r.has_glyph(face, '가'));
+    }
+
+    #[test]
+    fn each_char_keeps_its_face_after_the_cache_warms() {
+        let r = DirectWriteRasterizer::new().expect("directwrite");
+        let font = Font::new("Segoe UI", 14.0);
+        let font: FontRef = (&font).into();
+        let primary = r.face(font).expect("segoe ui");
+        let text = "Hi 안녕 🙂 세계";
+        let cold: Vec<FaceId> = text
+            .chars()
+            .map(|ch| r.face_for_char(font, primary, ch))
+            .collect();
+        let warm: Vec<FaceId> = text
+            .chars()
+            .map(|ch| r.face_for_char(font, primary, ch))
+            .collect();
+        assert_eq!(cold, warm);
+    }
+
+    #[test]
+    #[ignore]
+    fn korean_shaping_timing() {
+        let r = DirectWriteRasterizer::new().expect("directwrite");
+        let font = Font::new("Segoe UI", 14.0);
+        let font: FontRef = (&font).into();
+        let strings: Vec<String> = (0..200u32)
+            .map(|i| {
+                (0..3u32)
+                    .map(|j| char::from_u32(0xAC00 + (i * 97 + j * 1013) % 11172).expect("hangul"))
+                    .collect()
+            })
+            .collect();
+        let chars: usize = strings.iter().map(|s| s.chars().count()).sum();
+        shape_text("Hello 가", font, &r).expect("warm up font files");
+        let mut passes = Vec::new();
+        for _ in 0..5 {
+            let start = Instant::now();
+            for s in &strings {
+                shape_text(s, font, &r).expect("shape");
+            }
+            passes.push(start.elapsed().as_nanos() / chars as u128);
+        }
+        println!(
+            "korean shaping: cold {} ns/char, best of 5 passes {} ns/char over {chars} chars",
+            passes[0],
+            passes.iter().min().expect("passes")
+        );
     }
 
     #[test]
