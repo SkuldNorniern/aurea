@@ -1706,6 +1706,47 @@ mod win32_shortcuts_tests {
     }
 }
 #[cfg(all(test, windows))]
+mod win32_wheel_tests {
+    use crate::{AureaResult, Window, WindowEvent};
+    use std::os::raw::c_void;
+
+    const WM_MOUSEWHEEL: u32 = 0x020A;
+    const MK_SHIFT: usize = 0x0004;
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn SendMessageW(hwnd: *mut c_void, msg: u32, w: usize, l: isize) -> isize;
+    }
+
+    /// One notch towards the user (down), with `keys` held.
+    fn wheel_down(window: &Window, keys: usize) -> Vec<(f64, f64)> {
+        let notch = usize::from(120u16.wrapping_neg()) << 16;
+        unsafe { SendMessageW(window.handle(), WM_MOUSEWHEEL, notch | keys, 0) };
+        window
+            .poll_events()
+            .into_iter()
+            .filter_map(|event| match event {
+                WindowEvent::MouseWheel {
+                    delta_x, delta_y, ..
+                } => Some((delta_x, delta_y)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn shift_turns_the_wheel_sideways() -> AureaResult<()> {
+        let window = Window::new("wheel", 300, 200)?;
+        window.show();
+        let _ = window.poll_events();
+        assert_eq!(wheel_down(&window, 0), [(0.0, -1.0)]);
+        assert_eq!(wheel_down(&window, MK_SHIFT), [(1.0, 0.0)], "down goes right");
+        Ok(())
+    }
+}
+
+#[cfg(all(test, windows))]
 mod win32_text_input_tests {
     //! Text typed in any script has to arrive intact.
 
