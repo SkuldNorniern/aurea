@@ -4,7 +4,7 @@ use crate::numeric::{f32_to_i32_clamped, f32_to_u8_clamped};
 use crate::text::glyph::{FaceData, FaceId, GlyphCoverage, GlyphKey};
 use crate::text::outline::outline_coverage;
 use crate::text::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph, variation_hash};
-use crate::text::{GLYPH_BYTES, LruCache};
+use crate::text::{CacheKind, GLYPH_BYTES, LruCache, shared};
 use crate::types::{FontStyle, FontVariation, FontWeight};
 use aurea_foundation::{AureaError, AureaResult, lock};
 use fontdue::{Font, FontSettings};
@@ -300,7 +300,7 @@ pub struct FontDbTextRasterizer {
     sources: Mutex<HashMap<FaceSource, SourceFile>>,
     fallbacks: Vec<OnceLock<Option<FaceId>>>,
     font_cache: Mutex<LruCache<FontKey, FaceId>>,
-    subpixel_cache: Mutex<LruCache<GlyphKey, Arc<SubpixelGlyph>>>,
+    subpixel_cache: Arc<Mutex<LruCache<GlyphKey, Arc<SubpixelGlyph>>>>,
 }
 
 static EMBEDDED: &[u8] = include_bytes!("../../fonts/Tuffy.ttf");
@@ -315,7 +315,7 @@ impl FontDbTextRasterizer {
             sources: Mutex::new(HashMap::new()),
             fallbacks: fallback_stems().iter().map(|_| OnceLock::new()).collect(),
             font_cache: Mutex::new(LruCache::new(32)),
-            subpixel_cache: Mutex::new(LruCache::with_budget(512, GLYPH_BYTES)),
+            subpixel_cache: shared(CacheKind::Glyph, LruCache::with_budget(512, GLYPH_BYTES)),
         }
     }
 

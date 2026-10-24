@@ -1,6 +1,7 @@
 //! Laying text out in lines: hard breaks, wrapping at Unicode line break opportunities, alignment,
 //! and the carets, hit tests and selection highlights an editor needs.
 
+use std::mem::size_of;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -9,11 +10,11 @@ use unicode_linebreak::{BreakOpportunity, linebreaks};
 
 use crate::geometry::{Point, Rect};
 use crate::text::platform::{FontRef, TextRenderer};
-use crate::text::shape::ShapedText;
+use crate::text::shape::{ShapedGlyph, ShapedText};
 use aurea_foundation::{AureaError, AureaResult};
 
 /// Where lines may break inside a run of letters.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum WordBreak {
     /// Wherever Unicode allows: between words, and between CJK characters and Hangul syllables.
     #[default]
@@ -25,7 +26,7 @@ pub enum WordBreak {
 
 /// Where lines sit across the layout's width (down a column, for vertical text, where `Left` is the
 /// top and `Right` the bottom).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum TextAlign {
     /// Where the paragraph starts reading: left, or right for right-to-left text.
     #[default]
@@ -66,7 +67,7 @@ impl Default for LayoutOptions {
 }
 
 /// One laid-out line, or column of vertical text.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LayoutLine {
     /// The bytes of the text it shows, without the newline ending it.
     pub range: Range<usize>,
@@ -86,7 +87,7 @@ pub struct LayoutLine {
 }
 
 /// Text laid out in lines, or in columns from the right for vertical text.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TextLayout {
     /// The laid-out text.
     pub text: Arc<str>,
@@ -303,6 +304,16 @@ fn align(lines: &mut [LayoutLine], text: &str, options: LayoutOptions) -> f32 {
     width
 }
 
+/// What a cached layout counts as: its text and lines, plus the glyphs its lines hold.
+pub(crate) fn layout_bytes(layout: &TextLayout) -> usize {
+    layout.text.len()
+        + layout
+            .lines
+            .iter()
+            .map(|l| size_of::<LayoutLine>() + l.shaped.glyphs.len() * size_of::<ShapedGlyph>())
+            .sum::<usize>()
+}
+
 pub(crate) fn layout_text(
     text: &str,
     font: FontRef,
@@ -378,7 +389,9 @@ pub(crate) fn layout_text(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::text::cache_stats;
     use crate::types::Font;
+    use std::hint::black_box;
 
     fn lay(text: &str, options: LayoutOptions) -> TextLayout {
         let r = TextRenderer::new();
@@ -560,6 +573,63 @@ mod tests {
         assert!(l.lines.len() > 1);
         assert!(l.lines.windows(2).all(|w| w[1].x < w[0].x));
         assert!(l.lines.iter().all(|line| line.shaped.width <= 40.5));
+    }
+
+    #[test]
+    fn a_repeated_layout_is_served_from_the_cache() {
+        let text = "lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor";
+        let r = TextRenderer::new();
+        let font = Font::new("", 16.0);
+        let font: FontRef = (&font).into();
+        let options = LayoutOptions {
+            max_width: Some(120.0),
+            ..LayoutOptions::default()
+        };
+        let first = r.layout(text, font, options).expect("layout");
+        let before = cache_stats().layout;
+        let second = r.layout(text, font, options).expect("layout");
+        let after = cache_stats().layout;
+        assert_eq!(first, second);
+        assert_eq!(
+            second,
+            layout_text(text, font, options, &r).expect("layout")
+        );
+        assert!(after.hits > before.hits, "{before:?} then {after:?}");
+    }
+
+    #[test]
+    #[ignore]
+    fn timing_repeated_paragraph_layout() {
+        use std::time::Instant;
+
+        let text = "lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. ".repeat(2);
+        let r = TextRenderer::new();
+        let font = Font::new("", 16.0);
+        let font: FontRef = (&font).into();
+        let options = LayoutOptions {
+            max_width: Some(480.0),
+            ..LayoutOptions::default()
+        };
+        const ROUNDS: u32 = 2000;
+        let mut best = [f64::MAX; 2];
+        for _ in 0..3 {
+            let start = Instant::now();
+            for _ in 0..ROUNDS {
+                black_box(layout_text(&text, font, options, &r).expect("layout"));
+            }
+            best[0] = best[0].min(start.elapsed().as_secs_f64() * 1e6 / f64::from(ROUNDS));
+            let start = Instant::now();
+            for _ in 0..ROUNDS {
+                black_box(r.layout(&text, font, options).expect("layout"));
+            }
+            best[1] = best[1].min(start.elapsed().as_secs_f64() * 1e6 / f64::from(ROUNDS));
+        }
+        println!(
+            "{} chars: uncached layout_text {:.2} us, TextRenderer::layout {:.2} us (best of 3)",
+            text.len(),
+            best[0],
+            best[1]
+        );
     }
 
     #[test]
