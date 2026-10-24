@@ -596,7 +596,7 @@ impl Element for Canvas {
 mod tests {
     use super::*;
     use crate::Window;
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(target_vendor = "apple"))]
     use std::cell::Cell;
 
     #[test]
@@ -618,7 +618,7 @@ mod tests {
         assert!(canvas.renderer.borrow().is_none());
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(target_vendor = "apple"))]
     #[test]
     #[ignore = "creates native elements and needs a GPU; run with --ignored"]
     fn a_lost_context_is_replaced() {
@@ -681,7 +681,7 @@ mod tests {
         );
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(target_vendor = "apple"))]
     #[test]
     #[ignore = "creates native canvases and needs a GPU; run with --ignored"]
     fn default_canvases_share_their_replacement_after_device_loss() {

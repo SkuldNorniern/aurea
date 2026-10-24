@@ -147,7 +147,7 @@ mod tests {
         );
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(target_vendor = "apple"))]
     #[test]
     fn shared_context_loss_reopens_once_on_the_same_adapter() {
         let Ok(lost) = default_gpu_context(None) else {
