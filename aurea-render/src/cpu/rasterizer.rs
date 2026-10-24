@@ -1183,7 +1183,9 @@ impl CpuRasterizer {
                 y1,
             );
         } else if sampling == Sampling::Nearest {
-            Self::draw_image_scaled(image, src, dest, mode, alpha, buf, bw, clip, x0, y0, x1, y1);
+            Self::draw_image_scaled(
+                image, src, dest, mode, alpha, buf, bw, x0, y0, x1, y1, scratch,
+            );
         } else {
             Self::draw_image_filtered(
                 image,
@@ -1299,6 +1301,7 @@ impl CpuRasterizer {
             offsets,
             rows,
             taps,
+            ..
         } = scratch;
         if shrink {
             columns.clear();
@@ -1354,30 +1357,50 @@ impl CpuRasterizer {
         alpha: f32,
         buf: &mut [u32],
         bw: u32,
-        clip: ClipBox,
         x0: i32,
         y0: i32,
         x1: i32,
         y1: i32,
+        scratch: &mut ImageScratch,
     ) {
+        // The caller has checked that the pixel data fills `width * height`, and the clamps keep
+        // every index inside it. The span is already inside the clip.
+        let ImageScratch {
+            row, source_cols, ..
+        } = scratch;
         let max_sx = image.width as f32 - 0.001;
         let max_sy = image.height as f32 - 0.001;
+        let stride = image.width as usize * 4;
+        source_cols.clear();
+        source_cols.extend((x0..x1).map(|cx| {
+            let u = (cx as f32 + 0.5 - dest.x) / dest.width * src.width + src.x;
+            f32_to_u32_clamped(u.clamp(0.0, max_sx)) as usize * 4
+        }));
+        row.clear();
+        row.resize(source_cols.len(), 0);
         for cy in y0..y1 {
             let v = (cy as f32 + 0.5 - dest.y) / dest.height * src.height + src.y;
-            let sy = f32_to_u32_clamped(v.clamp(0.0, max_sy));
-            let src_row = &image.data[sy as usize * image.width as usize * 4..];
-            for cx in x0..x1 {
-                let u = (cx as f32 + 0.5 - dest.x) / dest.width * src.width + src.x;
-                let sx = f32_to_u32_clamped(u.clamp(0.0, max_sx));
-                let ii = sx as usize * 4;
-                if ii + 3 >= src_row.len() {
-                    continue;
-                }
-                let rgba = (u32::from(scale_u8(src_row[ii + 3], alpha)) << 24)
+            let sy = f32_to_u32_clamped(v.clamp(0.0, max_sy)) as usize;
+            let src_row = &image.data[sy * stride..(sy + 1) * stride];
+            let mut all_opaque = true;
+            for (slot, &ii) in row.iter_mut().zip(source_cols.iter()) {
+                let a = scale_u8(src_row[ii + 3], alpha);
+                all_opaque &= a == 255;
+                *slot = (u32::from(a) << 24)
                     | (u32::from(src_row[ii]) << 16)
                     | (u32::from(src_row[ii + 1]) << 8)
                     | u32::from(src_row[ii + 2]);
-                Self::buf_set(buf, bw, clip, cx, cy, rgba, mode);
+            }
+            let start = (cy.unsigned_abs() * bw + x0.unsigned_abs()) as usize;
+            if mode == BlendMode::Normal && all_opaque {
+                buf[start..start + row.len()].copy_from_slice(row.as_slice());
+            } else {
+                for (i, &c) in row.iter().enumerate() {
+                    if c >> 24 != 0 {
+                        let idx = start + i;
+                        buf[idx] = blend_pixel(c, buf[idx], mode);
+                    }
+                }
             }
         }
     }
@@ -1459,7 +1482,8 @@ impl CpuRasterizer {
         }
 
         let dt_x = dx / len_sq;
-        let opaque_normal = mode == BlendMode::Normal;
+        let luts = LinearLuts::get();
+        let steps = (mode == BlendMode::Normal).then(|| gradient_steps(&lut, luts));
 
         for cy in y0..y1 {
             let row = (cy.unsigned_abs() * bw) as usize;
@@ -1467,12 +1491,10 @@ impl CpuRasterizer {
                 ((x0 as f32 + 0.5 - start.x) * dx + (cy as f32 + 0.5 - start.y) * dy) / len_sq;
             for cx in x0..x1 {
                 let t_idx = f32_to_usize_clamped((t.clamp(0.0, 1.0) * 255.0).round());
-                let src = lut[t_idx];
                 let idx = row + cx.unsigned_abs() as usize;
-                buf[idx] = if opaque_normal && (src >> 24) == 255 {
-                    src
-                } else {
-                    blend_pixel(src, buf[idx], mode)
+                buf[idx] = match &steps {
+                    Some(steps) => gradient_over(&steps[t_idx], buf[idx], luts),
+                    None => blend_pixel(lut[t_idx], buf[idx], mode),
                 };
                 t += dt_x;
             }
@@ -1500,7 +1522,8 @@ impl CpuRasterizer {
         }
 
         let inv_radius = 1.0 / grad.radius;
-        let opaque_normal = mode == BlendMode::Normal;
+        let luts = LinearLuts::get();
+        let steps = (mode == BlendMode::Normal).then(|| gradient_steps(&lut, luts));
 
         for cy in y0..y1 {
             let row = (cy.unsigned_abs() * bw) as usize;
@@ -1511,12 +1534,10 @@ impl CpuRasterizer {
                 let dist = (dx * dx + dy_sq).sqrt();
                 let t = (dist * inv_radius).min(1.0);
                 let t_idx = f32_to_usize_clamped((t.clamp(0.0, 1.0) * 255.0).round());
-                let src = lut[t_idx];
                 let idx = row + cx.unsigned_abs() as usize;
-                buf[idx] = if opaque_normal && (src >> 24) == 255 {
-                    src
-                } else {
-                    blend_pixel(src, buf[idx], mode)
+                buf[idx] = match &steps {
+                    Some(steps) => gradient_over(&steps[t_idx], buf[idx], luts),
+                    None => blend_pixel(lut[t_idx], buf[idx], mode),
                 };
             }
         }
@@ -1863,6 +1884,8 @@ struct ImageScratch {
     offsets: Vec<usize>,
     rows: Vec<(i32, f32)>,
     taps: Vec<sample::Taps>,
+    /// Byte offset of each output column's source pixel, for nearest sampling.
+    source_cols: Vec<usize>,
 }
 
 struct RectFillCtx<'a> {
@@ -1931,6 +1954,45 @@ fn fade_stops(stops: &[GradientStop], alpha: f32) -> Vec<GradientStop> {
             ..*stop
         })
         .collect()
+}
+
+/// A gradient LUT colour, with the parts a Normal fill over an opaque pixel reads precomputed.
+#[derive(Clone, Copy)]
+struct GradientStep {
+    color: u32,
+    alpha: u8,
+    /// Red, green and blue in 12-bit linear light, as [`LinearLuts`] stores them.
+    linear: [u32; 3],
+}
+
+fn gradient_steps(lut: &[u32; 256], luts: LinearLuts) -> [GradientStep; 256] {
+    lut.map(|color| {
+        let [alpha, r, g, b] = color.to_be_bytes();
+        GradientStep {
+            color,
+            alpha,
+            linear: [luts.linear(r), luts.linear(g), luts.linear(b)],
+        }
+    })
+}
+
+/// Source-over of a gradient step onto `dst`. Opaque and transparent steps are exact; a translucent
+/// step over an opaque pixel is mixed in 12-bit linear light, within one level of `blend_pixel`.
+#[inline]
+fn gradient_over(step: &GradientStep, dst: u32, luts: LinearLuts) -> u32 {
+    match step.alpha {
+        255 => step.color,
+        0 => dst,
+        alpha if dst >> 24 == 255 => {
+            let [_, dr, dg, db] = dst.to_be_bytes();
+            let [r, g, b] = step.linear;
+            0xff00_0000
+                | (luts.mix(r, dr, alpha) << 16)
+                | (luts.mix(g, dg, alpha) << 8)
+                | luts.mix(b, db, alpha)
+        }
+        _ => blend_pixel(step.color, dst, BlendMode::Normal),
+    }
 }
 
 fn color_to_u32(c: Color) -> u32 {
@@ -3618,5 +3680,449 @@ mod stroke_circle_tests {
             black_box(&buf);
         }
         println!("best of 3 run: {best:?}");
+    }
+}
+
+#[cfg(test)]
+mod gradient_and_scaled_tests {
+    use super::*;
+    use std::hint::black_box;
+    use std::time::Instant;
+
+    const W: u32 = 40;
+    const H: u32 = 30;
+
+    /// The gradient loop before the translucent fast path, kept as the reference.
+    fn reference_linear(
+        grad: &LinearGradient,
+        rect: Rect,
+        mode: BlendMode,
+        buf: &mut [u32],
+        bw: u32,
+        clip: ClipBox,
+    ) {
+        let (start, end) = grad.pixel_axis();
+        let dx = end.x - start.x;
+        let dy = end.y - start.y;
+        let len_sq = dx * dx + dy * dy;
+        if len_sq < 1e-10 {
+            return;
+        }
+        let lut = CpuRasterizer::build_gradient_lut(&grad.stops);
+        let x0 = f32_to_i32_clamped(rect.x.max(clip.left()).ceil());
+        let y0 = f32_to_i32_clamped(rect.y.max(clip.top()).ceil());
+        let x1 = f32_to_i32_clamped((rect.x + rect.width).min(clip.right()).floor());
+        let y1 = f32_to_i32_clamped((rect.y + rect.height).min(clip.bottom()).floor());
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
+        let dt_x = dx / len_sq;
+        let opaque_normal = mode == BlendMode::Normal;
+        for cy in y0..y1 {
+            let row = (cy.unsigned_abs() * bw) as usize;
+            let mut t =
+                ((x0 as f32 + 0.5 - start.x) * dx + (cy as f32 + 0.5 - start.y) * dy) / len_sq;
+            for cx in x0..x1 {
+                let t_idx = f32_to_usize_clamped((t.clamp(0.0, 1.0) * 255.0).round());
+                let src = lut[t_idx];
+                let idx = row + cx.unsigned_abs() as usize;
+                buf[idx] = if opaque_normal && (src >> 24) == 255 {
+                    src
+                } else {
+                    blend_pixel(src, buf[idx], mode)
+                };
+                t += dt_x;
+            }
+        }
+    }
+
+    /// The radial gradient loop before the translucent fast path, kept as the reference.
+    fn reference_radial(
+        grad: &RadialGradient,
+        rect: Rect,
+        mode: BlendMode,
+        buf: &mut [u32],
+        bw: u32,
+        clip: ClipBox,
+    ) {
+        if grad.radius <= 0.0 {
+            return;
+        }
+        let lut = CpuRasterizer::build_gradient_lut(&grad.stops);
+        let x0 = f32_to_i32_clamped(rect.x.max(clip.left()).ceil());
+        let y0 = f32_to_i32_clamped(rect.y.max(clip.top()).ceil());
+        let x1 = f32_to_i32_clamped((rect.x + rect.width).min(clip.right()).floor());
+        let y1 = f32_to_i32_clamped((rect.y + rect.height).min(clip.bottom()).floor());
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
+        let inv_radius = 1.0 / grad.radius;
+        let opaque_normal = mode == BlendMode::Normal;
+        for cy in y0..y1 {
+            let row = (cy.unsigned_abs() * bw) as usize;
+            let dy = cy as f32 + 0.5 - grad.center.y;
+            let dy_sq = dy * dy;
+            for cx in x0..x1 {
+                let dx = cx as f32 + 0.5 - grad.center.x;
+                let dist = (dx * dx + dy_sq).sqrt();
+                let t = (dist * inv_radius).min(1.0);
+                let t_idx = f32_to_usize_clamped((t.clamp(0.0, 1.0) * 255.0).round());
+                let src = lut[t_idx];
+                let idx = row + cx.unsigned_abs() as usize;
+                buf[idx] = if opaque_normal && (src >> 24) == 255 {
+                    src
+                } else {
+                    blend_pixel(src, buf[idx], mode)
+                };
+            }
+        }
+    }
+
+    /// The nearest-sampled scaled image loop, with the span arithmetic `draw_image` uses.
+    #[allow(clippy::too_many_arguments)]
+    fn reference_scaled(
+        image: &Image,
+        src: Rect,
+        dest: Rect,
+        mode: BlendMode,
+        alpha: f32,
+        buf: &mut [u32],
+        bw: u32,
+        clip: ClipBox,
+    ) {
+        let centre_span = |from: f32, to: f32, lo: u32, hi: u32| {
+            (
+                f32_to_i32_clamped((from - 0.5).ceil()).max(lo as i32),
+                f32_to_i32_clamped((to - 0.5).ceil()).min(hi as i32),
+            )
+        };
+        let (x0, x1) = centre_span(dest.x, dest.x + dest.width, clip.x0, clip.x1);
+        let (y0, y1) = centre_span(dest.y, dest.y + dest.height, clip.y0, clip.y1);
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
+        let max_sx = image.width as f32 - 0.001;
+        let max_sy = image.height as f32 - 0.001;
+        for cy in y0..y1 {
+            let v = (cy as f32 + 0.5 - dest.y) / dest.height * src.height + src.y;
+            let sy = f32_to_u32_clamped(v.clamp(0.0, max_sy));
+            let src_row = &image.data[sy as usize * image.width as usize * 4..];
+            for cx in x0..x1 {
+                let u = (cx as f32 + 0.5 - dest.x) / dest.width * src.width + src.x;
+                let sx = f32_to_u32_clamped(u.clamp(0.0, max_sx));
+                let ii = sx as usize * 4;
+                if ii + 3 >= src_row.len() {
+                    continue;
+                }
+                let rgba = (u32::from(scale_u8(src_row[ii + 3], alpha)) << 24)
+                    | (u32::from(src_row[ii]) << 16)
+                    | (u32::from(src_row[ii + 1]) << 8)
+                    | u32::from(src_row[ii + 2]);
+                CpuRasterizer::buf_set(buf, bw, clip, cx, cy, rgba, mode);
+            }
+        }
+    }
+
+    /// Mixed opaque, translucent, transparent and empty destination pixels.
+    fn background(len: u32) -> Vec<u32> {
+        (0..len)
+            .map(|i| {
+                let h = i.wrapping_mul(2_654_435_761);
+                match i % 5 {
+                    0 => 0,
+                    1 | 3 => 0xff00_0000 | (h & 0x00ff_ffff),
+                    _ => (h & 0xff00_0000) | (h & 0x00ff_ffff),
+                }
+            })
+            .collect()
+    }
+
+    fn stop(offset: f32, r: u8, g: u8, b: u8, a: u8) -> GradientStop {
+        GradientStop {
+            offset,
+            color: Color::rgba(r, g, b, a),
+        }
+    }
+
+    fn stop_sets() -> Vec<Vec<GradientStop>> {
+        vec![
+            vec![stop(0.0, 255, 255, 255, 255), stop(1.0, 255, 255, 255, 0)],
+            vec![stop(0.0, 0, 0, 0, 0), stop(1.0, 0, 0, 0, 255)],
+            vec![stop(0.0, 255, 0, 0, 255), stop(1.0, 0, 0, 255, 255)],
+            vec![
+                stop(0.0, 200, 30, 10, 90),
+                stop(0.4, 10, 200, 30, 200),
+                stop(1.0, 30, 40, 250, 0),
+            ],
+            vec![stop(0.2, 90, 90, 90, 128), stop(0.8, 20, 20, 20, 64)],
+        ]
+    }
+
+    fn clips() -> Vec<ClipBox> {
+        vec![
+            ClipBox::surface(W, H),
+            ClipBox {
+                x0: 3,
+                y0: 2,
+                x1: 33,
+                y1: 25,
+            },
+            ClipBox::surface(W, H).intersect(Rect::new(2.4, 1.6, 17.2, 14.9)),
+        ]
+    }
+
+    fn assert_same(got: &[u32], want: &[u32], case: &str) {
+        for (i, (&g, &w)) in got.iter().zip(want).enumerate() {
+            assert_eq!(
+                g,
+                w,
+                "{case}: pixel ({}, {})",
+                i % W as usize,
+                i / W as usize
+            );
+        }
+    }
+
+    /// Within one level per channel, for the integer gradient mix.
+    fn assert_close(got: &[u32], want: &[u32], case: &str) {
+        for (i, (&g, &w)) in got.iter().zip(want).enumerate() {
+            let off = [0, 8, 16, 24].map(|s| ((g >> s) & 255).abs_diff((w >> s) & 255));
+            assert!(
+                off.iter().all(|&d| d <= 1),
+                "{case}: pixel ({}, {}) {g:08x} vs {w:08x}",
+                i % W as usize,
+                i / W as usize
+            );
+        }
+    }
+
+    #[test]
+    fn linear_gradients_match_the_reference() {
+        let rects = [
+            Rect::new(0.0, 0.0, W as f32, H as f32),
+            Rect::new(1.5, 2.25, 33.5, 20.5),
+            Rect::new(4.0, 1.0, 20.0, 25.0),
+        ];
+        let axes = [
+            (Point::new(2.0, 0.0), Point::new(30.0, 0.0)),
+            (Point::new(0.0, 0.0), Point::new(0.0, H as f32)),
+            (Point::new(5.0, 3.0), Point::new(25.0, 22.0)),
+        ];
+        for stops in stop_sets() {
+            for (start, end) in axes {
+                let grad = LinearGradient {
+                    start,
+                    end,
+                    stops: stops.clone(),
+                };
+                for rect in rects {
+                    for clip in clips() {
+                        for mode in [BlendMode::Normal, BlendMode::Multiply] {
+                            let mut want = background(W * H);
+                            reference_linear(&grad, rect, mode, &mut want, W, clip);
+                            let mut got = background(W * H);
+                            CpuRasterizer::fill_linear_gradient(
+                                &grad, rect, mode, &mut got, W, clip,
+                            );
+                            assert_close(
+                                &got,
+                                &want,
+                                &format!("{mode:?} {start:?}->{end:?} {rect:?}"),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn radial_gradients_match_the_reference() {
+        let rects = [
+            Rect::new(0.0, 0.0, W as f32, H as f32),
+            Rect::new(3.0, 2.0, 30.0, 25.0),
+        ];
+        for stops in stop_sets() {
+            let grad = RadialGradient {
+                center: Point::new(14.5, 12.25),
+                radius: 9.0,
+                stops,
+            };
+            for rect in rects {
+                for clip in clips() {
+                    for mode in [BlendMode::Normal, BlendMode::Multiply] {
+                        let mut want = background(W * H);
+                        reference_radial(&grad, rect, mode, &mut want, W, clip);
+                        let mut got = background(W * H);
+                        CpuRasterizer::fill_radial_gradient(&grad, rect, mode, &mut got, W, clip);
+                        assert_close(&got, &want, &format!("{mode:?} radial {rect:?}"));
+                    }
+                }
+            }
+        }
+    }
+
+    fn image_pattern(w: u32, h: u32, alpha: impl Fn(u32, u32) -> u8) -> Image {
+        let mut data = Vec::with_capacity((w * h * 4) as usize);
+        for y in 0..h {
+            for x in 0..w {
+                let v = ((x * 37) ^ (y * 91)).to_le_bytes()[0];
+                data.extend([v, v.wrapping_mul(3), 255 - v, alpha(x, y)]);
+            }
+        }
+        Image::new(w, h, data)
+    }
+
+    #[test]
+    fn scaled_images_match_the_reference() {
+        let images = [
+            image_pattern(7, 5, |_, _| 255),
+            image_pattern(7, 5, |x, y| [255, 0, 128, 255, 7][((x + y) % 5) as usize]),
+            image_pattern(7, 5, |_, _| 128),
+        ];
+        // Up, down, partly offscreen, fractional, and a sub-rectangle of the source.
+        let cases = [
+            (
+                Rect::new(0.0, 0.0, 7.0, 5.0),
+                Rect::new(-3.0, 4.5, 60.0, 40.0),
+            ),
+            (Rect::new(0.0, 0.0, 7.0, 5.0), Rect::new(2.0, 1.0, 3.0, 2.0)),
+            (
+                Rect::new(0.0, 0.0, 7.0, 5.0),
+                Rect::new(1.25, 3.5, 22.5, 17.75),
+            ),
+            (
+                Rect::new(1.0, 1.0, 5.0, 3.0),
+                Rect::new(-5.0, -2.0, 50.0, 31.0),
+            ),
+        ];
+        for image in &images {
+            for (src, dest) in cases {
+                for clip in clips() {
+                    for mode in [BlendMode::Normal, BlendMode::Multiply] {
+                        for alpha in [1.0, 0.5] {
+                            let mut want = background(W * H);
+                            reference_scaled(image, src, dest, mode, alpha, &mut want, W, clip);
+                            let mut got = background(W * H);
+                            CpuRasterizer::draw_image(
+                                image,
+                                src,
+                                dest,
+                                Sampling::Nearest,
+                                mode,
+                                alpha,
+                                &mut got,
+                                &mut ImageScratch::default(),
+                                W,
+                                clip,
+                            );
+                            assert_same(&got, &want, &format!("{mode:?} {alpha} {dest:?}"));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn linear_bench(label: &str, grad: &LinearGradient) {
+        const BW: u32 = 627;
+        const BH: u32 = 202;
+        const ITERS: u32 = 50;
+        let rect = Rect::new(0.0, 0.0, BW as f32, BH as f32);
+        let clip = ClipBox::surface(BW, BH);
+        let mut buf = background(BW * BH);
+        let start = Instant::now();
+        for _ in 0..ITERS {
+            CpuRasterizer::fill_linear_gradient(
+                black_box(grad),
+                rect,
+                BlendMode::Normal,
+                black_box(&mut buf),
+                BW,
+                clip,
+            );
+        }
+        let ns = start.elapsed().as_secs_f64() * 1e9 / f64::from(ITERS * BW * BH);
+        eprintln!("{label}: {ns:.2} ns/pixel");
+        black_box(buf);
+    }
+
+    #[test]
+    #[ignore = "manual translucent gradient timing"]
+    fn translucent_gradient_benchmark() {
+        let mut sets = stop_sets();
+        let clear_to_black = LinearGradient {
+            start: Point::new(0.0, 0.0),
+            end: Point::new(627.0, 0.0),
+            stops: sets.remove(1),
+        };
+        let white_to_clear = LinearGradient {
+            start: Point::new(0.0, 0.0),
+            end: Point::new(627.0, 0.0),
+            stops: sets.remove(0),
+        };
+        linear_bench("white->clear 627x202", &white_to_clear);
+        linear_bench("clear->black 627x202", &clear_to_black);
+    }
+
+    #[test]
+    #[ignore = "manual radial gradient timing"]
+    fn translucent_radial_benchmark() {
+        let grad = RadialGradient {
+            center: Point::new(313.0, 101.0),
+            radius: 320.0,
+            stops: stop_sets().remove(0),
+        };
+        let (w, h) = (627u32, 202u32);
+        let rect = Rect::new(0.0, 0.0, w as f32, h as f32);
+        let clip = ClipBox::surface(w, h);
+        let mut buf = background(w * h);
+        let iters = 50;
+        let start = Instant::now();
+        for _ in 0..iters {
+            CpuRasterizer::fill_radial_gradient(
+                black_box(&grad),
+                rect,
+                BlendMode::Normal,
+                black_box(&mut buf),
+                w,
+                clip,
+            );
+        }
+        let ns = start.elapsed().as_secs_f64() * 1e9 / f64::from(iters * w * h);
+        eprintln!("radial white->clear 627x202: {ns:.2} ns/pixel");
+        black_box(buf);
+    }
+
+    #[test]
+    #[ignore = "manual nearest image scaling timing"]
+    fn nearest_scaled_image_benchmark() {
+        let (w, h) = (627u32, 202u32);
+        let opaque = image_pattern(320, 200, |_, _| 255);
+        let translucent = image_pattern(320, 200, |_, _| 128);
+        let rect = Rect::new(0.0, 0.0, w as f32, h as f32);
+        let clip = ClipBox::surface(w, h);
+        let iters = 50;
+        for (label, image) in [("opaque", &opaque), ("translucent", &translucent)] {
+            let mut buf = vec![0xff20_4060; (w * h) as usize];
+            let start = Instant::now();
+            for _ in 0..iters {
+                CpuRasterizer::draw_image(
+                    black_box(image),
+                    Rect::new(0.0, 0.0, 320.0, 200.0),
+                    rect,
+                    Sampling::Nearest,
+                    BlendMode::Normal,
+                    1.0,
+                    black_box(&mut buf),
+                    &mut ImageScratch::default(),
+                    w,
+                    clip,
+                );
+            }
+            let ns = start.elapsed().as_secs_f64() * 1e9 / f64::from(iters * w * h);
+            eprintln!("nearest scaled {label} 320x200 -> 627x202: {ns:.2} ns/pixel");
+            black_box(buf);
+        }
     }
 }
