@@ -61,6 +61,11 @@ impl WindowProxy {
         Ok(())
     }
 
+    /// Wakes a `wait_events` or run loop without queuing a call. Queued calls stay queued.
+    pub fn wake(&self) {
+        FrameScheduler::wake();
+    }
+
     /// How many calls are queued and not yet run.
     pub fn pending(&self) -> usize {
         lock(&PENDING).get(&self.id).map_or(0, Vec::len)
@@ -152,6 +157,26 @@ mod tests {
 
         assert_eq!(proxy.pending(), 1, "work should be queued");
         assert_eq!(ran.load(Ordering::Relaxed), 0, "and not yet run");
+        clear_for(proxy.id);
+    }
+
+    #[test]
+    fn wake_queues_nothing_and_runs_nothing() {
+        let proxy = live_proxy();
+        proxy.wake();
+        assert_eq!(proxy.pending(), 0);
+
+        let ran = Arc::new(AtomicUsize::new(0));
+        let ran_clone = Arc::clone(&ran);
+        proxy
+            .dispatch(move |_| {
+                ran_clone.fetch_add(1, Ordering::Relaxed);
+            })
+            .expect("the window is live");
+        proxy.wake();
+
+        assert_eq!(proxy.pending(), 1, "the queued call waits for the pump");
+        assert_eq!(ran.load(Ordering::Relaxed), 0);
         clear_for(proxy.id);
     }
 

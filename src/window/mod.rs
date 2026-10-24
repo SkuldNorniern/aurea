@@ -498,7 +498,7 @@ impl Window {
     }
 
     /// Waits until something happens, then hands back this window's events, for an app that runs
-    /// its own loop instead of [`Self::run`].
+    /// its own loop instead of [`Self::run`]. A [`WindowProxy`] from another thread ends the wait.
     ///
     /// ```rust,no_run
     /// # fn main() -> aurea::AureaResult<()> {
