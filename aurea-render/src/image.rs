@@ -38,18 +38,27 @@ impl Image {
         self.id
     }
 
-    /// Whether the data covers every pixel at full alpha. Read once per data and kept, so
-    /// renderers can skip what an opaque image hides.
+    /// Says whether every pixel is at full alpha, for a maker that already knows (a tile from a
+    /// worker, say), so the first draw doesn't read the whole image to find out. A wrong `true`
+    /// hides what is drawn under the image's see-through pixels.
+    #[must_use]
+    pub fn with_opaque(mut self, opaque: bool) -> Self {
+        let known = OnceLock::new();
+        let _ = known.set((self.data.as_ptr() as usize, opaque));
+        self.opaque = Arc::new(known);
+        self
+    }
+
+    /// Whether the data covers every pixel at full alpha. Read once per data and kept, or taken
+    /// from [`with_opaque`](Self::with_opaque), so renderers can skip what an opaque image hides.
     pub fn is_opaque(&self) -> bool {
-        let scan = || {
-            let len = (self.width as usize)
-                .checked_mul(self.height as usize)
-                .and_then(|n| n.checked_mul(4));
-            len.is_some_and(|len| len > 0 && self.data.len() >= len)
-                && self.data.iter().skip(3).step_by(4).all(|&a| a == 255)
-        };
+        let fits = (self.width as usize)
+            .checked_mul(self.height as usize)
+            .and_then(|n| n.checked_mul(4))
+            .is_some_and(|len| len > 0 && self.data.len() >= len);
+        let scan = || self.data.iter().skip(3).step_by(4).all(|&a| a == 255);
         let at = self.data.as_ptr() as usize;
-        match *self.opaque.get_or_init(|| (at, scan())) {
+        fits && match *self.opaque.get_or_init(|| (at, scan())) {
             (seen, opaque) if seen == at => opaque,
             _ => scan(),
         }
@@ -165,6 +174,24 @@ mod tests {
             "short data covers nothing"
         );
         assert!(!Image::new(0, 0, Vec::new()).is_opaque());
+    }
+
+    #[test]
+    fn a_hint_replaces_the_scan_but_not_the_size_check() {
+        let see_through = Image::new(1, 1, vec![0, 0, 0, 0]);
+        assert!(
+            see_through.clone().with_opaque(true).is_opaque(),
+            "taken on trust"
+        );
+        let solid = Image::new(1, 1, vec![0, 0, 0, 255]);
+        assert!(!solid.with_opaque(false).is_opaque());
+        assert!(
+            !Image::new(2, 2, vec![255; 4]).with_opaque(true).is_opaque(),
+            "short data"
+        );
+        let mut hinted = Image::new(1, 1, vec![0, 0, 0, 255]).with_opaque(true);
+        hinted.data = vec![0, 0, 0, 7].into();
+        assert!(!hinted.is_opaque(), "new data is read again");
     }
 
     #[test]
