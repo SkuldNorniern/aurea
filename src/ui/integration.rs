@@ -269,6 +269,39 @@ fn submission_does_not_commit_again_on_blur_and_escape_does_not_commit() {
     assert!(!cancelled.focused);
 }
 
+/// A field scrolled out of a list for a few frames, then back.
+#[test]
+fn a_field_that_leaves_the_frame_keeps_its_undo_and_commits_when_back() {
+    let apple = cfg!(any(target_os = "macos", target_os = "ios"));
+    let command = Modifiers {
+        ctrl: !apple,
+        meta: apple,
+        ..Modifiers::default()
+    };
+    let mut rig = Rig::new();
+    let mut text = String::new();
+    rig.frame(|ui| editor(ui, &mut text, false, true));
+    rig.state.focus(1, 0);
+    rig.state
+        .handle(&WindowEvent::TextInput { text: "ab".into() });
+    rig.frame(|ui| editor(ui, &mut text, false, true));
+    assert_eq!(text, "ab");
+    for _ in 0..3 {
+        rig.frame(|_| ());
+    }
+    let back = rig.frame(|ui| editor(ui, &mut text, false, true));
+    assert!(back.focus_lost && back.committed, "the dirty draft commits");
+    rig.state.focus(1, 0);
+    rig.frame(|ui| editor(ui, &mut text, false, true));
+    rig.state.handle(&WindowEvent::KeyInput {
+        key: KeyCode::Z,
+        pressed: true,
+        modifiers: command,
+    });
+    rig.frame(|ui| editor(ui, &mut text, false, true));
+    assert_eq!(text, "", "the typing undoes");
+}
+
 #[test]
 fn disabling_an_editor_rejects_queued_text_without_committing() {
     for multiline in [false, true] {

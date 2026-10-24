@@ -7,6 +7,11 @@ use std::mem;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+/// How long a field out of the frame keeps its undo and editing state.
+const KEEP_EDITS_FOR: Duration = Duration::from_secs(600);
+/// How many fields keep edit state at once.
+const KEEP_EDITS: usize = 64;
+
 use aurea_animation::Tweens;
 use aurea_foundation::{FastBuild, FastHasher};
 
@@ -193,6 +198,9 @@ pub struct UiState<Id: WidgetId> {
     pub(crate) edit_for: Option<Key<Id>>,
     pub(crate) edits: HashMap<Key<Id>, TextEdit>,
     pub(crate) editing: HashMap<Key<Id>, EditingSession>,
+    /// When each field with kept edit state was last drawn, so one scrolled out of a list keeps
+    /// its undo and draft for a while.
+    edit_seen: HashMap<Key<Id>, Instant>,
     pub(crate) blink_from: Instant,
     pub(crate) wheel: (f32, f32),
     pub(crate) path: Path,
@@ -245,6 +253,7 @@ impl<Id: WidgetId> UiState<Id> {
             edit_for: None,
             edits: HashMap::new(),
             editing: HashMap::new(),
+            edit_seen: HashMap::new(),
             blink_from: Instant::now(),
             wheel: (0.0, 0.0),
             path: Path::new(),
@@ -751,6 +760,30 @@ impl<Id: WidgetId> UiState<Id> {
         order.get(next).copied()
     }
 
+    /// Drops edit state for fields not drawn for [`KEEP_EDITS_FOR`], and the stalest past
+    /// [`KEEP_EDITS`].
+    fn forget_old_edits(&mut self) {
+        let now = Instant::now();
+        for hit in &self.hits {
+            if self.edits.contains_key(&hit.key) || self.editing.contains_key(&hit.key) {
+                self.edit_seen.insert(hit.key, now);
+            }
+        }
+        let seen = &mut self.edit_seen;
+        for key in self.edits.keys().chain(self.editing.keys()) {
+            seen.entry(*key).or_insert(now);
+        }
+        seen.retain(|_, at| now.duration_since(*at) < KEEP_EDITS_FOR);
+        if seen.len() > KEEP_EDITS {
+            let mut ages: Vec<Instant> = seen.values().copied().collect();
+            ages.sort_unstable();
+            let cut = ages[ages.len() - KEEP_EDITS];
+            seen.retain(|_, at| *at >= cut);
+        }
+        self.edits.retain(|key, _| seen.contains_key(key));
+        self.editing.retain(|key, _| seen.contains_key(key));
+    }
+
     pub(crate) fn end(&mut self) {
         if !self.focus_seen {
             self.focus = None;
@@ -766,10 +799,7 @@ impl<Id: WidgetId> UiState<Id> {
                 self.edit_for = Some(key);
             }
         }
-        self.edits
-            .retain(|key, _| self.hits.iter().any(|hit| hit.key == *key));
-        self.editing
-            .retain(|key, _| self.hits.iter().any(|hit| hit.key == *key));
+        self.forget_old_edits();
         mem::swap(&mut self.hits, &mut self.last_hits);
         mem::swap(&mut self.order, &mut self.last_order);
         let blinking = self.text_focused() && self.blink_from.elapsed() < BLINK_FOR;
