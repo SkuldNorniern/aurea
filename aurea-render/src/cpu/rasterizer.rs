@@ -600,12 +600,36 @@ impl CpuRasterizer {
                 }
             }
         } else {
-            for x in xi0..xi1 {
-                Self::blend_at(buf, bw, ctx, x, y, row_cov);
-            }
+            Self::blend_span_at(buf, bw, ctx, xi0, xi1, y, row_cov);
         }
 
         Self::fill_rect_edge_span(buf, bw, ctx, xi1, x1, y, row_cov);
+    }
+
+    /// [`Self::blend_at`] over `xa..xb` on row `y`, where every pixel has coverage `cov`.
+    fn blend_span_at(
+        buf: &mut [u32],
+        bw: u32,
+        ctx: &RectFillCtx,
+        xa: u32,
+        xb: u32,
+        y: u32,
+        cov: f32,
+    ) {
+        let inside = xa < xb
+            && ctx.clip.contains(xa as i32, y as i32)
+            && ctx.clip.contains((xb - 1) as i32, y as i32);
+        if let (Some(src), true) = (ctx.const_src, inside) {
+            let alpha = f32_to_u32_clamped((f32::from(ctx.paint.color.a) * cov).round());
+            let row_start = (y * bw) as usize;
+            if let Some(pixels) = buf.get_mut(row_start + xa as usize..row_start + xb as usize) {
+                src.over_span_at_alpha(pixels, alpha);
+                return;
+            }
+        }
+        for x in xa..xb {
+            Self::blend_at(buf, bw, ctx, x, y, cov);
+        }
     }
 
     fn blend_at(buf: &mut [u32], bw: u32, ctx: &RectFillCtx, x: u32, y: u32, cov: f32) {
@@ -703,9 +727,12 @@ impl CpuRasterizer {
                 continue;
             }
             let in_y = rect_cov_y(y, inner.y, inner.bottom());
-            let mut stroke_at = |x: u32| {
-                let cov = out_y * rect_cov_x(x, outer.x, outer.right())
-                    - in_y * rect_cov_x(x, inner.x, inner.right());
+            let cov_at = |x: u32| {
+                out_y * rect_cov_x(x, outer.x, outer.right())
+                    - in_y * rect_cov_x(x, inner.x, inner.right())
+            };
+            let stroke_at = |buf: &mut [u32], x: u32| {
+                let cov = cov_at(x);
                 if cov <= 0.0 {
                     return;
                 }
@@ -716,11 +743,42 @@ impl CpuRasterizer {
                 }
             };
             if in_y >= 1.0 {
-                left.clone().for_each(&mut stroke_at);
-                right.clone().for_each(&mut stroke_at);
-            } else {
-                (x0..x1).for_each(&mut stroke_at);
+                for x in left.clone().chain(right.clone()) {
+                    stroke_at(buf, x);
+                }
+                continue;
             }
+            // Only the columns holding an outer or inner edge can have a coverage that differs
+            // from their neighbours, so each run between them is one span.
+            let mut edges = [u32::MAX; 4];
+            for (slot, e) in edges
+                .iter_mut()
+                .zip([outer.x, outer.right(), inner.x, inner.right()])
+            {
+                let f = e.floor();
+                if f >= x0 as f32 && f < x1 as f32 {
+                    *slot = f32_to_u32_clamped(f);
+                }
+            }
+            edges.sort_unstable();
+            let run = |buf: &mut [u32], from: u32, to: u32| {
+                if from < to {
+                    let cov = cov_at(from);
+                    if cov > 0.0 {
+                        Self::blend_span_at(buf, bw, &ctx, from, to, y, cov.min(1.0));
+                    }
+                }
+            };
+            let mut from = x0;
+            for e in edges {
+                if e >= x1 || e < from {
+                    continue;
+                }
+                run(buf, from, e);
+                stroke_at(buf, e);
+                from = e + 1;
+            }
+            run(buf, from, x1);
         }
     }
 
@@ -1814,7 +1872,7 @@ impl Renderer for CpuRasterizer {
                     uncovered_runs(&self.scratch_under_clear, dims, |run| {
                         Self::clear_rect(&run, color, buf, bw, clip);
                     });
-                } else {
+                } else if !occluded[i] {
                     let whole = Rect::new(0.0, 0.0, bw as f32, bh as f32);
                     Self::clear_rect(&whole, color, buf, bw, clip);
                 }
@@ -4167,5 +4225,686 @@ mod gradient_and_scaled_tests {
             eprintln!("nearest scaled {label} 320x200 -> 627x202: {ns:.2} ns/pixel");
             black_box(buf);
         }
+    }
+}
+
+#[cfg(test)]
+mod rect_span_tests {
+    //! Oracles are copies of the pre-change code. The tests compare whole buffers against them.
+
+    use super::*;
+    use std::hint::black_box;
+    use std::time::Instant;
+
+    #[allow(clippy::too_many_arguments)]
+    fn ref_draw_rect(
+        rect: &Rect,
+        paint: &Paint,
+        mode: BlendMode,
+        buf: &mut [u32],
+        bw: u32,
+        clip: ClipBox,
+    ) {
+        let reach = match paint.style {
+            PaintStyle::Fill => 0.0,
+            PaintStyle::Stroke => paint.stroke_width / 2.0,
+        };
+        let x0 = f32_to_u32_clamped((rect.x - reach).floor().max(clip.left())).min(clip.x1);
+        let y0 = f32_to_u32_clamped((rect.y - reach).floor().max(clip.top())).min(clip.y1);
+        let x1 =
+            f32_to_u32_clamped((rect.x + rect.width + reach).ceil().max(clip.left())).min(clip.x1);
+        let y1 =
+            f32_to_u32_clamped((rect.y + rect.height + reach).ceil().max(clip.top())).min(clip.y1);
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
+        match paint.style {
+            PaintStyle::Fill => {
+                ref_fill_rect_region(rect, paint, mode, buf, bw, clip, x0, y0, x1, y1)
+            }
+            PaintStyle::Stroke => {
+                ref_stroke_rect_region(rect, paint, mode, buf, bw, clip, x0, y0, x1, y1)
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn ref_fill_rect_region(
+        rect: &Rect,
+        paint: &Paint,
+        mode: BlendMode,
+        buf: &mut [u32],
+        bw: u32,
+        clip: ClipBox,
+        x0: u32,
+        y0: u32,
+        x1: u32,
+        y1: u32,
+    ) {
+        if paint.color.a == 255 && mode == BlendMode::Normal && on_pixel_grid(rect) {
+            let c = color_to_u32(paint.color);
+            for y in y0..y1 {
+                let start = (y * bw + x0) as usize;
+                let end = (y * bw + x1) as usize;
+                if end <= buf.len() {
+                    buf[start..end].fill(c);
+                }
+            }
+        } else {
+            ref_fill_rect_region_translucent(rect, paint, mode, buf, bw, clip, x0, y0, x1, y1);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn ref_fill_rect_region_translucent(
+        rect: &Rect,
+        paint: &Paint,
+        mode: BlendMode,
+        buf: &mut [u32],
+        bw: u32,
+        clip: ClipBox,
+        x0: u32,
+        y0: u32,
+        x1: u32,
+        y1: u32,
+    ) {
+        let xl = rect.x;
+        let xr = rect.x + rect.width;
+        let yl = rect.y;
+        let yr = rect.y + rect.height;
+
+        let xi0 = f32_to_i32_clamped(xl.ceil())
+            .clamp(x0 as i32, x1 as i32)
+            .unsigned_abs();
+        let xi1 = f32_to_i32_clamped(xr.floor())
+            .clamp(x0 as i32, x1 as i32)
+            .unsigned_abs();
+        let has_full_x = xi0 < xi1;
+        let yi0 = f32_to_i32_clamped(yl.ceil())
+            .clamp(y0 as i32, y1 as i32)
+            .unsigned_abs();
+        let yi1 = f32_to_i32_clamped(yr.floor())
+            .clamp(y0 as i32, y1 as i32)
+            .unsigned_abs();
+
+        let const_src =
+            (mode == BlendMode::Normal).then(|| ConstSrc::new(color_to_u32(paint.color)));
+        let ctx = RectFillCtx {
+            clip,
+            paint,
+            mode,
+            xl,
+            xr,
+            c_full: color_to_u32(paint.color),
+            opaque_fast: mode == BlendMode::Normal && paint.color.a == 255,
+            const_src,
+        };
+
+        for y in y0..y1 {
+            let row_cov = if y >= yi0 && y < yi1 {
+                1.0
+            } else {
+                rect_cov_y(y, yl, yr)
+            };
+            if row_cov <= 0.0 {
+                continue;
+            }
+            ref_fill_rect_row_translucent(buf, bw, &ctx, x0, x1, xi0, xi1, has_full_x, y, row_cov);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn ref_fill_rect_row_translucent(
+        buf: &mut [u32],
+        bw: u32,
+        ctx: &RectFillCtx,
+        x0: u32,
+        x1: u32,
+        xi0: u32,
+        xi1: u32,
+        has_full_x: bool,
+        y: u32,
+        row_cov: f32,
+    ) {
+        if !has_full_x {
+            CpuRasterizer::fill_rect_edge_span(buf, bw, ctx, x0, x1, y, row_cov);
+            return;
+        }
+
+        CpuRasterizer::fill_rect_edge_span(buf, bw, ctx, x0, xi0, y, row_cov);
+
+        if row_cov >= 1.0 {
+            if ctx.opaque_fast {
+                let row_start = (y * bw) as usize;
+                buf[row_start + xi0 as usize..row_start + xi1 as usize].fill(ctx.c_full);
+            } else if let Some(src) = ctx.const_src {
+                let row_start = (y * bw) as usize;
+                let span = row_start + xi0 as usize..row_start + xi1 as usize;
+                if let Some(pixels) = buf.get_mut(span) {
+                    src.over_span(pixels);
+                }
+            } else {
+                for x in xi0..xi1 {
+                    CpuRasterizer::buf_set(
+                        buf, bw, ctx.clip, x as i32, y as i32, ctx.c_full, ctx.mode,
+                    );
+                }
+            }
+        } else {
+            for x in xi0..xi1 {
+                CpuRasterizer::blend_at(buf, bw, ctx, x, y, row_cov);
+            }
+        }
+
+        CpuRasterizer::fill_rect_edge_span(buf, bw, ctx, xi1, x1, y, row_cov);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn ref_stroke_rect_region(
+        rect: &Rect,
+        paint: &Paint,
+        mode: BlendMode,
+        buf: &mut [u32],
+        bw: u32,
+        clip: ClipBox,
+        x0: u32,
+        y0: u32,
+        x1: u32,
+        y1: u32,
+    ) {
+        let half = paint.stroke_width / 2.0;
+        if half <= 0.0 {
+            return;
+        }
+        let outer = Rect::new(
+            rect.x - half,
+            rect.y - half,
+            rect.width + 2.0 * half,
+            rect.height + 2.0 * half,
+        );
+        let inner = Rect::new(
+            rect.x + half,
+            rect.y + half,
+            (rect.width - 2.0 * half).max(0.0),
+            (rect.height - 2.0 * half).max(0.0),
+        );
+        if inner.width <= 0.0 || inner.height <= 0.0 {
+            let fill = paint.clone().style(PaintStyle::Fill);
+            return ref_fill_rect_region(&outer, &fill, mode, buf, bw, clip, x0, y0, x1, y1);
+        }
+        let const_src =
+            (mode == BlendMode::Normal).then(|| ConstSrc::new(color_to_u32(paint.color)));
+        let ctx = RectFillCtx {
+            clip,
+            paint,
+            mode,
+            xl: outer.x,
+            xr: outer.right(),
+            c_full: color_to_u32(paint.color),
+            opaque_fast: mode == BlendMode::Normal && paint.color.a == 255,
+            const_src,
+        };
+        let band = |from: f32, to: f32| {
+            f32_to_u32_clamped(from.floor()).clamp(x0, x1)
+                ..f32_to_u32_clamped(to.ceil()).clamp(x0, x1)
+        };
+        let left = band(outer.x, inner.x);
+        let right = band(inner.right(), outer.right());
+        for y in y0..y1 {
+            let out_y = rect_cov_y(y, outer.y, outer.bottom());
+            if out_y <= 0.0 {
+                continue;
+            }
+            let in_y = rect_cov_y(y, inner.y, inner.bottom());
+            let mut stroke_at = |x: u32| {
+                let cov = out_y * rect_cov_x(x, outer.x, outer.right())
+                    - in_y * rect_cov_x(x, inner.x, inner.right());
+                if cov <= 0.0 {
+                    return;
+                }
+                if cov >= 1.0 && ctx.opaque_fast {
+                    CpuRasterizer::buf_set(buf, bw, clip, x as i32, y as i32, ctx.c_full, mode);
+                } else {
+                    CpuRasterizer::blend_at(buf, bw, &ctx, x, y, cov.min(1.0));
+                }
+            };
+            if in_y >= 1.0 {
+                left.clone().for_each(&mut stroke_at);
+                right.clone().for_each(&mut stroke_at);
+            } else {
+                (x0..x1).for_each(&mut stroke_at);
+            }
+        }
+    }
+
+    /// Pre-change `end_frame`, kept as the oracle for the clear pass.
+    impl CpuRasterizer {
+        fn reference_end_frame(&mut self) -> AureaResult<FrameOutcome> {
+            let (bw, bh) = (self.width, self.height);
+            let pending = self.pending_damage.take();
+            let diff = self.diff_damage();
+
+            let Some(damage) = resolve_frame_damage(pending, diff, bw, bh) else {
+                return Ok(FrameOutcome::Unchanged);
+            };
+            if damage.is_some_and(|r| {
+                r.width <= 0.0
+                    || r.height <= 0.0
+                    || r.x >= bw as f32
+                    || r.y >= bh as f32
+                    || r.x + r.width <= 0.0
+                    || r.y + r.height <= 0.0
+            }) {
+                self.last_frame_damage = None;
+                self.capture_prev_items();
+                return Ok(FrameOutcome::Unchanged);
+            }
+
+            let (tiles_x, tiles_y) = tile_grid_dims(bw, bh);
+            let dirty_tiles = self.compute_dirty_tiles(damage, pending, tiles_x, tiles_y);
+
+            self.last_frame_damage = union_dirty_tile_rects(&dirty_tiles, tiles_x, tiles_y, bw, bh);
+            if self.last_frame_damage.is_none() {
+                self.scratch_dirty = dirty_tiles;
+                self.capture_prev_items();
+                return Ok(FrameOutcome::Unchanged);
+            }
+
+            let mut dirty_tiles = dirty_tiles;
+            if let Some(region) = self.last_frame_damage {
+                mark_tile_range_dirty(region, tiles_x, tiles_y, &mut dirty_tiles);
+            }
+
+            let surface_clip = match self.last_frame_damage {
+                Some(region) => ClipBox::surface(bw, bh).intersect(region),
+                None => ClipBox::surface(bw, bh),
+            };
+            let items = self.display_list.items();
+            let mut occluded = mem::take(&mut self.scratch_occluded);
+            let last_clear = mark_occluded(
+                items,
+                (tiles_x, tiles_y, bw, bh),
+                &mut self.scratch_covered,
+                &mut occluded,
+                &mut self.scratch_under_clear,
+            );
+            for (i, item) in items.iter().enumerate() {
+                if let DrawCommand::Clear(color) = &item.command {
+                    let (color, clip) =
+                        (color_to_u32(*color), surface_clip.intersect_opt(item.clip));
+                    let buf = &mut self.frame_buffer;
+                    if last_clear == Some(i) {
+                        let dims = (tiles_x, tiles_y, bw, bh);
+                        uncovered_runs(&self.scratch_under_clear, dims, |run| {
+                            CpuRasterizer::clear_rect(&run, color, buf, bw, clip);
+                        });
+                    } else {
+                        let whole = Rect::new(0.0, 0.0, bw as f32, bh as f32);
+                        CpuRasterizer::clear_rect(&whole, color, buf, bw, clip);
+                    }
+                    continue;
+                }
+
+                if !should_render_item(item, &occluded, i, &dirty_tiles, tiles_x, tiles_y) {
+                    continue;
+                }
+                CpuRasterizer::render_clipped_item(
+                    item,
+                    &mut self.frame_buffer,
+                    &mut self.scratch_path,
+                    &mut self.scratch_row,
+                    bw,
+                    surface_clip.intersect_opt(item.clip),
+                )?;
+            }
+
+            self.scratch_occluded = occluded;
+            self.scratch_dirty = dirty_tiles;
+            self.capture_prev_items();
+
+            self.has_frame = true;
+            Ok(FrameOutcome::Presented)
+        }
+    }
+
+    fn dst_uniform(w: u32, h: u32) -> Vec<u32> {
+        vec![0xff10_2030; (w * h) as usize]
+    }
+
+    /// Varied colours and alphas, including fully transparent pixels.
+    fn dst_varied(w: u32, h: u32) -> Vec<u32> {
+        (0..w * h)
+            .map(|i| {
+                if i % 5 == 0 {
+                    0
+                } else {
+                    i.wrapping_mul(2_654_435_761)
+                }
+            })
+            .collect()
+    }
+
+    const FRACTIONAL_RECTS: [(f32, f32, f32, f32); 8] = [
+        (10.3, 5.6, 40.25, 20.4),
+        (3.0, 2.5, 30.0, 7.75),
+        (-4.5, 1.25, 20.5, 30.5),
+        (50.2, 40.7, 30.0, 20.0),
+        (0.0, 0.0, 64.0, 48.0),
+        (12.5, 0.4, 0.5, 30.0),
+        (-100.0, -100.0, 10.0, 10.0),
+        (7.9, 3.33, 45.6, 0.9),
+    ];
+
+    fn colours() -> [Color; 4] {
+        [
+            Color::rgba(40, 120, 200, 128),
+            Color::rgba(200, 30, 90, 255),
+            Color::rgba(10, 10, 10, 90),
+            Color::rgb(255, 255, 255),
+        ]
+    }
+
+    fn clips() -> [ClipBox; 3] {
+        [
+            ClipBox::surface(64, 48),
+            ClipBox {
+                x0: 5,
+                y0: 4,
+                x1: 50,
+                y1: 40,
+            },
+            ClipBox {
+                x0: 0,
+                y0: 0,
+                x1: 20,
+                y1: 48,
+            },
+        ]
+    }
+
+    #[test]
+    fn fill_rect_matches_reference_over_fractional_rects() {
+        const W: u32 = 64;
+        const H: u32 = 48;
+        let mut cases = 0;
+        for (x, y, w, h) in FRACTIONAL_RECTS {
+            let rect = Rect::new(x, y, w, h);
+            for color in colours() {
+                let paint = Paint::new().color(color);
+                for mode in [BlendMode::Normal, BlendMode::Multiply] {
+                    for clip in clips() {
+                        for dst in [dst_uniform(W, H), dst_varied(W, H)] {
+                            let mut new = dst.clone();
+                            let mut old = dst;
+                            CpuRasterizer::draw_rect(&rect, &paint, mode, &mut new, W, clip);
+                            ref_draw_rect(&rect, &paint, mode, &mut old, W, clip);
+                            assert_eq!(
+                                new, old,
+                                "rect {rect:?} colour {color:?} mode {mode:?} clip {clip:?}"
+                            );
+                            cases += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(cases, 8 * 4 * 2 * 3 * 2);
+    }
+
+    #[test]
+    fn stroke_rect_matches_reference_over_fractional_rects() {
+        const W: u32 = 64;
+        const H: u32 = 48;
+        for (x, y, w, h) in FRACTIONAL_RECTS {
+            let rect = Rect::new(x, y, w, h);
+            for color in colours() {
+                for width in [1.0, 2.5, 6.0, 40.0] {
+                    let paint = Paint::new()
+                        .color(color)
+                        .style(PaintStyle::Stroke)
+                        .stroke_width(width);
+                    for mode in [BlendMode::Normal, BlendMode::Multiply] {
+                        for clip in clips() {
+                            for dst in [dst_uniform(W, H), dst_varied(W, H)] {
+                                let mut new = dst.clone();
+                                let mut old = dst;
+                                CpuRasterizer::draw_rect(&rect, &paint, mode, &mut new, W, clip);
+                                ref_draw_rect(&rect, &paint, mode, &mut old, W, clip);
+                                assert_eq!(
+                                    new, old,
+                                    "rect {rect:?} colour {color:?} width {width} mode {mode:?} clip {clip:?}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    type Scene = fn(&mut dyn DrawingContext, u8);
+
+    fn tint(k: u8, base: u8) -> Color {
+        Color::rgb(
+            base.wrapping_add(k.wrapping_mul(30)),
+            60u8.wrapping_add(k.wrapping_mul(17)),
+            140u8.wrapping_sub(k.wrapping_mul(9)),
+        )
+    }
+
+    fn solid(color: Color) -> Paint {
+        Paint::new().color(color)
+    }
+
+    fn scene_translucent_under_clear(ctx: &mut dyn DrawingContext, k: u8) {
+        ctx.clear(tint(k, 20)).unwrap();
+        ctx.draw_rect(
+            Rect::new(10.3, 5.6, 40.25, 20.4),
+            &solid(Color::rgba(40, 120, 200, 128)),
+        )
+        .unwrap();
+        ctx.clear(tint(k, 90)).unwrap();
+        ctx.draw_rect(
+            Rect::new(20.0, 10.0, 30.0, 16.0),
+            &solid(Color::rgb(200, 30, 90)),
+        )
+        .unwrap();
+    }
+
+    fn scene_clipped_last_clear(ctx: &mut dyn DrawingContext, k: u8) {
+        ctx.clear(tint(k, 20)).unwrap();
+        ctx.save().unwrap();
+        ctx.clip_rect(Rect::new(10.0, 10.0, 40.0, 20.0)).unwrap();
+        ctx.clear(tint(k, 150)).unwrap();
+        ctx.restore().unwrap();
+        ctx.draw_rect(
+            Rect::new(20.5, 4.25, 30.0, 12.5),
+            &solid(Color::rgba(10, 10, 10, 90)),
+        )
+        .unwrap();
+    }
+
+    fn scene_clipped_earlier_clear(ctx: &mut dyn DrawingContext, k: u8) {
+        ctx.save().unwrap();
+        ctx.clip_rect(Rect::new(4.0, 4.0, 80.0, 40.0)).unwrap();
+        ctx.clear(tint(k, 20)).unwrap();
+        ctx.restore().unwrap();
+        ctx.clear(tint(k, 150)).unwrap();
+    }
+
+    fn scene_translucent_clears(ctx: &mut dyn DrawingContext, k: u8) {
+        let a = tint(k, 40);
+        ctx.clear(Color::rgba(a.r, a.g, a.b, 100)).unwrap();
+        ctx.clear(Color::rgba(a.b, a.r, a.g, 200)).unwrap();
+        ctx.set_blend_mode(BlendMode::Multiply).unwrap();
+        ctx.draw_rect(
+            Rect::new(3.5, 3.5, 50.0, 30.0),
+            &solid(Color::rgba(90, 200, 60, 180)),
+        )
+        .unwrap();
+        ctx.set_blend_mode(BlendMode::Normal).unwrap();
+    }
+
+    fn scene_three_clears(ctx: &mut dyn DrawingContext, k: u8) {
+        ctx.clear(tint(k, 20)).unwrap();
+        ctx.clear(tint(k, 60)).unwrap();
+        ctx.clear(tint(k, 100)).unwrap();
+        ctx.draw_rect(
+            Rect::new(7.25, 9.5, 33.5, 11.75),
+            &solid(Color::rgb(250, 240, 20)),
+        )
+        .unwrap();
+    }
+
+    fn scene_opaque_between(ctx: &mut dyn DrawingContext, k: u8) {
+        ctx.clear(tint(k, 20)).unwrap();
+        ctx.draw_rect(Rect::new(0.0, 0.0, 48.0, 64.0), &solid(tint(k, 200)))
+            .unwrap();
+        ctx.clear(Color::rgba(0, 0, 0, 128)).unwrap();
+        ctx.clip_rect(Rect::new(0.0, 0.0, 96.0, 20.0)).unwrap();
+        ctx.clear(tint(k, 70)).unwrap();
+    }
+
+    fn scene_circle_then_clear(ctx: &mut dyn DrawingContext, k: u8) {
+        ctx.clear(tint(k, 20)).unwrap();
+        ctx.draw_circle(
+            Point::new(40.0, 30.0),
+            20.0,
+            &solid(Color::rgb(30, 220, 200)),
+        )
+        .unwrap();
+        ctx.clear(Color::rgba(0, 0, 0, 128)).unwrap();
+    }
+
+    fn scene_small_change(ctx: &mut dyn DrawingContext, k: u8) {
+        ctx.clear(Color::rgb(30, 30, 30)).unwrap();
+        ctx.clear(Color::rgb(60, 60, 60)).unwrap();
+        ctx.draw_rect(
+            Rect::new(30.5, 20.25, 20.0, 10.0),
+            &solid(Color::rgba(k.wrapping_mul(50), 100, 200, 150)),
+        )
+        .unwrap();
+    }
+
+    /// Renders one frame through the old or the new `end_frame` and returns the buffer.
+    fn frame(
+        r: &mut CpuRasterizer,
+        reference: bool,
+        scene: impl FnOnce(&mut dyn DrawingContext),
+    ) -> Vec<u32> {
+        let mut ctx = r.begin_frame().unwrap();
+        scene(&mut *ctx);
+        drop(ctx);
+        if reference {
+            r.reference_end_frame().unwrap();
+        } else {
+            r.end_frame().unwrap();
+        }
+        r.frame_buffer.clone()
+    }
+
+    #[test]
+    fn clear_pass_matches_reference_end_frame() {
+        let scenes: [Scene; 9] = [
+            scene_translucent_under_clear,
+            scene_clipped_last_clear,
+            scene_clipped_earlier_clear,
+            scene_translucent_clears,
+            scene_three_clears,
+            scene_opaque_between,
+            scene_circle_then_clear,
+            scene_small_change,
+            scene_translucent_under_clear,
+        ];
+        let ks = [0u8, 1, 2, 3, 3, 0, 5];
+        for scene in scenes {
+            let mut new = CpuRasterizer::new(96, 64);
+            let mut old = CpuRasterizer::new(96, 64);
+            for k in ks {
+                let a = frame(&mut new, false, |ctx| scene(ctx, k));
+                let b = frame(&mut old, true, |ctx| scene(ctx, k));
+                assert!(a == b, "frame k={k} differs from the reference end_frame");
+            }
+        }
+    }
+
+    fn time_per_op(label: &str, iters: u32, mut op: impl FnMut()) {
+        let start = Instant::now();
+        for _ in 0..iters {
+            op();
+        }
+        eprintln!(
+            "{label}: {:.2} us/op",
+            start.elapsed().as_secs_f64() * 1e6 / f64::from(iters)
+        );
+    }
+
+    #[test]
+    #[ignore = "manual fractional translucent fill timing"]
+    fn fractional_translucent_fill_timing() {
+        const W: u32 = 1920;
+        const H: u32 = 1080;
+        let mut buf = dst_uniform(W, H);
+        let clip = ClipBox::surface(W, H);
+        let rect = Rect::new(100.3, 50.6, 1200.4, 300.25);
+        let paint = solid(Color::rgba(40, 120, 200, 128));
+        time_per_op("fractional translucent fill 1200x300", 50, || {
+            CpuRasterizer::draw_rect(
+                black_box(&rect),
+                &paint,
+                BlendMode::Normal,
+                black_box(&mut buf),
+                W,
+                clip,
+            );
+        });
+        black_box(buf);
+    }
+
+    #[test]
+    #[ignore = "manual fractional stroke timing"]
+    fn fractional_stroke_timing() {
+        const W: u32 = 1920;
+        const H: u32 = 1080;
+        let mut buf = dst_uniform(W, H);
+        let clip = ClipBox::surface(W, H);
+        let rect = Rect::new(100.3, 50.6, 1200.4, 300.25);
+        let paint = Paint::new()
+            .color(Color::rgba(40, 120, 200, 128))
+            .style(PaintStyle::Stroke)
+            .stroke_width(20.0);
+        time_per_op("fractional translucent stroke 1200x300 w20", 50, || {
+            CpuRasterizer::draw_rect(
+                black_box(&rect),
+                &paint,
+                BlendMode::Normal,
+                black_box(&mut buf),
+                W,
+                clip,
+            );
+        });
+        black_box(buf);
+    }
+
+    #[test]
+    #[ignore = "manual full-frame clear pass timing"]
+    fn full_frame_clears_timing() {
+        let mut r = CpuRasterizer::new(1920, 1080);
+        let mut n = 0u8;
+        time_per_op("1920x1080 frame: 4 clears + rect", 60, || {
+            n = n.wrapping_add(1);
+            let mut ctx = r.begin_frame().unwrap();
+            ctx.clear(Color::rgb(n, 20, 20)).unwrap();
+            ctx.clear(Color::rgb(n, 40, 20)).unwrap();
+            ctx.clear(Color::rgb(n, 60, 20)).unwrap();
+            ctx.clear(Color::rgb(n, 80, 20)).unwrap();
+            ctx.draw_rect(
+                Rect::new(100.0, 100.0, 300.0, 200.0),
+                &solid(Color::rgb(9, 9, 9)),
+            )
+            .unwrap();
+            drop(ctx);
+            r.end_frame().unwrap();
+        });
     }
 }
