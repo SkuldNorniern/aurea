@@ -4,7 +4,7 @@ use super::{
     Button, Response, ScrollArea, ScrollStyle, Slider, Stepper, TextArea, TextField, Theme, Ui,
     UiState,
 };
-use crate::render::{Color, CpuRasterizer, Rect, Renderer};
+use crate::render::{Color, CpuRasterizer, Point, Rect, Renderer};
 use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, WindowEvent};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -383,6 +383,17 @@ fn a_blinking_caret_asks_for_its_next_edge_not_every_frame() {
     assert!(
         rig.state.next_frame_at().is_none(),
         "nothing blinks without focus"
+    );
+}
+
+#[test]
+fn a_tooltip_can_hang_off_a_point() {
+    let mut rig = Rig::new();
+    rig.frame(|ui| ui.tooltip_at(Point::new(40.0, 30.0), "unused variable"));
+    assert_eq!(rig.state.tip.text, "unused variable");
+    assert_eq!(
+        rig.state.tip.since.map(|(r, _)| r),
+        Some(Rect::new(40.0, 30.0, 0.0, 0.0))
     );
 }
 

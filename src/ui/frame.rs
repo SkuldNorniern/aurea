@@ -394,13 +394,23 @@ impl<Id: WidgetId> Ui<'_, Id> {
         self.state.tweens.keep_busy();
     }
 
-    /// Shows `text` under `response`'s rect while the pointer rests on it.
+    /// Shows `text` under `response`'s rect while the pointer rests on it, after a short delay.
     pub fn tooltip(&mut self, response: &Response, text: &str) {
         if response.hovered && !response.held {
-            self.state.tip.anchor = Some(response.rect);
-            self.state.tip.text.clear();
-            self.state.tip.text.push_str(text);
+            self.show_tip(response.rect, text);
         }
+    }
+
+    /// Shows `text` next to `at`, such as under a squiggle the app found the pointer resting on,
+    /// after the same delay; call it each frame it should stay.
+    pub fn tooltip_at(&mut self, at: Point, text: &str) {
+        self.show_tip(Rect::new(at.x, at.y, 0.0, 0.0), text);
+    }
+
+    fn show_tip(&mut self, anchor: Rect, text: &str) {
+        self.state.tip.anchor = Some(anchor);
+        self.state.tip.text.clear();
+        self.state.tip.text.push_str(text);
     }
 
     /// The theme's fonts, made once per theme.
