@@ -238,6 +238,15 @@ const wchar_t* ng_windows_get_class_name(void) {
     return CLASS_NAME;
 }
 
+/* Lifecycle code 8 is MemoryWarning in the Rust event_from_id table. */
+void ng_windows_send_memory_warning(void) {
+    for (int i = 0; i < g_tracked_count && i < 256; i++) {
+        if (g_lifecycle_callbacks[i] && g_tracked_windows[i]) {
+            ng_invoke_lifecycle_callback((void*)g_tracked_windows[i], 8);
+        }
+    }
+}
+
 void ng_windows_register_scale_callback(HWND hwnd, ScaleFactorCallback callback) {
     for (int i = 0; i < g_tracked_count && i < 256; i++) {
         if (g_tracked_windows[i] == hwnd) {

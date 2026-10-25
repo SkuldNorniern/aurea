@@ -231,6 +231,7 @@ impl Window {
                     }
                     LifecycleEvent::WindowMinimized => WindowEvent::Minimized,
                     LifecycleEvent::WindowRestored => WindowEvent::Restored,
+                    LifecycleEvent::MemoryWarning => WindowEvent::MemoryWarning,
                     LifecycleEvent::SurfaceLost => WindowEvent::SurfaceLost,
                     LifecycleEvent::SurfaceRecreated => WindowEvent::SurfaceRecreated,
                     _ => return,
