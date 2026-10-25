@@ -12,7 +12,9 @@ use crate::AureaResult;
 use crate::render::{Color, Point, Rect};
 use crate::ui::component::{FocusRing, StateColors};
 use crate::ui::frame::{Eased, Response, Ui};
-use crate::ui::paint::{Component, Label, Mark, MarkShape, Surface, TextSize};
+use crate::ui::paint::{
+    Component, IconMark, IconSource, Label, Mark, MarkShape, Surface, TextSize,
+};
 use crate::ui::state::{Channel, Interaction, Sense, WidgetId};
 use crate::ui::theme::Theme;
 use crate::window::CursorIcon;
@@ -21,6 +23,18 @@ use std::mem;
 const BAR_PART: u16 = 0x4000;
 const CLOSE_PART: u16 = 0x8000;
 const DRAG_FROM: f32 = 6.0;
+const DIRTY_DOT: f32 = 6.0;
+const ICON_GAP: f32 = 4.0;
+
+/// Which tabs show their close button, when the dock has them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CloseButtons {
+    /// On every tab.
+    #[default]
+    Always,
+    /// On the shown tab and the tab under the pointer.
+    ActiveOrHovered,
+}
 
 /// How a dock looks.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -53,6 +67,8 @@ pub struct DockStyle {
     pub text_size: TextSize,
     /// Strip height, gap and minimum part size.
     pub metrics: DockMetrics,
+    /// Which tabs show close buttons, when the view has them.
+    pub close_on: CloseButtons,
 }
 
 impl DockStyle {
@@ -78,6 +94,7 @@ impl DockStyle {
                 gap: 4.0,
                 min_part: 64.0,
             },
+            close_on: CloseButtons::Always,
         }
     }
 }
@@ -158,6 +175,22 @@ enum Change<P> {
     Ratio(usize, f32),
 }
 
+/// Per-tab answers the app gives beyond the title; both default to none.
+struct TabMarks<'d, P> {
+    dirty: Option<Box<dyn Fn(P) -> bool + 'd>>,
+    icon: Option<Box<dyn Fn(P) -> Option<IconSource<'d>> + 'd>>,
+}
+
+impl<P: Copy> TabMarks<'_, P> {
+    fn dirty(&self, panel: P) -> bool {
+        self.dirty.as_ref().is_some_and(|dirty| dirty(panel))
+    }
+
+    fn icon(&self, panel: P) -> Option<IconSource<'_>> {
+        self.icon.as_ref().and_then(|icon| icon(panel))
+    }
+}
+
 /// Shows a [`Dock`]: `title` names each panel, `content` draws the panel each group shows, clipped
 /// to its rect.
 pub struct DockView<'d, P, T, C> {
@@ -166,6 +199,7 @@ pub struct DockView<'d, P, T, C> {
     content: C,
     style: Option<DockStyle>,
     close_buttons: bool,
+    marks: TabMarks<'d, P>,
 }
 
 impl<'d, P, T, C> DockView<'d, P, T, C> {
@@ -177,6 +211,10 @@ impl<'d, P, T, C> DockView<'d, P, T, C> {
             content,
             style: None,
             close_buttons: false,
+            marks: TabMarks {
+                dirty: None,
+                icon: None,
+            },
         }
     }
 
@@ -191,6 +229,20 @@ impl<'d, P, T, C> DockView<'d, P, T, C> {
     #[must_use]
     pub fn close_buttons(mut self, show: bool) -> Self {
         self.close_buttons = show;
+        self
+    }
+
+    /// Marks each tab `dirty` says has unsaved changes: it shows a dot where its close button is.
+    #[must_use]
+    pub fn dirty(mut self, dirty: impl Fn(P) -> bool + 'd) -> Self {
+        self.marks.dirty = Some(Box::new(dirty));
+        self
+    }
+
+    /// Draws the icon `icon` gives before each tab's title.
+    #[must_use]
+    pub fn icon(mut self, icon: impl Fn(P) -> Option<IconSource<'d>> + 'd) -> Self {
+        self.marks.icon = Some(Box::new(icon));
         self
     }
 
@@ -224,6 +276,7 @@ where
             mut content,
             style,
             close_buttons,
+            marks,
         } = self;
         dock.tab_events.clear();
         let style = style.unwrap_or_else(|| DockStyle::new(ui.theme));
@@ -242,6 +295,7 @@ where
                 dock,
                 g,
                 &title,
+                &marks,
                 &style,
                 close_buttons,
                 &mut change,
@@ -259,7 +313,7 @@ where
             let bar = dock.layout.bars[b];
             bar_part(ui, id, bar, &style, &mut change)?;
         }
-        follow_drag(ui, dock, held, &title, &style, &mut response)?;
+        follow_drag(ui, dock, held, &title, &marks, &style, &mut response)?;
         let changed = match change {
             Some(Change::Activate(panel)) => {
                 !dock.tree.is_active(panel) && dock.tree.activate(panel)
@@ -275,6 +329,26 @@ where
     }
 }
 
+/// Room a tab's icon takes before its title, none without an icon.
+fn icon_room(style: &DockStyle, icon: Option<IconSource<'_>>) -> f32 {
+    if icon.is_some() {
+        style.metrics.strip * 0.5 + ICON_GAP
+    } else {
+        0.0
+    }
+}
+
+/// The square an icon fills at the start of a tab.
+fn icon_rect(cell: Rect, style: &DockStyle) -> Rect {
+    let size = style.metrics.strip * 0.5;
+    Rect::new(
+        cell.x + style.tab_padding / 2.0,
+        cell.center().y - size / 2.0,
+        size,
+        size,
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 fn tabs<'t, Id: WidgetId, P: Copy + PartialEq>(
     ui: &mut Ui<'_, Id>,
@@ -282,6 +356,7 @@ fn tabs<'t, Id: WidgetId, P: Copy + PartialEq>(
     dock: &mut Dock<P>,
     g: usize,
     title: &impl Fn(P) -> &'t str,
+    marks: &TabMarks<'_, P>,
     style: &DockStyle,
     close_buttons: bool,
     change: &mut Option<Change<P>>,
@@ -297,12 +372,16 @@ fn tabs<'t, Id: WidgetId, P: Copy + PartialEq>(
     for (i, at) in group.tabs.clone().enumerate() {
         let panel = dock.layout.panels[at];
         let label = Label::new(title(panel), style.text).size(style.text_size);
-        let close_width = if close_buttons {
+        let dirty = marks.dirty(panel);
+        let icon = marks.icon(panel);
+        let close_width = if close_buttons || dirty {
             group.strip.height * 0.75
         } else {
             0.0
         };
-        let width = (label.width(ui) + style.tab_padding * 2.0 + close_width).min(style.max_tab);
+        let width =
+            (label.width(ui) + style.tab_padding * 2.0 + close_width + icon_room(style, icon))
+                .min(style.max_tab);
         let room = (group.strip.right() - x).max(0.0);
         let cell = Rect::new(x, group.strip.y, width.min(room), group.strip.height);
         x += cell.width;
@@ -332,8 +411,10 @@ fn tabs<'t, Id: WidgetId, P: Copy + PartialEq>(
             f32::from(u8::from(shown)),
             ui.theme.motion.slide,
         );
-        paint_tab(ui, cell, label, active, state, style, close_width)?;
-        if close_buttons && cell.width > 0.0 {
+        paint_tab(ui, cell, label, active, state, style, close_width, icon)?;
+        let hot = input.hovered || ui.pointer().is_some_and(|p| cell.contains(p));
+        let close_shown = close_buttons && (style.close_on == CloseButtons::Always || shown || hot);
+        if (close_shown || dirty) && cell.width > 0.0 {
             let close = Rect::new(
                 cell.right() - close_width.min(cell.width),
                 cell.y,
@@ -357,7 +438,18 @@ fn tabs<'t, Id: WidgetId, P: Copy + PartialEq>(
                 ui.round(close.inset(2.0), style.radius, style.tab.at(eased))?;
             }
             FocusRing::new(ui.theme, style.radius, eased.focus).paint(ui, close.inset(2.0))?;
-            Mark::new(MarkShape::Cross, style.text).paint(ui, close.inset(5.0))?;
+            if dirty && !hot {
+                let centre = close.center();
+                let dot = Rect::new(
+                    centre.x - DIRTY_DOT / 2.0,
+                    centre.y - DIRTY_DOT / 2.0,
+                    DIRTY_DOT,
+                    DIRTY_DOT,
+                );
+                ui.round(dot, DIRTY_DOT / 2.0, style.text)?;
+            } else {
+                Mark::new(MarkShape::Cross, style.text).paint(ui, close.inset(5.0))?;
+            }
         }
     }
     let part = BAR_PART + u16::try_from(g).unwrap_or(BAR_PART - 1).min(BAR_PART - 1);
@@ -408,6 +500,7 @@ fn press_tab<Id: WidgetId, P: Copy + PartialEq>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_tab<Id: WidgetId>(
     ui: &mut Ui<'_, Id>,
     cell: Rect,
@@ -416,6 +509,7 @@ fn paint_tab<Id: WidgetId>(
     state: Eased,
     style: &DockStyle,
     close_width: f32,
+    icon: Option<IconSource<'_>>,
 ) -> AureaResult<()> {
     let top = Rect::new(cell.x, cell.y, cell.width, cell.height + style.radius);
     let fill = style.tab.at(state).mix(style.active_tab, active);
@@ -425,12 +519,16 @@ fn paint_tab<Id: WidgetId>(
     ui.ctx.restore()?;
     FocusRing::new(ui.theme, style.radius, state.focus).paint(ui, cell.inset(2.0))?;
     let color = style.text.mix(style.active_text, active);
+    let room = icon_room(style, icon);
+    if let Some(icon) = icon {
+        IconMark::new(icon, color).paint(ui, icon_rect(cell, style))?;
+    }
     Label { color, ..label }.centered().paint(
         ui,
         Rect::new(
-            cell.x,
+            cell.x + room,
             cell.y,
-            (cell.width - close_width).max(0.0),
+            (cell.width - close_width - room).max(0.0),
             cell.height,
         )
         .inset_xy(style.tab_padding / 2.0, 0.0),
@@ -490,6 +588,7 @@ fn follow_drag<'t, Id: WidgetId, P: Copy + PartialEq>(
     dock: &mut Dock<P>,
     held: bool,
     title: &impl Fn(P) -> &'t str,
+    marks: &TabMarks<'_, P>,
     style: &DockStyle,
     response: &mut Response,
 ) -> AureaResult<()> {
@@ -523,15 +622,27 @@ fn follow_drag<'t, Id: WidgetId, P: Copy + PartialEq>(
             .paint(ui, shown)?;
     }
     let label = Label::new(title(panel), style.active_text).size(style.text_size);
-    let width = (label.width(ui) + style.tab_padding * 2.0).min(style.max_tab);
+    let icon = marks.icon(panel);
+    let room = icon_room(style, icon);
+    let width = (label.width(ui) + style.tab_padding * 2.0 + room).min(style.max_tab);
     let chip = Rect::new(at.x + 12.0, at.y + 8.0, width, style.metrics.strip);
     Surface::new(style.active_tab)
         .radius(style.radius)
         .border(1.0, style.accent)
         .paint(ui, chip)?;
-    label
-        .centered()
-        .paint(ui, chip.inset_xy(style.tab_padding / 2.0, 0.0))
+    if let Some(icon) = icon {
+        IconMark::new(icon, style.active_text).paint(ui, icon_rect(chip, style))?;
+    }
+    label.centered().paint(
+        ui,
+        Rect::new(
+            chip.x + room,
+            chip.y,
+            (chip.width - room).max(0.0),
+            chip.height,
+        )
+        .inset_xy(style.tab_padding / 2.0, 0.0),
+    )
 }
 
 fn drop_target<P: Copy>(layout: &DockLayout<P>, at: Point) -> Option<(P, DockSide)> {
@@ -561,7 +672,14 @@ mod tests {
         dock: Dock<u8>,
         drawn: Vec<(u8, Rect)>,
         tab_events: Vec<DockTabEvent<u8>>,
+        close_on: CloseButtons,
+        dirty: Vec<u8>,
     }
+
+    /// Tabs are this wide, so a tab's close slot sits at a known x.
+    const TAB_WIDTH: f32 = 40.0;
+    /// Centre of tab 2's close slot (group 1 starts at 204).
+    const TWO_CLOSE: (f32, f32) = (204.0 + TAB_WIDTH - 10.5, 14.0);
 
     impl Rig {
         fn new() -> Self {
@@ -577,6 +695,8 @@ mod tests {
                 dock: Dock::new(tree),
                 drawn: Vec::new(),
                 tab_events: Vec::new(),
+                close_on: CloseButtons::Always,
+                dirty: Vec::new(),
             };
             rig.frame();
             rig
@@ -586,20 +706,34 @@ mod tests {
             let mut ctx = self.raster.begin_frame().expect("frame");
             self.drawn.clear();
             {
+                let mut style = DockStyle::new(&self.theme);
+                style.max_tab = TAB_WIDTH;
+                style.close_on = self.close_on;
                 let mut ui = self.ui.frame(&mut *ctx, &self.theme);
                 let drawn = &mut self.drawn;
+                let dirty = &self.dirty;
                 let title = |p: u8| ["", "One", "Two", "Three"][usize::from(p)];
                 DockView::new(&mut self.dock, title, |_: &mut Ui<'_, u8>, panel, rect| {
                     drawn.push((panel, rect));
                     Ok(())
                 })
+                .style(style)
                 .close_buttons(true)
+                .dirty(move |p| dirty.contains(&p))
                 .show(&mut ui, 0, AREA)
                 .expect("draw");
             }
             drop(ctx);
             self.tab_events = self.dock.take_tab_events();
             self.raster.end_frame().expect("end");
+        }
+
+        /// Red channel of the pixel at `(x, y)` in the last frame.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        fn red(&self, x: f32, y: f32) -> u8 {
+            let frame = self.raster.frame_output().expect("pixels");
+            let (w, bytes) = (frame.width as usize, frame.bytes());
+            bytes[(y as usize * w + x as usize) * 4]
         }
 
         fn button(&mut self, x: f32, y: f32, pressed: bool) {
@@ -739,5 +873,40 @@ mod tests {
             "and went under 2 and 3"
         );
         assert_eq!(rig.shown(), [3, 1]);
+    }
+
+    #[test]
+    fn active_or_hovered_close_buttons_leave_inactive_tabs_bare() {
+        let mut rig = Rig::new();
+        rig.close_on = CloseButtons::ActiveOrHovered;
+        let (x, y) = TWO_CLOSE;
+        rig.move_to(300.0, 290.0);
+        let bare = rig.red(x - 8.0, y);
+        assert_eq!(rig.red(x, y), bare, "no cross on an unhovered inactive tab");
+        rig.move_to(x, y);
+        assert_ne!(rig.red(x, y), bare, "hovering the tab shows its cross");
+        rig.button(x, y, true);
+        rig.button(x, y, false);
+        assert_eq!(rig.tab_events, [DockTabEvent::CloseRequested(2)]);
+    }
+
+    #[test]
+    fn dirty_tabs_show_a_dot_and_clicking_it_closes() {
+        let mut rig = Rig::new();
+        rig.close_on = CloseButtons::ActiveOrHovered;
+        let (x, y) = TWO_CLOSE;
+        rig.move_to(300.0, 290.0);
+        let bare = rig.red(x - 8.0, y);
+        rig.dirty.push(2);
+        rig.frame();
+        assert_ne!(
+            rig.red(x, y),
+            bare,
+            "the dot sits where the close button is"
+        );
+        rig.move_to(x, y);
+        rig.button(x, y, true);
+        rig.button(x, y, false);
+        assert_eq!(rig.tab_events, [DockTabEvent::CloseRequested(2)]);
     }
 }
