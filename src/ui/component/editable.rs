@@ -77,6 +77,8 @@ pub struct EditableText<'v> {
     password: bool,
     rules: Rules<'v>,
     commit_on_blur: bool,
+    pass_vertical_keys: bool,
+    select_all_on_focus: bool,
 }
 
 impl<'v> EditableText<'v> {
@@ -88,6 +90,8 @@ impl<'v> EditableText<'v> {
             password: false,
             rules: Rules::default(),
             commit_on_blur: false,
+            pass_vertical_keys: false,
+            select_all_on_focus: false,
         }
     }
 
@@ -115,6 +119,18 @@ impl<'v> EditableText<'v> {
         self
     }
 
+    /// Leaves Up, Down, PageUp and PageDown unused, so the app can read them.
+    pub fn pass_vertical_keys(mut self, pass: bool) -> Self {
+        self.pass_vertical_keys = pass;
+        self
+    }
+
+    /// Selects everything when focus starts editing.
+    pub fn select_all_on_focus(mut self, select: bool) -> Self {
+        self.select_all_on_focus = select;
+        self
+    }
+
     /// Draws the text in `rect` and applies this frame's typing.
     pub fn show<Id: WidgetId>(
         mut self,
@@ -126,7 +142,11 @@ impl<'v> EditableText<'v> {
         let key = Key::new(id, part);
         let mut outcome = TextOutcome::default();
         if input.enabled && (input.focused || ui.state.typed_targets.contains(&Some(key))) {
+            let gained = input.focused && !ui.state.editing.get(&key).is_some_and(|s| s.focused);
             self.start_editing(ui, key);
+            if gained && self.select_all_on_focus {
+                ui.state.edit.select_all(self.text);
+            }
             let typed = self.type_in(ui, key);
             outcome = TextOutcome {
                 changed: typed.changed,
@@ -186,6 +206,14 @@ impl<'v> EditableText<'v> {
         };
         for (typed, target) in state.typed.iter().zip(&state.typed_targets) {
             if *target != Some(key) {
+                continue;
+            }
+            if self.pass_vertical_keys
+                && let Typed::Key(
+                    KeyCode::Up | KeyCode::Down | KeyCode::PageUp | KeyCode::PageDown,
+                    _,
+                ) = typed
+            {
                 continue;
             }
             typing.merge(apply(
