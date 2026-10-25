@@ -19,6 +19,7 @@ void ng_linux_window_show(NGHandle window);
 void ng_linux_window_hide(NGHandle window);
 void ng_linux_window_set_close_guard(NGHandle window, int guarded);
 int ng_linux_window_is_visible(NGHandle window);
+int ng_linux_window_occlusion(NGHandle window);
 int ng_linux_set_window_content(NGHandle window, NGHandle content);
 float ng_linux_get_scale_factor(NGHandle window);
 void ng_linux_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallback callback);

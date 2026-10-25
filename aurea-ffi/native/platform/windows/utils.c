@@ -1,6 +1,10 @@
 ﻿#include <stdlib.h>
 #include "drop.h"
 #include "utils.h"
+#include "occlusion.h"
+
+#define AUREA_OCCLUSION_TIMER_ID 0xA0E3
+#define AUREA_OCCLUSION_PROP "AureaOcclusion"
 #include "window.h"
 #include "menu.h"
 #include "ime.h"
@@ -34,6 +38,25 @@ static BOOL g_shortcut_took_syskey = FALSE;
 static WPARAM g_menu_took_key = 0;
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+
+/* Tells Rust about `hwnd`'s lifecycle `code`, if it listens for them. */
+static void ng_windows_lifecycle(HWND hwnd, int code) {
+    for (int i = 0; i < g_tracked_count; i++) {
+        if (g_tracked_windows[i] == hwnd) {
+            if (g_lifecycle_callbacks[i]) ng_invoke_lifecycle_callback((void*)hwnd, code);
+            return;
+        }
+    }
+}
+
+/* Lifecycle codes 13 to 15: visible, partly covered, covered. Sent when the level changes. */
+static void ng_windows_check_occlusion(HWND hwnd) {
+    int now = ng_windows_occlusion_of(hwnd);
+    int was = (int)(INT_PTR)GetPropA(hwnd, AUREA_OCCLUSION_PROP) - 1;
+    if (now == was) return;
+    SetPropA(hwnd, AUREA_OCCLUSION_PROP, (HANDLE)(INT_PTR)(now + 1));
+    if (was >= 0) ng_windows_lifecycle(hwnd, 13 + now);
+}
 
 static void ng_windows_declare_dpi_awareness(void) {
     typedef BOOL (WINAPI *SetContextFunc)(HANDLE);
@@ -273,6 +296,9 @@ void ng_windows_register_lifecycle_callback(HWND hwnd) {
         g_lifecycle_callbacks[g_tracked_count] = TRUE;
         g_tracked_count++;
     }
+    /* other windows moving over this one send it nothing, so look twice a second */
+    SetTimer(hwnd, AUREA_OCCLUSION_TIMER_ID, 500, NULL);
+    ng_windows_check_occlusion(hwnd);
 }
 
 unsigned int ng_windows_window_refresh_hz(void) {
@@ -618,6 +644,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             }
             break;
         case WM_TIMER:
+            if (wParam == AUREA_OCCLUSION_TIMER_ID) {
+                ng_windows_check_occlusion(hwnd);
+                return 0;
+            }
             if (wParam == AUREA_HOVER_TIMER_ID) {
                 ng_windows_recheck_pointer(hwnd);
                 int idx = ng_windows_tracked_index(hwnd);
@@ -847,12 +877,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         }
         
         case WM_CLOSE: {
-            for (int i = 0; i < g_tracked_count; i++) {
-                if (g_tracked_windows[i] == hwnd && g_lifecycle_callbacks[i]) {
-                    ng_invoke_lifecycle_callback((void*)hwnd, 5);
-                    break;
-                }
-            }
+            ng_windows_lifecycle(hwnd, 5);
             if (GetPropA(hwnd, AUREA_CLOSE_GUARD_PROPERTY)) {
                 return 0;
             }
@@ -887,35 +912,23 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             if (wParam == SIZE_MINIMIZED) {
                 if (was_minimized) break;
                 SetPropA(hwnd, "AureaMinimized", (HANDLE)1);
-                for (int i = 0; i < g_tracked_count; i++) {
-                    if (g_tracked_windows[i] == hwnd && g_lifecycle_callbacks[i]) {
-                        ng_invoke_lifecycle_callback((void*)hwnd, 6);
-                        ng_invoke_lifecycle_callback((void*)hwnd, 9);
-                        break;
-                    }
-                }
+                ng_windows_lifecycle(hwnd, 6);
+                ng_windows_lifecycle(hwnd, 9);
             } else {
                 ng_windows_fit_content(hwnd);
 
                 if (was_minimized) {
                     RemovePropA(hwnd, "AureaMinimized");
-                    for (int i = 0; i < g_tracked_count; i++) {
-                        if (g_tracked_windows[i] == hwnd && g_lifecycle_callbacks[i]) {
-                            ng_invoke_lifecycle_callback((void*)hwnd, 7);
-                            ng_invoke_lifecycle_callback((void*)hwnd, 10);
-                            break;
-                        }
-                    }
+                    ng_windows_lifecycle(hwnd, 7);
+                    ng_windows_lifecycle(hwnd, 10);
                 }
-                for (int i = 0; i < g_tracked_count; i++) {
-                    if (g_tracked_windows[i] == hwnd && g_lifecycle_callbacks[i]) {
-                        ng_invoke_lifecycle_callback((void*)hwnd, 12);
-                        break;
-                    }
-                }
+                ng_windows_lifecycle(hwnd, 12);
             }
             break;
         }
+        case WM_WINDOWPOSCHANGED:
+            ng_windows_check_occlusion(hwnd);
+            break;
         case WM_MOVE: {
             ng_windows_cursor_grab_refresh((void*)hwnd);
             HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
@@ -923,12 +936,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 SetPropA(hwnd, "AureaMonitor", (HANDLE)monitor);
                 ng_windows_display_changed();
             }
-            for (int i = 0; i < g_tracked_count; i++) {
-                if (g_tracked_windows[i] == hwnd && g_lifecycle_callbacks[i]) {
-                    ng_invoke_lifecycle_callback((void*)hwnd, 11);
-                    break;
-                }
-            }
+            ng_windows_lifecycle(hwnd, 11);
             break;
         }
         
@@ -939,6 +947,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             RemovePropA(hwnd, AUREA_TRACKING_PROP);
             RemovePropA(hwnd, AUREA_HIGH_SURROGATE_PROP);
             RemovePropA(hwnd, "AureaMinimized");
+            KillTimer(hwnd, AUREA_OCCLUSION_TIMER_ID);
+            RemovePropA(hwnd, AUREA_OCCLUSION_PROP);
             ng_windows_ime_release(hwnd);
             ng_shortcuts_clear((void*)hwnd);
             for (int i = 0; i < g_tracked_count; i++) {

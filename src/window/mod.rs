@@ -7,7 +7,7 @@ mod manager;
 mod types;
 
 pub use aurea_foundation::{
-    EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons, PenPhase, PenSample,
+    EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons, Occlusion, PenPhase, PenSample,
     PenTapAction, PenTool, WindowEvent,
 };
 pub use aurea_runtime::EventQueue;
@@ -232,6 +232,7 @@ impl Window {
                     LifecycleEvent::WindowMinimized => WindowEvent::Minimized,
                     LifecycleEvent::WindowRestored => WindowEvent::Restored,
                     LifecycleEvent::MemoryWarning => WindowEvent::MemoryWarning,
+                    LifecycleEvent::Occlusion(level) => WindowEvent::OcclusionChanged(level),
                     LifecycleEvent::SurfaceLost => WindowEvent::SurfaceLost,
                     LifecycleEvent::SurfaceRecreated => WindowEvent::SurfaceRecreated,
                     _ => return,
@@ -727,6 +728,13 @@ impl Window {
     /// ```
     pub fn is_focused(&self) -> bool {
         unsafe { ng_platform_window_is_focused(self.handle) != 0 }
+    }
+
+    /// How much of this window shows: other windows over it, minimized, off screen or on another
+    /// virtual desktop. Windows measures the covered part; macOS tells only visible or covered,
+    /// and Linux only shown or minimized. [`WindowEvent::OcclusionChanged`] says when it changes.
+    pub fn occlusion(&self) -> Occlusion {
+        Occlusion::from_raw(unsafe { ng_platform_window_occlusion(self.handle) })
     }
 
     /// Set cursor visibility for this window.
@@ -1706,6 +1714,158 @@ mod win32_shortcuts_tests {
         Ok(())
     }
 }
+#[cfg(all(test, windows))]
+mod win32_occlusion_tests {
+    use crate::{AureaResult, Occlusion, Window, WindowEvent};
+    use std::os::raw::{c_int, c_void};
+    use std::process::{Child, Command, Stdio};
+    use std::ptr::null_mut;
+    use std::thread::sleep;
+    use std::time::Duration;
+
+    const SW_MINIMIZE: c_int = 6;
+    const SW_RESTORE: c_int = 9;
+    const SWP_NOSIZE: u32 = 0x0001;
+    const SWP_NOZORDER: u32 = 0x0004;
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn ShowWindow(hwnd: *mut c_void, cmd: c_int) -> i32;
+        fn SetWindowPos(
+            hwnd: *mut c_void,
+            after: *mut c_void,
+            x: i32,
+            y: i32,
+            w: i32,
+            h: i32,
+            flags: u32,
+        ) -> i32;
+    }
+
+    unsafe extern "C" {
+        fn ng_windows_occlusion_level(visible: i64, total: i64) -> c_int;
+    }
+
+    #[test]
+    fn levels_split_at_a_thousandth() {
+        let level = |visible, total| unsafe { ng_windows_occlusion_level(visible, total) };
+        assert_eq!(level(1000, 1000), 0);
+        assert_eq!(level(999, 1000), 0);
+        assert_eq!(level(998, 1000), 1);
+        assert_eq!(level(2, 1000), 1);
+        assert_eq!(level(1, 1000), 2);
+        assert_eq!(level(0, 0), 0, "an empty window is not hidden");
+    }
+
+    #[repr(C)]
+    struct Rect {
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    }
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetWindowRect(hwnd: *mut c_void, rect: *mut Rect) -> i32;
+    }
+
+    /// A topmost window of another process over `(x, y, w, h)` in screen pixels, until dropped.
+    fn cover(x: i32, y: i32, w: i32, h: i32) -> Child {
+        let script = format!(
+            "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object Windows.Forms.Form;              $f.FormBorderStyle = 'None'; $f.StartPosition = 'Manual'; $f.TopMost = $true;              $f.ShowInTaskbar = $false; $f.Location = New-Object Drawing.Point({x},{y});              $f.Size = New-Object Drawing.Size({w},{h}); $f.ShowDialog()"
+        );
+        Command::new("powershell")
+            .args(["-NoProfile", "-Command", &script])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("powershell")
+    }
+
+    /// Polls until `window` says it changed to `want`, for up to five seconds.
+    fn wait_for(window: &Window, want: Occlusion) -> bool {
+        for _ in 0..100 {
+            let heard = window.poll_events();
+            if heard
+                .iter()
+                .any(|e| matches!(e, WindowEvent::OcclusionChanged(level) if *level == want))
+            {
+                return true;
+            }
+            sleep(Duration::from_millis(50));
+        }
+        false
+    }
+
+    #[test]
+    #[ignore = "creates native windows and a powershell window; run with --ignored"]
+    fn another_apps_window_covers_part_then_all() -> AureaResult<()> {
+        let window = Window::new("covered", 300, 200)?;
+        window.show();
+        let _ = window.poll_events();
+        let mut r = Rect {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        unsafe { GetWindowRect(window.handle(), &raw mut r) };
+        let (w, h) = (r.right - r.left, r.bottom - r.top);
+
+        let mut half = cover(r.left, r.top, w / 2, h);
+        let partly = wait_for(&window, Occlusion::PartlyCovered);
+        let _ = half.kill();
+        let _ = half.wait();
+        assert!(partly, "half covered");
+
+        let mut all = cover(r.left - 20, r.top - 20, w + 40, h + 40);
+        let covered = wait_for(&window, Occlusion::Covered);
+        let _ = all.kill();
+        let _ = all.wait();
+        assert!(covered, "all covered");
+        assert!(wait_for(&window, Occlusion::Visible), "uncovered again");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn minimized_and_off_screen_windows_are_covered() -> AureaResult<()> {
+        let window = Window::new("occlusion", 300, 200)?;
+        window.show();
+        let _ = window.poll_events();
+        assert_eq!(window.occlusion(), Occlusion::Visible);
+
+        unsafe { ShowWindow(window.handle(), SW_MINIMIZE) };
+        let heard = window.poll_events();
+        assert_eq!(window.occlusion(), Occlusion::Covered);
+        assert!(
+            heard
+                .iter()
+                .any(|e| matches!(e, WindowEvent::OcclusionChanged(Occlusion::Covered))),
+            "{heard:?}"
+        );
+
+        unsafe { ShowWindow(window.handle(), SW_RESTORE) };
+        let _ = window.poll_events();
+        assert_eq!(window.occlusion(), Occlusion::Visible);
+
+        unsafe {
+            SetWindowPos(
+                window.handle(),
+                null_mut(),
+                -20000,
+                -20000,
+                0,
+                0,
+                SWP_NOSIZE | SWP_NOZORDER,
+            )
+        };
+        assert_eq!(window.occlusion(), Occlusion::Covered);
+        Ok(())
+    }
+}
+
 #[cfg(all(test, windows))]
 mod win32_wheel_tests {
     use crate::{AureaResult, Window, WindowEvent};

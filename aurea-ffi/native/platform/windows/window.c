@@ -1,4 +1,5 @@
 ﻿#include "window.h"
+#include "occlusion.h"
 #include "drop.h"
 #include "common/clipboard.h"
 #include "elements/common.h"
@@ -290,6 +291,10 @@ void ng_windows_window_hide(NGHandle window) {
 int ng_windows_window_is_visible(NGHandle window) {
     if (!window) return 0;
     return IsWindowVisible((HWND)window) ? 1 : 0;
+}
+
+int ng_windows_window_occlusion(NGHandle window) {
+    return ng_windows_occlusion_of((HWND)window);
 }
 
 NGHandle ng_windows_window_get_content_view(NGHandle window) {

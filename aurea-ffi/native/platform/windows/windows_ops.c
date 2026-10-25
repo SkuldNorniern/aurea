@@ -46,6 +46,7 @@ static const ng_platform_ops_t windows_ops = {
     .window_show = ng_windows_window_show,
     .window_hide = ng_windows_window_hide,
     .window_is_visible = ng_windows_window_is_visible,
+    .window_occlusion = ng_windows_window_occlusion,
     .window_set_position = ng_windows_window_set_position,
     .window_get_position = ng_windows_window_get_position,
     .window_get_xcb_handle = NULL,

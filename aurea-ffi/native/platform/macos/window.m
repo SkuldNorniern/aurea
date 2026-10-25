@@ -572,6 +572,13 @@ static void ng_macos_forget_held_shortcuts(void* window);
     }
 }
 
+- (void)windowDidChangeOcclusionState:(NSNotification*)notification {
+    if (self.lifecycleCallbackEnabled && self.windowHandle) {
+        ng_invoke_lifecycle_callback(self.windowHandle,
+                                     13 + ng_macos_window_occlusion(self.windowHandle));
+    }
+}
+
 - (void)windowDidDeminiaturize:(NSNotification*)notification {
     if (self.lifecycleCallbackEnabled && self.windowHandle) {
         ng_invoke_lifecycle_callback(self.windowHandle, 7);
@@ -1429,6 +1436,13 @@ void ng_macos_window_hide(NGHandle window) {
     if (!window) return;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
     [nsWindow orderOut:nil];
+}
+
+/* AppKit says whether any of the window shows, not how much. */
+int ng_macos_window_occlusion(NGHandle window) {
+    if (!window) return 2;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    return ([nsWindow occlusionState] & NSWindowOcclusionStateVisible) ? 0 : 2;
 }
 
 int ng_macos_window_is_visible(NGHandle window) {

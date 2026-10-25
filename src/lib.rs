@@ -71,7 +71,7 @@ pub use crate::window::{
 };
 
 pub use crate::window::{
-    EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons, PenPhase, PenSample,
+    EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons, Occlusion, PenPhase, PenSample,
     PenTapAction, PenTool, WindowEvent,
 };
 

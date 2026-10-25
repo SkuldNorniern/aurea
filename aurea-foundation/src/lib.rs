@@ -13,7 +13,7 @@ pub mod sync;
 pub use capability::{Capability, CapabilityChecker, Support};
 pub use error::{AureaError, AureaResult};
 pub use events::{
-    EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons, PenPhase, PenSample,
+    EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons, Occlusion, PenPhase, PenSample,
     PenTapAction, PenTool, WindowEvent,
 };
 pub use geometry::{Point, Rect};

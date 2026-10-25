@@ -834,6 +834,15 @@ int ng_linux_window_is_visible(NGHandle window) {
     return gtk_widget_get_visible(GTK_WIDGET(window)) ? 1 : 0;
 }
 
+/* GTK says only whether the window is shown and not minimized; other windows over it are not
+ * known, so a shown window reads as visible. */
+int ng_linux_window_occlusion(NGHandle window) {
+    if (!window || !gtk_widget_get_visible(GTK_WIDGET(window))) return 2;
+    GdkWindow* gdk = gtk_widget_get_window(GTK_WIDGET(window));
+    if (gdk && (gdk_window_get_state(gdk) & GDK_WINDOW_STATE_ICONIFIED)) return 2;
+    return 0;
+}
+
 int ng_linux_set_window_content(NGHandle window_handle, NGHandle content_handle) {
     if (!window_handle || !content_handle) return NG_ERROR_INVALID_HANDLE;
     

@@ -214,6 +214,10 @@ int ng_platform_window_is_visible(NGHandle w) {
     DISPATCH_INIT(int, window_is_visible, w);
 }
 
+int ng_platform_window_occlusion(NGHandle w) {
+    DISPATCH_INIT(int, window_occlusion, w);
+}
+
 void ng_platform_window_set_position(NGHandle w, int x, int y) {
     DISPATCH_VOID(window_set_position, w, x, y);
 }

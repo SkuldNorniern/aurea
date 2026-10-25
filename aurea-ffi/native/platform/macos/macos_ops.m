@@ -61,6 +61,7 @@ static const ng_platform_ops_t macos_ops = {
     .window_show = ng_macos_window_show,
     .window_hide = ng_macos_window_hide,
     .window_is_visible = ng_macos_window_is_visible,
+    .window_occlusion = ng_macos_window_occlusion,
     .window_set_position = ng_macos_window_set_position,
     .window_get_position = ng_macos_window_get_position,
     .create_menu = ng_macos_create_menu,

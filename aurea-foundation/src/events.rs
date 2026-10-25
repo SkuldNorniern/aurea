@@ -165,12 +165,38 @@ pub enum WindowEvent {
         /// Where the fingers meet, vertically.
         y: f64,
     },
+    /// Other windows now cover more or less of this one, or it was minimized or restored; see
+    /// [`Occlusion`]. An app can pause work no one sees, or warn when its window is hidden.
+    OcclusionChanged(Occlusion),
     /// The system switched between light and dark appearance. Sent to every window; see
     /// `aurea::prefers_dark` for the current setting.
     ThemeChanged {
         /// True when the system now prefers dark.
         dark: bool,
     },
+}
+
+/// How much of a window shows on screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Occlusion {
+    /// All of it shows.
+    #[default]
+    Visible,
+    /// Other windows cover part of it. Windows only; elsewhere a window reads as visible or covered.
+    PartlyCovered,
+    /// None of it shows: covered, minimized, off screen, or on another virtual desktop.
+    Covered,
+}
+
+impl Occlusion {
+    /// The level the platform layer hands over: 0 visible, 1 partly covered, 2 covered.
+    pub fn from_raw(level: i32) -> Self {
+        match level {
+            1 => Self::PartlyCovered,
+            2 => Self::Covered,
+            _ => Self::Visible,
+        }
+    }
 }
 
 /// One reading of a pen.

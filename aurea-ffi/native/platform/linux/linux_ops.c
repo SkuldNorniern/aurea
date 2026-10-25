@@ -43,6 +43,7 @@ static const ng_platform_ops_t linux_ops = {
     .window_hide = ng_linux_window_hide,
     .window_set_close_guard = ng_linux_window_set_close_guard,
     .window_is_visible = ng_linux_window_is_visible,
+    .window_occlusion = ng_linux_window_occlusion,
     .window_set_position = ng_linux_window_set_position,
     .window_get_position = ng_linux_window_get_position,
     .window_get_xcb_handle = ng_linux_window_get_xcb_handle,

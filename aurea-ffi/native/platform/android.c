@@ -61,6 +61,11 @@ int ng_platform_window_is_visible(NGHandle window) {
     return 1;
 }
 
+int ng_platform_window_occlusion(NGHandle window) {
+    (void)window;
+    return 0;
+}
+
 NGMenuHandle ng_platform_create_menu(void) {
     return ng_android_create_menu();
 }

@@ -296,6 +296,7 @@ unsafe extern "C" {
     ) -> c_int;
     /// Tells whether a window is visible.
     pub fn ng_platform_window_is_visible(window: *mut c_void) -> c_int;
+    pub fn ng_platform_window_occlusion(window: *mut c_void) -> c_int;
     /// Moves a window.
     pub fn ng_platform_window_set_position(window: *mut c_void, x: c_int, y: c_int);
     /// Gets a window's position.

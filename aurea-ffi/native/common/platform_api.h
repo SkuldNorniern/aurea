@@ -65,6 +65,8 @@ int ng_platform_tray_set_tooltip(NGHandle tray, const char* tooltip);
 int ng_platform_tray_add_item(NGHandle tray, const char* title, unsigned int id);
 int ng_platform_tray_notify(NGHandle tray, const char* title, const char* body);
 int ng_platform_window_is_visible(NGHandle window);
+/* How much other windows cover `window`: 0 visible, 1 partly covered, 2 covered or minimized. */
+int ng_platform_window_occlusion(NGHandle window);
 void ng_platform_window_set_position(NGHandle window, int x, int y);
 void ng_platform_window_get_position(NGHandle window, int* x, int* y);
 int ng_platform_window_get_xcb_handle(NGHandle window, uint32_t* xcb_window, void** xcb_connection);

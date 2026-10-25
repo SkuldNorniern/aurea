@@ -56,6 +56,7 @@ int ng_macos_window_set_shortcuts(NGHandle window, const unsigned int* keycodes,
 void ng_macos_window_show(NGHandle window);
 void ng_macos_window_hide(NGHandle window);
 int ng_macos_window_is_visible(NGHandle window);
+int ng_macos_window_occlusion(NGHandle window);
 NGHandle ng_macos_window_get_content_view(NGHandle window);
 int ng_macos_window_use_metal_layer(NGHandle window);
 int ng_macos_window_set_hide_on_close(NGHandle window, int hide);

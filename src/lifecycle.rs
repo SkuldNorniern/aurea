@@ -1,4 +1,4 @@
-use aurea_foundation::lock;
+use aurea_foundation::{Occlusion, lock};
 use std::collections::HashMap;
 use std::os::raw::c_void;
 use std::sync::{Arc, LazyLock, Mutex};
@@ -32,6 +32,8 @@ pub enum LifecycleEvent {
     SurfaceLost,
     /// Surface recreated (mobile: OpenGL/Vulkan context recreated).
     SurfaceRecreated,
+    /// Other windows cover more or less of the window.
+    Occlusion(Occlusion),
 }
 
 /// Callback function type for lifecycle events.
@@ -116,6 +118,9 @@ pub fn event_from_id(event_id: u32) -> Option<LifecycleEvent> {
         10 => LifecycleEvent::SurfaceRecreated,
         11 => LifecycleEvent::WindowMoved,
         12 => LifecycleEvent::WindowResized,
+        13..=15 => LifecycleEvent::Occlusion(Occlusion::from_raw(
+            i32::try_from(event_id - 13).unwrap_or(0),
+        )),
         _ => return None,
     };
     Some(event)
