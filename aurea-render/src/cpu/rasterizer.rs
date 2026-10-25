@@ -4,6 +4,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::mem::{self, size_of_val};
 use std::slice::from_raw_parts;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use crate::cpu::blend::{ConstSrc, LinearLuts, blend_pixel};
 use crate::cpu::clip::ClipBox;
@@ -51,6 +52,140 @@ fn item_hash(item: &DisplayItem) -> u64 {
     h.finish()
 }
 
+/// Command kinds that [`FrameCounters`] times apart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommandKind {
+    Clear,
+    Rect,
+    RoundRect,
+    Circle,
+    Path,
+    /// Text and glyph masks.
+    Glyphs,
+    /// Image draws.
+    Image,
+    Gradient,
+    Shadow,
+    /// Textures and anything else.
+    Other,
+}
+
+impl CommandKind {
+    /// Number of kinds: the length of [`FrameCounters::kinds`].
+    pub const COUNT: usize = Self::Other as usize + 1;
+
+    fn of(command: &DrawCommand) -> Self {
+        match command {
+            DrawCommand::Clear(_) => Self::Clear,
+            DrawCommand::DrawRect(..) => Self::Rect,
+            DrawCommand::DrawRoundRect(..) => Self::RoundRect,
+            DrawCommand::DrawCircle(..) => Self::Circle,
+            DrawCommand::DrawPath(..) => Self::Path,
+            DrawCommand::DrawText(..)
+            | DrawCommand::DrawTextWithFont(..)
+            | DrawCommand::DrawGlyphMask(..) => Self::Glyphs,
+            DrawCommand::DrawImageRect(..)
+            | DrawCommand::DrawImageRegion(..)
+            | DrawCommand::DrawImageQuad(..) => Self::Image,
+            DrawCommand::FillLinearGradient(..) | DrawCommand::FillRadialGradient(..) => {
+                Self::Gradient
+            }
+            DrawCommand::DrawShadow(..) => Self::Shadow,
+            DrawCommand::DrawTexture(..) | DrawCommand::DrawTextureQuad(..) => Self::Other,
+        }
+    }
+}
+
+/// Runs and time of one [`CommandKind`] in a frame.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct KindTiming {
+    /// Commands of this kind run.
+    pub count: usize,
+    /// Time spent running them.
+    pub time: Duration,
+}
+
+/// What `CpuRasterizer::end_frame` did, when counting is on.
+///
+/// Every item is in exactly one of `drawn`, `hidden` or `skipped_clean`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FrameCounters {
+    /// Items in the display list.
+    pub items: usize,
+    /// Items run.
+    pub drawn: usize,
+    /// Items not run because no tile they cover is dirty.
+    pub skipped_clean: usize,
+    /// Items not run because opaque draws above them cover them.
+    pub hidden: usize,
+    /// Dirty tiles this frame.
+    pub dirty_tiles: usize,
+    /// Per [`CommandKind`], indexed by `kind as usize`. Time covers the runs only.
+    pub kinds: [KindTiming; CommandKind::COUNT],
+    /// Wall time of the whole `end_frame` call.
+    pub total: Duration,
+}
+
+impl FrameCounters {
+    fn record(&mut self, kind: CommandKind, started: Option<Instant>) {
+        self.drawn += 1;
+        let timing = &mut self.kinds[kind as usize];
+        timing.count += 1;
+        if let Some(t) = started {
+            timing.time += t.elapsed();
+        }
+    }
+}
+
+/// The frame's counters, or nothing when counting is off. Keeps the per-item branches out of
+/// `render_frame`.
+struct Tally<'a>(Option<&'a mut FrameCounters>);
+
+impl Tally<'_> {
+    /// The time a run starts at; `None` when counting is off, so no clock is read.
+    fn start(&self) -> Option<Instant> {
+        self.0.is_some().then(Instant::now)
+    }
+
+    fn set_items(&mut self, items: usize) {
+        if let Some(c) = &mut self.0 {
+            c.items = items;
+        }
+    }
+
+    fn set_dirty_tiles(&mut self, dirty: &[bool]) {
+        if let Some(c) = &mut self.0 {
+            c.dirty_tiles = dirty.iter().filter(|d| **d).count();
+        }
+    }
+
+    /// An item not run: hidden if `occluded`, else clean.
+    fn skip(&mut self, occluded: bool) {
+        if let Some(c) = &mut self.0 {
+            if occluded {
+                c.hidden += 1;
+            } else {
+                c.skipped_clean += 1;
+            }
+        }
+    }
+
+    /// A clear: run, or hidden when a later opaque draw covers it.
+    fn clear(&mut self, runs: bool, started: Option<Instant>) {
+        if runs {
+            self.ran(CommandKind::Clear, started);
+        } else {
+            self.skip(true);
+        }
+    }
+
+    fn ran(&mut self, kind: CommandKind, started: Option<Instant>) {
+        if let Some(c) = &mut self.0 {
+            c.record(kind, started);
+        }
+    }
+}
+
 /// CPU software rasterizer drawing into a frame buffer.
 pub struct CpuRasterizer {
     frame_buffer: Vec<u32>,
@@ -72,6 +207,8 @@ pub struct CpuRasterizer {
     scratch_under_clear: Vec<bool>,
     last_frame_damage: Option<Rect>,
     has_frame: bool,
+    counting: bool,
+    counters: Option<FrameCounters>,
 }
 
 impl CpuRasterizer {
@@ -97,7 +234,22 @@ impl CpuRasterizer {
             scratch_under_clear: Vec::new(),
             last_frame_damage: None,
             has_frame: false,
+            counting: false,
+            counters: None,
         }
+    }
+
+    /// Turns per-frame counters on or off. Turning them off drops the stored counters.
+    pub fn set_counting(&mut self, on: bool) {
+        self.counting = on;
+        if !on {
+            self.counters = None;
+        }
+    }
+
+    /// The last `end_frame`'s counters; `None` while counting is off or before one ran.
+    pub fn frame_counters(&self) -> Option<&FrameCounters> {
+        self.counters.as_ref()
     }
 
     /// The last frame's pixels as [`FrameOutput`] describes them: `0xAARRGGBB` words, sRGB,
@@ -1853,89 +2005,15 @@ impl Renderer for CpuRasterizer {
     }
 
     fn end_frame(&mut self) -> AureaResult<FrameOutcome> {
-        let (bw, bh) = (self.width, self.height);
-        let pending = self.pending_damage.take();
-        let diff = self.diff_damage();
-
-        let Some(damage) = resolve_frame_damage(pending, diff, bw, bh) else {
-            return Ok(FrameOutcome::Unchanged);
-        };
-        if damage.is_some_and(|r| {
-            r.width <= 0.0
-                || r.height <= 0.0
-                || r.x >= bw as f32
-                || r.y >= bh as f32
-                || r.x + r.width <= 0.0
-                || r.y + r.height <= 0.0
-        }) {
-            self.last_frame_damage = None;
-            self.capture_prev_items();
-            return Ok(FrameOutcome::Unchanged);
+        if !self.counting {
+            return self.render_frame(None);
         }
-
-        let (tiles_x, tiles_y) = tile_grid_dims(bw, bh);
-        let dirty_tiles = self.compute_dirty_tiles(damage, pending, tiles_x, tiles_y);
-
-        self.last_frame_damage = union_dirty_tile_rects(&dirty_tiles, tiles_x, tiles_y, bw, bh);
-        if self.last_frame_damage.is_none() {
-            self.scratch_dirty = dirty_tiles;
-            self.capture_prev_items();
-            return Ok(FrameOutcome::Unchanged);
-        }
-
-        let mut dirty_tiles = dirty_tiles;
-        if let Some(region) = self.last_frame_damage {
-            mark_tile_range_dirty(region, tiles_x, tiles_y, &mut dirty_tiles);
-        }
-
-        let surface_clip = match self.last_frame_damage {
-            Some(region) => ClipBox::surface(bw, bh).intersect(region),
-            None => ClipBox::surface(bw, bh),
-        };
-        let items = self.display_list.items();
-        let mut occluded = mem::take(&mut self.scratch_occluded);
-        let last_clear = mark_occluded(
-            items,
-            (tiles_x, tiles_y, bw, bh),
-            &mut self.scratch_covered,
-            &mut occluded,
-            &mut self.scratch_under_clear,
-        );
-        for (i, item) in items.iter().enumerate() {
-            if let DrawCommand::Clear(color) = &item.command {
-                let (color, clip) = (color_to_u32(*color), surface_clip.intersect_opt(item.clip));
-                let buf = &mut self.frame_buffer;
-                if last_clear == Some(i) {
-                    let dims = (tiles_x, tiles_y, bw, bh);
-                    uncovered_runs(&self.scratch_under_clear, dims, |run| {
-                        Self::clear_rect(&run, color, buf, bw, clip);
-                    });
-                } else if !occluded[i] {
-                    let whole = Rect::new(0.0, 0.0, bw as f32, bh as f32);
-                    Self::clear_rect(&whole, color, buf, bw, clip);
-                }
-                continue;
-            }
-
-            if !should_render_item(item, &occluded, i, &dirty_tiles, tiles_x, tiles_y) {
-                continue;
-            }
-            Self::render_clipped_item(
-                item,
-                &mut self.frame_buffer,
-                &mut self.scratch_path,
-                &mut self.scratch_row,
-                bw,
-                surface_clip.intersect_opt(item.clip),
-            )?;
-        }
-
-        self.scratch_occluded = occluded;
-        self.scratch_dirty = dirty_tiles;
-        self.capture_prev_items();
-
-        self.has_frame = true;
-        Ok(FrameOutcome::Presented)
+        let started = Instant::now();
+        let mut counters = FrameCounters::default();
+        let outcome = self.render_frame(Some(&mut counters));
+        counters.total = started.elapsed();
+        self.counters = Some(counters);
+        outcome
     }
 
     fn frame_output(&self) -> Option<FrameOutput<'_>> {
@@ -1970,6 +2048,103 @@ impl Renderer for CpuRasterizer {
 
     fn display_list(&self) -> Option<&DisplayList> {
         Some(&self.display_list)
+    }
+}
+
+impl CpuRasterizer {
+    fn render_frame(&mut self, counters: Option<&mut FrameCounters>) -> AureaResult<FrameOutcome> {
+        let mut tally = Tally(counters);
+        tally.set_items(self.display_list.items().len());
+        let (bw, bh) = (self.width, self.height);
+        let pending = self.pending_damage.take();
+        let diff = self.diff_damage();
+
+        let Some(damage) = resolve_frame_damage(pending, diff, bw, bh) else {
+            return Ok(FrameOutcome::Unchanged);
+        };
+        if damage.is_some_and(|r| {
+            r.width <= 0.0
+                || r.height <= 0.0
+                || r.x >= bw as f32
+                || r.y >= bh as f32
+                || r.x + r.width <= 0.0
+                || r.y + r.height <= 0.0
+        }) {
+            self.last_frame_damage = None;
+            self.capture_prev_items();
+            return Ok(FrameOutcome::Unchanged);
+        }
+
+        let (tiles_x, tiles_y) = tile_grid_dims(bw, bh);
+        let dirty_tiles = self.compute_dirty_tiles(damage, pending, tiles_x, tiles_y);
+
+        self.last_frame_damage = union_dirty_tile_rects(&dirty_tiles, tiles_x, tiles_y, bw, bh);
+        if self.last_frame_damage.is_none() {
+            self.scratch_dirty = dirty_tiles;
+            self.capture_prev_items();
+            return Ok(FrameOutcome::Unchanged);
+        }
+
+        let mut dirty_tiles = dirty_tiles;
+        if let Some(region) = self.last_frame_damage {
+            mark_tile_range_dirty(region, tiles_x, tiles_y, &mut dirty_tiles);
+        }
+        tally.set_dirty_tiles(&dirty_tiles);
+
+        let surface_clip = match self.last_frame_damage {
+            Some(region) => ClipBox::surface(bw, bh).intersect(region),
+            None => ClipBox::surface(bw, bh),
+        };
+        let items = self.display_list.items();
+        let mut occluded = mem::take(&mut self.scratch_occluded);
+        let last_clear = mark_occluded(
+            items,
+            (tiles_x, tiles_y, bw, bh),
+            &mut self.scratch_covered,
+            &mut occluded,
+            &mut self.scratch_under_clear,
+        );
+        for (i, item) in items.iter().enumerate() {
+            if let DrawCommand::Clear(color) = &item.command {
+                let started = tally.start();
+                let (color, clip) = (color_to_u32(*color), surface_clip.intersect_opt(item.clip));
+                let buf = &mut self.frame_buffer;
+                let runs = last_clear == Some(i) || !occluded[i];
+                if last_clear == Some(i) {
+                    let dims = (tiles_x, tiles_y, bw, bh);
+                    uncovered_runs(&self.scratch_under_clear, dims, |run| {
+                        Self::clear_rect(&run, color, buf, bw, clip);
+                    });
+                } else if !occluded[i] {
+                    let whole = Rect::new(0.0, 0.0, bw as f32, bh as f32);
+                    Self::clear_rect(&whole, color, buf, bw, clip);
+                }
+                tally.clear(runs, started);
+                continue;
+            }
+
+            if !should_render_item(item, &occluded, i, &dirty_tiles, tiles_x, tiles_y) {
+                tally.skip(occluded[i]);
+                continue;
+            }
+            let started = tally.start();
+            Self::render_clipped_item(
+                item,
+                &mut self.frame_buffer,
+                &mut self.scratch_path,
+                &mut self.scratch_row,
+                bw,
+                surface_clip.intersect_opt(item.clip),
+            )?;
+            tally.ran(CommandKind::of(&item.command), started);
+        }
+
+        self.scratch_occluded = occluded;
+        self.scratch_dirty = dirty_tiles;
+        self.capture_prev_items();
+
+        self.has_frame = true;
+        Ok(FrameOutcome::Presented)
     }
 }
 
@@ -4350,6 +4525,50 @@ mod gradient_and_scaled_tests {
             eprintln!("nearest scaled {label} 320x200 -> 627x202: {ns:.2} ns/pixel");
             black_box(buf);
         }
+    }
+}
+
+#[cfg(test)]
+mod frame_counter_tests {
+    use super::*;
+
+    #[test]
+    fn counted_frame_reports_hidden_rect_and_rect_time() {
+        let mut r = CpuRasterizer::new(256, 256);
+        r.set_counting(true);
+        let paint = Paint::new();
+        let mut ctx = r.begin_frame().unwrap();
+        ctx.draw_rect(Rect::new(0.0, 0.0, 100.0, 100.0), &paint)
+            .unwrap();
+        ctx.draw_rect(Rect::new(0.0, 0.0, 200.0, 200.0), &paint)
+            .unwrap();
+        ctx.draw_rect(Rect::new(128.0, 128.0, 100.0, 100.0), &paint)
+            .unwrap();
+        drop(ctx);
+
+        assert_eq!(r.end_frame().unwrap(), FrameOutcome::Presented);
+        let c = *r.frame_counters().expect("counters");
+        assert_eq!((c.items, c.drawn, c.hidden, c.skipped_clean), (3, 2, 1, 0));
+        let rects = c.kinds[CommandKind::Rect as usize];
+        assert_eq!(rects.count, 2);
+        assert!(rects.time > Duration::ZERO);
+        assert!(c.total > Duration::ZERO);
+    }
+
+    #[test]
+    fn counters_are_none_while_counting_is_off() {
+        let mut r = CpuRasterizer::new(32, 32);
+        let paint = Paint::new();
+        let mut ctx = r.begin_frame().unwrap();
+        ctx.draw_rect(Rect::new(0.0, 0.0, 8.0, 8.0), &paint)
+            .unwrap();
+        drop(ctx);
+        r.end_frame().unwrap();
+        assert!(r.frame_counters().is_none());
+
+        r.set_counting(true);
+        r.set_counting(false);
+        assert!(r.frame_counters().is_none());
     }
 }
 
