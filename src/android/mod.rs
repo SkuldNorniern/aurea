@@ -29,7 +29,7 @@ use aurea_ffi::{
     ng_android_on_destroy, ng_android_on_pause, ng_android_on_resume, ng_android_on_surface_lost,
     ng_android_on_surface_recreated, ng_android_set_activity,
 };
-use jni::objects::{GlobalRef, JClass, JObject};
+use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
 use jni::sys::{JNI_FALSE, JNI_TRUE, JNI_VERSION_1_6, jboolean, jdouble, jfloat, jint};
 use jni::{JNIEnv, JavaVM};
 
@@ -66,19 +66,34 @@ pub fn on_event(listener: impl FnMut(&WindowEvent) + 'static) {
 /// Asks for a frame from any thread, such as when background work finishes. The UI's own
 /// animations and input already draw frames; this is for what they cannot see.
 pub fn request_frame() {
+    call_activity("requestFrameFromNative", "()V", &[]);
+}
+
+/// Shows the on-screen keyboard, or hides it, from any thread, such as when a text field takes or
+/// loses focus. What it types comes as [`WindowEvent::TextInput`], what an input method such as
+/// Korean or Japanese is still composing as [`WindowEvent::ImePreedit`], and keys such as delete
+/// and enter as [`WindowEvent::KeyInput`].
+pub fn show_keyboard(show: bool) {
+    call_activity(
+        "showKeyboardFromNative",
+        "(Z)V",
+        &[JValue::Bool(u8::from(show))],
+    );
+}
+
+/// Calls a method of the Activity from any thread.
+fn call_activity(name: &str, signature: &str, args: &[JValue<'_, '_>]) {
     let Ok(activity) = ACTIVITY.lock() else {
         return;
     };
     let Some((vm, activity)) = activity.as_ref() else {
         return;
     };
-    let Ok(mut env) = vm.attach_current_thread_permanently() else {
+    // detached again when done, so short-lived threads (wakes) leave nothing behind.
+    let Ok(mut env) = vm.attach_current_thread() else {
         return;
     };
-    if env
-        .call_method(activity, "requestFrameFromNative", "()V", &[])
-        .is_err()
-    {
+    if env.call_method(activity, name, signature, args).is_err() {
         let _ = env.exception_clear();
     }
 }
@@ -152,8 +167,18 @@ pub extern "system" fn Java_dev_aurea_AureaActivity_nativeCreate(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_aurea_AureaActivity_nativeDestroy(_env: JNIEnv, _class: JClass) {
+pub extern "system" fn Java_dev_aurea_AureaActivity_nativeDestroy(
+    _env: JNIEnv,
+    _class: JClass,
+    finishing: jboolean,
+) {
     unsafe { ng_android_on_destroy() };
+    // a finished Activity is let go; one made for a rotation replaces it in nativeCreate.
+    if finishing != JNI_FALSE
+        && let Ok(mut activity) = ACTIVITY.lock()
+    {
+        *activity = None;
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -244,6 +269,40 @@ pub extern "system" fn Java_dev_aurea_AureaActivity_nativeLightTheme(
         JNI_TRUE
     } else {
         JNI_FALSE
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_aurea_AureaActivity_nativeKey(
+    _env: JNIEnv,
+    _class: JClass,
+    code: jint,
+    pressed: jboolean,
+    meta: jint,
+) {
+    host::key(code, pressed != JNI_FALSE, meta);
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_aurea_AureaActivity_nativeText(
+    mut env: JNIEnv,
+    _class: JClass,
+    text: JString,
+) {
+    if let Ok(text) = env.get_string(&text) {
+        host::text(text.into());
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_aurea_AureaActivity_nativePreedit(
+    mut env: JNIEnv,
+    _class: JClass,
+    text: JString,
+    cursor: jint,
+) {
+    if let Ok(text) = env.get_string(&text) {
+        host::preedit(text.into(), cursor);
     }
 }
 

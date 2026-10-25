@@ -23,6 +23,11 @@ pub(crate) fn on_ready(ready: impl FnOnce(Arc<ZenGpuContext>) + 'static) {
     }
 }
 
+/// The host's GPU, once made.
+pub(crate) fn current() -> Option<Arc<ZenGpuContext>> {
+    GPU.with_borrow(|(context, _)| context.clone())
+}
+
 /// Records the host's GPU and calls everyone waiting for it.
 pub(crate) fn made(context: &Arc<ZenGpuContext>) {
     let waiting = GPU.with_borrow_mut(|(slot, waiting)| {

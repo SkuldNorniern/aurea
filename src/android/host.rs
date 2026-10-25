@@ -4,6 +4,7 @@
 use std::cell::RefCell;
 #[cfg(feature = "zengpu")]
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Instant;
 
@@ -19,7 +20,8 @@ use crate::touch::{Phase, Touches};
 use crate::ui::{Theme, Ui, UiState};
 use crate::wake::wake_at;
 use crate::{
-    AureaResult, Modifiers, MouseButtons, PenPhase, PenSample, PenTool, Point, WindowEvent,
+    AureaResult, KeyCode, Modifiers, MouseButtons, PenPhase, PenSample, PenTool, Point, Rect,
+    WindowEvent,
 };
 use aurea_render::FrameOutcome;
 #[cfg(feature = "zengpu")]
@@ -57,6 +59,8 @@ static SCREEN: [AtomicU32; 5] = [
     AtomicU32::new(0),
     AtomicU32::new(0),
 ];
+/// A theme to switch to from the next frame, from any thread.
+static NEXT_THEME: Mutex<Option<Theme>> = Mutex::new(None);
 /// Whether the app wants the GPU, when built with `zengpu`.
 pub(super) static GPU_WANTED: AtomicBool = AtomicBool::new(true);
 
@@ -143,11 +147,10 @@ pub(super) fn safe_area() -> [f32; 4] {
 /// The GPU the host draws with, once it has one.
 #[cfg(feature = "zengpu")]
 pub(super) fn gpu_context() -> Option<Arc<ZenGpuContext>> {
-    HOST.with_borrow(|host| host.gpu.context.clone())
+    gpu_ready::current()
 }
 
 thread_local! {
-    static NEXT_THEME: RefCell<Option<Theme>> = const { RefCell::new(None) };
     static LISTENERS: RefCell<Vec<Listener>> = const { RefCell::new(Vec::new()) };
     static HOST: RefCell<Host> = RefCell::new(Host {
         app: None,
@@ -212,7 +215,10 @@ pub(super) fn set_app(app: App, theme: Theme) {
 }
 
 pub(super) fn set_theme(theme: Theme) {
-    NEXT_THEME.set(Some(theme));
+    if let Ok(mut next) = NEXT_THEME.lock() {
+        *next = Some(theme);
+    }
+    super::request_frame();
 }
 
 pub(super) fn surface_changed(
@@ -271,6 +277,84 @@ pub(super) fn surface_destroyed() {
         }
         host.window = None;
     });
+}
+
+/// A key from the keyboard, as Android's key code and meta state.
+pub(super) fn key(code: i32, pressed: bool, meta: i32) {
+    let key = key_code(code);
+    if matches!(key, KeyCode::Unknown(_)) {
+        return;
+    }
+    feed(&[WindowEvent::KeyInput {
+        key,
+        pressed,
+        modifiers: modifiers(meta),
+    }]);
+}
+
+/// Text the keyboard typed.
+pub(super) fn text(text: String) {
+    if !text.is_empty() {
+        feed(&[WindowEvent::TextInput { text }]);
+    }
+}
+
+/// What an input method is still composing; empty when it is done or called off.
+pub(super) fn preedit(text: String, cursor: i32) {
+    let cursor = usize::try_from(cursor).ok();
+    feed(&[WindowEvent::ImePreedit { text, cursor }]);
+}
+
+/// Android's `KeyEvent` meta state as modifiers.
+fn modifiers(meta: i32) -> Modifiers {
+    Modifiers {
+        shift: meta & 0x1 != 0,
+        alt: meta & 0x2 != 0,
+        ctrl: meta & 0x1000 != 0,
+        meta: meta & 0x1_0000 != 0,
+    }
+}
+
+/// Android's `KeyEvent` key codes as Aurea's.
+fn key_code(code: i32) -> KeyCode {
+    let raw = match code {
+        // letters, then digits, as Aurea's raw codes number them
+        29..=54 => code - 29,
+        7..=16 => code - 7 + 26,
+        62 => 36,
+        66 | 160 => 37,
+        111 => 38,
+        61 => 39,
+        67 => 40,
+        112 => 41,
+        124 => 42,
+        122 => 43,
+        123 => 44,
+        92 => 45,
+        93 => 46,
+        19 => 47,
+        20 => 48,
+        21 => 49,
+        22 => 50,
+        131..=142 => code - 131 + 51,
+        59 | 60 => 63,
+        113 | 114 => 64,
+        57 | 58 => 65,
+        117 | 118 => 66,
+        69 => 67,
+        70 => 68,
+        71 => 69,
+        72 => 70,
+        73 => 71,
+        74 => 72,
+        75 => 73,
+        68 => 74,
+        55 => 75,
+        56 => 76,
+        76 => 77,
+        _ => return KeyCode::Unknown(u32::try_from(code).unwrap_or(u32::MAX)),
+    };
+    KeyCode::from_raw(u32::try_from(raw).unwrap_or(u32::MAX))
 }
 
 /// Android's `MotionEvent` tool types.
@@ -402,7 +486,7 @@ pub(super) fn frame() -> bool {
                 log::warn!("android frame: {e}");
                 return false;
             }
-            return next_frame(theme, state);
+            return next_frame(theme, state, host.touches.waiting());
         }
         match draw(raster, app, theme, state, size, insets) {
             Err(e) => {
@@ -412,12 +496,16 @@ pub(super) fn frame() -> bool {
             Ok(FrameOutcome::Unchanged) => {}
             Ok(_) => {
                 let damage = raster.last_frame_damage();
-                if let Some(out) = raster.frame_output() {
-                    window.post(out.words(), out.width, out.height, damage);
+                let posted = raster
+                    .frame_output()
+                    .is_some_and(|out| window.post(out.words(), out.width, out.height, damage));
+                // the window kept its old picture: paint all of it next time.
+                if !posted {
+                    raster.set_damage(Some(Rect::new(0.0, 0.0, size.0, size.1)));
                 }
             }
         }
-        next_frame(theme, state)
+        next_frame(theme, state, host.touches.waiting())
     })
 }
 
@@ -440,13 +528,14 @@ fn draw(
     renderer.end_frame()
 }
 
-/// Takes a pending theme; whether another frame is wanted.
-fn next_frame(theme: &mut Theme, state: &UiState<u64>) -> bool {
-    if let Some(next) = NEXT_THEME.take() {
+/// Takes a pending theme; whether another frame is wanted, as for a finger still `waiting` to
+/// become the mouse.
+fn next_frame(theme: &mut Theme, state: &UiState<u64>, waiting: bool) -> bool {
+    if let Some(next) = NEXT_THEME.lock().ok().and_then(|mut next| next.take()) {
         *theme = next;
         return true;
     }
-    let more = state.wants_frame() || HOST.with_borrow(|host| host.touches.waiting());
+    let more = state.wants_frame() || waiting;
     if !more && let Some(at) = state.next_frame_at() {
         wake_at(at, super::request_frame);
     }

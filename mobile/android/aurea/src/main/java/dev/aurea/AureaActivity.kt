@@ -10,7 +10,6 @@ import android.view.Choreographer
 import android.view.MotionEvent
 import android.view.Surface
 import android.view.SurfaceHolder
-import android.view.SurfaceView
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 
@@ -19,7 +18,11 @@ import android.view.WindowInsetsController
  * system bars and the app's lifecycle passed to it. Subclass it, name the app's native library in
  * [library], and define `aurea_main` in Rust, which calls `aurea::android::run`.
  */
-abstract class AureaActivity : Activity(), SurfaceHolder.Callback, Choreographer.FrameCallback {
+abstract class AureaActivity :
+    Activity(),
+    SurfaceHolder.Callback,
+    Choreographer.FrameCallback,
+    AureaSurface.Typed {
 
     /** The app's native library, as `System.loadLibrary` takes it: `my_app` for `libmy_app.so`. */
     protected abstract val library: String
@@ -27,12 +30,14 @@ abstract class AureaActivity : Activity(), SurfaceHolder.Callback, Choreographer
     private var hasSurface = false
     private var frameQueued = false
     private var lightBars: Boolean? = null
+    private lateinit var surface: AureaSurface
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         System.loadLibrary(library)
-        val view = SurfaceView(this)
+        val view = AureaSurface(this, this)
+        surface = view
         setContentView(view)
         nativeCreate(this)
         view.holder.addCallback(this)
@@ -126,7 +131,7 @@ abstract class AureaActivity : Activity(), SurfaceHolder.Callback, Choreographer
     }
 
     override fun onDestroy() {
-        nativeDestroy()
+        nativeDestroy(isFinishing)
         super.onDestroy()
     }
 
@@ -141,6 +146,27 @@ abstract class AureaActivity : Activity(), SurfaceHolder.Callback, Choreographer
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         hasSurface = false
         nativeSurfaceDestroyed()
+    }
+
+    override fun key(code: Int, pressed: Boolean, meta: Int) {
+        nativeKey(code, pressed, meta)
+        requestFrame()
+    }
+
+    override fun text(text: String) {
+        nativeText(text)
+        requestFrame()
+    }
+
+    override fun preedit(text: String, cursor: Int) {
+        nativePreedit(text, cursor)
+        requestFrame()
+    }
+
+    /** Shows or hides the on-screen keyboard from any thread; Rust calls it. */
+    @Suppress("unused")
+    fun showKeyboardFromNative(show: Boolean) {
+        runOnUiThread { surface.showKeyboard(show) }
     }
 
     /** Draws a frame on the next vsync, if one is not already coming. */
@@ -192,7 +218,7 @@ abstract class AureaActivity : Activity(), SurfaceHolder.Callback, Choreographer
         const val MEMORY_WARNING = 4
 
         @JvmStatic external fun nativeCreate(activity: Activity)
-        @JvmStatic external fun nativeDestroy()
+        @JvmStatic external fun nativeDestroy(finishing: Boolean)
         @JvmStatic external fun nativeLifecycle(state: Int)
         @JvmStatic external fun nativeSurfaceChanged(surface: Surface, width: Int, height: Int, density: Float)
         @JvmStatic external fun nativeSurfaceDestroyed()
@@ -211,5 +237,8 @@ abstract class AureaActivity : Activity(), SurfaceHolder.Callback, Choreographer
         @JvmStatic external fun nativeInsets(left: Float, top: Float, right: Float, bottom: Float)
         @JvmStatic external fun nativeLightTheme(): Boolean
         @JvmStatic external fun nativeFrame(): Boolean
+        @JvmStatic external fun nativeKey(code: Int, pressed: Boolean, meta: Int)
+        @JvmStatic external fun nativeText(text: String)
+        @JvmStatic external fun nativePreedit(text: String, cursor: Int)
     }
 }

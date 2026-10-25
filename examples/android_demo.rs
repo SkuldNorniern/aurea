@@ -1,11 +1,14 @@
-//! A small Aurea app for the Android sample in `mobile/android/`: counter, slider, toggles.
+//! A small Aurea app for the Android sample in `mobile/android/`: counter, slider, toggles, and a
+//! field the on-screen keyboard types into.
 
 #[cfg(target_os = "android")]
 mod app {
     use std::ffi::c_int;
 
-    use aurea::android::{run, set_theme};
-    use aurea::ui::{Align, Button, Checkbox, ProgressBar, Segmented, Slider, Theme, Toggle, Ui};
+    use aurea::android::{run, set_theme, show_keyboard};
+    use aurea::ui::{
+        Align, Button, Checkbox, ProgressBar, Segmented, Slider, TextField, Theme, Toggle, Ui,
+    };
     use aurea::{AureaResult, Rect};
 
     const ADD: u64 = 1;
@@ -15,6 +18,7 @@ mod app {
     const SHARE: u64 = 5;
     const LOOK: u64 = 6;
     const METER: u64 = 7;
+    const NOTE: u64 = 8;
 
     #[derive(Default)]
     struct State {
@@ -23,6 +27,7 @@ mod app {
         muted: bool,
         share: bool,
         look: usize,
+        note: String,
     }
 
     fn panel(ui: &mut Ui<'_, u64>, s: &mut State, width: f32) -> AureaResult<()> {
@@ -76,6 +81,17 @@ mod app {
             } else {
                 Theme::dark()
             });
+        }
+        let note = TextField::new(&mut s.note).placeholder("Type here").show(
+            ui,
+            NOTE,
+            row(444.0, 44.0),
+        )?;
+        if note.editing_started {
+            show_keyboard(true);
+        }
+        if note.focus_lost {
+            show_keyboard(false);
         }
         Ok(())
     }

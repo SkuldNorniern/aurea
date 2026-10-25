@@ -134,8 +134,6 @@ thread_local! {
     static SCREEN: Cell<(f32, [f32; 4])> = const { Cell::new((1.0, [0.0; 4])) };
     static LISTENERS: RefCell<Vec<Listener>> = const { RefCell::new(Vec::new()) };
     static NEXT_THEME: RefCell<Option<Theme>> = const { RefCell::new(None) };
-    #[cfg(feature = "zengpu")]
-    static GPU: RefCell<Option<Arc<ZenGpuContext>>> = const { RefCell::new(None) };
     static HOST: RefCell<Host> = RefCell::new(Host {
         app: None,
         theme: Theme::dark(),
@@ -237,7 +235,7 @@ pub fn use_gpu(on: bool) {
 /// renderers to share.
 #[cfg(feature = "zengpu")]
 pub fn gpu_context() -> Option<Arc<ZenGpuContext>> {
-    GPU.with_borrow(Clone::clone)
+    gpu_ready::current()
 }
 
 /// Calls `ready` with the host's GPU once it is up, or now if it is, for the app's own textures and
@@ -262,7 +260,6 @@ fn gpu_renderer(info: &SurfaceInfo) -> AureaResult<Box<dyn Renderer>> {
         info.scale_factor,
     )?;
     gpu_ready::made(&context);
-    GPU.set(Some(context));
     log::info!("ios: drawing with the gpu");
     Ok(Box::new(renderer))
 }
