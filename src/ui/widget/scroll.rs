@@ -72,6 +72,7 @@ pub struct ScrollArea<'v> {
     offset: &'v mut f32,
     content: f32,
     style: Option<ScrollStyle>,
+    jump: bool,
 }
 
 impl<'v> ScrollArea<'v> {
@@ -81,6 +82,7 @@ impl<'v> ScrollArea<'v> {
             offset,
             content: content_height.max(0.0),
             style: None,
+            jump: false,
         }
     }
 
@@ -89,6 +91,22 @@ impl<'v> ScrollArea<'v> {
     pub fn style(mut self, style: ScrollStyle) -> Self {
         self.style = Some(style);
         self
+    }
+
+    /// The offset lands this frame with no easing, for a go-to-line.
+    #[must_use]
+    pub fn jump(mut self) -> Self {
+        self.jump = true;
+        self
+    }
+
+    /// Moves the offset by `by` and its eased value with it, so what is on screen stays put, for
+    /// content that scrolls off the top. Call before [`Self::show`] with the same `id`.
+    pub fn shift<Id: WidgetId>(ui: &mut Ui<'_, Id>, id: Id, offset: &mut f32, by: f32) {
+        *offset += by;
+        if let Some(now) = ui.state.tweens.get((Key::new(id, 0), OFFSET)) {
+            ui.set_animated(id, 0, OFFSET, now + by);
+        }
     }
 
     /// Creates an area whose content height will be supplied by [`Self::show_measured`].
@@ -150,7 +168,14 @@ impl<'v> ScrollArea<'v> {
         *self.offset = self.offset.clamp(0.0, room);
         let track = rect.split_right(14.0, 0.0).0;
         let mut moved = (*self.offset - before).abs() > f32::EPSILON;
-        let shown = if style.smooth && !dragged {
+        let shown = if style.smooth && !dragged && !self.jump {
+            // Farther than two views behind, the eased value first closes to one view short.
+            if let Some(now) = ui.state.tweens.get((Key::new(id, 0), OFFSET)) {
+                let gap = *self.offset - now;
+                if gap.abs() > 2.0 * rect.height {
+                    ui.set_animated(id, 0, OFFSET, *self.offset - gap.signum() * rect.height);
+                }
+            }
             ui.animate(id, 0, OFFSET, *self.offset, ui.theme.motion.slide * 1.4)
         } else {
             ui.set_animated(id, 0, OFFSET, *self.offset);
@@ -820,5 +845,80 @@ mod tests {
         rig.frame();
         rig.button(196.0, 100.0, false);
         assert_eq!(rig.list, 19_900.0, "dragged to the end");
+    }
+
+    const CONTENT: f32 = 10_000.0;
+
+    struct Eased {
+        raster: CpuRasterizer,
+        ui: UiState<u8>,
+        theme: Theme,
+        offset: f32,
+    }
+
+    impl Eased {
+        fn new() -> Self {
+            let mut eased = Self {
+                raster: CpuRasterizer::new(120, 120),
+                ui: UiState::new(),
+                theme: Theme::dark(),
+                offset: 0.0,
+            };
+            eased.draw(false, |_, _| {});
+            eased
+        }
+
+        /// Draws one frame after `edit`, with the area jumping if asked, and returns the offset shown.
+        fn draw(&mut self, jump: bool, edit: impl FnOnce(&mut Ui<'_, u8>, &mut f32)) -> f32 {
+            let mut ctx = self.raster.begin_frame().expect("frame");
+            let mut shown = 0.0;
+            {
+                let mut ui = self.ui.frame(&mut *ctx, &self.theme);
+                edit(&mut ui, &mut self.offset);
+                let mut area = ScrollArea::new(&mut self.offset, CONTENT);
+                if jump {
+                    area = area.jump();
+                }
+                area.show(&mut ui, 1, VIEW, |_, content, _| {
+                    shown = VIEW.y - content.y;
+                    Ok(())
+                })
+                .expect("area");
+            }
+            drop(ctx);
+            self.raster.end_frame().expect("end");
+            shown
+        }
+    }
+
+    const VIEW: Rect = Rect::new(0.0, 0.0, 100.0, 100.0);
+
+    #[test]
+    fn a_jump_lands_at_once() {
+        let mut rig = Eased::new();
+        let eased = rig.draw(false, |_, o| *o = 60.0);
+        assert!(eased > 0.0 && eased < 60.0, "an ease starts: {eased}");
+        let mut rig = Eased::new();
+        assert_eq!(rig.draw(true, |_, o| *o = 60.0), 60.0);
+    }
+
+    #[test]
+    fn a_shift_keeps_the_eased_and_target_values_equal() {
+        let mut rig = Eased::new();
+        rig.draw(true, |_, o| *o = 300.0);
+        let shown = rig.draw(false, |ui, o| ScrollArea::shift(ui, 1, o, -120.0));
+        assert_eq!(rig.offset, 180.0);
+        assert_eq!(shown, 180.0, "no ease from the old place");
+    }
+
+    #[test]
+    fn a_long_change_snaps_to_within_one_view() {
+        let mut rig = Eased::new();
+        let shown = rig.draw(false, |_, o| *o = 5000.0);
+        assert!(
+            (5000.0 - shown).abs() <= VIEW.height,
+            "within a view of the target: {shown}"
+        );
+        assert!(shown < 5000.0, "the rest still eases");
     }
 }
