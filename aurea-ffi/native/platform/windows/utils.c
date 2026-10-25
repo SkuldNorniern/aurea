@@ -55,7 +55,8 @@ static void ng_windows_check_occlusion(HWND hwnd) {
     int was = (int)(INT_PTR)GetPropA(hwnd, AUREA_OCCLUSION_PROP) - 1;
     if (now == was) return;
     SetPropA(hwnd, AUREA_OCCLUSION_PROP, (HANDLE)(INT_PTR)(now + 1));
-    if (was >= 0) ng_windows_lifecycle(hwnd, 13 + now);
+    /* a window that starts out covered says so too */
+    if (was >= 0 || now != AUREA_OCCLUSION_VISIBLE) ng_windows_lifecycle(hwnd, 13 + now);
 }
 
 static void ng_windows_declare_dpi_awareness(void) {
@@ -285,17 +286,13 @@ void ng_windows_register_scale_callback(HWND hwnd, ScaleFactorCallback callback)
 }
 
 void ng_windows_register_lifecycle_callback(HWND hwnd) {
-    for (int i = 0; i < g_tracked_count && i < 256; i++) {
-        if (g_tracked_windows[i] == hwnd) {
-            g_lifecycle_callbacks[i] = TRUE;
-            return;
-        }
+    int i = 0;
+    while (i < g_tracked_count && g_tracked_windows[i] != hwnd) i++;
+    if (i == g_tracked_count) {
+        if (g_tracked_count >= 256) return;
+        g_tracked_windows[g_tracked_count++] = hwnd;
     }
-    if (g_tracked_count < 256) {
-        g_tracked_windows[g_tracked_count] = hwnd;
-        g_lifecycle_callbacks[g_tracked_count] = TRUE;
-        g_tracked_count++;
-    }
+    g_lifecycle_callbacks[i] = TRUE;
     /* other windows moving over this one send it nothing, so look twice a second */
     SetTimer(hwnd, AUREA_OCCLUSION_TIMER_ID, 500, NULL);
     ng_windows_check_occlusion(hwnd);

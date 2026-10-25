@@ -1726,6 +1726,7 @@ mod win32_occlusion_tests {
     const SW_MINIMIZE: c_int = 6;
     const SW_RESTORE: c_int = 9;
     const SWP_NOSIZE: u32 = 0x0001;
+    const SWP_NOMOVE: u32 = 0x0002;
     const SWP_NOZORDER: u32 = 0x0004;
 
     #[link(name = "user32")]
@@ -1770,6 +1771,24 @@ mod win32_occlusion_tests {
         fn GetWindowRect(hwnd: *mut c_void, rect: *mut Rect) -> i32;
     }
 
+    /// Puts `window` above everything else open on the desktop, so the user's windows do not
+    /// cover it.
+    fn on_top(window: &Window) {
+        const HWND_TOPMOST: isize = -1;
+        unsafe {
+            SetWindowPos(
+                window.handle(),
+                HWND_TOPMOST as *mut c_void,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOSIZE | SWP_NOMOVE,
+            )
+        };
+        let _ = window.poll_events();
+    }
+
     /// A topmost window of another process over `(x, y, w, h)` in screen pixels, until dropped.
     fn cover(x: i32, y: i32, w: i32, h: i32) -> Child {
         let script = format!(
@@ -1804,6 +1823,7 @@ mod win32_occlusion_tests {
         let window = Window::new("covered", 300, 200)?;
         window.show();
         let _ = window.poll_events();
+        on_top(&window);
         let mut r = Rect {
             left: 0,
             top: 0,
@@ -1825,6 +1845,8 @@ mod win32_occlusion_tests {
         let _ = all.wait();
         assert!(covered, "all covered");
         assert!(wait_for(&window, Occlusion::Visible), "uncovered again");
+        // this app's own windows cover too: out of the way of the next test.
+        window.hide();
         Ok(())
     }
 
@@ -1834,6 +1856,7 @@ mod win32_occlusion_tests {
         let window = Window::new("occlusion", 300, 200)?;
         window.show();
         let _ = window.poll_events();
+        on_top(&window);
         assert_eq!(window.occlusion(), Occlusion::Visible);
 
         unsafe { ShowWindow(window.handle(), SW_MINIMIZE) };
@@ -1862,6 +1885,7 @@ mod win32_occlusion_tests {
             )
         };
         assert_eq!(window.occlusion(), Occlusion::Covered);
+        window.hide();
         Ok(())
     }
 }

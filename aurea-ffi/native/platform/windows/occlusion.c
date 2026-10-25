@@ -1,6 +1,7 @@
-/* How much of a window other windows cover: its rect less every visible window above it in z order.
- * Minimized and cloaked (another virtual desktop) count as covered; click-through overlays, mostly
- * transparent layered windows and this process's own windows (menus, popups) do not cover. */
+/* How much of a window shows: its on-screen rect less every visible window above it in z order. The
+ * part off every screen does not show either. Minimized and cloaked (another virtual desktop) count
+ * as covered; click-through overlays, mostly transparent layered windows, and this app's own menus,
+ * tool windows and owned popups do not cover. */
 #include "occlusion.h"
 #include "utils.h"
 
@@ -36,14 +37,17 @@ static BOOL ng_windows_shown_rect(HWND hwnd, RECT* rect) {
     return GetWindowRect(hwnd, rect);
 }
 
-/* Whether `above` hides what is under it. */
+/* Whether `above`, already known to overlap, hides what is under it. */
 static BOOL ng_windows_covers(HWND above) {
-    if (!IsWindowVisible(above) || IsIconic(above) || ng_windows_cloaked(above)) return FALSE;
-    DWORD pid = 0;
-    GetWindowThreadProcessId(above, &pid);
-    if (pid == GetCurrentProcessId()) return FALSE;
     LONG_PTR ex = GetWindowLongPtrW(above, GWL_EXSTYLE);
     if (ex & WS_EX_TRANSPARENT) return FALSE;
+    DWORD pid = 0;
+    GetWindowThreadProcessId(above, &pid);
+    if (pid == GetCurrentProcessId() &&
+        ((ex & WS_EX_TOOLWINDOW) || GetWindow(above, GW_OWNER) || GetClassLongPtrW(above, GCW_ATOM) == 32768)) {
+        return FALSE;
+    }
+    if (ng_windows_cloaked(above)) return FALSE;
     if (ex & WS_EX_LAYERED) {
         BYTE alpha = 255;
         DWORD flags = 0;
@@ -77,7 +81,6 @@ int ng_windows_occlusion_of(HWND hwnd) {
     }
     RECT rect;
     if (!ng_windows_shown_rect(hwnd, &rect) || IsRectEmpty(&rect)) return AUREA_OCCLUSION_VISIBLE;
-    LONGLONG total = (LONGLONG)(rect.right - rect.left) * (rect.bottom - rect.top);
 
     /* Off every screen is out of sight too. */
     RECT screen = {
@@ -88,13 +91,16 @@ int ng_windows_occlusion_of(HWND hwnd) {
     };
     RECT on_screen;
     if (!IntersectRect(&on_screen, &rect, &screen)) return AUREA_OCCLUSION_COVERED;
+    LONGLONG total = (LONGLONG)(rect.right - rect.left) * (rect.bottom - rect.top);
 
     HRGN shown = CreateRectRgnIndirect(&on_screen);
     if (!shown) return AUREA_OCCLUSION_VISIBLE;
     for (HWND above = GetWindow(hwnd, GW_HWNDPREV); above; above = GetWindow(above, GW_HWNDPREV)) {
-        if (!ng_windows_covers(above)) continue;
-        RECT cover;
-        if (!ng_windows_shown_rect(above, &cover)) continue;
+        /* cheap checks first: most windows above are nowhere near this one */
+        RECT rough, cover;
+        if (!IsWindowVisible(above) || IsIconic(above)) continue;
+        if (!GetWindowRect(above, &rough) || !IntersectRect(&rough, &rough, &on_screen)) continue;
+        if (!ng_windows_covers(above) || !ng_windows_shown_rect(above, &cover)) continue;
         HRGN covered = CreateRectRgnIndirect(&cover);
         if (!covered) continue;
         int left = CombineRgn(shown, shown, covered, RGN_DIFF);
