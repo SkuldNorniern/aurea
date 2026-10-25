@@ -76,6 +76,10 @@ pub enum Sense {
     Adjust,
     /// Typed into: it takes text and the editing keys.
     Text,
+    /// Typed into by the app's own editor: it takes text and an input method's composing text like
+    /// [`Sense::Text`], but [`UiState::text_focused`] stays false, so the app's shortcuts still
+    /// work. Read what came with [`crate::ui::Ui::typed`].
+    Typing,
     /// Hovered only, for a tooltip or a hint.
     Hover,
 }
@@ -311,6 +315,13 @@ pub(crate) struct Tip {
 }
 
 pub(crate) const BLINK_FOR: Duration = Duration::from_secs(8);
+/// How long of each second the caret shows while it blinks.
+pub(crate) const BLINK_ON: f32 = 0.6;
+
+/// Whether a widget with `sense` takes typed text.
+fn takes_text(sense: Option<Sense>) -> bool {
+    matches!(sense, Some(Sense::Text | Sense::Typing))
+}
 
 /// The state canvas widgets keep between frames.
 #[derive(Debug)]
@@ -454,7 +465,7 @@ impl<Id: WidgetId> UiState<Id> {
         let text_focused = matches!(
             event,
             WindowEvent::TextInput { .. } | WindowEvent::ImePreedit { .. }
-        ) && self.pending_sense() == Some(Sense::Text);
+        ) && takes_text(self.pending_sense());
         let captured = self.active.is_some()
             || self.pointer_events.last().is_some_and(
                 |(_, event)| matches!(event, Pointer::Press(at, ..) if self.hit_at(*at).is_some()),
@@ -612,7 +623,7 @@ impl<Id: WidgetId> UiState<Id> {
 
     fn text_input(&mut self, typed: Typed) -> bool {
         if (self.popup.is_open() && (!self.popup.is_card() || !self.popup.owns_focus(self.focus)))
-            || self.pending_sense() != Some(Sense::Text)
+            || !takes_text(self.pending_sense())
         {
             return false;
         }
@@ -690,10 +701,30 @@ impl<Id: WidgetId> UiState<Id> {
         self.wants_frame = true;
     }
 
-    /// Whether another frame is needed: something is easing, a caret is blinking, or a click
-    /// changed what a widget shows.
+    /// Whether another frame is needed now: something is easing, or a click changed what a
+    /// widget shows. A blinking caret needs one only at [`Self::next_frame_at`].
     pub fn wants_frame(&self) -> bool {
         self.wants_frame
+    }
+
+    /// When the next frame is due even with nothing else going on: the caret's next blink, while a
+    /// text field has the keyboard. Schedule it with `request_canvas_redraw_at`; the iOS and Android
+    /// hosts do it themselves.
+    pub fn next_frame_at(&self) -> Option<Instant> {
+        if !self.text_focused() {
+            return None;
+        }
+        let since = self.blink_from.elapsed();
+        if since >= BLINK_FOR {
+            return None;
+        }
+        let into = since.as_secs_f32().fract();
+        let wait = if into < BLINK_ON {
+            BLINK_ON - into
+        } else {
+            1.0 - into
+        };
+        Some(Instant::now() + Duration::from_secs_f32(wait))
     }
 
     /// The pointer shape for what the pointer is over.
@@ -962,7 +993,6 @@ impl<Id: WidgetId> UiState<Id> {
         self.hit_grid
             .build(self.last_hits.iter().map(|hit| hit.rect));
         mem::swap(&mut self.order, &mut self.last_order);
-        let blinking = self.text_focused() && self.blink_from.elapsed() < BLINK_FOR;
         #[cfg(feature = "accessibility")]
         if let Some(bridge) = &mut self.accessibility {
             let modal = self.popup.is_open().then_some(self.popup.focus_order());
@@ -972,8 +1002,7 @@ impl<Id: WidgetId> UiState<Id> {
                 self.popup.is_open() && !self.popup.is_card(),
             );
         }
-        self.wants_frame =
-            self.tweens.busy() || self.changed || !self.clicked.is_empty() || blinking;
+        self.wants_frame = self.tweens.busy() || self.changed || !self.clicked.is_empty();
         self.clicked.clear();
         self.typed.clear();
         self.typed_targets.clear();
@@ -1017,7 +1046,7 @@ impl<Id: WidgetId> UiState<Id> {
         let held = enabled && self.active == Some(key);
         if hovered || held {
             self.cursor = match sense {
-                Sense::Text => CursorIcon::Text,
+                Sense::Text | Sense::Typing => CursorIcon::Text,
                 Sense::Hover => self.cursor,
                 Sense::Click | Sense::Adjust => CursorIcon::Pointer,
             };

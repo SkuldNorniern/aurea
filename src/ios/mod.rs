@@ -31,6 +31,7 @@ use crate::ffi::callbacks::event_time;
 use crate::render::{CanvasId, CpuRasterizer, Renderer, SurfaceInfo, register_host_canvas};
 use crate::touch::{Phase, Touches};
 use crate::ui::{Theme, Ui, UiState};
+use crate::wake::wake_at;
 use crate::{
     AureaResult, KeyCode, Modifiers, PenPhase, PenSample, PenTapAction, PenTool, Point, Rect,
     WindowEvent,
@@ -129,7 +130,7 @@ thread_local! {
     /// The screen's scale and safe area as of the last frame, apart from `HOST` so the app can read
     /// them while it draws.
     static SCREEN: Cell<(f32, [f32; 4])> = const { Cell::new((1.0, [0.0; 4])) };
-    static LISTENER: RefCell<Option<Listener>> = const { RefCell::new(None) };
+    static LISTENERS: RefCell<Vec<Listener>> = const { RefCell::new(Vec::new()) };
     static NEXT_THEME: RefCell<Option<Theme>> = const { RefCell::new(None) };
     #[cfg(feature = "zengpu")]
     static GPU: RefCell<Option<Arc<ZenGpuContext>>> = const { RefCell::new(None) };
@@ -177,15 +178,22 @@ pub fn run(
 /// hears the app's lifecycle: focus, [`WindowEvent::Minimized`] on going to the background (save
 /// there; iOS may stop the app after), and [`WindowEvent::MemoryWarning`]. The next frame is drawn
 /// after each.
+/// Every listener added hears every event, in the order they were added.
 pub fn on_event(listener: impl FnMut(&WindowEvent) + 'static) {
-    LISTENER.set(Some(Box::new(listener)));
+    LISTENERS.with_borrow_mut(|all| all.push(Box::new(listener)));
 }
 
 fn hear(events: &[WindowEvent]) {
-    LISTENER.with_borrow_mut(|listener| {
-        if let Some(listener) = listener {
-            events.iter().for_each(listener);
+    // taken out while they run, so one can add another; that one hears from the next event on.
+    let mut running = LISTENERS.take();
+    for event in events {
+        for listener in &mut running {
+            listener(event);
         }
+    }
+    LISTENERS.with_borrow_mut(|added| {
+        running.append(added);
+        *added = running;
     });
 }
 
@@ -524,7 +532,11 @@ unsafe extern "C" fn frame(
             *theme = next;
             return 1;
         }
-        i32::from(state.wants_frame())
+        let more = state.wants_frame();
+        if !more && let Some(at) = state.next_frame_at() {
+            wake_at(at, request_frame);
+        }
+        i32::from(more)
     })
 }
 

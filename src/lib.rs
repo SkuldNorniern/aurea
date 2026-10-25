@@ -22,6 +22,8 @@ pub mod android;
 pub mod ios;
 #[cfg(any(target_os = "ios", target_os = "android", test))]
 mod touch;
+#[cfg(any(target_os = "ios", target_os = "android", test))]
+mod wake;
 
 pub use aurea_animation as animation;
 
@@ -62,8 +64,8 @@ pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
 pub use crate::tray::TrayIcon;
 pub use crate::window::clipboard;
 pub use crate::window::{
-    CursorGrabMode, CursorIcon, Window, WindowId, WindowManager, WindowType, clipboard_text,
-    set_clipboard_text,
+    CursorGrabMode, CursorIcon, Window, WindowId, WindowManager, WindowProxy, WindowType,
+    clipboard_text, set_clipboard_text,
 };
 
 pub use crate::window::{

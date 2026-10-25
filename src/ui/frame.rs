@@ -90,6 +90,17 @@ pub struct Eased {
     pub enabled: f32,
 }
 
+/// One thing typed for the widget that has the keyboard; see [`Ui::typed`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TypedInput<'a> {
+    /// A key pressed, with the modifiers held.
+    Key(KeyCode, Modifiers),
+    /// Text to insert.
+    Text(&'a str),
+    /// Text an input method is still composing, and the cursor in it.
+    Preedit(&'a str, Option<usize>),
+}
+
 /// A press that landed on a widget this frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PressAt {
@@ -230,6 +241,28 @@ impl<Id: WidgetId> Ui<'_, Id> {
                 shift: press.modifiers.shift,
                 modifiers: press.modifiers,
             })
+    }
+
+    /// What was typed since the last frame for the widget that has the keyboard, in order: keys,
+    /// text, and what an input method is still composing. A widget gets text and composing text
+    /// when it senses [`Sense::Text`] or [`Sense::Typing`].
+    pub fn typed(&self) -> impl Iterator<Item = TypedInput<'_>> + '_ {
+        self.state
+            .typed
+            .iter()
+            .zip(&self.state.typed_targets)
+            .filter(|(_, target)| **target == self.state.focus)
+            .map(|(typed, _)| match typed {
+                Typed::Key(key, mods) => TypedInput::Key(*key, *mods),
+                Typed::Text(text) => TypedInput::Text(text),
+                Typed::Preedit(text, cursor) => TypedInput::Preedit(text, *cursor),
+            })
+    }
+
+    /// Where the caret of a widget being typed into is, so an input method's window opens next to
+    /// it; aurea's own fields set it themselves. Pass it on with [`UiState::sync_window`].
+    pub fn set_ime_area(&mut self, area: Rect) {
+        self.state.ime_area = Some(area);
     }
 
     /// The keys pressed since the last frame, in order, for the widget that has the keyboard.

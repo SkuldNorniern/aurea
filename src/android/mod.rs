@@ -56,8 +56,9 @@ pub fn run(theme: Theme, app: impl FnMut(&mut Ui<'_, u64>, f32, f32) -> AureaRes
 /// [`WindowEvent::Pen`] with pressure and tilt, the way a desktop window reports a pen. It also
 /// hears the app's lifecycle: focus, [`WindowEvent::Minimized`] on going to the background (save
 /// there; Android may stop the app after), and [`WindowEvent::MemoryWarning`].
+/// Every listener added hears every event, in the order they were added.
 pub fn on_event(listener: impl FnMut(&WindowEvent) + 'static) {
-    host::set_listener(Box::new(listener));
+    host::add_listener(Box::new(listener));
 }
 
 /// Asks for a frame from any thread, such as when background work finishes. The UI's own

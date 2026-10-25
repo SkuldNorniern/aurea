@@ -15,6 +15,7 @@ use crate::ffi::callbacks::event_time;
 use crate::render::{CpuRasterizer, Renderer, SurfaceInfo};
 use crate::touch::{Phase, Touches};
 use crate::ui::{Theme, Ui, UiState};
+use crate::wake::wake_at;
 use crate::{
     AureaResult, Modifiers, MouseButtons, PenPhase, PenSample, PenTool, Point, WindowEvent,
 };
@@ -141,7 +142,7 @@ pub(super) fn gpu_context() -> Option<Arc<ZenGpuContext>> {
 
 thread_local! {
     static NEXT_THEME: RefCell<Option<Theme>> = const { RefCell::new(None) };
-    static LISTENER: RefCell<Option<Listener>> = const { RefCell::new(None) };
+    static LISTENERS: RefCell<Vec<Listener>> = const { RefCell::new(Vec::new()) };
     static HOST: RefCell<Host> = RefCell::new(Host {
         app: None,
         theme: Theme::dark(),
@@ -157,11 +158,11 @@ thread_local! {
     });
 }
 
-pub(super) fn set_listener(listener: Listener) {
-    LISTENER.set(Some(listener));
+pub(super) fn add_listener(listener: Listener) {
+    LISTENERS.with_borrow_mut(|all| all.push(listener));
 }
 
-/// Feeds `events` to the UI, then to the app's listener.
+/// Feeds `events` to the UI, then to the app's listeners.
 fn feed(events: &[WindowEvent]) {
     if events.is_empty() {
         return;
@@ -171,10 +172,16 @@ fn feed(events: &[WindowEvent]) {
             host.state.handle(event);
         }
     });
-    LISTENER.with_borrow_mut(|listener| {
-        if let Some(listener) = listener {
-            events.iter().for_each(listener);
+    // taken out while they run, so one can add another; that one hears from the next event on.
+    let mut running = LISTENERS.take();
+    for event in events {
+        for listener in &mut running {
+            listener(event);
         }
+    }
+    LISTENERS.with_borrow_mut(|added| {
+        running.append(added);
+        *added = running;
     });
 }
 
@@ -433,5 +440,9 @@ fn next_frame(theme: &mut Theme, state: &UiState<u64>) -> bool {
         *theme = next;
         return true;
     }
-    state.wants_frame() || HOST.with_borrow(|host| host.touches.waiting())
+    let more = state.wants_frame() || HOST.with_borrow(|host| host.touches.waiting());
+    if !more && let Some(at) = state.next_frame_at() {
+        wake_at(at, super::request_frame);
+    }
+    more
 }

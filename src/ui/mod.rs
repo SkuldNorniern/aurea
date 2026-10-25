@@ -13,7 +13,7 @@ pub mod widget;
 pub use component::{
     EditableText, FocusRing, Knob, PanZoom, PlotView, StateColors, TextOutcome, Track, card,
 };
-pub use frame::{Align, Eased, PressAt, Response, Ui};
+pub use frame::{Align, Eased, PressAt, Response, TypedInput, Ui};
 pub use paint::{
     AxisMarks, AxisSide, AxisStyle, Badge, BadgeTone, Border, Component, DetailRow, GridLines,
     GridStyle, IconMark, IconSource, Label, Mark, MarkShape, Marker, Overflow, PromptLine,
