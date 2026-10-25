@@ -1574,6 +1574,35 @@ impl CpuRasterizer {
         }
     }
 
+    /// Smallest squared distance from the centre that reaches each step, for `fill_radial_gradient`.
+    /// Entry `j` is the threshold for step `j + 1`. Found by bisection with the per-pixel
+    /// `sqrt`-and-round arithmetic, so a lookup gives the same step as computing it per pixel.
+    fn radial_thresholds(inv_radius: f32) -> [f32; 255] {
+        let step_of_sq = |d2: f32| {
+            let t = (d2.sqrt() * inv_radius).min(1.0);
+            f32_to_usize_clamped((t.clamp(0.0, 1.0) * 255.0).round())
+        };
+        let mut thresholds = [f32::INFINITY; 255];
+        let largest = step_of_sq(f32::MAX);
+        for (j, slot) in thresholds.iter_mut().enumerate() {
+            let target = j + 1;
+            if largest < target {
+                continue;
+            }
+            let (mut lo, mut hi) = (0u32, f32::MAX.to_bits());
+            while lo < hi {
+                let mid = lo + (hi - lo) / 2;
+                if step_of_sq(f32::from_bits(mid)) >= target {
+                    hi = mid;
+                } else {
+                    lo = mid + 1;
+                }
+            }
+            *slot = f32::from_bits(lo);
+        }
+        thresholds
+    }
+
     fn fill_radial_gradient(
         grad: &RadialGradient,
         rect: Rect,
@@ -1595,6 +1624,7 @@ impl CpuRasterizer {
         }
 
         let inv_radius = 1.0 / grad.radius;
+        let thresholds = Self::radial_thresholds(inv_radius);
         let luts = LinearLuts::get();
         let steps = (mode == BlendMode::Normal).then(|| gradient_steps(&lut, luts));
 
@@ -1602,15 +1632,23 @@ impl CpuRasterizer {
             let row = (cy.unsigned_abs() * bw) as usize;
             let dy = cy as f32 + 0.5 - grad.center.y;
             let dy_sq = dy * dy;
+            // Each pixel's step is found by walking from the previous one. Squared distance is
+            // monotone in the step, so the walk stops where the threshold table says it should.
+            let dx0 = x0 as f32 + 0.5 - grad.center.x;
+            let mut step = thresholds.partition_point(|&th| th <= dx0 * dx0 + dy_sq);
             for cx in x0..x1 {
                 let dx = cx as f32 + 0.5 - grad.center.x;
-                let dist = (dx * dx + dy_sq).sqrt();
-                let t = (dist * inv_radius).min(1.0);
-                let t_idx = f32_to_usize_clamped((t.clamp(0.0, 1.0) * 255.0).round());
+                let d2 = dx * dx + dy_sq;
+                while step < 255 && d2 >= thresholds[step] {
+                    step += 1;
+                }
+                while step > 0 && d2 < thresholds[step - 1] {
+                    step -= 1;
+                }
                 let idx = row + cx.unsigned_abs() as usize;
                 buf[idx] = match &steps {
-                    Some(steps) => gradient_over(&steps[t_idx], buf[idx], luts),
-                    None => blend_pixel(lut[t_idx], buf[idx], mode),
+                    Some(steps) => gradient_over(&steps[step], buf[idx], luts),
+                    None => blend_pixel(lut[step], buf[idx], mode),
                 };
             }
         }
@@ -3793,7 +3831,7 @@ mod gradient_and_scaled_tests {
     const W: u32 = 40;
     const H: u32 = 30;
 
-    /// The gradient loop before the translucent fast path, kept as the reference.
+    /// `fill_linear_gradient` as it stands before the axis-aligned paths, kept as the reference.
     fn reference_linear(
         grad: &LinearGradient,
         rect: Rect,
@@ -3817,27 +3855,28 @@ mod gradient_and_scaled_tests {
         if x0 >= x1 || y0 >= y1 {
             return;
         }
+
         let dt_x = dx / len_sq;
-        let opaque_normal = mode == BlendMode::Normal;
+        let luts = LinearLuts::get();
+        let steps = (mode == BlendMode::Normal).then(|| gradient_steps(&lut, luts));
+
         for cy in y0..y1 {
             let row = (cy.unsigned_abs() * bw) as usize;
             let mut t =
                 ((x0 as f32 + 0.5 - start.x) * dx + (cy as f32 + 0.5 - start.y) * dy) / len_sq;
             for cx in x0..x1 {
                 let t_idx = f32_to_usize_clamped((t.clamp(0.0, 1.0) * 255.0).round());
-                let src = lut[t_idx];
                 let idx = row + cx.unsigned_abs() as usize;
-                buf[idx] = if opaque_normal && (src >> 24) == 255 {
-                    src
-                } else {
-                    blend_pixel(src, buf[idx], mode)
+                buf[idx] = match &steps {
+                    Some(steps) => gradient_over(&steps[t_idx], buf[idx], luts),
+                    None => blend_pixel(lut[t_idx], buf[idx], mode),
                 };
                 t += dt_x;
             }
         }
     }
 
-    /// The radial gradient loop before the translucent fast path, kept as the reference.
+    /// `fill_radial_gradient` as it stands before the squared-distance path, kept as the reference.
     fn reference_radial(
         grad: &RadialGradient,
         rect: Rect,
@@ -3857,8 +3896,11 @@ mod gradient_and_scaled_tests {
         if x0 >= x1 || y0 >= y1 {
             return;
         }
+
         let inv_radius = 1.0 / grad.radius;
-        let opaque_normal = mode == BlendMode::Normal;
+        let luts = LinearLuts::get();
+        let steps = (mode == BlendMode::Normal).then(|| gradient_steps(&lut, luts));
+
         for cy in y0..y1 {
             let row = (cy.unsigned_abs() * bw) as usize;
             let dy = cy as f32 + 0.5 - grad.center.y;
@@ -3868,12 +3910,10 @@ mod gradient_and_scaled_tests {
                 let dist = (dx * dx + dy_sq).sqrt();
                 let t = (dist * inv_radius).min(1.0);
                 let t_idx = f32_to_usize_clamped((t.clamp(0.0, 1.0) * 255.0).round());
-                let src = lut[t_idx];
                 let idx = row + cx.unsigned_abs() as usize;
-                buf[idx] = if opaque_normal && (src >> 24) == 255 {
-                    src
-                } else {
-                    blend_pixel(src, buf[idx], mode)
+                buf[idx] = match &steps {
+                    Some(steps) => gradient_over(&steps[t_idx], buf[idx], luts),
+                    None => blend_pixel(lut[t_idx], buf[idx], mode),
                 };
             }
         }
@@ -4025,7 +4065,7 @@ mod gradient_and_scaled_tests {
                             CpuRasterizer::fill_linear_gradient(
                                 &grad, rect, mode, &mut got, W, clip,
                             );
-                            assert_close(
+                            assert_same(
                                 &got,
                                 &want,
                                 &format!("{mode:?} {start:?}->{end:?} {rect:?}"),
@@ -4193,6 +4233,91 @@ mod gradient_and_scaled_tests {
         let ns = start.elapsed().as_secs_f64() * 1e9 / f64::from(iters * w * h);
         eprintln!("radial white->clear 627x202: {ns:.2} ns/pixel");
         black_box(buf);
+    }
+
+    fn white_to_clear() -> Vec<GradientStop> {
+        stop_sets().remove(0)
+    }
+
+    fn timing(label: &str, w: u32, h: u32, draw: impl Fn(&mut [u32], u32, ClipBox)) {
+        const ITERS: u32 = 50;
+        let clip = ClipBox::surface(w, h);
+        let mut buf = background(w * h);
+        let start = Instant::now();
+        for _ in 0..ITERS {
+            draw(black_box(&mut buf), w, clip);
+        }
+        let ns = start.elapsed().as_secs_f64() * 1e9 / f64::from(ITERS * w * h);
+        eprintln!("{label}: {ns:.2} ns/pixel");
+        black_box(buf);
+    }
+
+    #[test]
+    #[ignore = "manual horizontal white-to-clear gradient timing"]
+    fn timing_white_to_clear_horizontal() {
+        let grad = LinearGradient {
+            start: Point::new(0.0, 0.0),
+            end: Point::new(627.0, 0.0),
+            stops: white_to_clear(),
+        };
+        let rect = Rect::new(0.0, 0.0, 627.0, 202.0);
+        timing(
+            "horizontal white->clear 627x202",
+            627,
+            202,
+            |buf, w, clip| {
+                CpuRasterizer::fill_linear_gradient(
+                    black_box(&grad),
+                    rect,
+                    BlendMode::Normal,
+                    buf,
+                    w,
+                    clip,
+                );
+            },
+        );
+    }
+
+    #[test]
+    #[ignore = "manual vertical white-to-clear gradient timing"]
+    fn timing_white_to_clear_vertical() {
+        let grad = LinearGradient {
+            start: Point::new(0.0, 0.0),
+            end: Point::new(0.0, 202.0),
+            stops: white_to_clear(),
+        };
+        let rect = Rect::new(0.0, 0.0, 627.0, 202.0);
+        timing("vertical white->clear 627x202", 627, 202, |buf, w, clip| {
+            CpuRasterizer::fill_linear_gradient(
+                black_box(&grad),
+                rect,
+                BlendMode::Normal,
+                buf,
+                w,
+                clip,
+            );
+        });
+    }
+
+    #[test]
+    #[ignore = "manual radial white-to-clear gradient timing"]
+    fn timing_radial_white_to_clear_600() {
+        let grad = RadialGradient {
+            center: Point::new(300.0, 300.0),
+            radius: 300.0,
+            stops: white_to_clear(),
+        };
+        let rect = Rect::new(0.0, 0.0, 600.0, 600.0);
+        timing("radial white->clear 600x600", 600, 600, |buf, w, clip| {
+            CpuRasterizer::fill_radial_gradient(
+                black_box(&grad),
+                rect,
+                BlendMode::Normal,
+                buf,
+                w,
+                clip,
+            );
+        });
     }
 
     #[test]
