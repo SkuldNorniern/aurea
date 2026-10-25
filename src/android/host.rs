@@ -12,6 +12,8 @@ use jni::objects::JObject;
 
 use super::window::NativeWindow;
 use crate::ffi::callbacks::event_time;
+#[cfg(feature = "zengpu")]
+use crate::gpu_ready;
 use crate::render::{CpuRasterizer, Renderer, SurfaceInfo};
 use crate::touch::{Phase, Touches};
 use crate::ui::{Theme, Ui, UiState};
@@ -82,7 +84,11 @@ impl Gpu {
             let handles = window_handles(&native)?;
             let context = match &self.context {
                 Some(context) => Arc::clone(context),
-                None => Arc::clone(self.context.insert(Arc::new(ZenGpuContext::new()?))),
+                None => {
+                    let made = Arc::new(ZenGpuContext::new()?);
+                    gpu_ready::made(&made);
+                    Arc::clone(self.context.insert(made))
+                }
             };
             let mut renderer = ZenGpuRenderer::with_context(
                 &handles,

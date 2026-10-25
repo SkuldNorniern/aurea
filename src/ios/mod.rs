@@ -28,6 +28,8 @@ use aurea_ffi::{
 #[cfg(not(feature = "zengpu"))]
 use crate::AureaError;
 use crate::ffi::callbacks::event_time;
+#[cfg(feature = "zengpu")]
+use crate::gpu_ready;
 use crate::render::{CanvasId, CpuRasterizer, Renderer, SurfaceInfo, register_host_canvas};
 use crate::touch::{Phase, Touches};
 use crate::ui::{Theme, Ui, UiState};
@@ -238,6 +240,13 @@ pub fn gpu_context() -> Option<Arc<ZenGpuContext>> {
     GPU.with_borrow(Clone::clone)
 }
 
+/// Calls `ready` with the host's GPU once it is up, or now if it is, for the app's own textures and
+/// renderers; it is not called while the host draws on the CPU.
+#[cfg(feature = "zengpu")]
+pub fn on_gpu_ready(ready: impl FnOnce(Arc<ZenGpuContext>) + 'static) {
+    gpu_ready::on_ready(ready);
+}
+
 /// A renderer on the host's GPU view, the safe area's size.
 #[cfg(feature = "zengpu")]
 fn gpu_renderer(info: &SurfaceInfo) -> AureaResult<Box<dyn Renderer>> {
@@ -252,6 +261,7 @@ fn gpu_renderer(info: &SurfaceInfo) -> AureaResult<Box<dyn Renderer>> {
         info.height,
         info.scale_factor,
     )?;
+    gpu_ready::made(&context);
     GPU.set(Some(context));
     log::info!("ios: drawing with the gpu");
     Ok(Box::new(renderer))

@@ -18,6 +18,8 @@ compile_error!(
 
 #[cfg(target_os = "android")]
 pub mod android;
+#[cfg(all(any(target_os = "ios", target_os = "android"), feature = "zengpu"))]
+mod gpu_ready;
 #[cfg(target_os = "ios")]
 pub mod ios;
 #[cfg(any(target_os = "ios", target_os = "android", test))]

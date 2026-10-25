@@ -33,6 +33,8 @@ use jni::objects::{GlobalRef, JClass, JObject};
 use jni::sys::{JNI_FALSE, JNI_TRUE, JNI_VERSION_1_6, jboolean, jdouble, jfloat, jint};
 use jni::{JNIEnv, JavaVM};
 
+#[cfg(feature = "zengpu")]
+use crate::gpu_ready;
 use crate::ui::{Theme, Ui};
 use crate::{AureaResult, WindowEvent};
 #[cfg(feature = "zengpu")]
@@ -105,6 +107,13 @@ pub fn use_gpu(on: bool) {
 #[cfg(feature = "zengpu")]
 pub fn gpu_context() -> Option<Arc<ZenGpuContext>> {
     host::gpu_context()
+}
+
+/// Calls `ready` with the host's GPU once it is up, or now if it is, for the app's own textures and
+/// renderers; it is not called while the host draws on the CPU.
+#[cfg(feature = "zengpu")]
+pub fn on_gpu_ready(ready: impl FnOnce(Arc<ZenGpuContext>) + 'static) {
+    gpu_ready::on_ready(ready);
 }
 
 /// Switches the theme from the next frame.
