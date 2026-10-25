@@ -8,7 +8,7 @@ use crate::render::{Font, Paint, PaintStyle, Point, Rect, shape_text};
 #[cfg(feature = "accessibility")]
 use crate::ui::accessibility::edit_value;
 use crate::ui::frame::{Align, Ui, baseline_in, fill};
-use crate::ui::state::{BLINK_FOR, BLINK_ON, Interaction, Key, Typed, WidgetId};
+use crate::ui::state::{Interaction, Key, Typed, WidgetId, caret_on};
 use crate::ui::text_edit::{Direction, Rules, Step, TextEdit};
 use crate::ui::theme::Palette;
 use crate::window::{KeyCode, Modifiers, clipboard_text, set_clipboard_text};
@@ -415,8 +415,7 @@ fn caret_at<Id: WidgetId>(ui: &mut Ui<'_, Id>, rect: Rect, font: &Font, x: f32) 
     let h = font.size * 1.3;
     let bar = Rect::new(x.round() - 0.5, rect.y + (rect.height - h) / 2.0, 1.5, h);
     ui.state.ime_area = Some(bar);
-    let since = ui.state.blink_from.elapsed();
-    let on = !ui.theme.caret_blink || since >= BLINK_FOR || since.as_secs_f32().fract() < BLINK_ON;
+    let on = caret_on(ui.theme.caret_blink, ui.state.blink_from.elapsed());
     if !on || (ui.state.edit.has_selection() && ui.state.edit.preedit().is_empty()) {
         return Ok(());
     }

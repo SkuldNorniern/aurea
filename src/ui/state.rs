@@ -98,13 +98,17 @@ struct Hit<Id> {
 struct HitGrid {
     origin: Point,
     cell: (f32, f32),
+    /// The bounds' size; points on its far edges are inside, as `Rect::contains` has them.
+    extent: (f32, f32),
     cols: usize,
     rows: usize,
     /// Where each cell's hit indices start in `items`; one more entry than there are cells.
     starts: Vec<u32>,
     items: Vec<u32>,
-    /// Hits spanning too many cells to list in each; always checked.
+    /// Hits spanning too many cells to list in each, or not finite; always checked.
     big: Vec<u32>,
+    /// Where the next hit goes in each cell, while building.
+    next: Vec<u32>,
 }
 
 impl HitGrid {
@@ -120,7 +124,7 @@ impl HitGrid {
         if count < Self::MIN_HITS {
             return;
         }
-        let Some(bounds) = rects.clone().filter(|r| !r.is_empty()).reduce(|a, b| {
+        let Some(bounds) = rects.clone().filter(|r| listable(*r)).reduce(|a, b| {
             let (x0, y0) = (a.x.min(b.x), a.y.min(b.y));
             let (x1, y1) = (a.right().max(b.right()), a.bottom().max(b.bottom()));
             Rect::new(x0, y0, x1 - x0, y1 - y0)
@@ -140,6 +144,7 @@ impl HitGrid {
         }
         (self.origin, self.cell, self.cols, self.rows) =
             (Point::new(bounds.x, bounds.y), cell, cols, rows);
+        self.extent = (bounds.width, bounds.height);
         self.starts.clear();
         self.starts.resize(cols * rows + 1, 0);
         self.items.clear();
@@ -147,42 +152,48 @@ impl HitGrid {
         // Two passes: count per cell, then place, keeping each cell's hits in draw order.
         let layout = (self.origin, self.cell, cols, rows);
         let mut counts = mem::take(&mut self.starts);
-        self.each_cell(rects.clone(), layout, |_, c| counts[c + 1] += 1);
+        self.each_cell(rects.clone(), layout, true, |_, c| counts[c + 1] += 1);
         for c in 1..counts.len() {
             counts[c] += counts[c - 1];
         }
         let mut items = mem::take(&mut self.items);
         items.resize(counts[cols * rows] as usize, 0);
-        let mut next: Vec<u32> = counts[..cols * rows].to_vec();
-        self.each_cell(rects, layout, |i, c| {
+        let mut next = mem::take(&mut self.next);
+        next.clear();
+        next.extend_from_slice(&counts[..cols * rows]);
+        self.each_cell(rects, layout, false, |i, c| {
             items[next[c] as usize] = i;
             next[c] += 1;
         });
         self.starts = counts;
         self.items = items;
+        self.next = next;
     }
 
     /// Calls `visit` with each hit's index and every cell it is listed in, in draw order; hits
-    /// spanning too many cells go to `big` instead.
+    /// spanning too many cells, or not finite, go to `big` instead, on the `first` pass.
     fn each_cell(
         &mut self,
         rects: impl Iterator<Item = Rect>,
         layout: (Point, (f32, f32), usize, usize),
+        first: bool,
         mut visit: impl FnMut(u32, usize),
     ) {
-        let first_pass = self.big.is_empty();
         let cols = layout.2;
         for (i, rect) in rects.enumerate() {
             let i = u32::try_from(i).unwrap_or(u32::MAX);
-            let Some((c0, r0, c1, r1)) = Self::span(layout, rect) else {
+            if rect.is_empty() {
                 continue;
-            };
-            if (c1 - c0) * (r1 - r0) > Self::MAX_CELLS_PER_HIT {
-                if first_pass {
+            }
+            let span = listable(rect).then(|| Self::span(layout, rect));
+            let Some((c0, r0, c1, r1)) =
+                span.filter(|(c0, r0, c1, r1)| (c1 - c0) * (r1 - r0) <= Self::MAX_CELLS_PER_HIT)
+            else {
+                if first {
                     self.big.push(i);
                 }
                 continue;
-            }
+            };
             for row in r0..r1 {
                 for col in c0..c1 {
                     visit(i, row * cols + col);
@@ -191,14 +202,11 @@ impl HitGrid {
         }
     }
 
-    /// The cells `rect` touches, as column and row ranges, or `None` when empty.
+    /// The cells `rect` touches, edges included, as column and row ranges.
     fn span(
         (origin, cell, cols, rows): (Point, (f32, f32), usize, usize),
         rect: Rect,
-    ) -> Option<(usize, usize, usize, usize)> {
-        if rect.is_empty() {
-            return None;
-        }
+    ) -> (usize, usize, usize, usize) {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let index = |v: f32, origin: f32, size: f32, n: usize| {
             (((v - origin) / size).floor().max(0.0) as usize).min(n - 1)
@@ -207,7 +215,7 @@ impl HitGrid {
         let r0 = index(rect.y, origin.y, cell.1, rows);
         let c1 = index(rect.right(), origin.x, cell.0, cols) + 1;
         let r1 = index(rect.bottom(), origin.y, cell.1, rows) + 1;
-        Some((c0, r0, c1, r1))
+        (c0, r0, c1, r1)
     }
 
     /// The hits in the cell under `at` and the big ones, or `None` when there is no grid and every
@@ -218,10 +226,7 @@ impl HitGrid {
         }
         let (dx, dy) = (at.x - self.origin.x, at.y - self.origin.y);
         #[allow(clippy::cast_precision_loss)]
-        let outside = dx < 0.0
-            || dy < 0.0
-            || dx >= self.cell.0 * self.cols as f32
-            || dy >= self.cell.1 * self.rows as f32;
+        let outside = !(0.0..=self.extent.0).contains(&dx) || !(0.0..=self.extent.1).contains(&dy);
         if outside {
             return Some((&[], &self.big));
         }
@@ -317,6 +322,19 @@ pub(crate) struct Tip {
 pub(crate) const BLINK_FOR: Duration = Duration::from_secs(8);
 /// How long of each second the caret shows while it blinks.
 pub(crate) const BLINK_ON: f32 = 0.6;
+
+/// Whether a blinking caret shows `since` it last moved: always when blinking is off or over.
+pub(crate) fn caret_on(blink: bool, since: Duration) -> bool {
+    !blink || since >= BLINK_FOR || since.as_secs_f32().fract() < BLINK_ON
+}
+
+/// Whether `rect` can be listed in grid cells: finite and not empty.
+fn listable(rect: Rect) -> bool {
+    !rect.is_empty()
+        && [rect.x, rect.y, rect.width, rect.height]
+            .iter()
+            .all(|v| v.is_finite())
+}
 
 /// Whether a widget with `sense` takes typed text.
 fn takes_text(sense: Option<Sense>) -> bool {
@@ -711,7 +729,7 @@ impl<Id: WidgetId> UiState<Id> {
     /// text field has the keyboard. Schedule it with `request_canvas_redraw_at`; the iOS and Android
     /// hosts do it themselves.
     pub fn next_frame_at(&self) -> Option<Instant> {
-        if !self.text_focused() {
+        if !self.window_focused || !takes_text(self.focused_sense()) {
             return None;
         }
         let since = self.blink_from.elapsed();
@@ -954,7 +972,10 @@ impl<Id: WidgetId> UiState<Id> {
     fn forget_old_edits(&mut self) {
         let now = Instant::now();
         for hit in &self.hits {
-            if self.edits.contains_key(&hit.key) || self.editing.contains_key(&hit.key) {
+            let kept = self.edits.contains_key(&hit.key)
+                || self.editing.contains_key(&hit.key)
+                || self.edit_for == Some(hit.key);
+            if kept {
                 self.edit_seen.insert(hit.key, now);
             }
         }
@@ -963,11 +984,18 @@ impl<Id: WidgetId> UiState<Id> {
             seen.entry(*key).or_insert(now);
         }
         seen.retain(|_, at| now.duration_since(*at) < KEEP_EDITS_FOR);
-        if seen.len() > KEEP_EDITS {
-            let mut ages: Vec<Instant> = seen.values().copied().collect();
-            ages.sort_unstable();
-            let cut = ages[ages.len() - KEEP_EDITS];
-            seen.retain(|_, at| *at >= cut);
+        // Fields drawn this frame always keep theirs; of the rest, the stalest go first.
+        let mut unseen: Vec<(Instant, Key<Id>)> = seen
+            .iter()
+            .filter(|(_, at)| **at < now)
+            .map(|(key, at)| (*at, *key))
+            .collect();
+        if unseen.len() > KEEP_EDITS {
+            let extra = unseen.len() - KEEP_EDITS;
+            unseen.select_nth_unstable_by_key(extra - 1, |(at, _)| *at);
+            for (_, key) in &unseen[..extra] {
+                seen.remove(key);
+            }
         }
         self.edits.retain(|key, _| seen.contains_key(key));
         self.editing.retain(|key, _| seen.contains_key(key));
@@ -1129,6 +1157,7 @@ fn to_f32(v: f64) -> f32 {
 mod tests {
     use super::*;
     use std::cell::Cell;
+    use std::thread::sleep;
 
     fn move_to(x: f64, y: f64) -> WindowEvent {
         WindowEvent::MouseMove {
@@ -1272,13 +1301,26 @@ mod tests {
                 Rect::new(next(900) as f32, next(700) as f32, w as f32, h as f32)
             })
             .collect();
+        let mut rects = rects;
+        // a hit everywhere, and one that is not finite.
+        rects.insert(5, Rect::new(f32::NEG_INFINITY, 0.0, f32::INFINITY, 1e9));
+        rects.push(Rect::new(0.0, 0.0, f32::NAN, 10.0));
+        // a small hit that sets the grid's far corner.
+        rects.push(Rect::new(1990.0, 1490.0, 10.0, 10.0));
         let mut grid = HitGrid::default();
         grid.build(rects.iter().copied());
         assert!(grid.cols > 0, "built");
         let scan = |at: Point| rects.iter().rposition(|r| !r.is_empty() && r.contains(at));
-        for _ in 0..5000 {
-            #[allow(clippy::cast_precision_loss)]
-            let at = Point::new(next(1300) as f32 - 100.0, next(1000) as f32 - 100.0);
+        // every hit's corners, where float edges go wrong.
+        let corners: Vec<Point> = rects
+            .iter()
+            .filter(|r| r.width.is_finite() && r.x.is_finite())
+            .flat_map(|r| [Point::new(r.x, r.y), Point::new(r.right(), r.bottom())])
+            .collect();
+        #[allow(clippy::cast_precision_loss)]
+        let random =
+            (0..5000).map(|_| Point::new(next(1300) as f32 - 100.0, next(1000) as f32 - 100.0));
+        for at in corners.into_iter().chain(random.collect::<Vec<_>>()) {
             let found = |list: &[u32]| {
                 list.iter()
                     .rev()
@@ -1293,6 +1335,29 @@ mod tests {
                 .and_then(|(cell, big)| found(cell).max(found(big)));
             assert_eq!(from_grid, scan(at), "at {at:?}");
         }
+    }
+
+    #[test]
+    fn fields_on_screen_keep_their_edits_and_the_rest_are_capped() {
+        let mut state = UiState::<u16>::new();
+        let theme = Theme::dark();
+        let draw = |state: &mut UiState<u16>, count: u16| {
+            state.begin(&theme);
+            for k in 0..count {
+                let at = Rect::new(0.0, f32::from(k) * 10.0, 40.0, 8.0);
+                state.interact(Key::new(k, 0), at, Sense::Text, true);
+            }
+            state.end();
+        };
+        draw(&mut state, 70);
+        for k in 0..70 {
+            state.edits.insert(Key::new(k, 0), TextEdit::new());
+        }
+        draw(&mut state, 70);
+        assert_eq!(state.edits.len(), 70, "all drawn, all kept");
+        sleep(Duration::from_millis(2));
+        draw(&mut state, 0);
+        assert_eq!(state.edits.len(), KEEP_EDITS, "out of sight, capped");
     }
 
     #[test]
