@@ -219,10 +219,31 @@ impl<Id: WidgetId> Ui<'_, Id> {
         self.ease(Key::new(id, part), channel, target, rate)
     }
 
+    /// Like [`Ui::animate`], but a tween read for the first time, or again after it was forgotten
+    /// for not being read in a frame, starts at `start` and eases towards `target` from there.
+    pub fn animate_from(
+        &mut self,
+        id: Id,
+        part: u16,
+        channel: Channel,
+        start: f32,
+        target: f32,
+        rate: f32,
+    ) -> f32 {
+        self.state
+            .tweens
+            .from_to((Key::new(id, part), channel), start, target, rate)
+    }
+
     /// Puts `channel` of that part at `value` now, for something the user drags, which should
     /// follow the pointer exactly.
     pub fn set_animated(&mut self, id: Id, part: u16, channel: Channel, value: f32) {
         self.state.tweens.set((Key::new(id, part), channel), value);
+    }
+
+    /// Where `channel` of that part is now, if it is animating; reading it does not keep it.
+    pub fn animated(&self, id: Id, part: u16, channel: Channel) -> Option<f32> {
+        self.state.tweens.get((Key::new(id, part), channel))
     }
 
     pub(crate) fn ease(&mut self, key: Key<Id>, channel: Channel, target: f32, rate: f32) -> f32 {

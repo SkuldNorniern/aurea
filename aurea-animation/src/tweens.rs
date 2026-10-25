@@ -202,6 +202,18 @@ mod tests {
     }
 
     #[test]
+    fn from_to_starts_again_after_it_is_forgotten() {
+        let mut t = Tweens::new();
+        t.frame();
+        t.dt = 0.016;
+        assert!(t.from_to("card", 0.0, 1.0, 3.5) > 0.0);
+        t.frame();
+        t.frame();
+        t.dt = 0.0;
+        assert_eq!(t.from_to("card", 0.0, 1.0, 3.5), 0.0);
+    }
+
+    #[test]
     fn get_peeks_without_keeping_the_value() {
         let mut t = Tweens::new();
         assert_eq!(t.get("x"), None);
