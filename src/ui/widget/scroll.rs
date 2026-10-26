@@ -14,8 +14,11 @@ use crate::window::KeyCode;
 use crate::{AureaResult, WheelScroll, wheel_scroll};
 
 const THUMB_PART: u16 = 0xE000;
+const THUMB_X_PART: u16 = 0xE001;
 const SHOWN: Channel = Channel::Custom(0xE001);
 const OFFSET: Channel = Channel::Custom(0xE002);
+const SHOWN_X: Channel = Channel::Custom(0xE004);
+const OFFSET_X: Channel = Channel::Custom(0xE005);
 const LINGER: f32 = 0.9;
 
 /// How an area's bar looks and how far the wheel moves it.
@@ -67,10 +70,12 @@ pub(crate) fn wheel_line_pixels() -> f32 {
     }
 }
 
-/// Content `content_height` tall, shown through a rect from `offset` down.
+/// Content `content_height` tall, shown through a rect from `offset` down, and with
+/// [`Self::sideways`] wider content too.
 pub struct ScrollArea<'v> {
     offset: &'v mut f32,
     content: f32,
+    sideways: Option<(&'v mut f32, f32)>,
     style: Option<ScrollStyle>,
     jump: bool,
 }
@@ -81,6 +86,7 @@ impl<'v> ScrollArea<'v> {
         Self {
             offset,
             content: content_height.max(0.0),
+            sideways: None,
             style: None,
             jump: false,
         }
@@ -90,6 +96,15 @@ impl<'v> ScrollArea<'v> {
     #[must_use]
     pub fn style(mut self, style: ScrollStyle) -> Self {
         self.style = Some(style);
+        self
+    }
+
+    /// Scrolls sideways too, through content `content_width` wide from `offset` across: the
+    /// wheel's sideways part (shift and the wheel on most mice) moves it, with a bar along the
+    /// bottom.
+    #[must_use]
+    pub fn sideways(mut self, offset: &'v mut f32, content_width: f32) -> Self {
+        self.sideways = Some((offset, content_width.max(0.0)));
         self
     }
 
@@ -151,7 +166,8 @@ impl<'v> ScrollArea<'v> {
         })
     }
 
-    /// Draws `body` clipped to the area, then routes unused wheel movement.
+    /// Draws `body` clipped to the area, then routes unused wheel movement. `body` gets the
+    /// content's rect, moved by the offsets, and the view.
     pub fn show<Id: WidgetId, R>(
         self,
         ui: &mut Ui<'_, Id>,
@@ -160,120 +176,235 @@ impl<'v> ScrollArea<'v> {
         body: impl FnOnce(&mut Ui<'_, Id>, Rect, Rect) -> AureaResult<R>,
     ) -> AureaResult<(Response, R)> {
         let style = self.style.unwrap_or_else(|| ScrollStyle::new(ui.theme));
-        let room = (self.content - rect.height).max(0.0);
         let input = ui.interact(id, 0, rect, Sense::Hover, true);
         let over = ui.pointer().is_some_and(|at| rect.contains(at));
-        let before = *self.offset;
-        let dragged = thumb_drag(ui, id, rect, room, self.content, self.offset);
-        *self.offset = self.offset.clamp(0.0, room);
-        let track = rect.split_right(14.0, 0.0).0;
-        let mut moved = (*self.offset - before).abs() > f32::EPSILON;
-        let shown = if style.smooth && !dragged && !self.jump {
-            // Farther than two views behind, the eased value first closes to one view short.
-            if let Some(now) = ui.state.tweens.get((Key::new(id, 0), OFFSET)) {
-                let gap = *self.offset - now;
-                if gap.abs() > 2.0 * rect.height {
-                    ui.set_animated(id, 0, OFFSET, *self.offset - gap.signum() * rect.height);
-                }
+        let ease = style.smooth && !self.jump;
+        let down = Axis::DOWN;
+        let mut y = down.begin(ui, id, rect, self.content, self.offset, ease);
+        let (mut x, width) = match self.sideways {
+            Some((offset, width)) => {
+                let x = Axis::ACROSS.begin(ui, id, rect, width, offset, ease);
+                (Some((x, offset)), width.max(rect.width))
             }
-            ui.animate(id, 0, OFFSET, *self.offset, ui.theme.motion.slide * 1.4)
-        } else {
-            ui.set_animated(id, 0, OFFSET, *self.offset);
-            *self.offset
+            None => (None, rect.width),
         };
-        let content = Rect::new(rect.x, rect.y - shown, rect.width, self.content);
+        let shown_x = x.as_ref().map_or(0.0, |(x, _)| x.shown);
+        let content = Rect::new(rect.x - shown_x, rect.y - y.shown, width, self.content);
         let out = ui.clipped(rect, |ui| body(ui, content, rect))?;
         let step = if style.step == f32::INFINITY {
             rect.height
         } else {
             style.step
         };
-        if over && room > 0.0 && step.is_finite() && step > 0.0 {
-            let previous = *self.offset;
-            *self.offset = (previous - ui.wheel().1 * step).clamp(0.0, room);
-            let distance = *self.offset - previous;
-            ui.consume_wheel((0.0, -distance / step));
-            if distance.abs() > f32::EPSILON {
-                moved = true;
+        if over && step.is_finite() && step > 0.0 {
+            let wheel = ui.wheel();
+            let dy = y.wheel(self.offset, wheel.1, step);
+            let dx = x
+                .as_mut()
+                .map_or(0.0, |(x, offset)| x.wheel(offset, wheel.0, step));
+            ui.consume_wheel((-dx / step, -dy / step));
+            if dx != 0.0 || dy != 0.0 {
                 ui.mark_changed();
             }
         }
-        if room > 0.0 {
-            ui.interact(id, THUMB_PART, track, Sense::Hover, true);
+        y.end(ui, id, rect, self.content, over, style)?;
+        let mut changed = y.moved;
+        let mut held = y.dragged;
+        if let Some((x, _)) = &x {
+            x.end(ui, id, rect, width, over, style)?;
+            changed |= x.moved;
+            held |= x.dragged;
         }
-        bar(
-            ui,
-            id,
-            rect,
-            room,
-            shown,
-            self.content,
-            (moved || dragged, over),
-            style,
-        )?;
         let mut response = Response::new(rect, input);
-        response.changed = moved;
-        response.held = dragged;
+        response.changed = changed;
+        response.held = held;
         Ok((response, out))
     }
 }
 
-fn thumb_drag<Id: WidgetId>(
-    ui: &mut Ui<'_, Id>,
-    id: Id,
-    rect: Rect,
-    room: f32,
-    content: f32,
-    offset: &mut f32,
-) -> bool {
-    if room <= 0.0 || ui.state.active != Some(Key::new(id, THUMB_PART)) {
-        return false;
-    }
-    let Some(at) = ui.pointer() else {
-        return false;
-    };
-    let thumb = (rect.height * rect.height / content).max(24.0);
-    let t = ((at.y - rect.y - thumb / 2.0) / (rect.height - thumb).max(1.0)).clamp(0.0, 1.0);
-    *offset = t * room;
-    true
+/// One way an area scrolls: down its height or across its width.
+#[derive(Clone, Copy)]
+struct Axis {
+    vertical: bool,
+    part: u16,
+    offset: Channel,
+    shown: Channel,
+    linger: Channel,
 }
 
-#[allow(clippy::too_many_arguments)]
-fn bar<Id: WidgetId>(
-    ui: &mut Ui<'_, Id>,
-    id: Id,
-    rect: Rect,
+impl Axis {
+    const DOWN: Self = Self {
+        vertical: true,
+        part: THUMB_PART,
+        offset: OFFSET,
+        shown: SHOWN,
+        linger: Channel::Custom(0xE003),
+    };
+    const ACROSS: Self = Self {
+        vertical: false,
+        part: THUMB_X_PART,
+        offset: OFFSET_X,
+        shown: SHOWN_X,
+        linger: Channel::Custom(0xE006),
+    };
+
+    /// The view's length and start along the axis.
+    fn span(self, rect: Rect) -> (f32, f32) {
+        if self.vertical {
+            (rect.height, rect.y)
+        } else {
+            (rect.width, rect.x)
+        }
+    }
+
+    /// Takes a thumb drag, clamps `offset` and eases towards it.
+    fn begin<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        content: f32,
+        offset: &mut f32,
+        ease: bool,
+    ) -> Scrolled {
+        let (view, _) = self.span(rect);
+        let room = (content - view).max(0.0);
+        let before = *offset;
+        let dragged = self.thumb_drag(ui, id, rect, room, content, offset);
+        *offset = offset.clamp(0.0, room);
+        let shown = if ease && !dragged {
+            // Farther than two views behind, the eased value first closes to one view short.
+            if let Some(now) = ui.state.tweens.get((Key::new(id, 0), self.offset)) {
+                let gap = *offset - now;
+                if gap.abs() > 2.0 * view {
+                    ui.set_animated(id, 0, self.offset, *offset - gap.signum() * view);
+                }
+            }
+            ui.animate(id, 0, self.offset, *offset, ui.theme.motion.slide * 1.4)
+        } else {
+            ui.set_animated(id, 0, self.offset, *offset);
+            *offset
+        };
+        Scrolled {
+            axis: self,
+            room,
+            shown,
+            moved: (*offset - before).abs() > f32::EPSILON,
+            dragged,
+        }
+    }
+
+    fn thumb_drag<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        room: f32,
+        content: f32,
+        offset: &mut f32,
+    ) -> bool {
+        if room <= 0.0 || ui.state.active != Some(Key::new(id, self.part)) {
+            return false;
+        }
+        let Some(at) = ui.pointer() else {
+            return false;
+        };
+        let (view, start) = self.span(rect);
+        let along = if self.vertical { at.y } else { at.x };
+        let thumb = (view * view / content).max(24.0);
+        let t = ((along - start - thumb / 2.0) / (view - thumb).max(1.0)).clamp(0.0, 1.0);
+        *offset = t * room;
+        true
+    }
+
+    /// The strip the thumb runs in, which takes the pointer.
+    fn track(self, rect: Rect) -> Rect {
+        if self.vertical {
+            rect.split_right(14.0, 0.0).0
+        } else {
+            Rect::new(rect.x, rect.bottom() - 14.0, rect.width, 14.0)
+        }
+    }
+
+    /// Whether the pointer is close to the edge the bar runs along.
+    fn near<Id: WidgetId>(self, ui: &Ui<'_, Id>, rect: Rect) -> bool {
+        ui.pointer().is_some_and(|at| {
+            if self.vertical {
+                at.x > rect.right() - 24.0
+            } else {
+                at.y > rect.bottom() - 24.0
+            }
+        })
+    }
+}
+
+/// An axis's state for one frame.
+struct Scrolled {
+    axis: Axis,
     room: f32,
     shown: f32,
-    content: f32,
-    (moving, over): (bool, bool),
-    style: ScrollStyle,
-) -> AureaResult<()> {
-    if room <= 0.0 {
-        return Ok(());
-    }
-    let since = ui.animate(id, 0, Channel::Custom(0xE003), 0.0, 1.0 / LINGER);
-    if moving {
-        ui.set_animated(id, 0, Channel::Custom(0xE003), 1.0);
-    }
-    let near = over && ui.pointer().is_some_and(|at| at.x > rect.right() - 24.0);
-    let target = if moving || near || since > 0.05 {
-        1.0
-    } else {
+    moved: bool,
+    dragged: bool,
+}
+
+impl Scrolled {
+    /// Moves `offset` by the wheel's `notches` along the axis; how far it went.
+    fn wheel(&mut self, offset: &mut f32, notches: f32, step: f32) -> f32 {
+        if self.room <= 0.0 {
+            return 0.0;
+        }
+        let previous = *offset;
+        *offset = (previous - notches * step).clamp(0.0, self.room);
+        let distance = *offset - previous;
+        if distance.abs() > f32::EPSILON {
+            self.moved = true;
+            return distance;
+        }
         0.0
-    };
-    let lit = ui.animate(id, 0, SHOWN, target, ui.theme.motion.hover);
-    if lit <= 0.01 {
-        return Ok(());
     }
-    let h = (rect.height * rect.height / content)
-        .max(24.0)
-        .min(rect.height);
-    let y = rect.y + (rect.height - h) * (shown / room).clamp(0.0, 1.0);
-    let w = style.width * if near { 1.4 } else { 1.0 };
-    let thumb = Rect::new(rect.right() - w - 3.0, y + 2.0, w, h - 4.0);
-    let color = if near { style.thumb_hover } else { style.thumb };
-    ui.round(thumb, w / 2.0, color.fade(lit))
+
+    /// Takes the pointer over the track and draws the bar.
+    fn end<Id: WidgetId>(
+        &self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        content: f32,
+        over: bool,
+        style: ScrollStyle,
+    ) -> AureaResult<()> {
+        if self.room <= 0.0 {
+            return Ok(());
+        }
+        let axis = self.axis;
+        ui.interact(id, axis.part, axis.track(rect), Sense::Hover, true);
+        let since = ui.animate(id, 0, axis.linger, 0.0, 1.0 / LINGER);
+        let moving = self.moved || self.dragged;
+        if moving {
+            ui.set_animated(id, 0, axis.linger, 1.0);
+        }
+        let near = over && axis.near(ui, rect);
+        let target = if moving || near || since > 0.05 {
+            1.0
+        } else {
+            0.0
+        };
+        let lit = ui.animate(id, 0, axis.shown, target, ui.theme.motion.hover);
+        if lit <= 0.01 {
+            return Ok(());
+        }
+        let (view, start) = axis.span(rect);
+        let len = (view * view / content).max(24.0).min(view);
+        let at = start + (view - len) * (self.shown / self.room).clamp(0.0, 1.0);
+        let w = style.width * if near { 1.4 } else { 1.0 };
+        let thumb = if axis.vertical {
+            Rect::new(rect.right() - w - 3.0, at + 2.0, w, len - 4.0)
+        } else {
+            Rect::new(at + 2.0, rect.bottom() - w - 3.0, len - 4.0, w)
+        };
+        let color = if near { style.thumb_hover } else { style.thumb };
+        ui.round(thumb, w / 2.0, color.fade(lit))
+    }
 }
 
 /// Brings `item`, a span of the content from `top` to `bottom`, into a view `height` tall, moving
@@ -923,5 +1054,78 @@ mod tests {
             "within a view of the target: {shown}"
         );
         assert!(shown < 5000.0, "the rest still eases");
+    }
+
+    #[test]
+    fn sideways_content_scrolls_across_and_its_bar_drags() {
+        let mut raster = CpuRasterizer::new(120, 120);
+        let mut state = UiState::<u8>::new();
+        let theme = Theme::dark();
+        let (mut y, mut x) = (0.0_f32, 0.0_f32);
+        let mut frame = |state: &mut UiState<u8>, y: &mut f32, x: &mut f32| -> (f32, f32) {
+            let mut ctx = raster.begin_frame().expect("frame");
+            let mut seen = (0.0, 0.0);
+            {
+                let mut ui = state.frame(&mut *ctx, &theme);
+                let style = ScrollStyle {
+                    step: 10.0,
+                    smooth: false,
+                    ..ScrollStyle::new(&theme)
+                };
+                ScrollArea::new(y, 50.0)
+                    .sideways(x, 400.0)
+                    .style(style)
+                    .show(&mut ui, 1, VIEW, |_, content, _| {
+                        seen = (VIEW.x - content.x, content.width);
+                        Ok(())
+                    })
+                    .expect("area");
+            }
+            drop(ctx);
+            raster.end_frame().expect("end");
+            seen
+        };
+        let event = |state: &mut UiState<u8>, e: WindowEvent| state.handle(&e);
+        let pointer = |at: (f64, f64), buttons: u32| WindowEvent::MouseMove {
+            x: at.0,
+            y: at.1,
+            buttons: MouseButtons::from_bits(buttons),
+            modifiers: Modifiers::default(),
+            pointer: PointerKind::Mouse,
+            time: Default::default(),
+        };
+        event(&mut state, pointer((50.0, 50.0), 0));
+        frame(&mut state, &mut y, &mut x);
+        event(
+            &mut state,
+            WindowEvent::MouseWheel {
+                delta_x: -3.0,
+                delta_y: 0.0,
+                modifiers: Modifiers::default(),
+            },
+        );
+        frame(&mut state, &mut y, &mut x);
+        assert_eq!(x, 30.0);
+        assert_eq!(frame(&mut state, &mut y, &mut x), (30.0, 400.0));
+        assert_eq!(y, 0.0, "content shorter than the view stays put");
+
+        // the bottom bar drags to the far end
+        let press = |pressed| WindowEvent::MouseButton {
+            button: MouseButton::Left,
+            pressed,
+            modifiers: Modifiers::default(),
+            x: 2.0,
+            y: 96.0,
+            click_count: 1,
+            pointer: PointerKind::Mouse,
+            time: Default::default(),
+        };
+        event(&mut state, pointer((2.0, 96.0), 0));
+        frame(&mut state, &mut y, &mut x);
+        event(&mut state, press(true));
+        frame(&mut state, &mut y, &mut x);
+        event(&mut state, pointer((99.0, 96.0), 1));
+        frame(&mut state, &mut y, &mut x);
+        assert_eq!(x, 300.0);
     }
 }
