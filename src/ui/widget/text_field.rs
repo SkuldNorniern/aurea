@@ -7,7 +7,7 @@ use crate::render::{Color, Rect};
 use crate::ui::accessibility::{Action, Role};
 use crate::ui::component::{EditableText, FocusRing, StateColors};
 use crate::ui::frame::{Response, Ui};
-use crate::ui::paint::{Component, Surface};
+use crate::ui::paint::{Component, Mark, MarkShape, Surface};
 #[cfg(feature = "accessibility")]
 use crate::ui::state::Key;
 use crate::ui::state::{Channel, Sense, WidgetId};
@@ -66,6 +66,7 @@ pub struct TextField<'v> {
     commit_on_blur: bool,
     pass_vertical_keys: bool,
     select_all_on_focus: bool,
+    clearable: bool,
 }
 
 impl<'v> TextField<'v> {
@@ -81,6 +82,7 @@ impl<'v> TextField<'v> {
             commit_on_blur: false,
             pass_vertical_keys: false,
             select_all_on_focus: false,
+            clearable: false,
         }
     }
 
@@ -138,6 +140,13 @@ impl<'v> TextField<'v> {
         self
     }
 
+    /// Shows a × at the right end while there is text; clicking it empties the field and keeps
+    /// it focused, as in a find or filter box.
+    pub fn clearable(mut self, clearable: bool) -> Self {
+        self.clearable = clearable;
+        self
+    }
+
     /// Draws it in `rect` and reports the input.
     pub fn show<Id: WidgetId>(
         self,
@@ -148,6 +157,9 @@ impl<'v> TextField<'v> {
         Widget::show(self, ui, id, rect)
     }
 }
+
+/// The part of the clear button.
+const CLEAR_PART: u16 = 1;
 
 impl<Id: WidgetId> Widget<Id> for TextField<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
@@ -172,7 +184,26 @@ impl<Id: WidgetId> Widget<Id> for TextField<'_> {
             .radius(style.radius)
             .border(width, border)
             .paint(ui, rect)?;
-        let inner = rect.inset_xy(style.padding, 0.0);
+        let mut inner = rect.inset_xy(style.padding, 0.0);
+        let mut cleared = false;
+        if self.clearable && !self.text.is_empty() && self.enabled {
+            let side = (rect.height - 8.0).clamp(0.0, rect.width / 2.0);
+            let (button, rest) = inner.split_right(side, 4.0);
+            let button = Rect::new(button.x, rect.y + (rect.height - side) / 2.0, side, side);
+            inner = rest;
+            let clear = ui.interact(id, CLEAR_PART, button, Sense::Click, true);
+            if clear.clicked {
+                self.text.clear();
+                ui.state.focus(id, 0);
+                cleared = true;
+            }
+            let eased = ui.eased(id, CLEAR_PART, clear);
+            if clear.hovered || clear.held {
+                ui.round(button, side / 2.0, ui.theme.palette.hover.fade(eased.hover))?;
+            }
+            Mark::new(MarkShape::Cross, ui.theme.palette.dim)
+                .paint(ui, button.inset(side * 0.3))?;
+        }
         let outcome = EditableText::new(self.text)
             .placeholder(self.placeholder)
             .password(self.password)
@@ -204,7 +235,7 @@ impl<Id: WidgetId> Widget<Id> for TextField<'_> {
             }
         }
         let mut response = Response::new(rect, input);
-        response.changed = outcome.changed;
+        response.changed = outcome.changed || cleared;
         response.submitted = outcome.submitted;
         response.cancelled = outcome.cancelled;
         response.editing_started = outcome.editing_started;
@@ -221,7 +252,7 @@ mod tests {
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::UiState;
     use crate::ui::state::Key;
-    use crate::window::{KeyCode, Modifiers, WindowEvent};
+    use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
 
     struct Rig {
         state: UiState<u8>,
@@ -268,6 +299,46 @@ mod tests {
             .select_all_on_focus(select)
             .show(ui, 1, Rect::new(0.0, 0.0, 160.0, 40.0))
             .expect("field")
+    }
+
+    #[test]
+    fn the_clear_button_empties_the_field_and_keeps_it_focused() {
+        let mut rig = Rig::new();
+        let mut text = "abc".to_string();
+        let rect = Rect::new(0.0, 0.0, 160.0, 40.0);
+        let show = |ui: &mut Ui<'_, u8>, text: &mut String| {
+            TextField::new(text)
+                .clearable(true)
+                .show(ui, 1, rect)
+                .expect("field")
+        };
+        rig.frame(|ui| show(ui, &mut text));
+        let x = f64::from(rect.right() - FieldStyle::new(&rig.theme).padding - 16.0);
+        let at = |pressed| WindowEvent::MouseButton {
+            button: MouseButton::Left,
+            pressed,
+            modifiers: Modifiers::default(),
+            x,
+            y: 20.0,
+            click_count: 1,
+            pointer: PointerKind::Mouse,
+            time: Default::default(),
+        };
+        rig.state.handle(&WindowEvent::MouseMove {
+            x,
+            y: 20.0,
+            buttons: MouseButtons::default(),
+            modifiers: Modifiers::default(),
+            pointer: PointerKind::Mouse,
+            time: Default::default(),
+        });
+        rig.frame(|ui| show(ui, &mut text));
+        rig.state.handle(&at(true));
+        rig.frame(|ui| show(ui, &mut text));
+        rig.state.handle(&at(false));
+        let response = rig.frame(|ui| show(ui, &mut text));
+        assert!(text.is_empty() && response.changed);
+        assert_eq!(rig.state.focus, Some(Key::new(1, 0)));
     }
 
     #[test]
