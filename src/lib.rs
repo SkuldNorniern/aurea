@@ -80,8 +80,8 @@ pub use crate::window::{
 pub use crate::render::{Canvas, Color, DrawingContext, Point, Rect, RendererBackend};
 
 pub use crate::files::{
-    cache_dir, config_dir, data_dir, documents_dir, local_data_dir, open_path, open_url,
-    reveal_path,
+    FileCache, Stamp, cache_dir, config_dir, data_dir, documents_dir, local_data_dir, open_path,
+    open_url, reveal_path,
 };
 pub use crate::keymap::{Chord, Keymap};
 pub use crate::locale::{locale, locales};
