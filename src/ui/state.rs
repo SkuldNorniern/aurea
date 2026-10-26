@@ -1542,7 +1542,13 @@ mod tests {
             let mut ui = state.frame(&mut *ctx, &theme);
             for i in 0..5000u16 {
                 let (x, y) = (f32::from(i % 100) * 16.0, f32::from(i / 100) * 20.0);
-                ui.interact(u32::from(i), 0, Rect::new(x, y, 14.0, 18.0), Sense::Click, true);
+                ui.interact(
+                    u32::from(i),
+                    0,
+                    Rect::new(x, y, 14.0, 18.0),
+                    Sense::Click,
+                    true,
+                );
             }
         }
         drop(ctx);
