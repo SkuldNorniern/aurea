@@ -1,5 +1,7 @@
 //! App-wide keyboard shortcuts.
 
+use std::mem;
+
 use crate::AureaResult;
 use crate::window::{KeyCode, Modifiers, Window, WindowEvent};
 
@@ -245,6 +247,9 @@ fn letter_index(key: KeyCode) -> Option<usize> {
 }
 
 /// Chords bound to the app's actions.
+///
+/// On Windows a native menu bar takes Alt+letter for its mnemonics, so those chords may never
+/// reach the app.
 #[derive(Clone, Debug)]
 pub struct Keymap<A> {
     bindings: Vec<(Chord, A)>,
@@ -264,13 +269,24 @@ impl<A> Keymap<A> {
         }
     }
 
-    /// Binds `chord` to `action`, replacing what it was bound to.
+    /// Binds `chord` to `action`, replacing what it was bound to; debug builds warn when it was
+    /// bound already. [`Self::insert`] hands the old action back.
     pub fn bind(&mut self, chord: Chord, action: A) -> &mut Self {
-        match self.bindings.iter_mut().find(|(c, _)| *c == chord) {
-            Some(slot) => slot.1 = action,
-            None => self.bindings.push((chord, action)),
+        if self.insert(chord, action).is_some() && cfg!(debug_assertions) {
+            log::warn!("{chord:?} was bound already; the new action replaces the old one");
         }
         self
+    }
+
+    /// Binds `chord` to `action`, returning what it was bound to before.
+    pub fn insert(&mut self, chord: Chord, action: A) -> Option<A> {
+        match self.bindings.iter_mut().find(|(c, _)| *c == chord) {
+            Some(slot) => Some(mem::replace(&mut slot.1, action)),
+            None => {
+                self.bindings.push((chord, action));
+                None
+            }
+        }
     }
 
     /// Drops what `chord` was bound to.
@@ -390,11 +406,19 @@ mod tests {
     #[test]
     fn binding_again_replaces() {
         let mut map = keymap();
-        map.bind(Chord::key(KeyCode::B), Act::Save);
+        assert_eq!(
+            map.insert(Chord::key(KeyCode::B), Act::Save),
+            Some(Act::Brush)
+        );
         assert_eq!(map.iter().count(), 3);
         assert_eq!(map.chord_for(&Act::Save), Some(Chord::command(KeyCode::S)));
+        assert_eq!(map.chord_for(&Act::Brush), None);
+        assert_eq!(map.insert(Chord::key(KeyCode::Q), Act::Brush), None);
+        assert_eq!(map.chord_for(&Act::Brush), Some(Chord::key(KeyCode::Q)));
         map.unbind(Chord::command(KeyCode::S));
         assert_eq!(map.chord_for(&Act::Save), Some(Chord::key(KeyCode::B)));
+        map.unbind(Chord::key(KeyCode::B));
+        assert_eq!(map.chord_for(&Act::Save), None);
     }
 
     #[test]

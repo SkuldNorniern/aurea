@@ -83,6 +83,14 @@ impl<'a> MenuItem<'a> {
         }
     }
 
+    /// A greyed row showing `label` that can't be picked, like a disabled row.
+    pub const fn header(label: &'a str) -> Self {
+        Self {
+            enabled: false,
+            ..Self::new(label)
+        }
+    }
+
     /// Sets the shortcut text.
     #[must_use]
     pub const fn shortcut(mut self, shortcut: &'a str) -> Self {
@@ -1064,6 +1072,40 @@ mod tests {
             None,
         );
         assert!(rig.state.popup.style.is_none());
+    }
+
+    #[test]
+    fn header_rows_are_skipped_and_never_picked() {
+        let owner = Key::new(9u8, MENU_PART);
+        let items = [MenuItem::header("Edit"), MenuItem::new("Copy")];
+        let mut popup = Popup::default();
+        popup.open(owner, Rect::default(), 0.0, items, None);
+        popup.key(KeyCode::Down);
+        assert_eq!(popup.highlight, Some(1));
+        popup.key(KeyCode::Up);
+        assert_eq!(popup.highlight, Some(1));
+        assert_eq!(popup.pick(0), None);
+        assert!(popup.is_open());
+        assert_eq!(popup.take_pick(owner), None);
+    }
+
+    #[test]
+    fn a_pointer_click_on_a_header_row_does_not_pick_it() {
+        let mut rig = Rig::new(320, 240).still();
+        rig.frame(|ui| {
+            ui.open_menu(
+                9,
+                Point::new(10.0, 10.0),
+                [MenuItem::header("Edit"), MenuItem::new("Copy")],
+            );
+        });
+        let at = rig.state.popup.rows[0].rect.center();
+        for pressed in [true, false] {
+            rig.button(at.x, at.y, pressed);
+        }
+        menu_frame(&mut rig);
+        assert_eq!(rig.state.popup.take_pick(Key::new(9, MENU_PART)), None);
+        assert!(rig.state.popup.is_open());
     }
 
     #[test]
