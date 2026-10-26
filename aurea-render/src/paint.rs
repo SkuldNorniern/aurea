@@ -215,6 +215,9 @@ pub struct Dash {
     /// Whether each subpath starts its pattern at `offset + start.x + start.y` rather than at
     /// `offset`. See [`Dash::anchored`].
     pub anchored: bool,
+    /// Whether each edge starts the pattern afresh on a fixed screen grid. See
+    /// [`Dash::along_edges`].
+    pub along_edges: bool,
 }
 
 impl Dash {
@@ -228,6 +231,7 @@ impl Dash {
             count: 0,
             offset,
             anchored: false,
+            along_edges: false,
         };
         let take = lengths.len().min(Self::MAX);
         let doubled = if take % 2 == 1 { take * 2 } else { take }.min(Self::MAX);
@@ -260,6 +264,16 @@ impl Dash {
     /// Edges going left or up won't line up.
     pub fn anchored(mut self) -> Self {
         self.anchored = true;
+        self
+    }
+
+    /// Starts the pattern afresh on each edge, at `offset` plus the edge's start along its own
+    /// axis (x for a mostly level edge, y for a mostly upright one), mirrored for edges going
+    /// left or up. With an on and off pair, dashes then sit at fixed screen places whichever way
+    /// an edge runs, so a selection outline's dashes line up on all four sides and march together
+    /// when `offset` moves. Longer patterns read backwards on edges going left or up.
+    pub fn along_edges(mut self) -> Self {
+        self.along_edges = true;
         self
     }
 }

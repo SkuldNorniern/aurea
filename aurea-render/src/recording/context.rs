@@ -712,6 +712,7 @@ impl<'list> RecordingContext<'list> {
                     dash.offset.to_bits().hash(&mut hasher);
                     for length in dash.lengths() {
                         length.to_bits().hash(&mut hasher);
+                    (dash.anchored, dash.along_edges).hash(&mut hasher);
                     }
                 }
             }

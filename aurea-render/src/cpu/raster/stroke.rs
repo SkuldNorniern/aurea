@@ -275,13 +275,34 @@ fn dashes(points: &[Point], closed: bool, dash: &Dash, runs: &mut DashRuns) {
         points.len() - 1
     };
     for i in 0..count {
-        dasher.segment(points[i], points[(i + 1) % points.len()]);
+        let (a, b) = (points[i], points[(i + 1) % points.len()]);
+        if dash.along_edges {
+            dasher.restart(edge_phase(dash, a, b), a);
+        }
+        dasher.segment(a, b);
     }
     dasher.finish();
 }
 
+/// Where the pattern stands at `a` on the edge to `b`: `offset` plus `a` along the edge's own
+/// axis, mirrored when it runs left or up so the on runs keep their screen places.
+fn edge_phase(dash: &Dash, a: Point, b: Point) -> f32 {
+    let (dx, dy) = (b.x - a.x, b.y - a.y);
+    let (at, forward) = if dx.abs() >= dy.abs() {
+        (a.x, dx >= 0.0)
+    } else {
+        (a.y, dy >= 0.0)
+    };
+    if forward {
+        dash.offset + at
+    } else {
+        dash.lengths()[0] - dash.offset - at
+    }
+}
+
 struct Dasher<'d> {
     lengths: &'d [f32],
+    period: f32,
     index: usize,
     left: f32,
     /// Where the open run starts in `runs.points`.
@@ -295,6 +316,7 @@ impl<'d> Dasher<'d> {
         let period: f32 = lengths.iter().sum();
         let mut dasher = Self {
             lengths,
+            period,
             index: 0,
             left: lengths[0],
             open: 0,
@@ -305,16 +327,30 @@ impl<'d> Dasher<'d> {
         } else {
             dash.offset
         };
-        let mut skip = phase.rem_euclid(period);
-        while skip >= dasher.left {
-            skip -= dasher.left;
-            dasher.advance();
-        }
-        dasher.left -= skip;
-        if dasher.on() {
-            dasher.open_run(start);
-        }
+        dasher.seat(phase, start);
         dasher
+    }
+
+    /// Ends the run in progress at `at` and stands the pattern at `phase` from there.
+    fn restart(&mut self, phase: f32, at: Point) {
+        if self.on() {
+            self.close_run();
+        }
+        (self.index, self.left) = (0, self.lengths[0]);
+        self.seat(phase, at);
+    }
+
+    /// Moves `phase` into the pattern from its start, opening a run at `at` when that is on.
+    fn seat(&mut self, phase: f32, at: Point) {
+        let mut skip = phase.rem_euclid(self.period);
+        while skip >= self.left {
+            skip -= self.left;
+            self.advance();
+        }
+        self.left -= skip;
+        if self.on() {
+            self.open_run(at);
+        }
     }
 
     fn on(&self) -> bool {
@@ -1020,6 +1056,56 @@ mod tests {
                 let new: Vec<Vec<Point>> = runs.iter().map(<[Point]>::to_vec).collect();
                 assert_eq!(new, legacy_dashes(&zigzag, closed, &dash));
             }
+        }
+    }
+
+    #[test]
+    fn dashes_along_edges_sit_in_the_same_screen_places_on_every_side() {
+        // a clockwise square: right along the top, down, left along the bottom, up
+        let square = [
+            Point::new(1.0, 2.0),
+            Point::new(31.0, 2.0),
+            Point::new(31.0, 32.0),
+            Point::new(1.0, 32.0),
+        ];
+        let dash = Dash::new(&[4.0, 3.0], 2.5).expect("pattern").along_edges();
+        let mut runs = DashRuns::default();
+        dashes(&square, true, &dash, &mut runs);
+        // each run as its span along its edge's axis, on the given side
+        let spans = |on: &dyn Fn(Point) -> bool, axis: fn(Point) -> f32| {
+            let hundredths = |v: f32| (v * 100.0).round() / 100.0;
+            let mut spans: Vec<(f32, f32)> = runs
+                .iter()
+                .filter(|run| run.iter().all(|p| on(*p)))
+                .map(|run| {
+                    let (a, b) = (axis(run[0]), axis(run[run.len() - 1]));
+                    (hundredths(a.min(b)), hundredths(a.max(b)))
+                })
+                .collect();
+            spans.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
+            spans
+        };
+        let top = spans(&|p| p.y == 2.0, |p| p.x);
+        let bottom = spans(&|p| p.y == 32.0, |p| p.x);
+        let left = spans(&|p| p.x == 1.0, |p| p.y);
+        let right = spans(&|p| p.x == 31.0, |p| p.y);
+        assert!(!top.is_empty() && !left.is_empty());
+        // on runs sit where (offset + x) mod 7 < 4, whichever way the edge goes
+        let inner = |spans: &[(f32, f32)]| {
+            spans
+                .iter()
+                .filter(|(a, b)| *a > 1.5 && *b < 30.5)
+                .copied()
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(inner(&top), inner(&bottom), "top and bottom");
+        assert_eq!(inner(&left), inner(&right), "left and right");
+        for (a, _) in inner(&top) {
+            let phase = (2.5 + a).rem_euclid(7.0);
+            assert!(
+                phase < 0.01 || phase > 6.99,
+                "a dash starts on the grid: {a} {phase}"
+            );
         }
     }
 
