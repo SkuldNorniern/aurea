@@ -50,7 +50,7 @@ impl ScrollStyle {
 /// The default notch from the user's wheel setting: 16 px a line, or a whole view. macOS wheel
 /// events already arrive in points.
 fn wheel_step() -> f32 {
-    if cfg!(target_os = "macos") {
+    if cfg!(any(target_os = "macos", target_os = "ios")) {
         return 1.0;
     }
     match wheel_scroll() {
