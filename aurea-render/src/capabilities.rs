@@ -12,6 +12,8 @@ pub struct GpuFeatures {
     pub text: bool,
     /// Rectangular clips, applied as scissors.
     pub clips: bool,
+    /// Clips to any path shape, such as a rounded card or an SVG mask.
+    pub path_clips: bool,
     /// Rounded rects and shadows.
     pub rounded_rects: bool,
     /// Arbitrary filled and stroked paths, and the older text commands, which only the CPU
@@ -32,6 +34,7 @@ impl GpuFeatures {
         images: false,
         text: false,
         clips: false,
+        path_clips: false,
         rounded_rects: false,
         paths: false,
         blend_modes: false,
@@ -45,6 +48,7 @@ impl GpuFeatures {
         images: true,
         text: true,
         clips: true,
+        path_clips: true,
         rounded_rects: true,
         paths: true,
         blend_modes: true,
@@ -59,6 +63,7 @@ impl GpuFeatures {
             images: needed.images && !self.images,
             text: needed.text && !self.text,
             clips: needed.clips && !self.clips,
+            path_clips: needed.path_clips && !self.path_clips,
             rounded_rects: needed.rounded_rects && !self.rounded_rects,
             paths: needed.paths && !self.paths,
             blend_modes: needed.blend_modes && !self.blend_modes,
@@ -74,6 +79,7 @@ impl GpuFeatures {
             images: self.images || other.images,
             text: self.text || other.text,
             clips: self.clips || other.clips,
+            path_clips: self.path_clips || other.path_clips,
             rounded_rects: self.rounded_rects || other.rounded_rects,
             paths: self.paths || other.paths,
             blend_modes: self.blend_modes || other.blend_modes,
@@ -88,6 +94,7 @@ impl GpuFeatures {
             || self.images
             || self.text
             || self.clips
+            || self.path_clips
             || self.rounded_rects
             || self.paths
             || self.blend_modes

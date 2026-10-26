@@ -266,6 +266,7 @@ fn needs_of(item: &DisplayItem) -> GpuFeatures {
         },
     };
     needs.clips = item.clip.is_some();
+    needs.path_clips = item.clip_paths.is_some();
     needs.blend_modes = item.blend_mode != BlendMode::Normal;
     needs
 }

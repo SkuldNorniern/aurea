@@ -5,7 +5,7 @@ use crate::platform::handles::{NativeWindowHandle, native_handle_from_canvas_ptr
 use crate::registry::handle_key;
 use crate::{AureaError, AureaResult};
 use aurea_render::{
-    ClickCallback, Color, CpuRasterizer, DrawingContext, FrameOutcome, HoverCallback,
+    ClickCallback, Color, CpuRasterizer, DrawingContext, FrameOutcome, GpuFeatures, HoverCallback,
     InteractionRegistry, InteractiveId, Point, Renderer, RendererBackend, Surface, SurfaceInfo,
 };
 use aurea_runtime::{DamageRegion, FrameScheduler};
@@ -97,6 +97,17 @@ impl Canvas {
             return null_mut();
         }
         unsafe { ng_platform_canvas_get_window(self.handle) }
+    }
+
+    /// What the canvas's renderer draws itself, such as [`GpuFeatures::path_clips`], so an app can
+    /// pick a canvas up front; frames needing more go to the CPU unless the renderer was told to
+    /// leave it out. Everything before the canvas has a renderer.
+    pub fn features(&self) -> GpuFeatures {
+        self.renderer
+            .try_borrow()
+            .ok()
+            .and_then(|r| r.as_ref().map(|r| r.features()))
+            .unwrap_or(GpuFeatures::ALL)
     }
 
     /// Get canvas dimensions.

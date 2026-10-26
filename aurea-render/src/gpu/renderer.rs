@@ -365,6 +365,8 @@ impl<B: Gpu2dBackend> Renderer for Gpu2dRenderer<B> {
             self.logical_height,
         );
         ctx.set_scale_factor(self.scale_factor);
+        // the backend draws none; a frame with one goes to the CPU as the fallback says
+        ctx.set_path_clips(true);
         Ok(Box::new(ctx))
     }
 
@@ -411,6 +413,10 @@ impl<B: Gpu2dBackend> Renderer for Gpu2dRenderer<B> {
         Some(&self.display_list)
     }
 
+    fn features(&self) -> GpuFeatures {
+        self.backend.features()
+    }
+
     fn frame_output(&self) -> Option<FrameOutput<'_>> {
         let (words, width, height) = self.backend.frame_pixels()?;
         FrameOutput::new(words, width, height)
@@ -450,7 +456,7 @@ mod tests {
     use super::*;
     use crate::gpu::batch::{DrawRef, RectInstance, ShapeInstance};
     use crate::types::GpuTexture;
-    use crate::types::{Color, Paint, Point};
+    use crate::types::{Color, Paint, Path, PathCommand, Point};
     use std::sync::Arc;
     #[cfg(feature = "zengpu")]
     use zengpu_hal::TextureHandle;
@@ -573,6 +579,32 @@ mod tests {
             assert_eq!(r.backend().uploads, 3);
             assert_eq!(r.backend().evicted, 1);
         }
+    }
+
+    #[test]
+    fn path_clips_record_and_draw_on_the_cpu() {
+        let mut r = with_features(
+            FrameOutcome::Presented,
+            GpuFeatures {
+                path_clips: false,
+                ..GpuFeatures::ALL
+            },
+        );
+        {
+            let mut ctx = r.begin_frame().expect("begin");
+            let mut triangle = Path::new();
+            triangle.commands.extend([
+                PathCommand::MoveTo(Point::new(0.0, 0.0)),
+                PathCommand::LineTo(Point::new(80.0, 0.0)),
+                PathCommand::LineTo(Point::new(0.0, 40.0)),
+                PathCommand::Close,
+            ]);
+            ctx.clip_path(&triangle).expect("a path clip records");
+            ctx.draw_rect(Rect::new(0.0, 0.0, 100.0, 50.0), &Paint::new())
+                .expect("draw");
+        }
+        assert_eq!(r.end_frame().expect("end"), FrameOutcome::Presented);
+        assert!(r.last_frame_missing().path_clips, "drawn on the CPU");
     }
 
     fn rounded_frame(r: &mut Gpu2dRenderer<Probe>) -> FrameOutcome {

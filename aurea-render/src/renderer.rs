@@ -3,6 +3,7 @@
 pub use crate::drawing::DrawingContext;
 pub use crate::frame::{FrameOutcome, FrameOutput};
 
+use crate::capabilities::GpuFeatures;
 use crate::scene::display_list::DisplayList;
 use crate::surface::{Surface, SurfaceInfo};
 use crate::types::Rect;
@@ -40,5 +41,11 @@ pub trait Renderer {
     /// Damage region of the last frame, if known.
     fn last_frame_damage(&self) -> Option<Rect> {
         None
+    }
+
+    /// What this renderer draws itself; anything else falls back or is left out, as the
+    /// renderer's [`crate::Fallback`] says. The CPU rasterizer draws everything.
+    fn features(&self) -> GpuFeatures {
+        GpuFeatures::ALL
     }
 }
