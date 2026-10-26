@@ -26,6 +26,17 @@ Activity subclasses it and names its native library; the library defines `aurea_
 An app crate is usually an rlib; build its `.so` with `cargo rustc --lib --crate-type cdylib
 --target aarch64-linux-android`, and copy it into the app's `jniLibs/arm64-v8a`.
 
+An app's identity comes from its Cargo.toml table `[package.metadata.aurea]`: `name` (label), `id`
+(application ID), `version` (`"auto"` for the package version, or a string) and optional `build`
+(versionCode). The root Cargo.toml has the sample's table.
+The Gradle project sets none of these; `aurea/aurea-identity.gradle` reads the table with `cargo metadata`.
+An app applies it after the Android application plugin, with the manifest path in `extra`:
+
+```kotlin
+extra["aurea.manifest"] = rootProject.file("../../Cargo.toml")
+apply(from = "../aurea/aurea-identity.gradle")
+```
+
 ## iOS and iPadOS
 
 Needs Xcode and the Rust targets for where it runs: `aarch64-apple-ios` for devices,

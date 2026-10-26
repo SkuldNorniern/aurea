@@ -1,0 +1,50 @@
+// Sets an app's identity from its Cargo manifest's [package.metadata.aurea] table.
+// Apply after com.android.application, with the Cargo.toml path in extra["aurea.manifest"].
+// Keys: name (label), id (applicationId), version ("auto" = package version), build (versionCode).
+
+import groovy.json.JsonSlurper
+
+def manifestPath = project.findProperty('aurea.manifest')
+if (manifestPath == null) {
+    throw new GradleException('aurea-identity: set extra["aurea.manifest"] to a Cargo.toml before applying it')
+}
+def manifest = project.file(manifestPath)
+if (!manifest.isFile()) {
+    throw new GradleException("aurea-identity: no Cargo manifest at ${manifest}")
+}
+
+def meta
+try {
+    def cargo = providers.exec {
+        commandLine 'cargo', 'metadata', '--format-version', '1', '--no-deps', '--manifest-path', manifest.path
+        ignoreExitValue = true
+    }
+    def stdout = cargo.standardOutput.asText.get()
+    def stderr = cargo.standardError.asText.get()
+    if (cargo.result.get().exitValue != 0) {
+        throw new GradleException("aurea-identity: cargo metadata failed for ${manifest}:\n${stderr}")
+    }
+    meta = new JsonSlurper().parseText(stdout)
+} catch (GradleException e) {
+    throw e
+} catch (Exception e) {
+    throw new GradleException("aurea-identity: cannot run cargo, install Rust and put cargo on PATH: ${e.message}", e)
+}
+
+def pkg = meta.packages.find { new File(it.manifest_path).canonicalPath == manifest.canonicalPath }
+    ?: meta.packages.find { it.metadata?.aurea }
+def aurea = pkg?.metadata?.aurea
+if (aurea == null || !aurea.id) {
+    throw new GradleException("aurea-identity: no [package.metadata.aurea] with id in ${manifest}")
+}
+
+def appVersion = (aurea.version ?: 'auto') == 'auto' ? pkg.version : aurea.version
+def appBuild = aurea.build ?: 1
+
+project.android.buildFeatures.resValues = true
+project.android.defaultConfig {
+    applicationId = aurea.id
+    versionName = appVersion
+    versionCode = appBuild as int
+    resValue('string', 'app_name', (aurea.name ?: pkg.name) as String)
+}

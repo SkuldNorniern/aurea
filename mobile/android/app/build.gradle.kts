@@ -4,6 +4,10 @@ plugins {
     id("com.android.application")
 }
 
+// The app's identity (id, name, version) comes from this Cargo manifest's [package.metadata.aurea].
+extra["aurea.manifest"] = rootProject.file("../../Cargo.toml")
+apply(from = "../aurea/aurea-identity.gradle")
+
 // Rust targets per Android ABI, built with the NDK this project pins.
 val rustAbis = mapOf(
     "arm64-v8a" to "aarch64-linux-android",
@@ -19,11 +23,8 @@ android {
     ndkVersion = "30.0.16248370"
 
     defaultConfig {
-        applicationId = "com.aurea.smoke"
         minSdk = androidMinApi
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1"
         ndk {
             abiFilters += rustAbis.keys
         }
