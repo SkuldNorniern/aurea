@@ -27,6 +27,7 @@ use aurea_ffi::{
 
 #[cfg(not(feature = "zengpu"))]
 use crate::AureaError;
+use crate::dispatch;
 use crate::ffi::callbacks::event_time;
 #[cfg(feature = "zengpu")]
 use crate::gpu_ready;
@@ -131,6 +132,7 @@ type Listener = Box<dyn FnMut(&WindowEvent)>;
 thread_local! {
     /// The screen's scale and safe area as of the last frame, apart from `HOST` so the app can read
     /// them while it draws.
+    static POINTER_PENCIL: Cell<bool> = const { Cell::new(false) };
     static SCREEN: Cell<(f32, [f32; 4])> = const { Cell::new((1.0, [0.0; 4])) };
     static LISTENERS: RefCell<Vec<Listener>> = const { RefCell::new(Vec::new()) };
     static NEXT_THEME: RefCell<Option<Theme>> = const { RefCell::new(None) };
@@ -210,6 +212,11 @@ pub fn request_frame() {
 /// as background jobs, wakes the iOS host the same way. Any thread may use it.
 pub fn canvas_id() -> CanvasId {
     *CANVAS
+}
+
+/// Whether the mouse event currently being delivered came from Apple Pencil.
+pub fn pointer_is_pencil() -> bool {
+    POINTER_PENCIL.get()
 }
 
 /// The screen's pixels per point: 2 or 3 on current devices, 1 before the host draws a frame.
@@ -402,6 +409,7 @@ unsafe extern "C" fn pen_tap(squeeze: c_int, action: c_int) {
 }
 
 unsafe extern "C" fn wake() -> i32 {
+    dispatch::drain();
     let asked = WAKE.swap(false, Ordering::AcqRel);
     i32::from(asked || HOST.with_borrow(|host| host.touches.waiting()))
 }
@@ -425,6 +433,7 @@ unsafe extern "C" fn touch(action: i32, x: f32, y: f32, id: usize, pencil: i32) 
         }
         events
     });
+    POINTER_PENCIL.set(pencil != 0);
     hear(&events);
 }
 
@@ -502,7 +511,7 @@ unsafe extern "C" fn frame(
         damage.write_bytes(0, 4);
     }
     settle_touches();
-    HOST.with_borrow_mut(|host| {
+    let again = HOST.with_borrow_mut(|host| {
         let scale = scale.max(1.0);
         if !host.fit(width, height, scale, [left, top, right, bottom]) {
             return 0;
@@ -559,7 +568,9 @@ unsafe extern "C" fn frame(
             wake_at(at, request_frame);
         }
         i32::from(more)
-    })
+    });
+    dispatch::drain();
+    again
 }
 
 /// The part of a `width` x `height` frame that changed, as x, y, width and height in whole pixels;

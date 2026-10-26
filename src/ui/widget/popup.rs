@@ -836,9 +836,14 @@ fn row_action<Id: WidgetId>(
     input: Interaction,
 ) -> bool {
     let row = &ui.state.popup.rows[i];
-    let over = ui
-        .pointer()
-        .is_some_and(|point| rect.inset(1.0).contains(point) && cell.contains(point));
+    // A touch reports MouseExited immediately after release. Choose the row at
+    // the accepted click, rather than requiring a hover pointer to remain alive.
+    let at = if input.clicked {
+        ui.state.click_at.or_else(|| ui.pointer())
+    } else {
+        ui.pointer()
+    };
+    let over = at.is_some_and(|point| rect.inset(1.0).contains(point) && cell.contains(point));
     row.enabled
         && over
         && (input.clicked
@@ -1007,6 +1012,42 @@ mod tests {
         }
         drop(ctx);
         raster.end_frame().unwrap();
+    }
+
+    #[test]
+    fn touch_release_selects_menu_after_pointer_exit() {
+        let mut state = UiState::<u8>::new();
+        state.set_reduced_motion(true);
+        let mut raster = CpuRasterizer::new(320, 240);
+        let theme = Theme::dark();
+        {
+            let mut ctx = raster.begin_frame().expect("frame");
+            let mut ui = state.frame(&mut *ctx, &theme);
+            ui.open_menu(
+                9,
+                Point::new(10.0, 10.0),
+                [MenuItem::new("Open"), MenuItem::new("Settings")],
+            );
+        }
+        raster.end_frame().expect("present");
+        let at = state.popup.rows[1].rect.center();
+        for pressed in [true, false] {
+            state.handle(&WindowEvent::MouseButton {
+                button: MouseButton::Left,
+                pressed,
+                modifiers: Modifiers::default(),
+                x: f64::from(at.x),
+                y: f64::from(at.y),
+                click_count: 1,
+                pointer: PointerKind::Mouse,
+                time: Default::default(),
+            });
+        }
+        // Touch and Pencil report pointer exit immediately after the release.
+        state.handle(&WindowEvent::MouseExited);
+        menu_frame(&mut state, &mut raster);
+        assert_eq!(state.popup.take_pick(Key::new(9, MENU_PART)), Some(1));
+        assert!(!state.popup.is_open());
     }
 
     #[test]

@@ -8,6 +8,8 @@ use std::sync::Mutex;
 use aurea_foundation::lock;
 use aurea_runtime::FrameScheduler;
 
+#[cfg(target_os = "ios")]
+use crate::ios;
 use crate::platform::ui_thread;
 
 type Call = Box<dyn FnOnce() + Send>;
@@ -29,6 +31,8 @@ thread_local! {
 pub fn on_ui_thread(call: impl FnOnce() + Send + 'static) {
     lock(&QUEUE).push(Box::new(call));
     FrameScheduler::wake();
+    #[cfg(target_os = "ios")]
+    ios::request_frame();
 }
 
 /// Runs `call` on the UI thread once the frame being drawn has finished, with nothing borrowed: not
@@ -50,6 +54,8 @@ pub fn after_frame(call: impl FnOnce() + 'static) {
     ui_thread::check("after_frame");
     LATER.with(|later| later.borrow_mut().push(Box::new(call)));
     FrameScheduler::wake();
+    #[cfg(target_os = "ios")]
+    ios::request_frame();
 }
 
 pub(crate) fn drain() {
