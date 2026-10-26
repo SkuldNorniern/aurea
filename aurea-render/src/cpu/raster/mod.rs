@@ -1,6 +1,7 @@
 //! Pixel-level drawing: coverage, blending, scan conversion, strokes and the shapes drawn
 //! analytically.
 
+pub(crate) mod band;
 pub mod blend;
 pub mod clip;
 pub(crate) mod fill;

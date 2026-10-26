@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 use crate::cpu::blend::{ConstSrc, blend_pixel};
 use crate::cpu::clip::ClipBox;
 use crate::cpu::path::{Edge, tessellate_path_into};
+use crate::cpu::raster::band::Band;
 use crate::geometry::FillRule;
 use crate::numeric::{f32_to_u32_clamped, f32_to_usize_clamped};
 use crate::types::{BlendMode, Color, Path};
@@ -24,7 +25,7 @@ pub fn fill_path(
     path: &Path,
     color: Color,
     mode: BlendMode,
-    buf: &mut [u32],
+    buf: &mut Band<'_>,
     bw: u32,
     clip: ClipBox,
     s: &mut PathScratch,
@@ -37,7 +38,7 @@ pub fn fill_path(
 /// [`fill_path`] with the per-row compositing supplied by `composite`.
 fn fill_path_with(
     path: &Path,
-    buf: &mut [u32],
+    buf: &mut Band<'_>,
     bw: u32,
     clip: ClipBox,
     s: &mut PathScratch,
@@ -250,7 +251,7 @@ mod tests {
             path,
             Color::rgb(255, 255, 255),
             BlendMode::Normal,
-            &mut buf,
+            &mut Band::whole(&mut buf),
             w,
             ClipBox::surface(w, h),
             &mut s,
@@ -338,7 +339,7 @@ mod tests {
             &path,
             Color::rgb(255, 255, 255),
             BlendMode::Normal,
-            &mut buf,
+            &mut Band::whole(&mut buf),
             16,
             clip,
             &mut PathScratch::default(),
@@ -435,7 +436,7 @@ mod tests {
                             path,
                             color,
                             mode,
-                            &mut actual,
+                            &mut Band::whole(&mut actual),
                             w,
                             ClipBox::surface(w, h),
                             &mut PathScratch::default(),
@@ -443,7 +444,7 @@ mod tests {
                         let mut expected = backdrop.clone();
                         fill_path_with(
                             path,
-                            &mut expected,
+                            &mut Band::whole(&mut expected),
                             w,
                             ClipBox::surface(w, h),
                             &mut PathScratch::default(),
@@ -484,7 +485,7 @@ mod tests {
                 &path,
                 color,
                 BlendMode::Normal,
-                &mut buf,
+                &mut Band::whole(&mut buf),
                 W,
                 ClipBox::surface(W, H),
                 &mut s,
@@ -524,7 +525,7 @@ mod tests {
                         &path,
                         color,
                         BlendMode::Normal,
-                        &mut buf,
+                        &mut Band::whole(&mut buf),
                         W,
                         ClipBox::surface(W, H),
                         &mut s,

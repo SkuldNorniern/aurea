@@ -5,6 +5,7 @@ use std::ops::Range;
 
 use crate::cpu::blend::{ConstSrc, blend_pixel};
 use crate::cpu::clip::ClipBox;
+use crate::cpu::raster::band::Band;
 use crate::numeric::{f32_to_i32_clamped, f32_to_u32_clamped};
 use crate::types::{BlendMode, Color, Paint, PaintStyle, Rect};
 
@@ -13,7 +14,7 @@ pub(crate) fn draw(
     radius: f32,
     paint: &Paint,
     mode: BlendMode,
-    buf: &mut [u32],
+    buf: &mut Band<'_>,
     bw: u32,
     clip: ClipBox,
 ) {
@@ -38,7 +39,7 @@ pub(crate) fn shadow(
     blur: f32,
     color: Color,
     mode: BlendMode,
-    buf: &mut [u32],
+    buf: &mut Band<'_>,
     bw: u32,
     clip: ClipBox,
 ) {
@@ -175,7 +176,7 @@ fn row(
     y: u32,
     (xa, xb): (i32, i32),
     known: Run,
-    px: &mut Pixels<'_>,
+    px: &mut Pixels<'_, '_>,
     cover: impl Fn(f32) -> f32,
 ) {
     let cy = y as f32 + 0.5;
@@ -214,7 +215,7 @@ fn deep_run(shape: &Shape, y: u32, k: f32, clip: ClipBox, solid: bool) -> Run {
     }
 }
 
-fn fill(shape: &Shape, px: &mut Pixels<'_>) {
+fn fill(shape: &Shape, px: &mut Pixels<'_, '_>) {
     for y in rows(shape, 0.5, px.clip) {
         let Some(outer) = shape.outer_half(shape.row_q(y as f32 + 0.5), 0.5) else {
             continue;
@@ -225,7 +226,7 @@ fn fill(shape: &Shape, px: &mut Pixels<'_>) {
     }
 }
 
-fn stroke(shape: &Shape, half: f32, px: &mut Pixels<'_>) {
+fn stroke(shape: &Shape, half: f32, px: &mut Pixels<'_, '_>) {
     let reach = half + 0.5;
     for y in rows(shape, reach, px.clip) {
         let Some(outer) = shape.outer_half(shape.row_q(y as f32 + 0.5), reach) else {
@@ -237,8 +238,8 @@ fn stroke(shape: &Shape, half: f32, px: &mut Pixels<'_>) {
     }
 }
 
-struct Pixels<'a> {
-    buf: &'a mut [u32],
+struct Pixels<'a, 'b> {
+    buf: &'a mut Band<'b>,
     bw: u32,
     clip: ClipBox,
     color: Color,
@@ -247,8 +248,8 @@ struct Pixels<'a> {
     src: Option<ConstSrc>,
 }
 
-impl<'a> Pixels<'a> {
-    fn new(buf: &'a mut [u32], bw: u32, clip: ClipBox, color: Color, mode: BlendMode) -> Self {
+impl<'a, 'b> Pixels<'a, 'b> {
+    fn new(buf: &'a mut Band<'b>, bw: u32, clip: ClipBox, color: Color, mode: BlendMode) -> Self {
         let full = (u32::from(color.a) << 24)
             | (u32::from(color.r) << 16)
             | (u32::from(color.g) << 8)
@@ -356,7 +357,7 @@ mod tests {
             4.0,
             Color::rgb(0, 0, 0),
             BlendMode::Normal,
-            &mut buf,
+            &mut Band::whole(&mut buf),
             W,
             ClipBox::surface(W, W),
         );
@@ -382,7 +383,7 @@ mod tests {
             10.0,
             &p,
             BlendMode::Normal,
-            &mut buf,
+            &mut Band::whole(&mut buf),
             W,
             ClipBox::surface(W, W),
         );
@@ -404,7 +405,7 @@ mod tests {
             r,
             &p,
             BlendMode::Normal,
-            &mut buf,
+            &mut Band::whole(&mut buf),
             W,
             ClipBox::surface(W, W),
         );
@@ -422,7 +423,7 @@ mod tests {
             100.0,
             &p,
             BlendMode::Normal,
-            &mut buf,
+            &mut Band::whole(&mut buf),
             W,
             ClipBox::surface(W, W),
         );
@@ -445,7 +446,7 @@ mod tests {
             6.0,
             &p,
             BlendMode::Normal,
-            &mut buf,
+            &mut Band::whole(&mut buf),
             W,
             ClipBox::surface(W, W),
         );
@@ -465,7 +466,7 @@ mod tests {
             0.0,
             &p,
             BlendMode::Normal,
-            &mut buf,
+            &mut Band::whole(&mut buf),
             W,
             ClipBox::surface(W, W),
         );
@@ -486,7 +487,7 @@ mod tests {
             4.0,
             &p,
             BlendMode::Normal,
-            &mut buf,
+            &mut Band::whole(&mut buf),
             W,
             clip,
         );
@@ -503,7 +504,7 @@ mod tests {
             4.0,
             &p,
             BlendMode::Normal,
-            &mut buf,
+            &mut Band::whole(&mut buf),
             W,
             ClipBox::surface(W, W),
         );

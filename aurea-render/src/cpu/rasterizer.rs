@@ -4,6 +4,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::mem::{self, size_of_val};
 use std::slice::from_raw_parts;
 use std::sync::Arc;
+use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::cpu::blend::{ConstSrc, LinearLuts, blend_pixel};
@@ -14,6 +15,7 @@ use crate::cpu::damage::{
     FrameDamage, is_known_bounds, mark_occluded, resolve_frame_damage, should_render_item,
     uncovered_runs, union_rect,
 };
+use crate::cpu::raster::band::Band;
 use crate::cpu::raster::fill::{self, PathScratch};
 use crate::cpu::raster::sample;
 use crate::cpu::stroke;
@@ -209,6 +211,79 @@ pub struct CpuRasterizer {
     has_frame: bool,
     counting: bool,
     counters: Option<FrameCounters>,
+    /// Scratch for the bands past the first, which draw on threads of their own.
+    band_scratch: Vec<BandScratch>,
+    threads: Option<usize>,
+    band_min: usize,
+}
+
+/// Damage smaller than this many pixels a band draws on one thread: spawning would cost more.
+const BAND_MIN_PIXELS: usize = 1 << 17;
+/// Most threads a frame draws on.
+const MAX_BANDS: usize = 8;
+
+/// What a band past the first draws with.
+#[derive(Default)]
+struct BandScratch {
+    path: PathScratch,
+    row: ImageScratch,
+}
+
+/// What every band of a frame reads.
+#[derive(Clone, Copy)]
+struct FramePlan<'f> {
+    items: &'f [DisplayItem],
+    occluded: &'f [bool],
+    dirty: &'f [bool],
+    under_clear: &'f [bool],
+    last_clear: Option<usize>,
+    dims: (u32, u32, u32, u32),
+    clip: ClipBox,
+}
+
+impl FramePlan<'_> {
+    /// Draws the items in order into `buf`, inside `self.clip`.
+    fn draw(
+        &self,
+        buf: &mut Band<'_>,
+        scratch_path: &mut PathScratch,
+        scratch_row: &mut ImageScratch,
+        tally: &mut Tally<'_>,
+    ) -> AureaResult<()> {
+        let (tiles_x, tiles_y, bw, bh) = self.dims;
+        for (i, item) in self.items.iter().enumerate() {
+            if let DrawCommand::Clear(color) = &item.command {
+                let started = tally.start();
+                let (color, clip) = (color_to_u32(*color), self.clip.intersect_opt(item.clip));
+                let runs = self.last_clear == Some(i) || !self.occluded[i];
+                if self.last_clear == Some(i) {
+                    uncovered_runs(self.under_clear, self.dims, |run| {
+                        CpuRasterizer::clear_rect(&run, color, buf, bw, clip);
+                    });
+                } else if !self.occluded[i] {
+                    let whole = Rect::new(0.0, 0.0, bw as f32, bh as f32);
+                    CpuRasterizer::clear_rect(&whole, color, buf, bw, clip);
+                }
+                tally.clear(runs, started);
+                continue;
+            }
+            if !should_render_item(item, self.occluded, i, self.dirty, tiles_x, tiles_y) {
+                tally.skip(self.occluded[i]);
+                continue;
+            }
+            let started = tally.start();
+            CpuRasterizer::render_clipped_item(
+                item,
+                buf,
+                scratch_path,
+                scratch_row,
+                bw,
+                self.clip.intersect_opt(item.clip),
+            )?;
+            tally.ran(CommandKind::of(&item.command), started);
+        }
+        Ok(())
+    }
 }
 
 impl CpuRasterizer {
@@ -236,7 +311,32 @@ impl CpuRasterizer {
             has_frame: false,
             counting: false,
             counters: None,
+            band_scratch: Vec::new(),
+            threads: None,
+            band_min: BAND_MIN_PIXELS,
         }
+    }
+
+    /// Caps the threads a frame draws on; `None` uses the machine's cores, up to 8, and 1 draws
+    /// on the caller's thread only. Each thread draws whole rows, items in their order, so the
+    /// pixels are the same either way.
+    pub fn set_threads(&mut self, threads: Option<usize>) {
+        self.threads = threads.map(|n| n.max(1));
+        if threads == Some(1) {
+            self.band_scratch = Vec::new();
+        }
+    }
+
+    /// How many row bands to draw `clip` in: one when counting, which times items one by one.
+    fn band_count(&self, clip: ClipBox) -> usize {
+        if self.counting || clip.is_empty() {
+            return 1;
+        }
+        let threads = self.threads.unwrap_or_else(|| {
+            thread::available_parallelism().map_or(1, |n| n.get().min(MAX_BANDS))
+        });
+        let (w, h) = ((clip.x1 - clip.x0) as usize, (clip.y1 - clip.y0) as usize);
+        threads.min(w * h / self.band_min.max(1)).min(h).max(1)
     }
 
     /// Turns per-frame counters on or off. Turning them off drops the stored counters.
@@ -317,7 +417,7 @@ impl CpuRasterizer {
             &moved,
             &white,
             BlendMode::Normal,
-            &mut buf,
+            &mut Band::whole(&mut buf),
             &mut scratch,
             width,
             ClipBox::surface(width, height),
@@ -343,7 +443,7 @@ impl CpuRasterizer {
 
     #[inline]
     fn buf_set(
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         w: u32,
         clip: ClipBox,
         x: i32,
@@ -369,7 +469,7 @@ impl CpuRasterizer {
     /// Renders `item`, then keeps only what falls inside its clip paths, antialiased.
     fn render_clipped_item(
         item: &DisplayItem,
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         scratch_path: &mut PathScratch,
         scratch_row: &mut ImageScratch,
         bw: u32,
@@ -423,7 +523,7 @@ impl CpuRasterizer {
     #[allow(clippy::too_many_arguments)]
     fn render_item(
         item: &DisplayItem,
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         scratch_path: &mut PathScratch,
         scratch_row: &mut ImageScratch,
         bw: u32,
@@ -576,7 +676,7 @@ impl CpuRasterizer {
         Ok(())
     }
 
-    fn clear_rect(rect: &Rect, color: u32, buf: &mut [u32], bw: u32, clip: ClipBox) {
+    fn clear_rect(rect: &Rect, color: u32, buf: &mut Band<'_>, bw: u32, clip: ClipBox) {
         let x0 = f32_to_u32_clamped(rect.x.floor().clamp(clip.left(), clip.right()));
         let y0 = f32_to_u32_clamped(rect.y.floor().clamp(clip.top(), clip.bottom()));
         let x1 = f32_to_u32_clamped(
@@ -601,7 +701,7 @@ impl CpuRasterizer {
         rect: &Rect,
         paint: &Paint,
         mode: BlendMode,
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         bw: u32,
         clip: ClipBox,
     ) {
@@ -634,7 +734,7 @@ impl CpuRasterizer {
         rect: &Rect,
         paint: &Paint,
         mode: BlendMode,
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         bw: u32,
         clip: ClipBox,
         x0: u32,
@@ -661,7 +761,7 @@ impl CpuRasterizer {
         rect: &Rect,
         paint: &Paint,
         mode: BlendMode,
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         bw: u32,
         clip: ClipBox,
         x0: u32,
@@ -718,7 +818,7 @@ impl CpuRasterizer {
 
     #[allow(clippy::too_many_arguments)]
     fn fill_rect_row_translucent(
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         bw: u32,
         ctx: &RectFillCtx,
         x0: u32,
@@ -760,7 +860,7 @@ impl CpuRasterizer {
 
     /// [`Self::blend_at`] over `xa..xb` on row `y`, where every pixel has coverage `cov`.
     fn blend_span_at(
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         bw: u32,
         ctx: &RectFillCtx,
         xa: u32,
@@ -784,7 +884,7 @@ impl CpuRasterizer {
         }
     }
 
-    fn blend_at(buf: &mut [u32], bw: u32, ctx: &RectFillCtx, x: u32, y: u32, cov: f32) {
+    fn blend_at(buf: &mut Band<'_>, bw: u32, ctx: &RectFillCtx, x: u32, y: u32, cov: f32) {
         let alpha = f32_to_u32_clamped((f32::from(ctx.paint.color.a) * cov).round());
         match ctx.const_src {
             Some(src) => {
@@ -805,7 +905,7 @@ impl CpuRasterizer {
     }
 
     fn fill_rect_edge_span(
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         bw: u32,
         ctx: &RectFillCtx,
         xa: u32,
@@ -827,7 +927,7 @@ impl CpuRasterizer {
         rect: &Rect,
         paint: &Paint,
         mode: BlendMode,
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         bw: u32,
         clip: ClipBox,
         x0: u32,
@@ -883,7 +983,7 @@ impl CpuRasterizer {
                 out_y * rect_cov_x(x, outer.x, outer.right())
                     - in_y * rect_cov_x(x, inner.x, inner.right())
             };
-            let stroke_at = |buf: &mut [u32], x: u32| {
+            let stroke_at = |buf: &mut Band<'_>, x: u32| {
                 let cov = cov_at(x);
                 if cov <= 0.0 {
                     return;
@@ -913,7 +1013,7 @@ impl CpuRasterizer {
                 }
             }
             edges.sort_unstable();
-            let run = |buf: &mut [u32], from: u32, to: u32| {
+            let run = |buf: &mut Band<'_>, from: u32, to: u32| {
                 if from < to {
                     let cov = cov_at(from);
                     if cov > 0.0 {
@@ -939,7 +1039,7 @@ impl CpuRasterizer {
         radius: f32,
         paint: &Paint,
         mode: BlendMode,
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         bw: u32,
         clip: ClipBox,
     ) {
@@ -968,7 +1068,7 @@ impl CpuRasterizer {
         radius: f32,
         paint: &Paint,
         mode: BlendMode,
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         bw: u32,
         clip: ClipBox,
         x0: u32,
@@ -995,7 +1095,7 @@ impl CpuRasterizer {
         }
     }
 
-    fn fill_circle_row(buf: &mut [u32], bw: u32, ctx: &CircleFillCtx, x0: u32, x1: u32, y: u32) {
+    fn fill_circle_row(buf: &mut Band<'_>, bw: u32, ctx: &CircleFillCtx, x0: u32, x1: u32, y: u32) {
         let dy = y as f32 + 0.5 - ctx.center.y;
         if dy.abs() >= ctx.r_out {
             return;
@@ -1040,7 +1140,7 @@ impl CpuRasterizer {
     }
 
     fn fill_circle_edge_span(
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         bw: u32,
         ctx: &CircleFillCtx,
         xa: i32,
@@ -1074,7 +1174,7 @@ impl CpuRasterizer {
         radius: f32,
         paint: &Paint,
         mode: BlendMode,
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         bw: u32,
         clip: ClipBox,
         x0: u32,
@@ -1099,7 +1199,7 @@ impl CpuRasterizer {
     /// inner chord when it is wide enough to skip. Pixels outside those spans fail the
     /// per-pixel test in `stroke_circle_span` by a margin, so they are never tested.
     fn stroke_circle_row(
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         bw: u32,
         ctx: &CircleStrokeCtx,
         x0: u32,
@@ -1127,7 +1227,7 @@ impl CpuRasterizer {
     }
 
     fn stroke_circle_span(
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         bw: u32,
         ctx: &CircleStrokeCtx,
         y: u32,
@@ -1149,7 +1249,7 @@ impl CpuRasterizer {
         path: &Path,
         paint: &Paint,
         mode: BlendMode,
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         scratch_path: &mut PathScratch,
         bw: u32,
         clip: ClipBox,
@@ -1166,7 +1266,7 @@ impl CpuRasterizer {
         path: &Path,
         paint: &Paint,
         mode: BlendMode,
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         scratch_path: &mut PathScratch,
         bw: u32,
         clip: ClipBox,
@@ -1180,7 +1280,7 @@ impl CpuRasterizer {
         mask: &GlyphMask,
         origin: Point,
         color: Color,
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         bw: u32,
         clip: ClipBox,
     ) {
@@ -1193,7 +1293,7 @@ impl CpuRasterizer {
         origin: Point,
         color: Color,
         mode: BlendMode,
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         bw: u32,
         clip: ClipBox,
     ) {
@@ -1288,7 +1388,7 @@ impl CpuRasterizer {
         sampling: Sampling,
         mode: BlendMode,
         alpha: f32,
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         bw: u32,
         clip: ClipBox,
     ) {
@@ -1365,7 +1465,7 @@ impl CpuRasterizer {
         sampling: Sampling,
         mode: BlendMode,
         alpha: f32,
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         scratch: &mut ImageScratch,
         bw: u32,
         clip: ClipBox,
@@ -1435,7 +1535,7 @@ impl CpuRasterizer {
         dest: Rect,
         mode: BlendMode,
         alpha: f32,
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         scratch_row: &mut Vec<u32>,
         bw: u32,
         clip: ClipBox,
@@ -1492,7 +1592,7 @@ impl CpuRasterizer {
         sampling: Sampling,
         mode: BlendMode,
         alpha: f32,
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         scratch: &mut ImageScratch,
         bw: u32,
         clip: ClipBox,
@@ -1515,7 +1615,7 @@ impl CpuRasterizer {
         let shrink = sampling == Sampling::Smooth && (sx > 1.0 || sy > 1.0);
         let u0 = |cx: i32| (cx as f32 - dest.x) * sx + src.x;
         let v0 = |cy: i32| (cy as f32 - dest.y) * sy + src.y;
-        let put = |buf: &mut [u32], cx: i32, cy: i32, c: u32| {
+        let put = |buf: &mut Band<'_>, cx: i32, cy: i32, c: u32| {
             if c >> 24 != 0 {
                 Self::buf_set(buf, bw, clip, cx, cy, c, mode);
             }
@@ -1580,7 +1680,7 @@ impl CpuRasterizer {
         dest: Rect,
         mode: BlendMode,
         alpha: f32,
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         bw: u32,
         x0: i32,
         y0: i32,
@@ -1686,7 +1786,7 @@ impl CpuRasterizer {
         grad: &LinearGradient,
         rect: Rect,
         mode: BlendMode,
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         bw: u32,
         clip: ClipBox,
     ) {
@@ -1759,7 +1859,7 @@ impl CpuRasterizer {
         grad: &RadialGradient,
         rect: Rect,
         mode: BlendMode,
-        buf: &mut [u32],
+        buf: &mut Band<'_>,
         bw: u32,
         clip: ClipBox,
     ) {
@@ -2104,40 +2204,36 @@ impl CpuRasterizer {
             &mut occluded,
             &mut self.scratch_under_clear,
         );
-        for (i, item) in items.iter().enumerate() {
-            if let DrawCommand::Clear(color) = &item.command {
-                let started = tally.start();
-                let (color, clip) = (color_to_u32(*color), surface_clip.intersect_opt(item.clip));
-                let buf = &mut self.frame_buffer;
-                let runs = last_clear == Some(i) || !occluded[i];
-                if last_clear == Some(i) {
-                    let dims = (tiles_x, tiles_y, bw, bh);
-                    uncovered_runs(&self.scratch_under_clear, dims, |run| {
-                        Self::clear_rect(&run, color, buf, bw, clip);
-                    });
-                } else if !occluded[i] {
-                    let whole = Rect::new(0.0, 0.0, bw as f32, bh as f32);
-                    Self::clear_rect(&whole, color, buf, bw, clip);
-                }
-                tally.clear(runs, started);
-                continue;
-            }
-
-            if !should_render_item(item, &occluded, i, &dirty_tiles, tiles_x, tiles_y) {
-                tally.skip(occluded[i]);
-                continue;
-            }
-            let started = tally.start();
-            Self::render_clipped_item(
-                item,
-                &mut self.frame_buffer,
+        let plan = FramePlan {
+            items,
+            occluded: &occluded,
+            dirty: &dirty_tiles,
+            under_clear: &self.scratch_under_clear,
+            last_clear,
+            dims: (tiles_x, tiles_y, bw, bh),
+            clip: surface_clip,
+        };
+        let bands = self.band_count(surface_clip);
+        let drawn = if bands <= 1 {
+            plan.draw(
+                &mut Band::whole(&mut self.frame_buffer),
                 &mut self.scratch_path,
                 &mut self.scratch_row,
-                bw,
-                surface_clip.intersect_opt(item.clip),
-            )?;
-            tally.ran(CommandKind::of(&item.command), started);
-        }
+                &mut tally,
+            )
+        } else {
+            self.band_scratch
+                .resize_with(bands - 1, BandScratch::default);
+            let first = (&mut self.scratch_path, &mut self.scratch_row);
+            draw_bands(
+                &plan,
+                bands,
+                &mut self.frame_buffer,
+                first,
+                &mut self.band_scratch,
+            )
+        };
+        drawn?;
 
         self.scratch_occluded = occluded;
         self.scratch_dirty = dirty_tiles;
@@ -2146,6 +2242,62 @@ impl CpuRasterizer {
         self.has_frame = true;
         Ok(FrameOutcome::Presented)
     }
+}
+
+/// Draws `plan` as `bands` runs of rows, the first on this thread and the rest on threads of their
+/// own: rows apart touch pixels apart, and each band draws every item in order.
+fn draw_bands(
+    plan: &FramePlan<'_>,
+    bands: usize,
+    frame: &mut [u32],
+    (path, row): (&mut PathScratch, &mut ImageScratch),
+    extra: &mut [BandScratch],
+) -> AureaResult<()> {
+    let (y0, y1) = (plan.clip.y0, plan.clip.y1);
+    let width = plan.dims.2 as usize;
+    let rows = (y1 - y0).div_ceil(u32::try_from(bands).unwrap_or(u32::MAX));
+    let damaged = &mut frame[y0 as usize * width..y1 as usize * width];
+    let mut chunks = damaged.chunks_mut(rows as usize * width).enumerate();
+    let band_of = |k: usize, chunk: &[u32]| {
+        let top = y0 + u32::try_from(k).unwrap_or(u32::MAX) * rows;
+        let height = u32::try_from(chunk.len() / width).unwrap_or(u32::MAX);
+        let plan = FramePlan {
+            clip: ClipBox {
+                y0: top,
+                y1: top + height,
+                ..plan.clip
+            },
+            ..*plan
+        };
+        (plan, top as usize * width)
+    };
+    thread::scope(|scope| {
+        let Some((k, mine)) = chunks.next() else {
+            return Ok(());
+        };
+        let workers: Vec<_> = chunks
+            .zip(extra.iter_mut())
+            .map(|((k, chunk), scratch)| {
+                let (plan, start) = band_of(k, chunk);
+                scope.spawn(move || {
+                    let mut band = Band::new(chunk, start);
+                    plan.draw(
+                        &mut band,
+                        &mut scratch.path,
+                        &mut scratch.row,
+                        &mut Tally(None),
+                    )
+                })
+            })
+            .collect();
+        let (own, start) = band_of(k, mine);
+        let mut drawn = own.draw(&mut Band::new(mine, start), path, row, &mut Tally(None));
+        for worker in workers {
+            let result = worker.join().unwrap_or(Err(AureaError::RenderingFailed));
+            drawn = drawn.and(result);
+        }
+        drawn
+    })
 }
 
 /// Per-circle values shared by every row of a stroked circle.
@@ -2336,7 +2488,7 @@ mod glyph_tests {
                 black_box(&mask),
                 Point::new(0.0, -8192.0),
                 Color::rgb(20, 30, 40),
-                black_box(&mut pixels),
+                black_box(&mut Band::whole(&mut pixels)),
                 256,
                 clip,
             );
@@ -2357,7 +2509,7 @@ mod glyph_tests {
                 &mask,
                 Point::new(0.0, 0.0),
                 Color::rgba(255, 255, 255, alpha),
-                &mut pixels,
+                &mut Band::whole(&mut pixels),
                 1,
                 ClipBox::surface(1, 1),
             );
@@ -2383,7 +2535,7 @@ mod glyph_tests {
         let mut pixels = [0];
         CpuRasterizer::render_item(
             &item,
-            &mut pixels,
+            &mut Band::whole(&mut pixels),
             &mut PathScratch::default(),
             &mut ImageScratch::default(),
             1,
@@ -2401,7 +2553,7 @@ mod glyph_tests {
             &mask,
             Point::new(0.0, 0.0),
             Color::rgb(255, 0, 0),
-            &mut transparent,
+            &mut Band::whole(&mut transparent),
             1,
             ClipBox::surface(1, 1),
         );
@@ -2416,7 +2568,7 @@ mod glyph_tests {
             Point::new(0.0, 0.0),
             Color::rgb(255, 255, 255),
             BlendMode::Multiply,
-            &mut background,
+            &mut Band::whole(&mut background),
             1,
             ClipBox::surface(1, 1),
         );
@@ -2446,11 +2598,18 @@ mod glyph_tests {
                     &mask,
                     origin,
                     color,
-                    &mut full,
+                    &mut Band::whole(&mut full),
                     20,
                     ClipBox::surface(20, 20),
                 );
-                CpuRasterizer::draw_glyph(&mask, origin, color, &mut clipped, 20, clip);
+                CpuRasterizer::draw_glyph(
+                    &mask,
+                    origin,
+                    color,
+                    &mut Band::whole(&mut clipped),
+                    20,
+                    clip,
+                );
                 for y in 0..20 {
                     for x in 0..20 {
                         let expected = if clip.contains(x, y) {
@@ -2481,7 +2640,7 @@ mod glyph_tests {
                 &mask,
                 origin,
                 Color::rgb(255, 255, 255),
-                &mut pixels,
+                &mut Band::whole(&mut pixels),
                 2,
                 ClipBox::surface(2, 2),
             );
@@ -2622,7 +2781,7 @@ mod glyph_tests {
                             origin,
                             color,
                             mode,
-                            &mut actual,
+                            &mut Band::whole(&mut actual),
                             sw,
                             clip,
                         );
@@ -2652,7 +2811,7 @@ mod glyph_tests {
                 Point::new(0.0, 0.0),
                 color,
                 BlendMode::Normal,
-                black_box(&mut pixels),
+                black_box(&mut Band::whole(&mut pixels)),
                 SIDE,
                 clip,
             );
@@ -2697,7 +2856,7 @@ mod bad_source_tests {
             sampling,
             BlendMode::Normal,
             1.0,
-            &mut buf,
+            &mut Band::whole(&mut buf),
             &mut ImageScratch::default(),
             8,
             CLIP,
@@ -2731,7 +2890,14 @@ mod bad_source_tests {
         let mask = GlyphMask::new(4, 4, vec![255; 6].into());
         let mut buf = vec![0u32; 64];
         let origin = Point::new(0.0, 0.0);
-        CpuRasterizer::draw_glyph(&mask, origin, Color::rgb(0, 0, 0), &mut buf, 8, CLIP);
+        CpuRasterizer::draw_glyph(
+            &mask,
+            origin,
+            Color::rgb(0, 0, 0),
+            &mut Band::whole(&mut buf),
+            8,
+            CLIP,
+        );
         assert!(buf.iter().all(|&p| p == 0));
     }
 }
@@ -2773,7 +2939,15 @@ mod image_draw_tests {
                 let v = (y as f32 - dest.y) * sy + src.y + sy * 0.5;
                 let c = sample::bilinear(image, b, u, v, alpha);
                 if c >> 24 != 0 {
-                    CpuRasterizer::buf_set(&mut buf, 24, ClipBox::surface(24, 24), x, y, c, mode);
+                    CpuRasterizer::buf_set(
+                        &mut Band::whole(&mut buf),
+                        24,
+                        ClipBox::surface(24, 24),
+                        x,
+                        y,
+                        c,
+                        mode,
+                    );
                 }
             }
         }
@@ -2797,7 +2971,7 @@ mod image_draw_tests {
                         Sampling::Linear,
                         mode,
                         alpha,
-                        &mut buf,
+                        &mut Band::whole(&mut buf),
                         &mut ImageScratch::default(),
                         24,
                         ClipBox::surface(24, 24),
@@ -2881,7 +3055,14 @@ mod stroke_rect_tests {
                 y1: h,
             },
         ] {
-            CpuRasterizer::draw_rect(&rect, &paint, BlendMode::Normal, &mut buf, w, clip);
+            CpuRasterizer::draw_rect(
+                &rect,
+                &paint,
+                BlendMode::Normal,
+                &mut Band::whole(&mut buf),
+                w,
+                clip,
+            );
         }
         buf
     }
@@ -3874,7 +4055,15 @@ mod stroke_circle_tests {
                 let dy = y as f32 + 0.5 - center.y;
                 let d = (dx * dx + dy * dy).sqrt();
                 if d <= radius && d >= inner_r {
-                    CpuRasterizer::buf_set(buf, bw, clip, x as i32, y as i32, c, mode);
+                    CpuRasterizer::buf_set(
+                        &mut Band::whole(buf),
+                        bw,
+                        clip,
+                        x as i32,
+                        y as i32,
+                        c,
+                        mode,
+                    );
                 }
             }
         }
@@ -3903,7 +4092,15 @@ mod stroke_circle_tests {
         let mut expected = backdrop();
         let mut actual = expected.clone();
         reference_draw_circle(center, radius, paint, mode, &mut expected, SIDE, clip);
-        CpuRasterizer::draw_circle(center, radius, paint, mode, &mut actual, SIDE, clip);
+        CpuRasterizer::draw_circle(
+            center,
+            radius,
+            paint,
+            mode,
+            &mut Band::whole(&mut actual),
+            SIDE,
+            clip,
+        );
         assert!(
             actual == expected,
             "r={radius} w={} center=({}, {}) clip={clip:?} mode={mode:?} color={:?}",
@@ -3985,7 +4182,7 @@ mod stroke_circle_tests {
                     300.0,
                     &paint,
                     BlendMode::Normal,
-                    &mut buf,
+                    &mut Band::whole(&mut buf),
                     SIDE_T,
                     clip,
                 );
@@ -4134,7 +4331,7 @@ mod gradient_and_scaled_tests {
                     | (u32::from(src_row[ii]) << 16)
                     | (u32::from(src_row[ii + 1]) << 8)
                     | u32::from(src_row[ii + 2]);
-                CpuRasterizer::buf_set(buf, bw, clip, cx, cy, rgba, mode);
+                CpuRasterizer::buf_set(&mut Band::whole(buf), bw, clip, cx, cy, rgba, mode);
             }
         }
     }
@@ -4238,7 +4435,12 @@ mod gradient_and_scaled_tests {
                             reference_linear(&grad, rect, mode, &mut want, W, clip);
                             let mut got = background(W * H);
                             CpuRasterizer::fill_linear_gradient(
-                                &grad, rect, mode, &mut got, W, clip,
+                                &grad,
+                                rect,
+                                mode,
+                                &mut Band::whole(&mut got),
+                                W,
+                                clip,
                             );
                             assert_same(
                                 &got,
@@ -4270,7 +4472,14 @@ mod gradient_and_scaled_tests {
                         let mut want = background(W * H);
                         reference_radial(&grad, rect, mode, &mut want, W, clip);
                         let mut got = background(W * H);
-                        CpuRasterizer::fill_radial_gradient(&grad, rect, mode, &mut got, W, clip);
+                        CpuRasterizer::fill_radial_gradient(
+                            &grad,
+                            rect,
+                            mode,
+                            &mut Band::whole(&mut got),
+                            W,
+                            clip,
+                        );
                         assert_close(&got, &want, &format!("{mode:?} radial {rect:?}"));
                     }
                 }
@@ -4327,7 +4536,7 @@ mod gradient_and_scaled_tests {
                                 Sampling::Nearest,
                                 mode,
                                 alpha,
-                                &mut got,
+                                &mut Band::whole(&mut got),
                                 &mut ImageScratch::default(),
                                 W,
                                 clip,
@@ -4353,7 +4562,7 @@ mod gradient_and_scaled_tests {
                 black_box(grad),
                 rect,
                 BlendMode::Normal,
-                black_box(&mut buf),
+                black_box(&mut Band::whole(&mut buf)),
                 BW,
                 clip,
             );
@@ -4400,7 +4609,7 @@ mod gradient_and_scaled_tests {
                 black_box(&grad),
                 rect,
                 BlendMode::Normal,
-                black_box(&mut buf),
+                black_box(&mut Band::whole(&mut buf)),
                 w,
                 clip,
             );
@@ -4445,7 +4654,7 @@ mod gradient_and_scaled_tests {
                     black_box(&grad),
                     rect,
                     BlendMode::Normal,
-                    buf,
+                    &mut Band::whole(buf),
                     w,
                     clip,
                 );
@@ -4467,7 +4676,7 @@ mod gradient_and_scaled_tests {
                 black_box(&grad),
                 rect,
                 BlendMode::Normal,
-                buf,
+                &mut Band::whole(buf),
                 w,
                 clip,
             );
@@ -4488,7 +4697,7 @@ mod gradient_and_scaled_tests {
                 black_box(&grad),
                 rect,
                 BlendMode::Normal,
-                buf,
+                &mut Band::whole(buf),
                 w,
                 clip,
             );
@@ -4515,7 +4724,7 @@ mod gradient_and_scaled_tests {
                     Sampling::Nearest,
                     BlendMode::Normal,
                     1.0,
-                    black_box(&mut buf),
+                    black_box(&mut Band::whole(&mut buf)),
                     &mut ImageScratch::default(),
                     w,
                     clip,
@@ -4711,11 +4920,11 @@ mod rect_span_tests {
         row_cov: f32,
     ) {
         if !has_full_x {
-            CpuRasterizer::fill_rect_edge_span(buf, bw, ctx, x0, x1, y, row_cov);
+            CpuRasterizer::fill_rect_edge_span(&mut Band::whole(buf), bw, ctx, x0, x1, y, row_cov);
             return;
         }
 
-        CpuRasterizer::fill_rect_edge_span(buf, bw, ctx, x0, xi0, y, row_cov);
+        CpuRasterizer::fill_rect_edge_span(&mut Band::whole(buf), bw, ctx, x0, xi0, y, row_cov);
 
         if row_cov >= 1.0 {
             if ctx.opaque_fast {
@@ -4730,17 +4939,23 @@ mod rect_span_tests {
             } else {
                 for x in xi0..xi1 {
                     CpuRasterizer::buf_set(
-                        buf, bw, ctx.clip, x as i32, y as i32, ctx.c_full, ctx.mode,
+                        &mut Band::whole(buf),
+                        bw,
+                        ctx.clip,
+                        x as i32,
+                        y as i32,
+                        ctx.c_full,
+                        ctx.mode,
                     );
                 }
             }
         } else {
             for x in xi0..xi1 {
-                CpuRasterizer::blend_at(buf, bw, ctx, x, y, row_cov);
+                CpuRasterizer::blend_at(&mut Band::whole(buf), bw, ctx, x, y, row_cov);
             }
         }
 
-        CpuRasterizer::fill_rect_edge_span(buf, bw, ctx, xi1, x1, y, row_cov);
+        CpuRasterizer::fill_rect_edge_span(&mut Band::whole(buf), bw, ctx, xi1, x1, y, row_cov);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -4807,9 +5022,17 @@ mod rect_span_tests {
                     return;
                 }
                 if cov >= 1.0 && ctx.opaque_fast {
-                    CpuRasterizer::buf_set(buf, bw, clip, x as i32, y as i32, ctx.c_full, mode);
+                    CpuRasterizer::buf_set(
+                        &mut Band::whole(buf),
+                        bw,
+                        clip,
+                        x as i32,
+                        y as i32,
+                        ctx.c_full,
+                        mode,
+                    );
                 } else {
-                    CpuRasterizer::blend_at(buf, bw, &ctx, x, y, cov.min(1.0));
+                    CpuRasterizer::blend_at(&mut Band::whole(buf), bw, &ctx, x, y, cov.min(1.0));
                 }
             };
             if in_y >= 1.0 {
@@ -4880,11 +5103,11 @@ mod rect_span_tests {
                     if last_clear == Some(i) {
                         let dims = (tiles_x, tiles_y, bw, bh);
                         uncovered_runs(&self.scratch_under_clear, dims, |run| {
-                            CpuRasterizer::clear_rect(&run, color, buf, bw, clip);
+                            CpuRasterizer::clear_rect(&run, color, &mut Band::whole(buf), bw, clip);
                         });
                     } else {
                         let whole = Rect::new(0.0, 0.0, bw as f32, bh as f32);
-                        CpuRasterizer::clear_rect(&whole, color, buf, bw, clip);
+                        CpuRasterizer::clear_rect(&whole, color, &mut Band::whole(buf), bw, clip);
                     }
                     continue;
                 }
@@ -4894,7 +5117,7 @@ mod rect_span_tests {
                 }
                 CpuRasterizer::render_clipped_item(
                     item,
-                    &mut self.frame_buffer,
+                    &mut Band::whole(&mut self.frame_buffer),
                     &mut self.scratch_path,
                     &mut self.scratch_row,
                     bw,
@@ -4980,7 +5203,14 @@ mod rect_span_tests {
                         for dst in [dst_uniform(W, H), dst_varied(W, H)] {
                             let mut new = dst.clone();
                             let mut old = dst;
-                            CpuRasterizer::draw_rect(&rect, &paint, mode, &mut new, W, clip);
+                            CpuRasterizer::draw_rect(
+                                &rect,
+                                &paint,
+                                mode,
+                                &mut Band::whole(&mut new),
+                                W,
+                                clip,
+                            );
                             ref_draw_rect(&rect, &paint, mode, &mut old, W, clip);
                             assert_eq!(
                                 new, old,
@@ -5012,7 +5242,14 @@ mod rect_span_tests {
                             for dst in [dst_uniform(W, H), dst_varied(W, H)] {
                                 let mut new = dst.clone();
                                 let mut old = dst;
-                                CpuRasterizer::draw_rect(&rect, &paint, mode, &mut new, W, clip);
+                                CpuRasterizer::draw_rect(
+                                    &rect,
+                                    &paint,
+                                    mode,
+                                    &mut Band::whole(&mut new),
+                                    W,
+                                    clip,
+                                );
                                 ref_draw_rect(&rect, &paint, mode, &mut old, W, clip);
                                 assert_eq!(
                                     new, old,
@@ -5197,7 +5434,7 @@ mod rect_span_tests {
                 black_box(&rect),
                 &paint,
                 BlendMode::Normal,
-                black_box(&mut buf),
+                black_box(&mut Band::whole(&mut buf)),
                 W,
                 clip,
             );
@@ -5222,7 +5459,7 @@ mod rect_span_tests {
                 black_box(&rect),
                 &paint,
                 BlendMode::Normal,
-                black_box(&mut buf),
+                black_box(&mut Band::whole(&mut buf)),
                 W,
                 clip,
             );
@@ -5250,5 +5487,235 @@ mod rect_span_tests {
             drop(ctx);
             r.end_frame().unwrap();
         });
+    }
+}
+
+#[cfg(test)]
+mod band_tests {
+    use super::*;
+    use crate::geometry::{FillRule, PathCommand};
+
+    fn path(points: &[(f32, f32)], rule: FillRule) -> Path {
+        let mut path = Path::new();
+        path.fill_rule = rule;
+        for (i, &(x, y)) in points.iter().enumerate() {
+            let p = Point::new(x, y);
+            path.commands.push(if i == 0 {
+                PathCommand::MoveTo(p)
+            } else {
+                PathCommand::LineTo(p)
+            });
+        }
+        path.commands.push(PathCommand::Close);
+        path
+    }
+
+    /// One of every kind of draw, over row edges a band may split.
+    fn scene(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
+        let stops = vec![
+            GradientStop {
+                offset: 0.0,
+                color: Color::rgba(255, 0, 0, 255),
+            },
+            GradientStop {
+                offset: 1.0,
+                color: Color::rgba(0, 0, 255, 120),
+            },
+        ];
+        let mut pixels = Vec::new();
+        for y in 0..16u8 {
+            for x in 0..16u8 {
+                let a = if (x + y) % 3 == 0 { 120 } else { 255 };
+                pixels.extend_from_slice(&[x * 16, y * 16, 90, a]);
+            }
+        }
+        let image = Image::new(16, 16, pixels);
+        ctx.clear(Color::rgb(20, 24, 30))?;
+        ctx.draw_rect(
+            Rect::new(3.3, 2.7, 150.4, 40.6),
+            &Paint::new().color(Color::rgba(200, 120, 40, 180)),
+        )?;
+        ctx.draw_round_rect(
+            Rect::new(20.5, 30.25, 90.0, 70.0),
+            14.0,
+            &Paint::new().color(Color::rgb(40, 160, 90)),
+        )?;
+        ctx.draw_shadow(
+            Rect::new(110.0, 20.0, 60.0, 50.0),
+            8.0,
+            12.0,
+            Color::rgba(0, 0, 0, 160),
+        )?;
+        ctx.draw_circle(
+            Point::new(60.0, 120.0),
+            33.3,
+            &Paint::new().color(Color::rgba(250, 250, 0, 200)),
+        )?;
+        let ring = Paint::new()
+            .color(Color::rgb(255, 255, 255))
+            .style(PaintStyle::Stroke)
+            .stroke_width(3.5);
+        ctx.draw_circle(Point::new(140.0, 130.0), 28.0, &ring)?;
+        let star = path(
+            &[
+                (100.0, 60.0),
+                (130.0, 150.0),
+                (60.0, 95.0),
+                (140.0, 95.0),
+                (70.0, 150.0),
+            ],
+            FillRule::EvenOdd,
+        );
+        ctx.draw_path(&star, &Paint::new().color(Color::rgba(90, 200, 255, 210)))?;
+        let dashed = Paint::new()
+            .color(Color::rgb(255, 80, 80))
+            .style(PaintStyle::Stroke)
+            .stroke_width(2.5)
+            .dash(&[6.0, 4.0], 1.5);
+        ctx.draw_path(&star, &dashed)?;
+        ctx.fill_linear_gradient(
+            &LinearGradient {
+                start: Point::new(0.0, 150.0),
+                end: Point::new(180.0, 190.0),
+                stops: stops.clone(),
+            },
+            Rect::new(0.0, 150.0, 180.0, 40.0),
+        )?;
+        ctx.fill_radial_gradient(
+            &RadialGradient {
+                center: Point::new(160.0, 60.0),
+                radius: 40.0,
+                stops,
+            },
+            Rect::new(120.0, 20.0, 80.0, 80.0),
+        )?;
+        ctx.draw_image_rect(&image, Rect::new(5.0, 60.0, 50.0, 70.0))?;
+        ctx.set_sampling(Sampling::Smooth)?;
+        ctx.draw_image_rect(&image, Rect::new(150.0, 150.0, 9.0, 11.0))?;
+        ctx.set_sampling(Sampling::Nearest)?;
+        ctx.draw_image_region(
+            &image,
+            Rect::new(2.0, 2.0, 8.0, 8.0),
+            Rect::new(170.0, 100.0, 27.0, 33.0),
+        )?;
+        ctx.draw_text(
+            "Bands 한글 ok",
+            Point::new(12.0, 60.0),
+            &Paint::new().color(Color::rgb(240, 240, 240)),
+        )?;
+        ctx.save()?;
+        ctx.clip_path(&path(
+            &[(10.0, 10.0), (190.0, 30.0), (150.0, 190.0), (20.0, 170.0)],
+            FillRule::NonZero,
+        ))?;
+        ctx.set_alpha(0.6)?;
+        ctx.set_blend_mode(BlendMode::Multiply)?;
+        ctx.draw_rect(
+            Rect::new(0.0, 80.0, 200.0, 37.0),
+            &Paint::new().color(Color::rgb(30, 220, 200)),
+        )?;
+        ctx.restore()?;
+        ctx.save()?;
+        ctx.clip_rect(Rect::new(40.5, 40.5, 50.0, 113.0))?;
+        ctx.rotate(0.3)?;
+        ctx.draw_rect(
+            Rect::new(40.0, 20.0, 90.0, 20.0),
+            &Paint::new().color(Color::rgb(255, 0, 255)),
+        )?;
+        ctx.draw_image_rect(&image, Rect::new(60.0, 40.0, 40.0, 40.0))?;
+        ctx.restore()
+    }
+
+    fn drawn(threads: usize, band_min: usize, (scale, side): (f32, u32)) -> Vec<u32> {
+        let (w, h) = (side, side);
+        let mut r = CpuRasterizer::new(w, h);
+        r.init(
+            Surface::Cpu,
+            SurfaceInfo {
+                width: w,
+                height: h,
+                scale_factor: scale,
+                pixels: None,
+            },
+        )
+        .expect("init");
+        r.set_threads(Some(threads));
+        r.band_min = band_min;
+        let mut ctx = r.begin_frame().expect("frame");
+        scene(&mut *ctx).expect("scene");
+        drop(ctx);
+        r.end_frame().expect("end");
+        r.frame_buffer.clone()
+    }
+
+    #[test]
+    fn bands_draw_the_same_pixels_as_one_thread() {
+        for scale in [(1.0, 200), (1.5, 300), (2.0, 400)] {
+            let one = drawn(1, 1, scale);
+            for threads in [2, 3, 7] {
+                let banded = drawn(threads, 1, scale);
+                let differ = one.iter().zip(&banded).filter(|(a, b)| a != b).count();
+                assert_eq!(differ, 0, "{threads} bands at {}x", scale.0);
+            }
+        }
+    }
+
+    #[test]
+    fn small_damage_stays_on_one_thread() {
+        let mut r = CpuRasterizer::new(100, 100);
+        r.set_threads(Some(8));
+        let small = ClipBox::surface(100, 100);
+        assert_eq!(r.band_count(small), 1, "10k pixels");
+        r.band_min = 1;
+        assert_eq!(r.band_count(small), 8);
+        r.set_counting(true);
+        assert_eq!(r.band_count(small), 1, "counters time items on one thread");
+    }
+
+    #[test]
+    #[ignore = "timing; run with --release --ignored --nocapture"]
+    fn timing_full_frames_by_thread_count() {
+        let (w, h) = (2732u32, 2048u32);
+        let tile = Image::new(
+            256,
+            256,
+            (0..256 * 256 * 4)
+                .map(|i: u32| (i % 251).to_le_bytes()[0])
+                .collect(),
+        );
+        for threads in [1, 2, 4, 8] {
+            let mut r = CpuRasterizer::new(w, h);
+            r.set_threads(Some(threads));
+            let mut times = Vec::new();
+            for frame in 0..12 {
+                let mut ctx = r.begin_frame().expect("frame");
+                ctx.clear(Color::rgb(30, 30, 30)).expect("clear");
+                ctx.set_sampling(Sampling::Smooth).expect("sampling");
+                // a zoomed canvas of tiles, moved each frame so all of it redraws
+                let shift = frame as f32 * 3.0;
+                for ty in 0..9 {
+                    for tx in 0..12 {
+                        let at =
+                            Rect::new(tx as f32 * 240.0 - shift, ty as f32 * 240.0, 240.0, 240.0);
+                        ctx.draw_image_rect(&tile, at).expect("tile");
+                    }
+                }
+                for i in 0..200 {
+                    let y = (i * 10) as f32;
+                    ctx.draw_round_rect(
+                        Rect::new(20.0, y, 300.0, 8.0),
+                        4.0,
+                        &Paint::new().color(Color::rgba(200, 200, 200, 160)),
+                    )
+                    .expect("row");
+                }
+                drop(ctx);
+                let started = Instant::now();
+                r.end_frame().expect("end");
+                times.push(started.elapsed().as_secs_f64() * 1000.0);
+            }
+            times.sort_by(f64::total_cmp);
+            println!("{threads} threads: median {:.2} ms", times[times.len() / 2]);
+        }
     }
 }
