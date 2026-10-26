@@ -452,7 +452,7 @@ mod tests {
     use super::{Axis, Series, quick};
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::state::UiState;
-    use crate::window::{Modifiers, MouseButton, MouseButtons, WindowEvent};
+    use crate::window::{Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
 
     const W: u32 = 240;
     const H: u32 = 160;
@@ -615,6 +615,7 @@ mod tests {
             buttons: MouseButtons::default(),
             modifiers: Modifiers::default(),
             time: Default::default(),
+            pointer: PointerKind::Mouse,
         });
         rig.send(WindowEvent::MouseWheel {
             delta_x: 0.0,
@@ -635,6 +636,7 @@ mod tests {
                 y: f64::from(y),
                 click_count: 2,
                 time: Default::default(),
+                pointer: PointerKind::Mouse,
             });
         }
         rig.show(&mut graph, None);

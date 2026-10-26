@@ -8,7 +8,7 @@ use crate::render::{Font, Paint, PaintStyle, Point, Rect, shape_text};
 #[cfg(feature = "accessibility")]
 use crate::ui::accessibility::edit_value;
 use crate::ui::frame::{Align, Ui, baseline_in, fill};
-use crate::ui::state::{BLINK_FOR, Interaction, Key, Typed, WidgetId};
+use crate::ui::state::{Interaction, Key, Typed, WidgetId, caret_on};
 use crate::ui::text_edit::{Direction, Rules, Step, TextEdit};
 use crate::ui::theme::Palette;
 use crate::window::{KeyCode, Modifiers, clipboard_text, set_clipboard_text};
@@ -77,6 +77,8 @@ pub struct EditableText<'v> {
     password: bool,
     rules: Rules<'v>,
     commit_on_blur: bool,
+    pass_vertical_keys: bool,
+    select_all_on_focus: bool,
 }
 
 impl<'v> EditableText<'v> {
@@ -88,6 +90,8 @@ impl<'v> EditableText<'v> {
             password: false,
             rules: Rules::default(),
             commit_on_blur: false,
+            pass_vertical_keys: false,
+            select_all_on_focus: false,
         }
     }
 
@@ -115,6 +119,18 @@ impl<'v> EditableText<'v> {
         self
     }
 
+    /// Leaves Up, Down, PageUp and PageDown unused, so the app can read them.
+    pub fn pass_vertical_keys(mut self, pass: bool) -> Self {
+        self.pass_vertical_keys = pass;
+        self
+    }
+
+    /// Selects everything when focus starts editing.
+    pub fn select_all_on_focus(mut self, select: bool) -> Self {
+        self.select_all_on_focus = select;
+        self
+    }
+
     /// Draws the text in `rect` and applies this frame's typing.
     pub fn show<Id: WidgetId>(
         mut self,
@@ -126,7 +142,11 @@ impl<'v> EditableText<'v> {
         let key = Key::new(id, part);
         let mut outcome = TextOutcome::default();
         if input.enabled && (input.focused || ui.state.typed_targets.contains(&Some(key))) {
+            let gained = input.focused && !ui.state.editing.get(&key).is_some_and(|s| s.focused);
             self.start_editing(ui, key);
+            if gained && self.select_all_on_focus {
+                ui.state.edit.select_all(self.text);
+            }
             let typed = self.type_in(ui, key);
             outcome = TextOutcome {
                 changed: typed.changed,
@@ -186,6 +206,14 @@ impl<'v> EditableText<'v> {
         };
         for (typed, target) in state.typed.iter().zip(&state.typed_targets) {
             if *target != Some(key) {
+                continue;
+            }
+            if self.pass_vertical_keys
+                && let Typed::Key(
+                    KeyCode::Up | KeyCode::Down | KeyCode::PageUp | KeyCode::PageDown,
+                    _,
+                ) = typed
+            {
                 continue;
             }
             typing.merge(apply(
@@ -387,8 +415,7 @@ fn caret_at<Id: WidgetId>(ui: &mut Ui<'_, Id>, rect: Rect, font: &Font, x: f32) 
     let h = font.size * 1.3;
     let bar = Rect::new(x.round() - 0.5, rect.y + (rect.height - h) / 2.0, 1.5, h);
     ui.state.ime_area = Some(bar);
-    let since = ui.state.blink_from.elapsed();
-    let on = !ui.theme.caret_blink || since >= BLINK_FOR || since.as_secs_f32().fract() < 0.6;
+    let on = caret_on(ui.theme.caret_blink, ui.state.blink_from.elapsed());
     if !on || (ui.state.edit.has_selection() && ui.state.edit.preedit().is_empty()) {
         return Ok(());
     }

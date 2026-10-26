@@ -46,6 +46,13 @@ static unsigned int ng_macos_modifiers(NSEvent* event) {
     return mods;
 }
 
+/* The modifiers of a mouse event, with what moved the pointer: a tablet's events are pens. */
+static unsigned int ng_macos_mouse_modifiers(NSEvent* event) {
+    unsigned int mods = ng_macos_modifiers(event);
+    if (event.subtype == NSEventSubtypeTabletPoint) mods |= NG_POINTER_PEN;
+    return mods;
+}
+
 static BOOL ng_macos_consume_raw_suppress(void* windowHandle);
 
 static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
@@ -317,7 +324,7 @@ static BOOL is_pen_event(NSEvent* event) {
     NSPoint location = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
     unsigned int buttons = (unsigned int)([NSEvent pressedMouseButtons] & 0xFF);
-    ng_invoke_mouse_move(self.windowHandle, location.x, h - location.y, buttons, ng_macos_modifiers(event));
+    ng_invoke_mouse_move(self.windowHandle, location.x, h - location.y, buttons, ng_macos_mouse_modifiers(event));
     [self reportPen:event phase:((buttons & 1) ? AUREA_PEN_MOVE : AUREA_PEN_HOVER)];
 
     int mode = ng_macos_get_cursor_grab_mode(self.windowHandle);
@@ -347,7 +354,7 @@ static BOOL is_pen_event(NSEvent* event) {
     [[self window] makeFirstResponder:self];
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
-    ng_invoke_mouse_button(self.windowHandle, 0, 1, ng_macos_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
+    ng_invoke_mouse_button(self.windowHandle, 0, 1, ng_macos_mouse_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
     [self reportPen:event phase:AUREA_PEN_DOWN];
     [self buttonWentDown];
 }
@@ -356,7 +363,7 @@ static BOOL is_pen_event(NSEvent* event) {
     if (!self.windowHandle) return;
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
-    ng_invoke_mouse_button(self.windowHandle, 0, 0, ng_macos_modifiers(event), p.x, h - p.y, 1);
+    ng_invoke_mouse_button(self.windowHandle, 0, 0, ng_macos_mouse_modifiers(event), p.x, h - p.y, 1);
     [self reportPen:event phase:AUREA_PEN_UP];
     [self buttonWentUp];
 }
@@ -365,7 +372,7 @@ static BOOL is_pen_event(NSEvent* event) {
     if (!self.windowHandle) return;
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
-    ng_invoke_mouse_button(self.windowHandle, 1, 1, ng_macos_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
+    ng_invoke_mouse_button(self.windowHandle, 1, 1, ng_macos_mouse_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
     [self buttonWentDown];
 }
 
@@ -373,7 +380,7 @@ static BOOL is_pen_event(NSEvent* event) {
     if (!self.windowHandle) return;
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
-    ng_invoke_mouse_button(self.windowHandle, 1, 0, ng_macos_modifiers(event), p.x, h - p.y, 1);
+    ng_invoke_mouse_button(self.windowHandle, 1, 0, ng_macos_mouse_modifiers(event), p.x, h - p.y, 1);
     [self buttonWentUp];
 }
 
@@ -382,7 +389,7 @@ static BOOL is_pen_event(NSEvent* event) {
     int button = (int)[event buttonNumber];
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
-    ng_invoke_mouse_button(self.windowHandle, button, 1, ng_macos_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
+    ng_invoke_mouse_button(self.windowHandle, button, 1, ng_macos_mouse_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
     [self buttonWentDown];
 }
 
@@ -391,7 +398,7 @@ static BOOL is_pen_event(NSEvent* event) {
     int button = (int)[event buttonNumber];
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
-    ng_invoke_mouse_button(self.windowHandle, button, 0, ng_macos_modifiers(event), p.x, h - p.y, 1);
+    ng_invoke_mouse_button(self.windowHandle, button, 0, ng_macos_mouse_modifiers(event), p.x, h - p.y, 1);
     [self buttonWentUp];
 }
 
@@ -569,6 +576,13 @@ static void ng_macos_forget_held_shortcuts(void* window);
     if (self.lifecycleCallbackEnabled && self.windowHandle) {
         ng_invoke_lifecycle_callback(self.windowHandle, 6);
         ng_invoke_lifecycle_callback(self.windowHandle, 9);
+    }
+}
+
+- (void)windowDidChangeOcclusionState:(NSNotification*)notification {
+    if (self.lifecycleCallbackEnabled && self.windowHandle) {
+        ng_invoke_lifecycle_callback(self.windowHandle,
+                                     13 + ng_macos_window_occlusion(self.windowHandle));
     }
 }
 
@@ -984,6 +998,58 @@ void ng_macos_window_get_position(NGHandle window, int* x, int* y) {
     
     *x = (int)frame.origin.x;
     *y = (int)(screenFrame.size.height - (frame.origin.y + frame.size.height));
+}
+
+int ng_macos_window_refresh_rate(NGHandle window) {
+    if (!window) return 0;
+    NSScreen* screen = [(__bridge NSWindow*)window screen] ?: [NSScreen mainScreen];
+    if (@available(macOS 12.0, *)) return (int)[screen maximumFramesPerSecond] * 1000;
+    return 0;
+}
+
+int ng_macos_window_request_attention(NGHandle window, int critical) {
+    if (!window) return NG_ERROR_INVALID_HANDLE;
+    /* the dock bounces once, or until the app is active when critical; nothing when it is */
+    [NSApp requestUserAttention:critical ? NSCriticalRequest : NSInformationalRequest];
+    return NG_SUCCESS;
+}
+
+int ng_macos_window_get_placement(NGHandle window, int* rect) {
+    if (!window || !rect) return NG_ERROR_INVALID_HANDLE;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    NSRect frame = [nsWindow frame];
+    CGFloat top = [[[NSScreen screens] objectAtIndex:0] frame].size.height;
+    rect[0] = (int)frame.origin.x;
+    rect[1] = (int)(top - (frame.origin.y + frame.size.height));
+    rect[2] = (int)frame.size.width;
+    rect[3] = (int)frame.size.height;
+    return ([nsWindow isZoomed] ? 1 : 0) | ([nsWindow isMiniaturized] ? 2 : 0);
+}
+
+int ng_macos_window_set_placement(NGHandle window, const int* rect, int maximized) {
+    if (!window || !rect) return NG_ERROR_INVALID_HANDLE;
+    if (rect[2] <= 0 || rect[3] <= 0) return NG_ERROR_INVALID_PARAMETER;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    CGFloat top = [[[NSScreen screens] objectAtIndex:0] frame].size.height;
+    NSRect frame = NSMakeRect(rect[0], top - rect[1] - rect[3], rect[2], rect[3]);
+    NSScreen* on = nil;
+    for (NSScreen* screen in [NSScreen screens]) {
+        if (NSIntersectsRect([screen visibleFrame], frame)) {
+            on = screen;
+            break;
+        }
+    }
+    if (!on) {
+        /* off every screen now, as after unplugging one: centre it on the main screen */
+        NSRect visible = [[NSScreen mainScreen] visibleFrame];
+        frame.origin.x = NSMidX(visible) - frame.size.width / 2;
+        frame.origin.y = NSMidY(visible) - frame.size.height / 2;
+        on = [NSScreen mainScreen];
+    }
+    if ([nsWindow isZoomed]) [nsWindow zoom:nil];
+    [nsWindow setFrame:[nsWindow constrainFrameRect:frame toScreen:on] display:YES];
+    if (maximized && ![nsWindow isZoomed]) [nsWindow zoom:nil];
+    return NG_SUCCESS;
 }
 
 void ng_macos_window_request_close(NGHandle window) {
@@ -1429,6 +1495,13 @@ void ng_macos_window_hide(NGHandle window) {
     if (!window) return;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
     [nsWindow orderOut:nil];
+}
+
+/* AppKit says whether any of the window shows, not how much. */
+int ng_macos_window_occlusion(NGHandle window) {
+    if (!window) return 2;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    return ([nsWindow occlusionState] & NSWindowOcclusionStateVisible) ? 0 : 2;
 }
 
 int ng_macos_window_is_visible(NGHandle window) {

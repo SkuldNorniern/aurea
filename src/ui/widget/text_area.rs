@@ -17,7 +17,7 @@ use crate::ui::component::editable::{SystemClipboard, Typing, apply};
 use crate::ui::component::{EditableText, FocusRing, TextOutcome};
 use crate::ui::frame::{Response, Ui, fill};
 use crate::ui::paint::{Component, Surface};
-use crate::ui::state::{BLINK_FOR, Interaction, Key, Sense, Typed, WidgetId};
+use crate::ui::state::{Interaction, Key, Sense, Typed, WidgetId, caret_on};
 use crate::ui::text_edit::{Rules, TextEdit};
 use crate::window::{KeyCode, Modifiers};
 
@@ -632,8 +632,7 @@ fn draw<Id: WidgetId>(
             caret.height,
         );
         ui.state.ime_area = Some(bar);
-        let since = ui.state.blink_from.elapsed();
-        let on = !ui.theme.caret_blink || since >= BLINK_FOR || since.as_secs_f32().fract() < 0.6;
+        let on = caret_on(ui.theme.caret_blink, ui.state.blink_from.elapsed());
         if on && (!edit.has_selection() || !composition.is_empty()) {
             ui.fill(bar, ui.theme.palette.accent)?;
         }

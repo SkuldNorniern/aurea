@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "aurea-smoke"
-include(":app")
+include(":app", ":aurea")

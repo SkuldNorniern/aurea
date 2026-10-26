@@ -79,7 +79,7 @@ fn resolve_images<B: Gpu2dBackend>(
                 let smooth = draw.sampling == Sampling::Smooth;
                 cache.resolve(&image.data, (iw, ih), smooth, backend, frame)?
             }
-            ImageSource::Texture(texture) => backend.bind_texture(*texture)?,
+            ImageSource::Texture(texture) => cache.bind_texture(*texture, backend)?,
         };
         let (iwf, ihf) = (iw as f32, ih as f32);
         let nearest = if draw.sampling == Sampling::Nearest {

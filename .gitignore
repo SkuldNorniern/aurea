@@ -32,6 +32,7 @@ mobile/android/.gradle/
 mobile/android/build/
 mobile/android/local.properties
 mobile/android/app/build/
+mobile/android/aurea/build/
 
 # Xcode output and per-user state
 mobile/ios/build/

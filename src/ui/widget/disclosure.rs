@@ -131,7 +131,7 @@ mod tests {
     use super::*;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::UiState;
-    use crate::window::{Modifiers, MouseButton, WindowEvent};
+    use crate::window::{Modifiers, MouseButton, PointerKind, WindowEvent};
 
     #[test]
     fn a_click_opens_it_and_the_section_follows() {
@@ -151,6 +151,7 @@ mod tests {
                     y: 15.0,
                     click_count: 1,
                     time: Default::default(),
+                    pointer: PointerKind::Mouse,
                 });
             }
             let mut ctx = raster.begin_frame().expect("frame");

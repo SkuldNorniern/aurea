@@ -385,7 +385,7 @@ mod tests {
     use super::*;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::state::UiState;
-    use crate::window::{Modifiers, MouseButton, MouseButtons, WindowEvent};
+    use crate::window::{Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
 
     const RECT: Rect = Rect::new(0.0, 0.0, 240.0, 220.0);
 
@@ -444,6 +444,7 @@ mod tests {
                 buttons: MouseButtons::default(),
                 modifiers: Modifiers::default(),
                 time: Default::default(),
+                pointer: PointerKind::Mouse,
             });
             self.ui.handle(&WindowEvent::MouseButton {
                 button: MouseButton::Left,
@@ -453,6 +454,7 @@ mod tests {
                 y: f64::from(at.y),
                 click_count: 1,
                 time: Default::default(),
+                pointer: PointerKind::Mouse,
             });
         }
     }

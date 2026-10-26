@@ -64,6 +64,8 @@ pub struct TextField<'v> {
     style: Option<FieldStyle>,
     enabled: bool,
     commit_on_blur: bool,
+    pass_vertical_keys: bool,
+    select_all_on_focus: bool,
 }
 
 impl<'v> TextField<'v> {
@@ -77,6 +79,8 @@ impl<'v> TextField<'v> {
             style: None,
             enabled: true,
             commit_on_blur: false,
+            pass_vertical_keys: false,
+            select_all_on_focus: false,
         }
     }
 
@@ -122,6 +126,18 @@ impl<'v> TextField<'v> {
         self
     }
 
+    /// Leaves Up, Down, PageUp and PageDown to the app, read through `Ui::keys`.
+    pub fn pass_vertical_keys(mut self, pass: bool) -> Self {
+        self.pass_vertical_keys = pass;
+        self
+    }
+
+    /// Selects all text when the field gains focus.
+    pub fn select_all_on_focus(mut self, select: bool) -> Self {
+        self.select_all_on_focus = select;
+        self
+    }
+
     /// Draws it in `rect` and reports the input.
     pub fn show<Id: WidgetId>(
         self,
@@ -162,6 +178,8 @@ impl<Id: WidgetId> Widget<Id> for TextField<'_> {
             .password(self.password)
             .rules(self.rules)
             .commit_on_blur(self.commit_on_blur)
+            .pass_vertical_keys(self.pass_vertical_keys)
+            .select_all_on_focus(self.select_all_on_focus)
             .show(ui, (id, 0), inner, input)?;
         #[cfg(feature = "accessibility")]
         {
@@ -194,5 +212,119 @@ impl<Id: WidgetId> Widget<Id> for TextField<'_> {
         response.committed = outcome.committed;
         response.focused = input.focused && !outcome.cancelled;
         Ok(response)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::render::{CpuRasterizer, Renderer};
+    use crate::ui::UiState;
+    use crate::ui::state::Key;
+    use crate::window::{KeyCode, Modifiers, WindowEvent};
+
+    struct Rig {
+        state: UiState<u8>,
+        raster: CpuRasterizer,
+        theme: Theme,
+    }
+
+    impl Rig {
+        fn new() -> Self {
+            Self {
+                state: UiState::new(),
+                raster: CpuRasterizer::new(240, 160),
+                theme: Theme::dark(),
+            }
+        }
+
+        fn frame<R>(&mut self, draw: impl FnOnce(&mut Ui<'_, u8>) -> R) -> R {
+            let mut ctx = self.raster.begin_frame().expect("frame");
+            let out = draw(&mut self.state.frame(&mut *ctx, &self.theme));
+            drop(ctx);
+            self.raster.end_frame().expect("end");
+            out
+        }
+
+        fn key(&mut self, key: KeyCode) {
+            self.state.handle(&WindowEvent::KeyInput {
+                key,
+                pressed: true,
+                modifiers: Modifiers::default(),
+            });
+        }
+    }
+
+    fn field(
+        ui: &mut Ui<'_, u8>,
+        text: &mut String,
+        pass: bool,
+        select: bool,
+        seen: &mut Vec<KeyCode>,
+    ) -> Response {
+        seen.extend(ui.keys().map(|(key, _)| key));
+        TextField::new(text)
+            .pass_vertical_keys(pass)
+            .select_all_on_focus(select)
+            .show(ui, 1, Rect::new(0.0, 0.0, 160.0, 40.0))
+            .expect("field")
+    }
+
+    #[test]
+    fn pass_vertical_keys_leaves_them_to_the_app() {
+        let mut rig = Rig::new();
+        let mut text = "abc".to_string();
+        let mut seen = Vec::new();
+        rig.state.focus(1, 0);
+        rig.frame(|ui| field(ui, &mut text, true, false, &mut seen));
+        rig.key(KeyCode::Home);
+        rig.frame(|ui| field(ui, &mut text, true, false, &mut seen));
+        rig.key(KeyCode::Right);
+        rig.frame(|ui| field(ui, &mut text, true, false, &mut seen));
+        assert_eq!(rig.state.edit.caret(), 1);
+        for key in [
+            KeyCode::Up,
+            KeyCode::Down,
+            KeyCode::PageUp,
+            KeyCode::PageDown,
+        ] {
+            seen.clear();
+            rig.key(key);
+            rig.frame(|ui| field(ui, &mut text, true, false, &mut seen));
+            assert_eq!(seen, [key]);
+            assert_eq!(rig.state.edit.caret(), 1, "{key:?} moved the caret");
+        }
+    }
+
+    #[test]
+    fn down_moves_the_caret_without_pass_vertical_keys() {
+        let mut rig = Rig::new();
+        let mut text = "abc".to_string();
+        let mut seen = Vec::new();
+        rig.state.focus(1, 0);
+        rig.frame(|ui| field(ui, &mut text, false, false, &mut seen));
+        rig.key(KeyCode::Home);
+        rig.frame(|ui| field(ui, &mut text, false, false, &mut seen));
+        rig.key(KeyCode::Down);
+        rig.frame(|ui| field(ui, &mut text, false, false, &mut seen));
+        assert_eq!(rig.state.edit.caret(), 3);
+    }
+
+    #[test]
+    fn select_all_on_focus_selects_everything_when_editing_starts() {
+        let mut rig = Rig::new();
+        let mut text = "hello".to_string();
+        let mut seen = Vec::new();
+        rig.frame(|ui| field(ui, &mut text, false, true, &mut seen));
+        rig.state.give_focus(Some(Key::new(1, 0)));
+        let response = rig.frame(|ui| field(ui, &mut text, false, true, &mut seen));
+        assert!(response.editing_started);
+        assert_eq!(rig.state.edit.selected(&text), "hello");
+        rig.key(KeyCode::Left);
+        rig.frame(|ui| field(ui, &mut text, false, true, &mut seen));
+        assert!(
+            !rig.state.edit.has_selection(),
+            "selection survived later keys"
+        );
     }
 }

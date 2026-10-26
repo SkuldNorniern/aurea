@@ -212,6 +212,9 @@ pub struct Dash {
     count: u8,
     /// How far into the pattern the stroke starts.
     pub offset: f32,
+    /// Whether each subpath starts its pattern at `offset + start.x + start.y` rather than at
+    /// `offset`. See [`Dash::anchored`].
+    pub anchored: bool,
 }
 
 impl Dash {
@@ -224,6 +227,7 @@ impl Dash {
             lengths: [0.0; Self::MAX],
             count: 0,
             offset,
+            anchored: false,
         };
         let take = lengths.len().min(Self::MAX);
         let doubled = if take % 2 == 1 { take * 2 } else { take }.min(Self::MAX);
@@ -245,6 +249,17 @@ impl Dash {
             *length *= factor;
         }
         self.offset *= factor;
+        self
+    }
+
+    /// Starts each subpath's pattern at `offset + start.x + start.y`, where `start` is the
+    /// subpath's first point in stroke units after transforms, instead of at `offset`.
+    ///
+    /// Along an edge going right or down the dashes then fall on a fixed grid of `x + y`, so
+    /// separate subpaths that share it stay in phase (marching ants on a selection outline).
+    /// Edges going left or up won't line up.
+    pub fn anchored(mut self) -> Self {
+        self.anchored = true;
         self
     }
 }

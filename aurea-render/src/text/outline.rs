@@ -5,6 +5,7 @@ use skrifa::outline::{DrawSettings, OutlinePen};
 use skrifa::{FontRef, GlyphId, MetadataProvider};
 
 use crate::cpu::clip::ClipBox;
+use crate::cpu::raster::band::Band;
 use crate::cpu::raster::fill::{PathScratch, fill_path};
 use crate::geometry::{Path, PathCommand, Point};
 use crate::numeric::{f32_to_i32_clamped, f32_to_u32_clamped};
@@ -102,7 +103,7 @@ pub(crate) fn outline_coverage(
         &path,
         Color::rgb(255, 255, 255),
         BlendMode::Normal,
-        &mut buf,
+        &mut Band::whole(&mut buf),
         width,
         ClipBox::surface(width, height),
         &mut PathScratch::default(),

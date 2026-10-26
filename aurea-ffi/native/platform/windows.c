@@ -20,6 +20,8 @@ static BOOL g_in_frame = FALSE;
 static LONGLONG g_qpc_freq = 0;
 static LONGLONG g_frame_interval = 0;
 static LONGLONG g_next_frame = 0;
+static HANDLE g_memory_notification = NULL;
+static BOOL g_memory_low = FALSE;
 
 #define AUREA_MESSAGE_BATCH 64
 #define AUREA_MESSAGE_BUDGET_US 2000
@@ -137,6 +139,21 @@ void ng_windows_modal_tick(void) {
     }
 }
 
+/* Fires only on the not-low to low edge. While memory stays low the query
+ * keeps returning TRUE, so every later check returns FALSE and nothing repeats.
+ * The state re-arms when the query reports not-low again. */
+static BOOL ng_windows_memory_edge(BOOL prev_low, BOOL now_low) {
+    return now_low && !prev_low;
+}
+
+static void ng_windows_check_memory(void) {
+    if (!g_memory_notification) return;
+    BOOL low = FALSE;
+    if (!QueryMemoryResourceNotification(g_memory_notification, &low)) return;
+    if (ng_windows_memory_edge(g_memory_low, low)) ng_windows_send_memory_warning();
+    g_memory_low = low;
+}
+
 static void ng_windows_loop_init(void) {
     if (g_frame_event) return;
     LARGE_INTEGER freq;
@@ -152,10 +169,16 @@ static void ng_windows_loop_init(void) {
     TimerExFunc timer_ex = (TimerExFunc)ng_windows_api("kernel32.dll", "CreateWaitableTimerExW");
     g_frame_timer = timer_ex ? timer_ex(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS) : NULL;
     if (!g_frame_timer) g_frame_timer = CreateWaitableTimerW(NULL, FALSE, NULL);
+    g_memory_notification = CreateMemoryResourceNotification(LowMemoryResourceNotification);
+    g_memory_low = FALSE;
     SetEvent(g_frame_event);
 }
 
 static void ng_windows_loop_cleanup(void) {
+    if (g_memory_notification) {
+        CloseHandle(g_memory_notification);
+        g_memory_notification = NULL;
+    }
     if (g_frame_timer) {
         CancelWaitableTimer(g_frame_timer);
         CloseHandle(g_frame_timer);
@@ -189,6 +212,7 @@ static BOOL ng_windows_turn(DWORD timeout_ms) {
     }
 
     if (!ng_windows_drain_messages()) return FALSE;
+    ng_windows_check_memory();
 
     if (!wanted) {
         DWORD due = WaitForMultipleObjects(count, handles, FALSE, 0);

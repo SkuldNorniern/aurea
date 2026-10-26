@@ -19,6 +19,7 @@ int ng_macos_is_wrapping_label(NSView* view);
 
 int ng_macos_reduced_motion(void);
 int ng_macos_prefers_dark(void);
+void ng_macos_beep(void);
 void ng_macos_watch_appearance(void);
 int ng_macos_locales(char* buf, int cap);
 

@@ -64,6 +64,10 @@ int ng_platform_wheel_lines(void) {
     return (g_ops && g_ops->wheel_lines) ? g_ops->wheel_lines() : 3;
 }
 
+void ng_platform_beep(void) {
+    DISPATCH_VOID(beep);
+}
+
 int ng_platform_prefers_dark(void) {
     ENTER();
     return (g_ops && g_ops->prefers_dark) ? g_ops->prefers_dark() : -1;
@@ -212,6 +216,26 @@ int ng_platform_tray_notify(NGHandle tray, const char* title, const char* body) 
 
 int ng_platform_window_is_visible(NGHandle w) {
     DISPATCH_INIT(int, window_is_visible, w);
+}
+
+int ng_platform_window_occlusion(NGHandle w) {
+    DISPATCH_INIT(int, window_occlusion, w);
+}
+
+int ng_platform_window_refresh_rate(NGHandle w) {
+    DISPATCH_INIT(int, window_refresh_rate, w);
+}
+
+int ng_platform_window_request_attention(NGHandle w, int critical) {
+    DISPATCH_INIT_DEFAULT(int, NG_ERROR_UNSUPPORTED, window_request_attention, w, critical);
+}
+
+int ng_platform_window_get_placement(NGHandle w, int* rect) {
+    DISPATCH_INIT_DEFAULT(int, NG_ERROR_UNSUPPORTED, window_get_placement, w, rect);
+}
+
+int ng_platform_window_set_placement(NGHandle w, const int* rect, int maximized) {
+    DISPATCH_INIT_DEFAULT(int, NG_ERROR_UNSUPPORTED, window_set_placement, w, rect, maximized);
 }
 
 void ng_platform_window_set_position(NGHandle w, int x, int y) {

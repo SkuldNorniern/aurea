@@ -21,17 +21,20 @@ use std::time::Instant;
 #[cfg(feature = "zengpu")]
 use aurea_ffi::ng_ios_gpu_view;
 use aurea_ffi::{
-    NGIosHost, ng_ios_drop_gpu_view, ng_ios_keyboard_height, ng_ios_run_host, ng_ios_set_text_area,
-    ng_ios_show_keyboard, ng_ios_wake,
+    NGIosHost, ng_ios_drop_gpu_view, ng_ios_keyboard_height, ng_ios_refresh_rate, ng_ios_run_host,
+    ng_ios_set_high_frame_rate, ng_ios_set_text_area, ng_ios_show_keyboard, ng_ios_wake,
 };
 
 #[cfg(not(feature = "zengpu"))]
 use crate::AureaError;
 use crate::dispatch;
 use crate::ffi::callbacks::event_time;
+#[cfg(feature = "zengpu")]
+use crate::gpu_ready;
 use crate::render::{CanvasId, CpuRasterizer, Renderer, SurfaceInfo, register_host_canvas};
 use crate::touch::{Phase, Touches};
 use crate::ui::{Theme, Ui, UiState};
+use crate::wake::wake_at;
 use crate::{
     AureaResult, KeyCode, Modifiers, PenPhase, PenSample, PenTapAction, PenTool, Point, Rect,
     WindowEvent,
@@ -131,10 +134,8 @@ thread_local! {
     /// them while it draws.
     static POINTER_PENCIL: Cell<bool> = const { Cell::new(false) };
     static SCREEN: Cell<(f32, [f32; 4])> = const { Cell::new((1.0, [0.0; 4])) };
-    static LISTENER: RefCell<Option<Listener>> = const { RefCell::new(None) };
+    static LISTENERS: RefCell<Vec<Listener>> = const { RefCell::new(Vec::new()) };
     static NEXT_THEME: RefCell<Option<Theme>> = const { RefCell::new(None) };
-    #[cfg(feature = "zengpu")]
-    static GPU: RefCell<Option<Arc<ZenGpuContext>>> = const { RefCell::new(None) };
     static HOST: RefCell<Host> = RefCell::new(Host {
         app: None,
         theme: Theme::dark(),
@@ -179,15 +180,22 @@ pub fn run(
 /// hears the app's lifecycle: focus, [`WindowEvent::Minimized`] on going to the background (save
 /// there; iOS may stop the app after), and [`WindowEvent::MemoryWarning`]. The next frame is drawn
 /// after each.
+/// Every listener added hears every event, in the order they were added.
 pub fn on_event(listener: impl FnMut(&WindowEvent) + 'static) {
-    LISTENER.set(Some(Box::new(listener)));
+    LISTENERS.with_borrow_mut(|all| all.push(Box::new(listener)));
 }
 
 fn hear(events: &[WindowEvent]) {
-    LISTENER.with_borrow_mut(|listener| {
-        if let Some(listener) = listener {
-            events.iter().for_each(listener);
+    // taken out while they run, so one can add another; that one hears from the next event on.
+    let mut running = LISTENERS.take();
+    for event in events {
+        for listener in &mut running {
+            listener(event);
         }
+    }
+    LISTENERS.with_borrow_mut(|added| {
+        running.append(added);
+        *added = running;
     });
 }
 
@@ -234,7 +242,14 @@ pub fn use_gpu(on: bool) {
 /// renderers to share.
 #[cfg(feature = "zengpu")]
 pub fn gpu_context() -> Option<Arc<ZenGpuContext>> {
-    GPU.with_borrow(Clone::clone)
+    gpu_ready::current()
+}
+
+/// Calls `ready` with the host's GPU once it is up, or now if it is, for the app's own textures and
+/// renderers; it is not called while the host draws on the CPU.
+#[cfg(feature = "zengpu")]
+pub fn on_gpu_ready(ready: impl FnOnce(Arc<ZenGpuContext>) + 'static) {
+    gpu_ready::on_ready(ready);
 }
 
 /// A renderer on the host's GPU view, the safe area's size.
@@ -251,7 +266,7 @@ fn gpu_renderer(info: &SurfaceInfo) -> AureaResult<Box<dyn Renderer>> {
         info.height,
         info.scale_factor,
     )?;
-    GPU.set(Some(context));
+    gpu_ready::made(&context);
     log::info!("ios: drawing with the gpu");
     Ok(Box::new(renderer))
 }
@@ -283,6 +298,21 @@ pub fn keyboard_height() -> f32 {
     // SAFETY: reads host state on the main thread, where the app draws.
     let covered = unsafe { ng_ios_keyboard_height() };
     (covered - safe_area()[3]).max(0.0)
+}
+
+/// The screen's top refresh rate in hertz: 120 on ProMotion screens, else 60.
+pub fn refresh_rate() -> f32 {
+    // SAFETY: reads UIKit state on the main thread, where the app draws.
+    unsafe { ng_ios_refresh_rate() }
+}
+
+/// Asks for frames at the screen's top rate while `high`, such as while a pencil stroke is live,
+/// and the system's own pacing again after, which saves power. iPhones also need
+/// `CADisableMinimumFrameDurationOnPhone` in the app's Info.plist to go past 60. Call on the main
+/// thread.
+pub fn set_high_frame_rate(high: bool) {
+    // SAFETY: on the main thread, as documented.
+    unsafe { ng_ios_set_high_frame_rate(c_int::from(high)) };
 }
 
 /// Switches the theme from the next frame.
@@ -533,10 +563,12 @@ unsafe extern "C" fn frame(
             *theme = next;
             return 1;
         }
-        i32::from(state.wants_frame())
+        let more = state.wants_frame();
+        if !more && let Some(at) = state.next_frame_at() {
+            wake_at(at, request_frame);
+        }
+        i32::from(more)
     });
-    // Native pickers and other after-frame work may reenter UIKit. Release the
-    // host, drawing context and app callback's borrows before running it.
     dispatch::drain();
     again
 }

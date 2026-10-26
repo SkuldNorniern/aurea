@@ -1411,4 +1411,30 @@ mod context_tests {
         assert_eq!(again.adapter_uuid(), uuid);
         assert!(ZenGpuContext::on_adapter([0xEE; 16]).is_err());
     }
+
+    #[test]
+    fn an_unchanged_offscreen_frame_is_not_submitted_again() {
+        let Ok(context) = ZenGpuContext::new() else {
+            return;
+        };
+        let mut gpu = ZenGpuRenderer::offscreen(Arc::new(context), 64, 48, 1.0).unwrap();
+        let frame = |gpu: &mut ZenGpuRenderer, x: f32| {
+            {
+                let mut ctx = gpu.begin_frame().unwrap();
+                ctx.clear(Color::rgb(20, 24, 30)).unwrap();
+                ctx.draw_rect(
+                    Rect::new(x, 4.0, 22.0, 9.0),
+                    &Paint::new().color(Color::rgb(200, 60, 40)),
+                )
+                .unwrap();
+            }
+            gpu.end_frame().unwrap()
+        };
+        assert_eq!(frame(&mut gpu, 3.0), FrameOutcome::Presented);
+        let first = gpu.frame_output().expect("first pixels").words().to_vec();
+        assert_eq!(frame(&mut gpu, 3.0), FrameOutcome::Unchanged);
+        assert_eq!(gpu.frame_output().expect("kept pixels").words(), &first[..]);
+        assert_eq!(frame(&mut gpu, 5.0), FrameOutcome::Presented);
+        assert_ne!(gpu.frame_output().expect("new pixels").words(), &first[..]);
+    }
 }

@@ -8,8 +8,15 @@ use crate::{AureaError, AureaResult};
 use std::num::NonZeroIsize;
 #[cfg(target_os = "linux")]
 use std::num::NonZeroU32;
-#[cfg(any(target_os = "macos", target_os = "ios", target_os = "linux"))]
+#[cfg(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "linux",
+    target_os = "android"
+))]
 use std::ptr::NonNull;
+#[cfg(target_os = "android")]
+use zen_window_handle::{AndroidNdkWindowHandle, DisplayHandle, WindowHandle};
 #[cfg(target_os = "macos")]
 use zen_window_handle::{AppKitWindowHandle, DisplayHandle, WindowHandle};
 #[cfg(target_os = "ios")]
@@ -78,11 +85,21 @@ pub fn window_handles(native: &NativeWindowHandle) -> AureaResult<WindowHandles>
             }
         }
     }
+    #[cfg(target_os = "android")]
+    {
+        let NativeWindowHandle::Android { native_window } = native;
+        let window = NonNull::new(*native_window).ok_or(AureaError::ElementOperationFailed)?;
+        Ok(WindowHandles::from_raw(
+            WindowHandle::AndroidNdk(AndroidNdkWindowHandle::new(window)),
+            DisplayHandle::Android,
+        ))
+    }
     #[cfg(not(any(
         target_os = "macos",
         target_os = "ios",
         target_os = "windows",
-        target_os = "linux"
+        target_os = "linux",
+        target_os = "android"
     )))]
     {
         let _ = native;

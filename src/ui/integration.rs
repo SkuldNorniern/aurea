@@ -4,8 +4,10 @@ use super::{
     Button, Response, ScrollArea, ScrollStyle, Slider, Stepper, TextArea, TextField, Theme, Ui,
     UiState,
 };
-use crate::render::{Color, CpuRasterizer, Rect, Renderer};
-use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, WindowEvent};
+use crate::render::{Color, CpuRasterizer, Point, Rect, Renderer};
+use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
+use std::thread::sleep;
+use std::time::{Duration, Instant};
 
 struct Rig {
     state: UiState<u8>,
@@ -37,6 +39,7 @@ impl Rig {
             buttons: MouseButtons::default(),
             modifiers: Modifiers::default(),
             time: Default::default(),
+            pointer: PointerKind::Mouse,
         });
         self.state.handle(&WindowEvent::MouseWheel {
             delta_x: dx,
@@ -55,6 +58,7 @@ impl Rig {
                 click_count: 1,
                 modifiers: Modifiers::default(),
                 time: Default::default(),
+                pointer: PointerKind::Mouse,
             });
         }
     }
@@ -286,6 +290,7 @@ fn a_press_carries_every_modifier() {
         click_count: 1,
         modifiers: alt,
         time: Default::default(),
+        pointer: PointerKind::Mouse,
     });
     let press = rig.frame(|ui| {
         ui.interact(1, 0, area, super::Sense::Click, true);
@@ -326,6 +331,73 @@ fn a_field_that_leaves_the_frame_keeps_its_undo_and_commits_when_back() {
     });
     rig.frame(|ui| editor(ui, &mut text, false, true));
     assert_eq!(text, "", "the typing undoes");
+}
+
+/// An app's own editor: it takes text through `Ui::typed`, and the app's shortcuts keep working.
+#[test]
+fn a_typing_widget_gets_text_and_keeps_shortcuts() {
+    use super::{Sense, TypedInput};
+    let mut rig = Rig::new();
+    let area = Rect::new(0.0, 0.0, 100.0, 40.0);
+    rig.frame(|ui| ui.interact(1, 0, area, Sense::Typing, true));
+    rig.state.focus(1, 0);
+    rig.frame(|ui| ui.interact(1, 0, area, Sense::Typing, true));
+    assert!(!rig.state.text_focused(), "shortcuts stay with the app");
+    rig.key(KeyCode::Left);
+    rig.state.handle(&WindowEvent::ImePreedit {
+        text: "ㅎ".into(),
+        cursor: Some(1),
+    });
+    rig.state
+        .handle(&WindowEvent::TextInput { text: "한".into() });
+    let typed: Vec<String> = rig.frame(|ui| {
+        ui.interact(1, 0, area, Sense::Typing, true);
+        ui.typed()
+            .map(|t| match t {
+                TypedInput::Key(key, _) => format!("{key:?}"),
+                TypedInput::Text(text) => format!("text {text}"),
+                TypedInput::Preedit(text, _) => format!("preedit {text}"),
+            })
+            .collect()
+    });
+    assert_eq!(typed, ["Left", "preedit ㅎ", "text 한"]);
+}
+
+#[test]
+fn a_blinking_caret_asks_for_its_next_edge_not_every_frame() {
+    let mut rig = Rig::new();
+    let mut text = String::new();
+    rig.frame(|ui| editor(ui, &mut text, false, true));
+    rig.state.focus(1, 0);
+    // the focus ring eases in first, over real time.
+    for _ in 0..200 {
+        rig.frame(|ui| editor(ui, &mut text, false, true));
+        if !rig.state.wants_frame() {
+            break;
+        }
+        sleep(Duration::from_millis(10));
+    }
+    assert!(!rig.state.wants_frame(), "no frame until the caret changes");
+    let next = rig.state.next_frame_at().expect("a blink edge");
+    let wait = next.saturating_duration_since(Instant::now());
+    assert!(wait <= Duration::from_millis(600), "{wait:?}");
+    rig.state.clear_focus();
+    rig.frame(|ui| editor(ui, &mut text, false, true));
+    assert!(
+        rig.state.next_frame_at().is_none(),
+        "nothing blinks without focus"
+    );
+}
+
+#[test]
+fn a_tooltip_can_hang_off_a_point() {
+    let mut rig = Rig::new();
+    rig.frame(|ui| ui.tooltip_at(Point::new(40.0, 30.0), "unused variable"));
+    assert_eq!(rig.state.tip.text, "unused variable");
+    assert_eq!(
+        rig.state.tip.since.map(|(r, _)| r),
+        Some(Rect::new(40.0, 30.0, 0.0, 0.0))
+    );
 }
 
 #[test]

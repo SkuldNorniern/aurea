@@ -4,7 +4,9 @@ use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
 use aurea::elements::{Container, Orientation, Stack};
-use aurea::render::{Canvas, Hsv, RendererBackend, request_canvas_redraw};
+use aurea::render::{
+    Canvas, Hsv, RendererBackend, request_canvas_redraw, request_canvas_redraw_at,
+};
 use aurea::ui::{
     Align, Button, Checkbox, ColorPicker, ProgressBar, Segmented, Slider, TextField, Theme, Toggle,
     Ui, UiState,
@@ -180,6 +182,8 @@ fn main() -> AureaResult<()> {
         }
         if state.wants_frame() {
             request_canvas_redraw(id);
+        } else if let Some(at) = state.next_frame_at() {
+            request_canvas_redraw_at(id, at);
         }
         Ok(())
     })?;

@@ -52,6 +52,8 @@ pub struct MenuItem<'a> {
     pub separator: bool,
     /// Child rows opened with the pointer, Right, or Enter.
     pub children: &'a [MenuItem<'a>],
+    /// What the app calls this row, handed back by [`Ui::menu_picked_tag`].
+    pub tag: Option<u64>,
 }
 
 impl<'a> MenuItem<'a> {
@@ -64,6 +66,7 @@ impl<'a> MenuItem<'a> {
             checked: false,
             separator: false,
             children: &[],
+            tag: None,
         }
     }
 
@@ -76,6 +79,7 @@ impl<'a> MenuItem<'a> {
             checked: false,
             separator: true,
             children: &[],
+            tag: None,
         }
     }
 
@@ -97,6 +101,14 @@ impl<'a> MenuItem<'a> {
     #[must_use]
     pub const fn checked(mut self, checked: bool) -> Self {
         self.checked = checked;
+        self
+    }
+
+    /// Names the row for [`Ui::menu_picked_tag`], such as an action's number, so the app needs no
+    /// table from row index to action.
+    #[must_use]
+    pub const fn tag(mut self, tag: u64) -> Self {
+        self.tag = Some(tag);
         self
     }
 
@@ -136,6 +148,7 @@ struct Row {
     separator: bool,
     children: Vec<Row>,
     has_children: bool,
+    tag: Option<u64>,
     rect: Rect,
 }
 
@@ -149,6 +162,7 @@ impl Row {
         self.checked = item.checked;
         self.separator = item.separator;
         self.has_children = !item.children.is_empty();
+        self.tag = item.tag;
         self.children
             .resize_with(item.children.len(), Self::default);
         for (row, item) in self.children.iter_mut().zip(item.children) {
@@ -181,7 +195,7 @@ pub(crate) struct Popup<Id> {
     highlight: Option<usize>,
     scroll: f32,
     return_focus: Option<Key<Id>>,
-    picked: Option<(Key<Id>, Vec<usize>)>,
+    picked: Option<(Key<Id>, Vec<usize>, Option<u64>)>,
     parents: Vec<Parent>,
     nested: bool,
     reveal: bool,
@@ -352,16 +366,23 @@ impl<Id: WidgetId> Popup<Id> {
         if self
             .picked
             .as_ref()
-            .is_some_and(|(key, path)| *key == owner && path.len() == 1)
+            .is_some_and(|(key, path, _)| *key == owner && path.len() == 1)
         {
-            return self.picked.take().map(|(_, path)| path[0]);
+            return self.picked.take().map(|(_, path, _)| path[0]);
         }
         None
     }
 
     fn take_path(&mut self, owner: Key<Id>) -> Option<Vec<usize>> {
-        if self.picked.as_ref().is_some_and(|(key, _)| *key == owner) {
-            return self.picked.take().map(|(_, path)| path);
+        if self.picked.as_ref().is_some_and(|(key, ..)| *key == owner) {
+            return self.picked.take().map(|(_, path, _)| path);
+        }
+        None
+    }
+
+    fn take_tag(&mut self, owner: Key<Id>) -> Option<u64> {
+        if self.picked.as_ref().is_some_and(|(key, ..)| *key == owner) {
+            return self.picked.take().and_then(|(.., tag)| tag);
         }
         None
     }
@@ -431,7 +452,7 @@ impl<Id: WidgetId> Popup<Id> {
         }
         let mut path: Vec<_> = self.parents.iter().map(|parent| parent.selected).collect();
         path.push(row);
-        self.picked = Some((owner, path));
+        self.picked = Some((owner, path, self.rows[row].tag));
         self.close()
     }
 
@@ -950,6 +971,12 @@ impl<Id: WidgetId> Ui<'_, Id> {
         self.state.popup.take_path(Key::new(id, MENU_PART))
     }
 
+    /// The tag of the row picked from `id`'s context menu, at any depth, once; `None` too when the
+    /// picked row has no tag.
+    pub fn menu_picked_tag(&mut self, id: Id) -> Option<u64> {
+        self.state.popup.take_tag(Key::new(id, MENU_PART))
+    }
+
     /// Whether `id`'s context menu is open.
     pub fn menu_open(&self, id: Id) -> bool {
         self.state.popup.is_open_for(Key::new(id, MENU_PART))
@@ -972,7 +999,7 @@ mod tests {
     use super::*;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::{Button, TextField, Theme, UiState};
-    use crate::window::{Modifiers, MouseButton, WindowEvent};
+    use crate::window::{Modifiers, MouseButton, PointerKind, WindowEvent};
 
     fn menu_frame(state: &mut UiState<u8>, raster: &mut CpuRasterizer) {
         let theme = Theme::dark();
@@ -1012,6 +1039,7 @@ mod tests {
                 x: f64::from(at.x),
                 y: f64::from(at.y),
                 click_count: 1,
+                pointer: PointerKind::Mouse,
                 time: Default::default(),
             });
         }
@@ -1094,6 +1122,28 @@ mod tests {
         );
         assert_eq!(popup.take_path(owner), Some(vec![0, 1, 1]));
         assert_eq!(popup.take_path(owner), None);
+    }
+
+    #[test]
+    fn picked_rows_hand_back_their_tags() {
+        let leaves = [MenuItem::new("Leaf").tag(42)];
+        let items = [
+            MenuItem::new("Branch").submenu(&leaves),
+            MenuItem::new("Plain"),
+        ];
+        let owner = Key::new(9u8, MENU_PART);
+        let mut popup = Popup::default();
+        popup.open(owner, Rect::default(), 0.0, items, None);
+        popup.key(KeyCode::Home);
+        popup.key(KeyCode::Right);
+        popup.key(KeyCode::Enter);
+        assert_eq!(popup.take_tag(Key::new(8u8, MENU_PART)), None);
+        assert_eq!(popup.take_tag(owner), Some(42));
+        assert_eq!(popup.take_tag(owner), None);
+        popup.open(owner, Rect::default(), 0.0, items, None);
+        popup.key(KeyCode::End);
+        popup.key(KeyCode::Enter);
+        assert_eq!(popup.take_tag(owner), None, "an untagged row has none");
     }
 
     #[test]
@@ -1185,6 +1235,7 @@ mod tests {
             buttons: Default::default(),
             modifiers: Default::default(),
             time: Default::default(),
+            pointer: PointerKind::Mouse,
         });
         menu_frame(&mut state, &mut raster);
         assert_eq!(state.popup.parents.len(), 1);
@@ -1203,6 +1254,7 @@ mod tests {
                 y: f64::from(point.y),
                 click_count: 1,
                 time: Default::default(),
+                pointer: PointerKind::Mouse,
             });
             menu_frame(&mut state, &mut raster);
         }
@@ -1332,6 +1384,7 @@ mod tests {
                 y,
                 click_count: 1,
                 time: Default::default(),
+                pointer: PointerKind::Mouse,
             });
             self.frame(false, true);
         }

@@ -222,7 +222,7 @@ impl<Id: WidgetId> Bridge<Id> {
             Entry {
                 id: NodeId(id),
                 node: Node::new(match sense {
-                    Sense::Text => Role::TextInput,
+                    Sense::Text | Sense::Typing => Role::TextInput,
                     Sense::Click => Role::Button,
                     Sense::Adjust => Role::Slider,
                     Sense::Hover => Role::GenericContainer,

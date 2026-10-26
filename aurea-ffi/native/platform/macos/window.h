@@ -56,6 +56,11 @@ int ng_macos_window_set_shortcuts(NGHandle window, const unsigned int* keycodes,
 void ng_macos_window_show(NGHandle window);
 void ng_macos_window_hide(NGHandle window);
 int ng_macos_window_is_visible(NGHandle window);
+int ng_macos_window_occlusion(NGHandle window);
+int ng_macos_window_get_placement(NGHandle window, int* rect);
+int ng_macos_window_request_attention(NGHandle window, int critical);
+int ng_macos_window_refresh_rate(NGHandle window);
+int ng_macos_window_set_placement(NGHandle window, const int* rect, int maximized);
 NGHandle ng_macos_window_get_content_view(NGHandle window);
 int ng_macos_window_use_metal_layer(NGHandle window);
 int ng_macos_window_set_hide_on_close(NGHandle window, int hide);

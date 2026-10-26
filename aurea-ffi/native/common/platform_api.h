@@ -21,6 +21,8 @@ int ng_platform_reduced_motion(void);
 int ng_platform_prefers_dark(void);
 /* Lines a wheel notch scrolls, -1 for a page; 3 where the system has no setting. */
 int ng_platform_wheel_lines(void);
+/* The system's alert sound. */
+void ng_platform_beep(void);
 int ng_platform_locales(char* buf, int cap);
 void ng_platform_cleanup(void);
 int ng_platform_run(void);
@@ -65,6 +67,17 @@ int ng_platform_tray_set_tooltip(NGHandle tray, const char* tooltip);
 int ng_platform_tray_add_item(NGHandle tray, const char* title, unsigned int id);
 int ng_platform_tray_notify(NGHandle tray, const char* title, const char* body);
 int ng_platform_window_is_visible(NGHandle window);
+/* How much other windows cover `window`: 0 visible, 1 partly covered, 2 covered or minimized. */
+int ng_platform_window_occlusion(NGHandle window);
+/* The frame's rect while not maximized, x y width height into `rect`, in screen units; returns
+ * bit 0 maximized and bit 1 minimized, or a negative error. */
+int ng_platform_window_get_placement(NGHandle window, int* rect);
+/* Flashes the taskbar entry or bounces the dock icon until the window is in front. */
+int ng_platform_window_request_attention(NGHandle window, int critical);
+/* The refresh rate of the screen the window is on, in millihertz; 0 when unknown. */
+int ng_platform_window_refresh_rate(NGHandle window);
+/* Puts the frame at `rect` (kept on a screen), maximized after when asked. */
+int ng_platform_window_set_placement(NGHandle window, const int* rect, int maximized);
 void ng_platform_window_set_position(NGHandle window, int x, int y);
 void ng_platform_window_get_position(NGHandle window, int* x, int* y);
 int ng_platform_window_get_xcb_handle(NGHandle window, uint32_t* xcb_window, void** xcb_connection);

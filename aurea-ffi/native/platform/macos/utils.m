@@ -31,6 +31,10 @@ int ng_macos_reduced_motion(void) {
     return [[NSWorkspace sharedWorkspace] accessibilityDisplayShouldReduceMotion] ? 1 : 0;
 }
 
+void ng_macos_beep(void) {
+    NSBeep();
+}
+
 int ng_macos_prefers_dark(void) {
     if (@available(macOS 10.14, *)) {
         if (!NSApp) {

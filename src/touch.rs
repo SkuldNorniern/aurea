@@ -8,7 +8,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::{Modifiers, MouseButton, MouseButtons, Point, WindowEvent};
+use crate::{Modifiers, MouseButton, MouseButtons, Point, PointerKind, WindowEvent};
 
 /// How far a finger moves, in logical pixels, before it is the mouse rather than a possible
 /// gesture.
@@ -116,6 +116,9 @@ impl Touches {
             State::Done if matches!(phase, Phase::Up | Phase::Cancel) => self.rest(),
             state => state,
         };
+        if pencil {
+            as_pen(&mut out);
+        }
         out
     }
 
@@ -273,6 +276,18 @@ fn release(out: &mut Vec<WindowEvent>, at: Point) {
     out.push(WindowEvent::MouseExited);
 }
 
+/// Marks the mouse events in `events` as a pencil's, which [`mouse_move`] and [`button`] make as a
+/// finger's.
+fn as_pen(events: &mut [WindowEvent]) {
+    for event in events {
+        if let WindowEvent::MouseMove { pointer, .. } | WindowEvent::MouseButton { pointer, .. } =
+            event
+        {
+            *pointer = PointerKind::Pen;
+        }
+    }
+}
+
 fn mouse_move(at: Point, held: bool) -> WindowEvent {
     let buttons = if held {
         MouseButtons::from_bits(1 << MouseButton::Left.to_raw())
@@ -285,6 +300,7 @@ fn mouse_move(at: Point, held: bool) -> WindowEvent {
         buttons,
         modifiers: Modifiers::default(),
         time: Duration::default(),
+        pointer: PointerKind::Touch,
     }
 }
 
@@ -297,6 +313,7 @@ fn button(at: Point, pressed: bool) -> WindowEvent {
         y: f64::from(at.y),
         click_count: 1,
         time: Duration::default(),
+        pointer: PointerKind::Touch,
     }
 }
 
@@ -388,6 +405,29 @@ mod tests {
         t.touch(Phase::Down, 2, p(5.0, 5.0), true, now);
         let out = t.touch(Phase::Cancel, 2, p(5.0, 5.0), true, now);
         assert_eq!(kinds(&out), ["release", "exit"]);
+    }
+
+    #[test]
+    fn fingers_and_pencils_say_what_they_are() {
+        let now = Instant::now();
+        let pointers = |events: Vec<WindowEvent>| -> Vec<PointerKind> {
+            events
+                .iter()
+                .filter_map(|e| match e {
+                    WindowEvent::MouseMove { pointer, .. }
+                    | WindowEvent::MouseButton { pointer, .. } => Some(*pointer),
+                    _ => None,
+                })
+                .collect()
+        };
+        let mut pencil = Touches::new();
+        let down = pencil.touch(Phase::Down, 1, p(5.0, 5.0), true, now);
+        assert_eq!(pointers(down), [PointerKind::Pen; 2]);
+        let mut finger = Touches::new();
+        finger.touch(Phase::Down, 1, p(5.0, 5.0), false, now);
+        let up = finger.touch(Phase::Up, 1, p(5.0, 5.0), false, now);
+        assert!(!up.is_empty());
+        assert!(pointers(up).iter().all(|&k| k == PointerKind::Touch));
     }
 
     #[test]

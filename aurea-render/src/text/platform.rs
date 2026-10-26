@@ -6,11 +6,14 @@ use crate::text::glyph::{FaceData, FaceId, GlyphCoverage};
 use crate::text::layout::{LayoutOptions, TextLayout, layout_text};
 use crate::text::outline::glyph_outline;
 use crate::text::shape::{ShapedGlyph, ShapedText, shape_line};
-use crate::text::{LruCache, MASK_BYTES, SHAPED_BYTES};
+use crate::text::{
+    CacheKind, LAYOUT_BYTES, LruCache, MASK_BYTES, SHAPED_BYTES, layout_bytes, shared,
+};
 use crate::types::{
-    Font, FontFeature, FontStyle, FontVariation, FontWeight, GlyphMask, TextMetrics,
+    Font, FontFeature, FontMetrics, FontStyle, FontVariation, FontWeight, GlyphMask, TextMetrics,
 };
 use aurea_foundation::{AureaResult, lock};
+use std::hash::{Hash, Hasher};
 use std::mem::size_of;
 use std::sync::{Arc, Mutex};
 
@@ -149,23 +152,41 @@ struct RunKey {
     hash: u64,
 }
 
+fn hash_font(font: FontRef, hasher: &mut impl Hasher) {
+    for byte in font.family.as_bytes() {
+        byte.to_ascii_lowercase().hash(hasher);
+    }
+    font.size.to_bits().hash(hasher);
+    font.weight.hash(hasher);
+    font.style.hash(hasher);
+    font.features.hash(hasher);
+    font.variation_hash().hash(hasher);
+    font.vertical.hash(hasher);
+}
+
 impl RunKey {
     fn new(text: &str, font: FontRef, rtl: Option<bool>) -> Self {
         use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
 
         let mut hasher = DefaultHasher::new();
         text.hash(&mut hasher);
         rtl.hash(&mut hasher);
-        for byte in font.family.as_bytes() {
-            byte.to_ascii_lowercase().hash(&mut hasher);
+        hash_font(font, &mut hasher);
+        Self {
+            hash: hasher.finish(),
         }
-        font.size.to_bits().hash(&mut hasher);
-        font.weight.hash(&mut hasher);
-        font.style.hash(&mut hasher);
-        font.features.hash(&mut hasher);
-        font.variation_hash().hash(&mut hasher);
-        font.vertical.hash(&mut hasher);
+    }
+
+    fn layout(text: &str, font: FontRef, options: LayoutOptions) -> Self {
+        use std::collections::hash_map::DefaultHasher;
+
+        let mut hasher = DefaultHasher::new();
+        text.hash(&mut hasher);
+        options.max_width.map(f32::to_bits).hash(&mut hasher);
+        options.align.hash(&mut hasher);
+        options.line_height.to_bits().hash(&mut hasher);
+        options.word_break.hash(&mut hasher);
+        hash_font(font, &mut hasher);
         Self {
             hash: hasher.finish(),
         }
@@ -201,9 +222,15 @@ fn blit_max(
 /// Text renderer: owns a backend, shapes text, and lays shaped glyphs into masks.
 pub struct TextRenderer {
     rasterizer: Box<dyn PlatformTextRasterizer>,
-    shaped: Mutex<LruCache<RunKey, Arc<ShapedText>>>,
-    masks: Mutex<LruCache<RunKey, (GlyphMask, f32, f32)>>,
+    shaped: Arc<Mutex<LruCache<RunKey, Arc<ShapedText>>>>,
+    masks: Arc<Mutex<MaskCache>>,
+    layouts: Arc<Mutex<LruCache<RunKey, TextLayout>>>,
 }
+
+type MaskCache = LruCache<RunKey, (GlyphMask, f32, f32)>;
+
+/// Paragraphs kept in the layout cache before the oldest go.
+const LAYOUT_CAP: usize = 256;
 
 impl TextRenderer {
     /// Creates a renderer with the platform's rasterizer.
@@ -214,8 +241,12 @@ impl TextRenderer {
     pub(crate) fn with_rasterizer(rasterizer: Box<dyn PlatformTextRasterizer>) -> Self {
         Self {
             rasterizer,
-            shaped: Mutex::new(LruCache::with_budget(512, SHAPED_BYTES)),
-            masks: Mutex::new(LruCache::with_budget(512, MASK_BYTES)),
+            shaped: shared(CacheKind::Shape, LruCache::with_budget(512, SHAPED_BYTES)),
+            masks: shared(CacheKind::Mask, LruCache::with_budget(512, MASK_BYTES)),
+            layouts: shared(
+                CacheKind::Layout,
+                LruCache::with_budget(LAYOUT_CAP, LAYOUT_BYTES),
+            ),
         }
     }
 
@@ -308,6 +339,24 @@ impl TextRenderer {
         Ok((GlyphMask::new(dev_w, dev_h, coverage.into()), ascent, pad))
     }
 
+    /// `font`'s own metrics at its size; ascent and descent are the ones text measures with.
+    pub fn font_metrics(&self, font: FontRef) -> AureaResult<FontMetrics> {
+        let face = self.rasterizer.face(font)?;
+        let (ascent, descent) = self.rasterizer.face_metrics(face, font.size);
+        let metrics = self.rasterizer.face_data(face)?.metrics(font.size);
+        Ok(FontMetrics {
+            ascent,
+            descent,
+            ..metrics
+        })
+    }
+
+    /// Whether `font`'s own face draws `ch`; when not, text falls back to another face for it.
+    pub fn font_covers(&self, font: FontRef, ch: char) -> AureaResult<bool> {
+        let face = self.rasterizer.face(font)?;
+        Ok(self.rasterizer.face_data(face)?.has_char(ch))
+    }
+
     /// Measure text dimensions, from the same shaping drawing uses.
     pub fn measure_text(&self, text: &str, font: FontRef) -> AureaResult<TextMetrics> {
         let shaped = self.shape(text, font)?;
@@ -336,7 +385,14 @@ impl TextRenderer {
         font: FontRef,
         options: LayoutOptions,
     ) -> AureaResult<TextLayout> {
-        layout_text(text, font, options, self)
+        let key = RunKey::layout(text, font, options);
+        if let Some(hit) = lock(&self.layouts).get(&key).cloned() {
+            return Ok(hit);
+        }
+        let layout = layout_text(text, font, options, self)?;
+        let bytes = layout_bytes(&layout);
+        lock(&self.layouts).insert_sized(key, layout.clone(), bytes);
+        Ok(layout)
     }
 
     /// A shaped glyph's grayscale coverage at `size`, for apps that composite text themselves.
@@ -374,6 +430,7 @@ impl Default for TextRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::text::cache_stats;
 
     fn font(family: &str) -> Font {
         Font::new(family, 24.0)
@@ -387,6 +444,27 @@ mod tests {
         assert!(metrics.width > 0.0, "width should be positive");
         assert!(metrics.ascent > 0.0, "ascent should be positive");
         assert!(metrics.advance > 0.0, "advance should be positive");
+    }
+
+    #[test]
+    fn fonts_say_their_metrics_and_what_they_cover() {
+        let r = TextRenderer::new();
+        let f = font("");
+        let m = r.font_metrics((&f).into()).expect("metrics");
+        let measured = r.measure_text("Hello", (&f).into()).expect("measure");
+        assert_eq!((m.ascent, m.descent), (measured.ascent, measured.descent));
+        assert!(m.line_gap >= 0.0 && m.underline_thickness > 0.0 && m.underline_offset > 0.0);
+        assert!(r.font_covers((&f).into(), 'A').expect("covers"));
+        assert!(!r.font_covers((&f).into(), '\u{10FFFD}').expect("covers"));
+        #[cfg(windows)]
+        {
+            // 350 of 2048 units, which terminals add to every row.
+            let m = r
+                .font_metrics((&font("Consolas")).into())
+                .expect("consolas");
+            assert!((m.line_gap - 24.0 * 350.0 / 2048.0).abs() < 0.01, "{m:?}");
+            assert!(m.monospace);
+        }
     }
 
     #[test]
@@ -511,6 +589,20 @@ mod tests {
             .glyph_outline(shaped.glyphs[1].face, shaped.glyphs[1].id, 24.0)
             .expect("face");
         assert!(space.is_none());
+    }
+
+    #[test]
+    fn drawing_the_same_text_twice_raises_the_hits() {
+        let r = TextRenderer::new();
+        let f = font("");
+        let before = cache_stats();
+        r.render_text_subpixel("cached", (&f).into()).expect("mask");
+        let once = cache_stats();
+        r.render_text_subpixel("cached", (&f).into()).expect("mask");
+        let twice = cache_stats();
+        assert!(once.mask.misses > before.mask.misses);
+        assert!(twice.mask.hits > once.mask.hits, "{once:?} then {twice:?}");
+        assert!(twice.mask.entries >= 1);
     }
 
     #[test]

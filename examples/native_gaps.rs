@@ -11,7 +11,10 @@ use aurea::elements::{Orientation, Stack};
 use aurea::render::RendererBackend;
 #[cfg(feature = "zengpu")]
 use aurea::render::ZenGpuContext;
-use aurea::render::{Canvas, Color, Image, Rect, Sampling, Transform, request_canvas_redraw};
+use aurea::render::{
+    Canvas, Color, Image, Rect, Sampling, Transform, request_canvas_redraw,
+    request_canvas_redraw_at,
+};
 use aurea::ui::{Dock, DockSide, DockTree, DockView, Dropdown, DropdownStyle, Theme, Ui, UiState};
 use aurea::{
     AureaResult, Container, CursorIcon, MenuShortcut, ShortcutKey, Window, WindowEvent,
@@ -192,6 +195,8 @@ fn main() -> AureaResult<()> {
         }
         if ui.wants_frame() {
             request_canvas_redraw(id);
+        } else if let Some(at) = ui.next_frame_at() {
+            request_canvas_redraw_at(id, at);
         }
         Ok(())
     })?;

@@ -5,6 +5,8 @@ use std::env;
 use std::path::{self, Path, PathBuf};
 use std::process::Command;
 
+#[cfg(target_os = "android")]
+use crate::android;
 #[cfg(target_os = "ios")]
 use crate::ios;
 use crate::{AureaError, AureaResult, Platform};
@@ -85,6 +87,65 @@ pub fn reveal_path(path: &Path) -> AureaResult<()> {
         let _ = path;
         unsupported("reveal_path")
     }
+}
+
+/// Opens `url` in the app that handles it: a web page in the browser, a `mailto:` link in the mail
+/// app. Only `http`, `https` and `mailto` URLs are opened, so a link from a document or a terminal
+/// cannot start a program through a scheme of its own.
+///
+/// # Errors
+///
+/// [`AureaError::InvalidUrl`] for any other scheme, or a URL with spaces or control characters,
+/// and [`AureaError::ElementOperationFailed`] when nothing opens it.
+pub fn open_url(url: &str) -> AureaResult<()> {
+    if !openable_url(url) {
+        return Err(AureaError::InvalidUrl);
+    }
+    #[cfg(target_os = "ios")]
+    {
+        return ios::open_url(url);
+    }
+    #[cfg(target_os = "android")]
+    {
+        return if android::open_url(url) {
+            Ok(())
+        } else {
+            Err(AureaError::ElementOperationFailed)
+        };
+    }
+    #[allow(unreachable_code)]
+    if cfg!(windows) {
+        // the URL protocol handler, not the shell: no command line to break out of.
+        spawn(
+            Command::new("rundll32.exe")
+                .arg("url.dll,FileProtocolHandler")
+                .arg(url),
+        )
+    } else if cfg!(target_os = "macos") {
+        spawn(Command::new("open").arg(url))
+    } else if cfg!(unix) {
+        spawn(Command::new("xdg-open").arg(url))
+    } else {
+        unsupported("open_url")
+    }
+}
+
+/// Whether `url` is one [`open_url`] opens: `http`, `https` or `mailto`, then something, with no
+/// spaces or control characters (which the URL spec has percent-escaped).
+fn openable_url(url: &str) -> bool {
+    let Some((scheme, rest)) = url.split_once(':') else {
+        return false;
+    };
+    let web = ["http", "https"]
+        .iter()
+        .any(|s| scheme.eq_ignore_ascii_case(s));
+    let allowed = if web {
+        rest.strip_prefix("//")
+            .is_some_and(|host| !host.is_empty() && !host.starts_with('/'))
+    } else {
+        scheme.eq_ignore_ascii_case("mailto") && !rest.is_empty()
+    };
+    allowed && !url.chars().any(|c| c.is_whitespace() || c.is_control())
 }
 
 /// The folder `app` keeps its settings in, for the current user: `%APPDATA%\app` on Windows,
@@ -200,6 +261,32 @@ fn unsupported(operation: &'static str) -> AureaResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_web_and_mail_urls_open() {
+        for url in [
+            "https://example.com/a?b=c#d",
+            "HTTP://example.com",
+            "mailto:me@example.com",
+        ] {
+            assert!(openable_url(url), "{url}");
+        }
+        for url in [
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "ms-settings:",
+            r"C:\Windows\notepad.exe",
+            "https://",
+            "https:///path",
+            "https:example.com",
+            "https://example.com/a b",
+            "https://example.com/\n--flag",
+            "mailto:",
+            "-https://x",
+        ] {
+            assert!(!openable_url(url), "{url}");
+        }
+    }
 
     #[test]
     fn launched_paths_are_absolute() {

@@ -44,6 +44,11 @@ static GSettings* ng_linux_interface_settings(void) {
     return settings;
 }
 
+void ng_linux_beep(void) {
+    GdkDisplay* display = gdk_display_get_default();
+    if (display) gdk_display_beep(display);
+}
+
 int ng_linux_prefers_dark(void) {
     GSettings* desktop = ng_linux_interface_settings();
     if (desktop) {

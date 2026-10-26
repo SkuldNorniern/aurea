@@ -26,6 +26,7 @@ unsigned int ng_windows_window_refresh_hz(void);
 void ng_windows_present(void);
 BOOL ng_windows_is_initialized(void);
 const wchar_t* ng_windows_get_class_name(void);
+void ng_windows_send_memory_warning(void);
 wchar_t* ng_windows_utf8_to_wide(const char* utf8);
 /* `name` from `module`, loading it if needed; NULL on systems without it. */
 FARPROC ng_windows_api(const char* module, const char* name);
@@ -54,6 +55,7 @@ unsigned int ng_windows_modifiers(void);
 
 int ng_windows_reduced_motion(void);
 int ng_windows_prefers_dark(void);
+void ng_windows_beep(void);
 int ng_windows_wheel_lines(void);
 int ng_windows_locales(char* buf, int cap);
 

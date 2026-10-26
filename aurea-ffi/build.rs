@@ -19,6 +19,14 @@ fn main() {
     };
     let native = root.join("native");
     let target = env::var("TARGET").expect("TARGET is set by cargo");
+    // Apple's native layer needs Xcode; off a Mac only a type-check can run, which needs no objects.
+    let host = env::var("HOST").unwrap_or_default();
+    if target.contains("apple") && !host.contains("apple") {
+        println!(
+            "cargo:warning=aurea-ffi: {target} built on {host}: native sources skipped, so this only type-checks"
+        );
+        return;
+    }
     let is_windows = target.contains("windows");
     let is_linux = target.contains("linux") && !target.contains("android");
 
@@ -76,6 +84,7 @@ fn main() {
         "native/platform/windows/tray.c",
         "native/platform/windows/ime.c",
         "native/platform/windows/pen.c",
+        "native/platform/windows/occlusion.c",
         "native/platform/windows/elements/common.c",
         "native/platform/windows/elements/button.c",
         "native/platform/windows/elements/label.c",

@@ -902,6 +902,22 @@ void ng_ios_show_keyboard(int show) {
     }
 }
 
+float ng_ios_refresh_rate(void) {
+    AureaHostView* host = g_view;
+    UIScreen* screen = host.window.screen ?: UIScreen.mainScreen;
+    return (float)screen.maximumFramesPerSecond;
+}
+
+void ng_ios_set_high_frame_rate(int high) {
+    AureaHostView* host = g_view;
+    if (!host) return;
+    if (@available(iOS 15.0, *)) {
+        float top = ng_ios_refresh_rate();
+        host.link.preferredFrameRateRange =
+            high && top > 60 ? CAFrameRateRangeMake(80, top, top) : CAFrameRateRangeDefault;
+    }
+}
+
 float ng_ios_keyboard_height(void) {
     AureaHostView* host = g_view;
     return host && host.keys.isFirstResponder ? (float)host.keyboardHeight : 0.0f;

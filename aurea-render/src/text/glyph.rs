@@ -6,10 +6,11 @@ use std::sync::Arc;
 use harfrust::font::{Blob, NormalizedCoord, Variation};
 use harfrust::{Font, Tag};
 use skrifa::instance::{LocationRef, Size};
+use skrifa::metrics::Decoration;
 use skrifa::raw::TableProvider;
 use skrifa::{FontRef as SkrifaFont, GlyphId, MetadataProvider};
 
-use crate::types::FontVariation;
+use crate::types::{FontMetrics, FontVariation};
 
 /// One font face a rasterizer has loaded, by its own numbering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -98,6 +99,39 @@ impl FaceData {
 
     pub(crate) fn shaping_font(&self) -> &Font {
         &self.font
+    }
+
+    /// Whether the face itself has a glyph for `ch`, not a fallback.
+    pub fn has_char(&self, ch: char) -> bool {
+        SkrifaFont::from_index(&self.bytes, self.index)
+            .is_ok_and(|font| font.charmap().map(ch).is_some_and(|g| g != GlyphId::NOTDEF))
+    }
+
+    /// The face's line gap, cap and x height, underline, and whether it is monospace, at `size`
+    /// pixels; ascent and descent are left to the rasterizer, which measures with its own.
+    pub(crate) fn metrics(&self, size: f32) -> FontMetrics {
+        let Ok(font) = SkrifaFont::from_index(&self.bytes, self.index) else {
+            return FontMetrics {
+                underline_offset: size / 10.0,
+                underline_thickness: (size / 14.0).max(1.0),
+                ..FontMetrics::default()
+            };
+        };
+        let m = font.metrics(Size::new(size), LocationRef::new(self.coords()));
+        let underline = m.underline.unwrap_or(Decoration {
+            offset: -size / 10.0,
+            thickness: size / 14.0,
+        });
+        FontMetrics {
+            ascent: m.ascent,
+            descent: -m.descent,
+            line_gap: m.leading.max(0.0),
+            cap_height: m.cap_height,
+            x_height: m.x_height,
+            underline_offset: -underline.offset,
+            underline_thickness: underline.thickness.max(f32::EPSILON),
+            monospace: m.is_monospace,
+        }
     }
 
     /// Design units per em, which glyph positions are in before scaling.

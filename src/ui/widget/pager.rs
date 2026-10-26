@@ -154,7 +154,7 @@ mod tests {
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::UiState;
     use crate::ui::state::Key;
-    use crate::window::{Modifiers, MouseButton, WindowEvent};
+    use crate::window::{Modifiers, MouseButton, PointerKind, WindowEvent};
 
     #[test]
     fn a_dot_click_goes_there_and_the_arrows_step() {
@@ -183,6 +183,7 @@ mod tests {
             y: 15.0,
             click_count: 1,
             time: Default::default(),
+            pointer: PointerKind::Mouse,
         });
         frame(&mut state, &mut page);
         assert_eq!(page, 3);

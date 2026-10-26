@@ -21,6 +21,7 @@ use super::paint::TextSize;
 use super::text_edit::TextEdit;
 use super::theme::Theme;
 use super::widget::popup::Popup;
+use crate::reduced_motion;
 use crate::render::{Font, Path, Point, Rect, TextMetrics};
 use crate::window::{CursorIcon, KeyCode, Modifiers, MouseButton, Window, WindowEvent};
 
@@ -77,6 +78,10 @@ pub enum Sense {
     Adjust,
     /// Typed into: it takes text and the editing keys.
     Text,
+    /// Typed into by the app's own editor: it takes text and an input method's composing text like
+    /// [`Sense::Text`], but [`UiState::text_focused`] stays false, so the app's shortcuts still
+    /// work. Read what came with [`crate::ui::Ui::typed`].
+    Typing,
     /// Hovered only, for a tooltip or a hint.
     Hover,
 }
@@ -87,6 +92,155 @@ struct Hit<Id> {
     key: Key<Id>,
     sense: Sense,
     enabled: bool,
+}
+
+/// Hits bucketed into a grid of cells, so finding the one under the pointer looks at a cell's few
+/// hits instead of all of them. Each list keeps draw order; the last match wins, as in a scan.
+#[derive(Debug, Default)]
+struct HitGrid {
+    origin: Point,
+    cell: (f32, f32),
+    /// The bounds' size; points on its far edges are inside, as `Rect::contains` has them.
+    extent: (f32, f32),
+    cols: usize,
+    rows: usize,
+    /// Where each cell's hit indices start in `items`; one more entry than there are cells.
+    starts: Vec<u32>,
+    items: Vec<u32>,
+    /// Hits spanning too many cells to list in each, or not finite; always checked.
+    big: Vec<u32>,
+    /// Where the next hit goes in each cell, while building.
+    next: Vec<u32>,
+}
+
+impl HitGrid {
+    /// Below this many hits a scan is as quick.
+    const MIN_HITS: usize = 64;
+    const MAX_SIDE: usize = 32;
+    const MAX_CELLS_PER_HIT: usize = 16;
+
+    fn build(&mut self, rects: impl Iterator<Item = Rect> + Clone) {
+        self.cols = 0;
+        self.rows = 0;
+        let count = rects.clone().count();
+        if count < Self::MIN_HITS {
+            return;
+        }
+        let Some(bounds) = rects.clone().filter(|r| listable(*r)).reduce(|a, b| {
+            let (x0, y0) = (a.x.min(b.x), a.y.min(b.y));
+            let (x1, y1) = (a.right().max(b.right()), a.bottom().max(b.bottom()));
+            Rect::new(x0, y0, x1 - x0, y1 - y0)
+        }) else {
+            return;
+        };
+        let side = |len: f32| {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let n = (len / 48.0).ceil() as usize;
+            n.clamp(1, Self::MAX_SIDE)
+        };
+        let (cols, rows) = (side(bounds.width), side(bounds.height));
+        #[allow(clippy::cast_precision_loss)]
+        let cell = (bounds.width / cols as f32, bounds.height / rows as f32);
+        if !(cell.0 > 0.0 && cell.1 > 0.0) {
+            return;
+        }
+        (self.origin, self.cell, self.cols, self.rows) =
+            (Point::new(bounds.x, bounds.y), cell, cols, rows);
+        self.extent = (bounds.width, bounds.height);
+        self.starts.clear();
+        self.starts.resize(cols * rows + 1, 0);
+        self.items.clear();
+        self.big.clear();
+        // Two passes: count per cell, then place, keeping each cell's hits in draw order.
+        let layout = (self.origin, self.cell, cols, rows);
+        let mut counts = mem::take(&mut self.starts);
+        self.each_cell(rects.clone(), layout, true, |_, c| counts[c + 1] += 1);
+        for c in 1..counts.len() {
+            counts[c] += counts[c - 1];
+        }
+        let mut items = mem::take(&mut self.items);
+        items.resize(counts[cols * rows] as usize, 0);
+        let mut next = mem::take(&mut self.next);
+        next.clear();
+        next.extend_from_slice(&counts[..cols * rows]);
+        self.each_cell(rects, layout, false, |i, c| {
+            items[next[c] as usize] = i;
+            next[c] += 1;
+        });
+        self.starts = counts;
+        self.items = items;
+        self.next = next;
+    }
+
+    /// Calls `visit` with each hit's index and every cell it is listed in, in draw order; hits
+    /// spanning too many cells, or not finite, go to `big` instead, on the `first` pass.
+    fn each_cell(
+        &mut self,
+        rects: impl Iterator<Item = Rect>,
+        layout: (Point, (f32, f32), usize, usize),
+        first: bool,
+        mut visit: impl FnMut(u32, usize),
+    ) {
+        let cols = layout.2;
+        for (i, rect) in rects.enumerate() {
+            let i = u32::try_from(i).unwrap_or(u32::MAX);
+            if rect.is_empty() {
+                continue;
+            }
+            let span = listable(rect).then(|| Self::span(layout, rect));
+            let Some((c0, r0, c1, r1)) =
+                span.filter(|(c0, r0, c1, r1)| (c1 - c0) * (r1 - r0) <= Self::MAX_CELLS_PER_HIT)
+            else {
+                if first {
+                    self.big.push(i);
+                }
+                continue;
+            };
+            for row in r0..r1 {
+                for col in c0..c1 {
+                    visit(i, row * cols + col);
+                }
+            }
+        }
+    }
+
+    /// The cells `rect` touches, edges included, as column and row ranges.
+    fn span(
+        (origin, cell, cols, rows): (Point, (f32, f32), usize, usize),
+        rect: Rect,
+    ) -> (usize, usize, usize, usize) {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let index = |v: f32, origin: f32, size: f32, n: usize| {
+            (((v - origin) / size).floor().max(0.0) as usize).min(n - 1)
+        };
+        let c0 = index(rect.x, origin.x, cell.0, cols);
+        let r0 = index(rect.y, origin.y, cell.1, rows);
+        let c1 = index(rect.right(), origin.x, cell.0, cols) + 1;
+        let r1 = index(rect.bottom(), origin.y, cell.1, rows) + 1;
+        (c0, r0, c1, r1)
+    }
+
+    /// The hits in the cell under `at` and the big ones, or `None` when there is no grid and every
+    /// hit has to be scanned.
+    fn candidates(&self, at: Point) -> Option<(&[u32], &[u32])> {
+        if self.cols == 0 {
+            return None;
+        }
+        let (dx, dy) = (at.x - self.origin.x, at.y - self.origin.y);
+        #[allow(clippy::cast_precision_loss)]
+        let outside = !(0.0..=self.extent.0).contains(&dx) || !(0.0..=self.extent.1).contains(&dy);
+        if outside {
+            return Some((&[], &self.big));
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let (col, row) = (
+            ((dx / self.cell.0) as usize).min(self.cols - 1),
+            ((dy / self.cell.1) as usize).min(self.rows - 1),
+        );
+        let c = row * self.cols + col;
+        let cell = &self.items[self.starts[c] as usize..self.starts[c + 1] as usize];
+        Some((cell, &self.big))
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -177,6 +331,26 @@ pub(crate) struct Tip {
 }
 
 pub(crate) const BLINK_FOR: Duration = Duration::from_secs(8);
+/// How long of each second the caret shows while it blinks.
+pub(crate) const BLINK_ON: f32 = 0.6;
+
+/// Whether a blinking caret shows `since` it last moved: always when blinking is off or over.
+pub(crate) fn caret_on(blink: bool, since: Duration) -> bool {
+    !blink || since >= BLINK_FOR || since.as_secs_f32().fract() < BLINK_ON
+}
+
+/// Whether `rect` can be listed in grid cells: finite and not empty.
+fn listable(rect: Rect) -> bool {
+    !rect.is_empty()
+        && [rect.x, rect.y, rect.width, rect.height]
+            .iter()
+            .all(|v| v.is_finite())
+}
+
+/// Whether a widget with `sense` takes typed text.
+fn takes_text(sense: Option<Sense>) -> bool {
+    matches!(sense, Some(Sense::Text | Sense::Typing))
+}
 
 /// The state canvas widgets keep between frames.
 #[derive(Debug)]
@@ -197,6 +371,8 @@ pub struct UiState<Id: WidgetId> {
     pub(crate) typed_targets: Vec<Option<Key<Id>>>,
     hits: Vec<Hit<Id>>,
     last_hits: Vec<Hit<Id>>,
+    /// `last_hits` by where they are, for the pointer's hit test.
+    hit_grid: HitGrid,
     pub(crate) order: Vec<Key<Id>>,
     last_order: Vec<Key<Id>>,
     hot: Option<Key<Id>>,
@@ -231,6 +407,8 @@ pub struct UiState<Id: WidgetId> {
     pub(crate) changed: bool,
     wants_frame: bool,
     sent: (CursorIcon, Option<Rect>),
+    /// Whether easing follows the system's reduced motion setting, until the app sets its own.
+    motion_follows_system: bool,
 }
 
 impl<Id: WidgetId> Default for UiState<Id> {
@@ -240,10 +418,15 @@ impl<Id: WidgetId> Default for UiState<Id> {
 }
 
 impl<Id: WidgetId> UiState<Id> {
-    /// Creates an empty state with nothing focused or hovered.
+    /// Creates an empty state with nothing focused or hovered. Easing follows the system's
+    /// reduced motion setting; see [`Self::set_reduced_motion`].
     pub fn new() -> Self {
+        // tests ease the same on every machine
+        let follow = !cfg!(test);
+        let mut tweens = Tweens::new();
+        tweens.set_instant(follow && reduced_motion());
         Self {
-            tweens: Tweens::new(),
+            tweens,
             #[cfg(feature = "accessibility")]
             accessibility: None,
             pointer: None,
@@ -259,6 +442,7 @@ impl<Id: WidgetId> UiState<Id> {
             typed_targets: Vec::new(),
             hits: Vec::new(),
             last_hits: Vec::new(),
+            hit_grid: HitGrid::default(),
             order: Vec::new(),
             last_order: Vec::new(),
             hot: None,
@@ -290,13 +474,22 @@ impl<Id: WidgetId> UiState<Id> {
             changed: false,
             wants_frame: false,
             sent: (CursorIcon::Default, None),
+            motion_follows_system: follow,
         }
     }
 
-    /// Values jump to their targets instead of easing, for people who asked the system for less
-    /// motion: pass [`crate::reduced_motion`].
+    /// Values jump to their targets instead of easing. By default this follows
+    /// [`crate::reduced_motion`], read again when the window gains focus or the system theme
+    /// changes; setting it here stops that.
     pub fn set_reduced_motion(&mut self, reduced: bool) {
+        self.motion_follows_system = false;
         self.tweens.set_instant(reduced);
+    }
+
+    fn follow_system_motion(&mut self) {
+        if self.motion_follows_system {
+            self.tweens.set_instant(reduced_motion());
+        }
     }
 
     /// Takes one window event, in the canvas's coordinates.
@@ -330,7 +523,7 @@ impl<Id: WidgetId> UiState<Id> {
         let text_focused = matches!(
             event,
             WindowEvent::TextInput { .. } | WindowEvent::ImePreedit { .. }
-        ) && self.pending_sense() == Some(Sense::Text);
+        ) && takes_text(self.pending_sense());
         let captured = self.active.is_some()
             || self.pointer_events.last().is_some_and(
                 |(_, event)| matches!(event, Pointer::Press(at, ..) if self.hit_at(*at).is_some()),
@@ -469,7 +662,12 @@ impl<Id: WidgetId> UiState<Id> {
             }
             WindowEvent::Focused => {
                 self.window_focused = true;
+                self.follow_system_motion();
                 true
+            }
+            WindowEvent::ThemeChanged { .. } => {
+                self.follow_system_motion();
+                false
             }
             _ => false,
         }
@@ -493,7 +691,7 @@ impl<Id: WidgetId> UiState<Id> {
 
     fn text_input(&mut self, typed: Typed) -> bool {
         if (self.popup.is_open() && (!self.popup.is_card() || !self.popup.owns_focus(self.focus)))
-            || self.pending_sense() != Some(Sense::Text)
+            || !takes_text(self.pending_sense())
         {
             return false;
         }
@@ -571,10 +769,30 @@ impl<Id: WidgetId> UiState<Id> {
         self.wants_frame = true;
     }
 
-    /// Whether another frame is needed: something is easing, a caret is blinking, or a click
-    /// changed what a widget shows.
+    /// Whether another frame is needed now: something is easing, or a click changed what a
+    /// widget shows. A blinking caret needs one only at [`Self::next_frame_at`].
     pub fn wants_frame(&self) -> bool {
         self.wants_frame
+    }
+
+    /// When the next frame is due even with nothing else going on: the caret's next blink, while a
+    /// text field has the keyboard. Schedule it with `request_canvas_redraw_at`; the iOS and Android
+    /// hosts do it themselves.
+    pub fn next_frame_at(&self) -> Option<Instant> {
+        if !self.window_focused || !takes_text(self.focused_sense()) {
+            return None;
+        }
+        let since = self.blink_from.elapsed();
+        if since >= BLINK_FOR {
+            return None;
+        }
+        let into = since.as_secs_f32().fract();
+        let wait = if into < BLINK_ON {
+            BLINK_ON - into
+        } else {
+            1.0 - into
+        };
+        Some(Instant::now() + Duration::from_secs_f32(wait))
     }
 
     /// The pointer shape for what the pointer is over.
@@ -613,10 +831,21 @@ impl<Id: WidgetId> UiState<Id> {
     }
 
     fn hit_at(&self, at: Point) -> Option<&Hit<Id>> {
-        self.last_hits
-            .iter()
-            .rev()
-            .find(|hit| !hit.rect.is_empty() && hit.rect.contains(at))
+        let hits = &self.last_hits;
+        let found = |i: &u32| {
+            let hit = &hits[*i as usize];
+            (!hit.rect.is_empty() && hit.rect.contains(at)).then_some(*i)
+        };
+        match self.hit_grid.candidates(at) {
+            None => hits
+                .iter()
+                .rev()
+                .find(|hit| !hit.rect.is_empty() && hit.rect.contains(at)),
+            Some((cell, big)) => {
+                let last = |list: &[u32]| list.iter().rev().find_map(found);
+                last(cell).max(last(big)).map(|i| &hits[i as usize])
+            }
+        }
     }
 
     pub(crate) fn begin(&mut self, theme: &Theme) {
@@ -798,7 +1027,10 @@ impl<Id: WidgetId> UiState<Id> {
     fn forget_old_edits(&mut self) {
         let now = Instant::now();
         for hit in &self.hits {
-            if self.edits.contains_key(&hit.key) || self.editing.contains_key(&hit.key) {
+            let kept = self.edits.contains_key(&hit.key)
+                || self.editing.contains_key(&hit.key)
+                || self.edit_for == Some(hit.key);
+            if kept {
                 self.edit_seen.insert(hit.key, now);
             }
         }
@@ -807,11 +1039,18 @@ impl<Id: WidgetId> UiState<Id> {
             seen.entry(*key).or_insert(now);
         }
         seen.retain(|_, at| now.duration_since(*at) < KEEP_EDITS_FOR);
-        if seen.len() > KEEP_EDITS {
-            let mut ages: Vec<Instant> = seen.values().copied().collect();
-            ages.sort_unstable();
-            let cut = ages[ages.len() - KEEP_EDITS];
-            seen.retain(|_, at| *at >= cut);
+        // Fields drawn this frame always keep theirs; of the rest, the stalest go first.
+        let mut unseen: Vec<(Instant, Key<Id>)> = seen
+            .iter()
+            .filter(|(_, at)| **at < now)
+            .map(|(key, at)| (*at, *key))
+            .collect();
+        if unseen.len() > KEEP_EDITS {
+            let extra = unseen.len() - KEEP_EDITS;
+            unseen.select_nth_unstable_by_key(extra - 1, |(at, _)| *at);
+            for (_, key) in &unseen[..extra] {
+                seen.remove(key);
+            }
         }
         self.edits.retain(|key, _| seen.contains_key(key));
         self.editing.retain(|key, _| seen.contains_key(key));
@@ -842,8 +1081,9 @@ impl<Id: WidgetId> UiState<Id> {
         mem::swap(&mut self.scroll_hits, &mut self.last_scroll_hits);
         self.forget_old_edits();
         mem::swap(&mut self.hits, &mut self.last_hits);
+        self.hit_grid
+            .build(self.last_hits.iter().map(|hit| hit.rect));
         mem::swap(&mut self.order, &mut self.last_order);
-        let blinking = self.text_focused() && self.blink_from.elapsed() < BLINK_FOR;
         #[cfg(feature = "accessibility")]
         if let Some(bridge) = &mut self.accessibility {
             let modal = self.popup.is_open().then_some(self.popup.focus_order());
@@ -853,8 +1093,7 @@ impl<Id: WidgetId> UiState<Id> {
                 self.popup.is_open() && !self.popup.is_card(),
             );
         }
-        self.wants_frame =
-            self.tweens.busy() || self.changed || !self.clicked.is_empty() || blinking;
+        self.wants_frame = self.tweens.busy() || self.changed || !self.clicked.is_empty();
         self.clicked.clear();
         self.click_at = None;
         self.typed.clear();
@@ -932,7 +1171,7 @@ impl<Id: WidgetId> UiState<Id> {
         let held = enabled && self.active == Some(key);
         if hovered || held {
             self.cursor = match sense {
-                Sense::Text => CursorIcon::Text,
+                Sense::Text | Sense::Typing => CursorIcon::Text,
                 Sense::Hover => self.cursor,
                 Sense::Click | Sense::Adjust => CursorIcon::Pointer,
             };
@@ -1014,7 +1253,9 @@ fn to_f32(v: f64) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::PointerKind;
     use std::cell::Cell;
+    use std::thread::sleep;
 
     fn move_to(x: f64, y: f64) -> WindowEvent {
         WindowEvent::MouseMove {
@@ -1023,6 +1264,7 @@ mod tests {
             buttons: Default::default(),
             modifiers: Modifiers::default(),
             time: Default::default(),
+            pointer: PointerKind::Mouse,
         }
     }
 
@@ -1060,6 +1302,7 @@ mod tests {
             y: 10.0,
             click_count: 1,
             time: Default::default(),
+            pointer: PointerKind::Mouse,
         };
         assert!(state.handle_input(&press).consumed);
         assert!(
@@ -1074,6 +1317,7 @@ mod tests {
             y: 90.0,
             click_count: 1,
             time: Default::default(),
+            pointer: PointerKind::Mouse,
         };
         assert!(state.handle_input(&release).consumed);
         assert!(!state.handle_input(&move_to(91.0, 90.0)).consumed);
@@ -1136,6 +1380,85 @@ mod tests {
         state.begin(&theme);
         assert!(!state.popup_open());
         assert_eq!(state.focus, Some(field));
+    }
+
+    #[test]
+    fn the_hit_grid_finds_what_a_scan_finds() {
+        // Overlapping hits of mixed sizes: cells, panels spanning many cells, empty ones.
+        let mut seed = 7u32;
+        let mut next = |n: u32| {
+            seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+            (seed >> 8) % n
+        };
+        #[allow(clippy::cast_precision_loss)]
+        let rects: Vec<Rect> = (0..400)
+            .map(|i| {
+                let big = i % 37 == 0;
+                let (w, h) = if big {
+                    (300, 200)
+                } else {
+                    (next(60), next(40))
+                };
+                Rect::new(next(900) as f32, next(700) as f32, w as f32, h as f32)
+            })
+            .collect();
+        let mut rects = rects;
+        // a hit everywhere, and one that is not finite.
+        rects.insert(5, Rect::new(f32::NEG_INFINITY, 0.0, f32::INFINITY, 1e9));
+        rects.push(Rect::new(0.0, 0.0, f32::NAN, 10.0));
+        // a small hit that sets the grid's far corner.
+        rects.push(Rect::new(1990.0, 1490.0, 10.0, 10.0));
+        let mut grid = HitGrid::default();
+        grid.build(rects.iter().copied());
+        assert!(grid.cols > 0, "built");
+        let scan = |at: Point| rects.iter().rposition(|r| !r.is_empty() && r.contains(at));
+        // every hit's corners, where float edges go wrong.
+        let corners: Vec<Point> = rects
+            .iter()
+            .filter(|r| r.width.is_finite() && r.x.is_finite())
+            .flat_map(|r| [Point::new(r.x, r.y), Point::new(r.right(), r.bottom())])
+            .collect();
+        #[allow(clippy::cast_precision_loss)]
+        let random =
+            (0..5000).map(|_| Point::new(next(1300) as f32 - 100.0, next(1000) as f32 - 100.0));
+        for at in corners.into_iter().chain(random.collect::<Vec<_>>()) {
+            let found = |list: &[u32]| {
+                list.iter()
+                    .rev()
+                    .find(|i| {
+                        let r = rects[**i as usize];
+                        !r.is_empty() && r.contains(at)
+                    })
+                    .map(|i| *i as usize)
+            };
+            let from_grid = grid
+                .candidates(at)
+                .and_then(|(cell, big)| found(cell).max(found(big)));
+            assert_eq!(from_grid, scan(at), "at {at:?}");
+        }
+    }
+
+    #[test]
+    fn fields_on_screen_keep_their_edits_and_the_rest_are_capped() {
+        let mut state = UiState::<u16>::new();
+        let theme = Theme::dark();
+        let draw = |state: &mut UiState<u16>, count: u16| {
+            state.begin(&theme);
+            for k in 0..count {
+                let at = Rect::new(0.0, f32::from(k) * 10.0, 40.0, 8.0);
+                state.interact(Key::new(k, 0), at, Sense::Text, true);
+            }
+            state.end();
+        };
+        draw(&mut state, 70);
+        for k in 0..70 {
+            state.edits.insert(Key::new(k, 0), TextEdit::new());
+        }
+        draw(&mut state, 70);
+        assert_eq!(state.edits.len(), 70, "all drawn, all kept");
+        sleep(Duration::from_millis(2));
+        draw(&mut state, 0);
+        assert_eq!(state.edits.len(), KEEP_EDITS, "out of sight, capped");
     }
 
     #[test]

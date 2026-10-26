@@ -18,10 +18,14 @@ compile_error!(
 
 #[cfg(target_os = "android")]
 pub mod android;
+#[cfg(all(any(target_os = "ios", target_os = "android"), feature = "zengpu"))]
+mod gpu_ready;
 #[cfg(target_os = "ios")]
 pub mod ios;
-#[cfg(any(target_os = "ios", test))]
+#[cfg(any(target_os = "ios", target_os = "android", test))]
 mod touch;
+#[cfg(any(target_os = "ios", target_os = "android", test))]
+mod wake;
 
 pub use aurea_animation as animation;
 
@@ -57,24 +61,27 @@ pub use crate::elements::{
     ProgressBar, RowList, ScrollView, ScrollbarPolicy, SidebarList, Slider, Spacer,
     SplitOrientation, SplitView, Stack, TabBar, Table, TextEditor, TextField, TextView,
 };
-use crate::ffi::{ng_platform_prefers_dark, ng_platform_reduced_motion, ng_platform_wheel_lines};
+use crate::ffi::{
+    ng_platform_beep, ng_platform_prefers_dark, ng_platform_reduced_motion, ng_platform_wheel_lines,
+};
 pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
 pub use crate::tray::TrayIcon;
 pub use crate::window::clipboard;
 pub use crate::window::{
-    CursorGrabMode, CursorIcon, Window, WindowId, WindowManager, WindowType, clipboard_text,
-    set_clipboard_text,
+    CursorGrabMode, CursorIcon, Window, WindowId, WindowManager, WindowPlacement, WindowProxy,
+    WindowType, clipboard_text, set_clipboard_text,
 };
 
 pub use crate::window::{
-    EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons, PenPhase, PenSample,
-    PenTapAction, PenTool, WindowEvent,
+    EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons, Occlusion, PenPhase, PenSample,
+    PenTapAction, PenTool, PointerKind, WindowEvent,
 };
 
 pub use crate::render::{Canvas, Color, DrawingContext, Point, Rect, RendererBackend};
 
 pub use crate::files::{
-    cache_dir, config_dir, data_dir, documents_dir, local_data_dir, open_path, reveal_path,
+    cache_dir, config_dir, data_dir, documents_dir, local_data_dir, open_path, open_url,
+    reveal_path,
 };
 pub use crate::keymap::{Chord, Keymap};
 pub use crate::locale::{locale, locales};
@@ -83,6 +90,11 @@ pub use aurea_foundation::{AureaError, AureaResult};
 pub use aurea_foundation::{
     Capability, CapabilityChecker, DesktopPlatform, MobilePlatform, OsVersion, Platform, Support,
 };
+
+/// Plays the system's alert sound, as a terminal's bell does.
+pub fn beep() {
+    unsafe { ng_platform_beep() }
+}
 
 /// Whether the user asked the system for less motion: Windows' "animation effects", macOS' "reduce
 /// motion", GTK's animation switch, iOS' "reduce motion".

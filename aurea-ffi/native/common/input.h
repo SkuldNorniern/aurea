@@ -94,4 +94,8 @@
 #define NG_MOD_ALT 0x4u
 #define NG_MOD_META 0x8u
 
+/* Or'd into a mouse event's modifiers when a pen or a finger, not a mouse, moved the pointer. */
+#define NG_POINTER_PEN 0x10000u
+#define NG_POINTER_TOUCH 0x20000u
+
 #endif

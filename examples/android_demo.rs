@@ -1,12 +1,15 @@
-//! A small Aurea app for the Android sample in `mobile/android/`: counter, slider, toggles.
+//! A small Aurea app for the Android sample in `mobile/android/`: counter, slider, toggles, and a
+//! field the on-screen keyboard types into.
 
 #[cfg(target_os = "android")]
 mod app {
-    use aurea::android::{set_app, set_theme};
-    use aurea::ui::{Align, Button, Checkbox, ProgressBar, Segmented, Slider, Theme, Toggle, Ui};
+    use std::ffi::c_int;
+
+    use aurea::android::{run, set_theme, show_keyboard};
+    use aurea::ui::{
+        Align, Button, Checkbox, ProgressBar, Segmented, Slider, TextField, Theme, Toggle, Ui,
+    };
     use aurea::{AureaResult, Rect};
-    use jni::JNIEnv;
-    use jni::objects::JObject;
 
     const ADD: u64 = 1;
     const RESET: u64 = 2;
@@ -15,6 +18,7 @@ mod app {
     const SHARE: u64 = 5;
     const LOOK: u64 = 6;
     const METER: u64 = 7;
+    const NOTE: u64 = 8;
 
     #[derive(Default)]
     struct State {
@@ -23,6 +27,7 @@ mod app {
         muted: bool,
         share: bool,
         look: usize,
+        note: String,
     }
 
     fn panel(ui: &mut Ui<'_, u64>, s: &mut State, width: f32) -> AureaResult<()> {
@@ -77,21 +82,31 @@ mod app {
                 Theme::dark()
             });
         }
+        let note = TextField::new(&mut s.note).placeholder("Type here").show(
+            ui,
+            NOTE,
+            row(444.0, 44.0),
+        )?;
+        if note.editing_started {
+            show_keyboard(true);
+        }
+        if note.focus_lost {
+            show_keyboard(false);
+        }
         Ok(())
     }
 
+    /// The app's entry; `AureaActivity` calls it once.
     #[unsafe(no_mangle)]
-    pub extern "system" fn Java_com_aurea_smoke_MainActivity_nativeCreateApp(
-        _env: JNIEnv,
-        _thiz: JObject,
-    ) {
+    pub extern "C" fn aurea_main() -> c_int {
         let mut state = State {
             level: 0.6,
             look: 1,
             ..State::default()
         };
-        set_app(Theme::dark(), move |ui, width, _height| {
+        run(Theme::dark(), move |ui, width, _height| {
             panel(ui, &mut state, width)
         });
+        0
     }
 }

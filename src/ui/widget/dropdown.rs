@@ -200,7 +200,7 @@ mod tests {
     use crate::Rect;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::{Dropdown, MenuItem, Sense, Theme, UiState};
-    use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, WindowEvent};
+    use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
 
     const BOX: Rect = Rect::new(10.0, 10.0, 160.0, 30.0);
     const AREA: Rect = Rect::new(200.0, 10.0, 100.0, 100.0);
@@ -266,6 +266,7 @@ mod tests {
                 buttons: MouseButtons::default(),
                 modifiers: Modifiers::default(),
                 time: Default::default(),
+                pointer: PointerKind::Mouse,
             });
             self.ui.handle(&WindowEvent::MouseButton {
                 button,
@@ -275,6 +276,7 @@ mod tests {
                 y: f64::from(y),
                 click_count: 1,
                 time: Default::default(),
+                pointer: PointerKind::Mouse,
             });
             self.frame();
         }

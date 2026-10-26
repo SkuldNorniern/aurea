@@ -604,6 +604,10 @@ int ng_platform_window_is_visible(NGHandle window) {
     return window && !((__bridge UIWindow*)window).hidden ? 1 : 0;
 }
 
+int ng_platform_window_occlusion(NGHandle window) {
+    return ng_platform_window_is_visible(window) ? 0 : 2;
+}
+
 int ng_platform_window_set_hide_on_close(NGHandle window, int hide) {
     (void)window; (void)hide;
     return NG_ERROR_UNSUPPORTED;

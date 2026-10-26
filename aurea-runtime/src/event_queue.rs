@@ -101,7 +101,7 @@ impl Default for EventQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aurea_foundation::{Modifiers, MouseButtons};
+    use aurea_foundation::{Modifiers, MouseButtons, PointerKind};
 
     fn wheel(delta_y: f64, modifiers: Modifiers) -> WindowEvent {
         WindowEvent::MouseWheel {
@@ -146,6 +146,7 @@ mod tests {
             buttons: MouseButtons::default(),
             modifiers: Modifiers::new(),
             time: Default::default(),
+            pointer: PointerKind::Mouse,
         }
     }
 
@@ -253,6 +254,7 @@ mod tests {
             buttons: MouseButtons::default(),
             modifiers: Modifiers::default(),
             time: Default::default(),
+            pointer: PointerKind::Mouse,
         });
         q.push(WindowEvent::MouseMove {
             x: 9.0,
@@ -260,6 +262,7 @@ mod tests {
             buttons: MouseButtons::default(),
             modifiers: Modifiers::default(),
             time: Default::default(),
+            pointer: PointerKind::Mouse,
         });
 
         let events = q.pop_all();

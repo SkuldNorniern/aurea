@@ -71,6 +71,8 @@ pub enum WindowEvent {
         buttons: MouseButtons,
         /// Modifier keys held down.
         modifiers: Modifiers,
+        /// What moved the pointer.
+        pointer: PointerKind,
         /// When the event happened.
         time: Duration,
     },
@@ -95,6 +97,9 @@ pub enum WindowEvent {
         y: f64,
         /// Clicks in quick succession, including this one.
         click_count: u8,
+        /// What pressed the button: a pen's contact is sent as [`WindowEvent::Pen`] too, so a
+        /// drawing can drop this copy of it.
+        pointer: PointerKind,
         /// When the event happened.
         time: Duration,
     },
@@ -165,12 +170,38 @@ pub enum WindowEvent {
         /// Where the fingers meet, vertically.
         y: f64,
     },
+    /// Other windows now cover more or less of this one, or it was minimized or restored; see
+    /// [`Occlusion`]. An app can pause work no one sees, or warn when its window is hidden.
+    OcclusionChanged(Occlusion),
     /// The system switched between light and dark appearance. Sent to every window; see
     /// `aurea::prefers_dark` for the current setting.
     ThemeChanged {
         /// True when the system now prefers dark.
         dark: bool,
     },
+}
+
+/// How much of a window shows on screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Occlusion {
+    /// All of it shows.
+    #[default]
+    Visible,
+    /// Other windows cover part of it. Windows only; elsewhere a window reads as visible or covered.
+    PartlyCovered,
+    /// None of it shows: covered, minimized, off screen, or on another virtual desktop.
+    Covered,
+}
+
+impl Occlusion {
+    /// The level the platform layer hands over: 0 visible, 1 partly covered, 2 covered.
+    pub fn from_raw(level: i32) -> Self {
+        match level {
+            1 => Self::PartlyCovered,
+            2 => Self::Covered,
+            _ => Self::Visible,
+        }
+    }
 }
 
 /// One reading of a pen.
@@ -285,6 +316,32 @@ pub enum MouseButton {
     Middle,
     /// Any other button, by its raw number.
     Other(u8),
+}
+
+/// What moves the pointer behind a mouse event. Hosts send a pen's contact and a finger's as mouse
+/// events too, so widgets work with either; this tells them apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum PointerKind {
+    /// A mouse or a touchpad.
+    #[default]
+    Mouse,
+    /// A finger on a touch screen.
+    Touch,
+    /// A pen, or its eraser.
+    Pen,
+}
+
+impl PointerKind {
+    /// Reads the kind from a native mouse event's modifier bits, where it rides above the keys.
+    pub fn from_bits(bits: u32) -> Self {
+        if bits & 0x1_0000 != 0 {
+            Self::Pen
+        } else if bits & 0x2_0000 != 0 {
+            Self::Touch
+        } else {
+            Self::Mouse
+        }
+    }
 }
 
 impl MouseButton {
@@ -706,5 +763,20 @@ mod keycode_tests {
             KeyCode::from_raw(0xFFFF_FFFF),
             KeyCode::Unknown(_)
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pointer_kinds_ride_above_the_modifier_keys() {
+        // NG_POINTER_PEN and NG_POINTER_TOUCH in common/input.h
+        assert_eq!(PointerKind::from_bits(0x1_0000 | 0b0011), PointerKind::Pen);
+        assert_eq!(PointerKind::from_bits(0x2_0000), PointerKind::Touch);
+        assert_eq!(PointerKind::from_bits(0b1111), PointerKind::Mouse);
+        let mods = Modifiers::from_bits(0x3_0001);
+        assert!(mods.shift && !mods.ctrl && !mods.alt && !mods.meta);
     }
 }

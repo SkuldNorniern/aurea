@@ -87,6 +87,27 @@ static void on_window_destroy(GtkWidget* widget, gpointer data) {
     if (remaining == 0) gtk_main_quit();
 }
 
+#define NG_LINUX_RESTORED "aurea-restored"
+#define NG_LINUX_UNSIZED_STATES \
+    (GDK_WINDOW_STATE_MAXIMIZED | GDK_WINDOW_STATE_FULLSCREEN | GDK_WINDOW_STATE_TILED | \
+     GDK_WINDOW_STATE_ICONIFIED)
+
+/* Keeps the rect the window had last while not maximized, tiled or fullscreen. */
+static gboolean on_placement_configure(GtkWidget* widget, GdkEventConfigure* event, gpointer user_data) {
+    (void)event;
+    (void)user_data;
+    GdkWindow* gdk = gtk_widget_get_window(widget);
+    if (gdk && (gdk_window_get_state(gdk) & NG_LINUX_UNSIZED_STATES)) return FALSE;
+    int* rect = g_object_get_data(G_OBJECT(widget), NG_LINUX_RESTORED);
+    if (!rect) {
+        rect = g_new0(int, 4);
+        g_object_set_data_full(G_OBJECT(widget), NG_LINUX_RESTORED, rect, g_free);
+    }
+    gtk_window_get_position(GTK_WINDOW(widget), &rect[0], &rect[1]);
+    gtk_window_get_size(GTK_WINDOW(widget), &rect[2], &rect[3]);
+    return FALSE;
+}
+
 static gboolean on_window_state_event(GtkWidget* widget, GdkEventWindowState* event, gpointer user_data) {
     (void)user_data;
     if (event->changed_mask & GDK_WINDOW_STATE_ICONIFIED) {
@@ -229,6 +250,7 @@ NGHandle ng_linux_create_window(const char* title, int width, int height) {
     g_signal_connect(G_OBJECT(window), "destroy", G_CALLBACK(on_window_destroy), NULL);
     g_signal_connect(G_OBJECT(window), "delete-event", G_CALLBACK(on_delete_event), NULL);
     g_signal_connect(G_OBJECT(window), "window-state-event", G_CALLBACK(on_window_state_event), NULL);
+    g_signal_connect(G_OBJECT(window), "configure-event", G_CALLBACK(on_placement_configure), NULL);
     
     GtkWidget* main_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_container_add(GTK_CONTAINER(window), main_vbox);
@@ -599,11 +621,26 @@ static void report_pen(GtkWidget* widget, GdkEvent* event, double x, double y, g
                   ng_linux_modifiers(state), pen_age(event));
 }
 
+/* NG_POINTER_PEN or NG_POINTER_TOUCH when the device behind `event` is one, else 0. */
+static unsigned int ng_linux_pointer_bits(GdkEvent* event) {
+    GdkDevice* device = gdk_event_get_source_device(event);
+    if (!device) return 0;
+    switch (gdk_device_get_source(device)) {
+        case GDK_SOURCE_PEN:
+        case GDK_SOURCE_ERASER:
+            return NG_POINTER_PEN;
+        case GDK_SOURCE_TOUCHSCREEN:
+            return NG_POINTER_TOUCH;
+        default:
+            return 0;
+    }
+}
+
 static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpointer user_data) {
     (void)user_data;
     if (event->type != GDK_BUTTON_PRESS) return FALSE;
     if (ng_linux_already_seen((GdkEvent*)event)) return FALSE;
-    unsigned int mods = ng_linux_modifiers(event->state);
+    unsigned int mods = ng_linux_modifiers(event->state) | ng_linux_pointer_bits((GdkEvent*)event);
     int button = ng_linux_mouse_button_from_event(event->button);
     int click_count = ng_linux_click_count(widget, event);
     double x = event->x;
@@ -618,7 +655,7 @@ static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpoint
 static gboolean on_button_release(GtkWidget* widget, GdkEventButton* event, gpointer user_data) {
     (void)user_data;
     if (ng_linux_already_seen((GdkEvent*)event)) return FALSE;
-    unsigned int mods = ng_linux_modifiers(event->state);
+    unsigned int mods = ng_linux_modifiers(event->state) | ng_linux_pointer_bits((GdkEvent*)event);
     int button = ng_linux_mouse_button_from_event(event->button);
     double x = event->x;
     double y = event->y;
@@ -640,7 +677,8 @@ static gboolean on_motion_notify(GtkWidget* widget, GdkEventMotion* event, gpoin
     if (event->state & GDK_BUTTON3_MASK) buttons |= 1u << 1;
     if (event->state & GDK_BUTTON2_MASK) buttons |= 1u << 2;
     buttons |= ng_linux_pointer(widget)->held & ~7u;
-    ng_invoke_mouse_move((void*)widget, x, y, buttons, ng_linux_modifiers(event->state));
+    ng_invoke_mouse_move((void*)widget, x, y, buttons,
+                         ng_linux_modifiers(event->state) | ng_linux_pointer_bits((GdkEvent*)event));
     report_pen(widget, (GdkEvent*)event, x, y, event->state,
                (event->state & GDK_BUTTON1_MASK) ? PEN_MOVE : PEN_HOVER);
 
@@ -693,6 +731,7 @@ static gboolean on_scroll(GtkWidget* widget, GdkEventScroll* event, gpointer use
 static gboolean on_focus_in(GtkWidget* widget, GdkEventFocus* event, gpointer user_data) {
     (void)event; (void)user_data;
     ng_linux_ime_focus(widget, 1);
+    gtk_window_set_urgency_hint(GTK_WINDOW(widget), FALSE);
     ng_invoke_focus_changed((void*)widget, 1);
     return FALSE;
 }
@@ -834,6 +873,15 @@ int ng_linux_window_is_visible(NGHandle window) {
     return gtk_widget_get_visible(GTK_WIDGET(window)) ? 1 : 0;
 }
 
+/* GTK says only whether the window is shown and not minimized; other windows over it are not
+ * known, so a shown window reads as visible. */
+int ng_linux_window_occlusion(NGHandle window) {
+    if (!window || !gtk_widget_get_visible(GTK_WIDGET(window))) return 2;
+    GdkWindow* gdk = gtk_widget_get_window(GTK_WIDGET(window));
+    if (gdk && (gdk_window_get_state(gdk) & GDK_WINDOW_STATE_ICONIFIED)) return 2;
+    return 0;
+}
+
 int ng_linux_set_window_content(NGHandle window_handle, NGHandle content_handle) {
     if (!window_handle || !content_handle) return NG_ERROR_INVALID_HANDLE;
     
@@ -966,6 +1014,66 @@ void ng_linux_window_get_position(NGHandle window, int* x, int* y) {
     if (!window || !x || !y) return;
     GtkWidget* widget = (GtkWidget*)window;
     gtk_window_get_position(GTK_WINDOW(widget), x, y);
+}
+
+int ng_linux_window_refresh_rate(NGHandle window) {
+    if (!window) return 0;
+    GdkWindow* gdk = gtk_widget_get_window(GTK_WIDGET(window));
+    GdkDisplay* display = gtk_widget_get_display(GTK_WIDGET(window));
+    GdkMonitor* monitor = gdk && display ? gdk_display_get_monitor_at_window(display, gdk) : NULL;
+    return monitor ? gdk_monitor_get_refresh_rate(monitor) : 0;
+}
+
+int ng_linux_window_request_attention(NGHandle window, int critical) {
+    (void)critical;
+    if (!window) return NG_ERROR_INVALID_HANDLE;
+    GtkWindow* gtk = GTK_WINDOW(window);
+    if (!gtk_window_is_active(gtk)) gtk_window_set_urgency_hint(gtk, TRUE);
+    return NG_SUCCESS;
+}
+
+int ng_linux_window_get_placement(NGHandle window, int* rect) {
+    if (!window || !rect) return NG_ERROR_INVALID_HANDLE;
+    GtkWindow* gtk = GTK_WINDOW(window);
+    int* restored = g_object_get_data(G_OBJECT(window), NG_LINUX_RESTORED);
+    if (restored) {
+        for (int i = 0; i < 4; i++) rect[i] = restored[i];
+    } else {
+        gtk_window_get_position(gtk, &rect[0], &rect[1]);
+        gtk_window_get_size(gtk, &rect[2], &rect[3]);
+    }
+    GdkWindow* gdk = gtk_widget_get_window(GTK_WIDGET(window));
+    GdkWindowState state = gdk ? gdk_window_get_state(gdk) : 0;
+    return (gtk_window_is_maximized(gtk) ? 1 : 0) | ((state & GDK_WINDOW_STATE_ICONIFIED) ? 2 : 0);
+}
+
+int ng_linux_window_set_placement(NGHandle window, const int* rect, int maximized) {
+    if (!window || !rect) return NG_ERROR_INVALID_HANDLE;
+    if (rect[2] <= 0 || rect[3] <= 0) return NG_ERROR_INVALID_PARAMETER;
+    GtkWindow* gtk = GTK_WINDOW(window);
+    int x = rect[0], y = rect[1];
+    /* off every monitor now, as after unplugging one: put it on the primary one */
+    GdkDisplay* display = gtk_widget_get_display(GTK_WIDGET(window));
+    GdkRectangle want = {x, y, rect[2], rect[3]};
+    gboolean seen = FALSE;
+    for (int i = 0; display && i < gdk_display_get_n_monitors(display); i++) {
+        GdkRectangle area;
+        gdk_monitor_get_workarea(gdk_display_get_monitor(display, i), &area);
+        if (gdk_rectangle_intersect(&want, &area, NULL)) seen = TRUE;
+    }
+    GdkMonitor* primary = display ? gdk_display_get_primary_monitor(display) : NULL;
+    if (!primary && display) primary = gdk_display_get_monitor(display, 0);
+    if (!seen && primary) {
+        GdkRectangle area;
+        gdk_monitor_get_workarea(primary, &area);
+        x = area.x;
+        y = area.y;
+    }
+    gtk_window_unmaximize(gtk);
+    gtk_window_move(gtk, x, y);
+    gtk_window_resize(gtk, rect[2], rect[3]);
+    if (maximized) gtk_window_maximize(gtk);
+    return NG_SUCCESS;
 }
 
 void ng_linux_window_request_close(NGHandle window) {

@@ -3,7 +3,7 @@
 use super::super::types::{FontStyle, FontVariation, FontWeight};
 use super::glyph::{FaceData, FaceId, GlyphKey};
 use super::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph};
-use super::{GLYPH_BYTES, LruCache};
+use super::{CacheKind, GLYPH_BYTES, LruCache, shared};
 use aurea_foundation::{AureaError, AureaResult, lock};
 use std::collections::HashMap;
 use std::mem::zeroed;
@@ -75,7 +75,7 @@ pub struct DirectWriteRasterizer {
     collection: FontCollection,
     faces: Mutex<Vec<Arc<FaceEntry>>>,
     by_key: Mutex<HashMap<FaceKey, FaceId>>,
-    glyphs: Mutex<LruCache<GlyphKey, Arc<SubpixelGlyph>>>,
+    glyphs: Arc<Mutex<LruCache<GlyphKey, Arc<SubpixelGlyph>>>>,
     /// Chosen face per (primary face, char). A primary face already fixes the weight, style and
     /// variations the fallbacks are resolved with, so the pair fully determines the answer.
     char_faces: Mutex<HashMap<(FaceId, char), FaceId>>,
@@ -91,7 +91,7 @@ impl DirectWriteRasterizer {
             collection: FontCollection::system(),
             faces: Mutex::new(Vec::new()),
             by_key: Mutex::new(HashMap::new()),
-            glyphs: Mutex::new(LruCache::with_budget(512, GLYPH_BYTES)),
+            glyphs: shared(CacheKind::Glyph, LruCache::with_budget(512, GLYPH_BYTES)),
             char_faces: Mutex::new(HashMap::new()),
         })
     }

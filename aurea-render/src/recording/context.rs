@@ -56,6 +56,16 @@ pub fn glyph_coverage(face: FaceId, glyph: u16, size: f32) -> AureaResult<GlyphC
     TEXT_RENDERER.glyph_coverage(face, glyph, size)
 }
 
+/// `font`'s own metrics at its size: line gap, cap height, underline and the rest, no canvas needed.
+pub fn font_metrics(font: &Font) -> AureaResult<FontMetrics> {
+    TEXT_RENDERER.font_metrics(FontRef::with_size(font, font.size))
+}
+
+/// Whether `font`'s own face has a glyph for `ch`, before any fallback face steps in.
+pub fn font_covers(font: &Font, ch: char) -> AureaResult<bool> {
+    TEXT_RENDERER.font_covers(FontRef::with_size(font, font.size), ch)
+}
+
 /// The font file behind a shaped glyph's face.
 pub fn face_data(face: FaceId) -> AureaResult<Arc<FaceData>> {
     TEXT_RENDERER.face_data(face)

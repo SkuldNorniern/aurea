@@ -57,6 +57,8 @@ unsafe extern "C" {
     pub fn ng_ios_drop_gpu_view();
     pub fn ng_ios_show_keyboard(show: c_int);
     pub fn ng_ios_keyboard_height() -> f32;
+    pub fn ng_ios_refresh_rate() -> f32;
+    pub fn ng_ios_set_high_frame_rate(high: c_int);
     pub fn ng_ios_set_text_area(x: f32, y: f32, width: f32, height: f32);
     pub fn ng_ios_pick_files(
         extensions: *const c_char,
@@ -252,6 +254,7 @@ unsafe extern "C" {
     pub fn ng_platform_prefers_dark() -> c_int;
     /// Lines a wheel notch scrolls, -1 for a page, 3 where the system has no setting.
     pub fn ng_platform_wheel_lines() -> c_int;
+    pub fn ng_platform_beep();
     /// Writes the system locales into `buf`.
     pub fn ng_platform_locales(buf: *mut c_char, cap: c_int) -> c_int;
     /// Sets a window's keyboard shortcuts.
@@ -296,6 +299,15 @@ unsafe extern "C" {
     ) -> c_int;
     /// Tells whether a window is visible.
     pub fn ng_platform_window_is_visible(window: *mut c_void) -> c_int;
+    pub fn ng_platform_window_occlusion(window: *mut c_void) -> c_int;
+    pub fn ng_platform_window_get_placement(window: *mut c_void, rect: *mut c_int) -> c_int;
+    pub fn ng_platform_window_request_attention(window: *mut c_void, critical: c_int) -> c_int;
+    pub fn ng_platform_window_refresh_rate(window: *mut c_void) -> c_int;
+    pub fn ng_platform_window_set_placement(
+        window: *mut c_void,
+        rect: *const c_int,
+        maximized: c_int,
+    ) -> c_int;
     /// Moves a window.
     pub fn ng_platform_window_set_position(window: *mut c_void, x: c_int, y: c_int);
     /// Gets a window's position.

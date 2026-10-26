@@ -165,7 +165,7 @@ mod tests {
     use super::*;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::UiState;
-    use crate::window::{Modifiers, MouseButton, WindowEvent};
+    use crate::window::{Modifiers, MouseButton, PointerKind, WindowEvent};
 
     const OPTIONS: [&str; 3] = ["Low", "Mid", "High"];
 
@@ -202,6 +202,7 @@ mod tests {
                     y: 45.0,
                     click_count: 1,
                     time: Default::default(),
+                    pointer: PointerKind::Mouse,
                 },
             );
             frame(&mut raster, &mut state, &mut picked);

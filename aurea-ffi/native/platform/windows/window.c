@@ -1,4 +1,5 @@
 ﻿#include "window.h"
+#include "occlusion.h"
 #include "drop.h"
 #include "common/clipboard.h"
 #include "elements/common.h"
@@ -274,10 +275,93 @@ int ng_windows_detach_element(NGHandle element) {
     return NG_SUCCESS;
 }
 
+#define AUREA_MAXIMIZE_ON_SHOW_PROP "AureaMaximizeOnShow"
+
+/* How far workspace coordinates sit from screen ones on the monitor holding `rect`. */
+static POINT ng_windows_workspace_offset(HWND hwnd, const RECT* rect) {
+    POINT offset = {0, 0};
+    if (GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) return offset;
+    MONITORINFO info = {sizeof info};
+    if (GetMonitorInfoW(MonitorFromRect(rect, MONITOR_DEFAULTTONEAREST), &info)) {
+        offset.x = info.rcWork.left - info.rcMonitor.left;
+        offset.y = info.rcWork.top - info.rcMonitor.top;
+    }
+    return offset;
+}
+
+int ng_windows_window_refresh_rate(NGHandle window) {
+    HWND hwnd = (HWND)window;
+    if (!hwnd) return 0;
+    MONITORINFOEXW info;
+    info.cbSize = sizeof info;
+    if (!GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), (MONITORINFO*)&info)) return 0;
+    DEVMODEW mode = {0};
+    mode.dmSize = sizeof mode;
+    if (!EnumDisplaySettingsW(info.szDevice, ENUM_CURRENT_SETTINGS, &mode)) return 0;
+    /* 0 and 1 mean the hardware default */
+    return mode.dmDisplayFrequency > 1 ? (int)mode.dmDisplayFrequency * 1000 : 0;
+}
+
+int ng_windows_window_request_attention(NGHandle window, int critical) {
+    HWND hwnd = (HWND)window;
+    if (!hwnd || !IsWindow(hwnd)) return NG_ERROR_INVALID_HANDLE;
+    if (GetForegroundWindow() == hwnd) return NG_SUCCESS;
+    /* a few flashes, or the caption too until the window comes to the front when critical */
+    FLASHWINFO flash = {sizeof flash, hwnd, critical ? FLASHW_ALL | FLASHW_TIMERNOFG : FLASHW_TRAY,
+                        critical ? 0 : 3, 0};
+    FlashWindowEx(&flash);
+    return NG_SUCCESS;
+}
+
+int ng_windows_window_get_placement(NGHandle window, int* rect) {
+    HWND hwnd = (HWND)window;
+    if (!hwnd || !IsWindow(hwnd) || !rect) return NG_ERROR_INVALID_HANDLE;
+    WINDOWPLACEMENT wp = {sizeof wp};
+    if (!GetWindowPlacement(hwnd, &wp)) return NG_ERROR_PLATFORM_SPECIFIC;
+    RECT r = wp.rcNormalPosition;
+    POINT offset = ng_windows_workspace_offset(hwnd, &r);
+    rect[0] = r.left + offset.x;
+    rect[1] = r.top + offset.y;
+    rect[2] = r.right - r.left;
+    rect[3] = r.bottom - r.top;
+    BOOL minimized = IsIconic(hwnd);
+    BOOL maximized = minimized ? (wp.flags & WPF_RESTORETOMAXIMIZED) != 0 : IsZoomed(hwnd);
+    if (!IsWindowVisible(hwnd) && GetPropA(hwnd, AUREA_MAXIMIZE_ON_SHOW_PROP)) maximized = TRUE;
+    return (maximized ? 1 : 0) | (minimized ? 2 : 0);
+}
+
+int ng_windows_window_set_placement(NGHandle window, const int* rect, int maximized) {
+    HWND hwnd = (HWND)window;
+    if (!hwnd || !IsWindow(hwnd) || !rect) return NG_ERROR_INVALID_HANDLE;
+    if (rect[2] <= 0 || rect[3] <= 0) return NG_ERROR_INVALID_PARAMETER;
+    RECT r = {rect[0], rect[1], rect[0] + rect[2], rect[1] + rect[3]};
+    POINT offset = ng_windows_workspace_offset(hwnd, &r);
+    OffsetRect(&r, -offset.x, -offset.y);
+    BOOL visible = IsWindowVisible(hwnd);
+    WINDOWPLACEMENT wp = {sizeof wp};
+    GetWindowPlacement(hwnd, &wp);
+    wp.flags = 0;
+    wp.rcNormalPosition = r;
+    /* a hidden window stays hidden and maximizes when shown */
+    wp.showCmd = !visible ? SW_HIDE : maximized ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
+    /* Windows moves a rect that would be off every screen back onto one */
+    if (!SetWindowPlacement(hwnd, &wp)) return NG_ERROR_PLATFORM_SPECIFIC;
+    if (visible || !maximized) {
+        RemovePropA(hwnd, AUREA_MAXIMIZE_ON_SHOW_PROP);
+    } else {
+        SetPropA(hwnd, AUREA_MAXIMIZE_ON_SHOW_PROP, (HANDLE)1);
+    }
+    return NG_SUCCESS;
+}
+
 void ng_windows_window_show(NGHandle window) {
     if (!window) return;
     HWND hwnd = (HWND)window;
-    ShowWindow(hwnd, IsIconic(hwnd) ? SW_RESTORE : SW_SHOW);
+    if (RemovePropA(hwnd, AUREA_MAXIMIZE_ON_SHOW_PROP)) {
+        ShowWindow(hwnd, SW_SHOWMAXIMIZED);
+    } else {
+        ShowWindow(hwnd, IsIconic(hwnd) ? SW_RESTORE : SW_SHOW);
+    }
     SetForegroundWindow(hwnd);
     UpdateWindow(hwnd);
 }
@@ -290,6 +374,10 @@ void ng_windows_window_hide(NGHandle window) {
 int ng_windows_window_is_visible(NGHandle window) {
     if (!window) return 0;
     return IsWindowVisible((HWND)window) ? 1 : 0;
+}
+
+int ng_windows_window_occlusion(NGHandle window) {
+    return ng_windows_occlusion_of((HWND)window);
 }
 
 NGHandle ng_windows_window_get_content_view(NGHandle window) {

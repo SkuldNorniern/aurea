@@ -7,8 +7,8 @@ mod manager;
 mod types;
 
 pub use aurea_foundation::{
-    EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons, PenPhase, PenSample,
-    PenTapAction, PenTool, WindowEvent,
+    EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons, Occlusion, PenPhase, PenSample,
+    PenTapAction, PenTool, PointerKind, WindowEvent,
 };
 pub use aurea_runtime::EventQueue;
 pub use clipboard::{clipboard_text, set_clipboard_text};
@@ -101,6 +101,25 @@ pub use crate::registry::window::{
 };
 
 use log::{error, info};
+
+/// Where a window sits, to put it back there on the next start: the frame's rect while not
+/// maximized, kept while it is, in the platform's screen units (pixels on Windows, points on
+/// macOS, GTK's logical pixels on Linux), not [`Window::size`]'s content size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct WindowPlacement {
+    /// The frame's left edge.
+    pub x: i32,
+    /// The frame's top edge.
+    pub y: i32,
+    /// The frame's width.
+    pub width: i32,
+    /// The frame's height.
+    pub height: i32,
+    /// Whether it fills the screen's work area. On macOS: zoomed.
+    pub maximized: bool,
+    /// Whether it is minimized; [`Window::set_placement`] does not minimize.
+    pub minimized: bool,
+}
 
 /// A native platform window with menu, content, and event handling.
 pub struct Window {
@@ -231,6 +250,8 @@ impl Window {
                     }
                     LifecycleEvent::WindowMinimized => WindowEvent::Minimized,
                     LifecycleEvent::WindowRestored => WindowEvent::Restored,
+                    LifecycleEvent::MemoryWarning => WindowEvent::MemoryWarning,
+                    LifecycleEvent::Occlusion(level) => WindowEvent::OcclusionChanged(level),
                     LifecycleEvent::SurfaceLost => WindowEvent::SurfaceLost,
                     LifecycleEvent::SurfaceRecreated => WindowEvent::SurfaceRecreated,
                     _ => return,
@@ -728,6 +749,58 @@ impl Window {
         unsafe { ng_platform_window_is_focused(self.handle) != 0 }
     }
 
+    /// How much of this window shows: other windows over it, minimized, off screen or on another
+    /// virtual desktop. Windows measures the covered part; macOS tells only visible or covered,
+    /// and Linux only shown or minimized. [`WindowEvent::OcclusionChanged`] says when it changes.
+    pub fn occlusion(&self) -> Occlusion {
+        Occlusion::from_raw(unsafe { ng_platform_window_occlusion(self.handle) })
+    }
+
+    /// The refresh rate of the screen the window is on, in hertz, such as 60, 120 or 144; `None`
+    /// when the system does not say.
+    pub fn refresh_rate(&self) -> Option<f32> {
+        let millihertz = unsafe { ng_platform_window_refresh_rate(self.handle) };
+        (millihertz > 0).then(|| millihertz as f32 / 1000.0)
+    }
+
+    /// Asks the user to look at the window while it is in the background: Windows flashes its
+    /// taskbar entry, macOS bounces the dock icon, Linux marks it urgent. `critical` keeps at it
+    /// until the window comes to the front. Nothing happens while it is in front already.
+    pub fn request_attention(&self, critical: bool) -> AureaResult<()> {
+        ui_thread::check("Window::request_attention");
+        let result =
+            unsafe { ng_platform_window_request_attention(self.handle, i32::from(critical)) };
+        op_result("Window::request_attention", result)
+    }
+
+    /// Where the window sits, for [`Window::set_placement`] on the next start. On macOS and Linux
+    /// the rect of a maximized window is its maximized one until it has been restored once.
+    pub fn placement(&self) -> AureaResult<WindowPlacement> {
+        let mut rect = [0; 4];
+        let state = unsafe { ng_platform_window_get_placement(self.handle, rect.as_mut_ptr()) };
+        op_result("Window::placement", state)?;
+        let [x, y, width, height] = rect;
+        Ok(WindowPlacement {
+            x,
+            y,
+            width,
+            height,
+            maximized: state & 1 != 0,
+            minimized: state & 2 != 0,
+        })
+    }
+
+    /// Puts the window where `placement` says, moved onto a screen if that one is gone, and
+    /// maximizes it when it was. A hidden window stays hidden until [`Window::show`].
+    pub fn set_placement(&self, placement: &WindowPlacement) -> AureaResult<()> {
+        ui_thread::check("Window::set_placement");
+        let rect = [placement.x, placement.y, placement.width, placement.height];
+        let maximized = i32::from(placement.maximized);
+        let result =
+            unsafe { ng_platform_window_set_placement(self.handle, rect.as_ptr(), maximized) };
+        op_result("Window::set_placement", result)
+    }
+
     /// Set cursor visibility for this window.
     pub fn set_cursor_visible(&self, visible: bool) -> AureaResult<()> {
         ui_thread::check("Window::set_cursor_visible");
@@ -949,6 +1022,17 @@ impl Drop for Window {
     }
 }
 
+fn op_result(operation: &'static str, code: i32) -> AureaResult<()> {
+    match code {
+        0.. => Ok(()),
+        NG_ERROR_UNSUPPORTED => Err(AureaError::Unsupported {
+            operation,
+            platform: Platform::current(),
+        }),
+        _ => Err(AureaError::ElementOperationFailed),
+    }
+}
+
 #[cfg(test)]
 mod event_queue_tests {
     use super::*;
@@ -1052,6 +1136,7 @@ mod event_queue_tests {
             y: 20.0,
             click_count: 1,
             time: Default::default(),
+            pointer: PointerKind::Mouse,
         });
         let out = queue.pop_all();
         assert_eq!(out.len(), 1);
@@ -1706,6 +1791,182 @@ mod win32_shortcuts_tests {
     }
 }
 #[cfg(all(test, windows))]
+mod win32_occlusion_tests {
+    use crate::{AureaResult, Occlusion, Window, WindowEvent};
+    use std::os::raw::{c_int, c_void};
+    use std::process::{Child, Command, Stdio};
+    use std::ptr::null_mut;
+    use std::thread::sleep;
+    use std::time::Duration;
+
+    const SW_MINIMIZE: c_int = 6;
+    const SW_RESTORE: c_int = 9;
+    const SWP_NOSIZE: u32 = 0x0001;
+    const SWP_NOMOVE: u32 = 0x0002;
+    const SWP_NOZORDER: u32 = 0x0004;
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn ShowWindow(hwnd: *mut c_void, cmd: c_int) -> i32;
+        fn SetWindowPos(
+            hwnd: *mut c_void,
+            after: *mut c_void,
+            x: i32,
+            y: i32,
+            w: i32,
+            h: i32,
+            flags: u32,
+        ) -> i32;
+    }
+
+    unsafe extern "C" {
+        fn ng_windows_occlusion_level(visible: i64, total: i64) -> c_int;
+    }
+
+    #[test]
+    fn levels_split_at_a_thousandth() {
+        let level = |visible, total| unsafe { ng_windows_occlusion_level(visible, total) };
+        assert_eq!(level(1000, 1000), 0);
+        assert_eq!(level(999, 1000), 0);
+        assert_eq!(level(998, 1000), 1);
+        assert_eq!(level(2, 1000), 1);
+        assert_eq!(level(1, 1000), 2);
+        assert_eq!(level(0, 0), 0, "an empty window is not hidden");
+    }
+
+    #[repr(C)]
+    struct Rect {
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    }
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetWindowRect(hwnd: *mut c_void, rect: *mut Rect) -> i32;
+    }
+
+    /// Puts `window` above everything else open on the desktop, so the user's windows do not
+    /// cover it.
+    fn on_top(window: &Window) {
+        const HWND_TOPMOST: isize = -1;
+        unsafe {
+            SetWindowPos(
+                window.handle(),
+                HWND_TOPMOST as *mut c_void,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOSIZE | SWP_NOMOVE,
+            )
+        };
+        let _ = window.poll_events();
+    }
+
+    /// A topmost window of another process over `(x, y, w, h)` in screen pixels, until dropped.
+    fn cover(x: i32, y: i32, w: i32, h: i32) -> Child {
+        let script = format!(
+            "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object Windows.Forms.Form;              $f.FormBorderStyle = 'None'; $f.StartPosition = 'Manual'; $f.TopMost = $true;              $f.ShowInTaskbar = $false; $f.Location = New-Object Drawing.Point({x},{y});              $f.Size = New-Object Drawing.Size({w},{h}); $f.ShowDialog()"
+        );
+        Command::new("powershell")
+            .args(["-NoProfile", "-Command", &script])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("powershell")
+    }
+
+    /// Polls until `window` says it changed to `want`, for up to five seconds.
+    fn wait_for(window: &Window, want: Occlusion) -> bool {
+        for _ in 0..100 {
+            let heard = window.poll_events();
+            if heard
+                .iter()
+                .any(|e| matches!(e, WindowEvent::OcclusionChanged(level) if *level == want))
+            {
+                return true;
+            }
+            sleep(Duration::from_millis(50));
+        }
+        false
+    }
+
+    #[test]
+    #[ignore = "creates native windows and a powershell window; run with --ignored"]
+    fn another_apps_window_covers_part_then_all() -> AureaResult<()> {
+        let window = Window::new("covered", 300, 200)?;
+        window.show();
+        let _ = window.poll_events();
+        on_top(&window);
+        let mut r = Rect {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        unsafe { GetWindowRect(window.handle(), &raw mut r) };
+        let (w, h) = (r.right - r.left, r.bottom - r.top);
+
+        let mut half = cover(r.left, r.top, w / 2, h);
+        let partly = wait_for(&window, Occlusion::PartlyCovered);
+        let _ = half.kill();
+        let _ = half.wait();
+        assert!(partly, "half covered");
+
+        let mut all = cover(r.left - 20, r.top - 20, w + 40, h + 40);
+        let covered = wait_for(&window, Occlusion::Covered);
+        let _ = all.kill();
+        let _ = all.wait();
+        assert!(covered, "all covered");
+        assert!(wait_for(&window, Occlusion::Visible), "uncovered again");
+        // this app's own windows cover too: out of the way of the next test.
+        window.hide();
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn minimized_and_off_screen_windows_are_covered() -> AureaResult<()> {
+        let window = Window::new("occlusion", 300, 200)?;
+        window.show();
+        let _ = window.poll_events();
+        on_top(&window);
+        assert_eq!(window.occlusion(), Occlusion::Visible);
+
+        unsafe { ShowWindow(window.handle(), SW_MINIMIZE) };
+        let heard = window.poll_events();
+        assert_eq!(window.occlusion(), Occlusion::Covered);
+        assert!(
+            heard
+                .iter()
+                .any(|e| matches!(e, WindowEvent::OcclusionChanged(Occlusion::Covered))),
+            "{heard:?}"
+        );
+
+        unsafe { ShowWindow(window.handle(), SW_RESTORE) };
+        let _ = window.poll_events();
+        assert_eq!(window.occlusion(), Occlusion::Visible);
+
+        unsafe {
+            SetWindowPos(
+                window.handle(),
+                null_mut(),
+                -20000,
+                -20000,
+                0,
+                0,
+                SWP_NOSIZE | SWP_NOZORDER,
+            )
+        };
+        assert_eq!(window.occlusion(), Occlusion::Covered);
+        window.hide();
+        Ok(())
+    }
+}
+
+#[cfg(all(test, windows))]
 mod win32_wheel_tests {
     use crate::{AureaResult, Window, WindowEvent};
     use std::os::raw::c_void;
@@ -2254,6 +2515,71 @@ mod gtk_ime_tests {
             menu_y > plain_y,
             "menu bar pushes content down: {plain_y} -> {menu_y}"
         );
+        Ok(())
+    }
+}
+
+#[cfg(all(test, windows))]
+mod win32_placement_tests {
+    use super::*;
+    use crate::beep;
+
+    unsafe extern "system" {
+        fn IsZoomed(hwnd: *mut c_void) -> i32;
+        fn ShowWindow(hwnd: *mut c_void, cmd: i32) -> i32;
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn placement_comes_back_and_a_hidden_window_maximizes_when_shown() -> AureaResult<()> {
+        const SW_RESTORE: i32 = 9;
+        let window = Window::new("placed", 300, 200)?;
+        window.hide();
+        let want = WindowPlacement {
+            x: 120,
+            y: 140,
+            width: 420,
+            height: 330,
+            maximized: true,
+            minimized: false,
+        };
+        window.set_placement(&want)?;
+        assert!(!window.is_visible(), "stays hidden");
+        assert_eq!(window.placement()?, want);
+        window.show();
+        let _ = window.poll_events();
+        assert_ne!(unsafe { IsZoomed(window.handle()) }, 0, "maximized on show");
+        assert_eq!(window.placement()?, want, "the restored rect is kept");
+        unsafe { ShowWindow(window.handle(), SW_RESTORE) };
+        let _ = window.poll_events();
+        let restored = window.placement()?;
+        assert!(!restored.maximized);
+        assert_eq!((restored.x, restored.y), (120, 140));
+        assert_eq!((restored.width, restored.height), (420, 330));
+
+        // a monitor that is gone: Windows brings it back on screen
+        window.set_placement(&WindowPlacement {
+            x: -40_000,
+            y: -40_000,
+            maximized: false,
+            ..want
+        })?;
+        let back = window.placement()?;
+        assert!(back.x > -10_000 && back.y > -10_000, "{back:?}");
+        window.hide();
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_window_behind_can_ask_for_attention() -> AureaResult<()> {
+        let window = Window::new("bell", 200, 100)?;
+        window.request_attention(false)?;
+        window.request_attention(true)?;
+        let rate = window.refresh_rate().expect("windows knows its screens");
+        assert!((24.0..1000.0).contains(&rate), "{rate}");
+        beep();
+        window.hide();
         Ok(())
     }
 }

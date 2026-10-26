@@ -10,6 +10,8 @@ val rustAbis = mapOf(
     "x86_64" to "x86_64-linux-android",
 )
 val androidMinApi = 24
+// `-Paurea.gpu=true` builds with the `zengpu` feature: Vulkan drawing, the CPU when it can't start.
+val cargoFeatures = if (findProperty("aurea.gpu") == "true") "mobile,zengpu" else "mobile"
 
 android {
     namespace = "com.aurea.smoke"
@@ -48,6 +50,7 @@ abstract class CargoBuild @Inject constructor(private val exec: ExecOperations) 
     @get:Internal abstract val outDir: DirectoryProperty
     @get:Internal abstract val abis: MapProperty<String, String>
     @get:Internal abstract val minApi: Property<Int>
+    @get:Internal abstract val features: Property<String>
 
     @TaskAction
     fun build() {
@@ -67,7 +70,7 @@ abstract class CargoBuild @Inject constructor(private val exec: ExecOperations) 
                 workingDir = root
                 commandLine(
                     "cargo", "build", "--example", "android_demo", "--release",
-                    "--features", "mobile", "--target", triple,
+                    "--features", features.get(), "--target", triple,
                 )
                 environment("CC_$env", clang)
                 environment("AR_$env", bin.resolve("llvm-ar$exe").path)
@@ -89,6 +92,11 @@ val cargoBuild = tasks.register<CargoBuild>("cargoBuild") {
     outDir.set(layout.buildDirectory.dir("rustJniLibs"))
     abis.set(rustAbis)
     minApi.set(androidMinApi)
+    features.set(cargoFeatures)
+}
+
+dependencies {
+    implementation(project(":aurea"))
 }
 
 tasks.named("preBuild") {

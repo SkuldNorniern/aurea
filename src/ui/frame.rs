@@ -2,8 +2,11 @@
 
 use std::mem;
 use std::rc::Rc;
+use std::time::Instant;
 
-use super::state::{Channel, Fonts, Interaction, Key, Press, Sense, Typed, UiState, WidgetId};
+use super::state::{
+    Channel, Fonts, Interaction, Key, Press, Sense, Typed, UiState, WidgetId, caret_on,
+};
 use super::theme::Theme;
 use crate::AureaResult;
 use crate::render::{Color, DrawingContext, Font, Paint, PaintStyle, Point, Rect, TextMetrics};
@@ -88,6 +91,17 @@ pub struct Eased {
     pub focus: f32,
     /// `1` enabled, faded towards the theme's disabled look when not.
     pub enabled: f32,
+}
+
+/// One thing typed for the widget that has the keyboard; see [`Ui::typed`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TypedInput<'a> {
+    /// A key pressed, with the modifiers held.
+    Key(KeyCode, Modifiers),
+    /// Text to insert.
+    Text(&'a str),
+    /// Text an input method is still composing, and the cursor in it.
+    Preedit(&'a str, Option<usize>),
 }
 
 /// A press that landed on a widget this frame.
@@ -208,10 +222,31 @@ impl<Id: WidgetId> Ui<'_, Id> {
         self.ease(Key::new(id, part), channel, target, rate)
     }
 
+    /// Like [`Ui::animate`], but a tween read for the first time, or again after it was forgotten
+    /// for not being read in a frame, starts at `start` and eases towards `target` from there.
+    pub fn animate_from(
+        &mut self,
+        id: Id,
+        part: u16,
+        channel: Channel,
+        start: f32,
+        target: f32,
+        rate: f32,
+    ) -> f32 {
+        self.state
+            .tweens
+            .from_to((Key::new(id, part), channel), start, target, rate)
+    }
+
     /// Puts `channel` of that part at `value` now, for something the user drags, which should
     /// follow the pointer exactly.
     pub fn set_animated(&mut self, id: Id, part: u16, channel: Channel, value: f32) {
         self.state.tweens.set((Key::new(id, part), channel), value);
+    }
+
+    /// Where `channel` of that part is now, if it is animating; reading it does not keep it.
+    pub fn animated(&self, id: Id, part: u16, channel: Channel) -> Option<f32> {
+        self.state.tweens.get((Key::new(id, part), channel))
     }
 
     pub(crate) fn ease(&mut self, key: Key<Id>, channel: Channel, target: f32, rate: f32) -> f32 {
@@ -232,17 +267,34 @@ impl<Id: WidgetId> Ui<'_, Id> {
             })
     }
 
-    /// The keys pressed since the last frame, in order, for the widget that has the keyboard.
-    pub fn keys(&self) -> impl Iterator<Item = (KeyCode, Modifiers)> + '_ {
+    /// What was typed since the last frame for the widget that has the keyboard, in order: keys,
+    /// text, and what an input method is still composing. A widget gets text and composing text
+    /// when it senses [`Sense::Text`] or [`Sense::Typing`].
+    pub fn typed(&self) -> impl Iterator<Item = TypedInput<'_>> + '_ {
         self.state
             .typed
             .iter()
             .zip(&self.state.typed_targets)
-            .filter_map(|(typed, target)| match typed {
-                _ if *target != self.state.focus => None,
-                Typed::Key(key, mods) => Some((*key, *mods)),
-                _ => None,
+            .filter(|(_, target)| **target == self.state.focus)
+            .map(|(typed, _)| match typed {
+                Typed::Key(key, mods) => TypedInput::Key(*key, *mods),
+                Typed::Text(text) => TypedInput::Text(text),
+                Typed::Preedit(text, cursor) => TypedInput::Preedit(text, *cursor),
             })
+    }
+
+    /// Where the caret of a widget being typed into is, so an input method's window opens next to
+    /// it; aurea's own fields set it themselves. Pass it on with [`UiState::sync_window`].
+    pub fn set_ime_area(&mut self, area: Rect) {
+        self.state.ime_area = Some(area);
+    }
+
+    /// The keys pressed since the last frame, in order, for the widget that has the keyboard.
+    pub fn keys(&self) -> impl Iterator<Item = (KeyCode, Modifiers)> + '_ {
+        self.typed().filter_map(|typed| match typed {
+            TypedInput::Key(key, mods) => Some((key, mods)),
+            _ => None,
+        })
     }
 
     /// Notes that a widget's value changed, so the frame after shows it everywhere it is drawn.
@@ -340,13 +392,33 @@ impl<Id: WidgetId> Ui<'_, Id> {
         self.state.tweens.keep_busy();
     }
 
-    /// Shows `text` under `response`'s rect while the pointer rests on it.
+    /// Whether a blinking caret shows now, so custom editors blink with the built-in fields.
+    pub fn caret_on(&self) -> bool {
+        caret_on(self.theme.caret_blink, self.state.blink_from.elapsed())
+    }
+
+    /// Shows the caret solid again, for after the app moves its caret.
+    pub fn restart_blink(&mut self) {
+        self.state.blink_from = Instant::now();
+    }
+
+    /// Shows `text` under `response`'s rect while the pointer rests on it, after a short delay.
     pub fn tooltip(&mut self, response: &Response, text: &str) {
         if response.hovered && !response.held {
-            self.state.tip.anchor = Some(response.rect);
-            self.state.tip.text.clear();
-            self.state.tip.text.push_str(text);
+            self.show_tip(response.rect, text);
         }
+    }
+
+    /// Shows `text` next to `at`, such as under a squiggle the app found the pointer resting on,
+    /// after the same delay; call it each frame it should stay.
+    pub fn tooltip_at(&mut self, at: Point, text: &str) {
+        self.show_tip(Rect::new(at.x, at.y, 0.0, 0.0), text);
+    }
+
+    fn show_tip(&mut self, anchor: Rect, text: &str) {
+        self.state.tip.anchor = Some(anchor);
+        self.state.tip.text.clear();
+        self.state.tip.text.push_str(text);
     }
 
     /// The theme's fonts, made once per theme.
@@ -639,5 +711,25 @@ fn estimate(text: &str, font: &Font) -> TextMetrics {
         ascent: font.size * 0.8,
         descent: font.size * 0.2,
         advance: width,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::render::{CpuRasterizer, Renderer};
+    use std::time::Duration;
+
+    #[test]
+    fn restarting_the_blink_shows_the_caret() {
+        let mut raster = CpuRasterizer::new(40, 40);
+        let mut state = UiState::<u8>::new();
+        let theme = Theme::dark();
+        let mut ctx = raster.begin_frame().expect("frame");
+        let mut ui = state.frame(&mut *ctx, &theme);
+        ui.state.blink_from = Instant::now() - Duration::from_millis(800);
+        assert!(!ui.caret_on());
+        ui.restart_blink();
+        assert!(ui.caret_on());
     }
 }

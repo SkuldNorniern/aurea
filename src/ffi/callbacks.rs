@@ -16,8 +16,8 @@ use crate::registry::menu::invoke_menu_callback;
 use crate::registry::window::{push_event_to_all_windows, scale_factor_changed};
 use crate::render::notify_canvas_destroyed;
 use crate::window::{
-    KeyCode, Modifiers, MouseButton, MouseButtons, PenPhase, PenSample, PenTool, WindowEvent,
-    push_window_event,
+    KeyCode, Modifiers, MouseButton, MouseButtons, PenPhase, PenSample, PenTool, PointerKind,
+    WindowEvent, push_window_event,
 };
 use aurea_runtime::FrameScheduler;
 
@@ -169,6 +169,7 @@ pub extern "C" fn ng_invoke_mouse_button(
             click_count: u8::try_from(click_count.clamp(1, c_int::from(u8::MAX)))
                 .expect("clamped to u8 range"),
             time: event_time(0.0),
+            pointer: PointerKind::from_bits(modifiers),
         };
         push_window_event(window, event);
     });
@@ -191,6 +192,7 @@ pub extern "C" fn ng_invoke_mouse_move(
             buttons: MouseButtons::from_bits(buttons),
             modifiers: Modifiers::from_bits(modifiers),
             time: event_time(0.0),
+            pointer: PointerKind::from_bits(modifiers),
         };
         push_window_event(window, event);
     });

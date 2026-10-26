@@ -85,6 +85,13 @@ void ng_ios_set_text_area(float x, float y, float width, float height);
 /* How many points of the view the on-screen keyboard covers from the bottom, 0 when it is down. */
 float ng_ios_keyboard_height(void);
 
+/* The screen's top refresh rate in hertz. */
+float ng_ios_refresh_rate(void);
+
+/* Asks for the screen's top rate while `high`, as for a live pencil stroke; the system's own
+ * pacing otherwise. */
+void ng_ios_set_high_frame_rate(int high);
+
 /* Hears the files a document picker chose: NUL-terminated paths ended by an empty one, none when
    the user cancelled. On the main thread, once. */
 typedef void (*NGIosPicked)(void* ctx, const char* paths);
