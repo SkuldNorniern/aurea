@@ -19,6 +19,7 @@ const SHOWN: Channel = Channel::Custom(0xE001);
 const OFFSET: Channel = Channel::Custom(0xE002);
 const SHOWN_X: Channel = Channel::Custom(0xE004);
 const OFFSET_X: Channel = Channel::Custom(0xE005);
+const PULL: Channel = Channel::Custom(0xE008);
 const LINGER: f32 = 0.9;
 
 /// How an area's bar looks and how far the wheel moves it.
@@ -167,9 +168,10 @@ impl<'v> ScrollArea<'v> {
     }
 
     /// Draws `body` clipped to the area, then routes unused wheel movement. `body` gets the
-    /// content's rect, moved by the offsets, and the view.
+    /// content's rect, moved by the offsets, and the view. A drag that began inside pulls the
+    /// area while the pointer is past an edge.
     pub fn show<Id: WidgetId, R>(
-        self,
+        mut self,
         ui: &mut Ui<'_, Id>,
         id: Id,
         rect: Rect,
@@ -179,11 +181,17 @@ impl<'v> ScrollArea<'v> {
         let input = ui.interact(id, 0, rect, Sense::Hover, true);
         let over = ui.pointer().is_some_and(|at| rect.contains(at));
         let ease = style.smooth && !self.jump;
+        let (pull_y, pull_x) = pull(ui, id, rect, self.sideways.is_some());
         let down = Axis::DOWN;
-        let mut y = down.begin(ui, id, rect, self.content, self.offset, ease);
+        let pulled_y = down.pulled(rect, self.content, self.offset, pull_y);
+        let mut y = down.begin(ui, id, rect, self.content, self.offset, ease && !pulled_y);
+        let pulled_x = match &mut self.sideways {
+            Some((offset, width)) => Axis::ACROSS.pulled(rect, *width, offset, pull_x),
+            None => false,
+        };
         let (mut x, width) = match self.sideways {
             Some((offset, width)) => {
-                let x = Axis::ACROSS.begin(ui, id, rect, width, offset, ease);
+                let x = Axis::ACROSS.begin(ui, id, rect, width, offset, ease && !pulled_x);
                 (Some((x, offset)), width.max(rect.width))
             }
             None => (None, rect.width),
@@ -208,12 +216,15 @@ impl<'v> ScrollArea<'v> {
             }
         }
         y.end(ui, id, rect, self.content, over, style)?;
-        let mut changed = y.moved;
+        let mut changed = y.moved || pulled_y;
         let mut held = y.dragged;
         if let Some((x, _)) = &x {
             x.end(ui, id, rect, width, over, style)?;
-            changed |= x.moved;
+            changed |= x.moved || pulled_x;
             held |= x.dragged;
+        }
+        if pulled_y || pulled_x {
+            ui.keep_animating();
         }
         let mut response = Response::new(rect, input);
         response.changed = changed;
@@ -317,6 +328,18 @@ impl Axis {
         true
     }
 
+    /// Moves `offset` by `pull` and clamps it to the room. True when it moved.
+    fn pulled(self, rect: Rect, content: f32, offset: &mut f32, pull: f32) -> bool {
+        if pull == 0.0 {
+            return false;
+        }
+        let (view, _) = self.span(rect);
+        let room = (content - view).max(0.0);
+        let before = *offset;
+        *offset = (before + pull).clamp(0.0, room);
+        (*offset - before).abs() > f32::EPSILON
+    }
+
     /// The strip the thumb runs in, which takes the pointer.
     fn track(self, rect: Rect) -> Rect {
         if self.vertical {
@@ -335,6 +358,46 @@ impl Axis {
                 at.y > rect.bottom() - 24.0
             }
         })
+    }
+}
+
+/// How far a drag that began inside `rect` pulls the area this frame, down and across (across
+/// only when `sideways`). Nothing unless the pointer is past an edge.
+fn pull<Id: WidgetId>(ui: &mut Ui<'_, Id>, id: Id, rect: Rect, sideways: bool) -> (f32, f32) {
+    if ui.state.active.is_none() {
+        return (0.0, 0.0);
+    }
+    // The flag lapses unless set each frame, so it is kept while the drag is held.
+    let press_inside = ui.state.press.is_some_and(|press| {
+        rect.contains(press.at)
+            && press.key != Key::new(id, THUMB_PART)
+            && press.key != Key::new(id, THUMB_X_PART)
+    });
+    if !press_inside && ui.animated(id, 0, PULL).is_none() {
+        return (0.0, 0.0);
+    }
+    ui.set_animated(id, 0, PULL, 1.0);
+    let Some(at) = ui.pointer() else {
+        return (0.0, 0.0);
+    };
+    let down = edge_pull(at.y, rect.y, rect.bottom(), rect.height);
+    let across = if sideways {
+        edge_pull(at.x, rect.x, rect.right(), rect.width)
+    } else {
+        0.0
+    };
+    (down, across)
+}
+
+/// A quarter of how far `at` is past `start` or `end`, at most half a view `view` long.
+fn edge_pull(at: f32, start: f32, end: f32, view: f32) -> f32 {
+    let limit = view * 0.5;
+    if at < start {
+        -((start - at) * 0.25).min(limit)
+    } else if at > end {
+        ((at - end) * 0.25).min(limit)
+    } else {
+        0.0
     }
 }
 
@@ -1054,6 +1117,72 @@ mod tests {
             "within a view of the target: {shown}"
         );
         assert!(shown < 5000.0, "the rest still eases");
+    }
+
+    #[test]
+    fn a_drag_from_inside_pulls_past_the_edge_until_let_go() {
+        let mut raster = CpuRasterizer::new(120, 160);
+        let mut state = UiState::<u8>::new();
+        let theme = Theme::dark();
+        let mut frame = |state: &mut UiState<u8>, offset: &mut f32| {
+            let mut ctx = raster.begin_frame().expect("frame");
+            {
+                let mut ui = state.frame(&mut *ctx, &theme);
+                let style = ScrollStyle {
+                    smooth: false,
+                    ..ScrollStyle::new(&theme)
+                };
+                ScrollArea::new(offset, CONTENT)
+                    .style(style)
+                    .show(&mut ui, 1, VIEW, |ui, content, _| {
+                        let at = Rect::new(content.x, content.y + 40.0, 80.0, 20.0);
+                        ui.interact(3, 0, at, Sense::Click, true);
+                        Ok(())
+                    })
+                    .expect("area");
+            }
+            drop(ctx);
+            raster.end_frame().expect("end");
+        };
+        let event = |state: &mut UiState<u8>, e: WindowEvent| state.handle(&e);
+        let pointer = |at: (f64, f64), buttons: u32| WindowEvent::MouseMove {
+            x: at.0,
+            y: at.1,
+            buttons: MouseButtons::from_bits(buttons),
+            modifiers: Modifiers::default(),
+            pointer: PointerKind::Mouse,
+            time: Default::default(),
+        };
+        let button = |at: (f64, f64), pressed: bool| WindowEvent::MouseButton {
+            button: MouseButton::Left,
+            pressed,
+            modifiers: Modifiers::default(),
+            x: at.0,
+            y: at.1,
+            click_count: 1,
+            pointer: PointerKind::Mouse,
+            time: Default::default(),
+        };
+        let mut offset = 0.0_f32;
+        event(&mut state, pointer((50.0, 50.0), 0));
+        frame(&mut state, &mut offset);
+        event(&mut state, button((50.0, 50.0), true));
+        frame(&mut state, &mut offset);
+        assert_eq!(offset, 0.0, "a press alone does not pull");
+
+        // held 40 px below the area: a quarter of that a frame
+        event(&mut state, pointer((50.0, 140.0), 1));
+        frame(&mut state, &mut offset);
+        assert_eq!(offset, 10.0);
+        frame(&mut state, &mut offset);
+        frame(&mut state, &mut offset);
+        assert_eq!(offset, 30.0, "keeps pulling while held");
+
+        event(&mut state, button((50.0, 140.0), false));
+        frame(&mut state, &mut offset);
+        let released = offset;
+        frame(&mut state, &mut offset);
+        assert_eq!(offset, released, "let go, no more pull");
     }
 
     #[test]
