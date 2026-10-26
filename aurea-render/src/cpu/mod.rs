@@ -1,5 +1,7 @@
 //! CPU raster backend with damage-aware display-list rendering.
 
+mod bands;
+mod counters;
 mod damage;
 pub mod raster;
 pub mod rasterizer;
@@ -13,6 +15,7 @@ pub use crate::recording::{
 };
 pub use crate::scene::hit_test::{self, *};
 pub use clip::ClipBox;
+pub use counters::{CommandKind, FrameCounters, KindTiming};
 pub use path::*;
 pub use rasterizer::*;
 

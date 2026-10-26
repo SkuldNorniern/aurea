@@ -5,15 +5,16 @@ use std::mem::{self, size_of_val};
 use std::slice::from_raw_parts;
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
+use crate::cpu::bands::{BAND_MIN_PIXELS, BandScratch, FramePlan, MAX_BANDS, draw_bands};
 use crate::cpu::blend::{ConstSrc, LinearLuts, blend_pixel};
 use crate::cpu::clip::ClipBox;
+use crate::cpu::counters::{FrameCounters, Tally};
 #[cfg(test)]
 use crate::cpu::damage::*;
 use crate::cpu::damage::{
-    FrameDamage, is_known_bounds, mark_occluded, resolve_frame_damage, should_render_item,
-    uncovered_runs, union_rect,
+    FrameDamage, is_known_bounds, mark_occluded, resolve_frame_damage, union_rect,
 };
 use crate::cpu::raster::band::Band;
 use crate::cpu::raster::fill::{self, PathScratch};
@@ -54,140 +55,6 @@ fn item_hash(item: &DisplayItem) -> u64 {
     h.finish()
 }
 
-/// Command kinds that [`FrameCounters`] times apart.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CommandKind {
-    Clear,
-    Rect,
-    RoundRect,
-    Circle,
-    Path,
-    /// Text and glyph masks.
-    Glyphs,
-    /// Image draws.
-    Image,
-    Gradient,
-    Shadow,
-    /// Textures and anything else.
-    Other,
-}
-
-impl CommandKind {
-    /// Number of kinds: the length of [`FrameCounters::kinds`].
-    pub const COUNT: usize = Self::Other as usize + 1;
-
-    fn of(command: &DrawCommand) -> Self {
-        match command {
-            DrawCommand::Clear(_) => Self::Clear,
-            DrawCommand::DrawRect(..) => Self::Rect,
-            DrawCommand::DrawRoundRect(..) => Self::RoundRect,
-            DrawCommand::DrawCircle(..) => Self::Circle,
-            DrawCommand::DrawPath(..) => Self::Path,
-            DrawCommand::DrawText(..)
-            | DrawCommand::DrawTextWithFont(..)
-            | DrawCommand::DrawGlyphMask(..) => Self::Glyphs,
-            DrawCommand::DrawImageRect(..)
-            | DrawCommand::DrawImageRegion(..)
-            | DrawCommand::DrawImageQuad(..) => Self::Image,
-            DrawCommand::FillLinearGradient(..) | DrawCommand::FillRadialGradient(..) => {
-                Self::Gradient
-            }
-            DrawCommand::DrawShadow(..) => Self::Shadow,
-            DrawCommand::DrawTexture(..) | DrawCommand::DrawTextureQuad(..) => Self::Other,
-        }
-    }
-}
-
-/// Runs and time of one [`CommandKind`] in a frame.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct KindTiming {
-    /// Commands of this kind run.
-    pub count: usize,
-    /// Time spent running them.
-    pub time: Duration,
-}
-
-/// What `CpuRasterizer::end_frame` did, when counting is on.
-///
-/// Every item is in exactly one of `drawn`, `hidden` or `skipped_clean`.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct FrameCounters {
-    /// Items in the display list.
-    pub items: usize,
-    /// Items run.
-    pub drawn: usize,
-    /// Items not run because no tile they cover is dirty.
-    pub skipped_clean: usize,
-    /// Items not run because opaque draws above them cover them.
-    pub hidden: usize,
-    /// Dirty tiles this frame.
-    pub dirty_tiles: usize,
-    /// Per [`CommandKind`], indexed by `kind as usize`. Time covers the runs only.
-    pub kinds: [KindTiming; CommandKind::COUNT],
-    /// Wall time of the whole `end_frame` call.
-    pub total: Duration,
-}
-
-impl FrameCounters {
-    fn record(&mut self, kind: CommandKind, started: Option<Instant>) {
-        self.drawn += 1;
-        let timing = &mut self.kinds[kind as usize];
-        timing.count += 1;
-        if let Some(t) = started {
-            timing.time += t.elapsed();
-        }
-    }
-}
-
-/// The frame's counters, or nothing when counting is off. Keeps the per-item branches out of
-/// `render_frame`.
-struct Tally<'a>(Option<&'a mut FrameCounters>);
-
-impl Tally<'_> {
-    /// The time a run starts at; `None` when counting is off, so no clock is read.
-    fn start(&self) -> Option<Instant> {
-        self.0.is_some().then(Instant::now)
-    }
-
-    fn set_items(&mut self, items: usize) {
-        if let Some(c) = &mut self.0 {
-            c.items = items;
-        }
-    }
-
-    fn set_dirty_tiles(&mut self, dirty: &[bool]) {
-        if let Some(c) = &mut self.0 {
-            c.dirty_tiles = dirty.iter().filter(|d| **d).count();
-        }
-    }
-
-    /// An item not run: hidden if `occluded`, else clean.
-    fn skip(&mut self, occluded: bool) {
-        if let Some(c) = &mut self.0 {
-            if occluded {
-                c.hidden += 1;
-            } else {
-                c.skipped_clean += 1;
-            }
-        }
-    }
-
-    /// A clear: run, or hidden when a later opaque draw covers it.
-    fn clear(&mut self, runs: bool, started: Option<Instant>) {
-        if runs {
-            self.ran(CommandKind::Clear, started);
-        } else {
-            self.skip(true);
-        }
-    }
-
-    fn ran(&mut self, kind: CommandKind, started: Option<Instant>) {
-        if let Some(c) = &mut self.0 {
-            c.record(kind, started);
-        }
-    }
-}
-
 /// CPU software rasterizer drawing into a frame buffer.
 pub struct CpuRasterizer {
     frame_buffer: Vec<u32>,
@@ -215,75 +82,6 @@ pub struct CpuRasterizer {
     band_scratch: Vec<BandScratch>,
     threads: Option<usize>,
     band_min: usize,
-}
-
-/// Damage smaller than this many pixels a band draws on one thread: spawning would cost more.
-const BAND_MIN_PIXELS: usize = 1 << 17;
-/// Most threads a frame draws on.
-const MAX_BANDS: usize = 8;
-
-/// What a band past the first draws with.
-#[derive(Default)]
-struct BandScratch {
-    path: PathScratch,
-    row: ImageScratch,
-}
-
-/// What every band of a frame reads.
-#[derive(Clone, Copy)]
-struct FramePlan<'f> {
-    items: &'f [DisplayItem],
-    occluded: &'f [bool],
-    dirty: &'f [bool],
-    under_clear: &'f [bool],
-    last_clear: Option<usize>,
-    dims: (u32, u32, u32, u32),
-    clip: ClipBox,
-}
-
-impl FramePlan<'_> {
-    /// Draws the items in order into `buf`, inside `self.clip`.
-    fn draw(
-        &self,
-        buf: &mut Band<'_>,
-        scratch_path: &mut PathScratch,
-        scratch_row: &mut ImageScratch,
-        tally: &mut Tally<'_>,
-    ) -> AureaResult<()> {
-        let (tiles_x, tiles_y, bw, bh) = self.dims;
-        for (i, item) in self.items.iter().enumerate() {
-            if let DrawCommand::Clear(color) = &item.command {
-                let started = tally.start();
-                let (color, clip) = (color_to_u32(*color), self.clip.intersect_opt(item.clip));
-                let runs = self.last_clear == Some(i) || !self.occluded[i];
-                if self.last_clear == Some(i) {
-                    uncovered_runs(self.under_clear, self.dims, |run| {
-                        CpuRasterizer::clear_rect(&run, color, buf, bw, clip);
-                    });
-                } else if !self.occluded[i] {
-                    let whole = Rect::new(0.0, 0.0, bw as f32, bh as f32);
-                    CpuRasterizer::clear_rect(&whole, color, buf, bw, clip);
-                }
-                tally.clear(runs, started);
-                continue;
-            }
-            if !should_render_item(item, self.occluded, i, self.dirty, tiles_x, tiles_y) {
-                tally.skip(self.occluded[i]);
-                continue;
-            }
-            let started = tally.start();
-            CpuRasterizer::render_clipped_item(
-                item,
-                buf,
-                scratch_path,
-                scratch_row,
-                bw,
-                self.clip.intersect_opt(item.clip),
-            )?;
-            tally.ran(CommandKind::of(&item.command), started);
-        }
-        Ok(())
-    }
 }
 
 impl CpuRasterizer {
@@ -467,7 +265,7 @@ impl CpuRasterizer {
     }
 
     /// Renders `item`, then keeps only what falls inside its clip paths, antialiased.
-    fn render_clipped_item(
+    pub(super) fn render_clipped_item(
         item: &DisplayItem,
         buf: &mut Band<'_>,
         scratch_path: &mut PathScratch,
@@ -676,7 +474,7 @@ impl CpuRasterizer {
         Ok(())
     }
 
-    fn clear_rect(rect: &Rect, color: u32, buf: &mut Band<'_>, bw: u32, clip: ClipBox) {
+    pub(super) fn clear_rect(rect: &Rect, color: u32, buf: &mut Band<'_>, bw: u32, clip: ClipBox) {
         let x0 = f32_to_u32_clamped(rect.x.floor().clamp(clip.left(), clip.right()));
         let y0 = f32_to_u32_clamped(rect.y.floor().clamp(clip.top(), clip.bottom()));
         let x1 = f32_to_u32_clamped(
@@ -2244,62 +2042,6 @@ impl CpuRasterizer {
     }
 }
 
-/// Draws `plan` as `bands` runs of rows, the first on this thread and the rest on threads of their
-/// own: rows apart touch pixels apart, and each band draws every item in order.
-fn draw_bands(
-    plan: &FramePlan<'_>,
-    bands: usize,
-    frame: &mut [u32],
-    (path, row): (&mut PathScratch, &mut ImageScratch),
-    extra: &mut [BandScratch],
-) -> AureaResult<()> {
-    let (y0, y1) = (plan.clip.y0, plan.clip.y1);
-    let width = plan.dims.2 as usize;
-    let rows = (y1 - y0).div_ceil(u32::try_from(bands).unwrap_or(u32::MAX));
-    let damaged = &mut frame[y0 as usize * width..y1 as usize * width];
-    let mut chunks = damaged.chunks_mut(rows as usize * width).enumerate();
-    let band_of = |k: usize, chunk: &[u32]| {
-        let top = y0 + u32::try_from(k).unwrap_or(u32::MAX) * rows;
-        let height = u32::try_from(chunk.len() / width).unwrap_or(u32::MAX);
-        let plan = FramePlan {
-            clip: ClipBox {
-                y0: top,
-                y1: top + height,
-                ..plan.clip
-            },
-            ..*plan
-        };
-        (plan, top as usize * width)
-    };
-    thread::scope(|scope| {
-        let Some((k, mine)) = chunks.next() else {
-            return Ok(());
-        };
-        let workers: Vec<_> = chunks
-            .zip(extra.iter_mut())
-            .map(|((k, chunk), scratch)| {
-                let (plan, start) = band_of(k, chunk);
-                scope.spawn(move || {
-                    let mut band = Band::new(chunk, start);
-                    plan.draw(
-                        &mut band,
-                        &mut scratch.path,
-                        &mut scratch.row,
-                        &mut Tally(None),
-                    )
-                })
-            })
-            .collect();
-        let (own, start) = band_of(k, mine);
-        let mut drawn = own.draw(&mut Band::new(mine, start), path, row, &mut Tally(None));
-        for worker in workers {
-            let result = worker.join().unwrap_or(Err(AureaError::RenderingFailed));
-            drawn = drawn.and(result);
-        }
-        drawn
-    })
-}
-
 /// Per-circle values shared by every row of a stroked circle.
 struct CircleStrokeCtx {
     clip: ClipBox,
@@ -2324,7 +2066,7 @@ struct CircleFillCtx<'a> {
 }
 
 #[derive(Default)]
-struct ImageScratch {
+pub(super) struct ImageScratch {
     row: Vec<u32>,
     columns: Vec<(i32, f32)>,
     offsets: Vec<usize>,
@@ -2441,7 +2183,7 @@ fn gradient_over(step: &GradientStep, dst: u32, luts: LinearLuts) -> u32 {
     }
 }
 
-fn color_to_u32(c: Color) -> u32 {
+pub(super) fn color_to_u32(c: Color) -> u32 {
     (u32::from(c.a) << 24) | (u32::from(c.r) << 16) | (u32::from(c.g) << 8) | u32::from(c.b)
 }
 
@@ -4740,6 +4482,8 @@ mod gradient_and_scaled_tests {
 #[cfg(test)]
 mod frame_counter_tests {
     use super::*;
+    use crate::cpu::CommandKind;
+    use std::time::Duration;
 
     #[test]
     fn counted_frame_reports_hidden_rect_and_rect_time() {
