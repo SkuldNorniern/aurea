@@ -1451,4 +1451,42 @@ mod tests {
             "one measurement per distinct shaping configuration"
         );
     }
+
+    #[test]
+    #[ignore = "timing; run with --release --ignored --nocapture"]
+    fn timing_pen_samples_with_many_widgets() {
+        use crate::render::{CpuRasterizer, Renderer};
+        use crate::ui::theme::Theme;
+        use crate::window::PenSample;
+        use std::time::Instant;
+        let theme = Theme::dark();
+        let mut raster = CpuRasterizer::new(1600, 1000);
+        let mut state = UiState::<u32>::new();
+        let mut ctx = raster.begin_frame().expect("frame");
+        {
+            let mut ui = state.frame(&mut *ctx, &theme);
+            for i in 0..5000u16 {
+                let (x, y) = (f32::from(i % 100) * 16.0, f32::from(i / 100) * 20.0);
+                ui.interact(u32::from(i), 0, Rect::new(x, y, 14.0, 18.0), Sense::Click, true);
+            }
+        }
+        drop(ctx);
+        let samples: Vec<WindowEvent> = (0..6400u16)
+            .map(|i| {
+                WindowEvent::Pen(PenSample {
+                    x: f64::from(i % 1600),
+                    y: f64::from(i % 997),
+                    pressure: 0.5,
+                    ..PenSample::default()
+                })
+            })
+            .collect();
+        let started = Instant::now();
+        let mut consumed = 0;
+        for event in &samples {
+            consumed += usize::from(state.handle_input(event).consumed);
+        }
+        let per = started.elapsed().as_secs_f64() * 1e9 / samples.len() as f64;
+        println!("handle_input per pen sample: {per:.0} ns ({consumed} consumed)");
+    }
 }
