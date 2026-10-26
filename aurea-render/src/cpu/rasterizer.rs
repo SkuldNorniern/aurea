@@ -1605,16 +1605,93 @@ impl CpuRasterizer {
             return;
         }
 
-        let dt_x = dx / len_sq;
-        let luts = LinearLuts::get();
-        let steps = (mode == BlendMode::Normal).then(|| gradient_steps(&lut, luts));
+        let ramp = LinearRamp {
+            start,
+            dx,
+            dy,
+            len_sq,
+        };
+        let (cols, rows) = ((x0, x1), (y0, y1));
+        match mode {
+            BlendMode::Normal if dx == 0.0 => {
+                Self::fill_vertical_ramp(&ramp, &lut, cols, rows, bw, buf);
+            }
+            BlendMode::Normal if dy == 0.0 => {
+                Self::fill_horizontal_ramp(&ramp, &lut, cols, rows, bw, buf);
+            }
+            _ => Self::fill_linear_general(&ramp, &lut, cols, rows, mode, bw, buf),
+        }
+    }
 
-        for cy in y0..y1 {
+    /// Vertical ramp: `t` is the same across a row, so each row is one span of one step.
+    fn fill_vertical_ramp(
+        ramp: &LinearRamp,
+        lut: &[u32; 256],
+        cols: (i32, i32),
+        rows: (i32, i32),
+        bw: u32,
+        buf: &mut Band<'_>,
+    ) {
+        let luts = LinearLuts::get();
+        let steps = gradient_steps(lut, luts);
+        let (x0, x1) = cols;
+        for cy in rows.0..rows.1 {
             let row = (cy.unsigned_abs() * bw) as usize;
-            let mut t =
-                ((x0 as f32 + 0.5 - start.x) * dx + (cy as f32 + 0.5 - start.y) * dy) / len_sq;
-            for cx in x0..x1 {
-                let t_idx = f32_to_usize_clamped((t.clamp(0.0, 1.0) * 255.0).round());
+            let step = &steps[lut_index(ramp.t_at(x0 as f32, cy as f32))];
+            let from = row + x0.unsigned_abs() as usize;
+            let to = row + x1.unsigned_abs() as usize;
+            gradient_over_span(step, &mut buf[from..to], luts);
+        }
+    }
+
+    /// Horizontal ramp: every row sees the same `t` per column, so the steps are found once.
+    fn fill_horizontal_ramp(
+        ramp: &LinearRamp,
+        lut: &[u32; 256],
+        cols: (i32, i32),
+        rows: (i32, i32),
+        bw: u32,
+        buf: &mut Band<'_>,
+    ) {
+        let luts = LinearLuts::get();
+        let steps = gradient_steps(lut, luts);
+        let (x0, x1) = cols;
+        let dt_x = ramp.dx / ramp.len_sq;
+        let mut t = ramp.t_at(x0 as f32, rows.0 as f32);
+        let indices: Vec<usize> = (x0..x1)
+            .map(|_| {
+                let idx = lut_index(t);
+                t += dt_x;
+                idx
+            })
+            .collect();
+        for cy in rows.0..rows.1 {
+            let row = (cy.unsigned_abs() * bw) as usize;
+            let from = row + x0.unsigned_abs() as usize;
+            for (px, &idx) in buf[from..from + indices.len()].iter_mut().zip(&indices) {
+                *px = gradient_over(&steps[idx], *px, luts);
+            }
+        }
+    }
+
+    /// Any linear ramp, or any blend mode other than Normal.
+    fn fill_linear_general(
+        ramp: &LinearRamp,
+        lut: &[u32; 256],
+        cols: (i32, i32),
+        rows: (i32, i32),
+        mode: BlendMode,
+        bw: u32,
+        buf: &mut Band<'_>,
+    ) {
+        let luts = LinearLuts::get();
+        let steps = (mode == BlendMode::Normal).then(|| gradient_steps(lut, luts));
+        let dt_x = ramp.dx / ramp.len_sq;
+        for cy in rows.0..rows.1 {
+            let row = (cy.unsigned_abs() * bw) as usize;
+            let mut t = ramp.t_at(cols.0 as f32, cy as f32);
+            for cx in cols.0..cols.1 {
+                let t_idx = lut_index(t);
                 let idx = row + cx.unsigned_abs() as usize;
                 buf[idx] = match &steps {
                     Some(steps) => gradient_over(&steps[t_idx], buf[idx], luts),
@@ -2197,6 +2274,48 @@ fn gradient_over(step: &GradientStep, dst: u32, luts: LinearLuts) -> u32 {
                 | luts.mix(b, db, alpha)
         }
         _ => blend_pixel(step.color, dst, BlendMode::Normal),
+    }
+}
+
+/// A linear gradient's axis in pixel space, as `fill_linear_gradient` uses it.
+struct LinearRamp {
+    start: Point,
+    dx: f32,
+    dy: f32,
+    len_sq: f32,
+}
+
+impl LinearRamp {
+    /// Position along the ramp at the pixel whose top-left corner is `(cx, cy)`.
+    fn t_at(&self, cx: f32, cy: f32) -> f32 {
+        ((cx + 0.5 - self.start.x) * self.dx + (cy + 0.5 - self.start.y) * self.dy) / self.len_sq
+    }
+}
+
+/// The LUT entry for position `t`.
+#[inline]
+fn lut_index(t: f32) -> usize {
+    f32_to_usize_clamped((t.clamp(0.0, 1.0) * 255.0).round())
+}
+
+/// [`gradient_over`] of one step across a run of pixels. A repeated destination pixel reuses the
+/// last result.
+#[inline]
+fn gradient_over_span(step: &GradientStep, pixels: &mut [u32], luts: LinearLuts) {
+    if step.alpha == 255 {
+        pixels.fill(step.color);
+        return;
+    }
+    let Some(&first) = pixels.first() else {
+        return;
+    };
+    let (mut last_dst, mut last_out) = (first, gradient_over(step, first, luts));
+    for p in pixels {
+        if *p != last_dst {
+            last_dst = *p;
+            last_out = gradient_over(step, last_dst, luts);
+        }
+        *p = last_out;
     }
 }
 
@@ -4221,10 +4340,16 @@ mod gradient_and_scaled_tests {
             Rect::new(0.0, 0.0, W as f32, H as f32),
             Rect::new(1.5, 2.25, 33.5, 20.5),
             Rect::new(4.0, 1.0, 20.0, 25.0),
+            Rect::new(-4.0, -3.0, 50.0, 40.0),
+            Rect::new(0.5, 0.25, 0.75, 29.5),
+            Rect::new(7.25, 3.5, 2.0, 1.0),
         ];
         let axes = [
             (Point::new(2.0, 0.0), Point::new(30.0, 0.0)),
+            (Point::new(30.0, 7.25), Point::new(2.0, 7.25)),
             (Point::new(0.0, 0.0), Point::new(0.0, H as f32)),
+            (Point::new(11.0, 28.0), Point::new(11.0, 0.0)),
+            (Point::new(7.5, 1.0), Point::new(7.5, 26.5)),
             (Point::new(5.0, 3.0), Point::new(25.0, 22.0)),
         ];
         for stops in stop_sets() {
@@ -4487,6 +4612,60 @@ mod gradient_and_scaled_tests {
                 clip,
             );
         });
+    }
+
+    #[test]
+    #[ignore = "manual axis-aligned gradient timing, reference loop against the fast paths"]
+    fn axis_gradient_timing() {
+        const ITERS: u32 = 20;
+        let cases = [
+            (
+                "horizontal 2000x200",
+                2000u32,
+                200u32,
+                Point::new(2000.0, 0.0),
+            ),
+            ("vertical 200x2000", 200, 2000, Point::new(0.0, 2000.0)),
+        ];
+        for (label, w, h, end) in cases {
+            let grad = LinearGradient {
+                start: Point::new(0.0, 0.0),
+                end,
+                stops: white_to_clear(),
+            };
+            let rect = Rect::new(0.0, 0.0, w as f32, h as f32);
+            let clip = ClipBox::surface(w, h);
+            let mut buf = background(w * h);
+            let per_pixel =
+                |start: Instant| start.elapsed().as_secs_f64() * 1e9 / f64::from(ITERS * w * h);
+
+            let start = Instant::now();
+            for _ in 0..ITERS {
+                reference_linear(
+                    &grad,
+                    rect,
+                    BlendMode::Normal,
+                    black_box(buf.as_mut_slice()),
+                    w,
+                    clip,
+                );
+            }
+            eprintln!("{label} before: {:.2} ns/pixel", per_pixel(start));
+
+            let start = Instant::now();
+            for _ in 0..ITERS {
+                CpuRasterizer::fill_linear_gradient(
+                    black_box(&grad),
+                    rect,
+                    BlendMode::Normal,
+                    black_box(&mut Band::whole(&mut buf)),
+                    w,
+                    clip,
+                );
+            }
+            eprintln!("{label} after: {:.2} ns/pixel", per_pixel(start));
+            black_box(buf);
+        }
     }
 
     #[test]

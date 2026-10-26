@@ -16,6 +16,8 @@ use std::mem::discriminant;
 use std::sync::{Arc, LazyLock};
 
 static TEXT_RENDERER: LazyLock<TextRenderer> = LazyLock::new(TextRenderer::new);
+static DEFAULT_FONT: LazyLock<Font> =
+    LazyLock::new(|| Font::new(DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE));
 const DEFAULT_FONT_FAMILY: &str = "Sans";
 
 /// Measures `text` in `font` at logical size, with the same text engine and caches the CPU renderer
@@ -710,9 +712,9 @@ impl<'list> RecordingContext<'list> {
                 paint.miter_limit.to_bits().hash(&mut hasher);
                 if let Some(dash) = &paint.dash {
                     dash.offset.to_bits().hash(&mut hasher);
+                    (dash.anchored, dash.along_edges).hash(&mut hasher);
                     for length in dash.lengths() {
                         length.to_bits().hash(&mut hasher);
-                    (dash.anchored, dash.along_edges).hash(&mut hasher);
                     }
                 }
             }
@@ -1015,8 +1017,7 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn draw_text(&mut self, text: &str, point: Point, paint: &Paint) -> AureaResult<()> {
-        let font = Font::new(DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE);
-        self.draw_text_with_font(text, point, &font, paint)
+        self.draw_text_with_font(text, point, &DEFAULT_FONT, paint)
     }
 
     fn draw_text_with_font(
