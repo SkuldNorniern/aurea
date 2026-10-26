@@ -4,10 +4,13 @@
 use std::ops::Range;
 
 use super::Widget;
+#[cfg(target_os = "ios")]
+use crate::ios::pointer_is_pencil;
 use crate::render::{Color, Rect};
 use crate::ui::component::FocusRing;
 use crate::ui::frame::{Response, Ui};
 use crate::ui::paint::Component;
+use crate::ui::state::ScrollDrag;
 use crate::ui::state::{Channel, Key, Sense, WidgetId};
 use crate::ui::theme::Theme;
 use crate::window::KeyCode;
@@ -143,10 +146,12 @@ impl<'v> ScrollArea<'v> {
     ) -> AureaResult<(Response, R)> {
         let style = self.style.unwrap_or_else(|| ScrollStyle::new(ui.theme));
         let room = (self.content - rect.height).max(0.0);
+        let start = ui.state.scroll_begin();
         let input = ui.interact(id, 0, rect, Sense::Hover, true);
         let over = ui.pointer().is_some_and(|at| rect.contains(at));
         let before = *self.offset;
-        let dragged = thumb_drag(ui, id, rect, room, self.content, self.offset);
+        let dragged = thumb_drag(ui, id, rect, room, self.content, self.offset)
+            | touch_drag(ui, id, rect, room, self.offset);
         *self.offset = self.offset.clamp(0.0, room);
         let track = rect.split_right(14.0, 0.0).0;
         let mut moved = (*self.offset - before).abs() > f32::EPSILON;
@@ -186,11 +191,65 @@ impl<'v> ScrollArea<'v> {
             (moved || dragged, over),
             style,
         )?;
+        if room > 0.0 {
+            ui.state.scroll_end(Key::new(id, 0), start);
+        }
         let mut response = Response::new(rect, input);
         response.changed = moved;
         response.held = dragged;
         Ok((response, out))
     }
+}
+
+fn touch_drag<Id: WidgetId>(
+    ui: &mut Ui<'_, Id>,
+    id: Id,
+    rect: Rect,
+    room: f32,
+    offset: &mut f32,
+) -> bool {
+    if !ui.state.touch_scrolling || room <= 0.0 || ui.state.popup.is_open() {
+        return false;
+    }
+    #[cfg(target_os = "ios")]
+    if pointer_is_pencil() {
+        return false;
+    }
+    let key = Key::new(id, 0);
+    if ui.state.active == Some(Key::new(id, THUMB_PART)) {
+        return false;
+    }
+    if let Some(at) = ui.state.scroll_origin(key, rect) {
+        ui.state.scroll_drag = Some(ScrollDrag {
+            owner: key,
+            start: at,
+            last: at,
+            dragging: false,
+            seen: true,
+        });
+    }
+    let Some(mut drag) = ui.state.scroll_drag.filter(|d| d.owner == key) else {
+        return false;
+    };
+    drag.seen = true;
+    if let Some(at) = ui.pointer() {
+        let dy = at.y - drag.start.y;
+        if !drag.dragging && dy.abs() > 8.0 && dy.abs() > (at.x - drag.start.x).abs() {
+            drag.dragging = true;
+        }
+        if drag.dragging {
+            *offset = (*offset - (at.y - drag.last.y)).clamp(0.0, room);
+            drag.last = at;
+            ui.mark_changed();
+        }
+    }
+    if drag.dragging {
+        ui.state.active = None;
+        ui.state.press = None;
+        ui.state.clicked.clear();
+    }
+    ui.state.scroll_drag = Some(drag);
+    drag.dragging
 }
 
 fn thumb_drag<Id: WidgetId>(
@@ -371,6 +430,16 @@ impl<'v> ListView<'v> {
         let pointer = ui.pointer();
         let (mut response, clicked) = area.show(ui, id, rect, |ui, content, view| {
             let mut clicked = None;
+            let press = if ui.state.touch_scrolling {
+                ui.state
+                    .clicked
+                    .contains(&Key::new(id, 0))
+                    .then_some(ui.state.click_at)
+                    .flatten()
+                    .map(|at| (at, 1))
+            } else {
+                press.map(|p| (p.at, p.clicks))
+            };
             #[allow(clippy::cast_precision_loss)]
             let width = content.width / columns as f32;
             for r in visible_rows(content, view, height, rows) {
@@ -386,10 +455,10 @@ impl<'v> ListView<'v> {
                         width,
                         height,
                     );
-                    if let Some(press) = press
-                        && at.contains(press.at)
+                    if let Some((point, clicks)) = press
+                        && at.contains(point)
                     {
-                        clicked = Some((i, press.clicks));
+                        clicked = Some((i, clicks));
                     }
                     let state = ListRow {
                         index: i,
@@ -491,6 +560,154 @@ impl<Id: WidgetId> Widget<Id> for ScrollArea<'_> {
 mod tests {
     use super::*;
 
+    struct TouchRig {
+        raster: CpuRasterizer,
+        state: UiState<u8>,
+        offset: f32,
+        clicks: usize,
+        value: f32,
+    }
+
+    impl TouchRig {
+        fn new() -> Self {
+            let mut state = UiState::new();
+            state.touch_scrolling = true;
+            state.set_reduced_motion(true);
+            let mut rig = Self {
+                raster: CpuRasterizer::new(200, 100),
+                state,
+                offset: 0.0,
+                clicks: 0,
+                value: 0.0,
+            };
+            rig.frame();
+            rig
+        }
+
+        fn frame(&mut self) {
+            let theme = Theme::dark();
+            let mut ctx = self.raster.begin_frame().expect("frame");
+            {
+                let mut ui = self.state.frame(&mut *ctx, &theme);
+                ScrollArea::new(&mut self.offset, 500.0)
+                    .show(
+                        &mut ui,
+                        1,
+                        Rect::new(0.0, 0.0, 200.0, 100.0),
+                        |ui, content, _| {
+                            if Button::new("Row")
+                                .show(ui, 2, Rect::new(10.0, content.y + 10.0, 100.0, 30.0))?
+                                .clicked
+                            {
+                                self.clicks += 1;
+                            }
+                            Slider::new(&mut self.value, 0.0..=1.0).show(
+                                ui,
+                                3,
+                                Rect::new(10.0, content.y + 60.0, 100.0, 25.0),
+                            )?;
+                            Ok(())
+                        },
+                    )
+                    .expect("scroll");
+            }
+            drop(ctx);
+            self.raster.end_frame().expect("present");
+        }
+
+        fn button(&mut self, x: f64, y: f64, pressed: bool) {
+            self.state.handle(&WindowEvent::MouseButton {
+                button: MouseButton::Left,
+                pressed,
+                x,
+                y,
+                click_count: 1,
+                modifiers: Modifiers::default(),
+                time: Default::default(),
+            });
+            if !pressed {
+                self.state.handle(&WindowEvent::MouseExited);
+            }
+            self.frame();
+        }
+
+        fn drag(&mut self, x: f64, y: f64) {
+            self.state.handle(&WindowEvent::MouseMove {
+                x,
+                y,
+                buttons: MouseButtons::from_bits(1),
+                modifiers: Modifiers::default(),
+                time: Default::default(),
+            });
+            self.frame();
+        }
+    }
+
+    #[test]
+    fn finger_drag_scrolls_without_clicking_a_row() {
+        let mut rig = TouchRig::new();
+        rig.button(30.0, 25.0, true);
+        rig.drag(30.0, -15.0);
+        assert_eq!(rig.offset, 40.0);
+        rig.button(30.0, -15.0, false);
+        assert_eq!(rig.clicks, 0);
+        assert!(rig.state.scroll_drag.is_none());
+    }
+
+    #[test]
+    fn a_finger_tap_still_clicks_and_sliders_still_adjust() {
+        let mut rig = TouchRig::new();
+        rig.button(30.0, 25.0, true);
+        rig.button(30.0, 25.0, false);
+        assert_eq!(rig.clicks, 1);
+        rig.button(20.0, 72.0, true);
+        rig.drag(90.0, 72.0);
+        rig.button(90.0, 72.0, false);
+        assert!(rig.value > 0.5);
+        assert_eq!(rig.offset, 0.0);
+    }
+
+    #[test]
+    fn mobile_list_drag_does_not_select_a_row() {
+        let mut grid = Grid::new();
+        grid.ui.touch_scrolling = true;
+        grid.frame();
+        grid.ui.handle(&WindowEvent::MouseButton {
+            button: MouseButton::Left,
+            pressed: true,
+            x: 25.0,
+            y: 75.0,
+            click_count: 1,
+            modifiers: Modifiers::default(),
+            time: Default::default(),
+        });
+        grid.frame();
+        assert_eq!(grid.picked, None);
+        grid.ui.handle(&WindowEvent::MouseMove {
+            x: 25.0,
+            y: 15.0,
+            buttons: MouseButtons::from_bits(1),
+            modifiers: Modifiers::default(),
+            time: Default::default(),
+        });
+        grid.frame();
+        assert!(grid.offset > 0.0);
+        grid.ui.handle(&WindowEvent::MouseButton {
+            button: MouseButton::Left,
+            pressed: false,
+            x: 25.0,
+            y: 15.0,
+            click_count: 1,
+            modifiers: Modifiers::default(),
+            time: Default::default(),
+        });
+        grid.ui.handle(&WindowEvent::MouseExited);
+        grid.frame();
+        assert_eq!(grid.picked, None);
+        grid.click(25.0, 15.0, 1);
+        assert!(grid.picked.is_some());
+    }
+
     #[test]
     fn only_rows_in_sight_are_visited() {
         let content = Rect::new(0.0, -95.0, 100.0, 2000.0);
@@ -513,7 +730,7 @@ mod tests {
 
     use crate::Rect;
     use crate::render::{CpuRasterizer, Renderer};
-    use crate::ui::{Button, ListView, ScrollArea, ScrollStyle, Theme, UiState};
+    use crate::ui::{Button, ListView, ScrollArea, ScrollStyle, Slider, Theme, UiState};
     use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, WindowEvent};
 
     struct Grid {
@@ -543,7 +760,8 @@ mod tests {
             let mut ctx = self.raster.begin_frame().expect("frame");
             {
                 let mut ui = self.ui.frame(&mut *ctx, &self.theme);
-                let r = ListView::new(&mut self.offset, 10, ROW)
+                let count = if ui.state.touch_scrolling { 100 } else { 10 };
+                let r = ListView::new(&mut self.offset, count, ROW)
                     .grid(50.0)
                     .selected(&mut self.picked)
                     .show(&mut ui, 1, Rect::new(0.0, 0.0, 200.0, 100.0), |_, _| Ok(()))

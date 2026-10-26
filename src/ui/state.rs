@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::mem;
+use std::ops::Range;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -86,6 +87,15 @@ struct Hit<Id> {
     key: Key<Id>,
     sense: Sense,
     enabled: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ScrollDrag<Id> {
+    pub owner: Key<Id>,
+    pub start: Point,
+    pub last: Point,
+    pub dragging: bool,
+    pub seen: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -178,6 +188,11 @@ pub struct UiState<Id: WidgetId> {
     window_focused: bool,
     pub(crate) modifiers: Modifiers,
     pointer_events: Vec<(usize, Pointer)>,
+    pub(crate) pointer_down: bool,
+    pub(crate) touch_scrolling: bool,
+    pub(crate) scroll_drag: Option<ScrollDrag<Id>>,
+    scroll_hits: HashMap<Key<Id>, Range<usize>>,
+    last_scroll_hits: HashMap<Key<Id>, Range<usize>>,
     pub(crate) typed: Vec<Typed>,
     pub(crate) typed_targets: Vec<Option<Key<Id>>>,
     hits: Vec<Hit<Id>>,
@@ -235,6 +250,11 @@ impl<Id: WidgetId> UiState<Id> {
             window_focused: true,
             modifiers: Modifiers::default(),
             pointer_events: Vec::new(),
+            pointer_down: false,
+            touch_scrolling: cfg!(any(target_os = "ios", target_os = "android")),
+            scroll_drag: None,
+            scroll_hits: HashMap::new(),
+            last_scroll_hits: HashMap::new(),
             typed: Vec::new(),
             typed_targets: Vec::new(),
             hits: Vec::new(),
@@ -368,6 +388,7 @@ impl<Id: WidgetId> UiState<Id> {
                 self.pointer_moved(point(*x, *y))
             }
             WindowEvent::MouseExited => {
+                self.pointer_down = false;
                 self.pointer = None;
                 mem::take(&mut self.hot).is_some()
             }
@@ -381,6 +402,7 @@ impl<Id: WidgetId> UiState<Id> {
                 ..
             } => {
                 let at = point(*x, *y);
+                self.pointer_down = *pressed;
                 self.pointer = Some(at);
                 self.modifiers = *modifiers;
                 self.pointer_events.push((
@@ -423,6 +445,8 @@ impl<Id: WidgetId> UiState<Id> {
                 self.text_input(Typed::Preedit(text.clone(), *cursor))
             }
             WindowEvent::Unfocused => {
+                self.pointer_down = false;
+                self.scroll_drag = None;
                 self.window_focused = false;
                 self.modifiers = Modifiers::default();
                 self.active = None;
@@ -609,6 +633,10 @@ impl<Id: WidgetId> UiState<Id> {
         }
         self.order.clear();
         self.hits.clear();
+        self.scroll_hits.clear();
+        if let Some(drag) = &mut self.scroll_drag {
+            drag.seen = false;
+        }
         self.tweens.frame();
         self.cursor = CursorIcon::Default;
         self.ime_area = None;
@@ -804,6 +832,14 @@ impl<Id: WidgetId> UiState<Id> {
                 self.edit_for = Some(key);
             }
         }
+        if self
+            .scroll_drag
+            .as_ref()
+            .is_some_and(|d| !d.seen || !self.pointer_down)
+        {
+            self.scroll_drag = None;
+        }
+        mem::swap(&mut self.scroll_hits, &mut self.last_scroll_hits);
         self.forget_old_edits();
         mem::swap(&mut self.hits, &mut self.last_hits);
         mem::swap(&mut self.order, &mut self.last_order);
@@ -827,6 +863,39 @@ impl<Id: WidgetId> UiState<Id> {
         self.secondary = None;
         self.wheel = (0.0, 0.0);
         self.measures.retain(|_, (_, used)| mem::take(used));
+    }
+
+    pub(crate) fn scroll_begin(&self) -> usize {
+        self.hits.len()
+    }
+
+    pub(crate) fn scroll_end(&mut self, key: Key<Id>, start: usize) {
+        if self.touch_scrolling {
+            self.scroll_hits.insert(key, start..self.hits.len());
+        }
+    }
+
+    pub(crate) fn scroll_origin(&self, key: Key<Id>, rect: Rect) -> Option<Point> {
+        let press = self.press?;
+        if !self.pointer_down || !rect.contains(press.at) || self.popup.is_open() {
+            return None;
+        }
+        let (index, hit) = self
+            .last_hits
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, hit)| hit.enabled && hit.rect.contains(press.at))?;
+        if matches!(hit.sense, Sense::Adjust | Sense::Text) {
+            return None;
+        }
+        let owner = self
+            .last_scroll_hits
+            .iter()
+            .filter(|(_, range)| range.contains(&index))
+            .min_by_key(|(_, range)| range.len())
+            .map(|(owner, _)| *owner);
+        (owner == Some(key)).then_some(press.at)
     }
 
     pub(crate) fn interact(
