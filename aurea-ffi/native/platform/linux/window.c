@@ -22,6 +22,16 @@ static gboolean g_lifecycle_callbacks[256] = {0};
 static GtkWidget* g_lifecycle_windows[256] = {0};
 static int g_lifecycle_callback_count = 0;
 
+/* Tells Rust about `widget`'s lifecycle `code`, if it listens for them. */
+static void ng_linux_lifecycle(GtkWidget* widget, unsigned int code) {
+    for (int i = 0; i < g_lifecycle_callback_count; i++) {
+        if (g_lifecycle_windows[i] == widget) {
+            if (g_lifecycle_callbacks[i]) ng_invoke_lifecycle_callback((void*)widget, code);
+            return;
+        }
+    }
+}
+
 static const char* AUREA_MAIN_VBOX_KEY = "aurea-main-vbox";
 static const char* AUREA_CLOSE_GUARD_KEY = "aurea-close-guard";
 
@@ -57,23 +67,13 @@ static gboolean on_delete_event(GtkWidget* widget, GdkEvent* event, gpointer dat
     (void)event;
     (void)data;
     if (!g_object_get_data(G_OBJECT(widget), AUREA_CLOSE_GUARD_KEY)) return FALSE;
-    for (int i = 0; i < g_lifecycle_callback_count; i++) {
-        if (g_lifecycle_windows[i] == widget && g_lifecycle_callbacks[i]) {
-            ng_invoke_lifecycle_callback((void*)widget, 5);
-            break;
-        }
-    }
+    ng_linux_lifecycle(widget, 5);
     return TRUE;
 }
 
 static void on_window_destroy(GtkWidget* widget, gpointer data) {
     (void)data;
-    for (int i = 0; i < g_lifecycle_callback_count; i++) {
-        if (g_lifecycle_windows[i] == widget && g_lifecycle_callbacks[i]) {
-            ng_invoke_lifecycle_callback((void*)widget, 5);
-            break;
-        }
-    }
+    ng_linux_lifecycle(widget, 5);
     if (gtk_main_level() == 0) return;
 
     GList* toplevels = gtk_window_list_toplevels();
@@ -112,21 +112,11 @@ static gboolean on_window_state_event(GtkWidget* widget, GdkEventWindowState* ev
     (void)user_data;
     if (event->changed_mask & GDK_WINDOW_STATE_ICONIFIED) {
         if (event->new_window_state & GDK_WINDOW_STATE_ICONIFIED) {
-            for (int i = 0; i < g_lifecycle_callback_count; i++) {
-                if (g_lifecycle_windows[i] == widget && g_lifecycle_callbacks[i]) {
-                    ng_invoke_lifecycle_callback((void*)widget, 6);
-                    ng_invoke_lifecycle_callback((void*)widget, 9);
-                    break;
-                }
-            }
+            ng_linux_lifecycle(widget, 6);
+            ng_linux_lifecycle(widget, 9);
         } else {
-            for (int i = 0; i < g_lifecycle_callback_count; i++) {
-                if (g_lifecycle_windows[i] == widget && g_lifecycle_callbacks[i]) {
-                    ng_invoke_lifecycle_callback((void*)widget, 7);
-                    ng_invoke_lifecycle_callback((void*)widget, 10);
-                    break;
-                }
-            }
+            ng_linux_lifecycle(widget, 7);
+            ng_linux_lifecycle(widget, 10);
         }
     }
     return FALSE;
@@ -912,14 +902,8 @@ void ng_linux_window_set_lifecycle_callback(NGHandle window) {
     if (!window) return;
     GtkWidget* widget = (GtkWidget*)window;
     
-    int found = -1;
-    for (int i = 0; i < g_lifecycle_callback_count; i++) {
-        if (g_lifecycle_windows[i] == widget) {
-            found = i;
-            break;
-        }
-    }
-    
+    int found = ng_linux_find_window_index(widget);
+
     if (found >= 0) {
         g_lifecycle_callbacks[found] = TRUE;
     } else if (g_lifecycle_callback_count < 256) {
