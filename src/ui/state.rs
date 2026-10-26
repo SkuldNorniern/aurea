@@ -23,7 +23,9 @@ use super::theme::Theme;
 use super::widget::popup::Popup;
 use crate::reduced_motion;
 use crate::render::{Font, Path, Point, Rect, TextMetrics};
-use crate::window::{CursorIcon, KeyCode, Modifiers, MouseButton, Window, WindowEvent};
+use crate::window::{
+    CursorIcon, KeyCode, Modifiers, MouseButton, PointerKind, Window, WindowEvent,
+};
 
 /// What identifies a widget from one frame to the next: usually an app enum, like `Hit::Save` or
 /// `Hit::Volume`.
@@ -359,6 +361,8 @@ pub struct UiState<Id: WidgetId> {
     pub(crate) accessibility: Option<Box<super::accessibility::Bridge<Id>>>,
     pub(crate) tweens: Tweens<(Key<Id>, Channel)>,
     pointer: Option<Point>,
+    /// Kind of the last pointer event: a mouse, a finger or a pen.
+    pointer_kind: PointerKind,
     window_focused: bool,
     pub(crate) modifiers: Modifiers,
     pointer_events: Vec<(usize, Pointer)>,
@@ -430,6 +434,7 @@ impl<Id: WidgetId> UiState<Id> {
             #[cfg(feature = "accessibility")]
             accessibility: None,
             pointer: None,
+            pointer_kind: PointerKind::Mouse,
             window_focused: true,
             modifiers: Modifiers::default(),
             pointer_events: Vec::new(),
@@ -495,6 +500,11 @@ impl<Id: WidgetId> UiState<Id> {
     /// Takes one window event, in the canvas's coordinates.
     pub fn handle(&mut self, event: &WindowEvent) -> bool {
         self.handle_event(event)
+    }
+
+    /// The kind of the last pointer input handled: a mouse, a finger or a pen.
+    pub fn pointer_kind(&self) -> PointerKind {
+        self.pointer_kind
     }
 
     /// Whether any canvas popup is open, including dropdowns and context menus.
@@ -572,6 +582,13 @@ impl<Id: WidgetId> UiState<Id> {
             && let Some(bridge) = &mut self.accessibility
         {
             bridge.focused(matches!(event, WindowEvent::Focused));
+        }
+        match event {
+            WindowEvent::MouseMove { pointer, .. } | WindowEvent::MouseButton { pointer, .. } => {
+                self.pointer_kind = *pointer;
+            }
+            WindowEvent::Pen(_) => self.pointer_kind = PointerKind::Pen,
+            _ => {}
         }
         match event {
             WindowEvent::MouseMove {
@@ -1329,6 +1346,24 @@ mod tests {
                 })
                 .consumed
         );
+    }
+
+    #[test]
+    fn pointer_kind_follows_the_last_pointer_input() {
+        use crate::ui::rig::{left_button, mouse_move};
+        use crate::window::PenSample;
+        let mut state = UiState::<u8>::new();
+        assert_eq!(state.pointer_kind(), PointerKind::Mouse);
+        let mut press = left_button(10.0, 10.0, true);
+        if let WindowEvent::MouseButton { pointer, .. } = &mut press {
+            *pointer = PointerKind::Touch;
+        }
+        state.handle_input(&press);
+        assert_eq!(state.pointer_kind(), PointerKind::Touch);
+        state.handle_input(&mouse_move(12.0, 10.0, 0));
+        assert_eq!(state.pointer_kind(), PointerKind::Mouse);
+        state.handle_input(&WindowEvent::Pen(PenSample::default()));
+        assert_eq!(state.pointer_kind(), PointerKind::Pen);
     }
 
     #[test]

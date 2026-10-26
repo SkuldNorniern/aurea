@@ -584,7 +584,7 @@ impl Window {
         FrameScheduler::process_frames()
     }
 
-    /// Register an event callback (retained-mode style).
+    /// Adds a listener; every listener runs for each event, in the order added.
     ///
     /// ```rust,no_run
     /// use aurea::Window;

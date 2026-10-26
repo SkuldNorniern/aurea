@@ -10,7 +10,7 @@ use super::state::{
 use super::theme::Theme;
 use crate::AureaResult;
 use crate::render::{Color, DrawingContext, Font, Paint, PaintStyle, Point, Rect, TextMetrics};
-use crate::window::{CursorIcon, KeyCode, Modifiers};
+use crate::window::{CursorIcon, KeyCode, Modifiers, PointerKind};
 
 /// Where text sits across the space it is given.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -315,6 +315,12 @@ impl<Id: WidgetId> Ui<'_, Id> {
     /// The pointer position over the canvas, if any.
     pub fn pointer(&self) -> Option<Point> {
         self.state.pointer()
+    }
+
+    /// The kind of the last pointer input: lets an app show a touch layout while fingers are on
+    /// the screen, or let the pen draw while fingers pan.
+    pub fn pointer_kind(&self) -> PointerKind {
+        self.state.pointer_kind()
     }
 
     /// Shows `icon` over the canvas this frame, for a part whose pointer says more than a hand: a

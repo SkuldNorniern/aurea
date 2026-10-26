@@ -133,6 +133,23 @@ mod dispatch_tests {
     use std::cell::{Cell, RefCell};
 
     #[test]
+    fn every_listener_gets_each_event_in_the_order_added() {
+        let window = 0xd15b as *mut c_void;
+        let log = Rc::new(RefCell::new(Vec::<&str>::new()));
+        for name in ["first", "second"] {
+            let log = log.clone();
+            register_event_callback(
+                window,
+                Rc::new(move |_: WindowEvent| log.borrow_mut().push(name)),
+            );
+        }
+
+        dispatch_window_events(window, &[WindowEvent::Focused]);
+        assert_eq!(*log.borrow(), ["first", "second"]);
+        unregister_event_callbacks(window);
+    }
+
+    #[test]
     fn callbacks_added_during_dispatch_run_next_time() {
         let window = 0xd15a as *mut c_void;
         let log = Rc::new(RefCell::new(Vec::<String>::new()));
