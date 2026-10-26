@@ -2,7 +2,7 @@
 
 use super::Widget;
 use crate::AureaResult;
-use crate::render::{Color, Font, Rect};
+use crate::render::{Color, Font, Rect, glyph_coverage, shape_text};
 #[cfg(feature = "accessibility")]
 use crate::ui::accessibility::Role;
 use crate::ui::component::{FocusRing, StateColors};
@@ -256,7 +256,11 @@ impl<Id: WidgetId> Widget<Id> for Button<'_> {
         let ink = style.text.at(state);
         let inner = body.inset_xy(style.padding * 0.5, 0.0);
         let Some(icon) = self.icon else {
-            self.label(&style, ink).paint(ui, inner)?;
+            let nudge = symbol_nudge(ui, self.label, self.font, style.text_size);
+            self.label(&style, ink).paint(
+                ui,
+                Rect::new(inner.x, inner.y + nudge, inner.width, inner.height),
+            )?;
             return Ok(Response::new(rect, input));
         };
         let size = icon_size(ui).min(body.height - 4.0).max(0.0);
@@ -282,6 +286,41 @@ impl<Id: WidgetId> Widget<Id> for Button<'_> {
         }
         Ok(Response::new(rect, input))
     }
+}
+
+/// How far to move a label of one symbol, such as `×` or `↑`, so its ink rather than its line
+/// sits in the middle: symbols sit around the middle of lowercase letters, below the line's.
+fn symbol_nudge<Id: WidgetId>(
+    ui: &mut Ui<'_, Id>,
+    label: &str,
+    font: Option<&Font>,
+    size: TextSize,
+) -> f32 {
+    let mut chars = label.chars();
+    let (Some(symbol), None) = (chars.next(), chars.next()) else {
+        return 0.0;
+    };
+    if symbol.is_alphanumeric() {
+        return 0.0;
+    }
+    let fonts = ui.fonts();
+    let font = font.unwrap_or_else(|| fonts.of(size));
+    let Ok(shaped) = shape_text(label, font) else {
+        return 0.0;
+    };
+    let [glyph] = shaped.glyphs.as_slice() else {
+        return 0.0;
+    };
+    let Ok(ink) = glyph_coverage(glyph.face, glyph.id, font.size) else {
+        return 0.0;
+    };
+    if ink.height == 0 {
+        return 0.0;
+    }
+    // the baseline sits (ascent - descent) / 2 below the line's middle; the ink's middle sits
+    // this far above the baseline
+    let ink_middle = -(ink.top as f32 + ink.height as f32 / 2.0);
+    ink_middle - (shaped.ascent - shaped.descent) / 2.0
 }
 
 #[cfg(test)]
@@ -313,5 +352,34 @@ mod tests {
         let at = |x: usize, y: usize| bytes[(y * w + x) * 4];
         assert!(at(20, 20) > 128, "plus drawn in the dim text colour");
         assert_eq!(at(4, 4), 0, "nothing in the corner");
+    }
+
+    #[test]
+    fn one_symbol_labels_sit_in_the_middle() {
+        let theme = Theme::dark();
+        for symbol in ["\u{d7}", "\u{2191}", "+", "A"] {
+            let (mut raster, mut state) = (CpuRasterizer::new(30, 30), UiState::<u8>::new());
+            let mut ctx = raster.begin_frame().expect("frame");
+            {
+                let mut ui = state.frame(&mut *ctx, &theme);
+                Button::new(symbol)
+                    .quiet()
+                    .show(&mut ui, 1, Rect::new(0.0, 0.0, 30.0, 30.0))
+                    .expect("draw");
+            }
+            drop(ctx);
+            raster.end_frame().expect("end");
+            let frame = raster.frame_output().expect("pixels");
+            let bytes = frame.bytes();
+            let inked: Vec<usize> = (0..30)
+                .filter(|y| (0..30).any(|x| bytes[(y * 30 + x) * 4 + 1] > 60))
+                .collect();
+            let (top, bottom) = (inked[0], inked[inked.len() - 1] + 1);
+            let off = (top + bottom) as f32 / 2.0 - 15.0;
+            assert!(
+                off.abs() <= 0.5,
+                "{symbol} ink {top}..{bottom}, {off} off centre"
+            );
+        }
     }
 }
