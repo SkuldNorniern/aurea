@@ -23,6 +23,7 @@ int ng_windows_window_is_visible(NGHandle window);
 int ng_windows_window_occlusion(NGHandle window);
 int ng_windows_window_get_placement(NGHandle window, int* rect);
 int ng_windows_window_request_attention(NGHandle window, int critical);
+int ng_windows_window_refresh_rate(NGHandle window);
 int ng_windows_window_set_placement(NGHandle window, const int* rect, int maximized);
 int ng_windows_set_window_content(NGHandle window, NGHandle content);
 float ng_windows_get_scale_factor(NGHandle window);

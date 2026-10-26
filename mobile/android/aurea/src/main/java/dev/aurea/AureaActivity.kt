@@ -172,6 +172,25 @@ abstract class AureaActivity :
         runOnUiThread { surface.showKeyboard(show) }
     }
 
+    /** The screen's refresh rate now, in hertz; Rust calls it. */
+    @Suppress("unused", "DEPRECATION")
+    fun refreshRateFromNative(): Float =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) display?.refreshRate ?: 0f
+        else windowManager.defaultDisplay.refreshRate
+
+    /** Asks for the screen's top rate while [high], the system's pacing otherwise; Rust calls it. */
+    @Suppress("unused")
+    fun setHighFrameRateFromNative(high: Boolean) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        runOnUiThread {
+            val top = display?.supportedModes?.maxOfOrNull { it.refreshRate } ?: 0f
+            val target = surface.holder.surface
+            if (target.isValid) {
+                target.setFrameRate(if (high) top else 0f, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
+            }
+        }
+    }
+
     /** Opens a URL Rust has checked in the app that handles it; false when none does. */
     @Suppress("unused")
     fun openUrlFromNative(url: String): Boolean = try {

@@ -49,6 +49,7 @@ typedef struct ng_platform_ops {
     int (*window_occlusion)(NGHandle window);
     int (*window_get_placement)(NGHandle window, int* rect);
     int (*window_request_attention)(NGHandle window, int critical);
+    int (*window_refresh_rate)(NGHandle window);
     int (*window_set_placement)(NGHandle window, const int* rect, int maximized);
     void (*window_set_position)(NGHandle window, int x, int y);
     void (*window_get_position)(NGHandle window, int* x, int* y);

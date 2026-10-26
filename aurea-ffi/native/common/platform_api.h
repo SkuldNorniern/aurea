@@ -74,6 +74,8 @@ int ng_platform_window_occlusion(NGHandle window);
 int ng_platform_window_get_placement(NGHandle window, int* rect);
 /* Flashes the taskbar entry or bounces the dock icon until the window is in front. */
 int ng_platform_window_request_attention(NGHandle window, int critical);
+/* The refresh rate of the screen the window is on, in millihertz; 0 when unknown. */
+int ng_platform_window_refresh_rate(NGHandle window);
 /* Puts the frame at `rect` (kept on a screen), maximized after when asked. */
 int ng_platform_window_set_placement(NGHandle window, const int* rect, int maximized);
 void ng_platform_window_set_position(NGHandle window, int x, int y);

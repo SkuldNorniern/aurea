@@ -1000,6 +1000,13 @@ void ng_macos_window_get_position(NGHandle window, int* x, int* y) {
     *y = (int)(screenFrame.size.height - (frame.origin.y + frame.size.height));
 }
 
+int ng_macos_window_refresh_rate(NGHandle window) {
+    if (!window) return 0;
+    NSScreen* screen = [(__bridge NSWindow*)window screen] ?: [NSScreen mainScreen];
+    if (@available(macOS 12.0, *)) return (int)[screen maximumFramesPerSecond] * 1000;
+    return 0;
+}
+
 int ng_macos_window_request_attention(NGHandle window, int critical) {
     if (!window) return NG_ERROR_INVALID_HANDLE;
     /* the dock bounces once, or until the app is active when critical; nothing when it is */

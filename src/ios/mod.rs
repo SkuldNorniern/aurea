@@ -21,8 +21,8 @@ use std::time::Instant;
 #[cfg(feature = "zengpu")]
 use aurea_ffi::ng_ios_gpu_view;
 use aurea_ffi::{
-    NGIosHost, ng_ios_drop_gpu_view, ng_ios_keyboard_height, ng_ios_run_host, ng_ios_set_text_area,
-    ng_ios_show_keyboard, ng_ios_wake,
+    NGIosHost, ng_ios_drop_gpu_view, ng_ios_keyboard_height, ng_ios_refresh_rate, ng_ios_run_host,
+    ng_ios_set_high_frame_rate, ng_ios_set_text_area, ng_ios_show_keyboard, ng_ios_wake,
 };
 
 #[cfg(not(feature = "zengpu"))]
@@ -291,6 +291,21 @@ pub fn keyboard_height() -> f32 {
     // SAFETY: reads host state on the main thread, where the app draws.
     let covered = unsafe { ng_ios_keyboard_height() };
     (covered - safe_area()[3]).max(0.0)
+}
+
+/// The screen's top refresh rate in hertz: 120 on ProMotion screens, else 60.
+pub fn refresh_rate() -> f32 {
+    // SAFETY: reads UIKit state on the main thread, where the app draws.
+    unsafe { ng_ios_refresh_rate() }
+}
+
+/// Asks for frames at the screen's top rate while `high`, such as while a pencil stroke is live,
+/// and the system's own pacing again after, which saves power. iPhones also need
+/// `CADisableMinimumFrameDurationOnPhone` in the app's Info.plist to go past 60. Call on the main
+/// thread.
+pub fn set_high_frame_rate(high: bool) {
+    // SAFETY: on the main thread, as documented.
+    unsafe { ng_ios_set_high_frame_rate(c_int::from(high)) };
 }
 
 /// Switches the theme from the next frame.

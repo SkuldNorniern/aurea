@@ -756,6 +756,13 @@ impl Window {
         Occlusion::from_raw(unsafe { ng_platform_window_occlusion(self.handle) })
     }
 
+    /// The refresh rate of the screen the window is on, in hertz, such as 60, 120 or 144; `None`
+    /// when the system does not say.
+    pub fn refresh_rate(&self) -> Option<f32> {
+        let millihertz = unsafe { ng_platform_window_refresh_rate(self.handle) };
+        (millihertz > 0).then(|| millihertz as f32 / 1000.0)
+    }
+
     /// Asks the user to look at the window while it is in the background: Windows flashes its
     /// taskbar entry, macOS bounces the dock icon, Linux marks it urgent. `critical` keeps at it
     /// until the window comes to the front. Nothing happens while it is in front already.
@@ -2569,6 +2576,8 @@ mod win32_placement_tests {
         let window = Window::new("bell", 200, 100)?;
         window.request_attention(false)?;
         window.request_attention(true)?;
+        let rate = window.refresh_rate().expect("windows knows its screens");
+        assert!((24.0..1000.0).contains(&rate), "{rate}");
         beep();
         window.hide();
         Ok(())

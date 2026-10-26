@@ -57,6 +57,8 @@ unsafe extern "C" {
     pub fn ng_ios_drop_gpu_view();
     pub fn ng_ios_show_keyboard(show: c_int);
     pub fn ng_ios_keyboard_height() -> f32;
+    pub fn ng_ios_refresh_rate() -> f32;
+    pub fn ng_ios_set_high_frame_rate(high: c_int);
     pub fn ng_ios_set_text_area(x: f32, y: f32, width: f32, height: f32);
     pub fn ng_ios_pick_files(
         extensions: *const c_char,
@@ -300,6 +302,7 @@ unsafe extern "C" {
     pub fn ng_platform_window_occlusion(window: *mut c_void) -> c_int;
     pub fn ng_platform_window_get_placement(window: *mut c_void, rect: *mut c_int) -> c_int;
     pub fn ng_platform_window_request_attention(window: *mut c_void, critical: c_int) -> c_int;
+    pub fn ng_platform_window_refresh_rate(window: *mut c_void) -> c_int;
     pub fn ng_platform_window_set_placement(
         window: *mut c_void,
         rect: *const c_int,

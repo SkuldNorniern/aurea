@@ -47,6 +47,7 @@ static const ng_platform_ops_t linux_ops = {
     .window_occlusion = ng_linux_window_occlusion,
     .window_get_placement = ng_linux_window_get_placement,
     .window_request_attention = ng_linux_window_request_attention,
+    .window_refresh_rate = ng_linux_window_refresh_rate,
     .window_set_placement = ng_linux_window_set_placement,
     .window_set_position = ng_linux_window_set_position,
     .window_get_position = ng_linux_window_get_position,

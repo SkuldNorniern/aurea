@@ -50,6 +50,7 @@ static const ng_platform_ops_t windows_ops = {
     .window_occlusion = ng_windows_window_occlusion,
     .window_get_placement = ng_windows_window_get_placement,
     .window_request_attention = ng_windows_window_request_attention,
+    .window_refresh_rate = ng_windows_window_refresh_rate,
     .window_set_placement = ng_windows_window_set_placement,
     .window_set_position = ng_windows_window_set_position,
     .window_get_position = ng_windows_window_get_position,

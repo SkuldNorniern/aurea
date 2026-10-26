@@ -289,6 +289,19 @@ static POINT ng_windows_workspace_offset(HWND hwnd, const RECT* rect) {
     return offset;
 }
 
+int ng_windows_window_refresh_rate(NGHandle window) {
+    HWND hwnd = (HWND)window;
+    if (!hwnd) return 0;
+    MONITORINFOEXW info;
+    info.cbSize = sizeof info;
+    if (!GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), (MONITORINFO*)&info)) return 0;
+    DEVMODEW mode = {0};
+    mode.dmSize = sizeof mode;
+    if (!EnumDisplaySettingsW(info.szDevice, ENUM_CURRENT_SETTINGS, &mode)) return 0;
+    /* 0 and 1 mean the hardware default */
+    return mode.dmDisplayFrequency > 1 ? (int)mode.dmDisplayFrequency * 1000 : 0;
+}
+
 int ng_windows_window_request_attention(NGHandle window, int critical) {
     HWND hwnd = (HWND)window;
     if (!hwnd || !IsWindow(hwnd)) return NG_ERROR_INVALID_HANDLE;

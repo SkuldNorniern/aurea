@@ -81,6 +81,28 @@ pub fn show_keyboard(show: bool) {
     );
 }
 
+/// The screen's refresh rate in hertz, as it runs now; 60 before the Activity is up.
+pub fn refresh_rate() -> f32 {
+    with_activity(|env, activity| {
+        env.call_method(activity, "refreshRateFromNative", "()F", &[])
+            .and_then(|v| v.f())
+            .ok()
+    })
+    .flatten()
+    .filter(|rate| *rate > 0.0)
+    .unwrap_or(60.0)
+}
+
+/// Asks for frames at the screen's top rate while `high`, such as while a pen stroke is live, and
+/// the system's own pacing again after, which saves power. Android 11 and later; from any thread.
+pub fn set_high_frame_rate(high: bool) {
+    call_activity(
+        "setHighFrameRateFromNative",
+        "(Z)V",
+        &[JValue::Bool(u8::from(high))],
+    );
+}
+
 /// Opens `url` in the app that handles it, such as the browser; [`crate::open_url`] checks it first.
 pub(crate) fn open_url(url: &str) -> bool {
     with_activity(|env, activity| {

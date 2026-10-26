@@ -1016,6 +1016,14 @@ void ng_linux_window_get_position(NGHandle window, int* x, int* y) {
     gtk_window_get_position(GTK_WINDOW(widget), x, y);
 }
 
+int ng_linux_window_refresh_rate(NGHandle window) {
+    if (!window) return 0;
+    GdkWindow* gdk = gtk_widget_get_window(GTK_WIDGET(window));
+    GdkDisplay* display = gtk_widget_get_display(GTK_WIDGET(window));
+    GdkMonitor* monitor = gdk && display ? gdk_display_get_monitor_at_window(display, gdk) : NULL;
+    return monitor ? gdk_monitor_get_refresh_rate(monitor) : 0;
+}
+
 int ng_linux_window_request_attention(NGHandle window, int critical) {
     (void)critical;
     if (!window) return NG_ERROR_INVALID_HANDLE;

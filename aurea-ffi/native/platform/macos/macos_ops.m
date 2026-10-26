@@ -65,6 +65,7 @@ static const ng_platform_ops_t macos_ops = {
     .window_occlusion = ng_macos_window_occlusion,
     .window_get_placement = ng_macos_window_get_placement,
     .window_request_attention = ng_macos_window_request_attention,
+    .window_refresh_rate = ng_macos_window_refresh_rate,
     .window_set_placement = ng_macos_window_set_placement,
     .window_set_position = ng_macos_window_set_position,
     .window_get_position = ng_macos_window_get_position,

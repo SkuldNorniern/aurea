@@ -222,6 +222,10 @@ int ng_platform_window_occlusion(NGHandle w) {
     DISPATCH_INIT(int, window_occlusion, w);
 }
 
+int ng_platform_window_refresh_rate(NGHandle w) {
+    DISPATCH_INIT(int, window_refresh_rate, w);
+}
+
 int ng_platform_window_request_attention(NGHandle w, int critical) {
     DISPATCH_INIT_DEFAULT(int, NG_ERROR_UNSUPPORTED, window_request_attention, w, critical);
 }
