@@ -1,75 +1,15 @@
 //! Contracts shared by applications embedding editors and custom controls.
 
-use super::{
-    Button, Response, ScrollArea, ScrollStyle, Slider, Stepper, TextArea, TextField, Theme, Ui,
-    UiState,
-};
-use crate::render::{Color, CpuRasterizer, Point, Rect, Renderer};
-use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
+use super::rig::Rig;
+use super::{Button, Response, ScrollArea, ScrollStyle, Slider, Stepper, TextArea, TextField, Ui};
+use crate::render::{Color, Point, Rect, Renderer};
+use crate::window::{KeyCode, Modifiers, MouseButton, PointerKind, WindowEvent};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-struct Rig {
-    state: UiState<u8>,
-    raster: CpuRasterizer,
-    theme: Theme,
-}
-
-impl Rig {
-    fn new() -> Self {
-        Self {
-            state: UiState::new(),
-            raster: CpuRasterizer::new(240, 160),
-            theme: Theme::dark(),
-        }
-    }
-
-    fn frame<R>(&mut self, draw: impl FnOnce(&mut Ui<'_, u8>) -> R) -> R {
-        let mut ctx = self.raster.begin_frame().expect("frame");
-        let out = draw(&mut self.state.frame(&mut *ctx, &self.theme));
-        drop(ctx);
-        self.raster.end_frame().expect("end");
-        out
-    }
-
-    fn wheel(&mut self, x: f64, y: f64, dx: f64, dy: f64) {
-        self.state.handle(&WindowEvent::MouseMove {
-            x,
-            y,
-            buttons: MouseButtons::default(),
-            modifiers: Modifiers::default(),
-            time: Default::default(),
-            pointer: PointerKind::Mouse,
-        });
-        self.state.handle(&WindowEvent::MouseWheel {
-            delta_x: dx,
-            delta_y: dy,
-            modifiers: Modifiers::default(),
-        });
-    }
-
-    fn click(&mut self, x: f64, y: f64) {
-        for pressed in [true, false] {
-            self.state.handle(&WindowEvent::MouseButton {
-                button: MouseButton::Left,
-                pressed,
-                x,
-                y,
-                click_count: 1,
-                modifiers: Modifiers::default(),
-                time: Default::default(),
-                pointer: PointerKind::Mouse,
-            });
-        }
-    }
-
-    fn key(&mut self, key: KeyCode) {
-        self.state.handle(&WindowEvent::KeyInput {
-            key,
-            pressed: true,
-            modifiers: Modifiers::default(),
-        });
-    }
+/// The rig these tests share: a 240 by 160 canvas.
+fn rig() -> Rig {
+    Rig::new(240, 160)
 }
 
 fn nested(ui: &mut Ui<'_, u8>, outer: &mut f32, inner: &mut f32) -> (f32, f32) {
@@ -100,7 +40,7 @@ fn nested(ui: &mut Ui<'_, u8>, outer: &mut f32, inner: &mut f32) -> (f32, f32) {
 
 #[test]
 fn inner_scroll_consumes_first_and_only_its_distance() {
-    let mut rig = Rig::new();
+    let mut rig = rig();
     let (mut outer, mut inner) = (0.0, 0.0);
     rig.frame(|ui| nested(ui, &mut outer, &mut inner));
     rig.wheel(40.0, 30.0, 2.0, -2.0);
@@ -150,7 +90,7 @@ fn slider_in_scroll(ui: &mut Ui<'_, u8>, offset: &mut f32, value: &mut f32, enab
 
 #[test]
 fn a_slider_handles_wheel_before_its_parent_and_disabled_controls_pass_it_on() {
-    let mut rig = Rig::new();
+    let mut rig = rig();
     let (mut offset, mut value) = (0.0, 1.0);
     rig.frame(|ui| slider_in_scroll(ui, &mut offset, &mut value, true));
     rig.wheel(40.0, 12.0, 0.0, -2.0);
@@ -170,7 +110,7 @@ fn a_slider_handles_wheel_before_its_parent_and_disabled_controls_pass_it_on() {
 
 #[test]
 fn measured_layout_recomputes_overflow_on_resize() {
-    let mut rig = Rig::new();
+    let mut rig = rig();
     let mut offset = 120.0;
     for (width, expected) in [(80.0, 100.0), (160.0, 0.0)] {
         let mut measures = 0;
@@ -217,7 +157,7 @@ fn editor(ui: &mut Ui<'_, u8>, text: &mut String, multiline: bool, enabled: bool
 #[test]
 fn text_commits_before_a_dependent_button_action_in_the_same_batch() {
     for multiline in [false, true] {
-        let mut rig = Rig::new();
+        let mut rig = rig();
         let mut text = String::new();
         let mut events = Vec::new();
         let mut draw = |ui: &mut Ui<'_, u8>| {
@@ -251,7 +191,7 @@ fn text_commits_before_a_dependent_button_action_in_the_same_batch() {
 
 #[test]
 fn submission_does_not_commit_again_on_blur_and_escape_does_not_commit() {
-    let mut rig = Rig::new();
+    let mut rig = rig();
     let mut text = String::new();
     rig.frame(|ui| editor(ui, &mut text, false, true));
     rig.state.focus(1, 0);
@@ -275,7 +215,7 @@ fn submission_does_not_commit_again_on_blur_and_escape_does_not_commit() {
 
 #[test]
 fn a_press_carries_every_modifier() {
-    let mut rig = Rig::new();
+    let mut rig = rig();
     let area = Rect::new(0.0, 0.0, 100.0, 40.0);
     rig.frame(|ui| ui.interact(1, 0, area, super::Sense::Click, true));
     let alt = Modifiers {
@@ -309,7 +249,7 @@ fn a_field_that_leaves_the_frame_keeps_its_undo_and_commits_when_back() {
         meta: apple,
         ..Modifiers::default()
     };
-    let mut rig = Rig::new();
+    let mut rig = rig();
     let mut text = String::new();
     rig.frame(|ui| editor(ui, &mut text, false, true));
     rig.state.focus(1, 0);
@@ -337,7 +277,7 @@ fn a_field_that_leaves_the_frame_keeps_its_undo_and_commits_when_back() {
 #[test]
 fn a_typing_widget_gets_text_and_keeps_shortcuts() {
     use super::{Sense, TypedInput};
-    let mut rig = Rig::new();
+    let mut rig = rig();
     let area = Rect::new(0.0, 0.0, 100.0, 40.0);
     rig.frame(|ui| ui.interact(1, 0, area, Sense::Typing, true));
     rig.state.focus(1, 0);
@@ -365,7 +305,7 @@ fn a_typing_widget_gets_text_and_keeps_shortcuts() {
 
 #[test]
 fn a_blinking_caret_asks_for_its_next_edge_not_every_frame() {
-    let mut rig = Rig::new();
+    let mut rig = rig();
     let mut text = String::new();
     rig.frame(|ui| editor(ui, &mut text, false, true));
     rig.state.focus(1, 0);
@@ -391,7 +331,7 @@ fn a_blinking_caret_asks_for_its_next_edge_not_every_frame() {
 
 #[test]
 fn a_tooltip_can_hang_off_a_point() {
-    let mut rig = Rig::new();
+    let mut rig = rig();
     rig.frame(|ui| ui.tooltip_at(Point::new(40.0, 30.0), "unused variable"));
     assert_eq!(rig.state.tip.text, "unused variable");
     assert_eq!(
@@ -403,7 +343,7 @@ fn a_tooltip_can_hang_off_a_point() {
 #[test]
 fn disabling_an_editor_rejects_queued_text_without_committing() {
     for multiline in [false, true] {
-        let mut rig = Rig::new();
+        let mut rig = rig();
         let mut text = "saved".to_string();
         rig.frame(|ui| editor(ui, &mut text, multiline, true));
         rig.state.focus(1, 0);
@@ -419,7 +359,7 @@ fn disabling_an_editor_rejects_queued_text_without_committing() {
 
 #[test]
 fn custom_tracks_obey_nested_clips_and_restore_drawing_state() {
-    let mut rig = Rig::new();
+    let mut rig = rig();
     let mut value = 0.5;
     rig.frame(|ui| {
         ui.clipped(Rect::new(20.0, 0.0, 60.0, 24.0), |ui| {
@@ -450,7 +390,7 @@ fn custom_tracks_obey_nested_clips_and_restore_drawing_state() {
 
 #[test]
 fn custom_track_keeps_native_keyboard_input_and_disabled_opacity() {
-    let mut rig = Rig::new();
+    let mut rig = rig();
     let mut value = 0.5;
     let mut draw = |ui: &mut Ui<'_, u8>, enabled| {
         Slider::new(&mut value, 0.0..=1.0)
@@ -476,7 +416,7 @@ fn custom_track_keeps_native_keyboard_input_and_disabled_opacity() {
 #[test]
 fn a_text_area_passes_wheel_to_its_parent_only_when_it_cannot_scroll() {
     for (text, expected) in [("short".to_string(), 20.0), ("line\n".repeat(40), 0.0)] {
-        let mut rig = Rig::new();
+        let mut rig = rig();
         let mut offset = 0.0;
         let mut text = text;
         let mut draw = |ui: &mut Ui<'_, u8>| {
@@ -511,7 +451,7 @@ fn a_text_area_passes_wheel_to_its_parent_only_when_it_cannot_scroll() {
 
 #[test]
 fn blur_commit_is_opt_in() {
-    let mut rig = Rig::new();
+    let mut rig = rig();
     let mut text = String::new();
     let mut draw = |ui: &mut Ui<'_, u8>| {
         TextField::new(&mut text)
@@ -536,7 +476,7 @@ fn a_stepper_at_its_limit_leaves_wheel_input_for_the_parent() {
         (1.0, -3.0, (0.0, 40.0)),
         (5.0, -2.0, (3.0, 0.0)),
     ] {
-        let mut rig = Rig::new();
+        let mut rig = rig();
         let (mut value, mut offset) = (initial, 0.0);
         let mut draw = |ui: &mut Ui<'_, u8>| {
             let style = ScrollStyle {
@@ -573,7 +513,7 @@ fn a_stepper_at_its_limit_leaves_wheel_input_for_the_parent() {
 #[test]
 fn typing_after_a_click_or_tab_survives_until_the_next_frame() {
     for by_tab in [false, true] {
-        let mut rig = Rig::new();
+        let mut rig = rig();
         let mut text = String::new();
         rig.frame(|ui| editor(ui, &mut text, false, true));
         if by_tab {
@@ -593,7 +533,7 @@ fn typing_after_a_click_or_tab_survives_until_the_next_frame() {
 
 #[test]
 fn a_queued_click_can_focus_a_slider_for_keyboard_input() {
-    let mut rig = Rig::new();
+    let mut rig = rig();
     let mut value = 0.0;
     let mut draw = |ui: &mut Ui<'_, u8>| {
         Slider::new(&mut value, 0.0..=1.0)
@@ -615,7 +555,7 @@ fn a_queued_click_can_focus_a_slider_for_keyboard_input() {
 
 #[test]
 fn clicking_outside_an_editor_leaves_following_text_for_the_application() {
-    let mut rig = Rig::new();
+    let mut rig = rig();
     let mut text = String::new();
     rig.frame(|ui| editor(ui, &mut text, false, true));
     rig.state.focus(1, 0);
@@ -631,7 +571,7 @@ fn clicking_outside_an_editor_leaves_following_text_for_the_application() {
 
 #[test]
 fn losing_window_focus_cancels_queued_keyboard_activation() {
-    let mut rig = Rig::new();
+    let mut rig = rig();
     let draw = |ui: &mut Ui<'_, u8>| {
         Button::new("Delete")
             .show(ui, 1, Rect::new(0.0, 0.0, 120.0, 30.0))
@@ -662,7 +602,7 @@ fn losing_window_focus_cancels_queued_keyboard_activation() {
 
 #[test]
 fn losing_window_focus_ends_editing_and_rejects_background_typing() {
-    let mut rig = Rig::new();
+    let mut rig = rig();
     let mut text = String::new();
     rig.frame(|ui| editor(ui, &mut text, false, true));
     rig.state.focus(1, 0);
@@ -693,7 +633,7 @@ fn losing_window_focus_ends_editing_and_rejects_background_typing() {
 #[test]
 fn focus_loss_discards_uncommitted_ime_composition() {
     for window_loss in [false, true] {
-        let mut rig = Rig::new();
+        let mut rig = rig();
         let mut text = "saved".to_string();
         rig.frame(|ui| editor(ui, &mut text, false, true));
         rig.state.focus(1, 0);

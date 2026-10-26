@@ -249,42 +249,9 @@ impl<Id: WidgetId> Widget<Id> for TextField<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::{CpuRasterizer, Renderer};
-    use crate::ui::UiState;
+    use crate::ui::rig::Rig;
     use crate::ui::state::Key;
-    use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
-
-    struct Rig {
-        state: UiState<u8>,
-        raster: CpuRasterizer,
-        theme: Theme,
-    }
-
-    impl Rig {
-        fn new() -> Self {
-            Self {
-                state: UiState::new(),
-                raster: CpuRasterizer::new(240, 160),
-                theme: Theme::dark(),
-            }
-        }
-
-        fn frame<R>(&mut self, draw: impl FnOnce(&mut Ui<'_, u8>) -> R) -> R {
-            let mut ctx = self.raster.begin_frame().expect("frame");
-            let out = draw(&mut self.state.frame(&mut *ctx, &self.theme));
-            drop(ctx);
-            self.raster.end_frame().expect("end");
-            out
-        }
-
-        fn key(&mut self, key: KeyCode) {
-            self.state.handle(&WindowEvent::KeyInput {
-                key,
-                pressed: true,
-                modifiers: Modifiers::default(),
-            });
-        }
-    }
+    use crate::window::KeyCode;
 
     fn field(
         ui: &mut Ui<'_, u8>,
@@ -303,7 +270,7 @@ mod tests {
 
     #[test]
     fn the_clear_button_empties_the_field_and_keeps_it_focused() {
-        let mut rig = Rig::new();
+        let mut rig = Rig::new(240, 160);
         let mut text = "abc".to_string();
         let rect = Rect::new(0.0, 0.0, 160.0, 40.0);
         let show = |ui: &mut Ui<'_, u8>, text: &mut String| {
@@ -314,28 +281,11 @@ mod tests {
         };
         rig.frame(|ui| show(ui, &mut text));
         let x = f64::from(rect.right() - FieldStyle::new(&rig.theme).padding - 16.0);
-        let at = |pressed| WindowEvent::MouseButton {
-            button: MouseButton::Left,
-            pressed,
-            modifiers: Modifiers::default(),
-            x,
-            y: 20.0,
-            click_count: 1,
-            pointer: PointerKind::Mouse,
-            time: Default::default(),
-        };
-        rig.state.handle(&WindowEvent::MouseMove {
-            x,
-            y: 20.0,
-            buttons: MouseButtons::default(),
-            modifiers: Modifiers::default(),
-            pointer: PointerKind::Mouse,
-            time: Default::default(),
-        });
+        rig.at(x, 20.0);
         rig.frame(|ui| show(ui, &mut text));
-        rig.state.handle(&at(true));
+        rig.button(x, 20.0, true);
         rig.frame(|ui| show(ui, &mut text));
-        rig.state.handle(&at(false));
+        rig.button(x, 20.0, false);
         let response = rig.frame(|ui| show(ui, &mut text));
         assert!(text.is_empty() && response.changed);
         assert_eq!(rig.state.focus, Some(Key::new(1, 0)));
@@ -343,7 +293,7 @@ mod tests {
 
     #[test]
     fn pass_vertical_keys_leaves_them_to_the_app() {
-        let mut rig = Rig::new();
+        let mut rig = Rig::new(240, 160);
         let mut text = "abc".to_string();
         let mut seen = Vec::new();
         rig.state.focus(1, 0);
@@ -369,7 +319,7 @@ mod tests {
 
     #[test]
     fn down_moves_the_caret_without_pass_vertical_keys() {
-        let mut rig = Rig::new();
+        let mut rig = Rig::new(240, 160);
         let mut text = "abc".to_string();
         let mut seen = Vec::new();
         rig.state.focus(1, 0);
@@ -383,7 +333,7 @@ mod tests {
 
     #[test]
     fn select_all_on_focus_selects_everything_when_editing_starts() {
-        let mut rig = Rig::new();
+        let mut rig = Rig::new(240, 160);
         let mut text = "hello".to_string();
         let mut seen = Vec::new();
         rig.frame(|ui| field(ui, &mut text, false, true, &mut seen));

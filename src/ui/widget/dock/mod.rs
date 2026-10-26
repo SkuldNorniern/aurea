@@ -659,16 +659,13 @@ fn drop_target<P: Copy>(layout: &DockLayout<P>, at: Point) -> Option<(P, DockSid
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::{CpuRasterizer, Renderer};
-    use crate::ui::UiState;
-    use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
+    use crate::ui::rig::Rig;
+    use crate::window::{KeyCode, Modifiers, MouseButton, PointerKind, WindowEvent};
 
     const AREA: Rect = Rect::new(0.0, 0.0, 404.0, 300.0);
 
-    struct Rig {
-        raster: CpuRasterizer,
-        ui: UiState<u8>,
-        theme: Theme,
+    struct Screen {
+        rig: Rig,
         dock: Dock<u8>,
         drawn: Vec<(u8, Rect)>,
         tab_events: Vec<DockTabEvent<u8>>,
@@ -681,84 +678,59 @@ mod tests {
     /// Centre of tab 2's close slot (group 1 starts at 204).
     const TWO_CLOSE: (f32, f32) = (204.0 + TAB_WIDTH - 10.5, 14.0);
 
-    impl Rig {
+    impl Screen {
         fn new() -> Self {
             let mut tree = DockTree::new(1);
             tree.insert(2, 1, DockSide::Right);
             tree.insert(3, 2, DockSide::Center);
-            let mut ui = UiState::new();
-            ui.set_reduced_motion(true);
-            let mut rig = Self {
-                raster: CpuRasterizer::new(404, 300),
-                ui,
-                theme: Theme::dark(),
+            let mut screen = Self {
+                rig: Rig::new(404, 300).still(),
                 dock: Dock::new(tree),
                 drawn: Vec::new(),
                 tab_events: Vec::new(),
                 close_on: CloseButtons::Always,
                 dirty: Vec::new(),
             };
-            rig.frame();
-            rig
+            screen.frame();
+            screen
         }
 
         fn frame(&mut self) {
-            let mut ctx = self.raster.begin_frame().expect("frame");
             self.drawn.clear();
-            {
-                let mut style = DockStyle::new(&self.theme);
-                style.max_tab = TAB_WIDTH;
-                style.close_on = self.close_on;
-                let mut ui = self.ui.frame(&mut *ctx, &self.theme);
-                let drawn = &mut self.drawn;
-                let dirty = &self.dirty;
+            let mut style = DockStyle::new(&self.rig.theme);
+            style.max_tab = TAB_WIDTH;
+            style.close_on = self.close_on;
+            let drawn = &mut self.drawn;
+            let dirty = &self.dirty;
+            let dock = &mut self.dock;
+            self.rig.frame(|ui| {
                 let title = |p: u8| ["", "One", "Two", "Three"][usize::from(p)];
-                DockView::new(&mut self.dock, title, |_: &mut Ui<'_, u8>, panel, rect| {
+                DockView::new(dock, title, |_: &mut Ui<'_, u8>, panel, rect| {
                     drawn.push((panel, rect));
                     Ok(())
                 })
                 .style(style)
                 .close_buttons(true)
                 .dirty(move |p| dirty.contains(&p))
-                .show(&mut ui, 0, AREA)
+                .show(ui, 0, AREA)
                 .expect("draw");
-            }
-            drop(ctx);
+            });
             self.tab_events = self.dock.take_tab_events();
-            self.raster.end_frame().expect("end");
         }
 
         /// Red channel of the pixel at `(x, y)` in the last frame.
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         fn red(&self, x: f32, y: f32) -> u8 {
-            let frame = self.raster.frame_output().expect("pixels");
-            let (w, bytes) = (frame.width as usize, frame.bytes());
-            bytes[(y as usize * w + x as usize) * 4]
+            self.rig.pixel(x as u32, y as u32)[0]
         }
 
         fn button(&mut self, x: f32, y: f32, pressed: bool) {
-            self.ui.handle(&WindowEvent::MouseButton {
-                button: MouseButton::Left,
-                pressed,
-                modifiers: Modifiers::default(),
-                x: f64::from(x),
-                y: f64::from(y),
-                click_count: 1,
-                time: Default::default(),
-                pointer: PointerKind::Mouse,
-            });
+            self.rig.button(x, y, pressed);
             self.frame();
         }
 
         fn move_to(&mut self, x: f32, y: f32) {
-            self.ui.handle(&WindowEvent::MouseMove {
-                x: f64::from(x),
-                y: f64::from(y),
-                buttons: MouseButtons::default(),
-                modifiers: Modifiers::default(),
-                time: Default::default(),
-                pointer: PointerKind::Mouse,
-            });
+            self.rig.at(x, y);
             self.frame();
         }
 
@@ -769,28 +741,28 @@ mod tests {
 
     #[test]
     fn each_group_draws_its_shown_panel_under_its_strip() {
-        let rig = Rig::new();
+        let rig = Screen::new();
         assert_eq!(rig.shown(), [1, 3]);
         assert_eq!(rig.drawn[0].1, Rect::new(0.0, 28.0, 200.0, 272.0));
     }
 
     #[test]
     fn tab_motion_requests_frames_and_reduced_motion_settles_it() {
-        let mut rig = Rig::new();
-        rig.ui.set_reduced_motion(false);
+        let mut rig = Screen::new();
+        rig.rig.state.set_reduced_motion(false);
         rig.dock.tree.activate(2);
         rig.frame();
-        assert!(rig.ui.tweens.busy());
+        assert!(rig.rig.state.tweens.busy());
         assert_eq!(rig.shown(), [1, 2], "only active content is called");
-        rig.ui.set_reduced_motion(true);
+        rig.rig.state.set_reduced_motion(true);
         rig.frame();
-        assert!(!rig.ui.tweens.busy());
+        assert!(!rig.rig.state.tweens.busy());
         assert_eq!(rig.shown(), [1, 2]);
     }
 
     #[test]
     fn clicking_a_tab_shows_it() {
-        let mut rig = Rig::new();
+        let mut rig = Screen::new();
         rig.move_to(210.0, 14.0);
         rig.button(210.0, 14.0, true);
         rig.button(210.0, 14.0, false);
@@ -800,8 +772,8 @@ mod tests {
 
     #[test]
     fn tab_context_actions_identify_inactive_panels_without_activating_them() {
-        let mut rig = Rig::new();
-        rig.ui.handle(&WindowEvent::MouseButton {
+        let mut rig = Screen::new();
+        rig.rig.send(WindowEvent::MouseButton {
             button: MouseButton::Right,
             pressed: true,
             modifiers: Modifiers::default(),
@@ -827,14 +799,10 @@ mod tests {
 
     #[test]
     fn keyboard_close_requests_leave_the_panel_in_the_tree() {
-        let mut rig = Rig::new();
-        rig.ui.focus(0, CLOSE_PART);
+        let mut rig = Screen::new();
+        rig.rig.state.focus(0, CLOSE_PART);
         rig.frame();
-        rig.ui.handle(&WindowEvent::KeyInput {
-            key: KeyCode::Enter,
-            pressed: true,
-            modifiers: Modifiers::default(),
-        });
+        rig.rig.key(KeyCode::Enter);
         rig.frame();
         assert_eq!(rig.tab_events, [DockTabEvent::CloseRequested(1)]);
         assert_eq!(
@@ -848,7 +816,7 @@ mod tests {
 
     #[test]
     fn dragging_a_bar_resizes_the_split() {
-        let mut rig = Rig::new();
+        let mut rig = Screen::new();
         rig.move_to(202.0, 150.0);
         rig.button(202.0, 150.0, true);
         rig.move_to(102.0, 150.0);
@@ -859,7 +827,7 @@ mod tests {
 
     #[test]
     fn a_tab_dragged_to_a_side_docks_there() {
-        let mut rig = Rig::new();
+        let mut rig = Screen::new();
         rig.move_to(6.0, 14.0);
         rig.button(6.0, 14.0, true);
         rig.move_to(40.0, 30.0);
@@ -880,7 +848,7 @@ mod tests {
 
     #[test]
     fn active_or_hovered_close_buttons_leave_inactive_tabs_bare() {
-        let mut rig = Rig::new();
+        let mut rig = Screen::new();
         rig.close_on = CloseButtons::ActiveOrHovered;
         let (x, y) = TWO_CLOSE;
         rig.move_to(300.0, 290.0);
@@ -895,7 +863,7 @@ mod tests {
 
     #[test]
     fn dirty_tabs_show_a_dot_and_clicking_it_closes() {
-        let mut rig = Rig::new();
+        let mut rig = Screen::new();
         rig.close_on = CloseButtons::ActiveOrHovered;
         let (x, y) = TWO_CLOSE;
         rig.move_to(300.0, 290.0);

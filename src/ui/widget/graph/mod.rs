@@ -450,54 +450,26 @@ fn readout(value: f64, range: Range) -> String {
 mod tests {
     use super::*;
     use super::{Axis, Series, quick};
-    use crate::render::{CpuRasterizer, Renderer};
-    use crate::ui::state::UiState;
-    use crate::window::{Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
+    use crate::ui::rig::Rig;
+    use crate::window::{Modifiers, MouseButton, PointerKind, WindowEvent};
 
     const W: u32 = 240;
     const H: u32 = 160;
     const FRAME: Rect = Rect::new(0.0, 0.0, W as f32, H as f32);
 
-    struct Rig {
-        raster: CpuRasterizer,
-        ui: UiState<u8>,
-        theme: Theme,
+    fn snap(rig: &Rig) -> Vec<u32> {
+        rig.raster.pixels().to_vec()
     }
 
-    impl Rig {
-        fn new() -> Self {
-            let mut ui = UiState::new();
-            ui.set_reduced_motion(true);
-            Self {
-                raster: CpuRasterizer::new(W, H),
-                ui,
-                theme: Theme::dark(),
+    fn paint(rig: &mut Rig, graph: &mut Graph, style: Option<GraphStyle>) -> Vec<u32> {
+        rig.frame(|ui| {
+            let mut view = GraphView::new(graph);
+            if let Some(style) = style {
+                view = view.style(style);
             }
-        }
-
-        fn frame(&mut self, show: impl FnOnce(&mut Ui<'_, u8>)) -> Vec<u32> {
-            {
-                let mut ctx = self.raster.begin_frame().expect("frame");
-                let mut ui = self.ui.frame(&mut *ctx, &self.theme);
-                show(&mut ui);
-            }
-            self.raster.end_frame().expect("end");
-            self.raster.pixels().to_vec()
-        }
-
-        fn show(&mut self, graph: &mut Graph, style: Option<GraphStyle>) -> Vec<u32> {
-            self.frame(|ui| {
-                let mut view = GraphView::new(graph);
-                if let Some(style) = style {
-                    view = view.style(style);
-                }
-                view.show(ui, 0, FRAME).expect("draw");
-            })
-        }
-
-        fn send(&mut self, event: WindowEvent) {
-            self.ui.handle(&event);
-        }
+            view.show(ui, 0, FRAME).expect("draw");
+        });
+        snap(rig)
     }
 
     fn ink(buf: &[u32], ground: u32) -> usize {
@@ -529,11 +501,11 @@ mod tests {
 
     #[test]
     fn a_line_is_drawn_at_every_density() {
-        let mut rig = Rig::new();
+        let mut rig = Rig::new(W, H).still();
         let ground = ground(&rig);
         let mut blank = Vec::new();
         for count in [2usize, 50, 479, 480, 481, 1000, 100_000] {
-            let buf = rig.show(&mut line(count), None);
+            let buf = paint(&mut rig, &mut line(count), None);
             if ink(&buf, ground) < 200 {
                 blank.push(count);
             }
@@ -543,11 +515,11 @@ mod tests {
 
     #[test]
     fn a_windowed_line_draws_its_newest_data() {
-        let mut rig = Rig::new();
+        let mut rig = Rig::new(W, H).still();
         let ground = ground(&rig);
         for count in [50usize, 5000, 100_000] {
             let mut graph = line(count).with_x(Axis::window(50.0));
-            let buf = rig.show(&mut graph, None);
+            let buf = paint(&mut rig, &mut graph, None);
             assert!(
                 ink(&buf, ground) > 200,
                 "{count} points left the plot blank"
@@ -557,21 +529,22 @@ mod tests {
 
     #[test]
     fn a_bare_graph_leaves_the_frame_alone() {
-        let mut rig = Rig::new();
+        let mut rig = Rig::new(W, H).still();
         let mut graph = quick::sparkline(&[0.0, 1.0, 0.5]);
-        let buf = rig.frame(|ui| {
+        rig.frame(|ui| {
             GraphView::new(&mut graph)
                 .bare()
                 .show(ui, 0, FRAME)
                 .expect("draw");
         });
+        let buf = snap(&rig);
         assert_eq!(px(&buf, 0, 0), 0, "no background in a corner");
         assert!(ink(&buf, 0) > 0, "but the trace is there");
     }
 
     #[test]
     fn the_trace_is_clipped_to_the_plot_area() {
-        let mut rig = Rig::new();
+        let mut rig = Rig::new(W, H).still();
         let style = GraphStyle {
             margin: Margin::new(40.0, 10.0, 10.0, 20.0),
             ..GraphStyle::bare(&rig.theme)
@@ -580,7 +553,7 @@ mod tests {
             .with_x(Axis::fixed(0.0, 1.0))
             .with_y(Axis::fixed(0.0, 1.0));
         graph.add_series(Series::xy("s", vec![(-50.0, -50.0), (50.0, 50.0)]));
-        let buf = rig.show(&mut graph, Some(style));
+        let buf = paint(&mut rig, &mut graph, Some(style));
         for y in 0..H {
             for x in 0..38 {
                 assert_eq!(px(&buf, x, y), 0, "trace escaped at ({x}, {y})");
@@ -590,39 +563,28 @@ mod tests {
 
     #[test]
     fn a_graph_smaller_than_its_margins_draws_its_background() {
-        let mut rig = Rig::new();
+        let mut rig = Rig::new(W, H).still();
         let mut graph = line(10);
-        let buf = rig.frame(|ui| {
+        rig.frame(|ui| {
             GraphView::new(&mut graph)
                 .show(ui, 0, Rect::new(0.0, 0.0, 20.0, 20.0))
                 .expect("draw");
         });
+        let buf = snap(&rig);
         assert_ne!(px(&buf, 10, 10) >> 24, 0);
     }
 
     #[test]
     fn the_wheel_zooms_where_the_pointer_is_and_a_double_click_resets() {
-        let mut rig = Rig::new();
+        let mut rig = Rig::new(W, H).still();
         let mut graph = Graph::new()
             .with_x(Axis::fixed(0.0, 100.0))
             .with_y(Axis::fixed(0.0, 1.0));
-        rig.show(&mut graph, None);
+        paint(&mut rig, &mut graph, None);
         let area = graph.plot_area();
         let (x, y) = (area.x + area.width / 4.0, area.y + area.height / 2.0);
-        rig.send(WindowEvent::MouseMove {
-            x: f64::from(x),
-            y: f64::from(y),
-            buttons: MouseButtons::default(),
-            modifiers: Modifiers::default(),
-            time: Default::default(),
-            pointer: PointerKind::Mouse,
-        });
-        rig.send(WindowEvent::MouseWheel {
-            delta_x: 0.0,
-            delta_y: 2.0,
-            modifiers: Modifiers::default(),
-        });
-        rig.show(&mut graph, None);
+        rig.wheel(x, y, 0.0, 2.0);
+        paint(&mut rig, &mut graph, None);
         let zoomed = graph.x.range();
         assert!(zoomed.span() < 100.0, "zoomed in: {zoomed:?}");
         assert!(zoomed.contains(25.0), "around the pointer: {zoomed:?}");
@@ -639,7 +601,7 @@ mod tests {
                 pointer: PointerKind::Mouse,
             });
         }
-        rig.show(&mut graph, None);
+        paint(&mut rig, &mut graph, None);
         assert_eq!(graph.x.range(), Range::new(0.0, 100.0), "reset");
     }
 

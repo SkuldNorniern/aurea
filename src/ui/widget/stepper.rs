@@ -250,58 +250,51 @@ fn step_button<Id: WidgetId>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::{CpuRasterizer, Renderer};
-    use crate::ui::UiState;
-    use crate::window::{Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
+    use crate::ui::rig::Rig;
 
-    struct Rig {
-        raster: CpuRasterizer,
-        state: UiState<u8>,
+    struct Spin {
+        rig: Rig,
         value: f32,
     }
 
-    impl Rig {
+    impl Spin {
         fn frame(&mut self) {
-            let theme = Theme::dark();
-            let mut ctx = self.raster.begin_frame().expect("frame");
-            {
-                let mut ui = self.state.frame(&mut *ctx, &theme);
+            self.rig.frame(|ui| {
                 Stepper::new(&mut self.value, 0.0..=2.0)
                     .step(0.5)
                     .decimals(1)
-                    .show(&mut ui, 1, Rect::new(0.0, 0.0, 150.0, 30.0))
+                    .show(ui, 1, Rect::new(0.0, 0.0, 150.0, 30.0))
                     .expect("draw");
-            }
-            drop(ctx);
-            self.raster.end_frame().expect("end");
-        }
-
-        fn send(&mut self, event: WindowEvent) {
-            self.state.handle(&event);
-            self.frame();
+            });
         }
 
         fn click(&mut self, x: f64) {
             for pressed in [true, false] {
-                self.send(WindowEvent::MouseButton {
-                    button: MouseButton::Left,
-                    pressed,
-                    modifiers: Modifiers::default(),
-                    x,
-                    y: 15.0,
-                    click_count: 1,
-                    time: Default::default(),
-                    pointer: PointerKind::Mouse,
-                });
+                self.rig.button(x, 15.0, pressed);
+                self.frame();
             }
+        }
+
+        fn key(&mut self, key: KeyCode) {
+            self.rig.key(key);
+            self.frame();
+        }
+
+        fn at(&mut self, x: f32, y: f32) {
+            self.rig.at(x, y);
+            self.frame();
+        }
+
+        fn wheel(&mut self, x: f32, y: f32, notches: f64) {
+            self.rig.wheel(x, y, 0.0, notches);
+            self.frame();
         }
     }
 
     #[test]
     fn buttons_keys_and_the_wheel_step_inside_the_range() {
-        let mut rig = Rig {
-            raster: CpuRasterizer::new(150, 30),
-            state: UiState::new(),
+        let mut rig = Spin {
+            rig: Rig::new(150, 30),
             value: 1.0,
         };
         rig.frame();
@@ -312,25 +305,10 @@ mod tests {
         assert_eq!(rig.value, 2.0, "held at the top");
         rig.click(10.0);
         assert_eq!(rig.value, 1.5);
-        rig.send(WindowEvent::KeyInput {
-            key: KeyCode::Home,
-            pressed: true,
-            modifiers: Modifiers::default(),
-        });
+        rig.key(KeyCode::Home);
         assert_eq!(rig.value, 0.0, "the click left the keyboard on it");
-        rig.send(WindowEvent::MouseMove {
-            x: 75.0,
-            y: 15.0,
-            buttons: MouseButtons::default(),
-            modifiers: Modifiers::default(),
-            time: Default::default(),
-            pointer: PointerKind::Mouse,
-        });
-        rig.send(WindowEvent::MouseWheel {
-            delta_x: 0.0,
-            delta_y: 1.0,
-            modifiers: Modifiers::default(),
-        });
+        rig.at(75.0, 15.0);
+        rig.wheel(75.0, 15.0, 1.0);
         assert_eq!(rig.value, 0.5);
     }
 }

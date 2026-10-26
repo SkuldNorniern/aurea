@@ -326,53 +326,41 @@ fn symbol_nudge<Id: WidgetId>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::{CpuRasterizer, Icon, Renderer};
-    use crate::ui::UiState;
+    use crate::render::Icon;
+    use crate::ui::rig::Rig;
 
     #[test]
     fn icons_draw_and_take_room() {
-        let theme = Theme::dark();
-        let (mut raster, mut state) = (CpuRasterizer::new(120, 40), UiState::<u8>::new());
-        let mut ctx = raster.begin_frame().expect("frame");
-        let (alone, labelled) = {
-            let mut ui = state.frame(&mut *ctx, &theme);
-            let alone = Button::icon_only(Icon::Plus).width(&mut ui);
-            let labelled = Button::new("Add").icon(Icon::Plus).width(&mut ui);
+        let mut rig = Rig::new(120, 40);
+        let (alone, labelled) = rig.frame(|ui| {
+            let alone = Button::icon_only(Icon::Plus).width(ui);
+            let labelled = Button::new("Add").icon(Icon::Plus).width(ui);
             Button::icon_only(Icon::Plus)
                 .quiet()
-                .show(&mut ui, 1, Rect::new(0.0, 0.0, 40.0, 40.0))
+                .show(ui, 1, Rect::new(0.0, 0.0, 40.0, 40.0))
                 .expect("draw");
             (alone, labelled)
-        };
-        drop(ctx);
-        raster.end_frame().expect("end");
+        });
         assert!(labelled > alone + 10.0, "{labelled} vs {alone}");
-        let frame = raster.frame_output().expect("pixels");
-        let (w, bytes) = (frame.width as usize, frame.bytes());
-        let at = |x: usize, y: usize| bytes[(y * w + x) * 4];
-        assert!(at(20, 20) > 128, "plus drawn in the dim text colour");
-        assert_eq!(at(4, 4), 0, "nothing in the corner");
+        assert!(
+            rig.pixel(20, 20)[0] > 128,
+            "plus drawn in the dim text colour"
+        );
+        assert_eq!(rig.pixel(4, 4)[0], 0, "nothing in the corner");
     }
 
     #[test]
     fn one_symbol_labels_sit_in_the_middle() {
-        let theme = Theme::dark();
         for symbol in ["\u{d7}", "\u{2191}", "+", "A"] {
-            let (mut raster, mut state) = (CpuRasterizer::new(30, 30), UiState::<u8>::new());
-            let mut ctx = raster.begin_frame().expect("frame");
-            {
-                let mut ui = state.frame(&mut *ctx, &theme);
+            let mut rig = Rig::new(30, 30);
+            rig.frame(|ui| {
                 Button::new(symbol)
                     .quiet()
-                    .show(&mut ui, 1, Rect::new(0.0, 0.0, 30.0, 30.0))
+                    .show(ui, 1, Rect::new(0.0, 0.0, 30.0, 30.0))
                     .expect("draw");
-            }
-            drop(ctx);
-            raster.end_frame().expect("end");
-            let frame = raster.frame_output().expect("pixels");
-            let bytes = frame.bytes();
-            let inked: Vec<usize> = (0..30)
-                .filter(|y| (0..30).any(|x| bytes[(y * 30 + x) * 4 + 1] > 60))
+            });
+            let inked: Vec<u32> = (0..30)
+                .filter(|&y| (0..30).any(|x| rig.pixel(x, y)[1] > 60))
                 .collect();
             let (top, bottom) = (inked[0], inked[inked.len() - 1] + 1);
             let off = (top + bottom) as f32 / 2.0 - 15.0;

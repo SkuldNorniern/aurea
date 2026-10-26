@@ -997,68 +997,44 @@ const MENU_PART: u16 = 0xFFFE;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::{CpuRasterizer, Renderer};
-    use crate::ui::{Button, TextField, Theme, UiState};
-    use crate::window::{Modifiers, MouseButton, PointerKind, WindowEvent};
+    use crate::render::CpuRasterizer;
+    use crate::ui::rig::{Rig, key_down, left_button};
+    use crate::ui::{Button, TextField};
+    use crate::window::{Modifiers, WindowEvent};
 
-    fn menu_frame(state: &mut UiState<u8>, raster: &mut CpuRasterizer) {
-        let theme = Theme::dark();
-        let mut ctx = raster.begin_frame().unwrap();
-        {
-            let mut ui = state.frame(&mut *ctx, &theme);
+    fn menu_frame(rig: &mut Rig) {
+        rig.frame(|ui| {
             Button::new("Background")
-                .show(&mut ui, 1, Rect::new(0.0, 210.0, 80.0, 30.0))
+                .show(ui, 1, Rect::new(0.0, 210.0, 80.0, 30.0))
                 .expect("background");
-        }
-        drop(ctx);
-        raster.end_frame().unwrap();
+        });
     }
 
     #[test]
     fn touch_release_selects_menu_after_pointer_exit() {
-        let mut state = UiState::<u8>::new();
-        state.set_reduced_motion(true);
-        let mut raster = CpuRasterizer::new(320, 240);
-        let theme = Theme::dark();
-        {
-            let mut ctx = raster.begin_frame().expect("frame");
-            let mut ui = state.frame(&mut *ctx, &theme);
+        let mut rig = Rig::new(320, 240).still();
+        rig.frame(|ui| {
             ui.open_menu(
                 9,
                 Point::new(10.0, 10.0),
                 [MenuItem::new("Open"), MenuItem::new("Settings")],
             );
-        }
-        raster.end_frame().expect("present");
-        let at = state.popup.rows[1].rect.center();
+        });
+        let at = rig.state.popup.rows[1].rect.center();
         for pressed in [true, false] {
-            state.handle(&WindowEvent::MouseButton {
-                button: MouseButton::Left,
-                pressed,
-                modifiers: Modifiers::default(),
-                x: f64::from(at.x),
-                y: f64::from(at.y),
-                click_count: 1,
-                pointer: PointerKind::Mouse,
-                time: Default::default(),
-            });
+            rig.button(at.x, at.y, pressed);
         }
         // Touch and Pencil report pointer exit immediately after the release.
-        state.handle(&WindowEvent::MouseExited);
-        menu_frame(&mut state, &mut raster);
-        assert_eq!(state.popup.take_pick(Key::new(9, MENU_PART)), Some(1));
-        assert!(!state.popup.is_open());
+        rig.send(WindowEvent::MouseExited);
+        menu_frame(&mut rig);
+        assert_eq!(rig.state.popup.take_pick(Key::new(9, MENU_PART)), Some(1));
+        assert!(!rig.state.popup.is_open());
     }
 
     #[test]
     fn popup_selection_colors_are_applied_and_do_not_leak_to_the_next_menu() {
-        let mut state = UiState::<u8>::new();
-        state.set_reduced_motion(true);
-        let mut raster = CpuRasterizer::new(320, 240);
-        let theme = Theme::dark();
-        let mut ctx = raster.begin_frame().unwrap();
-        {
-            let mut ui = state.frame(&mut *ctx, &theme);
+        let mut rig = Rig::new(320, 240).still();
+        rig.frame(|ui| {
             ui.open_menu_styled(
                 9,
                 Point::new(20.0, 20.0),
@@ -1068,25 +1044,26 @@ mod tests {
                     highlight: Color::rgb(0, 255, 0),
                 },
             );
-        }
-        drop(ctx);
-        raster.end_frame().unwrap();
-        assert!(raster.pixels().contains(&0xff00_ff00), "custom highlight");
+        });
         assert!(
-            raster
+            rig.raster.pixels().contains(&0xff00_ff00),
+            "custom highlight"
+        );
+        assert!(
+            rig.raster
                 .pixels()
                 .iter()
                 .any(|pixel| pixel & 0x00ff_00ff == 0x00ff_00ff),
             "custom check"
         );
-        state.popup.open(
+        rig.state.popup.open(
             Key::new(9, MENU_PART),
             Rect::default(),
             0.0,
             [MenuItem::new("Plain")],
             None,
         );
-        assert!(state.popup.style.is_none());
+        assert!(rig.state.popup.style.is_none());
     }
 
     #[test]
@@ -1164,26 +1141,20 @@ mod tests {
 
     #[test]
     fn tab_dismissal_skips_the_closed_menu_in_the_focus_order() {
-        let mut state = UiState::<u8>::new();
-        state.set_reduced_motion(true);
-        state.focus(1, 0);
-        state.popup.open(
+        let mut rig = Rig::new(320, 240).still();
+        rig.state.focus(1, 0);
+        rig.state.popup.open(
             Key::new(9, MENU_PART),
             Rect::default(),
             0.0,
             [MenuItem::new("Leaf")],
             Some(Key::new(1, 0)),
         );
-        let mut raster = CpuRasterizer::new(320, 240);
-        menu_frame(&mut state, &mut raster);
-        state.handle(&WindowEvent::KeyInput {
-            key: KeyCode::Tab,
-            pressed: true,
-            modifiers: Default::default(),
-        });
-        menu_frame(&mut state, &mut raster);
-        assert!(!state.popup.is_open());
-        assert_eq!(state.focus, Some(Key::new(1, 0)));
+        menu_frame(&mut rig);
+        rig.key(KeyCode::Tab);
+        menu_frame(&mut rig);
+        assert!(!rig.state.popup.is_open());
+        assert_eq!(rig.state.focus, Some(Key::new(1, 0)));
     }
 
     #[cfg(feature = "accessibility")]
@@ -1217,50 +1188,32 @@ mod tests {
     fn pointer_can_open_checked_submenus_and_pick_without_clicking_through() {
         let children = [MenuItem::new("Child")];
         let items = [MenuItem::new("Branch").checked(true).submenu(&children)];
-        let mut state = UiState::<u8>::new();
-        state.set_reduced_motion(true);
-        state.popup.open(
+        let mut rig = Rig::new(320, 240).still();
+        rig.state.popup.open(
             Key::new(9, MENU_PART),
             Rect::new(250.0, 20.0, 0.0, 0.0),
             0.0,
             items,
             None,
         );
-        let mut raster = CpuRasterizer::new(320, 240);
-        menu_frame(&mut state, &mut raster);
-        let point = state.popup.rows[0].rect.center();
-        state.handle(&WindowEvent::MouseMove {
-            x: f64::from(point.x),
-            y: f64::from(point.y),
-            buttons: Default::default(),
-            modifiers: Default::default(),
-            time: Default::default(),
-            pointer: PointerKind::Mouse,
-        });
-        menu_frame(&mut state, &mut raster);
-        assert_eq!(state.popup.parents.len(), 1);
-        menu_frame(&mut state, &mut raster);
-        let point = state.popup.rows[0].rect.center();
+        menu_frame(&mut rig);
+        let point = rig.state.popup.rows[0].rect.center();
+        rig.at(point.x, point.y);
+        menu_frame(&mut rig);
+        assert_eq!(rig.state.popup.parents.len(), 1);
+        menu_frame(&mut rig);
+        let point = rig.state.popup.rows[0].rect.center();
         assert!(
-            point.x < state.popup.parents[0].rows[0].rect.x,
+            point.x < rig.state.popup.parents[0].rows[0].rect.x,
             "child flips left at the edge"
         );
         for pressed in [true, false] {
-            state.handle(&WindowEvent::MouseButton {
-                button: MouseButton::Left,
-                pressed,
-                modifiers: Default::default(),
-                x: f64::from(point.x),
-                y: f64::from(point.y),
-                click_count: 1,
-                time: Default::default(),
-                pointer: PointerKind::Mouse,
-            });
-            menu_frame(&mut state, &mut raster);
+            rig.button(point.x, point.y, pressed);
+            menu_frame(&mut rig);
         }
-        assert!(!state.popup.is_open());
+        assert!(!rig.state.popup.is_open());
         assert_eq!(
-            state.popup.take_path(Key::new(9, MENU_PART)),
+            rig.state.popup.take_path(Key::new(9, MENU_PART)),
             Some(vec![0, 0])
         );
     }
@@ -1268,71 +1221,61 @@ mod tests {
     #[test]
     fn keyboard_reveals_scrolled_rows_and_tiny_menu_canvases_stay_valid() {
         let items = (0..80).map(|_| MenuItem::new("Row"));
-        let mut state = UiState::<u8>::new();
-        state.set_reduced_motion(true);
-        state
+        let mut rig = Rig::new(320, 240).still();
+        rig.state
             .popup
             .open(Key::new(9, MENU_PART), Rect::default(), 0.0, items, None);
-        let mut raster = CpuRasterizer::new(320, 240);
-        menu_frame(&mut state, &mut raster);
-        state.popup.key(KeyCode::End);
-        menu_frame(&mut state, &mut raster);
-        assert!(state.popup.scroll > 0.0);
-        let last = state.popup.rows[79].rect;
+        menu_frame(&mut rig);
+        rig.state.popup.key(KeyCode::End);
+        menu_frame(&mut rig);
+        assert!(rig.state.popup.scroll > 0.0);
+        let last = rig.state.popup.rows[79].rect;
         assert!(last.bottom() <= 240.0);
-        let theme = Theme::dark();
-        let mut tiny = CpuRasterizer::new(2, 3);
-        let mut ctx = tiny.begin_frame().unwrap();
-        let mut ui = state.frame(&mut *ctx, &theme);
-        let rect = place(
-            &mut ui,
-            Rect::new(0.0, 0.0, 2.0, 3.0),
-            &Metrics::of(theme.control_height),
-        );
-        assert!(rect.width >= 0.0 && rect.height >= 0.0);
+        rig.raster = CpuRasterizer::new(2, 3);
+        rig.frame(|ui| {
+            let rect = place(
+                ui,
+                Rect::new(0.0, 0.0, 2.0, 3.0),
+                &Metrics::of(ui.theme.control_height),
+            );
+            assert!(rect.width >= 0.0 && rect.height >= 0.0);
+        });
     }
 
-    struct Rig {
-        state: UiState<u8>,
-        raster: CpuRasterizer,
-        theme: Theme,
+    struct Card {
+        rig: Rig,
         background: String,
         text: String,
         background_clicks: usize,
         card_clicks: usize,
     }
 
-    impl Rig {
+    impl Card {
         fn new() -> Self {
-            let mut rig = Self {
-                state: UiState::new(),
-                raster: CpuRasterizer::new(320, 240),
-                theme: Theme::dark(),
+            let mut card = Self {
+                rig: Rig::new(320, 240).still(),
                 background: "background".into(),
                 text: String::new(),
                 background_clicks: 0,
                 card_clicks: 0,
             };
-            rig.state.set_reduced_motion(true);
-            rig.state.focus(1, 0);
-            rig.frame(false, false);
-            rig.frame(true, true);
-            rig
+            card.rig.state.focus(1, 0);
+            card.frame(false, false);
+            card.frame(true, true);
+            card
         }
 
         fn frame(&mut self, open: bool, show: bool) {
-            let mut ctx = self.raster.begin_frame().expect("begin");
-            {
-                let mut ui = self.state.frame(&mut *ctx, &self.theme);
+            self.rig.frame(|ui| {
                 if Button::new("Behind")
-                    .show(&mut ui, 8, Rect::new(0.0, 0.0, 320.0, 240.0))
+                    .show(ui, 8, Rect::new(0.0, 0.0, 320.0, 240.0))
                     .expect("background")
                     .clicked
                 {
                     self.background_clicks += 1;
                 }
                 TextField::new(&mut self.background)
-                    .show(&mut ui, 1, Rect::new(0.0, 0.0, 50.0, 35.0))
+                    .show(ui, 1, Rect::new(0.0, 0.0, 50.0, 35.0))
                     .expect("background field");
                 if open {
                     ui.open_popup_card(9, Rect::new(60.0, 50.0, 150.0, 130.0));
@@ -1354,110 +1297,96 @@ mod tests {
                     })
                     .expect("card");
                 }
-            }
-            drop(ctx);
-            self.raster.end_frame().expect("end");
+            });
         }
 
         fn key(&mut self, key: KeyCode, shift: bool) {
             assert!(
-                self.state
-                    .handle_input(&WindowEvent::KeyInput {
+                self.rig
+                    .state
+                    .handle_input(&key_down(
                         key,
-                        pressed: true,
-                        modifiers: Modifiers {
+                        Modifiers {
                             shift,
                             ..Modifiers::default()
                         }
-                    })
+                    ))
                     .consumed
             );
             self.frame(false, true);
         }
 
         fn button(&mut self, x: f64, y: f64, pressed: bool) {
-            self.state.handle_input(&WindowEvent::MouseButton {
-                button: MouseButton::Left,
-                pressed,
-                modifiers: Modifiers::default(),
-                x,
-                y,
-                click_count: 1,
-                time: Default::default(),
-                pointer: PointerKind::Mouse,
-            });
+            self.rig.state.handle_input(&left_button(x, y, pressed));
             self.frame(false, true);
         }
     }
 
     #[test]
     fn card_contents_edit_and_tab_without_reaching_background_controls() {
-        let mut rig = Rig::new();
-        assert_eq!(rig.state.focus, Some(Key::new(2, 0)));
+        let mut card = Card::new();
+        assert_eq!(card.rig.state.focus, Some(Key::new(2, 0)));
         assert!(
-            rig.state
+            card.rig
+                .state
                 .handle_input(&WindowEvent::TextInput {
                     text: "brush".into()
                 })
                 .consumed
         );
-        rig.frame(false, true);
-        assert_eq!(rig.text, "brush");
-        assert_eq!(rig.background, "background");
-        rig.key(KeyCode::Tab, false);
-        assert_eq!(rig.state.focus, Some(Key::new(3, 0)));
-        rig.key(KeyCode::Enter, false);
-        assert_eq!(rig.card_clicks, 1);
-        rig.key(KeyCode::Tab, false);
-        assert_eq!(rig.state.focus, Some(Key::new(2, 0)));
-        rig.key(KeyCode::Tab, true);
-        assert_eq!(rig.state.focus, Some(Key::new(3, 0)));
+        card.frame(false, true);
+        assert_eq!(card.text, "brush");
+        assert_eq!(card.background, "background");
+        card.key(KeyCode::Tab, false);
+        assert_eq!(card.rig.state.focus, Some(Key::new(3, 0)));
+        card.key(KeyCode::Enter, false);
+        assert_eq!(card.card_clicks, 1);
+        card.key(KeyCode::Tab, false);
+        assert_eq!(card.rig.state.focus, Some(Key::new(2, 0)));
+        card.key(KeyCode::Tab, true);
+        assert_eq!(card.rig.state.focus, Some(Key::new(3, 0)));
     }
 
     #[test]
     fn card_dismissal_restores_focus_and_does_not_click_the_canvas_behind_it() {
-        let mut rig = Rig::new();
-        rig.button(180.0, 170.0, true);
-        rig.button(180.0, 170.0, false);
-        assert!(rig.state.popup_open(), "empty card space is not outside");
-        rig.button(290.0, 200.0, true);
-        rig.button(290.0, 200.0, false);
-        assert!(!rig.state.popup_open());
-        assert_eq!(rig.background_clicks, 0);
-        assert_eq!(rig.state.focus, Some(Key::new(1, 0)));
+        let mut card = Card::new();
+        card.button(180.0, 170.0, true);
+        card.button(180.0, 170.0, false);
+        assert!(
+            card.rig.state.popup_open(),
+            "empty card space is not outside"
+        );
+        card.button(290.0, 200.0, true);
+        card.button(290.0, 200.0, false);
+        assert!(!card.rig.state.popup_open());
+        assert_eq!(card.background_clicks, 0);
+        assert_eq!(card.rig.state.focus, Some(Key::new(1, 0)));
     }
 
     #[test]
     fn escape_and_omission_close_cards_without_invisible_input_capture() {
-        let mut rig = Rig::new();
-        rig.key(KeyCode::Escape, false);
-        assert!(!rig.state.popup_open());
-        assert_eq!(rig.state.focus, Some(Key::new(1, 0)));
-        rig.frame(true, true);
-        rig.frame(false, false);
-        assert!(!rig.state.popup_open());
-        assert_eq!(rig.state.focus, Some(Key::new(1, 0)));
+        let mut card = Card::new();
+        card.key(KeyCode::Escape, false);
+        assert!(!card.rig.state.popup_open());
+        assert_eq!(card.rig.state.focus, Some(Key::new(1, 0)));
+        card.frame(true, true);
+        card.frame(false, false);
+        assert!(!card.rig.state.popup_open());
+        assert_eq!(card.rig.state.focus, Some(Key::new(1, 0)));
     }
 
     #[test]
     fn an_empty_card_does_not_request_frames_forever() {
-        let mut state = UiState::<u8>::new();
-        state.set_reduced_motion(true);
-        let mut raster = CpuRasterizer::new(320, 240);
-        let theme = Theme::dark();
+        let mut rig = Rig::new(320, 240).still();
         for frame in 0..2 {
-            let mut ctx = raster.begin_frame().expect("begin");
-            {
-                let mut ui = state.frame(&mut *ctx, &theme);
+            rig.frame(|ui| {
                 if frame == 0 {
                     ui.open_popup_card(9, Rect::new(10.0, 10.0, 80.0, 50.0));
                 }
                 ui.popup_card(9, |_, _| Ok(())).expect("card");
-            }
-            drop(ctx);
-            raster.end_frame().expect("end");
+            });
         }
-        assert!(state.popup_open());
-        assert!(!state.wants_frame());
+        assert!(rig.state.popup_open());
+        assert!(!rig.state.wants_frame());
     }
 }

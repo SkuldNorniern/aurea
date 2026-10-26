@@ -198,47 +198,40 @@ impl<Id: WidgetId> Widget<Id> for Dropdown<'_> {
 #[cfg(test)]
 mod tests {
     use crate::Rect;
-    use crate::render::{CpuRasterizer, Renderer};
-    use crate::ui::{Dropdown, MenuItem, Sense, Theme, UiState};
-    use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
+    use crate::ui::rig::Rig;
+    use crate::ui::{Dropdown, MenuItem, Sense, Theme};
+    use crate::window::{KeyCode, Modifiers, MouseButton, PointerKind, WindowEvent};
 
     const BOX: Rect = Rect::new(10.0, 10.0, 160.0, 30.0);
     const AREA: Rect = Rect::new(200.0, 10.0, 100.0, 100.0);
     const OPTIONS: [&str; 3] = ["Small", "Medium", "Large"];
 
-    struct Rig {
-        raster: CpuRasterizer,
-        ui: UiState<u8>,
-        theme: Theme,
+    struct Screen {
+        rig: Rig,
         picked: usize,
         changed: u32,
         menu: Option<usize>,
     }
 
-    impl Rig {
+    impl Screen {
         fn new() -> Self {
-            let mut ui = UiState::new();
-            ui.set_reduced_motion(true);
-            let mut rig = Self {
-                raster: CpuRasterizer::new(320, 260),
-                ui,
-                theme: Theme::dark(),
+            let mut screen = Self {
+                rig: Rig::new(320, 260).still(),
                 picked: 0,
                 changed: 0,
                 menu: None,
             };
-            rig.frame();
-            rig
+            screen.frame();
+            screen
         }
 
         fn frame(&mut self) {
-            let mut ctx = self.raster.begin_frame().expect("frame");
-            {
-                let mut ui = self.ui.frame(&mut *ctx, &self.theme);
-                let r = Dropdown::new(&OPTIONS, &mut self.picked)
-                    .show(&mut ui, 1, BOX)
+            let (picked, changed, menu) = (&mut self.picked, &mut self.changed, &mut self.menu);
+            self.rig.frame(|ui| {
+                let r = Dropdown::new(&OPTIONS, picked)
+                    .show(ui, 1, BOX)
                     .expect("draw");
-                self.changed += u32::from(r.changed);
+                *changed += u32::from(r.changed);
                 let area = ui.interact(2, 0, AREA, Sense::Hover, true);
                 if area.secondary_clicked
                     && let Some(at) = ui.secondary_at(2, 0)
@@ -252,23 +245,14 @@ mod tests {
                     ui.open_menu(2, at, items);
                 }
                 if let Some(row) = ui.menu_picked(2) {
-                    self.menu = Some(row);
+                    *menu = Some(row);
                 }
-            }
-            drop(ctx);
-            self.raster.end_frame().expect("end");
+            });
         }
 
         fn mouse(&mut self, button: MouseButton, x: f32, y: f32, pressed: bool) {
-            self.ui.handle(&WindowEvent::MouseMove {
-                x: f64::from(x),
-                y: f64::from(y),
-                buttons: MouseButtons::default(),
-                modifiers: Modifiers::default(),
-                time: Default::default(),
-                pointer: PointerKind::Mouse,
-            });
-            self.ui.handle(&WindowEvent::MouseButton {
+            self.rig.at(x, y);
+            self.rig.send(WindowEvent::MouseButton {
                 button,
                 pressed,
                 modifiers: Modifiers::default(),
@@ -282,17 +266,17 @@ mod tests {
         }
 
         fn click(&mut self, x: f32, y: f32) {
-            self.mouse(MouseButton::Left, x, y, true);
-            self.mouse(MouseButton::Left, x, y, false);
+            self.rig.at(x, y);
+            self.rig.button(x, y, true);
+            self.frame();
+            self.rig.at(x, y);
+            self.rig.button(x, y, false);
+            self.frame();
             self.frame();
         }
 
         fn key(&mut self, key: KeyCode) {
-            self.ui.handle(&WindowEvent::KeyInput {
-                key,
-                pressed: true,
-                modifiers: Modifiers::default(),
-            });
+            self.rig.key(key);
             self.frame();
         }
 
@@ -306,34 +290,34 @@ mod tests {
 
     #[test]
     fn clicking_an_option_picks_it_and_closes() {
-        let mut rig = Rig::new();
+        let mut rig = Screen::new();
         rig.click(40.0, 25.0);
-        let (x, y) = Rig::row(2);
+        let (x, y) = Screen::row(2);
         rig.click(x, y);
         assert_eq!(rig.picked, 2);
         assert_eq!(rig.changed, 1);
         rig.click(40.0, 25.0);
-        let (x, y) = Rig::row(2);
+        let (x, y) = Screen::row(2);
         rig.click(x, y);
         assert_eq!(rig.changed, 1, "picking what was picked changes nothing");
     }
 
     #[test]
     fn a_click_outside_closes_without_reaching_what_is_under() {
-        let mut rig = Rig::new();
+        let mut rig = Screen::new();
         rig.click(40.0, 25.0);
         rig.mouse(MouseButton::Right, 250.0, 50.0, true);
         assert_eq!(rig.menu, None);
         rig.click(40.0, 25.0);
         rig.click(300.0, 240.0);
-        let (x, y) = Rig::row(1);
+        let (x, y) = Screen::row(1);
         rig.click(x, y);
         assert_eq!(rig.picked, 0, "the list had closed");
     }
 
     #[test]
     fn the_keyboard_works_the_list() {
-        let mut rig = Rig::new();
+        let mut rig = Screen::new();
         rig.key(KeyCode::Tab);
         rig.key(KeyCode::Down);
         assert_eq!(rig.picked, 1, "closed, Down changes the pick");
@@ -347,12 +331,15 @@ mod tests {
         rig.key(KeyCode::Escape);
         rig.frame();
         assert_eq!(rig.picked, 2, "Escape leaves it");
-        assert!(rig.ui.has_focus(), "and the keyboard stays on the dropdown");
+        assert!(
+            rig.rig.state.has_focus(),
+            "and the keyboard stays on the dropdown"
+        );
     }
 
     #[test]
     fn a_context_menu_opens_where_asked_and_skips_what_is_off() {
-        let mut rig = Rig::new();
+        let mut rig = Screen::new();
         rig.mouse(MouseButton::Right, 220.0, 30.0, true);
         rig.key(KeyCode::Down);
         rig.key(KeyCode::Down);

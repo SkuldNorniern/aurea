@@ -779,39 +779,34 @@ impl<Id: WidgetId> Widget<Id> for ScrollArea<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::Slider;
 
-    struct TouchRig {
-        raster: CpuRasterizer,
-        state: UiState<u8>,
+    struct Touch {
+        rig: Rig,
         offset: f32,
         clicks: usize,
         value: f32,
     }
 
-    impl TouchRig {
+    impl Touch {
         fn new() -> Self {
-            let mut state = UiState::new();
-            state.touch_scrolling = true;
-            state.set_reduced_motion(true);
-            let mut rig = Self {
-                raster: CpuRasterizer::new(200, 100),
-                state,
+            let mut rig = Rig::new(200, 100).still();
+            rig.state.touch_scrolling = true;
+            let mut touch = Self {
+                rig,
                 offset: 0.0,
                 clicks: 0,
                 value: 0.0,
             };
-            rig.frame();
-            rig
+            touch.frame();
+            touch
         }
 
         fn frame(&mut self) {
-            let theme = Theme::dark();
-            let mut ctx = self.raster.begin_frame().expect("frame");
-            {
-                let mut ui = self.state.frame(&mut *ctx, &theme);
+            self.rig.frame(|ui| {
                 ScrollArea::new(&mut self.offset, 500.0)
                     .show(
-                        &mut ui,
+                        ui,
                         1,
                         Rect::new(0.0, 0.0, 200.0, 100.0),
                         |ui, content, _| {
@@ -830,103 +825,60 @@ mod tests {
                         },
                     )
                     .expect("scroll");
-            }
-            drop(ctx);
-            self.raster.end_frame().expect("present");
+            });
         }
 
         fn button(&mut self, x: f64, y: f64, pressed: bool) {
-            self.state.handle(&WindowEvent::MouseButton {
-                button: MouseButton::Left,
-                pressed,
-                x,
-                y,
-                click_count: 1,
-                modifiers: Modifiers::default(),
-                pointer: PointerKind::Mouse,
-                time: Default::default(),
-            });
+            self.rig.button(x, y, pressed);
             if !pressed {
-                self.state.handle(&WindowEvent::MouseExited);
+                self.rig.send(WindowEvent::MouseExited);
             }
             self.frame();
         }
 
         fn drag(&mut self, x: f64, y: f64) {
-            self.state.handle(&WindowEvent::MouseMove {
-                x,
-                y,
-                buttons: MouseButtons::from_bits(1),
-                modifiers: Modifiers::default(),
-                pointer: PointerKind::Mouse,
-                time: Default::default(),
-            });
+            self.rig.drag_to(x, y);
             self.frame();
         }
     }
 
     #[test]
     fn finger_drag_scrolls_without_clicking_a_row() {
-        let mut rig = TouchRig::new();
-        rig.button(30.0, 25.0, true);
-        rig.drag(30.0, -15.0);
-        assert_eq!(rig.offset, 40.0);
-        rig.button(30.0, -15.0, false);
-        assert_eq!(rig.clicks, 0);
-        assert!(rig.state.scroll_drag.is_none());
+        let mut touch = Touch::new();
+        touch.button(30.0, 25.0, true);
+        touch.drag(30.0, -15.0);
+        assert_eq!(touch.offset, 40.0);
+        touch.button(30.0, -15.0, false);
+        assert_eq!(touch.clicks, 0);
+        assert!(touch.rig.state.scroll_drag.is_none());
     }
 
     #[test]
     fn a_finger_tap_still_clicks_and_sliders_still_adjust() {
-        let mut rig = TouchRig::new();
-        rig.button(30.0, 25.0, true);
-        rig.button(30.0, 25.0, false);
-        assert_eq!(rig.clicks, 1);
-        rig.button(20.0, 72.0, true);
-        rig.drag(90.0, 72.0);
-        rig.button(90.0, 72.0, false);
-        assert!(rig.value > 0.5);
-        assert_eq!(rig.offset, 0.0);
+        let mut touch = Touch::new();
+        touch.button(30.0, 25.0, true);
+        touch.button(30.0, 25.0, false);
+        assert_eq!(touch.clicks, 1);
+        touch.button(20.0, 72.0, true);
+        touch.drag(90.0, 72.0);
+        touch.button(90.0, 72.0, false);
+        assert!(touch.value > 0.5);
+        assert_eq!(touch.offset, 0.0);
     }
 
     #[test]
     fn mobile_list_drag_does_not_select_a_row() {
         let mut grid = Grid::new();
-        grid.ui.touch_scrolling = true;
+        grid.rig.state.touch_scrolling = true;
         grid.frame();
-        grid.ui.handle(&WindowEvent::MouseButton {
-            button: MouseButton::Left,
-            pressed: true,
-            x: 25.0,
-            y: 75.0,
-            click_count: 1,
-            modifiers: Modifiers::default(),
-            pointer: PointerKind::Mouse,
-            time: Default::default(),
-        });
+        grid.rig.button(25.0, 75.0, true);
         grid.frame();
         assert_eq!(grid.picked, None);
-        grid.ui.handle(&WindowEvent::MouseMove {
-            x: 25.0,
-            y: 15.0,
-            buttons: MouseButtons::from_bits(1),
-            modifiers: Modifiers::default(),
-            pointer: PointerKind::Mouse,
-            time: Default::default(),
-        });
+        grid.rig.drag_to(25.0, 15.0);
         grid.frame();
         assert!(grid.offset > 0.0);
-        grid.ui.handle(&WindowEvent::MouseButton {
-            button: MouseButton::Left,
-            pressed: false,
-            x: 25.0,
-            y: 15.0,
-            click_count: 1,
-            modifiers: Modifiers::default(),
-            pointer: PointerKind::Mouse,
-            time: Default::default(),
-        });
-        grid.ui.handle(&WindowEvent::MouseExited);
+        grid.rig.button(25.0, 15.0, false);
+        grid.rig.send(WindowEvent::MouseExited);
         grid.frame();
         assert_eq!(grid.picked, None);
         grid.click(25.0, 15.0, 1);
@@ -954,14 +906,12 @@ mod tests {
     }
 
     use crate::Rect;
-    use crate::render::{CpuRasterizer, Renderer};
-    use crate::ui::{Button, ListView, ScrollArea, ScrollStyle, Slider, Theme, UiState};
-    use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
+    use crate::ui::rig::Rig;
+    use crate::ui::{Button, ListView, ScrollArea, ScrollStyle};
+    use crate::window::{KeyCode, Modifiers, MouseButton, PointerKind, WindowEvent};
 
     struct Grid {
-        raster: CpuRasterizer,
-        ui: UiState<u8>,
-        theme: Theme,
+        rig: Rig,
         offset: f32,
         picked: Option<usize>,
         activated: bool,
@@ -970,9 +920,7 @@ mod tests {
     impl Grid {
         fn new() -> Self {
             let mut grid = Self {
-                raster: CpuRasterizer::new(200, 100),
-                ui: UiState::new(),
-                theme: Theme::dark(),
+                rig: Rig::new(200, 100),
                 offset: 0.0,
                 picked: None,
                 activated: false,
@@ -982,24 +930,20 @@ mod tests {
         }
 
         fn frame(&mut self) {
-            let mut ctx = self.raster.begin_frame().expect("frame");
-            {
-                let mut ui = self.ui.frame(&mut *ctx, &self.theme);
+            self.activated = self.rig.frame(|ui| {
                 let count = if ui.state.touch_scrolling { 100 } else { 10 };
-                let r = ListView::new(&mut self.offset, count, ROW)
+                ListView::new(&mut self.offset, count, ROW)
                     .grid(50.0)
                     .selected(&mut self.picked)
-                    .show(&mut ui, 1, Rect::new(0.0, 0.0, 200.0, 100.0), |_, _| Ok(()))
-                    .expect("grid");
-                self.activated = r.activated;
-            }
-            drop(ctx);
-            self.raster.end_frame().expect("end");
+                    .show(ui, 1, Rect::new(0.0, 0.0, 200.0, 100.0), |_, _| Ok(()))
+                    .expect("grid")
+                    .activated
+            });
         }
 
         fn click(&mut self, x: f64, y: f64, clicks: u8) {
             for pressed in [true, false] {
-                self.ui.handle(&WindowEvent::MouseButton {
+                self.rig.send(WindowEvent::MouseButton {
                     button: MouseButton::Left,
                     pressed,
                     modifiers: Modifiers::default(),
@@ -1017,11 +961,7 @@ mod tests {
         }
 
         fn key(&mut self, key: KeyCode) {
-            self.ui.handle(&WindowEvent::KeyInput {
-                key,
-                pressed: true,
-                modifiers: Modifiers::default(),
-            });
+            self.rig.key(key);
             self.frame();
         }
     }
@@ -1056,10 +996,8 @@ mod tests {
     const AREA: Rect = Rect::new(220.0, 0.0, 100.0, 100.0);
     const ROW: f32 = 20.0;
 
-    struct Rig {
-        raster: CpuRasterizer,
-        ui: UiState<u8>,
-        theme: Theme,
+    struct Scene {
+        rig: Rig,
         list: f32,
         area: f32,
         count: usize,
@@ -1069,14 +1007,10 @@ mod tests {
         step: f32,
     }
 
-    impl Rig {
+    impl Scene {
         fn new() -> Self {
-            let mut ui = UiState::new();
-            ui.set_reduced_motion(true);
-            let mut rig = Self {
-                raster: CpuRasterizer::new(340, 200),
-                ui,
-                theme: Theme::dark(),
+            let mut scene = Self {
+                rig: Rig::new(340, 200).still(),
                 list: 0.0,
                 area: 0.0,
                 count: 1000,
@@ -1085,23 +1019,21 @@ mod tests {
                 clicks: Vec::new(),
                 step: ROW,
             };
-            rig.frame();
-            rig
+            scene.frame();
+            scene
         }
 
         fn frame(&mut self) {
-            let mut ctx = self.raster.begin_frame().expect("frame");
-            {
-                let mut ui = self.ui.frame(&mut *ctx, &self.theme);
+            self.rig.frame(|ui| {
                 let style = ScrollStyle {
                     smooth: false,
                     step: self.step,
-                    ..ScrollStyle::new(&self.theme)
+                    ..ScrollStyle::new(ui.theme)
                 };
                 let list = ListView::new(&mut self.list, self.count, ROW)
                     .selected(&mut self.picked)
                     .style(style)
-                    .show(&mut ui, 1, LIST, |ui, row| {
+                    .show(ui, 1, LIST, |ui, row| {
                         ui.fill(row.rect, ui.theme.palette.surface)
                     })
                     .expect("list");
@@ -1111,7 +1043,7 @@ mod tests {
                 let pressed = &mut self.pressed;
                 ScrollArea::new(&mut self.area, 300.0)
                     .style(style)
-                    .show(&mut ui, 2, AREA, |ui, content, _| {
+                    .show(ui, 2, AREA, |ui, content, _| {
                         let at = Rect::new(content.x, content.y, 80.0, 30.0);
                         if Button::new("Top").show(ui, 3, at)?.clicked {
                             *pressed += 1;
@@ -1119,61 +1051,34 @@ mod tests {
                         Ok(())
                     })
                     .expect("area");
-            }
-            drop(ctx);
-            self.raster.end_frame().expect("end");
+            });
         }
 
         fn at(&mut self, x: f32, y: f32) {
-            self.ui.handle(&WindowEvent::MouseMove {
-                x: f64::from(x),
-                y: f64::from(y),
-                buttons: MouseButtons::default(),
-                modifiers: Modifiers::default(),
-                time: Default::default(),
-                pointer: PointerKind::Mouse,
-            });
+            self.rig.at(x, y);
         }
 
         fn button(&mut self, x: f32, y: f32, pressed: bool) {
-            self.at(x, y);
-            self.ui.handle(&WindowEvent::MouseButton {
-                button: MouseButton::Left,
-                pressed,
-                modifiers: Modifiers::default(),
-                x: f64::from(x),
-                y: f64::from(y),
-                click_count: 1,
-                time: Default::default(),
-                pointer: PointerKind::Mouse,
-            });
+            self.rig.at(x, y);
+            self.rig.button(x, y, pressed);
             self.frame();
         }
 
         fn wheel(&mut self, x: f32, y: f32, notches: f64) {
-            self.at(x, y);
-            self.ui.handle(&WindowEvent::MouseWheel {
-                delta_x: 0.0,
-                delta_y: notches,
-                modifiers: Modifiers::default(),
-            });
+            self.rig.wheel(x, y, 0.0, notches);
             self.frame();
             self.frame();
         }
 
         fn key(&mut self, key: KeyCode) {
-            self.ui.handle(&WindowEvent::KeyInput {
-                key,
-                pressed: true,
-                modifiers: Modifiers::default(),
-            });
+            self.rig.key(key);
             self.frame();
         }
     }
 
     #[test]
     fn the_wheel_scrolls_what_is_under_the_pointer() {
-        let mut rig = Rig::new();
+        let mut rig = Scene::new();
         rig.wheel(50.0, 50.0, -3.0);
         assert_eq!(rig.list, 60.0);
         assert_eq!(rig.area, 0.0, "the other area stays");
@@ -1185,7 +1090,7 @@ mod tests {
 
     #[test]
     fn a_page_setting_scrolls_a_view_a_notch() {
-        let mut rig = Rig::new();
+        let mut rig = Scene::new();
         rig.step = f32::INFINITY;
         rig.wheel(250.0, 50.0, -1.0);
         assert_eq!(rig.area, AREA.height);
@@ -1196,7 +1101,7 @@ mod tests {
 
     #[test]
     fn a_click_picks_the_row_under_it_as_scrolled() {
-        let mut rig = Rig::new();
+        let mut rig = Scene::new();
         rig.wheel(50.0, 50.0, -5.0);
         rig.button(50.0, 30.0, true);
         rig.button(50.0, 30.0, false);
@@ -1205,7 +1110,7 @@ mod tests {
 
     #[test]
     fn what_scrolled_out_takes_no_clicks() {
-        let mut rig = Rig::new();
+        let mut rig = Scene::new();
         rig.wheel(250.0, 50.0, -1.0);
         rig.button(240.0, 5.0, true);
         rig.button(240.0, 5.0, false);
@@ -1218,7 +1123,7 @@ mod tests {
 
     #[test]
     fn rows_far_apart_are_told_apart() {
-        let mut rig = Rig::new();
+        let mut rig = Scene::new();
         rig.count = 100_000;
         rig.list = 53_248.0 * ROW;
         rig.frame();
@@ -1233,7 +1138,7 @@ mod tests {
 
     #[test]
     fn clicking_the_pick_reports_the_row_without_a_change() {
-        let mut rig = Rig::new();
+        let mut rig = Scene::new();
         rig.picked = Some(2);
         rig.button(50.0, 50.0, true);
         rig.button(50.0, 50.0, false);
@@ -1243,7 +1148,7 @@ mod tests {
 
     #[test]
     fn keys_move_the_pick_and_keep_it_in_sight() {
-        let mut rig = Rig::new();
+        let mut rig = Scene::new();
         rig.button(50.0, 10.0, true);
         rig.button(50.0, 10.0, false);
         assert_eq!(rig.picked, Some(0));
@@ -1259,7 +1164,7 @@ mod tests {
 
     #[test]
     fn the_bar_drags() {
-        let mut rig = Rig::new();
+        let mut rig = Scene::new();
         rig.button(196.0, 2.0, true);
         rig.button(196.0, 2.0, true);
         rig.at(196.0, 100.0);
@@ -1271,18 +1176,14 @@ mod tests {
     const CONTENT: f32 = 10_000.0;
 
     struct Eased {
-        raster: CpuRasterizer,
-        ui: UiState<u8>,
-        theme: Theme,
+        rig: Rig,
         offset: f32,
     }
 
     impl Eased {
         fn new() -> Self {
             let mut eased = Self {
-                raster: CpuRasterizer::new(120, 120),
-                ui: UiState::new(),
-                theme: Theme::dark(),
+                rig: Rig::new(120, 120),
                 offset: 0.0,
             };
             eased.draw(false, |_, _| {});
@@ -1291,23 +1192,19 @@ mod tests {
 
         /// Draws one frame after `edit`, with the area jumping if asked, and returns the offset shown.
         fn draw(&mut self, jump: bool, edit: impl FnOnce(&mut Ui<'_, u8>, &mut f32)) -> f32 {
-            let mut ctx = self.raster.begin_frame().expect("frame");
             let mut shown = 0.0;
-            {
-                let mut ui = self.ui.frame(&mut *ctx, &self.theme);
-                edit(&mut ui, &mut self.offset);
+            self.rig.frame(|ui| {
+                edit(ui, &mut self.offset);
                 let mut area = ScrollArea::new(&mut self.offset, CONTENT);
                 if jump {
                     area = area.jump();
                 }
-                area.show(&mut ui, 1, VIEW, |_, content, _| {
+                area.show(ui, 1, VIEW, |_, content, _| {
                     shown = VIEW.y - content.y;
                     Ok(())
                 })
                 .expect("area");
-            }
-            drop(ctx);
-            self.raster.end_frame().expect("end");
+            });
             shown
         }
     }
@@ -1345,140 +1242,83 @@ mod tests {
 
     #[test]
     fn a_drag_from_inside_pulls_past_the_edge_until_let_go() {
-        let mut raster = CpuRasterizer::new(120, 160);
-        let mut state = UiState::<u8>::new();
-        let theme = Theme::dark();
-        let mut frame = |state: &mut UiState<u8>, offset: &mut f32| {
-            let mut ctx = raster.begin_frame().expect("frame");
-            {
-                let mut ui = state.frame(&mut *ctx, &theme);
+        let mut rig = Rig::new(120, 160);
+        let frame = |rig: &mut Rig, offset: &mut f32| {
+            rig.frame(|ui| {
                 let style = ScrollStyle {
                     smooth: false,
-                    ..ScrollStyle::new(&theme)
+                    ..ScrollStyle::new(ui.theme)
                 };
                 ScrollArea::new(offset, CONTENT)
                     .style(style)
-                    .show(&mut ui, 1, VIEW, |ui, content, _| {
+                    .show(ui, 1, VIEW, |ui, content, _| {
                         let at = Rect::new(content.x, content.y + 40.0, 80.0, 20.0);
                         ui.interact(3, 0, at, Sense::Click, true);
                         Ok(())
                     })
                     .expect("area");
-            }
-            drop(ctx);
-            raster.end_frame().expect("end");
-        };
-        let event = |state: &mut UiState<u8>, e: WindowEvent| state.handle(&e);
-        let pointer = |at: (f64, f64), buttons: u32| WindowEvent::MouseMove {
-            x: at.0,
-            y: at.1,
-            buttons: MouseButtons::from_bits(buttons),
-            modifiers: Modifiers::default(),
-            pointer: PointerKind::Mouse,
-            time: Default::default(),
-        };
-        let button = |at: (f64, f64), pressed: bool| WindowEvent::MouseButton {
-            button: MouseButton::Left,
-            pressed,
-            modifiers: Modifiers::default(),
-            x: at.0,
-            y: at.1,
-            click_count: 1,
-            pointer: PointerKind::Mouse,
-            time: Default::default(),
+            });
         };
         let mut offset = 0.0_f32;
-        event(&mut state, pointer((50.0, 50.0), 0));
-        frame(&mut state, &mut offset);
-        event(&mut state, button((50.0, 50.0), true));
-        frame(&mut state, &mut offset);
+        rig.at(50.0, 50.0);
+        frame(&mut rig, &mut offset);
+        rig.button(50.0, 50.0, true);
+        frame(&mut rig, &mut offset);
         assert_eq!(offset, 0.0, "a press alone does not pull");
 
         // held 40 px below the area: a quarter of that a frame
-        event(&mut state, pointer((50.0, 140.0), 1));
-        frame(&mut state, &mut offset);
+        rig.drag_to(50.0, 140.0);
+        frame(&mut rig, &mut offset);
         assert_eq!(offset, 10.0);
-        frame(&mut state, &mut offset);
-        frame(&mut state, &mut offset);
+        frame(&mut rig, &mut offset);
+        frame(&mut rig, &mut offset);
         assert_eq!(offset, 30.0, "keeps pulling while held");
 
-        event(&mut state, button((50.0, 140.0), false));
-        frame(&mut state, &mut offset);
+        rig.button(50.0, 140.0, false);
+        frame(&mut rig, &mut offset);
         let released = offset;
-        frame(&mut state, &mut offset);
+        frame(&mut rig, &mut offset);
         assert_eq!(offset, released, "let go, no more pull");
     }
 
     #[test]
     fn sideways_content_scrolls_across_and_its_bar_drags() {
-        let mut raster = CpuRasterizer::new(120, 120);
-        let mut state = UiState::<u8>::new();
-        let theme = Theme::dark();
+        let mut rig = Rig::new(120, 120);
         let (mut y, mut x) = (0.0_f32, 0.0_f32);
-        let mut frame = |state: &mut UiState<u8>, y: &mut f32, x: &mut f32| -> (f32, f32) {
-            let mut ctx = raster.begin_frame().expect("frame");
+        let frame = |rig: &mut Rig, y: &mut f32, x: &mut f32| -> (f32, f32) {
             let mut seen = (0.0, 0.0);
-            {
-                let mut ui = state.frame(&mut *ctx, &theme);
+            rig.frame(|ui| {
                 let style = ScrollStyle {
                     step: 10.0,
                     smooth: false,
-                    ..ScrollStyle::new(&theme)
+                    ..ScrollStyle::new(ui.theme)
                 };
                 ScrollArea::new(y, 50.0)
                     .sideways(x, 400.0)
                     .style(style)
-                    .show(&mut ui, 1, VIEW, |_, content, _| {
+                    .show(ui, 1, VIEW, |_, content, _| {
                         seen = (VIEW.x - content.x, content.width);
                         Ok(())
                     })
                     .expect("area");
-            }
-            drop(ctx);
-            raster.end_frame().expect("end");
+            });
             seen
         };
-        let event = |state: &mut UiState<u8>, e: WindowEvent| state.handle(&e);
-        let pointer = |at: (f64, f64), buttons: u32| WindowEvent::MouseMove {
-            x: at.0,
-            y: at.1,
-            buttons: MouseButtons::from_bits(buttons),
-            modifiers: Modifiers::default(),
-            pointer: PointerKind::Mouse,
-            time: Default::default(),
-        };
-        event(&mut state, pointer((50.0, 50.0), 0));
-        frame(&mut state, &mut y, &mut x);
-        event(
-            &mut state,
-            WindowEvent::MouseWheel {
-                delta_x: -3.0,
-                delta_y: 0.0,
-                modifiers: Modifiers::default(),
-            },
-        );
-        frame(&mut state, &mut y, &mut x);
+        rig.at(50.0, 50.0);
+        frame(&mut rig, &mut y, &mut x);
+        rig.wheel(50.0, 50.0, -3.0, 0.0);
+        frame(&mut rig, &mut y, &mut x);
         assert_eq!(x, 30.0);
-        assert_eq!(frame(&mut state, &mut y, &mut x), (30.0, 400.0));
+        assert_eq!(frame(&mut rig, &mut y, &mut x), (30.0, 400.0));
         assert_eq!(y, 0.0, "content shorter than the view stays put");
 
         // the bottom bar drags to the far end
-        let press = |pressed| WindowEvent::MouseButton {
-            button: MouseButton::Left,
-            pressed,
-            modifiers: Modifiers::default(),
-            x: 2.0,
-            y: 96.0,
-            click_count: 1,
-            pointer: PointerKind::Mouse,
-            time: Default::default(),
-        };
-        event(&mut state, pointer((2.0, 96.0), 0));
-        frame(&mut state, &mut y, &mut x);
-        event(&mut state, press(true));
-        frame(&mut state, &mut y, &mut x);
-        event(&mut state, pointer((99.0, 96.0), 1));
-        frame(&mut state, &mut y, &mut x);
+        rig.at(2.0, 96.0);
+        frame(&mut rig, &mut y, &mut x);
+        rig.button(2.0, 96.0, true);
+        frame(&mut rig, &mut y, &mut x);
+        rig.drag_to(99.0, 96.0);
+        frame(&mut rig, &mut y, &mut x);
         assert_eq!(x, 300.0);
     }
 }

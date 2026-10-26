@@ -383,85 +383,56 @@ fn strip<Id: WidgetId>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::{CpuRasterizer, Renderer};
-    use crate::ui::state::UiState;
-    use crate::window::{Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
+    use crate::ui::rig::Rig;
 
     const RECT: Rect = Rect::new(0.0, 0.0, 240.0, 220.0);
 
-    struct Rig {
-        raster: CpuRasterizer,
-        ui: UiState<u8>,
-        theme: Theme,
+    struct Picker {
+        rig: Rig,
         value: Hsv,
         hex: String,
     }
 
-    impl Rig {
+    impl Picker {
         fn new() -> Self {
-            let mut ui = UiState::new();
-            ui.set_reduced_motion(true);
-            let mut rig = Self {
-                raster: CpuRasterizer::new(240, 220),
-                ui,
-                theme: Theme::dark(),
+            let mut picker = Self {
+                rig: Rig::new(240, 220).still(),
                 value: Hsv::new(120.0, 0.5, 0.5, 1.0),
                 hex: String::new(),
             };
-            rig.frame();
-            rig
+            picker.frame();
+            picker
         }
 
         fn frame(&mut self) -> Response {
-            let response;
-            {
-                let mut ctx = self.raster.begin_frame().expect("frame");
-                let mut ui = self.ui.frame(&mut *ctx, &self.theme);
-                response = ColorPicker::new(&mut self.value)
+            self.rig.frame(|ui| {
+                ColorPicker::new(&mut self.value)
                     .alpha(true)
                     .hex_field(&mut self.hex)
-                    .show(&mut ui, 0, RECT)
-                    .expect("draw");
-            }
-            self.raster.end_frame().expect("end");
-            response
+                    .show(ui, 0, RECT)
+                    .expect("draw")
+            })
         }
 
         fn layout(&self) -> Layout {
-            let style = PickerStyle::new(&self.theme);
+            let style = PickerStyle::new(&self.rig.theme);
             let mut hex = String::new();
             let mut value = self.value;
             ColorPicker::new(&mut value)
                 .alpha(true)
                 .hex_field(&mut hex)
-                .layout(RECT, &style, self.theme.control_height)
+                .layout(RECT, &style, self.rig.theme.control_height)
         }
 
         fn press(&mut self, at: Point, pressed: bool) {
-            self.ui.handle(&WindowEvent::MouseMove {
-                x: f64::from(at.x),
-                y: f64::from(at.y),
-                buttons: MouseButtons::default(),
-                modifiers: Modifiers::default(),
-                time: Default::default(),
-                pointer: PointerKind::Mouse,
-            });
-            self.ui.handle(&WindowEvent::MouseButton {
-                button: MouseButton::Left,
-                pressed,
-                modifiers: Modifiers::default(),
-                x: f64::from(at.x),
-                y: f64::from(at.y),
-                click_count: 1,
-                time: Default::default(),
-                pointer: PointerKind::Mouse,
-            });
+            self.rig.at(at.x, at.y);
+            self.rig.button(at.x, at.y, pressed);
         }
     }
 
     #[test]
     fn the_parts_share_the_rect() {
-        let at = Rig::new().layout();
+        let at = Picker::new().layout();
         let hex = at.hex.expect("hex row");
         let alpha = at.alpha.expect("alpha strip");
         assert!(at.square.right() < at.hue.x && at.hue.right() < alpha.x);
@@ -471,7 +442,7 @@ mod tests {
 
     #[test]
     fn pressing_the_square_sets_saturation_and_value() {
-        let mut rig = Rig::new();
+        let mut rig = Picker::new();
         let square = rig.layout().square;
         rig.press(Point::new(square.right(), square.y), true);
         assert!(rig.frame().changed);
@@ -481,7 +452,7 @@ mod tests {
 
     #[test]
     fn the_hue_strip_runs_down_round_the_circle() {
-        let mut rig = Rig::new();
+        let mut rig = Picker::new();
         let hue = rig.layout().hue;
         rig.press(Point::new(hue.x + 4.0, hue.y + hue.height / 2.0), true);
         rig.frame();
@@ -490,7 +461,7 @@ mod tests {
 
     #[test]
     fn the_hex_field_follows_the_colour() {
-        let mut rig = Rig::new();
+        let mut rig = Picker::new();
         rig.frame();
         assert_eq!(rig.hex, rig.value.to_color().hex().to_string());
     }
