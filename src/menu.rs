@@ -415,6 +415,25 @@ impl SubMenu {
         )
     }
 
+    /// Like [`add_check_item`](Self::add_check_item), showing a keymap chord, as for a toggle
+    /// that has a key.
+    pub fn add_check_item_with_chord<F>(
+        &mut self,
+        title: &str,
+        chord: Chord,
+        checked: bool,
+        callback: F,
+    ) -> AureaResult<MenuItem>
+    where
+        F: Fn() + 'static,
+    {
+        let kind = Kind::Check {
+            checked,
+            radio: false,
+        };
+        self.add(title, MenuShortcut::from_chord(chord), kind, callback)
+    }
+
     /// Like [`add_check_item`](Self::add_check_item), marked as one choice of several where the
     /// platform draws those differently.
     pub fn add_radio_item<F>(
@@ -750,6 +769,20 @@ mod menu_ownership_tests {
             assert!(item.remove().is_err());
         }
         root.add_item("Still alive", || {})?;
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn a_ticked_row_shows_its_chord() -> AureaResult<()> {
+        use crate::{Chord, KeyCode};
+        let mut window = Window::new("ticked", 300, 200)?;
+        let bar = window.create_menu_bar()?;
+        let mut view = bar.add_submenu("View")?;
+        let snap =
+            view.add_check_item_with_chord("Snap", Chord::key(KeyCode::Semicolon), true, || {})?;
+        snap.set_checked(false)?;
+        snap.set_label("Snap to Grid")?;
         Ok(())
     }
 
