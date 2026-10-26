@@ -29,6 +29,7 @@ mod wake;
 
 pub use aurea_animation as animation;
 
+pub mod app;
 pub mod dialog;
 mod dispatch;
 pub mod elements;
@@ -80,8 +81,8 @@ pub use crate::window::{
 pub use crate::render::{Canvas, Color, DrawingContext, Point, Rect, RendererBackend};
 
 pub use crate::files::{
-    FileCache, Stamp, cache_dir, config_dir, data_dir, documents_dir, local_data_dir, open_path,
-    open_url, reveal_path,
+    FileCache, Stamp, app_cache_dir, app_config_dir, app_data_dir, app_local_data_dir, cache_dir,
+    config_dir, data_dir, documents_dir, local_data_dir, open_path, open_url, reveal_path,
 };
 pub use crate::keymap::{Chord, Keymap};
 pub use crate::locale::{locale, locales};

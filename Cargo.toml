@@ -8,12 +8,18 @@ license.workspace = true
 readme = "README.md"
 repository.workspace = true
 
+# The mobile demo app built from `examples/android_demo.rs` and the iOS sample.
+[package.metadata.aurea]
+name = "Aurea Smoke"
+id = "com.aurea.smoke"
+version = "auto"
+
 [lints]
 workspace = true
 
 [workspace]
 resolver = "3"
-members = ["aurea-foundation", "aurea-ffi", "aurea-render", "aurea-runtime", "aurea-animation"]
+members = ["aurea-foundation", "aurea-ffi", "aurea-render", "aurea-runtime", "aurea-animation", "aurea-build"]
 exclude = ["ZenGPU"]
 
 # The published crates move together. They are one library split for build

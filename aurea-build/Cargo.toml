@@ -1,0 +1,11 @@
+[package]
+name = "aurea-build"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Build script helper that hands an Aurea app's identity from Cargo.toml to its code"
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true

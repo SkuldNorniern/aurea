@@ -11,6 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(target_os = "android")]
 use crate::android;
+use crate::app;
 #[cfg(target_os = "ios")]
 use crate::ios;
 use crate::{AureaError, AureaResult};
@@ -150,6 +151,26 @@ fn openable_url(url: &str) -> bool {
         scheme.eq_ignore_ascii_case("mailto") && !rest.is_empty()
     };
     allowed && !url.chars().any(|c| c.is_whitespace() || c.is_control())
+}
+
+/// [`config_dir`] for this app, named by its [`crate::app::identity`] id.
+pub fn app_config_dir() -> Option<PathBuf> {
+    config_dir(app::identity().id)
+}
+
+/// [`data_dir`] for this app, named by its [`crate::app::identity`] id.
+pub fn app_data_dir() -> Option<PathBuf> {
+    data_dir(app::identity().id)
+}
+
+/// [`local_data_dir`] for this app, named by its [`crate::app::identity`] id.
+pub fn app_local_data_dir() -> Option<PathBuf> {
+    local_data_dir(app::identity().id)
+}
+
+/// [`cache_dir`] for this app, named by its [`crate::app::identity`] id.
+pub fn app_cache_dir() -> Option<PathBuf> {
+    cache_dir(app::identity().id)
 }
 
 /// The folder `app` keeps its settings in, for the current user: `%APPDATA%\app` on Windows,

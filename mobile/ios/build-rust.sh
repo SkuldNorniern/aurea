@@ -6,6 +6,7 @@ set -eu
 export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 repo="$SRCROOT/../.."
+"$SRCROOT/identity.sh" "$repo/Cargo.toml" "$SRCROOT/Identity.xcconfig"
 target_dir="$repo/target/ios"
 if [ "$CONFIGURATION" = "Release" ]; then
     profile=release
