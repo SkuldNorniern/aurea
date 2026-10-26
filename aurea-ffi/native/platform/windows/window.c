@@ -277,12 +277,12 @@ int ng_windows_detach_element(NGHandle element) {
 
 #define AUREA_MAXIMIZE_ON_SHOW_PROP "AureaMaximizeOnShow"
 
-/* How far workspace coordinates sit from screen ones on the monitor holding `rect`. */
-static POINT ng_windows_workspace_offset(HWND hwnd, const RECT* rect) {
+/* How far workspace coordinates sit from screen ones on `monitor`. */
+static POINT ng_windows_workspace_offset(HWND hwnd, HMONITOR monitor) {
     POINT offset = {0, 0};
     if (GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) return offset;
     MONITORINFO info = {sizeof info};
-    if (GetMonitorInfoW(MonitorFromRect(rect, MONITOR_DEFAULTTONEAREST), &info)) {
+    if (GetMonitorInfoW(monitor, &info)) {
         offset.x = info.rcWork.left - info.rcMonitor.left;
         offset.y = info.rcWork.top - info.rcMonitor.top;
     }
@@ -319,7 +319,8 @@ int ng_windows_window_get_placement(NGHandle window, int* rect) {
     WINDOWPLACEMENT wp = {sizeof wp};
     if (!GetWindowPlacement(hwnd, &wp)) return NG_ERROR_PLATFORM_SPECIFIC;
     RECT r = wp.rcNormalPosition;
-    POINT offset = ng_windows_workspace_offset(hwnd, &r);
+    /* the rect is relative to the work area of the monitor the window is on */
+    POINT offset = ng_windows_workspace_offset(hwnd, MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST));
     rect[0] = r.left + offset.x;
     rect[1] = r.top + offset.y;
     rect[2] = r.right - r.left;
@@ -335,7 +336,7 @@ int ng_windows_window_set_placement(NGHandle window, const int* rect, int maximi
     if (!hwnd || !IsWindow(hwnd) || !rect) return NG_ERROR_INVALID_HANDLE;
     if (rect[2] <= 0 || rect[3] <= 0) return NG_ERROR_INVALID_PARAMETER;
     RECT r = {rect[0], rect[1], rect[0] + rect[2], rect[1] + rect[3]};
-    POINT offset = ng_windows_workspace_offset(hwnd, &r);
+    POINT offset = ng_windows_workspace_offset(hwnd, MonitorFromRect(&r, MONITOR_DEFAULTTONEAREST));
     OffsetRect(&r, -offset.x, -offset.y);
     BOOL visible = IsWindowVisible(hwnd);
     WINDOWPLACEMENT wp = {sizeof wp};
