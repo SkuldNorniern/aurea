@@ -98,7 +98,7 @@ mod tests {
     use super::*;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::UiState;
-    use crate::window::{Modifiers, MouseButton, WindowEvent};
+    use crate::window::{Modifiers, MouseButton, PointerKind, WindowEvent};
 
     #[test]
     fn only_the_text_takes_the_click() {
@@ -129,6 +129,7 @@ mod tests {
                     y: 15.0,
                     click_count: 1,
                     time: Default::default(),
+                    pointer: PointerKind::Mouse,
                 });
                 frame(&mut state, &mut clicks);
             }

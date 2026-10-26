@@ -490,6 +490,13 @@ double ng_windows_logical(HWND hwnd, int physical) {
     return (double)physical / (scale > 1.0f ? (double)scale : 1.0);
 }
 
+/* Windows marks the mouse messages it makes from a pen or a touch with this signature. */
+static unsigned int ng_windows_pointer_bits(void) {
+    DWORD extra = (DWORD)GetMessageExtraInfo();
+    if ((extra & 0xFFFFFF00u) != 0xFF515700u) return 0;
+    return (extra & 0x80u) ? NG_POINTER_TOUCH : NG_POINTER_PEN;
+}
+
 static void ng_windows_emit_mouse_button(
     HWND hwnd,
     LPARAM lParam,
@@ -501,7 +508,7 @@ static void ng_windows_emit_mouse_button(
         (void*)hwnd,
         button,
         pressed,
-        ng_windows_modifiers(),
+        ng_windows_modifiers() | ng_windows_pointer_bits(),
         ng_windows_logical(hwnd, GET_X_LPARAM(lParam)),
         ng_windows_logical(hwnd, GET_Y_LPARAM(lParam)),
         click_count);
@@ -622,7 +629,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 ng_windows_logical(hwnd, GET_X_LPARAM(lParam)),
                 ng_windows_logical(hwnd, GET_Y_LPARAM(lParam)),
                 ng_windows_buttons(wParam),
-                ng_windows_modifiers());
+                ng_windows_modifiers() | ng_windows_pointer_bits());
             break;
         }
         case WM_POINTERDOWN:

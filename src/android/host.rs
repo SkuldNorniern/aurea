@@ -20,8 +20,8 @@ use crate::touch::{Phase, Touches};
 use crate::ui::{Theme, Ui, UiState};
 use crate::wake::wake_at;
 use crate::{
-    AureaResult, KeyCode, Modifiers, MouseButtons, PenPhase, PenSample, PenTool, Point, Rect,
-    WindowEvent,
+    AureaResult, KeyCode, Modifiers, MouseButtons, PenPhase, PenSample, PenTool, Point,
+    PointerKind, Rect, WindowEvent,
 };
 use aurea_render::FrameOutcome;
 #[cfg(feature = "zengpu")]
@@ -413,6 +413,7 @@ pub(super) fn pointer(
             buttons: MouseButtons::default(),
             modifiers: Modifiers::default(),
             time: event_time(age),
+            pointer: PointerKind::Pen,
         }),
         EXIT => events.push(WindowEvent::MouseExited),
         _ => {}

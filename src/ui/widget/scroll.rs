@@ -539,7 +539,7 @@ mod tests {
     use crate::Rect;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::{Button, ListView, ScrollArea, ScrollStyle, Theme, UiState};
-    use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, WindowEvent};
+    use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
 
     struct Grid {
         raster: CpuRasterizer,
@@ -589,6 +589,7 @@ mod tests {
                     y,
                     click_count: clicks,
                     time: Default::default(),
+                    pointer: PointerKind::Mouse,
                 });
                 self.frame();
                 if pressed && self.activated {
@@ -712,6 +713,7 @@ mod tests {
                 buttons: MouseButtons::default(),
                 modifiers: Modifiers::default(),
                 time: Default::default(),
+                pointer: PointerKind::Mouse,
             });
         }
 
@@ -725,6 +727,7 @@ mod tests {
                 y: f64::from(y),
                 click_count: 1,
                 time: Default::default(),
+                pointer: PointerKind::Mouse,
             });
             self.frame();
         }

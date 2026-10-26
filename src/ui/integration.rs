@@ -5,7 +5,7 @@ use super::{
     UiState,
 };
 use crate::render::{Color, CpuRasterizer, Point, Rect, Renderer};
-use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, WindowEvent};
+use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -39,6 +39,7 @@ impl Rig {
             buttons: MouseButtons::default(),
             modifiers: Modifiers::default(),
             time: Default::default(),
+            pointer: PointerKind::Mouse,
         });
         self.state.handle(&WindowEvent::MouseWheel {
             delta_x: dx,
@@ -57,6 +58,7 @@ impl Rig {
                 click_count: 1,
                 modifiers: Modifiers::default(),
                 time: Default::default(),
+                pointer: PointerKind::Mouse,
             });
         }
     }
@@ -288,6 +290,7 @@ fn a_press_carries_every_modifier() {
         click_count: 1,
         modifiers: alt,
         time: Default::default(),
+        pointer: PointerKind::Mouse,
     });
     let press = rig.frame(|ui| {
         ui.interact(1, 0, area, super::Sense::Click, true);

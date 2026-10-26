@@ -661,7 +661,7 @@ mod tests {
     use super::*;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::UiState;
-    use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, WindowEvent};
+    use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
 
     const AREA: Rect = Rect::new(0.0, 0.0, 404.0, 300.0);
 
@@ -745,6 +745,7 @@ mod tests {
                 y: f64::from(y),
                 click_count: 1,
                 time: Default::default(),
+                pointer: PointerKind::Mouse,
             });
             self.frame();
         }
@@ -756,6 +757,7 @@ mod tests {
                 buttons: MouseButtons::default(),
                 modifiers: Modifiers::default(),
                 time: Default::default(),
+                pointer: PointerKind::Mouse,
             });
             self.frame();
         }
@@ -807,6 +809,7 @@ mod tests {
             y: 14.0,
             click_count: 1,
             time: Default::default(),
+            pointer: PointerKind::Mouse,
         });
         rig.frame();
         assert_eq!(

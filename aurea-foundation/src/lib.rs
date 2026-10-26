@@ -14,7 +14,7 @@ pub use capability::{Capability, CapabilityChecker, Support};
 pub use error::{AureaError, AureaResult};
 pub use events::{
     EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons, Occlusion, PenPhase, PenSample,
-    PenTapAction, PenTool, WindowEvent,
+    PenTapAction, PenTool, PointerKind, WindowEvent,
 };
 pub use geometry::{Point, Rect};
 pub use hash::{FastBuild, FastHasher};

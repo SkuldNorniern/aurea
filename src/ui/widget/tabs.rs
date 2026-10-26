@@ -193,7 +193,7 @@ mod tests {
     use super::*;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::UiState;
-    use crate::window::{Modifiers, MouseButton, WindowEvent};
+    use crate::window::{Modifiers, MouseButton, PointerKind, WindowEvent};
 
     fn frame(raster: &mut CpuRasterizer, state: &mut UiState<u8>, picked: &mut usize) {
         let theme = Theme::dark();
@@ -221,6 +221,7 @@ mod tests {
                 y: 18.0,
                 click_count: 1,
                 time: Default::default(),
+                pointer: PointerKind::Mouse,
             });
             frame(&mut raster, &mut state, &mut picked);
         }

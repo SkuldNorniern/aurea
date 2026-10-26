@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use aurea::render::{CpuRasterizer, Renderer};
 use aurea::ui::{Align, Button, ListView, Slider, TextField, Theme, Toggle, Ui, UiState};
-use aurea::{AureaResult, Modifiers, MouseButtons, Rect, WindowEvent};
+use aurea::{AureaResult, Modifiers, MouseButtons, PointerKind, Rect, WindowEvent};
 
 const WIDTH: u32 = 1280;
 const HEIGHT: u32 = 800;
@@ -167,6 +167,7 @@ fn moved(x: f64, y: f64) -> WindowEvent {
         buttons: MouseButtons::default(),
         modifiers: Modifiers::default(),
         time: Default::default(),
+        pointer: PointerKind::Mouse,
     }
 }
 

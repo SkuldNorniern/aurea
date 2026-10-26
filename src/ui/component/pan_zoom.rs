@@ -406,7 +406,7 @@ fn to_f32(v: f64) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::window::{Modifiers, MouseButtons};
+    use crate::window::{Modifiers, MouseButtons, PointerKind};
     use std::f32::consts::FRAC_PI_2;
 
     const VIEW: Rect = Rect::new(100.0, 50.0, 400.0, 300.0);
@@ -428,6 +428,7 @@ mod tests {
             buttons: MouseButtons::default(),
             modifiers: Modifiers::default(),
             time: Default::default(),
+            pointer: PointerKind::Mouse,
         }
     }
 
@@ -440,6 +441,7 @@ mod tests {
             y,
             click_count: 1,
             time: Default::default(),
+            pointer: PointerKind::Mouse,
         }
     }
 

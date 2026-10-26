@@ -252,7 +252,7 @@ mod tests {
     use super::*;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::UiState;
-    use crate::window::{Modifiers, MouseButton, MouseButtons, WindowEvent};
+    use crate::window::{Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
 
     struct Rig {
         raster: CpuRasterizer,
@@ -291,6 +291,7 @@ mod tests {
                     y: 15.0,
                     click_count: 1,
                     time: Default::default(),
+                    pointer: PointerKind::Mouse,
                 });
             }
         }
@@ -323,6 +324,7 @@ mod tests {
             buttons: MouseButtons::default(),
             modifiers: Modifiers::default(),
             time: Default::default(),
+            pointer: PointerKind::Mouse,
         });
         rig.send(WindowEvent::MouseWheel {
             delta_x: 0.0,

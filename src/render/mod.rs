@@ -18,11 +18,11 @@ pub use aurea_render::text::{
 pub use aurea_render::vector::{Icon, SvgError, VectorImage, parse_path_data};
 pub use aurea_render::{
     BlendMode, ClickCallback, Color, CpuRasterizer, Dash, DisplayIndex, DisplayItem, DisplayList,
-    DrawCommand, DrawingContext, Font, FontFeature, FontMetrics, FontStyle, FontVariation, FontWeight,
-    GpuTexture, GradientStop, Hex, HoverCallback, Hsv, Image, InteractionRegistry, InteractiveId,
-    LineCap, LineJoin, LinearGradient, Paint, PaintStyle, Path, PathCommand, Point, RadialGradient,
-    Rect, Renderer, RendererBackend, Sampling, Surface, SurfaceInfo, TextMetrics, Transform,
-    Viewport,
+    DrawCommand, DrawingContext, Font, FontFeature, FontMetrics, FontStyle, FontVariation,
+    FontWeight, GpuTexture, GradientStop, Hex, HoverCallback, Hsv, Image, InteractionRegistry,
+    InteractiveId, LineCap, LineJoin, LinearGradient, Paint, PaintStyle, Path, PathCommand, Point,
+    RadialGradient, Rect, Renderer, RendererBackend, Sampling, Surface, SurfaceInfo, TextMetrics,
+    Transform, Viewport,
 };
 pub use canvas::*;
 

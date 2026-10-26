@@ -967,7 +967,7 @@ mod tests {
     use super::*;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::{Button, TextField, Theme, UiState};
-    use crate::window::{Modifiers, MouseButton, WindowEvent};
+    use crate::window::{Modifiers, MouseButton, PointerKind, WindowEvent};
 
     fn menu_frame(state: &mut UiState<u8>, raster: &mut CpuRasterizer) {
         let theme = Theme::dark();
@@ -1145,6 +1145,7 @@ mod tests {
             buttons: Default::default(),
             modifiers: Default::default(),
             time: Default::default(),
+            pointer: PointerKind::Mouse,
         });
         menu_frame(&mut state, &mut raster);
         assert_eq!(state.popup.parents.len(), 1);
@@ -1163,6 +1164,7 @@ mod tests {
                 y: f64::from(point.y),
                 click_count: 1,
                 time: Default::default(),
+                pointer: PointerKind::Mouse,
             });
             menu_frame(&mut state, &mut raster);
         }
@@ -1292,6 +1294,7 @@ mod tests {
                 y,
                 click_count: 1,
                 time: Default::default(),
+                pointer: PointerKind::Mouse,
             });
             self.frame(false, true);
         }

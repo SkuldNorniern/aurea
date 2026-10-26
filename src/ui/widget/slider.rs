@@ -405,7 +405,7 @@ mod tests {
     use super::*;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::UiState;
-    use crate::window::{Modifiers, MouseButton, MouseButtons, WindowEvent};
+    use crate::window::{Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
 
     fn frame(raster: &mut CpuRasterizer, state: &mut UiState<u8>, value: &mut f32) {
         let theme = Theme::dark();
@@ -431,6 +431,7 @@ mod tests {
             y: 12.0,
             click_count: clicks,
             time: Default::default(),
+            pointer: PointerKind::Mouse,
         });
     }
 
@@ -443,6 +444,7 @@ mod tests {
                 shift,
                 ..Modifiers::default()
             },
+            pointer: PointerKind::Mouse,
             time: Default::default(),
         });
     }

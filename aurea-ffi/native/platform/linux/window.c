@@ -599,11 +599,26 @@ static void report_pen(GtkWidget* widget, GdkEvent* event, double x, double y, g
                   ng_linux_modifiers(state), pen_age(event));
 }
 
+/* NG_POINTER_PEN or NG_POINTER_TOUCH when the device behind `event` is one, else 0. */
+static unsigned int ng_linux_pointer_bits(GdkEvent* event) {
+    GdkDevice* device = gdk_event_get_source_device(event);
+    if (!device) return 0;
+    switch (gdk_device_get_source(device)) {
+        case GDK_SOURCE_PEN:
+        case GDK_SOURCE_ERASER:
+            return NG_POINTER_PEN;
+        case GDK_SOURCE_TOUCHSCREEN:
+            return NG_POINTER_TOUCH;
+        default:
+            return 0;
+    }
+}
+
 static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpointer user_data) {
     (void)user_data;
     if (event->type != GDK_BUTTON_PRESS) return FALSE;
     if (ng_linux_already_seen((GdkEvent*)event)) return FALSE;
-    unsigned int mods = ng_linux_modifiers(event->state);
+    unsigned int mods = ng_linux_modifiers(event->state) | ng_linux_pointer_bits((GdkEvent*)event);
     int button = ng_linux_mouse_button_from_event(event->button);
     int click_count = ng_linux_click_count(widget, event);
     double x = event->x;
@@ -618,7 +633,7 @@ static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpoint
 static gboolean on_button_release(GtkWidget* widget, GdkEventButton* event, gpointer user_data) {
     (void)user_data;
     if (ng_linux_already_seen((GdkEvent*)event)) return FALSE;
-    unsigned int mods = ng_linux_modifiers(event->state);
+    unsigned int mods = ng_linux_modifiers(event->state) | ng_linux_pointer_bits((GdkEvent*)event);
     int button = ng_linux_mouse_button_from_event(event->button);
     double x = event->x;
     double y = event->y;
@@ -640,7 +655,8 @@ static gboolean on_motion_notify(GtkWidget* widget, GdkEventMotion* event, gpoin
     if (event->state & GDK_BUTTON3_MASK) buttons |= 1u << 1;
     if (event->state & GDK_BUTTON2_MASK) buttons |= 1u << 2;
     buttons |= ng_linux_pointer(widget)->held & ~7u;
-    ng_invoke_mouse_move((void*)widget, x, y, buttons, ng_linux_modifiers(event->state));
+    ng_invoke_mouse_move((void*)widget, x, y, buttons,
+                         ng_linux_modifiers(event->state) | ng_linux_pointer_bits((GdkEvent*)event));
     report_pen(widget, (GdkEvent*)event, x, y, event->state,
                (event->state & GDK_BUTTON1_MASK) ? PEN_MOVE : PEN_HOVER);
 

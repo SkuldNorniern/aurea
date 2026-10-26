@@ -100,7 +100,7 @@ mod tests {
     }
     use crate::Rect;
     use crate::render::{CpuRasterizer, Renderer};
-    use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, WindowEvent};
+    use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     enum Id {
@@ -190,6 +190,7 @@ mod tests {
                 y: f64::from(y),
                 click_count: 1,
                 time: Default::default(),
+                pointer: PointerKind::Mouse,
             });
         }
 
@@ -200,6 +201,7 @@ mod tests {
                 buttons: MouseButtons::default(),
                 modifiers: Modifiers::default(),
                 time: Default::default(),
+                pointer: PointerKind::Mouse,
             })
         }
 

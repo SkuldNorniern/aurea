@@ -46,6 +46,13 @@ static unsigned int ng_macos_modifiers(NSEvent* event) {
     return mods;
 }
 
+/* The modifiers of a mouse event, with what moved the pointer: a tablet's events are pens. */
+static unsigned int ng_macos_mouse_modifiers(NSEvent* event) {
+    unsigned int mods = ng_macos_modifiers(event);
+    if (event.subtype == NSEventSubtypeTabletPoint) mods |= NG_POINTER_PEN;
+    return mods;
+}
+
 static BOOL ng_macos_consume_raw_suppress(void* windowHandle);
 
 static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
@@ -317,7 +324,7 @@ static BOOL is_pen_event(NSEvent* event) {
     NSPoint location = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
     unsigned int buttons = (unsigned int)([NSEvent pressedMouseButtons] & 0xFF);
-    ng_invoke_mouse_move(self.windowHandle, location.x, h - location.y, buttons, ng_macos_modifiers(event));
+    ng_invoke_mouse_move(self.windowHandle, location.x, h - location.y, buttons, ng_macos_mouse_modifiers(event));
     [self reportPen:event phase:((buttons & 1) ? AUREA_PEN_MOVE : AUREA_PEN_HOVER)];
 
     int mode = ng_macos_get_cursor_grab_mode(self.windowHandle);
@@ -347,7 +354,7 @@ static BOOL is_pen_event(NSEvent* event) {
     [[self window] makeFirstResponder:self];
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
-    ng_invoke_mouse_button(self.windowHandle, 0, 1, ng_macos_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
+    ng_invoke_mouse_button(self.windowHandle, 0, 1, ng_macos_mouse_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
     [self reportPen:event phase:AUREA_PEN_DOWN];
     [self buttonWentDown];
 }
@@ -356,7 +363,7 @@ static BOOL is_pen_event(NSEvent* event) {
     if (!self.windowHandle) return;
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
-    ng_invoke_mouse_button(self.windowHandle, 0, 0, ng_macos_modifiers(event), p.x, h - p.y, 1);
+    ng_invoke_mouse_button(self.windowHandle, 0, 0, ng_macos_mouse_modifiers(event), p.x, h - p.y, 1);
     [self reportPen:event phase:AUREA_PEN_UP];
     [self buttonWentUp];
 }
@@ -365,7 +372,7 @@ static BOOL is_pen_event(NSEvent* event) {
     if (!self.windowHandle) return;
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
-    ng_invoke_mouse_button(self.windowHandle, 1, 1, ng_macos_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
+    ng_invoke_mouse_button(self.windowHandle, 1, 1, ng_macos_mouse_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
     [self buttonWentDown];
 }
 
@@ -373,7 +380,7 @@ static BOOL is_pen_event(NSEvent* event) {
     if (!self.windowHandle) return;
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
-    ng_invoke_mouse_button(self.windowHandle, 1, 0, ng_macos_modifiers(event), p.x, h - p.y, 1);
+    ng_invoke_mouse_button(self.windowHandle, 1, 0, ng_macos_mouse_modifiers(event), p.x, h - p.y, 1);
     [self buttonWentUp];
 }
 
@@ -382,7 +389,7 @@ static BOOL is_pen_event(NSEvent* event) {
     int button = (int)[event buttonNumber];
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
-    ng_invoke_mouse_button(self.windowHandle, button, 1, ng_macos_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
+    ng_invoke_mouse_button(self.windowHandle, button, 1, ng_macos_mouse_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
     [self buttonWentDown];
 }
 
@@ -391,7 +398,7 @@ static BOOL is_pen_event(NSEvent* event) {
     int button = (int)[event buttonNumber];
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
-    ng_invoke_mouse_button(self.windowHandle, button, 0, ng_macos_modifiers(event), p.x, h - p.y, 1);
+    ng_invoke_mouse_button(self.windowHandle, button, 0, ng_macos_mouse_modifiers(event), p.x, h - p.y, 1);
     [self buttonWentUp];
 }
 

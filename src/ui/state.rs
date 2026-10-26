@@ -1156,6 +1156,7 @@ fn to_f32(v: f64) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::PointerKind;
     use std::cell::Cell;
     use std::thread::sleep;
 
@@ -1166,6 +1167,7 @@ mod tests {
             buttons: Default::default(),
             modifiers: Modifiers::default(),
             time: Default::default(),
+            pointer: PointerKind::Mouse,
         }
     }
 
@@ -1203,6 +1205,7 @@ mod tests {
             y: 10.0,
             click_count: 1,
             time: Default::default(),
+            pointer: PointerKind::Mouse,
         };
         assert!(state.handle_input(&press).consumed);
         assert!(
@@ -1217,6 +1220,7 @@ mod tests {
             y: 90.0,
             click_count: 1,
             time: Default::default(),
+            pointer: PointerKind::Mouse,
         };
         assert!(state.handle_input(&release).consumed);
         assert!(!state.handle_input(&move_to(91.0, 90.0)).consumed);
