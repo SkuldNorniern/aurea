@@ -446,10 +446,7 @@ impl CpuRasterizer {
             DrawCommand::FillLinearGradient(grad, rect) => {
                 let faded;
                 let grad = if alpha < 1.0 {
-                    faded = LinearGradient {
-                        stops: fade_stops(&grad.stops, alpha),
-                        ..grad.clone()
-                    };
+                    faded = fade_linear_gradient(grad, alpha);
                     &faded
                 } else {
                     grad
@@ -459,10 +456,7 @@ impl CpuRasterizer {
             DrawCommand::FillRadialGradient(grad, rect) => {
                 let faded;
                 let grad = if alpha < 1.0 {
-                    faded = RadialGradient {
-                        stops: fade_stops(&grad.stops, alpha),
-                        ..grad.clone()
-                    };
+                    faded = fade_radial_gradient(grad, alpha);
                     &faded
                 } else {
                     grad
@@ -666,13 +660,16 @@ impl CpuRasterizer {
         y: u32,
         cov: f32,
     ) {
-        let inside = xa < xb
-            && ctx.clip.contains(xa as i32, y as i32)
-            && ctx.clip.contains((xb - 1) as i32, y as i32);
-        if let (Some(src), true) = (ctx.const_src, inside) {
+        if let Some(src) = ctx.const_src {
+            // Only the part of the span inside the clip is drawn.
+            let clip = ctx.clip;
+            let (sa, sb) = (xa.max(clip.x0), xb.min(clip.x1));
+            if y < clip.y0 || y >= clip.y1 || sa >= sb {
+                return;
+            }
             let alpha = f32_to_u32_clamped((f32::from(ctx.paint.color.a) * cov).round());
             let row_start = (y * bw) as usize;
-            if let Some(pixels) = buf.get_mut(row_start + xa as usize..row_start + xb as usize) {
+            if let Some(pixels) = buf.get_mut(row_start + sa as usize..row_start + sb as usize) {
                 src.over_span_at_alpha(pixels, alpha);
                 return;
             }
@@ -1130,13 +1127,17 @@ impl CpuRasterizer {
 
         let px = usize::try_from(i64::from(dx) + x_lo as i64).unwrap_or(0);
         let py = usize::try_from(i64::from(dy) + y_lo as i64).unwrap_or(0);
-        let alpha = u16::from(color.a);
-        // Colour alpha applied to each coverage byte; the identity at 255.
-        let mut fade = [0u8; 256];
-        for (c, slot) in fade.iter_mut().enumerate() {
-            let c = u16::try_from(c).unwrap_or(0);
-            *slot = u8::try_from((c * alpha + 127) / 255).unwrap_or(255);
-        }
+        // Colour alpha applied to each coverage byte. At 255 that is the identity, so no table.
+        let fade_table = (color.a != 255).then(|| {
+            let alpha = u16::from(color.a);
+            let mut fade = [0u8; 256];
+            for (c, slot) in fade.iter_mut().enumerate() {
+                let c = u16::try_from(c).unwrap_or(0);
+                *slot = u8::try_from((c * alpha + 127) / 255).unwrap_or(255);
+            }
+            fade
+        });
+        let fade = |c: u8| fade_table.as_ref().map_or(c, |t| t[usize::from(c)]);
         let normal = mode == BlendMode::Normal;
         let rgb = opaque_pixel & 0x00ff_ffff;
         for my in y_lo..y_hi {
@@ -1146,9 +1147,9 @@ impl CpuRasterizer {
             let dst_row = &mut buf[start..start + x_hi - x_lo];
 
             for (coverage, dst) in cov_row.as_chunks::<3>().0.iter().zip(dst_row) {
-                let cr8 = fade[usize::from(coverage[0])];
-                let cg8 = fade[usize::from(coverage[1])];
-                let cb8 = fade[usize::from(coverage[2])];
+                let cr8 = fade(coverage[0]);
+                let cg8 = fade(coverage[1]);
+                let cb8 = fade(coverage[2]);
                 if cr8 == 0 && cg8 == 0 && cb8 == 0 {
                     continue;
                 }
@@ -2142,6 +2143,22 @@ fn fade_stops(stops: &[GradientStop], alpha: f32) -> Vec<GradientStop> {
             ..*stop
         })
         .collect()
+}
+
+fn fade_linear_gradient(grad: &LinearGradient, alpha: f32) -> LinearGradient {
+    LinearGradient {
+        start: grad.start,
+        end: grad.end,
+        stops: fade_stops(&grad.stops, alpha),
+    }
+}
+
+fn fade_radial_gradient(grad: &RadialGradient, alpha: f32) -> RadialGradient {
+    RadialGradient {
+        center: grad.center,
+        radius: grad.radius,
+        stops: fade_stops(&grad.stops, alpha),
+    }
 }
 
 /// A gradient LUT colour, with the parts a Normal fill over an opaque pixel reads precomputed.
@@ -4147,6 +4164,53 @@ mod gradient_and_scaled_tests {
                 "{case}: pixel ({}, {}) {g:08x} vs {w:08x}",
                 i % W as usize,
                 i / W as usize
+            );
+        }
+    }
+
+    #[test]
+    fn faded_gradient_helpers_match_struct_update() {
+        let stops = vec![
+            GradientStop {
+                offset: 0.0,
+                color: Color::rgba(10, 20, 30, 200),
+            },
+            GradientStop {
+                offset: 1.0,
+                color: Color::rgba(250, 240, 230, 255),
+            },
+        ];
+        let linear = LinearGradient {
+            start: Point::new(1.5, 2.0),
+            end: Point::new(40.0, 9.25),
+            stops: stops.clone(),
+        };
+        let radial = RadialGradient {
+            center: Point::new(12.0, 7.5),
+            radius: 9.0,
+            stops,
+        };
+        for alpha in [0.0, 0.25, 0.5, 0.99] {
+            let old = LinearGradient {
+                stops: fade_stops(&linear.stops, alpha),
+                ..linear.clone()
+            };
+            let new = fade_linear_gradient(&linear, alpha);
+            assert_eq!(
+                format!("{new:?}"),
+                format!("{old:?}"),
+                "linear alpha {alpha}"
+            );
+
+            let old = RadialGradient {
+                stops: fade_stops(&radial.stops, alpha),
+                ..radial.clone()
+            };
+            let new = fade_radial_gradient(&radial, alpha);
+            assert_eq!(
+                format!("{new:?}"),
+                format!("{old:?}"),
+                "radial alpha {alpha}"
             );
         }
     }
