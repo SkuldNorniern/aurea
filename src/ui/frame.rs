@@ -2,8 +2,11 @@
 
 use std::mem;
 use std::rc::Rc;
+use std::time::Instant;
 
-use super::state::{Channel, Fonts, Interaction, Key, Press, Sense, Typed, UiState, WidgetId};
+use super::state::{
+    Channel, Fonts, Interaction, Key, Press, Sense, Typed, UiState, WidgetId, caret_on,
+};
 use super::theme::Theme;
 use crate::AureaResult;
 use crate::render::{Color, DrawingContext, Font, Paint, PaintStyle, Point, Rect, TextMetrics};
@@ -389,6 +392,16 @@ impl<Id: WidgetId> Ui<'_, Id> {
         self.state.tweens.keep_busy();
     }
 
+    /// Whether a blinking caret shows now, so custom editors blink with the built-in fields.
+    pub fn caret_on(&self) -> bool {
+        caret_on(self.theme.caret_blink, self.state.blink_from.elapsed())
+    }
+
+    /// Shows the caret solid again, for after the app moves its caret.
+    pub fn restart_blink(&mut self) {
+        self.state.blink_from = Instant::now();
+    }
+
     /// Shows `text` under `response`'s rect while the pointer rests on it, after a short delay.
     pub fn tooltip(&mut self, response: &Response, text: &str) {
         if response.hovered && !response.held {
@@ -698,5 +711,25 @@ fn estimate(text: &str, font: &Font) -> TextMetrics {
         ascent: font.size * 0.8,
         descent: font.size * 0.2,
         advance: width,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::render::{CpuRasterizer, Renderer};
+    use std::time::Duration;
+
+    #[test]
+    fn restarting_the_blink_shows_the_caret() {
+        let mut raster = CpuRasterizer::new(40, 40);
+        let mut state = UiState::<u8>::new();
+        let theme = Theme::dark();
+        let mut ctx = raster.begin_frame().expect("frame");
+        let mut ui = state.frame(&mut *ctx, &theme);
+        ui.state.blink_from = Instant::now() - Duration::from_millis(800);
+        assert!(!ui.caret_on());
+        ui.restart_blink();
+        assert!(ui.caret_on());
     }
 }
