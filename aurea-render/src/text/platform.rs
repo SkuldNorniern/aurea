@@ -10,7 +10,7 @@ use crate::text::{
     CacheKind, LAYOUT_BYTES, LruCache, MASK_BYTES, SHAPED_BYTES, layout_bytes, shared,
 };
 use crate::types::{
-    Font, FontFeature, FontStyle, FontVariation, FontWeight, GlyphMask, TextMetrics,
+    Font, FontFeature, FontMetrics, FontStyle, FontVariation, FontWeight, GlyphMask, TextMetrics,
 };
 use aurea_foundation::{AureaResult, lock};
 use std::hash::{Hash, Hasher};
@@ -339,6 +339,24 @@ impl TextRenderer {
         Ok((GlyphMask::new(dev_w, dev_h, coverage.into()), ascent, pad))
     }
 
+    /// `font`'s own metrics at its size; ascent and descent are the ones text measures with.
+    pub fn font_metrics(&self, font: FontRef) -> AureaResult<FontMetrics> {
+        let face = self.rasterizer.face(font)?;
+        let (ascent, descent) = self.rasterizer.face_metrics(face, font.size);
+        let metrics = self.rasterizer.face_data(face)?.metrics(font.size);
+        Ok(FontMetrics {
+            ascent,
+            descent,
+            ..metrics
+        })
+    }
+
+    /// Whether `font`'s own face draws `ch`; when not, text falls back to another face for it.
+    pub fn font_covers(&self, font: FontRef, ch: char) -> AureaResult<bool> {
+        let face = self.rasterizer.face(font)?;
+        Ok(self.rasterizer.face_data(face)?.has_char(ch))
+    }
+
     /// Measure text dimensions, from the same shaping drawing uses.
     pub fn measure_text(&self, text: &str, font: FontRef) -> AureaResult<TextMetrics> {
         let shaped = self.shape(text, font)?;
@@ -426,6 +444,27 @@ mod tests {
         assert!(metrics.width > 0.0, "width should be positive");
         assert!(metrics.ascent > 0.0, "ascent should be positive");
         assert!(metrics.advance > 0.0, "advance should be positive");
+    }
+
+    #[test]
+    fn fonts_say_their_metrics_and_what_they_cover() {
+        let r = TextRenderer::new();
+        let f = font("");
+        let m = r.font_metrics((&f).into()).expect("metrics");
+        let measured = r.measure_text("Hello", (&f).into()).expect("measure");
+        assert_eq!((m.ascent, m.descent), (measured.ascent, measured.descent));
+        assert!(m.line_gap >= 0.0 && m.underline_thickness > 0.0 && m.underline_offset > 0.0);
+        assert!(r.font_covers((&f).into(), 'A').expect("covers"));
+        assert!(!r.font_covers((&f).into(), '\u{10FFFD}').expect("covers"));
+        #[cfg(windows)]
+        {
+            // 350 of 2048 units, which terminals add to every row.
+            let m = r
+                .font_metrics((&font("Consolas")).into())
+                .expect("consolas");
+            assert!((m.line_gap - 24.0 * 350.0 / 2048.0).abs() < 0.01, "{m:?}");
+            assert!(m.monospace);
+        }
     }
 
     #[test]

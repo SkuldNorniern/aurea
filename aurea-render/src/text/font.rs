@@ -155,6 +155,28 @@ pub struct TextMetrics {
     pub advance: f32,
 }
 
+/// A font's own metrics at its size, in pixels, as terminals and editors size rows and draw
+/// underlines by.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct FontMetrics {
+    /// Distance above the baseline, as text is measured with.
+    pub ascent: f32,
+    /// Distance below the baseline, positive.
+    pub descent: f32,
+    /// Extra room the face asks for between lines.
+    pub line_gap: f32,
+    /// Height of capital letters, when the face says.
+    pub cap_height: Option<f32>,
+    /// Height of lowercase x, when the face says.
+    pub x_height: Option<f32>,
+    /// Where an underline's top sits below the baseline.
+    pub underline_offset: f32,
+    /// How thick an underline is.
+    pub underline_thickness: f32,
+    /// Whether every glyph has the same advance.
+    pub monospace: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
