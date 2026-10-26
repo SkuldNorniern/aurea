@@ -55,6 +55,17 @@ fn item_hash(item: &DisplayItem) -> u64 {
     h.finish()
 }
 
+/// An offscreen frame as RGBA8 bytes, rows top to bottom, in physical pixels.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RgbaPixels {
+    /// Width in physical pixels.
+    pub width: u32,
+    /// Height in physical pixels.
+    pub height: u32,
+    /// `width * height * 4` bytes, straight (not premultiplied) alpha.
+    pub rgba: Vec<u8>,
+}
+
 /// CPU software rasterizer drawing into a frame buffer.
 pub struct CpuRasterizer {
     frame_buffer: Vec<u32>,
@@ -154,6 +165,35 @@ impl CpuRasterizer {
     /// straight alpha, rows top to bottom.
     pub fn pixels(&self) -> &[u32] {
         &self.frame_buffer
+    }
+
+    /// Draws `draw` on a transparent `width` by `height` logical canvas at `scale`, and returns
+    /// the physical pixels as straight RGBA8.
+    pub fn draw_offscreen(
+        width: u32,
+        height: u32,
+        scale: f32,
+        draw: impl FnOnce(&mut dyn DrawingContext) -> AureaResult<()>,
+    ) -> AureaResult<RgbaPixels> {
+        let mut r = Self::new(0, 0);
+        r.configure(SurfaceInfo::new(width, height, scale))?;
+        {
+            let mut ctx = r.begin_frame()?;
+            ctx.clear(Color::rgba(0, 0, 0, 0))?;
+            draw(ctx.as_mut())?;
+        }
+        r.end_frame()?;
+        let (width, height) = r.pixel_size();
+        let mut rgba = vec![0u8; r.pixels().len() * 4];
+        for (out, &word) in rgba.as_chunks_mut::<4>().0.iter_mut().zip(r.pixels()) {
+            let [a, red, green, blue] = word.to_be_bytes();
+            *out = [red, green, blue, a];
+        }
+        Ok(RgbaPixels {
+            width,
+            height,
+            rgba,
+        })
     }
 
     /// The frame buffer as a raw pointer, its length in bytes, and its size.
@@ -5704,5 +5744,50 @@ mod band_tests {
             times.sort_by(f64::total_cmp);
             println!("{threads} threads: median {:.2} ms", times[times.len() / 2]);
         }
+    }
+}
+
+#[cfg(test)]
+mod offscreen_tests {
+    use super::*;
+    use crate::types::Paint;
+
+    fn draw_rects(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
+        ctx.draw_rect(
+            Rect::new(0.0, 0.0, 2.0, 1.0),
+            &Paint::new().color(Color::rgb(255, 0, 0)),
+        )?;
+        ctx.draw_rect(
+            Rect::new(2.0, 1.0, 2.0, 2.0),
+            &Paint::new().color(Color::rgba(0, 0, 255, 128)),
+        )
+    }
+
+    fn pixel(p: &RgbaPixels, x: u32, y: u32) -> [u8; 4] {
+        let i = ((y * p.width + x) * 4) as usize;
+        [p.rgba[i], p.rgba[i + 1], p.rgba[i + 2], p.rgba[i + 3]]
+    }
+
+    #[test]
+    fn offscreen_at_scale_one_is_logical_size() {
+        let p = CpuRasterizer::draw_offscreen(4, 3, 1.0, draw_rects).expect("draw");
+        assert_eq!((p.width, p.height), (4, 3));
+        assert_eq!(p.rgba.len(), 4 * 3 * 4);
+        assert_eq!(pixel(&p, 0, 0), [255, 0, 0, 255]);
+        assert_eq!(pixel(&p, 2, 1), [0, 0, 255, 128]);
+        assert_eq!(pixel(&p, 3, 0), [0, 0, 0, 0]);
+        assert_eq!(pixel(&p, 0, 2), [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn offscreen_at_scale_two_doubles_physical_size() {
+        let p = CpuRasterizer::draw_offscreen(4, 3, 2.0, draw_rects).expect("draw");
+        assert_eq!((p.width, p.height), (8, 6));
+        assert_eq!(p.rgba.len(), 8 * 6 * 4);
+        assert_eq!(pixel(&p, 0, 0), [255, 0, 0, 255]);
+        assert_eq!(pixel(&p, 3, 1), [255, 0, 0, 255]);
+        assert_eq!(pixel(&p, 4, 2), [0, 0, 255, 128]);
+        assert_eq!(pixel(&p, 7, 5), [0, 0, 255, 128]);
+        assert_eq!(pixel(&p, 7, 0), [0, 0, 0, 0]);
     }
 }

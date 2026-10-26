@@ -22,7 +22,7 @@ pub mod text;
 pub mod vector;
 
 pub use capabilities::{Fallback, GpuFeatures};
-pub use cpu::{CommandKind, CpuRasterizer, FrameCounters, KindTiming};
+pub use cpu::{CommandKind, CpuRasterizer, FrameCounters, KindTiming, RgbaPixels};
 pub use gpu::batch::{
     DrawRef, GradientInstance, ImageDraw, RectInstance, RenderBatches, ShapeInstance, TextDraw,
 };
