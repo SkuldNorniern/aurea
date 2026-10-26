@@ -54,6 +54,16 @@ pub enum AureaError {
 /// Result type for GUI operations.
 pub type AureaResult<T> = StdResult<T, AureaError>;
 
+impl AureaError {
+    /// [`AureaError::Unsupported`] for `operation` on the platform running now.
+    pub fn unsupported(operation: &'static str) -> Self {
+        Self::Unsupported {
+            operation,
+            platform: Platform::current(),
+        }
+    }
+}
+
 impl Display for AureaError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {

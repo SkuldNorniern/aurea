@@ -2,7 +2,7 @@
 
 use super::native::NativeElement;
 use super::traits::Element;
-use crate::ffi::{c_text, c_title};
+use crate::ffi::{c_text, c_title, status};
 use crate::registry::elements::{
     next_table_id, register_table_callbacks, unregister_table_callbacks,
 };
@@ -24,14 +24,6 @@ pub struct Table {
     rows: Rc<RefCell<Vec<u64>>>,
     on_select: Handler<Option<u64>>,
     on_activate: Handler<u64>,
-}
-
-fn check(result: c_int) -> AureaResult<()> {
-    if result == 0 {
-        Ok(())
-    } else {
-        Err(AureaError::ElementOperationFailed)
-    }
 }
 
 pub(super) fn call<T>(handler: &Handler<T>, value: T) {
@@ -87,7 +79,9 @@ impl Table {
         };
         for column in columns {
             let title = c_title(column.as_ref())?;
-            check(unsafe { ng_platform_table_add_column(handle, title.as_ptr()) })?;
+            status("Table", unsafe {
+                ng_platform_table_add_column(handle, title.as_ptr())
+            })?;
             table.columns += 1;
         }
         if table.columns == 0 {
@@ -133,7 +127,9 @@ impl Table {
         let index = c_int::try_from(index).map_err(|_| AureaError::ElementOperationFailed)?;
         let count =
             c_int::try_from(pointers.len()).map_err(|_| AureaError::ElementOperationFailed)?;
-        check(unsafe { op(self.handle.handle(), index, pointers.as_ptr(), count) })
+        status("Table", unsafe {
+            op(self.handle.handle(), index, pointers.as_ptr(), count)
+        })
     }
 
     /// Adds a row at the end; missing cells are empty. `row` must not be in the table yet.
@@ -167,14 +163,18 @@ impl Table {
     pub fn remove_row(&mut self, row: u64) -> AureaResult<()> {
         let index = self.index_of(row)?;
         let at = c_int::try_from(index).map_err(|_| AureaError::ElementOperationFailed)?;
-        check(unsafe { ng_platform_table_remove_row(self.handle.handle(), at) })?;
+        status("Table", unsafe {
+            ng_platform_table_remove_row(self.handle.handle(), at)
+        })?;
         self.rows.borrow_mut().remove(index);
         Ok(())
     }
 
     /// Removes every row.
     pub fn clear(&mut self) -> AureaResult<()> {
-        check(unsafe { ng_platform_table_clear(self.handle.handle()) })?;
+        status("Table", unsafe {
+            ng_platform_table_clear(self.handle.handle())
+        })?;
         self.rows.borrow_mut().clear();
         Ok(())
     }
@@ -199,7 +199,9 @@ impl Table {
                 .map_err(|_| AureaError::ElementOperationFailed)?,
             None => -1,
         };
-        check(unsafe { ng_platform_table_set_selected(self.handle.handle(), index) })
+        status("Table", unsafe {
+            ng_platform_table_set_selected(self.handle.handle(), index)
+        })
     }
 }
 

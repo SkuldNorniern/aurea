@@ -701,14 +701,8 @@ impl Window {
         let (Ok(width), Ok(height)) = (i32::try_from(width), i32::try_from(height)) else {
             return Err(AureaError::ElementOperationFailed);
         };
-        match unsafe { ng_platform_window_set_min_size(self.handle, width, height) } {
-            0 => Ok(()),
-            NG_ERROR_UNSUPPORTED => Err(AureaError::Unsupported {
-                operation: "Window::set_min_size",
-                platform: Platform::current(),
-            }),
-            _ => Err(AureaError::ElementOperationFailed),
-        }
+        let code = unsafe { ng_platform_window_set_min_size(self.handle, width, height) };
+        status("Window::set_min_size", code)
     }
 
     /// Get the window size.
@@ -770,7 +764,7 @@ impl Window {
         ui_thread::check("Window::request_attention");
         let result =
             unsafe { ng_platform_window_request_attention(self.handle, i32::from(critical)) };
-        op_result("Window::request_attention", result)
+        status("Window::request_attention", result)
     }
 
     /// Where the window sits, for [`Window::set_placement`] on the next start. On macOS and Linux
@@ -778,7 +772,7 @@ impl Window {
     pub fn placement(&self) -> AureaResult<WindowPlacement> {
         let mut rect = [0; 4];
         let state = unsafe { ng_platform_window_get_placement(self.handle, rect.as_mut_ptr()) };
-        op_result("Window::placement", state)?;
+        status("Window::placement", state)?;
         let [x, y, width, height] = rect;
         Ok(WindowPlacement {
             x,
@@ -798,7 +792,7 @@ impl Window {
         let maximized = i32::from(placement.maximized);
         let result =
             unsafe { ng_platform_window_set_placement(self.handle, rect.as_ptr(), maximized) };
-        op_result("Window::set_placement", result)
+        status("Window::set_placement", result)
     }
 
     /// Set cursor visibility for this window.
@@ -1019,17 +1013,6 @@ fn teardown_window(handle: *mut c_void, id: WindowId) {
 impl Drop for Window {
     fn drop(&mut self) {
         teardown_window(self.handle, self.id);
-    }
-}
-
-fn op_result(operation: &'static str, code: i32) -> AureaResult<()> {
-    match code {
-        0.. => Ok(()),
-        NG_ERROR_UNSUPPORTED => Err(AureaError::Unsupported {
-            operation,
-            platform: Platform::current(),
-        }),
-        _ => Err(AureaError::ElementOperationFailed),
     }
 }
 

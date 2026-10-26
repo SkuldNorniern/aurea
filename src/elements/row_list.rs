@@ -26,14 +26,6 @@ pub struct RowList {
     on_activate: Handler<u64>,
 }
 
-fn check(result: c_int) -> AureaResult<()> {
-    if result == 0 {
-        Ok(())
-    } else {
-        Err(AureaError::ElementOperationFailed)
-    }
-}
-
 fn index(at: usize) -> AureaResult<c_int> {
     c_int::try_from(at).map_err(|_| AureaError::ElementOperationFailed)
 }
@@ -115,7 +107,7 @@ impl RowList {
         if self.rows.borrow().contains(&row) || at > self.rows.borrow().len() {
             return Err(AureaError::ElementOperationFailed);
         }
-        check(unsafe {
+        status("RowList", unsafe {
             ng_platform_row_list_insert(self.handle.handle(), index(at)?, element.handle())
         })?;
         element.released_to_parent();
@@ -127,7 +119,9 @@ impl RowList {
     /// Removes `row`; its element is destroyed.
     pub fn remove_row(&mut self, row: u64) -> AureaResult<()> {
         let at = self.index_of(row)?;
-        check(unsafe { ng_platform_row_list_remove(self.handle.handle(), index(at)?) })?;
+        status("RowList", unsafe {
+            ng_platform_row_list_remove(self.handle.handle(), index(at)?)
+        })?;
         self.rows.borrow_mut().remove(at);
         self.elements.remove(at);
         Ok(())
@@ -135,7 +129,9 @@ impl RowList {
 
     /// Removes every row.
     pub fn clear(&mut self) -> AureaResult<()> {
-        check(unsafe { ng_platform_row_list_clear(self.handle.handle()) })?;
+        status("RowList", unsafe {
+            ng_platform_row_list_clear(self.handle.handle())
+        })?;
         self.rows.borrow_mut().clear();
         self.elements.clear();
         Ok(())
@@ -160,7 +156,9 @@ impl RowList {
             Some(row) => index(self.index_of(row)?)?,
             None => -1,
         };
-        check(unsafe { ng_platform_row_list_set_selected(self.handle.handle(), at) })
+        status("RowList", unsafe {
+            ng_platform_row_list_set_selected(self.handle.handle(), at)
+        })
     }
 }
 

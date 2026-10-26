@@ -117,7 +117,7 @@ pub(crate) fn preview_path(path: &Path) -> AureaResult<()> {
     let path = c_text(path.as_os_str().as_bytes())?;
     // SAFETY: the string lives for the call.
     if unsafe { ng_ios_preview_path(path.as_ptr()) } == 0 {
-        return unsupported("open_path");
+        return Err(AureaError::unsupported("open_path"));
     }
     Ok(())
 }
@@ -128,7 +128,7 @@ pub(crate) fn reveal_path(path: &Path) -> AureaResult<()> {
     let path = c_text(path.as_os_str().as_bytes())?;
     // SAFETY: the string lives for the call.
     if unsafe { ng_ios_reveal_path(path.as_ptr()) } == 0 {
-        return unsupported("reveal_path");
+        return Err(AureaError::unsupported("reveal_path"));
     }
     Ok(())
 }
@@ -138,11 +138,4 @@ fn ok_or_failed(done: c_int) -> AureaResult<()> {
         return Err(AureaError::ElementOperationFailed);
     }
     Ok(())
-}
-
-fn unsupported(operation: &'static str) -> AureaResult<()> {
-    Err(AureaError::Unsupported {
-        operation,
-        platform: Platform::current(),
-    })
 }

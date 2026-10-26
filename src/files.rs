@@ -9,7 +9,7 @@ use std::process::Command;
 use crate::android;
 #[cfg(target_os = "ios")]
 use crate::ios;
-use crate::{AureaError, AureaResult, Platform};
+use crate::{AureaError, AureaResult};
 
 /// Opens `path` the way double-clicking it in the file manager would. On iOS, Quick Look shows it
 /// over the app.
@@ -31,7 +31,7 @@ pub fn open_path(path: &Path) -> AureaResult<()> {
     )) {
         spawn(Command::new("xdg-open").arg(path))
     } else {
-        unsupported("open_path")
+        Err(AureaError::unsupported("open_path"))
     }
 }
 
@@ -85,7 +85,7 @@ pub fn reveal_path(path: &Path) -> AureaResult<()> {
     #[allow(unreachable_code)]
     {
         let _ = path;
-        unsupported("reveal_path")
+        Err(AureaError::unsupported("reveal_path"))
     }
 }
 
@@ -126,7 +126,7 @@ pub fn open_url(url: &str) -> AureaResult<()> {
     } else if cfg!(unix) {
         spawn(Command::new("xdg-open").arg(url))
     } else {
-        unsupported("open_url")
+        Err(AureaError::unsupported("open_url"))
     }
 }
 
@@ -249,13 +249,6 @@ fn spawn(command: &mut Command) -> AureaResult<()> {
         .spawn()
         .map(drop)
         .map_err(|e| AureaError::PlatformError(e.raw_os_error().unwrap_or(-1)))
-}
-
-fn unsupported(operation: &'static str) -> AureaResult<()> {
-    Err(AureaError::Unsupported {
-        operation,
-        platform: Platform::current(),
-    })
 }
 
 #[cfg(test)]

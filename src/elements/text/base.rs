@@ -5,13 +5,12 @@ use super::change::{TextChange, diff};
 use super::features::TextFeatures;
 use super::offsets::{Unit, to_bytes, to_units};
 use crate::elements::native::{CallbackWatch, NativeElement, read_text};
-use crate::ffi::c_text;
 use crate::ffi::{
-    NG_ERROR_UNSUPPORTED, NG_TEXT_FEATURE_SECRET, ng_platform_set_text_content,
-    ng_platform_text_can_undo, ng_platform_text_get_selection, ng_platform_text_replace,
-    ng_platform_text_set_feature, ng_platform_text_set_selection, ng_platform_text_undo,
-    ng_platform_text_view_invalidate,
+    NG_TEXT_FEATURE_SECRET, ng_platform_set_text_content, ng_platform_text_can_undo,
+    ng_platform_text_get_selection, ng_platform_text_replace, ng_platform_text_set_feature,
+    ng_platform_text_set_selection, ng_platform_text_undo, ng_platform_text_view_invalidate,
 };
+use crate::ffi::{c_text, status};
 use crate::{AureaError, AureaResult, Platform};
 use std::cell::{Cell, RefCell};
 use std::ops::Range;
@@ -69,17 +68,6 @@ pub struct TextBase {
     _watch: Option<CallbackWatch>,
 }
 
-fn check(result: c_int, operation: &'static str) -> AureaResult<()> {
-    match result {
-        0 => Ok(()),
-        NG_ERROR_UNSUPPORTED => Err(AureaError::Unsupported {
-            operation,
-            platform: Platform::current(),
-        }),
-        _ => Err(AureaError::ElementOperationFailed),
-    }
-}
-
 impl TextBase {
     pub(crate) fn new(
         handle: *mut c_void,
@@ -125,10 +113,9 @@ impl TextBase {
 
     pub(crate) fn set_text(&self, text: &str) -> AureaResult<()> {
         let text = c_text(text)?;
-        check(
-            unsafe { ng_platform_set_text_content(self.handle(), text.as_ptr()) },
-            "set_text",
-        )?;
+        status("set_text", unsafe {
+            ng_platform_set_text_content(self.handle(), text.as_ptr())
+        })?;
         self.changes.own_edit(self.handle());
         Ok(())
     }
@@ -151,10 +138,9 @@ impl TextBase {
 
     pub(crate) fn selection(&self) -> AureaResult<Range<usize>> {
         let (mut start, mut end): (c_int, c_int) = (0, 0);
-        check(
-            unsafe { ng_platform_text_get_selection(self.handle(), &raw mut start, &raw mut end) },
-            "selection",
-        )?;
+        status("selection", unsafe {
+            ng_platform_text_get_selection(self.handle(), &raw mut start, &raw mut end)
+        })?;
         let text = self.text()?;
         let byte = |u: c_int| to_bytes(&text, usize::try_from(u).unwrap_or(0), self.unit);
         Ok(byte(start)..byte(end))
@@ -162,28 +148,25 @@ impl TextBase {
 
     pub(crate) fn set_selection(&self, range: Range<usize>) -> AureaResult<()> {
         let (start, end) = self.to_native(&self.text()?, &range)?;
-        check(
-            unsafe { ng_platform_text_set_selection(self.handle(), start, end) },
-            "set_selection",
-        )
+        status("set_selection", unsafe {
+            ng_platform_text_set_selection(self.handle(), start, end)
+        })
     }
 
     pub(crate) fn replace(&self, range: Range<usize>, with: &str) -> AureaResult<()> {
         let (start, end) = self.to_native(&self.text()?, &range)?;
         let with = c_text(with)?;
-        check(
-            unsafe { ng_platform_text_replace(self.handle(), start, end, with.as_ptr()) },
-            "replace",
-        )?;
+        status("replace", unsafe {
+            ng_platform_text_replace(self.handle(), start, end, with.as_ptr())
+        })?;
         self.changes.own_edit(self.handle());
         Ok(())
     }
 
     pub(crate) fn undo(&self, redo: bool) -> AureaResult<()> {
-        check(
-            unsafe { ng_platform_text_undo(self.handle(), c_int::from(redo)) },
-            if redo { "redo" } else { "undo" },
-        )?;
+        status(if redo { "redo" } else { "undo" }, unsafe {
+            ng_platform_text_undo(self.handle(), c_int::from(redo))
+        })?;
         self.changes.own_edit(self.handle());
         Ok(())
     }
@@ -209,10 +192,9 @@ impl TextBase {
     }
 
     fn switch(&self, feature: c_int, on: bool) -> AureaResult<()> {
-        check(
-            unsafe { ng_platform_text_set_feature(self.handle(), feature, c_int::from(on)) },
-            "set_features",
-        )
+        status("set_features", unsafe {
+            ng_platform_text_set_feature(self.handle(), feature, c_int::from(on))
+        })
     }
 
     pub(crate) fn on_change(

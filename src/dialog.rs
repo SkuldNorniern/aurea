@@ -320,10 +320,7 @@ impl ColorDialog {
         match answer {
             1 => Ok(Some(color_of(picked))),
             0 => Ok(None),
-            NG_ERROR_UNSUPPORTED => Err(AureaError::Unsupported {
-                operation: "color_dialog",
-                platform: Platform::current(),
-            }),
+            NG_ERROR_UNSUPPORTED => Err(AureaError::unsupported("color_dialog")),
             code => Err(AureaError::PlatformError(code)),
         }
     }

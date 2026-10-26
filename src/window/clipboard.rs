@@ -1,6 +1,5 @@
 //! Clipboard text, RGBA8 images and application byte formats, on the desktop and iOS.
 
-use crate::Platform;
 use crate::ffi::{RawClipboardEntry, c_text};
 #[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "ios"))]
 use crate::ffi::{
@@ -84,10 +83,7 @@ fn native_bytes(format: Option<&CStr>, max_bytes: usize) -> AureaResult<Option<V
 fn status(result: i32) -> AureaResult<()> {
     match result {
         0 => Ok(()),
-        -5 => Err(AureaError::Unsupported {
-            operation: "clipboard byte formats",
-            platform: Platform::current(),
-        }),
+        -5 => Err(AureaError::unsupported("clipboard byte formats")),
         code => Err(AureaError::PlatformError(code)),
     }
 }
