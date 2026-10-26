@@ -20,6 +20,7 @@ use super::paint::TextSize;
 use super::text_edit::TextEdit;
 use super::theme::Theme;
 use super::widget::popup::Popup;
+use crate::reduced_motion;
 use crate::render::{Font, Path, Point, Rect, TextMetrics};
 use crate::window::{CursorIcon, KeyCode, Modifiers, MouseButton, Window, WindowEvent};
 
@@ -389,6 +390,8 @@ pub struct UiState<Id: WidgetId> {
     pub(crate) changed: bool,
     wants_frame: bool,
     sent: (CursorIcon, Option<Rect>),
+    /// Whether easing follows the system's reduced motion setting, until the app sets its own.
+    motion_follows_system: bool,
 }
 
 impl<Id: WidgetId> Default for UiState<Id> {
@@ -398,10 +401,15 @@ impl<Id: WidgetId> Default for UiState<Id> {
 }
 
 impl<Id: WidgetId> UiState<Id> {
-    /// Creates an empty state with nothing focused or hovered.
+    /// Creates an empty state with nothing focused or hovered. Easing follows the system's
+    /// reduced motion setting; see [`Self::set_reduced_motion`].
     pub fn new() -> Self {
+        // tests ease the same on every machine
+        let follow = !cfg!(test);
+        let mut tweens = Tweens::new();
+        tweens.set_instant(follow && reduced_motion());
         Self {
-            tweens: Tweens::new(),
+            tweens,
             #[cfg(feature = "accessibility")]
             accessibility: None,
             pointer: None,
@@ -443,13 +451,22 @@ impl<Id: WidgetId> UiState<Id> {
             changed: false,
             wants_frame: false,
             sent: (CursorIcon::Default, None),
+            motion_follows_system: follow,
         }
     }
 
-    /// Values jump to their targets instead of easing, for people who asked the system for less
-    /// motion: pass [`crate::reduced_motion`].
+    /// Values jump to their targets instead of easing. By default this follows
+    /// [`crate::reduced_motion`], read again when the window gains focus or the system theme
+    /// changes; setting it here stops that.
     pub fn set_reduced_motion(&mut self, reduced: bool) {
+        self.motion_follows_system = false;
         self.tweens.set_instant(reduced);
+    }
+
+    fn follow_system_motion(&mut self) {
+        if self.motion_follows_system {
+            self.tweens.set_instant(reduced_motion());
+        }
     }
 
     /// Takes one window event, in the canvas's coordinates.
@@ -617,7 +634,12 @@ impl<Id: WidgetId> UiState<Id> {
             }
             WindowEvent::Focused => {
                 self.window_focused = true;
+                self.follow_system_motion();
                 true
+            }
+            WindowEvent::ThemeChanged { .. } => {
+                self.follow_system_motion();
+                false
             }
             _ => false,
         }
