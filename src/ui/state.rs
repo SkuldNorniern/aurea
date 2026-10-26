@@ -190,6 +190,8 @@ pub struct UiState<Id: WidgetId> {
     pub(crate) focus_visible: bool,
     focus_seen: bool,
     pub(crate) clicked: Vec<Key<Id>>,
+    /// Accepted release position, even when a touch has since left the surface.
+    pub(crate) click_at: Option<Point>,
     pub(crate) press: Option<Press<Id>>,
     pub(crate) secondary: Option<(Key<Id>, Point)>,
     pub(crate) popup: Popup<Id>,
@@ -245,6 +247,7 @@ impl<Id: WidgetId> UiState<Id> {
             focus_visible: false,
             focus_seen: false,
             clicked: Vec::new(),
+            click_at: None,
             press: None,
             secondary: None,
             popup: Popup::default(),
@@ -430,6 +433,7 @@ impl<Id: WidgetId> UiState<Id> {
                 self.typed.clear();
                 self.typed_targets.clear();
                 self.clicked.clear();
+                self.click_at = None;
                 self.wheel = (0.0, 0.0);
                 self.edit.cancel_composition();
                 for edit in self.edits.values_mut() {
@@ -646,6 +650,7 @@ impl<Id: WidgetId> UiState<Id> {
                     && under == Some(active)
                 {
                     self.clicked.push(active);
+                    self.click_at = Some(at);
                 }
             }
         }
@@ -815,6 +820,7 @@ impl<Id: WidgetId> UiState<Id> {
         self.wants_frame =
             self.tweens.busy() || self.changed || !self.clicked.is_empty() || blinking;
         self.clicked.clear();
+        self.click_at = None;
         self.typed.clear();
         self.typed_targets.clear();
         self.press = None;
