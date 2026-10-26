@@ -21,6 +21,8 @@ int ng_platform_reduced_motion(void);
 int ng_platform_prefers_dark(void);
 /* Lines a wheel notch scrolls, -1 for a page; 3 where the system has no setting. */
 int ng_platform_wheel_lines(void);
+/* The system's alert sound. */
+void ng_platform_beep(void);
 int ng_platform_locales(char* buf, int cap);
 void ng_platform_cleanup(void);
 int ng_platform_run(void);
@@ -70,6 +72,8 @@ int ng_platform_window_occlusion(NGHandle window);
 /* The frame's rect while not maximized, x y width height into `rect`, in screen units; returns
  * bit 0 maximized and bit 1 minimized, or a negative error. */
 int ng_platform_window_get_placement(NGHandle window, int* rect);
+/* Flashes the taskbar entry or bounces the dock icon until the window is in front. */
+int ng_platform_window_request_attention(NGHandle window, int critical);
 /* Puts the frame at `rect` (kept on a screen), maximized after when asked. */
 int ng_platform_window_set_placement(NGHandle window, const int* rect, int maximized);
 void ng_platform_window_set_position(NGHandle window, int x, int y);

@@ -64,6 +64,10 @@ int ng_platform_wheel_lines(void) {
     return (g_ops && g_ops->wheel_lines) ? g_ops->wheel_lines() : 3;
 }
 
+void ng_platform_beep(void) {
+    DISPATCH_VOID(beep);
+}
+
 int ng_platform_prefers_dark(void) {
     ENTER();
     return (g_ops && g_ops->prefers_dark) ? g_ops->prefers_dark() : -1;
@@ -216,6 +220,10 @@ int ng_platform_window_is_visible(NGHandle w) {
 
 int ng_platform_window_occlusion(NGHandle w) {
     DISPATCH_INIT(int, window_occlusion, w);
+}
+
+int ng_platform_window_request_attention(NGHandle w, int critical) {
+    DISPATCH_INIT_DEFAULT(int, NG_ERROR_UNSUPPORTED, window_request_attention, w, critical);
 }
 
 int ng_platform_window_get_placement(NGHandle w, int* rect) {

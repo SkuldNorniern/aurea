@@ -1000,6 +1000,13 @@ void ng_macos_window_get_position(NGHandle window, int* x, int* y) {
     *y = (int)(screenFrame.size.height - (frame.origin.y + frame.size.height));
 }
 
+int ng_macos_window_request_attention(NGHandle window, int critical) {
+    if (!window) return NG_ERROR_INVALID_HANDLE;
+    /* the dock bounces once, or until the app is active when critical; nothing when it is */
+    [NSApp requestUserAttention:critical ? NSCriticalRequest : NSInformationalRequest];
+    return NG_SUCCESS;
+}
+
 int ng_macos_window_get_placement(NGHandle window, int* rect) {
     if (!window || !rect) return NG_ERROR_INVALID_HANDLE;
     NSWindow* nsWindow = (__bridge NSWindow*)window;

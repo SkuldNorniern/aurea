@@ -252,6 +252,7 @@ unsafe extern "C" {
     pub fn ng_platform_prefers_dark() -> c_int;
     /// Lines a wheel notch scrolls, -1 for a page, 3 where the system has no setting.
     pub fn ng_platform_wheel_lines() -> c_int;
+    pub fn ng_platform_beep();
     /// Writes the system locales into `buf`.
     pub fn ng_platform_locales(buf: *mut c_char, cap: c_int) -> c_int;
     /// Sets a window's keyboard shortcuts.
@@ -298,6 +299,7 @@ unsafe extern "C" {
     pub fn ng_platform_window_is_visible(window: *mut c_void) -> c_int;
     pub fn ng_platform_window_occlusion(window: *mut c_void) -> c_int;
     pub fn ng_platform_window_get_placement(window: *mut c_void, rect: *mut c_int) -> c_int;
+    pub fn ng_platform_window_request_attention(window: *mut c_void, critical: c_int) -> c_int;
     pub fn ng_platform_window_set_placement(
         window: *mut c_void,
         rect: *const c_int,

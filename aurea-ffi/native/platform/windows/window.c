@@ -289,6 +289,17 @@ static POINT ng_windows_workspace_offset(HWND hwnd, const RECT* rect) {
     return offset;
 }
 
+int ng_windows_window_request_attention(NGHandle window, int critical) {
+    HWND hwnd = (HWND)window;
+    if (!hwnd || !IsWindow(hwnd)) return NG_ERROR_INVALID_HANDLE;
+    if (GetForegroundWindow() == hwnd) return NG_SUCCESS;
+    /* a few flashes, or the caption too until the window comes to the front when critical */
+    FLASHWINFO flash = {sizeof flash, hwnd, critical ? FLASHW_ALL | FLASHW_TIMERNOFG : FLASHW_TRAY,
+                        critical ? 0 : 3, 0};
+    FlashWindowEx(&flash);
+    return NG_SUCCESS;
+}
+
 int ng_windows_window_get_placement(NGHandle window, int* rect) {
     HWND hwnd = (HWND)window;
     if (!hwnd || !IsWindow(hwnd) || !rect) return NG_ERROR_INVALID_HANDLE;

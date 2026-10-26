@@ -979,6 +979,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
     return DefWindowProcW(hwnd, uMsg, wParam, lParam);
 }
 
+void ng_windows_beep(void) {
+    MessageBeep(MB_OK);
+}
+
 int ng_windows_prefers_dark(void) {
     HKEY key = NULL;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",

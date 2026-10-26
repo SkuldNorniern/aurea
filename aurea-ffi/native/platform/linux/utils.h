@@ -16,6 +16,7 @@ void ng_linux_request_frame(void);
 
 int ng_linux_reduced_motion(void);
 int ng_linux_prefers_dark(void);
+void ng_linux_beep(void);
 
 #ifdef __cplusplus
 }

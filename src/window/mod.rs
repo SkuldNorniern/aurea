@@ -756,12 +756,22 @@ impl Window {
         Occlusion::from_raw(unsafe { ng_platform_window_occlusion(self.handle) })
     }
 
+    /// Asks the user to look at the window while it is in the background: Windows flashes its
+    /// taskbar entry, macOS bounces the dock icon, Linux marks it urgent. `critical` keeps at it
+    /// until the window comes to the front. Nothing happens while it is in front already.
+    pub fn request_attention(&self, critical: bool) -> AureaResult<()> {
+        ui_thread::check("Window::request_attention");
+        let result =
+            unsafe { ng_platform_window_request_attention(self.handle, i32::from(critical)) };
+        op_result("Window::request_attention", result)
+    }
+
     /// Where the window sits, for [`Window::set_placement`] on the next start. On macOS and Linux
     /// the rect of a maximized window is its maximized one until it has been restored once.
     pub fn placement(&self) -> AureaResult<WindowPlacement> {
         let mut rect = [0; 4];
         let state = unsafe { ng_platform_window_get_placement(self.handle, rect.as_mut_ptr()) };
-        placement_result("Window::placement", state)?;
+        op_result("Window::placement", state)?;
         let [x, y, width, height] = rect;
         Ok(WindowPlacement {
             x,
@@ -781,7 +791,7 @@ impl Window {
         let maximized = i32::from(placement.maximized);
         let result =
             unsafe { ng_platform_window_set_placement(self.handle, rect.as_ptr(), maximized) };
-        placement_result("Window::set_placement", result)
+        op_result("Window::set_placement", result)
     }
 
     /// Set cursor visibility for this window.
@@ -1005,7 +1015,7 @@ impl Drop for Window {
     }
 }
 
-fn placement_result(operation: &'static str, code: i32) -> AureaResult<()> {
+fn op_result(operation: &'static str, code: i32) -> AureaResult<()> {
     match code {
         0.. => Ok(()),
         NG_ERROR_UNSUPPORTED => Err(AureaError::Unsupported {
@@ -2505,6 +2515,7 @@ mod gtk_ime_tests {
 #[cfg(all(test, windows))]
 mod win32_placement_tests {
     use super::*;
+    use crate::beep;
 
     unsafe extern "system" {
         fn IsZoomed(hwnd: *mut c_void) -> i32;
@@ -2548,6 +2559,17 @@ mod win32_placement_tests {
         })?;
         let back = window.placement()?;
         assert!(back.x > -10_000 && back.y > -10_000, "{back:?}");
+        window.hide();
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_window_behind_can_ask_for_attention() -> AureaResult<()> {
+        let window = Window::new("bell", 200, 100)?;
+        window.request_attention(false)?;
+        window.request_attention(true)?;
+        beep();
         window.hide();
         Ok(())
     }

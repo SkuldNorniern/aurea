@@ -61,7 +61,9 @@ pub use crate::elements::{
     ProgressBar, RowList, ScrollView, ScrollbarPolicy, SidebarList, Slider, Spacer,
     SplitOrientation, SplitView, Stack, TabBar, Table, TextEditor, TextField, TextView,
 };
-use crate::ffi::{ng_platform_prefers_dark, ng_platform_reduced_motion, ng_platform_wheel_lines};
+use crate::ffi::{
+    ng_platform_beep, ng_platform_prefers_dark, ng_platform_reduced_motion, ng_platform_wheel_lines,
+};
 pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
 pub use crate::tray::TrayIcon;
 pub use crate::window::clipboard;
@@ -88,6 +90,11 @@ pub use aurea_foundation::{AureaError, AureaResult};
 pub use aurea_foundation::{
     Capability, CapabilityChecker, DesktopPlatform, MobilePlatform, OsVersion, Platform, Support,
 };
+
+/// Plays the system's alert sound, as a terminal's bell does.
+pub fn beep() {
+    unsafe { ng_platform_beep() }
+}
 
 /// Whether the user asked the system for less motion: Windows' "animation effects", macOS' "reduce
 /// motion", GTK's animation switch, iOS' "reduce motion".

@@ -731,6 +731,7 @@ static gboolean on_scroll(GtkWidget* widget, GdkEventScroll* event, gpointer use
 static gboolean on_focus_in(GtkWidget* widget, GdkEventFocus* event, gpointer user_data) {
     (void)event; (void)user_data;
     ng_linux_ime_focus(widget, 1);
+    gtk_window_set_urgency_hint(GTK_WINDOW(widget), FALSE);
     ng_invoke_focus_changed((void*)widget, 1);
     return FALSE;
 }
@@ -1013,6 +1014,14 @@ void ng_linux_window_get_position(NGHandle window, int* x, int* y) {
     if (!window || !x || !y) return;
     GtkWidget* widget = (GtkWidget*)window;
     gtk_window_get_position(GTK_WINDOW(widget), x, y);
+}
+
+int ng_linux_window_request_attention(NGHandle window, int critical) {
+    (void)critical;
+    if (!window) return NG_ERROR_INVALID_HANDLE;
+    GtkWindow* gtk = GTK_WINDOW(window);
+    if (!gtk_window_is_active(gtk)) gtk_window_set_urgency_hint(gtk, TRUE);
+    return NG_SUCCESS;
 }
 
 int ng_linux_window_get_placement(NGHandle window, int* rect) {
