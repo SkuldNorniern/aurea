@@ -295,7 +295,9 @@ fn upload_levels(
                 }
             })
             .collect();
-        return device.write_textures(&writes)?.wait(Duration::MAX);
+        // the texels are copied out by now and later draws see them: no wait for the GPU here
+        drop(device.write_textures(&writes)?);
+        return Ok(());
     }
     device.upload_texture_data(texture, rgba)?;
     for (mip, level) in (1..).zip(&chain) {
