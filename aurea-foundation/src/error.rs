@@ -26,6 +26,8 @@ pub enum AureaError {
     ElementDestroyed,
     /// A text range runs backwards, past the end, or splits a character.
     InvalidTextRange,
+    /// A URL is malformed, or its scheme is not one Aurea opens.
+    InvalidUrl,
     /// Rendering operation failed.
     RenderingFailed,
     /// FFI ABI version mismatch between Rust and native library.
@@ -60,6 +62,9 @@ impl Display for AureaError {
             AureaError::MenuItemAddFailed => write!(f, "Failed to add a menu item"),
             AureaError::InvalidTitle => write!(f, "The provided title contains invalid characters"),
             AureaError::InvalidText => write!(f, "The text contains a NUL byte"),
+            AureaError::InvalidUrl => {
+                write!(f, "The URL is malformed or its scheme is not allowed")
+            }
             AureaError::PlatformError(code) => {
                 let hint = if *code == 1 {
                     #[cfg(target_os = "linux")]

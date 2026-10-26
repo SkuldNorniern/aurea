@@ -81,21 +81,40 @@ pub fn show_keyboard(show: bool) {
     );
 }
 
+/// Opens `url` in the app that handles it, such as the browser; [`crate::open_url`] checks it first.
+pub(crate) fn open_url(url: &str) -> bool {
+    with_activity(|env, activity| {
+        let Ok(url) = env.new_string(url) else {
+            return false;
+        };
+        let called = env.call_method(
+            activity,
+            "openUrlFromNative",
+            "(Ljava/lang/String;)Z",
+            &[JValue::Object(&url)],
+        );
+        called.and_then(|v| v.z()).unwrap_or(false)
+    })
+    .unwrap_or(false)
+}
+
 /// Calls a method of the Activity from any thread.
 fn call_activity(name: &str, signature: &str, args: &[JValue<'_, '_>]) {
-    let Ok(activity) = ACTIVITY.lock() else {
-        return;
-    };
-    let Some((vm, activity)) = activity.as_ref() else {
-        return;
-    };
+    with_activity(|env, activity| env.call_method(activity, name, signature, args).is_ok());
+}
+
+/// Runs `call` with this thread's JNI env and the Activity, if there is one; a Java exception it
+/// leaves is cleared.
+fn with_activity<R>(call: impl FnOnce(&mut JNIEnv<'_>, &JObject<'_>) -> R) -> Option<R> {
+    let activity = ACTIVITY.lock().ok()?;
+    let (vm, activity) = activity.as_ref()?;
     // detached again when done, so short-lived threads (wakes) leave nothing behind.
-    let Ok(mut env) = vm.attach_current_thread() else {
-        return;
-    };
-    if env.call_method(activity, name, signature, args).is_err() {
+    let mut env = vm.attach_current_thread().ok()?;
+    let out = call(&mut env, activity.as_obj());
+    if env.exception_check().unwrap_or(false) {
         let _ = env.exception_clear();
     }
+    Some(out)
 }
 
 /// The screen's pixels per logical pixel: about 2.6 on a typical phone, 1 before the first surface.

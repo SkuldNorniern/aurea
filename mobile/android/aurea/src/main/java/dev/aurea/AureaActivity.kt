@@ -2,7 +2,10 @@ package dev.aurea
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.ComponentCallbacks2
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
@@ -167,6 +170,15 @@ abstract class AureaActivity :
     @Suppress("unused")
     fun showKeyboardFromNative(show: Boolean) {
         runOnUiThread { surface.showKeyboard(show) }
+    }
+
+    /** Opens a URL Rust has checked in the app that handles it; false when none does. */
+    @Suppress("unused")
+    fun openUrlFromNative(url: String): Boolean = try {
+        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        true
+    } catch (_: ActivityNotFoundException) {
+        false
     }
 
     /** Draws a frame on the next vsync, if one is not already coming. */
