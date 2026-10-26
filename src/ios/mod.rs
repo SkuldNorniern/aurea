@@ -27,6 +27,7 @@ use aurea_ffi::{
 
 #[cfg(not(feature = "zengpu"))]
 use crate::AureaError;
+use crate::dispatch;
 use crate::ffi::callbacks::event_time;
 use crate::render::{CanvasId, CpuRasterizer, Renderer, SurfaceInfo, register_host_canvas};
 use crate::touch::{Phase, Touches};
@@ -378,7 +379,7 @@ unsafe extern "C" fn pen_tap(squeeze: c_int, action: c_int) {
 }
 
 unsafe extern "C" fn wake() -> i32 {
-    crate::dispatch::drain();
+    dispatch::drain();
     let asked = WAKE.swap(false, Ordering::AcqRel);
     i32::from(asked || HOST.with_borrow(|host| host.touches.waiting()))
 }
@@ -536,7 +537,7 @@ unsafe extern "C" fn frame(
     });
     // Native pickers and other after-frame work may reenter UIKit. Release the
     // host, drawing context and app callback's borrows before running it.
-    crate::dispatch::drain();
+    dispatch::drain();
     again
 }
 
