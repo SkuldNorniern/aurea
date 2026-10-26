@@ -67,6 +67,11 @@ int ng_platform_tray_notify(NGHandle tray, const char* title, const char* body);
 int ng_platform_window_is_visible(NGHandle window);
 /* How much other windows cover `window`: 0 visible, 1 partly covered, 2 covered or minimized. */
 int ng_platform_window_occlusion(NGHandle window);
+/* The frame's rect while not maximized, x y width height into `rect`, in screen units; returns
+ * bit 0 maximized and bit 1 minimized, or a negative error. */
+int ng_platform_window_get_placement(NGHandle window, int* rect);
+/* Puts the frame at `rect` (kept on a screen), maximized after when asked. */
+int ng_platform_window_set_placement(NGHandle window, const int* rect, int maximized);
 void ng_platform_window_set_position(NGHandle window, int x, int y);
 void ng_platform_window_get_position(NGHandle window, int* x, int* y);
 int ng_platform_window_get_xcb_handle(NGHandle window, uint32_t* xcb_window, void** xcb_connection);

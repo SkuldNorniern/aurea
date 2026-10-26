@@ -218,6 +218,14 @@ int ng_platform_window_occlusion(NGHandle w) {
     DISPATCH_INIT(int, window_occlusion, w);
 }
 
+int ng_platform_window_get_placement(NGHandle w, int* rect) {
+    DISPATCH_INIT_DEFAULT(int, NG_ERROR_UNSUPPORTED, window_get_placement, w, rect);
+}
+
+int ng_platform_window_set_placement(NGHandle w, const int* rect, int maximized) {
+    DISPATCH_INIT_DEFAULT(int, NG_ERROR_UNSUPPORTED, window_set_placement, w, rect, maximized);
+}
+
 void ng_platform_window_set_position(NGHandle w, int x, int y) {
     DISPATCH_VOID(window_set_position, w, x, y);
 }

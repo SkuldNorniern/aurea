@@ -102,6 +102,25 @@ pub use crate::registry::window::{
 
 use log::{error, info};
 
+/// Where a window sits, to put it back there on the next start: the frame's rect while not
+/// maximized, kept while it is, in the platform's screen units (pixels on Windows, points on
+/// macOS, GTK's logical pixels on Linux), not [`Window::size`]'s content size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct WindowPlacement {
+    /// The frame's left edge.
+    pub x: i32,
+    /// The frame's top edge.
+    pub y: i32,
+    /// The frame's width.
+    pub width: i32,
+    /// The frame's height.
+    pub height: i32,
+    /// Whether it fills the screen's work area. On macOS: zoomed.
+    pub maximized: bool,
+    /// Whether it is minimized; [`Window::set_placement`] does not minimize.
+    pub minimized: bool,
+}
+
 /// A native platform window with menu, content, and event handling.
 pub struct Window {
     handle: *mut c_void,
@@ -737,6 +756,34 @@ impl Window {
         Occlusion::from_raw(unsafe { ng_platform_window_occlusion(self.handle) })
     }
 
+    /// Where the window sits, for [`Window::set_placement`] on the next start. On macOS and Linux
+    /// the rect of a maximized window is its maximized one until it has been restored once.
+    pub fn placement(&self) -> AureaResult<WindowPlacement> {
+        let mut rect = [0; 4];
+        let state = unsafe { ng_platform_window_get_placement(self.handle, rect.as_mut_ptr()) };
+        placement_result("Window::placement", state)?;
+        let [x, y, width, height] = rect;
+        Ok(WindowPlacement {
+            x,
+            y,
+            width,
+            height,
+            maximized: state & 1 != 0,
+            minimized: state & 2 != 0,
+        })
+    }
+
+    /// Puts the window where `placement` says, moved onto a screen if that one is gone, and
+    /// maximizes it when it was. A hidden window stays hidden until [`Window::show`].
+    pub fn set_placement(&self, placement: &WindowPlacement) -> AureaResult<()> {
+        ui_thread::check("Window::set_placement");
+        let rect = [placement.x, placement.y, placement.width, placement.height];
+        let maximized = i32::from(placement.maximized);
+        let result =
+            unsafe { ng_platform_window_set_placement(self.handle, rect.as_ptr(), maximized) };
+        placement_result("Window::set_placement", result)
+    }
+
     /// Set cursor visibility for this window.
     pub fn set_cursor_visible(&self, visible: bool) -> AureaResult<()> {
         ui_thread::check("Window::set_cursor_visible");
@@ -955,6 +1002,17 @@ fn teardown_window(handle: *mut c_void, id: WindowId) {
 impl Drop for Window {
     fn drop(&mut self) {
         teardown_window(self.handle, self.id);
+    }
+}
+
+fn placement_result(operation: &'static str, code: i32) -> AureaResult<()> {
+    match code {
+        0.. => Ok(()),
+        NG_ERROR_UNSUPPORTED => Err(AureaError::Unsupported {
+            operation,
+            platform: Platform::current(),
+        }),
+        _ => Err(AureaError::ElementOperationFailed),
     }
 }
 
@@ -2440,6 +2498,57 @@ mod gtk_ime_tests {
             menu_y > plain_y,
             "menu bar pushes content down: {plain_y} -> {menu_y}"
         );
+        Ok(())
+    }
+}
+
+#[cfg(all(test, windows))]
+mod win32_placement_tests {
+    use super::*;
+
+    unsafe extern "system" {
+        fn IsZoomed(hwnd: *mut c_void) -> i32;
+        fn ShowWindow(hwnd: *mut c_void, cmd: i32) -> i32;
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn placement_comes_back_and_a_hidden_window_maximizes_when_shown() -> AureaResult<()> {
+        const SW_RESTORE: i32 = 9;
+        let window = Window::new("placed", 300, 200)?;
+        window.hide();
+        let want = WindowPlacement {
+            x: 120,
+            y: 140,
+            width: 420,
+            height: 330,
+            maximized: true,
+            minimized: false,
+        };
+        window.set_placement(&want)?;
+        assert!(!window.is_visible(), "stays hidden");
+        assert_eq!(window.placement()?, want);
+        window.show();
+        let _ = window.poll_events();
+        assert_ne!(unsafe { IsZoomed(window.handle()) }, 0, "maximized on show");
+        assert_eq!(window.placement()?, want, "the restored rect is kept");
+        unsafe { ShowWindow(window.handle(), SW_RESTORE) };
+        let _ = window.poll_events();
+        let restored = window.placement()?;
+        assert!(!restored.maximized);
+        assert_eq!((restored.x, restored.y), (120, 140));
+        assert_eq!((restored.width, restored.height), (420, 330));
+
+        // a monitor that is gone: Windows brings it back on screen
+        window.set_placement(&WindowPlacement {
+            x: -40_000,
+            y: -40_000,
+            maximized: false,
+            ..want
+        })?;
+        let back = window.placement()?;
+        assert!(back.x > -10_000 && back.y > -10_000, "{back:?}");
+        window.hide();
         Ok(())
     }
 }

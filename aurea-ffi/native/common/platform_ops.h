@@ -46,6 +46,8 @@ typedef struct ng_platform_ops {
     void (*window_hide)(NGHandle window);
     int (*window_is_visible)(NGHandle window);
     int (*window_occlusion)(NGHandle window);
+    int (*window_get_placement)(NGHandle window, int* rect);
+    int (*window_set_placement)(NGHandle window, const int* rect, int maximized);
     void (*window_set_position)(NGHandle window, int x, int y);
     void (*window_get_position)(NGHandle window, int* x, int* y);
     int (*window_get_xcb_handle)(NGHandle window, uint32_t* xcb_window, void** xcb_connection);

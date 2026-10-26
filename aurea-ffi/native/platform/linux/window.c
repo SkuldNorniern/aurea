@@ -87,6 +87,27 @@ static void on_window_destroy(GtkWidget* widget, gpointer data) {
     if (remaining == 0) gtk_main_quit();
 }
 
+#define NG_LINUX_RESTORED "aurea-restored"
+#define NG_LINUX_UNSIZED_STATES \
+    (GDK_WINDOW_STATE_MAXIMIZED | GDK_WINDOW_STATE_FULLSCREEN | GDK_WINDOW_STATE_TILED | \
+     GDK_WINDOW_STATE_ICONIFIED)
+
+/* Keeps the rect the window had last while not maximized, tiled or fullscreen. */
+static gboolean on_placement_configure(GtkWidget* widget, GdkEventConfigure* event, gpointer user_data) {
+    (void)event;
+    (void)user_data;
+    GdkWindow* gdk = gtk_widget_get_window(widget);
+    if (gdk && (gdk_window_get_state(gdk) & NG_LINUX_UNSIZED_STATES)) return FALSE;
+    int* rect = g_object_get_data(G_OBJECT(widget), NG_LINUX_RESTORED);
+    if (!rect) {
+        rect = g_new0(int, 4);
+        g_object_set_data_full(G_OBJECT(widget), NG_LINUX_RESTORED, rect, g_free);
+    }
+    gtk_window_get_position(GTK_WINDOW(widget), &rect[0], &rect[1]);
+    gtk_window_get_size(GTK_WINDOW(widget), &rect[2], &rect[3]);
+    return FALSE;
+}
+
 static gboolean on_window_state_event(GtkWidget* widget, GdkEventWindowState* event, gpointer user_data) {
     (void)user_data;
     if (event->changed_mask & GDK_WINDOW_STATE_ICONIFIED) {
@@ -229,6 +250,7 @@ NGHandle ng_linux_create_window(const char* title, int width, int height) {
     g_signal_connect(G_OBJECT(window), "destroy", G_CALLBACK(on_window_destroy), NULL);
     g_signal_connect(G_OBJECT(window), "delete-event", G_CALLBACK(on_delete_event), NULL);
     g_signal_connect(G_OBJECT(window), "window-state-event", G_CALLBACK(on_window_state_event), NULL);
+    g_signal_connect(G_OBJECT(window), "configure-event", G_CALLBACK(on_placement_configure), NULL);
     
     GtkWidget* main_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_container_add(GTK_CONTAINER(window), main_vbox);
@@ -991,6 +1013,50 @@ void ng_linux_window_get_position(NGHandle window, int* x, int* y) {
     if (!window || !x || !y) return;
     GtkWidget* widget = (GtkWidget*)window;
     gtk_window_get_position(GTK_WINDOW(widget), x, y);
+}
+
+int ng_linux_window_get_placement(NGHandle window, int* rect) {
+    if (!window || !rect) return NG_ERROR_INVALID_HANDLE;
+    GtkWindow* gtk = GTK_WINDOW(window);
+    int* restored = g_object_get_data(G_OBJECT(window), NG_LINUX_RESTORED);
+    if (restored) {
+        for (int i = 0; i < 4; i++) rect[i] = restored[i];
+    } else {
+        gtk_window_get_position(gtk, &rect[0], &rect[1]);
+        gtk_window_get_size(gtk, &rect[2], &rect[3]);
+    }
+    GdkWindow* gdk = gtk_widget_get_window(GTK_WIDGET(window));
+    GdkWindowState state = gdk ? gdk_window_get_state(gdk) : 0;
+    return (gtk_window_is_maximized(gtk) ? 1 : 0) | ((state & GDK_WINDOW_STATE_ICONIFIED) ? 2 : 0);
+}
+
+int ng_linux_window_set_placement(NGHandle window, const int* rect, int maximized) {
+    if (!window || !rect) return NG_ERROR_INVALID_HANDLE;
+    if (rect[2] <= 0 || rect[3] <= 0) return NG_ERROR_INVALID_PARAMETER;
+    GtkWindow* gtk = GTK_WINDOW(window);
+    int x = rect[0], y = rect[1];
+    /* off every monitor now, as after unplugging one: put it on the primary one */
+    GdkDisplay* display = gtk_widget_get_display(GTK_WIDGET(window));
+    GdkRectangle want = {x, y, rect[2], rect[3]};
+    gboolean seen = FALSE;
+    for (int i = 0; display && i < gdk_display_get_n_monitors(display); i++) {
+        GdkRectangle area;
+        gdk_monitor_get_workarea(gdk_display_get_monitor(display, i), &area);
+        if (gdk_rectangle_intersect(&want, &area, NULL)) seen = TRUE;
+    }
+    GdkMonitor* primary = display ? gdk_display_get_primary_monitor(display) : NULL;
+    if (!primary && display) primary = gdk_display_get_monitor(display, 0);
+    if (!seen && primary) {
+        GdkRectangle area;
+        gdk_monitor_get_workarea(primary, &area);
+        x = area.x;
+        y = area.y;
+    }
+    gtk_window_unmaximize(gtk);
+    gtk_window_move(gtk, x, y);
+    gtk_window_resize(gtk, rect[2], rect[3]);
+    if (maximized) gtk_window_maximize(gtk);
+    return NG_SUCCESS;
 }
 
 void ng_linux_window_request_close(NGHandle window) {

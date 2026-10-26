@@ -1000,6 +1000,44 @@ void ng_macos_window_get_position(NGHandle window, int* x, int* y) {
     *y = (int)(screenFrame.size.height - (frame.origin.y + frame.size.height));
 }
 
+int ng_macos_window_get_placement(NGHandle window, int* rect) {
+    if (!window || !rect) return NG_ERROR_INVALID_HANDLE;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    NSRect frame = [nsWindow frame];
+    CGFloat top = [[[NSScreen screens] objectAtIndex:0] frame].size.height;
+    rect[0] = (int)frame.origin.x;
+    rect[1] = (int)(top - (frame.origin.y + frame.size.height));
+    rect[2] = (int)frame.size.width;
+    rect[3] = (int)frame.size.height;
+    return ([nsWindow isZoomed] ? 1 : 0) | ([nsWindow isMiniaturized] ? 2 : 0);
+}
+
+int ng_macos_window_set_placement(NGHandle window, const int* rect, int maximized) {
+    if (!window || !rect) return NG_ERROR_INVALID_HANDLE;
+    if (rect[2] <= 0 || rect[3] <= 0) return NG_ERROR_INVALID_PARAMETER;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    CGFloat top = [[[NSScreen screens] objectAtIndex:0] frame].size.height;
+    NSRect frame = NSMakeRect(rect[0], top - rect[1] - rect[3], rect[2], rect[3]);
+    NSScreen* on = nil;
+    for (NSScreen* screen in [NSScreen screens]) {
+        if (NSIntersectsRect([screen visibleFrame], frame)) {
+            on = screen;
+            break;
+        }
+    }
+    if (!on) {
+        /* off every screen now, as after unplugging one: centre it on the main screen */
+        NSRect visible = [[NSScreen mainScreen] visibleFrame];
+        frame.origin.x = NSMidX(visible) - frame.size.width / 2;
+        frame.origin.y = NSMidY(visible) - frame.size.height / 2;
+        on = [NSScreen mainScreen];
+    }
+    if ([nsWindow isZoomed]) [nsWindow zoom:nil];
+    [nsWindow setFrame:[nsWindow constrainFrameRect:frame toScreen:on] display:YES];
+    if (maximized && ![nsWindow isZoomed]) [nsWindow zoom:nil];
+    return NG_SUCCESS;
+}
+
 void ng_macos_window_request_close(NGHandle window) {
     if (!window) return;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
