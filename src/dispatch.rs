@@ -8,6 +8,8 @@ use std::sync::Mutex;
 use aurea_foundation::lock;
 use aurea_runtime::FrameScheduler;
 
+#[cfg(target_os = "android")]
+use crate::android;
 #[cfg(target_os = "ios")]
 use crate::ios;
 use crate::platform::ui_thread;
@@ -30,9 +32,7 @@ thread_local! {
 /// ```
 pub fn on_ui_thread(call: impl FnOnce() + Send + 'static) {
     lock(&QUEUE).push(Box::new(call));
-    FrameScheduler::wake();
-    #[cfg(target_os = "ios")]
-    ios::request_frame();
+    wake_host();
 }
 
 /// Runs `call` on the UI thread once the frame being drawn has finished, with nothing borrowed: not
@@ -53,9 +53,16 @@ pub fn on_ui_thread(call: impl FnOnce() + Send + 'static) {
 pub fn after_frame(call: impl FnOnce() + 'static) {
     ui_thread::check("after_frame");
     LATER.with(|later| later.borrow_mut().push(Box::new(call)));
+    wake_host();
+}
+
+/// Asks for a frame, where the queue drains: the desktop loop, or the mobile host's next frame.
+fn wake_host() {
     FrameScheduler::wake();
     #[cfg(target_os = "ios")]
     ios::request_frame();
+    #[cfg(target_os = "android")]
+    android::request_frame();
 }
 
 pub(crate) fn drain() {

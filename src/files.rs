@@ -174,6 +174,11 @@ pub fn local_data_dir(app: &str) -> Option<PathBuf> {
 
 /// The folder `app` keeps caches in.
 pub fn cache_dir(app: &str) -> Option<PathBuf> {
+    #[cfg(target_os = "android")]
+    {
+        return android::cache_dir().map(|cache| cache.join(app));
+    }
+    #[allow(unreachable_code)]
     if cfg!(windows) {
         env_path("LOCALAPPDATA").map(|base| base.join(app).join("Cache"))
     } else if cfg!(any(target_os = "macos", target_os = "ios")) {
@@ -187,6 +192,11 @@ pub fn cache_dir(app: &str) -> Option<PathBuf> {
 /// the Files app shows when the app's Info.plist sets `UIFileSharingEnabled` and
 /// `LSSupportsOpeningDocumentsInPlace`.
 pub fn documents_dir() -> Option<PathBuf> {
+    #[cfg(target_os = "android")]
+    {
+        return android::files_dir().map(|files| files.join("Documents"));
+    }
+    #[allow(unreachable_code)]
     if cfg!(windows) {
         env_path("USERPROFILE").map(|home| home.join("Documents"))
     } else {
@@ -195,6 +205,13 @@ pub fn documents_dir() -> Option<PathBuf> {
 }
 
 fn user_dir(app: &str, xdg: &str, home_relative: &str) -> Option<PathBuf> {
+    #[cfg(target_os = "android")]
+    {
+        // the app's own private storage; `xdg` places mean nothing there
+        let _ = (xdg, home_relative);
+        return android::files_dir().map(|files| files.join(app));
+    }
+    #[allow(unreachable_code)]
     let base = if cfg!(windows) {
         env_path("APPDATA")
     } else if cfg!(any(target_os = "macos", target_os = "ios")) {

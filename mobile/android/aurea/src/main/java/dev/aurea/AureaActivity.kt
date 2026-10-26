@@ -49,6 +49,7 @@ abstract class AureaActivity :
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
                 nativeInsets(bars.left.toFloat(), bars.top.toFloat(), bars.right.toFloat(), bars.bottom.toFloat())
+                nativeKeyboard(insets.getInsets(WindowInsets.Type.ime()).bottom.toFloat())
                 requestFrame()
             }
             insets
@@ -274,6 +275,7 @@ abstract class AureaActivity :
             age: Double,
         )
         @JvmStatic external fun nativeInsets(left: Float, top: Float, right: Float, bottom: Float)
+        @JvmStatic external fun nativeKeyboard(bottom: Float)
         @JvmStatic external fun nativeLightTheme(): Boolean
         @JvmStatic external fun nativeFrame(): Boolean
         @JvmStatic external fun nativeKey(code: Int, pressed: Boolean, meta: Int)

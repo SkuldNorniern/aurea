@@ -20,23 +20,31 @@ mod logcat;
 mod window;
 
 use std::ffi::{c_int, c_void};
+use std::path::PathBuf;
 #[cfg(feature = "zengpu")]
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{LazyLock, OnceLock};
 
 use aurea_ffi::{
     ng_android_on_destroy, ng_android_on_pause, ng_android_on_resume, ng_android_on_surface_lost,
     ng_android_on_surface_recreated, ng_android_set_activity,
 };
-use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
+/// The `jni` crate Aurea's host is built on, for apps' own JNI calls, at the same version.
+pub use jni;
+pub use jni::JNIEnv;
+use jni::JavaVM;
+pub use jni::objects::JObject;
+use jni::objects::{GlobalRef, JClass, JString, JValue};
 use jni::sys::{JNI_FALSE, JNI_TRUE, JNI_VERSION_1_6, jboolean, jdouble, jfloat, jint};
-use jni::{JNIEnv, JavaVM};
 
-#[cfg(feature = "zengpu")]
-use crate::gpu_ready;
+use crate::render::{CanvasId, register_host_canvas};
 use crate::ui::{Theme, Ui};
 use crate::{AureaResult, WindowEvent};
+use crate::dispatch;
+#[cfg(feature = "zengpu")]
+use crate::gpu_ready;
 #[cfg(feature = "zengpu")]
 use aurea_render::ZenGpuContext;
 
@@ -103,6 +111,49 @@ pub fn set_high_frame_rate(high: bool) {
     );
 }
 
+/// The screen as a canvas id, so code that wakes a [`crate::Canvas`] with
+/// [`crate::render::request_canvas_redraw`] or [`crate::render::request_canvas_redraw_at`], such
+/// as background jobs, wakes the Android host the same way. Any thread may use it.
+pub fn canvas_id() -> CanvasId {
+    static CANVAS: LazyLock<CanvasId> = LazyLock::new(|| register_host_canvas(request_frame));
+    *CANVAS
+}
+
+/// The app's private files folder, `Context.getFilesDir()`; `None` before the Activity is up.
+pub(crate) fn files_dir() -> Option<PathBuf> {
+    static DIR: OnceLock<PathBuf> = OnceLock::new();
+    app_folder(&DIR, "getFilesDir")
+}
+
+/// The app's cache folder, `Context.getCacheDir()`, which the system may empty when space runs out.
+pub(crate) fn cache_dir() -> Option<PathBuf> {
+    static DIR: OnceLock<PathBuf> = OnceLock::new();
+    app_folder(&DIR, "getCacheDir")
+}
+
+/// The path of the `java.io.File` the Activity's `getter` returns, kept once read.
+fn app_folder(slot: &OnceLock<PathBuf>, getter: &str) -> Option<PathBuf> {
+    if let Some(dir) = slot.get() {
+        return Some(dir.clone());
+    }
+    let dir = with_activity(|env, activity| {
+        let file = env
+            .call_method(activity, getter, "()Ljava/io/File;", &[])
+            .ok()?
+            .l()
+            .ok()?;
+        let path = env
+            .call_method(&file, "getAbsolutePath", "()Ljava/lang/String;", &[])
+            .ok()?
+            .l()
+            .ok()?;
+        let path: String = env.get_string(&JString::from(path)).ok()?.into();
+        Some(PathBuf::from(path))
+    })
+    .flatten()?;
+    Some(slot.get_or_init(|| dir).clone())
+}
+
 /// Opens `url` in the app that handles it, such as the browser; [`crate::open_url`] checks it first.
 pub(crate) fn open_url(url: &str) -> bool {
     with_activity(|env, activity| {
@@ -150,6 +201,16 @@ pub fn scale() -> f32 {
 pub fn safe_area() -> [f32; 4] {
     host::safe_area()
 }
+
+/// How much of the safe area the on-screen keyboard covers from the bottom, in logical pixels; 0
+/// when it is down. Keep what is being typed into above it. Android 11 and later.
+pub fn keyboard_height() -> f32 {
+    let covered = f32::from_bits(KEYBOARD.load(Ordering::Relaxed)) / scale().max(1.0);
+    (covered - safe_area()[3]).max(0.0)
+}
+
+/// The keyboard's height from the bottom of the screen, in device pixels, as an `f32`'s bits.
+static KEYBOARD: AtomicU32 = AtomicU32::new(0);
 
 /// Whether to draw on the GPU, through ZenGPU's Vulkan backend; call before [`run`]. On by default
 /// with the `zengpu` feature, which it needs; the CPU draws when it is off, or when the GPU cannot
@@ -302,6 +363,15 @@ pub extern "system" fn Java_dev_aurea_AureaActivity_nativeInsets(
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_aurea_AureaActivity_nativeKeyboard(
+    _env: JNIEnv,
+    _class: JClass,
+    bottom: jfloat,
+) {
+    KEYBOARD.store(bottom.max(0.0).to_bits(), Ordering::Relaxed);
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_aurea_AureaActivity_nativeLightTheme(
     _env: JNIEnv,
     _class: JClass,
@@ -352,5 +422,8 @@ pub extern "system" fn Java_dev_aurea_AureaActivity_nativeFrame(
     _env: JNIEnv,
     _class: JClass,
 ) -> jboolean {
-    if host::frame() { JNI_TRUE } else { JNI_FALSE }
+    let more = host::frame();
+    // after the frame, with nothing borrowed: what workers and `after_frame` queued
+    dispatch::drain();
+    if more { JNI_TRUE } else { JNI_FALSE }
 }

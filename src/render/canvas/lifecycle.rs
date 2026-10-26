@@ -67,17 +67,17 @@ static FULL_REDRAW_REQUESTS: LazyLock<Mutex<HashSet<CanvasId>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
 
 /// Canvases with no native view that a function wakes instead, such as the iOS host's screen.
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 static HOST_CANVASES: Mutex<Vec<HostCanvas>> = Mutex::new(Vec::new());
 
 /// A host canvas's id and what wakes it.
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 type HostCanvas = (CanvasId, fn());
 
 /// A canvas id whose redraw requests call `wake`, for a host that draws without a [`Canvas`].
 ///
 /// [`Canvas`]: super::Canvas
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 pub(crate) fn register_host_canvas(wake: fn()) -> CanvasId {
     let id = next_canvas_id();
     lock(&HOST_CANVASES).push((id, wake));
@@ -85,14 +85,14 @@ pub(crate) fn register_host_canvas(wake: fn()) -> CanvasId {
 }
 
 fn host_wake(id: CanvasId) -> Option<fn()> {
-    #[cfg(target_os = "ios")]
+    #[cfg(any(target_os = "ios", target_os = "android"))]
     {
         lock(&HOST_CANVASES)
             .iter()
             .find(|(host, _)| *host == id)
             .map(|(_, wake)| *wake)
     }
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     {
         let _ = id;
         None

@@ -23,6 +23,9 @@ The `aurea` module holds `dev.aurea.AureaActivity`, the Activity an app runs in.
 Activity subclasses it and names its native library; the library defines `aurea_main`, which calls
 `aurea::android::run`.
 
+An app crate is usually an rlib; build its `.so` with `cargo rustc --lib --crate-type cdylib
+--target aarch64-linux-android`, and copy it into the app's `jniLibs/arm64-v8a`.
+
 ## iOS and iPadOS
 
 Needs Xcode and the Rust targets for where it runs: `aarch64-apple-ios` for devices,

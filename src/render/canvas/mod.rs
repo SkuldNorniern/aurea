@@ -30,7 +30,7 @@ mod state;
 mod weak;
 
 pub(crate) use lifecycle::notify_canvas_destroyed;
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 pub(crate) use lifecycle::register_host_canvas;
 
 use backend::ensure_canvas_renderer;
