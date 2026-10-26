@@ -365,6 +365,8 @@ pub struct UiState<Id: WidgetId> {
     pointer_kind: PointerKind,
     window_focused: bool,
     pub(crate) modifiers: Modifiers,
+    /// Latched from an on-screen strip; see [`UiState::set_sticky_modifiers`].
+    sticky_modifiers: Modifiers,
     pointer_events: Vec<(usize, Pointer)>,
     pub(crate) pointer_down: bool,
     pub(crate) touch_scrolling: bool,
@@ -437,6 +439,7 @@ impl<Id: WidgetId> UiState<Id> {
             pointer_kind: PointerKind::Mouse,
             window_focused: true,
             modifiers: Modifiers::default(),
+            sticky_modifiers: Modifiers::default(),
             pointer_events: Vec::new(),
             pointer_down: false,
             touch_scrolling: cfg!(any(target_os = "ios", target_os = "android")),
@@ -489,6 +492,32 @@ impl<Id: WidgetId> UiState<Id> {
     pub fn set_reduced_motion(&mut self, reduced: bool) {
         self.motion_follows_system = false;
         self.tweens.set_instant(reduced);
+    }
+
+    /// Modifiers latched from an on-screen strip, for touch where no key is held. They are merged
+    /// into every modifiers read until set back to none.
+    pub fn set_sticky_modifiers(&mut self, mods: Modifiers) {
+        self.sticky_modifiers = mods;
+    }
+
+    /// The modifiers set by [`Self::set_sticky_modifiers`].
+    pub fn sticky_modifiers(&self) -> Modifiers {
+        self.sticky_modifiers
+    }
+
+    /// Held modifiers OR'd with the sticky ones.
+    pub(crate) fn with_sticky(&self, held: Modifiers) -> Modifiers {
+        Modifiers {
+            shift: held.shift || self.sticky_modifiers.shift,
+            ctrl: held.ctrl || self.sticky_modifiers.ctrl,
+            alt: held.alt || self.sticky_modifiers.alt,
+            meta: held.meta || self.sticky_modifiers.meta,
+        }
+    }
+
+    /// Modifiers held now, with the sticky ones.
+    pub(crate) fn merged_modifiers(&self) -> Modifiers {
+        self.with_sticky(self.modifiers)
     }
 
     fn follow_system_motion(&mut self) {
@@ -549,12 +578,13 @@ impl<Id: WidgetId> UiState<Id> {
                 popup || captured || self.pointer.is_some_and(|at| self.hit_at(at).is_some())
             }
             WindowEvent::KeyInput { key, modifiers, .. } => {
+                let mods = self.with_sticky(*modifiers);
                 self.window_focused
                     && (popup
                         || focused
                         || (*key == KeyCode::Tab
-                            && !modifiers.ctrl
-                            && !modifiers.alt
+                            && !mods.ctrl
+                            && !mods.alt
                             && !self.last_order.is_empty()))
             }
             WindowEvent::TextInput { .. } | WindowEvent::ImePreedit { .. } => popup || text_focused,
@@ -618,7 +648,7 @@ impl<Id: WidgetId> UiState<Id> {
                 self.pointer_events.push((
                     self.typed.len(),
                     if *pressed {
-                        Pointer::Press(at, *click_count, *modifiers)
+                        Pointer::Press(at, *click_count, self.merged_modifiers())
                     } else {
                         Pointer::Release(at)
                     },
@@ -649,7 +679,7 @@ impl<Id: WidgetId> UiState<Id> {
                 key,
                 pressed: true,
                 modifiers,
-            } => self.key(*key, *modifiers),
+            } => self.key(*key, self.with_sticky(*modifiers)),
             WindowEvent::TextInput { text } => self.text_input(Typed::Text(text.clone())),
             WindowEvent::ImePreedit { text, cursor } => {
                 self.text_input(Typed::Preedit(text.clone(), *cursor))
@@ -1271,6 +1301,8 @@ fn to_f32(v: f64) -> f32 {
 mod tests {
     use super::*;
     use crate::PointerKind;
+
+    use crate::ui::rig::{Rig, left_button, mouse_move};
     use std::cell::Cell;
     use std::thread::sleep;
 
@@ -1283,6 +1315,47 @@ mod tests {
             time: Default::default(),
             pointer: PointerKind::Mouse,
         }
+    }
+
+    #[test]
+    fn sticky_modifiers_reach_every_modifiers_read() {
+        let mut rig = Rig::<u8>::new(200, 120).still();
+        rig.frame(|ui| assert!(!ui.modifiers().shift));
+        rig.frame(|ui| {
+            ui.set_sticky_modifiers(Modifiers {
+                shift: true,
+                ..Modifiers::default()
+            })
+        });
+        rig.frame(|ui| assert!(ui.modifiers().shift, "latched with no key held"));
+        rig.frame(|ui| ui.set_sticky_modifiers(Modifiers::default()));
+        rig.frame(|ui| assert!(!ui.modifiers().shift, "cleared"));
+    }
+
+    #[test]
+    fn sticky_shift_makes_a_click_a_shift_click() {
+        let mut rig = Rig::<u8>::new(200, 120).still();
+        let button = Rect::new(10.0, 10.0, 80.0, 30.0);
+        let click = |rig: &mut Rig<u8>, latched: bool| {
+            rig.frame(|ui| {
+                ui.set_sticky_modifiers(Modifiers {
+                    shift: latched,
+                    ..Modifiers::default()
+                });
+                ui.interact(1, 0, button, Sense::Click, true);
+            });
+            rig.send(mouse_move(20.0, 20.0, 0));
+            rig.send(left_button(20.0, 20.0, true));
+            rig.send(left_button(20.0, 20.0, false));
+            rig.frame(|ui| {
+                ui.interact(1, 0, button, Sense::Click, true);
+                ui.press(1, 0)
+            })
+        };
+        let latched = click(&mut rig, true).expect("press lands on the button");
+        assert!(latched.shift, "a click with shift latched extends");
+        let plain = click(&mut rig, false).expect("press lands on the button");
+        assert!(!plain.shift, "a plain click does not");
     }
 
     #[test]

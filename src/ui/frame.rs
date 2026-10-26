@@ -307,9 +307,20 @@ impl<Id: WidgetId> Ui<'_, Id> {
         self.state.clear_focus();
     }
 
-    /// Modifier keys held now.
+    /// Modifier keys held now, OR'd with the latched ones; see [`Self::set_sticky_modifiers`].
     pub fn modifiers(&self) -> Modifiers {
-        self.state.modifiers
+        self.state.merged_modifiers()
+    }
+
+    /// Latches `mods` as if held, for an on-screen modifier strip with no key to hold. They show in
+    /// every [`Self::modifiers`] read until set back to none.
+    pub fn set_sticky_modifiers(&mut self, mods: Modifiers) {
+        self.state.set_sticky_modifiers(mods);
+    }
+
+    /// The latched modifiers set by [`Self::set_sticky_modifiers`].
+    pub fn sticky_modifiers(&self) -> Modifiers {
+        self.state.sticky_modifiers()
     }
 
     /// The pointer position over the canvas, if any.
