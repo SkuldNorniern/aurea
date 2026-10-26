@@ -34,6 +34,7 @@ abstract class AureaActivity :
     private var frameQueued = false
     private var lightBars: Boolean? = null
     private lateinit var surface: AureaSurface
+    private var highFrameRate = false
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -143,6 +144,7 @@ abstract class AureaActivity :
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
         nativeSurfaceChanged(holder.surface, width, height, resources.displayMetrics.density)
         hasSurface = true
+        applyFrameRate()
         requestFrame()
     }
 
@@ -181,13 +183,19 @@ abstract class AureaActivity :
     /** Asks for the screen's top rate while [high], the system's pacing otherwise; Rust calls it. */
     @Suppress("unused")
     fun setHighFrameRateFromNative(high: Boolean) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
         runOnUiThread {
-            val top = display?.supportedModes?.maxOfOrNull { it.refreshRate } ?: 0f
-            val target = surface.holder.surface
-            if (target.isValid) {
-                target.setFrameRate(if (high) top else 0f, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
-            }
+            highFrameRate = high
+            applyFrameRate()
+        }
+    }
+
+    /** Puts the asked rate on the surface; a new surface gets it again in [surfaceChanged]. */
+    private fun applyFrameRate() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        val top = display?.supportedModes?.maxOfOrNull { it.refreshRate } ?: 0f
+        val target = surface.holder.surface
+        if (target.isValid) {
+            target.setFrameRate(if (highFrameRate) top else 0f, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
         }
     }
 

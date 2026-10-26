@@ -764,8 +764,8 @@ impl Window {
     }
 
     /// Asks the user to look at the window while it is in the background: Windows flashes its
-    /// taskbar entry, macOS bounces the dock icon, Linux marks it urgent. `critical` keeps at it
-    /// until the window comes to the front. Nothing happens while it is in front already.
+    /// taskbar entry, macOS bounces the dock icon, Linux marks it urgent until it comes to the
+    /// front. `critical` keeps flashing or bouncing until then too. Nothing happens while it is in front already.
     pub fn request_attention(&self, critical: bool) -> AureaResult<()> {
         ui_thread::check("Window::request_attention");
         let result =
@@ -2576,8 +2576,10 @@ mod win32_placement_tests {
         let window = Window::new("bell", 200, 100)?;
         window.request_attention(false)?;
         window.request_attention(true)?;
-        let rate = window.refresh_rate().expect("windows knows its screens");
-        assert!((24.0..1000.0).contains(&rate), "{rate}");
+        // a remote session may not say
+        if let Some(rate) = window.refresh_rate() {
+            assert!((24.0..1000.0).contains(&rate), "{rate}");
+        }
         beep();
         window.hide();
         Ok(())
