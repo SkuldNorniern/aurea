@@ -15,7 +15,7 @@ use std::env::var;
 use std::env::var_os;
 use std::fs::{read, read_dir};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct FontKey {
@@ -303,7 +303,8 @@ pub struct FontDbTextRasterizer {
     subpixel_cache: Arc<Mutex<LruCache<GlyphKey, Arc<SubpixelGlyph>>>>,
 }
 
-static EMBEDDED: &[u8] = include_bytes!("../../fonts/Tuffy.ttf");
+static EMBEDDED: LazyLock<Arc<Vec<u8>>> =
+    LazyLock::new(|| Arc::new(include_bytes!("../../fonts/Tuffy.ttf").to_vec()));
 
 impl FontDbTextRasterizer {
     pub fn new() -> Self {
@@ -335,8 +336,8 @@ impl FontDbTextRasterizer {
             return Some(hit.clone());
         }
         let bytes = match source {
-            FaceSource::File(path) => read(path).ok()?,
-            FaceSource::Embedded => EMBEDDED.to_vec(),
+            FaceSource::File(path) => Arc::new(read(path).ok()?),
+            FaceSource::Embedded => EMBEDDED.clone(),
         };
         let font = Font::from_bytes(
             &bytes[..],
@@ -346,7 +347,7 @@ impl FontDbTextRasterizer {
             },
         )
         .ok()?;
-        let entry = (Arc::new(bytes), Arc::new(font));
+        let entry = (bytes, Arc::new(font));
         lock(&self.sources).insert(source.clone(), entry.clone());
         Some(entry)
     }

@@ -7,11 +7,12 @@ use super::{CacheKind, GLYPH_BYTES, LruCache, shared};
 use aurea_foundation::{AureaError, AureaResult, lock};
 use std::collections::HashMap;
 use std::mem::zeroed;
+use std::path::PathBuf;
 use std::ptr;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use dwrote::{
-    FontCollection, FontFace, FontStretch as DwStretch, FontStyle as DwStyle,
+    FontCollection, FontFace, FontFile, FontStretch as DwStretch, FontStyle as DwStyle,
     FontWeight as DwWeight, GlyphRunAnalysis,
 };
 use winapi::um::dcommon::DWRITE_MEASURING_MODE_NATURAL;
@@ -79,6 +80,8 @@ pub struct DirectWriteRasterizer {
     /// Chosen face per (primary face, char). A primary face already fixes the weight, style and
     /// variations the fallbacks are resolved with, so the pair fully determines the answer.
     char_faces: Mutex<HashMap<(FaceId, char), FaceId>>,
+    /// Font file bytes by path, shared by every face read from that file.
+    file_bytes: Mutex<HashMap<PathBuf, Weak<Vec<u8>>>>,
 }
 
 // SAFETY: DirectWrite factory objects and font faces are free-threaded, and
@@ -93,7 +96,22 @@ impl DirectWriteRasterizer {
             by_key: Mutex::new(HashMap::new()),
             glyphs: shared(CacheKind::Glyph, LruCache::with_budget(512, GLYPH_BYTES)),
             char_faces: Mutex::new(HashMap::new()),
+            file_bytes: Mutex::new(HashMap::new()),
         })
+    }
+
+    fn shared_bytes(&self, file: &FontFile) -> Option<Arc<Vec<u8>>> {
+        let Ok(path) = file.font_file_path() else {
+            return file.font_file_bytes().ok().map(Arc::new);
+        };
+        let mut cache = lock(&self.file_bytes);
+        if let Some(bytes) = cache.get(&path).and_then(Weak::upgrade) {
+            return Some(bytes);
+        }
+        let bytes = Arc::new(file.font_file_bytes().ok()?);
+        cache.retain(|_, weak| weak.strong_count() > 0);
+        cache.insert(path, Arc::downgrade(&bytes));
+        Some(bytes)
     }
 
     fn get(&self, face: FaceId) -> AureaResult<Arc<FaceEntry>> {
@@ -197,7 +215,7 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
             .data
             .get_or_init(|| {
                 let file = entry.face.files().ok()?.into_iter().next()?;
-                let bytes = Arc::new(file.font_file_bytes().ok()?);
+                let bytes = self.shared_bytes(&file)?;
                 FaceData::new(bytes, entry.face.get_index(), &entry.variations).map(Arc::new)
             })
             .clone()
@@ -345,6 +363,28 @@ mod tests {
         assert_eq!(candidates("Sans")[1], "Segoe UI");
         assert_eq!(candidates("monospace")[0], "Cascadia Mono");
         assert_eq!(candidates("Malgun Gothic")[0], "Malgun Gothic");
+    }
+
+    #[test]
+    fn faces_of_one_collection_file_share_bytes() {
+        let r = DirectWriteRasterizer::new().expect("directwrite");
+        // Cambria and Cambria Math are two faces of cambria.ttc.
+        if r.collection
+            .font_family_by_name("Cambria Math")
+            .ok()
+            .flatten()
+            .is_none()
+        {
+            return;
+        }
+        let text = Font::new("Cambria", 14.0);
+        let math = Font::new("Cambria Math", 14.0);
+        let a = r.face((&text).into()).expect("cambria");
+        let b = r.face((&math).into()).expect("cambria math");
+        assert_ne!(a, b);
+        let da = r.face_data(a).expect("bytes");
+        let db = r.face_data(b).expect("bytes");
+        assert_eq!(da.bytes().as_ptr(), db.bytes().as_ptr());
     }
 
     #[test]
