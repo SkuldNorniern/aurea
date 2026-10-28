@@ -11,6 +11,7 @@ use crate::types::{
 };
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::iter;
 use std::mem;
 use std::sync::Arc;
 
@@ -310,19 +311,6 @@ fn fade(color: Color, factor: f32) -> Color {
     Color::rgba(color.r, color.g, color.b, scale_u8(color.a, factor))
 }
 
-fn faded_stops(stops: &[GradientStop], factor: f32) -> Vec<GradientStop> {
-    if factor >= 1.0 {
-        return stops.to_vec();
-    }
-    stops
-        .iter()
-        .map(|stop| GradientStop {
-            color: fade(stop.color, factor),
-            ..*stop
-        })
-        .collect()
-}
-
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn scale_u8(value: u8, factor: f32) -> u8 {
     (f32::from(value) * factor).clamp(0.0, 255.0).round() as u8
@@ -370,6 +358,8 @@ pub struct RenderBatches {
     gradient_lut_cache: HashMap<u64, (Arc<[u8]>, bool)>,
     path_masks: HashMap<u64, (Arc<[u8]>, bool)>,
     text_mask_cache: HashMap<u64, (Arc<[u8]>, bool)>,
+    /// Gradient stops with the item's opacity applied, reused from one gradient to the next.
+    faded_stops: Vec<GradientStop>,
 }
 
 impl RenderBatches {
@@ -461,7 +451,7 @@ impl RenderBatches {
                     }
                 }
                 DrawCommand::FillLinearGradient(grad, rect) => {
-                    let lut = self.gradient_lut(&faded_stops(&grad.stops, alpha));
+                    let lut = self.faded_gradient_lut(&grad.stops, alpha);
                     self.order.push(DrawRef::Gradient(
                         u32::try_from(self.gradients.len()).expect("batch count fits in u32"),
                     ));
@@ -469,7 +459,7 @@ impl RenderBatches {
                         .push(GradientInstance::linear(*rect, grad, lut));
                 }
                 DrawCommand::FillRadialGradient(grad, rect) => {
-                    let lut = self.gradient_lut(&faded_stops(&grad.stops, alpha));
+                    let lut = self.faded_gradient_lut(&grad.stops, alpha);
                     self.order.push(DrawRef::Gradient(
                         u32::try_from(self.gradients.len()).expect("batch count fits in u32"),
                     ));
@@ -646,6 +636,19 @@ impl RenderBatches {
             && self.order.is_empty()
     }
 
+    /// The LUT for `stops` with `alpha` applied to each colour, built through a reused buffer.
+    fn faded_gradient_lut(&mut self, stops: &[GradientStop], alpha: f32) -> Arc<[u8]> {
+        let mut faded = mem::take(&mut self.faded_stops);
+        faded.clear();
+        faded.extend(stops.iter().map(|stop| GradientStop {
+            color: fade(stop.color, alpha),
+            ..*stop
+        }));
+        let lut = self.gradient_lut(&faded);
+        self.faded_stops = faded;
+        lut
+    }
+
     fn gradient_lut(&mut self, stops: &[GradientStop]) -> Arc<[u8]> {
         let key = gradient_lut_key(stops);
         if let Some((lut, used)) = self.gradient_lut_cache.get_mut(&key) {
@@ -668,12 +671,13 @@ impl RenderBatches {
             *used = true;
             return Some(Arc::clone(rgba));
         }
-        let mut rgba = Vec::with_capacity(pixel_count * 4);
+        // Allocated once as the Arc that is cached and drawn, not built in a Vec and copied.
+        let mut rgba: Arc<[u8]> = Arc::from_iter(iter::repeat_n(0u8, pixel_count * 4));
+        let dst = Arc::get_mut(&mut rgba).expect("a new Arc is unique");
         let (pixels, _) = mask.coverage.as_chunks::<3>();
-        for &[r, g, b] in pixels {
-            rgba.extend_from_slice(&[r, g, b, r.max(g).max(b)]);
+        for (out, &[r, g, b]) in dst.as_chunks_mut::<4>().0.iter_mut().zip(pixels) {
+            *out = [r, g, b, r.max(g).max(b)];
         }
-        let rgba: Arc<[u8]> = rgba.into();
         self.text_mask_cache.insert(key, (Arc::clone(&rgba), true));
         Some(rgba)
     }

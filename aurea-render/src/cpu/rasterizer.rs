@@ -1,8 +1,9 @@
 //! CPU rasterizer — flat framebuffer, no tile overhead.
 
+use std::cell::RefCell;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::mem::{self, size_of_val};
-use std::slice::from_raw_parts;
+use std::iter;
+use std::mem;
 use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
@@ -39,6 +40,11 @@ use crate::types::{
     PathCommand, Point, RadialGradient, Rect, Sampling,
 };
 use aurea_foundation::{AureaError, AureaResult};
+
+thread_local! {
+    /// Lookup index per column of the horizontal gradient ramp, reused by every span on this thread.
+    static RAMP_INDICES: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+}
 
 /// Start and multiplier of the per-tile fold of item hashes in draw order.
 const TILE_HASH_SEED: u64 = 0x9E37_79B9_7F4A_7C15;
@@ -226,12 +232,37 @@ impl CpuRasterizer {
         self.scale_factor
     }
 
+    /// The path's coverage over `width` by `height` pixels from `origin`, as four bytes per
+    /// pixel, each the alpha of the pixel's white fill.
     pub(crate) fn path_coverage(
         path: &Path,
         paint: &Paint,
         origin: Point,
         (width, height): (u32, u32),
     ) -> AureaResult<Arc<[u8]>> {
+        let len = width as usize * height as usize;
+        // The bytes are allocated once and drawn into directly, as words when aligned.
+        let mut out: Arc<[u8]> = Arc::from_iter(iter::repeat_n(0u8, len * 4));
+        let bytes = Arc::get_mut(&mut out).expect("a new Arc is unique");
+        // SAFETY: every bit pattern is a valid `u32`, and only the aligned middle is used.
+        let (head, words, tail) = unsafe { bytes.align_to_mut::<u32>() };
+        if head.is_empty() && tail.is_empty() {
+            Self::draw_coverage(path, paint, origin, (width, height), words)?;
+            return Ok(out);
+        }
+        let mut buf = vec![0u32; len];
+        Self::draw_coverage(path, paint, origin, (width, height), &mut buf)?;
+        Ok(buf.iter().flat_map(|px| px.to_ne_bytes()).collect())
+    }
+
+    /// Draws `path` white into `buf` and keeps only each pixel's alpha, in all four bytes.
+    fn draw_coverage(
+        path: &Path,
+        paint: &Paint,
+        origin: Point,
+        (width, height): (u32, u32),
+        buf: &mut [u32],
+    ) -> AureaResult<()> {
         let shift = |p: Point| Point::new(p.x - origin.x, p.y - origin.y);
         let mut moved = Path::new();
         moved.fill_rule = path.fill_rule;
@@ -249,24 +280,21 @@ impl CpuRasterizer {
             color: Color::rgb(255, 255, 255),
             ..paint.clone()
         };
-        let mut buf = vec![0u32; width as usize * height as usize];
         let mut scratch = PathScratch::default();
         Self::draw_path(
             &moved,
             &white,
             BlendMode::Normal,
-            &mut Band::whole(&mut buf),
+            &mut Band::whole(&mut *buf),
             &mut scratch,
             width,
             ClipBox::surface(width, height),
         )?;
-        for px in &mut buf {
+        for px in buf {
             let a = px.to_be_bytes()[0];
             *px = u32::from_ne_bytes([a; 4]);
         }
-        let bytes =
-            unsafe { from_raw_parts(buf.as_ptr().cast::<u8>(), size_of_val(buf.as_slice())) };
-        Ok(Arc::from(bytes))
+        Ok(())
     }
 
     pub(crate) fn render_recorded(&mut self, list: &mut DisplayList) -> AureaResult<FrameOutcome> {
@@ -1698,20 +1726,24 @@ impl CpuRasterizer {
         let (x0, x1) = cols;
         let dt_x = ramp.dx / ramp.len_sq;
         let mut t = ramp.t_at(x0 as f32, rows.0 as f32);
-        let indices: Vec<usize> = (x0..x1)
-            .map(|_| {
+        RAMP_INDICES.with_borrow_mut(|indices| {
+            indices.clear();
+            indices.extend((x0..x1).map(|_| {
                 let idx = lut_index(t);
                 t += dt_x;
                 idx
-            })
-            .collect();
-        for cy in rows.0..rows.1 {
-            let row = (cy.unsigned_abs() * bw) as usize;
-            let from = row + x0.unsigned_abs() as usize;
-            for (px, &idx) in buf[from..from + indices.len()].iter_mut().zip(&indices) {
-                *px = gradient_over(&steps[idx], *px, luts);
+            }));
+            for cy in rows.0..rows.1 {
+                let row = (cy.unsigned_abs() * bw) as usize;
+                let from = row + x0.unsigned_abs() as usize;
+                for (px, &idx) in buf[from..from + indices.len()]
+                    .iter_mut()
+                    .zip(indices.iter())
+                {
+                    *px = gradient_over(&steps[idx], *px, luts);
+                }
             }
-        }
+        });
     }
 
     /// Any linear ramp, or any blend mode other than Normal.
@@ -5789,5 +5821,41 @@ mod offscreen_tests {
         assert_eq!(pixel(&p, 4, 2), [0, 0, 255, 128]);
         assert_eq!(pixel(&p, 7, 5), [0, 0, 255, 128]);
         assert_eq!(pixel(&p, 7, 0), [0, 0, 0, 0]);
+    }
+}
+
+#[cfg(test)]
+mod path_coverage_tests {
+    use super::*;
+    use crate::geometry::PathCommand;
+
+    /// The copy-based result `path_coverage` replaced: draw into words, then copy the bytes.
+    fn reference(path: &Path, origin: Point, (w, h): (u32, u32)) -> Vec<u8> {
+        let mut buf = vec![0u32; w as usize * h as usize];
+        CpuRasterizer::draw_coverage(path, &Paint::new(), origin, (w, h), &mut buf).unwrap();
+        buf.iter().flat_map(|px| px.to_ne_bytes()).collect()
+    }
+
+    #[test]
+    fn path_coverage_matches_copy_based_reference() {
+        let mut path = Path::new();
+        for (i, (x, y)) in [(1.5, 1.0), (6.0, 1.0), (3.0, 5.25)]
+            .into_iter()
+            .enumerate()
+        {
+            let p = Point::new(x, y);
+            path.commands.push(if i == 0 {
+                PathCommand::MoveTo(p)
+            } else {
+                PathCommand::LineTo(p)
+            });
+        }
+        path.commands.push(PathCommand::Close);
+        let (origin, size) = (Point::new(0.0, 0.0), (8, 6));
+        let got = CpuRasterizer::path_coverage(&path, &Paint::new(), origin, size).unwrap();
+        assert_eq!(&got[..], &reference(&path, origin, size)[..]);
+        let (pixels, _) = got.as_chunks::<4>();
+        assert!(pixels.iter().any(|px| px[0] == 255));
+        assert!(pixels.iter().all(|px| px.iter().all(|&b| b == px[0])));
     }
 }
