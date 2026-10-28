@@ -39,12 +39,12 @@ pub use jni::objects::JObject;
 use jni::objects::{GlobalRef, JClass, JString, JValue};
 use jni::sys::{JNI_FALSE, JNI_TRUE, JNI_VERSION_1_6, jboolean, jdouble, jfloat, jint};
 
-use crate::render::{CanvasId, register_host_canvas};
-use crate::ui::{Theme, Ui};
-use crate::{AureaResult, WindowEvent};
 use crate::dispatch;
 #[cfg(feature = "zengpu")]
 use crate::gpu_ready;
+use crate::render::{CanvasId, register_host_canvas};
+use crate::ui::{Theme, Ui};
+use crate::{AureaResult, WindowEvent};
 #[cfg(feature = "zengpu")]
 use aurea_render::ZenGpuContext;
 

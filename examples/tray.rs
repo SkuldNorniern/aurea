@@ -1,5 +1,8 @@
 //! A window that closes to the notification area.
 
+// Clippy flags const thread_locals on Android too.
+#![cfg_attr(target_os = "android", allow(clippy::missing_const_for_thread_local))]
+
 use aurea::elements::{Container, Label, Orientation, Stack};
 use aurea::{AureaResult, TrayIcon, Window, on_ui_thread};
 use std::cell::RefCell;

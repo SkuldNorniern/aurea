@@ -1,5 +1,8 @@
 //! Aurea's native rendering framework.
 
+// Clippy flags const thread_locals on Android too.
+#![cfg_attr(target_os = "android", allow(clippy::missing_const_for_thread_local))]
+
 mod drawing;
 mod frame;
 mod geometry;

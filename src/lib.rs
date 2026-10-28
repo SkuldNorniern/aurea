@@ -11,6 +11,9 @@
 //! }
 //! ```
 
+// Clippy flags const thread_locals on Android too.
+#![cfg_attr(target_os = "android", allow(clippy::missing_const_for_thread_local))]
+
 #[cfg(all(any(target_os = "ios", target_os = "android"), not(feature = "mobile")))]
 compile_error!(
     "Aurea's iOS and Android hosts are experimental: enable the `mobile` feature to build them"
