@@ -7,5 +7,8 @@ description = "Build script helper that hands an Aurea app's identity from Cargo
 license.workspace = true
 repository.workspace = true
 
+[dependencies]
+png = "0.18"
+
 [lints]
 workspace = true

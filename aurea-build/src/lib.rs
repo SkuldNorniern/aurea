@@ -6,7 +6,7 @@
 //! name = "Lunia Paint"           # display name on every platform
 //! id = "dev.skuld.lunia.paint"   # bundle id, application id, app data folder
 //! organization = "dev.skuld"     # shared folders across a suite of apps
-//! icon = "../brand/lunia-paint"  # a master icon, relative to Cargo.toml
+//! icon = "../brand/lunia-paint"  # square master PNG, relative to Cargo.toml
 //! version = "auto"               # "auto" or missing: the package version
 //! ```
 //!
@@ -16,6 +16,13 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+mod icons;
+mod plist;
+mod winres;
+
+pub use icons::{Image, icns, ico, load_master, png, resize, write_android, write_ios};
+pub use plist::info_plist;
 
 /// An app's identity, as `[package.metadata.aurea]` gives it, with the package's own name and
 /// version standing in for what it leaves out.
@@ -103,7 +110,39 @@ pub fn identity() -> Identity {
         );
         println!("cargo:rerun-if-changed={}", icon.display());
     }
+    embed(&identity);
     identity
+}
+
+/// Embeds `identity` in the binary: a version resource and manifest on Windows MSVC, an
+/// `Info.plist` section on macOS.
+fn embed(identity: &Identity) {
+    let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR is set by cargo"));
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+    let master = identity
+        .icon
+        .as_deref()
+        .and_then(|path| match load_master(path) {
+            Ok(image) => Some(image),
+            Err(err) => {
+                println!("cargo:warning=icon {}: {err}", path.display());
+                None
+            }
+        });
+    match (target_os.as_str(), target_env.as_str()) {
+        ("windows", "msvc") => {
+            let ico = master.as_ref().map(ico);
+            winres::embed(identity, ico.as_deref(), true, &out);
+        }
+        ("macos", _) => {
+            plist::embed(identity, &out);
+            if let Some(master) = &master {
+                let _ = fs::write(out.join("AppIcon.icns"), icns(master));
+            }
+        }
+        _ => {}
+    }
 }
 
 /// `value` with line breaks turned to spaces: Cargo reads one instruction per line.
