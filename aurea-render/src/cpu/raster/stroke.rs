@@ -39,36 +39,128 @@ impl StrokeStyle {
     }
 }
 
-/// A run of points from one `MoveTo` to the next, with whether it closed.
-pub struct SubPath {
-    /// Points of the run.
-    pub points: Vec<Point>,
-    /// Whether the run closed back to its start.
-    pub closed: bool,
+thread_local! {
+    /// Reused by every stroke on this thread, so stroking does not allocate per stroke.
+    static STROKE: RefCell<Scratch> = RefCell::new(Scratch::default());
 }
 
-/// Splits a path into runs of straight points, subdividing any curves.
-pub fn flatten(path: &Path) -> Vec<SubPath> {
-    let mut runs: Vec<SubPath> = Vec::new();
-    let mut current: Vec<Point> = Vec::new();
+/// The buffers a stroke builds in, kept from one stroke to the next.
+#[derive(Default)]
+struct Scratch {
+    /// The points of every run, back to back.
+    points: Vec<Point>,
+    runs: Vec<Run>,
+    /// An open run with square caps added.
+    extended: Vec<Point>,
+    /// The run `append_pieces` is cutting.
+    run: Vec<Point>,
+    /// The ring being emitted.
+    ring: Vec<Point>,
+    dash: DashRuns,
+}
+
+/// A run of points from one `MoveTo` to the next, with whether it closed. Its points are
+/// `Scratch::points[start..end]`.
+struct Run {
+    start: usize,
+    end: usize,
+    closed: bool,
+}
+
+/// Where a stroke's rings go, and the buffers they are built in.
+struct Out<'a> {
+    sink: &'a mut dyn FnMut(&[Point]),
+    ring: &'a mut Vec<Point>,
+    run: &'a mut Vec<Point>,
+    extended: &'a mut Vec<Point>,
+}
+
+/// The whole stroke as one shape to fill with the non-zero rule.
+pub fn outline_path(path: &Path, style: &StrokeStyle) -> Path {
+    let mut union = Path::new();
+    union.fill_rule = FillRule::NonZero;
+    STROKE.with_borrow_mut(|s| {
+        stroke(path, style, s, &mut |ring: &[Point]| {
+            join_ring(&mut union, ring)
+        });
+    });
+    union
+}
+
+/// The outline of `path` stroked in `style`, as convex pieces to fill.
+#[cfg(test)]
+fn outline(path: &Path, style: &StrokeStyle) -> Vec<Path> {
+    let mut pieces = Vec::new();
+    STROKE.with_borrow_mut(|s| {
+        stroke(path, style, s, &mut |ring: &[Point]| {
+            pieces.push(polygon(ring))
+        });
+    });
+    pieces
+}
+
+/// Calls `sink` with each closed ring of the stroke, in order.
+fn stroke(path: &Path, style: &StrokeStyle, s: &mut Scratch, sink: &mut dyn FnMut(&[Point])) {
+    let Scratch {
+        points,
+        runs,
+        extended,
+        run,
+        ring,
+        dash,
+    } = s;
+    flatten_into(path, points, runs);
+    dedup_runs(points, runs);
+    let mut out = Out {
+        sink,
+        ring,
+        run,
+        extended,
+    };
+    for r in runs.iter() {
+        let run_points = &points[r.start..r.end];
+        if run_points.len() < 2 {
+            if let Some(&dot) = run_points.first() {
+                push_dot(&mut out, dot, style);
+            }
+            continue;
+        }
+        match style.dash {
+            Some(pattern) => {
+                dashes(run_points, r.closed, &pattern, dash);
+                for piece in dash.iter() {
+                    outline_open(&mut out, piece, style);
+                }
+            }
+            None if r.closed => append_pieces(&mut out, run_points, style, true),
+            None => outline_open(&mut out, run_points, style),
+        }
+    }
+}
+
+/// Splits a path into runs of straight points in `points`, subdividing any curves.
+fn flatten_into(path: &Path, points: &mut Vec<Point>, runs: &mut Vec<Run>) {
+    points.clear();
+    runs.clear();
+    let mut start = 0;
     let mut cursor = Point::new(0.0, 0.0);
 
     for command in &path.commands {
         match command {
             PathCommand::MoveTo(p) => {
-                push_run(&mut runs, &mut current, false);
+                push_run(points, runs, &mut start, false);
                 cursor = *p;
-                current.push(cursor);
+                points.push(cursor);
             }
             PathCommand::LineTo(p) => {
                 cursor = *p;
-                current.push(cursor);
+                points.push(cursor);
             }
             PathCommand::QuadTo(c, p) => {
                 let steps = quad_steps(cursor, *c, *p);
                 for i in 1..=steps {
                     let t = f32::from(i) / f32::from(steps);
-                    current.push(quadratic(cursor, *c, *p, t));
+                    points.push(quadratic(cursor, *c, *p, t));
                 }
                 cursor = *p;
             }
@@ -76,88 +168,68 @@ pub fn flatten(path: &Path) -> Vec<SubPath> {
                 let steps = cubic_steps(cursor, *c1, *c2, *p);
                 for i in 1..=steps {
                     let t = f32::from(i) / f32::from(steps);
-                    current.push(cubic(cursor, *c1, *c2, *p, t));
+                    points.push(cubic(cursor, *c1, *c2, *p, t));
                 }
                 cursor = *p;
             }
             PathCommand::Close => {
-                if let Some(first) = current.first().copied() {
+                if let Some(first) = points[start..].first().copied() {
                     cursor = first;
                 }
-                push_run(&mut runs, &mut current, true);
+                push_run(points, runs, &mut start, true);
             }
         }
     }
-    push_run(&mut runs, &mut current, false);
-    runs
+    push_run(points, runs, &mut start, false);
 }
 
-fn push_run(runs: &mut Vec<SubPath>, current: &mut Vec<Point>, closed: bool) {
-    if current.len() >= 2 {
-        runs.push(SubPath {
-            points: take(current),
+/// Keeps the run from `start` if it has two points, otherwise drops it.
+fn push_run(points: &mut Vec<Point>, runs: &mut Vec<Run>, start: &mut usize, closed: bool) {
+    if points.len() - *start >= 2 {
+        runs.push(Run {
+            start: *start,
+            end: points.len(),
             closed,
         });
     } else {
-        current.clear();
+        points.truncate(*start);
     }
+    *start = points.len();
 }
 
-/// The outline of `path` stroked in `style`, as convex pieces to fill.
-pub fn outline(path: &Path, style: &StrokeStyle) -> Vec<Path> {
-    let mut pieces = Vec::new();
-    for run in flatten(path) {
-        let points = dedup(&run.points, run.closed);
-        if points.len() < 2 {
-            if let Some(&dot) = points.first() {
-                push_dot(&mut pieces, dot, style);
+/// Drops each run's repeated points in place, and a closing point that repeats its start.
+fn dedup_runs(points: &mut [Point], runs: &mut [Run]) {
+    let mut w = 0;
+    for run in runs.iter_mut() {
+        let start = w;
+        for i in run.start..run.end {
+            let p = points[i];
+            if w == start || !near(points[w - 1], p) {
+                points[w] = p;
+                w += 1;
             }
-            continue;
         }
-        match style.dash {
-            Some(dash) => DASH_RUNS.with_borrow_mut(|runs| {
-                dashes(&points, run.closed, &dash, runs);
-                for piece in runs.iter() {
-                    outline_open(&mut pieces, piece, style);
-                }
-            }),
-            None if run.closed => append_pieces(&mut pieces, &points, style, true),
-            None => outline_open(&mut pieces, &points, style),
+        if run.closed && w - start > 2 && near(points[start], points[w - 1]) {
+            w -= 1;
         }
+        run.start = start;
+        run.end = w;
     }
-    pieces
 }
 
-/// The whole stroke as one shape to fill with the non-zero rule.
-pub fn outline_path(path: &Path, style: &StrokeStyle) -> Path {
-    let mut union = Path::new();
-    union.fill_rule = FillRule::NonZero;
-    for piece in outline(path, style) {
-        let points: Vec<Point> = piece
-            .commands
-            .iter()
-            .filter_map(|command| match *command {
-                PathCommand::MoveTo(p) | PathCommand::LineTo(p) => Some(p),
-                _ => None,
-            })
-            .collect();
-        let forward = signed_area(&points) >= 0.0;
-        let mut ordered = points.into_iter();
-        let ordered: Vec<Point> = if forward {
-            ordered.by_ref().collect()
-        } else {
-            ordered.rev().collect()
-        };
-        let Some((&first, rest)) = ordered.split_first() else {
-            continue;
-        };
-        union.commands.push(PathCommand::MoveTo(first));
-        union
-            .commands
-            .extend(rest.iter().map(|p| PathCommand::LineTo(*p)));
-        union.commands.push(PathCommand::Close);
+/// Joins one ring into `union`, wound the same way as every other.
+fn join_ring(union: &mut Path, ring: &[Point]) {
+    if ring.is_empty() {
+        return;
     }
+    let n = ring.len();
+    let forward = signed_area(ring) >= 0.0;
+    let at = |i: usize| if forward { ring[i] } else { ring[n - 1 - i] };
+    union.commands.push(PathCommand::MoveTo(at(0)));
     union
+        .commands
+        .extend((1..n).map(|i| PathCommand::LineTo(at(i))));
+    union.commands.push(PathCommand::Close);
 }
 
 fn signed_area(points: &[Point]) -> f32 {
@@ -170,22 +242,29 @@ fn signed_area(points: &[Point]) -> f32 {
         .sum()
 }
 
-fn outline_open(pieces: &mut Vec<Path>, points: &[Point], style: &StrokeStyle) {
+fn send(out: &mut Out<'_>, ring: &[Point]) {
+    (out.sink)(ring);
+}
+
+fn outline_open(out: &mut Out<'_>, points: &[Point], style: &StrokeStyle) {
     if points.len() < 2 {
         return;
     }
     if style.cap == LineCap::Square {
-        let mut extended = points.to_vec();
+        let mut extended = take(&mut *out.extended);
+        extended.clear();
+        extended.extend_from_slice(points);
         extend_end(&mut extended, style.half, true);
         extend_end(&mut extended, style.half, false);
-        append_pieces(pieces, &extended, style, false);
+        append_pieces(out, &extended, style, false);
+        *out.extended = extended;
         return;
     }
-    append_pieces(pieces, points, style, false);
+    append_pieces(out, points, style, false);
     if style.cap == LineCap::Round {
         let last = points.len() - 1;
-        push_round_cap(pieces, points[1], points[0], style.half);
-        push_round_cap(pieces, points[last - 1], points[last], style.half);
+        push_round_cap(out, points[1], points[0], style.half);
+        push_round_cap(out, points[last - 1], points[last], style.half);
     }
 }
 
@@ -197,32 +276,37 @@ fn extend_end(points: &mut [Point], by: f32, first: bool) {
     }
 }
 
-fn push_round_cap(pieces: &mut Vec<Path>, from: Point, end: Point, half: f32) {
+fn push_round_cap(out: &mut Out<'_>, from: Point, end: Point, half: f32) {
     let Some((dx, dy)) = unit(from, end) else {
         return;
     };
     let facing = dy.atan2(dx);
-    pieces.push(fan(end, half, facing - PI / 2.0, PI));
+    fan(out, end, half, facing - PI / 2.0, PI);
 }
 
-fn push_dot(pieces: &mut Vec<Path>, at: Point, style: &StrokeStyle) {
+fn push_dot(out: &mut Out<'_>, at: Point, style: &StrokeStyle) {
     let h = style.half;
     match style.cap {
         LineCap::Butt => {}
-        LineCap::Round => pieces.push(fan(at, h, 0.0, 2.0 * PI)),
-        LineCap::Square => pieces.push(polygon(&[
-            Point::new(at.x - h, at.y - h),
-            Point::new(at.x + h, at.y - h),
-            Point::new(at.x + h, at.y + h),
-            Point::new(at.x - h, at.y + h),
-        ])),
+        LineCap::Round => fan(out, at, h, 0.0, 2.0 * PI),
+        LineCap::Square => send(
+            out,
+            &[
+                Point::new(at.x - h, at.y - h),
+                Point::new(at.x + h, at.y - h),
+                Point::new(at.x + h, at.y + h),
+                Point::new(at.x - h, at.y + h),
+            ],
+        ),
     }
 }
 
-fn fan(center: Point, radius: f32, from: f32, sweep: f32) -> Path {
+fn fan(out: &mut Out<'_>, center: Point, radius: f32, from: f32, sweep: f32) {
     let step = 2.0 * (1.0 - (0.05 / radius.max(0.05)).min(1.0)).acos();
     let steps = (sweep.abs() / step.max(1e-3)).ceil().clamp(4.0, 256.0);
-    let mut ring = vec![center];
+    let ring = &mut *out.ring;
+    ring.clear();
+    ring.push(center);
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let count = steps as u32;
     for i in 0..=count {
@@ -233,12 +317,7 @@ fn fan(center: Point, radius: f32, from: f32, sweep: f32) -> Path {
             center.y + radius * angle.sin(),
         ));
     }
-    polygon(&ring)
-}
-
-thread_local! {
-    /// Reused by every dashed subpath on this thread, so dashing does not allocate per stroke.
-    static DASH_RUNS: RefCell<DashRuns> = RefCell::new(DashRuns::default());
+    (out.sink)(ring.as_slice());
 }
 
 /// The dashed runs of one subpath: their points back to back, and where each run starts and ends
@@ -412,31 +491,13 @@ impl<'d> Dasher<'d> {
     }
 }
 
-fn dedup(points: &[Point], closed: bool) -> Vec<Point> {
-    let mut kept: Vec<Point> = Vec::with_capacity(points.len());
-    for point in points {
-        match kept.last() {
-            Some(last) if near(*last, *point) => {}
-            _ => kept.push(*point),
-        }
-    }
-    if closed
-        && kept.len() > 2
-        && let (Some(first), Some(last)) = (kept.first().copied(), kept.last().copied())
-        && near(first, last)
-    {
-        kept.pop();
-    }
-    kept
-}
-
 fn near(a: Point, b: Point) -> bool {
     (a.x - b.x).abs() < 1e-4 && (a.y - b.y).abs() < 1e-4
 }
 
 const MAX_RUN: usize = 48;
 
-fn append_pieces(pieces: &mut Vec<Path>, points: &[Point], style: &StrokeStyle, closed: bool) {
+fn append_pieces(out: &mut Out<'_>, points: &[Point], style: &StrokeStyle, closed: bool) {
     let half = style.half;
     let segments = if closed {
         points.len()
@@ -447,7 +508,9 @@ fn append_pieces(pieces: &mut Vec<Path>, points: &[Point], style: &StrokeStyle, 
         return;
     }
 
-    let mut run: Vec<Point> = vec![points[0]];
+    let mut run = take(&mut *out.run);
+    run.clear();
+    run.push(points[0]);
     for i in 0..segments {
         let next = points[(i + 1) % points.len()];
         run.push(next);
@@ -459,49 +522,55 @@ fn append_pieces(pieces: &mut Vec<Path>, points: &[Point], style: &StrokeStyle, 
 
         let following = following_of(points, i);
         if let Some(outward) = wedge_side(points[i], next, following, half) {
-            outline_run(pieces, &run, half);
-            push_join(pieces, (points[i], next, following), style, outward);
-            run = vec![next];
+            outline_run(out, &run, half);
+            push_join(out, (points[i], next, following), style, outward);
+            run.clear();
+            run.push(next);
         } else if run.len() >= MAX_RUN {
-            outline_run(pieces, &run, half);
-            run = vec![next];
+            outline_run(out, &run, half);
+            run.clear();
+            run.push(next);
         }
     }
-    outline_run(pieces, &run, half);
+    outline_run(out, &run, half);
+    *out.run = run;
 }
 
 fn following_of(points: &[Point], i: usize) -> Point {
     points[(i + 2) % points.len()]
 }
 
-fn outline_run(pieces: &mut Vec<Path>, run: &[Point], half: f32) {
+/// Emits one ring around `run`: its left side forward, then its right side back.
+fn outline_run(out: &mut Out<'_>, run: &[Point], half: f32) {
     if run.len() < 2 {
         return;
     }
-    let mut left: Vec<Point> = Vec::with_capacity(run.len() * 2);
-    let mut right: Vec<Point> = Vec::with_capacity(run.len() * 2);
-
+    let ring = &mut *out.ring;
+    ring.clear();
     for pair in run.windows(2) {
         let (a, b) = (pair[0], pair[1]);
         let Some(n) = normal_of(a, b, half) else {
             continue;
         };
-        left.push(Point::new(a.x + n.x, a.y + n.y));
-        left.push(Point::new(b.x + n.x, b.y + n.y));
-        right.push(Point::new(a.x - n.x, a.y - n.y));
-        right.push(Point::new(b.x - n.x, b.y - n.y));
+        ring.push(Point::new(a.x + n.x, a.y + n.y));
+        ring.push(Point::new(b.x + n.x, b.y + n.y));
     }
-    if left.len() < 2 {
+    if ring.is_empty() {
         return;
     }
-
-    let mut ring = left;
-    ring.extend(right.into_iter().rev());
-    pieces.push(polygon(&ring));
+    for pair in run.windows(2).rev() {
+        let (a, b) = (pair[0], pair[1]);
+        let Some(n) = normal_of(a, b, half) else {
+            continue;
+        };
+        ring.push(Point::new(b.x - n.x, b.y - n.y));
+        ring.push(Point::new(a.x - n.x, a.y - n.y));
+    }
+    (out.sink)(ring.as_slice());
 }
 
 fn push_join(
-    pieces: &mut Vec<Path>,
+    out: &mut Out<'_>,
     (previous, corner, following): (Point, Point, Point),
     style: &StrokeStyle,
     outward: f32,
@@ -525,18 +594,21 @@ fn push_join(
             } else if sweep < -PI {
                 sweep += 2.0 * PI;
             }
-            pieces.push(fan(corner, half, from, sweep));
+            fan(out, corner, half, from, sweep);
         }
         LineJoin::Miter => match miter_tip(corner, (n1, n2), half, style.miter_limit) {
-            Some((tx, ty)) => pieces.push(polygon(&[
-                corner,
-                a,
-                Point::new(corner.x + outward * tx, corner.y + outward * ty),
-                b,
-            ])),
-            None => pieces.push(polygon(&[corner, a, b])),
+            Some((tx, ty)) => send(
+                out,
+                &[
+                    corner,
+                    a,
+                    Point::new(corner.x + outward * tx, corner.y + outward * ty),
+                    b,
+                ],
+            ),
+            None => send(out, &[corner, a, b]),
         },
-        LineJoin::Bevel => pieces.push(polygon(&[corner, a, b])),
+        LineJoin::Bevel => send(out, &[corner, a, b]),
     }
 }
 
@@ -585,6 +657,7 @@ fn unit(a: Point, b: Point) -> Option<(f32, f32)> {
     Some((dx / length, dy / length))
 }
 
+#[cfg(test)]
 fn polygon(points: &[Point]) -> Path {
     let mut path = Path::new();
     let Some(first) = points.first() else {
@@ -810,9 +883,13 @@ mod tests {
             Point::new(10.0, 0.0),
         ));
 
-        let runs = flatten(&path);
+        let (mut points, mut runs) = (Vec::new(), Vec::new());
+        flatten_into(&path, &mut points, &mut runs);
         assert_eq!(runs.len(), 1);
-        assert!(runs[0].points.len() > 2, "the curve should be flattened");
+        assert!(
+            runs[0].end - runs[0].start > 2,
+            "the curve should be flattened"
+        );
     }
 
     fn styled(width: f32, paint: Paint) -> StrokeStyle {
@@ -1132,5 +1209,133 @@ mod tests {
             vec![(0.0, 4.0), (8.0, 12.0), (7.0, 11.0), (15.0, 19.0)],
             "unanchored, the second starts its pattern at 0"
         );
+    }
+
+    /// FNV-1a over the RGBA bytes, stable across toolchains.
+    fn fnv1a(bytes: &[u8]) -> u64 {
+        bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, &b| {
+            (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+        })
+    }
+
+    /// Strokes that exercise every branch of the stroker, each with its canvas scale.
+    fn golden_cases() -> Vec<(Path, Paint, f32)> {
+        use crate::PaintStyle;
+        let stroke = || Paint::new().style(PaintStyle::Stroke);
+        let closed_box = {
+            let mut path = line(&[(130.0, 10.0), (190.0, 10.0), (190.0, 70.0), (130.0, 70.0)]);
+            path.commands.push(PathCommand::Close);
+            path
+        };
+        let edged = stroke()
+            .stroke_width(2.0)
+            .line_join(LineJoin::Round)
+            .dash(&[5.0, 3.0], 1.0);
+        let edged = Paint {
+            dash: Dash::new(&[5.0, 3.0], 1.0).map(|d| d.along_edges()),
+            ..edged
+        };
+        let curve = {
+            let mut path = Path::new();
+            path.commands
+                .push(PathCommand::MoveTo(Point::new(4.0, 60.0)));
+            path.commands.push(PathCommand::CubicTo(
+                Point::new(30.0, 0.0),
+                Point::new(60.0, 120.0),
+                Point::new(90.0, 60.0),
+            ));
+            path
+        };
+        vec![
+            (
+                line(&[(10.0, 10.0), (60.0, 12.0), (30.0, 50.0), (90.0, 30.0)]),
+                stroke().stroke_width(4.0),
+                1.0,
+            ),
+            (
+                line(&[(20.0, 100.0), (70.0, 100.0), (95.0, 80.0)]),
+                stroke()
+                    .stroke_width(6.0)
+                    .line_cap(LineCap::Round)
+                    .line_join(LineJoin::Round),
+                1.0,
+            ),
+            (
+                line(&[(8.0, 140.0), (60.0, 140.0)]),
+                stroke().stroke_width(5.0).line_cap(LineCap::Square),
+                1.0,
+            ),
+            (
+                line(&[(5.0, 170.0), (120.0, 170.0), (120.0, 190.0)]),
+                stroke()
+                    .stroke_width(3.0)
+                    .line_cap(LineCap::Round)
+                    .dash(&[6.0, 4.0], 2.5),
+                1.0,
+            ),
+            (closed_box, edged, 1.0),
+            (
+                curve,
+                stroke()
+                    .stroke_width(3.0)
+                    .line_cap(LineCap::Round)
+                    .line_join(LineJoin::Round),
+                1.0,
+            ),
+            (
+                line(&[(100.0, 120.0), (100.0, 120.0), (120.0, 124.0)]),
+                stroke().stroke_width(4.0).line_cap(LineCap::Round),
+                1.0,
+            ),
+            (
+                line(&[(150.0, 150.0), (150.0, 150.0)]),
+                stroke().stroke_width(4.0).line_cap(LineCap::Round),
+                1.0,
+            ),
+            (
+                line(&[(4.0, 180.0), (60.0, 186.0)]),
+                stroke().stroke_width(0.3),
+                1.0,
+            ),
+            (
+                line(&[(4.0, 180.0), (60.0, 186.0)]),
+                stroke().stroke_width(0.3),
+                1.5,
+            ),
+            (
+                line(&[(10.0, 100.0), (90.0, 60.0)]),
+                stroke().stroke_width(40.0),
+                1.0,
+            ),
+        ]
+    }
+
+    #[test]
+    fn strokes_render_the_same_pixels() {
+        use crate::CpuRasterizer;
+        let expected: [u64; 11] = [
+            2362692873945308036,
+            9567466158870693164,
+            13933877095181122597,
+            7841828774547950660,
+            11992003363753275224,
+            16126321927536331494,
+            8324095631378301055,
+            14833076215688421957,
+            11650722776545918005,
+            8278279517010211061,
+            15797700667854759237,
+        ];
+        let actual: Vec<u64> = golden_cases()
+            .iter()
+            .map(|(path, paint, scale)| {
+                let pixels = CpuRasterizer::draw_offscreen(200, 200, *scale, |ctx| {
+                    ctx.draw_path(path, paint)
+                })
+                .expect("draw");
+                fnv1a(&pixels.rgba)
+            })
+            .collect();
+        assert_eq!(actual, expected, "hashes, in case order");
     }
 }
