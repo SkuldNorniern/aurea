@@ -260,8 +260,25 @@ impl CpuRasterizer {
         path: &Path,
         paint: &Paint,
         origin: Point,
+        size: (u32, u32),
+        buf: &mut [u32],
+    ) -> AureaResult<()> {
+        Self::draw_alpha(path, paint, origin, size, buf, &mut PathScratch::default())?;
+        for px in buf {
+            let a = (*px >> 24) as u8;
+            *px = u32::from_ne_bytes([a; 4]);
+        }
+        Ok(())
+    }
+
+    /// Draws `path` white into `buf`, leaving each pixel's alpha in its top byte.
+    fn draw_alpha(
+        path: &Path,
+        paint: &Paint,
+        origin: Point,
         (width, height): (u32, u32),
         buf: &mut [u32],
+        scratch: &mut PathScratch,
     ) -> AureaResult<()> {
         let shift = |p: Point| Point::new(p.x - origin.x, p.y - origin.y);
         let mut moved = Path::new();
@@ -280,21 +297,15 @@ impl CpuRasterizer {
             color: Color::rgb(255, 255, 255),
             ..paint.clone()
         };
-        let mut scratch = PathScratch::default();
         Self::draw_path(
             &moved,
             &white,
             BlendMode::Normal,
             &mut Band::whole(&mut *buf),
-            &mut scratch,
+            scratch,
             width,
             ClipBox::surface(width, height),
-        )?;
-        for px in buf {
-            let a = px.to_be_bytes()[0];
-            *px = u32::from_ne_bytes([a; 4]);
-        }
-        Ok(())
+        )
     }
 
     pub(crate) fn render_recorded(&mut self, list: &mut DisplayList) -> AureaResult<FrameOutcome> {
@@ -347,28 +358,54 @@ impl CpuRasterizer {
         if clip.is_empty() {
             return Ok(());
         }
-        let (x0, x1) = (clip.x0 as usize, clip.x1 as usize);
-        let (w, h) = (clip.x1 - clip.x0, clip.y1 - clip.y0);
-        let mut saved = Vec::with_capacity(w as usize * h as usize);
-        for y in clip.y0..clip.y1 {
+        // Only the pixels the item can reach change, so only those are saved and restored.
+        let boxed = item_clip_box(item, clip);
+        if boxed.is_empty() {
+            return Ok(());
+        }
+        let (x0, x1) = (boxed.x0 as usize, boxed.x1 as usize);
+        let (w, h) = (boxed.x1 - boxed.x0, boxed.y1 - boxed.y0);
+        let s = &mut scratch_row.clip;
+        s.saved.clear();
+        for y in boxed.y0..boxed.y1 {
             let row = y as usize * bw as usize;
-            saved.extend_from_slice(&buf[row + x0..row + x1]);
+            s.saved.extend_from_slice(&buf[row + x0..row + x1]);
         }
         Self::render_item(item, buf, scratch_path, scratch_row, bw, clip)?;
 
-        let origin = Point::new(clip.x0 as f32, clip.y0 as f32);
-        let mut coverage = vec![255u8; saved.len()];
-        for path in paths {
-            let mask = Self::path_coverage(path, &Paint::new(), origin, (w, h))?;
-            for (c, m) in coverage.iter_mut().zip(mask.as_chunks::<4>().0) {
-                *c = f32_to_u8_clamped((f32::from(*c) * f32::from(m[0]) / 255.0).round());
+        let s = &mut scratch_row.clip;
+        let cached = match (&s.key, item.clip_paths.as_ref()) {
+            (Some((key, key_box)), Some(now)) => Arc::ptr_eq(key, now) && *key_box == boxed,
+            _ => false,
+        };
+        if !cached {
+            let origin = Point::new(boxed.x0 as f32, boxed.y0 as f32);
+            s.key = None;
+            s.coverage.clear();
+            s.coverage.resize(s.saved.len(), 255);
+            for path in paths {
+                s.words.clear();
+                s.words.resize(s.saved.len(), 0);
+                Self::draw_alpha(
+                    path,
+                    &Paint::new(),
+                    origin,
+                    (w, h),
+                    &mut s.words,
+                    scratch_path,
+                )?;
+                for (c, px) in s.coverage.iter_mut().zip(&s.words) {
+                    let m = (*px >> 24) as u8;
+                    *c = f32_to_u8_clamped((f32::from(*c) * f32::from(m) / 255.0).round());
+                }
             }
+            s.key = item.clip_paths.clone().map(|p| (p, boxed));
         }
         let mut at = 0;
-        for y in clip.y0..clip.y1 {
+        for y in boxed.y0..boxed.y1 {
             let row = y as usize * bw as usize;
             for px in &mut buf[row + x0..row + x1] {
-                let (old, cov) = (saved[at], u32::from(coverage[at]));
+                let (old, cov) = (s.saved[at], u32::from(s.coverage[at]));
                 at += 1;
                 *px = match cov {
                     255 => *px,
@@ -2224,6 +2261,38 @@ pub(super) struct ImageScratch {
     taps: Vec<sample::Taps>,
     /// Byte offset of each output column's source pixel, for nearest sampling.
     source_cols: Vec<usize>,
+    clip: ClipScratch,
+}
+
+/// Buffers a clipped item reuses, and the coverage they last held.
+#[derive(Default)]
+pub(super) struct ClipScratch {
+    /// Pixels under the clip box before the item was drawn.
+    saved: Vec<u32>,
+    /// Antialiased clip coverage per pixel of the box.
+    coverage: Vec<u8>,
+    /// One clip path's coverage, as words.
+    words: Vec<u32>,
+    /// The clip paths and box `coverage` was built for.
+    key: Option<(Arc<[Path]>, ClipBox)>,
+}
+
+/// Padding around an item's bounds for antialiasing, enough that snapping to the pixel grid
+/// keeps every pixel the item can draw.
+const ITEM_PAD: f32 = 3.0;
+
+/// The pixels `item` can draw in, inside `clip`.
+fn item_clip_box(item: &DisplayItem, clip: ClipBox) -> ClipBox {
+    let b = item.bounds;
+    if !is_known_bounds(b) {
+        return clip;
+    }
+    clip.intersect(Rect::new(
+        b.x - ITEM_PAD,
+        b.y - ITEM_PAD,
+        b.width + 2.0 * ITEM_PAD,
+        b.height + 2.0 * ITEM_PAD,
+    ))
 }
 
 struct RectFillCtx<'a> {
@@ -5857,5 +5926,231 @@ mod path_coverage_tests {
         let (pixels, _) = got.as_chunks::<4>();
         assert!(pixels.iter().any(|px| px[0] == 255));
         assert!(pixels.iter().all(|px| px.iter().all(|&b| b == px[0])));
+    }
+}
+
+#[cfg(test)]
+mod clip_golden_tests {
+    use super::*;
+    use crate::drawing::DrawingContext;
+    use crate::geometry::{FillRule, PathCommand};
+
+    type Scene = fn(&mut dyn DrawingContext) -> AureaResult<()>;
+
+    fn poly(points: &[(f32, f32)], closed: bool) -> Path {
+        let mut path = Path::new();
+        path.fill_rule = FillRule::NonZero;
+        for (i, &(x, y)) in points.iter().enumerate() {
+            let p = Point::new(x, y);
+            path.commands.push(if i == 0 {
+                PathCommand::MoveTo(p)
+            } else {
+                PathCommand::LineTo(p)
+            });
+        }
+        if closed {
+            path.commands.push(PathCommand::Close);
+        }
+        path
+    }
+
+    fn fill(color: Color) -> Paint {
+        Paint::new().color(color)
+    }
+
+    fn stroke(color: Color, width: f32) -> Paint {
+        Paint::new()
+            .color(color)
+            .style(PaintStyle::Stroke)
+            .stroke_width(width)
+    }
+
+    const ROUNDED: [(f32, f32); 8] = [
+        (16.0, 8.0),
+        (80.0, 8.0),
+        (88.0, 16.0),
+        (88.0, 80.0),
+        (80.0, 88.0),
+        (16.0, 88.0),
+        (8.0, 80.0),
+        (8.0, 16.0),
+    ];
+
+    fn rounded_rect_partly_outside(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
+        ctx.clear(Color::rgb(20, 30, 40))?;
+        ctx.save()?;
+        ctx.clip_path(&poly(&ROUNDED, true))?;
+        ctx.set_alpha(0.7)?;
+        ctx.draw_rect(
+            Rect::new(-10.0, 20.0, 80.0, 30.0),
+            &fill(Color::rgba(200, 40, 40, 200)),
+        )?;
+        ctx.restore()
+    }
+
+    fn stroke_items(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
+        ctx.clear(Color::rgb(20, 30, 40))?;
+        ctx.save()?;
+        ctx.clip_path(&poly(&[(10.0, 90.0), (48.0, 6.0), (86.0, 90.0)], true))?;
+        ctx.draw_round_rect(
+            Rect::new(20.0, 30.0, 50.0, 40.0),
+            8.0,
+            &stroke(Color::rgb(10, 200, 120), 6.0),
+        )?;
+        ctx.draw_path(
+            &poly(
+                &[(0.0, 50.0), (30.0, 20.0), (60.0, 70.0), (96.0, 30.0)],
+                false,
+            ),
+            &stroke(Color::rgba(255, 255, 255, 180), 4.5),
+        )?;
+        ctx.restore()
+    }
+
+    fn two_items_share_clip(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
+        ctx.clear(Color::rgb(20, 30, 40))?;
+        ctx.save()?;
+        ctx.clip_path(&poly(
+            &[(48.0, 4.0), (92.0, 48.0), (48.0, 92.0), (4.0, 48.0)],
+            true,
+        ))?;
+        ctx.draw_rect(
+            Rect::new(0.0, 0.0, 96.0, 50.0),
+            &fill(Color::rgba(255, 200, 0, 180)),
+        )?;
+        ctx.draw_circle(Point::new(60.0, 60.0), 30.0, &fill(Color::rgb(0, 120, 255)))?;
+        ctx.draw_shadow(
+            Rect::new(30.0, 30.0, 30.0, 30.0),
+            4.0,
+            6.0,
+            Color::rgba(0, 0, 0, 160),
+        )?;
+        ctx.restore()
+    }
+
+    fn nested_clips(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
+        ctx.clear(Color::rgb(20, 30, 40))?;
+        ctx.save()?;
+        ctx.clip_path(&poly(&[(0.0, 0.0), (96.0, 0.0), (48.0, 96.0)], true))?;
+        ctx.save()?;
+        ctx.clip_path(&poly(
+            &[(20.0, 20.0), (80.0, 20.0), (80.0, 70.0), (20.0, 70.0)],
+            true,
+        ))?;
+        ctx.set_blend_mode(BlendMode::Multiply)?;
+        ctx.draw_rect(
+            Rect::new(0.0, 0.0, 96.0, 96.0),
+            &fill(Color::rgb(180, 220, 255)),
+        )?;
+        ctx.restore()?;
+        ctx.draw_circle(
+            Point::new(48.0, 48.0),
+            40.0,
+            &fill(Color::rgba(255, 0, 0, 128)),
+        )?;
+        ctx.restore()
+    }
+
+    fn item_outside_clip(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
+        ctx.clear(Color::rgb(20, 30, 40))?;
+        ctx.save()?;
+        ctx.clip_path(&poly(&[(0.0, 0.0), (6.0, 0.0), (0.0, 6.0)], true))?;
+        ctx.draw_rect(
+            Rect::new(50.0, 50.0, 20.0, 20.0),
+            &fill(Color::rgb(255, 0, 0)),
+        )?;
+        ctx.draw_round_rect(
+            Rect::new(40.0, 60.0, 30.0, 30.0),
+            10.0,
+            &stroke(Color::rgb(0, 255, 0), 5.0),
+        )?;
+        ctx.restore()
+    }
+
+    fn clip_rect_and_path(ctx: &mut dyn DrawingContext) -> AureaResult<()> {
+        ctx.clear(Color::rgb(20, 30, 40))?;
+        ctx.save()?;
+        ctx.clip_rect(Rect::new(5.5, 10.25, 60.0, 70.0))?;
+        ctx.clip_path(&poly(&ROUNDED, true))?;
+        ctx.set_blend_mode(BlendMode::Multiply)?;
+        ctx.draw_path(
+            &poly(
+                &[(4.0, 80.0), (30.0, 4.0), (56.0, 80.0), (92.0, 4.0)],
+                false,
+            ),
+            &stroke(Color::rgb(230, 180, 60), 9.0),
+        )?;
+        ctx.draw_rect(
+            Rect::new(-5.0, -5.0, 40.0, 120.0),
+            &fill(Color::rgba(90, 200, 255, 150)),
+        )?;
+        ctx.restore()
+    }
+
+    const SCENES: [Scene; 6] = [
+        rounded_rect_partly_outside,
+        stroke_items,
+        two_items_share_clip,
+        nested_clips,
+        item_outside_clip,
+        clip_rect_and_path,
+    ];
+
+    /// FNV-1a over the little-endian bytes of every pixel.
+    fn fnv(pixels: &[u32]) -> u64 {
+        pixels
+            .iter()
+            .flat_map(|px| px.to_le_bytes())
+            .fold(0xcbf2_9ce4_8422_2325, |h, b| {
+                (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+            })
+    }
+
+    fn frame(threads: usize, band_min: usize, scene: Scene) -> Vec<u32> {
+        let (w, h) = (96, 96);
+        let mut r = CpuRasterizer::new(w, h);
+        r.init(
+            Surface::Cpu,
+            SurfaceInfo {
+                width: w,
+                height: h,
+                scale_factor: 1.0,
+                pixels: None,
+            },
+        )
+        .expect("init");
+        r.set_threads(Some(threads));
+        r.band_min = band_min;
+        let mut ctx = r.begin_frame().expect("frame");
+        scene(&mut *ctx).expect("scene");
+        drop(ctx);
+        r.end_frame().expect("end");
+        r.frame_buffer.clone()
+    }
+
+    const GOLDEN: [u64; 6] = [
+        3210432459124393221,
+        3324011533650081035,
+        12658642438491466263,
+        8424631207175497495,
+        7408609324301255461,
+        6941721216795880809,
+    ];
+
+    #[test]
+    fn clipped_scenes_match_golden_hashes() {
+        let mut got = [0u64; 6];
+        for (i, scene) in SCENES.into_iter().enumerate() {
+            let one = fnv(&frame(1, 1, scene));
+            for threads in [2, 3] {
+                assert_eq!(
+                    fnv(&frame(threads, 1, scene)),
+                    one,
+                    "scene {i}, {threads} bands"
+                );
+            }
+            got[i] = one;
+        }
+        assert_eq!(got, GOLDEN);
     }
 }
