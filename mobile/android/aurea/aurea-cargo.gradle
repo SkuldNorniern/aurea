@@ -1,0 +1,96 @@
+// Builds an app's example with cargo for each ABI and copies its .so into jniLibs, before preBuild.
+// Apply after com.android.application, with extras set first:
+//   aurea.cargo.manifest  Cargo.toml of the app crate (required); cargo runs in its directory
+//   aurea.cargo.lib       example target, built as lib<name>.so (required)
+//   aurea.cargo.features  cargo features (default "mobile")
+//   aurea.cargo.abis      Android ABIs (default ["arm64-v8a"]); arm64-v8a and x86_64 are known
+//   aurea.cargo.profile   "release" or "debug" (default "release")
+// The NDK is the one the app pins with ndkVersion; minSdk is the app's defaultConfig.minSdk.
+
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import javax.inject.Inject
+import org.gradle.process.ExecOperations
+
+abstract class AureaCargoBuild extends DefaultTask {
+    static final Map<String, String> TRIPLES = [
+        'arm64-v8a': 'aarch64-linux-android',
+        'x86_64': 'x86_64-linux-android',
+    ]
+
+    @Internal abstract DirectoryProperty getCrateDir()
+    @Internal abstract DirectoryProperty getNdkDir()
+    @Internal abstract DirectoryProperty getOutDir()
+    @Internal abstract ListProperty<String> getAbis()
+    @Internal abstract Property<Integer> getMinApi()
+    @Internal abstract Property<String> getLib()
+    @Internal abstract Property<String> getFeatures()
+    @Internal abstract Property<String> getProfile()
+    @Inject abstract ExecOperations getExec()
+
+    @TaskAction
+    void build() {
+        def os = System.getProperty('os.name').toLowerCase()
+        def host = os.contains('windows') ? 'windows-x86_64' : os.contains('mac') ? 'darwin-x86_64' : 'linux-x86_64'
+        def script = os.contains('windows') ? '.cmd' : ''
+        def exe = os.contains('windows') ? '.exe' : ''
+        def bin = new File(ndkDir.get().asFile, "toolchains/llvm/prebuilt/$host/bin")
+        def root = crateDir.get().asFile
+        def targetDir = new File(root, 'target/android')
+        def libName = lib.get()
+        def profileName = profile.get()
+        def profileArgs = profileName == 'release' ? ['--release'] : []
+        for (abi in abis.get()) {
+            def triple = TRIPLES[abi]
+            if (triple == null) {
+                throw new GradleException("aurea-cargo: no Rust target for ABI $abi")
+            }
+            def clang = new File(bin, "$triple${minApi.get()}-clang$script").path
+            def env = triple.replace('-', '_')
+            exec.exec { spec ->
+                spec.workingDir = root
+                spec.commandLine('cargo', 'build', '--example', libName, *profileArgs, '--features', features.get(), '--target', triple)
+                spec.environment("CC_$env", clang)
+                spec.environment("AR_$env", new File(bin, "llvm-ar$exe").path)
+                spec.environment("CARGO_TARGET_${env.toUpperCase()}_LINKER", clang)
+                spec.environment('CARGO_TARGET_DIR', targetDir.path)
+            }
+            def so = new File(targetDir, "$triple/$profileName/examples/lib${libName}.so")
+            def dest = new File(outDir.get().asFile, abi)
+            dest.deleteDir()
+            dest.mkdirs()
+            Files.copy(so.toPath(), new File(dest, "lib${libName}.so").toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+}
+
+def manifest = project.findProperty('aurea.cargo.manifest')
+def libName = project.findProperty('aurea.cargo.lib')
+if (manifest == null || libName == null) {
+    throw new GradleException('aurea-cargo: set extra["aurea.cargo.manifest"] and extra["aurea.cargo.lib"] before applying it')
+}
+def manifestFile = project.file(manifest)
+if (!manifestFile.isFile()) {
+    throw new GradleException("aurea-cargo: no Cargo manifest at ${manifestFile}")
+}
+
+def abis = project.findProperty('aurea.cargo.abis') ?: ['arm64-v8a']
+def features = project.findProperty('aurea.cargo.features') ?: 'mobile'
+def profile = project.findProperty('aurea.cargo.profile') ?: 'release'
+
+project.android.defaultConfig.ndk.abiFilters.addAll(abis)
+project.android.sourceSets.getByName('main').jniLibs.directories.add(
+    project.layout.buildDirectory.dir('rustJniLibs').get().asFile.path)
+
+def cargoBuild = project.tasks.register('cargoBuild', AureaCargoBuild) { t ->
+    t.crateDir.set(manifestFile.parentFile)
+    t.ndkDir.set(project.androidComponents.sdkComponents.ndkDirectory)
+    t.outDir.set(project.layout.buildDirectory.dir('rustJniLibs'))
+    t.abis.set(abis)
+    t.minApi.set(project.provider { project.android.defaultConfig.minSdk as Integer })
+    t.lib.set(libName as String)
+    t.features.set(features as String)
+    t.profile.set(profile as String)
+}
+
+project.tasks.named('preBuild') { it.dependsOn(cargoBuild) }

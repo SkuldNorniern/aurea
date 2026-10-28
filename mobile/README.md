@@ -23,19 +23,49 @@ The `aurea` module holds `dev.aurea.AureaActivity`, the Activity an app runs in.
 Activity subclasses it and names its native library; the library defines `aurea_main`, which calls
 `aurea::android::run`.
 
-An app crate is usually an rlib; build its `.so` with `cargo rustc --lib --crate-type cdylib
---target aarch64-linux-android`, and copy it into the app's `jniLibs/arm64-v8a`.
+An app's Cargo.toml has a `cdylib` example that is the library, and `aurea/aurea-cargo.gradle`
+builds it with cargo for each ABI into `jniLibs`. The sample's is
+[`examples/android_demo.rs`](../examples/android_demo.rs).
 
 An app's identity comes from its Cargo.toml table `[package.metadata.aurea]`: `name` (label), `id`
 (application ID), `version` (`"auto"` for the package version, or a string) and optional `build`
-(versionCode). The root Cargo.toml has the sample's table.
-The Gradle project sets none of these; `aurea/aurea-identity.gradle` reads the table with `cargo metadata`.
-An app applies it after the Android application plugin, with the manifest path in `extra`:
+(versionCode). `aurea/aurea-identity.gradle` reads the table with `cargo metadata`.
+
+An app's `settings.gradle.kts` includes the `aurea` module from its aurea crate, found through the
+app's Cargo.toml (this repo's copy resolves to `mobile/android/aurea`):
+
+```kotlin
+import groovy.json.JsonSlurper
+
+// ...pluginManagement, dependencyResolutionManagement, rootProject.name...
+include(":app")
+
+val aureaCargo = JsonSlurper().parseText(
+    providers.exec {
+        commandLine("cargo", "metadata", "--format-version", "1", "--manifest-path", file("../../Cargo.toml").path)
+    }.standardOutput.asText.get(),
+) as Map<*, *>
+val aurea = (aureaCargo["packages"] as List<*>).map { it as Map<*, *> }.first { it["name"] == "aurea" }
+include(":aurea")
+project(":aurea").projectDir = File(aurea["manifest_path"] as String).parentFile.resolve("mobile/android/aurea")
+```
+
+The app's `app/build.gradle.kts` sets the cargo build and identity, then applies both scripts from
+the `aurea` module:
 
 ```kotlin
 extra["aurea.manifest"] = rootProject.file("../../Cargo.toml")
-apply(from = "../aurea/aurea-identity.gradle")
+apply(from = project(":aurea").file("aurea-identity.gradle"))
+
+extra["aurea.cargo.manifest"] = rootProject.file("../../Cargo.toml")
+extra["aurea.cargo.lib"] = "android_demo"
+extra["aurea.cargo.features"] = if (findProperty("aurea.gpu") == "true") "mobile,zengpu" else "mobile"
+extra["aurea.cargo.abis"] = listOf("arm64-v8a", "x86_64")
+extra["aurea.cargo.profile"] = "release"
+apply(from = project(":aurea").file("aurea-cargo.gradle"))
 ```
+
+`aurea.cargo.abis` defaults to `arm64-v8a`; `aurea-cargo.gradle` knows `arm64-v8a` and `x86_64`.
 
 ## iOS and iPadOS
 
