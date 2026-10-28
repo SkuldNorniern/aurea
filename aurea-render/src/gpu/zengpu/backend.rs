@@ -24,8 +24,9 @@ use zengpu_hal::{
 };
 
 use crate::capabilities::GpuFeatures;
+use crate::gpu::backend::full_frame_plan;
 use crate::gpu::batch::{DrawRef, RectInstance, ShapeInstance};
-use crate::gpu::{FramePlan, Gpu2dBackend, Gpu2dRenderer};
+use crate::gpu::{FramePlan, Gpu2dBackend, Gpu2dRenderer, PixelFormat};
 use crate::memory::smaller_buffer;
 use crate::numeric::{f32_to_u8_clamped, f32_to_u32_clamped};
 use crate::renderer::FrameOutcome;
@@ -77,6 +78,7 @@ impl ZenGpuContext {
             image.height,
             &image.data,
             levels,
+            Format::Rgba8Unorm,
         )?;
         Ok(ZenGpuImage {
             context: Arc::clone(self),
@@ -233,6 +235,7 @@ fn make_image_texture(
     height: u32,
     rgba: &[u8],
     levels: u32,
+    format: Format,
 ) -> AureaResult<TextureHandle> {
     if !valid_image(width, height, rgba) {
         return Err(AureaError::RenderingFailed);
@@ -246,7 +249,7 @@ fn make_image_texture(
             width,
             height,
             depth: 1,
-            format: Format::Rgba8Unorm,
+            format,
             usage,
             samples: 1,
             dimension: TexDim::D2,
@@ -475,6 +478,20 @@ impl Offscreen {
 }
 
 /// ZenGPU device backend for `Gpu2dRenderer`, using the unified graphics API.
+struct CpuFrame {
+    slot: u32,
+    width: u32,
+    height: u32,
+    format: PixelFormat,
+}
+
+fn texture_format(format: PixelFormat) -> Format {
+    match format {
+        PixelFormat::Rgba8 => Format::Rgba8Unorm,
+        PixelFormat::Bgra8 => Format::Bgra8Unorm,
+    }
+}
+
 pub struct ZenGpuBackend {
     target: Target,
     context: Arc<ZenGpuContext>,
@@ -489,6 +506,7 @@ pub struct ZenGpuBackend {
     image_instances: Vec<ImageInstance>,
     text_instances: Vec<TextInstance>,
     slot_textures: HashMap<u32, TextureHandle>,
+    cpu_frame: Option<CpuFrame>,
 }
 
 /// Public renderer type alias — `Gpu2dRenderer` parameterized on `ZenGpuBackend`.
@@ -584,6 +602,7 @@ impl ZenGpuRenderer {
             image_instances: Vec::new(),
             text_instances: Vec::new(),
             slot_textures: HashMap::new(),
+            cpu_frame: None,
         };
         Ok(Gpu2dRenderer::from_backend(backend, width, height, scale))
     }
@@ -767,9 +786,23 @@ impl ZenGpuBackend {
 }
 
 impl ZenGpuBackend {
-    fn upload(&mut self, width: u32, height: u32, rgba: &[u8], levels: u32) -> AureaResult<u32> {
+    fn upload(
+        &mut self,
+        width: u32,
+        height: u32,
+        pixels: &[u8],
+        levels: u32,
+        format: PixelFormat,
+    ) -> AureaResult<u32> {
         let device = self.context.device();
-        let texture = make_image_texture(device, width, height, rgba, levels)?;
+        let texture = make_image_texture(
+            device,
+            width,
+            height,
+            pixels,
+            levels,
+            texture_format(format),
+        )?;
         let Some(slot) = device.bind_texture(texture, self.sampler) else {
             device.destroy_texture(texture);
             return Err(AureaError::RenderingFailed);
@@ -812,11 +845,17 @@ impl Gpu2dBackend for ZenGpuBackend {
     }
 
     fn upload_image(&mut self, width: u32, height: u32, rgba: &[u8]) -> AureaResult<u32> {
-        self.upload(width, height, rgba, 1)
+        self.upload(width, height, rgba, 1, PixelFormat::Rgba8)
     }
 
     fn upload_image_mipmapped(&mut self, width: u32, height: u32, rgba: &[u8]) -> AureaResult<u32> {
-        self.upload(width, height, rgba, mip_levels(width, height))
+        self.upload(
+            width,
+            height,
+            rgba,
+            mip_levels(width, height),
+            PixelFormat::Rgba8,
+        )
     }
 
     fn evict_image(&mut self, shader_slot: u32) {
@@ -847,6 +886,52 @@ impl Gpu2dBackend for ZenGpuBackend {
 
     fn supports_dual_source(&self) -> bool {
         self.context.device().supports_dual_source_blending()
+    }
+
+    fn accepts_pixel_format(&self, format: PixelFormat) -> bool {
+        matches!(format, PixelFormat::Rgba8 | PixelFormat::Bgra8)
+    }
+
+    fn present_pixels(
+        &mut self,
+        pixels: &[u8],
+        format: PixelFormat,
+        width: u32,
+        height: u32,
+    ) -> AureaResult<FrameOutcome> {
+        let reuse = self
+            .cpu_frame
+            .as_ref()
+            .filter(|f| f.width == width && f.height == height && f.format == format)
+            .map(|f| f.slot);
+        let slot = match reuse {
+            Some(slot) => {
+                let texture = self
+                    .slot_textures
+                    .get(&slot)
+                    .copied()
+                    .ok_or(AureaError::RenderingFailed)?;
+                upload_levels(self.context.device(), texture, width, height, pixels, 1)
+                    .map_err(gpu_err)?;
+                slot
+            }
+            None => {
+                if let Some(old) = self.cpu_frame.take() {
+                    self.evict_image(old.slot);
+                }
+                let slot = self.upload(width, height, pixels, 1, format)?;
+                self.cpu_frame = Some(CpuFrame {
+                    slot,
+                    width,
+                    height,
+                    format,
+                });
+                slot
+            }
+        };
+        let mut plan = FramePlan::new();
+        full_frame_plan(&mut plan, width, height, slot);
+        self.present_frame(&plan, &[], &[])
     }
 
     fn present_frame(
@@ -1061,7 +1146,7 @@ mod context_tests {
     use crate::cpu::CpuRasterizer;
     use crate::renderer::{DrawingContext, Renderer};
     use crate::surface::{Surface as RenderSurface, SurfaceInfo};
-    use crate::types::{Color, Paint, PaintStyle, Point};
+    use crate::types::{Color, Paint, PaintStyle, Path, PathCommand, Point};
 
     fn scene(ctx: &mut dyn DrawingContext, image: &Image) {
         ctx.clear(Color::rgb(20, 24, 30)).unwrap();
@@ -1438,5 +1523,49 @@ mod context_tests {
         assert_eq!(gpu.frame_output().expect("kept pixels").words(), &first[..]);
         assert_eq!(frame(&mut gpu, 5.0), FrameOutcome::Presented);
         assert_ne!(gpu.frame_output().expect("new pixels").words(), &first[..]);
+    }
+
+    #[test]
+    fn a_cpu_frame_reuses_its_texture_and_keeps_its_colours() {
+        let Ok(context) = ZenGpuContext::new() else {
+            return;
+        };
+        let mut gpu = ZenGpuRenderer::offscreen(Arc::new(context), 64, 48, 1.0).unwrap();
+        let triangle = {
+            let mut path = Path::new();
+            path.commands.extend([
+                PathCommand::MoveTo(Point::new(0.0, 0.0)),
+                PathCommand::LineTo(Point::new(80.0, 0.0)),
+                PathCommand::LineTo(Point::new(0.0, 40.0)),
+                PathCommand::Close,
+            ]);
+            path
+        };
+        // A path clip is one thing this backend cannot draw, so each frame is drawn on the CPU.
+        let frame = |gpu: &mut ZenGpuRenderer, x: f32| {
+            {
+                let mut ctx = gpu.begin_frame().unwrap();
+                ctx.clip_path(&triangle).unwrap();
+                ctx.draw_rect(
+                    Rect::new(x, 0.0, 40.0, 40.0),
+                    &Paint::new().color(Color::rgb(200, 60, 40)),
+                )
+                .unwrap();
+            }
+            gpu.end_frame().unwrap()
+        };
+        let centre =
+            |gpu: &ZenGpuRenderer| gpu.frame_output().expect("pixels").words()[20 * 64 + 23];
+        assert_eq!(frame(&mut gpu, 3.0), FrameOutcome::Presented);
+        let slot = gpu.backend().cpu_frame.as_ref().expect("cpu frame").slot;
+        assert_eq!(centre(&gpu), 0xFFC8_3C28);
+        assert_eq!(frame(&mut gpu, 3.0), FrameOutcome::Unchanged);
+        assert_eq!(frame(&mut gpu, 5.0), FrameOutcome::Presented);
+        assert_eq!(
+            gpu.backend().cpu_frame.as_ref().expect("cpu frame").slot,
+            slot
+        );
+        assert_eq!(gpu.backend().slot_textures.len(), 1);
+        assert_eq!(centre(&gpu), 0xFFC8_3C28);
     }
 }

@@ -30,7 +30,8 @@ pub use gpu::batch::{
     DrawRef, GradientInstance, ImageDraw, RectInstance, RenderBatches, ShapeInstance, TextDraw,
 };
 pub use gpu::{
-    FramePlan, Gpu2dBackend, Gpu2dRenderer, GradientPlanEntry, ImagePlanEntry, TextPlanEntry,
+    FramePlan, Gpu2dBackend, Gpu2dRenderer, GradientPlanEntry, ImagePlanEntry, PixelFormat,
+    TextPlanEntry,
 };
 pub use interaction::*;
 pub use renderer::*;

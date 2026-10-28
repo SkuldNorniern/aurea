@@ -9,6 +9,33 @@ use crate::types::GpuTexture;
 
 use super::frame_plan::{FramePlan, ImagePlanEntry};
 
+/// Byte order of four-byte pixels handed to [`Gpu2dBackend::present_pixels`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PixelFormat {
+    /// Red, green, blue, alpha.
+    Rgba8,
+    /// Blue, green, red, alpha.
+    Bgra8,
+}
+
+/// The plan that draws one `width` by `height` image covering the whole target.
+pub(super) fn full_frame_plan(plan: &mut FramePlan, width: u32, height: u32, slot: u32) {
+    plan.reset();
+    plan.viewport_width = width;
+    plan.viewport_height = height;
+    #[allow(clippy::cast_precision_loss)]
+    plan.images.push(ImagePlanEntry {
+        affine: [0.0; 4],
+        rect: [0.0, 0.0, width as f32, height as f32],
+        uv: [0.0, 0.0, 1.0, 1.0],
+        tint: [1.0; 4],
+        sampling: [width as f32, height as f32, 0.0, 0.0],
+        slot,
+    });
+    plan.order.push(DrawRef::Image(0));
+    plan.clips.push(None);
+}
+
 /// Device-touching primitives driven by [`super::Gpu2dRenderer`] each frame.
 pub trait Gpu2dBackend {
     /// (Re)create the swapchain/surface for a new **physical** pixel size.
@@ -44,29 +71,31 @@ pub trait Gpu2dBackend {
     /// The kinds of drawing this backend does itself.
     fn features(&self) -> GpuFeatures;
 
-    /// Presents `rgba` (tightly packed RGBA8, `width` x `height` physical pixels) as the whole
-    /// frame: how a frame drawn on the CPU reaches this backend's surface.
+    /// Whether [`present_pixels`](Self::present_pixels) takes `format` as it is. A backend that
+    /// returns false for [`PixelFormat::Bgra8`] gets RGBA8 instead.
+    fn accepts_pixel_format(&self, format: PixelFormat) -> bool {
+        format == PixelFormat::Rgba8
+    }
+
+    /// Presents `pixels` (tightly packed four-byte pixels in `format`, `width` x `height` physical
+    /// pixels) as the whole frame: how a frame drawn on the CPU reaches this backend's surface.
+    ///
+    /// Only called with a format [`accepts_pixel_format`](Self::accepts_pixel_format) takes.
     fn present_pixels(
         &mut self,
-        rgba: &[u8],
+        pixels: &[u8],
+        format: PixelFormat,
         width: u32,
         height: u32,
     ) -> AureaResult<FrameOutcome> {
-        let slot = self.upload_image(width, height, rgba)?;
+        debug_assert_eq!(
+            format,
+            PixelFormat::Rgba8,
+            "backend takes only RGBA8 pixels"
+        );
+        let slot = self.upload_image(width, height, pixels)?;
         let mut plan = FramePlan::new();
-        plan.viewport_width = width;
-        plan.viewport_height = height;
-        #[allow(clippy::cast_precision_loss)]
-        plan.images.push(ImagePlanEntry {
-            affine: [0.0; 4],
-            rect: [0.0, 0.0, width as f32, height as f32],
-            uv: [0.0, 0.0, 1.0, 1.0],
-            tint: [1.0; 4],
-            sampling: [width as f32, height as f32, 0.0, 0.0],
-            slot,
-        });
-        plan.order.push(DrawRef::Image(0));
-        plan.clips.push(None);
+        full_frame_plan(&mut plan, width, height, slot);
         let outcome = self.present_frame(&plan, &[], &[]);
         self.evict_image(slot);
         outcome

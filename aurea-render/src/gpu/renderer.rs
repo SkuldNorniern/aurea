@@ -16,7 +16,7 @@ use crate::scene::display_list::{CacheKey, DisplayIndex, DisplayItem, DisplayLis
 use crate::surface::{Surface, SurfaceInfo, pixel_size};
 use crate::types::{BlendMode, Color, Image, Rect, Sampling};
 
-use super::backend::Gpu2dBackend;
+use super::backend::{Gpu2dBackend, PixelFormat};
 use super::frame_plan::FramePlan;
 use super::resolve::resolve_frame;
 use super::texture_cache::TextureCache;
@@ -172,18 +172,24 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         };
         let (width, height) = (frame.width, frame.height);
         let bgra = frame.bytes();
-        if outcome != FrameOutcome::Unchanged || self.cpu_rgba.len() != bgra.len() {
-            if let Some(compact) = smaller_buffer(self.cpu_rgba.capacity(), bgra.len()) {
-                self.cpu_rgba = compact;
+        let presented = if self.backend.accepts_pixel_format(PixelFormat::Bgra8) {
+            self.backend
+                .present_pixels(bgra, PixelFormat::Bgra8, width, height)
+        } else {
+            if outcome != FrameOutcome::Unchanged || self.cpu_rgba.len() != bgra.len() {
+                if let Some(compact) = smaller_buffer(self.cpu_rgba.capacity(), bgra.len()) {
+                    self.cpu_rgba = compact;
+                }
+                self.cpu_rgba.clear();
+                self.cpu_rgba.reserve(bgra.len());
+                let (pixels, _) = bgra.as_chunks::<4>();
+                for &[b, g, r, a] in pixels {
+                    self.cpu_rgba.extend_from_slice(&[r, g, b, a]);
+                }
             }
-            self.cpu_rgba.clear();
-            self.cpu_rgba.reserve(bgra.len());
-            let (pixels, _) = bgra.as_chunks::<4>();
-            for &[b, g, r, a] in pixels {
-                self.cpu_rgba.extend_from_slice(&[r, g, b, a]);
-            }
-        }
-        let presented = self.backend.present_pixels(&self.cpu_rgba, width, height);
+            self.backend
+                .present_pixels(&self.cpu_rgba, PixelFormat::Rgba8, width, height)
+        };
         self.last_on_cpu = presented.as_ref().is_ok_and(|o| !o.needs_redraw());
         presented
     }
@@ -471,7 +477,9 @@ mod tests {
         outcome: FrameOutcome,
         features: GpuFeatures,
         drawn: usize,
-        pixels: Vec<(u32, u32, [u8; 4])>,
+        pixels: Vec<(u32, u32, PixelFormat, [u8; 4])>,
+        last: Vec<u8>,
+        accepts_bgra: bool,
         orders: Vec<Vec<DrawRef>>,
         uploads: usize,
         evicted: usize,
@@ -514,13 +522,24 @@ mod tests {
             Ok(self.outcome)
         }
 
-        fn present_pixels(&mut self, rgba: &[u8], w: u32, h: u32) -> AureaResult<FrameOutcome> {
+        fn accepts_pixel_format(&self, format: PixelFormat) -> bool {
+            format == PixelFormat::Rgba8 || (self.accepts_bgra && format == PixelFormat::Bgra8)
+        }
+
+        fn present_pixels(
+            &mut self,
+            pixels: &[u8],
+            format: PixelFormat,
+            w: u32,
+            h: u32,
+        ) -> AureaResult<FrameOutcome> {
             if self.pixels_device_lost {
                 return Err(AureaError::DeviceLost);
             }
             let at = ((h / 2 * w + w / 2) * 4) as usize;
-            let px = [rgba[at], rgba[at + 1], rgba[at + 2], rgba[at + 3]];
-            self.pixels.push((w, h, px));
+            let px = [pixels[at], pixels[at + 1], pixels[at + 2], pixels[at + 3]];
+            self.pixels.push((w, h, format, px));
+            self.last = pixels.to_vec();
             Ok(self.outcome)
         }
     }
@@ -536,6 +555,8 @@ mod tests {
             features,
             drawn: 0,
             pixels: Vec::new(),
+            last: Vec::new(),
+            accepts_bgra: false,
             orders: Vec::new(),
             uploads: 0,
             evicted: 0,
@@ -821,10 +842,51 @@ mod tests {
         let mut r = with_features(FrameOutcome::Presented, no_rounding);
         assert_eq!(rounded_frame(&mut r), FrameOutcome::Presented);
         assert_eq!(r.backend().drawn, 0, "nothing is handed over half drawn");
-        assert_eq!(r.backend().pixels, vec![(100, 50, [220, 20, 60, 255])]);
+        assert_eq!(
+            r.backend().pixels,
+            vec![(100, 50, PixelFormat::Rgba8, [220, 20, 60, 255])]
+        );
         assert!(r.last_frame_missing().rounded_rects);
         assert_eq!(rounded_frame(&mut r), FrameOutcome::Unchanged);
         assert_eq!(r.backend().pixels.len(), 1);
+    }
+
+    #[test]
+    fn a_backend_taking_bgra_is_handed_the_cpu_frame_as_it_is() {
+        for accepts_bgra in [false, true] {
+            let mut r = with_features(
+                FrameOutcome::Presented,
+                GpuFeatures {
+                    rounded_rects: false,
+                    ..GpuFeatures::ALL
+                },
+            );
+            r.backend_mut().accepts_bgra = accepts_bgra;
+            assert_eq!(rounded_frame(&mut r), FrameOutcome::Presented);
+            let bgra = r
+                .cpu
+                .as_ref()
+                .and_then(CpuRasterizer::frame_output)
+                .expect("cpu frame")
+                .bytes()
+                .to_vec();
+            let sent = &r.backend().last;
+            if accepts_bgra {
+                assert_eq!(r.backend().pixels[0].2, PixelFormat::Bgra8);
+                assert_eq!(sent, &bgra);
+                assert_eq!(r.backend().pixels[0].3, [60, 20, 220, 255]);
+            } else {
+                assert_eq!(r.backend().pixels[0].2, PixelFormat::Rgba8);
+                let rgba: Vec<u8> = bgra
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .flat_map(|&[b, g, red, a]| [red, g, b, a])
+                    .collect();
+                assert_eq!(sent, &rgba);
+                assert_eq!(r.backend().pixels[0].3, [220, 20, 60, 255]);
+            }
+        }
     }
 
     #[test]
@@ -904,7 +966,10 @@ mod tests {
         assert!(!r.last_on_cpu);
         r.backend_mut().pixels_device_lost = false;
         assert_eq!(rounded_frame(&mut r), FrameOutcome::Presented);
-        assert_eq!(r.backend().pixels, vec![(100, 50, [220, 20, 60, 255])]);
+        assert_eq!(
+            r.backend().pixels,
+            vec![(100, 50, PixelFormat::Rgba8, [220, 20, 60, 255])]
+        );
     }
 
     #[test]
@@ -915,7 +980,10 @@ mod tests {
         r.backend_mut().outcome = FrameOutcome::Presented;
         assert_eq!(rounded_frame(&mut r), FrameOutcome::Presented);
         assert_eq!(rounded_frame(&mut r), FrameOutcome::Unchanged);
-        assert_eq!(r.backend().pixels, vec![(100, 50, [220, 20, 60, 255]); 3]);
+        assert_eq!(
+            r.backend().pixels,
+            vec![(100, 50, PixelFormat::Rgba8, [220, 20, 60, 255]); 3]
+        );
     }
 
     #[test]
@@ -954,7 +1022,10 @@ mod tests {
         assert_eq!(r.end_frame().expect("end"), FrameOutcome::Presented);
         assert_eq!(r.backend().bound, 0);
         assert!(r.layers.is_empty());
-        assert_eq!(r.backend().pixels, vec![(100, 50, [220, 20, 60, 255])]);
+        assert_eq!(
+            r.backend().pixels,
+            vec![(100, 50, PixelFormat::Rgba8, [220, 20, 60, 255])]
+        );
     }
 
     fn rect_frame(r: &mut Gpu2dRenderer<Probe>, width: f32) -> FrameOutcome {

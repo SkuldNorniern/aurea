@@ -10,8 +10,9 @@ use wgpu::util::DeviceExt;
 use aurea_foundation::{AureaError, AureaResult};
 
 use crate::capabilities::GpuFeatures;
+use crate::gpu::backend::full_frame_plan;
 use crate::gpu::batch::{DrawRef, RectInstance, ShapeInstance};
-use crate::gpu::{FramePlan, Gpu2dBackend, Gpu2dRenderer, ImagePlanEntry};
+use crate::gpu::{FramePlan, Gpu2dBackend, Gpu2dRenderer, PixelFormat};
 use crate::renderer::FrameOutcome;
 use crate::types::Rect;
 
@@ -31,6 +32,14 @@ struct CpuFrame {
     slot: u32,
     width: u32,
     height: u32,
+    format: PixelFormat,
+}
+
+fn texture_format(format: PixelFormat) -> wgpu::TextureFormat {
+    match format {
+        PixelFormat::Rgba8 => wgpu::TextureFormat::Rgba8Unorm,
+        PixelFormat::Bgra8 => wgpu::TextureFormat::Bgra8Unorm,
+    }
 }
 
 /// Draws into a `wgpu::Surface` that lives as long as `'w`: one made from a borrowed window works
@@ -317,11 +326,27 @@ impl<'w> WgpuBackend<'w> {
         }
     }
 
+    fn upload_pixels(
+        &mut self,
+        width: u32,
+        height: u32,
+        pixels: &[u8],
+        format: PixelFormat,
+        levels: u32,
+    ) -> AureaResult<u32> {
+        let resource = self.make_slot_resource(width, height, pixels, format, levels);
+        let slot = self.next_slot;
+        self.next_slot += 1;
+        self.slot_resources.insert(slot, resource);
+        Ok(slot)
+    }
+
     fn make_slot_resource(
         &self,
         width: u32,
         height: u32,
-        rgba: &[u8],
+        pixels: &[u8],
+        format: PixelFormat,
         levels: u32,
     ) -> SlotResource {
         let size = wgpu::Extent3d {
@@ -335,7 +360,7 @@ impl<'w> WgpuBackend<'w> {
             mip_level_count: levels,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format: texture_format(format),
             usage: wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_DST
                 | if levels > 1 {
@@ -352,7 +377,7 @@ impl<'w> WgpuBackend<'w> {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            rgba,
+            pixels,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(width * 4),
@@ -489,11 +514,11 @@ fn set_clip(pass: &mut wgpu::RenderPass<'_>, clip: Option<Rect>, vw: u32, vh: u3
     true
 }
 
-fn write_rgba(
+fn write_pixels(
     queue: &wgpu::Queue,
     texture: &wgpu::Texture,
     (width, height): (u32, u32),
-    rgba: &[u8],
+    pixels: &[u8],
 ) {
     queue.write_texture(
         wgpu::TexelCopyTextureInfo {
@@ -502,7 +527,7 @@ fn write_rgba(
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
-        rgba,
+        pixels,
         wgpu::TexelCopyBufferLayout {
             offset: 0,
             bytes_per_row: Some(width * 4),
@@ -573,11 +598,7 @@ impl Gpu2dBackend for WgpuBackend<'_> {
     }
 
     fn upload_image(&mut self, width: u32, height: u32, rgba: &[u8]) -> AureaResult<u32> {
-        let resource = self.make_slot_resource(width, height, rgba, 1);
-        let slot = self.next_slot;
-        self.next_slot += 1;
-        self.slot_resources.insert(slot, resource);
-        Ok(slot)
+        self.upload_pixels(width, height, rgba, PixelFormat::Rgba8, 1)
     }
 
     fn upload_image_mipmapped(&mut self, width: u32, height: u32, rgba: &[u8]) -> AureaResult<u32> {
@@ -591,11 +612,7 @@ impl Gpu2dBackend for WgpuBackend<'_> {
             return Err(AureaError::RenderingFailed);
         }
         let levels = u32::BITS - width.max(height).leading_zeros();
-        let resource = self.make_slot_resource(width, height, rgba, levels);
-        let slot = self.next_slot;
-        self.next_slot += 1;
-        self.slot_resources.insert(slot, resource);
-        Ok(slot)
+        self.upload_pixels(width, height, rgba, PixelFormat::Rgba8, levels)
     }
 
     fn evict_image(&mut self, shader_slot: u32) {
@@ -614,21 +631,26 @@ impl Gpu2dBackend for WgpuBackend<'_> {
         }
     }
 
+    fn accepts_pixel_format(&self, format: PixelFormat) -> bool {
+        matches!(format, PixelFormat::Rgba8 | PixelFormat::Bgra8)
+    }
+
     fn present_pixels(
         &mut self,
-        rgba: &[u8],
+        pixels: &[u8],
+        format: PixelFormat,
         width: u32,
         height: u32,
     ) -> AureaResult<FrameOutcome> {
         let reuse = self
             .cpu_frame
             .as_ref()
-            .filter(|f| f.width == width && f.height == height)
+            .filter(|f| f.width == width && f.height == height && f.format == format)
             .map(|f| f.slot);
         let slot = match reuse {
             Some(slot) => {
                 if let Some(res) = self.slot_resources.get(&slot) {
-                    write_rgba(&self.queue, &res.texture, (width, height), rgba);
+                    write_pixels(&self.queue, &res.texture, (width, height), pixels);
                 }
                 slot
             }
@@ -636,30 +658,18 @@ impl Gpu2dBackend for WgpuBackend<'_> {
                 if let Some(old) = self.cpu_frame.take() {
                     self.slot_resources.remove(&old.slot);
                 }
-                let slot = self.upload_image(width, height, rgba)?;
+                let slot = self.upload_pixels(width, height, pixels, format, 1)?;
                 self.cpu_frame = Some(CpuFrame {
                     slot,
                     width,
                     height,
+                    format,
                 });
                 slot
             }
         };
         let mut plan = mem::take(&mut self.cpu_plan);
-        plan.reset();
-        plan.viewport_width = width;
-        plan.viewport_height = height;
-        #[allow(clippy::cast_precision_loss)]
-        plan.images.push(ImagePlanEntry {
-            affine: [0.0; 4],
-            rect: [0.0, 0.0, width as f32, height as f32],
-            uv: [0.0, 0.0, 1.0, 1.0],
-            tint: [1.0; 4],
-            sampling: [width as f32, height as f32, 0.0, 0.0],
-            slot,
-        });
-        plan.order.push(DrawRef::Image(0));
-        plan.clips.push(None);
+        full_frame_plan(&mut plan, width, height, slot);
         let outcome = self.present_frame(&plan, &[], &[]);
         self.cpu_plan = plan;
         outcome
