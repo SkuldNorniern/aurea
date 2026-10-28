@@ -182,6 +182,86 @@ pub const TEXT_DUAL_SOURCE_FRAG: ZslShader = zsl!(
     }
 );
 
+/// One texel of the next mip level: `area_downsample`'s span weights and alpha-weighted sums, in
+/// the same order, so the rounding matches the CPU result. `src` is the level above `dst`.
+pub const MIP_DOWN: ZslShader = zsl!(
+    push P { rx: f32, ry: f32 }
+    @workgroup_size(8, 8)
+    kernel mip_down(src: image, dst: image, p: P, id: global_id) {
+        let x = id.x
+        let y = id.y
+        if x < dst.width() && y < dst.height() {
+            let rx = p.rx
+            let ry = p.ry
+            let lox = f32(x) * rx
+            let hix = f32(x + 1) * rx
+            let loy = f32(y) * ry
+            let hiy = f32(y + 1) * ry
+            let x0 = u32(floor(lox))
+            let x1 = min(u32(ceil(hix)), src.width())
+            let y0 = u32(floor(loy))
+            let y1 = min(u32(ceil(hiy)), src.height())
+            let s0 = 0.0
+            let s1 = 0.0
+            let s2 = 0.0
+            let s3 = 0.0
+            for ty in y0..y1 {
+                // Divisions are corrected by a fused residual: a plain GPU `/` can be an ulp off
+                // from IEEE, which moves a value across a rounding tie against the CPU.
+                let wyn = max(min(hiy, f32(ty + 1)) - max(loy, f32(ty)), 0.0)
+                let wyq = wyn / ry
+                let wy = wyq + mul_add_f32(0.0 - wyq, ry, wyn) / ry
+                for tx in x0..x1 {
+                    let wxn = max(min(hix, f32(tx + 1)) - max(lox, f32(tx)), 0.0)
+                    let wxq = wxn / rx
+                    let wx = wxq + mul_add_f32(0.0 - wxq, rx, wxn) / rx
+                    let pa = floor(src.load(tx, ty).a * 255.0 + 0.5)
+                    let pr = floor(src.load(tx, ty).r * 255.0 + 0.5)
+                    let pg = floor(src.load(tx, ty).g * 255.0 + 0.5)
+                    let pb = floor(src.load(tx, ty).b * 255.0 + 0.5)
+                    let a = pa * wx * wy
+                    s0 = s0 + pr * a
+                    s1 = s1 + pg * a
+                    s2 = s2 + pb * a
+                    s3 = s3 + a
+                }
+            }
+            let r = 0.0
+            let g = 0.0
+            let b = 0.0
+            if s3 > 0.0 {
+                let qr0 = s0 / s3
+                let qr = qr0 + mul_add_f32(0.0 - qr0, s3, s0) / s3
+                let qg0 = s1 / s3
+                let qg = qg0 + mul_add_f32(0.0 - qg0, s3, s1) / s3
+                let qb0 = s2 / s3
+                let qb = qb0 + mul_add_f32(0.0 - qb0, s3, s2) / s3
+                let fr = floor(qr)
+                let fg = floor(qg)
+                let fb = floor(qb)
+                r = fr
+                g = fg
+                b = fb
+                if qr - fr >= 0.5 {
+                    r = fr + 1.0
+                }
+                if qg - fg >= 0.5 {
+                    g = fg + 1.0
+                }
+                if qb - fb >= 0.5 {
+                    b = fb + 1.0
+                }
+            }
+            let fa = floor(s3)
+            let oa = fa
+            if s3 - fa >= 0.5 {
+                oa = fa + 1.0
+            }
+            dst.store(x, y, min(r, 255.0) / 255.0, min(g, 255.0) / 255.0, min(b, 255.0) / 255.0, min(oa, 255.0) / 255.0)
+        }
+    }
+);
+
 #[cfg(test)]
 mod tests {
     use std::env::temp_dir;
@@ -192,7 +272,7 @@ mod tests {
 
     use super::*;
 
-    const SHADERS: [(&str, &ZslShader); 11] = [
+    const SHADERS: [(&str, &ZslShader); 12] = [
         ("rect.vert", &RECT_VERT),
         ("rect.frag", &RECT_FRAG),
         ("shape.vert", &SHAPE_VERT),
@@ -204,6 +284,7 @@ mod tests {
         ("text.vert", &TEXT_VERT),
         ("text.frag", &TEXT_FRAG),
         ("text_lcd.frag", &TEXT_DUAL_SOURCE_FRAG),
+        ("mip_down", &MIP_DOWN),
     ];
 
     #[test]

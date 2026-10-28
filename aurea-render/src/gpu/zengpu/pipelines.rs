@@ -5,9 +5,9 @@ use std::mem::size_of;
 use crate::gpu::batch::DrawRef;
 use zengpu::native::{NativeDevice, shader};
 use zengpu_hal::{
-    BlendMode, BlendState, ColorTargetState, DepthState, Format, GpuDevice, GraphicsDevice,
-    GraphicsPipelineDesc, PipelineHandle, PrimitiveTopology, RasterState, Result, StepMode,
-    VertexAttribute, VertexFormat, VertexLayout,
+    BlendMode, BlendState, ColorTargetState, ComputePipelineDesc, DepthState, Format, GpuDevice,
+    GraphicsDevice, GraphicsPipelineDesc, PipelineHandle, PrimitiveTopology, RasterState, Result,
+    StepMode, VertexAttribute, VertexFormat, VertexLayout,
 };
 use zengpu_spirv::ZslShader;
 
@@ -132,6 +132,18 @@ pub struct Pipelines {
     pub gradient: Option<PipelineHandle>,
     pub image: Option<PipelineHandle>,
     pub text: Option<PipelineHandle>,
+}
+
+/// The compute kernel that builds an image's mips on the GPU. The caller owns the handle.
+pub fn create_mip_down(device: &NativeDevice) -> Result<PipelineHandle> {
+    let (shader, entry) = MIP_DOWN.create(device)?;
+    let pipeline = device.create_compute_pipeline(ComputePipelineDesc {
+        shader,
+        entry,
+        block: [8, 8, 1],
+    });
+    device.destroy_shader(shader);
+    pipeline
 }
 
 impl Pipelines {

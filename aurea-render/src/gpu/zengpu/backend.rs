@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::iter::once;
 use std::mem::{size_of, size_of_val};
 use std::slice::{from_raw_parts, from_raw_parts_mut, from_ref};
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -34,7 +36,7 @@ use crate::surface::pixel_size;
 use crate::types::{GpuTexture, Image, Rect, Sampling};
 
 use super::buffer::GrowableBuffer;
-use super::pipelines::{GradientInstance, ImageInstance, Pipelines, TextInstance};
+use super::pipelines::{GradientInstance, ImageInstance, Pipelines, TextInstance, create_mip_down};
 use super::surface::create_surface;
 
 const _: () = assert!(size_of::<RectInstance>() == size_of::<super::pipelines::RectInstance>());
@@ -43,9 +45,24 @@ const _: () = assert!(size_of::<ShapeInstance>() == size_of::<super::pipelines::
 /// Shareable ZenGPU instance/device ownership for Aurea UI and engine rendering.
 pub struct ZenGpuContext {
     pipelines: Mutex<Weak<SharedPipelines>>,
+    /// The mip kernel, made on first use. Owned here, not by `pipelines`, which may be gone.
+    mip_down: Mutex<Option<PipelineHandle>>,
     instance: NativeInstance,
     device: NativeDevice,
     adapter: [u8; 16],
+}
+
+impl Drop for ZenGpuContext {
+    fn drop(&mut self) {
+        let mip = self
+            .mip_down
+            .get_mut()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+        if let Some(pipeline) = mip {
+            self.device.destroy_pipeline(pipeline);
+        }
+    }
 }
 
 /// A GPU a context can open, for a "which GPU" setting.
@@ -72,6 +89,7 @@ impl ZenGpuContext {
         } else {
             1
         };
+        let mips = self.mip_path(Format::Rgba8Unorm, levels);
         let handle = make_image_texture(
             self.device(),
             image.width,
@@ -79,12 +97,35 @@ impl ZenGpuContext {
             &image.data,
             levels,
             Format::Rgba8Unorm,
+            mips,
         )?;
         Ok(ZenGpuImage {
             context: Arc::clone(self),
             texture: GpuTexture::from_zengpu(handle, image.width, image.height),
             levels,
+            mips,
         })
+    }
+
+    /// Where mips of an image in `format` get built: on the GPU when this device can write mips of
+    /// a storage texture in it, else on the CPU.
+    fn mip_path(&self, format: Format, levels: u32) -> Mips {
+        let device = self.device();
+        if levels < 2
+            || format != Format::Rgba8Unorm
+            || !device.format_caps(format).storage
+            || device.limits().max_storage_textures == 0
+        {
+            return Mips::Cpu;
+        }
+        let mut cached = self
+            .mip_down
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if cached.is_none() {
+            *cached = create_mip_down(device).ok();
+        }
+        cached.map_or(Mips::Cpu, Mips::Gpu)
     }
 
     /// A context on the best GPU: a discrete one if there is one.
@@ -140,6 +181,7 @@ impl ZenGpuContext {
             .map_err(gpu_err)?;
         Ok(Self {
             pipelines: Mutex::new(Weak::new()),
+            mip_down: Mutex::new(None),
             adapter: adapter.uuid(),
             instance,
             device,
@@ -184,6 +226,7 @@ pub struct ZenGpuImage {
     context: Arc<ZenGpuContext>,
     texture: GpuTexture,
     levels: u32,
+    mips: Mips,
 }
 
 impl ZenGpuImage {
@@ -209,6 +252,7 @@ impl ZenGpuImage {
             image.height,
             &image.data,
             self.levels,
+            self.mips,
         )
         .map_err(gpu_err)
     }
@@ -229,6 +273,13 @@ fn valid_image(width: u32, height: u32, rgba: &[u8]) -> bool {
             == Some(rgba.len())
 }
 
+/// Who builds an image's mips: the CPU, or the GPU kernel with its pipeline.
+#[derive(Clone, Copy)]
+enum Mips {
+    Cpu,
+    Gpu(PipelineHandle),
+}
+
 fn make_image_texture(
     device: &NativeDevice,
     width: u32,
@@ -236,6 +287,7 @@ fn make_image_texture(
     rgba: &[u8],
     levels: u32,
     format: Format,
+    mips: Mips,
 ) -> AureaResult<TextureHandle> {
     if !valid_image(width, height, rgba) {
         return Err(AureaError::RenderingFailed);
@@ -243,6 +295,9 @@ fn make_image_texture(
     let mut usage = TextureUsage::SAMPLED | TextureUsage::TRANSFER_DST;
     if levels > 1 {
         usage |= TextureUsage::TRANSFER_SRC;
+    }
+    if matches!(mips, Mips::Gpu(_)) {
+        usage |= TextureUsage::STORAGE;
     }
     let texture = device
         .create_texture(TextureDesc {
@@ -257,13 +312,17 @@ fn make_image_texture(
             array_layers: 1,
         })
         .map_err(gpu_err)?;
-    let filled = upload_levels(device, texture, width, height, rgba, levels);
+    let filled = upload_levels(device, texture, width, height, rgba, levels, mips);
     if let Err(e) = filled {
         device.destroy_texture(texture);
         return Err(gpu_err(e));
     }
     Ok(texture)
 }
+
+/// GPU mip builds that failed and fell back to the CPU.
+#[cfg(test)]
+static GPU_MIP_FALLBACKS: AtomicUsize = AtomicUsize::new(0);
 
 fn upload_levels(
     device: &NativeDevice,
@@ -272,7 +331,19 @@ fn upload_levels(
     height: u32,
     rgba: &[u8],
     levels: u32,
+    mips: Mips,
 ) -> Result<(), GpuError> {
+    if let Mips::Gpu(pipeline) = mips {
+        let built = gpu_mip_chain(device, pipeline, texture, width, height, rgba, levels);
+        // The dispatches have all completed, so the level views are no longer in use. Vulkan
+        // has few of them, so they go now rather than with the texture.
+        let _ = device.release_storage_levels(texture);
+        if built.is_ok() {
+            return Ok(());
+        }
+        #[cfg(test)]
+        GPU_MIP_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+    }
     let mut chain = Vec::with_capacity(levels.saturating_sub(1) as usize);
     let (mut w, mut h) = (width, height);
     for _ in 1..levels {
@@ -311,6 +382,43 @@ fn upload_levels(
             }
             Err(e) => return Err(e),
         }
+    }
+    Ok(())
+}
+
+/// Level 0 from `rgba`, then each level from the one above by `MIP_DOWN`. Every dispatch blocks
+/// until it completes, so the next level and any later draw see the finished mips.
+fn gpu_mip_chain(
+    device: &NativeDevice,
+    pipeline: PipelineHandle,
+    texture: TextureHandle,
+    width: u32,
+    height: u32,
+    rgba: &[u8],
+    levels: u32,
+) -> Result<(), GpuError> {
+    device.upload_texture_data(texture, rgba)?;
+    let (mut w, mut h) = (width, height);
+    for mip in 1..levels {
+        let (dw, dh) = ((w >> 1).max(1), (h >> 1).max(1));
+        let images = [
+            device.storage_level(texture, mip - 1)?,
+            device.storage_level(texture, mip)?,
+        ];
+        let scalars = [
+            Scalar::F32(w as f32 / dw as f32),
+            Scalar::F32(h as f32 / dh as f32),
+        ];
+        device.dispatch(
+            pipeline,
+            Bindings {
+                images: &images,
+                scalars: &scalars,
+                ..Default::default()
+            },
+            [dw.div_ceil(8), dh.div_ceil(8), 1],
+        )?;
+        (w, h) = (dw, dh);
     }
     Ok(())
 }
@@ -795,14 +903,9 @@ impl ZenGpuBackend {
         format: PixelFormat,
     ) -> AureaResult<u32> {
         let device = self.context.device();
-        let texture = make_image_texture(
-            device,
-            width,
-            height,
-            pixels,
-            levels,
-            texture_format(format),
-        )?;
+        let format = texture_format(format);
+        let mips = self.context.mip_path(format, levels);
+        let texture = make_image_texture(device, width, height, pixels, levels, format, mips)?;
         let Some(slot) = device.bind_texture(texture, self.sampler) else {
             device.destroy_texture(texture);
             return Err(AureaError::RenderingFailed);
@@ -911,8 +1014,16 @@ impl Gpu2dBackend for ZenGpuBackend {
                     .get(&slot)
                     .copied()
                     .ok_or(AureaError::RenderingFailed)?;
-                upload_levels(self.context.device(), texture, width, height, pixels, 1)
-                    .map_err(gpu_err)?;
+                upload_levels(
+                    self.context.device(),
+                    texture,
+                    width,
+                    height,
+                    pixels,
+                    1,
+                    Mips::Cpu,
+                )
+                .map_err(gpu_err)?;
                 slot
             }
             None => {
@@ -1423,6 +1534,230 @@ mod context_tests {
         assert_eq!(read(0, 3), &image.data[..]);
         assert_eq!(read(1, 1), [85, 85, 85, 255]);
         device.destroy_buffer(buffer);
+    }
+
+    /// `area_downsample`'s chain down to one texel, as `upload_levels` builds it on the CPU.
+    fn cpu_chain(width: u32, height: u32, rgba: &[u8], levels: u32) -> Vec<Vec<u8>> {
+        let mut chain = vec![rgba.to_vec()];
+        let (mut w, mut h) = (width, height);
+        for _ in 1..levels {
+            let (dw, dh) = ((w >> 1).max(1), (h >> 1).max(1));
+            let next = area_downsample(chain.last().expect("level"), (w, h), (dw, dh));
+            chain.push(next);
+            (w, h) = (dw, dh);
+        }
+        chain
+    }
+
+    fn read_mip(
+        device: &NativeDevice,
+        texture: TextureHandle,
+        level: u32,
+        w: u32,
+        h: u32,
+    ) -> Vec<u8> {
+        use zengpu_hal::{BufferDesc, BufferUsage, MemoryUsage};
+        let len = u64::from(w) * u64::from(h) * 4;
+        let buffer = device
+            .create_buffer(BufferDesc {
+                size: len,
+                usage: BufferUsage::READBACK | BufferUsage::TRANSFER_DST,
+                memory: MemoryUsage::Readback,
+            })
+            .expect("buffer");
+        let region = TextureRegion {
+            mip_level: level,
+            ..TextureRegion::rect(0, 0, w, h)
+        };
+        device
+            .copy_texture_region_to_buffer(texture, region, buffer, 0, w * 4)
+            .expect("copy")
+            .wait(Duration::MAX)
+            .expect("wait");
+        let bytes = device.read_buffer(buffer, 0, len).expect("read");
+        device.destroy_buffer(buffer);
+        bytes
+    }
+
+    /// Builds `rgba`'s mips on the GPU and checks each level byte for byte against the CPU chain.
+    fn assert_gpu_mips_match_cpu(
+        context: &Arc<ZenGpuContext>,
+        width: u32,
+        height: u32,
+        rgba: Vec<u8>,
+    ) {
+        let image = Image::new(width, height, rgba);
+        let owned = context
+            .upload_image(&image, Sampling::Smooth)
+            .expect("upload");
+        assert!(matches!(owned.mips, Mips::Gpu(_)), "mips built on the GPU");
+        let expected = cpu_chain(width, height, &image.data, owned.levels);
+        let (mut w, mut h) = (width, height);
+        for (level, want) in expected.iter().enumerate() {
+            let level = u32::try_from(level).expect("mip level");
+            let got = read_mip(context.device(), owned.texture().zengpu(), level, w, h);
+            // The driver fuses the GPU's `sum + p * a` into an FMA, which can move an exact
+            // rounding tie by one step. The CPU chain is the reference, so only ±1 is allowed.
+            let max_diff = got
+                .iter()
+                .zip(want)
+                .map(|(g, c)| g.abs_diff(*c))
+                .max()
+                .unwrap_or(0);
+            assert!(
+                max_diff <= 1,
+                "{width}x{height} mip {level}: max diff {max_diff} from the CPU"
+            );
+            (w, h) = ((w >> 1).max(1), (h >> 1).max(1));
+        }
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    fn gpu_mips_match_the_cpu_chain() {
+        let Ok(context) = ZenGpuContext::new() else {
+            return;
+        };
+        let context = Arc::new(context);
+        if matches!(context.mip_path(Format::Rgba8Unorm, 2), Mips::Cpu) {
+            return;
+        }
+        let (w, h) = (64u32, 64u32);
+        let gradient: Vec<u8> = (0..w * h)
+            .flat_map(|i| {
+                let (x, y) = (i % w, i / w);
+                [(x * 4) as u8, (y * 4) as u8, ((x + y) * 2) as u8, 255]
+            })
+            .collect();
+        assert_gpu_mips_match_cpu(&context, w, h, gradient);
+
+        let (w, h) = (37u32, 23u32);
+        let edges: Vec<u8> = (0..w * h)
+            .flat_map(|i| {
+                let (x, y) = (i % w, i / w);
+                let a = if (x / 5 + y / 4) % 3 == 0 {
+                    0
+                } else {
+                    ((x * 37 + y * 91) % 256) as u8
+                };
+                [
+                    ((x * 7 + 3) % 256) as u8,
+                    (y * 11 % 256) as u8,
+                    (x * y % 256) as u8,
+                    a,
+                ]
+            })
+            .collect();
+        assert_gpu_mips_match_cpu(&context, w, h, edges);
+
+        let column: Vec<u8> = (0..8u32)
+            .flat_map(|y| {
+                [
+                    (y * 30) as u8,
+                    200 - (y * 20) as u8,
+                    7,
+                    (y * 45 % 256) as u8,
+                ]
+            })
+            .collect();
+        assert_gpu_mips_match_cpu(&context, 1, 8, column);
+
+        let mut seed = 0x2545_f491u32;
+        for (w, h) in [(101u32, 77u32), (255, 3), (1000, 999), (513, 257)] {
+            let noise: Vec<u8> = (0..w * h * 4)
+                .map(|_| {
+                    seed ^= seed << 13;
+                    seed ^= seed >> 17;
+                    seed ^= seed << 5;
+                    (seed >> 11) as u8
+                })
+                .collect();
+            assert_gpu_mips_match_cpu(&context, w, h, noise);
+        }
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    fn many_gpu_mipmapped_images_stay_on_the_gpu() {
+        let Ok(context) = ZenGpuContext::new() else {
+            return;
+        };
+        let context = Arc::new(context);
+        if matches!(context.mip_path(Format::Rgba8Unorm, 2), Mips::Cpu) {
+            return;
+        }
+        let before = GPU_MIP_FALLBACKS.load(Ordering::Relaxed);
+        let (w, h) = (512u32, 512u32);
+        let images: Vec<ZenGpuImage> = (0..100u32)
+            .map(|n| {
+                let data: Vec<u8> = (0..w * h)
+                    .flat_map(|i| {
+                        let (x, y) = (i % w, i / w);
+                        [(x + n) as u8, (y * 2) as u8, n as u8, 255]
+                    })
+                    .collect();
+                let owned = context
+                    .upload_image(&Image::new(w, h, data), Sampling::Smooth)
+                    .expect("upload");
+                assert!(matches!(owned.mips, Mips::Gpu(_)), "image {n} on the GPU");
+                owned
+            })
+            .collect();
+        assert_eq!(images.len(), 100);
+        assert_eq!(
+            GPU_MIP_FALLBACKS.load(Ordering::Relaxed),
+            before,
+            "no image fell back to CPU mips"
+        );
+    }
+
+    /// Wall time of building a 4096x4096 mip chain on the CPU and on the GPU, upload call only.
+    /// Run: `cargo test -p aurea-render --lib --features zengpu -- --ignored --nocapture gpu_mip_timing`.
+    #[test]
+    #[ignore = "timing"]
+    #[allow(clippy::cast_possible_truncation)]
+    fn gpu_mip_timing() {
+        use std::time::Instant;
+        let Ok(context) = ZenGpuContext::new() else {
+            return;
+        };
+        let context = Arc::new(context);
+        let (w, h) = (4096u32, 4096u32);
+        let levels = mip_levels(w, h);
+        let Mips::Gpu(pipeline) = context.mip_path(Format::Rgba8Unorm, levels) else {
+            eprintln!("no GPU mips on this device");
+            return;
+        };
+        let rgba: Vec<u8> = (0..w * h)
+            .flat_map(|i| {
+                let (x, y) = (i % w, i / w);
+                [(x % 256) as u8, (y % 256) as u8, ((x ^ y) % 256) as u8, 255]
+            })
+            .collect();
+        let device = context.device();
+        for round in 0..10 {
+            let start = Instant::now();
+            let cpu =
+                make_image_texture(device, w, h, &rgba, levels, Format::Rgba8Unorm, Mips::Cpu)
+                    .expect("cpu upload");
+            let cpu_time = start.elapsed();
+            device.destroy_texture(cpu);
+
+            let start = Instant::now();
+            let gpu = make_image_texture(
+                device,
+                w,
+                h,
+                &rgba,
+                levels,
+                Format::Rgba8Unorm,
+                Mips::Gpu(pipeline),
+            )
+            .expect("gpu upload");
+            let gpu_time = start.elapsed();
+            device.destroy_texture(gpu);
+            eprintln!("round {round}: 4096^2 cpu mips {cpu_time:?}, gpu mips {gpu_time:?}");
+        }
     }
 
     #[test]
