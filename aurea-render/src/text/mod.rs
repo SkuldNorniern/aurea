@@ -213,6 +213,10 @@ impl<K: Eq + Hash + Clone, V> LruCache<K, V> {
         if let Some((_, _, old)) = self.map.remove(&k) {
             self.bytes -= old;
         }
+        // An entry over half the budget would flush everything else for one hit; not kept.
+        if bytes > self.budget / 2 {
+            return;
+        }
         while !self.map.is_empty()
             && (self.map.len() >= self.cap || self.bytes.saturating_add(bytes) > self.budget)
         {
@@ -269,7 +273,10 @@ mod lru_tests {
         cache.insert_sized(5, (), 10);
         assert_eq!(cache.len(), 3, "and the count is kept");
         cache.insert_sized(6, (), 500);
-        assert_eq!((cache.len(), cache.bytes()), (1, 500));
+        assert!(cache.get(&6).is_none(), "too big to keep");
+        assert_eq!(cache.len(), 3, "and nothing went for it");
+        let mut cache = LruCache::with_budget(3, 100);
+        cache.insert_sized(6, (), 40);
         cache.insert_sized(6, (), 5);
         assert_eq!(cache.bytes(), 5, "replacing frees the old size");
     }
@@ -299,6 +306,15 @@ mod lru_tests {
             cache.len() <= 3,
             "300-byte runs fit three to a 1000-byte budget"
         );
+    }
+
+    #[test]
+    fn an_entry_over_half_the_budget_is_not_kept() {
+        let mut cache = LruCache::with_budget(512, 1000);
+        cache.insert_sized(1u32, (), 300);
+        cache.insert_sized(2, (), 600);
+        assert!(cache.get(&1).is_some(), "the small entry survives");
+        assert!(cache.get(&2).is_none());
     }
 
     #[test]
