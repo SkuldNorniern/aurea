@@ -15,6 +15,7 @@
 
 use std::env;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
 mod icons;
@@ -44,7 +45,7 @@ impl Identity {
     /// The identity in `manifest`, the text of the `Cargo.toml` in `dir`, for a package named
     /// `package` at `version`.
     pub fn parse(manifest: &str, dir: &Path, package: &str, version: &str) -> Self {
-        let table = aurea_table(manifest);
+        let table = aurea_table(manifest, "[package.metadata.aurea]");
         let get = |key: &str| {
             table
                 .iter()
@@ -61,6 +62,28 @@ impl Identity {
                 .unwrap_or_else(|| version.to_string()),
             icon: get("icon").map(|icon| dir.join(icon)),
         }
+    }
+
+    /// The identity of the package whose manifest is at `path`. Its icon is relative to `path`.
+    /// `version` is empty if the package inherits it from the workspace.
+    pub fn from_manifest(path: &Path) -> io::Result<Self> {
+        let manifest = fs::read_to_string(path)?;
+        Ok(Self::from_text(
+            &manifest,
+            path.parent().unwrap_or(Path::new(".")),
+        ))
+    }
+
+    fn from_text(manifest: &str, dir: &Path) -> Self {
+        let package = aurea_table(manifest, "[package]");
+        let field = |key: &str| {
+            package
+                .iter()
+                .find(|(k, _)| k == key)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default()
+        };
+        Self::parse(manifest, dir, &field("name"), &field("version"))
     }
 
     /// The identity of the package whose build script is running.
@@ -150,16 +173,16 @@ fn one_line(value: &str) -> String {
     value.replace(['\r', '\n'], " ")
 }
 
-/// The keys and values of `[package.metadata.aurea]` in `manifest`. Strings lose their quotes;
-/// anything else is kept as written.
-fn aurea_table(manifest: &str) -> Vec<(String, String)> {
+/// The keys and values of the `section` table, such as `[package]`, in `manifest`. Strings lose
+/// their quotes; anything else is kept as written.
+fn aurea_table(manifest: &str, section: &str) -> Vec<(String, String)> {
     let mut inside = false;
     let mut table = Vec::new();
     for line in manifest.lines() {
         let line = line.trim();
         if line.starts_with('[') {
             let header: String = line.chars().filter(|c| !c.is_whitespace()).collect();
-            inside = header == "[package.metadata.aurea]";
+            inside = header == section;
             continue;
         }
         if !inside {
@@ -241,6 +264,21 @@ name = "not this"
         let id = Identity::parse("[package]\nname = \"x\"\n", Path::new("."), "tool", "2.3.4");
         assert_eq!((id.name.as_str(), id.id.as_str()), ("tool", "tool"));
         assert_eq!((id.version.as_str(), id.organization), ("2.3.4", None));
+    }
+
+    #[test]
+    fn the_package_table_gives_name_and_version() {
+        let id = Identity::from_text(MANIFEST, Path::new("/apps/paint"));
+        assert_eq!(id.name, "Lunia Paint");
+        assert_eq!(id.version, "0.1.0");
+        let inherited = Identity::from_text(
+            "[package]\nname = \"p\"\nversion.workspace = true\n",
+            Path::new("."),
+        );
+        assert_eq!(
+            (inherited.name.as_str(), inherited.version.as_str()),
+            ("p", "")
+        );
     }
 
     #[test]

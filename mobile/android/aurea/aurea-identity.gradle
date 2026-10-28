@@ -3,6 +3,8 @@
 // Keys: name (label), id (applicationId), version ("auto" = package version), build (versionCode).
 
 import groovy.json.JsonSlurper
+import javax.inject.Inject
+import org.gradle.process.ExecOperations
 
 def manifestPath = project.findProperty('aurea.manifest')
 if (manifestPath == null) {
@@ -47,4 +49,43 @@ project.android.defaultConfig {
     versionName = appVersion
     versionCode = appBuild as int
     resValue('string', 'app_name', (aurea.name ?: pkg.name) as String)
+}
+
+// The master icon (`icon` key, relative to the Cargo manifest, `.png` optional) becomes the
+// launcher icon: aurea-icons writes the mipmaps into build/generated/aurea/res before preBuild.
+abstract class AureaIcons extends DefaultTask {
+    @InputFile abstract RegularFileProperty getManifest()
+    @InputFile abstract RegularFileProperty getMaster()
+    @InputFiles abstract ConfigurableFileCollection getTool()
+    @Internal abstract RegularFileProperty getToolManifest()
+    @OutputDirectory abstract DirectoryProperty getResDir()
+    @Inject abstract ExecOperations getExec()
+
+    @TaskAction
+    void generate() {
+        exec.exec { spec ->
+            spec.commandLine('cargo', 'run', '--quiet', '--release', '--manifest-path', toolManifest.get().asFile.path,
+                '--bin', 'aurea-icons', '--', manifest.get().asFile.path, 'android', resDir.get().asFile.path)
+        }
+    }
+}
+
+if (aurea.icon) {
+    def iconPath = manifest.parentFile.toPath().resolve(aurea.icon as String).toFile()
+    def master = iconPath.isFile() ? iconPath : new File(iconPath.parentFile, iconPath.name.replaceAll(/\.[^.]*$/, '') + '.png')
+    if (!master.isFile()) {
+        throw new GradleException("aurea-identity: no master icon at ${iconPath} or ${master}")
+    }
+    def aureaDir = project(':aurea').projectDir.parentFile.parentFile.parentFile
+    def resDir = project.layout.buildDirectory.dir('generated/aurea/res')
+    project.tasks.register('aureaIcons', AureaIcons) { t ->
+        t.manifest.set(manifest)
+        t.master.set(master)
+        t.tool.from(new File(aureaDir, 'aurea-build/src'), new File(aureaDir, 'aurea-build/Cargo.toml'))
+        t.toolManifest.set(new File(aureaDir, 'aurea-build/Cargo.toml'))
+        t.resDir.set(resDir)
+    }
+    project.android.sourceSets.getByName('main').res.directories.add(resDir.get().asFile.path)
+    project.tasks.named('preBuild') { it.dependsOn('aureaIcons') }
+    project.android.defaultConfig.manifestPlaceholders.put('appIcon', '@mipmap/ic_launcher')
 }

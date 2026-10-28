@@ -43,3 +43,8 @@ else
     mv "$next" "$out"
     echo "warning: $(basename "$out") changed; build again to use the new identity"
 fi
+
+# the app icon set from the master icon; aurea-icons writes nothing without an icon key
+aurea_build=$(cd "$(dirname "$0")/../.." && pwd)/aurea-build/Cargo.toml
+cargo run --quiet --release --manifest-path "$aurea_build" --bin aurea-icons -- \
+    "$manifest" ios "$SRCROOT/AureaSmoke/Assets.xcassets/AppIcon.appiconset"

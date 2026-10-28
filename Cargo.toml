@@ -13,6 +13,7 @@ repository.workspace = true
 name = "Aurea Smoke"
 id = "com.aurea.smoke"
 version = "auto"
+icon = "assets/icon"
 
 [lints]
 workspace = true

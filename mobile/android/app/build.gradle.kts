@@ -4,6 +4,8 @@ plugins {
 
 // The app's identity (id, name, version) comes from this Cargo manifest's [package.metadata.aurea].
 extra["aurea.manifest"] = rootProject.file("../../Cargo.toml")
+// Launcher icon; aurea-identity.gradle sets the mipmap when the Cargo manifest has an icon.
+android.defaultConfig.manifestPlaceholders["appIcon"] = "@drawable/ic_launcher"
 apply(from = project(":aurea").file("aurea-identity.gradle"))
 
 // `-Paurea.gpu=true` builds with the `zengpu` feature: Vulkan drawing, the CPU when it can't start.
