@@ -15,7 +15,7 @@ use aurea_ffi::{
 use super::documents::nul_list;
 use crate::dialog::{MessageButtons, MessageChoice};
 use crate::ffi::c_text;
-use crate::{AureaError, AureaResult, Platform, Rect};
+use crate::{AureaError, AureaResult, Rect};
 
 type Answered = Box<dyn FnOnce(c_int)>;
 

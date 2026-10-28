@@ -81,11 +81,17 @@ pub(crate) struct LruCache<K, V> {
 trait Measured {
     /// Entries held and bytes they count as.
     fn measure(&self) -> (usize, usize);
+    /// Drops every entry.
+    fn empty(&mut self);
 }
 
 impl<K: Eq + Hash + Clone, V> Measured for LruCache<K, V> {
     fn measure(&self) -> (usize, usize) {
         (self.map.len(), self.bytes)
+    }
+
+    fn empty(&mut self) {
+        self.clear();
     }
 }
 
@@ -177,6 +183,20 @@ pub fn cache_stats() -> TextCacheStatsSet {
     }
 }
 
+/// Empties every text cache, for when the system reports memory running low. Hit and miss counts
+/// are kept.
+pub fn trim_caches() {
+    trim_registry(&registry());
+}
+
+fn trim_registry(reg: &Registry) {
+    for entry in &reg.caches {
+        if let Some(cache) = entry.cache.upgrade() {
+            cache.lock().unwrap_or_else(PoisonError::into_inner).empty();
+        }
+    }
+}
+
 impl<K: Eq + Hash + Clone, V> LruCache<K, V> {
     pub(crate) fn new(cap: usize) -> Self {
         Self::with_budget(cap, usize::MAX)
@@ -225,6 +245,12 @@ impl<K: Eq + Hash + Clone, V> LruCache<K, V> {
         self.clock += 1;
         self.bytes += bytes;
         self.map.insert(k, (v, self.clock, bytes));
+    }
+
+    /// Drops every entry. Hit and miss counts are kept.
+    pub(crate) fn clear(&mut self) {
+        self.map.clear();
+        self.bytes = 0;
     }
 
     #[cfg(test)]
@@ -315,6 +341,39 @@ mod lru_tests {
         cache.insert_sized(2, (), 600);
         assert!(cache.get(&1).is_some(), "the small entry survives");
         assert!(cache.get(&2).is_none());
+    }
+
+    #[test]
+    fn trim_empties_registered_caches_and_keeps_counts() {
+        use super::{CacheKind, KINDS, Measured, Registered, Registry, trim_registry};
+        use std::sync::{Arc, Mutex, Weak};
+
+        // A registry of its own, so the shared caches other tests read stay as they are.
+        let cache = Arc::new(Mutex::new(LruCache::with_budget(512, 1000)));
+        let source = Arc::downgrade(&cache);
+        let weak: Weak<Mutex<dyn Measured + Send>> = source;
+        let tally = cache.lock().expect("lock").tally.clone();
+        let reg = Registry {
+            caches: vec![Registered {
+                kind: CacheKind::Glyph,
+                tally,
+                cache: weak,
+            }],
+            retired: [(0, 0); KINDS],
+        };
+        let mut c = cache.lock().expect("lock");
+        c.insert_sized(1u32, (), 300);
+        c.insert_sized(2, (), 300);
+        assert!(c.get(&1).is_some());
+        drop(c);
+
+        trim_registry(&reg);
+
+        let mut c = cache.lock().expect("lock");
+        assert_eq!((c.len(), c.bytes()), (0, 0));
+        assert!(c.get(&1).is_none(), "a trimmed entry is a miss");
+        c.insert_sized(3, (), 300);
+        assert_eq!(c.bytes(), 300, "the cache still works after a trim");
     }
 
     #[test]

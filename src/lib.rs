@@ -82,6 +82,7 @@ pub use crate::window::{
 };
 
 pub use crate::render::{Canvas, Color, DrawingContext, Point, Rect, RendererBackend};
+use aurea_render::text::trim_caches;
 
 pub use crate::files::{
     FileCache, Stamp, app_cache_dir, app_config_dir, app_data_dir, app_local_data_dir, cache_dir,
@@ -98,6 +99,11 @@ pub use aurea_foundation::{
 /// Plays the system's alert sound, as a terminal's bell does.
 pub fn beep() {
     unsafe { ng_platform_beep() }
+}
+
+/// Frees the caches that can be rebuilt, for when the system reports memory running low.
+pub fn trim_memory() {
+    trim_caches();
 }
 
 /// Whether the user asked the system for less motion: Windows' "animation effects", macOS' "reduce

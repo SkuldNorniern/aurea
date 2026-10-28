@@ -17,6 +17,7 @@ use crate::ffi::callbacks::event_time;
 use crate::gpu_ready;
 use crate::render::{CpuRasterizer, Renderer, SurfaceInfo};
 use crate::touch::{Phase, Touches};
+use crate::trim_memory;
 use crate::ui::{Theme, Ui, UiState};
 use crate::wake::wake_at;
 use crate::{
@@ -194,17 +195,29 @@ fn feed(events: &[WindowEvent]) {
     });
 }
 
-/// The app's lifecycle: focus, the background, and memory running low.
+/// The app's lifecycle: focus and the background.
 pub(super) fn lifecycle(state: i32) {
     let event = match state {
         0 => WindowEvent::Focused,
         1 => WindowEvent::Unfocused,
         2 => WindowEvent::Minimized,
         3 => WindowEvent::Restored,
-        4 => WindowEvent::MemoryWarning,
         _ => return,
     };
     feed(&[event]);
+}
+
+/// Android's `TRIM_MEMORY_RUNNING_LOW`. Every later level is the app in the background or worse.
+const TRIM_MEMORY_RUNNING_LOW: i32 = 10;
+
+/// Frees caches and tells the app, as [`WindowEvent::MemoryWarning`], once Android reports memory
+/// low or the app in the background.
+pub(super) fn memory_low(level: i32) {
+    if level < TRIM_MEMORY_RUNNING_LOW {
+        return;
+    }
+    trim_memory();
+    feed(&[WindowEvent::MemoryWarning]);
 }
 
 pub(super) fn set_app(app: App, theme: Theme) {

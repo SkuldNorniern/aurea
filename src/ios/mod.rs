@@ -33,6 +33,7 @@ use crate::ffi::callbacks::event_time;
 use crate::gpu_ready;
 use crate::render::{CanvasId, CpuRasterizer, Renderer, SurfaceInfo, register_host_canvas};
 use crate::touch::{Phase, Touches};
+use crate::trim_memory;
 use crate::ui::{Theme, Ui, UiState};
 use crate::wake::wake_at;
 use crate::{
@@ -344,7 +345,10 @@ unsafe extern "C" fn lifecycle(state: i32) {
         1 => WindowEvent::Unfocused,
         2 => WindowEvent::Minimized,
         3 => WindowEvent::Restored,
-        4 => WindowEvent::MemoryWarning,
+        4 => {
+            trim_memory();
+            WindowEvent::MemoryWarning
+        }
         _ => return,
     };
     HOST.with_borrow_mut(|host| host.state.handle(&event));

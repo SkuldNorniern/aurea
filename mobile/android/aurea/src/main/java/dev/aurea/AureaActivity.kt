@@ -3,7 +3,6 @@ package dev.aurea
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ActivityNotFoundException
-import android.content.ComponentCallbacks2
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -129,10 +128,9 @@ abstract class AureaActivity :
         super.onStop()
     }
 
-    @Suppress("DEPRECATION")
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) nativeLifecycle(MEMORY_WARNING)
+        nativeTrimMemory(level)
     }
 
     override fun onDestroy() {
@@ -255,11 +253,11 @@ abstract class AureaActivity :
         const val UNFOCUSED = 1
         const val MINIMIZED = 2
         const val RESTORED = 3
-        const val MEMORY_WARNING = 4
 
         @JvmStatic external fun nativeCreate(activity: Activity)
         @JvmStatic external fun nativeDestroy(finishing: Boolean)
         @JvmStatic external fun nativeLifecycle(state: Int)
+        @JvmStatic external fun nativeTrimMemory(level: Int)
         @JvmStatic external fun nativeSurfaceChanged(surface: Surface, width: Int, height: Int, density: Float)
         @JvmStatic external fun nativeSurfaceDestroyed()
         @JvmStatic external fun nativePointer(

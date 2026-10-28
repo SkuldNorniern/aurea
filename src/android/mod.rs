@@ -427,3 +427,12 @@ pub extern "system" fn Java_dev_aurea_AureaActivity_nativeFrame(
     dispatch::drain();
     if more { JNI_TRUE } else { JNI_FALSE }
 }
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_aurea_AureaActivity_nativeTrimMemory(
+    _env: JNIEnv,
+    _class: JClass,
+    level: jint,
+) {
+    host::memory_low(level);
+}

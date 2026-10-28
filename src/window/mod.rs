@@ -41,6 +41,7 @@ use crate::registry::window::{
     unregister_event_queue, unregister_update_callbacks,
 };
 use crate::render::{Image, Rect};
+use crate::trim_memory;
 use crate::{AureaError, AureaResult};
 use aurea_foundation::lock;
 use aurea_foundation::{Capability, CapabilityChecker};
@@ -250,7 +251,10 @@ impl Window {
                     }
                     LifecycleEvent::WindowMinimized => WindowEvent::Minimized,
                     LifecycleEvent::WindowRestored => WindowEvent::Restored,
-                    LifecycleEvent::MemoryWarning => WindowEvent::MemoryWarning,
+                    LifecycleEvent::MemoryWarning => {
+                        trim_memory();
+                        WindowEvent::MemoryWarning
+                    }
                     LifecycleEvent::Occlusion(level) => WindowEvent::OcclusionChanged(level),
                     LifecycleEvent::SurfaceLost => WindowEvent::SurfaceLost,
                     LifecycleEvent::SurfaceRecreated => WindowEvent::SurfaceRecreated,
