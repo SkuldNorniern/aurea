@@ -276,6 +276,8 @@ pub(super) fn surface_destroyed() {
             host.gpu.renderer = None;
         }
         host.window = None;
+        // drop the CPU frame too; surface_changed re-sizes it.
+        host.raster = CpuRasterizer::new(1, 1);
     });
 }
 

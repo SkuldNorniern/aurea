@@ -3,7 +3,7 @@
 
 use std::env;
 use std::fs;
-use std::io::{self, ErrorKind};
+use std::io::{self, ErrorKind, Write};
 use std::path::{self, Path, PathBuf};
 use std::process::{self, Command};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -349,11 +349,13 @@ impl FileCache {
 
     /// The bytes stored under `key`, if they were stored with `stamp`.
     pub fn get(&self, key: &str, stamp: Stamp) -> Option<Vec<u8>> {
-        let bytes = fs::read(self.path(key)).ok()?;
+        let mut bytes = fs::read(self.path(key)).ok()?;
         let [modified, len, payload_len] = decode(&bytes)?;
-        let payload = bytes.get(HEADER..)?;
-        let whole = u64::try_from(payload.len()).ok() == Some(payload_len);
-        (whole && modified == stamp.nanos() && len == stamp.len).then(|| payload.to_vec())
+        if modified != stamp.nanos() || len != stamp.len {
+            return None;
+        }
+        bytes.drain(..HEADER);
+        (u64::try_from(bytes.len()).ok() == Some(payload_len)).then_some(bytes)
     }
 
     /// Stores `bytes` under `key` with `stamp`, then drops the oldest entries until the folder is
@@ -369,9 +371,8 @@ impl FileCache {
         let path = self.folder.join(format!("{name}.bin"));
         let payload_len =
             u64::try_from(bytes.len()).map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
-        let mut entry = encode(stamp, payload_len).to_vec();
-        entry.extend_from_slice(bytes);
-        let written = fs::write(&temp, &entry).and_then(|()| fs::rename(&temp, &path));
+        let header = encode(stamp, payload_len);
+        let written = write_entry(&temp, &header, bytes).and_then(|()| fs::rename(&temp, &path));
         if written.is_err() {
             let _ = fs::remove_file(&temp);
         }
@@ -465,6 +466,13 @@ fn decode(bytes: &[u8]) -> Option<[u64; 3]> {
     Some(fields)
 }
 
+/// Writes `header` then `payload` to `path`, without joining them in memory.
+fn write_entry(path: &Path, header: &[u8; HEADER], payload: &[u8]) -> io::Result<()> {
+    let mut file = fs::File::create(path)?;
+    file.write_all(header)?;
+    file.write_all(payload)
+}
+
 fn ignore_missing(result: io::Result<()>) -> io::Result<()> {
     match result {
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
@@ -527,6 +535,15 @@ mod tests {
         assert_eq!(cache.get("a", stamp(4)), Some(b"new".to_vec()));
         cache.put("empty", stamp(0), b"").expect("put");
         assert_eq!(cache.get("empty", stamp(0)), Some(Vec::new()));
+    }
+
+    #[test]
+    fn large_payload_round_trips() {
+        let dir = Scratch::new("large");
+        let cache = FileCache::at(dir.0.clone(), 1 << 30);
+        let body: Vec<u8> = (0..8u32 << 20).map(|i| (i % 251) as u8).collect();
+        cache.put("big", stamp(9), &body).expect("put");
+        assert_eq!(cache.get("big", stamp(9)), Some(body));
     }
 
     #[test]
