@@ -1,7 +1,6 @@
 //! Editing one line of text: a caret, a selection, what an input method is still composing, and
 //! undo.
 
-use std::mem;
 use std::ops::Range;
 
 /// How far a caret motion or a deletion goes.
@@ -35,7 +34,9 @@ pub struct Rules<'a> {
     pub multiline: bool,
 }
 
+/// Most steps kept for undo, and most bytes of their removed and inserted text.
 const HISTORY: usize = 64;
+const HISTORY_BYTES: usize = 4 << 20;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
@@ -44,9 +45,13 @@ enum Kind {
     Deleting,
 }
 
+/// One replaced span: `removed` was at `at`, now `inserted` is. `caret` and `anchor` are the
+/// selection to restore when this step is applied.
 #[derive(Clone, Debug)]
-struct Snapshot {
-    text: String,
+struct Edit {
+    at: usize,
+    removed: String,
+    inserted: String,
     caret: usize,
     anchor: usize,
 }
@@ -60,8 +65,8 @@ pub struct TextEdit {
     preedit_caret: Option<usize>,
     /// How far the text is scrolled left, in pixels, to keep the caret in sight.
     pub scroll: f32,
-    undo: Vec<Snapshot>,
-    redo: Vec<Snapshot>,
+    undo: Vec<Edit>,
+    redo: Vec<Edit>,
     last: Kind,
     pub(crate) multiline: Option<Box<super::widget::text_area::EditorView>>,
 }
@@ -190,8 +195,9 @@ impl TextEdit {
             return false;
         }
         let word_break = kept.chars().any(char::is_whitespace);
-        self.remember(text, if word_break { Kind::None } else { Kind::Typing });
         let range = self.selection();
+        let kind = if word_break { Kind::None } else { Kind::Typing };
+        self.record(text, range.clone(), &kept, kind);
         text.replace_range(range.clone(), &kept);
         self.caret = range.start + kept.len();
         self.anchor = self.caret;
@@ -211,7 +217,7 @@ impl TextEdit {
         if range.is_empty() {
             return false;
         }
-        self.remember(text, Kind::Deleting);
+        self.record(text, range.clone(), "", Kind::Deleting);
         text.replace_range(range.clone(), "");
         self.caret = range.start;
         self.anchor = range.start;
@@ -260,36 +266,128 @@ impl TextEdit {
         } else {
             (&mut self.redo, &mut self.undo)
         };
-        let Some(snapshot) = from.pop() else {
+        let Some(edit) = from.pop() else {
             return false;
         };
-        to.push(Snapshot {
-            text: mem::replace(text, snapshot.text),
+        if !holds(text, &edit) {
+            // The app changed the text under the history.
+            self.undo.clear();
+            self.redo.clear();
+            return false;
+        }
+        let Edit {
+            at,
+            removed,
+            inserted,
+            caret,
+            anchor,
+        } = edit;
+        text.replace_range(at..at + inserted.len(), &removed);
+        to.push(Edit {
+            at,
+            removed: inserted,
+            inserted: removed,
             caret: self.caret,
             anchor: self.anchor,
         });
-        self.caret = floor_boundary(text, snapshot.caret);
-        self.anchor = floor_boundary(text, snapshot.anchor);
+        fit(to);
+        self.caret = floor_boundary(text, caret);
+        self.anchor = floor_boundary(text, anchor);
         self.last = Kind::None;
         true
     }
 
-    fn remember(&mut self, text: &str, kind: Kind) {
+    /// Records that `range` of `text` is about to be replaced by `with`. Call before the change.
+    fn record(&mut self, text: &str, range: Range<usize>, with: &str, kind: Kind) {
         let continues = kind != Kind::None && kind == self.last && !self.has_selection();
         self.last = kind;
-        if continues {
+        let (pre, suf) = affix(&text[range.clone()], with);
+        let at = range.start + pre;
+        let removed = &text[at..range.end - suf];
+        let inserted = &with[pre..with.len() - suf];
+        let joined = match self.undo.last_mut() {
+            Some(top) if continues && holds(text, top) => {
+                join(top, text, at, removed, inserted);
+                true
+            }
+            _ => false,
+        };
+        if joined {
+            fit(&mut self.undo);
             return;
         }
-        if self.undo.len() == HISTORY {
-            self.undo.remove(0);
-        }
-        self.undo.push(Snapshot {
-            text: text.to_string(),
+        self.undo.push(Edit {
+            at,
+            removed: removed.to_string(),
+            inserted: inserted.to_string(),
             caret: self.caret,
             anchor: self.anchor,
         });
+        fit(&mut self.undo);
         self.redo.clear();
     }
+}
+
+/// Whether the text `edit` put in is still at its place in `text`.
+fn holds(text: &str, edit: &Edit) -> bool {
+    text.get(edit.at..edit.at + edit.inserted.len()) == Some(edit.inserted.as_str())
+}
+
+/// Drops the oldest steps until the stack is within both caps.
+fn fit(steps: &mut Vec<Edit>) {
+    while steps.len() > HISTORY || size(steps) > HISTORY_BYTES {
+        steps.remove(0);
+    }
+}
+
+fn size(steps: &[Edit]) -> usize {
+    steps
+        .iter()
+        .map(|e| e.removed.len() + e.inserted.len())
+        .sum()
+}
+
+/// Folds an edit at `at` (`removed` replaced by `inserted`, made on `text`) into `top`, the newest
+/// step, so the two undo as one.
+fn join(top: &mut Edit, text: &str, at: usize, removed: &str, inserted: &str) {
+    let top_end = top.at + top.inserted.len();
+    let start = top.at.min(at);
+    let end = top_end.max(at + removed.len());
+    // Both edits' text over the span they touch, before and after.
+    let mut old = text[start..top.at].to_string();
+    old.push_str(&top.removed);
+    old.push_str(&text[top_end..end]);
+    let mut new = text[start..at].to_string();
+    new.push_str(inserted);
+    new.push_str(&text[at + removed.len()..end]);
+    let (pre, suf) = affix(&old, &new);
+    top.at = start + pre;
+    top.removed = old[pre..old.len() - suf].to_string();
+    top.inserted = new[pre..new.len() - suf].to_string();
+}
+
+/// Byte lengths of the common prefix and suffix of `old` and `new`, on character boundaries.
+fn affix(old: &str, new: &str) -> (usize, usize) {
+    let mut prefix = old
+        .bytes()
+        .zip(new.bytes())
+        .take_while(|&(a, b)| a == b)
+        .count();
+    while !old.is_char_boundary(prefix) || !new.is_char_boundary(prefix) {
+        prefix -= 1;
+    }
+    let room = old.len().min(new.len()) - prefix;
+    let mut suffix = old
+        .bytes()
+        .rev()
+        .zip(new.bytes().rev())
+        .take_while(|&(a, b)| a == b)
+        .count()
+        .min(room);
+    while !old.is_char_boundary(old.len() - suffix) || !new.is_char_boundary(new.len() - suffix) {
+        suffix -= 1;
+    }
+    (prefix, suffix)
 }
 
 fn allowed(text: &str, replacing: Range<usize>, typed: &str, rules: Rules<'_>) -> String {
@@ -620,5 +718,79 @@ mod tests {
         assert_eq!(edit.cut(&mut text).as_deref(), Some(" cut"));
         assert_eq!(text, "keep");
         assert_eq!(edit.cut(&mut text), None);
+    }
+
+    #[test]
+    fn a_small_edit_in_a_big_document_keeps_little_history() {
+        let big = "text ".repeat(1 << 18);
+        let (mut text, mut edit) = editing(&big);
+        edit.set_caret(&text, big.len() / 2, false);
+        edit.insert(&mut text, "é", Rules::default());
+        edit.delete(&mut text, Step::Char, Direction::Back);
+        edit.insert(&mut text, "한", Rules::default());
+        assert!(size(&edit.undo) < 64);
+        for _ in 0..3 {
+            assert!(edit.undo(&mut text));
+        }
+        assert_eq!(text, big);
+        for _ in 0..100 {
+            edit.insert(&mut text, "a", Rules::default());
+        }
+        assert_eq!(edit.undo.len(), 1);
+        assert!(size(&edit.undo) < 256);
+    }
+
+    #[test]
+    fn undo_and_redo_keep_multibyte_text_at_the_edit_boundary() {
+        let (mut text, mut edit) = editing("가é😀");
+        let mut states = vec![text.clone()];
+        edit.set_caret(&text, 3, false);
+        edit.insert(&mut text, "é", Rules::default());
+        states.push(text.clone());
+        edit.set_caret(&text, 3, false);
+        edit.set_caret(&text, 5, true);
+        edit.insert(&mut text, "è", Rules::default());
+        states.push(text.clone());
+        edit.select_all(&text);
+        edit.insert(&mut text, "가é한😀", Rules::default());
+        states.push(text.clone());
+        edit.delete(&mut text, Step::Char, Direction::Back);
+        states.push(text.clone());
+        for want in states.iter().rev().skip(1) {
+            assert!(edit.undo(&mut text));
+            assert_eq!(&text, want);
+        }
+        assert!(!edit.undo(&mut text));
+        for want in &states[1..] {
+            assert!(edit.redo(&mut text));
+            assert_eq!(&text, want);
+        }
+    }
+
+    #[test]
+    fn replacing_all_text_undoes_and_redoes() {
+        let original = "some 한글 😀 text";
+        let (mut text, mut edit) = editing(original);
+        edit.select_all(&text);
+        edit.insert(&mut text, "some 한국 😀 text!", Rules::default());
+        assert_eq!(text, "some 한국 😀 text!");
+        assert!(edit.undo(&mut text));
+        assert_eq!(
+            (text.as_str(), edit.selection()),
+            (original, 0..original.len())
+        );
+        assert!(edit.redo(&mut text));
+        assert_eq!(text, "some 한국 😀 text!");
+    }
+
+    #[test]
+    fn a_run_of_backspaces_undoes_as_one_step() {
+        let (mut text, mut edit) = editing("abc한");
+        edit.delete(&mut text, Step::Char, Direction::Back);
+        edit.delete(&mut text, Step::Char, Direction::Back);
+        assert_eq!(text, "ab");
+        assert!(edit.undo(&mut text));
+        assert_eq!(text, "abc한");
+        assert!(!edit.undo(&mut text));
     }
 }
