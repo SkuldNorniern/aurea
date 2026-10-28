@@ -1,5 +1,7 @@
 //! The GPU renderer shared by every backend.
 
+use std::sync::Arc;
+
 use aurea_foundation::{AureaError, AureaResult};
 
 use crate::capabilities::{Fallback, GpuFeatures};
@@ -434,14 +436,17 @@ fn plain_item(command: DrawCommand) -> DisplayItem {
     )
 }
 
+/// Source offset in a BGRA pixel for each RGBA output channel.
+const BGRA_TO_RGBA: [usize; 4] = [2, 1, 0, 3];
+
 fn layer_image(layer: &CpuRasterizer) -> Option<Image> {
     let frame = layer.frame_output()?;
-    let (pixels, _) = frame.bytes().as_chunks::<4>();
-    let rgba = pixels
-        .iter()
-        .flat_map(|&[b, g, r, a]| [r, g, b, a])
+    let bgra = frame.bytes();
+    // A range map has an exact length, so the pixels are written once, into the shared buffer.
+    let rgba: Arc<[u8]> = (0..bgra.len())
+        .map(|i| bgra[(i & !3) | BGRA_TO_RGBA[i & 3]])
         .collect();
-    Some(Image::new(frame.width, frame.height, rgba))
+    Some(Image::from_shared(frame.width, frame.height, rgba))
 }
 
 fn recover(outcome: AureaResult<FrameOutcome>) -> AureaResult<FrameOutcome> {
@@ -1021,5 +1026,25 @@ mod tests {
         assert_eq!(r.backend().bound, 1, "a known handle keeps its slot");
         draw(&mut r, texture(1));
         assert_eq!(r.backend().bound, 2, "a reused index binds again");
+    }
+
+    #[test]
+    fn a_layer_image_is_rgba_of_what_the_layer_drew() {
+        let mut layer = CpuRasterizer::new(2, 2);
+        layer.configure(info(2, 2, 1.0)).expect("configure");
+        let mut list = DisplayList::new();
+        {
+            let mut ctx = RecordingContext::new(&mut list, 2, 2);
+            ctx.draw_rect(
+                Rect::new(0.0, 0.0, 2.0, 2.0),
+                &Paint::new().color(Color::rgb(220, 20, 60)),
+            )
+            .expect("rect");
+        }
+        layer.render_recorded(&mut list).expect("render");
+        let image = layer_image(&layer).expect("image");
+        assert_eq!((image.width, image.height), (2, 2));
+        assert_eq!(image.data.len(), 2 * 2 * 4);
+        assert_eq!(&image.data[..4], &[220, 20, 60, 255]);
     }
 }

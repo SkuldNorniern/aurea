@@ -23,11 +23,17 @@ pub struct Image {
 impl Image {
     /// An image of `width` by `height` RGBA8 pixels.
     pub fn new(width: u32, height: u32, data: Vec<u8>) -> Self {
+        Self::from_shared(width, height, data.into())
+    }
+
+    /// An image of `width` by `height` RGBA8 pixels in a buffer that is already shared, so no
+    /// copy is made.
+    pub fn from_shared(width: u32, height: u32, data: Arc<[u8]>) -> Self {
         static NEXT_ID: AtomicU64 = AtomicU64::new(1);
         Self {
             width,
             height,
-            data: data.into(),
+            data,
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
             opaque: Arc::default(),
         }
