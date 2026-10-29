@@ -8,7 +8,7 @@ use crate::cpu::path::{Edge, tessellate_path_into};
 use crate::cpu::raster::band::Band;
 use crate::geometry::FillRule;
 use crate::numeric::{f32_to_u32_clamped, f32_to_usize_clamped};
-use crate::types::{BlendMode, Color, Path};
+use crate::types::{BlendMode, Color, Path, PathCommand};
 
 const NO_COVERAGE: f32 = 0.5 / 255.0;
 
@@ -18,6 +18,8 @@ pub struct PathScratch {
     edges: Vec<Edge>,
     active: Vec<usize>,
     coverage: Vec<f32>,
+    /// Commands of a path moved to a new origin, kept for the next one.
+    pub(crate) shifted: Vec<PathCommand>,
 }
 
 /// Fills `path` in `color` into `buf` (`bw` pixels wide), inside `clip`.

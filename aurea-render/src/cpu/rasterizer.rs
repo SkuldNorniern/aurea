@@ -298,8 +298,12 @@ impl CpuRasterizer {
         scratch: &mut PathScratch,
     ) -> AureaResult<()> {
         let shift = |p: Point| Point::new(p.x - origin.x, p.y - origin.y);
-        let mut moved = Path::new();
-        moved.fill_rule = path.fill_rule;
+        // The shifted commands reuse the buffer from the last call, so only the first one allocates.
+        let mut moved = Path {
+            commands: mem::take(&mut scratch.shifted),
+            fill_rule: path.fill_rule,
+        };
+        moved.commands.clear();
         moved.commands.reserve(path.commands.len());
         for command in &path.commands {
             moved.commands.push(match *command {
@@ -314,7 +318,7 @@ impl CpuRasterizer {
             color: Color::rgb(255, 255, 255),
             ..paint.clone()
         };
-        Self::draw_path(
+        let drawn = Self::draw_path(
             &moved,
             &white,
             BlendMode::Normal,
@@ -322,7 +326,9 @@ impl CpuRasterizer {
             scratch,
             width,
             ClipBox::surface(width, height),
-        )
+        );
+        scratch.shifted = moved.commands;
+        drawn
     }
 
     pub(crate) fn render_recorded(&mut self, list: &mut DisplayList) -> AureaResult<FrameOutcome> {
