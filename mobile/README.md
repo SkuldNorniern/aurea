@@ -99,7 +99,7 @@ changed. The app hears, through `aurea::ios::on_event`:
 - **Touches as the mouse.** An Apple Pencil presses at once. A finger presses once it moves, stays
   down a moment, or lifts (a tap), so a second finger can still turn it into a gesture.
 - **Two-finger gestures.** Moving together scrolls (`MouseWheel`, content following the fingers);
-  spreading or closing zooms (`Magnify`). `ui::PanZoom` handles both.
+  spreading or closing zooms (`Magnify`), and turning rotates (`Rotate`). `ui::PanZoom` handles all three, turning only with `rotate_with_gestures` set.
 - **Apple Pencil samples** as `Pen`, with pressure, tilt, twist and hover, and its double tap or
   Pencil Pro squeeze as `PenTap`, with what the user set it to do in Settings.
 - **A hardware keyboard** as `KeyInput` and `TextInput`.

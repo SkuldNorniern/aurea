@@ -9,6 +9,7 @@
 #include "menu.h"
 #include "ime.h"
 #include "pen.h"
+#include "gesture.h"
 #include "common/shortcuts.h"
 #include "elements/common.h"
 #include "common/errors.h"
@@ -833,6 +834,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             ng_invoke_mouse_wheel((void*)hwnd, delta, 0.0, ng_windows_modifiers());
             break;
         }
+        case WM_GESTURE:
+            if (ng_windows_gesture_message(hwnd, lParam)) return 0;
+            break;
         case WM_HSCROLL:
         case WM_VSCROLL:
             ng_windows_control_changed(uMsg, wParam, lParam);

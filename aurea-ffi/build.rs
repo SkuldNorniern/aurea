@@ -84,6 +84,7 @@ fn main() {
         "native/platform/windows/tray.c",
         "native/platform/windows/ime.c",
         "native/platform/windows/pen.c",
+        "native/platform/windows/gesture.c",
         "native/platform/windows/occlusion.c",
         "native/platform/windows/elements/common.c",
         "native/platform/windows/elements/button.c",

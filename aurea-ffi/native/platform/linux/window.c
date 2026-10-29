@@ -58,6 +58,7 @@ static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpoint
 static gboolean on_button_release(GtkWidget* widget, GdkEventButton* event, gpointer user_data);
 static gboolean on_motion_notify(GtkWidget* widget, GdkEventMotion* event, gpointer user_data);
 static gboolean on_scroll(GtkWidget* widget, GdkEventScroll* event, gpointer user_data);
+static void ng_linux_connect_gestures(GtkWidget* window);
 static gboolean on_focus_in(GtkWidget* widget, GdkEventFocus* event, gpointer user_data);
 static gboolean on_focus_out(GtkWidget* widget, GdkEventFocus* event, gpointer user_data);
 static gboolean on_enter(GtkWidget* widget, GdkEventCrossing* event, gpointer user_data);
@@ -241,7 +242,8 @@ NGHandle ng_linux_create_window(const char* title, int width, int height) {
     g_signal_connect(G_OBJECT(window), "delete-event", G_CALLBACK(on_delete_event), NULL);
     g_signal_connect(G_OBJECT(window), "window-state-event", G_CALLBACK(on_window_state_event), NULL);
     g_signal_connect(G_OBJECT(window), "configure-event", G_CALLBACK(on_placement_configure), NULL);
-    
+    ng_linux_connect_gestures(window);
+
     GtkWidget* main_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_container_add(GTK_CONTAINER(window), main_vbox);
     g_object_set_data(G_OBJECT(window), AUREA_MAIN_VBOX_KEY, main_vbox);
@@ -716,6 +718,32 @@ static gboolean on_scroll(GtkWidget* widget, GdkEventScroll* event, gpointer use
 
     ng_invoke_mouse_wheel((void*)widget, dx, -dy, mods);
     return FALSE;
+}
+
+static void on_zoom_changed(GtkGestureZoom* gesture, gdouble scale, gpointer user_data) {
+    (void)scale;
+    gdouble delta = gtk_gesture_zoom_get_scale_delta(gesture);
+    gdouble x = 0.0, y = 0.0;
+    gtk_gesture_get_bounding_box_center(GTK_GESTURE(gesture), &x, &y);
+    if (delta != 1.0) ng_invoke_gesture(user_data, NG_GESTURE_MAGNIFY, delta, x, y);
+}
+
+static void on_angle_changed(GtkGestureRotate* gesture, gdouble angle, gdouble angle_delta, gpointer user_data) {
+    (void)angle;
+    gdouble x = 0.0, y = 0.0;
+    gtk_gesture_get_bounding_box_center(GTK_GESTURE(gesture), &x, &y);
+    if (angle_delta != 0.0) ng_invoke_gesture(user_data, NG_GESTURE_ROTATE, angle_delta, x, y);
+}
+
+/* The gestures live as long as the window; GTK needs them kept referenced. */
+static void ng_linux_connect_gestures(GtkWidget* window) {
+    GtkGesture* zoom = gtk_gesture_zoom_new(window);
+    g_signal_connect(zoom, "scale-changed", G_CALLBACK(on_zoom_changed), window);
+    g_object_set_data_full(G_OBJECT(window), "aurea-zoom", zoom, g_object_unref);
+
+    GtkGesture* rotate = gtk_gesture_rotate_new(window);
+    g_signal_connect(rotate, "angle-changed", G_CALLBACK(on_angle_changed), window);
+    g_object_set_data_full(G_OBJECT(window), "aurea-rotate", rotate, g_object_unref);
 }
 
 static gboolean on_focus_in(GtkWidget* widget, GdkEventFocus* event, gpointer user_data) {

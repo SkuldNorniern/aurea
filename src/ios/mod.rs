@@ -1,6 +1,6 @@
 //! iOS: the app's UI filling the screen, drawn on the GPU with the `zengpu` feature and on the CPU
 //! otherwise, or when the GPU cannot start. Touches come in as the
-//! mouse, two-finger scrolls and pinches as the wheel and [`WindowEvent::Magnify`]; see
+//! mouse, two-finger scrolls, pinches and twists as the wheel, [`WindowEvent::Magnify`] and [`WindowEvent::Rotate`]; see
 //! `crate::touch`.
 
 mod documents;

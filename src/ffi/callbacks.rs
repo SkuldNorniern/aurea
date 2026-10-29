@@ -216,6 +216,35 @@ pub extern "C" fn ng_invoke_mouse_wheel(
     });
 }
 
+const GESTURE_MAGNIFY: u32 = 0;
+const GESTURE_ROTATE: u32 = 1;
+
+/// Queues a pinch (`value` a factor) or a twist (`value` radians, clockwise) about (`x`, `y`).
+#[unsafe(no_mangle)]
+pub extern "C" fn ng_invoke_gesture(window: *mut c_void, kind: u32, value: f64, x: f64, y: f64) {
+    guard("ng_invoke_gesture", || {
+        if let Some(event) = gesture_event(kind, value, x, y) {
+            push_window_event(window, event);
+        }
+    });
+}
+
+fn gesture_event(kind: u32, value: f64, x: f64, y: f64) -> Option<WindowEvent> {
+    match kind {
+        GESTURE_MAGNIFY if value.is_finite() && value > 0.0 => Some(WindowEvent::Magnify {
+            factor: value,
+            x,
+            y,
+        }),
+        GESTURE_ROTATE if value.is_finite() => Some(WindowEvent::Rotate {
+            radians: value,
+            x,
+            y,
+        }),
+        _ => None,
+    }
+}
+
 /// Queues typed text for `window`, dropping control characters.
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_text_input(window: *mut c_void, text: *const c_char) {
@@ -440,6 +469,27 @@ mod tests {
         }
         assert_eq!(typed_text("a\u{8}b".to_owned()).as_deref(), Some("ab"));
         assert_eq!(typed_text("한글 😀".to_owned()).as_deref(), Some("한글 😀"));
+    }
+
+    #[test]
+    fn a_pinch_keeps_its_factor_and_spot() {
+        assert!(matches!(
+            gesture_event(GESTURE_MAGNIFY, 1.5, 3.0, 4.0),
+            Some(WindowEvent::Magnify { factor, x, y }) if factor == 1.5 && x == 3.0 && y == 4.0
+        ));
+        for factor in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert!(gesture_event(GESTURE_MAGNIFY, factor, 0.0, 0.0).is_none());
+        }
+    }
+
+    #[test]
+    fn a_twist_keeps_its_sign_and_unknown_kinds_are_dropped() {
+        assert!(matches!(
+            gesture_event(GESTURE_ROTATE, -0.25, 3.0, 4.0),
+            Some(WindowEvent::Rotate { radians, x, y }) if radians == -0.25 && x == 3.0 && y == 4.0
+        ));
+        assert!(gesture_event(GESTURE_ROTATE, f64::NAN, 0.0, 0.0).is_none());
+        assert!(gesture_event(7, 1.0, 0.0, 0.0).is_none());
     }
 
     #[test]

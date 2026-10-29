@@ -389,7 +389,7 @@ const HOVER: i32 = 4;
 const EXIT: i32 = 5;
 
 /// One pointer reading from `AureaActivity`, at `x`, `y` buffer pixels. Fingers go through
-/// [`Touches`], so two fingers scroll and pinch; a pen is also a [`WindowEvent::Pen`] with its
+/// [`Touches`], so two fingers scroll, pinch and twist; a pen is also a [`WindowEvent::Pen`] with its
 /// pressure and lean, and presses at once.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn pointer(

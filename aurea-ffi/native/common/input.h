@@ -98,4 +98,8 @@
 #define NG_POINTER_PEN 0x10000u
 #define NG_POINTER_TOUCH 0x20000u
 
+/* Kinds of ng_invoke_gesture: a factor by which content grows, or radians it turns clockwise. */
+#define NG_GESTURE_MAGNIFY 0u
+#define NG_GESTURE_ROTATE 1u
+
 #endif

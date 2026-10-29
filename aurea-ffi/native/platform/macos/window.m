@@ -414,6 +414,21 @@ static const double NG_MACOS_POINTS_PER_LINE = 40.0;
         ng_macos_modifiers(event));
 }
 
+- (void)magnifyWithEvent:(NSEvent*)event {
+    if (!self.windowHandle || event.magnification == 0.0) return;
+    NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
+    CGFloat h = [self bounds].size.height;
+    ng_invoke_gesture(self.windowHandle, NG_GESTURE_MAGNIFY, 1.0 + (double)event.magnification, p.x, h - p.y);
+}
+
+- (void)rotateWithEvent:(NSEvent*)event {
+    if (!self.windowHandle || event.rotation == 0.0) return;
+    NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
+    CGFloat h = [self bounds].size.height;
+    /* Apple reports degrees counter-clockwise; Rotate wants radians clockwise. */
+    ng_invoke_gesture(self.windowHandle, NG_GESTURE_ROTATE, -(double)event.rotation * M_PI / 180.0, p.x, h - p.y);
+}
+
 - (void)keyDown:(NSEvent*)event {
     if (!self.windowHandle) return;
     if (![self hasMarkedText]) {

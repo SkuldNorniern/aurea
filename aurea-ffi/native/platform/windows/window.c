@@ -1,6 +1,7 @@
 ﻿#include "window.h"
 #include "occlusion.h"
 #include "drop.h"
+#include "gesture.h"
 #include "common/clipboard.h"
 #include "elements/common.h"
 #include "utils.h"
@@ -112,6 +113,7 @@ NGHandle ng_windows_create_window(const char* title, int width, int height) {
         ng_windows_set_client_size(hwnd, width, height, 0);
         ng_windows_fit_work_area(hwnd);
         ng_windows_accept_drops(hwnd);
+        ng_windows_enable_gestures(hwnd);
         ShowWindow(hwnd, SW_SHOW);
         UpdateWindow(hwnd);
         SetFocus(hwnd);
@@ -181,6 +183,7 @@ NGHandle ng_windows_create_window_with_type(const char* title, int width, int he
         ng_windows_set_client_size(hwnd, width, height, 0);
         ng_windows_fit_work_area(hwnd);
         ng_windows_accept_drops(hwnd);
+        ng_windows_enable_gestures(hwnd);
         ShowWindow(hwnd, SW_SHOW);
         UpdateWindow(hwnd);
         SetFocus(hwnd);
