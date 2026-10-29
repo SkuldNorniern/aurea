@@ -1,8 +1,8 @@
 //! Draw commands shared between display list and rasterizer.
 
 use crate::types::{
-    Color, Font, GlyphMask, GpuTexture, Image, LinearGradient, Paint, Path, Point, RadialGradient,
-    Rect, Sampling,
+    Color, GlyphMask, GpuTexture, Image, LinearGradient, Paint, Path, Point, RadialGradient, Rect,
+    Sampling,
 };
 
 /// A single drawing operation.
@@ -20,10 +20,6 @@ pub enum DrawCommand {
     DrawShadow(Rect, f32, f32, Color),
     /// Path filled or stroked with a paint.
     DrawPath(Path, Paint),
-    /// Text, origin and paint.
-    DrawText(String, Point, Paint),
-    /// Text, origin, font and paint.
-    DrawTextWithFont(String, Point, Font, Paint),
     /// Image drawn into a destination rect.
     DrawImageRect(Image, Rect, Sampling),
     /// Image, source rect in pixels, destination.
@@ -41,6 +37,9 @@ pub enum DrawCommand {
     /// Radial gradient filling a rect.
     FillRadialGradient(RadialGradient, Rect),
 }
+
+// Keeps the largest variant (DrawPath: Path + Paint) from growing the enum.
+const _: () = assert!(size_of::<DrawCommand>() <= 96);
 
 pub(crate) fn quad_bounds(q: &[Point; 3]) -> Rect {
     let fourth = Point::new(q[1].x + q[2].x - q[0].x, q[1].y + q[2].y - q[0].y);

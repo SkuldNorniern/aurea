@@ -33,9 +33,7 @@ impl CommandKind {
             DrawCommand::DrawRoundRect(..) => Self::RoundRect,
             DrawCommand::DrawCircle(..) => Self::Circle,
             DrawCommand::DrawPath(..) => Self::Path,
-            DrawCommand::DrawText(..)
-            | DrawCommand::DrawTextWithFont(..)
-            | DrawCommand::DrawGlyphMask(..) => Self::Glyphs,
+            DrawCommand::DrawGlyphMask(..) => Self::Glyphs,
             DrawCommand::DrawImageRect(..)
             | DrawCommand::DrawImageRegion(..)
             | DrawCommand::DrawImageQuad(..) => Self::Image,

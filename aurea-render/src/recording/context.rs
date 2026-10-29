@@ -12,7 +12,6 @@ use aurea_foundation::{AureaError, AureaResult, Platform};
 use std::collections::hash_map::DefaultHasher;
 use std::f32::consts::{SQRT_2, TAU};
 use std::hash::{Hash, Hasher};
-use std::mem::discriminant;
 use std::sync::{Arc, LazyLock};
 
 static TEXT_RENDERER: LazyLock<TextRenderer> = LazyLock::new(TextRenderer::new);
@@ -730,9 +729,6 @@ impl<'list> RecordingContext<'list> {
                 color.b.hash(&mut hasher);
                 color.a.hash(&mut hasher);
             }
-            _ => {
-                discriminant(command).hash(&mut hasher);
-            }
         }
         self.current_opacity.to_bits().hash(&mut hasher);
         self.scale_factor.to_bits().hash(&mut hasher);
@@ -822,7 +818,6 @@ impl<'list> RecordingContext<'list> {
                 }
                 bounds
             }
-            _ => Rect::new(0.0, 0.0, 0.0, 0.0),
         }
     }
 

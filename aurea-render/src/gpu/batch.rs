@@ -243,10 +243,6 @@ fn needs_of(item: &DisplayItem) -> GpuFeatures {
             text: true,
             ..GpuFeatures::NONE
         },
-        DrawCommand::DrawText(..) | DrawCommand::DrawTextWithFont(..) => GpuFeatures {
-            paths: true,
-            ..GpuFeatures::NONE
-        },
         DrawCommand::DrawImageRect(..)
         | DrawCommand::DrawImageRegion(..)
         | DrawCommand::DrawImageQuad(..) => GpuFeatures {
@@ -509,7 +505,6 @@ impl RenderBatches {
                 DrawCommand::DrawPath(path, paint) => {
                     self.push_path(item, path, paint, alpha);
                 }
-                _ => self.dropped += 1,
             }
         }
     }
@@ -1401,10 +1396,6 @@ mod tests {
         let mut list = DisplayList::new();
         list.push(placed(red_rect(bounds), bounds));
         list.push(placed(red_rect(bounds), bounds).with_clip(Some(clip)));
-        list.push(placed(
-            DrawCommand::DrawText(String::new(), Point::new(0.0, 0.0), Paint::new()),
-            bounds,
-        ));
         list.push(placed(red_rect(bounds), bounds));
 
         let b = RenderBatches::lower(&list);
@@ -1417,32 +1408,27 @@ mod tests {
         let bounds = Rect::new(0.0, 0.0, 10.0, 10.0);
         let mut list = DisplayList::new();
         list.push(placed(red_rect(bounds), bounds));
-        list.push(placed(
-            DrawCommand::DrawText(String::new(), Point::new(0.0, 0.0), Paint::new()),
-            bounds,
-        ));
         let mut blended = placed(red_rect(bounds), bounds);
         blended.blend_mode = BlendMode::Multiply;
         list.push(blended);
 
         let b = RenderBatches::lower(&list);
 
-        assert_eq!(b.dropped, 2, "the legacy text and the blended rect");
+        assert_eq!(b.dropped, 1, "the blended rect");
         assert_eq!(b.rects.len(), 1);
     }
 
     #[test]
     fn the_dropped_count_is_per_frame() {
         let bounds = Rect::new(0.0, 0.0, 10.0, 10.0);
-        let mut with_text = DisplayList::new();
-        with_text.push(placed(
-            DrawCommand::DrawText(String::new(), Point::new(0.0, 0.0), Paint::new()),
-            bounds,
-        ));
+        let mut blended = placed(red_rect(bounds), bounds);
+        blended.blend_mode = BlendMode::Multiply;
+        let mut with_blend = DisplayList::new();
+        with_blend.push(blended);
 
         let mut batches = RenderBatches::default();
-        batches.lower_into(&with_text);
-        batches.lower_into(&with_text);
+        batches.lower_into(&with_blend);
+        batches.lower_into(&with_blend);
 
         assert_eq!(batches.dropped, 1, "one per frame, not two");
 
