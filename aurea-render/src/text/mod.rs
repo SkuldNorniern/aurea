@@ -59,9 +59,11 @@ pub(crate) enum CacheKind {
     Mask,
     Glyph,
     Layout,
+    /// Built font faces with variations. Not in the stats, but trimmed with the rest.
+    Face,
 }
 
-const KINDS: usize = 4;
+const KINDS: usize = 5;
 
 #[derive(Default)]
 struct Tally {

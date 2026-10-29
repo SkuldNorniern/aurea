@@ -15,7 +15,7 @@ use std::env::var;
 use std::env::var_os;
 use std::fs::{read, read_dir};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, LazyLock, Mutex, OnceLock};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock, Weak};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct FontKey {
@@ -284,20 +284,40 @@ struct Face {
     varied: bool,
 }
 
-type SourceFile = (Arc<Vec<u8>>, Arc<Font>);
-
 #[derive(Clone, PartialEq, Eq, Hash)]
 enum FaceSource {
     File(PathBuf),
     Embedded,
 }
 
+/// How to build a face again, so one evicted from [`VARIED_FACES`] keeps its id.
+struct Recipe {
+    source: FaceSource,
+    variations: Vec<FontVariation>,
+}
+
+/// Variation faces built at once. Each holds a parsed font, so without a bound an animated axis
+/// would grow memory with every value it passes through.
+const VARIED_FACES: usize = 64;
+
+#[derive(Default)]
+struct Ids {
+    by_key: HashMap<(FaceSource, u64), FaceId>,
+    /// Indexed by face id. Ids are handed out in order and never reused, so a cache keyed by one
+    /// keeps meaning the same face after it is evicted.
+    recipes: Vec<Recipe>,
+}
+
 pub struct FontDbTextRasterizer {
     dirs: Vec<PathBuf>,
     files: OnceLock<Vec<FontFile>>,
-    faces: Mutex<Vec<Arc<Face>>>,
-    loaded: Mutex<HashMap<(FaceSource, u64), FaceId>>,
-    sources: Mutex<HashMap<FaceSource, SourceFile>>,
+    ids: Mutex<Ids>,
+    /// Faces without variations. Few, and fallbacks rely on them, so they are never evicted.
+    pinned: Mutex<HashMap<FaceId, Arc<Face>>>,
+    /// Faces with variations, the least recently used built again when next needed.
+    varied: Arc<Mutex<LruCache<FaceId, Arc<Face>>>>,
+    /// Font file bytes by file. Weak, so the last face using a file frees it.
+    file_bytes: Mutex<HashMap<FaceSource, Weak<Vec<u8>>>>,
     fallbacks: Vec<OnceLock<Option<FaceId>>>,
     font_cache: Mutex<LruCache<FontKey, FaceId>>,
     subpixel_cache: Arc<Mutex<LruCache<GlyphKey, Arc<SubpixelGlyph>>>>,
@@ -311,9 +331,10 @@ impl FontDbTextRasterizer {
         Self {
             dirs: font_search_dirs(),
             files: OnceLock::new(),
-            faces: Mutex::new(Vec::new()),
-            loaded: Mutex::new(HashMap::new()),
-            sources: Mutex::new(HashMap::new()),
+            ids: Mutex::new(Ids::default()),
+            pinned: Mutex::new(HashMap::new()),
+            varied: shared(CacheKind::Face, LruCache::new(VARIED_FACES)),
+            file_bytes: Mutex::new(HashMap::new()),
             fallbacks: fallback_stems().iter().map(|_| OnceLock::new()).collect(),
             font_cache: Mutex::new(LruCache::new(32)),
             subpixel_cache: shared(CacheKind::Glyph, LruCache::with_budget(512, GLYPH_BYTES)),
@@ -325,20 +346,47 @@ impl FontDbTextRasterizer {
     }
 
     fn get(&self, face: FaceId) -> AureaResult<Arc<Face>> {
-        lock(&self.faces)
-            .get(face.0 as usize)
-            .cloned()
-            .ok_or(AureaError::RenderingFailed)
+        if let Some(pinned) = lock(&self.pinned).get(&face) {
+            return Ok(pinned.clone());
+        }
+        if let Some(hit) = lock(&self.varied).get(&face).cloned() {
+            return Ok(hit);
+        }
+        let (source, variations) = {
+            let ids = lock(&self.ids);
+            let recipe = ids
+                .recipes
+                .get(face.0 as usize)
+                .ok_or(AureaError::RenderingFailed)?;
+            (recipe.source.clone(), recipe.variations.clone())
+        };
+        let built = self
+            .build(&source, &variations)
+            .ok_or(AureaError::RenderingFailed)?;
+        let built = Arc::new(built);
+        lock(&self.varied).insert(face, built.clone());
+        Ok(built)
     }
 
-    fn source(&self, source: &FaceSource) -> Option<SourceFile> {
-        if let Some(hit) = lock(&self.sources).get(source) {
-            return Some(hit.clone());
+    /// The bytes of `source`, shared with every face of it still alive.
+    fn bytes(&self, source: &FaceSource) -> Option<Arc<Vec<u8>>> {
+        match source {
+            FaceSource::Embedded => Some(EMBEDDED.clone()),
+            FaceSource::File(path) => {
+                let mut shared = lock(&self.file_bytes);
+                if let Some(bytes) = shared.get(source).and_then(Weak::upgrade) {
+                    return Some(bytes);
+                }
+                let bytes = Arc::new(read(path).ok()?);
+                shared.retain(|_, weak| weak.strong_count() > 0);
+                shared.insert(source.clone(), Arc::downgrade(&bytes));
+                Some(bytes)
+            }
         }
-        let bytes = match source {
-            FaceSource::File(path) => Arc::new(read(path).ok()?),
-            FaceSource::Embedded => EMBEDDED.clone(),
-        };
+    }
+
+    fn build(&self, source: &FaceSource, variations: &[FontVariation]) -> Option<Face> {
+        let bytes = self.bytes(source)?;
         let font = Font::from_bytes(
             &bytes[..],
             FontSettings {
@@ -347,23 +395,35 @@ impl FontDbTextRasterizer {
             },
         )
         .ok()?;
-        let entry = (bytes, Arc::new(font));
-        lock(&self.sources).insert(source.clone(), entry.clone());
-        Some(entry)
-    }
-
-    fn load(&self, source: FaceSource, variations: &[FontVariation]) -> Option<FaceId> {
-        let key = (source, variation_hash(variations));
-        if let Some(&id) = lock(&self.loaded).get(&key) {
-            return Some(id);
-        }
-        let (bytes, font) = self.source(&key.0)?;
         let data = Arc::new(FaceData::new(bytes, 0, variations)?);
         let varied = !data.coords().is_empty();
-        let mut faces = lock(&self.faces);
-        let id = FaceId(u32::try_from(faces.len()).ok()?);
-        faces.push(Arc::new(Face { font, data, varied }));
-        lock(&self.loaded).insert(key, id);
+        Some(Face {
+            font: Arc::new(font),
+            data,
+            varied,
+        })
+    }
+
+    /// The id of `source` at `variations`, built now if it is new. A face with variations may be
+    /// evicted later and is then built again under the same id.
+    fn load(&self, source: FaceSource, variations: &[FontVariation]) -> Option<FaceId> {
+        let key = (source, variation_hash(variations));
+        let mut ids = lock(&self.ids);
+        if let Some(&id) = ids.by_key.get(&key) {
+            return Some(id);
+        }
+        let face = Arc::new(self.build(&key.0, variations)?);
+        let id = FaceId(u32::try_from(ids.recipes.len()).ok()?);
+        ids.recipes.push(Recipe {
+            source: key.0.clone(),
+            variations: variations.to_vec(),
+        });
+        ids.by_key.insert(key, id);
+        if variations.is_empty() {
+            lock(&self.pinned).insert(id, face);
+        } else {
+            lock(&self.varied).insert(id, face);
+        }
         Some(id)
     }
 
@@ -577,9 +637,104 @@ mod tests {
     use super::*;
     use crate::types::Font;
     use std::env::temp_dir;
-    use std::fs::{create_dir_all, remove_dir_all, write};
+    use std::fs::{create_dir_all, remove_dir_all, remove_file, write};
     use std::process::id;
     use std::slice::from_ref;
+
+    use crate::text::{KINDS, Measured, Registered, Registry, trim_registry};
+
+    fn variation(value: f32) -> FontVariation {
+        FontVariation {
+            tag: *b"wght",
+            value,
+        }
+    }
+
+    #[test]
+    fn variation_faces_stay_bounded_and_come_back_under_their_id() {
+        let r = FontDbTextRasterizer::new();
+        let plain = r.load(FaceSource::Embedded, &[]).expect("plain face");
+        let first = r
+            .load(FaceSource::Embedded, &[variation(100.0)])
+            .expect("varied face");
+        let h = r.get(first).expect("face").font.lookup_glyph_index('H');
+        let before = r.rasterize_gray(first, h, 24.0).expect("coverage");
+        for i in 0..500u16 {
+            let id = r
+                .load(FaceSource::Embedded, &[variation(f32::from(i) + 1000.0)])
+                .expect("varied face");
+            assert_ne!(id, first, "ids are not reused");
+            assert!(lock(&r.varied).len() <= VARIED_FACES);
+        }
+        assert!(
+            lock(&r.varied).get(&first).is_none(),
+            "the oldest face was evicted"
+        );
+        assert_eq!(
+            r.load(FaceSource::Embedded, &[variation(100.0)]),
+            Some(first),
+            "the same variation keeps its id"
+        );
+        let after = r.rasterize_gray(first, h, 24.0).expect("coverage");
+        assert_eq!(
+            (after.width, after.height, after.left, after.top),
+            (before.width, before.height, before.left, before.top)
+        );
+        assert_eq!(after.coverage, before.coverage);
+        assert_eq!(
+            r.load(FaceSource::Embedded, &[]),
+            Some(plain),
+            "plain faces are never evicted"
+        );
+        assert!(lock(&r.pinned).contains_key(&plain));
+    }
+
+    #[test]
+    fn faces_of_one_file_share_its_bytes_until_the_last_is_dropped() {
+        let path = temp_dir().join(format!("aurea-shared-{}.ttf", id()));
+        write(&path, EMBEDDED.as_slice()).expect("write font");
+        let source = FaceSource::File(path.clone());
+        let r = FontDbTextRasterizer::new();
+        let plain = r.load(source.clone(), &[]).expect("plain face");
+        let varied = r
+            .load(source.clone(), &[variation(700.0)])
+            .expect("varied face");
+        let bytes_at = |face: FaceId| r.face_data(face).expect("data").bytes().as_ptr();
+        assert_eq!(bytes_at(plain), bytes_at(varied));
+        let weak = lock(&r.file_bytes).get(&source).cloned().expect("tracked");
+        assert!(weak.upgrade().is_some());
+        drop(r);
+        let _ = remove_file(&path);
+        assert!(
+            weak.upgrade().is_none(),
+            "dropping the faces frees the file"
+        );
+    }
+
+    #[test]
+    fn trim_drops_variation_faces_and_they_are_built_again() {
+        let r = FontDbTextRasterizer::new();
+        let face = r
+            .load(FaceSource::Embedded, &[variation(300.0)])
+            .expect("varied face");
+        let h = r.get(face).expect("face").font.lookup_glyph_index('H');
+        let before = r.rasterize_gray(face, h, 24.0).expect("coverage");
+        let tally = lock(&r.varied).tally.clone();
+        let source = Arc::downgrade(&r.varied);
+        let weak: Weak<Mutex<dyn Measured + Send>> = source;
+        let reg = Registry {
+            caches: vec![Registered {
+                kind: CacheKind::Face,
+                tally,
+                cache: weak,
+            }],
+            retired: [(0, 0); KINDS],
+        };
+        trim_registry(&reg);
+        assert_eq!(lock(&r.varied).len(), 0);
+        let again = r.rasterize_gray(face, h, 24.0).expect("coverage");
+        assert_eq!(again.coverage, before.coverage);
+    }
 
     #[test]
     fn loads_a_font_or_fallback() {
