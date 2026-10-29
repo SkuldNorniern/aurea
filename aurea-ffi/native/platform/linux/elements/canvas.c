@@ -144,11 +144,13 @@ void ng_linux_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer,
         return;
     }
 
+    int resized = data->width != width || data->height != height;
     data->buffer = buffer;
     data->width = width;
     data->height = height;
 
-    gtk_widget_queue_draw(widget);
+    // damage is queued by the caller; only a size change repaints everything
+    if (resized) gtk_widget_queue_draw(widget);
 }
 
 void ng_linux_canvas_get_size(NGHandle canvas, unsigned int* width, unsigned int* height) {
