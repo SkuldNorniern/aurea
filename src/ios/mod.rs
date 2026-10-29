@@ -346,6 +346,7 @@ unsafe extern "C" fn lifecycle(state: i32) {
         2 => WindowEvent::Minimized,
         3 => WindowEvent::Restored,
         4 => {
+            HOST.with_borrow_mut(|host| host.raster.trim_memory());
             trim_memory();
             WindowEvent::MemoryWarning
         }

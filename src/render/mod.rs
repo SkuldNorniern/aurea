@@ -2,9 +2,9 @@
 
 mod canvas;
 
-pub(crate) use canvas::notify_canvas_destroyed;
 #[cfg(any(target_os = "ios", target_os = "android"))]
 pub(crate) use canvas::register_host_canvas;
+pub(crate) use canvas::{notify_canvas_destroyed, trim_renderers};
 
 pub use aurea_foundation::{AureaError, AureaResult};
 pub use aurea_render::cpu::RgbaPixels;

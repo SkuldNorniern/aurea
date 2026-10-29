@@ -312,6 +312,21 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         &mut self.backend
     }
 
+    /// Frees what memory pressure can take back, between frames: the textures the last presented
+    /// frame did not draw, the batch caches, and the CPU fallback's scratch. The next frame
+    /// uploads and rebuilds what it draws.
+    pub fn trim_memory(&mut self) {
+        self.texture_cache
+            .trim_unpinned(&mut self.backend, self.frame_counter);
+        self.batches.trim_caches();
+        if let Some(cpu) = &mut self.cpu {
+            cpu.trim_memory();
+        }
+        for layer in &mut self.layers {
+            layer.trim_memory();
+        }
+    }
+
     fn physical_size(&self) -> (u32, u32) {
         self.surface_info().pixel_size()
     }
@@ -423,6 +438,10 @@ impl<B: Gpu2dBackend> Renderer for Gpu2dRenderer<B> {
 
     fn features(&self) -> GpuFeatures {
         self.backend.features()
+    }
+
+    fn trim_memory(&mut self) {
+        Self::trim_memory(self);
     }
 
     fn frame_output(&self) -> Option<FrameOutput<'_>> {
@@ -1117,5 +1136,46 @@ mod tests {
         assert_eq!((image.width, image.height), (2, 2));
         assert_eq!(image.data.len(), 2 * 2 * 4);
         assert_eq!(&image.data[..4], &[220, 20, 60, 255]);
+    }
+
+    /// Draws `picks` of `images` as one frame, which must be presented.
+    fn draw_images(r: &mut Gpu2dRenderer<Probe>, images: &[Image], picks: &[usize]) {
+        {
+            let mut ctx = r.begin_frame().expect("begin");
+            for &i in picks {
+                ctx.draw_image(&images[i], Point::new(0.0, 0.0))
+                    .expect("image");
+            }
+        }
+        let outcome = r.end_frame().expect("end");
+        assert!(matches!(outcome, FrameOutcome::Presented));
+    }
+
+    #[test]
+    fn trim_memory_keeps_the_last_frame_and_the_next_one_uploads_what_it_draws() {
+        let mut r = renderer(FrameOutcome::Presented);
+        let images = [
+            Image::new(1, 1, vec![255; 4]),
+            Image::new(1, 1, vec![0, 0, 255, 255]),
+            Image::new(1, 1, vec![0, 255, 0, 255]),
+        ];
+        draw_images(&mut r, &images, &[0, 1, 2]);
+        assert_eq!(r.backend().uploads, 3);
+        r.trim_memory();
+        assert_eq!(r.backend().evicted, 0, "the last frame's textures stay");
+
+        draw_images(&mut r, &images, &[0]);
+        assert_eq!(r.backend().uploads, 3, "a cache hit");
+        r.trim_memory();
+        assert_eq!(
+            r.backend().evicted,
+            2,
+            "images 1 and 2 were not in the last frame"
+        );
+
+        let drawn = r.backend().drawn;
+        draw_images(&mut r, &images, &[1]);
+        assert_eq!(r.backend().uploads, 4, "image 1 is uploaded again");
+        assert_eq!(r.backend().drawn, drawn + 1);
     }
 }

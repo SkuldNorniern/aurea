@@ -29,9 +29,9 @@ mod lifecycle;
 mod state;
 mod weak;
 
-pub(crate) use lifecycle::notify_canvas_destroyed;
 #[cfg(any(target_os = "ios", target_os = "android"))]
 pub(crate) use lifecycle::register_host_canvas;
+pub(crate) use lifecycle::{notify_canvas_destroyed, trim_renderers};
 
 use backend::ensure_canvas_renderer;
 use lifecycle::{CanvasCleanup, next_canvas_id, register_canvas_state};

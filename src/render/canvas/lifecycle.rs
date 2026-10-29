@@ -42,6 +42,28 @@ pub(super) fn canvas_is_live(handle: *mut c_void) -> bool {
     })
 }
 
+/// Trims the renderer of every live canvas on this thread, between frames. A renderer busy
+/// drawing is skipped.
+pub(crate) fn trim_renderers() {
+    let cleanups: Vec<Rc<CanvasCleanup>> = NATIVE_CANVASES.with(|registry| {
+        registry
+            .borrow()
+            .values()
+            .filter_map(Weak::upgrade)
+            .collect()
+    });
+    for cleanup in cleanups {
+        if !cleanup.live.load(Ordering::Acquire) {
+            continue;
+        }
+        if let Ok(mut renderer) = cleanup.renderer.try_borrow_mut()
+            && let Some(renderer) = renderer.as_mut()
+        {
+            renderer.trim_memory();
+        }
+    }
+}
+
 pub(crate) fn notify_canvas_destroyed(handle: *mut c_void) {
     let cleanup = NATIVE_CANVASES.with(|registry| {
         registry

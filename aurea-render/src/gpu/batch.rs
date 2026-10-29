@@ -377,6 +377,14 @@ impl RenderBatches {
         self.rects.push(RectInstance::from_rect(rect, color));
     }
 
+    /// Drops the gradient LUT, path mask and text mask caches. The next lowering rebuilds what
+    /// it draws; the batches already built keep their own references.
+    pub fn trim_caches(&mut self) {
+        self.gradient_lut_cache.clear();
+        self.path_masks.clear();
+        self.text_mask_cache.clear();
+    }
+
     /// Lowers a display list into these batches, reusing their buffers.
     pub fn lower_into(&mut self, list: &DisplayList) {
         self.clear = None;
@@ -1047,6 +1055,26 @@ mod tests {
         batches.lower_into(&DisplayList::new());
         assert!(first.upgrade().is_none());
         assert!(batches.text_mask_cache.is_empty());
+    }
+
+    #[test]
+    fn trim_caches_empties_the_lut_and_mask_caches() {
+        let mut list = DisplayList::new();
+        list.push(item(DrawCommand::DrawGlyphMask(
+            GlyphMask::new(1, 1, vec![255, 255, 255].into()),
+            Point::new(0.0, 0.0),
+            Color::rgb(255, 255, 255),
+        )));
+        let mut batches = RenderBatches::default();
+        batches.lower_into(&list);
+        assert_eq!(batches.text_mask_cache.len(), 1);
+        batches.trim_caches();
+        assert!(batches.text_mask_cache.is_empty());
+        assert!(batches.gradient_lut_cache.is_empty());
+        assert!(batches.path_masks.is_empty());
+        batches.lower_into(&list);
+        assert_eq!(batches.texts.len(), 1, "the next frame rebuilds its masks");
+        assert_eq!(batches.text_mask_cache.len(), 1);
     }
 
     #[test]

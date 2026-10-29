@@ -132,6 +132,23 @@ impl CpuRasterizer {
         }
     }
 
+    /// Frees scratch the next frame regrows: fill, image and clip buffers, the band buffers, and
+    /// this thread's gradient ramp and stroke buffers. The frame buffer and the state frame
+    /// damage compares against stay. Band threads end with their frame, so their thread-local
+    /// buffers go with them and are not touched here.
+    pub fn trim_memory(&mut self) {
+        self.scratch_path = PathScratch::default();
+        self.scratch_row = ImageScratch::default();
+        self.scratch_dirty = Vec::new();
+        self.scratch_hashers = Vec::new();
+        self.scratch_covered = Vec::new();
+        self.scratch_occluded = Vec::new();
+        self.scratch_under_clear = Vec::new();
+        self.band_scratch = Vec::new();
+        RAMP_INDICES.with_borrow_mut(|indices| *indices = Vec::new());
+        stroke::trim_scratch();
+    }
+
     /// Caps the threads a frame draws on; `None` uses the machine's cores, up to 8, and 1 draws
     /// on the caller's thread only. Each thread draws whole rows, items in their order, so the
     /// pixels are the same either way.
@@ -2069,6 +2086,10 @@ impl Renderer for CpuRasterizer {
         self.configure(info)
     }
 
+    fn trim_memory(&mut self) {
+        Self::trim_memory(self);
+    }
+
     fn configure(&mut self, info: SurfaceInfo) -> AureaResult<()> {
         self.resize_buffer(&info)
     }
@@ -3328,6 +3349,70 @@ mod diff_damage_tests {
             small_storage,
             "modest changes retain useful slack"
         );
+    }
+
+    #[test]
+    fn trim_memory_keeps_the_frame_and_the_next_frame_draws_as_before() {
+        fn render(r: &mut CpuRasterizer, tint: u8) {
+            {
+                let mut ctx = r.begin_frame().expect("begin");
+                ctx.draw_rect(
+                    Rect::new(0.0, 0.0, 64.0, 48.0),
+                    &Paint::new().color(Color::rgb(tint, 0, 0)),
+                )
+                .expect("rect");
+                let stops = vec![
+                    GradientStop {
+                        offset: 0.0,
+                        color: Color::rgb(0, 0, 0),
+                    },
+                    GradientStop {
+                        offset: 1.0,
+                        color: Color::rgb(255, 255, 255),
+                    },
+                ];
+                let gradient = LinearGradient {
+                    start: Point::new(4.0, 0.0),
+                    end: Point::new(60.0, 0.0),
+                    stops,
+                };
+                ctx.fill_linear_gradient(&gradient, Rect::new(4.0, 4.0, 56.0, 20.0))
+                    .expect("gradient");
+                let mut outline = Path::new();
+                outline
+                    .commands
+                    .push(PathCommand::MoveTo(Point::new(4.0, 30.0)));
+                outline
+                    .commands
+                    .push(PathCommand::LineTo(Point::new(60.0, 40.0)));
+                ctx.draw_path(
+                    &outline,
+                    &Paint::new().color(Color::rgb(0, 80, 255)).stroke_width(3.0),
+                )
+                .expect("stroke");
+            }
+            r.end_frame().expect("end");
+        }
+        fn rasterizer() -> CpuRasterizer {
+            let mut r = CpuRasterizer::new(64, 48);
+            r.configure(SurfaceInfo::new(64, 48, 1.0))
+                .expect("configure");
+            r
+        }
+
+        let mut r = rasterizer();
+        render(&mut r, 200);
+        let shown = r.pixels().to_vec();
+        assert!(RAMP_INDICES.with_borrow(|v| !v.is_empty()));
+        r.trim_memory();
+        assert_eq!(r.pixels(), &shown[..], "the frame buffer is kept");
+        assert!(RAMP_INDICES.with_borrow(|v| v.capacity() == 0));
+        assert!(r.scratch_dirty.capacity() == 0 && r.scratch_covered.capacity() == 0);
+
+        render(&mut r, 90);
+        let mut fresh = rasterizer();
+        render(&mut fresh, 90);
+        assert_eq!(r.pixels(), fresh.pixels(), "the next frame is unchanged");
     }
 }
 
@@ -6152,5 +6237,412 @@ mod clip_golden_tests {
             got[i] = one;
         }
         assert_eq!(got, GOLDEN);
+    }
+}
+
+#[cfg(test)]
+mod alloc_measure {
+    //! Heap allocations per frame for a busy 1280x800 scene at scale 1.5: cold, steady, and with
+    //! one rect moved. `AUREA_ALLOC_TRACE=1` also prints the top allocation sites.
+
+    use super::*;
+    use crate::types::{Font, LineCap, LineJoin};
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::backtrace::Backtrace;
+    use std::cell::Cell;
+    use std::cmp::Reverse;
+    use std::collections::HashMap;
+    use std::env;
+    use std::mem;
+    use std::slice;
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::Relaxed};
+
+    struct Counting;
+
+    static COUNTING: AtomicBool = AtomicBool::new(false);
+    static TRACING: AtomicBool = AtomicBool::new(false);
+    static ALLOCS: AtomicUsize = AtomicUsize::new(0);
+    static BYTES: AtomicUsize = AtomicUsize::new(0);
+    static TRACES: Mutex<Vec<(usize, Backtrace)>> = Mutex::new(Vec::new());
+
+    thread_local! {
+        /// Set while the allocator allocates for itself, so those calls are neither counted nor traced.
+        static INSIDE: Cell<bool> = const { Cell::new(false) };
+    }
+
+    fn note(size: usize) {
+        if !COUNTING.load(Relaxed) || INSIDE.with(Cell::get) {
+            return;
+        }
+        ALLOCS.fetch_add(1, Relaxed);
+        BYTES.fetch_add(size, Relaxed);
+        if TRACING.load(Relaxed) {
+            INSIDE.with(|f| f.set(true));
+            let backtrace = Backtrace::force_capture();
+            if let Ok(mut traces) = TRACES.lock() {
+                traces.push((size, backtrace));
+            }
+            INSIDE.with(|f| f.set(false));
+        }
+    }
+
+    // SAFETY: every call goes straight to the system allocator.
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            note(layout.size());
+            unsafe { System.alloc(layout) }
+        }
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            note(layout.size());
+            unsafe { System.alloc_zeroed(layout) }
+        }
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            unsafe { System.dealloc(ptr, layout) }
+        }
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            note(new_size);
+            unsafe { System.realloc(ptr, layout, new_size) }
+        }
+    }
+
+    #[global_allocator]
+    static GLOBAL: Counting = Counting;
+
+    #[derive(Default, Clone, Copy)]
+    struct Tally {
+        allocs: usize,
+        bytes: usize,
+    }
+
+    impl Tally {
+        fn plus(self, other: Tally) -> Tally {
+            Tally {
+                allocs: self.allocs + other.allocs,
+                bytes: self.bytes + other.bytes,
+            }
+        }
+
+        fn per_frame(self, frames: usize) -> Tally {
+            Tally {
+                allocs: self.allocs / frames,
+                bytes: self.bytes / frames,
+            }
+        }
+    }
+
+    #[derive(Default, Clone, Copy)]
+    struct Phase {
+        rec: Tally,
+        ras: Tally,
+    }
+
+    /// Site, count and bytes of the traced allocations that share one first `aurea` frame.
+    type Site = (String, usize, usize);
+
+    fn measure(f: impl FnOnce()) -> Tally {
+        ALLOCS.store(0, Relaxed);
+        BYTES.store(0, Relaxed);
+        COUNTING.store(true, Relaxed);
+        f();
+        COUNTING.store(false, Relaxed);
+        Tally {
+            allocs: ALLOCS.load(Relaxed),
+            bytes: BYTES.load(Relaxed),
+        }
+    }
+
+    const LOGICAL: (u32, u32) = (1280, 800);
+    const SCALE: f32 = 1.5;
+
+    /// Everything the scene needs that is not per-frame work, built once.
+    struct Assets {
+        images: Vec<Image>,
+        fonts: Vec<Font>,
+        texts: Vec<String>,
+        strokes: Vec<(Path, Paint)>,
+        clip: Path,
+        linear: LinearGradient,
+        radial: RadialGradient,
+    }
+
+    fn assets() -> Assets {
+        let picture = |side: u32, seed: u32| {
+            let data = (0..side * side * 4)
+                .map(|i| (i.wrapping_mul(2_654_435_761).wrapping_add(seed) >> 13).to_le_bytes()[0])
+                .collect();
+            Image::new(side, side, data)
+        };
+        let strokes = (0..30u32)
+            .map(|k| {
+                let mut path = Path::new();
+                for j in 0..8u32 {
+                    let p = Point::new(
+                        660.0 + (k % 6) as f32 * 100.0 + j as f32 * 12.0,
+                        20.0 + (k / 6) as f32 * 110.0 + (j % 2) as f32 * 40.0,
+                    );
+                    path.commands.push(if j == 0 {
+                        PathCommand::MoveTo(p)
+                    } else {
+                        PathCommand::LineTo(p)
+                    });
+                }
+                let mut paint = Paint::new()
+                    .style(PaintStyle::Stroke)
+                    .stroke_width(1.5 + (k % 3) as f32)
+                    .color(Color::rgba(40 + (k * 7).to_le_bytes()[0], 90, 170, 220))
+                    .line_join(LineJoin::Round)
+                    .line_cap(LineCap::Round);
+                if k % 2 == 0 {
+                    paint = paint.dash(&[6.0, 4.0], 0.0);
+                }
+                (path, paint)
+            })
+            .collect();
+        let stop = |offset, color| GradientStop { offset, color };
+        Assets {
+            images: vec![
+                picture(256, 1),
+                picture(256, 2),
+                picture(256, 3),
+                picture(256, 4),
+                picture(1024, 5),
+            ],
+            fonts: vec![
+                Font::new("", 12.0),
+                Font::new("Segoe UI", 16.0),
+                Font::new("Consolas", 13.0),
+                Font::new("Segoe UI", 24.0),
+            ],
+            texts: (0..100)
+                .map(|i| format!("Row {i}: 1,234.56 kg, lot {}", i * 7))
+                .collect(),
+            strokes,
+            clip: Path::rounded_rect(Rect::new(0.0, 0.0, 640.0, 800.0), 24.0),
+            linear: LinearGradient {
+                start: Point::new(660.0, 540.0),
+                end: Point::new(950.0, 540.0),
+                stops: vec![
+                    stop(0.0, Color::rgb(20, 120, 200)),
+                    stop(1.0, Color::rgb(240, 180, 40)),
+                ],
+            },
+            radial: RadialGradient {
+                center: Point::new(1120.0, 550.0),
+                radius: 150.0,
+                stops: vec![
+                    stop(0.0, Color::rgb(255, 255, 255)),
+                    stop(1.0, Color::rgb(60, 40, 120)),
+                ],
+            },
+        }
+    }
+
+    fn small_rect(ctx: &mut dyn DrawingContext, i: usize, nudge: f32) -> AureaResult<()> {
+        let moved = if i == 0 { nudge } else { 0.0 };
+        let x = 8.0 + (i % 20) as f32 * 62.0 + moved;
+        let y = 8.0 + (i / 20) as f32 * 38.0;
+        let paint = Paint::new().color(Color::rgb((i * 37).to_le_bytes()[0], 150, 210));
+        ctx.draw_rect(Rect::new(x, y, 56.0, 30.0), &paint)
+    }
+
+    fn round_rect(ctx: &mut dyn DrawingContext, i: usize) -> AureaResult<()> {
+        let x = 8.0 + (i % 10) as f32 * 126.0;
+        let y = 400.0 + (i / 10) as f32 * 40.0;
+        let paint = Paint::new().color(Color::rgb(200, (i * 11).to_le_bytes()[0], 90));
+        ctx.draw_round_rect(Rect::new(x, y, 116.0, 30.0), 8.0, &paint)
+    }
+
+    fn label(ctx: &mut dyn DrawingContext, a: &Assets, i: usize) -> AureaResult<()> {
+        let at = Point::new(16.0 + (i % 5) as f32 * 126.0, 420.0 + (i / 5) as f32 * 18.0);
+        let paint = Paint::new().color(Color::rgb(30, 30, 40));
+        ctx.draw_text_with_font(&a.texts[i], at, &a.fonts[i % 4], &paint)
+    }
+
+    /// The busy scene. Items 0..100 rects, 0..25 round rects and 0..50 labels sit inside the
+    /// rounded clip over the left half; the rest sit outside it.
+    fn record(ctx: &mut dyn DrawingContext, a: &Assets, nudge: f32) -> AureaResult<()> {
+        ctx.clear(Color::rgb(246, 244, 240))?;
+        ctx.save()?;
+        ctx.clip_path(&a.clip)?;
+        for i in 0..100 {
+            small_rect(ctx, i, nudge)?;
+        }
+        for i in 0..25 {
+            round_rect(ctx, i)?;
+        }
+        for i in 0..50 {
+            label(ctx, a, i)?;
+        }
+        ctx.restore()?;
+        for i in 100..200 {
+            small_rect(ctx, i, nudge)?;
+        }
+        for i in 25..50 {
+            round_rect(ctx, i)?;
+        }
+        for i in 50..100 {
+            label(ctx, a, i)?;
+        }
+        for (path, paint) in &a.strokes {
+            ctx.draw_path(path, paint)?;
+        }
+        for (i, image) in a.images.iter().enumerate() {
+            let sampling = if i == 4 {
+                Sampling::Smooth
+            } else {
+                Sampling::Linear
+            };
+            ctx.set_sampling(sampling)?;
+            let at = Rect::new(660.0 + i as f32 * 120.0, 600.0, 116.0, 116.0);
+            ctx.draw_image_rect(image, at)?;
+        }
+        ctx.fill_linear_gradient(&a.linear, Rect::new(660.0, 520.0, 290.0, 60.0))?;
+        ctx.fill_radial_gradient(&a.radial, Rect::new(970.0, 520.0, 290.0, 60.0))?;
+        let shadow = Color::rgba(0, 0, 0, 90);
+        ctx.draw_shadow(Rect::new(660.0, 740.0, 300.0, 40.0), 12.0, 16.0, shadow)
+    }
+
+    fn frame(r: &mut CpuRasterizer, a: &Assets, nudge: f32) -> Phase {
+        let rec = measure(|| {
+            let mut ctx = r.begin_frame().expect("begin_frame");
+            record(ctx.as_mut(), a, nudge).expect("record");
+        });
+        let ras = measure(|| {
+            r.end_frame().expect("end_frame");
+        });
+        Phase { rec, ras }
+    }
+
+    /// The first `aurea` frame of a backtrace, with its file and line when the build has them.
+    fn aurea_site(trace: &str) -> String {
+        let lines: Vec<&str> = trace.lines().map(str::trim).collect();
+        for (i, line) in lines.iter().enumerate() {
+            let Some((num, symbol)) = line.split_once(": ") else {
+                continue;
+            };
+            let numbered = !num.is_empty() && num.bytes().all(|b| b.is_ascii_digit());
+            if !numbered || !symbol.starts_with("aurea") || symbol.contains("alloc_measure") {
+                continue;
+            }
+            let at = lines
+                .get(i + 1)
+                .and_then(|l| l.strip_prefix("at "))
+                .unwrap_or("");
+            return format!("{symbol}  [{at}]");
+        }
+        "(no aurea frame)".to_string()
+    }
+
+    fn aggregate(traces: Vec<(usize, Backtrace)>) -> Vec<Site> {
+        let mut sites: HashMap<String, (usize, usize)> = HashMap::new();
+        for (size, backtrace) in traces {
+            let entry = sites.entry(aurea_site(&backtrace.to_string())).or_default();
+            entry.0 += 1;
+            entry.1 += size;
+        }
+        let mut out: Vec<Site> = sites
+            .into_iter()
+            .map(|(site, (count, bytes))| (site, count, bytes))
+            .collect();
+        out.sort_by_key(|site| Reverse(site.2));
+        out.truncate(15);
+        out
+    }
+
+    /// Runs `frames`, tracing the allocations it makes when `trace` is set.
+    fn sweep(trace: bool, frames: impl FnOnce() -> Vec<Phase>) -> (Vec<Phase>, Vec<Site>) {
+        if trace {
+            if let Ok(mut traces) = TRACES.lock() {
+                traces.clear();
+            }
+            TRACING.store(true, Relaxed);
+        }
+        let phases = frames();
+        TRACING.store(false, Relaxed);
+        let sites = if trace {
+            let taken = TRACES.lock().map(|mut t| mem::take(&mut *t));
+            aggregate(taken.unwrap_or_default())
+        } else {
+            Vec::new()
+        };
+        (phases, sites)
+    }
+
+    fn report(threads: usize, cold: Phase, steady: &[Phase], changed: &[Phase]) {
+        eprintln!("\nthreads={threads} (per frame; 1280x800 logical at scale 1.5)");
+        eprintln!(
+            "{:<24}{:>11}{:>13}{:>11}{:>13}{:>11}{:>13}",
+            "scenario",
+            "rec allocs",
+            "rec bytes",
+            "ras allocs",
+            "ras bytes",
+            "all allocs",
+            "all bytes",
+        );
+        let rows: [(&str, &[Phase]); 3] = [
+            ("frame 1 (cold)", slice::from_ref(&cold)),
+            ("steady (frames 2-10)", steady),
+            ("one rect moved (10)", changed),
+        ];
+        for (label, phases) in rows {
+            let n = phases.len();
+            let total = |pick: fn(&Phase) -> Tally| {
+                phases
+                    .iter()
+                    .fold(Tally::default(), |acc, p| acc.plus(pick(p)))
+                    .per_frame(n)
+            };
+            let rec = total(|p| p.rec);
+            let ras = total(|p| p.ras);
+            let all = rec.plus(ras);
+            eprintln!(
+                "{label:<24}{:>11}{:>13}{:>11}{:>13}{:>11}{:>13}",
+                rec.allocs, rec.bytes, ras.allocs, ras.bytes, all.allocs, all.bytes
+            );
+        }
+    }
+
+    fn print_sites(title: &str, sites: &[Site]) {
+        eprintln!("\ntop sites, {title} (all allocations, totals over the frames)");
+        eprintln!("{:>3}{:>13}{:>8}  site", "#", "bytes", "count");
+        for (i, (site, count, bytes)) in sites.iter().enumerate() {
+            eprintln!("{:>3}{bytes:>13}{count:>8}  {site}", i + 1);
+        }
+    }
+
+    fn run(threads: usize, a: &Assets, trace: bool) {
+        let mut r = CpuRasterizer::new(0, 0);
+        r.set_threads(Some(threads));
+        r.configure(SurfaceInfo::new(LOGICAL.0, LOGICAL.1, SCALE))
+            .expect("configure");
+        let cold = frame(&mut r, a, 0.0);
+        let (steady, steady_sites) =
+            sweep(trace, || (0..9).map(|_| frame(&mut r, a, 0.0)).collect());
+        // Alternating 1 and 2 logical px keeps every frame different from the one before.
+        let (changed, changed_sites) = sweep(trace, || {
+            (0..10)
+                .map(|k| frame(&mut r, a, 1.0 + (k % 2) as f32))
+                .collect()
+        });
+        report(threads, cold, &steady, &changed);
+        if trace {
+            print_sites(&format!("steady, threads={threads}"), &steady_sites);
+            print_sites(
+                &format!("one rect moved, threads={threads}"),
+                &changed_sites,
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "allocation measurement; run with --release --ignored --nocapture"]
+    fn alloc_measure_frames() {
+        let trace = env::var_os("AUREA_ALLOC_TRACE").is_some();
+        let a = assets();
+        for threads in [1, 4] {
+            run(threads, &a, trace);
+        }
     }
 }

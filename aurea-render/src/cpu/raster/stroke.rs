@@ -44,6 +44,11 @@ thread_local! {
     static STROKE: RefCell<Scratch> = RefCell::new(Scratch::default());
 }
 
+/// Frees this thread's stroke buffers; the next stroke grows them again.
+pub(crate) fn trim_scratch() {
+    STROKE.with_borrow_mut(|s| *s = Scratch::default());
+}
+
 /// The buffers a stroke builds in, kept from one stroke to the next.
 #[derive(Default)]
 struct Scratch {

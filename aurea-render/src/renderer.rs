@@ -43,6 +43,10 @@ pub trait Renderer {
         None
     }
 
+    /// Frees caches and scratch the renderer can rebuild, between frames, for when the system
+    /// reports memory low. The frame buffer and state a frame needs stay.
+    fn trim_memory(&mut self) {}
+
     /// What this renderer draws itself; anything else falls back or is left out, as the
     /// renderer's [`crate::Fallback`] says. The CPU rasterizer draws everything.
     fn features(&self) -> GpuFeatures {

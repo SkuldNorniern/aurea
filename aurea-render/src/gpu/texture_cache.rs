@@ -223,6 +223,24 @@ impl TextureCache {
         if !self.over_limit(extra_entries, extra_bytes) {
             return;
         }
+        self.evict_unpinned(backend, frame, |cache| {
+            cache.over_limit(extra_entries, extra_bytes)
+        });
+    }
+
+    /// Evict every entry not pinned by `frame`, whatever the caps say. For memory pressure.
+    /// Entries `frame` drew stay, so the frame last presented keeps its textures.
+    pub fn trim_unpinned<B: Gpu2dBackend>(&mut self, backend: &mut B, frame: u64) {
+        self.evict_unpinned(backend, frame, |_| true);
+    }
+
+    /// Evict unpinned entries, least recently used first, while `wanted` holds.
+    fn evict_unpinned<B: Gpu2dBackend>(
+        &mut self,
+        backend: &mut B,
+        frame: u64,
+        wanted: impl Fn(&Self) -> bool,
+    ) {
         let mut candidates: Vec<_> = self
             .map
             .iter()
@@ -231,7 +249,7 @@ impl TextureCache {
             .collect();
         candidates.sort_unstable_by_key(|(_, used)| *used);
         for (key, _) in candidates {
-            if !self.over_limit(extra_entries, extra_bytes) {
+            if !wanted(self) {
                 break;
             }
             if let Some(entry) = self.map.remove(&key) {
@@ -515,5 +533,47 @@ mod tests {
         drop(image);
         cache.prune_dropped(&mut backend);
         assert_eq!((cache.len(), cache.bytes()), (0, 0));
+    }
+
+    #[test]
+    fn trim_unpinned_keeps_the_last_frame_and_evicts_the_rest() {
+        let (mut cache, mut backend) = (TextureCache::new(), Slots::default());
+        let (a, b, c) = (pixels(), pixels(), pixels());
+        for image in [&a, &b, &c] {
+            cache
+                .resolve(image, (1, 1), false, &mut backend, 1)
+                .expect("resolve");
+        }
+        cache.finish_frame(&mut backend, 1);
+        cache
+            .resolve(&a, (1, 1), false, &mut backend, 2)
+            .expect("hit");
+        cache.finish_frame(&mut backend, 2);
+        let kept = backend.live[0];
+
+        cache.trim_unpinned(&mut backend, 2);
+        assert_eq!(backend.evicted, [2, 3], "`b` and `c` are not in frame 2");
+        assert_eq!((cache.len(), cache.bytes()), (1, 4));
+        assert_eq!(backend.live, [kept]);
+
+        let again = cache
+            .resolve(&a, (1, 1), false, &mut backend, 3)
+            .expect("still cached");
+        assert_eq!(again, kept, "the kept texture is not uploaded again");
+        assert_eq!(backend.next, 3);
+    }
+
+    #[test]
+    fn trim_unpinned_with_nothing_pinned_empties_the_cache() {
+        let (mut cache, mut backend) = (TextureCache::new(), Slots::default());
+        let image = pixels();
+        cache
+            .resolve(&image, (1, 1), false, &mut backend, 1)
+            .expect("resolve");
+        cache.finish_frame(&mut backend, 1);
+        cache.trim_unpinned(&mut backend, 5);
+        assert_eq!(cache.len(), 0);
+        assert_eq!(cache.bytes(), 0);
+        assert_eq!(backend.evicted, [1]);
     }
 }

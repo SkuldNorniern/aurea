@@ -216,6 +216,13 @@ pub(super) fn memory_low(level: i32) {
     if level < TRIM_MEMORY_RUNNING_LOW {
         return;
     }
+    HOST.with_borrow_mut(|host| {
+        host.raster.trim_memory();
+        #[cfg(feature = "zengpu")]
+        if let Some(gpu) = &mut host.gpu.renderer {
+            gpu.trim_memory();
+        }
+    });
     trim_memory();
     feed(&[WindowEvent::MemoryWarning]);
 }
