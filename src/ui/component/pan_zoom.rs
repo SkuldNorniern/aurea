@@ -22,6 +22,9 @@ pub struct PanZoom {
     pub wheel_pan: f32,
     /// Space held turns a left drag into a pan.
     pub space_pans: bool,
+    /// A twist of two fingers turns the content; off by default, so content is only ever turned by
+    /// the app.
+    pub rotate_with_gestures: bool,
     pointer: Option<Point>,
     drag: Option<(Point, MouseButton)>,
     space: bool,
@@ -51,6 +54,7 @@ impl PanZoom {
             wheel_zoom,
             wheel_pan,
             space_pans: true,
+            rotate_with_gestures: false,
             pointer: None,
             drag: None,
             space: false,
@@ -286,6 +290,15 @@ impl PanZoom {
                 self.zoom_at(at, to_f32(factor));
                 true
             }
+            WindowEvent::Rotate { radians, x, y } => {
+                let at = point(x, y);
+                self.pointer = Some(at);
+                if !self.rotate_with_gestures || !self.view.contains(at) {
+                    return false;
+                }
+                self.rotate_at(at, to_f32(radians));
+                true
+            }
             WindowEvent::KeyInput {
                 key: KeyCode::Space,
                 pressed,
@@ -487,6 +500,22 @@ mod tests {
         assert_eq!(pz.zoom(), 2.0);
         assert!(close(pz.to_content(at), under));
         assert!(!pz.handle(&pinch(2.0, -10.0, -10.0)), "outside the view");
+    }
+
+    #[test]
+    fn a_twist_turns_about_the_fingers_only_when_enabled() {
+        let mut pz = view();
+        let at = Point::new(260.0, 180.0);
+        let under = pz.to_content(at);
+        let twist = |radians, x, y| WindowEvent::Rotate { radians, x, y };
+        let (x, y) = (f64::from(at.x), f64::from(at.y));
+        assert!(!pz.handle(&twist(0.5, x, y)), "off by default");
+        assert_eq!(pz.rotation(), 0.0);
+        pz.rotate_with_gestures = true;
+        assert!(pz.handle(&twist(0.5, x, y)));
+        assert!((pz.rotation() - 0.5).abs() < 1e-6);
+        assert!(close(pz.to_content(at), under), "held under the fingers");
+        assert!(!pz.handle(&twist(0.5, -10.0, -10.0)), "outside the view");
     }
 
     #[test]

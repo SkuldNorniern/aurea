@@ -170,6 +170,16 @@ pub enum WindowEvent {
         /// Where the fingers meet, vertically.
         y: f64,
     },
+    /// A twist: the content should turn by `radians` about (`x`, `y`), in logical pixels. Positive
+    /// turns clockwise on screen, as `PanZoom` rotation does.
+    Rotate {
+        /// How far it turned since the last one, in radians.
+        radians: f64,
+        /// Where the fingers meet, horizontally.
+        x: f64,
+        /// Where the fingers meet, vertically.
+        y: f64,
+    },
     /// Other windows now cover more or less of this one, or it was minimized or restored; see
     /// [`Occlusion`]. An app can pause work no one sees, or warn when its window is hidden.
     OcclusionChanged(Occlusion),

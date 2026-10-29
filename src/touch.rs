@@ -4,8 +4,9 @@
 //! A pencil is the mouse at once. A finger waits a moment first: it becomes the mouse when it moves
 //! or stays down, a click when it lifts, and the start of a two-finger gesture when a second finger
 //! lands. Two fingers moving together scroll as [`WindowEvent::MouseWheel`], spreading or closing
-//! zoom as [`WindowEvent::Magnify`].
+//! zoom as [`WindowEvent::Magnify`], and turning about each other as [`WindowEvent::Rotate`].
 
+use std::f32::consts::{PI, TAU};
 use std::time::{Duration, Instant};
 
 use crate::{Modifiers, MouseButton, MouseButtons, Point, PointerKind, WindowEvent};
@@ -15,6 +16,9 @@ use crate::{Modifiers, MouseButton, MouseButtons, Point, PointerKind, WindowEven
 const SLOP: f32 = 8.0;
 /// How long a finger stays still before it is the mouse.
 const HOLD: Duration = Duration::from_millis(120);
+/// How far two fingers must turn, in radians, before it is a twist: a pinch's jitter stays under
+/// this.
+const TWIST: f32 = PI / 90.0;
 
 /// What a touch did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,15 +44,24 @@ enum State {
     Pointer {
         id: usize,
     },
-    /// Two fingers: where they meet and how far apart they are.
+    /// Two fingers: how they lie, and how far they have turned while still inside the dead zone
+    /// (`None` once they are turning for real).
     Gesture {
         a: usize,
         b: usize,
-        center: Point,
-        span: f32,
+        pose: Pose,
+        turn: Option<f32>,
     },
     /// A gesture ended; nothing more until every finger lifts.
     Done,
+}
+
+/// Where two fingers meet, how far apart they are, and the angle of the line from one to the other.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Pose {
+    center: Point,
+    span: f32,
+    angle: f32,
 }
 
 /// The touches on the screen and what they amount to.
@@ -150,15 +163,12 @@ impl Touches {
             return self.state;
         };
         match phase {
-            Phase::Down => {
-                let (center, span) = midpoint(was, at);
-                State::Gesture {
-                    a: held,
-                    b: id,
-                    center,
-                    span,
-                }
-            }
+            Phase::Down => State::Gesture {
+                a: held,
+                b: id,
+                pose: pose(was, at, 0.0),
+                turn: Some(0.0),
+            },
             _ if held != id => self.state,
             Phase::Move if distance(start, at) > SLOP => {
                 press(out, start);
@@ -185,8 +195,8 @@ impl Touches {
         let State::Gesture {
             a,
             b,
-            center: was,
-            span: was_span,
+            pose: was,
+            turn,
         } = self.state
         else {
             return self.state;
@@ -197,9 +207,14 @@ impl Touches {
         match phase {
             Phase::Move => match (self.at(a), self.at(b)) {
                 (Some(pa), Some(pb)) => {
-                    let (center, span) = midpoint(pa, pb);
-                    gesture(out, was, was_span, center, span);
-                    State::Gesture { a, b, center, span }
+                    let now = pose(pa, pb, was.angle);
+                    let turn = gesture(out, was, now, turn);
+                    State::Gesture {
+                        a,
+                        b,
+                        pose: now,
+                        turn,
+                    }
                 }
                 _ => State::Done,
             },
@@ -245,10 +260,12 @@ impl Touches {
     }
 }
 
-fn gesture(out: &mut Vec<WindowEvent>, was: Point, was_span: f32, center: Point, span: f32) {
+/// Emits what two fingers moved to `now` from `was` amount to, and returns the twist still inside
+/// the dead zone.
+fn gesture(out: &mut Vec<WindowEvent>, was: Pose, now: Pose, turn: Option<f32>) -> Option<f32> {
     // the pointer goes where the fingers meet, so what scrolls or zooms is what is under them.
-    out.push(mouse_move(center, false));
-    let (dx, dy) = (center.x - was.x, center.y - was.y);
+    out.push(mouse_move(now.center, false));
+    let (dx, dy) = (now.center.x - was.center.x, now.center.y - was.center.y);
     if dx != 0.0 || dy != 0.0 {
         // natural scrolling, the way a trackpad reports it: content follows the fingers.
         out.push(WindowEvent::MouseWheel {
@@ -257,12 +274,33 @@ fn gesture(out: &mut Vec<WindowEvent>, was: Point, was_span: f32, center: Point,
             modifiers: Modifiers::default(),
         });
     }
-    if was_span > 0.0 && span > 0.0 && (span - was_span).abs() > f32::EPSILON {
+    if was.span > 0.0 && now.span > 0.0 && (now.span - was.span).abs() > f32::EPSILON {
         out.push(WindowEvent::Magnify {
-            factor: f64::from(span / was_span),
-            x: f64::from(center.x),
-            y: f64::from(center.y),
+            factor: f64::from(now.span / was.span),
+            x: f64::from(now.center.x),
+            y: f64::from(now.center.y),
         });
+    }
+    let twist = wrap(now.angle - was.angle);
+    match turn {
+        None if twist != 0.0 => {
+            out.push(rotate(twist, now.center));
+            None
+        }
+        None => None,
+        Some(total) if (total + twist).abs() > TWIST => {
+            out.push(rotate(total + twist, now.center));
+            None
+        }
+        Some(total) => Some(total + twist),
+    }
+}
+
+fn rotate(radians: f32, at: Point) -> WindowEvent {
+    WindowEvent::Rotate {
+        radians: f64::from(radians),
+        x: f64::from(at.x),
+        y: f64::from(at.y),
     }
 }
 
@@ -317,11 +355,24 @@ fn button(at: Point, pressed: bool) -> WindowEvent {
     }
 }
 
-fn midpoint(a: Point, b: Point) -> (Point, f32) {
-    (
-        Point::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0),
-        distance(a, b),
-    )
+/// Where fingers at `a` and `b` lie. Two fingers on one spot have no line between them, so they
+/// keep the `last` angle.
+fn pose(a: Point, b: Point, last: f32) -> Pose {
+    let span = distance(a, b);
+    Pose {
+        center: Point::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0),
+        span,
+        angle: if span > 0.0 {
+            (b.y - a.y).atan2(b.x - a.x)
+        } else {
+            last
+        },
+    }
+}
+
+/// The turn from `delta` radians, taken the short way round, as a value in `[-PI, PI)`.
+fn wrap(delta: f32) -> f32 {
+    (delta + PI).rem_euclid(TAU) - PI
 }
 
 fn distance(a: Point, b: Point) -> f32 {
@@ -342,6 +393,7 @@ mod tests {
                 WindowEvent::MouseExited => "exit",
                 WindowEvent::MouseWheel { .. } => "wheel",
                 WindowEvent::Magnify { .. } => "magnify",
+                WindowEvent::Rotate { .. } => "rotate",
                 _ => "other",
             })
             .collect()
@@ -471,6 +523,98 @@ mod tests {
         });
         assert!(factor.is_some_and(|f| f > 1.0));
         assert!(!kinds(&out).contains(&"press"));
+    }
+
+    /// Where the second of [`two_fingers`] is when turned `deg` degrees clockwise on screen, its
+    /// first finger still at the origin.
+    fn turned(deg: f32) -> Point {
+        let r = deg.to_radians();
+        p(100.0 * r.cos(), 100.0 * r.sin())
+    }
+
+    fn rotations(events: &[WindowEvent]) -> Vec<(f64, f64, f64)> {
+        events
+            .iter()
+            .filter_map(|e| match *e {
+                WindowEvent::Rotate { radians, x, y } => Some((radians, x, y)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn two_fingers_twisting_rotate_clockwise_about_their_middle() {
+        let now = Instant::now();
+        let mut t = two_fingers(now);
+        let out = t.touch(Phase::Move, 2, turned(30.0), false, now);
+        let [(radians, x, y)] = rotations(&out)[..] else {
+            panic!("one rotation: {out:?}");
+        };
+        assert!((radians - f64::from(PI / 6.0)).abs() < 1e-4, "{radians}");
+        // the fingers now lie at (0, 0) and (86.6, 50): their middle.
+        assert!(
+            (x - 43.3).abs() < 0.01 && (y - 25.0).abs() < 0.01,
+            "{x} {y}"
+        );
+        // the next move turns on from where the last left off.
+        let out = t.touch(Phase::Move, 2, turned(45.0), false, now);
+        let [(radians, ..)] = rotations(&out)[..] else {
+            panic!("one rotation: {out:?}");
+        };
+        assert!((radians - f64::from(PI / 12.0)).abs() < 1e-4, "{radians}");
+    }
+
+    #[test]
+    fn a_twist_across_the_back_turns_the_short_way() {
+        let now = Instant::now();
+        let mut t = two_fingers(now);
+        t.touch(Phase::Move, 2, turned(170.0), false, now);
+        // from 170 degrees to -170 is 20 degrees on, through 180, not 340 back.
+        let out = t.touch(Phase::Move, 2, turned(-170.0), false, now);
+        let [(radians, ..)] = rotations(&out)[..] else {
+            panic!("one rotation: {out:?}");
+        };
+        assert!((radians - f64::from(PI / 9.0)).abs() < 1e-4, "{radians}");
+    }
+
+    #[test]
+    fn a_pinch_does_not_turn() {
+        let now = Instant::now();
+        let mut t = two_fingers(now);
+        t.touch(Phase::Move, 1, p(-50.0, 0.0), false, now);
+        let out = t.touch(Phase::Move, 2, p(150.0, 0.0), false, now);
+        assert!(out.iter().any(|e| matches!(e, WindowEvent::Magnify { .. })));
+        assert!(rotations(&out).is_empty());
+    }
+
+    #[test]
+    fn a_small_twist_waits_for_the_dead_zone_to_pass() {
+        let now = Instant::now();
+        let mut t = two_fingers(now);
+        let out = t.touch(Phase::Move, 2, turned(1.0), false, now);
+        assert!(rotations(&out).is_empty(), "jitter");
+        // past 2 degrees in all, the whole turn comes through at once.
+        let out = t.touch(Phase::Move, 2, turned(2.5), false, now);
+        let [(radians, ..)] = rotations(&out)[..] else {
+            panic!("one rotation: {out:?}");
+        };
+        assert!(
+            (radians - f64::from((2.5f32).to_radians())).abs() < 1e-4,
+            "{radians}"
+        );
+    }
+
+    #[test]
+    fn a_pure_twist_does_not_spread_or_close() {
+        let now = Instant::now();
+        let mut t = two_fingers(now);
+        let out = t.touch(Phase::Move, 2, turned(30.0), false, now);
+        assert!(!rotations(&out).is_empty());
+        for e in &out {
+            if let WindowEvent::Magnify { factor, .. } = e {
+                assert!((factor - 1.0).abs() < 1e-4, "{factor}");
+            }
+        }
     }
 
     #[test]
