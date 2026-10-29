@@ -513,7 +513,8 @@ impl<Id: WidgetId> Ui<'_, Id> {
                 .map_or(text.len(), |(i, _)| i)
         };
         let mut probe = mem::take(&mut self.state.probe);
-        let (mut lo, mut hi) = (0, text.chars().count());
+        // The whole text is known not to fit, so the longest prefix is shorter.
+        let (mut lo, mut hi) = (0, text.chars().count().saturating_sub(1));
         while lo < hi {
             let mid = (lo + hi).div_ceil(2);
             probe.clear();
@@ -540,17 +541,9 @@ impl<Id: WidgetId> Ui<'_, Id> {
         line_height: f32,
     ) -> AureaResult<f32> {
         let mut line = mem::take(&mut self.state.scratch);
-        let mut candidate = mem::take(&mut self.state.probe);
         line.clear();
-        let result = self.wrap_into(
-            text,
-            rect,
-            (font, color, line_height),
-            &mut line,
-            &mut candidate,
-        );
+        let result = self.wrap_into(text, rect, (font, color, line_height), &mut line);
         self.state.scratch = line;
-        self.state.probe = candidate;
         result
     }
 
@@ -560,24 +553,26 @@ impl<Id: WidgetId> Ui<'_, Id> {
         rect: Rect,
         (font, color, line_height): (&Font, Color, f32),
         line: &mut String,
-        candidate: &mut String,
     ) -> AureaResult<f32> {
         let mut y = rect.y;
+        let space = self.text_width(" ", font);
+        let mut line_w = 0.0;
         for word in text.split_whitespace() {
-            candidate.clear();
-            candidate.push_str(line);
-            if !candidate.is_empty() {
-                candidate.push(' ');
-            }
-            candidate.push_str(word);
-            if !line.is_empty() && self.text_width(candidate, font) > rect.width {
+            let word_w = self.text_width(word, font);
+            if line.is_empty() {
+                line.push_str(word);
+                line_w = word_w;
+            } else if line_w + space + word_w <= rect.width {
+                line.push(' ');
+                line.push_str(word);
+                line_w += space + word_w;
+            } else {
                 let at = Rect::new(rect.x, y, rect.width, line_height);
                 self.text(line, at, font, color, Align::Start)?;
                 y += line_height;
                 line.clear();
                 line.push_str(word);
-            } else {
-                mem::swap(line, candidate);
+                line_w = word_w;
             }
         }
         if !line.is_empty() {
