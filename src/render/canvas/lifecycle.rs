@@ -88,6 +88,9 @@ static CANVAS_HANDLES: LazyLock<Mutex<HashMap<CanvasId, usize>>> =
 static FULL_REDRAW_REQUESTS: LazyLock<Mutex<HashSet<CanvasId>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
 
+static FRAME_REDRAW_REQUESTS: LazyLock<Mutex<HashSet<CanvasId>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
 /// Canvases with no native view that a function wakes instead, such as the iOS host's screen.
 #[cfg(any(target_os = "ios", target_os = "android"))]
 static HOST_CANVASES: Mutex<Vec<HostCanvas>> = Mutex::new(Vec::new());
@@ -171,6 +174,7 @@ static DEADLINE_THREAD: Once = Once::new();
 fn unregister_canvas_state(id: CanvasId) {
     lock(&CANVAS_HANDLES).remove(&id);
     lock(&FULL_REDRAW_REQUESTS).remove(&id);
+    lock(&FRAME_REDRAW_REQUESTS).remove(&id);
     lock(&CANVAS_DEADLINES.0).forget(id);
 }
 
@@ -178,15 +182,29 @@ pub(super) fn take_full_redraw_request(id: CanvasId) -> bool {
     lock(&FULL_REDRAW_REQUESTS).remove(&id)
 }
 
+pub(super) fn take_frame_request(id: CanvasId) -> bool {
+    lock(&FRAME_REDRAW_REQUESTS).remove(&id)
+}
+
 /// Request a full redraw of a canvas from anywhere.
 pub fn request_canvas_redraw(id: CanvasId) {
+    schedule_canvas(id, &FULL_REDRAW_REQUESTS);
+}
+
+/// Request a redraw that repaints only what the draw callback changed, since the CPU renderer
+/// diffs each frame against the last one.
+pub(super) fn request_canvas_frame(id: CanvasId) {
+    schedule_canvas(id, &FRAME_REDRAW_REQUESTS);
+}
+
+fn schedule_canvas(id: CanvasId, pending: &Mutex<HashSet<CanvasId>>) {
     let Some(handle) = lock(&CANVAS_HANDLES).get(&id).copied() else {
         if let Some(wake) = host_wake(id) {
             wake();
         }
         return;
     };
-    lock(&FULL_REDRAW_REQUESTS).insert(id);
+    lock(pending).insert(id);
     FrameScheduler::schedule_canvas(handle as *mut c_void);
 }
 

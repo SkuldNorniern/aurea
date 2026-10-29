@@ -1,4 +1,4 @@
-use super::lifecycle::{canvas_is_live, take_full_redraw_request};
+use super::lifecycle::{canvas_is_live, take_frame_request, take_full_redraw_request};
 use crate::ffi::*;
 use crate::platform::presentation::cpu::publish_cpu_buffer;
 use crate::render::SurfaceInfo;
@@ -268,9 +268,13 @@ impl Canvas {
                 return Ok(());
             }
 
-            if take_full_redraw_request(id) {
+            let frame = take_frame_request(id);
+            let full = take_full_redraw_request(id);
+            if full || frame {
                 let mut st = state.borrow_mut();
-                st.damage.add_all();
+                if full {
+                    st.damage.add_all();
+                }
                 st.needs_redraw = true;
             }
 

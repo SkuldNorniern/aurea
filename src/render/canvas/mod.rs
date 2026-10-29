@@ -34,7 +34,9 @@ pub(crate) use lifecycle::register_host_canvas;
 pub(crate) use lifecycle::{notify_canvas_destroyed, trim_renderers};
 
 use backend::ensure_canvas_renderer;
-use lifecycle::{CanvasCleanup, next_canvas_id, register_canvas_state};
+use lifecycle::{
+    CanvasCleanup, canvas_is_live, next_canvas_id, register_canvas_state, request_canvas_frame,
+};
 pub use lifecycle::{request_canvas_redraw, request_canvas_redraw_at};
 pub use state::CanvasId;
 use state::CanvasState;
@@ -414,7 +416,8 @@ impl Canvas {
         self.state.borrow_mut().background_color
     }
 
-    /// Runs `tick` once per frame and redraws the canvas afterwards.
+    /// Runs `tick` once per frame and redraws the canvas afterwards, repainting only what changed.
+    /// Stops once `tick` returns false or the canvas is dropped.
     ///
     /// ```rust,no_run
     /// # use aurea::render::{Canvas, RendererBackend};
@@ -433,9 +436,13 @@ impl Canvas {
         F: FnMut(FrameInfo) -> bool + Send + 'static,
     {
         let id = self.id();
+        let handle = self.handle as usize;
         FrameScheduler::register_ticker(move |info| {
+            if !canvas_is_live(handle as *mut c_void) {
+                return false;
+            }
             let keep = tick(info);
-            request_canvas_redraw(id);
+            request_canvas_frame(id);
             keep
         })
     }
