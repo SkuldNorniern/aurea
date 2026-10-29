@@ -16,14 +16,14 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     window.on_event(move |event| match event {
         WindowEvent::RawMouseMotion { delta_x, delta_y } => {
-            handle_raw_motion(&locked_for_events, &last_log_for_events, delta_x, delta_y);
+            handle_raw_motion(&locked_for_events, &last_log_for_events, *delta_x, *delta_y);
         }
         WindowEvent::KeyInput { key, pressed, .. } => {
-            handle_key_input(&window_for_events, &locked_for_events, key, pressed);
+            handle_key_input(&window_for_events, &locked_for_events, *key, *pressed);
         }
         WindowEvent::MouseButton {
             button, pressed, ..
-        } if pressed => {
+        } if *pressed => {
             println!("mouse pressed: {:?}", button);
             toggle_cursor_lock(&window_for_events, &locked_for_events);
         }

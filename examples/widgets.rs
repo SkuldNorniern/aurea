@@ -190,7 +190,7 @@ fn main() -> AureaResult<()> {
 
     let input = Rc::clone(&state);
     window.on_event(move |event| {
-        if input.borrow_mut().handle(&event) || matches!(event, WindowEvent::Resized { .. }) {
+        if input.borrow_mut().handle(event) || matches!(event, WindowEvent::Resized { .. }) {
             request_canvas_redraw(id);
         }
     });

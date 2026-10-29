@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             pressed,
             modifiers,
         } => {
-            let action = if pressed { "key down" } else { "key up" };
+            let action = if *pressed { "key down" } else { "key up" };
             let mods = if modifiers.is_any() {
                 format!(
                     " [shift={} ctrl={} alt={} meta={}]",
@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 String::new()
             };
             println!("{} {:?}{}", action, key, mods);
-            if pressed && key == KeyCode::Escape {
+            if *pressed && *key == KeyCode::Escape {
                 w.request_close();
             }
         }
@@ -47,11 +47,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             click_count,
             ..
         } => {
-            let action = if pressed { "mouse down" } else { "mouse up" };
+            let action = if *pressed { "mouse down" } else { "mouse up" };
             println!("{action} {button:?} ({x:.1}, {y:.1}) x{click_count}");
         }
         WindowEvent::MouseMove { x, y, buttons, .. } => {
-            let _ = w.set_cursor(if x > 320.0 {
+            let _ = w.set_cursor(if *x > 320.0 {
                 CursorIcon::Pointer
             } else {
                 CursorIcon::Default

@@ -44,7 +44,7 @@ fn main() -> AureaResult<()> {
 
     let id = canvas.id();
     window.on_event(move |event| {
-        if ui.borrow_mut().handle(&event) {
+        if ui.borrow_mut().handle(event) {
             request_canvas_redraw(id);
         }
     });

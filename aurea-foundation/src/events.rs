@@ -723,7 +723,7 @@ impl KeyCode {
 }
 
 /// An application's window-event handler.
-pub type EventCallback = Rc<dyn Fn(WindowEvent)>;
+pub type EventCallback = Rc<dyn Fn(&WindowEvent)>;
 
 #[cfg(test)]
 mod keycode_tests {

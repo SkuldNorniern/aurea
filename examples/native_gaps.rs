@@ -210,7 +210,7 @@ fn main() -> AureaResult<()> {
         ) {
             println!("input: {event:?}");
         }
-        if input.borrow_mut().ui.handle(&event) || matches!(event, WindowEvent::Resized { .. }) {
+        if input.borrow_mut().ui.handle(event) || matches!(event, WindowEvent::Resized { .. }) {
             request_canvas_redraw(id);
         }
     });

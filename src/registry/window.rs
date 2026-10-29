@@ -122,7 +122,7 @@ pub fn dispatch_window_events(handle: *mut c_void, events: &[WindowEvent]) {
 
     for event in events {
         for callback in callbacks.iter() {
-            callback(event.clone());
+            callback(event);
         }
     }
 }
@@ -140,7 +140,7 @@ mod dispatch_tests {
             let log = log.clone();
             register_event_callback(
                 window,
-                Rc::new(move |_: WindowEvent| log.borrow_mut().push(name)),
+                Rc::new(move |_: &WindowEvent| log.borrow_mut().push(name)),
             );
         }
 
@@ -159,13 +159,13 @@ mod dispatch_tests {
         let first_added = added.clone();
         register_event_callback(
             window,
-            Rc::new(move |e: WindowEvent| {
+            Rc::new(move |e: &WindowEvent| {
                 first_log.borrow_mut().push(format!("a {e:?}"));
                 if !first_added.replace(true) {
                     let late_log = first_log.clone();
                     register_event_callback(
                         window,
-                        Rc::new(move |e: WindowEvent| {
+                        Rc::new(move |e: &WindowEvent| {
                             late_log.borrow_mut().push(format!("late {e:?}"));
                         }),
                     );
@@ -175,7 +175,7 @@ mod dispatch_tests {
         let second_log = log.clone();
         register_event_callback(
             window,
-            Rc::new(move |e: WindowEvent| second_log.borrow_mut().push(format!("b {e:?}"))),
+            Rc::new(move |e: &WindowEvent| second_log.borrow_mut().push(format!("b {e:?}"))),
         );
 
         let events = [

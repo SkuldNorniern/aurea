@@ -614,7 +614,7 @@ impl Window {
     /// ```
     pub fn on_event<F>(&self, callback: F)
     where
-        F: Fn(WindowEvent) + 'static,
+        F: Fn(&WindowEvent) + 'static,
     {
         ui_thread::check("Window::on_event");
         register_event_callback(self.handle, Rc::new(callback));
@@ -1049,7 +1049,10 @@ mod event_queue_tests {
         let handle = 0xBEEF as *mut c_void;
         let received = Rc::new(RefCell::new(Vec::new()));
         let rec = Rc::clone(&received);
-        register_event_callback(handle, Rc::new(move |e| rec.borrow_mut().push(e)));
+        register_event_callback(
+            handle,
+            Rc::new(move |e: &WindowEvent| rec.borrow_mut().push(e.clone())),
+        );
 
         dispatch_window_events(handle, &[WindowEvent::CloseRequested, WindowEvent::Focused]);
 
@@ -1062,7 +1065,10 @@ mod event_queue_tests {
         let handle = 0xF00D as *mut c_void;
         let seen = Rc::new(RefCell::new(0));
         let seen_clone = Rc::clone(&seen);
-        register_event_callback(handle, Rc::new(move |_| *seen_clone.borrow_mut() += 1));
+        register_event_callback(
+            handle,
+            Rc::new(move |_: &WindowEvent| *seen_clone.borrow_mut() += 1),
+        );
         unregister_event_callbacks(handle);
 
         dispatch_window_events(handle, &[WindowEvent::Focused]);
