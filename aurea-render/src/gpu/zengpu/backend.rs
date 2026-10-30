@@ -19,10 +19,11 @@ use zengpu::native::{
 };
 use zengpu_hal::{
     Acquire, Bindings, BufferDesc, BufferHandle, BufferUsage, ColorAttachment, DeviceRequest,
-    DeviceType, FilterMode, Format, Frame, GpuAdapter, GpuDevice, GpuError, GraphicsDevice, LoadOp,
-    MemoryUsage, PipelineHandle, Rect as HalRect, RenderCommands, RenderPassDesc, SamplerDesc,
-    SamplerHandle, Scalar, Surface, TexDim, TextureDesc, TextureHandle, TextureRegion,
-    TextureUsage, TextureWrite, Viewport, ViewportScissor, WindowHandles,
+    DeviceType, DispatchOp, FilterMode, Format, Frame, GpuAdapter, GpuDevice, GpuError,
+    GraphicsDevice, LoadOp, MemoryUsage, PipelineHandle, Rect as HalRect, RenderCommands,
+    RenderPassDesc, SamplerDesc, SamplerHandle, Scalar, Surface, TexDim, TextureDesc,
+    TextureHandle, TextureRegion, TextureUsage, TextureWrite, Viewport, ViewportScissor,
+    WindowHandles,
 };
 
 use crate::capabilities::GpuFeatures;
@@ -386,8 +387,9 @@ fn upload_levels(
     Ok(())
 }
 
-/// Level 0 from `rgba`, then each level from the one above by `MIP_DOWN`. Every dispatch blocks
-/// until it completes, so the next level and any later draw see the finished mips.
+/// Upload level 0 without a host wait, then build all dependent levels in one batch.
+/// The batch's barriers make each level visible to the next; its single wait also
+/// makes it safe for the caller to release the storage-level descriptors.
 fn gpu_mip_chain(
     device: &NativeDevice,
     pipeline: PipelineHandle,
@@ -397,7 +399,17 @@ fn gpu_mip_chain(
     rgba: &[u8],
     levels: u32,
 ) -> Result<(), GpuError> {
-    device.upload_texture_data(texture, rgba)?;
+    if device.capabilities().transfers.texture_region_write {
+        drop(device.write_textures(&[TextureWrite {
+            texture,
+            region: TextureRegion::rect(0, 0, width, height),
+            data: rgba,
+            bytes_per_row: width * 4,
+        }])?);
+    } else {
+        device.upload_texture_data(texture, rgba)?;
+    }
+    let mut levels_to_build = Vec::with_capacity(levels.saturating_sub(1) as usize);
     let (mut w, mut h) = (width, height);
     for mip in 1..levels {
         let (dw, dh) = ((w >> 1).max(1), (h >> 1).max(1));
@@ -409,18 +421,22 @@ fn gpu_mip_chain(
             Scalar::F32(w as f32 / dw as f32),
             Scalar::F32(h as f32 / dh as f32),
         ];
-        device.dispatch(
-            pipeline,
-            Bindings {
-                images: &images,
-                scalars: &scalars,
-                ..Default::default()
-            },
-            [dw.div_ceil(8), dh.div_ceil(8), 1],
-        )?;
+        levels_to_build.push((images, scalars, [dw.div_ceil(8), dh.div_ceil(8), 1]));
         (w, h) = (dw, dh);
     }
-    Ok(())
+    let ops: Vec<_> = levels_to_build
+        .iter()
+        .map(|(images, scalars, grid)| DispatchOp {
+            pipeline,
+            bindings: Bindings {
+                images,
+                scalars,
+                ..Default::default()
+            },
+            grid: *grid,
+        })
+        .collect();
+    device.dispatch_batch(&ops)
 }
 
 fn area_downsample(src: &[u8], (sw, sh): (u32, u32), (dw, dh): (u32, u32)) -> Vec<u8> {
@@ -1757,6 +1773,77 @@ mod context_tests {
             let gpu_time = start.elapsed();
             device.destroy_texture(gpu);
             eprintln!("round {round}: 4096^2 cpu mips {cpu_time:?}, gpu mips {gpu_time:?}");
+        }
+    }
+
+    #[test]
+    #[ignore = "manual comparison of per-mip waits and a batched mip chain"]
+    fn gpu_mip_batch_timing() {
+        use std::time::Instant;
+        let context = Arc::new(ZenGpuContext::new().expect("GPU context"));
+        let device = context.device();
+        for side in [256u32, 1024] {
+            let rgba = vec![173; side as usize * side as usize * 4];
+            let levels = mip_levels(side, side);
+            let Mips::Gpu(pipeline) = context.mip_path(Format::Rgba8Unorm, levels) else {
+                eprintln!("no GPU mip path");
+                return;
+            };
+            let texture = make_image_texture(
+                device,
+                side,
+                side,
+                &rgba,
+                levels,
+                Format::Rgba8Unorm,
+                Mips::Gpu(pipeline),
+            )
+            .expect("texture");
+            for round in 0..5 {
+                for reference in [true, false] {
+                    let started = Instant::now();
+                    for _ in 0..32 {
+                        if reference {
+                            device.upload_texture_data(texture, &rgba).expect("base");
+                            let (mut w, mut h) = (side, side);
+                            for mip in 1..levels {
+                                let (dw, dh) = ((w >> 1).max(1), (h >> 1).max(1));
+                                let images = [
+                                    device.storage_level(texture, mip - 1).expect("source"),
+                                    device.storage_level(texture, mip).expect("dest"),
+                                ];
+                                let scalars = [
+                                    Scalar::F32(w as f32 / dw as f32),
+                                    Scalar::F32(h as f32 / dh as f32),
+                                ];
+                                device
+                                    .dispatch(
+                                        pipeline,
+                                        Bindings {
+                                            images: &images,
+                                            scalars: &scalars,
+                                            ..Default::default()
+                                        },
+                                        [dw.div_ceil(8), dh.div_ceil(8), 1],
+                                    )
+                                    .expect("mip");
+                                (w, h) = (dw, dh);
+                            }
+                        } else {
+                            gpu_mip_chain(device, pipeline, texture, side, side, &rgba, levels)
+                                .expect("batched mips");
+                        }
+                        device
+                            .release_storage_levels(texture)
+                            .expect("release level views");
+                    }
+                    eprintln!(
+                        "{side}x{side} round {round} reference={reference}: {:.3} ms/chain",
+                        started.elapsed().as_secs_f64() * 1000.0 / 32.0
+                    );
+                }
+            }
+            device.destroy_texture(texture);
         }
     }
 
