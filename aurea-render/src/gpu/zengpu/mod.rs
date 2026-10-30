@@ -2,6 +2,7 @@
 
 mod backend;
 mod buffer;
+mod clips;
 mod pipelines;
 mod shaders;
 mod surface;

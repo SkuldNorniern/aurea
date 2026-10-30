@@ -127,6 +127,7 @@ type PipelineSpec<'s> = (
 /// All five pipelines the painter draws with, in painter-order priority.
 #[derive(Clone, Copy, Default)]
 pub struct Pipelines {
+    pub clip_mask: Option<PipelineHandle>,
     pub rect: Option<PipelineHandle>,
     pub shape: Option<PipelineHandle>,
     pub gradient: Option<PipelineHandle>,
@@ -147,6 +148,21 @@ pub fn create_mip_down(device: &NativeDevice) -> Result<PipelineHandle> {
 }
 
 impl Pipelines {
+    pub fn ensure_clip_mask(&mut self, device: &NativeDevice) -> Result<PipelineHandle> {
+        if let Some(pipeline) = self.clip_mask {
+            return Ok(pipeline);
+        }
+        let (shader, entry) = CLIP_MASK.create(device)?;
+        let result = device.create_compute_pipeline(ComputePipelineDesc {
+            shader,
+            entry,
+            block: [8, 8, 1],
+        });
+        device.destroy_shader(shader);
+        let pipeline = result?;
+        self.clip_mask = Some(pipeline);
+        Ok(pipeline)
+    }
     /// Create only the pipeline kinds used by this order, keeping successful creations for future
     /// frames and retries.
     pub fn ensure(
@@ -226,9 +242,16 @@ impl Pipelines {
     }
 
     pub fn destroy(&self, device: &NativeDevice) {
-        for pipeline in [self.rect, self.shape, self.gradient, self.image, self.text]
-            .into_iter()
-            .flatten()
+        for pipeline in [
+            self.rect,
+            self.shape,
+            self.gradient,
+            self.image,
+            self.text,
+            self.clip_mask,
+        ]
+        .into_iter()
+        .flatten()
         {
             device.destroy_pipeline(pipeline);
         }

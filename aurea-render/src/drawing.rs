@@ -147,8 +147,8 @@ pub trait DrawingContext {
     /// Set a clipping rectangle.
     fn clip_rect(&mut self, rect: Rect) -> AureaResult<()>;
 
-    /// Clips to `path`. The CPU renderer takes any shape, antialiased; GPU renderers take only
-    /// rectangles and return `Unsupported` for other shapes.
+    /// Clips to `path` with antialiased coverage. Supporting GPU backends rasterize
+    /// coverage on the device; other GPU backends use the renderer's CPU fallback.
     fn clip_path(&mut self, path: &Path) -> AureaResult<()>;
 
     /// Set the global alpha (opacity).

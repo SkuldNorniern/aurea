@@ -2,6 +2,64 @@
 
 use zengpu_spirv::{ZslShader, zsl};
 
+/// Integrates flattened path edges over each pixel on the GPU. Each edge adds
+/// the area to its right; winding/even-odd coverage is then quantized per path,
+/// matching the CPU clip stack's order of intersections.
+pub const CLIP_MASK: ZslShader = zsl!(
+    push P { paths: u32 }
+    @workgroup_size(8, 8)
+    kernel clip_mask(edges: device buffer<f32>, dst: image, p: P, id: global_id) {
+        let x = id.x
+        let y = id.y
+        if x < dst.width() && y < dst.height() {
+            let at: u32 = 0
+            let coverage = 255.0
+            for path in 0..p.paths {
+                let count = u32(edges[at])
+                let even = edges[at + 1]
+                at = at + 2
+                let sum = 0.0
+                for i in 0..count {
+                    let e = at + i * 5
+                    let top = max(f32(y), edges[e])
+                    let bottom = min(f32(y + 1), edges[e + 1])
+                    if bottom > top {
+                        let height = bottom - top
+                        let a = f32(x + 1) - (edges[e + 2] + (top - edges[e]) * edges[e + 3])
+                        let b = f32(x + 1) - (edges[e + 2] + (bottom - edges[e]) * edges[e + 3])
+                        let area = 0.0
+                        if a >= 1.0 && b >= 1.0 {
+                            area = height
+                        } else {
+                            if a > 0.0 || b > 0.0 {
+                                if abs(b - a) < 0.000001 {
+                                    area = height * clamp((a + b) * 0.5, 0.0, 1.0)
+                                } else {
+                                    let ha = 0.0
+                                    let hb = 0.0
+                                    if a >= 1.0 { ha = a - 0.5 } else { if a > 0.0 { ha = a * a * 0.5 } }
+                                    if b >= 1.0 { hb = b - 0.5 } else { if b > 0.0 { hb = b * b * 0.5 } }
+                                    area = height * (hb - ha) / (b - a)
+                                }
+                            }
+                        }
+                        sum = sum + area * edges[e + 4]
+                    }
+                }
+                at = at + count * 5
+                let cov = min(abs(sum), 1.0)
+                if even > 0.5 {
+                    let folded = abs(sum) - floor(abs(sum) * 0.5) * 2.0
+                    cov = 1.0 - abs(folded - 1.0)
+                }
+                let mask = floor(clamp(cov, 0.0, 1.0) * 255.0 + 0.5)
+                coverage = floor(coverage * mask / 255.0 + 0.5)
+            }
+            dst.store(x, y, 1.0, 1.0, 1.0, coverage / 255.0)
+        }
+    }
+);
+
 pub const RECT_VERT: ZslShader = zsl!(
     push Pc { viewport: f32x2 }
     vertex rect_vs(
@@ -9,16 +67,22 @@ pub const RECT_VERT: ZslShader = zsl!(
         @location(1) color: f32x4,
         vi: vertex_index,
         pc: Pc,
-    ) -> (f32x4, f32x4) {
+    ) -> (f32x4, f32x4, f32x2) {
         let corner = f32x2(f32((26 >> vi) & 1), f32((52 >> vi) & 1))
         let px = rect.xy + corner * rect.zw
-        (f32x4(px / pc.viewport * 2.0 - 1.0, 0.0, 1.0), color)
+        (f32x4(px / pc.viewport * 2.0 - 1.0, 0.0, 1.0), color, px)
     }
 );
 
 pub const RECT_FRAG: ZslShader = zsl!(
-    fragment rect_fs(@location(0) color: f32x4) -> f32x4 {
-        color
+    push Pc { viewport: f32x2, mask_origin: f32x2, mask_size: f32x2, mask_on: u32, mask_slot: u32, slot: u32 }
+    fragment rect_fs(@location(0) color: f32x4, @location(1) px: f32x2, tex: textures, pc: Pc) -> f32x4 {
+        let clip_cov = 1.0
+        if pc.mask_on != 0 {
+            clip_cov = tex[pc.mask_slot].sample_level((px - pc.mask_origin) / pc.mask_size, 0.0).a
+        }
+        if clip_cov <= 0.0 { discard }
+        f32x4(color.rgb, color.a * clip_cov)
     }
 );
 
@@ -30,22 +94,30 @@ pub const SHAPE_VERT: ZslShader = zsl!(
         @location(2) shape: f32x4,
         vi: vertex_index,
         pc: Pc,
-    ) -> (f32x4, f32x2, f32x4, f32x2, f32x3) {
+    ) -> (f32x4, f32x2, f32x4, f32x2, f32x3, f32x2) {
         let corner = f32x2(f32((26 >> vi) & 1), f32((52 >> vi) & 1)) * 2.0 - 1.0
         let half_size = rect.zw * 0.5
         let local = corner * (half_size + (shape.y * 0.5 + 1.0 + shape.z * 3.0))
         let px = rect.xy + half_size + local
-        (f32x4(px / pc.viewport * 2.0 - 1.0, 0.0, 1.0), local, color, half_size, shape.xyz)
+        (f32x4(px / pc.viewport * 2.0 - 1.0, 0.0, 1.0), local, color, half_size, shape.xyz, px)
     }
 );
 
 pub const SHAPE_FRAG: ZslShader = zsl!(
+    push Pc { viewport: f32x2, mask_origin: f32x2, mask_size: f32x2, mask_on: u32, mask_slot: u32, slot: u32 }
     fragment shape_fs(
         @location(0) local: f32x2,
         @location(1) color: f32x4,
         @location(2) half_size: f32x2,
         @location(3) shape: f32x3,
+        @location(4) px: f32x2,
+        tex: textures, pc: Pc,
     ) -> f32x4 {
+        let clip_cov = 1.0
+        if pc.mask_on != 0 {
+            clip_cov = tex[pc.mask_slot].sample_level((px - pc.mask_origin) / pc.mask_size, 0.0).a
+        }
+        if clip_cov <= 0.0 { discard }
         let r = clamp(shape.x, 0.0, min(half_size.x, half_size.y))
         let q = abs(local) - half_size + r
         let d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r
@@ -65,7 +137,7 @@ pub const SHAPE_FRAG: ZslShader = zsl!(
         if alpha <= 0.0 {
             discard
         }
-        f32x4(color.rgb, color.a * alpha)
+        f32x4(color.rgb, color.a * alpha * clip_cov)
     }
 );
 
@@ -85,7 +157,7 @@ pub const GRADIENT_VERT: ZslShader = zsl!(
 );
 
 pub const GRADIENT_FRAG: ZslShader = zsl!(
-    push Pc { viewport: f32x2, slot: u32 }
+    push Pc { viewport: f32x2, mask_origin: f32x2, mask_size: f32x2, mask_on: u32, mask_slot: u32, slot: u32 }
     fragment gradient_fs(
         @location(0) px: f32x2,
         @location(1) a: f32x4,
@@ -93,6 +165,11 @@ pub const GRADIENT_FRAG: ZslShader = zsl!(
         lut: textures,
         pc: Pc,
     ) -> f32x4 {
+        let clip_cov = 1.0
+        if pc.mask_on != 0 {
+            clip_cov = lut[pc.mask_slot].sample_level((px - pc.mask_origin) / pc.mask_size, 0.0).a
+        }
+        if clip_cov <= 0.0 { discard }
         let t = 0.0
         if a.w < 0.5 {
             let d = b.xy - a.xy
@@ -101,7 +178,8 @@ pub const GRADIENT_FRAG: ZslShader = zsl!(
             t = length(px - a.xy) / max(a.z, 1e-6)
         }
         let u = (clamp(t, 0.0, 1.0) * 255.0 + 0.5) / 256.0
-        lut[pc.slot].sample(f32x2(u, 0.5))
+        let color = lut[pc.slot].sample(f32x2(u, 0.5))
+        f32x4(color.rgb, color.a * clip_cov)
     }
 );
 
@@ -115,22 +193,28 @@ pub const IMAGE_VERT: ZslShader = zsl!(
         @location(4) affine: f32x4,
         vi: vertex_index,
         pc: Pc,
-    ) -> (f32x4, f32x2, f32x4, f32x4) {
+    ) -> (f32x4, f32x2, f32x4, f32x4, f32x2) {
         let corner = f32x2(f32((26 >> vi) & 1), f32((52 >> vi) & 1))
         let px = rect.xy + corner * rect.zw + f32x2(corner.y * affine.y, corner.x * affine.x)
-        (f32x4(px / pc.viewport * 2.0 - 1.0, 0.0, 1.0), mix(uv.xy, uv.zw, corner), tint, sampling)
+        (f32x4(px / pc.viewport * 2.0 - 1.0, 0.0, 1.0), mix(uv.xy, uv.zw, corner), tint, sampling, px)
     }
 );
 
 pub const IMAGE_FRAG: ZslShader = zsl!(
-    push Pc { viewport: f32x2, slot: u32 }
+    push Pc { viewport: f32x2, mask_origin: f32x2, mask_size: f32x2, mask_on: u32, mask_slot: u32, slot: u32 }
     fragment image_fs(
         @location(0) uv: f32x2,
         @location(1) tint: f32x4,
         @location(2) sampling: f32x4,
+        @location(3) px: f32x2,
         tex: textures,
         pc: Pc,
     ) -> f32x4 {
+        let clip_cov = 1.0
+        if pc.mask_on != 0 {
+            clip_cov = tex[pc.mask_slot].sample_level((px - pc.mask_origin) / pc.mask_size, 0.0).a
+        }
+        if clip_cov <= 0.0 { discard }
         let at = uv
         if sampling.z > 0.5 {
             at = (floor(uv * sampling.xy) + 0.5) / sampling.xy
@@ -139,7 +223,8 @@ pub const IMAGE_FRAG: ZslShader = zsl!(
         if sampling.w > 0.5 {
             color = tex[pc.slot].sample(at)
         }
-        color * tint
+        let painted = color * tint
+        f32x4(painted.rgb, painted.a * clip_cov)
     }
 );
 
@@ -150,17 +235,22 @@ pub const TEXT_VERT: ZslShader = zsl!(
         @location(1) color: f32x4,
         vi: vertex_index,
         pc: Pc,
-    ) -> (f32x4, f32x2, f32x4) {
+    ) -> (f32x4, f32x2, f32x4, f32x2) {
         let corner = f32x2(f32((26 >> vi) & 1), f32((52 >> vi) & 1))
         let px = rect.xy + corner * rect.zw
-        (f32x4(px / pc.viewport * 2.0 - 1.0, 0.0, 1.0), corner, color)
+        (f32x4(px / pc.viewport * 2.0 - 1.0, 0.0, 1.0), corner, color, px)
     }
 );
 
 pub const TEXT_FRAG: ZslShader = zsl!(
-    push Pc { viewport: f32x2, slot: u32 }
-    fragment text_fs(@location(0) uv: f32x2, @location(1) color: f32x4, tex: textures, pc: Pc) -> f32x4 {
-        let alpha = tex[pc.slot].sample(uv).a * color.a
+    push Pc { viewport: f32x2, mask_origin: f32x2, mask_size: f32x2, mask_on: u32, mask_slot: u32, slot: u32 }
+    fragment text_fs(@location(0) uv: f32x2, @location(1) color: f32x4, @location(2) px: f32x2, tex: textures, pc: Pc) -> f32x4 {
+        let clip_cov = 1.0
+        if pc.mask_on != 0 {
+            clip_cov = tex[pc.mask_slot].sample_level((px - pc.mask_origin) / pc.mask_size, 0.0).a
+        }
+        if clip_cov <= 0.0 { discard }
+        let alpha = tex[pc.slot].sample(uv).a * color.a * clip_cov
         if alpha <= 0.0 {
             discard
         }
@@ -169,11 +259,16 @@ pub const TEXT_FRAG: ZslShader = zsl!(
 );
 
 pub const TEXT_DUAL_SOURCE_FRAG: ZslShader = zsl!(
-    push Pc { viewport: f32x2, slot: u32 }
-    fragment text_lcd_fs(@location(0) uv: f32x2, @location(1) color: f32x4, tex: textures, pc: Pc)
+    push Pc { viewport: f32x2, mask_origin: f32x2, mask_size: f32x2, mask_on: u32, mask_slot: u32, slot: u32 }
+    fragment text_lcd_fs(@location(0) uv: f32x2, @location(1) color: f32x4, @location(2) px: f32x2, tex: textures, pc: Pc)
         -> (@location(0) @blend_src(0) f32x4, @location(0) @blend_src(1) f32x4)
     {
-        let coverage = tex[pc.slot].sample(uv).rgb * color.a
+        let clip_cov = 1.0
+        if pc.mask_on != 0 {
+            clip_cov = tex[pc.mask_slot].sample_level((px - pc.mask_origin) / pc.mask_size, 0.0).a
+        }
+        if clip_cov <= 0.0 { discard }
+        let coverage = tex[pc.slot].sample(uv).rgb * color.a * clip_cov
         let alpha = max(coverage.r, max(coverage.g, coverage.b))
         if alpha <= 0.0 {
             discard
@@ -272,7 +367,8 @@ mod tests {
 
     use super::*;
 
-    const SHADERS: [(&str, &ZslShader); 12] = [
+    const SHADERS: [(&str, &ZslShader); 13] = [
+        ("clip_mask", &CLIP_MASK),
         ("rect.vert", &RECT_VERT),
         ("rect.frag", &RECT_FRAG),
         ("shape.vert", &SHAPE_VERT),

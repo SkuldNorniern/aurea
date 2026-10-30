@@ -38,6 +38,7 @@ use crate::surface::pixel_size;
 use crate::types::{GpuTexture, Image, Rect, Sampling};
 
 use super::buffer::GrowableBuffer;
+use super::clips::ClipMasks;
 use super::pipelines::{GradientInstance, ImageInstance, Pipelines, TextInstance, create_mip_down};
 use super::surface::create_surface;
 
@@ -721,6 +722,7 @@ fn texture_format(format: PixelFormat) -> Format {
 }
 
 pub struct ZenGpuBackend {
+    clip_masks: ClipMasks,
     target: Target,
     context: Arc<ZenGpuContext>,
     pipelines: Arc<SharedPipelines>,
@@ -817,6 +819,7 @@ impl ZenGpuRenderer {
         let sampler = sampler.map_err(gpu_err)?;
 
         let backend = ZenGpuBackend {
+            clip_masks: ClipMasks::default(),
             target,
             context,
             pipelines,
@@ -918,12 +921,14 @@ impl ZenGpuBackend {
         clips: &[Option<Rect>],
         viewport: (f32, f32),
         buffers: &FrameBuffers,
-        viewport_scalars: &[Scalar],
         pipelines: Pipelines,
     ) -> AureaResult<()> {
         let mut i = 0;
         let mut active_clip: Option<Option<Rect>> = None;
         while i < order.len() {
+            let binding = self.clip_masks.bindings[i];
+            let viewport_scalars = binding.scalars(viewport);
+            let same_mask = |n: u32| self.clip_masks.bindings.get(i + n as usize) == Some(&binding);
             let clip = clips.get(i).copied().flatten();
             if active_clip != Some(clip) {
                 Self::set_scissor(cmd, viewport, clip);
@@ -932,28 +937,30 @@ impl ZenGpuBackend {
 
             match order[i] {
                 DrawRef::Rect(start) => {
-                    let count =
-                        coalesce_run(order, clips, i, |r, n| *r == DrawRef::Rect(start + n));
+                    let count = coalesce_run(order, clips, i, |r, n| {
+                        *r == DrawRef::Rect(start + n) && same_mask(n)
+                    });
                     Self::draw_run(
                         cmd,
                         pipelines.rect.ok_or(AureaError::RenderingFailed)?,
                         buffers.rect,
-                        viewport_scalars,
-                        &[],
+                        &viewport_scalars,
+                        from_ref(&binding.slot),
                         start,
                         count,
                     );
                     i += count as usize;
                 }
                 DrawRef::Shape(start) => {
-                    let count =
-                        coalesce_run(order, clips, i, |r, n| *r == DrawRef::Shape(start + n));
+                    let count = coalesce_run(order, clips, i, |r, n| {
+                        *r == DrawRef::Shape(start + n) && same_mask(n)
+                    });
                     Self::draw_run(
                         cmd,
                         pipelines.shape.ok_or(AureaError::RenderingFailed)?,
                         buffers.shape,
-                        viewport_scalars,
-                        &[],
+                        &viewport_scalars,
+                        from_ref(&binding.slot),
                         start,
                         count,
                     );
@@ -962,14 +969,16 @@ impl ZenGpuBackend {
                 DrawRef::Gradient(start) => {
                     let slot = self.gradient_slot(start);
                     let count = coalesce_run(order, clips, i, |r, n| {
-                        *r == DrawRef::Gradient(start + n) && self.gradient_slot(start + n) == slot
+                        *r == DrawRef::Gradient(start + n)
+                            && self.gradient_slot(start + n) == slot
+                            && same_mask(n)
                     });
                     Self::draw_run(
                         cmd,
                         pipelines.gradient.ok_or(AureaError::RenderingFailed)?,
                         buffers.gradient,
-                        viewport_scalars,
-                        from_ref(&slot),
+                        &viewport_scalars,
+                        &[binding.slot, slot],
                         start,
                         count,
                     );
@@ -978,14 +987,16 @@ impl ZenGpuBackend {
                 DrawRef::Image(start) => {
                     let slot = self.image_slot(start);
                     let count = coalesce_run(order, clips, i, |r, n| {
-                        *r == DrawRef::Image(start + n) && self.image_slot(start + n) == slot
+                        *r == DrawRef::Image(start + n)
+                            && self.image_slot(start + n) == slot
+                            && same_mask(n)
                     });
                     Self::draw_run(
                         cmd,
                         pipelines.image.ok_or(AureaError::RenderingFailed)?,
                         buffers.image,
-                        viewport_scalars,
-                        from_ref(&slot),
+                        &viewport_scalars,
+                        &[binding.slot, slot],
                         start,
                         count,
                     );
@@ -994,14 +1005,16 @@ impl ZenGpuBackend {
                 DrawRef::Text(start) => {
                     let slot = self.text_slot(start);
                     let count = coalesce_run(order, clips, i, |r, n| {
-                        *r == DrawRef::Text(start + n) && self.text_slot(start + n) == slot
+                        *r == DrawRef::Text(start + n)
+                            && self.text_slot(start + n) == slot
+                            && same_mask(n)
                     });
                     Self::draw_run(
                         cmd,
                         pipelines.text.ok_or(AureaError::RenderingFailed)?,
                         buffers.text,
-                        viewport_scalars,
-                        from_ref(&slot),
+                        &viewport_scalars,
+                        &[binding.slot, slot],
                         start,
                         count,
                     );
@@ -1047,6 +1060,7 @@ impl Gpu2dBackend for ZenGpuBackend {
 
     fn trim_memory(&mut self) {
         let device = self.context.device();
+        self.clip_masks.trim(device);
         self.rect_buf.destroy(device);
         self.shape_buf.destroy(device);
         self.gradient_buf.destroy(device);
@@ -1121,6 +1135,12 @@ impl Gpu2dBackend for ZenGpuBackend {
             images: true,
             text: true,
             clips: true,
+            path_clips: self.context.device().capabilities().compute
+                && self
+                    .context
+                    .device()
+                    .format_caps(Format::Rgba8Unorm)
+                    .storage,
             rounded_rects: true,
             stroked_circles: true,
             ..GpuFeatures::NONE
@@ -1192,12 +1212,20 @@ impl Gpu2dBackend for ZenGpuBackend {
             pipelines
                 .ensure(self.context.device(), Format::Bgra8Unorm, &plan.order)
                 .map_err(gpu_err)?;
+            if plan.path_clips.iter().any(Option::is_some) {
+                pipelines
+                    .ensure_clip_mask(self.context.device())
+                    .map_err(gpu_err)?;
+            }
             *pipelines
         };
 
         let vw = plan.viewport_width as f32;
         let vh = plan.viewport_height as f32;
         let device = self.context.device();
+        self.clip_masks
+            .prepare(device, plan, pipelines.clip_mask)
+            .map_err(gpu_err)?;
 
         if let Some(compact) =
             smaller_buffer(self.gradient_instances.capacity(), plan.gradients.len())
@@ -1318,8 +1346,6 @@ impl Gpu2dBackend for ZenGpuBackend {
             scissor: None,
         });
 
-        let viewport_scalars = [Scalar::F32(vw), Scalar::F32(vh)];
-
         let buffers = FrameBuffers {
             rect: rect_handle,
             shape: shape_handle,
@@ -1333,7 +1359,6 @@ impl Gpu2dBackend for ZenGpuBackend {
             &plan.clips,
             (vw, vh),
             &buffers,
-            &viewport_scalars,
             pipelines,
         )?;
 
@@ -1357,6 +1382,7 @@ impl Drop for ZenGpuBackend {
     fn drop(&mut self) {
         let device = self.context.device();
         let _ = device.wait_idle();
+        self.clip_masks.destroy(device);
         if let Target::Offscreen(offscreen) = &mut self.target {
             offscreen.release(device);
         }
@@ -1379,7 +1405,7 @@ fn gpu_err(e: GpuError) -> AureaError {
     }
 }
 
-fn as_bytes<T: Copy>(slice: &[T]) -> &[u8] {
+pub(super) fn as_bytes<T: Copy>(slice: &[T]) -> &[u8] {
     unsafe { from_raw_parts(slice.as_ptr() as *const u8, size_of_val(slice)) }
 }
 
@@ -1389,7 +1415,7 @@ mod context_tests {
     use crate::cpu::CpuRasterizer;
     use crate::renderer::{DrawingContext, Renderer};
     use crate::surface::{Surface as RenderSurface, SurfaceInfo};
-    use crate::types::{Color, Paint, PaintStyle, Path, PathCommand, Point};
+    use crate::types::{BlendMode, Color, Paint, PaintStyle, Path, PathCommand, Point};
 
     fn scene(ctx: &mut dyn DrawingContext, image: &Image) {
         ctx.clear(Color::rgb(20, 24, 30)).unwrap();
@@ -2174,6 +2200,129 @@ mod context_tests {
     }
 
     #[test]
+    #[allow(clippy::cognitive_complexity)] // Compare all painter pipelines against the same clip oracle.
+    fn native_path_clips_cover_every_painter_pipeline() {
+        use crate::types::{Font, GradientStop, LinearGradient};
+        let Ok(context) = ZenGpuContext::new() else {
+            return;
+        };
+        let context = Arc::new(context);
+        let image = Image::new(2, 2, [210, 160, 90, 180].repeat(4));
+        let texture = context.upload_image(&image, Sampling::Nearest).unwrap();
+        let mut triangle = Path::new();
+        triangle.commands.extend([
+            PathCommand::MoveTo(Point::new(2.3, 2.1)),
+            PathCommand::LineTo(Point::new(61.7, 3.4)),
+            PathCommand::LineTo(Point::new(4.1, 61.2)),
+            PathCommand::Close,
+        ]);
+        let rounded = Path::rounded_rect(Rect::new(6.0, 5.0, 49.0, 49.0), 9.0);
+        let mut coverage = vec![255u8; 64 * 64];
+        for path in [&triangle, &rounded] {
+            let mask =
+                CpuRasterizer::path_coverage(path, &Paint::new(), Point::new(0.0, 0.0), (64, 64))
+                    .unwrap();
+            for (a, b) in coverage.iter_mut().zip(mask.as_chunks::<4>().0) {
+                *a = u8::try_from((u32::from(*a) * u32::from(b[3]) + 127) / 255).unwrap();
+            }
+        }
+        let draw = |ctx: &mut dyn DrawingContext, kind| {
+            let rect = Rect::new(0.0, 0.0, 64.0, 64.0);
+            let paint = Paint::new().color(Color::rgba(210, 160, 90, 180));
+            match kind {
+                0 => ctx.draw_rect(rect, &paint),
+                1 => ctx.draw_round_rect(Rect::new(1.0, 1.0, 61.0, 61.0), 12.0, &paint),
+                2 => ctx.fill_linear_gradient(
+                    &LinearGradient {
+                        start: Point::new(0.0, 0.0),
+                        end: Point::new(64.0, 0.0),
+                        stops: vec![
+                            GradientStop {
+                                offset: 0.0,
+                                color: Color::rgb(240, 90, 40),
+                            },
+                            GradientStop {
+                                offset: 1.0,
+                                color: Color::rgba(60, 210, 150, 160),
+                            },
+                        ],
+                    },
+                    rect,
+                ),
+                3 => ctx.draw_image_rect(&image, rect),
+                4 => ctx.draw_texture(texture.texture(), Rect::new(0.0, 0.0, 1.0, 1.0), rect),
+                _ => ctx.draw_text_with_font(
+                    "MMMM",
+                    Point::new(1.0, 34.0),
+                    &Font::new("Segoe UI", 28.0),
+                    &paint,
+                ),
+            }
+            .unwrap();
+        };
+        let mut reference = ZenGpuRenderer::offscreen(Arc::clone(&context), 64, 64, 1.0).unwrap();
+        let mut clipped = ZenGpuRenderer::offscreen(context, 64, 64, 1.0).unwrap();
+        for kind in 0..6 {
+            {
+                let mut ctx = reference.begin_frame().unwrap();
+                ctx.clear(Color::rgb(0, 0, 0)).unwrap();
+                draw(&mut *ctx, kind);
+            }
+            reference.end_frame().unwrap();
+            {
+                let mut ctx = clipped.begin_frame().unwrap();
+                ctx.clear(Color::rgb(0, 0, 0)).unwrap();
+                ctx.save().unwrap();
+                ctx.clip_path(&triangle).unwrap();
+                // Clip geometry remains in device space after changing the transform again.
+                ctx.translate(6.0, 5.0).unwrap();
+                ctx.clip_path(&Path::rounded_rect(Rect::new(0.0, 0.0, 49.0, 49.0), 9.0))
+                    .unwrap();
+                ctx.translate(-6.0, -5.0).unwrap();
+                draw(&mut *ctx, kind);
+                ctx.restore().unwrap();
+                ctx.draw_rect(
+                    Rect::new(60.0, 60.0, 4.0, 4.0),
+                    &Paint::new().color(Color::rgb(255, 0, 0)),
+                )
+                .unwrap();
+            }
+            assert_eq!(clipped.end_frame().unwrap(), FrameOutcome::Presented);
+            assert!(
+                clipped.backend().cpu_frame.is_none(),
+                "kind {kind} fell back to CPU"
+            );
+            let (plain, got) = (
+                reference.frame_output().unwrap(),
+                clipped.frame_output().unwrap(),
+            );
+            let mut lit = 0;
+            for (i, ((&plain, &got), &mask)) in plain
+                .words()
+                .iter()
+                .zip(got.words())
+                .zip(&coverage)
+                .enumerate()
+            {
+                if i % 64 >= 60 && i / 64 >= 60 {
+                    assert_eq!(got, 0xFFFF0000, "restore must remove both clips");
+                    continue;
+                }
+                for shift in [0, 8, 16] {
+                    let expected = (((plain >> shift) & 255) * u32::from(mask) + 127) / 255;
+                    let actual = (got >> shift) & 255;
+                    assert!(
+                        actual.abs_diff(expected) <= 2,
+                        "kind {kind}, pixel {i}, channel {shift}: {actual} != {expected}"
+                    );
+                    lit += usize::from(actual != 0);
+                }
+            }
+            assert!(lit > 30, "kind {kind} produced no clipped content");
+        }
+    }
+
+    #[test]
     fn a_cpu_frame_reuses_its_texture_and_keeps_its_colours() {
         let Ok(context) = ZenGpuContext::new() else {
             return;
@@ -2189,11 +2338,13 @@ mod context_tests {
             ]);
             path
         };
-        // A path clip is one thing this backend cannot draw, so each frame is drawn on the CPU.
+        // Non-normal blending still selects CPU fallback; path clips now run on the GPU.
         let frame = |gpu: &mut ZenGpuRenderer, x: f32| {
             {
                 let mut ctx = gpu.begin_frame().unwrap();
+                ctx.clear(Color::rgb(255, 255, 255)).unwrap();
                 ctx.clip_path(&triangle).unwrap();
+                ctx.set_blend_mode(BlendMode::Multiply).unwrap();
                 ctx.draw_rect(
                     Rect::new(x, 0.0, 40.0, 40.0),
                     &Paint::new().color(Color::rgb(200, 60, 40)),
