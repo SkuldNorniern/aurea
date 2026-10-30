@@ -3,12 +3,12 @@
 use aurea_foundation::{WindowEvent, lock};
 use std::mem::{discriminant, take};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// A window's pending native events.
 pub struct EventQueue {
     events: Mutex<Vec<WindowEvent>>,
-    pen_batching: AtomicBool,
+    pen_batch_size: AtomicUsize,
 }
 
 impl EventQueue {
@@ -16,24 +16,37 @@ impl EventQueue {
     pub fn new() -> Self {
         Self {
             events: Mutex::new(Vec::new()),
-            pen_batching: AtomicBool::new(false),
+            pen_batch_size: AtomicUsize::new(0),
         }
     }
 
     /// Batches new consecutive pen samples into events of at most 64 readings.
     /// Existing queued events are unchanged. Disabled by default for compatibility.
     pub fn set_pen_batching(&self, enabled: bool) {
-        self.pen_batching.store(enabled, Ordering::Release);
+        self.set_pen_batch_size(if enabled { 64 } else { 0 });
+    }
+
+    /// Maximum readings per newly queued pen batch, clamped to 256. Zero delivers
+    /// individual `Pen` events. This groups readings without dropping or delaying
+    /// them; a partial batch is delivered on the next queue drain.
+    pub fn set_pen_batch_size(&self, size: usize) {
+        self.pen_batch_size.store(size.min(256), Ordering::Release);
+    }
+
+    /// Current batch limit. Zero means individual pen events.
+    pub fn pen_batch_size(&self) -> usize {
+        self.pen_batch_size.load(Ordering::Acquire)
     }
 
     /// Queues `event`, merging it into a pending one of the same kind when possible.
     pub fn push(&self, event: WindowEvent) {
         let mut events = lock(&self.events);
-        if self.pen_batching.load(Ordering::Acquire)
+        let pen_batch_size = self.pen_batch_size();
+        if pen_batch_size > 0
             && let WindowEvent::Pen(sample) = event
         {
             if let Some(WindowEvent::PenBatch(samples)) = events.last_mut()
-                && samples.len() < 64
+                && samples.len() < pen_batch_size
             {
                 samples.push(sample);
             } else {
@@ -125,6 +138,50 @@ mod tests {
     use aurea_foundation::{Modifiers, MouseButtons, PointerKind};
     use aurea_foundation::{PenPhase, PenSample};
     use std::time::Duration;
+
+    #[test]
+    fn pen_batch_limit_changes_without_waiting_for_a_full_batch() {
+        let queue = EventQueue::new();
+        assert_eq!(queue.pen_batch_size(), 0);
+        queue.set_pen_batch_size(3);
+        for i in 0..8 {
+            queue.push(WindowEvent::Pen(PenSample {
+                x: f64::from(i),
+                ..PenSample::default()
+            }));
+        }
+        let events = queue.pop_all();
+        assert_eq!(
+            events
+                .iter()
+                .map(|e| e.pen_samples().len())
+                .collect::<Vec<_>>(),
+            [3, 3, 2]
+        );
+        assert_eq!(
+            events
+                .iter()
+                .flat_map(WindowEvent::pen_samples)
+                .map(|s| s.x)
+                .collect::<Vec<_>>(),
+            (0..8).map(f64::from).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn changing_pen_batch_size_preserves_queued_readings() {
+        let queue = EventQueue::new();
+        queue.set_pen_batch_size(usize::MAX);
+        assert_eq!(queue.pen_batch_size(), 256);
+        queue.push(WindowEvent::Pen(PenSample::default()));
+        queue.set_pen_batch_size(0);
+        queue.push(WindowEvent::Pen(PenSample::default()));
+        let events = queue.pop_all();
+        assert!(matches!(&events[0], WindowEvent::PenBatch(samples) if samples.len() == 1));
+        assert!(matches!(&events[1], WindowEvent::Pen(_)));
+        queue.set_pen_batching(true);
+        assert_eq!(queue.pen_batch_size(), 64);
+    }
 
     #[test]
     fn pen_batches_preserve_every_reading_and_stop_at_input_boundaries() {

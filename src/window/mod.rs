@@ -8,7 +8,7 @@ mod types;
 
 pub use aurea_foundation::{
     EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons, Occlusion, PenPhase, PenSample,
-    PenTapAction, PenTool, PointerKind, WindowEvent,
+    PenSampler, PenSampling, PenTapAction, PenTool, PointerKind, WindowEvent,
 };
 pub use aurea_runtime::EventQueue;
 pub use clipboard::{clipboard_text, set_clipboard_text};
@@ -528,6 +528,50 @@ impl Window {
     pub fn set_pen_batching(&self, enabled: bool) {
         ui_thread::check("Window::set_pen_batching");
         self.event_queue.set_pen_batching(enabled);
+    }
+
+    /// Groups consecutive native pen readings into events of up to `size`
+    /// samples (maximum 256). Zero restores individual `Pen` events. A batch is
+    /// delivered on the next event drain even when not full; this adds no timer
+    /// or sample-rate limit. Applies to the desktop queue on every platform.
+    /// Use [`PenSampler`] for per-tool rate limits and stabilization while keeping
+    /// the original events available to other consumers.
+    ///
+    /// ```rust,no_run
+    /// use aurea::{PenSampler, PenSampling, Window, WindowEvent};
+    /// use std::time::Duration;
+    /// # fn main() -> aurea::AureaResult<()> {
+    /// let window = Window::new("Brush input", 800, 600)?;
+    /// window.set_pen_batch_size(64);
+    /// let mut brush = PenSampler::new(PenSampling {
+    ///     position_smoothing: Duration::from_millis(20),
+    ///     pressure_smoothing: Duration::from_millis(8),
+    ///     reset_after: Duration::from_millis(250),
+    ///     ..PenSampling::at_hz(240)
+    /// });
+    /// for event in window.poll_events() {
+    ///     if matches!(event, WindowEvent::Unfocused) {
+    ///         brush.reset();
+    ///     }
+    ///     for raw in event.pen_samples() {
+    ///         if let Some(sample) = brush.sample(*raw) {
+    ///             // Send `sample` to the brush; retain `raw` for stroke recording.
+    ///             # let _ = sample;
+    ///         }
+    ///     }
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn set_pen_batch_size(&self, size: usize) {
+        ui_thread::check("Window::set_pen_batch_size");
+        self.event_queue.set_pen_batch_size(size);
+    }
+
+    /// Current pen batch limit, or zero for individual pen events.
+    pub fn pen_batch_size(&self) -> usize {
+        ui_thread::check("Window::pen_batch_size");
+        self.event_queue.pen_batch_size()
     }
 
     /// Waits until something happens, then hands back this window's events, for an app that runs
