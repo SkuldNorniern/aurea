@@ -47,15 +47,23 @@ struct Entry {
     bytes: usize,
 }
 
-/// GPU bytes of a texture: RGBA8 pixels, plus a third more for the mip chain when mipmapped.
-fn texture_bytes(width: u32, height: u32, mipmapped: bool) -> usize {
-    let base = (width as usize)
-        .saturating_mul(height as usize)
-        .saturating_mul(4);
-    if mipmapped {
-        base.saturating_add(base / 3)
-    } else {
-        base
+/// RGBA8 payload of every allocated mip. Skinny images approach twice the base
+/// size, so the usual four-thirds approximation undercounts them substantially.
+fn texture_bytes(mut width: u32, mut height: u32, mipmapped: bool) -> usize {
+    if width == 0 || height == 0 {
+        return 0;
+    }
+    let mut bytes = 0usize;
+    loop {
+        bytes = bytes.saturating_add(
+            (width as usize)
+                .saturating_mul(height as usize)
+                .saturating_mul(4),
+        );
+        if !mipmapped || width == 1 && height == 1 {
+            return bytes;
+        }
+        (width, height) = ((width / 2).max(1), (height / 2).max(1));
     }
 }
 
@@ -468,9 +476,15 @@ mod tests {
     }
 
     #[test]
-    fn mipmaps_add_a_third_to_the_base_bytes() {
+    fn mip_bytes_count_every_level_including_skinny_and_odd_images() {
         assert_eq!(texture_bytes(4, 4, false), 64);
-        assert_eq!(texture_bytes(4, 4, true), 85);
+        assert_eq!(texture_bytes(4, 4, true), 84);
+        assert_eq!(texture_bytes(1, 1024, true), 8188);
+        assert_eq!(texture_bytes(1024, 1, true), 8188);
+        assert_eq!(texture_bytes(3, 5, true), 72);
+        assert_eq!(texture_bytes(1, 1, true), 4);
+        assert_eq!(texture_bytes(0, 100, true), 0);
+        assert_eq!(texture_bytes(u32::MAX, u32::MAX, true), usize::MAX);
     }
 
     #[test]
@@ -529,7 +543,7 @@ mod tests {
         cache
             .resolve(&image, (4, 4), true, &mut backend, 2)
             .expect("mips");
-        assert_eq!(cache.bytes(), 85, "the upgrade replaces the plain size");
+        assert_eq!(cache.bytes(), 84, "the upgrade replaces the plain size");
         drop(image);
         cache.prune_dropped(&mut backend);
         assert_eq!((cache.len(), cache.bytes()), (0, 0));
