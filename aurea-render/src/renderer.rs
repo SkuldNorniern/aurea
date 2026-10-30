@@ -4,6 +4,7 @@ pub use crate::drawing::DrawingContext;
 pub use crate::frame::{FrameOutcome, FrameOutput};
 
 use crate::capabilities::GpuFeatures;
+use crate::gpu::{GpuCacheLimits, GpuCacheStats};
 use crate::scene::display_list::DisplayList;
 use crate::surface::{Surface, SurfaceInfo};
 use crate::types::Rect;
@@ -46,6 +47,14 @@ pub trait Renderer {
     /// Frees caches and scratch the renderer can rebuild, between frames, for when the system
     /// reports memory low. The frame buffer and state a frame needs stay.
     fn trim_memory(&mut self) {}
+
+    /// Sets cached GPU image limits between frames. CPU renderers ignore this.
+    fn set_gpu_cache_limits(&mut self, _limits: GpuCacheLimits) {}
+
+    /// Cached image payload estimates; `None` for a CPU renderer.
+    fn gpu_cache_stats(&self) -> Option<GpuCacheStats> {
+        None
+    }
 
     /// What this renderer draws itself; anything else falls back or is left out, as the
     /// renderer's [`crate::Fallback`] says. The CPU rasterizer draws everything.

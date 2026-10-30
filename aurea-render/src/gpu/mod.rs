@@ -15,3 +15,4 @@ pub mod zengpu;
 pub use backend::{Gpu2dBackend, PixelFormat};
 pub use frame_plan::{FramePlan, GradientPlanEntry, ImagePlanEntry, TextPlanEntry};
 pub use renderer::Gpu2dRenderer;
+pub use texture_cache::{GpuCacheLimits, GpuCacheStats};

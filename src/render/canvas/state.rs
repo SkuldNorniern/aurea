@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 #[cfg(feature = "zengpu")]
 use aurea_render::ZenGpuContext;
-use aurea_render::{Color, Rect};
+use aurea_render::{Color, GpuCacheLimits, Rect};
 use aurea_runtime::DamageRegion;
 
 use super::DrawCallback;
@@ -25,6 +25,7 @@ pub(crate) struct CanvasState {
     pub needs_redraw: bool,
     /// Physical-pixel damage rect from the previous rendered frame.
     pub prev_frame_damage: Option<Rect>,
+    pub gpu_cache_limits: Option<GpuCacheLimits>,
     /// The device a ZenGPU canvas draws with, once known: given at creation, or made when its
     /// renderer first is.
     #[cfg(feature = "zengpu")]

@@ -19,6 +19,36 @@ pub const DEFAULT_CACHE_BYTES: usize = 256 << 20;
 /// Past this many remembered app-texture bindings the map starts over, costing one rebind each.
 const BOUND_CAP: usize = 1024;
 
+/// Limits for renderer-owned cached image textures. Textures needed by the current
+/// frame stay pinned and may exceed either limit; app-owned textures are separate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GpuCacheLimits {
+    pub max_textures: usize,
+    /// RGBA8 mip payload bytes, excluding driver alignment and allocator overhead.
+    pub max_bytes: usize,
+}
+
+impl Default for GpuCacheLimits {
+    fn default() -> Self {
+        Self {
+            max_textures: DEFAULT_CACHE_CAP,
+            max_bytes: DEFAULT_CACHE_BYTES,
+        }
+    }
+}
+
+/// Estimated image texture payload retained by a renderer. Driver allocation
+/// sizes and in-flight resources already handed back to the backend are excluded.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GpuCacheStats {
+    pub textures: usize,
+    pub bytes: usize,
+    /// Old textures still needed by a frame that upgraded them to mipmapped ones.
+    pub retired_textures: usize,
+    pub retired_bytes: usize,
+    pub limits: GpuCacheLimits,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct CacheKey {
     data_ptr: usize,
@@ -70,7 +100,8 @@ fn texture_bytes(mut width: u32, mut height: u32, mipmapped: bool) -> usize {
 /// Backend-agnostic LRU texture cache, bounded by entry count and by bytes.
 pub struct TextureCache {
     map: HashMap<CacheKey, Entry>,
-    retired: Vec<(u32, u64)>,
+    retired: Vec<(u32, u64, usize)>,
+    retired_bytes: usize,
     clock: u64,
     cap: usize,
     budget: usize,
@@ -92,12 +123,37 @@ impl TextureCache {
         Self {
             map: HashMap::new(),
             retired: Vec::new(),
+            retired_bytes: 0,
             clock: 0,
             cap,
             budget,
             bytes: 0,
             bound: HashMap::new(),
         }
+    }
+
+    pub fn stats(&self) -> GpuCacheStats {
+        GpuCacheStats {
+            textures: self.map.len(),
+            bytes: self.bytes,
+            retired_textures: self.retired.len(),
+            retired_bytes: self.retired_bytes,
+            limits: GpuCacheLimits {
+                max_textures: self.cap,
+                max_bytes: self.budget,
+            },
+        }
+    }
+
+    pub fn set_limits<B: Gpu2dBackend>(
+        &mut self,
+        limits: GpuCacheLimits,
+        backend: &mut B,
+        frame: u64,
+    ) {
+        self.cap = limits.max_textures;
+        self.budget = limits.max_bytes;
+        self.trim(backend, frame, 0, 0);
     }
 
     /// The shader slot for an app-made `texture`. Binding writes a descriptor, so each texture
@@ -142,6 +198,7 @@ impl TextureCache {
                 return Ok(entry.slot);
             }
             let plain = entry.slot;
+            let plain_bytes = entry.bytes;
             entry.slot = backend.upload_image_mipmapped(width, height, pixels)?;
             entry.mipmapped = true;
             let grown = texture_bytes(width, height, true);
@@ -149,7 +206,8 @@ impl TextureCache {
             entry.bytes = grown;
             let slot = entry.slot;
             if drawn_this_frame {
-                self.retired.push((plain, frame));
+                self.retired.push((plain, frame, plain_bytes));
+                self.retired_bytes = self.retired_bytes.saturating_add(plain_bytes);
             } else {
                 backend.evict_image(plain);
             }
@@ -208,14 +266,23 @@ impl TextureCache {
             backend.evict_image(entry.slot);
         }
         self.bytes = 0;
-        for (slot, _) in self.retired.drain(..) {
+        for (slot, _, _) in self.retired.drain(..) {
             backend.evict_image(slot);
         }
+        self.retired_bytes = 0;
     }
 
     fn over_limit(&self, extra_entries: usize, extra_bytes: usize) -> bool {
-        self.map.len() + extra_entries > self.cap
-            || self.bytes.saturating_add(extra_bytes) > self.budget
+        self.map
+            .len()
+            .saturating_add(self.retired.len())
+            .saturating_add(extra_entries)
+            > self.cap
+            || self
+                .bytes
+                .saturating_add(self.retired_bytes)
+                .saturating_add(extra_bytes)
+                > self.budget
     }
 
     /// Evict least-recently-used entries not pinned by `frame` until `extra_entries` and
@@ -268,8 +335,10 @@ impl TextureCache {
     }
 
     fn free_retired<B: Gpu2dBackend>(&mut self, backend: &mut B, frame: u64) {
-        self.retired.retain(|&(slot, used)| {
+        let retired_bytes = &mut self.retired_bytes;
+        self.retired.retain(|&(slot, used, bytes)| {
             if used < frame {
+                *retired_bytes -= bytes;
                 backend.evict_image(slot);
                 false
             } else {
@@ -419,6 +488,54 @@ mod tests {
             "the oldest from the last frame go, until the count fits"
         );
         assert!(backend.live.contains(&slot));
+    }
+
+    #[test]
+    fn changing_limits_trims_old_entries_and_counts_both_sides_of_mip_upgrades() {
+        let (mut cache, mut backend) = (TextureCache::new(), Slots::default());
+        let images = [pixels(), pixels(), pixels()];
+        for image in &images[..2] {
+            cache
+                .resolve(image, (4, 4), false, &mut backend, 1)
+                .expect("old frame");
+        }
+        cache
+            .resolve(&images[2], (4, 4), false, &mut backend, 2)
+            .expect("current frame");
+        let limits = GpuCacheLimits {
+            max_textures: 1,
+            max_bytes: 64,
+        };
+        cache.set_limits(limits, &mut backend, 2);
+        assert_eq!((cache.stats().textures, cache.stats().bytes), (1, 64));
+        assert_eq!(cache.stats().limits, limits);
+        assert_eq!(backend.evicted, [1, 2]);
+        cache
+            .resolve(&images[2], (4, 4), true, &mut backend, 2)
+            .expect("upgrade");
+        let stats = cache.stats();
+        assert_eq!(
+            (
+                stats.textures,
+                stats.bytes,
+                stats.retired_textures,
+                stats.retired_bytes
+            ),
+            (1, 84, 1, 64)
+        );
+        assert_eq!(backend.live.len(), 2, "both textures are pinned by frame 2");
+        cache.finish_frame(&mut backend, 3);
+        let stats = cache.stats();
+        assert_eq!(
+            (
+                stats.textures,
+                stats.bytes,
+                stats.retired_textures,
+                stats.retired_bytes
+            ),
+            (0, 0, 0, 0)
+        );
+        assert!(backend.live.is_empty());
     }
 
     #[test]

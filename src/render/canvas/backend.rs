@@ -85,8 +85,11 @@ pub(super) fn ensure_canvas_renderer(
         Some(context) => context,
         None => default_gpu_context(None)?,
     };
-    let gpu =
+    let mut gpu =
         ZenGpuRenderer::with_context(&handles, Arc::clone(&context), width, height, scale_factor)?;
+    if let Some(limits) = state.borrow().gpu_cache_limits {
+        gpu.set_gpu_cache_limits(limits);
+    }
     {
         let mut st = state.borrow_mut();
         st.gpu_context = Some(context);

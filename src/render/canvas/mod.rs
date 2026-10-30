@@ -5,8 +5,9 @@ use crate::platform::handles::{NativeWindowHandle, native_handle_from_canvas_ptr
 use crate::registry::handle_key;
 use crate::{AureaError, AureaResult};
 use aurea_render::{
-    ClickCallback, Color, CpuRasterizer, DrawingContext, FrameOutcome, GpuFeatures, HoverCallback,
-    InteractionRegistry, InteractiveId, Point, Renderer, RendererBackend, Surface, SurfaceInfo,
+    ClickCallback, Color, CpuRasterizer, DrawingContext, FrameOutcome, GpuCacheLimits,
+    GpuCacheStats, GpuFeatures, HoverCallback, InteractionRegistry, InteractiveId, Point, Renderer,
+    RendererBackend, Surface, SurfaceInfo,
 };
 use aurea_runtime::{DamageRegion, FrameScheduler};
 use aurea_runtime::{FrameInfo, TickerId};
@@ -112,6 +113,32 @@ impl Canvas {
             .unwrap_or(GpuFeatures::ALL)
     }
 
+    /// Sets cached GPU image limits between frames, including before the renderer
+    /// is created. Limits survive GPU recreation. CPU canvases ignore them.
+    pub fn set_gpu_cache_limits(&self, limits: GpuCacheLimits) -> AureaResult<()> {
+        self.ensure_live()?;
+        let mut state = self
+            .state
+            .try_borrow_mut()
+            .map_err(|_| AureaError::RenderingFailed)?;
+        let mut slot = self
+            .renderer
+            .try_borrow_mut()
+            .map_err(|_| AureaError::RenderingFailed)?;
+        state.gpu_cache_limits = Some(limits);
+        if let Some(renderer) = slot.as_mut() {
+            renderer.set_gpu_cache_limits(limits);
+        }
+        Ok(())
+    }
+
+    /// Estimated cached GPU image payload. `None` before GPU creation, for a CPU
+    /// canvas, or while its renderer is borrowed by a draw callback.
+    pub fn gpu_cache_stats(&self) -> Option<GpuCacheStats> {
+        self.ensure_live().ok()?;
+        self.renderer.try_borrow().ok()?.as_ref()?.gpu_cache_stats()
+    }
+
     /// Get canvas dimensions.
     pub fn size(&self) -> (u32, u32) {
         let st = self.state.borrow_mut();
@@ -195,6 +222,7 @@ impl Canvas {
             draw_callback: None,
             needs_redraw: false,
             prev_frame_damage: None,
+            gpu_cache_limits: None,
             #[cfg(feature = "zengpu")]
             gpu_context: None,
             #[cfg(feature = "zengpu")]

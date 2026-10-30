@@ -20,6 +20,7 @@ use super::backend::{Gpu2dBackend, PixelFormat};
 use super::frame_plan::FramePlan;
 use super::resolve::resolve_frame;
 use super::texture_cache::TextureCache;
+use super::{GpuCacheLimits, GpuCacheStats};
 
 /// A 2D GPU renderer parameterized over its device backend.
 pub struct Gpu2dRenderer<B: Gpu2dBackend> {
@@ -139,6 +140,17 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
     /// and shown through the backend.
     pub fn set_fallback(&mut self, fallback: Fallback) {
         self.fallback = fallback;
+    }
+
+    /// Sets image-cache limits and immediately drops unpinned entries until they
+    /// fit. The last frame's pinned entries remain valid even above the limits.
+    pub fn set_gpu_cache_limits(&mut self, limits: GpuCacheLimits) {
+        self.texture_cache
+            .set_limits(limits, &mut self.backend, self.frame_counter);
+    }
+
+    pub fn gpu_cache_stats(&self) -> GpuCacheStats {
+        self.texture_cache.stats()
     }
 
     /// The kinds of drawing the last frame used that the backend lacks.
@@ -465,6 +477,14 @@ impl<B: Gpu2dBackend> Renderer for Gpu2dRenderer<B> {
 
     fn trim_memory(&mut self) {
         Self::trim_memory(self);
+    }
+
+    fn set_gpu_cache_limits(&mut self, limits: GpuCacheLimits) {
+        Self::set_gpu_cache_limits(self, limits);
+    }
+
+    fn gpu_cache_stats(&self) -> Option<GpuCacheStats> {
+        Some(Self::gpu_cache_stats(self))
     }
 
     fn frame_output(&self) -> Option<FrameOutput<'_>> {
@@ -1158,6 +1178,21 @@ mod tests {
                 .expect("rect");
         }
         r.end_frame().expect("end")
+    }
+
+    #[test]
+    fn cache_limits_and_stats_are_available_through_the_renderer_trait() {
+        let mut renderer = renderer(FrameOutcome::Presented);
+        let limits = GpuCacheLimits {
+            max_textures: 7,
+            max_bytes: 8192,
+        };
+        let renderer: &mut dyn Renderer = &mut renderer;
+        renderer.set_gpu_cache_limits(limits);
+        let stats = renderer.gpu_cache_stats().expect("GPU stats");
+        assert_eq!(stats.limits, limits);
+        assert_eq!((stats.textures, stats.bytes), (0, 0));
+        assert!(CpuRasterizer::new(1, 1).gpu_cache_stats().is_none());
     }
 
     #[test]
