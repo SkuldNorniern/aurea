@@ -1,6 +1,6 @@
 //! Device-rasterized path coverage, shared by every draw under the same clip.
 
-use std::mem::{size_of_val, take};
+use std::mem::{size_of, size_of_val, take};
 use std::sync::Arc;
 
 use zengpu::native::NativeDevice;
@@ -14,9 +14,11 @@ use crate::cpu::path::{Edge, tessellate_path_into};
 use crate::geometry::FillRule;
 use crate::gpu::FramePlan;
 use crate::numeric::f32_to_u32_clamped;
-use crate::types::{Path, Rect};
+use crate::types::{Path, PathCommand, Rect};
 
 const CACHE_BYTES: u64 = 32 << 20;
+const CACHE_MASKS: usize = 256;
+const SCRATCH_BYTES: usize = 1 << 20;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(super) struct ClipBinding {
@@ -54,6 +56,13 @@ impl Mask {
         u64::from(f32_to_u32_clamped(self.rect.width))
             * u64::from(f32_to_u32_clamped(self.rect.height))
             * 4
+            + size_of::<Self>() as u64
+            + size_of_val(&*self.paths) as u64
+            + self
+                .paths
+                .iter()
+                .map(|p| (p.commands.capacity() * size_of::<PathCommand>()) as u64)
+                .sum::<u64>()
     }
 
     fn poll(&mut self, device: &NativeDevice) -> Result<bool> {
@@ -201,6 +210,14 @@ impl ClipMasks {
             }) {
                 Some(index) => index,
                 None => {
+                    // Small masks can exhaust descriptors before reaching the byte budget.
+                    // Retire a previous-frame mask before allocating its replacement.
+                    if self.masks.len() >= CACHE_MASKS
+                        && let Some(index) = self.oldest_unused()
+                    {
+                        let mask = self.masks.swap_remove(index);
+                        self.retire(device, mask)?;
+                    }
                     let pipeline = pipeline
                         .ok_or_else(|| GpuError::Unsupported("GPU path coverage".into()))?;
                     self.create_mask(device, paths, rect, pipeline)?;
@@ -216,21 +233,30 @@ impl ClipMasks {
             });
         }
         let mut bytes: u64 = self.masks.iter().map(Mask::bytes).sum();
-        while bytes > CACHE_BYTES {
-            let Some((index, _)) = self
-                .masks
-                .iter()
-                .enumerate()
-                .filter(|(_, m)| m.frame != self.frame)
-                .min_by_key(|(_, m)| m.frame)
-            else {
+        while bytes > CACHE_BYTES || self.masks.len() > CACHE_MASKS {
+            let Some(index) = self.oldest_unused() else {
                 break;
             };
             let mask = self.masks.swap_remove(index);
             bytes -= mask.bytes();
             self.retire(device, mask)?;
         }
+        if self.packed.capacity() > SCRATCH_BYTES / size_of::<f32>() {
+            self.packed = Vec::new();
+        }
+        if self.edges.capacity() > SCRATCH_BYTES / size_of::<Edge>() {
+            self.edges = Vec::new();
+        }
         Ok(())
+    }
+
+    fn oldest_unused(&self) -> Option<usize> {
+        self.masks
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| m.frame != self.frame)
+            .min_by_key(|(_, m)| m.frame)
+            .map(|(index, _)| index)
     }
 
     fn create_mask(
@@ -382,7 +408,7 @@ mod tests {
     use crate::cpu::CpuRasterizer;
     use crate::gpu::batch::DrawRef;
     use crate::gpu::zengpu::{ZenGpuContext, pipelines::Pipelines};
-    use crate::types::{Paint, PathCommand, Point};
+    use crate::types::{Paint, Point};
     use zengpu_hal::TextureRegion;
 
     #[test]
@@ -492,6 +518,20 @@ mod tests {
             plan.viewport_width = 32;
             cache.prepare(device, &plan, Some(pipeline)).unwrap();
             assert_ne!(cache.bindings[0], binding, "resize changes mask crop");
+        }
+        // Moving tiny clips must respect the descriptor budget even when texels
+        // alone stay far below the byte limit.
+        for i in 0..CACHE_MASKS + 4 {
+            let path = Path::rounded_rect(Rect::new(0.0, 0.0, 1.0 + i as f32 / 1000.0, 1.0), 0.0);
+            let plan = FramePlan {
+                viewport_width: 2,
+                viewport_height: 2,
+                order: vec![DrawRef::Rect(0)],
+                path_clips: vec![Some(vec![path].into())],
+                ..Default::default()
+            };
+            cache.prepare(device, &plan, Some(pipeline)).unwrap();
+            assert!(cache.masks.len() <= CACHE_MASKS);
         }
         device.wait_idle().unwrap();
         cache.trim(device);
