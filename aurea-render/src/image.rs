@@ -1,5 +1,10 @@
 //! Pixels to draw: images, and the coverage masks text is drawn from.
 
+mod downsample;
+pub(crate) use downsample::area_downsample;
+
+use aurea_foundation::AureaResult;
+
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 
@@ -42,6 +47,30 @@ impl Image {
     /// Identity of the pixel data; stable across clones.
     pub fn id(&self) -> u64 {
         self.id
+    }
+
+    /// Builds a smaller RGBA8 image with an alpha-aware area average. Safe to
+    /// call on a worker; no renderer or GPU is required. Transparent texels do
+    /// not darken visible colours. A same-size request shares the original data.
+    /// Averages stored channel values without colour-profile or gamma conversion.
+    ///
+    /// Rejects zero dimensions, enlargement, and short source data. Output is
+    /// never larger than the source. Pixel and weight buffers use fallible
+    /// reservations. Normal `Image` construction still allocates shared storage. Temporary
+    /// weights use two flat buffers per resampled axis, with no weight buffers
+    /// for unchanged axes; no premultiplied copy of the source is allocated.
+    pub fn downsampled(&self, width: u32, height: u32) -> AureaResult<Self> {
+        let source_size = (self.width, self.height);
+        let target_size = (width, height);
+        downsample::validate(&self.data, source_size, target_size)?;
+        if source_size == target_size {
+            return Ok(self.clone());
+        }
+        Ok(Self::new(
+            width,
+            height,
+            area_downsample(&self.data, source_size, target_size)?,
+        ))
     }
 
     /// Says whether every pixel is at full alpha, for a maker that already knows (a tile from a
@@ -153,6 +182,46 @@ impl GlyphMask {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn worker_downsampling_preserves_alpha_and_averages_odd_edges() {
+        let source = Image::new(3, 1, vec![255, 0, 0, 255, 255, 255, 255, 0, 0, 0, 255, 255]);
+        let small = source.downsampled(1, 1).unwrap();
+        assert_eq!(&*small.data, [128, 0, 128, 170]);
+        let clear = Image::new(2, 2, vec![0; 16]).downsampled(1, 1).unwrap();
+        assert_eq!(&*clear.data, [0; 4]);
+        let opaque = Image::new(
+            2,
+            2,
+            vec![
+                255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+            ],
+        );
+        assert_eq!(
+            &*opaque.downsampled(1, 1).unwrap().data,
+            [128, 128, 128, 255]
+        );
+        assert_eq!(
+            &*opaque.downsampled(2, 1).unwrap().data,
+            [128, 0, 128, 255, 128, 255, 128, 255]
+        );
+    }
+
+    #[test]
+    fn downsampling_reuses_identity_and_rejects_invalid_dimensions_or_data() {
+        let source = Image::new(2, 1, vec![255; 8]);
+        let same = source.downsampled(2, 1).unwrap();
+        assert!(Arc::ptr_eq(&source.data, &same.data));
+        assert_eq!(source.id(), same.id());
+        assert!(source.downsampled(0, 1).is_err());
+        assert!(source.downsampled(3, 1).is_err());
+        assert!(Image::new(3, 1, vec![0; 8]).downsampled(1, 1).is_err());
+        assert!(
+            Image::new(u32::MAX, u32::MAX, Vec::new())
+                .downsampled(1, 1)
+                .is_err()
+        );
+    }
 
     #[cfg(feature = "zengpu")]
     #[test]

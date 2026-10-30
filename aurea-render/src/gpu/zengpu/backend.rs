@@ -31,8 +31,9 @@ use crate::capabilities::GpuFeatures;
 use crate::gpu::backend::full_frame_plan;
 use crate::gpu::batch::{DrawRef, RectInstance, ShapeInstance};
 use crate::gpu::{FramePlan, Gpu2dBackend, Gpu2dRenderer, PixelFormat};
+use crate::image::area_downsample;
 use crate::memory::smaller_buffer;
-use crate::numeric::{f32_to_u8_clamped, f32_to_u32_clamped};
+use crate::numeric::f32_to_u32_clamped;
 use crate::renderer::FrameOutcome;
 use crate::surface::pixel_size;
 use crate::types::{GpuTexture, Image, Rect, Sampling};
@@ -440,7 +441,8 @@ fn upload_levels(
     let (mut w, mut h) = (width, height);
     for _ in 1..levels {
         let (dw, dh) = ((w >> 1).max(1), (h >> 1).max(1));
-        let level = area_downsample(chain.last().map_or(rgba, Vec::as_slice), (w, h), (dw, dh));
+        let level = area_downsample(chain.last().map_or(rgba, Vec::as_slice), (w, h), (dw, dh))
+            .map_err(|_| GpuError::Backend("CPU mip filtering failed".into()))?;
         chain.push(level);
         (w, h) = (dw, dh);
     }
@@ -542,58 +544,6 @@ fn gpu_mip_chain(
         dependencies: upload.into_iter().collect(),
         destroy: false,
     })
-}
-
-fn area_downsample(src: &[u8], (sw, sh): (u32, u32), (dw, dh): (u32, u32)) -> Vec<u8> {
-    fn spans(src: u32, dst: u32) -> Vec<Vec<(usize, f32)>> {
-        let ratio = src as f32 / dst as f32;
-        (0..dst)
-            .map(|i| {
-                let (lo, hi) = (i as f32 * ratio, (i + 1) as f32 * ratio);
-                let first = f32_to_u32_clamped(lo.floor());
-                let last = f32_to_u32_clamped(hi.ceil()).min(src);
-                (first..last)
-                    .map(|t| {
-                        let weight = hi.min((t + 1) as f32) - lo.max(t as f32);
-                        (t as usize, weight.max(0.0) / ratio)
-                    })
-                    .collect()
-            })
-            .collect()
-    }
-    let (xs, ys) = (spans(sw, dw), spans(sh, dh));
-    let mut out = Vec::with_capacity(dw as usize * dh as usize * 4);
-    for row in &ys {
-        for column in &xs {
-            let mut sum = [0.0f32; 4];
-            for &(y, wy) in row {
-                for &(x, wx) in column {
-                    let at = (y * sw as usize + x) * 4;
-                    let p = &src[at..at + 4];
-                    let a = f32::from(p[3]) * wx * wy;
-                    sum[0] += f32::from(p[0]) * a;
-                    sum[1] += f32::from(p[1]) * a;
-                    sum[2] += f32::from(p[2]) * a;
-                    sum[3] += a;
-                }
-            }
-            let alpha = sum[3];
-            let straight = |c: f32| {
-                if alpha > 0.0 {
-                    f32_to_u8_clamped((c / alpha).round())
-                } else {
-                    0
-                }
-            };
-            out.extend_from_slice(&[
-                straight(sum[0]),
-                straight(sum[1]),
-                straight(sum[2]),
-                f32_to_u8_clamped(alpha.round()),
-            ]);
-        }
-    }
-    out
 }
 
 struct FrameBuffers {
@@ -1661,10 +1611,16 @@ mod context_tests {
     #[test]
     fn area_mips_cover_odd_edges_without_darkening_clear_texels() {
         let src = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255];
-        assert_eq!(area_downsample(&src, (3, 1), (1, 1)), [85, 85, 85, 255]);
+        assert_eq!(
+            area_downsample(&src, (3, 1), (1, 1)).unwrap(),
+            [85, 85, 85, 255]
+        );
         let src = [255, 255, 255, 255, 0, 0, 0, 0];
-        assert_eq!(area_downsample(&src, (2, 1), (1, 1)), [255, 255, 255, 128]);
-        assert_eq!(area_downsample(&[0; 16], (2, 2), (1, 1)), [0; 4]);
+        assert_eq!(
+            area_downsample(&src, (2, 1), (1, 1)).unwrap(),
+            [255, 255, 255, 128]
+        );
+        assert_eq!(area_downsample(&[0; 16], (2, 2), (1, 1)).unwrap(), [0; 4]);
     }
 
     #[test]
@@ -1726,7 +1682,8 @@ mod context_tests {
         let (mut w, mut h) = (width, height);
         for _ in 1..levels {
             let (dw, dh) = ((w >> 1).max(1), (h >> 1).max(1));
-            let next = area_downsample(chain.last().expect("level"), (w, h), (dw, dh));
+            let next =
+                area_downsample(chain.last().expect("level"), (w, h), (dw, dh)).expect("CPU mip");
             chain.push(next);
             (w, h) = (dw, dh);
         }
