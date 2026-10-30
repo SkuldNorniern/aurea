@@ -6881,10 +6881,11 @@ mod clip_edge_tests {
             .collect();
         scratch.clip.find_edges();
         assert_eq!(
-            scratch.clip.edges,
-            [0..1024],
+            scratch.clip.edges.len(),
+            1,
             "fragmentation uses one bounded run"
         );
+        assert_eq!(scratch.clip.edges[0], 0..1024);
         scratch.clip.coverage.fill(0);
         scratch.clip.find_edges();
         assert!(!scratch.clip.has_coverage);

@@ -1500,6 +1500,7 @@ mod context_tests {
     }
 
     #[test]
+    #[allow(clippy::cognitive_complexity)] // Pixel oracle and resource reuse share the same scene.
     fn offscreen_frames_match_the_cpu_at_150_percent() {
         let Ok(context) = ZenGpuContext::new() else {
             return;
@@ -2323,6 +2324,7 @@ mod context_tests {
     }
 
     #[test]
+    #[allow(clippy::cognitive_complexity)] // Verify pixels and storage across fallback and trimming.
     fn a_cpu_frame_reuses_its_texture_and_keeps_its_colours() {
         let Ok(context) = ZenGpuContext::new() else {
             return;

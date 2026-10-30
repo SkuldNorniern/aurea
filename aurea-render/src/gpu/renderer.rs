@@ -770,6 +770,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cognitive_complexity)] // Verify each boundary of the same layered frame.
     fn consecutive_textures_only_allocate_cpu_layers_for_drawn_runs() {
         let mut r = with_features(
             FrameOutcome::Presented,
@@ -1260,6 +1261,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cognitive_complexity)] // Exercise the timer's complete frame lifecycle.
     fn frame_timers_are_opt_in_and_clear_on_skipped_and_failed_frames() {
         let mut r = renderer(FrameOutcome::Presented);
         rect_frame(&mut r, 10.0);
