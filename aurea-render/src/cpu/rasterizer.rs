@@ -4,6 +4,7 @@ use std::cell::RefCell;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::iter;
 use std::mem;
+use std::ops::Range;
 use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
@@ -386,16 +387,9 @@ impl CpuRasterizer {
         if boxed.is_empty() {
             return Ok(());
         }
-        let (x0, x1) = (boxed.x0 as usize, boxed.x1 as usize);
         let (w, h) = (boxed.x1 - boxed.x0, boxed.y1 - boxed.y0);
-        let s = &mut scratch_row.clip;
-        s.saved.clear();
-        for y in boxed.y0..boxed.y1 {
-            let row = y as usize * bw as usize;
-            s.saved.extend_from_slice(&buf[row + x0..row + x1]);
-        }
-        Self::render_item(item, buf, scratch_path, scratch_row, bw, clip)?;
-
+        let width = w as usize;
+        let len = width * h as usize;
         let s = &mut scratch_row.clip;
         let cached = match (&s.key, item.clip_paths.as_ref()) {
             (Some((key, key_box)), Some(now)) => Arc::ptr_eq(key, now) && *key_box == boxed,
@@ -405,10 +399,10 @@ impl CpuRasterizer {
             let origin = Point::new(boxed.x0 as f32, boxed.y0 as f32);
             s.key = None;
             s.coverage.clear();
-            s.coverage.resize(s.saved.len(), 255);
+            s.coverage.resize(len, 255);
             for path in paths {
                 s.words.clear();
-                s.words.resize(s.saved.len(), 0);
+                s.words.resize(len, 0);
                 Self::draw_alpha(
                     path,
                     &Paint::new(),
@@ -422,27 +416,15 @@ impl CpuRasterizer {
                     *c = f32_to_u8_clamped((f32::from(*c) * f32::from(m) / 255.0).round());
                 }
             }
+            s.find_edges();
             s.key = item.clip_paths.clone().map(|p| (p, boxed));
         }
-        let mut at = 0;
-        for y in boxed.y0..boxed.y1 {
-            let row = y as usize * bw as usize;
-            for px in &mut buf[row + x0..row + x1] {
-                let (old, cov) = (s.saved[at], u32::from(s.coverage[at]));
-                at += 1;
-                *px = match cov {
-                    255 => *px,
-                    0 => old,
-                    _ => {
-                        let mix = |shift: u32| {
-                            let (o, n) = ((old >> shift) & 0xFF, (*px >> shift) & 0xFF);
-                            ((o * (255 - cov) + n * cov + 127) / 255) << shift
-                        };
-                        mix(24) | mix(16) | mix(8) | mix(0)
-                    }
-                };
-            }
+        if !s.has_coverage {
+            return Ok(());
         }
+        s.save_backdrop(buf, bw, boxed);
+        Self::render_item(item, buf, scratch_path, scratch_row, bw, clip)?;
+        scratch_row.clip.restore_edges(buf, bw, boxed);
         Ok(())
     }
 
@@ -2294,14 +2276,97 @@ pub(super) struct ImageScratch {
 /// Buffers a clipped item reuses, and the coverage they last held.
 #[derive(Default)]
 pub(super) struct ClipScratch {
-    /// Pixels under the clip box before the item was drawn.
+    /// Backdrop only where clip coverage is less than full.
     saved: Vec<u32>,
     /// Antialiased clip coverage per pixel of the box.
     coverage: Vec<u8>,
     /// One clip path's coverage, as words.
     words: Vec<u32>,
+    /// Non-full-coverage runs in box-relative row-major order.
+    edges: Vec<Range<usize>>,
+    has_coverage: bool,
     /// The clip paths and box `coverage` was built for.
     key: Option<(Arc<[Path]>, ClipBox)>,
+}
+
+impl ClipScratch {
+    fn save_backdrop(&mut self, buf: &Band<'_>, bw: u32, boxed: ClipBox) {
+        let width = (boxed.x1 - boxed.x0) as usize;
+        // Fully covered interiors need neither a saved backdrop nor another composite.
+        // Runs may cross mask rows, whose width differs from the framebuffer stride.
+        self.saved.clear();
+        let saved_len = self.edges.iter().map(|r| r.end - r.start).sum();
+        if let Some(smaller) = smaller_buffer(self.saved.capacity(), saved_len) {
+            self.saved = smaller;
+        }
+        self.saved.reserve(saved_len);
+        for run in &self.edges {
+            let mut at = run.start;
+            while at < run.end {
+                let x = at % width;
+                let count = (run.end - at).min(width - x);
+                let dst = (boxed.y0 as usize + at / width) * bw as usize + boxed.x0 as usize + x;
+                self.saved.extend_from_slice(&buf[dst..dst + count]);
+                at += count;
+            }
+        }
+    }
+
+    fn restore_edges(&self, buf: &mut Band<'_>, bw: u32, boxed: ClipBox) {
+        let width = (boxed.x1 - boxed.x0) as usize;
+        let mut saved_at = 0;
+        for run in &self.edges {
+            let mut at = run.start;
+            while at < run.end {
+                let x = at % width;
+                let count = (run.end - at).min(width - x);
+                let dst = (boxed.y0 as usize + at / width) * bw as usize + boxed.x0 as usize + x;
+                for (px, &coverage) in buf[dst..dst + count]
+                    .iter_mut()
+                    .zip(&self.coverage[at..at + count])
+                {
+                    let (old, cov) = (self.saved[saved_at], u32::from(coverage));
+                    saved_at += 1;
+                    *px = match cov {
+                        255 => *px,
+                        0 => old,
+                        _ => {
+                            let mix = |shift: u32| {
+                                let (o, n) = ((old >> shift) & 0xFF, (*px >> shift) & 0xFF);
+                                ((o * (255 - cov) + n * cov + 127) / 255) << shift
+                            };
+                            mix(24) | mix(16) | mix(8) | mix(0)
+                        }
+                    };
+                }
+                at += count;
+            }
+        }
+    }
+
+    fn find_edges(&mut self) {
+        self.has_coverage = self.coverage.iter().any(|&c| c != 0);
+        self.edges.clear();
+        // Fragmented masks fall back to a full-box run: metadata must stay bounded.
+        let limit = (self.coverage.len() / 16).clamp(1, 4096);
+        let mut at = 0;
+        while at < self.coverage.len() {
+            if self.coverage[at] == 255 {
+                at += 1;
+                continue;
+            }
+            let start = at;
+            while at < self.coverage.len() && self.coverage[at] != 255 {
+                at += 1;
+            }
+            if self.edges.len() == limit {
+                self.edges.clear();
+                self.edges.push(0..self.coverage.len());
+                break;
+            }
+            self.edges.push(start..at);
+        }
+    }
 }
 
 /// Padding around an item's bounds for antialiasing, enough that snapping to the pixel grid
@@ -6649,6 +6714,237 @@ mod alloc_measure {
         let a = assets();
         for threads in [1, 4] {
             run(threads, &a, trace);
+        }
+    }
+}
+
+#[cfg(test)]
+mod clip_edge_tests {
+    use super::*;
+    use crate::scene::display_list::DisplayIndex;
+
+    fn item(size: u32, paths: Vec<Path>, mode: BlendMode) -> DisplayItem {
+        let rect = Rect::new(7.0, 5.0, size as f32 - 14.0, size as f32 - 10.0);
+        DisplayItem::new(
+            DisplayIndex(0),
+            CacheKey(0),
+            rect,
+            false,
+            mode,
+            DrawCommand::DrawRect(rect, Paint::new().color(Color::rgba(80, 170, 210, 143))),
+        )
+        .with_clip_paths(Some(paths.into()))
+        .with_opacity(0.7)
+    }
+
+    fn draw(
+        item: &DisplayItem,
+        pixels: &mut [u32],
+        width: u32,
+        scratch: &mut ImageScratch,
+        reference: bool,
+    ) {
+        let clip = ClipBox::surface(width, width).intersect(Rect::new(
+            3.0,
+            2.0,
+            width as f32 - 6.0,
+            width as f32 - 4.0,
+        ));
+        let draw = if reference {
+            CpuRasterizer::reference_clipped_item
+        } else {
+            CpuRasterizer::render_clipped_item
+        };
+        draw(
+            item,
+            &mut Band::whole(pixels),
+            &mut PathScratch::default(),
+            scratch,
+            width,
+            clip,
+        )
+        .expect("clipped item");
+    }
+
+    #[test]
+    fn edge_only_clips_match_full_box_for_nested_masks_and_blending() {
+        const SIZE: u32 = 93;
+        let rounded = Path::rounded_rect(Rect::new(9.3, 6.7, 72.4, 76.1), 13.5);
+        let triangle = Path {
+            commands: vec![
+                PathCommand::MoveTo(Point::new(5.4, 4.8)),
+                PathCommand::LineTo(Point::new(89.1, 13.2)),
+                PathCommand::LineTo(Point::new(64.7, 88.8)),
+                PathCommand::Close,
+            ],
+            ..Path::new()
+        };
+        for paths in [
+            vec![],
+            vec![Path::new()],
+            vec![rounded.clone()],
+            vec![triangle.clone()],
+            vec![rounded.clone(), triangle],
+        ] {
+            for mode in [BlendMode::Normal, BlendMode::Multiply, BlendMode::Screen] {
+                let item = item(SIZE, paths.clone(), mode);
+                let mut fast = ImageScratch::default();
+                let mut slow = ImageScratch::default();
+                for round in 0..3 {
+                    let mut expected: Vec<u32> = (0..SIZE * SIZE)
+                        .map(|i| i.wrapping_mul(123456789).wrapping_add(round))
+                        .collect();
+                    let mut actual = expected.clone();
+                    draw(&item, &mut expected, SIZE, &mut slow, true);
+                    draw(&item, &mut actual, SIZE, &mut fast, false);
+                    assert_eq!(actual, expected, "cached pass {round}, {mode:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn rounded_clip_keeps_only_edges_and_fragmented_masks_bound_metadata() {
+        let item = item(
+            1024,
+            vec![Path::rounded_rect(
+                Rect::new(7.0, 5.0, 1010.0, 1014.0),
+                24.0,
+            )],
+            BlendMode::Normal,
+        );
+        let mut scratch = ImageScratch::default();
+        draw(&item, &mut vec![0; 1024 * 1024], 1024, &mut scratch, false);
+        assert!(scratch.clip.saved.len() < 20000, "interior is not copied");
+        assert!(scratch.clip.coverage.len() > 1_000_000);
+        scratch.clip.coverage = (0..1024)
+            .map(|i| if i % 2 == 0 { 0 } else { 255 })
+            .collect();
+        scratch.clip.find_edges();
+        assert_eq!(
+            scratch.clip.edges,
+            [0..1024],
+            "fragmentation uses one bounded run"
+        );
+        scratch.clip.coverage.fill(0);
+        scratch.clip.find_edges();
+        assert!(!scratch.clip.has_coverage);
+        scratch.clip.coverage.fill(255);
+        scratch.clip.find_edges();
+        assert!(
+            scratch.clip.edges.is_empty(),
+            "fully covered clip saves no backdrop"
+        );
+    }
+
+    #[test]
+    #[ignore = "manual clip edge benchmark"]
+    fn clipped_panel_timing() {
+        use std::hint::black_box;
+        const SIZE: u32 = 2048;
+        let item = item(
+            SIZE,
+            vec![Path::rounded_rect(
+                Rect::new(7.0, 5.0, 2034.0, 2038.0),
+                32.0,
+            )],
+            BlendMode::Normal,
+        );
+        for reference in [true, false] {
+            let mut scratch = ImageScratch::default();
+            let mut pixels = vec![0xff102030; SIZE as usize * SIZE as usize];
+            draw(&item, &mut pixels, SIZE, &mut scratch, reference);
+            let started = Instant::now();
+            for _ in 0..100 {
+                draw(&item, black_box(&mut pixels), SIZE, &mut scratch, reference);
+            }
+            eprintln!(
+                "clip reference={reference}: {:.3} ms/draw, {} saved bytes",
+                started.elapsed().as_secs_f64() * 10.0,
+                scratch.clip.saved.len() * 4
+            );
+        }
+    }
+
+    impl CpuRasterizer {
+        #[allow(clippy::too_many_arguments)]
+        fn reference_clipped_item(
+            item: &DisplayItem,
+            buf: &mut Band<'_>,
+            scratch_path: &mut PathScratch,
+            scratch_row: &mut ImageScratch,
+            bw: u32,
+            clip: ClipBox,
+        ) -> AureaResult<()> {
+            let Some(paths) = item.clip_paths.as_deref() else {
+                return Self::render_item(item, buf, scratch_path, scratch_row, bw, clip);
+            };
+            if clip.is_empty() {
+                return Ok(());
+            }
+            // Only the pixels the item can reach change, so only those are saved and restored.
+            let boxed = item_clip_box(item, clip);
+            if boxed.is_empty() {
+                return Ok(());
+            }
+            let (x0, x1) = (boxed.x0 as usize, boxed.x1 as usize);
+            let (w, h) = (boxed.x1 - boxed.x0, boxed.y1 - boxed.y0);
+            let s = &mut scratch_row.clip;
+            s.saved.clear();
+            for y in boxed.y0..boxed.y1 {
+                let row = y as usize * bw as usize;
+                s.saved.extend_from_slice(&buf[row + x0..row + x1]);
+            }
+            Self::render_item(item, buf, scratch_path, scratch_row, bw, clip)?;
+
+            let s = &mut scratch_row.clip;
+            let cached = match (&s.key, item.clip_paths.as_ref()) {
+                (Some((key, key_box)), Some(now)) => Arc::ptr_eq(key, now) && *key_box == boxed,
+                _ => false,
+            };
+            if !cached {
+                let origin = Point::new(boxed.x0 as f32, boxed.y0 as f32);
+                s.key = None;
+                s.coverage.clear();
+                s.coverage.resize(s.saved.len(), 255);
+                for path in paths {
+                    s.words.clear();
+                    s.words.resize(s.saved.len(), 0);
+                    Self::draw_alpha(
+                        path,
+                        &Paint::new(),
+                        origin,
+                        (w, h),
+                        &mut s.words,
+                        scratch_path,
+                    )?;
+                    for (c, px) in s.coverage.iter_mut().zip(&s.words) {
+                        let m = (*px >> 24) as u8;
+                        *c = f32_to_u8_clamped((f32::from(*c) * f32::from(m) / 255.0).round());
+                    }
+                }
+                s.key = item.clip_paths.clone().map(|p| (p, boxed));
+            }
+            let mut at = 0;
+            for y in boxed.y0..boxed.y1 {
+                let row = y as usize * bw as usize;
+                for px in &mut buf[row + x0..row + x1] {
+                    let (old, cov) = (s.saved[at], u32::from(s.coverage[at]));
+                    at += 1;
+                    *px = match cov {
+                        255 => *px,
+                        0 => old,
+                        _ => {
+                            let mix = |shift: u32| {
+                                let (o, n) = ((old >> shift) & 0xFF, (*px >> shift) & 0xFF);
+                                ((o * (255 - cov) + n * cov + 127) / 255) << shift
+                            };
+                            mix(24) | mix(16) | mix(8) | mix(0)
+                        }
+                    };
+                }
+            }
+            Ok(())
         }
     }
 }
