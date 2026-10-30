@@ -27,6 +27,26 @@ impl ClipboardImage {
         decode_png(bytes, max_bytes)
     }
 
+    /// Replaces pixels from PNG, reusing this image's RGBA allocation when it
+    /// fits. On failure the image becomes empty and keeps its allocation for a
+    /// retry. `max_bytes` limits input, decoded pixels and the PNG decoder's own
+    /// budget separately, not their combined peak or an existing buffer capacity.
+    pub fn decode_png_into(&mut self, bytes: &[u8], max_bytes: usize) -> AureaResult<()> {
+        self.width = 0;
+        self.height = 0;
+        match decode_png_pixels(bytes, max_bytes, &mut self.rgba) {
+            Ok((width, height)) => {
+                self.width = width;
+                self.height = height;
+                Ok(())
+            }
+            Err(error) => {
+                self.rgba.clear();
+                Err(error)
+            }
+        }
+    }
+
     /// Encodes a top-down Windows DIBV5 with explicit straight-alpha masks.
     pub fn to_dib(&self) -> AureaResult<Vec<u8>> {
         encode_dib(self)
@@ -88,6 +108,20 @@ pub(super) fn encode_png(image: &ClipboardImage) -> AureaResult<Vec<u8>> {
     Ok(bytes)
 }
 pub(super) fn decode_png(bytes: &[u8], max_bytes: usize) -> AureaResult<ClipboardImage> {
+    let mut image = ClipboardImage {
+        width: 0,
+        height: 0,
+        rgba: Vec::new(),
+    };
+    image.decode_png_into(bytes, max_bytes)?;
+    Ok(image)
+}
+
+fn decode_png_pixels(
+    bytes: &[u8],
+    max_bytes: usize,
+    rgba: &mut Vec<u8>,
+) -> AureaResult<(u32, u32)> {
     if bytes.len() > max_bytes {
         return Err(limit_error());
     }
@@ -101,56 +135,41 @@ pub(super) fn decode_png(bytes: &[u8], max_bytes: usize) -> AureaResult<Clipboar
     if size > count {
         return Err(AureaError::ElementOperationFailed);
     }
-    let mut decoded = buffer(size)?;
-    let output = reader.next_frame(&mut decoded).map_err(decode_error)?;
+    rgba.try_reserve_exact(count.saturating_sub(rgba.len()))
+        .map_err(invalid)?;
+    rgba.resize(count, 0);
+    // Decode into the final allocation. Expansion proceeds backward so packed
+    // source pixels are never overwritten before they have been consumed.
+    let output = reader.next_frame(&mut rgba[..size]).map_err(decode_error)?;
     let (width, height) = (output.width, output.height);
     let count = pixel_bytes(width, height, max_bytes)?;
-    decoded.truncate(output.buffer_size());
-    if output.color_type == ColorType::Rgba {
-        if decoded.len() != count {
-            return Err(AureaError::ElementOperationFailed);
-        }
-        return Ok(ClipboardImage {
-            width,
-            height,
-            rgba: decoded,
-        });
+    rgba.truncate(count);
+    if output.bit_depth != BitDepth::Eight {
+        return Err(AureaError::ElementOperationFailed);
     }
-    let mut rgba = buffer(count)?;
-    match output.color_type {
-        ColorType::Rgba => return Err(AureaError::ElementOperationFailed),
-        ColorType::Rgb => {
-            for (rgb, rgba) in decoded
-                .as_chunks::<3>()
-                .0
-                .iter()
-                .zip(rgba.as_chunks_mut::<4>().0.iter_mut())
-            {
-                rgba.copy_from_slice(&[rgb[0], rgb[1], rgb[2], 255]);
-            }
-        }
-        ColorType::Grayscale => {
-            for (&gray, rgba) in decoded.iter().zip(rgba.as_chunks_mut::<4>().0.iter_mut()) {
-                rgba.copy_from_slice(&[gray, gray, gray, 255]);
-            }
-        }
-        ColorType::GrayscaleAlpha => {
-            for (gray, rgba) in decoded
-                .as_chunks::<2>()
-                .0
-                .iter()
-                .zip(rgba.as_chunks_mut::<4>().0.iter_mut())
-            {
-                rgba.copy_from_slice(&[gray[0], gray[0], gray[0], gray[1]]);
-            }
-        }
+    let channels = match output.color_type {
+        ColorType::Rgba => 4,
+        ColorType::Rgb => 3,
+        ColorType::GrayscaleAlpha => 2,
+        ColorType::Grayscale => 1,
         _ => return Err(AureaError::ElementOperationFailed),
+    };
+    if output.buffer_size() != count / 4 * channels {
+        return Err(AureaError::ElementOperationFailed);
     }
-    Ok(ClipboardImage {
-        width,
-        height,
-        rgba,
-    })
+    if output.color_type == ColorType::Rgba {
+        return Ok((width, height));
+    }
+    for pixel in (0..count / 4).rev() {
+        let at = pixel * channels;
+        let colour = match channels {
+            3 => [rgba[at], rgba[at + 1], rgba[at + 2], 255],
+            2 => [rgba[at], rgba[at], rgba[at], rgba[at + 1]],
+            _ => [rgba[at], rgba[at], rgba[at], 255],
+        };
+        rgba[pixel * 4..pixel * 4 + 4].copy_from_slice(&colour);
+    }
+    Ok((width, height))
 }
 
 pub(super) fn encode_dib(image: &ClipboardImage) -> AureaResult<Vec<u8>> {
@@ -301,6 +320,101 @@ pub(super) fn decode_dib(bytes: &[u8], max_bytes: usize) -> AureaResult<Clipboar
 mod tests {
     use super::*;
     use std::thread;
+
+    fn png_pixels(
+        width: u32,
+        height: u32,
+        color: ColorType,
+        depth: BitDepth,
+        pixels: &[u8],
+    ) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        {
+            let mut encoder = Encoder::new(&mut bytes, width, height);
+            encoder.set_color(color);
+            encoder.set_depth(depth);
+            encoder
+                .write_header()
+                .unwrap()
+                .write_image_data(pixels)
+                .unwrap();
+        }
+        bytes
+    }
+
+    #[test]
+    fn png_expands_many_pixels_in_place_and_reuses_storage_after_failure() {
+        let mut image = sample();
+        image.rgba.reserve(4096);
+        let storage = image.rgba.as_ptr();
+        for color in [
+            ColorType::Rgba,
+            ColorType::Rgb,
+            ColorType::Grayscale,
+            ColorType::GrayscaleAlpha,
+        ] {
+            let mut source = Vec::new();
+            let mut expected = Vec::new();
+            for i in 0..17 * 9 {
+                let v = u8::try_from(i * 37 % 256).unwrap();
+                match color {
+                    ColorType::Rgba => {
+                        source.extend([v, 30, 170, v]);
+                        expected.extend([v, 30, 170, v]);
+                    }
+                    ColorType::Rgb => {
+                        source.extend([v, 30, 170]);
+                        expected.extend([v, 30, 170, 255]);
+                    }
+                    ColorType::GrayscaleAlpha => {
+                        source.extend([v, 255 - v]);
+                        expected.extend([v, v, v, 255 - v]);
+                    }
+                    _ => {
+                        source.push(v);
+                        expected.extend([v, v, v, 255]);
+                    }
+                }
+            }
+            let bytes = png_pixels(17, 9, color, BitDepth::Eight, &source);
+            image.decode_png_into(&bytes, 8192).unwrap();
+            assert_eq!(image.rgba, expected);
+            assert_eq!(
+                image.rgba.as_ptr(),
+                storage,
+                "reuse the existing RGBA allocation"
+            );
+        }
+        assert!(image.decode_png_into(b"broken", 8192).is_err());
+        assert_eq!((image.width, image.height, image.rgba.len()), (0, 0, 0));
+        let bytes = png_pixels(1, 1, ColorType::Grayscale, BitDepth::Sixteen, &[0xAB, 0xCD]);
+        image.decode_png_into(&bytes, 8192).unwrap();
+        assert_eq!(image.rgba, [0xAB, 0xAB, 0xAB, 255]);
+        assert_eq!(image.rgba.as_ptr(), storage);
+    }
+
+    #[test]
+    fn indexed_png_keeps_palette_transparency_during_expansion() {
+        let mut bytes = Vec::new();
+        {
+            let mut encoder = Encoder::new(&mut bytes, 4, 1);
+            encoder.set_color(ColorType::Indexed);
+            encoder.set_depth(BitDepth::Two);
+            encoder.set_palette(&[255, 0, 0, 0, 255, 0, 0, 0, 255, 80, 90, 100][..]);
+            encoder.set_trns(&[0, 64, 128, 255][..]);
+            encoder
+                .write_header()
+                .unwrap()
+                .write_image_data(&[0b00011011])
+                .unwrap();
+        }
+        assert_eq!(
+            ClipboardImage::from_png(&bytes, 8192).unwrap().rgba,
+            [
+                255, 0, 0, 0, 0, 255, 0, 64, 0, 0, 255, 128, 80, 90, 100, 255
+            ]
+        );
+    }
 
     #[test]
     fn public_codecs_run_on_a_worker_and_obey_read_budgets() {
