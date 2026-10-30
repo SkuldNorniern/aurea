@@ -520,6 +520,8 @@ impl CpuRasterizer {
                     item.blend_mode,
                     alpha,
                     buf,
+                    scratch_row,
+                    true,
                     bw,
                     clip,
                 );
@@ -1298,6 +1300,8 @@ impl CpuRasterizer {
         mode: BlendMode,
         alpha: f32,
         buf: &mut Band<'_>,
+        scratch: &mut ImageScratch,
+        prepare: bool,
         bw: u32,
         clip: ClipBox,
     ) {
@@ -1337,6 +1341,70 @@ impl CpuRasterizer {
         };
         let footprint_x = ((by.abs() + bx.abs()) / det.abs() * src.width).max(1.0);
         let footprint_y = ((ay.abs() + ax.abs()) / det.abs() * src.height).max(1.0);
+        let reads_per_pixel = if footprint_x > 1.0 || footprint_y > 1.0 {
+            (footprint_x.ceil() + 1.0) * (footprint_y.ceil() + 1.0)
+        } else {
+            4.0
+        };
+        let reads = f32_to_usize_clamped(
+            ((x1 - x0).max(0) as f32) * ((y1 - y0).max(0) as f32) * reads_per_pixel,
+        );
+        let cached = if prepare && sampling == Sampling::Smooth {
+            scratch.premul.prepare(image, reads)
+        } else {
+            None
+        };
+        let span = (x0, y0, x1, y1);
+        if let Some(pixels) = cached {
+            Self::sample_quad_pixels(q, src, inverse, span, buf, bw, clip, mode, |u, v| {
+                if footprint_x > 1.0 || footprint_y > 1.0 {
+                    sample::area_prepared(
+                        pixels,
+                        image.width,
+                        bounds,
+                        (u - footprint_x * 0.5, v - footprint_y * 0.5),
+                        (u + footprint_x * 0.5, v + footprint_y * 0.5),
+                        alpha,
+                    )
+                } else {
+                    sample::bilinear_prepared(pixels, image.width, bounds, u, v, alpha)
+                }
+            });
+        } else {
+            Self::sample_quad_pixels(q, src, inverse, span, buf, bw, clip, mode, |u, v| {
+                match sampling {
+                    Sampling::Nearest => sample::nearest(image, bounds, u, v, alpha),
+                    Sampling::Smooth if footprint_x > 1.0 || footprint_y > 1.0 => sample::area(
+                        image,
+                        bounds,
+                        (u - footprint_x * 0.5, v - footprint_y * 0.5),
+                        (u + footprint_x * 0.5, v + footprint_y * 0.5),
+                        alpha,
+                    ),
+                    _ => sample::bilinear(image, bounds, u, v, alpha),
+                }
+            });
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn sample_quad_pixels(
+        q: [Point; 3],
+        src: Rect,
+        inverse: f32,
+        (x0, y0, x1, y1): (i32, i32, i32, i32),
+        buf: &mut Band<'_>,
+        bw: u32,
+        clip: ClipBox,
+        mode: BlendMode,
+        sample: impl Fn(f32, f32) -> u32,
+    ) {
+        let (ax, ay, bx, by) = (
+            q[1].x - q[0].x,
+            q[1].y - q[0].y,
+            q[2].x - q[0].x,
+            q[2].y - q[0].y,
+        );
         for y in y0..y1 {
             for x in x0..x1 {
                 let dx = x as f32 + 0.5 - q[0].x;
@@ -1348,17 +1416,7 @@ impl CpuRasterizer {
                 }
                 let u = src.x + u * src.width;
                 let v = src.y + v * src.height;
-                let c = match sampling {
-                    Sampling::Nearest => sample::nearest(image, bounds, u, v, alpha),
-                    Sampling::Smooth if footprint_x > 1.0 || footprint_y > 1.0 => sample::area(
-                        image,
-                        bounds,
-                        (u - footprint_x * 0.5, v - footprint_y * 0.5),
-                        (u + footprint_x * 0.5, v + footprint_y * 0.5),
-                        alpha,
-                    ),
-                    _ => sample::bilinear(image, bounds, u, v, alpha),
-                };
+                let c = sample(u, v);
                 if c >> 24 != 0 {
                     Self::buf_set(buf, bw, clip, x, y, c, mode);
                 }
@@ -2263,6 +2321,7 @@ struct CircleFillCtx<'a> {
 
 #[derive(Default)]
 pub(super) struct ImageScratch {
+    premul: sample::PremulCache,
     row: Vec<u32>,
     columns: Vec<(i32, f32)>,
     offsets: Vec<usize>,
@@ -6945,6 +7004,137 @@ mod clip_edge_tests {
                 }
             }
             Ok(())
+        }
+    }
+}
+
+#[cfg(test)]
+mod premul_quad_tests {
+    use super::*;
+    use std::hint::black_box;
+
+    fn tile() -> Image {
+        let mut seed = 0x12345678u32;
+        let bytes = (0..256 * 256 * 4)
+            .map(|_| {
+                seed ^= seed << 13;
+                seed ^= seed >> 17;
+                seed ^= seed << 5;
+                seed.to_le_bytes()[0]
+            })
+            .collect();
+        Image::new(256, 256, bytes)
+    }
+
+    fn draw(
+        image: &Image,
+        pixels: &mut [u32],
+        scratch: &mut ImageScratch,
+        prepare: bool,
+        q: [Point; 3],
+        alpha: f32,
+        mode: BlendMode,
+    ) {
+        CpuRasterizer::draw_image_quad(
+            image,
+            Rect::new(2.5, 3.25, 249.0, 246.0),
+            q,
+            Sampling::Smooth,
+            mode,
+            alpha,
+            &mut Band::whole(pixels),
+            scratch,
+            prepare,
+            512,
+            ClipBox::surface(512, 512).intersect(Rect::new(3.0, 2.0, 507.0, 509.0)),
+        );
+    }
+
+    #[test]
+    fn prepared_quad_sampling_matches_direct_reads_for_alpha_rotation_and_shrink() {
+        let image = tile();
+        for q in [
+            [
+                Point::new(5.3, 1.7),
+                Point::new(500.3, 31.7),
+                Point::new(-25.0, 490.7),
+            ],
+            [
+                Point::new(100.3, 90.1),
+                Point::new(270.8, 130.9),
+                Point::new(60.0, 260.0),
+            ],
+            [
+                Point::new(490.0, 20.0),
+                Point::new(10.0, 41.0),
+                Point::new(470.0, 505.0),
+            ],
+        ] {
+            for alpha in [1.0, 0.6, 0.05] {
+                for mode in [BlendMode::Normal, BlendMode::Multiply] {
+                    let mut slow = vec![0xff123456; 512 * 512];
+                    let mut fast = slow.clone();
+                    draw(
+                        &image,
+                        &mut slow,
+                        &mut ImageScratch::default(),
+                        false,
+                        q,
+                        alpha,
+                        mode,
+                    );
+                    draw(
+                        &image,
+                        &mut fast,
+                        &mut ImageScratch::default(),
+                        true,
+                        q,
+                        alpha,
+                        mode,
+                    );
+                    assert_eq!(fast, slow, "{q:?} alpha {alpha} mode {mode:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "manual affine image sampling comparison"]
+    fn premul_quad_timing() {
+        let image = tile();
+        let q = [
+            Point::new(5.3, 1.7),
+            Point::new(500.3, 31.7),
+            Point::new(-25.0, 490.7),
+        ];
+        for prepare in [false, true] {
+            let mut pixels = vec![0xff123456; 512 * 512];
+            let mut scratch = ImageScratch::default();
+            draw(
+                &image,
+                &mut pixels,
+                &mut scratch,
+                prepare,
+                q,
+                1.0,
+                BlendMode::Normal,
+            );
+            let start = Instant::now();
+            for _ in 0..50 {
+                draw(
+                    &image,
+                    black_box(&mut pixels),
+                    &mut scratch,
+                    prepare,
+                    q,
+                    1.0,
+                    BlendMode::Normal,
+                );
+            }
+            eprintln!(
+                "affine 256px tile prepared={prepare}: {:.3} ms/draw",
+                start.elapsed().as_secs_f64() * 20.0
+            );
         }
     }
 }

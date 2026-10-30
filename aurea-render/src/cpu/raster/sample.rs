@@ -2,6 +2,50 @@
 
 use crate::numeric::{f32_to_i32_clamped, f32_to_u32_clamped};
 use crate::types::Image;
+use std::sync::Arc;
+
+/// At most one tile's premultiplied texels per band. Large images and small dirty
+/// regions keep the direct sampler instead of paying to convert an entire image.
+#[derive(Default)]
+pub struct PremulCache {
+    source: Option<Image>,
+    pixels: Vec<[f32; 4]>,
+}
+
+impl PremulCache {
+    pub fn prepare(&mut self, image: &Image, estimated_reads: usize) -> Option<&[[f32; 4]]> {
+        let count = (image.width as usize).checked_mul(image.height as usize)?;
+        if count == 0
+            || count > 256 * 256
+            || image.data.len() != count * 4
+            || estimated_reads < count.saturating_mul(2)
+        {
+            return None;
+        }
+        let same = self.source.as_ref().is_some_and(|old| {
+            old.width == image.width
+                && old.height == image.height
+                && Arc::ptr_eq(&old.data, &image.data)
+        });
+        if !same {
+            self.source = None;
+            self.pixels.clear();
+            self.pixels.try_reserve_exact(count).ok()?;
+            self.pixels
+                .extend(image.data.as_chunks::<4>().0.iter().take(count).map(|px| {
+                    let a = f32::from(px[3]) / 255.0;
+                    [
+                        f32::from(px[0]) * a,
+                        f32::from(px[1]) * a,
+                        f32::from(px[2]) * a,
+                        f32::from(px[3]),
+                    ]
+                }));
+            self.source = Some(image.clone());
+        }
+        Some(&self.pixels)
+    }
+}
 
 /// The pixels a draw may read: its source rect, clamped to the image, as inclusive pixel indices.
 #[derive(Clone, Copy)]
@@ -96,10 +140,14 @@ pub fn bilinear(image: &Image, b: Bounds, u: f32, v: f32, alpha: f32) -> u32 {
 
 /// [`bilinear`] with its taps worked out, as a draw does once per column and row.
 pub fn bilinear_taps(image: &Image, x: Taps, y: Taps, alpha: f32) -> u32 {
-    let p00 = premul(image, x.lo, y.lo);
-    let p10 = premul(image, x.hi, y.lo);
-    let p01 = premul(image, x.lo, y.hi);
-    let p11 = premul(image, x.hi, y.hi);
+    bilinear_with(x, y, alpha, |x, y| premul(image, x, y))
+}
+
+fn bilinear_with(x: Taps, y: Taps, alpha: f32, mut read: impl FnMut(i32, i32) -> [f32; 4]) -> u32 {
+    let p00 = read(x.lo, y.lo);
+    let p10 = read(x.hi, y.lo);
+    let p01 = read(x.lo, y.hi);
+    let p11 = read(x.hi, y.hi);
     let mut out = [0.0; 4];
     for (k, o) in out.iter_mut().enumerate() {
         let top = p00[k] + (p10[k] - p00[k]) * x.t;
@@ -107,6 +155,30 @@ pub fn bilinear_taps(image: &Image, x: Taps, y: Taps, alpha: f32) -> u32 {
         *o = top + (bottom - top) * y.t;
     }
     pack(out, alpha)
+}
+
+pub fn bilinear_prepared(
+    pixels: &[[f32; 4]],
+    width: u32,
+    b: Bounds,
+    u: f32,
+    v: f32,
+    alpha: f32,
+) -> u32 {
+    if b.x0 > b.x1 || b.y0 > b.y1 {
+        return 0;
+    }
+    bilinear_with(
+        Taps::at(u, b.x0, b.x1),
+        Taps::at(v, b.y0, b.y1),
+        alpha,
+        |x, y| {
+            pixels
+                .get(y.unsigned_abs() as usize * width as usize + x.unsigned_abs() as usize)
+                .copied()
+                .unwrap_or([0.0; 4])
+        },
+    )
 }
 
 /// [`bilinear_taps`] in integers, for texels of any alpha. Each colour is premultiplied exactly
@@ -225,6 +297,36 @@ pub fn area_from(
     ys: impl Iterator<Item = (i32, f32)>,
     alpha: f32,
 ) -> u32 {
+    area_with(xs, ys, alpha, |x, y| premul(image, x, y))
+}
+
+pub fn area_prepared(
+    pixels: &[[f32; 4]],
+    width: u32,
+    b: Bounds,
+    lo: (f32, f32),
+    hi: (f32, f32),
+    alpha: f32,
+) -> u32 {
+    area_with(
+        area_weights(lo.0, hi.0, b.x0, b.x1),
+        area_weights(lo.1, hi.1, b.y0, b.y1),
+        alpha,
+        |x, y| {
+            pixels
+                .get(y.unsigned_abs() as usize * width as usize + x.unsigned_abs() as usize)
+                .copied()
+                .unwrap_or([0.0; 4])
+        },
+    )
+}
+
+fn area_with(
+    xs: impl Iterator<Item = (i32, f32)> + Clone,
+    ys: impl Iterator<Item = (i32, f32)>,
+    alpha: f32,
+    mut read: impl FnMut(i32, i32) -> [f32; 4],
+) -> u32 {
     let mut sum = [0.0f32; 4];
     let mut total = 0.0;
     for (y, wy) in ys {
@@ -233,7 +335,7 @@ pub fn area_from(
             if w <= 0.0 {
                 continue;
             }
-            let p = premul(image, x, y);
+            let p = read(x, y);
             for k in 0..4 {
                 sum[k] += p[k] * w;
             }
@@ -249,6 +351,31 @@ pub fn area_from(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn premul_cache_stays_tile_sized_and_skips_small_dirty_regions() {
+        let mut cache = PremulCache::default();
+        let tile = Image::new(256, 256, vec![127; 256 * 256 * 4]);
+        assert!(cache.prepare(&tile, 100).is_none());
+        assert!(cache.source.is_none());
+        assert_eq!(
+            cache.prepare(&tile, usize::MAX).expect("tile").len(),
+            256 * 256
+        );
+        let pixels = cache.pixels.as_ptr();
+        assert!(cache.prepare(&tile, usize::MAX).is_some());
+        assert_eq!(
+            cache.pixels.as_ptr(),
+            pixels,
+            "unchanged image reuses its conversion"
+        );
+        let large = Image::new(257, 256, vec![255; 257 * 256 * 4]);
+        assert!(cache.prepare(&large, usize::MAX).is_none());
+        assert!(cache.pixels.capacity() <= 256 * 256);
+        let other = Image::new(200, 200, vec![255; 200 * 200 * 4]);
+        assert!(cache.prepare(&other, usize::MAX).is_some());
+        assert!(cache.pixels.capacity() <= 256 * 256);
+    }
 
     fn checker() -> Image {
         let w = [255, 255, 255, 255];
