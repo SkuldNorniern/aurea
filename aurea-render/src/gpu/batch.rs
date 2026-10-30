@@ -346,6 +346,9 @@ pub struct RenderBatches {
     pub order: Vec<DrawRef>,
     /// The clip for each entry in [`Self::order`], in physical pixels.
     pub clips: Vec<Option<Rect>>,
+    /// Path clips for each painter-order draw. A supporting backend rasterizes
+    /// coverage on the device; other backends use the renderer's CPU fallback.
+    pub path_clips: Vec<Option<Arc<[Path]>>>,
     /// Draws this layer had no form for, and therefore left out of the frame.
     pub dropped: usize,
     /// The kinds of drawing this frame uses, for checking against what a backend supports before it
@@ -391,12 +394,15 @@ impl RenderBatches {
         self.shapes.clear();
         self.order.clear();
         self.clips.clear();
+        self.path_clips.clear();
         self.dropped = 0;
         self.needs = GpuFeatures::NONE;
         for item in list.items_since_clear() {
             self.needs = self.needs.union(needs_of(item));
             self.lower_item(item);
             self.clips.resize(self.order.len(), item.clip);
+            self.path_clips
+                .resize(self.order.len(), item.clip_paths.clone());
         }
         self.gradient_lut_cache
             .retain(|_, (_, used)| mem::take(used));

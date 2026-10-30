@@ -3,7 +3,8 @@
 use crate::types::Color;
 
 use crate::gpu::batch::DrawRef;
-use crate::types::Rect;
+use crate::types::{Path, Rect};
+use std::sync::Arc;
 
 /// A resolved gradient instance: LUT texture slot assigned.
 #[derive(Clone, Copy, Default)]
@@ -60,6 +61,8 @@ pub struct FramePlan {
     pub order: Vec<DrawRef>,
     /// The clip for each entry in [`Self::order`], in physical pixels.
     pub clips: Vec<Option<Rect>>,
+    /// Device-space path clips aligned with [`Self::order`].
+    pub path_clips: Vec<Option<Arc<[Path]>>>,
     /// Background clear colour, if any.
     pub clear: Option<Color>,
     /// Physical width/height for viewport setup.
@@ -81,6 +84,7 @@ impl FramePlan {
         self.texts.clear();
         self.order.clear();
         self.clips.clear();
+        self.path_clips.clear();
         self.clear = None;
     }
 }
