@@ -7,6 +7,7 @@ pub mod events;
 pub mod geometry;
 pub mod hash;
 pub mod os_version;
+pub mod pen;
 pub mod platform;
 pub mod sync;
 
@@ -19,5 +20,6 @@ pub use events::{
 pub use geometry::{Point, Rect};
 pub use hash::{FastBuild, FastHasher};
 pub use os_version::OsVersion;
+pub use pen::{PenSampler, PenSampling};
 pub use platform::{DesktopPlatform, MobilePlatform, Platform};
 pub use sync::lock;
