@@ -41,6 +41,8 @@ pub struct Gpu2dRenderer<B: Gpu2dBackend> {
     warned_about_dropped: bool,
     layers: Vec<CpuRasterizer>,
     layer_lists: Vec<DisplayList>,
+    /// Position of each CPU run among the original frame's items.
+    layer_starts: Vec<usize>,
     layer_images: Vec<Option<Image>>,
     composite: DisplayList,
     presented: Vec<(CacheKey, Rect)>,
@@ -73,6 +75,7 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
             last_on_cpu: false,
             layers: Vec::new(),
             layer_lists: Vec::new(),
+            layer_starts: Vec::new(),
             layer_images: Vec::new(),
             composite: DisplayList::new(),
             presented: Vec::new(),
@@ -204,16 +207,20 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
             self.layer_images.push(None);
         }
         self.composite.clear();
-        let mut textures = self.display_list.items_since_clear().iter().filter(|i| {
-            matches!(
-                i.command,
-                DrawCommand::DrawTexture(..) | DrawCommand::DrawTextureQuad(..)
-            )
-        });
+        let mut textures = self
+            .display_list
+            .items_since_clear()
+            .iter()
+            .enumerate()
+            .filter(|(_, i)| {
+                matches!(
+                    i.command,
+                    DrawCommand::DrawTexture(..) | DrawCommand::DrawTextureQuad(..)
+                )
+            })
+            .peekable();
         for (k, list) in self.layer_lists.iter_mut().enumerate() {
-            if k > 0
-                && let Some(texture) = textures.next()
-            {
+            while let Some((_, texture)) = textures.next_if(|(at, _)| *at < self.layer_starts[k]) {
                 self.composite.push(texture.clone());
             }
             let layer = &mut self.layers[k];
@@ -242,6 +249,9 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
                 )));
             }
         }
+        for (_, texture) in textures {
+            self.composite.push(texture.clone());
+        }
         self.last_on_cpu = false;
         self.batches.lower_into(&self.composite);
         self.present_batches()
@@ -249,6 +259,7 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
 
     fn split_at_textures(&mut self) {
         let mut count = 0;
+        self.layer_starts.clear();
         let start_layer = |lists: &mut Vec<DisplayList>, count: &mut usize| {
             if lists.len() <= *count {
                 lists.push(DisplayList::new());
@@ -260,14 +271,25 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
             }
             *count += 1;
         };
-        start_layer(&mut self.layer_lists, &mut count);
-        for item in self.display_list.items_since_clear() {
+        let mut needs_layer = true;
+        for (at, item) in self.display_list.items_since_clear().iter().enumerate() {
             if matches!(
                 item.command,
                 DrawCommand::DrawTexture(..) | DrawCommand::DrawTextureQuad(..)
             ) {
-                start_layer(&mut self.layer_lists, &mut count);
+                needs_layer = true;
             } else {
+                if needs_layer {
+                    start_layer(&mut self.layer_lists, &mut count);
+                    // Even the first CPU run needs a transparent background if textures
+                    // precede it; otherwise its default clear would cover those textures.
+                    if count == 1 && at > 0 {
+                        self.layer_lists[0]
+                            .push(plain_item(DrawCommand::Clear(Color::rgba(0, 0, 0, 0))));
+                    }
+                    self.layer_starts.push(at);
+                    needs_layer = false;
+                }
                 self.layer_lists[count - 1].push(item.clone());
             }
         }
@@ -278,6 +300,7 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         self.layers.clear();
         self.layer_images.clear();
         self.layer_lists.clear();
+        self.layer_starts.clear();
         self.composite.clear();
     }
 
@@ -663,6 +686,87 @@ mod tests {
     }
 
     #[test]
+    fn consecutive_textures_only_allocate_cpu_layers_for_drawn_runs() {
+        let mut r = with_features(
+            FrameOutcome::Presented,
+            GpuFeatures {
+                rounded_rects: false,
+                textures: true,
+                ..GpuFeatures::ALL
+            },
+        );
+        let texture = GpuTexture {
+            #[cfg(feature = "zengpu")]
+            handle: TextureHandle::from_parts(9, 0),
+            index: 9,
+            generation: 0,
+            width: 4,
+            height: 4,
+        };
+        let draw = |r: &mut Gpu2dRenderer<Probe>, before: bool, after: bool| {
+            let mut ctx = r.begin_frame().expect("begin");
+            let paint = Paint::new().color(Color::rgb(220, 20, 60));
+            if before {
+                ctx.draw_round_rect(Rect::new(0.0, 0.0, 10.0, 10.0), 2.0, &paint)
+                    .expect("before");
+            }
+            for _ in 0..150 {
+                ctx.draw_texture(
+                    texture,
+                    Rect::new(0.0, 0.0, 1.0, 1.0),
+                    Rect::new(0.0, 0.0, 4.0, 4.0),
+                )
+                .expect("tile");
+            }
+            if after {
+                ctx.draw_round_rect(Rect::new(20.0, 20.0, 10.0, 10.0), 2.0, &paint)
+                    .expect("after");
+            }
+            drop(ctx);
+            assert_eq!(r.end_frame().expect("end"), FrameOutcome::Presented);
+        };
+        draw(&mut r, true, true);
+        assert_eq!(
+            r.layers.len(),
+            2,
+            "no full-frame surfaces between adjacent tiles"
+        );
+        assert_eq!(r.backend().uploads, 2);
+        assert_eq!(r.composite.len(), 152);
+        assert!(matches!(
+            r.composite.items()[0].command,
+            DrawCommand::DrawImageRect(..)
+        ));
+        assert!(matches!(
+            r.composite.items()[151].command,
+            DrawCommand::DrawImageRect(..)
+        ));
+        assert!(
+            r.composite.items()[1..151]
+                .iter()
+                .all(|i| matches!(i.command, DrawCommand::DrawTexture(..)))
+        );
+        draw(&mut r, false, true);
+        assert_eq!(r.layers.len(), 1);
+        assert!(matches!(
+            r.composite.items()[0].command,
+            DrawCommand::DrawTexture(..)
+        ));
+        let image = r.layer_images[0].as_ref().expect("overlay image");
+        assert_eq!(
+            &image.data[..4],
+            &[0, 0, 0, 0],
+            "overlay preserves preceding tiles"
+        );
+        draw(&mut r, true, false);
+        assert_eq!(r.layers.len(), 1, "no empty trailing surface");
+        assert!(matches!(
+            r.composite.items()[150].command,
+            DrawCommand::DrawTexture(..)
+        ));
+    }
+
+    #[test]
     fn a_cpu_frame_keeps_its_textures_in_order() {
         let features = GpuFeatures {
             rounded_rects: false,
@@ -764,7 +868,7 @@ mod tests {
             .expect("texture");
         }
         r.end_frame().expect("layered frame");
-        assert_eq!(r.layers.len(), 2);
+        assert_eq!(r.layers.len(), 1);
         assert_eq!(
             cpu_frame(&mut r),
             FrameOutcome::Presented,
@@ -814,11 +918,11 @@ mod tests {
             r.end_frame().expect("layered frame");
         };
         draw(&mut r, 2);
-        assert_eq!(r.layers.len(), 3);
-        let old_image = Arc::downgrade(&r.layer_images[2].as_ref().expect("last layer").data);
-        draw(&mut r, 1);
         assert_eq!(r.layers.len(), 2);
-        assert_eq!(r.layer_images.len(), 2);
+        let old_image = Arc::downgrade(&r.layer_images[1].as_ref().expect("last layer").data);
+        draw(&mut r, 1);
+        assert_eq!(r.layers.len(), 1);
+        assert_eq!(r.layer_images.len(), 1);
         assert!(
             old_image.upgrade().is_none(),
             "unused layer pixels should not remain cached"
