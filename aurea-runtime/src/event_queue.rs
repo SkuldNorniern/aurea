@@ -3,10 +3,12 @@
 use aurea_foundation::{WindowEvent, lock};
 use std::mem::{discriminant, take};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// A window's pending native events.
 pub struct EventQueue {
     events: Mutex<Vec<WindowEvent>>,
+    pen_batching: AtomicBool,
 }
 
 impl EventQueue {
@@ -14,12 +16,31 @@ impl EventQueue {
     pub fn new() -> Self {
         Self {
             events: Mutex::new(Vec::new()),
+            pen_batching: AtomicBool::new(false),
         }
+    }
+
+    /// Batches new consecutive pen samples into events of at most 64 readings.
+    /// Existing queued events are unchanged. Disabled by default for compatibility.
+    pub fn set_pen_batching(&self, enabled: bool) {
+        self.pen_batching.store(enabled, Ordering::Release);
     }
 
     /// Queues `event`, merging it into a pending one of the same kind when possible.
     pub fn push(&self, event: WindowEvent) {
         let mut events = lock(&self.events);
+        if self.pen_batching.load(Ordering::Acquire)
+            && let WindowEvent::Pen(sample) = event
+        {
+            if let Some(WindowEvent::PenBatch(samples)) = events.last_mut()
+                && samples.len() < 64
+            {
+                samples.push(sample);
+            } else {
+                events.push(WindowEvent::PenBatch(vec![sample]));
+            }
+            return;
+        }
         match &event {
             WindowEvent::MouseMove { .. } => {
                 if let Some(last) = trailing_motion(&mut events)
@@ -102,6 +123,59 @@ impl Default for EventQueue {
 mod tests {
     use super::*;
     use aurea_foundation::{Modifiers, MouseButtons, PointerKind};
+    use aurea_foundation::{PenPhase, PenSample};
+    use std::time::Duration;
+
+    #[test]
+    fn pen_batches_preserve_every_reading_and_stop_at_input_boundaries() {
+        let queue = EventQueue::new();
+        queue.set_pen_batching(true);
+        let samples: Vec<_> = (0..130u32)
+            .map(|i| PenSample {
+                x: f64::from(i) * 0.25,
+                pressure: i as f32 / 130.0,
+                time: Duration::from_micros(u64::from(i)),
+                phase: if i == 0 {
+                    PenPhase::Down
+                } else if i == 129 {
+                    PenPhase::Up
+                } else {
+                    PenPhase::Move
+                },
+                ..PenSample::default()
+            })
+            .collect();
+        for sample in &samples[..65] {
+            queue.push(WindowEvent::Pen(*sample));
+        }
+        queue.push(WindowEvent::Focused);
+        for sample in &samples[65..] {
+            queue.push(WindowEvent::Pen(*sample));
+        }
+        let events = queue.pop_all();
+        assert_eq!(
+            events
+                .iter()
+                .map(|e| e.pen_samples().len())
+                .collect::<Vec<_>>(),
+            [64, 1, 0, 64, 1]
+        );
+        assert!(matches!(events[2], WindowEvent::Focused));
+        let got: Vec<_> = events
+            .iter()
+            .flat_map(|e| e.pen_samples().iter().copied())
+            .collect();
+        assert_eq!(got, samples);
+        queue.set_pen_batching(false);
+        queue.push(WindowEvent::Pen(samples[0]));
+        queue.push(WindowEvent::Pen(samples[1]));
+        assert!(
+            queue
+                .pop_all()
+                .iter()
+                .all(|e| matches!(e, WindowEvent::Pen(_)))
+        );
+    }
 
     fn wheel(delta_y: f64, modifiers: Modifiers) -> WindowEvent {
         WindowEvent::MouseWheel {

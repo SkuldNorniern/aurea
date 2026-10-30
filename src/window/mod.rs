@@ -522,6 +522,14 @@ impl Window {
         self.drain_events()
     }
 
+    /// Delivers new consecutive pen samples as `WindowEvent::PenBatch`, at most
+    /// 64 samples per event. Input ordering and sample timestamps are preserved.
+    /// Disabled by default; applies to the desktop event queue on every platform.
+    pub fn set_pen_batching(&self, enabled: bool) {
+        ui_thread::check("Window::set_pen_batching");
+        self.event_queue.set_pen_batching(enabled);
+    }
+
     /// Waits until something happens, then hands back this window's events, for an app that runs
     /// its own loop instead of [`Self::run`]. A [`WindowProxy`] from another thread ends the wait.
     ///

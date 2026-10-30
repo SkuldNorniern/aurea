@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::slice;
 use std::time::Duration;
 
 /// A window event delivered to the app.
@@ -160,6 +161,10 @@ pub enum WindowEvent {
     /// (pressure, tilt, every sample between frames), so a `UiState` fed only `Pen` events never
     /// hovers or presses anything.
     Pen(PenSample),
+    /// Consecutive actual pen readings, oldest first, when desktop pen batching is
+    /// enabled. Samples keep their individual phase, pressure, modifiers and time.
+    /// Other input events form batch boundaries; predicted readings stay separate.
+    PenBatch(Vec<PenSample>),
     /// A pinch: the content should grow by `factor` about (`x`, `y`), in logical pixels. Two
     /// fingers moving together come as [`WindowEvent::MouseWheel`] instead.
     Magnify {
@@ -210,6 +215,19 @@ impl Occlusion {
             1 => Self::PartlyCovered,
             2 => Self::Covered,
             _ => Self::Visible,
+        }
+    }
+}
+
+impl WindowEvent {
+    /// Actual pen readings carried by this event, for code accepting both single
+    /// readings and batches. Returns an empty slice for other events, including
+    /// predictions, which must be handled separately.
+    pub fn pen_samples(&self) -> &[PenSample] {
+        match self {
+            Self::Pen(sample) => slice::from_ref(sample),
+            Self::PenBatch(samples) => samples,
+            _ => &[],
         }
     }
 }
