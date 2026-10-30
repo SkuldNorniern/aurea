@@ -6,8 +6,8 @@ use crate::registry::handle_key;
 use crate::{AureaError, AureaResult};
 use aurea_render::{
     ClickCallback, Color, CpuRasterizer, DrawingContext, FrameOutcome, GpuCacheLimits,
-    GpuCacheStats, GpuFeatures, HoverCallback, InteractionRegistry, InteractiveId, Point, Renderer,
-    RendererBackend, Surface, SurfaceInfo,
+    GpuCacheStats, GpuFeatures, GpuFrameTimings, HoverCallback, InteractionRegistry, InteractiveId,
+    Point, Renderer, RendererBackend, Surface, SurfaceInfo,
 };
 use aurea_runtime::{DamageRegion, FrameScheduler};
 use aurea_runtime::{FrameInfo, TickerId};
@@ -139,6 +139,36 @@ impl Canvas {
         self.renderer.try_borrow().ok()?.as_ref()?.gpu_cache_stats()
     }
 
+    /// Enables GPU renderer host-stage timers between frames. The setting survives
+    /// renderer recreation. Disabled by default; CPU canvases ignore it.
+    pub fn set_gpu_timing_enabled(&self, enabled: bool) -> AureaResult<()> {
+        self.ensure_live()?;
+        let mut state = self
+            .state
+            .try_borrow_mut()
+            .map_err(|_| AureaError::RenderingFailed)?;
+        let mut slot = self
+            .renderer
+            .try_borrow_mut()
+            .map_err(|_| AureaError::RenderingFailed)?;
+        state.gpu_timing_enabled = enabled;
+        if let Some(renderer) = slot.as_mut() {
+            renderer.set_gpu_timing_enabled(enabled);
+        }
+        Ok(())
+    }
+
+    /// Last GPU renderer stage times. `None` while disabled, before its first frame,
+    /// for a CPU canvas, or while the draw callback borrows the renderer.
+    pub fn gpu_frame_timings(&self) -> Option<GpuFrameTimings> {
+        self.ensure_live().ok()?;
+        self.renderer
+            .try_borrow()
+            .ok()?
+            .as_ref()?
+            .gpu_frame_timings()
+    }
+
     /// Get canvas dimensions.
     pub fn size(&self) -> (u32, u32) {
         let st = self.state.borrow_mut();
@@ -223,6 +253,7 @@ impl Canvas {
             needs_redraw: false,
             prev_frame_damage: None,
             gpu_cache_limits: None,
+            gpu_timing_enabled: false,
             #[cfg(feature = "zengpu")]
             gpu_context: None,
             #[cfg(feature = "zengpu")]

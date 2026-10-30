@@ -1,6 +1,7 @@
 //! The GPU renderer shared by every backend.
 
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use aurea_foundation::{AureaError, AureaResult};
 
@@ -21,6 +22,18 @@ use super::frame_plan::FramePlan;
 use super::resolve::resolve_frame;
 use super::texture_cache::TextureCache;
 use super::{GpuCacheLimits, GpuCacheStats};
+
+/// Host wall time spent in GPU renderer stages during the last `end_frame`.
+/// These are not GPU timestamp queries. Recording and batch lowering are excluded.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GpuFrameTimings {
+    /// CPU fallback rasterization and layer composition, when used.
+    pub cpu: Duration,
+    /// Image/glyph resolution, uploads and frame-plan construction.
+    pub resolve: Duration,
+    /// Backend presentation, including its uploads, conversion and host waits.
+    pub present: Duration,
+}
 
 /// A 2D GPU renderer parameterized over its device backend.
 pub struct Gpu2dRenderer<B: Gpu2dBackend> {
@@ -48,6 +61,8 @@ pub struct Gpu2dRenderer<B: Gpu2dBackend> {
     composite: DisplayList,
     presented: Vec<(CacheKey, Rect)>,
     presented_target: Option<PresentedTarget>,
+    timing_enabled: bool,
+    timings: Option<GpuFrameTimings>,
 }
 
 /// The target a presented frame was drawn to; any change to it means the frame must be presented again.
@@ -81,6 +96,8 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
             composite: DisplayList::new(),
             presented: Vec::new(),
             presented_target: None,
+            timing_enabled: false,
+            timings: None,
             logical_width: width,
             logical_height: height,
             scale_factor: scale_factor.max(1.0),
@@ -153,6 +170,19 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         self.texture_cache.stats()
     }
 
+    /// Enables host stage timers. Disabled by default to keep clock reads out of
+    /// normal frames. Call between frames; the next `end_frame` creates a sample.
+    pub fn set_gpu_timing_enabled(&mut self, enabled: bool) {
+        if self.timing_enabled != enabled {
+            self.timings = None;
+        }
+        self.timing_enabled = enabled;
+    }
+
+    pub fn gpu_frame_timings(&self) -> Option<GpuFrameTimings> {
+        self.timings
+    }
+
     /// The kinds of drawing the last frame used that the backend lacks.
     pub fn last_frame_missing(&self) -> GpuFeatures {
         self.backend.features().missing(self.batches.needs)
@@ -169,6 +199,7 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
             return self.present_layered();
         }
         self.release_layers();
+        let started = self.timing_enabled.then(Instant::now);
         let (lw, lh, scale) = (self.logical_width, self.logical_height, self.scale_factor);
         let info = self.surface_info();
         let cpu = self.cpu.get_or_insert_with(|| CpuRasterizer::new(lw, lh));
@@ -179,6 +210,9 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
             cpu.configure(info)?;
         }
         let outcome = cpu.render_recorded(&mut self.display_list)?;
+        if let (Some(started), Some(timings)) = (started, self.timings.as_mut()) {
+            timings.cpu = started.elapsed();
+        }
         if outcome == FrameOutcome::Unchanged && self.last_on_cpu {
             return Ok(FrameOutcome::Unchanged);
         }
@@ -187,6 +221,7 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         };
         let (width, height) = (frame.width, frame.height);
         let bgra = frame.bytes();
+        let started = self.timing_enabled.then(Instant::now);
         let presented = if self.backend.accepts_pixel_format(PixelFormat::Bgra8) {
             self.backend
                 .present_pixels(bgra, PixelFormat::Bgra8, width, height)
@@ -206,10 +241,14 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
                 .present_pixels(&self.cpu_rgba, PixelFormat::Rgba8, width, height)
         };
         self.last_on_cpu = presented.as_ref().is_ok_and(|o| !o.needs_redraw());
+        if let (Some(started), Some(timings)) = (started, self.timings.as_mut()) {
+            timings.present = started.elapsed();
+        }
         presented
     }
 
     fn present_layered(&mut self) -> AureaResult<FrameOutcome> {
+        let started = self.timing_enabled.then(Instant::now);
         self.split_at_textures();
         self.layers.truncate(self.layer_lists.len());
         self.layer_images.truncate(self.layer_lists.len());
@@ -263,6 +302,9 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         }
         for (_, texture) in textures {
             self.composite.push(texture.clone());
+        }
+        if let (Some(started), Some(timings)) = (started, self.timings.as_mut()) {
+            timings.cpu = started.elapsed();
         }
         self.last_on_cpu = false;
         self.batches.lower_into(&self.composite);
@@ -321,17 +363,26 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         self.frame_plan.viewport_width = pw;
         self.frame_plan.viewport_height = ph;
         let fc = self.frame_counter;
-        let presented = resolve_frame(
+        let started = self.timing_enabled.then(Instant::now);
+        let resolved = resolve_frame(
             &self.batches,
             &mut self.texture_cache,
             &mut self.backend,
             fc,
             &mut self.frame_plan,
-        )
-        .and_then(|()| {
+        );
+        if let (Some(started), Some(timings)) = (started, self.timings.as_mut()) {
+            timings.resolve = started.elapsed();
+        }
+        let presented = resolved.and_then(|()| {
+            let started = self.timing_enabled.then(Instant::now);
             let rects = &self.batches.rects;
             let shapes = &self.batches.shapes;
-            self.backend.present_frame(&self.frame_plan, rects, shapes)
+            let result = self.backend.present_frame(&self.frame_plan, rects, shapes);
+            if let (Some(started), Some(timings)) = (started, self.timings.as_mut()) {
+                timings.present = started.elapsed();
+            }
+            result
         });
         recover(presented)
     }
@@ -429,6 +480,7 @@ impl<B: Gpu2dBackend> Renderer for Gpu2dRenderer<B> {
     }
 
     fn end_frame(&mut self) -> AureaResult<FrameOutcome> {
+        self.timings = self.timing_enabled.then(GpuFrameTimings::default);
         if self.suspended() {
             self.presented_target = None;
             return Ok(FrameOutcome::Suspended);
@@ -485,6 +537,14 @@ impl<B: Gpu2dBackend> Renderer for Gpu2dRenderer<B> {
 
     fn gpu_cache_stats(&self) -> Option<GpuCacheStats> {
         Some(Self::gpu_cache_stats(self))
+    }
+
+    fn set_gpu_timing_enabled(&mut self, enabled: bool) {
+        Self::set_gpu_timing_enabled(self, enabled);
+    }
+
+    fn gpu_frame_timings(&self) -> Option<GpuFrameTimings> {
+        Self::gpu_frame_timings(self)
     }
 
     fn frame_output(&self) -> Option<FrameOutput<'_>> {
@@ -1193,6 +1253,41 @@ mod tests {
         assert_eq!(stats.limits, limits);
         assert_eq!((stats.textures, stats.bytes), (0, 0));
         assert!(CpuRasterizer::new(1, 1).gpu_cache_stats().is_none());
+    }
+
+    #[test]
+    fn frame_timers_are_opt_in_and_clear_on_skipped_and_failed_frames() {
+        let mut r = renderer(FrameOutcome::Presented);
+        rect_frame(&mut r, 10.0);
+        assert!(r.gpu_frame_timings().is_none());
+        Renderer::set_gpu_timing_enabled(&mut r, true);
+        assert!(Renderer::gpu_frame_timings(&r).is_none());
+        rect_frame(&mut r, 20.0);
+        let timings = Renderer::gpu_frame_timings(&r).expect("timed GPU frame");
+        assert_eq!(timings.cpu, Duration::ZERO);
+        assert!(timings.resolve > Duration::ZERO && timings.present > Duration::ZERO);
+        assert_eq!(rect_frame(&mut r, 20.0), FrameOutcome::Unchanged);
+        assert_eq!(
+            r.gpu_frame_timings(),
+            Some(GpuFrameTimings::default()),
+            "skipped frame has no stale sample"
+        );
+        r.set_gpu_timing_enabled(false);
+        rect_frame(&mut r, 30.0);
+        assert!(r.gpu_frame_timings().is_none());
+
+        let mut cpu = with_features(FrameOutcome::Presented, GpuFeatures::NONE);
+        cpu.set_gpu_timing_enabled(true);
+        cpu.backend_mut().pixels_device_lost = true;
+        assert_eq!(rounded_frame(&mut cpu), FrameOutcome::Recreate);
+        let timings = cpu
+            .gpu_frame_timings()
+            .expect("failed presentation is timed");
+        assert!(timings.cpu > Duration::ZERO && timings.present > Duration::ZERO);
+        assert_eq!(timings.resolve, Duration::ZERO);
+        cpu.backend_mut().pixels_device_lost = false;
+        assert_eq!(rounded_frame(&mut cpu), FrameOutcome::Presented);
+        assert!(cpu.gpu_frame_timings().is_some());
     }
 
     #[test]

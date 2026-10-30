@@ -406,6 +406,7 @@ mod tests {
             needs_redraw: false,
             prev_frame_damage: None,
             gpu_cache_limits: None,
+            gpu_timing_enabled: false,
             #[cfg(feature = "zengpu")]
             gpu_context: None,
             #[cfg(feature = "zengpu")]

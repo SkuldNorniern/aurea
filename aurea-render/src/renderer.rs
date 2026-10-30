@@ -4,7 +4,7 @@ pub use crate::drawing::DrawingContext;
 pub use crate::frame::{FrameOutcome, FrameOutput};
 
 use crate::capabilities::GpuFeatures;
-use crate::gpu::{GpuCacheLimits, GpuCacheStats};
+use crate::gpu::{GpuCacheLimits, GpuCacheStats, GpuFrameTimings};
 use crate::scene::display_list::DisplayList;
 use crate::surface::{Surface, SurfaceInfo};
 use crate::types::Rect;
@@ -53,6 +53,14 @@ pub trait Renderer {
 
     /// Cached image payload estimates; `None` for a CPU renderer.
     fn gpu_cache_stats(&self) -> Option<GpuCacheStats> {
+        None
+    }
+
+    /// Opt-in host wall timers for GPU resolve, CPU fallback and presentation.
+    fn set_gpu_timing_enabled(&mut self, _enabled: bool) {}
+
+    /// Last `end_frame` stage times; `None` when disabled or not a GPU renderer.
+    fn gpu_frame_timings(&self) -> Option<GpuFrameTimings> {
         None
     }
 

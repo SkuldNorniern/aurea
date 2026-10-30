@@ -26,6 +26,7 @@ pub(crate) struct CanvasState {
     /// Physical-pixel damage rect from the previous rendered frame.
     pub prev_frame_damage: Option<Rect>,
     pub gpu_cache_limits: Option<GpuCacheLimits>,
+    pub gpu_timing_enabled: bool,
     /// The device a ZenGPU canvas draws with, once known: given at creation, or made when its
     /// renderer first is.
     #[cfg(feature = "zengpu")]

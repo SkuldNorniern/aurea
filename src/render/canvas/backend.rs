@@ -90,6 +90,7 @@ pub(super) fn ensure_canvas_renderer(
     if let Some(limits) = state.borrow().gpu_cache_limits {
         gpu.set_gpu_cache_limits(limits);
     }
+    gpu.set_gpu_timing_enabled(state.borrow().gpu_timing_enabled);
     {
         let mut st = state.borrow_mut();
         st.gpu_context = Some(context);
