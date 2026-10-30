@@ -98,6 +98,11 @@ impl GrowableBuffer {
         }
         self.next_slot = 0;
     }
+
+    #[cfg(test)]
+    pub fn reserved_bytes(&self) -> u64 {
+        self.slots.iter().map(|slot| slot.capacity).sum()
+    }
 }
 
 #[cfg(test)]

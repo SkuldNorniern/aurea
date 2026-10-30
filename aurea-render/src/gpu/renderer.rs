@@ -402,15 +402,19 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
     /// frame did not draw, the batch caches, and the CPU fallback's scratch. The next frame
     /// uploads and rebuilds what it draws.
     pub fn trim_memory(&mut self) {
+        self.release_layers();
+        self.cpu_rgba = Vec::new();
+        self.frame_plan = FramePlan::new();
+        let needs = self.batches.needs;
+        self.batches = RenderBatches::default();
+        self.batches.needs = needs;
+        self.texture_cache.prune_dropped(&mut self.backend);
         self.texture_cache
             .trim_unpinned(&mut self.backend, self.frame_counter);
-        self.batches.trim_caches();
         if let Some(cpu) = &mut self.cpu {
             cpu.trim_memory();
         }
-        for layer in &mut self.layers {
-            layer.trim_memory();
-        }
+        self.backend.trim_memory();
     }
 
     fn physical_size(&self) -> (u32, u32) {
@@ -1395,7 +1399,10 @@ mod tests {
         ];
         draw_images(&mut r, &images, &[0, 1, 2]);
         assert_eq!(r.backend().uploads, 3);
+        assert!(r.frame_plan.images.capacity() > 0);
         r.trim_memory();
+        assert_eq!(r.frame_plan.images.capacity(), 0);
+        assert_eq!(r.batches.images.capacity(), 0);
         assert_eq!(r.backend().evicted, 0, "the last frame's textures stay");
 
         draw_images(&mut r, &images, &[0]);

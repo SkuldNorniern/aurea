@@ -936,6 +936,21 @@ fn mip_levels(width: u32, height: u32) -> u32 {
 }
 
 impl Gpu2dBackend for ZenGpuBackend {
+    fn trim_memory(&mut self) {
+        let device = self.context.device();
+        self.rect_buf.destroy(device);
+        self.shape_buf.destroy(device);
+        self.gradient_buf.destroy(device);
+        self.image_buf.destroy(device);
+        self.text_buf.destroy(device);
+        self.gradient_instances = Vec::new();
+        self.image_instances = Vec::new();
+        self.text_instances = Vec::new();
+        if let Some(frame) = self.cpu_frame.take() {
+            self.evict_image(frame.slot);
+        }
+    }
+
     fn resize(&mut self, physical_width: u32, physical_height: u32) -> AureaResult<()> {
         match &mut self.target {
             Target::Window(surface) => surface
@@ -1421,6 +1436,31 @@ mod context_tests {
         };
         assert_eq!(second.readback.map(|r| r.0), buffer);
         assert_eq!(second.pixels.as_ptr(), storage);
+
+        let shown = gpu.frame_output().expect("shown").words().to_vec();
+        assert!(gpu.backend().rect_buf.reserved_bytes() > 0);
+        assert!(gpu.backend().image_buf.reserved_bytes() > 0);
+        gpu.trim_memory();
+        assert_eq!(gpu.backend().rect_buf.reserved_bytes(), 0);
+        assert_eq!(gpu.backend().image_buf.reserved_bytes(), 0);
+        assert_eq!(gpu.backend().image_instances.capacity(), 0);
+        assert_eq!(gpu.frame_output().expect("kept frame").words(), shown);
+        {
+            let mut ctx = gpu.begin_frame().expect("after trim");
+            scene(&mut *ctx, &image);
+            ctx.draw_rect(
+                Rect::new(0.0, 0.0, 4.0, 4.0),
+                &Paint::new().color(Color::rgb(255, 0, 0)),
+            )
+            .expect("changed frame");
+        }
+        assert_eq!(gpu.end_frame().expect("rebuilt"), FrameOutcome::Presented);
+        assert_eq!(
+            gpu.frame_output().expect("new frame").words()[0],
+            0xFFFF0000
+        );
+        assert!(gpu.backend().rect_buf.reserved_bytes() > 0);
+        assert!(gpu.backend().image_buf.reserved_bytes() > 0);
     }
 
     #[test]
@@ -1988,6 +2028,16 @@ mod context_tests {
             slot
         );
         assert_eq!(gpu.backend().slot_textures.len(), 1);
+        assert_eq!(centre(&gpu), 0xFFC8_3C28);
+        let shown = gpu.frame_output().expect("shown").words().to_vec();
+        gpu.trim_memory();
+        assert!(gpu.backend().cpu_frame.is_none());
+        assert!(gpu.backend().slot_textures.is_empty());
+        assert_eq!(gpu.backend().image_buf.reserved_bytes(), 0);
+        assert_eq!(gpu.frame_output().expect("kept frame").words(), shown);
+        assert_eq!(frame(&mut gpu, 5.0), FrameOutcome::Unchanged);
+        assert_eq!(frame(&mut gpu, 7.0), FrameOutcome::Presented);
+        assert!(gpu.backend().cpu_frame.is_some());
         assert_eq!(centre(&gpu), 0xFFC8_3C28);
     }
 }

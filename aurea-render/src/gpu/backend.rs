@@ -46,6 +46,10 @@ pub trait Gpu2dBackend {
         Ok(())
     }
 
+    /// Releases rebuildable backend scratch between frames. Submitted work and
+    /// the displayed target must remain valid; the next frame rebuilds on demand.
+    fn trim_memory(&mut self) {}
+
     /// Upload RGBA8 pixel data to the GPU and return a shader-visible slot index for use in the
     /// fragment shader's bindless texture array.
     fn upload_image(&mut self, width: u32, height: u32, rgba: &[u8]) -> AureaResult<u32>;
