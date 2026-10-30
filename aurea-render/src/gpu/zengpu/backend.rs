@@ -25,6 +25,7 @@ use zengpu_hal::{
     TextureHandle, TextureRegion, TextureUsage, TextureWrite, Viewport, ViewportScissor,
     WindowHandles,
 };
+use zengpu_hal::{Submission, SubmissionStatus};
 
 use crate::capabilities::GpuFeatures;
 use crate::gpu::backend::full_frame_plan;
@@ -48,6 +49,7 @@ pub struct ZenGpuContext {
     pipelines: Mutex<Weak<SharedPipelines>>,
     /// The mip kernel, made on first use. Owned here, not by `pipelines`, which may be gone.
     mip_down: Mutex<Option<PipelineHandle>>,
+    mip_jobs: Mutex<HashMap<TextureHandle, PendingMip>>,
     instance: NativeInstance,
     device: NativeDevice,
     adapter: [u8; 16],
@@ -55,6 +57,18 @@ pub struct ZenGpuContext {
 
 impl Drop for ZenGpuContext {
     fn drop(&mut self) {
+        let jobs = self.mip_jobs.get_mut().unwrap_or_else(|p| p.into_inner());
+        if !jobs.is_empty() {
+            // Teardown may wait. Normal upload submission and polling never do.
+            let _ = self.device.wait_idle();
+            for (texture, job) in jobs.drain() {
+                drop(job.work);
+                let _ = self.device.release_storage_levels(texture);
+                if job.destroy {
+                    self.device.destroy_texture(texture);
+                }
+            }
+        }
         let mip = self
             .mip_down
             .get_mut()
@@ -64,6 +78,26 @@ impl Drop for ZenGpuContext {
             self.device.destroy_pipeline(pipeline);
         }
     }
+}
+
+struct PendingMip {
+    work: Submission,
+    // Keep base uploads and superseded updates owned until the newest update is
+    // done. This also avoids backend orphan collection under compute-table locks.
+    dependencies: Vec<Submission>,
+    destroy: bool,
+}
+
+fn track_upload(
+    jobs: &mut HashMap<TextureHandle, PendingMip>,
+    texture: TextureHandle,
+    mut job: PendingMip,
+) {
+    if let Some(old) = jobs.remove(&texture) {
+        job.dependencies.push(old.work);
+        job.dependencies.extend(old.dependencies);
+    }
+    jobs.insert(texture, job);
 }
 
 /// A GPU a context can open, for a "which GPU" setting.
@@ -79,6 +113,47 @@ pub struct GpuChoice {
 }
 
 impl ZenGpuContext {
+    /// Polls image uploads and releases completed mip views without waiting.
+    /// Returns the number of images still uploading on this context.
+    pub fn poll_uploads(&self) -> AureaResult<usize> {
+        self.collect_uploads().map_err(gpu_err)
+    }
+
+    fn collect_uploads(&self) -> Result<usize, GpuError> {
+        let mut jobs = self.mip_jobs.lock().unwrap_or_else(|p| p.into_inner());
+        let mut error = None;
+        jobs.retain(|&texture, job| match job.work.poll() {
+            Ok(SubmissionStatus::Complete) => {
+                if let Err(e) = self.device.release_storage_levels(texture) {
+                    error = Some(e);
+                    return true;
+                }
+                if job.destroy {
+                    self.device.destroy_texture(texture);
+                }
+                false
+            }
+            Ok(SubmissionStatus::Pending) => true,
+            Err(e) => {
+                error = Some(e);
+                true
+            }
+        });
+        match error {
+            Some(e) => Err(e),
+            None => Ok(jobs.len()),
+        }
+    }
+
+    fn destroy_image(&self, texture: TextureHandle) {
+        let _ = self.collect_uploads();
+        let mut jobs = self.mip_jobs.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(job) = jobs.get_mut(&texture) {
+            job.destroy = true;
+        } else {
+            self.device.destroy_texture(texture);
+        }
+    }
     /// Uploads an app-owned image on the shared device.
     pub fn upload_image(
         self: &Arc<Self>,
@@ -92,7 +167,7 @@ impl ZenGpuContext {
         };
         let mips = self.mip_path(Format::Rgba8Unorm, levels);
         let handle = make_image_texture(
-            self.device(),
+            self,
             image.width,
             image.height,
             &image.data,
@@ -183,6 +258,7 @@ impl ZenGpuContext {
         Ok(Self {
             pipelines: Mutex::new(Weak::new()),
             mip_down: Mutex::new(None),
+            mip_jobs: Mutex::new(HashMap::new()),
             adapter: adapter.uuid(),
             instance,
             device,
@@ -231,6 +307,17 @@ pub struct ZenGpuImage {
 }
 
 impl ZenGpuImage {
+    /// Whether the last upload has completed. Drawing immediately after submission
+    /// is valid on the context's ordered queue; callers need not wait for this.
+    pub fn upload_complete(&self) -> AureaResult<bool> {
+        self.context.poll_uploads()?;
+        Ok(!self
+            .context
+            .mip_jobs
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains_key(&self.texture.zengpu()))
+    }
     /// The texture handle.
     pub fn texture(&self) -> GpuTexture {
         self.texture
@@ -244,10 +331,9 @@ impl ZenGpuImage {
         {
             return Err(AureaError::RenderingFailed);
         }
-        let device = self.context.device();
         let texture = self.texture.zengpu();
         upload_levels(
-            device,
+            &self.context,
             texture,
             image.width,
             image.height,
@@ -261,7 +347,7 @@ impl ZenGpuImage {
 
 impl Drop for ZenGpuImage {
     fn drop(&mut self) {
-        self.context.device().destroy_texture(self.texture.zengpu());
+        self.context.destroy_image(self.texture.zengpu());
     }
 }
 
@@ -282,7 +368,7 @@ enum Mips {
 }
 
 fn make_image_texture(
-    device: &NativeDevice,
+    context: &ZenGpuContext,
     width: u32,
     height: u32,
     rgba: &[u8],
@@ -290,6 +376,7 @@ fn make_image_texture(
     format: Format,
     mips: Mips,
 ) -> AureaResult<TextureHandle> {
+    let device = context.device();
     if !valid_image(width, height, rgba) {
         return Err(AureaError::RenderingFailed);
     }
@@ -313,9 +400,9 @@ fn make_image_texture(
             array_layers: 1,
         })
         .map_err(gpu_err)?;
-    let filled = upload_levels(device, texture, width, height, rgba, levels, mips);
+    let filled = upload_levels(context, texture, width, height, rgba, levels, mips);
     if let Err(e) = filled {
-        device.destroy_texture(texture);
+        context.destroy_image(texture);
         return Err(gpu_err(e));
     }
     Ok(texture)
@@ -326,7 +413,7 @@ fn make_image_texture(
 static GPU_MIP_FALLBACKS: AtomicUsize = AtomicUsize::new(0);
 
 fn upload_levels(
-    device: &NativeDevice,
+    context: &ZenGpuContext,
     texture: TextureHandle,
     width: u32,
     height: u32,
@@ -334,12 +421,15 @@ fn upload_levels(
     levels: u32,
     mips: Mips,
 ) -> Result<(), GpuError> {
+    context.collect_uploads()?;
+    let device = context.device();
+    // Keep views stable while planning another update to this image. The newest
+    // submission owns their lifetime because all updates use the same queue.
+    let mut jobs = context.mip_jobs.lock().unwrap_or_else(|p| p.into_inner());
     if let Mips::Gpu(pipeline) = mips {
         let built = gpu_mip_chain(device, pipeline, texture, width, height, rgba, levels);
-        // The dispatches have all completed, so the level views are no longer in use. Vulkan
-        // has few of them, so they go now rather than with the texture.
-        let _ = device.release_storage_levels(texture);
-        if built.is_ok() {
+        if let Ok(job) = built {
+            track_upload(&mut jobs, texture, job);
             return Ok(());
         }
         #[cfg(test)]
@@ -370,8 +460,16 @@ fn upload_levels(
                 }
             })
             .collect();
-        // the texels are copied out by now and later draws see them: no wait for the GPU here
-        drop(device.write_textures(&writes)?);
+        let work = device.write_textures(&writes)?;
+        track_upload(
+            &mut jobs,
+            texture,
+            PendingMip {
+                work,
+                dependencies: Vec::new(),
+                destroy: false,
+            },
+        );
         return Ok(());
     }
     device.upload_texture_data(texture, rgba)?;
@@ -388,8 +486,8 @@ fn upload_levels(
 }
 
 /// Upload level 0 without a host wait, then build all dependent levels in one batch.
-/// The batch's barriers make each level visible to the next; its single wait also
-/// makes it safe for the caller to release the storage-level descriptors.
+/// The batch's barriers make each level visible to the next. The caller retains
+/// its submission and level views until completion, including after image drop.
 fn gpu_mip_chain(
     device: &NativeDevice,
     pipeline: PipelineHandle,
@@ -398,17 +496,18 @@ fn gpu_mip_chain(
     height: u32,
     rgba: &[u8],
     levels: u32,
-) -> Result<(), GpuError> {
-    if device.capabilities().transfers.texture_region_write {
-        drop(device.write_textures(&[TextureWrite {
+) -> Result<PendingMip, GpuError> {
+    let upload = if device.capabilities().transfers.texture_region_write {
+        Some(device.write_textures(&[TextureWrite {
             texture,
             region: TextureRegion::rect(0, 0, width, height),
             data: rgba,
             bytes_per_row: width * 4,
-        }])?);
+        }])?)
     } else {
         device.upload_texture_data(texture, rgba)?;
-    }
+        None
+    };
     let mut levels_to_build = Vec::with_capacity(levels.saturating_sub(1) as usize);
     let (mut w, mut h) = (width, height);
     for mip in 1..levels {
@@ -436,7 +535,12 @@ fn gpu_mip_chain(
             grid: *grid,
         })
         .collect();
-    device.dispatch_batch(&ops)
+    let work = device.submit_batch(0, &ops)?;
+    Ok(PendingMip {
+        work,
+        dependencies: upload.into_iter().collect(),
+        destroy: false,
+    })
 }
 
 fn area_downsample(src: &[u8], (sw, sh): (u32, u32), (dw, dh): (u32, u32)) -> Vec<u8> {
@@ -921,9 +1025,10 @@ impl ZenGpuBackend {
         let device = self.context.device();
         let format = texture_format(format);
         let mips = self.context.mip_path(format, levels);
-        let texture = make_image_texture(device, width, height, pixels, levels, format, mips)?;
+        let texture =
+            make_image_texture(&self.context, width, height, pixels, levels, format, mips)?;
         let Some(slot) = device.bind_texture(texture, self.sampler) else {
-            device.destroy_texture(texture);
+            self.context.destroy_image(texture);
             return Err(AureaError::RenderingFailed);
         };
         self.slot_textures.insert(slot, texture);
@@ -936,6 +1041,10 @@ fn mip_levels(width: u32, height: u32) -> u32 {
 }
 
 impl Gpu2dBackend for ZenGpuBackend {
+    fn begin_frame(&mut self) -> AureaResult<()> {
+        self.context.poll_uploads().map(|_| ())
+    }
+
     fn trim_memory(&mut self) {
         let device = self.context.device();
         self.rect_buf.destroy(device);
@@ -994,7 +1103,7 @@ impl Gpu2dBackend for ZenGpuBackend {
 
     fn evict_image(&mut self, shader_slot: u32) {
         if let Some(texture) = self.slot_textures.remove(&shader_slot) {
-            self.context.device().destroy_texture(texture);
+            self.context.destroy_image(texture);
         }
     }
 
@@ -1045,16 +1154,8 @@ impl Gpu2dBackend for ZenGpuBackend {
                     .get(&slot)
                     .copied()
                     .ok_or(AureaError::RenderingFailed)?;
-                upload_levels(
-                    self.context.device(),
-                    texture,
-                    width,
-                    height,
-                    pixels,
-                    1,
-                    Mips::Cpu,
-                )
-                .map_err(gpu_err)?;
+                upload_levels(&self.context, texture, width, height, pixels, 1, Mips::Cpu)
+                    .map_err(gpu_err)?;
                 slot
             }
             None => {
@@ -1260,7 +1361,7 @@ impl Drop for ZenGpuBackend {
             offscreen.release(device);
         }
         for (_, texture) in self.slot_textures.drain() {
-            device.destroy_texture(texture);
+            self.context.destroy_image(texture);
         }
         self.rect_buf.destroy(device);
         self.shape_buf.destroy(device);
@@ -1790,18 +1891,17 @@ mod context_tests {
                 [(x % 256) as u8, (y % 256) as u8, ((x ^ y) % 256) as u8, 255]
             })
             .collect();
-        let device = context.device();
         for round in 0..10 {
             let start = Instant::now();
             let cpu =
-                make_image_texture(device, w, h, &rgba, levels, Format::Rgba8Unorm, Mips::Cpu)
+                make_image_texture(&context, w, h, &rgba, levels, Format::Rgba8Unorm, Mips::Cpu)
                     .expect("cpu upload");
             let cpu_time = start.elapsed();
-            device.destroy_texture(cpu);
+            context.destroy_image(cpu);
 
             let start = Instant::now();
             let gpu = make_image_texture(
-                device,
+                &context,
                 w,
                 h,
                 &rgba,
@@ -1811,7 +1911,7 @@ mod context_tests {
             )
             .expect("gpu upload");
             let gpu_time = start.elapsed();
-            device.destroy_texture(gpu);
+            context.destroy_image(gpu);
             eprintln!("round {round}: 4096^2 cpu mips {cpu_time:?}, gpu mips {gpu_time:?}");
         }
     }
@@ -1830,7 +1930,7 @@ mod context_tests {
                 return;
             };
             let texture = make_image_texture(
-                device,
+                &context,
                 side,
                 side,
                 &rgba,
@@ -1871,7 +1971,10 @@ mod context_tests {
                             }
                         } else {
                             gpu_mip_chain(device, pipeline, texture, side, side, &rgba, levels)
-                                .expect("batched mips");
+                                .expect("batched mips")
+                                .work
+                                .wait(Duration::MAX)
+                                .expect("mip completion");
                         }
                         device
                             .release_storage_levels(texture)
@@ -1883,8 +1986,89 @@ mod context_tests {
                     );
                 }
             }
-            device.destroy_texture(texture);
+            context.destroy_image(texture);
         }
+    }
+
+    #[test]
+    fn pending_image_drop_and_polling_never_wait_for_its_submission() {
+        use std::sync::atomic::AtomicBool;
+        use zengpu_hal::GpuSubmission;
+        struct HeldUpload(Arc<AtomicBool>);
+        impl GpuSubmission for HeldUpload {
+            fn cycle_id(&self) -> u64 {
+                0
+            }
+            fn poll(&self) -> Result<SubmissionStatus, GpuError> {
+                Ok(if self.0.load(Ordering::Acquire) {
+                    SubmissionStatus::Complete
+                } else {
+                    SubmissionStatus::Pending
+                })
+            }
+            fn wait(&self, _: Duration) -> Result<(), GpuError> {
+                panic!("upload polling waited")
+            }
+        }
+        let Ok(context) = ZenGpuContext::new() else {
+            return;
+        };
+        let context = Arc::new(context);
+        let owned = context
+            .upload_image(&Image::new(2, 2, vec![255; 16]), Sampling::Nearest)
+            .expect("image");
+        context.device().wait_idle().expect("initial upload");
+        context.poll_uploads().expect("collect initial upload");
+        let texture = owned.texture().zengpu();
+        let done = Arc::new(AtomicBool::new(false));
+        context.mip_jobs.lock().expect("jobs").insert(
+            texture,
+            PendingMip {
+                work: Box::new(HeldUpload(Arc::clone(&done))),
+                dependencies: Vec::new(),
+                destroy: false,
+            },
+        );
+        assert!(!owned.upload_complete().expect("pending"));
+        drop(owned);
+        assert_eq!(context.poll_uploads().expect("no wait"), 1);
+        assert!(context.mip_jobs.lock().expect("jobs")[&texture].destroy);
+        done.store(true, Ordering::Release);
+        assert_eq!(context.poll_uploads().expect("retire completed image"), 0);
+        let sampler = context
+            .device()
+            .create_sampler(SamplerDesc::default())
+            .expect("sampler");
+        assert!(context.device().bind_texture(texture, sampler).is_none());
+        context.device().destroy_sampler(sampler);
+    }
+
+    #[test]
+    fn queued_mip_updates_are_ordered_and_keep_the_latest_pixels() {
+        let Ok(context) = ZenGpuContext::new() else {
+            return;
+        };
+        let context = Arc::new(context);
+        let mut image = context
+            .upload_image(&Image::new(32, 16, vec![0; 32 * 16 * 4]), Sampling::Smooth)
+            .expect("image");
+        for value in 0..40u8 {
+            image
+                .update(&Image::new(32, 16, [value, 23, 91, 255].repeat(32 * 16)))
+                .expect("queued update");
+        }
+        for level in 0..image.levels {
+            let (w, h) = ((32 >> level).max(1), (16 >> level).max(1));
+            assert_eq!(
+                read_mip(context.device(), image.texture().zengpu(), level, w, h),
+                [39, 23, 91, 255].repeat(w as usize * h as usize)
+            );
+        }
+        assert!(
+            image
+                .upload_complete()
+                .expect("readback completed all earlier uploads")
+        );
     }
 
     #[test]
@@ -1912,6 +2096,8 @@ mod context_tests {
             .expect("sampler");
         assert!(context.device().bind_texture(texture, sampler).is_some());
         drop(owned);
+        context.device().wait_idle().expect("finish queued upload");
+        context.poll_uploads().expect("retire dropped image");
         assert!(
             context.device().bind_texture(texture, sampler).is_none(),
             "owner releases the texture"
@@ -1945,7 +2131,7 @@ mod context_tests {
             .upload_texture_data(texture, &vec![0x80u8; (w * h * 4) as usize])
             .expect("level 0");
         device.generate_mipmaps(texture).expect("mips");
-        device.destroy_texture(texture);
+        context.destroy_image(texture);
     }
 
     #[test]
