@@ -56,6 +56,43 @@ impl ClipboardImage {
     pub fn from_dib(bytes: &[u8], max_bytes: usize) -> AureaResult<Self> {
         decode_dib(bytes, max_bytes)
     }
+
+    /// Decodes a BMP file containing a supported 24/32-bit DIB. Handles top-down
+    /// and bottom-up rows, padding and the file's pixel offset. Indexed, RLE and
+    /// arbitrary colour masks are unsupported, as in [`Self::from_dib`].
+    pub fn from_bmp(bytes: &[u8], max_bytes: usize) -> AureaResult<Self> {
+        if bytes.len() > max_bytes {
+            return Err(limit_error());
+        }
+        if !bytes.starts_with(b"BM") {
+            return Err(AureaError::ElementOperationFailed);
+        }
+        let declared = usize::try_from(word(bytes, 2)?).map_err(invalid)?;
+        let end = if declared == 0 { bytes.len() } else { declared };
+        let offset = usize::try_from(word(bytes, 10)?).map_err(invalid)?;
+        if end < 14 || end > bytes.len() || offset < 14 || offset > end {
+            return Err(AureaError::ElementOperationFailed);
+        }
+        decode_dib_at(&bytes[14..end], max_bytes, Some(offset - 14))
+    }
+
+    /// Detects PNG or BMP by its signature and decodes it on the calling thread.
+    /// Other encodings return `Unsupported`; this does not perform colour-profile
+    /// conversion, JPEG decoding or animated-image playback.
+    pub fn from_encoded(bytes: &[u8], max_bytes: usize) -> AureaResult<Self> {
+        if bytes.len() > max_bytes {
+            return Err(limit_error());
+        }
+        if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+            Self::from_png(bytes, max_bytes)
+        } else if bytes.starts_with(b"BM") {
+            Self::from_bmp(bytes, max_bytes)
+        } else {
+            Err(AureaError::unsupported(
+                "image decoder (PNG or BMP required)",
+            ))
+        }
+    }
 }
 
 fn pixel_bytes(width: u32, height: u32, max_bytes: usize) -> AureaResult<usize> {
@@ -253,6 +290,14 @@ fn dib_masks(
 }
 
 pub(super) fn decode_dib(bytes: &[u8], max_bytes: usize) -> AureaResult<ClipboardImage> {
+    decode_dib_at(bytes, max_bytes, None)
+}
+
+fn decode_dib_at(
+    bytes: &[u8],
+    max_bytes: usize,
+    pixel_offset: Option<usize>,
+) -> AureaResult<ClipboardImage> {
     if bytes.len() > max_bytes {
         return Err(limit_error());
     }
@@ -279,6 +324,12 @@ pub(super) fn decode_dib(bytes: &[u8], max_bytes: usize) -> AureaResult<Clipboar
                 .ok_or_else(limit_error)?,
         )
         .ok_or_else(limit_error)?;
+    if let Some(file_offset) = pixel_offset {
+        if file_offset < offset {
+            return Err(AureaError::ElementOperationFailed);
+        }
+        offset = file_offset;
+    }
     let width = usize::try_from(width).map_err(invalid)?;
     let height_usize = usize::try_from(height).map_err(invalid)?;
     let row = width
@@ -340,6 +391,55 @@ mod tests {
                 .unwrap();
         }
         bytes
+    }
+
+    fn bmp_file(dib: &[u8], pixel_offset: usize, gap: usize) -> Vec<u8> {
+        let mut bytes = vec![0; 14];
+        bytes[..2].copy_from_slice(b"BM");
+        bytes[10..14].copy_from_slice(
+            &u32::try_from(14 + pixel_offset + gap)
+                .unwrap()
+                .to_le_bytes(),
+        );
+        bytes.extend_from_slice(&dib[..pixel_offset]);
+        bytes.extend_from_slice(&vec![77; gap]);
+        bytes.extend_from_slice(&dib[pixel_offset..]);
+        let len = u32::try_from(bytes.len()).unwrap();
+        bytes[2..6].copy_from_slice(&len.to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn bmp_files_obey_offsets_alpha_orientation_and_file_bounds() {
+        let image = sample();
+        let dib = image.to_dib().unwrap();
+        let file = bmp_file(&dib, 124, 7);
+        assert_eq!(ClipboardImage::from_bmp(&file, 8192).unwrap(), image);
+        assert_eq!(ClipboardImage::from_encoded(&file, 8192).unwrap(), image);
+        let mut bottom_up = dib;
+        bottom_up[8..12].copy_from_slice(&2i32.to_le_bytes());
+        for x in 0..8 {
+            bottom_up.swap(124 + x, 132 + x);
+        }
+        assert_eq!(
+            ClipboardImage::from_bmp(&bmp_file(&bottom_up, 124, 0), 8192).unwrap(),
+            image
+        );
+        for len in 0..file.len() {
+            assert!(ClipboardImage::from_bmp(&file[..len], 8192).is_err());
+        }
+        let mut overlap = file.clone();
+        overlap[10..14].copy_from_slice(&14u32.to_le_bytes());
+        assert!(ClipboardImage::from_bmp(&overlap, 8192).is_err());
+        assert!(ClipboardImage::from_bmp(&file, file.len() - 1).is_err());
+        assert_eq!(
+            ClipboardImage::from_encoded(&image.to_png().unwrap(), 8192).unwrap(),
+            image
+        );
+        assert!(matches!(
+            ClipboardImage::from_encoded(b"\xff\xd8\xff", 8192),
+            Err(AureaError::Unsupported { .. })
+        ));
     }
 
     #[test]
@@ -499,6 +599,12 @@ mod tests {
         dib[40..].copy_from_slice(&[255, 0, 0, 77, 0, 255, 0, 88]);
         assert_eq!(
             decode_dib(&dib, 4096).expect("24-bit").rgba,
+            [0, 255, 0, 255, 0, 0, 255, 255]
+        );
+        assert_eq!(
+            ClipboardImage::from_bmp(&bmp_file(&dib, 40, 11), 4096)
+                .unwrap()
+                .rgba,
             [0, 255, 0, 255, 0, 0, 255, 255]
         );
     }
