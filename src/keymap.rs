@@ -298,7 +298,9 @@ impl<A> Keymap<A> {
     }
 
     /// Binds `chord` to `action`, replacing what it was bound to; debug builds warn when it was
-    /// bound already. [`Self::insert`] hands the old action back.
+    /// bound already. [`Self::insert`] hands the old action back, and [`Self::try_bind`] refuses a
+    /// clash in every build. On Windows the menu bar takes Alt and a letter of its titles before any
+    /// binding hears it.
     pub fn bind(&mut self, chord: Chord, action: A) -> &mut Self {
         if self.insert(chord, action).is_some() && cfg!(debug_assertions) {
             log::warn!("{chord:?} was bound already; the new action replaces the old one");
