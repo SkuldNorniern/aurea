@@ -5,9 +5,14 @@
 
 #[cfg(target_os = "ios")]
 mod app {
+    use aurea::elements::{
+        Checkbox as NativeCheckbox, Container, Label, Orientation, RowList, ScrollView,
+        ScrollbarPolicy, SidebarList, SplitOrientation, SplitView, Stack, TabBar, Table,
+        TextControl, TextEditor, TextField, TextStyle,
+    };
     use aurea::ios::{
         create_menu_bar, keyboard_height, on_event, pick_files, request_frame, run as run_app,
-        set_theme, show_keyboard,
+        set_theme, show_keyboard, show_native,
     };
     use aurea::logger::init_from_env;
     use aurea::ui::{Align, Button, Checkbox, ProgressBar, Segmented, Slider, Theme, Toggle, Ui};
@@ -16,6 +21,7 @@ mod app {
         ShortcutKey, WindowEvent,
     };
     use std::cell::{Cell, RefCell};
+    use std::env::var_os;
     use std::rc::Rc;
 
     const ADD: u64 = 1;
@@ -138,6 +144,111 @@ mod app {
             request_frame();
         })?;
         Ok(bar)
+    }
+
+    /// One of each native widget, for checking them on a device.
+    fn native_widgets() -> AureaResult<Stack> {
+        let mut root = Stack::new(Orientation::Vertical)?;
+        root.add(Label::with_style("Native widgets", TextStyle::Heading)?)?;
+        let field = TextField::with_content("A text field")?;
+        field.on_change(|_| println!("native tap: field changed"))?;
+        root.add(field)?;
+        root.add(TabBar::with_callbacks_and_tabs(
+            |tab| println!("native tap: tab {tab}"),
+            |_| {},
+            ["One", "Two", "Three"],
+        )?)?;
+        let mut table = Table::new(["Name", "Size"])?;
+        table.add_row(1, &["sketch.png", "2 MB"])?;
+        table.add_row(2, &["notes.txt", "4 KB"])?;
+        table.on_select(|row| println!("native tap: table selected {row:?}"));
+        table.on_activate(|row| println!("native tap: table activated {row}"));
+        root.add_weighted(table, 1.0)?;
+        let mut sidebar =
+            SidebarList::with_callback(|item| println!("native tap: sidebar {item}"))?;
+        sidebar.add_section("Machine")?;
+        sidebar.add_items(["General", "Display"], 0)?;
+        let mut rows = RowList::new()?;
+        rows.add_row(1, Label::new("A row of elements")?)?;
+        rows.add_row(2, NativeCheckbox::with_checked("Another", true)?)?;
+        rows.on_select(|row| println!("native tap: rows selected {row:?}"));
+        rows.on_activate(|row| println!("native tap: rows activated {row}"));
+        let split = SplitView::with_children(SplitOrientation::Horizontal, sidebar, rows)?;
+        root.add_weighted(split, 1.0)?;
+        let mut long = Stack::new(Orientation::Vertical)?;
+        for line in 0..12 {
+            long.add(Label::new(&format!("Scrolled line {line}"))?)?;
+        }
+        root.add_weighted(ScrollView::with_content(long)?, 1.0)?;
+        let editor = TextEditor::with_content("A text editor\n")?;
+        editor.on_change(|_| println!("native tap: editor changed"))?;
+        root.add_weighted(editor, 1.0)?;
+        Ok(root)
+    }
+
+    /// Runs the native widgets' calls and prints what came back, for reading off a device's console.
+    fn native_check() -> AureaResult<()> {
+        let check =
+            |name: &str, ok: bool| println!("native {name}: {}", if ok { "ok" } else { "FAILED" });
+        let field = TextField::with_content("hello")?;
+        check("field text", field.text()? == "hello");
+        field.replace(0..5, "연결 ok")?;
+        check("field replace", field.text()? == "연결 ok");
+        field.set_selection(0..3)?;
+        let editor = TextEditor::with_content("one\ntwo")?;
+        editor.set_selection(4..7)?;
+        check("editor selection", editor.selection()? == (4..7));
+        editor.replace_selection("2")?;
+        check("editor replace", editor.text()? == "one\n2");
+        check("editor can undo", editor.can_undo());
+        editor.undo()?;
+        check("editor undo", editor.text()? == "one\ntwo");
+        editor.redo()?;
+        check("editor redo", editor.text()? == "one\n2");
+
+        let mut tabs = TabBar::with_tabs(["a", "b", "c"])?;
+        tabs.set_selected(2)?;
+        check("tab selected", tabs.get_selected() == 2);
+        tabs.remove_tab(2)?;
+        check("tab removed", tabs.get_selected() == 1);
+        check("tab range", tabs.set_selected(5).is_err());
+
+        let mut table = Table::new(["a", "b"])?;
+        table.add_row(10, &["1", "2"])?;
+        table.add_row(20, &["3", "4"])?;
+        table.set_selected(Some(20))?;
+        check("table selected", table.selected() == Some(20));
+        table.insert_row(0, 30, &["5", "6"])?;
+        check("table keeps selection", table.selected() == Some(20));
+        table.remove_row(20)?;
+        check("table drops selection", table.selected().is_none());
+
+        let mut list = RowList::new()?;
+        list.add_row(1, Label::new("x")?)?;
+        list.add_row(2, Label::new("y")?)?;
+        list.set_selected(Some(2))?;
+        check("rows selected", list.selected() == Some(2));
+        list.remove_row(1)?;
+        check("rows keep selection", list.selected() == Some(2));
+        list.clear()?;
+        check("rows cleared", list.rows().is_empty());
+
+        let mut bar = SidebarList::new()?;
+        bar.add_section("s")?;
+        bar.add_items(["a", "b"], 0)?;
+        bar.set_selected(1)?;
+        check("sidebar selected", bar.get_selected() == 1);
+        check("sidebar range", bar.set_selected(2).is_err());
+        bar.clear()?;
+        check("sidebar cleared", bar.get_selected() == -1);
+
+        let mut scroll = ScrollView::with_content(Label::new("x")?)?;
+        check(
+            "scroll bar",
+            scroll.set_scrollbar(ScrollbarPolicy::Always).is_ok(),
+        );
+        scroll.set_content(Label::new("y")?)?;
+        Ok(())
     }
 
     #[derive(Default)]
@@ -304,9 +415,21 @@ mod app {
             }
         });
         let bar = menus(&sketch, &last);
+        // AUREA_NATIVE=1 in the app's environment puts the native widgets over the panel.
+        let wanted = var_os("AUREA_NATIVE").is_some();
+        let mut native = None;
         run_app(Theme::dark(), move |ui, width, height| {
             // Lives as long as the app, with the frames that draw it.
             let _ = &bar;
+            if wanted && native.is_none() {
+                if let Err(error) = native_check() {
+                    println!("native check stopped: {error}");
+                }
+                native = native_widgets().ok();
+            }
+            if let Some(widgets) = &native {
+                show_native(widgets, Rect::new(0.0, 0.0, width, height));
+            }
             panel(ui, &mut state, &last.borrow(), width)?;
             pad(ui, &mut sketch.borrow_mut(), &last, width, height)
         })
