@@ -18,6 +18,7 @@
 mod documents;
 mod host;
 mod logcat;
+mod sheets;
 mod window;
 
 use std::ffi::{c_int, c_void};
@@ -42,6 +43,7 @@ use jni::JavaVM;
 pub use jni::objects::JObject;
 use jni::objects::{GlobalRef, JByteArray, JClass, JString, JValue};
 use jni::sys::{JNI_FALSE, JNI_TRUE, JNI_VERSION_1_6, jboolean, jdouble, jfloat, jint};
+pub use sheets::alert;
 
 use crate::dispatch;
 #[cfg(feature = "zengpu")]
@@ -138,6 +140,12 @@ pub fn set_high_frame_rate(high: bool) {
 pub fn canvas_id() -> CanvasId {
     static CANVAS: LazyLock<CanvasId> = LazyLock::new(|| register_host_canvas(request_frame));
     *CANVAS
+}
+
+/// Whether the mouse event currently being delivered came from a pen, such as an Apple Pencil or
+/// a stylus.
+pub fn pointer_is_pencil() -> bool {
+    host::POINTER_PENCIL.load(Ordering::Relaxed)
 }
 
 /// The app's private files folder, `Context.getFilesDir()`; `None` before the Activity is up.

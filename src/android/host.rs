@@ -64,6 +64,8 @@ static SCREEN: [AtomicU32; 5] = [
 static NEXT_THEME: Mutex<Option<Theme>> = Mutex::new(None);
 /// Whether the app wants the GPU, when built with `zengpu`.
 pub(super) static GPU_WANTED: AtomicBool = AtomicBool::new(true);
+/// Whether the last pointer reading came from a pen.
+pub(super) static POINTER_PENCIL: AtomicBool = AtomicBool::new(false);
 
 /// The GPU renderer for the current window, and the device it shares across windows.
 #[cfg(feature = "zengpu")]
@@ -411,6 +413,7 @@ pub(super) fn pointer(
     age: f64,
 ) {
     let pen = tool == TOOL_STYLUS || tool == TOOL_ERASER;
+    POINTER_PENCIL.store(pen, Ordering::Relaxed);
     let (at, touched) = HOST.with_borrow_mut(|host| {
         let at = host.logical(x, y);
         let touch = match phase {

@@ -2,6 +2,7 @@ package dev.aurea
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
@@ -249,6 +250,33 @@ abstract class AureaActivity :
     @Suppress("unused")
     fun setClipboardPngFromNative(png: ByteArray): Boolean = files.setClipboardPng(png)
 
+    /**
+     * Buttons: 0 OK, 1 OK and Cancel, 2 Yes and No, 3 Save, Discard and Cancel. Each answers with
+     * the code of `MessageChoice` in Rust. Not dismissable, so one button always answers.
+     */
+    @Suppress("unused")
+    fun alertFromNative(title: String, message: String, buttons: Int, id: Long): Boolean {
+        if (isFinishing) return false
+        val ok = getString(android.R.string.ok) to 0
+        val cancel = getString(android.R.string.cancel) to 1
+        // the platform has no shared words for save and discard.
+        val (positive, neutral, negative) = when (buttons) {
+            1 -> listOf(ok, null, cancel)
+            2 -> listOf(getString(android.R.string.yes) to 2, null, getString(android.R.string.no) to 3)
+            3 -> listOf("Save" to 4, "Discard" to 5, cancel)
+            else -> listOf(ok, null, null)
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(message)
+            .setCancelable(false)
+        positive?.let { (label, code) -> dialog.setPositiveButton(label) { _, _ -> nativeAlertDone(id, code) } }
+        neutral?.let { (label, code) -> dialog.setNeutralButton(label) { _, _ -> nativeAlertDone(id, code) } }
+        negative?.let { (label, code) -> dialog.setNegativeButton(label) { _, _ -> nativeAlertDone(id, code) } }
+        dialog.show()
+        return true
+    }
+
     @Deprecated("Activity has no replacement without androidx")
     @Suppress("DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -347,5 +375,6 @@ abstract class AureaActivity :
         @JvmStatic external fun nativeKey(code: Int, pressed: Boolean, meta: Int)
         @JvmStatic external fun nativeText(text: String)
         @JvmStatic external fun nativePreedit(text: String, cursor: Int)
+        @JvmStatic external fun nativeAlertDone(id: Long, answer: Int)
     }
 }

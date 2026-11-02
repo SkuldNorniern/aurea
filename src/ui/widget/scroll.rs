@@ -4,6 +4,8 @@
 use std::ops::Range;
 
 use super::Widget;
+#[cfg(target_os = "android")]
+use crate::android::pointer_is_pencil;
 #[cfg(target_os = "ios")]
 use crate::ios::pointer_is_pencil;
 use crate::render::{Color, Rect};
@@ -270,7 +272,7 @@ fn touch_drag<Id: WidgetId>(
     if !ui.state.touch_scrolling || room <= 0.0 || ui.state.popup.is_open() {
         return false;
     }
-    #[cfg(target_os = "ios")]
+    #[cfg(any(target_os = "ios", target_os = "android"))]
     if pointer_is_pencil() {
         return false;
     }
