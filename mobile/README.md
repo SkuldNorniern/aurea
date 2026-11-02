@@ -27,6 +27,16 @@ An app's Cargo.toml has a `cdylib` example that is the library, and `aurea/aurea
 builds it with cargo for each ABI into `jniLibs`. The sample's is
 [`examples/android_demo.rs`](../examples/android_demo.rs).
 
+An app crate that is normally an `rlib` can build its library as the Android `.so`
+without adding an example:
+
+```bash
+cargo rustc --lib --release --target aarch64-linux-android --features mobile --crate-type cdylib
+```
+
+Configure the NDK linker for the selected target and copy the resulting `lib<crate>.so`
+into the corresponding `jniLibs` ABI directory.
+
 An app's identity comes from its Cargo.toml table `[package.metadata.aurea]`: `name` (label), `id`
 (application ID), `version` (`"auto"` for the package version, or a string) and optional `build`
 (versionCode). `aurea/aurea-identity.gradle` reads the table with `cargo metadata`.
