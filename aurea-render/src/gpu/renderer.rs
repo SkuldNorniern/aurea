@@ -1,5 +1,6 @@
 //! The GPU renderer shared by every backend.
 
+use std::iter::repeat_n;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -10,6 +11,7 @@ use crate::cpu::CpuRasterizer;
 use crate::frame::FrameOutput;
 use crate::gpu::batch::RenderBatches;
 use crate::memory::smaller_buffer;
+use crate::numeric::f32_to_u32_clamped;
 use crate::recording::RecordingContext;
 use crate::renderer::{DrawingContext, FrameOutcome, Renderer};
 use crate::scene::command::DrawCommand;
@@ -57,7 +59,7 @@ pub struct Gpu2dRenderer<B: Gpu2dBackend> {
     layer_lists: Vec<DisplayList>,
     /// Position of each CPU run among the original frame's items.
     layer_starts: Vec<usize>,
-    layer_images: Vec<Option<Image>>,
+    layer_images: Vec<Option<(Image, Rect)>>,
     composite: DisplayList,
     presented: Vec<(CacheKey, Rect)>,
     presented_target: Option<PresentedTarget>,
@@ -289,13 +291,12 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
             }
             let kept = &mut self.layer_images[k];
             if layer.render_recorded(list)? != FrameOutcome::Unchanged || kept.is_none() {
-                *kept = layer_image(layer);
+                *kept = layer_image(layer, list);
             }
-            if let Some(image) = kept.clone() {
-                let full = Rect::new(0.0, 0.0, image.width as f32, image.height as f32);
+            if let Some((image, at)) = kept.clone() {
                 self.composite.push(plain_item(DrawCommand::DrawImageRect(
                     image,
-                    full,
+                    at,
                     Sampling::Nearest,
                 )));
             }
@@ -411,8 +412,13 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         self.texture_cache.prune_dropped(&mut self.backend);
         self.texture_cache
             .trim_unpinned(&mut self.backend, self.frame_counter);
-        if let Some(cpu) = &mut self.cpu {
-            cpu.trim_memory();
+        // Off the CPU path its full-size buffer has nothing to show, and comes back on demand.
+        if self.last_on_cpu {
+            if let Some(cpu) = &mut self.cpu {
+                cpu.trim_memory();
+            }
+        } else {
+            self.cpu = None;
         }
         self.backend.trim_memory();
     }
@@ -568,17 +574,59 @@ fn plain_item(command: DrawCommand) -> DisplayItem {
     )
 }
 
-/// Source offset in a BGRA pixel for each RGBA output channel.
-const BGRA_TO_RGBA: [usize; 4] = [2, 1, 0, 3];
+/// Reach past an item's bounds, for antialiasing; matches the rasterizer's item clip.
+const LAYER_PAD: f32 = 3.0;
 
-fn layer_image(layer: &CpuRasterizer) -> Option<Image> {
+/// The whole pixels `list` draws in, or `None` when any of it can reach further than it says.
+fn layer_extent(list: &DisplayList, width: u32, height: u32) -> Option<(u32, u32, u32, u32)> {
+    let mut drawn: Option<Rect> = None;
+    for item in list.items() {
+        if let DrawCommand::Clear(color) = item.command {
+            if color.a == 0 {
+                continue;
+            }
+            return None;
+        }
+        let b = item.bounds;
+        if !(b.width > 0.0 && b.height > 0.0) {
+            return None;
+        }
+        drawn = Some(drawn.map_or(b, |all| all.union(b)));
+    }
+    let drawn = drawn?.inset(-LAYER_PAD);
+    let x = f32_to_u32_clamped(drawn.x.floor()).min(width);
+    let y = f32_to_u32_clamped(drawn.y.floor()).min(height);
+    let right = f32_to_u32_clamped(drawn.right().ceil()).min(width);
+    let bottom = f32_to_u32_clamped(drawn.bottom().ceil()).min(height);
+    Some((x, y, right.saturating_sub(x), bottom.saturating_sub(y)))
+}
+
+/// What `layer` drew for `list` as RGBA, cropped, and where it goes on the frame.
+fn layer_image(layer: &CpuRasterizer, list: &DisplayList) -> Option<(Image, Rect)> {
     let frame = layer.frame_output()?;
+    let (x, y, width, height) =
+        layer_extent(list, frame.width, frame.height).unwrap_or((0, 0, frame.width, frame.height));
+    if width == 0 || height == 0 {
+        return None;
+    }
     let bgra = frame.bytes();
-    // A range map has an exact length, so the pixels are written once, into the shared buffer.
-    let rgba: Arc<[u8]> = (0..bgra.len())
-        .map(|i| bgra[(i & !3) | BGRA_TO_RGBA[i & 3]])
-        .collect();
-    Some(Image::from_shared(frame.width, frame.height, rgba))
+    let (stride, row) = (frame.width as usize * 4, width as usize * 4);
+    // A repeat has an exact length, so the pixels are written once, into the shared buffer.
+    let mut rgba: Arc<[u8]> = repeat_n(0, row * height as usize).collect();
+    let out = Arc::get_mut(&mut rgba)?;
+    let from = y as usize * stride + x as usize * 4;
+    for (out, line) in out.chunks_exact_mut(row).zip(bgra[from..].chunks(stride)) {
+        for (out, &[b, g, r, a]) in out
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(line.as_chunks::<4>().0)
+        {
+            *out = [r, g, b, a];
+        }
+    }
+    let at = Rect::new(x as f32, y as f32, width as f32, height as f32);
+    Some((Image::from_shared(width, height, rgba), at))
 }
 
 fn recover(outcome: AureaResult<FrameOutcome>) -> AureaResult<FrameOutcome> {
@@ -871,7 +919,7 @@ mod tests {
             r.composite.items()[0].command,
             DrawCommand::DrawTexture(..)
         ));
-        let image = r.layer_images[0].as_ref().expect("overlay image");
+        let (image, _) = r.layer_images[0].as_ref().expect("overlay image");
         assert_eq!(
             &image.data[..4],
             &[0, 0, 0, 0],
@@ -1038,7 +1086,7 @@ mod tests {
         };
         draw(&mut r, 2);
         assert_eq!(r.layers.len(), 2);
-        let old_image = Arc::downgrade(&r.layer_images[1].as_ref().expect("last layer").data);
+        let old_image = Arc::downgrade(&r.layer_images[1].as_ref().expect("last layer").0.data);
         draw(&mut r, 1);
         assert_eq!(r.layers.len(), 1);
         assert_eq!(r.layer_images.len(), 1);
@@ -1406,10 +1454,46 @@ mod tests {
             .expect("rect");
         }
         layer.render_recorded(&mut list).expect("render");
-        let image = layer_image(&layer).expect("image");
+        let (image, _) = layer_image(&layer, &list).expect("image");
         assert_eq!((image.width, image.height), (2, 2));
         assert_eq!(image.data.len(), 2 * 2 * 4);
         assert_eq!(&image.data[..4], &[220, 20, 60, 255]);
+    }
+
+    #[test]
+    fn a_layer_image_crops_to_what_the_layer_drew() {
+        let mut layer = CpuRasterizer::new(100, 80);
+        layer.configure(info(100, 80, 1.0)).expect("configure");
+        let mut list = DisplayList::new();
+        {
+            let mut ctx = RecordingContext::new(&mut list, 100, 80);
+            ctx.clear(Color::rgba(0, 0, 0, 0)).expect("clear");
+            ctx.draw_rect(
+                Rect::new(40.0, 30.0, 10.0, 10.0),
+                &Paint::new().color(Color::rgb(220, 20, 60)),
+            )
+            .expect("rect");
+        }
+        layer.render_recorded(&mut list).expect("render");
+        let (image, at) = layer_image(&layer, &list).expect("image");
+        assert_eq!(at, Rect::new(37.0, 27.0, 16.0, 16.0));
+        assert_eq!((image.width, image.height), (16, 16));
+        let inside = (3 + 3 * 16) * 4;
+        assert_eq!(&image.data[inside..inside + 4], &[220, 20, 60, 255]);
+        assert_eq!(image.data[3], 0, "the pad stays clear");
+    }
+
+    #[test]
+    fn trim_memory_drops_the_cpu_rasterizer_when_the_gpu_presents() {
+        let mut r = renderer(FrameOutcome::Presented);
+        r.cpu = Some(CpuRasterizer::new(4, 4));
+        r.last_on_cpu = false;
+        r.trim_memory();
+        assert!(r.cpu.is_none());
+        r.cpu = Some(CpuRasterizer::new(4, 4));
+        r.last_on_cpu = true;
+        r.trim_memory();
+        assert!(r.cpu.is_some(), "its frame is on screen");
     }
 
     /// Draws `picks` of `images` as one frame, which must be presented.
