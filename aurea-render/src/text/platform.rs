@@ -462,6 +462,35 @@ impl TextRenderer {
         self.rasterizer.rasterize_gray(face, glyph, size)
     }
 
+    /// The rows a glyph paints as visible ink at `size`: the first, down from the baseline, and how
+    /// many. Text draws from subpixel coverage, whose rows can sit apart from
+    /// [`Self::glyph_coverage`]'s. `None` for a glyph with no ink.
+    pub fn glyph_ink_rows(
+        &self,
+        face: FaceId,
+        glyph: u16,
+        size: f32,
+    ) -> AureaResult<Option<(i32, u32)>> {
+        /// Rows fainter than this do not read as ink.
+        const FAINT: u8 = 64;
+        let g = self.rasterizer.rasterize_subpixel(face, glyph, size)?;
+        let row = g.width as usize * 3;
+        if row == 0 {
+            return Ok(None);
+        }
+        let solid = |line: &[u8]| line.iter().any(|&c| c >= FAINT);
+        let lines: Vec<&[u8]> = g.coverage.chunks(row).collect();
+        let (Some(first), Some(last)) = (
+            lines.iter().position(|line| solid(line)),
+            lines.iter().rposition(|line| solid(line)),
+        ) else {
+            return Ok(None);
+        };
+        let first = i32::try_from(first).unwrap_or(0);
+        let rows = u32::try_from(last).unwrap_or(0) + 1 - first.unsigned_abs();
+        Ok(Some((g.top + first, rows)))
+    }
+
     /// A shaped glyph's outline at `size`, pen at the origin on the baseline; `None` when it has
     /// none.
     pub fn glyph_outline(&self, face: FaceId, glyph: u16, size: f32) -> AureaResult<Option<Path>> {

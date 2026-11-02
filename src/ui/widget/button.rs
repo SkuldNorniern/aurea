@@ -2,7 +2,7 @@
 
 use super::Widget;
 use crate::AureaResult;
-use crate::render::{Color, Font, Rect, glyph_coverage, shape_text};
+use crate::render::{Color, Font, Rect, glyph_ink_rows, shape_text};
 #[cfg(feature = "accessibility")]
 use crate::ui::accessibility::Role;
 use crate::ui::component::{FocusRing, StateColors};
@@ -311,15 +311,12 @@ fn symbol_nudge<Id: WidgetId>(
     let [glyph] = shaped.glyphs.as_slice() else {
         return 0.0;
     };
-    let Ok(ink) = glyph_coverage(glyph.face, glyph.id, font.size) else {
+    let Ok(Some((top, rows))) = glyph_ink_rows(glyph.face, glyph.id, font.size) else {
         return 0.0;
     };
-    if ink.height == 0 {
-        return 0.0;
-    }
     // the baseline sits (ascent - descent) / 2 below the line's middle; the ink's middle sits
     // this far above the baseline
-    let ink_middle = -(ink.top as f32 + ink.height as f32 / 2.0);
+    let ink_middle = -(top as f32 + rows as f32 / 2.0);
     ink_middle - (shaped.ascent - shaped.descent) / 2.0
 }
 

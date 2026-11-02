@@ -9,8 +9,8 @@ pub(crate) use canvas::{notify_canvas_destroyed, trim_renderers};
 pub use aurea_foundation::{AureaError, AureaResult};
 pub use aurea_render::cpu::RgbaPixels;
 pub use aurea_render::cpu::{
-    face_data, font_covers, font_metrics, glyph_coverage, glyph_outline, layout_text, measure_text,
-    shape_text,
+    face_data, font_covers, font_metrics, glyph_coverage, glyph_ink_rows, glyph_outline,
+    layout_text, measure_text, shape_text,
 };
 pub use aurea_render::text::{
     FaceData, FaceId, GlyphCoverage, LayoutLine, LayoutOptions, ShapedGlyph, ShapedText, TextAlign,

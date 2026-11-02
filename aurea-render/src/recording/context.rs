@@ -57,6 +57,12 @@ pub fn glyph_coverage(face: FaceId, glyph: u16, size: f32) -> AureaResult<GlyphC
     TEXT_RENDERER.glyph_coverage(face, glyph, size)
 }
 
+/// The rows a glyph paints as visible ink at `size`: the first, down from the baseline, and how
+/// many. `None` for a glyph with no ink.
+pub fn glyph_ink_rows(face: FaceId, glyph: u16, size: f32) -> AureaResult<Option<(i32, u32)>> {
+    TEXT_RENDERER.glyph_ink_rows(face, glyph, size)
+}
+
 /// `font`'s own metrics at its size: line gap, cap height, underline and the rest, no canvas needed.
 pub fn font_metrics(font: &Font) -> AureaResult<FontMetrics> {
     TEXT_RENDERER.font_metrics(FontRef::with_size(font, font.size))
