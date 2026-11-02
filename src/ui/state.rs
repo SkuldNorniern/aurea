@@ -375,6 +375,8 @@ pub struct UiState<Id: WidgetId> {
     last_scroll_hits: HashMap<Key<Id>, Range<usize>>,
     pub(crate) typed: Vec<Typed>,
     pub(crate) typed_targets: Vec<Option<Key<Id>>>,
+    /// Escape left the focused widget this frame.
+    pub(crate) escaped: bool,
     hits: Vec<Hit<Id>>,
     last_hits: Vec<Hit<Id>>,
     /// `last_hits` by where they are, for the pointer's hit test.
@@ -448,6 +450,7 @@ impl<Id: WidgetId> UiState<Id> {
             last_scroll_hits: HashMap::new(),
             typed: Vec::new(),
             typed_targets: Vec::new(),
+            escaped: false,
             hits: Vec::new(),
             last_hits: Vec::new(),
             hit_grid: HitGrid::default(),
@@ -1048,6 +1051,7 @@ impl<Id: WidgetId> UiState<Id> {
                 true
             }
             KeyCode::Escape if sense != Some(Sense::Text) => {
+                self.escaped = true;
                 self.focus = None;
                 true
             }
@@ -1158,6 +1162,7 @@ impl<Id: WidgetId> UiState<Id> {
         self.clicked.clear();
         self.click_at = None;
         self.typed.clear();
+        self.escaped = false;
         self.typed_targets.clear();
         self.press = None;
         self.secondary = None;
