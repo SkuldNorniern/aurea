@@ -169,6 +169,14 @@ pub enum WindowEvent {
     /// enabled. Samples keep their individual phase, pressure, modifiers and time.
     /// Other input events form batch boundaries; predicted readings stay separate.
     PenBatch(Vec<PenSample>),
+    /// A finger held still for a while: what a right click is on a mouse. The press under it is
+    /// dropped, so lifting clicks nothing.
+    LongPress {
+        /// Pointer x.
+        x: f64,
+        /// Pointer y.
+        y: f64,
+    },
     /// A pinch: the content should grow by `factor` about (`x`, `y`), in logical pixels. Two
     /// fingers moving together come as [`WindowEvent::MouseWheel`] instead.
     Magnify {

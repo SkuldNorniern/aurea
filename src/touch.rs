@@ -16,6 +16,8 @@ use crate::{Modifiers, MouseButton, MouseButtons, Point, PointerKind, WindowEven
 const SLOP: f32 = 8.0;
 /// How long a finger stays still before it is the mouse.
 const HOLD: Duration = Duration::from_millis(120);
+/// How long a finger stays still before it is a long press.
+const LONG_PRESS: Duration = Duration::from_millis(500);
 /// How far two fingers must turn, in radians, before it is a twist: a pinch's jitter stays under
 /// this.
 const TWIST: f32 = PI / 90.0;
@@ -40,9 +42,11 @@ enum State {
         at: Point,
         since: Instant,
     },
-    /// The touch that is the mouse, its button held.
+    /// The touch that is the mouse, its button held. `still` is where and since when a finger has
+    /// not moved; `None` once it has, and for a pen.
     Pointer {
         id: usize,
+        still: Option<(Point, Instant)>,
     },
     /// Two fingers: how they lie, and how far they have turned while still inside the dead zone
     /// (`None` once they are turning for real).
@@ -87,7 +91,10 @@ impl Touches {
 
     /// Whether a finger is waiting to be told apart, so [`Touches::tick`] should be called soon.
     pub(crate) fn waiting(&self) -> bool {
-        matches!(self.state, State::Pending { .. })
+        matches!(
+            self.state,
+            State::Pending { .. } | State::Pointer { still: Some(_), .. }
+        )
     }
 
     /// The events for touch `id` at `at`, in logical pixels.
@@ -105,7 +112,7 @@ impl Touches {
             // a pencil landing on a waiting finger: the finger was a palm.
             State::Idle | State::Pending { .. } if pencil && phase == Phase::Down => {
                 press(&mut out, at);
-                State::Pointer { id }
+                State::Pointer { id, still: None }
             }
             State::Idle if phase == Phase::Down => State::Pending {
                 id,
@@ -114,10 +121,13 @@ impl Touches {
                 since: now,
             },
             State::Pending { .. } => self.pending(&mut out, phase, id, at),
-            State::Pointer { id: held } if held == id => match phase {
+            State::Pointer { id: held, still } if held == id => match phase {
                 Phase::Move => {
                     out.push(mouse_move(at, true));
-                    self.state
+                    State::Pointer {
+                        id,
+                        still: still.filter(|(from, _)| distance(*from, at) <= SLOP),
+                    }
                 }
                 Phase::Up | Phase::Cancel => {
                     release(&mut out, at);
@@ -173,7 +183,7 @@ impl Touches {
             Phase::Move if distance(start, at) > SLOP => {
                 press(out, start);
                 out.push(mouse_move(at, true));
-                State::Pointer { id }
+                State::Pointer { id, still: None }
             }
             Phase::Move => State::Pending {
                 id,
@@ -241,7 +251,22 @@ impl Touches {
             if at != start {
                 out.push(mouse_move(at, true));
             }
-            self.state = State::Pointer { id };
+            self.state = State::Pointer {
+                id,
+                still: Some((start, since)),
+            };
+        }
+        if let State::Pointer {
+            id,
+            still: Some((from, since)),
+        } = self.state
+            && now.duration_since(since) >= LONG_PRESS
+        {
+            out.push(WindowEvent::LongPress {
+                x: f64::from(from.x),
+                y: f64::from(from.y),
+            });
+            self.state = State::Pointer { id, still: None };
         }
         out
     }
@@ -394,6 +419,7 @@ mod tests {
                 WindowEvent::MouseButton { pressed: false, .. } => "release",
                 WindowEvent::MouseExited => "exit",
                 WindowEvent::MouseWheel { .. } => "wheel",
+                WindowEvent::LongPress { .. } => "long press",
                 WindowEvent::Magnify { .. } => "magnify",
                 WindowEvent::Rotate { .. } => "rotate",
                 _ => "other",
@@ -444,7 +470,6 @@ mod tests {
         t.touch(Phase::Down, 1, p(10.0, 10.0), false, now);
         assert!(t.tick(now + HOLD / 2).is_empty());
         assert_eq!(kinds(&t.tick(now + HOLD)), ["move", "press"]);
-        assert!(!t.waiting());
     }
 
     #[test]
@@ -482,6 +507,30 @@ mod tests {
         let up = finger.touch(Phase::Up, 1, p(5.0, 5.0), false, now);
         assert!(!up.is_empty());
         assert!(pointers(up).iter().all(|&k| k == PointerKind::Touch));
+    }
+
+    #[test]
+    fn a_still_finger_long_presses_once() {
+        let now = Instant::now();
+        let mut t = Touches::new();
+        t.touch(Phase::Down, 1, p(5.0, 5.0), false, now);
+        t.tick(now + HOLD);
+        assert!(t.waiting(), "frames keep coming until it fires");
+        assert!(kinds(&t.tick(now + HOLD * 2)).is_empty());
+        let out = t.tick(now + LONG_PRESS);
+        assert_eq!(kinds(&out), ["long press"]);
+        assert!(kinds(&t.tick(now + LONG_PRESS * 2)).is_empty());
+        assert!(!t.waiting());
+    }
+
+    #[test]
+    fn moving_cancels_a_long_press() {
+        let now = Instant::now();
+        let mut t = Touches::new();
+        t.touch(Phase::Down, 1, p(5.0, 5.0), false, now);
+        t.tick(now + HOLD);
+        t.touch(Phase::Move, 1, p(50.0, 5.0), false, now + HOLD);
+        assert!(kinds(&t.tick(now + LONG_PRESS)).is_empty());
     }
 
     #[test]

@@ -328,6 +328,24 @@ mod tests {
     use super::*;
     use crate::render::Icon;
     use crate::ui::rig::Rig;
+    use crate::window::WindowEvent;
+
+    #[test]
+    fn lifting_after_a_long_press_clicks_nothing() {
+        let mut rig = Rig::new(120, 40);
+        let at = Rect::new(0.0, 0.0, 120.0, 40.0);
+        let show = |rig: &mut Rig| {
+            rig.frame(|ui| Button::new("Add").show(ui, 1, at).expect("draw").clicked)
+        };
+        show(&mut rig);
+        rig.at(20, 20);
+        rig.button(20, 20, true);
+        show(&mut rig);
+        rig.send(WindowEvent::LongPress { x: 20.0, y: 20.0 });
+        show(&mut rig);
+        rig.button(20, 20, false);
+        assert!(!show(&mut rig));
+    }
 
     #[test]
     fn icons_draw_and_take_room() {

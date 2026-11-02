@@ -672,6 +672,16 @@ impl<Id: WidgetId> UiState<Id> {
                     .push((self.typed.len(), Pointer::Secondary(at)));
                 true
             }
+            WindowEvent::LongPress { x, y } => {
+                let at = point(*x, *y);
+                self.pointer = Some(at);
+                self.pointer_down = false;
+                self.active = None;
+                self.press = None;
+                self.pointer_events
+                    .push((self.typed.len(), Pointer::Secondary(at)));
+                true
+            }
             WindowEvent::MouseWheel {
                 delta_x, delta_y, ..
             } => {
