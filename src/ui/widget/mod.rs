@@ -26,6 +26,7 @@ pub mod text_area;
 pub mod text_field;
 pub mod toggle;
 pub(crate) mod tooltip;
+pub mod tree;
 
 use super::frame::{Response, Ui};
 use super::state::WidgetId;

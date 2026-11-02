@@ -54,6 +54,7 @@ pub use widget::tabs::{TabBar, TabStyle};
 pub use widget::text_area::TextArea;
 pub use widget::text_field::{FieldStyle, TextField};
 pub use widget::toggle::{Checkbox, CheckboxStyle, Toggle, ToggleStyle};
+pub use widget::tree::{TreeRow, TreeStyle, TreeView, tree_rows};
 
 #[cfg(test)]
 mod tests {
@@ -324,13 +325,23 @@ pub(crate) mod rig {
 
     /// The left button going down or up at `(x, y)`.
     pub(crate) fn left_button(x: impl Into<f64>, y: impl Into<f64>, pressed: bool) -> WindowEvent {
+        left_button_clicks(x, y, pressed, 1)
+    }
+
+    /// Like [`left_button`], as click `clicks` in a row.
+    pub(crate) fn left_button_clicks(
+        x: impl Into<f64>,
+        y: impl Into<f64>,
+        pressed: bool,
+        clicks: u8,
+    ) -> WindowEvent {
         WindowEvent::MouseButton {
             button: MouseButton::Left,
             pressed,
             modifiers: Modifiers::default(),
             x: x.into(),
             y: y.into(),
-            click_count: 1,
+            click_count: clicks,
             pointer: PointerKind::Mouse,
             time: Default::default(),
         }
