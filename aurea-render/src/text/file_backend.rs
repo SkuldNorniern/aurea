@@ -47,14 +47,18 @@ impl FontKey {
 
 #[cfg(target_os = "android")]
 fn font_search_dirs() -> Vec<PathBuf> {
-    vec![PathBuf::from("/system/fonts")]
+    vec![
+        PathBuf::from("/system/fonts"),
+        PathBuf::from("/product/fonts"),
+        PathBuf::from("/system_ext/fonts"),
+    ]
 }
 
 #[cfg(not(target_os = "android"))]
 fn font_search_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         dirs.push(PathBuf::from("/System/Library/Fonts"));
         dirs.push(PathBuf::from("/System/Library/Fonts/Supplemental"));
@@ -78,7 +82,7 @@ fn font_search_dirs() -> Vec<PathBuf> {
         }
     }
 
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios"))))]
     {
         dirs.push(PathBuf::from("/usr/share/fonts"));
         dirs.push(PathBuf::from("/usr/local/share/fonts"));
@@ -93,10 +97,11 @@ fn font_search_dirs() -> Vec<PathBuf> {
 }
 
 fn fallback_stems() -> &'static [&'static str] {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         &[
             "sfns",
+            "sfui",
             "helveticaneue",
             "helvetica",
             "applesdgothicneo",
@@ -119,7 +124,10 @@ fn fallback_stems() -> &'static [&'static str] {
             "droidsansmono",
         ]
     }
-    #[cfg(all(unix, not(any(target_os = "macos", target_os = "android"))))]
+    #[cfg(all(
+        unix,
+        not(any(target_os = "macos", target_os = "ios", target_os = "android"))
+    ))]
     {
         &[
             "dejavusans",
@@ -133,6 +141,44 @@ fn fallback_stems() -> &'static [&'static str] {
             "dejavusansmono",
             "liberationmonoregular",
         ]
+    }
+}
+
+/// What a generic family means here, in order; empty for the system's own face, the first fallback.
+fn generic_families(family: &str) -> Option<&'static [&'static str]> {
+    match family.to_ascii_lowercase().as_str() {
+        "" | "sans" | "sans-serif" | "system-ui" | "ui-sans-serif" => Some(&[]),
+        "serif" | "ui-serif" => Some(&[
+            "Times New Roman",
+            "Times",
+            "Noto Serif",
+            "DejaVu Serif",
+            "Liberation Serif",
+        ]),
+        "mono" | "monospace" | "ui-monospace" => Some(&[
+            "Menlo",
+            "Consolas",
+            "Droid Sans Mono",
+            "DejaVu Sans Mono",
+            "Liberation Mono",
+            "Noto Sans Mono",
+        ]),
+        _ => None,
+    }
+}
+
+/// The file for `family`, which may be generic.
+fn font_file_for<'a>(
+    family: &str,
+    weight: FontWeight,
+    style: FontStyle,
+    files: &'a [FontFile],
+) -> Option<&'a Path> {
+    match generic_families(family) {
+        Some(families) => families
+            .iter()
+            .find_map(|family| find_font_file(family, weight, style, files)),
+        None => find_font_file(family, weight, style, files),
     }
 }
 
@@ -432,7 +478,7 @@ impl FontFileRasterizer {
         {
             return Ok(id);
         }
-        if let Some(path) = find_font_file(font.family, font.weight, font.style, self.files())
+        if let Some(path) = font_file_for(font.family, font.weight, font.style, self.files())
             && let Some(id) = self.load(FaceSource::File(path.to_path_buf()), font.variations)
         {
             return Ok(id);
@@ -812,6 +858,29 @@ mod tests {
             pick("DejaVu Sans", FontWeight::Bold, FontStyle::Italic, &list),
             "dejavusans.ttf"
         );
+    }
+
+    #[test]
+    fn generic_families_never_match_a_name_by_accident() {
+        let list = files(&[
+            "comicsansms",
+            "notosansadlamregular",
+            "notoserifregular",
+            "notoserifbold",
+            "dejavusansmono",
+        ]);
+        let at = |family, weight| {
+            font_file_for(family, weight, FontStyle::Normal, &list)
+                .and_then(Path::to_str)
+                .unwrap_or("")
+                .to_owned()
+        };
+        assert_eq!(at("Sans", FontWeight::Normal), "");
+        assert_eq!(at("", FontWeight::Normal), "");
+        assert_eq!(at("serif", FontWeight::Normal), "notoserifregular.ttf");
+        assert_eq!(at("serif", FontWeight::Bold), "notoserifbold.ttf");
+        assert_eq!(at("monospace", FontWeight::Normal), "dejavusansmono.ttf");
+        assert_eq!(at("Comic Sans MS", FontWeight::Normal), "comicsansms.ttf");
     }
 
     #[test]
