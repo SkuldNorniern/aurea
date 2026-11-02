@@ -74,6 +74,24 @@ pub(crate) fn wheel_line_pixels() -> f32 {
     }
 }
 
+/// What a wheel unit does here: the zoom exponent and the logical pixels panned.
+pub fn wheel_steps() -> (f32, f32) {
+    if cfg!(any(target_os = "macos", target_os = "ios")) {
+        (0.01, 1.0)
+    } else {
+        (0.18, wheel_line_pixels())
+    }
+}
+
+/// Wheel movement along its larger axis only, the other zeroed.
+pub fn wheel_axis(dx: f32, dy: f32) -> (f32, f32) {
+    if dx.abs() > dy.abs() {
+        (dx, 0.0)
+    } else {
+        (0.0, dy)
+    }
+}
+
 /// Content `content_height` tall, shown through a rect from `offset` down, and with
 /// [`Self::sideways`] wider content too.
 pub struct ScrollArea<'v> {
@@ -1074,6 +1092,12 @@ mod tests {
             self.rig.key(key);
             self.frame();
         }
+    }
+
+    #[test]
+    fn wheel_axis_keeps_the_larger_axis() {
+        assert_eq!(wheel_axis(3.0, -1.0), (3.0, 0.0));
+        assert_eq!(wheel_axis(1.0, -3.0), (0.0, -3.0));
     }
 
     #[test]

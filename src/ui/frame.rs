@@ -180,7 +180,7 @@ impl<Id: WidgetId> Drop for Ui<'_, Id> {
 
 impl<Id: WidgetId> Ui<'_, Id> {
     /// Puts part `part` of widget `id` on this frame's hit list at `rect`, and says how the input
-    /// meets it.
+    /// meets it. Where rects overlap, the one registered last gets the pointer.
     pub fn interact(
         &mut self,
         id: Id,
@@ -267,6 +267,13 @@ impl<Id: WidgetId> Ui<'_, Id> {
             })
     }
 
+    /// Where a press of `id` and `part` landed, if that was inside `rect`.
+    pub fn pressed_in(&self, id: Id, part: u16, rect: Rect) -> Option<Point> {
+        self.press(id, part)
+            .map(|press| press.at)
+            .filter(|at| rect.contains(*at))
+    }
+
     /// What was typed since the last frame for the widget that has the keyboard, in order: keys,
     /// text, and what an input method is still composing. A widget gets text and composing text
     /// when it senses [`Sense::Text`] or [`Sense::Typing`].
@@ -349,6 +356,15 @@ impl<Id: WidgetId> Ui<'_, Id> {
     /// innermost scrolling area under the pointer takes it first.
     pub fn take_wheel(&mut self) -> (f32, f32) {
         mem::take(&mut self.state.wheel)
+    }
+
+    /// [`Self::take_wheel`] when the pointer is over `rect`, else nothing.
+    pub fn wheel_in(&mut self, rect: Rect) -> (f32, f32) {
+        if self.pointer().is_some_and(|at| rect.contains(at)) {
+            self.take_wheel()
+        } else {
+            (0.0, 0.0)
+        }
     }
 
     /// Consumes only the used wheel movement, leaving each axis's remainder for an enclosing scroll

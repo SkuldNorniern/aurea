@@ -3,7 +3,7 @@
 use std::f32::consts::TAU;
 
 use crate::render::{Point, Rect, Transform};
-use crate::ui::widget::scroll::wheel_line_pixels;
+use crate::ui::widget::scroll::wheel_steps;
 use crate::window::{CursorIcon, KeyCode, MouseButton, WindowEvent};
 
 /// Where content sits in a view and how large it is drawn.
@@ -39,11 +39,7 @@ impl Default for PanZoom {
 impl PanZoom {
     /// Content at its own size, its origin at the view's top left, zoom kept between 1/64 and 64.
     pub fn new() -> Self {
-        let (wheel_zoom, wheel_pan) = if cfg!(any(target_os = "macos", target_os = "ios")) {
-            (0.01, 1.0)
-        } else {
-            (0.18, wheel_line_pixels())
-        };
+        let (wheel_zoom, wheel_pan) = wheel_steps();
         Self {
             zoom: 1.0,
             rotation: 0.0,
@@ -275,6 +271,7 @@ impl PanZoom {
                 delta_x,
                 delta_y,
                 modifiers,
+                ..
             } => self.wheel(
                 to_f32(delta_x),
                 to_f32(delta_y),
@@ -462,6 +459,8 @@ mod tests {
         WindowEvent::MouseWheel {
             delta_x: 0.0,
             delta_y,
+            x: 0.0,
+            y: 0.0,
             modifiers,
         }
     }

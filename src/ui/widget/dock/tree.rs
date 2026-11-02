@@ -220,7 +220,8 @@ impl<P: Copy + PartialEq> DockTree<P> {
         self.insert_sized(panel, beside, side, 0.5)
     }
 
-    /// Like [`DockTree::insert`], the new part taking `share` of the room.
+    /// Like [`DockTree::insert`], the new part taking `share` of the room. [`DockSide::Center`]
+    /// adds a tab, so it ignores `share`.
     pub fn insert_sized(&mut self, panel: P, beside: P, side: DockSide, share: f32) -> bool {
         let Some(root) = self.root.as_mut() else {
             *self = Self::new(panel);

@@ -238,6 +238,12 @@ impl MessageDialog {
         self
     }
 
+    /// Asks with Yes and No buttons; true when the answer is yes.
+    pub fn confirm(self, window: &Window) -> AureaResult<bool> {
+        let choice = self.buttons(MessageButtons::YesNo).show(window)?;
+        Ok(choice == MessageChoice::Yes)
+    }
+
     /// Waits for the person to answer.
     pub fn show(self, window: &Window) -> AureaResult<MessageChoice> {
         let text = |s: &str| c_text(s);

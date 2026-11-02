@@ -9,6 +9,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub struct EventQueue {
     events: Mutex<Vec<WindowEvent>>,
     pen_batch_size: AtomicUsize,
+    /// Last pointer position; native wheel callbacks carry none.
+    pointer: Mutex<(f64, f64)>,
 }
 
 impl EventQueue {
@@ -17,6 +19,7 @@ impl EventQueue {
         Self {
             events: Mutex::new(Vec::new()),
             pen_batch_size: AtomicUsize::new(0),
+            pointer: Mutex::new((0.0, 0.0)),
         }
     }
 
@@ -39,8 +42,15 @@ impl EventQueue {
     }
 
     /// Queues `event`, merging it into a pending one of the same kind when possible.
-    pub fn push(&self, event: WindowEvent) {
+    pub fn push(&self, mut event: WindowEvent) {
         let mut events = lock(&self.events);
+        match &mut event {
+            WindowEvent::MouseMove { x, y, .. } | WindowEvent::MouseButton { x, y, .. } => {
+                *lock(&self.pointer) = (*x, *y);
+            }
+            WindowEvent::MouseWheel { x, y, .. } => (*x, *y) = *lock(&self.pointer),
+            _ => {}
+        }
         let pen_batch_size = self.pen_batch_size();
         if pen_batch_size > 0
             && let WindowEvent::Pen(sample) = event
@@ -79,11 +89,13 @@ impl EventQueue {
                 delta_x,
                 delta_y,
                 modifiers,
+                ..
             } => {
                 if let Some(WindowEvent::MouseWheel {
                     delta_x: last_x,
                     delta_y: last_y,
                     modifiers: last_modifiers,
+                    ..
                 }) = events.last_mut()
                     && *last_modifiers == *modifiers
                 {
@@ -238,8 +250,29 @@ mod tests {
         WindowEvent::MouseWheel {
             delta_x: 0.0,
             delta_y,
+            x: 0.0,
+            y: 0.0,
             modifiers,
         }
+    }
+
+    #[test]
+    fn wheel_takes_the_last_pointer_position() {
+        let q = EventQueue::new();
+        q.push(WindowEvent::MouseMove {
+            x: 12.0,
+            y: 34.0,
+            buttons: MouseButtons::default(),
+            modifiers: Modifiers::new(),
+            time: Duration::ZERO,
+            pointer: PointerKind::default(),
+        });
+        q.push(wheel(1.0, Modifiers::new()));
+        let events = q.pop_all();
+        assert!(matches!(
+            events[1],
+            WindowEvent::MouseWheel { x, y, .. } if (x, y) == (12.0, 34.0)
+        ));
     }
 
     #[test]

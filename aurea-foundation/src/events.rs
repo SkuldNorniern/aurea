@@ -111,6 +111,10 @@ pub enum WindowEvent {
         delta_x: f64,
         /// Vertical scroll amount.
         delta_y: f64,
+        /// Pointer x, in the same coordinates as [`WindowEvent::MouseMove`].
+        x: f64,
+        /// Pointer y.
+        y: f64,
         /// Modifier keys held down.
         modifiers: Modifiers,
     },

@@ -709,6 +709,13 @@ impl Window {
         Ok(())
     }
 
+    /// Set the native application/window icon from PNG bytes.
+    pub fn set_icon_png(&self, png: &[u8]) -> AureaResult<()> {
+        const MAX_BYTES: usize = 64 * 1024 * 1024;
+        let icon = clipboard::ClipboardImage::from_png(png, MAX_BYTES)?;
+        self.set_icon_rgba(&icon.rgba, icon.width, icon.height)
+    }
+
     /// Set the native application/window icon from tightly packed RGBA8 pixels.
     pub fn set_icon_rgba(&self, rgba: &[u8], width: u32, height: u32) -> AureaResult<()> {
         ui_thread::check("Window::set_icon_rgba");
@@ -1209,6 +1216,8 @@ mod event_queue_tests {
         queue.push(WindowEvent::MouseWheel {
             delta_x: 1.0,
             delta_y: -2.0,
+            x: 0.0,
+            y: 0.0,
             modifiers: Modifiers::default(),
         });
         let out = queue.pop_all();

@@ -271,6 +271,8 @@ fn gesture(out: &mut Vec<WindowEvent>, was: Pose, now: Pose, turn: Option<f32>) 
         out.push(WindowEvent::MouseWheel {
             delta_x: f64::from(-dx),
             delta_y: f64::from(dy),
+            x: f64::from(now.center.x),
+            y: f64::from(now.center.y),
             modifiers: Modifiers::default(),
         });
     }

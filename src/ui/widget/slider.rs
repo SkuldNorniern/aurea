@@ -123,6 +123,11 @@ impl<'v> Slider<'v> {
         self
     }
 
+    /// Keeps the value whole, for a range that starts on a whole number.
+    pub fn integer(self) -> Self {
+        self.step(1.0)
+    }
+
     /// Sets the style.
     pub fn style(mut self, style: SliderStyle) -> Self {
         self.style = Some(style);
@@ -511,6 +516,13 @@ mod tests {
         let accent = u32::from(accent.r) + u32::from(accent.g) + u32::from(accent.b);
         assert!(px(80).abs_diff(accent) < 30, "filled left of the middle");
         assert!(px(160).abs_diff(accent) > 60, "empty right of it");
+    }
+
+    #[test]
+    fn integer_keeps_the_value_whole() {
+        let mut value = 0.0;
+        let slider = Slider::new(&mut value, 0.0..=10.0).integer();
+        assert_eq!(snap(2.6, 0.0, 10.0, slider.step), 3.0);
     }
 
     #[test]

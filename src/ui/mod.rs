@@ -40,7 +40,8 @@ pub use widget::popup::{MenuItem, PopupStyle};
 pub use widget::progress::{ProgressBar, ProgressStyle};
 pub use widget::radio::{RadioGroup, RadioStyle};
 pub use widget::scroll::{
-    ListRow, ListView, ScrollArea, ScrollStyle, scroll_into_view, visible_rows,
+    ListRow, ListView, ScrollArea, ScrollStyle, scroll_into_view, visible_rows, wheel_axis,
+    wheel_steps,
 };
 pub use widget::segmented::{Segmented, SegmentedStyle};
 pub use widget::slider::{Slider, SliderStyle, SliderTrack};
@@ -401,8 +402,8 @@ pub(crate) mod rig {
         /// The pointer at `(x, y)` and the wheel turned by `(dx, dy)` notches.
         pub(crate) fn wheel(
             &mut self,
-            x: impl Into<f64>,
-            y: impl Into<f64>,
+            x: impl Into<f64> + Copy,
+            y: impl Into<f64> + Copy,
             dx: impl Into<f64>,
             dy: impl Into<f64>,
         ) {
@@ -410,6 +411,8 @@ pub(crate) mod rig {
             self.send(WindowEvent::MouseWheel {
                 delta_x: dx.into(),
                 delta_y: dy.into(),
+                x: x.into(),
+                y: y.into(),
                 modifiers: Modifiers::default(),
             });
         }
