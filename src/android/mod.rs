@@ -439,6 +439,11 @@ extern "system" fn Java_dev_aurea_AureaActivity_nativePreedit(
 }
 
 #[unsafe(no_mangle)]
+extern "system" fn Java_dev_aurea_AureaActivity_nativePenTap(_env: JNIEnv, _class: JClass) {
+    host::pen_tap();
+}
+
+#[unsafe(no_mangle)]
 extern "system" fn Java_dev_aurea_AureaActivity_nativeFrame(
     _env: JNIEnv,
     _class: JClass,

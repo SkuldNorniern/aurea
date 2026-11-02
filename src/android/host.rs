@@ -21,8 +21,8 @@ use crate::trim_memory;
 use crate::ui::{Theme, Ui, UiState};
 use crate::wake::wake_at;
 use crate::{
-    AureaResult, KeyCode, Modifiers, MouseButtons, PenPhase, PenSample, PenTool, Point,
-    PointerKind, Rect, WindowEvent,
+    AureaResult, KeyCode, Modifiers, MouseButtons, PenPhase, PenSample, PenTapAction, PenTool,
+    Point, PointerKind, Rect, WindowEvent,
 };
 use aurea_render::FrameOutcome;
 #[cfg(feature = "zengpu")]
@@ -205,6 +205,14 @@ pub(super) fn lifecycle(state: i32) {
         _ => return,
     };
     feed(&[event]);
+}
+
+/// A pen's side button clicked while it hovers.
+pub(super) fn pen_tap() {
+    feed(&[WindowEvent::PenTap {
+        squeeze: false,
+        action: PenTapAction::default(),
+    }]);
 }
 
 /// Android's `TRIM_MEMORY_RUNNING_LOW`. Every later level is the app in the background or worse.

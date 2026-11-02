@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.Choreographer
+import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.Surface
 import android.view.SurfaceHolder
@@ -65,6 +66,11 @@ abstract class AureaActivity :
         }
         view.setOnGenericMotionListener { _, event ->
             val action = event.actionMasked
+            if (action == MotionEvent.ACTION_BUTTON_PRESS && isPen(event) && event.actionButton and PEN_BUTTONS != 0) {
+                nativePenTap()
+                requestFrame()
+                return@setOnGenericMotionListener true
+            }
             val hover = action == MotionEvent.ACTION_HOVER_ENTER ||
                 action == MotionEvent.ACTION_HOVER_MOVE ||
                 action == MotionEvent.ACTION_HOVER_EXIT
@@ -94,8 +100,17 @@ abstract class AureaActivity :
     }
 
     private fun isPen(event: MotionEvent): Boolean {
-        val tool = event.getToolType(event.actionIndex)
+        val tool = toolOf(event, event.actionIndex)
         return tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER
+    }
+
+    /** Some pens come as a finger from a stylus-only source. Touch screens can say both. */
+    private fun toolOf(event: MotionEvent, i: Int): Int {
+        val tool = event.getToolType(i)
+        val finger = tool == MotionEvent.TOOL_TYPE_FINGER || tool == MotionEvent.TOOL_TYPE_UNKNOWN
+        val stylus = event.isFromSource(InputDevice.SOURCE_STYLUS) &&
+            !event.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)
+        return if (finger && stylus) MotionEvent.TOOL_TYPE_STYLUS else tool
     }
 
     /** Lifted pointer the system took for a palm. */
@@ -111,14 +126,13 @@ abstract class AureaActivity :
         nativePointer(
             phase,
             event.getPointerId(i),
-            event.getToolType(i),
+            toolOf(event, i),
             if (current) event.getX(i) else event.getHistoricalX(i, h),
             if (current) event.getY(i) else event.getHistoricalY(i, h),
             if (current) event.getPressure(i) else event.getHistoricalPressure(i, h),
             axis(MotionEvent.AXIS_TILT),
             axis(MotionEvent.AXIS_ORIENTATION),
-            // some pens report the side button as the secondary button.
-            (event.buttonState and (MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_SECONDARY)) != 0,
+            (event.buttonState and PEN_BUTTONS) != 0,
             (now - if (current) event.eventTime else event.getHistoricalEventTime(h)) / 1000.0,
         )
     }
@@ -278,6 +292,10 @@ abstract class AureaActivity :
 
     private companion object {
         // Rust reads these.
+        // pens differ in which button their side switch reports.
+        const val PEN_BUTTONS = MotionEvent.BUTTON_STYLUS_PRIMARY or
+            MotionEvent.BUTTON_STYLUS_SECONDARY or MotionEvent.BUTTON_SECONDARY
+
         const val DOWN = 0
         const val UP = 1
         const val MOVE = 2
@@ -309,6 +327,7 @@ abstract class AureaActivity :
             barrel: Boolean,
             age: Double,
         )
+        @JvmStatic external fun nativePenTap()
         @JvmStatic external fun nativeInsets(left: Float, top: Float, right: Float, bottom: Float)
         @JvmStatic external fun nativeKeyboard(bottom: Float)
         @JvmStatic external fun nativeLightTheme(): Boolean
