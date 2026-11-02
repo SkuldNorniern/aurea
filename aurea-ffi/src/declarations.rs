@@ -268,6 +268,7 @@ unsafe extern "C" {
     ) -> c_int;
     /// Returns a window's content view.
     pub fn ng_platform_window_get_content_view(window: *mut c_void) -> *mut c_void;
+    /// Gives a window a Metal layer.
     #[cfg(target_os = "macos")]
     pub fn ng_macos_window_use_metal_layer(window: *mut c_void) -> c_int;
     /// Shows a window.
@@ -657,6 +658,7 @@ unsafe extern "C" {
     /// Creates a sidebar list.
     pub fn ng_platform_create_sidebar_list(id: u32) -> *mut c_void;
 
+    /// Creates a SwiftUI host view.
     #[cfg(target_os = "macos")]
     pub fn ng_platform_create_swiftui_host(width: c_int, height: c_int) -> *mut c_void;
     /// Adds a section header to a sidebar list.
