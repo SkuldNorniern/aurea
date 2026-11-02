@@ -675,12 +675,15 @@ impl<Id: WidgetId> UiState<Id> {
                     .push((self.typed.len(), Pointer::Secondary(at)));
                 true
             }
+            WindowEvent::PressCancelled => {
+                self.drop_press();
+                true
+            }
             WindowEvent::LongPress { x, y } => {
                 let at = point(*x, *y);
                 self.pointer = Some(at);
-                self.pointer_down = false;
-                self.active = None;
-                self.press = None;
+                self.hot = self.hit_at(at).map(|hit| hit.key);
+                self.drop_press();
                 self.pointer_events
                     .push((self.typed.len(), Pointer::Secondary(at)));
                 true
@@ -735,6 +738,13 @@ impl<Id: WidgetId> UiState<Id> {
             }
             _ => false,
         }
+    }
+
+    /// The press under the pointer is gone: nothing it began is still held or clicked.
+    fn drop_press(&mut self) {
+        self.pointer_down = false;
+        self.active = None;
+        self.press = None;
     }
 
     fn pointer_moved(&mut self, at: Point) -> bool {
@@ -1334,6 +1344,23 @@ mod tests {
             time: Default::default(),
             pointer: PointerKind::Mouse,
         }
+    }
+
+    #[test]
+    fn a_long_press_hovers_what_is_under_the_finger_and_holds_nothing() {
+        let mut rig = Rig::<u8>::new(200, 120).still();
+        let button = Rect::new(10.0, 10.0, 80.0, 30.0);
+        let draw =
+            |rig: &mut Rig<u8>| rig.frame(|ui| ui.interact(1, 0, button, Sense::Click, true));
+        rig.send(mouse_move(20.0, 20.0, 0));
+        draw(&mut rig);
+        rig.send(left_button(20.0, 20.0, true));
+        assert!(draw(&mut rig).held, "pressed before the long press");
+        rig.send(WindowEvent::PressCancelled);
+        rig.send(WindowEvent::LongPress { x: 20.0, y: 20.0 });
+        let response = draw(&mut rig);
+        assert!(response.hovered, "the finger's widget is hovered");
+        assert!(!response.held, "and holds nothing");
     }
 
     #[test]

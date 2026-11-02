@@ -177,6 +177,10 @@ pub enum WindowEvent {
         /// Pointer y.
         y: f64,
     },
+    /// The press under the pointer is dropped; nothing clicks. Sent in place of a release when the
+    /// system takes a touch, and before [`WindowEvent::LongPress`] so a drawing can drop a stroke
+    /// begun on press.
+    PressCancelled,
     /// A pinch: the content should grow by `factor` about (`x`, `y`), in logical pixels. Two
     /// fingers moving together come as [`WindowEvent::MouseWheel`] instead.
     Magnify {

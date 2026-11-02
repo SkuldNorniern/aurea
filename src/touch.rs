@@ -56,6 +56,10 @@ enum State {
         pose: Pose,
         turn: Option<f32>,
     },
+    /// A long press fired; the press is gone, so its lift sends no release.
+    LongPressed {
+        id: usize,
+    },
     /// A gesture ended; nothing more until every finger lifts.
     Done,
 }
@@ -129,12 +133,18 @@ impl Touches {
                         still: still.filter(|(from, _)| distance(*from, at) <= SLOP),
                     }
                 }
-                Phase::Up | Phase::Cancel => {
+                Phase::Up => {
                     release(&mut out, at);
+                    self.rest()
+                }
+                Phase::Cancel => {
+                    out.push(WindowEvent::PressCancelled);
+                    out.push(WindowEvent::MouseExited);
                     self.rest()
                 }
                 Phase::Down => self.state,
             },
+            State::LongPressed { id: held } if held == id => self.long_pressed(&mut out, phase),
             State::Gesture { .. } => self.gesture(&mut out, phase, id),
             State::Done if matches!(phase, Phase::Up | Phase::Cancel) => self.rest(),
             state => state,
@@ -143,6 +153,16 @@ impl Touches {
             as_pen(&mut out);
         }
         out
+    }
+
+    /// The finger of a long press: lifting only leaves, as its press is gone.
+    fn long_pressed(&self, out: &mut Vec<WindowEvent>, phase: Phase) -> State {
+        if matches!(phase, Phase::Up | Phase::Cancel) {
+            out.push(WindowEvent::MouseExited);
+            self.rest()
+        } else {
+            self.state
+        }
     }
 
     fn track(&mut self, phase: Phase, id: usize, at: Point) {
@@ -262,11 +282,12 @@ impl Touches {
         } = self.state
             && now.duration_since(since) >= LONG_PRESS
         {
+            out.push(WindowEvent::PressCancelled);
             out.push(WindowEvent::LongPress {
                 x: f64::from(from.x),
                 y: f64::from(from.y),
             });
-            self.state = State::Pointer { id, still: None };
+            self.state = State::LongPressed { id };
         }
         out
     }
@@ -419,6 +440,7 @@ mod tests {
                 WindowEvent::MouseButton { pressed: false, .. } => "release",
                 WindowEvent::MouseExited => "exit",
                 WindowEvent::MouseWheel { .. } => "wheel",
+                WindowEvent::PressCancelled => "press cancelled",
                 WindowEvent::LongPress { .. } => "long press",
                 WindowEvent::Magnify { .. } => "magnify",
                 WindowEvent::Rotate { .. } => "rotate",
@@ -483,7 +505,7 @@ mod tests {
         );
         t.touch(Phase::Down, 2, p(5.0, 5.0), true, now);
         let out = t.touch(Phase::Cancel, 2, p(5.0, 5.0), true, now);
-        assert_eq!(kinds(&out), ["release", "exit"]);
+        assert_eq!(kinds(&out), ["press cancelled", "exit"]);
     }
 
     #[test]
@@ -518,8 +540,22 @@ mod tests {
         assert!(t.waiting(), "frames keep coming until it fires");
         assert!(kinds(&t.tick(now + HOLD * 2)).is_empty());
         let out = t.tick(now + LONG_PRESS);
-        assert_eq!(kinds(&out), ["long press"]);
+        assert_eq!(kinds(&out), ["press cancelled", "long press"]);
         assert!(kinds(&t.tick(now + LONG_PRESS * 2)).is_empty());
+        assert!(!t.waiting());
+        let lift = t.touch(Phase::Up, 1, p(5.0, 5.0), false, now + LONG_PRESS * 2);
+        assert_eq!(kinds(&lift), ["exit"], "no release after the cancel");
+    }
+
+    #[test]
+    fn a_cancelled_press_emits_no_button_and_lifting_clicks_nothing() {
+        let now = Instant::now();
+        let mut t = Touches::new();
+        t.touch(Phase::Down, 1, p(5.0, 5.0), false, now);
+        assert_eq!(kinds(&t.tick(now + HOLD)), ["move", "press"]);
+        let out = t.touch(Phase::Cancel, 1, p(5.0, 5.0), false, now);
+        assert_eq!(kinds(&out), ["press cancelled", "exit"]);
+        assert!(kinds(&t.touch(Phase::Up, 1, p(5.0, 5.0), false, now)).is_empty());
         assert!(!t.waiting());
     }
 
