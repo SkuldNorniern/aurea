@@ -1989,7 +1989,7 @@ impl CpuRasterizer {
         };
         if new_mid.len() == old_mid.len() {
             for (n, o) in new_mid.iter().zip(old_mid) {
-                if !same(n, o) && !(add(n.bounds) && add(o.1)) {
+                if !(same(n, o) || (add(n.bounds) && add(o.1))) {
                     return FrameDamage::Full;
                 }
             }
