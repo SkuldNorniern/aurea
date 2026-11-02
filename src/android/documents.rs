@@ -20,7 +20,8 @@ thread_local! {
 }
 
 /// Files to open, of `extensions` (any file when empty), or several with `multiple`. The chosen
-/// files are copies in the app's cache, free to read and keep.
+/// files are copies in the app's cache, free to read and keep. `done` runs on the UI thread, then
+/// a frame is requested.
 ///
 /// # Errors
 ///
@@ -45,7 +46,7 @@ pub fn pick_files(
 }
 
 /// Saves copies of `paths` outside the app: one file picks its name, several pick a folder. `done`
-/// hears where they went, as `content:` URIs.
+/// hears where they went, as `content:` URIs, on the UI thread; a frame is requested after it.
 ///
 /// # Errors
 ///
@@ -72,7 +73,7 @@ pub fn export_files(
 /// # Errors
 ///
 /// [`AureaError::ElementOperationFailed`] when `paths` is empty or the sheet cannot show; `done`
-/// is then not called.
+/// is then not called. `done` runs on the UI thread, before this returns; no frame is requested.
 pub fn share_files(
     paths: &[PathBuf],
     _from: Option<Rect>,

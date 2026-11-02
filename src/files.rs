@@ -16,6 +16,12 @@ use crate::app;
 use crate::ios;
 use crate::{AureaError, AureaResult};
 
+// the system pickers and share sheet, the same shape on both mobile hosts.
+#[cfg(target_os = "android")]
+pub use crate::android::{export_files, pick_files, share_files};
+#[cfg(target_os = "ios")]
+pub use crate::ios::{export_files, pick_files, share_files};
+
 /// Opens `path` the way double-clicking it in the file manager would. On iOS, Quick Look shows it
 /// over the app.
 pub fn open_path(path: &Path) -> AureaResult<()> {
