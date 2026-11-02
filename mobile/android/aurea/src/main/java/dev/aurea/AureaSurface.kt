@@ -1,6 +1,7 @@
 package dev.aurea
 
 import android.content.Context
+import android.os.Build
 import android.text.InputType
 import android.view.KeyEvent
 import android.view.SurfaceView
@@ -29,6 +30,8 @@ internal class AureaSurface(context: Context, private val typed: Typed) : Surfac
     init {
         isFocusable = true
         isFocusableInTouchMode = true
+        // this view claims to be a text editor; a pen stroke must stay a stroke.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) isAutoHandwritingEnabled = false
     }
 
     override fun onCheckIsTextEditor(): Boolean = true

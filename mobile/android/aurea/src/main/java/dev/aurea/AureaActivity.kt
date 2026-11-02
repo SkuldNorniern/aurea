@@ -54,6 +54,10 @@ abstract class AureaActivity :
             insets
         }
         view.setOnTouchListener { _, event ->
+            // a pen's samples arrive as they happen, not once a frame.
+            if (event.actionMasked == MotionEvent.ACTION_DOWN && isPen(event)) {
+                view.requestUnbufferedDispatch(event)
+            }
             pointers(event)
             requestFrame()
             true
@@ -77,7 +81,8 @@ abstract class AureaActivity :
         val index = event.actionIndex
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> pointer(DOWN, event, index, -1)
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> pointer(UP, event, index, -1)
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP ->
+                pointer(if (isPalm(event)) CANCEL else UP, event, index, -1)
             MotionEvent.ACTION_MOVE -> {
                 for (h in 0 until event.historySize) {
                     for (i in 0 until event.pointerCount) pointer(MOVE, event, i, h)
@@ -87,6 +92,16 @@ abstract class AureaActivity :
             MotionEvent.ACTION_CANCEL -> for (i in 0 until event.pointerCount) pointer(CANCEL, event, i, -1)
         }
     }
+
+    private fun isPen(event: MotionEvent): Boolean {
+        val tool = event.getToolType(event.actionIndex)
+        return tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER
+    }
+
+    /** A lifted pointer the system took for a palm, so no tap. */
+    private fun isPalm(event: MotionEvent): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            (event.flags and MotionEvent.FLAG_CANCELED) != 0
 
     /** Pointer `i` of `event`: its current reading, or historical sample `h`. */
     private fun pointer(phase: Int, event: MotionEvent, i: Int, h: Int) {
@@ -102,7 +117,8 @@ abstract class AureaActivity :
             if (current) event.getPressure(i) else event.getHistoricalPressure(i, h),
             axis(MotionEvent.AXIS_TILT),
             axis(MotionEvent.AXIS_ORIENTATION),
-            (event.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0,
+            // some pens report the side button as the secondary button.
+            (event.buttonState and (MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_SECONDARY)) != 0,
             (now - if (current) event.eventTime else event.getHistoricalEventTime(h)) / 1000.0,
         )
     }
