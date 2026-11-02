@@ -26,6 +26,24 @@ pub fn resolve_frame<B: Gpu2dBackend>(
     plan.clips.extend_from_slice(&batches.clips);
     plan.path_clips.extend_from_slice(&batches.path_clips);
 
+    // Pin the entire cached working set before the first upload. Otherwise a
+    // cache above its soft limits evicts not-yet-resolved tiles from this frame.
+    for g in &batches.gradients {
+        cache.pin(&g.lut, 256, 1, frame);
+    }
+    for draw in &batches.images {
+        if let ImageSource::Pixels(image) = &draw.source {
+            cache.pin(&image.data, image.width, image.height, frame);
+        }
+    }
+    for text in &batches.texts {
+        let w = f32_to_u32_clamped(text.rect.width);
+        let h = f32_to_u32_clamped(text.rect.height);
+        if w > 0 && h > 0 {
+            cache.pin(&text.mask, w, h, frame);
+        }
+    }
+
     resolve_gradients(
         &batches.gradients,
         cache,

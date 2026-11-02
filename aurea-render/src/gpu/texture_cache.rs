@@ -73,6 +73,7 @@ struct Entry {
     keepalive: Arc<[u8]>,
     last_used: u64,
     frame: u64,
+    resolved_frame: u64,
     mipmapped: bool,
     bytes: usize,
 }
@@ -175,6 +176,17 @@ impl TextureCache {
         Ok(slot)
     }
 
+    /// Reserve an existing texture before any uploads can evict it. Resolve the whole
+    /// frame's working set first, including textures drawn after a newly visible tile.
+    pub(super) fn pin(&mut self, pixels: &Arc<[u8]>, width: u32, height: u32, frame: u64) {
+        if let Some(entry) = self
+            .map
+            .get_mut(&CacheKey::from_pixels(pixels, width, height))
+        {
+            entry.frame = frame;
+        }
+    }
+
     /// Return the shader slot for `pixels`/`width`/`height`, uploading via the backend if not
     /// already cached, and evicting unpinned LRU entries until it fits the count and byte caps.
     pub fn resolve<B: Gpu2dBackend>(
@@ -192,8 +204,9 @@ impl TextureCache {
 
         if let Some(entry) = self.map.get_mut(&key) {
             entry.last_used = clock;
-            let drawn_this_frame = entry.frame == frame;
+            let drawn_this_frame = entry.resolved_frame == frame;
             entry.frame = frame;
+            entry.resolved_frame = frame;
             if entry.mipmapped || !mipmapped {
                 return Ok(entry.slot);
             }
@@ -231,6 +244,7 @@ impl TextureCache {
                 keepalive: Arc::clone(pixels),
                 last_used: clock,
                 frame,
+                resolved_frame: frame,
                 mipmapped,
                 bytes,
             },
@@ -405,6 +419,24 @@ mod tests {
 
     fn pixels() -> Arc<[u8]> {
         Arc::from(vec![0u8; 4])
+    }
+
+    #[test]
+    fn reserving_a_texture_does_not_retire_an_undrawn_plain_mip_slot() {
+        let (mut cache, mut backend) = (TextureCache::new(), Slots::default());
+        let image = pixels();
+        let plain = cache
+            .resolve(&image, (1, 1), false, &mut backend, 1)
+            .expect("plain");
+        cache.pin(&image, 1, 1, 2);
+        cache
+            .resolve(&image, (1, 1), true, &mut backend, 2)
+            .expect("mips");
+        assert_eq!(backend.evicted, [plain]);
+        assert!(
+            cache.retired.is_empty(),
+            "reservation alone does not draw the plain slot"
+        );
     }
 
     #[test]

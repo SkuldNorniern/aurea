@@ -693,6 +693,40 @@ mod tests {
     }
 
     #[test]
+    fn new_tiles_do_not_evict_cached_tiles_used_later_in_the_same_frame() {
+        for limits in [
+            GpuCacheLimits {
+                max_textures: 2,
+                max_bytes: usize::MAX,
+            },
+            GpuCacheLimits {
+                max_textures: usize::MAX,
+                max_bytes: 8,
+            },
+        ] {
+            let mut r = renderer(FrameOutcome::Presented);
+            r.set_gpu_cache_limits(limits);
+            let images: Vec<_> = (0..4).map(|_| Image::new(1, 1, vec![255; 4])).collect();
+            for count in [3, 4, 4] {
+                {
+                    let mut ctx = r.begin_frame().expect("begin");
+                    // A newly visible tile comes before the cached tiles when panning.
+                    for image in images[..count].iter().rev() {
+                        ctx.draw_image(image, Point::new(0.0, 0.0)).expect("image");
+                    }
+                }
+                r.end_frame().expect("frame");
+                assert_eq!(r.backend().uploads, count, "only new tiles upload");
+                assert_eq!(
+                    r.backend().evicted,
+                    0,
+                    "visible tiles stay cached above the soft limits"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn smaller_gpu_and_cpu_frames_trim_an_oversized_texture_cache() {
         for cpu_fallback in [false, true] {
             let mut r = with_features(
