@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
+use crate::pen::note_source;
 use crate::registry::custom::invoke_custom_callback;
 use crate::registry::elements::{
     invoke_button_callback, invoke_row_list_activated, invoke_row_list_selected,
@@ -331,6 +332,7 @@ pub extern "C" fn ng_invoke_raw_mouse_motion(window: *mut c_void, delta_x: f64, 
 
 const PEN_ERASER: u32 = 1;
 const PEN_BARREL: u32 = 2;
+const PEN_WINTAB: u32 = 4;
 
 static EPOCH: LazyLock<Instant> = LazyLock::new(Instant::now);
 
@@ -359,6 +361,7 @@ pub extern "C" fn ng_invoke_pen(
     age: f64,
 ) {
     guard("ng_invoke_pen", || {
+        note_source(flags & PEN_WINTAB != 0);
         let sample = PenSample {
             time: event_time(age),
             x,

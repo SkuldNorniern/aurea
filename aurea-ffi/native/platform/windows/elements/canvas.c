@@ -107,6 +107,10 @@ static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             ng_windows_pen_message(canvas_find_root_window(hwnd), msg, wParam);
             break;
 
+        case WM_POINTERCAPTURECHANGED:
+            ng_windows_pen_capture_lost(canvas_find_root_window(hwnd), wParam);
+            break;
+
         case WM_TABLET_QUERYSYSTEMGESTURESTATUS:
             return TABLET_DISABLE_PRESSANDHOLD | TABLET_DISABLE_FLICKS | TABLET_DISABLE_FLICKFALLBACKKEYS;
 

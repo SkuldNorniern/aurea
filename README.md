@@ -48,6 +48,9 @@ with canvas widgets. On GPU backends, blend modes other than normal draw through
 - `accessibility`: screen reader support for canvas widgets, through AccessKit.
 - `mobile`: iOS and Android hosts.
 
+Pens on Windows use Windows Ink, or Wintab when Ink sends no pen. `aurea::set_pen_mode` forces one
+and `Window::pen_source` says which is live. Wintab needs no build step: the driver ships the dll.
+
 ## Examples
 
 ```bash

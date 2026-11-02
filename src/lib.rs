@@ -48,6 +48,7 @@ pub mod locale;
 /// Logging setup.
 pub mod logger;
 pub mod menu;
+mod pen;
 pub mod platform;
 pub mod prelude;
 /// Callback registries that native code calls back into.
@@ -95,6 +96,7 @@ pub use crate::files::{
 };
 pub use crate::keymap::{Chord, Keymap};
 pub use crate::locale::{locale, locales};
+pub use crate::pen::{PenMode, PenSource, pen_mode, pen_source, set_pen_mode};
 pub use crate::platform::handles::NativeWindowHandle;
 pub use crate::screen::{Screen, screen};
 pub use aurea_foundation::{AureaError, AureaResult};

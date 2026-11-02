@@ -606,12 +606,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
     if (ng_windows_ime_message(hwnd, uMsg, wParam, lParam, &ime_result)) {
         return ime_result;
     }
+    ng_windows_wintab_message(hwnd, uMsg, lParam);
     switch (uMsg) {
         case WM_SETFOCUS:
             ng_invoke_focus_changed((void*)hwnd, 1);
             break;
         case WM_ACTIVATE:
             ng_windows_cursor_grab_activate((void*)hwnd, LOWORD(wParam) != WA_INACTIVE);
+            ng_windows_wintab_activate(hwnd, LOWORD(wParam) != WA_INACTIVE);
             break;
         case WM_KILLFOCUS:
             RemovePropA(hwnd, AUREA_HIGH_SURROGATE_PROP);
@@ -637,6 +639,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_POINTERUPDATE:
         case WM_POINTERUP:
             ng_windows_pen_message(hwnd, uMsg, wParam);
+            break;
+        case WM_POINTERCAPTURECHANGED:
+            ng_windows_pen_capture_lost(hwnd, wParam);
             break;
         case WM_MOUSELEAVE:
             RemovePropA(hwnd, AUREA_TRACKING_PROP);
@@ -949,6 +954,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         }
         
         case WM_DESTROY: {
+            ng_windows_wintab_destroyed(hwnd);
             ng_windows_release_window_input((void*)hwnd);
             ng_windows_refuse_drops(hwnd);
             RemovePropA(hwnd, "AureaMonitor");

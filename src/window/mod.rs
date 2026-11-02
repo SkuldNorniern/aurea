@@ -27,6 +27,7 @@ use crate::lifecycle::{
     unregister_lifecycle_callback,
 };
 use crate::menu::MenuBar;
+use crate::pen::{PenSource, pen_source};
 mod proxy;
 
 pub use proxy::WindowProxy;
@@ -566,6 +567,12 @@ impl Window {
     pub fn set_pen_batch_size(&self, size: usize) {
         ui_thread::check("Window::set_pen_batch_size");
         self.event_queue.set_pen_batch_size(size);
+    }
+
+    /// Which source the latest pen sample came from, so an app can show it; see
+    /// [`crate::set_pen_mode`] to choose one.
+    pub fn pen_source(&self) -> PenSource {
+        pen_source()
     }
 
     /// Current pen batch limit, or zero for individual pen events.
