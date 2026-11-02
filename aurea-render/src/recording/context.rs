@@ -899,6 +899,10 @@ impl<'list> RecordingContext<'list> {
 }
 
 impl DrawingContext for RecordingContext<'_> {
+    fn scale_factor(&self) -> f32 {
+        self.scale_factor
+    }
+
     fn width(&self) -> u32 {
         self.width
     }

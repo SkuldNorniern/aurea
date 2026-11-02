@@ -314,6 +314,16 @@ impl<Id: WidgetId> Ui<'_, Id> {
         self.state.clear_focus();
     }
 
+    /// Device pixels per logical pixel.
+    pub fn scale(&self) -> f32 {
+        self.ctx.scale_factor()
+    }
+
+    /// One device pixel in logical pixels, for a line that stays thin.
+    pub fn hairline(&self) -> f32 {
+        1.0 / self.scale().max(1.0)
+    }
+
     /// Modifier keys held now, OR'd with the latched ones; see [`Self::set_sticky_modifiers`].
     pub fn modifiers(&self) -> Modifiers {
         self.state.merged_modifiers()

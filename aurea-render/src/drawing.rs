@@ -15,6 +15,11 @@ pub trait DrawingContext {
     /// Get the height of the drawing area.
     fn height(&self) -> u32;
 
+    /// Device pixels per logical pixel.
+    fn scale_factor(&self) -> f32 {
+        1.0
+    }
+
     /// Clear the canvas with a color.
     fn clear(&mut self, color: Color) -> AureaResult<()>;
 
