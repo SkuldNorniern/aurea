@@ -4,6 +4,8 @@
 use std::cell::RefCell;
 use std::mem::take;
 use std::sync::Mutex;
+use std::thread;
+use std::time::Duration;
 
 use aurea_foundation::lock;
 use aurea_runtime::FrameScheduler;
@@ -33,6 +35,14 @@ thread_local! {
 pub fn on_ui_thread(call: impl FnOnce() + Send + 'static) {
     lock(&QUEUE).push(Box::new(call));
     wake_host();
+}
+
+/// Runs `call` on the UI thread after `delay`, from any thread, and wakes it.
+pub fn run_after(delay: Duration, call: impl FnOnce() + Send + 'static) {
+    thread::spawn(move || {
+        thread::sleep(delay);
+        on_ui_thread(call);
+    });
 }
 
 /// Runs `call` on the UI thread once the frame being drawn has finished, with nothing borrowed: not

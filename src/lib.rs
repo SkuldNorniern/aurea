@@ -59,7 +59,7 @@ pub mod window;
 
 pub use aurea_runtime::{DamageRegion, FrameInfo, FrameScheduler};
 
-pub use crate::dispatch::{WakeHandle, after_frame, on_ui_thread, wake_handle};
+pub use crate::dispatch::{WakeHandle, after_frame, on_ui_thread, run_after, wake_handle};
 pub use crate::elements::{
     Button, Checkbox, ComboBox, Container, Divider, Element, ImageView, Label, Orientation,
     ProgressBar, RowList, ScrollView, ScrollbarPolicy, SidebarList, Slider, Spacer,
