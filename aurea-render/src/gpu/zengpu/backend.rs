@@ -425,10 +425,10 @@ fn upload_levels(
 ) -> Result<(), GpuError> {
     context.collect_uploads()?;
     let device = context.device();
-    // Keep views stable while planning another update to this image. The newest
-    // submission owns their lifetime because all updates use the same queue.
-    let mut jobs = context.mip_jobs.lock().unwrap_or_else(|p| p.into_inner());
     if let Mips::Gpu(pipeline) = mips {
+        // Keep views stable while planning another update to this image. The newest
+        // submission owns their lifetime because all updates use the same queue.
+        let mut jobs = context.mip_jobs.lock().unwrap_or_else(|p| p.into_inner());
         let built = gpu_mip_chain(device, pipeline, texture, width, height, rgba, levels);
         if let Ok(job) = built {
             track_upload(&mut jobs, texture, job);
@@ -446,6 +446,8 @@ fn upload_levels(
         chain.push(level);
         (w, h) = (dw, dh);
     }
+    // Filtering stays out of the lock: other threads poll uploads through it.
+    let mut jobs = context.mip_jobs.lock().unwrap_or_else(|p| p.into_inner());
     if device.capabilities().transfers.texture_region_write {
         let writes: Vec<TextureWrite<'_>> = once(rgba)
             .chain(chain.iter().map(Vec::as_slice))
