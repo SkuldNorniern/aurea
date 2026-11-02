@@ -135,7 +135,7 @@ impl Rect {
 
     /// The strip `width` wide on the left, and what is left past it and a `gap`.
     pub fn split_left(self, width: f32, gap: f32) -> (Self, Self) {
-        let width = width.clamp(0.0, self.width);
+        let width = width.clamp(0.0, self.width.max(0.0));
         let rest = (self.width - width - gap).max(0.0);
         (
             Self::new(self.x, self.y, width, self.height),
@@ -145,7 +145,7 @@ impl Rect {
 
     /// The strip `width` wide on the right, and what is left before it and a `gap`.
     pub fn split_right(self, width: f32, gap: f32) -> (Self, Self) {
-        let width = width.clamp(0.0, self.width);
+        let width = width.clamp(0.0, self.width.max(0.0));
         let rest = (self.width - width - gap).max(0.0);
         (
             Self::new(self.right() - width, self.y, width, self.height),
@@ -155,7 +155,7 @@ impl Rect {
 
     /// The strip `height` tall at the top, and what is left under it and a `gap`.
     pub fn split_top(self, height: f32, gap: f32) -> (Self, Self) {
-        let height = height.clamp(0.0, self.height);
+        let height = height.clamp(0.0, self.height.max(0.0));
         let rest = (self.height - height - gap).max(0.0);
         (
             Self::new(self.x, self.y, self.width, height),
@@ -165,7 +165,7 @@ impl Rect {
 
     /// The strip `height` tall at the bottom, and what is left above it and a `gap`.
     pub fn split_bottom(self, height: f32, gap: f32) -> (Self, Self) {
-        let height = height.clamp(0.0, self.height);
+        let height = height.clamp(0.0, self.height.max(0.0));
         let rest = (self.height - height - gap).max(0.0);
         (
             Self::new(self.x, self.bottom() - height, self.width, height),
@@ -203,6 +203,15 @@ mod tests {
         assert_eq!(bar.height + 5.0 + body.height, 40.0);
         let (end, before) = r.split_right(200.0, 4.0);
         assert_eq!((end.width, before.width), (100.0, 0.0));
+    }
+
+    #[test]
+    fn splitting_a_negative_rect_saturates() {
+        let r = Rect::new(5.0, 5.0, -10.0, -10.0);
+        assert_eq!(r.split_left(4.0, 2.0).0.width, 0.0);
+        assert_eq!(r.split_right(4.0, 2.0).0.width, 0.0);
+        assert_eq!(r.split_top(4.0, 2.0).0.height, 0.0);
+        assert_eq!(r.split_bottom(4.0, 2.0).0.height, 0.0);
     }
 
     #[test]
