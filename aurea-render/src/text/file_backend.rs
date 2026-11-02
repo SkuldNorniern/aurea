@@ -326,7 +326,7 @@ fn find_font_file<'a>(
         .map(|(_, _, path)| path.as_path())
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum FaceSource {
     File(PathBuf),
     Embedded,
@@ -445,7 +445,11 @@ impl FontFileRasterizer {
         if let Some(&id) = ids.by_key.get(&key) {
             return Some(id);
         }
-        let face = Arc::new(self.build(&key.0, variations)?);
+        let Some(face) = self.build(&key.0, variations) else {
+            log::warn!("font: cannot load {:?}", key.0);
+            return None;
+        };
+        let face = Arc::new(face);
         let id = FaceId(u32::try_from(ids.recipes.len()).ok()?);
         ids.recipes.push(Recipe {
             source: key.0.clone(),
