@@ -1,3 +1,5 @@
+//! A small text editor.
+
 use aurea::prelude::*;
 
 fn main() -> AureaResult<()> {

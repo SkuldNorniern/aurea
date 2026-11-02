@@ -33,6 +33,9 @@ rust-version = "1.90"
 license = "Apache-2.0"
 repository = "https://github.com/SkuldNorniern/aurea"
 
+[workspace.lints.rust]
+missing_docs = "warn"
+
 [workspace.lints.clippy]
 absolute_paths = "deny"
 unwrap_used = "deny"

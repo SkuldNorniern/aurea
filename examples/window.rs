@@ -1,3 +1,5 @@
+//! A window with a label.
+
 use aurea::MenuBar;
 use aurea::elements::{Button, Container, Label, Orientation, Stack};
 use aurea::logger;

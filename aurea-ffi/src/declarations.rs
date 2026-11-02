@@ -13,6 +13,7 @@ pub struct RawClipboardEntry {
 
 /// The app side of the iOS host; see `native/platform/ios/host.h`.
 #[cfg(target_os = "ios")]
+#[allow(missing_docs)]
 #[repr(C)]
 pub struct NGIosHost {
     pub frame: unsafe extern "C" fn(
@@ -49,7 +50,7 @@ pub struct NGIosHost {
 }
 
 #[cfg(target_os = "ios")]
-#[allow(clippy::missing_safety_doc, dead_code)]
+#[allow(missing_docs, clippy::missing_safety_doc, dead_code)]
 unsafe extern "C" {
     pub fn ng_ios_run_host(host: NGIosHost) -> i32;
     pub fn ng_ios_wake();
@@ -94,7 +95,7 @@ unsafe extern "C" {
 }
 
 #[cfg(target_os = "android")]
-#[allow(clippy::missing_safety_doc, dead_code)]
+#[allow(missing_docs, clippy::missing_safety_doc, dead_code)]
 unsafe extern "C" {
     pub fn ng_android_set_activity(jvm: *mut c_void, activity: *mut c_void);
     pub fn ng_android_on_pause();

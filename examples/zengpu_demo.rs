@@ -1,3 +1,5 @@
+//! Drawing on the ZenGPU backend.
+
 use aurea::{
     AureaResult, Container, Window, WindowEvent,
     elements::{Orientation, Stack},

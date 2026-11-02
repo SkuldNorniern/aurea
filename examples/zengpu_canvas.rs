@@ -1,3 +1,5 @@
+//! A ZenGPU canvas hosted in a window.
+
 use aurea::{
     AureaResult, Container, Window, WindowEvent,
     elements::{Label, Orientation, Stack},

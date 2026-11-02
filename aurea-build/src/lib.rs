@@ -13,8 +13,6 @@
 //! Missing keys fall back to the package: its name for `name` and `id`, its version for
 //! `version`.
 
-#![warn(missing_docs)]
-
 use std::env;
 use std::fs;
 use std::io;

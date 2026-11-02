@@ -1,7 +1,5 @@
 //! Core shared types, errors, platform detection, and events for Aurea.
 
-#![warn(missing_docs)]
-
 pub mod capability;
 /// Error type and result alias.
 pub mod error;

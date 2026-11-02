@@ -1,3 +1,5 @@
+//! Locks the cursor to the window.
+
 use aurea::{CursorGrabMode, KeyCode, Window, WindowEvent};
 use std::cell::{Cell, RefCell};
 use std::error::Error;
