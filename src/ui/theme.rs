@@ -168,6 +168,15 @@ impl Theme {
         }
     }
 
+    /// Sizes for fingers: 44 point controls and more room.
+    pub fn touch(mut self) -> Self {
+        self.control_height = self.control_height.max(44.0);
+        self.padding = self.padding.max(14.0);
+        self.text_size = self.text_size.max(15.0);
+        self.small_size = self.small_size.max(13.0);
+        self
+    }
+
     /// The dark theme.
     pub fn dark() -> Self {
         Self::new(Palette::dark())
@@ -211,6 +220,15 @@ const DEFAULT_FAMILY: &str = "Sans";
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn touch_grows_only_what_is_small() {
+        let theme = Theme::dark().touch();
+        assert_eq!(theme.control_height, 44.0);
+        let mut big = Theme::dark();
+        big.control_height = 60.0;
+        assert_eq!(big.touch().control_height, 60.0);
+    }
 
     #[test]
     fn a_new_accent_carries_into_focus_and_selection() {
