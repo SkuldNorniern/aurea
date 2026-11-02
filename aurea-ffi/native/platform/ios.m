@@ -5,7 +5,10 @@
 #import "../common/errors.h"
 #import "../common/clipboard.h"
 #import <UIKit/UIKit.h>
+#import <objc/runtime.h>
 void ng_ios_notify_destroyed(UIView* view);
+
+static char kBoxWeightKey;
 #include <math.h>
 #include <string.h>
 
@@ -104,28 +107,33 @@ NGHandle ng_platform_create_box(int is_vertical) {
 }
 
 int ng_platform_box_add(NGHandle box, NGHandle element, float weight) {
-    (void)weight;
-    return ng_ios_box_add(box, element);
-}
-
-NGHandle ng_platform_create_text_editor(void) {
-    return NULL;
-}
-
-NGHandle ng_platform_create_text_view(int _is_editable) {
-    (void)_is_editable;
-    return NULL;
-}
-
-int ng_platform_set_text_content(NGHandle _text_handle, const char* _content) {
-    (void)_text_handle;
-    (void)_content;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-char* ng_platform_get_text_content(NGHandle _text_handle) {
-    (void)_text_handle;
-    return NULL;
+    int result = ng_ios_box_add(box, element);
+    /* Weighted children share the room left over by weight, each sized against the first. */
+    if (result == NG_SUCCESS && weight > 0) {
+        UIStackView* stack = (__bridge UIStackView*)box;
+        UIView* view = (__bridge UIView*)element;
+        UILayoutConstraintAxis axis = stack.axis;
+        [view setContentHuggingPriority:UILayoutPriorityDefaultLow - 1 forAxis:axis];
+        [view setContentCompressionResistancePriority:UILayoutPriorityDefaultLow - 1 forAxis:axis];
+        objc_setAssociatedObject(view, &kBoxWeightKey, @(weight), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        UIView* lead = nil;
+        for (UIView* other in stack.arrangedSubviews) {
+            if (objc_getAssociatedObject(other, &kBoxWeightKey)) {
+                lead = other;
+                break;
+            }
+        }
+        if (lead && lead != view) {
+            float first = [objc_getAssociatedObject(lead, &kBoxWeightKey) floatValue];
+            BOOL vertical = axis == UILayoutConstraintAxisVertical;
+            NSLayoutDimension* mine = vertical ? view.heightAnchor : view.widthAnchor;
+            NSLayoutDimension* theirs = vertical ? lead.heightAnchor : lead.widthAnchor;
+            NSLayoutConstraint* share = [mine constraintEqualToAnchor:theirs multiplier:weight / first];
+            share.priority = UILayoutPriorityDefaultHigh;
+            share.active = YES;
+        }
+    }
+    return result;
 }
 
 void ng_platform_free_text_content(char* content) {
@@ -272,159 +280,6 @@ int ng_platform_combo_box_clear(NGHandle combo_box) {
 
 int ng_platform_combo_box_set_enabled(NGHandle combo_box, int enabled) {
     return ng_ios_combo_box_set_enabled(combo_box, enabled);
-}
-
-NGHandle ng_platform_create_tab_bar(unsigned int id) {
-    (void)id;
-    return NULL;
-}
-
-int ng_platform_tab_bar_add_tab(NGHandle tab_bar, const char* title) {
-    (void)tab_bar;
-    (void)title;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-int ng_platform_tab_bar_remove_tab(NGHandle tab_bar, int index) {
-    (void)tab_bar;
-    (void)index;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-int ng_platform_tab_bar_set_selected(NGHandle tab_bar, int index) {
-    (void)tab_bar;
-    (void)index;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-int ng_platform_tab_bar_get_selected(NGHandle tab_bar) {
-    (void)tab_bar;
-    return -1;
-}
-
-void ng_platform_tab_bar_invalidate(NGHandle tab_bar) {
-    (void)tab_bar;
-}
-
-NGHandle ng_platform_create_sidebar_list(unsigned int id) {
-    (void)id;
-    return NULL;
-}
-
-int ng_platform_sidebar_list_add_section(NGHandle sidebar, const char* title) {
-    (void)sidebar;
-    (void)title;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-int ng_platform_sidebar_list_add_item(NGHandle sidebar, const char* title, int indent) {
-    (void)sidebar;
-    (void)title;
-    (void)indent;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-int ng_platform_sidebar_list_set_selected(NGHandle sidebar, int index) {
-    (void)sidebar;
-    (void)index;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-int ng_platform_sidebar_list_get_selected(NGHandle sidebar) {
-    (void)sidebar;
-    return -1;
-}
-
-int ng_platform_sidebar_list_clear(NGHandle sidebar) {
-    (void)sidebar;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-void ng_platform_sidebar_list_invalidate(NGHandle sidebar) {
-    (void)sidebar;
-}
-
-NGHandle ng_platform_create_table(unsigned int id) {
-    (void)id;
-    return NULL;
-}
-
-int ng_platform_table_add_column(NGHandle table, const char* title) {
-    (void)table;
-    (void)title;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-int ng_platform_table_insert_row(NGHandle table, int index, const char* const* cells, int count) {
-    (void)table;
-    (void)index;
-    (void)cells;
-    (void)count;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-int ng_platform_table_set_row(NGHandle table, int index, const char* const* cells, int count) {
-    (void)table;
-    (void)index;
-    (void)cells;
-    (void)count;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-int ng_platform_table_remove_row(NGHandle table, int index) {
-    (void)table;
-    (void)index;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-int ng_platform_table_clear(NGHandle table) {
-    (void)table;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-int ng_platform_table_set_selected(NGHandle table, int index) {
-    (void)table;
-    (void)index;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-int ng_platform_table_get_selected(NGHandle table) {
-    (void)table;
-    return -1;
-}
-
-NGHandle ng_platform_create_row_list(unsigned int id) {
-    (void)id;
-    return NULL;
-}
-
-int ng_platform_row_list_insert(NGHandle list, int index, NGHandle row) {
-    (void)list;
-    (void)index;
-    (void)row;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-int ng_platform_row_list_remove(NGHandle list, int index) {
-    (void)list;
-    (void)index;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-int ng_platform_row_list_clear(NGHandle list) {
-    (void)list;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-int ng_platform_row_list_set_selected(NGHandle list, int index) {
-    (void)list;
-    (void)index;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-int ng_platform_row_list_get_selected(NGHandle list) {
-    (void)list;
-    return -1;
 }
 
 float ng_platform_get_scale_factor(NGHandle window) {
@@ -708,25 +563,6 @@ void ng_platform_element_release(NGHandle element) {
 }
 
 NGHandle ng_platform_creation_parent(void) {
-    return NULL;
-}
-
-NGHandle ng_platform_create_split_view(int is_vertical) {
-    (void)is_vertical;
-    return NULL;
-}
-
-int ng_platform_split_view_add(NGHandle split_handle, NGHandle element) {
-    (void)split_handle; (void)element;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-int ng_platform_split_view_set_divider_position(NGHandle split_handle, int index, float position) {
-    (void)split_handle; (void)index; (void)position;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-NGHandle ng_platform_create_text_field(void) {
     return NULL;
 }
 

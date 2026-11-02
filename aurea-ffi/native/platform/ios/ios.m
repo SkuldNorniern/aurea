@@ -359,22 +359,6 @@ void ng_platform_label_invalidate(NGHandle handle) {
     (void)handle;
 }
 
-NGHandle ng_platform_create_scroll_view(void) {
-    return NULL;
-}
-
-int ng_platform_scroll_view_set_content(NGHandle scroll, NGHandle element) {
-    (void)scroll;
-    (void)element;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-int ng_platform_scroll_view_set_scrollbar(NGHandle scroll, int policy) {
-    (void)scroll;
-    (void)policy;
-    return NG_ERROR_UNSUPPORTED;
-}
-
 static char kDestroyIdKey;
 static char kChangeIdKey;
 static char kMinWidthKey;
@@ -394,6 +378,7 @@ static char kMinHeightKey;
 static void ng_ios_enable_view(UIView* view, BOOL enabled) {
     if ([view isKindOfClass:[UIControl class]]) ((UIControl*)view).enabled = enabled;
     else if ([view isKindOfClass:[UILabel class]]) ((UILabel*)view).enabled = enabled;
+    else if ([view isKindOfClass:[UITextView class]]) view.userInteractionEnabled = enabled;
     for (UIView* sub in view.subviews) ng_ios_enable_view(sub, enabled);
 }
 
@@ -473,55 +458,15 @@ int ng_platform_text_unit(void) {
     return NG_TEXT_UNIT_UTF16;
 }
 
-int ng_platform_text_get_selection(NGHandle text, int* start, int* end) {
-    (void)text;
-    (void)start;
-    (void)end;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-int ng_platform_text_set_selection(NGHandle text, int start, int end) {
-    (void)text;
-    (void)start;
-    (void)end;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-int ng_platform_text_replace(NGHandle text, int start, int end, const char* replacement) {
-    (void)text;
-    (void)start;
-    (void)end;
-    (void)replacement;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-int ng_platform_text_undo(NGHandle text, int redo) {
-    (void)text;
-    (void)redo;
-    return NG_ERROR_UNSUPPORTED;
-}
-
-int ng_platform_text_can_undo(NGHandle text, int redo) {
-    (void)text;
-    (void)redo;
-    return 0;
-}
-
-int ng_platform_text_set_feature(NGHandle text, int feature, int on) {
-    (void)text;
-    (void)feature;
-    (void)on;
-    return NG_ERROR_UNSUPPORTED;
-}
-
 int ng_platform_element_set_change_id(NGHandle element, unsigned int id) {
     if (!element) return NG_ERROR_INVALID_HANDLE;
+    if (ng_ios_text_watch_change(element, id)) return NG_SUCCESS;
     UIView* view = (__bridge UIView*)element;
     if (![view isKindOfClass:[UIControl class]]) return NG_ERROR_UNSUPPORTED;
     static NGIOSChangeTarget* target = nil;
     if (!target) target = [[NGIOSChangeTarget alloc] init];
     objc_setAssociatedObject(view, &kChangeIdKey, @(id), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    [(UIControl*)view addTarget:target action:@selector(changed:) forControlEvents:UIControlEventValueChanged];
+    [(UIControl*)view addTarget:target action:@selector(changed:) forControlEvents:UIControlEventValueChanged | UIControlEventEditingChanged];
     return NG_SUCCESS;
 }
 

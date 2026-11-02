@@ -7,7 +7,7 @@ NGHandle ng_ios_create_box(int is_vertical) {
     UIStackView* stackView = [[UIStackView alloc] init];
     stackView.axis = is_vertical ? UILayoutConstraintAxisVertical : UILayoutConstraintAxisHorizontal;
     stackView.spacing = 8.0;
-    stackView.alignment = UIStackViewAlignmentCenter;
+    stackView.alignment = UIStackViewAlignmentFill;
     stackView.distribution = UIStackViewDistributionFill;
     
     return (__bridge_retained void*)stackView;

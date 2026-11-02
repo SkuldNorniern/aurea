@@ -128,6 +128,13 @@ fn main() {
         "native/platform/ios/elements/checkbox.m",
         "native/platform/ios/elements/progress_bar.m",
         "native/platform/ios/elements/combo_box.m",
+        "native/platform/ios/elements/text.m",
+        "native/platform/ios/elements/scroll_view.m",
+        "native/platform/ios/elements/split_view.m",
+        "native/platform/ios/elements/tab_bar.m",
+        "native/platform/ios/elements/sidebar_list.m",
+        "native/platform/ios/elements/table.m",
+        "native/platform/ios/elements/row_list.m",
     ];
 
     let macos_sources: &[&str] = &[

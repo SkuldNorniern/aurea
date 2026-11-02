@@ -40,6 +40,9 @@ int ng_ios_combo_box_get_selected(NGHandle combo_box);
 int ng_ios_combo_box_clear(NGHandle combo_box);
 int ng_ios_combo_box_set_enabled(NGHandle combo_box, int enabled);
 
+/* Reports a text view's edits to custom callback `id`; 0 when `text` isn't a text view. */
+int ng_ios_text_watch_change(NGHandle text, unsigned int id);
+
 #ifdef __cplusplus
 }
 #endif
