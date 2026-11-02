@@ -6,12 +6,16 @@
 #[cfg(target_os = "ios")]
 mod app {
     use aurea::ios::{
-        keyboard_height, on_event, pick_files, run as run_app, set_theme, show_keyboard,
+        create_menu_bar, keyboard_height, on_event, pick_files, request_frame, run as run_app,
+        set_theme, show_keyboard,
     };
     use aurea::logger::init_from_env;
     use aurea::ui::{Align, Button, Checkbox, ProgressBar, Segmented, Slider, Theme, Toggle, Ui};
-    use aurea::{AureaResult, PenPhase, PenSample, Point, Rect, WindowEvent};
-    use std::cell::RefCell;
+    use aurea::{
+        AureaResult, MenuBar, MenuShortcut, PenPhase, PenSample, Point, PointerKind, Rect,
+        ShortcutKey, WindowEvent,
+    };
+    use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
     const ADD: u64 = 1;
@@ -88,6 +92,12 @@ mod app {
             WindowEvent::MouseWheel {
                 delta_x, delta_y, ..
             } => format!("scroll {delta_x:.0}, {delta_y:.0}"),
+            WindowEvent::MouseButton {
+                button,
+                pressed: true,
+                pointer: PointerKind::Mouse,
+                ..
+            } => format!("pointer click {button:?}"),
             WindowEvent::Focused => "active".to_owned(),
             WindowEvent::Unfocused => "inactive".to_owned(),
             WindowEvent::Minimized => "background".to_owned(),
@@ -99,6 +109,35 @@ mod app {
             }
             _ => return None,
         })
+    }
+
+    /// The menu bar: its items count their presses, so a shortcut handled twice shows.
+    fn menus(sketch: &Rc<RefCell<Sketch>>, last: &Rc<RefCell<String>>) -> AureaResult<MenuBar> {
+        let key = |c| MenuShortcut::new(ShortcutKey::Char(c)).primary();
+        let mut bar = create_menu_bar()?;
+        let mut file = bar.add_submenu("File")?;
+        let (strokes, shown) = (Rc::clone(sketch), Rc::clone(last));
+        file.add_item_with_shortcut("Clear Sketch", key('k'), move || {
+            strokes.borrow_mut().strokes.clear();
+            *shown.borrow_mut() = "menu Clear Sketch".to_owned();
+            request_frame();
+        })?;
+        file.add_separator()?;
+        let shown = Rc::clone(last);
+        let off = file.add_item_with_shortcut("Disabled Item", key('j'), move || {
+            *shown.borrow_mut() = "BUG: a disabled item ran".to_owned();
+            request_frame();
+        })?;
+        off.set_enabled(false)?;
+        let mut edit = bar.add_submenu("Edit")?;
+        let shown = Rc::clone(last);
+        let copies = Cell::new(0);
+        edit.add_item_with_shortcut("Copy", key('c'), move || {
+            copies.set(copies.get() + 1);
+            *shown.borrow_mut() = format!("menu Copy x{}", copies.get());
+            request_frame();
+        })?;
+        Ok(bar)
     }
 
     #[derive(Default)]
@@ -264,7 +303,10 @@ mod app {
                 *shown.borrow_mut() = text;
             }
         });
+        let bar = menus(&sketch, &last);
         run_app(Theme::dark(), move |ui, width, height| {
+            // Lives as long as the app, with the frames that draw it.
+            let _ = &bar;
             panel(ui, &mut state, &last.borrow(), width)?;
             pad(ui, &mut sketch.borrow_mut(), &last, width, height)
         })

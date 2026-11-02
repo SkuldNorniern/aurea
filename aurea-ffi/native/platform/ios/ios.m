@@ -127,21 +127,23 @@ static void ng_ios_read_label(NSString* label, AureaMenuNode* node) {
         input = UIKeyInputLeftArrow;
     } else if ([name isEqualToString:@"right"]) {
         input = UIKeyInputRightArrow;
-    } else if ([name isEqualToString:@"home"]) {
-        input = UIKeyInputHome;
-    } else if ([name isEqualToString:@"end"]) {
-        input = UIKeyInputEnd;
     } else if ([name isEqualToString:@"pageup"]) {
         input = UIKeyInputPageUp;
     } else if ([name isEqualToString:@"pagedown"]) {
         input = UIKeyInputPageDown;
-    } else if (name.length >= 2 && name.length <= 3 && [name hasPrefix:@"f"]) {
-        NSString* functions[] = {
-            UIKeyInputF1, UIKeyInputF2, UIKeyInputF3, UIKeyInputF4, UIKeyInputF5, UIKeyInputF6,
-            UIKeyInputF7, UIKeyInputF8, UIKeyInputF9, UIKeyInputF10, UIKeyInputF11, UIKeyInputF12,
-        };
-        NSInteger number = [[name substringFromIndex:1] integerValue];
-        if (number >= 1 && number <= 12) input = functions[number - 1];
+    } else if (@available(iOS 13.4, *)) {
+        if ([name isEqualToString:@"home"]) {
+            input = UIKeyInputHome;
+        } else if ([name isEqualToString:@"end"]) {
+            input = UIKeyInputEnd;
+        } else if (name.length >= 2 && name.length <= 3 && [name hasPrefix:@"f"]) {
+            NSString* functions[] = {
+                UIKeyInputF1, UIKeyInputF2, UIKeyInputF3, UIKeyInputF4, UIKeyInputF5, UIKeyInputF6,
+                UIKeyInputF7, UIKeyInputF8, UIKeyInputF9, UIKeyInputF10, UIKeyInputF11, UIKeyInputF12,
+            };
+            NSInteger number = [[name substringFromIndex:1] integerValue];
+            if (number >= 1 && number <= 12) input = functions[number - 1];
+        }
     }
     if (!input || (input.length == 1 && !flags)) return;
     node.input = input;
@@ -158,18 +160,16 @@ static void ng_ios_section(NSMutableArray<UIMenuElement*>* out, NSMutableArray<U
 
 static UIAction* ng_ios_action(AureaMenuNode* node) {
     uint32_t itemId = node.itemId;
-    UIMenuElementAttributes attributes = node.enabled ? 0 : UIMenuElementAttributesDisabled;
-    UIMenuElementState state = node.checked ? UIMenuElementStateOn : UIMenuElementStateOff;
-    return [UIAction actionWithTitle:node.title
-                               image:nil
-                          identifier:nil
-                 discoverabilityTitle:nil
-                          attributes:attributes
-                               state:state
-                             handler:^(UIAction* action) {
-                                 (void)action;
-                                 ng_ios_run_item(itemId);
-                             }];
+    UIAction* action = [UIAction actionWithTitle:node.title
+                                           image:nil
+                                      identifier:nil
+                                         handler:^(UIAction* sender) {
+                                             (void)sender;
+                                             ng_ios_run_item(itemId);
+                                         }];
+    action.attributes = node.enabled ? 0 : UIMenuElementAttributesDisabled;
+    action.state = node.checked ? UIMenuElementStateOn : UIMenuElementStateOff;
+    return action;
 }
 
 static NSArray<UIMenuElement*>* ng_ios_elements(NSArray<AureaMenuNode*>* nodes) {
@@ -216,7 +216,8 @@ void ng_ios_key_command(UIKeyCommand* key) {
 }
 
 void ng_ios_build_menu(id<UIMenuBuilder> builder) {
-    if (!g_menu.children.count) return;
+    // UIKit also builds context menus here; only the menu bar is the app's.
+    if (!g_menu.children.count || builder.system != UIMenuSystem.mainSystem) return;
     // The app's menus replace UIKit's, which would otherwise stay beside them.
     for (NSString* identifier in @[UIMenuFile, UIMenuEdit, UIMenuView, UIMenuWindow, UIMenuHelp]) {
         [builder removeMenuForIdentifier:identifier];

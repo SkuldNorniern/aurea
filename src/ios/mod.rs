@@ -13,7 +13,7 @@ pub(crate) use sheets::{preview_path, reveal_path};
 use std::cell::{Cell, RefCell};
 use std::ffi::{CStr, c_char, c_int};
 use std::process::exit;
-use std::ptr::null;
+use std::ptr::{null, null_mut};
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -25,10 +25,9 @@ use aurea_ffi::{
     ng_ios_set_high_frame_rate, ng_ios_set_text_area, ng_ios_show_keyboard, ng_ios_wake,
 };
 
-#[cfg(not(feature = "zengpu"))]
-use crate::AureaError;
 use crate::dispatch;
 use crate::ffi::callbacks::event_time;
+use crate::ffi::{ng_platform_attach_menu, ng_platform_create_menu, ng_platform_destroy_menu};
 #[cfg(feature = "zengpu")]
 use crate::gpu_ready;
 use crate::render::{CanvasId, CpuRasterizer, Renderer, SurfaceInfo, register_host_canvas};
@@ -37,8 +36,8 @@ use crate::trim_memory;
 use crate::ui::{Theme, Ui, UiState};
 use crate::wake::wake_at;
 use crate::{
-    AureaResult, KeyCode, Modifiers, MouseButton, MouseButtons, PenPhase, PenSample, PenTapAction,
-    PenTool, Point, PointerKind, Rect, WindowEvent,
+    AureaError, AureaResult, KeyCode, MenuBar, Modifiers, MouseButton, MouseButtons, PenPhase,
+    PenSample, PenTapAction, PenTool, Point, PointerKind, Rect, WindowEvent,
 };
 #[cfg(feature = "zengpu")]
 use crate::{
@@ -199,6 +198,21 @@ fn hear(events: &[WindowEvent]) {
         running.append(added);
         *added = running;
     });
+}
+
+/// Builds the app's menu bar, shown on iPads with a keyboard; its shortcuts show in the hold-Command
+/// overlay. The app's menus replace UIKit's standard ones. Keep the bar for as long as the menus
+/// should stay. Call [`request_frame`] from an item whose callback changes what is drawn.
+pub fn create_menu_bar() -> AureaResult<MenuBar> {
+    let handle = unsafe { ng_platform_create_menu() };
+    if handle.is_null() {
+        return Err(AureaError::MenuCreationFailed);
+    }
+    if unsafe { ng_platform_attach_menu(null_mut(), handle) } != 0 {
+        unsafe { ng_platform_destroy_menu(handle) };
+        return Err(AureaError::MenuCreationFailed);
+    }
+    Ok(MenuBar::new(handle))
 }
 
 /// Asks for a frame from any thread, such as when background work finishes. The UI's own
