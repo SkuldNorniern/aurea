@@ -15,6 +15,12 @@ impl Point {
         Self { x, y }
     }
 
+    /// From `f64`, for timelines and the like.
+    #[allow(clippy::cast_possible_truncation)]
+    pub const fn from_f64(x: f64, y: f64) -> Self {
+        Self::new(x as f32, y as f32)
+    }
+
     /// Distance to another point.
     pub fn distance_to(self, other: Self) -> f32 {
         (other.x - self.x).hypot(other.y - self.y)
@@ -43,6 +49,12 @@ impl Rect {
             width,
             height,
         }
+    }
+
+    /// From `f64`, for timelines and the like.
+    #[allow(clippy::cast_possible_truncation)]
+    pub const fn from_f64(x: f64, y: f64, width: f64, height: f64) -> Self {
+        Self::new(x as f32, y as f32, width as f32, height as f32)
     }
 
     /// A rectangle spanning two corners.
@@ -212,6 +224,13 @@ mod tests {
         assert_eq!(r.split_right(4.0, 2.0).0.width, 0.0);
         assert_eq!(r.split_top(4.0, 2.0).0.height, 0.0);
         assert_eq!(r.split_bottom(4.0, 2.0).0.height, 0.0);
+    }
+
+    #[test]
+    fn f64_constructors_narrow() {
+        assert_eq!(Point::from_f64(1.5, 2.0), Point::new(1.5, 2.0));
+        let r = Rect::from_f64(1.0, 2.0, 3.0, 4.0);
+        assert_eq!(r, Rect::new(1.0, 2.0, 3.0, 4.0));
     }
 
     #[test]
