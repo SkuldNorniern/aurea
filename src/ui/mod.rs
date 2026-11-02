@@ -25,6 +25,7 @@ pub use widget::Widget;
 pub use widget::button::{Button, ButtonStyle, Tone};
 pub use widget::chip::{Chip, ChipStyle};
 pub use widget::color::{ColorPicker, PickerStyle};
+pub use widget::dial::{Dial, DialStyle};
 pub use widget::disclosure::{Disclosure, DisclosureStyle};
 pub use widget::dock::{
     Dock, DockAxis, DockBar, DockGroup, DockLayout, DockMetrics, DockPlan, DockSide, DockStyle,

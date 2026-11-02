@@ -104,8 +104,10 @@ pub struct Track {
     pub from: f32,
     /// End of the filled part.
     pub to: f32,
-    /// Height of the bar; `None` fills the rect.
+    /// Bar height, width when vertical; `None` fills the rect.
     pub thickness: Option<f32>,
+    /// Runs up from the bottom.
+    pub vertical: bool,
     /// Colour of the unfilled part.
     pub empty: Color,
     /// Colour of the filled part.
@@ -119,6 +121,7 @@ impl Track {
             from: 0.0,
             to: value,
             thickness: None,
+            vertical: false,
             empty,
             filled,
         }
@@ -137,8 +140,18 @@ impl Track {
         self
     }
 
+    /// Runs up from the bottom.
+    pub fn vertical(mut self) -> Self {
+        self.vertical = true;
+        self
+    }
+
     /// The bar's own rect inside `rect`.
     pub fn bar(&self, rect: Rect) -> Rect {
+        if self.vertical {
+            let w = self.thickness.unwrap_or(rect.width).min(rect.width);
+            return rect.centered(w, rect.height);
+        }
         let h = self.thickness.unwrap_or(rect.height).min(rect.height);
         rect.centered(rect.width, h)
     }
@@ -147,16 +160,25 @@ impl Track {
 impl Component for Track {
     fn paint<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>, rect: Rect) -> AureaResult<()> {
         let bar = self.bar(rect);
-        let r = bar.height / 2.0;
+        let r = bar.width.min(bar.height) / 2.0;
         ui.round(bar, r, self.empty)?;
         let (a, b) = (self.from.clamp(0.0, 1.0), self.to.clamp(0.0, 1.0));
         if b > a {
-            let filled = Rect::new(
-                bar.x + bar.width * a,
-                bar.y,
-                bar.width * (b - a),
-                bar.height,
-            );
+            let filled = if self.vertical {
+                Rect::new(
+                    bar.x,
+                    bar.bottom() - bar.height * b,
+                    bar.width,
+                    bar.height * (b - a),
+                )
+            } else {
+                Rect::new(
+                    bar.x + bar.width * a,
+                    bar.y,
+                    bar.width * (b - a),
+                    bar.height,
+                )
+            };
             ui.round(filled, r, self.filled)?;
         }
         Ok(())

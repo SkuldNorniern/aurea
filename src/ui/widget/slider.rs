@@ -49,7 +49,7 @@ impl SliderStyle {
     }
 }
 
-/// A horizontal slider over a range.
+/// Slider over a range, horizontal unless [`Slider::vertical`].
 ///
 /// ```rust,no_run
 /// # use aurea::ui::{Slider, Ui};
@@ -69,6 +69,7 @@ pub struct Slider<'v> {
     reset: Option<f32>,
     style: Option<SliderStyle>,
     enabled: bool,
+    vertical: bool,
 }
 
 /// Geometry and native colors supplied to a custom slider track painter.
@@ -101,7 +102,14 @@ impl<'v> Slider<'v> {
             reset: None,
             style: None,
             enabled: true,
+            vertical: false,
         }
+    }
+
+    /// Runs bottom to top, for a fader.
+    pub fn vertical(mut self) -> Self {
+        self.vertical = true;
+        self
     }
 
     /// Fill from `origin` to the value rather than from the start: a neutral middle, like 0 in -100
@@ -204,14 +212,18 @@ impl<'v> Slider<'v> {
         let Some(at) = ui.pointer() else {
             return;
         };
-        let width = groove.width.max(1.0);
+        let (along, length) = if self.vertical {
+            (groove.bottom() - at.y, groove.height.max(1.0))
+        } else {
+            (at.x - groove.x, groove.width.max(1.0))
+        };
         match ui.state.tweens.get((Key::new(id, 0), LAST_X)) {
             Some(last) if ui.modifiers().shift && press.is_none() => {
-                *self.value += (at.x - last) / width * span * FINE;
+                *self.value += (along - last) / length * span * FINE;
             }
-            _ => *self.value = lo + ((at.x - groove.x) / width).clamp(0.0, 1.0) * span,
+            _ => *self.value = lo + (along / length).clamp(0.0, 1.0) * span,
         }
-        ui.set_animated(id, 0, LAST_X, at.x);
+        ui.set_animated(id, 0, LAST_X, along);
     }
 
     fn wheel<Id: WidgetId>(
@@ -256,6 +268,30 @@ impl<Id: WidgetId> Widget<Id> for Slider<'_> {
 }
 
 impl Slider<'_> {
+    fn across(&self, rect: Rect) -> f32 {
+        if self.vertical {
+            rect.width
+        } else {
+            rect.height
+        }
+    }
+
+    fn groove(&self, rect: Rect, r: f32) -> Rect {
+        if self.vertical {
+            rect.inset_xy(0.0, r)
+        } else {
+            rect.inset_xy(r, 0.0)
+        }
+    }
+
+    fn knob_center(&self, rect: Rect, groove: Rect, shown: f32) -> (f32, f32) {
+        if self.vertical {
+            (rect.center().x, groove.bottom() - groove.height * shown)
+        } else {
+            (groove.x + groove.width * shown, rect.center().y)
+        }
+    }
+
     fn show_painted<Id: WidgetId>(
         mut self,
         ui: &mut Ui<'_, Id>,
@@ -264,7 +300,7 @@ impl Slider<'_> {
         painter: impl FnOnce(&mut Ui<'_, Id>, SliderTrack) -> AureaResult<()>,
     ) -> AureaResult<Response> {
         let style = self.style.unwrap_or_else(|| SliderStyle::new(ui.theme));
-        let r = style.knob_radius.min(rect.height / 2.0);
+        let r = style.knob_radius.min(self.across(rect) / 2.0);
         let input = ui.interact(id, 0, rect, Sense::Adjust, self.enabled);
         let mut response = Response::new(rect, input);
         let (lo, hi) = (*self.range.start(), *self.range.end());
@@ -272,7 +308,7 @@ impl Slider<'_> {
         let before = *self.value;
         #[cfg(feature = "accessibility")]
         self.accessibility(ui, id, (lo, hi));
-        let groove = rect.inset_xy(r, 0.0);
+        let groove = self.groove(rect, r);
         if input.held {
             self.pointer(ui, id, groove, (lo, span));
         } else {
@@ -314,9 +350,12 @@ impl Slider<'_> {
             Some(origin) if span > 0.0 => ((origin.clamp(lo, hi) - lo) / span).clamp(0.0, 1.0),
             _ => 0.0,
         };
-        let track = Track::new(shown, empty, filled)
-            .span(from.min(shown), from.max(shown))
-            .thickness(style.thickness);
+        let track = Track {
+            vertical: self.vertical,
+            ..Track::new(shown, empty, filled)
+                .span(from.min(shown), from.max(shown))
+                .thickness(style.thickness)
+        };
         let bar = track.bar(groove);
         ui.clipped(bar, |ui| {
             painter(
@@ -331,8 +370,8 @@ impl Slider<'_> {
             )
         })?;
         let size = r * (1.0 + 0.12 * state.hover - 0.08 * state.press);
-        let x = groove.x + groove.width * shown;
-        let at = Rect::new(x - size, rect.center().y - size, size * 2.0, size * 2.0);
+        let (x, y) = self.knob_center(rect, groove, shown);
+        let at = Rect::new(x - size, y - size, size * 2.0, size * 2.0);
         FocusRing::new(ui.theme, size, state.focus).paint(ui, at)?;
         let dot = style.dot.fade(fade * (0.4 + 0.6 * state.press));
         let mut knob = Knob::new(size, style.knob.fade(fade)).dot(0.38, dot);
@@ -390,7 +429,7 @@ impl Slider<'_> {
     }
 }
 
-fn snap(value: f32, lo: f32, hi: f32, step: Option<f32>) -> f32 {
+pub(super) fn snap(value: f32, lo: f32, hi: f32, step: Option<f32>) -> f32 {
     let (lo, hi) = (lo.min(hi), lo.max(hi));
     let value = if value.is_nan() {
         lo
@@ -516,6 +555,38 @@ mod tests {
         let accent = u32::from(accent.r) + u32::from(accent.g) + u32::from(accent.b);
         assert!(px(80).abs_diff(accent) < 30, "filled left of the middle");
         assert!(px(160).abs_diff(accent) > 60, "empty right of it");
+    }
+
+    #[test]
+    fn vertical_runs_bottom_to_top() {
+        let theme = Theme::dark();
+        let (mut raster, mut state, mut value) =
+            (CpuRasterizer::new(24, 218), UiState::<u8>::new(), 0.0);
+        let mut draw = |state: &mut UiState<u8>, value: &mut f32| {
+            let mut ctx = raster.begin_frame().expect("frame");
+            {
+                let mut ui = state.frame(&mut *ctx, &theme);
+                Slider::new(value, 0.0..=100.0)
+                    .vertical()
+                    .show(&mut ui, 1, Rect::new(0.0, 0.0, 24.0, 218.0))
+                    .expect("draw");
+            }
+            drop(ctx);
+            raster.end_frame().expect("end");
+        };
+        draw(&mut state, &mut value);
+        state.handle(&WindowEvent::MouseButton {
+            button: MouseButton::Left,
+            pressed: true,
+            modifiers: Modifiers::default(),
+            x: 12.0,
+            y: 59.0,
+            click_count: 1,
+            time: Default::default(),
+            pointer: PointerKind::Mouse,
+        });
+        draw(&mut state, &mut value);
+        assert!((value - 75.0).abs() < 0.5, "{value}");
     }
 
     #[test]

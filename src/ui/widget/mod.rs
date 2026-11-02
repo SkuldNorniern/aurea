@@ -3,6 +3,7 @@
 pub mod button;
 pub mod chip;
 pub mod color;
+pub mod dial;
 pub mod disclosure;
 pub mod dock;
 pub mod dropdown;
