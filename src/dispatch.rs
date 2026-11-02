@@ -15,6 +15,7 @@ use crate::android;
 #[cfg(target_os = "ios")]
 use crate::ios;
 use crate::platform::ui_thread;
+use crate::render::{CanvasId, request_canvas_redraw};
 
 type Call = Box<dyn FnOnce() + Send>;
 type LocalCall = Box<dyn FnOnce()>;
@@ -69,18 +70,28 @@ pub fn after_frame(call: impl FnOnce() + 'static) {
 /// Asks for a frame, where the queue drains: the desktop loop, or the mobile host's next frame.
 /// Wakes the UI from any thread, for a worker that has something new to draw.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct WakeHandle;
+pub struct WakeHandle {
+    canvas: Option<CanvasId>,
+}
 
 impl WakeHandle {
-    /// Asks for a frame.
+    /// Asks for a frame, and a redraw of the canvas it was made for.
     pub fn wake(self) {
+        if let Some(id) = self.canvas {
+            request_canvas_redraw(id);
+        }
         wake_host();
     }
 }
 
 /// A handle a worker can keep, on every host.
 pub fn wake_handle() -> WakeHandle {
-    WakeHandle
+    WakeHandle::default()
+}
+
+/// A handle that also redraws `id` when woken, on every host.
+pub fn wake_canvas(id: CanvasId) -> WakeHandle {
+    WakeHandle { canvas: Some(id) }
 }
 
 fn wake_host() {
@@ -133,6 +144,17 @@ mod tests {
         assert_eq!(*lock(&seen), [0, 1, 2, 9]);
         drain();
         assert_eq!(runs.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn wake_handles_are_send_sync_and_copy() {
+        fn assert_handle<T: Send + Sync + Copy>() {}
+        assert_handle::<WakeHandle>();
+        let handle = wake_handle();
+        assert!(handle.canvas.is_none());
+        let copy = handle;
+        copy.wake();
+        handle.wake();
     }
 
     #[test]
