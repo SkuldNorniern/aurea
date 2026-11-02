@@ -1,7 +1,8 @@
 //! DirectWrite glyph rasterizer (Windows) — hinted ClearType subpixel coverage.
 
 use super::super::types::{FontStyle, FontVariation, FontWeight};
-use super::glyph::{FaceData, FaceId, GlyphKey};
+use super::fonts;
+use super::glyph::{FaceData, FaceId, FontBytes, GlyphKey};
 use super::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph};
 use super::{CacheKind, GLYPH_BYTES, GLYPH_CAP, LruCache, shared};
 use aurea_foundation::{AureaError, AureaResult, lock};
@@ -28,6 +29,7 @@ struct FaceKey {
     weight: FontWeight,
     style: FontStyle,
     variations: u64,
+    generation: u64,
 }
 
 impl FaceKey {
@@ -42,6 +44,7 @@ impl FaceKey {
             weight: font.weight,
             style: font.style,
             variations: font.variation_hash(),
+            generation: fonts::generation(),
         }
     }
 }
@@ -53,6 +56,8 @@ struct FaceEntry {
     units_per_em: f32,
     variations: Vec<FontVariation>,
     data: OnceLock<Option<Arc<FaceData>>>,
+    /// Set for a registered font, which has no file DirectWrite could read back.
+    registered: Option<FontBytes>,
 }
 
 const FALLBACK_FAMILIES: &[&str] = &[
@@ -77,9 +82,9 @@ pub struct DirectWriteRasterizer {
     faces: Mutex<Vec<Arc<FaceEntry>>>,
     by_key: Mutex<HashMap<FaceKey, FaceId>>,
     glyphs: Arc<Mutex<LruCache<GlyphKey, Arc<SubpixelGlyph>>>>,
-    /// Chosen face per (primary face, char). A primary face already fixes the weight, style and
+    /// Chosen face per (primary face, char, generation). A primary face already fixes the weight, style and
     /// variations the fallbacks are resolved with, so the pair fully determines the answer.
-    char_faces: Mutex<HashMap<(FaceId, char), FaceId>>,
+    char_faces: Mutex<HashMap<(FaceId, char, u64), FaceId>>,
     /// Font file bytes by path, shared by every face read from that file.
     file_bytes: Mutex<HashMap<PathBuf, Weak<Vec<u8>>>>,
 }
@@ -135,29 +140,22 @@ impl DirectWriteRasterizer {
             .filter(|name| !name.is_empty())
             .find_map(|name| self.collection.font_family_by_name(name).ok().flatten())
             .ok_or(AureaError::RenderingFailed)?;
-        let mut face = family
+        let face = family
             .first_matching_font(weight, DwStretch::Normal, style)
             .map_err(|_| AureaError::RenderingFailed)?
             .create_font_face();
-        if !font.variations.is_empty()
-            && let Some(varied) = vary(&face, font.variations)
-        {
-            face = varied;
-        }
+        Ok(entry(face, font.variations.to_vec(), None))
+    }
 
-        let mut fm: DWRITE_FONT_METRICS = unsafe { zeroed() };
-        unsafe {
-            let raw: *mut IDWriteFontFace = face.as_ptr();
-            (*raw).GetMetrics(&mut fm);
-        }
-        Ok(FaceEntry {
-            face,
-            ascent: f32::from(fm.ascent),
-            descent: f32::from(fm.descent),
-            units_per_em: f32::from(fm.designUnitsPerEm.max(1)),
-            variations: font.variations.to_vec(),
-            data: OnceLock::new(),
-        })
+    fn registered(face: &fonts::Face, font: FontRef) -> Option<FaceEntry> {
+        let native = FontFile::new_from_buffer(face.bytes.clone())?
+            .create_face(face.index, DWRITE_FONT_SIMULATIONS_NONE)
+            .ok()?;
+        Some(entry(
+            native,
+            face.variations(font),
+            Some(face.bytes.clone()),
+        ))
     }
 
     fn has_glyph(&self, face: FaceId, ch: char) -> bool {
@@ -172,13 +170,42 @@ impl DirectWriteRasterizer {
     }
 }
 
+fn entry(
+    face: FontFace,
+    variations: Vec<FontVariation>,
+    registered: Option<FontBytes>,
+) -> FaceEntry {
+    let face = if variations.is_empty() {
+        face
+    } else {
+        vary(&face, &variations).unwrap_or(face)
+    };
+    let mut fm: DWRITE_FONT_METRICS = unsafe { zeroed() };
+    unsafe {
+        let raw: *mut IDWriteFontFace = face.as_ptr();
+        (*raw).GetMetrics(&mut fm);
+    }
+    FaceEntry {
+        face,
+        ascent: f32::from(fm.ascent),
+        descent: f32::from(fm.descent),
+        units_per_em: f32::from(fm.designUnitsPerEm.max(1)),
+        variations,
+        data: OnceLock::new(),
+        registered,
+    }
+}
+
 impl PlatformTextRasterizer for DirectWriteRasterizer {
     fn face(&self, font: FontRef) -> AureaResult<FaceId> {
         let key = FaceKey::from_font(font);
         if let Some(&id) = lock(&self.by_key).get(&key) {
             return Ok(id);
         }
-        let entry = self.resolve(font)?;
+        let entry = match fonts::find(font).and_then(|f| Self::registered(&f, font)) {
+            Some(entry) => entry,
+            None => self.resolve(font)?,
+        };
         let mut faces = lock(&self.faces);
         let id = FaceId(u32::try_from(faces.len()).map_err(|_| AureaError::RenderingFailed)?);
         #[allow(clippy::arc_with_non_send_sync)]
@@ -191,14 +218,18 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
         if ch.is_whitespace() || ch.is_control() {
             return primary;
         }
-        if let Some(&face) = lock(&self.char_faces).get(&(primary, ch)) {
+        let key = (primary, ch, fonts::generation());
+        if let Some(&face) = lock(&self.char_faces).get(&key) {
             return face;
         }
         let face = if self.has_glyph(primary, ch) {
             primary
         } else {
-            FALLBACK_FAMILIES
+            let registered = fonts::covering(font, ch).map(|f| f.family.clone());
+            registered
                 .iter()
+                .map(String::as_str)
+                .chain(FALLBACK_FAMILIES.iter().copied())
                 .filter_map(|family| self.face(FontRef { family, ..font }).ok())
                 .filter(|&face| face != primary)
                 .find(|&face| self.has_glyph(face, ch))
@@ -208,7 +239,7 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
         if cache.len() >= CHAR_FACE_CAP {
             cache.clear();
         }
-        cache.insert((primary, ch), face);
+        cache.insert(key, face);
         face
     }
 
@@ -217,8 +248,13 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
         entry
             .data
             .get_or_init(|| {
-                let file = entry.face.files().ok()?.into_iter().next()?;
-                let bytes = self.shared_bytes(&file)?;
+                let bytes = match &entry.registered {
+                    Some(bytes) => bytes.clone(),
+                    None => {
+                        let file = entry.face.files().ok()?.into_iter().next()?;
+                        self.shared_bytes(&file)?
+                    }
+                };
                 FaceData::new(bytes, entry.face.get_index(), &entry.variations).map(Arc::new)
             })
             .clone()

@@ -1,7 +1,8 @@
 //! Font files found on disk, drawn from their outlines: the backend everywhere but Windows.
 
 use crate::numeric::f32_to_u8_clamped;
-use crate::text::glyph::{FaceData, FaceId, GlyphCoverage, GlyphKey};
+use crate::text::fonts;
+use crate::text::glyph::{FaceData, FaceId, FontBytes, GlyphCoverage, GlyphKey};
 use crate::text::outline::outline_coverage;
 use crate::text::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph, variation_hash};
 use crate::text::{CacheKind, GLYPH_BYTES, GLYPH_CAP, LruCache, shared};
@@ -22,6 +23,7 @@ struct FontKey {
     weight: FontWeight,
     style: FontStyle,
     variations: u64,
+    generation: u64,
 }
 
 impl FontKey {
@@ -38,6 +40,7 @@ impl FontKey {
             weight: font.weight,
             style: font.style,
             variations: font.variation_hash(),
+            generation: fonts::generation(),
         }
     }
 }
@@ -281,6 +284,7 @@ fn find_font_file<'a>(
 enum FaceSource {
     File(PathBuf),
     Embedded,
+    Registered(u32),
 }
 
 /// How to build a face again, so one evicted from [`VARIED_FACES`] keeps its id.
@@ -364,25 +368,27 @@ impl FontFileRasterizer {
         Ok(built)
     }
 
-    /// The bytes of `source`, shared with every face of it still alive.
-    fn bytes(&self, source: &FaceSource) -> Option<Arc<Vec<u8>>> {
+    /// The bytes of `source`, shared with every face of it still alive, and which face it is.
+    fn bytes(&self, source: &FaceSource) -> Option<(FontBytes, u32)> {
         match source {
-            FaceSource::Embedded => Some(EMBEDDED.clone()),
+            FaceSource::Embedded => Some((EMBEDDED.clone(), 0)),
+            FaceSource::Registered(id) => fonts::get(*id).map(|f| (f.bytes.clone(), f.index)),
             FaceSource::File(path) => {
                 let mut shared = lock(&self.file_bytes);
                 if let Some(bytes) = shared.get(source).and_then(Weak::upgrade) {
-                    return Some(bytes);
+                    return Some((bytes, 0));
                 }
                 let bytes = Arc::new(read(path).ok()?);
                 shared.retain(|_, weak| weak.strong_count() > 0);
                 shared.insert(source.clone(), Arc::downgrade(&bytes));
-                Some(bytes)
+                Some((bytes, 0))
             }
         }
     }
 
     fn build(&self, source: &FaceSource, variations: &[FontVariation]) -> Option<FaceData> {
-        FaceData::new(self.bytes(source)?, 0, variations)
+        let (bytes, index) = self.bytes(source)?;
+        FaceData::new(bytes, index, variations)
     }
 
     /// The id of `source` at `variations`, built now if it is new. A face with variations may be
@@ -421,6 +427,11 @@ impl FontFileRasterizer {
     }
 
     fn load_for_key(&self, font: FontRef) -> AureaResult<FaceId> {
+        if let Some(face) = fonts::find(font)
+            && let Some(id) = self.load(FaceSource::Registered(face.id), &face.variations(font))
+        {
+            return Ok(id);
+        }
         if let Some(path) = find_font_file(font.family, font.weight, font.style, self.files())
             && let Some(id) = self.load(FaceSource::File(path.to_path_buf()), font.variations)
         {
@@ -450,9 +461,14 @@ impl PlatformTextRasterizer for FontFileRasterizer {
         Ok(id)
     }
 
-    fn face_for_char(&self, _font: FontRef, primary: FaceId, ch: char) -> FaceId {
+    fn face_for_char(&self, font: FontRef, primary: FaceId, ch: char) -> FaceId {
         if ch.is_whitespace() || ch.is_control() || self.has_glyph(primary, ch) {
             return primary;
+        }
+        if let Some(face) = fonts::covering(font, ch)
+            && let Some(id) = self.load(FaceSource::Registered(face.id), &face.variations(font))
+        {
+            return id;
         }
         (0..self.fallbacks.len())
             .filter_map(|slot| self.fallback(slot))

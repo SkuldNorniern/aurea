@@ -30,6 +30,8 @@ pub enum AureaError {
     InvalidUrl,
     /// Rendering operation failed.
     RenderingFailed,
+    /// Bytes or a file that hold no usable font.
+    InvalidFont,
     /// FFI ABI version mismatch between Rust and native library.
     AbiVersionMismatch {
         /// The version Rust expects.
@@ -113,6 +115,7 @@ impl Display for AureaError {
                 write!(f, "The text range is not on character boundaries")
             }
             AureaError::RenderingFailed => write!(f, "Rendering operation failed"),
+            AureaError::InvalidFont => write!(f, "Not a usable font"),
             AureaError::DeviceLost => write!(f, "The GPU device was lost"),
             AureaError::Unsupported {
                 operation,

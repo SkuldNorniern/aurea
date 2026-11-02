@@ -12,6 +12,9 @@ use skrifa::{FontRef as SkrifaFont, GlyphId, MetadataProvider};
 
 use crate::types::{FontMetrics, FontVariation};
 
+/// A font file's bytes, wherever they live.
+pub type FontBytes = Arc<dyn AsRef<[u8]> + Send + Sync>;
+
 /// One font face a rasterizer has loaded, by its own numbering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FaceId(pub u32);
@@ -37,7 +40,7 @@ impl GlyphKey {
 
 /// A face's font file, at one position on its variable axes, for shaping and glyph outlines.
 pub struct FaceData {
-    bytes: Arc<Vec<u8>>,
+    bytes: FontBytes,
     index: u32,
     font: Font,
 }
@@ -45,9 +48,8 @@ pub struct FaceData {
 impl FaceData {
     /// The face at `index` of the font file `bytes` (0 unless it is a collection) at `variations`,
     /// or `None` when it holds no font.
-    pub fn new(bytes: Arc<Vec<u8>>, index: u32, variations: &[FontVariation]) -> Option<Self> {
-        let blob: Arc<dyn AsRef<[u8]> + Send + Sync> = bytes.clone();
-        let mut font = Font::new(Blob::from(blob), index)?;
+    pub fn new(bytes: FontBytes, index: u32, variations: &[FontVariation]) -> Option<Self> {
+        let mut font = Font::new(Blob::from(bytes.clone()), index)?;
         if !variations.is_empty() {
             font = font
                 .instance_builder()
@@ -70,7 +72,7 @@ impl FaceData {
         if self.coords().is_empty() {
             return Vec::new();
         }
-        let Ok(font) = SkrifaFont::from_index(&self.bytes, self.index) else {
+        let Ok(font) = SkrifaFont::from_index(self.bytes(), self.index) else {
             return Vec::new();
         };
         if font.hvar().is_ok() {
@@ -89,7 +91,7 @@ impl FaceData {
 
     /// The font file the face is in.
     pub fn bytes(&self) -> &[u8] {
-        &self.bytes
+        (*self.bytes).as_ref()
     }
 
     /// Which face of the file it is.
@@ -108,7 +110,7 @@ impl FaceData {
 
     /// The face's glyph for `ch`, 0 when it has none.
     pub(crate) fn glyph_index(&self, ch: char) -> u16 {
-        SkrifaFont::from_index(&self.bytes, self.index)
+        SkrifaFont::from_index(self.bytes(), self.index)
             .ok()
             .and_then(|font| font.charmap().map(ch))
             .and_then(|g| u16::try_from(g.to_u32()).ok())
@@ -118,7 +120,7 @@ impl FaceData {
     /// The face's line gap, cap and x height, underline, and whether it is monospace, at `size`
     /// pixels; ascent and descent are left to the rasterizer, which measures with its own.
     pub(crate) fn metrics(&self, size: f32) -> FontMetrics {
-        let Ok(font) = SkrifaFont::from_index(&self.bytes, self.index) else {
+        let Ok(font) = SkrifaFont::from_index(self.bytes(), self.index) else {
             return FontMetrics {
                 underline_offset: size / 10.0,
                 underline_thickness: (size / 14.0).max(1.0),

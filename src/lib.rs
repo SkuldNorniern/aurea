@@ -85,6 +85,7 @@ pub use crate::window::{
 
 use crate::render::trim_renderers;
 pub use crate::render::{Canvas, Color, DrawingContext, Point, Rect, RendererBackend};
+pub use aurea_render::text::fonts;
 use aurea_render::text::trim_caches;
 
 pub use crate::files::{

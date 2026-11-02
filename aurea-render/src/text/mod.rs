@@ -1,6 +1,7 @@
 //! Text rendering for Canvas.
 
 pub mod font;
+pub mod fonts;
 pub mod glyph;
 pub mod layout;
 pub mod outline;

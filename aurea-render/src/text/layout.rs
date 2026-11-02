@@ -390,6 +390,7 @@ pub(crate) fn layout_text(
 mod tests {
     use super::*;
     use crate::text::cache_stats;
+    use crate::text::fonts::TEST_GUARD;
     use crate::types::Font;
     use std::hint::black_box;
 
@@ -585,6 +586,7 @@ mod tests {
             max_width: Some(120.0),
             ..LayoutOptions::default()
         };
+        let _still = TEST_GUARD.read();
         let first = r.layout(text, font, options).expect("layout");
         let before = cache_stats().layout;
         let second = r.layout(text, font, options).expect("layout");

@@ -21,6 +21,7 @@ use super::paint::TextSize;
 use super::text_edit::TextEdit;
 use super::theme::Theme;
 use super::widget::popup::Popup;
+use crate::fonts;
 use crate::reduced_motion;
 use crate::render::{Font, Path, Point, Rect, TextMetrics};
 use crate::window::{
@@ -1284,6 +1285,7 @@ impl<Id: WidgetId> UiState<Id> {
     ) -> TextMetrics {
         let mut hasher = FastHasher::default();
         text.hash(&mut hasher);
+        fonts::generation().hash(&mut hasher);
         font.family.hash(&mut hasher);
         font.size.to_bits().hash(&mut hasher);
         font.weight.hash(&mut hasher);

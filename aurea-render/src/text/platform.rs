@@ -2,6 +2,7 @@
 
 use crate::geometry::Path;
 use crate::numeric::{f32_to_i32_clamped, f32_to_u32_clamped};
+use crate::text::fonts;
 use crate::text::glyph::{FaceData, FaceId, GlyphCoverage};
 use crate::text::layout::{LayoutOptions, TextAlign, TextLayout, WordBreak, layout_text};
 use crate::text::outline::glyph_outline;
@@ -90,12 +91,12 @@ pub struct SubpixelGlyph {
 
 /// Platform text rasterizer trait — the backend seam.
 pub trait PlatformTextRasterizer: Send + Sync {
-    /// The face for `font`: its family in its weight and style when installed, else the first
-    /// installed fallback.
+    /// The face for `font`: its family in its weight and style when registered or installed, else
+    /// the first installed fallback.
     fn face(&self, font: FontRef) -> AureaResult<FaceId>;
 
-    /// The face that draws `ch` in `font`: `primary` when it has the glyph, else the first fallback
-    /// that does, else `primary`.
+    /// The face that draws `ch` in `font`: `primary` when it has the glyph, else a registered font
+    /// that does, else the first fallback that does, else `primary`.
     fn face_for_char(&self, font: FontRef, primary: FaceId, ch: char) -> FaceId;
 
     /// The face's font file, for shaping and outlines.
@@ -169,6 +170,7 @@ fn hash_font(font: FontRef, hasher: &mut impl Hasher) {
     font.features.hash(hasher);
     font.variation_hash().hash(hasher);
     font.vertical.hash(hasher);
+    fonts::generation().hash(hasher);
 }
 
 /// Second hash of the font and mode, seeded apart from `RunKey`'s, for checking a hit.
@@ -695,6 +697,7 @@ mod tests {
 
     #[test]
     fn drawing_the_same_text_twice_raises_the_hits() {
+        let _still = fonts::TEST_GUARD.read();
         let r = TextRenderer::new();
         let f = font("");
         let before = cache_stats();
