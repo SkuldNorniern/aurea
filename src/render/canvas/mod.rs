@@ -199,6 +199,15 @@ impl Canvas {
             .map_err(|_| AureaError::ElementOperationFailed)
     }
 
+    /// A canvas on the GPU, or the CPU when the GPU cannot start.
+    pub fn new_preferring_gpu(width: u32, height: u32) -> AureaResult<Self> {
+        #[cfg(feature = "zengpu")]
+        if let Ok(canvas) = Self::new(width, height, RendererBackend::ZenGpu) {
+            return Ok(canvas);
+        }
+        Self::new(width, height, RendererBackend::Cpu)
+    }
+
     /// Create a new canvas with the given size and renderer backend.
     pub fn new(width: u32, height: u32, backend: RendererBackend) -> AureaResult<Self> {
         let handle = unsafe { ng_platform_create_canvas(width as i32, height as i32) };
