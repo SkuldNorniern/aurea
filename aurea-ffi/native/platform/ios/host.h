@@ -17,6 +17,7 @@ extern "C" {
 #define NG_IOS_PEN_DOWN 1
 #define NG_IOS_PEN_MOVE 2
 #define NG_IOS_PEN_UP 3
+#define NG_IOS_PEN_CANCEL 5
 /* Not a phase: a sample iOS predicts, ahead of the real ones; it comes as WindowEvent::PenPredicted. */
 #define NG_IOS_PEN_PREDICTED 4
 

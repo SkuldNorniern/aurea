@@ -541,7 +541,7 @@ static double ng_ios_age(NSTimeInterval timestamp) {
     for (UITouch* sample in samples) {
         BOOL last = sample == samples.lastObject;
         int at = phase == NG_IOS_PEN_DOWN && sample != samples.firstObject ? NG_IOS_PEN_MOVE
-               : phase == NG_IOS_PEN_UP && !last                         ? NG_IOS_PEN_MOVE
+               : (phase == NG_IOS_PEN_UP || phase == NG_IOS_PEN_CANCEL) && !last ? NG_IOS_PEN_MOVE
                                                                          : phase;
         [self pen:at touch:sample];
     }
@@ -554,7 +554,7 @@ static double ng_ios_age(NSTimeInterval timestamp) {
 }
 
 - (void)send:(int)action touches:(NSSet<UITouch*>*)touches event:(UIEvent*)event {
-    static const int pen_phase[] = {NG_IOS_PEN_DOWN, NG_IOS_PEN_UP, NG_IOS_PEN_MOVE, NG_IOS_PEN_UP};
+    static const int pen_phase[] = {NG_IOS_PEN_DOWN, NG_IOS_PEN_UP, NG_IOS_PEN_MOVE, NG_IOS_PEN_CANCEL};
     for (UITouch* touch in touches) {
         [self pens:pen_phase[action] touch:touch event:event];
         if (g_host.touch) {
