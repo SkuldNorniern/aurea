@@ -3,7 +3,7 @@
 
 use std::cell::RefCell;
 use std::mem::take;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 
@@ -84,6 +84,33 @@ impl WakeHandle {
     }
 }
 
+/// A [`WakeHandle`] for a worker started before its canvas exists: it wakes the UI until
+/// [`Self::set_canvas`], and redraws the canvas too from then on. Clones share the canvas.
+#[derive(Clone, Debug, Default)]
+pub struct LateWakeHandle {
+    canvas: Arc<OnceLock<CanvasId>>,
+}
+
+impl LateWakeHandle {
+    /// A handle with no canvas yet.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Names the canvas, once; a later call changes nothing.
+    pub fn set_canvas(&self, id: CanvasId) {
+        let _ = self.canvas.set(id);
+    }
+
+    /// Asks for a frame, and a redraw of the canvas when it has one.
+    pub fn wake(&self) {
+        WakeHandle {
+            canvas: self.canvas.get().copied(),
+        }
+        .wake();
+    }
+}
+
 /// A handle a worker can keep, on every host.
 pub fn wake_handle() -> WakeHandle {
     WakeHandle::default()
@@ -120,6 +147,13 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     static TEST_QUEUE: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn a_late_handle_wakes_before_it_has_a_canvas() {
+        let handle = LateWakeHandle::new();
+        handle.clone().wake();
+        assert!(handle.canvas.get().is_none());
+    }
 
     #[test]
     fn queued_calls_run_once_in_order_and_may_queue_more() {
