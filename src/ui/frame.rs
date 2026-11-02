@@ -10,6 +10,7 @@ use super::state::{
 use super::theme::Theme;
 use crate::AureaResult;
 use crate::render::{Color, DrawingContext, Font, Paint, PaintStyle, Point, Rect, TextMetrics};
+use crate::screen::{Screen, screen};
 use crate::window::{CursorIcon, KeyCode, Modifiers, PointerKind};
 
 /// Where text sits across the space it is given.
@@ -312,6 +313,11 @@ impl<Id: WidgetId> Ui<'_, Id> {
     /// Takes the keyboard away from whatever has it.
     pub fn clear_focus(&mut self) {
         self.state.clear_focus();
+    }
+
+    /// The safe area, gesture zones, corners and cutouts around the UI; all zero on the desktop.
+    pub fn screen(&self) -> Screen {
+        screen()
     }
 
     /// Device pixels per logical pixel.

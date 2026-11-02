@@ -35,6 +35,7 @@ use crate::ffi::{ng_platform_attach_menu, ng_platform_create_menu, ng_platform_d
 #[cfg(feature = "zengpu")]
 use crate::gpu_ready;
 use crate::render::{CanvasId, CpuRasterizer, Renderer, SurfaceInfo, register_host_canvas};
+use crate::screen::{self, Screen};
 use crate::touch::{Phase, Touches};
 use crate::trim_memory;
 use crate::ui::{Theme, Ui, UiState};
@@ -615,6 +616,7 @@ unsafe extern "C" fn frame(
             return 0;
         }
         SCREEN.set((host.scale, host.insets));
+        screen::set(Screen::safe(host.insets));
         let Host {
             app: Some(app),
             theme,

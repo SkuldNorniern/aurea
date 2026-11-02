@@ -53,6 +53,7 @@ pub mod prelude;
 /// Callback registries that native code calls back into.
 pub mod registry;
 pub mod render;
+mod screen;
 pub mod tray;
 pub mod ui;
 pub mod window;
@@ -95,6 +96,7 @@ pub use crate::files::{
 pub use crate::keymap::{Chord, Keymap};
 pub use crate::locale::{locale, locales};
 pub use crate::platform::handles::NativeWindowHandle;
+pub use crate::screen::{Screen, screen};
 pub use aurea_foundation::{AureaError, AureaResult};
 pub use aurea_foundation::{
     Capability, CapabilityChecker, DesktopPlatform, MobilePlatform, OsVersion, Platform, Support,

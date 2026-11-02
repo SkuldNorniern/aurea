@@ -12,6 +12,7 @@ import android.os.SystemClock
 import android.view.Choreographer
 import android.view.InputDevice
 import android.view.MotionEvent
+import android.view.RoundedCorner
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.WindowInsets
@@ -37,6 +38,33 @@ abstract class AureaActivity :
     private var highFrameRate = false
     private lateinit var files: AureaFiles
 
+    /** Gesture insets, corner radii, then each cutout as x, y, width and height. */
+    @android.annotation.TargetApi(Build.VERSION_CODES.R)
+    private fun screenShape(insets: WindowInsets): FloatArray {
+        val gestures = insets.getInsets(WindowInsets.Type.systemGestures())
+        val values = arrayListOf(
+            gestures.left.toFloat(),
+            gestures.top.toFloat(),
+            gestures.right.toFloat(),
+            gestures.bottom.toFloat(),
+        )
+        for (position in CORNERS) {
+            val radius = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                insets.getRoundedCorner(position)?.radius ?: 0
+            } else {
+                0
+            }
+            values.add(radius.toFloat())
+        }
+        insets.displayCutout?.boundingRects?.forEach { rect ->
+            values.add(rect.left.toFloat())
+            values.add(rect.top.toFloat())
+            values.add(rect.width().toFloat())
+            values.add(rect.height().toFloat())
+        }
+        return values.toFloatArray()
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,6 +79,7 @@ abstract class AureaActivity :
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
                 nativeInsets(bars.left.toFloat(), bars.top.toFloat(), bars.right.toFloat(), bars.bottom.toFloat())
+                nativeScreenShape(screenShape(insets))
                 nativeKeyboard(insets.getInsets(WindowInsets.Type.ime()).bottom.toFloat())
                 requestFrame()
             }
@@ -331,6 +360,13 @@ abstract class AureaActivity :
     }
 
     private companion object {
+        val CORNERS = intArrayOf(
+            RoundedCorner.POSITION_TOP_LEFT,
+            RoundedCorner.POSITION_TOP_RIGHT,
+            RoundedCorner.POSITION_BOTTOM_RIGHT,
+            RoundedCorner.POSITION_BOTTOM_LEFT,
+        )
+
         // Rust reads these.
         // pens differ in which button their side switch reports.
         const val PEN_BUTTONS = MotionEvent.BUTTON_STYLUS_PRIMARY or
@@ -369,6 +405,7 @@ abstract class AureaActivity :
         )
         @JvmStatic external fun nativePenTap()
         @JvmStatic external fun nativeInsets(left: Float, top: Float, right: Float, bottom: Float)
+        @JvmStatic external fun nativeScreenShape(values: FloatArray)
         @JvmStatic external fun nativeKeyboard(bottom: Float)
         @JvmStatic external fun nativeLightTheme(): Boolean
         @JvmStatic external fun nativeFrame(): Boolean

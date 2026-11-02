@@ -16,6 +16,7 @@ use crate::ffi::callbacks::event_time;
 #[cfg(feature = "zengpu")]
 use crate::gpu_ready;
 use crate::render::{CpuRasterizer, Renderer, SurfaceInfo};
+use crate::screen::{self, Screen};
 use crate::touch::{Phase, Touches};
 use crate::trim_memory;
 use crate::ui::{Theme, Ui, UiState};
@@ -46,7 +47,16 @@ struct Host {
     logical: (u32, u32),
     /// System bar insets in buffer pixels; they can arrive before the surface and its scale.
     insets: [f32; 4],
+    shape: Shape,
     touches: Touches,
+}
+
+/// The screen past its insets, in buffer pixels, as the Activity last said.
+#[derive(Default)]
+struct Shape {
+    gestures: [f32; 4],
+    corners: [f32; 4],
+    cutouts: Vec<f32>,
 }
 
 /// Hears every event the host feeds the UI.
@@ -122,12 +132,19 @@ impl Host {
         self.insets.map(|v| v / self.scale)
     }
 
-    /// Publishes the scale and insets for [`scale`] and [`safe_area`].
+    /// Publishes the scale and insets for [`scale`] and [`safe_area`], and the screen's shape.
     fn publish(&self) {
         let [left, top, right, bottom] = self.logical_insets();
         for (slot, v) in SCREEN.iter().zip([self.scale, left, top, right, bottom]) {
             slot.store(v.to_bits(), Ordering::Relaxed);
         }
+        screen::set(Screen::from_pixels(
+            self.scale,
+            self.insets,
+            self.shape.gestures,
+            self.shape.corners,
+            &self.shape.cutouts,
+        ));
     }
 
     /// A point in buffer pixels as logical pixels from the safe area's top left.
@@ -166,6 +183,7 @@ thread_local! {
         scale: 1.0,
         logical: (1, 1),
         insets: [0.0; 4],
+        shape: Shape::default(),
         touches: Touches::new(),
     });
 }
@@ -288,6 +306,21 @@ pub(super) fn surface_changed(
 pub(super) fn set_insets(left: f32, top: f32, right: f32, bottom: f32) {
     HOST.with_borrow_mut(|host| {
         host.insets = [left, top, right, bottom].map(|v| v.max(0.0));
+        host.publish();
+    });
+}
+
+/// The screen's shape in device pixels: four gesture insets, four corner radii, then the cutouts
+/// as x, y, width and height.
+pub(super) fn set_shape(values: &[f32]) {
+    let Some((head, cutouts)) = values.split_at_checked(8) else {
+        return;
+    };
+    HOST.with_borrow_mut(|host| {
+        host.shape.gestures.copy_from_slice(&head[..4]);
+        host.shape.corners.copy_from_slice(&head[4..]);
+        host.shape.cutouts.clear();
+        host.shape.cutouts.extend_from_slice(cutouts);
         host.publish();
     });
 }

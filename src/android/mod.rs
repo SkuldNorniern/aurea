@@ -41,7 +41,7 @@ pub use jni;
 pub use jni::JNIEnv;
 use jni::JavaVM;
 pub use jni::objects::JObject;
-use jni::objects::{GlobalRef, JByteArray, JClass, JString, JValue};
+use jni::objects::{GlobalRef, JByteArray, JClass, JFloatArray, JString, JValue};
 use jni::sys::{JNI_FALSE, JNI_TRUE, JNI_VERSION_1_6, jboolean, jdouble, jfloat, jint};
 pub use sheets::alert;
 
@@ -297,8 +297,8 @@ pub fn scale() -> f32 {
 }
 
 /// The safe area's insets, left, top, right and bottom, in logical pixels. The app draws only
-/// inside them: the UI's origin is the safe area's top left, and the theme's background fills the
-/// rest of the screen.
+/// inside them: the UI's origin is the safe area's top left, the drawing context is its size, and
+/// the theme's background fills the rest of the screen.
 pub fn safe_area() -> [f32; 4] {
     host::safe_area()
 }
@@ -461,6 +461,29 @@ extern "system" fn Java_dev_aurea_AureaActivity_nativeInsets(
     bottom: jfloat,
 ) {
     host::set_insets(left, top, right, bottom);
+}
+
+/// Gesture insets and corner radii then cutouts: one `Rect` is four values, four cutouts at most.
+const SHAPE_VALUES: usize = 24;
+
+#[unsafe(no_mangle)]
+extern "system" fn Java_dev_aurea_AureaActivity_nativeScreenShape(
+    env: JNIEnv,
+    _class: JClass,
+    values: JFloatArray,
+) {
+    let mut shape = [0.0; SHAPE_VALUES];
+    let Ok(len) = env.get_array_length(&values) else {
+        return;
+    };
+    let len = usize::try_from(len).unwrap_or(0).min(SHAPE_VALUES);
+    if env
+        .get_float_array_region(&values, 0, &mut shape[..len])
+        .is_ok()
+    {
+        host::set_shape(&shape[..len]);
+        request_frame();
+    }
 }
 
 #[unsafe(no_mangle)]
