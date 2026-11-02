@@ -47,6 +47,7 @@ pub use widget::scroll::{
 };
 pub use widget::segmented::{Segmented, SegmentedStyle};
 pub use widget::slider::{Slider, SliderStyle, SliderTrack};
+pub use widget::splitter::{Splitter, SplitterStyle};
 pub use widget::stepper::{Stepper, StepperStyle};
 pub use widget::swatch::{SwatchStyle, Swatches};
 pub use widget::tabs::{TabBar, TabStyle};
