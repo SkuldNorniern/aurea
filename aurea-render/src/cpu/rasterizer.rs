@@ -138,6 +138,7 @@ impl CpuRasterizer {
     /// damage compares against stay. Band threads end with their frame, so their thread-local
     /// buffers go with them and are not touched here.
     pub fn trim_memory(&mut self) {
+        self.display_list.trim_memory();
         self.scratch_path = PathScratch::default();
         self.scratch_row = ImageScratch::default();
         self.scratch_dirty = Vec::new();

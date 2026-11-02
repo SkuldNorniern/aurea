@@ -403,6 +403,7 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
     /// frame did not draw, the batch caches, and the CPU fallback's scratch. The next frame
     /// uploads and rebuilds what it draws.
     pub fn trim_memory(&mut self) {
+        self.display_list.trim_memory();
         self.release_layers();
         self.cpu_rgba = Vec::new();
         self.frame_plan = FramePlan::new();

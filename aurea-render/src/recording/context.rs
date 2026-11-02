@@ -473,20 +473,17 @@ impl<'list> RecordingContext<'list> {
         p
     }
 
-    fn physical_path(&self, path: &Path) -> Path {
-        let commands = path
-            .commands
-            .iter()
-            .map(|cmd| match cmd {
-                PathCommand::MoveTo(p) => PathCommand::MoveTo(self.s_pt(*p)),
-                PathCommand::LineTo(p) => PathCommand::LineTo(self.s_pt(*p)),
-                PathCommand::QuadTo(c, p) => PathCommand::QuadTo(self.s_pt(*c), self.s_pt(*p)),
-                PathCommand::CubicTo(c1, c2, p) => {
-                    PathCommand::CubicTo(self.s_pt(*c1), self.s_pt(*c2), self.s_pt(*p))
-                }
-                PathCommand::Close => PathCommand::Close,
-            })
-            .collect();
+    fn physical_path(&mut self, path: &Path) -> Path {
+        let mut commands = self.display_list.take_commands();
+        commands.extend(path.commands.iter().map(|cmd| match cmd {
+            PathCommand::MoveTo(p) => PathCommand::MoveTo(self.s_pt(*p)),
+            PathCommand::LineTo(p) => PathCommand::LineTo(self.s_pt(*p)),
+            PathCommand::QuadTo(c, p) => PathCommand::QuadTo(self.s_pt(*c), self.s_pt(*p)),
+            PathCommand::CubicTo(c1, c2, p) => {
+                PathCommand::CubicTo(self.s_pt(*c1), self.s_pt(*c2), self.s_pt(*p))
+            }
+            PathCommand::Close => PathCommand::Close,
+        }));
         Path {
             commands,
             fill_rule: path.fill_rule,
@@ -1004,10 +1001,8 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn draw_path(&mut self, path: &Path, paint: &Paint) -> AureaResult<()> {
-        self.add_command(DrawCommand::DrawPath(
-            self.physical_path(path),
-            self.s_paint(paint),
-        ));
+        let physical = self.physical_path(path);
+        self.add_command(DrawCommand::DrawPath(physical, self.s_paint(paint)));
         Ok(())
     }
 

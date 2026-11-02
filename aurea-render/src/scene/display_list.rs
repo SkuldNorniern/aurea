@@ -1,7 +1,7 @@
 //! Display list management with cacheability metadata.
 
 use crate::scene::command::DrawCommand;
-use crate::types::{BlendMode, InteractiveId, Path, Rect};
+use crate::types::{BlendMode, InteractiveId, Path, PathCommand, Rect};
 use std::sync::Arc;
 
 /// Where an item sits in this frame's display list.
@@ -157,7 +157,13 @@ impl DisplayItem {
 pub struct DisplayList {
     items: Vec<DisplayItem>,
     last_clear: usize,
+    /// Command storage of last frame's paths, for this frame's.
+    spare_commands: Vec<Vec<PathCommand>>,
 }
+
+/// Bounds the spare storage to about 2 MB; a frame draws mostly small widget paths.
+const MAX_SPARE_PATHS: usize = 1024;
+const MAX_SPARE_COMMANDS: usize = 64;
 
 impl DisplayList {
     /// An empty list.
@@ -184,8 +190,27 @@ impl DisplayList {
 
     /// Drops every item, keeping the allocation for the next frame.
     pub fn clear(&mut self) {
-        self.items.clear();
+        for item in self.items.drain(..) {
+            if let DrawCommand::DrawPath(path, _) = item.command
+                && path.commands.capacity() <= MAX_SPARE_COMMANDS
+                && self.spare_commands.len() < MAX_SPARE_PATHS
+            {
+                let mut commands = path.commands;
+                commands.clear();
+                self.spare_commands.push(commands);
+            }
+        }
         self.last_clear = 0;
+    }
+
+    /// Empty command storage for a path, reused when there is some.
+    pub(crate) fn take_commands(&mut self) -> Vec<PathCommand> {
+        self.spare_commands.pop().unwrap_or_default()
+    }
+
+    /// Drops the spare storage; the items stay.
+    pub(crate) fn trim_memory(&mut self) {
+        self.spare_commands = Vec::new();
     }
 
     /// How many items the list holds.
@@ -196,5 +221,53 @@ impl DisplayList {
     /// Whether the list holds nothing.
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{Paint, Point};
+
+    fn path_item(commands: Vec<PathCommand>) -> DisplayItem {
+        let mut path = Path::new();
+        path.commands = commands;
+        DisplayItem::new(
+            DisplayIndex(0),
+            CacheKey::from_hash(0),
+            Rect::new(0.0, 0.0, 1.0, 1.0),
+            false,
+            BlendMode::Normal,
+            DrawCommand::DrawPath(path, Paint::new()),
+        )
+    }
+
+    #[test]
+    fn clearing_keeps_path_storage_for_the_next_frame() {
+        let mut list = DisplayList::new();
+        let commands = vec![PathCommand::MoveTo(Point::new(1.0, 2.0))];
+        let storage = commands.as_ptr();
+        list.push(path_item(commands));
+        list.clear();
+        let reused = list.take_commands();
+        assert_eq!(reused.as_ptr(), storage);
+        assert!(reused.is_empty());
+    }
+
+    #[test]
+    fn clearing_drops_long_paths() {
+        let mut list = DisplayList::new();
+        list.push(path_item(Vec::with_capacity(MAX_SPARE_COMMANDS + 1)));
+        list.clear();
+        assert_eq!(list.take_commands().capacity(), 0);
+    }
+
+    #[test]
+    fn trimming_drops_the_spare_storage() {
+        let mut list = DisplayList::new();
+        list.push(path_item(vec![PathCommand::Close]));
+        list.clear();
+        list.trim_memory();
+        assert_eq!(list.take_commands().capacity(), 0);
     }
 }
