@@ -65,6 +65,29 @@ NGHandle ng_platform_create_text_field(void) {
     return (__bridge_retained void*)field;
 }
 
+NGHandle ng_platform_create_search_field(void) {
+    NGIOSTextField* field = [[NGIOSTextField alloc] init];
+    field.borderStyle = UITextBorderStyleRoundedRect;
+    field.delegate = field;
+    field.clearButtonMode = UITextFieldViewModeWhileEditing;
+    field.returnKeyType = UIReturnKeySearch;
+    if (@available(iOS 13.0, *)) {
+        UIImageView* mark = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"magnifyingglass"]];
+        mark.tintColor = UIColor.secondaryLabelColor;
+        field.leftView = mark;
+        field.leftViewMode = UITextFieldViewModeAlways;
+    }
+    return (__bridge_retained void*)field;
+}
+
+int ng_platform_text_set_placeholder(NGHandle text, const char* placeholder) {
+    UITextField* field = field_of(text);
+    if (!field) return NG_ERROR_UNSUPPORTED;
+    if (!placeholder) return NG_ERROR_INVALID_PARAMETER;
+    field.placeholder = [NSString stringWithUTF8String:placeholder];
+    return NG_SUCCESS;
+}
+
 static NGHandle create_text_view(BOOL editable) {
     NGIOSTextView* view = [[NGIOSTextView alloc] init];
     view.editable = editable;

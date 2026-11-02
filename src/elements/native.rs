@@ -67,7 +67,15 @@ impl NativeElement {
         &self,
         on_change: impl Fn() + 'static,
     ) -> AureaResult<CallbackWatch> {
-        watch(self.handle, on_change, ng_platform_element_set_change_id)
+        Self::watch_change_of(self.handle, on_change)
+    }
+
+    /// [`Self::watch_change`] for a handle a container took over.
+    pub(crate) fn watch_change_of(
+        handle: *mut c_void,
+        on_change: impl Fn() + 'static,
+    ) -> AureaResult<CallbackWatch> {
+        watch(handle, on_change, ng_platform_element_set_change_id)
     }
 
     /// What a custom native control is created under before a container adopts it: a hidden `HWND`

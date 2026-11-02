@@ -611,6 +611,22 @@ unsafe extern "C" {
     /// Marks a slider for redraw.
     pub fn ng_platform_slider_invalidate(slider: *mut c_void);
 
+    /// Creates a radio button, in `previous`'s group unless that is null; desktop only. The
+    /// checkbox calls read and set it.
+    pub fn ng_platform_create_radio(label: *const c_char, previous: *mut c_void) -> *mut c_void;
+    /// Creates a spin box over `min..=max`.
+    pub fn ng_platform_create_spin_box(min: f64, max: f64, step: f64, value: f64) -> *mut c_void;
+    /// Gets a spin box's value.
+    pub fn ng_platform_spin_box_get_value(spin_box: *mut c_void) -> f64;
+    /// Sets a spin box's value.
+    pub fn ng_platform_spin_box_set_value(spin_box: *mut c_void, value: f64) -> c_int;
+    /// Creates a text field that looks like a search box where the platform has one.
+    pub fn ng_platform_create_search_field() -> *mut c_void;
+    /// Sets what an empty text field shows.
+    pub fn ng_platform_text_set_placeholder(text: *mut c_void, placeholder: *const c_char)
+    -> c_int;
+    /// Sets the text shown while the pointer rests on an element; empty clears it.
+    pub fn ng_platform_element_set_tooltip(element: *mut c_void, text: *const c_char) -> c_int;
     /// Creates a checkbox.
     pub fn ng_platform_create_checkbox(label: *const c_char) -> *mut c_void;
     /// Sets a checkbox's checked state.

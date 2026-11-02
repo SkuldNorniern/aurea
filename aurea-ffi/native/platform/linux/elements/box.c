@@ -74,6 +74,13 @@ int ng_linux_element_set_accessible_name(NGHandle element, const char* name) {
     return NG_SUCCESS;
 }
 
+int ng_linux_element_set_tooltip(NGHandle element, const char* text) {
+    if (!element || !GTK_IS_WIDGET(element)) return NG_ERROR_INVALID_HANDLE;
+    if (!text) return NG_ERROR_INVALID_PARAMETER;
+    gtk_widget_set_tooltip_text((GtkWidget*)element, *text ? text : NULL);
+    return NG_SUCCESS;
+}
+
 int ng_linux_box_set_spacing(NGHandle box, int spacing) {
     if (!box || !GTK_IS_BOX(box)) return NG_ERROR_INVALID_HANDLE;
     if (spacing < 0) return NG_ERROR_INVALID_PARAMETER;

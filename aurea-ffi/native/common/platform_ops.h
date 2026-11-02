@@ -87,6 +87,7 @@ typedef struct ng_platform_ops {
     int (*element_set_visible)(NGHandle element, int visible);
     int (*element_set_min_size)(NGHandle element, int width, int height);
     int (*element_set_accessible_name)(NGHandle element, const char* name);
+    int (*element_set_tooltip)(NGHandle element, const char* text);
     int (*box_set_spacing)(NGHandle box, int spacing);
     int (*box_set_padding)(NGHandle box, int padding);
     NGHandle (*creation_parent)(void);
@@ -113,6 +114,8 @@ typedef struct ng_platform_ops {
     NGHandle (*create_text_view)(int is_editable);
     void (*text_view_invalidate)(NGHandle h);
     NGHandle (*create_text_field)(void);
+    NGHandle (*create_search_field)(void);
+    int (*text_set_placeholder)(NGHandle h, const char* text);
     int (*set_text_content)(NGHandle h, const char* content);
     char* (*get_text_content)(NGHandle h);
     void (*free_text_content)(char* content);
@@ -149,6 +152,10 @@ typedef struct ng_platform_ops {
     void (*slider_invalidate)(NGHandle s);
 
     NGHandle (*create_checkbox)(const char* label);
+    NGHandle (*create_radio)(const char* label, NGHandle previous);
+    NGHandle (*create_spin_box)(double min, double max, double step, double value);
+    double (*spin_box_get_value)(NGHandle s);
+    int (*spin_box_set_value)(NGHandle s, double value);
     int (*checkbox_set_checked)(NGHandle c, int checked);
     int (*checkbox_get_checked)(NGHandle c);
     int (*checkbox_set_enabled)(NGHandle c, int enabled);

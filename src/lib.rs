@@ -66,8 +66,8 @@ pub use crate::dispatch::{
 };
 pub use crate::elements::{
     Button, Checkbox, ComboBox, Container, Divider, Element, ImageView, Label, Orientation,
-    ProgressBar, RowList, ScrollView, ScrollbarPolicy, SidebarList, Slider, Spacer,
-    SplitOrientation, SplitView, Stack, TabBar, Table, TextEditor, TextField, TextView,
+    ProgressBar, RadioGroup, RowList, ScrollView, ScrollbarPolicy, SidebarList, Slider, Spacer,
+    SpinBox, SplitOrientation, SplitView, Stack, TabBar, Table, TextEditor, TextField, TextView,
 };
 use crate::ffi::{
     ng_platform_beep, ng_platform_prefers_dark, ng_platform_reduced_motion, ng_platform_wheel_lines,

@@ -98,10 +98,7 @@ int ng_windows_init(void) {
         if (!RegisterClassExW(&g_wc)) {
             return NG_ERROR_PLATFORM_SPECIFIC;
         }
-        /* Themed controls without an app manifest; it stays active for the UI thread. */
-        HANDLE v6 = ng_windows_common_controls_v6();
-        ULONG_PTR cookie = 0;
-        if (v6 != INVALID_HANDLE_VALUE) ActivateActCtx(v6, &cookie);
+        ng_windows_activate_controls_v6();
         ng_windows_init_common_controls(ICC_STANDARD_CLASSES | ICC_WIN95_CLASSES | ICC_DATE_CLASSES |
                                         ICC_USEREX_CLASSES | ICC_COOL_CLASSES | ICC_INTERNET_CLASSES |
                                         ICC_PAGESCROLLER_CLASS | ICC_NATIVEFNTCTL_CLASS | ICC_LINK_CLASS);
@@ -177,6 +174,16 @@ LRESULT WINAPI ng_windows_def_subclass(HWND hwnd, UINT msg, WPARAM wParam, LPARA
     static Fn fn = NULL;
     if (!fn) fn = (Fn)ng_windows_comctl("DefSubclassProc", 413);
     return fn ? fn(hwnd, msg, wParam, lParam) : DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+/* Themed controls without an app manifest; it stays active for the thread. */
+void ng_windows_activate_controls_v6(void) {
+    static __declspec(thread) int active = 0;
+    if (active) return;
+    active = 1;
+    HANDLE v6 = ng_windows_common_controls_v6();
+    ULONG_PTR cookie = 0;
+    if (v6 != INVALID_HANDLE_VALUE) ActivateActCtx(v6, &cookie);
 }
 
 BOOL ng_windows_init_common_controls(DWORD classes) {

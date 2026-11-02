@@ -89,6 +89,23 @@ NGHandle ng_macos_create_text_field(void) {
     }
 }
 
+NGHandle ng_macos_create_search_field(void) {
+    @autoreleasepool {
+        NSSearchField* field = [[NSSearchField alloc] init];
+        [field setFont:[NSFont systemFontOfSize:13.0]];
+        [field setTranslatesAutoresizingMaskIntoConstraints:NO];
+        return (__bridge_retained void*)field;
+    }
+}
+
+int ng_macos_text_set_placeholder(NGHandle text, const char* placeholder) {
+    NSTextField* field = field_of(text);
+    if (!field) return NG_ERROR_UNSUPPORTED;
+    if (!placeholder) return NG_ERROR_INVALID_PARAMETER;
+    field.placeholderString = ng_macos_to_nsstring(placeholder);
+    return NG_SUCCESS;
+}
+
 NGHandle ng_macos_create_text_area(int editable, double min_height) {
     @autoreleasepool {
         NSScrollView* scrollView = [[NSScrollView alloc] init];

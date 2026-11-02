@@ -12,6 +12,20 @@ NGHandle ng_linux_create_text_field(void) {
     return (NGHandle)entry;
 }
 
+NGHandle ng_linux_create_search_field(void) {
+    GtkWidget* entry = gtk_search_entry_new();
+    gtk_widget_set_hexpand(entry, TRUE);
+    gtk_widget_show(entry);
+    return (NGHandle)entry;
+}
+
+int ng_linux_text_set_placeholder(NGHandle text, const char* placeholder) {
+    if (!text || !GTK_IS_ENTRY(text)) return NG_ERROR_UNSUPPORTED;
+    if (!placeholder) return NG_ERROR_INVALID_PARAMETER;
+    gtk_entry_set_placeholder_text(GTK_ENTRY(text), placeholder);
+    return NG_SUCCESS;
+}
+
 NGHandle ng_linux_create_text_area(int editable) {
     GtkWidget* scrolled_window = gtk_scrolled_window_new(NULL, NULL);
     GtkWidget* text_view = gtk_text_view_new();

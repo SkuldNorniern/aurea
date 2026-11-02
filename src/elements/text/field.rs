@@ -3,7 +3,11 @@
 use super::base::TextBase;
 use super::{TextControl, TextFeatures, text_widget};
 use crate::AureaResult;
-use crate::ffi::ng_platform_create_text_field;
+use crate::elements::Element;
+use crate::ffi::{
+    c_text, ng_platform_create_search_field, ng_platform_create_text_field,
+    ng_platform_text_set_placeholder, status,
+};
 
 /// One line of editable text: a native EDIT, GtkEntry or NSTextField.
 pub struct TextField {
@@ -23,6 +27,23 @@ impl TextField {
         let handle = unsafe { ng_platform_create_text_field() };
         Ok(Self {
             base: TextBase::new(handle, false, features)?,
+        })
+    }
+
+    /// A field for searching: the platform's search box on macOS, Linux and iOS, with its mark and
+    /// clear button; a plain field on Windows.
+    pub fn search() -> AureaResult<Self> {
+        let handle = unsafe { ng_platform_create_search_field() };
+        Ok(Self {
+            base: TextBase::new(handle, false, TextFeatures::FIELD)?,
+        })
+    }
+
+    /// What shows while the field is empty.
+    pub fn set_placeholder(&self, text: &str) -> AureaResult<()> {
+        let text = c_text(text)?;
+        status("TextField::set_placeholder", unsafe {
+            ng_platform_text_set_placeholder(self.handle(), text.as_ptr())
         })
     }
 
@@ -97,5 +118,33 @@ mod text_field_tests {
     #[cfg(not(any(windows, target_os = "linux")))]
     fn hidden(_handle: *mut c_void) -> bool {
         true
+    }
+}
+
+#[cfg(all(test, not(target_os = "android")))]
+mod tests {
+    use super::*;
+    use crate::Window;
+
+    #[test]
+    #[ignore = "creates a native widget; run with --ignored"]
+    fn a_search_field_is_a_text_field() -> AureaResult<()> {
+        let _window = Window::new("test", 200, 100)?;
+        let mut field = TextField::search()?;
+        field.set_placeholder("Find")?;
+        field.set_content("layer")?;
+        assert_eq!(field.get_content()?, "layer");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native widget; run with --ignored"]
+    fn a_tooltip_sets_and_clears() -> AureaResult<()> {
+        let _window = Window::new("test", 200, 100)?;
+        let field = TextField::new()?;
+        field.set_tooltip("What goes here")?;
+        field.set_tooltip("Something else")?;
+        field.set_tooltip("")?;
+        Ok(())
     }
 }

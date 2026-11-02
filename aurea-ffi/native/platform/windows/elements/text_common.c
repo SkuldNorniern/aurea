@@ -4,6 +4,7 @@
 #include "common/errors.h"
 #include "common/platform_api.h"
 #include <windows.h>
+#include <commctrl.h>
 #include <richedit.h>
 #include <stdlib.h>
 #include <string.h>
@@ -95,6 +96,18 @@ NGHandle ng_windows_create_text_field(void) {
         WS_EX_CLIENTEDGE, L"EDIT", "",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
         200, 24, ng_windows_detached_parent(), 0);
+}
+
+int ng_windows_text_set_placeholder(NGHandle text, const char* placeholder) {
+    HWND hwnd = (HWND)text;
+    if (!is_text(hwnd)) return NG_ERROR_INVALID_HANDLE;
+    if (!placeholder) return NG_ERROR_INVALID_PARAMETER;
+    if (is_rich(hwnd)) return NG_ERROR_UNSUPPORTED;
+    wchar_t* wide = ng_windows_utf8_to_wide(placeholder);
+    if (!wide) return NG_ERROR_INVALID_PARAMETER;
+    LRESULT set = SendMessageW(hwnd, EM_SETCUEBANNER, TRUE, (LPARAM)wide);
+    free(wide);
+    return set ? NG_SUCCESS : NG_ERROR_PLATFORM_SPECIFIC;
 }
 
 int ng_windows_text_unit(void) {

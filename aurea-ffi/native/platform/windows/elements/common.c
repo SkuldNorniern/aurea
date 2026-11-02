@@ -278,6 +278,7 @@ int is_box(HWND hwnd) {
 
 HWND ng_windows_create_control(DWORD ex_style, const wchar_t* cls, const char* text,
                                DWORD style, int width, int height, HWND parent, UINT id) {
+    ng_windows_activate_controls_v6();
     wchar_t* wide = ng_windows_utf8_to_wide(text ? text : "");
     if (!wide) return NULL;
     HWND hwnd = CreateWindowExW(ex_style, cls, wide, style, 0, 0, width, height, parent,
@@ -555,6 +556,42 @@ int ng_windows_element_set_accessible_name(NGHandle element, const char* name) {
                                                 PROPID_ACC_NAME, wide);
     free(wide);
     return SUCCEEDED(set) ? NG_SUCCESS : NG_ERROR_PLATFORM_SPECIFIC;
+}
+
+/* One tooltip window for the app, showing whichever tool the pointer rests on. */
+static HWND ng_windows_tooltips(void) {
+    static HWND tips = NULL;
+    if (!tips || !IsWindow(tips)) {
+        ng_windows_activate_controls_v6();
+        ng_windows_init_common_controls(ICC_BAR_CLASSES);
+        tips = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, NULL, WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
+                               CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, NULL, NULL,
+                               GetModuleHandleW(NULL), NULL);
+        if (tips) SendMessageW(tips, TTM_SETMAXTIPWIDTH, 0, 400);
+    }
+    return tips;
+}
+
+int ng_windows_element_set_tooltip(NGHandle element, const char* text) {
+    HWND hwnd = (HWND)element;
+    if (!hwnd || !IsWindow(hwnd)) return NG_ERROR_INVALID_HANDLE;
+    if (!text) return NG_ERROR_INVALID_PARAMETER;
+    HWND tips = ng_windows_tooltips();
+    if (!tips) return NG_ERROR_PLATFORM_SPECIFIC;
+    TTTOOLINFOW tool;
+    ZeroMemory(&tool, sizeof(tool));
+    tool.cbSize = sizeof(tool);
+    tool.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+    tool.hwnd = hwnd;
+    tool.uId = (UINT_PTR)hwnd;
+    SendMessageW(tips, TTM_DELTOOLW, 0, (LPARAM)&tool);
+    if (!*text) return NG_SUCCESS;
+    wchar_t* wide = ng_windows_utf8_to_wide(text);
+    if (!wide) return NG_ERROR_INVALID_PARAMETER;
+    tool.lpszText = wide;
+    LRESULT added = SendMessageW(tips, TTM_ADDTOOLW, 0, (LPARAM)&tool);
+    free(wide);
+    return added ? NG_SUCCESS : NG_ERROR_PLATFORM_SPECIFIC;
 }
 
 void ng_windows_unlimit_text(HWND edit) {

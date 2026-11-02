@@ -1,6 +1,7 @@
 use crate::ffi::{
     c_text, ng_platform_element_set_accessible_name, ng_platform_element_set_enabled,
-    ng_platform_element_set_min_size, ng_platform_element_set_visible, status,
+    ng_platform_element_set_min_size, ng_platform_element_set_tooltip,
+    ng_platform_element_set_visible, status,
 };
 use crate::render::Rect;
 use crate::{AureaError, AureaResult};
@@ -78,6 +79,15 @@ pub trait Element {
             return Err(AureaError::ElementOperationFailed);
         }
         Ok(())
+    }
+
+    /// The text shown while the pointer rests on it; empty clears it. Nothing shows on touch hosts,
+    /// where no pointer rests.
+    fn set_tooltip(&self, text: &str) -> AureaResult<()> {
+        let text = c_text(text)?;
+        status("Element::set_tooltip", unsafe {
+            ng_platform_element_set_tooltip(self.handle(), text.as_ptr())
+        })
     }
 
     /// The name screen readers give the element when no label names it, such as an icon button

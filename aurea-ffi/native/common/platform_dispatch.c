@@ -376,6 +376,10 @@ int ng_platform_element_set_accessible_name(NGHandle e, const char* name) {
     DISPATCH_INT(element_set_accessible_name, e, name);
 }
 
+int ng_platform_element_set_tooltip(NGHandle e, const char* text) {
+    DISPATCH_INT(element_set_tooltip, e, text);
+}
+
 int ng_platform_box_set_spacing(NGHandle b, int spacing) {
     DISPATCH_INT(box_set_spacing, b, spacing);
 }
@@ -607,6 +611,31 @@ int ng_platform_slider_set_enabled(NGHandle s, int e) {
 
 void ng_platform_slider_invalidate(NGHandle s) {
     DISPATCH_VOID(slider_invalidate, s);
+}
+
+NGHandle ng_platform_create_radio(const char* l, NGHandle previous) {
+    DISPATCH_INIT(NGHandle, create_radio, l, previous);
+}
+
+NGHandle ng_platform_create_spin_box(double mn, double mx, double step, double value) {
+    DISPATCH_INIT(NGHandle, create_spin_box, mn, mx, step, value);
+}
+
+double ng_platform_spin_box_get_value(NGHandle s) {
+    ENTER();
+    return g_ops && g_ops->spin_box_get_value ? g_ops->spin_box_get_value(s) : 0.0;
+}
+
+int ng_platform_spin_box_set_value(NGHandle s, double v) {
+    DISPATCH_INT(spin_box_set_value, s, v);
+}
+
+NGHandle ng_platform_create_search_field(void) {
+    DISPATCH_INIT(NGHandle, create_search_field);
+}
+
+int ng_platform_text_set_placeholder(NGHandle h, const char* text) {
+    DISPATCH_INT(text_set_placeholder, h, text);
 }
 
 NGHandle ng_platform_create_checkbox(const char* l) {

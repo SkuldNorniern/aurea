@@ -566,6 +566,47 @@ void ng_platform_slider_invalidate(NGHandle _s) {
     (void)_s;
 }
 
+NGHandle ng_platform_create_radio(const char* _label, NGHandle _previous) {
+    (void)_label;
+    (void)_previous;
+    return NULL;
+}
+
+NGHandle ng_platform_create_spin_box(double _min, double _max, double _step, double _value) {
+    (void)_min;
+    (void)_max;
+    (void)_step;
+    (void)_value;
+    return NULL;
+}
+
+double ng_platform_spin_box_get_value(NGHandle _s) {
+    (void)_s;
+    return 0.0;
+}
+
+int ng_platform_spin_box_set_value(NGHandle _s, double _v) {
+    (void)_s;
+    (void)_v;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+NGHandle ng_platform_create_search_field(void) {
+    return NULL;
+}
+
+int ng_platform_text_set_placeholder(NGHandle _h, const char* _text) {
+    (void)_h;
+    (void)_text;
+    return NG_ERROR_UNSUPPORTED;
+}
+
+int ng_platform_element_set_tooltip(NGHandle _e, const char* _text) {
+    (void)_e;
+    (void)_text;
+    return NG_SUCCESS;
+}
+
 NGHandle ng_platform_create_checkbox(const char* _label) {
     (void)_label;
     return NULL;

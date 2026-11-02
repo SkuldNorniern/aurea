@@ -16,6 +16,16 @@ NGHandle ng_windows_create_checkbox(const char* label) {
     return (NGHandle)checkbox;
 }
 
+/* Auto radio buttons in the same parent pick one at a time, from each WS_GROUP to the next. */
+NGHandle ng_windows_create_radio(const char* label, NGHandle previous) {
+    char* shown = ng_windows_escape_mnemonics(label ? label : "");
+    if (!shown) return NULL;
+    DWORD style = WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON | (previous ? 0 : WS_GROUP | WS_TABSTOP);
+    HWND radio = ng_windows_create_control(0, L"BUTTON", shown, style, 200, 25, ng_windows_detached_parent(), 0);
+    free(shown);
+    return (NGHandle)radio;
+}
+
 int ng_windows_checkbox_set_checked(NGHandle checkbox, int checked) {
     if (!checkbox) return NG_ERROR_INVALID_HANDLE;
     

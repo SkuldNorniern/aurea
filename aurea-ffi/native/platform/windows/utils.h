@@ -38,6 +38,8 @@ BOOL WINAPI ng_windows_get_subclass(HWND hwnd, SUBCLASSPROC proc, UINT_PTR id, D
 BOOL WINAPI ng_windows_remove_subclass(HWND hwnd, SUBCLASSPROC proc, UINT_PTR id);
 LRESULT WINAPI ng_windows_def_subclass(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 BOOL ng_windows_init_common_controls(DWORD classes);
+/* Every thread that makes controls needs this before it does. */
+void ng_windows_activate_controls_v6(void);
 char* ng_windows_wide_to_utf8(const wchar_t* wide, int len);
 char* ng_windows_window_text(HWND hwnd);
 int ng_windows_set_window_text(HWND hwnd, const char* utf8);

@@ -485,6 +485,39 @@ int ng_platform_element_set_min_size(NGHandle element, int width, int height) {
     return NG_SUCCESS;
 }
 
+/* Tooltips need a pointer that rests; touch has none. */
+int ng_platform_element_set_tooltip(NGHandle element, const char* text) {
+    if (!element) return NG_ERROR_INVALID_HANDLE;
+    if (!text) return NG_ERROR_INVALID_PARAMETER;
+    return NG_SUCCESS;
+}
+
+NGHandle ng_platform_create_radio(const char* label, NGHandle previous) {
+    (void)label;
+    (void)previous;
+    return NULL;
+}
+
+NGHandle ng_platform_create_spin_box(double min, double max, double step, double value) {
+    UIStepper* stepper = [[UIStepper alloc] init];
+    stepper.minimumValue = min;
+    stepper.maximumValue = max < min ? min : max;
+    stepper.stepValue = step > 0.0 ? step : 1.0;
+    stepper.value = value;
+    stepper.translatesAutoresizingMaskIntoConstraints = NO;
+    return (__bridge_retained void*)stepper;
+}
+
+double ng_platform_spin_box_get_value(NGHandle spin_box) {
+    return spin_box ? ((__bridge UIStepper*)spin_box).value : 0.0;
+}
+
+int ng_platform_spin_box_set_value(NGHandle spin_box, double value) {
+    if (!spin_box) return NG_ERROR_INVALID_HANDLE;
+    ((__bridge UIStepper*)spin_box).value = value;
+    return NG_SUCCESS;
+}
+
 int ng_platform_element_set_accessible_name(NGHandle element, const char* name) {
     if (!element) return NG_ERROR_INVALID_HANDLE;
     if (!name) return NG_ERROR_INVALID_PARAMETER;

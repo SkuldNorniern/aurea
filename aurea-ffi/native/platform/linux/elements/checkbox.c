@@ -9,6 +9,13 @@ NGHandle ng_linux_create_checkbox(const char* label) {
     return (NGHandle)checkbox;
 }
 
+NGHandle ng_linux_create_radio(const char* label, NGHandle previous) {
+    GtkWidget* radio = gtk_radio_button_new_with_label_from_widget(
+        previous ? GTK_RADIO_BUTTON(previous) : NULL, label ? label : "");
+    gtk_widget_show(radio);
+    return (NGHandle)radio;
+}
+
 int ng_linux_checkbox_set_checked(NGHandle checkbox, int checked) {
     if (!checkbox) return NG_ERROR_INVALID_HANDLE;
     
