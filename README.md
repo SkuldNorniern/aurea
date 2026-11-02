@@ -27,7 +27,7 @@ fn main() -> AureaResult<()> {
 | | Windows | macOS | Linux (GTK3) | iOS, iPadOS | Android |
 | --- | --- | --- | --- | --- | --- |
 | Windows | yes | yes | yes | one full-screen host | one full-screen host |
-| Native widgets | yes | yes | yes | some | no |
+| Native widgets | yes | yes | yes | yes, over the canvas | no |
 | Native menu bar | yes | yes | yes | iPad | no |
 | Canvas widgets | yes | yes | yes | yes | yes |
 | IME | yes | yes | yes | yes | yes |

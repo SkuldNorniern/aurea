@@ -209,9 +209,12 @@ impl Capability {
             Self::TouchInput | Self::KeyboardInput | Self::Clipboard | Self::FileDialogs => {
                 Support::Supported
             }
-            Self::StylusInput | Self::MouseInput | Self::MenuBar | Self::KeyboardShortcuts => {
-                Support::Experimental
-            }
+            Self::StylusInput
+            | Self::MouseInput
+            | Self::MenuBar
+            | Self::KeyboardShortcuts
+            | Self::ColorPicker
+            | Self::DragAndDrop => Support::Experimental,
             Self::HardwareAcceleration | Self::Metal => Support::Experimental,
             _ => Support::Unimplemented,
         }
@@ -422,6 +425,8 @@ mod tests {
             Capability::MouseInput,
             Capability::MenuBar,
             Capability::KeyboardShortcuts,
+            Capability::ColorPicker,
+            Capability::DragAndDrop,
             Capability::HardwareAcceleration,
             Capability::Metal,
         ] {
