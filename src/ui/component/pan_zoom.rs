@@ -309,6 +309,7 @@ impl PanZoom {
                 self.space = false;
                 self.drag.take().is_some()
             }
+            WindowEvent::PressCancelled => self.drag.take().is_some(),
             _ => false,
         }
     }
