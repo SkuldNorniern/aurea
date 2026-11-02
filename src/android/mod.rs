@@ -160,6 +160,13 @@ pub(crate) fn cache_dir() -> Option<PathBuf> {
     app_folder(&DIR, "getCacheDir")
 }
 
+/// Hears the back gesture or button: `handler` answers true when it took it, as by closing a panel,
+/// and on false Android does its default and leaves the app. An open popup closes before this is
+/// asked. On the UI thread; a frame is requested after it.
+pub fn on_back(handler: impl FnMut() -> bool + 'static) {
+    host::set_back(Box::new(handler));
+}
+
 /// The system's languages, most preferred first; none before the Activity is up.
 pub(crate) fn language_tags() -> Vec<String> {
     let tags = with_activity(|env, activity| {
@@ -480,6 +487,14 @@ extern "system" fn Java_dev_aurea_AureaActivity_nativeInsets(
     bottom: jfloat,
 ) {
     host::set_insets(left, top, right, bottom);
+}
+
+#[unsafe(no_mangle)]
+extern "system" fn Java_dev_aurea_AureaActivity_nativeBack(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jboolean {
+    if host::back() { JNI_TRUE } else { JNI_FALSE }
 }
 
 /// Gesture insets and corner radii then cutouts: one `Rect` is four values, four cutouts at most.

@@ -172,6 +172,7 @@ pub(super) fn gpu_context() -> Option<Arc<ZenGpuContext>> {
 
 thread_local! {
     static LISTENERS: RefCell<Vec<Listener>> = const { RefCell::new(Vec::new()) };
+    static BACK: RefCell<Option<Box<dyn FnMut() -> bool>>> = const { RefCell::new(None) };
     static HOST: RefCell<Host> = RefCell::new(Host {
         app: None,
         theme: Theme::dark(),
@@ -342,6 +343,37 @@ pub(super) fn surface_destroyed() {
         // drop the CPU frame too; surface_changed re-sizes it.
         host.raster = CpuRasterizer::new(1, 1);
     });
+}
+
+/// The back gesture or button. An open popup closes first, as Escape does, then the app's handler
+/// from `on_back` gets it; true when something took it.
+pub(super) fn back() -> bool {
+    let popup = HOST.with_borrow(|host| host.state.popup_open());
+    if popup {
+        for pressed in [true, false] {
+            feed(&[WindowEvent::KeyInput {
+                key: KeyCode::Escape,
+                pressed,
+                modifiers: Modifiers::default(),
+            }]);
+        }
+        super::request_frame();
+        return true;
+    }
+    // taken out while it runs, so it can set another.
+    let Some(mut handler) = BACK.take() else {
+        return false;
+    };
+    let taken = handler();
+    BACK.with_borrow_mut(|slot| {
+        slot.get_or_insert(handler);
+    });
+    super::request_frame();
+    taken
+}
+
+pub(super) fn set_back(handler: Box<dyn FnMut() -> bool>) {
+    BACK.set(Some(handler));
 }
 
 /// A key from the keyboard, as Android's key code and meta state.

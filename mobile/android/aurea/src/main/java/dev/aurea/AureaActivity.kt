@@ -18,6 +18,7 @@ import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.WindowInsets
 import android.view.WindowInsetsController
+import android.window.OnBackInvokedDispatcher
 
 /**
  * The Activity an Aurea app runs in. Subclass it, name the native library in [library], and
@@ -76,6 +77,11 @@ abstract class AureaActivity :
         setContentView(view)
         nativeCreate(this)
         view.holder.addCallback(this)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) {
+                if (!nativeBack()) moveTaskToBack(true)
+            }
+        }
         view.setOnApplyWindowInsetsListener { _, insets ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
@@ -307,6 +313,12 @@ abstract class AureaActivity :
         return true
     }
 
+    @Deprecated("Android 13 and later use the callback from onCreate")
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        if (!nativeBack()) super.onBackPressed()
+    }
+
     @Deprecated("Activity has no replacement without androidx")
     @Suppress("DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -411,6 +423,7 @@ abstract class AureaActivity :
         @JvmStatic external fun nativePenTap()
         @JvmStatic external fun nativeInsets(left: Float, top: Float, right: Float, bottom: Float)
         @JvmStatic external fun nativeScreenShape(values: FloatArray)
+        @JvmStatic external fun nativeBack(): Boolean
         @JvmStatic external fun nativeKeyboard(bottom: Float)
         @JvmStatic external fun nativeLightTheme(): Boolean
         @JvmStatic external fun nativeFrame(): Boolean
