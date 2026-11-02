@@ -104,6 +104,23 @@ pub use aurea_foundation::{
     Capability, CapabilityChecker, DesktopPlatform, MobilePlatform, OsVersion, Platform, Support,
 };
 
+/// Whether the pointer event being delivered came from a pen on a touch host, so "pen draws, finger
+/// pans" reads the same on iOS and Android. False on the desktop, where a pen sends
+/// [`WindowEvent::Pen`] and the mouse stays the mouse.
+pub fn pointer_is_pencil() -> bool {
+    #[cfg(target_os = "ios")]
+    return ios::pointer_is_pencil();
+    #[cfg(target_os = "android")]
+    return android::pointer_is_pencil();
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    false
+}
+
+/// Whether this is a touch host, iOS or Android, where fingers are the pointer.
+pub const fn is_touch() -> bool {
+    cfg!(any(target_os = "ios", target_os = "android"))
+}
+
 /// Plays the system's alert sound, as a terminal's bell does.
 pub fn beep() {
     unsafe { ng_platform_beep() }
