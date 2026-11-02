@@ -36,7 +36,7 @@ impl Slider {
         let clamped = if value.is_nan() {
             min
         } else {
-            value.clamp(min, max)
+            value.max(min.min(max)).min(min.max(max))
         };
         let _ = slider.set_value(clamped);
         Ok(slider)

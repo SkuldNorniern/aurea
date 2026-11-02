@@ -187,7 +187,7 @@ impl<Id: WidgetId> Widget<Id> for TextField<'_> {
         let mut inner = rect.inset_xy(style.padding, 0.0);
         let mut cleared = false;
         if self.clearable && !self.text.is_empty() && self.enabled {
-            let side = (rect.height - 8.0).clamp(0.0, rect.width / 2.0);
+            let side = (rect.height - 8.0).clamp(0.0, (rect.width / 2.0).max(0.0));
             let (button, rest) = inner.split_right(side, 4.0);
             let button = Rect::new(button.x, rect.y + (rect.height - side) / 2.0, side, side);
             inner = rest;
