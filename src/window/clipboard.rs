@@ -1,11 +1,16 @@
-//! Clipboard text, RGBA8 images and application byte formats, on the desktop and iOS.
+//! Clipboard text, RGBA8 images and application byte formats. Android has text and images.
 
-use crate::ffi::{RawClipboardEntry, c_text};
+#[cfg(target_os = "android")]
+use crate::android;
+use crate::ffi::RawClipboardEntry;
+#[cfg(not(target_os = "android"))]
+use crate::ffi::c_text;
 #[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "ios"))]
 use crate::ffi::{
     ng_platform_clipboard_formats, ng_platform_clipboard_free, ng_platform_clipboard_read,
     ng_platform_clipboard_write,
 };
+#[cfg(not(target_os = "android"))]
 use crate::ffi::{
     ng_platform_free_clipboard_text, ng_platform_get_clipboard_text, ng_platform_set_clipboard_text,
 };
@@ -174,6 +179,15 @@ fn validated_names(items: &[ClipboardData<'_>]) -> AureaResult<Vec<CString>> {
 }
 
 /// Reads PNG images, and on Windows common 24/32-bit DIB images.
+#[cfg(target_os = "android")]
+pub fn clipboard_image(max_bytes: usize) -> AureaResult<Option<ClipboardImage>> {
+    android::clipboard_png(max_bytes)
+        .map(|png| image::decode_png(&png, max_bytes))
+        .transpose()
+}
+
+/// Reads PNG images, and on Windows common 24/32-bit DIB images.
+#[cfg(not(target_os = "android"))]
 pub fn clipboard_image(max_bytes: usize) -> AureaResult<Option<ClipboardImage>> {
     if let Some(bytes) = clipboard_data("image/png", max_bytes)? {
         return image::decode_png(&bytes, max_bytes).map(Some);
@@ -187,7 +201,28 @@ pub fn clipboard_image(max_bytes: usize) -> AureaResult<Option<ClipboardImage>> 
     Ok(None)
 }
 
+/// Publishes a PNG; Android takes no application payloads, so `extra` is dropped.
+#[cfg(target_os = "android")]
+pub fn set_clipboard_image(
+    image: &ClipboardImage,
+    _extra: &[ClipboardData<'_>],
+) -> AureaResult<()> {
+    ui_thread::check("set_clipboard_image");
+    let png = image::encode_png(image)?;
+    written(android::set_clipboard_png(&png))
+}
+
+#[cfg(target_os = "android")]
+fn written(done: bool) -> AureaResult<()> {
+    if done {
+        Ok(())
+    } else {
+        Err(AureaError::ElementOperationFailed)
+    }
+}
+
 /// Publishes PNG plus application payloads such as layers or an ICC profile.
+#[cfg(not(target_os = "android"))]
 pub fn set_clipboard_image(image: &ClipboardImage, extra: &[ClipboardData<'_>]) -> AureaResult<()> {
     ui_thread::check("set_clipboard_image");
     let png = image::encode_png(image)?;
@@ -208,6 +243,14 @@ pub fn set_clipboard_image(image: &ClipboardImage, extra: &[ClipboardData<'_>]) 
 }
 
 /// Read the OS clipboard as a UTF-8 string.
+#[cfg(target_os = "android")]
+pub fn clipboard_text() -> Option<String> {
+    ui_thread::check("clipboard_text");
+    android::clipboard_text().filter(|text| !text.is_empty())
+}
+
+/// Read the OS clipboard as a UTF-8 string.
+#[cfg(not(target_os = "android"))]
 pub fn clipboard_text() -> Option<String> {
     ui_thread::check("clipboard_text");
     let ptr = unsafe { ng_platform_get_clipboard_text() };
@@ -223,6 +266,14 @@ pub fn clipboard_text() -> Option<String> {
 }
 
 /// Write a UTF-8 string to the OS clipboard.
+#[cfg(target_os = "android")]
+pub fn set_clipboard_text(text: &str) -> AureaResult<()> {
+    ui_thread::check("set_clipboard_text");
+    written(android::set_clipboard_text(text))
+}
+
+/// Write a UTF-8 string to the OS clipboard.
+#[cfg(not(target_os = "android"))]
 pub fn set_clipboard_text(text: &str) -> AureaResult<()> {
     ui_thread::check("set_clipboard_text");
     let cstr = c_text(text)?;

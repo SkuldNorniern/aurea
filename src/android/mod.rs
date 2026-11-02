@@ -40,7 +40,7 @@ pub use jni;
 pub use jni::JNIEnv;
 use jni::JavaVM;
 pub use jni::objects::JObject;
-use jni::objects::{GlobalRef, JClass, JString, JValue};
+use jni::objects::{GlobalRef, JByteArray, JClass, JString, JValue};
 use jni::sys::{JNI_FALSE, JNI_TRUE, JNI_VERSION_1_6, jboolean, jdouble, jfloat, jint};
 
 use crate::dispatch;
@@ -188,6 +188,78 @@ pub(crate) fn open_url(url: &str) -> bool {
             &[JValue::Object(&url)],
         );
         called.and_then(|v| v.z()).unwrap_or(false)
+    })
+    .unwrap_or(false)
+}
+
+pub(crate) fn clipboard_text() -> Option<String> {
+    with_activity(|env, activity| {
+        let text = env
+            .call_method(
+                activity,
+                "clipboardTextFromNative",
+                "()Ljava/lang/String;",
+                &[],
+            )
+            .and_then(|v| v.l())
+            .ok()?;
+        if text.is_null() {
+            return None;
+        }
+        env.get_string(&JString::from(text)).ok().map(String::from)
+    })
+    .flatten()
+}
+
+pub(crate) fn set_clipboard_text(text: &str) -> bool {
+    with_activity(|env, activity| {
+        let Ok(text) = env.new_string(text) else {
+            return false;
+        };
+        env.call_method(
+            activity,
+            "setClipboardTextFromNative",
+            "(Ljava/lang/String;)V",
+            &[JValue::Object(&text)],
+        )
+        .is_ok()
+    })
+    .unwrap_or(false)
+}
+
+pub(crate) fn clipboard_png(max_bytes: usize) -> Option<Vec<u8>> {
+    let max = i64::try_from(max_bytes).unwrap_or(i64::MAX);
+    with_activity(|env, activity| {
+        let bytes = env
+            .call_method(
+                activity,
+                "clipboardPngFromNative",
+                "(J)[B",
+                &[JValue::Long(max)],
+            )
+            .and_then(|v| v.l())
+            .ok()?;
+        if bytes.is_null() {
+            return None;
+        }
+        env.convert_byte_array(JByteArray::from(bytes)).ok()
+    })
+    .flatten()
+}
+
+pub(crate) fn set_clipboard_png(png: &[u8]) -> bool {
+    with_activity(|env, activity| {
+        let Ok(bytes) = env.byte_array_from_slice(png) else {
+            return false;
+        };
+        env.call_method(
+            activity,
+            "setClipboardPngFromNative",
+            "([B)Z",
+            &[JValue::Object(&bytes)],
+        )
+        .and_then(|v| v.z())
+        .unwrap_or(false)
     })
     .unwrap_or(false)
 }

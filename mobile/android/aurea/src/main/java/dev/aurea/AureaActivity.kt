@@ -237,6 +237,18 @@ abstract class AureaActivity :
     @Suppress("unused")
     fun shareFilesFromNative(paths: Array<String>): Boolean = files.share(paths)
 
+    @Suppress("unused")
+    fun clipboardTextFromNative(): String? = files.clipboardText()
+
+    @Suppress("unused")
+    fun setClipboardTextFromNative(text: String) = files.setClipboardText(text)
+
+    @Suppress("unused")
+    fun clipboardPngFromNative(max: Long): ByteArray? = files.clipboardPng(max)
+
+    @Suppress("unused")
+    fun setClipboardPngFromNative(png: ByteArray): Boolean = files.setClipboardPng(png)
+
     @Deprecated("Activity has no replacement without androidx")
     @Suppress("DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

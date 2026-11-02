@@ -2,6 +2,7 @@ package dev.aurea
 
 import android.app.Activity
 import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ContentValues
 import android.content.Intent
 import android.database.Cursor
@@ -78,6 +79,57 @@ internal class AureaFiles(private val activity: Activity) {
         } catch (_: android.content.ActivityNotFoundException) {
             false
         }
+    }
+
+    fun clipboardText(): String? =
+        clipboard().primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(activity)?.toString()
+
+    fun setClipboardText(text: String) {
+        clipboard().setPrimaryClip(ClipData.newPlainText("text", text))
+    }
+
+    /** PNG bytes of a copied image, up to `max` bytes. */
+    fun clipboardPng(max: Long): ByteArray? {
+        val uri = clipboard().primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri ?: return null
+        val resolver = activity.contentResolver
+        if (resolver.getType(uri) != "image/png") return null
+        return try {
+            resolver.openInputStream(uri)?.use { input ->
+                val bytes = input.readNBytesCompat(max + 1)
+                bytes.takeIf { it.size <= max }
+            }
+        } catch (_: java.io.IOException) {
+            null
+        } catch (_: SecurityException) {
+            null
+        }
+    }
+
+    fun setClipboardPng(png: ByteArray): Boolean {
+        val folder = File(File(activity.cacheDir, AureaFileProvider.FOLDER), "clipboard")
+        if (!folder.isDirectory && !folder.mkdirs()) return false
+        val file = File(folder, "${System.nanoTime()}.png")
+        return try {
+            file.writeBytes(png)
+            val uri = AureaFileProvider.uriOf(activity, folder.name, file.name)
+            clipboard().setPrimaryClip(ClipData.newUri(activity.contentResolver, "image", uri))
+            true
+        } catch (_: java.io.IOException) {
+            false
+        }
+    }
+
+    private fun clipboard() = activity.getSystemService(ClipboardManager::class.java)
+
+    private fun java.io.InputStream.readNBytesCompat(limit: Long): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        val chunk = ByteArray(64 * 1024)
+        while (out.size() < limit) {
+            val read = read(chunk)
+            if (read < 0) break
+            out.write(chunk, 0, read)
+        }
+        return out.toByteArray()
     }
 
     /** True when `code` was ours. */
