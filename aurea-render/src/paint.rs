@@ -6,7 +6,7 @@ use crate::numeric::f32_to_u8_clamped;
 use crate::types::Point;
 
 /// Color representation in RGBA format.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Color {
     /// Red channel.
     pub r: u8,
@@ -27,6 +27,16 @@ impl Color {
     /// Create a color from RGBA values.
     pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a }
+    }
+
+    /// Create a color from `[r, g, b, a]`.
+    pub const fn from_rgba8([r, g, b, a]: [u8; 4]) -> Self {
+        Self { r, g, b, a }
+    }
+
+    /// This color as `[r, g, b, a]`.
+    pub const fn to_rgba8(self) -> [u8; 4] {
+        [self.r, self.g, self.b, self.a]
     }
 
     /// Convert to f32 values in range [0.0, 1.0].
