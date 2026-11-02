@@ -175,8 +175,10 @@ impl Capability {
         if !self.is_available_on(platform) {
             return Support::Unavailable;
         }
-        let Platform::Desktop(desktop) = platform else {
-            return Support::Unimplemented;
+        let desktop = match platform {
+            Platform::Desktop(desktop) => desktop,
+            Platform::Mobile(MobilePlatform::IOS) => return self.support_on_ios(),
+            Platform::Mobile(_) => return Support::Unimplemented,
         };
         match self {
             Self::MultipleWindows | Self::WindowResizing => Support::Supported,
@@ -198,6 +200,19 @@ impl Capability {
             | Self::Metal
             | Self::DirectX
             | Self::OpenGL => Support::Experimental,
+            _ => Support::Unimplemented,
+        }
+    }
+
+    fn support_on_ios(&self) -> Support {
+        match self {
+            Self::TouchInput | Self::KeyboardInput | Self::Clipboard | Self::FileDialogs => {
+                Support::Supported
+            }
+            Self::StylusInput | Self::MouseInput | Self::MenuBar | Self::KeyboardShortcuts => {
+                Support::Experimental
+            }
+            Self::HardwareAcceleration | Self::Metal => Support::Experimental,
             _ => Support::Unimplemented,
         }
     }
@@ -392,35 +407,45 @@ mod tests {
     }
 
     #[test]
-    fn touch_is_not_claimed_before_there_are_touch_events() {
+    fn ios_claims_what_its_host_does() {
         let checker = CapabilityChecker::for_platform(Platform::Mobile(MobilePlatform::IOS));
-
-        assert!(Capability::TouchInput.is_available_on(checker.platform()));
+        for capability in [
+            Capability::TouchInput,
+            Capability::KeyboardInput,
+            Capability::Clipboard,
+            Capability::FileDialogs,
+        ] {
+            assert_eq!(checker.support(capability), Support::Supported);
+        }
+        for capability in [
+            Capability::StylusInput,
+            Capability::MouseInput,
+            Capability::MenuBar,
+            Capability::KeyboardShortcuts,
+            Capability::HardwareAcceleration,
+            Capability::Metal,
+        ] {
+            assert_eq!(checker.support(capability), Support::Experimental);
+        }
         assert_eq!(
-            checker.support(Capability::TouchInput),
+            checker.support(Capability::WindowResizing),
             Support::Unimplemented
         );
     }
 
     #[test]
-    fn tablets_can_but_aurea_does_not_yet() {
-        for mobile in [MobilePlatform::IOS, MobilePlatform::Android] {
-            let checker = CapabilityChecker::for_platform(Platform::Mobile(mobile));
-            for capability in [
-                Capability::MouseInput,
-                Capability::KeyboardShortcuts,
-                Capability::WindowResizing,
-                Capability::KeyboardInput,
-                Capability::Clipboard,
-                Capability::HardwareAcceleration,
-            ] {
-                assert!(capability.is_available_on(checker.platform()));
-                assert_eq!(
-                    checker.support(capability),
-                    Support::Unimplemented,
-                    "{capability:?} on {mobile:?}"
-                );
-            }
+    fn android_can_but_aurea_does_not_yet() {
+        let checker = CapabilityChecker::for_platform(Platform::Mobile(MobilePlatform::Android));
+        for capability in [
+            Capability::MouseInput,
+            Capability::KeyboardShortcuts,
+            Capability::WindowResizing,
+            Capability::KeyboardInput,
+            Capability::Clipboard,
+            Capability::HardwareAcceleration,
+        ] {
+            assert!(capability.is_available_on(checker.platform()));
+            assert_eq!(checker.support(capability), Support::Unimplemented);
         }
     }
 

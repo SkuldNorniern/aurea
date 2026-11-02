@@ -28,7 +28,7 @@ fn main() -> AureaResult<()> {
 | --- | --- | --- | --- | --- | --- |
 | Windows | yes | yes | yes | one full-screen host | one full-screen host |
 | Native widgets | yes | yes | yes | some | no |
-| Native menu bar | yes | yes | yes | no | no |
+| Native menu bar | yes | yes | yes | iPad | no |
 | Canvas widgets | yes | yes | yes | yes | yes |
 | IME | yes | yes | yes | yes | yes |
 | Pen pressure and tilt | yes | untested on a tablet | untested on a tablet | yes | untested on a stylus |
