@@ -146,3 +146,56 @@ int ng_ios_open_url(const char* text) {
     return 1;
 }
 
+API_AVAILABLE(ios(14.0))
+@interface AureaColorSheet : NSObject <UIColorPickerViewControllerDelegate, UIAdaptivePresentationControllerDelegate>
+@property (assign) NGIosAnswered done;
+@property (assign) void* ctx;
+@property (strong) AureaColorSheet* keep;
+@end
+
+@implementation AureaColorSheet
+- (void)answer:(UIColorPickerViewController*)picker {
+    if (!_done) return;
+    NGIosAnswered done = _done;
+    _done = NULL;
+    CGFloat r = 0, g = 0, b = 0, a = 1;
+    [picker.selectedColor getRed:&r green:&g blue:&b alpha:&a];
+    unsigned int argb = (unsigned int)lround(MIN(MAX(a, 0), 1) * 255) << 24 |
+                        (unsigned int)lround(MIN(MAX(r, 0), 1) * 255) << 16 |
+                        (unsigned int)lround(MIN(MAX(g, 0), 1) * 255) << 8 |
+                        (unsigned int)lround(MIN(MAX(b, 0), 1) * 255);
+    done(_ctx, (int)argb);
+    ng_ios_wake();
+    _keep = nil;
+}
+
+- (void)colorPickerViewControllerDidFinish:(UIColorPickerViewController*)picker {
+    [self answer:picker];
+}
+
+- (void)presentationControllerDidDismiss:(UIPresentationController*)presentation {
+    [self answer:(UIColorPickerViewController*)presentation.presentedViewController];
+}
+@end
+
+int ng_ios_pick_color(unsigned int argb, int alpha, NGIosAnswered done, void* ctx) {
+    UIViewController* presenter = ng_ios_presenter();
+    if (!presenter) return 0;
+    if (@available(iOS 14.0, *)) {
+        UIColorPickerViewController* picker = [[UIColorPickerViewController alloc] init];
+        picker.supportsAlpha = alpha != 0;
+        picker.selectedColor = [UIColor colorWithRed:((argb >> 16) & 0xFF) / 255.0
+                                               green:((argb >> 8) & 0xFF) / 255.0
+                                                blue:(argb & 0xFF) / 255.0
+                                               alpha:((argb >> 24) & 0xFF) / 255.0];
+        AureaColorSheet* sheet = [[AureaColorSheet alloc] init];
+        sheet.done = done;
+        sheet.ctx = ctx;
+        sheet.keep = sheet;
+        picker.delegate = sheet;
+        [presenter presentViewController:picker animated:YES completion:nil];
+        picker.presentationController.delegate = sheet;
+        return 1;
+    }
+    return 0;
+}

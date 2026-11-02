@@ -48,6 +48,7 @@ pub struct NGIosHost {
     pub preedit: unsafe extern "C" fn(text: *const c_char, cursor: c_int),
     pub pen_tap: unsafe extern "C" fn(squeeze: c_int, action: c_int),
     pub mouse: unsafe extern "C" fn(action: c_int, x: f32, y: f32, button: c_int),
+    pub dropped: unsafe extern "C" fn(paths: *const c_char, x: f32, y: f32),
 }
 
 #[cfg(target_os = "ios")]
@@ -66,6 +67,14 @@ unsafe extern "C" {
         extensions: *const c_char,
         multiple: c_int,
         done: unsafe extern "C" fn(ctx: *mut c_void, paths: *const c_char),
+        ctx: *mut c_void,
+    ) -> c_int;
+    pub fn ng_ios_show_native(view: *mut c_void, x: f32, y: f32, width: f32, height: f32);
+    pub fn ng_ios_hide_native(view: *mut c_void);
+    pub fn ng_ios_pick_color(
+        argb: u32,
+        alpha: c_int,
+        done: unsafe extern "C" fn(ctx: *mut c_void, answer: c_int),
         ctx: *mut c_void,
     ) -> c_int;
     pub fn ng_ios_preview_path(path: *const c_char) -> c_int;

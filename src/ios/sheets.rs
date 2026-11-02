@@ -9,12 +9,14 @@ use std::path::PathBuf;
 use std::path::Path;
 
 use aurea_ffi::{
-    ng_ios_alert, ng_ios_open_url, ng_ios_preview_path, ng_ios_reveal_path, ng_ios_share_files,
+    ng_ios_alert, ng_ios_open_url, ng_ios_pick_color, ng_ios_preview_path, ng_ios_reveal_path,
+    ng_ios_share_files,
 };
 
 use super::documents::nul_list;
 use crate::dialog::{MessageButtons, MessageChoice};
 use crate::ffi::c_text;
+use crate::render::Color;
 use crate::{AureaError, AureaResult, Rect};
 
 type Answered = Box<dyn FnOnce(c_int)>;
@@ -78,6 +80,28 @@ pub fn share_files(
             ctx,
         )
     };
+    shown_or_drop(shown, ctx)
+}
+
+/// The system colour picker, starting at `start`, with an opacity control if `alpha`; `done` hears
+/// the colour when it closes.
+///
+/// # Errors
+///
+/// [`AureaError::ElementOperationFailed`] when it cannot show, before iOS 14 or before the app has
+/// a window; `done` is then not called.
+pub fn pick_color(
+    start: Color,
+    alpha: bool,
+    done: impl FnOnce(Color) + 'static,
+) -> AureaResult<()> {
+    let argb = u32::from_be_bytes([start.a, start.r, start.g, start.b]);
+    let ctx = into_ctx(move |answer| {
+        let [a, r, g, b] = answer.to_be_bytes();
+        done(Color::rgba(r, g, b, a));
+    });
+    // SAFETY: `ctx` as in `alert`.
+    let shown = unsafe { ng_ios_pick_color(argb, c_int::from(alpha), answered, ctx) };
     shown_or_drop(shown, ctx)
 }
 

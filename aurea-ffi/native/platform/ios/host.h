@@ -64,6 +64,9 @@ typedef struct NGIosHost {
     /* A trackpad or mouse pointer: `action` is one of the NG_IOS_MOUSE_* codes, the position in
        points, and `button` the MouseButton code held or pressed, -1 for none. */
     void (*mouse)(int action, float x, float y, int button);
+    /* Files dropped on the view, copied into the app's temporary folder: NUL-terminated paths ended
+       by an empty one, and where, in points. */
+    void (*dropped)(const char* paths, float x, float y);
 } NGIosHost;
 
 /* What a pointer did, for `mouse`. */
@@ -84,6 +87,13 @@ void* ng_ios_gpu_view(void);
 
 /* Removes the GPU view, when the GPU could not start. Main thread only. */
 void ng_ios_drop_gpu_view(void);
+
+/* Puts native element `view` over the host at this place, in points from the safe area's top left,
+   or moves it there; touches on it stay with it. Main thread only. */
+void ng_ios_show_native(void* view, float x, float y, float width, float height);
+
+/* Takes it off the host again. Main thread only. */
+void ng_ios_hide_native(void* view);
 
 /* Shows the on-screen keyboard, or hides it. Main thread only. */
 void ng_ios_show_keyboard(int show);

@@ -7,11 +7,13 @@ mod documents;
 mod sheets;
 
 pub use documents::{export_files, pick_files};
-pub use sheets::{alert, open_url, share_files};
+pub use sheets::{alert, open_url, pick_color, share_files};
 pub(crate) use sheets::{preview_path, reveal_path};
 
 use std::cell::{Cell, RefCell};
-use std::ffi::{CStr, c_char, c_int};
+use std::ffi::{CStr, OsStr, c_char, c_int};
+use std::os::unix::ffi::OsStrExt;
+use std::path::PathBuf;
 use std::process::exit;
 use std::ptr::{null, null_mut};
 use std::sync::LazyLock;
@@ -21,11 +23,13 @@ use std::time::{Duration, Instant};
 #[cfg(feature = "zengpu")]
 use aurea_ffi::ng_ios_gpu_view;
 use aurea_ffi::{
-    NGIosHost, ng_ios_drop_gpu_view, ng_ios_keyboard_height, ng_ios_refresh_rate, ng_ios_run_host,
-    ng_ios_set_high_frame_rate, ng_ios_set_text_area, ng_ios_show_keyboard, ng_ios_wake,
+    NGIosHost, ng_ios_drop_gpu_view, ng_ios_hide_native, ng_ios_keyboard_height,
+    ng_ios_refresh_rate, ng_ios_run_host, ng_ios_set_high_frame_rate, ng_ios_set_text_area,
+    ng_ios_show_keyboard, ng_ios_show_native, ng_ios_wake,
 };
 
 use crate::dispatch;
+use crate::elements::Element;
 use crate::ffi::callbacks::event_time;
 use crate::ffi::{ng_platform_attach_menu, ng_platform_create_menu, ng_platform_destroy_menu};
 #[cfg(feature = "zengpu")]
@@ -171,6 +175,7 @@ pub fn run(
         preedit,
         pen_tap,
         mouse,
+        dropped,
     };
     exit(unsafe { ng_ios_run_host(host) })
 }
@@ -213,6 +218,44 @@ pub fn create_menu_bar() -> AureaResult<MenuBar> {
         return Err(AureaError::MenuCreationFailed);
     }
     Ok(MenuBar::new(handle))
+}
+
+/// Shows native `element` over the canvas at `area`, in points from the safe area's top left, or
+/// moves it there. Touches on it stay with it, and it gets the system background if it has none.
+/// Keep the element for as long as it should show.
+/// Call on the UI thread.
+pub fn show_native(element: &impl Element, area: Rect) {
+    // SAFETY: the handle is the element's own view, kept alive by `element` and the host.
+    unsafe {
+        ng_ios_show_native(element.handle(), area.x, area.y, area.width, area.height);
+    }
+}
+
+/// Takes native `element` off the canvas again. Call on the UI thread.
+pub fn hide_native(element: &impl Element) {
+    // SAFETY: as in `show_native`.
+    unsafe { ng_ios_hide_native(element.handle()) };
+}
+
+unsafe extern "C" fn dropped(paths: *const c_char, x: f32, y: f32) {
+    let mut list = Vec::new();
+    let mut at = paths;
+    // SAFETY: the host gives NUL-terminated paths ended by an empty one.
+    while let Some(path) = unsafe { CStr::from_ptr(at) }
+        .to_bytes()
+        .first()
+        .map(|_| unsafe { CStr::from_ptr(at) })
+    {
+        list.push(PathBuf::from(OsStr::from_bytes(path.to_bytes())));
+        // SAFETY: past this path's NUL there is at least the empty one.
+        at = unsafe { at.add(path.to_bytes().len() + 1) };
+    }
+    let [left, top, ..] = HOST.with_borrow(|host| host.insets);
+    hear(&[WindowEvent::FilesDropped {
+        paths: list,
+        x: f64::from(x - left),
+        y: f64::from(y - top),
+    }]);
 }
 
 /// Asks for a frame from any thread, such as when background work finishes. The UI's own

@@ -21,7 +21,7 @@ static NGIosHost g_host;
 
 @class AureaKeyInput;
 
-@interface AureaHostView : UIView <UIPencilInteractionDelegate>
+@interface AureaHostView : UIView <UIPencilInteractionDelegate, UIDropInteractionDelegate>
 @property (strong) CADisplayLink* link;
 @property (assign) BOOL dirty;
 @property (assign) int idle;
@@ -349,6 +349,7 @@ static void ng_ios_type(NSString* text) {
             pencil.delegate = self;
             [self addInteraction:pencil];
         }
+        [self addInteraction:[[UIDropInteraction alloc] initWithDelegate:self]];
         _keys = [[AureaKeyInput alloc] initWithFrame:CGRectMake(0, 0, 1, 1)];
         _keys.hidden = YES;
         [self addSubview:_keys];
@@ -367,6 +368,55 @@ static void ng_ios_type(NSString* text) {
         [_link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
     }
     return self;
+}
+
+- (BOOL)dropInteraction:(UIDropInteraction*)interaction canHandleSession:(id<UIDropSession>)session {
+    (void)interaction;
+    return [session hasItemsConformingToTypeIdentifiers:@[ @"public.item" ]];
+}
+
+- (UIDropProposal*)dropInteraction:(UIDropInteraction*)interaction sessionDidUpdate:(id<UIDropSession>)session {
+    (void)interaction; (void)session;
+    return [[UIDropProposal alloc] initWithDropOperation:UIDropOperationCopy];
+}
+
+/* Each file only lasts its handler, so it is copied out first; the app hears them all at once. */
+- (void)dropInteraction:(UIDropInteraction*)interaction performDrop:(id<UIDropSession>)session {
+    CGPoint at = [session locationInView:interaction.view];
+    dispatch_group_t waiting = dispatch_group_create();
+    NSMutableArray<NSString*>* paths = [NSMutableArray array];
+    NSString* folder = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    [NSFileManager.defaultManager createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:nil error:nil];
+    for (UIDragItem* item in session.items) {
+        NSItemProvider* provider = item.itemProvider;
+        NSString* type = provider.registeredTypeIdentifiers.firstObject;
+        if (!type) continue;
+        dispatch_group_enter(waiting);
+        [provider loadFileRepresentationForTypeIdentifier:type completionHandler:^(NSURL* url, NSError* error) {
+            (void)error;
+            NSString* name = provider.suggestedName ?: url.lastPathComponent;
+            if (url.pathExtension.length && !name.pathExtension.length) name = [name stringByAppendingPathExtension:url.pathExtension];
+            NSString* unique = [folder stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+            [NSFileManager.defaultManager createDirectoryAtPath:unique withIntermediateDirectories:YES attributes:nil error:nil];
+            NSString* copy = [unique stringByAppendingPathComponent:name.lastPathComponent ?: @"file"];
+            BOOL copied = url && [NSFileManager.defaultManager copyItemAtURL:url toURL:[NSURL fileURLWithPath:copy] error:nil];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (copied) [paths addObject:copy];
+                dispatch_group_leave(waiting);
+            });
+        }];
+    }
+    dispatch_group_notify(waiting, dispatch_get_main_queue(), ^{
+        if (!paths.count || !g_host.dropped) return;
+        NSMutableData* list = [NSMutableData data];
+        const char end = 0;
+        for (NSString* path in paths) {
+            [list appendBytes:path.fileSystemRepresentation length:strlen(path.fileSystemRepresentation) + 1];
+        }
+        [list appendBytes:&end length:1];
+        g_host.dropped(list.bytes, (float)at.x, (float)at.y);
+        [g_view markDirty];
+    });
 }
 
 - (void)removeFromSuperview {
@@ -959,6 +1009,23 @@ void ng_ios_drop_gpu_view(void) {
     AureaHostView* host = g_view;
     [host.gpuView removeFromSuperview];
     host.gpuView = nil;
+}
+
+void ng_ios_show_native(void* view, float x, float y, float width, float height) {
+    AureaHostView* host = g_view;
+    UIView* element = (__bridge UIView*)view;
+    if (!host || !element) return;
+    UIEdgeInsets safe = host.safeAreaInsets;
+    element.translatesAutoresizingMaskIntoConstraints = YES;
+    element.frame = CGRectMake(safe.left + x, safe.top + y, width, height);
+    /* Widgets without a background would be unreadable over what the canvas draws. */
+    if (!element.backgroundColor) element.backgroundColor = UIColor.systemBackgroundColor;
+    if (element.superview != host) [host addSubview:element];
+    [host bringSubviewToFront:element];
+}
+
+void ng_ios_hide_native(void* view) {
+    [(__bridge UIView*)view removeFromSuperview];
 }
 
 void ng_ios_show_keyboard(int show) {
