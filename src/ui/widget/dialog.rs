@@ -78,6 +78,39 @@ impl<'t> Dialog<'t> {
         ui: &mut Ui<'_, Id>,
         id_of: impl Fn(usize) -> Id,
     ) -> AureaResult<DialogAnswer> {
+        let message = self.message;
+        let height = if message.is_empty() { 0.0 } else { BODY };
+        self.draw(ui, &id_of, height, false, |ui, text| {
+            Label::new(message, ui.theme.palette.dim)
+                .overflow(Overflow::Wrap(ui.theme.text_size * 1.4))
+                .paint(ui, text)
+        })
+    }
+
+    /// Shows it centred on the canvas, with `body` drawn where the message goes, in a strip
+    /// `body_height` tall. The dialog takes focus only when nothing has it, so a field in `body`
+    /// keeps the keyboard it is given. `id_of` names each button.
+    pub fn show_with<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id_of: impl Fn(usize) -> Id,
+        body_height: f32,
+        body: impl FnOnce(&mut Ui<'_, Id>, Rect) -> AureaResult<()>,
+    ) -> AureaResult<DialogAnswer> {
+        self.draw(ui, &id_of, body_height, true, body)
+    }
+
+    fn draw<Id: WidgetId, B>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id_of: &impl Fn(usize) -> Id,
+        body_height: f32,
+        has_body: bool,
+        body: B,
+    ) -> AureaResult<DialogAnswer>
+    where
+        B: FnOnce(&mut Ui<'_, Id>, Rect) -> AureaResult<()>,
+    {
         let id = id_of(0);
         let (width, height) = (ui.ctx.width() as f32, ui.ctx.height() as f32);
         let canvas = Rect::new(0.0, 0.0, width, height);
@@ -88,8 +121,7 @@ impl<'t> Dialog<'t> {
         let padding = ui.theme.padding * 1.6;
         let row = ui.theme.control_height;
         let title = ui.theme.text_size * 1.5;
-        let body = if self.message.is_empty() { 0.0 } else { BODY };
-        let tall = padding * 2.0 + title + body + row + ui.theme.padding;
+        let tall = padding * 2.0 + title + body_height + row + ui.theme.padding;
         let at = canvas.centered(WIDTH.min(width - 32.0).max(0.0), tall);
         ui.interact(id, CARD, at, Sense::Hover, true);
         card(ui.theme).paint(ui, at)?;
@@ -98,10 +130,8 @@ impl<'t> Dialog<'t> {
         Label::new(self.title, ui.theme.palette.text)
             .strong()
             .paint(ui, top)?;
-        let (text, foot) = rest.split_top(body, 0.0);
-        Label::new(self.message, ui.theme.palette.dim)
-            .overflow(Overflow::Wrap(ui.theme.text_size * 1.4))
-            .paint(ui, text)?;
+        let (text, foot) = rest.split_top(body_height, 0.0);
+        body(ui, text)?;
 
         let mut answer = DialogAnswer::Open;
         let last = self.buttons.len().saturating_sub(1);
@@ -123,9 +153,11 @@ impl<'t> Dialog<'t> {
             answer = DialogAnswer::Dismissed;
         }
         // the keyboard stays here, not with what is under the dialog.
+        // with a body, only an empty focus goes to the buttons: a field in the body keeps its own.
         let focus = ui.state.focus;
         let ours = (0..self.buttons.len()).any(|i| focus == Some(Key::new(id_of(i), 0)));
-        if !ours && !self.buttons.is_empty() {
+        let take = if has_body { focus.is_none() } else { !ours };
+        if take && !self.buttons.is_empty() {
             ui.state.give_focus(Some(Key::new(id_of(last), 0)));
         }
         if answer != DialogAnswer::Open {
@@ -138,9 +170,11 @@ impl<'t> Dialog<'t> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::TextField;
     use crate::ui::rig::Rig;
     use crate::ui::widget::button::Button;
     use crate::window::KeyCode;
+    use std::cell::Cell;
 
     fn show(rig: &mut Rig) -> (DialogAnswer, bool) {
         rig.frame(|ui| {
@@ -186,5 +220,41 @@ mod tests {
         assert_eq!(show(&mut rig).0, DialogAnswer::Dismissed);
         rig.key(KeyCode::Enter);
         assert_eq!(show(&mut rig).0, DialogAnswer::Button(1));
+    }
+
+    fn ask(rig: &mut Rig, text: &mut String, strip: &Cell<Rect>) -> DialogAnswer {
+        rig.frame(|ui| {
+            Dialog::new("Name?")
+                .buttons(&["Cancel", "Save"])
+                .show_with(
+                    ui,
+                    |i| u8::try_from(i).unwrap_or(0),
+                    40.0,
+                    |ui, rect| {
+                        strip.set(rect);
+                        TextField::new(text).show(ui, 9, rect).map(drop)
+                    },
+                )
+                .expect("dialog")
+        })
+    }
+
+    #[test]
+    fn a_field_in_the_body_keeps_the_focus_it_is_given() {
+        let mut rig = Rig::new(400, 300);
+        let mut text = String::new();
+        let strip = Cell::new(Rect::default());
+        ask(&mut rig, &mut text, &strip);
+        assert_eq!(
+            rig.state.focus,
+            Some(Key::new(1, 0)),
+            "buttons take it first"
+        );
+        let at = strip.get();
+        rig.click(at.x + 20.0, at.y + at.height / 2.0);
+        assert_eq!(ask(&mut rig, &mut text, &strip), DialogAnswer::Open);
+        assert_eq!(rig.state.focus, Some(Key::new(9, 0)));
+        assert_eq!(ask(&mut rig, &mut text, &strip), DialogAnswer::Open);
+        assert_eq!(rig.state.focus, Some(Key::new(9, 0)));
     }
 }
