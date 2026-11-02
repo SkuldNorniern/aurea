@@ -446,7 +446,7 @@ fn upload_levels(
         chain.push(level);
         (w, h) = (dw, dh);
     }
-    // Filtering stays out of the lock: other threads poll uploads through it.
+    // filtering stays out of the lock, other threads poll through it.
     let mut jobs = context.mip_jobs.lock().unwrap_or_else(|p| p.into_inner());
     if device.capabilities().transfers.texture_region_write {
         let writes: Vec<TextureWrite<'_>> = once(rgba)

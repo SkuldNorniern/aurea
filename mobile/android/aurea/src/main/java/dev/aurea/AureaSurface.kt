@@ -11,8 +11,7 @@ import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 
 /**
- * The surface Aurea draws on, which is also the text editor the on-screen keyboard types into:
- * typed text, what an input method is still composing, and key presses go to Rust.
+ * The surface Aurea draws on, and what the on-screen keyboard types into.
  */
 internal class AureaSurface(context: Context, private val typed: Typed) : SurfaceView(context) {
 
@@ -20,7 +19,6 @@ internal class AureaSurface(context: Context, private val typed: Typed) : Surfac
         const val MAX_DELETE = 256
     }
 
-    /** Where typing goes. */
     interface Typed {
         fun key(code: Int, pressed: Boolean, meta: Int)
         fun text(text: String)
@@ -30,7 +28,7 @@ internal class AureaSurface(context: Context, private val typed: Typed) : Surfac
     init {
         isFocusable = true
         isFocusableInTouchMode = true
-        // this view claims to be a text editor; a pen stroke must stay a stroke.
+        // claims to be a text editor; a pen stroke stays a stroke.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) isAutoHandwritingEnabled = false
     }
 
@@ -56,13 +54,12 @@ internal class AureaSurface(context: Context, private val typed: Typed) : Surfac
         return true
     }
 
-    /** Back, volume and the like stay with Android. */
+    /** These stay with Android. */
     private fun isSystemKey(code: Int): Boolean = KeyEvent.isMediaSessionKey(code) ||
         code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_VOLUME_UP ||
         code == KeyEvent.KEYCODE_VOLUME_DOWN || code == KeyEvent.KEYCODE_VOLUME_MUTE ||
         code == KeyEvent.KEYCODE_POWER || code == KeyEvent.KEYCODE_HOME
 
-    /** Shows the on-screen keyboard, or hides it. */
     fun showKeyboard(show: Boolean) {
         val ime = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         if (show) {
@@ -73,7 +70,7 @@ internal class AureaSurface(context: Context, private val typed: Typed) : Surfac
         }
     }
 
-    /** The keyboard's side: Aurea keeps the text, so this holds only what is still composing. */
+    /** Aurea keeps the text; this holds only what is still composing. */
     private inner class Connection : BaseInputConnection(this@AureaSurface, false) {
         private var composing = ""
 

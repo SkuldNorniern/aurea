@@ -413,7 +413,6 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         self.texture_cache.prune_dropped(&mut self.backend);
         self.texture_cache
             .trim_unpinned(&mut self.backend, self.frame_counter);
-        // Off the CPU path its full-size buffer has nothing to show, and comes back on demand.
         if self.last_on_cpu {
             if let Some(cpu) = &mut self.cpu {
                 cpu.trim_memory();
@@ -575,10 +574,10 @@ fn plain_item(command: DrawCommand) -> DisplayItem {
     )
 }
 
-/// Reach past an item's bounds, for antialiasing; matches the rasterizer's item clip.
+/// Same pad as the rasterizer's item clip.
 const LAYER_PAD: f32 = 3.0;
 
-/// The whole pixels `list` draws in, or `None` when any of it can reach further than it says.
+/// Pixels `list` draws in, `None` if an item has no bounds.
 fn layer_extent(list: &DisplayList, width: u32, height: u32) -> Option<(u32, u32, u32, u32)> {
     let mut drawn: Option<Rect> = None;
     for item in list.items() {
@@ -602,7 +601,7 @@ fn layer_extent(list: &DisplayList, width: u32, height: u32) -> Option<(u32, u32
     Some((x, y, right.saturating_sub(x), bottom.saturating_sub(y)))
 }
 
-/// What `layer` drew for `list` as RGBA, cropped, and where it goes on the frame.
+/// Cropped RGBA of `layer`, and where it goes.
 fn layer_image(layer: &CpuRasterizer, list: &DisplayList) -> Option<(Image, Rect)> {
     let frame = layer.frame_output()?;
     let (x, y, width, height) =

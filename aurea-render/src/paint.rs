@@ -29,12 +29,12 @@ impl Color {
         Self { r, g, b, a }
     }
 
-    /// Create a color from `[r, g, b, a]`.
+    /// From `[r, g, b, a]`.
     pub const fn from_rgba8([r, g, b, a]: [u8; 4]) -> Self {
         Self { r, g, b, a }
     }
 
-    /// This color as `[r, g, b, a]`.
+    /// As `[r, g, b, a]`.
     pub const fn to_rgba8(self) -> [u8; 4] {
         [self.r, self.g, self.b, self.a]
     }

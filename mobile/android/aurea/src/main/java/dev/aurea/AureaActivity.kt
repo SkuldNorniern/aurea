@@ -16,9 +16,8 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 
 /**
- * The Activity an Aurea app runs in: a full-screen surface Aurea draws, with touches, the pen, the
- * system bars and the app's lifecycle passed to it. Subclass it, name the app's native library in
- * [library], and define `aurea_main` in Rust, which calls `aurea::android::run`.
+ * The Activity an Aurea app runs in. Subclass it, name the native library in [library], and
+ * define `aurea_main` in Rust, which calls `aurea::android::run`.
  */
 abstract class AureaActivity :
     Activity(),
@@ -26,7 +25,7 @@ abstract class AureaActivity :
     Choreographer.FrameCallback,
     AureaSurface.Typed {
 
-    /** The app's native library, as `System.loadLibrary` takes it: `my_app` for `libmy_app.so`. */
+    /** `my_app` for `libmy_app.so`. */
     protected abstract val library: String
 
     private var hasSurface = false
@@ -54,7 +53,7 @@ abstract class AureaActivity :
             insets
         }
         view.setOnTouchListener { _, event ->
-            // a pen's samples arrive as they happen, not once a frame.
+            // pen samples arrive as they happen.
             if (event.actionMasked == MotionEvent.ACTION_DOWN && isPen(event)) {
                 view.requestUnbufferedDispatch(event)
             }
@@ -76,7 +75,6 @@ abstract class AureaActivity :
         }
     }
 
-    /** Every pointer change in `event`, with the samples Android batched since the last one. */
     private fun pointers(event: MotionEvent) {
         val index = event.actionIndex
         when (event.actionMasked) {
@@ -98,12 +96,12 @@ abstract class AureaActivity :
         return tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER
     }
 
-    /** A lifted pointer the system took for a palm, so no tap. */
+    /** Lifted pointer the system took for a palm. */
     private fun isPalm(event: MotionEvent): Boolean =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             (event.flags and MotionEvent.FLAG_CANCELED) != 0
 
-    /** Pointer `i` of `event`: its current reading, or historical sample `h`. */
+    /** `h` < 0 is the current reading. */
     private fun pointer(phase: Int, event: MotionEvent, i: Int, h: Int) {
         val now = SystemClock.uptimeMillis()
         val current = h < 0
@@ -183,19 +181,19 @@ abstract class AureaActivity :
         requestFrame()
     }
 
-    /** Shows or hides the on-screen keyboard from any thread; Rust calls it. */
+    /** From any thread. */
     @Suppress("unused")
     fun showKeyboardFromNative(show: Boolean) {
         runOnUiThread { surface.showKeyboard(show) }
     }
 
-    /** The screen's refresh rate now, in hertz; Rust calls it. */
+    /** Hertz. */
     @Suppress("unused", "DEPRECATION")
     fun refreshRateFromNative(): Float =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) display?.refreshRate ?: 0f
         else windowManager.defaultDisplay.refreshRate
 
-    /** Asks for the screen's top rate while [high], the system's pacing otherwise; Rust calls it. */
+    /** Top rate while [high], system pacing otherwise. */
     @Suppress("unused")
     fun setHighFrameRateFromNative(high: Boolean) {
         runOnUiThread {
@@ -204,7 +202,6 @@ abstract class AureaActivity :
         }
     }
 
-    /** Puts the asked rate on the surface; a new surface gets it again in [surfaceChanged]. */
     private fun applyFrameRate() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
         val top = display?.supportedModes?.maxOfOrNull { it.refreshRate } ?: 0f
@@ -214,7 +211,7 @@ abstract class AureaActivity :
         }
     }
 
-    /** Opens a URL Rust has checked in the app that handles it; false when none does. */
+    /** False when no app handles it. */
     @Suppress("unused")
     fun openUrlFromNative(url: String): Boolean = try {
         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
@@ -223,7 +220,6 @@ abstract class AureaActivity :
         false
     }
 
-    /** Draws a frame on the next vsync, if one is not already coming. */
     fun requestFrame() {
         if (hasSurface && !frameQueued) {
             frameQueued = true
@@ -231,7 +227,7 @@ abstract class AureaActivity :
         }
     }
 
-    /** [requestFrame] from any thread; Rust calls it. */
+    /** From any thread. */
     @Suppress("unused")
     fun requestFrameFromNative() {
         runOnUiThread { requestFrame() }
@@ -244,7 +240,6 @@ abstract class AureaActivity :
         if (more) requestFrame()
     }
 
-    /** Dark status bar icons on a light theme. */
     private fun updateBars() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
         val light = nativeLightTheme()
@@ -256,7 +251,7 @@ abstract class AureaActivity :
     }
 
     private companion object {
-        // Pointer phases, as Rust reads them.
+        // Rust reads these.
         const val DOWN = 0
         const val UP = 1
         const val MOVE = 2
@@ -264,7 +259,7 @@ abstract class AureaActivity :
         const val HOVER = 4
         const val EXIT = 5
 
-        // Lifecycle states, as Rust reads them.
+        // Rust reads these.
         const val FOCUSED = 0
         const val UNFOCUSED = 1
         const val MINIMIZED = 2

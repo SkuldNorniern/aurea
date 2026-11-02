@@ -267,7 +267,7 @@ impl<Id: WidgetId> Ui<'_, Id> {
             })
     }
 
-    /// Where a press of `id` and `part` landed, if that was inside `rect`.
+    /// Press position of `id` and `part`, if inside `rect`.
     pub fn pressed_in(&self, id: Id, part: u16, rect: Rect) -> Option<Point> {
         self.press(id, part)
             .map(|press| press.at)
@@ -358,7 +358,7 @@ impl<Id: WidgetId> Ui<'_, Id> {
         mem::take(&mut self.state.wheel)
     }
 
-    /// [`Self::take_wheel`] when the pointer is over `rect`, else nothing.
+    /// [`Self::take_wheel`], only with the pointer over `rect`.
     pub fn wheel_in(&mut self, rect: Rect) -> (f32, f32) {
         if self.pointer().is_some_and(|at| rect.contains(at)) {
             self.take_wheel()

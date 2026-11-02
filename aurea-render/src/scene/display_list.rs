@@ -157,11 +157,11 @@ impl DisplayItem {
 pub struct DisplayList {
     items: Vec<DisplayItem>,
     last_clear: usize,
-    /// Command storage of last frame's paths, for this frame's.
+    /// Last frame's path storage.
     spare_commands: Vec<Vec<PathCommand>>,
 }
 
-/// Bounds the spare storage to about 2 MB; a frame draws mostly small widget paths.
+// about 2 MB at most.
 const MAX_SPARE_PATHS: usize = 1024;
 const MAX_SPARE_COMMANDS: usize = 64;
 
@@ -203,12 +203,12 @@ impl DisplayList {
         self.last_clear = 0;
     }
 
-    /// Empty command storage for a path, reused when there is some.
+    /// Empty path storage, reused if any.
     pub(crate) fn take_commands(&mut self) -> Vec<PathCommand> {
         self.spare_commands.pop().unwrap_or_default()
     }
 
-    /// Drops the spare storage; the items stay.
+    /// Drops the spare storage.
     pub(crate) fn trim_memory(&mut self) {
         self.spare_commands = Vec::new();
     }

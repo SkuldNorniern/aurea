@@ -92,7 +92,7 @@ pub fn hit_test_round_rect(rect: Rect, radius: f32, point: Point) -> bool {
         return false;
     }
     let r = radius.min(rect.width / 2.0).min(rect.height / 2.0).max(0.0);
-    // Not `clamp`: at r == width / 2 rounding can put the bounds a ulp out of order.
+    // not clamp: at r == width / 2 rounding can swap the bounds.
     let cx = point.x.max(rect.x + r).min(rect.x + rect.width - r);
     let cy = point.y.max(rect.y + r).min(rect.y + rect.height - r);
     let (dx, dy) = (point.x - cx, point.y - cy);

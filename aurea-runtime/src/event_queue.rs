@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub struct EventQueue {
     events: Mutex<Vec<WindowEvent>>,
     pen_batch_size: AtomicUsize,
-    /// Last pointer position; native wheel callbacks carry none.
+    /// Native wheel callbacks have no position.
     pointer: Mutex<(f64, f64)>,
 }
 

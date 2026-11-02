@@ -210,7 +210,7 @@ pub extern "C" fn ng_invoke_mouse_wheel(
         let event = WindowEvent::MouseWheel {
             delta_x,
             delta_y,
-            // the queue fills in the pointer.
+            // queue fills these.
             x: 0.0,
             y: 0.0,
             modifiers: Modifiers::from_bits(modifiers),

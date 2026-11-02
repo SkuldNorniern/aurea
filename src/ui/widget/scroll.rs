@@ -74,7 +74,7 @@ pub(crate) fn wheel_line_pixels() -> f32 {
     }
 }
 
-/// What a wheel unit does here: the zoom exponent and the logical pixels panned.
+/// Zoom exponent and pan pixels per wheel unit.
 pub fn wheel_steps() -> (f32, f32) {
     if cfg!(any(target_os = "macos", target_os = "ios")) {
         (0.01, 1.0)
@@ -83,7 +83,7 @@ pub fn wheel_steps() -> (f32, f32) {
     }
 }
 
-/// Wheel movement along its larger axis only, the other zeroed.
+/// Keeps the larger axis of a wheel move.
 pub fn wheel_axis(dx: f32, dy: f32) -> (f32, f32) {
     if dx.abs() > dy.abs() {
         (dx, 0.0)

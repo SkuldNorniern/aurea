@@ -709,7 +709,7 @@ impl Window {
         Ok(())
     }
 
-    /// Set the native application/window icon from PNG bytes.
+    /// Window icon from PNG bytes.
     pub fn set_icon_png(&self, png: &[u8]) -> AureaResult<()> {
         const MAX_BYTES: usize = 64 * 1024 * 1024;
         let icon = clipboard::ClipboardImage::from_png(png, MAX_BYTES)?;

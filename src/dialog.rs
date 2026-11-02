@@ -238,7 +238,7 @@ impl MessageDialog {
         self
     }
 
-    /// Asks with Yes and No buttons; true when the answer is yes.
+    /// Asks yes or no.
     pub fn confirm(self, window: &Window) -> AureaResult<bool> {
         let choice = self.buttons(MessageButtons::YesNo).show(window)?;
         Ok(choice == MessageChoice::Yes)
