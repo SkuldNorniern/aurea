@@ -255,6 +255,34 @@ pub struct Keymap<A> {
     bindings: Vec<(Chord, A)>,
 }
 
+/// The usual chords, so every app starts the same.
+impl Chord {
+    /// Select all.
+    pub const SELECT_ALL: Self = Self::command(KeyCode::A);
+    /// Select nothing.
+    pub const DESELECT: Self = Self::command(KeyCode::A).shift();
+    /// Duplicate.
+    pub const DUPLICATE: Self = Self::command(KeyCode::D);
+    /// Delete.
+    pub const DELETE: Self = Self::key(KeyCode::Delete);
+    /// Group.
+    pub const GROUP: Self = Self::command(KeyCode::G);
+    /// Ungroup.
+    pub const UNGROUP: Self = Self::command(KeyCode::G).shift();
+    /// Undo.
+    pub const UNDO: Self = Self::command(KeyCode::Z);
+    /// Redo.
+    pub const REDO: Self = Self::command(KeyCode::Z).shift();
+    /// Zoom in.
+    pub const ZOOM_IN: Self = Self::command(KeyCode::Equals);
+    /// Zoom out.
+    pub const ZOOM_OUT: Self = Self::command(KeyCode::Minus);
+    /// Fit on screen.
+    pub const FIT: Self = Self::command(KeyCode::Key0);
+    /// Actual size.
+    pub const ACTUAL_SIZE: Self = Self::command(KeyCode::Key1);
+}
+
 impl<A> Default for Keymap<A> {
     fn default() -> Self {
         Self::new()
