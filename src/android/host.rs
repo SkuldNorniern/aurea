@@ -556,8 +556,15 @@ fn draw(
     let mut ctx = renderer.begin_frame()?;
     ctx.clear(theme.palette.background)?;
     ctx.translate(left, top)?;
+    let (width, height) = (
+        (width - left - right).max(1.0),
+        (height - top - bottom).max(1.0),
+    );
+    // the UI only has the safe area, and the theme's background fills the rest.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    ctx.set_size(width.floor() as u32, height.floor() as u32);
     let mut ui = state.frame(&mut *ctx, theme);
-    app(&mut ui, width - left - right, height - top - bottom)?;
+    app(&mut ui, width, height)?;
     drop(ui);
     drop(ctx);
     renderer.end_frame()

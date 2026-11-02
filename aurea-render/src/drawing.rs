@@ -15,6 +15,12 @@ pub trait DrawingContext {
     /// Get the height of the drawing area.
     fn height(&self) -> u32;
 
+    /// What [`Self::width`] and [`Self::height`] say from here on, for a host whose UI has less room
+    /// than the surface. Nothing is clipped.
+    fn set_size(&mut self, width: u32, height: u32) {
+        let _ = (width, height);
+    }
+
     /// Device pixels per logical pixel.
     fn scale_factor(&self) -> f32 {
         1.0

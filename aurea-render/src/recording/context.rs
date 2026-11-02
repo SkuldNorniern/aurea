@@ -909,6 +909,11 @@ impl DrawingContext for RecordingContext<'_> {
         self.scale_factor
     }
 
+    fn set_size(&mut self, width: u32, height: u32) {
+        self.width = width;
+        self.height = height;
+    }
+
     fn width(&self) -> u32 {
         self.width
     }
@@ -1252,6 +1257,14 @@ impl DrawingContext for RecordingContext<'_> {
 #[cfg(test)]
 mod tests {
     use std::thread::spawn;
+
+    #[test]
+    fn set_size_changes_only_what_is_reported() {
+        let mut list = DisplayList::new();
+        let mut ctx = RecordingContext::new(&mut list, 400, 300);
+        ctx.set_size(360, 250);
+        assert_eq!((ctx.width(), ctx.height()), (360, 250));
+    }
 
     #[test]
     fn measuring_off_the_ui_thread_matches_drawing_widths() {
