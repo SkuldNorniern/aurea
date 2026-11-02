@@ -74,6 +74,7 @@ pub struct Dial<'v> {
     style: Option<DialStyle>,
     enabled: bool,
     readout: Option<&'v str>,
+    caption: Option<&'v str>,
 }
 
 impl<'v> Dial<'v> {
@@ -88,12 +89,20 @@ impl<'v> Dial<'v> {
             style: None,
             enabled: true,
             readout: None,
+            caption: None,
         }
     }
 
     /// Shows `text` in a line under the ring, and sizes the ring in what is left.
     pub fn readout(mut self, text: &'v str) -> Self {
         self.readout = Some(text);
+        self
+    }
+
+    /// Shows `text` in a line under the ring and any readout, for what the dial is: name and value
+    /// on a mixer strip.
+    pub fn caption(mut self, text: &'v str) -> Self {
+        self.caption = Some(text);
         self
     }
 
@@ -156,6 +165,31 @@ impl<'v> Dial<'v> {
         ui.set_animated(id, 0, LAST_Y, at.y);
     }
 
+    /// What is left, and the line a caption takes at the bottom.
+    fn split_caption(&self, rect: Rect, line: f32) -> (Rect, Option<Rect>) {
+        match self.caption {
+            Some(_) => {
+                let (text, rest) = rect.split_bottom(line, 0.0);
+                (rest, Some(text))
+            }
+            None => (rect, None),
+        }
+    }
+
+    fn paint_caption<Id: WidgetId>(
+        &self,
+        ui: &mut Ui<'_, Id>,
+        line: Option<Rect>,
+    ) -> AureaResult<()> {
+        match (self.caption, line) {
+            (Some(text), Some(line)) => Label::new(text, ui.theme.palette.text)
+                .small()
+                .centered()
+                .paint(ui, line),
+            _ => Ok(()),
+        }
+    }
+
     /// The ring area and, with a readout, the line its text takes under it.
     fn split_readout(&self, rect: Rect, line: f32) -> (Rect, Option<Rect>) {
         match self.readout {
@@ -198,7 +232,8 @@ impl<'v> Dial<'v> {
 impl<Id: WidgetId> Widget<Id> for Dial<'_> {
     fn show(mut self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
         let style = self.style.unwrap_or_else(|| DialStyle::new(ui.theme));
-        let (area, line) = self.split_readout(rect, ui.theme.text_size * 1.4);
+        let (rest, caption) = self.split_caption(rect, ui.theme.text_size * 1.4);
+        let (area, line) = self.split_readout(rest, ui.theme.text_size * 1.4);
         let input = ui.interact(id, 0, area, Sense::Adjust, self.enabled);
         let mut response = Response::new(rect, input);
         let (lo, hi) = (*self.range.start(), *self.range.end());
@@ -276,6 +311,7 @@ impl<Id: WidgetId> Widget<Id> for Dial<'_> {
         let knob = Rect::new(c.x - face, c.y - face, face * 2.0, face * 2.0);
         FocusRing::new(ui.theme, face, state.focus).paint(ui, knob)?;
         self.paint_readout(ui, line)?;
+        self.paint_caption(ui, caption)?;
         Ok(response)
     }
 }

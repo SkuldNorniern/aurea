@@ -71,6 +71,7 @@ pub struct Slider<'v> {
     enabled: bool,
     vertical: bool,
     readout: Option<&'v str>,
+    readout_width: f32,
 }
 
 /// Width of the readout beside a horizontal slider.
@@ -108,6 +109,7 @@ impl<'v> Slider<'v> {
             enabled: true,
             vertical: false,
             readout: None,
+            readout_width: READOUT_WIDTH,
         }
     }
 
@@ -115,6 +117,12 @@ impl<'v> Slider<'v> {
     /// The track keeps the input.
     pub fn readout(mut self, text: &'v str) -> Self {
         self.readout = Some(text);
+        self
+    }
+
+    /// How wide the readout beside a horizontal slider is, for longer text such as `-12.0 dB`.
+    pub fn readout_width(mut self, width: f32) -> Self {
+        self.readout_width = width.max(0.0);
         self
     }
 
@@ -297,7 +305,7 @@ impl Slider<'_> {
                 (track, Some(text))
             }
             Some(_) => {
-                let (text, track) = rect.split_right(READOUT_WIDTH, 0.0);
+                let (text, track) = rect.split_right(self.readout_width, 0.0);
                 (track, Some(text))
             }
         }
