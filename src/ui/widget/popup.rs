@@ -147,6 +147,92 @@ impl<'a> From<&'a str> for MenuItem<'a> {
     }
 }
 
+/// A menu row that owns its text and children, for a menu built from data at any depth. Open it
+/// with [`Ui::open_owned_menu`].
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct OwnedMenuItem {
+    /// The row's text.
+    pub label: String,
+    /// Shortcut text at the right.
+    pub shortcut: Option<String>,
+    /// Whether it can be picked.
+    pub enabled: bool,
+    /// Whether it has a tick.
+    pub checked: bool,
+    /// A separator line.
+    pub separator: bool,
+    /// What [`Ui::menu_picked_tag`] says.
+    pub tag: Option<u64>,
+    /// The submenu.
+    pub children: Vec<OwnedMenuItem>,
+}
+
+impl OwnedMenuItem {
+    /// A row showing `label`.
+    pub fn new(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            enabled: true,
+            ..Self::default()
+        }
+    }
+
+    /// A separator row.
+    pub fn separator() -> Self {
+        Self {
+            separator: true,
+            ..Self::default()
+        }
+    }
+
+    /// Sets the shortcut text.
+    #[must_use]
+    pub fn shortcut(mut self, shortcut: impl Into<String>) -> Self {
+        self.shortcut = Some(shortcut.into());
+        self
+    }
+
+    /// Sets whether it can be picked.
+    #[must_use]
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Sets whether it has a tick.
+    #[must_use]
+    pub fn checked(mut self, checked: bool) -> Self {
+        self.checked = checked;
+        self
+    }
+
+    /// Sets the tag.
+    #[must_use]
+    pub fn tag(mut self, tag: u64) -> Self {
+        self.tag = Some(tag);
+        self
+    }
+
+    /// Sets the submenu.
+    #[must_use]
+    pub fn submenu(mut self, children: Vec<Self>) -> Self {
+        self.children = children;
+        self
+    }
+
+    fn item(&self) -> MenuItem<'_> {
+        MenuItem {
+            label: &self.label,
+            shortcut: self.shortcut.as_deref(),
+            enabled: self.enabled,
+            checked: self.checked,
+            separator: self.separator,
+            children: &[],
+            tag: self.tag,
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 struct Row {
     label: String,
@@ -175,6 +261,16 @@ impl Row {
             .resize_with(item.children.len(), Self::default);
         for (row, item) in self.children.iter_mut().zip(item.children) {
             row.assign(*item);
+        }
+    }
+
+    fn assign_owned(&mut self, item: &OwnedMenuItem) {
+        self.assign(item.item());
+        self.has_children = !item.children.is_empty();
+        self.children
+            .resize_with(item.children.len(), Self::default);
+        for (row, item) in self.children.iter_mut().zip(&item.children) {
+            row.assign_owned(item);
         }
     }
 }
@@ -957,6 +1053,14 @@ impl<Id: WidgetId> Ui<'_, Id> {
         self.mark_changed();
     }
 
+    /// Opens a context menu built from data, nested as deep as it goes.
+    pub fn open_owned_menu(&mut self, id: Id, at: Point, items: &[OwnedMenuItem]) {
+        self.open_menu(id, at, items.iter().map(OwnedMenuItem::item));
+        for (row, item) in self.state.popup.rows.iter_mut().zip(items) {
+            row.assign_owned(item);
+        }
+    }
+
     /// Opens a context menu with explicit check and highlight colors.
     pub fn open_menu_styled<'a>(
         &mut self,
@@ -1141,6 +1245,28 @@ mod tests {
         );
         assert_eq!(popup.take_path(owner), Some(vec![0, 1, 1]));
         assert_eq!(popup.take_path(owner), None);
+    }
+
+    #[test]
+    fn owned_menus_nest_at_any_depth() {
+        let leaf = OwnedMenuItem::new("Leaf").tag(7);
+        let mid = OwnedMenuItem::new("Mid").submenu(vec![leaf]);
+        let items = [OwnedMenuItem::new("Top").submenu(vec![mid])];
+        let owner = Key::new(9u8, MENU_PART);
+        let mut popup = Popup::default();
+        popup.open(
+            owner,
+            Rect::default(),
+            0.0,
+            items.iter().map(OwnedMenuItem::item),
+            None,
+        );
+        popup.rows[0].assign_owned(&items[0]);
+        popup.key(KeyCode::Down);
+        popup.key(KeyCode::Right);
+        popup.key(KeyCode::Right);
+        popup.key(KeyCode::Enter);
+        assert_eq!(popup.take_path(owner), Some(vec![0, 0, 0]));
     }
 
     #[test]
