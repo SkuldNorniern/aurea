@@ -581,6 +581,9 @@ impl CpuRasterizer {
     }
 
     pub(super) fn clear_rect(rect: &Rect, color: u32, buf: &mut Band<'_>, bw: u32, clip: ClipBox) {
+        if clip.is_empty() {
+            return;
+        }
         let x0 = f32_to_u32_clamped(rect.x.floor().clamp(clip.left(), clip.right()));
         let y0 = f32_to_u32_clamped(rect.y.floor().clamp(clip.top(), clip.bottom()));
         let x1 = f32_to_u32_clamped(
@@ -2668,6 +2671,15 @@ mod glyph_tests {
             start.elapsed().as_secs_f64() * 1e6 / 2000.0
         );
         black_box(pixels);
+    }
+
+    #[test]
+    fn clear_under_a_clip_off_the_surface_draws_nothing() {
+        let mut pixels = vec![7u32; 100];
+        let clip = ClipBox::surface(10, 10).intersect(Rect::new(40.0, 40.0, 5.0, 5.0));
+        let whole = Rect::new(0.0, 0.0, 10.0, 10.0);
+        CpuRasterizer::clear_rect(&whole, 0, &mut Band::whole(&mut pixels), 10, clip);
+        assert!(pixels.iter().all(|&p| p == 7));
     }
 
     #[test]

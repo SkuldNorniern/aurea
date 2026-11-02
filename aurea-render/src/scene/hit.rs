@@ -92,8 +92,9 @@ pub fn hit_test_round_rect(rect: Rect, radius: f32, point: Point) -> bool {
         return false;
     }
     let r = radius.min(rect.width / 2.0).min(rect.height / 2.0).max(0.0);
-    let cx = point.x.clamp(rect.x + r, rect.x + rect.width - r);
-    let cy = point.y.clamp(rect.y + r, rect.y + rect.height - r);
+    // Not `clamp`: at r == width / 2 rounding can put the bounds a ulp out of order.
+    let cx = point.x.max(rect.x + r).min(rect.x + rect.width - r);
+    let cy = point.y.max(rect.y + r).min(rect.y + rect.height - r);
     let (dx, dy) = (point.x - cx, point.y - cy);
     dx * dx + dy * dy <= r * r
 }
@@ -203,6 +204,15 @@ fn cubic_bezier(p0: Point, p1: Point, p2: Point, p3: Point, t: f32) -> Point {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_full_round_rect_hit_survives_rounding() {
+        for i in 0..20_000u16 {
+            let x = 1000.0 + f32::from(i) * 0.137;
+            let rect = Rect::new(x, x, 33.3, 33.3);
+            assert!(hit_test_round_rect(rect, 99.0, rect.center()));
+        }
+    }
 
     #[test]
     fn path_bounds_hold_every_point_of_a_curve() {
