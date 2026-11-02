@@ -53,6 +53,7 @@ pub use widget::swatch::{SwatchStyle, Swatches};
 pub use widget::tabs::{TabBar, TabStyle};
 pub use widget::text_area::TextArea;
 pub use widget::text_field::{FieldStyle, TextField};
+pub use widget::toast::{Toast, ToastTone, Toasts};
 pub use widget::toggle::{Checkbox, CheckboxStyle, Toggle, ToggleStyle};
 pub use widget::tree::{TreeRow, TreeStyle, TreeView, tree_rows};
 

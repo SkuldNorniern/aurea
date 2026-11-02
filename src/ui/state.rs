@@ -419,6 +419,7 @@ pub struct UiState<Id: WidgetId> {
     pub(crate) ime_area: Option<Rect>,
     pub(crate) changed: bool,
     wants_frame: bool,
+    pub(crate) wake_at: Option<Instant>,
     sent: (CursorIcon, Option<Rect>),
     /// Whether easing follows the system's reduced motion setting, until the app sets its own.
     motion_follows_system: bool,
@@ -491,6 +492,7 @@ impl<Id: WidgetId> UiState<Id> {
             ime_area: None,
             changed: false,
             wants_frame: false,
+            wake_at: None,
             sent: (CursorIcon::Default, None),
             motion_follows_system: follow,
         }
@@ -857,9 +859,16 @@ impl<Id: WidgetId> UiState<Id> {
     }
 
     /// When the next frame is due even with nothing else going on: the caret's next blink, while a
-    /// text field has the keyboard. Schedule it with `request_canvas_redraw_at`; the iOS and Android
-    /// hosts do it themselves.
+    /// text field has the keyboard, or what [`crate::ui::Ui::wake_at`] asked for. Schedule it with
+    /// `request_canvas_redraw_at`; the iOS and Android hosts do it themselves.
     pub fn next_frame_at(&self) -> Option<Instant> {
+        match (self.next_blink_at(), self.wake_at) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
+    }
+
+    fn next_blink_at(&self) -> Option<Instant> {
         if !self.window_focused || !takes_text(self.focused_sense()) {
             return None;
         }
@@ -930,6 +939,7 @@ impl<Id: WidgetId> UiState<Id> {
     }
 
     pub(crate) fn begin(&mut self, theme: &Theme) {
+        self.wake_at = None;
         if !self.fonts.as_ref().is_some_and(|f| f.matches(theme)) {
             self.fonts = Some(Rc::new(Fonts::new(theme)));
         }

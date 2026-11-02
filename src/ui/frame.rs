@@ -435,6 +435,13 @@ impl<Id: WidgetId> Ui<'_, Id> {
         self.state.tweens.keep_busy();
     }
 
+    /// Asks for a frame at `when`, for something that changes later with nothing else going on.
+    /// Read back from [`UiState::next_frame_at`]; ask again each frame.
+    pub fn wake_at(&mut self, when: Instant) {
+        let due = self.state.wake_at.get_or_insert(when);
+        *due = (*due).min(when);
+    }
+
     /// Whether a blinking caret shows now, so custom editors blink with the built-in fields.
     pub fn caret_on(&self) -> bool {
         caret_on(self.theme.caret_blink, self.state.blink_from.elapsed())

@@ -105,6 +105,7 @@ pub struct Button<'t> {
     enabled: bool,
     selected: bool,
     font: Option<&'t Font>,
+    part: u16,
 }
 
 impl<'t> Button<'t> {
@@ -118,6 +119,7 @@ impl<'t> Button<'t> {
             enabled: true,
             selected: false,
             font: None,
+            part: 0,
         }
     }
 
@@ -216,6 +218,12 @@ impl<'t> Button<'t> {
         }
     }
 
+    /// Draws as part `part` of its id, for a widget with several.
+    pub(crate) const fn part(mut self, part: u16) -> Self {
+        self.part = part;
+        self
+    }
+
     /// Draws it in `rect` and reports the input.
     pub fn show<Id: WidgetId>(
         self,
@@ -233,10 +241,10 @@ fn icon_size<Id: WidgetId>(ui: &Ui<'_, Id>) -> f32 {
 
 impl<Id: WidgetId> Widget<Id> for Button<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
-        let input = ui.interact(id, 0, rect, Sense::Click, self.enabled);
+        let input = ui.interact(id, self.part, rect, Sense::Click, self.enabled);
         #[cfg(feature = "accessibility")]
-        ui.accessible_description(id, 0, Role::Button, self.label, None);
-        let mut state = ui.eased(id, 0, input);
+        ui.accessible_description(id, self.part, Role::Button, self.label, None);
+        let mut state = ui.eased(id, self.part, input);
         let mut style = self
             .style
             .unwrap_or_else(|| ButtonStyle::new(ui.theme, self.tone));
