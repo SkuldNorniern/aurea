@@ -196,6 +196,11 @@ impl Theme {
         self
     }
 
+    /// The system's monospace font at `size`.
+    pub fn mono(&self, size: f32) -> Font {
+        Font::monospace(size)
+    }
+
     /// The theme's font at `size`.
     pub fn font(&self, size: f32) -> Font {
         Font::new(self.family(), size)

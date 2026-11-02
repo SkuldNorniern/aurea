@@ -60,6 +60,20 @@ impl Font {
         }
     }
 
+    /// The system's monospace font at `size`, for logs and terminals.
+    pub fn monospace(size: f32) -> Self {
+        let family = if cfg!(windows) {
+            "Consolas"
+        } else if cfg!(any(target_os = "macos", target_os = "ios")) {
+            "Menlo"
+        } else if cfg!(target_os = "android") {
+            "Droid Sans Mono"
+        } else {
+            "DejaVu Sans Mono"
+        };
+        Self::new(family, size)
+    }
+
     /// With OpenType feature `name` set to `value`, e.g. `("liga", 0)` for no ligatures or
     /// `("tnum", 1)` for figures of equal width.
     pub fn with_feature(mut self, name: &str, value: u32) -> Self {
