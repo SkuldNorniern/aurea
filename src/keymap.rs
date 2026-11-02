@@ -306,6 +306,20 @@ impl<A> Keymap<A> {
         self
     }
 
+    /// Binds `chord` to `action` unless it is bound already. A clash hands `action` back and leaves
+    /// the binding alone, in every build; [`Self::bind`] replaces it.
+    ///
+    /// # Errors
+    ///
+    /// `action`, when `chord` is bound already.
+    pub fn try_bind(&mut self, chord: Chord, action: A) -> Result<&mut Self, A> {
+        if self.bindings.iter().any(|(c, _)| *c == chord) {
+            return Err(action);
+        }
+        self.bindings.push((chord, action));
+        Ok(self)
+    }
+
     /// Binds `chord` to `action`, returning what it was bound to before.
     pub fn insert(&mut self, chord: Chord, action: A) -> Option<A> {
         match self.bindings.iter_mut().find(|(c, _)| *c == chord) {
@@ -447,6 +461,20 @@ mod tests {
         assert_eq!(map.chord_for(&Act::Save), Some(Chord::key(KeyCode::B)));
         map.unbind(Chord::key(KeyCode::B));
         assert_eq!(map.chord_for(&Act::Save), None);
+    }
+
+    #[test]
+    fn a_clash_is_caught_in_every_build() {
+        let mut map = Keymap::new();
+        map.try_bind(Chord::command(KeyCode::S), Act::Save)
+            .and_then(|map| map.try_bind(Chord::key(KeyCode::B), Act::Brush))
+            .expect("free chords bind");
+        assert_eq!(
+            map.try_bind(Chord::command(KeyCode::S), Act::Undo).err(),
+            Some(Act::Undo)
+        );
+        assert_eq!(map.action(Chord::command(KeyCode::S)), Some(&Act::Save));
+        assert_eq!(map.iter().count(), 2);
     }
 
     #[test]
