@@ -22,11 +22,11 @@ use super::text_edit::TextEdit;
 use super::theme::Theme;
 use super::widget::popup::Popup;
 use crate::fonts;
-use crate::reduced_motion;
 use crate::render::{Font, Path, Point, Rect, TextMetrics};
 use crate::window::{
     CursorIcon, KeyCode, Modifiers, MouseButton, PointerKind, Window, WindowEvent,
 };
+use crate::{is_touch, reduced_motion};
 
 /// What identifies a widget from one frame to the next: usually an app enum, like `Hit::Save` or
 /// `Hit::Volume`.
@@ -392,6 +392,8 @@ pub struct UiState<Id: WidgetId> {
     pub(crate) active: Option<Key<Id>>,
     pub(crate) focus: Option<Key<Id>>,
     pub(crate) focus_visible: bool,
+    /// The last thing the user did was on the keyboard, so focus given by the app shows its ring.
+    keyboard_last: bool,
     focus_seen: bool,
     pub(crate) clicked: Vec<Key<Id>>,
     /// Accepted release position, even when a touch has since left the surface.
@@ -468,6 +470,7 @@ impl<Id: WidgetId> UiState<Id> {
             active: None,
             focus: None,
             focus_visible: false,
+            keyboard_last: !is_touch(),
             focus_seen: false,
             clicked: Vec::new(),
             click_at: None,
@@ -540,6 +543,13 @@ impl<Id: WidgetId> UiState<Id> {
 
     /// Takes one window event, in the canvas's coordinates.
     pub fn handle(&mut self, event: &WindowEvent) -> bool {
+        match event {
+            WindowEvent::KeyInput { pressed: true, .. } => self.keyboard_last = true,
+            WindowEvent::MouseButton { pressed: true, .. } | WindowEvent::LongPress { .. } => {
+                self.keyboard_last = false;
+            }
+            _ => {}
+        }
         self.handle_event(event)
     }
 
@@ -845,10 +855,11 @@ impl<Id: WidgetId> UiState<Id> {
     }
 
     /// Gives the keyboard to part `part` of widget `id`, as if Tab had got there: a text field
-    /// selects all of its text.
+    /// selects all of its text. Its ring shows only when the keyboard was the last thing used, so
+    /// a finger or a click opening a card leaves none.
     pub fn focus(&mut self, id: Id, part: u16) {
         self.focus = Some(Key::new(id, part));
-        self.focus_visible = true;
+        self.focus_visible = self.keyboard_last;
         self.wants_frame = true;
     }
 
@@ -1649,6 +1660,24 @@ mod tests {
         );
         assert!(!state.handle_input(&WindowEvent::Unfocused).consumed);
         assert!(!state.popup_open(), "window focus loss dismisses popups");
+    }
+
+    #[test]
+    fn focus_from_the_app_rings_only_after_the_keyboard() {
+        let mut rig = Rig::<u8>::new(200, 100);
+        let ring = |rig: &mut Rig<u8>| {
+            rig.frame(|ui| {
+                ui.interact(1, 0, Rect::new(0.0, 50.0, 20.0, 20.0), Sense::Click, true)
+                    .focus_visible
+            })
+        };
+        ring(&mut rig);
+        rig.click(150.0, 10.0);
+        rig.state.focus(1, 0);
+        assert!(!ring(&mut rig), "after a click, no ring");
+        rig.key(KeyCode::F1);
+        rig.state.focus(1, 0);
+        assert!(ring(&mut rig), "after a key, a ring");
     }
 
     #[test]
