@@ -103,8 +103,16 @@ impl FaceData {
 
     /// Whether the face itself has a glyph for `ch`, not a fallback.
     pub fn has_char(&self, ch: char) -> bool {
+        self.glyph_index(ch) != 0
+    }
+
+    /// The face's glyph for `ch`, 0 when it has none.
+    pub(crate) fn glyph_index(&self, ch: char) -> u16 {
         SkrifaFont::from_index(&self.bytes, self.index)
-            .is_ok_and(|font| font.charmap().map(ch).is_some_and(|g| g != GlyphId::NOTDEF))
+            .ok()
+            .and_then(|font| font.charmap().map(ch))
+            .and_then(|g| u16::try_from(g.to_u32()).ok())
+            .unwrap_or(0)
     }
 
     /// The face's line gap, cap and x height, underline, and whether it is monospace, at `size`

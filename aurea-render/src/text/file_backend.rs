@@ -1,13 +1,12 @@
-//! fontdue glyph rasterizer — cross-platform fallback backend.
+//! Font files found on disk, drawn from their outlines: the backend everywhere but Windows.
 
-use crate::numeric::{f32_to_i32_clamped, f32_to_u8_clamped};
+use crate::numeric::f32_to_u8_clamped;
 use crate::text::glyph::{FaceData, FaceId, GlyphCoverage, GlyphKey};
 use crate::text::outline::outline_coverage;
 use crate::text::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph, variation_hash};
 use crate::text::{CacheKind, GLYPH_BYTES, GLYPH_CAP, LruCache, shared};
 use crate::types::{FontStyle, FontVariation, FontWeight};
 use aurea_foundation::{AureaError, AureaResult, lock};
-use fontdue::{Font, FontSettings};
 use std::collections::HashMap;
 #[cfg(not(target_os = "android"))]
 use std::env::var;
@@ -278,12 +277,6 @@ fn find_font_file<'a>(
         .map(|(_, _, path)| path.as_path())
 }
 
-struct Face {
-    font: Arc<Font>,
-    data: Arc<FaceData>,
-    varied: bool,
-}
-
 #[derive(Clone, PartialEq, Eq, Hash)]
 enum FaceSource {
     File(PathBuf),
@@ -308,14 +301,14 @@ struct Ids {
     recipes: Vec<Recipe>,
 }
 
-pub struct FontDbTextRasterizer {
+pub struct FontFileRasterizer {
     dirs: Vec<PathBuf>,
     files: OnceLock<Vec<FontFile>>,
     ids: Mutex<Ids>,
     /// Faces without variations. Few, and fallbacks rely on them, so they are never evicted.
-    pinned: Mutex<HashMap<FaceId, Arc<Face>>>,
+    pinned: Mutex<HashMap<FaceId, Arc<FaceData>>>,
     /// Faces with variations, the least recently used built again when next needed.
-    varied: Arc<Mutex<LruCache<FaceId, Arc<Face>>>>,
+    varied: Arc<Mutex<LruCache<FaceId, Arc<FaceData>>>>,
     /// Font file bytes by file. Weak, so the last face using a file frees it.
     file_bytes: Mutex<HashMap<FaceSource, Weak<Vec<u8>>>>,
     fallbacks: Vec<OnceLock<Option<FaceId>>>,
@@ -326,7 +319,7 @@ pub struct FontDbTextRasterizer {
 static EMBEDDED: LazyLock<Arc<Vec<u8>>> =
     LazyLock::new(|| Arc::new(include_bytes!("../../fonts/Tuffy.ttf").to_vec()));
 
-impl FontDbTextRasterizer {
+impl FontFileRasterizer {
     pub fn new() -> Self {
         Self {
             dirs: font_search_dirs(),
@@ -348,7 +341,7 @@ impl FontDbTextRasterizer {
         self.files.get_or_init(|| scan_font_files(&self.dirs))
     }
 
-    fn get(&self, face: FaceId) -> AureaResult<Arc<Face>> {
+    fn get(&self, face: FaceId) -> AureaResult<Arc<FaceData>> {
         if let Some(pinned) = lock(&self.pinned).get(&face) {
             return Ok(pinned.clone());
         }
@@ -388,23 +381,8 @@ impl FontDbTextRasterizer {
         }
     }
 
-    fn build(&self, source: &FaceSource, variations: &[FontVariation]) -> Option<Face> {
-        let bytes = self.bytes(source)?;
-        let font = Font::from_bytes(
-            &bytes[..],
-            FontSettings {
-                collection_index: 0,
-                ..FontSettings::default()
-            },
-        )
-        .ok()?;
-        let data = Arc::new(FaceData::new(bytes, 0, variations)?);
-        let varied = !data.coords().is_empty();
-        Some(Face {
-            font: Arc::new(font),
-            data,
-            varied,
-        })
+    fn build(&self, source: &FaceSource, variations: &[FontVariation]) -> Option<FaceData> {
+        FaceData::new(self.bytes(source)?, 0, variations)
     }
 
     /// The id of `source` at `variations`, built now if it is new. A face with variations may be
@@ -439,8 +417,7 @@ impl FontDbTextRasterizer {
     }
 
     fn has_glyph(&self, face: FaceId, ch: char) -> bool {
-        self.get(face)
-            .is_ok_and(|f| f.font.lookup_glyph_index(ch) != 0)
+        self.get(face).is_ok_and(|f| f.has_char(ch))
     }
 
     fn load_for_key(&self, font: FontRef) -> AureaResult<FaceId> {
@@ -456,13 +433,13 @@ impl FontDbTextRasterizer {
     }
 }
 
-impl Default for FontDbTextRasterizer {
+impl Default for FontFileRasterizer {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl PlatformTextRasterizer for FontDbTextRasterizer {
+impl PlatformTextRasterizer for FontFileRasterizer {
     fn face(&self, font: FontRef) -> AureaResult<FaceId> {
         let key = FontKey::from_font(font);
         if let Some(&hit) = lock(&self.font_cache).get(&key) {
@@ -484,14 +461,14 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
     }
 
     fn face_data(&self, face: FaceId) -> AureaResult<Arc<FaceData>> {
-        Ok(self.get(face)?.data.clone())
+        self.get(face)
     }
 
     fn face_metrics(&self, face: FaceId, size: f32) -> (f32, f32) {
-        self.get(face)
-            .ok()
-            .and_then(|f| f.font.horizontal_line_metrics(size))
-            .map_or((size * 0.8, size * 0.2), |lm| (lm.ascent, lm.descent.abs()))
+        self.get(face).map_or((size * 0.8, size * 0.2), |f| {
+            let m = f.metrics(size);
+            (m.ascent, m.descent)
+        })
     }
 
     fn rasterize_subpixel(
@@ -505,12 +482,7 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
             return Ok(hit);
         }
 
-        let f = self.get(face)?;
-        let glyph = if f.varied {
-            outline_subpixel(&f.data, glyph, size)
-        } else {
-            fontdue_subpixel(&f.font, glyph, size)
-        };
+        let glyph = outline_subpixel(self.get(face)?.as_ref(), glyph, size);
         let bytes = glyph.coverage.len();
         let g = Arc::new(glyph);
         lock(&self.subpixel_cache).insert_sized(key, g.clone(), bytes);
@@ -518,60 +490,7 @@ impl PlatformTextRasterizer for FontDbTextRasterizer {
     }
 
     fn rasterize_gray(&self, face: FaceId, glyph: u16, size: f32) -> AureaResult<GlyphCoverage> {
-        let f = self.get(face)?;
-        if f.varied {
-            return Ok(outline_coverage(&f.data, glyph, size, 1.0));
-        }
-        let (m, coverage) = f.font.rasterize_indexed(glyph, size);
-        let height = i32::try_from(m.height).expect("glyph height fits in i32");
-        Ok(GlyphCoverage {
-            width: u32::try_from(m.width).expect("glyph width fits in u32"),
-            height: height.unsigned_abs(),
-            left: m.xmin,
-            top: -(height + m.ymin),
-            coverage,
-        })
-    }
-}
-
-fn fontdue_subpixel(font: &Font, glyph: u16, size: f32) -> SubpixelGlyph {
-    let (m, bmp) = font.rasterize_indexed(glyph, size * 3.0);
-    let w3 = i32::try_from(m.width).expect("glyph width fits in i32");
-    let h3 = i32::try_from(m.height).expect("glyph height fits in i32");
-
-    if w3 <= 0 || h3 <= 0 {
-        SubpixelGlyph {
-            width: 0,
-            height: 0,
-            left: 0,
-            top: 0,
-            coverage: Vec::new(),
-        }
-    } else {
-        let dev_w = ((w3 + 2) / 3).max(1).unsigned_abs() as usize;
-        let dev_h = ((h3 + 2) / 3).max(1).unsigned_abs() as usize;
-        let sub_w = dev_w * 3;
-        let mut acc = vec![0f32; sub_w * dev_h];
-        for sy in 0..h3 {
-            let g_row = (sy * w3).unsigned_abs() as usize;
-            let dev_row = (sy / 3).unsigned_abs() as usize;
-            for sx in 0..w3 {
-                acc[dev_row * sub_w + sx.unsigned_abs() as usize] +=
-                    f32::from(bmp[g_row + sx.unsigned_abs() as usize]) / (255.0 * 3.0);
-            }
-        }
-        for v in acc.iter_mut() {
-            *v = v.min(1.0);
-        }
-        let coverage = lcd_filter(&acc, sub_w, dev_h);
-
-        SubpixelGlyph {
-            width: u32::try_from(dev_w).expect("glyph width fits in u32"),
-            height: u32::try_from(dev_h).expect("glyph height fits in u32"),
-            left: f32_to_i32_clamped((m.xmin as f32 / 3.0).round()),
-            top: -f32_to_i32_clamped(((h3 + m.ymin) as f32 / 3.0).round()),
-            coverage,
-        }
+        Ok(outline_coverage(self.get(face)?.as_ref(), glyph, size, 1.0))
     }
 }
 
@@ -655,12 +574,12 @@ mod tests {
 
     #[test]
     fn variation_faces_stay_bounded_and_come_back_under_their_id() {
-        let r = FontDbTextRasterizer::new();
+        let r = FontFileRasterizer::new();
         let plain = r.load(FaceSource::Embedded, &[]).expect("plain face");
         let first = r
             .load(FaceSource::Embedded, &[variation(100.0)])
             .expect("varied face");
-        let h = r.get(first).expect("face").font.lookup_glyph_index('H');
+        let h = r.get(first).expect("face").glyph_index('H');
         let before = r.rasterize_gray(first, h, 24.0).expect("coverage");
         for i in 0..500u16 {
             let id = r
@@ -697,7 +616,7 @@ mod tests {
         let path = temp_dir().join(format!("aurea-shared-{}.ttf", id()));
         write(&path, EMBEDDED.as_slice()).expect("write font");
         let source = FaceSource::File(path.clone());
-        let r = FontDbTextRasterizer::new();
+        let r = FontFileRasterizer::new();
         let plain = r.load(source.clone(), &[]).expect("plain face");
         let varied = r
             .load(source.clone(), &[variation(700.0)])
@@ -716,11 +635,11 @@ mod tests {
 
     #[test]
     fn trim_drops_variation_faces_and_they_are_built_again() {
-        let r = FontDbTextRasterizer::new();
+        let r = FontFileRasterizer::new();
         let face = r
             .load(FaceSource::Embedded, &[variation(300.0)])
             .expect("varied face");
-        let h = r.get(face).expect("face").font.lookup_glyph_index('H');
+        let h = r.get(face).expect("face").glyph_index('H');
         let before = r.rasterize_gray(face, h, 24.0).expect("coverage");
         let tally = lock(&r.varied).tally.clone();
         let source = Arc::downgrade(&r.varied);
@@ -741,7 +660,7 @@ mod tests {
 
     #[test]
     fn loads_a_font_or_fallback() {
-        let r = FontDbTextRasterizer::new();
+        let r = FontFileRasterizer::new();
         let font = Font::new("__no_such_font__", 14.0);
         let face = r
             .face((&font).into())
@@ -752,7 +671,7 @@ mod tests {
 
     #[test]
     fn a_missing_glyph_comes_from_a_fallback() {
-        let r = FontDbTextRasterizer::new();
+        let r = FontFileRasterizer::new();
         let font = Font::new("__no_such_font__", 14.0);
         let primary = r.face((&font).into()).expect("some font");
         let covered = (0..r.fallbacks.len())
@@ -765,12 +684,12 @@ mod tests {
 
     #[test]
     fn a_varied_face_is_drawn_from_its_outlines() {
-        let r = FontDbTextRasterizer::new();
+        let r = FontFileRasterizer::new();
         let at = |weight: f32| {
             let font = Font::new("Bahnschrift", 24.0).with_variation("wght", weight);
             let face = r.face((&font).into()).expect("some face");
             let f = r.get(face).expect("loaded");
-            (face, f.varied, f.font.lookup_glyph_index('H'))
+            (face, !f.coords().is_empty(), f.glyph_index('H'))
         };
         let ((light, varied, h), (heavy, _, _)) = (at(300.0), at(700.0));
         #[cfg(windows)]

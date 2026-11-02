@@ -143,8 +143,8 @@ pub fn get_platform_rasterizer() -> Box<dyn PlatformTextRasterizer> {
             return Box::new(dw);
         }
     }
-    use crate::text::fontdue_backend::FontDbTextRasterizer;
-    Box::new(FontDbTextRasterizer::new())
+    use crate::text::file_backend::FontFileRasterizer;
+    Box::new(FontFileRasterizer::new())
 }
 
 /// What a cached run or layout was built from beyond text and font.

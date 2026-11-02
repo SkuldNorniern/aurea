@@ -9,7 +9,7 @@ pub mod shape;
 
 #[cfg(windows)]
 mod directwrite_backend;
-mod fontdue_backend;
+mod file_backend;
 
 pub use glyph::*;
 pub use layout::*;
