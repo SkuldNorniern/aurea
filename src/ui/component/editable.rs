@@ -46,6 +46,8 @@ impl TextOutcome {
         input: Interaction,
         commit_on_blur: bool,
     ) {
+        ui.state.text_submitted |= self.submitted;
+        ui.state.text_cancelled |= self.cancelled;
         let targeted = input.enabled && ui.state.typed_targets.contains(&Some(key));
         let focused = input.focused && ui.state.focus == Some(key);
         let session = ui.state.editing.entry(key).or_default();

@@ -377,6 +377,10 @@ pub struct UiState<Id: WidgetId> {
     pub(crate) typed_targets: Vec<Option<Key<Id>>>,
     /// Escape left the focused widget this frame.
     pub(crate) escaped: bool,
+    /// A text widget took Enter this frame.
+    pub(crate) text_submitted: bool,
+    /// A text widget took Escape this frame.
+    pub(crate) text_cancelled: bool,
     hits: Vec<Hit<Id>>,
     last_hits: Vec<Hit<Id>>,
     /// `last_hits` by where they are, for the pointer's hit test.
@@ -451,6 +455,8 @@ impl<Id: WidgetId> UiState<Id> {
             typed: Vec::new(),
             typed_targets: Vec::new(),
             escaped: false,
+            text_submitted: false,
+            text_cancelled: false,
             hits: Vec::new(),
             last_hits: Vec::new(),
             hit_grid: HitGrid::default(),
@@ -1173,6 +1179,8 @@ impl<Id: WidgetId> UiState<Id> {
         self.click_at = None;
         self.typed.clear();
         self.escaped = false;
+        self.text_submitted = false;
+        self.text_cancelled = false;
         self.typed_targets.clear();
         self.press = None;
         self.secondary = None;
