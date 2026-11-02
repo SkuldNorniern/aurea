@@ -57,6 +57,22 @@ pub fn after_frame(call: impl FnOnce() + 'static) {
 }
 
 /// Asks for a frame, where the queue drains: the desktop loop, or the mobile host's next frame.
+/// Wakes the UI from any thread, for a worker that has something new to draw.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct WakeHandle;
+
+impl WakeHandle {
+    /// Asks for a frame.
+    pub fn wake(self) {
+        wake_host();
+    }
+}
+
+/// A handle a worker can keep, on every host.
+pub fn wake_handle() -> WakeHandle {
+    WakeHandle
+}
+
 fn wake_host() {
     FrameScheduler::wake();
     #[cfg(target_os = "ios")]

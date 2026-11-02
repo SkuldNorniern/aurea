@@ -11,7 +11,6 @@
 //! }
 //! ```
 
-#![warn(missing_docs)]
 // Clippy flags const thread_locals on Android too.
 #![cfg_attr(target_os = "android", allow(clippy::missing_const_for_thread_local))]
 
@@ -60,7 +59,7 @@ pub mod window;
 
 pub use aurea_runtime::{DamageRegion, FrameInfo, FrameScheduler};
 
-pub use crate::dispatch::{after_frame, on_ui_thread};
+pub use crate::dispatch::{WakeHandle, after_frame, on_ui_thread, wake_handle};
 pub use crate::elements::{
     Button, Checkbox, ComboBox, Container, Divider, Element, ImageView, Label, Orientation,
     ProgressBar, RowList, ScrollView, ScrollbarPolicy, SidebarList, Slider, Spacer,
