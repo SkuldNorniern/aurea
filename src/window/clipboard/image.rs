@@ -425,13 +425,6 @@ mod tests {
             ClipboardImage::from_bmp(&bmp_file(&bottom_up, 124, 0), 8192).unwrap(),
             image
         );
-        for len in 0..file.len() {
-            assert!(ClipboardImage::from_bmp(&file[..len], 8192).is_err());
-        }
-        let mut overlap = file.clone();
-        overlap[10..14].copy_from_slice(&14u32.to_le_bytes());
-        assert!(ClipboardImage::from_bmp(&overlap, 8192).is_err());
-        assert!(ClipboardImage::from_bmp(&file, file.len() - 1).is_err());
         assert_eq!(
             ClipboardImage::from_encoded(&image.to_png().unwrap(), 8192).unwrap(),
             image
@@ -440,6 +433,19 @@ mod tests {
             ClipboardImage::from_encoded(b"\xff\xd8\xff", 8192),
             Err(AureaError::Unsupported { .. })
         ));
+    }
+
+    #[test]
+    fn bmp_rejects_truncation_overlapping_offsets_and_budget_overflow() {
+        let dib = sample().to_dib().unwrap();
+        let file = bmp_file(&dib, 124, 7);
+        for len in 0..file.len() {
+            assert!(ClipboardImage::from_bmp(&file[..len], 8192).is_err());
+        }
+        let mut overlap = file.clone();
+        overlap[10..14].copy_from_slice(&14u32.to_le_bytes());
+        assert!(ClipboardImage::from_bmp(&overlap, 8192).is_err());
+        assert!(ClipboardImage::from_bmp(&file, file.len() - 1).is_err());
     }
 
     #[test]

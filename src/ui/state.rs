@@ -596,17 +596,7 @@ impl<Id: WidgetId> UiState<Id> {
         InputResponse { consumed, redraw }
     }
 
-    fn handle_event(&mut self, event: &WindowEvent) -> bool {
-        if !self.window_focused
-            && matches!(
-                event,
-                WindowEvent::KeyInput { .. }
-                    | WindowEvent::TextInput { .. }
-                    | WindowEvent::ImePreedit { .. }
-            )
-        {
-            return false;
-        }
+    fn update_input_source(&mut self, event: &WindowEvent) {
         #[cfg(feature = "accessibility")]
         if matches!(event, WindowEvent::Focused | WindowEvent::Unfocused)
             && let Some(bridge) = &mut self.accessibility
@@ -620,6 +610,20 @@ impl<Id: WidgetId> UiState<Id> {
             WindowEvent::Pen(_) => self.pointer_kind = PointerKind::Pen,
             _ => {}
         }
+    }
+
+    fn handle_event(&mut self, event: &WindowEvent) -> bool {
+        if !self.window_focused
+            && matches!(
+                event,
+                WindowEvent::KeyInput { .. }
+                    | WindowEvent::TextInput { .. }
+                    | WindowEvent::ImePreedit { .. }
+            )
+        {
+            return false;
+        }
+        self.update_input_source(event);
         match event {
             WindowEvent::MouseMove {
                 x, y, modifiers, ..
