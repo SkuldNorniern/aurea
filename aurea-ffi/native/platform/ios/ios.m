@@ -4,6 +4,7 @@
 #import "../../common/errors.h"
 #import "../../common/rust_callbacks.h"
 #import <UIKit/UIKit.h>
+#import <objc/runtime.h>
 
 int ng_ios_init(void) {
     return NG_SUCCESS;
@@ -374,10 +375,62 @@ int ng_platform_scroll_view_set_scrollbar(NGHandle scroll, int policy) {
     return NG_ERROR_UNSUPPORTED;
 }
 
+static char kDestroyIdKey;
+static char kChangeIdKey;
+static char kMinWidthKey;
+static char kMinHeightKey;
+
+@interface NGIOSChangeTarget : NSObject
+- (void)changed:(id)sender;
+@end
+
+@implementation NGIOSChangeTarget
+- (void)changed:(id)sender {
+    NSNumber* changeId = objc_getAssociatedObject(sender, &kChangeIdKey);
+    if (changeId) ng_invoke_custom_callback(changeId.unsignedIntValue);
+}
+@end
+
+static void ng_ios_enable_view(UIView* view, BOOL enabled) {
+    if ([view isKindOfClass:[UIControl class]]) ((UIControl*)view).enabled = enabled;
+    else if ([view isKindOfClass:[UILabel class]]) ((UILabel*)view).enabled = enabled;
+    for (UIView* sub in view.subviews) ng_ios_enable_view(sub, enabled);
+}
+
+void ng_ios_notify_destroyed(UIView* view) {
+    if (!view) return;
+    for (UIView* sub in [view.subviews copy]) ng_ios_notify_destroyed(sub);
+    NSNumber* watch = objc_getAssociatedObject(view, &kDestroyIdKey);
+    if (watch) {
+        objc_setAssociatedObject(view, &kDestroyIdKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        ng_invoke_custom_callback(watch.unsignedIntValue);
+    }
+}
+
+static void ng_ios_min_constraint(UIView* view, void* key, NSLayoutDimension* dimension, int value) {
+    NSLayoutConstraint* old = objc_getAssociatedObject(view, key);
+    if (old) old.active = NO;
+    NSLayoutConstraint* min = nil;
+    if (value > 0) {
+        min = [dimension constraintGreaterThanOrEqualToConstant:value];
+        min.priority = UILayoutPriorityRequired - 1;
+        min.active = YES;
+    }
+    objc_setAssociatedObject(view, key, min, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
 int ng_platform_label_set_style(NGHandle label, int style) {
-    (void)label;
-    (void)style;
-    return NG_ERROR_UNSUPPORTED;
+    if (!label) return NG_ERROR_INVALID_HANDLE;
+    if (style < NG_TEXT_STYLE_BODY || style > NG_TEXT_STYLE_HEADING) return NG_ERROR_INVALID_PARAMETER;
+    CGFloat size = UIFont.systemFontSize;
+    UIFont* font = style == NG_TEXT_STYLE_STRONG ? [UIFont systemFontOfSize:size weight:UIFontWeightSemibold]
+                 : style == NG_TEXT_STYLE_SMALL ? [UIFont systemFontOfSize:UIFont.smallSystemFontSize]
+                 : style == NG_TEXT_STYLE_HEADING ? [UIFont systemFontOfSize:size * 1.4 weight:UIFontWeightSemibold]
+                                                  : [UIFont systemFontOfSize:size];
+    UILabel* view = (__bridge UILabel*)label;
+    view.font = font;
+    [view invalidateIntrinsicContentSize];
+    return NG_SUCCESS;
 }
 
 int ng_platform_label_set_text(NGHandle handle, const char* text) {
@@ -405,15 +458,15 @@ void ng_platform_progress_bar_invalidate(NGHandle handle) {
 }
 
 int ng_platform_element_set_enabled(NGHandle element, int enabled) {
-    (void)element;
-    (void)enabled;
-    return NG_ERROR_UNSUPPORTED;
+    if (!element) return NG_ERROR_INVALID_HANDLE;
+    ng_ios_enable_view((__bridge UIView*)element, enabled ? YES : NO);
+    return NG_SUCCESS;
 }
 
 int ng_platform_element_watch_destroy(NGHandle element, unsigned int id) {
-    (void)element;
-    (void)id;
-    return NG_ERROR_UNSUPPORTED;
+    if (!element) return NG_ERROR_INVALID_HANDLE;
+    objc_setAssociatedObject((__bridge UIView*)element, &kDestroyIdKey, @(id), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return NG_SUCCESS;
 }
 
 int ng_platform_text_unit(void) {
@@ -462,39 +515,55 @@ int ng_platform_text_set_feature(NGHandle text, int feature, int on) {
 }
 
 int ng_platform_element_set_change_id(NGHandle element, unsigned int id) {
-    (void)element;
-    (void)id;
-    return NG_ERROR_UNSUPPORTED;
+    if (!element) return NG_ERROR_INVALID_HANDLE;
+    UIView* view = (__bridge UIView*)element;
+    if (![view isKindOfClass:[UIControl class]]) return NG_ERROR_UNSUPPORTED;
+    static NGIOSChangeTarget* target = nil;
+    if (!target) target = [[NGIOSChangeTarget alloc] init];
+    objc_setAssociatedObject(view, &kChangeIdKey, @(id), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [(UIControl*)view addTarget:target action:@selector(changed:) forControlEvents:UIControlEventValueChanged];
+    return NG_SUCCESS;
 }
 
 int ng_platform_element_set_visible(NGHandle element, int visible) {
-    (void)element;
-    (void)visible;
-    return NG_ERROR_UNSUPPORTED;
+    if (!element) return NG_ERROR_INVALID_HANDLE;
+    ((__bridge UIView*)element).hidden = visible ? NO : YES;
+    return NG_SUCCESS;
 }
 
 int ng_platform_element_set_min_size(NGHandle element, int width, int height) {
-    (void)element;
-    (void)width;
-    (void)height;
-    return NG_ERROR_UNSUPPORTED;
+    if (!element) return NG_ERROR_INVALID_HANDLE;
+    if (width < 0 || height < 0) return NG_ERROR_INVALID_PARAMETER;
+    UIView* view = (__bridge UIView*)element;
+    ng_ios_min_constraint(view, &kMinWidthKey, view.widthAnchor, width);
+    ng_ios_min_constraint(view, &kMinHeightKey, view.heightAnchor, height);
+    return NG_SUCCESS;
 }
 
 int ng_platform_element_set_accessible_name(NGHandle element, const char* name) {
-    (void)element;
-    (void)name;
-    return NG_ERROR_UNSUPPORTED;
+    if (!element) return NG_ERROR_INVALID_HANDLE;
+    if (!name) return NG_ERROR_INVALID_PARAMETER;
+    ((__bridge UIView*)element).accessibilityLabel = *name ? [NSString stringWithUTF8String:name] : nil;
+    return NG_SUCCESS;
 }
 
 int ng_platform_box_set_spacing(NGHandle box, int spacing) {
-    (void)box;
-    (void)spacing;
-    return NG_ERROR_UNSUPPORTED;
+    if (!box) return NG_ERROR_INVALID_HANDLE;
+    UIView* view = (__bridge UIView*)box;
+    if (![view isKindOfClass:[UIStackView class]]) return NG_ERROR_INVALID_HANDLE;
+    if (spacing < 0) return NG_ERROR_INVALID_PARAMETER;
+    ((UIStackView*)view).spacing = spacing;
+    return NG_SUCCESS;
 }
 
 int ng_platform_box_set_padding(NGHandle box, int padding) {
-    (void)box;
-    (void)padding;
-    return NG_ERROR_UNSUPPORTED;
+    if (!box) return NG_ERROR_INVALID_HANDLE;
+    UIView* view = (__bridge UIView*)box;
+    if (![view isKindOfClass:[UIStackView class]]) return NG_ERROR_INVALID_HANDLE;
+    if (padding < 0) return NG_ERROR_INVALID_PARAMETER;
+    UIStackView* stack = (UIStackView*)view;
+    stack.layoutMarginsRelativeArrangement = YES;
+    stack.layoutMargins = UIEdgeInsetsMake(padding, padding, padding, padding);
+    return NG_SUCCESS;
 }
 

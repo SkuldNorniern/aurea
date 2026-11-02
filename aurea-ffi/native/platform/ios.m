@@ -5,6 +5,7 @@
 #import "../common/errors.h"
 #import "../common/clipboard.h"
 #import <UIKit/UIKit.h>
+void ng_ios_notify_destroyed(UIView* view);
 #include <math.h>
 #include <string.h>
 
@@ -193,10 +194,12 @@ void ng_platform_image_view_set_scaling(NGHandle image_view, int scaling_mode) {
 }
 
 int ng_platform_image_view_get_size(NGHandle image_view, unsigned int* width, unsigned int* height) {
-    (void)image_view;
-    (void)width;
-    (void)height;
-    return NG_ERROR_UNSUPPORTED;
+    if (!image_view || !width || !height) return NG_ERROR_INVALID_PARAMETER;
+    UIImage* image = ((__bridge UIImageView*)image_view).image;
+    if (!image) return NG_ERROR_INVALID_HANDLE;
+    *width = (unsigned int)(image.size.width * image.scale);
+    *height = (unsigned int)(image.size.height * image.scale);
+    return NG_SUCCESS;
 }
 
 NGHandle ng_platform_create_slider(double min, double max) {
@@ -562,7 +565,9 @@ int ng_platform_window_set_cursor_rgba(NGHandle window, const unsigned char* rgb
 void ng_platform_destroy_element(NGHandle element) {
     if (!element) return;
     UIView* view = (__bridge_transfer UIView*)element;
-    if ([view isKindOfClass:[UIView class]]) [view removeFromSuperview];
+    if (![view isKindOfClass:[UIView class]]) return;
+    ng_ios_notify_destroyed(view);
+    [view removeFromSuperview];
 }
 
 void ng_platform_frame_idle(void) {
