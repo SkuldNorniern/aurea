@@ -62,21 +62,15 @@ void ng_platform_destroy_menu(NGMenuHandle handle) {
 
 int ng_platform_attach_menu(NGHandle _window, NGMenuHandle _menu) {
     (void)_window;
-    (void)_menu;
-    return NG_ERROR_UNSUPPORTED;
+    return ng_ios_attach_menu(_menu);
 }
 
 int ng_platform_add_menu_item(NGMenuHandle _menu, const char* _title, unsigned int _id) {
-    (void)_menu;
-    (void)_title;
-    (void)_id;
-    return NG_ERROR_UNSUPPORTED;
+    return ng_ios_add_menu_item(_menu, _title, _id);
 }
 
 NGMenuHandle ng_platform_create_submenu(NGMenuHandle _parentMenu, const char* _title) {
-    (void)_parentMenu;
-    (void)_title;
-    return NULL;
+    return ng_ios_create_submenu(_parentMenu, _title);
 }
 
 int ng_platform_run(void) {
@@ -516,33 +510,28 @@ NGHandle ng_platform_create_swiftui_host(int width, int height) {
 }
 
 int ng_platform_add_menu_check_item(NGMenuHandle m, const char* t, unsigned int id, int c, int r) {
-    (void)m; (void)t; (void)id; (void)c; (void)r;
-    return NG_ERROR_UNSUPPORTED;
+    (void)r;
+    return ng_ios_add_menu_check_item(m, t, id, c);
 }
 
 int ng_platform_menu_item_set_enabled(NGMenuHandle m, unsigned int id, int e) {
-    (void)m; (void)id; (void)e;
-    return NG_ERROR_UNSUPPORTED;
+    return ng_ios_menu_item_set_enabled(m, id, e);
 }
 
 int ng_platform_menu_item_set_checked(NGMenuHandle m, unsigned int id, int c) {
-    (void)m; (void)id; (void)c;
-    return NG_ERROR_UNSUPPORTED;
+    return ng_ios_menu_item_set_checked(m, id, c);
 }
 
 int ng_platform_menu_item_set_title(NGMenuHandle m, unsigned int id, const char* t) {
-    (void)m; (void)id; (void)t;
-    return NG_ERROR_UNSUPPORTED;
+    return ng_ios_menu_item_set_title(m, id, t);
 }
 
 int ng_platform_menu_item_remove(NGMenuHandle m, unsigned int id) {
-    (void)m; (void)id;
-    return NG_ERROR_UNSUPPORTED;
+    return ng_ios_menu_item_remove(m, id);
 }
 
 int ng_platform_menu_clear(NGMenuHandle m) {
-    (void)m;
-    return NG_ERROR_UNSUPPORTED;
+    return ng_ios_menu_clear(m);
 }
 
 char* ng_platform_file_dialog(NGHandle window, int kind, const char* title, const char* filters, const char* default_name, const char* directory, int multiple) {
@@ -668,8 +657,7 @@ int ng_platform_tray_notify(NGHandle tray, const char* title, const char* body) 
 }
 
 int ng_platform_add_menu_separator(NGMenuHandle menu) {
-    (void)menu;
-    return NG_ERROR_UNSUPPORTED;
+    return ng_ios_add_menu_separator(menu);
 }
 
 void ng_platform_box_invalidate(NGHandle box) {

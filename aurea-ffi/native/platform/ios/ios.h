@@ -24,6 +24,27 @@ int ng_ios_window_is_focused(NGHandle window);
 
 NGMenuHandle ng_ios_create_menu(void);
 void ng_ios_destroy_menu(NGMenuHandle handle);
+int ng_ios_attach_menu(NGMenuHandle menu);
+int ng_ios_add_menu_item(NGMenuHandle menu, const char* title, unsigned int item);
+int ng_ios_add_menu_check_item(NGMenuHandle menu, const char* title, unsigned int item, int checked);
+int ng_ios_add_menu_separator(NGMenuHandle menu);
+NGMenuHandle ng_ios_create_submenu(NGMenuHandle parent, const char* title);
+int ng_ios_menu_clear(NGMenuHandle menu);
+int ng_ios_menu_item_set_enabled(NGMenuHandle menu, unsigned int item, int enabled);
+int ng_ios_menu_item_set_checked(NGMenuHandle menu, unsigned int item, int checked);
+int ng_ios_menu_item_set_title(NGMenuHandle menu, unsigned int item, const char* title);
+int ng_ios_menu_item_remove(NGMenuHandle menu, unsigned int item);
+
+#ifdef __OBJC__
+#import <UIKit/UIKit.h>
+
+/* The key commands for the menu's shortcuts. */
+NSArray<UIKeyCommand*>* ng_ios_key_commands(void);
+/* Runs the menu item a key command stands for, when it is enabled. */
+void ng_ios_key_command(UIKeyCommand* key);
+/* Puts the app's menus into the menu bar. */
+void ng_ios_build_menu(id<UIMenuBuilder> builder);
+#endif
 
 NGHandle ng_ios_create_button(const char* title, unsigned int id);
 NGHandle ng_ios_create_label(const char* text);

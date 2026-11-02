@@ -142,7 +142,7 @@ impl Capability {
             Capability::WindowMinimization => false,
             Capability::WindowMaximization => false,
             Capability::FullscreenMode => true,
-            Capability::MenuBar => false,
+            Capability::MenuBar => matches!(mobile, MobilePlatform::IOS),
             Capability::ContextMenus => true,
             Capability::KeyboardShortcuts => true,
             Capability::FileDialogs => matches!(mobile, MobilePlatform::IOS),

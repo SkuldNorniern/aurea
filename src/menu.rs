@@ -111,11 +111,11 @@ impl MenuShortcut {
         let mut parts: Vec<String> = Vec::new();
 
         if self.primary {
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
             {
                 parts.push("Cmd".to_string());
             }
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(any(target_os = "macos", target_os = "ios")))]
             {
                 parts.push("Ctrl".to_string());
             }
@@ -123,7 +123,7 @@ impl MenuShortcut {
 
         if self.ctrl {
             parts.push(
-                if cfg!(target_os = "macos") {
+                if cfg!(any(target_os = "macos", target_os = "ios")) {
                     "Control"
                 } else {
                     "Ctrl"
@@ -172,7 +172,8 @@ impl MenuShortcut {
         let key = shortcut_key(chord.key)?;
         let m = chord.modifiers;
         let mut shortcut = Self::new(key);
-        let (primary, other) = if cfg!(target_os = "macos") {
+        let apple = cfg!(any(target_os = "macos", target_os = "ios"));
+        let (primary, other) = if apple {
             (m.meta, m.ctrl)
         } else {
             (m.ctrl, m.meta)
@@ -180,7 +181,7 @@ impl MenuShortcut {
         shortcut.primary = primary;
         shortcut.shift = m.shift;
         shortcut.alt = m.alt;
-        if cfg!(target_os = "macos") {
+        if apple {
             shortcut.ctrl = other;
         } else {
             shortcut.meta = other;
