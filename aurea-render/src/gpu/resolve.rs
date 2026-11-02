@@ -51,6 +51,7 @@ pub fn resolve_frame<B: Gpu2dBackend>(
         frame,
         &mut plan.gradients,
     )?;
+    upload_plain_images(&batches.images, cache, backend, frame)?;
     resolve_images(&batches.images, cache, backend, frame, &mut plan.images)?;
     resolve_texts(&batches.texts, cache, backend, frame, &mut plan.texts)?;
 
@@ -74,6 +75,32 @@ fn resolve_gradients<B: Gpu2dBackend>(
         });
     }
     Ok(())
+}
+
+/// Uploads this frame's new plain pixel images in one batch, so `resolve_images` hits them.
+/// Malformed images are skipped and fail in `resolve_images`.
+fn upload_plain_images<B: Gpu2dBackend>(
+    images: &[ImageDraw],
+    cache: &mut TextureCache,
+    backend: &mut B,
+    frame: u64,
+) -> AureaResult<()> {
+    let pending: Vec<_> = images
+        .iter()
+        .filter_map(|draw| match &draw.source {
+            ImageSource::Pixels(image) => {
+                let (iw, ih) = draw.source.size();
+                let expected = (iw as usize).saturating_mul(ih as usize).saturating_mul(4);
+                (iw > 0 && ih > 0 && image.data.len() == expected).then_some((
+                    &image.data,
+                    (iw, ih),
+                    draw.sampling == Sampling::Smooth,
+                ))
+            }
+            ImageSource::Texture(_) => None,
+        })
+        .collect();
+    cache.upload_plain(&pending, backend, frame)
 }
 
 fn resolve_images<B: Gpu2dBackend>(

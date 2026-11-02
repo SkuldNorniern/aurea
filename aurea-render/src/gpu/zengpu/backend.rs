@@ -25,7 +25,7 @@ use zengpu_hal::{
     TextureHandle, TextureRegion, TextureUsage, TextureWrite, Viewport, ViewportScissor,
     WindowHandles,
 };
-use zengpu_hal::{Submission, SubmissionStatus};
+use zengpu_hal::{GpuSubmission, Submission, SubmissionStatus};
 
 use crate::capabilities::GpuFeatures;
 use crate::gpu::backend::full_frame_plan;
@@ -100,6 +100,23 @@ fn track_upload(
         job.dependencies.extend(old.dependencies);
     }
     jobs.insert(texture, job);
+}
+
+/// One submission that several textures track, since a submission cannot be cloned.
+struct SharedWork(Arc<Submission>);
+
+impl GpuSubmission for SharedWork {
+    fn cycle_id(&self) -> u64 {
+        self.0.cycle_id()
+    }
+
+    fn poll(&self) -> Result<SubmissionStatus, GpuError> {
+        self.0.poll()
+    }
+
+    fn wait(&self, timeout: Duration) -> Result<(), GpuError> {
+        self.0.wait(timeout)
+    }
 }
 
 /// A GPU a context can open, for a "which GPU" setting.
@@ -408,6 +425,79 @@ fn make_image_texture(
         return Err(gpu_err(e));
     }
     Ok(texture)
+}
+
+/// One plain RGBA8 texture per image, all filled by one device write. On failure, the
+/// textures made so far are destroyed.
+fn make_plain_textures(
+    context: &ZenGpuContext,
+    images: &[(u32, u32, &[u8])],
+) -> AureaResult<Vec<TextureHandle>> {
+    if images
+        .iter()
+        .any(|&(width, height, rgba)| !valid_image(width, height, rgba))
+    {
+        return Err(AureaError::RenderingFailed);
+    }
+    context.collect_uploads().map_err(gpu_err)?;
+    let mut textures = Vec::with_capacity(images.len());
+    let work = fill_plain_textures(context, images, &mut textures);
+    match work {
+        Ok(work) => {
+            // The lock covers only the bookkeeping, not the write.
+            let mut jobs = context.mip_jobs.lock().unwrap_or_else(|p| p.into_inner());
+            for &texture in &textures {
+                track_upload(
+                    &mut jobs,
+                    texture,
+                    PendingMip {
+                        work: Box::new(SharedWork(Arc::clone(&work))),
+                        dependencies: Vec::new(),
+                        destroy: false,
+                    },
+                );
+            }
+            Ok(textures)
+        }
+        Err(e) => {
+            for texture in textures {
+                context.destroy_image(texture);
+            }
+            Err(gpu_err(e))
+        }
+    }
+}
+
+fn fill_plain_textures(
+    context: &ZenGpuContext,
+    images: &[(u32, u32, &[u8])],
+    textures: &mut Vec<TextureHandle>,
+) -> Result<Arc<Submission>, GpuError> {
+    let device = context.device();
+    for &(width, height, _) in images {
+        textures.push(device.create_texture(TextureDesc {
+            width,
+            height,
+            depth: 1,
+            format: Format::Rgba8Unorm,
+            usage: TextureUsage::SAMPLED | TextureUsage::TRANSFER_DST,
+            samples: 1,
+            dimension: TexDim::D2,
+            mip_levels: 1,
+            array_layers: 1,
+        })?);
+    }
+    let writes: Vec<TextureWrite<'_>> = images
+        .iter()
+        .zip(textures.iter())
+        .map(|(&(width, height, data), &texture)| TextureWrite {
+            texture,
+            region: TextureRegion::rect(0, 0, width, height),
+            data,
+            bytes_per_row: width * 4,
+        })
+        .collect();
+    Ok(Arc::new(device.write_textures(&writes)?))
 }
 
 /// GPU mip builds that failed and fell back to the CPU.
@@ -1066,6 +1156,30 @@ impl Gpu2dBackend for ZenGpuBackend {
             mip_levels(width, height),
             PixelFormat::Rgba8,
         )
+    }
+
+    fn upload_images(&mut self, images: &[(u32, u32, &[u8])]) -> AureaResult<Vec<u32>> {
+        if images.is_empty() {
+            return Ok(Vec::new());
+        }
+        let textures = make_plain_textures(&self.context, images)?;
+        let device = self.context.device();
+        let sampler = self.sampler;
+        let bound: Option<Vec<u32>> = textures
+            .iter()
+            .map(|&texture| device.bind_texture(texture, sampler))
+            .collect();
+        let Some(slots) = bound else {
+            // Destroying a texture also clears its bindless slot.
+            for texture in textures {
+                self.context.destroy_image(texture);
+            }
+            return Err(AureaError::RenderingFailed);
+        };
+        for (&slot, &texture) in slots.iter().zip(&textures) {
+            self.slot_textures.insert(slot, texture);
+        }
+        Ok(slots)
     }
 
     fn evict_image(&mut self, shader_slot: u32) {
@@ -2090,6 +2204,34 @@ mod context_tests {
             "owner releases the texture"
         );
         context.device().destroy_sampler(sampler);
+    }
+
+    #[test]
+    fn a_batch_of_plain_images_draws_each_its_own() {
+        let Ok(context) = ZenGpuContext::new() else {
+            return;
+        };
+        let mut gpu = ZenGpuRenderer::offscreen(Arc::new(context), 30, 10, 1.0).unwrap();
+        let images = [[255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255]]
+            .map(|rgba: [u8; 4]| Image::new(2, 2, rgba.repeat(4)));
+        {
+            let mut ctx = gpu.begin_frame().unwrap();
+            ctx.set_sampling(Sampling::Nearest).unwrap();
+            for (i, image) in (0u8..).zip(&images) {
+                let at = Rect::new(f32::from(i) * 10.0, 0.0, 10.0, 10.0);
+                ctx.draw_image_rect(image, at).unwrap();
+            }
+        }
+        assert_eq!(gpu.end_frame().unwrap(), FrameOutcome::Presented);
+        let out = gpu.frame_output().expect("pixels");
+        let bytes = out.bytes();
+        let bgr = |x: usize| {
+            let i = (5 * out.width as usize + x) * 4;
+            [bytes[i], bytes[i + 1], bytes[i + 2]]
+        };
+        assert_eq!(bgr(5), [0, 0, 255]);
+        assert_eq!(bgr(15), [0, 255, 0]);
+        assert_eq!(bgr(25), [255, 0, 0]);
     }
 
     #[test]

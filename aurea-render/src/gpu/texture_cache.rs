@@ -1,6 +1,6 @@
 //! Backend-agnostic LRU texture cache for the GPU-2D core.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use aurea_foundation::AureaResult;
@@ -72,6 +72,9 @@ impl CacheKey {
         }
     }
 }
+
+/// Pixels, size and whether the draw is smooth.
+type PlainUpload<'a> = (&'a Arc<[u8]>, (u32, u32), bool);
 
 struct Entry {
     slot: u32,
@@ -255,6 +258,65 @@ impl TextureCache {
             },
         );
         Ok(slot)
+    }
+
+    /// Upload the uncached plain images in `pending` with one backend call and cache them, so
+    /// the draws that follow hit. Repeats upload once. A key flagged `smooth` anywhere in
+    /// `pending` is left to [`resolve`](Self::resolve).
+    pub fn upload_plain<B: Gpu2dBackend>(
+        &mut self,
+        pending: &[PlainUpload<'_>],
+        backend: &mut B,
+        frame: u64,
+    ) -> AureaResult<()> {
+        let smooth: HashSet<CacheKey> = pending
+            .iter()
+            .filter(|(_, _, smooth)| *smooth)
+            .map(|&(pixels, (width, height), _)| CacheKey::from_pixels(pixels, width, height))
+            .collect();
+        let mut seen = HashSet::new();
+        let mut fresh = Vec::new();
+        for &(pixels, (width, height), _) in pending {
+            let key = CacheKey::from_pixels(pixels, width, height);
+            if !self.map.contains_key(&key) && !smooth.contains(&key) && seen.insert(key) {
+                fresh.push((key, pixels, width, height));
+            }
+        }
+        if fresh.is_empty() {
+            return Ok(());
+        }
+        self.clock += 1;
+        let clock = self.clock;
+        self.free_retired(backend, frame);
+
+        let total: usize = fresh
+            .iter()
+            .map(|&(_, _, width, height)| texture_bytes(width, height, false))
+            .sum();
+        self.trim(backend, frame, fresh.len(), total);
+        let slots = backend.upload_images(
+            &fresh
+                .iter()
+                .map(|&(_, pixels, width, height)| (width, height, &pixels[..]))
+                .collect::<Vec<_>>(),
+        )?;
+        for ((key, pixels, width, height), slot) in fresh.into_iter().zip(slots) {
+            let bytes = texture_bytes(width, height, false);
+            self.bytes += bytes;
+            self.map.insert(
+                key,
+                Entry {
+                    slot,
+                    keepalive: Arc::clone(pixels),
+                    last_used: clock,
+                    frame,
+                    resolved_frame: frame,
+                    mipmapped: false,
+                    bytes,
+                },
+            );
+        }
+        Ok(())
     }
 
     /// Release entries whose source pixel buffer has been dropped by the caller (i.e. `strong_count

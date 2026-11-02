@@ -658,6 +658,7 @@ mod tests {
         accepts_bgra: bool,
         orders: Vec<Vec<DrawRef>>,
         uploads: usize,
+        batches: usize,
         evicted: usize,
         bound: usize,
         pixels_device_lost: bool,
@@ -672,6 +673,14 @@ mod tests {
         fn upload_image(&mut self, _: u32, _: u32, _: &[u8]) -> AureaResult<u32> {
             self.uploads += 1;
             Ok(0)
+        }
+
+        fn upload_images(&mut self, images: &[(u32, u32, &[u8])]) -> AureaResult<Vec<u32>> {
+            self.batches += 1;
+            images
+                .iter()
+                .map(|&(w, h, rgba)| self.upload_image(w, h, rgba))
+                .collect()
         }
 
         fn bind_texture(&mut self, texture: GpuTexture) -> AureaResult<u32> {
@@ -735,11 +744,46 @@ mod tests {
             accepts_bgra: false,
             orders: Vec::new(),
             uploads: 0,
+            batches: 0,
             evicted: 0,
             bound: 0,
             pixels_device_lost: false,
         };
         Gpu2dRenderer::from_backend(probe, 100, 50, 1.0)
+    }
+
+    #[test]
+    fn new_plain_images_upload_in_one_batch() {
+        let mut r = renderer(FrameOutcome::Presented);
+        let images: Vec<_> = (0..3).map(|_| Image::new(1, 1, vec![255; 4])).collect();
+        let smooth = Image::new(1, 1, vec![255; 4]);
+        {
+            let mut ctx = r.begin_frame().expect("begin");
+            for image in images.iter().chain(&images[..1]) {
+                ctx.draw_image(image, Point::new(0.0, 0.0)).expect("image");
+            }
+            ctx.set_sampling(Sampling::Smooth).expect("sampling");
+            ctx.draw_image(&smooth, Point::new(0.0, 0.0))
+                .expect("smooth");
+        }
+        r.end_frame().expect("frame");
+        assert_eq!(
+            (r.backend().batches, r.backend().uploads),
+            (1, 4),
+            "three plain images share one batch, a repeat uploads once, the smooth one goes alone"
+        );
+        {
+            let mut ctx = r.begin_frame().expect("begin");
+            for image in &images {
+                ctx.draw_image(image, Point::new(0.0, 0.0)).expect("image");
+            }
+        }
+        r.end_frame().expect("frame");
+        assert_eq!(
+            (r.backend().batches, r.backend().uploads),
+            (1, 4),
+            "cached images do not upload again"
+        );
     }
 
     #[test]

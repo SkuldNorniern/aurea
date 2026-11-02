@@ -62,6 +62,25 @@ pub trait Gpu2dBackend {
         self.upload_image(width, height, rgba)
     }
 
+    /// Upload several RGBA8 images as [`upload_image`](Self::upload_image) would, one `(width,
+    /// height, rgba)` each, and return their slots in order. A backend that can submit them
+    /// together overrides this. On error, nothing uploaded is left behind.
+    fn upload_images(&mut self, images: &[(u32, u32, &[u8])]) -> AureaResult<Vec<u32>> {
+        let mut slots = Vec::with_capacity(images.len());
+        for &(width, height, rgba) in images {
+            match self.upload_image(width, height, rgba) {
+                Ok(slot) => slots.push(slot),
+                Err(e) => {
+                    for slot in slots {
+                        self.evict_image(slot);
+                    }
+                    return Err(e);
+                }
+            }
+        }
+        Ok(slots)
+    }
+
     /// Release the GPU texture at `shader_slot` (previously returned by
     /// [`upload_image`](Self::upload_image)).
     fn evict_image(&mut self, shader_slot: u32);
