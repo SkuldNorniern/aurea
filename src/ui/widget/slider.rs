@@ -9,7 +9,7 @@ use crate::render::{Color, Rect};
 use crate::ui::accessibility::{Action, ActionData};
 use crate::ui::component::{FocusRing, Knob, StateColors, Track};
 use crate::ui::frame::{Response, Ui};
-use crate::ui::paint::{Component, Shadow};
+use crate::ui::paint::{Component, Label, Shadow};
 use crate::ui::state::{Channel, Interaction, Key, Sense, WidgetId};
 use crate::ui::theme::Theme;
 use crate::window::KeyCode;
@@ -70,7 +70,11 @@ pub struct Slider<'v> {
     style: Option<SliderStyle>,
     enabled: bool,
     vertical: bool,
+    readout: Option<&'v str>,
 }
+
+/// Width of the readout beside a horizontal slider.
+const READOUT_WIDTH: f32 = 44.0;
 
 /// Geometry and native colors supplied to a custom slider track painter.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -103,7 +107,15 @@ impl<'v> Slider<'v> {
             style: None,
             enabled: true,
             vertical: false,
+            readout: None,
         }
+    }
+
+    /// Shows `text` beside the track: at the right of a horizontal slider, under a vertical one.
+    /// The track keeps the input.
+    pub fn readout(mut self, text: &'v str) -> Self {
+        self.readout = Some(text);
+        self
     }
 
     /// Runs bottom to top, for a fader.
@@ -276,6 +288,35 @@ impl Slider<'_> {
         }
     }
 
+    /// The track area and, with a readout, the strip its text takes.
+    fn split_readout(&self, rect: Rect, line: f32) -> (Rect, Option<Rect>) {
+        match self.readout {
+            None => (rect, None),
+            Some(_) if self.vertical => {
+                let (text, track) = rect.split_bottom(line, 0.0);
+                (track, Some(text))
+            }
+            Some(_) => {
+                let (text, track) = rect.split_right(READOUT_WIDTH, 0.0);
+                (track, Some(text))
+            }
+        }
+    }
+
+    fn paint_readout<Id: WidgetId>(
+        &self,
+        ui: &mut Ui<'_, Id>,
+        strip: Option<Rect>,
+    ) -> AureaResult<()> {
+        match (self.readout, strip) {
+            (Some(text), Some(strip)) => Label::new(text, ui.theme.palette.dim)
+                .small()
+                .centered()
+                .paint(ui, strip),
+            _ => Ok(()),
+        }
+    }
+
     fn groove(&self, rect: Rect, r: f32) -> Rect {
         if self.vertical {
             rect.inset_xy(0.0, r)
@@ -300,15 +341,16 @@ impl Slider<'_> {
         painter: impl FnOnce(&mut Ui<'_, Id>, SliderTrack) -> AureaResult<()>,
     ) -> AureaResult<Response> {
         let style = self.style.unwrap_or_else(|| SliderStyle::new(ui.theme));
-        let r = style.knob_radius.min(self.across(rect) / 2.0);
-        let input = ui.interact(id, 0, rect, Sense::Adjust, self.enabled);
+        let (area, strip) = self.split_readout(rect, ui.theme.text_size * 1.4);
+        let r = style.knob_radius.min(self.across(area) / 2.0);
+        let input = ui.interact(id, 0, area, Sense::Adjust, self.enabled);
         let mut response = Response::new(rect, input);
         let (lo, hi) = (*self.range.start(), *self.range.end());
         let span = hi - lo;
         let before = *self.value;
         #[cfg(feature = "accessibility")]
         self.accessibility(ui, id, (lo, hi));
-        let groove = self.groove(rect, r);
+        let groove = self.groove(area, r);
         if input.held {
             self.pointer(ui, id, groove, (lo, span));
         } else {
@@ -370,7 +412,7 @@ impl Slider<'_> {
             )
         })?;
         let size = r * (1.0 + 0.12 * state.hover - 0.08 * state.press);
-        let (x, y) = self.knob_center(rect, groove, shown);
+        let (x, y) = self.knob_center(area, groove, shown);
         let at = Rect::new(x - size, y - size, size * 2.0, size * 2.0);
         FocusRing::new(ui.theme, size, state.focus).paint(ui, at)?;
         let dot = style.dot.fade(fade * (0.4 + 0.6 * state.press));
@@ -382,6 +424,7 @@ impl Slider<'_> {
             });
         }
         knob.paint(ui, at)?;
+        self.paint_readout(ui, strip)?;
         Ok(response)
     }
 }
@@ -587,6 +630,99 @@ mod tests {
         });
         draw(&mut state, &mut value);
         assert!((value - 75.0).abs() < 0.5, "{value}");
+    }
+
+    #[test]
+    fn a_horizontal_readout_leaves_its_strip_out_of_the_track() {
+        let (mut raster, mut state, mut value) =
+            (CpuRasterizer::new(218, 24), UiState::<u8>::new(), 0.0);
+        let mut draw = |state: &mut UiState<u8>, value: &mut f32| {
+            let theme = Theme::dark();
+            let mut ctx = raster.begin_frame().expect("frame");
+            {
+                let mut ui = state.frame(&mut *ctx, &theme);
+                Slider::new(value, -100.0..=100.0)
+                    .origin(0.0)
+                    .readout("0")
+                    .show(&mut ui, 1, Rect::new(0.0, 0.0, 218.0, 24.0))
+                    .expect("draw");
+            }
+            drop(ctx);
+            raster.end_frame().expect("end");
+        };
+        draw(&mut state, &mut value);
+        state.handle(&WindowEvent::MouseButton {
+            button: MouseButton::Left,
+            pressed: true,
+            modifiers: Modifiers::default(),
+            x: 200.0,
+            y: 12.0,
+            click_count: 1,
+            time: Default::default(),
+            pointer: PointerKind::Mouse,
+        });
+        draw(&mut state, &mut value);
+        assert_eq!(value, 0.0, "the readout strip is not the track");
+
+        button(&mut state, 100.0, true, 1);
+        draw(&mut state, &mut value);
+        assert!((value - 16.7).abs() < 1.0, "{value}");
+    }
+
+    #[test]
+    fn a_vertical_readout_sits_under_the_track() {
+        let theme = Theme::dark();
+        let (mut raster, mut state, mut value) =
+            (CpuRasterizer::new(24, 218), UiState::<u8>::new(), 0.0);
+        let mut draw = |state: &mut UiState<u8>, value: &mut f32| {
+            let mut ctx = raster.begin_frame().expect("frame");
+            {
+                let mut ui = state.frame(&mut *ctx, &theme);
+                Slider::new(value, 0.0..=100.0)
+                    .vertical()
+                    .readout("0")
+                    .show(&mut ui, 1, Rect::new(0.0, 0.0, 24.0, 218.0))
+                    .expect("draw");
+            }
+            drop(ctx);
+            raster.end_frame().expect("end");
+        };
+        draw(&mut state, &mut value);
+        state.handle(&WindowEvent::MouseButton {
+            button: MouseButton::Left,
+            pressed: true,
+            modifiers: Modifiers::default(),
+            x: 12.0,
+            y: 217.0,
+            click_count: 1,
+            time: Default::default(),
+            pointer: PointerKind::Mouse,
+        });
+        draw(&mut state, &mut value);
+        assert_eq!(value, 0.0, "the readout strip is not the track");
+        state.handle(&WindowEvent::MouseButton {
+            button: MouseButton::Left,
+            pressed: false,
+            modifiers: Modifiers::default(),
+            x: 12.0,
+            y: 217.0,
+            click_count: 1,
+            time: Default::default(),
+            pointer: PointerKind::Mouse,
+        });
+        draw(&mut state, &mut value);
+        state.handle(&WindowEvent::MouseButton {
+            button: MouseButton::Left,
+            pressed: true,
+            modifiers: Modifiers::default(),
+            x: 12.0,
+            y: 59.0,
+            click_count: 1,
+            time: Default::default(),
+            pointer: PointerKind::Mouse,
+        });
+        draw(&mut state, &mut value);
+        assert!(value > 50.0, "the track above it is: {value}");
     }
 
     #[test]

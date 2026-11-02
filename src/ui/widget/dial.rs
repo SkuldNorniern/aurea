@@ -11,7 +11,7 @@ use crate::render::{Color, LineCap, Paint, PaintStyle, Path, Point, Rect};
 use crate::ui::accessibility::Role;
 use crate::ui::component::FocusRing;
 use crate::ui::frame::{Response, Ui};
-use crate::ui::paint::Component;
+use crate::ui::paint::{Component, Label};
 use crate::ui::state::{Channel, Sense, WidgetId};
 use crate::ui::theme::Theme;
 use crate::window::KeyCode;
@@ -73,6 +73,7 @@ pub struct Dial<'v> {
     reset: Option<f32>,
     style: Option<DialStyle>,
     enabled: bool,
+    readout: Option<&'v str>,
 }
 
 impl<'v> Dial<'v> {
@@ -86,7 +87,14 @@ impl<'v> Dial<'v> {
             reset: None,
             style: None,
             enabled: true,
+            readout: None,
         }
+    }
+
+    /// Shows `text` in a line under the ring, and sizes the ring in what is left.
+    pub fn readout(mut self, text: &'v str) -> Self {
+        self.readout = Some(text);
+        self
     }
 
     /// Fill from `origin`, not the start.
@@ -148,6 +156,31 @@ impl<'v> Dial<'v> {
         ui.set_animated(id, 0, LAST_Y, at.y);
     }
 
+    /// The ring area and, with a readout, the line its text takes under it.
+    fn split_readout(&self, rect: Rect, line: f32) -> (Rect, Option<Rect>) {
+        match self.readout {
+            Some(_) => {
+                let (text, ring) = rect.split_bottom(line, 0.0);
+                (ring, Some(text))
+            }
+            None => (rect, None),
+        }
+    }
+
+    fn paint_readout<Id: WidgetId>(
+        &self,
+        ui: &mut Ui<'_, Id>,
+        line: Option<Rect>,
+    ) -> AureaResult<()> {
+        match (self.readout, line) {
+            (Some(text), Some(line)) => Label::new(text, ui.theme.palette.dim)
+                .small()
+                .centered()
+                .paint(ui, line),
+            _ => Ok(()),
+        }
+    }
+
     fn keys<Id: WidgetId>(&mut self, ui: &Ui<'_, Id>, span: f32) {
         let step = self.step.unwrap_or(span / 100.0);
         for (key, _) in ui.keys() {
@@ -165,7 +198,8 @@ impl<'v> Dial<'v> {
 impl<Id: WidgetId> Widget<Id> for Dial<'_> {
     fn show(mut self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
         let style = self.style.unwrap_or_else(|| DialStyle::new(ui.theme));
-        let input = ui.interact(id, 0, rect, Sense::Adjust, self.enabled);
+        let (area, line) = self.split_readout(rect, ui.theme.text_size * 1.4);
+        let input = ui.interact(id, 0, area, Sense::Adjust, self.enabled);
         let mut response = Response::new(rect, input);
         let (lo, hi) = (*self.range.start(), *self.range.end());
         let span = hi - lo;
@@ -214,8 +248,8 @@ impl<Id: WidgetId> Widget<Id> for Dial<'_> {
             ui.animate(id, 0, Channel::Value, t, rate)
         };
         let fade = state.enabled;
-        let c = rect.center();
-        let radius = (rect.width.min(rect.height) - style.thickness).max(0.0) / 2.0;
+        let c = area.center();
+        let radius = (area.width.min(area.height) - style.thickness).max(0.0) / 2.0;
         let angle = |t: f32| START + SWEEP * t;
         let stroke = |color: Color| {
             Paint::new()
@@ -241,6 +275,7 @@ impl<Id: WidgetId> Widget<Id> for Dial<'_> {
         ui.line(at(face * 0.4), at(face * 0.85), 2.0, style.mark.fade(fade))?;
         let knob = Rect::new(c.x - face, c.y - face, face * 2.0, face * 2.0);
         FocusRing::new(ui.theme, face, state.focus).paint(ui, knob)?;
+        self.paint_readout(ui, line)?;
         Ok(response)
     }
 }
@@ -319,6 +354,39 @@ mod tests {
         button(&mut state, 20.0, true, 2);
         frame(&mut raster, &mut state, &mut value);
         assert_eq!(value, 50.0);
+    }
+
+    #[test]
+    fn a_readout_takes_a_line_the_ring_does_not_reach() {
+        let mut raster = CpuRasterizer::new(40, 60);
+        let mut state = UiState::new();
+        let mut value = 20.0;
+        let mut draw = |state: &mut UiState<u8>, value: &mut f32| {
+            let theme = Theme::dark();
+            let mut ctx = raster.begin_frame().expect("frame");
+            {
+                let mut ui = state.frame(&mut *ctx, &theme);
+                Dial::new(value, 0.0..=100.0)
+                    .readout("20")
+                    .show(&mut ui, 1, Rect::new(0.0, 0.0, 40.0, 60.0))
+                    .expect("draw");
+            }
+            drop(ctx);
+            raster.end_frame().expect("end");
+        };
+        draw(&mut state, &mut value);
+        button(&mut state, 59.0, true, 1);
+        draw(&mut state, &mut value);
+        moved(&mut state, 0.0, false);
+        draw(&mut state, &mut value);
+        button(&mut state, 0.0, false, 1);
+        assert_eq!(value, 20.0, "the text line is not the dial");
+
+        button(&mut state, 5.0, true, 1);
+        draw(&mut state, &mut value);
+        moved(&mut state, 0.0, false);
+        draw(&mut state, &mut value);
+        assert!((value - 22.5).abs() < 0.01, "the ring is: {value}");
     }
 
     #[test]
