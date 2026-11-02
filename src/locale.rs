@@ -28,11 +28,21 @@ pub fn locale() -> Option<String> {
     locales().into_iter().next()
 }
 
-#[cfg(not(all(
-    unix,
-    not(target_os = "macos"),
-    not(target_os = "ios"),
-    not(target_os = "android")
+#[cfg(target_os = "android")]
+fn from_platform() -> Vec<String> {
+    use crate::android::language_tags;
+
+    language_tags()
+}
+
+#[cfg(not(any(
+    all(
+        unix,
+        not(target_os = "macos"),
+        not(target_os = "ios"),
+        not(target_os = "android")
+    ),
+    target_os = "android"
 )))]
 fn from_platform() -> Vec<String> {
     use std::os::raw::c_char;

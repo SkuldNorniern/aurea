@@ -160,6 +160,25 @@ pub(crate) fn cache_dir() -> Option<PathBuf> {
     app_folder(&DIR, "getCacheDir")
 }
 
+/// The system's languages, most preferred first; none before the Activity is up.
+pub(crate) fn language_tags() -> Vec<String> {
+    let tags = with_activity(|env, activity| {
+        let tags = env
+            .call_method(activity, "localesFromNative", "()Ljava/lang/String;", &[])
+            .ok()?
+            .l()
+            .ok()?;
+        let tags: String = env.get_string(&JString::from(tags)).ok()?.into();
+        Some(tags)
+    })
+    .flatten()
+    .unwrap_or_default();
+    tags.split(',')
+        .filter(|tag| !tag.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
 /// The path of the `java.io.File` the Activity's `getter` returns, kept once read.
 fn app_folder(slot: &OnceLock<PathBuf>, getter: &str) -> Option<PathBuf> {
     if let Some(dir) = slot.get() {

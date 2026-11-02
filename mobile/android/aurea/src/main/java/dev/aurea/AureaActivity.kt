@@ -7,6 +7,7 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.LocaleList
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.Choreographer
@@ -319,6 +320,10 @@ abstract class AureaActivity :
     fun setTextAreaFromNative(x: Float, y: Float, width: Float, height: Float) {
         runOnUiThread { surface.setTextArea(x, y, width, height) }
     }
+
+    /** The system's languages, most preferred first, as comma-separated BCP 47 tags. */
+    @Suppress("unused")
+    fun localesFromNative(): String = LocaleList.getDefault().toLanguageTags()
 
     /** False when no app handles it. */
     @Suppress("unused")
