@@ -24,22 +24,28 @@ fn main() -> AureaResult<()> {
 
 ## Support
 
-| | Windows | macOS | Linux (GTK3) |
-| --- | --- | --- | --- |
-| Windows, native widgets | yes | yes | yes |
-| Canvas widgets | yes | yes | yes |
-| IME | yes | yes | yes |
-| Pen pressure and tilt | yes | untested on a tablet | untested on a tablet |
-| Fractional scaling | yes | yes | whole scales only |
+| | Windows | macOS | Linux (GTK3) | iOS, iPadOS | Android |
+| --- | --- | --- | --- | --- | --- |
+| Windows | yes | yes | yes | one full-screen host | one full-screen host |
+| Native widgets | yes | yes | yes | some | no |
+| Native menu bar | yes | yes | yes | no | no |
+| Canvas widgets | yes | yes | yes | yes | yes |
+| IME | yes | yes | yes | yes | yes |
+| Pen pressure and tilt | yes | untested on a tablet | untested on a tablet | yes | untested on a stylus |
+| Fractional scaling | yes | yes | whole scales only | not needed | yes |
+| File pickers | yes | yes | yes | yes | no |
+| Screen readers | yes | yes | yes | no | no |
 
-iOS and Android are experimental; their sample apps are in [`mobile/`](mobile/). On GPU
-backends, blend modes other than normal draw through the CPU.
+iOS and Android are experimental; their sample apps are in [`mobile/`](mobile/). Mobile apps draw
+with canvas widgets. On GPU backends, blend modes other than normal draw through the CPU.
 
 ## Features
 
 - `zengpu`: GPU rendering through ZenGPU, on Metal on macOS and Vulkan
   elsewhere. Experimental.
 - `wgpu`: wgpu renderer and surface helpers.
+- `accessibility`: screen reader support for canvas widgets, through AccessKit.
+- `mobile`: iOS and Android hosts.
 
 ## Examples
 

@@ -10,8 +10,7 @@ use std::panic::catch_unwind;
 ///
 /// # Safety
 ///
-/// This function is exported for the native platform layer. It must be called
-/// from a thread where the platform event queue and UI objects may be accessed.
+/// Call from a thread that may touch the platform event queue and UI objects.
 pub unsafe extern "C" fn ng_process_frames() {
     let result = catch_unwind(|| {
         dispatch::drain();

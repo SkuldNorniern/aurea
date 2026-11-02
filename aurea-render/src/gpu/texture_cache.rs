@@ -23,6 +23,7 @@ const BOUND_CAP: usize = 1024;
 /// frame stay pinned and may exceed either limit; app-owned textures are separate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GpuCacheLimits {
+    /// Texture count.
     pub max_textures: usize,
     /// RGBA8 mip payload bytes, excluding driver alignment and allocator overhead.
     pub max_bytes: usize,
@@ -41,11 +42,15 @@ impl Default for GpuCacheLimits {
 /// sizes and in-flight resources already handed back to the backend are excluded.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GpuCacheStats {
+    /// Cached textures.
     pub textures: usize,
+    /// Their payload bytes.
     pub bytes: usize,
     /// Old textures still needed by a frame that upgraded them to mipmapped ones.
     pub retired_textures: usize,
+    /// Their payload bytes.
     pub retired_bytes: usize,
+    /// Limits in force.
     pub limits: GpuCacheLimits,
 }
 

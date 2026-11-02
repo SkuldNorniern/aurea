@@ -7,16 +7,23 @@ use crate::scene::command::DrawCommand;
 /// Command kinds that [`FrameCounters`] times apart.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CommandKind {
+    /// Clears.
     Clear,
+    /// Rects.
     Rect,
+    /// Rounded rects.
     RoundRect,
+    /// Circles.
     Circle,
+    /// Paths.
     Path,
     /// Text and glyph masks.
     Glyphs,
     /// Image draws.
     Image,
+    /// Gradients.
     Gradient,
+    /// Shadows.
     Shadow,
     /// Textures and anything else.
     Other,

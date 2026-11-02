@@ -1,4 +1,6 @@
 //! Time-based animations and eased values.
+
+#![warn(missing_docs)]
 /// Easing functions.
 pub mod easing;
 pub mod tweens;

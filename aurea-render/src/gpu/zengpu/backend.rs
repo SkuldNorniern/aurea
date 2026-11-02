@@ -673,6 +673,7 @@ fn texture_format(format: PixelFormat) -> Format {
     }
 }
 
+/// The ZenGPU device backend of the GPU renderer.
 pub struct ZenGpuBackend {
     clip_masks: ClipMasks,
     target: Target,

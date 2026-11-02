@@ -168,6 +168,7 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
             .set_limits(limits, &mut self.backend, self.frame_counter);
     }
 
+    /// What the image cache holds now.
     pub fn gpu_cache_stats(&self) -> GpuCacheStats {
         self.texture_cache.stats()
     }
@@ -181,6 +182,7 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         self.timing_enabled = enabled;
     }
 
+    /// Stage times of the last frame, if timing is on.
     pub fn gpu_frame_timings(&self) -> Option<GpuFrameTimings> {
         self.timings
     }

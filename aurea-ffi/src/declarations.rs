@@ -254,6 +254,7 @@ unsafe extern "C" {
     pub fn ng_platform_prefers_dark() -> c_int;
     /// Lines a wheel notch scrolls, -1 for a page, 3 where the system has no setting.
     pub fn ng_platform_wheel_lines() -> c_int;
+    /// System alert sound.
     pub fn ng_platform_beep();
     /// Writes the system locales into `buf`.
     pub fn ng_platform_locales(buf: *mut c_char, cap: c_int) -> c_int;
@@ -299,10 +300,15 @@ unsafe extern "C" {
     ) -> c_int;
     /// Tells whether a window is visible.
     pub fn ng_platform_window_is_visible(window: *mut c_void) -> c_int;
+    /// Tells whether a window is covered.
     pub fn ng_platform_window_occlusion(window: *mut c_void) -> c_int;
+    /// Writes a window's frame into `rect`.
     pub fn ng_platform_window_get_placement(window: *mut c_void, rect: *mut c_int) -> c_int;
+    /// Flashes or bounces a window.
     pub fn ng_platform_window_request_attention(window: *mut c_void, critical: c_int) -> c_int;
+    /// Refresh rate of a window's screen, in hertz.
     pub fn ng_platform_window_refresh_rate(window: *mut c_void) -> c_int;
+    /// Restores a window's frame and maximized state.
     pub fn ng_platform_window_set_placement(
         window: *mut c_void,
         rect: *const c_int,

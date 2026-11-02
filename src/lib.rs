@@ -11,6 +11,7 @@
 //! }
 //! ```
 
+#![warn(missing_docs)]
 // Clippy flags const thread_locals on Android too.
 #![cfg_attr(target_os = "android", allow(clippy::missing_const_for_thread_local))]
 
