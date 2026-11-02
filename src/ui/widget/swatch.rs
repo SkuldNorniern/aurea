@@ -3,6 +3,8 @@
 use super::Widget;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
+#[cfg(feature = "accessibility")]
+use crate::ui::accessibility::Role;
 use crate::ui::component::FocusRing;
 use crate::ui::frame::{Response, Ui};
 use crate::ui::paint::{Component, Surface};
@@ -120,6 +122,12 @@ impl<Id: WidgetId> Widget<Id> for Swatches<'_> {
                 style.size,
             );
             let input = ui.interact(id, part, cell, Sense::Click, true);
+            #[cfg(feature = "accessibility")]
+            ui.with_accessible(id, part, |node| {
+                let [r, g, b, _] = color.to_rgba8();
+                node.set_role(Role::Button);
+                node.set_label(format!("#{r:02x}{g:02x}{b:02x}"));
+            });
             response.hovered |= input.hovered;
             response.focused |= input.focused;
             if input.clicked {

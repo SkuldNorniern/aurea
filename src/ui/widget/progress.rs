@@ -3,9 +3,13 @@
 use super::Widget;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
+#[cfg(feature = "accessibility")]
+use crate::ui::accessibility::Role;
 use crate::ui::component::Track;
 use crate::ui::frame::{Response, Ui};
 use crate::ui::paint::Component;
+#[cfg(feature = "accessibility")]
+use crate::ui::state::Sense;
 use crate::ui::state::{Channel, WidgetId};
 use crate::ui::theme::Theme;
 
@@ -67,6 +71,19 @@ impl ProgressBar {
 impl<Id: WidgetId> Widget<Id> for ProgressBar {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
         let style = self.style.unwrap_or_else(|| ProgressStyle::new(ui.theme));
+        #[cfg(feature = "accessibility")]
+        {
+            ui.interact(id, 0, rect, Sense::Hover, true);
+            let amount = self.amount;
+            ui.with_accessible(id, 0, |node| {
+                node.set_role(Role::ProgressIndicator);
+                if let Some(amount) = amount {
+                    node.set_numeric_value(f64::from(amount.clamp(0.0, 1.0)));
+                    node.set_min_numeric_value(0.0);
+                    node.set_max_numeric_value(1.0);
+                }
+            });
+        }
         let track = Track::new(0.0, style.track, style.filled);
         let track = match self.amount {
             Some(amount) => {
