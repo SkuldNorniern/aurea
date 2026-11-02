@@ -287,6 +287,8 @@ pub enum PenPhase {
     Move,
     /// Lifted; the stroke ends.
     Up,
+    /// The system took the pen back, such as for a palm or a gesture: drop the stroke.
+    Cancel,
 }
 
 /// What the user set a pen's tap or squeeze to do; see [`WindowEvent::PenTap`].
@@ -335,6 +337,7 @@ impl PenPhase {
             1 => Self::Down,
             2 => Self::Move,
             3 => Self::Up,
+            5 => Self::Cancel,
             _ => Self::Hover,
         }
     }

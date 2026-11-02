@@ -469,7 +469,8 @@ fn pen_sample(
         twist: 0.0,
         phase: match phase {
             0 => PenPhase::Down,
-            1 | 3 => PenPhase::Up,
+            1 => PenPhase::Up,
+            3 => PenPhase::Cancel,
             2 => PenPhase::Move,
             _ => PenPhase::Hover,
         },

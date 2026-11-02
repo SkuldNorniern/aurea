@@ -451,6 +451,7 @@ mod tests {
     fn pen_flags_and_phases_read_as_sent() {
         assert_eq!(pen_tool(0), PenTool::Tip);
         assert_eq!(pen_tool(PEN_ERASER | PEN_BARREL), PenTool::Eraser);
+        assert_eq!(PenPhase::from_raw(5), PenPhase::Cancel);
         let phases = [0, 1, 2, 3, 9].map(PenPhase::from_raw);
         assert_eq!(
             phases,
