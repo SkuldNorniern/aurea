@@ -1007,6 +1007,23 @@ impl Window {
         }
     }
 
+    /// Asks `answer` when the person closes the window: true closes it. On false it stays open,
+    /// for the app to ask and call [`Self::close`] later.
+    pub fn on_close_request(&self, answer: impl Fn() -> bool + 'static) {
+        self.set_close_guard(true);
+        let handle = self.handle;
+        let closing = Arc::clone(&self.closing);
+        self.on_event(move |event| {
+            if matches!(event, WindowEvent::CloseRequested) && answer() {
+                closing.store(true, Ordering::Release);
+                unsafe {
+                    ng_platform_window_set_close_guard(handle, 0);
+                    ng_platform_window_request_close(handle);
+                }
+            }
+        });
+    }
+
     /// Closes the window, even while it is guarded.
     pub fn close(&self) {
         ui_thread::check("Window::close");
