@@ -3,6 +3,8 @@
 use super::Widget;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
+#[cfg(feature = "accessibility")]
+use crate::ui::accessibility::Role;
 use crate::ui::component::{FocusRing, StateColors};
 use crate::ui::frame::{Response, Ui};
 use crate::ui::paint::{Component, Label, Mark, MarkShape, Surface, TextSize};
@@ -109,6 +111,12 @@ impl<Id: WidgetId> Widget<Id> for Chip<'_> {
             *self.on = !*self.on;
             response.changed = true;
             ui.mark_changed();
+        }
+        #[cfg(feature = "accessibility")]
+        {
+            let on = *self.on;
+            ui.accessible_description(id, 0, Role::Switch, self.label, None);
+            ui.with_accessible(id, 0, |node| node.set_toggled(on.into()));
         }
         let style = self.style.unwrap_or_else(|| ChipStyle::new(ui.theme));
         let state = ui.eased(id, 0, input);

@@ -528,6 +528,63 @@ impl<Id: WidgetId> Ui<'_, Id> {
         actions
     }
 
+    /// Edits the node of this part, if it has one.
+    pub(crate) fn with_accessible(&mut self, id: Id, part: u16, edit: impl FnOnce(&mut Node)) {
+        if let Some(bridge) = &mut self.state.accessibility
+            && let Some(node) = bridge.node(Key::new(id, part))
+        {
+            edit(node);
+        }
+    }
+
+    /// Takes increment, decrement and set value for a numeric control.
+    pub(crate) fn accessible_adjust(
+        &mut self,
+        id: Id,
+        part: u16,
+        value: &mut f32,
+        (lo, hi): (f32, f32),
+        step: f32,
+    ) {
+        for action in self.accessibility_actions(id, part) {
+            match (action.action, action.data) {
+                (Action::Increment, _) => *value += step,
+                (Action::Decrement, _) => *value -= step,
+                (Action::SetValue, Some(ActionData::NumericValue(set)))
+                    if set.is_finite() && lo <= hi =>
+                {
+                    #[allow(clippy::cast_possible_truncation)]
+                    {
+                        *value = set.clamp(f64::from(lo), f64::from(hi)) as f32;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Reports a numeric control's role, value and range.
+    pub(crate) fn accessible_range(
+        &mut self,
+        id: Id,
+        part: u16,
+        role: Role,
+        value: f32,
+        (lo, hi): (f32, f32),
+        step: f32,
+    ) {
+        self.with_accessible(id, part, |node| {
+            node.set_role(role);
+            node.set_numeric_value(f64::from(value));
+            node.set_min_numeric_value(f64::from(lo));
+            node.set_max_numeric_value(f64::from(hi));
+            node.set_numeric_value_step(f64::from(step));
+            node.add_action(Action::Increment);
+            node.add_action(Action::Decrement);
+            node.add_action(Action::SetValue);
+        });
+    }
+
     pub(crate) fn accessible_description(
         &mut self,
         id: Id,

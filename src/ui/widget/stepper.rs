@@ -7,6 +7,8 @@ use std::ops::RangeInclusive;
 use super::Widget;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
+#[cfg(feature = "accessibility")]
+use crate::ui::accessibility::Role;
 use crate::ui::component::{FocusRing, StateColors};
 use crate::ui::frame::{Align, Eased, Response, Ui};
 use crate::ui::paint::{Component, Label, Mark, MarkShape, Surface};
@@ -188,6 +190,8 @@ impl<Id: WidgetId> Widget<Id> for Stepper<'_> {
             steps += self.key_steps(ui);
         }
         let before = *self.value;
+        #[cfg(feature = "accessibility")]
+        ui.accessible_adjust(id, 0, self.value, (lo.min(hi), lo.max(hi)), self.step);
         if steps != 0.0 {
             let stepped =
                 lo + (((*self.value + steps * self.step) - lo) / self.step).round() * self.step;
@@ -207,6 +211,15 @@ impl<Id: WidgetId> Widget<Id> for Stepper<'_> {
             response.changed = true;
             ui.mark_changed();
         }
+        #[cfg(feature = "accessibility")]
+        ui.accessible_range(
+            id,
+            0,
+            Role::SpinButton,
+            *self.value,
+            (lo.min(hi), lo.max(hi)),
+            self.step,
+        );
 
         let state = ui.eased(id, 0, input);
         FocusRing::new(ui.theme, style.radius, state.focus).paint(ui, rect)?;

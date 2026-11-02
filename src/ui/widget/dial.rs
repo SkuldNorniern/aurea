@@ -7,6 +7,8 @@ use super::Widget;
 use super::slider::snap;
 use crate::AureaResult;
 use crate::render::{Color, LineCap, Paint, PaintStyle, Path, Point, Rect};
+#[cfg(feature = "accessibility")]
+use crate::ui::accessibility::Role;
 use crate::ui::component::FocusRing;
 use crate::ui::frame::{Response, Ui};
 use crate::ui::paint::Component;
@@ -168,6 +170,11 @@ impl<Id: WidgetId> Widget<Id> for Dial<'_> {
         let (lo, hi) = (*self.range.start(), *self.range.end());
         let span = hi - lo;
         let before = *self.value;
+        #[cfg(feature = "accessibility")]
+        {
+            let step = self.step.unwrap_or(span / 100.0);
+            ui.accessible_adjust(id, 0, self.value, (lo.min(hi), lo.max(hi)), step);
+        }
         if input.held {
             self.drag(ui, id, span, style.travel);
         }
@@ -182,6 +189,12 @@ impl<Id: WidgetId> Widget<Id> for Dial<'_> {
         if (*self.value - before).abs() > f32::EPSILON {
             response.changed = true;
             ui.mark_changed();
+        }
+        #[cfg(feature = "accessibility")]
+        {
+            let step = self.step.unwrap_or(span / 100.0);
+            let range = (lo.min(hi), lo.max(hi));
+            ui.accessible_range(id, 0, Role::Slider, *self.value, range, step);
         }
 
         let share = |value: f32| {

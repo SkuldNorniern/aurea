@@ -4,6 +4,8 @@
 use super::Widget;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
+#[cfg(feature = "accessibility")]
+use crate::ui::accessibility::Role;
 use crate::ui::component::FocusRing;
 use crate::ui::frame::{Response, Ui};
 use crate::ui::paint::{Component, Label, TextSize};
@@ -78,6 +80,8 @@ impl<Id: WidgetId> Widget<Id> for Link<'_> {
         let width = self.width(ui).min(rect.width);
         let text = Rect::new(rect.x, rect.y, width, rect.height);
         let input = ui.interact(id, 0, text, Sense::Click, true);
+        #[cfg(feature = "accessibility")]
+        ui.accessible_description(id, 0, Role::Link, self.text, None);
         let state = ui.eased(id, 0, input);
         FocusRing::new(ui.theme, 3.0, state.focus).paint(ui, text.inset(-2.0))?;
         let color = style.text.mix(style.hover, state.hover);

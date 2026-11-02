@@ -6,6 +6,8 @@ use std::f32::consts::FRAC_PI_2;
 use super::Widget;
 use crate::AureaResult;
 use crate::render::{Color, Point, Rect};
+#[cfg(feature = "accessibility")]
+use crate::ui::accessibility::Role;
 use crate::ui::component::{FocusRing, StateColors};
 use crate::ui::frame::{Response, Ui};
 use crate::ui::paint::{Component, Label, Surface, TextSize};
@@ -93,6 +95,12 @@ impl<Id: WidgetId> Widget<Id> for Disclosure<'_> {
             *self.open = !*self.open;
             response.changed = true;
             ui.mark_changed();
+        }
+        #[cfg(feature = "accessibility")]
+        {
+            let open = *self.open;
+            ui.accessible_description(id, 0, Role::DisclosureTriangle, self.title, None);
+            ui.with_accessible(id, 0, |node| node.set_expanded(open));
         }
         let style = self.style.unwrap_or_else(|| DisclosureStyle::new(ui.theme));
         let state = ui.eased(id, 0, input);

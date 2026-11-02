@@ -5,6 +5,8 @@ use super::Widget;
 use super::popup::{MenuItem, PopupStyle};
 use crate::AureaResult;
 use crate::render::{Color, Rect};
+#[cfg(feature = "accessibility")]
+use crate::ui::accessibility::Role;
 use crate::ui::component::{FocusRing, StateColors};
 use crate::ui::frame::{Response, Ui};
 use crate::ui::paint::{Component, Label, Mark, MarkShape, Surface};
@@ -133,6 +135,15 @@ impl<Id: WidgetId> Widget<Id> for Dropdown<'_> {
         {
             *self.selected = picked;
             response.changed = true;
+        }
+        // no label here, so one from `accessible_label` stays.
+        #[cfg(feature = "accessibility")]
+        {
+            let value = self.options.get(*self.selected).copied();
+            ui.with_accessible(id, 0, |node| {
+                node.set_role(Role::ComboBox);
+                node.set_value(value.unwrap_or(self.placeholder));
+            });
         }
         let open = ui.state.popup.is_open_for(key);
         if !self.options.is_empty() {

@@ -4,6 +4,8 @@
 use super::Widget;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
+#[cfg(feature = "accessibility")]
+use crate::ui::accessibility::Role;
 use crate::ui::component::{FocusRing, StateColors};
 use crate::ui::frame::{Response, Ui};
 use crate::ui::paint::{Component, Label, Surface, TextSize};
@@ -128,6 +130,12 @@ impl<Id: WidgetId> Widget<Id> for TabBar<'_> {
             );
             x += width + style.gap;
             let input = ui.interact(id, part, cell, Sense::Click, self.enabled);
+            #[cfg(feature = "accessibility")]
+            {
+                let on = *self.selected == i;
+                ui.accessible_description(id, part, Role::Tab, label, None);
+                ui.with_accessible(id, part, |node| node.set_selected(on));
+            }
             response.hovered |= input.hovered;
             response.focused |= input.focused;
             if input.clicked && *self.selected != i {

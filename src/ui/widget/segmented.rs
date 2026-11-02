@@ -4,6 +4,8 @@
 use super::Widget;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
+#[cfg(feature = "accessibility")]
+use crate::ui::accessibility::Role;
 use crate::ui::component::{FocusRing, StateColors};
 use crate::ui::frame::{Response, Ui};
 use crate::ui::paint::{Component, Label, Surface, TextSize};
@@ -120,6 +122,12 @@ impl<Id: WidgetId> Widget<Id> for Segmented<'_> {
             let part = u16::try_from(i).unwrap_or(u16::MAX - 1);
             let cell = rect.column(i, n, 0.0);
             let input = ui.interact(id, part, cell, Sense::Click, self.enabled);
+            #[cfg(feature = "accessibility")]
+            {
+                let on = *self.selected == i;
+                ui.accessible_description(id, part, Role::RadioButton, option, None);
+                ui.with_accessible(id, part, |node| node.set_toggled(on.into()));
+            }
             let state = ui.eased(id, part, input);
             FocusRing::new(ui.theme, style.radius, state.focus).paint(ui, cell)?;
             if input.clicked && *self.selected != i {

@@ -3,6 +3,8 @@
 use super::Widget;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
+#[cfg(feature = "accessibility")]
+use crate::ui::accessibility::Role;
 use crate::ui::component::{FocusRing, StateColors};
 use crate::ui::frame::{Response, Ui};
 use crate::ui::paint::{Component, Label, Surface};
@@ -116,6 +118,12 @@ impl<Id: WidgetId> Widget<Id> for RadioGroup<'_> {
             #[allow(clippy::cast_precision_loss)]
             let row = Rect::new(rect.x, rect.y + style.row * i as f32, rect.width, style.row);
             let input = ui.interact(id, part, row, Sense::Click, self.enabled);
+            #[cfg(feature = "accessibility")]
+            {
+                let on = *self.selected == i;
+                ui.accessible_description(id, part, Role::RadioButton, option, None);
+                ui.with_accessible(id, part, |node| node.set_toggled(on.into()));
+            }
             response.hovered |= input.hovered;
             response.focused |= input.focused;
             if input.clicked && *self.selected != i {
