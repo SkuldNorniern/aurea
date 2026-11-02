@@ -4,7 +4,7 @@ use crate::numeric::{f32_to_i32_clamped, f32_to_u8_clamped};
 use crate::text::glyph::{FaceData, FaceId, GlyphCoverage, GlyphKey};
 use crate::text::outline::outline_coverage;
 use crate::text::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph, variation_hash};
-use crate::text::{CacheKind, GLYPH_BYTES, LruCache, shared};
+use crate::text::{CacheKind, GLYPH_BYTES, GLYPH_CAP, LruCache, shared};
 use crate::types::{FontStyle, FontVariation, FontWeight};
 use aurea_foundation::{AureaError, AureaResult, lock};
 use fontdue::{Font, FontSettings};
@@ -337,7 +337,10 @@ impl FontDbTextRasterizer {
             file_bytes: Mutex::new(HashMap::new()),
             fallbacks: fallback_stems().iter().map(|_| OnceLock::new()).collect(),
             font_cache: Mutex::new(LruCache::new(32)),
-            subpixel_cache: shared(CacheKind::Glyph, LruCache::with_budget(512, GLYPH_BYTES)),
+            subpixel_cache: shared(
+                CacheKind::Glyph,
+                LruCache::with_budget(GLYPH_CAP, GLYPH_BYTES),
+            ),
         }
     }
 

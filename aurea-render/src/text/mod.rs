@@ -16,6 +16,9 @@ pub use layout::*;
 pub use platform::*;
 pub use shape::*;
 
+// Several font sizes and display scales should coexist without cycling at 512 entries.
+// The byte budget still bounds bitmap payloads, including large glyphs.
+pub(crate) const GLYPH_CAP: usize = 2048;
 pub(crate) const GLYPH_BYTES: usize = 4 << 20;
 pub(crate) const MASK_BYTES: usize = 8 << 20;
 pub(crate) const SHAPED_BYTES: usize = 8 << 20;
@@ -251,7 +254,7 @@ impl<K: Eq + Hash + Clone, V> LruCache<K, V> {
 
     /// Drops every entry. Hit and miss counts are kept.
     pub(crate) fn clear(&mut self) {
-        self.map.clear();
+        self.map = HashMap::new();
         self.bytes = 0;
     }
 
@@ -307,6 +310,21 @@ mod lru_tests {
         cache.insert_sized(6, (), 40);
         cache.insert_sized(6, (), 5);
         assert_eq!(cache.bytes(), 5, "replacing frees the old size");
+    }
+
+    #[test]
+    fn multilingual_glyphs_at_four_scales_stay_within_the_same_byte_budget() {
+        let mut cache = LruCache::with_budget(super::GLYPH_CAP, super::GLYPH_BYTES);
+        for key in 0..612u32 {
+            cache.insert_sized(key, (), 1024);
+        }
+        for key in 0..612u32 {
+            assert!(
+                cache.get(&key).is_some(),
+                "glyph {key} should survive a scale cycle"
+            );
+        }
+        assert!(cache.bytes() <= super::GLYPH_BYTES);
     }
 
     #[test]
@@ -373,6 +391,11 @@ mod lru_tests {
 
         let mut c = cache.lock().expect("lock");
         assert_eq!((c.len(), c.bytes()), (0, 0));
+        assert_eq!(
+            c.map.capacity(),
+            0,
+            "memory pressure also releases the hash table"
+        );
         assert!(c.get(&1).is_none(), "a trimmed entry is a miss");
         c.insert_sized(3, (), 300);
         assert_eq!(c.bytes(), 300, "the cache still works after a trim");
