@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use std::path::Path;
 
+use super::request_frame;
 use aurea_ffi::{
     ng_ios_alert, ng_ios_open_url, ng_ios_pick_color, ng_ios_preview_path, ng_ios_reveal_path,
     ng_ios_share_files,
@@ -122,6 +123,7 @@ unsafe extern "C" fn answered(ctx: *mut c_void, answer: c_int) {
     // SAFETY: `ctx` came from `into_ctx`, and each sheet answers once.
     let done = unsafe { Box::from_raw(ctx.cast::<Answered>()) };
     done(answer);
+    request_frame();
 }
 
 /// Opens `url`, such as a web page in Safari or a `mailto:` link in Mail.

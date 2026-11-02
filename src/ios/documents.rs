@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use aurea_ffi::{ng_ios_export_files, ng_ios_pick_files};
 
+use super::request_frame;
 use crate::dialog::path_list;
 use crate::{AureaError, AureaResult};
 
@@ -89,4 +90,5 @@ unsafe extern "C" fn picked(ctx: *mut c_void, paths: *const c_char) {
         unsafe { path_list(paths) }
     };
     done(paths);
+    request_frame();
 }
