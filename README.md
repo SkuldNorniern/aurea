@@ -33,7 +33,7 @@ fn main() -> AureaResult<()> {
 | IME | yes | yes | yes | yes | yes |
 | Pen pressure and tilt | yes | untested on a tablet | untested on a tablet | yes | untested on a stylus |
 | Fractional scaling | yes | yes | whole scales only | not needed | yes |
-| File pickers | yes | yes | yes | yes | no |
+| File pickers | yes | yes | yes | yes | yes |
 | Screen readers | yes | yes | yes | no | no |
 
 iOS and Android are experimental; their sample apps are in [`mobile/`](mobile/). Mobile apps draw

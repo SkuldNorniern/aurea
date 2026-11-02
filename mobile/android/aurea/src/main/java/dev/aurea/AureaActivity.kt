@@ -33,11 +33,13 @@ abstract class AureaActivity :
     private var lightBars: Boolean? = null
     private lateinit var surface: AureaSurface
     private var highFrameRate = false
+    private lateinit var files: AureaFiles
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         System.loadLibrary(library)
+        files = AureaFiles(this)
         val view = AureaSurface(this, this)
         surface = view
         setContentView(view)
@@ -209,6 +211,30 @@ abstract class AureaActivity :
         if (target.isValid) {
             target.setFrameRate(if (highFrameRate) top else 0f, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
         }
+    }
+
+    @Suppress("unused")
+    fun pickFilesFromNative(extensions: Array<String>, multiple: Boolean, id: Long): Boolean =
+        files.pick(extensions, multiple, id)
+
+    @Suppress("unused")
+    fun exportFilesFromNative(paths: Array<String>, id: Long): Boolean = files.export(paths, id)
+
+    @Suppress("unused")
+    fun shareFilesFromNative(paths: Array<String>): Boolean = files.share(paths)
+
+    @Deprecated("Activity has no replacement without androidx")
+    @Suppress("DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (!files.result(requestCode, resultCode, data)) {
+            super.onActivityResult(requestCode, resultCode, data)
+        }
+    }
+
+    /** From any thread, in device pixels. */
+    @Suppress("unused")
+    fun setTextAreaFromNative(x: Float, y: Float, width: Float, height: Float) {
+        runOnUiThread { surface.setTextArea(x, y, width, height) }
     }
 
     /** False when no app handles it. */

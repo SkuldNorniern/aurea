@@ -1,11 +1,13 @@
 package dev.aurea
 
 import android.content.Context
+import android.graphics.Matrix
 import android.os.Build
 import android.text.InputType
 import android.view.KeyEvent
 import android.view.SurfaceView
 import android.view.inputmethod.BaseInputConnection
+import android.view.inputmethod.CursorAnchorInfo
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
@@ -24,6 +26,9 @@ internal class AureaSurface(context: Context, private val typed: Typed) : Surfac
         fun text(text: String)
         fun preedit(text: String, cursor: Int)
     }
+
+    private var watched = false
+    private val area = FloatArray(4)
 
     init {
         isFocusable = true
@@ -70,9 +75,43 @@ internal class AureaSurface(context: Context, private val typed: Typed) : Surfac
         }
     }
 
+    fun setTextArea(x: Float, y: Float, width: Float, height: Float) {
+        area[0] = x
+        area[1] = y
+        area[2] = width
+        area[3] = height
+        if (watched) sendTextArea()
+    }
+
+    /** Tells an input method where the caret is, for its candidates. */
+    private fun sendTextArea() {
+        val at = IntArray(2)
+        getLocationOnScreen(at)
+        val toScreen = Matrix().apply { setTranslate(at[0].toFloat(), at[1].toFloat()) }
+        val bottom = area[1] + area[3]
+        val info = CursorAnchorInfo.Builder()
+            .setMatrix(toScreen)
+            .setInsertionMarkerLocation(
+                area[0],
+                area[1],
+                bottom,
+                bottom,
+                CursorAnchorInfo.FLAG_HAS_VISIBLE_REGION,
+            )
+            .build()
+        val ime = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        ime.updateCursorAnchorInfo(this, info)
+    }
+
     /** Aurea keeps the text; this holds only what is still composing. */
     private inner class Connection : BaseInputConnection(this@AureaSurface, false) {
         private var composing = ""
+
+        override fun requestCursorUpdates(cursorUpdateMode: Int): Boolean {
+            watched = (cursorUpdateMode and InputConnection.CURSOR_UPDATE_MONITOR) != 0
+            if ((cursorUpdateMode and InputConnection.CURSOR_UPDATE_IMMEDIATE) != 0) sendTextArea()
+            return true
+        }
 
         override fun commitText(text: CharSequence, newCursorPosition: Int): Boolean {
             composing = ""

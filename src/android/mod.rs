@@ -15,6 +15,7 @@
 //! }
 //! ```
 
+mod documents;
 mod host;
 mod logcat;
 mod window;
@@ -27,10 +28,13 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{LazyLock, OnceLock};
 
+use crate::Rect;
 use aurea_ffi::{
     ng_android_on_destroy, ng_android_on_pause, ng_android_on_resume, ng_android_on_surface_lost,
     ng_android_on_surface_recreated, ng_android_set_activity,
 };
+
+pub use documents::{export_files, pick_files, share_files};
 /// The `jni` crate Aurea's host is built on, for apps' own JNI calls, at the same version.
 pub use jni;
 pub use jni::JNIEnv;
@@ -86,6 +90,23 @@ pub fn show_keyboard(show: bool) {
         "showKeyboardFromNative",
         "(Z)V",
         &[JValue::Bool(u8::from(show))],
+    );
+}
+
+/// Where text is being typed, in logical pixels from the safe area's top left, so input methods
+/// show their candidates beside it. Call when the caret moves.
+pub fn set_text_area(area: Rect) {
+    let [left, top, ..] = safe_area();
+    let scale = scale();
+    call_activity(
+        "setTextAreaFromNative",
+        "(FFFF)V",
+        &[
+            JValue::Float((area.x + left) * scale),
+            JValue::Float((area.y + top) * scale),
+            JValue::Float(area.width * scale),
+            JValue::Float(area.height * scale),
+        ],
     );
 }
 
@@ -239,13 +260,13 @@ pub fn set_theme(theme: Theme) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn JNI_OnLoad(_vm: *mut c_void, _reserved: *mut c_void) -> jint {
+extern "system" fn JNI_OnLoad(_vm: *mut c_void, _reserved: *mut c_void) -> jint {
     logcat::install();
     JNI_VERSION_1_6
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_aurea_AureaActivity_nativeCreate(
+extern "system" fn Java_dev_aurea_AureaActivity_nativeCreate(
     env: JNIEnv,
     _class: JClass,
     activity: JObject,
@@ -269,7 +290,7 @@ pub extern "system" fn Java_dev_aurea_AureaActivity_nativeCreate(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_aurea_AureaActivity_nativeDestroy(
+extern "system" fn Java_dev_aurea_AureaActivity_nativeDestroy(
     _env: JNIEnv,
     _class: JClass,
     finishing: jboolean,
@@ -284,7 +305,7 @@ pub extern "system" fn Java_dev_aurea_AureaActivity_nativeDestroy(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_aurea_AureaActivity_nativeLifecycle(
+extern "system" fn Java_dev_aurea_AureaActivity_nativeLifecycle(
     _env: JNIEnv,
     _class: JClass,
     state: jint,
@@ -298,7 +319,7 @@ pub extern "system" fn Java_dev_aurea_AureaActivity_nativeLifecycle(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_aurea_AureaActivity_nativeSurfaceChanged(
+extern "system" fn Java_dev_aurea_AureaActivity_nativeSurfaceChanged(
     env: JNIEnv,
     _class: JClass,
     surface: JObject,
@@ -314,7 +335,7 @@ pub extern "system" fn Java_dev_aurea_AureaActivity_nativeSurfaceChanged(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_aurea_AureaActivity_nativeSurfaceDestroyed(
+extern "system" fn Java_dev_aurea_AureaActivity_nativeSurfaceDestroyed(
     _env: JNIEnv,
     _class: JClass,
 ) {
@@ -324,7 +345,7 @@ pub extern "system" fn Java_dev_aurea_AureaActivity_nativeSurfaceDestroyed(
 
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
-pub extern "system" fn Java_dev_aurea_AureaActivity_nativePointer(
+extern "system" fn Java_dev_aurea_AureaActivity_nativePointer(
     _env: JNIEnv,
     _class: JClass,
     phase: jint,
@@ -351,7 +372,7 @@ pub extern "system" fn Java_dev_aurea_AureaActivity_nativePointer(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_aurea_AureaActivity_nativeInsets(
+extern "system" fn Java_dev_aurea_AureaActivity_nativeInsets(
     _env: JNIEnv,
     _class: JClass,
     left: jfloat,
@@ -363,7 +384,7 @@ pub extern "system" fn Java_dev_aurea_AureaActivity_nativeInsets(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_aurea_AureaActivity_nativeKeyboard(
+extern "system" fn Java_dev_aurea_AureaActivity_nativeKeyboard(
     _env: JNIEnv,
     _class: JClass,
     bottom: jfloat,
@@ -372,7 +393,7 @@ pub extern "system" fn Java_dev_aurea_AureaActivity_nativeKeyboard(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_aurea_AureaActivity_nativeLightTheme(
+extern "system" fn Java_dev_aurea_AureaActivity_nativeLightTheme(
     _env: JNIEnv,
     _class: JClass,
 ) -> jboolean {
@@ -384,7 +405,7 @@ pub extern "system" fn Java_dev_aurea_AureaActivity_nativeLightTheme(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_aurea_AureaActivity_nativeKey(
+extern "system" fn Java_dev_aurea_AureaActivity_nativeKey(
     _env: JNIEnv,
     _class: JClass,
     code: jint,
@@ -395,7 +416,7 @@ pub extern "system" fn Java_dev_aurea_AureaActivity_nativeKey(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_aurea_AureaActivity_nativeText(
+extern "system" fn Java_dev_aurea_AureaActivity_nativeText(
     mut env: JNIEnv,
     _class: JClass,
     text: JString,
@@ -406,7 +427,7 @@ pub extern "system" fn Java_dev_aurea_AureaActivity_nativeText(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_aurea_AureaActivity_nativePreedit(
+extern "system" fn Java_dev_aurea_AureaActivity_nativePreedit(
     mut env: JNIEnv,
     _class: JClass,
     text: JString,
@@ -418,7 +439,7 @@ pub extern "system" fn Java_dev_aurea_AureaActivity_nativePreedit(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_aurea_AureaActivity_nativeFrame(
+extern "system" fn Java_dev_aurea_AureaActivity_nativeFrame(
     _env: JNIEnv,
     _class: JClass,
 ) -> jboolean {
@@ -429,7 +450,7 @@ pub extern "system" fn Java_dev_aurea_AureaActivity_nativeFrame(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_aurea_AureaActivity_nativeTrimMemory(
+extern "system" fn Java_dev_aurea_AureaActivity_nativeTrimMemory(
     _env: JNIEnv,
     _class: JClass,
     level: jint,
