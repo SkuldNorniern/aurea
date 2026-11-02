@@ -1,4 +1,5 @@
 #import "host.h"
+#import "ios.h"
 #import "../../common/input.h"
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
@@ -33,6 +34,10 @@ static NGIosHost g_host;
 @property (assign) CGFloat gridScale;
 @property (strong) AureaKeyInput* keys;
 @property (assign) CGFloat keyboardHeight;
+/* The MouseButton a trackpad or mouse click holds, -1 for none. */
+@property (assign) int pointerButton;
+/* A trackpad or mouse pointer is over the view; a pencil's hover ending is not its exit. */
+@property (assign) BOOL pointerOver;
 - (void)wakeLink;
 - (void)markDirty;
 - (NSSet<UIPress*>*)keys:(NSSet<UIPress*>*)presses pressed:(int)pressed;
@@ -336,6 +341,7 @@ static void ng_ios_type(NSString* text) {
         _tiles = [NSMutableArray array];
         [self.layer addSublayer:_content];
         _background = UINT32_MAX;
+        _pointerButton = -1;
         _dirty = YES;
         g_view = self;
         if (@available(iOS 12.1, *)) {
@@ -553,9 +559,31 @@ static double ng_ios_age(NSTimeInterval timestamp) {
     }
 }
 
+/* A trackpad or mouse click comes as a touch of its own type, with the buttons on the event. The
+   button is the one pressed when it began, so a drag keeps it. */
+- (void)pointer:(int)action touch:(UITouch*)touch event:(UIEvent*)event API_AVAILABLE(ios(13.4)) {
+    if (!g_host.mouse) return;
+    CGPoint at = [touch locationInView:self];
+    if (action == NG_IOS_TOUCH_DOWN) {
+        self.pointerButton = (event.buttonMask & UIEventButtonMaskSecondary) ? 1 : 0;
+        g_host.mouse(NG_IOS_MOUSE_PRESS, (float)at.x, (float)at.y, self.pointerButton);
+    } else if (action == NG_IOS_TOUCH_UP || action == NG_IOS_TOUCH_CANCEL) {
+        g_host.mouse(NG_IOS_MOUSE_RELEASE, (float)at.x, (float)at.y, self.pointerButton);
+        self.pointerButton = -1;
+    } else {
+        g_host.mouse(NG_IOS_MOUSE_MOVE, (float)at.x, (float)at.y, self.pointerButton);
+    }
+}
+
 - (void)send:(int)action touches:(NSSet<UITouch*>*)touches event:(UIEvent*)event {
     static const int pen_phase[] = {NG_IOS_PEN_DOWN, NG_IOS_PEN_UP, NG_IOS_PEN_MOVE, NG_IOS_PEN_CANCEL};
     for (UITouch* touch in touches) {
+        if (@available(iOS 13.4, *)) {
+            if (touch.type == UITouchTypeIndirectPointer) {
+                [self pointer:action touch:touch event:event];
+                continue;
+            }
+        }
         [self pens:pen_phase[action] touch:touch event:event];
         if (g_host.touch) {
             CGPoint at = [touch locationInView:self];
@@ -664,6 +692,15 @@ static uint32_t ng_ios_modifiers(UIKeyModifierFlags flags) {
     if (rest.count) [super pressesCancelled:rest withEvent:event];
 }
 
+/* The menu shortcuts go to the app ahead of the keys, and show in the hold-Command overlay. */
+- (NSArray<UIKeyCommand*>*)keyCommands {
+    return ng_ios_key_commands();
+}
+
+- (void)keyCommand:(UIKeyCommand*)key {
+    ng_ios_key_command(key);
+}
+
 /* What the user set a pencil gesture to do, as PenTapAction codes: palettes of any kind are one,
    and system shortcuts another. Compared as numbers, since the later actions are newer than the
    oldest iOS this builds for. */
@@ -708,11 +745,21 @@ static int ng_ios_pen_action(long action) {
 }
 #pragma clang diagnostic pop
 
-/* A pencil held over the screen, on iPads that sense it. */
+/* A pencil held over the screen, on iPads that sense it, has a height above the screen; a trackpad
+   or mouse pointer has none. Before iOS 16.4 the height is not known, so all of it is the pointer. */
 - (void)hovered:(UIHoverGestureRecognizer*)hover API_AVAILABLE(ios(13.0)) {
+    if (@available(iOS 16.4, *)) {
+        if (hover.zOffset > 0) {
+            [self pencilHovered:hover];
+            return;
+        }
+    }
+    [self pointerHovered:hover];
+}
+
+- (void)pencilHovered:(UIHoverGestureRecognizer*)hover {
     if (!g_host.pen) return;
     if (@available(iOS 16.4, *)) {
-        if (hover.zOffset <= 0) return;
         if (hover.state != UIGestureRecognizerStateBegan && hover.state != UIGestureRecognizerStateChanged) return;
         CGPoint at = [hover locationInView:self];
         float tilt_x = 0, tilt_y = 0, twist = 0;
@@ -721,6 +768,23 @@ static int ng_ios_pen_action(long action) {
         g_host.pen(NG_IOS_PEN_HOVER, at.x, at.y, 0.0f, tilt_x, tilt_y, twist, 0.0);
         [self markDirty];
     }
+}
+
+/* A trackpad or mouse pointer over the view, moving with no button held. */
+- (void)pointerHovered:(UIHoverGestureRecognizer*)hover {
+    if (!g_host.mouse) return;
+    if (hover.state == UIGestureRecognizerStateEnded || hover.state == UIGestureRecognizerStateCancelled) {
+        if (!self.pointerOver) return;
+        self.pointerOver = NO;
+        g_host.mouse(NG_IOS_MOUSE_EXIT, 0, 0, -1);
+        [self markDirty];
+        return;
+    }
+    if (hover.state != UIGestureRecognizerStateBegan && hover.state != UIGestureRecognizerStateChanged) return;
+    self.pointerOver = YES;
+    CGPoint at = [hover locationInView:self];
+    g_host.mouse(NG_IOS_MOUSE_MOVE, (float)at.x, (float)at.y, -1);
+    [self markDirty];
 }
 
 - (void)touchesBegan:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
@@ -821,6 +885,11 @@ API_AVAILABLE(ios(13.0))
     if (@available(iOS 13.0, *)) return YES;
     self.window = ng_ios_host_window([[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds]);
     return YES;
+}
+
+/* The app's menus, as the menu bar on iPads with a keyboard; see ng_platform_create_menu. */
+- (void)buildMenuWithBuilder:(id<UIMenuBuilder>)builder API_AVAILABLE(ios(13.0)) {
+    ng_ios_build_menu(builder);
 }
 
 /* Before iOS 13 there are no scenes; the app itself reports its state. */

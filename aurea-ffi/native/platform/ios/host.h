@@ -61,7 +61,16 @@ typedef struct NGIosHost {
     /* An Apple Pencil double tap, or a Pencil Pro squeeze, with what the user set it to do as a
        PenTapAction code. */
     void (*pen_tap)(int squeeze, int action);
+    /* A trackpad or mouse pointer: `action` is one of the NG_IOS_MOUSE_* codes, the position in
+       points, and `button` the MouseButton code held or pressed, -1 for none. */
+    void (*mouse)(int action, float x, float y, int button);
 } NGIosHost;
+
+/* What a pointer did, for `mouse`. */
+#define NG_IOS_MOUSE_MOVE 0
+#define NG_IOS_MOUSE_PRESS 1
+#define NG_IOS_MOUSE_RELEASE 2
+#define NG_IOS_MOUSE_EXIT 3
 
 /* Runs UIKit with the host filling the screen; doesn't return. */
 int ng_ios_run_host(NGIosHost host);

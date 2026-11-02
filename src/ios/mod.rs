@@ -16,7 +16,7 @@ use std::process::exit;
 use std::ptr::null;
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 #[cfg(feature = "zengpu")]
 use aurea_ffi::ng_ios_gpu_view;
@@ -37,8 +37,8 @@ use crate::trim_memory;
 use crate::ui::{Theme, Ui, UiState};
 use crate::wake::wake_at;
 use crate::{
-    AureaResult, KeyCode, Modifiers, PenPhase, PenSample, PenTapAction, PenTool, Point, Rect,
-    WindowEvent,
+    AureaResult, KeyCode, Modifiers, MouseButton, MouseButtons, PenPhase, PenSample, PenTapAction,
+    PenTool, Point, PointerKind, Rect, WindowEvent,
 };
 #[cfg(feature = "zengpu")]
 use crate::{
@@ -171,6 +171,7 @@ pub fn run(
         key,
         preedit,
         pen_tap,
+        mouse,
     };
     exit(unsafe { ng_ios_run_host(host) })
 }
@@ -410,6 +411,41 @@ unsafe extern "C" fn pen_tap(squeeze: c_int, action: c_int) {
         action: PenTapAction::from_raw(u32::try_from(action).unwrap_or(u32::MAX)),
     };
     HOST.with_borrow_mut(|host| host.state.handle(&event));
+    hear(&[event]);
+}
+
+/// A trackpad or mouse pointer: `action` is one of the host's `NG_IOS_MOUSE_*` codes, and `button`
+/// the button held or pressed, -1 for none.
+unsafe extern "C" fn mouse(action: i32, x: f32, y: f32, button: i32) {
+    let button = u8::try_from(button).ok().map(MouseButton::from_raw);
+    let event = HOST.with_borrow_mut(|host| {
+        let [left, top, ..] = host.insets;
+        let (x, y) = (f64::from(x - left), f64::from(y - top));
+        let event = match action {
+            0 => WindowEvent::MouseMove {
+                x,
+                y,
+                buttons: MouseButtons::from_bits(button.map_or(0, |b| 1u32 << b.to_raw())),
+                modifiers: Modifiers::default(),
+                time: Duration::default(),
+                pointer: PointerKind::Mouse,
+            },
+            1 | 2 => WindowEvent::MouseButton {
+                button: button.unwrap_or(MouseButton::Left),
+                pressed: action == 1,
+                modifiers: Modifiers::default(),
+                x,
+                y,
+                click_count: 1,
+                pointer: PointerKind::Mouse,
+                time: Duration::default(),
+            },
+            _ => WindowEvent::MouseExited,
+        };
+        host.state.handle(&event);
+        event
+    });
+    POINTER_PENCIL.set(false);
     hear(&[event]);
 }
 
