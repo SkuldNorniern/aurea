@@ -63,7 +63,7 @@ aurea-animation = { path = "aurea-animation", version = "0.1.0" }
 log = "0.4.29"
 png = "0.18"
 accesskit = { version = "0.25", optional = true }
-raw-window-handle = "0.6"
+raw-window-handle = { version = "0.6", optional = true }
 wgpu = { version = "29.0.1", optional = true }
 
 # ZenGPU surface integration and example shaders (feature `zengpu`).
@@ -91,7 +91,7 @@ accesskit_unix = { version = "0.23", optional = true }
 # so it stays opt-in until it does.
 default = []
 accessibility = ["dep:accesskit", "dep:accesskit_windows", "dep:accesskit_macos", "dep:accesskit_unix", "dep:windows"]
-wgpu = ["dep:wgpu"]
+wgpu = ["dep:wgpu", "dep:raw-window-handle"]
 # iOS and Android native hosts. Experimental and opt-in; see mobile/README.md
 # for sample projects, entry points and platform build requirements.
 mobile = ["aurea-ffi/mobile"]

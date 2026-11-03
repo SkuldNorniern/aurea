@@ -1,16 +1,17 @@
 //! Platform-native window/display handle extraction.
 
 use std::os::raw::c_void;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", any(feature = "wgpu", feature = "zengpu")))]
 use std::ptr::null_mut;
 
+#[cfg(feature = "wgpu")]
 use raw_window_handle::{HandleError, RawDisplayHandle, RawWindowHandle};
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", any(feature = "wgpu", feature = "zengpu")))]
 use crate::ffi::ng_platform_window_get_content_view;
 #[cfg(all(target_os = "linux", any(feature = "wgpu", feature = "zengpu")))]
 use crate::ffi::{ng_platform_canvas_get_wayland_handle, ng_platform_canvas_get_xcb_handle};
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", any(feature = "wgpu", feature = "zengpu")))]
 use crate::ffi::{ng_platform_window_get_wayland_handle, ng_platform_window_get_xcb_handle};
 
 /// Platform-specific native window handle.
@@ -71,7 +72,7 @@ pub enum LinuxWindowHandle {
     },
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", any(feature = "wgpu", feature = "zengpu")))]
 pub(crate) fn linux_window_handle_from_ptr(window: *mut c_void) -> Option<LinuxWindowHandle> {
     let mut xcb_window: u32 = 0;
     let mut xcb_connection: *mut c_void = null_mut();
@@ -121,6 +122,7 @@ fn linux_canvas_handle_from_ptr(canvas: *mut c_void) -> Option<LinuxWindowHandle
     None
 }
 
+#[cfg(any(feature = "wgpu", feature = "zengpu"))]
 pub(crate) fn native_handle_from_window_ptr(window: *mut c_void) -> Option<NativeWindowHandle> {
     #[cfg(target_os = "macos")]
     {
@@ -256,6 +258,7 @@ unsafe impl Sync for NativeWindowHandle {}
 
 /// Convert a [`NativeWindowHandle`] to the `raw-window-handle` pair a `wgpu` surface (or any other
 /// `raw-window-handle` consumer) needs.
+#[cfg(feature = "wgpu")]
 pub fn raw_handles(
     native: &NativeWindowHandle,
 ) -> Result<(RawWindowHandle, RawDisplayHandle), HandleError> {
