@@ -10,7 +10,6 @@ use std::thread;
 use std::time::Instant;
 
 use crate::cpu::bands::{BAND_MIN_PIXELS, BandScratch, FramePlan, MAX_BANDS, draw_bands};
-use crate::cpu::pool;
 use crate::cpu::blend::{ConstSrc, LinearLuts, blend_pixel};
 use crate::cpu::clip::ClipBox;
 use crate::cpu::counters::{FrameCounters, Tally};
@@ -19,6 +18,7 @@ use crate::cpu::damage::*;
 use crate::cpu::damage::{
     FrameDamage, is_known_bounds, mark_occluded, resolve_frame_damage, union_rect,
 };
+use crate::cpu::pool;
 use crate::cpu::raster::band::Band;
 use crate::cpu::raster::fill::{self, PathScratch};
 use crate::cpu::raster::sample;
@@ -2649,32 +2649,6 @@ fn pixel_at(buf: &[u32], w: u32, x: u32, y: u32) -> u32 {
 mod glyph_tests {
     use super::*;
     use crate::scene::display_list::DisplayIndex;
-    use std::hint::black_box;
-    use std::time::Instant;
-
-    #[test]
-    #[ignore = "manual CPU glyph clipping timing"]
-    fn clipped_glyph_benchmark() {
-        let mask = GlyphMask::new(256, 16384, vec![128; 256 * 16384 * 3].into());
-        let mut pixels = vec![0u32; 256 * 256];
-        let clip = ClipBox::surface(256, 256).intersect(Rect::new(0.0, 120.0, 256.0, 8.0));
-        let start = Instant::now();
-        for _ in 0..2000 {
-            CpuRasterizer::draw_glyph(
-                black_box(&mask),
-                Point::new(0.0, -8192.0),
-                Color::rgb(20, 30, 40),
-                black_box(&mut Band::whole(&mut pixels)),
-                256,
-                clip,
-            );
-        }
-        eprintln!(
-            "clipped glyph: {:.2} us/draw",
-            start.elapsed().as_secs_f64() * 1e6 / 2000.0
-        );
-        black_box(pixels);
-    }
 
     #[test]
     fn clear_under_a_clip_off_the_surface_draws_nothing() {
@@ -2978,47 +2952,6 @@ mod glyph_tests {
             }
         }
     }
-
-    fn glyph_blend_bench(alpha: u8, label: &str) {
-        const SIDE: u32 = 1024;
-        const ITERS: u32 = 20;
-        let coverage: Vec<u8> = (0..SIDE * SIDE * 3)
-            .map(|i| u8::try_from((i * 73) % 256).expect("byte"))
-            .collect();
-        let mask = GlyphMask::new(SIDE, SIDE, coverage.into());
-        let mut pixels = vec![0xff10_2030; (SIDE * SIDE) as usize];
-        let clip = ClipBox::surface(SIDE, SIDE);
-        let color = Color::rgba(20, 30, 40, alpha);
-        let start = Instant::now();
-        for _ in 0..ITERS {
-            CpuRasterizer::draw_glyph_blended(
-                black_box(&mask),
-                Point::new(0.0, 0.0),
-                color,
-                BlendMode::Normal,
-                black_box(&mut Band::whole(&mut pixels)),
-                SIDE,
-                clip,
-            );
-        }
-        eprintln!(
-            "{label}: {:.2} us/draw",
-            start.elapsed().as_secs_f64() * 1e6 / f64::from(ITERS)
-        );
-        black_box(pixels);
-    }
-
-    #[test]
-    #[ignore = "manual translucent glyph timing"]
-    fn translucent_glyph_benchmark() {
-        glyph_blend_bench(128, "translucent 1024x1024 glyph");
-    }
-
-    #[test]
-    #[ignore = "manual opaque glyph timing"]
-    fn opaque_glyph_benchmark() {
-        glyph_blend_bench(255, "opaque 1024x1024 glyph");
-    }
 }
 
 #[cfg(test)]
@@ -3090,8 +3023,6 @@ mod bad_source_tests {
 #[cfg(test)]
 mod image_draw_tests {
     use super::*;
-    use std::hint::black_box;
-    use std::time::Instant;
 
     fn pattern(w: u32, h: u32, alpha: impl Fn(u32, u32) -> u8) -> Image {
         let mut data = Vec::with_capacity((w * h * 4) as usize);
@@ -3173,44 +3104,6 @@ mod image_draw_tests {
                 }
             }
         }
-    }
-
-    /// Lunia's zoom frame: a canvas-sized clear under ~80 enlarged opaque tiles.
-    #[test]
-    #[ignore = "manual CPU image draw timing"]
-    fn zoomed_tiles_benchmark() {
-        let (w, h) = (2732, 2048);
-        let tile = pattern(256, 256, |_, _| 255);
-        let mut r = CpuRasterizer::new(w, h);
-        let frames = 20;
-        let mut total = 0.0;
-        for frame in 0..frames {
-            let mut ctx = r.begin_frame().expect("frame");
-            ctx.clear(Color::rgb(40, 40, 40)).expect("clear");
-            let size = 256.0 * 1.3;
-            let shift = frame as f32 * 1.7;
-            for row in 0..8 {
-                for col in 0..10 {
-                    let dest = Rect::new(
-                        col as f32 * size - shift,
-                        row as f32 * size - shift,
-                        size,
-                        size,
-                    );
-                    ctx.draw_image_region(&tile, Rect::new(0.0, 0.0, 256.0, 256.0), dest)
-                        .expect("draw");
-                }
-            }
-            drop(ctx);
-            let start = Instant::now();
-            r.end_frame().expect("end");
-            total += start.elapsed().as_secs_f64();
-        }
-        eprintln!(
-            "zoomed tiles: {:.2} ms/frame",
-            total * 1e3 / f64::from(frames)
-        );
-        black_box(r.pixels());
     }
 }
 
@@ -4276,8 +4169,6 @@ mod scale_tests {
 #[cfg(test)]
 mod stroke_circle_tests {
     use super::*;
-    use std::hint::black_box;
-    use std::time::{Duration, Instant};
 
     const SIDE: u32 = 700;
 
@@ -4405,49 +4296,11 @@ mod stroke_circle_tests {
             }
         }
     }
-
-    #[test]
-    #[ignore = "timing; run with --include-ignored --nocapture"]
-    fn timing_200_stroked_circles_r300_w3() {
-        const SIDE_T: u32 = 1024;
-        let clip = ClipBox::surface(SIDE_T, SIDE_T);
-        let paint = Paint::new()
-            .color(Color::rgba(200, 40, 90, 255))
-            .style(PaintStyle::Stroke)
-            .stroke_width(3.0);
-        let centers: Vec<Point> = (0..200)
-            .map(|i| {
-                let t = i as f32;
-                Point::new(150.0 + (t * 37.3) % 724.0, 150.0 + (t * 91.7) % 724.0)
-            })
-            .collect();
-        let mut best = Duration::MAX;
-        for _ in 0..3 {
-            let mut buf = vec![0u32; (SIDE_T * SIDE_T) as usize];
-            let start = Instant::now();
-            for &center in &centers {
-                CpuRasterizer::draw_circle(
-                    center,
-                    300.0,
-                    &paint,
-                    BlendMode::Normal,
-                    &mut Band::whole(&mut buf),
-                    SIDE_T,
-                    clip,
-                );
-            }
-            best = best.min(start.elapsed());
-            black_box(&buf);
-        }
-        println!("best of 3 run: {best:?}");
-    }
 }
 
 #[cfg(test)]
 mod gradient_and_scaled_tests {
     use super::*;
-    use std::hint::black_box;
-    use std::time::Instant;
 
     const W: u32 = 40;
     const H: u32 = 30;
@@ -4850,247 +4703,6 @@ mod gradient_and_scaled_tests {
             }
         }
     }
-
-    fn linear_bench(label: &str, grad: &LinearGradient) {
-        const BW: u32 = 627;
-        const BH: u32 = 202;
-        const ITERS: u32 = 50;
-        let rect = Rect::new(0.0, 0.0, BW as f32, BH as f32);
-        let clip = ClipBox::surface(BW, BH);
-        let mut buf = background(BW * BH);
-        let start = Instant::now();
-        for _ in 0..ITERS {
-            CpuRasterizer::fill_linear_gradient(
-                black_box(grad),
-                rect,
-                BlendMode::Normal,
-                black_box(&mut Band::whole(&mut buf)),
-                BW,
-                clip,
-            );
-        }
-        let ns = start.elapsed().as_secs_f64() * 1e9 / f64::from(ITERS * BW * BH);
-        eprintln!("{label}: {ns:.2} ns/pixel");
-        black_box(buf);
-    }
-
-    #[test]
-    #[ignore = "manual translucent gradient timing"]
-    fn translucent_gradient_benchmark() {
-        let mut sets = stop_sets();
-        let clear_to_black = LinearGradient {
-            start: Point::new(0.0, 0.0),
-            end: Point::new(627.0, 0.0),
-            stops: sets.remove(1),
-        };
-        let white_to_clear = LinearGradient {
-            start: Point::new(0.0, 0.0),
-            end: Point::new(627.0, 0.0),
-            stops: sets.remove(0),
-        };
-        linear_bench("white->clear 627x202", &white_to_clear);
-        linear_bench("clear->black 627x202", &clear_to_black);
-    }
-
-    #[test]
-    #[ignore = "manual radial gradient timing"]
-    fn translucent_radial_benchmark() {
-        let grad = RadialGradient {
-            center: Point::new(313.0, 101.0),
-            radius: 320.0,
-            stops: stop_sets().remove(0),
-        };
-        let (w, h) = (627u32, 202u32);
-        let rect = Rect::new(0.0, 0.0, w as f32, h as f32);
-        let clip = ClipBox::surface(w, h);
-        let mut buf = background(w * h);
-        let iters = 50;
-        let start = Instant::now();
-        for _ in 0..iters {
-            CpuRasterizer::fill_radial_gradient(
-                black_box(&grad),
-                rect,
-                BlendMode::Normal,
-                black_box(&mut Band::whole(&mut buf)),
-                w,
-                clip,
-            );
-        }
-        let ns = start.elapsed().as_secs_f64() * 1e9 / f64::from(iters * w * h);
-        eprintln!("radial white->clear 627x202: {ns:.2} ns/pixel");
-        black_box(buf);
-    }
-
-    fn white_to_clear() -> Vec<GradientStop> {
-        stop_sets().remove(0)
-    }
-
-    fn timing(label: &str, w: u32, h: u32, draw: impl Fn(&mut [u32], u32, ClipBox)) {
-        const ITERS: u32 = 50;
-        let clip = ClipBox::surface(w, h);
-        let mut buf = background(w * h);
-        let start = Instant::now();
-        for _ in 0..ITERS {
-            draw(black_box(&mut buf), w, clip);
-        }
-        let ns = start.elapsed().as_secs_f64() * 1e9 / f64::from(ITERS * w * h);
-        eprintln!("{label}: {ns:.2} ns/pixel");
-        black_box(buf);
-    }
-
-    #[test]
-    #[ignore = "manual horizontal white-to-clear gradient timing"]
-    fn timing_white_to_clear_horizontal() {
-        let grad = LinearGradient {
-            start: Point::new(0.0, 0.0),
-            end: Point::new(627.0, 0.0),
-            stops: white_to_clear(),
-        };
-        let rect = Rect::new(0.0, 0.0, 627.0, 202.0);
-        timing(
-            "horizontal white->clear 627x202",
-            627,
-            202,
-            |buf, w, clip| {
-                CpuRasterizer::fill_linear_gradient(
-                    black_box(&grad),
-                    rect,
-                    BlendMode::Normal,
-                    &mut Band::whole(buf),
-                    w,
-                    clip,
-                );
-            },
-        );
-    }
-
-    #[test]
-    #[ignore = "manual vertical white-to-clear gradient timing"]
-    fn timing_white_to_clear_vertical() {
-        let grad = LinearGradient {
-            start: Point::new(0.0, 0.0),
-            end: Point::new(0.0, 202.0),
-            stops: white_to_clear(),
-        };
-        let rect = Rect::new(0.0, 0.0, 627.0, 202.0);
-        timing("vertical white->clear 627x202", 627, 202, |buf, w, clip| {
-            CpuRasterizer::fill_linear_gradient(
-                black_box(&grad),
-                rect,
-                BlendMode::Normal,
-                &mut Band::whole(buf),
-                w,
-                clip,
-            );
-        });
-    }
-
-    #[test]
-    #[ignore = "manual axis-aligned gradient timing, reference loop against the fast paths"]
-    fn axis_gradient_timing() {
-        const ITERS: u32 = 20;
-        let cases = [
-            (
-                "horizontal 2000x200",
-                2000u32,
-                200u32,
-                Point::new(2000.0, 0.0),
-            ),
-            ("vertical 200x2000", 200, 2000, Point::new(0.0, 2000.0)),
-        ];
-        for (label, w, h, end) in cases {
-            let grad = LinearGradient {
-                start: Point::new(0.0, 0.0),
-                end,
-                stops: white_to_clear(),
-            };
-            let rect = Rect::new(0.0, 0.0, w as f32, h as f32);
-            let clip = ClipBox::surface(w, h);
-            let mut buf = background(w * h);
-            let per_pixel =
-                |start: Instant| start.elapsed().as_secs_f64() * 1e9 / f64::from(ITERS * w * h);
-
-            let start = Instant::now();
-            for _ in 0..ITERS {
-                reference_linear(
-                    &grad,
-                    rect,
-                    BlendMode::Normal,
-                    black_box(buf.as_mut_slice()),
-                    w,
-                    clip,
-                );
-            }
-            eprintln!("{label} before: {:.2} ns/pixel", per_pixel(start));
-
-            let start = Instant::now();
-            for _ in 0..ITERS {
-                CpuRasterizer::fill_linear_gradient(
-                    black_box(&grad),
-                    rect,
-                    BlendMode::Normal,
-                    black_box(&mut Band::whole(&mut buf)),
-                    w,
-                    clip,
-                );
-            }
-            eprintln!("{label} after: {:.2} ns/pixel", per_pixel(start));
-            black_box(buf);
-        }
-    }
-
-    #[test]
-    #[ignore = "manual radial white-to-clear gradient timing"]
-    fn timing_radial_white_to_clear_600() {
-        let grad = RadialGradient {
-            center: Point::new(300.0, 300.0),
-            radius: 300.0,
-            stops: white_to_clear(),
-        };
-        let rect = Rect::new(0.0, 0.0, 600.0, 600.0);
-        timing("radial white->clear 600x600", 600, 600, |buf, w, clip| {
-            CpuRasterizer::fill_radial_gradient(
-                black_box(&grad),
-                rect,
-                BlendMode::Normal,
-                &mut Band::whole(buf),
-                w,
-                clip,
-            );
-        });
-    }
-
-    #[test]
-    #[ignore = "manual nearest image scaling timing"]
-    fn nearest_scaled_image_benchmark() {
-        let (w, h) = (627u32, 202u32);
-        let opaque = image_pattern(320, 200, |_, _| 255);
-        let translucent = image_pattern(320, 200, |_, _| 128);
-        let rect = Rect::new(0.0, 0.0, w as f32, h as f32);
-        let clip = ClipBox::surface(w, h);
-        let iters = 50;
-        for (label, image) in [("opaque", &opaque), ("translucent", &translucent)] {
-            let mut buf = vec![0xff20_4060; (w * h) as usize];
-            let start = Instant::now();
-            for _ in 0..iters {
-                CpuRasterizer::draw_image(
-                    black_box(image),
-                    Rect::new(0.0, 0.0, 320.0, 200.0),
-                    rect,
-                    Sampling::Nearest,
-                    BlendMode::Normal,
-                    1.0,
-                    black_box(&mut Band::whole(&mut buf)),
-                    &mut ImageScratch::default(),
-                    w,
-                    clip,
-                );
-            }
-            let ns = start.elapsed().as_secs_f64() * 1e9 / f64::from(iters * w * h);
-            eprintln!("nearest scaled {label} 320x200 -> 627x202: {ns:.2} ns/pixel");
-            black_box(buf);
-        }
-    }
 }
 
 #[cfg(test)]
@@ -5144,8 +4756,6 @@ mod rect_span_tests {
     //! Oracles are copies of the pre-change code. The tests compare whole buffers against them.
 
     use super::*;
-    use std::hint::black_box;
-    use std::time::Instant;
 
     #[allow(clippy::too_many_arguments)]
     fn ref_draw_rect(
@@ -5766,86 +5376,6 @@ mod rect_span_tests {
             }
         }
     }
-
-    fn time_per_op(label: &str, iters: u32, mut op: impl FnMut()) {
-        let start = Instant::now();
-        for _ in 0..iters {
-            op();
-        }
-        eprintln!(
-            "{label}: {:.2} us/op",
-            start.elapsed().as_secs_f64() * 1e6 / f64::from(iters)
-        );
-    }
-
-    #[test]
-    #[ignore = "manual fractional translucent fill timing"]
-    fn fractional_translucent_fill_timing() {
-        const W: u32 = 1920;
-        const H: u32 = 1080;
-        let mut buf = dst_uniform(W, H);
-        let clip = ClipBox::surface(W, H);
-        let rect = Rect::new(100.3, 50.6, 1200.4, 300.25);
-        let paint = solid(Color::rgba(40, 120, 200, 128));
-        time_per_op("fractional translucent fill 1200x300", 50, || {
-            CpuRasterizer::draw_rect(
-                black_box(&rect),
-                &paint,
-                BlendMode::Normal,
-                black_box(&mut Band::whole(&mut buf)),
-                W,
-                clip,
-            );
-        });
-        black_box(buf);
-    }
-
-    #[test]
-    #[ignore = "manual fractional stroke timing"]
-    fn fractional_stroke_timing() {
-        const W: u32 = 1920;
-        const H: u32 = 1080;
-        let mut buf = dst_uniform(W, H);
-        let clip = ClipBox::surface(W, H);
-        let rect = Rect::new(100.3, 50.6, 1200.4, 300.25);
-        let paint = Paint::new()
-            .color(Color::rgba(40, 120, 200, 128))
-            .style(PaintStyle::Stroke)
-            .stroke_width(20.0);
-        time_per_op("fractional translucent stroke 1200x300 w20", 50, || {
-            CpuRasterizer::draw_rect(
-                black_box(&rect),
-                &paint,
-                BlendMode::Normal,
-                black_box(&mut Band::whole(&mut buf)),
-                W,
-                clip,
-            );
-        });
-        black_box(buf);
-    }
-
-    #[test]
-    #[ignore = "manual full-frame clear pass timing"]
-    fn full_frame_clears_timing() {
-        let mut r = CpuRasterizer::new(1920, 1080);
-        let mut n = 0u8;
-        time_per_op("1920x1080 frame: 4 clears + rect", 60, || {
-            n = n.wrapping_add(1);
-            let mut ctx = r.begin_frame().unwrap();
-            ctx.clear(Color::rgb(n, 20, 20)).unwrap();
-            ctx.clear(Color::rgb(n, 40, 20)).unwrap();
-            ctx.clear(Color::rgb(n, 60, 20)).unwrap();
-            ctx.clear(Color::rgb(n, 80, 20)).unwrap();
-            ctx.draw_rect(
-                Rect::new(100.0, 100.0, 300.0, 200.0),
-                &solid(Color::rgb(9, 9, 9)),
-            )
-            .unwrap();
-            drop(ctx);
-            r.end_frame().unwrap();
-        });
-    }
 }
 
 #[cfg(test)]
@@ -6029,53 +5559,6 @@ mod band_tests {
         r.set_counting(true);
         assert_eq!(r.band_count(small), 1, "counters time items on one thread");
     }
-
-    #[test]
-    #[ignore = "timing; run with --release --ignored --nocapture"]
-    fn timing_full_frames_by_thread_count() {
-        let (w, h) = (2732u32, 2048u32);
-        let tile = Image::new(
-            256,
-            256,
-            (0..256 * 256 * 4)
-                .map(|i: u32| (i % 251).to_le_bytes()[0])
-                .collect(),
-        );
-        for threads in [1, 2, 4, 8] {
-            let mut r = CpuRasterizer::new(w, h);
-            r.set_threads(Some(threads));
-            let mut times = Vec::new();
-            for frame in 0..12 {
-                let mut ctx = r.begin_frame().expect("frame");
-                ctx.clear(Color::rgb(30, 30, 30)).expect("clear");
-                ctx.set_sampling(Sampling::Smooth).expect("sampling");
-                // a zoomed canvas of tiles, moved each frame so all of it redraws
-                let shift = frame as f32 * 3.0;
-                for ty in 0..9 {
-                    for tx in 0..12 {
-                        let at =
-                            Rect::new(tx as f32 * 240.0 - shift, ty as f32 * 240.0, 240.0, 240.0);
-                        ctx.draw_image_rect(&tile, at).expect("tile");
-                    }
-                }
-                for i in 0..200 {
-                    let y = (i * 10) as f32;
-                    ctx.draw_round_rect(
-                        Rect::new(20.0, y, 300.0, 8.0),
-                        4.0,
-                        &Paint::new().color(Color::rgba(200, 200, 200, 160)),
-                    )
-                    .expect("row");
-                }
-                drop(ctx);
-                let started = Instant::now();
-                r.end_frame().expect("end");
-                times.push(started.elapsed().as_secs_f64() * 1000.0);
-            }
-            times.sort_by(f64::total_cmp);
-            println!("{threads} threads: median {:.2} ms", times[times.len() / 2]);
-        }
-    }
 }
 
 #[cfg(test)]
@@ -6160,7 +5643,7 @@ mod path_coverage_tests {
 }
 
 #[cfg(test)]
-mod clip_golden_tests {
+mod clip_band_tests {
     use super::*;
     use crate::drawing::DrawingContext;
     use crate::geometry::{FillRule, PathCommand};
@@ -6327,15 +5810,6 @@ mod clip_golden_tests {
     ];
 
     /// FNV-1a over the little-endian bytes of every pixel.
-    fn fnv(pixels: &[u32]) -> u64 {
-        pixels
-            .iter()
-            .flat_map(|px| px.to_le_bytes())
-            .fold(0xcbf2_9ce4_8422_2325, |h, b| {
-                (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
-            })
-    }
-
     fn frame(threads: usize, band_min: usize, scene: Scene) -> Vec<u32> {
         let (w, h) = (96, 96);
         let mut r = CpuRasterizer::new(w, h);
@@ -6358,436 +5832,16 @@ mod clip_golden_tests {
         r.frame_buffer.clone()
     }
 
-    const GOLDEN: [u64; 6] = [
-        3210432459124393221,
-        3324011533650081035,
-        12658642438491466263,
-        8424631207175497495,
-        7408609324301255461,
-        6941721216795880809,
-    ];
-
     #[test]
-    fn clipped_scenes_match_golden_hashes() {
-        let mut got = [0u64; 6];
+    fn clipped_scenes_match_on_any_number_of_bands() {
         for (i, scene) in SCENES.into_iter().enumerate() {
-            let one = fnv(&frame(1, 1, scene));
+            let one = frame(1, 1, scene);
             for threads in [2, 3] {
-                assert_eq!(
-                    fnv(&frame(threads, 1, scene)),
-                    one,
+                assert!(
+                    frame(threads, 1, scene) == one,
                     "scene {i}, {threads} bands"
                 );
             }
-            got[i] = one;
-        }
-        assert_eq!(got, GOLDEN);
-    }
-}
-
-#[cfg(test)]
-mod alloc_measure {
-    //! Heap allocations per frame for a busy 1280x800 scene at scale 1.5: cold, steady, and with
-    //! one rect moved. `AUREA_ALLOC_TRACE=1` also prints the top allocation sites.
-
-    use super::*;
-    use crate::types::{Font, LineCap, LineJoin};
-    use std::alloc::{GlobalAlloc, Layout, System};
-    use std::backtrace::Backtrace;
-    use std::cell::Cell;
-    use std::cmp::Reverse;
-    use std::collections::HashMap;
-    use std::env;
-    use std::mem;
-    use std::slice;
-    use std::sync::Mutex;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::Relaxed};
-
-    struct Counting;
-
-    static COUNTING: AtomicBool = AtomicBool::new(false);
-    static TRACING: AtomicBool = AtomicBool::new(false);
-    static ALLOCS: AtomicUsize = AtomicUsize::new(0);
-    static BYTES: AtomicUsize = AtomicUsize::new(0);
-    static TRACES: Mutex<Vec<(usize, Backtrace)>> = Mutex::new(Vec::new());
-
-    thread_local! {
-        /// Set while the allocator allocates for itself, so those calls are neither counted nor traced.
-        static INSIDE: Cell<bool> = const { Cell::new(false) };
-    }
-
-    fn note(size: usize) {
-        if !COUNTING.load(Relaxed) || INSIDE.with(Cell::get) {
-            return;
-        }
-        ALLOCS.fetch_add(1, Relaxed);
-        BYTES.fetch_add(size, Relaxed);
-        if TRACING.load(Relaxed) {
-            INSIDE.with(|f| f.set(true));
-            let backtrace = Backtrace::force_capture();
-            if let Ok(mut traces) = TRACES.lock() {
-                traces.push((size, backtrace));
-            }
-            INSIDE.with(|f| f.set(false));
-        }
-    }
-
-    // SAFETY: every call goes straight to the system allocator.
-    unsafe impl GlobalAlloc for Counting {
-        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-            note(layout.size());
-            unsafe { System.alloc(layout) }
-        }
-        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-            note(layout.size());
-            unsafe { System.alloc_zeroed(layout) }
-        }
-        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-            unsafe { System.dealloc(ptr, layout) }
-        }
-        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-            note(new_size);
-            unsafe { System.realloc(ptr, layout, new_size) }
-        }
-    }
-
-    #[global_allocator]
-    static GLOBAL: Counting = Counting;
-
-    #[derive(Default, Clone, Copy)]
-    struct Tally {
-        allocs: usize,
-        bytes: usize,
-    }
-
-    impl Tally {
-        fn plus(self, other: Tally) -> Tally {
-            Tally {
-                allocs: self.allocs + other.allocs,
-                bytes: self.bytes + other.bytes,
-            }
-        }
-
-        fn per_frame(self, frames: usize) -> Tally {
-            Tally {
-                allocs: self.allocs / frames,
-                bytes: self.bytes / frames,
-            }
-        }
-    }
-
-    #[derive(Default, Clone, Copy)]
-    struct Phase {
-        rec: Tally,
-        ras: Tally,
-    }
-
-    /// Site, count and bytes of the traced allocations that share one first `aurea` frame.
-    type Site = (String, usize, usize);
-
-    fn measure(f: impl FnOnce()) -> Tally {
-        ALLOCS.store(0, Relaxed);
-        BYTES.store(0, Relaxed);
-        COUNTING.store(true, Relaxed);
-        f();
-        COUNTING.store(false, Relaxed);
-        Tally {
-            allocs: ALLOCS.load(Relaxed),
-            bytes: BYTES.load(Relaxed),
-        }
-    }
-
-    const LOGICAL: (u32, u32) = (1280, 800);
-    const SCALE: f32 = 1.5;
-
-    /// Everything the scene needs that is not per-frame work, built once.
-    struct Assets {
-        images: Vec<Image>,
-        fonts: Vec<Font>,
-        texts: Vec<String>,
-        strokes: Vec<(Path, Paint)>,
-        clip: Path,
-        linear: LinearGradient,
-        radial: RadialGradient,
-    }
-
-    fn assets() -> Assets {
-        let picture = |side: u32, seed: u32| {
-            let data = (0..side * side * 4)
-                .map(|i| (i.wrapping_mul(2_654_435_761).wrapping_add(seed) >> 13).to_le_bytes()[0])
-                .collect();
-            Image::new(side, side, data)
-        };
-        let strokes = (0..30u32)
-            .map(|k| {
-                let mut path = Path::new();
-                for j in 0..8u32 {
-                    let p = Point::new(
-                        660.0 + (k % 6) as f32 * 100.0 + j as f32 * 12.0,
-                        20.0 + (k / 6) as f32 * 110.0 + (j % 2) as f32 * 40.0,
-                    );
-                    path.commands.push(if j == 0 {
-                        PathCommand::MoveTo(p)
-                    } else {
-                        PathCommand::LineTo(p)
-                    });
-                }
-                let mut paint = Paint::new()
-                    .style(PaintStyle::Stroke)
-                    .stroke_width(1.5 + (k % 3) as f32)
-                    .color(Color::rgba(40 + (k * 7).to_le_bytes()[0], 90, 170, 220))
-                    .line_join(LineJoin::Round)
-                    .line_cap(LineCap::Round);
-                if k % 2 == 0 {
-                    paint = paint.dash(&[6.0, 4.0], 0.0);
-                }
-                (path, paint)
-            })
-            .collect();
-        let stop = |offset, color| GradientStop { offset, color };
-        Assets {
-            images: vec![
-                picture(256, 1),
-                picture(256, 2),
-                picture(256, 3),
-                picture(256, 4),
-                picture(1024, 5),
-            ],
-            fonts: vec![
-                Font::new("", 12.0),
-                Font::new("Segoe UI", 16.0),
-                Font::new("Consolas", 13.0),
-                Font::new("Segoe UI", 24.0),
-            ],
-            texts: (0..100)
-                .map(|i| format!("Row {i}: 1,234.56 kg, lot {}", i * 7))
-                .collect(),
-            strokes,
-            clip: Path::rounded_rect(Rect::new(0.0, 0.0, 640.0, 800.0), 24.0),
-            linear: LinearGradient {
-                start: Point::new(660.0, 540.0),
-                end: Point::new(950.0, 540.0),
-                stops: vec![
-                    stop(0.0, Color::rgb(20, 120, 200)),
-                    stop(1.0, Color::rgb(240, 180, 40)),
-                ],
-            },
-            radial: RadialGradient {
-                center: Point::new(1120.0, 550.0),
-                radius: 150.0,
-                stops: vec![
-                    stop(0.0, Color::rgb(255, 255, 255)),
-                    stop(1.0, Color::rgb(60, 40, 120)),
-                ],
-            },
-        }
-    }
-
-    fn small_rect(ctx: &mut dyn DrawingContext, i: usize, nudge: f32) -> AureaResult<()> {
-        let moved = if i == 0 { nudge } else { 0.0 };
-        let x = 8.0 + (i % 20) as f32 * 62.0 + moved;
-        let y = 8.0 + (i / 20) as f32 * 38.0;
-        let paint = Paint::new().color(Color::rgb((i * 37).to_le_bytes()[0], 150, 210));
-        ctx.draw_rect(Rect::new(x, y, 56.0, 30.0), &paint)
-    }
-
-    fn round_rect(ctx: &mut dyn DrawingContext, i: usize) -> AureaResult<()> {
-        let x = 8.0 + (i % 10) as f32 * 126.0;
-        let y = 400.0 + (i / 10) as f32 * 40.0;
-        let paint = Paint::new().color(Color::rgb(200, (i * 11).to_le_bytes()[0], 90));
-        ctx.draw_round_rect(Rect::new(x, y, 116.0, 30.0), 8.0, &paint)
-    }
-
-    fn label(ctx: &mut dyn DrawingContext, a: &Assets, i: usize) -> AureaResult<()> {
-        let at = Point::new(16.0 + (i % 5) as f32 * 126.0, 420.0 + (i / 5) as f32 * 18.0);
-        let paint = Paint::new().color(Color::rgb(30, 30, 40));
-        ctx.draw_text_with_font(&a.texts[i], at, &a.fonts[i % 4], &paint)
-    }
-
-    /// The busy scene. Items 0..100 rects, 0..25 round rects and 0..50 labels sit inside the
-    /// rounded clip over the left half; the rest sit outside it.
-    fn record(ctx: &mut dyn DrawingContext, a: &Assets, nudge: f32) -> AureaResult<()> {
-        ctx.clear(Color::rgb(246, 244, 240))?;
-        ctx.save()?;
-        ctx.clip_path(&a.clip)?;
-        for i in 0..100 {
-            small_rect(ctx, i, nudge)?;
-        }
-        for i in 0..25 {
-            round_rect(ctx, i)?;
-        }
-        for i in 0..50 {
-            label(ctx, a, i)?;
-        }
-        ctx.restore()?;
-        for i in 100..200 {
-            small_rect(ctx, i, nudge)?;
-        }
-        for i in 25..50 {
-            round_rect(ctx, i)?;
-        }
-        for i in 50..100 {
-            label(ctx, a, i)?;
-        }
-        for (path, paint) in &a.strokes {
-            ctx.draw_path(path, paint)?;
-        }
-        for (i, image) in a.images.iter().enumerate() {
-            let sampling = if i == 4 {
-                Sampling::Smooth
-            } else {
-                Sampling::Linear
-            };
-            ctx.set_sampling(sampling)?;
-            let at = Rect::new(660.0 + i as f32 * 120.0, 600.0, 116.0, 116.0);
-            ctx.draw_image_rect(image, at)?;
-        }
-        ctx.fill_linear_gradient(&a.linear, Rect::new(660.0, 520.0, 290.0, 60.0))?;
-        ctx.fill_radial_gradient(&a.radial, Rect::new(970.0, 520.0, 290.0, 60.0))?;
-        let shadow = Color::rgba(0, 0, 0, 90);
-        ctx.draw_shadow(Rect::new(660.0, 740.0, 300.0, 40.0), 12.0, 16.0, shadow)
-    }
-
-    fn frame(r: &mut CpuRasterizer, a: &Assets, nudge: f32) -> Phase {
-        let rec = measure(|| {
-            let mut ctx = r.begin_frame().expect("begin_frame");
-            record(ctx.as_mut(), a, nudge).expect("record");
-        });
-        let ras = measure(|| {
-            r.end_frame().expect("end_frame");
-        });
-        Phase { rec, ras }
-    }
-
-    /// The first `aurea` frame of a backtrace, with its file and line when the build has them.
-    fn aurea_site(trace: &str) -> String {
-        let lines: Vec<&str> = trace.lines().map(str::trim).collect();
-        for (i, line) in lines.iter().enumerate() {
-            let Some((num, symbol)) = line.split_once(": ") else {
-                continue;
-            };
-            let numbered = !num.is_empty() && num.bytes().all(|b| b.is_ascii_digit());
-            if !numbered || !symbol.starts_with("aurea") || symbol.contains("alloc_measure") {
-                continue;
-            }
-            let at = lines
-                .get(i + 1)
-                .and_then(|l| l.strip_prefix("at "))
-                .unwrap_or("");
-            return format!("{symbol}  [{at}]");
-        }
-        "(no aurea frame)".to_string()
-    }
-
-    fn aggregate(traces: Vec<(usize, Backtrace)>) -> Vec<Site> {
-        let mut sites: HashMap<String, (usize, usize)> = HashMap::new();
-        for (size, backtrace) in traces {
-            let entry = sites.entry(aurea_site(&backtrace.to_string())).or_default();
-            entry.0 += 1;
-            entry.1 += size;
-        }
-        let mut out: Vec<Site> = sites
-            .into_iter()
-            .map(|(site, (count, bytes))| (site, count, bytes))
-            .collect();
-        out.sort_by_key(|site| Reverse(site.2));
-        out.truncate(15);
-        out
-    }
-
-    /// Runs `frames`, tracing the allocations it makes when `trace` is set.
-    fn sweep(trace: bool, frames: impl FnOnce() -> Vec<Phase>) -> (Vec<Phase>, Vec<Site>) {
-        if trace {
-            if let Ok(mut traces) = TRACES.lock() {
-                traces.clear();
-            }
-            TRACING.store(true, Relaxed);
-        }
-        let phases = frames();
-        TRACING.store(false, Relaxed);
-        let sites = if trace {
-            let taken = TRACES.lock().map(|mut t| mem::take(&mut *t));
-            aggregate(taken.unwrap_or_default())
-        } else {
-            Vec::new()
-        };
-        (phases, sites)
-    }
-
-    fn report(threads: usize, cold: Phase, steady: &[Phase], changed: &[Phase]) {
-        eprintln!("\nthreads={threads} (per frame; 1280x800 logical at scale 1.5)");
-        eprintln!(
-            "{:<24}{:>11}{:>13}{:>11}{:>13}{:>11}{:>13}",
-            "scenario",
-            "rec allocs",
-            "rec bytes",
-            "ras allocs",
-            "ras bytes",
-            "all allocs",
-            "all bytes",
-        );
-        let rows: [(&str, &[Phase]); 3] = [
-            ("frame 1 (cold)", slice::from_ref(&cold)),
-            ("steady (frames 2-10)", steady),
-            ("one rect moved (10)", changed),
-        ];
-        for (label, phases) in rows {
-            let n = phases.len();
-            let total = |pick: fn(&Phase) -> Tally| {
-                phases
-                    .iter()
-                    .fold(Tally::default(), |acc, p| acc.plus(pick(p)))
-                    .per_frame(n)
-            };
-            let rec = total(|p| p.rec);
-            let ras = total(|p| p.ras);
-            let all = rec.plus(ras);
-            eprintln!(
-                "{label:<24}{:>11}{:>13}{:>11}{:>13}{:>11}{:>13}",
-                rec.allocs, rec.bytes, ras.allocs, ras.bytes, all.allocs, all.bytes
-            );
-        }
-    }
-
-    fn print_sites(title: &str, sites: &[Site]) {
-        eprintln!("\ntop sites, {title} (all allocations, totals over the frames)");
-        eprintln!("{:>3}{:>13}{:>8}  site", "#", "bytes", "count");
-        for (i, (site, count, bytes)) in sites.iter().enumerate() {
-            eprintln!("{:>3}{bytes:>13}{count:>8}  {site}", i + 1);
-        }
-    }
-
-    fn run(threads: usize, a: &Assets, trace: bool) {
-        let mut r = CpuRasterizer::new(0, 0);
-        r.set_threads(Some(threads));
-        r.configure(SurfaceInfo::new(LOGICAL.0, LOGICAL.1, SCALE))
-            .expect("configure");
-        let cold = frame(&mut r, a, 0.0);
-        let (steady, steady_sites) =
-            sweep(trace, || (0..9).map(|_| frame(&mut r, a, 0.0)).collect());
-        // Alternating 1 and 2 logical px keeps every frame different from the one before.
-        let (changed, changed_sites) = sweep(trace, || {
-            (0..10)
-                .map(|k| frame(&mut r, a, 1.0 + (k % 2) as f32))
-                .collect()
-        });
-        report(threads, cold, &steady, &changed);
-        if trace {
-            print_sites(&format!("steady, threads={threads}"), &steady_sites);
-            print_sites(
-                &format!("one rect moved, threads={threads}"),
-                &changed_sites,
-            );
-        }
-    }
-
-    #[test]
-    #[ignore = "allocation measurement; run with --release --ignored --nocapture"]
-    fn alloc_measure_frames() {
-        let trace = env::var_os("AUREA_ALLOC_TRACE").is_some();
-        let a = assets();
-        for threads in [1, 4] {
-            run(threads, &a, trace);
         }
     }
 }
@@ -6912,35 +5966,6 @@ mod clip_edge_tests {
         );
     }
 
-    #[test]
-    #[ignore = "manual clip edge benchmark"]
-    fn clipped_panel_timing() {
-        use std::hint::black_box;
-        const SIZE: u32 = 2048;
-        let item = item(
-            SIZE,
-            vec![Path::rounded_rect(
-                Rect::new(7.0, 5.0, 2034.0, 2038.0),
-                32.0,
-            )],
-            BlendMode::Normal,
-        );
-        for reference in [true, false] {
-            let mut scratch = ImageScratch::default();
-            let mut pixels = vec![0xff102030; SIZE as usize * SIZE as usize];
-            draw(&item, &mut pixels, SIZE, &mut scratch, reference);
-            let started = Instant::now();
-            for _ in 0..100 {
-                draw(&item, black_box(&mut pixels), SIZE, &mut scratch, reference);
-            }
-            eprintln!(
-                "clip reference={reference}: {:.3} ms/draw, {} saved bytes",
-                started.elapsed().as_secs_f64() * 10.0,
-                scratch.clip.saved.len() * 4
-            );
-        }
-    }
-
     impl CpuRasterizer {
         #[allow(clippy::too_many_arguments)]
         fn reference_clipped_item(
@@ -7027,7 +6052,6 @@ mod clip_edge_tests {
 #[cfg(test)]
 mod premul_quad_tests {
     use super::*;
-    use std::hint::black_box;
 
     fn tile() -> Image {
         let mut seed = 0x12345678u32;
@@ -7111,46 +6135,6 @@ mod premul_quad_tests {
                     assert_eq!(fast, slow, "{q:?} alpha {alpha} mode {mode:?}");
                 }
             }
-        }
-    }
-
-    #[test]
-    #[ignore = "manual affine image sampling comparison"]
-    fn premul_quad_timing() {
-        let image = tile();
-        let q = [
-            Point::new(5.3, 1.7),
-            Point::new(500.3, 31.7),
-            Point::new(-25.0, 490.7),
-        ];
-        for prepare in [false, true] {
-            let mut pixels = vec![0xff123456; 512 * 512];
-            let mut scratch = ImageScratch::default();
-            draw(
-                &image,
-                &mut pixels,
-                &mut scratch,
-                prepare,
-                q,
-                1.0,
-                BlendMode::Normal,
-            );
-            let start = Instant::now();
-            for _ in 0..50 {
-                draw(
-                    &image,
-                    black_box(&mut pixels),
-                    &mut scratch,
-                    prepare,
-                    q,
-                    1.0,
-                    BlendMode::Normal,
-                );
-            }
-            eprintln!(
-                "affine 256px tile prepared={prepare}: {:.3} ms/draw",
-                start.elapsed().as_secs_f64() * 20.0
-            );
         }
     }
 }

@@ -48,9 +48,15 @@ fn run(name: &str, draw: Draw<'_>) -> AureaResult<()> {
 
 fn grid(step: f32) -> impl Iterator<Item = (f32, f32)> {
     let (w, h) = (WIDTH as f32, HEIGHT as f32);
-    (0..).map(move |row| row as f32 * step).take_while(move |y| *y < h).flat_map(move |y| {
-        (0..).map(move |col| col as f32 * step).take_while(move |x| *x < w).map(move |x| (x, y))
-    })
+    (0..)
+        .map(move |row| row as f32 * step)
+        .take_while(move |y| *y < h)
+        .flat_map(move |y| {
+            (0..)
+                .map(move |col| col as f32 * step)
+                .take_while(move |x| *x < w)
+                .map(move |x| (x, y))
+        })
 }
 
 fn round_rect_path(r: Rect, radius: f32) -> Path {
@@ -103,8 +109,14 @@ fn main() -> AureaResult<()> {
         start: Point::new(0.0, 0.0),
         end: Point::new(800.0, 500.0),
         stops: vec![
-            GradientStop { offset: 0.0, color: Color::rgba(255, 0, 0, 200) },
-            GradientStop { offset: 1.0, color: Color::rgba(0, 0, 255, 200) },
+            GradientStop {
+                offset: 0.0,
+                color: Color::rgba(255, 0, 0, 200),
+            },
+            GradientStop {
+                offset: 1.0,
+                color: Color::rgba(0, 0, 255, 200),
+            },
         ],
     };
 
@@ -120,10 +132,12 @@ fn main() -> AureaResult<()> {
         grid(40.0).try_for_each(|(x, y)| c.draw_rect(Rect::new(x, y, 36.0, 36.0), &glass_line))
     })?;
     run("round rects", &|c| {
-        grid(40.0).try_for_each(|(x, y)| c.draw_round_rect(Rect::new(x, y, 36.0, 36.0), 6.0, &glass))
+        grid(40.0)
+            .try_for_each(|(x, y)| c.draw_round_rect(Rect::new(x, y, 36.0, 36.0), 6.0, &glass))
     })?;
     run("circles", &|c| {
-        grid(40.0).try_for_each(|(x, y)| c.draw_circle(Point::new(x + 18.0, y + 18.0), 16.0, &glass))
+        grid(40.0)
+            .try_for_each(|(x, y)| c.draw_circle(Point::new(x + 18.0, y + 18.0), 16.0, &glass))
     })?;
     run("path fills", &|c| {
         grid(60.0).try_for_each(|(x, y)| {
@@ -151,15 +165,21 @@ fn main() -> AureaResult<()> {
         c.fill_linear_gradient(&gradient, Rect::new(0.0, 0.0, WIDTH as f32, HEIGHT as f32))
     })?;
     run("image tiles 1:1", &|c| {
-        grid(512.0).try_for_each(|(x, y)| c.draw_image_region(&image, whole, Rect::new(x, y, 512.0, 512.0)))
+        grid(512.0).try_for_each(|(x, y)| {
+            c.draw_image_region(&image, whole, Rect::new(x, y, 512.0, 512.0))
+        })
     })?;
     run("image tiles 150%", &|c| {
         c.set_sampling(Sampling::Smooth)?;
-        grid(768.0).try_for_each(|(x, y)| c.draw_image_region(&image, whole, Rect::new(x, y, 768.0, 768.0)))
+        grid(768.0).try_for_each(|(x, y)| {
+            c.draw_image_region(&image, whole, Rect::new(x, y, 768.0, 768.0))
+        })
     })?;
     run("image tiles 67%", &|c| {
         c.set_sampling(Sampling::Smooth)?;
-        grid(341.0).try_for_each(|(x, y)| c.draw_image_region(&image, whole, Rect::new(x, y, 341.0, 341.0)))
+        grid(341.0).try_for_each(|(x, y)| {
+            c.draw_image_region(&image, whole, Rect::new(x, y, 341.0, 341.0))
+        })
     })?;
     run("image turned", &|c| {
         c.set_sampling(Sampling::Smooth)?;
@@ -176,12 +196,22 @@ fn main() -> AureaResult<()> {
         c.draw_image_region(&image, whole, Rect::new(-256.0, -256.0, 512.0, 512.0))
     })?;
     run("round clip rects", &|c| {
-        c.clip_path(&round_rect_path(Rect::new(40.0, 40.0, 1840.0, 1120.0), 16.0))?;
+        c.clip_path(&round_rect_path(
+            Rect::new(40.0, 40.0, 1840.0, 1120.0),
+            16.0,
+        ))?;
         grid(24.0).try_for_each(|(x, y)| c.draw_rect(Rect::new(x, y, 20.0, 20.0), &solid))
     })?;
     run("round clip image", &|c| {
-        c.clip_path(&round_rect_path(Rect::new(40.0, 40.0, 1840.0, 1120.0), 16.0))?;
-        c.draw_image_region(&image, whole, Rect::new(0.0, 0.0, WIDTH as f32, HEIGHT as f32))
+        c.clip_path(&round_rect_path(
+            Rect::new(40.0, 40.0, 1840.0, 1120.0),
+            16.0,
+        ))?;
+        c.draw_image_region(
+            &image,
+            whole,
+            Rect::new(0.0, 0.0, WIDTH as f32, HEIGHT as f32),
+        )
     })?;
     Ok(())
 }

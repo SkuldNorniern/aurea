@@ -1524,30 +1524,4 @@ mod tests {
         path.commands.push(PathCommand::Close);
         path
     }
-
-    #[test]
-    #[ignore]
-    fn clipped_recording_frame_time() {
-        use std::time::Instant;
-
-        let clip = polygon_clip(64, 50.0, 50.0, 40.0);
-        let paint = Paint::default();
-        let frames = 50u32;
-        let start = Instant::now();
-        for _ in 0..frames {
-            let mut list = DisplayList::new();
-            {
-                let mut ctx = RecordingContext::new(&mut list, 100, 100);
-                ctx.set_path_clips(true);
-                ctx.clip_path(&clip).expect("clip_path");
-                for i in 0..2000 {
-                    let rect = Rect::new((i % 50) as f32, (i / 50) as f32, 4.0, 4.0);
-                    ctx.draw_rect(rect, &paint).expect("draw_rect");
-                }
-            }
-            assert_eq!(list.items().len(), 2000);
-        }
-        let ms = start.elapsed().as_secs_f64() * 1000.0 / f64::from(frames);
-        println!("clipped recording: {ms:.3} ms/frame");
-    }
 }

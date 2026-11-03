@@ -373,9 +373,7 @@ fn candidates(family: &str) -> [&str; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::text::shape::shape_text;
     use crate::types::Font;
-    use std::time::Instant;
 
     #[test]
     fn numeric_face_selection_distinguishes_light_regular_and_semibold() {
@@ -453,36 +451,6 @@ mod tests {
             .map(|ch| r.face_for_char(font, primary, ch))
             .collect();
         assert_eq!(cold, warm);
-    }
-
-    #[test]
-    #[ignore]
-    fn korean_shaping_timing() {
-        let r = DirectWriteRasterizer::new().expect("directwrite");
-        let font = Font::new("Segoe UI", 14.0);
-        let font: FontRef = (&font).into();
-        let strings: Vec<String> = (0..200u32)
-            .map(|i| {
-                (0..3u32)
-                    .map(|j| char::from_u32(0xAC00 + (i * 97 + j * 1013) % 11172).expect("hangul"))
-                    .collect()
-            })
-            .collect();
-        let chars: usize = strings.iter().map(|s| s.chars().count()).sum();
-        shape_text("Hello 가", font, &r).expect("warm up font files");
-        let mut passes = Vec::new();
-        for _ in 0..5 {
-            let start = Instant::now();
-            for s in &strings {
-                shape_text(s, font, &r).expect("shape");
-            }
-            passes.push(start.elapsed().as_nanos() / chars as u128);
-        }
-        println!(
-            "korean shaping: cold {} ns/char, best of 5 passes {} ns/char over {chars} chars",
-            passes[0],
-            passes.iter().min().expect("passes")
-        );
     }
 
     #[test]

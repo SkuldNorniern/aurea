@@ -173,7 +173,3 @@ required-features = ["zengpu"]
 name = "zengpu_shared_context"
 required-features = ["zengpu"]
 
-[[example]]
-name = "gpu_memory"
-required-features = ["zengpu"]
-

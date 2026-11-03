@@ -155,9 +155,32 @@ mod checks {
         Button, Container, Label, Orientation, RowList, ScrollView, ScrollbarPolicy, Shared,
         SidebarList, Slider, Spacer, Stack, Table, TextControl, TextEditor, TextFeatures, TextView,
     };
-    use aurea::{AureaError, AureaResult, Element, Window};
+    use aurea::render::Image;
+    use aurea::{AureaError, AureaResult, CursorIcon, Element, Window};
     use std::cell::RefCell;
     use std::rc::Rc;
+
+    pub fn menus_and_cursors_survive_being_rebuilt() -> AureaResult<()> {
+        let mut window = Window::new("menus", 320, 240)?;
+        let root = window.create_menu_bar()?;
+        let mut menu = root.add_submenu("Layers")?;
+        for _ in 0..300 {
+            let mut child = menu.add_submenu("Adjustment")?;
+            let mut nested = child.add_submenu("More")?;
+            let item = nested.add_item("Levels", || {})?;
+            menu.clear()?;
+            assert!(child.add_separator().is_err());
+            assert!(nested.clear().is_err());
+            assert!(item.set_enabled(false).is_err());
+        }
+        let image = Image::new(24, 24, [255, 255, 255, 128].repeat(24 * 24));
+        for _ in 0..300 {
+            window.set_cursor_image(&image, (12, 12))?;
+            window.set_cursor(CursorIcon::ResizeNwSe)?;
+            window.set_cursor(CursorIcon::ResizeNeSw)?;
+        }
+        Ok(())
+    }
 
     fn settle(window: &Window) {
         for _ in 0..5 {
@@ -625,6 +648,7 @@ fn main() {
         wrapped_labels_keep_the_window_height,
         a_window_keeps_its_minimum_size,
         a_styled_text_view_keeps_its_look_when_attached,
+        menus_and_cursors_survive_being_rebuilt,
     ];
     let mut failed = Vec::new();
     for (name, test) in tests {

@@ -2,8 +2,8 @@
 
 mod bands;
 mod counters;
-mod pool;
 mod damage;
+mod pool;
 pub mod raster;
 pub mod rasterizer;
 mod tiles;

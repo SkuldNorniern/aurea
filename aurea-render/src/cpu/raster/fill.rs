@@ -223,7 +223,6 @@ mod tests {
     use super::*;
     use crate::types::{PathCommand, Point};
     use std::f32::consts::{FRAC_PI_2, TAU};
-    use std::time::Instant;
 
     fn square(path: &mut Path, x: f32, y: f32, size: f32, clockwise: bool) {
         let mut corners = [
@@ -460,82 +459,6 @@ mod tests {
                     }
                 }
             }
-        }
-    }
-
-    #[test]
-    #[ignore = "manual timing: cargo test --release -- --include-ignored --nocapture"]
-    fn timing_large_translucent_fill() {
-        const W: u32 = 2000;
-        const H: u32 = 1500;
-        const FILLS: u32 = 20;
-        let mut points = Vec::new();
-        for i in 0..720 {
-            let t = i as f32 / 720.0 * TAU;
-            let r = if i % 2 == 0 { 700.0 } else { 520.0 };
-            points.push((1000.0 + r * t.cos(), 750.0 + r * t.sin()));
-        }
-        let path = polygon(&points);
-        let color = Color::rgba(200, 80, 40, 160);
-        let mut buf: Vec<u32> = (0..W * H)
-            .map(|i| 0xff00_0000 | (i * 2654435761) & 0xffffff)
-            .collect();
-        let mut s = PathScratch::default();
-        let start = Instant::now();
-        for _ in 0..FILLS {
-            fill_path(
-                &path,
-                color,
-                BlendMode::Normal,
-                &mut Band::whole(&mut buf),
-                W,
-                ClipBox::surface(W, H),
-                &mut s,
-            );
-        }
-        let ms = start.elapsed().as_secs_f64() * 1000.0 / f64::from(FILLS);
-        eprintln!("fill {W}x{H}: {ms:.3} ms/fill");
-    }
-
-    #[test]
-    #[ignore = "manual timing: cargo test --release -p aurea-render --lib timing_large_polygon -- --include-ignored --nocapture"]
-    fn timing_large_polygon_fill() {
-        const W: u32 = 1500;
-        const H: u32 = 1000;
-        const FILLS: u32 = 20;
-        let mut points = Vec::new();
-        for i in 0..720 {
-            let t = i as f32 / 720.0 * TAU;
-            let r = if i % 2 == 0 { 480.0 } else { 360.0 };
-            points.push((750.0 + r * t.cos(), 500.0 + r * t.sin()));
-        }
-        let path = polygon(&points);
-        let backdrop: Vec<u32> = (0..W * H)
-            .map(|i| 0xff00_0000 | (i.wrapping_mul(2_654_435_761) & 0x00ff_ffff))
-            .collect();
-        for (label, color) in [
-            ("opaque", Color::rgb(20, 140, 230)),
-            ("translucent", Color::rgba(200, 80, 40, 160)),
-        ] {
-            let mut buf = backdrop.clone();
-            let mut s = PathScratch::default();
-            let mut best = f64::MAX;
-            for _ in 0..3 {
-                let start = Instant::now();
-                for _ in 0..FILLS {
-                    fill_path(
-                        &path,
-                        color,
-                        BlendMode::Normal,
-                        &mut Band::whole(&mut buf),
-                        W,
-                        ClipBox::surface(W, H),
-                        &mut s,
-                    );
-                }
-                best = best.min(start.elapsed().as_secs_f64() * 1000.0 / f64::from(FILLS));
-            }
-            eprintln!("{label} fill {W}x{H}: {best:.3} ms/fill (best of 3)");
         }
     }
 }

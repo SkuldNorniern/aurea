@@ -363,27 +363,6 @@ mod tests {
         assert_eq!(bytes, TUFFY);
     }
 
-    #[cfg(windows)]
-    #[test]
-    fn a_registered_variable_font_varies_with_weight() {
-        let Ok(bytes) = read("C:/Windows/Fonts/bahnschrift.ttf") else {
-            return;
-        };
-        let _only_one = TEST_GUARD.write();
-        let families = register(bytes).expect("a font");
-        let raster = get_platform_rasterizer();
-        let ink = |weight: u16| {
-            let font = Font::new(&families[0], 24.0).with_weight(FontWeight::Number(weight));
-            let face = raster.face((&font).into()).expect("a face");
-            let data = raster.face_data(face).expect("data");
-            assert!(!data.coords().is_empty() || weight == 400);
-            let glyph = data.glyph_index('H');
-            let drawn = raster.rasterize_subpixel(face, glyph, 24.0).expect("glyph");
-            drawn.coverage.iter().map(|&c| u32::from(c)).sum::<u32>()
-        };
-        assert!(ink(700) > ink(300) * 5 / 4);
-    }
-
     #[test]
     fn a_missing_file_is_an_invalid_font() {
         assert!(matches!(

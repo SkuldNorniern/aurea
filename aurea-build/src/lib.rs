@@ -32,7 +32,6 @@ mod winres;
 
 use icons::{icns, ico, load_master};
 
-
 /// An app's identity, as `[package.metadata.aurea]` gives it, with the package's own name and
 /// version standing in for what it leaves out.
 #[derive(Clone, Debug, PartialEq, Eq)]

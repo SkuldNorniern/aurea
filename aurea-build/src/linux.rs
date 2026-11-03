@@ -1,8 +1,8 @@
 //! A Linux app's desktop entry, MIME types and icons, under a `share` folder for packaging.
 
-use crate::plist::xml_escape;
 use crate::Identity;
 use crate::icons::{load_master, png, resize};
+use crate::plist::xml_escape;
 use std::fs;
 use std::io;
 use std::path::Path;

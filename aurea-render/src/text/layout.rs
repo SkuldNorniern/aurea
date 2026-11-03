@@ -392,7 +392,6 @@ mod tests {
     use crate::text::cache_stats;
     use crate::text::fonts::TEST_GUARD;
     use crate::types::Font;
-    use std::hint::black_box;
 
     fn lay(text: &str, options: LayoutOptions) -> TextLayout {
         let r = TextRenderer::new();
@@ -597,41 +596,6 @@ mod tests {
             layout_text(text, font, options, &r).expect("layout")
         );
         assert!(after.hits > before.hits, "{before:?} then {after:?}");
-    }
-
-    #[test]
-    #[ignore]
-    fn timing_repeated_paragraph_layout() {
-        use std::time::Instant;
-
-        let text = "lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. ".repeat(2);
-        let r = TextRenderer::new();
-        let font = Font::new("", 16.0);
-        let font: FontRef = (&font).into();
-        let options = LayoutOptions {
-            max_width: Some(480.0),
-            ..LayoutOptions::default()
-        };
-        const ROUNDS: u32 = 2000;
-        let mut best = [f64::MAX; 2];
-        for _ in 0..3 {
-            let start = Instant::now();
-            for _ in 0..ROUNDS {
-                black_box(layout_text(&text, font, options, &r).expect("layout"));
-            }
-            best[0] = best[0].min(start.elapsed().as_secs_f64() * 1e6 / f64::from(ROUNDS));
-            let start = Instant::now();
-            for _ in 0..ROUNDS {
-                black_box(r.layout(&text, font, options).expect("layout"));
-            }
-            best[1] = best[1].min(start.elapsed().as_secs_f64() * 1e6 / f64::from(ROUNDS));
-        }
-        println!(
-            "{} chars: uncached layout_text {:.2} us, TextRenderer::layout {:.2} us (best of 3)",
-            text.len(),
-            best[0],
-            best[1]
-        );
     }
 
     #[test]

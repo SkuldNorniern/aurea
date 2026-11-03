@@ -290,7 +290,6 @@ impl<K: Eq + Hash + Clone, V> LruCache<K, V> {
 #[cfg(test)]
 mod lru_tests {
     use super::LruCache;
-    use std::time::Instant;
 
     #[test]
     fn entries_and_bytes_both_bound_it() {
@@ -400,24 +399,5 @@ mod lru_tests {
         assert!(c.get(&1).is_none(), "a trimmed entry is a miss");
         c.insert_sized(3, (), 300);
         assert_eq!(c.bytes(), 300, "the cache still works after a trim");
-    }
-
-    #[test]
-    #[ignore]
-    fn timing_cycling_past_cap() {
-        const ROUNDS: usize = 10;
-        let mut best = f64::MAX;
-        for _ in 0..3 {
-            let mut cache = LruCache::new(512);
-            let start = Instant::now();
-            for _ in 0..ROUNDS {
-                for k in 0..600u32 {
-                    cache.insert(k, ());
-                }
-            }
-            let ms = start.elapsed().as_secs_f64() * 1e3 / ROUNDS as f64;
-            best = best.min(ms);
-        }
-        println!("cycling 600 keys into cap 512: {best:.4} ms per round (best of 3)");
     }
 }
