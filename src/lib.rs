@@ -58,6 +58,7 @@ pub mod prelude;
 pub mod registry;
 pub mod render;
 mod screen;
+mod sheets;
 pub mod tray;
 pub mod ui;
 pub mod window;
@@ -131,7 +132,8 @@ pub fn pointer_is_pencil() -> bool {
     false
 }
 
-pub use keyboard::keyboard_connected;
+pub use keyboard::{keyboard_connected, keyboard_height, set_keyboard_follows_focus};
+pub use sheets::sheet_presented;
 
 static PRESS_ON_HOLD: AtomicBool = AtomicBool::new(true);
 

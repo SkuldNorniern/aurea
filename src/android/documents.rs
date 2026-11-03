@@ -11,6 +11,7 @@ use jni::objects::{JClass, JObject, JObjectArray, JString, JValue};
 use jni::sys::jlong;
 
 use super::with_activity;
+use crate::sheets::in_turn;
 use crate::{AureaError, AureaResult, Rect};
 
 type Done = Box<dyn FnOnce(Vec<PathBuf>)>;
@@ -27,6 +28,18 @@ thread_local! {
 ///
 /// [`AureaError::ElementOperationFailed`] when the picker cannot show; `done` is then not called.
 pub fn pick_files(
+    extensions: &[&str],
+    multiple: bool,
+    done: impl FnOnce(Vec<PathBuf>) + 'static,
+) -> AureaResult<()> {
+    let extensions: Vec<String> = extensions.iter().map(ToString::to_string).collect();
+    in_turn(Vec::new(), done, move |done| {
+        let extensions: Vec<&str> = extensions.iter().map(String::as_str).collect();
+        show_pick_files(&extensions, multiple, done)
+    })
+}
+
+fn show_pick_files(
     extensions: &[&str],
     multiple: bool,
     done: impl FnOnce(Vec<PathBuf>) + 'static,
@@ -56,6 +69,16 @@ pub fn export_files(
     paths: &[PathBuf],
     done: impl FnOnce(Vec<PathBuf>) + 'static,
 ) -> AureaResult<()> {
+    let paths = paths.to_vec();
+    in_turn(Vec::new(), done, move |done| {
+        show_export_files(&paths, done)
+    })
+}
+
+fn show_export_files(
+    paths: &[PathBuf],
+    done: impl FnOnce(Vec<PathBuf>) + 'static,
+) -> AureaResult<()> {
     let id = wait(done);
     let paths = texts(paths);
     let shown = call(
@@ -75,6 +98,17 @@ pub fn export_files(
 /// [`AureaError::ElementOperationFailed`] when `paths` is empty or the sheet cannot show; `done`
 /// is then not called. `done` runs on the UI thread, before this returns; no frame is requested.
 pub fn share_files(
+    paths: &[PathBuf],
+    from: Option<Rect>,
+    done: impl FnOnce(bool) + 'static,
+) -> AureaResult<()> {
+    let paths = paths.to_vec();
+    in_turn(false, done, move |done| {
+        show_share_files(&paths, from, done)
+    })
+}
+
+fn show_share_files(
     paths: &[PathBuf],
     _from: Option<Rect>,
     done: impl FnOnce(bool) + 'static,

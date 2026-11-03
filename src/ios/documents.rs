@@ -2,6 +2,7 @@
 //! iCloud Drive. Neither blocks: the app keeps drawing, and `done` hears the paths on the main
 //! thread once the user is through, with none when they cancelled.
 
+use crate::sheets::in_turn;
 use std::ffi::c_void;
 use std::os::raw::{c_char, c_int};
 use std::os::unix::ffi::OsStrExt;
@@ -27,6 +28,18 @@ pub fn pick_files(
     multiple: bool,
     done: impl FnOnce(Vec<PathBuf>) + 'static,
 ) -> AureaResult<()> {
+    let extensions: Vec<String> = extensions.iter().map(ToString::to_string).collect();
+    in_turn(Vec::new(), done, move |done| {
+        let extensions: Vec<&str> = extensions.iter().map(String::as_str).collect();
+        show_pick_files(&extensions, multiple, done)
+    })
+}
+
+fn show_pick_files(
+    extensions: &[&str],
+    multiple: bool,
+    done: impl FnOnce(Vec<PathBuf>) + 'static,
+) -> AureaResult<()> {
     let list = nul_list(
         extensions
             .iter()
@@ -46,6 +59,16 @@ pub fn pick_files(
 /// [`AureaError::ElementOperationFailed`] when `paths` is empty or the picker cannot show; `done`
 /// is then not called.
 pub fn export_files(
+    paths: &[PathBuf],
+    done: impl FnOnce(Vec<PathBuf>) + 'static,
+) -> AureaResult<()> {
+    let paths = paths.to_vec();
+    in_turn(Vec::new(), done, move |done| {
+        show_export_files(&paths, done)
+    })
+}
+
+fn show_export_files(
     paths: &[PathBuf],
     done: impl FnOnce(Vec<PathBuf>) + 'static,
 ) -> AureaResult<()> {

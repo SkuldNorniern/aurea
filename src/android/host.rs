@@ -17,7 +17,7 @@ use super::window::NativeWindow;
 use crate::ffi::callbacks::event_time;
 #[cfg(feature = "zengpu")]
 use crate::gpu_ready;
-use crate::keyboard::set_keyboard_connected;
+use crate::keyboard::{KeyboardFocus, set_keyboard_connected};
 use crate::render::{CpuRasterizer, Renderer, SurfaceInfo};
 use crate::screen::{self, Screen};
 use crate::touch::{Phase, Touches};
@@ -52,6 +52,7 @@ struct Host {
     insets: [f32; 4],
     shape: Shape,
     touches: Touches,
+    keyboard: KeyboardFocus,
 }
 
 /// The screen past its insets, in buffer pixels, as the Activity last said.
@@ -189,6 +190,7 @@ thread_local! {
         insets: [0.0; 4],
         shape: Shape::default(),
         touches: Touches::new(),
+        keyboard: KeyboardFocus::default(),
     });
 }
 
@@ -583,6 +585,7 @@ fn pen_sample(
 pub(super) fn frame() -> bool {
     let started = log::log_enabled!(Level::Trace).then(Instant::now);
     let more = draw_frame();
+    follow_focus();
     if let Some(started) = started {
         log::trace!(
             "android frame: {:.2} ms",
@@ -590,6 +593,22 @@ pub(super) fn frame() -> bool {
         );
     }
     more
+}
+
+/// Raises or lowers the keyboard for what this frame left focused, outside the host's borrow, as
+/// the activity may call back.
+fn follow_focus() {
+    let ask = HOST.with_borrow_mut(|host| {
+        let wanted = host.state.wants_keyboard();
+        let caret = host.state.ime_area();
+        host.keyboard.sync(wanted, caret)
+    });
+    if let Some(area) = ask.area {
+        super::set_text_area(area);
+    }
+    if let Some(show) = ask.show {
+        super::show_keyboard(show);
+    }
 }
 
 fn draw_frame() -> bool {

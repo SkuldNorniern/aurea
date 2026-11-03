@@ -425,6 +425,8 @@ pub struct UiState<Id: WidgetId> {
     last_shields: Vec<Rect>,
     /// Reused by formatted text.
     pub(crate) formatted: String,
+    /// The field and keyboard height last moved clear of each other.
+    lifted: Option<(Key<Id>, u32)>,
     pub(crate) typed: Vec<Typed>,
     pub(crate) typed_targets: Vec<Option<Key<Id>>>,
     /// Escape left the focused widget this frame.
@@ -511,6 +513,7 @@ impl<Id: WidgetId> UiState<Id> {
             shields: Vec::new(),
             last_shields: Vec::new(),
             formatted: String::new(),
+            lifted: None,
             typed: Vec::new(),
             typed_targets: Vec::new(),
             escaped: false,
@@ -1158,6 +1161,32 @@ impl<Id: WidgetId> UiState<Id> {
         }
     }
 
+    /// Whether what has focus takes typing, own editor or not: what a touch host raises the
+    /// on-screen keyboard for.
+    #[cfg_attr(not(any(target_os = "ios", target_os = "android")), allow(dead_code))]
+    pub(crate) fn wants_keyboard(&self) -> bool {
+        matches!(self.focused_sense(), Some(Sense::Text | Sense::Typing))
+    }
+
+    /// How far a scroll area showing `view` should move for the focused field to clear a
+    /// keyboard `height` tall on a canvas `canvas` tall. Asks once per field and keyboard, so the
+    /// user can still scroll away after.
+    pub(crate) fn keyboard_lift(&mut self, view: Rect, canvas: f32, height: f32) -> Option<f32> {
+        if height <= 0.0 {
+            self.lifted = None;
+            return None;
+        }
+        let focus = self.focus?;
+        let field = self.last_hits.iter().find(|hit| hit.key == focus)?.rect;
+        if !view.contains(field.center()) || self.lifted == Some((focus, height.to_bits())) {
+            return None;
+        }
+        self.lifted = Some((focus, height.to_bits()));
+        const ROOM: f32 = 8.0;
+        let over = field.bottom() + ROOM - (canvas - height);
+        (over > 0.0).then_some(over)
+    }
+
     fn focused_sense(&self) -> Option<Sense> {
         let focus = self.focus?;
         self.last_hits
@@ -1444,6 +1473,40 @@ mod tests {
             time: Default::default(),
             pointer: PointerKind::Mouse,
         }
+    }
+
+    #[test]
+    fn a_field_under_the_keyboard_is_lifted_once() {
+        let mut state = UiState::<u8>::new();
+        let field = Key::new(1, 0);
+        state.interact(
+            field,
+            Rect::new(10.0, 500.0, 100.0, 30.0),
+            Sense::Text,
+            true,
+        );
+        state.end();
+        state.give_focus(Some(field));
+        let view = Rect::new(0.0, 0.0, 400.0, 600.0);
+        assert_eq!(state.keyboard_lift(view, 600.0, 0.0), None, "no keyboard");
+        assert_eq!(state.keyboard_lift(view, 600.0, 300.0), Some(238.0));
+        assert_eq!(
+            state.keyboard_lift(view, 600.0, 300.0),
+            None,
+            "the user may scroll now"
+        );
+        assert_eq!(
+            state.keyboard_lift(view, 600.0, 320.0),
+            Some(258.0),
+            "a taller keyboard asks again"
+        );
+        assert_eq!(state.keyboard_lift(view, 600.0, 0.0), None);
+        let elsewhere = Rect::new(0.0, 0.0, 400.0, 100.0);
+        assert_eq!(
+            state.keyboard_lift(elsewhere, 600.0, 300.0),
+            None,
+            "not in this view"
+        );
     }
 
     #[test]

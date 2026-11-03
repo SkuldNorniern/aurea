@@ -1,6 +1,8 @@
 //! Alerts, the share sheet, Quick Look and handing things to other apps. None of them blocks, as a
 //! desktop message box does: the app keeps drawing, and `done` hears any answer on the main thread.
 
+use crate::sheets::in_turn;
+use std::ffi::CStr;
 use std::ffi::c_void;
 use std::os::raw::{c_char, c_int};
 use std::os::unix::ffi::OsStrExt;
@@ -37,6 +39,17 @@ pub fn alert(
     done: impl FnOnce(MessageChoice) + 'static,
 ) -> AureaResult<()> {
     let (title, message) = (c_text(title)?, c_text(message)?);
+    in_turn(MessageChoice::Cancel, done, move |done| {
+        show_alert(&title, &message, buttons, done)
+    })
+}
+
+fn show_alert(
+    title: &CStr,
+    message: &CStr,
+    buttons: MessageButtons,
+    done: impl FnOnce(MessageChoice) + 'static,
+) -> AureaResult<()> {
     let ctx = into_ctx(move |answer| {
         done(MessageChoice::from_code(answer).unwrap_or(MessageChoice::Cancel));
     });
@@ -62,6 +75,17 @@ pub fn alert(
 /// [`AureaError::ElementOperationFailed`] when `paths` is empty or the sheet cannot show; `done`
 /// is then not called.
 pub fn share_files(
+    paths: &[PathBuf],
+    from: Option<Rect>,
+    done: impl FnOnce(bool) + 'static,
+) -> AureaResult<()> {
+    let paths = paths.to_vec();
+    in_turn(false, done, move |done| {
+        show_share_files(&paths, from, done)
+    })
+}
+
+fn show_share_files(
     paths: &[PathBuf],
     from: Option<Rect>,
     done: impl FnOnce(bool) + 'static,
@@ -92,6 +116,14 @@ pub fn share_files(
 /// [`AureaError::ElementOperationFailed`] when it cannot show, before iOS 14 or before the app has
 /// a window; `done` is then not called.
 pub fn pick_color(
+    start: Color,
+    alpha: bool,
+    done: impl FnOnce(Color) + 'static,
+) -> AureaResult<()> {
+    in_turn(start, done, move |done| show_pick_color(start, alpha, done))
+}
+
+fn show_pick_color(
     start: Color,
     alpha: bool,
     done: impl FnOnce(Color) + 'static,

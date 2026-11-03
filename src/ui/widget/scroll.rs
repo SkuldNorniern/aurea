@@ -1,6 +1,7 @@
 //! Scrolling: [`ScrollArea`] moves taller content through a rect, and [`ListView`] draws only the
 //! rows of a long list that are in sight.
 
+use crate::keyboard::keyboard_height;
 use std::ops::Range;
 
 use super::Widget;
@@ -225,6 +226,11 @@ impl<'v> ScrollArea<'v> {
         let shown_x = x.as_ref().map_or(0.0, |(x, _)| x.shown);
         let content = Rect::new(rect.x - shown_x, rect.y - y.shown, width, self.content);
         let out = ui.clipped(rect, |ui| body(ui, content, rect))?;
+        let canvas = ui.ctx.height() as f32;
+        if let Some(by) = ui.state.keyboard_lift(rect, canvas, keyboard_height()) {
+            *self.offset += by;
+            ui.keep_animating();
+        }
         let step = if style.step == f32::INFINITY {
             rect.height
         } else {

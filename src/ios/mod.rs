@@ -34,7 +34,7 @@ use crate::ffi::callbacks::event_time;
 use crate::ffi::{ng_platform_attach_menu, ng_platform_create_menu, ng_platform_destroy_menu};
 #[cfg(feature = "zengpu")]
 use crate::gpu_ready;
-use crate::keyboard::set_keyboard_connected;
+use crate::keyboard::{KeyboardFocus, set_keyboard_connected};
 use crate::locale;
 use crate::render::{CanvasId, CpuRasterizer, Renderer, SurfaceInfo, register_host_canvas};
 use crate::screen::{self, Screen};
@@ -69,6 +69,7 @@ struct Host {
     scale: f32,
     insets: [f32; 4],
     touches: Touches,
+    keyboard: KeyboardFocus,
 }
 
 impl Host {
@@ -153,6 +154,7 @@ thread_local! {
         scale: 1.0,
         insets: [0.0; 4],
         touches: Touches::new(),
+        keyboard: KeyboardFocus::default(),
     });
 }
 
@@ -693,6 +695,18 @@ unsafe extern "C" fn frame(
         }
         i32::from(more)
     });
+    // Outside the host's borrow, as the view may call back.
+    let ask = HOST.with_borrow_mut(|host| {
+        let wanted = host.state.wants_keyboard();
+        let caret = host.state.ime_area();
+        host.keyboard.sync(wanted, caret)
+    });
+    if let Some(area) = ask.area {
+        set_text_area(area);
+    }
+    if let Some(show) = ask.show {
+        show_keyboard(show);
+    }
     dispatch::drain();
     again
 }

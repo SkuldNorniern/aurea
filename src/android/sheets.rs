@@ -10,6 +10,7 @@ use jni::sys::{jint, jlong};
 
 use super::with_activity;
 use crate::dialog::{MessageButtons, MessageChoice};
+use crate::sheets::in_turn;
 use crate::{AureaError, AureaResult};
 
 type Answered = Box<dyn FnOnce(MessageChoice)>;
@@ -25,6 +26,18 @@ thread_local! {
 ///
 /// [`AureaError::ElementOperationFailed`] when it cannot show; `done` is then not called.
 pub fn alert(
+    title: &str,
+    message: &str,
+    buttons: MessageButtons,
+    done: impl FnOnce(MessageChoice) + 'static,
+) -> AureaResult<()> {
+    let (title, message) = (title.to_string(), message.to_string());
+    in_turn(MessageChoice::Cancel, done, move |done| {
+        show_alert(&title, &message, buttons, done)
+    })
+}
+
+fn show_alert(
     title: &str,
     message: &str,
     buttons: MessageButtons,
