@@ -123,6 +123,11 @@ harness = false
 name = "ui"
 harness = false
 
+[[bench]]
+name = "gpu"
+harness = false
+required-features = ["zengpu"]
+
 [[example]]
 name = "android_demo"
 crate-type = ["cdylib"]
