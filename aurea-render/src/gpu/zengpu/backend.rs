@@ -1468,7 +1468,10 @@ impl Drop for ZenGpuBackend {
 fn gpu_err(e: GpuError) -> AureaError {
     match e {
         GpuError::DeviceLost => AureaError::DeviceLost,
-        _ => AureaError::ElementOperationFailed,
+        e => {
+            log::error!("[zengpu] GPU error: {e:?}");
+            AureaError::ElementOperationFailed
+        }
     }
 }
 
