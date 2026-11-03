@@ -11,12 +11,12 @@ use crate::types::{BlendMode, Paint, PaintStyle, Point};
 const STROKE_SPAN_PAD: i32 = 2;
 
 /// Per-circle values shared by every row of a stroked circle.
-struct CircleStrokeCtx {
+struct CircleStrokeCtx<'a> {
     clip: ClipBox,
     center: Point,
-    radius: f32,
-    inner_r: f32,
-    c: u32,
+    outer: f32,
+    inner: f32,
+    paint: &'a Paint,
     mode: BlendMode,
 }
 
@@ -42,10 +42,14 @@ pub(crate) fn draw(
     bw: u32,
     clip: ClipBox,
 ) {
-    let x0 = f32_to_u32_clamped((center.x - radius).floor().max(clip.left())).min(clip.x1);
-    let y0 = f32_to_u32_clamped((center.y - radius).floor().max(clip.top())).min(clip.y1);
-    let x1 = f32_to_u32_clamped((center.x + radius).ceil().max(clip.left())).min(clip.x1);
-    let y1 = f32_to_u32_clamped((center.y + radius).ceil().max(clip.top())).min(clip.y1);
+    let reach = match paint.style {
+        PaintStyle::Fill => radius,
+        PaintStyle::Stroke => radius + paint.stroke_width / 2.0,
+    } + 1.0;
+    let x0 = f32_to_u32_clamped((center.x - reach).floor().max(clip.left())).min(clip.x1);
+    let y0 = f32_to_u32_clamped((center.y - reach).floor().max(clip.top())).min(clip.y1);
+    let x1 = f32_to_u32_clamped((center.x + reach).ceil().max(clip.left())).min(clip.x1);
+    let y1 = f32_to_u32_clamped((center.y + reach).ceil().max(clip.top())).min(clip.y1);
 
     match paint.style {
         PaintStyle::Fill => {
@@ -174,12 +178,16 @@ fn stroke_circle_region(
     x1: u32,
     y1: u32,
 ) {
+    let half = paint.stroke_width / 2.0;
+    if half <= 0.0 {
+        return;
+    }
     let ctx = CircleStrokeCtx {
         clip,
         center,
-        radius,
-        inner_r: (radius - paint.stroke_width).max(0.0),
-        c: pixel::color_to_u32(paint.color),
+        outer: radius + half,
+        inner: radius - half,
+        paint,
         mode,
     };
     for y in y0..y1 {
@@ -188,18 +196,26 @@ fn stroke_circle_region(
 }
 
 /// Splits a row into the spans that can hold stroke pixels: the outer chord, minus the
-/// inner chord when it is wide enough to skip. Pixels outside those spans fail the
-/// per-pixel test in `stroke_circle_span` by a margin, so they are never tested.
-fn stroke_circle_row(buf: &mut Band<'_>, bw: u32, ctx: &CircleStrokeCtx, x0: u32, x1: u32, y: u32) {
+/// inner chord when it is wide enough to skip. Pixels outside those spans have no coverage,
+/// so they are never tested.
+fn stroke_circle_row(
+    buf: &mut Band<'_>,
+    bw: u32,
+    ctx: &CircleStrokeCtx<'_>,
+    x0: u32,
+    x1: u32,
+    y: u32,
+) {
     let dy = y as f32 + 0.5 - ctx.center.y;
-    let half_out = (ctx.radius * ctx.radius - dy * dy).max(0.0).sqrt();
+    let chord = |r: f32| (r * r - dy * dy).max(0.0).sqrt();
+    let half_out = chord(ctx.outer + 0.5);
     let pad = STROKE_SPAN_PAD;
     let lo = (f32_to_i32_clamped((ctx.center.x - half_out).floor()) - pad).max(x0 as i32);
     let hi = (f32_to_i32_clamped((ctx.center.x + half_out).ceil()) + pad).min(x1 as i32);
     if lo >= hi {
         return;
     }
-    let half_in = (ctx.inner_r * ctx.inner_r - dy * dy).max(0.0).sqrt();
+    let half_in = chord(ctx.inner - 0.5);
     if half_in < 1.0 {
         stroke_circle_span(buf, bw, ctx, y, lo, hi);
         return;
@@ -214,7 +230,7 @@ fn stroke_circle_row(buf: &mut Band<'_>, bw: u32, ctx: &CircleStrokeCtx, x0: u32
 fn stroke_circle_span(
     buf: &mut Band<'_>,
     bw: u32,
-    ctx: &CircleStrokeCtx,
+    ctx: &CircleStrokeCtx<'_>,
     y: u32,
     xa: i32,
     xb: i32,
@@ -223,8 +239,11 @@ fn stroke_circle_span(
     for x in xa..xb {
         let dx = x as f32 + 0.5 - ctx.center.x;
         let d = (dx * dx + dy * dy).sqrt();
-        if d <= ctx.radius && d >= ctx.inner_r {
-            pixel::put(buf, bw, ctx.clip, x, y as i32, ctx.c, ctx.mode);
+        let cov = ((ctx.outer + 0.5 - d).clamp(0.0, 1.0) - (ctx.inner + 0.5 - d).clamp(0.0, 1.0))
+            .max(0.0);
+        if cov > 0.0 {
+            let c = pixel::color_to_u32_with_coverage(ctx.paint.color, cov);
+            pixel::put(buf, bw, ctx.clip, x, y as i32, c, ctx.mode);
         }
     }
 }
@@ -244,129 +263,83 @@ fn circle_coverage(center: Point, radius: f32, px: f32, py: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-
     use crate::cpu::clip::ClipBox;
     use crate::cpu::raster::band::Band;
-    use crate::cpu::raster::pixel;
-    use crate::numeric::f32_to_u32_clamped;
-    use crate::types::{BlendMode, Color, Paint, PaintStyle, Point};
+    use crate::cpu::raster::fill::PathScratch;
+    use crate::cpu::raster::item;
+    use crate::types::{BlendMode, Color, Paint, PaintStyle, Path, PathCommand, Point};
+    use std::f32::consts::{PI, TAU};
 
-    const SIDE: u32 = 700;
+    const SIDE: u32 = 128;
 
-    /// The stroke loop as it was before the row-span rewrite, with the same bounding box.
-    #[allow(clippy::too_many_arguments)]
-    fn reference_draw_circle(
-        center: Point,
-        radius: f32,
-        paint: &Paint,
-        mode: BlendMode,
-        buf: &mut [u32],
-        bw: u32,
-        clip: ClipBox,
-    ) {
-        let x0 = f32_to_u32_clamped((center.x - radius).floor().max(clip.left())).min(clip.x1);
-        let y0 = f32_to_u32_clamped((center.y - radius).floor().max(clip.top())).min(clip.y1);
-        let x1 = f32_to_u32_clamped((center.x + radius).ceil().max(clip.left())).min(clip.x1);
-        let y1 = f32_to_u32_clamped((center.y + radius).ceil().max(clip.top())).min(clip.y1);
-        let inner_r = (radius - paint.stroke_width).max(0.0);
-        let c = pixel::color_to_u32(paint.color);
-        for y in y0..y1 {
-            for x in x0..x1 {
-                let dx = x as f32 + 0.5 - center.x;
-                let dy = y as f32 + 0.5 - center.y;
-                let d = (dx * dx + dy * dy).sqrt();
-                if d <= radius && d >= inner_r {
-                    pixel::put(&mut Band::whole(buf), bw, clip, x as i32, y as i32, c, mode);
-                }
-            }
-        }
-    }
-
-    /// A non-uniform backdrop with varied alpha, so blends and overwrites are both visible.
-    fn backdrop() -> Vec<u32> {
-        let mut state = 0x2545_f491_u32;
-        (0..SIDE * SIDE)
-            .map(|_| {
-                state ^= state << 13;
-                state ^= state >> 17;
-                state ^= state << 5;
-                state
-            })
-            .collect()
-    }
-
-    fn assert_matches_reference(
-        center: Point,
-        radius: f32,
-        paint: &Paint,
-        mode: BlendMode,
-        clip: ClipBox,
-    ) {
-        let mut expected = backdrop();
-        let mut actual = expected.clone();
-        reference_draw_circle(center, radius, paint, mode, &mut expected, SIDE, clip);
+    fn covered(radius: f32, paint: &Paint) -> f32 {
+        let mut px = vec![0_u32; (SIDE * SIDE) as usize];
         super::draw(
-            center,
+            Point::new(64.25, 63.5),
             radius,
             paint,
-            mode,
-            &mut Band::whole(&mut actual),
+            BlendMode::Normal,
+            &mut Band::whole(&mut px),
             SIDE,
-            clip,
-        );
-        assert!(
-            actual == expected,
-            "r={radius} w={} center=({}, {}) clip={clip:?} mode={mode:?} color={:?}",
-            paint.stroke_width,
-            center.x,
-            center.y,
-            paint.color,
-        );
-    }
-
-    fn check_ring(radius: f32, width: f32) {
-        let centers = [
-            Point::new(350.0, 350.0),
-            Point::new(350.37, 349.61),
-            Point::new(-40.2, 120.7),
-            Point::new(620.5, 640.25),
-        ];
-        let clips = [
             ClipBox::surface(SIDE, SIDE),
-            ClipBox {
-                x0: 90,
-                y0: 70,
-                x1: 510,
-                y1: 600,
-            },
-        ];
-        let colors = [
-            Color::rgba(200, 40, 90, 255),
-            Color::rgba(30, 220, 120, 128),
-        ];
-        for center in centers {
-            for clip in clips {
-                for color in colors {
-                    for mode in [BlendMode::Normal, BlendMode::Multiply] {
-                        let paint = Paint::new()
-                            .color(color)
-                            .style(PaintStyle::Stroke)
-                            .stroke_width(width);
-                        assert_matches_reference(center, radius, &paint, mode, clip);
-                    }
-                }
-            }
-        }
+        );
+        px.iter().map(|p| (p >> 24) as f32 / 255.0).sum()
     }
 
     #[test]
-    fn stroked_circles_match_reference_exactly() {
-        let radii = [0.5_f32, 1.0, 3.3, 10.0, 57.5, 300.0];
-        for radius in radii {
-            let widths = [0.5_f32, 1.0, 2.5, 12.0, radius * 1.5 + 1.0];
-            for width in widths {
-                check_ring(radius, width);
-            }
-        }
+    fn a_filled_circle_covers_its_area() {
+        let white = Paint::new().color(Color::rgb(255, 255, 255));
+        let (area, want) = (covered(40.0, &white), PI * 1600.0);
+        assert!((area - want).abs() < want * 0.01, "{area} and {want}");
+    }
+
+    #[test]
+    fn a_stroked_circle_matches_its_path() {
+        let line = Paint::new()
+            .color(Color::rgb(255, 255, 255))
+            .style(PaintStyle::Stroke)
+            .stroke_width(3.0);
+        let center = Point::new(64.25, 63.5);
+        let surface = ClipBox::surface(SIDE, SIDE);
+        let mut direct = vec![0_u32; (SIDE * SIDE) as usize];
+        super::draw(
+            center,
+            40.0,
+            &line,
+            BlendMode::Normal,
+            &mut Band::whole(&mut direct),
+            SIDE,
+            surface,
+        );
+        let mut path = Path::new();
+        path.arc(center, 40.0, (0.0, TAU), false);
+        path.commands.push(PathCommand::Close);
+        let mut traced = vec![0_u32; (SIDE * SIDE) as usize];
+        item::draw_path(
+            &path,
+            &line,
+            BlendMode::Normal,
+            &mut Band::whole(&mut traced),
+            &mut PathScratch::default(),
+            SIDE,
+            surface,
+        )
+        .expect("path");
+        let far = direct
+            .iter()
+            .zip(&traced)
+            .filter(|(a, b)| (*a >> 24).abs_diff(*b >> 24) > 64)
+            .count();
+        assert_eq!(far, 0, "pixels far from the path's");
+    }
+
+    #[test]
+    fn a_stroked_circle_covers_its_ring() {
+        let line = Paint::new()
+            .color(Color::rgb(255, 255, 255))
+            .style(PaintStyle::Stroke)
+            .stroke_width(3.0);
+        let (area, want) = (covered(40.0, &line), PI * (41.5 * 41.5 - 38.5 * 38.5));
+        assert!((area - want).abs() < want * 0.02, "{area} and {want}");
     }
 }
