@@ -265,10 +265,8 @@ fn circle_coverage(center: Point, radius: f32, px: f32, py: f32) -> f32 {
 mod tests {
     use crate::cpu::clip::ClipBox;
     use crate::cpu::raster::band::Band;
-    use crate::cpu::raster::fill::PathScratch;
-    use crate::cpu::raster::item;
-    use crate::types::{BlendMode, Color, Paint, PaintStyle, Path, PathCommand, Point};
-    use std::f32::consts::{PI, TAU};
+    use crate::types::{BlendMode, Color, Paint, PaintStyle, Point};
+    use std::f32::consts::PI;
 
     const SIDE: u32 = 128;
 
@@ -293,44 +291,51 @@ mod tests {
         assert!((area - want).abs() < want * 0.01, "{area} and {want}");
     }
 
-    #[test]
-    fn a_stroked_circle_matches_its_path() {
-        let line = Paint::new()
-            .color(Color::rgb(255, 255, 255))
-            .style(PaintStyle::Stroke)
-            .stroke_width(3.0);
+    /// The largest difference from the ring `inner..=outer`, sampled 16 times across each pixel.
+    fn worst_from_truth(radius: f32, paint: &Paint, inner: f32, outer: f32) -> f32 {
         let center = Point::new(64.25, 63.5);
-        let surface = ClipBox::surface(SIDE, SIDE);
-        let mut direct = vec![0_u32; (SIDE * SIDE) as usize];
+        let mut px = vec![0_u32; (SIDE * SIDE) as usize];
         super::draw(
             center,
-            40.0,
-            &line,
+            radius,
+            paint,
             BlendMode::Normal,
-            &mut Band::whole(&mut direct),
+            &mut Band::whole(&mut px),
             SIDE,
-            surface,
+            ClipBox::surface(SIDE, SIDE),
         );
-        let mut path = Path::new();
-        path.arc(center, 40.0, (0.0, TAU), false);
-        path.commands.push(PathCommand::Close);
-        let mut traced = vec![0_u32; (SIDE * SIDE) as usize];
-        item::draw_path(
-            &path,
-            &line,
-            BlendMode::Normal,
-            &mut Band::whole(&mut traced),
-            &mut PathScratch::default(),
-            SIDE,
-            surface,
-        )
-        .expect("path");
-        let far = direct
-            .iter()
-            .zip(&traced)
-            .filter(|(a, b)| (*a >> 24).abs_diff(*b >> 24) > 64)
-            .count();
-        assert_eq!(far, 0, "pixels far from the path's");
+        let mut worst = 0.0_f32;
+        for y in 0..SIDE {
+            for x in 0..SIDE {
+                let mut inside = 0.0;
+                for (sx, sy) in (0..16).flat_map(|sy| (0..16).map(move |sx| (sx, sy))) {
+                    let dx = x as f32 + (sx as f32 + 0.5) / 16.0 - center.x;
+                    let dy = y as f32 + (sy as f32 + 0.5) / 16.0 - center.y;
+                    let d = (dx * dx + dy * dy).sqrt();
+                    if d >= inner && d <= outer {
+                        inside += 255.0 / 256.0;
+                    }
+                }
+                let drawn = (px[(y * SIDE + x) as usize] >> 24) as f32;
+                worst = worst.max((drawn - inside).abs());
+            }
+        }
+        worst
+    }
+
+    #[test]
+    fn a_circle_stays_near_its_true_coverage() {
+        let white = Paint::new().color(Color::rgb(255, 255, 255));
+        for radius in [3.0, 5.0, 11.5, 40.0] {
+            let worst = worst_from_truth(radius, &white, 0.0, radius);
+            assert!(worst <= 32.0, "filled, {radius}: {worst}");
+            for width in [1.0, 1.5, 3.0] {
+                let line = white.clone().style(PaintStyle::Stroke).stroke_width(width);
+                let half = width / 2.0;
+                let worst = worst_from_truth(radius, &line, radius - half, radius + half);
+                assert!(worst <= 32.0, "{radius}, {width}: {worst}");
+            }
+        }
     }
 
     #[test]
