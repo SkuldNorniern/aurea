@@ -101,7 +101,7 @@ pub fn tessellate_path_into(path: &Path, edges: &mut Vec<Edge>) {
     }
 }
 
-const FLATNESS: f32 = 0.25;
+const FLATNESS: f32 = 0.1;
 
 fn curve_steps(degree: f32, dd: f32) -> u16 {
     let n = (degree * (degree - 1.0) / 8.0 * dd / FLATNESS)
@@ -212,7 +212,7 @@ mod tests {
                 Point::new(0.0, 0.0),
                 Point::new(1.0, 1.0),
                 Point::new(2.0, 0.0)
-            ) <= 2
+            ) <= 3
         );
         assert_eq!(
             quad_steps(

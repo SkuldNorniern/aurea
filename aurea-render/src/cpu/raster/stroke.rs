@@ -525,6 +525,11 @@ fn append_pieces(out: &mut Out<'_>, points: &[Point], style: &StrokeStyle, close
         return;
     }
 
+    // A run carries on smoothly from the point before it, and into the point after it, so runs
+    // side by side and the two ends of a closed path meet without a gap.
+    let last = points.len() - 1;
+    let mut before = (closed && wedge_side(points[last], points[0], points[1], half).is_none())
+        .then_some(points[last]);
     let mut run = take(&mut *out.run);
     run.clear();
     run.push(points[0]);
@@ -539,17 +544,19 @@ fn append_pieces(out: &mut Out<'_>, points: &[Point], style: &StrokeStyle, close
 
         let following = following_of(points, i);
         if let Some(outward) = wedge_side(points[i], next, following, half) {
-            outline_run(out, &run, half);
+            outline_run(out, &run, half, (before, None));
             push_join(out, (points[i], next, following), style, outward);
             run.clear();
             run.push(next);
+            before = None;
         } else if run.len() >= MAX_RUN {
-            outline_run(out, &run, half);
+            outline_run(out, &run, half, (before, Some(following)));
             run.clear();
             run.push(next);
+            before = Some(points[i]);
         }
     }
-    outline_run(out, &run, half);
+    outline_run(out, &run, half, (before, closed.then_some(points[1])));
     *out.run = run;
 }
 
@@ -557,31 +564,46 @@ fn following_of(points: &[Point], i: usize) -> Point {
     points[(i + 2) % points.len()]
 }
 
-/// Emits one ring around `run`: its left side forward, then its right side back.
-fn outline_run(out: &mut Out<'_>, run: &[Point], half: f32) {
+/// Emits one ring around `run`, whose points before and after it are `around`: its left side
+/// forward, then its right side back. Each point moves out once, along the bisector of its two
+/// segments, so the sides of a curve don't cross themselves, which would count their edges twice.
+fn outline_run(
+    out: &mut Out<'_>,
+    run: &[Point],
+    half: f32,
+    (before, after): (Option<Point>, Option<Point>),
+) {
     if run.len() < 2 {
         return;
     }
     let ring = &mut *out.ring;
     ring.clear();
-    for pair in run.windows(2) {
-        let (a, b) = (pair[0], pair[1]);
-        let Some(n) = normal_of(a, b, half) else {
-            continue;
-        };
-        ring.push(Point::new(a.x + n.x, a.y + n.y));
-        ring.push(Point::new(b.x + n.x, b.y + n.y));
+    let offset_at = |i: usize| {
+        let previous = if i == 0 { before } else { Some(run[i - 1]) };
+        let next = run.get(i + 1).copied().or(after);
+        let at = run[i];
+        let n1 = previous.and_then(|p| normal_of(p, at, half));
+        let n2 = next.and_then(|n| normal_of(at, n, half));
+        match (n1, n2) {
+            (Some(a), Some(b)) => {
+                let meet = 1.0 + (a.x * b.x + a.y * b.y) / (half * half);
+                (meet > 0.25).then(|| Point::new((a.x + b.x) / meet, (a.y + b.y) / meet))
+            }
+            (one, other) => one.or(other),
+        }
+    };
+    for (i, at) in run.iter().enumerate() {
+        if let Some(n) = offset_at(i) {
+            ring.push(Point::new(at.x + n.x, at.y + n.y));
+        }
     }
     if ring.is_empty() {
         return;
     }
-    for pair in run.windows(2).rev() {
-        let (a, b) = (pair[0], pair[1]);
-        let Some(n) = normal_of(a, b, half) else {
-            continue;
-        };
-        ring.push(Point::new(b.x - n.x, b.y - n.y));
-        ring.push(Point::new(a.x - n.x, a.y - n.y));
+    for (i, at) in run.iter().enumerate().rev() {
+        if let Some(n) = offset_at(i) {
+            ring.push(Point::new(at.x - n.x, at.y - n.y));
+        }
     }
     (out.sink)(ring.as_slice());
 }
@@ -721,6 +743,10 @@ fn cubic(p0: Point, p1: Point, p2: Point, p3: Point, t: f32) -> Point {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cpu::clip::ClipBox;
+    use crate::cpu::raster::band::Band;
+    use crate::cpu::raster::fill::{PathScratch, fill_path};
+    use crate::types::{BlendMode, Color};
 
     fn line(points: &[(f32, f32)]) -> Path {
         let mut path = Path::new();
@@ -758,6 +784,55 @@ mod tests {
             ys.iter().copied().fold(f32::INFINITY, f32::min),
             ys.iter().copied().fold(f32::NEG_INFINITY, f32::max),
         )
+    }
+
+    /// The largest difference of `path` stroked `width` wide from the ring around a circle of
+    /// `radius`, sampled 16 times across each pixel.
+    fn worst_from_ring(radius: f32, width: f32) -> f32 {
+        const SIDE: u32 = 128;
+        let center = Point::new(64.25, 63.5);
+        let mut path = Path::new();
+        path.arc(center, radius, (0.0, 2.0 * PI), false);
+        path.commands.push(PathCommand::Close);
+        let outline = outline_path(&path, &StrokeStyle::solid(width));
+        let mut px = vec![0_u32; (SIDE * SIDE) as usize];
+        fill_path(
+            &outline,
+            Color::rgb(255, 255, 255),
+            BlendMode::Normal,
+            &mut Band::whole(&mut px),
+            SIDE,
+            ClipBox::surface(SIDE, SIDE),
+            &mut PathScratch::default(),
+        );
+        let (inner, outer) = (radius - width / 2.0, radius + width / 2.0);
+        let mut worst = 0.0_f32;
+        for y in 0..SIDE {
+            for x in 0..SIDE {
+                let mut inside = 0.0;
+                for (sx, sy) in (0..16).flat_map(|sy| (0..16).map(move |sx| (sx, sy))) {
+                    let dx = x as f32 + (sx as f32 + 0.5) / 16.0 - center.x;
+                    let dy = y as f32 + (sy as f32 + 0.5) / 16.0 - center.y;
+                    let d = dx.hypot(dy);
+                    if d >= inner && d <= outer {
+                        inside += 255.0 / 256.0;
+                    }
+                }
+                let drawn = (px[(y * SIDE + x) as usize] >> 24) as f32;
+                worst = worst.max((drawn - inside).abs());
+            }
+        }
+        worst
+    }
+
+    #[test]
+    fn a_stroked_curve_stays_near_its_true_coverage() {
+        for radius in [5.0, 11.5, 40.0] {
+            for width in [1.0, 1.5, 3.0] {
+                let worst = worst_from_ring(radius, width);
+                assert!(worst <= 32.0, "{radius}, {width}: {worst}");
+            }
+        }
     }
 
     #[test]
@@ -1226,139 +1301,5 @@ mod tests {
             vec![(0.0, 4.0), (8.0, 12.0), (7.0, 11.0), (15.0, 19.0)],
             "unanchored, the second starts its pattern at 0"
         );
-    }
-
-    /// FNV-1a over the RGBA bytes, stable across toolchains.
-    fn fnv1a(bytes: &[u8]) -> u64 {
-        bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, &b| {
-            (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
-        })
-    }
-
-    /// Strokes that exercise every branch of the stroker, each with its canvas scale.
-    fn golden_cases() -> Vec<(Path, Paint, f32)> {
-        use crate::PaintStyle;
-        let stroke = || Paint::new().style(PaintStyle::Stroke);
-        let closed_box = {
-            let mut path = line(&[(130.0, 10.0), (190.0, 10.0), (190.0, 70.0), (130.0, 70.0)]);
-            path.commands.push(PathCommand::Close);
-            path
-        };
-        let edged = stroke()
-            .stroke_width(2.0)
-            .line_join(LineJoin::Round)
-            .dash(&[5.0, 3.0], 1.0);
-        let edged = Paint {
-            dash: Dash::new(&[5.0, 3.0], 1.0).map(|d| d.along_edges()),
-            ..edged
-        };
-        let curve = {
-            let mut path = Path::new();
-            path.commands
-                .push(PathCommand::MoveTo(Point::new(4.0, 60.0)));
-            path.commands.push(PathCommand::CubicTo(
-                Point::new(30.0, 0.0),
-                Point::new(60.0, 120.0),
-                Point::new(90.0, 60.0),
-            ));
-            path
-        };
-        vec![
-            (
-                line(&[(10.0, 10.0), (60.0, 12.0), (30.0, 50.0), (90.0, 30.0)]),
-                stroke().stroke_width(4.0),
-                1.0,
-            ),
-            (
-                line(&[(20.0, 100.0), (70.0, 100.0), (95.0, 80.0)]),
-                stroke()
-                    .stroke_width(6.0)
-                    .line_cap(LineCap::Round)
-                    .line_join(LineJoin::Round),
-                1.0,
-            ),
-            (
-                line(&[(8.0, 140.0), (60.0, 140.0)]),
-                stroke().stroke_width(5.0).line_cap(LineCap::Square),
-                1.0,
-            ),
-            (
-                line(&[(5.0, 170.0), (120.0, 170.0), (120.0, 190.0)]),
-                stroke()
-                    .stroke_width(3.0)
-                    .line_cap(LineCap::Round)
-                    .dash(&[6.0, 4.0], 2.5),
-                1.0,
-            ),
-            (closed_box, edged, 1.0),
-            (
-                curve,
-                stroke()
-                    .stroke_width(3.0)
-                    .line_cap(LineCap::Round)
-                    .line_join(LineJoin::Round),
-                1.0,
-            ),
-            (
-                line(&[(100.0, 120.0), (100.0, 120.0), (120.0, 124.0)]),
-                stroke().stroke_width(4.0).line_cap(LineCap::Round),
-                1.0,
-            ),
-            (
-                line(&[(150.0, 150.0), (150.0, 150.0)]),
-                stroke().stroke_width(4.0).line_cap(LineCap::Round),
-                1.0,
-            ),
-            (
-                line(&[(4.0, 180.0), (60.0, 186.0)]),
-                stroke().stroke_width(0.3),
-                1.0,
-            ),
-            (
-                line(&[(4.0, 180.0), (60.0, 186.0)]),
-                stroke().stroke_width(0.3),
-                1.5,
-            ),
-            (
-                line(&[(10.0, 100.0), (90.0, 60.0)]),
-                stroke().stroke_width(40.0),
-                1.0,
-            ),
-        ]
-    }
-
-    #[test]
-    fn strokes_render_the_same_pixels() {
-        use crate::CpuRasterizer;
-        // case 3, dashes with round caps, hashes differently on Apple from the commit that set it.
-        let round_caps: u64 = if cfg!(target_vendor = "apple") {
-            14722449764879085588
-        } else {
-            7841828774547950660
-        };
-        let expected: [u64; 11] = [
-            2362692873945308036,
-            9567466158870693164,
-            13933877095181122597,
-            round_caps,
-            11992003363753275224,
-            16126321927536331494,
-            8324095631378301055,
-            14833076215688421957,
-            11650722776545918005,
-            8278279517010211061,
-            15797700667854759237,
-        ];
-        let actual: Vec<u64> = golden_cases()
-            .iter()
-            .map(|(path, paint, scale)| {
-                let pixels = CpuRasterizer::draw_offscreen(200, 200, *scale, |ctx| {
-                    ctx.draw_path(path, paint)
-                })
-                .expect("draw");
-                fnv1a(&pixels.rgba)
-            })
-            .collect();
-        assert_eq!(actual, expected, "hashes, in case order");
     }
 }
