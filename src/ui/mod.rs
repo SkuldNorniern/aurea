@@ -41,6 +41,7 @@ pub use widget::pager::{Pager, PagerStyle};
 pub use widget::popup::{MenuItem, OwnedMenuItem, PopupStyle};
 pub use widget::progress::{ProgressBar, ProgressStyle};
 pub use widget::radio::{RadioGroup, RadioStyle};
+pub use widget::ruler::Ruler;
 pub use widget::scroll::{
     ListRow, ListView, ScrollArea, ScrollStyle, scroll_into_view, visible_rows, wheel_axis,
     wheel_steps,
@@ -57,6 +58,7 @@ pub use widget::text_field::{FieldStyle, TextField};
 pub use widget::toast::{Toast, ToastTone, Toasts};
 pub use widget::toggle::{Checkbox, CheckboxStyle, Toggle, ToggleStyle};
 pub use widget::tree::{TreeRow, TreeStyle, TreeView, tree_rows};
+pub use widget::wheel::ColorWheel;
 
 #[cfg(test)]
 mod tests {

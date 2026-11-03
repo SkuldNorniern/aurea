@@ -15,6 +15,7 @@ pub mod pager;
 pub(crate) mod popup;
 pub mod progress;
 pub mod radio;
+pub mod ruler;
 pub mod scroll;
 pub mod segmented;
 pub mod sheet;
@@ -29,6 +30,7 @@ pub mod toast;
 pub mod toggle;
 pub(crate) mod tooltip;
 pub mod tree;
+pub mod wheel;
 
 use super::frame::{Response, Ui};
 use super::state::WidgetId;

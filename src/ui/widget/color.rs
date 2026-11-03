@@ -198,17 +198,22 @@ impl<Id: WidgetId> Widget<Id> for ColorPicker<'_> {
     }
 }
 
-fn merge(response: &mut Response, input: Interaction) {
+pub(super) fn merge(response: &mut Response, input: Interaction) {
     response.hovered |= input.hovered;
     response.held |= input.held;
     response.focused |= input.focused;
 }
 
-fn step<Id: WidgetId>(ui: &Ui<'_, Id>) -> f32 {
+pub(super) fn step<Id: WidgetId>(ui: &Ui<'_, Id>) -> f32 {
     if ui.modifiers().shift { 0.1 } else { 0.01 }
 }
 
-fn follow_square<Id: WidgetId>(ui: &Ui<'_, Id>, input: Interaction, rect: Rect, value: &mut Hsv) {
+pub(super) fn follow_square<Id: WidgetId>(
+    ui: &Ui<'_, Id>,
+    input: Interaction,
+    rect: Rect,
+    value: &mut Hsv,
+) {
     if input.held
         && let Some(p) = ui.pointer()
     {
