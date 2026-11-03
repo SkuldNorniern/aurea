@@ -363,10 +363,18 @@ fn draw_filtered(
     } = scratch;
     if shrink {
         shrinking.start((x0..x1).map(u0), sx, sy, bounds);
+        line.clear();
+        line.resize((x1 - x0).unsigned_abs() as usize, 0);
         for cy in y0..y1 {
-            shrinking.row(image, (v0(cy), sy), bounds, alpha, |i, c| {
-                put(buf, x0 + i32::try_from(i).unwrap_or(0), cy, c);
-            });
+            if shrinking.row(image, (v0(cy), sy), bounds, alpha, line) && mode == BlendMode::Normal
+            {
+                let start = (cy.unsigned_abs() * bw + x0.unsigned_abs()) as usize;
+                buf[start..start + line.len()].copy_from_slice(line);
+            } else {
+                for (&c, cx) in line.iter().zip(x0..x1) {
+                    put(buf, cx, cy, c);
+                }
+            }
         }
     } else if bounds.x0 <= bounds.x1 && bounds.y0 <= bounds.y1 {
         taps.clear();
