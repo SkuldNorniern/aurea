@@ -30,7 +30,7 @@ pub enum FillRule {
 }
 
 /// Path for drawing shapes.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Path {
     /// Commands in order.
     pub commands: Vec<PathCommand>,
