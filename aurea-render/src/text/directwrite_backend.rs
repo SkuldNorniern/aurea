@@ -437,6 +437,7 @@ mod tests {
 
     #[test]
     fn each_char_keeps_its_face_after_the_cache_warms() {
+        let _still = fonts::TEST_GUARD.read();
         let r = DirectWriteRasterizer::new().expect("directwrite");
         let font = Font::new("Segoe UI", 14.0);
         let font: FontRef = (&font).into();

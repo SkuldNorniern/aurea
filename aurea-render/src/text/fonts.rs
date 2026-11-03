@@ -174,6 +174,10 @@ fn normalise(name: &str) -> String {
 static REGISTRY: LazyLock<Mutex<Registry>> = LazyLock::new(Mutex::default);
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 
+/// System fonts only promise letters and common punctuation. A symbol like `☷` or `≡` falls back
+/// to whatever the device has, and may draw as a box or nothing on a phone, so draw menu, grip and
+/// close marks with [`crate::vector::Icon`], or register a font holding what the app needs.
+///
 /// Adds a font from its bytes, `.ttf`, `.otf` or `.ttc`: `include_bytes!` is not copied. Gives the
 /// family names it holds, for [`Font::new`](crate::types::Font::new). From any thread; registered
 /// fonts stay until the app exits.

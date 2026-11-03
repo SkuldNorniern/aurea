@@ -42,6 +42,10 @@ pub enum Icon {
     Minus,
     /// Close (X).
     Close,
+    /// Three bars, a menu.
+    Menu,
+    /// Three short bars, something to drag by.
+    Grip,
     /// Checkmark.
     Check,
     /// Folder.
@@ -72,7 +76,7 @@ pub enum Icon {
 
 impl Icon {
     /// Every icon, in declaration order.
-    pub const ALL: [Icon; 28] = [
+    pub const ALL: [Icon; 30] = [
         Icon::Arrow,
         Icon::Hand,
         Icon::Zoom,
@@ -88,6 +92,8 @@ impl Icon {
         Icon::Plus,
         Icon::Minus,
         Icon::Close,
+        Icon::Menu,
+        Icon::Grip,
         Icon::Check,
         Icon::Folder,
         Icon::File,
@@ -138,6 +144,8 @@ impl Icon {
             Icon::Plus => "M12 5 V19 M5 12 H19",
             Icon::Minus => "M5 12 H19",
             Icon::Close => "M6 6 L18 18 M18 6 L6 18",
+            Icon::Menu => "M4 7 L20 7 M4 12 L20 12 M4 17 L20 17",
+            Icon::Grip => "M8 8 L16 8 M8 12 L16 12 M8 16 L16 16",
             Icon::Check => "M4 12.5 L9.5 18 L20 6.5",
             Icon::Folder => {
                 "M3 6 a1 1 0 0 1 1 -1 H9 L11 7.5 H20 a1 1 0 0 1 1 1 V18 a1 1 0 0 1 -1 1 H4 a1 1 0 0 1 -1 -1Z"
