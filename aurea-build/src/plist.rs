@@ -7,7 +7,7 @@ use std::fs;
 use std::path::Path;
 
 /// The `Info.plist` for `identity`, whose executable is `executable`.
-pub fn info_plist(identity: &Identity, executable: &str) -> String {
+pub fn info(identity: &Identity, executable: &str) -> String {
     let rows = [
         ("CFBundleDisplayName", xml_escape(&identity.name)),
         ("CFBundleExecutable", xml_escape(executable)),
@@ -32,7 +32,7 @@ pub fn info_plist(identity: &Identity, executable: &str) -> String {
 
 /// A plist with only the document types, as a file Xcode merges through `INFOPLIST_FILE`, since
 /// `INFOPLIST_KEY_*` can't hold arrays. Each icon goes in the app's resources as `<ext>.png`.
-pub fn ios_documents_plist(identity: &Identity) -> String {
+pub fn ios_documents(identity: &Identity) -> String {
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
 <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
@@ -115,7 +115,7 @@ fn icon_rows(document: &Document, icons: Icons) -> (String, String) {
 pub(crate) fn embed(identity: &Identity, out_dir: &Path) {
     let path = out_dir.join("Info.plist");
     let executable = env::var("CARGO_PKG_NAME").unwrap_or_default();
-    fs::write(&path, info_plist(identity, &executable)).expect("write Info.plist");
+    fs::write(&path, info(identity, &executable)).expect("write Info.plist");
     println!(
         "cargo:rustc-link-arg-bins=-Wl,-sectcreate,__TEXT,__info_plist,{}",
         path.display()
@@ -153,7 +153,7 @@ mod tests {
             package: "ab".to_string(),
             documents: Vec::new(),
         };
-        let plist = info_plist(&identity, "ab");
+        let plist = info(&identity, "ab");
         assert!(!plist.contains("CFBundleDocumentTypes"));
         assert!(plist.contains("<string>A &amp; B &lt;3</string>"));
         assert!(!plist.contains("A & B"));
@@ -180,7 +180,7 @@ mod tests {
 
     #[test]
     fn documents_are_declared_and_exported() {
-        let plist = info_plist(&with_a_document(), "app");
+        let plist = info(&with_a_document(), "app");
         assert!(plist.contains("<key>CFBundleDocumentTypes</key>"));
         assert!(plist.contains("<key>UTExportedTypeDeclarations</key>"));
         assert!(plist.contains("<string>A &amp; B</string>"));
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn ios_gets_only_the_document_types_with_png_icons() {
-        let plist = ios_documents_plist(&with_a_document());
+        let plist = ios_documents(&with_a_document());
         assert!(plist.contains("<key>CFBundleDocumentTypes</key>"));
         assert!(!plist.contains("CFBundleExecutable"));
         assert!(plist.contains("<array><string>lp.png</string></array>"));

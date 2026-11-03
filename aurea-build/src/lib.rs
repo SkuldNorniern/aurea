@@ -25,14 +25,13 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-mod icons;
-mod linux;
-mod plist;
+pub mod icons;
+pub mod linux;
+pub mod plist;
 mod winres;
 
-pub use icons::{Image, icns, ico, load_master, png, resize, write_android, write_ios};
-pub use linux::write_linux;
-pub use plist::{info_plist, ios_documents_plist};
+use icons::{icns, ico, load_master};
+
 
 /// An app's identity, as `[package.metadata.aurea]` gives it, with the package's own name and
 /// version standing in for what it leaves out.

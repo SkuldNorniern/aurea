@@ -99,7 +99,7 @@ if (aurea.document) {
 }
 
 // The master icon (`icon` key, relative to the Cargo manifest, `.png` optional) becomes the
-// launcher icon: aurea-icons writes the mipmaps into build/generated/aurea/res before preBuild.
+// launcher icon: aurea-build writes the mipmaps into build/generated/aurea/res before preBuild.
 abstract class AureaIcons extends DefaultTask {
     @InputFile abstract RegularFileProperty getManifest()
     @InputFile abstract RegularFileProperty getMaster()
@@ -112,7 +112,7 @@ abstract class AureaIcons extends DefaultTask {
     void generate() {
         exec.exec { spec ->
             spec.commandLine('cargo', 'run', '--quiet', '--release', '--manifest-path', toolManifest.get().asFile.path,
-                '--bin', 'aurea-icons', '--', manifest.get().asFile.path, 'android', resDir.get().asFile.path)
+                '--bin', 'aurea-build', '--', manifest.get().asFile.path, 'icons', 'android', resDir.get().asFile.path)
         }
     }
 }

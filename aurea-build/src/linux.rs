@@ -1,7 +1,8 @@
 //! A Linux app's desktop entry, MIME types and icons, under a `share` folder for packaging.
 
 use crate::plist::xml_escape;
-use crate::{Identity, load_master, png, resize};
+use crate::Identity;
+use crate::icons::{load_master, png, resize};
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -11,7 +12,7 @@ const ICON_SIZES: [u32; 4] = [48, 64, 128, 256];
 /// Writes `share/applications/<id>.desktop`, `share/mime/packages/<id>.xml` and the icons under
 /// `share/icons/hicolor` into `root`. A package then runs `update-mime-database` and
 /// `update-desktop-database` on them.
-pub fn write_linux(identity: &Identity, root: &Path) -> io::Result<()> {
+pub fn share(identity: &Identity, root: &Path) -> io::Result<()> {
     let share = root.join("share");
     let applications = share.join("applications");
     fs::create_dir_all(&applications)?;
@@ -148,7 +149,7 @@ mod tests {
         let root = env::temp_dir().join(format!("aurea-linux-{}", process::id()));
         let mut identity = app();
         identity.documents[0].icon = None;
-        write_linux(&identity, &root).expect("write");
+        share(&identity, &root).expect("write");
         let entry = root.join("share/applications/dev.test.paint.desktop");
         assert!(entry.is_file());
         assert!(

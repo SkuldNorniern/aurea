@@ -192,7 +192,7 @@ pub fn icns(image: &Image) -> Vec<u8> {
 }
 
 /// Writes `image` as `mipmap-*/ic_launcher.png` in the Android resource folder `res_dir`.
-pub fn write_android(image: &Image, res_dir: &Path) -> io::Result<()> {
+pub fn android(image: &Image, res_dir: &Path) -> io::Result<()> {
     for (density, size) in ANDROID {
         let dir = res_dir.join(format!("mipmap-{density}"));
         fs::create_dir_all(&dir)?;
@@ -202,7 +202,7 @@ pub fn write_android(image: &Image, res_dir: &Path) -> io::Result<()> {
 }
 
 /// Writes `image` at 1024 pixels as `AppIcon.png`, with its `Contents.json`, in `appiconset_dir`.
-pub fn write_ios(image: &Image, appiconset_dir: &Path) -> io::Result<()> {
+pub fn ios(image: &Image, appiconset_dir: &Path) -> io::Result<()> {
     fs::create_dir_all(appiconset_dir)?;
     write_if_changed(
         &appiconset_dir.join("AppIcon.png"),
