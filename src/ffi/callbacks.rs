@@ -1,9 +1,11 @@
+use crate::window::PenTapAction;
 use log::error;
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_int, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::app::opened;
@@ -393,8 +395,27 @@ pub extern "C" fn ng_invoke_pen(
             barrel: flags & PEN_BARREL != 0,
             modifiers: Modifiers::from_bits(modifiers),
         };
+        let tapped = barrel_tapped(&LAST_BARREL, sample.barrel, sample.phase);
         push_window_event(window, WindowEvent::Pen(sample));
+        if tapped {
+            push_window_event(
+                window,
+                WindowEvent::PenTap {
+                    squeeze: false,
+                    action: PenTapAction::default(),
+                },
+            );
+        }
     });
+}
+
+static LAST_BARREL: AtomicBool = AtomicBool::new(false);
+
+/// Whether the barrel button just went down with the pen in the air: a tap on it, as a phone's
+/// stylus reports one. Pressed against the surface it only changes what the stroke does.
+fn barrel_tapped(last: &AtomicBool, barrel: bool, phase: PenPhase) -> bool {
+    let was = last.swap(barrel, Ordering::Relaxed);
+    barrel && !was && phase == PenPhase::Hover
 }
 
 fn pen_tool(flags: u32) -> PenTool {
