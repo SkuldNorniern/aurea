@@ -6,10 +6,27 @@
 //! aurea::app::set_identity(aurea::identity!());
 //! let folder = aurea::files::app_data_dir();
 //! ```
+//!
+//! Documents the app is asked to open, from any platform, come through [`take_opened`].
 
 use std::env;
-use std::path::Path;
-use std::sync::OnceLock;
+use std::ffi::OsString;
+use std::mem;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock, PoisonError};
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+mod instance;
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+pub use instance::single_instance;
+
+#[cfg(target_os = "android")]
+use crate::android::open_requested;
+#[cfg(target_os = "ios")]
+use crate::ios::open_requested;
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+use crate::{WindowEvent, registry::window::push_event_to_all_windows};
 
 /// Who the app is, on every platform: the same name, id and version the iOS and Android
 /// projects are built with.
@@ -76,9 +93,60 @@ pub fn identity() -> Identity {
     })
 }
 
+/// What the app was asked to open and has not taken yet; `None` until the arguments are read.
+static OPENED: Mutex<Option<Vec<PathBuf>>> = Mutex::new(None);
+
+/// The files the app was asked to open since the last call, whichever way they came: the command
+/// line, a double click in Finder, or an iOS or Android open or share. Those two copy each file in
+/// first, so the path is the app's own. Call it at start and on
+/// [`crate::WindowEvent::OpenRequested`].
+pub fn take_opened() -> Vec<PathBuf> {
+    let mut opened = OPENED.lock().unwrap_or_else(PoisonError::into_inner);
+    match opened.as_mut() {
+        Some(paths) => mem::take(paths),
+        None => {
+            *opened = Some(Vec::new());
+            files_in(env::args_os().skip(1))
+        }
+    }
+}
+
+/// The arguments that name files; anything else, such as a flag, is the app's to read.
+fn files_in(args: impl Iterator<Item = OsString>) -> Vec<PathBuf> {
+    args.map(PathBuf::from)
+        .filter(|path| path.is_file())
+        .collect()
+}
+
+/// Queues `paths` for [`take_opened`] and says so.
+pub(crate) fn opened(paths: Vec<PathBuf>) {
+    OPENED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get_or_insert_with(|| files_in(env::args_os().skip(1)))
+        .extend(paths);
+    #[cfg(target_os = "android")]
+    open_requested();
+    #[cfg(target_os = "ios")]
+    open_requested();
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    push_event_to_all_windows(WindowEvent::OpenRequested);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_arguments_naming_files_are_opened() {
+        let here = env::current_exe().expect("this test");
+        let args = [
+            "--flag".into(),
+            here.clone().into_os_string(),
+            "no such file".into(),
+        ];
+        assert_eq!(files_in(args.into_iter()), [here]);
+    }
 
     #[test]
     fn the_macro_falls_back_to_the_package() {

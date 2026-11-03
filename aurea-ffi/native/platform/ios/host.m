@@ -1,6 +1,7 @@
 #import "host.h"
 #import "ios.h"
 #import "../../common/input.h"
+#import "../../common/rust_callbacks.h"
 #import <GameController/GameController.h>
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
@@ -902,6 +903,19 @@ static UIWindow* ng_ios_host_window(UIWindow* window) {
 
 /* iOS 13 and later show the host through a scene; newer releases stop apps that don't. The app's
    Info.plist needs a UIApplicationSceneManifest for UIKit to ask for one. */
+/* A document the system asked the app to open, copied in so its path stays the app's own. */
+static void ng_ios_open(NSURL* url) {
+    BOOL scoped = [url startAccessingSecurityScopedResource];
+    NSString* folder = [NSTemporaryDirectory()
+        stringByAppendingPathComponent:[NSString stringWithFormat:@"opened/%@", NSUUID.UUID.UUIDString]];
+    NSString* path = [folder stringByAppendingPathComponent:url.lastPathComponent];
+    NSFileManager* files = NSFileManager.defaultManager;
+    BOOL copied = [files createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:nil error:NULL]
+        && [files copyItemAtURL:url toURL:[NSURL fileURLWithPath:path] error:NULL];
+    if (scoped) [url stopAccessingSecurityScopedResource];
+    if (copied) ng_invoke_file_opened(path.fileSystemRepresentation);
+}
+
 API_AVAILABLE(ios(13.0))
 @interface AureaSceneDelegate : UIResponder <UIWindowSceneDelegate>
 @property (nonatomic, strong) UIWindow* window;
@@ -911,9 +925,14 @@ API_AVAILABLE(ios(13.0))
 
 - (void)scene:(UIScene*)scene willConnectToSession:(UISceneSession*)session options:(UISceneConnectionOptions*)options {
     (void)session;
-    (void)options;
     if (![scene isKindOfClass:[UIWindowScene class]]) return;
     self.window = ng_ios_host_window([[UIWindow alloc] initWithWindowScene:(UIWindowScene*)scene]);
+    for (UIOpenURLContext* context in options.URLContexts) ng_ios_open(context.URL);
+}
+
+- (void)scene:(UIScene*)scene openURLContexts:(NSSet<UIOpenURLContext*>*)contexts {
+    (void)scene;
+    for (UIOpenURLContext* context in contexts) ng_ios_open(context.URL);
 }
 
 - (void)sceneDidBecomeActive:(UIScene*)scene {
@@ -949,6 +968,14 @@ API_AVAILABLE(ios(13.0))
     (void)options;
     if (@available(iOS 13.0, *)) return YES;
     self.window = ng_ios_host_window([[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds]);
+    return YES;
+}
+
+/* Before iOS 13; later ones come through the scene. */
+- (BOOL)application:(UIApplication*)application openURL:(NSURL*)url options:(NSDictionary*)options {
+    (void)application;
+    (void)options;
+    ng_ios_open(url);
     return YES;
 }
 

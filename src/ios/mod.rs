@@ -464,6 +464,12 @@ unsafe extern "C" fn preedit(text: *const c_char, cursor: c_int) {
     hear(&[event]);
 }
 
+/// [`WindowEvent::OpenRequested`], for the app to take what it was asked to open.
+pub(crate) fn open_requested() {
+    hear(&[WindowEvent::OpenRequested]);
+    request_frame();
+}
+
 /// A hardware keyboard came or went.
 unsafe extern "C" fn keyboard(connected: c_int) {
     let connected = connected != 0;

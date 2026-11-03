@@ -10,6 +10,7 @@ mod app {
     use std::rc::Rc;
 
     use aurea::android::{on_back, on_event, request_frame, run, set_theme, show_keyboard};
+    use aurea::app::take_opened;
     use aurea::ui::{
         Align, Button, Checkbox, MenuItem, ProgressBar, Segmented, Slider, TextField, Theme,
         Toggle, Ui,
@@ -35,6 +36,7 @@ mod app {
         look: usize,
         note: String,
         picked: Option<usize>,
+        opened: Vec<String>,
     }
 
     /// The last event worth showing.
@@ -61,6 +63,7 @@ mod app {
             } => format!("wheel {delta_x:.0},{delta_y:.0}"),
             WindowEvent::FingerTap { fingers, .. } => format!("{fingers} finger tap"),
             WindowEvent::LongPress { .. } => "long press".to_owned(),
+            WindowEvent::OpenRequested => "open requested".to_owned(),
             _ => return None,
         })
     }
@@ -156,6 +159,7 @@ mod app {
             ),
             "한글 표시 시험".to_owned(),
             format!("heard {last}"),
+            format!("opened {}", s.opened.join(", ")),
         ];
         for (line, y) in lines
             .iter()
@@ -195,6 +199,11 @@ mod app {
                 state.count = 0;
             }
             *count.borrow_mut() = state.count;
+            state.opened.extend(
+                take_opened()
+                    .iter()
+                    .filter_map(|path| path.file_name()?.to_str().map(str::to_owned)),
+            );
             panel(ui, &mut state, &last.borrow(), width)
         });
         0

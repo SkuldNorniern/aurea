@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
+use crate::app::opened;
 use crate::pen::note_source;
 use crate::registry::custom::invoke_custom_callback;
 use crate::registry::elements::{
@@ -305,6 +306,23 @@ pub extern "C" fn ng_invoke_focus_changed(window: *mut c_void, focused: c_int) {
 pub extern "C" fn ng_invoke_theme_changed(dark: c_int) {
     guard("ng_invoke_theme_changed", || {
         push_event_to_all_windows(WindowEvent::ThemeChanged { dark: dark != 0 });
+    });
+}
+
+/// The system asked the app to open the file at `path`.
+///
+/// # Safety
+///
+/// `path` is null or a NUL-terminated string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ng_invoke_file_opened(path: *const c_char) {
+    guard("ng_invoke_file_opened", || {
+        if path.is_null() {
+            return;
+        }
+        // SAFETY: the caller hands a NUL-terminated path.
+        let path = unsafe { CStr::from_ptr(path) }.to_string_lossy();
+        opened(vec![PathBuf::from(path.as_ref())]);
     });
 }
 

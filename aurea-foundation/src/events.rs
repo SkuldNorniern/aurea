@@ -235,6 +235,9 @@ pub enum WindowEvent {
         /// True when one is connected now.
         connected: bool,
     },
+    /// The app was asked to open files, or another launch came here: see `aurea::app::take_opened`,
+    /// and show the window. Sent to every window, and to no one before the first.
+    OpenRequested,
     /// Other windows now cover more or less of this one, or it was minimized or restored; see
     /// [`Occlusion`]. An app can pause work no one sees, or warn when its window is hidden.
     OcclusionChanged(Occlusion),

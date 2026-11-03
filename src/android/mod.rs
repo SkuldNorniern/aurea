@@ -30,6 +30,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{LazyLock, OnceLock};
 
 use crate::Rect;
+use crate::app::opened;
 use aurea_ffi::{
     ng_android_on_destroy, ng_android_on_pause, ng_android_on_resume, ng_android_on_surface_lost,
     ng_android_on_surface_recreated, ng_android_set_activity,
@@ -496,6 +497,22 @@ extern "system" fn Java_dev_aurea_AureaActivity_nativeHardKeyboard(
     connected: jboolean,
 ) {
     host::hard_keyboard(connected != JNI_FALSE);
+}
+
+#[unsafe(no_mangle)]
+extern "system" fn Java_dev_aurea_AureaActivity_nativeOpened(
+    mut env: JNIEnv,
+    _class: JClass,
+    path: JString,
+) {
+    if let Ok(path) = env.get_string(&path) {
+        opened(vec![PathBuf::from(String::from(path))]);
+    }
+}
+
+/// [`WindowEvent::OpenRequested`], for the app to take what it was asked to open.
+pub(crate) fn open_requested() {
+    host::open_requested();
 }
 
 #[unsafe(no_mangle)]

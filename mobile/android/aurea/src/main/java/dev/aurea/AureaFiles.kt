@@ -172,6 +172,9 @@ internal class AureaFiles(private val activity: Activity) {
         return listOfNotNull(data?.data)
     }
 
+    /** Copies a document the system handed the app into the cache; its path. */
+    fun copyInOne(uri: Uri): String = copyIn(listOf(uri)).first()
+
     private fun copyIn(uris: List<Uri>): List<String> {
         val folder = File(File(activity.cacheDir, PICKED), System.nanoTime().toString())
         if (uris.isNotEmpty()) folder.mkdirs()

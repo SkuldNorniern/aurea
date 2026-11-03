@@ -18,6 +18,11 @@ static BOOL s_in_nsapp_run = NO;
 @end
 
 @implementation AppDelegate
+- (void)application:(NSApplication *)sender openFiles:(NSArray<NSString *> *)paths {
+    for (NSString* path in paths) ng_invoke_file_opened(path.fileSystemRepresentation);
+    [sender replyToOpenOrPrint:NSApplicationDelegateReplySuccess];
+}
+
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {
     (void)sender;
     return s_in_nsapp_run && ng_macos_hide_on_close_count == 0;

@@ -348,6 +348,11 @@ pub(super) fn surface_destroyed() {
 
 /// The back gesture or button. An open popup closes first, as Escape does, then the app's handler
 /// from `on_back` gets it; true when something took it.
+pub(super) fn open_requested() {
+    feed(&[WindowEvent::OpenRequested]);
+    super::request_frame();
+}
+
 /// A hardware keyboard came or went.
 pub(super) fn hard_keyboard(connected: bool) {
     if set_keyboard_connected(connected) {

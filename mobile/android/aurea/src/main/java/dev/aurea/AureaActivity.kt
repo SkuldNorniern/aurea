@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.LocaleList
 import android.os.Bundle
 import android.os.SystemClock
+import android.util.Log
 import android.view.Choreographer
 import android.view.InputDevice
 import android.view.MotionEvent
@@ -44,6 +45,30 @@ abstract class AureaActivity :
         override fun onInputDeviceAdded(id: Int) = sendKeyboard()
         override fun onInputDeviceRemoved(id: Int) = sendKeyboard()
         override fun onInputDeviceChanged(id: Int) = sendKeyboard()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        openFrom(intent)
+    }
+
+    /** A view, edit or share of a document: copied in off this thread, then handed over. */
+    @Suppress("DEPRECATION")
+    private fun openFrom(intent: Intent?) {
+        val uri = when (intent?.action) {
+            Intent.ACTION_VIEW, Intent.ACTION_EDIT -> intent.data
+            Intent.ACTION_SEND -> intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+            else -> null
+        } ?: return
+        Thread {
+            try {
+                val path = files.copyInOne(uri)
+                runOnUiThread { nativeOpened(path) }
+            } catch (e: Exception) {
+                Log.w("aurea", "could not open $uri: $e")
+            }
+        }.start()
     }
 
     private fun sendKeyboard() {
@@ -92,6 +117,7 @@ abstract class AureaActivity :
         nativeCreate(this)
         getSystemService(InputManager::class.java).registerInputDeviceListener(keyboards, null)
         sendKeyboard()
+        if (savedInstanceState == null) openFrom(intent)
         view.holder.addCallback(this)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) {
@@ -442,6 +468,7 @@ abstract class AureaActivity :
         @JvmStatic external fun nativeScreenShape(values: FloatArray)
         @JvmStatic external fun nativeBack(): Boolean
         @JvmStatic external fun nativeHardKeyboard(connected: Boolean)
+        @JvmStatic external fun nativeOpened(path: String)
         @JvmStatic external fun nativeKeyboard(bottom: Float)
         @JvmStatic external fun nativeLightTheme(): Boolean
         @JvmStatic external fun nativeFrame(): Boolean
