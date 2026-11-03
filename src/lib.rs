@@ -30,6 +30,8 @@ mod touch;
 #[cfg(any(target_os = "ios", target_os = "android", test))]
 mod wake;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 pub use aurea_animation as animation;
 
 pub mod app;
@@ -118,6 +120,20 @@ pub fn pointer_is_pencil() -> bool {
 }
 
 pub use keyboard::keyboard_connected;
+
+static PRESS_ON_HOLD: AtomicBool = AtomicBool::new(true);
+
+/// Whether a finger held still presses after a moment, on iOS and Android: on by default, so a
+/// button shows it is held. Off, a still finger waits for a lift, a move or the long press, so a
+/// long press leaves no press to cancel, as a paint app wants.
+pub fn set_press_on_hold(on: bool) {
+    PRESS_ON_HOLD.store(on, Ordering::Relaxed);
+}
+
+/// What [`set_press_on_hold`] last set.
+pub fn press_on_hold() -> bool {
+    PRESS_ON_HOLD.load(Ordering::Relaxed)
+}
 
 /// Whether this is a touch host, iOS or Android, where fingers are the pointer.
 pub const fn is_touch() -> bool {

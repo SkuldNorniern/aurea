@@ -10,7 +10,10 @@
 use std::f32::consts::{PI, TAU};
 use std::time::{Duration, Instant};
 
-use crate::{GesturePhase, Modifiers, MouseButton, MouseButtons, Point, PointerKind, WindowEvent};
+use crate::{
+    GesturePhase, Modifiers, MouseButton, MouseButtons, Point, PointerKind, WindowEvent,
+    press_on_hold,
+};
 
 /// How far a finger moves, in logical pixels, before it is the mouse rather than a possible
 /// gesture.
@@ -378,13 +381,27 @@ impl Touches {
 
     /// A finger that stayed still long enough becomes the mouse.
     pub(crate) fn tick(&mut self, now: Instant) -> Vec<WindowEvent> {
+        self.advance(now, press_on_hold())
+    }
+
+    fn advance(&mut self, now: Instant, press_on_hold: bool) -> Vec<WindowEvent> {
         let mut out = Vec::new();
+        if let State::Pending {
+            id, start, since, ..
+        } = self.state
+            && !press_on_hold
+            && now.duration_since(since) >= LONG_PRESS
+        {
+            out.push(long_press(start));
+            self.state = State::LongPressed { id };
+        }
         if let State::Pending {
             id,
             start,
             at,
             since,
         } = self.state
+            && press_on_hold
             && now.duration_since(since) >= HOLD
         {
             press(&mut out, start);
@@ -403,10 +420,7 @@ impl Touches {
             && now.duration_since(since) >= LONG_PRESS
         {
             out.push(WindowEvent::PressCancelled);
-            out.push(WindowEvent::LongPress {
-                x: f64::from(from.x),
-                y: f64::from(from.y),
-            });
+            out.push(long_press(from));
             self.state = State::LongPressed { id };
         }
         out
@@ -423,6 +437,13 @@ impl Touches {
         } else {
             State::Done
         }
+    }
+}
+
+fn long_press(at: Point) -> WindowEvent {
+    WindowEvent::LongPress {
+        x: f64::from(at.x),
+        y: f64::from(at.y),
     }
 }
 
@@ -702,6 +723,45 @@ mod tests {
         assert!(!t.waiting());
         let lift = t.touch(Phase::Up, 1, p(5.0, 5.0), false, now + LONG_PRESS * 2);
         assert_eq!(kinds(&lift), ["exit"], "no release after the cancel");
+    }
+
+    #[test]
+    fn without_a_press_on_hold_a_long_press_comes_first() {
+        let now = Instant::now();
+        let mut t = Touches::new();
+        t.touch(Phase::Down, 1, p(5.0, 5.0), false, now);
+        assert!(t.advance(now + HOLD, false).is_empty());
+        assert!(t.waiting());
+        let out = t.advance(now + LONG_PRESS, false);
+        assert_eq!(kinds(&out), ["long press"], "nothing to cancel");
+        let lift = t.touch(Phase::Up, 1, p(5.0, 5.0), false, now + LONG_PRESS);
+        assert_eq!(kinds(&lift), ["exit"]);
+    }
+
+    #[test]
+    fn without_a_press_on_hold_a_tap_moving_and_second_finger_still_work() {
+        let now = Instant::now();
+        let later = now + HOLD * 2;
+        let mut t = Touches::new();
+        t.touch(Phase::Down, 1, p(5.0, 5.0), false, now);
+        t.advance(later, false);
+        let out = t.touch(Phase::Up, 1, p(5.0, 5.0), false, later);
+        assert_eq!(kinds(&out), ["move", "press", "release", "exit"]);
+
+        t.touch(Phase::Down, 2, p(5.0, 5.0), false, now);
+        t.advance(later, false);
+        let out = t.touch(Phase::Move, 2, p(50.0, 5.0), false, later);
+        assert_eq!(kinds(&out), ["move", "press", "move"]);
+        t.touch(Phase::Up, 2, p(50.0, 5.0), false, later);
+
+        t.touch(Phase::Down, 3, p(0.0, 0.0), false, now);
+        t.advance(later, false);
+        let out = t.touch(Phase::Down, 4, p(100.0, 0.0), false, later);
+        assert_eq!(
+            kinds(&out),
+            ["gesture"],
+            "a slow second finger still pinches"
+        );
     }
 
     #[test]
