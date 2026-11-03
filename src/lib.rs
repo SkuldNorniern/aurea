@@ -41,6 +41,7 @@ pub mod embed;
 pub mod ffi;
 pub mod files;
 pub mod integration;
+mod keyboard;
 pub mod keymap;
 /// App lifecycle notifications.
 pub mod lifecycle;
@@ -115,6 +116,8 @@ pub fn pointer_is_pencil() -> bool {
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     false
 }
+
+pub use keyboard::keyboard_connected;
 
 /// Whether this is a touch host, iOS or Android, where fingers are the pointer.
 pub const fn is_touch() -> bool {

@@ -1,6 +1,7 @@
 #import "host.h"
 #import "ios.h"
 #import "../../common/input.h"
+#import <GameController/GameController.h>
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 #include <crt_externs.h>
@@ -358,6 +359,15 @@ static void ng_ios_type(NSString* text) {
                                                      name:UIKeyboardWillChangeFrameNotification
                                                    object:nil];
         [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(hardKeyboardChanged:)
+                                                     name:GCKeyboardDidConnectNotification
+                                                   object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(hardKeyboardChanged:)
+                                                     name:GCKeyboardDidDisconnectNotification
+                                                   object:nil];
+        [self hardKeyboardChanged:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(memoryWarning:)
                                                      name:UIApplicationDidReceiveMemoryWarningNotification
                                                    object:nil];
@@ -433,6 +443,11 @@ static void ng_ios_type(NSString* text) {
 - (void)markDirty {
     _dirty = YES;
     [self wakeLink];
+}
+
+- (void)hardKeyboardChanged:(NSNotification*)note {
+    (void)note;
+    g_host.keyboard(GCKeyboard.coalescedKeyboard != nil);
 }
 
 /* How much of the view the on-screen keyboard covers, for ng_ios_keyboard_height. */

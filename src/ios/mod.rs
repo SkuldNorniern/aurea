@@ -34,6 +34,7 @@ use crate::ffi::callbacks::event_time;
 use crate::ffi::{ng_platform_attach_menu, ng_platform_create_menu, ng_platform_destroy_menu};
 #[cfg(feature = "zengpu")]
 use crate::gpu_ready;
+use crate::keyboard::set_keyboard_connected;
 use crate::render::{CanvasId, CpuRasterizer, Renderer, SurfaceInfo, register_host_canvas};
 use crate::screen::{self, Screen};
 use crate::touch::{Phase, Touches};
@@ -177,6 +178,7 @@ pub fn run(
         pen_tap,
         mouse,
         dropped,
+        keyboard,
     };
     exit(unsafe { ng_ios_run_host(host) })
 }
@@ -460,6 +462,17 @@ unsafe extern "C" fn preedit(text: *const c_char, cursor: c_int) {
     };
     HOST.with_borrow_mut(|host| host.state.handle(&event));
     hear(&[event]);
+}
+
+/// A hardware keyboard came or went.
+unsafe extern "C" fn keyboard(connected: c_int) {
+    let connected = connected != 0;
+    if set_keyboard_connected(connected) {
+        let event = WindowEvent::KeyboardConnected { connected };
+        HOST.with_borrow_mut(|host| host.state.handle(&event));
+        hear(&[event]);
+        request_frame();
+    }
 }
 
 /// An Apple Pencil double tap or Pencil Pro squeeze.

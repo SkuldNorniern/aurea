@@ -15,6 +15,7 @@ use super::window::NativeWindow;
 use crate::ffi::callbacks::event_time;
 #[cfg(feature = "zengpu")]
 use crate::gpu_ready;
+use crate::keyboard::set_keyboard_connected;
 use crate::render::{CpuRasterizer, Renderer, SurfaceInfo};
 use crate::screen::{self, Screen};
 use crate::touch::{Phase, Touches};
@@ -347,6 +348,14 @@ pub(super) fn surface_destroyed() {
 
 /// The back gesture or button. An open popup closes first, as Escape does, then the app's handler
 /// from `on_back` gets it; true when something took it.
+/// A hardware keyboard came or went.
+pub(super) fn hard_keyboard(connected: bool) {
+    if set_keyboard_connected(connected) {
+        feed(&[WindowEvent::KeyboardConnected { connected }]);
+        super::request_frame();
+    }
+}
+
 pub(super) fn back() -> bool {
     let popup = HOST.with_borrow(|host| host.state.popup_open());
     if popup {

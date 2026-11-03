@@ -490,6 +490,15 @@ extern "system" fn Java_dev_aurea_AureaActivity_nativeInsets(
 }
 
 #[unsafe(no_mangle)]
+extern "system" fn Java_dev_aurea_AureaActivity_nativeHardKeyboard(
+    _env: JNIEnv,
+    _class: JClass,
+    connected: jboolean,
+) {
+    host::hard_keyboard(connected != JNI_FALSE);
+}
+
+#[unsafe(no_mangle)]
 extern "system" fn Java_dev_aurea_AureaActivity_nativeBack(
     _env: JNIEnv,
     _class: JClass,

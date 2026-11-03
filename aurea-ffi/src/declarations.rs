@@ -49,6 +49,7 @@ pub struct NGIosHost {
     pub pen_tap: unsafe extern "C" fn(squeeze: c_int, action: c_int),
     pub mouse: unsafe extern "C" fn(action: c_int, x: f32, y: f32, button: c_int),
     pub dropped: unsafe extern "C" fn(paths: *const c_char, x: f32, y: f32),
+    pub keyboard: unsafe extern "C" fn(connected: c_int),
 }
 
 #[cfg(target_os = "ios")]

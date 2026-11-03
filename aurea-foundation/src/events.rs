@@ -230,6 +230,11 @@ pub enum WindowEvent {
         /// Where the first two met, vertically.
         y: f64,
     },
+    /// A hardware keyboard came or went, on iOS and Android.
+    KeyboardConnected {
+        /// True when one is connected now.
+        connected: bool,
+    },
     /// Other windows now cover more or less of this one, or it was minimized or restored; see
     /// [`Occlusion`]. An app can pause work no one sees, or warn when its window is hidden.
     OcclusionChanged(Occlusion),

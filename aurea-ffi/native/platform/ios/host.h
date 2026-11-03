@@ -67,6 +67,8 @@ typedef struct NGIosHost {
     /* Files dropped on the view, copied into the app's temporary folder: NUL-terminated paths ended
        by an empty one, and where, in points. */
     void (*dropped)(const char* paths, float x, float y);
+    /* A hardware keyboard came or went. */
+    void (*keyboard)(int connected);
 } NGIosHost;
 
 /* What a pointer did, for `mouse`. */

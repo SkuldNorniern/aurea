@@ -14,7 +14,7 @@ mod app {
         Align, Button, Checkbox, MenuItem, ProgressBar, Segmented, Slider, TextField, Theme,
         Toggle, Ui,
     };
-    use aurea::{AureaResult, GesturePhase, Point, Rect, WindowEvent, locale};
+    use aurea::{AureaResult, GesturePhase, Point, Rect, WindowEvent, keyboard_connected, locale};
 
     const ADD: u64 = 1;
     const RESET: u64 = 2;
@@ -148,7 +148,12 @@ mod app {
             format!("safe area {:?}", screen.safe_area),
             format!("gesture zones {:?}", screen.gestures),
             format!("corners {:?}", screen.corners),
-            format!("locale {:?}, picked {:?}", locale(), s.picked),
+            format!(
+                "locale {:?}, picked {:?}, keyboard {}",
+                locale(),
+                s.picked,
+                keyboard_connected()
+            ),
             "한글 표시 시험".to_owned(),
             format!("heard {last}"),
         ];

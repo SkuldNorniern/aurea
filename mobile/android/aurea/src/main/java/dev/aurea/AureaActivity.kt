@@ -5,6 +5,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.hardware.input.InputManager
 import android.net.Uri
 import android.os.Build
 import android.os.LocaleList
@@ -39,6 +40,19 @@ abstract class AureaActivity :
     private lateinit var surface: AureaSurface
     private var highFrameRate = false
     private lateinit var files: AureaFiles
+    private val keyboards = object : InputManager.InputDeviceListener {
+        override fun onInputDeviceAdded(id: Int) = sendKeyboard()
+        override fun onInputDeviceRemoved(id: Int) = sendKeyboard()
+        override fun onInputDeviceChanged(id: Int) = sendKeyboard()
+    }
+
+    private fun sendKeyboard() {
+        nativeHardKeyboard(InputDevice.getDeviceIds().any { id ->
+            val device = InputDevice.getDevice(id)
+            device != null && !device.isVirtual &&
+                device.keyboardType == InputDevice.KEYBOARD_TYPE_ALPHABETIC
+        })
+    }
 
     /** Gesture insets, corner radii, then each cutout as x, y, width and height. */
     @android.annotation.TargetApi(Build.VERSION_CODES.R)
@@ -76,6 +90,8 @@ abstract class AureaActivity :
         surface = view
         setContentView(view)
         nativeCreate(this)
+        getSystemService(InputManager::class.java).registerInputDeviceListener(keyboards, null)
+        sendKeyboard()
         view.holder.addCallback(this)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) {
@@ -201,6 +217,7 @@ abstract class AureaActivity :
     }
 
     override fun onDestroy() {
+        getSystemService(InputManager::class.java).unregisterInputDeviceListener(keyboards)
         nativeDestroy(isFinishing)
         super.onDestroy()
     }
@@ -424,6 +441,7 @@ abstract class AureaActivity :
         @JvmStatic external fun nativeInsets(left: Float, top: Float, right: Float, bottom: Float)
         @JvmStatic external fun nativeScreenShape(values: FloatArray)
         @JvmStatic external fun nativeBack(): Boolean
+        @JvmStatic external fun nativeHardKeyboard(connected: Boolean)
         @JvmStatic external fun nativeKeyboard(bottom: Float)
         @JvmStatic external fun nativeLightTheme(): Boolean
         @JvmStatic external fun nativeFrame(): Boolean
