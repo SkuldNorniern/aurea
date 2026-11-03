@@ -11,7 +11,8 @@ use super::damage::{should_render_item, uncovered_runs};
 use super::pool;
 use super::raster::band::Band;
 use super::raster::fill::PathScratch;
-use super::rasterizer::{CpuRasterizer, ImageScratch, color_to_u32};
+use super::raster::image::ImageScratch;
+use super::raster::{mask, pixel, rect};
 use crate::scene::command::DrawCommand;
 use crate::scene::display_list::DisplayItem;
 use crate::types::Rect;
@@ -53,15 +54,18 @@ impl FramePlan<'_> {
         for (i, item) in self.items.iter().enumerate() {
             if let DrawCommand::Clear(color) = &item.command {
                 let started = tally.start();
-                let (color, clip) = (color_to_u32(*color), self.clip.intersect_opt(item.clip));
+                let (color, clip) = (
+                    pixel::color_to_u32(*color),
+                    self.clip.intersect_opt(item.clip),
+                );
                 let runs = self.last_clear == Some(i) || !self.occluded[i];
                 if self.last_clear == Some(i) {
                     uncovered_runs(self.under_clear, self.dims, |run| {
-                        CpuRasterizer::clear_rect(&run, color, buf, bw, clip);
+                        rect::clear(&run, color, buf, bw, clip);
                     });
                 } else if !self.occluded[i] {
                     let whole = Rect::new(0.0, 0.0, bw as f32, bh as f32);
-                    CpuRasterizer::clear_rect(&whole, color, buf, bw, clip);
+                    rect::clear(&whole, color, buf, bw, clip);
                 }
                 tally.clear(runs, started);
                 continue;
@@ -71,7 +75,7 @@ impl FramePlan<'_> {
                 continue;
             }
             let started = tally.start();
-            CpuRasterizer::render_clipped_item(
+            mask::render_clipped(
                 item,
                 buf,
                 scratch_path,

@@ -1,7 +1,7 @@
 //! Backend-agnostic 2D batches lowered from a [`DisplayList`].
 
 use crate::capabilities::GpuFeatures;
-use crate::cpu::CpuRasterizer;
+use crate::cpu::raster::coverage;
 use crate::numeric::{f32_to_u8_clamped, f32_to_u32_clamped};
 use crate::scene::command::{DrawCommand, quad_bounds};
 use crate::scene::display_list::{DisplayItem, DisplayList};
@@ -616,7 +616,7 @@ impl RenderBatches {
             }
             None => {
                 let origin = Point::new(x0, y0);
-                let Ok(mask) = CpuRasterizer::path_coverage(path, paint, origin, (w, h)) else {
+                let Ok(mask) = coverage::of_path(path, paint, origin, (w, h)) else {
                     self.dropped += 1;
                     return;
                 };

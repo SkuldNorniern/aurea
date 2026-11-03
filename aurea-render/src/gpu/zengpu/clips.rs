@@ -405,7 +405,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::cpu::CpuRasterizer;
+    use crate::cpu::raster::coverage;
     use crate::gpu::batch::DrawRef;
     use crate::gpu::zengpu::{ZenGpuContext, pipelines::Pipelines};
     use crate::types::{Paint, Point};
@@ -475,8 +475,7 @@ mod tests {
             let origin = Point::new(mask.rect.x, mask.rect.y);
             let mut expected = vec![255u8; (w * h) as usize];
             for path in paths.iter() {
-                let coverage =
-                    CpuRasterizer::path_coverage(path, &Paint::new(), origin, (w, h)).unwrap();
+                let coverage = coverage::of_path(path, &Paint::new(), origin, (w, h)).unwrap();
                 for (want, pixel) in expected.iter_mut().zip(coverage.as_chunks::<4>().0) {
                     *want =
                         u8::try_from((u32::from(*want) * u32::from(pixel[3]) + 127) / 255).unwrap();

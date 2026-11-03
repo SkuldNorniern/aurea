@@ -1480,6 +1480,7 @@ pub(super) fn as_bytes<T: Copy>(slice: &[T]) -> &[u8] {
 mod context_tests {
     use super::*;
     use crate::cpu::CpuRasterizer;
+    use crate::cpu::raster::coverage;
     use crate::renderer::{DrawingContext, Renderer};
     use crate::surface::{Surface as RenderSurface, SurfaceInfo};
     use crate::types::{BlendMode, Color, Paint, PaintStyle, Path, PathCommand, Point};
@@ -2201,8 +2202,7 @@ mod context_tests {
         let mut coverage = vec![255u8; 64 * 64];
         for path in [&triangle, &rounded] {
             let mask =
-                CpuRasterizer::path_coverage(path, &Paint::new(), Point::new(0.0, 0.0), (64, 64))
-                    .unwrap();
+                coverage::of_path(path, &Paint::new(), Point::new(0.0, 0.0), (64, 64)).unwrap();
             for (a, b) in coverage.iter_mut().zip(mask.as_chunks::<4>().0) {
                 *a = u8::try_from((u32::from(*a) * u32::from(b[3]) + 127) / 255).unwrap();
             }
