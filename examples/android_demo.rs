@@ -9,13 +9,19 @@ mod app {
     use std::ffi::c_int;
     use std::rc::Rc;
 
-    use aurea::android::{on_back, on_event, request_frame, run, set_theme, show_keyboard};
+    use aurea::android::{on_back, on_event, request_frame, run, set_theme};
+    use std::sync::atomic::{AtomicU32, Ordering};
+
     use aurea::app::take_opened;
     use aurea::ui::{
         Align, Button, Checkbox, MenuItem, ProgressBar, Segmented, Slider, TextField, Theme,
         Toggle, Ui,
     };
-    use aurea::{AureaResult, GesturePhase, Point, Rect, WindowEvent, keyboard_connected, locale};
+    use aurea::{
+        AureaResult, GesturePhase, Point, Rect, WindowEvent, device, keyboard_connected, locale,
+    };
+
+    static SUSPENDS: AtomicU32 = AtomicU32::new(0);
 
     const ADD: u64 = 1;
     const RESET: u64 = 2;
@@ -41,6 +47,12 @@ mod app {
 
     /// The last event worth showing.
     fn heard(event: &WindowEvent) -> Option<String> {
+        if matches!(event, WindowEvent::Suspending { .. }) {
+            SUSPENDS.fetch_add(1, Ordering::Relaxed);
+        }
+        if matches!(event, WindowEvent::DeviceChanged) {
+            return Some(format!("device changed: low power {}", device().low_power));
+        }
         Some(match *event {
             WindowEvent::Gesture {
                 phase,
@@ -122,17 +134,9 @@ mod app {
                 Theme::dark()
             });
         }
-        let note = TextField::new(&mut s.note).placeholder("Type here").show(
-            ui,
-            NOTE,
-            row(444.0, 44.0),
-        )?;
-        if note.editing_started {
-            show_keyboard(true);
-        }
-        if note.focus_lost {
-            show_keyboard(false);
-        }
+        TextField::new(&mut s.note)
+            .placeholder("Type here")
+            .show(ui, NOTE, row(444.0, 44.0))?;
 
         let open = Button::new("Long menu").show(ui, LONG_MENU, row(500.0, 44.0))?;
         if open.clicked {
@@ -151,6 +155,13 @@ mod app {
             format!("safe area {:?}", screen.safe_area),
             format!("gesture zones {:?}", screen.gestures),
             format!("corners {:?}", screen.corners),
+            format!(
+                "{} MB, app {:?}, {:?}, suspended {}",
+                device().total_memory / 1_000_000,
+                device().app_memory.map(|m| m / 1_000_000),
+                device().thermal,
+                SUSPENDS.load(Ordering::Relaxed)
+            ),
             format!(
                 "locale {:?}, picked {:?}, keyboard {}",
                 locale(),
