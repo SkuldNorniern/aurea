@@ -1,13 +1,13 @@
 //! Frame cost of a widget-heavy canvas on the CPU rasterizer, with no window: a grid of buttons,
 //! sliders, toggles and fields beside a long list.
 
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use aurea::render::{CpuRasterizer, Renderer};
 use aurea::ui::{Align, Button, ListView, Slider, TextField, Theme, Toggle, Ui, UiState};
 use aurea::{AureaResult, Modifiers, MouseButtons, PointerKind, Rect, WindowEvent};
+
+mod support;
 
 const WIDTH: u32 = 1280;
 const HEIGHT: u32 = 800;
@@ -15,28 +15,8 @@ const FRAMES: u32 = 300;
 const ROWS: usize = 12;
 const COLS: usize = 4;
 
-struct Counting;
-
-static ALLOCATIONS: AtomicU64 = AtomicU64::new(0);
-
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.alloc(layout) }
-    }
-
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        unsafe { System.dealloc(ptr, layout) }
-    }
-
-    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
-        ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.realloc(ptr, layout, size) }
-    }
-}
-
 #[global_allocator]
-static GLOBAL: Counting = Counting;
+static GLOBAL: support::Counting = support::Counting;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Id {
@@ -139,7 +119,7 @@ fn run(name: &str, event: impl Fn(u32) -> Option<WindowEvent>) -> AureaResult<()
     for _ in 0..30 {
         frame(&mut state, &mut app)?;
     }
-    let before = ALLOCATIONS.load(Ordering::Relaxed);
+    let before = support::allocations();
     let (mut built, mut total) = (0.0, 0.0);
     for i in 0..FRAMES {
         if let Some(event) = event(i) {
@@ -149,7 +129,7 @@ fn run(name: &str, event: impl Fn(u32) -> Option<WindowEvent>) -> AureaResult<()
         built += b;
         total += t;
     }
-    let allocations = ALLOCATIONS.load(Ordering::Relaxed) - before;
+    let allocations = support::allocations() - before;
     let per = f64::from(FRAMES);
     println!(
         "{name:<8} {:>8.1} us/frame ({:>7.1} us building), {:>7.1} allocations/frame",

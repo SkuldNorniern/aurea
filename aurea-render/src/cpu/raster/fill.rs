@@ -20,6 +20,8 @@ pub struct PathScratch {
     coverage: Vec<f32>,
     /// Commands of a path moved to a new origin, kept for the next one.
     pub(crate) shifted: Vec<PathCommand>,
+    /// A stroke's outline, reused from one stroke to the next.
+    pub(crate) outline: Vec<PathCommand>,
 }
 
 /// Fills `path` in `color` into `buf` (`bw` pixels wide), inside `clip`.

@@ -82,8 +82,20 @@ struct Out<'a> {
 
 /// The whole stroke as one shape to fill with the non-zero rule.
 pub fn outline_path(path: &Path, style: &StrokeStyle) -> Path {
-    let mut union = Path::new();
-    union.fill_rule = FillRule::NonZero;
+    outline_path_in(path, style, Vec::new())
+}
+
+/// [`outline_path`] building in `commands`, for a caller that strokes often to hand back.
+pub(crate) fn outline_path_in(
+    path: &Path,
+    style: &StrokeStyle,
+    mut commands: Vec<PathCommand>,
+) -> Path {
+    commands.clear();
+    let mut union = Path {
+        commands,
+        fill_rule: FillRule::NonZero,
+    };
     STROKE.with_borrow_mut(|s| {
         stroke(path, style, s, &mut |ring: &[Point]| {
             join_ring(&mut union, ring)

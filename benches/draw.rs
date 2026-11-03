@@ -12,17 +12,33 @@ use aurea::render::{
     PaintStyle, Path, PathCommand, Point, Rect, Renderer, Sampling,
 };
 
+mod support;
+
+#[global_allocator]
+static GLOBAL: support::Counting = support::Counting;
+
 const WIDTH: u32 = 1920;
 const HEIGHT: u32 = 1200;
 const FRAMES: u32 = 60;
 
 type Draw<'a> = &'a dyn Fn(&mut dyn DrawingContext) -> AureaResult<()>;
 
-fn repaint(threads: Option<usize>, draw: Draw<'_>) -> AureaResult<(f64, u64)> {
+struct Repaint {
+    median: f64,
+    hash: u64,
+    /// Allocations a frame once everything has warmed up.
+    allocations: f64,
+}
+
+fn repaint(threads: Option<usize>, draw: Draw<'_>) -> AureaResult<Repaint> {
     let mut raster = CpuRasterizer::new(WIDTH, HEIGHT);
     raster.set_threads(threads);
-    let mut times = Vec::new();
+    let mut times = Vec::with_capacity(FRAMES as usize);
+    let mut before = 0;
     for frame in 0..FRAMES {
+        if frame == FRAMES / 2 {
+            before = support::allocations();
+        }
         let shade = u8::try_from(frame % 2).unwrap_or(0);
         let start = Instant::now();
         let mut ctx = raster.begin_frame()?;
@@ -32,17 +48,25 @@ fn repaint(threads: Option<usize>, draw: Draw<'_>) -> AureaResult<(f64, u64)> {
         raster.end_frame()?;
         times.push(start.elapsed().as_secs_f64() * 1e3);
     }
+    let allocations = (support::allocations() - before) as f64 / f64::from(FRAMES - FRAMES / 2);
     times.sort_by(f64::total_cmp);
     let mut hash = DefaultHasher::new();
     raster.pixels().hash(&mut hash);
-    Ok((times[times.len() / 2], hash.finish()))
+    Ok(Repaint {
+        median: times[times.len() / 2],
+        hash: hash.finish(),
+        allocations,
+    })
 }
 
 fn run(name: &str, draw: Draw<'_>) -> AureaResult<()> {
-    let (one, hash) = repaint(Some(1), draw)?;
-    let (four, _) = repaint(Some(4), draw)?;
-    let (all, _) = repaint(None, draw)?;
-    println!("{name:<20} {one:>7.2} {four:>7.2} {all:>7.2} ms  {hash:016x}");
+    let one = repaint(Some(1), draw)?;
+    let four = repaint(Some(4), draw)?;
+    let all = repaint(None, draw)?;
+    println!(
+        "{name:<20} {:>7.2} {:>7.2} {:>7.2} ms {:>7.1} alloc  {:016x}",
+        one.median, four.median, all.median, one.allocations, one.hash
+    );
     Ok(())
 }
 

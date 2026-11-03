@@ -10,6 +10,7 @@ use crate::scene::command::DrawCommand;
 use crate::scene::display_list::DisplayItem;
 use crate::types::{BlendMode, Paint, PaintStyle, Path, Rect};
 use aurea_foundation::AureaResult;
+use std::mem;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render(
@@ -174,8 +175,11 @@ pub(crate) fn draw_path(
     clip: ClipBox,
 ) -> AureaResult<()> {
     if paint.style == PaintStyle::Stroke {
-        let outline = stroke::outline_path(path, &stroke::StrokeStyle::of(paint));
-        return fill_path(&outline, paint, mode, buf, scratch_path, bw, clip);
+        let reused = mem::take(&mut scratch_path.outline);
+        let outline = stroke::outline_path_in(path, &stroke::StrokeStyle::of(paint), reused);
+        let drawn = fill_path(&outline, paint, mode, buf, scratch_path, bw, clip);
+        scratch_path.outline = outline.commands;
+        return drawn;
     }
 
     fill_path(path, paint, mode, buf, scratch_path, bw, clip)

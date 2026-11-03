@@ -7,7 +7,7 @@ use aurea_foundation::{AureaError, AureaResult};
 
 use super::clip::ClipBox;
 use super::counters::{CommandKind, Tally};
-use super::damage::{should_render_item, uncovered_runs};
+use super::damage::{is_known_bounds, should_render_item, uncovered_runs};
 use super::pool;
 use super::raster::band::Band;
 use super::raster::fill::PathScratch;
@@ -19,6 +19,8 @@ use crate::types::Rect;
 
 /// Damage smaller than this many pixels a band draws on one thread: spawning would cost more.
 pub(super) const BAND_MIN_PIXELS: usize = 1 << 17;
+/// How far past its bounds an item's antialiasing can reach.
+const ROW_PAD: f32 = 3.0;
 /// Most threads a frame draws on.
 pub(super) const MAX_BANDS: usize = 8;
 
@@ -42,6 +44,14 @@ pub(super) struct FramePlan<'f> {
 }
 
 impl FramePlan<'_> {
+    /// Whether `item` is wholly above or below this band: every band walks every item, so this
+    /// comes first.
+    fn misses_rows(&self, item: &DisplayItem) -> bool {
+        let b = item.bounds;
+        is_known_bounds(b)
+            && (b.y + b.height + ROW_PAD < self.clip.top() || b.y - ROW_PAD > self.clip.bottom())
+    }
+
     /// Draws the items in order into `buf`, inside `self.clip`.
     pub(super) fn draw(
         &self,
@@ -70,7 +80,9 @@ impl FramePlan<'_> {
                 tally.clear(runs, started);
                 continue;
             }
-            if !should_render_item(item, self.occluded, i, self.dirty, tiles_x, tiles_y) {
+            if self.misses_rows(item)
+                || !should_render_item(item, self.occluded, i, self.dirty, tiles_x, tiles_y)
+            {
                 tally.skip(self.occluded[i]);
                 continue;
             }
