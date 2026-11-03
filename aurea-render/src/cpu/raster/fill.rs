@@ -80,13 +80,7 @@ fn fill_path_with(
             }
             let (x0, x1) = (e.x_at_y(y0), e.x_at_y(y1));
             let area = (y1 - y0) * e.dir as f32;
-            add_edge(
-                x0.clamp(left, right),
-                x1.clamp(left, right),
-                area,
-                &mut s.coverage,
-                &mut touched,
-            );
+            add_clipped_edge(x0, x1, area, (left, right), &mut s.coverage, &mut touched);
         }
         if touched.0 > touched.1 {
             continue;
@@ -102,6 +96,37 @@ fn fill_path_with(
         }
         s.coverage[touched.0..=touched.1].fill(0.0);
     }
+}
+
+/// [`add_edge`] with what lies outside `left..right` moved to that side at its own area, so the
+/// part inside keeps its slope.
+fn add_clipped_edge(
+    x0: f32,
+    x1: f32,
+    area: f32,
+    (left, right): (f32, f32),
+    coverage: &mut [f32],
+    touched: &mut (usize, usize),
+) {
+    let (lo, hi) = if x0 < x1 { (x0, x1) } else { (x1, x0) };
+    if lo >= left && hi <= right {
+        return add_edge(lo, hi, area, coverage, touched);
+    }
+    if hi <= left || lo >= right {
+        let side = if hi <= left { left } else { right };
+        return add_edge(side, side, area, coverage, touched);
+    }
+    let per_x = area / (hi - lo);
+    let (before, after) = ((left - lo).max(0.0) * per_x, (hi - right).max(0.0) * per_x);
+    add_edge(left, left, before, coverage, touched);
+    add_edge(right, right, after, coverage, touched);
+    add_edge(
+        lo.max(left),
+        hi.min(right),
+        area - before - after,
+        coverage,
+        touched,
+    );
 }
 
 fn add_edge(x0: f32, x1: f32, area: f32, coverage: &mut [f32], touched: &mut (usize, usize)) {
@@ -349,6 +374,38 @@ mod tests {
         assert_eq!(buf[3 * 16 + 4] >> 24, 255);
         assert_eq!(buf[3 * 16 + 9] >> 24, 255);
         assert_eq!(buf[3 * 16 + 10] >> 24, 0);
+    }
+
+    #[test]
+    fn a_shallow_edge_keeps_its_coverage_when_the_clip_cuts_it() {
+        let path = polygon(&[(1.0, 2.0), (61.0, 4.0), (61.0, 12.0), (1.0, 12.0)]);
+        let draw = |clip: ClipBox| {
+            let mut px = vec![0_u32; 64 * 16];
+            fill_path(
+                &path,
+                Color::rgb(255, 255, 255),
+                BlendMode::Normal,
+                &mut Band::whole(&mut px),
+                64,
+                clip,
+                &mut PathScratch::default(),
+            );
+            px
+        };
+        let whole = draw(ClipBox::surface(64, 16));
+        let cut = draw(ClipBox {
+            x0: 20,
+            y0: 0,
+            x1: 40,
+            y1: 16,
+        });
+        for y in 0..16 {
+            for x in 20..40 {
+                let at = y * 64 + x;
+                let (a, b) = (whole[at] >> 24, cut[at] >> 24);
+                assert!(a.abs_diff(b) <= 1, "({x}, {y}): {a} and {b}");
+            }
+        }
     }
 
     fn reference_composite(
