@@ -2,21 +2,30 @@
 
 use std::iter;
 use std::mem;
+use std::time::{Duration, Instant};
 
-use crate::AureaResult;
 use crate::render::{Color, Point, Rect};
 use crate::ui::component::card;
 use crate::ui::frame::{Align, Ui};
 use crate::ui::paint::{Component, Label, Mark, MarkShape};
 use crate::ui::state::{Channel, Interaction, Key, Sense, WidgetId};
 use crate::ui::theme::Theme;
-use crate::window::KeyCode;
+use crate::window::{KeyCode, PointerKind};
+use crate::{AureaResult, reduced_motion};
 
 const ROW_PART: u16 = 0xF000;
 const BACKDROP_PART: u16 = 0xEFFF;
 const CARD_PART: u16 = 0xEFFE;
 const FADE: Channel = Channel::Custom(0xF0F0);
 const TALLEST: f32 = 360.0;
+/// How far a finger moves, in logical pixels, before it scrolls rather than picks.
+const DRAG_SLOP: f32 = 8.0;
+/// A finger still for this long before it lifts leaves the rows still.
+const FLING_REST: Duration = Duration::from_millis(100);
+/// How fast a fling dies, per second.
+const FLING_DECAY: f32 = 4.0;
+/// A fling slower than this, in logical pixels per second, stops.
+const FLING_STOP: f32 = 30.0;
 
 /// Selection colors shared by a popup and its nested menus.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -275,6 +284,25 @@ impl Row {
     }
 }
 
+/// A finger scrolling the rows of menu `level`.
+#[derive(Clone, Copy, Debug)]
+struct Drag {
+    level: usize,
+    start: f32,
+    last: f32,
+    dragging: bool,
+    speed: f32,
+    at: Instant,
+}
+
+/// The rows of menu `level` still moving after the finger lifted.
+#[derive(Clone, Copy, Debug)]
+struct Fling {
+    level: usize,
+    speed: f32,
+    at: Instant,
+}
+
 #[derive(Debug)]
 struct Parent {
     rows: Vec<Row>,
@@ -298,6 +326,8 @@ pub(crate) struct Popup<Id> {
     len: usize,
     highlight: Option<usize>,
     scroll: f32,
+    drag: Option<Drag>,
+    fling: Option<Fling>,
     return_focus: Option<Key<Id>>,
     picked: Option<(Key<Id>, Vec<usize>, Option<u64>)>,
     parents: Vec<Parent>,
@@ -321,6 +351,8 @@ impl<Id> Default for Popup<Id> {
             len: 0,
             highlight: None,
             scroll: 0.0,
+            drag: None,
+            fling: None,
             return_focus: None,
             picked: None,
             parents: Vec::new(),
@@ -357,6 +389,8 @@ impl<Id: WidgetId> Popup<Id> {
         self.nested = false;
         self.style = None;
         self.reveal = false;
+        self.drag = None;
+        self.fling = None;
         self.owner = Some(owner);
         self.card = false;
         self.card_drawn = false;
@@ -524,6 +558,7 @@ impl<Id: WidgetId> Popup<Id> {
         }
         let children = mem::take(&mut self.rows[row].children);
         let anchor = self.rows[row].rect;
+        self.fling = None;
         let parent = Parent {
             rows: mem::replace(&mut self.rows, children),
             len: self.len,
@@ -671,14 +706,18 @@ pub(crate) fn draw<Id: WidgetId>(ui: &mut Ui<'_, Id>) -> AureaResult<()> {
         let rect = place(ui, canvas, &m);
         let drawn = (|| {
             card(ui.theme).fade(shown).paint(ui, rect)?;
-            scroll(ui, rect, &m);
             let input = u16::try_from(level)
                 .ok()
                 .and_then(|part| ROW_PART.checked_add(part))
                 .map(|part| ui.interact(owner.id, part, rect, Sense::Click, true))
                 .unwrap_or_default();
+            let room = scroll(ui, rect, &m);
+            let input = finger_drag(ui, level, room, input);
+            fling(ui, level, room);
             ui.clipped(rect.inset(1.0), |ui| {
-                rows(ui, rect, &m, shown, input, level)
+                let action = rows(ui, rect, &m, shown, input, level)?;
+                cut_off_hint(ui, rect, room, shown)?;
+                Ok(action)
             })
         })();
         if level < depth {
@@ -777,7 +816,8 @@ fn place<Id: WidgetId>(ui: &mut Ui<'_, Id>, canvas: Rect, m: &Metrics) -> Rect {
     Rect::new(x, y, width, height)
 }
 
-fn scroll<Id: WidgetId>(ui: &mut Ui<'_, Id>, rect: Rect, m: &Metrics) {
+/// Takes the wheel and keeps a highlighted row in view; says how far the rows can scroll.
+fn scroll<Id: WidgetId>(ui: &mut Ui<'_, Id>, rect: Rect, m: &Metrics) -> f32 {
     let p = &ui.state.popup;
     let mut total = m.pad * 2.0;
     for row in &p.rows[..p.len] {
@@ -788,6 +828,9 @@ fn scroll<Id: WidgetId>(ui: &mut Ui<'_, Id>, rect: Rect, m: &Metrics) {
     let wheel = if over { ui.take_wheel().1 } else { 0.0 };
     let p = &mut ui.state.popup;
     p.scroll = (p.scroll - wheel * m.row).clamp(0.0, room);
+    if wheel != 0.0 {
+        p.fling = None;
+    }
     if p.reveal
         && let Some(index) = p.highlight
     {
@@ -805,6 +848,107 @@ fn scroll<Id: WidgetId>(ui: &mut Ui<'_, Id>, rect: Rect, m: &Metrics) {
         }
     }
     p.reveal = false;
+    room
+}
+
+/// A finger moving over the rows scrolls them and picks nothing; a pen or mouse picks as ever.
+fn finger_drag<Id: WidgetId>(
+    ui: &mut Ui<'_, Id>,
+    level: usize,
+    room: f32,
+    mut input: Interaction,
+) -> Interaction {
+    let fingers = match ui.pointer_kind() {
+        PointerKind::Touch => true,
+        PointerKind::Pen => false,
+        PointerKind::Mouse => ui.state.touch_scrolling,
+    };
+    if !fingers || room <= 0.0 {
+        return input;
+    }
+    let now = Instant::now();
+    let mine = ui.state.popup.drag.filter(|drag| drag.level == level);
+    let pointer = ui.pointer().filter(|_| input.held);
+    if let Some(at) = pointer {
+        let mut drag = mine.unwrap_or(Drag {
+            level,
+            start: at.y,
+            last: at.y,
+            dragging: false,
+            speed: 0.0,
+            at: now,
+        });
+        ui.state.popup.fling = None;
+        drag.dragging = drag.dragging || (at.y - drag.start).abs() > DRAG_SLOP;
+        if drag.dragging {
+            input.hovered = false;
+            let moved = at.y - drag.last;
+            let dt = now.duration_since(drag.at).as_secs_f32();
+            if moved != 0.0 && dt > 0.0 {
+                drag.speed = moved / dt * 0.7 + drag.speed * 0.3;
+                drag.at = now;
+            }
+            drag.last = at.y;
+            let p = &mut ui.state.popup;
+            p.scroll = (p.scroll - moved).clamp(0.0, room);
+            ui.mark_changed();
+        }
+        ui.state.popup.drag = Some(drag);
+    } else if let Some(drag) = mine {
+        ui.state.popup.drag = None;
+        if drag.dragging {
+            input.hovered = false;
+            input.clicked = false;
+            if now.duration_since(drag.at) < FLING_REST && !reduced_motion() {
+                ui.state.popup.fling = Some(Fling {
+                    level,
+                    speed: drag.speed,
+                    at: now,
+                });
+            }
+            ui.mark_changed();
+        }
+    }
+    input
+}
+
+/// Moves the rows on after a finger let them go, slower each frame, until they stop or hit an end.
+fn fling<Id: WidgetId>(ui: &mut Ui<'_, Id>, level: usize, room: f32) {
+    let p = &mut ui.state.popup;
+    let Some(mut fling) = p.fling.filter(|fling| fling.level == level) else {
+        return;
+    };
+    let now = Instant::now();
+    let dt = now.duration_since(fling.at).as_secs_f32();
+    p.scroll = (p.scroll - fling.speed * dt).clamp(0.0, room);
+    fling.speed *= (-FLING_DECAY * dt).exp();
+    fling.at = now;
+    let going = fling.speed.abs() >= FLING_STOP && p.scroll > 0.0 && p.scroll < room;
+    p.fling = going.then_some(fling);
+    ui.mark_changed();
+    if going {
+        ui.keep_animating();
+    }
+}
+
+/// A thin thumb at the edge when rows are cut off, so a finger knows there are more.
+fn cut_off_hint<Id: WidgetId>(
+    ui: &mut Ui<'_, Id>,
+    rect: Rect,
+    room: f32,
+    shown: f32,
+) -> AureaResult<()> {
+    if room <= 0.0 {
+        return Ok(());
+    }
+    let total = room + rect.height;
+    let length = (rect.height * rect.height / total)
+        .max(16.0)
+        .min(rect.height);
+    let y = rect.y + (rect.height - length) * (ui.state.popup.scroll / room);
+    let thumb = Rect::new(rect.right() - 4.0, y, 2.0, length);
+    let color = ui.theme.palette.border.fade(shown);
+    ui.fill(thumb, color)
 }
 
 fn rows<Id: WidgetId>(
@@ -1120,6 +1264,92 @@ mod tests {
                 .show(ui, 1, Rect::new(0.0, 210.0, 80.0, 30.0))
                 .expect("background");
         });
+    }
+
+    /// A menu too tall for its canvas, on a touch host.
+    fn long_menu() -> Rig {
+        let mut rig = Rig::new(320, 240).still();
+        rig.state.touch_scrolling = true;
+        rig.frame(|ui| {
+            ui.open_menu(
+                9,
+                Point::new(10.0, 10.0),
+                iter::repeat_n(MenuItem::new("Row"), 40),
+            );
+        });
+        menu_frame(&mut rig);
+        rig
+    }
+
+    #[test]
+    fn a_finger_scrolls_a_long_menu_and_picks_nothing() {
+        let mut rig = long_menu();
+        rig.button(50.0, 150.0, true);
+        menu_frame(&mut rig);
+        rig.drag_to(50.0, 90.0);
+        menu_frame(&mut rig);
+        assert_eq!(rig.state.popup.scroll, 60.0);
+        rig.button(50.0, 90.0, false);
+        rig.send(WindowEvent::MouseExited);
+        menu_frame(&mut rig);
+        assert!(rig.state.popup.is_open(), "the lift picks nothing");
+        assert_eq!(rig.state.popup.take_pick(Key::new(9, MENU_PART)), None);
+    }
+
+    #[test]
+    fn a_tap_within_the_slop_still_picks_a_row() {
+        let mut rig = long_menu();
+        let at = rig.state.popup.rows[2].rect.center();
+        rig.button(at.x, at.y, true);
+        menu_frame(&mut rig);
+        rig.drag_to(at.x, at.y + 3.0);
+        menu_frame(&mut rig);
+        rig.button(at.x, at.y + 3.0, false);
+        rig.send(WindowEvent::MouseExited);
+        menu_frame(&mut rig);
+        assert_eq!(rig.state.popup.take_pick(Key::new(9, MENU_PART)), Some(2));
+    }
+
+    #[test]
+    fn a_mouse_on_the_desktop_does_not_drag_rows() {
+        let mut rig = long_menu();
+        rig.state.touch_scrolling = false;
+        rig.button(50.0, 150.0, true);
+        menu_frame(&mut rig);
+        rig.drag_to(50.0, 90.0);
+        menu_frame(&mut rig);
+        assert_eq!(rig.state.popup.scroll, 0.0);
+    }
+
+    #[test]
+    fn a_fling_carries_on_slows_and_stops_at_a_press() {
+        let mut rig = long_menu();
+        rig.state.popup.fling = Some(Fling {
+            level: 0,
+            speed: -2000.0,
+            at: Instant::now() - Duration::from_millis(20),
+        });
+        menu_frame(&mut rig);
+        let first = rig.state.popup.scroll;
+        assert!(first > 0.0);
+        let speed = rig.state.popup.fling.expect("still going").speed;
+        assert!(speed > -2000.0, "{speed}");
+        rig.button(50.0, 150.0, true);
+        menu_frame(&mut rig);
+        assert!(rig.state.popup.fling.is_none());
+    }
+
+    #[test]
+    fn a_fling_stops_at_the_end() {
+        let mut rig = long_menu();
+        rig.state.popup.fling = Some(Fling {
+            level: 0,
+            speed: 1000.0,
+            at: Instant::now() - Duration::from_millis(20),
+        });
+        menu_frame(&mut rig);
+        assert_eq!(rig.state.popup.scroll, 0.0);
+        assert!(rig.state.popup.fling.is_none());
     }
 
     #[test]
