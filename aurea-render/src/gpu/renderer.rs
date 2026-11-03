@@ -329,14 +329,20 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
             *count += 1;
         };
         let mut needs_layer = true;
+        // What the open layer would go under if more joined it. An item clear of all these can
+        // join, so tiles with labels between them cost one layer and not one each.
+        let mut textures_since: Vec<Rect> = Vec::new();
         for (at, item) in self.display_list.items_since_clear().iter().enumerate() {
             if matches!(
                 item.command,
                 DrawCommand::DrawTexture(..) | DrawCommand::DrawTextureQuad(..)
             ) {
+                textures_since.push(item.bounds);
                 needs_layer = true;
             } else {
-                if needs_layer {
+                let joins = count > 0 && clear_of(item.bounds, &textures_since);
+                if needs_layer && !joins {
+                    textures_since.clear();
                     start_layer(&mut self.layer_lists, &mut count);
                     // Even the first CPU run needs a transparent background if textures
                     // precede it; otherwise its default clear would cover those textures.
@@ -604,6 +610,20 @@ fn layer_extent(list: &DisplayList, width: u32, height: u32) -> Option<(u32, u32
 }
 
 /// Cropped RGBA of `layer`, and where it goes.
+/// Whether `bounds`, with room for its antialiasing, touches none of `rects`.
+fn clear_of(bounds: Rect, rects: &[Rect]) -> bool {
+    const REACH: f32 = 3.0;
+    if !bounds.width.is_finite() || !bounds.height.is_finite() {
+        return false;
+    }
+    rects.iter().all(|r| {
+        bounds.x + bounds.width + REACH <= r.x
+            || r.x + r.width + REACH <= bounds.x
+            || bounds.y + bounds.height + REACH <= r.y
+            || r.y + r.height + REACH <= bounds.y
+    })
+}
+
 fn layer_image(layer: &CpuRasterizer, list: &DisplayList) -> Option<(Image, Rect)> {
     let frame = layer.frame_output()?;
     let (x, y, width, height) =
@@ -941,17 +961,13 @@ mod tests {
         draw(&mut r, true, true);
         assert_eq!(
             r.layers.len(),
-            2,
-            "no full-frame surfaces between adjacent tiles"
+            1,
+            "no full-frame surfaces between adjacent tiles, or over what is clear of them"
         );
-        assert_eq!(r.backend().uploads, 2);
-        assert_eq!(r.composite.len(), 152);
+        assert_eq!(r.backend().uploads, 1);
+        assert_eq!(r.composite.len(), 151);
         assert!(matches!(
             r.composite.items()[0].command,
-            DrawCommand::DrawImageRect(..)
-        ));
-        assert!(matches!(
-            r.composite.items()[151].command,
             DrawCommand::DrawImageRect(..)
         ));
         assert!(
@@ -977,6 +993,51 @@ mod tests {
             r.composite.items()[150].command,
             DrawCommand::DrawTexture(..)
         ));
+    }
+
+    #[test]
+    fn labels_beside_tiles_share_a_layer_and_one_over_a_tile_does_not() {
+        let mut r = with_features(
+            FrameOutcome::Presented,
+            GpuFeatures {
+                rounded_rects: false,
+                textures: true,
+                ..GpuFeatures::ALL
+            },
+        );
+        let texture = GpuTexture {
+            #[cfg(feature = "zengpu")]
+            handle: TextureHandle::from_parts(9, 0),
+            index: 9,
+            generation: 0,
+            width: 4,
+            height: 4,
+        };
+        let paint = Paint::new().color(Color::rgb(220, 20, 60));
+        let draw = |r: &mut Gpu2dRenderer<Probe>, label_y: f32| {
+            let mut ctx = r.begin_frame().expect("begin");
+            for i in 0..20 {
+                let x = i as f32 * 30.0;
+                ctx.draw_texture(
+                    texture,
+                    Rect::new(0.0, 0.0, 1.0, 1.0),
+                    Rect::new(x, 0.0, 20.0, 20.0),
+                )
+                .expect("tile");
+                ctx.draw_round_rect(Rect::new(x, label_y, 20.0, 10.0), 2.0, &paint)
+                    .expect("label");
+            }
+            drop(ctx);
+            assert_eq!(r.end_frame().expect("end"), FrameOutcome::Presented);
+        };
+        draw(&mut r, 40.0);
+        assert_eq!(r.layers.len(), 1, "no label touches a tile");
+        draw(&mut r, 5.0);
+        assert_eq!(
+            r.layers.len(),
+            20,
+            "each label over its tile stays above it"
+        );
     }
 
     #[test]
