@@ -231,9 +231,18 @@ pub(super) fn lifecycle(state: i32) {
         _ => return,
     };
     feed(&[event]);
+    if state == 2 {
+        feed(&[WindowEvent::Suspending { time_left: None }]);
+    }
     if state == 0 && locale::changed() {
         feed(&[WindowEvent::LocaleChanged]);
     }
+}
+
+/// Heat or battery saving moved.
+pub(super) fn device_changed() {
+    feed(&[WindowEvent::DeviceChanged]);
+    super::request_frame();
 }
 
 /// A pen's side button clicked while it hovers.

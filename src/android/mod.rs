@@ -42,7 +42,7 @@ pub use jni;
 pub use jni::JNIEnv;
 use jni::JavaVM;
 pub use jni::objects::JObject;
-use jni::objects::{GlobalRef, JByteArray, JClass, JFloatArray, JString, JValue};
+use jni::objects::{GlobalRef, JByteArray, JClass, JFloatArray, JLongArray, JString, JValue};
 use jni::sys::{JNI_FALSE, JNI_TRUE, JNI_VERSION_1_6, jboolean, jdouble, jfloat, jint};
 pub use sheets::alert;
 
@@ -50,7 +50,7 @@ use crate::dispatch;
 #[cfg(feature = "zengpu")]
 use crate::gpu_ready;
 use crate::render::{CanvasId, register_host_canvas};
-use crate::ui::{Theme, Ui};
+use crate::ui::{FrameAsk, Theme, Ui};
 use crate::{AureaResult, WindowEvent};
 #[cfg(feature = "zengpu")]
 use aurea_render::ZenGpuContext;
@@ -65,7 +65,15 @@ static ACTIVITY: Mutex<Option<(JavaVM, GlobalRef)>> = Mutex::new(None);
 
 /// Runs `app` as the app's UI: it draws the UI each frame, given the safe area's logical width and
 /// height. Call it from `aurea_main`; it returns, and the Activity drives frames from then on.
-pub fn run(theme: Theme, app: impl FnMut(&mut Ui<'_, u64>, f32, f32) -> AureaResult<()> + 'static) {
+pub fn run<R: Into<FrameAsk>>(
+    theme: Theme,
+    mut app: impl FnMut(&mut Ui<'_, u64>, f32, f32) -> AureaResult<R> + 'static,
+) {
+    let app = move |ui: &mut Ui<'_, u64>, width: f32, height: f32| {
+        let ask = app(ui, width, height)?.into();
+        ui.ask(ask);
+        Ok(())
+    };
     host::set_app(Box::new(app), theme);
 }
 
@@ -76,6 +84,22 @@ pub fn run(theme: Theme, app: impl FnMut(&mut Ui<'_, u64>, f32, f32) -> AureaRes
 /// Every listener added hears every event, in the order they were added.
 pub fn on_event(listener: impl FnMut(&WindowEvent) + 'static) {
     host::add_listener(Box::new(listener));
+}
+
+/// Total memory, the app's limit, thermal status and battery saving, all from the Activity. All
+/// zero when it isn't there.
+pub(crate) fn device_values() -> [i64; 4] {
+    let mut values = [0; 4];
+    with_activity(|env, activity| {
+        let called = env.call_method(activity, "deviceFromNative", "()[J", &[]);
+        if let Ok(array) = called.and_then(|value| value.l()) {
+            let array = JLongArray::from(array);
+            if env.get_long_array_region(&array, 0, &mut values).is_err() {
+                values = [0; 4];
+            }
+        }
+    });
+    values
 }
 
 /// Asks for a frame from any thread, such as when background work finishes. The UI's own
@@ -488,6 +512,11 @@ extern "system" fn Java_dev_aurea_AureaActivity_nativeInsets(
     bottom: jfloat,
 ) {
     host::set_insets(left, top, right, bottom);
+}
+
+#[unsafe(no_mangle)]
+extern "system" fn Java_dev_aurea_AureaActivity_nativeDeviceChanged(_env: JNIEnv, _class: JClass) {
+    host::device_changed();
 }
 
 #[unsafe(no_mangle)]

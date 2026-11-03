@@ -1582,3 +1582,13 @@ int ng_macos_set_clipboard_text(const char* text) {
     BOOL ok = [pb setString:str forType:NSPasteboardTypeString];
     return ok ? NG_SUCCESS : NG_ERROR_PLATFORM_SPECIFIC;
 }
+
+void ng_apple_device_info(unsigned long long* total, unsigned long long* available, int* thermal,
+                          int* low) {
+    NSProcessInfo* process = NSProcessInfo.processInfo;
+    *total = process.physicalMemory;
+    *available = 0;
+    *thermal = (int)process.thermalState;
+    *low = 0;
+    if (@available(macOS 12.0, *)) *low = process.lowPowerModeEnabled ? 1 : 0;
+}

@@ -1,5 +1,10 @@
 package dev.aurea
 
+import android.os.PowerManager
+import android.content.IntentFilter
+import android.content.Context
+import android.content.BroadcastReceiver
+import android.app.ActivityManager
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
@@ -71,6 +76,48 @@ abstract class AureaActivity :
         }.start()
     }
 
+    /** Total memory, the app's limit, thermal status and battery saving, for Rust's `device()`. */
+    @Suppress("unused")
+    fun deviceFromNative(): LongArray {
+        val activities = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+        val memory = ActivityManager.MemoryInfo()
+        activities.getMemoryInfo(memory)
+        val power = getSystemService(POWER_SERVICE) as PowerManager
+        val thermal = if (Build.VERSION.SDK_INT >= 29) power.currentThermalStatus else 0
+        return longArrayOf(
+            memory.totalMem,
+            activities.memoryClass.toLong() * 1024 * 1024,
+            thermal.toLong(),
+            if (power.isPowerSaveMode) 1 else 0,
+        )
+    }
+
+    private val batterySaving = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) = nativeDeviceChanged()
+    }
+
+    private val heat by lazy {
+        if (Build.VERSION.SDK_INT >= 29) {
+            PowerManager.OnThermalStatusChangedListener { nativeDeviceChanged() }
+        } else {
+            null
+        }
+    }
+
+    private fun watchDevice(on: Boolean) {
+        val power = getSystemService(POWER_SERVICE) as PowerManager
+        if (on) {
+            registerReceiver(batterySaving, IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED))
+        } else {
+            unregisterReceiver(batterySaving)
+        }
+        if (Build.VERSION.SDK_INT >= 29) {
+            heat?.let {
+                if (on) power.addThermalStatusListener(it) else power.removeThermalStatusListener(it)
+            }
+        }
+    }
+
     private fun sendKeyboard() {
         nativeHardKeyboard(InputDevice.getDeviceIds().any { id ->
             val device = InputDevice.getDevice(id)
@@ -109,6 +156,7 @@ abstract class AureaActivity :
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        watchDevice(true)
         System.loadLibrary(library)
         files = AureaFiles(this)
         val view = AureaSurface(this, this)
@@ -243,6 +291,7 @@ abstract class AureaActivity :
     }
 
     override fun onDestroy() {
+        watchDevice(false)
         getSystemService(InputManager::class.java).unregisterInputDeviceListener(keyboards)
         nativeDestroy(isFinishing)
         super.onDestroy()
@@ -468,6 +517,7 @@ abstract class AureaActivity :
         @JvmStatic external fun nativeScreenShape(values: FloatArray)
         @JvmStatic external fun nativeBack(): Boolean
         @JvmStatic external fun nativeHardKeyboard(connected: Boolean)
+        @JvmStatic external fun nativeDeviceChanged()
         @JvmStatic external fun nativeOpened(path: String)
         @JvmStatic external fun nativeKeyboard(bottom: Float)
         @JvmStatic external fun nativeLightTheme(): Boolean

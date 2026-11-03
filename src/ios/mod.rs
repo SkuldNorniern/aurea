@@ -23,9 +23,10 @@ use std::time::{Duration, Instant};
 #[cfg(feature = "zengpu")]
 use aurea_ffi::ng_ios_gpu_view;
 use aurea_ffi::{
-    NGIosHost, ng_ios_drop_gpu_view, ng_ios_hide_native, ng_ios_keyboard_height,
-    ng_ios_refresh_rate, ng_ios_run_host, ng_ios_set_high_frame_rate, ng_ios_set_text_area,
-    ng_ios_show_keyboard, ng_ios_show_native, ng_ios_wake,
+    NGIosHost, ng_ios_background_time, ng_ios_drop_gpu_view, ng_ios_end_background,
+    ng_ios_hide_native, ng_ios_keyboard_height, ng_ios_refresh_rate, ng_ios_run_host,
+    ng_ios_set_high_frame_rate, ng_ios_set_text_area, ng_ios_show_keyboard, ng_ios_show_native,
+    ng_ios_wake,
 };
 
 use crate::dispatch;
@@ -40,7 +41,7 @@ use crate::render::{CanvasId, CpuRasterizer, Renderer, SurfaceInfo, register_hos
 use crate::screen::{self, Screen};
 use crate::touch::{Phase, Touches};
 use crate::trim_memory;
-use crate::ui::{Theme, Ui, UiState};
+use crate::ui::{FrameAsk, Theme, Ui, UiState};
 use crate::wake::wake_at;
 use crate::{
     AureaError, AureaResult, KeyCode, MenuBar, Modifiers, MouseButton, MouseButtons, PenPhase,
@@ -160,10 +161,15 @@ thread_local! {
 
 /// Runs `app` as the whole iOS app: it draws the UI each frame, given the safe area's logical width
 /// and height. UIKit owns the main thread from here, so this never returns.
-pub fn run(
+pub fn run<R: Into<FrameAsk>>(
     theme: Theme,
-    app: impl FnMut(&mut Ui<'_, u64>, f32, f32) -> AureaResult<()> + 'static,
+    mut app: impl FnMut(&mut Ui<'_, u64>, f32, f32) -> AureaResult<R> + 'static,
 ) -> ! {
+    let app = move |ui: &mut Ui<'_, u64>, width: f32, height: f32| {
+        let ask = app(ui, width, height)?.into();
+        ui.ask(ask);
+        Ok(())
+    };
     HOST.with_borrow_mut(|host| {
         host.app = Some(Box::new(app));
         host.theme = theme;
@@ -414,6 +420,11 @@ unsafe extern "C" fn lifecycle(state: i32) {
             trim_memory();
             WindowEvent::MemoryWarning
         }
+        5 => WindowEvent::DeviceChanged,
+        6 => WindowEvent::Suspending {
+            // SAFETY: the host calls this on the main thread, where it may be read.
+            time_left: Duration::try_from_secs_f64(unsafe { ng_ios_background_time() }).ok(),
+        },
         _ => return,
     };
     HOST.with_borrow_mut(|host| host.state.handle(&event));
@@ -422,6 +433,12 @@ unsafe extern "C" fn lifecycle(state: i32) {
         hear(&[WindowEvent::LocaleChanged]);
         request_frame();
     }
+}
+
+/// Ends the time asked for on going to the background.
+pub(crate) fn end_background() {
+    // SAFETY: only touches state of the host, which is safe to end twice.
+    unsafe { ng_ios_end_background() };
 }
 
 /// A key, and the text a press types: from a hardware keyboard, or text alone from the on-screen

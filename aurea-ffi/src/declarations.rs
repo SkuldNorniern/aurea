@@ -61,6 +61,10 @@ unsafe extern "C" {
     pub fn ng_ios_drop_gpu_view();
     pub fn ng_ios_show_keyboard(show: c_int);
     pub fn ng_ios_keyboard_height() -> f32;
+    /// Ends the time asked for on going to the background.
+    pub fn ng_ios_end_background();
+    /// Seconds iOS still gives the app in the background.
+    pub fn ng_ios_background_time() -> f64;
     pub fn ng_ios_refresh_rate() -> f32;
     pub fn ng_ios_set_high_frame_rate(high: c_int);
     pub fn ng_ios_set_text_area(x: f32, y: f32, width: f32, height: f32);

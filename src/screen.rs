@@ -107,6 +107,12 @@ static SCREEN: Mutex<Screen> = Mutex::new(Screen {
     cutout_count: 0,
 });
 
+/// Pretends the screen is `screen`, for trying a phone's insets on the desktop. A real touch host
+/// sets its own.
+pub fn simulate_screen(screen: Screen) {
+    *lock(&SCREEN) = screen;
+}
+
 /// The screen as the host last reported it.
 pub fn screen() -> Screen {
     *lock(&SCREEN)

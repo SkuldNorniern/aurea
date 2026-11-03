@@ -1,3 +1,4 @@
+#include <os/proc.h>
 #import "host.h"
 #import "ios.h"
 #import "../../common/input.h"
@@ -8,6 +9,9 @@
 #include <crt_externs.h>
 #include <math.h>
 #include <string.h>
+
+void ng_ios_end_background(void);
+static void ng_ios_device_changed(NSNotification* note);
 
 /* One Aurea UI filling the screen: the app draws each frame of its safe area into a pixel buffer,
    which becomes a sublayer's contents; the view's own colour fills the rest. A display link asks for frames while the UI wants them, and pauses when
@@ -368,6 +372,17 @@ static void ng_ios_type(NSString* text) {
                                                      name:GCKeyboardDidDisconnectNotification
                                                    object:nil];
         [self hardKeyboardChanged:nil];
+        for (NSNotificationName name in @[
+                 NSProcessInfoThermalStateDidChangeNotification,
+                 NSProcessInfoPowerStateDidChangeNotification
+             ]) {
+            [[NSNotificationCenter defaultCenter] addObserverForName:name
+                                                              object:nil
+                                                               queue:NSOperationQueue.mainQueue
+                                                          usingBlock:^(NSNotification* note) {
+                                                              ng_ios_device_changed(note);
+                                                          }];
+        }
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(memoryWarning:)
                                                      name:UIApplicationDidReceiveMemoryWarningNotification
@@ -890,6 +905,32 @@ static int ng_ios_pen_action(long action) {
 
 @end
 
+static UIBackgroundTaskIdentifier g_background_task = UIBackgroundTaskInvalid;
+
+void ng_ios_end_background(void) {
+    if (g_background_task == UIBackgroundTaskInvalid) return;
+    [UIApplication.sharedApplication endBackgroundTask:g_background_task];
+    g_background_task = UIBackgroundTaskInvalid;
+}
+
+double ng_ios_background_time(void) {
+    return UIApplication.sharedApplication.backgroundTimeRemaining;
+}
+
+void ng_apple_device_info(unsigned long long* total, unsigned long long* available, int* thermal,
+                          int* low) {
+    NSProcessInfo* process = NSProcessInfo.processInfo;
+    *total = process.physicalMemory;
+    *available = os_proc_available_memory();
+    *thermal = (int)process.thermalState;
+    *low = process.lowPowerModeEnabled ? 1 : 0;
+}
+
+static void ng_ios_device_changed(NSNotification* note) {
+    (void)note;
+    if (g_host.lifecycle) g_host.lifecycle(NG_IOS_DEVICE_CHANGED);
+}
+
 static void ng_ios_lifecycle(int state) {
     if (g_host.lifecycle) g_host.lifecycle(state);
     [g_view markDirty];
@@ -952,7 +993,12 @@ API_AVAILABLE(ios(13.0))
 
 - (void)sceneDidEnterBackground:(UIScene*)scene {
     (void)scene;
+    ng_ios_end_background();
+    g_background_task = [UIApplication.sharedApplication
+        beginBackgroundTaskWithName:@"aurea.suspending"
+                  expirationHandler:^{ ng_ios_end_background(); }];
     ng_ios_lifecycle(NG_IOS_BACKGROUND);
+    ng_ios_lifecycle(NG_IOS_SUSPENDING);
 }
 
 @end

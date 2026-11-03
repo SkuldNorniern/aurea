@@ -230,6 +230,15 @@ pub enum WindowEvent {
         /// Where the first two met, vertically.
         y: f64,
     },
+    /// The app is going to the background and may be stopped: flush what must not be lost.
+    /// `time_left` is what iOS gives; call `aurea::app::suspend_done` when through. Android gives
+    /// no number, so `None`: keep it short, some seconds at most.
+    Suspending {
+        /// How long the system gives, if it says.
+        time_left: Option<Duration>,
+    },
+    /// Heat or battery saving moved, on iOS and Android: read `aurea::device` again.
+    DeviceChanged,
     /// The system's languages changed, noticed on iOS and Android as the app comes back: read
     /// `aurea::locales` again.
     LocaleChanged,

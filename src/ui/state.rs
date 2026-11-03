@@ -425,6 +425,7 @@ pub struct UiState<Id: WidgetId> {
     last_shields: Vec<Rect>,
     /// Reused by formatted text.
     pub(crate) formatted: String,
+    touch_mode: bool,
     /// The field and keyboard height last moved clear of each other.
     lifted: Option<(Key<Id>, u32)>,
     pub(crate) typed: Vec<Typed>,
@@ -513,6 +514,7 @@ impl<Id: WidgetId> UiState<Id> {
             shields: Vec::new(),
             last_shields: Vec::new(),
             formatted: String::new(),
+            touch_mode: false,
             lifted: None,
             typed: Vec::new(),
             typed_targets: Vec::new(),
@@ -601,6 +603,34 @@ impl<Id: WidgetId> UiState<Id> {
 
     /// Takes one window event, in the canvas's coordinates.
     pub fn handle(&mut self, event: &WindowEvent) -> bool {
+        if self.touch_mode {
+            return self.handle_as_touch(event);
+        }
+        self.handle_plain(event)
+    }
+
+    /// Makes the mouse act as one finger, for trying a touch layout at a desk: no hover, a lift
+    /// leaves the pointer nowhere, and dragging scrolls. Pair it with [`Theme::touch`] and
+    /// `aurea::simulate_screen` for the insets. Gestures of more fingers aren't simulated.
+    pub fn set_touch_mode(&mut self, on: bool) {
+        self.touch_mode = on;
+        self.touch_scrolling = on || cfg!(any(target_os = "ios", target_os = "android"));
+    }
+
+    fn handle_as_touch(&mut self, event: &WindowEvent) -> bool {
+        let held = self.pointer_down;
+        if matches!(event, WindowEvent::MouseMove { .. }) && !held {
+            return false;
+        }
+        let redraw = self.handle_plain(event);
+        self.pointer_kind = PointerKind::Touch;
+        if matches!(event, WindowEvent::MouseButton { pressed: false, .. }) {
+            return self.handle_plain(&WindowEvent::MouseExited) || redraw;
+        }
+        redraw
+    }
+
+    fn handle_plain(&mut self, event: &WindowEvent) -> bool {
         match event {
             WindowEvent::KeyInput { pressed: true, .. } => self.keyboard_last = true,
             WindowEvent::MouseButton { pressed: true, .. } => {
@@ -1473,6 +1503,25 @@ mod tests {
             time: Default::default(),
             pointer: PointerKind::Mouse,
         }
+    }
+
+    #[test]
+    fn touch_mode_drops_hover_and_lifts_leave_nothing_hot() {
+        use crate::window::{Modifiers, MouseButtons};
+        let mut state = UiState::<u8>::new();
+        state.set_touch_mode(true);
+        let moved = WindowEvent::MouseMove {
+            x: 5.0,
+            y: 5.0,
+            buttons: MouseButtons::default(),
+            modifiers: Modifiers::default(),
+            time: Duration::default(),
+            pointer: PointerKind::Mouse,
+        };
+        assert!(!state.handle(&moved), "a mouse in the air is no finger");
+        assert!(state.touch_scrolling);
+        state.set_touch_mode(false);
+        assert!(!state.touch_scrolling || cfg!(any(target_os = "ios", target_os = "android")));
     }
 
     #[test]

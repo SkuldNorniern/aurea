@@ -27,6 +27,8 @@ extern "C" {
 #define NG_IOS_BACKGROUND 2
 #define NG_IOS_FOREGROUND 3
 #define NG_IOS_MEMORY_WARNING 4
+#define NG_IOS_DEVICE_CHANGED 5
+#define NG_IOS_SUSPENDING 6
 
 /* The app side of the host. Sizes are physical pixels, insets and touches points. `frame` is given
    the whole view and its safe area, and draws only the safe area: `words` is that many pixels,

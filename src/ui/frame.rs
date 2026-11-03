@@ -4,7 +4,7 @@ use crate::ui::paint::Label;
 use std::fmt::{self, Write};
 use std::mem;
 use std::rc::Rc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use super::state::{
     Channel, Fonts, Interaction, Key, Press, Sense, Typed, UiState, WidgetId, caret_on,
@@ -173,6 +173,25 @@ impl<Id: WidgetId> UiState<Id> {
         }
     }
 }
+
+/// What a frame wants of its host when it's done, the same on every platform. A draw closure may
+/// end with this, or with `Ok(())` for neither.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FrameAsk {
+    /// Something moves: draw again right away.
+    pub animate: bool,
+    /// Work runs elsewhere with no way to wake the UI: look again soon.
+    pub busy: bool,
+}
+
+impl From<()> for FrameAsk {
+    fn from((): ()) -> Self {
+        Self::default()
+    }
+}
+
+/// How often a frame that said it is busy looks again.
+const BUSY_WAKE: Duration = Duration::from_millis(100);
 
 impl<Id: WidgetId> Drop for Ui<'_, Id> {
     fn drop(&mut self) {
@@ -521,6 +540,16 @@ impl<Id: WidgetId> Ui<'_, Id> {
     /// Asks for another frame after this one, for something the app animates itself.
     pub fn keep_animating(&mut self) {
         self.state.tweens.keep_busy();
+    }
+
+    /// Does what `ask` says.
+    pub fn ask(&mut self, ask: FrameAsk) {
+        if ask.animate {
+            self.keep_animating();
+        }
+        if ask.busy {
+            self.wake_at(Instant::now() + BUSY_WAKE);
+        }
     }
 
     /// Asks for a frame at `when`, for something that changes later with nothing else going on.

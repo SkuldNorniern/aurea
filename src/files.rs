@@ -1,6 +1,10 @@
 //! Handing files to the desktop: open one with its default application, or show it in the file
 //! manager, and find the folders an app keeps its own files in.
 
+mod transfer;
+
+pub use transfer::{open, save, share};
+
 use std::env;
 use std::fs;
 use std::io::{self, ErrorKind, Write};

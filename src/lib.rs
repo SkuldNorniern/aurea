@@ -35,6 +35,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub use aurea_animation as animation;
 
 pub mod app;
+mod device;
 pub mod dialog;
 mod dispatch;
 pub mod elements;
@@ -102,7 +103,7 @@ pub use crate::keymap::{Chord, Keymap};
 pub use crate::locale::{locale, locales};
 pub use crate::pen::{PenMode, PenSource, pen_mode, pen_source, set_pen_mode};
 pub use crate::platform::handles::NativeWindowHandle;
-pub use crate::screen::{Screen, screen};
+pub use crate::screen::{Screen, screen, simulate_screen};
 pub use aurea_foundation::{AureaError, AureaResult};
 pub use aurea_foundation::{
     Capability, CapabilityChecker, DesktopPlatform, MobilePlatform, OsVersion, Platform, Support,
@@ -132,6 +133,7 @@ pub fn pointer_is_pencil() -> bool {
     false
 }
 
+pub use device::{Device, Thermal, device};
 pub use keyboard::{keyboard_connected, keyboard_height, set_keyboard_follows_focus};
 pub use sheets::sheet_presented;
 

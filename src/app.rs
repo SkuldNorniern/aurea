@@ -17,14 +17,16 @@ use std::sync::{Mutex, OnceLock, PoisonError};
 
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 mod instance;
+mod run;
 
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 pub use instance::single_instance;
+pub use run::run;
 
 #[cfg(target_os = "android")]
 use crate::android::open_requested;
 #[cfg(target_os = "ios")]
-use crate::ios::open_requested;
+use crate::ios::{self, open_requested};
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 use crate::{WindowEvent, registry::window::push_event_to_all_windows};
 
@@ -41,6 +43,13 @@ pub struct Identity {
     pub organization: Option<&'static str>,
     /// Version shown to people, such as "0.1.0"; empty when unknown.
     pub version: &'static str,
+}
+
+/// Says the work asked for by [`crate::WindowEvent::Suspending`] is done, so an iOS app needn't use
+/// up its time. Nothing to do elsewhere.
+pub fn suspend_done() {
+    #[cfg(target_os = "ios")]
+    ios::end_background();
 }
 
 /// The identity `aurea_build::identity()` read from the calling crate's `Cargo.toml`, or that
