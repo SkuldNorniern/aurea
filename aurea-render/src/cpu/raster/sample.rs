@@ -1,6 +1,6 @@
 //! Reading an image between its pixels: bilinear for enlarging, a box average for shrinking.
 
-use crate::numeric::{f32_to_i32_clamped, f32_to_u32_clamped};
+use crate::numeric::{f32_to_i32_clamped, f32_to_u32_clamped, f32_to_usize_clamped};
 use crate::types::Image;
 use std::sync::Arc;
 
@@ -101,6 +101,7 @@ pub fn nearest(image: &Image, b: Bounds, u: f32, v: f32, alpha: f32) -> u32 {
 pub struct Taps {
     lo: i32,
     hi: i32,
+    #[cfg(test)]
     t: f32,
     /// `t` in 256ths, for the integer read of opaque pixels.
     w: u32,
@@ -118,6 +119,7 @@ impl Taps {
         Self {
             lo: x.clamp(lo, hi),
             hi: (x + 1).clamp(lo, hi),
+            #[cfg(test)]
             t: u - f,
             w: f32_to_u32_clamped(((u - f) * 256.0 + 0.5).min(256.0)),
             w16: f32_to_u32_clamped(((u - f) * 65536.0 + 0.5).min(65536.0)),
@@ -126,6 +128,7 @@ impl Taps {
 }
 
 /// Bilinear sample at image position `(u, v)`, pixel centres at `n + 0.5`.
+#[cfg(test)]
 pub fn bilinear(image: &Image, b: Bounds, u: f32, v: f32, alpha: f32) -> u32 {
     if b.x0 > b.x1 || b.y0 > b.y1 {
         return 0;
@@ -138,11 +141,13 @@ pub fn bilinear(image: &Image, b: Bounds, u: f32, v: f32, alpha: f32) -> u32 {
     )
 }
 
-/// [`bilinear`] with its taps worked out, as a draw does once per column and row.
+/// [`bilinear`] with its taps worked out, the float read the integer ones stay within 1 of.
+#[cfg(test)]
 pub fn bilinear_taps(image: &Image, x: Taps, y: Taps, alpha: f32) -> u32 {
     bilinear_with(x, y, alpha, |x, y| premul(image, x, y))
 }
 
+#[cfg(test)]
 fn bilinear_with(x: Taps, y: Taps, alpha: f32, mut read: impl FnMut(i32, i32) -> [f32; 4]) -> u32 {
     let p00 = read(x.lo, y.lo);
     let p10 = read(x.hi, y.lo);
@@ -155,30 +160,6 @@ fn bilinear_with(x: Taps, y: Taps, alpha: f32, mut read: impl FnMut(i32, i32) ->
         *o = top + (bottom - top) * y.t;
     }
     pack(out, alpha)
-}
-
-pub fn bilinear_prepared(
-    pixels: &[[f32; 4]],
-    width: u32,
-    b: Bounds,
-    u: f32,
-    v: f32,
-    alpha: f32,
-) -> u32 {
-    if b.x0 > b.x1 || b.y0 > b.y1 {
-        return 0;
-    }
-    bilinear_with(
-        Taps::at(u, b.x0, b.x1),
-        Taps::at(v, b.y0, b.y1),
-        alpha,
-        |x, y| {
-            pixels
-                .get(y.unsigned_abs() as usize * width as usize + x.unsigned_abs() as usize)
-                .copied()
-                .unwrap_or([0.0; 4])
-        },
-    )
 }
 
 /// [`bilinear_taps`] in integers, for texels of any alpha. Each colour is premultiplied exactly
@@ -213,6 +194,54 @@ fn blend_translucent(texels: [u32; 4], x: Taps, y: Taps, af: u32) -> u32 {
         | u32::from(channel(2))
 }
 
+/// [`bilinear_taps`] in integers, for one read: within 1 of the float one.
+pub fn bilinear_fast(image: &Image, b: Bounds, u: f32, v: f32, alpha: f32) -> u32 {
+    if b.x0 > b.x1 || b.y0 > b.y1 {
+        return 0;
+    }
+    let stride = image.width as usize * 4;
+    let (x, y) = (Taps::at(u, b.x0, b.x1), Taps::at(v, b.y0, b.y1));
+    let row = |at: i32| {
+        let start = at.unsigned_abs() as usize * stride;
+        image.data.get(start..start + stride)
+    };
+    let (Some(top), Some(bottom)) = (row(y.lo), row(y.hi)) else {
+        return 0;
+    };
+    let af = f32_to_u32_clamped((alpha * 256.0 + 0.5).min(256.0));
+    between_rows(top, bottom, x, y, alpha, af)
+}
+
+/// The read at taps `x` and `y` of the two rows `y` names. Opaque texels at full alpha blend two
+/// channels per integer multiply; all others go through [`blend_translucent`].
+#[inline(always)]
+fn between_rows(top: &[u8], bottom: &[u8], x: Taps, y: Taps, alpha: f32, af: u32) -> u32 {
+    let texel = |row: &[u8], at: i32| {
+        let i = at.unsigned_abs() as usize * 4;
+        row.get(i..i + 4)
+            .map(|p| u32::from_le_bytes([p[0], p[1], p[2], p[3]]))
+    };
+    let (Some(p00), Some(p10), Some(p01), Some(p11)) = (
+        texel(top, x.lo),
+        texel(top, x.hi),
+        texel(bottom, x.lo),
+        texel(bottom, x.hi),
+    ) else {
+        return 0;
+    };
+    if alpha < 1.0 || p00 & p10 & p01 & p11 < 0xFF00_0000 {
+        return blend_translucent([p00, p10, p01, p11], x, y, af);
+    }
+    // Bytes are r, g, b, a: red and blue share one word, green the other.
+    let lerp = |a: u32, b: u32, t: u32| ((a * (256 - t) + b * t + 0x0080_0080) >> 8) & 0x00FF_00FF;
+    let pair = |shift: u32| {
+        let m = |p: u32| (p >> shift) & 0x00FF_00FF;
+        lerp(lerp(m(p00), m(p10), x.w), lerp(m(p01), m(p11), x.w), y.w)
+    };
+    let (rb, g) = (pair(0), pair(8) & 0xFF);
+    0xFF00_0000 | ((rb & 0xFF) << 16) | (g << 8) | (rb >> 16)
+}
+
 /// One row of [`bilinear_taps`] reads into `out`, one per column; returns whether all came out
 /// opaque. Opaque texels at full alpha blend two channels per integer multiply; all others go
 /// through [`blend_translucent`]. Both stay within 1 of the float read.
@@ -226,37 +255,10 @@ pub fn bilinear_row(image: &Image, columns: &[Taps], y: Taps, alpha: f32, out: &
         out.fill(0);
         return false;
     };
-    let texel = |row: &[u8], at: i32| {
-        let i = at.unsigned_abs() as usize * 4;
-        row.get(i..i + 4)
-            .map(|p| u32::from_le_bytes([p[0], p[1], p[2], p[3]]))
-    };
     let af = f32_to_u32_clamped((alpha * 256.0 + 0.5).min(256.0));
     let mut all_opaque = true;
     for (o, x) in out.iter_mut().zip(columns) {
-        let (Some(p00), Some(p10), Some(p01), Some(p11)) = (
-            texel(top, x.lo),
-            texel(top, x.hi),
-            texel(bottom, x.lo),
-            texel(bottom, x.hi),
-        ) else {
-            *o = 0;
-            all_opaque = false;
-            continue;
-        };
-        if alpha < 1.0 || p00 & p10 & p01 & p11 < 0xFF00_0000 {
-            *o = blend_translucent([p00, p10, p01, p11], *x, y, af);
-        } else {
-            // Bytes are r, g, b, a: red and blue share one word, green the other.
-            let lerp =
-                |a: u32, b: u32, t: u32| ((a * (256 - t) + b * t + 0x0080_0080) >> 8) & 0x00FF_00FF;
-            let pair = |shift: u32| {
-                let m = |p: u32| (p >> shift) & 0x00FF_00FF;
-                lerp(lerp(m(p00), m(p10), x.w), lerp(m(p01), m(p11), x.w), y.w)
-            };
-            let (rb, g) = (pair(0), pair(8) & 0xFF);
-            *o = 0xFF00_0000 | ((rb & 0xFF) << 16) | (g << 8) | (rb >> 16);
-        }
+        *o = between_rows(top, bottom, *x, y, alpha, af);
         all_opaque &= *o >> 24 == 255;
     }
     all_opaque
@@ -282,22 +284,143 @@ pub fn area(
     (u1, v1): (f32, f32),
     alpha: f32,
 ) -> u32 {
-    area_from(
-        image,
+    area_with(
         area_weights(u0, u1, b.x0, b.x1),
         area_weights(v0, v1, b.y0, b.y1),
         alpha,
+        |x, y| premul(image, x, y),
     )
 }
 
-/// [`area`] over weights from [`area_weights`], which a draw can work out once per column and row.
-pub fn area_from(
-    image: &Image,
-    xs: impl Iterator<Item = (i32, f32)> + Clone,
-    ys: impl Iterator<Item = (i32, f32)>,
-    alpha: f32,
-) -> u32 {
-    area_with(xs, ys, alpha, |x, y| premul(image, x, y))
+/// [`area`] for a whole draw, row by row. A source row is averaged across once and kept while the
+/// next output rows still read it, so the cost follows source rows, not their reads per pixel.
+#[derive(Default)]
+pub struct Shrink {
+    /// Each output column's source columns, from `starts[i]` to `starts[i + 1]`.
+    columns: Vec<(i32, f32)>,
+    starts: Vec<usize>,
+    /// Each output column's summed weight.
+    widths: Vec<f32>,
+    rows: Vec<(i32, f32)>,
+    texels: Vec<[f32; 4]>,
+    /// Kept source rows, each one output row long, and which row each holds.
+    kept: Vec<[f32; 4]>,
+    held: Vec<Option<i32>>,
+    sums: Vec<[f32; 4]>,
+}
+
+impl Shrink {
+    /// Readies a draw of output columns reading `[u, u + step)` each, of rows `step_y` tall.
+    pub fn start(&mut self, us: impl Iterator<Item = f32>, step: f32, step_y: f32, b: Bounds) {
+        self.columns.clear();
+        self.starts.clear();
+        self.widths.clear();
+        for u in us {
+            self.starts.push(self.columns.len());
+            let before = self.columns.len();
+            self.columns
+                .extend(area_weights(u, u + step, b.x0, b.x1).filter(|(_, weight)| *weight > 0.0));
+            self.widths
+                .push(self.columns[before..].iter().map(|(_, w)| w).sum());
+        }
+        self.starts.push(self.columns.len());
+        let slots = f32_to_usize_clamped(step_y.ceil()).saturating_add(2);
+        self.kept.clear();
+        self.kept.resize(self.widths.len() * slots, [0.0; 4]);
+        self.held.clear();
+        self.held.resize(slots, None);
+        self.sums.clear();
+        self.sums.resize(self.widths.len(), [0.0; 4]);
+    }
+
+    /// Averages source row `y` across into its slot, unless it is already there.
+    fn across(&mut self, image: &Image, y: i32) -> usize {
+        let slots = self.held.len();
+        let slot = y.unsigned_abs() as usize % slots;
+        let width = self.widths.len();
+        if self.held[slot] == Some(y) {
+            return slot;
+        }
+        self.held[slot] = Some(y);
+        let (from, to) = self
+            .columns
+            .iter()
+            .fold((i32::MAX, i32::MIN), |(lo, hi), (x, _)| {
+                (lo.min(*x), hi.max(*x))
+            });
+        self.texels.clear();
+        if from <= to {
+            let stride = image.width as usize * 4;
+            let row = y.unsigned_abs() as usize * stride;
+            let (lo, hi) = (from.unsigned_abs() as usize, to.unsigned_abs() as usize);
+            let bytes = image
+                .data
+                .get(row + lo * 4..row + (hi + 1) * 4)
+                .unwrap_or(&[]);
+            self.texels
+                .extend(bytes.as_chunks::<4>().0.iter().map(|px| {
+                    let a = f32::from(px[3]) / 255.0;
+                    [
+                        f32::from(px[0]) * a,
+                        f32::from(px[1]) * a,
+                        f32::from(px[2]) * a,
+                        f32::from(px[3]),
+                    ]
+                }));
+        }
+        let out = &mut self.kept[slot * width..(slot + 1) * width];
+        for (i, o) in out.iter_mut().enumerate() {
+            let mut sum = [0.0_f32; 4];
+            for &(x, weight) in &self.columns[self.starts[i]..self.starts[i + 1]] {
+                let at = (x - from).unsigned_abs() as usize;
+                let texel = self.texels.get(at).copied().unwrap_or([0.0; 4]);
+                for k in 0..4 {
+                    sum[k] += texel[k] * weight;
+                }
+            }
+            *o = sum;
+        }
+        slot
+    }
+
+    /// One output row reading `[v, v + step_y)`, as `write(column, pixel)`.
+    pub fn row(
+        &mut self,
+        image: &Image,
+        (v, step_y): (f32, f32),
+        b: Bounds,
+        alpha: f32,
+        mut write: impl FnMut(usize, u32),
+    ) {
+        self.rows.clear();
+        self.rows
+            .extend(area_weights(v, v + step_y, b.y0, b.y1).filter(|(_, weight)| *weight > 0.0));
+        self.sums.fill([0.0; 4]);
+        let width = self.widths.len();
+        let mut tall = 0.0;
+        for i in 0..self.rows.len() {
+            let (y, weight) = self.rows[i];
+            tall += weight;
+            let slot = self.across(image, y);
+            let held = &self.kept[slot * width..(slot + 1) * width];
+            for (sum, across) in self.sums.iter_mut().zip(held) {
+                for k in 0..4 {
+                    sum[k] += across[k] * weight;
+                }
+            }
+        }
+        for (i, (sum, wide)) in self.sums.iter().zip(&self.widths).enumerate() {
+            let total = tall * wide;
+            write(
+                i,
+                if total > 0.0 {
+                    pack(sum.map(|s| s / total), alpha)
+                } else {
+                    0
+                },
+            );
+        }
+    }
 }
 
 pub fn area_prepared(
@@ -351,6 +474,57 @@ fn area_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shrinking_row_by_row_stays_within_one_of_each_pixels_average() {
+        let (w, h) = (97_u32, 83_u32);
+        let data: Vec<u8> = (0..w * h * 4)
+            .map(|i| u8::try_from(i.wrapping_mul(2654435761) >> 24).unwrap_or(0))
+            .collect();
+        let image = Image::new(w, h, data);
+        let b = Bounds {
+            x0: 3,
+            y0: 2,
+            x1: 90,
+            y1: 80,
+        };
+        for (sx, sy) in [(1.5, 1.5), (1.17, 3.3), (4.0, 1.01), (7.25, 6.5)] {
+            let mut shrink = Shrink::default();
+            let us = (0..40).map(|i| 3.2 + i as f32 * sx);
+            shrink.start(us.clone(), sx, sy, b);
+            for row in 0..30 {
+                let v = 2.4 + row as f32 * sy;
+                shrink.row(&image, (v, sy), b, 0.75, |i, got| {
+                    let u = 3.2 + i as f32 * sx;
+                    let want = area(&image, b, (u, v), (u + sx, v + sy), 0.75);
+                    for (a, c) in got.to_be_bytes().into_iter().zip(want.to_be_bytes()) {
+                        assert!(a.abs_diff(c) <= 1, "{got:08x} {want:08x} at {i}, {row}");
+                    }
+                });
+            }
+        }
+    }
+
+    #[test]
+    fn a_single_fast_read_matches_a_read_in_a_row() {
+        let data: Vec<u8> = (0..16 * 16 * 4)
+            .map(|i| u8::try_from((i * 37) % 256).unwrap_or(0))
+            .collect();
+        let image = Image::new(16, 16, data);
+        let b = Bounds {
+            x0: 0,
+            y0: 0,
+            x1: 15,
+            y1: 15,
+        };
+        let columns: Vec<Taps> = (0..16).map(|x| Taps::at(x as f32 + 0.3, 0, 15)).collect();
+        let mut out = vec![0; 16];
+        bilinear_row(&image, &columns, Taps::at(7.6, 0, 15), 0.5, &mut out);
+        for (x, got) in out.iter().enumerate() {
+            let one = bilinear_fast(&image, b, x as f32 + 0.3, 7.6, 0.5);
+            assert_eq!(*got, one);
+        }
+    }
 
     #[test]
     fn premul_cache_stays_tile_sized_and_skips_small_dirty_regions() {

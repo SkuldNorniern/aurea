@@ -13,9 +13,7 @@ use crate::types::{BlendMode, Image, Point, Rect, Sampling};
 pub(crate) struct ImageScratch {
     pub(crate) premul: sample::PremulCache,
     pub(crate) row: Vec<u32>,
-    pub(crate) columns: Vec<(i32, f32)>,
-    pub(crate) offsets: Vec<usize>,
-    pub(crate) rows: Vec<(i32, f32)>,
+    pub(crate) shrink: sample::Shrink,
     pub(crate) taps: Vec<sample::Taps>,
     /// Byte offset of each output column's source pixel, for nearest sampling.
     pub(crate) source_cols: Vec<usize>,
@@ -80,7 +78,9 @@ pub(crate) fn draw_quad(
     let reads = f32_to_usize_clamped(
         ((x1 - x0).max(0) as f32) * ((y1 - y0).max(0) as f32) * reads_per_pixel,
     );
-    let cached = if prepare && sampling == Sampling::Smooth {
+    // Only area reads gain from floats kept per texel: enlarging reads bytes in integers.
+    let shrinking = footprint_x > 1.0 || footprint_y > 1.0;
+    let cached = if prepare && shrinking && sampling == Sampling::Smooth {
         scratch.premul.prepare(image, reads)
     } else {
         None
@@ -88,18 +88,14 @@ pub(crate) fn draw_quad(
     let span = (x0, y0, x1, y1);
     if let Some(pixels) = cached {
         sample_quad_pixels(q, src, inverse, span, buf, bw, clip, mode, |u, v| {
-            if footprint_x > 1.0 || footprint_y > 1.0 {
-                sample::area_prepared(
-                    pixels,
-                    image.width,
-                    bounds,
-                    (u - footprint_x * 0.5, v - footprint_y * 0.5),
-                    (u + footprint_x * 0.5, v + footprint_y * 0.5),
-                    alpha,
-                )
-            } else {
-                sample::bilinear_prepared(pixels, image.width, bounds, u, v, alpha)
-            }
+            sample::area_prepared(
+                pixels,
+                image.width,
+                bounds,
+                (u - footprint_x * 0.5, v - footprint_y * 0.5),
+                (u + footprint_x * 0.5, v + footprint_y * 0.5),
+                alpha,
+            )
         });
     } else {
         sample_quad_pixels(
@@ -113,17 +109,49 @@ pub(crate) fn draw_quad(
             mode,
             |u, v| match sampling {
                 Sampling::Nearest => sample::nearest(image, bounds, u, v, alpha),
-                Sampling::Smooth if footprint_x > 1.0 || footprint_y > 1.0 => sample::area(
+                Sampling::Smooth if shrinking => sample::area(
                     image,
                     bounds,
                     (u - footprint_x * 0.5, v - footprint_y * 0.5),
                     (u + footprint_x * 0.5, v + footprint_y * 0.5),
                     alpha,
                 ),
-                _ => sample::bilinear(image, bounds, u, v, alpha),
+                _ => sample::bilinear_fast(image, bounds, u, v, alpha),
             },
         );
     }
+}
+
+/// The columns of row `y` that can fall inside the quad, a pixel wider than exact on each side: the
+/// per-pixel test still decides, this only saves the misses.
+fn quad_row_span(q: [Point; 3], inverse: f32, y: i32, (x0, x1): (i32, i32)) -> (i32, i32) {
+    let dy = y as f32 + 0.5 - q[0].y;
+    let (ax, ay, bx, by) = (
+        q[1].x - q[0].x,
+        q[1].y - q[0].y,
+        q[2].x - q[0].x,
+        q[2].y - q[0].y,
+    );
+    // u = (dx * by - dy * bx) * inverse and v = (dy * ax - dx * ay) * inverse, both in 0..1.
+    let mut span = (f32::MIN, f32::MAX);
+    for (slope, base) in [
+        (by * inverse, -dy * bx * inverse),
+        (-ay * inverse, dy * ax * inverse),
+    ] {
+        if slope.abs() < 1e-9 {
+            if !(-1e-3..=1.001).contains(&base) {
+                return (x0, x0);
+            }
+            continue;
+        }
+        let (a, b) = (-base / slope, (1.0 - base) / slope);
+        span = (span.0.max(a.min(b)), span.1.min(a.max(b)));
+    }
+    let origin = q[0].x - 0.5;
+    (
+        f32_to_i32_clamped((span.0 + origin).floor() - 1.0).clamp(x0, x1),
+        f32_to_i32_clamped((span.1 + origin).ceil() + 1.0).clamp(x0, x1),
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -145,7 +173,8 @@ fn sample_quad_pixels(
         q[2].y - q[0].y,
     );
     for y in y0..y1 {
-        for x in x0..x1 {
+        let (from, to) = quad_row_span(q, inverse, y, (x0, x1));
+        for x in from..to {
             let dx = x as f32 + 0.5 - q[0].x;
             let dy = y as f32 + 0.5 - q[0].y;
             let u = (dx * by - dy * bx) * inverse;
@@ -328,34 +357,16 @@ fn draw_filtered(
     };
     let ImageScratch {
         row: line,
-        columns,
-        offsets,
-        rows,
+        shrink: shrinking,
         taps,
         ..
     } = scratch;
     if shrink {
-        columns.clear();
-        offsets.clear();
-        for cx in x0..x1 {
-            offsets.push(columns.len());
-            let u = u0(cx);
-            columns.extend(sample::area_weights(u, u + sx, bounds.x0, bounds.x1));
-        }
-        offsets.push(columns.len());
+        shrinking.start((x0..x1).map(u0), sx, sy, bounds);
         for cy in y0..y1 {
-            let v = v0(cy);
-            rows.clear();
-            rows.extend(sample::area_weights(v, v + sy, bounds.y0, bounds.y1));
-            for (i, cx) in (x0..x1).enumerate() {
-                let xs = columns[offsets[i]..offsets[i + 1]].iter().copied();
-                put(
-                    buf,
-                    cx,
-                    cy,
-                    sample::area_from(image, xs, rows.iter().copied(), alpha),
-                );
-            }
+            shrinking.row(image, (v0(cy), sy), bounds, alpha, |i, c| {
+                put(buf, x0 + i32::try_from(i).unwrap_or(0), cy, c);
+            });
         }
     } else if bounds.x0 <= bounds.x1 && bounds.y0 <= bounds.y1 {
         taps.clear();
