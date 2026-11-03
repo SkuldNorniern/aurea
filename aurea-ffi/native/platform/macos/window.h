@@ -55,6 +55,7 @@ int ng_macos_window_set_cursor_rgba(NGHandle window, const unsigned char* rgba, 
 int ng_macos_window_set_ime_cursor_area(NGHandle window, float x, float y, float width, float height);
 int ng_macos_window_set_shortcuts(NGHandle window, const unsigned int* keycodes, const unsigned int* modifiers, int count);
 void ng_macos_window_show(NGHandle window);
+void ng_macos_window_focus(NGHandle window);
 void ng_macos_window_hide(NGHandle window);
 int ng_macos_window_is_visible(NGHandle window);
 int ng_macos_window_occlusion(NGHandle window);

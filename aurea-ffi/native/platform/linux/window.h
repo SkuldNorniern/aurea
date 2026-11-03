@@ -16,6 +16,7 @@ int ng_linux_detach_element(NGHandle element);
 void ng_linux_element_retain(NGHandle element);
 void ng_linux_element_release(NGHandle element);
 void ng_linux_window_show(NGHandle window);
+void ng_linux_window_focus(NGHandle window);
 void ng_linux_window_hide(NGHandle window);
 void ng_linux_window_set_close_guard(NGHandle window, int guarded);
 int ng_linux_window_is_visible(NGHandle window);

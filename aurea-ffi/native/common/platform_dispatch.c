@@ -178,6 +178,10 @@ void ng_platform_window_show(NGHandle w) {
     DISPATCH_VOID(window_show, w);
 }
 
+void ng_platform_window_focus(NGHandle w) {
+    DISPATCH_VOID(window_focus, w);
+}
+
 void ng_platform_window_hide(NGHandle w) {
     DISPATCH_VOID(window_hide, w);
 }

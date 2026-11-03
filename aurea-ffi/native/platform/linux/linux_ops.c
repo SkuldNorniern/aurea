@@ -41,6 +41,7 @@ static const ng_platform_ops_t linux_ops = {
     .window_set_shortcuts = ng_shortcuts_set,
     .window_get_content_view = ng_linux_window_get_content_view,
     .window_show = ng_linux_window_show,
+    .window_focus = ng_linux_window_focus,
     .window_hide = ng_linux_window_hide,
     .window_set_close_guard = ng_linux_window_set_close_guard,
     .window_is_visible = ng_linux_window_is_visible,

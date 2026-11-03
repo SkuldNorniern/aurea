@@ -358,6 +358,14 @@ int ng_windows_window_set_placement(NGHandle window, const int* rect, int maximi
     return NG_SUCCESS;
 }
 
+void ng_windows_window_focus(NGHandle window) {
+    if (!window) return;
+    HWND hwnd = (HWND)window;
+    if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
+    /* the system only lets the app the user is in take the foreground; otherwise ask for a look. */
+    if (!SetForegroundWindow(hwnd)) FlashWindow(hwnd, TRUE);
+}
+
 void ng_windows_window_show(NGHandle window) {
     if (!window) return;
     HWND hwnd = (HWND)window;

@@ -47,6 +47,10 @@ void ng_platform_window_show(NGHandle window) {
     (void)window;
 }
 
+void ng_platform_window_focus(NGHandle window) {
+    (void)window;
+}
+
 void ng_platform_window_hide(NGHandle window) {
     (void)window;
 }

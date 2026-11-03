@@ -18,6 +18,7 @@ void ng_windows_destroy_window(NGHandle handle);
 void ng_windows_destroy_element(NGHandle element);
 int ng_windows_detach_element(NGHandle element);
 void ng_windows_window_show(NGHandle window);
+void ng_windows_window_focus(NGHandle window);
 void ng_windows_window_hide(NGHandle window);
 int ng_windows_window_is_visible(NGHandle window);
 int ng_windows_window_occlusion(NGHandle window);

@@ -54,6 +54,7 @@ int ng_platform_window_set_ime_cursor_area(NGHandle window, float x, float y, fl
 int ng_platform_window_set_shortcuts(NGHandle window, const unsigned int* keycodes, const unsigned int* modifiers, int count);
 NGHandle ng_platform_window_get_content_view(NGHandle window);
 void ng_platform_window_show(NGHandle window);
+void ng_platform_window_focus(NGHandle window);
 void ng_platform_window_hide(NGHandle window);
 
 int ng_platform_window_set_hide_on_close(NGHandle window, int hide);

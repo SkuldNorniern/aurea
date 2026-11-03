@@ -871,6 +871,10 @@ int ng_linux_detach_element(NGHandle element) {
     return NG_SUCCESS;
 }
 
+void ng_linux_window_focus(NGHandle window) {
+    if (window) gtk_window_present(GTK_WINDOW(window));
+}
+
 void ng_linux_window_show(NGHandle window) {
     if (!window) return;
     gtk_widget_show(GTK_WIDGET(window));

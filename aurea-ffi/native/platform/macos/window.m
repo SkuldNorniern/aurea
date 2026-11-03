@@ -1502,6 +1502,14 @@ int ng_macos_window_set_hide_on_close(NGHandle window, int hide) {
     return NG_SUCCESS;
 }
 
+void ng_macos_window_focus(NGHandle window) {
+    if (!window) return;
+    NSWindow* nsWindow = (__bridge NSWindow*)window;
+    if (nsWindow.isMiniaturized) [nsWindow deminiaturize:nil];
+    [NSApp activateIgnoringOtherApps:YES];
+    [nsWindow makeKeyAndOrderFront:nil];
+}
+
 void ng_macos_window_show(NGHandle window) {
     if (!window) return;
     NSWindow* nsWindow = (__bridge NSWindow*)window;

@@ -445,6 +445,10 @@ void ng_platform_window_show(NGHandle window) {
     if (window) ((__bridge UIWindow*)window).hidden = NO;
 }
 
+void ng_platform_window_focus(NGHandle window) {
+    if (window) [(__bridge UIWindow*)window makeKeyWindow];
+}
+
 void ng_platform_window_hide(NGHandle window) {
     if (window) ((__bridge UIWindow*)window).hidden = YES;
 }

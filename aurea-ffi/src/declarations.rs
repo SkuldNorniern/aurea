@@ -284,6 +284,8 @@ unsafe extern "C" {
     pub fn ng_macos_window_use_metal_layer(window: *mut c_void) -> c_int;
     /// Shows a window.
     pub fn ng_platform_window_show(window: *mut c_void);
+    /// Brings the window forward and gives it the keyboard.
+    pub fn ng_platform_window_focus(window: *mut c_void);
     /// Hides a window.
     pub fn ng_platform_window_hide(window: *mut c_void);
     /// Sets whether closing a window hides it.

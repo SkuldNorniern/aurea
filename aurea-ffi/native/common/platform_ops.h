@@ -44,6 +44,7 @@ typedef struct ng_platform_ops {
     int (*window_set_shortcuts)(NGHandle window, const unsigned int* keycodes, const unsigned int* modifiers, int count);
     NGHandle (*window_get_content_view)(NGHandle window);
     void (*window_show)(NGHandle window);
+    void (*window_focus)(NGHandle window);
     void (*window_hide)(NGHandle window);
     int (*window_is_visible)(NGHandle window);
     int (*window_occlusion)(NGHandle window);

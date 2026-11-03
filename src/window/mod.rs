@@ -984,6 +984,15 @@ impl Window {
         }
     }
 
+    /// Brings the window forward and gives it the keyboard, restoring it if minimized, such as for
+    /// [`WindowEvent::OpenRequested`]. Windows may only flash it if the user is in another app.
+    pub fn focus(&self) {
+        ui_thread::check("Window::focus");
+        unsafe {
+            ng_platform_window_focus(self.handle);
+        }
+    }
+
     /// Hide the window (without destroying it).
     pub fn hide(&self) {
         ui_thread::check("Window::hide");

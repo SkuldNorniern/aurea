@@ -45,6 +45,7 @@ static const ng_platform_ops_t windows_ops = {
     .window_set_shortcuts = ng_windows_window_set_shortcuts,
     .window_get_content_view = ng_windows_window_get_content_view,
     .window_show = ng_windows_window_show,
+    .window_focus = ng_windows_window_focus,
     .window_hide = ng_windows_window_hide,
     .window_is_visible = ng_windows_window_is_visible,
     .window_occlusion = ng_windows_window_occlusion,
