@@ -285,6 +285,8 @@ mod tests {
             organization: Some("dev.test".to_string()),
             version: version.to_string(),
             icon: None,
+            package: "app".to_string(),
+            documents: Vec::new(),
         }
     }
 

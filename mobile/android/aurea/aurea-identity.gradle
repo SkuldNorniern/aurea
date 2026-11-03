@@ -51,6 +51,53 @@ project.android.defaultConfig {
     resValue('string', 'app_name', (aurea.name ?: pkg.name) as String)
 }
 
+// Each [[package.metadata.aurea.document]] gets intent filters on the app's activity, merged in
+// from a manifest written here: view, edit and send by MIME type, and view by extension for senders
+// with no type. `extra["aurea.activity"]` names the activity, `.MainActivity` by default.
+if (aurea.document) {
+    def activity = project.findProperty('aurea.activity') ?: '.MainActivity'
+    def filters = new StringBuilder()
+    aurea.document.each { document ->
+        def ext = (document.ext as String).replaceFirst(/^\./, '')
+        def mime = document.mime ?: "application/x-${ext}"
+        filters << """
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.EDIT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="${mime}" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="${mime}" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.EDIT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:pathPattern=".*\\\\.${ext}" />
+            </intent-filter>"""
+    }
+    def documents = project.layout.buildDirectory.file('generated/aurea/documents/AndroidManifest.xml').get().asFile
+    documents.parentFile.mkdirs()
+    documents.text = """<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <activity android:name="${activity}" android:launchMode="singleTask" tools:replace="android:launchMode">${filters}
+        </activity>
+    </application>
+</manifest>
+"""
+    ['debug', 'release'].each { project.android.sourceSets.getByName(it).manifest.srcFile(documents) }
+}
+
 // The master icon (`icon` key, relative to the Cargo manifest, `.png` optional) becomes the
 // launcher icon: aurea-icons writes the mipmaps into build/generated/aurea/res before preBuild.
 abstract class AureaIcons extends DefaultTask {

@@ -8,6 +8,13 @@
 //! organization = "dev.skuld"     # shared folders across a suite of apps
 //! icon = "../brand/lunia-paint"  # square master PNG, relative to Cargo.toml
 //! version = "auto"               # "auto" or missing: the package version
+//!
+//! [[package.metadata.aurea.document]]  # one per file type the app opens
+//! ext = "lpaint"
+//! name = "Lunia Paint Document"
+//! mime = "application/vnd.lunia.paint"
+//! icon = "../brand/lpaint"             # square master PNG
+//! role = "editor"                      # or "viewer"
 //! ```
 //!
 //! Missing keys fall back to the package: its name for `name` and `id`, its version for
@@ -19,11 +26,13 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 mod icons;
+mod linux;
 mod plist;
 mod winres;
 
 pub use icons::{Image, icns, ico, load_master, png, resize, write_android, write_ios};
-pub use plist::info_plist;
+pub use linux::write_linux;
+pub use plist::{info_plist, ios_documents_plist};
 
 /// An app's identity, as `[package.metadata.aurea]` gives it, with the package's own name and
 /// version standing in for what it leaves out.
@@ -39,6 +48,46 @@ pub struct Identity {
     pub version: String,
     /// The master icon, made absolute, if given.
     pub icon: Option<PathBuf>,
+    /// The Cargo package, which names the executable.
+    pub package: String,
+    /// The file types the app opens.
+    pub documents: Vec<Document>,
+}
+
+/// A file type an app opens, from `[[package.metadata.aurea.document]]`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Document {
+    /// File extension, without the dot.
+    pub ext: String,
+    /// What the type is called, for people.
+    pub name: String,
+    /// MIME type; `application/x-<ext>` when left out.
+    pub mime: String,
+    /// The type's master icon, made absolute, if given.
+    pub icon: Option<PathBuf>,
+    /// Whether the app edits these files rather than only showing them.
+    pub editor: bool,
+}
+
+impl Document {
+    /// The table's fields, relative to `dir`; `None` without an `ext`.
+    fn parse(table: &[(String, String)], dir: &Path) -> Option<Self> {
+        let get = |key: &str| {
+            table
+                .iter()
+                .find(|(k, _)| k == key)
+                .map(|(_, v)| v.clone())
+                .filter(|v| !v.is_empty())
+        };
+        let ext = get("ext")?.trim_start_matches('.').to_string();
+        Some(Self {
+            name: get("name").unwrap_or_else(|| ext.clone()),
+            mime: get("mime").unwrap_or_else(|| format!("application/x-{ext}")),
+            icon: get("icon").map(|icon| dir.join(icon)),
+            editor: get("role").as_deref() != Some("viewer"),
+            ext,
+        })
+    }
 }
 
 impl Identity {
@@ -61,6 +110,11 @@ impl Identity {
                 .filter(|v| v != "auto")
                 .unwrap_or_else(|| version.to_string()),
             icon: get("icon").map(|icon| dir.join(icon)),
+            package: package.to_string(),
+            documents: tables(manifest, "[[package.metadata.aurea.document]]")
+                .iter()
+                .filter_map(|table| Document::parse(table, dir))
+                .collect(),
         }
     }
 
@@ -163,6 +217,15 @@ fn embed(identity: &Identity) {
             if let Some(master) = &master {
                 let _ = fs::write(out.join("AppIcon.icns"), icns(master));
             }
+            for document in &identity.documents {
+                let icon = document
+                    .icon
+                    .as_deref()
+                    .and_then(|path| load_master(path).ok());
+                if let Some(icon) = icon {
+                    let _ = fs::write(out.join(format!("{}.icns", document.ext)), icns(&icon));
+                }
+            }
         }
         _ => {}
     }
@@ -176,18 +239,33 @@ fn one_line(value: &str) -> String {
 /// The keys and values of the `section` table, such as `[package]`, in `manifest`. Strings lose
 /// their quotes; anything else is kept as written.
 fn aurea_table(manifest: &str, section: &str) -> Vec<(String, String)> {
+    tables(manifest, section)
+        .into_iter()
+        .next()
+        .unwrap_or_default()
+}
+
+/// Each table headed `section` in `manifest`: one, or as many as an array of tables has.
+fn tables(manifest: &str, section: &str) -> Vec<Vec<(String, String)>> {
     let mut inside = false;
-    let mut table = Vec::new();
+    let mut found: Vec<Vec<(String, String)>> = Vec::new();
     for line in manifest.lines() {
         let line = line.trim();
         if line.starts_with('[') {
             let header: String = line.chars().filter(|c| !c.is_whitespace()).collect();
+            let header = header.split('#').next().unwrap_or("");
             inside = header == section;
+            if inside {
+                found.push(Vec::new());
+            }
             continue;
         }
         if !inside {
             continue;
         }
+        let Some(table) = found.last_mut() else {
+            continue;
+        };
         let Some((key, rest)) = line.split_once('=') else {
             continue;
         };
@@ -199,7 +277,7 @@ fn aurea_table(manifest: &str, section: &str) -> Vec<(String, String)> {
             table.push((key, value));
         }
     }
-    table
+    found
 }
 
 /// A TOML value at the start of `text`: a basic or literal string, or a bare word up to a comment.
@@ -257,6 +335,44 @@ name = "not this"
         assert_eq!(id.organization.as_deref(), Some("dev.skuld"));
         assert_eq!(id.version, "0.1.0");
         assert_eq!(id.icon, Some(dir.join("../brand/lunia-paint")));
+    }
+
+    #[test]
+    fn each_document_table_is_a_type() {
+        let manifest = r#"
+[package.metadata.aurea]
+id = "dev.test.app"
+
+[[package.metadata.aurea.document]] # the app's own
+ext = ".lpaint"
+name = "Paint"
+mime = "application/vnd.test.paint"
+icon = "brand/paint"
+
+[[package.metadata.aurea.document]]
+ext = "png"
+role = "viewer"
+
+[[package.metadata.aurea.document]]
+name = "no extension, so no type"
+
+[dependencies]
+ext = "not this"
+"#;
+        let dir = Path::new("/apps/paint");
+        let id = Identity::parse(manifest, dir, "paint", "1.0.0");
+        assert_eq!(id.package, "paint");
+        assert_eq!(id.documents.len(), 2);
+        let (paint, png) = (&id.documents[0], &id.documents[1]);
+        assert_eq!(paint.ext, "lpaint");
+        assert_eq!(paint.mime, "application/vnd.test.paint");
+        assert_eq!(paint.icon, Some(dir.join("brand/paint")));
+        assert!(paint.editor);
+        assert_eq!(
+            (png.name.as_str(), png.mime.as_str()),
+            ("png", "application/x-png")
+        );
+        assert!(!png.editor);
     }
 
     #[test]

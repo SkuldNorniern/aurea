@@ -15,6 +15,11 @@ id = "com.aurea.smoke"
 version = "auto"
 icon = "assets/icon"
 
+[[package.metadata.aurea.document]]
+ext = "aureademo"
+name = "Aurea Demo Document"
+mime = "application/vnd.aurea.demo"
+
 [lints]
 workspace = true
 
