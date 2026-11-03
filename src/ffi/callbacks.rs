@@ -490,6 +490,24 @@ mod tests {
     use std::thread::sleep;
 
     #[test]
+    fn a_barrel_press_in_the_air_is_a_tap() {
+        let last = AtomicBool::new(false);
+        assert!(
+            barrel_tapped(&last, true, PenPhase::Hover),
+            "going down in the air"
+        );
+        assert!(
+            !barrel_tapped(&last, true, PenPhase::Hover),
+            "held is no new tap"
+        );
+        assert!(!barrel_tapped(&last, false, PenPhase::Hover));
+        assert!(
+            !barrel_tapped(&last, true, PenPhase::Move),
+            "on the surface"
+        );
+    }
+
+    #[test]
     fn pen_flags_and_phases_read_as_sent() {
         assert_eq!(pen_tool(0), PenTool::Tip);
         assert_eq!(pen_tool(PEN_ERASER | PEN_BARREL), PenTool::Eraser);

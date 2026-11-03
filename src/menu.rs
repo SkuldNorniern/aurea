@@ -1,5 +1,9 @@
 //! Menu bar and submenu support.
 
+mod spec;
+
+pub use spec::{MenuPopup, MenuRow, MenuSpec, NativeMenus};
+
 use crate::ffi::c_title;
 use crate::ffi::*;
 use crate::registry::menu::{next_menu_item_id, register_menu_callback, unregister_menu_callback};
