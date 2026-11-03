@@ -76,8 +76,8 @@ pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
 pub use crate::tray::TrayIcon;
 pub use crate::window::clipboard;
 pub use crate::window::{
-    CursorGrabMode, CursorIcon, Window, WindowId, WindowManager, WindowPlacement, WindowProxy,
-    WindowType, clipboard_text, set_clipboard_text,
+    CloseAnswer, CursorGrabMode, CursorIcon, Window, WindowId, WindowManager, WindowPlacement,
+    WindowProxy, WindowType, clipboard_text, set_clipboard_text,
 };
 
 pub use crate::window::{

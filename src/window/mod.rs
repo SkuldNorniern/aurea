@@ -138,6 +138,7 @@ pub struct Window {
     surface_handle: Arc<NativeWindowHandle>,
     window_type: WindowType,
     closing: Arc<AtomicBool>,
+    close_waiting: Arc<AtomicBool>,
 }
 
 impl Window {
@@ -294,6 +295,7 @@ impl Window {
             scale_factor: Mutex::new(scale_factor),
             event_queue,
             closing,
+            close_waiting: Arc::new(AtomicBool::new(false)),
             window_type,
         })
     }
@@ -1014,21 +1016,52 @@ impl Window {
         }
     }
 
-    /// Asks `answer` when the person closes the window: true closes it. On false it stays open,
-    /// for the app to ask and call [`Self::close`] later.
-    pub fn on_close_request(&self, answer: impl Fn() -> bool + 'static) {
+    /// Asks `answer` when the person closes the window: a [`CloseAnswer`], or true to close it and
+    /// false to keep it. With [`CloseAnswer::Wait`], for a question or a save still running, it is
+    /// not asked again until [`Self::answer_close`], which a worker reaches through a [`WindowProxy`].
+    ///
+    /// ```no_run
+    /// # fn main() -> aurea::AureaResult<()> {
+    /// use aurea::{CloseAnswer, Window};
+    /// let window = Window::new("Editor", 800, 600)?;
+    /// window.on_close_request(|| {
+    ///     // start the save here; when it is done, call answer_close(saved)
+    ///     CloseAnswer::Wait
+    /// });
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn on_close_request<A: Into<CloseAnswer>>(&self, answer: impl Fn() -> A + 'static) {
         self.set_close_guard(true);
         let handle = self.handle;
         let closing = Arc::clone(&self.closing);
+        let waiting = Arc::clone(&self.close_waiting);
         self.on_event(move |event| {
-            if matches!(event, WindowEvent::CloseRequested) && answer() {
-                closing.store(true, Ordering::Release);
-                unsafe {
-                    ng_platform_window_set_close_guard(handle, 0);
-                    ng_platform_window_request_close(handle);
+            if !matches!(event, WindowEvent::CloseRequested) || waiting.load(Ordering::Acquire) {
+                return;
+            }
+            match answer().into() {
+                CloseAnswer::Close => {
+                    closing.store(true, Ordering::Release);
+                    unsafe {
+                        ng_platform_window_set_close_guard(handle, 0);
+                        ng_platform_window_request_close(handle);
+                    }
                 }
+                CloseAnswer::Keep => {}
+                CloseAnswer::Wait => waiting.store(true, Ordering::Release),
             }
         });
+    }
+
+    /// Ends a [`CloseAnswer::Wait`]: true closes the window, and false keeps it open, as for a save
+    /// that failed, and the next close asks again.
+    pub fn answer_close(&self, close: bool) {
+        ui_thread::check("Window::answer_close");
+        self.close_waiting.store(false, Ordering::Release);
+        if close {
+            self.close();
+        }
     }
 
     /// Closes the window, even while it is guarded.
@@ -1042,6 +1075,23 @@ impl Window {
     /// Check if the window is visible.
     pub fn is_visible(&self) -> bool {
         unsafe { ng_platform_window_is_visible(self.handle) != 0 }
+    }
+}
+
+/// What [`Window::on_close_request`] does when the person closes the window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CloseAnswer {
+    /// Close it now.
+    Close,
+    /// Keep it open.
+    Keep,
+    /// Keep it open and ask nothing more until [`Window::answer_close`].
+    Wait,
+}
+
+impl From<bool> for CloseAnswer {
+    fn from(close: bool) -> Self {
+        if close { Self::Close } else { Self::Keep }
     }
 }
 
@@ -1118,6 +1168,28 @@ mod event_queue_tests {
         assert!(matches!(out[0], WindowEvent::CloseRequested));
         assert!(matches!(out[1], WindowEvent::Focused));
         assert!(queue.pop_all().is_empty());
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn a_waiting_close_is_not_asked_again_until_it_is_answered() -> AureaResult<()> {
+        let window = Window::new("test", 200, 100)?;
+        let asked = Rc::new(RefCell::new(0));
+        let count = Rc::clone(&asked);
+        window.on_close_request(move || {
+            *count.borrow_mut() += 1;
+            CloseAnswer::Wait
+        });
+        let close = [WindowEvent::CloseRequested];
+        dispatch_window_events(window.handle, &close);
+        dispatch_window_events(window.handle, &close);
+        assert_eq!(*asked.borrow(), 1);
+        // a refused save: still open, and the next close asks again.
+        window.answer_close(false);
+        dispatch_window_events(window.handle, &close);
+        assert_eq!(*asked.borrow(), 2);
+        assert!(!window.closing.load(Ordering::Acquire));
+        Ok(())
     }
 
     #[test]
