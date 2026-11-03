@@ -219,6 +219,18 @@ static void drop_standard_twin(NSMenu* menu, NSMenuItem* item) {
     }
 }
 
+int ng_macos_menu_move_last(NGMenuHandle menu, unsigned int index) {
+    if (!menu) return NG_ERROR_INVALID_HANDLE;
+    NSMenu* owner = (__bridge NSMenu*)menu;
+    NSInteger count = owner.numberOfItems;
+    if (count <= 0) return NG_ERROR_PLATFORM_SPECIFIC;
+    if ((NSInteger)index >= count - 1) return NG_SUCCESS;
+    NSMenuItem* row = [owner itemAtIndex:count - 1];
+    [owner removeItemAtIndex:count - 1];
+    [owner insertItem:row atIndex:(NSInteger)index];
+    return NG_SUCCESS;
+}
+
 int ng_macos_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id) {
     if (!menu || !title) return NG_ERROR_INVALID_PARAMETER;
 

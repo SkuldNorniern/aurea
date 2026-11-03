@@ -246,6 +246,15 @@ int ng_linux_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id
     return NG_SUCCESS;
 }
 
+int ng_linux_menu_move_last(NGMenuHandle menu, unsigned int index) {
+    if (!menu || !GTK_IS_MENU(menu)) return NG_ERROR_INVALID_HANDLE;
+    GList* rows = gtk_container_get_children(GTK_CONTAINER(menu));
+    GList* last = g_list_last(rows);
+    if (last) gtk_menu_reorder_child(GTK_MENU(menu), GTK_WIDGET(last->data), (gint)index);
+    g_list_free(rows);
+    return last ? NG_SUCCESS : NG_ERROR_PLATFORM_SPECIFIC;
+}
+
 int ng_linux_add_menu_separator(NGMenuHandle menu) {
     if (!menu) return NG_ERROR_INVALID_HANDLE;
     GtkWidget* separator = gtk_separator_menu_item_new();

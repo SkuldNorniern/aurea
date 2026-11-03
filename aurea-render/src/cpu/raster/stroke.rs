@@ -868,7 +868,7 @@ mod tests {
             .along_edges();
         let ahead = dashed_columns(dash, 4.0, 60.0);
         assert_eq!(ahead, dashed_columns(dash, 60.0, 4.0));
-        assert!(ahead.iter().any(|p| *p == 0) && ahead.iter().any(|p| *p != 0));
+        assert!(ahead.contains(&0) && ahead.iter().any(|p| *p != 0));
     }
 
     #[test]

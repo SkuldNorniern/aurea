@@ -69,6 +69,7 @@ typedef struct ng_platform_ops {
     int (*menu_item_set_title)(NGMenuHandle menu, unsigned int id, const char* title);
     int (*menu_item_remove)(NGMenuHandle menu, unsigned int id);
     int (*menu_clear)(NGMenuHandle menu);
+    int (*menu_move_last)(NGMenuHandle menu, unsigned int index);
 
     NGHandle (*create_button)(const char* title, unsigned int id);
     void (*button_invalidate)(NGHandle button);

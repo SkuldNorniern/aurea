@@ -144,6 +144,25 @@ int ng_windows_add_menu_item(NGMenuHandle menu, const char* title, unsigned int 
     return NG_SUCCESS;
 }
 
+int ng_windows_menu_move_last(NGMenuHandle menu, unsigned int index) {
+    if (!menu) return NG_ERROR_INVALID_HANDLE;
+    HMENU handle = (HMENU)menu;
+    int count = GetMenuItemCount(handle);
+    if (count <= 0) return NG_ERROR_PLATFORM_SPECIFIC;
+    if (index >= (unsigned int)(count - 1)) return NG_SUCCESS;
+    wchar_t text[512];
+    MENUITEMINFOW info = {0};
+    info.cbSize = sizeof(info);
+    info.fMask = MIIM_ID | MIIM_STATE | MIIM_FTYPE | MIIM_STRING | MIIM_SUBMENU | MIIM_DATA;
+    info.dwTypeData = text;
+    info.cch = sizeof(text) / sizeof(text[0]);
+    if (!GetMenuItemInfoW(handle, (UINT)(count - 1), TRUE, &info)) return NG_ERROR_PLATFORM_SPECIFIC;
+    /* RemoveMenu keeps a submenu alive for the row put back below. */
+    if (!RemoveMenu(handle, (UINT)(count - 1), MF_BYPOSITION)) return NG_ERROR_PLATFORM_SPECIFIC;
+    info.cch = 0;
+    return InsertMenuItemW(handle, index, TRUE, &info) ? NG_SUCCESS : NG_ERROR_PLATFORM_SPECIFIC;
+}
+
 int ng_windows_add_menu_separator(NGMenuHandle menu) {
     if (!menu) return NG_ERROR_INVALID_HANDLE;
 

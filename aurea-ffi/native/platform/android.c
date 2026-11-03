@@ -883,6 +883,12 @@ int ng_platform_menu_item_remove(NGMenuHandle m, unsigned int id) {
     return NG_ERROR_UNSUPPORTED;
 }
 
+int ng_platform_menu_move_last(NGMenuHandle m, unsigned int index) {
+    (void)m;
+    (void)index;
+    return NG_ERROR_UNSUPPORTED;
+}
+
 int ng_platform_menu_clear(NGMenuHandle m) {
     (void)m;
     return NG_ERROR_UNSUPPORTED;

@@ -96,6 +96,7 @@ int ng_platform_menu_item_set_checked(NGMenuHandle menu, unsigned int id, int ch
 int ng_platform_menu_item_set_title(NGMenuHandle menu, unsigned int id, const char* title);
 int ng_platform_menu_item_remove(NGMenuHandle menu, unsigned int id);
 int ng_platform_menu_clear(NGMenuHandle menu);
+int ng_platform_menu_move_last(NGMenuHandle menu, unsigned int index);
 
 /* The chosen paths, each ending in a NUL, with an empty one after the last; NULL when cancelled. */
 char* ng_platform_file_dialog(NGHandle window, int kind, const char* title, const char* filters, const char* default_name, const char* directory, int multiple);

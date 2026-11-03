@@ -18,6 +18,7 @@ int ng_linux_menu_item_set_checked(NGMenuHandle menu, unsigned int id, int check
 int ng_linux_menu_item_set_title(NGMenuHandle menu, unsigned int id, const char* title);
 int ng_linux_menu_item_remove(NGMenuHandle menu, unsigned int id);
 int ng_linux_menu_clear(NGMenuHandle menu);
+int ng_linux_menu_move_last(NGMenuHandle menu, unsigned int index);
 NGMenuHandle ng_linux_create_submenu(NGMenuHandle parent_menu, const char* title);
 int ng_linux_handle_menu_shortcut(NGHandle window, unsigned int keycode, unsigned int modifiers);
 

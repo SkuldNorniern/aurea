@@ -264,6 +264,17 @@ static AureaMenuNode* ng_ios_add(NGMenuHandle handle, const char* title, unsigne
     return node;
 }
 
+int ng_ios_menu_move_last(NGMenuHandle menu, unsigned int index) {
+    AureaMenuNode* parent = (__bridge AureaMenuNode*)menu;
+    if (!parent.children.count) return NG_ERROR_INVALID_HANDLE;
+    if (index + 1 >= parent.children.count) return NG_SUCCESS;
+    AureaMenuNode* row = parent.children.lastObject;
+    [parent.children removeLastObject];
+    [parent.children insertObject:row atIndex:index];
+    ng_ios_menus_changed();
+    return NG_SUCCESS;
+}
+
 int ng_ios_add_menu_item(NGMenuHandle menu, const char* title, unsigned int itemId) {
     if (!menu) return NG_ERROR_INVALID_HANDLE;
     return ng_ios_add(menu, title, itemId) ? NG_SUCCESS : NG_ERROR_INVALID_PARAMETER;

@@ -388,6 +388,10 @@ int ng_platform_menu_item_remove(NGMenuHandle m, unsigned int id) {
     return ng_ios_menu_item_remove(m, id);
 }
 
+int ng_platform_menu_move_last(NGMenuHandle m, unsigned int index) {
+    return ng_ios_menu_move_last(m, index);
+}
+
 int ng_platform_menu_clear(NGMenuHandle m) {
     return ng_ios_menu_clear(m);
 }

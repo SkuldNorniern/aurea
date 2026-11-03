@@ -82,6 +82,7 @@ static const ng_platform_ops_t macos_ops = {
     .menu_item_set_title = ng_macos_menu_item_set_title,
     .menu_item_remove = ng_macos_menu_item_remove,
     .menu_clear = ng_macos_menu_clear,
+    .menu_move_last = ng_macos_menu_move_last,
     .create_submenu = ng_macos_create_submenu,
     .create_button = ng_macos_create_button,
     .button_invalidate = ng_macos_button_invalidate,

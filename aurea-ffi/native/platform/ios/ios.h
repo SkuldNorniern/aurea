@@ -30,6 +30,7 @@ int ng_ios_add_menu_check_item(NGMenuHandle menu, const char* title, unsigned in
 int ng_ios_add_menu_separator(NGMenuHandle menu);
 NGMenuHandle ng_ios_create_submenu(NGMenuHandle parent, const char* title);
 int ng_ios_menu_clear(NGMenuHandle menu);
+int ng_ios_menu_move_last(NGMenuHandle menu, unsigned int index);
 int ng_ios_menu_item_set_enabled(NGMenuHandle menu, unsigned int item, int enabled);
 int ng_ios_menu_item_set_checked(NGMenuHandle menu, unsigned int item, int checked);
 int ng_ios_menu_item_set_title(NGMenuHandle menu, unsigned int item, const char* title);

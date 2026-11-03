@@ -69,6 +69,7 @@ static const ng_platform_ops_t windows_ops = {
     .menu_item_set_title = ng_windows_menu_item_set_title,
     .menu_item_remove = ng_windows_menu_item_remove,
     .menu_clear = ng_windows_menu_clear,
+    .menu_move_last = ng_windows_menu_move_last,
     .create_button = ng_windows_create_button,
     .button_invalidate = ng_windows_button_invalidate,
     .create_label = ng_windows_create_label,

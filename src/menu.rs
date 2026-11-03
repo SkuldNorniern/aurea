@@ -364,6 +364,25 @@ impl SubMenu {
         self.add(title, None, Kind::Plain, callback)
     }
 
+    /// Add a clickable menu item at row `index`, counting separators, or last when past the end:
+    /// a dynamic list such as open recent can stay in place among other rows.
+    pub fn insert_item<F>(
+        &mut self,
+        index: usize,
+        title: &str,
+        callback: F,
+    ) -> AureaResult<MenuItem>
+    where
+        F: Fn() + 'static,
+    {
+        let item = self.add(title, None, Kind::Plain, callback)?;
+        let index = u32::try_from(index).unwrap_or(u32::MAX);
+        if unsafe { ng_platform_menu_move_last(self.handle, index) } != 0 {
+            return Err(AureaError::ElementOperationFailed);
+        }
+        Ok(item)
+    }
+
     /// Add a clickable menu item with a portable keyboard shortcut.
     pub fn add_item_with_shortcut<F>(
         &mut self,
@@ -740,7 +759,11 @@ mod tests {
 
 #[cfg(test)]
 mod menu_ownership_tests {
+    #[cfg(any(windows, target_os = "linux"))]
+    use crate::menu::SubMenu;
     use crate::{AureaResult, Window};
+    #[cfg(any(windows, target_os = "linux"))]
+    use std::os::raw::c_void;
 
     #[test]
     #[ignore = "creates a native window; run on the platform UI thread"]
@@ -784,6 +807,77 @@ mod menu_ownership_tests {
             view.add_check_item_with_chord("Snap", Chord::key(KeyCode::Semicolon), true, || {})?;
         snap.set_checked(false)?;
         snap.set_label("Snap to Grid")?;
+        Ok(())
+    }
+
+    /// The ids of a native menu's rows, top to bottom.
+    #[cfg(windows)]
+    fn row_ids(menu: &SubMenu) -> Vec<u32> {
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn GetMenuItemCount(menu: *mut c_void) -> i32;
+            fn GetMenuItemID(menu: *mut c_void, at: i32) -> u32;
+        }
+        let count = unsafe { GetMenuItemCount(menu.handle()) };
+        (0..count)
+            .map(|at| unsafe { GetMenuItemID(menu.handle(), at) } - 1)
+            .collect()
+    }
+
+    #[cfg(all(
+        unix,
+        not(any(target_os = "macos", target_os = "ios", target_os = "android"))
+    ))]
+    fn row_ids(menu: &SubMenu) -> Vec<u32> {
+        use std::ffi::c_char;
+        #[repr(C)]
+        struct GList {
+            data: *mut c_void,
+            next: *mut GList,
+            prev: *mut GList,
+        }
+        unsafe extern "C" {
+            fn gtk_container_get_children(container: *mut c_void) -> *mut c_void;
+            fn g_list_free(list: *mut c_void);
+            fn g_object_get_data(object: *mut c_void, key: *const c_char) -> *mut c_void;
+        }
+        let mut ids = Vec::new();
+        unsafe {
+            let rows = gtk_container_get_children(menu.handle());
+            let mut at = rows.cast::<GList>();
+            while !at.is_null() {
+                let id = g_object_get_data((*at).data, c"menu-id".as_ptr());
+                ids.push(u32::try_from(id as usize).unwrap_or(u32::MAX));
+                at = (*at).next;
+            }
+            g_list_free(rows);
+        }
+        ids
+    }
+
+    #[cfg(any(
+        windows,
+        all(
+            unix,
+            not(any(target_os = "macos", target_os = "ios", target_os = "android"))
+        )
+    ))]
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn a_row_goes_in_where_it_is_asked() -> AureaResult<()> {
+        let mut window = Window::new("rows", 200, 100)?;
+        let bar = window.create_menu_bar()?;
+        let mut menu = bar.add_submenu("File")?;
+        let first = menu.add_item("First", || {})?;
+        let last = menu.add_item("Last", || {})?;
+        let middle = menu.insert_item(1, "Middle", || {})?;
+        assert_eq!(row_ids(&menu), [first.id(), middle.id(), last.id()]);
+        let top = menu.insert_item(0, "Top", || {})?;
+        let past = menu.insert_item(99, "Past", || {})?;
+        assert_eq!(
+            row_ids(&menu),
+            [top.id(), first.id(), middle.id(), last.id(), past.id()]
+        );
         Ok(())
     }
 

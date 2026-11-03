@@ -409,6 +409,8 @@ unsafe extern "C" {
     pub fn ng_platform_menu_item_remove(menu_handle: *mut c_void, id: u32) -> c_int;
     /// Removes all items from a menu.
     pub fn ng_platform_menu_clear(menu_handle: *mut c_void) -> c_int;
+    /// Moves a menu's last row to `index`.
+    pub fn ng_platform_menu_move_last(menu_handle: *mut c_void, index: u32) -> c_int;
 
     /// Opens a file dialog; returns the chosen paths, each ending in a NUL, with an empty one
     /// after the last.

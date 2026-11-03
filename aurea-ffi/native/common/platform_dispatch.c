@@ -304,6 +304,10 @@ int ng_platform_menu_item_remove(NGMenuHandle m, unsigned int id) {
     DISPATCH_INT(menu_item_remove, m, id);
 }
 
+int ng_platform_menu_move_last(NGMenuHandle m, unsigned int index) {
+    DISPATCH_INT(menu_move_last, m, index);
+}
+
 int ng_platform_menu_clear(NGMenuHandle m) {
     DISPATCH_INT(menu_clear, m);
 }

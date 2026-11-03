@@ -65,6 +65,7 @@ static const ng_platform_ops_t linux_ops = {
     .menu_item_set_title = ng_linux_menu_item_set_title,
     .menu_item_remove = ng_linux_menu_item_remove,
     .menu_clear = ng_linux_menu_clear,
+    .menu_move_last = ng_linux_menu_move_last,
     .create_submenu = ng_linux_create_submenu,
     .create_button = ng_linux_create_button,
     .button_invalidate = ng_linux_button_invalidate,
