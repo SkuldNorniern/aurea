@@ -38,3 +38,4 @@ mobile/android/aurea/build/
 mobile/ios/build/
 mobile/ios/**/xcuserdata/
 mobile/ios/**/*.xcworkspace/xcuserdata/
+mobile/android/.kotlin/
