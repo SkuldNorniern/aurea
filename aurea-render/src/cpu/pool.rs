@@ -4,7 +4,7 @@
 use std::panic::{self, AssertUnwindSafe};
 use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, TryLockError};
 use std::thread::{self, JoinHandle};
 
 /// One task, with its type erased so a worker can hold it.
@@ -134,12 +134,22 @@ pub(super) fn run<F: FnMut() + Send>(tasks: &mut [F]) -> bool {
     let Some((own, rest)) = tasks.split_first_mut() else {
         return true;
     };
-    let Ok(mut workers) = WORKERS.try_lock() else {
-        own();
-        rest.iter_mut().for_each(|task| task());
-        return true;
+    let mut workers = match WORKERS.try_lock() {
+        Ok(workers) => workers,
+        // A panic on a caller's thread: `Wait` saw its workers finish, so they are fine.
+        Err(TryLockError::Poisoned(poisoned)) => {
+            WORKERS.clear_poison();
+            poisoned.into_inner()
+        }
+        Err(TryLockError::WouldBlock) => {
+            own();
+            rest.iter_mut().for_each(|task| task());
+            return true;
+        }
     };
     grow(&mut workers, rest.len());
+    // A frame that panicked here never read this.
+    FINISH.panicked.store(false, Ordering::Relaxed);
     let (given, left_over) = rest.split_at_mut(workers.len().min(rest.len()));
     *lock(&FINISH.left) = given.len();
     let wait = Wait;
@@ -155,9 +165,7 @@ pub(super) fn run<F: FnMut() + Send>(tasks: &mut [F]) -> bool {
 
 /// Ends the workers and what their threads hold. The next frame starts them again.
 pub(super) fn release() {
-    let Ok(mut workers) = WORKERS.try_lock() else {
-        return;
-    };
+    let mut workers = lock(&WORKERS);
     for worker in workers.drain(..) {
         lock(&worker.slot.inbox).stop = true;
         worker.slot.wake.notify_one();
@@ -168,6 +176,57 @@ pub(super) fn release() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
+
+    /// Whether a run gets workers: other tests can hold them, so it is tried a few times.
+    fn reaches_a_worker() -> bool {
+        (0..200).any(|_| {
+            let here = thread::current().id();
+            let mut ids = [here; 3];
+            let mut tasks: Vec<_> = ids
+                .iter_mut()
+                .map(|id| move || *id = thread::current().id())
+                .collect();
+            assert!(run(&mut tasks));
+            drop(tasks);
+            thread::sleep(Duration::from_millis(1));
+            ids.iter().any(|id| *id != here)
+        })
+    }
+
+    #[test]
+    fn a_panic_on_the_callers_thread_leaves_the_workers_usable() {
+        let unwound = panic::catch_unwind(|| {
+            let mut tasks = [|| panic!("the caller's task"), || {}];
+            run(&mut tasks);
+        });
+        assert!(unwound.is_err());
+        assert!(reaches_a_worker(), "workers are still used after a panic");
+    }
+
+    #[test]
+    fn a_workers_panic_is_reported_once() {
+        let mut reported = false;
+        for _ in 0..200 {
+            let mut tasks = [false, true].map(|fails| {
+                move || {
+                    assert!(!fails, "a worker's task");
+                }
+            });
+            // With the workers busy elsewhere it runs here, and simply unwinds.
+            match panic::catch_unwind(AssertUnwindSafe(|| run(&mut tasks))) {
+                Ok(finished) => {
+                    assert!(!finished, "the failed task is reported");
+                    reported = true;
+                    break;
+                }
+                Err(_) => thread::sleep(Duration::from_millis(1)),
+            }
+        }
+        assert!(reported);
+        let mut next = [|| {}, || {}];
+        assert!(run(&mut next), "the next frame starts clean");
+    }
 
     #[test]
     fn every_task_runs_once_and_workers_come_back_after_a_release() {
