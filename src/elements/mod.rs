@@ -89,6 +89,16 @@ mod gtk_tests {
 
     const TEXT: &str = "연결 · 日本語 🙂 …";
 
+    /// [`settle`], going on while the X server has not answered a resize yet.
+    fn settle_at(window: &Window, size: (u32, u32)) {
+        window.show();
+        let until = Instant::now() + Duration::from_secs(3);
+        while window.size() != size && Instant::now() < until {
+            window.poll_events();
+            sleep(Duration::from_millis(10));
+        }
+    }
+
     fn settle(window: &Window) {
         window.show();
         let until = Instant::now() + Duration::from_millis(300);
@@ -329,7 +339,7 @@ mod gtk_tests {
     fn a_window_keeps_its_minimum_size() -> AureaResult<()> {
         let window = Window::new("min size", 400, 300)?;
         window.set_min_size(500, 350)?;
-        settle(&window);
+        settle_at(&window, (500, 350));
         assert_eq!(window.size(), (500, 350));
         window.set_size(100, 100);
         settle(&window);
