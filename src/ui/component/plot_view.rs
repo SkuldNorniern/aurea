@@ -4,6 +4,7 @@ use crate::render::Point;
 use crate::ui::frame::Ui;
 use crate::ui::graph::{Mapping, Range};
 use crate::ui::state::{Interaction, WidgetId};
+use crate::ui::widget::scroll::wheel_steps;
 use crate::window::KeyCode;
 
 /// The user's view onto a plot.
@@ -20,6 +21,8 @@ pub struct PlotView {
     /// How much a wheel unit zooms: the span is multiplied by `e` to the minus this times the
     /// wheel's travel.
     pub wheel_zoom: f32,
+    /// The plain wheel scrolls and Ctrl or Cmd with it zooms, as [`Self::wheel_scrolls`] sets.
+    wheel_scrolls: bool,
 }
 
 impl Default for PlotView {
@@ -32,6 +35,13 @@ const KEY_PAN: f32 = 0.1;
 const KEY_ZOOM: f32 = 1.25;
 
 impl PlotView {
+    /// The plain wheel scrolls along x, and Ctrl or Cmd with it zooms about the pointer, as a
+    /// timeline does. By default the wheel always zooms.
+    pub fn wheel_scrolls(mut self) -> Self {
+        self.wheel_scrolls = true;
+        self
+    }
+
     /// Both axes zoom and pan.
     pub fn new() -> Self {
         let wheel_zoom = if cfg!(target_os = "macos") {
@@ -47,6 +57,7 @@ impl PlotView {
             zoom_x: true,
             zoom_y: true,
             wheel_zoom,
+            wheel_scrolls: false,
         }
     }
 
@@ -123,7 +134,11 @@ impl PlotView {
             return;
         }
         let factor = (-dy * self.wheel_zoom).exp();
-        if ui.modifiers().shift {
+        let modifiers = ui.modifiers();
+        if self.wheel_scrolls && !modifiers.ctrl && !modifiers.meta {
+            let (_, pan) = wheel_steps();
+            self.pan(maps.0, maps.1, dy * pan, 0.0);
+        } else if modifiers.shift {
             self.zoom_y_at(maps.1, at.y, factor);
         } else {
             self.zoom_x_at(maps.0, at.x, factor);
@@ -207,7 +222,10 @@ fn span(map: Mapping, lo: f32, hi: f32) -> Option<Range> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::Rect;
     use crate::ui::graph::Scale;
+    use crate::ui::rig::Rig;
+    use crate::ui::state::Sense;
 
     fn x_map(min: f64, max: f64) -> Mapping {
         Mapping::new(Range::new(min, max), Scale::Linear, 0.0, 100.0)
@@ -236,6 +254,30 @@ mod tests {
         let map = Mapping::new(Range::new(1.0, 1000.0), Scale::Log10, 0.0, 300.0);
         let range = zoomed(map, 0.0, 2.0 / 3.0).expect("zoomed");
         assert!(close(range, Range::new(1.0, 100.0)), "got {range:?}");
+    }
+
+    #[test]
+    fn a_scrolling_wheel_pans_and_zooms_only_with_ctrl() {
+        let map = x_map(0.0, 100.0);
+        let rect = Rect::new(0.0, 0.0, 1000.0, 1000.0);
+        let mut rig = Rig::<u8>::new(1000, 1000);
+        let mut view = PlotView::new().x_only().wheel_scrolls();
+        view.zoom_x_at(map, 50.0, 0.5);
+        let span = |r: Range| r.max - r.min;
+        let before = view.x().expect("zoomed");
+        rig.frame(|ui| ui.interact(1, 0, rect, Sense::Hover, true));
+        rig.wheel(50.0, 50.0, 0.0, -1.0);
+        rig.frame(|ui| {
+            let input = ui.interact(1, 0, rect, Sense::Hover, true);
+            let shown = x_map(before.min, before.max);
+            view.follow(ui, 1, input, (shown, shown));
+        });
+        let after = view.x().expect("still zoomed");
+        assert!(
+            (span(after) - span(before)).abs() < 1e-6,
+            "a pan keeps the span"
+        );
+        assert_ne!(after.min, before.min, "and moves");
     }
 
     #[test]

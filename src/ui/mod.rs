@@ -46,6 +46,7 @@ pub use widget::scroll::{
     wheel_steps,
 };
 pub use widget::segmented::{Segmented, SegmentedStyle};
+pub use widget::sheet::{BottomSheet, SheetState};
 pub use widget::slider::{Slider, SliderStyle, SliderTrack};
 pub use widget::splitter::{Splitter, SplitterStyle};
 pub use widget::stepper::{Stepper, StepperStyle};
@@ -172,6 +173,61 @@ mod tests {
             self.rig.send(key_down(key, modifiers));
             self.frame();
         }
+    }
+
+    #[test]
+    fn a_shield_holds_for_the_next_frames_events() {
+        use crate::render::{CpuRasterizer, Point, Renderer};
+        let mut state = UiState::<u8>::new();
+        let theme = Theme::dark();
+        let mut raster = CpuRasterizer::new(100, 100);
+        let edge = Rect::new(0.0, 0.0, 20.0, 100.0);
+        let inside = Point::new(5.0, 50.0);
+        {
+            let mut ctx = raster.begin_frame().expect("frame");
+            let mut ui = state.frame(&mut *ctx, &theme);
+            ui.shield(edge);
+            assert!(!ui.state.shielded(inside), "not until the frame ends");
+        }
+        assert!(state.shielded(inside));
+        assert!(!state.shielded(Point::new(50.0, 50.0)));
+        {
+            let mut ctx = raster.begin_frame().expect("frame");
+            drop(state.frame(&mut *ctx, &theme));
+        }
+        assert!(!state.shielded(inside), "gone once it isn't marked again");
+    }
+
+    #[test]
+    fn formatted_text_reuses_its_buffer() {
+        use crate::render::{CpuRasterizer, Renderer};
+        let mut state = UiState::<u8>::new();
+        let theme = Theme::dark();
+        let mut raster = CpuRasterizer::new(200, 50);
+        let rect = Rect::new(0.0, 0.0, 200.0, 50.0);
+        let mut drawn = Vec::new();
+        for value in [1.5, -12.25] {
+            let mut ctx = raster.begin_frame().expect("frame");
+            let mut ui = state.frame(&mut *ctx, &theme);
+            let fonts = ui.fonts();
+            let color = ui.theme.palette.text;
+            ui.text_fmt(
+                format_args!("{value:.1} dB"),
+                rect,
+                &fonts.text,
+                color,
+                Align::Start,
+            )
+            .expect("text");
+            drawn.push(ui.state.formatted.clone());
+            ui.label_fmt(format_args!("{value:.2}"), rect, |text| {
+                Label::new(text, color)
+            })
+            .expect("label");
+            drawn.push(ui.state.formatted.clone());
+        }
+        assert_eq!(drawn, ["1.5 dB", "1.50", "-12.2 dB", "-12.25"]);
+        assert!(state.formatted.capacity() > 0, "kept for the next frame");
     }
 
     #[test]

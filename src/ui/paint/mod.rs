@@ -253,6 +253,13 @@ impl<'t> Label<'t> {
     }
 }
 
+impl Label<'_> {
+    /// Draws the label into `rect`, without [`Component`] in scope.
+    pub fn paint<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>, rect: Rect) -> AureaResult<()> {
+        Component::paint(self, ui, rect)
+    }
+}
+
 impl Component for Label<'_> {
     fn paint<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>, rect: Rect) -> AureaResult<()> {
         let fonts = ui.fonts();

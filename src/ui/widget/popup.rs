@@ -1160,9 +1160,8 @@ impl<Id: WidgetId> Ui<'_, Id> {
         card(self.theme).paint(self, rect)?;
         self.interact(id, CARD_PART, rect, Sense::Hover, true);
         let start = self.state.order.len();
-        let value = self.clipped(rect.inset(self.theme.padding), |ui| {
-            content(ui, rect.inset(ui.theme.padding))
-        });
+        // Clipped to the card, not its content, so a button at the edge keeps its focus ring.
+        let value = self.clipped(rect, |ui| content(ui, rect.inset(ui.theme.padding)));
         let state = &mut *self.state;
         state.popup.focus_order.clear();
         state

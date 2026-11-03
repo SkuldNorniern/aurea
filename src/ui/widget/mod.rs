@@ -17,6 +17,7 @@ pub mod progress;
 pub mod radio;
 pub mod scroll;
 pub mod segmented;
+pub mod sheet;
 pub mod slider;
 pub mod splitter;
 pub mod stepper;

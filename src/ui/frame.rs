@@ -1,5 +1,7 @@
 //! One frame of canvas widgets: [`Ui`] draws them and answers what the input did to each.
 
+use crate::ui::paint::Label;
+use std::fmt::{self, Write};
 use std::mem;
 use std::rc::Rc;
 use std::time::Instant;
@@ -293,6 +295,54 @@ impl<Id: WidgetId> Ui<'_, Id> {
         }
         *past = *past || pointer.is_some_and(|at| (at.x - from.x).hypot(at.y - from.y) > distance);
         *past
+    }
+
+    /// Marks `rect` as chrome this frame, so [`UiState::shielded`] says a press there isn't the
+    /// app's own: a canvas stroke shouldn't start under an edge slider. Widgets are unaffected.
+    pub fn shield(&mut self, rect: Rect) {
+        self.state.shields.push(rect);
+    }
+
+    /// Draws `args` as [`Self::text`] does, formatted into a buffer kept between frames, so a
+    /// number's readout needs no `String` of its own.
+    pub fn text_fmt(
+        &mut self,
+        args: fmt::Arguments<'_>,
+        rect: Rect,
+        font: &Font,
+        color: Color,
+        align: Align,
+    ) -> AureaResult<()> {
+        let mut text = mem::take(&mut self.state.formatted);
+        text.clear();
+        let written = text.write_fmt(args);
+        let drawn = if written.is_ok() {
+            self.text(&text, rect, font, color, align)
+        } else {
+            Ok(())
+        };
+        self.state.formatted = text;
+        drawn
+    }
+
+    /// Draws a [`Label`] of `args`, formatted into the same buffer as [`Self::text_fmt`]. `style`
+    /// builds the label from the text.
+    pub fn label_fmt(
+        &mut self,
+        args: fmt::Arguments<'_>,
+        rect: Rect,
+        style: impl for<'t> FnOnce(&'t str) -> Label<'t>,
+    ) -> AureaResult<()> {
+        let mut text = mem::take(&mut self.state.formatted);
+        text.clear();
+        let written = text.write_fmt(args);
+        let drawn = if written.is_ok() {
+            style(&text).paint(self, rect)
+        } else {
+            Ok(())
+        };
+        self.state.formatted = text;
+        drawn
     }
 
     /// `rect` grown by the reach the last pointer needs beyond a mouse, for the rect handed to

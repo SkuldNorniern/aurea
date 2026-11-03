@@ -380,6 +380,11 @@ pub struct UiState<Id: WidgetId> {
     pub(crate) drag_from: Option<(Key<Id>, Point, bool)>,
     scroll_hits: HashMap<Key<Id>, Range<usize>>,
     last_scroll_hits: HashMap<Key<Id>, Range<usize>>,
+    /// This frame's and the last frame's shield rects.
+    pub(crate) shields: Vec<Rect>,
+    last_shields: Vec<Rect>,
+    /// Reused by formatted text.
+    pub(crate) formatted: String,
     pub(crate) typed: Vec<Typed>,
     pub(crate) typed_targets: Vec<Option<Key<Id>>>,
     /// Escape left the focused widget this frame.
@@ -463,6 +468,9 @@ impl<Id: WidgetId> UiState<Id> {
             drag_from: None,
             scroll_hits: HashMap::new(),
             last_scroll_hits: HashMap::new(),
+            shields: Vec::new(),
+            last_shields: Vec::new(),
+            formatted: String::new(),
             typed: Vec::new(),
             typed_targets: Vec::new(),
             escaped: false,
@@ -1172,7 +1180,15 @@ impl<Id: WidgetId> UiState<Id> {
         self.editing.retain(|key, _| seen.contains_key(key));
     }
 
+    /// Whether `point` is on something the last frame marked with [`crate::ui::Ui::shield`], for an app
+    /// deciding what a press means before it draws.
+    pub fn shielded(&self, point: Point) -> bool {
+        self.last_shields.iter().any(|rect| rect.contains(point))
+    }
+
     pub(crate) fn end(&mut self) {
+        mem::swap(&mut self.shields, &mut self.last_shields);
+        self.shields.clear();
         if !self.focus_seen {
             self.focus = None;
         }
