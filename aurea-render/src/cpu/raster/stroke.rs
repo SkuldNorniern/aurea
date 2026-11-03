@@ -373,27 +373,33 @@ fn dashes(points: &[Point], closed: bool, dash: &Dash, runs: &mut DashRuns) {
     for i in 0..count {
         let (a, b) = (points[i], points[(i + 1) % points.len()]);
         if dash.along_edges {
-            dasher.restart(edge_phase(dash, a, b), a);
+            // An edge going left or up is dashed from its far end, so any pattern keeps its
+            // screen places whichever way the edge runs.
+            let (from, to) = if runs_backward(a, b) { (b, a) } else { (a, b) };
+            dasher.restart(edge_phase(dash, from, to), from);
+            dasher.segment(from, to);
+        } else {
+            dasher.segment(a, b);
         }
-        dasher.segment(a, b);
     }
     dasher.finish();
 }
 
-/// Where the pattern stands at `a` on the edge to `b`: `offset` plus `a` along the edge's own
-/// axis, mirrored when it runs left or up so the on runs keep their screen places.
+/// Whether the edge runs left or up along its own axis.
+fn runs_backward(a: Point, b: Point) -> bool {
+    let (dx, dy) = (b.x - a.x, b.y - a.y);
+    if dx.abs() >= dy.abs() {
+        dx < 0.0
+    } else {
+        dy < 0.0
+    }
+}
+
+/// Where the pattern stands at `a` on the forward edge to `b`: `offset` plus `a` along the edge's
+/// own axis.
 fn edge_phase(dash: &Dash, a: Point, b: Point) -> f32 {
     let (dx, dy) = (b.x - a.x, b.y - a.y);
-    let (at, forward) = if dx.abs() >= dy.abs() {
-        (a.x, dx >= 0.0)
-    } else {
-        (a.y, dy >= 0.0)
-    };
-    if forward {
-        dash.offset + at
-    } else {
-        dash.lengths()[0] - dash.offset - at
-    }
+    dash.offset + if dx.abs() >= dy.abs() { a.x } else { a.y }
 }
 
 struct Dasher<'d> {
@@ -833,6 +839,36 @@ mod tests {
                 assert!(worst <= 32.0, "{radius}, {width}: {worst}");
             }
         }
+    }
+
+    /// The columns a line along y 8 inks, stroked from `from` to `to`.
+    fn dashed_columns(dash: Dash, from: f32, to: f32) -> Vec<u32> {
+        let style = StrokeStyle {
+            dash: Some(dash),
+            ..StrokeStyle::solid(2.0)
+        };
+        let outline = outline_path(&line(&[(from, 8.0), (to, 8.0)]), &style);
+        let mut px = vec![0_u32; 64 * 16];
+        fill_path(
+            &outline,
+            Color::rgb(255, 255, 255),
+            BlendMode::Normal,
+            &mut Band::whole(&mut px),
+            64,
+            ClipBox::surface(64, 16),
+            &mut PathScratch::default(),
+        );
+        px[8 * 64..9 * 64].to_vec()
+    }
+
+    #[test]
+    fn edge_dashes_sit_in_the_same_place_whichever_way_they_run() {
+        let dash = Dash::new(&[5.0, 1.0, 2.0, 3.0], 0.0)
+            .expect("a pattern")
+            .along_edges();
+        let ahead = dashed_columns(dash, 4.0, 60.0);
+        assert_eq!(ahead, dashed_columns(dash, 60.0, 4.0));
+        assert!(ahead.iter().any(|p| *p == 0) && ahead.iter().any(|p| *p != 0));
     }
 
     #[test]

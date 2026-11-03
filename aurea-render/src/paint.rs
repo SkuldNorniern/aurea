@@ -278,10 +278,9 @@ impl Dash {
     }
 
     /// Starts the pattern afresh on each edge, at `offset` plus the edge's start along its own
-    /// axis (x for a mostly level edge, y for a mostly upright one), mirrored for edges going
-    /// left or up. With an on and off pair, dashes then sit at fixed screen places whichever way
-    /// an edge runs, so a selection outline's dashes line up on all four sides and march together
-    /// when `offset` moves. Longer patterns read backwards on edges going left or up.
+    /// axis (x for a mostly level edge, y for a mostly upright one). Dashes then sit at fixed
+    /// screen places whichever way an edge runs, for any pattern, so a selection outline's dashes
+    /// line up on all four sides and march together when `offset` moves.
     pub fn along_edges(mut self) -> Self {
         self.along_edges = true;
         self
