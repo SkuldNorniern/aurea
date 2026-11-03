@@ -376,6 +376,8 @@ pub struct UiState<Id: WidgetId> {
     pub(crate) pointer_down: bool,
     pub(crate) touch_scrolling: bool,
     pub(crate) scroll_drag: Option<ScrollDrag<Id>>,
+    /// What the last press landed on, where, and whether it has become a drag.
+    pub(crate) drag_from: Option<(Key<Id>, Point, bool)>,
     scroll_hits: HashMap<Key<Id>, Range<usize>>,
     last_scroll_hits: HashMap<Key<Id>, Range<usize>>,
     pub(crate) typed: Vec<Typed>,
@@ -458,6 +460,7 @@ impl<Id: WidgetId> UiState<Id> {
             pointer_down: false,
             touch_scrolling: cfg!(any(target_os = "ios", target_os = "android")),
             scroll_drag: None,
+            drag_from: None,
             scroll_hits: HashMap::new(),
             last_scroll_hits: HashMap::new(),
             typed: Vec::new(),
@@ -1003,6 +1006,7 @@ impl<Id: WidgetId> UiState<Id> {
                     .filter(|hit| hit.sense != Sense::Hover)
                     .map(|hit| hit.key);
                 self.focus_visible = false;
+                self.drag_from = hit.map(|hit| (hit.key, at, false));
                 if let Some(hit) = hit {
                     self.press = Some(Press {
                         key: hit.key,

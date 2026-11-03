@@ -13,6 +13,11 @@ use crate::render::{Color, DrawingContext, Font, Paint, PaintStyle, Point, Rect,
 use crate::screen::{Screen, screen};
 use crate::window::{CursorIcon, KeyCode, Modifiers, PointerKind};
 
+/// What [`Ui::reach`] adds around a rect for a finger.
+const FINGER_REACH: f32 = 10.0;
+/// What [`Ui::reach`] adds around a rect for a pen.
+const PEN_REACH: f32 = 4.0;
+
 /// Where text sits across the space it is given.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Align {
@@ -273,6 +278,33 @@ impl<Id: WidgetId> Ui<'_, Id> {
         self.press(id, part)
             .map(|press| press.at)
             .filter(|at| rect.contains(*at))
+    }
+
+    /// Whether the press on that part has gone more than `distance` from where it landed, so a tap
+    /// and a drag from the same press can be told apart. Stays true until it lifts, wherever the
+    /// pointer goes back to.
+    pub fn dragged_past(&mut self, id: Id, part: u16, input: Interaction, distance: f32) -> bool {
+        let pointer = self.pointer();
+        let Some((key, from, past)) = &mut self.state.drag_from else {
+            return false;
+        };
+        if !input.held || *key != Key::new(id, part) {
+            return false;
+        }
+        *past = *past || pointer.is_some_and(|at| (at.x - from.x).hypot(at.y - from.y) > distance);
+        *past
+    }
+
+    /// `rect` grown by the reach the last pointer needs beyond a mouse, for the rect handed to
+    /// [`Self::interact`] of a small handle: most for a finger, a little for a pen.
+    pub fn reach(&self, rect: Rect) -> Rect {
+        let by = match self.pointer_kind() {
+            PointerKind::Touch => FINGER_REACH,
+            PointerKind::Pen => PEN_REACH,
+            PointerKind::Mouse if self.state.touch_scrolling => FINGER_REACH,
+            PointerKind::Mouse => 0.0,
+        };
+        rect.inset(-by)
     }
 
     /// What was typed since the last frame for the widget that has the keyboard, in order: keys,
@@ -769,7 +801,48 @@ fn estimate(text: &str, font: &Font) -> TextMetrics {
 mod tests {
     use super::*;
     use crate::render::{CpuRasterizer, Renderer};
+    use crate::ui::rig::Rig;
+    use crate::{PenSample, WindowEvent};
     use std::time::Duration;
+
+    #[test]
+    fn a_press_becomes_a_drag_past_the_distance_and_stays_one() {
+        let rect = Rect::new(0.0, 0.0, 200.0, 100.0);
+        let mut rig = Rig::<u8>::new(200, 100).still();
+        let frame = |rig: &mut Rig<u8>| {
+            rig.frame(|ui| {
+                let input = ui.interact(1, 0, rect, Sense::Click, true);
+                ui.dragged_past(1, 0, input, 8.0)
+            })
+        };
+        frame(&mut rig);
+        rig.button(50, 50, true);
+        assert!(!frame(&mut rig));
+        rig.drag_to(55, 50);
+        assert!(!frame(&mut rig), "inside the distance");
+        rig.drag_to(70, 50);
+        assert!(frame(&mut rig));
+        rig.drag_to(50, 50);
+        assert!(frame(&mut rig), "still a drag, back where it landed");
+        rig.button(50, 50, false);
+        assert!(!frame(&mut rig));
+        rig.button(50, 50, true);
+        assert!(!frame(&mut rig), "the next press starts over");
+    }
+
+    #[test]
+    fn reach_grows_with_the_pointer() {
+        let rect = Rect::new(50.0, 50.0, 10.0, 10.0);
+        let mut rig = Rig::<u8>::new(200, 100).still();
+        let reach = |rig: &mut Rig<u8>| rig.frame(|ui| ui.reach(rect));
+        assert_eq!(reach(&mut rig), rect, "a mouse on the desktop");
+        rig.state.touch_scrolling = true;
+        assert_eq!(reach(&mut rig), rect.inset(-FINGER_REACH));
+        rig.state.touch_scrolling = false;
+        let pen = WindowEvent::Pen(PenSample::default());
+        rig.send(pen);
+        assert_eq!(reach(&mut rig), rect.inset(-PEN_REACH));
+    }
 
     #[test]
     fn restarting_the_blink_shows_the_caret() {
