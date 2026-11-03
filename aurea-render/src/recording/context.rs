@@ -13,6 +13,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::f32::consts::{SQRT_2, TAU};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, LazyLock};
+use std::thread::{self, JoinHandle};
 
 static TEXT_RENDERER: LazyLock<TextRenderer> = LazyLock::new(TextRenderer::new);
 static DEFAULT_FONT: LazyLock<Font> =
@@ -32,6 +33,25 @@ pub fn measure_text(text: &str, font: &Font) -> AureaResult<TextMetrics> {
         });
     }
     TEXT_RENDERER.measure_text(text, FontRef::with_size(font, font.size))
+}
+
+/// Rasterizes the glyphs of `text` in `font` at each of `scales` on a thread of its own, so the
+/// first frame using them needn't: for a language's label set at start, or a new display scale.
+pub fn warm_text(font: &Font, text: &str, scales: &[f32]) -> JoinHandle<()> {
+    let (font, text, scales) = (font.clone(), text.to_string(), scales.to_vec());
+    thread::spawn(move || {
+        let mut one = String::new();
+        for scale in scales {
+            let sized = FontRef::with_size(&font, font.size * scale);
+            for ch in text.chars() {
+                one.clear();
+                one.push(ch);
+                if let Err(error) = TEXT_RENDERER.render_text_directed(&one, sized, None) {
+                    log::debug!("warming {ch:?}: {error}");
+                }
+            }
+        }
+    })
 }
 
 /// `text` in `font` shaped as one line at logical size, by the engine that draws it: glyph ids, the
@@ -1305,6 +1325,17 @@ impl DrawingContext for RecordingContext<'_> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn warming_fills_the_glyph_cache_off_the_ui_thread() {
+        use super::{Font, FontRef, TEXT_RENDERER, warm_text};
+        let font = Font::new("", 19.0);
+        warm_text(&font, "warm 한글", &[1.0, 2.0])
+            .join()
+            .expect("warm");
+        let again = TEXT_RENDERER.render_text_directed("w", FontRef::with_size(&font, 38.0), None);
+        assert!(again.is_ok());
+    }
+
     use std::thread::spawn;
 
     #[test]
