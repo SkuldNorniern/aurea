@@ -27,7 +27,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{LazyLock, OnceLock};
+use std::sync::{LazyLock, Once, OnceLock};
 
 use crate::Rect;
 use crate::app::opened;
@@ -410,14 +410,14 @@ extern "system" fn Java_dev_aurea_AureaActivity_nativeCreate(
     };
     let java_vm = vm.get_java_vm_pointer().cast::<c_void>();
     unsafe { ng_android_set_activity(java_vm, activity.as_raw().cast::<c_void>()) };
-    let first = match (ACTIVITY.lock(), env.new_global_ref(&activity)) {
-        (Ok(mut slot), Ok(global)) => slot.replace((vm, global)).is_none(),
-        _ => false,
-    };
-    // the Activity is made again on rotation; the app keeps running.
-    if first {
-        unsafe { aurea_main() };
+    if let (Ok(mut slot), Ok(global)) = (ACTIVITY.lock(), env.new_global_ref(&activity)) {
+        *slot = Some((vm, global));
     }
+    // the Activity is made again on rotation and on reopening; the app keeps running.
+    static STARTED: Once = Once::new();
+    STARTED.call_once(|| {
+        unsafe { aurea_main() };
+    });
 }
 
 #[unsafe(no_mangle)]
