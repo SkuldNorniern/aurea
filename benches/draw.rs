@@ -226,6 +226,22 @@ fn main() -> AureaResult<()> {
         ))?;
         grid(24.0).try_for_each(|(x, y)| c.draw_rect(Rect::new(x, y, 20.0, 20.0), &solid))
     })?;
+    run("clips taking turns", &|c| {
+        let left = round_rect_path(Rect::new(10.0, 10.0, 940.0, 1180.0), 16.0);
+        let right = round_rect_path(Rect::new(970.0, 10.0, 940.0, 1180.0), 16.0);
+        (0..200).try_for_each(|i| {
+            let y = (i % 20) as f32 * 55.0 + 20.0;
+            let x = (i / 20) as f32 * 90.0 + 20.0;
+            c.save()?;
+            c.clip_path(&left)?;
+            c.draw_rect(Rect::new(x, y, 80.0, 40.0), &solid)?;
+            c.restore()?;
+            c.save()?;
+            c.clip_path(&right)?;
+            c.draw_rect(Rect::new(x + 960.0, y, 80.0, 40.0), &solid)?;
+            c.restore()
+        })
+    })?;
     run("round clip image", &|c| {
         c.clip_path(&round_rect_path(
             Rect::new(40.0, 40.0, 1840.0, 1120.0),

@@ -1207,7 +1207,7 @@ mod tile_cache_tests {
     use crate::renderer::Renderer;
     use crate::scene::command::DrawCommand;
     use crate::scene::display_list::{CacheKey, DisplayIndex, DisplayItem};
-    use crate::types::{BlendMode, Color, Image, Paint, Rect};
+    use crate::types::{BlendMode, Color, Image, Paint, PaintStyle, Path, Point, Rect};
 
     fn tile() -> f32 {
         TILE_SIZE as f32
@@ -1430,6 +1430,72 @@ mod tile_cache_tests {
                 assert!(brightest < 60, "pixel ({x}, {y}) of the image is {px:08x}");
             }
         }
+    }
+
+    /// Draws `shape` at each place, repainting only what changed, and compares every frame with
+    /// the same frame drawn fresh: a shape reaching past its bounds leaves pixels behind.
+    fn moves_clean(
+        name: &str,
+        shape: impl Fn(&mut dyn DrawingContext, f32, f32) -> AureaResult<()>,
+    ) {
+        let frame = |r: &mut CpuRasterizer, x: f32, y: f32| {
+            let mut ctx = r.begin_frame().expect("frame");
+            ctx.clear(Color::rgb(10, 10, 14)).expect("clear");
+            shape(&mut *ctx, x, y).expect("shape");
+            drop(ctx);
+            r.end_frame().expect("end");
+        };
+        let mut moving = CpuRasterizer::new(320, 240);
+        // Fine enough to bring every edge just short of a tile's side.
+        for step in 0..600_u16 {
+            let x = 8.0 + f32::from(step) * 0.3125;
+            let y = 6.0 + f32::from(step) * 0.28125;
+            frame(&mut moving, x, y);
+            let mut fresh = CpuRasterizer::new(320, 240);
+            frame(&mut fresh, x, y);
+            assert!(
+                moving.pixels() == fresh.pixels(),
+                "{name} leaves pixels at step {step}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_moving_shape_leaves_nothing_behind() {
+        let fill = Paint::new().color(Color::rgb(240, 200, 80));
+        let line = Paint::new()
+            .color(Color::rgb(240, 200, 80))
+            .style(PaintStyle::Stroke)
+            .stroke_width(1.5);
+        moves_clean("a filled circle", |c, x, y| {
+            c.draw_circle(Point::new(x, y), 15.0, &fill)
+        });
+        moves_clean("a stroked circle", |c, x, y| {
+            c.draw_circle(Point::new(x, y), 15.0, &line)
+        });
+        moves_clean("a filled round rect", |c, x, y| {
+            c.draw_round_rect(Rect::new(x, y, 30.0, 20.0), 6.0, &fill)
+        });
+        moves_clean("a stroked round rect", |c, x, y| {
+            c.draw_round_rect(Rect::new(x, y, 30.0, 20.0), 6.0, &line)
+        });
+        moves_clean("a filled rect", |c, x, y| {
+            c.draw_rect(Rect::new(x, y, 30.0, 20.0), &fill)
+        });
+        moves_clean("a stroked rect", |c, x, y| {
+            c.draw_rect(Rect::new(x, y, 30.0, 20.0), &line)
+        });
+        moves_clean("a stroked path", |c, x, y| {
+            c.draw_path(&Path::rounded_rect(Rect::new(x, y, 30.0, 20.0), 6.0), &line)
+        });
+        moves_clean("a shadow", |c, x, y| {
+            c.draw_shadow(
+                Rect::new(x, y, 30.0, 20.0),
+                6.0,
+                4.0,
+                Color::rgba(0, 0, 0, 160),
+            )
+        });
     }
 }
 
