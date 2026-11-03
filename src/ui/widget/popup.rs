@@ -1281,6 +1281,36 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn a_cards_content_can_reach_into_its_padding() {
+        let mut rig = Rig::new(300, 200).still();
+        let card = Rect::new(40.0, 40.0, 200.0, 100.0);
+        let red = Color::rgb(255, 0, 0);
+        let frame = |rig: &mut Rig| {
+            rig.frame(|ui| {
+                ui.open_popup_card(10, card);
+                ui.popup_card(10, |ui, content| {
+                    // A button at the content's edge, with its ring just outside.
+                    ui.fill(content.inset(-3.0), red)
+                })
+                .expect("card");
+            });
+        };
+        frame(&mut rig);
+        frame(&mut rig);
+        let padding = rig.theme.padding;
+        let y = (card.y + card.height / 2.0) as u32;
+        let inside = rig.pixel((card.x + card.width / 2.0) as u32, y);
+        let edge = rig.pixel((card.x + padding - 2.0) as u32, y);
+        assert_eq!(edge, inside, "the ring is not cut at the padding");
+        assert_ne!(
+            rig.pixel((card.x - 10.0) as u32, y),
+            inside,
+            "nothing past the card"
+        );
+    }
+
+    #[test]
     fn a_finger_scrolls_a_long_menu_and_picks_nothing() {
         let mut rig = long_menu();
         rig.button(50.0, 150.0, true);
