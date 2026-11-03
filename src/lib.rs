@@ -81,8 +81,8 @@ pub use crate::window::{
 };
 
 pub use crate::window::{
-    EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons, Occlusion, PenPhase, PenSample,
-    PenSampler, PenSampling, PenTapAction, PenTool, PointerKind, WindowEvent,
+    EventCallback, GesturePhase, KeyCode, Modifiers, MouseButton, MouseButtons, Occlusion,
+    PenPhase, PenSample, PenSampler, PenSampling, PenTapAction, PenTool, PointerKind, WindowEvent,
 };
 
 use crate::render::trim_renderers;

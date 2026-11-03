@@ -7,8 +7,8 @@ mod manager;
 mod types;
 
 pub use aurea_foundation::{
-    EventCallback, KeyCode, Modifiers, MouseButton, MouseButtons, Occlusion, PenPhase, PenSample,
-    PenSampler, PenSampling, PenTapAction, PenTool, PointerKind, WindowEvent,
+    EventCallback, GesturePhase, KeyCode, Modifiers, MouseButton, MouseButtons, Occlusion,
+    PenPhase, PenSample, PenSampler, PenSampling, PenTapAction, PenTool, PointerKind, WindowEvent,
 };
 pub use aurea_runtime::EventQueue;
 pub use clipboard::{clipboard_text, set_clipboard_text};

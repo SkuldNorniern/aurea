@@ -201,6 +201,26 @@ pub enum WindowEvent {
         /// Where the fingers meet, vertically.
         y: f64,
     },
+    /// Two fingers on a touch screen, as totals since they landed, so a view solved from its pose at
+    /// [`GesturePhase::Began`] does not drift or lose a clamped zoom. Sent along with the wheel,
+    /// [`Self::Magnify`] and [`Self::Rotate`]; follow one or the other. Touchpads send only those.
+    Gesture {
+        /// Where the gesture is now.
+        phase: GesturePhase,
+        /// Where the fingers meet now, horizontally.
+        x: f64,
+        /// Where the fingers meet now, vertically.
+        y: f64,
+        /// How far they moved since they landed, horizontally.
+        dx: f64,
+        /// How far they moved since they landed, vertically.
+        dy: f64,
+        /// How much further apart they are than when they landed: above 1 is apart.
+        scale: f64,
+        /// How far they turned since they landed, in radians, past a half turn too. Positive is
+        /// clockwise on screen. Stays 0 until the turn is more than a pinch's jitter.
+        turn: f64,
+    },
     /// Other windows now cover more or less of this one, or it was minimized or restored; see
     /// [`Occlusion`]. An app can pause work no one sees, or warn when its window is hidden.
     OcclusionChanged(Occlusion),
@@ -210,6 +230,19 @@ pub enum WindowEvent {
         /// True when the system now prefers dark.
         dark: bool,
     },
+}
+
+/// Where a [`WindowEvent::Gesture`] is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GesturePhase {
+    /// The second finger landed; the totals start here.
+    Began,
+    /// A finger moved.
+    Moved,
+    /// A finger lifted. The one left pans as [`WindowEvent::MouseWheel`].
+    Ended,
+    /// The system took the touches: put the view back.
+    Cancelled,
 }
 
 /// How much of a window shows on screen.
