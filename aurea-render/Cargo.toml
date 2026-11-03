@@ -37,6 +37,10 @@ zengpu-spirv = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "2a25a44
 # wgpu compatibility backend: optional, enabled by the `wgpu` feature.
 wgpu = { version = "29.0.1", optional = true }
 
+# System fonts are mapped, not read.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 # Windows: hinted ClearType glyph rasterization via DirectWrite.
 [target.'cfg(windows)'.dependencies]
 dwrote = "0.11"
