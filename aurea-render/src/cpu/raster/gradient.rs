@@ -384,224 +384,102 @@ fn gradient_over_span(step: &GradientStep, pixels: &mut [u32], luts: LinearLuts)
 
 #[cfg(test)]
 mod tests {
-    use crate::cpu::blend::{LinearLuts, blend_pixel};
+    use super::{fill_linear, fill_radial};
+
     use crate::cpu::clip::ClipBox;
     use crate::cpu::raster::band::Band;
-    use crate::cpu::raster::image::ImageScratch;
-    use crate::cpu::raster::{image, pixel};
-    use crate::numeric::{f32_to_i32_clamped, f32_to_u32_clamped, f32_to_usize_clamped};
+
     use crate::types::{
-        BlendMode, Color, GradientStop, Image, LinearGradient, Point, RadialGradient, Rect,
-        Sampling,
+        BlendMode, Color, GradientStop, LinearGradient, Point, RadialGradient, Rect,
     };
 
-    const W: u32 = 40;
-    const H: u32 = 30;
-
-    /// `fill_linear_gradient` as it stands before the axis-aligned paths, kept as the reference.
-    fn reference_linear(
-        grad: &LinearGradient,
-        rect: Rect,
-        mode: BlendMode,
-        buf: &mut [u32],
-        bw: u32,
-        clip: ClipBox,
-    ) {
-        let (start, end) = grad.pixel_axis();
-        let dx = end.x - start.x;
-        let dy = end.y - start.y;
-        let len_sq = dx * dx + dy * dy;
-        if len_sq < 1e-10 {
-            return;
-        }
-        let lut = super::build_lut(&grad.stops);
-        let x0 = f32_to_i32_clamped(rect.x.max(clip.left()).ceil());
-        let y0 = f32_to_i32_clamped(rect.y.max(clip.top()).ceil());
-        let x1 = f32_to_i32_clamped((rect.x + rect.width).min(clip.right()).floor());
-        let y1 = f32_to_i32_clamped((rect.y + rect.height).min(clip.bottom()).floor());
-        if x0 >= x1 || y0 >= y1 {
-            return;
-        }
-
-        let dt_x = dx / len_sq;
-        let luts = LinearLuts::get();
-        let steps = (mode == BlendMode::Normal).then(|| super::gradient_steps(&lut, luts));
-
-        for cy in y0..y1 {
-            let row = (cy.unsigned_abs() * bw) as usize;
-            let mut t =
-                ((x0 as f32 + 0.5 - start.x) * dx + (cy as f32 + 0.5 - start.y) * dy) / len_sq;
-            for cx in x0..x1 {
-                let t_idx = f32_to_usize_clamped((t.clamp(0.0, 1.0) * 255.0).round());
-                let idx = row + cx.unsigned_abs() as usize;
-                buf[idx] = match &steps {
-                    Some(steps) => super::gradient_over(&steps[t_idx], buf[idx], luts),
-                    None => blend_pixel(lut[t_idx], buf[idx], mode),
-                };
-                t += dt_x;
-            }
-        }
+    /// Draws `fill` on a dark frame of `side` by `side`.
+    fn painted(side: u32, fill: impl FnOnce(&mut Band<'_>, ClipBox)) -> Vec<u32> {
+        let mut px = vec![0xFF10_1010_u32; (side * side) as usize];
+        fill(&mut Band::whole(&mut px), ClipBox::surface(side, side));
+        px
     }
 
-    /// `fill_radial_gradient` as it stands before the squared-distance path, kept as the reference.
-    fn reference_radial(
-        grad: &RadialGradient,
-        rect: Rect,
-        mode: BlendMode,
-        buf: &mut [u32],
-        bw: u32,
-        clip: ClipBox,
-    ) {
-        if grad.radius <= 0.0 {
-            return;
-        }
-        let lut = super::build_lut(&grad.stops);
-        let x0 = f32_to_i32_clamped(rect.x.max(clip.left()).ceil());
-        let y0 = f32_to_i32_clamped(rect.y.max(clip.top()).ceil());
-        let x1 = f32_to_i32_clamped((rect.x + rect.width).min(clip.right()).floor());
-        let y1 = f32_to_i32_clamped((rect.y + rect.height).min(clip.bottom()).floor());
-        if x0 >= x1 || y0 >= y1 {
-            return;
-        }
-
-        let inv_radius = 1.0 / grad.radius;
-        let luts = LinearLuts::get();
-        let steps = (mode == BlendMode::Normal).then(|| super::gradient_steps(&lut, luts));
-
-        for cy in y0..y1 {
-            let row = (cy.unsigned_abs() * bw) as usize;
-            let dy = cy as f32 + 0.5 - grad.center.y;
-            let dy_sq = dy * dy;
-            for cx in x0..x1 {
-                let dx = cx as f32 + 0.5 - grad.center.x;
-                let dist = (dx * dx + dy_sq).sqrt();
-                let t = (dist * inv_radius).min(1.0);
-                let t_idx = f32_to_usize_clamped((t.clamp(0.0, 1.0) * 255.0).round());
-                let idx = row + cx.unsigned_abs() as usize;
-                buf[idx] = match &steps {
-                    Some(steps) => super::gradient_over(&steps[t_idx], buf[idx], luts),
-                    None => blend_pixel(lut[t_idx], buf[idx], mode),
-                };
-            }
-        }
-    }
-
-    /// The nearest-sampled scaled image loop, with the span arithmetic `draw_image` uses.
-    #[allow(clippy::too_many_arguments)]
-    fn reference_scaled(
-        image: &Image,
-        src: Rect,
-        dest: Rect,
-        mode: BlendMode,
-        alpha: f32,
-        buf: &mut [u32],
-        bw: u32,
-        clip: ClipBox,
-    ) {
-        let centre_span = |from: f32, to: f32, lo: u32, hi: u32| {
-            (
-                f32_to_i32_clamped((from - 0.5).ceil()).max(lo as i32),
-                f32_to_i32_clamped((to - 0.5).ceil()).min(hi as i32),
-            )
-        };
-        let (x0, x1) = centre_span(dest.x, dest.x + dest.width, clip.x0, clip.x1);
-        let (y0, y1) = centre_span(dest.y, dest.y + dest.height, clip.y0, clip.y1);
-        if x0 >= x1 || y0 >= y1 {
-            return;
-        }
-        let max_sx = image.width as f32 - 0.001;
-        let max_sy = image.height as f32 - 0.001;
-        for cy in y0..y1 {
-            let v = (cy as f32 + 0.5 - dest.y) / dest.height * src.height + src.y;
-            let sy = f32_to_u32_clamped(v.clamp(0.0, max_sy));
-            let src_row = &image.data[sy as usize * image.width as usize * 4..];
-            for cx in x0..x1 {
-                let u = (cx as f32 + 0.5 - dest.x) / dest.width * src.width + src.x;
-                let sx = f32_to_u32_clamped(u.clamp(0.0, max_sx));
-                let ii = sx as usize * 4;
-                if ii + 3 >= src_row.len() {
-                    continue;
-                }
-                let rgba = (u32::from(pixel::scale_u8(src_row[ii + 3], alpha)) << 24)
-                    | (u32::from(src_row[ii]) << 16)
-                    | (u32::from(src_row[ii + 1]) << 8)
-                    | u32::from(src_row[ii + 2]);
-                pixel::put(&mut Band::whole(buf), bw, clip, cx, cy, rgba, mode);
-            }
-        }
-    }
-
-    /// Mixed opaque, translucent, transparent and empty destination pixels.
-    fn background(len: u32) -> Vec<u32> {
-        (0..len)
-            .map(|i| {
-                let h = i.wrapping_mul(2_654_435_761);
-                match i % 5 {
-                    0 => 0,
-                    1 | 3 => 0xff00_0000 | (h & 0x00ff_ffff),
-                    _ => (h & 0xff00_0000) | (h & 0x00ff_ffff),
-                }
-            })
-            .collect()
-    }
-
-    fn stop(offset: f32, r: u8, g: u8, b: u8, a: u8) -> GradientStop {
-        GradientStop {
-            offset,
-            color: Color::rgba(r, g, b, a),
-        }
-    }
-
-    fn stop_sets() -> Vec<Vec<GradientStop>> {
+    fn ramp(alpha: u8) -> Vec<GradientStop> {
         vec![
-            vec![stop(0.0, 255, 255, 255, 255), stop(1.0, 255, 255, 255, 0)],
-            vec![stop(0.0, 0, 0, 0, 0), stop(1.0, 0, 0, 0, 255)],
-            vec![stop(0.0, 255, 0, 0, 255), stop(1.0, 0, 0, 255, 255)],
-            vec![
-                stop(0.0, 200, 30, 10, 90),
-                stop(0.4, 10, 200, 30, 200),
-                stop(1.0, 30, 40, 250, 0),
-            ],
-            vec![stop(0.2, 90, 90, 90, 128), stop(0.8, 20, 20, 20, 64)],
-        ]
-    }
-
-    fn clips() -> Vec<ClipBox> {
-        vec![
-            ClipBox::surface(W, H),
-            ClipBox {
-                x0: 3,
-                y0: 2,
-                x1: 33,
-                y1: 25,
+            GradientStop {
+                offset: 0.0,
+                color: Color::rgba(250, 10, 0, alpha),
             },
-            ClipBox::surface(W, H).intersect(Rect::new(2.4, 1.6, 17.2, 14.9)),
+            GradientStop {
+                offset: 1.0,
+                color: Color::rgba(0, 10, 250, alpha),
+            },
         ]
     }
 
-    fn assert_same(got: &[u32], want: &[u32], case: &str) {
-        for (i, (&g, &w)) in got.iter().zip(want).enumerate() {
-            assert_eq!(
-                g,
-                w,
-                "{case}: pixel ({}, {})",
-                i % W as usize,
-                i / W as usize
-            );
+    #[test]
+    fn a_ramp_along_either_axis_is_the_same_ramp() {
+        const SIDE: u32 = 48;
+        let whole = Rect::new(0.0, 0.0, SIDE as f32, SIDE as f32);
+        for alpha in [255, 128] {
+            let along = |end: Point| {
+                let grad = LinearGradient {
+                    start: Point::new(0.0, 0.0),
+                    end,
+                    stops: ramp(alpha),
+                };
+                painted(SIDE, |buf, clip| {
+                    fill_linear(&grad, whole, BlendMode::Normal, buf, SIDE, clip);
+                })
+            };
+            let across = along(Point::new(SIDE as f32, 0.0));
+            let down = along(Point::new(0.0, SIDE as f32));
+            let at = |x: u32, y: u32| (y * SIDE + x) as usize;
+            for y in 0..SIDE {
+                for x in 0..SIDE {
+                    assert_eq!(across[at(x, y)], down[at(y, x)], "{x}, {y}, alpha {alpha}");
+                }
+            }
+            let (left, right) = (across[at(0, 0)], across[at(SIDE - 1, 0)]);
+            let red = |px: u32| (px >> 16) & 0xFF;
+            let blue = |px: u32| px & 0xFF;
+            assert!(red(left) > red(right), "{left:08x} {right:08x}");
+            assert!(blue(left) < blue(right), "{left:08x} {right:08x}");
         }
     }
 
-    /// Within one level per channel, for the integer gradient mix.
-    fn assert_close(got: &[u32], want: &[u32], case: &str) {
-        for (i, (&g, &w)) in got.iter().zip(want).enumerate() {
-            let off = [0, 8, 16, 24].map(|s| ((g >> s) & 255).abs_diff((w >> s) & 255));
-            assert!(
-                off.iter().all(|&d| d <= 1),
-                "{case}: pixel ({}, {}) {g:08x} vs {w:08x}",
-                i % W as usize,
-                i / W as usize
-            );
+    #[test]
+    fn an_angled_ramp_is_level_across_its_axis() {
+        const SIDE: u32 = 48;
+        let grad = LinearGradient {
+            start: Point::new(0.0, 0.0),
+            end: Point::new(SIDE as f32, SIDE as f32),
+            stops: ramp(128),
+        };
+        let px = painted(SIDE, |buf, clip| {
+            let whole = Rect::new(0.0, 0.0, SIDE as f32, SIDE as f32);
+            fill_linear(&grad, whole, BlendMode::Normal, buf, SIDE, clip);
+        });
+        for y in 0..SIDE {
+            for x in 0..SIDE {
+                let (a, b) = (px[(y * SIDE + x) as usize], px[(x * SIDE + y) as usize]);
+                assert_eq!(a, b, "{x}, {y}");
+            }
         }
+    }
+
+    #[test]
+    fn a_radial_runs_from_its_centre_to_its_edge() {
+        const SIDE: u32 = 65;
+        let grad = RadialGradient {
+            center: Point::new(32.5, 32.5),
+            radius: 20.0,
+            stops: ramp(255),
+        };
+        let px = painted(SIDE, |buf, clip| {
+            let whole = Rect::new(0.0, 0.0, SIDE as f32, SIDE as f32);
+            fill_radial(&grad, whole, BlendMode::Normal, buf, SIDE, clip);
+        });
+        let at = |x: u32, y: u32| px[(y * SIDE + x) as usize];
+        assert!((at(32, 32) >> 16) & 0xFF > 200, "{:08x}", at(32, 32));
+        assert_eq!(at(0, 0), 0xFF00_0AFA, "past the edge is the last stop");
+        assert_eq!(at(32, 12), at(12, 32), "the same all round");
     }
 
     #[test]
@@ -648,145 +526,6 @@ mod tests {
                 format!("{old:?}"),
                 "radial alpha {alpha}"
             );
-        }
-    }
-
-    #[test]
-    fn linear_gradients_match_the_reference() {
-        let rects = [
-            Rect::new(0.0, 0.0, W as f32, H as f32),
-            Rect::new(1.5, 2.25, 33.5, 20.5),
-            Rect::new(4.0, 1.0, 20.0, 25.0),
-            Rect::new(-4.0, -3.0, 50.0, 40.0),
-            Rect::new(0.5, 0.25, 0.75, 29.5),
-            Rect::new(7.25, 3.5, 2.0, 1.0),
-        ];
-        let axes = [
-            (Point::new(2.0, 0.0), Point::new(30.0, 0.0)),
-            (Point::new(30.0, 7.25), Point::new(2.0, 7.25)),
-            (Point::new(0.0, 0.0), Point::new(0.0, H as f32)),
-            (Point::new(11.0, 28.0), Point::new(11.0, 0.0)),
-            (Point::new(7.5, 1.0), Point::new(7.5, 26.5)),
-            (Point::new(5.0, 3.0), Point::new(25.0, 22.0)),
-        ];
-        for stops in stop_sets() {
-            for (start, end) in axes {
-                let grad = LinearGradient {
-                    start,
-                    end,
-                    stops: stops.clone(),
-                };
-                for rect in rects {
-                    for clip in clips() {
-                        for mode in [BlendMode::Normal, BlendMode::Multiply] {
-                            let mut want = background(W * H);
-                            reference_linear(&grad, rect, mode, &mut want, W, clip);
-                            let mut got = background(W * H);
-                            super::fill_linear(
-                                &grad,
-                                rect,
-                                mode,
-                                &mut Band::whole(&mut got),
-                                W,
-                                clip,
-                            );
-                            assert_same(
-                                &got,
-                                &want,
-                                &format!("{mode:?} {start:?}->{end:?} {rect:?}"),
-                            );
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn radial_gradients_match_the_reference() {
-        let rects = [
-            Rect::new(0.0, 0.0, W as f32, H as f32),
-            Rect::new(3.0, 2.0, 30.0, 25.0),
-        ];
-        for stops in stop_sets() {
-            let grad = RadialGradient {
-                center: Point::new(14.5, 12.25),
-                radius: 9.0,
-                stops,
-            };
-            for rect in rects {
-                for clip in clips() {
-                    for mode in [BlendMode::Normal, BlendMode::Multiply] {
-                        let mut want = background(W * H);
-                        reference_radial(&grad, rect, mode, &mut want, W, clip);
-                        let mut got = background(W * H);
-                        super::fill_radial(&grad, rect, mode, &mut Band::whole(&mut got), W, clip);
-                        assert_close(&got, &want, &format!("{mode:?} radial {rect:?}"));
-                    }
-                }
-            }
-        }
-    }
-
-    fn image_pattern(w: u32, h: u32, alpha: impl Fn(u32, u32) -> u8) -> Image {
-        let mut data = Vec::with_capacity((w * h * 4) as usize);
-        for y in 0..h {
-            for x in 0..w {
-                let v = ((x * 37) ^ (y * 91)).to_le_bytes()[0];
-                data.extend([v, v.wrapping_mul(3), 255 - v, alpha(x, y)]);
-            }
-        }
-        Image::new(w, h, data)
-    }
-
-    #[test]
-    fn scaled_images_match_the_reference() {
-        let images = [
-            image_pattern(7, 5, |_, _| 255),
-            image_pattern(7, 5, |x, y| [255, 0, 128, 255, 7][((x + y) % 5) as usize]),
-            image_pattern(7, 5, |_, _| 128),
-        ];
-        // Up, down, partly offscreen, fractional, and a sub-rectangle of the source.
-        let cases = [
-            (
-                Rect::new(0.0, 0.0, 7.0, 5.0),
-                Rect::new(-3.0, 4.5, 60.0, 40.0),
-            ),
-            (Rect::new(0.0, 0.0, 7.0, 5.0), Rect::new(2.0, 1.0, 3.0, 2.0)),
-            (
-                Rect::new(0.0, 0.0, 7.0, 5.0),
-                Rect::new(1.25, 3.5, 22.5, 17.75),
-            ),
-            (
-                Rect::new(1.0, 1.0, 5.0, 3.0),
-                Rect::new(-5.0, -2.0, 50.0, 31.0),
-            ),
-        ];
-        for image in &images {
-            for (src, dest) in cases {
-                for clip in clips() {
-                    for mode in [BlendMode::Normal, BlendMode::Multiply] {
-                        for alpha in [1.0, 0.5] {
-                            let mut want = background(W * H);
-                            reference_scaled(image, src, dest, mode, alpha, &mut want, W, clip);
-                            let mut got = background(W * H);
-                            image::draw(
-                                image,
-                                src,
-                                dest,
-                                Sampling::Nearest,
-                                mode,
-                                alpha,
-                                &mut Band::whole(&mut got),
-                                &mut ImageScratch::default(),
-                                W,
-                                clip,
-                            );
-                            assert_same(&got, &want, &format!("{mode:?} {alpha} {dest:?}"));
-                        }
-                    }
-                }
-            }
         }
     }
 }

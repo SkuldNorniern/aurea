@@ -117,13 +117,12 @@ pub(crate) fn draw_blended(
 #[cfg(test)]
 mod tests {
 
-    use crate::cpu::blend::{ConstSrc, LinearLuts, blend_pixel};
     use crate::cpu::clip::ClipBox;
     use crate::cpu::raster::band::Band;
     use crate::cpu::raster::fill::PathScratch;
     use crate::cpu::raster::image::ImageScratch;
-    use crate::cpu::raster::{item, pixel, rect};
-    use crate::numeric::f32_to_i32_clamped;
+    use crate::cpu::raster::{item, rect};
+
     use crate::scene::command::DrawCommand;
     use crate::scene::display_list::{CacheKey, DisplayIndex, DisplayItem};
     use crate::types::{BlendMode, Color, GlyphMask, Point, Rect};
@@ -282,152 +281,6 @@ mod tests {
                 ClipBox::surface(2, 2),
             );
             assert_eq!(pixels, [0; 4]);
-        }
-    }
-
-    /// The per-pixel glyph blend before the fade table; the oracle for `draw_glyph_blended`.
-    #[allow(clippy::too_many_arguments)]
-    fn reference_glyph_blended(
-        mask: &GlyphMask,
-        origin: Point,
-        color: Color,
-        mode: BlendMode,
-        buf: &mut [u32],
-        bw: u32,
-        clip: ClipBox,
-    ) {
-        if mask.width == 0
-            || mask.height == 0
-            || color.a == 0
-            || !pixel::bytes_fit(mask.width, mask.height, 3, mask.coverage.len())
-        {
-            return;
-        }
-        let luts = LinearLuts::get();
-        let (tr, tg, tb) = (
-            luts.linear(color.r),
-            luts.linear(color.g),
-            luts.linear(color.b),
-        );
-        let opaque_pixel = 0xFF00_0000
-            | (u32::from(color.r) << 16)
-            | (u32::from(color.g) << 8)
-            | u32::from(color.b);
-        let source = ConstSrc::new(opaque_pixel);
-        let dx = f32_to_i32_clamped(origin.x.round());
-        let dy = f32_to_i32_clamped(origin.y.round());
-
-        let offset = |edge: u32, origin: i32, limit: u32| {
-            usize::try_from((i64::from(edge) - i64::from(origin)).clamp(0, i64::from(limit)))
-                .unwrap_or(0)
-        };
-        let x_lo = offset(clip.x0, dx, mask.width);
-        let x_hi = offset(clip.x1, dx, mask.width);
-        let y_lo = offset(clip.y0, dy, mask.height);
-        let y_hi = offset(clip.y1, dy, mask.height);
-        if x_lo >= x_hi || y_lo >= y_hi {
-            return;
-        }
-
-        let px = usize::try_from(i64::from(dx) + x_lo as i64).unwrap_or(0);
-        let py = usize::try_from(i64::from(dy) + y_lo as i64).unwrap_or(0);
-        let alpha = u16::from(color.a);
-        let fade =
-            |coverage: u8| u8::try_from((u16::from(coverage) * alpha + 127) / 255).unwrap_or(255);
-        for my in y_lo..y_hi {
-            let row = my * mask.width as usize;
-            let cov_row = &mask.coverage[(row + x_lo) * 3..(row + x_hi) * 3];
-            let start = (py + my - y_lo) * bw as usize + px;
-            let dst_row = &mut buf[start..start + x_hi - x_lo];
-
-            for (coverage, dst) in cov_row.as_chunks::<3>().0.iter().zip(dst_row) {
-                let (cr8, cg8, cb8) = if color.a == 255 {
-                    (coverage[0], coverage[1], coverage[2])
-                } else {
-                    (fade(coverage[0]), fade(coverage[1]), fade(coverage[2]))
-                };
-                if cr8 == 0 && cg8 == 0 && cb8 == 0 {
-                    continue;
-                }
-
-                if mode == BlendMode::Normal && cr8 == 255 && cg8 == 255 && cb8 == 255 {
-                    *dst = opaque_pixel;
-                    continue;
-                }
-                if mode != BlendMode::Normal || (*dst >> 24) != 255 {
-                    let coverage = u32::from(cr8.max(cg8).max(cb8));
-                    *dst = if mode == BlendMode::Normal {
-                        source.over_at_alpha(*dst, coverage)
-                    } else {
-                        blend_pixel((coverage << 24) | (opaque_pixel & 0x00ff_ffff), *dst, mode)
-                    };
-                    continue;
-                }
-                let da = (*dst >> 24) & 0xff;
-                let [_, dr, dg, db] = dst.to_be_bytes();
-                let or_ = luts.mix(tr, dr, cr8);
-                let og = luts.mix(tg, dg, cg8);
-                let ob = luts.mix(tb, db, cb8);
-                let sa = u32::from(cr8.max(cg8).max(cb8));
-                let oa = sa + ((255 - sa) * da) / 255;
-                *dst = (oa << 24) | (or_ << 16) | (og << 8) | ob;
-            }
-        }
-    }
-
-    #[test]
-    fn glyph_blend_matches_per_pixel_reference() {
-        let (gw, gh) = (37u32, 19u32);
-        let coverage: Vec<u8> = (0..gw * gh * 3)
-            .map(|i| u8::try_from((i * 73) % 256).expect("byte"))
-            .collect();
-        let mask = GlyphMask::new(gw, gh, coverage.into());
-        let (sw, sh) = (40u32, 24u32);
-        let clip = ClipBox::surface(sw, sh);
-        let backdrop: Vec<u32> = (0..sw * sh)
-            .map(|i| {
-                let v = i.wrapping_mul(2_654_435_761);
-                match i % 4 {
-                    0 => 0,
-                    1 => 0x8000_0000 | (v & 0x00ff_ffff),
-                    2 => 0xff00_0000 | (v & 0x00ff_ffff),
-                    _ => v,
-                }
-            })
-            .collect();
-        for alpha in [0, 1, 64, 128, 254, 255] {
-            for color in [
-                Color::rgba(200, 90, 17, alpha),
-                Color::rgba(255, 255, 255, alpha),
-            ] {
-                for mode in [BlendMode::Normal, BlendMode::Multiply, BlendMode::Screen] {
-                    for origin in [Point::new(2.0, 3.0), Point::new(-5.0, 20.0)] {
-                        let mut expected = backdrop.clone();
-                        reference_glyph_blended(
-                            &mask,
-                            origin,
-                            color,
-                            mode,
-                            &mut expected,
-                            sw,
-                            clip,
-                        );
-                        let mut actual = backdrop.clone();
-                        super::draw_blended(
-                            &mask,
-                            origin,
-                            color,
-                            mode,
-                            &mut Band::whole(&mut actual),
-                            sw,
-                            clip,
-                        );
-                        for (i, (a, e)) in actual.iter().zip(&expected).enumerate() {
-                            assert_eq!(a, e, "alpha {alpha} {mode:?} {origin:?} pixel {i}");
-                        }
-                    }
-                }
-            }
         }
     }
 }

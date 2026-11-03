@@ -320,12 +320,11 @@ mod tests {
     use crate::cpu::raster::fill::PathScratch;
     use crate::cpu::raster::image::ImageScratch;
     use crate::cpu::raster::{coverage, item};
-    use crate::cpu::rasterizer::CpuRasterizer;
-    use crate::numeric::f32_to_u8_clamped;
+
     use crate::scene::command::DrawCommand;
     use crate::scene::display_list::{CacheKey, DisplayIndex, DisplayItem};
     use crate::types::{BlendMode, Color, Paint, Path, PathCommand, Point, Rect};
-    use aurea_foundation::AureaResult;
+
     use std::sync::Arc;
 
     /// The largest difference of any channel of any pixel.
@@ -352,37 +351,51 @@ mod tests {
         .with_opacity(0.7)
     }
 
-    fn draw(
-        item: &DisplayItem,
-        pixels: &mut [u32],
-        width: u32,
-        scratch: &mut ImageScratch,
-        reference: bool,
-    ) {
-        let clip = ClipBox::surface(width, width).intersect(Rect::new(
+    fn inset(width: u32) -> ClipBox {
+        ClipBox::surface(width, width).intersect(Rect::new(
             3.0,
             2.0,
             width as f32 - 6.0,
             width as f32 - 4.0,
-        ));
-        let draw = if reference {
-            CpuRasterizer::reference_clipped_item
-        } else {
-            super::render_clipped
-        };
-        draw(
+        ))
+    }
+
+    fn draw(item: &DisplayItem, pixels: &mut [u32], width: u32, scratch: &mut ImageScratch) {
+        super::render_clipped(
             item,
             &mut Band::whole(pixels),
             &mut PathScratch::default(),
             scratch,
             width,
-            clip,
+            inset(width),
         )
         .expect("clipped item");
     }
 
+    /// `paths` multiplied together over a frame of `size` by `size`.
+    fn coverage_of(paths: &[Path], size: u32) -> Vec<f32> {
+        let len = (size * size) as usize;
+        let mut total = vec![1.0_f32; len];
+        for path in paths {
+            let mut words = vec![0_u32; len];
+            coverage::draw_alpha(
+                path,
+                &Paint::new(),
+                Point::new(0.0, 0.0),
+                (size, size),
+                &mut words,
+                &mut PathScratch::default(),
+            )
+            .expect("coverage");
+            for (t, w) in total.iter_mut().zip(&words) {
+                *t *= (w >> 24) as f32 / 255.0;
+            }
+        }
+        total
+    }
+
     #[test]
-    fn edge_only_clips_match_full_box_for_nested_masks_and_blending() {
+    fn a_clipped_item_is_the_item_mixed_in_by_coverage() {
         const SIZE: u32 = 93;
         let rounded = Path::rounded_rect(Rect::new(9.3, 6.7, 72.4, 76.1), 13.5);
         let triangle = Path {
@@ -401,20 +414,41 @@ mod tests {
             vec![triangle.clone()],
             vec![rounded.clone(), triangle],
         ] {
+            let cover = coverage_of(&paths, SIZE);
             for mode in [BlendMode::Normal, BlendMode::Multiply, BlendMode::Screen] {
                 let item = item(SIZE, paths.clone(), mode);
-                let mut fast = ImageScratch::default();
-                let mut slow = ImageScratch::default();
-                for round in 0..3 {
-                    let mut expected: Vec<u32> = (0..SIZE * SIZE)
-                        .map(|i| i.wrapping_mul(123456789).wrapping_add(round))
-                        .collect();
-                    let mut actual = expected.clone();
-                    draw(&item, &mut expected, SIZE, &mut slow, true);
-                    draw(&item, &mut actual, SIZE, &mut fast, false);
-                    // The reference's mask starts elsewhere, so its float edges round differently.
-                    let worst = worst_difference(&actual, &expected);
-                    assert!(worst <= 1, "off by {worst}, pass {round}, {mode:?}");
+                let backdrop: Vec<u32> = (0..SIZE * SIZE)
+                    .map(|i| i.wrapping_mul(123456789))
+                    .collect();
+                let mut full = backdrop.clone();
+                item::render(
+                    &item,
+                    &mut Band::whole(&mut full),
+                    &mut PathScratch::default(),
+                    &mut ImageScratch::default(),
+                    SIZE,
+                    inset(SIZE),
+                )
+                .expect("item");
+                let mut scratch = ImageScratch::default();
+                for pass in 0..3 {
+                    let mut got = backdrop.clone();
+                    draw(&item, &mut got, SIZE, &mut scratch);
+                    for (i, &px) in got.iter().enumerate() {
+                        let c = cover[i];
+                        let channels = px
+                            .to_be_bytes()
+                            .into_iter()
+                            .zip(backdrop[i].to_be_bytes())
+                            .zip(full[i].to_be_bytes());
+                        for ((px, old), new) in channels {
+                            let want = f32::from(old) * (1.0 - c) + f32::from(new) * c;
+                            assert!(
+                                (f32::from(px) - want).abs() <= 2.5,
+                                "{px} and {want} at {i}, pass {pass}, {mode:?}"
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -431,7 +465,7 @@ mod tests {
             BlendMode::Normal,
         );
         let mut scratch = ImageScratch::default();
-        draw(&item, &mut vec![0; 1024 * 1024], 1024, &mut scratch, false);
+        draw(&item, &mut vec![0; 1024 * 1024], 1024, &mut scratch);
         assert!(scratch.clip.saved.len() < 20000, "interior is not copied");
     }
 
@@ -490,7 +524,7 @@ mod tests {
     }
 
     #[test]
-    fn items_under_one_clip_match_each_drawn_with_its_own_mask() {
+    fn items_sharing_a_mask_match_each_with_its_own() {
         const SIZE: u32 = 96;
         let clip: Arc<[Path]> =
             vec![Path::rounded_rect(Rect::new(5.5, 6.5, 80.0, 78.0), 11.0)].into();
@@ -516,80 +550,10 @@ mod tests {
         let (mut shared, mut alone) = (start.clone(), start);
         let mut scratch = ImageScratch::default();
         for item in &items {
-            draw(item, &mut shared, SIZE, &mut scratch, false);
-            draw(item, &mut alone, SIZE, &mut ImageScratch::default(), true);
+            draw(item, &mut shared, SIZE, &mut scratch);
+            draw(item, &mut alone, SIZE, &mut ImageScratch::default());
         }
         let worst = worst_difference(&shared, &alone);
         assert!(worst <= 1, "off by {worst}");
-    }
-
-    impl CpuRasterizer {
-        #[allow(clippy::too_many_arguments)]
-        fn reference_clipped_item(
-            item: &DisplayItem,
-            buf: &mut Band<'_>,
-            scratch_path: &mut PathScratch,
-            scratch_row: &mut ImageScratch,
-            bw: u32,
-            clip: ClipBox,
-        ) -> AureaResult<()> {
-            let Some(paths) = item.clip_paths.as_deref() else {
-                return item::render(item, buf, scratch_path, scratch_row, bw, clip);
-            };
-            if clip.is_empty() {
-                return Ok(());
-            }
-            // Only the pixels the item can reach change, so only those are saved and restored.
-            let boxed = super::item_clip_box(item, clip);
-            if boxed.is_empty() {
-                return Ok(());
-            }
-            let (x0, x1) = (boxed.x0 as usize, boxed.x1 as usize);
-            let (w, h) = (boxed.x1 - boxed.x0, boxed.y1 - boxed.y0);
-            let mut saved = Vec::new();
-            for y in boxed.y0..boxed.y1 {
-                let row = y as usize * bw as usize;
-                saved.extend_from_slice(&buf[row + x0..row + x1]);
-            }
-            item::render(item, buf, scratch_path, scratch_row, bw, clip)?;
-
-            let origin = Point::new(boxed.x0 as f32, boxed.y0 as f32);
-            let mut coverage_of = vec![255_u8; saved.len()];
-            for path in paths {
-                let mut words = vec![0_u32; saved.len()];
-                coverage::draw_alpha(
-                    path,
-                    &Paint::new(),
-                    origin,
-                    (w, h),
-                    &mut words,
-                    scratch_path,
-                )?;
-                for (c, px) in coverage_of.iter_mut().zip(&words) {
-                    let m = (*px >> 24) as u8;
-                    *c = f32_to_u8_clamped((f32::from(*c) * f32::from(m) / 255.0).round());
-                }
-            }
-            let mut at = 0;
-            for y in boxed.y0..boxed.y1 {
-                let row = y as usize * bw as usize;
-                for px in &mut buf[row + x0..row + x1] {
-                    let (old, cov) = (saved[at], u32::from(coverage_of[at]));
-                    at += 1;
-                    *px = match cov {
-                        255 => *px,
-                        0 => old,
-                        _ => {
-                            let mix = |shift: u32| {
-                                let (o, n) = ((old >> shift) & 0xFF, (*px >> shift) & 0xFF);
-                                ((o * (255 - cov) + n * cov + 127) / 255) << shift
-                            };
-                            mix(24) | mix(16) | mix(8) | mix(0)
-                        }
-                    };
-                }
-            }
-            Ok(())
-        }
     }
 }

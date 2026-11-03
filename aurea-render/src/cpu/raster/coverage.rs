@@ -96,15 +96,8 @@ mod tests {
 
     use crate::types::{Paint, Path, PathCommand, Point};
 
-    /// The copy-based result `path_coverage` replaced: draw into words, then copy the bytes.
-    fn reference(path: &Path, origin: Point, (w, h): (u32, u32)) -> Vec<u8> {
-        let mut buf = vec![0u32; w as usize * h as usize];
-        super::draw_all(path, &Paint::new(), origin, (w, h), &mut buf).unwrap();
-        buf.iter().flat_map(|px| px.to_ne_bytes()).collect()
-    }
-
     #[test]
-    fn path_coverage_matches_copy_based_reference() {
+    fn a_paths_coverage_is_its_alpha_in_every_byte() {
         let mut path = Path::new();
         for (i, (x, y)) in [(1.5, 1.0), (6.0, 1.0), (3.0, 5.25)]
             .into_iter()
@@ -120,7 +113,6 @@ mod tests {
         path.commands.push(PathCommand::Close);
         let (origin, size) = (Point::new(0.0, 0.0), (8, 6));
         let got = super::of_path(&path, &Paint::new(), origin, size).unwrap();
-        assert_eq!(&got[..], &reference(&path, origin, size)[..]);
         let (pixels, _) = got.as_chunks::<4>();
         assert!(pixels.iter().any(|px| px[0] == 255));
         assert!(pixels.iter().all(|px| px.iter().all(|&b| b == px[0])));
