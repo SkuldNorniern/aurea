@@ -36,7 +36,7 @@ impl CommandKind {
     pub(super) fn of(command: &DrawCommand) -> Self {
         match command {
             DrawCommand::Clear(_) => Self::Clear,
-            DrawCommand::DrawRect(..) => Self::Rect,
+            DrawCommand::DrawRect(..) | DrawCommand::DrawColumns(..) => Self::Rect,
             DrawCommand::DrawRoundRect(..) => Self::RoundRect,
             DrawCommand::DrawCircle(..) => Self::Circle,
             DrawCommand::DrawPath(..) => Self::Path,

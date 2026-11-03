@@ -20,6 +20,9 @@ pub enum DrawCommand {
     DrawShadow(Rect, f32, f32, Color),
     /// Path filled or stroked with a paint.
     DrawPath(Path, Paint),
+    /// Upright bars side by side: first column's x and each column's width, then each column's
+    /// top and bottom, in physical pixels.
+    DrawColumns(f32, f32, Vec<(f32, f32)>, Color),
     /// Image drawn into a destination rect.
     DrawImageRect(Image, Rect, Sampling),
     /// Image, source rect in pixels, destination.

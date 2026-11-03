@@ -12,6 +12,7 @@ mod interaction;
 mod memory;
 mod numeric;
 mod paint;
+mod picture;
 mod renderer;
 mod scene;
 mod surface;
@@ -34,6 +35,7 @@ pub use gpu::{
     GradientPlanEntry, ImagePlanEntry, PixelFormat, TextPlanEntry,
 };
 pub use interaction::*;
+pub use picture::Picture;
 pub use renderer::*;
 pub use scene::command::DrawCommand;
 pub use scene::display_list::*;

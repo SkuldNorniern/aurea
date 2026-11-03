@@ -487,3 +487,49 @@ mod coverage {
         assert!((area - ring).abs() < 1.0, "{area} and {ring}");
     }
 }
+
+#[cfg(test)]
+mod columns {
+    use crate::cpu::CpuRasterizer;
+    use crate::types::{Color, Paint, Rect};
+
+    fn spans() -> Vec<(f32, f32)> {
+        (0..40)
+            .map(|i| {
+                let i = i as f32;
+                (20.0 - (i * 0.7).sin() * 12.0, 22.0 + (i * 0.4).cos() * 14.0)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn columns_match_their_rects_at_any_scale_and_with_a_clip() {
+        let color = Color::rgba(200, 180, 60, 200);
+        for scale in [1.0, 1.5, 2.0] {
+            let drawn = |use_columns: bool| {
+                CpuRasterizer::draw_offscreen(70, 50, scale, |ctx| {
+                    ctx.clip_rect(Rect::new(10.0, 4.0, 40.0, 40.0))?;
+                    if use_columns {
+                        return ctx.draw_columns(3.5, 1.5, &spans(), color);
+                    }
+                    let paint = Paint::new().color(color);
+                    for (i, (top, bottom)) in spans().iter().enumerate() {
+                        let left = 3.5 + i as f32 * 1.5;
+                        ctx.draw_rect(Rect::new(left, *top, 1.5, bottom - top), &paint)?;
+                    }
+                    Ok(())
+                })
+                .expect("draw")
+            };
+            let (columns, rects) = (drawn(true), drawn(false));
+            let worst = columns
+                .rgba
+                .iter()
+                .zip(&rects.rgba)
+                .map(|(a, b)| a.abs_diff(*b))
+                .max();
+            assert!(worst <= Some(1), "{worst:?} at {scale}");
+            assert!(columns.rgba.iter().any(|b| *b != 0));
+        }
+    }
+}

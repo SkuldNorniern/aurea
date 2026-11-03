@@ -700,6 +700,19 @@ impl<'list> RecordingContext<'list> {
                     stop.color.a.hash(&mut hasher);
                 }
             }
+            DrawCommand::DrawColumns(x, wide, spans, color) => {
+                "DrawColumns".hash(&mut hasher);
+                x.to_bits().hash(&mut hasher);
+                wide.to_bits().hash(&mut hasher);
+                for (top, bottom) in spans {
+                    top.to_bits().hash(&mut hasher);
+                    bottom.to_bits().hash(&mut hasher);
+                }
+                color.r.hash(&mut hasher);
+                color.g.hash(&mut hasher);
+                color.b.hash(&mut hasher);
+                color.a.hash(&mut hasher);
+            }
             DrawCommand::DrawPath(path, paint) => {
                 "DrawPath".hash(&mut hasher);
                 hash_path(path, &mut hasher);
@@ -783,6 +796,12 @@ impl<'list> RecordingContext<'list> {
                     bounds.height += paint.stroke_width;
                 }
                 bounds
+            }
+            DrawCommand::DrawColumns(x, wide, spans, _) => {
+                let (top, bottom) = spans.iter().fold((f32::MAX, f32::MIN), |(t, b), span| {
+                    (t.min(span.0), b.max(span.1))
+                });
+                Rect::new(*x, top, *wide * spans.len() as f32, (bottom - top).max(0.0))
             }
             DrawCommand::DrawCircle(center, radius, paint) => {
                 let mut bounds = Rect::new(
@@ -1012,6 +1031,36 @@ impl DrawingContext for RecordingContext<'_> {
             self.s(radius),
             self.s_paint(paint),
         ));
+        Ok(())
+    }
+
+    fn draw_columns(
+        &mut self,
+        x: f32,
+        width: f32,
+        spans: &[(f32, f32)],
+        color: Color,
+    ) -> AureaResult<()> {
+        if !self.transform_is_axis_aligned() {
+            let paint = Paint::new().color(color);
+            let mut left = x;
+            for (top, bottom) in spans {
+                self.draw_rect(Rect::new(left, *top, width, bottom - top), &paint)?;
+                left += width;
+            }
+            return Ok(());
+        }
+        let start = self.s_pt(Point::new(x, 0.0)).x;
+        let wide = self.s_pt(Point::new(x + width, 0.0)).x - start;
+        let physical = spans
+            .iter()
+            .map(|(top, bottom)| {
+                let at = |y: f32| self.s_pt(Point::new(x, y)).y;
+                let (a, b) = (at(*top), at(*bottom));
+                (a.min(b), a.max(b))
+            })
+            .collect();
+        self.add_command(DrawCommand::DrawColumns(start, wide, physical, color));
         Ok(())
     }
 

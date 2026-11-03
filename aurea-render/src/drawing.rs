@@ -60,6 +60,24 @@ pub trait DrawingContext {
     /// Draw a path.
     fn draw_path(&mut self, path: &Path, paint: &Paint) -> AureaResult<()>;
 
+    /// Fills one upright bar per entry of `spans`, each `width` wide, from `x` to the right: its
+    /// top and bottom. A waveform's min and max per column, without building a path each frame.
+    fn draw_columns(
+        &mut self,
+        x: f32,
+        width: f32,
+        spans: &[(f32, f32)],
+        color: Color,
+    ) -> AureaResult<()> {
+        let paint = Paint::new().color(color);
+        let mut left = x;
+        for (top, bottom) in spans {
+            self.draw_rect(Rect::new(left, *top, width, bottom - top), &paint)?;
+            left += width;
+        }
+        Ok(())
+    }
+
     /// Draw an image at a position.
     fn draw_image(&mut self, image: &Image, position: Point) -> AureaResult<()>;
 

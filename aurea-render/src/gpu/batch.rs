@@ -230,7 +230,9 @@ fn needs_of(item: &DisplayItem) -> GpuFeatures {
         return GpuFeatures::NONE;
     }
     let mut needs = match &item.command {
-        DrawCommand::Clear(_) | DrawCommand::DrawRect(..) => GpuFeatures::NONE,
+        DrawCommand::Clear(_) | DrawCommand::DrawRect(..) | DrawCommand::DrawColumns(..) => {
+            GpuFeatures::NONE
+        }
         DrawCommand::DrawRoundRect(..) | DrawCommand::DrawShadow(..) => GpuFeatures {
             rounded_rects: true,
             ..GpuFeatures::NONE
@@ -454,6 +456,13 @@ impl RenderBatches {
             match &item.command {
                 DrawCommand::Clear(_) => {}
                 DrawCommand::DrawRect(rect, paint) => self.lower_rect(*rect, paint, alpha),
+                DrawCommand::DrawColumns(x, wide, spans, color) => {
+                    let color = fade(*color, alpha);
+                    for (i, (top, bottom)) in spans.iter().enumerate() {
+                        let left = x + i as f32 * wide;
+                        self.push_rect(Rect::new(left, *top, *wide, bottom - top), color);
+                    }
+                }
                 DrawCommand::DrawCircle(center, radius, paint) => {
                     if let Some(stroke) = shape_stroke(paint) {
                         let color = fade(paint.color, alpha);

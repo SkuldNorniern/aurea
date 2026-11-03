@@ -29,6 +29,20 @@ pub(crate) fn render(
         return Ok(());
     }
     match &item.command {
+        DrawCommand::DrawColumns(x, wide, spans, color) => {
+            let paint = Paint::new().color(pixel::fade_color(*color, alpha));
+            // A column past the clip costs nothing but this step.
+            let first = ((clip.left() - x) / wide).floor().max(0.0);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            for (i, (top, bottom)) in spans.iter().enumerate().skip(first as usize) {
+                let left = x + i as f32 * wide;
+                if left >= clip.right() {
+                    break;
+                }
+                let bar = Rect::new(left, *top, *wide, bottom - top);
+                rect::draw(&bar, &paint, item.blend_mode, buf, bw, clip);
+            }
+        }
         DrawCommand::DrawRect(rect, paint) => {
             rect::draw(
                 rect,
