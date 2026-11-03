@@ -221,6 +221,15 @@ pub enum WindowEvent {
         /// clockwise on screen. Stays 0 until the turn is more than a pinch's jitter.
         turn: f64,
     },
+    /// Two or more fingers landed and lifted together without moving, on a touch screen.
+    FingerTap {
+        /// How many fingers.
+        fingers: u8,
+        /// Where the first two met, horizontally.
+        x: f64,
+        /// Where the first two met, vertically.
+        y: f64,
+    },
     /// Other windows now cover more or less of this one, or it was minimized or restored; see
     /// [`Occlusion`]. An app can pause work no one sees, or warn when its window is hidden.
     OcclusionChanged(Occlusion),

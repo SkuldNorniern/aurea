@@ -23,6 +23,11 @@ const LONG_PRESS: Duration = Duration::from_millis(500);
 /// this.
 const TWIST: f32 = PI / 90.0;
 
+/// How long several fingers stay down at most, from the first landing to the last lift, to be a tap.
+const TAP: Duration = Duration::from_millis(250);
+/// How far a finger of a tap moves at most, in logical pixels.
+const TAP_SLOP: f32 = 10.0;
+
 /// What a touch did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Phase {
@@ -80,11 +85,22 @@ struct Pose {
     angle: f32,
 }
 
+/// Fingers that may yet be a tap: since when, how many, and where.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Tap {
+    since: Instant,
+    fingers: usize,
+    at: Point,
+}
+
 /// The touches on the screen and what they amount to.
 #[derive(Debug)]
 pub(crate) struct Touches {
     down: Vec<(usize, Point)>,
+    /// Where the fingers down now landed.
+    landed: Vec<(usize, Point)>,
     state: State,
+    tap: Option<Tap>,
 }
 
 impl Default for Touches {
@@ -97,7 +113,9 @@ impl Touches {
     pub(crate) fn new() -> Self {
         Self {
             down: Vec::new(),
+            landed: Vec::new(),
             state: State::Idle,
+            tap: None,
         }
     }
 
@@ -120,6 +138,7 @@ impl Touches {
     ) -> Vec<WindowEvent> {
         self.track(phase, id, at);
         let mut out = Vec::new();
+        self.starting_tap(phase, pencil);
         self.state = match self.state {
             // a pencil landing on a waiting finger: the finger was a palm.
             State::Idle | State::Pending { .. } | State::Pan { .. }
@@ -160,10 +179,55 @@ impl Touches {
             State::Done if matches!(phase, Phase::Up | Phase::Cancel) => self.rest(),
             state => state,
         };
+        self.ending_tap(&mut out, phase, now);
         if pencil {
             as_pen(&mut out);
         }
         out
+    }
+
+    /// Before the state moves on: a second finger on a waiting one may be a tap, and more may join
+    /// it, while a pencil or a gesture coming back from a pan rules one out.
+    fn starting_tap(&mut self, phase: Phase, pencil: bool) {
+        if phase != Phase::Down {
+            return;
+        }
+        match self.state {
+            _ if pencil => self.tap = None,
+            State::Pending { start, since, .. } => {
+                let at = self.down.last().map_or(start, |(_, at)| *at);
+                self.tap = Some(Tap {
+                    since,
+                    fingers: 2,
+                    at: pose(start, at, 0.0).center,
+                });
+            }
+            State::Pan { .. } => self.tap = None,
+            _ => {
+                if let Some(tap) = &mut self.tap {
+                    tap.fingers = tap.fingers.max(self.down.len());
+                }
+            }
+        }
+    }
+
+    /// After the state moved on: the last finger lifting in time is the tap.
+    fn ending_tap(&mut self, out: &mut Vec<WindowEvent>, phase: Phase, now: Instant) {
+        if phase == Phase::Cancel {
+            self.tap = None;
+        }
+        if phase != Phase::Up || !self.down.is_empty() {
+            return;
+        }
+        if let Some(tap) = self.tap.take()
+            && now.duration_since(tap.since) <= TAP
+        {
+            out.push(WindowEvent::FingerTap {
+                fingers: u8::try_from(tap.fingers).unwrap_or(u8::MAX),
+                x: f64::from(tap.at.x),
+                y: f64::from(tap.at.y),
+            });
+        }
     }
 
     /// The finger of a long press: lifting only leaves, as its press is gone.
@@ -181,13 +245,25 @@ impl Touches {
             Phase::Down => {
                 self.down.retain(|(d, _)| *d != id);
                 self.down.push((id, at));
+                self.landed.retain(|(d, _)| *d != id);
+                self.landed.push((id, at));
             }
             Phase::Move => {
                 if let Some(entry) = self.down.iter_mut().find(|(d, _)| *d == id) {
                     entry.1 = at;
                 }
+                let strayed = self
+                    .landed
+                    .iter()
+                    .any(|(d, from)| *d == id && distance(*from, at) > TAP_SLOP);
+                if strayed {
+                    self.tap = None;
+                }
             }
-            Phase::Up | Phase::Cancel => self.down.retain(|(d, _)| *d != id),
+            Phase::Up | Phase::Cancel => {
+                self.down.retain(|(d, _)| *d != id);
+                self.landed.retain(|(d, _)| *d != id);
+            }
         }
     }
 
@@ -868,6 +944,67 @@ mod tests {
         );
         assert!(t.touch(Phase::Down, 3, p(1.0, 1.0), false, now).is_empty());
         assert!(t.waiting());
+    }
+
+    fn taps(events: &[WindowEvent]) -> Vec<(u8, f64, f64)> {
+        events
+            .iter()
+            .filter_map(|e| match *e {
+                WindowEvent::FingerTap { fingers, x, y } => Some((fingers, x, y)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn two_fingers_lifting_soon_tap_where_they_met() {
+        let now = Instant::now();
+        let mut t = two_fingers(now);
+        let out = t.touch(Phase::Up, 1, p(0.0, 0.0), false, now);
+        assert!(taps(&out).is_empty(), "one is still down");
+        let out = t.touch(Phase::Up, 2, p(100.0, 0.0), false, now + TAP);
+        assert_eq!(taps(&out), [(2, 50.0, 0.0)]);
+        assert_eq!(kinds(&out), ["exit", "other"]);
+    }
+
+    #[test]
+    fn three_fingers_tap_as_three() {
+        let now = Instant::now();
+        let mut t = two_fingers(now);
+        t.touch(Phase::Down, 3, p(50.0, 50.0), false, now);
+        t.touch(Phase::Up, 1, p(0.0, 0.0), false, now);
+        t.touch(Phase::Up, 3, p(50.0, 50.0), false, now);
+        let out = t.touch(Phase::Up, 2, p(100.0, 0.0), false, now);
+        assert_eq!(taps(&out), [(3, 50.0, 0.0)]);
+    }
+
+    #[test]
+    fn a_slow_or_moved_or_cancelled_lift_is_no_tap() {
+        let now = Instant::now();
+        let mut slow = two_fingers(now);
+        slow.touch(Phase::Up, 1, p(0.0, 0.0), false, now);
+        let late = now + TAP + Duration::from_millis(1);
+        assert!(taps(&slow.touch(Phase::Up, 2, p(100.0, 0.0), false, late)).is_empty());
+
+        let mut moved = two_fingers(now);
+        moved.touch(Phase::Move, 2, p(120.0, 0.0), false, now);
+        moved.touch(Phase::Move, 2, p(100.0, 0.0), false, now);
+        moved.touch(Phase::Up, 1, p(0.0, 0.0), false, now);
+        assert!(taps(&moved.touch(Phase::Up, 2, p(100.0, 0.0), false, now)).is_empty());
+
+        let mut taken = two_fingers(now);
+        taken.touch(Phase::Cancel, 1, p(0.0, 0.0), false, now);
+        assert!(taps(&taken.touch(Phase::Up, 2, p(100.0, 0.0), false, now)).is_empty());
+    }
+
+    #[test]
+    fn one_finger_clicks_rather_than_taps() {
+        let now = Instant::now();
+        let mut t = Touches::new();
+        t.touch(Phase::Down, 1, p(10.0, 10.0), false, now);
+        let out = t.touch(Phase::Up, 1, p(10.0, 10.0), false, now);
+        assert!(taps(&out).is_empty());
+        assert_eq!(kinds(&out), ["move", "press", "release", "exit"]);
     }
 
     #[test]
