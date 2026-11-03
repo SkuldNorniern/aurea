@@ -3,7 +3,9 @@
 use std::time::Instant;
 
 use aurea::AureaResult;
-use aurea::render::{Color, CpuRasterizer, DrawingContext, Paint, Rect, Renderer};
+use aurea::render::{
+    Color, CpuRasterizer, DrawingContext, Font, Image, Paint, Point, Rect, Renderer,
+};
 
 const WIDTH: u32 = 1280;
 const HEIGHT: u32 = 800;
@@ -50,6 +52,56 @@ fn run_frames(
     Ok(start.elapsed().as_secs_f64() * 1000.0 / f64::from(frames))
 }
 
+/// A canvas of tiles under a panel where only one label's text changes: the cost should follow
+/// the label, not the canvas.
+fn label_on_a_canvas() -> AureaResult<()> {
+    const SIDE: u32 = 256;
+    let (width, height) = (2732, 2048);
+    let pixels: Vec<u8> = (0..SIDE * SIDE)
+        .flat_map(|i| [u8::try_from(i % 251).unwrap_or(0), 90, 140, 255])
+        .collect();
+    let image = Image::new(SIDE, SIDE, pixels);
+    let whole = Rect::new(0.0, 0.0, SIDE as f32, SIDE as f32);
+    let font = Font::new("", 14.0);
+    let panel = Paint::new().color(Color::rgb(36, 38, 44));
+    let text = Paint::new().color(Color::rgb(230, 230, 230));
+    let mut r = CpuRasterizer::new(width, height);
+    r.set_counting(true);
+    let (mut slowest, mut total) = (0.0_f64, 0.0_f64);
+    let (mut dirty, mut drawn) = (0, 0);
+    let frames = 120_u32;
+    for frame in 0..frames {
+        let start = Instant::now();
+        let mut ctx = r.begin_frame()?;
+        ctx.clear(Color::rgb(20, 20, 24))?;
+        for row in 0..8 {
+            for col in 0..11 {
+                let at = Rect::new(col as f32 * 256.0, row as f32 * 256.0, 256.0, 256.0);
+                ctx.draw_image_region(&image, whole, at)?;
+            }
+        }
+        ctx.draw_rect(Rect::new(2332.0, 0.0, 400.0, 2048.0), &panel)?;
+        let label = format!("Exposure {:.2}", f64::from(frame) / 100.0);
+        ctx.draw_text_with_font(&label, Point::new(2350.0, 60.0), &font, &text)?;
+        drop(ctx);
+        r.end_frame()?;
+        if frame > 0 {
+            let took = start.elapsed().as_secs_f64() * 1000.0;
+            total += took;
+            slowest = slowest.max(took);
+            if let Some(counters) = r.frame_counters() {
+                dirty = dirty.max(counters.dirty_tiles);
+                drawn = drawn.max(counters.drawn);
+            }
+        }
+    }
+    println!(
+        "label on a canvas:  {:.4} ms/frame, slowest {slowest:.2}, at most {dirty} dirty tiles, {drawn} items drawn",
+        total / f64::from(frames - 1)
+    );
+    Ok(())
+}
+
 fn main() -> AureaResult<()> {
     let mut r = CpuRasterizer::new(WIDTH, HEIGHT);
     let ms_static = run_frames(&mut r, FRAMES, |ctx, _| draw_background(ctx))?;
@@ -63,6 +115,8 @@ fn main() -> AureaResult<()> {
         ctx.draw_rect(Rect::new(x, HEIGHT as f32 / 2.0, 16.0, 16.0), &cursor)
     })?;
     println!("moving-rect scene:  {ms_moving:.4} ms/frame ({FRAMES} frames)");
+
+    label_on_a_canvas()?;
 
     Ok(())
 }
