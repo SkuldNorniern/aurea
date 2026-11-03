@@ -111,6 +111,18 @@ zengpu = [
 name = "macos_native"
 harness = false
 
+[[bench]]
+name = "damage"
+harness = false
+
+[[bench]]
+name = "draw"
+harness = false
+
+[[bench]]
+name = "ui"
+harness = false
+
 [[example]]
 name = "android_demo"
 crate-type = ["cdylib"]
