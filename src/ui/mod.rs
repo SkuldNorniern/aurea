@@ -30,7 +30,7 @@ pub use widget::dialog::{Dialog, DialogAnswer};
 pub use widget::disclosure::{Disclosure, DisclosureStyle};
 pub use widget::dock::{
     Dock, DockAxis, DockBar, DockGroup, DockLayout, DockMetrics, DockPlan, DockSide, DockStyle,
-    DockTabEvent, DockTree, DockView,
+    DockTabEvent, DockTree, DockView, FloatingPanel,
 };
 pub use widget::dropdown::{Dropdown, DropdownStyle};
 pub use widget::empty::EmptyState;

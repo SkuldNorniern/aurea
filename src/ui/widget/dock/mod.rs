@@ -1,6 +1,7 @@
 //! Docked panels: groups of tabs split across a rect, bars between them that drag to resize, and
 //! tabs that drag into another group or to one of its sides.
 
+mod float;
 mod plan;
 mod tree;
 
@@ -39,6 +40,8 @@ pub enum CloseButtons {
 /// How a dock looks.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DockStyle {
+    /// How big a torn off tab starts.
+    pub tear_size: (f32, f32),
     /// Behind the panels.
     pub background: Color,
     /// Tab strip background.
@@ -76,6 +79,7 @@ impl DockStyle {
     pub fn new(theme: &Theme) -> Self {
         let p = theme.palette;
         Self {
+            tear_size: (280.0, 220.0),
             background: p.background,
             strip: p.background,
             tab: StateColors::new(p.hover.with_alpha(0), p.hover, p.pressed),
@@ -99,6 +103,8 @@ impl DockStyle {
     }
 }
 
+pub use float::FloatingPanel;
+
 /// A [`DockTree`] and what its view keeps between frames.
 #[derive(Clone, Debug)]
 pub struct Dock<P> {
@@ -109,6 +115,9 @@ pub struct Dock<P> {
     drag: Option<P>,
     target: Option<(P, DockSide)>,
     tab_events: Vec<DockTabEvent<P>>,
+    floating: Vec<FloatingPanel<P>>,
+    moving: float::Moving<P>,
+    next_slot: u16,
 }
 
 /// A tab action for the app to handle after drawing the dock.
@@ -135,6 +144,9 @@ impl<P: Copy + PartialEq> Dock<P> {
             drag: None,
             target: None,
             tab_events: Vec::new(),
+            floating: Vec::new(),
+            moving: None,
+            next_slot: 0,
         }
     }
 
@@ -194,6 +206,7 @@ impl<P: Copy> TabMarks<'_, P> {
 /// Shows a [`Dock`]: `title` names each panel, `content` draws the panel each group shows, clipped
 /// to its rect.
 pub struct DockView<'d, P, T, C> {
+    tear_off: bool,
     dock: &'d mut Dock<P>,
     title: T,
     content: C,
@@ -206,6 +219,7 @@ impl<'d, P, T, C> DockView<'d, P, T, C> {
     /// Creates a view that draws `dock`.
     pub fn new(dock: &'d mut Dock<P>, title: T, content: C) -> Self {
         Self {
+            tear_off: false,
             dock,
             title,
             content,
@@ -222,6 +236,13 @@ impl<'d, P, T, C> DockView<'d, P, T, C> {
     #[must_use]
     pub fn style(mut self, style: DockStyle) -> Self {
         self.style = Some(style);
+        self
+    }
+
+    /// Lets a tab dragged off every group come away and float where it was dropped, at the
+    /// style's `tear_size`. See [`FloatingPanel`].
+    pub fn tear_off(mut self, on: bool) -> Self {
+        self.tear_off = on;
         self
     }
 
@@ -277,6 +298,7 @@ where
             style,
             close_buttons,
             marks,
+            tear_off,
         } = self;
         dock.tab_events.clear();
         let style = style.unwrap_or_else(|| DockStyle::new(ui.theme));
@@ -313,7 +335,19 @@ where
             let bar = dock.layout.bars[b];
             bar_part(ui, id, bar, &style, &mut change)?;
         }
-        follow_drag(ui, dock, held, &title, &marks, &style, &mut response)?;
+        float::show(
+            ui,
+            id,
+            dock,
+            rect,
+            &title,
+            &style,
+            close_buttons,
+            &mut content,
+            &mut response,
+        )?;
+        let tear = tear_off.then_some(style.tear_size);
+        follow_drag(ui, dock, held, &title, &marks, &style, tear, &mut response)?;
         let changed = match change {
             Some(Change::Activate(panel)) => {
                 !dock.tree.is_active(panel) && dock.tree.activate(panel)
@@ -583,6 +617,7 @@ fn ratio_at(bar: DockBar, at: Point, gap: f32) -> f32 {
     (p - from - gap / 2.0) / room
 }
 
+#[allow(clippy::too_many_arguments)]
 fn follow_drag<'t, Id: WidgetId, P: Copy + PartialEq>(
     ui: &mut Ui<'_, Id>,
     dock: &mut Dock<P>,
@@ -590,14 +625,23 @@ fn follow_drag<'t, Id: WidgetId, P: Copy + PartialEq>(
     title: &impl Fn(P) -> &'t str,
     marks: &TabMarks<'_, P>,
     style: &DockStyle,
+    tear: Option<(f32, f32)>,
     response: &mut Response,
 ) -> AureaResult<()> {
     let Some(panel) = dock.drag else {
         return Ok(());
     };
     if !held {
-        if let Some((beside, side)) = dock.target.take()
+        let target = dock.target.take();
+        if let Some((beside, side)) = target
             && dock.tree.move_to(panel, beside, side)
+        {
+            response.changed = true;
+            ui.mark_changed();
+        }
+        // Dropped on no group: it comes away from the dock, where it was let go.
+        if let (None, Some((width, height)), Some(at)) = (target, tear, ui.pointer())
+            && dock.float(panel, Rect::new(at.x - width / 2.0, at.y, width, height))
         {
             response.changed = true;
             ui.mark_changed();
@@ -671,6 +715,7 @@ mod tests {
         tab_events: Vec<DockTabEvent<u8>>,
         close_on: CloseButtons,
         dirty: Vec<u8>,
+        tear: bool,
     }
 
     /// Tabs are this wide, so a tab's close slot sits at a known x.
@@ -690,6 +735,7 @@ mod tests {
                 tab_events: Vec::new(),
                 close_on: CloseButtons::Always,
                 dirty: Vec::new(),
+                tear: false,
             };
             screen.frame();
             screen
@@ -702,6 +748,7 @@ mod tests {
             style.close_on = self.close_on;
             let drawn = &mut self.drawn;
             let dirty = &self.dirty;
+            let tear = self.tear;
             let dock = &mut self.dock;
             self.rig.frame(|ui| {
                 let title = |p: u8| ["", "One", "Two", "Three"][usize::from(p)];
@@ -709,6 +756,7 @@ mod tests {
                     drawn.push((panel, rect));
                     Ok(())
                 })
+                .tear_off(tear)
                 .style(style)
                 .close_buttons(true)
                 .dirty(move |p| dirty.contains(&p))
@@ -737,6 +785,98 @@ mod tests {
         fn shown(&self) -> Vec<u8> {
             self.drawn.iter().map(|(p, _)| *p).collect()
         }
+    }
+
+    #[test]
+    fn a_floating_panel_moves_and_goes_back_by_its_tab_strip() {
+        let mut screen = Screen::new();
+        assert!(screen.dock.float(3, Rect::new(60.0, 60.0, 200.0, 150.0)));
+        assert!(!screen.dock.tree.contains(3));
+        assert!(
+            !screen.dock.float(3, Rect::new(0.0, 0.0, 10.0, 10.0)),
+            "already out"
+        );
+        screen.frame();
+        assert!(
+            screen.drawn.iter().any(|(panel, _)| *panel == 3),
+            "its content draws"
+        );
+
+        // by its title bar, over the dock's content.
+        screen.rig.at(100.0, 70.0);
+        screen.frame();
+        screen.rig.button(100.0, 70.0, true);
+        screen.frame();
+        screen.rig.drag_to(150.0, 110.0);
+        screen.frame();
+        screen.rig.button(150.0, 110.0, false);
+        screen.frame();
+        let moved = screen.dock.floating()[0].rect;
+        assert_eq!((moved.x, moved.y), (110.0, 100.0));
+        assert!(!screen.dock.tree.contains(3), "not over a tab strip");
+
+        // onto group 1's strip.
+        let grab = (moved.x + 10.0, moved.y + 5.0);
+        screen.rig.at(grab.0, grab.1);
+        screen.frame();
+        screen.rig.button(grab.0, grab.1, true);
+        screen.frame();
+        screen.rig.drag_to(250.0, 10.0);
+        screen.frame();
+        screen.rig.button(250.0, 10.0, false);
+        screen.frame();
+        assert!(screen.dock.floating().is_empty());
+        assert_eq!(screen.dock.tree.group_of(&3), Some(&[2_u8, 3][..]));
+        assert!(screen.dock.tree.is_active(3));
+    }
+
+    #[test]
+    fn a_tab_dropped_off_every_group_floats_only_when_asked() {
+        for tear in [false, true] {
+            let mut screen = Screen::new();
+            screen.tear = tear;
+            // tab 3 of the second group, off the bottom of the dock.
+            let tab = (204.0 + TAB_WIDTH + 10.0, 10.0);
+            screen.rig.at(tab.0, tab.1);
+            screen.frame();
+            screen.rig.button(tab.0, tab.1, true);
+            screen.frame();
+            screen.rig.drag_to(300.0, 600.0);
+            screen.frame();
+            screen.rig.button(300.0, 600.0, false);
+            screen.frame();
+            assert_eq!(screen.dock.tree.contains(3), !tear);
+            assert_eq!(screen.dock.floating().len(), usize::from(tear));
+        }
+    }
+
+    #[test]
+    fn a_title_bar_stays_within_reach() {
+        let mut screen = Screen::new();
+        screen.dock.float(3, Rect::new(60.0, 60.0, 200.0, 150.0));
+        screen.frame();
+        screen.rig.at(100.0, 70.0);
+        screen.frame();
+        screen.rig.button(100.0, 70.0, true);
+        screen.frame();
+        screen.rig.drag_to(2000.0, 2000.0);
+        screen.frame();
+        let rect = screen.dock.floating()[0].rect;
+        assert!(rect.x < AREA.right() && rect.y < AREA.bottom(), "{rect:?}");
+        screen.rig.button(2000.0, 2000.0, false);
+        screen.frame();
+    }
+
+    #[test]
+    fn remove_takes_a_panel_from_either_place() {
+        let mut tree = DockTree::new(1_u8);
+        tree.insert(2, 1, DockSide::Right);
+        let mut dock = Dock::new(tree);
+        dock.float(2, Rect::new(0.0, 0.0, 50.0, 50.0));
+        assert!(dock.remove(2));
+        assert!(dock.floating().is_empty());
+        assert!(dock.remove(1));
+        assert!(!dock.remove(1));
     }
 
     #[test]
