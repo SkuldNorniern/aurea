@@ -1,6 +1,7 @@
 //! One Aurea UI on an Android `SurfaceView`: frames drawn on the GPU when built with `zengpu`,
 //! otherwise on the CPU and posted to its window; fingers and the pen fed in as the pointer.
 
+use log::Level;
 use std::cell::RefCell;
 #[cfg(feature = "zengpu")]
 use std::sync::Arc;
@@ -576,6 +577,18 @@ fn pen_sample(
 }
 
 pub(super) fn frame() -> bool {
+    let started = log::log_enabled!(Level::Trace).then(Instant::now);
+    let more = draw_frame();
+    if let Some(started) = started {
+        log::trace!(
+            "android frame: {:.2} ms",
+            started.elapsed().as_secs_f64() * 1e3
+        );
+    }
+    more
+}
+
+fn draw_frame() -> bool {
     // a finger held still long enough becomes the mouse.
     let settled = HOST.with_borrow_mut(|host| host.touches.tick(Instant::now()));
     feed(&settled);

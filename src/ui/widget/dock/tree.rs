@@ -215,6 +215,34 @@ impl<P: Copy + PartialEq> DockTree<P> {
         group_of(root, *panel).map(|(panels, _)| panels)
     }
 
+    /// Puts `panel` beside the first of `homes` that is docked, on that home's side and with its
+    /// share, or as `fallback` says when none is. False when it could not go in.
+    pub fn place(
+        &mut self,
+        panel: P,
+        homes: impl IntoIterator<Item = (P, DockSide, f32)>,
+        fallback: (P, DockSide, f32),
+    ) -> bool {
+        let (beside, side, share) = homes
+            .into_iter()
+            .find(|(beside, _, _)| self.contains(*beside))
+            .unwrap_or(fallback);
+        self.insert_sized(panel, beside, side, share)
+    }
+
+    /// `panel` showing: made active when docked, else [`Self::place`]d and made active.
+    pub fn reopen(
+        &mut self,
+        panel: P,
+        homes: impl IntoIterator<Item = (P, DockSide, f32)>,
+        fallback: (P, DockSide, f32),
+    ) -> bool {
+        if self.contains(panel) {
+            return self.activate(panel);
+        }
+        self.place(panel, homes, fallback) && self.activate(panel)
+    }
+
     /// Puts `panel` on `side` of the group holding `beside`, the new part taking half the room.
     pub fn insert(&mut self, panel: P, beside: P, side: DockSide) -> bool {
         self.insert_sized(panel, beside, side, 0.5)
@@ -550,6 +578,31 @@ fn node_from_plan<P: Copy + PartialEq>(plan: &DockPlan<P>, seen: &mut Vec<P>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_panel_goes_by_the_first_home_docked_and_comes_back_active() {
+        let mut tree = DockTree::new(1_u8);
+        assert!(tree.place(
+            2,
+            [(9, DockSide::Left, 0.3), (1, DockSide::Right, 0.3)],
+            (1, DockSide::Left, 0.5)
+        ));
+        assert_eq!(tree.group_of(&2), Some(&[2_u8][..]));
+        assert!(
+            tree.place(3, [(9, DockSide::Left, 0.3)], (2, DockSide::Center, 0.5)),
+            "the fallback"
+        );
+        assert_eq!(tree.group_of(&3), Some(&[2_u8, 3][..]));
+        assert!(
+            tree.reopen(2, [], (1, DockSide::Left, 0.5)),
+            "docked: only made active"
+        );
+        assert!(tree.is_active(2));
+        assert!(
+            !tree.place(4, [], (9, DockSide::Left, 0.5)),
+            "nowhere to go"
+        );
+    }
 
     const METRICS: DockMetrics = DockMetrics {
         strip: 20.0,

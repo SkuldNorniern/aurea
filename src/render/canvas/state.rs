@@ -34,6 +34,9 @@ pub(crate) struct CanvasState {
     /// Automatically selected contexts share a device on their UI thread.
     #[cfg(feature = "zengpu")]
     pub gpu_context_default: bool,
+    /// Set by [`Canvas::no_gpu_recovery`](super::Canvas::no_gpu_recovery).
+    #[cfg(feature = "zengpu")]
+    pub gpu_no_recovery: bool,
     /// Set by [`Canvas::on_gpu_lost`](super::Canvas::on_gpu_lost).
     #[cfg(feature = "zengpu")]
     pub gpu_lost: Option<GpuLostHandler>,

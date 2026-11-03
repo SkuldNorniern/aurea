@@ -1,3 +1,4 @@
+use crate::Window;
 use crate::elements::Element;
 use crate::ffi::*;
 #[cfg(feature = "wgpu")]
@@ -268,6 +269,8 @@ impl Canvas {
             #[cfg(feature = "zengpu")]
             gpu_context_default: false,
             #[cfg(feature = "zengpu")]
+            gpu_no_recovery: false,
+            #[cfg(feature = "zengpu")]
             gpu_lost: None,
         }));
         let renderer_arc = Rc::new(RefCell::new(renderer));
@@ -340,6 +343,8 @@ impl Canvas {
 
     /// Asks `handler` for a context to draw on once this canvas's device is lost, after a driver
     /// reset or a GPU being removed.
+    /// Returning `None`, like having no handler, reopens the device the canvas had;
+    /// [`Self::no_gpu_recovery`] stops that.
     ///
     /// ```rust,no_run
     /// # use std::sync::Arc;
@@ -358,6 +363,13 @@ impl Canvas {
         handler: impl FnMut(&Arc<ZenGpuContext>) -> Option<Arc<ZenGpuContext>> + 'static,
     ) {
         self.state.borrow_mut().gpu_lost = Some(Box::new(handler));
+    }
+
+    /// Stops a lost device being reopened: the canvas keeps no context unless an
+    /// [`Self::on_gpu_lost`] handler gives it one.
+    #[cfg(feature = "zengpu")]
+    pub fn no_gpu_recovery(&self) {
+        self.state.borrow_mut().gpu_no_recovery = true;
     }
 
     /// This canvas's identity, for as long as the process runs.
@@ -388,7 +400,9 @@ impl Canvas {
         Some(f(frame.words(), frame.width, frame.height))
     }
 
-    /// Set the drawing callback (retained-mode style).
+    /// Set the drawing callback (retained-mode style). It runs once on the next frame without a
+    /// request, so a canvas shown with a callback draws its first frame by itself; after that it
+    /// runs when something asks for a redraw.
     pub fn set_draw_callback<F>(&self, callback: F) -> AureaResult<()>
     where
         F: FnMut(&mut dyn DrawingContext) -> AureaResult<()> + 'static,
@@ -401,6 +415,23 @@ impl Canvas {
         }
         self.invalidate_all();
         Ok(())
+    }
+
+    /// [`Self::set_draw_callback`] with the window too, so the callback needn't keep a `Weak` to
+    /// reach it: for its scale, title or size. It stops drawing once the window is gone.
+    pub fn set_window_draw_callback<F>(
+        &self,
+        window: &Rc<Window>,
+        mut callback: F,
+    ) -> AureaResult<()>
+    where
+        F: FnMut(&Window, &mut dyn DrawingContext) -> AureaResult<()> + 'static,
+    {
+        let window = Rc::downgrade(window);
+        self.set_draw_callback(move |ctx| match window.upgrade() {
+            Some(window) => callback(&window, ctx),
+            None => Ok(()),
+        })
     }
 
     /// Draw immediately (legacy API - still supported).

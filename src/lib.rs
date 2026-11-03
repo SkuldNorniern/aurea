@@ -107,8 +107,20 @@ pub use aurea_foundation::{
     Capability, CapabilityChecker, DesktopPlatform, MobilePlatform, OsVersion, Platform, Support,
 };
 
-/// Whether the pointer event being delivered came from a pen on a touch host, so "pen draws, finger
-/// pans" reads the same on iOS and Android. False on the desktop, where a pen sends
+/// Asks for frames at the screen's top rate while `high`, such as while a pen stroke runs, and the
+/// system's own pacing after, which saves power. Desktop windows already follow their screen, so
+/// there this does nothing.
+pub fn set_high_frame_rate(high: bool) {
+    #[cfg(target_os = "ios")]
+    ios::set_high_frame_rate(high);
+    #[cfg(target_os = "android")]
+    android::set_high_frame_rate(high);
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    let _ = high;
+}
+
+/// Whether the last pointer press came from a stylus. A check every host answers, so "pen draws,
+/// finger pans" reads the same on iOS and Android. False on the desktop, where a pen is a
 /// [`WindowEvent::Pen`] and the mouse stays the mouse.
 pub fn pointer_is_pencil() -> bool {
     #[cfg(target_os = "ios")]

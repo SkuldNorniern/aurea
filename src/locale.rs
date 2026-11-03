@@ -1,5 +1,98 @@
 //! The languages the user asked the system to show apps in.
 
+/// A menu row every app has, so its name is the same across them. See [`standard_label`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum StandardLabel {
+    /// The File menu.
+    File,
+    /// The Edit menu.
+    Edit,
+    /// The View menu.
+    View,
+    /// The Window menu.
+    Window,
+    /// The Help menu.
+    Help,
+    /// A new document.
+    New,
+    /// Open a document.
+    Open,
+    /// Save it.
+    Save,
+    /// Save it elsewhere.
+    SaveAs,
+    /// Close it.
+    Close,
+    /// Leave the app.
+    Quit,
+    /// The app's settings.
+    Settings,
+    /// Take back the last change.
+    Undo,
+    /// Do it again.
+    Redo,
+    /// Move to the clipboard.
+    Cut,
+    /// Copy to the clipboard.
+    Copy,
+    /// Bring in from the clipboard.
+    Paste,
+    /// Remove it.
+    Delete,
+    /// Select everything.
+    SelectAll,
+    /// Look closer.
+    ZoomIn,
+    /// Look further.
+    ZoomOut,
+    /// One to one.
+    ActualSize,
+    /// All of it in view.
+    FitToScreen,
+    /// The whole screen.
+    FullScreen,
+    /// Down to the dock or taskbar.
+    Minimize,
+    /// About the app.
+    About,
+}
+
+/// The name of a standard menu row in `locale`, such as `ko-KR`: English and Korean so far, and
+/// English for any other language.
+pub fn standard_label(label: StandardLabel, locale: &str) -> &'static str {
+    use StandardLabel as L;
+    let korean = locale.split(['-', '_']).next() == Some("ko");
+    let (english, hangul) = match label {
+        L::File => ("File", "파일"),
+        L::Edit => ("Edit", "편집"),
+        L::View => ("View", "보기"),
+        L::Window => ("Window", "창"),
+        L::Help => ("Help", "도움말"),
+        L::New => ("New", "새로 만들기"),
+        L::Open => ("Open", "열기"),
+        L::Save => ("Save", "저장"),
+        L::SaveAs => ("Save As", "다른 이름으로 저장"),
+        L::Close => ("Close", "닫기"),
+        L::Quit => ("Quit", "종료"),
+        L::Settings => ("Settings", "설정"),
+        L::Undo => ("Undo", "실행 취소"),
+        L::Redo => ("Redo", "다시 실행"),
+        L::Cut => ("Cut", "잘라내기"),
+        L::Copy => ("Copy", "복사"),
+        L::Paste => ("Paste", "붙여넣기"),
+        L::Delete => ("Delete", "삭제"),
+        L::SelectAll => ("Select All", "모두 선택"),
+        L::ZoomIn => ("Zoom In", "확대"),
+        L::ZoomOut => ("Zoom Out", "축소"),
+        L::ActualSize => ("Actual Size", "실제 크기"),
+        L::FitToScreen => ("Fit to Screen", "화면에 맞춤"),
+        L::FullScreen => ("Full Screen", "전체 화면"),
+        L::Minimize => ("Minimize", "최소화"),
+        L::About => ("About", "정보"),
+    };
+    if korean { hangul } else { english }
+}
+
 /// The user's preferred UI languages, most preferred first.
 pub fn locales() -> Vec<String> {
     #[cfg(all(
@@ -119,6 +212,24 @@ fn normalize(tag: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn standard_labels_follow_the_language_not_the_region() {
+        assert_eq!(
+            standard_label(StandardLabel::FitToScreen, "ko-KR"),
+            "화면에 맞춤"
+        );
+        assert_eq!(
+            standard_label(StandardLabel::FitToScreen, "ko"),
+            "화면에 맞춤"
+        );
+        assert_eq!(standard_label(StandardLabel::Copy, "en-US"), "Copy");
+        assert_eq!(
+            standard_label(StandardLabel::Copy, "kok-IN"),
+            "Copy",
+            "not Korean"
+        );
+    }
 
     fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
         move |name| {

@@ -111,12 +111,17 @@ pub(super) fn follow_outcome(
 
 #[cfg(feature = "zengpu")]
 pub(super) fn replace_lost_context(state: &Rc<RefCell<CanvasState>>) {
-    let (lost, mut handler, default_context) = {
+    let (lost, mut handler, default_context, no_recovery) = {
         let mut st = state.borrow_mut();
         let Some(lost) = st.gpu_context.clone().filter(|c| c.is_lost()) else {
             return;
         };
-        (lost, st.gpu_lost.take(), st.gpu_context_default)
+        (
+            lost,
+            st.gpu_lost.take(),
+            st.gpu_context_default,
+            st.gpu_no_recovery,
+        )
     };
     let chosen = handler.as_mut().and_then(|handler| handler(&lost));
     let handler_chose = chosen.is_some();
@@ -129,7 +134,9 @@ pub(super) fn replace_lost_context(state: &Rc<RefCell<CanvasState>>) {
         None
     } else {
         chosen.or_else(|| {
-            if default_context {
+            if no_recovery {
+                None
+            } else if default_context {
                 super::backend::default_gpu_context(Some(lost.adapter_uuid())).ok()
             } else {
                 lost.reopen().ok().map(Arc::new)
@@ -411,6 +418,8 @@ mod tests {
             gpu_context: None,
             #[cfg(feature = "zengpu")]
             gpu_context_default: false,
+            #[cfg(feature = "zengpu")]
+            gpu_no_recovery: false,
             #[cfg(feature = "zengpu")]
             gpu_lost: None,
         }));
