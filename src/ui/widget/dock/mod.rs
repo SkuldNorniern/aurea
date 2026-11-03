@@ -94,7 +94,7 @@ impl DockStyle {
             max_tab: 180.0,
             text_size: TextSize::Small,
             metrics: DockMetrics {
-                strip: 28.0,
+                strip: theme.sizes.tab,
                 gap: 4.0,
                 min_part: 64.0,
             },

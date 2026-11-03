@@ -74,7 +74,8 @@ impl FileDialog {
         self
     }
 
-    /// The files chosen to open; empty when cancelled.
+    /// The files chosen to open; empty when cancelled. An error for a platform with no such
+    /// dialog says so with [`AureaError::is_unsupported`].
     pub fn open(&self, parent: &Window) -> AureaResult<Vec<PathBuf>> {
         self.run(Some(parent), OPEN)
     }
@@ -90,6 +91,10 @@ impl FileDialog {
     }
 
     fn run(&self, parent: Option<&Window>, kind: c_int) -> AureaResult<Vec<PathBuf>> {
+        // Phones have document pickers instead, in `files`; cancelling must not look like this.
+        if cfg!(any(target_os = "ios", target_os = "android")) {
+            return Err(AureaError::unsupported("file_dialog"));
+        }
         let text = |s: &str| c_text(s);
         let title = c_title(self.title.as_str())?;
         let filters = text(&self.filters)?;

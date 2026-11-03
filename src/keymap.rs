@@ -1,5 +1,7 @@
 //! App-wide keyboard shortcuts.
 
+use std::collections::HashMap;
+use std::hash::Hash;
 use std::mem;
 
 use crate::AureaResult;
@@ -355,7 +357,20 @@ impl<A> Keymap<A> {
             .map(|(_, action)| action)
     }
 
-    /// The chord bound to `action`, to show beside it.
+    /// Every action's first chord, as [`Self::chord_for`] finds it, for looking up many at once.
+    pub fn chord_index(&self) -> HashMap<&A, Chord>
+    where
+        A: Eq + Hash,
+    {
+        let mut index = HashMap::with_capacity(self.bindings.len());
+        for (chord, action) in &self.bindings {
+            index.entry(action).or_insert(*chord);
+        }
+        index
+    }
+
+    /// The first chord bound to `action`. This walks the map; a menu asking for many rows wants
+    /// [`Self::chord_index`].
     pub fn chord_for(&self, action: &A) -> Option<Chord>
     where
         A: PartialEq,
@@ -387,6 +402,19 @@ impl<A> Keymap<A> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_chord_index_agrees_with_chord_for() {
+        let mut map = Keymap::new();
+        map.bind(Chord::UNDO, "undo");
+        map.bind(Chord::REDO, "redo");
+        map.bind(Chord::key(KeyCode::F2), "undo");
+        let index = map.chord_index();
+        assert_eq!(index.len(), 2);
+        for action in ["undo", "redo"] {
+            assert_eq!(index.get(&action).copied(), map.chord_for(&action));
+        }
+    }
 
     #[derive(Clone, Copy, Debug, PartialEq)]
     enum Act {

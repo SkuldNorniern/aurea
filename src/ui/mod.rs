@@ -19,8 +19,9 @@ pub use paint::{
     GridStyle, IconMark, IconSource, Label, Mark, MarkShape, Marker, Overflow, PromptLine,
     Separator, Shadow, Spinner, Stroke, Surface, TextSize, Trace,
 };
+pub use state::ScopedId;
 pub use state::{Channel, Fonts, InputResponse, Interaction, Sense, UiState, WidgetId};
-pub use theme::{Motion, Palette, Theme};
+pub use theme::{Motion, Palette, Sizes, Theme};
 pub use widget::Widget;
 pub use widget::button::{Button, ButtonStyle, Tone};
 pub use widget::chip::{Chip, ChipStyle};

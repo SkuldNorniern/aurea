@@ -58,6 +58,30 @@ pub struct Motion {
     pub focus: f32,
 }
 
+/// The heights a layout reads from the theme, so they grow together for fingers.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Sizes {
+    /// A row in a list or panel.
+    pub row: f32,
+    /// A dock's tab strip.
+    pub tab: f32,
+    /// A toolbar or app bar.
+    pub toolbar: f32,
+    /// A thin strip of controls, such as a modifier row.
+    pub strip: f32,
+}
+
+impl Default for Sizes {
+    fn default() -> Self {
+        Self {
+            row: 26.0,
+            tab: 28.0,
+            toolbar: 36.0,
+            strip: 28.0,
+        }
+    }
+}
+
 /// Everything a widget needs to know to draw itself.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Theme {
@@ -71,6 +95,8 @@ pub struct Theme {
     pub small_size: f32,
     /// A control's height when the layout does not say.
     pub control_height: f32,
+    /// The heights of what holds controls.
+    pub sizes: Sizes,
     /// Corner radius of buttons, fields and cards.
     pub radius: f32,
     /// Space between a control's edge and its content.
@@ -165,12 +191,19 @@ impl Theme {
                 focus: 20.0,
             },
             caret_blink: true,
+            sizes: Sizes::default(),
         }
     }
 
     /// Sizes for fingers: 44 point controls and more room.
     pub fn touch(mut self) -> Self {
         self.control_height = self.control_height.max(44.0);
+        self.sizes = Sizes {
+            row: self.sizes.row.max(48.0),
+            tab: self.sizes.tab.max(40.0),
+            toolbar: self.sizes.toolbar.max(44.0),
+            strip: self.sizes.strip.max(40.0),
+        };
         self.padding = self.padding.max(14.0);
         self.text_size = self.text_size.max(15.0);
         self.small_size = self.small_size.max(13.0);

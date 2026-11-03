@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+static const char* AUREA_WINDOW_SMALL_ICON_PROPERTY = "AureaWindowSmallIcon";
 static const char* AUREA_WINDOW_ICON_PROPERTY = "AureaWindowIcon";
 
 #define LOG_ERROR(fmt, ...) do { \
@@ -255,9 +256,11 @@ void ng_windows_destroy_window(NGHandle handle) {
     if (!handle) return;
     HWND hwnd = (HWND)handle;
     HICON icon = (HICON)RemovePropA(hwnd, AUREA_WINDOW_ICON_PROPERTY);
+    HICON small_icon = (HICON)RemovePropA(hwnd, AUREA_WINDOW_SMALL_ICON_PROPERTY);
     SendMessageA(hwnd, WM_SETICON, ICON_BIG, 0);
     SendMessageA(hwnd, WM_SETICON, ICON_SMALL, 0);
     if (icon) DestroyIcon(icon);
+    if (small_icon) DestroyIcon(small_icon);
     ng_windows_release_window_input(hwnd);
     DestroyWindow(hwnd);
 }
@@ -570,6 +573,31 @@ int ng_windows_window_set_icon_rgba(
         return NG_ERROR_PLATFORM_SPECIFIC;
     }
     SendMessageA(hwnd, WM_SETICON, ICON_BIG, (LPARAM)icon);
+    SendMessageA(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)icon);
+    if (previous) DestroyIcon(previous);
+    return NG_SUCCESS;
+}
+
+/* Gives the title bar its own pixels; the big icon stays as set_icon_rgba left it. */
+int ng_windows_window_set_small_icon_rgba(
+    NGHandle window,
+    const unsigned char* rgba,
+    unsigned int width,
+    unsigned int height
+) {
+    if (!window || !rgba || width == 0 || height == 0 ||
+        width > INT_MAX || height > INT_MAX) {
+        return NG_ERROR_INVALID_PARAMETER;
+    }
+    HICON icon = ng_windows_icon_from_rgba(rgba, width, height);
+    if (!icon) return NG_ERROR_PLATFORM_SPECIFIC;
+    HWND hwnd = (HWND)window;
+    HICON previous = (HICON)RemovePropA(hwnd, AUREA_WINDOW_SMALL_ICON_PROPERTY);
+    if (!SetPropA(hwnd, AUREA_WINDOW_SMALL_ICON_PROPERTY, (HANDLE)icon)) {
+        DestroyIcon(icon);
+        if (previous) SetPropA(hwnd, AUREA_WINDOW_SMALL_ICON_PROPERTY, (HANDLE)previous);
+        return NG_ERROR_PLATFORM_SPECIFIC;
+    }
     SendMessageA(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)icon);
     if (previous) DestroyIcon(previous);
     return NG_SUCCESS;

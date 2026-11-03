@@ -1,6 +1,7 @@
 //! One Aurea UI on an Android `SurfaceView`: frames drawn on the GPU when built with `zengpu`,
 //! otherwise on the CPU and posted to its window; fingers and the pen fed in as the pointer.
 
+use crate::locale;
 use log::Level;
 use std::cell::RefCell;
 #[cfg(feature = "zengpu")]
@@ -228,6 +229,9 @@ pub(super) fn lifecycle(state: i32) {
         _ => return,
     };
     feed(&[event]);
+    if state == 0 && locale::changed() {
+        feed(&[WindowEvent::LocaleChanged]);
+    }
 }
 
 /// A pen's side button clicked while it hovers.

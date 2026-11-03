@@ -11,6 +11,35 @@ use std::sync::{Arc, OnceLock};
 #[cfg(feature = "zengpu")]
 use zengpu_hal::TextureHandle;
 
+/// One picture at several sizes, for art that should stay on the pixel grid.
+#[derive(Clone, Debug, Default)]
+pub struct ImageSet {
+    /// Square first by size, smallest first.
+    images: Vec<Image>,
+}
+
+impl ImageSet {
+    /// A set of `images`, in any order.
+    pub fn new(mut images: Vec<Image>) -> Self {
+        images.sort_by_key(|image| image.width.max(image.height));
+        Self { images }
+    }
+
+    /// The images, smallest first.
+    pub fn images(&self) -> &[Image] {
+        &self.images
+    }
+
+    /// The smallest image at least `pixels` across, or the largest if none is that big: scaled
+    /// down it stays sharp, where scaled up it would not.
+    pub fn nearest(&self, pixels: u32) -> Option<&Image> {
+        self.images
+            .iter()
+            .find(|image| image.width.max(image.height) >= pixels)
+            .or_else(|| self.images.last())
+    }
+}
+
 /// Image for rendering.
 #[derive(Debug, Clone)]
 pub struct Image {
@@ -275,5 +304,29 @@ mod tests {
         let b = GlyphMask::new(1, 1, vec![1, 2, 3].into());
         assert_ne!(a.id(), b.id());
         assert_eq!(a.id(), a.clone().id());
+    }
+}
+
+#[cfg(test)]
+mod set_tests {
+    use super::*;
+
+    #[test]
+    fn a_set_picks_the_smallest_big_enough() {
+        let square = |side: u32| Image::new(side, side, vec![0; (side * side * 4) as usize]);
+        let set = ImageSet::new(vec![square(48), square(16), square(256), square(32)]);
+        let width = |pixels| set.nearest(pixels).map(|image| image.width);
+        assert_eq!(width(16), Some(16));
+        assert_eq!(width(17), Some(32));
+        assert_eq!(width(24), Some(32));
+        assert_eq!(
+            width(1024),
+            Some(256),
+            "the largest when none is big enough"
+        );
+        assert_eq!(
+            ImageSet::default().nearest(16).map(|image| image.width),
+            None
+        );
     }
 }

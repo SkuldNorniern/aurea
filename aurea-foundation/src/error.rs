@@ -57,6 +57,11 @@ pub enum AureaError {
 pub type AureaResult<T> = StdResult<T, AureaError>;
 
 impl AureaError {
+    /// Whether this says the platform lacks the operation, not that the operation failed.
+    pub fn is_unsupported(&self) -> bool {
+        matches!(self, Self::Unsupported { .. })
+    }
+
     /// [`AureaError::Unsupported`] for `operation` on the platform running now.
     pub fn unsupported(operation: &'static str) -> Self {
         Self::Unsupported {

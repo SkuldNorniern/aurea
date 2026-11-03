@@ -230,6 +230,9 @@ pub enum WindowEvent {
         /// Where the first two met, vertically.
         y: f64,
     },
+    /// The system's languages changed, noticed on iOS and Android as the app comes back: read
+    /// `aurea::locales` again.
+    LocaleChanged,
     /// A hardware keyboard came or went, on iOS and Android.
     KeyboardConnected {
         /// True when one is connected now.

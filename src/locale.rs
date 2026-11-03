@@ -1,5 +1,8 @@
 //! The languages the user asked the system to show apps in.
 
+use aurea_foundation::lock;
+use std::sync::Mutex;
+
 /// A menu row every app has, so its name is the same across them. See [`standard_label`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum StandardLabel {
@@ -91,6 +94,21 @@ pub fn standard_label(label: StandardLabel, locale: &str) -> &'static str {
         L::About => ("About", "정보"),
     };
     if korean { hangul } else { english }
+}
+
+/// The languages last seen, to tell a change when the app comes back.
+static SEEN: Mutex<Option<Vec<String>>> = Mutex::new(None);
+
+/// Whether the languages differ from when this was last asked; false the first time.
+#[cfg_attr(not(any(target_os = "ios", target_os = "android")), allow(dead_code))]
+pub(crate) fn changed() -> bool {
+    moved_on(locales(), &mut lock(&SEEN))
+}
+
+fn moved_on(now: Vec<String>, seen: &mut Option<Vec<String>>) -> bool {
+    let changed = seen.as_ref().is_some_and(|before| *before != now);
+    *seen = Some(now);
+    changed
 }
 
 /// The user's preferred UI languages, most preferred first.
@@ -212,6 +230,15 @@ fn normalize(tag: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_change_shows_once_and_not_the_first_time() {
+        let mut seen = None;
+        assert!(!moved_on(vec!["en".into()], &mut seen));
+        assert!(!moved_on(vec!["en".into()], &mut seen));
+        assert!(moved_on(vec!["ko".into()], &mut seen));
+        assert!(!moved_on(vec!["ko".into()], &mut seen));
+    }
 
     #[test]
     fn standard_labels_follow_the_language_not_the_region() {

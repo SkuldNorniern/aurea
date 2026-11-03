@@ -35,6 +35,7 @@ use crate::ffi::{ng_platform_attach_menu, ng_platform_create_menu, ng_platform_d
 #[cfg(feature = "zengpu")]
 use crate::gpu_ready;
 use crate::keyboard::set_keyboard_connected;
+use crate::locale;
 use crate::render::{CanvasId, CpuRasterizer, Renderer, SurfaceInfo, register_host_canvas};
 use crate::screen::{self, Screen};
 use crate::touch::{Phase, Touches};
@@ -415,6 +416,10 @@ unsafe extern "C" fn lifecycle(state: i32) {
     };
     HOST.with_borrow_mut(|host| host.state.handle(&event));
     hear(&[event]);
+    if state == 0 && locale::changed() {
+        hear(&[WindowEvent::LocaleChanged]);
+        request_frame();
+    }
 }
 
 /// A key, and the text a press types: from a hardware keyboard, or text alone from the on-screen

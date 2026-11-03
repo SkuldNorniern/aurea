@@ -32,6 +32,46 @@ use crate::{is_touch, reduced_motion};
 /// `Hit::Volume`.
 pub trait WidgetId: Copy + Eq + Hash + Debug {}
 
+/// A widget id a shared part of a UI can build for itself, so a panel used by many apps needn't
+/// have each app add a variant per widget: the app adds one variant holding this, and the panel
+/// names its parts under its own scope.
+///
+/// ```
+/// use aurea::ui::ScopedId;
+/// const PANEL: ScopedId = ScopedId::new("layers");
+/// let row = PANEL.child(3).child(1);
+/// assert_ne!(row, PANEL.child(1).child(3));
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ScopedId(u64);
+
+impl ScopedId {
+    const PRIME: u64 = 0x0000_0100_0000_01B3;
+
+    /// A scope named `name`, the same in every run.
+    pub const fn new(name: &str) -> Self {
+        let bytes = name.as_bytes();
+        let mut hash = 0xCBF2_9CE4_8422_2325_u64;
+        let mut i = 0;
+        while i < bytes.len() {
+            hash = (hash ^ bytes[i] as u64).wrapping_mul(Self::PRIME);
+            i += 1;
+        }
+        Self(hash)
+    }
+
+    /// The part numbered `index` of this scope.
+    pub const fn child(self, index: u64) -> Self {
+        let mixed = (self.0 ^ index.wrapping_add(0x9E37_79B9_7F4A_7C15)).wrapping_mul(Self::PRIME);
+        Self(mixed ^ (mixed >> 29))
+    }
+
+    /// The scope named `name` under this one.
+    pub const fn scope(self, name: &str) -> Self {
+        self.child(Self::new(name).0)
+    }
+}
+
 /// Event routing and repaint decisions are independent: a UI-owned event need not change any
 /// pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

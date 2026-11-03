@@ -41,7 +41,7 @@ use crate::registry::window::{
     register_update_callbacks, scale_factor_changed, unregister_event_callbacks,
     unregister_event_queue, unregister_update_callbacks,
 };
-use crate::render::{Image, Rect};
+use crate::render::{Image, ImageSet, Rect};
 use crate::trim_memory;
 use crate::{AureaError, AureaResult};
 use aurea_foundation::lock;
@@ -746,6 +746,56 @@ impl Window {
             return Err(AureaError::ElementOperationFailed);
         }
         Ok(())
+    }
+
+    /// Sets the window's icon from `set`: on Windows a size chosen for the title bar and one for
+    /// Alt+Tab at the window's scale, each with its own pixels. Elsewhere the largest, which the
+    /// system scales itself. Set it again after moving to a screen of another scale.
+    pub fn set_icon_set(&self, set: &ImageSet) -> AureaResult<()> {
+        let Some(largest) = set.images().last() else {
+            return Err(AureaError::ElementOperationFailed);
+        };
+        #[cfg(windows)]
+        {
+            #[link(name = "user32")]
+            unsafe extern "system" {
+                fn GetSystemMetricsForDpi(metric: i32, dpi: u32) -> i32;
+            }
+            const SM_CXICON: i32 = 11;
+            const SM_CXSMICON: i32 = 49;
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let dpi = (self.scale_factor() * 96.0).round() as u32;
+            let size = |metric| {
+                let pixels = unsafe { GetSystemMetricsForDpi(metric, dpi) };
+                u32::try_from(pixels).unwrap_or(16)
+            };
+            let big = set.nearest(size(SM_CXICON)).unwrap_or(largest);
+            self.set_icon_rgba(&big.data, big.width, big.height)?;
+            let small = set.nearest(size(SM_CXSMICON)).unwrap_or(largest);
+            unsafe extern "C" {
+                fn ng_windows_window_set_small_icon_rgba(
+                    window: *mut c_void,
+                    rgba: *const u8,
+                    width: u32,
+                    height: u32,
+                ) -> c_int;
+            }
+            let result = unsafe {
+                ng_windows_window_set_small_icon_rgba(
+                    self.handle,
+                    small.data.as_ptr(),
+                    small.width,
+                    small.height,
+                )
+            };
+            if result == 0 {
+                Ok(())
+            } else {
+                Err(AureaError::ElementOperationFailed)
+            }
+        }
+        #[cfg(not(windows))]
+        self.set_icon_rgba(&largest.data, largest.width, largest.height)
     }
 
     /// Set the window size.

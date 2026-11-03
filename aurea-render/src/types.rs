@@ -2,7 +2,7 @@
 //! keeps reaching all of them.
 
 pub use crate::geometry::{FillRule, Path, PathCommand, Point, Rect, Transform};
-pub use crate::image::{GlyphMask, GpuTexture, Image, Sampling};
+pub use crate::image::{GlyphMask, GpuTexture, Image, ImageSet, Sampling};
 pub use crate::paint::{
     BlendMode, Color, Dash, GradientStop, Hex, Hsv, LineCap, LineJoin, LinearGradient, Paint,
     PaintStyle, RadialGradient,
