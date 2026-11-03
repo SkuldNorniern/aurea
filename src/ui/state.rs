@@ -331,6 +331,10 @@ pub(crate) struct Tip {
     pub text: String,
     /// What has been hovered since when, for the delay before showing.
     pub since: Option<(Rect, Instant)>,
+    /// A long press asked for it: it shows at once and stays a while after the finger lifts.
+    pub long_pressed: bool,
+    /// Where it stays, and until when.
+    pub linger: Option<(Rect, Instant)>,
 }
 
 pub(crate) const BLINK_FOR: Duration = Duration::from_secs(8);
@@ -545,8 +549,13 @@ impl<Id: WidgetId> UiState<Id> {
     pub fn handle(&mut self, event: &WindowEvent) -> bool {
         match event {
             WindowEvent::KeyInput { pressed: true, .. } => self.keyboard_last = true,
-            WindowEvent::MouseButton { pressed: true, .. } | WindowEvent::LongPress { .. } => {
+            WindowEvent::MouseButton { pressed: true, .. } => {
                 self.keyboard_last = false;
+                self.tip.long_pressed = false;
+            }
+            WindowEvent::LongPress { .. } => {
+                self.keyboard_last = false;
+                self.tip.long_pressed = true;
             }
             _ => {}
         }

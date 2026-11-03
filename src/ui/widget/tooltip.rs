@@ -2,7 +2,7 @@
 //! frame ends.
 
 use std::mem;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::AureaResult;
 use crate::render::Rect;
@@ -15,9 +15,11 @@ const DELAY: f32 = 0.45;
 const FADE: f32 = 0.12;
 
 const WIDEST: f32 = 320.0;
+/// How long a long press's tip stays after the finger lifts.
+const LINGER: Duration = Duration::from_millis(1500);
 
 pub(crate) fn draw<Id: WidgetId>(ui: &mut Ui<'_, Id>) -> AureaResult<()> {
-    let Some(anchor) = ui.state.tip.anchor else {
+    let Some(anchor) = anchor_now(ui) else {
         ui.state.tip.since = None;
         return Ok(());
     };
@@ -29,7 +31,12 @@ pub(crate) fn draw<Id: WidgetId>(ui: &mut Ui<'_, Id>) -> AureaResult<()> {
             now
         }
     };
-    let shown = (since.elapsed().as_secs_f32() - DELAY) / FADE;
+    let delay = if ui.state.tip.long_pressed {
+        0.0
+    } else {
+        DELAY
+    };
+    let shown = (since.elapsed().as_secs_f32() - delay) / FADE;
     if shown < 1.0 {
         ui.keep_animating();
     }
@@ -40,6 +47,32 @@ pub(crate) fn draw<Id: WidgetId>(ui: &mut Ui<'_, Id>) -> AureaResult<()> {
     let result = place(ui, anchor, &text, shown.min(1.0));
     ui.state.tip.text = text;
     result
+}
+
+/// Where the tip goes now: where it was asked for, or, after a long press lifted, where it was.
+fn anchor_now<Id: WidgetId>(ui: &mut Ui<'_, Id>) -> Option<Rect> {
+    let popup = ui.state.popup.is_open();
+    let tip = &mut ui.state.tip;
+    if !tip.long_pressed || popup {
+        tip.linger = None;
+        return tip.anchor;
+    }
+    let now = Instant::now();
+    if let Some(anchor) = tip.anchor {
+        tip.linger = Some((anchor, now + LINGER));
+        return Some(anchor);
+    }
+    match tip.linger {
+        Some((anchor, until)) if now < until => {
+            ui.wake_at(until);
+            Some(anchor)
+        }
+        _ => {
+            tip.linger = None;
+            tip.long_pressed = false;
+            None
+        }
+    }
 }
 
 fn place<Id: WidgetId>(
@@ -87,4 +120,78 @@ fn place<Id: WidgetId>(
         .small()
         .overflow(overflow)
         .paint(ui, body)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::WindowEvent;
+    use crate::ui::rig::Rig;
+    use crate::ui::{Button, Response};
+
+    fn frame(rig: &mut Rig) -> Response {
+        rig.frame(|ui| {
+            let button = Button::new("Save")
+                .show(ui, 1, Rect::new(10.0, 10.0, 80.0, 30.0))
+                .expect("button");
+            ui.tooltip(&button, "Save the file");
+            button
+        })
+    }
+
+    fn long_press(rig: &mut Rig) {
+        rig.send(WindowEvent::PressCancelled);
+        rig.send(WindowEvent::LongPress { x: 20.0, y: 20.0 });
+    }
+
+    #[test]
+    fn a_long_press_shows_the_tip_and_it_outlasts_the_finger() {
+        let mut rig = Rig::new(200, 100).still();
+        frame(&mut rig);
+        long_press(&mut rig);
+        frame(&mut rig);
+        assert!(rig.state.tip.anchor.is_some());
+        assert!(rig.state.tip.linger.is_some());
+        rig.send(WindowEvent::MouseExited);
+        frame(&mut rig);
+        assert!(rig.state.tip.anchor.is_none(), "not hovered any more");
+        assert!(rig.state.tip.since.is_some(), "still showing");
+        assert!(rig.state.next_frame_at().is_some(), "and wakes to leave");
+    }
+
+    #[test]
+    fn the_next_press_dismisses_a_lingering_tip() {
+        let mut rig = Rig::new(200, 100).still();
+        frame(&mut rig);
+        long_press(&mut rig);
+        frame(&mut rig);
+        rig.send(WindowEvent::MouseExited);
+        frame(&mut rig);
+        rig.button(150.0, 80.0, true);
+        frame(&mut rig);
+        assert!(rig.state.tip.since.is_none());
+    }
+
+    #[test]
+    fn it_leaves_when_its_time_is_up() {
+        let mut rig = Rig::new(200, 100).still();
+        frame(&mut rig);
+        long_press(&mut rig);
+        frame(&mut rig);
+        rig.send(WindowEvent::MouseExited);
+        rig.state.tip.linger = Some((Rect::default(), Instant::now()));
+        frame(&mut rig);
+        assert!(rig.state.tip.since.is_none());
+        assert!(!rig.state.tip.long_pressed);
+    }
+
+    #[test]
+    fn a_mouse_still_waits_for_the_delay() {
+        let mut rig = Rig::new(200, 100).still();
+        frame(&mut rig);
+        rig.drag_to(20.0, 20.0);
+        frame(&mut rig);
+        assert!(!rig.state.tip.long_pressed);
+        assert!(rig.state.tip.linger.is_none());
+    }
 }
