@@ -2,6 +2,7 @@
 
 mod bands;
 mod counters;
+mod pool;
 mod damage;
 pub mod raster;
 pub mod rasterizer;

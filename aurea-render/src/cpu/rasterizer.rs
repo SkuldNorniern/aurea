@@ -10,6 +10,7 @@ use std::thread;
 use std::time::Instant;
 
 use crate::cpu::bands::{BAND_MIN_PIXELS, BandScratch, FramePlan, MAX_BANDS, draw_bands};
+use crate::cpu::pool;
 use crate::cpu::blend::{ConstSrc, LinearLuts, blend_pixel};
 use crate::cpu::clip::ClipBox;
 use crate::cpu::counters::{FrameCounters, Tally};
@@ -135,8 +136,8 @@ impl CpuRasterizer {
 
     /// Frees scratch the next frame regrows: fill, image and clip buffers, the band buffers, and
     /// this thread's gradient ramp and stroke buffers. The frame buffer and the state frame
-    /// damage compares against stay. Band threads end with their frame, so their thread-local
-    /// buffers go with them and are not touched here.
+    /// damage compares against stay. The band threads end too, with their thread-local buffers;
+    /// the next frame that wants them starts them again.
     pub fn trim_memory(&mut self) {
         self.display_list.trim_memory();
         self.scratch_path = PathScratch::default();
@@ -149,6 +150,7 @@ impl CpuRasterizer {
         self.band_scratch = Vec::new();
         RAMP_INDICES.with_borrow_mut(|indices| *indices = Vec::new());
         stroke::trim_scratch();
+        pool::release();
     }
 
     /// Caps the threads a frame draws on; `None` uses the machine's cores, up to 8, and 1 draws

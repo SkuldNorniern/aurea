@@ -1,13 +1,14 @@
-//! Drawing a frame as runs of rows on threads of their own: rows apart touch pixels apart, and
-//! each run draws every item in order, so the pixels match one thread's.
+//! Drawing a frame as runs of rows on the pool's threads: rows apart touch pixels apart, and each
+//! run draws every item in order, so the pixels match one thread's.
 
-use std::thread;
+use std::iter;
 
 use aurea_foundation::{AureaError, AureaResult};
 
 use super::clip::ClipBox;
 use super::counters::{CommandKind, Tally};
 use super::damage::{should_render_item, uncovered_runs};
+use super::pool;
 use super::raster::band::Band;
 use super::raster::fill::PathScratch;
 use super::rasterizer::{CpuRasterizer, ImageScratch, color_to_u32};
@@ -84,8 +85,8 @@ impl FramePlan<'_> {
     }
 }
 
-/// Draws `plan` as `bands` runs of rows, the first on this thread and the rest on threads of their
-/// own: rows apart touch pixels apart, and each band draws every item in order.
+/// Draws `plan` as `bands` runs of rows, the first on this thread and the rest on the pool's: rows
+/// apart touch pixels apart, and each band draws every item in order.
 pub(super) fn draw_bands(
     plan: &FramePlan<'_>,
     bands: usize,
@@ -97,45 +98,39 @@ pub(super) fn draw_bands(
     let width = plan.dims.2 as usize;
     let rows = (y1 - y0).div_ceil(u32::try_from(bands).unwrap_or(u32::MAX));
     let damaged = &mut frame[y0 as usize * width..y1 as usize * width];
-    let mut chunks = damaged.chunks_mut(rows as usize * width).enumerate();
-    let band_of = |k: usize, chunk: &[u32]| {
-        let top = y0 + u32::try_from(k).unwrap_or(u32::MAX) * rows;
-        let height = u32::try_from(chunk.len() / width).unwrap_or(u32::MAX);
-        let plan = FramePlan {
-            clip: ClipBox {
-                y0: top,
-                y1: top + height,
-                ..plan.clip
-            },
-            ..*plan
-        };
-        (plan, top as usize * width)
-    };
-    thread::scope(|scope| {
-        let Some((k, mine)) = chunks.next() else {
-            return Ok(());
-        };
-        let workers: Vec<_> = chunks
-            .zip(extra.iter_mut())
-            .map(|((k, chunk), scratch)| {
-                let (plan, start) = band_of(k, chunk);
-                scope.spawn(move || {
-                    let mut band = Band::new(chunk, start);
-                    plan.draw(
-                        &mut band,
-                        &mut scratch.path,
-                        &mut scratch.row,
-                        &mut Tally(None),
-                    )
-                })
-            })
-            .collect();
-        let (own, start) = band_of(k, mine);
-        let mut drawn = own.draw(&mut Band::new(mine, start), path, row, &mut Tally(None));
-        for worker in workers {
-            let result = worker.join().unwrap_or(Err(AureaError::RenderingFailed));
-            drawn = drawn.and(result);
-        }
-        drawn
-    })
+    let scratches = iter::once((path, row)).chain(
+        extra
+            .iter_mut()
+            .map(|scratch| (&mut scratch.path, &mut scratch.row)),
+    );
+    let mut results = [const { Ok(()) }; MAX_BANDS];
+    let mut tasks: Vec<_> = damaged
+        .chunks_mut(rows as usize * width)
+        .zip(scratches)
+        .zip(results.iter_mut())
+        .enumerate()
+        .map(|(k, ((chunk, (path, row)), result))| {
+            let top = y0 + u32::try_from(k).unwrap_or(u32::MAX) * rows;
+            let height = u32::try_from(chunk.len() / width).unwrap_or(u32::MAX);
+            let plan = FramePlan {
+                clip: ClipBox {
+                    y0: top,
+                    y1: top + height,
+                    ..plan.clip
+                },
+                ..*plan
+            };
+            let start = top as usize * width;
+            move || {
+                let mut band = Band::new(&mut *chunk, start);
+                *result = plan.draw(&mut band, &mut *path, &mut *row, &mut Tally(None));
+            }
+        })
+        .collect();
+    let finished = pool::run(&mut tasks);
+    drop(tasks);
+    if !finished {
+        return Err(AureaError::RenderingFailed);
+    }
+    results.into_iter().collect()
 }
