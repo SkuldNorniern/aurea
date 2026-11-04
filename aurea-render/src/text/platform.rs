@@ -229,6 +229,18 @@ fn checked<V: Clone>(
         .map(|(_, v)| v.clone())
 }
 
+/// The most a run's mask may take; text larger than this draws nothing.
+const MAX_MASK_BYTES: usize = 1 << 28;
+
+/// Bytes of a `width` by `height` subpixel mask, unless it is too big to make.
+fn mask_bytes(width: u32, height: u32) -> Option<usize> {
+    usize::try_from(width)
+        .ok()?
+        .checked_mul(usize::try_from(height).ok()?)?
+        .checked_mul(3)
+        .filter(|&bytes| bytes <= MAX_MASK_BYTES)
+}
+
 fn blit_max(
     coverage: &mut [u8],
     (dev_w, dev_h): (u32, u32),
@@ -363,7 +375,10 @@ impl TextRenderer {
         };
         let dev_w = f32_to_u32_clamped((w + pad * 2.0).ceil().max(1.0));
         let dev_h = f32_to_u32_clamped((h + pad * 2.0).ceil().max(1.0));
-        let mut coverage = vec![0u8; (dev_w * dev_h * 3) as usize];
+        let Some(bytes) = mask_bytes(dev_w, dev_h) else {
+            return Ok((GlyphMask::new(0, 0, Vec::new().into()), ascent, pad));
+        };
+        let mut coverage = vec![0u8; bytes];
 
         let baseline = (ascent + pad).round();
         let centre = pad + shaped.size / 2.0;
@@ -519,6 +534,14 @@ impl Default for TextRenderer {
 mod tests {
     use super::*;
     use crate::text::cache_stats;
+
+    #[test]
+    fn a_mask_too_big_to_make_has_no_size() {
+        assert_eq!(mask_bytes(100, 20), Some(6000));
+        assert_eq!(mask_bytes(9000, 9000), Some(243_000_000));
+        assert_eq!(mask_bytes(20_000, 20_000), None);
+        assert_eq!(mask_bytes(u32::MAX, u32::MAX), None);
+    }
 
     fn font(family: &str) -> Font {
         Font::new(family, 24.0)
