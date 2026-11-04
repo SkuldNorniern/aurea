@@ -683,6 +683,8 @@ mod win32_tests {
     use std::os::raw::c_void;
     use std::ptr::null_mut;
     use std::rc::Rc;
+    use std::thread::sleep;
+    use std::time::Duration;
 
     #[repr(C)]
     #[derive(Default)]
@@ -836,11 +838,21 @@ mod win32_tests {
         window.show();
         unsafe { SetFocus(b) };
         unsafe { PostMessageW(b, WM_KEYDOWN, VK_RETURN, 0) };
-        window.poll_events();
+        // A poll stops at its time budget, so one may not reach the key yet.
+        for _ in 0..200 {
+            window.poll_events();
+            if *clicks.borrow() > 0 {
+                break;
+            }
+            sleep(Duration::from_millis(5));
+        }
         assert_eq!(*clicks.borrow(), 1);
         unsafe { SetFocus(c) };
         unsafe { PostMessageW(c, WM_KEYDOWN, VK_RETURN, 0) };
-        window.poll_events();
+        for _ in 0..20 {
+            window.poll_events();
+            sleep(Duration::from_millis(5));
+        }
         assert!(!checkbox_checked(c));
         Ok(())
     }
@@ -888,8 +900,16 @@ mod win32_tests {
         window.set_content(root)?;
         window.show();
         let tab = |window: &Window| {
-            unsafe { PostMessageW(GetFocus(), WM_KEYDOWN, VK_TAB, 0) };
-            window.poll_events();
+            let before = unsafe { GetFocus() };
+            unsafe { PostMessageW(before, WM_KEYDOWN, VK_TAB, 0) };
+            // A poll stops at its time budget, so one may not reach the key yet.
+            for _ in 0..200 {
+                window.poll_events();
+                if unsafe { GetFocus() } != before {
+                    break;
+                }
+                sleep(Duration::from_millis(5));
+            }
             unsafe { GetFocus() }
         };
         unsafe { SetFocus(order[0]) };

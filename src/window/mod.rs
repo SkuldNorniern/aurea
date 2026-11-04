@@ -1630,9 +1630,13 @@ mod gtk_shortcuts_tests {
     }
 
     fn pressed(window: &Window) -> Vec<KeyCode> {
-        window
-            .poll_events()
-            .into_iter()
+        // A poll stops at its time budget, so one may not reach the input yet.
+        (0..10)
+            .flat_map(|_| {
+                let events = window.poll_events();
+                sleep(Duration::from_millis(2));
+                events
+            })
             .filter_map(|event| match event {
                 WindowEvent::KeyInput {
                     key, pressed: true, ..
@@ -1926,6 +1930,8 @@ mod win32_shortcuts_tests {
     use crate::elements::{Container, Element, Orientation, Stack, TextField};
     use crate::{AureaResult, KeyCode, Modifiers, Window, WindowEvent};
     use std::os::raw::c_void;
+    use std::thread::sleep;
+    use std::time::Duration;
 
     const WM_KEYDOWN: u32 = 0x0100;
     const VK_F5: usize = 0x74;
@@ -1953,9 +1959,13 @@ mod win32_shortcuts_tests {
     }
 
     fn pressed(window: &Window) -> Vec<KeyCode> {
-        window
-            .poll_events()
-            .into_iter()
+        // A poll stops at its time budget, so one may not reach the input yet.
+        (0..10)
+            .flat_map(|_| {
+                let events = window.poll_events();
+                sleep(Duration::from_millis(2));
+                events
+            })
             .filter_map(|event| match event {
                 WindowEvent::KeyInput {
                     key, pressed: true, ..
@@ -2226,6 +2236,8 @@ mod win32_text_input_tests {
 
     use crate::{AureaResult, Window, WindowEvent};
     use std::os::raw::c_void;
+    use std::thread::sleep;
+    use std::time::Duration;
 
     const WM_CHAR: u32 = 0x0102;
 
@@ -2240,9 +2252,13 @@ mod win32_text_input_tests {
     }
 
     fn typed_text(window: &Window) -> String {
-        window
-            .poll_events()
-            .into_iter()
+        // A poll stops at its time budget, so one may not reach the input yet.
+        (0..10)
+            .flat_map(|_| {
+                let events = window.poll_events();
+                sleep(Duration::from_millis(2));
+                events
+            })
             .filter_map(|event| match event {
                 WindowEvent::TextInput { text } => Some(text),
                 _ => None,
