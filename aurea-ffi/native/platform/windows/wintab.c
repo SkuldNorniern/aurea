@@ -115,12 +115,25 @@ static struct {
     double last_y;
 } g_wt;
 
-/* Not the current folder: only the driver's dll, or the app's own beside it. */
+/* Not the current folder: only the driver's dll, or the app's own beside it. Those flags need
+   Windows 8 or KB2533623; without them, the system folder by full path. */
+static HMODULE ng_windows_wintab_load(void) {
+    HMODULE dll = LoadLibraryExW(L"wintab32.dll", NULL,
+                                 LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (dll || GetLastError() != ERROR_INVALID_PARAMETER) return dll;
+    const wchar_t name[] = L"\\wintab32.dll";
+    WCHAR path[MAX_PATH];
+    UINT room = MAX_PATH - (UINT)(sizeof(name) / sizeof(name[0]));
+    UINT len = GetSystemDirectoryW(path, room);
+    if (len == 0 || len >= room) return NULL;
+    wcscpy(path + len, name);
+    return LoadLibraryW(path);
+}
+
 static int ng_windows_wintab_api(void) {
     if (!g_wt_api.looked_up) {
         g_wt_api.looked_up = 1;
-        HMODULE dll = LoadLibraryExW(L"wintab32.dll", NULL,
-                                     LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
+        HMODULE dll = ng_windows_wintab_load();
         if (dll) {
             g_wt_api.info = (WtInfoFunc)GetProcAddress(dll, "WTInfoW");
             g_wt_api.open = (WtOpenFunc)GetProcAddress(dll, "WTOpenW");
