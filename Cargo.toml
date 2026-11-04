@@ -3,10 +3,16 @@ name = "aurea"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Native GUI toolkit with cross-platform windowing, native widgets, and framework-owned CPU rasterizer"
+description = "Native GUI toolkit: windows, native widgets, canvas widgets and a renderer with CPU and optional GPU backends"
 license.workspace = true
 readme = "README.md"
 repository.workspace = true
+keywords = ["gui", "ui", "native", "canvas", "widgets"]
+categories = ["gui", "graphics", "rendering"]
+
+[package.metadata.docs.rs]
+features = ["accessibility", "wgpu", "zengpu"]
+targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "aarch64-apple-darwin"]
 
 # The mobile demo app built from `examples/android_demo.rs` and the iOS sample.
 [package.metadata.aurea]

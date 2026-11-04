@@ -6,6 +6,11 @@ rust-version.workspace = true
 description = "CPU/GPU rendering backends, display list, and text pipeline for Aurea"
 license.workspace = true
 repository.workspace = true
+keywords = ["gui", "rasterizer", "canvas", "text", "gpu"]
+categories = ["gui", "graphics", "rendering"]
+
+[package.metadata.docs.rs]
+features = ["wgpu", "zengpu"]
 
 [lints]
 workspace = true

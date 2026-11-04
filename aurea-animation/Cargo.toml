@@ -6,6 +6,8 @@ rust-version.workspace = true
 description = "Animation primitives for the Aurea GUI toolkit"
 license.workspace = true
 repository.workspace = true
+keywords = ["animation", "easing", "tween", "gui"]
+categories = ["gui", "graphics"]
 
 [dependencies]
 aurea-foundation = { path = "../aurea-foundation", version = "0.1.0" }

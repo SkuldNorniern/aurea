@@ -6,6 +6,8 @@ rust-version.workspace = true
 description = "Core types, errors, and platform detection for Aurea"
 license.workspace = true
 repository.workspace = true
+keywords = ["gui", "types", "events"]
+categories = ["gui"]
 
 [lints]
 workspace = true

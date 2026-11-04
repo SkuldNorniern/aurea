@@ -6,6 +6,8 @@ rust-version.workspace = true
 description = "Window event loop lifecycle and scheduling for Aurea"
 license.workspace = true
 repository.workspace = true
+keywords = ["gui", "event-loop", "frames", "scheduler"]
+categories = ["gui"]
 
 [lints]
 workspace = true

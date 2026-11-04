@@ -6,6 +6,11 @@ rust-version.workspace = true
 description = "Rust <-> native ABI declarations and native library build for Aurea"
 license.workspace = true
 repository.workspace = true
+keywords = ["gui", "ffi", "native", "win32", "gtk"]
+categories = ["gui", "external-ffi-bindings"]
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "aarch64-apple-darwin"]
 
 [lints]
 workspace = true

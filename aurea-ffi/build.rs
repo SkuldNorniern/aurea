@@ -19,6 +19,10 @@ fn main() {
     };
     let native = root.join("native");
     let target = env::var("TARGET").expect("TARGET is set by cargo");
+    // docs.rs only documents, and its machines have none of the platform SDKs.
+    if env::var_os("DOCS_RS").is_some() {
+        return;
+    }
     // Apple's native layer needs Xcode; off a Mac only a type-check can run, which needs no objects.
     let host = env::var("HOST").unwrap_or_default();
     if target.contains("apple") && !host.contains("apple") {

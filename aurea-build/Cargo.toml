@@ -6,6 +6,8 @@ rust-version.workspace = true
 description = "Build script helper that hands an Aurea app's identity from Cargo.toml to its code"
 license.workspace = true
 repository.workspace = true
+keywords = ["gui", "build", "bundle", "identity"]
+categories = ["development-tools::build-utils"]
 
 [dependencies]
 png = "0.18"
