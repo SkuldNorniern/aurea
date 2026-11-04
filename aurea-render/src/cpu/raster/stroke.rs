@@ -142,7 +142,7 @@ fn stroke(path: &Path, style: &StrokeStyle, s: &mut Scratch, sink: &mut dyn FnMu
             }
             continue;
         }
-        match style.dash {
+        match style.dash.filter(|d| dashes_fit(run_points, r.closed, d)) {
             Some(pattern) => {
                 dashes(run_points, r.closed, &pattern, dash);
                 for piece in dash.iter() {
@@ -359,6 +359,19 @@ impl DashRuns {
             .zip(&self.ends)
             .map(|(&start, &end)| &self.points[start..end])
     }
+}
+
+/// The most pattern repeats dashed along one subpath. Past 2^24 a step no longer shortens what is
+/// left of an edge, so dashing would never end.
+const MAX_DASH_REPEATS: f32 = 1_000_000.0;
+
+/// Whether `points` is short enough to dash with `dash`; otherwise it strokes solid.
+fn dashes_fit(points: &[Point], closed: bool, dash: &Dash) -> bool {
+    let period: f32 = dash.lengths().iter().sum();
+    let edge = |(a, b): (&Point, &Point)| (b.x - a.x).hypot(b.y - a.y);
+    let open: f32 = points.iter().zip(&points[1..]).map(edge).sum();
+    let last = closed.then(|| edge((&points[points.len() - 1], &points[0])));
+    (open + last.unwrap_or(0.0)) / period <= MAX_DASH_REPEATS
 }
 
 /// Splits `points` into the on-runs of `dash` into `runs`, which is cleared first.
@@ -753,6 +766,25 @@ mod tests {
     use crate::cpu::raster::band::Band;
     use crate::cpu::raster::fill::{PathScratch, fill_path};
     use crate::types::{BlendMode, Color};
+
+    #[test]
+    fn a_line_too_long_for_its_dashes_strokes_solid() {
+        let style = StrokeStyle {
+            dash: Dash::new(&[2.0, 2.0], 0.0),
+            ..StrokeStyle::solid(2.0)
+        };
+        let pieces = |to: f32| {
+            let outline = outline_path(&line(&[(0.0, 8.0), (to, 8.0)]), &style);
+            outline
+                .commands
+                .iter()
+                .filter(|c| matches!(c, PathCommand::MoveTo(_)))
+                .count()
+        };
+        assert_eq!(pieces(40.0), 10);
+        assert_eq!(pieces(1e30), 1);
+        assert_eq!(pieces(f32::INFINITY), 1);
+    }
 
     fn line(points: &[(f32, f32)]) -> Path {
         let mut path = Path::new();
