@@ -1,7 +1,7 @@
 //! Frame queue for scheduling and processing redraws.
 
 use aurea_foundation::{AureaError, lock};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::os::raw::c_void;
 use std::rc::Rc;
@@ -14,6 +14,63 @@ type FrameCallback = Rc<dyn Fn() + 'static>;
 type TickerFn = Rc<RefCell<dyn FnMut(FrameInfo) -> bool>>;
 type RequestFrameHook = Option<Box<dyn Fn() + Send + Sync>>;
 
+/// A gap longer than this is idle time or a hang, not a frame rate.
+const MAX_FRAME_GAP: f64 = 0.1;
+/// How far a gap can be from the frame period and still count as on time.
+const ON_TIME: f64 = 0.25;
+/// Late or early frames in a row that mean the rate changed.
+const NEW_RATE: u32 = 3;
+
+/// Frame times with the timer's jitter taken out, so motion doesn't wobble: frames reach the screen
+/// on a steady beat, whenever their timer happened to fire.
+#[derive(Default)]
+struct FrameClock {
+    /// The steady time of the last frame, and when it really ran.
+    last: Option<(Instant, Instant)>,
+    period: Option<f64>,
+    off_beat: u32,
+}
+
+impl FrameClock {
+    fn advance(&mut self, now: Instant) -> (Instant, Duration) {
+        let Some((time, real)) = self.last else {
+            self.last = Some((now, now));
+            return (now, Duration::ZERO);
+        };
+        let gap = now.saturating_duration_since(real).as_secs_f64();
+        let elapsed = now.saturating_duration_since(time);
+        if gap > MAX_FRAME_GAP {
+            self.period = None;
+            self.off_beat = 0;
+            self.last = Some((now, now));
+            return (now, elapsed);
+        }
+        let period = self.period.unwrap_or(gap);
+        if (gap - period).abs() > period * ON_TIME {
+            self.off_beat += 1;
+            self.period = Some(if self.off_beat >= NEW_RATE {
+                gap
+            } else {
+                period
+            });
+            self.last = Some((now, now));
+            return (now, elapsed);
+        }
+        self.off_beat = 0;
+        let period = period + (gap - period) / 16.0;
+        self.period = Some(period);
+        let behind = elapsed.as_secs_f64() - period;
+        if behind.abs() > period / 2.0 {
+            self.last = Some((now, now));
+            return (now, elapsed);
+        }
+        let step = Duration::from_secs_f64(period + behind / 4.0);
+        let steady = time + step;
+        self.last = Some((steady, now));
+        (steady, step)
+    }
+}
+
 /// Handle for a per-frame callback.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FrameCallbackId(u64);
@@ -25,9 +82,9 @@ pub struct TickerId(u64);
 /// Time information passed to every ticker each frame.
 #[derive(Debug, Clone, Copy)]
 pub struct FrameInfo {
-    /// When the frame started.
+    /// When the frame started, on a steady beat: it can differ from the clock by a little jitter.
     pub time: Instant,
-    /// Time since the previous frame.
+    /// Time since the previous frame, or since the ticker was registered on its first frame.
     pub delta: Duration,
     /// Frame number since startup.
     pub frame: u64,
@@ -40,7 +97,7 @@ static PENDING_CANVASES: LazyLock<Mutex<HashSet<usize>>> =
 static FRAME_CALLBACK_COUNTER: AtomicU64 = AtomicU64::new(0);
 static TICKER_COUNTER: AtomicU64 = AtomicU64::new(0);
 static FRAME_COUNTER: AtomicU64 = AtomicU64::new(0);
-static LAST_FRAME_TIME: LazyLock<Mutex<Instant>> = LazyLock::new(|| Mutex::new(Instant::now()));
+static CLOCK: LazyLock<Mutex<FrameClock>> = LazyLock::new(|| Mutex::new(FrameClock::default()));
 static REQUEST_FRAME_HOOK: LazyLock<Mutex<RequestFrameHook>> = LazyLock::new(|| Mutex::new(None));
 
 thread_local! {
@@ -48,7 +105,13 @@ thread_local! {
         RefCell::new(HashMap::new());
     static FRAME_CALLBACKS: RefCell<HashMap<FrameCallbackId, FrameCallback>> =
         RefCell::new(HashMap::new());
-    static TICKERS: RefCell<HashMap<TickerId, TickerFn>> = RefCell::new(HashMap::new());
+    static TICKERS: RefCell<HashMap<TickerId, Ticker>> = RefCell::new(HashMap::new());
+}
+
+struct Ticker {
+    tick: TickerFn,
+    /// When it was registered, until its first frame.
+    since: Rc<Cell<Option<Instant>>>,
 }
 
 /// Requests frames and runs per-frame work.
@@ -130,7 +193,15 @@ impl FrameScheduler {
         F: FnMut(FrameInfo) -> bool + 'static,
     {
         let id = TickerId(TICKER_COUNTER.fetch_add(1, Ordering::Relaxed));
-        TICKERS.with(|t| t.borrow_mut().insert(id, Rc::new(RefCell::new(ticker))));
+        TICKERS.with(|t| {
+            t.borrow_mut().insert(
+                id,
+                Ticker {
+                    tick: Rc::new(RefCell::new(ticker)),
+                    since: Rc::new(Cell::new(Some(Instant::now()))),
+                },
+            )
+        });
         FRAME_SCHEDULED.store(true, Ordering::Relaxed);
         Self::notify_platform();
         id
@@ -142,15 +213,20 @@ impl FrameScheduler {
     }
 
     fn run_tickers(frame_info: FrameInfo) {
-        let tickers: Vec<(TickerId, TickerFn)> = TICKERS.with(|t| {
+        let tickers: Vec<_> = TICKERS.with(|t| {
             t.borrow()
                 .iter()
-                .map(|(id, f)| (*id, Rc::clone(f)))
+                .map(|(id, f)| (*id, Rc::clone(&f.tick), Rc::clone(&f.since)))
                 .collect()
         });
         let mut to_remove = Vec::new();
-        for (id, ticker_fn) in tickers {
-            let keep = (ticker_fn.borrow_mut())(frame_info);
+        for (id, ticker_fn, since) in tickers {
+            let mut info = frame_info;
+            // The time before it existed may be seconds of idling.
+            if let Some(since) = since.take() {
+                info.delta = info.delta.min(info.time.saturating_duration_since(since));
+            }
+            let keep = (ticker_fn.borrow_mut())(info);
             if !keep {
                 to_remove.push(id);
             }
@@ -166,19 +242,9 @@ impl FrameScheduler {
             return Ok(());
         }
 
-        let now = Instant::now();
-        let delta = {
-            let mut last = lock(&LAST_FRAME_TIME);
-            let d = now.duration_since(*last);
-            *last = now;
-            d
-        };
+        let (time, delta) = lock(&CLOCK).advance(Instant::now());
         let frame = FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let frame_info = FrameInfo {
-            time: now,
-            delta,
-            frame,
-        };
+        let frame_info = FrameInfo { time, delta, frame };
 
         Self::run_tickers(frame_info);
 
@@ -234,6 +300,7 @@ mod tests {
     use std::sync::LazyLock;
     use std::sync::MutexGuard;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::thread::sleep;
 
     static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
@@ -265,12 +332,99 @@ mod tests {
         lock(&PENDING_CANVASES).clear();
         FRAME_CALLBACKS.with(|c| c.borrow_mut().clear());
         TICKERS.with(|t| t.borrow_mut().clear());
-        *lock(&LAST_FRAME_TIME) = Instant::now();
+        *lock(&CLOCK) = FrameClock::default();
         *lock(&REQUEST_FRAME_HOOK) = None;
     }
 
     fn handle(id: usize) -> *mut c_void {
         id as *mut c_void
+    }
+
+    /// Runs the clock over gaps in milliseconds; returns each step in milliseconds and how far the
+    /// clock ended from real time.
+    fn run_clock(gaps: &[f64]) -> (Vec<f64>, f64) {
+        let start = Instant::now();
+        let mut clock = FrameClock::default();
+        clock.advance(start);
+        let (mut real, mut time) = (start, start);
+        let steps = gaps
+            .iter()
+            .map(|gap| {
+                real += Duration::from_secs_f64(gap / 1000.0);
+                let (at, step) = clock.advance(real);
+                time = at;
+                step.as_secs_f64() * 1000.0
+            })
+            .collect();
+        let off = real.saturating_duration_since(time) + time.saturating_duration_since(real);
+        (steps, off.as_secs_f64() * 1000.0)
+    }
+
+    #[test]
+    fn jitter_stays_out_of_frame_times() {
+        let gaps: Vec<f64> = (0..600)
+            .map(|i| 16.667 + if i % 2 == 0 { 1.5 } else { -1.5 })
+            .collect();
+        let (steps, off) = run_clock(&gaps);
+        for step in &steps[120..] {
+            assert!((step - 16.667).abs() < 0.5, "step {step}");
+        }
+        assert!(off < 3.0, "ended {off} ms from real time");
+    }
+
+    #[test]
+    fn slow_jitter_never_drifts_from_real_time() {
+        let gaps: Vec<f64> = (0..2000)
+            .map(|i| 16.667 + 2.0 * (f64::from(i) * 0.05).sin() + 0.02)
+            .collect();
+        let (_, off) = run_clock(&gaps);
+        assert!(off < 8.4, "ended {off} ms from real time");
+    }
+
+    #[test]
+    fn a_dropped_frame_keeps_the_rate_and_a_new_rate_is_learned() {
+        let mut gaps = vec![16.667; 120];
+        gaps.push(33.3);
+        gaps.extend([16.667; 60]);
+        gaps.extend([6.944; 60]);
+        let (steps, _) = run_clock(&gaps);
+        assert!((steps[120] - 33.3).abs() < 0.5, "step {}", steps[120]);
+        assert!((steps[121] - 16.667).abs() < 0.1, "after {}", steps[121]);
+        let last = steps[steps.len() - 1];
+        assert!((last - 6.944).abs() < 0.3, "settled on {last}");
+    }
+
+    #[test]
+    fn idle_time_is_not_smoothed_away() {
+        let mut gaps = vec![16.667; 30];
+        gaps.push(5000.0);
+        gaps.extend([16.667; 30]);
+        let (steps, off) = run_clock(&gaps);
+        assert!((steps[30] - 5000.0).abs() < 1.0);
+        assert!((steps[60] - 16.667).abs() < 0.5);
+        assert!(off < 1.0);
+    }
+
+    #[test]
+    fn a_new_ticker_does_not_get_the_idle_time_before_it() {
+        let _guard = TestGuard::new();
+        FRAME_SCHEDULED.store(true, Ordering::Relaxed);
+        FrameScheduler::process_frames().expect("process");
+        sleep(Duration::from_millis(120));
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let theirs = Rc::clone(&seen);
+        // Registered late, as an animation starting after a while with nothing to draw.
+        let id = FrameScheduler::register_ticker(move |info| {
+            theirs.borrow_mut().push(info.delta);
+            true
+        });
+        FrameScheduler::process_frames().expect("process");
+        sleep(Duration::from_millis(5));
+        FrameScheduler::process_frames().expect("process");
+        FrameScheduler::unregister_ticker(id);
+        let seen = seen.borrow();
+        assert!(seen[0] < Duration::from_millis(50), "first {:?}", seen[0]);
+        assert!(seen[1] >= Duration::from_millis(5), "second {:?}", seen[1]);
     }
 
     #[test]
