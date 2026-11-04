@@ -1,0 +1,53 @@
+name: pre-release
+
+# Runs after CI passes on main, so it needs no build of its own.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Update latest pre-release
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pre-release-latest
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Can't work until ZenGPU is on crates.io; the release then has notes only.
+      - name: Assemble archives
+        id: package
+        continue-on-error: true
+        run: |
+          cargo generate-lockfile
+          cargo package --workspace --all-features --no-verify --locked --target-dir target/release-packages
+
+      - name: Generate release notes
+        run: bash .github/release-notes.sh latest > release_notes.md
+
+      - name: Publish latest pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PACKAGED: ${{ steps.package.outcome }}
+        run: |
+          files=()
+          if [ "$PACKAGED" = success ]; then files=(target/release-packages/package/*.crate); fi
+          gh release delete latest --cleanup-tag --yes || true
+          gh release create latest "${files[@]}" \
+            --prerelease --latest=false --target "$HEAD_SHA" \
+            --title "Development Build ($(date -u +%Y-%m-%d))" \
+            --notes-file release_notes.md
