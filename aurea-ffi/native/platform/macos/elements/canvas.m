@@ -10,6 +10,9 @@
 #import <string.h>
 #import <math.h>
 
+// Seconds without a frame before the surface off screen is freed.
+static const CFTimeInterval NG_IDLE_SURFACE_SECONDS = 2.0;
+
 @interface AureaCanvasView : NSView
 {
 @public
@@ -18,7 +21,11 @@
     unsigned int _ioSurfWidth;
     unsigned int _ioSurfHeight;
     CGFloat _lastContentsScale;
+    CFTimeInterval _lastPresent;
+    BOOL _idleCheckPending;
 }
+- (void)releaseSurfaces;
+- (void)checkIdleAfter:(CFTimeInterval)delay;
 @property (nonatomic, assign) const unsigned char* renderBuffer;
 @property (nonatomic, assign) unsigned int bufferWidth;
 @property (nonatomic, assign) unsigned int bufferHeight;
@@ -63,12 +70,35 @@
 - (void)dealloc {
     ng_invoke_canvas_destroyed((__bridge void*)self);
     self.renderBuffer = NULL;
+    [self releaseSurfaces];
+}
+
+- (void)releaseSurfaces {
     for (int i = 0; i < 2; i++) {
         if (_ioSurfaces[i]) {
             CFRelease(_ioSurfaces[i]);
             _ioSurfaces[i] = NULL;
         }
     }
+}
+
+- (void)checkIdleAfter:(CFTimeInterval)delay {
+    __weak AureaCanvasView* weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        AureaCanvasView* view = weakSelf;
+        if (!view) return;
+        CFTimeInterval left = view->_lastPresent + NG_IDLE_SURFACE_SECONDS - CACurrentMediaTime();
+        if (left > 0.0) {
+            [view checkIdleAfter:left];
+            return;
+        }
+        view->_idleCheckPending = NO;
+        IOSurfaceRef back = view->_ioSurfaces[view->_ioBackIndex];
+        if (back) {
+            CFRelease(back);
+            view->_ioSurfaces[view->_ioBackIndex] = NULL;
+        }
+    });
 }
 
 @end
@@ -119,6 +149,7 @@ void ng_macos_canvas_set_gpu_owned(NGHandle canvas, int gpu_owned) {
         view.bufferWidth = 0;
         view.bufferHeight = 0;
         view.layer.contents = nil;
+        [view releaseSurfaces];
     }
 }
 
@@ -176,29 +207,44 @@ static IOSurfaceRef ng_macos_create_io_surface(unsigned int width, unsigned int 
     return surface;
 }
 
+static void ng_macos_copy_io_surface(IOSurfaceRef from, IOSurfaceRef to, unsigned int height) {
+    IOSurfaceLock(from, kIOSurfaceLockReadOnly, NULL);
+    size_t from_row = IOSurfaceGetBytesPerRow(from);
+    size_t to_row = IOSurfaceGetBytesPerRow(to);
+    size_t row = from_row < to_row ? from_row : to_row;
+    const unsigned char* src = (const unsigned char*)IOSurfaceGetBaseAddress(from);
+    unsigned char* dst = (unsigned char*)IOSurfaceGetBaseAddress(to);
+    for (unsigned int y = 0; y < height; y++) {
+        memcpy(dst + y * to_row, src + y * from_row, row);
+    }
+    IOSurfaceUnlock(from, kIOSurfaceLockReadOnly, NULL);
+}
+
 void* ng_macos_canvas_acquire_buffer(NGHandle canvas, unsigned int width, unsigned int height, unsigned int* stride_px, unsigned int* buffer_index) {
     if (!canvas || width == 0 || height == 0) return NULL;
     AureaCanvasView* view = (__bridge AureaCanvasView*)canvas;
     if (![view isKindOfClass:[AureaCanvasView class]]) return NULL;
 
-    if (view->_ioSurfWidth != width || view->_ioSurfHeight != height || !view->_ioSurfaces[0] || !view->_ioSurfaces[1]) {
-        for (int i = 0; i < 2; i++) {
-            if (view->_ioSurfaces[i]) {
-                CFRelease(view->_ioSurfaces[i]);
-                view->_ioSurfaces[i] = NULL;
-            }
-        }
-        view->_ioSurfaces[0] = ng_macos_create_io_surface(width, height);
-        view->_ioSurfaces[1] = ng_macos_create_io_surface(width, height);
+    if (view->_ioSurfWidth != width || view->_ioSurfHeight != height) {
+        [view releaseSurfaces];
         view->_ioSurfWidth = width;
         view->_ioSurfHeight = height;
         view->_ioBackIndex = 0;
     }
 
     IOSurfaceRef back = view->_ioSurfaces[view->_ioBackIndex];
-    if (!back) return NULL;
+    IOSurfaceRef from = NULL;
+    if (!back) {
+        back = ng_macos_create_io_surface(width, height);
+        if (!back) return NULL;
+        view->_ioSurfaces[view->_ioBackIndex] = back;
+        from = view->_ioSurfaces[1 - view->_ioBackIndex];
+    }
 
     IOSurfaceLock(back, 0, NULL);
+
+    // Damage only covers what changed since this surface was last drawn.
+    if (from) ng_macos_copy_io_surface(from, back, height);
 
     if (stride_px) *stride_px = (unsigned int)(IOSurfaceGetBytesPerRow(back) / 4);
     if (buffer_index) *buffer_index = (unsigned int)view->_ioBackIndex;
@@ -225,6 +271,12 @@ void ng_macos_canvas_present(NGHandle canvas) {
     }
 
     view->_ioBackIndex = 1 - view->_ioBackIndex;
+
+    view->_lastPresent = CACurrentMediaTime();
+    if (!view->_idleCheckPending) {
+        view->_idleCheckPending = YES;
+        [view checkIdleAfter:NG_IDLE_SURFACE_SECONDS];
+    }
 }
 
 void ng_macos_canvas_get_pixel_size(NGHandle canvas, unsigned int* width, unsigned int* height) {
