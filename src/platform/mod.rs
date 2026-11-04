@@ -3,6 +3,7 @@
 
 pub mod handles;
 pub(crate) mod presentation;
+#[cfg(feature = "wgpu")]
 pub mod rwh;
 pub mod ui_thread;
 #[cfg(feature = "zengpu")]

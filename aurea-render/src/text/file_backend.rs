@@ -3,6 +3,8 @@
 use crate::numeric::f32_to_u8_clamped;
 use crate::text::fonts;
 use crate::text::glyph::{FaceData, FaceId, FontBytes, GlyphCoverage, GlyphKey};
+#[cfg(unix)]
+use crate::text::mapped::Mapped;
 use crate::text::outline::outline_coverage;
 use crate::text::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph, variation_hash};
 use crate::text::{CacheKind, GLYPH_BYTES, GLYPH_CAP, LruCache, shared};
@@ -205,6 +207,36 @@ fn is_font_file(name: &str) -> bool {
 
 type FontFile = (String, PathBuf);
 
+type WeakBytes = Weak<dyn AsRef<[u8]> + Send + Sync>;
+
+/// Folders the system keeps read-only, so a mapped file there can't change. A CJK face is over
+/// 20 MB and most of it is never touched.
+#[cfg(unix)]
+fn fixed_folders() -> &'static [&'static str] {
+    #[cfg(target_os = "android")]
+    {
+        &["/system/", "/product/", "/system_ext/"]
+    }
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        &["/System/Library/"]
+    }
+    #[cfg(not(any(target_os = "android", target_os = "macos", target_os = "ios")))]
+    {
+        &[]
+    }
+}
+
+fn file_bytes(path: &Path) -> Option<FontBytes> {
+    #[cfg(unix)]
+    if fixed_folders().iter().any(|root| path.starts_with(root))
+        && let Some(mapped) = Mapped::open(path)
+    {
+        return Some(Arc::new(mapped));
+    }
+    Some(Arc::new(read(path).ok()?))
+}
+
 fn scan_font_files(dirs: &[PathBuf]) -> Vec<FontFile> {
     let mut files = Vec::new();
     let mut pending = dirs.to_vec();
@@ -360,7 +392,7 @@ pub struct FontFileRasterizer {
     /// Faces with variations, the least recently used built again when next needed.
     varied: Arc<Mutex<LruCache<FaceId, Arc<FaceData>>>>,
     /// Font file bytes by file. Weak, so the last face using a file frees it.
-    file_bytes: Mutex<HashMap<FaceSource, Weak<Vec<u8>>>>,
+    file_bytes: Mutex<HashMap<FaceSource, WeakBytes>>,
     fallbacks: Vec<OnceLock<Option<FaceId>>>,
     font_cache: Mutex<LruCache<FontKey, FaceId>>,
     subpixel_cache: Arc<Mutex<LruCache<GlyphKey, Arc<SubpixelGlyph>>>>,
@@ -424,7 +456,7 @@ impl FontFileRasterizer {
                 if let Some(bytes) = shared.get(source).and_then(Weak::upgrade) {
                     return Some((bytes, 0));
                 }
-                let bytes = Arc::new(read(path).ok()?);
+                let bytes = file_bytes(path)?;
                 shared.retain(|_, weak| weak.strong_count() > 0);
                 shared.insert(source.clone(), Arc::downgrade(&bytes));
                 Some((bytes, 0))

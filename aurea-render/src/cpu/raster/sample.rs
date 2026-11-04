@@ -81,6 +81,16 @@ fn pack(c: [f32; 4], alpha: f32) -> u32 {
     (byte(a) << 24) | (byte(c[0] * un) << 16) | (byte(c[1] * un) << 8) | byte(c[2] * un)
 }
 
+/// [`pack`] for an average of many texels, which skips its divide when they were all opaque.
+#[inline]
+fn pack_average(c: [f32; 4], alpha: f32) -> u32 {
+    if alpha < 1.0 || c[3] < 254.99 {
+        return pack(c, alpha);
+    }
+    let byte = |v: f32| f32_to_u32_clamped((v + 0.5).min(255.0));
+    0xFF00_0000 | (byte(c[0]) << 16) | (byte(c[1]) << 8) | byte(c[2])
+}
+
 /// Nearest texel, clamped to the source region.
 pub fn nearest(image: &Image, b: Bounds, u: f32, v: f32, alpha: f32) -> u32 {
     if b.x0 > b.x1 || b.y0 > b.y1 {
@@ -301,6 +311,8 @@ pub struct Shrink {
     starts: Vec<usize>,
     /// Each output column's summed weight.
     widths: Vec<f32>,
+    /// The source columns any output column reads.
+    span: (i32, i32),
     rows: Vec<(i32, f32)>,
     texels: Vec<[f32; 4]>,
     /// Kept source rows, each one output row long, and which row each holds.
@@ -324,6 +336,12 @@ impl Shrink {
                 .push(self.columns[before..].iter().map(|(_, w)| w).sum());
         }
         self.starts.push(self.columns.len());
+        self.span = self
+            .columns
+            .iter()
+            .fold((i32::MAX, i32::MIN), |(lo, hi), (x, _)| {
+                (lo.min(*x), hi.max(*x))
+            });
         let slots = f32_to_usize_clamped(step_y.ceil()).saturating_add(2);
         self.kept.clear();
         self.kept.resize(self.widths.len() * slots, [0.0; 4]);
@@ -342,12 +360,7 @@ impl Shrink {
             return slot;
         }
         self.held[slot] = Some(y);
-        let (from, to) = self
-            .columns
-            .iter()
-            .fold((i32::MAX, i32::MIN), |(lo, hi), (x, _)| {
-                (lo.min(*x), hi.max(*x))
-            });
+        let (from, to) = self.span;
         self.texels.clear();
         if from <= to {
             let stride = image.width as usize * 4;
@@ -383,15 +396,16 @@ impl Shrink {
         slot
     }
 
-    /// One output row reading `[v, v + step_y)`, as `write(column, pixel)`.
+    /// One output row reading `[v, v + step_y)` into `out`, one per column; returns whether all
+    /// came out opaque.
     pub fn row(
         &mut self,
         image: &Image,
         (v, step_y): (f32, f32),
         b: Bounds,
         alpha: f32,
-        mut write: impl FnMut(usize, u32),
-    ) {
+        out: &mut [u32],
+    ) -> bool {
         self.rows.clear();
         self.rows
             .extend(area_weights(v, v + step_y, b.y0, b.y1).filter(|(_, weight)| *weight > 0.0));
@@ -409,17 +423,17 @@ impl Shrink {
                 }
             }
         }
-        for (i, (sum, wide)) in self.sums.iter().zip(&self.widths).enumerate() {
+        let mut all_opaque = true;
+        for (o, (sum, wide)) in out.iter_mut().zip(self.sums.iter().zip(&self.widths)) {
             let total = tall * wide;
-            write(
-                i,
-                if total > 0.0 {
-                    pack(sum.map(|s| s / total), alpha)
-                } else {
-                    0
-                },
-            );
+            *o = if total > 0.0 {
+                pack_average(sum.map(|s| s / total), alpha)
+            } else {
+                0
+            };
+            all_opaque &= *o >> 24 == 255;
         }
+        all_opaque
     }
 }
 
@@ -492,15 +506,50 @@ mod tests {
             let mut shrink = Shrink::default();
             let us = (0..40).map(|i| 3.2 + i as f32 * sx);
             shrink.start(us.clone(), sx, sy, b);
+            let mut out = [0; 40];
             for row in 0..30 {
                 let v = 2.4 + row as f32 * sy;
-                shrink.row(&image, (v, sy), b, 0.75, |i, got| {
+                shrink.row(&image, (v, sy), b, 0.75, &mut out);
+                for (i, &got) in out.iter().enumerate() {
                     let u = 3.2 + i as f32 * sx;
                     let want = area(&image, b, (u, v), (u + sx, v + sy), 0.75);
                     for (a, c) in got.to_be_bytes().into_iter().zip(want.to_be_bytes()) {
                         assert!(a.abs_diff(c) <= 1, "{got:08x} {want:08x} at {i}, {row}");
                     }
-                });
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn shrinking_opaque_pixels_says_so_and_stays_within_one() {
+        let (w, h) = (97_u32, 83_u32);
+        let data: Vec<u8> = (0..w * h)
+            .flat_map(|i| {
+                let c = i.wrapping_mul(2654435761).to_le_bytes();
+                [c[3], c[2], c[1], 255]
+            })
+            .collect();
+        let image = Image::new(w, h, data);
+        let b = Bounds {
+            x0: 0,
+            y0: 0,
+            x1: 96,
+            y1: 82,
+        };
+        let (sx, sy) = (1.5, 1.5);
+        let mut shrink = Shrink::default();
+        shrink.start((0..40).map(|i| i as f32 * sx), sx, sy, b);
+        let mut out = [0; 40];
+        for row in 0..30 {
+            let v = row as f32 * sy;
+            assert!(shrink.row(&image, (v, sy), b, 1.0, &mut out));
+            for (i, &got) in out.iter().enumerate() {
+                let u = i as f32 * sx;
+                let want = area(&image, b, (u, v), (u + sx, v + sy), 1.0);
+                for (a, c) in got.to_be_bytes().into_iter().zip(want.to_be_bytes()) {
+                    assert!(a.abs_diff(c) <= 1, "{got:08x} {want:08x} at {i}, {row}");
+                }
             }
         }
     }

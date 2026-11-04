@@ -11,6 +11,8 @@ pub mod shape;
 #[cfg(windows)]
 mod directwrite_backend;
 mod file_backend;
+#[cfg(unix)]
+mod mapped;
 
 pub use glyph::*;
 pub use layout::*;

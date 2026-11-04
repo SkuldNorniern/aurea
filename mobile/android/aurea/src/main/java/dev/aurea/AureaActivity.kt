@@ -156,6 +156,7 @@ abstract class AureaActivity :
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        current = this
         watchDevice(true)
         System.loadLibrary(library)
         files = AureaFiles(this)
@@ -266,22 +267,22 @@ abstract class AureaActivity :
 
     override fun onStart() {
         super.onStart()
-        nativeLifecycle(RESTORED)
+        if (current === this) nativeLifecycle(RESTORED)
     }
 
     override fun onResume() {
         super.onResume()
-        nativeLifecycle(FOCUSED)
+        if (current === this) nativeLifecycle(FOCUSED)
         requestFrame()
     }
 
     override fun onPause() {
-        nativeLifecycle(UNFOCUSED)
+        if (current === this) nativeLifecycle(UNFOCUSED)
         super.onPause()
     }
 
     override fun onStop() {
-        nativeLifecycle(MINIMIZED)
+        if (current === this) nativeLifecycle(MINIMIZED)
         super.onStop()
     }
 
@@ -293,7 +294,10 @@ abstract class AureaActivity :
     override fun onDestroy() {
         watchDevice(false)
         getSystemService(InputManager::class.java).unregisterInputDeviceListener(keyboards)
-        nativeDestroy(isFinishing)
+        if (current === this) {
+            current = null
+            nativeDestroy(isFinishing)
+        }
         super.onDestroy()
     }
 
@@ -308,7 +312,7 @@ abstract class AureaActivity :
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         hasSurface = false
-        nativeSurfaceDestroyed()
+        if (current === this) nativeSurfaceDestroyed()
     }
 
     override fun key(code: Int, pressed: Boolean, meta: Int) {
@@ -469,6 +473,10 @@ abstract class AureaActivity :
     }
 
     private companion object {
+        // a reopened app's new Activity can start before the old one has stopped; native state
+        // belongs to the newest.
+        var current: AureaActivity? = null
+
         val CORNERS = intArrayOf(
             RoundedCorner.POSITION_TOP_LEFT,
             RoundedCorner.POSITION_TOP_RIGHT,
