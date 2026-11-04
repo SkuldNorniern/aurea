@@ -13,7 +13,7 @@ static UINT32 g_pen_last_id;
 static UINT32 g_pen_last_frame;
 static int g_pen_reported;
 static int g_pen_mode = AUREA_PEN_MODE_AUTO;
-static ULONGLONG g_ink_last_tick;
+static DWORD g_ink_last_tick;
 static int g_ink_seen;
 static int g_ink_contact;
 static UINT32 g_ink_contact_id;
@@ -44,7 +44,7 @@ void ng_windows_pen_set_mode(int mode) {
 int ng_windows_pen_ink_live(void) {
     if (g_pen_mode != AUREA_PEN_MODE_AUTO) return 0;
     if (g_ink_contact) return 1;
-    return g_ink_seen && GetTickCount64() - g_ink_last_tick < AUREA_PEN_INK_LIVE_MS;
+    return g_ink_seen && GetTickCount() - g_ink_last_tick < AUREA_PEN_INK_LIVE_MS;
 }
 
 static unsigned int ng_windows_pen_phase(POINTER_FLAGS flags) {
@@ -145,7 +145,7 @@ void ng_windows_pen_message(HWND root, UINT msg, WPARAM wParam) {
     if (!g_pointer.type(id, &type) || type != PT_PEN) return;
     if (g_pen_mode == AUREA_PEN_MODE_WINTAB) return;
     g_ink_seen = 1;
-    g_ink_last_tick = GetTickCount64();
+    g_ink_last_tick = GetTickCount();
     ng_windows_wintab_yield();
 
     POINTER_PEN_INFO samples[AUREA_PEN_HISTORY];
