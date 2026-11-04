@@ -9,7 +9,7 @@ use zengpu_hal::{
     GraphicsDevice, GraphicsPipelineDesc, PipelineHandle, PrimitiveTopology, RasterState, Result,
     StepMode, VertexAttribute, VertexFormat, VertexLayout,
 };
-use zengpu_spirv::ZslShader;
+use zengpu_shader::ZslShader;
 
 use super::shaders::*;
 
