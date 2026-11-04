@@ -6,6 +6,7 @@
 #include "common/errors.h"
 #include "common/rust_callbacks.h"
 #include <windows.h>
+#include <dwmapi.h>
 #include <stdio.h>
 
 #ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
@@ -84,14 +85,46 @@ static BOOL ng_windows_drain_messages(void) {
     return TRUE;
 }
 
+/* The next vblank on the compositor's clock. Refresh rates only come as whole Hz, so a timer of
+ * its own drifts against a 59.94 Hz display and drops a frame every so often. */
+static BOOL ng_windows_next_vblank(LONGLONG now, LONGLONG* next) {
+    typedef HRESULT (WINAPI *TimingFunc)(HWND, DWM_TIMING_INFO*);
+    static TimingFunc timing = NULL;
+    static BOOL looked = FALSE;
+    if (!looked) {
+        looked = TRUE;
+        timing = (TimingFunc)ng_windows_api("dwmapi.dll", "DwmGetCompositionTimingInfo");
+    }
+    if (!timing) return FALSE;
+    DWM_TIMING_INFO info;
+    ZeroMemory(&info, sizeof(info));
+    info.cbSize = sizeof(info);
+    if (FAILED(timing(NULL, &info))) return FALSE;
+    LONGLONG period = (LONGLONG)info.qpcRefreshPeriod;
+    if (period <= 0) return FALSE;
+    /* The compositor follows another monitor than the window's. */
+    LONGLONG apart = period - g_frame_interval;
+    if (apart < 0) apart = -apart;
+    if (apart > period / 8) return FALSE;
+    LONGLONG into = (now - (LONGLONG)info.qpcVBlank) % period;
+    if (into < 0) into += period;
+    LONGLONG wait = period - into;
+    /* Fired just before a vblank: that one is this frame's. */
+    if (wait < period / 2) wait += period;
+    *next = now + wait;
+    return TRUE;
+}
+
 static void ng_windows_run_frame(void) {
     if (g_in_frame) {
         g_frame_pending = TRUE;
         return;
     }
     LONGLONG now = ng_windows_now();
-    g_next_frame += g_frame_interval;
-    if (g_next_frame <= now) g_next_frame = now + g_frame_interval;
+    if (!ng_windows_next_vblank(now, &g_next_frame)) {
+        g_next_frame += g_frame_interval;
+        if (g_next_frame <= now) g_next_frame = now + g_frame_interval;
+    }
     g_in_frame = TRUE;
     ng_process_frames();
     ng_windows_present();

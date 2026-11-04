@@ -11,6 +11,9 @@ static guint g_frame_source_id = 0;
 static gint64 g_next_frame_us = 0;
 static gint64 g_frame_interval_us = 16667;
 
+// A hidden window's frame clock can stop; animations still run this slowly.
+#define NG_LINUX_CLOCK_WAIT_MS 100
+
 static void ng_linux_update_frame_interval(void) {
     GdkDisplay* display = gdk_display_get_default();
     int best_mhz = 0;
@@ -35,6 +38,37 @@ static gboolean process_frames_once(gpointer user_data) {
     if (g_next_frame_us <= now) g_next_frame_us = now + g_frame_interval_us;
     ng_process_frames();
     return G_SOURCE_REMOVE;
+}
+
+// Update comes before paint, so what a frame draws reaches the screen on this beat.
+static void ng_linux_frame_clock_update(GdkFrameClock* clock, gpointer user_data) {
+    (void)clock;
+    (void)user_data;
+    if (g_frame_source_id == 0) return;
+    g_source_remove(g_frame_source_id);
+    g_frame_source_id = 0;
+    ng_process_frames();
+}
+
+// Asks the frame clock of every window on screen, the fastest monitor's firing first.
+static gboolean ng_linux_request_clocks(void) {
+    gboolean requested = FALSE;
+    GList* windows = gtk_window_list_toplevels();
+    for (GList* item = windows; item != NULL; item = item->next) {
+        GtkWidget* widget = GTK_WIDGET(item->data);
+        if (!gtk_widget_get_mapped(widget)) continue;
+        GdkWindow* window = gtk_widget_get_window(widget);
+        GdkFrameClock* clock = window ? gdk_window_get_frame_clock(window) : NULL;
+        if (!clock) continue;
+        if (!g_object_get_data(G_OBJECT(clock), "aurea-frames")) {
+            g_object_set_data(G_OBJECT(clock), "aurea-frames", clock);
+            g_signal_connect(clock, "update", G_CALLBACK(ng_linux_frame_clock_update), NULL);
+        }
+        gdk_frame_clock_request_phase(clock, GDK_FRAME_CLOCK_PHASE_UPDATE);
+        requested = TRUE;
+    }
+    g_list_free(windows);
+    return requested;
 }
 
 int ng_linux_run(void) {
@@ -75,8 +109,13 @@ static gboolean ng_linux_schedule_frame(gpointer user_data) {
     (void)user_data;
     g_atomic_int_set(&g_request_posted, 0);
     if (g_frame_source_id != 0) return G_SOURCE_REMOVE;
-    gint64 wait_us = g_next_frame_us - g_get_monotonic_time();
-    guint delay_ms = wait_us > 0 ? (guint)((wait_us + 999) / 1000) : 0;
+    guint delay_ms;
+    if (ng_linux_request_clocks()) {
+        delay_ms = NG_LINUX_CLOCK_WAIT_MS;
+    } else {
+        gint64 wait_us = g_next_frame_us - g_get_monotonic_time();
+        delay_ms = wait_us > 0 ? (guint)((wait_us + 999) / 1000) : 0;
+    }
     g_frame_source_id = g_timeout_add_full(G_PRIORITY_DEFAULT, delay_ms,
         process_frames_once, NULL, NULL);
     return G_SOURCE_REMOVE;
