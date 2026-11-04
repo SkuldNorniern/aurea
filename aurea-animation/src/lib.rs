@@ -1,4 +1,5 @@
-//! Time-based animations and eased values.
+//! Time-based animations and eased values, with no dependency on a window: `Animation` for a timed
+//! run, `Tweens` for values that ease towards targets. `aurea::animation` is this crate.
 
 /// Easing functions.
 pub mod easing;

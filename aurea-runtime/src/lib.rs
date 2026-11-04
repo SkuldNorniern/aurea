@@ -1,4 +1,5 @@
-//! Runtime state: event queue, frame queue, damage region.
+//! Runtime state: event queue, frame queue, damage region. `FrameScheduler` runs per-frame work, and
+//! `aurea` re-exports it with `FrameInfo`.
 
 pub mod damage;
 pub mod event_queue;

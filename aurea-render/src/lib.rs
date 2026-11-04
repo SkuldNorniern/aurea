@@ -1,4 +1,5 @@
-//! Aurea's native rendering framework.
+//! Aurea's rendering framework: a display list, the CPU rasterizer, optional GPU backends and the text
+//! pipeline. Apps normally reach it through `aurea::render`.
 
 // Clippy flags const thread_locals on Android too.
 #![cfg_attr(target_os = "android", allow(clippy::missing_const_for_thread_local))]

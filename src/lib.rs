@@ -10,6 +10,45 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! # Where things are
+//!
+//! - [`Window`]: a window, its events through [`Window::on_event`], and the run loop.
+//! - [`elements`]: native widgets and layout, the system's own controls.
+//! - [`render`]: [`Canvas`] and what draws on it, [`DrawingContext`] and [`render::Paint`].
+//! - [`ui`]: widgets drawn on a canvas, the same on every platform, styled by a [`ui::Theme`].
+//! - [`animation`]: eased values, for use in a frame.
+//! - [`menu`], [`tray`], [`dialog`], [`clipboard`], [`files`]: the rest of the desktop.
+//! - [`prelude`]: the types most apps need, to glob-import. It holds the native widgets, so
+//!   [`ui`]'s widgets of the same name are imported by path.
+//!
+//! # A canvas draws when asked
+//!
+//! [`Canvas::set_draw_callback`] records a frame, and damage tracking repaints what changed.
+//! Ask for a frame with [`render::request_canvas_redraw`], or run [`Canvas::on_frame`] to animate:
+//! it runs every frame until it returns `false`, and [`FrameInfo::delta`] is the time to move by.
+//!
+//! # Threads
+//!
+//! Windows, widgets and canvases stay on the UI thread, the one that made the first window; on
+//! macOS and iOS that has to be the main thread. From other threads, [`on_ui_thread`] queues a
+//! closure and [`Window::proxy`] gives a [`WindowProxy`].
+//! In a draw callback, [`after_frame`] holds work that needs nothing borrowed, such as opening a
+//! file dialog.
+//!
+//! # Features
+//!
+//! None are on by default, and the CPU renderer always works.
+//!
+//! - `zengpu`: GPU rendering through ZenGPU, on Metal on macOS and Vulkan elsewhere. Experimental.
+//! - `wgpu`: wgpu renderer and surface helpers, for fitting Aurea into a wgpu app.
+//! - `accessibility`: screen reader support for canvas widgets, through AccessKit.
+//! - `mobile`: iOS and Android hosts.
+//!
+//! # App identity
+//!
+//! An app's name, id and icon live in its `Cargo.toml`. The `aurea-build` crate reads them in the
+//! app's `build.rs`, and [`identity!`] picks them up.
 
 // Clippy flags const thread_locals on Android too.
 #![cfg_attr(target_os = "android", allow(clippy::missing_const_for_thread_local))]
@@ -31,6 +70,10 @@ mod touch;
 mod wake;
 
 use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
 
 pub use aurea_animation as animation;
 

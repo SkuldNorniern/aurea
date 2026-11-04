@@ -1,4 +1,5 @@
-//! Core shared types, errors, platform detection, and events for Aurea.
+//! Core shared types, errors, platform detection, and events for Aurea. The `aurea` crate re-exports
+//! what apps need.
 
 pub mod capability;
 /// Error type and result alias.
