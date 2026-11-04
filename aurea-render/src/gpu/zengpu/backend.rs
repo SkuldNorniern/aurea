@@ -48,7 +48,8 @@ const _: () = assert!(size_of::<ShapeInstance>() == size_of::<super::pipelines::
 
 /// Shareable ZenGPU instance/device ownership for Aurea UI and engine rendering.
 pub struct ZenGpuContext {
-    pipelines: Mutex<Weak<SharedPipelines>>,
+    /// One set per target format: a pipeline only draws to the format it was made for.
+    pipelines: Mutex<Vec<(Format, Weak<SharedPipelines>)>>,
     /// The mip kernel, made on first use. Owned here, not by `pipelines`, which may be gone.
     mip_down: Mutex<Option<PipelineHandle>>,
     mip_jobs: Mutex<HashMap<TextureHandle, PendingMip>>,
@@ -275,7 +276,7 @@ impl ZenGpuContext {
             .open_graphics(DeviceRequest::default())
             .map_err(gpu_err)?;
         Ok(Self {
-            pipelines: Mutex::new(Weak::new()),
+            pipelines: Mutex::new(Vec::new()),
             mip_down: Mutex::new(None),
             mip_jobs: Mutex::new(HashMap::new()),
             adapter: adapter.uuid(),
@@ -294,19 +295,22 @@ impl ZenGpuContext {
         &self.device
     }
 
-    fn shared_pipelines(self: &Arc<Self>) -> AureaResult<Arc<SharedPipelines>> {
+    fn shared_pipelines(self: &Arc<Self>, format: Format) -> AureaResult<Arc<SharedPipelines>> {
         let mut cached = self
             .pipelines
             .lock()
             .map_err(|_| AureaError::RenderingFailed)?;
-        if let Some(pipelines) = cached.upgrade() {
+        cached.retain(|(_, set)| set.strong_count() > 0);
+        let live = cached.iter().find(|(made_for, _)| *made_for == format);
+        if let Some(pipelines) = live.and_then(|(_, set)| set.upgrade()) {
             return Ok(pipelines);
         }
         let pipelines = Arc::new(SharedPipelines {
+            format,
             pipelines: Mutex::new(Pipelines::default()),
             context: Arc::clone(self),
         });
-        *cached = Arc::downgrade(&pipelines);
+        cached.push((format, Arc::downgrade(&pipelines)));
         Ok(pipelines)
     }
 
@@ -665,6 +669,7 @@ fn coalesce_run(
 }
 
 struct SharedPipelines {
+    format: Format,
     pipelines: Mutex<Pipelines>,
     context: Arc<ZenGpuContext>,
 }
@@ -678,6 +683,9 @@ impl Drop for SharedPipelines {
         pipelines.destroy(self.context.device());
     }
 }
+
+/// Readback hands out BGRA, whatever a window's swapchain uses.
+const OFFSCREEN_FORMAT: Format = Format::Bgra8Unorm;
 
 enum Target {
     /// A window's swapchain: presented, never read back.
@@ -834,7 +842,7 @@ impl ZenGpuRenderer {
     ) -> AureaResult<Self> {
         let scale = scale_factor.max(1.0);
         let (pw, ph) = pixel_size(width, height, scale, None);
-        let target = NativeOffscreenTarget::new(context.device(), Format::Bgra8Unorm, pw, ph)
+        let target = NativeOffscreenTarget::new(context.device(), OFFSCREEN_FORMAT, pw, ph)
             .map_err(gpu_err)?;
         let offscreen = Offscreen {
             target,
@@ -851,7 +859,11 @@ impl ZenGpuRenderer {
         height: u32,
         scale: f32,
     ) -> AureaResult<Self> {
-        let pipelines = context.shared_pipelines()?;
+        let format = match &target {
+            Target::Window(surface) => surface.format(),
+            Target::Offscreen(_) => OFFSCREEN_FORMAT,
+        };
+        let pipelines = context.shared_pipelines(format)?;
         let sampler = context.device().create_sampler(SamplerDesc {
             min_filter: FilterMode::Linear,
             mag_filter: FilterMode::Linear,
@@ -1277,7 +1289,7 @@ impl Gpu2dBackend for ZenGpuBackend {
                 .lock()
                 .map_err(|_| AureaError::RenderingFailed)?;
             pipelines
-                .ensure(self.context.device(), Format::Bgra8Unorm, &plan.order)
+                .ensure(self.context.device(), self.pipelines.format, &plan.order)
                 .map_err(gpu_err)?;
             if plan.path_clips.iter().any(Option::is_some) {
                 pipelines
@@ -1668,9 +1680,18 @@ mod context_tests {
             return;
         };
         let context = Arc::new(context);
-        let first = context.shared_pipelines().expect("pipelines");
-        let second = context.shared_pipelines().expect("shared pipelines");
+        let first = context
+            .shared_pipelines(Format::Bgra8Unorm)
+            .expect("pipelines");
+        let second = context
+            .shared_pipelines(Format::Bgra8Unorm)
+            .expect("shared pipelines");
         assert!(Arc::ptr_eq(&first, &second));
+        let other = context
+            .shared_pipelines(Format::Rgba8Unorm)
+            .expect("other format");
+        assert!(!Arc::ptr_eq(&first, &other));
+        drop(other);
         let weak = Arc::downgrade(&first);
         drop(first);
         assert!(weak.upgrade().is_some());
@@ -1685,7 +1706,7 @@ mod context_tests {
             return;
         };
         let context = Arc::new(context);
-        let shared = context.shared_pipelines().expect("cache");
+        let shared = context.shared_pipelines(Format::Bgra8Unorm).expect("cache");
         let mut pipelines = shared.pipelines.lock().expect("lock");
         pipelines
             .ensure(context.device(), Format::Bgra8Unorm, &[])
