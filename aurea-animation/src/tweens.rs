@@ -9,7 +9,10 @@ use std::time::Instant;
 use aurea_foundation::FastBuild;
 
 const SNAP: f32 = 0.002;
-const MAX_STEP: f32 = 1.0 / 30.0;
+/// Longest step while moving: past this a stall shows as a jump rather than slow motion.
+const MAX_STEP: f32 = 1.0 / 10.0;
+/// First step after nothing moved, when the time since the last frame says nothing.
+const FIRST_STEP: f32 = 1.0 / 60.0;
 
 #[derive(Debug)]
 struct Value {
@@ -56,9 +59,10 @@ impl<K: Eq + Hash + Copy> Tweens<K> {
     /// not read.
     pub fn frame(&mut self) {
         let now = Instant::now();
+        let limit = if self.busy { MAX_STEP } else { FIRST_STEP };
         self.dt = self
             .last
-            .map_or(0.0, |l| now.duration_since(l).as_secs_f32().min(MAX_STEP));
+            .map_or(0.0, |l| now.duration_since(l).as_secs_f32().min(limit));
         self.last = Some(now);
         self.values.retain(|_, v| take(&mut v.used));
         self.busy = false;
@@ -150,6 +154,7 @@ pub fn smoothstep(t: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn values_ease_to_their_target_and_settle() {
@@ -166,6 +171,22 @@ mod tests {
         }
         assert_eq!(t.to("bar", 2.0, 14.0), 2.0);
         assert!(!t.busy());
+    }
+
+    #[test]
+    fn a_slow_frame_keeps_its_time_only_while_moving() {
+        let mut t = Tweens::new();
+        t.frame();
+        t.to("x", 0.0, 10.0);
+        t.last = Instant::now().checked_sub(Duration::from_millis(50));
+        t.frame();
+        assert!(t.dt <= FIRST_STEP, "after idling {}", t.dt);
+        t.dt = 0.016;
+        t.to("x", 1.0, 10.0);
+        assert!(t.busy());
+        t.last = Instant::now().checked_sub(Duration::from_millis(50));
+        t.frame();
+        assert!(t.dt >= 0.05 && t.dt <= MAX_STEP, "while moving {}", t.dt);
     }
 
     #[test]
