@@ -60,6 +60,9 @@ pub(crate) fn draw_quad(
     let y0 = f32_to_i32_clamped(b.y.floor().max(clip.top()));
     let x1 = f32_to_i32_clamped(b.right().ceil().min(clip.right()));
     let y1 = f32_to_i32_clamped(b.bottom().ceil().min(clip.bottom()));
+    if x0 >= x1 || y0 >= y1 {
+        return;
+    }
     let iw = i32::try_from(image.width).unwrap_or(i32::MAX);
     let ih = i32::try_from(image.height).unwrap_or(i32::MAX);
     let bounds = sample::Bounds {
