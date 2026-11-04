@@ -19,8 +19,11 @@ pub struct Edge {
 }
 
 impl Edge {
-    /// An edge between two points, or None when horizontal.
+    /// An edge between two points, or None when horizontal or not finite.
     pub fn new(p1: Point, p2: Point) -> Option<Self> {
+        if ![p1.x, p1.y, p2.x, p2.y].iter().all(|v| v.is_finite()) {
+            return None;
+        }
         let dir = if p1.y <= p2.y { 1 } else { -1 };
         let (p1, p2) = if p1.y <= p2.y { (p1, p2) } else { (p2, p1) };
 
@@ -178,6 +181,16 @@ fn cubic_bezier(p0: Point, p1: Point, p2: Point, p3: Point, t: f32) -> Point {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn edges_need_finite_points() {
+        let at = |x, y| Point::new(x, y);
+        assert!(Edge::new(at(0.0, 0.0), at(1.0, 1.0)).is_some());
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert!(Edge::new(at(bad, 0.0), at(1.0, 1.0)).is_none());
+            assert!(Edge::new(at(0.0, 0.0), at(1.0, bad)).is_none());
+        }
+    }
 
     #[test]
     fn curves_flatten_within_the_tolerance() {

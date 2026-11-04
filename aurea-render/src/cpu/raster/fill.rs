@@ -1,7 +1,5 @@
 //! Path filling with exact area coverage.
 
-use std::cmp::Ordering;
-
 use crate::cpu::blend::{ConstSrc, blend_pixel};
 use crate::cpu::clip::ClipBox;
 use crate::cpu::path::{Edge, tessellate_path_into};
@@ -52,8 +50,7 @@ fn fill_path_with(
     if s.edges.is_empty() || clip.is_empty() {
         return;
     }
-    s.edges
-        .sort_unstable_by(|a, b| a.y_min.partial_cmp(&b.y_min).unwrap_or(Ordering::Equal));
+    s.edges.sort_unstable_by(|a, b| a.y_min.total_cmp(&b.y_min));
     let y_min = s.edges[0].y_min;
     let y_max = s.edges.iter().map(|e| e.y_max).fold(f32::MIN, f32::max);
     let y_start = f32_to_u32_clamped(y_min.max(clip.top()).floor()).max(clip.y0);
@@ -285,6 +282,19 @@ mod tests {
             &mut s,
         );
         buf
+    }
+
+    #[test]
+    fn a_path_with_nan_points_fills_the_rest() {
+        // Enough edges that the sort would notice a NaN breaking its order.
+        let zigzag: Vec<(f32, f32)> = (0..64)
+            .map(|i| match i % 3 {
+                0 => (f32::NAN, f32::NAN),
+                1 => (i as f32 % 16.0, (64 - i) as f32 % 16.0),
+                _ => ((64 - i) as f32 % 16.0, i as f32 % 16.0),
+            })
+            .collect();
+        fill(&polygon(&zigzag));
     }
 
     fn polygon(points: &[(f32, f32)]) -> Path {
