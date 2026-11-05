@@ -6,7 +6,7 @@
 use std::array::from_fn;
 
 use zengpu::native::NativeDevice;
-use zengpu_hal::{BufferDesc, BufferHandle, BufferUsage, GpuDevice, GpuError, MemoryUsage, Result};
+use zengpu::{BufferDesc, BufferHandle, BufferUsage, GpuDevice, GpuError, MemoryUsage, Result};
 
 const BUFFER_RING: usize = 3;
 

@@ -4,7 +4,7 @@ use std::mem::{size_of, size_of_val, take};
 use std::sync::Arc;
 
 use zengpu::native::NativeDevice;
-use zengpu_hal::{
+use zengpu::{
     Bindings, BufferDesc, BufferHandle, BufferUsage, FilterMode, Format, GpuDevice, GpuError,
     MemoryUsage, PipelineHandle, Result, SamplerDesc, SamplerHandle, Scalar, Submission,
     SubmissionStatus, TexDim, TextureDesc, TextureHandle, TextureUsage,
@@ -409,7 +409,7 @@ mod tests {
     use crate::gpu::batch::DrawRef;
     use crate::gpu::zengpu::{ZenGpuContext, pipelines::Pipelines};
     use crate::types::{Paint, Point};
-    use zengpu_hal::TextureRegion;
+    use zengpu::TextureRegion;
 
     #[test]
     #[allow(clippy::cognitive_complexity)] // Geometry, coverage oracle, and cache lifetime in one fixture.

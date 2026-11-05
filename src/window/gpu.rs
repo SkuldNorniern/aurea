@@ -6,7 +6,7 @@ use crate::platform::zengpu::window_handles;
 use crate::render::{ZenGpuContext, ZenGpuRenderer};
 use crate::{AureaError, AureaResult};
 use std::sync::Arc;
-use zengpu_hal::WindowHandles;
+use zengpu::WindowHandles;
 
 impl Window {
     /// Create a ZenGPU 2D renderer that presents directly to this window.
@@ -36,7 +36,7 @@ impl Window {
         ZenGpuRenderer::with_context(&handles, context, lw.max(1), lh.max(1), scale)
     }
 
-    /// Native window/display handles for building a `zengpu_hal` surface directly.
+    /// Native window/display handles for building a `zengpu` surface directly.
     pub fn zengpu_handles(&self) -> AureaResult<WindowHandles> {
         #[cfg(target_os = "macos")]
         if unsafe { ng_macos_window_use_metal_layer(self.handle) } != 0 {

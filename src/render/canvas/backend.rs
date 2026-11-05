@@ -20,7 +20,7 @@ use aurea_render::{ZenGpuContext, ZenGpuRenderer};
 #[cfg(feature = "zengpu")]
 use std::sync::{Arc, Weak};
 #[cfg(feature = "zengpu")]
-use zengpu_hal::WindowHandles;
+use zengpu::WindowHandles;
 
 use super::state::CanvasState;
 

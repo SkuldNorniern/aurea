@@ -3,13 +3,13 @@
 use std::mem::size_of;
 
 use crate::gpu::batch::DrawRef;
+use zengpu::ZslShader;
 use zengpu::native::{NativeDevice, shader};
-use zengpu_hal::{
+use zengpu::{
     BlendMode, BlendState, ColorTargetState, ComputePipelineDesc, DepthState, Format, GpuDevice,
     GraphicsDevice, GraphicsPipelineDesc, PipelineHandle, PrimitiveTopology, RasterState, Result,
     StepMode, VertexAttribute, VertexFormat, VertexLayout,
 };
-use zengpu_shader::ZslShader;
 
 use super::shaders::*;
 

@@ -666,7 +666,7 @@ mod tests {
     use crate::types::{Color, Paint, Path, PathCommand, Point};
     use std::sync::Arc;
     #[cfg(feature = "zengpu")]
-    use zengpu_hal::TextureHandle;
+    use zengpu::TextureHandle;
 
     struct Probe {
         resized: Vec<(u32, u32)>,

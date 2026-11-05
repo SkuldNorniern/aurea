@@ -17,7 +17,7 @@ use zengpu::native::{
     NativeAdapter, NativeCommandList, NativeDevice, NativeInstance, NativeOffscreenTarget,
     NativeSurface,
 };
-use zengpu_hal::{
+use zengpu::{
     Acquire, Bindings, BufferDesc, BufferHandle, BufferUsage, ColorAttachment, DeviceRequest,
     DeviceType, DispatchOp, FilterMode, Format, Frame, GpuAdapter, GpuDevice, GpuError,
     GraphicsDevice, LoadOp, MemoryUsage, PipelineHandle, Rect as HalRect, RenderCommands,
@@ -25,7 +25,7 @@ use zengpu_hal::{
     TextureHandle, TextureRegion, TextureUsage, TextureWrite, Viewport, ViewportScissor,
     WindowHandles,
 };
-use zengpu_hal::{GpuSubmission, Submission, SubmissionStatus};
+use zengpu::{GpuSubmission, Submission, SubmissionStatus};
 
 use crate::capabilities::GpuFeatures;
 use crate::gpu::backend::full_frame_plan;
@@ -1776,7 +1776,7 @@ mod context_tests {
 
     #[test]
     fn smooth_images_carry_area_filtered_mips() {
-        use zengpu_hal::{BufferDesc, BufferUsage, MemoryUsage};
+        use zengpu::{BufferDesc, BufferUsage, MemoryUsage};
         let Ok(context) = ZenGpuContext::new() else {
             return;
         };
@@ -1839,7 +1839,7 @@ mod context_tests {
         w: u32,
         h: u32,
     ) -> Vec<u8> {
-        use zengpu_hal::{BufferDesc, BufferUsage, MemoryUsage};
+        use zengpu::{BufferDesc, BufferUsage, MemoryUsage};
         let len = u64::from(w) * u64::from(h) * 4;
         let buffer = device
             .create_buffer(BufferDesc {
@@ -1997,7 +1997,7 @@ mod context_tests {
     #[test]
     fn pending_image_drop_and_polling_never_wait_for_its_submission() {
         use std::sync::atomic::AtomicBool;
-        use zengpu_hal::GpuSubmission;
+        use zengpu::GpuSubmission;
         struct HeldUpload(Arc<AtomicBool>);
         impl GpuSubmission for HeldUpload {
             fn cycle_id(&self) -> u64 {

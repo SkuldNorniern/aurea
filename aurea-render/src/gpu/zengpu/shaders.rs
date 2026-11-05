@@ -1,6 +1,6 @@
 //! The painter's shaders, in ZSL.
 
-use zengpu_shader::{ZslShader, zsl};
+use zengpu::{ZslShader, zsl};
 
 /// Integrates flattened path edges over each pixel on the GPU. Each edge adds
 /// the area to its right; winding/even-odd coverage is then quantized per path,

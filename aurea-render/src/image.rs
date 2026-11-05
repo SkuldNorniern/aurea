@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 
 #[cfg(feature = "zengpu")]
-use zengpu_hal::TextureHandle;
+use zengpu::TextureHandle;
 
 /// One picture at several sizes, for art that should stay on the pixel grid.
 #[derive(Clone, Debug, Default)]
@@ -255,7 +255,7 @@ mod tests {
     #[cfg(feature = "zengpu")]
     #[test]
     fn gpu_texture_preserves_the_complete_backend_handle() {
-        use zengpu_hal::{SlotMap, marker::Texture};
+        use zengpu::{SlotMap, marker::Texture};
         let mut first = SlotMap::<Texture, ()>::new();
         let mut second = SlotMap::<Texture, ()>::new();
         for handle in [first.insert(()), second.insert(())] {

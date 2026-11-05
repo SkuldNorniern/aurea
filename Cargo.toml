@@ -86,10 +86,7 @@ raw-window-handle = { version = "0.6", optional = true }
 wgpu = { version = "29.0.1", optional = true }
 
 # ZenGPU surface integration and example shaders (feature `zengpu`).
-zengpu-hal = { version = "0.1.0", optional = true }
-zen-window-handle = { version = "0.1.0", optional = true }
 zengpu = { version = "0.1.0", default-features = false, features = ["vulkan", "metal"], optional = true }
-zengpu-shader = { version = "0.1.0", features = ["metal"], optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
@@ -117,14 +114,8 @@ mobile = ["aurea-ffi/mobile"]
 # GPU 2D backend via ZenGPU: Metal on macOS, Vulkan elsewhere. Opt-in,
 # experimental.
 # Forwards to aurea-render (which owns the ZenGpuRenderer) and pulls in
-# zengpu-hal so the root crate can build WindowHandles for the window-level API.
-zengpu = [
-    "aurea-render/zengpu",
-    "dep:zengpu-hal",
-    "dep:zen-window-handle",
-    "dep:zengpu",
-    "dep:zengpu-shader",
-]
+# zengpu so the root crate can build WindowHandles for the window-level API.
+zengpu = ["aurea-render/zengpu", "dep:zengpu"]
 
 [[test]]
 name = "macos_native"

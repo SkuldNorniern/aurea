@@ -15,22 +15,22 @@ use std::num::NonZeroU32;
     target_os = "android"
 ))]
 use std::ptr::NonNull;
+use zengpu::WindowHandles;
 #[cfg(target_os = "android")]
-use zen_window_handle::{AndroidNdkWindowHandle, DisplayHandle, WindowHandle};
+use zengpu::window_handle::{AndroidNdkWindowHandle, DisplayHandle, WindowHandle};
 #[cfg(target_os = "macos")]
-use zen_window_handle::{AppKitWindowHandle, DisplayHandle, WindowHandle};
+use zengpu::window_handle::{AppKitWindowHandle, DisplayHandle, WindowHandle};
 #[cfg(target_os = "ios")]
-use zen_window_handle::{DisplayHandle, UiKitWindowHandle, WindowHandle};
+use zengpu::window_handle::{DisplayHandle, UiKitWindowHandle, WindowHandle};
 #[cfg(target_os = "linux")]
-use zen_window_handle::{
+use zengpu::window_handle::{
     DisplayHandle, WaylandDisplayHandle, WaylandWindowHandle, WindowHandle, XcbDisplayHandle,
     XcbWindowHandle,
 };
 #[cfg(target_os = "windows")]
-use zen_window_handle::{DisplayHandle, Win32WindowHandle, WindowHandle};
-use zengpu_hal::WindowHandles;
+use zengpu::window_handle::{DisplayHandle, Win32WindowHandle, WindowHandle};
 
-/// Build the `zengpu_hal` window/display handle pair for a native window or canvas handle already
+/// Build the `zengpu` window/display handle pair for a native window or canvas handle already
 /// taken from a window or canvas.
 pub fn window_handles(native: &NativeWindowHandle) -> AureaResult<WindowHandles> {
     #[cfg(target_os = "macos")]

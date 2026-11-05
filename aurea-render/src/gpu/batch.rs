@@ -714,7 +714,7 @@ fn valid_rgba_image(width: u32, height: u32, data: &[u8]) -> bool {
 mod tests {
     use super::*;
     #[cfg(feature = "zengpu")]
-    use zengpu_hal::TextureHandle;
+    use zengpu::TextureHandle;
 
     #[test]
     fn lowering_records_what_the_frame_needs() {
