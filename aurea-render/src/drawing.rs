@@ -2,8 +2,8 @@
 
 use crate::text::TextLayout;
 use crate::types::{
-    BlendMode, Color, Font, GpuTexture, Image, LinearGradient, Paint, Path, PathCommand, Point,
-    RadialGradient, Rect, Sampling, TextMetrics, Transform,
+    BlendMode, Color, Font, GpuTexture, Image, LinearGradient, Paint, PaintStyle, Path,
+    PathCommand, Point, RadialGradient, Rect, Sampling, TextMetrics, Transform,
 };
 use aurea_foundation::AureaResult;
 
@@ -49,12 +49,13 @@ pub trait DrawingContext {
     /// Draw text at a position.
     fn draw_text(&mut self, text: &str, position: Point, paint: &Paint) -> AureaResult<()>;
 
-    /// Draw a line between two points.
+    /// Draw a line between two points. A line has no area, so it is always stroked, whatever the
+    /// paint's style.
     fn draw_line(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, paint: &Paint) -> AureaResult<()> {
         let mut path = Path::new();
         path.commands.push(PathCommand::MoveTo(Point::new(x1, y1)));
         path.commands.push(PathCommand::LineTo(Point::new(x2, y2)));
-        self.draw_path(&path, paint)
+        self.draw_path(&path, &paint.clone().style(PaintStyle::Stroke))
     }
 
     /// Draw a path.

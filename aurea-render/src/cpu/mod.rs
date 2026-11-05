@@ -237,6 +237,56 @@ mod conformance_tests {
     }
 
     #[test]
+    fn a_line_drawn_with_a_fill_paint_redraws_the_same_in_part() {
+        // the line paint's style is left at fill on purpose, a line strokes either way
+        let (w, h) = (480_u32, 300_u32);
+        let scene = |ctx: &mut dyn DrawingContext, moved: f32| {
+            ctx.clear(Color::rgb(10, 10, 14)).unwrap();
+            let paint = Paint::new()
+                .color(Color::rgb(90, 90, 110))
+                .stroke_width(1.0);
+            for i in 0..24 {
+                let i = i as f32;
+                ctx.draw_line(-300.0 + 40.0 * i, 600.0, 200.0 + 9.0 * i, -20.0, &paint)
+                    .unwrap();
+                ctx.draw_line(-500.0, 40.0 + 11.0 * i, 900.0, 25.0 + 13.0 * i, &paint)
+                    .unwrap();
+            }
+            ctx.draw_rect(
+                Rect::new(320.0 + moved, 120.0, 12.0, 12.0),
+                &Paint::new().color(Color::rgb(250, 160, 40)),
+            )
+            .unwrap();
+        };
+        let frame = |r: &mut CpuRasterizer, moved: f32| {
+            {
+                let mut ctx = r.begin_frame().expect("begin_frame");
+                scene(ctx.as_mut(), moved);
+            }
+            r.end_frame().expect("end_frame");
+        };
+        let mut partial = CpuRasterizer::new(w, h);
+        for step in 0..10 {
+            frame(&mut partial, step as f32);
+        }
+        let mut full = CpuRasterizer::new(w, h);
+        frame(&mut full, 9.0);
+        let wrong = partial
+            .pixels()
+            .iter()
+            .zip(full.pixels())
+            .filter(|(a, b)| {
+                let (one, two) = (a.to_be_bytes(), b.to_be_bytes());
+                one.iter().zip(two).any(|(x, y)| x.abs_diff(y) > 2)
+            })
+            .count();
+        assert_eq!(wrong, 0);
+        let background = full.pixels()[0];
+        let lit = full.pixels().iter().filter(|p| **p != background).count();
+        assert!(lit > 1000, "the lines are drawn, {lit} pixels");
+    }
+
+    #[test]
     fn scale_factor_maps_logical_geometry_to_physical_pixels() {
         let buf = render_scaled(2.0, |ctx| {
             ctx.draw_rect(Rect::new(2.0, 2.0, 4.0, 4.0), &fill(RED))

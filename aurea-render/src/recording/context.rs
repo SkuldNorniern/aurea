@@ -967,10 +967,10 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn draw_line(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, paint: &Paint) -> AureaResult<()> {
-        if paint.style == PaintStyle::Stroke
-            && paint.stroke_width > 0.0
-            && !paint.needs_path_stroke()
-        {
+        // filling a line's zero area drew a hairline whole and leaked bars along a clip edge
+        let stroke = paint.clone().style(PaintStyle::Stroke);
+        let paint = &stroke;
+        if paint.stroke_width > 0.0 && !paint.needs_path_stroke() {
             let half = paint.stroke_width / 2.0;
             let horizontal = (y1 - y2).abs() < 1e-4;
             let vertical = (x1 - x2).abs() < 1e-4;
@@ -1329,7 +1329,7 @@ mod tests {
     fn warming_fills_the_glyph_cache_off_the_ui_thread() {
         use super::{Font, FontRef, TEXT_RENDERER, warm_text};
         let font = Font::new("", 19.0);
-        warm_text(&font, "warm 한글", &[1.0, 2.0])
+        warm_text(&font, "warm ?쒓?", &[1.0, 2.0])
             .join()
             .expect("warm");
         let again = TEXT_RENDERER.render_text_directed("w", FontRef::with_size(&font, 38.0), None);
