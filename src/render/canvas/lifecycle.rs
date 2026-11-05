@@ -9,7 +9,7 @@ use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Condvar, LazyLock, Mutex, Once, PoisonError};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use aurea_foundation::lock;
 use aurea_render::Renderer;
@@ -166,6 +166,9 @@ impl Deadlines {
     }
 }
 
+/// Deadlines closer than this are slept to, not waited for on the condvar.
+const PRECISE_WAIT: Duration = Duration::from_millis(20);
+
 static CANVAS_DEADLINES: LazyLock<(Mutex<Deadlines>, Condvar)> =
     LazyLock::new(|| (Mutex::new(Deadlines::default()), Condvar::new()));
 
@@ -243,8 +246,16 @@ fn run_deadlines() {
             continue;
         }
         pending = match pending.earliest() {
+            // a condvar timeout rounds up to the system tick, about 15.6 ms on windows, so a
+            // 16 ms frame came at 31. a near deadline sleeps instead, std sleeps precisely
+            Some(at) if at.saturating_duration_since(now) <= PRECISE_WAIT => {
+                drop(pending);
+                thread::sleep(at.saturating_duration_since(now));
+                lock(deadlines)
+            }
             Some(at) => {
-                wake.wait_timeout(pending, at.saturating_duration_since(now))
+                let early = at.saturating_duration_since(now) - PRECISE_WAIT;
+                wake.wait_timeout(pending, early)
                     .unwrap_or_else(PoisonError::into_inner)
                     .0
             }
