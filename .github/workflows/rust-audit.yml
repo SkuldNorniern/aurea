@@ -1,0 +1,27 @@
+name: rust-audit
+
+on:
+  schedule:
+    - cron: '20 22 * * 3'
+  push:
+    branches: [main]
+    paths: ["**/Cargo.toml", ".cargo/audit.toml", ".github/workflows/rust-audit.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Run rust-audit check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      # No lockfile is committed, so this audits what a new build would get.
+      - name: Resolve dependencies
+        run: cargo generate-lockfile
+      - name: Audit
+        run: cargo audit
