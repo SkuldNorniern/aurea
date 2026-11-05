@@ -1,7 +1,7 @@
 //! Font files found on disk, drawn from their outlines: the backend everywhere but Windows.
 
 use crate::numeric::f32_to_u8_clamped;
-use crate::text::fonts;
+use crate::text::fonts::{self, FaceInfo, normalise};
 use crate::text::glyph::{FaceData, FaceId, FontBytes, GlyphCoverage, GlyphKey};
 #[cfg(unix)]
 use crate::text::mapped::Mapped;
@@ -18,6 +18,7 @@ use std::env::var_os;
 use std::fs::{read, read_dir};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex, OnceLock, Weak};
+use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct FontKey {
@@ -64,6 +65,23 @@ fn font_search_dirs() -> Vec<PathBuf> {
     {
         dirs.push(PathBuf::from("/System/Library/Fonts"));
         dirs.push(PathBuf::from("/System/Library/Fonts/Supplemental"));
+        dirs.push(PathBuf::from(
+            "/System/Library/PrivateFrameworks/FontServices.framework/Versions/A/Resources/Fonts",
+        ));
+        // Fonts the system downloads, in folders named with a version.
+        if let Ok(assets) = read_dir("/System/Library/AssetsV2") {
+            dirs.extend(
+                assets
+                    .flatten()
+                    .filter(|entry| {
+                        entry
+                            .file_name()
+                            .to_string_lossy()
+                            .starts_with("com_apple_MobileAsset_Font")
+                    })
+                    .map(|entry| entry.path()),
+            );
+        }
         dirs.push(PathBuf::from("/Library/Fonts"));
         if let Ok(home) = var("HOME") {
             dirs.push(PathBuf::from(home).join("Library/Fonts"));
@@ -169,28 +187,6 @@ fn generic_families(family: &str) -> Option<&'static [&'static str]> {
     }
 }
 
-/// The file for `family`, which may be generic.
-fn font_file_for<'a>(
-    family: &str,
-    weight: FontWeight,
-    style: FontStyle,
-    files: &'a [FontFile],
-) -> Option<&'a Path> {
-    match generic_families(family) {
-        Some(families) => families
-            .iter()
-            .find_map(|family| find_font_file(family, weight, style, files)),
-        None => find_font_file(family, weight, style, files),
-    }
-}
-
-fn normalise(s: &str) -> String {
-    s.to_lowercase()
-        .chars()
-        .filter(|c| c.is_alphanumeric())
-        .collect()
-}
-
 fn file_stem(name: &str) -> &str {
     name.trim_end_matches(".ttf")
         .trim_end_matches(".TTF")
@@ -207,10 +203,56 @@ fn is_font_file(name: &str) -> bool {
 
 type FontFile = (String, PathBuf);
 
+/// One face of a font file on disk.
+struct SystemFace {
+    /// Its place in the file list.
+    file: usize,
+    index: u32,
+    info: FaceInfo,
+}
+
+/// Reads what each file's faces call themselves. A mapped file only pages in the tables read.
+fn read_system_faces(files: &[FontFile]) -> Vec<SystemFace> {
+    let started = Instant::now();
+    let mut faces = Vec::new();
+    for (file, (_, path)) in files.iter().enumerate() {
+        let Some(bytes) = file_bytes(path) else {
+            continue;
+        };
+        let contents: &[u8] = (*bytes).as_ref();
+        for index in 0.. {
+            let Some(info) = FaceInfo::read(contents, index) else {
+                break;
+            };
+            faces.push(SystemFace { file, index, info });
+        }
+    }
+    log::debug!(
+        "font: read {} faces of {} files in {:?}",
+        faces.len(),
+        files.len(),
+        started.elapsed()
+    );
+    faces
+}
+
+/// The face of `family`, by the names faces give themselves, closest to `font`.
+fn closest_system_face<'a>(
+    family: &str,
+    font: FontRef,
+    faces: &'a [SystemFace],
+) -> Option<&'a SystemFace> {
+    let want = normalise(family);
+    faces
+        .iter()
+        .filter(|face| face.info.is_named(&want))
+        .min_by(|a, b| a.info.distance(font).total_cmp(&b.info.distance(font)))
+}
+
 type WeakBytes = Weak<dyn AsRef<[u8]> + Send + Sync>;
 
-/// Folders the system keeps read-only, so a mapped file there can't change. A CJK face is over
-/// 20 MB and most of it is never touched.
+/// Folders only the system writes to, and it replaces files rather than rewriting them, so a mapped
+/// file there can't change. A CJK face is over 20 MB and most of it is never touched.
 #[cfg(unix)]
 fn fixed_folders() -> &'static [&'static str] {
     #[cfg(target_os = "android")]
@@ -223,11 +265,11 @@ fn fixed_folders() -> &'static [&'static str] {
     }
     #[cfg(not(any(target_os = "android", target_os = "macos", target_os = "ios")))]
     {
-        &[]
+        &["/usr/share/fonts/"]
     }
 }
 
-fn file_bytes(path: &Path) -> Option<FontBytes> {
+pub(crate) fn file_bytes(path: &Path) -> Option<FontBytes> {
     #[cfg(unix)]
     if fixed_folders().iter().any(|root| path.starts_with(root))
         && let Some(mapped) = Mapped::open(path)
@@ -260,6 +302,8 @@ fn scan_font_files(dirs: &[PathBuf]) -> Vec<FontFile> {
         }
     }
     files.sort_by(|a, b| a.1.cmp(&b.1));
+    // A folder listed inside another is walked twice.
+    files.dedup_by(|a, b| a.1 == b.1);
     files
 }
 
@@ -344,23 +388,15 @@ fn find_font_file<'a>(
 
     files
         .iter()
-        .filter_map(|(stem, path)| {
-            let score = if stem.starts_with(&want) || want.starts_with(stem.as_str()) {
-                2
-            } else if stem.contains(&want) {
-                1
-            } else {
-                return None;
-            };
-            Some((score, stem.len(), path))
-        })
-        .max_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)))
-        .map(|(_, _, path)| path.as_path())
+        .filter(|(stem, _)| stem.starts_with(&want))
+        .min_by_key(|(stem, _)| stem.len())
+        .map(|(_, path)| path.as_path())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum FaceSource {
-    File(PathBuf),
+    /// A file, and which of its faces.
+    File(PathBuf, u32),
     Embedded,
     Registered(u32),
 }
@@ -386,13 +422,15 @@ struct Ids {
 pub struct FontFileRasterizer {
     dirs: Vec<PathBuf>,
     files: OnceLock<Vec<FontFile>>,
+    /// Read on the first family asked for by name; text that names none never pays for it.
+    system_faces: OnceLock<Vec<SystemFace>>,
     ids: Mutex<Ids>,
     /// Faces without variations. Few, and fallbacks rely on them, so they are never evicted.
     pinned: Mutex<HashMap<FaceId, Arc<FaceData>>>,
     /// Faces with variations, the least recently used built again when next needed.
     varied: Arc<Mutex<LruCache<FaceId, Arc<FaceData>>>>,
     /// Font file bytes by file. Weak, so the last face using a file frees it.
-    file_bytes: Mutex<HashMap<FaceSource, WeakBytes>>,
+    file_bytes: Mutex<HashMap<PathBuf, WeakBytes>>,
     fallbacks: Vec<OnceLock<Option<FaceId>>>,
     font_cache: Mutex<LruCache<FontKey, FaceId>>,
     subpixel_cache: Arc<Mutex<LruCache<GlyphKey, Arc<SubpixelGlyph>>>>,
@@ -406,6 +444,7 @@ impl FontFileRasterizer {
         Self {
             dirs: font_search_dirs(),
             files: OnceLock::new(),
+            system_faces: OnceLock::new(),
             ids: Mutex::new(Ids::default()),
             pinned: Mutex::new(HashMap::new()),
             varied: shared(CacheKind::Face, LruCache::new(VARIED_FACES)),
@@ -421,6 +460,11 @@ impl FontFileRasterizer {
 
     fn files(&self) -> &[FontFile] {
         self.files.get_or_init(|| scan_font_files(&self.dirs))
+    }
+
+    fn system_faces(&self) -> &[SystemFace] {
+        self.system_faces
+            .get_or_init(|| read_system_faces(self.files()))
     }
 
     fn get(&self, face: FaceId) -> AureaResult<Arc<FaceData>> {
@@ -451,15 +495,15 @@ impl FontFileRasterizer {
         match source {
             FaceSource::Embedded => Some((EMBEDDED.clone(), 0)),
             FaceSource::Registered(id) => fonts::get(*id).map(|f| (f.bytes.clone(), f.index)),
-            FaceSource::File(path) => {
+            FaceSource::File(path, index) => {
                 let mut shared = lock(&self.file_bytes);
-                if let Some(bytes) = shared.get(source).and_then(Weak::upgrade) {
-                    return Some((bytes, 0));
+                if let Some(bytes) = shared.get(path).and_then(Weak::upgrade) {
+                    return Some((bytes, *index));
                 }
                 let bytes = file_bytes(path)?;
                 shared.retain(|_, weak| weak.strong_count() > 0);
-                shared.insert(source.clone(), Arc::downgrade(&bytes));
-                Some((bytes, 0))
+                shared.insert(path.clone(), Arc::downgrade(&bytes));
+                Some((bytes, *index))
             }
         }
     }
@@ -500,7 +544,7 @@ impl FontFileRasterizer {
         let stem = fallback_stems().get(slot)?;
         *self.fallbacks.get(slot)?.get_or_init(|| {
             let (_, path) = self.files().iter().find(|(s, _)| s == stem)?;
-            self.load(FaceSource::File(path.clone()), &[])
+            self.load(FaceSource::File(path.clone(), 0), &[])
         })
     }
 
@@ -510,19 +554,45 @@ impl FontFileRasterizer {
 
     fn load_for_key(&self, font: FontRef) -> AureaResult<FaceId> {
         if let Some(face) = fonts::find(font)
-            && let Some(id) = self.load(FaceSource::Registered(face.id), &face.variations(font))
+            && let Some(id) =
+                self.load(FaceSource::Registered(face.id), &face.info.variations(font))
         {
             return Ok(id);
         }
-        if let Some(path) = font_file_for(font.family, font.weight, font.style, self.files())
-            && let Some(id) = self.load(FaceSource::File(path.to_path_buf()), font.variations)
-        {
+        if let Some(id) = self.load_installed(font) {
             return Ok(id);
         }
         (0..self.fallbacks.len())
             .find_map(|slot| self.fallback(slot))
             .or_else(|| self.load(FaceSource::Embedded, &[]))
             .ok_or(AureaError::RenderingFailed)
+    }
+
+    /// The installed face of `font`, by the names faces give themselves; a file named like the
+    /// family covers one whose names can't be read, or a family asked for by part of its name.
+    fn load_installed(&self, font: FontRef) -> Option<FaceId> {
+        let named = [font.family];
+        let generic = generic_families(font.family);
+        let id = generic
+            .unwrap_or(&named)
+            .iter()
+            .find_map(|family| self.load_family(family, font));
+        if id.is_none() && generic.is_none() {
+            log::warn!("font: no family {:?}, using the default", font.family);
+        }
+        id
+    }
+
+    fn load_family(&self, family: &str, font: FontRef) -> Option<FaceId> {
+        if let Some(face) = closest_system_face(family, font, self.system_faces()) {
+            let (_, path) = self.files().get(face.file)?;
+            return self.load(
+                FaceSource::File(path.clone(), face.index),
+                &face.info.variations(font),
+            );
+        }
+        let path = find_font_file(family, font.weight, font.style, self.files())?;
+        self.load(FaceSource::File(path.to_path_buf(), 0), font.variations)
     }
 }
 
@@ -548,7 +618,8 @@ impl PlatformTextRasterizer for FontFileRasterizer {
             return primary;
         }
         if let Some(face) = fonts::covering(font, ch)
-            && let Some(id) = self.load(FaceSource::Registered(face.id), &face.variations(font))
+            && let Some(id) =
+                self.load(FaceSource::Registered(face.id), &face.info.variations(font))
         {
             return id;
         }
@@ -560,6 +631,19 @@ impl PlatformTextRasterizer for FontFileRasterizer {
 
     fn face_data(&self, face: FaceId) -> AureaResult<Arc<FaceData>> {
         self.get(face)
+    }
+
+    fn system_families(&self) -> Vec<String> {
+        let mut families: Vec<String> = self
+            .system_faces()
+            .iter()
+            .map(|face| face.info.family.clone())
+            // macOS keeps its own interface faces out of menus this way.
+            .filter(|family| !family.starts_with('.'))
+            .collect();
+        families.sort_unstable();
+        families.dedup();
+        families
     }
 
     fn face_metrics(&self, face: FaceId, size: f32) -> (f32, f32) {
@@ -713,7 +797,7 @@ mod tests {
     fn faces_of_one_file_share_its_bytes_until_the_last_is_dropped() {
         let path = temp_dir().join(format!("aurea-shared-{}.ttf", id()));
         write(&path, EMBEDDED.as_slice()).expect("write font");
-        let source = FaceSource::File(path.clone());
+        let source = FaceSource::File(path.clone(), 0);
         let r = FontFileRasterizer::new();
         let plain = r.load(source.clone(), &[]).expect("plain face");
         let varied = r
@@ -721,7 +805,7 @@ mod tests {
             .expect("varied face");
         let bytes_at = |face: FaceId| r.face_data(face).expect("data").bytes().as_ptr();
         assert_eq!(bytes_at(plain), bytes_at(varied));
-        let weak = lock(&r.file_bytes).get(&source).cloned().expect("tracked");
+        let weak = lock(&r.file_bytes).get(&path).cloned().expect("tracked");
         assert!(weak.upgrade().is_some());
         drop(r);
         let _ = remove_file(&path);
@@ -880,6 +964,109 @@ mod tests {
     }
 
     #[test]
+    fn a_family_never_takes_a_file_with_a_shorter_or_unrelated_name() {
+        let list = files(&["arial", "ptsans", "notosanscjkregular", "comicsansms"]);
+        let normal = (FontWeight::Normal, FontStyle::Normal);
+        for family in [
+            "Arial Hebrew",
+            "PT Sans Narrow",
+            "Noto Sans CJK KR",
+            "Sans MS",
+        ] {
+            assert_eq!(pick(family, normal.0, normal.1, &list), "", "{family}");
+        }
+    }
+
+    /// A folder with one file whose name says nothing of its font.
+    fn tuffy_named(name: &str) -> (FontFileRasterizer, PathBuf) {
+        let root = temp_dir().join(format!("aurea-named-{}-{name}", id()));
+        create_dir_all(&root).expect("create font dir");
+        write(root.join(name), EMBEDDED.as_slice()).expect("write font");
+        let mut r = FontFileRasterizer::new();
+        r.dirs = vec![root.clone()];
+        (r, root)
+    }
+
+    #[test]
+    fn a_face_is_found_by_its_own_name_whatever_its_file_is_called() {
+        let (r, root) = tuffy_named("zz0.ttf");
+        let font = Font::new("Tuffy", 14.0);
+        let face = r.load_installed((&font).into());
+        let missing = r.load_installed((&Font::new("Tuffy Hebrew", 14.0)).into());
+        let families = r.system_families();
+        let bytes = face.map(|face| r.get(face).expect("data").bytes().to_vec());
+        drop(r);
+        remove_dir_all(&root).expect("remove");
+        assert_eq!(bytes.as_deref(), Some(EMBEDDED.as_slice()));
+        assert_eq!(missing, None);
+        assert_eq!(families, ["Tuffy"]);
+    }
+
+    #[test]
+    fn a_file_that_holds_no_font_is_skipped() {
+        let root = temp_dir().join(format!("aurea-broken-{}", id()));
+        create_dir_all(&root).expect("create font dir");
+        write(root.join("broken.ttf"), b"nope").expect("write");
+        let files = scan_font_files(from_ref(&root));
+        let faces = read_system_faces(&files);
+        remove_dir_all(&root).expect("remove");
+        assert_eq!(files.len(), 1);
+        assert!(faces.is_empty());
+    }
+
+    #[test]
+    fn a_folder_inside_another_lists_its_files_once() {
+        let root = temp_dir().join(format!("aurea-twice-{}", id()));
+        let nested = root.join("nested");
+        create_dir_all(&nested).expect("create font dirs");
+        write(nested.join("a.ttf"), b"").expect("write");
+        let found = scan_font_files(&[root.clone(), nested]);
+        remove_dir_all(&root).expect("remove");
+        assert_eq!(found.len(), 1);
+    }
+
+    // Cambria and Cambria Math are two faces of one file, Arial Black a file of its own beside
+    // arial.ttf, and Segoe UI Emoji beside segoeui.ttf.
+    #[cfg(windows)]
+    #[test]
+    fn the_exact_face_of_an_installed_font_is_found() {
+        use skrifa::MetadataProvider;
+        use skrifa::raw::types::NameId;
+
+        let r = FontFileRasterizer::new();
+        let family_of = |family: &str| {
+            let font = Font::new(family, 14.0);
+            let face = r.load_installed((&font).into())?;
+            let data = r.get(face).expect("data");
+            let parsed = skrifa::FontRef::from_index(data.bytes(), data.index()).expect("font");
+            let name = parsed
+                .localized_strings(NameId::FAMILY_NAME)
+                .english_or_first()?;
+            Some(name.chars().collect::<String>())
+        };
+        for family in ["Cambria Math", "Cambria", "Arial Black", "Segoe UI Emoji"] {
+            assert_eq!(family_of(family).as_deref(), Some(family));
+        }
+        assert_eq!(family_of("__no_such_font__"), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_weight_picks_its_face_within_a_family() {
+        use skrifa::raw::TableProvider;
+
+        let r = FontFileRasterizer::new();
+        let weight_of = |weight| {
+            let font = Font::new("Segoe UI", 14.0).with_weight(weight);
+            let face = r.load_installed((&font).into()).expect("segoe ui");
+            let data = r.get(face).expect("data");
+            let parsed = skrifa::FontRef::from_index(data.bytes(), data.index()).expect("font");
+            parsed.os2().expect("weight table").us_weight_class()
+        };
+        assert!(weight_of(FontWeight::Bold) > weight_of(FontWeight::Normal));
+    }
+
+    #[test]
     fn picks_the_bold_face_and_falls_back_to_regular() {
         let list = files(&["notosansregular", "notosansbold", "dejavusans"]);
         assert_eq!(
@@ -906,7 +1093,12 @@ mod tests {
             "dejavusansmono",
         ]);
         let at = |family, weight| {
-            font_file_for(family, weight, FontStyle::Normal, &list)
+            let found = |family| find_font_file(family, weight, FontStyle::Normal, &list);
+            generic_families(family)
+                .map_or_else(
+                    || found(family),
+                    |families| families.iter().find_map(|family| found(family)),
+                )
                 .and_then(Path::to_str)
                 .unwrap_or("")
                 .to_owned()

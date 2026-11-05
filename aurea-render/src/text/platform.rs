@@ -113,6 +113,9 @@ pub trait PlatformTextRasterizer: Send + Sync {
         size: f32,
     ) -> AureaResult<Arc<SubpixelGlyph>>;
 
+    /// The family names installed on the system, sorted.
+    fn system_families(&self) -> Vec<String>;
+
     /// `glyph` of `face` at `size` as grayscale coverage.
     fn rasterize_gray(&self, face: FaceId, glyph: u16, size: f32) -> AureaResult<GlyphCoverage> {
         let g = self.rasterize_subpixel(face, glyph, size)?;

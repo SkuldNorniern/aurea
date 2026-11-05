@@ -114,7 +114,14 @@ impl DirectWriteRasterizer {
     }
 
     fn resolve(&self, font: FontRef) -> AureaResult<FaceEntry> {
-        let family = candidates(font.family)
+        let names = candidates(font.family);
+        if names[0] == font.family
+            && !font.family.is_empty()
+            && self.collection.family_by_name(font.family).is_none()
+        {
+            log::warn!("font: no family {:?}, using the default", font.family);
+        }
+        let family = names
             .into_iter()
             .filter(|name| !name.is_empty())
             .find_map(|name| self.collection.family_by_name(name))
@@ -129,7 +136,7 @@ impl DirectWriteRasterizer {
         let native = FontFace::from_bytes(face.bytes.clone(), face.index)?;
         Some(entry(
             native,
-            face.variations(font),
+            face.info.variations(font),
             Some(face.bytes.clone()),
         ))
     }
@@ -190,7 +197,7 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
         let face = if self.has_glyph(primary, ch) {
             primary
         } else {
-            let registered = fonts::covering(font, ch).map(|f| f.family.clone());
+            let registered = fonts::covering(font, ch).map(|f| f.info.family.clone());
             registered
                 .iter()
                 .map(String::as_str)
@@ -224,6 +231,10 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
             })
             .clone()
             .ok_or(AureaError::RenderingFailed)
+    }
+
+    fn system_families(&self) -> Vec<String> {
+        self.collection.family_names()
     }
 
     fn face_metrics(&self, face: FaceId, size: f32) -> (f32, f32) {
