@@ -100,6 +100,7 @@ if (aurea.document) {
 
 // The master icon (`icon` key, relative to the Cargo manifest, `.png` optional) becomes the
 // launcher icon: aurea-build writes the mipmaps into build/generated/aurea/res before preBuild.
+// In the aurea repo aurea-build runs from source; with aurea from crates.io it is the installed one.
 abstract class AureaIcons extends DefaultTask {
     @InputFile abstract RegularFileProperty getManifest()
     @InputFile abstract RegularFileProperty getMaster()
@@ -110,9 +111,18 @@ abstract class AureaIcons extends DefaultTask {
 
     @TaskAction
     void generate() {
-        exec.exec { spec ->
-            spec.commandLine('cargo', 'run', '--quiet', '--release', '--manifest-path', toolManifest.get().asFile.path,
-                '--bin', 'aurea-build', '--', manifest.get().asFile.path, 'icons', 'android', resDir.get().asFile.path)
+        def args = [manifest.get().asFile.path, 'icons', 'android', resDir.get().asFile.path]
+        if (toolManifest.isPresent()) {
+            exec.exec { spec ->
+                spec.commandLine(['cargo', 'run', '--quiet', '--release', '--manifest-path', toolManifest.get().asFile.path,
+                    '--bin', 'aurea-build', '--'] + args)
+            }
+            return
+        }
+        try {
+            exec.exec { spec -> spec.commandLine(['aurea-build'] + args) }
+        } catch (Exception e) {
+            throw new GradleException('aurea-identity: the icon needs aurea-build; run: cargo install aurea-build', e)
         }
     }
 }
@@ -124,12 +134,15 @@ if (aurea.icon) {
         throw new GradleException("aurea-identity: no master icon at ${iconPath} or ${master}")
     }
     def aureaDir = project(':aurea').projectDir.parentFile.parentFile.parentFile
+    def toolManifest = new File(aureaDir, 'aurea-build/Cargo.toml')
     def resDir = project.layout.buildDirectory.dir('generated/aurea/res')
     project.tasks.register('aureaIcons', AureaIcons) { t ->
         t.manifest.set(manifest)
         t.master.set(master)
-        t.tool.from(new File(aureaDir, 'aurea-build/src'), new File(aureaDir, 'aurea-build/Cargo.toml'))
-        t.toolManifest.set(new File(aureaDir, 'aurea-build/Cargo.toml'))
+        if (toolManifest.isFile()) {
+            t.tool.from(new File(aureaDir, 'aurea-build/src'), toolManifest)
+            t.toolManifest.set(toolManifest)
+        }
         t.resDir.set(resDir)
     }
     project.android.sourceSets.getByName('main').res.directories.add(resDir.get().asFile.path)

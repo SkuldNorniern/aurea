@@ -9,11 +9,13 @@ readme = "README.md"
 repository.workspace = true
 keywords = ["gui", "ui", "native", "canvas", "widgets"]
 categories = ["gui", "graphics", "rendering"]
-# Android apps include `mobile/android/aurea` from this crate; the rest of `mobile` is the samples.
+# Apps use `mobile/android/aurea` and `mobile/ios/aurea` from this crate; the rest of `mobile` is the samples.
 exclude = [
     ".github",
     "assets",
-    "mobile/ios",
+    "mobile/ios/AureaSmoke*",
+    "mobile/ios/build-rust.sh",
+    "mobile/ios/Identity.xcconfig",
     "mobile/android/app",
     "mobile/android/gradle",
     "mobile/android/gradlew*",

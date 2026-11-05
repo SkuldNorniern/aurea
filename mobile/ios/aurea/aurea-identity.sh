@@ -1,10 +1,12 @@
 #!/bin/sh
-# Writes Identity.xcconfig, the bundle id, display name and version Xcode builds the app with,
-# from the app crate's [package.metadata.aurea] table: identity.sh <Cargo.toml> <out.xcconfig>.
+# Writes the xcconfig with the bundle id, display name and version Xcode builds the app with, from
+# the app crate's [package.metadata.aurea] table, and the app icon set from its `icon` key:
+#   aurea-identity.sh <Cargo.toml> <out.xcconfig> <AppIcon.appiconset>
 # Uses cargo and macOS plutil, which reads the JSON cargo prints.
 set -eu
 manifest="$1"
 out="$2"
+iconset="$3"
 meta=$(mktemp)
 trap 'rm -f "$meta"' EXIT
 cargo metadata --format-version 1 --no-deps --manifest-path "$manifest" >"$meta"
@@ -31,7 +33,7 @@ build=$(get metadata.aurea.build)
 
 next=$(mktemp)
 cat >"$next" <<CONF
-// Made by identity.sh from $(basename "$manifest"); edit [package.metadata.aurea] there instead.
+// Made by aurea-identity.sh from $(basename "$manifest"); edit [package.metadata.aurea] there instead.
 PRODUCT_BUNDLE_IDENTIFIER = $id
 INFOPLIST_KEY_CFBundleDisplayName = $name
 MARKETING_VERSION = $version
@@ -44,7 +46,15 @@ else
     echo "warning: $(basename "$out") changed; build again to use the new identity"
 fi
 
-# the app icon set from the master icon; aurea-build writes nothing without an icon key
-aurea_build=$(cd "$(dirname "$0")/../.." && pwd)/aurea-build/Cargo.toml
-cargo run --quiet --release --manifest-path "$aurea_build" --bin aurea-build -- \
-    "$manifest" icons ios "$SRCROOT/AureaSmoke/Assets.xcassets/AppIcon.appiconset"
+# In the aurea repo aurea-build runs from source; with aurea from crates.io it is the installed one.
+[ -n "$(get metadata.aurea.icon)" ] || exit 0
+aurea_build=$(cd "$(dirname "$0")/../../.." && pwd)/aurea-build/Cargo.toml
+if [ -f "$aurea_build" ]; then
+    cargo run --quiet --release --manifest-path "$aurea_build" --bin aurea-build -- \
+        "$manifest" icons ios "$iconset"
+elif command -v aurea-build >/dev/null 2>&1; then
+    aurea-build "$manifest" icons ios "$iconset"
+else
+    echo "error: the icon needs aurea-build; run: cargo install aurea-build"
+    exit 1
+fi

@@ -77,6 +77,9 @@ apply(from = project(":aurea").file("aurea-cargo.gradle"))
 
 `aurea.cargo.abis` defaults to `arm64-v8a`; `aurea-cargo.gradle` knows `arm64-v8a` and `x86_64`.
 
+An `icon` key needs `aurea-build`. In this repo it runs from source; an app using aurea from
+crates.io installs it with `cargo install aurea-build`.
+
 ## iOS and iPadOS
 
 Needs Xcode and the Rust targets for where it runs: `aarch64-apple-ios` for devices,
@@ -97,6 +100,23 @@ Pass `AUREA_FEATURES=zengpu` to build it drawing on the GPU.
 
 If the bundle ID `com.aurea.smoke` is taken for your team, pass another with
 `PRODUCT_BUNDLE_IDENTIFIER=`.
+
+### An iOS app of your own
+
+The aurea crate ships two scripts in `mobile/ios/aurea`, which the sample's
+[`build-rust.sh`](ios/build-rust.sh) runs and an app's Run Script build phase can run the same way:
+
+- `aurea-identity.sh <Cargo.toml> <out.xcconfig> <AppIcon.appiconset>` writes the bundle id, name
+  and version from `[package.metadata.aurea]` into an xcconfig the target bases its settings on, and
+  the icon set from `icon`. An `icon` key needs `aurea-build`; with aurea from crates.io, run
+  `cargo install aurea-build`.
+- `aurea-cargo.sh <Cargo.toml> <example>` builds the example as `lib<example>.a` in
+  `BUILT_PRODUCTS_DIR` for each architecture Xcode builds. Add that file to the target's Link
+  Binary With Libraries and to the phase's output files, as the sample does.
+
+`build-rust.sh` finds the crate with `cargo metadata`, so it works whether aurea is this repo or a
+dependency from crates.io. Copy it and change the manifest path, the paths it writes to, and the
+example name.
 
 ### What the iOS host gives the app
 
