@@ -9,6 +9,17 @@ readme = "README.md"
 repository.workspace = true
 keywords = ["gui", "ui", "native", "canvas", "widgets"]
 categories = ["gui", "graphics", "rendering"]
+# Android apps include `mobile/android/aurea` from this crate; the rest of `mobile` is the samples.
+exclude = [
+    ".github",
+    "assets",
+    "mobile/ios",
+    "mobile/android/app",
+    "mobile/android/gradle",
+    "mobile/android/gradlew*",
+    "mobile/android/*.kts",
+    "mobile/android/gradle.properties",
+]
 
 [package.metadata.docs.rs]
 features = ["accessibility", "wgpu", "zengpu"]
