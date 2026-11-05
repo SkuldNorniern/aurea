@@ -48,5 +48,4 @@ libc = "0.2"
 
 # Windows: hinted ClearType glyph rasterization via DirectWrite.
 [target.'cfg(windows)'.dependencies]
-dwrote = "0.11"
-winapi = { version = "0.3", features = ["dwrite", "dwrite_3", "dcommon", "winnt", "windef", "winerror"] }
+winapi = { version = "0.3", features = ["dwrite", "dwrite_3", "dcommon", "guiddef", "minwindef", "unknwnbase", "winnt", "windef", "winerror"] }

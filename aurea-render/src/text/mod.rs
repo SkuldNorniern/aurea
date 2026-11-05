@@ -10,6 +10,8 @@ pub mod shape;
 
 #[cfg(windows)]
 mod directwrite_backend;
+#[cfg(windows)]
+mod dwrite;
 mod file_backend;
 #[cfg(unix)]
 mod mapped;

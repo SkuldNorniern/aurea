@@ -1,27 +1,15 @@
 //! DirectWrite glyph rasterizer (Windows) — hinted ClearType subpixel coverage.
 
 use super::super::types::{FontStyle, FontVariation, FontWeight};
+use super::dwrite::{FontCollection, FontFace, FontFile};
 use super::fonts;
 use super::glyph::{FaceData, FaceId, FontBytes, GlyphKey};
 use super::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph};
 use super::{CacheKind, GLYPH_BYTES, GLYPH_CAP, LruCache, shared};
 use aurea_foundation::{AureaError, AureaResult, lock};
 use std::collections::HashMap;
-use std::mem::zeroed;
 use std::path::PathBuf;
-use std::ptr;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
-
-use dwrote::{
-    FontCollection, FontFace, FontFile, FontStretch as DwStretch, FontStyle as DwStyle,
-    FontWeight as DwWeight, GlyphRunAnalysis,
-};
-use winapi::um::dcommon::DWRITE_MEASURING_MODE_NATURAL;
-use winapi::um::dwrite::{
-    DWRITE_FONT_METRICS, DWRITE_FONT_SIMULATIONS_NONE, DWRITE_GLYPH_RUN,
-    DWRITE_RENDERING_MODE_NATURAL, DWRITE_TEXTURE_CLEARTYPE_3x1, IDWriteFontFace,
-};
-use winapi::um::dwrite_3::DWRITE_FONT_AXIS_VALUE;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct FaceKey {
@@ -89,14 +77,10 @@ pub struct DirectWriteRasterizer {
     file_bytes: Mutex<HashMap<PathBuf, Weak<Vec<u8>>>>,
 }
 
-// SAFETY: DirectWrite factory objects and font faces are free-threaded, and
-unsafe impl Send for DirectWriteRasterizer {}
-unsafe impl Sync for DirectWriteRasterizer {}
-
 impl DirectWriteRasterizer {
     pub fn new() -> AureaResult<Self> {
         Ok(Self {
-            collection: FontCollection::system(),
+            collection: FontCollection::system().ok_or(AureaError::RenderingFailed)?,
             faces: Mutex::new(Vec::new()),
             by_key: Mutex::new(HashMap::new()),
             glyphs: shared(
@@ -109,14 +93,14 @@ impl DirectWriteRasterizer {
     }
 
     fn shared_bytes(&self, file: &FontFile) -> Option<Arc<Vec<u8>>> {
-        let Ok(path) = file.font_file_path() else {
-            return file.font_file_bytes().ok().map(Arc::new);
+        let Some(path) = file.path() else {
+            return file.bytes().map(Arc::new);
         };
         let mut cache = lock(&self.file_bytes);
         if let Some(bytes) = cache.get(&path).and_then(Weak::upgrade) {
             return Some(bytes);
         }
-        let bytes = Arc::new(file.font_file_bytes().ok()?);
+        let bytes = Arc::new(file.bytes()?);
         cache.retain(|_, weak| weak.strong_count() > 0);
         cache.insert(path, Arc::downgrade(&bytes));
         Some(bytes)
@@ -130,27 +114,19 @@ impl DirectWriteRasterizer {
     }
 
     fn resolve(&self, font: FontRef) -> AureaResult<FaceEntry> {
-        let weight = DwWeight::from_u32(u32::from(font.weight.number()));
-        let style = match font.style {
-            FontStyle::Italic => DwStyle::Italic,
-            FontStyle::Normal => DwStyle::Normal,
-        };
         let family = candidates(font.family)
             .into_iter()
             .filter(|name| !name.is_empty())
-            .find_map(|name| self.collection.font_family_by_name(name).ok().flatten())
+            .find_map(|name| self.collection.family_by_name(name))
             .ok_or(AureaError::RenderingFailed)?;
         let face = family
-            .first_matching_font(weight, DwStretch::Normal, style)
-            .map_err(|_| AureaError::RenderingFailed)?
-            .create_font_face();
+            .matching_face(font.weight.number(), font.style == FontStyle::Italic)
+            .ok_or(AureaError::RenderingFailed)?;
         Ok(entry(face, font.variations.to_vec(), None))
     }
 
     fn registered(face: &fonts::Face, font: FontRef) -> Option<FaceEntry> {
-        let native = FontFile::new_from_buffer(face.bytes.clone())?
-            .create_face(face.index, DWRITE_FONT_SIMULATIONS_NONE)
-            .ok()?;
+        let native = FontFace::from_bytes(face.bytes.clone(), face.index)?;
         Some(entry(
             native,
             face.variations(font),
@@ -159,14 +135,8 @@ impl DirectWriteRasterizer {
     }
 
     fn has_glyph(&self, face: FaceId, ch: char) -> bool {
-        self.get(face).is_ok_and(|entry| {
-            entry
-                .face
-                .glyph_indices(&[u32::from(ch)])
-                .ok()
-                .and_then(|indices| indices.first().copied())
-                .is_some_and(|index| index != 0)
-        })
+        self.get(face)
+            .is_ok_and(|entry| entry.face.glyph_index(ch).is_some())
     }
 }
 
@@ -178,18 +148,14 @@ fn entry(
     let face = if variations.is_empty() {
         face
     } else {
-        vary(&face, &variations).unwrap_or(face)
+        face.varied(&variations).unwrap_or(face)
     };
-    let mut fm: DWRITE_FONT_METRICS = unsafe { zeroed() };
-    unsafe {
-        let raw: *mut IDWriteFontFace = face.as_ptr();
-        (*raw).GetMetrics(&mut fm);
-    }
+    let (ascent, descent, units_per_em) = face.metrics();
     FaceEntry {
         face,
-        ascent: f32::from(fm.ascent),
-        descent: f32::from(fm.descent),
-        units_per_em: f32::from(fm.designUnitsPerEm.max(1)),
+        ascent,
+        descent,
+        units_per_em,
         variations,
         data: OnceLock::new(),
         registered,
@@ -208,7 +174,6 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
         };
         let mut faces = lock(&self.faces);
         let id = FaceId(u32::try_from(faces.len()).map_err(|_| AureaError::RenderingFailed)?);
-        #[allow(clippy::arc_with_non_send_sync)]
         faces.push(Arc::new(entry));
         lock(&self.by_key).insert(key, id);
         Ok(id)
@@ -251,11 +216,11 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
                 let bytes = match &entry.registered {
                     Some(bytes) => bytes.clone(),
                     None => {
-                        let file = entry.face.files().ok()?.into_iter().next()?;
+                        let file = entry.face.file()?;
                         self.shared_bytes(&file)?
                     }
                 };
-                FaceData::new(bytes, entry.face.get_index(), &entry.variations).map(Arc::new)
+                FaceData::new(bytes, entry.face.index(), &entry.variations).map(Arc::new)
             })
             .clone()
             .ok_or(AureaError::RenderingFailed)
@@ -278,83 +243,16 @@ impl PlatformTextRasterizer for DirectWriteRasterizer {
         if let Some(cached) = lock(&self.glyphs).get(&key).cloned() {
             return Ok(cached);
         }
-
-        let entry = self.get(face)?;
-        let glyph_index_arr = [glyph];
-        let face_ptr = unsafe { entry.face.as_ptr() };
-        let run = DWRITE_GLYPH_RUN {
-            fontFace: face_ptr,
-            fontEmSize: size,
-            glyphCount: 1,
-            glyphIndices: glyph_index_arr.as_ptr(),
-            glyphAdvances: ptr::null(),
-            glyphOffsets: ptr::null(),
-            isSideways: 0,
-            bidiLevel: 0,
-        };
-
-        let analysis = GlyphRunAnalysis::create(
-            &run,
-            1.0,
-            None,
-            DWRITE_RENDERING_MODE_NATURAL,
-            DWRITE_MEASURING_MODE_NATURAL,
-            0.0,
-            0.0,
-        )
-        .map_err(|_| AureaError::RenderingFailed)?;
-
-        let bounds = analysis
-            .get_alpha_texture_bounds(DWRITE_TEXTURE_CLEARTYPE_3x1)
-            .map_err(|_| AureaError::RenderingFailed)?;
-
-        let w = (bounds.right - bounds.left).max(0);
-        let h = (bounds.bottom - bounds.top).max(0);
-
-        let glyph = if w == 0 || h == 0 {
-            SubpixelGlyph {
-                width: 0,
-                height: 0,
-                left: 0,
-                top: 0,
-                coverage: Vec::new(),
-            }
-        } else {
-            let coverage = analysis
-                .create_alpha_texture(DWRITE_TEXTURE_CLEARTYPE_3x1, bounds)
-                .map_err(|_| AureaError::RenderingFailed)?;
-            SubpixelGlyph {
-                width: u32::try_from(w).expect("bounds width is non-negative"),
-                height: u32::try_from(h).expect("bounds height is non-negative"),
-                left: bounds.left,
-                top: bounds.top,
-                coverage,
-            }
-        };
-
+        let glyph = self
+            .get(face)?
+            .face
+            .subpixel_glyph(glyph, size)
+            .ok_or(AureaError::RenderingFailed)?;
         let bytes = glyph.coverage.len();
         let glyph = Arc::new(glyph);
         lock(&self.glyphs).insert_sized(key, glyph.clone(), bytes);
         Ok(glyph)
     }
-}
-
-fn vary(face: &FontFace, variations: &[FontVariation]) -> Option<FontFace> {
-    let mut axes = face.variations().ok()?;
-    if axes.is_empty() {
-        return None;
-    }
-    for v in variations {
-        let tag = u32::from_le_bytes(v.tag);
-        match axes.iter_mut().find(|a| a.axisTag == tag) {
-            Some(axis) => axis.value = v.value,
-            None => axes.push(DWRITE_FONT_AXIS_VALUE {
-                axisTag: tag,
-                value: v.value,
-            }),
-        }
-    }
-    face.create_font_face_with_variations(DWRITE_FONT_SIMULATIONS_NONE, &axes)
 }
 
 fn candidates(family: &str) -> [&str; 4] {
@@ -406,12 +304,7 @@ mod tests {
     fn faces_of_one_collection_file_share_bytes() {
         let r = DirectWriteRasterizer::new().expect("directwrite");
         // Cambria and Cambria Math are two faces of cambria.ttc.
-        if r.collection
-            .font_family_by_name("Cambria Math")
-            .ok()
-            .flatten()
-            .is_none()
-        {
+        if r.collection.family_by_name("Cambria Math").is_none() {
             return;
         }
         let text = Font::new("Cambria", 14.0);
@@ -465,13 +358,8 @@ mod tests {
             .charmap()
             .map_unicode('A')
             .map(|g| g.to_u32());
-        let dw = r
-            .get(face)
-            .expect("face")
-            .face
-            .glyph_indices(&[u32::from('A')])
-            .expect("indices");
-        assert_eq!(ours, Some(u32::from(dw[0])));
+        let dw = r.get(face).expect("face").face.glyph_index('A');
+        assert_eq!(ours, dw.map(u32::from));
     }
 
     #[test]
