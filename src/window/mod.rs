@@ -1587,7 +1587,6 @@ mod gtk_shortcuts_tests {
 
     unsafe extern "C" {
         fn gtk_widget_get_window(widget: *mut c_void) -> *mut c_void;
-        fn gdk_window_is_viewable(window: *mut c_void) -> i32;
         fn gtk_window_set_focus(window: *mut c_void, focus: *mut c_void);
         fn gtk_entry_get_text(entry: *mut c_void) -> *const c_char;
         fn gdk_event_new(kind: i32) -> *mut GdkEventKey;
@@ -1605,11 +1604,9 @@ mod gtk_shortcuts_tests {
         stack.add(field)?;
         window.set_content(stack)?;
         window.show();
-        // GTK drops key events for a window not yet viewable, and mapping lags realizing.
-        for _ in 0..400 {
+        for _ in 0..100 {
             let _ = window.poll_events();
-            let gdk_window = unsafe { gtk_widget_get_window(window.handle()) };
-            if !gdk_window.is_null() && unsafe { gdk_window_is_viewable(gdk_window) } != 0 {
+            if !unsafe { gtk_widget_get_window(window.handle()) }.is_null() {
                 break;
             }
             sleep(Duration::from_millis(5));
