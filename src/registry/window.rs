@@ -5,7 +5,7 @@ use crate::window::{WindowEvent, WindowId};
 use aurea_foundation::{EventCallback, lock};
 use aurea_runtime::{EventQueue, FrameScheduler};
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::HashMap,
     os::raw::c_void,
     rc::Rc,
@@ -26,18 +26,25 @@ thread_local! {
         RefCell::new(HashMap::new());
     static WINDOW_UPDATE_CALLBACKS: RefCell<HashMap<usize, Vec<WindowUpdateCallback>>> =
         RefCell::new(HashMap::new());
-    static WAIT_CAPTURE: RefCell<Option<(usize, Vec<WindowEvent>)>> =
-        const { RefCell::new(None) };
+    static READER_PUMPS: Cell<u32> = const { Cell::new(0) };
+    /// Events a frame dispatched during a reader's pump, waiting for that window's next read.
+    static UNREAD: RefCell<HashMap<usize, Vec<WindowEvent>>> = RefCell::new(HashMap::new());
 }
 
-pub(crate) fn begin_event_capture(handle: *mut c_void, events: Vec<WindowEvent>) {
-    WAIT_CAPTURE.with(|c| *c.borrow_mut() = Some((handle_key(handle), events)));
+/// Most events kept for a window no one reads.
+const MAX_UNREAD: usize = 4096;
+
+/// Runs `pump` for a loop that reads events back, which a frame firing inside must not take away.
+pub(crate) fn pump_for_reader(pump: impl FnOnce()) {
+    READER_PUMPS.with(|pumps| pumps.set(pumps.get() + 1));
+    pump();
+    READER_PUMPS.with(|pumps| pumps.set(pumps.get() - 1));
 }
 
-pub(crate) fn end_event_capture() -> Vec<WindowEvent> {
-    WAIT_CAPTURE
-        .with(|c| c.borrow_mut().take())
-        .map(|(_, events)| events)
+/// Takes what frames dispatched for the window since its last read.
+pub(crate) fn take_unread(handle: *mut c_void) -> Vec<WindowEvent> {
+    UNREAD
+        .with(|unread| unread.borrow_mut().remove(&handle_key(handle)))
         .unwrap_or_default()
 }
 
@@ -52,6 +59,7 @@ pub fn unregister_event_queue(handle: *mut c_void) {
     let mut by_handle = lock(&WINDOW_QUEUE_BY_HANDLE);
     by_handle.remove(&handle_key(handle));
     lock(&SCALE_BY_HANDLE).remove(&handle_key(handle));
+    take_unread(handle);
 }
 
 /// Records `scale` for the window, returning whether it differs from the last one recorded.
@@ -112,14 +120,6 @@ pub fn dispatch_window_events(handle: *mut c_void, events: &[WindowEvent]) {
             .unwrap_or_default()
     });
 
-    WAIT_CAPTURE.with(|c| {
-        if let Some((waiting, kept)) = &mut *c.borrow_mut()
-            && *waiting == handle_key(handle)
-        {
-            kept.extend_from_slice(events);
-        }
-    });
-
     for event in events {
         for callback in callbacks.iter() {
             callback(event);
@@ -130,7 +130,48 @@ pub fn dispatch_window_events(handle: *mut c_void, events: &[WindowEvent]) {
 #[cfg(test)]
 mod dispatch_tests {
     use super::*;
-    use std::cell::{Cell, RefCell};
+
+    #[test]
+    fn a_frame_during_a_readers_pump_leaves_the_events_for_the_read() {
+        let window = 0xd15c as *mut c_void;
+        let queue = EventQueue::new();
+        let heard = Rc::new(Cell::new(0));
+        let counter = heard.clone();
+        register_event_callback(
+            window,
+            Rc::new(move |_: &WindowEvent| counter.set(counter.get() + 1)),
+        );
+
+        queue.push(WindowEvent::Focused);
+        pump_for_reader(|| dispatch_queue(window, &queue));
+        assert_eq!(heard.get(), 1, "callbacks hear it once, from the frame");
+        assert!(matches!(take_unread(window)[..], [WindowEvent::Focused]));
+        assert!(take_unread(window).is_empty());
+
+        queue.push(WindowEvent::Focused);
+        dispatch_queue(window, &queue);
+        assert!(
+            take_unread(window).is_empty(),
+            "a native run loop reads nothing"
+        );
+        unregister_event_callbacks(window);
+    }
+
+    #[test]
+    fn a_window_no_one_reads_keeps_only_its_newest_events() {
+        let window = 0xd15d as *mut c_void;
+        let queue = EventQueue::new();
+        pump_for_reader(|| {
+            for _ in 0..=MAX_UNREAD {
+                queue.push(WindowEvent::Focused);
+                queue.push(WindowEvent::Unfocused);
+                dispatch_queue(window, &queue);
+            }
+        });
+        let unread = take_unread(window);
+        assert_eq!(unread.len(), MAX_UNREAD);
+        assert!(matches!(unread.last(), Some(WindowEvent::Unfocused)));
+    }
 
     #[test]
     fn every_listener_gets_each_event_in_the_order_added() {
@@ -256,9 +297,22 @@ pub fn process_all_window_events() {
     };
 
     for (handle, queue) in live {
-        let events = queue.pop_all();
-        dispatch_window_events(handle as *mut c_void, &events);
+        dispatch_queue(handle as *mut c_void, &queue);
     }
+}
+
+fn dispatch_queue(handle: *mut c_void, queue: &EventQueue) {
+    let events = queue.pop_all();
+    dispatch_window_events(handle, &events);
+    if events.is_empty() || READER_PUMPS.with(Cell::get) == 0 {
+        return;
+    }
+    UNREAD.with(|unread| {
+        let mut unread = unread.borrow_mut();
+        let kept = unread.entry(handle_key(handle)).or_default();
+        kept.extend(events);
+        kept.drain(..kept.len().saturating_sub(MAX_UNREAD));
+    });
 }
 
 /// Runs update callbacks for every window.

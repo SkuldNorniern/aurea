@@ -36,10 +36,10 @@ pub use proxy::WindowProxy;
 use crate::platform::handles::native_handle_from_window_ptr;
 use crate::platform::ui_thread;
 use crate::registry::window::{
-    begin_event_capture, dispatch_window_events, end_event_capture, process_window_updates,
-    register_event_callback, register_event_queue, register_update_callback,
-    register_update_callbacks, scale_factor_changed, unregister_event_callbacks,
-    unregister_event_queue, unregister_update_callbacks,
+    dispatch_window_events, process_window_updates, pump_for_reader, register_event_callback,
+    register_event_queue, register_update_callback, register_update_callbacks,
+    scale_factor_changed, take_unread, unregister_event_callbacks, unregister_event_queue,
+    unregister_update_callbacks,
 };
 use crate::render::{Image, ImageSet, Rect};
 use crate::trim_memory;
@@ -603,24 +603,25 @@ impl Window {
         ui_thread::check("Window::wait_events");
         let timeout_ms =
             timeout.map_or(-1, |t| c_int::try_from(t.as_millis()).unwrap_or(c_int::MAX));
-        begin_event_capture(self.handle, Vec::new());
-        unsafe { ng_platform_wait_events(timeout_ms) };
-        let mut events = end_event_capture();
-        events.extend(self.drain_events());
-        events
+        pump_for_reader(|| unsafe {
+            ng_platform_wait_events(timeout_ms);
+        });
+        self.drain_events()
     }
 
     pub(super) fn drain_events(&self) -> Vec<WindowEvent> {
         proxy::drain_for(self);
         dispatch::drain();
 
-        let events = self.event_queue.pop_all();
-        for event in &events {
+        let mut events = take_unread(self.handle);
+        let queued = self.event_queue.pop_all();
+        for event in events.iter().chain(&queued) {
             if let WindowEvent::ScaleFactorChanged { scale_factor } = event {
                 *lock(&self.scale_factor) = *scale_factor;
             }
         }
-        dispatch_window_events(self.handle, &events);
+        dispatch_window_events(self.handle, &queued);
+        events.extend(queued);
         events
     }
 
@@ -1159,7 +1160,9 @@ fn take_forced_close(closing: &AtomicBool) -> bool {
 }
 
 pub(super) fn pump_platform_events() {
-    unsafe { ng_platform_poll_events() };
+    pump_for_reader(|| unsafe {
+        ng_platform_poll_events();
+    });
 }
 
 struct WindowBuildGuard {
