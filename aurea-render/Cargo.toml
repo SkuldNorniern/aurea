@@ -35,9 +35,9 @@ unicode-linebreak = "0.1"
 log = "0.4"
 
 # ZenGPU: optional, enabled by the `zengpu` feature.
-zengpu-hal = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "3c4e180599ff148d8c83cf8030fa98083144a22e", version = "0.1.0", optional = true }
-zengpu = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "3c4e180599ff148d8c83cf8030fa98083144a22e", version = "0.1.0", default-features = false, features = ["vulkan", "metal"], optional = true }
-zengpu-shader = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "3c4e180599ff148d8c83cf8030fa98083144a22e", version = "0.1.0", features = ["metal"], optional = true }
+zengpu-hal = { version = "0.1.0", optional = true }
+zengpu = { version = "0.1.0", default-features = false, features = ["vulkan", "metal"], optional = true }
+zengpu-shader = { version = "0.1.0", features = ["metal"], optional = true }
 
 # wgpu compatibility backend: optional, enabled by the `wgpu` feature.
 wgpu = { version = "29.0.1", optional = true }
