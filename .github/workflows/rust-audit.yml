@@ -18,8 +18,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
       # No lockfile is committed, so this audits what a new build would get.
       - name: Resolve dependencies
         run: cargo generate-lockfile
