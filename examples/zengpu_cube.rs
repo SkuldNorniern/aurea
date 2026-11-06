@@ -2,6 +2,7 @@
 //! backend (Metal on macOS, Vulkan elsewhere).
 
 use std::{error::Error, result::Result as StdResult};
+use zengpu::hal::IndexFormat;
 use zengpu::zsl;
 use {
     aurea::{Window, WindowEvent},
@@ -281,10 +282,11 @@ fn run() -> Result<()> {
             scalars: &scalars,
             ..Default::default()
         });
-        list.set_vertex_buffer(0, vertex_buf);
-        list.set_index_buffer(index_buf);
+        list.set_vertex_buffer(0, vertex_buf, 0);
+        list.set_index_buffer(index_buf, 0, IndexFormat::U32);
         list.draw_indexed(
             0..u32::try_from(CUBE_INDICES.len()).expect("index count fits in u32"),
+            0,
             0..1,
         );
         list.end_render_pass();

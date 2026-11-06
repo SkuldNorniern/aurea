@@ -188,3 +188,13 @@ required-features = ["zengpu"]
 name = "zengpu_shared_context"
 required-features = ["zengpu"]
 
+# zengpu past 0.1.0: buffer offsets, base vertex, indirect count. drop after its next release
+[patch.crates-io]
+zengpu = { git = "file:///D:/Repository/zengpu", rev = "849dac707244639a065fa335072e340fe1b95737" }
+zengpu-hal = { git = "file:///D:/Repository/zengpu", rev = "849dac707244639a065fa335072e340fe1b95737" }
+zengpu-vulkan = { git = "file:///D:/Repository/zengpu", rev = "849dac707244639a065fa335072e340fe1b95737" }
+zengpu-metal = { git = "file:///D:/Repository/zengpu", rev = "849dac707244639a065fa335072e340fe1b95737" }
+zengpu-shader = { git = "file:///D:/Repository/zengpu", rev = "849dac707244639a065fa335072e340fe1b95737" }
+zengpu-zsl = { git = "file:///D:/Repository/zengpu", rev = "849dac707244639a065fa335072e340fe1b95737" }
+zengpu-zslc = { git = "file:///D:/Repository/zengpu", rev = "849dac707244639a065fa335072e340fe1b95737" }
+zengpu-spv = { git = "file:///D:/Repository/zengpu", rev = "849dac707244639a065fa335072e340fe1b95737" }

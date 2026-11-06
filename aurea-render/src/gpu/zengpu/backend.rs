@@ -933,7 +933,7 @@ impl ZenGpuBackend {
     ) {
         cmd.set_pipeline(pipeline);
         if let Some(buf) = buffer {
-            cmd.set_vertex_buffer(0, buf);
+            cmd.set_vertex_buffer(0, buf, 0);
         }
         cmd.bind(Bindings {
             scalars,
