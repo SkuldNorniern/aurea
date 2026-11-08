@@ -172,6 +172,8 @@ fn moved<Id: WidgetId>(
         && let Some(p) = ui.pointer()
     {
         let off = ui.animated(id, 0, GRAB).unwrap_or(0.0);
+        // Only setting it keeps it past this frame.
+        ui.set_animated(id, 0, GRAB, off);
         at = along(p.x, p.y, stacked) - origin - off;
     }
     if !input.focused {
@@ -271,6 +273,11 @@ mod tests {
         let (.., response) = show(&mut rig, &mut at);
         assert_eq!(at, 200.0, "the press's place in the line stays under it");
         assert!(response.changed);
+        for x in [212, 230] {
+            rig.drag_to(x, 50);
+            show(&mut rig, &mut at);
+            assert_eq!(at, x as f32 - 2.0, "and keeps there for the whole drag");
+        }
         rig.drag_to(399, 50);
         show(&mut rig, &mut at);
         let thick = SplitterStyle::new(&rig.theme).thickness;
