@@ -10,6 +10,7 @@ use super::state::{
     Channel, Fonts, Interaction, Key, Press, Sense, Typed, UiState, WidgetId, caret_on,
 };
 use super::theme::Theme;
+use super::widget::tooltip::TooltipOptions;
 use crate::AureaResult;
 use crate::render::{Color, DrawingContext, Font, Paint, PaintStyle, Point, Rect, TextMetrics};
 use crate::screen::{Screen, screen};
@@ -585,6 +586,11 @@ impl<Id: WidgetId> Ui<'_, Id> {
     /// after the same delay; call it each frame it should stay.
     pub fn tooltip_at(&mut self, at: Point, text: &str) {
         self.show_tip(Rect::new(at.x, at.y, 0.0, 0.0), text);
+    }
+
+    /// How every tooltip behaves from now on.
+    pub fn set_tooltip_options(&mut self, options: TooltipOptions) {
+        self.state.tip.options = options;
     }
 
     fn show_tip(&mut self, anchor: Rect, text: &str) {

@@ -21,6 +21,7 @@ use super::paint::TextSize;
 use super::text_edit::TextEdit;
 use super::theme::Theme;
 use super::widget::popup::Popup;
+use super::widget::tooltip::TooltipOptions;
 use crate::fonts;
 use crate::render::{Font, Path, Point, Rect, TextMetrics};
 use crate::window::{
@@ -375,6 +376,7 @@ pub(crate) struct Tip {
     pub long_pressed: bool,
     /// Where it stays, and until when.
     pub linger: Option<(Rect, Instant)>,
+    pub options: TooltipOptions,
 }
 
 pub(crate) const BLINK_FOR: Duration = Duration::from_secs(8);
