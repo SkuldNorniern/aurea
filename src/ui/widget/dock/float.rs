@@ -15,7 +15,6 @@ use super::tree::DockSide;
 
 const FLOAT_PART: u16 = 0xC000;
 /// A title bar keeps this much of itself inside the dock, to be caught again.
-const KEEP_IN: f32 = 48.0;
 /// The parts of a floating panel: its body, title bar and close button.
 const PARTS: u16 = 3;
 
@@ -183,8 +182,9 @@ fn follow_move<Id: WidgetId, P: Copy + PartialEq>(
     response.held = true;
     ui.set_cursor(CursorIcon::Move);
     if let Some(float) = dock.floating.iter_mut().find(|f| f.panel == panel) {
-        let x = (at.x - grab.x).clamp(area.x + KEEP_IN - float.rect.width, area.right() - KEEP_IN);
-        let y = (at.y - grab.y).clamp(area.y, (area.bottom() - KEEP_IN).max(area.y));
+        let keep = dock.feel.keep_in;
+        let x = (at.x - grab.x).clamp(area.x + keep - float.rect.width, area.right() - keep);
+        let y = (at.y - grab.y).clamp(area.y, (area.bottom() - keep).max(area.y));
         if (x, y) != (float.rect.x, float.rect.y) {
             float.rect.x = x;
             float.rect.y = y;

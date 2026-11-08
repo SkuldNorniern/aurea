@@ -23,7 +23,7 @@ use std::mem;
 
 const BAR_PART: u16 = 0x4000;
 const CLOSE_PART: u16 = 0x8000;
-const DRAG_FROM: f32 = 6.0;
+const BAR_GRAB: Channel = Channel::Custom(0xD0C0);
 const DIRTY_DOT: f32 = 6.0;
 const ICON_GAP: f32 = 4.0;
 
@@ -118,6 +118,26 @@ pub struct Dock<P> {
     floating: Vec<FloatingPanel<P>>,
     moving: float::Moving<P>,
     next_slot: u16,
+    /// The view's settings for this frame.
+    feel: Feel,
+}
+
+/// How the view's drags behave.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Feel {
+    /// How far a tab is dragged before it comes away from its strip.
+    drag_from: f32,
+    /// How much of a floating panel stays inside the dock.
+    keep_in: f32,
+}
+
+impl Default for Feel {
+    fn default() -> Self {
+        Self {
+            drag_from: 6.0,
+            keep_in: 48.0,
+        }
+    }
 }
 
 /// A tab action for the app to handle after drawing the dock.
@@ -147,6 +167,7 @@ impl<P: Copy + PartialEq> Dock<P> {
             floating: Vec::new(),
             moving: None,
             next_slot: 0,
+            feel: Feel::default(),
         }
     }
 
@@ -213,6 +234,7 @@ pub struct DockView<'d, P, T, C> {
     style: Option<DockStyle>,
     close_buttons: bool,
     marks: TabMarks<'d, P>,
+    feel: Feel,
 }
 
 impl<'d, P, T, C> DockView<'d, P, T, C> {
@@ -229,7 +251,23 @@ impl<'d, P, T, C> DockView<'d, P, T, C> {
                 dirty: None,
                 icon: None,
             },
+            feel: Feel::default(),
         }
+    }
+
+    /// How far a tab is dragged before it comes away from its strip to move; 6 by default.
+    #[must_use]
+    pub fn drag_threshold(mut self, distance: f32) -> Self {
+        self.feel.drag_from = distance.max(0.0);
+        self
+    }
+
+    /// How much of a floating panel a drag keeps inside the dock, so it cannot be lost off an
+    /// edge; 48 by default.
+    #[must_use]
+    pub fn keep_in(mut self, keep: f32) -> Self {
+        self.feel.keep_in = keep.max(0.0);
+        self
     }
 
     /// Sets the look; defaults to the theme's.
@@ -299,7 +337,9 @@ where
             close_buttons,
             marks,
             tear_off,
+            feel,
         } = self;
+        dock.feel = feel;
         dock.tab_events.clear();
         let style = style.unwrap_or_else(|| DockStyle::new(ui.theme));
         dock.tree.layout(rect, style.metrics, &mut dock.layout);
@@ -528,7 +568,7 @@ fn press_tab<Id: WidgetId, P: Copy + PartialEq>(
     }
     let far = ui
         .pointer()
-        .is_some_and(|at| at.distance_to(from) > DRAG_FROM);
+        .is_some_and(|at| at.distance_to(from) > dock.feel.drag_from);
     if dock.drag.is_none() && far {
         dock.drag = Some(panel);
     }
@@ -596,9 +636,21 @@ fn bar_part<Id: WidgetId, P>(
     if input.hovered || input.held {
         ui.set_cursor(arrows);
     }
+    // Where on the bar the press landed, so it does not jump to the pointer.
+    if let Some(press) = ui.press(id, part) {
+        let off = along(bar, press.at) - along(bar, bar.rect.center());
+        ui.set_animated(id, part, BAR_GRAB, off);
+    }
     if input.held
         && let Some(at) = ui.pointer()
     {
+        let off = ui.animated(id, part, BAR_GRAB).unwrap_or(0.0);
+        // Only setting it keeps it past this frame.
+        ui.set_animated(id, part, BAR_GRAB, off);
+        let at = match bar.axis {
+            DockAxis::Row => Point::new(at.x - off, at.y),
+            DockAxis::Column => Point::new(at.x, at.y - off),
+        };
         *change = Some(Change::Ratio(
             bar.index,
             ratio_at(bar, at, style.metrics.gap),
@@ -606,6 +658,13 @@ fn bar_part<Id: WidgetId, P>(
     }
     let lit = state.hover.max(state.press);
     ui.fill(line, style.bar.mix(style.accent, lit))
+}
+
+fn along(bar: DockBar, at: Point) -> f32 {
+    match bar.axis {
+        DockAxis::Row => at.x,
+        DockAxis::Column => at.y,
+    }
 }
 
 fn ratio_at(bar: DockBar, at: Point, gap: f32) -> f32 {
@@ -716,6 +775,7 @@ mod tests {
         close_on: CloseButtons,
         dirty: Vec<u8>,
         tear: bool,
+        feel: Feel,
     }
 
     /// Tabs are this wide, so a tab's close slot sits at a known x.
@@ -736,6 +796,7 @@ mod tests {
                 close_on: CloseButtons::Always,
                 dirty: Vec::new(),
                 tear: false,
+                feel: Feel::default(),
             };
             screen.frame();
             screen
@@ -749,6 +810,7 @@ mod tests {
             let drawn = &mut self.drawn;
             let dirty = &self.dirty;
             let tear = self.tear;
+            let feel = self.feel;
             let dock = &mut self.dock;
             self.rig.frame(|ui| {
                 let title = |p: u8| ["", "One", "Two", "Three"][usize::from(p)];
@@ -757,6 +819,8 @@ mod tests {
                     Ok(())
                 })
                 .tear_off(tear)
+                .drag_threshold(feel.drag_from)
+                .keep_in(feel.keep_in)
                 .style(style)
                 .close_buttons(true)
                 .dirty(move |p| dirty.contains(&p))
@@ -963,6 +1027,48 @@ mod tests {
         rig.button(102.0, 150.0, false);
         rig.frame();
         assert_eq!(rig.dock.layout().groups[0].rect.width, 100.0);
+    }
+
+    #[test]
+    fn a_bar_grabbed_off_its_middle_keeps_that_place_under_the_pointer() {
+        let mut rig = Screen::new();
+        rig.move_to(204.0, 150.0);
+        rig.button(204.0, 150.0, true);
+        rig.move_to(154.0, 150.0);
+        rig.move_to(104.0, 150.0);
+        rig.frame();
+        assert_eq!(rig.dock.layout().groups[0].rect.width, 100.0);
+        rig.button(104.0, 150.0, false);
+    }
+
+    #[test]
+    fn a_tab_waits_for_the_drag_threshold() {
+        let mut rig = Screen::new();
+        rig.feel.drag_from = 50.0;
+        rig.move_to(6.0, 14.0);
+        rig.button(6.0, 14.0, true);
+        rig.move_to(40.0, 30.0);
+        assert_eq!(rig.dock.dragging(), None, "not past 50 yet");
+        rig.move_to(80.0, 30.0);
+        assert_eq!(rig.dock.dragging(), Some(1));
+        rig.button(80.0, 30.0, false);
+    }
+
+    #[test]
+    fn keep_in_sets_how_much_of_a_float_stays_in_the_dock() {
+        let mut screen = Screen::new();
+        screen.feel.keep_in = 10.0;
+        screen.dock.float(3, Rect::new(60.0, 60.0, 200.0, 150.0));
+        screen.frame();
+        screen.move_to(100.0, 70.0);
+        screen.button(100.0, 70.0, true);
+        screen.move_to(2000.0, 2000.0);
+        let rect = screen.dock.floating()[0].rect;
+        assert_eq!(
+            (rect.x, rect.y),
+            (AREA.right() - 10.0, AREA.bottom() - 10.0)
+        );
+        screen.button(2000.0, 2000.0, false);
     }
 
     #[test]
