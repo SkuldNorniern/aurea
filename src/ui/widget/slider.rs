@@ -72,6 +72,7 @@ pub struct Slider<'v> {
     vertical: bool,
     readout: Option<&'v str>,
     readout_width: f32,
+    fine: f32,
 }
 
 /// Width of the readout beside a horizontal slider.
@@ -92,7 +93,6 @@ pub struct SliderTrack {
     pub opacity: f32,
 }
 
-const FINE: f32 = 0.1;
 const LAST_X: Channel = Channel::Custom(1);
 const RESET_HELD: Channel = Channel::Custom(2);
 
@@ -110,6 +110,7 @@ impl<'v> Slider<'v> {
             vertical: false,
             readout: None,
             readout_width: READOUT_WIDTH,
+            fine: 0.1,
         }
     }
 
@@ -136,6 +137,12 @@ impl<'v> Slider<'v> {
     /// to 100.
     pub fn origin(mut self, origin: f32) -> Self {
         self.origin = Some(origin);
+        self
+    }
+
+    /// How much slower a drag with Shift held moves it, as a share of a plain drag; 0.1 by default.
+    pub fn fine(mut self, share: f32) -> Self {
+        self.fine = share.max(0.0);
         self
     }
 
@@ -239,7 +246,7 @@ impl<'v> Slider<'v> {
         };
         match ui.state.tweens.get((Key::new(id, 0), LAST_X)) {
             Some(last) if ui.modifiers().shift && press.is_none() => {
-                *self.value += (along - last) / length * span * FINE;
+                *self.value += (along - last) / length * span * self.fine;
             }
             _ => *self.value = lo + (along / length).clamp(0.0, 1.0) * span,
         }
@@ -503,6 +510,10 @@ mod tests {
     use crate::window::{Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
 
     fn frame(raster: &mut CpuRasterizer, state: &mut UiState<u8>, value: &mut f32) {
+        frame_fine(raster, state, value, 0.1);
+    }
+
+    fn frame_fine(raster: &mut CpuRasterizer, state: &mut UiState<u8>, value: &mut f32, fine: f32) {
         let theme = Theme::dark();
         let mut ctx = raster.begin_frame().expect("frame");
         {
@@ -510,6 +521,7 @@ mod tests {
             Slider::new(value, -100.0..=100.0)
                 .origin(0.0)
                 .reset_to(0.0)
+                .fine(fine)
                 .show(&mut ui, 1, Rect::new(0.0, 0.0, 218.0, 24.0))
                 .expect("draw");
         }
@@ -588,6 +600,17 @@ mod tests {
         moved(&mut state, 149.0, false);
         frame(&mut raster, &mut state, &mut value);
         assert!((value - 40.0).abs() < 0.01, "plain: {value}");
+    }
+
+    #[test]
+    fn fine_sets_how_slow_shift_goes() {
+        let (mut raster, mut state, mut value) = (CpuRasterizer::new(218, 24), UiState::new(), 0.0);
+        frame_fine(&mut raster, &mut state, &mut value, 0.5);
+        button(&mut state, 109.0, true, 1);
+        frame_fine(&mut raster, &mut state, &mut value, 0.5);
+        moved(&mut state, 149.0, true);
+        frame_fine(&mut raster, &mut state, &mut value, 0.5);
+        assert!((value - 20.0).abs() < 0.01, "{value}");
     }
 
     #[test]

@@ -19,7 +19,6 @@ use crate::window::KeyCode;
 // ring starts lower left.
 const START: f32 = 0.75 * PI;
 const SWEEP: f32 = 1.5 * PI;
-const FINE: f32 = 0.1;
 const LAST_Y: Channel = Channel::Custom(1);
 
 /// How a dial looks.
@@ -75,6 +74,7 @@ pub struct Dial<'v> {
     enabled: bool,
     readout: Option<&'v str>,
     caption: Option<&'v str>,
+    fine: f32,
 }
 
 impl<'v> Dial<'v> {
@@ -90,6 +90,7 @@ impl<'v> Dial<'v> {
             enabled: true,
             readout: None,
             caption: None,
+            fine: 0.1,
         }
     }
 
@@ -109,6 +110,12 @@ impl<'v> Dial<'v> {
     /// Fill from `origin`, not the start.
     pub fn origin(mut self, origin: f32) -> Self {
         self.origin = Some(origin);
+        self
+    }
+
+    /// How much slower a drag with Shift held moves it, as a share of a plain drag; 0.1 by default.
+    pub fn fine(mut self, share: f32) -> Self {
+        self.fine = share.max(0.0);
         self
     }
 
@@ -159,7 +166,7 @@ impl<'v> Dial<'v> {
         if press.is_none()
             && let Some(last) = ui.animated(id, 0, LAST_Y)
         {
-            let fine = if ui.modifiers().shift { FINE } else { 1.0 };
+            let fine = if ui.modifiers().shift { self.fine } else { 1.0 };
             *self.value += (last - at.y) / travel.max(1.0) * span * fine;
         }
         ui.set_animated(id, 0, LAST_Y, at.y);
@@ -324,12 +331,17 @@ mod tests {
     use crate::window::{Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
 
     fn frame(raster: &mut CpuRasterizer, state: &mut UiState<u8>, value: &mut f32) {
+        frame_fine(raster, state, value, 0.1);
+    }
+
+    fn frame_fine(raster: &mut CpuRasterizer, state: &mut UiState<u8>, value: &mut f32, fine: f32) {
         let theme = Theme::dark();
         let mut ctx = raster.begin_frame().expect("frame");
         {
             let mut ui = state.frame(&mut *ctx, &theme);
             Dial::new(value, 0.0..=100.0)
                 .reset_to(50.0)
+                .fine(fine)
                 .show(&mut ui, 1, Rect::new(0.0, 0.0, 40.0, 40.0))
                 .expect("draw");
         }
@@ -381,6 +393,17 @@ mod tests {
         moved(&mut state, -100.0, true);
         frame(&mut raster, &mut state, &mut value);
         assert!((value - 35.0).abs() < 0.01, "fine: {value}");
+    }
+
+    #[test]
+    fn fine_sets_how_slow_shift_goes() {
+        let (mut raster, mut state, mut value) = rig();
+        frame_fine(&mut raster, &mut state, &mut value, 0.5);
+        button(&mut state, 20.0, true, 1);
+        frame_fine(&mut raster, &mut state, &mut value, 0.5);
+        moved(&mut state, -80.0, true);
+        frame_fine(&mut raster, &mut state, &mut value, 0.5);
+        assert!((value - 45.0).abs() < 0.01, "{value}");
     }
 
     #[test]
