@@ -49,6 +49,8 @@ pub struct Splitter<'v> {
     at: &'v mut f32,
     stacked: bool,
     min: (f32, f32),
+    threshold: f32,
+    whole_pixels: bool,
     label: &'v str,
     style: Option<SplitterStyle>,
 }
@@ -60,6 +62,8 @@ impl<'v> Splitter<'v> {
             at,
             stacked: false,
             min: (0.0, 0.0),
+            threshold: 0.0,
+            whole_pixels: false,
             label: "",
             style: None,
         }
@@ -76,6 +80,20 @@ impl<'v> Splitter<'v> {
     #[must_use]
     pub fn min(mut self, first: f32, second: f32) -> Self {
         self.min = (first.max(0.0), second.max(0.0));
+        self
+    }
+
+    /// How far a press must move before the line follows, so a click on it does not nudge it.
+    #[must_use]
+    pub fn threshold(mut self, distance: f32) -> Self {
+        self.threshold = distance.max(0.0);
+        self
+    }
+
+    /// Keeps the line on whole device pixels, so it and the panes' edges stay crisp.
+    #[must_use]
+    pub fn whole_pixels(mut self, whole: bool) -> Self {
+        self.whole_pixels = whole;
         self
     }
 
@@ -122,8 +140,11 @@ impl<'v> Splitter<'v> {
         );
         let input = ui.interact(id, 0, reach, Sense::Adjust, true);
 
-        at = moved(ui, id, input, rect, self.stacked, at, room);
+        at = moved(ui, id, input, rect, self.stacked, at, room, self.threshold);
         at = settle(at, room, self.min);
+        if self.whole_pixels {
+            at = snap(at, ui.scale(), room, self.min);
+        }
         *self.at = at;
 
         let eased = ui.eased(id, 0, input);
@@ -153,6 +174,7 @@ impl<'v> Splitter<'v> {
 }
 
 /// Where this frame's drag or keys put the line at `at`.
+#[allow(clippy::too_many_arguments)]
 fn moved<Id: WidgetId>(
     ui: &mut Ui<'_, Id>,
     id: Id,
@@ -161,6 +183,7 @@ fn moved<Id: WidgetId>(
     stacked: bool,
     mut at: f32,
     room: f32,
+    threshold: f32,
 ) -> f32 {
     let origin = start(rect, stacked);
     // Where in the line the press landed, so it does not jump to the pointer.
@@ -168,13 +191,14 @@ fn moved<Id: WidgetId>(
         let off = along(press.at.x, press.at.y, stacked) - origin - at;
         ui.set_animated(id, 0, GRAB, off);
     }
-    if input.held
-        && let Some(p) = ui.pointer()
-    {
+    if input.held {
         let off = ui.animated(id, 0, GRAB).unwrap_or(0.0);
         // Only setting it keeps it past this frame.
         ui.set_animated(id, 0, GRAB, off);
-        at = along(p.x, p.y, stacked) - origin - off;
+        let far = threshold <= 0.0 || ui.dragged_past(id, 0, input, threshold);
+        if far && let Some(p) = ui.pointer() {
+            at = along(p.x, p.y, stacked) - origin - off;
+        }
     }
     if !input.focused {
         return at;
@@ -217,6 +241,19 @@ fn panes(rect: Rect, stacked: bool, at: f32, thickness: f32) -> (Rect, Rect) {
         rect.split_top(at, thickness)
     } else {
         rect.split_left(at, thickness)
+    }
+}
+
+/// `at` on a whole device pixel at `scale`, still inside what [`settle`] allows.
+fn snap(at: f32, scale: f32, room: f32, (first, second): (f32, f32)) -> f32 {
+    let scale = scale.max(f32::EPSILON);
+    let lo = (first * scale).ceil() / scale;
+    let hi = ((room - second) * scale).floor() / scale;
+    let snapped = (at * scale).round() / scale;
+    if lo > hi {
+        snapped
+    } else {
+        snapped.clamp(lo, hi)
     }
 }
 
@@ -285,6 +322,69 @@ mod tests {
         rig.drag_to(0, 50);
         show(&mut rig, &mut at);
         assert_eq!(at, 50.0);
+    }
+
+    #[test]
+    fn a_threshold_holds_the_line_until_the_press_moves_past_it() {
+        let mut rig = Rig::new(400, 200).still();
+        let mut at = 120.0;
+        let show = |rig: &mut Rig, at: &mut f32| {
+            rig.frame(|ui| {
+                Splitter::new(at)
+                    .threshold(6.0)
+                    .show(ui, 1, AREA)
+                    .expect("draw")
+            })
+        };
+        show(&mut rig, &mut at);
+        rig.at(122, 50);
+        show(&mut rig, &mut at);
+        rig.button(122, 50, true);
+        show(&mut rig, &mut at);
+        rig.drag_to(126, 50);
+        show(&mut rig, &mut at);
+        assert_eq!(at, 120.0, "a small wobble does not move it");
+        rig.drag_to(140, 50);
+        show(&mut rig, &mut at);
+        assert_eq!(
+            at, 138.0,
+            "past it, the press's place in the line is under it again"
+        );
+        rig.drag_to(124, 50);
+        show(&mut rig, &mut at);
+        assert_eq!(
+            at, 122.0,
+            "and it keeps following back inside the threshold"
+        );
+    }
+
+    #[test]
+    fn whole_pixels_keeps_the_line_on_device_pixels() {
+        let mut rig = Rig::new(400, 200).still();
+        let mut at = 120.4;
+        rig.frame(|ui| {
+            Splitter::new(&mut at)
+                .whole_pixels(true)
+                .min(50.3, 0.0)
+                .show(ui, 1, AREA)
+                .expect("draw")
+        });
+        assert_eq!(at, 120.0);
+        let mut at = 10.0;
+        rig.frame(|ui| {
+            Splitter::new(&mut at)
+                .whole_pixels(true)
+                .min(50.3, 0.0)
+                .show(ui, 1, AREA)
+                .expect("draw")
+        });
+        assert_eq!(at, 51.0, "rounding never takes a pane below its least");
+        assert_eq!(snap(10.2, 2.0, 400.0, (0.0, 0.0)), 10.0);
+        assert_eq!(
+            snap(10.3, 2.0, 400.0, (0.0, 0.0)),
+            10.5,
+            "half pixels at 2x"
+        );
     }
 
     #[test]
