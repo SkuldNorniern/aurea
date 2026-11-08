@@ -10,14 +10,6 @@ use crate::ui::state::{Sense, WidgetId};
 const BACKDROP: u16 = 0;
 const PANEL: u16 = 1;
 const GRIP: u16 = 2;
-/// How much of the way to its place the sheet moves each frame.
-const EASE: f32 = 0.3;
-/// How tall the part that drags is.
-const GRIP_HEIGHT: f32 = 28.0;
-/// The share of its height a sheet is dragged down to be dismissed.
-const DISMISS_AT: f32 = 0.3;
-/// A flick this many pixels in one frame dismisses it however far it went.
-const FLICK: f32 = 12.0;
 
 /// Whether a [`BottomSheet`] is open and where it stands, kept by the app between frames.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -63,12 +55,52 @@ impl SheetState {
 #[derive(Clone, Copy, Debug)]
 pub struct BottomSheet {
     height: f32,
+    ease: f32,
+    grip: f32,
+    dismiss_at: f32,
+    flick: f32,
 }
 
 impl BottomSheet {
     /// A sheet `height` tall, or 90% of the canvas if that is less.
     pub fn new(height: f32) -> Self {
-        Self { height }
+        Self {
+            height,
+            ease: 0.3,
+            grip: 28.0,
+            dismiss_at: 0.3,
+            flick: 12.0,
+        }
+    }
+
+    /// How much of the way to its place it moves each frame, from just above 0 to 1 (at once);
+    /// 0.3 by default.
+    #[must_use]
+    pub fn ease(mut self, share: f32) -> Self {
+        self.ease = share.clamp(0.01, 1.0);
+        self
+    }
+
+    /// How tall the grip along its top is, the part a finger drags; 28 by default.
+    #[must_use]
+    pub fn grip_height(mut self, height: f32) -> Self {
+        self.grip = height.max(0.0);
+        self
+    }
+
+    /// The share of its height it is pulled down to be dismissed when let go; 0.3 by default.
+    #[must_use]
+    pub fn dismiss_at(mut self, share: f32) -> Self {
+        self.dismiss_at = share.clamp(0.0, 1.0);
+        self
+    }
+
+    /// How many pixels down in one frame count as a flick, which dismisses it however far it
+    /// went; 12 by default.
+    #[must_use]
+    pub fn flick(mut self, pixels: f32) -> Self {
+        self.flick = pixels.max(0.0);
+        self
     }
 
     /// Draws the sheet while it shows, with `content` given the area under its grip. `None` when
@@ -84,7 +116,7 @@ impl BottomSheet {
             return Ok(None);
         }
         let target = if state.open { 1.0 } else { 0.0 };
-        state.shown += (target - state.shown) * EASE;
+        state.shown += (target - state.shown) * self.ease;
         if (target - state.shown).abs() < 0.002 {
             state.shown = target;
         } else {
@@ -111,9 +143,9 @@ impl BottomSheet {
         let top = canvas.bottom() - tall * state.shown + state.pulled;
         let rect = Rect::new(canvas.x, top, canvas.width, tall);
         ui.interact(id, PANEL, rect, Sense::Hover, true);
-        let grip = Rect::new(rect.x, rect.y, rect.width, GRIP_HEIGHT);
+        let grip = Rect::new(rect.x, rect.y, rect.width, self.grip);
         let held = ui.interact(id, GRIP, grip, Sense::Adjust, true).held;
-        pull(ui, state, held, tall);
+        self.pull(ui, state, held, tall);
         if ui.state.escaped {
             state.open = false;
         }
@@ -123,34 +155,40 @@ impl BottomSheet {
         ui.fill(bar, ui.theme.palette.border)?;
         let inner = Rect::new(
             rect.x,
-            rect.y + GRIP_HEIGHT,
+            rect.y + self.grip,
             rect.width,
-            (tall - GRIP_HEIGHT).max(0.0),
+            (tall - self.grip).max(0.0),
         );
         ui.clipped(inner, |ui| content(ui, inner)).map(Some)
     }
-}
 
-/// Follows a finger on the grip, and on letting go dismisses or settles back.
-fn pull<Id: WidgetId>(ui: &mut Ui<'_, Id>, state: &mut SheetState, held: bool, tall: f32) {
-    if !held {
-        if state.grabbed.take().is_some()
-            && (state.pulled > tall * DISMISS_AT || state.flick > FLICK)
-        {
-            state.open = false;
+    /// Follows a finger on the grip, and on letting go dismisses or settles back.
+    fn pull<Id: WidgetId>(
+        &self,
+        ui: &mut Ui<'_, Id>,
+        state: &mut SheetState,
+        held: bool,
+        tall: f32,
+    ) {
+        if !held {
+            if state.grabbed.take().is_some()
+                && (state.pulled > tall * self.dismiss_at || state.flick > self.flick)
+            {
+                state.open = false;
+            }
+            state.pulled = 0.0;
+            state.flick = 0.0;
+            return;
         }
-        state.pulled = 0.0;
-        state.flick = 0.0;
-        return;
+        let Some(y) = ui.pointer().map(|at| at.y) else {
+            return;
+        };
+        let grabbed = *state.grabbed.get_or_insert(y);
+        let pulled = (y - grabbed).max(0.0);
+        state.flick = pulled - state.pulled;
+        state.pulled = pulled;
+        ui.keep_animating();
     }
-    let Some(y) = ui.pointer().map(|at| at.y) else {
-        return;
-    };
-    let grabbed = *state.grabbed.get_or_insert(y);
-    let pulled = (y - grabbed).max(0.0);
-    state.flick = pulled - state.pulled;
-    state.pulled = pulled;
-    ui.keep_animating();
 }
 
 #[cfg(test)]
@@ -161,8 +199,12 @@ mod tests {
     const OPEN: u8 = 7;
 
     fn draw(rig: &mut Rig, state: &mut SheetState) -> bool {
+        draw_with(rig, state, BottomSheet::new(200.0))
+    }
+
+    fn draw_with(rig: &mut Rig, state: &mut SheetState, sheet: BottomSheet) -> bool {
         rig.frame(|ui| {
-            BottomSheet::new(200.0)
+            sheet
                 .show(ui, state, OPEN, |_, _| Ok(()))
                 .expect("draw")
                 .is_some()
@@ -231,5 +273,38 @@ mod tests {
         rig.button(200.0, 500.0, false);
         settle(&mut rig, &mut state);
         assert!(!state.open, "a long one goes");
+    }
+
+    #[test]
+    fn a_lower_dismiss_share_lets_a_short_slow_pull_go() {
+        let mut rig = Rig::new(400, 600);
+        let mut state = SheetState::opened();
+        let sheet = BottomSheet::new(200.0).dismiss_at(0.02).ease(1.0);
+        draw_with(&mut rig, &mut state, sheet);
+        rig.at(200.0, 410.0);
+        draw_with(&mut rig, &mut state, sheet);
+        rig.button(200.0, 410.0, true);
+        draw_with(&mut rig, &mut state, sheet);
+        for y in [412.0, 414.0, 416.0] {
+            rig.drag_to(200.0, y);
+            draw_with(&mut rig, &mut state, sheet);
+        }
+        rig.button(200.0, 416.0, false);
+        draw_with(&mut rig, &mut state, sheet);
+        assert!(!state.open, "6 of 200 is past 2%");
+    }
+
+    #[test]
+    fn ease_one_puts_it_in_place_at_once_and_the_grip_sets_where_content_starts() {
+        let mut rig = Rig::new(400, 600);
+        let mut state = SheetState::opened();
+        let content = rig.frame(|ui| {
+            BottomSheet::new(200.0)
+                .ease(1.0)
+                .grip_height(50.0)
+                .show(ui, &mut state, OPEN, |_, inner| Ok(inner))
+                .expect("draw")
+        });
+        assert_eq!(content, Some(Rect::new(0.0, 450.0, 400.0, 150.0)));
     }
 }
