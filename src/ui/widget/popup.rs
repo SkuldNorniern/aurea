@@ -17,13 +17,8 @@ const ROW_PART: u16 = 0xF000;
 const BACKDROP_PART: u16 = 0xEFFF;
 const CARD_PART: u16 = 0xEFFE;
 const FADE: Channel = Channel::Custom(0xF0F0);
-const TALLEST: f32 = 360.0;
-/// How far a finger moves, in logical pixels, before it scrolls rather than picks.
-const DRAG_SLOP: f32 = 8.0;
 /// A finger still for this long before it lifts leaves the rows still.
 const FLING_REST: Duration = Duration::from_millis(100);
-/// How fast a fling dies, per second.
-const FLING_DECAY: f32 = 4.0;
 /// A fling slower than this, in logical pixels per second, stops.
 const FLING_STOP: f32 = 30.0;
 
@@ -319,6 +314,7 @@ struct Parent {
 #[derive(Debug)]
 pub(crate) struct Popup<Id> {
     pub(crate) style: Option<PopupStyle>,
+    pub(crate) options: MenuOptions,
     owner: Option<Key<Id>>,
     anchor: Rect,
     min_width: f32,
@@ -340,10 +336,57 @@ pub(crate) struct Popup<Id> {
     generation: u64,
 }
 
+/// How menus and dropdown lists behave, for the whole UI; set with [`Ui::set_menu_options`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MenuOptions {
+    tallest: f32,
+    drag_slop: f32,
+    fling_decay: f32,
+}
+
+impl Default for MenuOptions {
+    fn default() -> Self {
+        Self {
+            tallest: 360.0,
+            drag_slop: 8.0,
+            fling_decay: 4.0,
+        }
+    }
+}
+
+impl MenuOptions {
+    /// The default options.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// How tall a list goes before it scrolls; 360 by default.
+    #[must_use]
+    pub fn tallest(mut self, tallest: f32) -> Self {
+        self.tallest = tallest.max(0.0);
+        self
+    }
+
+    /// How far a finger moves before it scrolls the list rather than picks; 8 by default.
+    #[must_use]
+    pub fn drag_slop(mut self, distance: f32) -> Self {
+        self.drag_slop = distance.max(0.0);
+        self
+    }
+
+    /// How fast a flung list slows, per second; 4 by default. Higher stops sooner.
+    #[must_use]
+    pub fn fling_decay(mut self, decay: f32) -> Self {
+        self.fling_decay = decay.max(0.0);
+        self
+    }
+}
+
 impl<Id> Default for Popup<Id> {
     fn default() -> Self {
         Self {
             style: None,
+            options: MenuOptions::default(),
             owner: None,
             anchor: Rect::default(),
             min_width: 0.0,
@@ -787,7 +830,8 @@ fn place<Id: WidgetId>(ui: &mut Ui<'_, Id>, canvas: Rect, m: &Metrics) -> Rect {
     let width = (widest + check + pad * 2.0)
         .max(min_width)
         .min((canvas.width - 8.0).max(0.0));
-    let height = height.min(TALLEST).min((canvas.height - 8.0).max(0.0));
+    let tallest = ui.state.popup.options.tallest;
+    let height = height.min(tallest).min((canvas.height - 8.0).max(0.0));
     let margin = 4.0f32.min(canvas.width / 2.0).min(canvas.height / 2.0);
     if ui.state.popup.nested {
         let x = if anchor.right() + width <= canvas.right() - margin {
@@ -879,7 +923,8 @@ fn finger_drag<Id: WidgetId>(
             at: now,
         });
         ui.state.popup.fling = None;
-        drag.dragging = drag.dragging || (at.y - drag.start).abs() > DRAG_SLOP;
+        let slop = ui.state.popup.options.drag_slop;
+        drag.dragging = drag.dragging || (at.y - drag.start).abs() > slop;
         if drag.dragging {
             input.hovered = false;
             let moved = at.y - drag.last;
@@ -921,7 +966,7 @@ fn fling<Id: WidgetId>(ui: &mut Ui<'_, Id>, level: usize, room: f32) {
     let now = Instant::now();
     let dt = now.duration_since(fling.at).as_secs_f32();
     p.scroll = (p.scroll - fling.speed * dt).clamp(0.0, room);
-    fling.speed *= (-FLING_DECAY * dt).exp();
+    fling.speed *= (-p.options.fling_decay * dt).exp();
     fling.at = now;
     let going = fling.speed.abs() >= FLING_STOP && p.scroll > 0.0 && p.scroll < room;
     p.fling = going.then_some(fling);
@@ -1181,6 +1226,11 @@ impl<Id: WidgetId> Ui<'_, Id> {
         }
         value.map(Some)
     }
+    /// How every menu and dropdown list behaves from now on.
+    pub fn set_menu_options(&mut self, options: MenuOptions) {
+        self.state.popup.options = options;
+    }
+
     /// Opens a context menu for `id` at `at`, usually where the secondary button went down.
     pub fn open_menu<'a>(
         &mut self,
@@ -1331,6 +1381,24 @@ mod tests {
         let at = rig.state.popup.rows[2].rect.center();
         rig.button(at.x, at.y, true);
         menu_frame(&mut rig);
+        rig.drag_to(at.x, at.y + 3.0);
+        menu_frame(&mut rig);
+        rig.button(at.x, at.y + 3.0, false);
+        rig.send(WindowEvent::MouseExited);
+        menu_frame(&mut rig);
+        assert_eq!(rig.state.popup.take_pick(Key::new(9, MENU_PART)), Some(2));
+    }
+
+    #[test]
+    fn a_wider_slop_lets_a_wobbling_tap_pick() {
+        let mut rig = long_menu();
+        rig.frame(|ui| ui.set_menu_options(MenuOptions::new().drag_slop(30.0)));
+        let at = rig.state.popup.rows[2].rect.center();
+        rig.button(at.x, at.y, true);
+        menu_frame(&mut rig);
+        rig.drag_to(at.x, at.y + 20.0);
+        menu_frame(&mut rig);
+        assert_eq!(rig.state.popup.scroll, 0.0, "inside the slop");
         rig.drag_to(at.x, at.y + 3.0);
         menu_frame(&mut rig);
         rig.button(at.x, at.y + 3.0, false);

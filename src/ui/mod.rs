@@ -39,7 +39,7 @@ pub use widget::graph;
 pub use widget::graph::{GraphStyle, GraphView, ScopeStyle, ScopeView};
 pub use widget::link::{Link, LinkStyle};
 pub use widget::pager::{Pager, PagerStyle};
-pub use widget::popup::{MenuItem, OwnedMenuItem, PopupStyle};
+pub use widget::popup::{MenuItem, MenuOptions, OwnedMenuItem, PopupStyle};
 pub use widget::progress::{ProgressBar, ProgressStyle};
 pub use widget::radio::{RadioGroup, RadioStyle};
 pub use widget::ruler::Ruler;
