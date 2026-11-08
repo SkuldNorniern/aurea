@@ -12,7 +12,6 @@ use crate::ui::theme::Theme;
 use crate::window::{CursorIcon, KeyCode, PointerKind};
 
 const GRAB: Channel = Channel::Custom(0xED00);
-const STEP: f32 = 8.0;
 
 /// How a splitter looks.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -50,6 +49,7 @@ pub struct Splitter<'v> {
     stacked: bool,
     min: (f32, f32),
     threshold: f32,
+    step: f32,
     whole_pixels: bool,
     label: &'v str,
     style: Option<SplitterStyle>,
@@ -63,6 +63,7 @@ impl<'v> Splitter<'v> {
             stacked: false,
             min: (0.0, 0.0),
             threshold: 0.0,
+            step: 8.0,
             whole_pixels: false,
             label: "",
             style: None,
@@ -87,6 +88,13 @@ impl<'v> Splitter<'v> {
     #[must_use]
     pub fn threshold(mut self, distance: f32) -> Self {
         self.threshold = distance.max(0.0);
+        self
+    }
+
+    /// How far an arrow key moves the line; 8 by default.
+    #[must_use]
+    pub fn step(mut self, step: f32) -> Self {
+        self.step = step.max(0.0);
         self
     }
 
@@ -140,7 +148,16 @@ impl<'v> Splitter<'v> {
         );
         let input = ui.interact(id, 0, reach, Sense::Adjust, true);
 
-        at = moved(ui, id, input, rect, self.stacked, at, room, self.threshold);
+        at = moved(
+            ui,
+            id,
+            input,
+            rect,
+            self.stacked,
+            at,
+            room,
+            (self.threshold, self.step),
+        );
         at = settle(at, room, self.min);
         if self.whole_pixels {
             at = snap(at, ui.scale(), room, self.min);
@@ -183,7 +200,7 @@ fn moved<Id: WidgetId>(
     stacked: bool,
     mut at: f32,
     room: f32,
-    threshold: f32,
+    (threshold, step): (f32, f32),
 ) -> f32 {
     let origin = start(rect, stacked);
     // Where in the line the press landed, so it does not jump to the pointer.
@@ -210,8 +227,8 @@ fn moved<Id: WidgetId>(
     };
     for (key, _) in ui.keys() {
         match key {
-            k if k == back => at -= STEP,
-            k if k == ahead => at += STEP,
+            k if k == back => at -= step,
+            k if k == ahead => at += step,
             KeyCode::Home => at = 0.0,
             KeyCode::End => at = room,
             _ => {}
@@ -400,6 +417,21 @@ mod tests {
         rig.key(KeyCode::Home);
         show(&mut rig, &mut at);
         assert_eq!(at, 50.0);
+    }
+
+    #[test]
+    fn step_sets_how_far_a_key_moves_it() {
+        let mut rig = Rig::new(400, 200).still();
+        let mut at = 120.0;
+        let show = |rig: &mut Rig, at: &mut f32| {
+            rig.frame(|ui| Splitter::new(at).step(1.0).show(ui, 1, AREA).expect("draw"))
+        };
+        show(&mut rig, &mut at);
+        rig.key(KeyCode::Tab);
+        show(&mut rig, &mut at);
+        rig.key(KeyCode::Right);
+        show(&mut rig, &mut at);
+        assert_eq!(at, 121.0);
     }
 
     #[test]
