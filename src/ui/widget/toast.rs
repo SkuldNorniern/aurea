@@ -19,8 +19,6 @@ use crate::ui::widget::button::Button;
 const FIRST_PART: u16 = 0xE800;
 const PARTS: u64 = 0x400;
 const SHOWN: Channel = Channel::Custom(0xE800);
-const WIDEST: f32 = 420.0;
-const MARGIN: f32 = 16.0;
 const STRIP: f32 = 3.0;
 const FADE: f32 = 6.0;
 const STAY: Duration = Duration::from_secs(4);
@@ -56,17 +54,26 @@ pub struct Toast {
     text: String,
     tone: ToastTone,
     action: Option<String>,
-    stay: Option<Duration>,
+    stay: Stay,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Stay {
+    /// As long as its [`Toasts`] say.
+    Default,
+    For(Duration),
+    Sticky,
 }
 
 impl Toast {
-    /// A message that stays four seconds, longer under the pointer.
+    /// A message that stays as long as its [`Toasts`] say, four seconds by default, longer under
+    /// the pointer.
     pub fn new(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
             tone: ToastTone::Info,
             action: None,
-            stay: Some(STAY),
+            stay: Stay::Default,
         }
     }
 
@@ -87,14 +94,14 @@ impl Toast {
     /// How long it stays.
     #[must_use]
     pub fn stay(mut self, stay: Duration) -> Self {
-        self.stay = Some(stay);
+        self.stay = Stay::For(stay);
         self
     }
 
     /// Stays until it is clicked away.
     #[must_use]
     pub fn sticky(mut self) -> Self {
-        self.stay = None;
+        self.stay = Stay::Sticky;
         self
     }
 }
@@ -105,6 +112,8 @@ struct Showing {
     toast: Toast,
     until: Option<Instant>,
     leaving: bool,
+    /// Where it was last drawn.
+    rect: Rect,
 }
 
 /// The messages up now, kept by the app. A click takes one away.
@@ -123,16 +132,62 @@ struct Showing {
 ///
 /// A desktop canvas that only draws on change schedules [`crate::ui::UiState::next_frame_at`] so
 /// they leave on time; the iOS and Android hosts do it themselves.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Toasts {
     next: u64,
     live: Vec<Showing>,
+    widest: f32,
+    margin: f32,
+    stay: Duration,
+    top: bool,
+}
+
+impl Default for Toasts {
+    fn default() -> Self {
+        Self {
+            next: 0,
+            live: Vec::new(),
+            widest: 420.0,
+            margin: 16.0,
+            stay: STAY,
+            top: false,
+        }
+    }
 }
 
 impl Toasts {
     /// No messages.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// How wide a toast goes before its text wraps.
+    #[must_use]
+    pub fn widest(mut self, widest: f32) -> Self {
+        self.widest = widest.max(40.0);
+        self
+    }
+
+    /// The space between the canvas's edge and the toasts, and half that between toasts.
+    #[must_use]
+    pub fn margin(mut self, margin: f32) -> Self {
+        self.margin = margin.max(0.0);
+        self
+    }
+
+    /// How long a toast stays when it does not say; four seconds by default.
+    #[must_use]
+    pub fn stay(mut self, stay: Duration) -> Self {
+        self.stay = stay;
+        self
+    }
+
+    /// Stacks them down from the canvas's top, the newest at the top, instead of up from its
+    /// bottom.
+    #[must_use]
+    pub fn top(mut self) -> Self {
+        self.top = true;
+        self
     }
 
     /// Puts `toast` up, the newest at the bottom, and gives its handle.
@@ -144,6 +199,7 @@ impl Toasts {
             toast: toast.into(),
             until: None,
             leaving: false,
+            rect: Rect::default(),
         });
         handle
     }
@@ -167,14 +223,20 @@ impl Toasts {
         let now = Instant::now();
         #[allow(clippy::cast_precision_loss)]
         let canvas = Rect::new(0.0, 0.0, ui.ctx.width() as f32, ui.ctx.height() as f32);
-        let mut bottom = canvas.bottom() - MARGIN;
+        let margin = self.margin;
+        let mut edge = if self.top {
+            canvas.y + margin
+        } else {
+            canvas.bottom() - margin
+        };
         let mut pressed = None;
         for live in self.live.iter_mut().rev() {
             let part = part_of(live.handle);
             let target = if live.leaving { 0.0 } else { 1.0 };
             let shown = ui.animate_from(id, part, SHOWN, 0.0, target, FADE);
-            let (rect, lines) = place(ui, &live.toast, canvas, bottom);
-            bottom = rect.y - MARGIN / 2.0;
+            let (size, lines) = measure(ui, &live.toast, canvas, self.widest, margin);
+            let rect = stack(canvas, size, &mut edge, margin, self.top);
+            live.rect = rect;
             let input = ui.interact(id, part, rect, Sense::Hover, true);
             if input.hovered {
                 live.until = None;
@@ -191,14 +253,7 @@ impl Toasts {
                 pressed = Some(live.handle);
                 live.leaving = true;
             }
-            if let Some(stay) = live.toast.stay {
-                let until = *live.until.get_or_insert(now + stay);
-                if now >= until && !input.hovered {
-                    live.leaving = true;
-                } else if !live.leaving {
-                    ui.wake_at(until);
-                }
-            }
+            expire(ui, live, self.stay, now, input.hovered);
         }
         self.live.retain(|live| {
             !live.leaving || {
@@ -229,16 +284,53 @@ fn part_of(handle: u64) -> u16 {
     FIRST_PART + u16::try_from(handle % PARTS).unwrap_or(0) * 2
 }
 
-fn place<Id: WidgetId>(
+/// Where a toast of `size` goes at `edge`, which moves past it for the next.
+fn stack(canvas: Rect, size: (f32, f32), edge: &mut f32, margin: f32, top: bool) -> Rect {
+    let x = canvas.center().x - size.0 / 2.0;
+    if top {
+        let rect = Rect::new(x, *edge, size.0, size.1);
+        *edge = rect.bottom() + margin / 2.0;
+        rect
+    } else {
+        let rect = Rect::new(x, *edge - size.1, size.0, size.1);
+        *edge = rect.y - margin / 2.0;
+        rect
+    }
+}
+
+/// Sends `live` off once its time is up, or asks to wake then.
+fn expire<Id: WidgetId>(
+    ui: &mut Ui<'_, Id>,
+    live: &mut Showing,
+    default: Duration,
+    now: Instant,
+    hovered: bool,
+) {
+    let stay = match live.toast.stay {
+        Stay::Default => default,
+        Stay::For(stay) => stay,
+        Stay::Sticky => return,
+    };
+    let until = *live.until.get_or_insert(now + stay);
+    if now >= until && !hovered {
+        live.leaving = true;
+    } else if !live.leaving {
+        ui.wake_at(until);
+    }
+}
+
+/// The toast's width and height, and its lines of text.
+fn measure<Id: WidgetId>(
     ui: &mut Ui<'_, Id>,
     toast: &Toast,
     canvas: Rect,
-    bottom: f32,
-) -> (Rect, f32) {
+    widest: f32,
+    margin: f32,
+) -> ((f32, f32), f32) {
     let fonts = ui.fonts();
     let pad = ui.theme.padding;
     let line = fonts.text.size * 1.4;
-    let widest = WIDEST.min(canvas.width - MARGIN * 2.0).max(40.0);
+    let widest = widest.min(canvas.width - margin * 2.0).max(40.0);
     let button = match &toast.action {
         Some(label) => Button::new(label).width(ui) + pad,
         None => 0.0,
@@ -252,13 +344,7 @@ fn place<Id: WidgetId>(
     };
     let width = full.min(room) + pad * 2.0 + button;
     let height = (line * lines + pad).max(ui.theme.control_height + pad / 2.0);
-    let rect = Rect::new(
-        canvas.center().x - width / 2.0,
-        bottom - height,
-        width,
-        height,
-    );
-    (rect, lines)
+    ((width, height), lines)
 }
 
 /// True when the action was pressed.
@@ -340,6 +426,33 @@ mod tests {
     }
 
     #[test]
+    fn the_toasts_default_stay_is_for_those_that_set_none() {
+        let mut rig = settled();
+        let mut toasts = Toasts::new().stay(Duration::ZERO);
+        toasts.add("Gone");
+        toasts.add(Toast::new("Kept").stay(Duration::from_secs(60)));
+        toasts.add(Toast::new("Pinned").sticky());
+        show(&mut rig, &mut toasts);
+        show(&mut rig, &mut toasts);
+        show(&mut rig, &mut toasts);
+        let left: Vec<_> = toasts.live.iter().map(|l| l.toast.text.as_str()).collect();
+        assert_eq!(left, ["Kept", "Pinned"]);
+    }
+
+    #[test]
+    fn top_stacks_them_down_from_the_top_within_the_margin_and_width() {
+        let mut rig = settled();
+        let mut toasts = Toasts::new().top().margin(10.0).widest(120.0);
+        toasts.add(Toast::new("Older").sticky());
+        toasts.add(Toast::new("Newer and longer than the width allows").sticky());
+        show(&mut rig, &mut toasts);
+        let (older, newer) = (toasts.live[0].rect, toasts.live[1].rect);
+        assert_eq!(newer.y, 10.0, "the newest at the top");
+        assert_eq!(older.y, newer.bottom() + 5.0);
+        assert!(newer.width <= 120.0 + 0.01, "{}", newer.width);
+    }
+
+    #[test]
     fn its_time_asks_for_a_frame() {
         let mut rig = settled();
         let mut toasts = Toasts::new();
@@ -372,10 +485,8 @@ mod tests {
         let undo = toasts.add(Toast::new("Deleted").action("Undo").sticky());
         show(&mut rig, &mut toasts);
         show(&mut rig, &mut toasts);
-        let canvas = Rect::new(0.0, 0.0, 500.0, 300.0);
         let pad = rig.theme.padding;
-        let toast = toasts.live[0].toast.clone();
-        let (card, _) = rig.frame(|ui| place(ui, &toast, canvas, 300.0 - MARGIN));
+        let card = toasts.live[0].rect;
         show(&mut rig, &mut toasts);
         rig.click(card.right() - pad - 4.0, card.center().y);
         let seen = show(&mut rig, &mut toasts);
