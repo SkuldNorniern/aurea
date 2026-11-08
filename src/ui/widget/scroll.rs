@@ -3,6 +3,7 @@
 
 use crate::keyboard::keyboard_height;
 use std::ops::Range;
+use std::time::Duration;
 
 use super::Widget;
 #[cfg(target_os = "android")]
@@ -26,7 +27,24 @@ const OFFSET: Channel = Channel::Custom(0xE002);
 const SHOWN_X: Channel = Channel::Custom(0xE004);
 const OFFSET_X: Channel = Channel::Custom(0xE005);
 const PULL: Channel = Channel::Custom(0xE008);
-const LINGER: f32 = 0.9;
+
+/// When an area's bar shows.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Reveal {
+    /// How long it stays after the content stops.
+    linger: Duration,
+    /// Shown whenever there is more to see.
+    always: bool,
+}
+
+impl Default for Reveal {
+    fn default() -> Self {
+        Self {
+            linger: Duration::from_millis(900),
+            always: false,
+        }
+    }
+}
 
 /// How an area's bar looks and how far the wheel moves it.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -103,6 +121,7 @@ pub struct ScrollArea<'v> {
     sideways: Option<(&'v mut f32, f32)>,
     style: Option<ScrollStyle>,
     jump: bool,
+    reveal: Reveal,
 }
 
 impl<'v> ScrollArea<'v> {
@@ -114,6 +133,7 @@ impl<'v> ScrollArea<'v> {
             sideways: None,
             style: None,
             jump: false,
+            reveal: Reveal::default(),
         }
     }
 
@@ -121,6 +141,20 @@ impl<'v> ScrollArea<'v> {
     #[must_use]
     pub fn style(mut self, style: ScrollStyle) -> Self {
         self.style = Some(style);
+        self
+    }
+
+    /// How long the bar stays after the content stops moving; 0.9 seconds by default.
+    #[must_use]
+    pub fn linger(mut self, linger: Duration) -> Self {
+        self.reveal.linger = linger;
+        self
+    }
+
+    /// Shows the bar whenever the content is taller than the area, not only while it moves.
+    #[must_use]
+    pub fn always_show_bar(mut self, always: bool) -> Self {
+        self.reveal.always = always;
         self
     }
 
@@ -247,14 +281,14 @@ impl<'v> ScrollArea<'v> {
                 ui.mark_changed();
             }
         }
-        y.end(ui, id, rect, self.content, over, style)?;
+        y.end(ui, id, rect, self.content, over, style, self.reveal)?;
         let mut changed = y.moved || pulled_y || touched;
         let mut held = y.dragged || touched;
         if room > 0.0 {
             ui.state.scroll_end(Key::new(id, 0), start);
         }
         if let Some((x, _)) = &x {
-            x.end(ui, id, rect, width, over, style)?;
+            x.end(ui, id, rect, width, over, style, self.reveal)?;
             changed |= x.moved || pulled_x;
             held |= x.dragged;
         }
@@ -513,6 +547,7 @@ impl Scrolled {
     }
 
     /// Takes the pointer over the track and draws the bar.
+    #[allow(clippy::too_many_arguments)]
     fn end<Id: WidgetId>(
         &self,
         ui: &mut Ui<'_, Id>,
@@ -521,19 +556,21 @@ impl Scrolled {
         content: f32,
         over: bool,
         style: ScrollStyle,
+        reveal: Reveal,
     ) -> AureaResult<()> {
         if self.room <= 0.0 {
             return Ok(());
         }
         let axis = self.axis;
         ui.interact(id, axis.part, axis.track(rect), Sense::Hover, true);
-        let since = ui.animate(id, 0, axis.linger, 0.0, 1.0 / LINGER);
+        let rate = 1.0 / reveal.linger.as_secs_f32().max(0.001);
+        let since = ui.animate(id, 0, axis.linger, 0.0, rate);
         let moving = self.moved || self.dragged;
         if moving {
             ui.set_animated(id, 0, axis.linger, 1.0);
         }
         let near = over && axis.near(ui, rect);
-        let target = if moving || near || since > 0.05 {
+        let target = if reveal.always || moving || near || since > 0.05 {
             1.0
         } else {
             0.0
@@ -587,6 +624,7 @@ pub struct ListView<'v> {
     cell_width: Option<f32>,
     selected: Option<&'v mut Option<usize>>,
     style: Option<ScrollStyle>,
+    reveal: Reveal,
 }
 
 impl<'v> ListView<'v> {
@@ -599,7 +637,22 @@ impl<'v> ListView<'v> {
             cell_width: None,
             selected: None,
             style: None,
+            reveal: Reveal::default(),
         }
+    }
+
+    /// How long the bar stays after the content stops moving; 0.9 seconds by default.
+    #[must_use]
+    pub fn linger(mut self, linger: Duration) -> Self {
+        self.reveal.linger = linger;
+        self
+    }
+
+    /// Shows the bar whenever the content is taller than the area, not only while it moves.
+    #[must_use]
+    pub fn always_show_bar(mut self, always: bool) -> Self {
+        self.reveal.always = always;
+        self
     }
 
     /// Lays the items out in cells at least `cell_width` wide, as many to a row as fit, stretched
@@ -639,6 +692,7 @@ impl<'v> ListView<'v> {
             cell_width,
             mut selected,
             style,
+            reveal,
         } = self;
         let columns = columns(cell_width, rect.width);
         let rows = count.div_ceil(columns);
@@ -664,6 +718,7 @@ impl<'v> ListView<'v> {
         #[allow(clippy::cast_precision_loss)]
         let content = rows as f32 * height;
         let mut area = ScrollArea::new(offset, content);
+        area.reveal = reveal;
         if let Some(style) = style {
             area = area.style(style);
         }
@@ -1242,6 +1297,28 @@ mod tests {
     }
 
     const VIEW: Rect = Rect::new(0.0, 0.0, 100.0, 100.0);
+
+    #[test]
+    fn always_show_bar_draws_it_on_a_still_area() {
+        let bar = |always: bool| {
+            let mut rig: Rig = Rig::new(120, 120).still();
+            let mut offset = 0.0;
+            for _ in 0..3 {
+                rig.frame(|ui| {
+                    ui.fill(Rect::new(0.0, 0.0, 120.0, 120.0), ui.theme.palette.surface)
+                        .expect("fill");
+                    ScrollArea::new(&mut offset, CONTENT)
+                        .always_show_bar(always)
+                        .linger(Duration::from_millis(100))
+                        .show(ui, 1, VIEW, |_, _, _| Ok(()))
+                        .expect("area");
+                });
+            }
+            rig.pixel(95, 10) != rig.pixel(50, 10)
+        };
+        assert!(bar(true));
+        assert!(!bar(false), "still, it fades");
+    }
 
     #[test]
     fn a_jump_lands_at_once() {
