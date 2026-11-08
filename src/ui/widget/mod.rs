@@ -15,6 +15,7 @@ pub mod pager;
 pub(crate) mod popup;
 pub mod progress;
 pub mod radio;
+pub(crate) mod repeat;
 pub mod ruler;
 pub mod scroll;
 pub mod segmented;

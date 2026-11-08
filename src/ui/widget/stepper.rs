@@ -5,6 +5,7 @@ use std::mem;
 use std::ops::RangeInclusive;
 
 use super::Widget;
+use super::repeat::fires;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
 #[cfg(feature = "accessibility")]
@@ -12,14 +13,9 @@ use crate::ui::accessibility::Role;
 use crate::ui::component::{FocusRing, StateColors};
 use crate::ui::frame::{Align, Eased, Response, Ui};
 use crate::ui::paint::{Component, Label, Mark, MarkShape, Surface};
-use crate::ui::state::{Channel, Key, Sense, WidgetId};
+use crate::ui::state::{Key, Sense, WidgetId};
 use crate::ui::theme::Theme;
 use crate::window::{CursorIcon, KeyCode};
-
-const REPEAT_AFTER: f32 = 0.42;
-const REPEAT_EVERY: f32 = 0.07;
-const HELD_SINCE: Channel = Channel::Custom(1);
-const REPEATS: Channel = Channel::Custom(2);
 
 /// How a stepper looks.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -143,28 +139,6 @@ impl<'v> Stepper<'v> {
     }
 }
 
-fn button_steps<Id: WidgetId>(ui: &mut Ui<'_, Id>, id: Id, part: u16, held: bool) -> f32 {
-    let now = ui.time();
-    if ui.press(id, part).is_some() {
-        ui.set_animated(id, part, HELD_SINCE, now);
-        ui.set_animated(id, part, REPEATS, 0.0);
-        return 1.0;
-    }
-    if !held {
-        return 0.0;
-    }
-    ui.keep_animating();
-    let since = ui.animate(id, part, HELD_SINCE, now, 0.0);
-    let done = ui.animate(id, part, REPEATS, 0.0, 0.0);
-    let due = ((now - since - REPEAT_AFTER) / REPEAT_EVERY).floor() + 1.0;
-    if due > done {
-        ui.set_animated(id, part, REPEATS, due);
-        due - done
-    } else {
-        0.0
-    }
-}
-
 impl<Id: WidgetId> Widget<Id> for Stepper<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
         let style = self.style.unwrap_or_else(|| StepperStyle::new(ui.theme));
@@ -185,7 +159,7 @@ impl<Id: WidgetId> Widget<Id> for Stepper<'_> {
             ui.state.give_focus(Some(Key::new(id, 0)));
         }
 
-        let mut steps = button_steps(ui, id, 2, up.held) - button_steps(ui, id, 1, down.held);
+        let mut steps = fires(ui, id, 2, up.held) - fires(ui, id, 1, down.held);
         if input.focused {
             steps += self.key_steps(ui);
         }
