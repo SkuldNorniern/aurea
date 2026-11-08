@@ -280,6 +280,11 @@ impl<Id: WidgetId> Ui<'_, Id> {
         self.state.tweens.to((key, channel), target, rate)
     }
 
+    /// Whether this frame's click came from a pointer let go, not Enter or Space.
+    pub(crate) fn clicked_by_pointer(&self) -> bool {
+        self.state.click_at.is_some()
+    }
+
     /// The press that landed on that part this frame, if one did.
     pub fn press(&self, id: Id, part: u16) -> Option<PressAt> {
         let key = Key::new(id, part);

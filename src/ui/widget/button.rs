@@ -1,6 +1,7 @@
 //! A push button: a [`Surface`], an optional [`IconMark`], a [`Label`] and a [`FocusRing`].
 
 use super::Widget;
+use super::repeat::fires;
 use crate::AureaResult;
 use crate::render::{Color, Font, Rect, glyph_ink_rows, shape_text};
 #[cfg(feature = "accessibility")]
@@ -105,6 +106,10 @@ pub struct Button<'t> {
     enabled: bool,
     selected: bool,
     font: Option<&'t Font>,
+    align: Align,
+    icon_size: Option<f32>,
+    repeat: bool,
+    on_press: bool,
     part: u16,
 }
 
@@ -119,6 +124,10 @@ impl<'t> Button<'t> {
             enabled: true,
             selected: false,
             font: None,
+            align: Align::Center,
+            icon_size: None,
+            repeat: false,
+            on_press: false,
             part: 0,
         }
     }
@@ -190,6 +199,32 @@ impl<'t> Button<'t> {
         self
     }
 
+    /// Where the icon and label sit across it; the middle by default.
+    pub fn align(mut self, align: Align) -> Self {
+        self.align = align;
+        self
+    }
+
+    /// The icon's size instead of one from the text size.
+    pub fn icon_size(mut self, size: f32) -> Self {
+        self.icon_size = Some(size.max(0.0));
+        self
+    }
+
+    /// Clicks as it is pressed, then again and again while held, as a key does: for steps and
+    /// scroll arrows.
+    pub fn repeat(mut self, repeat: bool) -> Self {
+        self.repeat = repeat;
+        self
+    }
+
+    /// Clicks as it is pressed instead of as it is let go, for tool strips that should feel
+    /// instant. Enter and Space still click it.
+    pub fn on_press(mut self, on_press: bool) -> Self {
+        self.on_press = on_press;
+        self
+    }
+
     /// The width the icon and label need, with the style's padding each side.
     pub fn width<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> f32 {
         let style = self
@@ -200,9 +235,10 @@ impl<'t> Button<'t> {
         } else {
             self.label(&style, Color::rgb(0, 0, 0)).width(ui)
         };
+        let size = self.icon_size.unwrap_or_else(|| icon_size(ui));
         let icon = match self.icon {
-            Some(_) if text > 0.0 => icon_size(ui) + style.padding * 0.5,
-            Some(_) => icon_size(ui),
+            Some(_) if text > 0.0 => size + style.padding * 0.5,
+            Some(_) => size,
             None => 0.0,
         };
         icon + text + style.padding * 2.0
@@ -211,7 +247,7 @@ impl<'t> Button<'t> {
     fn label(&self, style: &ButtonStyle, color: Color) -> Label<'t> {
         let label = Label::new(self.label, color)
             .size(style.text_size)
-            .centered();
+            .align(self.align);
         match self.font {
             Some(font) => label.font(font),
             None => label,
@@ -242,6 +278,16 @@ fn icon_size<Id: WidgetId>(ui: &Ui<'_, Id>) -> f32 {
 impl<Id: WidgetId> Widget<Id> for Button<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
         let input = ui.interact(id, self.part, rect, Sense::Click, self.enabled);
+        let mut response = Response::new(rect, input);
+        if self.repeat || self.on_press {
+            let keyed = input.clicked && !ui.clicked_by_pointer();
+            let fired = if self.repeat {
+                fires(ui, id, self.part, input.held && self.enabled) > 0.0
+            } else {
+                ui.press(id, self.part).is_some()
+            };
+            response.clicked = keyed || (fired && self.enabled);
+        }
         #[cfg(feature = "accessibility")]
         ui.accessible_description(id, self.part, Role::Button, self.label, None);
         let mut state = ui.eased(id, self.part, input);
@@ -269,15 +315,26 @@ impl<Id: WidgetId> Widget<Id> for Button<'_> {
                 ui,
                 Rect::new(inner.x, inner.y + nudge, inner.width, inner.height),
             )?;
-            return Ok(Response::new(rect, input));
+            return Ok(response);
         };
-        let size = icon_size(ui).min(body.height - 4.0).max(0.0);
+        let size = self
+            .icon_size
+            .unwrap_or_else(|| icon_size(ui))
+            .min(body.height - 4.0)
+            .max(0.0);
         let label_w = if self.label.is_empty() {
             0.0
         } else {
             self.label(&style, ink).width(ui) + style.padding * 0.5
         };
-        let x = body.x + ((body.width - size - label_w) / 2.0).max(style.padding * 0.5);
+        let edge = style.padding * 0.5;
+        let spare = body.width - size - label_w;
+        let x = body.x
+            + match self.align {
+                Align::Start => edge,
+                Align::Center => (spare / 2.0).max(edge),
+                Align::End => (spare - edge).max(edge),
+            };
         let y = body.y + (body.height - size) / 2.0;
         IconMark::new(icon, ink).paint(ui, Rect::new(x, y, size, size))?;
         if label_w > 0.0 {
@@ -292,7 +349,7 @@ impl<Id: WidgetId> Widget<Id> for Button<'_> {
                 .align(Align::Start)
                 .paint(ui, text)?;
         }
-        Ok(Response::new(rect, input))
+        Ok(response)
     }
 }
 
@@ -333,7 +390,9 @@ mod tests {
     use super::*;
     use crate::render::Icon;
     use crate::ui::rig::Rig;
-    use crate::window::WindowEvent;
+    use crate::window::{KeyCode, WindowEvent};
+    use std::thread::sleep;
+    use std::time::Duration;
 
     #[test]
     fn lifting_after_a_long_press_clicks_nothing() {
@@ -350,6 +409,93 @@ mod tests {
         show(&mut rig);
         rig.button(20, 20, false);
         assert!(!show(&mut rig));
+    }
+
+    #[test]
+    fn on_press_clicks_as_it_goes_down_and_enter_still_clicks() {
+        let mut rig = Rig::new(120, 40);
+        let at = Rect::new(0.0, 0.0, 120.0, 40.0);
+        let show = |rig: &mut Rig| {
+            rig.frame(|ui| {
+                Button::new("Add")
+                    .on_press(true)
+                    .show(ui, 1, at)
+                    .expect("draw")
+                    .clicked
+            })
+        };
+        show(&mut rig);
+        rig.at(20, 20);
+        show(&mut rig);
+        rig.button(20, 20, true);
+        assert!(show(&mut rig), "down");
+        assert!(!show(&mut rig), "held");
+        rig.button(20, 20, false);
+        assert!(!show(&mut rig), "up");
+        rig.key(KeyCode::Tab);
+        show(&mut rig);
+        rig.key(KeyCode::Enter);
+        assert!(show(&mut rig), "Enter");
+    }
+
+    #[test]
+    fn repeat_clicks_again_while_held() {
+        let mut rig = Rig::new(120, 40);
+        let at = Rect::new(0.0, 0.0, 120.0, 40.0);
+        let show = |rig: &mut Rig| {
+            rig.frame(|ui| {
+                Button::new("+")
+                    .repeat(true)
+                    .show(ui, 1, at)
+                    .expect("draw")
+                    .clicked
+            })
+        };
+        show(&mut rig);
+        rig.at(20, 20);
+        show(&mut rig);
+        rig.button(20, 20, true);
+        assert!(show(&mut rig), "the press clicks");
+        assert!(!show(&mut rig), "not again at once");
+        sleep(Duration::from_millis(550));
+        assert!(show(&mut rig), "held, it repeats");
+        rig.button(20, 20, false);
+        assert!(!show(&mut rig), "letting go clicks nothing more");
+    }
+
+    #[test]
+    fn align_moves_the_label_across() {
+        let first_ink = |align: Align| {
+            let mut rig = Rig::new(120, 40);
+            rig.frame(|ui| {
+                Button::new("Add")
+                    .align(align)
+                    .show(ui, 1, Rect::new(0.0, 0.0, 120.0, 40.0))
+                    .expect("draw")
+            });
+            (4..116)
+                .find(|&x| rig.pixel(x, 20) != rig.pixel(x, 8))
+                .expect("ink")
+        };
+        let (start, middle, end) = (
+            first_ink(Align::Start),
+            first_ink(Align::Center),
+            first_ink(Align::End),
+        );
+        assert!(start < middle && middle < end, "{start} {middle} {end}");
+        assert!(start < 20, "{start}");
+    }
+
+    #[test]
+    fn icon_size_sets_the_icons_room() {
+        let mut rig: Rig = Rig::new(120, 40);
+        let (small, big) = rig.frame(|ui| {
+            (
+                Button::icon_only(Icon::Plus).icon_size(10.0).width(ui),
+                Button::icon_only(Icon::Plus).icon_size(30.0).width(ui),
+            )
+        });
+        assert_eq!(big - small, 20.0);
     }
 
     #[test]
