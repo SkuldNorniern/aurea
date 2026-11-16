@@ -18,7 +18,8 @@ pub use aurea_render::cpu::{
 };
 pub use aurea_render::text::{
     FaceData, FaceId, GlyphCoverage, LayoutLine, LayoutOptions, ShapedGlyph, ShapedText, TextAlign,
-    TextCacheStats, TextCacheStatsSet, TextLayout, WordBreak, cache_stats,
+    TextCacheLimits, TextCacheStats, TextCacheStatsSet, TextLayout, WordBreak, cache_stats,
+    set_text_cache_limits, text_cache_limits,
 };
 pub use aurea_render::vector::{Icon, SvgError, VectorImage, parse_path_data};
 pub use aurea_render::{
