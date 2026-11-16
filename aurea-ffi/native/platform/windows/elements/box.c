@@ -1,82 +1,79 @@
 #include "common.h"
 #include "../window_state.h"
 #include "../elements.h"
+#include "../utils.h"
 #include "common/errors.h"
 #include <windows.h>
+#include <commctrl.h>
 #include <string.h>
 
-static const char* BOX_OLD_PROC_PROP = "AureaBoxOldProc";
+#define BOX_SUBCLASS_ID 0xB0
 
-static LRESULT CALLBACK BoxProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+/* Fills the box around its shown children, in the row colour inside a row list. */
+static void erase_gaps(HWND hwnd, HDC hdc) {
+    int saved = SaveDC(hdc);
+    for (HWND child = GetWindow(hwnd, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
+        if (!(GetWindowLongPtrA(child, GWL_STYLE) & WS_VISIBLE)) continue;
+        RECT r;
+        GetWindowRect(child, &r);
+        MapWindowPoints(NULL, hwnd, (POINT*)&r, 2);
+        ExcludeClipRect(hdc, r.left, r.top, r.right, r.bottom);
+    }
+    RECT client;
+    GetClientRect(hwnd, &client);
+    HBRUSH row = ng_windows_row_brush(hwnd);
+    FillRect(hdc, &client, row ? row : GetSysColorBrush(COLOR_BTNFACE));
+    RestoreDC(hdc, saved);
+}
+
+static LRESULT CALLBACK box_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                 UINT_PTR id, DWORD_PTR data) {
+    (void)data;
     if (ng_windows_is_notification(msg)) {
         ng_windows_forward_to_window(hwnd, msg, wParam, lParam);
-    } else if (msg == WM_ERASEBKGND) {
-        HDC hdc = (HDC)wParam;
-        int saved = SaveDC(hdc);
-        for (HWND child = GetWindow(hwnd, GW_CHILD); child;
-             child = GetWindow(child, GW_HWNDNEXT)) {
-            if (!(GetWindowLongPtrA(child, GWL_STYLE) & WS_VISIBLE)) continue;
-            RECT r;
-            GetWindowRect(child, &r);
-            MapWindowPoints(NULL, hwnd, (POINT*)&r, 2);
-            ExcludeClipRect(hdc, r.left, r.top, r.right, r.bottom);
-        }
-        RECT client;
-        GetClientRect(hwnd, &client);
-        HBRUSH row = ng_windows_row_brush(hwnd);
-        FillRect(hdc, &client, row ? row : GetSysColorBrush(COLOR_BTNFACE));
-        RestoreDC(hdc, saved);
+    }
+    switch (msg) {
+    case WM_ERASEBKGND:
+        erase_gaps(hwnd, (HDC)wParam);
         return 1;
-    } else if ((msg == WM_CTLCOLORSTATIC || msg == WM_CTLCOLORBTN) && ng_windows_row_brush(hwnd)) {
-        LOGBRUSH fill;
+    case WM_CTLCOLORSTATIC:
+    case WM_CTLCOLORBTN: {
         HBRUSH row = ng_windows_row_brush(hwnd);
+        if (!row) break;
+        LOGBRUSH fill;
         GetObject(row, sizeof(fill), &fill);
         SetBkColor((HDC)wParam, fill.lbColor);
         return (LRESULT)row;
-    } else if (msg == WM_PAINT) {
+    }
+    case WM_PAINT: {
         /* A box has no text; STATIC would paint over the erase in its parent's colour. */
         PAINTSTRUCT ps;
         BeginPaint(hwnd, &ps);
         EndPaint(hwnd, &ps);
         return 0;
-    } else if (msg == WM_SIZE) {
+    }
+    case WM_SIZE:
         layout_box_children(hwnd);
-    } else if (msg == WM_NCDESTROY) {
-        RemovePropA(hwnd, BOX_OLD_PROC_PROP);
+        break;
+    case WM_NCDESTROY:
+        ng_windows_remove_subclass(hwnd, box_proc, id);
+        break;
     }
-    
-    WNDPROC old_proc = (WNDPROC)GetPropA(hwnd, BOX_OLD_PROC_PROP);
-    if (old_proc) {
-        return CallWindowProcA(old_proc, hwnd, msg, wParam, lParam);
-    }
-    return DefWindowProcA(hwnd, msg, wParam, lParam);
+    return ng_windows_def_subclass(hwnd, msg, wParam, lParam);
 }
 
 NGHandle ng_windows_create_box(int is_vertical) {
-    HWND temp_parent = ng_windows_detached_parent();
-
-    HWND container = CreateWindowExA(
-        WS_EX_CONTROLPARENT,
-        "STATIC",
-        NULL,
-        WS_CHILD | SS_LEFT | WS_VISIBLE,
-        0, 0, 100, 100,
-        temp_parent,
-        NULL,
-        GetModuleHandleA(NULL),
-        NULL
-    );
-
-    if (container) {
-        SetPropA(container, BOX_ORIENTATION_PROP,
-                 (HANDLE)(INT_PTR)(is_vertical ? BOX_VERTICAL : BOX_HORIZONTAL));
-        WNDPROC old_proc = (WNDPROC)SetWindowLongPtrA(container, GWLP_WNDPROC, (LONG_PTR)BoxProc);
-        if (old_proc) {
-            SetPropA(container, BOX_OLD_PROC_PROP, (HANDLE)old_proc);
-        }
-        ng_windows_mark_container(container);
+    HWND container = CreateWindowExA(WS_EX_CONTROLPARENT, "STATIC", NULL,
+                                     WS_CHILD | SS_LEFT | WS_VISIBLE, 0, 0, 100, 100,
+                                     ng_windows_detached_parent(), NULL, GetModuleHandleA(NULL), NULL);
+    if (!container) return NULL;
+    if (!ng_windows_set_subclass(container, box_proc, BOX_SUBCLASS_ID, 0)) {
+        DestroyWindow(container);
+        return NULL;
     }
-
+    SetPropA(container, BOX_ORIENTATION_PROP,
+             (HANDLE)(INT_PTR)(is_vertical ? BOX_VERTICAL : BOX_HORIZONTAL));
+    ng_windows_mark_container(container);
     return (NGHandle)container;
 }
 
@@ -85,10 +82,11 @@ int ng_windows_box_add(NGHandle box, NGHandle element) {
 }
 
 int ng_windows_box_add_weighted(NGHandle box, NGHandle element, float weight) {
-    if (!box || !element) return NG_ERROR_INVALID_HANDLE;
-
     HWND box_hwnd = (HWND)box;
     HWND element_hwnd = (HWND)element;
+    if (!box_hwnd || !element_hwnd || !IsWindow(box_hwnd) || !IsWindow(element_hwnd)) {
+        return NG_ERROR_INVALID_HANDLE;
+    }
 
     static INT_PTR next_index = 1;
     SetParent(element_hwnd, box_hwnd);
@@ -108,45 +106,18 @@ int ng_windows_box_add_weighted(NGHandle box, NGHandle element, float weight) {
 
     LONG_PTR style = GetWindowLongPtrA(element_hwnd, GWL_STYLE);
     SetWindowLongPtrA(element_hwnd, GWL_STYLE, style | WS_CHILD | WS_VISIBLE);
-
     if (!is_box(element_hwnd) && !SendMessageA(element_hwnd, WM_GETFONT, 0, 0)) {
         ng_windows_set_font(element_hwnd, ng_windows_ui_font(box_hwnd), FALSE, TRUE);
     }
-
-    char class_name[256];
-    GetClassNameA(element_hwnd, class_name, sizeof(class_name));
-    if (_stricmp(class_name, "BUTTON") == 0) {
-        InvalidateRect(element_hwnd, NULL, TRUE);
-        UpdateWindow(element_hwnd);
-    }
-
     ShowWindow(element_hwnd, SW_SHOW);
+
     layout_box_children(box_hwnd);
-
-    HWND box_parent = GetParent(box_hwnd);
-    if (box_parent) {
-        BOOL is_window_parent = ng_windows_window_state(box_parent) != NULL;
-
-        if (is_window_parent) {
-            RECT parent_rect;
-            GetClientRect(box_parent, &parent_rect);
-
-            int target_width = parent_rect.right - parent_rect.left;
-            int target_height = parent_rect.bottom - parent_rect.top;
-            
-            SetWindowPos(box_hwnd, NULL, 0, 0,
-                        target_width, target_height,
-                        SWP_NOMOVE | SWP_NOZORDER);
-
-            layout_box_children(box_hwnd);
-        }
-        else {
-            HWND top = box_hwnd;
-            while (GetParent(top) && is_box(GetParent(top))) top = GetParent(top);
-            if (top != box_hwnd) layout_box_children(top);
-        }
+    HWND parent = GetParent(box_hwnd);
+    if (parent && ng_windows_window_state(parent)) {
+        ng_windows_fit_content(parent);
+    } else {
+        ng_windows_relayout(box_hwnd);
     }
-
     return NG_SUCCESS;
 }
 
@@ -154,4 +125,3 @@ void ng_windows_box_invalidate(NGHandle box) {
     if (!box) return;
     InvalidateRect((HWND)box, NULL, FALSE);
 }
-
