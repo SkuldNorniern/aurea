@@ -32,7 +32,7 @@ NGHandle ng_linux_create_label(const char* text) {
 }
 
 int ng_linux_label_set_text(NGHandle label, const char* text) {
-    if (!label) return NG_ERROR_INVALID_HANDLE;
+    if (!label || !GTK_IS_LABEL(label)) return NG_ERROR_INVALID_HANDLE;
     if (!text) return NG_ERROR_INVALID_PARAMETER;
     gtk_label_set_text(GTK_LABEL(label), text);
     keep_short_lines(GTK_LABEL(label), text);
@@ -57,4 +57,3 @@ void ng_linux_label_invalidate(NGHandle label) {
     if (!label) return;
     gtk_widget_queue_draw((GtkWidget*)label);
 }
-

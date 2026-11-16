@@ -193,6 +193,7 @@ fn main() {
         "native/platform/linux/ime.c",
         "native/platform/linux/menu.c",
         "native/platform/linux/dialog.c",
+        "native/platform/linux/control.c",
         "native/platform/linux/elements/button.c",
         "native/platform/linux/elements/label.c",
         "native/platform/linux/elements/box.c",

@@ -1,4 +1,5 @@
 #include "../elements.h"
+#include "../control.h"
 #include "common/errors.h"
 #include <gtk/gtk.h>
 
@@ -10,32 +11,30 @@ NGHandle ng_linux_create_split_view(int is_vertical) {
 }
 
 int ng_linux_split_view_add(NGHandle split_handle, NGHandle element) {
-    if (!split_handle || !element) return NG_ERROR_INVALID_HANDLE;
-
+    if (!split_handle || !GTK_IS_PANED(split_handle) || !element || !GTK_IS_WIDGET(element)) {
+        return NG_ERROR_INVALID_HANDLE;
+    }
     GtkPaned* paned = GTK_PANED(split_handle);
     GtkWidget* widget = (GtkWidget*)element;
 
-    GtkWidget* child1 = gtk_paned_get_child1(paned);
-    GtkWidget* child2 = gtk_paned_get_child2(paned);
+    if (gtk_paned_get_child1(paned) && gtk_paned_get_child2(paned)) return NG_ERROR_INVALID_PARAMETER;
 
-    if (!child1) {
+    g_object_ref(widget);
+    ng_linux_unparent(widget);
+    if (!gtk_paned_get_child1(paned)) {
         gtk_paned_pack1(paned, widget, TRUE, TRUE);
-    } else if (!child2) {
-        gtk_paned_pack2(paned, widget, TRUE, TRUE);
     } else {
-        return NG_ERROR_INVALID_PARAMETER;
+        gtk_paned_pack2(paned, widget, TRUE, TRUE);
     }
-
+    g_object_unref(widget);
     gtk_widget_show(widget);
     return NG_SUCCESS;
 }
 
 int ng_linux_split_view_set_divider_position(NGHandle split_handle, int index, float position) {
-    if (!split_handle) return NG_ERROR_INVALID_HANDLE;
+    if (!split_handle || !GTK_IS_PANED(split_handle)) return NG_ERROR_INVALID_HANDLE;
     if (index != 0) return NG_ERROR_INVALID_PARAMETER;
     if (!(position >= 0.0f) || !(position < 1e7f)) return NG_ERROR_INVALID_PARAMETER;
-
-    GtkPaned* paned = GTK_PANED(split_handle);
-    gtk_paned_set_position(paned, (int)(position + 0.5f));
+    gtk_paned_set_position(GTK_PANED(split_handle), (int)(position + 0.5f));
     return NG_SUCCESS;
 }

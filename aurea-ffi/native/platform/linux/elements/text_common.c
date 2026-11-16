@@ -1,4 +1,5 @@
 #include "../elements.h"
+#include "../control.h"
 #include "common/errors.h"
 #include "common/platform_api.h"
 #include <gtk/gtk.h>
@@ -6,6 +7,7 @@
 
 NGHandle ng_linux_create_text_field(void) {
     GtkWidget* entry = gtk_entry_new();
+    ng_control_get(entry);
     gtk_entry_set_placeholder_text(GTK_ENTRY(entry), "");
     gtk_widget_set_hexpand(entry, TRUE);
     gtk_widget_show(entry);
@@ -14,16 +16,10 @@ NGHandle ng_linux_create_text_field(void) {
 
 NGHandle ng_linux_create_search_field(void) {
     GtkWidget* entry = gtk_search_entry_new();
+    ng_control_get(entry);
     gtk_widget_set_hexpand(entry, TRUE);
     gtk_widget_show(entry);
     return (NGHandle)entry;
-}
-
-int ng_linux_text_set_placeholder(NGHandle text, const char* placeholder) {
-    if (!text || !GTK_IS_ENTRY(text)) return NG_ERROR_UNSUPPORTED;
-    if (!placeholder) return NG_ERROR_INVALID_PARAMETER;
-    gtk_entry_set_placeholder_text(GTK_ENTRY(text), placeholder);
-    return NG_SUCCESS;
 }
 
 NGHandle ng_linux_create_text_area(int editable) {
@@ -31,6 +27,7 @@ NGHandle ng_linux_create_text_area(int editable) {
     GtkWidget* text_view = gtk_text_view_new();
     gtk_text_view_set_editable(GTK_TEXT_VIEW(text_view), editable ? TRUE : FALSE);
     gtk_container_add(GTK_CONTAINER(scrolled_window), text_view);
+    /* The buffer's control must exist before anything sets its quiet flag or change id. */
     ng_linux_undo_attach(gtk_text_view_get_buffer(GTK_TEXT_VIEW(text_view)));
     ng_linux_undo_keys(text_view);
     gtk_widget_show_all(scrolled_window);
@@ -46,6 +43,18 @@ static GtkTextView* text_view_of(NGHandle handle) {
 
 static GtkEntry* entry_of(NGHandle handle) {
     return handle && GTK_IS_ENTRY(handle) ? GTK_ENTRY(handle) : NULL;
+}
+
+/* Characters, not bytes; gtk_entry_get_text_length caps at 65535. */
+static int entry_length(GtkEntry* entry) {
+    return (int)gtk_entry_buffer_get_length(gtk_entry_get_buffer(entry));
+}
+
+static int text_length(NGHandle text) {
+    GtkEntry* entry = entry_of(text);
+    if (entry) return entry_length(entry);
+    GtkTextView* view = text_view_of(text);
+    return view ? gtk_text_buffer_get_char_count(gtk_text_view_get_buffer(view)) : -1;
 }
 
 int ng_linux_set_text_content(NGHandle text_handle, const char* content) {
@@ -93,9 +102,14 @@ char* ng_linux_get_text_content(NGHandle text_handle) {
 }
 
 void ng_linux_free_text_content(char* content) {
-    if (content) {
-        g_free(content);
-    }
+    g_free(content);
+}
+
+int ng_linux_text_set_placeholder(NGHandle text, const char* placeholder) {
+    if (!text || !GTK_IS_ENTRY(text)) return NG_ERROR_UNSUPPORTED;
+    if (!placeholder) return NG_ERROR_INVALID_PARAMETER;
+    gtk_entry_set_placeholder_text(GTK_ENTRY(text), placeholder);
+    return NG_SUCCESS;
 }
 
 int ng_linux_text_unit(void) {
@@ -116,13 +130,6 @@ int ng_linux_text_get_selection(NGHandle text, int* start, int* end) {
     *start = gtk_text_iter_get_offset(&from);
     *end = gtk_text_iter_get_offset(&to);
     return NG_SUCCESS;
-}
-
-static int text_length(NGHandle text) {
-    GtkEntry* entry = entry_of(text);
-    if (entry) return (int)gtk_entry_get_text_length(entry);
-    GtkTextView* view = text_view_of(text);
-    return view ? gtk_text_buffer_get_char_count(gtk_text_view_get_buffer(view)) : -1;
 }
 
 int ng_linux_text_set_selection(NGHandle text, int start, int end) {

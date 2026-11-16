@@ -1,55 +1,55 @@
 #include "../elements.h"
+#include "../control.h"
 #include "common/errors.h"
 #include "common/rust_callbacks.h"
 #include <gtk/gtk.h>
 
-#define TABLE_DATA_KEY "aurea-table"
-
 typedef struct {
-    unsigned int id;
+    NgControl control;
     GtkTreeView* view;
     GtkListStore* store;
     int columns;
     int selected;
-} TableData;
+} TableState;
 
-static TableData* table_data(NGHandle table) {
-    if (!table || !GTK_IS_SCROLLED_WINDOW(table)) return NULL;
-    return (TableData*)g_object_get_data(G_OBJECT(table), TABLE_DATA_KEY);
+static const char table_kind = 0;
+
+static void table_free(gpointer data) {
+    TableState* state = data;
+    g_clear_object(&state->store);
+    g_free(state);
 }
 
-static void table_data_free(gpointer p) {
-    TableData* data = (TableData*)p;
-    if (data->store) g_object_unref(data->store);
-    g_free(data);
+static TableState* state_of(NGHandle table) {
+    return GTK_IS_SCROLLED_WINDOW(table) ? ng_control_typed(table, &table_kind) : NULL;
 }
 
-static int view_selected(TableData* data) {
+static int view_selected(TableState* state) {
     GtkTreeModel* model = NULL;
     GtkTreeIter iter;
-    if (!gtk_tree_selection_get_selected(gtk_tree_view_get_selection(data->view), &model, &iter)) return -1;
+    if (!gtk_tree_selection_get_selected(gtk_tree_view_get_selection(state->view), &model, &iter)) return -1;
     GtkTreePath* path = gtk_tree_model_get_path(model, &iter);
     int row = gtk_tree_path_get_indices(path)[0];
     gtk_tree_path_free(path);
     return row;
 }
 
-static void on_selection_changed(GtkTreeSelection* selection, gpointer user_data) {
-    TableData* data = (TableData*)user_data;
-    if (ng_linux_is_quiet(selection)) return;
-    int row = view_selected(data);
-    if (row != data->selected) {
-        data->selected = row;
-        ng_invoke_table_selected(data->id, row);
+static void on_selection_changed(GtkTreeSelection* selection, gpointer data) {
+    (void)selection;
+    TableState* state = data;
+    if (state->control.quiet) return;
+    int row = view_selected(state);
+    if (row != state->selected) {
+        state->selected = row;
+        ng_invoke_table_selected(state->control.id, row);
     }
 }
 
-static void on_row_activated(GtkTreeView* view, GtkTreePath* path, GtkTreeViewColumn* column,
-                             gpointer user_data) {
+static void on_row_activated(GtkTreeView* view, GtkTreePath* path, GtkTreeViewColumn* column, gpointer data) {
     (void)view;
     (void)column;
-    TableData* data = (TableData*)user_data;
-    ng_invoke_table_activated(data->id, gtk_tree_path_get_indices(path)[0]);
+    TableState* state = data;
+    ng_invoke_table_activated(state->control.id, gtk_tree_path_get_indices(path)[0]);
 }
 
 NGHandle ng_linux_create_table(unsigned int id) {
@@ -60,139 +60,137 @@ NGHandle ng_linux_create_table(unsigned int id) {
     GtkWidget* view = gtk_tree_view_new();
     gtk_container_add(GTK_CONTAINER(scroll), view);
 
-    TableData* data = g_new0(TableData, 1);
-    data->id = id;
-    data->view = GTK_TREE_VIEW(view);
-    data->selected = -1;
-    g_object_set_data_full(G_OBJECT(scroll), TABLE_DATA_KEY, data, table_data_free);
+    TableState* state = ng_control_attach(scroll, &table_kind, sizeof(TableState), table_free);
+    state->control.id = id;
+    state->view = GTK_TREE_VIEW(view);
+    state->selected = -1;
 
-    GtkTreeSelection* selection = gtk_tree_view_get_selection(data->view);
+    GtkTreeSelection* selection = gtk_tree_view_get_selection(state->view);
     gtk_tree_selection_set_mode(selection, GTK_SELECTION_SINGLE);
-    g_signal_connect(selection, "changed", G_CALLBACK(on_selection_changed), data);
-    g_signal_connect(view, "row-activated", G_CALLBACK(on_row_activated), data);
+    g_signal_connect(selection, "changed", G_CALLBACK(on_selection_changed), state);
+    g_signal_connect(view, "row-activated", G_CALLBACK(on_row_activated), state);
     gtk_widget_show_all(scroll);
     return (NGHandle)scroll;
 }
 
 int ng_linux_table_add_column(NGHandle table, const char* title) {
-    TableData* data = table_data(table);
-    if (!data) return NG_ERROR_INVALID_HANDLE;
-    if (!title || data->store) return NG_ERROR_INVALID_PARAMETER;
+    TableState* state = state_of(table);
+    if (!state) return NG_ERROR_INVALID_HANDLE;
+    if (!title || state->store) return NG_ERROR_INVALID_PARAMETER;
     GtkCellRenderer* renderer = gtk_cell_renderer_text_new();
     g_object_set(renderer, "ellipsize", PANGO_ELLIPSIZE_END, NULL);
-    GtkTreeViewColumn* column =
-        gtk_tree_view_column_new_with_attributes(title, renderer, "text", data->columns, NULL);
+    GtkTreeViewColumn* column = gtk_tree_view_column_new_with_attributes(title, renderer, "text", state->columns, NULL);
     gtk_tree_view_column_set_resizable(column, TRUE);
     gtk_tree_view_column_set_expand(column, TRUE);
-    gtk_tree_view_append_column(data->view, column);
-    data->columns++;
+    gtk_tree_view_append_column(state->view, column);
+    state->columns++;
     return NG_SUCCESS;
 }
 
 /* A store's columns are fixed, so it is made once the columns are known. */
-static GtkListStore* store_of(TableData* data) {
-    if (!data->store && data->columns > 0) {
-        GType* types = g_new(GType, data->columns);
-        for (int i = 0; i < data->columns; i++) types[i] = G_TYPE_STRING;
-        data->store = gtk_list_store_newv(data->columns, types);
+static GtkListStore* store_of(TableState* state) {
+    if (!state->store && state->columns > 0) {
+        GType* types = g_new(GType, state->columns);
+        for (int i = 0; i < state->columns; i++) types[i] = G_TYPE_STRING;
+        state->store = gtk_list_store_newv(state->columns, types);
         g_free(types);
-        gtk_tree_view_set_model(data->view, GTK_TREE_MODEL(data->store));
+        gtk_tree_view_set_model(state->view, GTK_TREE_MODEL(state->store));
     }
-    return data->store;
+    return state->store;
 }
 
-static int row_count(TableData* data) {
-    return data->store ? gtk_tree_model_iter_n_children(GTK_TREE_MODEL(data->store), NULL) : 0;
+static int row_count(TableState* state) {
+    return state->store ? gtk_tree_model_iter_n_children(GTK_TREE_MODEL(state->store), NULL) : 0;
 }
 
-static void set_cells(TableData* data, GtkTreeIter* iter, const char* const* cells, int count) {
-    for (int i = 0; i < data->columns; i++) {
-        gtk_list_store_set(data->store, iter, i, i < count && cells[i] ? cells[i] : "", -1);
+static void set_cells(TableState* state, GtkTreeIter* iter, const char* const* cells, int count) {
+    for (int i = 0; i < state->columns; i++) {
+        gtk_list_store_set(state->store, iter, i, i < count && cells[i] ? cells[i] : "", -1);
     }
 }
 
-static int check_cells(TableData* data, const char* const* cells, int count) {
-    if (count < 0 || count > data->columns || (count > 0 && !cells)) return NG_ERROR_INVALID_PARAMETER;
+static int check_cells(TableState* state, const char* const* cells, int count) {
+    if (count < 0 || count > state->columns || (count > 0 && !cells)) return NG_ERROR_INVALID_PARAMETER;
     return NG_SUCCESS;
 }
 
 /* Changes made by the app are not reported. */
-static void quiet(TableData* data, int on) {
-    ng_linux_set_quiet(gtk_tree_view_get_selection(data->view), on);
-    if (!on) data->selected = view_selected(data);
+static void set_silent(TableState* state, int on) {
+    state->control.quiet = on ? TRUE : FALSE;
+    if (!on) state->selected = view_selected(state);
 }
 
 int ng_linux_table_insert_row(NGHandle table, int index, const char* const* cells, int count) {
-    TableData* data = table_data(table);
-    if (!data) return NG_ERROR_INVALID_HANDLE;
-    if (index < 0 || index > row_count(data) || check_cells(data, cells, count) != NG_SUCCESS) {
+    TableState* state = state_of(table);
+    if (!state) return NG_ERROR_INVALID_HANDLE;
+    if (index < 0 || index > row_count(state) || check_cells(state, cells, count) != NG_SUCCESS) {
         return NG_ERROR_INVALID_PARAMETER;
     }
-    if (!store_of(data)) return NG_ERROR_INVALID_PARAMETER;
-    quiet(data, 1);
+    if (!store_of(state)) return NG_ERROR_INVALID_PARAMETER;
+    set_silent(state, 1);
     GtkTreeIter iter;
-    gtk_list_store_insert(data->store, &iter, index);
-    set_cells(data, &iter, cells, count);
-    quiet(data, 0);
+    gtk_list_store_insert(state->store, &iter, index);
+    set_cells(state, &iter, cells, count);
+    set_silent(state, 0);
     return NG_SUCCESS;
 }
 
-static int nth_row(TableData* data, int index, GtkTreeIter* iter) {
-    return data->store && index >= 0 &&
-           gtk_tree_model_iter_nth_child(GTK_TREE_MODEL(data->store), iter, NULL, index);
+static int nth_row(TableState* state, int index, GtkTreeIter* iter) {
+    return state->store && index >= 0 &&
+           gtk_tree_model_iter_nth_child(GTK_TREE_MODEL(state->store), iter, NULL, index);
 }
 
 int ng_linux_table_set_row(NGHandle table, int index, const char* const* cells, int count) {
-    TableData* data = table_data(table);
-    if (!data) return NG_ERROR_INVALID_HANDLE;
+    TableState* state = state_of(table);
+    if (!state) return NG_ERROR_INVALID_HANDLE;
     GtkTreeIter iter;
-    if (!nth_row(data, index, &iter) || check_cells(data, cells, count) != NG_SUCCESS) {
+    if (!nth_row(state, index, &iter) || check_cells(state, cells, count) != NG_SUCCESS) {
         return NG_ERROR_INVALID_PARAMETER;
     }
-    set_cells(data, &iter, cells, count);
+    set_cells(state, &iter, cells, count);
     return NG_SUCCESS;
 }
 
 int ng_linux_table_remove_row(NGHandle table, int index) {
-    TableData* data = table_data(table);
-    if (!data) return NG_ERROR_INVALID_HANDLE;
+    TableState* state = state_of(table);
+    if (!state) return NG_ERROR_INVALID_HANDLE;
     GtkTreeIter iter;
-    if (!nth_row(data, index, &iter)) return NG_ERROR_INVALID_PARAMETER;
-    quiet(data, 1);
-    gtk_list_store_remove(data->store, &iter);
-    quiet(data, 0);
+    if (!nth_row(state, index, &iter)) return NG_ERROR_INVALID_PARAMETER;
+    set_silent(state, 1);
+    gtk_list_store_remove(state->store, &iter);
+    set_silent(state, 0);
     return NG_SUCCESS;
 }
 
 int ng_linux_table_clear(NGHandle table) {
-    TableData* data = table_data(table);
-    if (!data) return NG_ERROR_INVALID_HANDLE;
-    if (!data->store) return NG_SUCCESS;
-    quiet(data, 1);
-    gtk_list_store_clear(data->store);
-    quiet(data, 0);
+    TableState* state = state_of(table);
+    if (!state) return NG_ERROR_INVALID_HANDLE;
+    if (!state->store) return NG_SUCCESS;
+    set_silent(state, 1);
+    gtk_list_store_clear(state->store);
+    set_silent(state, 0);
     return NG_SUCCESS;
 }
 
 int ng_linux_table_set_selected(NGHandle table, int index) {
-    TableData* data = table_data(table);
-    if (!data) return NG_ERROR_INVALID_HANDLE;
-    if (index < -1 || index >= row_count(data)) return NG_ERROR_INVALID_PARAMETER;
-    GtkTreeSelection* selection = gtk_tree_view_get_selection(data->view);
-    quiet(data, 1);
+    TableState* state = state_of(table);
+    if (!state) return NG_ERROR_INVALID_HANDLE;
+    if (index < -1 || index >= row_count(state)) return NG_ERROR_INVALID_PARAMETER;
+    GtkTreeSelection* selection = gtk_tree_view_get_selection(state->view);
+    set_silent(state, 1);
     if (index < 0) {
         gtk_tree_selection_unselect_all(selection);
     } else {
         GtkTreePath* path = gtk_tree_path_new_from_indices(index, -1);
         gtk_tree_selection_select_path(selection, path);
-        gtk_tree_view_scroll_to_cell(data->view, path, NULL, FALSE, 0, 0);
+        gtk_tree_view_scroll_to_cell(state->view, path, NULL, FALSE, 0, 0);
         gtk_tree_path_free(path);
     }
-    quiet(data, 0);
+    set_silent(state, 0);
     return NG_SUCCESS;
 }
 
 int ng_linux_table_get_selected(NGHandle table) {
-    TableData* data = table_data(table);
-    return data ? view_selected(data) : -1;
+    TableState* state = state_of(table);
+    return state ? view_selected(state) : -1;
 }

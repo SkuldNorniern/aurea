@@ -1,4 +1,5 @@
 #include "../elements.h"
+#include "../control.h"
 #include "common/errors.h"
 #include "common/platform_api.h"
 #include <gtk/gtk.h>
@@ -22,7 +23,10 @@ int ng_linux_scroll_view_set_content(NGHandle scroll_handle, NGHandle element) {
         return NG_SUCCESS;
     }
     if (old) gtk_container_remove(scroll, old);
+    g_object_ref(content);
+    ng_linux_unparent(content);
     gtk_container_add(scroll, content);
+    g_object_unref(content);
     if (GTK_IS_CONTAINER(content)) {
         GtkAdjustment* v = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(scroll));
         gtk_container_set_focus_vadjustment(GTK_CONTAINER(content), v);

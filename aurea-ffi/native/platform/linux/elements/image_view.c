@@ -1,24 +1,39 @@
 #include "../elements.h"
+#include "../control.h"
 #include "common/errors.h"
 #include "common/image_fit.h"
 #include <gtk/gtk.h>
 #include <gdk-pixbuf/gdk-pixbuf.h>
 
-#define PIXBUF_KEY "aurea-pixbuf"
-#define SCALING_KEY "aurea-scaling"
+typedef struct {
+    NgControl control;
+    GdkPixbuf* pixbuf;
+    int scaling;
+} ImageState;
 
-static gboolean on_draw(GtkWidget* widget, cairo_t* cr, gpointer unused) {
-    (void)unused;
-    GdkPixbuf* pixbuf = g_object_get_data(G_OBJECT(widget), PIXBUF_KEY);
+static const char image_kind = 0;
+
+static void image_free(gpointer data) {
+    ImageState* state = data;
+    g_clear_object(&state->pixbuf);
+    g_free(state);
+}
+
+static ImageState* state_of(NGHandle image_view) {
+    return GTK_IS_WIDGET(image_view) ? ng_control_typed((GtkWidget*)image_view, &image_kind) : NULL;
+}
+
+static gboolean on_draw(GtkWidget* widget, cairo_t* cr, gpointer data) {
+    ImageState* state = data;
+    GdkPixbuf* pixbuf = state->pixbuf;
     if (!pixbuf) return FALSE;
-    int mode = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(widget), SCALING_KEY));
     double aw = gtk_widget_get_allocated_width(widget);
     double ah = gtk_widget_get_allocated_height(widget);
     double w = gdk_pixbuf_get_width(pixbuf);
     double h = gdk_pixbuf_get_height(pixbuf);
     if (w <= 0 || h <= 0) return FALSE;
 
-    NGImageRect r = ng_image_fit(mode, aw, ah, w, h);
+    NGImageRect r = ng_image_fit(state->scaling, aw, ah, w, h);
     cairo_save(cr);
     cairo_rectangle(cr, 0, 0, aw, ah);
     cairo_clip(cr);
@@ -32,21 +47,28 @@ static gboolean on_draw(GtkWidget* widget, cairo_t* cr, gpointer unused) {
 }
 
 NGHandle ng_linux_create_image_view(void) {
-    GtkWidget* imageView = gtk_drawing_area_new();
-    gtk_widget_set_size_request(imageView, 200, 150);
-    g_object_set_data(G_OBJECT(imageView), SCALING_KEY, GINT_TO_POINTER(NG_IMAGE_SCALING_ASPECT_FIT));
-    g_signal_connect(imageView, "draw", G_CALLBACK(on_draw), NULL);
-    gtk_widget_show(imageView);
-    return (NGHandle)imageView;
+    GtkWidget* image_view = gtk_drawing_area_new();
+    gtk_widget_set_size_request(image_view, 200, 150);
+    ImageState* state = ng_control_attach(image_view, &image_kind, sizeof(ImageState), image_free);
+    state->scaling = NG_IMAGE_SCALING_ASPECT_FIT;
+    g_signal_connect(image_view, "draw", G_CALLBACK(on_draw), state);
+    gtk_widget_show(image_view);
+    return (NGHandle)image_view;
 }
 
+/* Takes `pixbuf`, which may be NULL, and makes it upright; a failed load leaves nothing to show. */
 static int set_pixbuf(NGHandle image_view, GdkPixbuf* pixbuf) {
+    ImageState* state = state_of(image_view);
+    if (!state) {
+        g_clear_object(&pixbuf);
+        return NG_ERROR_INVALID_HANDLE;
+    }
     if (!pixbuf) return NG_ERROR_CREATION_FAILED;
     GdkPixbuf* upright = gdk_pixbuf_apply_embedded_orientation(pixbuf);
     g_object_unref(pixbuf);
-    pixbuf = upright;
-    if (!pixbuf) return NG_ERROR_CREATION_FAILED;
-    g_object_set_data_full(G_OBJECT(image_view), PIXBUF_KEY, pixbuf, g_object_unref);
+    if (!upright) return NG_ERROR_CREATION_FAILED;
+    g_clear_object(&state->pixbuf);
+    state->pixbuf = upright;
     gtk_widget_queue_draw((GtkWidget*)image_view);
     return NG_SUCCESS;
 }
@@ -60,12 +82,9 @@ int ng_linux_image_view_load_from_data(NGHandle image_view, const unsigned char*
     if (!image_view || !data || size == 0) return NG_ERROR_INVALID_PARAMETER;
 
     GdkPixbufLoader* loader = gdk_pixbuf_loader_new();
-    if (!loader) {
-        return NG_ERROR_CREATION_FAILED;
-    }
+    if (!loader) return NG_ERROR_CREATION_FAILED;
     GdkPixbuf* pixbuf = NULL;
-    if (gdk_pixbuf_loader_write(loader, data, size, NULL) &&
-        gdk_pixbuf_loader_close(loader, NULL)) {
+    if (gdk_pixbuf_loader_write(loader, data, size, NULL) && gdk_pixbuf_loader_close(loader, NULL)) {
         pixbuf = gdk_pixbuf_loader_get_pixbuf(loader);
         if (pixbuf) g_object_ref(pixbuf);
     } else {
@@ -76,18 +95,18 @@ int ng_linux_image_view_load_from_data(NGHandle image_view, const unsigned char*
 }
 
 void ng_linux_image_view_set_scaling(NGHandle image_view, int scaling_mode) {
-    if (!image_view) return;
-    g_object_set_data(G_OBJECT(image_view), SCALING_KEY, GINT_TO_POINTER(scaling_mode));
+    ImageState* state = state_of(image_view);
+    if (!state) return;
+    state->scaling = scaling_mode;
     gtk_widget_queue_draw((GtkWidget*)image_view);
 }
 
-
 int ng_linux_image_view_get_size(NGHandle image_view, unsigned int* width, unsigned int* height) {
     if (!image_view || !width || !height) return NG_ERROR_INVALID_PARAMETER;
-    GdkPixbuf* pixbuf = g_object_get_data(G_OBJECT(image_view), PIXBUF_KEY);
-    if (!pixbuf) return NG_ERROR_INVALID_HANDLE;
-    *width = (unsigned int)gdk_pixbuf_get_width(pixbuf);
-    *height = (unsigned int)gdk_pixbuf_get_height(pixbuf);
+    ImageState* state = state_of(image_view);
+    if (!state || !state->pixbuf) return NG_ERROR_INVALID_HANDLE;
+    *width = (unsigned int)gdk_pixbuf_get_width(state->pixbuf);
+    *height = (unsigned int)gdk_pixbuf_get_height(state->pixbuf);
     return NG_SUCCESS;
 }
 

@@ -1,9 +1,11 @@
 #include "../elements.h"
+#include "../control.h"
 #include "common/errors.h"
 #include <gtk/gtk.h>
 
 NGHandle ng_linux_create_spin_box(double min, double max, double step, double value) {
     GtkWidget* spin = gtk_spin_button_new_with_range(min, max < min ? min : max, step > 0.0 ? step : 1.0);
+    ng_control_get(spin);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(spin), value);
     gtk_widget_show(spin);
     return (NGHandle)spin;

@@ -1,6 +1,9 @@
 #include "../elements.h"
+#include "../control.h"
 #include <gtk/gtk.h>
 #include <string.h>
+
+#define UNDO_LIMIT 500
 
 typedef struct {
     int insert;
@@ -9,9 +12,11 @@ typedef struct {
     int group;
 } UndoStep;
 
+/* The buffer's control, so its quiet flag and change id live with its undo history. */
 typedef struct {
-    GArray* undo;
-    GArray* redo;
+    NgControl control;
+    GQueue undo;
+    GQueue redo;
     int enabled;
     int applying;
     int action_depth;
@@ -20,22 +25,28 @@ typedef struct {
     int can_merge;
 } UndoStack;
 
-#define UNDO_KEY "aurea-undo"
-#define UNDO_LIMIT 500
-
-static void step_clear(gpointer p) {
-    g_free(((UndoStep*)p)->text);
+static void step_free(UndoStep* step) {
+    if (!step) return;
+    g_free(step->text);
+    g_free(step);
 }
 
-static void stack_free(gpointer p) {
-    UndoStack* stack = (UndoStack*)p;
-    g_array_free(stack->undo, TRUE);
-    g_array_free(stack->redo, TRUE);
+static void clear_steps(GQueue* queue) {
+    UndoStep* step;
+    while ((step = g_queue_pop_head(queue))) step_free(step);
+}
+
+static void stack_free(gpointer data) {
+    UndoStack* stack = data;
+    clear_steps(&stack->undo);
+    clear_steps(&stack->redo);
     g_free(stack);
 }
 
-static UndoStack* stack_of(GtkTextBuffer* buffer) {
-    return buffer ? g_object_get_data(G_OBJECT(buffer), UNDO_KEY) : NULL;
+static const char undo_kind = 0;
+
+static UndoStack* stack_of(void* text_buffer) {
+    return GTK_IS_TEXT_BUFFER(text_buffer) ? ng_control_typed(text_buffer, &undo_kind) : NULL;
 }
 
 static int is_word(const char* text) {
@@ -44,11 +55,10 @@ static int is_word(const char* text) {
 
 static void record(UndoStack* stack, int insert, int offset, const char* text) {
     if (!stack->enabled || stack->applying || !*text) return;
-    g_array_set_size(stack->redo, 0);
+    clear_steps(&stack->redo);
 
     int fresh = stack->action_depth == 0 || stack->action_group == 0;
-    UndoStep* last = stack->undo->len
-        ? &g_array_index(stack->undo, UndoStep, stack->undo->len - 1) : NULL;
+    UndoStep* last = g_queue_peek_tail(&stack->undo);
     if (fresh && stack->can_merge && last && insert && is_word(text) &&
         offset == last->offset + (int)g_utf8_strlen(last->text, -1)) {
         char* joined = g_strconcat(last->text, text, NULL);
@@ -59,70 +69,71 @@ static void record(UndoStack* stack, int insert, int offset, const char* text) {
 
     int group = fresh ? ++stack->next_group : stack->action_group;
     if (stack->action_depth > 0) stack->action_group = group;
-    UndoStep step = {insert, offset, g_strdup(text), group};
-    g_array_append_val(stack->undo, step);
-    if (stack->undo->len > UNDO_LIMIT) g_array_remove_index(stack->undo, 0);
+    UndoStep* step = g_new0(UndoStep, 1);
+    step->insert = insert;
+    step->offset = offset;
+    step->text = g_strdup(text);
+    step->group = group;
+    g_queue_push_tail(&stack->undo, step);
+    if (g_queue_get_length(&stack->undo) > UNDO_LIMIT) step_free(g_queue_pop_head(&stack->undo));
     stack->can_merge = fresh && insert && is_word(text);
 }
 
-static void on_insert(GtkTextBuffer* buffer, GtkTextIter* at, gchar* text, gint len, gpointer unused) {
-    (void)unused;
-    UndoStack* stack = stack_of(buffer);
-    if (!stack) return;
+static void on_insert(GtkTextBuffer* buffer, GtkTextIter* at, gchar* text, gint len, gpointer data) {
+    (void)buffer;
     char* copy = g_strndup(text, (gsize)len);
-    record(stack, 1, gtk_text_iter_get_offset(at), copy);
+    record(data, 1, gtk_text_iter_get_offset(at), copy);
     g_free(copy);
 }
 
-static void on_delete(GtkTextBuffer* buffer, GtkTextIter* start, GtkTextIter* end, gpointer unused) {
-    (void)unused;
-    UndoStack* stack = stack_of(buffer);
-    if (!stack) return;
+static void on_delete(GtkTextBuffer* buffer, GtkTextIter* start, GtkTextIter* end, gpointer data) {
     char* text = gtk_text_buffer_get_text(buffer, start, end, TRUE);
-    record(stack, 0, gtk_text_iter_get_offset(start), text);
+    record(data, 0, gtk_text_iter_get_offset(start), text);
     g_free(text);
 }
 
-static void on_begin_action(GtkTextBuffer* buffer, gpointer unused) {
-    (void)unused;
-    UndoStack* stack = stack_of(buffer);
-    if (stack && stack->action_depth++ == 0) stack->action_group = 0;
+static void on_begin_action(GtkTextBuffer* buffer, gpointer data) {
+    (void)buffer;
+    UndoStack* stack = data;
+    if (stack->action_depth++ == 0) stack->action_group = 0;
 }
 
-static void on_end_action(GtkTextBuffer* buffer, gpointer unused) {
-    (void)unused;
-    UndoStack* stack = stack_of(buffer);
-    if (stack && stack->action_depth > 0) stack->action_depth--;
+static void on_end_action(GtkTextBuffer* buffer, gpointer data) {
+    (void)buffer;
+    UndoStack* stack = data;
+    if (stack->action_depth > 0) stack->action_depth--;
 }
 
+/* Puts back a step (`inverse` set) or takes it out again, and leaves the cursor where it went. */
 static void apply(GtkTextBuffer* buffer, const UndoStep* step, int inverse) {
     GtkTextIter start;
+    int length = (int)g_utf8_strlen(step->text, -1);
+    int inserting = step->insert != inverse;
     gtk_text_buffer_get_iter_at_offset(buffer, &start, step->offset);
-    if (step->insert != inverse) {
+    if (inserting) {
         gtk_text_buffer_insert(buffer, &start, step->text, -1);
     } else {
         GtkTextIter end;
-        gtk_text_buffer_get_iter_at_offset(buffer, &end, step->offset + (int)g_utf8_strlen(step->text, -1));
+        gtk_text_buffer_get_iter_at_offset(buffer, &end, step->offset + length);
         gtk_text_buffer_delete(buffer, &start, &end);
     }
-    gtk_text_buffer_get_iter_at_offset(buffer, &start, step->offset +
-        (step->insert != inverse ? (int)g_utf8_strlen(step->text, -1) : 0));
+    gtk_text_buffer_get_iter_at_offset(buffer, &start, step->offset + (inserting ? length : 0));
     gtk_text_buffer_place_cursor(buffer, &start);
 }
 
+/* Moves the newest group from one history to the other. */
 static int move_group(GtkTextBuffer* buffer, UndoStack* stack, int redo) {
-    GArray* from = redo ? stack->redo : stack->undo;
-    GArray* to = redo ? stack->undo : stack->redo;
-    if (!from->len) return 0;
-    int group = g_array_index(from, UndoStep, from->len - 1).group;
+    GQueue* from = redo ? &stack->redo : &stack->undo;
+    GQueue* to = redo ? &stack->undo : &stack->redo;
+    UndoStep* step = g_queue_peek_tail(from);
+    if (!step) return 0;
+    int group = step->group;
+
     stack->applying = 1;
-    while (from->len && g_array_index(from, UndoStep, from->len - 1).group == group) {
-        UndoStep step = g_array_index(from, UndoStep, from->len - 1);
-        g_array_set_clear_func(from, NULL);
-        g_array_remove_index(from, from->len - 1);
-        g_array_set_clear_func(from, step_clear);
-        apply(buffer, &step, !redo);
-        g_array_append_val(to, step);
+    while ((step = g_queue_peek_tail(from)) && step->group == group) {
+        g_queue_pop_tail(from);
+        apply(buffer, step, !redo);
+        g_queue_push_tail(to, step);
     }
     stack->applying = 0;
     stack->can_merge = 0;
@@ -130,44 +141,39 @@ static int move_group(GtkTextBuffer* buffer, UndoStack* stack, int redo) {
 }
 
 void ng_linux_undo_attach(void* text_buffer) {
-    GtkTextBuffer* buffer = GTK_TEXT_BUFFER(text_buffer);
-    UndoStack* stack = g_new0(UndoStack, 1);
-    stack->undo = g_array_new(FALSE, FALSE, sizeof(UndoStep));
-    stack->redo = g_array_new(FALSE, FALSE, sizeof(UndoStep));
-    g_array_set_clear_func(stack->undo, step_clear);
-    g_array_set_clear_func(stack->redo, step_clear);
+    if (!GTK_IS_TEXT_BUFFER(text_buffer)) return;
+    UndoStack* stack = ng_control_attach(text_buffer, &undo_kind, sizeof(UndoStack), stack_free);
     stack->enabled = 1;
-    g_object_set_data_full(G_OBJECT(buffer), UNDO_KEY, stack, stack_free);
-    g_signal_connect(buffer, "insert-text", G_CALLBACK(on_insert), NULL);
-    g_signal_connect(buffer, "delete-range", G_CALLBACK(on_delete), NULL);
-    g_signal_connect(buffer, "begin-user-action", G_CALLBACK(on_begin_action), NULL);
-    g_signal_connect(buffer, "end-user-action", G_CALLBACK(on_end_action), NULL);
+    g_signal_connect(text_buffer, "insert-text", G_CALLBACK(on_insert), stack);
+    g_signal_connect(text_buffer, "delete-range", G_CALLBACK(on_delete), stack);
+    g_signal_connect(text_buffer, "begin-user-action", G_CALLBACK(on_begin_action), stack);
+    g_signal_connect(text_buffer, "end-user-action", G_CALLBACK(on_end_action), stack);
 }
 
 int ng_linux_undo(void* text_buffer, int redo) {
-    GtkTextBuffer* buffer = GTK_TEXT_BUFFER(text_buffer);
-    UndoStack* stack = stack_of(buffer);
-    return stack && stack->enabled && move_group(buffer, stack, redo);
+    UndoStack* stack = stack_of(text_buffer);
+    return stack && stack->enabled && move_group(GTK_TEXT_BUFFER(text_buffer), stack, redo);
 }
 
 int ng_linux_can_undo(void* text_buffer, int redo) {
-    UndoStack* stack = stack_of(GTK_TEXT_BUFFER(text_buffer));
-    return stack && stack->enabled && (redo ? stack->redo->len : stack->undo->len) > 0;
+    UndoStack* stack = stack_of(text_buffer);
+    if (!stack || !stack->enabled) return 0;
+    return !g_queue_is_empty(redo ? &stack->redo : &stack->undo);
 }
 
 void ng_linux_undo_clear(void* text_buffer) {
-    UndoStack* stack = stack_of(GTK_TEXT_BUFFER(text_buffer));
+    UndoStack* stack = stack_of(text_buffer);
     if (!stack) return;
-    g_array_set_size(stack->undo, 0);
-    g_array_set_size(stack->redo, 0);
+    clear_steps(&stack->undo);
+    clear_steps(&stack->redo);
     stack->can_merge = 0;
 }
 
 int ng_linux_undo_enable(void* text_buffer, int on) {
-    UndoStack* stack = stack_of(GTK_TEXT_BUFFER(text_buffer));
+    UndoStack* stack = stack_of(text_buffer);
     if (!stack) return 0;
-    stack->enabled = on;
-    if (!on) ng_linux_undo_clear(text_buffer);
+    stack->enabled = on ? 1 : 0;
+    if (!stack->enabled) ng_linux_undo_clear(text_buffer);
     return 1;
 }
 
@@ -188,5 +194,6 @@ static gboolean on_undo_keys(GtkWidget* view, GdkEventKey* event, gpointer unuse
 }
 
 void ng_linux_undo_keys(void* text_view) {
+    if (!GTK_IS_TEXT_VIEW(text_view)) return;
     g_signal_connect(text_view, "key-press-event", G_CALLBACK(on_undo_keys), NULL);
 }
