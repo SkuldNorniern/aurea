@@ -1,18 +1,23 @@
 //! Records draw calls into a display list.
 
+mod geom;
+mod key;
+
 use crate::effect::Effect;
 use crate::renderer::DrawingContext;
-use crate::scene::command::{DrawCommand, quad_bounds};
-use crate::scene::display_list::{CacheKey, DisplayIndex, DisplayItem, DisplayList};
+use crate::scene::command::DrawCommand;
+use crate::scene::display_list::{DisplayIndex, DisplayItem, DisplayList};
 use crate::scene::hit_test::{hit_test_path, path_bounds};
 use crate::text::{
     FaceData, FaceId, FontRef, GlyphCoverage, LayoutOptions, ShapedText, TextLayout, TextRenderer,
 };
 use crate::types::*;
 use aurea_foundation::{AureaError, AureaResult, Platform};
-use std::collections::hash_map::DefaultHasher;
-use std::f32::consts::{SQRT_2, TAU};
-use std::hash::{Hash, Hasher};
+use geom::{
+    axis_aligned_rect, command_bounds, corners, intersect_rects, quad_path, snap_rect, snap_rule,
+};
+use key::{clip_paths_hash, command_key, under_clip};
+use std::f32::consts::TAU;
 use std::sync::{Arc, LazyLock};
 use std::thread::{self, JoinHandle};
 
@@ -20,18 +25,20 @@ static TEXT_RENDERER: LazyLock<TextRenderer> = LazyLock::new(TextRenderer::new);
 static DEFAULT_FONT: LazyLock<Font> =
     LazyLock::new(|| Font::new(DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE));
 const DEFAULT_FONT_FAMILY: &str = "Sans";
+const DEFAULT_FONT_SIZE: f32 = 16.0;
+const NO_TEXT: TextMetrics = TextMetrics {
+    width: 0.0,
+    height: 0.0,
+    ascent: 0.0,
+    descent: 0.0,
+    advance: 0.0,
+};
 
 /// Measures `text` in `font` at logical size, with the same text engine and caches the CPU renderer
 /// draws with, so what is measured is what is drawn.
 pub fn measure_text(text: &str, font: &Font) -> AureaResult<TextMetrics> {
     if text.is_empty() {
-        return Ok(TextMetrics {
-            width: 0.0,
-            height: 0.0,
-            ascent: 0.0,
-            descent: 0.0,
-            advance: 0.0,
-        });
+        return Ok(NO_TEXT);
     }
     TEXT_RENDERER.measure_text(text, FontRef::with_size(font, font.size))
 }
@@ -98,25 +105,45 @@ pub fn font_covers(font: &Font, ch: char) -> AureaResult<bool> {
 pub fn face_data(face: FaceId) -> AureaResult<Arc<FaceData>> {
     TEXT_RENDERER.face_data(face)
 }
-const DEFAULT_FONT_SIZE: f32 = 16.0;
 
+/// Drawing state that `save` and `restore` cover.
 #[derive(Clone, Copy)]
-struct DrawingState {
+struct State {
     transform: Transform,
     opacity: f32,
     clip_rect: Option<Rect>,
-    clip_paths: usize,
     blend_mode: BlendMode,
     sampling: Sampling,
     pixel_snap: bool,
 }
 
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            transform: Transform::identity(),
+            opacity: 1.0,
+            clip_rect: None,
+            blend_mode: BlendMode::Normal,
+            sampling: Sampling::Linear,
+            pixel_snap: false,
+        }
+    }
+}
+
+/// A `save`: the state, and how many clip paths were in force.
+#[derive(Clone, Copy)]
+struct Saved {
+    state: State,
+    clip_paths: usize,
+}
+
 const INLINE_SAVES: usize = 32;
 
+/// Saves without allocating up to `INLINE_SAVES` deep; deeper ones spill to the heap.
 struct SaveStack {
-    inline: [Option<DrawingState>; INLINE_SAVES],
+    inline: [Option<Saved>; INLINE_SAVES],
     len: usize,
-    spill: Vec<DrawingState>,
+    spill: Vec<Saved>,
 }
 
 impl SaveStack {
@@ -128,22 +155,93 @@ impl SaveStack {
         }
     }
 
-    fn push(&mut self, state: DrawingState) {
+    fn push(&mut self, saved: Saved) {
         match self.inline.get_mut(self.len) {
             Some(slot) => {
-                *slot = Some(state);
+                *slot = Some(saved);
                 self.len += 1;
             }
-            None => self.spill.push(state),
+            None => self.spill.push(saved),
         }
     }
 
-    fn pop(&mut self) -> Option<DrawingState> {
-        if let Some(state) = self.spill.pop() {
-            return Some(state);
+    fn pop(&mut self) -> Option<Saved> {
+        if let Some(saved) = self.spill.pop() {
+            return Some(saved);
         }
         self.len = self.len.checked_sub(1)?;
         self.inline[self.len].take()
+    }
+}
+
+/// Clip paths in force, with the shared copy and hash that items under them carry.
+#[derive(Default)]
+struct ClipPaths {
+    paths: Vec<Path>,
+    shared: Option<Arc<[Path]>>,
+    hash: u64,
+}
+
+impl ClipPaths {
+    fn push(&mut self, path: Path) {
+        self.paths.push(path);
+        self.sync();
+    }
+
+    fn truncate(&mut self, len: usize) {
+        if len != self.paths.len() {
+            self.paths.truncate(len);
+            self.sync();
+        }
+    }
+
+    /// Rebuilds the shared copy and hash after `paths` changed.
+    fn sync(&mut self) {
+        self.shared = if self.paths.is_empty() {
+            None
+        } else {
+            Some(Arc::from(self.paths.as_slice()))
+        };
+        self.hash = clip_paths_hash(&self.paths);
+    }
+}
+
+/// Whether `t` is affine with no shear or perspective, so images can be placed as rectangles.
+fn is_upright_affine(t: Transform) -> bool {
+    [
+        t.m11, t.m12, t.m13, t.m21, t.m22, t.m23, t.m31, t.m32, t.m33,
+    ]
+    .iter()
+    .all(|v| v.is_finite())
+        && t.m13.abs() < 1e-6
+        && t.m23.abs() < 1e-6
+        && (t.m33 - 1.0).abs() < 1e-6
+}
+
+fn fill_with(color: Color) -> Paint {
+    Paint::new().color(color).style(PaintStyle::Fill)
+}
+
+/// Whether `command` covers every pixel of its box with opaque paint.
+fn is_opaque(command: &DrawCommand) -> bool {
+    match command {
+        DrawCommand::Clear(color) => color.a == 255,
+        DrawCommand::DrawRect(_, paint) => paint.color.a == 255 && paint.style == PaintStyle::Fill,
+        DrawCommand::DrawCircle(_, _, paint) => {
+            paint.color.a == 255 && paint.style == PaintStyle::Fill
+        }
+        DrawCommand::DrawImageRect(image, ..) => image.is_opaque(),
+        // A source reaching past the image leaves its edge pixels unwritten when shrinking.
+        DrawCommand::DrawImageRegion(image, src, ..) => {
+            src.width > 0.0
+                && src.height > 0.0
+                && src.x >= 0.0
+                && src.y >= 0.0
+                && src.right() <= image.width as f32
+                && src.bottom() <= image.height as f32
+                && image.is_opaque()
+        }
+        _ => false,
     }
 }
 
@@ -178,205 +276,14 @@ impl SaveStack {
 pub struct RecordingContext<'list> {
     display_list: &'list mut DisplayList,
     next_index: u64,
-    state_stack: SaveStack,
-    current_transform: Transform,
-    current_opacity: f32,
-    current_clip_rect: Option<Rect>,
-    clip_paths: Vec<Path>,
-    current_clip_paths: Option<Arc<[Path]>>,
-    current_clip_paths_hash: u64,
+    state: State,
+    saves: SaveStack,
+    clips: ClipPaths,
     path_clips: bool,
-    current_blend_mode: BlendMode,
-    current_sampling: Sampling,
-    current_pixel_snap: bool,
     scale_factor: f32,
-    current_interactive_id: Option<InteractiveId>,
+    interactive: Option<InteractiveId>,
     width: u32,
     height: u32,
-}
-
-fn axis_aligned_rect(path: &Path) -> Option<Rect> {
-    let mut points = [Point::default(); 5];
-    let mut n = 0;
-    for command in &path.commands {
-        match command {
-            PathCommand::MoveTo(p) | PathCommand::LineTo(p) => {
-                *points.get_mut(n)? = *p;
-                n += 1;
-            }
-            PathCommand::Close => {}
-            PathCommand::QuadTo(..) | PathCommand::CubicTo(..) => return None,
-        }
-    }
-    if n == 5 && near(points[0], points[4]) {
-        n = 4;
-    }
-    if n != 4 {
-        return None;
-    }
-
-    let horizontal_first = near_value(points[0].y, points[1].y)
-        && near_value(points[1].x, points[2].x)
-        && near_value(points[2].y, points[3].y)
-        && near_value(points[3].x, points[0].x);
-    let vertical_first = near_value(points[0].x, points[1].x)
-        && near_value(points[1].y, points[2].y)
-        && near_value(points[2].x, points[3].x)
-        && near_value(points[3].y, points[0].y);
-    if !horizontal_first && !vertical_first {
-        return None;
-    }
-
-    let xs = [points[0].x, points[1].x, points[2].x, points[3].x];
-    let ys = [points[0].y, points[1].y, points[2].y, points[3].y];
-    let min_x = xs.iter().copied().fold(f32::INFINITY, f32::min);
-    let max_x = xs.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    let min_y = ys.iter().copied().fold(f32::INFINITY, f32::min);
-    let max_y = ys.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    Some(Rect::new(min_x, min_y, max_x - min_x, max_y - min_y))
-}
-
-fn near(a: Point, b: Point) -> bool {
-    near_value(a.x, b.x) && near_value(a.y, b.y)
-}
-
-fn near_value(a: f32, b: f32) -> bool {
-    (a - b).abs() < 1e-3
-}
-
-fn stroke_reach(paint: &Paint) -> f32 {
-    let half = paint.stroke_width / 2.0;
-    let miter = if paint.line_join == LineJoin::Miter {
-        half * paint.miter_limit.max(1.0)
-    } else {
-        half
-    };
-    let cap = if paint.line_cap == LineCap::Square {
-        half * SQRT_2
-    } else {
-        half
-    };
-    miter.max(cap)
-}
-
-fn rect_path(rect: Rect) -> Path {
-    let mut path = Path::new();
-    path.commands.extend_from_slice(&[
-        PathCommand::MoveTo(Point::new(rect.x, rect.y)),
-        PathCommand::LineTo(Point::new(rect.x + rect.width, rect.y)),
-        PathCommand::LineTo(Point::new(rect.x + rect.width, rect.y + rect.height)),
-        PathCommand::LineTo(Point::new(rect.x, rect.y + rect.height)),
-        PathCommand::Close,
-    ]);
-    path
-}
-
-fn snap_rect(rect: Rect, paint: &Paint) -> (Rect, f32) {
-    let span = |start: f32, len: f32, inset: f32| {
-        if len <= 0.0 {
-            return (start.round(), 0.0);
-        }
-        let outer = (start - inset).round();
-        let end = (start + len + inset).round();
-        let size = (end - outer).max(1.0 + 2.0 * inset);
-        (outer + inset, size - 2.0 * inset)
-    };
-    let stroke = paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0;
-    let width = if stroke {
-        paint.stroke_width.round().max(1.0)
-    } else {
-        paint.stroke_width
-    };
-    let inset = if stroke { width / 2.0 } else { 0.0 };
-    let (x, w) = span(rect.x, rect.width, inset);
-    let (y, h) = span(rect.y, rect.height, inset);
-    (Rect::new(x, y, w, h), width)
-}
-
-/// A straight rule snapped: its ends round on their own like a fill's edges, its thickness rounds
-/// as a whole so every rule of one width comes out alike.
-fn snap_rule(rect: Rect, horizontal: bool) -> Rect {
-    let keep = |start: f32, len: f32| {
-        let size = len.round().max(1.0);
-        ((start + (len - size) / 2.0).round(), size)
-    };
-    let edges = |start: f32, len: f32| {
-        let outer = start.round();
-        (outer, ((start + len).round() - outer).max(1.0))
-    };
-    let ((x, w), (y, h)) = if horizontal {
-        (edges(rect.x, rect.width), keep(rect.y, rect.height))
-    } else {
-        (keep(rect.x, rect.width), edges(rect.y, rect.height))
-    };
-    Rect::new(x, y, w, h)
-}
-
-fn fill_with(color: Color) -> Paint {
-    Paint::new().color(color).style(PaintStyle::Fill)
-}
-
-fn intersect_rects(a: Rect, b: Rect) -> Rect {
-    let x0 = a.x.max(b.x);
-    let y0 = a.y.max(b.y);
-    let x1 = (a.x + a.width).min(b.x + b.width);
-    let y1 = (a.y + a.height).min(b.y + b.height);
-    Rect::new(x0, y0, (x1 - x0).max(0.0), (y1 - y0).max(0.0))
-}
-
-fn hash_path(path: &Path, hasher: &mut DefaultHasher) {
-    for cmd in &path.commands {
-        match cmd {
-            PathCommand::MoveTo(p) => {
-                0u8.hash(hasher);
-                p.x.to_bits().hash(hasher);
-                p.y.to_bits().hash(hasher);
-            }
-            PathCommand::LineTo(p) => {
-                1u8.hash(hasher);
-                p.x.to_bits().hash(hasher);
-                p.y.to_bits().hash(hasher);
-            }
-            PathCommand::QuadTo(c, p) => {
-                2u8.hash(hasher);
-                c.x.to_bits().hash(hasher);
-                c.y.to_bits().hash(hasher);
-                p.x.to_bits().hash(hasher);
-                p.y.to_bits().hash(hasher);
-            }
-            PathCommand::CubicTo(c1, c2, p) => {
-                3u8.hash(hasher);
-                c1.x.to_bits().hash(hasher);
-                c1.y.to_bits().hash(hasher);
-                c2.x.to_bits().hash(hasher);
-                c2.y.to_bits().hash(hasher);
-                p.x.to_bits().hash(hasher);
-                p.y.to_bits().hash(hasher);
-            }
-            PathCommand::Close => {
-                4u8.hash(hasher);
-            }
-        }
-    }
-}
-
-fn clip_paths_hash(paths: &[Path]) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    for path in paths {
-        path.commands.len().hash(&mut hasher);
-        hash_path(path, &mut hasher);
-    }
-    hasher.finish()
-}
-
-fn hash_image_quad(src: &Rect, quad: &[Point; 3], hasher: &mut impl Hasher) {
-    for v in [src.x, src.y, src.width, src.height] {
-        v.to_bits().hash(hasher);
-    }
-    for p in quad {
-        p.x.to_bits().hash(hasher);
-        p.y.to_bits().hash(hasher);
-    }
 }
 
 impl<'list> RecordingContext<'list> {
@@ -385,19 +292,12 @@ impl<'list> RecordingContext<'list> {
         Self {
             display_list,
             next_index: 0,
-            state_stack: SaveStack::new(),
-            current_transform: Transform::identity(),
-            current_opacity: 1.0,
-            current_clip_rect: None,
-            clip_paths: Vec::new(),
-            current_clip_paths: None,
-            current_clip_paths_hash: 0,
+            state: State::default(),
+            saves: SaveStack::new(),
+            clips: ClipPaths::default(),
             path_clips: false,
-            current_blend_mode: BlendMode::Normal,
-            current_sampling: Sampling::Linear,
-            current_pixel_snap: false,
             scale_factor: 1.0,
-            current_interactive_id: None,
+            interactive: None,
             width,
             height,
         }
@@ -408,41 +308,63 @@ impl<'list> RecordingContext<'list> {
         self.path_clips = enabled;
     }
 
-    fn set_clip_paths_len(&mut self, len: usize) {
-        if len != self.clip_paths.len() {
-            self.clip_paths.truncate(len);
-            self.sync_clip_paths();
-        }
-    }
-
-    /// Rebuilds the shared clip stack and its hash after `clip_paths` changed.
-    fn sync_clip_paths(&mut self) {
-        self.current_clip_paths =
-            (!self.clip_paths.is_empty()).then(|| Arc::from(self.clip_paths.as_slice()));
-        self.current_clip_paths_hash = clip_paths_hash(&self.clip_paths);
-    }
-
     /// Sets the scale factor used when computing cache keys (e.g. for HiDPI).
     pub fn set_scale_factor(&mut self, scale: f32) {
         self.scale_factor = scale;
     }
 
+    /// Sets the interactive ID for the next drawn shapes (used for hit testing).
+    pub fn set_interactive_id(&mut self, id: Option<InteractiveId>) {
+        self.interactive = id;
+    }
+
+    /// Draws a rectangle and marks it as interactive with the given ID.
+    pub fn draw_interactive_rect(
+        &mut self,
+        id: InteractiveId,
+        rect: Rect,
+        paint: &Paint,
+    ) -> AureaResult<()> {
+        let old = self.interactive.replace(id);
+        let result = self.draw_rect(rect, paint);
+        self.interactive = old;
+        result
+    }
+
+    /// Draws a circle and marks it as interactive with the given ID.
+    pub fn draw_interactive_circle(
+        &mut self,
+        id: InteractiveId,
+        center: Point,
+        radius: f32,
+        paint: &Paint,
+    ) -> AureaResult<()> {
+        let old = self.interactive.replace(id);
+        let result = self.draw_circle(center, radius, paint);
+        self.interactive = old;
+        result
+    }
+
+    /// Draws a path and marks it as interactive with the given ID.
+    pub fn draw_interactive_path(
+        &mut self,
+        id: InteractiveId,
+        path: &Path,
+        paint: &Paint,
+    ) -> AureaResult<()> {
+        let old = self.interactive.replace(id);
+        let result = self.draw_path(path, paint);
+        self.interactive = old;
+        result
+    }
+
     fn transform_is_axis_aligned(&self) -> bool {
-        let t = self.current_transform;
+        let t = self.state.transform;
         t.m12.abs() < 1e-6 && t.m21.abs() < 1e-6
     }
 
     fn ensure_image_transform(&self) -> AureaResult<()> {
-        let t = self.current_transform;
-        if [
-            t.m11, t.m12, t.m13, t.m21, t.m22, t.m23, t.m31, t.m32, t.m33,
-        ]
-        .iter()
-        .all(|v| v.is_finite())
-            && t.m13.abs() < 1e-6
-            && t.m23.abs() < 1e-6
-            && (t.m33 - 1.0).abs() < 1e-6
-        {
+        if is_upright_affine(self.state.transform) {
             Ok(())
         } else {
             Err(AureaError::Unsupported {
@@ -462,12 +384,12 @@ impl<'list> RecordingContext<'list> {
 
     fn upright_image(&self) -> bool {
         self.transform_is_axis_aligned()
-            && self.current_transform.m11 >= 0.0
-            && self.current_transform.m22 >= 0.0
+            && self.state.transform.m11 >= 0.0
+            && self.state.transform.m22 >= 0.0
     }
 
     fn transform_scale(&self) -> f32 {
-        let t = self.current_transform;
+        let t = self.state.transform;
         let det = t.m11 * t.m22 - t.m12 * t.m21;
         det.abs().sqrt()
     }
@@ -484,8 +406,19 @@ impl<'list> RecordingContext<'list> {
     }
 
     fn s_pt(&self, p: Point) -> Point {
-        let t = self.current_transform.map_point(p);
+        let t = self.state.transform.map_point(p);
         Point::new(t.x * self.scale_factor, t.y * self.scale_factor)
+    }
+
+    /// The four corners of `r` in physical pixels.
+    fn s_corners(&self, r: Rect) -> [Point; 4] {
+        let c = corners(r);
+        [
+            self.s_pt(c[0]),
+            self.s_pt(c[1]),
+            self.s_pt(c[2]),
+            self.s_pt(c[3]),
+        ]
     }
 
     fn s(&self, v: f32) -> f32 {
@@ -496,13 +429,14 @@ impl<'list> RecordingContext<'list> {
         let mut p = paint.clone();
         let factor = self.transform_scale() * self.scale_factor;
         p.stroke_width *= factor;
-        p.dash = p.dash.map(|dash| dash.scaled(factor));
+        if let Some(dash) = p.dash {
+            p.dash = Some(dash.scaled(factor));
+        }
         p
     }
 
-    fn physical_path(&mut self, path: &Path) -> Path {
-        let mut commands = self.display_list.take_commands();
-        commands.extend(path.commands.iter().map(|cmd| match cmd {
+    fn s_command(&self, cmd: &PathCommand) -> PathCommand {
+        match cmd {
             PathCommand::MoveTo(p) => PathCommand::MoveTo(self.s_pt(*p)),
             PathCommand::LineTo(p) => PathCommand::LineTo(self.s_pt(*p)),
             PathCommand::QuadTo(c, p) => PathCommand::QuadTo(self.s_pt(*c), self.s_pt(*p)),
@@ -510,439 +444,65 @@ impl<'list> RecordingContext<'list> {
                 PathCommand::CubicTo(self.s_pt(*c1), self.s_pt(*c2), self.s_pt(*p))
             }
             PathCommand::Close => PathCommand::Close,
-        }));
+        }
+    }
+
+    /// `path` in physical pixels, reusing the display list's command storage.
+    fn physical_path(&mut self, path: &Path) -> Path {
+        let mut commands = self.display_list.take_commands();
+        for cmd in &path.commands {
+            commands.push(self.s_command(cmd));
+        }
         Path {
             commands,
             fill_rule: path.fill_rule,
         }
     }
 
-    fn transformed_rect_path(&self, r: Rect) -> Path {
-        let corners = [
-            self.s_pt(Point::new(r.x, r.y)),
-            self.s_pt(Point::new(r.x + r.width, r.y)),
-            self.s_pt(Point::new(r.x + r.width, r.y + r.height)),
-            self.s_pt(Point::new(r.x, r.y + r.height)),
-        ];
-        let mut path = Path::new();
-        path.commands.push(PathCommand::MoveTo(corners[0]));
-        for corner in &corners[1..] {
-            path.commands.push(PathCommand::LineTo(*corner));
+    /// Narrows the clip rect to `rect`, which is in physical pixels.
+    fn narrow_clip(&mut self, rect: Rect) {
+        self.state.clip_rect = Some(match self.state.clip_rect {
+            Some(current) => intersect_rects(current, rect),
+            None => rect,
+        });
+    }
+
+    /// Records `command` as one display item under the current state and clip paths.
+    fn add_command(&mut self, command: DrawCommand) {
+        let mut cache_key = command_key(&command, &self.state, self.scale_factor);
+        if self.clips.shared.is_some() {
+            cache_key = under_clip(cache_key, self.clips.hash);
         }
-        path.commands.push(PathCommand::Close);
-        path
-    }
+        let bounds = command_bounds(&command);
+        let opaque =
+            is_opaque(&command) && self.state.opacity >= 1.0 && self.clips.shared.is_none();
 
-    /// Sets the interactive ID for the next drawn shapes (used for hit testing).
-    pub fn set_interactive_id(&mut self, id: Option<InteractiveId>) {
-        self.current_interactive_id = id;
-    }
+        let index = DisplayIndex(self.next_index);
+        self.next_index += 1;
 
-    /// Draws a rectangle and marks it as interactive with the given ID.
-    pub fn draw_interactive_rect(
-        &mut self,
-        id: InteractiveId,
-        rect: Rect,
-        paint: &Paint,
-    ) -> AureaResult<()> {
-        let old_id = self.current_interactive_id;
-        self.current_interactive_id = Some(id);
-        let result = self.draw_rect(rect, paint);
-        self.current_interactive_id = old_id;
-        result
-    }
-
-    /// Draws a circle and marks it as interactive with the given ID.
-    pub fn draw_interactive_circle(
-        &mut self,
-        id: InteractiveId,
-        center: Point,
-        radius: f32,
-        paint: &Paint,
-    ) -> AureaResult<()> {
-        let old_id = self.current_interactive_id;
-        self.current_interactive_id = Some(id);
-        let result = self.draw_circle(center, radius, paint);
-        self.current_interactive_id = old_id;
-        result
-    }
-
-    /// Draws a path and marks it as interactive with the given ID.
-    pub fn draw_interactive_path(
-        &mut self,
-        id: InteractiveId,
-        path: &Path,
-        paint: &Paint,
-    ) -> AureaResult<()> {
-        let old_id = self.current_interactive_id;
-        self.current_interactive_id = Some(id);
-        let result = self.draw_path(path, paint);
-        self.current_interactive_id = old_id;
-        result
-    }
-
-    fn compute_cache_key(&self, command: &DrawCommand) -> CacheKey {
-        let mut hasher = DefaultHasher::new();
-        match command {
-            DrawCommand::Clear(color) => {
-                "Clear".hash(&mut hasher);
-                color.r.hash(&mut hasher);
-                color.g.hash(&mut hasher);
-                color.b.hash(&mut hasher);
-                color.a.hash(&mut hasher);
+        let blend = self.state.blend_mode;
+        let item = match self.interactive {
+            Some(id) => {
+                DisplayItem::new_interactive(index, cache_key, bounds, opaque, id, blend, command)
             }
-            DrawCommand::DrawRect(rect, paint) => {
-                "DrawRect".hash(&mut hasher);
-                rect.x.to_bits().hash(&mut hasher);
-                rect.y.to_bits().hash(&mut hasher);
-                rect.width.to_bits().hash(&mut hasher);
-                rect.height.to_bits().hash(&mut hasher);
-                paint.color.r.hash(&mut hasher);
-                paint.color.g.hash(&mut hasher);
-                paint.color.b.hash(&mut hasher);
-                paint.color.a.hash(&mut hasher);
-                paint.style.hash(&mut hasher);
-                paint.stroke_width.to_bits().hash(&mut hasher);
-            }
-            DrawCommand::Backdrop(rect, effects) => hash_backdrop(*rect, effects, &mut hasher),
-            DrawCommand::DrawShadow(rect, radius, blur, color) => {
-                "DrawShadow".hash(&mut hasher);
-                for v in [rect.x, rect.y, rect.width, rect.height, *radius, *blur] {
-                    v.to_bits().hash(&mut hasher);
-                }
-                [color.r, color.g, color.b, color.a].hash(&mut hasher);
-            }
-            DrawCommand::DrawRoundRect(rect, radius, paint) => {
-                "DrawRoundRect".hash(&mut hasher);
-                rect.x.to_bits().hash(&mut hasher);
-                rect.y.to_bits().hash(&mut hasher);
-                rect.width.to_bits().hash(&mut hasher);
-                rect.height.to_bits().hash(&mut hasher);
-                radius.to_bits().hash(&mut hasher);
-                paint.color.r.hash(&mut hasher);
-                paint.color.g.hash(&mut hasher);
-                paint.color.b.hash(&mut hasher);
-                paint.color.a.hash(&mut hasher);
-                paint.style.hash(&mut hasher);
-                paint.stroke_width.to_bits().hash(&mut hasher);
-            }
-            DrawCommand::DrawCircle(center, radius, paint) => {
-                "DrawCircle".hash(&mut hasher);
-                center.x.to_bits().hash(&mut hasher);
-                center.y.to_bits().hash(&mut hasher);
-                radius.to_bits().hash(&mut hasher);
-                paint.color.r.hash(&mut hasher);
-                paint.color.g.hash(&mut hasher);
-                paint.color.b.hash(&mut hasher);
-                paint.color.a.hash(&mut hasher);
-                paint.style.hash(&mut hasher);
-                paint.stroke_width.to_bits().hash(&mut hasher);
-            }
-            DrawCommand::DrawImageRect(image, dest, sampling) => {
-                "DrawImageRect".hash(&mut hasher);
-                sampling.hash(&mut hasher);
-                image.width.hash(&mut hasher);
-                image.height.hash(&mut hasher);
-                dest.x.to_bits().hash(&mut hasher);
-                dest.y.to_bits().hash(&mut hasher);
-                dest.width.to_bits().hash(&mut hasher);
-                dest.height.to_bits().hash(&mut hasher);
-                image.id().hash(&mut hasher);
-            }
-            DrawCommand::DrawImageQuad(image, src, quad, sampling) => {
-                "DrawImageQuad".hash(&mut hasher);
-                image.id().hash(&mut hasher);
-                sampling.hash(&mut hasher);
-                hash_image_quad(src, quad, &mut hasher);
-            }
-            DrawCommand::DrawTextureQuad(texture, src, quad, sampling) => {
-                "DrawTextureQuad".hash(&mut hasher);
-                texture.hash(&mut hasher);
-                sampling.hash(&mut hasher);
-                hash_image_quad(src, quad, &mut hasher);
-            }
-            DrawCommand::DrawTexture(texture, src, dest, sampling) => {
-                "DrawTexture".hash(&mut hasher);
-                texture.hash(&mut hasher);
-                sampling.hash(&mut hasher);
-                for r in [src, dest] {
-                    r.x.to_bits().hash(&mut hasher);
-                    r.y.to_bits().hash(&mut hasher);
-                    r.width.to_bits().hash(&mut hasher);
-                    r.height.to_bits().hash(&mut hasher);
-                }
-            }
-            DrawCommand::DrawImageRegion(image, src, dest, sampling) => {
-                "DrawImageRegion".hash(&mut hasher);
-                sampling.hash(&mut hasher);
-                image.width.hash(&mut hasher);
-                image.height.hash(&mut hasher);
-                src.x.to_bits().hash(&mut hasher);
-                src.y.to_bits().hash(&mut hasher);
-                src.width.to_bits().hash(&mut hasher);
-                src.height.to_bits().hash(&mut hasher);
-                dest.x.to_bits().hash(&mut hasher);
-                dest.y.to_bits().hash(&mut hasher);
-                dest.width.to_bits().hash(&mut hasher);
-                dest.height.to_bits().hash(&mut hasher);
-                image.id().hash(&mut hasher);
-            }
-            DrawCommand::FillLinearGradient(grad, rect) => {
-                "FillLinearGradient".hash(&mut hasher);
-                grad.start.x.to_bits().hash(&mut hasher);
-                grad.start.y.to_bits().hash(&mut hasher);
-                grad.end.x.to_bits().hash(&mut hasher);
-                grad.end.y.to_bits().hash(&mut hasher);
-                rect.x.to_bits().hash(&mut hasher);
-                rect.y.to_bits().hash(&mut hasher);
-                rect.width.to_bits().hash(&mut hasher);
-                rect.height.to_bits().hash(&mut hasher);
-                for stop in &grad.stops {
-                    stop.offset.to_bits().hash(&mut hasher);
-                    stop.color.r.hash(&mut hasher);
-                    stop.color.g.hash(&mut hasher);
-                    stop.color.b.hash(&mut hasher);
-                    stop.color.a.hash(&mut hasher);
-                }
-            }
-            DrawCommand::FillRadialGradient(grad, rect) => {
-                "FillRadialGradient".hash(&mut hasher);
-                grad.center.x.to_bits().hash(&mut hasher);
-                grad.center.y.to_bits().hash(&mut hasher);
-                grad.radius.to_bits().hash(&mut hasher);
-                rect.x.to_bits().hash(&mut hasher);
-                rect.y.to_bits().hash(&mut hasher);
-                rect.width.to_bits().hash(&mut hasher);
-                rect.height.to_bits().hash(&mut hasher);
-                for stop in &grad.stops {
-                    stop.offset.to_bits().hash(&mut hasher);
-                    stop.color.r.hash(&mut hasher);
-                    stop.color.g.hash(&mut hasher);
-                    stop.color.b.hash(&mut hasher);
-                    stop.color.a.hash(&mut hasher);
-                }
-            }
-            DrawCommand::DrawColumns(x, wide, spans, color) => {
-                "DrawColumns".hash(&mut hasher);
-                x.to_bits().hash(&mut hasher);
-                wide.to_bits().hash(&mut hasher);
-                for (top, bottom) in spans {
-                    top.to_bits().hash(&mut hasher);
-                    bottom.to_bits().hash(&mut hasher);
-                }
-                color.r.hash(&mut hasher);
-                color.g.hash(&mut hasher);
-                color.b.hash(&mut hasher);
-                color.a.hash(&mut hasher);
-            }
-            DrawCommand::DrawPath(path, paint) => {
-                "DrawPath".hash(&mut hasher);
-                hash_path(path, &mut hasher);
-                paint.color.r.hash(&mut hasher);
-                paint.color.g.hash(&mut hasher);
-                paint.color.b.hash(&mut hasher);
-                paint.color.a.hash(&mut hasher);
-                paint.style.hash(&mut hasher);
-                paint.stroke_width.to_bits().hash(&mut hasher);
-                paint.line_cap.hash(&mut hasher);
-                paint.line_join.hash(&mut hasher);
-                paint.miter_limit.to_bits().hash(&mut hasher);
-                if let Some(dash) = &paint.dash {
-                    dash.offset.to_bits().hash(&mut hasher);
-                    (dash.anchored, dash.along_edges).hash(&mut hasher);
-                    for length in dash.lengths() {
-                        length.to_bits().hash(&mut hasher);
-                    }
-                }
-            }
-            DrawCommand::DrawGlyphMask(mask, origin, color) => {
-                "DrawGlyphMask".hash(&mut hasher);
-                mask.id().hash(&mut hasher);
-                mask.width.hash(&mut hasher);
-                mask.height.hash(&mut hasher);
-                origin.x.to_bits().hash(&mut hasher);
-                origin.y.to_bits().hash(&mut hasher);
-                color.r.hash(&mut hasher);
-                color.g.hash(&mut hasher);
-                color.b.hash(&mut hasher);
-                color.a.hash(&mut hasher);
-            }
+            None => DisplayItem::new(index, cache_key, bounds, opaque, blend, command),
         }
-        self.current_opacity.to_bits().hash(&mut hasher);
-        self.scale_factor.to_bits().hash(&mut hasher);
-        self.current_blend_mode.hash(&mut hasher);
-        match self.current_clip_rect {
-            Some(clip) => {
-                1u8.hash(&mut hasher);
-                clip.x.to_bits().hash(&mut hasher);
-                clip.y.to_bits().hash(&mut hasher);
-                clip.width.to_bits().hash(&mut hasher);
-                clip.height.to_bits().hash(&mut hasher);
-            }
-            None => 0u8.hash(&mut hasher),
-        }
+        .with_clip(self.state.clip_rect)
+        .with_opacity(self.state.opacity)
+        .with_clip_paths(self.clips.shared.clone());
 
-        CacheKey::from_hash(hasher.finish())
-    }
-
-    fn compute_bounds(&self, command: &DrawCommand) -> Rect {
-        match command {
-            DrawCommand::Clear(_) => Rect::new(0.0, 0.0, f32::MAX, f32::MAX),
-            DrawCommand::DrawRect(rect, paint) => {
-                let mut bounds = *rect;
-                if paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0 {
-                    let half_stroke = paint.stroke_width / 2.0;
-                    bounds.x -= half_stroke;
-                    bounds.y -= half_stroke;
-                    bounds.width += paint.stroke_width;
-                    bounds.height += paint.stroke_width;
-                }
-                bounds
-            }
-            DrawCommand::Backdrop(rect, _) => *rect,
-            DrawCommand::DrawShadow(rect, _, blur, _) => {
-                let reach = blur * 3.0;
-                Rect::new(
-                    rect.x - reach,
-                    rect.y - reach,
-                    rect.width + reach * 2.0,
-                    rect.height + reach * 2.0,
-                )
-            }
-            DrawCommand::DrawRoundRect(rect, _, paint) => {
-                let mut bounds = *rect;
-                if paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0 {
-                    let half_stroke = paint.stroke_width / 2.0;
-                    bounds.x -= half_stroke;
-                    bounds.y -= half_stroke;
-                    bounds.width += paint.stroke_width;
-                    bounds.height += paint.stroke_width;
-                }
-                bounds
-            }
-            DrawCommand::DrawColumns(x, wide, spans, _) => {
-                let (top, bottom) = spans.iter().fold((f32::MAX, f32::MIN), |(t, b), span| {
-                    (t.min(span.0), b.max(span.1))
-                });
-                Rect::new(*x, top, *wide * spans.len() as f32, (bottom - top).max(0.0))
-            }
-            DrawCommand::DrawCircle(center, radius, paint) => {
-                let mut bounds = Rect::new(
-                    center.x - radius,
-                    center.y - radius,
-                    radius * 2.0,
-                    radius * 2.0,
-                );
-                if paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0 {
-                    let half_stroke = paint.stroke_width / 2.0;
-                    bounds.x -= half_stroke;
-                    bounds.y -= half_stroke;
-                    bounds.width += paint.stroke_width;
-                    bounds.height += paint.stroke_width;
-                }
-                bounds
-            }
-            DrawCommand::DrawImageRect(_, dest, _)
-            | DrawCommand::DrawImageRegion(_, _, dest, _)
-            | DrawCommand::DrawTexture(_, _, dest, _) => *dest,
-            DrawCommand::DrawImageQuad(_, _, quad, _)
-            | DrawCommand::DrawTextureQuad(_, _, quad, _) => quad_bounds(quad),
-            DrawCommand::DrawGlyphMask(mask, origin, _) => {
-                Rect::new(origin.x, origin.y, mask.width as f32, mask.height as f32)
-            }
-            DrawCommand::FillLinearGradient(_, rect) => *rect,
-            DrawCommand::FillRadialGradient(_, rect) => *rect,
-            DrawCommand::DrawPath(path, paint) => {
-                let mut bounds = path_bounds(path);
-                if paint.style == PaintStyle::Stroke && paint.stroke_width > 0.0 {
-                    let reach = stroke_reach(paint);
-                    bounds.x -= reach;
-                    bounds.y -= reach;
-                    bounds.width += 2.0 * reach;
-                    bounds.height += 2.0 * reach;
-                }
-                bounds
-            }
-        }
+        self.display_list.push(item);
     }
 
     /// A straight line drawn as a filled `rect`, snapped by [`snap_rule`] when snapping is on.
     fn draw_rule(&mut self, rect: Rect, color: Color) -> AureaResult<()> {
-        if !self.current_pixel_snap || !self.transform_is_axis_aligned() {
+        if !self.state.pixel_snap || !self.transform_is_axis_aligned() {
             return self.draw_rect(rect, &fill_with(color));
         }
         let device = self.s_rect(rect);
         let rect = snap_rule(device, device.width >= device.height);
         self.add_command(DrawCommand::DrawRect(rect, fill_with(color)));
         Ok(())
-    }
-
-    fn is_opaque(&self, command: &DrawCommand) -> bool {
-        match command {
-            DrawCommand::Clear(color) => color.a == 255,
-            DrawCommand::DrawRect(_, paint) => {
-                paint.color.a == 255 && paint.style == PaintStyle::Fill
-            }
-            DrawCommand::DrawCircle(_, _, paint) => {
-                paint.color.a == 255 && paint.style == PaintStyle::Fill
-            }
-            DrawCommand::DrawImageRect(image, ..) => image.is_opaque(),
-            // A source reaching past the image leaves its edge pixels unwritten when shrinking.
-            DrawCommand::DrawImageRegion(image, src, ..) => {
-                src.width > 0.0
-                    && src.height > 0.0
-                    && src.x >= 0.0
-                    && src.y >= 0.0
-                    && src.right() <= image.width as f32
-                    && src.bottom() <= image.height as f32
-                    && image.is_opaque()
-            }
-            DrawCommand::DrawTexture(..)
-            | DrawCommand::DrawImageQuad(..)
-            | DrawCommand::DrawTextureQuad(..) => false,
-            DrawCommand::FillLinearGradient(..) | DrawCommand::FillRadialGradient(..) => false,
-            _ => false,
-        }
-    }
-
-    fn add_command(&mut self, command: DrawCommand) {
-        let mut cache_key = self.compute_cache_key(&command);
-        if self.current_clip_paths.is_some() {
-            let mut hasher = DefaultHasher::new();
-            cache_key.0.hash(&mut hasher);
-            self.current_clip_paths_hash.hash(&mut hasher);
-            cache_key = CacheKey(hasher.finish());
-        }
-        let bounds = self.compute_bounds(&command);
-        let opaque = self.is_opaque(&command)
-            && self.current_opacity >= 1.0
-            && self.current_clip_paths.is_none();
-
-        let index = DisplayIndex(self.next_index);
-        self.next_index += 1;
-
-        let blend = self.current_blend_mode;
-        let clip = self.current_clip_rect;
-        let item = if let Some(interactive_id) = self.current_interactive_id {
-            DisplayItem::new_interactive(
-                index,
-                cache_key,
-                bounds,
-                opaque,
-                interactive_id,
-                blend,
-                command,
-            )
-            .with_clip(clip)
-            .with_opacity(self.current_opacity)
-        } else {
-            DisplayItem::new(index, cache_key, bounds, opaque, blend, command)
-                .with_clip(clip)
-                .with_opacity(self.current_opacity)
-        }
-        .with_clip_paths(self.current_clip_paths.clone());
-
-        self.display_list.push(item);
     }
 }
 
@@ -1005,18 +565,19 @@ impl DrawingContext for RecordingContext<'_> {
         ));
         Ok(())
     }
+
     fn draw_rect(&mut self, rect: Rect, paint: &Paint) -> AureaResult<()> {
         if paint.needs_path_stroke() && (paint.dash.is_some() || paint.line_join != LineJoin::Miter)
         {
-            return self.draw_path(&rect_path(rect), paint);
+            return self.draw_path(&quad_path(corners(rect)), paint);
         }
         if !self.transform_is_axis_aligned() {
-            let path = self.transformed_rect_path(rect);
+            let path = quad_path(self.s_corners(rect));
             self.add_command(DrawCommand::DrawPath(path, self.s_paint(paint)));
             return Ok(());
         }
         let (mut rect, mut paint) = (self.s_rect(rect), self.s_paint(paint));
-        if self.current_pixel_snap {
+        if self.state.pixel_snap {
             (rect, paint.stroke_width) = snap_rect(rect, &paint);
         }
         self.add_command(DrawCommand::DrawRect(rect, paint));
@@ -1049,13 +610,14 @@ impl DrawingContext for RecordingContext<'_> {
         if effects.is_empty() {
             return Ok(());
         }
-        let effects: Arc<[Effect]> = effects
-            .iter()
-            .map(|effect| match effect {
+        let mut scaled = Vec::with_capacity(effects.len());
+        for effect in effects {
+            scaled.push(match effect {
                 Effect::Blur(radius) => Effect::Blur(self.s(*radius)),
                 other => other.clone(),
-            })
-            .collect();
+            });
+        }
+        let effects: Arc<[Effect]> = scaled.into();
         self.save()?;
         let recorded = self.clip_path(shape).map(|()| {
             self.add_command(DrawCommand::Backdrop(self.s_rect(bounds), effects));
@@ -1086,6 +648,9 @@ impl DrawingContext for RecordingContext<'_> {
         spans: &[(f32, f32)],
         color: Color,
     ) -> AureaResult<()> {
+        if spans.is_empty() {
+            return Ok(());
+        }
         if !self.transform_is_axis_aligned() {
             let paint = Paint::new().color(color);
             let mut left = x;
@@ -1097,14 +662,12 @@ impl DrawingContext for RecordingContext<'_> {
         }
         let start = self.s_pt(Point::new(x, 0.0)).x;
         let wide = self.s_pt(Point::new(x + width, 0.0)).x - start;
-        let physical = spans
-            .iter()
-            .map(|(top, bottom)| {
-                let at = |y: f32| self.s_pt(Point::new(x, y)).y;
-                let (a, b) = (at(*top), at(*bottom));
-                (a.min(b), a.max(b))
-            })
-            .collect();
+        let mut physical = Vec::with_capacity(spans.len());
+        for &(top, bottom) in spans {
+            let a = self.s_pt(Point::new(x, top)).y;
+            let b = self.s_pt(Point::new(x, bottom)).y;
+            physical.push((a.min(b), a.max(b)));
+        }
         self.add_command(DrawCommand::DrawColumns(start, wide, physical, color));
         Ok(())
     }
@@ -1168,13 +731,13 @@ impl DrawingContext for RecordingContext<'_> {
     fn draw_image_rect(&mut self, image: &Image, dest: Rect) -> AureaResult<()> {
         self.ensure_image_transform()?;
         let command = if self.upright_image() {
-            DrawCommand::DrawImageRect(image.clone(), self.s_rect(dest), self.current_sampling)
+            DrawCommand::DrawImageRect(image.clone(), self.s_rect(dest), self.state.sampling)
         } else {
             DrawCommand::DrawImageQuad(
                 image.clone(),
                 Rect::new(0.0, 0.0, image.width as f32, image.height as f32),
                 self.image_quad(dest),
-                self.current_sampling,
+                self.state.sampling,
             )
         };
         self.add_command(command);
@@ -1184,18 +747,13 @@ impl DrawingContext for RecordingContext<'_> {
     fn draw_image_region(&mut self, image: &Image, src: Rect, dest: Rect) -> AureaResult<()> {
         self.ensure_image_transform()?;
         let command = if self.upright_image() {
-            DrawCommand::DrawImageRegion(
-                image.clone(),
-                src,
-                self.s_rect(dest),
-                self.current_sampling,
-            )
+            DrawCommand::DrawImageRegion(image.clone(), src, self.s_rect(dest), self.state.sampling)
         } else {
             DrawCommand::DrawImageQuad(
                 image.clone(),
                 src,
                 self.image_quad(dest),
-                self.current_sampling,
+                self.state.sampling,
             )
         };
         self.add_command(command);
@@ -1203,21 +761,21 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn set_sampling(&mut self, sampling: Sampling) -> AureaResult<()> {
-        self.current_sampling = sampling;
+        self.state.sampling = sampling;
         Ok(())
     }
 
     fn set_pixel_snap(&mut self, snap: bool) -> AureaResult<()> {
-        self.current_pixel_snap = snap;
+        self.state.pixel_snap = snap;
         Ok(())
     }
 
     fn draw_texture(&mut self, texture: GpuTexture, src: Rect, dest: Rect) -> AureaResult<()> {
         self.ensure_image_transform()?;
         let command = if self.upright_image() {
-            DrawCommand::DrawTexture(texture, src, self.s_rect(dest), self.current_sampling)
+            DrawCommand::DrawTexture(texture, src, self.s_rect(dest), self.state.sampling)
         } else {
-            DrawCommand::DrawTextureQuad(texture, src, self.image_quad(dest), self.current_sampling)
+            DrawCommand::DrawTextureQuad(texture, src, self.image_quad(dest), self.state.sampling)
         };
         self.add_command(command);
         Ok(())
@@ -1225,13 +783,7 @@ impl DrawingContext for RecordingContext<'_> {
 
     fn measure_text(&mut self, text: &str, font: &Font) -> AureaResult<TextMetrics> {
         if text.is_empty() {
-            return Ok(TextMetrics {
-                width: 0.0,
-                height: 0.0,
-                ascent: 0.0,
-                descent: 0.0,
-                advance: 0.0,
-            });
+            return Ok(NO_TEXT);
         }
         let sf = self.scale_factor;
         let physical_font = FontRef::with_size(font, font.size * sf);
@@ -1246,84 +798,64 @@ impl DrawingContext for RecordingContext<'_> {
     }
 
     fn save(&mut self) -> AureaResult<()> {
-        self.state_stack.push(DrawingState {
-            transform: self.current_transform,
-            opacity: self.current_opacity,
-            clip_rect: self.current_clip_rect,
-            clip_paths: self.clip_paths.len(),
-            blend_mode: self.current_blend_mode,
-            sampling: self.current_sampling,
-            pixel_snap: self.current_pixel_snap,
+        self.saves.push(Saved {
+            state: self.state,
+            clip_paths: self.clips.paths.len(),
         });
         Ok(())
     }
 
     fn restore(&mut self) -> AureaResult<()> {
-        if let Some(state) = self.state_stack.pop() {
-            self.current_transform = state.transform;
-            self.current_opacity = state.opacity;
-            self.current_clip_rect = state.clip_rect;
-            self.set_clip_paths_len(state.clip_paths);
-            self.current_blend_mode = state.blend_mode;
-            self.current_sampling = state.sampling;
-            self.current_pixel_snap = state.pixel_snap;
+        if let Some(saved) = self.saves.pop() {
+            self.state = saved.state;
+            self.clips.truncate(saved.clip_paths);
         }
         Ok(())
     }
 
     fn transform(&mut self, transform: Transform) -> AureaResult<()> {
-        self.current_transform = transform.multiply(self.current_transform);
+        self.state.transform = transform.multiply(self.state.transform);
         Ok(())
     }
 
     fn clip_rect(&mut self, rect: Rect) -> AureaResult<()> {
         let r = self.s_rect(rect);
-        self.current_clip_rect = Some(match self.current_clip_rect {
-            Some(current) => intersect_rects(current, r),
-            None => r,
-        });
+        self.narrow_clip(r);
         Ok(())
     }
 
     fn clip_path(&mut self, path: &Path) -> AureaResult<()> {
         let physical = self.physical_path(path);
-        let rect = match axis_aligned_rect(&physical) {
-            Some(rect) => rect,
-            None if self.path_clips => {
-                let b = path_bounds(&physical);
-                let (x, y) = (b.x.floor(), b.y.floor());
-                let rect = Rect::new(
-                    x,
-                    y,
-                    (b.x + b.width).ceil() - x,
-                    (b.y + b.height).ceil() - y,
-                );
-                self.clip_paths.push(physical);
-                self.sync_clip_paths();
-                rect
-            }
-            None => {
-                return Err(AureaError::Unsupported {
-                    operation: "clip_path with a non-rectangular path",
-                    platform: Platform::current(),
-                });
-            }
-        };
-
-        self.current_clip_rect = Some(match self.current_clip_rect {
-            Some(current) => intersect_rects(current, rect),
-            None => rect,
-        });
+        if let Some(rect) = axis_aligned_rect(&physical) {
+            self.narrow_clip(rect);
+            return Ok(());
+        }
+        if !self.path_clips {
+            return Err(AureaError::Unsupported {
+                operation: "clip_path with a non-rectangular path",
+                platform: Platform::current(),
+            });
+        }
+        let b = path_bounds(&physical);
+        let (x, y) = (b.x.floor(), b.y.floor());
+        let rect = Rect::new(
+            x,
+            y,
+            (b.x + b.width).ceil() - x,
+            (b.y + b.height).ceil() - y,
+        );
+        self.clips.push(physical);
+        self.narrow_clip(rect);
         Ok(())
     }
 
     fn set_alpha(&mut self, alpha: f32) -> AureaResult<()> {
-        self.current_opacity = alpha;
+        self.state.opacity = alpha;
         Ok(())
     }
 
     fn set_blend_mode(&mut self, mode: BlendMode) -> AureaResult<()> {
-        self.current_blend_mode = mode;
+        self.state.blend_mode = mode;
         Ok(())
     }
 
@@ -1345,17 +877,6 @@ impl DrawingContext for RecordingContext<'_> {
 
     fn hit_test_path(&mut self, path: &Path, point: Point) -> AureaResult<bool> {
         Ok(hit_test_path(path, point))
-    }
-}
-
-/// A backdrop's box and effects, into `hasher`.
-fn hash_backdrop(rect: Rect, effects: &[Effect], hasher: &mut DefaultHasher) {
-    "Backdrop".hash(hasher);
-    for v in [rect.x, rect.y, rect.width, rect.height] {
-        v.to_bits().hash(hasher);
-    }
-    for effect in effects {
-        format!("{effect:?}").hash(hasher);
     }
 }
 
@@ -1396,6 +917,7 @@ mod tests {
     }
 
     use super::*;
+    use crate::scene::display_list::CacheKey;
 
     fn ctx_with(list: &mut DisplayList, scale: f32) -> RecordingContext<'_> {
         let mut ctx = RecordingContext::new(list, 100, 100);
@@ -1564,6 +1086,64 @@ mod tests {
         assert_ne!(items[0].cache_key, items[1].cache_key);
     }
 
+    /// Keys of the items drawn by `record`, which runs against a fresh context at scale 1.
+    fn keys_of(record: impl FnOnce(&mut RecordingContext<'_>) -> AureaResult<()>) -> Vec<CacheKey> {
+        let mut list = DisplayList::new();
+        {
+            let mut ctx = ctx_with(&mut list, 1.0);
+            record(&mut ctx).expect("record");
+        }
+        list.items().iter().map(|item| item.cache_key).collect()
+    }
+
+    #[test]
+    fn a_path_with_another_fill_rule_has_another_key() {
+        let nonzero = polygon_clip(12, 50.0, 50.0, 40.0);
+        let even_odd = Path {
+            fill_rule: FillRule::EvenOdd,
+            ..nonzero.clone()
+        };
+        let keys = keys_of(|ctx| {
+            ctx.draw_path(&nonzero, &Paint::default())?;
+            ctx.draw_path(&even_odd, &Paint::default())
+        });
+        assert_ne!(keys[0], keys[1]);
+    }
+
+    #[test]
+    fn stroke_joins_and_miters_change_round_rect_keys() {
+        let rect = Rect::new(10.0, 10.0, 20.0, 20.0);
+        let miter = Paint::new().style(PaintStyle::Stroke);
+        let round = miter.clone().line_join(LineJoin::Round);
+        let limited = miter.clone().miter_limit(2.0);
+        let keys = keys_of(|ctx| {
+            ctx.draw_round_rect(rect, 4.0, &miter)?;
+            ctx.draw_round_rect(rect, 4.0, &round)?;
+            ctx.draw_round_rect(rect, 4.0, &limited)
+        });
+        assert_ne!(keys[0], keys[1], "joins");
+        assert_ne!(keys[0], keys[2], "miter limits");
+    }
+
+    #[test]
+    fn empty_columns_record_nothing() {
+        let mut list = DisplayList::new();
+        {
+            let mut ctx = ctx_with(&mut list, 1.0);
+            ctx.draw_columns(0.0, 4.0, &[], Color::rgb(0, 0, 0))
+                .expect("columns");
+        }
+        assert!(list.items().is_empty());
+    }
+
+    #[test]
+    fn items_under_one_clip_share_keys_across_recordings() {
+        let clip = polygon_clip(12, 50.0, 50.0, 40.0);
+        let first = clipped_keys(&clip, 2);
+        assert_eq!(first[0], first[1], "same pixels under the same clip");
+        assert_eq!(first, clipped_keys(&clip, 2));
+    }
+
     fn clipped_keys(clip: &Path, rects: usize) -> Vec<CacheKey> {
         let mut list = DisplayList::new();
         {
@@ -1576,14 +1156,6 @@ mod tests {
             }
         }
         list.items().iter().map(|item| item.cache_key).collect()
-    }
-
-    #[test]
-    fn items_under_one_clip_share_keys_across_recordings() {
-        let clip = polygon_clip(12, 50.0, 50.0, 40.0);
-        let first = clipped_keys(&clip, 2);
-        assert_eq!(first[0], first[1], "same pixels under the same clip");
-        assert_eq!(first, clipped_keys(&clip, 2));
     }
 
     #[test]
