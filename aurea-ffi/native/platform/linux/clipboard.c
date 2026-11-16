@@ -1,5 +1,7 @@
 #include "common/clipboard.h"
 #include <gtk/gtk.h>
+#include <stdlib.h>
+#include <string.h>
 
 typedef struct {
     size_t count;
@@ -58,6 +60,7 @@ int ng_linux_clipboard_write(const NGClipboardEntry* entries, size_t count) {
 }
 
 int ng_linux_clipboard_read(const char* format, size_t max_bytes, unsigned char** data, size_t* len) {
+    if (!format || !data || !len) return NG_ERROR_INVALID_PARAMETER;
     if (!gdk_display_get_default()) return NG_ERROR_PLATFORM_SPECIFIC;
     GtkClipboard* clipboard = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
     GtkSelectionData* selection = gtk_clipboard_wait_for_contents(clipboard, gdk_atom_intern(format, FALSE));

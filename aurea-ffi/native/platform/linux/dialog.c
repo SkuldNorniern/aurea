@@ -55,7 +55,7 @@ char* ng_linux_file_dialog(NGHandle window, int kind, const char* title, const c
         : kind == NG_DIALOG_FOLDER ? GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER
         : GTK_FILE_CHOOSER_ACTION_OPEN;
     const char* accept = kind == NG_DIALOG_SAVE ? "_Save" : "_Open";
-    GtkWindow* parent = window ? GTK_WINDOW(window) : NULL;
+    GtkWindow* parent = GTK_IS_WINDOW(window) ? GTK_WINDOW(window) : NULL;
     GtkFileChooserNative* native = gtk_file_chooser_native_new(
         title && *title ? title : NULL, parent, action, accept, "_Cancel");
     GtkFileChooser* chooser = GTK_FILE_CHOOSER(native);
@@ -152,7 +152,7 @@ static int choice_of(gint response, int buttons) {
 }
 
 int ng_linux_message_box(NGHandle window, int kind, const char* title, const char* text, int buttons) {
-    GtkWindow* parent = window ? GTK_WINDOW(window) : NULL;
+    GtkWindow* parent = GTK_IS_WINDOW(window) ? GTK_WINDOW(window) : NULL;
     GtkMessageType type = kind == NG_MESSAGE_ERROR ? GTK_MESSAGE_ERROR
         : kind == NG_MESSAGE_WARNING ? GTK_MESSAGE_WARNING
         : GTK_MESSAGE_INFO;
@@ -174,7 +174,8 @@ static unsigned int channel_of(double v) {
 }
 
 int ng_linux_color_dialog(NGHandle window, const char* title, unsigned int argb_in, int alpha, unsigned int* argb_out) {
-    GtkWindow* parent = window ? GTK_WINDOW(window) : NULL;
+    if (!argb_out) return 0;
+    GtkWindow* parent = GTK_IS_WINDOW(window) ? GTK_WINDOW(window) : NULL;
     GtkWidget* dialog = gtk_color_chooser_dialog_new(title && *title ? title : "Pick a Color", parent);
     gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
     gtk_window_set_destroy_with_parent(GTK_WINDOW(dialog), TRUE);
