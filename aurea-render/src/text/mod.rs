@@ -29,6 +29,78 @@ pub(crate) const MASK_BYTES: usize = 8 << 20;
 pub(crate) const SHAPED_BYTES: usize = 8 << 20;
 pub(crate) const LAYOUT_BYTES: usize = 8 << 20;
 
+/// Byte budgets of the text caches, for the whole process. An app drawing a grid of short lines
+/// can keep them small.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextCacheLimits {
+    /// Shaped runs.
+    pub shape: usize,
+    /// Coverage masks of text runs.
+    pub mask: usize,
+    /// Glyph bitmaps.
+    pub glyph: usize,
+    /// Laid-out paragraphs.
+    pub layout: usize,
+}
+
+impl Default for TextCacheLimits {
+    fn default() -> Self {
+        Self {
+            shape: SHAPED_BYTES,
+            mask: MASK_BYTES,
+            glyph: GLYPH_BYTES,
+            layout: LAYOUT_BYTES,
+        }
+    }
+}
+
+impl TextCacheLimits {
+    fn of(&self, kind: CacheKind) -> Option<usize> {
+        match kind {
+            CacheKind::Shape => Some(self.shape),
+            CacheKind::Mask => Some(self.mask),
+            CacheKind::Glyph => Some(self.glyph),
+            CacheKind::Layout => Some(self.layout),
+            CacheKind::Face => None,
+        }
+    }
+}
+
+static LIMITS: Mutex<Option<TextCacheLimits>> = Mutex::new(None);
+
+/// The text caches' budgets now.
+pub fn text_cache_limits() -> TextCacheLimits {
+    LIMITS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .unwrap_or_default()
+}
+
+/// Sets the text caches' budgets: caches made later take them, and the live ones drop their
+/// oldest entries until they fit.
+pub fn set_text_cache_limits(limits: TextCacheLimits) {
+    *LIMITS.lock().unwrap_or_else(PoisonError::into_inner) = Some(limits);
+    let mut reg = registry();
+    reg.prune();
+    limit_registry(&reg, limits);
+}
+
+fn limit_registry(reg: &Registry, limits: TextCacheLimits) {
+    for entry in &reg.caches {
+        if let (Some(budget), Some(cache)) = (limits.of(entry.kind), entry.cache.upgrade()) {
+            cache
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .set_budget(budget);
+        }
+    }
+}
+
+/// The budget a new cache of `kind` takes, `default` for one the limits do not cover.
+pub(crate) fn budget(kind: CacheKind, default: usize) -> usize {
+    text_cache_limits().of(kind).unwrap_or(default)
+}
+
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -93,6 +165,8 @@ trait Measured {
     fn measure(&self) -> (usize, usize);
     /// Drops every entry.
     fn empty(&mut self);
+    /// A new byte budget, dropping the oldest entries until they fit.
+    fn set_budget(&mut self, budget: usize);
 }
 
 impl<K: Eq + Hash + Clone, V> Measured for LruCache<K, V> {
@@ -102,6 +176,13 @@ impl<K: Eq + Hash + Clone, V> Measured for LruCache<K, V> {
 
     fn empty(&mut self) {
         self.clear();
+    }
+
+    fn set_budget(&mut self, budget: usize) {
+        self.budget = budget;
+        while !self.map.is_empty() && self.bytes > self.budget {
+            self.evict_oldest_batch();
+        }
     }
 }
 
@@ -365,6 +446,62 @@ mod lru_tests {
         cache.insert_sized(2, (), 600);
         assert!(cache.get(&1).is_some(), "the small entry survives");
         assert!(cache.get(&2).is_none());
+    }
+
+    #[test]
+    fn new_limits_shrink_live_caches_of_their_kind() {
+        use super::{
+            CacheKind, KINDS, Measured, Registered, Registry, TextCacheLimits, limit_registry,
+        };
+        use std::sync::{Arc, Mutex, Weak};
+
+        let glyphs = Arc::new(Mutex::new(LruCache::with_budget(512, 10_000)));
+        let faces = Arc::new(Mutex::new(LruCache::with_budget(512, 10_000)));
+        let entry = |kind, cache: &Arc<Mutex<LruCache<u32, ()>>>| {
+            let source = Arc::downgrade(cache);
+            let weak: Weak<Mutex<dyn Measured + Send>> = source;
+            let tally = cache.lock().expect("lock").tally.clone();
+            Registered {
+                kind,
+                tally,
+                cache: weak,
+            }
+        };
+        let reg = Registry {
+            caches: vec![
+                entry(CacheKind::Glyph, &glyphs),
+                entry(CacheKind::Face, &faces),
+            ],
+            retired: [(0, 0); KINDS],
+        };
+        for cache in [&glyphs, &faces] {
+            let mut c = cache.lock().expect("lock");
+            for k in 0..10u32 {
+                c.insert_sized(k, (), 500);
+            }
+        }
+
+        limit_registry(
+            &reg,
+            TextCacheLimits {
+                glyph: 2000,
+                ..TextCacheLimits::default()
+            },
+        );
+
+        let mut g = glyphs.lock().expect("lock");
+        assert!(g.bytes() <= 2000, "glyphs fit the new budget");
+        assert!(g.get(&9).is_some(), "the newest stay");
+        g.insert_sized(10, (), 1500);
+        assert!(
+            g.get(&10).is_none(),
+            "and new ones over half of it are not kept"
+        );
+        assert_eq!(
+            faces.lock().expect("lock").bytes(),
+            5000,
+            "faces have no limit here"
+        );
     }
 
     #[test]

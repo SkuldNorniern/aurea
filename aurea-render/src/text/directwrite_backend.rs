@@ -5,7 +5,7 @@ use super::dwrite::{FontCollection, FontFace, FontFile};
 use super::fonts;
 use super::glyph::{FaceData, FaceId, FontBytes, GlyphKey};
 use super::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph};
-use super::{CacheKind, GLYPH_BYTES, GLYPH_CAP, LruCache, shared};
+use super::{CacheKind, GLYPH_BYTES, GLYPH_CAP, LruCache, budget, shared};
 use aurea_foundation::{AureaError, AureaResult, lock};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -85,7 +85,7 @@ impl DirectWriteRasterizer {
             by_key: Mutex::new(HashMap::new()),
             glyphs: shared(
                 CacheKind::Glyph,
-                LruCache::with_budget(GLYPH_CAP, GLYPH_BYTES),
+                LruCache::with_budget(GLYPH_CAP, budget(CacheKind::Glyph, GLYPH_BYTES)),
             ),
             char_faces: Mutex::new(HashMap::new()),
             file_bytes: Mutex::new(HashMap::new()),

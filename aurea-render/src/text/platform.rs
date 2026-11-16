@@ -8,7 +8,7 @@ use crate::text::layout::{LayoutOptions, TextAlign, TextLayout, WordBreak, layou
 use crate::text::outline::glyph_outline;
 use crate::text::shape::{ShapedGlyph, ShapedText, shape_line};
 use crate::text::{
-    CacheKind, LAYOUT_BYTES, LruCache, MASK_BYTES, SHAPED_BYTES, layout_bytes, shared,
+    CacheKind, LAYOUT_BYTES, LruCache, MASK_BYTES, SHAPED_BYTES, budget, layout_bytes, shared,
 };
 use crate::types::{
     Font, FontFeature, FontMetrics, FontStyle, FontVariation, FontWeight, GlyphMask, TextMetrics,
@@ -294,11 +294,17 @@ impl TextRenderer {
     pub(crate) fn with_rasterizer(rasterizer: Box<dyn PlatformTextRasterizer>) -> Self {
         Self {
             rasterizer,
-            shaped: shared(CacheKind::Shape, LruCache::with_budget(512, SHAPED_BYTES)),
-            masks: shared(CacheKind::Mask, LruCache::with_budget(512, MASK_BYTES)),
+            shaped: shared(
+                CacheKind::Shape,
+                LruCache::with_budget(512, budget(CacheKind::Shape, SHAPED_BYTES)),
+            ),
+            masks: shared(
+                CacheKind::Mask,
+                LruCache::with_budget(512, budget(CacheKind::Mask, MASK_BYTES)),
+            ),
             layouts: shared(
                 CacheKind::Layout,
-                LruCache::with_budget(LAYOUT_CAP, LAYOUT_BYTES),
+                LruCache::with_budget(LAYOUT_CAP, budget(CacheKind::Layout, LAYOUT_BYTES)),
             ),
         }
     }

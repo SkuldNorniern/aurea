@@ -7,7 +7,7 @@ use crate::text::glyph::{FaceData, FaceId, FontBytes, GlyphCoverage, GlyphKey};
 use crate::text::mapped::Mapped;
 use crate::text::outline::outline_coverage;
 use crate::text::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph, variation_hash};
-use crate::text::{CacheKind, GLYPH_BYTES, GLYPH_CAP, LruCache, shared};
+use crate::text::{CacheKind, GLYPH_BYTES, GLYPH_CAP, LruCache, budget, shared};
 use crate::types::{FontStyle, FontVariation, FontWeight};
 use aurea_foundation::{AureaError, AureaResult, lock};
 use std::collections::HashMap;
@@ -453,7 +453,7 @@ impl FontFileRasterizer {
             font_cache: Mutex::new(LruCache::new(32)),
             subpixel_cache: shared(
                 CacheKind::Glyph,
-                LruCache::with_budget(GLYPH_CAP, GLYPH_BYTES),
+                LruCache::with_budget(GLYPH_CAP, budget(CacheKind::Glyph, GLYPH_BYTES)),
             ),
         }
     }
