@@ -300,6 +300,18 @@ impl<Id: WidgetId> Ui<'_, Id> {
         self.state.click_at.is_some()
     }
 
+    /// Where the press holding that part landed, while a pointer holds it.
+    pub fn held_at(&self, id: Id, part: u16) -> Option<Point> {
+        let key = Key::new(id, part);
+        if self.state.active != Some(key) {
+            return None;
+        }
+        self.state
+            .drag_from
+            .filter(|(from, ..)| *from == key)
+            .map(|(_, at, _)| at)
+    }
+
     /// The press that landed on that part this frame, if one did.
     pub fn press(&self, id: Id, part: u16) -> Option<PressAt> {
         let key = Key::new(id, part);

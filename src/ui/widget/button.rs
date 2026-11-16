@@ -1,6 +1,7 @@
 //! A push button: a [`Surface`], an optional [`IconMark`], a [`Label`] and a [`FocusRing`].
 
 use super::Widget;
+use super::look::Look;
 use super::repeat::fires;
 use crate::AureaResult;
 use crate::render::{Color, Font, Rect, glyph_ink_rows, shape_text};
@@ -275,8 +276,33 @@ fn icon_size<Id: WidgetId>(ui: &Ui<'_, Id>) -> f32 {
     (ui.theme.text_size * 1.35).round()
 }
 
-impl<Id: WidgetId> Widget<Id> for Button<'_> {
-    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+/// What a [`Button`] draws, for a painter given to [`Button::show_with`].
+#[derive(Clone, Copy, Debug)]
+pub struct ButtonParts<'t> {
+    /// The label; empty for an icon-only button.
+    pub label: &'t str,
+    /// The icon before the label.
+    pub icon: Option<IconSource<'t>>,
+    /// Drawn held down, for the current tool in a tool strip.
+    pub selected: bool,
+    /// The style it draws with, its tone's unless one was given, selected already applied.
+    pub style: ButtonStyle,
+    /// Where the icon and label sit across it.
+    pub align: Align,
+    /// The icon's size, when one was set.
+    pub icon_size: Option<f32>,
+    /// The label's font, when one was set.
+    pub font: Option<&'t Font>,
+}
+
+impl<'t> Button<'t> {
+    /// Takes the input and works out what it would draw, without drawing.
+    fn run<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+    ) -> (Response, Look<ButtonParts<'t>>) {
         let input = ui.interact(id, self.part, rect, Sense::Click, self.enabled);
         let mut response = Response::new(rect, input);
         if self.repeat || self.on_press {
@@ -299,38 +325,91 @@ impl<Id: WidgetId> Widget<Id> for Button<'_> {
             style.sink = 0.0;
             style.text = StateColors::same(ui.theme.palette.accent);
         }
-        let body = rect.inset(state.press * style.sink);
-        FocusRing::new(ui.theme, style.radius, state.focus).paint(ui, rect)?;
+        let look = Look {
+            rect,
+            state,
+            held_at: ui.held_at(id, self.part),
+            parts: ButtonParts {
+                label: self.label,
+                icon: self.icon,
+                selected: self.selected,
+                style,
+                align: self.align,
+                icon_size: self.icon_size,
+                font: self.font,
+            },
+        };
+        (response, look)
+    }
+
+    /// Takes the input as [`Button::show`] does, then has `paint` draw it instead of its own look.
+    /// [`Look::paint_default`], [`Look::paint_surface`] and [`Look::paint_label`] draw the parts
+    /// of the usual look.
+    pub fn show_with<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<ButtonParts<'t>>) -> AureaResult<()>,
+    ) -> AureaResult<Response> {
+        let (response, look) = self.run(ui, id, rect);
+        paint(ui, &look)?;
+        Ok(response)
+    }
+}
+
+impl Look<ButtonParts<'_>> {
+    /// The rect inside the focus ring that sinks as it is pressed.
+    pub fn body(&self) -> Rect {
+        self.rect.inset(self.state.press * self.parts.style.sink)
+    }
+
+    /// The button's own look: the surface, then the icon and label.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        self.paint_surface(ui)?;
+        self.paint_label(ui)
+    }
+
+    /// The focus ring and the face, with its border.
+    pub fn paint_surface<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let (state, style) = (self.state, &self.parts.style);
+        FocusRing::new(ui.theme, style.radius, state.focus).paint(ui, self.rect)?;
         let mut surface = Surface::new(style.face.at(state)).radius(style.radius);
         if let Some(border) = style.border {
             let shown = border.fade(state.enabled * (1.0 - state.hover));
             surface = surface.border(ui.theme.border_width, shown);
         }
-        surface.paint(ui, body)?;
-        let ink = style.text.at(state);
+        surface.paint(ui, self.body())
+    }
+
+    /// The icon and label in the style's text colour.
+    pub fn paint_label<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let parts = &self.parts;
+        let style = &parts.style;
+        let body = self.body();
+        let ink = style.text.at(self.state);
         let inner = body.inset_xy(style.padding * 0.5, 0.0);
-        let Some(icon) = self.icon else {
-            let nudge = symbol_nudge(ui, self.label, self.font, style.text_size);
-            self.label(&style, ink).paint(
+        let Some(icon) = parts.icon else {
+            let nudge = symbol_nudge(ui, parts.label, parts.font, style.text_size);
+            return parts.label(ink).paint(
                 ui,
                 Rect::new(inner.x, inner.y + nudge, inner.width, inner.height),
-            )?;
-            return Ok(response);
+            );
         };
-        let size = self
+        let size = parts
             .icon_size
             .unwrap_or_else(|| icon_size(ui))
             .min(body.height - 4.0)
             .max(0.0);
-        let label_w = if self.label.is_empty() {
+        let label_w = if parts.label.is_empty() {
             0.0
         } else {
-            self.label(&style, ink).width(ui) + style.padding * 0.5
+            parts.label(ink).width(ui) + style.padding * 0.5
         };
         let edge = style.padding * 0.5;
         let spare = body.width - size - label_w;
         let x = body.x
-            + match self.align {
+            + match parts.align {
                 Align::Start => edge,
                 Align::Center => (spare / 2.0).max(edge),
                 Align::End => (spare - edge).max(edge),
@@ -345,11 +424,27 @@ impl<Id: WidgetId> Widget<Id> for Button<'_> {
                 (body.x + body.width - start).max(0.0),
                 body.height,
             );
-            self.label(&style, ink)
-                .align(Align::Start)
-                .paint(ui, text)?;
+            parts.label(ink).align(Align::Start).paint(ui, text)?;
         }
-        Ok(response)
+        Ok(())
+    }
+}
+
+impl<'t> ButtonParts<'t> {
+    fn label(&self, color: Color) -> Label<'t> {
+        let label = Label::new(self.label, color)
+            .size(self.style.text_size)
+            .align(self.align);
+        match self.font {
+            Some(font) => label.font(font),
+            None => label,
+        }
+    }
+}
+
+impl<Id: WidgetId> Widget<Id> for Button<'_> {
+    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
     }
 }
 
@@ -496,6 +591,37 @@ mod tests {
             )
         });
         assert_eq!(big - small, 20.0);
+    }
+
+    #[test]
+    fn show_with_draws_the_apps_look_and_knows_where_the_press_landed() {
+        let mut rig = Rig::new(120, 40);
+        let at = Rect::new(0.0, 0.0, 120.0, 40.0);
+        let show = |rig: &mut Rig| {
+            rig.frame(|ui| {
+                let mut seen = None;
+                Button::new("Add")
+                    .show_with(ui, 1, at, |ui, look| {
+                        seen = Some(look.held_at);
+                        ui.fill(look.rect, Color::rgb(0, 200, 0))
+                    })
+                    .expect("draw");
+                seen.expect("painted")
+            })
+        };
+        assert_eq!(show(&mut rig), None);
+        assert_eq!(
+            rig.pixel(60, 20),
+            [0, 200, 0, 255],
+            "the app's look, not the default"
+        );
+        rig.at(30, 12);
+        show(&mut rig);
+        rig.button(30, 12, true);
+        let held = show(&mut rig).expect("held");
+        assert_eq!((held.x, held.y), (30.0, 12.0));
+        rig.button(30, 12, false);
+        assert_eq!(show(&mut rig), None, "let go");
     }
 
     #[test]
