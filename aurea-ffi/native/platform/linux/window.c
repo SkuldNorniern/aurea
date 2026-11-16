@@ -18,18 +18,44 @@
 #include <gdk/gdkwayland.h>
 #endif
 
-static gboolean g_lifecycle_callbacks[256] = {0};
-static GtkWidget* g_lifecycle_windows[256] = {0};
-static int g_lifecycle_callback_count = 0;
+/* What a gesture of the pointer has built up so far on a window. */
+typedef struct {
+    unsigned int held;
+    guint last_button;
+    guint32 last_time;
+    double last_x;
+    double last_y;
+    int count;
+} NgLinuxPointer;
+
+/* What Aurea keeps for one of its GTK windows; freed with the window. */
+typedef struct {
+    ScaleFactorCallback on_scale;
+    /* Rust hears this window's lifecycle events. */
+    gboolean lifecycle;
+    /* The frame's place and size as last reported. */
+    int x, y, width, height;
+    int grab_mode;
+    /* Where the pointer last was, for relative motion while grabbed. */
+    gboolean mouse_known;
+    double mouse_x, mouse_y;
+    /* A key a menu shortcut took, so its release is swallowed too. */
+    guint menu_took_key;
+    NgLinuxPointer pointer;
+} NgLinuxWindow;
+
+static NgLinuxWindow* ng_linux_window_state(GtkWidget* window) {
+    NgLinuxWindow* w = g_object_get_data(G_OBJECT(window), "aurea-window");
+    if (!w) {
+        w = g_new0(NgLinuxWindow, 1);
+        g_object_set_data_full(G_OBJECT(window), "aurea-window", w, g_free);
+    }
+    return w;
+}
 
 /* Tells Rust about `widget`'s lifecycle `code`, if it listens for them. */
 static void ng_linux_lifecycle(GtkWidget* widget, unsigned int code) {
-    for (int i = 0; i < g_lifecycle_callback_count; i++) {
-        if (g_lifecycle_windows[i] == widget) {
-            if (g_lifecycle_callbacks[i]) ng_invoke_lifecycle_callback((void*)widget, code);
-            return;
-        }
-    }
+    if (ng_linux_window_state(widget)->lifecycle) ng_invoke_lifecycle_callback((void*)widget, code);
 }
 
 static const char* AUREA_MAIN_VBOX_KEY = "aurea-main-vbox";
@@ -59,6 +85,7 @@ static gboolean on_button_release(GtkWidget* widget, GdkEventButton* event, gpoi
 static gboolean on_motion_notify(GtkWidget* widget, GdkEventMotion* event, gpointer user_data);
 static gboolean on_scroll(GtkWidget* widget, GdkEventScroll* event, gpointer user_data);
 static void ng_linux_connect_gestures(GtkWidget* window);
+static gboolean on_configure_event(GtkWidget* widget, GdkEventConfigure* event, gpointer user_data);
 static gboolean on_focus_in(GtkWidget* widget, GdkEventFocus* event, gpointer user_data);
 static gboolean on_focus_out(GtkWidget* widget, GdkEventFocus* event, gpointer user_data);
 static gboolean on_enter(GtkWidget* widget, GdkEventCrossing* event, gpointer user_data);
@@ -242,6 +269,7 @@ NGHandle ng_linux_create_window(const char* title, int width, int height) {
     g_signal_connect(G_OBJECT(window), "delete-event", G_CALLBACK(on_delete_event), NULL);
     g_signal_connect(G_OBJECT(window), "window-state-event", G_CALLBACK(on_window_state_event), NULL);
     g_signal_connect(G_OBJECT(window), "configure-event", G_CALLBACK(on_placement_configure), NULL);
+    g_signal_connect(G_OBJECT(window), "configure-event", G_CALLBACK(on_configure_event), NULL);
     ng_linux_connect_gestures(window);
 
     GtkWidget* main_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -292,29 +320,6 @@ float ng_linux_get_scale_factor(NGHandle window) {
     return 1.0f;
 }
 
-static struct {
-    GtkWidget* window;
-    ScaleFactorCallback callback;
-} g_scale_callbacks[256] = {0};
-static int g_scale_callback_count = 0;
-
-static int g_last_x[256] = {0};
-static int g_last_y[256] = {0};
-static int g_last_w[256] = {0};
-static int g_last_h[256] = {0};
-static int g_cursor_grab_mode[256] = {0};
-static double g_last_mouse_x[256] = {0.0};
-static double g_last_mouse_y[256] = {0.0};
-static int g_last_mouse_valid[256] = {0};
-
-static int ng_linux_find_window_index(GtkWidget* widget) {
-    for (int i = 0; i < g_lifecycle_callback_count; i++) {
-        if (g_lifecycle_windows[i] == widget) {
-            return i;
-        }
-    }
-    return -1;
-}
 
 static unsigned int ng_linux_modifiers(GdkModifierType state) {
     unsigned int mods = 0;
@@ -452,7 +457,7 @@ static gboolean on_key_press(GtkWidget* widget, GdkEventKey* event, gpointer use
 
     if (!ng_linux_ime_composing(widget)) {
         if (ng_linux_handle_menu_shortcut((void*)widget, keycode, mods)) {
-            g_object_set_data(G_OBJECT(widget), "aurea-menu-took-key", GUINT_TO_POINTER(event->keyval));
+            ng_linux_window_state(widget)->menu_took_key = event->keyval;
             return TRUE;
         }
         ng_invoke_key_event((void*)widget, keycode, 1, mods);
@@ -472,9 +477,9 @@ static gboolean on_key_press(GtkWidget* widget, GdkEventKey* event, gpointer use
 
 static gboolean on_key_release(GtkWidget* widget, GdkEventKey* event, gpointer user_data) {
     (void)user_data;
-    guint took = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(widget), "aurea-menu-took-key"));
-    if (took != 0 && took == event->keyval) {
-        g_object_set_data(G_OBJECT(widget), "aurea-menu-took-key", NULL);
+    NgLinuxWindow* w = ng_linux_window_state(widget);
+    if (w->menu_took_key != 0 && w->menu_took_key == event->keyval) {
+        w->menu_took_key = 0;
         return TRUE;
     }
     unsigned int mods = ng_linux_modifiers(event->state);
@@ -489,22 +494,8 @@ static gboolean on_key_release(GtkWidget* widget, GdkEventKey* event, gpointer u
     return FALSE;
 }
 
-typedef struct {
-    unsigned int held;
-    guint last_button;
-    guint32 last_time;
-    double last_x;
-    double last_y;
-    int count;
-} NgLinuxPointer;
-
 static NgLinuxPointer* ng_linux_pointer(GtkWidget* window) {
-    NgLinuxPointer* pointer = g_object_get_data(G_OBJECT(window), "aurea-pointer");
-    if (!pointer) {
-        pointer = g_new0(NgLinuxPointer, 1);
-        g_object_set_data_full(G_OBJECT(window), "aurea-pointer", pointer, g_free);
-    }
-    return pointer;
+    return &ng_linux_window_state(window)->pointer;
 }
 
 static gboolean ng_linux_already_seen(GdkEvent* event) {
@@ -675,19 +666,14 @@ static gboolean on_motion_notify(GtkWidget* widget, GdkEventMotion* event, gpoin
     report_pen(widget, (GdkEvent*)event, x, y, event->state,
                (event->state & GDK_BUTTON1_MASK) ? PEN_MOVE : PEN_HOVER);
 
-    int index = ng_linux_find_window_index(widget);
-    if (index >= 0 && g_cursor_grab_mode[index] == 2) {
-        if (!g_last_mouse_valid[index]) {
-            g_last_mouse_x[index] = event->x;
-            g_last_mouse_y[index] = event->y;
-            g_last_mouse_valid[index] = 1;
-        } else {
-            double dx = event->x - g_last_mouse_x[index];
-            double dy = event->y - g_last_mouse_y[index];
-            g_last_mouse_x[index] = event->x;
-            g_last_mouse_y[index] = event->y;
-            ng_invoke_raw_mouse_motion((void*)widget, dx, dy);
+    NgLinuxWindow* w = ng_linux_window_state(widget);
+    if (w->grab_mode == 2) {
+        if (w->mouse_known) {
+            ng_invoke_raw_mouse_motion((void*)widget, event->x - w->mouse_x, event->y - w->mouse_y);
         }
+        w->mouse_known = TRUE;
+        w->mouse_x = event->x;
+        w->mouse_y = event->y;
     }
     return FALSE;
 }
@@ -784,56 +770,29 @@ static gboolean on_leave(GtkWidget* widget, GdkEventCrossing* event, gpointer us
 
 static gboolean on_configure_event(GtkWidget* widget, GdkEventConfigure* event, gpointer user_data) {
     (void)user_data;
+    NgLinuxWindow* w = ng_linux_window_state(widget);
     GdkWindow* gdkWindow = gtk_widget_get_window(widget);
-    if (gdkWindow) {
-        gint scale = gdk_window_get_scale_factor(gdkWindow);
-        float scale_factor = (float)scale;
-        
-        for (int i = 0; i < g_scale_callback_count; i++) {
-            if (g_scale_callbacks[i].window == widget && g_scale_callbacks[i].callback) {
-                g_scale_callbacks[i].callback((void*)widget, scale_factor);
-                break;
-            }
-        }
+    if (gdkWindow && w->on_scale) {
+        w->on_scale((void*)widget, (float)gdk_window_get_scale_factor(gdkWindow));
     }
-    for (int i = 0; i < g_lifecycle_callback_count; i++) {
-        if (g_lifecycle_windows[i] == widget && g_lifecycle_callbacks[i]) {
-            if (g_last_x[i] != event->x || g_last_y[i] != event->y) {
-                g_last_x[i] = event->x;
-                g_last_y[i] = event->y;
-                ng_invoke_lifecycle_callback((void*)widget, 11);
-            }
-            if (g_last_w[i] != event->width || g_last_h[i] != event->height) {
-                g_last_w[i] = event->width;
-                g_last_h[i] = event->height;
-                ng_invoke_lifecycle_callback((void*)widget, 12);
-            }
-            break;
-        }
+    if (!w->lifecycle) return FALSE;
+    if (w->x != event->x || w->y != event->y) {
+        w->x = event->x;
+        w->y = event->y;
+        ng_invoke_lifecycle_callback((void*)widget, 11);
+    }
+    if (w->width != event->width || w->height != event->height) {
+        w->width = event->width;
+        w->height = event->height;
+        ng_invoke_lifecycle_callback((void*)widget, 12);
     }
     return FALSE;
 }
 
 void ng_linux_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallback callback) {
     if (!window) return;
-    GtkWidget* widget = (GtkWidget*)window;
-    
-    int found = -1;
-    for (int i = 0; i < g_scale_callback_count; i++) {
-        if (g_scale_callbacks[i].window == widget) {
-            found = i;
-            break;
-        }
-    }
-    
-    if (found >= 0) {
-        g_scale_callbacks[found].callback = callback;
-    } else if (g_scale_callback_count < 256) {
-        g_scale_callbacks[g_scale_callback_count].window = widget;
-        g_scale_callbacks[g_scale_callback_count].callback = callback;
-        g_signal_connect(G_OBJECT(widget), "configure-event", G_CALLBACK(on_configure_event), NULL);
-        g_scale_callback_count++;
-    }
+    NgLinuxWindow* w = ng_linux_window_state((GtkWidget*)window);
+    w->on_scale = callback;
 }
 
 void ng_linux_destroy_window(NGHandle handle) {
@@ -934,21 +893,11 @@ int ng_linux_set_window_content(NGHandle window_handle, NGHandle content_handle)
 void ng_linux_window_set_lifecycle_callback(NGHandle window) {
     if (!window) return;
     GtkWidget* widget = (GtkWidget*)window;
-    
-    int found = ng_linux_find_window_index(widget);
-
-    if (found >= 0) {
-        g_lifecycle_callbacks[found] = TRUE;
-    } else if (g_lifecycle_callback_count < 256) {
-        int index = g_lifecycle_callback_count;
-        g_lifecycle_windows[index] = widget;
-        g_lifecycle_callbacks[index] = TRUE;
-        gtk_window_get_position(GTK_WINDOW(widget), &g_last_x[index], &g_last_y[index]);
-        gtk_window_get_size(GTK_WINDOW(widget), &g_last_w[index], &g_last_h[index]);
-        g_cursor_grab_mode[index] = 0;
-        g_last_mouse_valid[index] = 0;
-        g_lifecycle_callback_count++;
-    }
+    NgLinuxWindow* w = ng_linux_window_state(widget);
+    if (w->lifecycle) return;
+    w->lifecycle = TRUE;
+    gtk_window_get_position(GTK_WINDOW(widget), &w->x, &w->y);
+    gtk_window_get_size(GTK_WINDOW(widget), &w->width, &w->height);
 }
 
 NGHandle ng_linux_window_get_content_view(NGHandle window) {
@@ -1225,11 +1174,9 @@ int ng_linux_window_set_cursor_grab(NGHandle window, int mode) {
     GdkWindow* gdkWindow = gtk_widget_get_window(widget);
     if (!gdkWindow) return NG_ERROR_INVALID_HANDLE;
 
-    int index = ng_linux_find_window_index(widget);
-    if (index >= 0) {
-        g_cursor_grab_mode[index] = mode;
-        g_last_mouse_valid[index] = 0;
-    }
+    NgLinuxWindow* w = ng_linux_window_state(widget);
+    w->grab_mode = mode;
+    w->mouse_known = FALSE;
 
     GdkDisplay* display = gdk_window_get_display(gdkWindow);
     if (!display) return NG_ERROR_PLATFORM_SPECIFIC;
