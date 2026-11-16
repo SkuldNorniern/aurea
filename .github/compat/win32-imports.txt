@@ -263,10 +263,9 @@ VariantInit
 WaitForMultipleObjects
 wcscat_s
 wcscmp
-wcscpy
 wcscpy_s
 wcslen
 wcsncmp
-wcsncpy
+wcsncpy_s
 WideCharToMultiByte
 WindowFromPoint

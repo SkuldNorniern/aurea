@@ -149,9 +149,9 @@ static char* legacy_file(HWND owner, int kind, const char* title, Filter* list, 
     for (int i = 0; i < count; i++) filter_len += wcslen(list[i].name) + wcslen(list[i].spec) + 2;
     wchar_t* filter = count ? (wchar_t*)calloc(filter_len, sizeof(wchar_t)) : NULL;
     for (int i = 0, at = 0; filter && i < count; i++) {
-        wcscpy(filter + at, list[i].name);
+        wcscpy_s(filter + at, filter_len - at, list[i].name);
         at += (int)wcslen(list[i].name) + 1;
-        wcscpy(filter + at, list[i].spec);
+        wcscpy_s(filter + at, filter_len - at, list[i].spec);
         at += (int)wcslen(list[i].spec) + 1;
     }
     wchar_t* buffer = (wchar_t*)calloc(LEGACY_BUFFER, sizeof(wchar_t));
@@ -160,13 +160,13 @@ static char* legacy_file(HWND owner, int kind, const char* title, Filter* list, 
     wchar_t* wide_title = title && *title ? ng_windows_utf8_to_wide(title) : NULL;
     wchar_t ext[32] = {0};
     if (count && wcsncmp(list[0].spec, L"*.", 2) == 0 && wcscmp(list[0].spec, L"*.*") != 0) {
-        wcsncpy(ext, list[0].spec + 2, 31);
+        wcsncpy_s(ext, ARRAYSIZE(ext), list[0].spec + 2, _TRUNCATE);
         wchar_t* semi = wcschr(ext, L';');
         if (semi) *semi = L'\0';
     }
     char* out = NULL;
     if (buffer) {
-        if (name) wcsncpy(buffer, name, LEGACY_BUFFER - 1);
+        if (name) wcsncpy_s(buffer, LEGACY_BUFFER, name, _TRUNCATE);
         OPENFILENAMEW ofn = {0};
         ofn.lStructSize = sizeof(ofn);
         ofn.hwndOwner = owner;
@@ -287,7 +287,7 @@ char* ng_windows_file_dialog(NGHandle window, int kind, const char* title, const
             const wchar_t* ext = list[0].spec;
             if (kind == NG_DIALOG_SAVE && wcsncmp(ext, L"*.", 2) == 0 && wcscmp(ext, L"*.*") != 0) {
                 wchar_t first[32] = {0};
-                wcsncpy(first, ext + 2, 31);
+                wcsncpy_s(first, ARRAYSIZE(first), ext + 2, _TRUNCATE);
                 wchar_t* semi = wcschr(first, L';');
                 if (semi) *semi = L'\0';
                 IFileDialog_SetDefaultExtension(dialog, first);

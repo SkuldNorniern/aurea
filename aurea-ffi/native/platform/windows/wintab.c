@@ -126,7 +126,7 @@ static HMODULE ng_windows_wintab_load(void) {
     UINT room = MAX_PATH - (UINT)(sizeof(name) / sizeof(name[0]));
     UINT len = GetSystemDirectoryW(path, room);
     if (len == 0 || len >= room) return NULL;
-    wcscpy(path + len, name);
+    wcscpy_s(path + len, MAX_PATH - len, name);
     return LoadLibraryW(path);
 }
 

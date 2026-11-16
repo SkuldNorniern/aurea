@@ -39,7 +39,7 @@ static void tray_fill(Tray* tray, NOTIFYICONDATAW* data, UINT flags) {
     data->uFlags = flags;
     data->uCallbackMessage = TRAY_MESSAGE;
     data->hIcon = tray->icon ? tray->icon : LoadIcon(NULL, IDI_APPLICATION);
-    wcsncpy(data->szTip, tray->tip, sizeof(data->szTip) / sizeof(wchar_t) - 1);
+    wcsncpy_s(data->szTip, ARRAYSIZE(data->szTip), tray->tip, _TRUNCATE);
 }
 
 static int tray_add(Tray* tray) {
@@ -129,8 +129,7 @@ static void tray_set_tip(Tray* tray, const char* tooltip) {
     if (!tooltip) return;
     wchar_t* wide = ng_windows_utf8_to_wide(tooltip);
     if (!wide) return;
-    wcsncpy(tray->tip, wide, sizeof(tray->tip) / sizeof(wchar_t) - 1);
-    tray->tip[sizeof(tray->tip) / sizeof(wchar_t) - 1] = L'\0';
+    wcsncpy_s(tray->tip, ARRAYSIZE(tray->tip), wide, _TRUNCATE);
     free(wide);
 }
 
@@ -227,11 +226,11 @@ int ng_windows_tray_notify(NGHandle handle, const char* title, const char* body)
     wchar_t* wide_title = ng_windows_utf8_to_wide(title ? title : "");
     wchar_t* wide_body = ng_windows_utf8_to_wide(body ? body : "");
     if (wide_title) {
-        wcsncpy(data.szInfoTitle, wide_title, sizeof(data.szInfoTitle) / sizeof(wchar_t) - 1);
+        wcsncpy_s(data.szInfoTitle, ARRAYSIZE(data.szInfoTitle), wide_title, _TRUNCATE);
         free(wide_title);
     }
     if (wide_body) {
-        wcsncpy(data.szInfo, wide_body, sizeof(data.szInfo) / sizeof(wchar_t) - 1);
+        wcsncpy_s(data.szInfo, ARRAYSIZE(data.szInfo), wide_body, _TRUNCATE);
         free(wide_body);
     }
     return Shell_NotifyIconW(NIM_MODIFY, &data) ? NG_SUCCESS : NG_ERROR_PLATFORM_SPECIFIC;
