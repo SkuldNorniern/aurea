@@ -5,6 +5,7 @@
 #include "common/clipboard.h"
 #include "elements/common.h"
 #include "utils.h"
+#include "window_state.h"
 #include "common/errors.h"
 #include "common/rust_callbacks.h"
 #include <windows.h>
@@ -13,8 +14,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static const char* AUREA_WINDOW_SMALL_ICON_PROPERTY = "AureaWindowSmallIcon";
-static const char* AUREA_WINDOW_ICON_PROPERTY = "AureaWindowIcon";
 
 #define LOG_ERROR(fmt, ...) do { \
     char buf[512]; \
@@ -45,8 +44,6 @@ static const char* AUREA_WINDOW_ICON_PROPERTY = "AureaWindowIcon";
     sprintf_s(buf, sizeof(buf), fmt, __VA_ARGS__); \
     ng_log_trace(buf); \
 } while(0)
-
-#define AUREA_CURSOR_GRAB_PROP "AureaCursorGrabMode"
 
 static void ng_windows_set_client_size(HWND hwnd, int width, int height, UINT flags) {
     RECT outer;
@@ -255,8 +252,10 @@ void ng_windows_window_set_lifecycle_callback(NGHandle window) {
 void ng_windows_destroy_window(NGHandle handle) {
     if (!handle) return;
     HWND hwnd = (HWND)handle;
-    HICON icon = (HICON)RemovePropA(hwnd, AUREA_WINDOW_ICON_PROPERTY);
-    HICON small_icon = (HICON)RemovePropA(hwnd, AUREA_WINDOW_SMALL_ICON_PROPERTY);
+    NGWindow* w = ng_windows_window_state(hwnd);
+    HICON icon = w ? w->icon : NULL;
+    HICON small_icon = w ? w->small_icon : NULL;
+    if (w) w->icon = w->small_icon = NULL;
     SendMessageA(hwnd, WM_SETICON, ICON_BIG, 0);
     SendMessageA(hwnd, WM_SETICON, ICON_SMALL, 0);
     if (icon) DestroyIcon(icon);
@@ -281,7 +280,6 @@ int ng_windows_detach_element(NGHandle element) {
     return NG_SUCCESS;
 }
 
-#define AUREA_MAXIMIZE_ON_SHOW_PROP "AureaMaximizeOnShow"
 
 /* How far workspace coordinates sit from screen ones on `monitor`. */
 static POINT ng_windows_workspace_offset(HWND hwnd, HMONITOR monitor) {
@@ -333,7 +331,8 @@ int ng_windows_window_get_placement(NGHandle window, int* rect) {
     rect[3] = r.bottom - r.top;
     BOOL minimized = IsIconic(hwnd);
     BOOL maximized = minimized ? (wp.flags & WPF_RESTORETOMAXIMIZED) != 0 : IsZoomed(hwnd);
-    if (!IsWindowVisible(hwnd) && GetPropA(hwnd, AUREA_MAXIMIZE_ON_SHOW_PROP)) maximized = TRUE;
+    NGWindow* w = ng_windows_window_state(hwnd);
+    if (!IsWindowVisible(hwnd) && w && w->maximize_on_show) maximized = TRUE;
     return (maximized ? 1 : 0) | (minimized ? 2 : 0);
 }
 
@@ -353,11 +352,8 @@ int ng_windows_window_set_placement(NGHandle window, const int* rect, int maximi
     wp.showCmd = !visible ? SW_HIDE : maximized ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
     /* Windows moves a rect that would be off every screen back onto one */
     if (!SetWindowPlacement(hwnd, &wp)) return NG_ERROR_PLATFORM_SPECIFIC;
-    if (visible || !maximized) {
-        RemovePropA(hwnd, AUREA_MAXIMIZE_ON_SHOW_PROP);
-    } else {
-        SetPropA(hwnd, AUREA_MAXIMIZE_ON_SHOW_PROP, (HANDLE)1);
-    }
+    NGWindow* w = ng_windows_window_state(hwnd);
+    if (w) w->maximize_on_show = !visible && maximized;
     return NG_SUCCESS;
 }
 
@@ -372,7 +368,9 @@ void ng_windows_window_focus(NGHandle window) {
 void ng_windows_window_show(NGHandle window) {
     if (!window) return;
     HWND hwnd = (HWND)window;
-    if (RemovePropA(hwnd, AUREA_MAXIMIZE_ON_SHOW_PROP)) {
+    NGWindow* w = ng_windows_window_state(hwnd);
+    if (w && w->maximize_on_show) {
+        w->maximize_on_show = FALSE;
         ShowWindow(hwnd, SW_SHOWMAXIMIZED);
     } else {
         ShowWindow(hwnd, IsIconic(hwnd) ? SW_RESTORE : SW_SHOW);
@@ -415,7 +413,8 @@ int ng_windows_set_window_content(NGHandle window_handle, NGHandle content_handl
     LONG_PTR style = GetWindowLongPtrA(content, GWL_STYLE);
     SetWindowLongPtrA(content, GWL_STYLE, style | WS_CHILD | WS_VISIBLE);
 
-    SetPropA(window, "AureaContentHWND", (HANDLE)content);
+    NGWindow* state = ng_windows_window_state(window);
+    if (state) state->content = content;
 
     DrawMenuBar(window);
 
@@ -564,14 +563,13 @@ int ng_windows_window_set_icon_rgba(
     if (!icon) return NG_ERROR_PLATFORM_SPECIFIC;
 
     HWND hwnd = (HWND)window;
-    HICON previous = (HICON)RemovePropA(hwnd, AUREA_WINDOW_ICON_PROPERTY);
-    if (!SetPropA(hwnd, AUREA_WINDOW_ICON_PROPERTY, (HANDLE)icon)) {
+    NGWindow* w = ng_windows_window_state(hwnd);
+    if (!w) {
         DestroyIcon(icon);
-        if (previous) {
-            SetPropA(hwnd, AUREA_WINDOW_ICON_PROPERTY, (HANDLE)previous);
-        }
-        return NG_ERROR_PLATFORM_SPECIFIC;
+        return NG_ERROR_INVALID_HANDLE;
     }
+    HICON previous = w->icon;
+    w->icon = icon;
     SendMessageA(hwnd, WM_SETICON, ICON_BIG, (LPARAM)icon);
     SendMessageA(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)icon);
     if (previous) DestroyIcon(previous);
@@ -592,12 +590,13 @@ int ng_windows_window_set_small_icon_rgba(
     HICON icon = ng_windows_icon_from_rgba(rgba, width, height);
     if (!icon) return NG_ERROR_PLATFORM_SPECIFIC;
     HWND hwnd = (HWND)window;
-    HICON previous = (HICON)RemovePropA(hwnd, AUREA_WINDOW_SMALL_ICON_PROPERTY);
-    if (!SetPropA(hwnd, AUREA_WINDOW_SMALL_ICON_PROPERTY, (HANDLE)icon)) {
+    NGWindow* w = ng_windows_window_state(hwnd);
+    if (!w) {
         DestroyIcon(icon);
-        if (previous) SetPropA(hwnd, AUREA_WINDOW_SMALL_ICON_PROPERTY, (HANDLE)previous);
-        return NG_ERROR_PLATFORM_SPECIFIC;
+        return NG_ERROR_INVALID_HANDLE;
     }
+    HICON previous = w->small_icon;
+    w->small_icon = icon;
     SendMessageA(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)icon);
     if (previous) DestroyIcon(previous);
     return NG_SUCCESS;
@@ -605,25 +604,16 @@ int ng_windows_window_set_small_icon_rgba(
 
 int ng_windows_window_set_hide_on_close(NGHandle window, int hide) {
     if (!window) return NG_ERROR_INVALID_PARAMETER;
-    HWND hwnd = (HWND)window;
-    if (hide) {
-        if (!SetPropA(hwnd, AUREA_HIDE_ON_CLOSE_PROPERTY, (HANDLE)1)) {
-            return NG_ERROR_PLATFORM_SPECIFIC;
-        }
-    } else {
-        RemovePropA(hwnd, AUREA_HIDE_ON_CLOSE_PROPERTY);
-    }
+    NGWindow* w = ng_windows_window_state((HWND)window);
+    if (!w) return NG_ERROR_INVALID_HANDLE;
+    w->hide_on_close = hide != 0;
     return NG_SUCCESS;
 }
 
 void ng_windows_window_set_close_guard(NGHandle window, int guarded) {
     if (!window) return;
-    HWND hwnd = (HWND)window;
-    if (guarded) {
-        SetPropA(hwnd, AUREA_CLOSE_GUARD_PROPERTY, (HANDLE)1);
-    } else {
-        RemovePropA(hwnd, AUREA_CLOSE_GUARD_PROPERTY);
-    }
+    NGWindow* w = ng_windows_window_state((HWND)window);
+    if (w) w->close_guard = guarded != 0;
 }
 
 void ng_windows_window_set_size(NGHandle window, int width, int height) {
@@ -635,8 +625,10 @@ int ng_windows_window_set_min_size(NGHandle window, int width, int height) {
     HWND hwnd = (HWND)window;
     if (!hwnd || !IsWindow(hwnd)) return NG_ERROR_INVALID_HANDLE;
     if (width < 0 || height < 0) return NG_ERROR_INVALID_PARAMETER;
-    SetPropA(hwnd, AUREA_MIN_CLIENT_W_PROP, (HANDLE)(INT_PTR)(width ? width + 1 : 0));
-    SetPropA(hwnd, AUREA_MIN_CLIENT_H_PROP, (HANDLE)(INT_PTR)(height ? height + 1 : 0));
+    NGWindow* w = ng_windows_window_state(hwnd);
+    if (!w) return NG_ERROR_INVALID_HANDLE;
+    w->min_client_w = width;
+    w->min_client_h = height;
     int current_w = 0, current_h = 0;
     ng_windows_window_get_size(window, &current_w, &current_h);
     if (current_w < width || current_h < height) {
@@ -702,27 +694,21 @@ int ng_windows_window_set_cursor_visible(NGHandle window, int visible) {
     return NG_SUCCESS;
 }
 
-#define AUREA_CURSOR_ICON_PROP "AureaCursorIcon"
-#define AUREA_CUSTOM_CURSOR_PROP "AureaCustomCursor"
-
 void* ng_windows_window_cursor(NGHandle window) {
-    HANDLE cursor = window ? GetPropA((HWND)window, AUREA_CURSOR_ICON_PROP) : NULL;
-    return cursor ? (void*)cursor : (void*)LoadCursor(NULL, IDC_ARROW);
+    NGWindow* w = ng_windows_window_state((HWND)window);
+    return w && w->cursor ? (void*)w->cursor : (void*)LoadCursor(NULL, IDC_ARROW);
 }
 
 static int install_cursor(HWND hwnd, HCURSOR cursor, BOOL owned) {
     if (!cursor) return NG_ERROR_PLATFORM_SPECIFIC;
-    HCURSOR previous = (HCURSOR)GetPropA(hwnd, AUREA_CUSTOM_CURSOR_PROP);
-    if (!SetPropA(hwnd, AUREA_CURSOR_ICON_PROP, (HANDLE)cursor)) {
+    NGWindow* w = ng_windows_window_state(hwnd);
+    if (!w) {
         if (owned) DestroyCursor(cursor);
-        return NG_ERROR_PLATFORM_SPECIFIC;
+        return NG_ERROR_INVALID_HANDLE;
     }
-    if (owned && !SetPropA(hwnd, AUREA_CUSTOM_CURSOR_PROP, (HANDLE)cursor)) {
-        SetPropA(hwnd, AUREA_CURSOR_ICON_PROP, (HANDLE)(previous ? previous : LoadCursor(NULL, IDC_ARROW)));
-        DestroyCursor(cursor);
-        return NG_ERROR_PLATFORM_SPECIFIC;
-    }
-    if (!owned) RemovePropA(hwnd, AUREA_CUSTOM_CURSOR_PROP);
+    HCURSOR previous = w->owned_cursor;
+    w->cursor = cursor;
+    w->owned_cursor = owned ? cursor : NULL;
     POINT pt;
     RECT client;
     if (GetCursorPos(&pt) && GetClientRect(hwnd, &client)) {
@@ -801,7 +787,8 @@ static void ng_windows_give_up_grab(HWND hwnd) {
 }
 
 static void ng_windows_take_grab(HWND hwnd) {
-    INT_PTR mode = (INT_PTR)GetPropA(hwnd, AUREA_CURSOR_GRAB_PROP);
+    NGWindow* w = ng_windows_window_state(hwnd);
+    int mode = w ? w->grab_mode : 0;
     if (mode == 0 || IsIconic(hwnd)) return;
     if (g_grab_holder && g_grab_holder != hwnd) ng_windows_give_up_grab(g_grab_holder);
     ng_windows_clip_to_content(hwnd);
@@ -835,13 +822,17 @@ void ng_windows_cursor_grab_refresh(void* window) {
 void ng_windows_release_window_input(void* window) {
     HWND hwnd = (HWND)window;
     ng_windows_give_up_grab(hwnd);
-    HCURSOR cursor = (HCURSOR)RemovePropA(hwnd, AUREA_CUSTOM_CURSOR_PROP);
-    if (cursor) {
-        if (GetCursor() == cursor) SetCursor(LoadCursor(NULL, IDC_ARROW));
-        DestroyCursor(cursor);
+    NGWindow* w = ng_windows_window_state(hwnd);
+    if (w) {
+        HCURSOR cursor = w->owned_cursor;
+        w->owned_cursor = NULL;
+        w->cursor = NULL;
+        w->grab_mode = 0;
+        if (cursor) {
+            if (GetCursor() == cursor) SetCursor(LoadCursor(NULL, IDC_ARROW));
+            DestroyCursor(cursor);
+        }
     }
-    RemovePropA(hwnd, AUREA_CURSOR_ICON_PROP);
-    RemovePropA(hwnd, AUREA_CURSOR_GRAB_PROP);
     if (g_cursor_hidden_by == hwnd) {
         ShowCursor(TRUE);
         g_cursor_hidden_by = NULL;
@@ -851,14 +842,13 @@ void ng_windows_release_window_input(void* window) {
 int ng_windows_window_set_cursor_grab(NGHandle window, int mode) {
     if (!window) return NG_ERROR_INVALID_HANDLE;
     HWND hwnd = (HWND)window;
-
+    NGWindow* w = ng_windows_window_state(hwnd);
+    if (!w) return NG_ERROR_INVALID_HANDLE;
+    w->grab_mode = mode;
     if (mode == 0) {
-        RemovePropA(hwnd, AUREA_CURSOR_GRAB_PROP);
         ng_windows_give_up_grab(hwnd);
         return NG_SUCCESS;
     }
-
-    SetPropA(hwnd, AUREA_CURSOR_GRAB_PROP, (HANDLE)(INT_PTR)mode);
     if (GetActiveWindow() == hwnd) ng_windows_take_grab(hwnd);
     return NG_SUCCESS;
 }

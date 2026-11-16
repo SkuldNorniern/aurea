@@ -81,6 +81,7 @@ fn main() {
         "native/platform/windows/windows_ops.c",
         "native/platform/windows/utils.c",
         "native/platform/windows/window.c",
+        "native/platform/windows/window_state.c",
         "native/platform/windows/clipboard.c",
         "native/platform/windows/menu.c",
         "native/platform/windows/dialog.c",

@@ -4,8 +4,8 @@
 #include "occlusion.h"
 
 #define AUREA_OCCLUSION_TIMER_ID 0xA0E3
-#define AUREA_OCCLUSION_PROP "AureaOcclusion"
 #include "window.h"
+#include "window_state.h"
 #include "menu.h"
 #include "ime.h"
 #include "pen.h"
@@ -19,8 +19,6 @@
 #include <windowsx.h>
 #include <string.h>
 
-#define AUREA_CURSOR_GRAB_PROP "AureaCursorGrabMode"
-
 static WNDCLASSEXW g_wc = {0};
 static const wchar_t* CLASS_NAME = L"NativeGuiWindow";
 
@@ -29,33 +27,22 @@ static int g_theme_dark = -1;
 static void ng_windows_theme_check(void);
 static BOOL win_initialized = FALSE;
 
-static ScaleFactorCallback g_window_scale_callbacks[256] = {0};
-static HWND g_tracked_windows[256] = {0};
-static int g_tracked_count = 0;
-static BOOL g_lifecycle_callbacks[256] = {0};
-static BOOL g_mouse_inside[256] = {0};
-static WPARAM g_menu_access_key = 0;
-static BOOL g_shortcut_took_syskey = FALSE;
-static WPARAM g_menu_took_key = 0;
-
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
 /* Tells Rust about `hwnd`'s lifecycle `code`, if it listens for them. */
 static void ng_windows_lifecycle(HWND hwnd, int code) {
-    for (int i = 0; i < g_tracked_count; i++) {
-        if (g_tracked_windows[i] == hwnd) {
-            if (g_lifecycle_callbacks[i]) ng_invoke_lifecycle_callback((void*)hwnd, code);
-            return;
-        }
-    }
+    NGWindow* w = ng_windows_window_state(hwnd);
+    if (w && w->lifecycle) ng_invoke_lifecycle_callback((void*)hwnd, code);
 }
 
 /* Lifecycle codes 13 to 15: visible, partly covered, covered. Sent when the level changes. */
 static void ng_windows_check_occlusion(HWND hwnd) {
+    NGWindow* w = ng_windows_window_state(hwnd);
+    if (!w) return;
     int now = ng_windows_occlusion_of(hwnd);
-    int was = (int)(INT_PTR)GetPropA(hwnd, AUREA_OCCLUSION_PROP) - 1;
+    int was = w->occlusion;
     if (now == was) return;
-    SetPropA(hwnd, AUREA_OCCLUSION_PROP, (HANDLE)(INT_PTR)(now + 1));
+    w->occlusion = now;
     /* a window that starts out covered says so too */
     if (was >= 0 || now != AUREA_OCCLUSION_VISIBLE) ng_windows_lifecycle(hwnd, 13 + now);
 }
@@ -272,35 +259,20 @@ const wchar_t* ng_windows_get_class_name(void) {
 
 /* Lifecycle code 8 is MemoryWarning in the Rust event_from_id table. */
 void ng_windows_send_memory_warning(void) {
-    for (int i = 0; i < g_tracked_count && i < 256; i++) {
-        if (g_lifecycle_callbacks[i] && g_tracked_windows[i]) {
-            ng_invoke_lifecycle_callback((void*)g_tracked_windows[i], 8);
-        }
+    for (NGWindow* w = ng_windows_windows(); w; w = w->next) {
+        if (w->lifecycle) ng_invoke_lifecycle_callback((void*)w->hwnd, 8);
     }
 }
 
 void ng_windows_register_scale_callback(HWND hwnd, ScaleFactorCallback callback) {
-    for (int i = 0; i < g_tracked_count && i < 256; i++) {
-        if (g_tracked_windows[i] == hwnd) {
-            g_window_scale_callbacks[i] = callback;
-            return;
-        }
-    }
-    if (g_tracked_count < 256) {
-        g_tracked_windows[g_tracked_count] = hwnd;
-        g_window_scale_callbacks[g_tracked_count] = callback;
-        g_tracked_count++;
-    }
+    NGWindow* w = ng_windows_window_state(hwnd);
+    if (w) w->on_scale = callback;
 }
 
 void ng_windows_register_lifecycle_callback(HWND hwnd) {
-    int i = 0;
-    while (i < g_tracked_count && g_tracked_windows[i] != hwnd) i++;
-    if (i == g_tracked_count) {
-        if (g_tracked_count >= 256) return;
-        g_tracked_windows[g_tracked_count++] = hwnd;
-    }
-    g_lifecycle_callbacks[i] = TRUE;
+    NGWindow* w = ng_windows_window_state(hwnd);
+    if (!w) return;
+    w->lifecycle = TRUE;
     /* other windows moving over this one send it nothing, so look twice a second */
     SetTimer(hwnd, AUREA_OCCLUSION_TIMER_ID, 500, NULL);
     ng_windows_check_occlusion(hwnd);
@@ -308,8 +280,8 @@ void ng_windows_register_lifecycle_callback(HWND hwnd) {
 
 unsigned int ng_windows_window_refresh_hz(void) {
     DWORD best = 0;
-    for (int i = 0; i < g_tracked_count; i++) {
-        HMONITOR monitor = MonitorFromWindow(g_tracked_windows[i], MONITOR_DEFAULTTONEAREST);
+    for (NGWindow* w = ng_windows_windows(); w; w = w->next) {
+        HMONITOR monitor = MonitorFromWindow(w->hwnd, MONITOR_DEFAULTTONEAREST);
         MONITORINFOEXW info;
         ZeroMemory(&info, sizeof(info));
         info.cbSize = sizeof(info);
@@ -326,8 +298,8 @@ unsigned int ng_windows_window_refresh_hz(void) {
 }
 
 void ng_windows_present(void) {
-    for (int i = 0; i < g_tracked_count; i++) {
-        RedrawWindow(g_tracked_windows[i], NULL, NULL, RDW_UPDATENOW | RDW_ALLCHILDREN);
+    for (NGWindow* w = ng_windows_windows(); w; w = w->next) {
+        RedrawWindow(w->hwnd, NULL, NULL, RDW_UPDATENOW | RDW_ALLCHILDREN);
     }
 }
 
@@ -465,15 +437,15 @@ int ng_windows_take_shortcut(HWND root, WPARAM vk) {
     return 1;
 }
 
-#define AUREA_HIGH_SURROGATE_PROP "AureaHighSurrogate"
-
-static void ng_windows_emit_text_input(HWND hwnd, wchar_t wc) {
+static void ng_windows_emit_text_input(NGWindow* w, wchar_t wc) {
+    HWND hwnd = w->hwnd;
     if (wc >= 0xD800 && wc <= 0xDBFF) {
-        SetPropA(hwnd, AUREA_HIGH_SURROGATE_PROP, (HANDLE)(UINT_PTR)wc);
+        w->high_surrogate = wc;
         return;
     }
 
-    wchar_t high = (wchar_t)(UINT_PTR)RemovePropA(hwnd, AUREA_HIGH_SURROGATE_PROP);
+    wchar_t high = w->high_surrogate;
+    w->high_surrogate = 0;
     wchar_t units[2];
     int count;
     if (high != 0 && wc >= 0xDC00 && wc <= 0xDFFF) {
@@ -532,13 +504,6 @@ static unsigned int ng_windows_buttons(WPARAM held) {
     return buttons;
 }
 
-static int ng_windows_tracked_index(HWND hwnd) {
-    for (int i = 0; i < g_tracked_count; i++) {
-        if (g_tracked_windows[i] == hwnd) return i;
-    }
-    return -1;
-}
-
 #define AUREA_HOVER_TIMER_ID 0xA0E1
 #define AUREA_ANY_BUTTON (MK_LBUTTON | MK_RBUTTON | MK_MBUTTON | MK_XBUTTON1 | MK_XBUTTON2)
 
@@ -549,8 +514,6 @@ static void ng_windows_track_leave(HWND target) {
     tme.hwndTrack = target;
     TrackMouseEvent(&tme);
 }
-
-#define AUREA_TRACKING_PROP "AureaTracking"
 
 static BOOL ng_windows_pointer_in_content(HWND root, HWND* under) {
     POINT pt;
@@ -563,8 +526,9 @@ static BOOL ng_windows_pointer_in_content(HWND root, HWND* under) {
     return PtInRect(&content, client) && *under && (*under == root || IsChild(root, *under));
 }
 
-static void ng_windows_arm_tracking(HWND root) {
-    if (GetPropA(root, AUREA_TRACKING_PROP)) return;
+static void ng_windows_arm_tracking(NGWindow* w) {
+    HWND root = w->hwnd;
+    if (w->tracking_leave) return;
     HWND under;
     if (!ng_windows_pointer_in_content(root, &under)) {
         SetTimer(root, AUREA_HOVER_TIMER_ID, 50, NULL);
@@ -581,25 +545,44 @@ static void ng_windows_arm_tracking(HWND root) {
         target = under;
     }
     KillTimer(root, AUREA_HOVER_TIMER_ID);
-    SetPropA(root, AUREA_TRACKING_PROP, (HANDLE)1);
+    w->tracking_leave = TRUE;
     ng_windows_track_leave(target);
 }
 
-static void ng_windows_recheck_pointer(HWND root) {
-    int idx = ng_windows_tracked_index(root);
-    if (idx < 0 || !g_mouse_inside[idx] || GetCapture() == root) return;
+static void ng_windows_recheck_pointer(NGWindow* w) {
+    HWND root = w->hwnd;
+    if (!w->pointer_inside || GetCapture() == root) return;
 
     HWND under;
     if (ng_windows_pointer_in_content(root, &under)) {
-        if (!GetPropA(root, AUREA_TRACKING_PROP)) {
+        if (!w->tracking_leave) {
             SetTimer(root, AUREA_HOVER_TIMER_ID, 50, NULL);
         }
         return;
     }
 
     KillTimer(root, AUREA_HOVER_TIMER_ID);
-    g_mouse_inside[idx] = FALSE;
+    w->pointer_inside = FALSE;
     ng_invoke_cursor_entered((void*)root, 0);
+}
+
+/* The button a mouse button message is about, 0 to 4, whether it went down and its click count;
+   -1 for any other message. */
+static int ng_windows_button_of(UINT msg, WPARAM wParam, int* pressed, int* clicks) {
+    int button;
+    switch (msg) {
+        case WM_LBUTTONDOWN: case WM_LBUTTONDBLCLK: case WM_LBUTTONUP: button = 0; break;
+        case WM_RBUTTONDOWN: case WM_RBUTTONDBLCLK: case WM_RBUTTONUP: button = 1; break;
+        case WM_MBUTTONDOWN: case WM_MBUTTONDBLCLK: case WM_MBUTTONUP: button = 2; break;
+        case WM_XBUTTONDOWN: case WM_XBUTTONDBLCLK: case WM_XBUTTONUP:
+            button = GET_XBUTTON_WPARAM(wParam) == XBUTTON1 ? 3 : 4;
+            break;
+        default: return -1;
+    }
+    *pressed = msg != WM_LBUTTONUP && msg != WM_RBUTTONUP && msg != WM_MBUTTONUP && msg != WM_XBUTTONUP;
+    *clicks = (msg == WM_LBUTTONDBLCLK || msg == WM_RBUTTONDBLCLK || msg == WM_MBUTTONDBLCLK
+               || msg == WM_XBUTTONDBLCLK) ? 2 : 1;
+    return button;
 }
 
 static void ng_windows_release_capture(HWND hwnd, WPARAM held) {
@@ -609,11 +592,34 @@ static void ng_windows_release_capture(HWND hwnd, WPARAM held) {
 }
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    if (uMsg == WM_NCCREATE && !ng_windows_window_state_create(hwnd)) return FALSE;
+    NGWindow* w = ng_windows_window_state(hwnd);
+    if (!w) return DefWindowProcW(hwnd, uMsg, wParam, lParam);
+    if (uMsg == WM_NCDESTROY) {
+        ng_windows_window_state_free(hwnd);
+        if (!ng_windows_windows()) PostQuitMessage(0);
+        return DefWindowProcW(hwnd, uMsg, wParam, lParam);
+    }
+
     LRESULT ime_result;
     if (ng_windows_ime_message(hwnd, uMsg, wParam, lParam, &ime_result)) {
         return ime_result;
     }
     ng_windows_wintab_message(hwnd, uMsg, lParam);
+
+    int pressed, clicks;
+    int button = ng_windows_button_of(uMsg, wParam, &pressed, &clicks);
+    if (button >= 0) {
+        if (pressed) {
+            SetCapture(hwnd);
+            /* Before the press goes out, so the app has the text when it hears the click. */
+            ng_windows_ime_complete(hwnd);
+        }
+        ng_windows_emit_mouse_button(hwnd, lParam, button, pressed, clicks);
+        if (!pressed) ng_windows_release_capture(hwnd, wParam);
+        return DefWindowProcW(hwnd, uMsg, wParam, lParam);
+    }
+
     switch (uMsg) {
         case WM_SETFOCUS:
             ng_invoke_focus_changed((void*)hwnd, 1);
@@ -623,17 +629,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             ng_windows_wintab_activate(hwnd, LOWORD(wParam) != WA_INACTIVE);
             break;
         case WM_KILLFOCUS:
-            RemovePropA(hwnd, AUREA_HIGH_SURROGATE_PROP);
+            w->high_surrogate = 0;
             ng_invoke_focus_changed((void*)hwnd, 0);
             break;
-        case WM_MOUSEMOVE: {
-            int idx = ng_windows_tracked_index(hwnd);
-            if (idx >= 0 && !g_mouse_inside[idx]) {
-                g_mouse_inside[idx] = TRUE;
+        case WM_MOUSEMOVE:
+            if (!w->pointer_inside) {
+                w->pointer_inside = TRUE;
                 ng_invoke_cursor_entered((void*)hwnd, 1);
             }
-            if (idx >= 0) ng_windows_arm_tracking(hwnd);
-
+            ng_windows_arm_tracking(w);
             ng_invoke_mouse_move(
                 (void*)hwnd,
                 ng_windows_logical(hwnd, GET_X_LPARAM(lParam)),
@@ -641,7 +645,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 ng_windows_buttons(wParam),
                 ng_windows_modifiers() | ng_windows_pointer_bits());
             break;
-        }
         case WM_POINTERDOWN:
         case WM_POINTERUPDATE:
         case WM_POINTERUP:
@@ -651,8 +654,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             ng_windows_pen_capture_lost(hwnd, wParam);
             break;
         case WM_MOUSELEAVE:
-            RemovePropA(hwnd, AUREA_TRACKING_PROP);
-            ng_windows_recheck_pointer(hwnd);
+            w->tracking_leave = FALSE;
+            ng_windows_recheck_pointer(w);
+            break;
+        case WM_CAPTURECHANGED:
+            if ((HWND)lParam != hwnd) ng_windows_recheck_pointer(w);
             break;
         case WM_SETCURSOR:
             if (LOWORD(lParam) == HTCLIENT && (HWND)wParam == hwnd) {
@@ -666,9 +672,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 return 0;
             }
             if (wParam == AUREA_HOVER_TIMER_ID) {
-                ng_windows_recheck_pointer(hwnd);
-                int idx = ng_windows_tracked_index(hwnd);
-                if (idx >= 0 && g_mouse_inside[idx]) ng_windows_arm_tracking(hwnd);
+                ng_windows_recheck_pointer(w);
+                if (w->pointer_inside) ng_windows_arm_tracking(w);
                 return 0;
             }
             if (wParam == AUREA_FRAME_TIMER_ID) {
@@ -693,44 +698,19 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_SHOWWINDOW:
             ng_windows_display_changed();
             break;
-        case WM_LBUTTONDOWN:
-        case WM_LBUTTONDBLCLK:
-        case WM_RBUTTONDOWN:
-        case WM_RBUTTONDBLCLK:
-        case WM_MBUTTONDOWN:
-        case WM_MBUTTONDBLCLK:
-        case WM_XBUTTONDOWN:
-        case WM_XBUTTONDBLCLK:
-            SetCapture(hwnd);
-            /* Before the press goes out, so the app has the text when it hears the click. */
-            ng_windows_ime_complete(hwnd);
-            break;
-        case WM_CAPTURECHANGED:
-            if ((HWND)lParam != hwnd) {
-                ng_windows_recheck_pointer(hwnd);
-            }
-            break;
-        default:
-            break;
-    }
-
-    switch (uMsg) {
-        case WM_INPUT: {
-            HANDLE prop = GetPropA(hwnd, AUREA_CURSOR_GRAB_PROP);
-            if ((INT_PTR)prop == 2) {
+        case WM_INPUT:
+            if (w->grab_mode == 2) {
                 RAWINPUT raw;
                 UINT size = sizeof(raw);
-                if (GetRawInputData((HRAWINPUT)lParam, RID_INPUT, &raw, &size, sizeof(RAWINPUTHEADER)) == size) {
-                    if (raw.header.dwType == RIM_TYPEMOUSE) {
-                        ng_invoke_raw_mouse_motion(
-                            (void*)hwnd,
-                            (double)raw.data.mouse.lLastX,
-                            (double)raw.data.mouse.lLastY);
-                    }
+                if (GetRawInputData((HRAWINPUT)lParam, RID_INPUT, &raw, &size, sizeof(RAWINPUTHEADER)) == size
+                    && raw.header.dwType == RIM_TYPEMOUSE) {
+                    ng_invoke_raw_mouse_motion(
+                        (void*)hwnd,
+                        (double)raw.data.mouse.lLastX,
+                        (double)raw.data.mouse.lLastY);
                 }
             }
             break;
-        }
         case WM_KEYDOWN:
         case WM_SYSKEYDOWN: {
             unsigned int keycode = ng_windows_keycode_from_vk(wParam);
@@ -741,13 +721,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             if (uMsg == WM_SYSKEYDOWN && (modifiers & NG_MOD_ALT) && !(modifiers & NG_MOD_CTRL)
                 && !ng_windows_menu_has_shortcut((void*)hwnd, keycode, modifiers)
                 && ng_windows_menu_takes_key((void*)hwnd, (unsigned int)wParam)) {
-                g_menu_access_key = wParam;
+                w->menu_access_key = wParam;
                 break;
             }
-            g_menu_access_key = 0;
+            w->menu_access_key = 0;
             if (ng_windows_handle_menu_shortcut((void*)hwnd, keycode, modifiers)) {
-                g_shortcut_took_syskey = uMsg == WM_SYSKEYDOWN;
-                g_menu_took_key = wParam;
+                w->shortcut_took_syskey = uMsg == WM_SYSKEYDOWN;
+                w->menu_took_key = wParam;
                 return 0;
             }
             ng_invoke_key_event((void*)hwnd, keycode, 1, modifiers);
@@ -761,12 +741,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             if (uMsg == WM_SYSKEYUP && wParam == VK_MENU && GetMenu(hwnd)) {
                 break;
             }
-            if (uMsg == WM_SYSKEYUP && g_menu_access_key != 0 && wParam == g_menu_access_key) {
-                g_menu_access_key = 0;
+            if (uMsg == WM_SYSKEYUP && w->menu_access_key != 0 && wParam == w->menu_access_key) {
+                w->menu_access_key = 0;
                 break;
             }
-            if (g_menu_took_key != 0 && wParam == g_menu_took_key) {
-                g_menu_took_key = 0;
+            if (w->menu_took_key != 0 && wParam == w->menu_took_key) {
+                w->menu_took_key = 0;
                 return 0;
             }
             unsigned int keycode = ng_windows_keycode_from_vk(wParam);
@@ -777,62 +757,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             break;
         }
         case WM_SYSCHAR:
-            if (g_shortcut_took_syskey) {
-                g_shortcut_took_syskey = FALSE;
+            if (w->shortcut_took_syskey) {
+                w->shortcut_took_syskey = FALSE;
                 return 0;
             }
             break;
-        case WM_CHAR: {
-            wchar_t wc = (wchar_t)wParam;
-            ng_windows_emit_text_input(hwnd, wc);
+        case WM_CHAR:
+            ng_windows_emit_text_input(w, (wchar_t)wParam);
             break;
-        }
-        case WM_LBUTTONDOWN:
-            ng_windows_emit_mouse_button(hwnd, lParam, 0, 1, 1);
-            break;
-        case WM_LBUTTONDBLCLK:
-            ng_windows_emit_mouse_button(hwnd, lParam, 0, 1, 2);
-            break;
-        case WM_LBUTTONUP:
-            ng_windows_emit_mouse_button(hwnd, lParam, 0, 0, 1);
-            ng_windows_release_capture(hwnd, wParam);
-            break;
-        case WM_RBUTTONDOWN:
-            ng_windows_emit_mouse_button(hwnd, lParam, 1, 1, 1);
-            break;
-        case WM_RBUTTONDBLCLK:
-            ng_windows_emit_mouse_button(hwnd, lParam, 1, 1, 2);
-            break;
-        case WM_RBUTTONUP:
-            ng_windows_emit_mouse_button(hwnd, lParam, 1, 0, 1);
-            ng_windows_release_capture(hwnd, wParam);
-            break;
-        case WM_MBUTTONDOWN:
-            ng_windows_emit_mouse_button(hwnd, lParam, 2, 1, 1);
-            break;
-        case WM_MBUTTONDBLCLK:
-            ng_windows_emit_mouse_button(hwnd, lParam, 2, 1, 2);
-            break;
-        case WM_MBUTTONUP:
-            ng_windows_emit_mouse_button(hwnd, lParam, 2, 0, 1);
-            ng_windows_release_capture(hwnd, wParam);
-            break;
-        case WM_XBUTTONDOWN: {
-            int button = (GET_XBUTTON_WPARAM(wParam) == XBUTTON1) ? 3 : 4;
-            ng_windows_emit_mouse_button(hwnd, lParam, button, 1, 1);
-            break;
-        }
-        case WM_XBUTTONDBLCLK: {
-            int button = (GET_XBUTTON_WPARAM(wParam) == XBUTTON1) ? 3 : 4;
-            ng_windows_emit_mouse_button(hwnd, lParam, button, 1, 2);
-            break;
-        }
-        case WM_XBUTTONUP: {
-            int button = (GET_XBUTTON_WPARAM(wParam) == XBUTTON1) ? 3 : 4;
-            ng_windows_emit_mouse_button(hwnd, lParam, button, 0, 1);
-            ng_windows_release_capture(hwnd, wParam);
-            break;
-        }
         case WM_MOUSEWHEEL: {
             double delta = (double)GET_WHEEL_DELTA_WPARAM(wParam) / (double)WHEEL_DELTA;
             /* Shift turns the wheel sideways, as Windows apps expect; down goes right, like a tilt. */
@@ -855,145 +787,97 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_VSCROLL:
             ng_windows_control_changed(uMsg, wParam, lParam);
             break;
-
         case WM_COMMAND:
             if (ng_windows_control_changed(uMsg, wParam, lParam)) {
                 break;
             } else if (HIWORD(wParam) == 0) {
                 unsigned int command_id = LOWORD(wParam);
                 if (command_id >= BUTTON_COMMAND_BASE) {
-                    unsigned int id = command_id - BUTTON_COMMAND_BASE;
-                    ng_invoke_button_callback(id);
+                    ng_invoke_button_callback(command_id - BUTTON_COMMAND_BASE);
                 } else if (!lParam) {
                     ng_invoke_menu_callback(command_id - 1);
                 }
             }
             break;
-        
         case WM_SETTINGCHANGE:
             if (lParam && lstrcmpiW((LPCWSTR)lParam, L"ImmersiveColorSet") == 0) {
                 ng_windows_theme_check();
             }
             break;
-
         case WM_DPICHANGED: {
-            UINT newDpiX = LOWORD(wParam);
-            UINT newDpiY = HIWORD(wParam);
-            float scale = (float)newDpiX / 96.0f;
-            
-            for (int i = 0; i < g_tracked_count; i++) {
-                if (g_tracked_windows[i] == hwnd && g_window_scale_callbacks[i]) {
-                    g_window_scale_callbacks[i]((void*)hwnd, scale);
-                    break;
-                }
-            }
-            
-            RECT* suggestedRect = (RECT*)lParam;
+            if (w->on_scale) w->on_scale((void*)hwnd, (float)LOWORD(wParam) / 96.0f);
+            RECT* suggested = (RECT*)lParam;
             SetWindowPos(hwnd, NULL,
-                suggestedRect->left, suggestedRect->top,
-                suggestedRect->right - suggestedRect->left,
-                suggestedRect->bottom - suggestedRect->top,
+                suggested->left, suggested->top,
+                suggested->right - suggested->left,
+                suggested->bottom - suggested->top,
                 SWP_NOZORDER | SWP_NOACTIVATE);
             ng_windows_refresh_dpi(hwnd);
             return 0;
         }
-        
-        case WM_CLOSE: {
+        case WM_CLOSE:
             ng_windows_lifecycle(hwnd, 5);
-            if (GetPropA(hwnd, AUREA_CLOSE_GUARD_PROPERTY)) {
-                return 0;
-            }
-            if (GetPropA(hwnd, AUREA_HIDE_ON_CLOSE_PROPERTY)) {
+            if (w->close_guard) return 0;
+            if (w->hide_on_close) {
                 ShowWindow(hwnd, SW_HIDE);
                 return 0;
             }
             break;
-        }
-        
         case WM_GETMINMAXINFO: {
-            int min_w = (int)(INT_PTR)GetPropA(hwnd, AUREA_MIN_CLIENT_W_PROP) - 1;
-            int min_h = (int)(INT_PTR)GetPropA(hwnd, AUREA_MIN_CLIENT_H_PROP) - 1;
-            if (min_w <= 0 && min_h <= 0) break;
+            if (w->min_client_w <= 0 && w->min_client_h <= 0) break;
             RECT outer, client;
             if (!GetWindowRect(hwnd, &outer) || !GetClientRect(hwnd, &client)) break;
             MINMAXINFO* info = (MINMAXINFO*)lParam;
             /* Floored like a size set, so the minimum reads back as itself. */
             long long dpi = ng_windows_dpi(hwnd);
-            if (min_w > 0) {
-                info->ptMinTrackSize.x = (LONG)(min_w * dpi / 96) + (outer.right - outer.left) - client.right;
+            if (w->min_client_w > 0) {
+                info->ptMinTrackSize.x = (LONG)(w->min_client_w * dpi / 96) + (outer.right - outer.left) - client.right;
             }
-            if (min_h > 0) {
-                info->ptMinTrackSize.y = (LONG)(min_h * dpi / 96) + (outer.bottom - outer.top) - client.bottom;
+            if (w->min_client_h > 0) {
+                info->ptMinTrackSize.y = (LONG)(w->min_client_h * dpi / 96) + (outer.bottom - outer.top) - client.bottom;
             }
             return 0;
         }
-
-        case WM_SIZE: {
+        case WM_SIZE:
             ng_windows_cursor_grab_refresh((void*)hwnd);
-            BOOL was_minimized = GetPropA(hwnd, "AureaMinimized") != NULL;
             if (wParam == SIZE_MINIMIZED) {
-                if (was_minimized) break;
-                SetPropA(hwnd, "AureaMinimized", (HANDLE)1);
+                if (w->minimized) break;
+                w->minimized = TRUE;
                 ng_windows_lifecycle(hwnd, 6);
                 ng_windows_lifecycle(hwnd, 9);
             } else {
                 ng_windows_fit_content(hwnd);
-
-                if (was_minimized) {
-                    RemovePropA(hwnd, "AureaMinimized");
+                if (w->minimized) {
+                    w->minimized = FALSE;
                     ng_windows_lifecycle(hwnd, 7);
                     ng_windows_lifecycle(hwnd, 10);
                 }
                 ng_windows_lifecycle(hwnd, 12);
             }
             break;
-        }
         case WM_WINDOWPOSCHANGED:
             ng_windows_check_occlusion(hwnd);
             break;
         case WM_MOVE: {
             ng_windows_cursor_grab_refresh((void*)hwnd);
             HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-            if ((HMONITOR)GetPropA(hwnd, "AureaMonitor") != monitor) {
-                SetPropA(hwnd, "AureaMonitor", (HANDLE)monitor);
+            if (w->monitor != monitor) {
+                w->monitor = monitor;
                 ng_windows_display_changed();
             }
             ng_windows_lifecycle(hwnd, 11);
             break;
         }
-        
-        case WM_DESTROY: {
+        case WM_DESTROY:
             ng_windows_wintab_destroyed(hwnd);
             ng_windows_release_window_input((void*)hwnd);
             ng_windows_refuse_drops(hwnd);
-            RemovePropA(hwnd, "AureaMonitor");
-            RemovePropA(hwnd, AUREA_TRACKING_PROP);
-            RemovePropA(hwnd, AUREA_HIGH_SURROGATE_PROP);
-            RemovePropA(hwnd, "AureaMinimized");
             KillTimer(hwnd, AUREA_OCCLUSION_TIMER_ID);
-            RemovePropA(hwnd, AUREA_OCCLUSION_PROP);
-            ng_windows_ime_release(hwnd);
+            KillTimer(hwnd, AUREA_HOVER_TIMER_ID);
             ng_shortcuts_clear((void*)hwnd);
-            for (int i = 0; i < g_tracked_count; i++) {
-                if (g_tracked_windows[i] == hwnd) {
-                    int last = g_tracked_count - 1;
-                    g_tracked_windows[i] = g_tracked_windows[last];
-                    g_window_scale_callbacks[i] = g_window_scale_callbacks[last];
-                    g_lifecycle_callbacks[i] = g_lifecycle_callbacks[last];
-                    g_mouse_inside[i] = g_mouse_inside[last];
-                    g_tracked_windows[last] = NULL;
-                    g_window_scale_callbacks[last] = NULL;
-                    g_lifecycle_callbacks[last] = FALSE;
-                    g_mouse_inside[last] = FALSE;
-                    g_tracked_count--;
-                    break;
-                }
-            }
-            if (g_tracked_count == 0) {
-                PostQuitMessage(0);
-            }
             return 0;
-        }
+        default:
+            break;
     }
     return DefWindowProcW(hwnd, uMsg, wParam, lParam);
 }
@@ -1078,7 +962,8 @@ int ng_windows_locales(char* buf, int cap) {
 }
 
 void ng_windows_fit_content(HWND window) {
-    HWND content = (HWND)GetPropA(window, "AureaContentHWND");
+    NGWindow* state = ng_windows_window_state(window);
+    HWND content = state ? state->content : NULL;
     if (!content || !IsWindow(content)) return;
     RECT client;
     GetClientRect(window, &client);

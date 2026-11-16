@@ -13,6 +13,5 @@ int ng_windows_ime_message(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LR
 void ng_windows_ime_complete(HWND hwnd);
 
 /* Drops the window's stored caret area. */
-void ng_windows_ime_release(HWND hwnd);
 
 #endif

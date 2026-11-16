@@ -1,24 +1,20 @@
 
 #include "ime.h"
 #include "window.h"
+#include "window_state.h"
 #include "common/errors.h"
 #include "common/rust_callbacks.h"
 #include <imm.h>
 #include <stdlib.h>
 
-#define AUREA_IME_X_PROP "AureaImeX"
-#define AUREA_IME_Y_PROP "AureaImeY"
-#define AUREA_IME_W_PROP "AureaImeW"
-#define AUREA_IME_H_PROP "AureaImeH"
-#define AUREA_IME_SET_PROP "AureaImeSet"
-#define AUREA_IME_CLEARED_PROP "AureaImeCleared"
-
 /* A commit clears the preedit and then ends the composition; the app hears the clear once. */
 static void ng_windows_ime_preedit(HWND hwnd, const char* text, int cursor) {
-    int empty = !*text;
-    if (empty && GetPropA(hwnd, AUREA_IME_CLEARED_PROP)) return;
-    if (empty) SetPropA(hwnd, AUREA_IME_CLEARED_PROP, (HANDLE)1);
-    else RemovePropA(hwnd, AUREA_IME_CLEARED_PROP);
+    NGWindow* w = ng_windows_window_state(hwnd);
+    BOOL empty = !*text;
+    if (w) {
+        if (empty && w->ime_cleared) return;
+        w->ime_cleared = empty;
+    }
     ng_invoke_ime_preedit((void*)hwnd, text, cursor);
 }
 
@@ -28,19 +24,16 @@ static int ng_windows_ime_physical(HWND hwnd, float logical) {
     return (int)(logical * scale + 0.5f);
 }
 
-static int ng_windows_ime_prop(HWND hwnd, const char* name) {
-    return (int)(INT_PTR)GetPropA(hwnd, name);
-}
-
 static void ng_windows_ime_place(HWND hwnd) {
-    if (!GetPropA(hwnd, AUREA_IME_SET_PROP)) return;
+    NGWindow* state = ng_windows_window_state(hwnd);
+    if (!state || !state->ime_area_set) return;
     HIMC imc = ImmGetContext(hwnd);
     if (!imc) return;
 
-    int x = ng_windows_ime_prop(hwnd, AUREA_IME_X_PROP);
-    int y = ng_windows_ime_prop(hwnd, AUREA_IME_Y_PROP);
-    int w = ng_windows_ime_prop(hwnd, AUREA_IME_W_PROP);
-    int h = ng_windows_ime_prop(hwnd, AUREA_IME_H_PROP);
+    int x = state->ime_area.left;
+    int y = state->ime_area.top;
+    int w = state->ime_area.right - x;
+    int h = state->ime_area.bottom - y;
 
     COMPOSITIONFORM composition = {0};
     composition.dwStyle = CFS_POINT;
@@ -65,11 +58,15 @@ static void ng_windows_ime_place(HWND hwnd) {
 int ng_windows_window_set_ime_cursor_area(NGHandle window, float x, float y, float width, float height) {
     if (!window) return NG_ERROR_INVALID_HANDLE;
     HWND hwnd = (HWND)window;
-    SetPropA(hwnd, AUREA_IME_X_PROP, (HANDLE)(INT_PTR)ng_windows_ime_physical(hwnd, x));
-    SetPropA(hwnd, AUREA_IME_Y_PROP, (HANDLE)(INT_PTR)ng_windows_ime_physical(hwnd, y));
-    SetPropA(hwnd, AUREA_IME_W_PROP, (HANDLE)(INT_PTR)ng_windows_ime_physical(hwnd, width));
-    SetPropA(hwnd, AUREA_IME_H_PROP, (HANDLE)(INT_PTR)ng_windows_ime_physical(hwnd, height));
-    SetPropA(hwnd, AUREA_IME_SET_PROP, (HANDLE)1);
+    NGWindow* w = ng_windows_window_state(hwnd);
+    if (!w) return NG_ERROR_INVALID_HANDLE;
+    int left = ng_windows_ime_physical(hwnd, x);
+    int top = ng_windows_ime_physical(hwnd, y);
+    w->ime_area.left = left;
+    w->ime_area.top = top;
+    w->ime_area.right = left + ng_windows_ime_physical(hwnd, width);
+    w->ime_area.bottom = top + ng_windows_ime_physical(hwnd, height);
+    w->ime_area_set = TRUE;
     ng_windows_ime_place(hwnd);
     return NG_SUCCESS;
 }
@@ -167,13 +164,4 @@ void ng_windows_ime_complete(HWND hwnd) {
         ImmNotifyIME(imc, NI_COMPOSITIONSTR, CPS_COMPLETE, 0);
     }
     ImmReleaseContext(hwnd, imc);
-}
-
-void ng_windows_ime_release(HWND hwnd) {
-    RemovePropA(hwnd, AUREA_IME_X_PROP);
-    RemovePropA(hwnd, AUREA_IME_Y_PROP);
-    RemovePropA(hwnd, AUREA_IME_W_PROP);
-    RemovePropA(hwnd, AUREA_IME_H_PROP);
-    RemovePropA(hwnd, AUREA_IME_SET_PROP);
-    RemovePropA(hwnd, AUREA_IME_CLEARED_PROP);
 }
