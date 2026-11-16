@@ -1,7 +1,7 @@
 //! Common types for rendering operations, gathered from where each one lives so `crate::types::*`
 //! keeps reaching all of them.
 
-pub use crate::geometry::{FillRule, Path, PathCommand, Point, Rect, Transform};
+pub use crate::geometry::{Corners, FillRule, Path, PathCommand, Point, Rect, Transform};
 pub use crate::image::{GlyphMask, GpuTexture, Image, ImageSet, Sampling};
 pub use crate::paint::{
     BlendMode, Color, Dash, GradientStop, Hex, Hsv, LineCap, LineJoin, LinearGradient, Paint,
