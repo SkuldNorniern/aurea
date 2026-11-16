@@ -87,7 +87,8 @@ fn glass(ui: &mut Ui<'_, Id>, rect: Rect, radius: f32, lift: f32) -> AureaResult
                 .offset(0.0, 6.0)
                 .blur(18.0),
         )
-        .fill_vertical(white(0.30 + lift), white(0.10 + lift / 2.0))
+        .frost(14.0, 1.5)
+        .fill_vertical(white(0.18 + lift), white(0.06 + lift / 2.0))
         .sheen(white(0.28), 0.45)
         .rim_vertical(1.0, white(0.65), white(0.15))
         .paint(ui, rect)
@@ -119,6 +120,27 @@ fn wallpaper(ui: &mut Ui<'_, Id>, area: Rect) -> AureaResult<()> {
             stops: vec![stop(0.0, color), stop(1.0, color.with_alpha(0))],
         };
         ui.ctx.fill_radial_gradient(&glow, area)?;
+    }
+    // sharp lines and letters, so the frost shows
+    let mut x = area.x;
+    while x < area.right() {
+        ui.fill(Rect::new(x, area.y, 1.0, area.height), white(0.35))?;
+        x += 24.0;
+    }
+    let mut y = area.y;
+    while y < area.bottom() {
+        ui.fill(Rect::new(area.x, y, area.width, 1.0), white(0.35))?;
+        y += 24.0;
+    }
+    let fonts = ui.fonts();
+    for (row, word) in (0u8..).zip(["aurea", "glass", "frost"]) {
+        let at = Rect::new(
+            area.x + 20.0,
+            area.y + 120.0 + 90.0 * f32::from(row),
+            area.width,
+            40.0,
+        );
+        ui.text(word, at, &fonts.strong, white(0.9), Align::Start)?;
     }
     Ok(())
 }
