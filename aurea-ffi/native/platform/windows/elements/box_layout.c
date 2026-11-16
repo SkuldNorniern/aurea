@@ -57,14 +57,12 @@ typedef struct {
     int h;
 } BoxChild;
 
-#define MAX_BOX_CHILDREN 256
-
 static int box_padding(HWND box) {
     int set = stored_px(box, BOX_PADDING_PROP);
     if (set >= 0) return set;
     HWND parent = GetParent(box);
     if (parent && (ng_windows_window_state(parent) ||
-                   GetPropA(parent, "AureaSplitViewOldProc") || ng_windows_is_scroll_view(parent))) {
+                   GetPropA(parent, SPLIT_VIEW_OLD_PROC_PROP) || ng_windows_is_scroll_view(parent))) {
         return ng_windows_px(box, PADDING);
     }
     return 0;
@@ -75,11 +73,24 @@ static int box_spacing(HWND box) {
     return set >= 0 ? set : ng_windows_px(box, SPACING);
 }
 
-static int box_children(HWND box, BoxChild* out) {
+static int is_shown(HWND hwnd) {
+    return (GetWindowLongPtrA(hwnd, GWL_STYLE) & WS_VISIBLE) != 0;
+}
+
+/* The shown children of `box` in add order, in `*out` for the caller to free; 0 when none. */
+static int box_children(HWND box, BoxChild** out) {
+    *out = NULL;
+    int shown = 0;
+    for (HWND child = GetWindow(box, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
+        shown += is_shown(child);
+    }
+    if (!shown) return 0;
+    BoxChild* list = (BoxChild*)malloc((size_t)shown * sizeof(BoxChild));
+    if (!list) return 0;
     int n = 0;
-    for (HWND child = GetWindow(box, GW_CHILD); child && n < MAX_BOX_CHILDREN;
+    for (HWND child = GetWindow(box, GW_CHILD); child && n < shown;
          child = GetWindow(child, GW_HWNDNEXT)) {
-        if (!(GetWindowLongPtrA(child, GWL_STYLE) & WS_VISIBLE)) continue;
+        if (!is_shown(child)) continue;
         BoxChild c = {0};
         c.hwnd = child;
         c.index = (INT_PTR)GetPropA(child, BOX_INDEX_PROP);
@@ -87,12 +98,13 @@ static int box_children(HWND box, BoxChild* out) {
         c.weight = weight > 0 ? (float)(weight - 1) / 1000.0f : 0.0f;
         GetClassNameA(child, c.class_name, sizeof(c.class_name));
         int at = n++;
-        while (at > 0 && out[at - 1].index > c.index) {
-            out[at] = out[at - 1];
+        while (at > 0 && list[at - 1].index > c.index) {
+            list[at] = list[at - 1];
             at--;
         }
-        out[at] = c;
+        list[at] = c;
     }
+    *out = list;
     return n;
 }
 
@@ -225,8 +237,8 @@ static void measure_child(BoxChild* c, int vertical, int cross) {
 }
 
 static void measure_box(HWND box, int in_vertical, int cross, int* out_w, int* out_h) {
-    BoxChild children[MAX_BOX_CHILDREN];
-    int n = box_children(box, children);
+    BoxChild* children;
+    int n = box_children(box, &children);
     int vertical = get_box_orientation(box);
     int pad = box_padding(box);
     int spacing = box_spacing(box);
@@ -240,6 +252,7 @@ static void measure_box(HWND box, int in_vertical, int cross, int* out_w, int* o
         main += m + (i > 0 ? spacing : 0);
         if (a > across) across = a;
     }
+    free(children);
     if (vertical) {
         *out_w = width > 0 ? width : across + 2 * pad;
         *out_h = main + 2 * pad;
@@ -282,13 +295,14 @@ void layout_box_children(HWND box) {
         }
     }
 
-    BoxChild children[MAX_BOX_CHILDREN];
-    int n = box_children(box, children);
+    BoxChild* children;
+    int n = box_children(box, &children);
     if (n == 0) return;
 
     if (n == 1 && _stricmp(children[0].class_name, "AureaCanvas") == 0) {
         SetWindowPos(children[0].hwnd, NULL, 0, 0, box_width, box_height,
                      SWP_NOZORDER | SWP_SHOWWINDOW);
+        free(children);
         return;
     }
 
@@ -346,4 +360,5 @@ void layout_box_children(HWND box) {
             SendMessageW(c->hwnd, EM_SETTARGETDEVICE, 0, GetPropA(c->hwnd, TEXT_NO_WRAP_PROP) ? 1 : 0);
         }
     }
+    free(children);
 }
