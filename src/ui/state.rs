@@ -30,6 +30,10 @@ use crate::window::{
 };
 use crate::{is_touch, reduced_motion};
 
+mod hit_grid;
+
+use hit_grid::HitGrid;
+
 /// What identifies a widget from one frame to the next: usually an app enum, like `Hit::Save` or
 /// `Hit::Volume`.
 pub trait WidgetId: Copy + Eq + Hash + Debug {}
@@ -139,155 +143,6 @@ struct Hit<Id> {
     enabled: bool,
     /// Takes focus: a Tab stop, and focused by a press.
     focusable: bool,
-}
-
-/// Hits bucketed into a grid of cells, so finding the one under the pointer looks at a cell's few
-/// hits instead of all of them. Each list keeps draw order; the last match wins, as in a scan.
-#[derive(Debug, Default)]
-struct HitGrid {
-    origin: Point,
-    cell: (f32, f32),
-    /// The bounds' size; points on its far edges are inside, as `Rect::contains` has them.
-    extent: (f32, f32),
-    cols: usize,
-    rows: usize,
-    /// Where each cell's hit indices start in `items`; one more entry than there are cells.
-    starts: Vec<u32>,
-    items: Vec<u32>,
-    /// Hits spanning too many cells to list in each, or not finite; always checked.
-    big: Vec<u32>,
-    /// Where the next hit goes in each cell, while building.
-    next: Vec<u32>,
-}
-
-impl HitGrid {
-    /// Below this many hits a scan is as quick.
-    const MIN_HITS: usize = 64;
-    const MAX_SIDE: usize = 32;
-    const MAX_CELLS_PER_HIT: usize = 16;
-
-    fn build(&mut self, rects: impl Iterator<Item = Rect> + Clone) {
-        self.cols = 0;
-        self.rows = 0;
-        let count = rects.clone().count();
-        if count < Self::MIN_HITS {
-            return;
-        }
-        let Some(bounds) = rects.clone().filter(|r| listable(*r)).reduce(|a, b| {
-            let (x0, y0) = (a.x.min(b.x), a.y.min(b.y));
-            let (x1, y1) = (a.right().max(b.right()), a.bottom().max(b.bottom()));
-            Rect::new(x0, y0, x1 - x0, y1 - y0)
-        }) else {
-            return;
-        };
-        let side = |len: f32| {
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let n = (len / 48.0).ceil() as usize;
-            n.clamp(1, Self::MAX_SIDE)
-        };
-        let (cols, rows) = (side(bounds.width), side(bounds.height));
-        #[allow(clippy::cast_precision_loss)]
-        let cell = (bounds.width / cols as f32, bounds.height / rows as f32);
-        if !(cell.0 > 0.0 && cell.1 > 0.0) {
-            return;
-        }
-        (self.origin, self.cell, self.cols, self.rows) =
-            (Point::new(bounds.x, bounds.y), cell, cols, rows);
-        self.extent = (bounds.width, bounds.height);
-        self.starts.clear();
-        self.starts.resize(cols * rows + 1, 0);
-        self.items.clear();
-        self.big.clear();
-        // Two passes: count per cell, then place, keeping each cell's hits in draw order.
-        let layout = (self.origin, self.cell, cols, rows);
-        let mut counts = mem::take(&mut self.starts);
-        self.each_cell(rects.clone(), layout, true, |_, c| counts[c + 1] += 1);
-        for c in 1..counts.len() {
-            counts[c] += counts[c - 1];
-        }
-        let mut items = mem::take(&mut self.items);
-        items.resize(counts[cols * rows] as usize, 0);
-        let mut next = mem::take(&mut self.next);
-        next.clear();
-        next.extend_from_slice(&counts[..cols * rows]);
-        self.each_cell(rects, layout, false, |i, c| {
-            items[next[c] as usize] = i;
-            next[c] += 1;
-        });
-        self.starts = counts;
-        self.items = items;
-        self.next = next;
-    }
-
-    /// Calls `visit` with each hit's index and every cell it is listed in, in draw order; hits
-    /// spanning too many cells, or not finite, go to `big` instead, on the `first` pass.
-    fn each_cell(
-        &mut self,
-        rects: impl Iterator<Item = Rect>,
-        layout: (Point, (f32, f32), usize, usize),
-        first: bool,
-        mut visit: impl FnMut(u32, usize),
-    ) {
-        let cols = layout.2;
-        for (i, rect) in rects.enumerate() {
-            let i = u32::try_from(i).unwrap_or(u32::MAX);
-            if rect.is_empty() {
-                continue;
-            }
-            let span = listable(rect).then(|| Self::span(layout, rect));
-            let Some((c0, r0, c1, r1)) =
-                span.filter(|(c0, r0, c1, r1)| (c1 - c0) * (r1 - r0) <= Self::MAX_CELLS_PER_HIT)
-            else {
-                if first {
-                    self.big.push(i);
-                }
-                continue;
-            };
-            for row in r0..r1 {
-                for col in c0..c1 {
-                    visit(i, row * cols + col);
-                }
-            }
-        }
-    }
-
-    /// The cells `rect` touches, edges included, as column and row ranges.
-    fn span(
-        (origin, cell, cols, rows): (Point, (f32, f32), usize, usize),
-        rect: Rect,
-    ) -> (usize, usize, usize, usize) {
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let index = |v: f32, origin: f32, size: f32, n: usize| {
-            (((v - origin) / size).floor().max(0.0) as usize).min(n - 1)
-        };
-        let c0 = index(rect.x, origin.x, cell.0, cols);
-        let r0 = index(rect.y, origin.y, cell.1, rows);
-        let c1 = index(rect.right(), origin.x, cell.0, cols) + 1;
-        let r1 = index(rect.bottom(), origin.y, cell.1, rows) + 1;
-        (c0, r0, c1, r1)
-    }
-
-    /// The hits in the cell under `at` and the big ones, or `None` when there is no grid and every
-    /// hit has to be scanned.
-    fn candidates(&self, at: Point) -> Option<(&[u32], &[u32])> {
-        if self.cols == 0 {
-            return None;
-        }
-        let (dx, dy) = (at.x - self.origin.x, at.y - self.origin.y);
-        #[allow(clippy::cast_precision_loss)]
-        let outside = !(0.0..=self.extent.0).contains(&dx) || !(0.0..=self.extent.1).contains(&dy);
-        if outside {
-            return Some((&[], &self.big));
-        }
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let (col, row) = (
-            ((dx / self.cell.0) as usize).min(self.cols - 1),
-            ((dy / self.cell.1) as usize).min(self.rows - 1),
-        );
-        let c = row * self.cols + col;
-        let cell = &self.items[self.starts[c] as usize..self.starts[c + 1] as usize];
-        Some((cell, &self.big))
-    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -404,14 +259,6 @@ pub(crate) fn caret_flip_in(blink: bool, since: Duration) -> Option<Duration> {
         1.0 - into
     };
     Some(Duration::from_secs_f32(wait))
-}
-
-/// Whether `rect` can be listed in grid cells: finite and not empty.
-fn listable(rect: Rect) -> bool {
-    !rect.is_empty()
-        && [rect.x, rect.y, rect.width, rect.height]
-            .iter()
-            .all(|v| v.is_finite())
 }
 
 /// Whether a widget with `sense` takes typed text.
@@ -791,14 +638,12 @@ impl<Id: WidgetId> UiState<Id> {
                 self.pointer_down = *pressed;
                 self.pointer = Some(at);
                 self.modifiers = *modifiers;
-                self.pointer_events.push((
-                    self.typed.len(),
-                    if *pressed {
-                        Pointer::Press(at, *click_count, self.merged_modifiers())
-                    } else {
-                        Pointer::Release(at)
-                    },
-                ));
+                let event = if *pressed {
+                    Pointer::Press(at, *click_count, self.merged_modifiers())
+                } else {
+                    Pointer::Release(at)
+                };
+                self.queue_pointer(event);
                 true
             }
             WindowEvent::MouseButton {
@@ -810,8 +655,7 @@ impl<Id: WidgetId> UiState<Id> {
             } => {
                 let at = point(*x, *y);
                 self.pointer = Some(at);
-                self.pointer_events
-                    .push((self.typed.len(), Pointer::Secondary(at)));
+                self.queue_pointer(Pointer::Secondary(at));
                 true
             }
             WindowEvent::PressCancelled => {
@@ -823,8 +667,7 @@ impl<Id: WidgetId> UiState<Id> {
                 self.pointer = Some(at);
                 self.hot = self.hit_at(at).map(|hit| hit.key);
                 self.drop_press();
-                self.pointer_events
-                    .push((self.typed.len(), Pointer::Secondary(at)));
+                self.queue_pointer(Pointer::Secondary(at));
                 true
             }
             WindowEvent::MouseWheel {
@@ -852,18 +695,11 @@ impl<Id: WidgetId> UiState<Id> {
                 if self.popup.is_open() {
                     self.focus = self.popup.close();
                 }
-                self.pointer_events.clear();
-                self.typed.clear();
-                self.typed_targets.clear();
-                self.clicked.clear();
-                self.click_at = None;
-                self.wheel = (0.0, 0.0);
+                self.clear_input();
                 self.edit.cancel_composition();
                 for edit in self.edits.values_mut() {
                     edit.cancel_composition();
                 }
-                self.press = None;
-                self.secondary = None;
                 true
             }
             WindowEvent::Focused => {
@@ -877,6 +713,11 @@ impl<Id: WidgetId> UiState<Id> {
             }
             _ => false,
         }
+    }
+
+    /// Queues a pointer event after the keys typed so far, so it is resolved in order with them.
+    fn queue_pointer(&mut self, event: Pointer) {
+        self.pointer_events.push((self.typed.len(), event));
     }
 
     /// The press under the pointer is gone: nothing it began is still held or clicked.
@@ -939,17 +780,26 @@ impl<Id: WidgetId> UiState<Id> {
             Typed::Key(KeyCode::Tab, modifiers) if !modifiers.ctrl && !modifiers.alt => {
                 self.tab_focus(focus, modifiers.shift)
             }
-            Typed::Key(KeyCode::Escape, _) => None,
+            Typed::Key(KeyCode::Escape, _) if self.escape_leaves(focus) => None,
             _ => focus,
         })
     }
 
+    /// Whether Escape takes the keyboard from `focus`. A text field keeps it, as
+    /// [`Self::resolve_widget_key`] does, so text typed after Escape still reaches it.
+    fn escape_leaves(&self, focus: Option<Key<Id>>) -> bool {
+        let sense = focus.and_then(|key| self.hit_of(key)).map(|hit| hit.sense);
+        sense != Some(Sense::Text)
+    }
+
     fn pending_sense(&self) -> Option<Sense> {
         let focus = self.pending_focus()?;
-        self.last_hits
-            .iter()
-            .find(|hit| hit.key == focus)
-            .map(|hit| hit.sense)
+        self.hit_of(focus).map(|hit| hit.sense)
+    }
+
+    /// The hit `key` had last frame.
+    fn hit_of(&self, key: Key<Id>) -> Option<&Hit<Id>> {
+        self.last_hits.iter().find(|hit| hit.key == key)
     }
 
     /// Whether a text field has the keyboard, so the app should leave typing and editing shortcuts
@@ -1075,6 +925,7 @@ impl<Id: WidgetId> UiState<Id> {
 
     pub(crate) fn begin(&mut self, theme: &Theme) {
         self.wake_at = None;
+        self.wants_frame = false;
         if !self.fonts.as_ref().is_some_and(|f| f.matches(theme)) {
             self.fonts = Some(Rc::new(Fonts::new(theme)));
         }
@@ -1236,7 +1087,7 @@ impl<Id: WidgetId> UiState<Id> {
             return None;
         }
         let focus = self.focus?;
-        let field = self.last_hits.iter().find(|hit| hit.key == focus)?.rect;
+        let field = self.hit_of(focus)?.rect;
         if !view.contains(field.center()) || self.lifted == Some((focus, height.to_bits())) {
             return None;
         }
@@ -1248,10 +1099,7 @@ impl<Id: WidgetId> UiState<Id> {
 
     fn focused_sense(&self) -> Option<Sense> {
         let focus = self.focus?;
-        self.last_hits
-            .iter()
-            .find(|hit| hit.key == focus)
-            .map(|hit| hit.sense)
+        self.hit_of(focus).map(|hit| hit.sense)
     }
 
     fn move_focus(&mut self, back: bool) {
@@ -1353,18 +1201,25 @@ impl<Id: WidgetId> UiState<Id> {
                 self.popup.is_open() && !self.popup.is_card(),
             );
         }
-        self.wants_frame = self.tweens.busy() || self.changed || !self.clicked.is_empty();
+        self.wants_frame |= self.tweens.busy() || self.changed || !self.clicked.is_empty();
+        self.clear_input();
+        self.measures.retain(|_, (_, used)| mem::take(used));
+    }
+
+    /// Drops what this frame's input left behind: queued keys and pointer events, clicks, presses
+    /// and the wheel. Runs at frame end and when the window loses focus.
+    fn clear_input(&mut self) {
+        self.typed.clear();
+        self.typed_targets.clear();
+        self.pointer_events.clear();
         self.clicked.clear();
         self.click_at = None;
-        self.typed.clear();
         self.escaped = false;
         self.text_submitted = false;
         self.text_cancelled = false;
-        self.typed_targets.clear();
         self.press = None;
         self.secondary = None;
         self.wheel = (0.0, 0.0);
-        self.measures.retain(|_, (_, used)| mem::take(used));
     }
 
     pub(crate) fn scroll_begin(&self) -> usize {
@@ -1786,6 +1641,50 @@ mod tests {
         state.begin(&theme);
         assert!(!state.popup_open());
         assert_eq!(state.focus, Some(field));
+    }
+
+    #[test]
+    fn escape_in_a_text_field_keeps_the_text_typed_after_it() {
+        let mut state = UiState::<u8>::new();
+        let theme = Theme::dark();
+        let field = Key::new(1, 0);
+        state.begin(&theme);
+        state.interact(field, Rect::new(0.0, 0.0, 40.0, 30.0), Sense::Text, true);
+        state.give_focus(Some(field));
+        state.end();
+        let escape = WindowEvent::KeyInput {
+            key: KeyCode::Escape,
+            pressed: true,
+            modifiers: Modifiers::default(),
+        };
+        assert!(state.handle_input(&escape).consumed);
+        let text = WindowEvent::TextInput { text: "a".into() };
+        assert!(
+            state.handle_input(&text).consumed,
+            "same batch, still typing"
+        );
+        state.begin(&theme);
+        assert_eq!(state.focus, Some(field), "Escape left the field focused");
+        assert_eq!(
+            state.typed,
+            [
+                Typed::Key(KeyCode::Escape, Modifiers::default()),
+                Typed::Text("a".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn a_focus_request_made_mid_frame_asks_for_another_frame() {
+        let mut state = UiState::<u8>::new();
+        let theme = Theme::dark();
+        state.begin(&theme);
+        state.focus(1, 0);
+        state.end();
+        assert!(state.wants_frame(), "the request survives the frame's end");
+        state.begin(&theme);
+        state.end();
+        assert!(!state.wants_frame());
     }
 
     #[test]
