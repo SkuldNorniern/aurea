@@ -15,13 +15,13 @@ use png::{BitDepth, ColorType, Encoder};
 
 use aurea::elements::{Container, Orientation, Stack};
 use aurea::render::{
-    Canvas, Color, CpuRasterizer, DrawingContext, GradientStop, LinearGradient, Paint, PaintStyle,
-    Path, Point, RadialGradient, Renderer, RendererBackend, request_canvas_redraw,
+    Canvas, Color, Corners, CpuRasterizer, DrawingContext, GradientStop, Paint, PaintStyle, Path,
+    Point, RadialGradient, Renderer, RendererBackend, request_canvas_redraw,
     request_canvas_redraw_at,
 };
 use aurea::ui::{
-    Align, Button, ButtonParts, Chip, ChipParts, Eased, Look, Slider, SliderParts, Theme, Toggle,
-    ToggleParts, Ui, UiState,
+    Align, Button, ButtonParts, Chip, ChipParts, Component, Eased, Look, Panel, Shadow, Slider,
+    SliderParts, Theme, Toggle, ToggleParts, Ui, UiState,
 };
 use aurea::{AureaResult, Rect, Window, WindowEvent, reduced_motion};
 
@@ -76,34 +76,21 @@ fn stop(offset: f32, color: Color) -> GradientStop {
     GradientStop { offset, color }
 }
 
-/// A capsule or card of glass: a soft shadow, a frosted top-to-bottom sheen, a bright top edge.
-/// There is no backdrop blur yet, so the frost is a translucent sheen over what is behind.
+/// A capsule or card of glass: continuous corners, a frosted face, light on top, a rim brighter
+/// along the top, a soft shadow. There is no backdrop blur yet, so the frost is a translucent
+/// face over what is behind.
 fn glass(ui: &mut Ui<'_, Id>, rect: Rect, radius: f32, lift: f32) -> AureaResult<()> {
-    ui.shadow(rect, radius, 18.0, Color::rgba(0, 0, 0, 70))?;
-    let shape = Path::rounded_rect(rect, radius);
-    ui.ctx.save()?;
-    ui.ctx.clip_path(&shape)?;
-    let sheen = LinearGradient {
-        start: Point::new(rect.x, rect.y),
-        end: Point::new(rect.x, rect.bottom()),
-        stops: vec![
-            stop(0.0, white(0.30 + lift)),
-            stop(1.0, white(0.10 + lift / 2.0)),
-        ],
-    };
-    ui.ctx.fill_linear_gradient(&sheen, rect)?;
-    let shine = LinearGradient {
-        start: Point::new(rect.x, rect.y),
-        end: Point::new(rect.x, rect.y + rect.height * 0.45),
-        stops: vec![stop(0.0, white(0.28)), stop(1.0, white(0.0))],
-    };
-    ui.ctx.fill_linear_gradient(&shine, rect)?;
-    ui.ctx.restore()?;
-    let rim = Paint::new()
-        .color(white(0.45))
-        .style(PaintStyle::Stroke)
-        .stroke_width(1.0);
-    ui.ctx.draw_round_rect(rect.inset(0.5), radius, &rim)
+    Panel::new()
+        .corners(Corners::all(radius).smooth(0.6))
+        .shadow(
+            Shadow::new(Color::rgba(0, 0, 0, 70))
+                .offset(0.0, 6.0)
+                .blur(18.0),
+        )
+        .fill_vertical(white(0.30 + lift), white(0.10 + lift / 2.0))
+        .sheen(white(0.28), 0.45)
+        .rim_vertical(1.0, white(0.65), white(0.15))
+        .paint(ui, rect)
 }
 
 fn wallpaper(ui: &mut Ui<'_, Id>, area: Rect) -> AureaResult<()> {
