@@ -4,6 +4,7 @@ use std::f32::consts::{SQRT_2, TAU};
 
 use super::Widget;
 use super::color::{follow_square, merge, step};
+use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Hsv, Paint, Path, PathCommand, Picture, Point, Rect};
 use crate::ui::component::FocusRing;
@@ -71,6 +72,27 @@ impl Layout {
     }
 }
 
+/// What a [`ColorWheel`] draws, for a painter given to [`ColorWheel::show_with`].
+#[derive(Clone, Copy, Debug)]
+pub struct WheelParts<'v> {
+    /// The colour, after this frame's input.
+    pub value: Hsv,
+    /// The ring's picture, drawn once and kept; `None` while the wheel has no size.
+    pub art: Option<&'v Picture>,
+    /// The ring's rect, the whole wheel.
+    pub ring: Rect,
+    /// The square of saturation and value.
+    pub square: Rect,
+    /// The hue's handle, in the middle of the ring.
+    pub hue_handle: Point,
+    /// The radius of the hue's handle.
+    pub hue_radius: f32,
+    /// The handle in the square, at the saturation and value picked.
+    pub sv_handle: Point,
+    /// The radius of the handle in the square.
+    pub sv_radius: f32,
+}
+
 /// A colour wheel, with hit testing for its ring and square. The app keeps `art`, the ring drawn
 /// once as a [`Picture`], which saves a frame its dozens of paths; it is redrawn when the wheel's
 /// size or the scale changes.
@@ -119,8 +141,15 @@ impl<'v> ColorWheel<'v> {
     }
 }
 
-impl<Id: WidgetId> Widget<Id> for ColorWheel<'_> {
-    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+impl<'v> ColorWheel<'v> {
+    /// Takes the input and works out what it would draw. Only the ring's picture is recorded
+    /// here, when it is stale; nothing is drawn to the frame.
+    fn run<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+    ) -> AureaResult<(Response, Look<WheelParts<'v>>)> {
         let at = Layout::of(rect);
         let before = *self.value;
         let ring = ui.interact(id, RING, at.outer, Sense::Adjust, self.enabled);
@@ -136,25 +165,99 @@ impl<Id: WidgetId> Widget<Id> for ColorWheel<'_> {
             ui.mark_changed();
         }
 
-        draw_ring(ui, &at, self.art)?;
-        PickRing {
-            at: at.ring_point(self.value.h),
-            radius: (at.radius - at.inner) / 2.0,
-        }
-        .paint(ui, at.outer)?;
-        SvField { hue: self.value.h }.paint(ui, at.square)?;
-        let spot = Point::new(
-            at.square.x + self.value.s * at.square.width,
-            at.square.y + (1.0 - self.value.v) * at.square.height,
-        );
-        PickRing {
-            at: spot,
-            radius: 5.0,
-        }
-        .paint(ui, at.outer)?;
-        let focus = ui.eased(id, SQUARE, square).focus;
-        FocusRing::new(ui.theme, 0.0, focus).paint(ui, at.square)?;
+        refresh_ring(ui, &at, &mut *self.art)?;
+        let art: &'v Option<Picture> = self.art;
+        let value = *self.value;
+        let look = Look {
+            rect,
+            state: ui.eased(id, SQUARE, square),
+            held_at: ui.held_at(id, SQUARE),
+            parts: WheelParts {
+                value,
+                art: art.as_ref(),
+                ring: at.outer,
+                square: at.square,
+                hue_handle: at.ring_point(value.h),
+                hue_radius: (at.radius - at.inner) / 2.0,
+                sv_handle: Point::new(
+                    at.square.x + value.s * at.square.width,
+                    at.square.y + (1.0 - value.v) * at.square.height,
+                ),
+                sv_radius: 5.0,
+            },
+        };
+        Ok((response, look))
+    }
+
+    /// Takes the input as [`ColorWheel::show`] does, then has `paint` draw it instead of its own
+    /// look. [`Look::paint_default`] and the other `paint_*` pieces draw the parts of the usual
+    /// look.
+    pub fn show_with<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<WheelParts<'v>>) -> AureaResult<()>,
+    ) -> AureaResult<Response> {
+        let (response, look) = self.run(ui, id, rect)?;
+        paint(ui, &look)?;
         Ok(response)
+    }
+}
+
+impl Look<WheelParts<'_>> {
+    /// The wheel's own look: the ring, its hue handle, the square, its handle and the focus ring.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        self.paint_ring(ui)?;
+        self.paint_hue_handle(ui)?;
+        self.paint_field(ui)?;
+        self.paint_sv_handle(ui)?;
+        self.paint_focus(ui)
+    }
+
+    /// The hue ring, drawn from its picture.
+    pub fn paint_ring<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        match self.parts.art {
+            Some(picture) => picture.draw(ui.ctx, Point::new(self.parts.ring.x, self.parts.ring.y)),
+            None => Ok(()),
+        }
+    }
+
+    /// The ring's handle at the hue picked.
+    pub fn paint_hue_handle<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        PickRing {
+            at: self.parts.hue_handle,
+            radius: self.parts.hue_radius,
+        }
+        .paint(ui, self.parts.ring)
+    }
+
+    /// The square of saturation and value at the wheel's hue.
+    pub fn paint_field<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        SvField {
+            hue: self.parts.value.h,
+        }
+        .paint(ui, self.parts.square)
+    }
+
+    /// The handle in the square at the saturation and value picked.
+    pub fn paint_sv_handle<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        PickRing {
+            at: self.parts.sv_handle,
+            radius: self.parts.sv_radius,
+        }
+        .paint(ui, self.parts.ring)
+    }
+
+    /// The focus ring round the square, when focus came from the keyboard.
+    pub fn paint_focus<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        FocusRing::new(ui.theme, 0.0, self.state.focus).paint(ui, self.parts.square)
+    }
+}
+
+impl<Id: WidgetId> Widget<Id> for ColorWheel<'_> {
+    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
     }
 }
 
@@ -188,7 +291,7 @@ fn follow_ring<Id: WidgetId>(
     }
 }
 
-fn draw_ring<Id: WidgetId>(
+fn refresh_ring<Id: WidgetId>(
     ui: &mut Ui<'_, Id>,
     at: &Layout,
     art: &mut Option<Picture>,
@@ -204,10 +307,7 @@ fn draw_ring<Id: WidgetId>(
             .then(|| record_ring(side, scale, at.radius, at.inner))
             .transpose()?;
     }
-    match art {
-        Some(picture) => picture.draw(ui.ctx, Point::new(at.outer.x, at.outer.y)),
-        None => Ok(()),
-    }
+    Ok(())
 }
 
 fn record_ring(side: u32, scale: f32, radius: f32, inner: f32) -> AureaResult<Picture> {
@@ -233,6 +333,7 @@ fn record_ring(side: u32, scale: f32, radius: f32, inner: f32) -> AureaResult<Pi
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::Color;
     use crate::ui::rig::Rig;
 
     const WHEEL: Rect = Rect::new(0.0, 0.0, 200.0, 200.0);
@@ -308,6 +409,34 @@ mod tests {
                 .expect("draw")
         });
         assert_eq!(art.as_ref().map(Picture::size), Some((100, 100)));
+    }
+
+    #[test]
+    fn show_with_paints_the_apps_look_and_still_picks() {
+        let (mut rig, mut art) = (Rig::new(200, 200), None);
+        let mut value = Hsv::new(200.0, 0.5, 0.5, 1.0);
+        let show = |rig: &mut Rig, value: &mut Hsv, art: &mut Option<Picture>| {
+            rig.frame(|ui| {
+                ColorWheel::new(value, art)
+                    .show_with(ui, 1, WHEEL, |ui, look| {
+                        ui.fill(look.parts.square, Color::rgb(0, 200, 0))
+                    })
+                    .expect("draw")
+            })
+        };
+        show(&mut rig, &mut value, &mut art);
+        assert_eq!(
+            rig.pixel(100, 100),
+            [0, 200, 0, 255],
+            "the app's look, not the default"
+        );
+        let square = Layout::of(WHEEL).square;
+        let (x, y) = (square.right() - 1.0, square.y + 1.0);
+        rig.at(x, y);
+        show(&mut rig, &mut value, &mut art);
+        rig.button(x, y, true);
+        show(&mut rig, &mut value, &mut art);
+        assert!(value.s > 0.95 && value.v > 0.95, "{value:?}");
     }
 
     #[test]

@@ -1,8 +1,9 @@
 //! A ruler along an edge: marks and numbers at a step that follows the zoom.
 
+use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
-use crate::ui::frame::{Align, Ui};
+use crate::ui::frame::{Align, Eased, Ui};
 use crate::ui::state::WidgetId;
 
 /// Closest two numbered marks may come, in logical pixels.
@@ -65,6 +66,31 @@ pub struct Ruler {
     marker: Option<f32>,
 }
 
+/// What a [`Ruler`] draws, for a painter given to [`Ruler::show_with`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RulerParts {
+    /// The unit at the start of the rect.
+    pub origin: f32,
+    /// How many pixels a unit is.
+    pub pixels_per_unit: f32,
+    /// Whether it runs top to bottom, with its marks from the right edge.
+    pub vertical: bool,
+    /// The unit marked in the accent colour, such as where the pointer is.
+    pub marker: Option<f32>,
+    /// The step between numbers and between small marks, `None` when the zoom cannot be drawn.
+    pub steps: Option<(f32, f32)>,
+    /// Decimal places the numbers need; `0` when no step is drawn.
+    pub decimals: usize,
+    /// Colour of the ground.
+    pub surface: Color,
+    /// Colour of the marks.
+    pub mark: Color,
+    /// Colour of the numbers.
+    pub text: Color,
+    /// Colour of the marker.
+    pub accent: Color,
+}
+
 impl Ruler {
     /// A ruler running left to right, with its marks rising from its bottom edge.
     pub fn horizontal(origin: f32, pixels_per_unit: f32) -> Self {
@@ -90,39 +116,97 @@ impl Ruler {
         self
     }
 
+    /// Works out what the ruler would draw, without drawing. It takes no input.
+    fn run<Id: WidgetId>(self, ui: &Ui<'_, Id>, rect: Rect) -> Look<RulerParts> {
+        let p = ui.theme.palette;
+        let ppu = self.pixels_per_unit;
+        let steps = (ppu > 0.0 && ppu.is_finite()).then(|| steps(ppu));
+        Look {
+            rect,
+            state: Eased {
+                enabled: 1.0,
+                ..Eased::default()
+            },
+            held_at: None,
+            parts: RulerParts {
+                origin: self.origin,
+                pixels_per_unit: ppu,
+                vertical: self.vertical,
+                marker: self.marker,
+                steps,
+                decimals: steps.map_or(0, |(major, _)| decimals(major)),
+                surface: p.surface,
+                mark: p.border,
+                text: p.dim,
+                accent: p.accent,
+            },
+        }
+    }
+
+    /// Works out what the ruler would draw as [`Ruler::show`] does, then has `paint` draw it
+    /// instead. [`Look::paint_default`], [`Look::paint_ground`] and [`Look::paint_marks`] draw the
+    /// parts of the usual look.
+    pub fn show_with<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        rect: Rect,
+        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<RulerParts>) -> AureaResult<()>,
+    ) -> AureaResult<()> {
+        let look = self.run(ui, rect);
+        paint(ui, &look)
+    }
+
     /// Draws the ruler in `rect`.
     pub fn show<Id: WidgetId>(self, ui: &mut Ui<'_, Id>, rect: Rect) -> AureaResult<()> {
-        ui.fill(rect, ui.theme.palette.surface)?;
-        if self.pixels_per_unit <= 0.0 || !self.pixels_per_unit.is_finite() {
+        self.show_with(ui, rect, |ui, look| look.paint_default(ui))
+    }
+}
+
+impl Look<RulerParts> {
+    /// The ruler's own look: the ground, then the marks across it.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        self.paint_ground(ui)?;
+        self.paint_marks(ui)
+    }
+
+    /// The ground the marks sit on.
+    pub fn paint_ground<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        ui.fill(self.rect, self.parts.surface)
+    }
+
+    /// The marks, the numbers and the marker, clipped to the rect; nothing when the zoom cannot be
+    /// drawn.
+    pub fn paint_marks<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let Some((major, minor)) = self.parts.steps else {
             return Ok(());
-        }
-        let (major, minor) = steps(self.pixels_per_unit);
-        let length = if self.vertical {
+        };
+        let parts = &self.parts;
+        let rect = self.rect;
+        let length = if parts.vertical {
             rect.height
         } else {
             rect.width
         };
-        let (mark, text) = (ui.theme.palette.border, ui.theme.palette.dim);
         ui.clipped(rect, |ui| {
-            let first = (self.origin / minor).floor();
-            let count = (length / self.pixels_per_unit / minor).ceil() + 1.0;
+            let first = (parts.origin / minor).floor();
+            let count = (length / parts.pixels_per_unit / minor).ceil() + 1.0;
             let every = (major / minor).round().max(1.0);
             let mut i = 0.0;
             while i <= count {
                 let k = first + i;
                 let unit = k * minor;
-                let at = (unit - self.origin) * self.pixels_per_unit;
+                let at = (unit - parts.origin) * parts.pixels_per_unit;
                 let numbered = (k / every - (k / every).round()).abs() < 1e-3;
                 let long = if numbered { LONG } else { SHORT };
-                self.tick(ui, rect, at, long, mark)?;
+                self.tick(ui, at, long, parts.mark)?;
                 if numbered {
-                    self.number(ui, rect, at, unit, decimals(major), text)?;
+                    self.number(ui, at, unit, parts.decimals, parts.text)?;
                 }
                 i += 1.0;
             }
-            if let Some(unit) = self.marker {
-                let at = (unit - self.origin) * self.pixels_per_unit;
-                self.tick(ui, rect, at, 1.0, ui.theme.palette.accent)?;
+            if let Some(unit) = parts.marker {
+                let at = (unit - parts.origin) * parts.pixels_per_unit;
+                self.tick(ui, at, 1.0, parts.accent)?;
             }
             Ok(())
         })
@@ -131,12 +215,12 @@ impl Ruler {
     fn tick<Id: WidgetId>(
         &self,
         ui: &mut Ui<'_, Id>,
-        rect: Rect,
         at: f32,
         share: f32,
         color: Color,
     ) -> AureaResult<()> {
-        let bar = if self.vertical {
+        let rect = self.rect;
+        let bar = if self.parts.vertical {
             let long = rect.width * share;
             Rect::new(rect.right() - long, rect.y + at, long, 1.0)
         } else {
@@ -149,14 +233,14 @@ impl Ruler {
     fn number<Id: WidgetId>(
         &self,
         ui: &mut Ui<'_, Id>,
-        rect: Rect,
         at: f32,
         unit: f32,
         places: usize,
         color: Color,
     ) -> AureaResult<()> {
+        let rect = self.rect;
         let fonts = ui.fonts();
-        let cell = if self.vertical {
+        let cell = if self.parts.vertical {
             Rect::new(
                 rect.x + 2.0,
                 rect.y + at + 1.0,
@@ -222,6 +306,27 @@ mod tests {
         let row: Vec<u32> = (0..200).map(|x| at(x, 18)).collect();
         let surface = row.iter().copied().fold(0, u32::max);
         assert!(row.iter().any(|p| *p != row[0]), "marks show: {surface:x}");
+        assert!((0..200).all(|x| at(x, 25) == 0xFF00_0000), "nothing below");
+    }
+
+    #[test]
+    fn show_with_paints_the_apps_ground_and_keeps_the_marks() {
+        let (mut raster, mut state) = (CpuRasterizer::new(200, 60), UiState::<u8>::new());
+        let theme = Theme::dark();
+        {
+            let mut ctx = raster.begin_frame().expect("frame");
+            ctx.clear(Color::rgb(0, 0, 0)).expect("clear");
+            let mut ui = state.frame(&mut *ctx, &theme);
+            Ruler::horizontal(-7.0, 1.5)
+                .show_with(&mut ui, Rect::new(0.0, 0.0, 200.0, 20.0), |ui, look| {
+                    ui.fill(look.rect, Color::rgb(0, 200, 0))?;
+                    look.paint_marks(ui)
+                })
+                .expect("ruler");
+        }
+        raster.end_frame().expect("end");
+        let at = |x: usize, y: usize| raster.pixels()[y * 200 + x];
+        assert_eq!(at(100, 2), 0xFF00_C800, "the app's ground, not the default");
         assert!((0..200).all(|x| at(x, 25) == 0xFF00_0000), "nothing below");
     }
 

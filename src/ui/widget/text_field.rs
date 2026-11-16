@@ -1,6 +1,7 @@
 //! A one-line text field: a [`Surface`], a [`FocusRing`] and [`EditableText`].
 
 use super::Widget;
+use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
 #[cfg(feature = "accessibility")]
@@ -10,7 +11,7 @@ use crate::ui::frame::{Response, Ui};
 use crate::ui::paint::{Component, Mark, MarkShape, Surface};
 #[cfg(feature = "accessibility")]
 use crate::ui::state::Key;
-use crate::ui::state::{Channel, Sense, WidgetId};
+use crate::ui::state::{Channel, Interaction, Sense, WidgetId};
 use crate::ui::text_edit::Rules;
 use crate::ui::theme::Theme;
 
@@ -41,6 +42,31 @@ impl FieldStyle {
             padding: theme.padding,
         }
     }
+}
+
+/// What a [`TextField`] draws, for a painter given to [`TextField::show_with`].
+#[derive(Clone, Copy, Debug)]
+pub struct TextFieldParts<'v> {
+    /// Whether it has focus, after this frame's input.
+    pub focused: bool,
+    /// How far focus has lit the border, 0 unfocused to 1 focused.
+    pub lit: f32,
+    /// The placeholder, shown while the field is empty.
+    pub placeholder: &'v str,
+    /// Whether the field is empty, so the placeholder shows; after this frame's clear.
+    pub empty: bool,
+    /// Whether it shows a dot for each character.
+    pub password: bool,
+    /// Where the text goes: inside the padding and left of the clear button.
+    pub text: Rect,
+    /// The clear button's rect, while it is shown.
+    pub clear: Option<Rect>,
+    /// How far the clear button's round hover is lit, while the pointer is on it or it is held.
+    pub clear_hover: Option<f32>,
+    /// Whether this frame's click on the clear button emptied the field.
+    pub cleared: bool,
+    /// The style it draws with, the theme's unless one was given.
+    pub style: FieldStyle,
 }
 
 /// A field to type one line into.
@@ -161,8 +187,15 @@ impl<'v> TextField<'v> {
 /// The part of the clear button.
 const CLEAR_PART: u16 = 1;
 
-impl<Id: WidgetId> Widget<Id> for TextField<'_> {
-    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+impl<'v> TextField<'v> {
+    /// Takes the input for the field and its clear button, and works out what it would draw,
+    /// without drawing.
+    fn run<Id: WidgetId>(
+        &mut self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+    ) -> (Interaction, Look<TextFieldParts<'v>>) {
         let input = ui.interact(id, 0, rect, Sense::Text, self.enabled);
         let state = ui.eased(id, 0, input);
         let style = self.style.unwrap_or_else(|| FieldStyle::new(ui.theme));
@@ -174,44 +207,68 @@ impl<Id: WidgetId> Widget<Id> for TextField<'_> {
             f32::from(u8::from(input.focused)),
             rate,
         );
-        FocusRing::new(ui.theme, style.radius, state.focus).paint(ui, rect)?;
-        let border = style
-            .border
-            .mix(style.active_border, lit)
-            .fade(state.enabled);
-        let width = ui.theme.border_width.max(lit * 1.5);
-        Surface::new(style.face.at(state))
-            .radius(style.radius)
-            .border(width, border)
-            .paint(ui, rect)?;
         let mut inner = rect.inset_xy(style.padding, 0.0);
+        let mut clear = None;
+        let mut clear_hover = None;
         let mut cleared = false;
         if self.clearable && !self.text.is_empty() && self.enabled {
             let side = (rect.height - 8.0).clamp(0.0, (rect.width / 2.0).max(0.0));
             let (button, rest) = inner.split_right(side, 4.0);
             let button = Rect::new(button.x, rect.y + (rect.height - side) / 2.0, side, side);
             inner = rest;
-            let clear = ui.interact(id, CLEAR_PART, button, Sense::Click, true);
-            if clear.clicked {
+            let hit = ui.interact(id, CLEAR_PART, button, Sense::Click, true);
+            if hit.clicked {
                 self.text.clear();
                 ui.state.focus(id, 0);
                 cleared = true;
             }
-            let eased = ui.eased(id, CLEAR_PART, clear);
-            if clear.hovered || clear.held {
-                ui.round(button, side / 2.0, ui.theme.palette.hover.fade(eased.hover))?;
+            let eased = ui.eased(id, CLEAR_PART, hit);
+            if hit.hovered || hit.held {
+                clear_hover = Some(eased.hover);
             }
-            Mark::new(MarkShape::Cross, ui.theme.palette.dim)
-                .paint(ui, button.inset(side * 0.3))?;
+            clear = Some(button);
         }
-        let outcome = EditableText::new(self.text)
+        let look = Look {
+            rect,
+            state,
+            held_at: ui.held_at(id, 0),
+            parts: TextFieldParts {
+                focused: input.focused,
+                lit,
+                placeholder: self.placeholder,
+                empty: self.text.is_empty(),
+                password: self.password,
+                text: inner,
+                clear,
+                clear_hover,
+                cleared,
+                style,
+            },
+        };
+        (input, look)
+    }
+
+    /// Takes the input as [`TextField::show`] does, then has `paint` draw the chrome instead of its
+    /// own look. The text, caret, selection and preedit are drawn after it, as they are by default.
+    /// [`Look::paint_default`], [`Look::paint_chrome`] and [`Look::paint_clear`] draw the parts of
+    /// the usual look.
+    pub fn show_with<Id: WidgetId>(
+        mut self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<TextFieldParts<'v>>) -> AureaResult<()>,
+    ) -> AureaResult<Response> {
+        let (input, look) = self.run(ui, id, rect);
+        paint(ui, &look)?;
+        let outcome = EditableText::new(&mut *self.text)
             .placeholder(self.placeholder)
             .password(self.password)
             .rules(self.rules)
             .commit_on_blur(self.commit_on_blur)
             .pass_vertical_keys(self.pass_vertical_keys)
             .select_all_on_focus(self.select_all_on_focus)
-            .show(ui, (id, 0), inner, input)?;
+            .show(ui, (id, 0), look.parts.text, input)?;
         #[cfg(feature = "accessibility")]
         {
             ui.accessible_description(
@@ -235,7 +292,7 @@ impl<Id: WidgetId> Widget<Id> for TextField<'_> {
             }
         }
         let mut response = Response::new(rect, input);
-        response.changed = outcome.changed || cleared;
+        response.changed = outcome.changed || look.parts.cleared;
         response.submitted = outcome.submitted;
         response.cancelled = outcome.cancelled;
         response.editing_started = outcome.editing_started;
@@ -243,6 +300,51 @@ impl<Id: WidgetId> Widget<Id> for TextField<'_> {
         response.committed = outcome.committed;
         response.focused = input.focused && !outcome.cancelled;
         Ok(response)
+    }
+}
+
+impl Look<TextFieldParts<'_>> {
+    /// The field's own look: its chrome, then the clear button.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        self.paint_chrome(ui)?;
+        self.paint_clear(ui)
+    }
+
+    /// The focus ring, the face and its border.
+    pub fn paint_chrome<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let (state, style) = (self.state, &self.parts.style);
+        FocusRing::new(ui.theme, style.radius, state.focus).paint(ui, self.rect)?;
+        let border = style
+            .border
+            .mix(style.active_border, self.parts.lit)
+            .fade(state.enabled);
+        let width = ui.theme.border_width.max(self.parts.lit * 1.5);
+        Surface::new(style.face.at(state))
+            .radius(style.radius)
+            .border(width, border)
+            .paint(ui, self.rect)
+    }
+
+    /// The clear button's × in its round hover, if it is shown.
+    pub fn paint_clear<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let Some(button) = self.parts.clear else {
+            return Ok(());
+        };
+        if let Some(hover) = self.parts.clear_hover {
+            ui.round(
+                button,
+                button.width / 2.0,
+                ui.theme.palette.hover.fade(hover),
+            )?;
+        }
+        Mark::new(MarkShape::Cross, ui.theme.palette.dim)
+            .paint(ui, button.inset(button.width * 0.3))
+    }
+}
+
+impl<Id: WidgetId> Widget<Id> for TextField<'_> {
+    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
     }
 }
 
@@ -266,6 +368,39 @@ mod tests {
             .select_all_on_focus(select)
             .show(ui, 1, Rect::new(0.0, 0.0, 160.0, 40.0))
             .expect("field")
+    }
+
+    #[test]
+    fn show_with_paints_the_chrome_and_still_clears() {
+        let mut rig = Rig::new(240, 160);
+        let mut text = "abc".to_string();
+        let rect = Rect::new(0.0, 0.0, 160.0, 40.0);
+        let show = |rig: &mut Rig, text: &mut String| {
+            rig.frame(|ui| {
+                TextField::new(text)
+                    .clearable(true)
+                    .show_with(ui, 1, rect, |ui, look| {
+                        ui.fill(look.rect, Color::rgb(0, 200, 0))?;
+                        look.paint_clear(ui)
+                    })
+                    .expect("field")
+            })
+        };
+        show(&mut rig, &mut text);
+        assert_eq!(
+            rig.pixel(120, 20),
+            [0, 200, 0, 255],
+            "the app's look, not the default"
+        );
+        let x = f64::from(rect.right() - FieldStyle::new(&rig.theme).padding - 16.0);
+        rig.at(x, 20.0);
+        show(&mut rig, &mut text);
+        rig.button(x, 20.0, true);
+        show(&mut rig, &mut text);
+        rig.button(x, 20.0, false);
+        let response = show(&mut rig, &mut text);
+        assert!(text.is_empty() && response.changed);
+        assert_eq!(rig.state.focus, Some(Key::new(1, 0)));
     }
 
     #[test]

@@ -4,9 +4,10 @@
 
 use std::collections::HashSet;
 
+use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
-use crate::ui::frame::{Response, Ui};
+use crate::ui::frame::{Eased, Response, Ui};
 use crate::ui::paint::{Component, Label, Mark, MarkShape};
 use crate::ui::state::WidgetId;
 use crate::ui::theme::Theme;
@@ -56,6 +57,22 @@ pub struct TreeRow<'t> {
     pub label: &'t str,
     /// It can open, even with no children loaded yet.
     pub branch: bool,
+}
+
+/// What a [`TreeView`] row draws, for a painter given to [`TreeView::show_painted`]. The row's
+/// [`Look::rect`] is the whole row; [`Look::chevron`] and [`Look::body`] split it.
+#[derive(Clone, Copy, Debug)]
+pub struct TreeRowParts<'t> {
+    /// The node in this row.
+    pub row: TreeRow<'t>,
+    /// It is the tree's pick.
+    pub picked: bool,
+    /// The pointer is over the row.
+    pub hovered: bool,
+    /// It is open, when it can open.
+    pub expanded: bool,
+    /// The style it draws with.
+    pub style: TreeStyle,
 }
 
 /// The rows of a tree with `expanded` open. `row` gives a node's key and label, `children` its
@@ -146,6 +163,22 @@ impl<'v, 't> TreeView<'v, 't> {
         rect: Rect,
         mut content: impl FnMut(&mut Ui<'_, Id>, &TreeRow<'t>, Rect) -> AureaResult<()>,
     ) -> AureaResult<Response> {
+        self.show_painted(ui, id, rect, |ui, look| {
+            look.paint_default(ui)?;
+            content(ui, &look.parts.row, look.body())
+        })
+    }
+
+    /// Takes the input as [`TreeView::show`] does, then has `paint` draw each row in sight instead
+    /// of its own look. [`Look::paint_default`] draws the row's fill and chevron, and
+    /// [`Look::body`] is the rect past the chevron for its content.
+    pub fn show_painted<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        mut paint: impl FnMut(&mut Ui<'_, Id>, &Look<TreeRowParts<'t>>) -> AureaResult<()>,
+    ) -> AureaResult<Response> {
         let Self {
             offset,
             rows,
@@ -164,22 +197,27 @@ impl<'v, 't> TreeView<'v, 't> {
         let list = ListView::new(offset, rows.len(), style.row).selected(&mut picked);
         let mut response = list.show(ui, id, rect, |ui, state: ListRow| {
             let row = &rows[state.index];
-            if state.picked {
-                ui.fill(state.rect, style.picked)?;
-            } else if state.hovered {
-                ui.fill(state.rect, style.hover)?;
-            }
-            let (chevron, body) = parts(state.rect, row.depth, style);
             if row.branch {
+                let (chevron, _) = parts(state.rect, row.depth, style);
                 chevron_hit |= press.is_some_and(|at| chevron.contains(at));
-                let shape = if expanded.contains(&row.key) {
-                    MarkShape::ChevronDown
-                } else {
-                    MarkShape::ChevronRight
-                };
-                Mark::new(shape, style.chevron).paint(ui, chevron.inset(style.row * 0.2))?;
             }
-            content(ui, row, body)
+            let look = Look {
+                rect: state.rect,
+                state: Eased {
+                    hover: f32::from(u8::from(state.hovered)),
+                    enabled: 1.0,
+                    ..Eased::default()
+                },
+                held_at: None,
+                parts: TreeRowParts {
+                    row: *row,
+                    picked: state.picked,
+                    hovered: state.hovered,
+                    expanded: expanded.contains(&row.key),
+                    style,
+                },
+            };
+            paint(ui, &look)
         })?;
 
         let mut toggled = false;
@@ -201,6 +239,50 @@ impl<'v, 't> TreeView<'v, 't> {
         }
         *selected = key;
         Ok(response)
+    }
+}
+
+impl Look<TreeRowParts<'_>> {
+    /// The row's own look: its fill, then its chevron.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        self.paint_fill(ui)?;
+        self.paint_chevron(ui)
+    }
+
+    /// The fill under the pick, or else under the pointer.
+    pub fn paint_fill<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let style = self.parts.style;
+        if self.parts.picked {
+            ui.fill(self.rect, style.picked)
+        } else if self.parts.hovered {
+            ui.fill(self.rect, style.hover)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// The chevron, right when the row can open: down when open, else right.
+    pub fn paint_chevron<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        if !self.parts.row.branch {
+            return Ok(());
+        }
+        let style = self.parts.style;
+        let shape = if self.parts.expanded {
+            MarkShape::ChevronDown
+        } else {
+            MarkShape::ChevronRight
+        };
+        Mark::new(shape, style.chevron).paint(ui, self.chevron().inset(style.row * 0.2))
+    }
+
+    /// The rect the chevron sits in, at the row's start past the depth's indent.
+    pub fn chevron(&self) -> Rect {
+        parts(self.rect, self.parts.row.depth, self.parts.style).0
+    }
+
+    /// The rect past the chevron, for the row's icon and text.
+    pub fn body(&self) -> Rect {
+        parts(self.rect, self.parts.row.depth, self.parts.style).1
     }
 }
 
@@ -437,5 +519,35 @@ mod tests {
         tree.expanded.remove(&1);
         tree.frame();
         assert_eq!(tree.selected, None);
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn show_painted_draws_the_apps_rows_and_still_opens_on_a_chevron() {
+        let mut rig = Rig::new(300, 400).still();
+        let forest = forest();
+        let mut offset = 0.0;
+        let row = TreeStyle::new(&rig.theme).row;
+        let y = row / 2.0;
+        let mut show = |rig: &mut Rig, expanded: &mut HashSet<u64>| {
+            let rows = rows(&forest, expanded);
+            rig.frame(|ui| {
+                TreeView::new(&mut offset, &rows, expanded)
+                    .show_painted(ui, 1, AREA, |ui, look| {
+                        ui.fill(look.rect, Color::rgb(0, 200, 0))
+                    })
+                    .expect("draw")
+            })
+        };
+        let mut expanded = HashSet::new();
+        show(&mut rig, &mut expanded);
+        assert_eq!(
+            rig.pixel(250, y as u32),
+            [0, 200, 0, 255],
+            "the app's row, not the default"
+        );
+        rig.click(y, y);
+        show(&mut rig, &mut expanded);
+        assert!(expanded.contains(&1), "the chevron still opens it");
     }
 }

@@ -4,10 +4,11 @@
 use std::fmt::Write as _;
 
 use super::Widget;
+use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Hsv, Point, Rect};
 use crate::ui::component::{EditableText, FocusRing};
-use crate::ui::frame::{Response, Ui};
+use crate::ui::frame::{Eased, Response, Ui};
 use crate::ui::paint::{AlphaStrip, Checker, Component, HueStrip, PickRing, Surface, SvField};
 use crate::ui::state::{Interaction, Sense, WidgetId};
 use crate::ui::text_edit::Rules;
@@ -72,6 +73,33 @@ pub struct ColorPicker<'v> {
     hex: Option<&'v mut String>,
     style: Option<PickerStyle>,
     enabled: bool,
+}
+
+/// What a [`ColorPicker`] draws, for a painter given to [`ColorPicker::show_with`].
+#[derive(Clone, Copy, Debug)]
+pub struct PickerParts {
+    /// The colour, after this frame's input and any typed hex.
+    pub value: Hsv,
+    /// The saturation and value square.
+    pub square: Rect,
+    /// The hue strip.
+    pub hue: Rect,
+    /// The alpha strip, when it is shown.
+    pub alpha: Option<Rect>,
+    /// The hex field, when it is shown; it is drawn before the painter.
+    pub hex: Option<Rect>,
+    /// The handle in the square, at the saturation and value picked.
+    pub spot: Point,
+    /// The mark on the hue strip, at the hue picked.
+    pub hue_mark: Rect,
+    /// The mark on the alpha strip, at the alpha picked, when it is shown.
+    pub alpha_mark: Option<Rect>,
+    /// Focus and enabled of the hue strip.
+    pub hue_state: Eased,
+    /// Focus and enabled of the alpha strip, when it is shown.
+    pub alpha_state: Option<Eased>,
+    /// The style it draws with, the theme's unless one was given.
+    pub style: PickerStyle,
 }
 
 const SQUARE: u16 = 0;
@@ -162,8 +190,18 @@ impl<'v> ColorPicker<'v> {
     }
 }
 
-impl<Id: WidgetId> Widget<Id> for ColorPicker<'_> {
-    fn show(mut self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+impl<'v> ColorPicker<'v> {
+    /// Takes the input as [`ColorPicker::show`] does, then has `paint` draw the square and strips
+    /// instead of its own look. The hex field is drawn first, as it edits the colour this frame.
+    /// [`Look::paint_default`], [`Look::paint_field`], [`Look::paint_hue`], [`Look::paint_alpha`]
+    /// and [`Look::paint_focus`] draw the parts of the usual look.
+    pub fn show_with<Id: WidgetId>(
+        mut self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<PickerParts>) -> AureaResult<()>,
+    ) -> AureaResult<Response> {
         let style = self.style.unwrap_or_else(|| PickerStyle::new(ui.theme));
         let at = self.layout(rect, &style, ui.theme.control_height);
         let before = *self.value;
@@ -193,8 +231,101 @@ impl<Id: WidgetId> Widget<Id> for ColorPicker<'_> {
             response.changed = true;
             ui.mark_changed();
         }
-        paint(ui, id, &at, (square, hue, alpha), *self.value, &style)?;
+        let value = *self.value;
+        let look = Look {
+            rect,
+            state: ui.eased(id, SQUARE, square),
+            held_at: ui.held_at(id, SQUARE),
+            parts: PickerParts {
+                value,
+                square: at.square,
+                hue: at.hue,
+                alpha: at.alpha,
+                hex: at.hex,
+                spot: Point::new(
+                    at.square.x + value.s * at.square.width,
+                    at.square.y + (1.0 - value.v) * at.square.height,
+                ),
+                hue_mark: strip_mark(at.hue, value.h / 360.0),
+                alpha_mark: at.alpha.map(|strip| strip_mark(strip, 1.0 - value.a)),
+                hue_state: ui.eased(id, HUE, hue),
+                alpha_state: alpha.map(|(_, input)| ui.eased(id, ALPHA, input)),
+                style,
+            },
+        };
+        paint(ui, &look)?;
         Ok(response)
+    }
+}
+
+impl Look<PickerParts> {
+    /// The picker's own look: the square, the hue strip, the alpha strip if shown, then the focus.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        self.paint_field(ui)?;
+        self.paint_hue(ui)?;
+        self.paint_alpha(ui)?;
+        self.paint_focus(ui)
+    }
+
+    /// The saturation and value square, its outline and its handle.
+    pub fn paint_field<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let parts = &self.parts;
+        SvField { hue: parts.value.h }.paint(ui, parts.square)?;
+        ui.border(
+            parts.square,
+            0.0,
+            1.0,
+            parts.style.border.fade(self.state.enabled),
+        )?;
+        PickRing {
+            at: parts.spot,
+            radius: parts.style.ring,
+        }
+        .paint(ui, parts.square)
+    }
+
+    /// The hue strip with its mark.
+    pub fn paint_hue<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let parts = &self.parts;
+        paint_strip(
+            ui,
+            parts.hue_state,
+            parts.hue,
+            parts.hue_mark,
+            parts.style,
+            |ui, rect| HueStrip { vertical: true }.paint(ui, rect),
+        )
+    }
+
+    /// The alpha strip with its mark, when it is shown.
+    pub fn paint_alpha<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let parts = &self.parts;
+        let (Some(rect), Some(state), Some(mark)) =
+            (parts.alpha, parts.alpha_state, parts.alpha_mark)
+        else {
+            return Ok(());
+        };
+        let color = parts.value.to_color();
+        let checker = parts.style.checker;
+        paint_strip(ui, state, rect, mark, parts.style, |ui, rect| {
+            AlphaStrip {
+                color,
+                checker,
+                vertical: true,
+            }
+            .paint(ui, rect)
+        })
+    }
+
+    /// The focus ring round the square, when focus came from the keyboard.
+    pub fn paint_focus<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        FocusRing::new(ui.theme, 0.0, self.state.focus).paint(ui, self.parts.square)
+    }
+}
+
+impl<Id: WidgetId> Widget<Id> for ColorPicker<'_> {
+    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
     }
 }
 
@@ -312,75 +443,23 @@ fn keep_hue(mut typed: Hsv, hue: f32) -> Hsv {
     typed
 }
 
-fn paint<Id: WidgetId>(
-    ui: &mut Ui<'_, Id>,
-    id: Id,
-    at: &Layout,
-    (square, hue, alpha): (Interaction, Interaction, Option<(Rect, Interaction)>),
-    value: Hsv,
-    style: &PickerStyle,
-) -> AureaResult<()> {
-    let enabled = ui.eased(id, SQUARE, square).enabled;
-    let border = style.border.fade(enabled);
-    SvField { hue: value.h }.paint(ui, at.square)?;
-    ui.border(at.square, 0.0, 1.0, border)?;
-    let spot = Point::new(
-        at.square.x + value.s * at.square.width,
-        at.square.y + (1.0 - value.v) * at.square.height,
-    );
-    PickRing {
-        at: spot,
-        radius: style.ring,
-    }
-    .paint(ui, at.square)?;
-    strip(
-        ui,
-        id,
-        (HUE, hue),
-        at.hue,
-        value.h / 360.0,
-        style,
-        |ui, rect| HueStrip { vertical: true }.paint(ui, rect),
-    )?;
-    if let Some((rect, input)) = alpha {
-        let color = value.to_color();
-        let checker = style.checker;
-        strip(
-            ui,
-            id,
-            (ALPHA, input),
-            rect,
-            1.0 - value.a,
-            style,
-            |ui, rect| {
-                AlphaStrip {
-                    color,
-                    checker,
-                    vertical: true,
-                }
-                .paint(ui, rect)
-            },
-        )?;
-    }
-    let ring = ui.eased(id, SQUARE, square).focus;
-    FocusRing::new(ui.theme, 0.0, ring).paint(ui, at.square)
+/// The mark on a strip at `t` of its length, from the top.
+fn strip_mark(rect: Rect, t: f32) -> Rect {
+    let y = rect.y + t.clamp(0.0, 1.0) * rect.height;
+    Rect::new(rect.x - 2.0, y - 2.0, rect.width + 4.0, 4.0)
 }
 
-fn strip<Id: WidgetId>(
+fn paint_strip<Id: WidgetId>(
     ui: &mut Ui<'_, Id>,
-    id: Id,
-    (part, input): (u16, Interaction),
+    state: Eased,
     rect: Rect,
-    t: f32,
-    style: &PickerStyle,
+    mark: Rect,
+    style: PickerStyle,
     fill: impl FnOnce(&mut Ui<'_, Id>, Rect) -> AureaResult<()>,
 ) -> AureaResult<()> {
-    let state = ui.eased(id, part, input);
     FocusRing::new(ui.theme, style.radius, state.focus).paint(ui, rect)?;
     fill(ui, rect)?;
     ui.border(rect, 0.0, 1.0, style.border.fade(state.enabled))?;
-    let y = rect.y + t.clamp(0.0, 1.0) * rect.height;
-    let mark = Rect::new(rect.x - 2.0, y - 2.0, rect.width + 4.0, 4.0);
     ui.border(mark.inset(-1.0), 3.0, 1.0, Color::rgba(0, 0, 0, 140))?;
     ui.border(mark, 2.0, 2.0, Color::rgb(255, 255, 255))
 }
@@ -462,6 +541,37 @@ mod tests {
         rig.press(Point::new(hue.x + 4.0, hue.y + hue.height / 2.0), true);
         rig.frame();
         assert!((rig.value.h - 180.0).abs() < 1.0, "got {}", rig.value.h);
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn show_with_paints_the_apps_look_and_still_picks() {
+        let mut rig = Rig::new(240, 220).still();
+        let (mut value, mut hex) = (Hsv::new(120.0, 0.5, 0.5, 1.0), String::new());
+        let show = |rig: &mut Rig, value: &mut Hsv, hex: &mut String| {
+            rig.frame(|ui| {
+                ColorPicker::new(value)
+                    .alpha(true)
+                    .hex_field(hex)
+                    .show_with(ui, 0, RECT, |ui, look| {
+                        ui.fill(look.parts.hue, Color::rgb(0, 200, 0))
+                    })
+                    .expect("draw")
+            })
+        };
+        show(&mut rig, &mut value, &mut hex);
+        let hue = Picker::new().layout().hue;
+        assert_eq!(
+            rig.pixel((hue.x + 8.0) as u32, (hue.y + 2.0) as u32),
+            [0, 200, 0, 255],
+            "the app's look, not the default"
+        );
+        let square = Picker::new().layout().square;
+        rig.at(square.right(), square.y);
+        rig.button(square.right(), square.y, true);
+        show(&mut rig, &mut value, &mut hex);
+        assert_eq!((value.s, value.v), (1.0, 1.0));
+        assert_eq!(value.h, 120.0, "the hue stays");
     }
 
     #[test]
