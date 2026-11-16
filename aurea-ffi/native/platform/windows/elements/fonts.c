@@ -29,9 +29,19 @@ int ng_windows_px(HWND hwnd, int logical) {
     return MulDiv(logical, (int)ng_windows_dpi(hwnd), 96);
 }
 
-#define AUREA_FONT_SLOTS 8
-enum { FONT_UI, FONT_STRONG, FONT_SMALL, FONT_HEADING, FONT_MONO, FONT_KINDS };
-static struct { UINT dpi; HFONT font; } g_fonts[FONT_KINDS][AUREA_FONT_SLOTS];
+enum { FONT_UI, FONT_STRONG, FONT_SMALL, FONT_HEADING, FONT_MONO };
+
+/* Every font made, kept for the life of the app: controls hold them, and a DPI change finds a
+   control's kind by its font. A few per monitor DPI, so a list is enough. */
+typedef struct {
+    int kind;
+    UINT dpi;
+    HFONT font;
+} MadeFont;
+
+static MadeFont* g_fonts = NULL;
+static int g_font_count = 0;
+static int g_font_cap = 0;
 
 static HFONT ng_windows_make_font(int kind, UINT dpi) {
     if (kind == FONT_MONO) {
@@ -66,19 +76,22 @@ static HFONT ng_windows_make_font(int kind, UINT dpi) {
 }
 
 static HFONT ng_windows_font(int kind, UINT dpi) {
-    for (int i = 0; i < AUREA_FONT_SLOTS; i++) {
-        if (g_fonts[kind][i].font && g_fonts[kind][i].dpi == dpi) return g_fonts[kind][i].font;
+    for (int i = 0; i < g_font_count; i++) {
+        if (g_fonts[i].kind == kind && g_fonts[i].dpi == dpi) return g_fonts[i].font;
     }
-    int slot = AUREA_FONT_SLOTS - 1;
-    for (int i = 0; i < AUREA_FONT_SLOTS; i++) {
-        if (!g_fonts[kind][i].font) {
-            slot = i;
-            break;
-        }
+    HFONT font = ng_windows_make_font(kind, dpi);
+    if (g_font_count == g_font_cap) {
+        int cap = g_font_cap ? g_font_cap * 2 : 8;
+        MadeFont* grown = (MadeFont*)realloc(g_fonts, (size_t)cap * sizeof(MadeFont));
+        if (!grown) return font;
+        g_fonts = grown;
+        g_font_cap = cap;
     }
-    g_fonts[kind][slot].dpi = dpi;
-    g_fonts[kind][slot].font = ng_windows_make_font(kind, dpi);
-    return g_fonts[kind][slot].font;
+    g_fonts[g_font_count].kind = kind;
+    g_fonts[g_font_count].dpi = dpi;
+    g_fonts[g_font_count].font = font;
+    g_font_count++;
+    return font;
 }
 
 HFONT ng_windows_ui_font(HWND hwnd) {
@@ -98,10 +111,8 @@ HFONT ng_windows_mono_font(HWND hwnd) {
 }
 
 static int ng_windows_font_kind(HFONT font) {
-    for (int kind = 0; kind < FONT_KINDS; kind++) {
-        for (int i = 0; i < AUREA_FONT_SLOTS; i++) {
-            if (g_fonts[kind][i].font && g_fonts[kind][i].font == font) return kind;
-        }
+    for (int i = 0; i < g_font_count; i++) {
+        if (g_fonts[i].font == font) return g_fonts[i].kind;
     }
     return -1;
 }
