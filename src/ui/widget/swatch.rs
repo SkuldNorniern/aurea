@@ -1,12 +1,13 @@
 //! Colour swatches: squares to pick a colour from, laid out in rows across the rect.
 
 use super::Widget;
+use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
 #[cfg(feature = "accessibility")]
 use crate::ui::accessibility::Role;
 use crate::ui::component::FocusRing;
-use crate::ui::frame::{Response, Ui};
+use crate::ui::frame::{Eased, Response, Ui};
 use crate::ui::paint::{Component, Surface};
 use crate::ui::state::{Channel, Key, Sense, WidgetId};
 use crate::ui::theme::Theme;
@@ -78,31 +79,55 @@ impl<'v> Swatches<'v> {
     ) -> AureaResult<Response> {
         Widget::show(self, ui, id, rect)
     }
-}
 
-fn per_row(width: f32, style: &SwatchStyle) -> usize {
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let n = ((width + style.gap) / (style.size + style.gap))
-        .floor()
-        .max(1.0) as usize;
-    n
-}
-
-fn arrow(key: KeyCode, at: usize, row: usize, count: usize) -> usize {
-    let last = count - 1;
-    match key {
-        KeyCode::Right => (at + 1).min(last),
-        KeyCode::Left => at.saturating_sub(1),
-        KeyCode::Down if at + row <= last => at + row,
-        KeyCode::Up if at >= row => at - row,
-        KeyCode::Home => 0,
-        KeyCode::End => last,
-        _ => at,
+    /// Takes the input as [`Swatches::show`] does, then has `paint` draw it instead of its own
+    /// look. [`Look::paint_default`] and [`Look::paint_swatch`] draw the parts of the usual look.
+    pub fn show_with<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<SwatchParts>) -> AureaResult<()>,
+    ) -> AureaResult<Response> {
+        let (response, look) = self.run(ui, id, rect);
+        paint(ui, &look)?;
+        Ok(response)
     }
 }
 
-impl<Id: WidgetId> Widget<Id> for Swatches<'_> {
-    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+/// One swatch of [`Swatches`], for its painter.
+#[derive(Clone, Copy, Debug)]
+pub struct Swatch {
+    /// The colour it shows.
+    pub color: Color,
+    /// Its square.
+    pub rect: Rect,
+    /// Its hover, press and focus, eased.
+    pub state: Eased,
+    /// How far it is picked, 0 unpicked to 1 picked, eased.
+    pub picked: f32,
+}
+
+/// What [`Swatches`] draws, for a painter given to [`Swatches::show_with`].
+///
+/// The swatches are one [`Look`] between them, each a [`Swatch`] in `swatches`, row by row from
+/// the top left; [`Look::paint_swatch`] draws one.
+#[derive(Clone, Debug)]
+pub struct SwatchParts {
+    /// The swatches, row by row from the top left.
+    pub swatches: Vec<Swatch>,
+    /// The style it draws with, the theme's unless one was given.
+    pub style: SwatchStyle,
+}
+
+impl<'v> Swatches<'v> {
+    /// Takes the input and works out what it would draw, without drawing.
+    fn run<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+    ) -> (Response, Look<SwatchParts>) {
         let style = self.style.unwrap_or_else(|| SwatchStyle::new(ui.theme));
         let mut response = Response {
             rect,
@@ -110,6 +135,7 @@ impl<Id: WidgetId> Widget<Id> for Swatches<'_> {
         };
         let row = per_row(rect.width, &style);
         let mut moved = None;
+        let mut swatches = Vec::with_capacity(self.colors.len());
         for (i, color) in self.colors.iter().enumerate() {
             let part = u16::try_from(i).unwrap_or(u16::MAX);
             #[allow(clippy::cast_precision_loss)]
@@ -151,19 +177,12 @@ impl<Id: WidgetId> Widget<Id> for Swatches<'_> {
                 f32::from(u8::from(picked)),
                 ui.theme.motion.focus,
             );
-            FocusRing::new(ui.theme, style.radius + 2.0, state.focus).paint(ui, cell)?;
-            if color.a < 255 {
-                checker(ui, cell, &style)?;
-            }
-            let grow = 1.5 * state.hover - 1.5 * state.press;
-            Surface::new(*color)
-                .radius(style.radius)
-                .border(1.0, style.border)
-                .paint(ui, cell.inset(-grow))?;
-            if lit > 0.01 {
-                let ring = cell.inset(-3.0);
-                ui.border(ring, style.radius + 3.0, 2.0, style.ring.fade(lit))?;
-            }
+            swatches.push(Swatch {
+                color: *color,
+                rect: cell,
+                state,
+                picked: lit,
+            });
         }
         if let Some(i) = moved.filter(|i| *self.selected != Some(*i)) {
             if response.focused {
@@ -174,7 +193,83 @@ impl<Id: WidgetId> Widget<Id> for Swatches<'_> {
             response.changed = true;
             ui.mark_changed();
         }
-        Ok(response)
+        let look = Look {
+            rect,
+            // no input of its own: the swatches are always enabled
+            state: Eased {
+                enabled: 1.0,
+                ..Eased::default()
+            },
+            held_at: None,
+            parts: SwatchParts { swatches, style },
+        };
+        (response, look)
+    }
+}
+
+impl Look<SwatchParts> {
+    /// Every swatch, row by row.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        for i in 0..self.parts.swatches.len() {
+            self.paint_swatch(ui, i)?;
+        }
+        Ok(())
+    }
+
+    /// Swatch `i`: its focus ring, the checkerboard behind a transparent colour, its square, and
+    /// the ring round it when picked.
+    pub fn paint_swatch<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>, i: usize) -> AureaResult<()> {
+        let Some(swatch) = self.parts.swatches.get(i) else {
+            return Ok(());
+        };
+        let style = &self.parts.style;
+        let cell = swatch.rect;
+        FocusRing::new(ui.theme, style.radius + 2.0, swatch.state.focus).paint(ui, cell)?;
+        if swatch.color.a < 255 {
+            checker(ui, cell, style)?;
+        }
+        let grow = 1.5 * swatch.state.hover - 1.5 * swatch.state.press;
+        Surface::new(swatch.color)
+            .radius(style.radius)
+            .border(1.0, style.border)
+            .paint(ui, cell.inset(-grow))?;
+        if swatch.picked > 0.01 {
+            let ring = cell.inset(-3.0);
+            ui.border(
+                ring,
+                style.radius + 3.0,
+                2.0,
+                style.ring.fade(swatch.picked),
+            )?;
+        }
+        Ok(())
+    }
+}
+
+fn per_row(width: f32, style: &SwatchStyle) -> usize {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let n = ((width + style.gap) / (style.size + style.gap))
+        .floor()
+        .max(1.0) as usize;
+    n
+}
+
+fn arrow(key: KeyCode, at: usize, row: usize, count: usize) -> usize {
+    let last = count - 1;
+    match key {
+        KeyCode::Right => (at + 1).min(last),
+        KeyCode::Left => at.saturating_sub(1),
+        KeyCode::Down if at + row <= last => at + row,
+        KeyCode::Up if at >= row => at - row,
+        KeyCode::Home => 0,
+        KeyCode::End => last,
+        _ => at,
+    }
+}
+
+impl<Id: WidgetId> Widget<Id> for Swatches<'_> {
+    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
     }
 }
 
@@ -189,6 +284,40 @@ fn checker<Id: WidgetId>(ui: &mut Ui<'_, Id>, cell: Rect, style: &SwatchStyle) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::rig::Rig;
+
+    #[test]
+    fn show_with_paints_each_swatch_and_still_picks() {
+        let mut rig = Rig::new(120, 40).still();
+        let at = Rect::new(0.0, 0.0, 120.0, 40.0);
+        let colors = [Color::rgb(255, 0, 0), Color::rgb(0, 0, 255)];
+        let mut selected = None;
+        let show = |rig: &mut Rig, selected: &mut Option<usize>| {
+            rig.frame(|ui| {
+                Swatches::new(&colors, selected)
+                    .show_with(ui, 1, at, |ui, look| {
+                        for swatch in look.parts.swatches.clone() {
+                            ui.fill(swatch.rect, Color::rgb(0, 200, 0))?;
+                        }
+                        Ok(())
+                    })
+                    .expect("draw")
+            })
+        };
+        show(&mut rig, &mut selected);
+        assert_eq!(
+            rig.pixel(12, 12),
+            [0, 200, 0, 255],
+            "the app's look, not the default"
+        );
+        rig.at(42, 12);
+        show(&mut rig, &mut selected);
+        rig.button(42, 12, true);
+        show(&mut rig, &mut selected);
+        rig.button(42, 12, false);
+        show(&mut rig, &mut selected);
+        assert_eq!(selected, Some(1), "the click still picks it");
+    }
 
     #[test]
     fn rows_fit_the_width_and_the_arrows_walk_them() {

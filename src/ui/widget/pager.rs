@@ -1,10 +1,11 @@
 //! A pager: a dot per page in a row, the current one drawn long.
 
 use super::Widget;
+use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
 use crate::ui::component::FocusRing;
-use crate::ui::frame::{Response, Ui};
+use crate::ui::frame::{Eased, Response, Ui};
 use crate::ui::paint::{Component, Surface};
 use crate::ui::state::{Channel, Sense, WidgetId};
 use crate::ui::theme::Theme;
@@ -76,15 +77,74 @@ impl<'v> Pager<'v> {
     ) -> AureaResult<Response> {
         Widget::show(self, ui, id, rect)
     }
+
+    /// Takes the input as [`Pager::show`] does, then has `paint` draw it instead of its own look.
+    /// [`Look::paint_default`], [`Look::paint_dot`] and [`Look::paint_focus`] draw the parts of
+    /// the usual look. Draws nothing, not even `paint`, with no pages.
+    pub fn show_with<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<PagerParts>) -> AureaResult<()>,
+    ) -> AureaResult<Response> {
+        let (response, look) = self.run(ui, id, rect);
+        if look.parts.dots.is_empty() {
+            return Ok(response);
+        }
+        paint(ui, &look)?;
+        Ok(response)
+    }
 }
 
-impl<Id: WidgetId> Widget<Id> for Pager<'_> {
-    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+/// One dot of a [`Pager`], for its painter.
+#[derive(Clone, Copy, Debug)]
+pub struct PagerDot {
+    /// Its rect, longer as it takes the current page.
+    pub rect: Rect,
+    /// How far it is the current page, 0 away to 1 current, eased.
+    pub current: f32,
+    /// The pointer is over it.
+    pub hovered: bool,
+}
+
+/// What a [`Pager`] draws, for a painter given to [`Pager::show_with`].
+///
+/// The dots are one [`Look`] between them, each a [`PagerDot`] in `dots`, from the left.
+#[derive(Clone, Debug)]
+pub struct PagerParts {
+    /// The dots, from the left.
+    pub dots: Vec<PagerDot>,
+    /// The focus ring round the row of dots.
+    pub focus_ring: Rect,
+    /// The style it draws with, the theme's unless one was given.
+    pub style: PagerStyle,
+}
+
+impl<'v> Pager<'v> {
+    /// Takes the input and works out what it would draw, without drawing.
+    fn run<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+    ) -> (Response, Look<PagerParts>) {
         let style = self.style.unwrap_or_else(|| PagerStyle::new(ui.theme));
         let input = ui.interact(id, 0, rect, Sense::Adjust, self.count > 1);
         let mut response = Response::new(rect, input);
+        let mut dots = Vec::with_capacity(self.count);
         if self.count == 0 {
-            return Ok(response);
+            let look = Look {
+                rect,
+                state: Eased::default(),
+                held_at: None,
+                parts: PagerParts {
+                    dots,
+                    focus_ring: rect,
+                    style,
+                },
+            };
+            return (response, look);
         }
         let last = self.count - 1;
         let mut to = (*self.page).min(last);
@@ -124,27 +184,69 @@ impl<Id: WidgetId> Widget<Id> for Pager<'_> {
             if ui.press(id, part).is_some() {
                 to = i;
             }
-            let rest = if hit.hovered { style.hover } else { style.dot };
-            Surface::new(rest.mix(style.current, on))
-                .pill()
-                .paint(ui, dot)?;
+            dots.push(PagerDot {
+                rect: dot,
+                current: on,
+                hovered: hit.hovered,
+            });
         }
         let state = ui.eased(id, 0, input);
-        FocusRing::new(ui.theme, rect.height / 2.0, state.focus).paint(
-            ui,
-            Rect::new(
-                rect.center().x - total / 2.0 - 6.0,
-                y - 6.0,
-                total + 12.0,
-                style.size + 12.0,
-            ),
-        )?;
         if to != *self.page {
             *self.page = to;
             response.changed = true;
             ui.mark_changed();
         }
-        Ok(response)
+        let look = Look {
+            rect,
+            state,
+            held_at: ui.held_at(id, 0),
+            parts: PagerParts {
+                dots,
+                focus_ring: Rect::new(
+                    rect.center().x - total / 2.0 - 6.0,
+                    y - 6.0,
+                    total + 12.0,
+                    style.size + 12.0,
+                ),
+                style,
+            },
+        };
+        (response, look)
+    }
+}
+
+impl Look<PagerParts> {
+    /// Every dot from the left, then the focus ring.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        for i in 0..self.parts.dots.len() {
+            self.paint_dot(ui, i)?;
+        }
+        self.paint_focus(ui)
+    }
+
+    /// Dot `i`, in the hover colour under the pointer, and mixed towards the current colour as it
+    /// takes the current page.
+    pub fn paint_dot<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>, i: usize) -> AureaResult<()> {
+        let Some(dot) = self.parts.dots.get(i) else {
+            return Ok(());
+        };
+        let style = &self.parts.style;
+        let rest = if dot.hovered { style.hover } else { style.dot };
+        Surface::new(rest.mix(style.current, dot.current))
+            .pill()
+            .paint(ui, dot.rect)
+    }
+
+    /// The focus ring round the row of dots, from the keyboard only.
+    pub fn paint_focus<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        FocusRing::new(ui.theme, self.rect.height / 2.0, self.state.focus)
+            .paint(ui, self.parts.focus_ring)
+    }
+}
+
+impl<Id: WidgetId> Widget<Id> for Pager<'_> {
+    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
     }
 }
 
@@ -153,6 +255,7 @@ mod tests {
     use super::*;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::UiState;
+    use crate::ui::rig::Rig;
     use crate::ui::state::Key;
     use crate::window::{Modifiers, MouseButton, PointerKind, WindowEvent};
 
@@ -195,5 +298,35 @@ mod tests {
         });
         frame(&mut state, &mut page);
         assert_eq!(page, 2);
+    }
+
+    #[test]
+    fn show_with_paints_the_dots_and_still_goes_to_the_one_pressed() {
+        let mut rig = Rig::new(200, 30).still();
+        let at = Rect::new(0.0, 0.0, 200.0, 30.0);
+        let mut page = 0;
+        let show = |rig: &mut Rig, page: &mut usize| {
+            rig.frame(|ui| {
+                Pager::new(4, page)
+                    .show_with(ui, 1, at, |ui, look| {
+                        for dot in &look.parts.dots {
+                            ui.fill(dot.rect, Color::rgb(0, 200, 0))?;
+                        }
+                        Ok(())
+                    })
+                    .expect("draw")
+            })
+        };
+        show(&mut rig, &mut page);
+        assert_eq!(
+            rig.pixel(79, 15),
+            [0, 200, 0, 255],
+            "the app's dot, not the default"
+        );
+        rig.at(128, 15);
+        show(&mut rig, &mut page);
+        rig.button(128, 15, true);
+        show(&mut rig, &mut page);
+        assert_eq!(page, 3, "the press still goes to that page");
     }
 }

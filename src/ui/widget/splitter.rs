@@ -1,5 +1,6 @@
 //! A splitter: two panes and the line between them, dragged or stepped with the arrow keys.
 
+use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
 #[cfg(feature = "accessibility")]
@@ -136,6 +137,16 @@ impl<'v> Splitter<'v> {
         id: Id,
         rect: Rect,
     ) -> AureaResult<(Rect, Rect, Response)> {
+        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
+    }
+
+    /// Takes the input and works out what it would draw, without drawing.
+    fn run<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+    ) -> (Response, Look<SplitterParts>) {
         let style = self.style.unwrap_or_else(|| SplitterStyle::new(ui.theme));
         let length = if self.stacked {
             rect.height
@@ -189,9 +200,6 @@ impl<'v> Splitter<'v> {
         #[cfg(feature = "accessibility")]
         ui.accessible_description(id, 0, Role::Splitter, self.label, None);
         let line = line_rect(rect, self.stacked, at, style.thickness);
-        let lit = eased.hover.max(eased.press);
-        ui.fill(line, style.line.mix(style.active, lit))?;
-        FocusRing::new(ui.theme, 0.0, eased.focus).paint(ui, line)?;
 
         let changed = at != before;
         if changed {
@@ -200,7 +208,64 @@ impl<'v> Splitter<'v> {
         let mut response = Response::new(reach, input);
         response.changed = changed;
         let (first, second) = panes(rect, self.stacked, at, style.thickness);
-        Ok((first, second, response))
+        let look = Look {
+            rect,
+            state: eased,
+            held_at: ui.held_at(id, 0),
+            parts: SplitterParts {
+                line,
+                first,
+                second,
+                stacked: self.stacked,
+                style,
+            },
+        };
+        (response, look)
+    }
+
+    /// Takes the input as [`Splitter::show`] does, then has `paint` draw it instead of its own
+    /// look. [`Look::paint_default`] and [`Look::paint_line`] draw the parts of the usual look.
+    /// Gives the panes' rects and the response as `show` does.
+    pub fn show_with<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<SplitterParts>) -> AureaResult<()>,
+    ) -> AureaResult<(Rect, Rect, Response)> {
+        let (response, look) = self.run(ui, id, rect);
+        paint(ui, &look)?;
+        Ok((look.parts.first, look.parts.second, response))
+    }
+}
+
+/// What a [`Splitter`] draws, for a painter given to [`Splitter::show_with`].
+#[derive(Clone, Copy, Debug)]
+pub struct SplitterParts {
+    /// The line between the panes, after this frame's drag or keys.
+    pub line: Rect,
+    /// The first pane, left of or above the line.
+    pub first: Rect,
+    /// The second pane, right of or below the line.
+    pub second: Rect,
+    /// Whether one pane is over the other.
+    pub stacked: bool,
+    /// The style it draws with, the theme's unless one was given.
+    pub style: SplitterStyle,
+}
+
+impl Look<SplitterParts> {
+    /// The splitter's own look: the line.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        self.paint_line(ui)
+    }
+
+    /// The line, lit as it is hovered or dragged, with its focus ring.
+    pub fn paint_line<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let lit = self.state.hover.max(self.state.press);
+        let style = &self.parts.style;
+        ui.fill(self.parts.line, style.line.mix(style.active, lit))?;
+        FocusRing::new(ui.theme, 0.0, self.state.focus).paint(ui, self.parts.line)
     }
 }
 
@@ -475,6 +540,37 @@ mod tests {
         rig.key(KeyCode::Right);
         show(&mut rig, &mut at);
         assert_eq!(at, 121.0);
+    }
+
+    #[test]
+    fn show_with_draws_the_apps_line_and_still_drags() {
+        let mut rig = Rig::new(400, 200).still();
+        let mut at = 120.0;
+        let show = |rig: &mut Rig, at: &mut f32| {
+            rig.frame(|ui| {
+                Splitter::new(at)
+                    .min(50.0, 100.0)
+                    .show_with(ui, 1, AREA, |ui, look| {
+                        ui.fill(look.parts.line, Color::rgb(0, 200, 0))
+                    })
+                    .expect("draw")
+            })
+        };
+        show(&mut rig, &mut at);
+        assert_eq!(
+            rig.pixel(120, 100),
+            [0, 200, 0, 255],
+            "the app's line, not the default"
+        );
+        rig.at(122, 50);
+        show(&mut rig, &mut at);
+        rig.button(122, 50, true);
+        show(&mut rig, &mut at);
+        rig.drag_to(152, 50);
+        let (first, _, response) = show(&mut rig, &mut at);
+        assert_eq!(at, 150.0, "the click still drags it");
+        assert_eq!(first.width, 150.0);
+        assert!(response.changed);
     }
 
     #[test]

@@ -28,20 +28,20 @@ pub use widget::chip::{Chip, ChipParts, ChipStyle};
 pub use widget::color::{ColorPicker, PickerStyle};
 pub use widget::dial::{Dial, DialParts, DialStyle};
 pub use widget::dialog::{Dialog, DialogAnswer};
-pub use widget::disclosure::{Disclosure, DisclosureStyle};
+pub use widget::disclosure::{Disclosure, DisclosureParts, DisclosureStyle};
 pub use widget::dock::{
     Dock, DockAxis, DockBar, DockGroup, DockLayout, DockMetrics, DockPlan, DockSide, DockStyle,
     DockTabEvent, DockTree, DockView, FloatingPanel,
 };
-pub use widget::dropdown::{Dropdown, DropdownStyle};
+pub use widget::dropdown::{Dropdown, DropdownParts, DropdownStyle};
 pub use widget::empty::EmptyState;
 pub use widget::graph;
 pub use widget::graph::{GraphStyle, GraphView, ScopeStyle, ScopeView};
 pub use widget::link::{Link, LinkParts, LinkStyle};
 pub use widget::look::Look;
-pub use widget::pager::{Pager, PagerStyle};
+pub use widget::pager::{Pager, PagerDot, PagerParts, PagerStyle};
 pub use widget::popup::{MenuItem, MenuOptions, OwnedMenuItem, PopupStyle};
-pub use widget::progress::{ProgressBar, ProgressStyle};
+pub use widget::progress::{ProgressBar, ProgressParts, ProgressStyle};
 pub use widget::radio::{RadioGroup, RadioParts, RadioStyle};
 pub use widget::ruler::Ruler;
 pub use widget::scroll::{
@@ -51,9 +51,9 @@ pub use widget::scroll::{
 pub use widget::segmented::{Segment, Segmented, SegmentedParts, SegmentedStyle};
 pub use widget::sheet::{BottomSheet, SheetState};
 pub use widget::slider::{Slider, SliderParts, SliderStyle, SliderTrack};
-pub use widget::splitter::{Splitter, SplitterStyle};
+pub use widget::splitter::{Splitter, SplitterParts, SplitterStyle};
 pub use widget::stepper::{Stepper, StepperParts, StepperStyle};
-pub use widget::swatch::{SwatchStyle, Swatches};
+pub use widget::swatch::{Swatch, SwatchParts, SwatchStyle, Swatches};
 pub use widget::tabs::{Tab, TabBar, TabBarParts, TabStyle};
 pub use widget::text_area::TextArea;
 pub use widget::text_field::{FieldStyle, TextField};

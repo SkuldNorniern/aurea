@@ -4,6 +4,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use super::Widget;
+use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Point, Rect};
 #[cfg(feature = "accessibility")]
@@ -87,8 +88,27 @@ impl<'v> Disclosure<'v> {
     }
 }
 
-impl<Id: WidgetId> Widget<Id> for Disclosure<'_> {
-    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+/// What a [`Disclosure`] draws, for a painter given to [`Disclosure::show_with`].
+#[derive(Clone, Copy, Debug)]
+pub struct DisclosureParts<'v> {
+    /// The header's title.
+    pub title: &'v str,
+    /// Whether it is open, after this frame's click.
+    pub open: bool,
+    /// How far open the section is, `0..=1`, eased.
+    pub openness: f32,
+    /// The style it draws with, the theme's unless one was given.
+    pub style: DisclosureStyle,
+}
+
+impl<'v> Disclosure<'v> {
+    /// Takes the input and works out what it would draw, without drawing.
+    fn run<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+    ) -> (Response, Look<DisclosureParts<'v>>) {
         let input = ui.interact(id, 0, rect, Sense::Click, true);
         let mut response = Response::new(rect, input);
         if input.clicked {
@@ -111,16 +131,81 @@ impl<Id: WidgetId> Widget<Id> for Disclosure<'_> {
             f32::from(u8::from(*self.open)),
             ui.theme.motion.slide,
         );
+        let look = Look {
+            rect,
+            state,
+            held_at: ui.held_at(id, 0),
+            parts: DisclosureParts {
+                title: self.title,
+                open: *self.open,
+                openness: t,
+                style,
+            },
+        };
+        (response, look)
+    }
+
+    /// Takes the input as [`Disclosure::show`] does, then has `paint` draw it instead of its own
+    /// look. [`Look::paint_default`], [`Look::paint_face`], [`Look::paint_chevron`] and
+    /// [`Look::paint_title`] draw the parts of the usual look.
+    pub fn show_with<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<DisclosureParts<'v>>) -> AureaResult<()>,
+    ) -> AureaResult<Response> {
+        let (response, look) = self.run(ui, id, rect);
+        paint(ui, &look)?;
+        Ok(response)
+    }
+}
+
+impl Look<DisclosureParts<'_>> {
+    /// The header's own look: the face, the chevron, then the title.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        self.paint_face(ui)?;
+        self.paint_chevron(ui)?;
+        self.paint_title(ui)
+    }
+
+    /// The header's face, with its focus ring.
+    pub fn paint_face<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let (state, style) = (self.state, &self.parts.style);
         Surface::new(style.face.at(state))
             .radius(style.radius)
-            .paint(ui, rect)?;
-        FocusRing::new(ui.theme, style.radius, state.focus).paint(ui, rect)?;
-        let (mark, text) = rect.split_left(rect.height, 0.0);
-        chevron(ui, mark.inset(rect.height * 0.32), t, style.chevron)?;
-        Label::new(self.title, style.text)
-            .size(style.text_size)
-            .paint(ui, text)?;
-        Ok(response)
+            .paint(ui, self.rect)?;
+        FocusRing::new(ui.theme, style.radius, state.focus).paint(ui, self.rect)
+    }
+
+    /// The chevron, turned by how far open the section is.
+    pub fn paint_chevron<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let (mark, _) = self.split();
+        chevron(
+            ui,
+            mark.inset(self.rect.height * 0.32),
+            self.parts.openness,
+            self.parts.style.chevron,
+        )
+    }
+
+    /// The title, right of the chevron.
+    pub fn paint_title<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let (_, text) = self.split();
+        Label::new(self.parts.title, self.parts.style.text)
+            .size(self.parts.style.text_size)
+            .paint(ui, text)
+    }
+
+    /// The square the chevron sits in, and the rect the title is left in, from the header.
+    pub fn split(&self) -> (Rect, Rect) {
+        self.rect.split_left(self.rect.height, 0.0)
+    }
+}
+
+impl<Id: WidgetId> Widget<Id> for Disclosure<'_> {
+    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
     }
 }
 
@@ -139,6 +224,7 @@ mod tests {
     use super::*;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::UiState;
+    use crate::ui::rig::Rig;
     use crate::window::{Modifiers, MouseButton, PointerKind, WindowEvent};
 
     #[test]
@@ -175,5 +261,34 @@ mod tests {
         }
         assert!(open);
         assert_eq!(shown, 1.0, "no motion asked for, so open at once");
+    }
+
+    #[test]
+    fn show_with_draws_the_apps_look_and_still_opens() {
+        let mut rig = Rig::new(200, 30).still();
+        let at = Rect::new(0.0, 0.0, 200.0, 30.0);
+        let mut open = false;
+        let draw = |rig: &mut Rig, open: &mut bool| {
+            rig.frame(|ui| {
+                Disclosure::new("Advanced", open)
+                    .show_with(ui, 1, at, |ui, look| {
+                        ui.fill(look.rect, Color::rgb(0, 200, 0))
+                    })
+                    .expect("draw");
+            });
+        };
+        draw(&mut rig, &mut open);
+        assert_eq!(
+            rig.pixel(100, 15),
+            [0, 200, 0, 255],
+            "the app's look, not the default"
+        );
+        rig.at(50, 15);
+        draw(&mut rig, &mut open);
+        rig.button(50, 15, true);
+        draw(&mut rig, &mut open);
+        rig.button(50, 15, false);
+        draw(&mut rig, &mut open);
+        assert!(open, "the click still opens it");
     }
 }

@@ -2,6 +2,7 @@
 //! options when clicked.
 
 use super::Widget;
+use super::look::Look;
 use super::popup::{MenuItem, PopupStyle};
 use crate::AureaResult;
 use crate::render::{Color, Rect};
@@ -124,8 +125,27 @@ impl<'v> Dropdown<'v> {
     }
 }
 
-impl<Id: WidgetId> Widget<Id> for Dropdown<'_> {
-    fn show(mut self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+/// What a [`Dropdown`] draws, for a painter given to [`Dropdown::show_with`].
+#[derive(Clone, Copy, Debug)]
+pub struct DropdownParts<'v> {
+    /// The picked option's text, after this frame's keys and pick; `None` past the options.
+    pub value: Option<&'v str>,
+    /// Shown while there is no value.
+    pub placeholder: &'v str,
+    /// How far the popup list is open, 0 shut to 1 open, eased.
+    pub opened: f32,
+    /// The style it draws with, the theme's unless one was given.
+    pub style: DropdownStyle,
+}
+
+impl<'v> Dropdown<'v> {
+    /// Takes the input and works out what it would draw, without drawing.
+    fn run<Id: WidgetId>(
+        mut self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+    ) -> (Response, Look<DropdownParts<'v>>) {
         let key = Key::new(id, 0);
         let input = ui.interact(id, 0, rect, Sense::Click, self.enabled);
         let mut response = Response::new(rect, input);
@@ -175,40 +195,113 @@ impl<Id: WidgetId> Widget<Id> for Dropdown<'_> {
             f32::from(u8::from(open)),
             ui.theme.motion.focus,
         );
-        FocusRing::new(ui.theme, style.radius, state.focus).paint(ui, rect)?;
+        let look = Look {
+            rect,
+            state,
+            held_at: ui.held_at(id, 0),
+            parts: DropdownParts {
+                value: self.options.get(*self.selected).copied(),
+                placeholder: self.placeholder,
+                opened: lit,
+                style,
+            },
+        };
+        (response, look)
+    }
+
+    /// Takes the input as [`Dropdown::show`] does, then has `paint` draw it instead of its own
+    /// look. [`Look::paint_default`], [`Look::paint_field`], [`Look::paint_chevron`] and
+    /// [`Look::paint_value`] draw the parts of the usual look.
+    pub fn show_with<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<DropdownParts<'v>>) -> AureaResult<()>,
+    ) -> AureaResult<Response> {
+        let (response, look) = self.run(ui, id, rect);
+        paint(ui, &look)?;
+        Ok(response)
+    }
+}
+
+impl Look<DropdownParts<'_>> {
+    /// The closed control's own look: the field, the chevron, then the value.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        self.paint_field(ui)?;
+        self.paint_chevron(ui)?;
+        self.paint_value(ui)
+    }
+
+    /// The field: its focus ring, face and border, the border lit towards the open one as the list
+    /// opens.
+    pub fn paint_field<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let (state, style) = (self.state, &self.parts.style);
+        let lit = self.parts.opened;
+        FocusRing::new(ui.theme, style.radius, state.focus).paint(ui, self.rect)?;
         Surface::new(style.face.at(state))
             .radius(style.radius)
             .border(
                 ui.theme.border_width,
                 style.border.mix(style.open_border, lit).fade(state.enabled),
             )
-            .paint(ui, rect)?;
-        let chevron = rect.split_right(rect.height, 0.0).0;
-        let shape = if lit > 0.5 {
+            .paint(ui, self.rect)
+    }
+
+    /// The chevron at the field's end, up while the list is open.
+    pub fn paint_chevron<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let (state, style) = (self.state, &self.parts.style);
+        let shape = if self.parts.opened > 0.5 {
             MarkShape::ChevronUp
         } else {
             MarkShape::ChevronDown
         };
         Mark::new(shape, style.chevron.fade(state.enabled))
-            .paint(ui, chevron.inset(rect.height * 0.28))?;
-        let text = Rect::new(
-            rect.x + style.padding,
-            rect.y,
-            (chevron.x - rect.x - style.padding).max(0.0),
-            rect.height,
-        );
-        match self.options.get(*self.selected) {
-            Some(label) => Label::new(label, style.text.fade(state.enabled)).paint(ui, text)?,
-            None => Label::new(self.placeholder, style.placeholder.fade(state.enabled))
-                .paint(ui, text)?,
+            .paint(ui, self.chevron_rect().inset(self.rect.height * 0.28))
+    }
+
+    /// The picked option's text, or the placeholder while there is none.
+    pub fn paint_value<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let (state, style) = (self.state, &self.parts.style);
+        let text = self.text_rect();
+        match self.parts.value {
+            Some(label) => Label::new(label, style.text.fade(state.enabled)).paint(ui, text),
+            None => Label::new(
+                self.parts.placeholder,
+                style.placeholder.fade(state.enabled),
+            )
+            .paint(ui, text),
         }
-        Ok(response)
+    }
+
+    /// The square at the field's end the chevron sits in.
+    pub fn chevron_rect(&self) -> Rect {
+        self.rect.split_right(self.rect.height, 0.0).0
+    }
+
+    /// The rect the value is left in, between the padding and the chevron.
+    pub fn text_rect(&self) -> Rect {
+        let chevron = self.chevron_rect();
+        let padding = self.parts.style.padding;
+        Rect::new(
+            self.rect.x + padding,
+            self.rect.y,
+            (chevron.x - self.rect.x - padding).max(0.0),
+            self.rect.height,
+        )
+    }
+}
+
+impl<Id: WidgetId> Widget<Id> for Dropdown<'_> {
+    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::Rect;
+    use crate::render::Color;
     use crate::ui::rig::Rig;
     use crate::ui::{Dropdown, MenuItem, Sense, Theme};
     use crate::window::{KeyCode, Modifiers, MouseButton, PointerKind, WindowEvent};
@@ -346,6 +439,32 @@ mod tests {
             rig.rig.state.has_focus(),
             "and the keyboard stays on the dropdown"
         );
+    }
+
+    #[test]
+    fn show_with_draws_the_apps_field_and_still_picks() {
+        let mut rig = Rig::new(320, 260).still();
+        let mut picked = 0;
+        let show = |rig: &mut Rig, picked: &mut usize| {
+            rig.frame(|ui| {
+                Dropdown::new(&OPTIONS, picked)
+                    .show_with(ui, 1, BOX, |ui, look| {
+                        ui.fill(look.rect, Color::rgb(0, 200, 0))
+                    })
+                    .expect("draw")
+            })
+        };
+        show(&mut rig, &mut picked);
+        assert_eq!(
+            rig.pixel(100, 25),
+            [0, 200, 0, 255],
+            "the app's field, not the default"
+        );
+        rig.key(KeyCode::Tab);
+        show(&mut rig, &mut picked);
+        rig.key(KeyCode::Down);
+        show(&mut rig, &mut picked);
+        assert_eq!(picked, 1, "the keys still change the pick");
     }
 
     #[test]
