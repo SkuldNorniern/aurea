@@ -4,7 +4,9 @@ mod canvas;
 
 #[cfg(any(target_os = "ios", target_os = "android"))]
 pub(crate) use canvas::register_host_canvas;
-pub(crate) use canvas::{notify_canvas_destroyed, trim_renderers};
+pub(crate) use canvas::{
+    notify_canvas_destroyed, redraw_canvases_in, release_frames_in, trim_renderers,
+};
 
 pub use aurea_foundation::{AureaError, AureaResult};
 pub use aurea_render::Picture;

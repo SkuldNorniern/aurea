@@ -5,6 +5,7 @@ use std::cell::RefCell;
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::os::raw::c_void;
+use std::ptr::null;
 use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Condvar, LazyLock, Mutex, Once, PoisonError};
@@ -61,6 +62,45 @@ pub(crate) fn trim_renderers() {
         {
             renderer.trim_memory();
         }
+    }
+}
+
+/// Live canvases on this thread that sit in `window`.
+fn canvases_in(window: *mut c_void) -> Vec<Rc<CanvasCleanup>> {
+    let cleanups: Vec<Rc<CanvasCleanup>> = NATIVE_CANVASES.with(|registry| {
+        registry
+            .borrow()
+            .values()
+            .filter_map(Weak::upgrade)
+            .collect()
+    });
+    cleanups
+        .into_iter()
+        .filter(|c| c.live.load(Ordering::Acquire))
+        .filter(|c| unsafe { ng_platform_canvas_get_window(c.handle as *mut c_void) } == window)
+        .collect()
+}
+
+/// Lets go of the frames of `window`'s canvases while nothing shows them. The next frame draws
+/// them whole.
+pub(crate) fn release_frames_in(window: *mut c_void) {
+    for cleanup in canvases_in(window) {
+        if let Ok(mut renderer) = cleanup.renderer.try_borrow_mut()
+            && let Some(renderer) = renderer.as_mut()
+        {
+            // SAFETY: a null buffer drops the canvas's pointer into the frame about to go.
+            unsafe {
+                ng_platform_canvas_update_buffer(cleanup.handle as *mut c_void, null(), 0, 0, 0)
+            };
+            renderer.release_frame();
+        }
+    }
+}
+
+/// Draws `window`'s canvases again, after [`release_frames_in`].
+pub(crate) fn redraw_canvases_in(window: *mut c_void) {
+    for cleanup in canvases_in(window) {
+        request_canvas_redraw(cleanup.id);
     }
 }
 
@@ -445,6 +485,8 @@ mod native_lifetime_tests {
         assert!(result.is_err());
         assert!(weak.upgrade().is_none());
         assert!(canvas.with_frame_pixels(|_, _, _| ()).is_none());
+
+        super::minimize_tests::a_minimized_window_lets_go_of_its_frames_and_draws_them_again();
     }
 
     fn pixel_reads_and_failed_frames_recover(canvas: &mut Canvas) {
@@ -489,5 +531,39 @@ mod native_lifetime_tests {
             })
             .expect("recursive callback");
         canvas.redraw_if_needed().expect("outer draw");
+    }
+}
+
+#[cfg(all(test, any(target_os = "windows", target_os = "linux")))]
+mod minimize_tests {
+    use crate::Window;
+    use crate::lifecycle::{LifecycleEvent, invoke_lifecycle_callback};
+    use crate::render::{Canvas, Color, RendererBackend};
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn minimizing_releases_frames() {
+        a_minimized_window_lets_go_of_its_frames_and_draws_them_again();
+    }
+
+    pub(super) fn a_minimized_window_lets_go_of_its_frames_and_draws_them_again() {
+        let mut window = Window::new("canvas minimize test", 160, 100).expect("window");
+        let mut canvas = Canvas::new(32, 32, RendererBackend::Cpu).expect("canvas");
+        window.set_content(canvas.clone()).expect("content");
+        canvas
+            .set_draw_callback(|ctx| ctx.clear(Color::rgb(255, 0, 0)))
+            .expect("callback");
+        canvas.redraw_if_needed().expect("draw");
+        let len = |c: &Canvas| c.with_frame_pixels(|p, _, _| p.len()).unwrap_or(0);
+        assert!(len(&canvas) > 0);
+
+        invoke_lifecycle_callback(window.handle(), LifecycleEvent::WindowMinimized);
+        assert_eq!(len(&canvas), 0, "the frame is gone while minimized");
+
+        invoke_lifecycle_callback(window.handle(), LifecycleEvent::WindowRestored);
+        canvas.redraw_if_needed().expect("redraw");
+        let first = canvas.with_frame_pixels(|p, _, _| p[0]).expect("pixels");
+        assert_eq!(first & 0x00FF_FFFF, 0x00FF_0000, "drawn whole again");
     }
 }

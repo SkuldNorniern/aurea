@@ -41,7 +41,7 @@ use crate::registry::window::{
     scale_factor_changed, take_unread, unregister_event_callbacks, unregister_event_queue,
     unregister_update_callbacks,
 };
-use crate::render::{Image, ImageSet, Rect};
+use crate::render::{Image, ImageSet, Rect, redraw_canvases_in, release_frames_in};
 use crate::trim_memory;
 use crate::{AureaError, AureaResult};
 use aurea_foundation::lock;
@@ -251,8 +251,14 @@ impl Window {
                             height: h.cast_unsigned(),
                         }
                     }
-                    LifecycleEvent::WindowMinimized => WindowEvent::Minimized,
-                    LifecycleEvent::WindowRestored => WindowEvent::Restored,
+                    LifecycleEvent::WindowMinimized => {
+                        release_frames_in(handle_ptr);
+                        WindowEvent::Minimized
+                    }
+                    LifecycleEvent::WindowRestored => {
+                        redraw_canvases_in(handle_ptr);
+                        WindowEvent::Restored
+                    }
                     LifecycleEvent::MemoryWarning => {
                         trim_memory();
                         WindowEvent::MemoryWarning
