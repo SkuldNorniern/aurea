@@ -87,39 +87,6 @@ static void ng_windows_fit_work_area(HWND hwnd) {
     }
 }
 
-NGHandle ng_windows_create_window(const char* title, int width, int height) {
-    if (!title) return NULL;
-    
-    wchar_t* wide_title = ng_windows_utf8_to_wide(title);
-    if (!wide_title) return NULL;
-
-    HWND hwnd = CreateWindowExW(
-        0,
-        ng_windows_get_class_name(),
-        wide_title,
-        WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT,
-        width, height,
-        NULL,
-        NULL,
-        GetModuleHandleA(NULL),
-        NULL
-    );
-    free(wide_title);
-    
-    if (hwnd) {
-        ng_windows_set_client_size(hwnd, width, height, 0);
-        ng_windows_fit_work_area(hwnd);
-        ng_windows_accept_drops(hwnd);
-        ng_windows_enable_gestures(hwnd);
-        ShowWindow(hwnd, SW_SHOW);
-        UpdateWindow(hwnd);
-        SetFocus(hwnd);
-    }
-
-    return (NGHandle)hwnd;
-}
-
 #define AUREA_WINDOW_NORMAL  0
 #define AUREA_WINDOW_POPUP   1
 #define AUREA_WINDOW_TOOL    2
@@ -188,6 +155,10 @@ NGHandle ng_windows_create_window_with_type(const char* title, int width, int he
     }
 
     return (NGHandle)hwnd;
+}
+
+NGHandle ng_windows_create_window(const char* title, int width, int height) {
+    return ng_windows_create_window_with_type(title, width, height, AUREA_WINDOW_NORMAL);
 }
 
 float ng_windows_get_scale_factor(NGHandle window) {
