@@ -98,7 +98,7 @@ static LRESULT CALLBACK SplitViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
         GetCursorPos(&p);
         ScreenToClient(hwnd, &p);
         if (on_divider(hwnd, data, data->is_vertical ? p.y : p.x)) {
-            SetCursor(LoadCursorW(NULL, data->is_vertical ? IDC_SIZENS : IDC_SIZEWE));
+            SetCursor(LoadCursor(NULL, data->is_vertical ? IDC_SIZENS : IDC_SIZEWE));
             return TRUE;
         }
     } else if (msg == WM_LBUTTONDOWN && data && on_divider(hwnd, data, along(data, lParam))) {

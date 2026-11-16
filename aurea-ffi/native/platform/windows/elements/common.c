@@ -1,4 +1,5 @@
 #include "common.h"
+#include "../window_state.h"
 #include "../elements.h"
 #include "../utils.h"
 #include "common/errors.h"
@@ -294,20 +295,14 @@ int ng_windows_is_notification(UINT msg) {
 }
 
 void ng_windows_forward_to_window(HWND from, UINT msg, WPARAM wParam, LPARAM lParam) {
-    for (HWND at = GetParent(from); at; at = GetParent(at)) {
-        char cls[64];
-        if (GetClassNameA(at, cls, sizeof(cls)) && _stricmp(cls, "NativeGuiWindow") == 0) {
-            SendMessageW(at, msg, wParam, lParam);
-            return;
-        }
-    }
+    HWND root = ng_windows_root_window(GetParent(from));
+    if (root) SendMessageW(root, msg, wParam, lParam);
 }
 
 int ng_windows_element_set_change_id(NGHandle element, unsigned int id) {
     if (!element || !IsWindow((HWND)element)) return NG_ERROR_INVALID_HANDLE;
     HWND hwnd = (HWND)element;
     SetPropA(hwnd, CHANGE_ID_PROP, (HANDLE)(UINT_PTR)id);
-    wchar_t cls[32];
     if (ng_windows_is_rich_edit(hwnd)) {
         LRESULT mask = SendMessageW(hwnd, EM_GETEVENTMASK, 0, 0);
         SendMessageW(hwnd, EM_SETEVENTMASK, 0, mask | ENM_CHANGE);
@@ -642,9 +637,7 @@ static int box_padding(HWND box) {
     int set = stored_px(box, BOX_PADDING_PROP);
     if (set >= 0) return set;
     HWND parent = GetParent(box);
-    char parent_class[64];
-    if (parent && ((GetClassNameA(parent, parent_class, sizeof(parent_class)) &&
-                    _stricmp(parent_class, "NativeGuiWindow") == 0) ||
+    if (parent && (ng_windows_window_state(parent) ||
                    GetPropA(parent, "AureaSplitViewOldProc") || ng_windows_is_scroll_view(parent))) {
         return ng_windows_px(box, PADDING);
     }
@@ -782,10 +775,10 @@ static void measure_child(BoxChild* c, int vertical, int cross) {
             h = text.cy + ng_windows_px(c->hwnd, 8);
             if (h < min_h) h = min_h;
         } else {
-            int natural = text.cx + ng_windows_px(c->hwnd, 32);
+            int padded = text.cx + ng_windows_px(c->hwnd, 32);
             int min_w = ng_windows_px(c->hwnd, BUTTON_MIN_WIDTH);
             int min_h = ng_windows_px(c->hwnd, BUTTON_MIN_HEIGHT);
-            w = natural > min_w ? natural : min_w;
+            w = padded > min_w ? padded : min_w;
             if (h < min_h) h = min_h;
         }
     } else if (fixed_height(c)) {
@@ -852,9 +845,7 @@ void layout_box_children(HWND box) {
 
     HWND parent = GetParent(box);
     if (parent) {
-        char parent_class[64];
-        GetClassNameA(parent, parent_class, sizeof(parent_class));
-        if (_stricmp(parent_class, "NativeGuiWindow") == 0) {
+        if (ng_windows_window_state(parent)) {
             RECT parent_rect;
             GetClientRect(parent, &parent_rect);
             box_width = parent_rect.right - parent_rect.left;

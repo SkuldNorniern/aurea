@@ -1,4 +1,5 @@
 #include "common.h"
+#include "../window_state.h"
 #include "../elements.h"
 #include "common/errors.h"
 #include <windows.h>
@@ -124,9 +125,7 @@ int ng_windows_box_add_weighted(NGHandle box, NGHandle element, float weight) {
 
     HWND box_parent = GetParent(box_hwnd);
     if (box_parent) {
-        char parent_class[256];
-        GetClassNameA(box_parent, parent_class, sizeof(parent_class));
-        BOOL is_window_parent = (_stricmp(parent_class, "NativeGuiWindow") == 0);
+        BOOL is_window_parent = ng_windows_window_state(box_parent) != NULL;
 
         if (is_window_parent) {
             RECT parent_rect;

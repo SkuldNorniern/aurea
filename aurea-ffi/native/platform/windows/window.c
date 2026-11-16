@@ -238,14 +238,12 @@ void ng_windows_window_set_scale_factor_callback(NGHandle window, ScaleFactorCal
         }
     }
     
-    extern void ng_windows_register_scale_callback(HWND, ScaleFactorCallback);
     ng_windows_register_scale_callback(hwnd, callback);
 }
 
 void ng_windows_window_set_lifecycle_callback(NGHandle window) {
     if (!window) return;
     HWND hwnd = (HWND)window;
-    extern void ng_windows_register_lifecycle_callback(HWND);
     ng_windows_register_lifecycle_callback(hwnd);
 }
 
@@ -456,7 +454,6 @@ int ng_windows_set_window_content(NGHandle window_handle, NGHandle content_handl
 
     ng_windows_refresh_dpi(window);
 
-    extern void layout_box_children(HWND box);
     #define BOX_ORIENTATION_PROP "AureaBoxOrientation"
     if (GetPropA(content, BOX_ORIENTATION_PROP)) {
         LOG_INFO("ng_windows_set_window_content: Content is a box, ensuring it fills window width");

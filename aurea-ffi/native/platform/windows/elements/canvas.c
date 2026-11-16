@@ -1,4 +1,5 @@
 #include "common.h"
+#include "../window_state.h"
 #include "../elements.h"
 #include "../window.h"
 #include "../pen.h"
@@ -23,14 +24,7 @@ static const wchar_t* CANVAS_CLASS_NAME_W = L"AureaCanvas";
 static int canvas_class_registered = 0;
 
 static HWND canvas_find_root_window(HWND start) {
-    HWND p = GetParent(start);
-    while (p && p != GetDesktopWindow()) {
-        char cls[256];
-        GetClassNameA(p, cls, sizeof(cls));
-        if (strcmp(cls, "NativeGuiWindow") == 0) return p;
-        p = GetParent(p);
-    }
-    return NULL;
+    return ng_windows_root_window(GetParent(start));
 }
 
 static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -320,17 +314,7 @@ void ng_windows_canvas_get_pixel_size(NGHandle canvas, unsigned int* width, unsi
 
 NGHandle ng_windows_canvas_get_window(NGHandle canvas) {
     if (!canvas) return NULL;
-    HWND hwnd = (HWND)canvas;
-    HWND parent = GetParent(hwnd);
-    while (parent && parent != GetDesktopWindow()) {
-        char class_name[256];
-        GetClassNameA(parent, class_name, sizeof(class_name));
-        if (strcmp(class_name, "NativeGuiWindow") == 0) {
-            return (NGHandle)parent;
-        }
-        parent = GetParent(parent);
-    }
-    return NULL;
+    return (NGHandle)canvas_find_root_window((HWND)canvas);
 }
 
 NGHandle ng_windows_canvas_get_native_handle(NGHandle canvas) {

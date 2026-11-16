@@ -50,6 +50,7 @@ int ng_windows_tab_focus(HWND root, HWND focus, int back, int ctrl);
 /* Clicks a focused push button for Enter, as GTK and macOS do; 0 for anything else. */
 int ng_windows_enter_clicks(HWND focus);
 void ng_windows_register_scale_callback(HWND hwnd, ScaleFactorCallback callback);
+void ng_windows_register_lifecycle_callback(HWND hwnd);
 int ng_windows_window_set_shortcuts(NGHandle window, const unsigned int* keycodes, const unsigned int* modifiers, int count);
 int ng_windows_take_shortcut(HWND root, WPARAM vk);
 
