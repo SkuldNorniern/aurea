@@ -116,6 +116,20 @@ impl Canvas {
             .unwrap_or(GpuFeatures::ALL)
     }
 
+    /// Caps the threads a CPU canvas draws a frame on; `None` uses the machine's cores, up to 8,
+    /// and 1 draws on the UI thread only. GPU canvases ignore it.
+    pub fn set_cpu_threads(&self, threads: Option<usize>) -> AureaResult<()> {
+        self.ensure_live()?;
+        let mut slot = self
+            .renderer
+            .try_borrow_mut()
+            .map_err(|_| AureaError::RenderingFailed)?;
+        if let Some(renderer) = slot.as_mut() {
+            renderer.set_cpu_threads(threads);
+        }
+        Ok(())
+    }
+
     /// Sets cached GPU image limits between frames, including before the renderer
     /// is created. Limits survive GPU recreation. CPU canvases ignore them.
     pub fn set_gpu_cache_limits(&self, limits: GpuCacheLimits) -> AureaResult<()> {
