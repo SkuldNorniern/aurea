@@ -3,7 +3,7 @@
 use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
-use crate::ui::frame::{Align, Eased, Ui};
+use crate::ui::frame::{Align, Eased, Response, Ui};
 use crate::ui::state::WidgetId;
 
 /// Closest two numbered marks may come, in logical pixels.
@@ -66,7 +66,7 @@ pub struct Ruler {
     marker: Option<f32>,
 }
 
-/// What a [`Ruler`] draws, for a painter given to [`Ruler::show_with`].
+/// What a [`Ruler`] draws, from [`Ruler::look`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RulerParts {
     /// The unit at the start of the rect.
@@ -116,8 +116,9 @@ impl Ruler {
         self
     }
 
-    /// Works out what the ruler would draw, without drawing. It takes no input.
-    fn run<Id: WidgetId>(self, ui: &Ui<'_, Id>, rect: Rect) -> Look<RulerParts> {
+    /// Works out what the ruler would draw, without drawing: the app draws it, or
+    /// [`Look::paint_default`] does. It takes no input.
+    pub fn look<Id: WidgetId>(self, ui: &Ui<'_, Id>, rect: Rect) -> Look<RulerParts> {
         let p = ui.theme.palette;
         let ppu = self.pixels_per_unit;
         let steps = (ppu > 0.0 && ppu.is_finite()).then(|| steps(ppu));
@@ -128,6 +129,10 @@ impl Ruler {
                 ..Eased::default()
             },
             held_at: None,
+            response: Response {
+                rect,
+                ..Response::default()
+            },
             parts: RulerParts {
                 origin: self.origin,
                 pixels_per_unit: ppu,
@@ -143,22 +148,9 @@ impl Ruler {
         }
     }
 
-    /// Works out what the ruler would draw as [`Ruler::show`] does, then has `paint` draw it
-    /// instead. [`Look::paint_default`], [`Look::paint_ground`] and [`Look::paint_marks`] draw the
-    /// parts of the usual look.
-    pub fn show_with<Id: WidgetId>(
-        self,
-        ui: &mut Ui<'_, Id>,
-        rect: Rect,
-        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<RulerParts>) -> AureaResult<()>,
-    ) -> AureaResult<()> {
-        let look = self.run(ui, rect);
-        paint(ui, &look)
-    }
-
     /// Draws the ruler in `rect`.
     pub fn show<Id: WidgetId>(self, ui: &mut Ui<'_, Id>, rect: Rect) -> AureaResult<()> {
-        self.show_with(ui, rect, |ui, look| look.paint_default(ui))
+        self.look(ui, rect).paint_default(ui)
     }
 }
 
@@ -310,19 +302,16 @@ mod tests {
     }
 
     #[test]
-    fn show_with_paints_the_apps_ground_and_keeps_the_marks() {
+    fn look_paints_the_apps_ground_and_keeps_the_marks() {
         let (mut raster, mut state) = (CpuRasterizer::new(200, 60), UiState::<u8>::new());
         let theme = Theme::dark();
         {
             let mut ctx = raster.begin_frame().expect("frame");
             ctx.clear(Color::rgb(0, 0, 0)).expect("clear");
             let mut ui = state.frame(&mut *ctx, &theme);
-            Ruler::horizontal(-7.0, 1.5)
-                .show_with(&mut ui, Rect::new(0.0, 0.0, 200.0, 20.0), |ui, look| {
-                    ui.fill(look.rect, Color::rgb(0, 200, 0))?;
-                    look.paint_marks(ui)
-                })
-                .expect("ruler");
+            let ruler = Ruler::horizontal(-7.0, 1.5).look(&ui, Rect::new(0.0, 0.0, 200.0, 20.0));
+            ui.fill(ruler.rect, Color::rgb(0, 200, 0)).expect("ground");
+            ruler.paint_marks(&mut ui).expect("marks");
         }
         raster.end_frame().expect("end");
         let at = |x: usize, y: usize| raster.pixels()[y * 200 + x];

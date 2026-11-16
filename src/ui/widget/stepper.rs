@@ -50,7 +50,7 @@ impl StepperStyle {
     }
 }
 
-/// What a [`Stepper`] draws, for a painter given to [`Stepper::show_with`].
+/// What a [`Stepper`] draws, from [`Stepper::look`].
 ///
 /// The whole stepper is one [`Look`]: the minus and plus parts have their own rects and eased
 /// states here, and the value sits between them.
@@ -173,13 +173,15 @@ impl<'v> Stepper<'v> {
 }
 
 impl<'v> Stepper<'v> {
-    /// Takes the input and works out what it would draw, without drawing.
-    fn run<Id: WidgetId>(
+    /// Takes the input as [`Stepper::show`] does and works out what it would draw, without
+    /// drawing: the app draws it, or [`Look::paint_default`] does, or its pieces
+    /// [`Look::paint_frame`], [`Look::paint_minus`], [`Look::paint_plus`] and [`Look::paint_value`].
+    pub fn look<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,
         id: Id,
         rect: Rect,
-    ) -> (Response, Look<StepperParts<'v>>) {
+    ) -> Look<StepperParts<'v>> {
         let style = self.style.unwrap_or_else(|| StepperStyle::new(ui.theme));
         let (lo, hi) = (*self.range.start(), *self.range.end());
         let input = ui.interact(id, 0, rect, Sense::Adjust, self.enabled);
@@ -237,10 +239,11 @@ impl<'v> Stepper<'v> {
         let state = ui.eased(id, 0, input);
         let down_state = ui.eased(id, 1, down);
         let up_state = ui.eased(id, 2, up);
-        let look = Look {
+        Look {
             rect,
             state,
             held_at: ui.held_at(id, 0),
+            response,
             parts: StepperParts {
                 value: *self.value,
                 decimals: self.decimals,
@@ -255,23 +258,7 @@ impl<'v> Stepper<'v> {
                 enabled: self.enabled,
                 style,
             },
-        };
-        (response, look)
-    }
-
-    /// Takes the input as [`Stepper::show`] does, then has `paint` draw it instead of its own look.
-    /// [`Look::paint_default`], [`Look::paint_frame`], [`Look::paint_minus`], [`Look::paint_plus`]
-    /// and [`Look::paint_value`] draw the parts of the usual look.
-    pub fn show_with<Id: WidgetId>(
-        self,
-        ui: &mut Ui<'_, Id>,
-        id: Id,
-        rect: Rect,
-        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<StepperParts<'v>>) -> AureaResult<()>,
-    ) -> AureaResult<Response> {
-        let (response, look) = self.run(ui, id, rect);
-        paint(ui, &look)?;
-        Ok(response)
+        }
     }
 }
 
@@ -334,7 +321,9 @@ impl Look<StepperParts<'_>> {
 
 impl<Id: WidgetId> Widget<Id> for Stepper<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
-        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
+        let look = self.look(ui, id, rect);
+        look.paint_default(ui)?;
+        Ok(look.response)
     }
 }
 
@@ -420,19 +409,17 @@ mod tests {
     }
 
     #[test]
-    fn show_with_draws_the_apps_look_and_still_steps() {
+    fn look_draws_the_apps_look_and_still_steps() {
         let mut rig: Rig = Rig::new(150, 30);
         let at = Rect::new(0.0, 0.0, 150.0, 30.0);
         let mut value = 1.0;
         let draw = |rig: &mut Rig, value: &mut f32| {
             rig.frame(|ui| {
-                Stepper::new(value, 0.0..=2.0)
+                let stepper = Stepper::new(value, 0.0..=2.0)
                     .step(0.5)
                     .decimals(1)
-                    .show_with(ui, 1, at, |ui, look| {
-                        ui.fill(look.rect, Color::rgb(0, 200, 0))
-                    })
-                    .expect("draw");
+                    .look(ui, 1, at);
+                ui.fill(stepper.rect, Color::rgb(0, 200, 0)).expect("draw");
             });
         };
         draw(&mut rig, &mut value);

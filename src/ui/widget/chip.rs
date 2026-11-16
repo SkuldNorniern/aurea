@@ -104,7 +104,7 @@ impl<'v> Chip<'v> {
     }
 }
 
-/// What a [`Chip`] draws, for a painter given to [`Chip::show_with`].
+/// What a [`Chip`] draws, from [`Chip::look`].
 #[derive(Clone, Copy, Debug)]
 pub struct ChipParts<'v> {
     /// Whether it is on, after this frame's click.
@@ -120,13 +120,15 @@ pub struct ChipParts<'v> {
 }
 
 impl<'v> Chip<'v> {
-    /// Takes the input and works out what it would draw, without drawing.
-    fn run<Id: WidgetId>(
+    /// Takes the input as [`Chip::show`] does and works out what it would draw, without drawing:
+    /// the app draws it, or [`Look::paint_default`] does, or its pieces [`Look::paint_surface`],
+    /// [`Look::paint_tick`] and [`Look::paint_label`].
+    pub fn look<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,
         id: Id,
         rect: Rect,
-    ) -> (Response, Look<ChipParts<'v>>) {
+    ) -> Look<ChipParts<'v>> {
         let input = ui.interact(id, 0, rect, Sense::Click, self.enabled);
         let mut response = Response::new(rect, input);
         if input.clicked {
@@ -144,10 +146,11 @@ impl<'v> Chip<'v> {
         let state = ui.eased(id, 0, input);
         let rate = ui.theme.motion.slide * 1.5;
         let progress = ui.animate(id, 0, Channel::Value, f32::from(u8::from(*self.on)), rate);
-        let look = Look {
+        Look {
             rect,
             state,
             held_at: ui.held_at(id, 0),
+            response,
             parts: ChipParts {
                 on: *self.on,
                 progress,
@@ -155,23 +158,7 @@ impl<'v> Chip<'v> {
                 enabled: self.enabled,
                 style,
             },
-        };
-        (response, look)
-    }
-
-    /// Takes the input as [`Chip::show`] does, then has `paint` draw it instead of its own look.
-    /// [`Look::paint_default`], [`Look::paint_surface`], [`Look::paint_tick`] and
-    /// [`Look::paint_label`] draw the parts of the usual look.
-    pub fn show_with<Id: WidgetId>(
-        self,
-        ui: &mut Ui<'_, Id>,
-        id: Id,
-        rect: Rect,
-        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<ChipParts<'v>>) -> AureaResult<()>,
-    ) -> AureaResult<Response> {
-        let (response, look) = self.run(ui, id, rect);
-        paint(ui, &look)?;
-        Ok(response)
+        }
     }
 }
 
@@ -237,7 +224,9 @@ impl Look<ChipParts<'_>> {
 
 impl<Id: WidgetId> Widget<Id> for Chip<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
-        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
+        let look = self.look(ui, id, rect);
+        look.paint_default(ui)?;
+        Ok(look.response)
     }
 }
 
@@ -251,16 +240,13 @@ mod tests {
 
     fn draw_chip(rig: &mut Rig, on: &mut bool, at: Rect) {
         rig.frame(|ui| {
-            Chip::new("Wired", on)
-                .show_with(ui, 1, at, |ui, look| {
-                    ui.fill(look.rect, Color::rgb(0, 200, 0))
-                })
-                .expect("draw");
+            let chip = Chip::new("Wired", on).look(ui, 1, at);
+            ui.fill(chip.rect, Color::rgb(0, 200, 0)).expect("draw");
         });
     }
 
     #[test]
-    fn show_with_draws_the_apps_look_and_still_toggles() {
+    fn look_draws_the_apps_look_and_still_toggles() {
         let mut rig = Rig::new(120, 40);
         let at = Rect::new(0.0, 0.0, 120.0, 40.0);
         let mut on = false;

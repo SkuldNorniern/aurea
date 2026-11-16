@@ -94,7 +94,7 @@ pub struct SliderTrack {
     pub opacity: f32,
 }
 
-/// What a [`Slider`] draws, for a painter given to [`Slider::show_with`].
+/// What a [`Slider`] draws, from [`Slider::look`].
 #[derive(Clone, Copy, Debug)]
 pub struct SliderParts<'v> {
     /// Where the value sits along the groove, 0 at the start to 1 at the end, eased as it moves.
@@ -213,51 +213,28 @@ impl<'v> Slider<'v> {
         Widget::show(self, ui, id, rect)
     }
 
-    /// Replaces only the track drawing, retaining native input, knob and focus.
+    /// Takes the input as [`Slider::show`] does and works out what it would draw, without drawing:
+    /// the app draws it, or [`Look::paint_default`] does, or its pieces [`Look::paint_track`],
+    /// [`Look::paint_knob`] and [`Look::paint_readout`]. To swap only the track, draw it clipped to
+    /// [`Look::track_view`]'s rect, then [`Look::paint_knob`] and [`Look::paint_readout`].
     ///
     /// ```rust,no_run
     /// # use aurea::ui::{Slider, Ui};
-    /// # use aurea::render::{Color, GradientStop, LinearGradient, Point, Rect};
-    /// # fn hue(ui: &mut Ui<'_, u8>, value: &mut f32) -> aurea::AureaResult<()> {
-    /// Slider::new(value, 0.0..=1.0).show_with_track(
-    ///     ui, 1, Rect::new(0.0, 0.0, 200.0, 24.0), |ui, track| {
-    ///         let bar = track.rect;
-    ///         ui.ctx.fill_linear_gradient(&LinearGradient {
-    ///             start: Point::new(bar.x, bar.y),
-    ///             end: Point::new(bar.right(), bar.y),
-    ///             stops: vec![
-    ///                 GradientStop { offset: 0.0, color: Color::rgb(255, 0, 0) },
-    ///                 GradientStop { offset: 1.0, color: Color::rgb(0, 0, 255) },
-    ///             ],
-    ///         }, bar)
-    ///     },
-    /// )?;
-    /// # Ok(()) }
+    /// # use aurea::render::Color;
+    /// # fn f(ui: &mut Ui<'_, u8>, level: &mut f32) -> aurea::AureaResult<()> {
+    /// let at = aurea::Rect::new(0.0, 0.0, 200.0, 24.0);
+    /// let slider = Slider::new(level, 0.0..=1.0).look(ui, 1, at);
+    /// ui.fill(slider.rect, Color::rgb(0, 200, 0))?;
+    /// slider.paint_knob(ui)?;
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn show_with_track<Id: WidgetId>(
-        self,
-        ui: &mut Ui<'_, Id>,
-        id: Id,
-        rect: Rect,
-        painter: impl FnOnce(&mut Ui<'_, Id>, SliderTrack) -> AureaResult<()>,
-    ) -> AureaResult<Response> {
-        self.show_with(ui, id, rect, |ui, look| {
-            ui.clipped(look.parts.bar, |ui| {
-                ui.ctx.set_alpha(look.state.enabled)?;
-                painter(ui, look.track_view())
-            })?;
-            look.paint_knob(ui)?;
-            look.paint_readout(ui)
-        })
-    }
-
-    /// Takes the input and works out what it would draw, without drawing.
-    fn run<Id: WidgetId>(
+    pub fn look<Id: WidgetId>(
         mut self,
         ui: &mut Ui<'_, Id>,
         id: Id,
         rect: Rect,
-    ) -> (Response, Look<SliderParts<'v>>) {
+    ) -> Look<SliderParts<'v>> {
         let style = self.style.unwrap_or_else(|| SliderStyle::new(ui.theme));
         let (area, strip) = self.split_readout(rect, ui.theme.text_size * 1.4);
         let r = style.knob_radius.min(self.across(area) / 2.0);
@@ -323,10 +300,11 @@ impl<'v> Slider<'v> {
         let size = r * (1.0 + 0.12 * state.hover - 0.08 * state.press);
         let (x, y) = self.knob_center(area, groove, shown);
         let knob = Rect::new(x - size, y - size, size * 2.0, size * 2.0);
-        let look = Look {
+        Look {
             rect: area,
             state,
             held_at: ui.held_at(id, 0),
+            response,
             parts: SliderParts {
                 position: shown,
                 origin,
@@ -340,36 +318,45 @@ impl<'v> Slider<'v> {
                 enabled: self.enabled,
                 style,
             },
-        };
-        (response, look)
+        }
     }
 
-    /// Takes the input as [`Slider::show`] does, then has `paint` draw it instead of its own look.
-    /// [`Look::paint_default`], [`Look::paint_track`], [`Look::paint_knob`] and
-    /// [`Look::paint_readout`] draw the parts of the usual look.
+    /// Replaces only the track drawing, retaining native input, knob and focus.
     ///
     /// ```rust,no_run
     /// # use aurea::ui::{Slider, Ui};
-    /// # use aurea::render::Color;
-    /// # fn f(ui: &mut Ui<'_, u8>, level: &mut f32) -> aurea::AureaResult<()> {
-    /// let at = aurea::Rect::new(0.0, 0.0, 200.0, 24.0);
-    /// Slider::new(level, 0.0..=1.0).show_with(ui, 1, at, |ui, look| {
-    ///     ui.fill(look.rect, Color::rgb(0, 200, 0))?;
-    ///     look.paint_knob(ui)
-    /// })?;
-    /// # Ok(())
-    /// # }
+    /// # use aurea::render::{Color, GradientStop, LinearGradient, Point, Rect};
+    /// # fn hue(ui: &mut Ui<'_, u8>, value: &mut f32) -> aurea::AureaResult<()> {
+    /// Slider::new(value, 0.0..=1.0).show_with_track(
+    ///     ui, 1, Rect::new(0.0, 0.0, 200.0, 24.0), |ui, track| {
+    ///         let bar = track.rect;
+    ///         ui.ctx.fill_linear_gradient(&LinearGradient {
+    ///             start: Point::new(bar.x, bar.y),
+    ///             end: Point::new(bar.right(), bar.y),
+    ///             stops: vec![
+    ///                 GradientStop { offset: 0.0, color: Color::rgb(255, 0, 0) },
+    ///                 GradientStop { offset: 1.0, color: Color::rgb(0, 0, 255) },
+    ///             ],
+    ///         }, bar)
+    ///     },
+    /// )?;
+    /// # Ok(()) }
     /// ```
-    pub fn show_with<Id: WidgetId>(
+    pub fn show_with_track<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,
         id: Id,
         rect: Rect,
-        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<SliderParts<'v>>) -> AureaResult<()>,
+        painter: impl FnOnce(&mut Ui<'_, Id>, SliderTrack) -> AureaResult<()>,
     ) -> AureaResult<Response> {
-        let (response, look) = self.run(ui, id, rect);
-        paint(ui, &look)?;
-        Ok(response)
+        let look = self.look(ui, id, rect);
+        ui.clipped(look.parts.bar, |ui| {
+            ui.ctx.set_alpha(look.state.enabled)?;
+            painter(ui, look.track_view())
+        })?;
+        look.paint_knob(ui)?;
+        look.paint_readout(ui)?;
+        Ok(look.response)
     }
 
     fn pointer<Id: WidgetId>(
@@ -443,7 +430,9 @@ impl<'v> Slider<'v> {
 
 impl<Id: WidgetId> Widget<Id> for Slider<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
-        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
+        let look = self.look(ui, id, rect);
+        look.paint_default(ui)?;
+        Ok(look.response)
     }
 }
 
@@ -876,18 +865,16 @@ mod tests {
     }
 
     #[test]
-    fn show_with_draws_the_apps_look_and_still_drags() {
+    fn look_draws_the_apps_look_and_still_drags() {
         let mut rig: Rig = Rig::new(218, 24);
         let at = Rect::new(0.0, 0.0, 218.0, 24.0);
         let mut value = 0.0;
         let draw = |rig: &mut Rig, value: &mut f32| {
             rig.frame(|ui| {
-                Slider::new(value, -100.0..=100.0)
+                let slider = Slider::new(value, -100.0..=100.0)
                     .origin(0.0)
-                    .show_with(ui, 1, at, |ui, look| {
-                        ui.fill(look.rect, Color::rgb(0, 200, 0))
-                    })
-                    .expect("draw");
+                    .look(ui, 1, at);
+                ui.fill(slider.rect, Color::rgb(0, 200, 0)).expect("draw");
             });
         };
         draw(&mut rig, &mut value);

@@ -75,7 +75,7 @@ impl<'t> Link<'t> {
     }
 }
 
-/// What a [`Link`] draws, for a painter given to [`Link::show_with`].
+/// What a [`Link`] draws, from [`Link::look`].
 #[derive(Clone, Copy, Debug)]
 pub struct LinkParts<'t> {
     /// The text.
@@ -85,44 +85,31 @@ pub struct LinkParts<'t> {
 }
 
 impl<'t> Link<'t> {
-    /// Takes the input and works out what it would draw, without drawing.
-    fn run<Id: WidgetId>(
+    /// Takes the input as [`Link::show`] does and works out what it would draw, without drawing:
+    /// the app draws it, or [`Look::paint_default`] does, or its pieces [`Look::paint_ring`],
+    /// [`Look::paint_label`] and [`Look::paint_underline`].
+    pub fn look<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,
         id: Id,
         rect: Rect,
-    ) -> (Response, Look<LinkParts<'t>>) {
+    ) -> Look<LinkParts<'t>> {
         let style = self.style.unwrap_or_else(|| LinkStyle::new(ui.theme));
         let width = self.width(ui).min(rect.width);
         let text = Rect::new(rect.x, rect.y, width, rect.height);
         let input = ui.interact(id, 0, text, Sense::Click, true);
         #[cfg(feature = "accessibility")]
         ui.accessible_description(id, 0, Role::Link, self.text, None);
-        let look = Look {
+        Look {
             rect: text,
             state: ui.eased(id, 0, input),
             held_at: ui.held_at(id, 0),
+            response: Response::new(text, input),
             parts: LinkParts {
                 label: self.text,
                 style,
             },
-        };
-        (Response::new(text, input), look)
-    }
-
-    /// Takes the input as [`Link::show`] does, then has `paint` draw it instead of its own look.
-    /// [`Look::paint_default`], [`Look::paint_ring`], [`Look::paint_label`] and
-    /// [`Look::paint_underline`] draw the parts of the usual look.
-    pub fn show_with<Id: WidgetId>(
-        self,
-        ui: &mut Ui<'_, Id>,
-        id: Id,
-        rect: Rect,
-        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<LinkParts<'t>>) -> AureaResult<()>,
-    ) -> AureaResult<Response> {
-        let (response, look) = self.run(ui, id, rect);
-        paint(ui, &look)?;
-        Ok(response)
+        }
     }
 }
 
@@ -171,7 +158,9 @@ impl Look<LinkParts<'_>> {
 
 impl<Id: WidgetId> Widget<Id> for Link<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
-        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
+        let look = self.look(ui, id, rect);
+        look.paint_default(ui)?;
+        Ok(look.response)
     }
 }
 
@@ -184,17 +173,14 @@ mod tests {
     use crate::window::{Modifiers, MouseButton, PointerKind, WindowEvent};
 
     #[test]
-    fn show_with_draws_the_apps_look_and_still_clicks() {
+    fn look_draws_the_apps_look_and_still_clicks() {
         let mut rig = Rig::new(300, 30);
         let at = Rect::new(0.0, 0.0, 300.0, 30.0);
         let draw = |rig: &mut Rig| {
             rig.frame(|ui| {
-                Link::new("Docs")
-                    .show_with(ui, 1, at, |ui, look| {
-                        ui.fill(look.rect, Color::rgb(0, 200, 0))
-                    })
-                    .expect("draw")
-                    .clicked
+                let link = Link::new("Docs").look(ui, 1, at);
+                ui.fill(link.rect, Color::rgb(0, 200, 0)).expect("draw");
+                link.response.clicked
             })
         };
         draw(&mut rig);

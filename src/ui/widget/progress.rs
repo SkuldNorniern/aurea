@@ -69,7 +69,7 @@ impl ProgressBar {
     }
 }
 
-/// What a [`ProgressBar`] draws, for a painter given to [`ProgressBar::show_with`].
+/// What a [`ProgressBar`] draws, from [`ProgressBar::look`].
 #[derive(Clone, Copy, Debug)]
 pub struct ProgressParts {
     /// The amount done, clamped to `0..=1`; `None` while it cannot be told.
@@ -83,13 +83,14 @@ pub struct ProgressParts {
 }
 
 impl ProgressBar {
-    /// Works out what the bar would draw, without drawing. It takes no input.
-    fn run<Id: WidgetId>(
+    /// Works out what the bar would draw, without drawing: the app draws it, or
+    /// [`Look::paint_default`] does. It takes no input.
+    pub fn look<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,
         id: Id,
         rect: Rect,
-    ) -> (Response, Look<ProgressParts>) {
+    ) -> Look<ProgressParts> {
         let style = self.style.unwrap_or_else(|| ProgressStyle::new(ui.theme));
         #[cfg(feature = "accessibility")]
         {
@@ -117,7 +118,7 @@ impl ProgressBar {
                 ((start.max(0.0), (start + 1.0 / 3.0).min(1.0)), Some(phase))
             }
         };
-        let look = Look {
+        Look {
             rect,
             // no input, so never hovered or pressed
             state: Eased {
@@ -125,35 +126,17 @@ impl ProgressBar {
                 ..Eased::default()
             },
             held_at: None,
+            response: Response {
+                rect,
+                ..Response::default()
+            },
             parts: ProgressParts {
                 amount: self.amount.map(|amount| amount.clamp(0.0, 1.0)),
                 span,
                 phase,
                 style,
             },
-        };
-        (
-            Response {
-                rect,
-                ..Response::default()
-            },
-            look,
-        )
-    }
-
-    /// Works out what the bar would draw as [`ProgressBar::show`] does, then has `paint` draw it
-    /// instead of its own look. [`Look::paint_default`] and [`Look::paint_track`] draw the parts of
-    /// the usual look.
-    pub fn show_with<Id: WidgetId>(
-        self,
-        ui: &mut Ui<'_, Id>,
-        id: Id,
-        rect: Rect,
-        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<ProgressParts>) -> AureaResult<()>,
-    ) -> AureaResult<Response> {
-        let (response, look) = self.run(ui, id, rect);
-        paint(ui, &look)?;
-        Ok(response)
+        }
     }
 }
 
@@ -175,7 +158,9 @@ impl Look<ProgressParts> {
 
 impl<Id: WidgetId> Widget<Id> for ProgressBar {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
-        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
+        let look = self.look(ui, id, rect);
+        look.paint_default(ui)?;
+        Ok(look.response)
     }
 }
 
@@ -185,17 +170,14 @@ mod tests {
     use crate::ui::rig::Rig;
 
     #[test]
-    fn show_with_draws_the_apps_look_and_fills_to_the_amount() {
+    fn look_draws_the_apps_look_and_fills_to_the_amount() {
         let mut rig = Rig::new(120, 20).still();
         let at = Rect::new(0.0, 0.0, 120.0, 20.0);
         let mut seen = None;
         rig.frame(|ui| {
-            ProgressBar::new(Some(0.5))
-                .show_with(ui, 1, at, |ui, look| {
-                    seen = Some(look.parts.span);
-                    ui.fill(look.rect, Color::rgb(0, 200, 0))
-                })
-                .expect("draw");
+            let bar = ProgressBar::new(Some(0.5)).look(ui, 1, at);
+            seen = Some(bar.parts.span);
+            ui.fill(bar.rect, Color::rgb(0, 200, 0)).expect("draw");
         });
         assert_eq!(
             rig.pixel(60, 10),

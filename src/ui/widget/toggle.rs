@@ -99,7 +99,7 @@ impl<'v> Toggle<'v> {
     }
 }
 
-/// What a [`Toggle`] draws, for a painter given to [`Toggle::show_with`].
+/// What a [`Toggle`] draws, from [`Toggle::look`].
 #[derive(Clone, Copy, Debug)]
 pub struct ToggleParts<'v> {
     /// Whether it is on, after this frame's click.
@@ -115,13 +115,15 @@ pub struct ToggleParts<'v> {
 }
 
 impl<'v> Toggle<'v> {
-    /// Takes the input and works out what it would draw, without drawing.
-    fn run<Id: WidgetId>(
+    /// Takes the input as [`Toggle::show`] does and works out what it would draw, without drawing:
+    /// the app draws it, or [`Look::paint_default`] does, or its pieces [`Look::paint_track`] and
+    /// [`Look::paint_label`].
+    pub fn look<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,
         id: Id,
         rect: Rect,
-    ) -> (Response, Look<ToggleParts<'v>>) {
+    ) -> Look<ToggleParts<'v>> {
         let input = ui.interact(id, 0, rect, Sense::Click, self.enabled);
         let mut response = Response::new(rect, input);
         if input.clicked {
@@ -142,10 +144,11 @@ impl<'v> Toggle<'v> {
         let slide = ui.theme.motion.slide;
         let progress = ui.animate(id, 0, Channel::Value, f32::from(u8::from(*self.on)), slide);
         let style = self.style.unwrap_or_else(|| ToggleStyle::new(ui.theme));
-        let look = Look {
+        Look {
             rect,
             state,
             held_at: ui.held_at(id, 0),
+            response,
             parts: ToggleParts {
                 on: *self.on,
                 progress,
@@ -153,23 +156,7 @@ impl<'v> Toggle<'v> {
                 enabled: self.enabled,
                 style,
             },
-        };
-        (response, look)
-    }
-
-    /// Takes the input as [`Toggle::show`] does, then has `paint` draw it instead of its own look.
-    /// [`Look::paint_default`], [`Look::paint_track`] and [`Look::paint_label`] draw the parts of
-    /// the usual look.
-    pub fn show_with<Id: WidgetId>(
-        self,
-        ui: &mut Ui<'_, Id>,
-        id: Id,
-        rect: Rect,
-        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<ToggleParts<'v>>) -> AureaResult<()>,
-    ) -> AureaResult<Response> {
-        let (response, look) = self.run(ui, id, rect);
-        paint(ui, &look)?;
-        Ok(response)
+        }
     }
 }
 
@@ -227,7 +214,9 @@ impl Look<ToggleParts<'_>> {
 
 impl<Id: WidgetId> Widget<Id> for Toggle<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
-        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
+        let look = self.look(ui, id, rect);
+        look.paint_default(ui)?;
+        Ok(look.response)
     }
 }
 
@@ -315,7 +304,7 @@ impl<'v> Checkbox<'v> {
     }
 }
 
-/// What a [`Checkbox`] draws, for a painter given to [`Checkbox::show_with`].
+/// What a [`Checkbox`] draws, from [`Checkbox::look`].
 #[derive(Clone, Copy, Debug)]
 pub struct CheckboxParts<'v> {
     /// Whether it is ticked, after this frame's click.
@@ -331,13 +320,15 @@ pub struct CheckboxParts<'v> {
 }
 
 impl<'v> Checkbox<'v> {
-    /// Takes the input and works out what it would draw, without drawing.
-    fn run<Id: WidgetId>(
+    /// Takes the input as [`Checkbox::show`] does and works out what it would draw, without
+    /// drawing: the app draws it, or [`Look::paint_default`] does, or its pieces [`Look::paint_box`]
+    /// and [`Look::paint_label`].
+    pub fn look<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,
         id: Id,
         rect: Rect,
-    ) -> (Response, Look<CheckboxParts<'v>>) {
+    ) -> Look<CheckboxParts<'v>> {
         let input = ui.interact(id, 0, rect, Sense::Click, self.enabled);
         let mut response = Response::new(rect, input);
         if input.clicked {
@@ -355,10 +346,11 @@ impl<'v> Checkbox<'v> {
             rate,
         );
         let style = self.style.unwrap_or_else(|| CheckboxStyle::new(ui.theme));
-        let look = Look {
+        Look {
             rect,
             state,
             held_at: ui.held_at(id, 0),
+            response,
             parts: CheckboxParts {
                 checked: *self.checked,
                 progress,
@@ -366,23 +358,7 @@ impl<'v> Checkbox<'v> {
                 enabled: self.enabled,
                 style,
             },
-        };
-        (response, look)
-    }
-
-    /// Takes the input as [`Checkbox::show`] does, then has `paint` draw it instead of its own
-    /// look. [`Look::paint_default`], [`Look::paint_box`] and [`Look::paint_label`] draw the parts
-    /// of the usual look.
-    pub fn show_with<Id: WidgetId>(
-        self,
-        ui: &mut Ui<'_, Id>,
-        id: Id,
-        rect: Rect,
-        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<CheckboxParts<'v>>) -> AureaResult<()>,
-    ) -> AureaResult<Response> {
-        let (response, look) = self.run(ui, id, rect);
-        paint(ui, &look)?;
-        Ok(response)
+        }
     }
 }
 
@@ -435,7 +411,9 @@ impl Look<CheckboxParts<'_>> {
 
 impl<Id: WidgetId> Widget<Id> for Checkbox<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
-        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
+        let look = self.look(ui, id, rect);
+        look.paint_default(ui)?;
+        Ok(look.response)
     }
 }
 
@@ -446,26 +424,20 @@ mod tests {
 
     fn draw_toggle(rig: &mut Rig, on: &mut bool, at: Rect) {
         rig.frame(|ui| {
-            Toggle::new(on)
-                .show_with(ui, 1, at, |ui, look| {
-                    ui.fill(look.rect, Color::rgb(0, 200, 0))
-                })
-                .expect("draw");
+            let toggle = Toggle::new(on).look(ui, 1, at);
+            ui.fill(toggle.rect, Color::rgb(0, 200, 0)).expect("draw");
         });
     }
 
     fn draw_checkbox(rig: &mut Rig, checked: &mut bool, at: Rect) {
         rig.frame(|ui| {
-            Checkbox::new(checked)
-                .show_with(ui, 1, at, |ui, look| {
-                    ui.fill(look.rect, Color::rgb(0, 200, 0))
-                })
-                .expect("draw");
+            let checkbox = Checkbox::new(checked).look(ui, 1, at);
+            ui.fill(checkbox.rect, Color::rgb(0, 200, 0)).expect("draw");
         });
     }
 
     #[test]
-    fn toggle_show_with_draws_the_apps_look_and_still_toggles() {
+    fn look_draws_the_apps_look_and_still_toggles() {
         let mut rig = Rig::new(120, 40);
         let at = Rect::new(0.0, 0.0, 120.0, 40.0);
         let mut on = false;
@@ -485,7 +457,7 @@ mod tests {
     }
 
     #[test]
-    fn checkbox_show_with_draws_the_apps_look_and_still_toggles() {
+    fn look_checkbox_draws_the_apps_look_and_still_toggles() {
         let mut rig = Rig::new(120, 40);
         let at = Rect::new(0.0, 0.0, 120.0, 40.0);
         let mut checked = false;

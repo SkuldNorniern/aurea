@@ -104,7 +104,7 @@ pub struct Segment<'v> {
     pub picked: f32,
 }
 
-/// What a [`Segmented`] draws, for a painter given to [`Segmented::show_with`].
+/// What a [`Segmented`] draws, from [`Segmented::look`].
 ///
 /// Its options are one [`Look`] between them: the highlight is shared, so each option is a
 /// [`Segment`] in `segments`, from the left, and [`Look::paint_segment`] draws one.
@@ -121,13 +121,15 @@ pub struct SegmentedParts<'v> {
 }
 
 impl<'v> Segmented<'v> {
-    /// Takes the input and works out what it would draw, without drawing. Needs an option.
-    fn run<Id: WidgetId>(
+    /// Takes the input as [`Segmented::show`] does and works out what it would draw, without
+    /// drawing: the app draws it, or [`Look::paint_default`] does, or its pieces
+    /// [`Look::paint_track`] and [`Look::paint_segment`]. With no options there is nothing to draw.
+    pub fn look<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,
         id: Id,
         rect: Rect,
-    ) -> (Response, Look<SegmentedParts<'v>>) {
+    ) -> Look<SegmentedParts<'v>> {
         let mut response = Response {
             rect,
             ..Response::default()
@@ -135,7 +137,7 @@ impl<'v> Segmented<'v> {
         let n = self.options.len();
         let style = self.style.unwrap_or_else(|| SegmentedStyle::new(ui.theme));
         #[allow(clippy::cast_precision_loss)]
-        let target = (*self.selected).min(n - 1) as f32;
+        let target = (*self.selected).min(n.saturating_sub(1)) as f32;
         let slide = ui.animate(id, u16::MAX, Channel::Value, target, ui.theme.motion.slide);
         let mut segments = Vec::with_capacity(n);
         for (i, option) in self.options.iter().enumerate() {
@@ -165,7 +167,7 @@ impl<'v> Segmented<'v> {
                 picked,
             });
         }
-        let look = Look {
+        Look {
             rect,
             // no input of its own: the control is as enabled as it was asked to be
             state: Eased {
@@ -173,41 +175,24 @@ impl<'v> Segmented<'v> {
                 ..Eased::default()
             },
             held_at: None,
+            response,
             parts: SegmentedParts {
                 slide,
                 enabled: self.enabled,
                 style,
                 segments,
             },
-        };
-        (response, look)
-    }
-
-    /// Takes the input as [`Segmented::show`] does, then has `paint` draw it instead of its own
-    /// look. [`Look::paint_default`], [`Look::paint_track`] and [`Look::paint_segment`] draw the
-    /// parts of the usual look. Draws nothing, not even `paint`, with no options.
-    pub fn show_with<Id: WidgetId>(
-        self,
-        ui: &mut Ui<'_, Id>,
-        id: Id,
-        rect: Rect,
-        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<SegmentedParts<'v>>) -> AureaResult<()>,
-    ) -> AureaResult<Response> {
-        if self.options.is_empty() {
-            return Ok(Response {
-                rect,
-                ..Response::default()
-            });
         }
-        let (response, look) = self.run(ui, id, rect);
-        paint(ui, &look)?;
-        Ok(response)
     }
 }
 
 impl Look<SegmentedParts<'_>> {
-    /// The control's own look: the background and highlight, then each option.
+    /// The control's own look: the background and highlight, then each option. Nothing with no
+    /// options.
     pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        if self.parts.segments.is_empty() {
+            return Ok(());
+        }
         self.paint_track(ui)?;
         for i in 0..self.parts.segments.len() {
             self.paint_segment(ui, i)?;
@@ -270,7 +255,9 @@ impl Look<SegmentedParts<'_>> {
 
 impl<Id: WidgetId> Widget<Id> for Segmented<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
-        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
+        let look = self.look(ui, id, rect);
+        look.paint_default(ui)?;
+        Ok(look.response)
     }
 }
 
@@ -280,19 +267,16 @@ mod tests {
     use crate::ui::rig::Rig;
 
     #[test]
-    fn show_with_draws_the_apps_look_and_still_picks() {
+    fn look_draws_the_apps_look_and_still_picks() {
         let mut rig = Rig::new(200, 40);
         let at = Rect::new(0.0, 0.0, 200.0, 40.0);
         let mut picked = 0;
         let mut seen = 0;
         let draw = |rig: &mut Rig, picked: &mut usize, seen: &mut usize| {
             rig.frame(|ui| {
-                Segmented::new(&["One", "Two", "Three"], picked)
-                    .show_with(ui, 1, at, |ui, look| {
-                        *seen = look.parts.segments.len();
-                        ui.fill(look.rect, Color::rgb(0, 200, 0))
-                    })
-                    .expect("draw");
+                let control = Segmented::new(&["One", "Two", "Three"], picked).look(ui, 1, at);
+                *seen = control.parts.segments.len();
+                ui.fill(control.rect, Color::rgb(0, 200, 0)).expect("draw");
             });
         };
         draw(&mut rig, &mut picked, &mut seen);

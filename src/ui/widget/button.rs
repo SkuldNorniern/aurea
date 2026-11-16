@@ -276,7 +276,7 @@ fn icon_size<Id: WidgetId>(ui: &Ui<'_, Id>) -> f32 {
     (ui.theme.text_size * 1.35).round()
 }
 
-/// What a [`Button`] draws, for a painter given to [`Button::show_with`].
+/// What a [`Button`] draws, from [`Button::look`].
 #[derive(Clone, Copy, Debug)]
 pub struct ButtonParts<'t> {
     /// The label; empty for an icon-only button.
@@ -296,13 +296,15 @@ pub struct ButtonParts<'t> {
 }
 
 impl<'t> Button<'t> {
-    /// Takes the input and works out what it would draw, without drawing.
-    fn run<Id: WidgetId>(
+    /// Takes the input as [`Button::show`] does and works out what it would draw, without
+    /// drawing: the app draws it, or [`Look::paint_default`] does, or its pieces
+    /// [`Look::paint_surface`] and [`Look::paint_label`].
+    pub fn look<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,
         id: Id,
         rect: Rect,
-    ) -> (Response, Look<ButtonParts<'t>>) {
+    ) -> Look<ButtonParts<'t>> {
         let input = ui.interact(id, self.part, rect, Sense::Click, self.enabled);
         let mut response = Response::new(rect, input);
         if self.repeat || self.on_press {
@@ -325,10 +327,11 @@ impl<'t> Button<'t> {
             style.sink = 0.0;
             style.text = StateColors::same(ui.theme.palette.accent);
         }
-        let look = Look {
+        Look {
             rect,
             state,
             held_at: ui.held_at(id, self.part),
+            response,
             parts: ButtonParts {
                 label: self.label,
                 icon: self.icon,
@@ -338,23 +341,7 @@ impl<'t> Button<'t> {
                 icon_size: self.icon_size,
                 font: self.font,
             },
-        };
-        (response, look)
-    }
-
-    /// Takes the input as [`Button::show`] does, then has `paint` draw it instead of its own look.
-    /// [`Look::paint_default`], [`Look::paint_surface`] and [`Look::paint_label`] draw the parts
-    /// of the usual look.
-    pub fn show_with<Id: WidgetId>(
-        self,
-        ui: &mut Ui<'_, Id>,
-        id: Id,
-        rect: Rect,
-        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<ButtonParts<'t>>) -> AureaResult<()>,
-    ) -> AureaResult<Response> {
-        let (response, look) = self.run(ui, id, rect);
-        paint(ui, &look)?;
-        Ok(response)
+        }
     }
 }
 
@@ -444,7 +431,9 @@ impl<'t> ButtonParts<'t> {
 
 impl<Id: WidgetId> Widget<Id> for Button<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
-        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
+        let look = self.look(ui, id, rect);
+        look.paint_default(ui)?;
+        Ok(look.response)
     }
 }
 
@@ -594,22 +583,17 @@ mod tests {
     }
 
     #[test]
-    fn show_with_draws_the_apps_look_and_knows_where_the_press_landed() {
+    fn look_takes_the_input_and_leaves_the_drawing_to_the_app() {
         let mut rig = Rig::new(120, 40);
         let at = Rect::new(0.0, 0.0, 120.0, 40.0);
         let show = |rig: &mut Rig| {
             rig.frame(|ui| {
-                let mut seen = None;
-                Button::new("Add")
-                    .show_with(ui, 1, at, |ui, look| {
-                        seen = Some(look.held_at);
-                        ui.fill(look.rect, Color::rgb(0, 200, 0))
-                    })
-                    .expect("draw");
-                seen.expect("painted")
+                let add = Button::new("Add").look(ui, 1, at);
+                ui.fill(add.rect, Color::rgb(0, 200, 0)).expect("fill");
+                add
             })
         };
-        assert_eq!(show(&mut rig), None);
+        assert_eq!(show(&mut rig).held_at, None);
         assert_eq!(
             rig.pixel(60, 20),
             [0, 200, 0, 255],
@@ -618,10 +602,12 @@ mod tests {
         rig.at(30, 12);
         show(&mut rig);
         rig.button(30, 12, true);
-        let held = show(&mut rig).expect("held");
+        let held = show(&mut rig).held_at.expect("held");
         assert_eq!((held.x, held.y), (30.0, 12.0));
         rig.button(30, 12, false);
-        assert_eq!(show(&mut rig), None, "let go");
+        let add = show(&mut rig);
+        assert_eq!(add.held_at, None, "let go");
+        assert!(add.response.clicked);
     }
 
     #[test]

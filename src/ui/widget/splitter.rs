@@ -137,16 +137,20 @@ impl<'v> Splitter<'v> {
         id: Id,
         rect: Rect,
     ) -> AureaResult<(Rect, Rect, Response)> {
-        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
+        let look = self.look(ui, id, rect);
+        look.paint_default(ui)?;
+        Ok((look.parts.first, look.parts.second, look.response))
     }
 
-    /// Takes the input and works out what it would draw, without drawing.
-    fn run<Id: WidgetId>(
+    /// Takes the input as [`Splitter::show`] does and works out what it would draw, without
+    /// drawing: the app draws it, or [`Look::paint_default`] does, or [`Look::paint_line`]. The
+    /// panes' rects are in the parts.
+    pub fn look<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,
         id: Id,
         rect: Rect,
-    ) -> (Response, Look<SplitterParts>) {
+    ) -> Look<SplitterParts> {
         let style = self.style.unwrap_or_else(|| SplitterStyle::new(ui.theme));
         let length = if self.stacked {
             rect.height
@@ -208,10 +212,11 @@ impl<'v> Splitter<'v> {
         let mut response = Response::new(reach, input);
         response.changed = changed;
         let (first, second) = panes(rect, self.stacked, at, style.thickness);
-        let look = Look {
+        Look {
             rect,
             state: eased,
             held_at: ui.held_at(id, 0),
+            response,
             parts: SplitterParts {
                 line,
                 first,
@@ -219,27 +224,11 @@ impl<'v> Splitter<'v> {
                 stacked: self.stacked,
                 style,
             },
-        };
-        (response, look)
-    }
-
-    /// Takes the input as [`Splitter::show`] does, then has `paint` draw it instead of its own
-    /// look. [`Look::paint_default`] and [`Look::paint_line`] draw the parts of the usual look.
-    /// Gives the panes' rects and the response as `show` does.
-    pub fn show_with<Id: WidgetId>(
-        self,
-        ui: &mut Ui<'_, Id>,
-        id: Id,
-        rect: Rect,
-        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<SplitterParts>) -> AureaResult<()>,
-    ) -> AureaResult<(Rect, Rect, Response)> {
-        let (response, look) = self.run(ui, id, rect);
-        paint(ui, &look)?;
-        Ok((look.parts.first, look.parts.second, response))
+        }
     }
 }
 
-/// What a [`Splitter`] draws, for a painter given to [`Splitter::show_with`].
+/// What a [`Splitter`] draws, from [`Splitter::look`].
 #[derive(Clone, Copy, Debug)]
 pub struct SplitterParts {
     /// The line between the panes, after this frame's drag or keys.
@@ -543,17 +532,15 @@ mod tests {
     }
 
     #[test]
-    fn show_with_draws_the_apps_line_and_still_drags() {
+    fn look_draws_the_apps_line_and_still_drags() {
         let mut rig = Rig::new(400, 200).still();
         let mut at = 120.0;
         let show = |rig: &mut Rig, at: &mut f32| {
             rig.frame(|ui| {
-                Splitter::new(at)
-                    .min(50.0, 100.0)
-                    .show_with(ui, 1, AREA, |ui, look| {
-                        ui.fill(look.parts.line, Color::rgb(0, 200, 0))
-                    })
-                    .expect("draw")
+                let split = Splitter::new(at).min(50.0, 100.0).look(ui, 1, AREA);
+                ui.fill(split.parts.line, Color::rgb(0, 200, 0))
+                    .expect("draw");
+                (split.parts.first, split.response)
             })
         };
         show(&mut rig, &mut at);
@@ -567,7 +554,7 @@ mod tests {
         rig.button(122, 50, true);
         show(&mut rig, &mut at);
         rig.drag_to(152, 50);
-        let (first, _, response) = show(&mut rig, &mut at);
+        let (first, response) = show(&mut rig, &mut at);
         assert_eq!(at, 150.0, "the click still drags it");
         assert_eq!(first.width, 150.0);
         assert!(response.changed);

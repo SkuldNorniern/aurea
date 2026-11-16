@@ -54,7 +54,7 @@ impl DialStyle {
     }
 }
 
-/// What a [`Dial`] draws, for a painter given to [`Dial::show_with`].
+/// What a [`Dial`] draws, from [`Dial::look`].
 #[derive(Clone, Copy, Debug)]
 pub struct DialParts<'v> {
     /// Where the value sits over the range, 0 at the start to 1 at the end, eased as it turns.
@@ -237,13 +237,15 @@ impl<'v> Dial<'v> {
 }
 
 impl<'v> Dial<'v> {
-    /// Takes the input and works out what it would draw, without drawing.
-    fn run<Id: WidgetId>(
+    /// Takes the input as [`Dial::show`] does and works out what it would draw, without drawing:
+    /// the app draws it, or [`Look::paint_default`] does, or its pieces [`Look::paint_ring`],
+    /// [`Look::paint_face`], [`Look::paint_readout`] and [`Look::paint_caption`].
+    pub fn look<Id: WidgetId>(
         mut self,
         ui: &mut Ui<'_, Id>,
         id: Id,
         rect: Rect,
-    ) -> (Response, Look<DialParts<'v>>) {
+    ) -> Look<DialParts<'v>> {
         let style = self.style.unwrap_or_else(|| DialStyle::new(ui.theme));
         let (rest, caption) = self.split_caption(rect, ui.theme.text_size * 1.4);
         let (area, line) = self.split_readout(rest, ui.theme.text_size * 1.4);
@@ -295,10 +297,11 @@ impl<'v> Dial<'v> {
             let rate = ui.theme.motion.slide * 1.6;
             ui.animate(id, 0, Channel::Value, t, rate)
         };
-        let look = Look {
+        Look {
             rect,
             state,
             held_at: ui.held_at(id, 0),
+            response,
             parts: DialParts {
                 position: shown,
                 origin: self.origin.map(share),
@@ -312,23 +315,7 @@ impl<'v> Dial<'v> {
                 enabled: self.enabled,
                 style,
             },
-        };
-        (response, look)
-    }
-
-    /// Takes the input as [`Dial::show`] does, then has `paint` draw it instead of its own look.
-    /// [`Look::paint_default`], [`Look::paint_ring`], [`Look::paint_face`],
-    /// [`Look::paint_readout`] and [`Look::paint_caption`] draw the parts of the usual look.
-    pub fn show_with<Id: WidgetId>(
-        self,
-        ui: &mut Ui<'_, Id>,
-        id: Id,
-        rect: Rect,
-        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<DialParts<'v>>) -> AureaResult<()>,
-    ) -> AureaResult<Response> {
-        let (response, look) = self.run(ui, id, rect);
-        paint(ui, &look)?;
-        Ok(response)
+        }
     }
 }
 
@@ -422,7 +409,9 @@ impl Look<DialParts<'_>> {
 
 impl<Id: WidgetId> Widget<Id> for Dial<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
-        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
+        let look = self.look(ui, id, rect);
+        look.paint_default(ui)?;
+        Ok(look.response)
     }
 }
 
@@ -569,17 +558,14 @@ mod tests {
     }
 
     #[test]
-    fn show_with_draws_the_apps_look_and_still_turns() {
+    fn look_draws_the_apps_look_and_still_turns() {
         let mut rig: Rig = Rig::new(40, 40);
         let at = Rect::new(0.0, 0.0, 40.0, 40.0);
         let mut value = 20.0;
         let draw = |rig: &mut Rig, value: &mut f32| {
             rig.frame(|ui| {
-                Dial::new(value, 0.0..=100.0)
-                    .show_with(ui, 1, at, |ui, look| {
-                        ui.fill(look.rect, Color::rgb(0, 200, 0))
-                    })
-                    .expect("draw");
+                let dial = Dial::new(value, 0.0..=100.0).look(ui, 1, at);
+                ui.fill(dial.rect, Color::rgb(0, 200, 0)).expect("draw");
             });
         };
         draw(&mut rig, &mut value);

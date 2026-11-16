@@ -75,10 +75,10 @@ pub struct ColorPicker<'v> {
     enabled: bool,
 }
 
-/// What a [`ColorPicker`] draws, for a painter given to [`ColorPicker::show_with`].
-#[derive(Clone, Copy, Debug)]
-pub struct PickerParts {
-    /// The colour, after this frame's input and any typed hex.
+/// What a [`ColorPicker`] draws, from [`ColorPicker::look`].
+#[derive(Debug)]
+pub struct PickerParts<'v> {
+    /// The colour, after this frame's input and any typed hex once [`Look::paint_hex`] has run.
     pub value: Hsv,
     /// The saturation and value square.
     pub square: Rect,
@@ -86,7 +86,7 @@ pub struct PickerParts {
     pub hue: Rect,
     /// The alpha strip, when it is shown.
     pub alpha: Option<Rect>,
-    /// The hex field, when it is shown; it is drawn before the painter.
+    /// The hex field, when it is shown; [`Look::paint_hex`] draws it.
     pub hex: Option<Rect>,
     /// The handle in the square, at the saturation and value picked.
     pub spot: Point,
@@ -100,6 +100,10 @@ pub struct PickerParts {
     pub alpha_state: Option<Eased>,
     /// The style it draws with, the theme's unless one was given.
     pub style: PickerStyle,
+    /// The hex text the field edits, while it is shown.
+    hex_text: Option<&'v mut String>,
+    /// The hex field's input this frame.
+    hex_input: Interaction,
 }
 
 const SQUARE: u16 = 0;
@@ -191,17 +195,16 @@ impl<'v> ColorPicker<'v> {
 }
 
 impl<'v> ColorPicker<'v> {
-    /// Takes the input as [`ColorPicker::show`] does, then has `paint` draw the square and strips
-    /// instead of its own look. The hex field is drawn first, as it edits the colour this frame.
-    /// [`Look::paint_default`], [`Look::paint_field`], [`Look::paint_hue`], [`Look::paint_alpha`]
-    /// and [`Look::paint_focus`] draw the parts of the usual look.
-    pub fn show_with<Id: WidgetId>(
+    /// Takes the input as [`ColorPicker::show`] does and works out what it would draw, without
+    /// drawing: the app draws it, or [`Look::paint_default`] does for the square and strips.
+    /// [`Look::paint_hex`] draws the hex field and takes its typing; call it first so the square
+    /// shows the colour typed this frame.
+    pub fn look<Id: WidgetId>(
         mut self,
         ui: &mut Ui<'_, Id>,
         id: Id,
         rect: Rect,
-        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<PickerParts>) -> AureaResult<()>,
-    ) -> AureaResult<Response> {
+    ) -> Look<PickerParts<'v>> {
         let style = self.style.unwrap_or_else(|| PickerStyle::new(ui.theme));
         let at = self.layout(rect, &style, ui.theme.control_height);
         let before = *self.value;
@@ -221,44 +224,83 @@ impl<'v> ColorPicker<'v> {
             merge(&mut response, input);
             (strip, input)
         });
-        if let (Some(field), Some(text)) = (at.hex, self.hex.as_deref_mut()) {
+        let hex_text = self.hex.take();
+        let hex_input = at.hex.filter(|_| hex_text.is_some()).map(|field| {
             let input = ui.interact(id, HEX, field, Sense::Text, self.enabled);
-            hex(ui, (id, HEX), input, field, text, self.value, &style)?;
             merge(&mut response, input);
-        }
+            input
+        });
 
         if *self.value != before {
             response.changed = true;
             ui.mark_changed();
         }
         let value = *self.value;
-        let look = Look {
+        let (spot, hue_mark, alpha_mark) = marks(value, at.square, at.hue, at.alpha);
+        Look {
             rect,
             state: ui.eased(id, SQUARE, square),
             held_at: ui.held_at(id, SQUARE),
+            response,
             parts: PickerParts {
                 value,
                 square: at.square,
                 hue: at.hue,
                 alpha: at.alpha,
                 hex: at.hex,
-                spot: Point::new(
-                    at.square.x + value.s * at.square.width,
-                    at.square.y + (1.0 - value.v) * at.square.height,
-                ),
-                hue_mark: strip_mark(at.hue, value.h / 360.0),
-                alpha_mark: at.alpha.map(|strip| strip_mark(strip, 1.0 - value.a)),
+                spot,
+                hue_mark,
+                alpha_mark,
                 hue_state: ui.eased(id, HUE, hue),
                 alpha_state: alpha.map(|(_, input)| ui.eased(id, ALPHA, input)),
                 style,
+                hex_text,
+                hex_input: hex_input.unwrap_or_default(),
             },
-        };
-        paint(ui, &look)?;
-        Ok(response)
+        }
     }
 }
 
-impl Look<PickerParts> {
+/// Where the handle and the strip marks sit for `value` in the given parts.
+fn marks(value: Hsv, square: Rect, hue: Rect, alpha: Option<Rect>) -> (Point, Rect, Option<Rect>) {
+    let spot = Point::new(
+        square.x + value.s * square.width,
+        square.y + (1.0 - value.v) * square.height,
+    );
+    (
+        spot,
+        strip_mark(hue, value.h / 360.0),
+        alpha.map(|strip| strip_mark(strip, 1.0 - value.a)),
+    )
+}
+
+impl Look<PickerParts<'_>> {
+    /// The hex field, drawn, and typed into: it edits the colour, so the square and strips after
+    /// it show the colour typed this frame. Does nothing when no hex field is shown.
+    pub fn paint_hex<Id: WidgetId>(&mut self, ui: &mut Ui<'_, Id>, id: Id) -> AureaResult<()> {
+        let parts = &mut self.parts;
+        let (Some(field), Some(text)) = (parts.hex, parts.hex_text.as_deref_mut()) else {
+            return Ok(());
+        };
+        let before = parts.value;
+        hex(
+            ui,
+            (id, HEX),
+            parts.hex_input,
+            field,
+            text,
+            &mut parts.value,
+            &parts.style,
+        )?;
+        if parts.value != before {
+            (parts.spot, parts.hue_mark, parts.alpha_mark) =
+                marks(parts.value, parts.square, parts.hue, parts.alpha);
+            self.response.changed = true;
+            ui.mark_changed();
+        }
+        Ok(())
+    }
+
     /// The picker's own look: the square, the hue strip, the alpha strip if shown, then the focus.
     pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
         self.paint_field(ui)?;
@@ -325,7 +367,10 @@ impl Look<PickerParts> {
 
 impl<Id: WidgetId> Widget<Id> for ColorPicker<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
-        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
+        let mut look = self.look(ui, id, rect);
+        look.paint_hex(ui, id)?;
+        look.paint_default(ui)?;
+        Ok(look.response)
     }
 }
 
@@ -545,18 +590,19 @@ mod tests {
 
     #[test]
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    fn show_with_paints_the_apps_look_and_still_picks() {
+    fn look_paints_the_apps_look_and_still_picks() {
         let mut rig = Rig::new(240, 220).still();
         let (mut value, mut hex) = (Hsv::new(120.0, 0.5, 0.5, 1.0), String::new());
         let show = |rig: &mut Rig, value: &mut Hsv, hex: &mut String| {
             rig.frame(|ui| {
-                ColorPicker::new(value)
+                let mut picker = ColorPicker::new(value)
                     .alpha(true)
                     .hex_field(hex)
-                    .show_with(ui, 0, RECT, |ui, look| {
-                        ui.fill(look.parts.hue, Color::rgb(0, 200, 0))
-                    })
-                    .expect("draw")
+                    .look(ui, 0, RECT);
+                picker.paint_hex(ui, 0).expect("hex");
+                ui.fill(picker.parts.hue, Color::rgb(0, 200, 0))
+                    .expect("draw");
+                picker.response
             })
         };
         show(&mut rig, &mut value, &mut hex);

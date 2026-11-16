@@ -44,8 +44,8 @@ impl FieldStyle {
     }
 }
 
-/// What a [`TextField`] draws, for a painter given to [`TextField::show_with`].
-#[derive(Clone, Copy, Debug)]
+/// What a [`TextField`] draws, from [`TextField::look`]: the chrome and the clear button, which the
+/// app draws, then the text, which [`Look::paint_text`] edits and draws after them.
 pub struct TextFieldParts<'v> {
     /// Whether it has focus, after this frame's input.
     pub focused: bool,
@@ -67,6 +67,18 @@ pub struct TextFieldParts<'v> {
     pub cleared: bool,
     /// The style it draws with, the theme's unless one was given.
     pub style: FieldStyle,
+    /// What [`Look::paint_text`] types into and what it takes.
+    edit: Editing<'v>,
+}
+
+/// The text a field edits, and how: kept from [`TextField::look`] for [`Look::paint_text`].
+struct Editing<'v> {
+    text: &'v mut String,
+    rules: Rules<'v>,
+    commit_on_blur: bool,
+    pass_vertical_keys: bool,
+    select_all_on_focus: bool,
+    input: Interaction,
 }
 
 /// A field to type one line into.
@@ -189,13 +201,15 @@ const CLEAR_PART: u16 = 1;
 
 impl<'v> TextField<'v> {
     /// Takes the input for the field and its clear button, and works out what it would draw,
-    /// without drawing.
-    fn run<Id: WidgetId>(
-        &mut self,
+    /// without drawing: the app draws the chrome and clear button, then [`Look::paint_text`]
+    /// draws and edits the text, as [`TextField::show`] does. The response's editing fields are
+    /// set by `paint_text`.
+    pub fn look<Id: WidgetId>(
+        self,
         ui: &mut Ui<'_, Id>,
         id: Id,
         rect: Rect,
-    ) -> (Interaction, Look<TextFieldParts<'v>>) {
+    ) -> Look<TextFieldParts<'v>> {
         let input = ui.interact(id, 0, rect, Sense::Text, self.enabled);
         let state = ui.eased(id, 0, input);
         let style = self.style.unwrap_or_else(|| FieldStyle::new(ui.theme));
@@ -228,10 +242,13 @@ impl<'v> TextField<'v> {
             }
             clear = Some(button);
         }
-        let look = Look {
+        let mut response = Response::new(rect, input);
+        response.changed = cleared;
+        Look {
             rect,
             state,
             held_at: ui.held_at(id, 0),
+            response,
             parts: TextFieldParts {
                 focused: input.focused,
                 lit,
@@ -243,71 +260,72 @@ impl<'v> TextField<'v> {
                 clear_hover,
                 cleared,
                 style,
+                edit: Editing {
+                    text: self.text,
+                    rules: self.rules,
+                    commit_on_blur: self.commit_on_blur,
+                    pass_vertical_keys: self.pass_vertical_keys,
+                    select_all_on_focus: self.select_all_on_focus,
+                    input,
+                },
             },
-        };
-        (input, look)
+        }
+    }
+}
+
+impl Look<TextFieldParts<'_>> {
+    /// The field's own look: its chrome, then the clear button. The text is drawn by
+    /// [`Look::paint_text`], after it.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        self.paint_chrome(ui)?;
+        self.paint_clear(ui)
     }
 
-    /// Takes the input as [`TextField::show`] does, then has `paint` draw the chrome instead of its
-    /// own look. The text, caret, selection and preedit are drawn after it, as they are by default.
-    /// [`Look::paint_default`], [`Look::paint_chrome`] and [`Look::paint_clear`] draw the parts of
-    /// the usual look.
-    pub fn show_with<Id: WidgetId>(
-        mut self,
-        ui: &mut Ui<'_, Id>,
-        id: Id,
-        rect: Rect,
-        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<TextFieldParts<'v>>) -> AureaResult<()>,
-    ) -> AureaResult<Response> {
-        let (input, look) = self.run(ui, id, rect);
-        paint(ui, &look)?;
-        let outcome = EditableText::new(&mut *self.text)
-            .placeholder(self.placeholder)
-            .password(self.password)
-            .rules(self.rules)
-            .commit_on_blur(self.commit_on_blur)
-            .pass_vertical_keys(self.pass_vertical_keys)
-            .select_all_on_focus(self.select_all_on_focus)
-            .show(ui, (id, 0), look.parts.text, input)?;
+    /// Types into the field and draws its text, caret, selection and preedit, after the chrome as
+    /// [`TextField::show`] does: call it once a frame, after the chrome is drawn. It sets the
+    /// response's editing fields.
+    pub fn paint_text<Id: WidgetId>(&mut self, ui: &mut Ui<'_, Id>, id: Id) -> AureaResult<()> {
+        let parts = &mut self.parts;
+        let edit = &mut parts.edit;
+        let outcome = EditableText::new(&mut *edit.text)
+            .placeholder(parts.placeholder)
+            .password(parts.password)
+            .rules(edit.rules)
+            .commit_on_blur(edit.commit_on_blur)
+            .pass_vertical_keys(edit.pass_vertical_keys)
+            .select_all_on_focus(edit.select_all_on_focus)
+            .show(ui, (id, 0), parts.text, edit.input)?;
         #[cfg(feature = "accessibility")]
         {
             ui.accessible_description(
                 id,
                 0,
-                if self.password {
+                if parts.password {
                     Role::PasswordInput
                 } else {
                     Role::TextInput
                 },
-                self.placeholder,
-                (!self.password).then_some(self.text.as_str()),
+                parts.placeholder,
+                (!parts.password).then_some(edit.text.as_str()),
             );
             if let Some(bridge) = &mut ui.state.accessibility
                 && let Some(node) = bridge.node(Key::new(id, 0))
             {
                 node.add_action(Action::SetValue);
-                if self.password {
+                if parts.password {
                     node.clear_value();
                 }
             }
         }
-        let mut response = Response::new(rect, input);
-        response.changed = outcome.changed || look.parts.cleared;
+        let response = &mut self.response;
+        response.changed = outcome.changed || parts.cleared;
         response.submitted = outcome.submitted;
         response.cancelled = outcome.cancelled;
         response.editing_started = outcome.editing_started;
         response.focus_lost = outcome.focus_lost;
         response.committed = outcome.committed;
-        response.focused = input.focused && !outcome.cancelled;
-        Ok(response)
-    }
-}
-
-impl Look<TextFieldParts<'_>> {
-    /// The field's own look: its chrome, then the clear button.
-    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
-        self.paint_chrome(ui)?;
-        self.paint_clear(ui)
+        response.focused = edit.input.focused && !outcome.cancelled;
+        Ok(())
     }
 
     /// The focus ring, the face and its border.
@@ -344,7 +362,10 @@ impl Look<TextFieldParts<'_>> {
 
 impl<Id: WidgetId> Widget<Id> for TextField<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
-        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
+        let mut look = self.look(ui, id, rect);
+        look.paint_default(ui)?;
+        look.paint_text(ui, id)?;
+        Ok(look.response)
     }
 }
 
@@ -371,19 +392,17 @@ mod tests {
     }
 
     #[test]
-    fn show_with_paints_the_chrome_and_still_clears() {
+    fn look_paints_the_chrome_and_still_clears() {
         let mut rig = Rig::new(240, 160);
         let mut text = "abc".to_string();
         let rect = Rect::new(0.0, 0.0, 160.0, 40.0);
         let show = |rig: &mut Rig, text: &mut String| {
             rig.frame(|ui| {
-                TextField::new(text)
-                    .clearable(true)
-                    .show_with(ui, 1, rect, |ui, look| {
-                        ui.fill(look.rect, Color::rgb(0, 200, 0))?;
-                        look.paint_clear(ui)
-                    })
-                    .expect("field")
+                let mut field = TextField::new(text).clearable(true).look(ui, 1, rect);
+                ui.fill(field.rect, Color::rgb(0, 200, 0)).expect("chrome");
+                field.paint_clear(ui).expect("clear");
+                field.paint_text(ui, 1).expect("text");
+                field.response
             })
         };
         show(&mut rig, &mut text);

@@ -125,7 +125,7 @@ impl<'v> Dropdown<'v> {
     }
 }
 
-/// What a [`Dropdown`] draws, for a painter given to [`Dropdown::show_with`].
+/// What a [`Dropdown`] draws, from [`Dropdown::look`].
 #[derive(Clone, Copy, Debug)]
 pub struct DropdownParts<'v> {
     /// The picked option's text, after this frame's keys and pick; `None` past the options.
@@ -139,13 +139,15 @@ pub struct DropdownParts<'v> {
 }
 
 impl<'v> Dropdown<'v> {
-    /// Takes the input and works out what it would draw, without drawing.
-    fn run<Id: WidgetId>(
+    /// Takes the input as [`Dropdown::show`] does and works out what it would draw, without
+    /// drawing: the app draws it, or [`Look::paint_default`] does, or its pieces
+    /// [`Look::paint_field`], [`Look::paint_chevron`] and [`Look::paint_value`].
+    pub fn look<Id: WidgetId>(
         mut self,
         ui: &mut Ui<'_, Id>,
         id: Id,
         rect: Rect,
-    ) -> (Response, Look<DropdownParts<'v>>) {
+    ) -> Look<DropdownParts<'v>> {
         let key = Key::new(id, 0);
         let input = ui.interact(id, 0, rect, Sense::Click, self.enabled);
         let mut response = Response::new(rect, input);
@@ -195,33 +197,18 @@ impl<'v> Dropdown<'v> {
             f32::from(u8::from(open)),
             ui.theme.motion.focus,
         );
-        let look = Look {
+        Look {
             rect,
             state,
             held_at: ui.held_at(id, 0),
+            response,
             parts: DropdownParts {
                 value: self.options.get(*self.selected).copied(),
                 placeholder: self.placeholder,
                 opened: lit,
                 style,
             },
-        };
-        (response, look)
-    }
-
-    /// Takes the input as [`Dropdown::show`] does, then has `paint` draw it instead of its own
-    /// look. [`Look::paint_default`], [`Look::paint_field`], [`Look::paint_chevron`] and
-    /// [`Look::paint_value`] draw the parts of the usual look.
-    pub fn show_with<Id: WidgetId>(
-        self,
-        ui: &mut Ui<'_, Id>,
-        id: Id,
-        rect: Rect,
-        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<DropdownParts<'v>>) -> AureaResult<()>,
-    ) -> AureaResult<Response> {
-        let (response, look) = self.run(ui, id, rect);
-        paint(ui, &look)?;
-        Ok(response)
+        }
     }
 }
 
@@ -294,7 +281,9 @@ impl Look<DropdownParts<'_>> {
 
 impl<Id: WidgetId> Widget<Id> for Dropdown<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
-        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
+        let look = self.look(ui, id, rect);
+        look.paint_default(ui)?;
+        Ok(look.response)
     }
 }
 
@@ -442,16 +431,14 @@ mod tests {
     }
 
     #[test]
-    fn show_with_draws_the_apps_field_and_still_picks() {
+    fn look_draws_the_apps_field_and_still_picks() {
         let mut rig = Rig::new(320, 260).still();
         let mut picked = 0;
         let show = |rig: &mut Rig, picked: &mut usize| {
             rig.frame(|ui| {
-                Dropdown::new(&OPTIONS, picked)
-                    .show_with(ui, 1, BOX, |ui, look| {
-                        ui.fill(look.rect, Color::rgb(0, 200, 0))
-                    })
-                    .expect("draw")
+                let field = Dropdown::new(&OPTIONS, picked).look(ui, 1, BOX);
+                ui.fill(field.rect, Color::rgb(0, 200, 0)).expect("draw");
+                field.response
             })
         };
         show(&mut rig, &mut picked);

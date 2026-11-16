@@ -72,7 +72,7 @@ impl Layout {
     }
 }
 
-/// What a [`ColorWheel`] draws, for a painter given to [`ColorWheel::show_with`].
+/// What a [`ColorWheel`] draws, from [`ColorWheel::look`].
 #[derive(Clone, Copy, Debug)]
 pub struct WheelParts<'v> {
     /// The colour, after this frame's input.
@@ -142,14 +142,15 @@ impl<'v> ColorWheel<'v> {
 }
 
 impl<'v> ColorWheel<'v> {
-    /// Takes the input and works out what it would draw. Only the ring's picture is recorded
-    /// here, when it is stale; nothing is drawn to the frame.
-    fn run<Id: WidgetId>(
+    /// Takes the input as [`ColorWheel::show`] does and works out what it would draw, without
+    /// drawing: the app draws it, or [`Look::paint_default`] does, or its pieces. Only the ring's
+    /// picture is recorded here, when it is stale; nothing is drawn to the frame.
+    pub fn look<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,
         id: Id,
         rect: Rect,
-    ) -> AureaResult<(Response, Look<WheelParts<'v>>)> {
+    ) -> AureaResult<Look<WheelParts<'v>>> {
         let at = Layout::of(rect);
         let before = *self.value;
         let ring = ui.interact(id, RING, at.outer, Sense::Adjust, self.enabled);
@@ -168,10 +169,11 @@ impl<'v> ColorWheel<'v> {
         refresh_ring(ui, &at, &mut *self.art)?;
         let art: &'v Option<Picture> = self.art;
         let value = *self.value;
-        let look = Look {
+        Ok(Look {
             rect,
             state: ui.eased(id, SQUARE, square),
             held_at: ui.held_at(id, SQUARE),
+            response,
             parts: WheelParts {
                 value,
                 art: art.as_ref(),
@@ -185,23 +187,7 @@ impl<'v> ColorWheel<'v> {
                 ),
                 sv_radius: 5.0,
             },
-        };
-        Ok((response, look))
-    }
-
-    /// Takes the input as [`ColorWheel::show`] does, then has `paint` draw it instead of its own
-    /// look. [`Look::paint_default`] and the other `paint_*` pieces draw the parts of the usual
-    /// look.
-    pub fn show_with<Id: WidgetId>(
-        self,
-        ui: &mut Ui<'_, Id>,
-        id: Id,
-        rect: Rect,
-        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<WheelParts<'v>>) -> AureaResult<()>,
-    ) -> AureaResult<Response> {
-        let (response, look) = self.run(ui, id, rect)?;
-        paint(ui, &look)?;
-        Ok(response)
+        })
     }
 }
 
@@ -257,7 +243,9 @@ impl Look<WheelParts<'_>> {
 
 impl<Id: WidgetId> Widget<Id> for ColorWheel<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
-        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
+        let look = self.look(ui, id, rect)?;
+        look.paint_default(ui)?;
+        Ok(look.response)
     }
 }
 
@@ -412,16 +400,17 @@ mod tests {
     }
 
     #[test]
-    fn show_with_paints_the_apps_look_and_still_picks() {
+    fn look_paints_the_apps_look_and_still_picks() {
         let (mut rig, mut art) = (Rig::new(200, 200), None);
         let mut value = Hsv::new(200.0, 0.5, 0.5, 1.0);
         let show = |rig: &mut Rig, value: &mut Hsv, art: &mut Option<Picture>| {
             rig.frame(|ui| {
-                ColorWheel::new(value, art)
-                    .show_with(ui, 1, WHEEL, |ui, look| {
-                        ui.fill(look.parts.square, Color::rgb(0, 200, 0))
-                    })
-                    .expect("draw")
+                let wheel = ColorWheel::new(value, art)
+                    .look(ui, 1, WHEEL)
+                    .expect("draw");
+                ui.fill(wheel.parts.square, Color::rgb(0, 200, 0))
+                    .expect("draw");
+                wheel.response
             })
         };
         show(&mut rig, &mut value, &mut art);

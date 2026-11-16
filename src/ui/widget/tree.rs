@@ -209,6 +209,10 @@ impl<'v, 't> TreeView<'v, 't> {
                     ..Eased::default()
                 },
                 held_at: None,
+                response: Response {
+                    rect: state.rect,
+                    ..Response::default()
+                },
                 parts: TreeRowParts {
                     row: *row,
                     picked: state.picked,

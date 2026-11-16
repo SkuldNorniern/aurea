@@ -79,20 +79,6 @@ impl<'v> Swatches<'v> {
     ) -> AureaResult<Response> {
         Widget::show(self, ui, id, rect)
     }
-
-    /// Takes the input as [`Swatches::show`] does, then has `paint` draw it instead of its own
-    /// look. [`Look::paint_default`] and [`Look::paint_swatch`] draw the parts of the usual look.
-    pub fn show_with<Id: WidgetId>(
-        self,
-        ui: &mut Ui<'_, Id>,
-        id: Id,
-        rect: Rect,
-        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<SwatchParts>) -> AureaResult<()>,
-    ) -> AureaResult<Response> {
-        let (response, look) = self.run(ui, id, rect);
-        paint(ui, &look)?;
-        Ok(response)
-    }
 }
 
 /// One swatch of [`Swatches`], for its painter.
@@ -108,7 +94,7 @@ pub struct Swatch {
     pub picked: f32,
 }
 
-/// What [`Swatches`] draws, for a painter given to [`Swatches::show_with`].
+/// What [`Swatches`] draws, from [`Swatches::look`].
 ///
 /// The swatches are one [`Look`] between them, each a [`Swatch`] in `swatches`, row by row from
 /// the top left; [`Look::paint_swatch`] draws one.
@@ -121,13 +107,10 @@ pub struct SwatchParts {
 }
 
 impl<'v> Swatches<'v> {
-    /// Takes the input and works out what it would draw, without drawing.
-    fn run<Id: WidgetId>(
-        self,
-        ui: &mut Ui<'_, Id>,
-        id: Id,
-        rect: Rect,
-    ) -> (Response, Look<SwatchParts>) {
+    /// Takes the input as [`Swatches::show`] does and works out what it would draw, without
+    /// drawing: the app draws it, or [`Look::paint_default`] does, or one swatch at a time
+    /// [`Look::paint_swatch`].
+    pub fn look<Id: WidgetId>(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> Look<SwatchParts> {
         let style = self.style.unwrap_or_else(|| SwatchStyle::new(ui.theme));
         let mut response = Response {
             rect,
@@ -193,7 +176,7 @@ impl<'v> Swatches<'v> {
             response.changed = true;
             ui.mark_changed();
         }
-        let look = Look {
+        Look {
             rect,
             // no input of its own: the swatches are always enabled
             state: Eased {
@@ -201,9 +184,9 @@ impl<'v> Swatches<'v> {
                 ..Eased::default()
             },
             held_at: None,
+            response,
             parts: SwatchParts { swatches, style },
-        };
-        (response, look)
+        }
     }
 }
 
@@ -269,7 +252,9 @@ fn arrow(key: KeyCode, at: usize, row: usize, count: usize) -> usize {
 
 impl<Id: WidgetId> Widget<Id> for Swatches<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
-        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
+        let look = self.look(ui, id, rect);
+        look.paint_default(ui)?;
+        Ok(look.response)
     }
 }
 
@@ -287,21 +272,18 @@ mod tests {
     use crate::ui::rig::Rig;
 
     #[test]
-    fn show_with_paints_each_swatch_and_still_picks() {
+    fn look_paints_each_swatch_and_still_picks() {
         let mut rig = Rig::new(120, 40).still();
         let at = Rect::new(0.0, 0.0, 120.0, 40.0);
         let colors = [Color::rgb(255, 0, 0), Color::rgb(0, 0, 255)];
         let mut selected = None;
         let show = |rig: &mut Rig, selected: &mut Option<usize>| {
             rig.frame(|ui| {
-                Swatches::new(&colors, selected)
-                    .show_with(ui, 1, at, |ui, look| {
-                        for swatch in look.parts.swatches.clone() {
-                            ui.fill(swatch.rect, Color::rgb(0, 200, 0))?;
-                        }
-                        Ok(())
-                    })
-                    .expect("draw")
+                let swatches = Swatches::new(&colors, selected).look(ui, 1, at);
+                for swatch in &swatches.parts.swatches {
+                    ui.fill(swatch.rect, Color::rgb(0, 200, 0)).expect("draw");
+                }
+                swatches.response
             })
         };
         show(&mut rig, &mut selected);

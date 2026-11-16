@@ -1,5 +1,6 @@
 //! The same canvas widgets in two looks an app draws itself: glass on the left, Material 3 on the
-//! right. Each widget keeps its own behaviour; `show_with` hands its state to the app's painter.
+//! right. Each widget keeps its own behaviour; `look` takes its input and hands its state to the
+//! app, which draws it.
 //!
 //! `AUREA_SNAPSHOT=out.png cargo run --example custom_look` draws one frame to a PNG and exits.
 
@@ -19,7 +20,8 @@ use aurea::render::{
     request_canvas_redraw_at,
 };
 use aurea::ui::{
-    Align, Button, ButtonParts, Chip, Eased, Look, Slider, Theme, Toggle, Ui, UiState,
+    Align, Button, ButtonParts, Chip, ChipParts, Eased, Look, Slider, SliderParts, Theme, Toggle,
+    ToggleParts, Ui, UiState,
 };
 use aurea::{AureaResult, Rect, Window, WindowEvent, reduced_motion};
 
@@ -145,6 +147,66 @@ fn label(
     ui.text(text, rect, &fonts.text, color, align)
 }
 
+fn glass_button(ui: &mut Ui<'_, Id>, look: &Look<ButtonParts<'_>>) -> AureaResult<()> {
+    let s = look.state;
+    let rect = look.rect.inset(s.press * 1.5);
+    glass(ui, rect, rect.height / 2.0, 0.12 * s.hover + 0.08 * s.press)?;
+    label(ui, look.parts.label, rect, white(0.95), Align::Center)
+}
+
+fn glass_toggle(ui: &mut Ui<'_, Id>, look: &Look<ToggleParts<'_>>) -> AureaResult<()> {
+    let r = look.rect;
+    glass(ui, r, r.height / 2.0, 0.05 * look.state.hover)?;
+    let p = look.parts.progress;
+    if p > 0.0 {
+        ui.round(
+            r.inset(2.0),
+            (r.height - 4.0) / 2.0,
+            Color::rgb(60, 220, 140).fade(0.7 * p),
+        )?;
+    }
+    let d = r.height - 6.0;
+    let x = r.x + 3.0 + (r.width - d - 6.0) * p;
+    let knob = Rect::new(x, r.y + 3.0, d, d);
+    ui.shadow(knob, d / 2.0, 6.0, Color::rgba(0, 0, 0, 90))?;
+    ui.round(knob, d / 2.0, white(0.98))
+}
+
+fn glass_volume(ui: &mut Ui<'_, Id>, look: &Look<SliderParts<'_>>) -> AureaResult<()> {
+    let g = look.parts.groove;
+    let track = Rect::new(g.x, g.center().y - 3.0, g.width, 6.0);
+    glass(ui, track, 3.0, 0.0)?;
+    let filled = Rect::new(
+        track.x,
+        track.y,
+        track.width * look.parts.position,
+        track.height,
+    );
+    ui.round(filled, 3.0, white(0.85))?;
+    let k = look.parts.knob;
+    let d = 22.0 + 4.0 * look.state.press;
+    let knob = Rect::new(k.center().x - d / 2.0, k.center().y - d / 2.0, d, d);
+    ui.shadow(knob, d / 2.0, 8.0, Color::rgba(0, 0, 0, 100))?;
+    ui.round(knob, d / 2.0, white(0.98))
+}
+
+fn glass_tag(ui: &mut Ui<'_, Id>, look: &Look<ChipParts<'_>>) -> AureaResult<()> {
+    let on = look.parts.progress;
+    glass(
+        ui,
+        look.rect,
+        look.rect.height / 2.0,
+        0.18 * on + 0.06 * look.state.hover,
+    )?;
+    label(
+        ui,
+        look.parts.label,
+        look.rect,
+        white(0.75 + 0.25 * on),
+        Align::Center,
+    )
+}
+
 fn glass_panel(ui: &mut Ui<'_, Id>, m: &mut Model) -> AureaResult<()> {
     let area = Rect::new(0.0, 0.0, HALF, HEIGHT as f32);
     wallpaper(ui, area)?;
@@ -167,30 +229,13 @@ fn glass_panel(ui: &mut Ui<'_, Id>, m: &mut Model) -> AureaResult<()> {
         Align::Start,
     )?;
 
-    let glass_button = |ui: &mut Ui<'_, Id>, look: &Look<_>| -> AureaResult<()> {
-        let look: &Look<ButtonParts<'_>> = look;
-        let s = look.state;
-        let rect = look.rect.inset(s.press * 1.5);
-        glass(ui, rect, rect.height / 2.0, 0.12 * s.hover + 0.08 * s.press)?;
-        label(ui, look.parts.label, rect, white(0.95), Align::Center)
-    };
-    if Button::new("Play")
-        .show_with(
-            ui,
-            Id::GlassPlay,
-            Rect::new(64.0, 126.0, 140.0, 44.0),
-            glass_button,
-        )?
-        .clicked
-    {
+    let play = Button::new("Play").look(ui, Id::GlassPlay, Rect::new(64.0, 126.0, 140.0, 44.0));
+    glass_button(ui, &play)?;
+    if play.response.clicked {
         m.plays += 1;
     }
-    Button::new("Share").show_with(
-        ui,
-        Id::GlassShare,
-        Rect::new(220.0, 126.0, 140.0, 44.0),
-        glass_button,
-    )?;
+    let share = Button::new("Share").look(ui, Id::GlassShare, Rect::new(220.0, 126.0, 140.0, 44.0));
+    glass_button(ui, &share)?;
 
     label(
         ui,
@@ -199,28 +244,9 @@ fn glass_panel(ui: &mut Ui<'_, Id>, m: &mut Model) -> AureaResult<()> {
         white(0.9),
         Align::Start,
     )?;
-    Toggle::new(&mut m.wifi).show_with(
-        ui,
-        Id::GlassWifi,
-        Rect::new(310.0, 196.0, 52.0, 32.0),
-        |ui, look| {
-            let r = look.rect;
-            glass(ui, r, r.height / 2.0, 0.05 * look.state.hover)?;
-            let p = look.parts.progress;
-            if p > 0.0 {
-                ui.round(
-                    r.inset(2.0),
-                    (r.height - 4.0) / 2.0,
-                    Color::rgb(60, 220, 140).fade(0.7 * p),
-                )?;
-            }
-            let d = r.height - 6.0;
-            let x = r.x + 3.0 + (r.width - d - 6.0) * p;
-            let knob = Rect::new(x, r.y + 3.0, d, d);
-            ui.shadow(knob, d / 2.0, 6.0, Color::rgba(0, 0, 0, 90))?;
-            ui.round(knob, d / 2.0, white(0.98))
-        },
-    )?;
+    let wifi =
+        Toggle::new(&mut m.wifi).look(ui, Id::GlassWifi, Rect::new(310.0, 196.0, 52.0, 32.0));
+    glass_toggle(ui, &wifi)?;
 
     label(
         ui,
@@ -229,52 +255,17 @@ fn glass_panel(ui: &mut Ui<'_, Id>, m: &mut Model) -> AureaResult<()> {
         white(0.9),
         Align::Start,
     )?;
-    Slider::new(&mut m.volume, 0.0..=1.0).show_with(
+    let volume = Slider::new(&mut m.volume, 0.0..=1.0).look(
         ui,
         Id::GlassVolume,
         Rect::new(64.0, 268.0, 298.0, 24.0),
-        |ui, look| {
-            let g = look.parts.groove;
-            let track = Rect::new(g.x, g.center().y - 3.0, g.width, 6.0);
-            glass(ui, track, 3.0, 0.0)?;
-            let filled = Rect::new(
-                track.x,
-                track.y,
-                track.width * look.parts.position,
-                track.height,
-            );
-            ui.round(filled, 3.0, white(0.85))?;
-            let k = look.parts.knob;
-            let d = 22.0 + 4.0 * look.state.press;
-            let knob = Rect::new(k.center().x - d / 2.0, k.center().y - d / 2.0, d, d);
-            ui.shadow(knob, d / 2.0, 8.0, Color::rgba(0, 0, 0, 100))?;
-            ui.round(knob, d / 2.0, white(0.98))
-        },
-    )?;
+    );
+    glass_volume(ui, &volume)?;
 
     for (i, name) in (0u8..).zip(["Chill", "Focus", "Night"]) {
         let at = Rect::new(64.0 + f32::from(i) * 100.0, 316.0, 90.0, 34.0);
-        Chip::new(name, &mut m.tags[usize::from(i)]).show_with(
-            ui,
-            Id::GlassTag(i),
-            at,
-            |ui, look| {
-                let on = look.parts.progress;
-                glass(
-                    ui,
-                    look.rect,
-                    look.rect.height / 2.0,
-                    0.18 * on + 0.06 * look.state.hover,
-                )?;
-                label(
-                    ui,
-                    look.parts.label,
-                    look.rect,
-                    white(0.75 + 0.25 * on),
-                    Align::Center,
-                )
-            },
-        )?;
+        let tag = Chip::new(name, &mut m.tags[usize::from(i)]).look(ui, Id::GlassTag(i), at);
+        glass_tag(ui, &tag)?;
     }
     Ok(())
 }
@@ -319,6 +310,79 @@ fn state_layer(
     Ok(())
 }
 
+fn filled_button(
+    ui: &mut Ui<'_, Id>,
+    look: &Look<ButtonParts<'_>>,
+    fill: Color,
+    ink: Color,
+) -> AureaResult<()> {
+    let r = look.rect;
+    let radius = r.height / 2.0;
+    ui.round(r, radius, fill)?;
+    state_layer(ui, r, radius, ink, look.state, look.held_at)?;
+    label(ui, look.parts.label, r, ink, Align::Center)
+}
+
+fn material_toggle(ui: &mut Ui<'_, Id>, look: &Look<ToggleParts<'_>>) -> AureaResult<()> {
+    let r = look.rect;
+    let p = look.parts.progress;
+    ui.round(r, r.height / 2.0, m3::SURFACE_HIGHEST.mix(m3::PRIMARY, p))?;
+    if p < 1.0 {
+        let rim = Paint::new()
+            .color(m3::OUTLINE.fade(1.0 - p))
+            .style(PaintStyle::Stroke)
+            .stroke_width(2.0);
+        ui.ctx
+            .draw_round_rect(r.inset(1.0), r.height / 2.0 - 1.0, &rim)?;
+    }
+    let d = 16.0 + 8.0 * p + 4.0 * look.state.press;
+    let cx = r.x + 16.0 + (r.width - 32.0) * p;
+    let thumb = Rect::new(cx - d / 2.0, r.center().y - d / 2.0, d, d);
+    ui.round(thumb, d / 2.0, m3::OUTLINE.mix(m3::ON_PRIMARY, p))
+}
+
+fn material_volume(ui: &mut Ui<'_, Id>, look: &Look<SliderParts<'_>>) -> AureaResult<()> {
+    let g = look.parts.groove;
+    let track = Rect::new(g.x, g.center().y - 2.0, g.width, 4.0);
+    ui.round(track, 2.0, m3::SECONDARY_CONTAINER)?;
+    let active = Rect::new(track.x, track.y, track.width * look.parts.position, 4.0);
+    ui.round(active, 2.0, m3::PRIMARY)?;
+    let c = look.parts.knob.center();
+    let halo = 40.0 * look.state.hover.max(look.state.press);
+    if halo > 0.0 {
+        ui.round(
+            Rect::new(c.x - halo / 2.0, c.y - halo / 2.0, halo, halo),
+            halo / 2.0,
+            m3::PRIMARY.fade(m3::PRESSED),
+        )?;
+    }
+    ui.round(
+        Rect::new(c.x - 10.0, c.y - 10.0, 20.0, 20.0),
+        10.0,
+        m3::PRIMARY,
+    )
+}
+
+fn material_tag(ui: &mut Ui<'_, Id>, look: &Look<ChipParts<'_>>) -> AureaResult<()> {
+    let r = look.rect;
+    let on = look.parts.progress;
+    ui.round(r, 8.0, m3::SECONDARY_CONTAINER.fade(on))?;
+    if on < 1.0 {
+        let rim = Paint::new()
+            .color(m3::OUTLINE.fade(1.0 - on))
+            .style(PaintStyle::Stroke)
+            .stroke_width(1.0);
+        ui.ctx.draw_round_rect(r.inset(0.5), 8.0, &rim)?;
+    }
+    state_layer(ui, r, 8.0, m3::ON_SURFACE, look.state, look.held_at)?;
+    let text = if on > 0.5 {
+        format!("✓ {}", look.parts.label)
+    } else {
+        look.parts.label.to_string()
+    };
+    label(ui, &text, r, m3::ON_SECONDARY_CONTAINER, Align::Center)
+}
+
 fn material_panel(ui: &mut Ui<'_, Id>, m: &mut Model) -> AureaResult<()> {
     let area = Rect::new(HALF, 0.0, HALF, HEIGHT as f32);
     ui.fill(area, m3::SURFACE)?;
@@ -342,31 +406,17 @@ fn material_panel(ui: &mut Ui<'_, Id>, m: &mut Model) -> AureaResult<()> {
         Align::Start,
     )?;
 
-    let filled = |fill: Color, ink: Color| {
-        move |ui: &mut Ui<'_, Id>, look: &Look<ButtonParts<'_>>| -> AureaResult<()> {
-            let r = look.rect;
-            let radius = r.height / 2.0;
-            ui.round(r, radius, fill)?;
-            state_layer(ui, r, radius, ink, look.state, look.held_at)?;
-            label(ui, look.parts.label, r, ink, Align::Center)
-        }
-    };
-    if Button::new("Play")
-        .show_with(
-            ui,
-            Id::MPrimary,
-            Rect::new(x, 126.0, 140.0, 40.0),
-            filled(m3::PRIMARY, m3::ON_PRIMARY),
-        )?
-        .clicked
-    {
+    let play = Button::new("Play").look(ui, Id::MPrimary, Rect::new(x, 126.0, 140.0, 40.0));
+    filled_button(ui, &play, m3::PRIMARY, m3::ON_PRIMARY)?;
+    if play.response.clicked {
         m.plays += 1;
     }
-    Button::new("Share").show_with(
+    let share = Button::new("Share").look(ui, Id::MTonal, Rect::new(x + 156.0, 126.0, 140.0, 40.0));
+    filled_button(
         ui,
-        Id::MTonal,
-        Rect::new(x + 156.0, 126.0, 140.0, 40.0),
-        filled(m3::SECONDARY_CONTAINER, m3::ON_SECONDARY_CONTAINER),
+        &share,
+        m3::SECONDARY_CONTAINER,
+        m3::ON_SECONDARY_CONTAINER,
     )?;
 
     label(
@@ -376,28 +426,9 @@ fn material_panel(ui: &mut Ui<'_, Id>, m: &mut Model) -> AureaResult<()> {
         m3::ON_SURFACE,
         Align::Start,
     )?;
-    Toggle::new(&mut m.m_wifi).show_with(
-        ui,
-        Id::MWifi,
-        Rect::new(x + 246.0, 196.0, 52.0, 32.0),
-        |ui, look| {
-            let r = look.rect;
-            let p = look.parts.progress;
-            ui.round(r, r.height / 2.0, m3::SURFACE_HIGHEST.mix(m3::PRIMARY, p))?;
-            if p < 1.0 {
-                let rim = Paint::new()
-                    .color(m3::OUTLINE.fade(1.0 - p))
-                    .style(PaintStyle::Stroke)
-                    .stroke_width(2.0);
-                ui.ctx
-                    .draw_round_rect(r.inset(1.0), r.height / 2.0 - 1.0, &rim)?;
-            }
-            let d = 16.0 + 8.0 * p + 4.0 * look.state.press;
-            let cx = r.x + 16.0 + (r.width - 32.0) * p;
-            let thumb = Rect::new(cx - d / 2.0, r.center().y - d / 2.0, d, d);
-            ui.round(thumb, d / 2.0, m3::OUTLINE.mix(m3::ON_PRIMARY, p))
-        },
-    )?;
+    let wifi =
+        Toggle::new(&mut m.m_wifi).look(ui, Id::MWifi, Rect::new(x + 246.0, 196.0, 52.0, 32.0));
+    material_toggle(ui, &wifi)?;
 
     label(
         ui,
@@ -406,59 +437,17 @@ fn material_panel(ui: &mut Ui<'_, Id>, m: &mut Model) -> AureaResult<()> {
         m3::ON_SURFACE,
         Align::Start,
     )?;
-    Slider::new(&mut m.m_volume, 0.0..=1.0).show_with(
+    let volume = Slider::new(&mut m.m_volume, 0.0..=1.0).look(
         ui,
         Id::MVolume,
         Rect::new(x, 268.0, 298.0, 24.0),
-        |ui, look| {
-            let g = look.parts.groove;
-            let track = Rect::new(g.x, g.center().y - 2.0, g.width, 4.0);
-            ui.round(track, 2.0, m3::SECONDARY_CONTAINER)?;
-            let active = Rect::new(track.x, track.y, track.width * look.parts.position, 4.0);
-            ui.round(active, 2.0, m3::PRIMARY)?;
-            let c = look.parts.knob.center();
-            let halo = 40.0 * look.state.hover.max(look.state.press);
-            if halo > 0.0 {
-                ui.round(
-                    Rect::new(c.x - halo / 2.0, c.y - halo / 2.0, halo, halo),
-                    halo / 2.0,
-                    m3::PRIMARY.fade(m3::PRESSED),
-                )?;
-            }
-            ui.round(
-                Rect::new(c.x - 10.0, c.y - 10.0, 20.0, 20.0),
-                10.0,
-                m3::PRIMARY,
-            )
-        },
-    )?;
+    );
+    material_volume(ui, &volume)?;
 
     for (i, name) in (0u8..).zip(["Chill", "Focus", "Night"]) {
         let at = Rect::new(x + f32::from(i) * 100.0, 316.0, 90.0, 32.0);
-        Chip::new(name, &mut m.m_tags[usize::from(i)]).show_with(
-            ui,
-            Id::MTag(i),
-            at,
-            |ui, look| {
-                let r = look.rect;
-                let on = look.parts.progress;
-                ui.round(r, 8.0, m3::SECONDARY_CONTAINER.fade(on))?;
-                if on < 1.0 {
-                    let rim = Paint::new()
-                        .color(m3::OUTLINE.fade(1.0 - on))
-                        .style(PaintStyle::Stroke)
-                        .stroke_width(1.0);
-                    ui.ctx.draw_round_rect(r.inset(0.5), 8.0, &rim)?;
-                }
-                state_layer(ui, r, 8.0, m3::ON_SURFACE, look.state, look.held_at)?;
-                let text = if on > 0.5 {
-                    format!("✓ {}", look.parts.label)
-                } else {
-                    look.parts.label.to_string()
-                };
-                label(ui, &text, r, m3::ON_SECONDARY_CONTAINER, Align::Center)
-            },
-        )?;
+        let tag = Chip::new(name, &mut m.m_tags[usize::from(i)]).look(ui, Id::MTag(i), at);
+        material_tag(ui, &tag)?;
     }
     Ok(())
 }

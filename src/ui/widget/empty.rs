@@ -2,7 +2,7 @@
 //! of help and, if given, a button to start.
 
 use super::Widget;
-use super::button::Button;
+use super::button::{Button, ButtonParts};
 use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
@@ -21,15 +21,17 @@ pub struct EmptyState<'t> {
     mark: Option<MarkShape>,
 }
 
-/// What an [`EmptyState`] draws, for a painter given to [`EmptyState::show_with`].
+/// What an [`EmptyState`] draws, from [`EmptyState::look`].
 #[derive(Clone, Copy, Debug)]
 pub struct EmptyParts<'t> {
     /// The title.
     pub title: &'t str,
     /// The help text; empty for none.
     pub help: &'t str,
-    /// The action's label, if it has one. Its button keeps its own look.
+    /// The action's label, if it has one.
     pub action: Option<&'t str>,
+    /// The action's button, its input taken and its own look ready to draw.
+    pub button: Option<Look<ButtonParts<'t>>>,
     /// The mark in its disc, if it has one.
     pub mark: Option<MarkShape>,
     /// The disc the mark sits in, if it has a mark.
@@ -94,8 +96,15 @@ impl<'t> EmptyState<'t> {
         Widget::show(self, ui, id, rect)
     }
 
-    /// Works out where everything goes, without drawing.
-    fn run<Id: WidgetId>(self, ui: &mut Ui<'_, Id>, rect: Rect) -> Look<EmptyParts<'t>> {
+    /// Takes the action's input as [`EmptyState::show`] does and works out where everything goes,
+    /// without drawing: the app draws it, or [`Look::paint_default`] does, the mark, title and
+    /// help, then the action's button.
+    pub fn look<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+    ) -> Look<EmptyParts<'t>> {
         let p = ui.theme.palette;
         let fonts = ui.fonts();
         let line = fonts.text.size * 1.45;
@@ -137,6 +146,17 @@ impl<'t> EmptyState<'t> {
             let w = Button::new(label).primary().width(ui);
             Rect::new(rect.center().x - w / 2.0, y + 20.0, w, button)
         });
+        let action = match (self.action, action_rect) {
+            (Some(label), Some(at)) => Some(Button::new(label).primary().look(ui, id, at)),
+            _ => None,
+        };
+        let response = action.as_ref().map_or(
+            Response {
+                rect,
+                ..Response::default()
+            },
+            |look| look.response,
+        );
         Look {
             rect,
             state: Eased {
@@ -144,10 +164,12 @@ impl<'t> EmptyState<'t> {
                 ..Eased::default()
             },
             held_at: None,
+            response,
             parts: EmptyParts {
                 title: self.title,
                 help: self.help,
                 action: self.action,
+                button: action,
                 mark: self.mark,
                 disc,
                 title_rect: title,
@@ -165,35 +187,23 @@ impl<'t> EmptyState<'t> {
             },
         }
     }
-
-    /// Works out where everything goes as [`EmptyState::show`] does, then has `paint` draw the
-    /// mark, title and help instead of its own look. The action's button is drawn after, with its
-    /// own look, and its input is taken as [`Button::show`] takes it.
-    pub fn show_with<Id: WidgetId>(
-        self,
-        ui: &mut Ui<'_, Id>,
-        id: Id,
-        rect: Rect,
-        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<EmptyParts<'t>>) -> AureaResult<()>,
-    ) -> AureaResult<Response> {
-        let look = self.run(ui, rect);
-        paint(ui, &look)?;
-        let (Some(label), Some(at)) = (look.parts.action, look.parts.action_rect) else {
-            return Ok(Response {
-                rect,
-                ..Response::default()
-            });
-        };
-        Button::new(label).primary().show(ui, id, at)
-    }
 }
 
 impl Look<EmptyParts<'_>> {
-    /// The empty state's own look: the mark, the title, then the help.
+    /// The empty state's own look: the mark, the title, the help, then the action's button.
     pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
         self.paint_mark(ui)?;
         self.paint_title(ui)?;
-        self.paint_help(ui)
+        self.paint_help(ui)?;
+        self.paint_action(ui)
+    }
+
+    /// The action's button with its own look, if it has one.
+    pub fn paint_action<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        match &self.parts.button {
+            Some(button) => button.paint_default(ui),
+            None => Ok(()),
+        }
     }
 
     /// The mark in its soft disc, if it has one.
@@ -227,7 +237,9 @@ impl Look<EmptyParts<'_>> {
 
 impl<Id: WidgetId> Widget<Id> for EmptyState<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
-        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
+        let look = self.look(ui, id, rect);
+        look.paint_default(ui)?;
+        Ok(look.response)
     }
 }
 
@@ -267,19 +279,18 @@ mod tests {
     }
 
     #[test]
-    fn show_with_paints_the_apps_look_and_the_action_still_clicks() {
+    fn look_paints_the_apps_look_and_the_action_still_clicks() {
         let mut rig = Rig::new(400, 300);
         let area = Rect::new(0.0, 0.0, 400.0, 300.0);
         let show = |rig: &mut Rig| {
             rig.frame(|ui| {
-                EmptyState::new("No trackers")
+                let empty = EmptyState::new("No trackers")
                     .help("Turn a tracker on and hold it near this computer to add it.")
                     .mark(MarkShape::Plus)
                     .action("Add a tracker")
-                    .show_with(ui, 2, area, |ui, look| {
-                        ui.fill(look.rect, Color::rgb(0, 200, 0))
-                    })
-                    .expect("draw")
+                    .look(ui, 2, area);
+                ui.fill(empty.rect, Color::rgb(0, 200, 0)).expect("draw");
+                empty.response
             })
         };
         let first = show(&mut rig);

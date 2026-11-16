@@ -74,7 +74,7 @@ pub struct Tab<'v> {
     pub picked: f32,
 }
 
-/// What a [`TabBar`] draws, for a painter given to [`TabBar::show_with`].
+/// What a [`TabBar`] draws, from [`TabBar::look`].
 ///
 /// The tabs are one [`Look`] between them: the line under the picked tab slides across the bar,
 /// so it is shared, and each tab is a [`Tab`] in `tabs`, from the left.
@@ -138,14 +138,16 @@ impl<'v> TabBar<'v> {
 }
 
 impl<'v> TabBar<'v> {
-    /// Takes the input and works out what it would draw, without drawing. The picked tab and the
-    /// line are as the bar stood when the frame began; a click picks from the next frame.
-    fn run<Id: WidgetId>(
+    /// Takes the input as [`TabBar::show`] does and works out what it would draw, without drawing:
+    /// the app draws it, or [`Look::paint_default`] does, or its pieces [`Look::paint_rule`],
+    /// [`Look::paint_tab`] and [`Look::paint_line`]. The picked tab and the line are as the bar
+    /// stood when the frame began; a click picks from the next frame.
+    pub fn look<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,
         id: Id,
         rect: Rect,
-    ) -> (Response, Look<TabBarParts<'v>>) {
+    ) -> Look<TabBarParts<'v>> {
         let style = self.style.unwrap_or_else(|| TabStyle::new(ui.theme));
         let mut response = Response {
             rect,
@@ -235,7 +237,7 @@ impl<'v> TabBar<'v> {
             response.changed = true;
             ui.mark_changed();
         }
-        let look = Look {
+        Look {
             rect,
             // no input of its own: the bar is as enabled as it was asked to be
             state: Eased {
@@ -243,6 +245,7 @@ impl<'v> TabBar<'v> {
                 ..Eased::default()
             },
             held_at: None,
+            response,
             parts: TabBarParts {
                 tabs,
                 line,
@@ -250,23 +253,7 @@ impl<'v> TabBar<'v> {
                 enabled: self.enabled,
                 style,
             },
-        };
-        (response, look)
-    }
-
-    /// Takes the input as [`TabBar::show`] does, then has `paint` draw it instead of its own look.
-    /// [`Look::paint_default`], [`Look::paint_rule`], [`Look::paint_tab`] and [`Look::paint_line`]
-    /// draw the parts of the usual look.
-    pub fn show_with<Id: WidgetId>(
-        self,
-        ui: &mut Ui<'_, Id>,
-        id: Id,
-        rect: Rect,
-        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<TabBarParts<'v>>) -> AureaResult<()>,
-    ) -> AureaResult<Response> {
-        let (response, look) = self.run(ui, id, rect);
-        paint(ui, &look)?;
-        Ok(response)
+        }
     }
 }
 
@@ -326,7 +313,9 @@ impl Look<TabBarParts<'_>> {
 
 impl<Id: WidgetId> Widget<Id> for TabBar<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
-        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
+        let look = self.look(ui, id, rect);
+        look.paint_default(ui)?;
+        Ok(look.response)
     }
 }
 
@@ -386,17 +375,14 @@ mod tests {
     }
 
     #[test]
-    fn show_with_draws_the_apps_look_and_still_picks() {
+    fn look_draws_the_apps_look_and_still_picks() {
         let mut rig: Rig = Rig::new(300, 36);
         let at = Rect::new(0.0, 0.0, 300.0, 36.0);
         let mut picked = 2;
         let draw = |rig: &mut Rig, picked: &mut usize| {
             rig.frame(|ui| {
-                TabBar::new(&["General", "Audio", "Video"], picked)
-                    .show_with(ui, 1, at, |ui, look| {
-                        ui.fill(look.rect, Color::rgb(0, 200, 0))
-                    })
-                    .expect("draw");
+                let bar = TabBar::new(&["General", "Audio", "Video"], picked).look(ui, 1, at);
+                ui.fill(bar.rect, Color::rgb(0, 200, 0)).expect("draw");
             });
         };
         draw(&mut rig, &mut picked);

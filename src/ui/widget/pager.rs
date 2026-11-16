@@ -77,24 +77,6 @@ impl<'v> Pager<'v> {
     ) -> AureaResult<Response> {
         Widget::show(self, ui, id, rect)
     }
-
-    /// Takes the input as [`Pager::show`] does, then has `paint` draw it instead of its own look.
-    /// [`Look::paint_default`], [`Look::paint_dot`] and [`Look::paint_focus`] draw the parts of
-    /// the usual look. Draws nothing, not even `paint`, with no pages.
-    pub fn show_with<Id: WidgetId>(
-        self,
-        ui: &mut Ui<'_, Id>,
-        id: Id,
-        rect: Rect,
-        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<PagerParts>) -> AureaResult<()>,
-    ) -> AureaResult<Response> {
-        let (response, look) = self.run(ui, id, rect);
-        if look.parts.dots.is_empty() {
-            return Ok(response);
-        }
-        paint(ui, &look)?;
-        Ok(response)
-    }
 }
 
 /// One dot of a [`Pager`], for its painter.
@@ -108,7 +90,7 @@ pub struct PagerDot {
     pub hovered: bool,
 }
 
-/// What a [`Pager`] draws, for a painter given to [`Pager::show_with`].
+/// What a [`Pager`] draws, from [`Pager::look`].
 ///
 /// The dots are one [`Look`] between them, each a [`PagerDot`] in `dots`, from the left.
 #[derive(Clone, Debug)]
@@ -122,29 +104,26 @@ pub struct PagerParts {
 }
 
 impl<'v> Pager<'v> {
-    /// Takes the input and works out what it would draw, without drawing.
-    fn run<Id: WidgetId>(
-        self,
-        ui: &mut Ui<'_, Id>,
-        id: Id,
-        rect: Rect,
-    ) -> (Response, Look<PagerParts>) {
+    /// Takes the input as [`Pager::show`] does and works out what it would draw, without drawing:
+    /// the app draws it, or [`Look::paint_default`] does, or its pieces [`Look::paint_dot`] and
+    /// [`Look::paint_focus`]. With no pages there is nothing to draw.
+    pub fn look<Id: WidgetId>(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> Look<PagerParts> {
         let style = self.style.unwrap_or_else(|| PagerStyle::new(ui.theme));
         let input = ui.interact(id, 0, rect, Sense::Adjust, self.count > 1);
         let mut response = Response::new(rect, input);
         let mut dots = Vec::with_capacity(self.count);
         if self.count == 0 {
-            let look = Look {
+            return Look {
                 rect,
                 state: Eased::default(),
                 held_at: None,
+                response,
                 parts: PagerParts {
                     dots,
                     focus_ring: rect,
                     style,
                 },
             };
-            return (response, look);
         }
         let last = self.count - 1;
         let mut to = (*self.page).min(last);
@@ -196,10 +175,11 @@ impl<'v> Pager<'v> {
             response.changed = true;
             ui.mark_changed();
         }
-        let look = Look {
+        Look {
             rect,
             state,
             held_at: ui.held_at(id, 0),
+            response,
             parts: PagerParts {
                 dots,
                 focus_ring: Rect::new(
@@ -210,14 +190,16 @@ impl<'v> Pager<'v> {
                 ),
                 style,
             },
-        };
-        (response, look)
+        }
     }
 }
 
 impl Look<PagerParts> {
-    /// Every dot from the left, then the focus ring.
+    /// Every dot from the left, then the focus ring. Nothing with no pages.
     pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        if self.parts.dots.is_empty() {
+            return Ok(());
+        }
         for i in 0..self.parts.dots.len() {
             self.paint_dot(ui, i)?;
         }
@@ -246,7 +228,9 @@ impl Look<PagerParts> {
 
 impl<Id: WidgetId> Widget<Id> for Pager<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
-        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
+        let look = self.look(ui, id, rect);
+        look.paint_default(ui)?;
+        Ok(look.response)
     }
 }
 
@@ -301,20 +285,17 @@ mod tests {
     }
 
     #[test]
-    fn show_with_paints_the_dots_and_still_goes_to_the_one_pressed() {
+    fn look_paints_the_dots_and_still_goes_to_the_one_pressed() {
         let mut rig = Rig::new(200, 30).still();
         let at = Rect::new(0.0, 0.0, 200.0, 30.0);
         let mut page = 0;
         let show = |rig: &mut Rig, page: &mut usize| {
             rig.frame(|ui| {
-                Pager::new(4, page)
-                    .show_with(ui, 1, at, |ui, look| {
-                        for dot in &look.parts.dots {
-                            ui.fill(dot.rect, Color::rgb(0, 200, 0))?;
-                        }
-                        Ok(())
-                    })
-                    .expect("draw")
+                let pager = Pager::new(4, page).look(ui, 1, at);
+                for dot in &pager.parts.dots {
+                    ui.fill(dot.rect, Color::rgb(0, 200, 0)).expect("draw");
+                }
+                pager.response
             })
         };
         show(&mut rig, &mut page);
