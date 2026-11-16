@@ -433,8 +433,9 @@ impl FontFile {
         SUCCEEDED(copied).then(|| OsString::from_wide(&path).into())
     }
 
-    /// The whole file.
-    pub(super) fn bytes(&self) -> Option<Vec<u8>> {
+    /// The whole file, read where DirectWrite holds it: a file on disk stays mapped, shared with
+    /// other apps, rather than copied onto the heap.
+    pub(super) fn view(&self) -> Option<FileView> {
         let (key, key_size) = self.key()?;
         let loader = self.loader()?;
         // SAFETY: the key belongs to this loader and `out` receives a stream reference.
@@ -444,18 +445,55 @@ impl FontFile {
         if !SUCCEEDED(unsafe { stream.GetFileSize(&raw mut size) }) {
             return None;
         }
+        let len = usize::try_from(size).ok()?;
         let (mut start, mut context) = (null(), null_mut());
         // SAFETY: the file holds this range and the outputs are valid.
         let read = unsafe { stream.ReadFileFragment(&raw mut start, 0, size, &raw mut context) };
-        if !SUCCEEDED(read) {
+        if !SUCCEEDED(read) || (start.is_null() && len > 0) {
             return None;
         }
-        // SAFETY: the fragment holds `size` bytes until released below.
-        let bytes = unsafe { from_raw_parts(start.cast::<u8>(), usize::try_from(size).ok()?) };
-        let bytes = bytes.to_vec();
-        // SAFETY: releases the fragment read above, once.
-        unsafe { stream.ReleaseFileFragment(context) };
-        Some(bytes)
+        Some(FileView {
+            stream,
+            context,
+            start: start.cast(),
+            len,
+        })
+    }
+
+    #[cfg(test)]
+    fn bytes(&self) -> Option<Vec<u8>> {
+        self.view().map(|view| view.as_ref().to_vec())
+    }
+}
+
+/// A whole font file as its stream reads it, held until drop.
+pub(super) struct FileView {
+    stream: Com<IDWriteFontFileStream>,
+    context: *mut c_void,
+    start: *const u8,
+    len: usize,
+}
+
+// SAFETY: the stream comes from a shared factory, which is free-threaded, and the fragment is only
+// read.
+unsafe impl Send for FileView {}
+// SAFETY: as above.
+unsafe impl Sync for FileView {}
+
+impl AsRef<[u8]> for FileView {
+    fn as_ref(&self) -> &[u8] {
+        if self.len == 0 {
+            return &[];
+        }
+        // SAFETY: the fragment holds `len` bytes until it is released in drop.
+        unsafe { from_raw_parts(self.start, self.len) }
+    }
+}
+
+impl Drop for FileView {
+    fn drop(&mut self) {
+        // SAFETY: releases the fragment `view` read, once; nothing borrows it past `self`.
+        unsafe { self.stream.ReleaseFileFragment(self.context) };
     }
 }
 

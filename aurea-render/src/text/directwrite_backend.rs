@@ -65,6 +65,9 @@ const FALLBACK_FAMILIES: &[&str] = &[
 /// Entries kept in the char-to-face cache before it starts over.
 const CHAR_FACE_CAP: usize = 4096;
 
+/// A font file's bytes, while anything still reads them.
+type WeakBytes = Weak<dyn AsRef<[u8]> + Send + Sync>;
+
 pub struct DirectWriteRasterizer {
     collection: FontCollection,
     faces: Mutex<Vec<Arc<FaceEntry>>>,
@@ -74,7 +77,7 @@ pub struct DirectWriteRasterizer {
     /// variations the fallbacks are resolved with, so the pair fully determines the answer.
     char_faces: Mutex<HashMap<(FaceId, char, u64), FaceId>>,
     /// Font file bytes by path, shared by every face read from that file.
-    file_bytes: Mutex<HashMap<PathBuf, Weak<Vec<u8>>>>,
+    file_bytes: Mutex<HashMap<PathBuf, WeakBytes>>,
 }
 
 impl DirectWriteRasterizer {
@@ -92,15 +95,16 @@ impl DirectWriteRasterizer {
         })
     }
 
-    fn shared_bytes(&self, file: &FontFile) -> Option<Arc<Vec<u8>>> {
+    fn shared_bytes(&self, file: &FontFile) -> Option<FontBytes> {
+        let view = |file: &FontFile| file.view().map(|view| -> FontBytes { Arc::new(view) });
         let Some(path) = file.path() else {
-            return file.bytes().map(Arc::new);
+            return view(file);
         };
         let mut cache = lock(&self.file_bytes);
         if let Some(bytes) = cache.get(&path).and_then(Weak::upgrade) {
             return Some(bytes);
         }
-        let bytes = Arc::new(file.bytes()?);
+        let bytes = view(file)?;
         cache.retain(|_, weak| weak.strong_count() > 0);
         cache.insert(path, Arc::downgrade(&bytes));
         Some(bytes)
