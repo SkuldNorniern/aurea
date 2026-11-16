@@ -1037,6 +1037,11 @@ impl<Id: WidgetId> UiState<Id> {
     }
 
     fn hit_at(&self, at: Point) -> Option<&Hit<Id>> {
+        self.hit_index_at(at).map(|i| &self.last_hits[i])
+    }
+
+    /// Where in the last frame's hits the topmost one under `at` is.
+    fn hit_index_at(&self, at: Point) -> Option<usize> {
         let hits = &self.last_hits;
         let found = |i: &u32| {
             let hit = &hits[*i as usize];
@@ -1045,13 +1050,22 @@ impl<Id: WidgetId> UiState<Id> {
         match self.hit_grid.candidates(at) {
             None => hits
                 .iter()
-                .rev()
-                .find(|hit| !hit.rect.is_empty() && hit.rect.contains(at)),
+                .rposition(|hit| !hit.rect.is_empty() && hit.rect.contains(at)),
             Some((cell, big)) => {
                 let last = |list: &[u32]| list.iter().rev().find_map(found);
-                last(cell).max(last(big)).map(|i| &hits[i as usize])
+                last(cell).max(last(big)).map(|i| i as usize)
             }
         }
+    }
+
+    /// Whether the scroll area `key` may take the wheel at `at`: the topmost hit there last frame
+    /// was drawn inside it, so a card drawn over it keeps the wheel. An area the last frame did
+    /// not scroll goes by `at` alone.
+    pub(crate) fn wheel_reaches(&self, key: Key<Id>, at: Point) -> bool {
+        let Some(range) = self.last_scroll_hits.get(&key) else {
+            return true;
+        };
+        self.hit_index_at(at).is_some_and(|i| range.contains(&i))
     }
 
     pub(crate) fn begin(&mut self, theme: &Theme) {
@@ -1353,9 +1367,7 @@ impl<Id: WidgetId> UiState<Id> {
     }
 
     pub(crate) fn scroll_end(&mut self, key: Key<Id>, start: usize) {
-        if self.touch_scrolling {
-            self.scroll_hits.insert(key, start..self.hits.len());
-        }
+        self.scroll_hits.insert(key, start..self.hits.len());
     }
 
     pub(crate) fn scroll_origin(&self, key: Key<Id>, rect: Rect) -> Option<Point> {

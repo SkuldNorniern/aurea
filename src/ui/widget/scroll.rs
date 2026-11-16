@@ -239,6 +239,9 @@ impl<'v> ScrollArea<'v> {
         let start = ui.state.scroll_begin();
         let input = ui.interact(id, 0, rect, Sense::Hover, true);
         let over = ui.pointer().is_some_and(|at| rect.contains(at));
+        let wheel_here = ui
+            .pointer()
+            .is_some_and(|at| over && ui.state.wheel_reaches(Key::new(id, 0), at));
         let room = (self.content - rect.height).max(0.0);
         let touched = touch_drag(ui, id, rect, room, self.offset);
         let ease = style.smooth && !self.jump && !touched;
@@ -270,7 +273,7 @@ impl<'v> ScrollArea<'v> {
         } else {
             style.step
         };
-        if over && step.is_finite() && step > 0.0 {
+        if wheel_here && step.is_finite() && step > 0.0 {
             let wheel = ui.wheel();
             let dy = y.wheel(self.offset, wheel.1, step);
             let dx = x
@@ -1086,6 +1089,8 @@ mod tests {
         pressed: u32,
         clicks: Vec<(usize, bool)>,
         step: f32,
+        /// A card drawn over the list, after it.
+        card: bool,
     }
 
     impl Scene {
@@ -1099,6 +1104,7 @@ mod tests {
                 pressed: 0,
                 clicks: Vec::new(),
                 step: ROW,
+                card: false,
             };
             scene.frame();
             scene
@@ -1132,6 +1138,9 @@ mod tests {
                         Ok(())
                     })
                     .expect("area");
+                if self.card {
+                    ui.interact(9, 0, Rect::new(20.0, 20.0, 120.0, 60.0), Sense::Hover, true);
+                }
             });
         }
 
@@ -1173,6 +1182,18 @@ mod tests {
         assert_eq!(rig.list, 0.0, "not past the top");
         rig.wheel(250.0, 50.0, -100.0);
         assert_eq!(rig.area, 200.0, "not past the bottom");
+    }
+
+    #[test]
+    fn a_card_over_a_list_keeps_the_wheel_from_it() {
+        let mut rig = Scene::new();
+        rig.wheel(50.0, 50.0, -1.0);
+        rig.card = true;
+        rig.frame();
+        rig.wheel(50.0, 50.0, -3.0);
+        assert_eq!(rig.list, 20.0, "the card is on top");
+        rig.wheel(160.0, 50.0, -3.0);
+        assert_eq!(rig.list, 80.0, "beside the card the list scrolls");
     }
 
     #[test]
