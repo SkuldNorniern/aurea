@@ -39,6 +39,15 @@ impl Chord {
         chord
     }
 
+    /// The key with the shortcut keys of an app whose plain Ctrl keys belong to what it shows,
+    /// as a terminal's do: Command on macOS and iOS, Ctrl+Shift elsewhere.
+    pub const fn app_command(key: KeyCode) -> Self {
+        let apple = cfg!(any(target_os = "macos", target_os = "ios"));
+        let mut chord = Self::command(key);
+        chord.modifiers.shift = !apple;
+        chord
+    }
+
     /// Adds Shift to the chord.
     #[must_use]
     pub const fn shift(mut self) -> Self {
@@ -413,6 +422,16 @@ mod tests {
         assert_eq!(index.len(), 2);
         for action in ["undo", "redo"] {
             assert_eq!(index.get(&action).copied(), map.chord_for(&action));
+        }
+    }
+
+    #[test]
+    fn an_app_command_leaves_plain_ctrl_keys_alone() {
+        let chord = Chord::app_command(KeyCode::C);
+        if cfg!(any(target_os = "macos", target_os = "ios")) {
+            assert_eq!(chord, Chord::command(KeyCode::C));
+        } else {
+            assert_eq!(chord, Chord::key(KeyCode::C).ctrl().shift());
         }
     }
 
