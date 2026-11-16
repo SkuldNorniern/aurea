@@ -67,24 +67,54 @@ pub struct CpuRasterizer {
     logical_height: u32,
     scale_factor: f32,
     display_list: DisplayList,
+    /// Damage the caller named for the next frame, in device pixels.
     pending_damage: Option<Rect>,
-    prev_items: Vec<(CacheKey, Rect)>,
-    tile_hashes: Vec<u64>,
-    scratch_path: PathScratch,
-    scratch_row: ImageScratch,
-    scratch_dirty: Vec<bool>,
-    scratch_hashers: Vec<u64>,
-    scratch_covered: Vec<bool>,
-    scratch_occluded: Vec<bool>,
-    scratch_under_clear: Vec<bool>,
-    last_frame_damage: Option<Rect>,
+    history: History,
+    scratch: Scratch,
     has_frame: bool,
     counting: bool,
     counters: Option<FrameCounters>,
-    /// Scratch for the bands past the first, which draw on threads of their own.
-    band_scratch: Vec<BandScratch>,
     threads: Option<usize>,
     band_min: usize,
+}
+
+/// What the last frame drew, which the next one's damage is found against.
+#[derive(Default)]
+struct History {
+    items: Vec<(CacheKey, Rect)>,
+    tile_hashes: Vec<u64>,
+    /// The device-pixel area the last frame repainted.
+    damage: Option<Rect>,
+}
+
+impl History {
+    /// Forgets the last frame, so the next draws whole; keeps the storage.
+    fn forget(&mut self) {
+        self.items.clear();
+        self.tile_hashes.clear();
+        self.damage = None;
+    }
+
+    /// Keeps the items a frame drew, to find the next frame's damage against.
+    fn remember(&mut self, items: &[DisplayItem]) {
+        self.items.clear();
+        self.items
+            .extend(items.iter().map(|item| (item.cache_key, item.bounds)));
+    }
+}
+
+/// Buffers a frame works in, kept between frames to save regrowing them.
+#[derive(Default)]
+struct Scratch {
+    path: PathScratch,
+    row: ImageScratch,
+    dirty: Vec<bool>,
+    hashers: Vec<u64>,
+    covered: Vec<bool>,
+    occluded: Vec<bool>,
+    under_clear: Vec<bool>,
+    /// For the bands past the first, which draw on threads of their own.
+    bands: Vec<BandScratch>,
 }
 
 impl CpuRasterizer {
@@ -99,20 +129,11 @@ impl CpuRasterizer {
             scale_factor: 1.0,
             display_list: DisplayList::new(),
             pending_damage: None,
-            prev_items: Vec::new(),
-            tile_hashes: Vec::new(),
-            scratch_path: PathScratch::default(),
-            scratch_row: ImageScratch::default(),
-            scratch_dirty: Vec::new(),
-            scratch_hashers: Vec::new(),
-            scratch_covered: Vec::new(),
-            scratch_occluded: Vec::new(),
-            scratch_under_clear: Vec::new(),
-            last_frame_damage: None,
+            history: History::default(),
+            scratch: Scratch::default(),
             has_frame: false,
             counting: false,
             counters: None,
-            band_scratch: Vec::new(),
             threads: None,
             band_min: BAND_MIN_PIXELS,
         }
@@ -124,14 +145,7 @@ impl CpuRasterizer {
     /// the next frame that wants them starts them again.
     pub fn trim_memory(&mut self) {
         self.display_list.trim_memory();
-        self.scratch_path = PathScratch::default();
-        self.scratch_row = ImageScratch::default();
-        self.scratch_dirty = Vec::new();
-        self.scratch_hashers = Vec::new();
-        self.scratch_covered = Vec::new();
-        self.scratch_occluded = Vec::new();
-        self.scratch_under_clear = Vec::new();
-        self.band_scratch = Vec::new();
+        self.scratch = Scratch::default();
         gradient::trim_scratch();
         stroke::trim_scratch();
         pool::release();
@@ -145,9 +159,7 @@ impl CpuRasterizer {
         self.frame_buffer = Vec::new();
         self.has_frame = false;
         self.pending_damage = None;
-        self.last_frame_damage = None;
-        self.prev_items = Vec::new();
-        self.tile_hashes = Vec::new();
+        self.history = History::default();
     }
 
     /// Caps the threads a frame draws on; `None` uses the machine's cores, up to 8, and 1 draws
@@ -156,7 +168,7 @@ impl CpuRasterizer {
     pub fn set_threads(&mut self, threads: Option<usize>) {
         self.threads = threads.map(|n| n.max(1));
         if threads == Some(1) {
-            self.band_scratch = Vec::new();
+            self.scratch.bands = Vec::new();
         }
     }
 
@@ -262,7 +274,7 @@ impl CpuRasterizer {
     /// changing level) damages only the middle, not everything after it.
     fn diff_damage(&self) -> FrameDamage {
         let new_items = self.display_list.items();
-        let old_items = &self.prev_items;
+        let old_items = &self.history.items;
         let same = |n: &DisplayItem, o: &(CacheKey, Rect)| n.cache_key == o.0;
         let prefix = new_items
             .iter()
@@ -318,11 +330,11 @@ impl CpuRasterizer {
         tiles_y: u32,
     ) -> Vec<bool> {
         let tile_count = (tiles_x * tiles_y) as usize;
-        if self.tile_hashes.len() != tile_count {
-            self.tile_hashes = vec![0u64; tile_count];
+        if self.history.tile_hashes.len() != tile_count {
+            self.history.tile_hashes = vec![0u64; tile_count];
         }
 
-        let mut dirty = mem::take(&mut self.scratch_dirty);
+        let mut dirty = mem::take(&mut self.scratch.dirty);
         dirty.clear();
         dirty.resize(tile_count, false);
 
@@ -351,7 +363,7 @@ impl CpuRasterizer {
             return;
         }
         let range_w = (tx1 - tx0) as usize;
-        let mut tiles = mem::take(&mut self.scratch_hashers);
+        let mut tiles = mem::take(&mut self.scratch.hashers);
         tiles.clear();
         tiles.resize(range_w * (ty1 - ty0) as usize, TILE_HASH_SEED);
 
@@ -381,23 +393,13 @@ impl CpuRasterizer {
             for tx in tx0..tx1 {
                 let new_hash = tiles[(ty - ty0) as usize * range_w + (tx - tx0) as usize];
                 let idx = (ty * tiles_x + tx) as usize;
-                if new_hash != self.tile_hashes[idx] {
+                if new_hash != self.history.tile_hashes[idx] {
                     dirty[idx] = true;
                 }
-                self.tile_hashes[idx] = new_hash;
+                self.history.tile_hashes[idx] = new_hash;
             }
         }
-        self.scratch_hashers = tiles;
-    }
-
-    fn capture_prev_items(&mut self) {
-        self.prev_items.clear();
-        self.prev_items.extend(
-            self.display_list
-                .items()
-                .iter()
-                .map(|item| (item.cache_key, item.bounds)),
-        );
+        self.scratch.hashers = tiles;
     }
 
     fn resize_buffer(&mut self, info: &SurfaceInfo) -> AureaResult<()> {
@@ -423,9 +425,7 @@ impl CpuRasterizer {
         self.scale_factor = scale;
         self.display_list.clear();
         self.pending_damage = None;
-        self.prev_items.clear();
-        self.tile_hashes.clear();
-        self.last_frame_damage = None;
+        self.history.forget();
         Ok(())
     }
 }
@@ -492,14 +492,13 @@ impl Renderer for CpuRasterizer {
     }
 
     fn last_frame_damage(&self) -> Option<Rect> {
-        self.last_frame_damage
+        self.history.damage
     }
 
     fn cleanup(&mut self) {
         self.display_list.clear();
         self.pending_damage = None;
-        self.prev_items.clear();
-        self.tile_hashes.clear();
+        self.history.forget();
     }
 
     fn set_damage(&mut self, damage: Option<Rect>) {
@@ -549,59 +548,42 @@ impl CpuRasterizer {
         let pending = self.pending_damage.take();
         let diff = self.diff_damage();
 
-        let Some(damage) = resolve_frame_damage(pending, diff, bw, bh) else {
-            return Ok(FrameOutcome::Unchanged);
+        let surface = Rect::new(0.0, 0.0, bw as f32, bh as f32);
+        let damage = match resolve_frame_damage(pending, diff, bw, bh) {
+            Some(Some(r)) if r.is_empty() || !r.intersects(surface) => None,
+            damage => damage,
         };
-        if damage.is_some_and(|r| {
-            r.width <= 0.0
-                || r.height <= 0.0
-                || r.x >= bw as f32
-                || r.y >= bh as f32
-                || r.x + r.width <= 0.0
-                || r.y + r.height <= 0.0
-        }) {
-            self.last_frame_damage = None;
-            self.capture_prev_items();
-            return Ok(FrameOutcome::Unchanged);
-        }
+        let Some(damage) = damage else {
+            return Ok(self.unchanged());
+        };
 
         let (tiles_x, tiles_y) = tile_grid_dims(bw, bh);
-        let dirty_tiles = self.compute_dirty_tiles(damage, pending, tiles_x, tiles_y);
-
-        self.last_frame_damage = union_dirty_tile_rects(&dirty_tiles, tiles_x, tiles_y, bw, bh);
-        if self.last_frame_damage.is_none() {
-            self.scratch_dirty = dirty_tiles;
-            self.capture_prev_items();
-            return Ok(FrameOutcome::Unchanged);
-        }
-
-        let mut dirty_tiles = dirty_tiles;
-        if let Some(region) = self.last_frame_damage {
-            // a backdrop reads around its box, so any change it reads repaints all of it
-            let grown = grow_over_backdrops(self.display_list.items(), region);
-            self.last_frame_damage = Some(grown);
-            mark_tile_range_dirty(grown, tiles_x, tiles_y, &mut dirty_tiles);
-        }
+        let mut dirty_tiles = self.compute_dirty_tiles(damage, pending, tiles_x, tiles_y);
+        let Some(region) = union_dirty_tile_rects(&dirty_tiles, tiles_x, tiles_y, bw, bh) else {
+            self.scratch.dirty = dirty_tiles;
+            return Ok(self.unchanged());
+        };
+        // a backdrop reads around its box, so any change it reads repaints all of it
+        let region = grow_over_backdrops(self.display_list.items(), region);
+        mark_tile_range_dirty(region, tiles_x, tiles_y, &mut dirty_tiles);
+        self.history.damage = Some(region);
         tally.set_dirty_tiles(&dirty_tiles);
 
-        let surface_clip = match self.last_frame_damage {
-            Some(region) => ClipBox::surface(bw, bh).intersect(region),
-            None => ClipBox::surface(bw, bh),
-        };
+        let surface_clip = ClipBox::surface(bw, bh).intersect(region);
         let items = self.display_list.items();
-        let mut occluded = mem::take(&mut self.scratch_occluded);
+        let mut occluded = mem::take(&mut self.scratch.occluded);
         let last_clear = mark_occluded(
             items,
             (tiles_x, tiles_y, bw, bh),
-            &mut self.scratch_covered,
+            &mut self.scratch.covered,
             &mut occluded,
-            &mut self.scratch_under_clear,
+            &mut self.scratch.under_clear,
         );
         let plan = FramePlan {
             items,
             occluded: &occluded,
             dirty: &dirty_tiles,
-            under_clear: &self.scratch_under_clear,
+            under_clear: &self.scratch.under_clear,
             last_clear,
             dims: (tiles_x, tiles_y, bw, bh),
             clip: surface_clip,
@@ -624,20 +606,21 @@ impl CpuRasterizer {
             if bands <= 1 || backdrop.is_some_and(|at| at == start) {
                 segment.draw(
                     &mut Band::whole(&mut self.frame_buffer),
-                    &mut self.scratch_path,
-                    &mut self.scratch_row,
+                    &mut self.scratch.path,
+                    &mut self.scratch.row,
                     &mut tally,
                 )?;
             } else {
-                self.band_scratch
+                self.scratch
+                    .bands
                     .resize_with(bands - 1, BandScratch::default);
-                let first = (&mut self.scratch_path, &mut self.scratch_row);
+                let first = (&mut self.scratch.path, &mut self.scratch.row);
                 draw_bands(
                     &segment,
                     bands,
                     &mut self.frame_buffer,
                     first,
-                    &mut self.band_scratch,
+                    &mut self.scratch.bands,
                 )?;
             }
             let Some(at) = backdrop else {
@@ -649,19 +632,25 @@ impl CpuRasterizer {
             };
             effect.draw(
                 &mut Band::whole(&mut self.frame_buffer),
-                &mut self.scratch_path,
-                &mut self.scratch_row,
+                &mut self.scratch.path,
+                &mut self.scratch.row,
                 &mut tally,
             )?;
             start = at + 1;
         }
 
-        self.scratch_occluded = occluded;
-        self.scratch_dirty = dirty_tiles;
-        self.capture_prev_items();
-
+        self.scratch.occluded = occluded;
+        self.scratch.dirty = dirty_tiles;
+        self.history.remember(self.display_list.items());
         self.has_frame = true;
         Ok(FrameOutcome::Presented)
+    }
+
+    /// A frame that repaints nothing; the next one is found against this one's items.
+    fn unchanged(&mut self) -> FrameOutcome {
+        self.history.damage = None;
+        self.history.remember(self.display_list.items());
+        FrameOutcome::Unchanged
     }
 }
 
@@ -695,7 +684,7 @@ mod diff_damage_tests {
         let mut r = CpuRasterizer::new(100, 100);
         let bounds = Rect::new(0.0, 0.0, 10.0, 10.0);
         r.display_list.push(item(1, bounds));
-        r.prev_items.push((CacheKey::from_hash(1), bounds));
+        r.history.items.push((CacheKey::from_hash(1), bounds));
 
         assert!(matches!(r.diff_damage(), FrameDamage::Unchanged));
     }
@@ -705,7 +694,7 @@ mod diff_damage_tests {
         let mut r = CpuRasterizer::new(100, 100);
         let rect = |x: f32| Rect::new(x, 0.0, 10.0, 10.0);
         for (key, x) in [(1, 0.0), (2, 20.0), (3, 40.0), (9, 80.0)] {
-            r.prev_items.push((CacheKey::from_hash(key), rect(x)));
+            r.history.items.push((CacheKey::from_hash(key), rect(x)));
         }
         for (key, x) in [(1, 0.0), (4, 30.0), (9, 80.0)] {
             r.display_list.push(item(key, rect(x)));
@@ -747,7 +736,7 @@ mod diff_damage_tests {
         let old_bounds = Rect::new(0.0, 0.0, 8.0, 8.0);
         let new_bounds = Rect::new(20.0, 20.0, 8.0, 8.0);
         r.display_list.push(item(2, new_bounds));
-        r.prev_items.push((CacheKey::from_hash(1), old_bounds));
+        r.history.items.push((CacheKey::from_hash(1), old_bounds));
 
         match r.diff_damage() {
             FrameDamage::Region(rect) => assert_eq!(rect, Rect::new(0.0, 0.0, 28.0, 28.0)),
@@ -760,7 +749,7 @@ mod diff_damage_tests {
         let mut r = CpuRasterizer::new(100, 100);
         let unknown = Rect::new(0.0, 0.0, 0.0, 0.0);
         r.display_list.push(item(2, unknown));
-        r.prev_items.push((CacheKey::from_hash(1), unknown));
+        r.history.items.push((CacheKey::from_hash(1), unknown));
 
         assert!(matches!(r.diff_damage(), FrameDamage::Full));
     }
@@ -772,7 +761,9 @@ mod diff_damage_tests {
         let new_bounds = Rect::new(50.0, 50.0, 4.0, 4.0);
         r.display_list.push(item(1, shared_bounds));
         r.display_list.push(item(2, new_bounds));
-        r.prev_items.push((CacheKey::from_hash(1), shared_bounds));
+        r.history
+            .items
+            .push((CacheKey::from_hash(1), shared_bounds));
 
         match r.diff_damage() {
             FrameDamage::Region(rect) => assert_eq!(rect, new_bounds),
@@ -979,7 +970,7 @@ mod diff_damage_tests {
         r.trim_memory();
         assert_eq!(r.pixels(), &shown[..], "the frame buffer is kept");
         assert!(gradient::RAMP_INDICES.with_borrow(|v| v.capacity() == 0));
-        assert!(r.scratch_dirty.capacity() == 0 && r.scratch_covered.capacity() == 0);
+        assert!(r.scratch.dirty.capacity() == 0 && r.scratch.covered.capacity() == 0);
 
         render(&mut r, 90);
         let mut fresh = rasterizer();
