@@ -14,22 +14,24 @@ void ng_platform_register_ops(const ng_platform_ops_t* ops) {
     g_ops = ops;
 }
 
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+#define REGISTER_OPS ios_register_ops
+#elif defined(__APPLE__)
+#define REGISTER_OPS macos_register_ops
+#elif defined(_WIN32)
+#define REGISTER_OPS windows_register_ops
+#elif defined(__linux__)
+#define REGISTER_OPS linux_register_ops
+#endif
+
+#ifdef REGISTER_OPS
+void REGISTER_OPS(void);
+#endif
+
 static void load_ops(void) {
     if (g_ops != NULL) return;
-#if defined(__APPLE__)
-#if TARGET_OS_IPHONE
-    extern void ios_register_ops(void);
-    ios_register_ops();
-#else
-    extern void macos_register_ops(void);
-    macos_register_ops();
-#endif
-#elif defined(_WIN32)
-    extern void windows_register_ops(void);
-    windows_register_ops();
-#elif defined(__linux__)
-    extern void linux_register_ops(void);
-    linux_register_ops();
+#ifdef REGISTER_OPS
+    REGISTER_OPS();
 #endif
 }
 
