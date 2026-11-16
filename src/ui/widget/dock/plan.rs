@@ -30,7 +30,8 @@ pub enum DockPlan<P> {
 }
 
 impl<P: Copy + PartialEq> DockPlan<P> {
-    /// The plan as text, each panel written by `name`.
+    /// The plan as text, each panel written by `name`. A name with `( ) , : "` or `\` in it,
+    /// spaces around it or nothing at all is written in quotes, so it reads back the same.
     pub fn to_text(&self, name: impl Fn(P) -> String + Copy) -> String {
         let mut out = String::new();
         self.write(&mut out, name);
@@ -43,7 +44,7 @@ impl<P: Copy + PartialEq> DockPlan<P> {
                 let _ = write!(out, "tabs({active}:");
                 for (i, p) in panels.iter().enumerate() {
                     out.push_str(if i == 0 { " " } else { ", " });
-                    out.push_str(&name(*p));
+                    push_name(out, &name(*p));
                 }
                 out.push(')');
             }
@@ -75,6 +76,24 @@ impl<P: Copy + PartialEq> DockPlan<P> {
     }
 }
 
+/// `name` as is, or quoted with `"` and `\` escaped when [`Reader::word`] would not read it back.
+fn push_name(out: &mut String, name: &str) {
+    let plain =
+        !name.is_empty() && name.trim() == name && !name.contains(['(', ')', ',', ':', '"', '\\']);
+    if plain {
+        out.push_str(name);
+        return;
+    }
+    out.push('"');
+    for c in name.chars() {
+        if matches!(c, '"' | '\\') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out.push('"');
+}
+
 struct Reader<'a> {
     s: &'a str,
     i: usize,
@@ -103,6 +122,27 @@ impl<'a> Reader<'a> {
         (!word.is_empty()).then_some(word)
     }
 
+    /// A panel name: a quoted one unescaped, or a plain [`Self::word`].
+    fn name(&mut self) -> Option<String> {
+        self.skip_spaces();
+        let Some(rest) = self.s[self.i..].strip_prefix('"') else {
+            return self.word().map(str::to_owned);
+        };
+        let mut out = String::new();
+        let mut chars = rest.char_indices();
+        while let Some((at, c)) = chars.next() {
+            match c {
+                '"' => {
+                    self.i += 1 + at + 1;
+                    return Some(out);
+                }
+                '\\' => out.push(chars.next()?.1),
+                c => out.push(c),
+            }
+        }
+        None
+    }
+
     fn plan<P>(
         &mut self,
         parse: impl Fn(&str) -> Option<P> + Copy,
@@ -126,9 +166,9 @@ impl<'a> Reader<'a> {
     fn tabs<P>(&mut self, parse: impl Fn(&str) -> Option<P> + Copy) -> Option<DockPlan<P>> {
         let active = self.word()?.parse().ok()?;
         self.eat(":")?;
-        let mut panels = vec![parse(self.word()?)?];
+        let mut panels = vec![parse(&self.name()?)?];
         while self.eat(",").is_some() {
-            panels.push(parse(self.word()?)?);
+            panels.push(parse(&self.name()?)?);
         }
         Some(DockPlan::Tabs { panels, active })
     }
@@ -213,6 +253,38 @@ mod tests {
         let rebuilt = DockTree::from_plan(&back);
         assert_eq!(laid_out(&rebuilt).groups, laid_out(&tree).groups);
         assert!(rebuilt.is_active(2));
+    }
+
+    #[test]
+    fn any_name_reads_back_the_same() {
+        let names = [
+            r"C:\work\a (copy).rs",
+            "x, y: z",
+            r#"say "hi""#,
+            "  padded ",
+            "",
+            "plain",
+        ];
+        let plan = DockPlan::Split {
+            axis: DockAxis::Row,
+            ratio: 0.5,
+            first: Box::new(DockPlan::Tabs {
+                panels: vec![0, 1, 2],
+                active: 1,
+            }),
+            second: Box::new(DockPlan::Tabs {
+                panels: vec![3, 4, 5],
+                active: 0,
+            }),
+        };
+        let text = plan.to_text(|p: usize| names[p].to_string());
+        assert!(text.contains(", plain)"), "plain names stay bare: {text}");
+        let back = DockPlan::from_text(&text, |s| names.iter().position(|n| *n == s));
+        assert_eq!(back, Some(plan), "{text}");
+        assert!(
+            DockPlan::from_text(r#"tabs(0: "open)"#, parse).is_none(),
+            "unclosed quote"
+        );
     }
 
     #[test]
