@@ -221,6 +221,20 @@ impl<Id: WidgetId> Ui<'_, Id> {
             .interact(Key::new(id, part), rect, sense, enabled)
     }
 
+    /// Like [`Ui::interact`], but never a Tab stop nor focused by a press, for a control the
+    /// pointer alone works, such as a splitter in a tool layout.
+    pub fn interact_without_focus(
+        &mut self,
+        id: Id,
+        part: u16,
+        rect: Rect,
+        sense: Sense,
+        enabled: bool,
+    ) -> Interaction {
+        self.state
+            .interact_with_focus(Key::new(id, part), rect, sense, enabled, false)
+    }
+
     /// Hover, press and focus for `input` on that part, eased.
     pub fn eased(&mut self, id: Id, part: u16, input: Interaction) -> Eased {
         let key = Key::new(id, part);

@@ -136,6 +136,8 @@ struct Hit<Id> {
     key: Key<Id>,
     sense: Sense,
     enabled: bool,
+    /// Takes focus: a Tab stop, and focused by a press.
+    focusable: bool,
 }
 
 /// Hits bucketed into a grid of cells, so finding the one under the pointer looks at a cell's few
@@ -902,7 +904,7 @@ impl<Id: WidgetId> UiState<Id> {
             if let Pointer::Press(at, ..) = pointer {
                 focus = self
                     .hit_at(*at)
-                    .filter(|hit| hit.enabled && hit.sense != Sense::Hover)
+                    .filter(|hit| hit.enabled && hit.focusable)
                     .map(|hit| hit.key);
             }
         }
@@ -1085,9 +1087,7 @@ impl<Id: WidgetId> UiState<Id> {
             Pointer::Press(at, clicks, modifiers) => {
                 let hit = self.hit_at(at).copied().filter(|hit| hit.enabled);
                 self.active = hit.map(|hit| hit.key);
-                self.focus = hit
-                    .filter(|hit| hit.sense != Sense::Hover)
-                    .map(|hit| hit.key);
+                self.focus = hit.filter(|hit| hit.focusable).map(|hit| hit.key);
                 self.focus_visible = false;
                 self.drag_from = hit.map(|hit| (hit.key, at, false));
                 if let Some(hit) = hit {
@@ -1380,6 +1380,18 @@ impl<Id: WidgetId> UiState<Id> {
         sense: Sense,
         enabled: bool,
     ) -> Interaction {
+        self.interact_with_focus(key, rect, sense, enabled, sense != Sense::Hover)
+    }
+
+    /// Like [`Self::interact`], taking focus only if `focusable`.
+    pub(crate) fn interact_with_focus(
+        &mut self,
+        key: Key<Id>,
+        rect: Rect,
+        sense: Sense,
+        enabled: bool,
+        focusable: bool,
+    ) -> Interaction {
         let rect = match self.clip {
             Some(clip) => rect
                 .intersection(clip)
@@ -1396,8 +1408,9 @@ impl<Id: WidgetId> UiState<Id> {
             key,
             sense,
             enabled,
+            focusable,
         });
-        if enabled && sense != Sense::Hover {
+        if enabled && focusable {
             self.order.push(key);
         }
         if self.focus == Some(key) {
