@@ -6,9 +6,11 @@
 #include "common/input.h"
 #include "common/rust_callbacks.h"
 #include <gtk/gtk.h>
-#include <ctype.h>
-#include <stdlib.h>
 #include <string.h>
+
+/* An item carries its id under "menu-id"; "aurea-item" marks it as one (id 0 is NULL data). */
+#define MENU_ID_KEY "menu-id"
+#define MENU_ITEM_KEY "aurea-item"
 
 static void menu_destroyed(GtkWidget* menu, gpointer data) {
     (void)data;
@@ -21,42 +23,73 @@ static void register_menu_root(GtkWidget* menu, GtkWidget* root) {
     g_signal_connect(menu, "destroy", G_CALLBACK(menu_destroyed), NULL);
 }
 
-static void menu_item_clicked(GtkMenuItem *item, gpointer user_data) {
-    (void)user_data;
-    guint id = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(item), "menu-id"));
-    ng_invoke_menu_callback(id);
+static void menu_item_activated(GtkMenuItem* item, gpointer data) {
+    (void)data;
+    ng_invoke_menu_callback(GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(item), MENU_ID_KEY)));
+}
+
+static void attach_item(GtkWidget* item, unsigned int id) {
+    g_object_set_data(G_OBJECT(item), MENU_ID_KEY, GUINT_TO_POINTER(id));
+    g_object_set_data(G_OBJECT(item), MENU_ITEM_KEY, GINT_TO_POINTER(1));
+    g_signal_connect(item, "activate", G_CALLBACK(menu_item_activated), NULL);
+}
+
+/* The item's id, or false when `child` is not an item. */
+static gboolean item_id_of(GtkWidget* child, unsigned int* id) {
+    if (!g_object_get_data(G_OBJECT(child), MENU_ITEM_KEY)) return FALSE;
+    *id = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(child), MENU_ID_KEY));
+    return TRUE;
 }
 
 static GtkWidget* item_with_id(GtkWidget* menu, unsigned int id) {
-    if (!menu) return NULL;
+    if (!GTK_IS_MENU_SHELL(menu)) return NULL;
     GtkWidget* found = NULL;
     GList* children = gtk_container_get_children(GTK_CONTAINER(menu));
     for (GList* l = children; l && !found; l = l->next) {
-        GObject* child = G_OBJECT(l->data);
-        if (g_object_get_data(child, "aurea-item") &&
-            GPOINTER_TO_UINT(g_object_get_data(child, "menu-id")) == id) {
-            found = GTK_WIDGET(child);
-        }
+        unsigned int child_id = 0;
+        if (item_id_of(GTK_WIDGET(l->data), &child_id) && child_id == id) found = GTK_WIDGET(l->data);
     }
     g_list_free(children);
     return found;
 }
 
+/* The label GTK shows for a menu title: the text before a tab, with `&` marking a mnemonic. */
+static char* menu_label(const char* title) {
+    const char* tab = strchr(title, '\t');
+    const char* end = tab ? tab : title + strlen(title);
+    GString* out = g_string_sized_new((gsize)(end - title) + 8);
+    for (const char* p = title; p < end; p++) {
+        if (*p == '&') {
+            if (p + 1 < end && p[1] == '&') {
+                g_string_append_c(out, '&');
+                p++;
+            } else if (p + 1 < end) {
+                g_string_append_c(out, '_');
+            }
+        } else if (*p == '_') {
+            g_string_append(out, "__");
+        } else {
+            g_string_append_c(out, *p);
+        }
+    }
+    return g_string_free(out, FALSE);
+}
+
 NGMenuHandle ng_linux_create_menu(void) {
-    GtkWidget *menubar = gtk_menu_bar_new();
+    GtkWidget* menubar = gtk_menu_bar_new();
     g_object_ref_sink(menubar);
     register_menu_root(menubar, menubar);
     return (NGMenuHandle)menubar;
 }
 
 void ng_linux_destroy_menu(NGMenuHandle handle) {
-    if (!handle) return;
+    if (!handle || !GTK_IS_MENU_SHELL(handle)) return;
     gtk_widget_destroy((GtkWidget*)handle);
     g_object_unref(handle);
 }
 
 int ng_linux_attach_menu(NGHandle window, NGMenuHandle menu) {
-    if (!window || !menu) return NG_ERROR_INVALID_HANDLE;
+    if (!window || !GTK_IS_WINDOW(window) || !menu || !GTK_IS_MENU_SHELL(menu)) return NG_ERROR_INVALID_HANDLE;
 
     GtkWidget* vbox = (GtkWidget*)ng_linux_window_get_content_view(window);
     if (!vbox) return NG_ERROR_PLATFORM_SPECIFIC;
@@ -64,9 +97,13 @@ int ng_linux_attach_menu(NGHandle window, NGMenuHandle menu) {
     GtkWidget* menu_widget = (GtkWidget*)menu;
     GtkWidget* parent = gtk_widget_get_parent(menu_widget);
     if (parent && parent != vbox) {
+        GtkWidget* old_window = gtk_widget_get_toplevel(parent);
+        if (GTK_IS_WINDOW(old_window)) ng_menu_table_bind_window(old_window, NULL);
+        g_object_ref(menu_widget);
         gtk_container_remove(GTK_CONTAINER(parent), menu_widget);
-    }
-    if (!gtk_widget_get_parent(menu_widget)) {
+        gtk_box_pack_start(GTK_BOX(vbox), menu_widget, FALSE, FALSE, 0);
+        g_object_unref(menu_widget);
+    } else if (!parent) {
         gtk_box_pack_start(GTK_BOX(vbox), menu_widget, FALSE, FALSE, 0);
     }
 
@@ -76,71 +113,32 @@ int ng_linux_attach_menu(NGHandle window, NGMenuHandle menu) {
     return NG_SUCCESS;
 }
 
-static const char* display_title(const char* title, char* buf, size_t buf_size) {
-    const char* tab = strchr(title, '\t');
-    if (!tab || (size_t)(tab - title) >= buf_size) return title;
-    size_t len = (size_t)(tab - title);
-    memcpy(buf, title, len);
-    buf[len] = '\0';
-    return buf;
-}
-
-static const char* gtk_mnemonic_label(const char* title, char* buf, size_t buf_size) {
-    size_t out = 0;
-    for (const char* p = title; *p && out + 2 < buf_size; p++) {
-        if (*p == '&') {
-            if (p[1] == '&') {
-                buf[out++] = '&';
-                p++;
-            } else if (p[1]) {
-                buf[out++] = '_';
-            }
-        } else if (*p == '_') {
-            buf[out++] = '_';
-            buf[out++] = '_';
-        } else {
-            buf[out++] = *p;
-        }
-    }
-    buf[out] = '\0';
-    return buf;
-}
-
 NGMenuHandle ng_linux_create_submenu(NGMenuHandle parent_menu, const char* title) {
-    if (!parent_menu || !title) return NULL;
-    
-    char display_buf[256];
-    const char* label = display_title(title, display_buf, sizeof(display_buf));
-    char label_buf[512];
-    GtkWidget *menu_item = gtk_menu_item_new_with_mnemonic(gtk_mnemonic_label(label, label_buf, sizeof(label_buf)));
-    GtkWidget *submenu = gtk_menu_new();
-    
+    if (!parent_menu || !GTK_IS_MENU_SHELL(parent_menu) || !title) return NULL;
+
+    char* label = menu_label(title);
+    GtkWidget* menu_item = gtk_menu_item_new_with_mnemonic(label);
+    g_free(label);
+    GtkWidget* submenu = gtk_menu_new();
+
     gtk_menu_item_set_submenu(GTK_MENU_ITEM(menu_item), submenu);
     gtk_menu_shell_append(GTK_MENU_SHELL(parent_menu), menu_item);
     gtk_widget_show_all(menu_item);
 
     register_menu_root(submenu, ng_menu_table_root(parent_menu));
-    
     return (NGMenuHandle)submenu;
 }
 
 int ng_linux_add_menu_item(NGMenuHandle menu, const char* title, unsigned int id) {
-    if (!menu || !title) return NG_ERROR_INVALID_PARAMETER;
+    if (!menu || !GTK_IS_MENU_SHELL(menu) || !title) return NG_ERROR_INVALID_PARAMETER;
 
-    char display_buf[256];
-    const char* label = display_title(title, display_buf, sizeof(display_buf));
-    char label_buf[512];
-
-    GtkWidget *menu_item = gtk_menu_item_new_with_mnemonic(gtk_mnemonic_label(label, label_buf, sizeof(label_buf)));
-    g_object_set_data(G_OBJECT(menu_item), "menu-id", GUINT_TO_POINTER(id));
-    g_object_set_data(G_OBJECT(menu_item), "aurea-item", GINT_TO_POINTER(1));
-    g_signal_connect(G_OBJECT(menu_item), "activate", 
-                     G_CALLBACK(menu_item_clicked), NULL);
-    
+    char* label = menu_label(title);
+    GtkWidget* menu_item = gtk_menu_item_new_with_mnemonic(label);
+    g_free(label);
+    attach_item(menu_item, id);
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), menu_item);
     gtk_widget_show(menu_item);
     ng_menu_table_add_shortcut(menu, title, id);
-    
     return NG_SUCCESS;
 }
 
@@ -154,7 +152,7 @@ int ng_linux_menu_move_last(NGMenuHandle menu, unsigned int index) {
 }
 
 int ng_linux_add_menu_separator(NGMenuHandle menu) {
-    if (!menu) return NG_ERROR_INVALID_HANDLE;
+    if (!menu || !GTK_IS_MENU_SHELL(menu)) return NG_ERROR_INVALID_HANDLE;
     GtkWidget* separator = gtk_separator_menu_item_new();
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), separator);
     gtk_widget_show(separator);
@@ -177,16 +175,13 @@ int ng_linux_handle_menu_shortcut(NGHandle window, unsigned int keycode, unsigne
 }
 
 int ng_linux_add_menu_check_item(NGMenuHandle menu, const char* title, unsigned int id, int checked, int radio) {
-    if (!menu || !title) return NG_ERROR_INVALID_PARAMETER;
-    char display_buf[256];
-    char label_buf[512];
-    GtkWidget* item = gtk_check_menu_item_new_with_mnemonic(
-        gtk_mnemonic_label(display_title(title, display_buf, sizeof(display_buf)), label_buf, sizeof(label_buf)));
+    if (!menu || !GTK_IS_MENU_SHELL(menu) || !title) return NG_ERROR_INVALID_PARAMETER;
+    char* label = menu_label(title);
+    GtkWidget* item = gtk_check_menu_item_new_with_mnemonic(label);
+    g_free(label);
     gtk_check_menu_item_set_draw_as_radio(GTK_CHECK_MENU_ITEM(item), radio ? TRUE : FALSE);
     gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(item), checked ? TRUE : FALSE);
-    g_object_set_data(G_OBJECT(item), "menu-id", GUINT_TO_POINTER(id));
-    g_object_set_data(G_OBJECT(item), "aurea-item", GINT_TO_POINTER(1));
-    g_signal_connect(G_OBJECT(item), "activate", G_CALLBACK(menu_item_clicked), NULL);
+    attach_item(item, id);
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
     gtk_widget_show(item);
     ng_menu_table_add_shortcut(menu, title, id);
@@ -200,23 +195,21 @@ int ng_linux_menu_item_set_enabled(NGMenuHandle menu, unsigned int id, int enabl
     return NG_SUCCESS;
 }
 
+/* Setting a check does not emit activate, so it reports nothing. */
 int ng_linux_menu_item_set_checked(NGMenuHandle menu, unsigned int id, int checked) {
     GtkWidget* item = item_with_id((GtkWidget*)menu, id);
     if (!item || !GTK_IS_CHECK_MENU_ITEM(item)) return NG_ERROR_INVALID_PARAMETER;
-    g_signal_handlers_block_by_func(item, G_CALLBACK(menu_item_clicked), NULL);
     gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(item), checked ? TRUE : FALSE);
-    g_signal_handlers_unblock_by_func(item, G_CALLBACK(menu_item_clicked), NULL);
     return NG_SUCCESS;
 }
 
 int ng_linux_menu_item_set_title(NGMenuHandle menu, unsigned int id, const char* title) {
     GtkWidget* item = item_with_id((GtkWidget*)menu, id);
     if (!item || !title) return NG_ERROR_INVALID_PARAMETER;
-    char display_buf[256];
-    char label_buf[512];
+    char* label = menu_label(title);
     gtk_menu_item_set_use_underline(GTK_MENU_ITEM(item), TRUE);
-    gtk_menu_item_set_label(GTK_MENU_ITEM(item),
-        gtk_mnemonic_label(display_title(title, display_buf, sizeof(display_buf)), label_buf, sizeof(label_buf)));
+    gtk_menu_item_set_label(GTK_MENU_ITEM(item), label);
+    g_free(label);
     ng_menu_table_forget_item(id);
     ng_menu_table_add_shortcut(menu, title, id);
     return NG_SUCCESS;
@@ -231,14 +224,13 @@ int ng_linux_menu_item_remove(NGMenuHandle menu, unsigned int id) {
 }
 
 int ng_linux_menu_clear(NGMenuHandle menu) {
-    if (!menu) return NG_ERROR_INVALID_HANDLE;
+    if (!menu || !GTK_IS_MENU_SHELL(menu)) return NG_ERROR_INVALID_HANDLE;
     GList* children = gtk_container_get_children(GTK_CONTAINER(menu));
     for (GList* l = children; l; l = l->next) {
-        GObject* child = G_OBJECT(l->data);
-        if (g_object_get_data(child, "aurea-item")) {
-            ng_menu_table_forget_item(GPOINTER_TO_UINT(g_object_get_data(child, "menu-id")));
-        }
-        gtk_widget_destroy(GTK_WIDGET(child));
+        GtkWidget* child = GTK_WIDGET(l->data);
+        unsigned int id = 0;
+        if (item_id_of(child, &id)) ng_menu_table_forget_item(id);
+        gtk_widget_destroy(child);
     }
     g_list_free(children);
     return NG_SUCCESS;
