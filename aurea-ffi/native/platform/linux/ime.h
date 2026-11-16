@@ -9,6 +9,10 @@ void ng_linux_ime_attach(GtkWidget* window);
 
 void ng_linux_ime_focus(GtkWidget* window, int focused);
 
+/* Ends a composition on a press, as GTK's own text widgets do: the input method commits it or
+   drops it, by its own setting. */
+void ng_linux_ime_reset(GtkWidget* window);
+
 /* Whether the input method is in the middle of composing text. */
 int ng_linux_ime_composing(GtkWidget* window);
 

@@ -159,6 +159,16 @@ int ng_windows_ime_message(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LR
     }
 }
 
+void ng_windows_ime_complete(HWND hwnd) {
+    HIMC imc = ImmGetContext(hwnd);
+    if (!imc) return;
+    /* The result arrives as WM_IME_COMPOSITION before this returns. */
+    if (ImmGetCompositionStringW(imc, GCS_COMPSTR, NULL, 0) > 0) {
+        ImmNotifyIME(imc, NI_COMPOSITIONSTR, CPS_COMPLETE, 0);
+    }
+    ImmReleaseContext(hwnd, imc);
+}
+
 void ng_windows_ime_release(HWND hwnd) {
     RemovePropA(hwnd, AUREA_IME_X_PROP);
     RemovePropA(hwnd, AUREA_IME_Y_PROP);

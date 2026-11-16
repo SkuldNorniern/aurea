@@ -349,9 +349,19 @@ static BOOL is_pen_event(NSEvent* event) {
     [self mouseMoved:event];
 }
 
+/* A press commits what an input method is composing, as a text view does: the text goes in as
+   typed before the press, and the input method drops its copy so it cannot come twice. */
+- (void)commitMarkedText {
+    if (![self hasMarkedText]) return;
+    NSString* text = markedText;
+    [self insertText:text replacementRange:NSMakeRange(NSNotFound, 0)];
+    [[self inputContext] discardMarkedText];
+}
+
 - (void)mouseDown:(NSEvent*)event {
     if (!self.windowHandle) return;
     [[self window] makeFirstResponder:self];
+    [self commitMarkedText];
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
     ng_invoke_mouse_button(self.windowHandle, 0, 1, ng_macos_mouse_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
@@ -370,6 +380,7 @@ static BOOL is_pen_event(NSEvent* event) {
 
 - (void)rightMouseDown:(NSEvent*)event {
     if (!self.windowHandle) return;
+    [self commitMarkedText];
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
     ng_invoke_mouse_button(self.windowHandle, 1, 1, ng_macos_mouse_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
@@ -386,6 +397,7 @@ static BOOL is_pen_event(NSEvent* event) {
 
 - (void)otherMouseDown:(NSEvent*)event {
     if (!self.windowHandle) return;
+    [self commitMarkedText];
     int button = (int)[event buttonNumber];
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;

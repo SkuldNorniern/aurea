@@ -702,6 +702,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_XBUTTONDOWN:
         case WM_XBUTTONDBLCLK:
             SetCapture(hwnd);
+            /* Before the press goes out, so the app has the text when it hears the click. */
+            ng_windows_ime_complete(hwnd);
             break;
         case WM_CAPTURECHANGED:
             if ((HWND)lParam != hwnd) {

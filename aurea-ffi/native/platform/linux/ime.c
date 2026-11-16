@@ -72,6 +72,11 @@ void ng_linux_ime_focus(GtkWidget* window, int focused) {
     }
 }
 
+void ng_linux_ime_reset(GtkWidget* window) {
+    GtkIMContext* im = ng_linux_im(window);
+    if (im && ng_linux_ime_composing(window)) gtk_im_context_reset(im);
+}
+
 int ng_linux_ime_composing(GtkWidget* window) {
     return window && GPOINTER_TO_INT(g_object_get_data(G_OBJECT(window), AUREA_IM_COMPOSING_KEY));
 }

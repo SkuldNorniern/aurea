@@ -639,6 +639,7 @@ static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpoint
     double y = event->y;
     ng_linux_content_point(widget, event->window, &x, &y);
     if (button < 8) ng_linux_pointer(widget)->held |= 1u << button;
+    ng_linux_ime_reset(widget);
     ng_invoke_mouse_button((void*)widget, button, 1, mods, x, y, click_count);
     if (event->button == 1) report_pen(widget, (GdkEvent*)event, x, y, event->state, PEN_DOWN);
     return FALSE;
