@@ -3,6 +3,7 @@
 #include "menu.h"
 #include "ime.h"
 #include "common/shortcuts.h"
+#include "common/menu_table.h"
 #include "common/errors.h"
 #include "common/input.h"
 #include "common/rust_callbacks.h"
@@ -102,6 +103,7 @@ static gboolean on_delete_event(GtkWidget* widget, GdkEvent* event, gpointer dat
 static void on_window_destroy(GtkWidget* widget, gpointer data) {
     (void)data;
     ng_linux_lifecycle(widget, 5);
+    ng_menu_table_forget_window(widget);
     if (gtk_main_level() == 0) return;
 
     GList* toplevels = gtk_window_list_toplevels();

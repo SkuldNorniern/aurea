@@ -1,6 +1,7 @@
 ﻿#include "menu.h"
 #include "utils.h"
 #include "common/shortcuts.h"
+#include "common/menu_table.h"
 #include "common/errors.h"
 #include "common/input.h"
 #include "common/rust_callbacks.h"
@@ -10,77 +11,16 @@
 #include <string.h>
 #include <wctype.h>
 
-typedef struct {
-    HMENU menu;
-    HMENU root;
-} MenuRootEntry;
-
-typedef struct {
-    HMENU root;
-    unsigned int keycode;
-    unsigned int modifiers;
-    unsigned int id;
-} MenuShortcutEntry;
-
-static MenuRootEntry g_menu_roots[256] = {0};
-static int g_menu_root_count = 0;
-static MenuShortcutEntry g_shortcuts[512] = {0};
-static int g_shortcut_count = 0;
-
-static void forget_menu_root(HMENU menu) {
-    int kept = 0;
-    for (int i = 0; i < g_menu_root_count; i++) {
-        if (g_menu_roots[i].menu != menu) g_menu_roots[kept++] = g_menu_roots[i];
-    }
-    g_menu_root_count = kept;
-}
-
-static void register_menu_root(HMENU menu, HMENU root) {
-    if (!menu) return;
-    for (int i = 0; i < g_menu_root_count; i++) {
-        if (g_menu_roots[i].menu == menu) {
-            g_menu_roots[i].root = root;
-            return;
-        }
-    }
-    if (g_menu_root_count < 256) {
-        g_menu_roots[g_menu_root_count].menu = menu;
-        g_menu_roots[g_menu_root_count].root = root;
-        g_menu_root_count++;
-    }
-}
-
-static HMENU find_menu_root(HMENU menu) {
-    for (int i = 0; i < g_menu_root_count; i++) {
-        if (g_menu_roots[i].menu == menu) {
-            return g_menu_roots[i].root;
-        }
-    }
-    return menu;
-}
-
-static void register_shortcut(HMENU menu, const char* title, unsigned int id) {
-    unsigned int mods = 0;
-    unsigned int keycode = NG_KEY_UNKNOWN;
-    if (!ng_shortcut_parse(title, &keycode, &mods) || g_shortcut_count >= 512) return;
-
-    g_shortcuts[g_shortcut_count].root = find_menu_root(menu);
-    g_shortcuts[g_shortcut_count].keycode = keycode;
-    g_shortcuts[g_shortcut_count].modifiers = mods;
-    g_shortcuts[g_shortcut_count].id = id;
-    g_shortcut_count++;
-}
-
 NGMenuHandle ng_windows_create_menu(void) {
     HMENU menubar = CreateMenu();
-    register_menu_root(menubar, menubar);
+    ng_menu_table_set_root(menubar, menubar);
     return (NGMenuHandle)menubar;
 }
 
 void ng_windows_destroy_menu(NGMenuHandle handle) {
     if (!handle) return;
     ng_windows_menu_clear(handle);
-    forget_menu_root((HMENU)handle);
+    ng_menu_table_forget_menu(handle);
     DestroyMenu((HMENU)handle);
 }
 
@@ -124,7 +64,7 @@ NGMenuHandle ng_windows_create_submenu(NGMenuHandle parent_menu, const char* tit
         return NULL;
     }
     
-    register_menu_root(submenu, find_menu_root((HMENU)parent_menu));
+    ng_menu_table_set_root(submenu, ng_menu_table_root(parent_menu));
     return (NGMenuHandle)submenu;
 }
 
@@ -140,7 +80,7 @@ int ng_windows_add_menu_item(NGMenuHandle menu, const char* title, unsigned int 
     if (!added) {
         return NG_ERROR_PLATFORM_SPECIFIC;
     }
-    register_shortcut((HMENU)menu, title, id);
+    ng_menu_table_add_shortcut(menu, title, id);
     return NG_SUCCESS;
 }
 
@@ -208,14 +148,13 @@ static int shortcut_item(NGHandle window, unsigned int keycode, unsigned int mod
     HMENU menu = GetMenu((HWND)window);
     if (!menu) return -1;
 
-    HMENU root = find_menu_root(menu);
-    for (int i = 0; i < g_shortcut_count; i++) {
-        if (g_shortcuts[i].root != root) continue;
-        if (g_shortcuts[i].keycode != keycode) continue;
-        if (g_shortcuts[i].modifiers != modifiers) continue;
-        UINT state = GetMenuState(menu, g_shortcuts[i].id + 1, MF_BYCOMMAND);
+    void* root = ng_menu_table_root(menu);
+    void* owner;
+    unsigned int id;
+    for (int at = 0; ng_menu_table_next_shortcut(root, keycode, modifiers, &at, &owner, &id);) {
+        UINT state = GetMenuState(menu, id + 1, MF_BYCOMMAND);
         if (state == (UINT)-1 || (state & (MF_GRAYED | MF_DISABLED))) continue;
-        return (int)g_shortcuts[i].id;
+        return (int)id;
     }
     return -1;
 }
@@ -229,14 +168,6 @@ int ng_windows_handle_menu_shortcut(NGHandle window, unsigned int keycode, unsig
     if (id < 0) return 0;
     ng_invoke_menu_callback((unsigned int)id);
     return 1;
-}
-
-static void forget_shortcuts(unsigned int id) {
-    int kept = 0;
-    for (int i = 0; i < g_shortcut_count; i++) {
-        if (g_shortcuts[i].id != id) g_shortcuts[kept++] = g_shortcuts[i];
-    }
-    g_shortcut_count = kept;
 }
 
 int ng_windows_add_menu_check_item(NGMenuHandle menu, const char* title, unsigned int id, int checked, int radio) {
@@ -274,15 +205,15 @@ int ng_windows_menu_item_set_title(NGMenuHandle menu, unsigned int id, const cha
     BOOL ok = SetMenuItemInfoW((HMENU)menu, id + 1, FALSE, &info);
     free(wide);
     if (!ok) return NG_ERROR_INVALID_PARAMETER;
-    forget_shortcuts(id);
-    register_shortcut((HMENU)menu, title, id);
+    ng_menu_table_forget_item(id);
+    ng_menu_table_add_shortcut(menu, title, id);
     return NG_SUCCESS;
 }
 
 int ng_windows_menu_item_remove(NGMenuHandle menu, unsigned int id) {
     if (!menu) return NG_ERROR_INVALID_HANDLE;
     if (!DeleteMenu((HMENU)menu, id + 1, MF_BYCOMMAND)) return NG_ERROR_INVALID_PARAMETER;
-    forget_shortcuts(id);
+    ng_menu_table_forget_item(id);
     return NG_SUCCESS;
 }
 
@@ -292,10 +223,10 @@ int ng_windows_menu_clear(NGMenuHandle menu) {
         HMENU child = GetSubMenu((HMENU)menu, i);
         if (child) {
             ng_windows_menu_clear((NGMenuHandle)child);
-            forget_menu_root(child);
+            ng_menu_table_forget_menu(child);
         }
         UINT command = GetMenuItemID((HMENU)menu, i);
-        if (command != (UINT)-1 && command > 0) forget_shortcuts(command - 1);
+        if (command != (UINT)-1 && command > 0) ng_menu_table_forget_item(command - 1);
         DeleteMenu((HMENU)menu, (UINT)i, MF_BYPOSITION);
     }
     return NG_SUCCESS;

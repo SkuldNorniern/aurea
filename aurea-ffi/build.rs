@@ -73,7 +73,11 @@ fn main() {
         }
     }
 
-    let common_c: &[&str] = &["native/common/platform.c", "native/common/shortcuts.c"];
+    let common_c: &[&str] = &[
+        "native/common/platform.c",
+        "native/common/shortcuts.c",
+        "native/common/menu_table.c",
+    ];
 
     let windows_c: &[&str] = &[
         "native/common/platform_dispatch.c",
