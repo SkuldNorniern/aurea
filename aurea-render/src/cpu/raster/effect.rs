@@ -10,6 +10,7 @@ use crate::types::{Color, Rect};
 pub(crate) struct EffectScratch {
     pixels: Vec<u32>,
     line: Vec<u32>,
+    small: Vec<u32>,
 }
 
 /// Box passes per direction; three come close to a Gaussian.
@@ -48,7 +49,7 @@ pub(crate) fn apply(
         }
     }
     for effect in effects {
-        run(effect, &mut s.pixels, w, h, &mut s.line);
+        run(effect, &mut s.pixels, w, h, (&mut s.line, &mut s.small));
     }
     let (wx, wy) = ((write.x0 - x0) as usize, (write.y0 - y0) as usize);
     let ww = (write.x1 - write.x0) as usize;
@@ -61,26 +62,52 @@ pub(crate) fn apply(
     }
 }
 
-fn run(effect: &Effect, pixels: &mut [u32], w: usize, h: usize, line: &mut Vec<u32>) {
+fn run(
+    effect: &Effect,
+    pixels: &mut [u32],
+    w: usize,
+    h: usize,
+    (line, small): (&mut Vec<u32>, &mut Vec<u32>),
+) {
     match effect {
-        Effect::Blur(radius) => blur(pixels, w, h, *radius, line),
-        Effect::Saturate(amount) => per_pixel(pixels, |[r, g, b]| {
-            let grey = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-            [r, g, b].map(|c| grey + (c - grey) * amount)
-        }),
-        Effect::Brightness(amount) => per_pixel(pixels, |rgb| rgb.map(|c| c * amount)),
+        Effect::Blur(radius) => blur(pixels, w, h, *radius, (line, small)),
+        Effect::Saturate(amount) => saturate(pixels, *amount),
+        Effect::Brightness(amount) => brightness(pixels, *amount),
         Effect::Tint(color) => tint(pixels, *color),
         Effect::Custom(filter) => filter.filter(&mut BackdropPixels::new(pixels, w, h)),
     }
 }
 
-/// `f` on each pixel's red, green and blue as 0..=255, alpha kept.
-fn per_pixel(pixels: &mut [u32], f: impl Fn([f32; 3]) -> [f32; 3]) {
+/// `amount` in 256ths, for integer steps.
+fn fixed(amount: f32) -> i32 {
+    #[allow(clippy::cast_possible_truncation)]
+    let v = (amount * 256.0).round().clamp(-65_536.0, 65_536.0) as i32;
+    v
+}
+
+fn channels(p: u32) -> [i32; 3] {
+    [16, 8, 0].map(|shift| i32::try_from((p >> shift) & 0xFF).unwrap_or(0))
+}
+
+fn pack(p: u32, [r, g, b]: [i32; 3]) -> u32 {
+    let c = |v: i32| u32::try_from(v.clamp(0, 255)).unwrap_or(0);
+    (p & 0xFF00_0000) | (c(r) << 16) | (c(g) << 8) | c(b)
+}
+
+fn saturate(pixels: &mut [u32], amount: f32) {
+    let s = fixed(amount);
     for p in pixels {
-        let rgb = [(*p >> 16) & 0xFF, (*p >> 8) & 0xFF, *p & 0xFF].map(|c| c as f32);
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let [r, g, b] = f(rgb).map(|c| c.round().clamp(0.0, 255.0) as u32);
-        *p = (*p & 0xFF00_0000) | (r << 16) | (g << 8) | b;
+        let [r, g, b] = channels(*p);
+        // Rec. 709 weights in 256ths
+        let grey = (54 * r + 183 * g + 19 * b) >> 8;
+        *p = pack(*p, [r, g, b].map(|c| grey + (((c - grey) * s) >> 8)));
+    }
+}
+
+fn brightness(pixels: &mut [u32], amount: f32) {
+    let s = fixed(amount);
+    for p in pixels {
+        *p = pack(*p, channels(*p).map(|c| (c * s) >> 8));
     }
 }
 
@@ -100,11 +127,44 @@ fn tint(pixels: &mut [u32], color: Color) {
     }
 }
 
-/// A blur spreading about `radius` pixels: box passes along rows, then along columns.
-fn blur(pixels: &mut [u32], w: usize, h: usize, radius: f32, line: &mut Vec<u32>) {
+/// A blur spreading about `radius` pixels: box passes along rows, then along columns. Wide blurs
+/// run on a copy shrunk by [`shrink_step`] and grow back smoothly: they keep no detail that small.
+fn blur(
+    pixels: &mut [u32],
+    w: usize,
+    h: usize,
+    radius: f32,
+    (line, small): (&mut Vec<u32>, &mut Vec<u32>),
+) {
+    if w == 0 || h == 0 {
+        return;
+    }
+    let step = shrink_step(radius);
+    if step == 1 {
+        box_passes(pixels, w, h, radius, line);
+        return;
+    }
+    let (sw, sh) = (w.div_ceil(step), h.div_ceil(step));
+    shrink(pixels, w, h, step, small);
+    #[allow(clippy::cast_precision_loss)]
+    box_passes(small, sw, sh, radius / step as f32, line);
+    grow(small, (sw, sh), step, pixels, (w, h));
+}
+
+/// How much a blur of `radius` shrinks first: none for small ones.
+fn shrink_step(radius: f32) -> usize {
+    match radius {
+        r if r >= 48.0 => 8,
+        r if r >= 24.0 => 4,
+        r if r >= 12.0 => 2,
+        _ => 1,
+    }
+}
+
+fn box_passes(pixels: &mut [u32], w: usize, h: usize, radius: f32, line: &mut Vec<u32>) {
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let half = (radius / PASSES as f32).round().max(0.0) as usize;
-    if half == 0 || w == 0 || h == 0 {
+    if half == 0 {
         return;
     }
     for _ in 0..PASSES {
@@ -113,6 +173,72 @@ fn blur(pixels: &mut [u32], w: usize, h: usize, radius: f32, line: &mut Vec<u32>
         }
         for x in 0..w {
             box_line(pixels, x, w, h, half, line);
+        }
+    }
+}
+
+/// `pixels` averaged in `step` by `step` blocks into `small`.
+fn shrink(pixels: &[u32], w: usize, h: usize, step: usize, small: &mut Vec<u32>) {
+    let (sw, sh) = (w.div_ceil(step), h.div_ceil(step));
+    small.clear();
+    small.reserve(sw * sh);
+    for by in 0..sh {
+        for bx in 0..sw {
+            let mut sum = [0u32; 4];
+            let mut n = 0;
+            for y in by * step..((by + 1) * step).min(h) {
+                for &p in &pixels[y * w + bx * step..y * w + ((bx + 1) * step).min(w)] {
+                    for (k, shift) in [24, 16, 8, 0].into_iter().enumerate() {
+                        sum[k] += (p >> shift) & 0xFF;
+                    }
+                    n += 1;
+                }
+            }
+            let mut out = 0;
+            for (k, shift) in [24, 16, 8, 0].into_iter().enumerate() {
+                out |= ((sum[k] + n / 2) / n) << shift;
+            }
+            small.push(out);
+        }
+    }
+}
+
+/// Red and blue, or alpha and green, of a pixel: two channels in one word, 16 bits apart.
+const LANES: u32 = 0x00FF_00FF;
+
+/// `a` toward `b` by `t` of 256, two channels at a time.
+fn lerp(a: u32, b: u32, t: u32) -> u32 {
+    let mix = |a: u32, b: u32| ((a * (256 - t) + b * t) >> 8) & LANES;
+    mix(a & LANES, b & LANES) | (mix((a >> 8) & LANES, (b >> 8) & LANES) << 8)
+}
+
+/// Where a grown pixel falls in the small copy: the cell before it and how far on, of 256.
+fn place(i: usize, step: usize, len: usize) -> (usize, u32) {
+    // pixel centres: (i + 0.5) / step - 0.5, in 256ths
+    let at = ((2 * i + 1) * 256 / (2 * step)).saturating_sub(128);
+    (
+        (at / 256).min(len - 1),
+        u32::try_from(at % 256).unwrap_or(0),
+    )
+}
+
+/// `small` back up to `w` by `h`, each pixel between its four nearest, into `pixels`.
+fn grow(
+    small: &[u32],
+    (sw, sh): (usize, usize),
+    step: usize,
+    pixels: &mut [u32],
+    (w, h): (usize, usize),
+) {
+    let cell = |x: usize, y: usize| small[y.min(sh - 1) * sw + x.min(sw - 1)];
+    for y in 0..h {
+        let (y0, ty) = place(y, step, sh);
+        let row = &mut pixels[y * w..(y + 1) * w];
+        for (x, out) in row.iter_mut().enumerate() {
+            let (x0, tx) = place(x, step, sw);
+            let top = lerp(cell(x0, y0), cell(x0 + 1, y0), tx);
+            let bottom = lerp(cell(x0, y0 + 1), cell(x0 + 1, y0 + 1), tx);
+            *out = lerp(top, bottom, ty);
         }
     }
 }
@@ -164,7 +290,7 @@ mod tests {
         let (w, h) = (21, 21);
         let mut px = vec![0xFF00_0000; w * h];
         px[10 * w + 10] = 0xFFFF_FFFF;
-        blur(&mut px, w, h, 6.0, &mut Vec::new());
+        blur(&mut px, w, h, 6.0, (&mut Vec::new(), &mut Vec::new()));
         let red = |p: u32| (p >> 16) & 0xFF;
         let total: u32 = px.iter().map(|&p| red(p)).sum();
         assert!(red(px[10 * w + 10]) < 255, "the centre dims");
@@ -176,13 +302,52 @@ mod tests {
     }
 
     #[test]
+    fn a_wide_blur_on_a_shrunk_copy_matches_the_full_one_closely() {
+        let (w, h) = (96, 64);
+        let mut stripes: Vec<u32> = (0..w * h)
+            .map(|i| {
+                if (i % w) / 6 % 2 == 0 {
+                    0xFFFF_FFFF
+                } else {
+                    0xFF00_0000
+                }
+            })
+            .collect();
+        let mut full = stripes.clone();
+        box_passes(&mut full, w, h, 30.0, &mut Vec::new());
+        blur(&mut stripes, w, h, 30.0, (&mut Vec::new(), &mut Vec::new()));
+        let red = |p: u32| ((p >> 16) & 0xFF) as i32;
+        let worst = full
+            .iter()
+            .zip(&stripes)
+            .skip(w * 8)
+            .take(w * (h - 16))
+            .map(|(a, b)| (red(*a) - red(*b)).abs())
+            .max()
+            .unwrap_or(0);
+        assert!(worst <= 24, "shrunk blur strays {worst} from the full one");
+    }
+
+    #[test]
     fn saturate_zero_is_grey_and_brightness_scales() {
         let mut px = [0xFF_FF_00_00u32];
-        run(&Effect::Saturate(0.0), &mut px, 1, 1, &mut Vec::new());
+        run(
+            &Effect::Saturate(0.0),
+            &mut px,
+            1,
+            1,
+            (&mut Vec::new(), &mut Vec::new()),
+        );
         let [r, g, b] = [(px[0] >> 16) & 0xFF, (px[0] >> 8) & 0xFF, px[0] & 0xFF];
         assert!(r == g && g == b, "{px:x?}");
         let mut px = [0xFF_40_40_40u32];
-        run(&Effect::Brightness(2.0), &mut px, 1, 1, &mut Vec::new());
+        run(
+            &Effect::Brightness(2.0),
+            &mut px,
+            1,
+            1,
+            (&mut Vec::new(), &mut Vec::new()),
+        );
         assert_eq!(px[0], 0xFF_80_80_80);
     }
 
@@ -266,7 +431,7 @@ mod tests {
             &mut px,
             1,
             1,
-            &mut Vec::new(),
+            (&mut Vec::new(), &mut Vec::new()),
         );
         assert_eq!(px[0], 0xFF_80_80_80);
     }
