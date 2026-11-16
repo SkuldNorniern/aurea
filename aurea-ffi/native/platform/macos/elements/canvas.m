@@ -156,9 +156,18 @@ void ng_macos_canvas_set_gpu_owned(NGHandle canvas, int gpu_owned) {
 static CGColorSpaceRef s_canvas_colorspace = NULL;
 
 void ng_macos_canvas_update_buffer(NGHandle canvas, const unsigned char* buffer, unsigned int size __attribute__((unused)), unsigned int width, unsigned int height) {
-    if (!canvas || !buffer || width == 0 || height == 0) return;
+    if (!canvas) return;
     AureaCanvasView* view = (__bridge AureaCanvasView*)canvas;
     if (![view isKindOfClass:[AureaCanvasView class]]) return;
+    if (!buffer || width == 0 || height == 0) {
+        /* The frame it pointed into is going: drop the pointer and the surfaces, which the next
+           frame makes again. The layer keeps showing what it has. */
+        view.renderBuffer = NULL;
+        view.bufferWidth = 0;
+        view.bufferHeight = 0;
+        [view releaseSurfaces];
+        return;
+    }
 
     view.renderBuffer = buffer;
     view.bufferWidth  = width;
