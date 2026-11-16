@@ -2,7 +2,9 @@
 
 use super::{Component, Shadow};
 use crate::AureaResult;
-use crate::render::{Color, Corners, GradientStop, LinearGradient, Paint, Path, Point, Rect};
+use crate::render::{
+    Color, Corners, Effect, GradientStop, LinearGradient, Paint, Path, Point, Rect,
+};
 use crate::ui::frame::Ui;
 use crate::ui::state::WidgetId;
 use crate::ui::{Shape, Tokens};
@@ -43,6 +45,7 @@ pub struct Panel {
     fill: Option<Fill>,
     corners: Corners,
     shadows: [Option<Shadow>; SHADOWS],
+    frost: Option<(f32, f32)>,
     sheen: Option<(Color, f32)>,
     glow: Option<(f32, Color)>,
     rim: Option<(f32, Fill)>,
@@ -61,6 +64,7 @@ impl Panel {
             fill: None,
             corners: Corners::all(0.0),
             shadows: [None; SHADOWS],
+            frost: None,
             sheen: None,
             glow: None,
             rim: None,
@@ -111,6 +115,15 @@ impl Panel {
             .position(Option::is_none)
             .unwrap_or(SHADOWS - 1);
         self.shadows[slot] = Some(shadow);
+        self
+    }
+
+    /// What is drawn under it blurred by `blur` and its colour scaled by `saturate` (1 unchanged),
+    /// as frosted glass. Backends without backdrop effects show what is under it as it is; for
+    /// other effects call [`DrawingContext::backdrop`](crate::render::DrawingContext::backdrop).
+    #[must_use]
+    pub fn frost(mut self, blur: f32, saturate: f32) -> Self {
+        self.frost = Some((blur.max(0.0), saturate.max(0.0)));
         self
     }
 
@@ -226,6 +239,10 @@ impl Component for Panel {
             ui.shadow(under.inset(-s.grow), radius + s.grow, s.blur, s.color)?;
         }
         let shape = Path::rounded(rect, c);
+        if let Some((blur, saturate)) = self.frost {
+            ui.ctx
+                .backdrop(&shape, &[Effect::Blur(blur), Effect::Saturate(saturate)])?;
+        }
         if let Some(fill) = self.fill {
             fill_path(ui, &shape, rect, fill)?;
         }
@@ -306,6 +323,29 @@ mod tests {
                 .expect("panel");
         });
         rig
+    }
+
+    #[test]
+    fn frost_blurs_what_is_under_it() {
+        let mut rig: Rig = Rig::new(100, 60);
+        rig.frame(|ui| {
+            ui.fill(Rect::new(0.0, 0.0, 100.0, 60.0), Color::rgb(0, 0, 0))
+                .expect("fill");
+            for x in (0..100).step_by(4) {
+                #[allow(clippy::cast_precision_loss)]
+                let at = Rect::new(x as f32, 0.0, 2.0, 60.0);
+                ui.fill(at, Color::rgb(255, 255, 255)).expect("stripe");
+            }
+            Panel::new()
+                .radius(8.0)
+                .frost(6.0, 1.0)
+                .paint(ui, Rect::new(10.0, 10.0, 80.0, 40.0))
+                .expect("panel");
+        });
+        let inside = rig.pixel(50, 30)[1];
+        assert!((60..200).contains(&inside), "grey inside: {inside}");
+        let outside = rig.pixel(50, 4)[1];
+        assert!(outside == 0 || outside == 255, "sharp outside: {outside}");
     }
 
     #[test]
