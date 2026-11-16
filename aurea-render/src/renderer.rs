@@ -48,6 +48,13 @@ pub trait Renderer {
     /// reports memory low. The frame buffer and state a frame needs stay.
     fn trim_memory(&mut self) {}
 
+    /// Frees the drawn frame too, while nothing shows it, as when its window is minimized: the
+    /// next frame allocates again and draws whole. Whatever shows [`Self::frame_output`] lets go
+    /// of it first.
+    fn release_frame(&mut self) {
+        self.trim_memory();
+    }
+
     /// Sets cached GPU image limits between frames. CPU renderers ignore this.
     fn set_gpu_cache_limits(&mut self, _limits: GpuCacheLimits) {}
 

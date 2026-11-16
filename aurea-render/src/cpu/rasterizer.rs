@@ -137,6 +137,19 @@ impl CpuRasterizer {
         pool::release();
     }
 
+    /// Frees the drawn frame and every buffer the next frame regrows, while nothing shows it, as
+    /// when its window is minimized; the next frame allocates again and draws whole. Whatever
+    /// shows [`Renderer::frame_output`] lets go of it first.
+    pub fn release_frame(&mut self) {
+        self.trim_memory();
+        self.frame_buffer = Vec::new();
+        self.has_frame = false;
+        self.pending_damage = None;
+        self.last_frame_damage = None;
+        self.prev_items = Vec::new();
+        self.tile_hashes = Vec::new();
+    }
+
     /// Caps the threads a frame draws on; `None` uses the machine's cores, up to 8, and 1 draws
     /// on the caller's thread only. Each thread draws whole rows, items in their order, so the
     /// pixels are the same either way.
@@ -426,6 +439,10 @@ impl Renderer for CpuRasterizer {
         Self::trim_memory(self);
     }
 
+    fn release_frame(&mut self) {
+        Self::release_frame(self);
+    }
+
     fn configure(&mut self, info: SurfaceInfo) -> AureaResult<()> {
         self.resize_buffer(&info)
     }
@@ -435,6 +452,11 @@ impl Renderer for CpuRasterizer {
     }
 
     fn begin_frame(&mut self) -> AureaResult<Box<dyn DrawingContext + '_>> {
+        if self.frame_buffer.is_empty() && self.width > 0 && self.height > 0 {
+            // released while hidden: the whole frame again
+            let info = SurfaceInfo::new(self.logical_width, self.logical_height, self.scale_factor);
+            self.resize_buffer(&info)?;
+        }
         self.display_list.clear();
         let mut ctx = RecordingContext::new(
             &mut self.display_list,
@@ -871,6 +893,30 @@ mod diff_damage_tests {
             small_storage,
             "modest changes retain useful slack"
         );
+    }
+
+    #[test]
+    fn a_released_frame_frees_its_pixels_and_draws_whole_again() {
+        let draw = |r: &mut CpuRasterizer| {
+            {
+                let mut ctx = r.begin_frame().expect("frame");
+                ctx.clear(Color::rgb(10, 20, 30)).expect("clear");
+                ctx.draw_rect(
+                    Rect::new(4.0, 4.0, 20.0, 10.0),
+                    &Paint::new().color(Color::rgb(200, 0, 0)),
+                )
+                .expect("rect");
+            }
+            r.end_frame().expect("end");
+            r.frame_output().map(|f| f.bytes().to_vec())
+        };
+        let mut r = CpuRasterizer::new(64, 32);
+        let first = draw(&mut r).expect("drawn");
+        r.release_frame();
+        assert_eq!(r.frame_buffer.capacity(), 0, "the pixels are gone");
+        assert!(r.frame_output().is_none());
+        let again = draw(&mut r).expect("drawn again");
+        assert_eq!(first, again, "the same frame, drawn whole");
     }
 
     #[test]
