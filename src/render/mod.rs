@@ -20,13 +20,14 @@ pub use aurea_render::text::{
 };
 pub use aurea_render::vector::{Icon, SvgError, VectorImage, parse_path_data};
 pub use aurea_render::{
-    BlendMode, ClickCallback, Color, CommandKind, Corners, CpuRasterizer, Dash, DisplayIndex,
-    DisplayItem, DisplayList, DrawCommand, DrawingContext, Fallback, Font, FontFeature,
-    FontMetrics, FontStyle, FontVariation, FontWeight, FrameCounters, GpuCacheLimits,
-    GpuCacheStats, GpuFeatures, GpuFrameTimings, GpuTexture, GradientStop, Hex, HoverCallback, Hsv,
-    Image, ImageSet, InteractionRegistry, InteractiveId, KindTiming, LineCap, LineJoin,
-    LinearGradient, Paint, PaintStyle, Path, PathCommand, Point, RadialGradient, Rect, Renderer,
-    RendererBackend, Sampling, Surface, SurfaceInfo, TextMetrics, Transform, Viewport,
+    BackdropFilter, BackdropPixels, BlendMode, ClickCallback, Color, CommandKind, Corners,
+    CpuRasterizer, Dash, DisplayIndex, DisplayItem, DisplayList, DrawCommand, DrawingContext,
+    Effect, Fallback, Font, FontFeature, FontMetrics, FontStyle, FontVariation, FontWeight,
+    FrameCounters, GpuCacheLimits, GpuCacheStats, GpuFeatures, GpuFrameTimings, GpuTexture,
+    GradientStop, Hex, HoverCallback, Hsv, Image, ImageSet, InteractionRegistry, InteractiveId,
+    KindTiming, LineCap, LineJoin, LinearGradient, Paint, PaintStyle, Path, PathCommand, Point,
+    RadialGradient, Rect, Renderer, RendererBackend, Sampling, Surface, SurfaceInfo, TextMetrics,
+    Transform, Viewport,
 };
 pub use canvas::*;
 
