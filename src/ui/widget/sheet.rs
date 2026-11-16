@@ -1,11 +1,12 @@
 //! A panel rising from the bottom edge, dismissed by a swipe down, a tap above it or Escape.
 
 use crate::AureaResult;
-use crate::render::Rect;
+use crate::render::{Color, Rect};
 use crate::ui::component::card;
-use crate::ui::frame::Ui;
+use crate::ui::frame::{Eased, Response, Ui};
 use crate::ui::paint::Component;
 use crate::ui::state::{Sense, WidgetId};
+use crate::ui::widget::look::Look;
 
 const BACKDROP: u16 = 0;
 const PANEL: u16 = 1;
@@ -112,8 +113,38 @@ impl BottomSheet {
         id: Id,
         content: impl FnOnce(&mut Ui<'_, Id>, Rect) -> AureaResult<R>,
     ) -> AureaResult<Option<R>> {
-        if !state.visible() {
+        let Some(look) = self.look(ui, state, id) else {
             return Ok(None);
+        };
+        look.paint_default(ui)?;
+        // the content runs inside its clip, so it is the one step the library runs for the app
+        let inner = look.parts.content;
+        ui.clipped(inner, |ui| content(ui, inner)).map(Some)
+    }
+
+    /// Takes the input for the sheet and works out its chrome, without drawing: the backdrop
+    /// shade, the panel, the grip and the content area. `None` when it isn't showing. The app
+    /// draws the chrome, or [`Look::paint_default`] does, then its content in `parts.content`.
+    /// Dismissing sets `state.open` to false, as [`BottomSheet::show`] does.
+    ///
+    /// ```rust,no_run
+    /// # use aurea::ui::{BottomSheet, SheetState, Ui};
+    /// # fn f(ui: &mut Ui<'_, u8>, state: &mut SheetState) -> aurea::AureaResult<()> {
+    /// if let Some(sheet) = BottomSheet::new(320.0).look(ui, state, 1) {
+    ///     sheet.paint_default(ui)?;
+    ///     ui.fill(sheet.parts.content, ui.theme.palette.surface)?;
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn look<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        state: &mut SheetState,
+        id: Id,
+    ) -> Option<Look<SheetParts>> {
+        if !state.visible() {
+            return None;
         }
         let target = if state.open { 1.0 } else { 0.0 };
         state.shown += (target - state.shown) * self.ease;
@@ -123,7 +154,7 @@ impl BottomSheet {
             ui.keep_animating();
         }
         if !state.visible() {
-            return Ok(None);
+            return None;
         }
 
         let canvas = Rect::new(0.0, 0.0, ui.ctx.width() as f32, ui.ctx.height() as f32);
@@ -131,7 +162,6 @@ impl BottomSheet {
         let shade = ui.theme.palette.shadow;
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let alpha = (f32::from(shade.a) * state.shown).round() as u8;
-        ui.fill(canvas, shade.with_alpha(alpha))?;
         if ui
             .interact(id, BACKDROP, canvas, Sense::Click, true)
             .clicked
@@ -144,22 +174,33 @@ impl BottomSheet {
         let rect = Rect::new(canvas.x, top, canvas.width, tall);
         ui.interact(id, PANEL, rect, Sense::Hover, true);
         let grip = Rect::new(rect.x, rect.y, rect.width, self.grip);
-        let held = ui.interact(id, GRIP, grip, Sense::Adjust, true).held;
-        self.pull(ui, state, held, tall);
+        let input = ui.interact(id, GRIP, grip, Sense::Adjust, true);
+        self.pull(ui, state, input.held, tall);
         if ui.state.escaped {
             state.open = false;
         }
 
-        card(ui.theme).paint(ui, rect)?;
-        let bar = Rect::new(rect.x + rect.width / 2.0 - 18.0, rect.y + 10.0, 36.0, 4.0);
-        ui.fill(bar, ui.theme.palette.border)?;
         let inner = Rect::new(
             rect.x,
             rect.y + self.grip,
             rect.width,
             (tall - self.grip).max(0.0),
         );
-        ui.clipped(inner, |ui| content(ui, inner)).map(Some)
+        Some(Look {
+            rect,
+            state: Eased {
+                enabled: 1.0,
+                ..Eased::default()
+            },
+            held_at: ui.held_at(id, GRIP),
+            response: Response::new(rect, input),
+            parts: SheetParts {
+                backdrop: canvas,
+                shade: shade.with_alpha(alpha),
+                grip,
+                content: inner,
+            },
+        })
     }
 
     /// Follows a finger on the grip, and on letting go dismisses or settles back.
@@ -188,6 +229,47 @@ impl BottomSheet {
         state.flick = pulled - state.pulled;
         state.pulled = pulled;
         ui.keep_animating();
+    }
+}
+
+/// What a [`BottomSheet`] draws, from [`BottomSheet::look`]: the shade over the canvas, the panel
+/// with its grip, and the content area under the grip.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SheetParts {
+    /// The whole canvas, which the shade covers.
+    pub backdrop: Rect,
+    /// The shade's colour, faded as the sheet rises.
+    pub shade: Color,
+    /// The grip along the panel's top, the part a finger drags.
+    pub grip: Rect,
+    /// The area under the grip, where the content goes; the app clips it to this.
+    pub content: Rect,
+}
+
+impl Look<SheetParts> {
+    /// The shade, the panel and the grip's bar, in that order, as [`BottomSheet::show`] draws
+    /// them around its content.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        self.paint_backdrop(ui)?;
+        self.paint_panel(ui)?;
+        self.paint_grip(ui)
+    }
+
+    /// The shade over the canvas.
+    pub fn paint_backdrop<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        ui.fill(self.parts.backdrop, self.parts.shade)
+    }
+
+    /// The panel's card.
+    pub fn paint_panel<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        card(ui.theme).paint(ui, self.rect)
+    }
+
+    /// The bar that shows the grip, centred near the panel's top.
+    pub fn paint_grip<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let rect = self.rect;
+        let bar = Rect::new(rect.x + rect.width / 2.0 - 18.0, rect.y + 10.0, 36.0, 4.0);
+        ui.fill(bar, ui.theme.palette.border)
     }
 }
 
@@ -306,5 +388,28 @@ mod tests {
                 .expect("draw")
         });
         assert_eq!(content, Some(Rect::new(0.0, 450.0, 400.0, 150.0)));
+    }
+
+    #[test]
+    fn the_app_draws_its_own_panel_and_a_tap_above_still_dismisses() {
+        let mut rig = Rig::new(400, 600);
+        let mut state = SheetState::opened();
+        let draw = |rig: &mut Rig, state: &mut SheetState| {
+            rig.frame(|ui| {
+                if let Some(sheet) = BottomSheet::new(200.0).look(ui, state, OPEN) {
+                    ui.fill(sheet.parts.content, Color::rgb(0, 200, 0))
+                        .expect("content");
+                }
+            })
+        };
+        for _ in 0..40 {
+            draw(&mut rig, &mut state);
+        }
+        assert_eq!(rig.pixel(200, 450), [0, 200, 0, 255], "the app's content");
+        rig.click(200.0, 100.0);
+        for _ in 0..40 {
+            draw(&mut rig, &mut state);
+        }
+        assert!(!state.open, "above it");
     }
 }

@@ -27,7 +27,7 @@ pub use widget::button::{Button, ButtonParts, ButtonStyle, Tone};
 pub use widget::chip::{Chip, ChipParts, ChipStyle};
 pub use widget::color::{ColorPicker, PickerParts, PickerStyle};
 pub use widget::dial::{Dial, DialParts, DialStyle};
-pub use widget::dialog::{Dialog, DialogAnswer};
+pub use widget::dialog::{Dialog, DialogAnswer, DialogParts};
 pub use widget::disclosure::{Disclosure, DisclosureParts, DisclosureStyle};
 pub use widget::dock::{
     Dock, DockAxis, DockBar, DockGroup, DockLayout, DockMetrics, DockPlan, DockSide, DockStyle,
@@ -49,15 +49,15 @@ pub use widget::scroll::{
     wheel_steps,
 };
 pub use widget::segmented::{Segment, Segmented, SegmentedParts, SegmentedStyle};
-pub use widget::sheet::{BottomSheet, SheetState};
+pub use widget::sheet::{BottomSheet, SheetParts, SheetState};
 pub use widget::slider::{Slider, SliderParts, SliderStyle, SliderTrack};
 pub use widget::splitter::{Splitter, SplitterParts, SplitterStyle};
 pub use widget::stepper::{Stepper, StepperParts, StepperStyle};
 pub use widget::swatch::{Swatch, SwatchParts, SwatchStyle, Swatches};
 pub use widget::tabs::{Tab, TabBar, TabBarParts, TabStyle};
-pub use widget::text_area::TextArea;
+pub use widget::text_area::{TextArea, TextAreaParts};
 pub use widget::text_field::{FieldStyle, TextField, TextFieldParts};
-pub use widget::toast::{Toast, ToastTone, Toasts};
+pub use widget::toast::{Toast, ToastLook, ToastTone, Toasts, ToastsParts};
 pub use widget::toggle::{
     Checkbox, CheckboxParts, CheckboxStyle, Toggle, ToggleParts, ToggleStyle,
 };

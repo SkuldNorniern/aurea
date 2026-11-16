@@ -3,10 +3,11 @@
 use crate::AureaResult;
 use crate::render::Rect;
 use crate::ui::component::card;
-use crate::ui::frame::Ui;
+use crate::ui::frame::{Eased, Response, Ui};
 use crate::ui::paint::{Component, Label, Overflow};
 use crate::ui::state::{Key, Sense, WidgetId};
-use crate::ui::widget::button::Button;
+use crate::ui::widget::button::{Button, ButtonParts};
+use crate::ui::widget::look::Look;
 
 const BACKDROP: u16 = 0xEF00;
 const CARD: u16 = 0xEF01;
@@ -115,35 +116,22 @@ impl<'t> Dialog<'t> {
         let first = ui.state.order.len();
         ui.state.text_submitted = false;
         ui.state.text_cancelled = false;
-        let (width, height) = (ui.ctx.width() as f32, ui.ctx.height() as f32);
-        let canvas = Rect::new(0.0, 0.0, width, height);
-        ui.interact(id, BACKDROP, canvas, Sense::Hover, true);
+        let at = layout(ui, body_height);
+        ui.interact(id, BACKDROP, at.canvas, Sense::Hover, true);
         ui.take_wheel();
-        ui.fill(canvas, ui.theme.palette.shadow)?;
+        ui.fill(at.canvas, ui.theme.palette.shadow)?;
 
-        let padding = ui.theme.padding * 1.6;
-        let row = ui.theme.control_height;
-        let title = ui.theme.text_size * 1.5;
-        let gap = if body_height > 0.0 {
-            ui.theme.padding
-        } else {
-            0.0
-        };
-        let tall = padding * 2.0 + title + body_height + gap + row + ui.theme.padding;
-        let at = canvas.centered(WIDTH.min(width - 32.0).max(0.0), tall);
-        ui.interact(id, CARD, at, Sense::Hover, true);
-        card(ui.theme).paint(ui, at)?;
-        let inner = at.inset(padding);
-        let (top, rest) = inner.split_top(title, ui.theme.padding);
+        ui.interact(id, CARD, at.card, Sense::Hover, true);
+        card(ui.theme).paint(ui, at.card)?;
         Label::new(self.title, ui.theme.palette.text)
             .strong()
-            .paint(ui, top)?;
-        let (text, foot) = rest.split_top(body_height, gap);
-        body(ui, text)?;
+            .paint(ui, at.title)?;
+        body(ui, at.body)?;
 
         let mut answer = DialogAnswer::Open;
         let last = self.buttons.len().saturating_sub(1);
-        let mut right = foot.right();
+        let row = ui.theme.control_height;
+        let mut right = at.foot.right();
         for (i, label) in self.buttons.iter().enumerate().rev() {
             let button = if i == last {
                 Button::new(label).primary()
@@ -151,7 +139,7 @@ impl<'t> Dialog<'t> {
                 Button::new(label)
             };
             let wide = button.width(ui);
-            let cell = Rect::new(right - wide, foot.bottom() - row, wide, row);
+            let cell = Rect::new(right - wide, at.foot.bottom() - row, wide, row);
             right = cell.x - ui.theme.padding / 2.0;
             if button.show(ui, id_of(i), cell)?.clicked {
                 answer = DialogAnswer::Button(i);
@@ -176,9 +164,207 @@ impl<'t> Dialog<'t> {
     }
 }
 
+/// The rects a dialog lays out on the canvas.
+struct Layout {
+    canvas: Rect,
+    card: Rect,
+    title: Rect,
+    body: Rect,
+    foot: Rect,
+}
+
+/// Where the dialog's card, title, body strip and button row go, for a body `body_height` tall.
+fn layout<Id: WidgetId>(ui: &Ui<'_, Id>, body_height: f32) -> Layout {
+    let (width, height) = (ui.ctx.width() as f32, ui.ctx.height() as f32);
+    let canvas = Rect::new(0.0, 0.0, width, height);
+    let padding = ui.theme.padding * 1.6;
+    let row = ui.theme.control_height;
+    let title = ui.theme.text_size * 1.5;
+    let gap = if body_height > 0.0 {
+        ui.theme.padding
+    } else {
+        0.0
+    };
+    let tall = padding * 2.0 + title + body_height + gap + row + ui.theme.padding;
+    let card = canvas.centered(WIDTH.min(width - 32.0).max(0.0), tall);
+    let inner = card.inset(padding);
+    let (title_at, rest) = inner.split_top(title, ui.theme.padding);
+    let (body, foot) = rest.split_top(body_height, gap);
+    Layout {
+        canvas,
+        card,
+        title: title_at,
+        body,
+        foot,
+    }
+}
+
+/// What a [`Dialog`] draws, from [`Dialog::look`]: the backdrop, the card with its title and
+/// buttons, and the strip `body` is for, which the app draws its body in.
+/// [`Look::paint_default`] draws the first four.
+#[derive(Clone, Debug)]
+pub struct DialogParts<'t, Id: WidgetId> {
+    /// The title, strong, at the top of the card.
+    pub title: &'t str,
+    /// Where the title goes.
+    pub title_at: Rect,
+    /// The whole canvas, which the shade covers.
+    pub backdrop: Rect,
+    /// The strip under the title for the app's body, the height it was given.
+    pub body: Rect,
+    /// The buttons, left to right, each as its own look. The last is the primary one.
+    pub buttons: Vec<Look<ButtonParts<'t>>>,
+    /// The keyboard's fallback when nothing of the dialog has it: the last button.
+    keyboard: Option<Key<Id>>,
+    /// Where this dialog's keys begin in the keyboard order, so [`Look::answer`] takes them out.
+    first: usize,
+}
+
+impl<'t> Dialog<'t> {
+    /// Takes the input as [`Dialog::show_with`] does and works out what it would draw, without
+    /// drawing. `body_height` is the strip under the title that `parts.body` is: draw the body
+    /// in it after this call, then [`Look::answer`] last, once the body has taken its input.
+    ///
+    /// The buttons take their input before the body, so the Tab order comes to them first, where
+    /// `show_with` puts the body first.
+    ///
+    /// ```rust,no_run
+    /// # use aurea::ui::{Dialog, DialogAnswer, TextField, Ui};
+    /// # fn f(ui: &mut Ui<'_, u8>, name: &mut String) -> aurea::AureaResult<DialogAnswer> {
+    /// let dialog = Dialog::new("Name?")
+    ///     .buttons(&["Cancel", "Save"])
+    ///     .look(ui, |i| u8::try_from(i).unwrap_or(0), 40.0);
+    /// dialog.paint_default(ui)?;
+    /// TextField::new(name).show(ui, 9, dialog.parts.body)?;
+    /// Ok(dialog.answer(ui))
+    /// # }
+    /// ```
+    pub fn look<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id_of: impl Fn(usize) -> Id,
+        body_height: f32,
+    ) -> Look<DialogParts<'t, Id>> {
+        let id = id_of(0);
+        let first = ui.state.order.len();
+        ui.state.text_submitted = false;
+        ui.state.text_cancelled = false;
+        let at = layout(ui, body_height);
+        ui.interact(id, BACKDROP, at.canvas, Sense::Hover, true);
+        ui.take_wheel();
+        let input = ui.interact(id, CARD, at.card, Sense::Hover, true);
+
+        let last = self.buttons.len().saturating_sub(1);
+        let row = ui.theme.control_height;
+        let mut right = at.foot.right();
+        let mut buttons = Vec::with_capacity(self.buttons.len());
+        for (i, label) in self.buttons.iter().enumerate().rev() {
+            let button = if i == last {
+                Button::new(label).primary()
+            } else {
+                Button::new(label)
+            };
+            let wide = button.width(ui);
+            let cell = Rect::new(right - wide, at.foot.bottom() - row, wide, row);
+            right = cell.x - ui.theme.padding / 2.0;
+            buttons.push(button.look(ui, id_of(i), cell));
+        }
+        buttons.reverse();
+
+        Look {
+            rect: at.card,
+            state: Eased {
+                enabled: 1.0,
+                ..Eased::default()
+            },
+            held_at: None,
+            response: Response::new(at.card, input),
+            parts: DialogParts {
+                title: self.title,
+                title_at: at.title,
+                backdrop: at.canvas,
+                body: at.body,
+                buttons,
+                keyboard: (!self.buttons.is_empty()).then(|| Key::new(id_of(last), 0)),
+                first,
+            },
+        }
+    }
+}
+
+impl<Id: WidgetId> Look<DialogParts<'_, Id>> {
+    /// The backdrop, the card, the title and the buttons, in the order [`Dialog::show_with`]
+    /// draws them around its body.
+    pub fn paint_default(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        self.paint_backdrop(ui)?;
+        self.paint_card(ui)?;
+        self.paint_title(ui)?;
+        self.paint_buttons(ui)
+    }
+
+    /// The shade over the canvas.
+    pub fn paint_backdrop(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        ui.fill(self.parts.backdrop, ui.theme.palette.shadow)
+    }
+
+    /// The card.
+    pub fn paint_card(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        card(ui.theme).paint(ui, self.rect)
+    }
+
+    /// The title, strong, at the top of the card.
+    pub fn paint_title(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        Label::new(self.parts.title, ui.theme.palette.text)
+            .strong()
+            .paint(ui, self.parts.title_at)
+    }
+
+    /// The buttons, the last first, as [`Dialog::show_with`] draws them.
+    pub fn paint_buttons(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        for button in self.parts.buttons.iter().rev() {
+            button.paint_default(ui)?;
+        }
+        Ok(())
+    }
+
+    /// The answer, once the body has taken its input: the button clicked, Enter in a field, or
+    /// Escape. It takes the keyboard back into the dialog when nothing of it has it, and clears
+    /// this dialog's keys from the order.
+    pub fn answer(&self, ui: &mut Ui<'_, Id>) -> DialogAnswer {
+        let parts = &self.parts;
+        let mut answer = DialogAnswer::Open;
+        for (i, button) in parts.buttons.iter().enumerate().rev() {
+            if button.response.clicked {
+                answer = DialogAnswer::Button(i);
+            }
+        }
+        let last = parts.buttons.len().saturating_sub(1);
+        if ui.state.text_submitted && !parts.buttons.is_empty() {
+            answer = DialogAnswer::Button(last);
+        }
+        if ui.state.escaped || ui.state.text_cancelled {
+            answer = DialogAnswer::Dismissed;
+        }
+        // the keyboard stays here, not with what is under the dialog.
+        ui.state.order.drain(..parts.first);
+        let ours = ui.state.focus.is_some_and(|f| ui.state.order.contains(&f));
+        if let Some(key) = parts.keyboard
+            && !ours
+            && !ui.state.popup_open()
+        {
+            ui.state.give_focus(Some(key));
+        }
+        if answer != DialogAnswer::Open {
+            ui.mark_changed();
+        }
+        answer
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::Color;
     use crate::ui::rig::Rig;
     use crate::ui::theme::Theme;
     use crate::ui::widget::button::Button;
@@ -404,5 +590,26 @@ mod tests {
         let gap = Theme::dark().padding;
         rig.click(at.right() - 20.0, at.bottom() + gap / 2.0);
         assert_eq!(ask(&mut rig, &mut text, &strip), DialogAnswer::Open);
+    }
+
+    #[test]
+    fn the_app_draws_its_own_card_and_the_buttons_still_answer() {
+        let mut rig = Rig::new(400, 300);
+        let draw = |rig: &mut Rig| {
+            rig.frame(|ui| {
+                let dialog = Dialog::new("Sure?").buttons(&["No", "Yes"]).look(
+                    ui,
+                    |i| u8::try_from(i).unwrap_or(0),
+                    0.0,
+                );
+                ui.fill(dialog.rect, Color::rgb(0, 200, 0)).expect("card");
+                (dialog.answer(ui), dialog.parts.buttons[1].rect)
+            })
+        };
+        let (answer, yes) = draw(&mut rig);
+        assert_eq!(answer, DialogAnswer::Open);
+        assert_eq!(rig.pixel(200, 150), [0, 200, 0, 255], "the app's card");
+        rig.click(yes.center().x, yes.center().y);
+        assert_eq!(draw(&mut rig).0, DialogAnswer::Button(1));
     }
 }

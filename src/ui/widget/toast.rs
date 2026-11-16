@@ -10,11 +10,12 @@ use crate::render::{Color, Rect};
 #[cfg(feature = "accessibility")]
 use crate::ui::accessibility::Role;
 use crate::ui::component::card;
-use crate::ui::frame::Ui;
+use crate::ui::frame::{Eased, Response, Ui};
 use crate::ui::paint::{Component, Label, Overflow, Surface};
-use crate::ui::state::{Channel, Sense, WidgetId};
+use crate::ui::state::{Channel, Interaction, Sense, WidgetId};
 use crate::ui::theme::Palette;
-use crate::ui::widget::button::Button;
+use crate::ui::widget::button::{Button, ButtonParts};
+use crate::ui::widget::look::Look;
 
 const FIRST_PART: u16 = 0xE800;
 const PARTS: u64 = 0x400;
@@ -112,8 +113,12 @@ struct Showing {
     toast: Toast,
     until: Option<Instant>,
     leaving: bool,
-    /// Where it was last drawn.
+    /// Where it was last drawn, before its rise.
     rect: Rect,
+    /// How far up it has come this frame, from 0 to 1.
+    shown: f32,
+    /// How many lines its text wraps to this frame.
+    lines: f32,
 }
 
 /// The messages up now, kept by the app. A click takes one away.
@@ -200,6 +205,8 @@ impl Toasts {
             until: None,
             leaving: false,
             rect: Rect::default(),
+            shown: 0.0,
+            lines: 1.0,
         });
         handle
     }
@@ -218,8 +225,23 @@ impl Toasts {
         self.live.is_empty()
     }
 
-    /// Draws them along the canvas's bottom and gives the handle of one whose action was pressed.
-    pub fn show<Id: WidgetId>(&mut self, ui: &mut Ui<'_, Id>, id: Id) -> AureaResult<Option<u64>> {
+    /// Takes the input for each toast and works out what each would draw, without drawing: the app
+    /// draws them, or [`Look::paint_default`] does, newest at the bottom. Then [`Look::pressed`]
+    /// gives the handle of one whose action was pressed, and [`Toasts::end`] takes it down and
+    /// lets go the ones that have faded out. [`Toasts::show`] does all of it.
+    ///
+    /// ```rust,no_run
+    /// # use aurea::ui::{Toasts, Ui};
+    /// # fn f(ui: &mut Ui<'_, u8>, toasts: &mut Toasts) {
+    /// let look = toasts.look(ui, 9);
+    /// for toast in &look.parts.toasts {
+    ///     // draw toast.rect, toast.text and toast.action in the app's own style
+    /// }
+    /// let pressed = look.pressed();
+    /// toasts.end(ui, 9, pressed);
+    /// # }
+    /// ```
+    pub fn look<Id: WidgetId>(&mut self, ui: &mut Ui<'_, Id>, id: Id) -> Look<ToastsParts<'_>> {
         let now = Instant::now();
         #[allow(clippy::cast_precision_loss)]
         let canvas = Rect::new(0.0, 0.0, ui.ctx.width() as f32, ui.ctx.height() as f32);
@@ -229,12 +251,12 @@ impl Toasts {
         } else {
             canvas.bottom() - margin
         };
-        let mut pressed = None;
         for live in self.live.iter_mut().rev() {
             let part = part_of(live.handle);
             let target = if live.leaving { 0.0 } else { 1.0 };
-            let shown = ui.animate_from(id, part, SHOWN, 0.0, target, FADE);
+            live.shown = ui.animate_from(id, part, SHOWN, 0.0, target, FADE);
             let (size, lines) = measure(ui, &live.toast, canvas, self.widest, margin);
+            live.lines = lines;
             let rect = stack(canvas, size, &mut edge, margin, self.top);
             live.rect = rect;
             let input = ui.interact(id, part, rect, Sense::Hover, true);
@@ -249,11 +271,32 @@ impl Toasts {
                 ui.accessible_description(id, part, Role::Alert, &live.toast.text, None);
                 ui.with_accessible(id, part, |node| node.set_live(Live::Polite));
             }
-            if draw(ui, live, id, rect, lines, shown)? {
-                pressed = Some(live.handle);
-                live.leaving = true;
-            }
             expire(ui, live, self.stay, now, input.hovered);
+        }
+        let this: &Toasts = self;
+        let mut toasts = Vec::with_capacity(this.live.len());
+        for live in this.live.iter().rev() {
+            toasts.push(live.look(ui, id));
+        }
+        Look {
+            rect: canvas,
+            state: Eased {
+                enabled: 1.0,
+                ..Eased::default()
+            },
+            held_at: None,
+            response: Response::new(canvas, Interaction::default()),
+            parts: ToastsParts { toasts },
+        }
+    }
+
+    /// Takes down the toast `pressed` names, if any, and lets go the ones that have faded out.
+    /// Call it after the frame's toasts are drawn, with the `pressed` of their look, as
+    /// [`Toasts::show`] does.
+    pub fn end<Id: WidgetId>(&mut self, ui: &mut Ui<'_, Id>, id: Id, pressed: Option<u64>) {
+        if let Some(handle) = pressed {
+            self.dismiss(handle);
+            ui.mark_changed();
         }
         self.live.retain(|live| {
             !live.leaving || {
@@ -261,10 +304,149 @@ impl Toasts {
                 ui.animated(id, part, SHOWN).is_some_and(|s| s > 0.01)
             }
         });
-        if pressed.is_some() {
-            ui.mark_changed();
-        }
+    }
+
+    /// Draws them along the canvas's bottom and gives the handle of one whose action was pressed.
+    pub fn show<Id: WidgetId>(&mut self, ui: &mut Ui<'_, Id>, id: Id) -> AureaResult<Option<u64>> {
+        let look = self.look(ui, id);
+        look.paint_default(ui)?;
+        let pressed = look.pressed();
+        self.end(ui, id, pressed);
         Ok(pressed)
+    }
+}
+
+/// One live toast as [`Toasts::look`] works it out: where it is drawn, its tone and text, and
+/// its action button's look while it is up enough to take a press.
+pub struct ToastLook<'t> {
+    /// The toast's handle, as [`Toasts::add`] gave it.
+    pub handle: u64,
+    /// Where it is drawn this frame, nudged down while it rises.
+    pub rect: Rect,
+    /// How far up it has come, from 0 to 1; the card and text fade with it.
+    pub shown: f32,
+    /// What it is about, for the strip on its edge.
+    pub tone: ToastTone,
+    /// The message.
+    pub text: &'t str,
+    /// Where the message is drawn, inside the card and left of the action.
+    pub text_at: Rect,
+    /// How many lines the message wraps to; more than one wraps, one ellipsizes.
+    pub lines: f32,
+    /// The action button's look, once the toast is up enough for a press; `None` otherwise, and
+    /// when the toast has no action.
+    pub action: Option<Look<ButtonParts<'t>>>,
+}
+
+/// What [`Toasts::look`] works out for the frame, one [`ToastLook`] for each live toast, newest
+/// first.
+pub struct ToastsParts<'t> {
+    /// The live toasts, the newest first; each is drawn in turn.
+    pub toasts: Vec<ToastLook<'t>>,
+}
+
+impl ToastLook<'_> {
+    /// The card, faded in as the toast rises.
+    pub fn paint_card<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        card(ui.theme).fade(self.shown).paint(ui, self.rect)
+    }
+
+    /// The strip on the card's left edge, in the tone's colour.
+    pub fn paint_strip<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let strip = Rect::new(self.rect.x, self.rect.y, STRIP, self.rect.height).inset_xy(0.0, 4.0);
+        Surface::new(self.tone.color(&ui.theme.palette).fade(self.shown))
+            .radius(STRIP / 2.0)
+            .paint(ui, strip)
+    }
+
+    /// The action button, when it has a look.
+    pub fn paint_action<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        match &self.action {
+            Some(action) => action.paint_default(ui),
+            None => Ok(()),
+        }
+    }
+
+    /// The message, in the text colour faded with the card.
+    pub fn paint_text<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let line = ui.fonts().text.size * 1.4;
+        let overflow = if self.lines > 1.0 {
+            Overflow::Wrap(line)
+        } else {
+            Overflow::Ellipsis
+        };
+        Label::new(self.text, ui.theme.palette.text.fade(self.shown))
+            .overflow(overflow)
+            .paint(ui, self.text_at)
+    }
+
+    /// The card, the strip, the action and the message, in that order.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        self.paint_card(ui)?;
+        self.paint_strip(ui)?;
+        self.paint_action(ui)?;
+        self.paint_text(ui)
+    }
+}
+
+impl Look<ToastsParts<'_>> {
+    /// Draws every toast, as [`Toasts::show`] does, newest first.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        for toast in &self.parts.toasts {
+            toast.paint_default(ui)?;
+        }
+        Ok(())
+    }
+
+    /// The handle of the toast whose action was pressed this frame, if one was.
+    pub fn pressed(&self) -> Option<u64> {
+        let mut pressed = None;
+        for toast in &self.parts.toasts {
+            if toast.action.is_some_and(|action| action.response.clicked) {
+                pressed = Some(toast.handle);
+            }
+        }
+        pressed
+    }
+}
+
+impl Showing {
+    /// The toast's look this frame, from the rise and place [`Toasts::look`] gave it.
+    fn look<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>, id: Id) -> ToastLook<'_> {
+        let part = part_of(self.handle);
+        let pad = ui.theme.padding;
+        let rect = Rect::new(
+            self.rect.x,
+            self.rect.y + (1.0 - self.shown) * 8.0,
+            self.rect.width,
+            self.rect.height,
+        );
+        let mut text = rect.inset_xy(pad, 0.0);
+        let mut action = None;
+        if let Some(label) = &self.toast.action {
+            let button = Button::new(label);
+            let wide = button.width(ui);
+            let (right, left) = text.split_right(wide, pad);
+            text = left;
+            // Buttons do not fade, so this one comes once the card is nearly in.
+            if self.shown > 0.8 {
+                let row = ui.theme.control_height;
+                let at = right.centered(wide, row);
+                action = Some(button.part(part + 1).look(ui, id, at));
+            }
+        }
+        let tall = ui.fonts().text.size * 1.4 * self.lines;
+        let body = Rect::new(text.x, rect.center().y - tall / 2.0, text.width, tall);
+        ToastLook {
+            handle: self.handle,
+            rect,
+            shown: self.shown,
+            tone: self.toast.tone,
+            text: self.toast.text.as_str(),
+            text_at: body,
+            lines: self.lines,
+            action,
+        }
     }
 }
 
@@ -345,58 +527,6 @@ fn measure<Id: WidgetId>(
     let width = full.min(room) + pad * 2.0 + button;
     let height = (line * lines + pad).max(ui.theme.control_height + pad / 2.0);
     ((width, height), lines)
-}
-
-/// True when the action was pressed.
-fn draw<Id: WidgetId>(
-    ui: &mut Ui<'_, Id>,
-    live: &Showing,
-    id: Id,
-    rect: Rect,
-    lines: f32,
-    shown: f32,
-) -> AureaResult<bool> {
-    let p = ui.theme.palette;
-    let pad = ui.theme.padding;
-    let line = ui.fonts().text.size * 1.4;
-    let rect = Rect::new(
-        rect.x,
-        rect.y + (1.0 - shown) * 8.0,
-        rect.width,
-        rect.height,
-    );
-    card(ui.theme).fade(shown).paint(ui, rect)?;
-    let strip = Rect::new(rect.x, rect.y, STRIP, rect.height).inset_xy(0.0, 4.0);
-    Surface::new(live.toast.tone.color(&p).fade(shown))
-        .radius(STRIP / 2.0)
-        .paint(ui, strip)?;
-
-    let mut text = rect.inset_xy(pad, 0.0);
-    let mut pressed = false;
-    if let Some(label) = &live.toast.action {
-        let button = Button::new(label);
-        let wide = button.width(ui);
-        let (right, left) = text.split_right(wide, pad);
-        text = left;
-        // Buttons do not fade, so this one comes once the card is nearly in.
-        if shown > 0.8 {
-            let row = ui.theme.control_height;
-            let at = right.centered(wide, row);
-            let part = part_of(live.handle) + 1;
-            pressed = button.part(part).show(ui, id, at)?.clicked;
-        }
-    }
-    let tall = line * lines;
-    let body = Rect::new(text.x, rect.center().y - tall / 2.0, text.width, tall);
-    let overflow = if lines > 1.0 {
-        Overflow::Wrap(line)
-    } else {
-        Overflow::Ellipsis
-    };
-    Label::new(&live.toast.text, p.text.fade(shown))
-        .overflow(overflow)
-        .paint(ui, body)?;
-    Ok(pressed)
 }
 
 #[cfg(test)]
@@ -528,5 +658,36 @@ mod tests {
         show(&mut rig, &mut toasts);
         show(&mut rig, &mut toasts);
         assert!(toasts.is_empty());
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn the_app_draws_its_own_toast_and_the_action_still_comes_back() {
+        let mut rig = settled();
+        let mut toasts = Toasts::new();
+        let undo = toasts.add(Toast::new("Deleted").action("Undo").sticky());
+        let draw = |rig: &mut Rig, toasts: &mut Toasts| {
+            rig.frame(|ui| {
+                let look = toasts.look(ui, 1);
+                let toast = &look.parts.toasts[0];
+                let (card, action) = (toast.rect, toast.action.map(|a| a.rect));
+                ui.fill(card, Color::rgb(0, 200, 0)).expect("card");
+                let pressed = look.pressed();
+                toasts.end(ui, 1, pressed);
+                (card, action, pressed)
+            })
+        };
+        draw(&mut rig, &mut toasts);
+        draw(&mut rig, &mut toasts);
+        let (card, action, _) = draw(&mut rig, &mut toasts);
+        assert_eq!(
+            rig.pixel((card.x + 1.0) as u32, card.center().y as u32),
+            [0, 200, 0, 255],
+            "the app's card"
+        );
+        let action = action.expect("the action is up");
+        rig.click(action.center().x, action.center().y);
+        let (.., pressed) = draw(&mut rig, &mut toasts);
+        assert_eq!(pressed, Some(undo));
     }
 }

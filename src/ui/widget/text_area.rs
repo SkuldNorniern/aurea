@@ -6,9 +6,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use super::Widget;
+use super::look::Look;
 use super::text_field::FieldStyle;
 use crate::AureaResult;
-use crate::render::{Font, LayoutLine, LayoutOptions, Point, Rect, TextLayout, layout_text};
+use crate::render::{Color, Font, LayoutLine, LayoutOptions, Point, Rect, TextLayout, layout_text};
 #[cfg(feature = "accessibility")]
 use crate::ui::accessibility::edit_value;
 #[cfg(feature = "accessibility")]
@@ -102,6 +103,33 @@ impl EditorView {
     }
 }
 
+/// What a [`TextArea`] draws, from [`TextArea::look`]: the chrome, which the app may draw itself,
+/// then the text, which [`Look::paint_text`] edits and draws after it.
+pub struct TextAreaParts<'a> {
+    /// Whether it has focus, after this frame's input.
+    pub focused: bool,
+    /// Where the text goes: inside the padding.
+    pub text: Rect,
+    /// The border colour: the active one while it has focus. [`Look::paint_default`] fades it
+    /// when the field is disabled.
+    pub border: Color,
+    /// The style it draws with, the theme's unless one was given.
+    pub style: FieldStyle,
+    /// The text being edited and how, which [`Look::paint_text`] types into.
+    edit: Editing<'a>,
+}
+
+/// What a [`TextArea`] edits and how, kept from [`TextArea::look`] for [`Look::paint_text`].
+struct Editing<'a> {
+    text: &'a mut String,
+    placeholder: &'a str,
+    rules: Rules<'a>,
+    wrap: bool,
+    line_height: f32,
+    commit_on_blur: bool,
+    input: Interaction,
+}
+
 /// A multiline text field with wrapping, selection, undo, clipboard and IME.
 ///
 /// ```rust,no_run
@@ -183,6 +211,59 @@ impl<'a> TextArea<'a> {
         self
     }
 
+    /// Takes the input for the field and works out its chrome, without drawing: the app draws the
+    /// chrome, or [`Look::paint_default`] does, then [`Look::paint_text`] edits and draws the text,
+    /// as [`TextArea::show`] does.
+    ///
+    /// ```rust,no_run
+    /// # use aurea::ui::{TextArea, Ui};
+    /// # fn f(ui: &mut Ui<'_, u8>, notes: &mut String) -> aurea::AureaResult<()> {
+    /// let at = aurea::Rect::new(20.0, 20.0, 300.0, 160.0);
+    /// let mut field = TextArea::new(notes).placeholder("Notes").look(ui, 1, at);
+    /// // the app draws the chrome here
+    /// field.paint_text(ui, 1)?;
+    /// # Ok(()) }
+    /// ```
+    pub fn look<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+    ) -> Look<TextAreaParts<'a>> {
+        let input = ui.interact(id, 0, rect, Sense::Text, self.enabled);
+        let state = ui.eased(id, 0, input);
+        let style = self.style.unwrap_or_else(|| FieldStyle::new(ui.theme));
+        let border = if input.focused {
+            style.active_border
+        } else {
+            style.border
+        };
+        let mut text = rect.inset(style.padding);
+        text.width = text.width.max(0.0);
+        text.height = text.height.max(0.0);
+        Look {
+            rect,
+            state,
+            held_at: ui.held_at(id, 0),
+            response: Response::new(rect, input),
+            parts: TextAreaParts {
+                focused: input.focused,
+                text,
+                border,
+                style,
+                edit: Editing {
+                    text: self.text,
+                    placeholder: self.placeholder,
+                    rules: self.rules,
+                    wrap: self.wrap,
+                    line_height: self.line_height,
+                    commit_on_blur: self.commit_on_blur,
+                    input,
+                },
+            },
+        }
+    }
+
     /// Shows the field as `id` at `rect`.
     pub fn show<Id: WidgetId>(
         self,
@@ -192,7 +273,9 @@ impl<'a> TextArea<'a> {
     ) -> AureaResult<Response> {
         Widget::show(self, ui, id, rect)
     }
+}
 
+impl Editing<'_> {
     fn edit<Id: WidgetId>(
         &mut self,
         ui: &mut Ui<'_, Id>,
@@ -351,40 +434,41 @@ impl<'a> TextArea<'a> {
     }
 }
 
-impl<Id: WidgetId> Widget<Id> for TextArea<'_> {
-    fn show(mut self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
-        let input = ui.interact(id, 0, rect, Sense::Text, self.enabled);
-        let state = ui.eased(id, 0, input);
-        let style = self.style.unwrap_or_else(|| FieldStyle::new(ui.theme));
-        FocusRing::new(ui.theme, style.radius, state.focus).paint(ui, rect)?;
-        let border = if input.focused {
-            style.active_border
-        } else {
-            style.border
-        };
+impl Look<TextAreaParts<'_>> {
+    /// The focus ring, the face and the border: the chrome. The text is drawn by
+    /// [`Look::paint_text`], after it.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let (state, style) = (self.state, &self.parts.style);
+        FocusRing::new(ui.theme, style.radius, state.focus).paint(ui, self.rect)?;
         Surface::new(style.face.at(state))
             .radius(style.radius)
-            .border(ui.theme.border_width, border.fade(state.enabled))
-            .paint(ui, rect)?;
-        let mut inner = rect.inset(style.padding);
-        inner.width = inner.width.max(0.0);
-        inner.height = inner.height.max(0.0);
-        let typed = self.edit(ui, id, inner, input)?;
+            .border(ui.theme.border_width, self.parts.border.fade(state.enabled))
+            .paint(ui, self.rect)
+    }
+
+    /// Types into the field and draws its text, caret, selection and placeholder after the chrome,
+    /// as [`TextArea::show`] does: call it once a frame, after the chrome is drawn. It sets the
+    /// response's editing fields.
+    pub fn paint_text<Id: WidgetId>(&mut self, ui: &mut Ui<'_, Id>, id: Id) -> AureaResult<()> {
+        let parts = &mut self.parts;
+        let input = parts.edit.input;
+        let typed = parts.edit.edit(ui, id, parts.text, input)?;
+        let edit = &mut parts.edit;
         let mut outcome = TextOutcome {
             changed: typed.changed,
             submitted: typed.submitted,
             cancelled: typed.cancelled,
             ..TextOutcome::default()
         };
-        outcome.lifecycle(ui, Key::new(id, 0), input, self.commit_on_blur);
+        outcome.lifecycle(ui, Key::new(id, 0), input, edit.commit_on_blur);
         #[cfg(feature = "accessibility")]
         {
             ui.accessible_description(
                 id,
                 0,
                 Role::MultilineTextInput,
-                self.placeholder,
-                Some(self.text),
+                edit.placeholder,
+                Some(edit.text.as_str()),
             );
             if let Some(bridge) = &mut ui.state.accessibility
                 && let Some(node) = bridge.node(Key::new(id, 0))
@@ -392,7 +476,7 @@ impl<Id: WidgetId> Widget<Id> for TextArea<'_> {
                 node.add_action(Action::SetValue);
             }
         }
-        let mut response = Response::new(rect, input);
+        let response = &mut self.response;
         response.changed = outcome.changed;
         response.submitted = outcome.submitted;
         response.cancelled = outcome.cancelled;
@@ -400,7 +484,16 @@ impl<Id: WidgetId> Widget<Id> for TextArea<'_> {
         response.focus_lost = outcome.focus_lost;
         response.committed = outcome.committed;
         response.focused = input.focused && !outcome.cancelled;
-        Ok(response)
+        Ok(())
+    }
+}
+
+impl<Id: WidgetId> Widget<Id> for TextArea<'_> {
+    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+        let mut look = self.look(ui, id, rect);
+        look.paint_default(ui)?;
+        look.paint_text(ui, id)?;
+        Ok(look.response)
     }
 }
 
@@ -690,6 +783,7 @@ fn selection<Id: WidgetId>(
 mod tests {
     use super::*;
     use crate::render::{CpuRasterizer, Renderer};
+    use crate::ui::rig::Rig;
     use crate::ui::{Theme, UiState};
     use crate::window::WindowEvent;
     use std::sync::Arc;
@@ -863,5 +957,30 @@ mod tests {
         key(&mut state, KeyCode::Z, true);
         frame(&mut state, &mut raster, &mut text);
         assert_eq!(text, "first\nsecond");
+    }
+
+    #[test]
+    fn the_app_draws_the_chrome_and_the_text_still_types() {
+        let mut rig = Rig::new(150, 80);
+        let mut text = String::new();
+        let rect = Rect::new(0.0, 0.0, 150.0, 80.0);
+        let draw = |rig: &mut Rig, text: &mut String| {
+            rig.frame(|ui| {
+                let mut field = TextArea::new(text).look(ui, 1, rect);
+                ui.fill(field.rect, Color::rgb(0, 200, 0)).expect("chrome");
+                field.paint_text(ui, 1).expect("text");
+            })
+        };
+        draw(&mut rig, &mut text);
+        assert_eq!(
+            rig.pixel(140, 70),
+            [0, 200, 0, 255],
+            "the app's chrome, not the default"
+        );
+        rig.state.focus(1, 0);
+        draw(&mut rig, &mut text);
+        rig.type_text("hi");
+        draw(&mut rig, &mut text);
+        assert_eq!(text, "hi");
     }
 }
