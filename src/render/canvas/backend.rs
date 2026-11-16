@@ -2,7 +2,6 @@
 
 use std::cell::RefCell;
 use std::os::raw::c_void;
-use std::rc::Rc;
 
 use crate::AureaError;
 use crate::AureaResult;
@@ -14,7 +13,7 @@ use crate::platform::handles::NativeWindowHandle;
 use crate::platform::handles::native_handle_from_canvas_ptr;
 #[cfg(feature = "zengpu")]
 use crate::platform::zengpu::window_handles;
-use aurea_render::{Renderer, RendererBackend};
+use aurea_render::RendererBackend;
 #[cfg(feature = "zengpu")]
 use aurea_render::{ZenGpuContext, ZenGpuRenderer};
 #[cfg(feature = "zengpu")]
@@ -22,7 +21,7 @@ use std::sync::{Arc, Weak};
 #[cfg(feature = "zengpu")]
 use zengpu::WindowHandles;
 
-use super::state::CanvasState;
+use super::state::{CanvasState, RendererSlot};
 
 #[cfg(feature = "zengpu")]
 thread_local! {
@@ -50,8 +49,8 @@ pub(super) fn default_gpu_context(adapter: Option<[u8; 16]>) -> AureaResult<Arc<
 #[cfg(feature = "zengpu")]
 pub(super) fn ensure_canvas_renderer(
     handle: *mut c_void,
-    state: &Rc<RefCell<CanvasState>>,
-    renderer: &Rc<RefCell<Option<Box<dyn Renderer>>>>,
+    state: &RefCell<CanvasState>,
+    renderer: &RendererSlot,
     backend: RendererBackend,
 ) -> AureaResult<bool> {
     if renderer
@@ -72,7 +71,7 @@ pub(super) fn ensure_canvas_renderer(
 
     let handles = zengpu_canvas_handles(handle)?;
     let (width, height, scale_factor, context) = {
-        let st = state.borrow_mut();
+        let st = state.borrow();
         (
             st.width.max(1),
             st.height.max(1),
@@ -105,8 +104,8 @@ pub(super) fn ensure_canvas_renderer(
 #[cfg(not(feature = "zengpu"))]
 pub(super) fn ensure_canvas_renderer(
     _handle: *mut c_void,
-    _state: &Rc<RefCell<CanvasState>>,
-    renderer: &Rc<RefCell<Option<Box<dyn Renderer>>>>,
+    _state: &RefCell<CanvasState>,
+    renderer: &RendererSlot,
     _backend: RendererBackend,
 ) -> AureaResult<bool> {
     Ok(renderer

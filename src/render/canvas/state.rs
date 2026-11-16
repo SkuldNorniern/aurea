@@ -1,14 +1,21 @@
 //! What a canvas keeps between frames, and its identity.
 
+use std::cell::RefCell;
+use std::mem;
+use std::rc::Rc;
 #[cfg(feature = "zengpu")]
 use std::sync::Arc;
 
 #[cfg(feature = "zengpu")]
 use aurea_render::ZenGpuContext;
-use aurea_render::{Color, GpuCacheLimits, Rect};
+use aurea_render::{Color, GpuCacheLimits, Rect, Renderer};
 use aurea_runtime::DamageRegion;
 
 use super::DrawCallback;
+
+/// A canvas's renderer, shared with its scheduler entry; empty until a GPU canvas is attached.
+pub(crate) type RendererSlot = Rc<RefCell<MaybeRenderer>>;
+pub(crate) type MaybeRenderer = Option<Box<dyn Renderer>>;
 
 #[cfg(feature = "zengpu")]
 pub(crate) type GpuLostHandler = Box<dyn FnMut(&Arc<ZenGpuContext>) -> Option<Arc<ZenGpuContext>>>;
@@ -40,6 +47,43 @@ pub(crate) struct CanvasState {
     /// Set by [`Canvas::on_gpu_lost`](super::Canvas::on_gpu_lost).
     #[cfg(feature = "zengpu")]
     pub gpu_lost: Option<GpuLostHandler>,
+}
+
+impl CanvasState {
+    pub fn new(width: u32, height: u32, scale_factor: f32) -> Self {
+        Self {
+            width,
+            height,
+            scale_factor,
+            pixels: None,
+            damage: DamageRegion::new(16),
+            background_color: Color::rgb(255, 255, 255),
+            draw_callback: None,
+            needs_redraw: false,
+            prev_frame_damage: None,
+            gpu_cache_limits: None,
+            gpu_timing_enabled: false,
+            #[cfg(feature = "zengpu")]
+            gpu_context: None,
+            #[cfg(feature = "zengpu")]
+            gpu_context_default: false,
+            #[cfg(feature = "zengpu")]
+            gpu_no_recovery: false,
+            #[cfg(feature = "zengpu")]
+            gpu_lost: None,
+        }
+    }
+
+    /// Repaints everything on the next frame.
+    pub fn redraw_all(&mut self) {
+        self.damage.add_all();
+        self.needs_redraw = true;
+    }
+
+    /// Whether a redraw was asked for, clearing the ask.
+    pub fn take_redraw(&mut self) -> bool {
+        mem::take(&mut self.needs_redraw)
+    }
 }
 
 /// A canvas's identity, for as long as the process runs.
