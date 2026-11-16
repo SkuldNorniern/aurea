@@ -3,6 +3,7 @@
 use std::ops::RangeInclusive;
 
 use super::Widget;
+use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
 #[cfg(feature = "accessibility")]
@@ -91,6 +92,33 @@ pub struct SliderTrack {
     pub enabled: bool,
     /// Disabled opacity, already applied to the painter's drawing context.
     pub opacity: f32,
+}
+
+/// What a [`Slider`] draws, for a painter given to [`Slider::show_with`].
+#[derive(Clone, Copy, Debug)]
+pub struct SliderParts<'v> {
+    /// Where the value sits along the groove, 0 at the start to 1 at the end, eased as it moves.
+    pub position: f32,
+    /// Where the fill starts, as a share, when an origin is set.
+    pub origin: Option<f32>,
+    /// The knob, at its hover and press size.
+    pub knob: Rect,
+    /// Where the knob's centre travels.
+    pub groove: Rect,
+    /// The bar drawn along the groove.
+    pub bar: Rect,
+    /// The bar's fill and colours.
+    pub track: Track,
+    /// The text beside the track, if any.
+    pub readout: Option<&'v str>,
+    /// The strip the readout is in, if any.
+    pub readout_rect: Option<Rect>,
+    /// Whether it runs bottom to top.
+    pub vertical: bool,
+    /// Whether it takes input; the default look fades when not.
+    pub enabled: bool,
+    /// The style it draws with, the theme's unless one was given.
+    pub style: SliderStyle,
 }
 
 const LAST_X: Channel = Channel::Custom(1);
@@ -213,10 +241,135 @@ impl<'v> Slider<'v> {
         rect: Rect,
         painter: impl FnOnce(&mut Ui<'_, Id>, SliderTrack) -> AureaResult<()>,
     ) -> AureaResult<Response> {
-        self.show_painted(ui, id, rect, |ui, track| {
-            ui.ctx.set_alpha(track.opacity)?;
-            painter(ui, track)
+        self.show_with(ui, id, rect, |ui, look| {
+            ui.clipped(look.parts.bar, |ui| {
+                ui.ctx.set_alpha(look.state.enabled)?;
+                painter(ui, look.track_view())
+            })?;
+            look.paint_knob(ui)?;
+            look.paint_readout(ui)
         })
+    }
+
+    /// Takes the input and works out what it would draw, without drawing.
+    fn run<Id: WidgetId>(
+        mut self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+    ) -> (Response, Look<SliderParts<'v>>) {
+        let style = self.style.unwrap_or_else(|| SliderStyle::new(ui.theme));
+        let (area, strip) = self.split_readout(rect, ui.theme.text_size * 1.4);
+        let r = style.knob_radius.min(self.across(area) / 2.0);
+        let input = ui.interact(id, 0, area, Sense::Adjust, self.enabled);
+        let mut response = Response::new(rect, input);
+        let (lo, hi) = (*self.range.start(), *self.range.end());
+        let span = hi - lo;
+        let before = *self.value;
+        #[cfg(feature = "accessibility")]
+        self.accessibility(ui, id, (lo, hi));
+        let groove = self.groove(area, r);
+        if input.held {
+            self.pointer(ui, id, groove, (lo, span));
+        } else {
+            ui.set_animated(id, 0, RESET_HELD, 0.0);
+        }
+        if input.focused {
+            self.keys(ui, span);
+        }
+        self.wheel(ui, input, (lo, hi));
+        *self.value = snap(*self.value, lo, hi, self.step);
+        #[cfg(feature = "accessibility")]
+        self.describe_accessibility(ui, id, (lo, hi));
+        if (*self.value - before).abs() > f32::EPSILON {
+            response.changed = true;
+            ui.mark_changed();
+        }
+
+        let t = if span > 0.0 {
+            (*self.value - lo) / span
+        } else {
+            0.0
+        };
+        let state = ui.eased(id, 0, input);
+        let shown = if input.held {
+            ui.set_animated(id, 0, Channel::Value, t);
+            t
+        } else {
+            let rate = ui.theme.motion.slide * 1.6;
+            ui.animate(id, 0, Channel::Value, t, rate)
+        };
+        let empty = style.track.at(state);
+        let filled = if self.enabled {
+            style.filled
+        } else {
+            empty.mix(ui.theme.palette.dim, 0.5)
+        };
+        let origin = self.origin.map(|origin| {
+            if span > 0.0 {
+                ((origin.clamp(lo, hi) - lo) / span).clamp(0.0, 1.0)
+            } else {
+                0.0
+            }
+        });
+        let from = origin.unwrap_or(0.0);
+        let track = Track {
+            vertical: self.vertical,
+            ..Track::new(shown, empty, filled)
+                .span(from.min(shown), from.max(shown))
+                .thickness(style.thickness)
+        };
+        let bar = track.bar(groove);
+        let size = r * (1.0 + 0.12 * state.hover - 0.08 * state.press);
+        let (x, y) = self.knob_center(area, groove, shown);
+        let knob = Rect::new(x - size, y - size, size * 2.0, size * 2.0);
+        let look = Look {
+            rect: area,
+            state,
+            held_at: ui.held_at(id, 0),
+            parts: SliderParts {
+                position: shown,
+                origin,
+                knob,
+                groove,
+                bar,
+                track,
+                readout: self.readout,
+                readout_rect: strip,
+                vertical: self.vertical,
+                enabled: self.enabled,
+                style,
+            },
+        };
+        (response, look)
+    }
+
+    /// Takes the input as [`Slider::show`] does, then has `paint` draw it instead of its own look.
+    /// [`Look::paint_default`], [`Look::paint_track`], [`Look::paint_knob`] and
+    /// [`Look::paint_readout`] draw the parts of the usual look.
+    ///
+    /// ```rust,no_run
+    /// # use aurea::ui::{Slider, Ui};
+    /// # use aurea::render::Color;
+    /// # fn f(ui: &mut Ui<'_, u8>, level: &mut f32) -> aurea::AureaResult<()> {
+    /// let at = aurea::Rect::new(0.0, 0.0, 200.0, 24.0);
+    /// Slider::new(level, 0.0..=1.0).show_with(ui, 1, at, |ui, look| {
+    ///     ui.fill(look.rect, Color::rgb(0, 200, 0))?;
+    ///     look.paint_knob(ui)
+    /// })?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn show_with<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<SliderParts<'v>>) -> AureaResult<()>,
+    ) -> AureaResult<Response> {
+        let (response, look) = self.run(ui, id, rect);
+        paint(ui, &look)?;
+        Ok(response)
     }
 
     fn pointer<Id: WidgetId>(
@@ -290,7 +443,7 @@ impl<'v> Slider<'v> {
 
 impl<Id: WidgetId> Widget<Id> for Slider<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
-        self.show_painted(ui, id, rect, |ui, track| track.track.paint(ui, track.rect))
+        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
     }
 }
 
@@ -318,20 +471,6 @@ impl Slider<'_> {
         }
     }
 
-    fn paint_readout<Id: WidgetId>(
-        &self,
-        ui: &mut Ui<'_, Id>,
-        strip: Option<Rect>,
-    ) -> AureaResult<()> {
-        match (self.readout, strip) {
-            (Some(text), Some(strip)) => Label::new(text, ui.theme.palette.dim)
-                .small()
-                .centered()
-                .paint(ui, strip),
-            _ => Ok(()),
-        }
-    }
-
     fn groove(&self, rect: Rect, r: f32) -> Rect {
         if self.vertical {
             rect.inset_xy(0.0, r)
@@ -347,89 +486,29 @@ impl Slider<'_> {
             (groove.x + groove.width * shown, rect.center().y)
         }
     }
+}
 
-    fn show_painted<Id: WidgetId>(
-        mut self,
-        ui: &mut Ui<'_, Id>,
-        id: Id,
-        rect: Rect,
-        painter: impl FnOnce(&mut Ui<'_, Id>, SliderTrack) -> AureaResult<()>,
-    ) -> AureaResult<Response> {
-        let style = self.style.unwrap_or_else(|| SliderStyle::new(ui.theme));
-        let (area, strip) = self.split_readout(rect, ui.theme.text_size * 1.4);
-        let r = style.knob_radius.min(self.across(area) / 2.0);
-        let input = ui.interact(id, 0, area, Sense::Adjust, self.enabled);
-        let mut response = Response::new(rect, input);
-        let (lo, hi) = (*self.range.start(), *self.range.end());
-        let span = hi - lo;
-        let before = *self.value;
-        #[cfg(feature = "accessibility")]
-        self.accessibility(ui, id, (lo, hi));
-        let groove = self.groove(area, r);
-        if input.held {
-            self.pointer(ui, id, groove, (lo, span));
-        } else {
-            ui.set_animated(id, 0, RESET_HELD, 0.0);
-        }
-        if input.focused {
-            self.keys(ui, span);
-        }
-        self.wheel(ui, input, (lo, hi));
-        *self.value = snap(*self.value, lo, hi, self.step);
-        #[cfg(feature = "accessibility")]
-        self.describe_accessibility(ui, id, (lo, hi));
-        if (*self.value - before).abs() > f32::EPSILON {
-            response.changed = true;
-            ui.mark_changed();
-        }
+impl Look<SliderParts<'_>> {
+    /// The track, then the knob and the readout.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        self.paint_track(ui)?;
+        self.paint_knob(ui)?;
+        self.paint_readout(ui)
+    }
 
-        let t = if span > 0.0 {
-            (*self.value - lo) / span
-        } else {
-            0.0
-        };
-        let state = ui.eased(id, 0, input);
-        let shown = if input.held {
-            ui.set_animated(id, 0, Channel::Value, t);
-            t
-        } else {
-            let rate = ui.theme.motion.slide * 1.6;
-            ui.animate(id, 0, Channel::Value, t, rate)
-        };
-        let fade = state.enabled;
-        let empty = style.track.at(state);
-        let filled = if self.enabled {
-            style.filled
-        } else {
-            empty.mix(ui.theme.palette.dim, 0.5)
-        };
-        let from = match self.origin {
-            Some(origin) if span > 0.0 => ((origin.clamp(lo, hi) - lo) / span).clamp(0.0, 1.0),
-            _ => 0.0,
-        };
-        let track = Track {
-            vertical: self.vertical,
-            ..Track::new(shown, empty, filled)
-                .span(from.min(shown), from.max(shown))
-                .thickness(style.thickness)
-        };
-        let bar = track.bar(groove);
-        ui.clipped(bar, |ui| {
-            painter(
-                ui,
-                SliderTrack {
-                    rect: bar,
-                    track,
-                    position: shown,
-                    enabled: self.enabled,
-                    opacity: fade,
-                },
-            )
-        })?;
-        let size = r * (1.0 + 0.12 * state.hover - 0.08 * state.press);
-        let (x, y) = self.knob_center(area, groove, shown);
-        let at = Rect::new(x - size, y - size, size * 2.0, size * 2.0);
+    /// The bar along the groove, filled from the origin to the value, clipped to the bar.
+    pub fn paint_track<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let bar = self.parts.bar;
+        let track = self.parts.track;
+        ui.clipped(bar, |ui| track.paint(ui, bar))
+    }
+
+    /// The knob with its focus ring, its shadow and the dot in it.
+    pub fn paint_knob<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let (state, style, at) = (self.state, &self.parts.style, self.parts.knob);
+        let size = at.width / 2.0;
         FocusRing::new(ui.theme, size, state.focus).paint(ui, at)?;
+        let fade = state.enabled;
         let dot = style.dot.fade(fade * (0.4 + 0.6 * state.press));
         let mut knob = Knob::new(size, style.knob.fade(fade)).dot(0.38, dot);
         if let Some(shadow) = style.knob_shadow {
@@ -438,9 +517,29 @@ impl Slider<'_> {
                 ..shadow
             });
         }
-        knob.paint(ui, at)?;
-        self.paint_readout(ui, strip)?;
-        Ok(response)
+        knob.paint(ui, at)
+    }
+
+    /// The readout text, in the strip beside or under the track.
+    pub fn paint_readout<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        match (self.parts.readout, self.parts.readout_rect) {
+            (Some(text), Some(strip)) => Label::new(text, ui.theme.palette.dim)
+                .small()
+                .centered()
+                .paint(ui, strip),
+            _ => Ok(()),
+        }
+    }
+
+    /// The track as a [`SliderTrack`] painter gets it.
+    pub fn track_view(&self) -> SliderTrack {
+        SliderTrack {
+            rect: self.parts.bar,
+            track: self.parts.track,
+            position: self.parts.position,
+            enabled: self.parts.enabled,
+            opacity: self.state.enabled,
+        }
     }
 }
 
@@ -507,6 +606,7 @@ mod tests {
     use super::*;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::UiState;
+    use crate::ui::rig::Rig;
     use crate::window::{Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
 
     fn frame(raster: &mut CpuRasterizer, state: &mut UiState<u8>, value: &mut f32) {
@@ -773,5 +873,34 @@ mod tests {
         assert_eq!(snap(0.37, 0.0, 1.0, Some(0.0)), 0.37);
         assert_eq!(snap(0.37, 0.0, 1.0, Some(f32::NAN)), 0.37);
         assert_eq!(snap(0.37, 0.0, 1.0, Some(-0.5)), 0.37);
+    }
+
+    #[test]
+    fn show_with_draws_the_apps_look_and_still_drags() {
+        let mut rig: Rig = Rig::new(218, 24);
+        let at = Rect::new(0.0, 0.0, 218.0, 24.0);
+        let mut value = 0.0;
+        let draw = |rig: &mut Rig, value: &mut f32| {
+            rig.frame(|ui| {
+                Slider::new(value, -100.0..=100.0)
+                    .origin(0.0)
+                    .show_with(ui, 1, at, |ui, look| {
+                        ui.fill(look.rect, Color::rgb(0, 200, 0))
+                    })
+                    .expect("draw");
+            });
+        };
+        draw(&mut rig, &mut value);
+        assert_eq!(rig.pixel(100, 12), [0, 200, 0, 255], "the app's look");
+        rig.at(150.0, 12.0);
+        draw(&mut rig, &mut value);
+        rig.button(150.0, 12.0, true);
+        draw(&mut rig, &mut value);
+        rig.button(150.0, 12.0, false);
+        draw(&mut rig, &mut value);
+        assert!(
+            (value - 41.0).abs() < 0.5,
+            "the press still sets it: {value}"
+        );
     }
 }

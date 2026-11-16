@@ -4,6 +4,7 @@ use std::f32::consts::PI;
 use std::ops::RangeInclusive;
 
 use super::Widget;
+use super::look::Look;
 use super::slider::snap;
 use crate::AureaResult;
 use crate::render::{Color, LineCap, Paint, PaintStyle, Path, Point, Rect};
@@ -51,6 +52,33 @@ impl DialStyle {
             travel: 200.0,
         }
     }
+}
+
+/// What a [`Dial`] draws, for a painter given to [`Dial::show_with`].
+#[derive(Clone, Copy, Debug)]
+pub struct DialParts<'v> {
+    /// Where the value sits over the range, 0 at the start to 1 at the end, eased as it turns.
+    pub position: f32,
+    /// Where the fill starts, as a share, when an origin is set.
+    pub origin: Option<f32>,
+    /// The angle the ring starts at, in radians.
+    pub start: f32,
+    /// How far the ring sweeps over the whole range, in radians.
+    pub sweep: f32,
+    /// The area the ring is drawn in, centred on the dial.
+    pub ring: Rect,
+    /// The readout text, if any.
+    pub readout: Option<&'v str>,
+    /// The line the readout is in, if any.
+    pub readout_rect: Option<Rect>,
+    /// The caption text, if any.
+    pub caption: Option<&'v str>,
+    /// The line the caption is in, if any.
+    pub caption_rect: Option<Rect>,
+    /// Whether it takes input; the default look fades when not.
+    pub enabled: bool,
+    /// The style it draws with, the theme's unless one was given.
+    pub style: DialStyle,
 }
 
 /// Round control over a range. Drag up or down, shift for fine, double click resets.
@@ -183,20 +211,6 @@ impl<'v> Dial<'v> {
         }
     }
 
-    fn paint_caption<Id: WidgetId>(
-        &self,
-        ui: &mut Ui<'_, Id>,
-        line: Option<Rect>,
-    ) -> AureaResult<()> {
-        match (self.caption, line) {
-            (Some(text), Some(line)) => Label::new(text, ui.theme.palette.text)
-                .small()
-                .centered()
-                .paint(ui, line),
-            _ => Ok(()),
-        }
-    }
-
     /// The ring area and, with a readout, the line its text takes under it.
     fn split_readout(&self, rect: Rect, line: f32) -> (Rect, Option<Rect>) {
         match self.readout {
@@ -205,20 +219,6 @@ impl<'v> Dial<'v> {
                 (ring, Some(text))
             }
             None => (rect, None),
-        }
-    }
-
-    fn paint_readout<Id: WidgetId>(
-        &self,
-        ui: &mut Ui<'_, Id>,
-        line: Option<Rect>,
-    ) -> AureaResult<()> {
-        match (self.readout, line) {
-            (Some(text), Some(line)) => Label::new(text, ui.theme.palette.dim)
-                .small()
-                .centered()
-                .paint(ui, line),
-            _ => Ok(()),
         }
     }
 
@@ -236,8 +236,14 @@ impl<'v> Dial<'v> {
     }
 }
 
-impl<Id: WidgetId> Widget<Id> for Dial<'_> {
-    fn show(mut self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+impl<'v> Dial<'v> {
+    /// Takes the input and works out what it would draw, without drawing.
+    fn run<Id: WidgetId>(
+        mut self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+    ) -> (Response, Look<DialParts<'v>>) {
         let style = self.style.unwrap_or_else(|| DialStyle::new(ui.theme));
         let (rest, caption) = self.split_caption(rect, ui.theme.text_size * 1.4);
         let (area, line) = self.split_readout(rest, ui.theme.text_size * 1.4);
@@ -289,10 +295,73 @@ impl<Id: WidgetId> Widget<Id> for Dial<'_> {
             let rate = ui.theme.motion.slide * 1.6;
             ui.animate(id, 0, Channel::Value, t, rate)
         };
-        let fade = state.enabled;
-        let c = area.center();
-        let radius = (area.width.min(area.height) - style.thickness).max(0.0) / 2.0;
-        let angle = |t: f32| START + SWEEP * t;
+        let look = Look {
+            rect,
+            state,
+            held_at: ui.held_at(id, 0),
+            parts: DialParts {
+                position: shown,
+                origin: self.origin.map(share),
+                start: START,
+                sweep: SWEEP,
+                ring: area,
+                readout: self.readout,
+                readout_rect: line,
+                caption: self.caption,
+                caption_rect: caption,
+                enabled: self.enabled,
+                style,
+            },
+        };
+        (response, look)
+    }
+
+    /// Takes the input as [`Dial::show`] does, then has `paint` draw it instead of its own look.
+    /// [`Look::paint_default`], [`Look::paint_ring`], [`Look::paint_face`],
+    /// [`Look::paint_readout`] and [`Look::paint_caption`] draw the parts of the usual look.
+    pub fn show_with<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<DialParts<'v>>) -> AureaResult<()>,
+    ) -> AureaResult<Response> {
+        let (response, look) = self.run(ui, id, rect);
+        paint(ui, &look)?;
+        Ok(response)
+    }
+}
+
+impl Look<DialParts<'_>> {
+    /// The ring, the face, then the readout and the caption.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        self.paint_ring(ui)?;
+        self.paint_face(ui)?;
+        self.paint_readout(ui)?;
+        self.paint_caption(ui)
+    }
+
+    /// The angle at `t` of the way round the range, in radians.
+    pub fn angle(&self, t: f32) -> f32 {
+        self.parts.start + self.parts.sweep * t
+    }
+
+    /// The radius of the ring's centre line.
+    pub fn radius(&self) -> f32 {
+        let ring = self.parts.ring;
+        (ring.width.min(ring.height) - self.parts.style.thickness).max(0.0) / 2.0
+    }
+
+    /// The radius of the face inside the ring.
+    pub fn face_radius(&self) -> f32 {
+        (self.radius() - self.parts.style.thickness * 1.5).max(0.0)
+    }
+
+    /// The empty ring, and the arc from the origin to the value filled over it.
+    pub fn paint_ring<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let (fade, style) = (self.state.enabled, &self.parts.style);
+        let c = self.parts.ring.center();
+        let radius = self.radius();
         let stroke = |color: Color| {
             Paint::new()
                 .color(color.fade(fade))
@@ -301,25 +370,59 @@ impl<Id: WidgetId> Widget<Id> for Dial<'_> {
                 .line_cap(LineCap::Round)
         };
         let mut ring = Path::new();
-        ring.arc(c, radius, (angle(0.0), angle(1.0)), false);
+        ring.arc(c, radius, (self.angle(0.0), self.angle(1.0)), false);
         ui.ctx.draw_path(&ring, &stroke(style.ring))?;
-        let from = self.origin.map_or(0.0, share);
+        let shown = self.parts.position;
+        let from = self.parts.origin.unwrap_or(0.0);
         if (shown - from).abs() > f32::EPSILON {
             let mut filled = Path::new();
-            let ends = (angle(from.min(shown)), angle(from.max(shown)));
+            let ends = (self.angle(from.min(shown)), self.angle(from.max(shown)));
             filled.arc(c, radius, ends, false);
             ui.ctx.draw_path(&filled, &stroke(style.filled))?;
         }
-        let face = (radius - style.thickness * 1.5).max(0.0);
+        Ok(())
+    }
+
+    /// The knob inside the ring, its value mark and its focus ring.
+    pub fn paint_face<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let (state, style) = (self.state, &self.parts.style);
+        let fade = state.enabled;
+        let c = self.parts.ring.center();
+        let face = self.face_radius();
         ui.circle(c, face, style.face.fade(fade))?;
-        let (sin, cos) = angle(shown).sin_cos();
+        let (sin, cos) = self.angle(self.parts.position).sin_cos();
         let at = |r: f32| Point::new(c.x + cos * r, c.y + sin * r);
         ui.line(at(face * 0.4), at(face * 0.85), 2.0, style.mark.fade(fade))?;
         let knob = Rect::new(c.x - face, c.y - face, face * 2.0, face * 2.0);
-        FocusRing::new(ui.theme, face, state.focus).paint(ui, knob)?;
-        self.paint_readout(ui, line)?;
-        self.paint_caption(ui, caption)?;
-        Ok(response)
+        FocusRing::new(ui.theme, face, state.focus).paint(ui, knob)
+    }
+
+    /// The readout text, in its line under the ring.
+    pub fn paint_readout<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        match (self.parts.readout, self.parts.readout_rect) {
+            (Some(text), Some(line)) => Label::new(text, ui.theme.palette.dim)
+                .small()
+                .centered()
+                .paint(ui, line),
+            _ => Ok(()),
+        }
+    }
+
+    /// The caption text, in the line at the bottom.
+    pub fn paint_caption<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        match (self.parts.caption, self.parts.caption_rect) {
+            (Some(text), Some(line)) => Label::new(text, ui.theme.palette.text)
+                .small()
+                .centered()
+                .paint(ui, line),
+            _ => Ok(()),
+        }
+    }
+}
+
+impl<Id: WidgetId> Widget<Id> for Dial<'_> {
+    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
     }
 }
 
@@ -328,6 +431,7 @@ mod tests {
     use super::*;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::UiState;
+    use crate::ui::rig::Rig;
     use crate::window::{Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
 
     fn frame(raster: &mut CpuRasterizer, state: &mut UiState<u8>, value: &mut f32) {
@@ -462,5 +566,33 @@ mod tests {
         });
         frame(&mut raster, &mut state, &mut value);
         assert_eq!(value, 100.0);
+    }
+
+    #[test]
+    fn show_with_draws_the_apps_look_and_still_turns() {
+        let mut rig: Rig = Rig::new(40, 40);
+        let at = Rect::new(0.0, 0.0, 40.0, 40.0);
+        let mut value = 20.0;
+        let draw = |rig: &mut Rig, value: &mut f32| {
+            rig.frame(|ui| {
+                Dial::new(value, 0.0..=100.0)
+                    .show_with(ui, 1, at, |ui, look| {
+                        ui.fill(look.rect, Color::rgb(0, 200, 0))
+                    })
+                    .expect("draw");
+            });
+        };
+        draw(&mut rig, &mut value);
+        assert_eq!(rig.pixel(20, 20), [0, 200, 0, 255], "the app's look");
+        rig.at(20.0, 20.0);
+        draw(&mut rig, &mut value);
+        rig.button(20.0, 20.0, true);
+        draw(&mut rig, &mut value);
+        rig.drag_to(20.0, 0.0);
+        draw(&mut rig, &mut value);
+        assert!(
+            (value - 30.0).abs() < 0.01,
+            "the drag still turns it: {value}"
+        );
     }
 }

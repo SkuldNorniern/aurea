@@ -5,6 +5,7 @@ use std::mem;
 use std::ops::RangeInclusive;
 
 use super::Widget;
+use super::look::Look;
 use super::repeat::fires;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
@@ -47,6 +48,38 @@ impl StepperStyle {
             radius: theme.radius,
         }
     }
+}
+
+/// What a [`Stepper`] draws, for a painter given to [`Stepper::show_with`].
+///
+/// The whole stepper is one [`Look`]: the minus and plus parts have their own rects and eased
+/// states here, and the value sits between them.
+#[derive(Clone, Copy, Debug)]
+pub struct StepperParts<'v> {
+    /// The value after this frame's steps.
+    pub value: f32,
+    /// Digits shown after the point.
+    pub decimals: usize,
+    /// The unit shown after the number.
+    pub unit: &'v str,
+    /// The minus part's rect.
+    pub minus: Rect,
+    /// The minus part's hover, press and focus, eased; `enabled` is 1 while it can step down.
+    pub minus_state: Eased,
+    /// The plus part's rect.
+    pub plus: Rect,
+    /// The plus part's hover, press and focus, eased; `enabled` is 1 while it can step up.
+    pub plus_state: Eased,
+    /// The rect the value is drawn in, between the parts.
+    pub value_rect: Rect,
+    /// Whether the minus part can step the value down.
+    pub can_down: bool,
+    /// Whether the plus part can step the value up.
+    pub can_up: bool,
+    /// Whether it takes input; the default look fades when not.
+    pub enabled: bool,
+    /// The style it draws with, the theme's unless one was given.
+    pub style: StepperStyle,
 }
 
 /// A number in `range`, `step` at a time: the buttons, the arrow keys (Page Up and Down ten steps,
@@ -139,8 +172,14 @@ impl<'v> Stepper<'v> {
     }
 }
 
-impl<Id: WidgetId> Widget<Id> for Stepper<'_> {
-    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+impl<'v> Stepper<'v> {
+    /// Takes the input and works out what it would draw, without drawing.
+    fn run<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+    ) -> (Response, Look<StepperParts<'v>>) {
         let style = self.style.unwrap_or_else(|| StepperStyle::new(ui.theme));
         let (lo, hi) = (*self.range.start(), *self.range.end());
         let input = ui.interact(id, 0, rect, Sense::Adjust, self.enabled);
@@ -196,25 +235,106 @@ impl<Id: WidgetId> Widget<Id> for Stepper<'_> {
         );
 
         let state = ui.eased(id, 0, input);
-        FocusRing::new(ui.theme, style.radius, state.focus).paint(ui, rect)?;
+        let down_state = ui.eased(id, 1, down);
+        let up_state = ui.eased(id, 2, up);
+        let look = Look {
+            rect,
+            state,
+            held_at: ui.held_at(id, 0),
+            parts: StepperParts {
+                value: *self.value,
+                decimals: self.decimals,
+                unit: self.unit,
+                minus,
+                minus_state: down_state,
+                plus,
+                plus_state: up_state,
+                value_rect: middle,
+                can_down,
+                can_up,
+                enabled: self.enabled,
+                style,
+            },
+        };
+        (response, look)
+    }
+
+    /// Takes the input as [`Stepper::show`] does, then has `paint` draw it instead of its own look.
+    /// [`Look::paint_default`], [`Look::paint_frame`], [`Look::paint_minus`], [`Look::paint_plus`]
+    /// and [`Look::paint_value`] draw the parts of the usual look.
+    pub fn show_with<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<StepperParts<'v>>) -> AureaResult<()>,
+    ) -> AureaResult<Response> {
+        let (response, look) = self.run(ui, id, rect);
+        paint(ui, &look)?;
+        Ok(response)
+    }
+}
+
+impl Look<StepperParts<'_>> {
+    /// The frame, the minus, the plus, then the value.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        self.paint_frame(ui)?;
+        self.paint_minus(ui)?;
+        self.paint_plus(ui)?;
+        self.paint_value(ui)
+    }
+
+    /// The focus ring, and the face with its border.
+    pub fn paint_frame<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let (state, style) = (self.state, &self.parts.style);
+        FocusRing::new(ui.theme, style.radius, state.focus).paint(ui, self.rect)?;
         Surface::new(style.face.fade(state.enabled))
             .radius(style.radius)
             .border(ui.theme.border_width, style.border.fade(state.enabled))
-            .paint(ui, rect)?;
-        let down_state = ui.eased(id, 1, down);
-        let up_state = ui.eased(id, 2, up);
-        step_button(ui, minus, MarkShape::Minus, down_state, &style)?;
-        step_button(ui, plus, MarkShape::Plus, up_state, &style)?;
+            .paint(ui, self.rect)
+    }
 
+    /// The minus part, its face lit as it is hovered or pressed.
+    pub fn paint_minus<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let parts = &self.parts;
+        step_button(
+            ui,
+            parts.minus,
+            MarkShape::Minus,
+            parts.minus_state,
+            &parts.style,
+        )
+    }
+
+    /// The plus part, its face lit as it is hovered or pressed.
+    pub fn paint_plus<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let parts = &self.parts;
+        step_button(
+            ui,
+            parts.plus,
+            MarkShape::Plus,
+            parts.plus_state,
+            &parts.style,
+        )
+    }
+
+    /// The value and unit, centred between the parts.
+    pub fn paint_value<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let parts = &self.parts;
         let mut text = mem::take(&mut ui.state.scratch);
         text.clear();
-        let _ = write!(text, "{:.*}{}", self.decimals, *self.value, self.unit);
-        let drawn = Label::new(&text, style.text.fade(state.enabled))
+        let _ = write!(text, "{:.*}{}", parts.decimals, parts.value, parts.unit);
+        let drawn = Label::new(&text, parts.style.text.fade(self.state.enabled))
             .align(Align::Center)
-            .paint(ui, middle);
+            .paint(ui, parts.value_rect);
         ui.state.scratch = text;
-        drawn?;
-        Ok(response)
+        drawn
+    }
+}
+
+impl<Id: WidgetId> Widget<Id> for Stepper<'_> {
+    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
     }
 }
 
@@ -297,5 +417,30 @@ mod tests {
         rig.at(75.0, 15.0);
         rig.wheel(75.0, 15.0, 1.0);
         assert_eq!(rig.value, 0.5);
+    }
+
+    #[test]
+    fn show_with_draws_the_apps_look_and_still_steps() {
+        let mut rig: Rig = Rig::new(150, 30);
+        let at = Rect::new(0.0, 0.0, 150.0, 30.0);
+        let mut value = 1.0;
+        let draw = |rig: &mut Rig, value: &mut f32| {
+            rig.frame(|ui| {
+                Stepper::new(value, 0.0..=2.0)
+                    .step(0.5)
+                    .decimals(1)
+                    .show_with(ui, 1, at, |ui, look| {
+                        ui.fill(look.rect, Color::rgb(0, 200, 0))
+                    })
+                    .expect("draw");
+            });
+        };
+        draw(&mut rig, &mut value);
+        assert_eq!(rig.pixel(75, 15), [0, 200, 0, 255], "the app's look");
+        for pressed in [true, false] {
+            rig.button(140.0, 15.0, pressed);
+            draw(&mut rig, &mut value);
+        }
+        assert_eq!(value, 1.5, "the plus part still steps");
     }
 }

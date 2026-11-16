@@ -26,7 +26,7 @@ pub use widget::Widget;
 pub use widget::button::{Button, ButtonParts, ButtonStyle, Tone};
 pub use widget::chip::{Chip, ChipParts, ChipStyle};
 pub use widget::color::{ColorPicker, PickerStyle};
-pub use widget::dial::{Dial, DialStyle};
+pub use widget::dial::{Dial, DialParts, DialStyle};
 pub use widget::dialog::{Dialog, DialogAnswer};
 pub use widget::disclosure::{Disclosure, DisclosureStyle};
 pub use widget::dock::{
@@ -50,11 +50,11 @@ pub use widget::scroll::{
 };
 pub use widget::segmented::{Segment, Segmented, SegmentedParts, SegmentedStyle};
 pub use widget::sheet::{BottomSheet, SheetState};
-pub use widget::slider::{Slider, SliderStyle, SliderTrack};
+pub use widget::slider::{Slider, SliderParts, SliderStyle, SliderTrack};
 pub use widget::splitter::{Splitter, SplitterStyle};
-pub use widget::stepper::{Stepper, StepperStyle};
+pub use widget::stepper::{Stepper, StepperParts, StepperStyle};
 pub use widget::swatch::{SwatchStyle, Swatches};
-pub use widget::tabs::{TabBar, TabStyle};
+pub use widget::tabs::{Tab, TabBar, TabBarParts, TabStyle};
 pub use widget::text_area::TextArea;
 pub use widget::text_field::{FieldStyle, TextField};
 pub use widget::toast::{Toast, ToastTone, Toasts};

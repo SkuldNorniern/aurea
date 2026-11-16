@@ -2,12 +2,13 @@
 //! to the next.
 
 use super::Widget;
+use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
 #[cfg(feature = "accessibility")]
 use crate::ui::accessibility::Role;
 use crate::ui::component::{FocusRing, StateColors};
-use crate::ui::frame::{Response, Ui};
+use crate::ui::frame::{Eased, Response, Ui};
 use crate::ui::paint::{Component, Label, Surface, TextSize};
 use crate::ui::state::{Channel, Key, Sense, WidgetId};
 use crate::ui::theme::Theme;
@@ -60,6 +61,37 @@ impl TabStyle {
     }
 }
 
+/// One tab of a [`TabBar`], for its painter.
+#[derive(Clone, Copy, Debug)]
+pub struct Tab<'v> {
+    /// The tab's text.
+    pub label: &'v str,
+    /// Its cell, which the face and label are drawn in.
+    pub rect: Rect,
+    /// Its hover, press and focus, eased.
+    pub state: Eased,
+    /// How far it is picked, 0 unpicked to 1 picked, eased.
+    pub picked: f32,
+}
+
+/// What a [`TabBar`] draws, for a painter given to [`TabBar::show_with`].
+///
+/// The tabs are one [`Look`] between them: the line under the picked tab slides across the bar,
+/// so it is shared, and each tab is a [`Tab`] in `tabs`, from the left.
+#[derive(Clone, Debug)]
+pub struct TabBarParts<'v> {
+    /// The tabs, from the left.
+    pub tabs: Vec<Tab<'v>>,
+    /// The line under the picked tab, when one is picked.
+    pub line: Option<Rect>,
+    /// The rule across the bottom of the bar.
+    pub rule: Rect,
+    /// Whether tabs take input; the default look fades when not.
+    pub enabled: bool,
+    /// The style it draws with, the theme's unless one was given.
+    pub style: TabStyle,
+}
+
 /// `labels` in a row from the rect's left, the one at `selected` picked.
 #[derive(Debug)]
 pub struct TabBar<'v> {
@@ -105,20 +137,27 @@ impl<'v> TabBar<'v> {
     }
 }
 
-impl<Id: WidgetId> Widget<Id> for TabBar<'_> {
-    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+impl<'v> TabBar<'v> {
+    /// Takes the input and works out what it would draw, without drawing. The picked tab and the
+    /// line are as the bar stood when the frame began; a click picks from the next frame.
+    fn run<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+    ) -> (Response, Look<TabBarParts<'v>>) {
         let style = self.style.unwrap_or_else(|| TabStyle::new(ui.theme));
         let mut response = Response {
             rect,
             ..Response::default()
         };
         let rule = Rect::new(rect.x, rect.bottom() - 1.0, rect.width, 1.0);
-        ui.fill(rule, style.rule)?;
         let last = self.labels.len().saturating_sub(1);
         let mut x = rect.x;
         let mut picked_cell = None;
         let mut moved = None;
-        for (i, label) in self.labels.iter().enumerate() {
+        let mut tabs = Vec::with_capacity(self.labels.len());
+        for (i, &label) in self.labels.iter().enumerate() {
             let part = u16::try_from(i).unwrap_or(LINE_W - 1).min(LINE_W - 1);
             let text = Label::new(label, style.text).size(style.text_size);
             let width = text.width(ui) + style.padding * 2.0;
@@ -155,11 +194,6 @@ impl<Id: WidgetId> Widget<Id> for TabBar<'_> {
             if picked {
                 picked_cell = Some(cell);
             }
-            let face = Rect::new(cell.x, cell.y + 3.0, cell.width, cell.height - 6.0);
-            Surface::new(style.tab.at(state))
-                .radius(style.radius)
-                .paint(ui, face)?;
-            FocusRing::new(ui.theme, style.radius, state.focus).paint(ui, face)?;
             let lit = ui.animate(
                 id,
                 part,
@@ -167,9 +201,14 @@ impl<Id: WidgetId> Widget<Id> for TabBar<'_> {
                 f32::from(u8::from(picked)),
                 ui.theme.motion.hover,
             );
-            let color = style.text.mix(style.picked_text, lit).fade(state.enabled);
-            Label { color, ..text }.centered().paint(ui, cell)?;
+            tabs.push(Tab {
+                label,
+                rect: cell,
+                state,
+                picked: lit,
+            });
         }
+        let mut line = None;
         if let Some(cell) = picked_cell {
             let rate = ui.theme.motion.slide;
             let lx = ui.animate(
@@ -180,8 +219,12 @@ impl<Id: WidgetId> Widget<Id> for TabBar<'_> {
                 rate,
             );
             let lw = ui.animate(id, LINE_W, Channel::Value, cell.width - style.padding, rate);
-            let line = Rect::new(lx, rect.bottom() - style.line_width, lw, style.line_width);
-            ui.round(line, style.line_width / 2.0, style.line)?;
+            line = Some(Rect::new(
+                lx,
+                rect.bottom() - style.line_width,
+                lw,
+                style.line_width,
+            ));
         }
         if let Some(i) = moved.filter(|i| *i != *self.selected) {
             if response.focused {
@@ -192,7 +235,98 @@ impl<Id: WidgetId> Widget<Id> for TabBar<'_> {
             response.changed = true;
             ui.mark_changed();
         }
+        let look = Look {
+            rect,
+            // no input of its own: the bar is as enabled as it was asked to be
+            state: Eased {
+                enabled: f32::from(u8::from(self.enabled)),
+                ..Eased::default()
+            },
+            held_at: None,
+            parts: TabBarParts {
+                tabs,
+                line,
+                rule,
+                enabled: self.enabled,
+                style,
+            },
+        };
+        (response, look)
+    }
+
+    /// Takes the input as [`TabBar::show`] does, then has `paint` draw it instead of its own look.
+    /// [`Look::paint_default`], [`Look::paint_rule`], [`Look::paint_tab`] and [`Look::paint_line`]
+    /// draw the parts of the usual look.
+    pub fn show_with<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<TabBarParts<'v>>) -> AureaResult<()>,
+    ) -> AureaResult<Response> {
+        let (response, look) = self.run(ui, id, rect);
+        paint(ui, &look)?;
         Ok(response)
+    }
+}
+
+impl Look<TabBarParts<'_>> {
+    /// The rule, each tab from the left, then the line under the picked one.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        self.paint_rule(ui)?;
+        for i in 0..self.parts.tabs.len() {
+            self.paint_tab(ui, i)?;
+        }
+        self.paint_line(ui)
+    }
+
+    /// The rule across the bottom of the bar.
+    pub fn paint_rule<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        ui.fill(self.parts.rule, self.parts.style.rule)
+    }
+
+    /// Tab `i`'s face, focus ring and label, its text picked as the line lands on it.
+    pub fn paint_tab<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>, i: usize) -> AureaResult<()> {
+        let Some(tab) = self.parts.tabs.get(i) else {
+            return Ok(());
+        };
+        let style = &self.parts.style;
+        let face = Rect::new(
+            tab.rect.x,
+            tab.rect.y + 3.0,
+            tab.rect.width,
+            tab.rect.height - 6.0,
+        );
+        Surface::new(style.tab.at(tab.state))
+            .radius(style.radius)
+            .paint(ui, face)?;
+        FocusRing::new(ui.theme, style.radius, tab.state.focus).paint(ui, face)?;
+        let color = style
+            .text
+            .mix(style.picked_text, tab.picked)
+            .fade(tab.state.enabled);
+        Label::new(tab.label, color)
+            .size(style.text_size)
+            .centered()
+            .paint(ui, tab.rect)
+    }
+
+    /// The line under the picked tab, sliding between tabs.
+    pub fn paint_line<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        match self.parts.line {
+            Some(line) => ui.round(
+                line,
+                self.parts.style.line_width / 2.0,
+                self.parts.style.line,
+            ),
+            None => Ok(()),
+        }
+    }
+}
+
+impl<Id: WidgetId> Widget<Id> for TabBar<'_> {
+    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
     }
 }
 
@@ -201,6 +335,7 @@ mod tests {
     use super::*;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::UiState;
+    use crate::ui::rig::Rig;
     use crate::window::{Modifiers, MouseButton, PointerKind, WindowEvent};
 
     fn frame(raster: &mut CpuRasterizer, state: &mut UiState<u8>, picked: &mut usize) {
@@ -248,5 +383,30 @@ mod tests {
             frame(&mut raster, &mut state, &mut picked);
         }
         assert_eq!(picked, 1);
+    }
+
+    #[test]
+    fn show_with_draws_the_apps_look_and_still_picks() {
+        let mut rig: Rig = Rig::new(300, 36);
+        let at = Rect::new(0.0, 0.0, 300.0, 36.0);
+        let mut picked = 2;
+        let draw = |rig: &mut Rig, picked: &mut usize| {
+            rig.frame(|ui| {
+                TabBar::new(&["General", "Audio", "Video"], picked)
+                    .show_with(ui, 1, at, |ui, look| {
+                        ui.fill(look.rect, Color::rgb(0, 200, 0))
+                    })
+                    .expect("draw");
+            });
+        };
+        draw(&mut rig, &mut picked);
+        assert_eq!(rig.pixel(150, 10), [0, 200, 0, 255], "the app's look");
+        rig.at(5.0, 18.0);
+        draw(&mut rig, &mut picked);
+        rig.button(5.0, 18.0, true);
+        draw(&mut rig, &mut picked);
+        rig.button(5.0, 18.0, false);
+        draw(&mut rig, &mut picked);
+        assert_eq!(picked, 0, "the click still picks the first tab");
     }
 }
