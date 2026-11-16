@@ -20,6 +20,7 @@ use super::component::editable::EditingSession;
 use super::paint::TextSize;
 use super::text_edit::TextEdit;
 use super::theme::Theme;
+use super::tokens::Tokens;
 use super::widget::popup::Popup;
 use super::widget::tooltip::TooltipOptions;
 use crate::fonts;
@@ -475,6 +476,7 @@ pub struct UiState<Id: WidgetId> {
     measures: HashMap<u64, (TextMetrics, bool), FastBuild>,
     pub(crate) fonts: Option<Rc<Fonts>>,
     pub(crate) tip: Tip,
+    pub(crate) tokens: Tokens,
     pub(crate) cursor: CursorIcon,
     pub(crate) ime_area: Option<Rect>,
     pub(crate) changed: bool,
@@ -555,6 +557,7 @@ impl<Id: WidgetId> UiState<Id> {
             measures: HashMap::default(),
             fonts: None,
             tip: Tip::default(),
+            tokens: Tokens::new(),
             cursor: CursorIcon::Default,
             ime_area: None,
             changed: false,
@@ -571,6 +574,11 @@ impl<Id: WidgetId> UiState<Id> {
     pub fn set_reduced_motion(&mut self, reduced: bool) {
         self.motion_follows_system = false;
         self.tweens.set_instant(reduced);
+    }
+
+    /// The design tokens every widget and app drawing follows from now on.
+    pub fn set_tokens(&mut self, tokens: Tokens) {
+        self.tokens = tokens;
     }
 
     /// Modifiers latched from an on-screen strip, for touch where no key is held. They are merged

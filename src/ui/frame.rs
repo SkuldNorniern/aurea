@@ -10,6 +10,7 @@ use super::state::{
     Channel, Fonts, Interaction, Key, Press, Sense, Typed, UiState, WidgetId, caret_on,
 };
 use super::theme::Theme;
+use super::tokens::Tokens;
 use super::widget::tooltip::TooltipOptions;
 use crate::AureaResult;
 use crate::render::{Color, DrawingContext, Font, Paint, PaintStyle, Point, Rect, TextMetrics};
@@ -612,6 +613,16 @@ impl<Id: WidgetId> Ui<'_, Id> {
     /// after the same delay; call it each frame it should stay.
     pub fn tooltip_at(&mut self, at: Point, text: &str) {
         self.show_tip(Rect::new(at.x, at.y, 0.0, 0.0), text);
+    }
+
+    /// The design tokens every widget and app drawing follows.
+    pub fn tokens(&self) -> Tokens {
+        self.state.tokens
+    }
+
+    /// Sets the design tokens from now on; they stay until set again.
+    pub fn set_tokens(&mut self, tokens: Tokens) {
+        self.state.set_tokens(tokens);
     }
 
     /// How every tooltip behaves from now on.

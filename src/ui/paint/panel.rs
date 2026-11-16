@@ -5,6 +5,7 @@ use crate::AureaResult;
 use crate::render::{Color, Corners, GradientStop, LinearGradient, Paint, Path, Point, Rect};
 use crate::ui::frame::Ui;
 use crate::ui::state::WidgetId;
+use crate::ui::{Shape, Tokens};
 
 /// Most shadows a panel stacks, such as a tight one and a wide soft one.
 const SHADOWS: usize = 3;
@@ -138,6 +139,31 @@ impl Panel {
     #[must_use]
     pub fn rim_vertical(mut self, width: f32, top: Color, bottom: Color) -> Self {
         self.rim = Some((width.max(0.0), Fill::Vertical(top, bottom)));
+        self
+    }
+
+    /// The shadow of `level` from `tokens`; level 0 adds none.
+    #[must_use]
+    pub fn elevation(self, tokens: &Tokens, level: usize) -> Self {
+        let shadow = tokens.elevation(level);
+        if shadow.color.a == 0 {
+            self
+        } else {
+            self.shadow(shadow)
+        }
+    }
+
+    /// Every corner the radius of `shape` from `tokens`, keeping the smoothing.
+    #[must_use]
+    pub fn shape(mut self, tokens: &Tokens, shape: Shape) -> Self {
+        let radius = tokens.shape(shape).min(f32::MAX);
+        self.corners = Corners {
+            top_left: radius,
+            top_right: radius,
+            bottom_right: radius,
+            bottom_left: radius,
+            ..self.corners
+        };
         self
     }
 }
@@ -321,5 +347,64 @@ mod tests {
         let rig = paint(Panel::new().glow(10.0, Color::rgb(255, 255, 255)));
         let (edge, middle) = (rig.pixel(50, 11)[1], rig.pixel(50, 30)[1]);
         assert!(edge > 150 && middle < 10, "edge {edge}, middle {middle}");
+    }
+
+    fn paint_on_white(panel: Panel) -> Rig {
+        let mut rig: Rig = Rig::new(100, 60);
+        rig.frame(|ui| {
+            ui.fill(Rect::new(0.0, 0.0, 100.0, 60.0), Color::rgb(255, 255, 255))
+                .expect("fill");
+            panel
+                .paint(ui, Rect::new(10.0, 10.0, 80.0, 40.0))
+                .expect("panel");
+        });
+        rig
+    }
+
+    #[test]
+    fn an_elevation_shadow_darkens_the_background_below() {
+        let tokens = Tokens::new();
+        let rig = paint_on_white(
+            Panel::new()
+                .fill(Color::rgb(255, 255, 255))
+                .elevation(&tokens, 3),
+        );
+        assert!(
+            rig.pixel(50, 52)[0] < 250,
+            "shadow: {:?}",
+            rig.pixel(50, 52)
+        );
+        assert_eq!(rig.pixel(95, 5), [255, 255, 255, 255], "far away untouched");
+    }
+
+    #[test]
+    fn level_zero_adds_no_shadow() {
+        let tokens = Tokens::new();
+        assert_eq!(Panel::new().elevation(&tokens, 0), Panel::new());
+    }
+
+    #[test]
+    fn full_shape_makes_a_capsule() {
+        let tokens = Tokens::new();
+        let rig = paint_on_white(
+            Panel::new()
+                .fill(Color::rgb(0, 0, 0))
+                .shape(&tokens, Shape::Full),
+        );
+        assert_eq!(
+            rig.pixel(11, 11),
+            [255, 255, 255, 255],
+            "corner is cut away"
+        );
+        assert_eq!(rig.pixel(50, 30)[0], 0, "middle is filled");
+    }
+
+    #[test]
+    fn shape_keeps_smoothing() {
+        let tokens = Tokens::new();
+        let panel = Panel::new()
+            .corners(Corners::all(0.0).smooth(0.6))
+            .shape(&tokens, Shape::Medium);
+        assert_eq!(panel.corners, Corners::all(12.0).smooth(0.6));
     }
 }

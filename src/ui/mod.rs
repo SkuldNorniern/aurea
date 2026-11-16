@@ -8,6 +8,7 @@ pub mod paint;
 mod state;
 pub mod text_edit;
 mod theme;
+mod tokens;
 pub mod widget;
 
 pub use component::{
@@ -22,6 +23,7 @@ pub use paint::{
 pub use state::ScopedId;
 pub use state::{Channel, Fonts, InputResponse, Interaction, Sense, UiState, WidgetId};
 pub use theme::{Motion, Palette, Sizes, Theme};
+pub use tokens::{Shape, TextRole, Tokens};
 pub use widget::Widget;
 pub use widget::button::{Button, ButtonParts, ButtonStyle, Tone};
 pub use widget::chip::{Chip, ChipParts, ChipStyle};
