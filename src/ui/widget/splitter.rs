@@ -51,6 +51,7 @@ pub struct Splitter<'v> {
     threshold: f32,
     step: f32,
     whole_pixels: bool,
+    focusable: bool,
     label: &'v str,
     style: Option<SplitterStyle>,
 }
@@ -65,6 +66,7 @@ impl<'v> Splitter<'v> {
             threshold: 0.0,
             step: 8.0,
             whole_pixels: false,
+            focusable: true,
             label: "",
             style: None,
         }
@@ -102,6 +104,14 @@ impl<'v> Splitter<'v> {
     #[must_use]
     pub fn whole_pixels(mut self, whole: bool) -> Self {
         self.whole_pixels = whole;
+        self
+    }
+
+    /// Whether Tab and a press give it the keyboard for the arrow keys; on by default. Off, only
+    /// the pointer moves it.
+    #[must_use]
+    pub fn focusable(mut self, focusable: bool) -> Self {
+        self.focusable = focusable;
         self
     }
 
@@ -146,7 +156,11 @@ impl<'v> Splitter<'v> {
             at + style.thickness / 2.0 - grab / 2.0,
             grab,
         );
-        let input = ui.interact(id, 0, reach, Sense::Adjust, true);
+        let input = if self.focusable {
+            ui.interact(id, 0, reach, Sense::Adjust, true)
+        } else {
+            ui.interact_without_focus(id, 0, reach, Sense::Adjust, true)
+        };
 
         at = moved(
             ui,
@@ -417,6 +431,35 @@ mod tests {
         rig.key(KeyCode::Home);
         show(&mut rig, &mut at);
         assert_eq!(at, 50.0);
+    }
+
+    #[test]
+    fn an_unfocusable_one_is_no_tab_stop_and_still_drags() {
+        let mut rig = Rig::new(400, 200).still();
+        let mut at = 120.0;
+        let show = |rig: &mut Rig, at: &mut f32| {
+            rig.frame(|ui| {
+                Splitter::new(at)
+                    .focusable(false)
+                    .show(ui, 1, AREA)
+                    .expect("draw")
+            })
+        };
+        show(&mut rig, &mut at);
+        rig.key(KeyCode::Tab);
+        let (.., response) = show(&mut rig, &mut at);
+        assert!(!response.focused, "Tab passes it by");
+        rig.key(KeyCode::Right);
+        show(&mut rig, &mut at);
+        assert_eq!(at, 120.0);
+        rig.at(122, 50);
+        show(&mut rig, &mut at);
+        rig.button(122, 50, true);
+        let (.., response) = show(&mut rig, &mut at);
+        assert!(!response.focused, "a press does not focus it");
+        rig.drag_to(152, 50);
+        show(&mut rig, &mut at);
+        assert_eq!(at, 150.0, "it still drags");
     }
 
     #[test]
