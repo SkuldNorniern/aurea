@@ -358,11 +358,30 @@ pub struct RenderBatches {
     /// The kinds of drawing this frame uses, for checking against what a backend supports before it
     /// is asked to draw the frame.
     pub needs: GpuFeatures,
-    gradient_lut_cache: HashMap<u64, (Arc<[u8]>, bool)>,
-    path_masks: HashMap<u64, (Arc<[u8]>, bool)>,
-    text_mask_cache: HashMap<u64, (Arc<[u8]>, bool)>,
+    gradient_lut_cache: MaskCache,
+    path_masks: MaskCache,
+    text_mask_cache: MaskCache,
     /// Gradient stops with the item's opacity applied, reused from one gradient to the next.
     faded_stops: Vec<GradientStop>,
+}
+
+/// Cached conversions by key, each with whether the latest lowering used it.
+type MaskCache = HashMap<u64, (Arc<[u8]>, bool)>;
+
+/// Returns the cached value for `key` and marks it used by this lowering.
+fn touch(cache: &mut MaskCache, key: u64) -> Option<Arc<[u8]>> {
+    let (value, used) = cache.get_mut(&key)?;
+    *used = true;
+    Some(Arc::clone(value))
+}
+
+/// Drops the entries the latest lowering did not use, and clears the marks for the next one.
+fn sweep(cache: &mut MaskCache) {
+    cache.retain(|_, (_, used)| mem::take(used));
+}
+
+fn batch_index(len: usize) -> u32 {
+    u32::try_from(len).expect("batch count fits in u32")
 }
 
 impl RenderBatches {
@@ -373,19 +392,20 @@ impl RenderBatches {
         batches
     }
 
-    fn push_rect(&mut self, rect: Rect, color: Color) {
-        self.order.push(DrawRef::Rect(
-            u32::try_from(self.rects.len()).expect("batch count fits in u32"),
-        ));
-        self.rects.push(RectInstance::from_rect(rect, color));
-    }
-
     /// Drops the gradient LUT, path mask and text mask caches. The next lowering rebuilds what
     /// it draws; the batches already built keep their own references.
     pub fn trim_caches(&mut self) {
         self.gradient_lut_cache.clear();
         self.path_masks.clear();
         self.text_mask_cache.clear();
+    }
+
+    /// Frees everything a frame holds except what the frame needs, for the next lowering.
+    pub fn trim_memory(&mut self) {
+        *self = Self {
+            needs: self.needs,
+            ..Self::default()
+        };
     }
 
     /// Lowers a display list into these batches, reusing their buffers.
@@ -408,10 +428,39 @@ impl RenderBatches {
             self.path_clips
                 .resize(self.order.len(), item.clip_paths.clone());
         }
-        self.gradient_lut_cache
-            .retain(|_, (_, used)| mem::take(used));
-        self.text_mask_cache.retain(|_, (_, used)| mem::take(used));
-        self.path_masks.retain(|_, (_, used)| mem::take(used));
+        sweep(&mut self.gradient_lut_cache);
+        sweep(&mut self.text_mask_cache);
+        sweep(&mut self.path_masks);
+    }
+
+    fn push_rect(&mut self, rect: Rect, color: Color) {
+        self.order
+            .push(DrawRef::Rect(batch_index(self.rects.len())));
+        self.rects.push(RectInstance::from_rect(rect, color));
+    }
+
+    fn push_shape(&mut self, shape: ShapeInstance) {
+        self.order
+            .push(DrawRef::Shape(batch_index(self.shapes.len())));
+        self.shapes.push(shape);
+    }
+
+    fn push_gradient(&mut self, gradient: GradientInstance) {
+        self.order
+            .push(DrawRef::Gradient(batch_index(self.gradients.len())));
+        self.gradients.push(gradient);
+    }
+
+    fn push_image(&mut self, image: ImageDraw) {
+        self.order
+            .push(DrawRef::Image(batch_index(self.images.len())));
+        self.images.push(image);
+    }
+
+    fn push_text(&mut self, text: TextDraw) {
+        self.order
+            .push(DrawRef::Text(batch_index(self.texts.len())));
+        self.texts.push(text);
     }
 
     fn lower_rect(&mut self, rect: Rect, paint: &Paint, alpha: f32) {
@@ -434,184 +483,77 @@ impl RenderBatches {
         }
     }
 
-    fn push_shape(&mut self, shape: ShapeInstance) {
-        self.order.push(DrawRef::Shape(
-            u32::try_from(self.shapes.len()).expect("batch count fits in u32"),
-        ));
-        self.shapes.push(shape);
-    }
-
     fn lower_item(&mut self, item: &DisplayItem) {
         if let DrawCommand::Clear(color) = item.command {
             self.clear = Some(color);
             return;
         }
-        {
-            let Some(alpha) = drawable_alpha(item) else {
-                return;
-            };
-            if !representable(item) {
-                self.dropped += 1;
-                return;
-            }
-
-            match &item.command {
-                DrawCommand::Clear(_) => {}
-                DrawCommand::DrawRect(rect, paint) => self.lower_rect(*rect, paint, alpha),
-                DrawCommand::DrawColumns(x, wide, spans, color) => {
-                    let color = fade(*color, alpha);
-                    for (i, (top, bottom)) in spans.iter().enumerate() {
-                        let left = x + i as f32 * wide;
-                        self.push_rect(Rect::new(left, *top, *wide, bottom - top), color);
-                    }
-                }
-                DrawCommand::DrawCircle(center, radius, paint) => {
-                    if let Some(stroke) = shape_stroke(paint) {
-                        let color = fade(paint.color, alpha);
-                        self.push_shape(ShapeInstance::circle(*center, *radius, stroke, color));
-                    }
-                }
-                DrawCommand::FillLinearGradient(grad, rect) => {
-                    let lut = self.faded_gradient_lut(&grad.stops, alpha);
-                    self.order.push(DrawRef::Gradient(
-                        u32::try_from(self.gradients.len()).expect("batch count fits in u32"),
-                    ));
-                    self.gradients
-                        .push(GradientInstance::linear(*rect, grad, lut));
-                }
-                DrawCommand::FillRadialGradient(grad, rect) => {
-                    let lut = self.faded_gradient_lut(&grad.stops, alpha);
-                    self.order.push(DrawRef::Gradient(
-                        u32::try_from(self.gradients.len()).expect("batch count fits in u32"),
-                    ));
-                    self.gradients
-                        .push(GradientInstance::radial(*rect, grad, lut));
-                }
-                command @ (DrawCommand::DrawImageRect(..)
-                | DrawCommand::DrawImageRegion(..)
-                | DrawCommand::DrawTexture(..)
-                | DrawCommand::DrawImageQuad(..)
-                | DrawCommand::DrawTextureQuad(..)) => self.lower_image(command, alpha),
-                DrawCommand::DrawGlyphMask(mask, origin, color) => {
-                    if let Some(rgba) = self.text_mask(mask) {
-                        self.order.push(DrawRef::Text(
-                            u32::try_from(self.texts.len()).expect("batch count fits in u32"),
-                        ));
-                        self.texts.push(TextDraw {
-                            mask: rgba,
-                            rect: Rect::new(
-                                origin.x.round(),
-                                origin.y.round(),
-                                mask.width as f32,
-                                mask.height as f32,
-                            ),
-                            color: fade(*color, alpha),
-                        });
-                    }
-                }
-                DrawCommand::DrawRoundRect(rect, radius, paint) => {
-                    if let Some(stroke) = shape_stroke(paint) {
-                        let color = fade(paint.color, alpha);
-                        self.push_shape(ShapeInstance::rounded(*rect, *radius, stroke, color));
-                    }
-                }
-                DrawCommand::DrawShadow(rect, radius, blur, color) => {
-                    let color = fade(*color, alpha);
-                    self.push_shape(ShapeInstance::shadow(*rect, *radius, *blur, color));
-                }
-                DrawCommand::Backdrop(..) => {}
-                DrawCommand::DrawPath(path, paint) => {
-                    self.push_path(item, path, paint, alpha);
-                }
-            }
-        }
-    }
-
-    fn lower_image(&mut self, command: &DrawCommand, alpha: f32) {
-        match command {
-            DrawCommand::DrawImageQuad(image, src, quad, sampling)
-                if valid_rgba_image(image.width, image.height, &image.data) =>
-            {
-                self.push_image(
-                    ImageSource::Pixels(image.clone()),
-                    *src,
-                    quad_bounds(quad),
-                    *sampling,
-                    alpha,
-                );
-                self.images.last_mut().expect("image was appended").quad = Some(*quad);
-                return;
-            }
-            DrawCommand::DrawTextureQuad(texture, uv, quad, sampling)
-                if texture.width > 0 && texture.height > 0 =>
-            {
-                let src = Rect::new(
-                    uv.x * texture.width as f32,
-                    uv.y * texture.height as f32,
-                    uv.width * texture.width as f32,
-                    uv.height * texture.height as f32,
-                );
-                self.push_image(
-                    ImageSource::Texture(*texture),
-                    src,
-                    quad_bounds(quad),
-                    *sampling,
-                    alpha,
-                );
-                self.images.last_mut().expect("image was appended").quad = Some(*quad);
-                return;
-            }
-            _ => {}
-        }
-        let (source, src, dest, sampling) = match command {
-            DrawCommand::DrawImageRect(image, dest, sampling)
-                if valid_rgba_image(image.width, image.height, &image.data) =>
-            {
-                let src = Rect::new(0.0, 0.0, image.width as f32, image.height as f32);
-                (ImageSource::Pixels(image.clone()), src, *dest, *sampling)
-            }
-            DrawCommand::DrawImageRegion(image, src, dest, sampling)
-                if valid_rgba_image(image.width, image.height, &image.data) =>
-            {
-                (ImageSource::Pixels(image.clone()), *src, *dest, *sampling)
-            }
-            DrawCommand::DrawTexture(texture, uv, dest, sampling)
-                if texture.width > 0 && texture.height > 0 =>
-            {
-                let (w, h) = (texture.width as f32, texture.height as f32);
-                let src = Rect::new(uv.x * w, uv.y * h, uv.width * w, uv.height * h);
-                (ImageSource::Texture(*texture), src, *dest, *sampling)
-            }
-            _ => {
-                self.dropped += 1;
-                return;
-            }
+        let Some(alpha) = drawable_alpha(item) else {
+            return;
         };
-        self.push_image(source, src, dest, sampling, alpha);
+        if !representable(item) {
+            self.dropped += 1;
+            return;
+        }
+        match &item.command {
+            DrawCommand::Clear(_) | DrawCommand::Backdrop(..) => {}
+            DrawCommand::DrawRect(rect, paint) => self.lower_rect(*rect, paint, alpha),
+            DrawCommand::DrawColumns(x, wide, spans, color) => {
+                let color = fade(*color, alpha);
+                for (i, (top, bottom)) in spans.iter().enumerate() {
+                    let left = x + i as f32 * wide;
+                    self.push_rect(Rect::new(left, *top, *wide, bottom - top), color);
+                }
+            }
+            DrawCommand::DrawCircle(center, radius, paint) => {
+                if let Some(stroke) = shape_stroke(paint) {
+                    let shape =
+                        ShapeInstance::circle(*center, *radius, stroke, fade(paint.color, alpha));
+                    self.push_shape(shape);
+                }
+            }
+            DrawCommand::DrawRoundRect(rect, radius, paint) => {
+                if let Some(stroke) = shape_stroke(paint) {
+                    let shape =
+                        ShapeInstance::rounded(*rect, *radius, stroke, fade(paint.color, alpha));
+                    self.push_shape(shape);
+                }
+            }
+            DrawCommand::DrawShadow(rect, radius, blur, color) => {
+                let shape = ShapeInstance::shadow(*rect, *radius, *blur, fade(*color, alpha));
+                self.push_shape(shape);
+            }
+            DrawCommand::FillLinearGradient(grad, rect) => {
+                let lut = self.faded_gradient_lut(&grad.stops, alpha);
+                self.push_gradient(GradientInstance::linear(*rect, grad, lut));
+            }
+            DrawCommand::FillRadialGradient(grad, rect) => {
+                let lut = self.faded_gradient_lut(&grad.stops, alpha);
+                self.push_gradient(GradientInstance::radial(*rect, grad, lut));
+            }
+            DrawCommand::DrawGlyphMask(mask, origin, color) => {
+                if let Some(rgba) = self.text_mask(mask) {
+                    self.push_text(TextDraw {
+                        mask: rgba,
+                        rect: Rect::new(
+                            origin.x.round(),
+                            origin.y.round(),
+                            mask.width as f32,
+                            mask.height as f32,
+                        ),
+                        color: fade(*color, alpha),
+                    });
+                }
+            }
+            DrawCommand::DrawPath(path, paint) => self.lower_path(item, path, paint, alpha),
+            command => match image_draw(command, alpha) {
+                Some(image) => self.push_image(image),
+                None => self.dropped += 1,
+            },
+        }
     }
 
-    fn push_image(
-        &mut self,
-        source: ImageSource,
-        src: Rect,
-        dest: Rect,
-        sampling: Sampling,
-        alpha: f32,
-    ) {
-        self.order.push(DrawRef::Image(
-            u32::try_from(self.images.len()).expect("batch count fits in u32"),
-        ));
-        self.images.push(ImageDraw {
-            source,
-            dest,
-            src,
-            tint: fade(Color::rgb(255, 255, 255), alpha),
-            sampling,
-            quad: None,
-        });
-    }
-
-    fn push_path(&mut self, item: &DisplayItem, path: &Path, paint: &Paint, alpha: f32) {
+    fn lower_path(&mut self, item: &DisplayItem, path: &Path, paint: &Paint, alpha: f32) {
         let b = item.bounds;
         let (x0, y0) = (b.x.floor(), b.y.floor());
         let (x1, y1) = ((b.x + b.width).ceil(), (b.y + b.height).ceil());
@@ -621,11 +563,8 @@ impl RenderBatches {
             return;
         }
         let key = item.cache_key.0;
-        let mask = match self.path_masks.get_mut(&key) {
-            Some((mask, used)) => {
-                *used = true;
-                Arc::clone(mask)
-            }
+        let mask = match touch(&mut self.path_masks, key) {
+            Some(mask) => mask,
             None => {
                 let origin = Point::new(x0, y0);
                 let Ok(mask) = coverage::of_path(path, paint, origin, (w, h)) else {
@@ -636,10 +575,7 @@ impl RenderBatches {
                 mask
             }
         };
-        self.order.push(DrawRef::Text(
-            u32::try_from(self.texts.len()).expect("batch count fits in u32"),
-        ));
-        self.texts.push(TextDraw {
+        self.push_text(TextDraw {
             mask,
             rect: Rect::new(x0, y0, x1 - x0, y1 - y0),
             color: fade(paint.color, alpha),
@@ -672,9 +608,8 @@ impl RenderBatches {
 
     fn gradient_lut(&mut self, stops: &[GradientStop]) -> Arc<[u8]> {
         let key = gradient_lut_key(stops);
-        if let Some((lut, used)) = self.gradient_lut_cache.get_mut(&key) {
-            *used = true;
-            return Arc::clone(lut);
+        if let Some(lut) = touch(&mut self.gradient_lut_cache, key) {
+            return lut;
         }
         let lut = build_gradient_lut(stops);
         self.gradient_lut_cache
@@ -688,9 +623,8 @@ impl RenderBatches {
             return None;
         }
         let key = mask.id();
-        if let Some((rgba, used)) = self.text_mask_cache.get_mut(&key) {
-            *used = true;
-            return Some(Arc::clone(rgba));
+        if let Some(rgba) = touch(&mut self.text_mask_cache, key) {
+            return Some(rgba);
         }
         // Allocated once as the Arc that is cached and drawn, not built in a Vec and copied.
         let mut rgba: Arc<[u8]> = Arc::from_iter(iter::repeat_n(0u8, pixel_count * 4));
@@ -704,13 +638,90 @@ impl RenderBatches {
     }
 }
 
-fn valid_rgba_image(width: u32, height: u32, data: &[u8]) -> bool {
+/// Whether `data` is exactly `width` by `height` RGBA pixels.
+pub(super) fn valid_rgba_image(width: u32, height: u32, data: &[u8]) -> bool {
     width > 0
         && height > 0
         && (width as usize)
             .checked_mul(height as usize)
             .and_then(|pixels| pixels.checked_mul(4))
             == Some(data.len())
+}
+
+/// The source rect of `uv` within a texture, in its pixels.
+fn texture_src(texture: &GpuTexture, uv: Rect) -> Rect {
+    let (w, h) = (texture.width as f32, texture.height as f32);
+    Rect::new(uv.x * w, uv.y * h, uv.width * w, uv.height * h)
+}
+
+/// The image draw a display command makes, or `None` when it is not an image command or its
+/// pixels or texture are unusable.
+fn image_draw(command: &DrawCommand, alpha: f32) -> Option<ImageDraw> {
+    let tint = fade(Color::rgb(255, 255, 255), alpha);
+    let draw = match command {
+        DrawCommand::DrawImageRect(image, dest, sampling)
+            if valid_rgba_image(image.width, image.height, &image.data) =>
+        {
+            ImageDraw {
+                source: ImageSource::Pixels(image.clone()),
+                dest: *dest,
+                src: Rect::new(0.0, 0.0, image.width as f32, image.height as f32),
+                tint,
+                sampling: *sampling,
+                quad: None,
+            }
+        }
+        DrawCommand::DrawImageRegion(image, src, dest, sampling)
+            if valid_rgba_image(image.width, image.height, &image.data) =>
+        {
+            ImageDraw {
+                source: ImageSource::Pixels(image.clone()),
+                dest: *dest,
+                src: *src,
+                tint,
+                sampling: *sampling,
+                quad: None,
+            }
+        }
+        DrawCommand::DrawImageQuad(image, src, quad, sampling)
+            if valid_rgba_image(image.width, image.height, &image.data) =>
+        {
+            ImageDraw {
+                source: ImageSource::Pixels(image.clone()),
+                dest: quad_bounds(quad),
+                src: *src,
+                tint,
+                sampling: *sampling,
+                quad: Some(*quad),
+            }
+        }
+        DrawCommand::DrawTexture(texture, uv, dest, sampling)
+            if texture.width > 0 && texture.height > 0 =>
+        {
+            ImageDraw {
+                source: ImageSource::Texture(*texture),
+                dest: *dest,
+                src: texture_src(texture, *uv),
+                tint,
+                sampling: *sampling,
+                quad: None,
+            }
+        }
+        DrawCommand::DrawTextureQuad(texture, uv, quad, sampling)
+            if texture.width > 0 && texture.height > 0 =>
+        {
+            ImageDraw {
+                source: ImageSource::Texture(*texture),
+                dest: quad_bounds(quad),
+                src: texture_src(texture, *uv),
+                tint,
+                sampling: *sampling,
+                quad: Some(*quad),
+            }
+        }
+        _ => return None,
+    };
+    Some(draw)
 }
 
 #[cfg(test)]

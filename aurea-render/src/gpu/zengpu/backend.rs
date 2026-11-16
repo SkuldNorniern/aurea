@@ -2,11 +2,11 @@
 
 use std::collections::HashMap;
 use std::iter::once;
-use std::mem::{size_of, size_of_val};
-use std::slice::{from_raw_parts, from_raw_parts_mut, from_ref};
+use std::mem::{discriminant, size_of, size_of_val};
+use std::slice::{from_raw_parts, from_raw_parts_mut};
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 
 use aurea_foundation::{AureaError, AureaResult};
@@ -29,7 +29,7 @@ use zengpu::{GpuSubmission, Submission, SubmissionStatus};
 
 use crate::capabilities::GpuFeatures;
 use crate::gpu::backend::full_frame_plan;
-use crate::gpu::batch::{DrawRef, RectInstance, ShapeInstance};
+use crate::gpu::batch::{DrawRef, RectInstance, ShapeInstance, valid_rgba_image};
 use crate::gpu::{FramePlan, Gpu2dBackend, Gpu2dRenderer, PixelFormat};
 use crate::image::area_downsample;
 use crate::memory::smaller_buffer;
@@ -91,6 +91,21 @@ struct PendingMip {
     destroy: bool,
 }
 
+impl PendingMip {
+    fn new(work: Submission) -> Self {
+        Self {
+            work,
+            dependencies: Vec::new(),
+            destroy: false,
+        }
+    }
+}
+
+/// Locks a mutex, taking the data even after a panic elsewhere poisoned it.
+fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 fn track_upload(
     jobs: &mut HashMap<TextureHandle, PendingMip>,
     texture: TextureHandle,
@@ -140,7 +155,7 @@ impl ZenGpuContext {
     }
 
     fn collect_uploads(&self) -> Result<usize, GpuError> {
-        let mut jobs = self.mip_jobs.lock().unwrap_or_else(|p| p.into_inner());
+        let mut jobs = locked(&self.mip_jobs);
         let mut error = None;
         jobs.retain(|&texture, job| match job.work.poll() {
             Ok(SubmissionStatus::Complete) => {
@@ -167,7 +182,7 @@ impl ZenGpuContext {
 
     fn destroy_image(&self, texture: TextureHandle) {
         let _ = self.collect_uploads();
-        let mut jobs = self.mip_jobs.lock().unwrap_or_else(|p| p.into_inner());
+        let mut jobs = locked(&self.mip_jobs);
         if let Some(job) = jobs.get_mut(&texture) {
             job.destroy = true;
         } else {
@@ -214,10 +229,7 @@ impl ZenGpuContext {
         {
             return Mips::Cpu;
         }
-        let mut cached = self
-            .mip_down
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut cached = locked(&self.mip_down);
         if cached.is_none() {
             *cached = create_mip_down(device).ok();
         }
@@ -334,12 +346,7 @@ impl ZenGpuImage {
     /// is valid on the context's ordered queue; callers need not wait for this.
     pub fn upload_complete(&self) -> AureaResult<bool> {
         self.context.poll_uploads()?;
-        Ok(!self
-            .context
-            .mip_jobs
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .contains_key(&self.texture.zengpu()))
+        Ok(!locked(&self.context.mip_jobs).contains_key(&self.texture.zengpu()))
     }
     /// The texture handle.
     pub fn texture(&self) -> GpuTexture {
@@ -350,7 +357,7 @@ impl ZenGpuImage {
     pub fn update(&mut self, image: &Image) -> AureaResult<()> {
         if image.width != self.texture.width
             || image.height != self.texture.height
-            || !valid_image(image.width, image.height, &image.data)
+            || !valid_rgba_image(image.width, image.height, &image.data)
         {
             return Err(AureaError::RenderingFailed);
         }
@@ -374,15 +381,6 @@ impl Drop for ZenGpuImage {
     }
 }
 
-fn valid_image(width: u32, height: u32, rgba: &[u8]) -> bool {
-    width > 0
-        && height > 0
-        && (width as usize)
-            .checked_mul(height as usize)
-            .and_then(|n| n.checked_mul(4))
-            == Some(rgba.len())
-}
-
 /// Who builds an image's mips: the CPU, or the GPU kernel with its pipeline.
 #[derive(Clone, Copy)]
 enum Mips {
@@ -400,7 +398,7 @@ fn make_image_texture(
     mips: Mips,
 ) -> AureaResult<TextureHandle> {
     let device = context.device();
-    if !valid_image(width, height, rgba) {
+    if !valid_rgba_image(width, height, rgba) {
         return Err(AureaError::RenderingFailed);
     }
     let mut usage = TextureUsage::SAMPLED | TextureUsage::TRANSFER_DST;
@@ -439,7 +437,7 @@ fn make_plain_textures(
 ) -> AureaResult<Vec<TextureHandle>> {
     if images
         .iter()
-        .any(|&(width, height, rgba)| !valid_image(width, height, rgba))
+        .any(|&(width, height, rgba)| !valid_rgba_image(width, height, rgba))
     {
         return Err(AureaError::RenderingFailed);
     }
@@ -449,17 +447,10 @@ fn make_plain_textures(
     match work {
         Ok(work) => {
             // The lock covers only the bookkeeping, not the write.
-            let mut jobs = context.mip_jobs.lock().unwrap_or_else(|p| p.into_inner());
+            let mut jobs = locked(&context.mip_jobs);
             for &texture in &textures {
-                track_upload(
-                    &mut jobs,
-                    texture,
-                    PendingMip {
-                        work: Box::new(SharedWork(Arc::clone(&work))),
-                        dependencies: Vec::new(),
-                        destroy: false,
-                    },
-                );
+                let shared = PendingMip::new(Box::new(SharedWork(Arc::clone(&work))));
+                track_upload(&mut jobs, texture, shared);
             }
             Ok(textures)
         }
@@ -522,7 +513,7 @@ fn upload_levels(
     if let Mips::Gpu(pipeline) = mips {
         // Keep views stable while planning another update to this image. The newest
         // submission owns their lifetime because all updates use the same queue.
-        let mut jobs = context.mip_jobs.lock().unwrap_or_else(|p| p.into_inner());
+        let mut jobs = locked(&context.mip_jobs);
         let built = gpu_mip_chain(device, pipeline, texture, width, height, rgba, levels);
         if let Ok(job) = built {
             track_upload(&mut jobs, texture, job);
@@ -541,7 +532,7 @@ fn upload_levels(
         (w, h) = (dw, dh);
     }
     // filtering stays out of the lock, other threads poll through it.
-    let mut jobs = context.mip_jobs.lock().unwrap_or_else(|p| p.into_inner());
+    let mut jobs = locked(&context.mip_jobs);
     if device.capabilities().transfers.texture_region_write {
         let writes: Vec<TextureWrite<'_>> = once(rgba)
             .chain(chain.iter().map(Vec::as_slice))
@@ -560,15 +551,7 @@ fn upload_levels(
             })
             .collect();
         let work = device.write_textures(&writes)?;
-        track_upload(
-            &mut jobs,
-            texture,
-            PendingMip {
-                work,
-                dependencies: Vec::new(),
-                destroy: false,
-            },
-        );
+        track_upload(&mut jobs, texture, PendingMip::new(work));
         return Ok(());
     }
     device.upload_texture_data(texture, rgba)?;
@@ -636,9 +619,8 @@ fn gpu_mip_chain(
         .collect();
     let work = device.submit_batch(0, &ops)?;
     Ok(PendingMip {
-        work,
         dependencies: upload.into_iter().collect(),
-        destroy: false,
+        ..PendingMip::new(work)
     })
 }
 
@@ -666,6 +648,22 @@ fn coalesce_run(
         count += 1;
     }
     count
+}
+
+/// The index a draw refers to in its kind's instance array.
+fn draw_index(draw: DrawRef) -> u32 {
+    match draw {
+        DrawRef::Rect(i)
+        | DrawRef::Shape(i)
+        | DrawRef::Gradient(i)
+        | DrawRef::Image(i)
+        | DrawRef::Text(i) => i,
+    }
+}
+
+/// Whether `next` is the draw `n` places after `first`, of the same kind.
+fn is_next_draw(first: DrawRef, next: DrawRef, n: u32) -> bool {
+    discriminant(&first) == discriminant(&next) && draw_index(next) == draw_index(first) + n
 }
 
 struct SharedPipelines {
@@ -756,7 +754,7 @@ impl Offscreen {
     }
 }
 
-/// ZenGPU device backend for `Gpu2dRenderer`, using the unified graphics API.
+/// A CPU frame shown through a texture slot, reused while its size and format hold.
 struct CpuFrame {
     slot: u32,
     width: u32,
@@ -864,14 +862,16 @@ impl ZenGpuRenderer {
             Target::Offscreen(_) => OFFSCREEN_FORMAT,
         };
         let pipelines = context.shared_pipelines(format)?;
-        let sampler = context.device().create_sampler(SamplerDesc {
-            min_filter: FilterMode::Linear,
-            mag_filter: FilterMode::Linear,
-            mip_filter: FilterMode::Linear,
-            lod_max: 32.0,
-            ..SamplerDesc::default()
-        });
-        let sampler = sampler.map_err(gpu_err)?;
+        let sampler = context
+            .device()
+            .create_sampler(SamplerDesc {
+                min_filter: FilterMode::Linear,
+                mag_filter: FilterMode::Linear,
+                mip_filter: FilterMode::Linear,
+                lod_max: 32.0,
+                ..SamplerDesc::default()
+            })
+            .map_err(gpu_err)?;
 
         let backend = ZenGpuBackend {
             clip_masks: ClipMasks::default(),
@@ -968,6 +968,8 @@ impl ZenGpuBackend {
         });
     }
 
+    /// Records the frame's draws in painter order, one pipeline run per stretch of draws that
+    /// share a kind, texture slot, clip and clip mask.
     #[allow(clippy::too_many_arguments)]
     fn record_ordered_draws(
         &self,
@@ -983,105 +985,63 @@ impl ZenGpuBackend {
         while i < order.len() {
             let binding = self.clip_masks.bindings[i];
             let viewport_scalars = binding.scalars(viewport);
-            let same_mask = |n: u32| self.clip_masks.bindings.get(i + n as usize) == Some(&binding);
             let clip = clips.get(i).copied().flatten();
             if active_clip != Some(clip) {
                 Self::set_scissor(cmd, viewport, clip);
                 active_clip = Some(clip);
             }
 
-            match order[i] {
-                DrawRef::Rect(start) => {
-                    let count = coalesce_run(order, clips, i, |r, n| {
-                        *r == DrawRef::Rect(start + n) && same_mask(n)
-                    });
-                    Self::draw_run(
-                        cmd,
-                        pipelines.rect.ok_or(AureaError::RenderingFailed)?,
-                        buffers.rect,
-                        &viewport_scalars,
-                        from_ref(&binding.slot),
-                        start,
-                        count,
-                    );
-                    i += count as usize;
-                }
-                DrawRef::Shape(start) => {
-                    let count = coalesce_run(order, clips, i, |r, n| {
-                        *r == DrawRef::Shape(start + n) && same_mask(n)
-                    });
-                    Self::draw_run(
-                        cmd,
-                        pipelines.shape.ok_or(AureaError::RenderingFailed)?,
-                        buffers.shape,
-                        &viewport_scalars,
-                        from_ref(&binding.slot),
-                        start,
-                        count,
-                    );
-                    i += count as usize;
-                }
-                DrawRef::Gradient(start) => {
-                    let slot = self.gradient_slot(start);
-                    let count = coalesce_run(order, clips, i, |r, n| {
-                        *r == DrawRef::Gradient(start + n)
-                            && self.gradient_slot(start + n) == slot
-                            && same_mask(n)
-                    });
-                    Self::draw_run(
-                        cmd,
-                        pipelines.gradient.ok_or(AureaError::RenderingFailed)?,
-                        buffers.gradient,
-                        &viewport_scalars,
-                        &[binding.slot, slot],
-                        start,
-                        count,
-                    );
-                    i += count as usize;
-                }
-                DrawRef::Image(start) => {
-                    let slot = self.image_slot(start);
-                    let count = coalesce_run(order, clips, i, |r, n| {
-                        *r == DrawRef::Image(start + n)
-                            && self.image_slot(start + n) == slot
-                            && same_mask(n)
-                    });
-                    Self::draw_run(
-                        cmd,
-                        pipelines.image.ok_or(AureaError::RenderingFailed)?,
-                        buffers.image,
-                        &viewport_scalars,
-                        &[binding.slot, slot],
-                        start,
-                        count,
-                    );
-                    i += count as usize;
-                }
-                DrawRef::Text(start) => {
-                    let slot = self.text_slot(start);
-                    let count = coalesce_run(order, clips, i, |r, n| {
-                        *r == DrawRef::Text(start + n)
-                            && self.text_slot(start + n) == slot
-                            && same_mask(n)
-                    });
-                    Self::draw_run(
-                        cmd,
-                        pipelines.text.ok_or(AureaError::RenderingFailed)?,
-                        buffers.text,
-                        &viewport_scalars,
-                        &[binding.slot, slot],
-                        start,
-                        count,
-                    );
-                    i += count as usize;
-                }
-            }
+            let first = order[i];
+            let slot = self.draw_slot(first);
+            let count = coalesce_run(order, clips, i, |next, n| {
+                is_next_draw(first, *next, n)
+                    && self.draw_slot(*next) == slot
+                    && self.clip_masks.bindings.get(i + n as usize) == Some(&binding)
+            });
+            let (pipeline, buffer, width) = match first {
+                DrawRef::Rect(_) => (pipelines.rect, buffers.rect, 1),
+                DrawRef::Shape(_) => (pipelines.shape, buffers.shape, 1),
+                DrawRef::Gradient(_) => (pipelines.gradient, buffers.gradient, 2),
+                DrawRef::Image(_) => (pipelines.image, buffers.image, 2),
+                DrawRef::Text(_) => (pipelines.text, buffers.text, 2),
+            };
+            let pipeline = pipeline.ok_or(AureaError::RenderingFailed)?;
+            // Rects and shapes take only the clip mask; the other kinds also take their texture.
+            let textures = [binding.slot, slot];
+            Self::draw_run(
+                cmd,
+                pipeline,
+                buffer,
+                &viewport_scalars,
+                &textures[..width],
+                draw_index(first),
+                count,
+            );
+            i += count as usize;
         }
         Ok(())
+    }
+
+    /// The texture slot a draw samples besides the clip mask; rects and shapes have none.
+    fn draw_slot(&self, draw: DrawRef) -> u32 {
+        match draw {
+            DrawRef::Rect(_) | DrawRef::Shape(_) => 0,
+            DrawRef::Gradient(i) => self.gradient_slot(i),
+            DrawRef::Image(i) => self.image_slot(i),
+            DrawRef::Text(i) => self.text_slot(i),
+        }
     }
 }
 
 impl ZenGpuBackend {
+    fn release_buffers(&mut self, device: &NativeDevice) {
+        self.rect_buf.destroy(device);
+        self.shape_buf.destroy(device);
+        self.gradient_buf.destroy(device);
+        self.image_buf.destroy(device);
+        self.text_buf.destroy(device);
+    }
+
     fn upload(
         &mut self,
         width: u32,
@@ -1114,13 +1074,10 @@ impl Gpu2dBackend for ZenGpuBackend {
     }
 
     fn trim_memory(&mut self) {
-        let device = self.context.device();
+        let context = Arc::clone(&self.context);
+        let device = context.device();
         self.clip_masks.trim(device);
-        self.rect_buf.destroy(device);
-        self.shape_buf.destroy(device);
-        self.gradient_buf.destroy(device);
-        self.image_buf.destroy(device);
-        self.text_buf.destroy(device);
+        self.release_buffers(device);
         self.gradient_instances = Vec::new();
         self.image_instances = Vec::new();
         self.text_instances = Vec::new();
@@ -1306,18 +1263,7 @@ impl Gpu2dBackend for ZenGpuBackend {
             .prepare(device, plan, pipelines.clip_mask)
             .map_err(gpu_err)?;
 
-        if let Some(compact) =
-            smaller_buffer(self.gradient_instances.capacity(), plan.gradients.len())
-        {
-            self.gradient_instances = compact;
-        }
-        if let Some(compact) = smaller_buffer(self.image_instances.capacity(), plan.images.len()) {
-            self.image_instances = compact;
-        }
-        if let Some(compact) = smaller_buffer(self.text_instances.capacity(), plan.texts.len()) {
-            self.text_instances = compact;
-        }
-        self.gradient_instances.clear();
+        reset_vec(&mut self.gradient_instances, plan.gradients.len());
         self.gradient_instances
             .extend(plan.gradients.iter().map(|g| GradientInstance {
                 rect: g.rect,
@@ -1326,7 +1272,7 @@ impl Gpu2dBackend for ZenGpuBackend {
                 slot: g.slot,
                 _pad: [0; 3],
             }));
-        self.image_instances.clear();
+        reset_vec(&mut self.image_instances, plan.images.len());
         self.image_instances
             .extend(plan.images.iter().map(|i| ImageInstance {
                 rect: i.rect,
@@ -1337,7 +1283,7 @@ impl Gpu2dBackend for ZenGpuBackend {
                 slot: i.slot,
                 _pad: [0; 3],
             }));
-        self.text_instances.clear();
+        reset_vec(&mut self.text_instances, plan.texts.len());
         self.text_instances
             .extend(plan.texts.iter().map(|t| TextInstance {
                 rect: t.rect,
@@ -1459,7 +1405,8 @@ impl Gpu2dBackend for ZenGpuBackend {
 
 impl Drop for ZenGpuBackend {
     fn drop(&mut self) {
-        let device = self.context.device();
+        let context = Arc::clone(&self.context);
+        let device = context.device();
         let _ = device.wait_idle();
         self.clip_masks.destroy(device);
         if let Target::Offscreen(offscreen) = &mut self.target {
@@ -1468,11 +1415,7 @@ impl Drop for ZenGpuBackend {
         for (_, texture) in self.slot_textures.drain() {
             self.context.destroy_image(texture);
         }
-        self.rect_buf.destroy(device);
-        self.shape_buf.destroy(device);
-        self.gradient_buf.destroy(device);
-        self.image_buf.destroy(device);
-        self.text_buf.destroy(device);
+        self.release_buffers(device);
         device.destroy_sampler(self.sampler);
     }
 }
@@ -1485,6 +1428,14 @@ fn gpu_err(e: GpuError) -> AureaError {
             AureaError::ElementOperationFailed
         }
     }
+}
+
+/// Empties `items` for refilling with `needed` entries, shrinking it first if it holds far more.
+fn reset_vec<T>(items: &mut Vec<T>, needed: usize) {
+    if let Some(compact) = smaller_buffer(items.capacity(), needed) {
+        *items = compact;
+    }
+    items.clear();
 }
 
 pub(super) fn as_bytes<T: Copy>(slice: &[T]) -> &[u8] {

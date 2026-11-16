@@ -55,16 +55,115 @@ pub struct Gpu2dRenderer<B: Gpu2dBackend> {
     cpu_rgba: Vec<u8>,
     last_on_cpu: bool,
     warned_about_dropped: bool,
-    layers: Vec<CpuRasterizer>,
-    layer_lists: Vec<DisplayList>,
-    /// Position of each CPU run among the original frame's items.
-    layer_starts: Vec<usize>,
-    layer_images: Vec<Option<(Image, Rect)>>,
+    layers: CpuLayers,
+    presented: PresentedFrame,
+    timer: FrameTimer,
+}
+
+/// The CPU runs a frame is split into around its textures, with each run's cached image.
+#[derive(Default)]
+struct CpuLayers {
+    rasterizers: Vec<CpuRasterizer>,
+    /// Items of each run, in frame order.
+    lists: Vec<DisplayList>,
+    /// Index among the frame's items where each run starts.
+    starts: Vec<usize>,
+    /// The run's pixels and where they go; `None` when the run draws nothing.
+    images: Vec<Option<(Image, Rect)>>,
+    /// What is shown from the runs and textures, in order.
     composite: DisplayList,
-    presented: Vec<(CacheKey, Rect)>,
-    presented_target: Option<PresentedTarget>,
-    timing_enabled: bool,
-    timings: Option<GpuFrameTimings>,
+}
+
+impl CpuLayers {
+    fn release(&mut self) {
+        self.rasterizers.clear();
+        self.images.clear();
+        self.lists.clear();
+        self.starts.clear();
+        self.composite.clear();
+    }
+
+    /// Opens run `index` as an empty list. Runs after the first start transparent so textures
+    /// before them stay visible.
+    fn open_run(&mut self, index: usize) {
+        if self.lists.len() <= index {
+            self.lists.push(DisplayList::new());
+        }
+        let list = &mut self.lists[index];
+        list.clear();
+        if index > 0 {
+            list.push(plain_item(transparent_clear()));
+        }
+    }
+}
+
+/// What the last presented frame showed, so an identical frame is not presented again.
+#[derive(Default)]
+struct PresentedFrame {
+    target: Option<PresentedTarget>,
+    items: Vec<(CacheKey, Rect)>,
+}
+
+impl PresentedFrame {
+    fn matches(&self, target: PresentedTarget, items: &[DisplayItem]) -> bool {
+        self.target == Some(target)
+            && items.len() == self.items.len()
+            && items
+                .iter()
+                .zip(&self.items)
+                .all(|(item, &(key, bounds))| item.cache_key == key && item.bounds == bounds)
+    }
+
+    fn remember(&mut self, target: PresentedTarget, items: &[DisplayItem]) {
+        self.target = Some(target);
+        self.items.clear();
+        self.items
+            .extend(items.iter().map(|item| (item.cache_key, item.bounds)));
+    }
+}
+
+/// Host stage timers, off unless enabled. The sample covers the last `end_frame`.
+#[derive(Default)]
+struct FrameTimer {
+    enabled: bool,
+    sample: Option<GpuFrameTimings>,
+}
+
+/// The stage a timed span belongs to.
+#[derive(Clone, Copy)]
+enum Stage {
+    Cpu,
+    Resolve,
+    Present,
+}
+
+impl FrameTimer {
+    fn set_enabled(&mut self, enabled: bool) {
+        if self.enabled != enabled {
+            self.sample = None;
+        }
+        self.enabled = enabled;
+    }
+
+    fn begin_frame(&mut self) {
+        self.sample = self.enabled.then(GpuFrameTimings::default);
+    }
+
+    fn start(&self) -> Option<Instant> {
+        self.enabled.then(Instant::now)
+    }
+
+    fn stop(&mut self, started: Option<Instant>, stage: Stage) {
+        let (Some(started), Some(sample)) = (started, self.sample.as_mut()) else {
+            return;
+        };
+        let elapsed = started.elapsed();
+        match stage {
+            Stage::Cpu => sample.cpu = elapsed,
+            Stage::Resolve => sample.resolve = elapsed,
+            Stage::Present => sample.present = elapsed,
+        }
+    }
 }
 
 /// The target a presented frame was drawn to; any change to it means the frame must be presented again.
@@ -91,15 +190,9 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
             cpu: None,
             cpu_rgba: Vec::new(),
             last_on_cpu: false,
-            layers: Vec::new(),
-            layer_lists: Vec::new(),
-            layer_starts: Vec::new(),
-            layer_images: Vec::new(),
-            composite: DisplayList::new(),
-            presented: Vec::new(),
-            presented_target: None,
-            timing_enabled: false,
-            timings: None,
+            layers: CpuLayers::default(),
+            presented: PresentedFrame::default(),
+            timer: FrameTimer::default(),
             logical_width: width,
             logical_height: height,
             scale_factor: scale_factor.max(1.0),
@@ -123,36 +216,13 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
 
     /// Whether the display list draws exactly what the target already shows.
     fn matches_presented(&self) -> bool {
-        if self.presented_target != Some(self.target_now()) {
-            return false;
-        }
         let items = self.display_list.items();
         // An app texture can change in place under the same handle, so a frame drawing one is
         // always presented.
-        if items.iter().any(|item| {
-            matches!(
-                item.command,
-                DrawCommand::DrawTexture(..) | DrawCommand::DrawTextureQuad(..)
-            )
-        }) {
+        if items.iter().any(|item| is_texture(&item.command)) {
             return false;
         }
-        items.len() == self.presented.len()
-            && items
-                .iter()
-                .zip(&self.presented)
-                .all(|(item, &(key, bounds))| item.cache_key == key && item.bounds == bounds)
-    }
-
-    fn remember_presented(&mut self) {
-        self.presented_target = Some(self.target_now());
-        self.presented.clear();
-        self.presented.extend(
-            self.display_list
-                .items()
-                .iter()
-                .map(|item| (item.cache_key, item.bounds)),
-        );
+        self.presented.matches(self.target_now(), items)
     }
 
     /// What happens to a frame the backend cannot draw all of; by default it is drawn on the CPU
@@ -176,15 +246,12 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
     /// Enables host stage timers. Disabled by default to keep clock reads out of
     /// normal frames. Call between frames; the next `end_frame` creates a sample.
     pub fn set_gpu_timing_enabled(&mut self, enabled: bool) {
-        if self.timing_enabled != enabled {
-            self.timings = None;
-        }
-        self.timing_enabled = enabled;
+        self.timer.set_enabled(enabled);
     }
 
     /// Stage times of the last frame, if timing is on.
     pub fn gpu_frame_timings(&self) -> Option<GpuFrameTimings> {
-        self.timings
+        self.timer.sample
     }
 
     /// The kinds of drawing the last frame used that the backend lacks.
@@ -192,31 +259,26 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         self.backend.features().missing(self.batches.needs)
     }
 
+    fn has_textures_since_clear(&self) -> bool {
+        self.display_list
+            .items_since_clear()
+            .iter()
+            .any(|item| is_texture(&item.command))
+    }
+
     fn present_on_cpu(&mut self) -> AureaResult<FrameOutcome> {
-        let has_textures = self.display_list.items_since_clear().iter().any(|i| {
-            matches!(
-                i.command,
-                DrawCommand::DrawTexture(..) | DrawCommand::DrawTextureQuad(..)
-            )
-        });
-        if has_textures && self.backend.features().textures {
+        if self.has_textures_since_clear() && self.backend.features().textures {
             return self.present_layered();
         }
-        self.release_layers();
-        let started = self.timing_enabled.then(Instant::now);
-        let (lw, lh, scale) = (self.logical_width, self.logical_height, self.scale_factor);
+        self.layers.release();
+        let started = self.timer.start();
         let info = self.surface_info();
-        let cpu = self.cpu.get_or_insert_with(|| CpuRasterizer::new(lw, lh));
-        if cpu.logical_size() != (lw, lh)
-            || cpu.scale_factor() != scale
-            || cpu.pixel_size() != info.pixel_size()
-        {
-            cpu.configure(info)?;
-        }
+        let cpu = self
+            .cpu
+            .get_or_insert_with(|| CpuRasterizer::new(info.width, info.height));
+        configure_layer(cpu, &info)?;
         let outcome = cpu.render_recorded(&mut self.display_list)?;
-        if let (Some(started), Some(timings)) = (started, self.timings.as_mut()) {
-            timings.cpu = started.elapsed();
-        }
+        self.timer.stop(started, Stage::Cpu);
         if outcome == FrameOutcome::Unchanged && self.last_on_cpu {
             return Ok(FrameOutcome::Unchanged);
         }
@@ -225,146 +287,104 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         };
         let (width, height) = (frame.width, frame.height);
         let bgra = frame.bytes();
-        let started = self.timing_enabled.then(Instant::now);
+        let started = self.timer.start();
         let presented = if self.backend.accepts_pixel_format(PixelFormat::Bgra8) {
             self.backend
                 .present_pixels(bgra, PixelFormat::Bgra8, width, height)
         } else {
             if outcome != FrameOutcome::Unchanged || self.cpu_rgba.len() != bgra.len() {
-                if let Some(compact) = smaller_buffer(self.cpu_rgba.capacity(), bgra.len()) {
-                    self.cpu_rgba = compact;
-                }
-                self.cpu_rgba.clear();
-                self.cpu_rgba.reserve(bgra.len());
-                let (pixels, _) = bgra.as_chunks::<4>();
-                for &[b, g, r, a] in pixels {
-                    self.cpu_rgba.extend_from_slice(&[r, g, b, a]);
-                }
+                swizzle_into(&mut self.cpu_rgba, bgra);
             }
             self.backend
                 .present_pixels(&self.cpu_rgba, PixelFormat::Rgba8, width, height)
         };
         self.last_on_cpu = presented.as_ref().is_ok_and(|o| !o.needs_redraw());
-        if let (Some(started), Some(timings)) = (started, self.timings.as_mut()) {
-            timings.present = started.elapsed();
-        }
+        self.timer.stop(started, Stage::Present);
         presented
     }
 
     fn present_layered(&mut self) -> AureaResult<FrameOutcome> {
-        let started = self.timing_enabled.then(Instant::now);
+        let started = self.timer.start();
         self.split_at_textures();
-        self.layers.truncate(self.layer_lists.len());
-        self.layer_images.truncate(self.layer_lists.len());
-        let (lw, lh, scale) = (self.logical_width, self.logical_height, self.scale_factor);
-        while self.layers.len() < self.layer_lists.len() {
-            self.layers.push(CpuRasterizer::new(lw, lh));
-            self.layer_images.push(None);
+        let info = self.surface_info();
+        let runs = self.layers.lists.len();
+        self.layers.rasterizers.truncate(runs);
+        self.layers.images.truncate(runs);
+        while self.layers.rasterizers.len() < runs {
+            self.layers
+                .rasterizers
+                .push(CpuRasterizer::new(info.width, info.height));
+            self.layers.images.push(None);
         }
-        self.composite.clear();
+        self.layers.composite.clear();
         let mut textures = self
             .display_list
             .items_since_clear()
             .iter()
             .enumerate()
-            .filter(|(_, i)| {
-                matches!(
-                    i.command,
-                    DrawCommand::DrawTexture(..) | DrawCommand::DrawTextureQuad(..)
-                )
-            })
+            .filter(|(_, item)| is_texture(&item.command))
             .peekable();
-        for (k, list) in self.layer_lists.iter_mut().enumerate() {
-            while let Some((_, texture)) = textures.next_if(|(at, _)| *at < self.layer_starts[k]) {
-                self.composite.push(texture.clone());
+        for k in 0..runs {
+            let start = self.layers.starts[k];
+            while let Some((_, texture)) = textures.next_if(|(at, _)| *at < start) {
+                self.layers.composite.push(texture.clone());
             }
-            let layer = &mut self.layers[k];
-            let info = SurfaceInfo {
-                width: lw,
-                height: lh,
-                scale_factor: scale,
-                pixels: self.pixels,
-            };
-            if layer.logical_size() != (lw, lh)
-                || layer.scale_factor() != scale
-                || layer.pixel_size() != info.pixel_size()
-            {
-                layer.configure(info)?;
-            }
-            let kept = &mut self.layer_images[k];
-            if layer.render_recorded(list)? != FrameOutcome::Unchanged || kept.is_none() {
-                *kept = layer_image(layer, list);
+            let list = &mut self.layers.lists[k];
+            let rasterizer = &mut self.layers.rasterizers[k];
+            let kept = &mut self.layers.images[k];
+            configure_layer(rasterizer, &info)?;
+            if rasterizer.render_recorded(list)? != FrameOutcome::Unchanged || kept.is_none() {
+                *kept = layer_image(rasterizer, list);
             }
             if let Some((image, at)) = kept.clone() {
-                self.composite.push(plain_item(DrawCommand::DrawImageRect(
-                    image,
-                    at,
-                    Sampling::Nearest,
-                )));
+                self.layers
+                    .composite
+                    .push(plain_item(DrawCommand::DrawImageRect(
+                        image,
+                        at,
+                        Sampling::Nearest,
+                    )));
             }
         }
         for (_, texture) in textures {
-            self.composite.push(texture.clone());
+            self.layers.composite.push(texture.clone());
         }
-        if let (Some(started), Some(timings)) = (started, self.timings.as_mut()) {
-            timings.cpu = started.elapsed();
-        }
+        self.timer.stop(started, Stage::Cpu);
         self.last_on_cpu = false;
-        self.batches.lower_into(&self.composite);
+        self.batches.lower_into(&self.layers.composite);
         self.present_batches()
     }
 
+    /// Splits the frame's items into CPU runs, cut at the textures.
     fn split_at_textures(&mut self) {
-        let mut count = 0;
-        self.layer_starts.clear();
-        let start_layer = |lists: &mut Vec<DisplayList>, count: &mut usize| {
-            if lists.len() <= *count {
-                lists.push(DisplayList::new());
-            }
-            let list = &mut lists[*count];
-            list.clear();
-            if *count > 0 {
-                list.push(plain_item(DrawCommand::Clear(Color::rgba(0, 0, 0, 0))));
-            }
-            *count += 1;
-        };
+        self.layers.starts.clear();
+        let mut runs = 0;
         let mut needs_layer = true;
-        // What the open layer would go under if more joined it. An item clear of all these can
-        // join, so tiles with labels between them cost one layer and not one each.
+        // What the open run would go under if more joined it. An item clear of all these can
+        // join, so tiles with labels between them cost one run and not one each.
         let mut textures_since: Vec<Rect> = Vec::new();
         for (at, item) in self.display_list.items_since_clear().iter().enumerate() {
-            if matches!(
-                item.command,
-                DrawCommand::DrawTexture(..) | DrawCommand::DrawTextureQuad(..)
-            ) {
+            if is_texture(&item.command) {
                 textures_since.push(item.bounds);
                 needs_layer = true;
-            } else {
-                let joins = count > 0 && clear_of(item.bounds, &textures_since);
-                if needs_layer && !joins {
-                    textures_since.clear();
-                    start_layer(&mut self.layer_lists, &mut count);
-                    // Even the first CPU run needs a transparent background if textures
-                    // precede it; otherwise its default clear would cover those textures.
-                    if count == 1 && at > 0 {
-                        self.layer_lists[0]
-                            .push(plain_item(DrawCommand::Clear(Color::rgba(0, 0, 0, 0))));
-                    }
-                    self.layer_starts.push(at);
-                    needs_layer = false;
-                }
-                self.layer_lists[count - 1].push(item.clone());
+                continue;
             }
+            let joins = runs > 0 && clear_of(item.bounds, &textures_since);
+            if needs_layer && !joins {
+                textures_since.clear();
+                self.layers.open_run(runs);
+                runs += 1;
+                // Even the first CPU run needs a transparent background if textures
+                // precede it; otherwise its default clear would cover those textures.
+                if runs == 1 && at > 0 {
+                    self.layers.lists[0].push(plain_item(transparent_clear()));
+                }
+                self.layers.starts.push(at);
+                needs_layer = false;
+            }
+            self.layers.lists[runs - 1].push(item.clone());
         }
-        self.layer_lists.truncate(count);
-    }
-
-    fn release_layers(&mut self) {
-        self.layers.clear();
-        self.layer_images.clear();
-        self.layer_lists.clear();
-        self.layer_starts.clear();
-        self.composite.clear();
+        self.layers.lists.truncate(runs);
     }
 
     fn present_batches(&mut self) -> AureaResult<FrameOutcome> {
@@ -372,7 +392,7 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
         self.frame_plan.viewport_width = pw;
         self.frame_plan.viewport_height = ph;
         let fc = self.frame_counter;
-        let started = self.timing_enabled.then(Instant::now);
+        let started = self.timer.start();
         let resolved = resolve_frame(
             &self.batches,
             &mut self.texture_cache,
@@ -380,20 +400,21 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
             fc,
             &mut self.frame_plan,
         );
-        if let (Some(started), Some(timings)) = (started, self.timings.as_mut()) {
-            timings.resolve = started.elapsed();
-        }
-        let presented = resolved.and_then(|()| {
-            let started = self.timing_enabled.then(Instant::now);
-            let rects = &self.batches.rects;
-            let shapes = &self.batches.shapes;
-            let result = self.backend.present_frame(&self.frame_plan, rects, shapes);
-            if let (Some(started), Some(timings)) = (started, self.timings.as_mut()) {
-                timings.present = started.elapsed();
-            }
-            result
-        });
+        self.timer.stop(started, Stage::Resolve);
+        let presented = match resolved {
+            Ok(()) => self.present_resolved(),
+            Err(e) => Err(e),
+        };
         recover(presented)
+    }
+
+    fn present_resolved(&mut self) -> AureaResult<FrameOutcome> {
+        let started = self.timer.start();
+        let result =
+            self.backend
+                .present_frame(&self.frame_plan, &self.batches.rects, &self.batches.shapes);
+        self.timer.stop(started, Stage::Present);
+        result
     }
 
     /// Shared access to the device backend (for backend-specific extensions such as engine-side
@@ -412,21 +433,17 @@ impl<B: Gpu2dBackend> Gpu2dRenderer<B> {
     /// uploads and rebuilds what it draws.
     pub fn trim_memory(&mut self) {
         self.display_list.trim_memory();
-        self.release_layers();
+        self.layers.release();
         self.cpu_rgba = Vec::new();
         self.frame_plan = FramePlan::new();
-        let needs = self.batches.needs;
-        self.batches = RenderBatches::default();
-        self.batches.needs = needs;
+        self.batches.trim_memory();
         self.texture_cache.prune_dropped(&mut self.backend);
         self.texture_cache
             .trim_unpinned(&mut self.backend, self.frame_counter);
-        if self.last_on_cpu {
-            if let Some(cpu) = &mut self.cpu {
-                cpu.trim_memory();
-            }
-        } else {
+        if !self.last_on_cpu {
             self.cpu = None;
+        } else if let Some(cpu) = self.cpu.as_mut() {
+            cpu.trim_memory();
         }
         self.backend.trim_memory();
     }
@@ -498,9 +515,9 @@ impl<B: Gpu2dBackend> Renderer for Gpu2dRenderer<B> {
     }
 
     fn end_frame(&mut self) -> AureaResult<FrameOutcome> {
-        self.timings = self.timing_enabled.then(GpuFrameTimings::default);
+        self.timer.begin_frame();
         if self.suspended() {
-            self.presented_target = None;
+            self.presented.target = None;
             return Ok(FrameOutcome::Suspended);
         }
         if self.matches_presented() {
@@ -512,7 +529,7 @@ impl<B: Gpu2dBackend> Renderer for Gpu2dRenderer<B> {
         let presented = if !missing.is_empty() && self.fallback == Fallback::CpuFrame {
             self.present_on_cpu()
         } else {
-            self.release_layers();
+            self.layers.release();
             self.last_on_cpu = false;
             self.report_dropped();
             self.present_batches()
@@ -524,9 +541,12 @@ impl<B: Gpu2dBackend> Renderer for Gpu2dRenderer<B> {
                 .finish_frame(&mut self.backend, self.frame_counter);
         }
         match &presented {
-            Ok(FrameOutcome::Presented) => self.remember_presented(),
+            Ok(FrameOutcome::Presented) => {
+                let target = self.target_now();
+                self.presented.remember(target, self.display_list.items());
+            }
             Ok(FrameOutcome::Unchanged) => {}
-            _ => self.presented_target = None,
+            _ => self.presented.target = None,
         }
         presented
     }
@@ -582,6 +602,41 @@ fn plain_item(command: DrawCommand) -> DisplayItem {
     )
 }
 
+fn transparent_clear() -> DrawCommand {
+    DrawCommand::Clear(Color::rgba(0, 0, 0, 0))
+}
+
+fn is_texture(command: &DrawCommand) -> bool {
+    matches!(
+        command,
+        DrawCommand::DrawTexture(..) | DrawCommand::DrawTextureQuad(..)
+    )
+}
+
+/// Brings a layer's surface in line with `info`, configuring it only when it changed.
+fn configure_layer(rasterizer: &mut CpuRasterizer, info: &SurfaceInfo) -> AureaResult<()> {
+    let same = rasterizer.logical_size() == (info.width, info.height)
+        && rasterizer.scale_factor() == info.scale_factor
+        && rasterizer.pixel_size() == info.pixel_size();
+    if same {
+        return Ok(());
+    }
+    rasterizer.configure(info.clone())
+}
+
+/// Converts the CPU frame's BGRA into `dst` as RGBA, reusing `dst`'s storage.
+fn swizzle_into(dst: &mut Vec<u8>, bgra: &[u8]) {
+    if let Some(compact) = smaller_buffer(dst.capacity(), bgra.len()) {
+        *dst = compact;
+    }
+    dst.clear();
+    dst.reserve(bgra.len());
+    let (pixels, _) = bgra.as_chunks::<4>();
+    for &[b, g, r, a] in pixels {
+        dst.extend_from_slice(&[r, g, b, a]);
+    }
+}
+
 /// Same pad as the rasterizer's item clip.
 const LAYER_PAD: f32 = 3.0;
 
@@ -609,7 +664,6 @@ fn layer_extent(list: &DisplayList, width: u32, height: u32) -> Option<(u32, u32
     Some((x, y, right.saturating_sub(x), bottom.saturating_sub(y)))
 }
 
-/// Cropped RGBA of `layer`, and where it goes.
 /// Whether `bounds`, with room for its antialiasing, touches none of `rects`.
 fn clear_of(bounds: Rect, rects: &[Rect]) -> bool {
     const REACH: f32 = 3.0;
@@ -624,6 +678,7 @@ fn clear_of(bounds: Rect, rects: &[Rect]) -> bool {
     })
 }
 
+/// Cropped RGBA of `layer` as drawn by `list`, and where it goes.
 fn layer_image(layer: &CpuRasterizer, list: &DisplayList) -> Option<(Image, Rect)> {
     let frame = layer.frame_output()?;
     let (x, y, width, height) =
@@ -960,37 +1015,37 @@ mod tests {
         };
         draw(&mut r, true, true);
         assert_eq!(
-            r.layers.len(),
+            r.layers.rasterizers.len(),
             1,
             "no full-frame surfaces between adjacent tiles, or over what is clear of them"
         );
         assert_eq!(r.backend().uploads, 1);
-        assert_eq!(r.composite.len(), 151);
+        assert_eq!(r.layers.composite.len(), 151);
         assert!(matches!(
-            r.composite.items()[0].command,
+            r.layers.composite.items()[0].command,
             DrawCommand::DrawImageRect(..)
         ));
         assert!(
-            r.composite.items()[1..151]
+            r.layers.composite.items()[1..151]
                 .iter()
                 .all(|i| matches!(i.command, DrawCommand::DrawTexture(..)))
         );
         draw(&mut r, false, true);
-        assert_eq!(r.layers.len(), 1);
+        assert_eq!(r.layers.rasterizers.len(), 1);
         assert!(matches!(
-            r.composite.items()[0].command,
+            r.layers.composite.items()[0].command,
             DrawCommand::DrawTexture(..)
         ));
-        let (image, _) = r.layer_images[0].as_ref().expect("overlay image");
+        let (image, _) = r.layers.images[0].as_ref().expect("overlay image");
         assert_eq!(
             &image.data[..4],
             &[0, 0, 0, 0],
             "overlay preserves preceding tiles"
         );
         draw(&mut r, true, false);
-        assert_eq!(r.layers.len(), 1, "no empty trailing surface");
+        assert_eq!(r.layers.rasterizers.len(), 1, "no empty trailing surface");
         assert!(matches!(
-            r.composite.items()[150].command,
+            r.layers.composite.items()[150].command,
             DrawCommand::DrawTexture(..)
         ));
     }
@@ -1031,10 +1086,10 @@ mod tests {
             assert_eq!(r.end_frame().expect("end"), FrameOutcome::Presented);
         };
         draw(&mut r, 40.0);
-        assert_eq!(r.layers.len(), 1, "no label touches a tile");
+        assert_eq!(r.layers.rasterizers.len(), 1, "no label touches a tile");
         draw(&mut r, 5.0);
         assert_eq!(
-            r.layers.len(),
+            r.layers.rasterizers.len(),
             20,
             "each label over its tile stays above it"
         );
@@ -1090,7 +1145,7 @@ mod tests {
             2,
             "unchanged layers are not uploaded again"
         );
-        assert_eq!(r.layers.len(), 2);
+        assert_eq!(r.layers.rasterizers.len(), 2);
         {
             r.begin_frame()
                 .expect("begin")
@@ -1098,8 +1153,8 @@ mod tests {
                 .expect("rect");
         }
         r.end_frame().expect("GPU frame");
-        assert!(r.layers.is_empty() && r.layer_images.is_empty());
-        assert!(r.layer_lists.is_empty() && r.composite.items().is_empty());
+        assert!(r.layers.rasterizers.is_empty() && r.layers.images.is_empty());
+        assert!(r.layers.lists.is_empty() && r.layers.composite.items().is_empty());
     }
 
     #[test]
@@ -1142,14 +1197,14 @@ mod tests {
             .expect("texture");
         }
         r.end_frame().expect("layered frame");
-        assert_eq!(r.layers.len(), 1);
+        assert_eq!(r.layers.rasterizers.len(), 1);
         assert_eq!(
             cpu_frame(&mut r),
             FrameOutcome::Presented,
             "layered pixels must be replaced"
         );
         assert_eq!(r.backend().pixels.len(), 2);
-        assert!(r.layers.is_empty() && r.layer_images.is_empty());
+        assert!(r.layers.rasterizers.is_empty() && r.layers.images.is_empty());
         assert_eq!(
             cpu_frame(&mut r),
             FrameOutcome::Unchanged,
@@ -1192,11 +1247,11 @@ mod tests {
             r.end_frame().expect("layered frame");
         };
         draw(&mut r, 2);
-        assert_eq!(r.layers.len(), 2);
-        let old_image = Arc::downgrade(&r.layer_images[1].as_ref().expect("last layer").0.data);
+        assert_eq!(r.layers.rasterizers.len(), 2);
+        let old_image = Arc::downgrade(&r.layers.images[1].as_ref().expect("last layer").0.data);
         draw(&mut r, 1);
-        assert_eq!(r.layers.len(), 1);
-        assert_eq!(r.layer_images.len(), 1);
+        assert_eq!(r.layers.rasterizers.len(), 1);
+        assert_eq!(r.layers.images.len(), 1);
         assert!(
             old_image.upgrade().is_none(),
             "unused layer pixels should not remain cached"
@@ -1418,7 +1473,7 @@ mod tests {
         }
         assert_eq!(r.end_frame().expect("end"), FrameOutcome::Presented);
         assert_eq!(r.backend().bound, 0);
-        assert!(r.layers.is_empty());
+        assert!(r.layers.rasterizers.is_empty());
         assert_eq!(
             r.backend().pixels,
             vec![(100, 50, PixelFormat::Rgba8, [220, 20, 60, 255])]
