@@ -233,6 +233,8 @@ fn needs_of(item: &DisplayItem) -> GpuFeatures {
         DrawCommand::Clear(_) | DrawCommand::DrawRect(..) | DrawCommand::DrawColumns(..) => {
             GpuFeatures::NONE
         }
+        // Not drawn on the GPU yet: the shape shows what is under it unchanged.
+        DrawCommand::Backdrop(..) => GpuFeatures::NONE,
         DrawCommand::DrawRoundRect(..) | DrawCommand::DrawShadow(..) => GpuFeatures {
             rounded_rects: true,
             ..GpuFeatures::NONE
@@ -517,6 +519,7 @@ impl RenderBatches {
                     let color = fade(*color, alpha);
                     self.push_shape(ShapeInstance::shadow(*rect, *radius, *blur, color));
                 }
+                DrawCommand::Backdrop(..) => {}
                 DrawCommand::DrawPath(path, paint) => {
                     self.push_path(item, path, paint, alpha);
                 }

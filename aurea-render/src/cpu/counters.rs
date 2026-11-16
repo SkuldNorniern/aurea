@@ -48,6 +48,7 @@ impl CommandKind {
                 Self::Gradient
             }
             DrawCommand::DrawShadow(..) => Self::Shadow,
+            DrawCommand::Backdrop(..) => Self::Image,
             DrawCommand::DrawTexture(..) | DrawCommand::DrawTextureQuad(..) => Self::Other,
         }
     }

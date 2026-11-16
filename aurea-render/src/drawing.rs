@@ -1,5 +1,6 @@
 //! The drawing contract: what a draw callback can ask of a canvas.
 
+use crate::effect::Effect;
 use crate::text::TextLayout;
 use crate::types::{
     BlendMode, Color, Font, GpuTexture, Image, LinearGradient, Paint, PaintStyle, Path,
@@ -192,6 +193,13 @@ pub trait DrawingContext {
 
     /// Fill with a radial gradient.
     fn fill_radial_gradient(&mut self, gradient: &RadialGradient, rect: Rect) -> AureaResult<()>;
+
+    /// Runs `effects` on what is already drawn under `shape`: blur and tint it for glass. A
+    /// backend that cannot does nothing, so the shape shows what is under it as it is.
+    fn backdrop(&mut self, shape: &Path, effects: &[Effect]) -> AureaResult<()> {
+        let _ = (shape, effects);
+        Ok(())
+    }
 
     /// Fills `path` with `gradient`, clipped to its outline.
     fn fill_path_linear_gradient(

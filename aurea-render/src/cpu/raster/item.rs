@@ -29,6 +29,18 @@ pub(crate) fn render(
         return Ok(());
     }
     match &item.command {
+        DrawCommand::Backdrop(bounds, effects) => {
+            // a whole frame's buffer: every row an effect reads is here
+            let rows = u32::try_from(buf.len()).unwrap_or(u32::MAX) / bw.max(1);
+            super::effect::apply(
+                effects,
+                *bounds,
+                buf,
+                (bw, rows),
+                clip,
+                &mut scratch_row.effect,
+            );
+        }
         DrawCommand::DrawColumns(x, wide, spans, color) => {
             let paint = Paint::new().color(pixel::fade_color(*color, alpha));
             // A column past the clip costs nothing but this step.

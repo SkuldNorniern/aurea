@@ -14,9 +14,11 @@ use crate::cpu::tiles::{
     mark_tile_range_dirty, tile_grid_dims, tile_range, union_dirty_tile_rects,
 };
 use crate::cpu::{pool, stroke};
+use crate::effect::Effect;
 use crate::memory::smaller_buffer;
 use crate::recording::RecordingContext;
 use crate::renderer::{DrawingContext, FrameOutcome, FrameOutput, Renderer};
+use crate::scene::command::DrawCommand;
 use crate::scene::display_list::{CacheKey, DisplayItem, DisplayList};
 use crate::surface::{Surface, SurfaceInfo};
 use crate::types::{Color, Rect};
@@ -491,6 +493,28 @@ impl Renderer for CpuRasterizer {
     }
 }
 
+/// `damage` grown over every backdrop whose reach it touches: the box it writes must be drawn
+/// whole, since each pixel of it reads the pixels around.
+fn grow_over_backdrops(items: &[DisplayItem], damage: Rect) -> Rect {
+    let mut grown = damage;
+    for item in items {
+        let DrawCommand::Backdrop(bounds, effects) = &item.command else {
+            continue;
+        };
+        let reach: f32 = effects.iter().map(Effect::reach).sum();
+        let read = Rect::new(
+            bounds.x - reach,
+            bounds.y - reach,
+            bounds.width + 2.0 * reach,
+            bounds.height + 2.0 * reach,
+        );
+        if read.intersects(grown) {
+            grown = grown.union(*bounds);
+        }
+    }
+    grown
+}
+
 impl CpuRasterizer {
     fn render_frame(&mut self, counters: Option<&mut FrameCounters>) -> AureaResult<FrameOutcome> {
         let mut tally = Tally(counters);
@@ -527,7 +551,10 @@ impl CpuRasterizer {
 
         let mut dirty_tiles = dirty_tiles;
         if let Some(region) = self.last_frame_damage {
-            mark_tile_range_dirty(region, tiles_x, tiles_y, &mut dirty_tiles);
+            // a backdrop reads around its box, so any change it reads repaints all of it
+            let grown = grow_over_backdrops(self.display_list.items(), region);
+            self.last_frame_damage = Some(grown);
+            mark_tile_range_dirty(grown, tiles_x, tiles_y, &mut dirty_tiles);
         }
         tally.set_dirty_tiles(&dirty_tiles);
 
@@ -552,28 +579,56 @@ impl CpuRasterizer {
             last_clear,
             dims: (tiles_x, tiles_y, bw, bh),
             clip: surface_clip,
+            range: 0..0,
         };
         let bands = self.band_count(surface_clip);
-        let drawn = if bands <= 1 {
-            plan.draw(
+        // Bands run apart, but a backdrop reads across their edges: draw up to it in bands, then it
+        // on the whole frame, then on.
+        let mut start = 0;
+        loop {
+            let backdrop = items[start..]
+                .iter()
+                .position(|item| matches!(item.command, DrawCommand::Backdrop(..)))
+                .map(|at| start + at);
+            let end = backdrop.unwrap_or(items.len());
+            let segment = FramePlan {
+                range: start..end,
+                ..plan.clone()
+            };
+            if bands <= 1 || backdrop.is_some_and(|at| at == start) {
+                segment.draw(
+                    &mut Band::whole(&mut self.frame_buffer),
+                    &mut self.scratch_path,
+                    &mut self.scratch_row,
+                    &mut tally,
+                )?;
+            } else {
+                self.band_scratch
+                    .resize_with(bands - 1, BandScratch::default);
+                let first = (&mut self.scratch_path, &mut self.scratch_row);
+                draw_bands(
+                    &segment,
+                    bands,
+                    &mut self.frame_buffer,
+                    first,
+                    &mut self.band_scratch,
+                )?;
+            }
+            let Some(at) = backdrop else {
+                break;
+            };
+            let effect = FramePlan {
+                range: at..at + 1,
+                ..plan.clone()
+            };
+            effect.draw(
                 &mut Band::whole(&mut self.frame_buffer),
                 &mut self.scratch_path,
                 &mut self.scratch_row,
                 &mut tally,
-            )
-        } else {
-            self.band_scratch
-                .resize_with(bands - 1, BandScratch::default);
-            let first = (&mut self.scratch_path, &mut self.scratch_row);
-            draw_bands(
-                &plan,
-                bands,
-                &mut self.frame_buffer,
-                first,
-                &mut self.band_scratch,
-            )
-        };
-        drawn?;
+            )?;
+            start = at + 1;
+        }
 
         self.scratch_occluded = occluded;
         self.scratch_dirty = dirty_tiles;

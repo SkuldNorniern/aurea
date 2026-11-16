@@ -2,6 +2,7 @@
 //! run draws every item in order, so the pixels match one thread's.
 
 use std::iter;
+use std::ops::Range;
 
 use aurea_foundation::{AureaError, AureaResult};
 
@@ -32,7 +33,7 @@ pub(super) struct BandScratch {
 }
 
 /// What every band of a frame reads.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(super) struct FramePlan<'f> {
     pub(super) items: &'f [DisplayItem],
     pub(super) occluded: &'f [bool],
@@ -41,6 +42,8 @@ pub(super) struct FramePlan<'f> {
     pub(super) last_clear: Option<usize>,
     pub(super) dims: (u32, u32, u32, u32),
     pub(super) clip: ClipBox,
+    /// The items this pass draws.
+    pub(super) range: Range<usize>,
 }
 
 impl FramePlan<'_> {
@@ -61,7 +64,8 @@ impl FramePlan<'_> {
         tally: &mut Tally<'_>,
     ) -> AureaResult<()> {
         let (tiles_x, tiles_y, bw, bh) = self.dims;
-        for (i, item) in self.items.iter().enumerate() {
+        for i in self.range.clone() {
+            let item = &self.items[i];
             if let DrawCommand::Clear(color) = &item.command {
                 let started = tally.start();
                 let (color, clip) = (
@@ -134,6 +138,7 @@ pub(super) fn draw_bands(
                     y1: top + height,
                     ..plan.clip
                 },
+                range: plan.range.clone(),
                 ..*plan
             };
             let start = top as usize * width;

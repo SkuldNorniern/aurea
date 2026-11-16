@@ -1,5 +1,8 @@
 //! Draw commands shared between display list and rasterizer.
 
+use std::sync::Arc;
+
+use crate::effect::Effect;
 use crate::types::{
     Color, GlyphMask, GpuTexture, Image, LinearGradient, Paint, Path, Point, RadialGradient, Rect,
     Sampling,
@@ -10,6 +13,8 @@ use crate::types::{
 pub enum DrawCommand {
     /// Fills the surface with a color.
     Clear(Color),
+    /// What is drawn under the item's clip path, inside this box, run through these effects.
+    Backdrop(Rect, Arc<[Effect]>),
     /// Rect filled or stroked with a paint.
     DrawRect(Rect, Paint),
     /// A rect with corners of the given radius; a stroke is centred on the outline.

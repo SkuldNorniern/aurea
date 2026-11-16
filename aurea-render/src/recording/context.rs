@@ -1,5 +1,6 @@
 //! Records draw calls into a display list.
 
+use crate::effect::Effect;
 use crate::renderer::DrawingContext;
 use crate::scene::command::{DrawCommand, quad_bounds};
 use crate::scene::display_list::{CacheKey, DisplayIndex, DisplayItem, DisplayList};
@@ -603,6 +604,7 @@ impl<'list> RecordingContext<'list> {
                 paint.style.hash(&mut hasher);
                 paint.stroke_width.to_bits().hash(&mut hasher);
             }
+            DrawCommand::Backdrop(rect, effects) => hash_backdrop(*rect, effects, &mut hasher),
             DrawCommand::DrawShadow(rect, radius, blur, color) => {
                 "DrawShadow".hash(&mut hasher);
                 for v in [rect.x, rect.y, rect.width, rect.height, *radius, *blur] {
@@ -797,6 +799,7 @@ impl<'list> RecordingContext<'list> {
                 }
                 bounds
             }
+            DrawCommand::Backdrop(rect, _) => *rect,
             DrawCommand::DrawShadow(rect, _, blur, _) => {
                 let reach = blur * 3.0;
                 Rect::new(
@@ -1037,6 +1040,28 @@ impl DrawingContext for RecordingContext<'_> {
             color,
         ));
         Ok(())
+    }
+
+    fn backdrop(&mut self, shape: &Path, effects: &[Effect]) -> AureaResult<()> {
+        let Some(bounds) = shape.bounds() else {
+            return Ok(());
+        };
+        if effects.is_empty() {
+            return Ok(());
+        }
+        let effects: Arc<[Effect]> = effects
+            .iter()
+            .map(|effect| match effect {
+                Effect::Blur(radius) => Effect::Blur(self.s(*radius)),
+                other => other.clone(),
+            })
+            .collect();
+        self.save()?;
+        let recorded = self.clip_path(shape).map(|()| {
+            self.add_command(DrawCommand::Backdrop(self.s_rect(bounds), effects));
+        });
+        self.restore()?;
+        recorded
     }
 
     fn draw_circle(&mut self, center: Point, radius: f32, paint: &Paint) -> AureaResult<()> {
@@ -1320,6 +1345,17 @@ impl DrawingContext for RecordingContext<'_> {
 
     fn hit_test_path(&mut self, path: &Path, point: Point) -> AureaResult<bool> {
         Ok(hit_test_path(path, point))
+    }
+}
+
+/// A backdrop's box and effects, into `hasher`.
+fn hash_backdrop(rect: Rect, effects: &[Effect], hasher: &mut DefaultHasher) {
+    "Backdrop".hash(hasher);
+    for v in [rect.x, rect.y, rect.width, rect.height] {
+        v.to_bits().hash(hasher);
+    }
+    for effect in effects {
+        format!("{effect:?}").hash(hasher);
     }
 }
 

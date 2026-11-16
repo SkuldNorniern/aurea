@@ -5,6 +5,7 @@
 #![cfg_attr(target_os = "android", allow(clippy::missing_const_for_thread_local))]
 
 mod drawing;
+mod effect;
 mod frame;
 mod geometry;
 mod gpu;
@@ -28,6 +29,7 @@ pub mod vector;
 
 pub use capabilities::{Fallback, GpuFeatures};
 pub use cpu::{CommandKind, CpuRasterizer, FrameCounters, KindTiming, RgbaPixels};
+pub use effect::{BackdropFilter, BackdropPixels, Effect};
 pub use gpu::batch::{
     DrawRef, GradientInstance, ImageDraw, RectInstance, RenderBatches, ShapeInstance, TextDraw,
 };
