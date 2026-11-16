@@ -62,7 +62,7 @@ static int box_padding(HWND box) {
     if (set >= 0) return set;
     HWND parent = GetParent(box);
     if (parent && (ng_windows_window_state(parent) ||
-                   GetPropA(parent, SPLIT_VIEW_OLD_PROC_PROP) || ng_windows_is_scroll_view(parent))) {
+                   ng_windows_is_split_view(parent) || ng_windows_is_scroll_view(parent))) {
         return ng_windows_px(box, PADDING);
     }
     return 0;

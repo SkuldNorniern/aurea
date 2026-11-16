@@ -1,11 +1,12 @@
 #include "common.h"
 #include "../elements.h"
+#include "../utils.h"
 #include "common/errors.h"
 #include <windows.h>
 #include <windowsx.h>
 #include <stdlib.h>
-#include <string.h>
 
+#define SPLIT_VIEW_SUBCLASS_ID 1
 #define SPLIT_VIEW_MIN_PANE 50
 #define SPLIT_VIEW_DIVIDER 6
 
@@ -17,157 +18,159 @@ typedef struct {
     int dragging;
     HWND child1;
     HWND child2;
-} SplitViewData;
+} SplitViewState;
+
+static LRESULT CALLBACK split_view_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                        UINT_PTR id, DWORD_PTR data);
+
+static SplitViewState* split_state(HWND hwnd) {
+    DWORD_PTR data = 0;
+    return ng_windows_get_subclass(hwnd, split_view_proc, SPLIT_VIEW_SUBCLASS_ID, &data)
+               ? (SplitViewState*)data
+               : NULL;
+}
 
 static int clamp_divider(int pos, int total, int min_pane) {
     if (total <= 0) return 0;
-    if (total < min_pane * 2) {
-        return total / 2;
-    }
+    if (total < min_pane * 2) return total / 2;
     if (pos < min_pane) return min_pane;
     if (pos > total - min_pane) return total - min_pane;
     return pos;
 }
 
-static void split_view_layout(HWND hwnd, SplitViewData* data) {
-    if (!data) return;
-
+static void split_view_layout(HWND hwnd, SplitViewState* s) {
     RECT rect;
     if (!GetClientRect(hwnd, &rect)) return;
-
     int width = rect.right - rect.left;
     int height = rect.bottom - rect.top;
     if (width <= 0 || height <= 0) return;
 
-    if (!data->child1 && !data->child2) {
-        return;
-    }
-
-    if (!data->child2) {
-        if (data->child1) {
-            SetWindowPos(data->child1, NULL, 0, 0, width, height,
-                         SWP_NOZORDER | SWP_NOACTIVATE);
+    if (!s->child2) {
+        if (s->child1) {
+            SetWindowPos(s->child1, NULL, 0, 0, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
         }
         return;
     }
 
     int bar = ng_windows_px(hwnd, SPLIT_VIEW_DIVIDER);
-    int total = data->is_vertical ? height : width;
-    int pos = data->divider_pos;
-    if (pos <= 0) {
-        pos = (total - bar) / 2;
-    }
+    int total = s->is_vertical ? height : width;
+    int pos = s->divider_pos;
+    if (pos <= 0) pos = (total - bar) / 2;
     pos = clamp_divider(pos, total - bar, ng_windows_px(hwnd, SPLIT_VIEW_MIN_PANE));
-    data->shown = pos;
+    s->shown = pos;
 
-    if (data->is_vertical) {
-        SetWindowPos(data->child1, NULL, 0, 0, width, pos,
-                     SWP_NOZORDER | SWP_NOACTIVATE);
-        SetWindowPos(data->child2, NULL, 0, pos + bar, width, height - pos - bar,
+    if (s->is_vertical) {
+        SetWindowPos(s->child1, NULL, 0, 0, width, pos, SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(s->child2, NULL, 0, pos + bar, width, height - pos - bar,
                      SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS);
     } else {
-        SetWindowPos(data->child1, NULL, 0, 0, pos, height,
-                     SWP_NOZORDER | SWP_NOACTIVATE);
-        SetWindowPos(data->child2, NULL, pos + bar, 0, width - pos - bar, height,
+        SetWindowPos(s->child1, NULL, 0, 0, pos, height, SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(s->child2, NULL, pos + bar, 0, width - pos - bar, height,
                      SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS);
     }
 }
 
-static int along(SplitViewData* data, LPARAM lParam) {
-    return data->is_vertical ? GET_Y_LPARAM(lParam) : GET_X_LPARAM(lParam);
+static int along(const SplitViewState* s, LPARAM lParam) {
+    return s->is_vertical ? GET_Y_LPARAM(lParam) : GET_X_LPARAM(lParam);
 }
 
-static int on_divider(HWND hwnd, SplitViewData* data, int at) {
-    return data->child2 && at >= data->shown &&
-           at < data->shown + ng_windows_px(hwnd, SPLIT_VIEW_DIVIDER);
+static int on_divider(HWND hwnd, const SplitViewState* s, int at) {
+    return s->child2 && at >= s->shown && at < s->shown + ng_windows_px(hwnd, SPLIT_VIEW_DIVIDER);
 }
 
-static LRESULT CALLBACK SplitViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    SplitViewData* data = (SplitViewData*)GetWindowLongPtrA(hwnd, GWLP_USERDATA);
+static LRESULT CALLBACK split_view_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                        UINT_PTR id, DWORD_PTR data) {
+    SplitViewState* s = (SplitViewState*)data;
     if (ng_windows_is_notification(msg)) {
         ng_windows_forward_to_window(hwnd, msg, wParam, lParam);
     }
 
-    if (msg == WM_SIZE) {
-        split_view_layout(hwnd, data);
-    } else if (msg == WM_NCHITTEST) {
+    switch (msg) {
+    case WM_SIZE:
+        split_view_layout(hwnd, s);
+        break;
+    case WM_NCHITTEST:
         return HTCLIENT;
-    } else if (msg == WM_SETCURSOR && data && (HWND)wParam == hwnd) {
-        POINT p;
-        GetCursorPos(&p);
-        ScreenToClient(hwnd, &p);
-        if (on_divider(hwnd, data, data->is_vertical ? p.y : p.x)) {
-            SetCursor(LoadCursor(NULL, data->is_vertical ? IDC_SIZENS : IDC_SIZEWE));
-            return TRUE;
+    case WM_SETCURSOR:
+        if ((HWND)wParam == hwnd) {
+            POINT p;
+            GetCursorPos(&p);
+            ScreenToClient(hwnd, &p);
+            if (on_divider(hwnd, s, s->is_vertical ? p.y : p.x)) {
+                SetCursor(LoadCursor(NULL, s->is_vertical ? IDC_SIZENS : IDC_SIZEWE));
+                return TRUE;
+            }
         }
-    } else if (msg == WM_LBUTTONDOWN && data && on_divider(hwnd, data, along(data, lParam))) {
-        data->dragging = 1;
-        data->grab = along(data, lParam) - data->shown;
-        SetCapture(hwnd);
-        return 0;
-    } else if (msg == WM_MOUSEMOVE && data && data->dragging) {
-        data->divider_pos = along(data, lParam) - data->grab;
-        if (data->divider_pos <= 0) data->divider_pos = 1;
-        split_view_layout(hwnd, data);
-        return 0;
-    } else if ((msg == WM_LBUTTONUP || msg == WM_CAPTURECHANGED) && data && data->dragging) {
-        data->dragging = 0;
-        if (msg == WM_LBUTTONUP) ReleaseCapture();
-        return 0;
-    } else if (msg == WM_ERASEBKGND) {
+        break;
+    case WM_LBUTTONDOWN:
+        if (on_divider(hwnd, s, along(s, lParam))) {
+            s->dragging = 1;
+            s->grab = along(s, lParam) - s->shown;
+            SetCapture(hwnd);
+            return 0;
+        }
+        break;
+    case WM_MOUSEMOVE:
+        if (s->dragging) {
+            s->divider_pos = along(s, lParam) - s->grab;
+            if (s->divider_pos <= 0) s->divider_pos = 1;
+            split_view_layout(hwnd, s);
+            return 0;
+        }
+        break;
+    case WM_LBUTTONUP:
+    case WM_CAPTURECHANGED:
+        if (s->dragging) {
+            s->dragging = 0;
+            if (msg == WM_LBUTTONUP) ReleaseCapture();
+            return 0;
+        }
+        break;
+    case WM_ERASEBKGND: {
         RECT client;
         GetClientRect(hwnd, &client);
         FillRect((HDC)wParam, &client, GetSysColorBrush(COLOR_BTNFACE));
         return 1;
-    } else if (msg == WM_NCDESTROY) {
-        if (data) {
-            free(data);
-            SetWindowLongPtrA(hwnd, GWLP_USERDATA, 0);
-        }
     }
-
-    WNDPROC old_proc = (WNDPROC)GetPropA(hwnd, SPLIT_VIEW_OLD_PROC_PROP);
-    if (msg == WM_NCDESTROY) {
-        RemovePropA(hwnd, SPLIT_VIEW_OLD_PROC_PROP);
+    case WM_NCDESTROY:
+        ng_windows_remove_subclass(hwnd, split_view_proc, id);
+        free(s);
+        break;
     }
-    if (old_proc) {
-        return CallWindowProcA(old_proc, hwnd, msg, wParam, lParam);
-    }
-    return DefWindowProcA(hwnd, msg, wParam, lParam);
+    return ng_windows_def_subclass(hwnd, msg, wParam, lParam);
 }
 
 NGHandle ng_windows_create_split_view(int is_vertical) {
-    HWND temp_parent = ng_windows_detached_parent();
-
     HWND container = CreateWindowExA(
         WS_EX_CONTROLPARENT,
         "STATIC",
         NULL,
         WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
         0, 0, 100, 100,
-        temp_parent,
+        ng_windows_detached_parent(),
         NULL,
         GetModuleHandleA(NULL),
         NULL
     );
+    if (!container) return NULL;
 
-    if (container) {
-        SplitViewData* data = (SplitViewData*)calloc(1, sizeof(SplitViewData));
-        if (!data) {
-            DestroyWindow(container);
-            return NULL;
-        }
-        data->is_vertical = is_vertical ? 1 : 0;
-
-        SetWindowLongPtrA(container, GWLP_USERDATA, (LONG_PTR)data);
-        WNDPROC old_proc = (WNDPROC)SetWindowLongPtrA(container, GWLP_WNDPROC, (LONG_PTR)SplitViewProc);
-        if (old_proc) {
-            SetPropA(container, SPLIT_VIEW_OLD_PROC_PROP, (HANDLE)old_proc);
-            ng_windows_mark_container(container);
-        }
+    SplitViewState* s = (SplitViewState*)calloc(1, sizeof(SplitViewState));
+    if (!s) {
+        DestroyWindow(container);
+        return NULL;
     }
-
+    s->is_vertical = is_vertical ? 1 : 0;
+    if (!ng_windows_set_subclass(container, split_view_proc, SPLIT_VIEW_SUBCLASS_ID, (DWORD_PTR)s)) {
+        free(s);
+        DestroyWindow(container);
+        return NULL;
+    }
+    ng_windows_mark_container(container);
     return (NGHandle)container;
+}
+
+int ng_windows_is_split_view(HWND hwnd) {
+    return hwnd && split_state(hwnd) != NULL;
 }
 
 int ng_windows_split_view_add(NGHandle split_handle, NGHandle element) {
@@ -175,13 +178,16 @@ int ng_windows_split_view_add(NGHandle split_handle, NGHandle element) {
 
     HWND split_hwnd = (HWND)split_handle;
     HWND element_hwnd = (HWND)element;
-    SplitViewData* data = (SplitViewData*)GetWindowLongPtrA(split_hwnd, GWLP_USERDATA);
-    if (!data) return NG_ERROR_PLATFORM_SPECIFIC;
+    if (!IsWindow(split_hwnd) || !IsWindow(element_hwnd)) return NG_ERROR_INVALID_HANDLE;
 
-    if (!data->child1) {
-        data->child1 = element_hwnd;
-    } else if (!data->child2) {
-        data->child2 = element_hwnd;
+    SplitViewState* s = split_state(split_hwnd);
+    if (!s) return NG_ERROR_PLATFORM_SPECIFIC;
+    if (element_hwnd == s->child1 || element_hwnd == s->child2) return NG_ERROR_INVALID_PARAMETER;
+
+    if (!s->child1) {
+        s->child1 = element_hwnd;
+    } else if (!s->child2) {
+        s->child2 = element_hwnd;
     } else {
         return NG_ERROR_INVALID_PARAMETER;
     }
@@ -196,8 +202,7 @@ int ng_windows_split_view_add(NGHandle split_handle, NGHandle element) {
     }
 
     ShowWindow(element_hwnd, SW_SHOW);
-    split_view_layout(split_hwnd, data);
-
+    split_view_layout(split_hwnd, s);
     return NG_SUCCESS;
 }
 
@@ -207,12 +212,12 @@ int ng_windows_split_view_set_divider_position(NGHandle split_handle, int index,
     if (!(position >= 0.0f) || !(position < 1e7f)) return NG_ERROR_INVALID_PARAMETER;
 
     HWND split_hwnd = (HWND)split_handle;
-    SplitViewData* data = (SplitViewData*)GetWindowLongPtrA(split_hwnd, GWLP_USERDATA);
-    if (!data) return NG_ERROR_PLATFORM_SPECIFIC;
+    if (!IsWindow(split_hwnd)) return NG_ERROR_INVALID_HANDLE;
+    SplitViewState* s = split_state(split_hwnd);
+    if (!s) return NG_ERROR_PLATFORM_SPECIFIC;
 
     int pos = ng_windows_px(split_hwnd, (int)(position + 0.5f));
-    data->divider_pos = pos > 0 ? pos : 1;
-    split_view_layout(split_hwnd, data);
-
+    s->divider_pos = pos > 0 ? pos : 1;
+    split_view_layout(split_hwnd, s);
     return NG_SUCCESS;
 }
