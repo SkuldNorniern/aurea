@@ -67,6 +67,7 @@
 #define BOX_SPACING_PROP "AureaBoxSpacing"
 #define BOX_PADDING_PROP "AureaBoxPadding"
 #define SCROLL_VIEW_OLD_PROC_PROP "AureaScrollViewOldProc"
+#define SPLIT_VIEW_OLD_PROC_PROP "AureaSplitViewOldProc"
 /* Control ids for buttons start here; menu item ids sit below it. */
 #define BUTTON_COMMAND_BASE 0x8000
 

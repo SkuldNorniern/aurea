@@ -6,7 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define SPLIT_VIEW_OLD_PROC_PROP "AureaSplitViewOldProc"
 #define SPLIT_VIEW_MIN_PANE 50
 #define SPLIT_VIEW_DIVIDER 6
 
