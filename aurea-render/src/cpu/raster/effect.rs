@@ -1,7 +1,10 @@
 //! Backdrop effects on the CPU: the box under a shape copied out, changed, and written back.
 
+use std::thread::available_parallelism;
+
 use super::band::Band;
 use crate::cpu::clip::ClipBox;
+use crate::cpu::pool;
 use crate::effect::{BackdropPixels, Effect};
 use crate::types::{Color, Rect};
 
@@ -11,6 +14,35 @@ pub(crate) struct EffectScratch {
     pixels: Vec<u32>,
     line: Vec<u32>,
     small: Vec<u32>,
+}
+
+/// Fewer pixels than this a step runs on one thread: spreading would cost more.
+const SPREAD_PIXELS: usize = 1 << 16;
+/// Most runs of rows a step is split into.
+const MAX_RUNS: usize = 8;
+
+/// `f` on runs of whole rows of `pixels`, `w` wide, across the pool, each with its first row's
+/// number. Rows apart touch pixels apart, so the result is one thread's.
+fn by_rows(pixels: &mut [u32], w: usize, f: impl Fn(&mut [u32], usize) + Sync) {
+    let rows = pixels.len() / w.max(1);
+    let runs = if pixels.len() < SPREAD_PIXELS {
+        1
+    } else {
+        available_parallelism().map_or(1, usize::from).min(MAX_RUNS)
+    };
+    if runs <= 1 || rows < 2 {
+        f(pixels, 0);
+        return;
+    }
+    let per = rows.div_ceil(runs);
+    let f = &f;
+    let mut tasks: Vec<_> = pixels
+        .chunks_mut(per * w)
+        .enumerate()
+        .map(|(k, chunk)| move || f(chunk, k * per))
+        .collect();
+    // a worker that panicked leaves its rows as they were; the frame goes on
+    let _ = pool::run(&mut tasks);
 }
 
 /// Box passes per direction; three come close to a Gaussian.
@@ -71,9 +103,9 @@ fn run(
 ) {
     match effect {
         Effect::Blur(radius) => blur(pixels, w, h, *radius, (line, small)),
-        Effect::Saturate(amount) => saturate(pixels, *amount),
-        Effect::Brightness(amount) => brightness(pixels, *amount),
-        Effect::Tint(color) => tint(pixels, *color),
+        Effect::Saturate(amount) => by_rows(pixels, w, |rows, _| saturate(rows, *amount)),
+        Effect::Brightness(amount) => by_rows(pixels, w, |rows, _| brightness(rows, *amount)),
+        Effect::Tint(color) => by_rows(pixels, w, |rows, _| tint(rows, *color)),
         Effect::Custom(filter) => filter.filter(&mut BackdropPixels::new(pixels, w, h)),
     }
 }
@@ -181,26 +213,39 @@ fn box_passes(pixels: &mut [u32], w: usize, h: usize, radius: f32, line: &mut Ve
 fn shrink(pixels: &[u32], w: usize, h: usize, step: usize, small: &mut Vec<u32>) {
     let (sw, sh) = (w.div_ceil(step), h.div_ceil(step));
     small.clear();
-    small.reserve(sw * sh);
-    for by in 0..sh {
-        for bx in 0..sw {
-            let mut sum = [0u32; 4];
-            let mut n = 0;
-            for y in by * step..((by + 1) * step).min(h) {
-                for &p in &pixels[y * w + bx * step..y * w + ((bx + 1) * step).min(w)] {
-                    for (k, shift) in [24, 16, 8, 0].into_iter().enumerate() {
-                        sum[k] += (p >> shift) & 0xFF;
-                    }
-                    n += 1;
-                }
+    small.resize(sw * sh, 0);
+    by_rows(small, sw, |rows, first| {
+        for (i, row) in rows.chunks_mut(sw).enumerate() {
+            let by = first + i;
+            for (bx, out) in row.iter_mut().enumerate() {
+                *out = average(pixels, w, (bx * step, by * step), (step, w, h));
             }
-            let mut out = 0;
+        }
+    });
+}
+
+/// The mean of the `step` by `step` block of `pixels` from `(x, y)`, cut at the edges.
+fn average(
+    pixels: &[u32],
+    w: usize,
+    (x, y): (usize, usize),
+    (step, width, height): (usize, usize, usize),
+) -> u32 {
+    let mut sum = [0u32; 4];
+    let mut n = 0;
+    for row in y..(y + step).min(height) {
+        for &p in &pixels[row * w + x..row * w + (x + step).min(width)] {
             for (k, shift) in [24, 16, 8, 0].into_iter().enumerate() {
-                out |= ((sum[k] + n / 2) / n) << shift;
+                sum[k] += (p >> shift) & 0xFF;
             }
-            small.push(out);
+            n += 1;
         }
     }
+    let mut out = 0;
+    for (k, shift) in [24, 16, 8, 0].into_iter().enumerate() {
+        out |= ((sum[k] + n / 2) / n) << shift;
+    }
+    out
 }
 
 /// Red and blue, or alpha and green, of a pixel: two channels in one word, 16 bits apart.
@@ -231,9 +276,24 @@ fn grow(
     (w, h): (usize, usize),
 ) {
     let cell = |x: usize, y: usize| small[y.min(sh - 1) * sw + x.min(sw - 1)];
-    for y in 0..h {
+    debug_assert_eq!(pixels.len(), w * h);
+    by_rows(pixels, w, |rows, first| {
+        for (i, row) in rows.chunks_mut(w).enumerate() {
+            grow_row(row, first + i, step, (sw, sh), &cell);
+        }
+    });
+}
+
+/// Row `y` of the grown image, from the small copy's `cell`s.
+fn grow_row(
+    row: &mut [u32],
+    y: usize,
+    step: usize,
+    (sw, sh): (usize, usize),
+    cell: &impl Fn(usize, usize) -> u32,
+) {
+    {
         let (y0, ty) = place(y, step, sh);
-        let row = &mut pixels[y * w..(y + 1) * w];
         for (x, out) in row.iter_mut().enumerate() {
             let (x0, tx) = place(x, step, sw);
             let top = lerp(cell(x0, y0), cell(x0 + 1, y0), tx);
