@@ -2,6 +2,7 @@
 //! button.
 
 use super::Widget;
+use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
 #[cfg(feature = "accessibility")]
@@ -74,26 +75,103 @@ impl<'t> Link<'t> {
     }
 }
 
-impl<Id: WidgetId> Widget<Id> for Link<'_> {
-    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+/// What a [`Link`] draws, for a painter given to [`Link::show_with`].
+#[derive(Clone, Copy, Debug)]
+pub struct LinkParts<'t> {
+    /// The text.
+    pub label: &'t str,
+    /// The style it draws with, the theme's unless one was given.
+    pub style: LinkStyle,
+}
+
+impl<'t> Link<'t> {
+    /// Takes the input and works out what it would draw, without drawing.
+    fn run<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+    ) -> (Response, Look<LinkParts<'t>>) {
         let style = self.style.unwrap_or_else(|| LinkStyle::new(ui.theme));
         let width = self.width(ui).min(rect.width);
         let text = Rect::new(rect.x, rect.y, width, rect.height);
         let input = ui.interact(id, 0, text, Sense::Click, true);
         #[cfg(feature = "accessibility")]
         ui.accessible_description(id, 0, Role::Link, self.text, None);
-        let state = ui.eased(id, 0, input);
-        FocusRing::new(ui.theme, 3.0, state.focus).paint(ui, text.inset(-2.0))?;
-        let color = style.text.mix(style.hover, state.hover);
-        Label::new(self.text, color)
-            .size(style.text_size)
-            .paint(ui, text)?;
-        if state.hover > 0.01 {
-            let size = ui.fonts().of(style.text_size).size;
+        let look = Look {
+            rect: text,
+            state: ui.eased(id, 0, input),
+            held_at: ui.held_at(id, 0),
+            parts: LinkParts {
+                label: self.text,
+                style,
+            },
+        };
+        (Response::new(text, input), look)
+    }
+
+    /// Takes the input as [`Link::show`] does, then has `paint` draw it instead of its own look.
+    /// [`Look::paint_default`], [`Look::paint_ring`], [`Look::paint_label`] and
+    /// [`Look::paint_underline`] draw the parts of the usual look.
+    pub fn show_with<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<LinkParts<'t>>) -> AureaResult<()>,
+    ) -> AureaResult<Response> {
+        let (response, look) = self.run(ui, id, rect);
+        paint(ui, &look)?;
+        Ok(response)
+    }
+}
+
+impl Look<LinkParts<'_>> {
+    /// The link's own look: the focus ring, the text, then the underline under the pointer.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        self.paint_ring(ui)?;
+        self.paint_label(ui)?;
+        self.paint_underline(ui)
+    }
+
+    /// The text colour: the accent, mixed towards the hover colour as the pointer comes on.
+    pub fn ink(&self) -> Color {
+        self.parts
+            .style
+            .text
+            .mix(self.parts.style.hover, self.state.hover)
+    }
+
+    /// The focus ring around the text.
+    pub fn paint_ring<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        FocusRing::new(ui.theme, 3.0, self.state.focus).paint(ui, self.rect.inset(-2.0))
+    }
+
+    /// The text, in [`Look::ink`].
+    pub fn paint_label<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        Label::new(self.parts.label, self.ink())
+            .size(self.parts.style.text_size)
+            .paint(ui, self.rect)
+    }
+
+    /// The line under the text, which fades in as the pointer comes on.
+    pub fn paint_underline<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        if self.state.hover > 0.01 {
+            let text = self.rect;
+            let size = ui.fonts().of(self.parts.style.text_size).size;
             let y = text.center().y + size * 0.55;
-            ui.fill(Rect::new(text.x, y, width, 1.0), color.fade(state.hover))?;
+            ui.fill(
+                Rect::new(text.x, y, text.width, 1.0),
+                self.ink().fade(self.state.hover),
+            )?;
         }
-        Ok(Response::new(text, input))
+        Ok(())
+    }
+}
+
+impl<Id: WidgetId> Widget<Id> for Link<'_> {
+    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
     }
 }
 
@@ -102,7 +180,32 @@ mod tests {
     use super::*;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::UiState;
+    use crate::ui::rig::Rig;
     use crate::window::{Modifiers, MouseButton, PointerKind, WindowEvent};
+
+    #[test]
+    fn show_with_draws_the_apps_look_and_still_clicks() {
+        let mut rig = Rig::new(300, 30);
+        let at = Rect::new(0.0, 0.0, 300.0, 30.0);
+        let draw = |rig: &mut Rig| {
+            rig.frame(|ui| {
+                Link::new("Docs")
+                    .show_with(ui, 1, at, |ui, look| {
+                        ui.fill(look.rect, Color::rgb(0, 200, 0))
+                    })
+                    .expect("draw")
+                    .clicked
+            })
+        };
+        draw(&mut rig);
+        assert_eq!(rig.pixel(5, 15), [0, 200, 0, 255], "the app's look");
+        rig.at(10, 15);
+        draw(&mut rig);
+        rig.button(10, 15, true);
+        assert!(!draw(&mut rig), "the press alone");
+        rig.button(10, 15, false);
+        assert!(draw(&mut rig), "the release clicks");
+    }
 
     #[test]
     fn only_the_text_takes_the_click() {

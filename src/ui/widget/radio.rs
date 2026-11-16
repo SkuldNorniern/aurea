@@ -1,6 +1,7 @@
 //! Radio buttons: options in a column, one picked.
 
 use super::Widget;
+use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
 #[cfg(feature = "accessibility")]
@@ -8,7 +9,7 @@ use crate::ui::accessibility::Role;
 use crate::ui::component::{FocusRing, StateColors};
 use crate::ui::frame::{Response, Ui};
 use crate::ui::paint::{Component, Label, Surface};
-use crate::ui::state::{Channel, Key, Sense, WidgetId};
+use crate::ui::state::{Channel, Interaction, Key, Sense, WidgetId};
 use crate::ui::theme::Theme;
 use crate::window::KeyCode;
 
@@ -91,6 +92,87 @@ impl<'v> RadioGroup<'v> {
         Widget::show(self, ui, id, rect)
     }
 
+    /// Takes the input for option `i`, drawn in `row`, and works out what it would draw, without
+    /// drawing.
+    fn run_option<Id: WidgetId>(
+        &self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        i: usize,
+        row: Rect,
+        style: RadioStyle,
+    ) -> (Interaction, Look<RadioParts<'v>>) {
+        let part = u16::try_from(i).unwrap_or(u16::MAX);
+        let label = self.options[i];
+        let input = ui.interact(id, part, row, Sense::Click, self.enabled);
+        #[cfg(feature = "accessibility")]
+        {
+            let on = *self.selected == i;
+            ui.accessible_description(id, part, Role::RadioButton, label, None);
+            ui.with_accessible(id, part, |node| node.set_toggled(on.into()));
+        }
+        let state = ui.eased(id, part, input);
+        let on = f32::from(u8::from(*self.selected == i));
+        let progress = ui.animate(id, part, Channel::Value, on, ui.theme.motion.slide * 1.5);
+        let look = Look {
+            rect: row,
+            state,
+            held_at: ui.held_at(id, part),
+            parts: RadioParts {
+                index: i,
+                label,
+                picked: *self.selected == i,
+                progress,
+                enabled: self.enabled,
+                style,
+            },
+        };
+        (input, look)
+    }
+
+    /// Takes the input as [`RadioGroup::show`] does, then has `paint` draw each option instead of
+    /// its own look, from the top. Each option gets its own [`Look`], with `index` telling them
+    /// apart. [`Look::paint_default`], [`Look::paint_ring`], [`Look::paint_dot`] and
+    /// [`Look::paint_label`] draw the parts of the usual look.
+    pub fn show_with<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        mut paint: impl FnMut(&mut Ui<'_, Id>, &Look<RadioParts<'v>>) -> AureaResult<()>,
+    ) -> AureaResult<Response> {
+        let style = self.style.unwrap_or_else(|| RadioStyle::new(ui.theme));
+        let mut response = Response {
+            rect,
+            ..Response::default()
+        };
+        let mut moved = None;
+        for i in 0..self.options.len() {
+            #[allow(clippy::cast_precision_loss)]
+            let row = Rect::new(rect.x, rect.y + style.row * i as f32, rect.width, style.row);
+            let (input, look) = self.run_option(ui, id, i, row, style);
+            response.hovered |= input.hovered;
+            response.focused |= input.focused;
+            if input.clicked && *self.selected != i {
+                moved = Some(i);
+            }
+            if input.focused && moved.is_none() {
+                moved = self.moved(ui, i);
+            }
+            paint(ui, &look)?;
+        }
+        if let Some(i) = moved {
+            if response.focused {
+                let part = u16::try_from(i).unwrap_or(u16::MAX);
+                ui.state.give_focus(Some(Key::new(id, part)));
+            }
+            *self.selected = i;
+            response.changed = true;
+            ui.mark_changed();
+        }
+        Ok(response)
+    }
+
     fn moved<Id: WidgetId>(&self, ui: &Ui<'_, Id>, at: usize) -> Option<usize> {
         let last = self.options.len().checked_sub(1)?;
         let mut to = at;
@@ -105,66 +187,80 @@ impl<'v> RadioGroup<'v> {
     }
 }
 
+/// What a [`RadioGroup`] draws for one option, for a painter given to [`RadioGroup::show_with`].
+#[derive(Clone, Copy, Debug)]
+pub struct RadioParts<'v> {
+    /// Which option this is, from the top.
+    pub index: usize,
+    /// The option's text.
+    pub label: &'v str,
+    /// Whether it is the picked one, as the group stood when the frame began; a click picks from
+    /// the next frame.
+    pub picked: bool,
+    /// How far the dot has grown, 0 unpicked to 1 picked.
+    pub progress: f32,
+    /// Whether the group takes input; the default look fades when not.
+    pub enabled: bool,
+    /// The style it draws with, the theme's unless one was given.
+    pub style: RadioStyle,
+}
+
+impl Look<RadioParts<'_>> {
+    /// The option's own look: the ring, the dot, then the label.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        self.paint_ring(ui)?;
+        self.paint_dot(ui)?;
+        self.paint_label(ui)
+    }
+
+    /// The focus ring, and the ring's fill and outline, which turn to the picked colour as it is
+    /// picked.
+    pub fn paint_ring<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let (state, style, t) = (self.state, &self.parts.style, self.parts.progress);
+        let (ring, _) = self.split(ui);
+        FocusRing::new(ui.theme, ring.width / 2.0, state.focus).paint(ui, ring)?;
+        let fill = style
+            .ring
+            .at(state)
+            .mix(style.picked.fade(state.enabled), t);
+        Surface::new(fill)
+            .pill()
+            .border(
+                ui.theme.border_width,
+                style.border.fade(state.enabled * (1.0 - t)),
+            )
+            .paint(ui, ring)
+    }
+
+    /// The dot in the middle of the ring, growing as it is picked.
+    pub fn paint_dot<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let t = self.parts.progress;
+        if t > 0.01 {
+            let (ring, _) = self.split(ui);
+            let dot = self.parts.style.dot.fade(self.state.enabled);
+            ui.circle(ring.center(), ring.width * 0.2 * t, dot)?;
+        }
+        Ok(())
+    }
+
+    /// The label right of the ring, faded when disabled.
+    pub fn paint_label<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let (_, text) = self.split(ui);
+        let color = self.parts.style.label.fade(self.state.enabled);
+        Label::new(self.parts.label, color).paint(ui, text)
+    }
+
+    /// The ring at the row's start, and the rect right of it the label goes in.
+    pub fn split<Id: WidgetId>(&self, ui: &Ui<'_, Id>) -> (Rect, Rect) {
+        let s = self.parts.style.size.min(self.rect.height);
+        let (cell, text) = self.rect.split_left(s, ui.theme.padding * 0.8);
+        (cell.centered(s, s), text)
+    }
+}
+
 impl<Id: WidgetId> Widget<Id> for RadioGroup<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
-        let style = self.style.unwrap_or_else(|| RadioStyle::new(ui.theme));
-        let mut response = Response {
-            rect,
-            ..Response::default()
-        };
-        let mut moved = None;
-        for (i, option) in self.options.iter().enumerate() {
-            let part = u16::try_from(i).unwrap_or(u16::MAX);
-            #[allow(clippy::cast_precision_loss)]
-            let row = Rect::new(rect.x, rect.y + style.row * i as f32, rect.width, style.row);
-            let input = ui.interact(id, part, row, Sense::Click, self.enabled);
-            #[cfg(feature = "accessibility")]
-            {
-                let on = *self.selected == i;
-                ui.accessible_description(id, part, Role::RadioButton, option, None);
-                ui.with_accessible(id, part, |node| node.set_toggled(on.into()));
-            }
-            response.hovered |= input.hovered;
-            response.focused |= input.focused;
-            if input.clicked && *self.selected != i {
-                moved = Some(i);
-            }
-            if input.focused && moved.is_none() {
-                moved = self.moved(ui, i);
-            }
-            let state = ui.eased(id, part, input);
-            let on = f32::from(u8::from(*self.selected == i));
-            let t = ui.animate(id, part, Channel::Value, on, ui.theme.motion.slide * 1.5);
-            let s = style.size.min(row.height);
-            let (cell, text) = row.split_left(s, ui.theme.padding * 0.8);
-            let ring = cell.centered(s, s);
-            FocusRing::new(ui.theme, s / 2.0, state.focus).paint(ui, ring)?;
-            let fill = style
-                .ring
-                .at(state)
-                .mix(style.picked.fade(state.enabled), t);
-            Surface::new(fill)
-                .pill()
-                .border(
-                    ui.theme.border_width,
-                    style.border.fade(state.enabled * (1.0 - t)),
-                )
-                .paint(ui, ring)?;
-            if t > 0.01 {
-                ui.circle(ring.center(), s * 0.2 * t, style.dot.fade(state.enabled))?;
-            }
-            Label::new(option, style.label.fade(state.enabled)).paint(ui, text)?;
-        }
-        if let Some(i) = moved {
-            if response.focused {
-                let part = u16::try_from(i).unwrap_or(u16::MAX);
-                ui.state.give_focus(Some(Key::new(id, part)));
-            }
-            *self.selected = i;
-            response.changed = true;
-            ui.mark_changed();
-        }
-        Ok(response)
+        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
     }
 }
 
@@ -173,9 +269,38 @@ mod tests {
     use super::*;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::UiState;
+    use crate::ui::rig::Rig;
     use crate::window::{Modifiers, MouseButton, PointerKind, WindowEvent};
 
     const OPTIONS: [&str; 3] = ["Low", "Mid", "High"];
+
+    #[test]
+    fn show_with_paints_each_option_and_still_picks() {
+        let mut rig = Rig::new(160, 90).still();
+        let at = Rect::new(0.0, 0.0, 160.0, 90.0);
+        let mut picked = 0;
+        let mut painted = Vec::new();
+        let draw = |rig: &mut Rig, picked: &mut usize, painted: &mut Vec<usize>| {
+            rig.frame(|ui| {
+                RadioGroup::new(&OPTIONS, picked)
+                    .show_with(ui, 1, at, |ui, look| {
+                        painted.push(look.parts.index);
+                        ui.fill(look.rect, Color::rgb(0, 200, 0))
+                    })
+                    .expect("draw");
+            });
+        };
+        draw(&mut rig, &mut picked, &mut painted);
+        assert_eq!(painted, [0, 1, 2], "each option, from the top");
+        assert_eq!(rig.pixel(100, 5), [0, 200, 0, 255], "the app's look");
+        rig.at(20, 45);
+        draw(&mut rig, &mut picked, &mut painted);
+        rig.button(20, 45, true);
+        draw(&mut rig, &mut picked, &mut painted);
+        rig.button(20, 45, false);
+        draw(&mut rig, &mut picked, &mut painted);
+        assert_eq!(picked, 1, "the click still picks");
+    }
 
     fn frame(raster: &mut CpuRasterizer, state: &mut UiState<u8>, picked: &mut usize) {
         let theme = Theme::dark();

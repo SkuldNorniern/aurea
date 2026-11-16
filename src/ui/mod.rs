@@ -24,7 +24,7 @@ pub use state::{Channel, Fonts, InputResponse, Interaction, Sense, UiState, Widg
 pub use theme::{Motion, Palette, Sizes, Theme};
 pub use widget::Widget;
 pub use widget::button::{Button, ButtonParts, ButtonStyle, Tone};
-pub use widget::chip::{Chip, ChipStyle};
+pub use widget::chip::{Chip, ChipParts, ChipStyle};
 pub use widget::color::{ColorPicker, PickerStyle};
 pub use widget::dial::{Dial, DialStyle};
 pub use widget::dialog::{Dialog, DialogAnswer};
@@ -37,18 +37,18 @@ pub use widget::dropdown::{Dropdown, DropdownStyle};
 pub use widget::empty::EmptyState;
 pub use widget::graph;
 pub use widget::graph::{GraphStyle, GraphView, ScopeStyle, ScopeView};
-pub use widget::link::{Link, LinkStyle};
+pub use widget::link::{Link, LinkParts, LinkStyle};
 pub use widget::look::Look;
 pub use widget::pager::{Pager, PagerStyle};
 pub use widget::popup::{MenuItem, MenuOptions, OwnedMenuItem, PopupStyle};
 pub use widget::progress::{ProgressBar, ProgressStyle};
-pub use widget::radio::{RadioGroup, RadioStyle};
+pub use widget::radio::{RadioGroup, RadioParts, RadioStyle};
 pub use widget::ruler::Ruler;
 pub use widget::scroll::{
     ListRow, ListView, ScrollArea, ScrollStyle, scroll_into_view, visible_rows, wheel_axis,
     wheel_steps,
 };
-pub use widget::segmented::{Segmented, SegmentedStyle};
+pub use widget::segmented::{Segment, Segmented, SegmentedParts, SegmentedStyle};
 pub use widget::sheet::{BottomSheet, SheetState};
 pub use widget::slider::{Slider, SliderStyle, SliderTrack};
 pub use widget::splitter::{Splitter, SplitterStyle};

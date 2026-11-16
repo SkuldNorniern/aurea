@@ -2,12 +2,13 @@
 //! clicks.
 
 use super::Widget;
+use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
 #[cfg(feature = "accessibility")]
 use crate::ui::accessibility::Role;
 use crate::ui::component::{FocusRing, StateColors};
-use crate::ui::frame::{Response, Ui};
+use crate::ui::frame::{Eased, Response, Ui};
 use crate::ui::paint::{Component, Label, Surface, TextSize};
 use crate::ui::state::{Channel, Sense, WidgetId};
 use crate::ui::theme::Theme;
@@ -90,34 +91,53 @@ impl<'v> Segmented<'v> {
     }
 }
 
-impl<Id: WidgetId> Widget<Id> for Segmented<'_> {
-    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+/// One option of a [`Segmented`], for its painter.
+#[derive(Clone, Copy, Debug)]
+pub struct Segment<'v> {
+    /// The option's text.
+    pub label: &'v str,
+    /// Its cell.
+    pub rect: Rect,
+    /// Its focus, hover and press, eased.
+    pub state: Eased,
+    /// How far the highlight sits over it, 0 away to 1 over it.
+    pub picked: f32,
+}
+
+/// What a [`Segmented`] draws, for a painter given to [`Segmented::show_with`].
+///
+/// Its options are one [`Look`] between them: the highlight is shared, so each option is a
+/// [`Segment`] in `segments`, from the left, and [`Look::paint_segment`] draws one.
+#[derive(Clone, Debug)]
+pub struct SegmentedParts<'v> {
+    /// Where the highlight is, in options: 0 over the first, one more for each option along.
+    pub slide: f32,
+    /// Whether it takes input; the default look fades when not.
+    pub enabled: bool,
+    /// The style it draws with, the theme's unless one was given.
+    pub style: SegmentedStyle,
+    /// The options, from the left.
+    pub segments: Vec<Segment<'v>>,
+}
+
+impl<'v> Segmented<'v> {
+    /// Takes the input and works out what it would draw, without drawing. Needs an option.
+    fn run<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+    ) -> (Response, Look<SegmentedParts<'v>>) {
         let mut response = Response {
             rect,
             ..Response::default()
         };
         let n = self.options.len();
-        if n == 0 {
-            return Ok(response);
-        }
         let style = self.style.unwrap_or_else(|| SegmentedStyle::new(ui.theme));
-        let fade = if self.enabled {
-            1.0
-        } else {
-            ui.theme.disabled_alpha
-        };
-        Surface::new(style.background.fade(fade))
-            .radius(style.radius)
-            .paint(ui, rect)?;
         #[allow(clippy::cast_precision_loss)]
         let target = (*self.selected).min(n - 1) as f32;
-        let at = ui.animate(id, u16::MAX, Channel::Value, target, ui.theme.motion.slide);
-        let width = rect.column(0, n, 0.0).width;
-        let moving = Rect::new(rect.x + width * at, rect.y, width, rect.height);
-        let inner = (style.radius - style.inset).max(0.0);
-        Surface::new(style.highlight.fade(fade))
-            .radius(inner)
-            .paint(ui, moving.inset(style.inset))?;
+        let slide = ui.animate(id, u16::MAX, Channel::Value, target, ui.theme.motion.slide);
+        let mut segments = Vec::with_capacity(n);
         for (i, option) in self.options.iter().enumerate() {
             let part = u16::try_from(i).unwrap_or(u16::MAX - 1);
             let cell = rect.column(i, n, 0.0);
@@ -129,7 +149,6 @@ impl<Id: WidgetId> Widget<Id> for Segmented<'_> {
                 ui.with_accessible(id, part, |node| node.set_toggled(on.into()));
             }
             let state = ui.eased(id, part, input);
-            FocusRing::new(ui.theme, style.radius, state.focus).paint(ui, cell)?;
             if input.clicked && *self.selected != i {
                 *self.selected = i;
                 response.changed = true;
@@ -138,16 +157,153 @@ impl<Id: WidgetId> Widget<Id> for Segmented<'_> {
             response.hovered |= input.hovered;
             response.focused |= input.focused;
             #[allow(clippy::cast_precision_loss)]
-            let picked = (1.0 - (at - i as f32).abs()).clamp(0.0, 1.0);
-            let color = style
-                .text
-                .at(state)
-                .mix(style.picked_text.fade(fade), picked);
-            Label::new(option, color)
-                .size(style.text_size)
-                .centered()
-                .paint(ui, cell.inset_xy(6.0, 0.0))?;
+            let picked = (1.0 - (slide - i as f32).abs()).clamp(0.0, 1.0);
+            segments.push(Segment {
+                label: option,
+                rect: cell,
+                state,
+                picked,
+            });
         }
+        let look = Look {
+            rect,
+            // no input of its own: the control is as enabled as it was asked to be
+            state: Eased {
+                enabled: f32::from(u8::from(self.enabled)),
+                ..Eased::default()
+            },
+            held_at: None,
+            parts: SegmentedParts {
+                slide,
+                enabled: self.enabled,
+                style,
+                segments,
+            },
+        };
+        (response, look)
+    }
+
+    /// Takes the input as [`Segmented::show`] does, then has `paint` draw it instead of its own
+    /// look. [`Look::paint_default`], [`Look::paint_track`] and [`Look::paint_segment`] draw the
+    /// parts of the usual look. Draws nothing, not even `paint`, with no options.
+    pub fn show_with<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<SegmentedParts<'v>>) -> AureaResult<()>,
+    ) -> AureaResult<Response> {
+        if self.options.is_empty() {
+            return Ok(Response {
+                rect,
+                ..Response::default()
+            });
+        }
+        let (response, look) = self.run(ui, id, rect);
+        paint(ui, &look)?;
         Ok(response)
+    }
+}
+
+impl Look<SegmentedParts<'_>> {
+    /// The control's own look: the background and highlight, then each option.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        self.paint_track(ui)?;
+        for i in 0..self.parts.segments.len() {
+            self.paint_segment(ui, i)?;
+        }
+        Ok(())
+    }
+
+    /// The fade for a control that takes no input.
+    fn fade<Id: WidgetId>(&self, ui: &Ui<'_, Id>) -> f32 {
+        if self.parts.enabled {
+            1.0
+        } else {
+            ui.theme.disabled_alpha
+        }
+    }
+
+    /// The rect the highlight is in, at `slide`.
+    pub fn highlight(&self) -> Rect {
+        let n = self.parts.segments.len().max(1);
+        let width = self.rect.column(0, n, 0.0).width;
+        Rect::new(
+            self.rect.x + width * self.parts.slide,
+            self.rect.y,
+            width,
+            self.rect.height,
+        )
+    }
+
+    /// The background behind the options, and the highlight sliding over them.
+    pub fn paint_track<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let style = &self.parts.style;
+        let fade = self.fade(ui);
+        Surface::new(style.background.fade(fade))
+            .radius(style.radius)
+            .paint(ui, self.rect)?;
+        let inner = (style.radius - style.inset).max(0.0);
+        Surface::new(style.highlight.fade(fade))
+            .radius(inner)
+            .paint(ui, self.highlight().inset(style.inset))
+    }
+
+    /// Option `i`'s focus ring and label, its text picked as the highlight lands on it.
+    pub fn paint_segment<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>, i: usize) -> AureaResult<()> {
+        let Some(segment) = self.parts.segments.get(i) else {
+            return Ok(());
+        };
+        let style = &self.parts.style;
+        let fade = self.fade(ui);
+        FocusRing::new(ui.theme, style.radius, segment.state.focus).paint(ui, segment.rect)?;
+        let color = style
+            .text
+            .at(segment.state)
+            .mix(style.picked_text.fade(fade), segment.picked);
+        Label::new(segment.label, color)
+            .size(style.text_size)
+            .centered()
+            .paint(ui, segment.rect.inset_xy(6.0, 0.0))
+    }
+}
+
+impl<Id: WidgetId> Widget<Id> for Segmented<'_> {
+    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::rig::Rig;
+
+    #[test]
+    fn show_with_draws_the_apps_look_and_still_picks() {
+        let mut rig = Rig::new(200, 40);
+        let at = Rect::new(0.0, 0.0, 200.0, 40.0);
+        let mut picked = 0;
+        let mut seen = 0;
+        let draw = |rig: &mut Rig, picked: &mut usize, seen: &mut usize| {
+            rig.frame(|ui| {
+                Segmented::new(&["One", "Two", "Three"], picked)
+                    .show_with(ui, 1, at, |ui, look| {
+                        *seen = look.parts.segments.len();
+                        ui.fill(look.rect, Color::rgb(0, 200, 0))
+                    })
+                    .expect("draw");
+            });
+        };
+        draw(&mut rig, &mut picked, &mut seen);
+        assert_eq!(seen, 3, "one look for all three options");
+        assert_eq!(rig.pixel(100, 20), [0, 200, 0, 255], "the app's look");
+        rig.at(170, 20);
+        draw(&mut rig, &mut picked, &mut seen);
+        rig.button(170, 20, true);
+        draw(&mut rig, &mut picked, &mut seen);
+        rig.button(170, 20, false);
+        draw(&mut rig, &mut picked, &mut seen);
+        assert_eq!(picked, 2, "the click still picks the last");
     }
 }

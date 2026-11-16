@@ -1,6 +1,7 @@
 //! A chip: a pill that turns on and off, for filters and tags.
 
 use super::Widget;
+use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
 #[cfg(feature = "accessibility")]
@@ -103,8 +104,29 @@ impl<'v> Chip<'v> {
     }
 }
 
-impl<Id: WidgetId> Widget<Id> for Chip<'_> {
-    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+/// What a [`Chip`] draws, for a painter given to [`Chip::show_with`].
+#[derive(Clone, Copy, Debug)]
+pub struct ChipParts<'v> {
+    /// Whether it is on, after this frame's click.
+    pub on: bool,
+    /// How far on it is, 0 off to 1 on.
+    pub progress: f32,
+    /// The label.
+    pub label: &'v str,
+    /// Whether it takes input; the default look fades when not.
+    pub enabled: bool,
+    /// The style it draws with, the theme's unless one was given.
+    pub style: ChipStyle,
+}
+
+impl<'v> Chip<'v> {
+    /// Takes the input and works out what it would draw, without drawing.
+    fn run<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+    ) -> (Response, Look<ChipParts<'v>>) {
         let input = ui.interact(id, 0, rect, Sense::Click, self.enabled);
         let mut response = Response::new(rect, input);
         if input.clicked {
@@ -121,34 +143,101 @@ impl<Id: WidgetId> Widget<Id> for Chip<'_> {
         let style = self.style.unwrap_or_else(|| ChipStyle::new(ui.theme));
         let state = ui.eased(id, 0, input);
         let rate = ui.theme.motion.slide * 1.5;
-        let t = ui.animate(id, 0, Channel::Value, f32::from(u8::from(*self.on)), rate);
-        FocusRing::new(ui.theme, rect.height / 2.0, state.focus).paint(ui, rect)?;
+        let progress = ui.animate(id, 0, Channel::Value, f32::from(u8::from(*self.on)), rate);
+        let look = Look {
+            rect,
+            state,
+            held_at: ui.held_at(id, 0),
+            parts: ChipParts {
+                on: *self.on,
+                progress,
+                label: self.label,
+                enabled: self.enabled,
+                style,
+            },
+        };
+        (response, look)
+    }
+
+    /// Takes the input as [`Chip::show`] does, then has `paint` draw it instead of its own look.
+    /// [`Look::paint_default`], [`Look::paint_surface`], [`Look::paint_tick`] and
+    /// [`Look::paint_label`] draw the parts of the usual look.
+    pub fn show_with<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<ChipParts<'v>>) -> AureaResult<()>,
+    ) -> AureaResult<Response> {
+        let (response, look) = self.run(ui, id, rect);
+        paint(ui, &look)?;
+        Ok(response)
+    }
+}
+
+impl Look<ChipParts<'_>> {
+    /// The chip's own look: the pill, then the tick and the label.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        self.paint_surface(ui)?;
+        self.paint_tick(ui)?;
+        self.paint_label(ui)
+    }
+
+    /// The focus ring and the pill, filled and outlined as far on as it is.
+    pub fn paint_surface<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let (state, style, t) = (self.state, &self.parts.style, self.parts.progress);
+        FocusRing::new(ui.theme, self.rect.height / 2.0, state.focus).paint(ui, self.rect)?;
         let fill = style.off.at(state).mix(style.on.fade(state.enabled), t);
         let border = style.border.mix(style.on_border, t).fade(state.enabled);
         Surface::new(fill)
             .pill()
             .border(ui.theme.border_width, border)
-            .paint(ui, rect)?;
-        let tick = rect.height * 0.55 * t;
-        let inner = rect.inset_xy(style.padding * 0.8, 0.0);
+            .paint(ui, self.rect)
+    }
+
+    /// The tick at the pill's start, drawn in as it turns on.
+    pub fn paint_tick<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let (state, style, t) = (self.state, &self.parts.style, self.parts.progress);
         if t > 0.01 {
-            let at = Rect::new(inner.x, rect.y, tick, rect.height);
+            let (tick, _) = self.split();
             Mark::new(MarkShape::Check, style.on_border.fade(state.enabled))
                 .progress(t)
-                .paint(ui, at.inset(rect.height * 0.12))?;
+                .paint(ui, tick.inset(self.rect.height * 0.12))?;
         }
-        let text = Rect::new(
-            inner.x + tick,
-            rect.y,
-            (inner.width - tick).max(0.0),
-            rect.height,
-        );
+        Ok(())
+    }
+
+    /// The label after the tick, in the colour it is now.
+    pub fn paint_label<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let (state, style, t) = (self.state, &self.parts.style, self.parts.progress);
+        let (_, text) = self.split();
         let color = style.text.mix(style.on_text, t).fade(state.enabled);
-        Label::new(self.label, color)
+        Label::new(self.parts.label, color)
             .size(style.text_size)
             .centered()
-            .paint(ui, text)?;
-        Ok(response)
+            .paint(ui, text)
+    }
+
+    /// The tick's cell, which is as wide as the tick has drawn in, and the rect the label is left
+    /// in.
+    pub fn split(&self) -> (Rect, Rect) {
+        let style = &self.parts.style;
+        let tick = self.rect.height * 0.55 * self.parts.progress;
+        let inner = self.rect.inset_xy(style.padding * 0.8, 0.0);
+        let at = Rect::new(inner.x, self.rect.y, tick, self.rect.height);
+        let text = Rect::new(
+            inner.x + tick,
+            self.rect.y,
+            (inner.width - tick).max(0.0),
+            self.rect.height,
+        );
+        (at, text)
+    }
+}
+
+impl<Id: WidgetId> Widget<Id> for Chip<'_> {
+    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
     }
 }
 
@@ -157,7 +246,38 @@ mod tests {
     use super::*;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::UiState;
+    use crate::ui::rig::Rig;
     use crate::window::{KeyCode, Modifiers, WindowEvent};
+
+    fn draw_chip(rig: &mut Rig, on: &mut bool, at: Rect) {
+        rig.frame(|ui| {
+            Chip::new("Wired", on)
+                .show_with(ui, 1, at, |ui, look| {
+                    ui.fill(look.rect, Color::rgb(0, 200, 0))
+                })
+                .expect("draw");
+        });
+    }
+
+    #[test]
+    fn show_with_draws_the_apps_look_and_still_toggles() {
+        let mut rig = Rig::new(120, 40);
+        let at = Rect::new(0.0, 0.0, 120.0, 40.0);
+        let mut on = false;
+        draw_chip(&mut rig, &mut on, at);
+        assert_eq!(
+            rig.pixel(60, 20),
+            [0, 200, 0, 255],
+            "the app's look, not the default"
+        );
+        rig.at(60, 20);
+        draw_chip(&mut rig, &mut on, at);
+        rig.button(60, 20, true);
+        draw_chip(&mut rig, &mut on, at);
+        rig.button(60, 20, false);
+        draw_chip(&mut rig, &mut on, at);
+        assert!(on, "the click still turns it on");
+    }
 
     #[test]
     fn space_turns_a_focused_chip_on_and_off() {
