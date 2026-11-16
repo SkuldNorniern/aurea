@@ -58,7 +58,9 @@ pub use widget::tabs::{TabBar, TabStyle};
 pub use widget::text_area::TextArea;
 pub use widget::text_field::{FieldStyle, TextField};
 pub use widget::toast::{Toast, ToastTone, Toasts};
-pub use widget::toggle::{Checkbox, CheckboxStyle, Toggle, ToggleStyle};
+pub use widget::toggle::{
+    Checkbox, CheckboxParts, CheckboxStyle, Toggle, ToggleParts, ToggleStyle,
+};
 pub use widget::tooltip::TooltipOptions;
 pub use widget::tree::{TreeRow, TreeStyle, TreeView, tree_rows};
 pub use widget::wheel::ColorWheel;

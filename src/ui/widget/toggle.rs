@@ -2,12 +2,13 @@
 //! tick, and a [`Label`].
 
 use super::Widget;
+use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
 #[cfg(feature = "accessibility")]
 use crate::ui::accessibility::Role;
 use crate::ui::component::{FocusRing, StateColors};
-use crate::ui::frame::{Eased, Response, Ui};
+use crate::ui::frame::{Response, Ui};
 use crate::ui::paint::{Component, Label, Mark, MarkShape, Shadow, Surface};
 #[cfg(feature = "accessibility")]
 use crate::ui::state::Key;
@@ -98,8 +99,29 @@ impl<'v> Toggle<'v> {
     }
 }
 
-impl<Id: WidgetId> Widget<Id> for Toggle<'_> {
-    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+/// What a [`Toggle`] draws, for a painter given to [`Toggle::show_with`].
+#[derive(Clone, Copy, Debug)]
+pub struct ToggleParts<'v> {
+    /// Whether it is on, after this frame's click.
+    pub on: bool,
+    /// How far the knob has slid, 0 off to 1 on.
+    pub progress: f32,
+    /// The label, if any.
+    pub label: Option<&'v str>,
+    /// Whether it takes input; the default look fades when not.
+    pub enabled: bool,
+    /// The style it draws with, the theme's unless one was given.
+    pub style: ToggleStyle,
+}
+
+impl<'v> Toggle<'v> {
+    /// Takes the input and works out what it would draw, without drawing.
+    fn run<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+    ) -> (Response, Look<ToggleParts<'v>>) {
         let input = ui.interact(id, 0, rect, Sense::Click, self.enabled);
         let mut response = Response::new(rect, input);
         if input.clicked {
@@ -118,47 +140,95 @@ impl<Id: WidgetId> Widget<Id> for Toggle<'_> {
             }
         }
         let slide = ui.theme.motion.slide;
-        let t = ui.animate(id, 0, Channel::Value, f32::from(u8::from(*self.on)), slide);
+        let progress = ui.animate(id, 0, Channel::Value, f32::from(u8::from(*self.on)), slide);
         let style = self.style.unwrap_or_else(|| ToggleStyle::new(ui.theme));
+        let look = Look {
+            rect,
+            state,
+            held_at: ui.held_at(id, 0),
+            parts: ToggleParts {
+                on: *self.on,
+                progress,
+                label: self.label,
+                enabled: self.enabled,
+                style,
+            },
+        };
+        (response, look)
+    }
 
-        let h = rect.height.min(style.height);
-        let (track, text) = rect.split_right(h * 1.7, ui.theme.padding);
-        let track = track.centered(track.width, h);
-        if let Some(label) = self.label {
-            Label::new(label, style.label.fade(state.enabled)).paint(ui, text)?;
-        }
-        switch(ui, &style, track, (t, state))?;
+    /// Takes the input as [`Toggle::show`] does, then has `paint` draw it instead of its own look.
+    /// [`Look::paint_default`], [`Look::paint_track`] and [`Look::paint_label`] draw the parts of
+    /// the usual look.
+    pub fn show_with<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<ToggleParts<'v>>) -> AureaResult<()>,
+    ) -> AureaResult<Response> {
+        let (response, look) = self.run(ui, id, rect);
+        paint(ui, &look)?;
         Ok(response)
     }
 }
 
-fn switch<Id: WidgetId>(
-    ui: &mut Ui<'_, Id>,
-    style: &ToggleStyle,
-    track: Rect,
-    (t, state): (f32, Eased),
-) -> AureaResult<()> {
-    let h = track.height;
-    FocusRing::new(ui.theme, h / 2.0, state.focus).paint(ui, track)?;
-    let fill = style.off.at(state).mix(style.on.fade(state.enabled), t);
-    let border = style.border.fade(state.enabled * (1.0 - t));
-    Surface::new(fill)
-        .pill()
-        .border(ui.theme.border_width, border)
-        .paint(ui, track)?;
-    let pad = 3.0;
-    let d = h - pad * 2.0;
-    let stretch = d * 0.25 * state.press;
-    let travel = track.width - pad * 2.0 - d - stretch;
-    let knob = Rect::new(track.x + pad + travel * t, track.y + pad, d + stretch, d);
-    let mut surface = Surface::new(style.knob.fade(state.enabled)).pill();
-    if let Some(shadow) = style.knob_shadow {
-        surface = surface.shadow(Shadow {
-            color: shadow.color.fade(state.enabled),
-            ..shadow
-        });
+impl Look<ToggleParts<'_>> {
+    /// The switch's own look: the label, then the track and knob.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        self.paint_label(ui)?;
+        self.paint_track(ui)
     }
-    surface.paint(ui, knob)
+
+    /// The track at the row's end with the knob sliding across it, and its focus ring.
+    pub fn paint_track<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let (state, style, t) = (self.state, &self.parts.style, self.parts.progress);
+        let (track, _) = self.split(ui);
+        let h = track.height;
+        FocusRing::new(ui.theme, h / 2.0, state.focus).paint(ui, track)?;
+        let fill = style.off.at(state).mix(style.on.fade(state.enabled), t);
+        let border = style.border.fade(state.enabled * (1.0 - t));
+        Surface::new(fill)
+            .pill()
+            .border(ui.theme.border_width, border)
+            .paint(ui, track)?;
+        let pad = 3.0;
+        let d = h - pad * 2.0;
+        let stretch = d * 0.25 * state.press;
+        let travel = track.width - pad * 2.0 - d - stretch;
+        let knob = Rect::new(track.x + pad + travel * t, track.y + pad, d + stretch, d);
+        let mut surface = Surface::new(style.knob.fade(state.enabled)).pill();
+        if let Some(shadow) = style.knob_shadow {
+            surface = surface.shadow(Shadow {
+                color: shadow.color.fade(state.enabled),
+                ..shadow
+            });
+        }
+        surface.paint(ui, knob)
+    }
+
+    /// The label before the track, faded when disabled.
+    pub fn paint_label<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let (_, text) = self.split(ui);
+        if let Some(label) = self.parts.label {
+            let color = self.parts.style.label.fade(self.state.enabled);
+            return Label::new(label, color).paint(ui, text);
+        }
+        Ok(())
+    }
+
+    /// The track and the rect the label is left in, from the row.
+    pub fn split<Id: WidgetId>(&self, ui: &Ui<'_, Id>) -> (Rect, Rect) {
+        let h = self.rect.height.min(self.parts.style.height);
+        let (track, text) = self.rect.split_right(h * 1.7, ui.theme.padding);
+        (track.centered(track.width, h), text)
+    }
+}
+
+impl<Id: WidgetId> Widget<Id> for Toggle<'_> {
+    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
+    }
 }
 
 /// How a checkbox looks.
@@ -245,8 +315,29 @@ impl<'v> Checkbox<'v> {
     }
 }
 
-impl<Id: WidgetId> Widget<Id> for Checkbox<'_> {
-    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+/// What a [`Checkbox`] draws, for a painter given to [`Checkbox::show_with`].
+#[derive(Clone, Copy, Debug)]
+pub struct CheckboxParts<'v> {
+    /// Whether it is ticked, after this frame's click.
+    pub checked: bool,
+    /// How far the tick has drawn in, 0 unticked to 1 ticked.
+    pub progress: f32,
+    /// The label, if any.
+    pub label: Option<&'v str>,
+    /// Whether it takes input; the default look fades when not.
+    pub enabled: bool,
+    /// The style it draws with, the theme's unless one was given.
+    pub style: CheckboxStyle,
+}
+
+impl<'v> Checkbox<'v> {
+    /// Takes the input and works out what it would draw, without drawing.
+    fn run<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+    ) -> (Response, Look<CheckboxParts<'v>>) {
         let input = ui.interact(id, 0, rect, Sense::Click, self.enabled);
         let mut response = Response::new(rect, input);
         if input.clicked {
@@ -256,7 +347,7 @@ impl<Id: WidgetId> Widget<Id> for Checkbox<'_> {
         }
         let state = ui.eased(id, 0, input);
         let rate = ui.theme.motion.slide * 1.5;
-        let t = ui.animate(
+        let progress = ui.animate(
             id,
             0,
             Channel::Value,
@@ -264,10 +355,48 @@ impl<Id: WidgetId> Widget<Id> for Checkbox<'_> {
             rate,
         );
         let style = self.style.unwrap_or_else(|| CheckboxStyle::new(ui.theme));
+        let look = Look {
+            rect,
+            state,
+            held_at: ui.held_at(id, 0),
+            parts: CheckboxParts {
+                checked: *self.checked,
+                progress,
+                label: self.label,
+                enabled: self.enabled,
+                style,
+            },
+        };
+        (response, look)
+    }
 
-        let s = rect.height.min(style.size);
-        let (cell, text) = rect.split_left(s, ui.theme.padding * 0.8);
-        let mark = cell.centered(s, s);
+    /// Takes the input as [`Checkbox::show`] does, then has `paint` draw it instead of its own
+    /// look. [`Look::paint_default`], [`Look::paint_box`] and [`Look::paint_label`] draw the parts
+    /// of the usual look.
+    pub fn show_with<Id: WidgetId>(
+        self,
+        ui: &mut Ui<'_, Id>,
+        id: Id,
+        rect: Rect,
+        paint: impl FnOnce(&mut Ui<'_, Id>, &Look<CheckboxParts<'v>>) -> AureaResult<()>,
+    ) -> AureaResult<Response> {
+        let (response, look) = self.run(ui, id, rect);
+        paint(ui, &look)?;
+        Ok(response)
+    }
+}
+
+impl Look<CheckboxParts<'_>> {
+    /// The checkbox's own look: the box, then the label.
+    pub fn paint_default<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        self.paint_box(ui)?;
+        self.paint_label(ui)
+    }
+
+    /// The box at the row's start with its focus ring, fill, outline and tick.
+    pub fn paint_box<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let (state, style, t) = (self.state, &self.parts.style, self.parts.progress);
+        let (mark, _) = self.split(ui);
         FocusRing::new(ui.theme, style.radius, state.focus).paint(ui, mark)?;
         let fill = style
             .empty
@@ -283,9 +412,95 @@ impl<Id: WidgetId> Widget<Id> for Checkbox<'_> {
                 .progress(t)
                 .paint(ui, mark)?;
         }
-        if let Some(label) = self.label {
-            Label::new(label, style.label.fade(state.enabled)).paint(ui, text)?;
+        Ok(())
+    }
+
+    /// The label after the box, faded when disabled.
+    pub fn paint_label<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        let (_, text) = self.split(ui);
+        if let Some(label) = self.parts.label {
+            let color = self.parts.style.label.fade(self.state.enabled);
+            return Label::new(label, color).paint(ui, text);
         }
-        Ok(response)
+        Ok(())
+    }
+
+    /// The box, and the rect right of it the label goes in.
+    pub fn split<Id: WidgetId>(&self, ui: &Ui<'_, Id>) -> (Rect, Rect) {
+        let s = self.rect.height.min(self.parts.style.size);
+        let (cell, text) = self.rect.split_left(s, ui.theme.padding * 0.8);
+        (cell.centered(s, s), text)
+    }
+}
+
+impl<Id: WidgetId> Widget<Id> for Checkbox<'_> {
+    fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
+        self.show_with(ui, id, rect, |ui, look| look.paint_default(ui))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::rig::Rig;
+
+    fn draw_toggle(rig: &mut Rig, on: &mut bool, at: Rect) {
+        rig.frame(|ui| {
+            Toggle::new(on)
+                .show_with(ui, 1, at, |ui, look| {
+                    ui.fill(look.rect, Color::rgb(0, 200, 0))
+                })
+                .expect("draw");
+        });
+    }
+
+    fn draw_checkbox(rig: &mut Rig, checked: &mut bool, at: Rect) {
+        rig.frame(|ui| {
+            Checkbox::new(checked)
+                .show_with(ui, 1, at, |ui, look| {
+                    ui.fill(look.rect, Color::rgb(0, 200, 0))
+                })
+                .expect("draw");
+        });
+    }
+
+    #[test]
+    fn toggle_show_with_draws_the_apps_look_and_still_toggles() {
+        let mut rig = Rig::new(120, 40);
+        let at = Rect::new(0.0, 0.0, 120.0, 40.0);
+        let mut on = false;
+        draw_toggle(&mut rig, &mut on, at);
+        assert_eq!(
+            rig.pixel(60, 20),
+            [0, 200, 0, 255],
+            "the app's look, not the default"
+        );
+        rig.at(110, 20);
+        draw_toggle(&mut rig, &mut on, at);
+        rig.button(110, 20, true);
+        draw_toggle(&mut rig, &mut on, at);
+        rig.button(110, 20, false);
+        draw_toggle(&mut rig, &mut on, at);
+        assert!(on, "the click still turns it on");
+    }
+
+    #[test]
+    fn checkbox_show_with_draws_the_apps_look_and_still_toggles() {
+        let mut rig = Rig::new(120, 40);
+        let at = Rect::new(0.0, 0.0, 120.0, 40.0);
+        let mut checked = false;
+        draw_checkbox(&mut rig, &mut checked, at);
+        assert_eq!(
+            rig.pixel(60, 20),
+            [0, 200, 0, 255],
+            "the app's look, not the default"
+        );
+        rig.at(10, 10);
+        draw_checkbox(&mut rig, &mut checked, at);
+        rig.button(10, 10, true);
+        draw_checkbox(&mut rig, &mut checked, at);
+        rig.button(10, 10, false);
+        draw_checkbox(&mut rig, &mut checked, at);
+        assert!(checked, "the click still ticks it");
     }
 }
