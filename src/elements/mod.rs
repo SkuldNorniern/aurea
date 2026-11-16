@@ -48,10 +48,50 @@ pub use table::Table;
 pub use text::{TextChange, TextControl, TextEditor, TextFeatures, TextField, TextView};
 pub use traits::{Container, Element};
 
+/// Helpers both native test modules use.
+#[cfg(all(test, any(target_os = "linux", target_os = "windows")))]
+mod shared_tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    pub(super) const TEXT: &str = "연결 · 日本語 🙂 …";
+
+    pub(super) fn recorder<T: 'static>() -> (Rc<RefCell<Vec<T>>>, impl Fn(T) + 'static) {
+        let got = Rc::new(RefCell::new(Vec::new()));
+        let seen = Rc::clone(&got);
+        (got, move |v| seen.borrow_mut().push(v))
+    }
+
+    /// A 24-bit BMP filled with the `bgr` colour.
+    pub(super) fn bmp(w: u32, h: u32, bgr: [u8; 3]) -> Vec<u8> {
+        let row = (w * 3).div_ceil(4) * 4;
+        let size = 54 + row * h;
+        let mut out = Vec::new();
+        out.extend_from_slice(b"BM");
+        for v in [size, 0, 54, 40] {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        out.extend_from_slice(&w.to_le_bytes());
+        out.extend_from_slice(&h.to_le_bytes());
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&24u16.to_le_bytes());
+        out.extend_from_slice(&[0; 24]);
+        for _ in 0..h {
+            let start = out.len();
+            for _ in 0..w {
+                out.extend_from_slice(&bgr);
+            }
+            out.resize(start + row as usize, 0);
+        }
+        out
+    }
+}
+
 #[cfg(all(test, target_os = "linux"))]
 mod gtk_tests {
     //! Native GTK widgets, read back through GTK.
 
+    use super::shared_tests::{TEXT, bmp, recorder};
     use super::*;
     use crate::{AureaError, AureaResult, Window};
     use std::cell::RefCell;
@@ -86,8 +126,6 @@ mod gtk_tests {
         fn cairo_image_surface_get_stride(surface: *mut c_void) -> c_int;
         fn g_signal_emit_by_name(instance: *mut c_void, signal: *const c_char, ...);
     }
-
-    const TEXT: &str = "연결 · 日本語 🙂 …";
 
     /// [`settle`], going on while the X server has not answered a resize yet.
     fn settle_at(window: &Window, size: (u32, u32)) {
@@ -425,12 +463,6 @@ mod gtk_tests {
         Ok(())
     }
 
-    fn recorder<T: 'static>() -> (Rc<RefCell<Vec<T>>>, impl Fn(T) + 'static) {
-        let got = Rc::new(RefCell::new(Vec::new()));
-        let seen = Rc::clone(&got);
-        (got, move |v| seen.borrow_mut().push(v))
-    }
-
     #[test]
     #[ignore = "needs a display; run with --ignored"]
     fn value_controls_report_only_the_user() -> AureaResult<()> {
@@ -538,29 +570,6 @@ mod gtk_tests {
             Err(AureaError::ElementDestroyed)
         ));
         Ok(())
-    }
-
-    fn bmp(w: u32, h: u32, bgr: [u8; 3]) -> Vec<u8> {
-        let row = (w * 3).div_ceil(4) * 4;
-        let size = 54 + row * h;
-        let mut out = Vec::new();
-        out.extend_from_slice(b"BM");
-        for v in [size, 0, 54, 40] {
-            out.extend_from_slice(&v.to_le_bytes());
-        }
-        out.extend_from_slice(&w.to_le_bytes());
-        out.extend_from_slice(&h.to_le_bytes());
-        out.extend_from_slice(&1u16.to_le_bytes());
-        out.extend_from_slice(&24u16.to_le_bytes());
-        out.extend_from_slice(&[0; 24]);
-        for _ in 0..h {
-            let start = out.len();
-            for _ in 0..w {
-                out.extend_from_slice(&bgr);
-            }
-            out.resize(start + row as usize, 0);
-        }
-        out
     }
 
     fn render(widget: *mut c_void) -> (Vec<u32>, usize, usize) {
@@ -676,6 +685,7 @@ mod gtk_tests {
 mod win32_tests {
     //! Native Win32 controls, read back through the wide API.
 
+    use super::shared_tests::{TEXT, bmp, recorder};
     use super::*;
     use crate::render::Rect as AreaRect;
     use crate::{AureaError, AureaResult, Window};
@@ -727,6 +737,17 @@ mod win32_tests {
         fn ng_windows_detached_parent() -> *mut c_void;
     }
 
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn SetFocus(hwnd: *mut c_void) -> *mut c_void;
+        fn GetFocus() -> *mut c_void;
+        fn PostMessageW(hwnd: *mut c_void, msg: u32, w: usize, l: isize) -> i32;
+        fn GetWindowLongPtrW(hwnd: *mut c_void, index: i32) -> isize;
+        fn GetClientRect(hwnd: *mut c_void, rect: *mut Rect) -> i32;
+        fn GetKeyboardState(state: *mut u8) -> i32;
+        fn SetKeyboardState(state: *const u8) -> i32;
+    }
+
     #[link(name = "gdi32")]
     unsafe extern "system" {
         fn CreateCompatibleDC(dc: *mut c_void) -> *mut c_void;
@@ -741,7 +762,6 @@ mod win32_tests {
     const WM_PRINTCLIENT: u32 = 0x0318;
     const PRF_CLIENT: isize = 4;
 
-    const TEXT: &str = "연결 · 日本語 🙂 …";
     const BM_GETCHECK: u32 = 0x00F0;
     const BM_CLICK: u32 = 0x00F5;
     const EM_REPLACESEL: u32 = 0x00C2;
@@ -755,6 +775,12 @@ mod win32_tests {
     const CB_SETCURSEL: u32 = 0x014E;
     const CBN_SELCHANGE: usize = 1;
     const TBM_SETPOS: u32 = 0x0405;
+    const GW_HWNDNEXT: u32 = 2;
+    const GWL_STYLE: i32 = -16;
+    const WM_KEYDOWN: u32 = 0x0100;
+    const WM_SETFONT: u32 = 0x0030;
+    const WM_GETFONT: u32 = 0x0031;
+    const WM_DPICHANGED: u32 = 0x02E0;
 
     fn wide(s: &str) -> Vec<u16> {
         s.encode_utf16().chain([0]).collect()
@@ -817,12 +843,6 @@ mod win32_tests {
     #[test]
     #[ignore = "creates native windows; run with --ignored"]
     fn enter_clicks_the_focused_button() -> AureaResult<()> {
-        #[link(name = "user32")]
-        unsafe extern "system" {
-            fn SetFocus(hwnd: *mut c_void) -> *mut c_void;
-            fn PostMessageW(hwnd: *mut c_void, msg: u32, w: usize, l: isize) -> i32;
-        }
-        const WM_KEYDOWN: u32 = 0x0100;
         const VK_RETURN: usize = 0x0D;
         let mut window = Window::new("enter", 300, 200)?;
         let clicks = Rc::new(RefCell::new(0));
@@ -858,22 +878,12 @@ mod win32_tests {
     }
 
     fn checkbox_checked(hwnd: *mut c_void) -> bool {
-        const BM_GETCHECK: u32 = 0x00F0;
         unsafe { SendMessageW(hwnd, BM_GETCHECK, 0, 0) == 1 }
     }
 
     #[test]
     #[ignore = "creates native windows; run with --ignored"]
     fn tab_moves_focus_between_controls() -> AureaResult<()> {
-        #[link(name = "user32")]
-        unsafe extern "system" {
-            fn SetFocus(hwnd: *mut c_void) -> *mut c_void;
-            fn GetFocus() -> *mut c_void;
-            fn PostMessageW(hwnd: *mut c_void, msg: u32, w: usize, l: isize) -> i32;
-            fn GetKeyboardState(state: *mut u8) -> i32;
-            fn SetKeyboardState(state: *const u8) -> i32;
-        }
-        const WM_KEYDOWN: u32 = 0x0100;
         const VK_TAB: usize = 0x09;
         const VK_SHIFT: usize = 0x10;
         let mut window = Window::new("tab order", 400, 300)?;
@@ -933,11 +943,6 @@ mod win32_tests {
     #[test]
     #[ignore = "creates native windows; run with --ignored"]
     fn ampersands_show_as_typed() -> AureaResult<()> {
-        #[link(name = "user32")]
-        unsafe extern "system" {
-            fn GetWindowLongPtrW(hwnd: *mut c_void, index: i32) -> isize;
-        }
-        const GWL_STYLE: i32 = -16;
         const SS_NOPREFIX: isize = 0x80;
         let _window = Window::new("ampersand", 400, 300)?;
         let label = Label::new("Save & Load")?;
@@ -1212,12 +1217,6 @@ mod win32_tests {
         Ok(())
     }
 
-    fn recorder<T: 'static>() -> (Rc<RefCell<Vec<T>>>, impl Fn(T) + 'static) {
-        let got = Rc::new(RefCell::new(Vec::new()));
-        let seen = Rc::clone(&got);
-        (got, move |v| seen.borrow_mut().push(v))
-    }
-
     fn as_user(msg: u32, code: usize, control: *mut c_void) {
         unsafe {
             SendMessageW(
@@ -1346,8 +1345,6 @@ mod win32_tests {
                 face: *const u16,
             ) -> *mut c_void;
         }
-        const WM_SETFONT: u32 = 0x0030;
-        const WM_DPICHANGED: u32 = 0x02E0;
         let mut window = Window::new("dpi scroll", 300, 200)?;
         let mut stack = Stack::new(Orientation::Vertical)?;
         let mut labels = Vec::new();
@@ -1361,7 +1358,6 @@ mod win32_tests {
         let height = |h| rect(h).bottom - rect(h).top;
         let before = height(content);
 
-        const WM_GETFONT: u32 = 0x0031;
         let mut logfont = [0i32; 23];
         unsafe {
             let font = SendMessageW(labels[0], WM_GETFONT, 0, 0) as *mut c_void;
@@ -1399,10 +1395,6 @@ mod win32_tests {
     #[test]
     #[ignore = "creates native windows; run with --ignored"]
     fn a_scroll_view_reveals_the_focused_control() -> AureaResult<()> {
-        #[link(name = "user32")]
-        unsafe extern "system" {
-            fn SetFocus(hwnd: *mut c_void) -> *mut c_void;
-        }
         let mut window = Window::new("scroll focus", 300, 200)?;
         let mut stack = Stack::new(Orientation::Vertical)?;
         for i in 0..20 {
@@ -1428,11 +1420,6 @@ mod win32_tests {
     #[test]
     #[ignore = "creates native windows; run with --ignored"]
     fn a_scroll_bar_shows_by_policy() -> AureaResult<()> {
-        #[link(name = "user32")]
-        unsafe extern "system" {
-            fn GetWindowLongPtrW(hwnd: *mut c_void, index: i32) -> isize;
-        }
-        const GWL_STYLE: i32 = -16;
         const WS_VSCROLL: isize = 0x0020_0000;
         let mut window = Window::new("scroll policy", 300, 400)?;
         let scroll = Shared::new(ScrollView::with_content(Label::new("short")?)?);
@@ -1455,15 +1442,10 @@ mod win32_tests {
     }
 
     fn font_fits(field: *mut c_void) -> (i32, i32) {
-        #[link(name = "user32")]
-        unsafe extern "system" {
-            fn GetClientRect(hwnd: *mut c_void, rect: *mut Rect) -> i32;
-        }
         #[link(name = "gdi32")]
         unsafe extern "system" {
             fn GetTextMetricsW(dc: *mut c_void, metrics: *mut i32) -> i32;
         }
-        const WM_GETFONT: u32 = 0x0031;
         let mut client = Rect::default();
         let mut metrics = [0i32; 15];
         unsafe {
@@ -1500,8 +1482,6 @@ mod win32_tests {
                 face: *const u16,
             ) -> *mut c_void;
         }
-        const WM_SETFONT: u32 = 0x0030;
-        const WM_DPICHANGED: u32 = 0x02E0;
         let mut window = Window::new("field height", 400, 300)?;
         let mut stack = Stack::new(Orientation::Vertical)?;
         let field = TextField::with_content("Agjpqy 한글 日本語")?;
@@ -1735,8 +1715,6 @@ mod win32_tests {
         const ROLE_SYSTEM_PAGETABLIST: i32 = 0x3C;
         const STATE_SYSTEM_SELECTED: i32 = 0x2;
         const STATE_SYSTEM_CHECKED: i32 = 0x10;
-        const GW_CHILD: u32 = 5;
-        const GW_HWNDNEXT: u32 = 2;
         let mut window = Window::new("tabs", 400, 300)?;
         let mut tabs = TabBar::new()?;
         tabs.add_tab("One")?;
@@ -1871,29 +1849,6 @@ mod win32_tests {
         Ok(())
     }
 
-    fn bmp(w: u32, h: u32, bgr: [u8; 3]) -> Vec<u8> {
-        let row = (w * 3).div_ceil(4) * 4;
-        let size = 54 + row * h;
-        let mut out = Vec::new();
-        out.extend_from_slice(b"BM");
-        for v in [size, 0, 54, 40] {
-            out.extend_from_slice(&v.to_le_bytes());
-        }
-        out.extend_from_slice(&w.to_le_bytes());
-        out.extend_from_slice(&h.to_le_bytes());
-        out.extend_from_slice(&1u16.to_le_bytes());
-        out.extend_from_slice(&24u16.to_le_bytes());
-        out.extend_from_slice(&[0; 24]);
-        for _ in 0..h {
-            let start = out.len();
-            for _ in 0..w {
-                out.extend_from_slice(&bgr);
-            }
-            out.resize(start + row as usize, 0);
-        }
-        out
-    }
-
     #[test]
     #[ignore = "creates native windows; run with --ignored"]
     fn an_image_keeps_its_aspect() -> AureaResult<()> {
@@ -1973,7 +1928,6 @@ b"
     #[test]
     #[ignore = "creates native windows; run with --ignored"]
     fn a_heading_label_is_larger_and_bold() -> AureaResult<()> {
-        const WM_GETFONT: u32 = 0x0031;
         let _window = Window::new("styles", 400, 300)?;
         let font = |label: &Label| {
             let mut logfont = [0i32; 23];
