@@ -58,6 +58,12 @@ pub trait Renderer {
     /// Sets cached GPU image limits between frames. CPU renderers ignore this.
     fn set_gpu_cache_limits(&mut self, _limits: GpuCacheLimits) {}
 
+    /// Caps the threads a CPU frame draws on, as [`CpuRasterizer::set_threads`] does. GPU
+    /// renderers ignore this.
+    ///
+    /// [`CpuRasterizer::set_threads`]: crate::cpu::CpuRasterizer::set_threads
+    fn set_cpu_threads(&mut self, _threads: Option<usize>) {}
+
     /// Cached image payload estimates; `None` for a CPU renderer.
     fn gpu_cache_stats(&self) -> Option<GpuCacheStats> {
         None

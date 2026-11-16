@@ -443,6 +443,10 @@ impl Renderer for CpuRasterizer {
         Self::release_frame(self);
     }
 
+    fn set_cpu_threads(&mut self, threads: Option<usize>) {
+        self.set_threads(threads);
+    }
+
     fn configure(&mut self, info: SurfaceInfo) -> AureaResult<()> {
         self.resize_buffer(&info)
     }
