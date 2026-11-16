@@ -125,6 +125,23 @@ impl Path {
         }
     }
 
+    /// The smallest rect holding every point and control point: never smaller than the shape.
+    pub fn bounds(&self) -> Option<Rect> {
+        let mut points = self.commands.iter().flat_map(|command| match *command {
+            PathCommand::MoveTo(p) | PathCommand::LineTo(p) => [Some(p), None, None],
+            PathCommand::QuadTo(a, p) => [Some(a), Some(p), None],
+            PathCommand::CubicTo(a, b, p) => [Some(a), Some(b), Some(p)],
+            PathCommand::Close => [None, None, None],
+        });
+        let first = points.by_ref().flatten().next()?;
+        let (mut x0, mut y0, mut x1, mut y1) = (first.x, first.y, first.x, first.y);
+        for p in points.flatten() {
+            (x0, y0) = (x0.min(p.x), y0.min(p.y));
+            (x1, y1) = (x1.max(p.x), y1.max(p.y));
+        }
+        Some(Rect::new(x0, y0, x1 - x0, y1 - y0))
+    }
+
     /// An empty path.
     pub fn new() -> Self {
         Self {
@@ -196,6 +213,13 @@ mod tests {
 
     fn close(a: Point, b: Point) -> bool {
         (a.x - b.x).abs() < 1e-3 && (a.y - b.y).abs() < 1e-3
+    }
+
+    #[test]
+    fn bounds_hold_every_point() {
+        assert_eq!(Path::new().bounds(), None);
+        let path = Path::rounded_rect(Rect::new(10.0, 20.0, 30.0, 40.0), 5.0);
+        assert_eq!(path.bounds(), Some(Rect::new(10.0, 20.0, 30.0, 40.0)));
     }
 
     #[test]

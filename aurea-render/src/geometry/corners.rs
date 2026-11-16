@@ -2,7 +2,7 @@
 
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, SQRT_2};
 
-use super::{Path, PathCommand, Point, Rect};
+use super::{FillRule, Path, PathCommand, Point, Rect};
 
 /// A radius for each corner, and how smoothly each corner runs into its edges.
 ///
@@ -191,6 +191,26 @@ impl Path {
     }
 }
 
+impl Path {
+    /// The band `width` wide just inside [`Path::rounded`]'s outline, filled even-odd: fill a
+    /// gradient through it for a rim that changes along the edge.
+    pub fn rounded_ring(rect: Rect, corners: Corners, width: f32) -> Self {
+        let mut path = Self::rounded(rect, corners);
+        let width = width.clamp(0.0, rect.width.min(rect.height) / 2.0);
+        let less = |r: f32| (r - width).max(0.0);
+        let inner = Corners {
+            top_left: less(corners.top_left),
+            top_right: less(corners.top_right),
+            bottom_right: less(corners.bottom_right),
+            bottom_left: less(corners.bottom_left),
+            smoothing: corners.smoothing,
+        };
+        path.push_rounded(rect.inset(width), inner);
+        path.fill_rule = FillRule::EvenOdd;
+        path
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,6 +275,20 @@ mod tests {
             all.iter().any(|p| close(*p, Point::new(70.0, 0.0))),
             "top right curve starts 30 in"
         );
+    }
+
+    #[test]
+    fn a_ring_is_two_outlines_filled_even_odd() {
+        let rect = Rect::new(0.0, 0.0, 100.0, 40.0);
+        let ring = Path::rounded_ring(rect, Corners::all(20.0), 2.0);
+        assert_eq!(ring.fill_rule, FillRule::EvenOdd);
+        let moves = ring
+            .commands
+            .iter()
+            .filter(|c| matches!(c, PathCommand::MoveTo(_)))
+            .count();
+        assert_eq!(moves, 2);
+        assert_eq!(ring.bounds(), Some(rect));
     }
 
     #[test]

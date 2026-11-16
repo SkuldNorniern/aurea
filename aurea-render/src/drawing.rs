@@ -193,6 +193,40 @@ pub trait DrawingContext {
     /// Fill with a radial gradient.
     fn fill_radial_gradient(&mut self, gradient: &RadialGradient, rect: Rect) -> AureaResult<()>;
 
+    /// Fills `path` with `gradient`, clipped to its outline.
+    fn fill_path_linear_gradient(
+        &mut self,
+        path: &Path,
+        gradient: &LinearGradient,
+    ) -> AureaResult<()> {
+        let Some(bounds) = path.bounds() else {
+            return Ok(());
+        };
+        self.save()?;
+        let filled = self
+            .clip_path(path)
+            .and_then(|()| self.fill_linear_gradient(gradient, bounds));
+        self.restore()?;
+        filled
+    }
+
+    /// Fills `path` with `gradient`, clipped to its outline.
+    fn fill_path_radial_gradient(
+        &mut self,
+        path: &Path,
+        gradient: &RadialGradient,
+    ) -> AureaResult<()> {
+        let Some(bounds) = path.bounds() else {
+            return Ok(());
+        };
+        self.save()?;
+        let filled = self
+            .clip_path(path)
+            .and_then(|()| self.fill_radial_gradient(gradient, bounds));
+        self.restore()?;
+        filled
+    }
+
     /// Check if a point is inside a path (hit testing).
     fn hit_test_path(&mut self, path: &Path, point: Point) -> AureaResult<bool>;
 
