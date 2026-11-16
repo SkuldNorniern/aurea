@@ -16,7 +16,7 @@ pub use component::{
 pub use frame::{Align, Eased, FrameAsk, PressAt, Response, TypedInput, Ui};
 pub use paint::{
     AxisMarks, AxisSide, AxisStyle, Badge, BadgeTone, Border, Component, DetailRow, GridLines,
-    GridStyle, IconMark, IconSource, Label, Mark, MarkShape, Marker, Overflow, PromptLine,
+    GridStyle, IconMark, IconSource, Label, Mark, MarkShape, Marker, Overflow, Panel, PromptLine,
     Separator, Shadow, Spinner, Stroke, Surface, TextSize, Trace,
 };
 pub use state::ScopedId;
