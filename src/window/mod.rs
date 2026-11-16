@@ -1,9 +1,12 @@
 //! Window management, events, and lifecycle integration.
 
 pub mod clipboard;
+mod close;
 #[cfg(feature = "zengpu")]
 mod gpu;
+mod lifecycle;
 mod manager;
+mod native;
 mod types;
 
 pub use aurea_foundation::{
@@ -32,6 +35,8 @@ mod proxy;
 
 pub use proxy::WindowProxy;
 
+use close::CloseFlags;
+
 #[cfg(feature = "wgpu")]
 use crate::platform::handles::native_handle_from_window_ptr;
 use crate::platform::ui_thread;
@@ -41,8 +46,7 @@ use crate::registry::window::{
     scale_factor_changed, take_unread, unregister_event_callbacks, unregister_event_queue,
     unregister_update_callbacks,
 };
-use crate::render::{Image, ImageSet, Rect, redraw_canvases_in, release_frames_in};
-use crate::trim_memory;
+use crate::render::{Image, ImageSet, Rect};
 use crate::{AureaError, AureaResult};
 use aurea_foundation::lock;
 use aurea_foundation::{Capability, CapabilityChecker};
@@ -51,7 +55,6 @@ use aurea_runtime::{DamageRegion, FrameScheduler};
 use std::{
     os::raw::{c_int, c_void},
     rc::Rc,
-    sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, LazyLock, Mutex, OnceLock},
     time::Duration,
 };
@@ -79,7 +82,6 @@ fn acquire_platform() -> AureaResult<()> {
         });
         if let Err(error) = ui_thread::claim() {
             unsafe { ng_platform_cleanup() };
-            state.ready = false;
             return Err(error);
         }
         state.ready = true;
@@ -137,8 +139,7 @@ pub struct Window {
     #[cfg(feature = "wgpu")]
     surface_handle: Arc<NativeWindowHandle>,
     window_type: WindowType,
-    closing: Arc<AtomicBool>,
-    close_waiting: Arc<AtomicBool>,
+    close_flags: Arc<CloseFlags>,
 }
 
 impl Window {
@@ -172,11 +173,7 @@ impl Window {
             .clone()?;
 
         acquire_platform()?;
-        let mut guard = WindowBuildGuard {
-            handle: None,
-            id: None,
-            armed: true,
-        };
+        let mut guard = WindowBuildGuard::new();
 
         let platform = Platform::current();
         let capabilities = CapabilityChecker::new();
@@ -207,7 +204,7 @@ impl Window {
         if handle.is_null() {
             return Err(AureaError::WindowCreationFailed);
         }
-        guard.handle = Some(handle);
+        let id = guard.own(handle);
 
         let scale_factor = unsafe { ng_platform_get_scale_factor(handle) };
         let event_queue = Arc::new(EventQueue::new());
@@ -216,71 +213,16 @@ impl Window {
         scale_factor_changed(handle, scale_factor);
         register_update_callbacks(handle);
 
-        let closing = Arc::new(AtomicBool::new(false));
-        let eq_clone = event_queue.clone();
-        let closing_bridge = Arc::clone(&closing);
-        let handle_usize = handle as usize;
+        let close_flags = CloseFlags::shared();
         register_lifecycle_callback(
             handle,
-            Arc::new(move |event| {
-                let handle_ptr = handle_usize as *mut c_void;
-                let event = match event {
-                    LifecycleEvent::WindowWillClose => {
-                        if take_forced_close(&closing_bridge) {
-                            WindowEvent::Closed
-                        } else {
-                            WindowEvent::CloseRequested
-                        }
-                    }
-                    LifecycleEvent::WindowMoved => {
-                        let mut x = 0;
-                        let mut y = 0;
-                        unsafe {
-                            ng_platform_window_get_position(handle_ptr, &mut x, &mut y);
-                        }
-                        WindowEvent::Moved { x, y }
-                    }
-                    LifecycleEvent::WindowResized => {
-                        let mut w = 0;
-                        let mut h = 0;
-                        unsafe {
-                            ng_platform_window_get_size(handle_ptr, &mut w, &mut h);
-                        }
-                        WindowEvent::Resized {
-                            width: w.cast_unsigned(),
-                            height: h.cast_unsigned(),
-                        }
-                    }
-                    LifecycleEvent::WindowMinimized => {
-                        release_frames_in(handle_ptr);
-                        WindowEvent::Minimized
-                    }
-                    LifecycleEvent::WindowRestored => {
-                        redraw_canvases_in(handle_ptr);
-                        WindowEvent::Restored
-                    }
-                    LifecycleEvent::MemoryWarning => {
-                        trim_memory();
-                        WindowEvent::MemoryWarning
-                    }
-                    LifecycleEvent::Occlusion(level) => WindowEvent::OcclusionChanged(level),
-                    LifecycleEvent::SurfaceLost => WindowEvent::SurfaceLost,
-                    LifecycleEvent::SurfaceRecreated => WindowEvent::SurfaceRecreated,
-                    _ => return,
-                };
-                eq_clone.push(event);
-                FrameScheduler::wake();
-            }),
+            lifecycle::listener(handle, Arc::clone(&event_queue), Arc::clone(&close_flags)),
         );
 
         unsafe {
             ng_platform_window_set_lifecycle_callback(handle);
             ng_platform_window_set_scale_factor_callback(handle, ng_invoke_scale_factor_changed);
         }
-
-        let id = WindowId::claim(handle);
-        proxy::register(id);
-        guard.id = Some(id);
 
         #[cfg(feature = "wgpu")]
         let surface_handle = Arc::new(
@@ -300,8 +242,7 @@ impl Window {
             damage: Mutex::new(DamageRegion::new(16)),
             scale_factor: Mutex::new(scale_factor),
             event_queue,
-            closing,
-            close_waiting: Arc::new(AtomicBool::new(false)),
+            close_flags,
             window_type,
         })
     }
@@ -316,12 +257,7 @@ impl Window {
 
     /// Get the window position.
     pub fn position(&self) -> (i32, i32) {
-        let mut x = 0;
-        let mut y = 0;
-        unsafe {
-            ng_platform_window_get_position(self.handle, &mut x, &mut y);
-        }
-        (x, y)
+        native::position(self.handle)
     }
 
     /// Builds this window's menu bar and hands back a borrow of it.
@@ -403,26 +339,12 @@ impl Window {
         }
 
         let result = unsafe { ng_platform_set_window_content(self.handle, content_handle) };
-
-        if result != 0 {
-            return Err(AureaError::ElementOperationFailed);
-        }
+        native::plain_status(result)?;
 
         element.released_to_parent();
 
         if let Some(previous) = self.content.replace(Box::new(element)) {
-            let stale = previous.handle();
-            drop(previous);
-            if !stale.is_null() && stale != content_handle {
-                let detached = unsafe { ng_platform_detach_element(stale) };
-                if detached == NG_SUCCESS || detached == NG_ERROR_UNSUPPORTED {
-                    unsafe { ng_platform_destroy_element(stale) };
-                } else {
-                    error!(
-                        "could not reclaim the previous window content (error {detached}); leaving it rather than freeing something this window no longer owns"
-                    );
-                }
-            }
+            retire_content(previous, content_handle);
         }
         Ok(())
     }
@@ -615,9 +537,14 @@ impl Window {
         self.drain_events()
     }
 
-    pub(super) fn drain_events(&self) -> Vec<WindowEvent> {
+    /// Runs calls posted to this window and queued UI-thread work.
+    fn drain_shared(&self) {
         proxy::drain_for(self);
         dispatch::drain();
+    }
+
+    pub(super) fn drain_events(&self) -> Vec<WindowEvent> {
+        self.drain_shared();
 
         let mut events = take_unread(self.handle);
         let queued = self.event_queue.pop_all();
@@ -650,8 +577,7 @@ impl Window {
     /// ```
     pub fn process_frames(&self) -> AureaResult<()> {
         ui_thread::check("Window::process_frames");
-        proxy::drain_for(self);
-        dispatch::drain();
+        self.drain_shared();
         process_window_updates(self.handle);
         FrameScheduler::process_frames()
     }
@@ -749,10 +675,7 @@ impl Window {
         }
         let result =
             unsafe { ng_platform_window_set_icon_rgba(self.handle, rgba.as_ptr(), width, height) };
-        if result != 0 {
-            return Err(AureaError::ElementOperationFailed);
-        }
-        Ok(())
+        native::plain_status(result)
     }
 
     /// Sets the window's icon from `set`: on Windows a size chosen for the title bar and one for
@@ -819,7 +742,11 @@ impl Window {
     pub fn set_size(&self, width: u32, height: u32) {
         ui_thread::check("Window::set_size");
         unsafe {
-            ng_platform_window_set_size(self.handle, width as i32, height as i32);
+            ng_platform_window_set_size(
+                self.handle,
+                native::to_native_dim(width),
+                native::to_native_dim(height),
+            );
         }
     }
 
@@ -847,11 +774,7 @@ impl Window {
     /// # }
     /// ```
     pub fn size(&self) -> (u32, u32) {
-        let mut width = 0i32;
-        let mut height = 0i32;
-        unsafe {
-            ng_platform_window_get_size(self.handle, &mut width, &mut height);
-        }
+        let (width, height) = native::size(self.handle);
         (width.cast_unsigned(), height.cast_unsigned())
     }
 
@@ -899,6 +822,8 @@ impl Window {
     /// Where the window sits, for [`Window::set_placement`] on the next start. On macOS and Linux
     /// the rect of a maximized window is its maximized one until it has been restored once.
     pub fn placement(&self) -> AureaResult<WindowPlacement> {
+        const MAXIMIZED: c_int = 1;
+        const MINIMIZED: c_int = 2;
         let mut rect = [0; 4];
         let state = unsafe { ng_platform_window_get_placement(self.handle, rect.as_mut_ptr()) };
         status("Window::placement", state)?;
@@ -908,8 +833,8 @@ impl Window {
             y,
             width,
             height,
-            maximized: state & 1 != 0,
-            minimized: state & 2 != 0,
+            maximized: state & MAXIMIZED != 0,
+            minimized: state & MINIMIZED != 0,
         })
     }
 
@@ -929,20 +854,14 @@ impl Window {
         ui_thread::check("Window::set_cursor_visible");
         let result =
             unsafe { ng_platform_window_set_cursor_visible(self.handle, i32::from(visible)) };
-        if result != 0 {
-            return Err(AureaError::ElementOperationFailed);
-        }
-        Ok(())
+        native::plain_status(result)
     }
 
     /// Sets the cursor shown over this window's content, until changed.
     pub fn set_cursor(&self, icon: CursorIcon) -> AureaResult<()> {
         ui_thread::check("Window::set_cursor");
         let result = unsafe { ng_platform_window_set_cursor_icon(self.handle, icon as i32) };
-        if result != 0 {
-            return Err(AureaError::ElementOperationFailed);
-        }
-        Ok(())
+        native::plain_status(result)
     }
 
     /// Sets an RGBA8 cursor with a hotspot in image pixels.
@@ -969,10 +888,7 @@ impl Window {
                 hotspot.1,
             )
         };
-        if result != 0 {
-            return Err(AureaError::ElementOperationFailed);
-        }
-        Ok(())
+        native::plain_status(result)
     }
 
     /// Tells the input method where the text caret is, in logical pixels relative to the content,
@@ -988,10 +904,7 @@ impl Window {
                 area.height,
             )
         };
-        if result != 0 {
-            return Err(AureaError::ElementOperationFailed);
-        }
-        Ok(())
+        native::plain_status(result)
     }
 
     /// Keys this window keeps for itself even while a child view, such as an embedded web view, has
@@ -1012,20 +925,14 @@ impl Window {
                 count,
             )
         };
-        if result != 0 {
-            return Err(AureaError::ElementOperationFailed);
-        }
-        Ok(())
+        native::plain_status(result)
     }
 
     /// Set cursor grab mode for this window.
     pub fn set_cursor_grab(&self, mode: CursorGrabMode) -> AureaResult<()> {
         ui_thread::check("Window::set_cursor_grab");
         let result = unsafe { ng_platform_window_set_cursor_grab(self.handle, mode as i32) };
-        if result != 0 {
-            return Err(AureaError::ElementOperationFailed);
-        }
-        Ok(())
+        native::plain_status(result)
     }
 
     /// Get the native window handle.
@@ -1077,9 +984,7 @@ impl Window {
     /// Keeps the window open when the person asks it to close.
     pub fn set_close_guard(&self, guarded: bool) {
         ui_thread::check("Window::set_close_guard");
-        unsafe {
-            ng_platform_window_set_close_guard(self.handle, i32::from(guarded));
-        }
+        native::set_close_guard(self.handle, guarded);
     }
 
     /// Asks `answer` when the person closes the window: a [`CloseAnswer`], or true to close it and
@@ -1100,22 +1005,15 @@ impl Window {
     pub fn on_close_request<A: Into<CloseAnswer>>(&self, answer: impl Fn() -> A + 'static) {
         self.set_close_guard(true);
         let handle = self.handle;
-        let closing = Arc::clone(&self.closing);
-        let waiting = Arc::clone(&self.close_waiting);
+        let flags = Arc::clone(&self.close_flags);
         self.on_event(move |event| {
-            if !matches!(event, WindowEvent::CloseRequested) || waiting.load(Ordering::Acquire) {
+            if !matches!(event, WindowEvent::CloseRequested) || flags.is_waiting() {
                 return;
             }
             match answer().into() {
-                CloseAnswer::Close => {
-                    closing.store(true, Ordering::Release);
-                    unsafe {
-                        ng_platform_window_set_close_guard(handle, 0);
-                        ng_platform_window_request_close(handle);
-                    }
-                }
+                CloseAnswer::Close => native::force_close(handle, &flags),
                 CloseAnswer::Keep => {}
-                CloseAnswer::Wait => waiting.store(true, Ordering::Release),
+                CloseAnswer::Wait => flags.set_waiting(true),
             }
         });
     }
@@ -1124,7 +1022,7 @@ impl Window {
     /// that failed, and the next close asks again.
     pub fn answer_close(&self, close: bool) {
         ui_thread::check("Window::answer_close");
-        self.close_waiting.store(false, Ordering::Release);
+        self.close_flags.set_waiting(false);
         if close {
             self.close();
         }
@@ -1133,9 +1031,7 @@ impl Window {
     /// Closes the window, even while it is guarded.
     pub fn close(&self) {
         ui_thread::check("Window::close");
-        self.set_close_guard(false);
-        self.closing.store(true, Ordering::Release);
-        self.request_close();
+        native::force_close(self.handle, &self.close_flags);
     }
 
     /// Check if the window is visible.
@@ -1161,23 +1057,35 @@ impl From<bool> for CloseAnswer {
     }
 }
 
-fn take_forced_close(closing: &AtomicBool) -> bool {
-    closing.swap(false, Ordering::AcqRel)
-}
-
 pub(super) fn pump_platform_events() {
     pump_for_reader(|| unsafe {
         ng_platform_poll_events();
     });
 }
 
+/// Undoes a half-built window when `with_type` returns early. Holds the platform reference
+/// from `acquire_platform` until the native window is owned, then tears that down instead.
 struct WindowBuildGuard {
-    handle: Option<*mut c_void>,
-    id: Option<WindowId>,
+    native: Option<(*mut c_void, WindowId)>,
     armed: bool,
 }
 
 impl WindowBuildGuard {
+    fn new() -> Self {
+        Self {
+            native: None,
+            armed: true,
+        }
+    }
+
+    /// Claims the new native window, so any later early return tears it down.
+    fn own(&mut self, handle: *mut c_void) -> WindowId {
+        let id = WindowId::claim(handle);
+        proxy::register(id);
+        self.native = Some((handle, id));
+        id
+    }
+
     fn disarm(&mut self) {
         self.armed = false;
     }
@@ -1188,14 +1096,9 @@ impl Drop for WindowBuildGuard {
         if !self.armed {
             return;
         }
-        match (self.handle, self.id) {
-            (Some(handle), Some(id)) => teardown_window(handle, id),
-            _ => {
-                if let Some(handle) = self.handle {
-                    unsafe { ng_platform_destroy_window(handle) };
-                }
-                release_platform();
-            }
+        match self.native {
+            Some((handle, id)) => teardown_window(handle, id),
+            None => release_platform(),
         }
     }
 }
@@ -1213,6 +1116,24 @@ fn teardown_window(handle: *mut c_void, id: WindowId) {
     }
 
     release_platform();
+}
+
+/// Frees `previous` after a new content replaced it. Detaching first lets the native side
+/// keep the element alive when it cannot be reclaimed.
+fn retire_content(previous: Box<dyn Element>, current: *mut c_void) {
+    let stale = previous.handle();
+    drop(previous);
+    if stale.is_null() || stale == current {
+        return;
+    }
+    let detached = unsafe { ng_platform_detach_element(stale) };
+    if detached == NG_SUCCESS || detached == NG_ERROR_UNSUPPORTED {
+        unsafe { ng_platform_destroy_element(stale) };
+    } else {
+        error!(
+            "could not reclaim the previous window content (error {detached}); leaving it rather than freeing something this window no longer owns"
+        );
+    }
 }
 
 impl Drop for Window {
@@ -1256,15 +1177,16 @@ mod event_queue_tests {
         window.answer_close(false);
         dispatch_window_events(window.handle, &close);
         assert_eq!(*asked.borrow(), 2);
-        assert!(!window.closing.load(Ordering::Acquire));
+        assert!(!window.close_flags.is_forced());
         Ok(())
     }
 
     #[test]
     fn forced_close_is_swallowed_once() {
-        let closing = AtomicBool::new(true);
-        assert!(take_forced_close(&closing));
-        assert!(!take_forced_close(&closing));
+        let flags = CloseFlags::default();
+        flags.mark_forced();
+        assert!(flags.take_forced());
+        assert!(!flags.take_forced());
     }
 
     #[test]
