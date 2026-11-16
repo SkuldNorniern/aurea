@@ -2420,7 +2420,7 @@ mod custom_cursor_tests {
 mod win32_size_tests {
     //! A window asked to be bigger than its work area.
 
-    use crate::{AureaResult, Window};
+    use crate::{AureaResult, Label, Window};
     use std::os::raw::c_void;
 
     #[repr(C)]
@@ -2473,6 +2473,53 @@ mod win32_size_tests {
             "{:?} outside {:?}",
             (outer.left, outer.top, outer.right, outer.bottom),
             (work.left, work.top, work.right, work.bottom)
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn content_fills_the_area_below_the_menu_bar() -> AureaResult<()> {
+        #[repr(C)]
+        #[derive(Default)]
+        struct Point {
+            x: i32,
+            y: i32,
+        }
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn GetWindowRect(hwnd: *mut c_void, rect: *mut Rect) -> i32;
+            fn GetClientRect(hwnd: *mut c_void, rect: *mut Rect) -> i32;
+            fn ClientToScreen(hwnd: *mut c_void, point: *mut Point) -> i32;
+            fn GetWindow(hwnd: *mut c_void, cmd: u32) -> *mut c_void;
+        }
+        const GW_CHILD: u32 = 5;
+        let mut window = Window::new("menu content", 300, 200)?;
+        window
+            .create_menu_bar()?
+            .add_submenu("File")?
+            .add_item("Quit", || {})?;
+        window.set_content(Label::new("body")?)?;
+        window.show();
+        let _ = window.poll_events();
+        let content = unsafe { GetWindow(window.handle, GW_CHILD) };
+        assert!(!content.is_null());
+        let (mut client, mut placed) = (Rect::default(), Rect::default());
+        let mut origin = Point::default();
+        unsafe {
+            GetClientRect(window.handle, &mut client);
+            GetWindowRect(content, &mut placed);
+            ClientToScreen(window.handle, &mut origin);
+        }
+        assert_eq!(
+            (placed.left, placed.top),
+            (origin.x, origin.y),
+            "at the client's corner"
+        );
+        assert_eq!(
+            (placed.right - placed.left, placed.bottom - placed.top),
+            (client.right, client.bottom),
+            "and as big as it"
         );
         Ok(())
     }

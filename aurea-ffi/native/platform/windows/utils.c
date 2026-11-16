@@ -971,7 +971,7 @@ void ng_windows_fit_content(HWND window) {
     int h = client.bottom - client.top;
     if (w <= 0 || h <= 0) return;
     SetWindowPos(content, NULL, 0, 0, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
-    if (GetPropA(content, "AureaBoxOrientation")) {
+    if (GetPropA(content, BOX_ORIENTATION_PROP)) {
         layout_box_children(content);
     }
 }

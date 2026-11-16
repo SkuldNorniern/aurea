@@ -14,37 +14,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-
-#define LOG_ERROR(fmt, ...) do { \
-    char buf[512]; \
-    sprintf_s(buf, sizeof(buf), fmt, __VA_ARGS__); \
-    ng_log_error(buf); \
-} while(0)
-
-#define LOG_WARN(fmt, ...) do { \
-    char buf[512]; \
-    sprintf_s(buf, sizeof(buf), fmt, __VA_ARGS__); \
-    ng_log_warn(buf); \
-} while(0)
-
-#define LOG_INFO(fmt, ...) do { \
-    char buf[512]; \
-    sprintf_s(buf, sizeof(buf), fmt, __VA_ARGS__); \
-    ng_log_info(buf); \
-} while(0)
-
-#define LOG_DEBUG(fmt, ...) do { \
-    char buf[512]; \
-    sprintf_s(buf, sizeof(buf), fmt, __VA_ARGS__); \
-    ng_log_debug(buf); \
-} while(0)
-
-#define LOG_TRACE(fmt, ...) do { \
-    char buf[512]; \
-    sprintf_s(buf, sizeof(buf), fmt, __VA_ARGS__); \
-    ng_log_trace(buf); \
-} while(0)
-
 static void ng_windows_set_client_size(HWND hwnd, int width, int height, UINT flags) {
     RECT outer;
     RECT client;
@@ -367,74 +336,23 @@ NGHandle ng_windows_window_get_content_view(NGHandle window) {
 }
 
 int ng_windows_set_window_content(NGHandle window_handle, NGHandle content_handle) {
-    LOG_INFO("ng_windows_set_window_content: called");
-    
-    if (!window_handle || !content_handle) {
-        LOG_ERROR("ng_windows_set_window_content: Invalid handles");
-        return NG_ERROR_INVALID_HANDLE;
-    }
-
+    if (!window_handle || !content_handle) return NG_ERROR_INVALID_HANDLE;
     HWND window = (HWND)window_handle;
     HWND content = (HWND)content_handle;
 
     SetParent(content, window);
-
     LONG_PTR style = GetWindowLongPtrA(content, GWL_STYLE);
     SetWindowLongPtrA(content, GWL_STYLE, style | WS_CHILD | WS_VISIBLE);
-
     NGWindow* state = ng_windows_window_state(window);
     if (state) state->content = content;
+    ShowWindow(content, SW_SHOWNA);
 
-    DrawMenuBar(window);
-
-    RECT client_rect;
-    GetClientRect(window, &client_rect);
-    
-    LOG_DEBUG("ng_windows_set_window_content: Window client area = %dx%d", 
-              client_rect.right - client_rect.left, 
-              client_rect.bottom - client_rect.top);
-
-    HMENU menu = GetMenu(window);
-    int menu_height = 0;
-    if (menu) {
-        RECT menu_rect;
-        if (GetMenuItemRect(window, menu, 0, &menu_rect)) {
-            POINT pt_top = {menu_rect.left, menu_rect.top};
-            POINT pt_bottom = {menu_rect.left, menu_rect.bottom};
-            ScreenToClient(window, &pt_top);
-            ScreenToClient(window, &pt_bottom);
-            menu_height = pt_bottom.y - pt_top.y;
-        } else {
-            menu_height = GetSystemMetrics(SM_CYMENU);
-        }
-    }
-    
-    LOG_DEBUG("ng_windows_set_window_content: Menu height = %d", menu_height);
-
-    int content_width = client_rect.right - client_rect.left;
-    int content_height = client_rect.bottom - client_rect.top;
-
-    LOG_INFO("ng_windows_set_window_content: Resizing content to %dx%d",
-             content_width, content_height);
-
-    SetWindowPos(content, NULL, 0, 0,
-                 content_width, content_height,
-                 SWP_NOZORDER | SWP_SHOWWINDOW);
-
-    DrawMenuBar(window);
-
+    /* fonts and spacing for the window's dpi first, then the content fills the client area,
+       which already sits below the menu bar */
     ng_windows_refresh_dpi(window);
-
-    #define BOX_ORIENTATION_PROP "AureaBoxOrientation"
-    if (GetPropA(content, BOX_ORIENTATION_PROP)) {
-        LOG_INFO("ng_windows_set_window_content: Content is a box, ensuring it fills window width");
-        SetWindowPos(content, NULL, 0, 0, content_width, content_height,
-                    SWP_NOMOVE | SWP_NOZORDER);
-        layout_box_children(content);
-    }
-
+    ng_windows_fit_content(window);
+    DrawMenuBar(window);
     SetFocus(window);
-
     return NG_SUCCESS;
 }
 
