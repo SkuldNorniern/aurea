@@ -131,22 +131,43 @@ static void ng_windows_run_frame(void) {
     g_in_frame = FALSE;
 }
 
-static void ng_windows_frame_wanted(void) {
-    LONGLONG now = ng_windows_now();
-    if (now >= g_next_frame || !g_frame_timer) {
-        ng_windows_run_frame();
-        return;
+/* What a wait on the frame event and timer ended with: either one means a frame is wanted. */
+static void ng_windows_frame_signal(DWORD result) {
+    if (result == WAIT_OBJECT_0 + 1 && g_frame_timer) g_timer_armed = FALSE;
+    if (result == WAIT_OBJECT_0 || (result == WAIT_OBJECT_0 + 1 && g_frame_timer)) {
+        g_frame_pending = TRUE;
     }
-    if (!g_timer_armed) {
+}
+
+/* Takes whatever frame requests and timer ticks came since the last look. */
+static void ng_windows_take_frame_signals(void) {
+    if (!g_frame_event) return;
+    HANDLE handles[2] = { g_frame_event, g_frame_timer };
+    DWORD count = g_frame_timer ? 2 : 1;
+    /* both auto-reset, so this ends after each has been taken once */
+    for (int i = 0; i < 2; i++) {
+        DWORD result = WaitForMultipleObjects(count, handles, FALSE, 0);
+        if (result != WAIT_OBJECT_0 && result != WAIT_OBJECT_0 + 1) return;
+        ng_windows_frame_signal(result);
+    }
+}
+
+/* Runs a wanted frame once its vblank is due, or sets the timer for then. */
+static void ng_windows_serve_frame(void) {
+    if (!g_frame_pending) return;
+    LONGLONG now = ng_windows_now();
+    if (now < g_next_frame && g_frame_timer) {
+        if (g_timer_armed) return;
         LARGE_INTEGER due;
         due.QuadPart = -((g_next_frame - now) * 10000000 / g_qpc_freq);
         if (due.QuadPart == 0) due.QuadPart = -1;
         if (SetWaitableTimer(g_frame_timer, &due, 0, NULL, NULL, FALSE)) {
             g_timer_armed = TRUE;
-        } else {
-            ng_windows_run_frame();
+            return;
         }
     }
+    g_frame_pending = FALSE;
+    ng_windows_run_frame();
 }
 
 void ng_windows_modal_begin(HWND hwnd) {
@@ -157,19 +178,10 @@ void ng_windows_modal_end(HWND hwnd) {
     KillTimer(hwnd, AUREA_FRAME_TIMER_ID);
 }
 
+/* Frames while a move, a resize or a menu runs its own message loop. */
 void ng_windows_modal_tick(void) {
-    if (!g_frame_event) return;
-    HANDLE handles[2] = { g_frame_event, g_frame_timer };
-    DWORD count = g_frame_timer ? 2 : 1;
-    DWORD result = WaitForMultipleObjects(count, handles, FALSE, 0);
-    if (result == WAIT_OBJECT_0 + 1) g_timer_armed = FALSE;
-    if (result == WAIT_OBJECT_0 || result == WAIT_OBJECT_0 + 1) {
-        g_frame_pending = TRUE;
-    }
-    if (g_frame_pending && ng_windows_now() >= g_next_frame) {
-        g_frame_pending = FALSE;
-        ng_windows_run_frame();
-    }
+    ng_windows_take_frame_signals();
+    ng_windows_serve_frame();
 }
 
 /* Fires only on the not-low to low edge. While memory stays low the query
@@ -232,31 +244,16 @@ static BOOL ng_windows_turn(DWORD timeout_ms) {
         QS_ALLINPUT,
         MWMO_ALERTABLE | MWMO_INPUTAVAILABLE);
 
-    BOOL wanted = FALSE;
-    if (result == WAIT_OBJECT_0) {
-        wanted = TRUE;
-    } else if (result == WAIT_OBJECT_0 + 1 && count == 2) {
-        g_timer_armed = FALSE;
-        wanted = TRUE;
-    } else if (result == WAIT_TIMEOUT) {
-        return TRUE;
-    } else if (result != WAIT_OBJECT_0 + count && result != WAIT_IO_COMPLETION) {
-        return FALSE;
-    }
+    if (result == WAIT_TIMEOUT) return TRUE;
+    /* past the handles and the message queue: a failed wait */
+    if (result > WAIT_OBJECT_0 + count && result != WAIT_IO_COMPLETION) return FALSE;
+    /* the wait took the auto-reset handle it ended on */
+    ng_windows_frame_signal(result);
 
     if (!ng_windows_drain_messages()) return FALSE;
     ng_windows_check_memory();
-
-    if (!wanted) {
-        DWORD due = WaitForMultipleObjects(count, handles, FALSE, 0);
-        if (due == WAIT_OBJECT_0 + 1) g_timer_armed = FALSE;
-        wanted = due == WAIT_OBJECT_0 || due == WAIT_OBJECT_0 + 1;
-    }
-
-    if (wanted || g_frame_pending) {
-        g_frame_pending = FALSE;
-        ng_windows_frame_wanted();
-    }
+    ng_windows_take_frame_signals();
+    ng_windows_serve_frame();
     return TRUE;
 }
 
