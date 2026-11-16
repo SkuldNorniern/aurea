@@ -391,6 +391,21 @@ pub(crate) fn caret_on(blink: bool, since: Duration) -> bool {
     !blink || since >= BLINK_FOR || since.as_secs_f32().fract() < BLINK_ON
 }
 
+/// How long until a caret blinking `since` it last moved shows or hides next; `None` once it
+/// stays on.
+pub(crate) fn caret_flip_in(blink: bool, since: Duration) -> Option<Duration> {
+    if !blink || since >= BLINK_FOR {
+        return None;
+    }
+    let into = since.as_secs_f32().fract();
+    let wait = if into < BLINK_ON {
+        BLINK_ON - into
+    } else {
+        1.0 - into
+    };
+    Some(Duration::from_secs_f32(wait))
+}
+
 /// Whether `rect` can be listed in grid cells: finite and not empty.
 fn listable(rect: Rect) -> bool {
     !rect.is_empty()
@@ -988,17 +1003,7 @@ impl<Id: WidgetId> UiState<Id> {
         if !self.window_focused || !takes_text(self.focused_sense()) {
             return None;
         }
-        let since = self.blink_from.elapsed();
-        if since >= BLINK_FOR {
-            return None;
-        }
-        let into = since.as_secs_f32().fract();
-        let wait = if into < BLINK_ON {
-            BLINK_ON - into
-        } else {
-            1.0 - into
-        };
-        Some(Instant::now() + Duration::from_secs_f32(wait))
+        caret_flip_in(true, self.blink_from.elapsed()).map(|wait| Instant::now() + wait)
     }
 
     /// The pointer shape for what the pointer is over.

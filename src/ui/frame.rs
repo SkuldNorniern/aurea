@@ -7,7 +7,8 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use super::state::{
-    Channel, Fonts, Interaction, Key, Press, Sense, Typed, UiState, WidgetId, caret_on,
+    Channel, Fonts, Interaction, Key, Press, Sense, Typed, UiState, WidgetId, caret_flip_in,
+    caret_on,
 };
 use super::theme::Theme;
 use super::tokens::Tokens;
@@ -597,6 +598,13 @@ impl<Id: WidgetId> Ui<'_, Id> {
         caret_on(self.theme.caret_blink, self.state.blink_from.elapsed())
     }
 
+    /// When [`Self::caret_on`] flips next, `None` once the caret stays on: a custom editor passes
+    /// it to [`Self::wake_at`] and sleeps until then.
+    pub fn caret_flips_at(&self) -> Option<Instant> {
+        caret_flip_in(self.theme.caret_blink, self.state.blink_from.elapsed())
+            .map(|wait| Instant::now() + wait)
+    }
+
     /// Shows the caret solid again, for after the app moves its caret.
     pub fn restart_blink(&mut self) {
         self.state.blink_from = Instant::now();
@@ -929,6 +937,7 @@ mod tests {
     use super::*;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::rig::Rig;
+    use crate::ui::state::BLINK_FOR;
     use crate::{PenSample, WindowEvent};
     use std::time::Duration;
 
@@ -980,7 +989,15 @@ mod tests {
         let mut ui = state.frame(&mut *ctx, &theme);
         ui.state.blink_from = Instant::now() - Duration::from_millis(800);
         assert!(!ui.caret_on());
+        let flip = ui.caret_flips_at().expect("still blinking");
+        let wait = flip - Instant::now();
+        assert!(
+            wait <= Duration::from_millis(200),
+            "back on at the next second: {wait:?}"
+        );
         ui.restart_blink();
         assert!(ui.caret_on());
+        ui.state.blink_from = Instant::now() - BLINK_FOR;
+        assert_eq!(ui.caret_flips_at(), None, "it stays on");
     }
 }
