@@ -1,22 +1,23 @@
 //! Text rasterization orchestration.
 
+mod cache;
+mod mask;
+
 use crate::geometry::Path;
-use crate::numeric::{f32_to_i32_clamped, f32_to_u32_clamped};
-use crate::text::fonts;
 use crate::text::glyph::{FaceData, FaceId, GlyphCoverage};
-use crate::text::layout::{LayoutOptions, TextAlign, TextLayout, WordBreak, layout_text};
+use crate::text::layout::{LayoutOptions, TextLayout, layout_text};
 use crate::text::outline::glyph_outline;
 use crate::text::shape::{ShapedGlyph, ShapedText, shape_line};
-use crate::text::{
-    CacheKind, LAYOUT_BYTES, LruCache, MASK_BYTES, SHAPED_BYTES, budget, layout_bytes, shared,
-};
+use crate::text::{CacheKind, LAYOUT_BYTES, MASK_BYTES, SHAPED_BYTES, layout_bytes};
 use crate::types::{
     Font, FontFeature, FontMetrics, FontStyle, FontVariation, FontWeight, GlyphMask, TextMetrics,
 };
-use aurea_foundation::{AureaResult, lock};
+use aurea_foundation::AureaResult;
+use cache::{Ident, Memo, Mode};
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::mem::size_of;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Borrowed font reference for the text-rendering hot path.
 #[derive(Clone, Copy)]
@@ -63,9 +64,6 @@ impl<'a> From<&'a Font> for FontRef<'a> {
 }
 
 pub(crate) fn variation_hash(variations: &[FontVariation]) -> u64 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
     let mut hasher = DefaultHasher::new();
     for v in variations {
         v.tag.hash(&mut hasher);
@@ -88,6 +86,9 @@ pub struct SubpixelGlyph {
     /// Subpixel coverage, `width * height * 3` bytes in R, G, B order.
     pub coverage: Vec<u8>,
 }
+
+/// A run's mask, the ascent above its top edge, and the pad around its ink.
+type RunMask = (GlyphMask, f32, f32);
 
 /// Platform text rasterizer trait — the backend seam.
 pub trait PlatformTextRasterizer: Send + Sync {
@@ -151,139 +152,18 @@ pub fn get_platform_rasterizer() -> Box<dyn PlatformTextRasterizer> {
     Box::new(FontFileRasterizer::new())
 }
 
-/// What a cached run or layout was built from beyond text and font.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum Mode {
-    Run(Option<bool>),
-    Layout {
-        max_width: Option<u32>,
-        align: TextAlign,
-        line_height: u32,
-        word_break: WordBreak,
-    },
-}
-
-fn hash_font(font: FontRef, hasher: &mut impl Hasher) {
-    for byte in font.family.as_bytes() {
-        byte.to_ascii_lowercase().hash(hasher);
-    }
-    font.size.to_bits().hash(hasher);
-    font.weight.hash(hasher);
-    font.style.hash(hasher);
-    font.features.hash(hasher);
-    font.variation_hash().hash(hasher);
-    font.vertical.hash(hasher);
-    fonts::generation().hash(hasher);
-}
-
-/// Second hash of the font and mode, seeded apart from `RunKey`'s, for checking a hit.
-fn font_check(font: FontRef, mode: Mode) -> u64 {
-    use std::collections::hash_map::DefaultHasher;
-
-    let mut hasher = DefaultHasher::new();
-    0x6175_7265_6166_6f6eu64.hash(&mut hasher);
-    mode.hash(&mut hasher);
-    hash_font(font, &mut hasher);
-    hasher.finish()
-}
-
-/// Cache key: text and font check, hashed once. Equal keys may still be different runs, so every
-/// hit is checked against the stored [`Check`].
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-struct RunKey {
-    hash: u64,
-}
-
-impl RunKey {
-    fn new(text: &str, font: u64) -> Self {
-        use std::collections::hash_map::DefaultHasher;
-
-        let mut hasher = DefaultHasher::new();
-        text.hash(&mut hasher);
-        font.hash(&mut hasher);
-        Self {
-            hash: hasher.finish(),
-        }
-    }
-}
-
-/// What a cached value was built from, stored beside it to reject a colliding key.
-struct Check {
-    text: Box<str>,
-    font: u64,
-}
-
-impl Check {
-    fn matches(&self, text: &str, font: u64) -> bool {
-        self.font == font && *self.text == *text
-    }
-}
-
-/// The cached value under `key` when its check matches `text` and `font`.
-fn checked<V: Clone>(
-    cache: &mut LruCache<RunKey, (Check, V)>,
-    key: &RunKey,
-    text: &str,
-    font: u64,
-) -> Option<V> {
-    cache
-        .get(key)
-        .filter(|(check, _)| check.matches(text, font))
-        .map(|(_, v)| v.clone())
-}
-
-/// The most a run's mask may take; text larger than this draws nothing.
-const MAX_MASK_BYTES: usize = 1 << 28;
-
-/// Bytes of a `width` by `height` subpixel mask, unless it is too big to make.
-fn mask_bytes(width: u32, height: u32) -> Option<usize> {
-    usize::try_from(width)
-        .ok()?
-        .checked_mul(usize::try_from(height).ok()?)?
-        .checked_mul(3)
-        .filter(|&bytes| bytes <= MAX_MASK_BYTES)
-}
-
-fn blit_max(
-    coverage: &mut [u8],
-    (dev_w, dev_h): (u32, u32),
-    g: &SubpixelGlyph,
-    (gx, gy): (i32, i32),
-) {
-    let gw = g.width as i32;
-    for row in 0..g.height as i32 {
-        let dy = gy + row;
-        if dy < 0 || dy >= dev_h as i32 {
-            continue;
-        }
-        for col in 0..gw {
-            let dx = gx + col;
-            if dx < 0 || dx >= dev_w as i32 {
-                continue;
-            }
-            let si = ((row * gw + col) * 3).unsigned_abs() as usize;
-            let di = ((dy * dev_w as i32 + dx) * 3).unsigned_abs() as usize;
-            for c in 0..3 {
-                coverage[di + c] = coverage[di + c].max(g.coverage[si + c]);
-            }
-        }
-    }
-}
+/// Paragraphs kept in the layout cache before the oldest go.
+const LAYOUT_CAP: usize = 256;
+/// Runs kept in the shape and mask caches before the oldest go.
+const RUN_CAP: usize = 512;
 
 /// Text renderer: owns a backend, shapes text, and lays shaped glyphs into masks.
 pub struct TextRenderer {
     rasterizer: Box<dyn PlatformTextRasterizer>,
-    shaped: Arc<Mutex<ShapedCache>>,
-    masks: Arc<Mutex<MaskCache>>,
-    layouts: Arc<Mutex<LayoutCache>>,
+    shaped: Memo<Arc<ShapedText>>,
+    masks: Memo<RunMask>,
+    layouts: Memo<TextLayout>,
 }
-
-type ShapedCache = LruCache<RunKey, (Check, Arc<ShapedText>)>;
-type MaskCache = LruCache<RunKey, (Check, (GlyphMask, f32, f32))>;
-type LayoutCache = LruCache<RunKey, (Check, TextLayout)>;
-
-/// Paragraphs kept in the layout cache before the oldest go.
-const LAYOUT_CAP: usize = 256;
 
 impl TextRenderer {
     /// Creates a renderer with the platform's rasterizer.
@@ -294,18 +174,9 @@ impl TextRenderer {
     pub(crate) fn with_rasterizer(rasterizer: Box<dyn PlatformTextRasterizer>) -> Self {
         Self {
             rasterizer,
-            shaped: shared(
-                CacheKind::Shape,
-                LruCache::with_budget(512, budget(CacheKind::Shape, SHAPED_BYTES)),
-            ),
-            masks: shared(
-                CacheKind::Mask,
-                LruCache::with_budget(512, budget(CacheKind::Mask, MASK_BYTES)),
-            ),
-            layouts: shared(
-                CacheKind::Layout,
-                LruCache::with_budget(LAYOUT_CAP, budget(CacheKind::Layout, LAYOUT_BYTES)),
-            ),
+            shaped: Memo::new(CacheKind::Shape, RUN_CAP, SHAPED_BYTES),
+            masks: Memo::new(CacheKind::Mask, RUN_CAP, MASK_BYTES),
+            layouts: Memo::new(CacheKind::Layout, LAYOUT_CAP, LAYOUT_BYTES),
         }
     }
 
@@ -323,18 +194,13 @@ impl TextRenderer {
         font: FontRef,
         rtl: Option<bool>,
     ) -> AureaResult<Arc<ShapedText>> {
-        let fc = font_check(font, Mode::Run(rtl));
-        let key = RunKey::new(text, fc);
-        if let Some(hit) = checked(&mut lock(&self.shaped), &key, text, fc) {
+        let id = Ident::new(text, font, Mode::Run(rtl));
+        if let Some(hit) = self.shaped.get(id, text) {
             return Ok(hit);
         }
         let shaped = Arc::new(shape_line(text, font, rtl, self.rasterizer.as_ref())?);
-        let bytes = shaped.glyphs.len() * size_of::<ShapedGlyph>() + text.len();
-        let check = Check {
-            text: text.into(),
-            font: fc,
-        };
-        lock(&self.shaped).insert_sized(key, (check, shaped.clone()), bytes);
+        let bytes = shaped.glyphs.len() * size_of::<ShapedGlyph>();
+        self.shaped.put(id, text, shaped.clone(), bytes);
         Ok(shaped)
     }
 
@@ -355,60 +221,14 @@ impl TextRenderer {
         font: FontRef,
         rtl: Option<bool>,
     ) -> AureaResult<(GlyphMask, f32, f32)> {
-        let fc = font_check(font, Mode::Run(rtl));
-        let key = RunKey::new(text, fc);
-        if let Some(cached) = checked(&mut lock(&self.masks), &key, text, fc) {
-            return Ok(cached);
+        let id = Ident::new(text, font, Mode::Run(rtl));
+        if let Some(hit) = self.masks.get(id, text) {
+            return Ok(hit);
         }
-        let result = self.compute_mask(&*self.shape_directed(text, font, rtl)?)?;
-        let bytes = result.0.coverage.len() + text.len();
-        let check = Check {
-            text: text.into(),
-            font: fc,
-        };
-        lock(&self.masks).insert_sized(key, (check, result.clone()), bytes);
-        Ok(result)
-    }
-
-    fn compute_mask(&self, shaped: &ShapedText) -> AureaResult<(GlyphMask, f32, f32)> {
-        let pad = 3.0f32;
-        let ascent = if shaped.vertical {
-            0.0
-        } else {
-            shaped.ink_ascent.max(0.0)
-        };
-        let (w, h) = if shaped.vertical {
-            (shaped.size, shaped.width)
-        } else {
-            (shaped.width, ascent + shaped.ink_descent.max(0.0))
-        };
-        let dev_w = f32_to_u32_clamped((w + pad * 2.0).ceil().max(1.0));
-        let dev_h = f32_to_u32_clamped((h + pad * 2.0).ceil().max(1.0));
-        let Some(bytes) = mask_bytes(dev_w, dev_h) else {
-            return Ok((GlyphMask::new(0, 0, Vec::new().into()), ascent, pad));
-        };
-        let mut coverage = vec![0u8; bytes];
-
-        let baseline = (ascent + pad).round();
-        let centre = pad + shaped.size / 2.0;
-        for (pen, glyph) in shaped.pen_positions() {
-            let g = self
-                .rasterizer
-                .rasterize_subpixel(glyph.face, glyph.id, shaped.size)?;
-            if g.width == 0 || g.height == 0 {
-                continue;
-            }
-            let (x, y) = if shaped.vertical {
-                (centre + glyph.offset_x, pad + pen + glyph.offset_y)
-            } else {
-                (pad + pen + glyph.offset_x, baseline + glyph.offset_y)
-            };
-            let gx = f32_to_i32_clamped(x.round()) + g.left;
-            let gy = f32_to_i32_clamped(y.round()) + g.top;
-            blit_max(&mut coverage, (dev_w, dev_h), &g, (gx, gy));
-        }
-
-        Ok((GlyphMask::new(dev_w, dev_h, coverage.into()), ascent, pad))
+        let shaped = self.shape_directed(text, font, rtl)?;
+        let run = mask::draw_run(self.rasterizer.as_ref(), &shaped)?;
+        self.masks.put(id, text, run.clone(), run.0.coverage.len());
+        Ok(run)
     }
 
     /// `font`'s own metrics at its size; ascent and descent are the ones text measures with.
@@ -463,18 +283,13 @@ impl TextRenderer {
             line_height: options.line_height.to_bits(),
             word_break: options.word_break,
         };
-        let fc = font_check(font, mode);
-        let key = RunKey::new(text, fc);
-        if let Some(hit) = checked(&mut lock(&self.layouts), &key, text, fc) {
+        let id = Ident::new(text, font, mode);
+        if let Some(hit) = self.layouts.get(id, text) {
             return Ok(hit);
         }
         let layout = layout_text(text, font, options, self)?;
-        let bytes = layout_bytes(&layout) + text.len();
-        let check = Check {
-            text: text.into(),
-            font: fc,
-        };
-        lock(&self.layouts).insert_sized(key, (check, layout.clone()), bytes);
+        self.layouts
+            .put(id, text, layout.clone(), layout_bytes(&layout));
         Ok(layout)
     }
 
@@ -497,23 +312,10 @@ impl TextRenderer {
         glyph: u16,
         size: f32,
     ) -> AureaResult<Option<(i32, u32)>> {
-        /// Rows fainter than this do not read as ink.
-        const FAINT: u8 = 64;
         let g = self.rasterizer.rasterize_subpixel(face, glyph, size)?;
-        let row = g.width as usize * 3;
-        if row == 0 {
-            return Ok(None);
-        }
-        let solid = |line: &[u8]| line.iter().any(|&c| c >= FAINT);
-        let lines: Vec<&[u8]> = g.coverage.chunks(row).collect();
-        let (Some(first), Some(last)) = (
-            lines.iter().position(|line| solid(line)),
-            lines.iter().rposition(|line| solid(line)),
-        ) else {
+        let Some((first, rows)) = mask::ink_rows(&g.coverage, g.width) else {
             return Ok(None);
         };
-        let first = i32::try_from(first).unwrap_or(0);
-        let rows = u32::try_from(last).unwrap_or(0) + 1 - first.unsigned_abs();
         Ok(Some((g.top + first, rows)))
     }
 
@@ -542,14 +344,14 @@ impl Default for TextRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::text::cache_stats;
+    use crate::text::{cache_stats, fonts};
 
     #[test]
     fn a_mask_too_big_to_make_has_no_size() {
-        assert_eq!(mask_bytes(100, 20), Some(6000));
-        assert_eq!(mask_bytes(9000, 9000), Some(243_000_000));
-        assert_eq!(mask_bytes(20_000, 20_000), None);
-        assert_eq!(mask_bytes(u32::MAX, u32::MAX), None);
+        assert_eq!(mask::mask_bytes(100, 20), Some(6000));
+        assert_eq!(mask::mask_bytes(9000, 9000), Some(243_000_000));
+        assert_eq!(mask::mask_bytes(20_000, 20_000), None);
+        assert_eq!(mask::mask_bytes(u32::MAX, u32::MAX), None);
     }
 
     fn font(family: &str) -> Font {
@@ -569,17 +371,16 @@ mod tests {
     #[test]
     fn same_key_different_text_or_font_is_a_miss() {
         let f = font("");
-        let fc = font_check((&f).into(), Mode::Run(None));
-        let key = RunKey::new("abc", fc);
-        let mut cache = LruCache::new(8);
-        let check = Check {
-            text: "abc".into(),
-            font: fc,
+        let id = Ident::new("abc", (&f).into(), Mode::Run(None));
+        let memo = Memo::new(CacheKind::Shape, 8, SHAPED_BYTES);
+        memo.put(id, "abc", 1u32, 0);
+        assert_eq!(memo.get(id, "abc"), Some(1));
+        assert_eq!(memo.get(id, "abd"), None);
+        let other_font = Ident {
+            font: id.font ^ 1,
+            ..id
         };
-        cache.insert(key, (check, 1u32));
-        assert_eq!(checked(&mut cache, &key, "abc", fc), Some(1));
-        assert_eq!(checked(&mut cache, &key, "abd", fc), None);
-        assert_eq!(checked(&mut cache, &key, "abc", fc ^ 1), None);
+        assert_eq!(memo.get(other_font, "abc"), None);
     }
 
     #[test]
@@ -747,9 +548,8 @@ mod tests {
         let r = TextRenderer::new();
         let f = font("");
         let shaped = r.shape("Hello", (&f).into()).expect("shape");
-        let bytes = lock(&r.shaped).bytes();
         assert_eq!(
-            bytes,
+            r.shaped.bytes(),
             shaped.glyphs.len() * size_of::<ShapedGlyph>() + "Hello".len()
         );
     }
