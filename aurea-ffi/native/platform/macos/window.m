@@ -157,6 +157,8 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
 @interface AureaContentView : NSView <NSTextInputClient> {
     NSTrackingArea* trackingArea;
     int buttonsHeld;
+    BOOL imeSentCommand;
+    NSMutableIndexSet* keysDown;
     BOOL exitHeld;
     unsigned int modifiersDown;
     NSString* markedText;
@@ -167,6 +169,7 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
 @property (nonatomic, strong) NSCursor* cursor;
 @property (nonatomic, assign) BOOL usesMetalLayer;
 @property (nonatomic, assign) BOOL hidesCursor;
+- (void)dropMarkedText;
 - (void)setImeArea:(NSRect)area;
 @end
 
@@ -359,19 +362,30 @@ static BOOL is_pen_event(NSEvent* event) {
     [self mouseMoved:event];
 }
 
-/* A press commits what an input method is composing, as a text view does: the text goes in as
-   typed before the press, and the input method drops its copy so it cannot come twice. */
-- (void)commitMarkedText {
+/* A press commits what an input method is composing, before the press goes out.
+   input method sees the press first like in a text view, it commits by itself.
+   if it keeps the text, put ours in and make it drop its copy so it cant come twice. */
+- (void)commitMarkedText:(NSEvent*)event {
+    if (![self hasMarkedText]) return;
+    [[self inputContext] handleEvent:event];
     if (![self hasMarkedText]) return;
     NSString* text = markedText;
     [self insertText:text replacementRange:NSMakeRange(NSNotFound, 0)];
     [[self inputContext] discardMarkedText];
 }
+/* focus loss cancels the composition on the Rust side, drop ours too
+   or keyDown keeps holding keys back after focus comes back */
+- (void)dropMarkedText {
+    if (![self hasMarkedText]) return;
+    markedText = nil;
+    [[self inputContext] discardMarkedText];
+}
+
 
 - (void)mouseDown:(NSEvent*)event {
     if (!self.windowHandle) return;
     [[self window] makeFirstResponder:self];
-    [self commitMarkedText];
+    [self commitMarkedText:event];
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
     ng_invoke_mouse_button(self.windowHandle, 0, 1, ng_macos_mouse_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
@@ -394,7 +408,7 @@ static BOOL is_pen_event(NSEvent* event) {
 
 - (void)rightMouseDown:(NSEvent*)event {
     if (!self.windowHandle) return;
-    [self commitMarkedText];
+    [self commitMarkedText:event];
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
     ng_invoke_mouse_button(self.windowHandle, 1, 1, ng_macos_mouse_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
@@ -411,7 +425,7 @@ static BOOL is_pen_event(NSEvent* event) {
 
 - (void)otherMouseDown:(NSEvent*)event {
     if (!self.windowHandle) return;
-    [self commitMarkedText];
+    [self commitMarkedText:event];
     int button = (int)[event buttonNumber];
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
@@ -456,20 +470,31 @@ static const double NG_MACOS_POINTS_PER_LINE = 40.0;
     ng_invoke_gesture(self.windowHandle, NG_GESTURE_ROTATE, -(double)event.rotation * M_PI / 180.0, p.x, h - p.y);
 }
 #endif
+- (void)sendKeyDown:(NSEvent*)event {
+    if (!keysDown) keysDown = [NSMutableIndexSet indexSet];
+    [keysDown addIndex:[event keyCode]];
+    unsigned int keycode = ng_macos_keycode_from_event([event keyCode]);
+    ng_invoke_key_event(self.windowHandle, keycode, 1, ng_macos_modifiers(event));
+}
+
 
 - (void)keyDown:(NSEvent*)event {
     if (!self.windowHandle) return;
-    if (![self hasMarkedText]) {
+    BOOL composing = [self hasMarkedText];
+    if (!composing) {
 #ifdef NG_FEATURE_MENU
         if ([[NSApp mainMenu] performKeyEquivalent:event]) {
             menuTookKey = (unsigned int)[event keyCode] + 1;
             return;
         }
 #endif
-        unsigned int keycode = ng_macos_keycode_from_event([event keyCode]);
-        ng_invoke_key_event(self.windowHandle, keycode, 1, ng_macos_modifiers(event));
+        [self sendKeyDown:event];
     }
+    imeSentCommand = NO;
 #ifdef NG_INPUT_TEXT
+    /* Korean commits on Enter, arrows, Tab and sends the key on as a command after the text.
+       the key goes out then, after the commit, so the newline or caret move is not lost */
+    if (composing && imeSentCommand) [self sendKeyDown:event];
     [self interpretKeyEvents:@[event]];
 #endif
 }
@@ -565,6 +590,7 @@ static const double NG_MACOS_POINTS_PER_LINE = 40.0;
 }
 
 - (void)doCommandBySelector:(SEL)selector {
+    imeSentCommand = YES;
     (void)selector;
 }
 
@@ -580,6 +606,9 @@ static const double NG_MACOS_POINTS_PER_LINE = 40.0;
         menuTookKey = 0;
         return;
     }
+    /* no release for a press the input method kept */
+    if (![keysDown containsIndex:[event keyCode]]) return;
+    [keysDown removeIndex:[event keyCode]];
 #endif
     unsigned int keycode = ng_macos_keycode_from_event([event keyCode]);
     ng_invoke_key_event(self.windowHandle, keycode, 0, ng_macos_modifiers(event));
@@ -685,6 +714,10 @@ static void ng_macos_forget_held_shortcuts(void* window);
 
 - (void)windowDidResignKey:(NSNotification*)notification {
     ng_macos_cursor_refresh([notification object]);
+    NSView* content = [[notification object] contentView];
+    if ([content isKindOfClass:[AureaContentView class]]) {
+        [(AureaContentView*)content dropMarkedText];
+    }
     ng_macos_cursor_grab_focus([notification object], NO);
     if (self.windowHandle) {
         ng_invoke_focus_changed(self.windowHandle, 0);
