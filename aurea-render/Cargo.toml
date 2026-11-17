@@ -16,7 +16,12 @@ features = ["wgpu", "zengpu"]
 workspace = true
 
 [features]
-default = []
+default = ["effects", "system-fonts"]
+# Backdrop blur, saturate, brightness and tint on the CPU. Off: backdrop commands draw nothing.
+effects = []
+# Installed OS fonts, looked up by family name and used as fallbacks. Off: only registered fonts
+# and the built-in one draw.
+system-fonts = ["dep:winapi"]
 # Aurea's own GPU backend, and where accelerated work goes: ZenGPU on the
 # platform's own graphics API, Metal on macOS and Vulkan elsewhere. Opt-in.
 zengpu = ["dep:zengpu"]
@@ -46,4 +51,4 @@ libc = "0.2"
 
 # Windows: hinted ClearType glyph rasterization via DirectWrite.
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["dwrite", "dwrite_3", "dcommon", "guiddef", "minwindef", "unknwnbase", "winnt", "windef", "winerror"] }
+winapi = { version = "0.3", optional = true, features = ["dwrite", "dwrite_3", "dcommon", "guiddef", "minwindef", "unknwnbase", "winnt", "windef", "winerror"] }

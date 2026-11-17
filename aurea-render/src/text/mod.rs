@@ -8,9 +8,9 @@ pub mod outline;
 pub mod platform;
 pub mod shape;
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "system-fonts"))]
 mod directwrite_backend;
-#[cfg(windows)]
+#[cfg(all(windows, feature = "system-fonts"))]
 mod dwrite;
 mod file_backend;
 #[cfg(unix)]

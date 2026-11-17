@@ -141,7 +141,7 @@ pub trait PlatformTextRasterizer: Send + Sync {
 
 /// Get the best available platform text rasterizer.
 pub fn get_platform_rasterizer() -> Box<dyn PlatformTextRasterizer> {
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "system-fonts"))]
     {
         use crate::text::directwrite_backend::DirectWriteRasterizer;
         if let Ok(dw) = DirectWriteRasterizer::new() {
@@ -393,7 +393,7 @@ mod tests {
         assert!(m.line_gap >= 0.0 && m.underline_thickness > 0.0 && m.underline_offset > 0.0);
         assert!(r.font_covers((&f).into(), 'A').expect("covers"));
         assert!(!r.font_covers((&f).into(), '\u{10FFFD}').expect("covers"));
-        #[cfg(windows)]
+        #[cfg(all(windows, feature = "system-fonts"))]
         {
             // 350 of 2048 units, which terminals add to every row.
             let m = r
@@ -470,7 +470,7 @@ mod tests {
         assert!(shaped.glyphs[1].rtl && !shaped.glyphs[0].rtl);
     }
 
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "system-fonts"))]
     #[test]
     fn features_switch_ligatures() {
         let r = TextRenderer::new();
@@ -481,7 +481,7 @@ mod tests {
         assert_eq!((ligated, apart), (1, 2));
     }
 
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "system-fonts"))]
     #[test]
     fn variations_move_a_variable_font() {
         let r = TextRenderer::new();

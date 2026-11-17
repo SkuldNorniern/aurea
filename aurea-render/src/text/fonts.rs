@@ -9,6 +9,9 @@
 //!
 //! After that `Font::new("Tuffy", 14.0)` draws it, and any text a font has no glyph for looks here
 //! before the system's fallbacks. A variable font with a `wght` axis gives every weight.
+//!
+//! Without the `system-fonts` feature there are no system fallbacks: only registered fonts and
+//! the built-in one draw.
 
 use std::borrow::Cow;
 use std::path::Path;
@@ -251,7 +254,8 @@ pub fn families() -> Vec<String> {
 }
 
 /// The family names installed on the system, sorted, for a font menu. Reads the font folders each
-/// call where the system has no list of its own, so keep the answer.
+/// call where the system has no list of its own, so keep the answer. Empty without the
+/// `system-fonts` feature.
 pub fn system_families() -> Vec<String> {
     get_platform_rasterizer().system_families()
 }
@@ -413,12 +417,19 @@ mod tests {
         assert_eq!(bytes, TUFFY);
     }
 
+    #[cfg(feature = "system-fonts")]
     #[test]
     fn the_system_lists_its_families() {
         let families = system_families();
         assert!(families.windows(2).all(|pair| pair[0] < pair[1]));
         #[cfg(windows)]
         assert!(families.iter().any(|family| family == "Segoe UI"));
+    }
+
+    #[cfg(not(feature = "system-fonts"))]
+    #[test]
+    fn no_system_families_without_the_feature() {
+        assert!(system_families().is_empty());
     }
 
     #[test]

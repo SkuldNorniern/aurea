@@ -1,7 +1,9 @@
 //! Font files found on disk, drawn from their outlines: the backend everywhere but Windows.
 
 use crate::numeric::f32_to_u8_clamped;
-use crate::text::fonts::{self, FaceInfo, normalise};
+use crate::text::fonts;
+#[cfg(feature = "system-fonts")]
+use crate::text::fonts::{FaceInfo, normalise};
 use crate::text::glyph::{FaceData, FaceId, FontBytes, GlyphCoverage, GlyphKey};
 #[cfg(unix)]
 use crate::text::mapped::Mapped;
@@ -11,13 +13,22 @@ use crate::text::{CacheKind, GLYPH_BYTES, GLYPH_CAP, LruCache, budget, shared};
 use crate::types::{FontStyle, FontVariation, FontWeight};
 use aurea_foundation::{AureaError, AureaResult, lock};
 use std::collections::HashMap;
-#[cfg(not(target_os = "android"))]
+#[cfg(all(feature = "system-fonts", not(target_os = "android")))]
 use std::env::var;
-#[cfg(target_os = "windows")]
+#[cfg(all(feature = "system-fonts", target_os = "windows"))]
 use std::env::var_os;
-use std::fs::{read, read_dir};
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, LazyLock, Mutex, OnceLock, Weak};
+use std::fs::read;
+#[cfg(feature = "system-fonts")]
+use std::fs::read_dir;
+use std::path::Path;
+#[cfg(feature = "system-fonts")]
+use std::path::PathBuf;
+#[cfg(feature = "system-fonts")]
+use std::sync::OnceLock;
+#[cfg(feature = "system-fonts")]
+use std::sync::Weak;
+use std::sync::{Arc, LazyLock, Mutex};
+#[cfg(feature = "system-fonts")]
 use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -48,7 +59,7 @@ impl FontKey {
     }
 }
 
-#[cfg(target_os = "android")]
+#[cfg(all(feature = "system-fonts", target_os = "android"))]
 fn font_search_dirs() -> Vec<PathBuf> {
     vec![
         PathBuf::from("/system/fonts"),
@@ -57,7 +68,7 @@ fn font_search_dirs() -> Vec<PathBuf> {
     ]
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(all(feature = "system-fonts", not(target_os = "android")))]
 fn font_search_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
 
@@ -116,6 +127,7 @@ fn font_search_dirs() -> Vec<PathBuf> {
     dirs
 }
 
+#[cfg(feature = "system-fonts")]
 fn fallback_stems() -> &'static [&'static str] {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
@@ -165,6 +177,7 @@ fn fallback_stems() -> &'static [&'static str] {
 }
 
 /// What a generic family means here, in order; empty for the system's own face, the first fallback.
+#[cfg(feature = "system-fonts")]
 fn generic_families(family: &str) -> Option<&'static [&'static str]> {
     match family.to_ascii_lowercase().as_str() {
         "" | "sans" | "sans-serif" | "system-ui" | "ui-sans-serif" => Some(&[]),
@@ -187,6 +200,7 @@ fn generic_families(family: &str) -> Option<&'static [&'static str]> {
     }
 }
 
+#[cfg(feature = "system-fonts")]
 fn file_stem(name: &str) -> &str {
     name.trim_end_matches(".ttf")
         .trim_end_matches(".TTF")
@@ -196,14 +210,17 @@ fn file_stem(name: &str) -> &str {
         .trim_end_matches(".TTC")
 }
 
+#[cfg(feature = "system-fonts")]
 fn is_font_file(name: &str) -> bool {
     let lower = name.to_lowercase();
     lower.ends_with(".ttf") || lower.ends_with(".otf") || lower.ends_with(".ttc")
 }
 
+#[cfg(feature = "system-fonts")]
 type FontFile = (String, PathBuf);
 
 /// One face of a font file on disk.
+#[cfg(feature = "system-fonts")]
 struct SystemFace {
     /// Its place in the file list.
     file: usize,
@@ -212,6 +229,7 @@ struct SystemFace {
 }
 
 /// Reads what each file's faces call themselves. A mapped file only pages in the tables read.
+#[cfg(feature = "system-fonts")]
 fn read_system_faces(files: &[FontFile]) -> Vec<SystemFace> {
     let started = Instant::now();
     let mut faces = Vec::new();
@@ -237,6 +255,7 @@ fn read_system_faces(files: &[FontFile]) -> Vec<SystemFace> {
 }
 
 /// The face of `family`, by the names faces give themselves, closest to `font`.
+#[cfg(feature = "system-fonts")]
 fn closest_system_face<'a>(
     family: &str,
     font: FontRef,
@@ -249,6 +268,7 @@ fn closest_system_face<'a>(
         .min_by(|a, b| a.info.distance(font).total_cmp(&b.info.distance(font)))
 }
 
+#[cfg(feature = "system-fonts")]
 type WeakBytes = Weak<dyn AsRef<[u8]> + Send + Sync>;
 
 /// Folders only the system writes to, and it replaces files rather than rewriting them, so a mapped
@@ -279,6 +299,7 @@ pub(crate) fn file_bytes(path: &Path) -> Option<FontBytes> {
     Some(Arc::new(read(path).ok()?))
 }
 
+#[cfg(feature = "system-fonts")]
 fn scan_font_files(dirs: &[PathBuf]) -> Vec<FontFile> {
     let mut files = Vec::new();
     let mut pending = dirs.to_vec();
@@ -307,6 +328,7 @@ fn scan_font_files(dirs: &[PathBuf]) -> Vec<FontFile> {
     files
 }
 
+#[cfg(feature = "system-fonts")]
 fn face_suffixes(weight: FontWeight, style: FontStyle) -> &'static [&'static str] {
     match (weight.number(), style) {
         (1..=149, FontStyle::Normal) => &["thin", "hairline", "light", "", "regular"],
@@ -368,6 +390,7 @@ fn face_suffixes(weight: FontWeight, style: FontStyle) -> &'static [&'static str
     }
 }
 
+#[cfg(feature = "system-fonts")]
 fn find_font_file<'a>(
     family: &str,
     weight: FontWeight,
@@ -396,6 +419,7 @@ fn find_font_file<'a>(
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum FaceSource {
     /// A file, and which of its faces.
+    #[cfg(feature = "system-fonts")]
     File(PathBuf, u32),
     Embedded,
     Registered(u32),
@@ -420,9 +444,12 @@ struct Ids {
 }
 
 pub struct FontFileRasterizer {
+    #[cfg(feature = "system-fonts")]
     dirs: Vec<PathBuf>,
+    #[cfg(feature = "system-fonts")]
     files: OnceLock<Vec<FontFile>>,
     /// Read on the first family asked for by name; text that names none never pays for it.
+    #[cfg(feature = "system-fonts")]
     system_faces: OnceLock<Vec<SystemFace>>,
     ids: Mutex<Ids>,
     /// Faces without variations. Few, and fallbacks rely on them, so they are never evicted.
@@ -430,7 +457,9 @@ pub struct FontFileRasterizer {
     /// Faces with variations, the least recently used built again when next needed.
     varied: Arc<Mutex<LruCache<FaceId, Arc<FaceData>>>>,
     /// Font file bytes by file. Weak, so the last face using a file frees it.
+    #[cfg(feature = "system-fonts")]
     file_bytes: Mutex<HashMap<PathBuf, WeakBytes>>,
+    #[cfg(feature = "system-fonts")]
     fallbacks: Vec<OnceLock<Option<FaceId>>>,
     font_cache: Mutex<LruCache<FontKey, FaceId>>,
     subpixel_cache: Arc<Mutex<LruCache<GlyphKey, Arc<SubpixelGlyph>>>>,
@@ -442,13 +471,18 @@ static EMBEDDED: LazyLock<Arc<Vec<u8>>> =
 impl FontFileRasterizer {
     pub fn new() -> Self {
         Self {
+            #[cfg(feature = "system-fonts")]
             dirs: font_search_dirs(),
+            #[cfg(feature = "system-fonts")]
             files: OnceLock::new(),
+            #[cfg(feature = "system-fonts")]
             system_faces: OnceLock::new(),
             ids: Mutex::new(Ids::default()),
             pinned: Mutex::new(HashMap::new()),
             varied: shared(CacheKind::Face, LruCache::new(VARIED_FACES)),
+            #[cfg(feature = "system-fonts")]
             file_bytes: Mutex::new(HashMap::new()),
+            #[cfg(feature = "system-fonts")]
             fallbacks: fallback_stems().iter().map(|_| OnceLock::new()).collect(),
             font_cache: Mutex::new(LruCache::new(32)),
             subpixel_cache: shared(
@@ -458,10 +492,12 @@ impl FontFileRasterizer {
         }
     }
 
+    #[cfg(feature = "system-fonts")]
     fn files(&self) -> &[FontFile] {
         self.files.get_or_init(|| scan_font_files(&self.dirs))
     }
 
+    #[cfg(feature = "system-fonts")]
     fn system_faces(&self) -> &[SystemFace] {
         self.system_faces
             .get_or_init(|| read_system_faces(self.files()))
@@ -495,6 +531,7 @@ impl FontFileRasterizer {
         match source {
             FaceSource::Embedded => Some((EMBEDDED.clone(), 0)),
             FaceSource::Registered(id) => fonts::get(*id).map(|f| (f.bytes.clone(), f.index)),
+            #[cfg(feature = "system-fonts")]
             FaceSource::File(path, index) => {
                 let mut shared = lock(&self.file_bytes);
                 if let Some(bytes) = shared.get(path).and_then(Weak::upgrade) {
@@ -540,12 +577,37 @@ impl FontFileRasterizer {
         Some(id)
     }
 
+    #[cfg(feature = "system-fonts")]
     fn fallback(&self, slot: usize) -> Option<FaceId> {
         let stem = fallback_stems().get(slot)?;
         *self.fallbacks.get(slot)?.get_or_init(|| {
             let (_, path) = self.files().iter().find(|(s, _)| s == stem)?;
             self.load(FaceSource::File(path.clone(), 0), &[])
         })
+    }
+
+    /// The first installed fallback face, if the system has one.
+    #[cfg(feature = "system-fonts")]
+    fn system_fallback(&self) -> Option<FaceId> {
+        (0..self.fallbacks.len()).find_map(|slot| self.fallback(slot))
+    }
+
+    #[cfg(not(feature = "system-fonts"))]
+    fn system_fallback(&self) -> Option<FaceId> {
+        None
+    }
+
+    /// The first installed fallback face that draws `ch`.
+    #[cfg(feature = "system-fonts")]
+    fn fallback_covering(&self, ch: char) -> Option<FaceId> {
+        (0..self.fallbacks.len())
+            .filter_map(|slot| self.fallback(slot))
+            .find(|&face| self.has_glyph(face, ch))
+    }
+
+    #[cfg(not(feature = "system-fonts"))]
+    fn fallback_covering(&self, _: char) -> Option<FaceId> {
+        None
     }
 
     fn has_glyph(&self, face: FaceId, ch: char) -> bool {
@@ -562,14 +624,14 @@ impl FontFileRasterizer {
         if let Some(id) = self.load_installed(font) {
             return Ok(id);
         }
-        (0..self.fallbacks.len())
-            .find_map(|slot| self.fallback(slot))
+        self.system_fallback()
             .or_else(|| self.load(FaceSource::Embedded, &[]))
             .ok_or(AureaError::RenderingFailed)
     }
 
     /// The installed face of `font`, by the names faces give themselves; a file named like the
     /// family covers one whose names can't be read, or a family asked for by part of its name.
+    #[cfg(feature = "system-fonts")]
     fn load_installed(&self, font: FontRef) -> Option<FaceId> {
         let named = [font.family];
         let generic = generic_families(font.family);
@@ -583,6 +645,12 @@ impl FontFileRasterizer {
         id
     }
 
+    #[cfg(not(feature = "system-fonts"))]
+    fn load_installed(&self, _: FontRef) -> Option<FaceId> {
+        None
+    }
+
+    #[cfg(feature = "system-fonts")]
     fn load_family(&self, family: &str, font: FontRef) -> Option<FaceId> {
         if let Some(face) = closest_system_face(family, font, self.system_faces()) {
             let (_, path) = self.files().get(face.file)?;
@@ -623,16 +691,19 @@ impl PlatformTextRasterizer for FontFileRasterizer {
         {
             return id;
         }
-        (0..self.fallbacks.len())
-            .filter_map(|slot| self.fallback(slot))
-            .find(|&face| self.has_glyph(face, ch))
-            .unwrap_or(primary)
+        self.fallback_covering(ch).unwrap_or(primary)
     }
 
     fn face_data(&self, face: FaceId) -> AureaResult<Arc<FaceData>> {
         self.get(face)
     }
 
+    #[cfg(not(feature = "system-fonts"))]
+    fn system_families(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    #[cfg(feature = "system-fonts")]
     fn system_families(&self) -> Vec<String> {
         let mut families: Vec<String> = self
             .system_faces()
@@ -740,10 +811,15 @@ fn lcd_filter(acc: &[f32], sub_w: usize, dev_h: usize) -> Vec<u8> {
 mod tests {
     use super::*;
     use crate::types::Font;
+    #[cfg(feature = "system-fonts")]
     use std::env::temp_dir;
+    #[cfg(feature = "system-fonts")]
     use std::fs::{create_dir_all, remove_dir_all, remove_file, write};
+    #[cfg(feature = "system-fonts")]
     use std::process::id;
+    #[cfg(feature = "system-fonts")]
     use std::slice::from_ref;
+    use std::sync::Weak;
 
     use crate::text::{KINDS, Measured, Registered, Registry, trim_registry};
 
@@ -793,6 +869,7 @@ mod tests {
         assert!(lock(&r.pinned).contains_key(&plain));
     }
 
+    #[cfg(feature = "system-fonts")]
     #[test]
     fn faces_of_one_file_share_its_bytes_until_the_last_is_dropped() {
         let path = temp_dir().join(format!("aurea-shared-{}.ttf", id()));
@@ -851,6 +928,7 @@ mod tests {
         assert!(r.has_glyph(face, 'A'));
     }
 
+    #[cfg(feature = "system-fonts")]
     #[test]
     fn a_missing_glyph_comes_from_a_fallback() {
         let r = FontFileRasterizer::new();
@@ -874,7 +952,7 @@ mod tests {
             (face, !f.coords().is_empty(), f.glyph_index('H'))
         };
         let ((light, varied, h), (heavy, _, _)) = (at(300.0), at(700.0));
-        #[cfg(windows)]
+        #[cfg(all(windows, feature = "system-fonts"))]
         assert!(varied, "Bahnschrift varies");
         if !varied {
             return;
@@ -891,6 +969,7 @@ mod tests {
         assert!(sub.coverage.iter().any(|&c| c > 200));
     }
 
+    #[cfg(feature = "system-fonts")]
     fn files(stems: &[&str]) -> Vec<FontFile> {
         stems
             .iter()
@@ -898,6 +977,7 @@ mod tests {
             .collect()
     }
 
+    #[cfg(feature = "system-fonts")]
     fn pick(family: &str, weight: FontWeight, style: FontStyle, list: &[FontFile]) -> String {
         find_font_file(family, weight, style, list)
             .and_then(Path::to_str)
@@ -905,6 +985,7 @@ mod tests {
             .to_owned()
     }
 
+    #[cfg(feature = "system-fonts")]
     #[test]
     fn picks_numeric_face_weights_without_collapsing_them_to_bold() {
         let list = files(&[
@@ -952,6 +1033,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "system-fonts")]
     #[test]
     fn picks_the_family_not_a_longer_one() {
         let list = files(&["dejavusansmono", "dejavusansbold", "dejavusans"]);
@@ -963,6 +1045,7 @@ mod tests {
         assert_eq!(pick("DejaVu", normal.0, normal.1, &list), "dejavusans.ttf");
     }
 
+    #[cfg(feature = "system-fonts")]
     #[test]
     fn a_family_never_takes_a_file_with_a_shorter_or_unrelated_name() {
         let list = files(&["arial", "ptsans", "notosanscjkregular", "comicsansms"]);
@@ -978,6 +1061,7 @@ mod tests {
     }
 
     /// A folder with one file whose name says nothing of its font.
+    #[cfg(feature = "system-fonts")]
     fn tuffy_named(name: &str) -> (FontFileRasterizer, PathBuf) {
         let root = temp_dir().join(format!("aurea-named-{}-{name}", id()));
         create_dir_all(&root).expect("create font dir");
@@ -987,6 +1071,7 @@ mod tests {
         (r, root)
     }
 
+    #[cfg(feature = "system-fonts")]
     #[test]
     fn a_face_is_found_by_its_own_name_whatever_its_file_is_called() {
         let (r, root) = tuffy_named("zz0.ttf");
@@ -1002,6 +1087,7 @@ mod tests {
         assert_eq!(families, ["Tuffy"]);
     }
 
+    #[cfg(feature = "system-fonts")]
     #[test]
     fn a_file_that_holds_no_font_is_skipped() {
         let root = temp_dir().join(format!("aurea-broken-{}", id()));
@@ -1014,6 +1100,7 @@ mod tests {
         assert!(faces.is_empty());
     }
 
+    #[cfg(feature = "system-fonts")]
     #[test]
     fn a_folder_inside_another_lists_its_files_once() {
         let root = temp_dir().join(format!("aurea-twice-{}", id()));
@@ -1027,7 +1114,7 @@ mod tests {
 
     // Cambria and Cambria Math are two faces of one file, Arial Black a file of its own beside
     // arial.ttf, and Segoe UI Emoji beside segoeui.ttf.
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "system-fonts"))]
     #[test]
     fn the_exact_face_of_an_installed_font_is_found() {
         use skrifa::MetadataProvider;
@@ -1050,7 +1137,7 @@ mod tests {
         assert_eq!(family_of("__no_such_font__"), None);
     }
 
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "system-fonts"))]
     #[test]
     fn a_weight_picks_its_face_within_a_family() {
         use skrifa::raw::TableProvider;
@@ -1066,6 +1153,7 @@ mod tests {
         assert!(weight_of(FontWeight::Bold) > weight_of(FontWeight::Normal));
     }
 
+    #[cfg(feature = "system-fonts")]
     #[test]
     fn picks_the_bold_face_and_falls_back_to_regular() {
         let list = files(&["notosansregular", "notosansbold", "dejavusans"]);
@@ -1083,6 +1171,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "system-fonts")]
     #[test]
     fn generic_families_never_match_a_name_by_accident() {
         let list = files(&[
@@ -1111,6 +1200,7 @@ mod tests {
         assert_eq!(at("Comic Sans MS", FontWeight::Normal), "comicsansms.ttf");
     }
 
+    #[cfg(feature = "system-fonts")]
     #[test]
     fn scans_nested_font_directories() {
         let root = temp_dir().join(format!("aurea-fonts-{}", id()));
