@@ -1,8 +1,8 @@
 //! Layout spacer for distributing space in containers.
 
 use super::Label;
-use super::traits::Element;
 use crate::AureaResult;
+use crate::elements::traits::Element;
 use crate::render::Rect;
 use std::os::raw::c_void;
 
@@ -29,7 +29,7 @@ impl Element for Spacer {
     }
 
     unsafe fn invalidate_platform(&self, rect: Option<Rect>) {
-        use super::traits::Element;
+        use crate::elements::traits::Element;
         unsafe {
             <Label as Element>::invalidate_platform(&self.inner, rect);
         }

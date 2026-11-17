@@ -1,6 +1,6 @@
-use super::native::{CallbackWatch, NativeElement};
-use super::traits::{Container, Element};
-use super::{Orientation, Stack};
+use crate::elements::native::{CallbackWatch, NativeElement};
+use crate::elements::traits::{Container, Element};
+use crate::elements::{Orientation, Stack};
 use crate::ffi::{
     c_title, ng_platform_checkbox_get_checked, ng_platform_checkbox_set_checked,
     ng_platform_create_radio,

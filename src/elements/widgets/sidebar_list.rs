@@ -1,7 +1,7 @@
 //! Sidebar list element for VS Code / Finder style sidebars.
 
-use super::native::NativeElement;
-use super::traits::Element;
+use crate::elements::native::NativeElement;
+use crate::elements::traits::Element;
 use crate::ffi::c_title;
 use crate::registry::elements::{
     next_sidebar_id, register_sidebar_callback, unregister_sidebar_callback,

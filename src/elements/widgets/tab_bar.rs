@@ -1,7 +1,7 @@
 //! Tab bar element with selectable tabs and drag-to-detach support.
 
-use super::native::NativeElement;
-use super::traits::Element;
+use crate::elements::native::NativeElement;
+use crate::elements::traits::Element;
 use crate::ffi::c_title;
 use crate::registry::elements::{next_tab_id, register_tab_callbacks, unregister_tab_callbacks};
 use crate::render::Rect;

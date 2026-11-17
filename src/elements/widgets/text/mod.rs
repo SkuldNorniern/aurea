@@ -106,13 +106,13 @@ pub trait TextControl: Element + sealed::Sealed {
 /// The parts every text widget has the same way.
 macro_rules! text_widget {
     ($widget:ty) => {
-        impl crate::elements::text::sealed::Sealed for $widget {
-            fn text_base(&self) -> &crate::elements::text::base::TextBase {
+        impl crate::elements::widgets::text::sealed::Sealed for $widget {
+            fn text_base(&self) -> &crate::elements::widgets::text::base::TextBase {
                 &self.base
             }
         }
 
-        impl crate::elements::text::TextControl for $widget {}
+        impl crate::elements::widgets::text::TextControl for $widget {}
 
         impl crate::elements::Element for $widget {
             fn handle(&self) -> *mut std::os::raw::c_void {

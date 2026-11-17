@@ -1,6 +1,9 @@
 //! A colour picker: a saturation and value square, a hue strip, an optional alpha strip, and an
 //! optional hex field.
 
+pub mod swatch;
+pub mod wheel;
+
 use std::fmt::Write as _;
 
 use super::Widget;

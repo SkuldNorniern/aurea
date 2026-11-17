@@ -1,5 +1,5 @@
-use super::native::NativeElement;
-use super::traits::Element;
+use crate::elements::native::NativeElement;
+use crate::elements::traits::Element;
 use crate::ffi::c_title;
 use crate::registry::elements::{
     next_button_id, register_button_callback, unregister_button_callback,

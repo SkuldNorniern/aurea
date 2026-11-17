@@ -1,8 +1,8 @@
 //! Native list whose rows are any elements.
 
-use super::native::NativeElement;
 use super::table::{Handler, call};
-use super::traits::Element;
+use crate::elements::native::NativeElement;
+use crate::elements::traits::Element;
 use crate::registry::elements::{
     next_row_list_id, register_row_list_callbacks, unregister_row_list_callbacks,
 };

@@ -4,6 +4,8 @@ pub mod button;
 pub mod chip;
 #[cfg(feature = "ui-color")]
 pub mod color;
+#[cfg(feature = "ui-color")]
+pub use color::{swatch, wheel};
 pub mod dial;
 pub mod dialog;
 pub mod disclosure;
@@ -27,8 +29,6 @@ pub mod sheet;
 pub mod slider;
 pub mod splitter;
 pub mod stepper;
-#[cfg(feature = "ui-color")]
-pub mod swatch;
 pub mod tabs;
 #[cfg(feature = "ui-text-edit")]
 pub mod text_area;
@@ -43,8 +43,6 @@ pub mod toast;
 pub mod toggle;
 pub(crate) mod tooltip;
 pub mod tree;
-#[cfg(feature = "ui-color")]
-pub mod wheel;
 
 use super::frame::{Response, Ui};
 use super::state::WidgetId;

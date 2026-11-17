@@ -1,5 +1,5 @@
-use super::native::NativeElement;
-use super::traits::Element;
+use crate::elements::native::NativeElement;
+use crate::elements::traits::Element;
 use crate::render::Rect;
 use crate::{AureaError, AureaResult, ffi::*};
 use aurea_foundation::lock;

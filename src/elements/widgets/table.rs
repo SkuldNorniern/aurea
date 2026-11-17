@@ -1,7 +1,7 @@
 //! Native table of text rows under column headings.
 
-use super::native::NativeElement;
-use super::traits::Element;
+use crate::elements::native::NativeElement;
+use crate::elements::traits::Element;
 use crate::ffi::{c_text, c_title, status};
 use crate::registry::elements::{
     next_table_id, register_table_callbacks, unregister_table_callbacks,

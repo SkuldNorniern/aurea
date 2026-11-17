@@ -10,14 +10,10 @@ mod theme;
 mod tokens;
 pub mod widget;
 
-#[cfg(feature = "ui-graph")]
-pub use component::PlotView;
 pub use component::{
     EditableText, FocusRing, Knob, PanZoom, StateColors, TextOutcome, Track, card,
 };
 pub use frame::{Align, Eased, FrameAsk, PressAt, Response, TypedInput, Ui};
-#[cfg(feature = "ui-graph")]
-pub use paint::{AxisMarks, AxisSide, AxisStyle, GridLines, GridStyle, Marker, Stroke, Trace};
 pub use paint::{
     Badge, BadgeTone, Border, Component, DetailRow, IconMark, IconSource, Label, Mark, MarkShape,
     Overflow, Panel, PromptLine, Separator, Shadow, Spinner, Surface, TextSize,
@@ -29,8 +25,6 @@ pub use tokens::{Shape, TextRole, Tokens};
 pub use widget::Widget;
 pub use widget::button::{Button, ButtonParts, ButtonStyle, Tone};
 pub use widget::chip::{Chip, ChipParts, ChipStyle};
-#[cfg(feature = "ui-color")]
-pub use widget::color::{ColorPicker, PickerParts, PickerStyle};
 pub use widget::dial::{Dial, DialParts, DialStyle};
 pub use widget::dialog::{Dialog, DialogAnswer, DialogParts};
 pub use widget::disclosure::{Disclosure, DisclosureParts, DisclosureStyle};
@@ -41,10 +35,6 @@ pub use widget::dock::{
 };
 pub use widget::dropdown::{Dropdown, DropdownParts, DropdownStyle};
 pub use widget::empty::{EmptyParts, EmptyState};
-#[cfg(feature = "ui-graph")]
-pub use widget::graph;
-#[cfg(feature = "ui-graph")]
-pub use widget::graph::{GraphStyle, GraphView, ScopeStyle, ScopeView};
 pub use widget::link::{Link, LinkParts, LinkStyle};
 pub use widget::look::Look;
 pub use widget::pager::{Pager, PagerDot, PagerParts, PagerStyle};
@@ -61,8 +51,6 @@ pub use widget::sheet::{BottomSheet, SheetParts, SheetState};
 pub use widget::slider::{Slider, SliderParts, SliderStyle, SliderTrack};
 pub use widget::splitter::{Splitter, SplitterParts, SplitterStyle};
 pub use widget::stepper::{Stepper, StepperParts, StepperStyle};
-#[cfg(feature = "ui-color")]
-pub use widget::swatch::{Swatch, SwatchParts, SwatchStyle, Swatches};
 pub use widget::tabs::{Tab, TabBar, TabBarParts, TabStyle};
 #[cfg(feature = "ui-text-edit")]
 pub use widget::text_area::{TextArea, TextAreaParts};
@@ -74,7 +62,17 @@ pub use widget::toggle::{
 pub use widget::tooltip::TooltipOptions;
 pub use widget::tree::{TreeRow, TreeRowParts, TreeStyle, TreeView, tree_rows};
 #[cfg(feature = "ui-color")]
-pub use widget::wheel::{ColorWheel, WheelParts};
+pub use widget::{
+    color::{ColorPicker, PickerParts, PickerStyle},
+    swatch::{Swatch, SwatchParts, SwatchStyle, Swatches},
+    wheel::{ColorWheel, WheelParts},
+};
+#[cfg(feature = "ui-graph")]
+pub use {
+    component::PlotView,
+    paint::{AxisMarks, AxisSide, AxisStyle, GridLines, GridStyle, Marker, Stroke, Trace},
+    widget::graph::{self, GraphStyle, GraphView, ScopeStyle, ScopeView},
+};
 
 #[cfg(test)]
 mod tests {

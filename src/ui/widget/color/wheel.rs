@@ -2,9 +2,9 @@
 
 use std::f32::consts::{SQRT_2, TAU};
 
-use super::Widget;
-use super::color::{follow_square, merge, step};
-use super::look::Look;
+use super::super::Widget;
+use super::super::look::Look;
+use super::{follow_square, merge, step};
 use crate::AureaResult;
 use crate::render::{Hsv, Paint, Path, PathCommand, Picture, Point, Rect};
 use crate::ui::component::FocusRing;

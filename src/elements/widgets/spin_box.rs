@@ -1,5 +1,5 @@
-use super::native::{CallbackWatch, NativeElement};
-use super::traits::Element;
+use crate::elements::native::{CallbackWatch, NativeElement};
+use crate::elements::traits::Element;
 use crate::ffi::{
     ng_platform_create_spin_box, ng_platform_spin_box_get_value, ng_platform_spin_box_set_value,
     status,

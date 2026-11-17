@@ -1,7 +1,7 @@
 //! Colour swatches: squares to pick a colour from, laid out in rows across the rect.
 
-use super::Widget;
-use super::look::Look;
+use super::super::Widget;
+use super::super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
 use crate::ui::accessibility::Role;
