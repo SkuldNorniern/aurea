@@ -15,12 +15,20 @@ use std::mem;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, PoisonError};
 
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
+#[cfg(all(
+    not(any(target_os = "ios", target_os = "android")),
+    feature = "single-instance"
+))]
 mod instance;
+#[cfg(feature = "ui")]
 mod run;
 
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
+#[cfg(all(
+    not(any(target_os = "ios", target_os = "android")),
+    feature = "single-instance"
+))]
 pub use instance::single_instance;
+#[cfg(feature = "ui")]
 pub use run::run;
 
 #[cfg(target_os = "android")]

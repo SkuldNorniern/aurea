@@ -1,11 +1,19 @@
 #include "common/platform_ops.h"
+#ifdef NG_FEATURE_CLIPBOARD
 #include "common/clipboard.h"
+#endif
+#ifdef NG_FEATURE_DIALOG
 #include "dialog.h"
+#endif
 #include "common/errors.h"
 #include "platform/windows/utils.h"
 #include "platform/windows/window.h"
+#ifdef NG_FEATURE_MENU
 #include "platform/windows/menu.h"
+#endif
+#ifdef NG_FEATURE_TRAY
 #include "platform/windows/tray.h"
+#endif
 #include "platform/windows/ime.h"
 #include "platform/windows/elements.h"
 
@@ -65,6 +73,7 @@ static const ng_platform_ops_t windows_ops = {
     .window_get_position = ng_windows_window_get_position,
     .window_get_xcb_handle = NULL,
     .window_get_wayland_handle = NULL,
+#ifdef NG_FEATURE_MENU
     .create_menu = ng_windows_create_menu,
     .destroy_menu = ng_windows_destroy_menu,
     .attach_menu = ng_windows_attach_menu,
@@ -78,12 +87,15 @@ static const ng_platform_ops_t windows_ops = {
     .menu_item_remove = ng_windows_menu_item_remove,
     .menu_clear = ng_windows_menu_clear,
     .menu_move_last = ng_windows_menu_move_last,
+#endif
+#ifdef NG_FEATURE_WIDGETS
     .create_button = ng_windows_create_button,
     .button_invalidate = ng_windows_button_invalidate,
     .create_label = ng_windows_create_label,
     .label_invalidate = ng_windows_label_invalidate,
     .label_set_text = ng_windows_label_set_text,
     .label_set_style = ng_windows_label_set_style,
+#endif
     .element_set_change_id = ng_windows_element_set_change_id,
     .element_set_visible = ng_windows_element_set_visible,
     .element_set_min_size = ng_windows_element_set_min_size,
@@ -94,6 +106,7 @@ static const ng_platform_ops_t windows_ops = {
     .creation_parent = ng_windows_creation_parent,
     .element_set_enabled = ng_windows_element_set_enabled,
     .element_watch_destroy = ng_windows_element_watch_destroy,
+#ifdef NG_FEATURE_WIDGETS
     .text_unit = ng_windows_text_unit,
     .text_get_selection = ng_windows_text_get_selection,
     .text_set_selection = ng_windows_text_set_selection,
@@ -101,16 +114,20 @@ static const ng_platform_ops_t windows_ops = {
     .text_undo = ng_windows_text_undo,
     .text_can_undo = ng_windows_text_can_undo,
     .text_set_feature = ng_windows_text_set_feature,
+#endif
     .create_box = ng_windows_create_box,
     .box_invalidate = ng_windows_box_invalidate,
     .box_add = box_add_wrapper,
     .set_window_content = ng_windows_set_window_content,
+#ifdef NG_FEATURE_WIDGETS
     .create_split_view = ng_windows_create_split_view,
     .split_view_add = ng_windows_split_view_add,
     .split_view_set_divider_position = ng_windows_split_view_set_divider_position,
     .create_scroll_view = ng_windows_create_scroll_view,
     .scroll_view_set_content = ng_windows_scroll_view_set_content,
     .scroll_view_set_scrollbar = ng_windows_scroll_view_set_scrollbar,
+#endif
+#ifdef NG_FEATURE_WIDGETS
     .create_text_editor = ng_windows_create_text_editor,
     .text_editor_invalidate = ng_windows_text_editor_invalidate,
     .create_text_view = ng_windows_create_text_view,
@@ -121,6 +138,7 @@ static const ng_platform_ops_t windows_ops = {
     .set_text_content = ng_windows_set_text_content,
     .get_text_content = ng_windows_get_text_content,
     .free_text_content = ng_windows_free_text_content,
+#endif
     .create_canvas = ng_windows_create_canvas,
     .canvas_invalidate = ng_windows_canvas_invalidate,
     .canvas_invalidate_rect = ng_windows_canvas_invalidate_rect,
@@ -135,12 +153,15 @@ static const ng_platform_ops_t windows_ops = {
     .get_scale_factor = ng_windows_get_scale_factor,
     .window_set_scale_factor_callback = ng_windows_window_set_scale_factor_callback,
     .window_set_lifecycle_callback = ng_windows_window_set_lifecycle_callback,
+#ifdef NG_FEATURE_WIDGETS
     .create_image_view = ng_windows_create_image_view,
     .image_view_load_from_path = ng_windows_image_view_load_from_path,
     .image_view_load_from_data = ng_windows_image_view_load_from_data,
     .image_view_set_scaling = ng_windows_image_view_set_scaling,
     .image_view_get_size = ng_windows_image_view_get_size,
     .image_view_invalidate = ng_windows_image_view_invalidate,
+#endif
+#ifdef NG_FEATURE_WIDGETS
     .create_slider = ng_windows_create_slider,
     .slider_set_value = ng_windows_slider_set_value,
     .slider_get_value = ng_windows_slider_get_value,
@@ -194,23 +215,30 @@ static const ng_platform_ops_t windows_ops = {
     .row_list_clear = ng_windows_row_list_clear,
     .row_list_set_selected = ng_windows_row_list_set_selected,
     .row_list_get_selected = ng_windows_row_list_get_selected,
+#endif
+#ifdef NG_FEATURE_DIALOG
     .file_dialog = ng_windows_file_dialog,
     .message_box = ng_windows_message_box,
     .color_dialog = ng_windows_color_dialog,
+#endif
+#ifdef NG_FEATURE_CLIPBOARD
     .get_clipboard_text = ng_windows_get_clipboard_text,
     .free_clipboard_text = ng_windows_free_clipboard_text,
     .set_clipboard_text = ng_windows_set_clipboard_text,
     .clipboard_formats = ng_windows_clipboard_formats,
     .clipboard_read = ng_windows_clipboard_read,
     .clipboard_write = ng_windows_clipboard_write,
+#endif
     .window_set_hide_on_close = ng_windows_window_set_hide_on_close,
     .window_set_close_guard = ng_windows_window_set_close_guard,
+#ifdef NG_FEATURE_TRAY
     .create_tray = ng_windows_tray_create,
     .destroy_tray = ng_windows_tray_destroy,
     .tray_set_icon_rgba = ng_windows_tray_set_icon_rgba,
     .tray_set_tooltip = ng_windows_tray_set_tooltip,
     .tray_add_item = ng_windows_tray_add_item,
     .tray_notify = ng_windows_tray_notify,
+#endif
 };
 
 void windows_register_ops(void) {

@@ -78,10 +78,10 @@ aurea-foundation = { path = "aurea-foundation", version = "0.1.0" }
 aurea-ffi = { path = "aurea-ffi", version = "0.1.0" }
 aurea-render = { path = "aurea-render", version = "0.1.0" }
 aurea-runtime = { path = "aurea-runtime", version = "0.1.0" }
-aurea-animation = { path = "aurea-animation", version = "0.1.0" }
 log = "0.4.29"
 png = "0.18"
 accesskit = { version = "0.25", optional = true }
+aurea-animation = { path = "aurea-animation", version = "0.1.0", optional = true }
 raw-window-handle = { version = "0.6", optional = true }
 wgpu = { version = "29.0.1", optional = true }
 
@@ -106,7 +106,18 @@ accesskit_unix = { version = "0.23", optional = true }
 # CPU rasterizer (strokes and damage-driven partial repaint are still missing),
 # so it stays opt-in until it does.
 # Input: keys and mouse are always on. `input` turns on every input feature below.
-default = ["input"]
+default = [
+    "input",
+    "clipboard",
+    "files",
+    "menu",
+    "tray",
+    "dialog",
+    "single-instance",
+    "embed",
+    "widgets",
+    "ui",
+]
 input = ["text-input", "ime", "raw-mouse", "pen", "touch", "gestures", "drop-files"]
 # Typed text as `TextInput`.
 text-input = ["aurea-ffi/text-input"]
@@ -122,11 +133,33 @@ touch = ["aurea-ffi/touch"]
 gestures = ["aurea-ffi/gestures"]
 # `FilesHovered`, `FilesDropped`, `FilesHoverEnded`.
 drop-files = ["aurea-ffi/drop-files"]
+# Clipboard text and images, `window::clipboard`. Native clipboard code only with this on.
+clipboard = ["aurea-ffi/clipboard"]
+# Opening, revealing and sharing files and folders, and the app's folders. Pick and save on the
+# desktop need `dialog` too; on phones they are part of this.
+files = ["aurea-ffi/files"]
+# Menu bars, `MenuBar` and `Window::create_menu_bar`, and the native menu code.
+menu = ["aurea-ffi/menu"]
+# Notification area icons, `TrayIcon`.
+tray = ["aurea-ffi/tray"]
+# Native file, message and colour dialogs. `comdlg32` is linked only with this.
+dialog = ["aurea-ffi/dialog"]
+# One running copy per user: `app::single_instance`. Its lock file lives in the app's local data
+# folder, which is `files`.
+single-instance = ["files"]
+# Native hosts inside a window, `SwiftUIHost` on macOS, and `embed`'s canvas embedding.
+embed = ["aurea-ffi/embed"]
+# Native controls: buttons, labels, text, lists and the rest of `elements`. Layout and canvases stay.
+widgets = ["aurea-ffi/widgets"]
+# The canvas widget toolkit (`ui`), `app::run`, and the `animation` module it runs on.
+ui = ["dep:aurea-animation"]
 accessibility = ["dep:accesskit", "dep:accesskit_windows", "dep:accesskit_macos", "dep:accesskit_unix", "dep:windows"]
 wgpu = ["dep:wgpu", "dep:raw-window-handle"]
 # iOS and Android native hosts. Experimental and opt-in; see mobile/README.md
-# for sample projects, entry points and platform build requirements.
-mobile = ["aurea-ffi/mobile"]
+# for sample projects, entry points and platform build requirements. The hosts draw with the
+# canvas UI and answer through the sheets, documents and menu and clipboard APIs, so those come
+# with it.
+mobile = ["aurea-ffi/mobile", "ui", "dialog", "files", "menu", "clipboard"]
 # GPU 2D backend via ZenGPU: Metal on macOS, Vulkan elsewhere. Opt-in,
 # experimental.
 # Forwards to aurea-render (which owns the ZenGpuRenderer) and pulls in
@@ -136,6 +169,7 @@ zengpu = ["aurea-render/zengpu", "dep:zengpu"]
 [[test]]
 name = "macos_native"
 harness = false
+required-features = ["ui", "widgets", "menu"]
 
 [[bench]]
 name = "damage"
@@ -148,6 +182,7 @@ harness = false
 [[bench]]
 name = "ui"
 harness = false
+required-features = ["ui", "widgets"]
 
 [[bench]]
 name = "gpu"
@@ -157,12 +192,12 @@ required-features = ["zengpu"]
 [[example]]
 name = "android_demo"
 crate-type = ["cdylib"]
-required-features = ["mobile"]
+required-features = ["mobile", "ui", "widgets"]
 
 [[example]]
 name = "ios_demo"
 crate-type = ["staticlib"]
-required-features = ["mobile"]
+required-features = ["mobile", "ui", "widgets"]
 
 [[example]]
 name = "wgpu_window"
@@ -178,7 +213,7 @@ required-features = ["zengpu"]
 
 [[example]]
 name = "zengpu_canvas"
-required-features = ["zengpu"]
+required-features = ["zengpu", "widgets"]
 
 [[example]]
 name = "zengpu_demo"
@@ -203,6 +238,90 @@ required-features = ["zengpu"]
 [[example]]
 name = "zengpu_shared_context"
 required-features = ["zengpu"]
+
+[[example]]
+name = "animate_bounce"
+required-features = ["ui"]
+
+[[example]]
+name = "animate_fade"
+required-features = ["ui"]
+
+[[example]]
+name = "animate_multi"
+required-features = ["ui"]
+
+[[example]]
+name = "live_chart"
+required-features = ["ui"]
+
+[[example]]
+name = "scope"
+required-features = ["ui"]
+
+[[example]]
+name = "browser"
+required-features = ["widgets"]
+
+[[example]]
+name = "cursor_lock"
+required-features = ["widgets"]
+
+[[example]]
+name = "custom_control"
+required-features = ["widgets"]
+
+[[example]]
+name = "custom_look"
+required-features = ["ui", "widgets"]
+
+[[example]]
+name = "hybrid_ui"
+required-features = ["widgets"]
+
+[[example]]
+name = "ide_like"
+required-features = ["ui", "widgets", "menu"]
+
+[[example]]
+name = "multi_window"
+required-features = ["widgets"]
+
+[[example]]
+name = "native_inputs"
+required-features = ["widgets"]
+
+[[example]]
+name = "notepad"
+required-features = ["widgets", "menu"]
+
+[[example]]
+name = "one_entry"
+required-features = ["ui", "widgets"]
+
+[[example]]
+name = "row_list"
+required-features = ["widgets"]
+
+[[example]]
+name = "single_instance"
+required-features = ["single-instance"]
+
+[[example]]
+name = "table"
+required-features = ["widgets"]
+
+[[example]]
+name = "tray"
+required-features = ["tray", "widgets"]
+
+[[example]]
+name = "widgets"
+required-features = ["ui", "widgets"]
+
+[[example]]
+name = "window"
+required-features = ["widgets", "menu"]
 
 # zengpu past 0.1.0: buffer offsets, base vertex, indirect count. drop after its next release
 [patch.crates-io]

@@ -1,14 +1,24 @@
 ﻿#import "platform/macos.h"
+#ifdef NG_FEATURE_DIALOG
 #import "dialog.h"
+#endif
 #import "common/platform_ops.h"
+#ifdef NG_FEATURE_CLIPBOARD
 #import "common/clipboard.h"
+#endif
 #import "common/errors.h"
 #import "window.h"
+#ifdef NG_FEATURE_MENU
 #import "menu.h"
+#endif
 #import "elements.h"
+#ifdef NG_FEATURE_EMBED
 #import "swiftui_host.h"
+#endif
 #import "utils.h"
+#ifdef NG_FEATURE_TRAY
 #import "tray.h"
+#endif
 
 static const ng_platform_ops_t macos_ops = {
     .init = ng_macos_init,
@@ -39,6 +49,7 @@ static const ng_platform_ops_t macos_ops = {
     .box_set_padding = ng_macos_box_set_padding,
     .element_set_enabled = ng_macos_element_set_enabled,
     .element_watch_destroy = ng_macos_element_watch_destroy,
+#ifdef NG_FEATURE_WIDGETS
     .text_unit = ng_macos_text_unit,
     .text_get_selection = ng_macos_text_get_selection,
     .text_set_selection = ng_macos_text_set_selection,
@@ -46,6 +57,7 @@ static const ng_platform_ops_t macos_ops = {
     .text_undo = ng_macos_text_undo,
     .text_can_undo = ng_macos_text_can_undo,
     .text_set_feature = ng_macos_text_set_feature,
+#endif
     .window_set_title = ng_macos_window_set_title,
     .window_set_icon_rgba = ng_macos_window_set_icon_rgba,
     .window_set_size = ng_macos_window_set_size,
@@ -71,6 +83,7 @@ static const ng_platform_ops_t macos_ops = {
     .window_set_placement = ng_macos_window_set_placement,
     .window_set_position = ng_macos_window_set_position,
     .window_get_position = ng_macos_window_get_position,
+#ifdef NG_FEATURE_MENU
     .create_menu = ng_macos_create_menu,
     .destroy_menu = ng_macos_destroy_menu,
     .attach_menu = ng_macos_attach_menu,
@@ -84,22 +97,28 @@ static const ng_platform_ops_t macos_ops = {
     .menu_clear = ng_macos_menu_clear,
     .menu_move_last = ng_macos_menu_move_last,
     .create_submenu = ng_macos_create_submenu,
+#endif
+#ifdef NG_FEATURE_WIDGETS
     .create_button = ng_macos_create_button,
     .button_invalidate = ng_macos_button_invalidate,
     .create_label = ng_macos_create_label,
     .label_invalidate = ng_macos_label_invalidate,
     .label_set_text = ng_macos_label_set_text,
     .label_set_style = ng_macos_label_set_style,
+#endif
     .create_box = ng_macos_create_box,
     .box_invalidate = ng_macos_box_invalidate,
     .box_add = ng_macos_box_add,
     .set_window_content = ng_macos_set_window_content,
+#ifdef NG_FEATURE_WIDGETS
     .create_split_view = ng_macos_create_split_view,
     .split_view_add = ng_macos_split_view_add,
     .split_view_set_divider_position = ng_macos_split_view_set_divider_position,
     .create_scroll_view = ng_macos_create_scroll_view,
     .scroll_view_set_content = ng_macos_scroll_view_set_content,
     .scroll_view_set_scrollbar = ng_macos_scroll_view_set_scrollbar,
+#endif
+#ifdef NG_FEATURE_WIDGETS
     .create_text_editor = ng_macos_create_text_editor,
     .text_editor_invalidate = ng_macos_text_editor_invalidate,
     .create_text_view = ng_macos_create_text_view,
@@ -110,6 +129,7 @@ static const ng_platform_ops_t macos_ops = {
     .set_text_content = ng_macos_set_text_content,
     .get_text_content = ng_macos_get_text_content,
     .free_text_content = ng_macos_free_text_content,
+#endif
     .create_canvas = ng_macos_create_canvas,
     .canvas_invalidate = ng_macos_canvas_invalidate,
     .canvas_invalidate_rect = ng_macos_canvas_invalidate_rect,
@@ -124,12 +144,15 @@ static const ng_platform_ops_t macos_ops = {
     .get_scale_factor = ng_macos_get_scale_factor,
     .window_set_scale_factor_callback = ng_macos_window_set_scale_factor_callback,
     .window_set_lifecycle_callback = ng_macos_window_set_lifecycle_callback,
+#ifdef NG_FEATURE_WIDGETS
     .create_image_view = ng_macos_create_image_view,
     .image_view_load_from_path = ng_macos_image_view_load_from_path,
     .image_view_load_from_data = ng_macos_image_view_load_from_data,
     .image_view_set_scaling = ng_macos_image_view_set_scaling,
     .image_view_get_size = ng_macos_image_view_get_size,
     .image_view_invalidate = ng_macos_image_view_invalidate,
+#endif
+#ifdef NG_FEATURE_WIDGETS
     .create_slider = ng_macos_create_slider,
     .slider_set_value = ng_macos_slider_set_value,
     .slider_get_value = ng_macos_slider_get_value,
@@ -183,24 +206,33 @@ static const ng_platform_ops_t macos_ops = {
     .row_list_clear = ng_macos_row_list_clear,
     .row_list_set_selected = ng_macos_row_list_set_selected,
     .row_list_get_selected = ng_macos_row_list_get_selected,
+#endif
+#ifdef NG_FEATURE_EMBED
     .create_swiftui_host = ng_macos_try_create_swiftui_host,
+#endif
+#ifdef NG_FEATURE_DIALOG
     .file_dialog = ng_macos_file_dialog,
     .message_box = ng_macos_message_box,
     .color_dialog = ng_macos_color_dialog,
+#endif
+#ifdef NG_FEATURE_CLIPBOARD
     .get_clipboard_text = ng_macos_get_clipboard_text,
     .free_clipboard_text = ng_macos_free_clipboard_text,
     .set_clipboard_text = ng_macos_set_clipboard_text,
     .clipboard_formats = ng_macos_clipboard_formats,
     .clipboard_read = ng_macos_clipboard_read,
     .clipboard_write = ng_macos_clipboard_write,
+#endif
     .window_set_hide_on_close = ng_macos_window_set_hide_on_close,
     .window_set_close_guard = ng_macos_window_set_close_guard,
+#ifdef NG_FEATURE_TRAY
     .create_tray = ng_macos_create_tray,
     .destroy_tray = ng_macos_destroy_tray,
     .tray_set_icon_rgba = ng_macos_tray_set_icon_rgba,
     .tray_set_tooltip = ng_macos_tray_set_tooltip,
     .tray_add_item = ng_macos_tray_add_item,
     .tray_notify = ng_macos_tray_notify,
+#endif
 };
 
 void macos_register_ops(void) {

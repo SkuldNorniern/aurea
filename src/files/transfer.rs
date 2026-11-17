@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(target_os = "android")]
 use crate::android as host;
 
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
+#[cfg(all(not(any(target_os = "ios", target_os = "android")), feature = "dialog"))]
 use crate::dialog::FileDialog;
 use crate::files::app_cache_dir;
 #[cfg(target_os = "ios")]
@@ -59,6 +59,7 @@ fn unstage(path: &Path) {
     }
 }
 
+#[cfg(any(target_os = "ios", target_os = "android", feature = "dialog"))]
 fn failed(_: io::Error) -> AureaError {
     AureaError::ElementOperationFailed
 }
@@ -80,7 +81,7 @@ pub fn open(
         let _ = parent;
         host::pick_files(extensions, multiple, done)
     }
-    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    #[cfg(all(not(any(target_os = "ios", target_os = "android")), feature = "dialog"))]
     {
         let mut dialog = FileDialog::new().multiple(multiple);
         if !extensions.is_empty() {
@@ -88,6 +89,15 @@ pub fn open(
         }
         done(dialog.open_over(parent)?);
         Ok(())
+    }
+    // Without `dialog` the desktop has no picker to show.
+    #[cfg(all(
+        not(any(target_os = "ios", target_os = "android")),
+        not(feature = "dialog")
+    ))]
+    {
+        let _ = (extensions, multiple, parent, done);
+        Err(AureaError::unsupported("open files"))
     }
 }
 
@@ -120,7 +130,7 @@ pub fn save(
         }
         shown
     }
-    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    #[cfg(all(not(any(target_os = "ios", target_os = "android")), feature = "dialog"))]
     {
         let Some(path) = FileDialog::new().file_name(name).save_over(parent)? else {
             done(None);
@@ -129,6 +139,14 @@ pub fn save(
         fs::write(&path, bytes).map_err(failed)?;
         done(Some(path));
         Ok(())
+    }
+    #[cfg(all(
+        not(any(target_os = "ios", target_os = "android")),
+        not(feature = "dialog")
+    ))]
+    {
+        let _ = (name, bytes, parent, done);
+        Err(AureaError::unsupported("save files"))
     }
 }
 

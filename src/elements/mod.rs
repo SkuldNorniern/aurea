@@ -1,55 +1,100 @@
 //! Native UI elements (widgets) and container traits.
 
-mod button;
-mod checkbox;
-mod combo_box;
+// Layout and the base traits stay in every build: a window's content and a canvas are elements.
+// The native controls below need `widgets`.
 mod container;
 mod divider;
-mod image_view;
-mod label;
 mod native;
-mod progress_bar;
-mod radio_group;
-mod row_list;
-mod scroll_view;
 mod shared;
-mod sidebar_list;
-mod slider;
-mod spacer;
-mod spin_box;
-mod split_view;
-mod swiftui_host;
-mod tab_bar;
-mod table;
-mod text;
 mod traits;
 
-pub use button::Button;
-pub use checkbox::Checkbox;
-pub use combo_box::ComboBox;
+// A spacer is an empty label, so it is a control.
+#[cfg(feature = "widgets")]
+mod button;
+#[cfg(feature = "widgets")]
+mod checkbox;
+#[cfg(feature = "widgets")]
+mod combo_box;
+#[cfg(feature = "widgets")]
+mod image_view;
+#[cfg(feature = "widgets")]
+mod label;
+#[cfg(feature = "widgets")]
+mod progress_bar;
+#[cfg(feature = "widgets")]
+mod radio_group;
+#[cfg(feature = "widgets")]
+mod row_list;
+#[cfg(feature = "widgets")]
+mod scroll_view;
+#[cfg(feature = "widgets")]
+mod sidebar_list;
+#[cfg(feature = "widgets")]
+mod slider;
+#[cfg(feature = "widgets")]
+mod spacer;
+#[cfg(feature = "widgets")]
+mod spin_box;
+#[cfg(feature = "widgets")]
+mod split_view;
+#[cfg(feature = "embed")]
+mod swiftui_host;
+#[cfg(feature = "widgets")]
+mod tab_bar;
+#[cfg(feature = "widgets")]
+mod table;
+#[cfg(feature = "widgets")]
+mod text;
+
 pub use container::{Orientation, Stack};
 pub use divider::Divider;
-pub use image_view::{ImageScaling, ImageView};
-pub use label::{Label, TextStyle};
 pub use native::NativeElement;
-pub use progress_bar::ProgressBar;
-pub use radio_group::RadioGroup;
-pub use row_list::RowList;
-pub use scroll_view::{ScrollView, ScrollbarPolicy};
 pub use shared::Shared;
-pub use sidebar_list::SidebarList;
-pub use slider::Slider;
-pub use spacer::Spacer;
-pub use spin_box::SpinBox;
-pub use split_view::{SplitOrientation, SplitView};
-pub use swiftui_host::{SwiftUIHost, SwiftUIHostNotAvailable};
-pub use tab_bar::TabBar;
-pub use table::Table;
-pub use text::{TextChange, TextControl, TextEditor, TextFeatures, TextField, TextView};
 pub use traits::{Container, Element};
 
+#[cfg(feature = "widgets")]
+pub use button::Button;
+#[cfg(feature = "widgets")]
+pub use checkbox::Checkbox;
+#[cfg(feature = "widgets")]
+pub use combo_box::ComboBox;
+#[cfg(feature = "widgets")]
+pub use image_view::{ImageScaling, ImageView};
+#[cfg(feature = "widgets")]
+pub use label::{Label, TextStyle};
+#[cfg(feature = "widgets")]
+pub use progress_bar::ProgressBar;
+#[cfg(feature = "widgets")]
+pub use radio_group::RadioGroup;
+#[cfg(feature = "widgets")]
+pub use row_list::RowList;
+#[cfg(feature = "widgets")]
+pub use scroll_view::{ScrollView, ScrollbarPolicy};
+#[cfg(feature = "widgets")]
+pub use sidebar_list::SidebarList;
+#[cfg(feature = "widgets")]
+pub use slider::Slider;
+#[cfg(feature = "widgets")]
+pub use spacer::Spacer;
+#[cfg(feature = "widgets")]
+pub use spin_box::SpinBox;
+#[cfg(feature = "widgets")]
+pub use split_view::{SplitOrientation, SplitView};
+#[cfg(feature = "embed")]
+pub use swiftui_host::{SwiftUIHost, SwiftUIHostNotAvailable};
+#[cfg(feature = "widgets")]
+pub use tab_bar::TabBar;
+#[cfg(feature = "widgets")]
+pub use table::Table;
+#[cfg(feature = "widgets")]
+pub use text::{TextChange, TextControl, TextEditor, TextFeatures, TextField, TextView};
+
 /// Helpers both native test modules use.
-#[cfg(all(test, any(target_os = "linux", target_os = "windows")))]
+#[cfg(all(
+    test,
+    feature = "widgets",
+    any(target_os = "linux", target_os = "windows")
+))]
 mod shared_tests {
     use std::cell::RefCell;
     use std::rc::Rc;
@@ -87,7 +132,7 @@ mod shared_tests {
     }
 }
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(all(test, feature = "widgets", target_os = "linux"))]
 mod gtk_tests {
     //! Native GTK widgets, read back through GTK.
 
@@ -721,7 +766,7 @@ mod gtk_tests {
     }
 }
 
-#[cfg(all(test, target_os = "windows"))]
+#[cfg(all(test, feature = "widgets", target_os = "windows"))]
 mod win32_tests {
     //! Native Win32 controls, read back through the wide API.
 

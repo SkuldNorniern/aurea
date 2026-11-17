@@ -1,10 +1,12 @@
 ﻿#include "window.h"
 #include "utils.h"
+#ifdef NG_FEATURE_MENU
 #include "menu.h"
+#include "common/menu_table.h"
+#endif
 #include "ime.h"
 #include "control.h"
 #include "common/shortcuts.h"
-#include "common/menu_table.h"
 #include "common/errors.h"
 #include "common/input.h"
 #include "common/rust_callbacks.h"
@@ -117,7 +119,9 @@ static gboolean on_delete_event(GtkWidget* widget, GdkEvent* event, gpointer dat
 static void on_window_destroy(GtkWidget* widget, gpointer data) {
     (void)data;
     ng_linux_lifecycle(widget, 5);
+#ifdef NG_FEATURE_MENU
     ng_menu_table_forget_window(widget);
+#endif
     if (gtk_main_level() == 0) return;
 
     GList* toplevels = gtk_window_list_toplevels();
@@ -394,10 +398,12 @@ static gboolean on_key_press(GtkWidget* widget, GdkEventKey* event, gpointer dat
     unsigned int keycode = ng_linux_keycode_from_keyval(event->keyval);
 
     if (!ng_linux_composing(widget)) {
+#ifdef NG_FEATURE_MENU
         if (ng_linux_handle_menu_shortcut((void*)widget, keycode, mods)) {
             window_state(widget)->menu_took_key = event->keyval;
             return TRUE;
         }
+#endif
         ng_invoke_key_event((void*)widget, keycode, 1, mods);
         if (ng_shortcuts_match((void*)widget, keycode, mods)) return TRUE;
     }
@@ -413,11 +419,13 @@ static gboolean on_key_press(GtkWidget* widget, GdkEventKey* event, gpointer dat
 
 static gboolean on_key_release(GtkWidget* widget, GdkEventKey* event, gpointer data) {
     (void)data;
+#ifdef NG_FEATURE_MENU
     NgLinuxWindow* w = window_state(widget);
     if (w->menu_took_key != 0 && w->menu_took_key == event->keyval) {
         w->menu_took_key = 0;
         return TRUE;
     }
+#endif
     unsigned int mods = ng_linux_modifiers(event->state);
     unsigned int keycode = ng_linux_keycode_from_keyval(event->keyval);
     int composing = ng_linux_composing(widget);
@@ -1213,6 +1221,7 @@ int ng_linux_window_set_cursor_grab(NGHandle window, int mode) {
     return NG_SUCCESS;
 }
 
+#ifdef NG_FEATURE_CLIPBOARD
 char* ng_linux_get_clipboard_text(void) {
     GtkClipboard* cb = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
     if (!cb) return NULL;
@@ -1230,3 +1239,4 @@ int ng_linux_set_clipboard_text(const char* text) {
     gtk_clipboard_set_text(cb, text, -1);
     return NG_SUCCESS;
 }
+#endif

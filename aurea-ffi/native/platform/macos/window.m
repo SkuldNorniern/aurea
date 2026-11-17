@@ -460,10 +460,12 @@ static const double NG_MACOS_POINTS_PER_LINE = 40.0;
 - (void)keyDown:(NSEvent*)event {
     if (!self.windowHandle) return;
     if (![self hasMarkedText]) {
+#ifdef NG_FEATURE_MENU
         if ([[NSApp mainMenu] performKeyEquivalent:event]) {
             menuTookKey = (unsigned int)[event keyCode] + 1;
             return;
         }
+#endif
         unsigned int keycode = ng_macos_keycode_from_event([event keyCode]);
         ng_invoke_key_event(self.windowHandle, keycode, 1, ng_macos_modifiers(event));
     }
@@ -573,10 +575,12 @@ static const double NG_MACOS_POINTS_PER_LINE = 40.0;
 
 - (void)keyUp:(NSEvent*)event {
     if (!self.windowHandle) return;
+#ifdef NG_FEATURE_MENU
     if (menuTookKey != 0 && menuTookKey == (unsigned int)[event keyCode] + 1) {
         menuTookKey = 0;
         return;
     }
+#endif
     unsigned int keycode = ng_macos_keycode_from_event([event keyCode]);
     ng_invoke_key_event(self.windowHandle, keycode, 0, ng_macos_modifiers(event));
 }
@@ -1608,6 +1612,7 @@ NGHandle ng_macos_window_get_content_view(NGHandle window) {
     return (__bridge void*)contentView;
 } 
 
+#ifdef NG_FEATURE_CLIPBOARD
 char* ng_macos_get_clipboard_text(void) {
     NSPasteboard* pb = [NSPasteboard generalPasteboard];
     NSString* str = [pb stringForType:NSPasteboardTypeString];
@@ -1630,6 +1635,7 @@ int ng_macos_set_clipboard_text(const char* text) {
     BOOL ok = [pb setString:str forType:NSPasteboardTypeString];
     return ok ? NG_SUCCESS : NG_ERROR_PLATFORM_SPECIFIC;
 }
+#endif
 
 void ng_apple_device_info(unsigned long long* total, unsigned long long* available, int* thermal,
                           int* low) {

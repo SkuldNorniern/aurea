@@ -9,13 +9,15 @@ pub use crate::window::{
     WindowType,
 };
 
+#[cfg(feature = "widgets")]
 pub use crate::elements::{
-    Button, Checkbox, ComboBox, Container, Divider, Element, ImageView, Label, Orientation,
-    ProgressBar, SidebarList, Slider, Spacer, SplitOrientation, SplitView, Stack, TabBar,
-    TextEditor, TextField, TextView,
+    Button, Checkbox, ComboBox, ImageView, Label, ProgressBar, SidebarList, Slider, Spacer,
+    SplitOrientation, SplitView, TabBar, TextEditor, TextField, TextView,
 };
+pub use crate::elements::{Container, Divider, Element, Orientation, Stack};
 
 pub use crate::input::keymap::{Chord, Keymap};
+#[cfg(feature = "menu")]
 pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
 
 pub use crate::render::{
@@ -23,6 +25,7 @@ pub use crate::render::{
 };
 
 /// Plots and scope views.
+#[cfg(feature = "ui")]
 pub use crate::ui::graph;
 
 pub use crate::{AureaError, AureaResult};
@@ -32,6 +35,7 @@ pub use aurea_runtime::{DamageRegion, FrameInfo, FrameScheduler};
 /// What every app needs, whichever widgets it draws with.
 mod core {
     pub use crate::input::keymap::{Chord, Keymap};
+    #[cfg(feature = "menu")]
     pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
     pub use crate::render::{
         Canvas, Color, DrawingContext, Paint, PaintStyle, Point, Rect, RendererBackend,
@@ -57,6 +61,7 @@ mod core {
 /// # Ok(())
 /// # }
 /// ```
+#[cfg(feature = "ui")]
 pub mod canvas {
     pub use super::core::*;
     pub use crate::ui::*;

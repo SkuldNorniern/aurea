@@ -2,7 +2,9 @@
 #include "occlusion.h"
 #include "drop.h"
 #include "gesture.h"
+#ifdef NG_FEATURE_CLIPBOARD
 #include "common/clipboard.h"
+#endif
 #include "elements/common.h"
 #include "utils.h"
 #include "window_state.h"
@@ -747,6 +749,7 @@ int ng_windows_window_set_cursor_grab(NGHandle window, int mode) {
     return NG_SUCCESS;
 }
 
+#ifdef NG_FEATURE_CLIPBOARD
 char* ng_windows_get_clipboard_text(void) {
     if (!OpenClipboard(NULL)) return NULL;
     HANDLE h = GetClipboardData(CF_UNICODETEXT);
@@ -817,3 +820,4 @@ int ng_windows_set_clipboard_text(const char* text) {
     ng_windows_clipboard_cleanup(owner);
     return NG_SUCCESS;
 }
+#endif

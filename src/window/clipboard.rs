@@ -22,8 +22,8 @@ use std::str;
 #[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "ios"))]
 use std::{ptr, slice};
 
-mod image;
-pub use image::ClipboardImage;
+use crate::window::image;
+pub use crate::window::image::ClipboardImage;
 
 /// Borrowed custom-format data to publish alongside other representations.
 #[derive(Clone, Copy, Debug)]
@@ -34,8 +34,10 @@ pub struct ClipboardData<'a> {
     pub bytes: &'a [u8],
 }
 
+use super::image::READ_LIMIT_EXCEEDED as READ_LIMIT;
+
 /// Native error code when a read exceeds the caller's byte budget.
-pub const READ_LIMIT_EXCEEDED: i32 = -6;
+pub const READ_LIMIT_EXCEEDED: i32 = READ_LIMIT;
 /// Windows reports this while another process has the clipboard open.
 pub const CLIPBOARD_BUSY: i32 = -7;
 
@@ -69,7 +71,7 @@ fn native_bytes(format: Option<&CStr>, max_bytes: usize) -> AureaResult<Option<V
             return Ok(None);
         }
         if len > max_bytes || len > isize::MAX as usize {
-            return Err(limit_error());
+            return Err(image::limit_error());
         }
         let mut data = Vec::new();
         data.try_reserve_exact(len)
@@ -91,9 +93,6 @@ fn status(result: i32) -> AureaResult<()> {
         -5 => Err(AureaError::unsupported("clipboard byte formats")),
         code => Err(AureaError::PlatformError(code)),
     }
-}
-fn limit_error() -> AureaError {
-    AureaError::PlatformError(READ_LIMIT_EXCEEDED)
 }
 fn format_name(format: &str) -> AureaResult<CString> {
     if format.is_empty() {

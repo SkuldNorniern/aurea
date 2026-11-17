@@ -442,7 +442,7 @@ mod deadline_tests {
     }
 }
 
-#[cfg(all(test, target_os = "windows"))]
+#[cfg(all(test, feature = "widgets", target_os = "windows"))]
 mod native_lifetime_tests {
     //! Hidden native windows; kept in one process and on one UI thread.
 
@@ -534,7 +534,11 @@ mod native_lifetime_tests {
     }
 }
 
-#[cfg(all(test, any(target_os = "windows", target_os = "linux")))]
+#[cfg(all(
+    test,
+    feature = "widgets",
+    any(target_os = "windows", target_os = "linux")
+))]
 mod minimize_tests {
     use crate::Window;
     use crate::lifecycle::{LifecycleEvent, invoke_lifecycle_callback};

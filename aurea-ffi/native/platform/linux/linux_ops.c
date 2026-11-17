@@ -1,10 +1,16 @@
 #include "common/platform_ops.h"
+#ifdef NG_FEATURE_CLIPBOARD
 #include "common/clipboard.h"
+#endif
+#ifdef NG_FEATURE_DIALOG
 #include "dialog.h"
+#endif
 #include "common/errors.h"
 #include "platform/linux/utils.h"
 #include "platform/linux/window.h"
+#ifdef NG_FEATURE_MENU
 #include "platform/linux/menu.h"
+#endif
 #include "platform/linux/ime.h"
 
 #ifndef NG_INPUT_IME
@@ -62,6 +68,7 @@ static const ng_platform_ops_t linux_ops = {
     .window_get_position = ng_linux_window_get_position,
     .window_get_xcb_handle = ng_linux_window_get_xcb_handle,
     .window_get_wayland_handle = ng_linux_window_get_wayland_handle,
+#ifdef NG_FEATURE_MENU
     .create_menu = ng_linux_create_menu,
     .destroy_menu = ng_linux_destroy_menu,
     .attach_menu = ng_linux_attach_menu,
@@ -75,12 +82,15 @@ static const ng_platform_ops_t linux_ops = {
     .menu_clear = ng_linux_menu_clear,
     .menu_move_last = ng_linux_menu_move_last,
     .create_submenu = ng_linux_create_submenu,
+#endif
+#ifdef NG_FEATURE_WIDGETS
     .create_button = ng_linux_create_button,
     .button_invalidate = ng_linux_button_invalidate,
     .create_label = ng_linux_create_label,
     .label_invalidate = ng_linux_label_invalidate,
     .label_set_text = ng_linux_label_set_text,
     .label_set_style = ng_linux_label_set_style,
+#endif
     .element_set_change_id = ng_linux_element_set_change_id,
     .element_set_visible = ng_linux_element_set_visible,
     .element_set_min_size = ng_linux_element_set_min_size,
@@ -90,6 +100,7 @@ static const ng_platform_ops_t linux_ops = {
     .box_set_padding = ng_linux_box_set_padding,
     .element_set_enabled = ng_linux_element_set_enabled,
     .element_watch_destroy = ng_linux_element_watch_destroy,
+#ifdef NG_FEATURE_WIDGETS
     .text_unit = ng_linux_text_unit,
     .text_get_selection = ng_linux_text_get_selection,
     .text_set_selection = ng_linux_text_set_selection,
@@ -97,16 +108,20 @@ static const ng_platform_ops_t linux_ops = {
     .text_undo = ng_linux_text_undo,
     .text_can_undo = ng_linux_text_can_undo,
     .text_set_feature = ng_linux_text_set_feature,
+#endif
     .create_box = ng_linux_create_box,
     .box_invalidate = ng_linux_box_invalidate,
     .box_add = ng_linux_box_add,
     .set_window_content = ng_linux_set_window_content,
+#ifdef NG_FEATURE_WIDGETS
     .create_split_view = ng_linux_create_split_view,
     .split_view_add = ng_linux_split_view_add,
     .split_view_set_divider_position = ng_linux_split_view_set_divider_position,
     .create_scroll_view = ng_linux_create_scroll_view,
     .scroll_view_set_content = ng_linux_scroll_view_set_content,
     .scroll_view_set_scrollbar = ng_linux_scroll_view_set_scrollbar,
+#endif
+#ifdef NG_FEATURE_WIDGETS
     .create_text_editor = ng_linux_create_text_editor,
     .text_editor_invalidate = ng_linux_text_editor_invalidate,
     .create_text_view = ng_linux_create_text_view,
@@ -117,6 +132,7 @@ static const ng_platform_ops_t linux_ops = {
     .set_text_content = ng_linux_set_text_content,
     .get_text_content = ng_linux_get_text_content,
     .free_text_content = ng_linux_free_text_content,
+#endif
     .create_canvas = ng_linux_create_canvas,
     .canvas_invalidate = ng_linux_canvas_invalidate,
     .canvas_invalidate_rect = ng_linux_canvas_invalidate_rect,
@@ -130,12 +146,15 @@ static const ng_platform_ops_t linux_ops = {
     .get_scale_factor = ng_linux_get_scale_factor,
     .window_set_scale_factor_callback = ng_linux_window_set_scale_factor_callback,
     .window_set_lifecycle_callback = ng_linux_window_set_lifecycle_callback,
+#ifdef NG_FEATURE_WIDGETS
     .create_image_view = ng_linux_create_image_view,
     .image_view_load_from_path = ng_linux_image_view_load_from_path,
     .image_view_load_from_data = ng_linux_image_view_load_from_data,
     .image_view_set_scaling = ng_linux_image_view_set_scaling,
     .image_view_get_size = ng_linux_image_view_get_size,
     .image_view_invalidate = ng_linux_image_view_invalidate,
+#endif
+#ifdef NG_FEATURE_WIDGETS
     .create_slider = ng_linux_create_slider,
     .slider_set_value = ng_linux_slider_set_value,
     .slider_get_value = ng_linux_slider_get_value,
@@ -189,15 +208,20 @@ static const ng_platform_ops_t linux_ops = {
     .row_list_clear = ng_linux_row_list_clear,
     .row_list_set_selected = ng_linux_row_list_set_selected,
     .row_list_get_selected = ng_linux_row_list_get_selected,
+#endif
+#ifdef NG_FEATURE_DIALOG
     .file_dialog = ng_linux_file_dialog,
     .message_box = ng_linux_message_box,
     .color_dialog = ng_linux_color_dialog,
+#endif
+#ifdef NG_FEATURE_CLIPBOARD
     .get_clipboard_text = ng_linux_get_clipboard_text,
     .free_clipboard_text = ng_linux_free_clipboard_text,
     .set_clipboard_text = ng_linux_set_clipboard_text,
     .clipboard_formats = ng_linux_clipboard_formats,
     .clipboard_read = ng_linux_clipboard_read,
     .clipboard_write = ng_linux_clipboard_write,
+#endif
 };
 
 void linux_register_ops(void) {

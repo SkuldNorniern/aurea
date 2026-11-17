@@ -1,9 +1,11 @@
 //! Window management, events, and lifecycle integration.
 
+#[cfg(feature = "clipboard")]
 pub mod clipboard;
 mod close;
 #[cfg(feature = "zengpu")]
 mod gpu;
+mod image;
 mod lifecycle;
 mod manager;
 mod native;
@@ -14,6 +16,7 @@ pub use aurea_foundation::{
     PenPhase, PenSample, PenSampler, PenSampling, PenTapAction, PenTool, PointerKind, WindowEvent,
 };
 pub use aurea_runtime::EventQueue;
+#[cfg(feature = "clipboard")]
 pub use clipboard::{clipboard_text, set_clipboard_text};
 pub use manager::WindowManager;
 pub use types::{CursorGrabMode, CursorIcon, WindowId, WindowType};
@@ -30,6 +33,7 @@ use crate::lifecycle::{
     LifecycleEvent, register_lifecycle_callback, subscribe_lifecycle_callback,
     unregister_lifecycle_callback,
 };
+#[cfg(feature = "menu")]
 use crate::menu::MenuBar;
 mod proxy;
 
@@ -48,8 +52,10 @@ use crate::registry::window::{
 };
 use crate::render::{Image, ImageSet, Rect};
 use crate::{AureaError, AureaResult};
+#[cfg(feature = "menu")]
+use aurea_foundation::Capability;
+use aurea_foundation::CapabilityChecker;
 use aurea_foundation::lock;
-use aurea_foundation::{Capability, CapabilityChecker};
 use aurea_foundation::{DesktopPlatform, Platform};
 use aurea_runtime::{DamageRegion, FrameScheduler};
 use std::{
@@ -128,6 +134,7 @@ pub struct WindowPlacement {
 /// A native platform window with menu, content, and event handling.
 pub struct Window {
     handle: *mut c_void,
+    #[cfg(feature = "menu")]
     menu_bar: Option<MenuBar>,
     content: Option<Box<dyn Element>>,
     platform: Platform,
@@ -235,6 +242,7 @@ impl Window {
             id,
             #[cfg(feature = "wgpu")]
             surface_handle,
+            #[cfg(feature = "menu")]
             menu_bar: None,
             content: None,
             platform,
@@ -261,6 +269,7 @@ impl Window {
     }
 
     /// Builds this window's menu bar and hands back a borrow of it.
+    #[cfg(feature = "menu")]
     pub fn create_menu_bar(&mut self) -> AureaResult<&mut MenuBar> {
         if !self.capabilities.has(Capability::MenuBar) {
             return Err(AureaError::ElementOperationFailed);
@@ -662,7 +671,7 @@ impl Window {
     /// Window icon from PNG bytes.
     pub fn set_icon_png(&self, png: &[u8]) -> AureaResult<()> {
         const MAX_BYTES: usize = 64 * 1024 * 1024;
-        let icon = clipboard::ClipboardImage::from_png(png, MAX_BYTES)?;
+        let icon = image::ClipboardImage::from_png(png, MAX_BYTES)?;
         self.set_icon_rgba(&icon.rgba, icon.width, icon.height)
     }
 
@@ -1393,6 +1402,7 @@ mod event_queue_tests {
 }
 
 #[cfg(test)]
+#[cfg(feature = "widgets")]
 mod window_content_tests {
     use crate::{AureaResult, Window};
 
@@ -1502,7 +1512,7 @@ mod gtk_multi_window_tests {
         Ok(())
     }
 }
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(all(test, target_os = "linux", feature = "widgets"))]
 mod gtk_shortcuts_tests {
     //! Window shortcuts reach the window while a child widget has focus, on GTK, and typing still
     //! reaches a focused native entry.
@@ -1871,7 +1881,7 @@ mod win32_multi_window_tests {
         Ok(())
     }
 }
-#[cfg(all(test, windows))]
+#[cfg(all(test, windows, feature = "widgets"))]
 mod win32_shortcuts_tests {
     //! Window shortcuts reach the window while a child control has focus.
 
@@ -2355,11 +2365,11 @@ mod custom_cursor_tests {
         unsafe { GetGuiResources(GetCurrentProcess(), 1) }
     }
 }
-#[cfg(all(test, windows))]
+#[cfg(all(test, windows, feature = "widgets"))]
 mod win32_size_tests {
     //! A window asked to be bigger than its work area.
 
-    use crate::{AureaResult, Label, Window};
+    use crate::{AureaResult, Window};
     use std::os::raw::c_void;
 
     #[repr(C)]
@@ -2417,8 +2427,10 @@ mod win32_size_tests {
     }
 
     #[test]
+    #[cfg(all(feature = "menu", feature = "widgets"))]
     #[ignore = "creates a native window; run with --ignored"]
     fn content_fills_the_area_below_the_menu_bar() -> AureaResult<()> {
+        use crate::Label;
         #[repr(C)]
         #[derive(Default)]
         struct Point {
@@ -2475,6 +2487,7 @@ mod gtk_ime_tests {
     }
 
     #[test]
+    #[cfg(feature = "menu")]
     #[ignore = "creates a native window; run with --ignored"]
     fn the_caret_area_counts_from_below_the_menu_bar() -> AureaResult<()> {
         let origin = |menu: bool| -> AureaResult<(c_int, c_int)> {

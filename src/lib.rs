@@ -38,15 +38,29 @@
 //!
 //! # Features
 //!
-//! The CPU renderer always works. Keys and the mouse are always on; `input` (on by default) adds
-//! the input features below, and [`input::supported`] says which are there.
+//! Every feature below is on by default, so an app changes nothing; `default-features = false`
+//! leaves out what the app does not use. The CPU renderer always works, and keys and the mouse are
+//! always on.
 //!
-//! - `text-input`, `ime`, `raw-mouse`, `pen`, `touch`, `gestures`, `drop-files`: the input parts,
-//!   all in `input`.
+//! - `input`: keyboard, mouse, text, pen, touch, gestures and file drops. Its parts are
+//!   `text-input`, `ime`, `raw-mouse`, `pen`, `touch`, `gestures` and `drop-files`, and
+//!   [`input::supported`] says which are there.
+//! - `clipboard`: clipboard text and images. Text fields copy and paste only with it.
+//! - `files`: opening, revealing and sharing files, and the app's folders. Pick and save on the
+//!   desktop need `dialog` too; on phones they are part of `files`.
+//! - `menu`: menu bars, [`Window::create_menu_bar`]. The menu tree also draws an in-app popup, so
+//!   [`menu::MenuSpec`] needs `ui`.
+//! - `tray`: icons in the notification area, [`TrayIcon`].
+//! - `dialog`: native file, message and colour dialogs.
+//! - `single-instance`: [`app::single_instance`], which needs `files`.
+//! - `embed`: SwiftUI hosts on macOS and the C embedding API.
+//! - `widgets`: the native controls in [`elements`]. Layout and canvases stay without it.
+//! - `ui`: the canvas widget toolkit, [`app::run`] and [`animation`].
 //! - `zengpu`: GPU rendering through ZenGPU, on Metal on macOS and Vulkan elsewhere. Experimental.
 //! - `wgpu`: wgpu renderer and surface helpers, for fitting Aurea into a wgpu app.
 //! - `accessibility`: screen reader support for canvas widgets, through AccessKit.
-//! - `mobile`: iOS and Android hosts.
+//! - `mobile`: iOS and Android hosts. They draw with `ui`, so it brings `ui`, `dialog`, `files`,
+//!   `menu` and `clipboard` with it.
 //!
 //! # App identity
 //!
@@ -76,19 +90,24 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[doc = include_str!("../README.md")]
 struct ReadmeDoctests;
 
+#[cfg(feature = "ui")]
 pub use aurea_animation as animation;
 
 pub mod app;
 mod device;
+#[cfg(feature = "dialog")]
 pub mod dialog;
 mod dispatch;
 pub mod elements;
+#[cfg(feature = "embed")]
 pub mod embed;
 /// C ABI entry points for the native layers.
 pub mod ffi;
+#[cfg(feature = "files")]
 pub mod files;
 pub mod input;
 pub mod integration;
+#[cfg(feature = "ui")]
 pub(crate) use input::keyboard;
 pub use input::keymap;
 /// App lifecycle notifications.
@@ -96,6 +115,7 @@ pub mod lifecycle;
 pub mod locale;
 /// Logging setup.
 pub mod logger;
+#[cfg(feature = "menu")]
 pub mod menu;
 pub mod platform;
 pub mod prelude;
@@ -103,8 +123,11 @@ pub mod prelude;
 pub mod registry;
 pub mod render;
 mod screen;
+#[cfg(feature = "files")]
 mod sheets;
+#[cfg(feature = "tray")]
 pub mod tray;
+#[cfg(feature = "ui")]
 pub mod ui;
 pub mod window;
 
@@ -113,21 +136,28 @@ pub use aurea_runtime::{DamageRegion, FrameInfo, FrameScheduler};
 pub use crate::dispatch::{
     LateWakeHandle, WakeHandle, after_frame, on_ui_thread, run_after, wake_canvas, wake_handle,
 };
+#[cfg(feature = "widgets")]
 pub use crate::elements::{
-    Button, Checkbox, ComboBox, Container, Divider, Element, ImageView, Label, Orientation,
-    ProgressBar, RadioGroup, RowList, ScrollView, ScrollbarPolicy, SidebarList, Slider, Spacer,
-    SpinBox, SplitOrientation, SplitView, Stack, TabBar, Table, TextEditor, TextField, TextView,
+    Button, Checkbox, ComboBox, ImageView, Label, ProgressBar, RadioGroup, RowList, ScrollView,
+    ScrollbarPolicy, SidebarList, Slider, Spacer, SpinBox, SplitOrientation, SplitView, TabBar,
+    Table, TextEditor, TextField, TextView,
 };
+pub use crate::elements::{Container, Divider, Element, Orientation, Stack};
 use crate::ffi::{
     ng_platform_beep, ng_platform_prefers_dark, ng_platform_reduced_motion, ng_platform_wheel_lines,
 };
+#[cfg(feature = "menu")]
 pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
+#[cfg(feature = "tray")]
 pub use crate::tray::TrayIcon;
+#[cfg(feature = "clipboard")]
 pub use crate::window::clipboard;
 pub use crate::window::{
     CloseAnswer, CursorGrabMode, CursorIcon, Window, WindowId, WindowManager, WindowPlacement,
-    WindowProxy, WindowType, clipboard_text, set_clipboard_text,
+    WindowProxy, WindowType,
 };
+#[cfg(feature = "clipboard")]
+pub use crate::window::{clipboard_text, set_clipboard_text};
 
 pub use crate::window::{
     EventCallback, GesturePhase, KeyCode, Modifiers, MouseButton, MouseButtons, Occlusion,
@@ -139,6 +169,7 @@ pub use crate::render::{Canvas, Color, DrawingContext, Point, Rect, RendererBack
 pub use aurea_render::text::fonts;
 use aurea_render::text::trim_caches;
 
+#[cfg(feature = "files")]
 pub use crate::files::{
     FileCache, Stamp, app_cache_dir, app_config_dir, app_data_dir, app_local_data_dir, cache_dir,
     config_dir, data_dir, documents_dir, local_data_dir, open_path, open_url, reveal_path,
@@ -179,6 +210,7 @@ pub fn pointer_is_pencil() -> bool {
 
 pub use crate::input::keyboard::{keyboard_connected, keyboard_height, set_keyboard_follows_focus};
 pub use device::{Device, Thermal, device};
+#[cfg(feature = "files")]
 pub use sheets::sheet_presented;
 
 static PRESS_ON_HOLD: AtomicBool = AtomicBool::new(true);

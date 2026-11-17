@@ -28,6 +28,14 @@ pen = []
 touch = []
 gestures = []
 drop-files = []
+# Platform features, each gating its native code and libraries; see the root crate's features.
+clipboard = []
+files = []
+menu = []
+tray = []
+dialog = []
+embed = []
+widgets = []
 
 [build-dependencies]
 cc = "1.2"

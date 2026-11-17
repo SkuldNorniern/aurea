@@ -6,7 +6,9 @@
 #define AUREA_OCCLUSION_TIMER_ID 0xA0E3
 #include "window.h"
 #include "window_state.h"
+#ifdef NG_FEATURE_MENU
 #include "menu.h"
+#endif
 #include "ime.h"
 #include "pen.h"
 #include "gesture.h"
@@ -161,6 +163,30 @@ LRESULT WINAPI ng_windows_def_subclass(HWND hwnd, UINT msg, WPARAM wParam, LPARA
     static Fn fn = NULL;
     if (!fn) fn = (Fn)ng_windows_comctl("DefSubclassProc", 413);
     return fn ? fn(hwnd, msg, wParam, lParam) : DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+/* The common controls v6 activation context, for the dialogs and the themed controls. */
+HANDLE ng_windows_common_controls_v6(void) {
+    static HANDLE context = NULL;
+    if (context) return context;
+    wchar_t dir[MAX_PATH];
+    wchar_t shell32[MAX_PATH];
+    UINT len = GetSystemDirectoryW(dir, MAX_PATH);
+    if (len == 0 || len >= MAX_PATH - 12) {
+        context = INVALID_HANDLE_VALUE;
+        return context;
+    }
+    wcscpy_s(shell32, MAX_PATH, dir);
+    wcscat_s(shell32, MAX_PATH, L"\\shell32.dll");
+    ACTCTXW act;
+    memset(&act, 0, sizeof act);
+    act.cbSize = sizeof act;
+    act.dwFlags = ACTCTX_FLAG_RESOURCE_NAME_VALID | ACTCTX_FLAG_ASSEMBLY_DIRECTORY_VALID;
+    act.lpSource = shell32;
+    act.lpAssemblyDirectory = dir;
+    act.lpResourceName = MAKEINTRESOURCEW(124);
+    context = CreateActCtxW(&act);
+    return context;
 }
 
 /* Themed controls without an app manifest; it stays active for the thread. */
@@ -740,6 +766,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_SYSKEYDOWN: {
             unsigned int keycode = ng_windows_keycode_from_vk(wParam);
             unsigned int modifiers = ng_windows_modifiers();
+#ifdef NG_FEATURE_MENU
             if (uMsg == WM_SYSKEYDOWN && wParam == VK_MENU && GetMenu(hwnd)) {
                 break;
             }
@@ -755,6 +782,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 w->menu_took_key = wParam;
                 return 0;
             }
+#endif
             ng_invoke_key_event((void*)hwnd, keycode, 1, modifiers);
             if (wParam == VK_MENU || wParam == VK_F10) {
                 return 0;
@@ -763,6 +791,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         }
         case WM_KEYUP:
         case WM_SYSKEYUP: {
+#ifdef NG_FEATURE_MENU
             if (uMsg == WM_SYSKEYUP && wParam == VK_MENU && GetMenu(hwnd)) {
                 break;
             }
@@ -774,6 +803,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 w->menu_took_key = 0;
                 return 0;
             }
+#endif
             unsigned int keycode = ng_windows_keycode_from_vk(wParam);
             ng_invoke_key_event((void*)hwnd, keycode, 0, ng_windows_modifiers());
             if (wParam == VK_MENU || wParam == VK_F10) {
@@ -821,11 +851,18 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 break;
             } else if (HIWORD(wParam) == 0) {
                 unsigned int command_id = LOWORD(wParam);
+                (void)command_id;
+#ifdef NG_FEATURE_WIDGETS
                 if (command_id >= BUTTON_COMMAND_BASE) {
                     ng_invoke_button_callback(command_id - BUTTON_COMMAND_BASE);
-                } else if (!lParam) {
+                    break;
+                }
+#endif
+#ifdef NG_FEATURE_MENU
+                if (!lParam) {
                     ng_invoke_menu_callback(command_id - 1);
                 }
+#endif
             }
             break;
         case WM_SETTINGCHANGE:

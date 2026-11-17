@@ -1,7 +1,7 @@
-use super::{AureaError, AureaResult, limit_error};
-use png::{
-    BitDepth, ColorType, Compression, Decoder, DecodingError, Encoder, Limits, Transformations,
-};
+use crate::{AureaError, AureaResult};
+use png::{BitDepth, ColorType, Decoder, DecodingError, Limits, Transformations};
+#[cfg(feature = "clipboard")]
+use png::{Compression, Encoder};
 use std::fmt::Display;
 use std::io::Cursor;
 
@@ -18,6 +18,7 @@ pub struct ClipboardImage {
 
 impl ClipboardImage {
     /// Encodes straight RGBA8 as PNG.
+    #[cfg(feature = "clipboard")]
     pub fn to_png(&self) -> AureaResult<Vec<u8>> {
         encode_png(self)
     }
@@ -48,11 +49,13 @@ impl ClipboardImage {
     }
 
     /// Encodes a top-down Windows DIBV5 with explicit straight-alpha masks.
+    #[cfg(feature = "clipboard")]
     pub fn to_dib(&self) -> AureaResult<Vec<u8>> {
         encode_dib(self)
     }
 
     /// Decodes supported 24/32-bit Windows DIBs on any thread.
+    #[cfg(feature = "clipboard")]
     pub fn from_dib(bytes: &[u8], max_bytes: usize) -> AureaResult<Self> {
         decode_dib(bytes, max_bytes)
     }
@@ -60,6 +63,7 @@ impl ClipboardImage {
     /// Decodes a BMP file containing a supported 24/32-bit DIB. Handles top-down
     /// and bottom-up rows, padding and the file's pixel offset. Indexed, RLE and
     /// arbitrary colour masks are unsupported, as in [`Self::from_dib`].
+    #[cfg(feature = "clipboard")]
     pub fn from_bmp(bytes: &[u8], max_bytes: usize) -> AureaResult<Self> {
         if bytes.len() > max_bytes {
             return Err(limit_error());
@@ -79,6 +83,7 @@ impl ClipboardImage {
     /// Detects PNG or BMP by its signature and decodes it on the calling thread.
     /// Other encodings return `Unsupported`; this does not perform colour-profile
     /// conversion, JPEG decoding or animated-image playback.
+    #[cfg(feature = "clipboard")]
     pub fn from_encoded(bytes: &[u8], max_bytes: usize) -> AureaResult<Self> {
         if bytes.len() > max_bytes {
             return Err(limit_error());
@@ -109,6 +114,7 @@ fn pixel_bytes(width: u32, height: u32, max_bytes: usize) -> AureaResult<usize> 
     }
     Ok(bytes)
 }
+#[cfg(feature = "clipboard")]
 fn buffer(len: usize) -> AureaResult<Vec<u8>> {
     let mut bytes = Vec::new();
     bytes
@@ -121,6 +127,13 @@ fn invalid(_: impl Display) -> AureaError {
     AureaError::ElementOperationFailed
 }
 
+/// Native error code when a read exceeds the caller's byte budget.
+pub(crate) const READ_LIMIT_EXCEEDED: i32 = -6;
+
+pub(super) fn limit_error() -> AureaError {
+    AureaError::PlatformError(READ_LIMIT_EXCEEDED)
+}
+
 fn decode_error(error: DecodingError) -> AureaError {
     match error {
         DecodingError::LimitsExceeded => limit_error(),
@@ -128,6 +141,7 @@ fn decode_error(error: DecodingError) -> AureaError {
     }
 }
 
+#[cfg(feature = "clipboard")]
 pub(super) fn encode_png(image: &ClipboardImage) -> AureaResult<Vec<u8>> {
     if pixel_bytes(image.width, image.height, usize::MAX)? != image.rgba.len() {
         return Err(AureaError::ElementOperationFailed);
@@ -209,6 +223,7 @@ fn decode_png_pixels(
     Ok((width, height))
 }
 
+#[cfg(feature = "clipboard")]
 pub(super) fn encode_dib(image: &ClipboardImage) -> AureaResult<Vec<u8>> {
     let count = pixel_bytes(image.width, image.height, usize::MAX)?;
     if count != image.rgba.len()
@@ -249,6 +264,7 @@ pub(super) fn encode_dib(image: &ClipboardImage) -> AureaResult<Vec<u8>> {
     Ok(bytes)
 }
 
+#[cfg(feature = "clipboard")]
 fn word(bytes: &[u8], at: usize) -> AureaResult<u32> {
     bytes
         .get(at..at + 4)
@@ -256,6 +272,7 @@ fn word(bytes: &[u8], at: usize) -> AureaResult<u32> {
         .map(u32::from_le_bytes)
         .ok_or(AureaError::ElementOperationFailed)
 }
+#[cfg(feature = "clipboard")]
 fn dib_masks(
     bytes: &[u8],
     header: usize,
@@ -289,10 +306,12 @@ fn dib_masks(
     Ok((offset, alpha != 0))
 }
 
+#[cfg(feature = "clipboard")]
 pub(super) fn decode_dib(bytes: &[u8], max_bytes: usize) -> AureaResult<ClipboardImage> {
     decode_dib_at(bytes, max_bytes, None)
 }
 
+#[cfg(feature = "clipboard")]
 fn decode_dib_at(
     bytes: &[u8],
     max_bytes: usize,
@@ -368,6 +387,7 @@ fn decode_dib_at(
 }
 
 #[cfg(test)]
+#[cfg(feature = "clipboard")]
 mod tests {
     use super::*;
     use std::thread;

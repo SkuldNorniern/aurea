@@ -10,7 +10,9 @@ use crate::ui::frame::{Align, Ui, baseline_in, fill};
 use crate::ui::state::{Interaction, Key, Typed, WidgetId, caret_on};
 use crate::ui::text_edit::{Direction, Rules, Step, TextEdit};
 use crate::ui::theme::Palette;
-use crate::window::{KeyCode, Modifiers, clipboard_text, set_clipboard_text};
+use crate::window::{KeyCode, Modifiers};
+#[cfg(feature = "clipboard")]
+use crate::window::{clipboard_text, set_clipboard_text};
 
 const MASK: char = '\u{2022}';
 
@@ -476,19 +478,26 @@ pub(crate) struct SystemClipboard {
     pub(crate) enabled: bool,
 }
 
+// Without `clipboard` nothing is copied, and reads come back empty.
 impl Clipboard for SystemClipboard {
     fn can_copy(&self) -> bool {
-        self.enabled
+        cfg!(feature = "clipboard") && self.enabled
     }
 
     fn get(&mut self) -> Option<String> {
-        clipboard_text()
+        #[cfg(feature = "clipboard")]
+        return clipboard_text();
+        #[cfg(not(feature = "clipboard"))]
+        None
     }
 
     fn set(&mut self, text: &str) {
+        #[cfg(feature = "clipboard")]
         if let Err(e) = set_clipboard_text(text) {
             log::warn!("clipboard: {e}");
         }
+        #[cfg(not(feature = "clipboard"))]
+        let _ = text;
     }
 }
 

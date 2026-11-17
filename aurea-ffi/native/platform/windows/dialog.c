@@ -359,29 +359,6 @@ static PCWSTR icon_of(int kind) {
 
 typedef HRESULT (WINAPI* TaskDialogIndirectFn)(const TASKDIALOGCONFIG*, int*, int*, BOOL*);
 
-HANDLE ng_windows_common_controls_v6(void) {
-    static HANDLE context = NULL;
-    if (context) return context;
-    wchar_t dir[MAX_PATH];
-    wchar_t shell32[MAX_PATH];
-    UINT len = GetSystemDirectoryW(dir, MAX_PATH);
-    if (len == 0 || len >= MAX_PATH - 12) {
-        context = INVALID_HANDLE_VALUE;
-        return context;
-    }
-    wcscpy_s(shell32, MAX_PATH, dir);
-    wcscat_s(shell32, MAX_PATH, L"\\shell32.dll");
-    ACTCTXW act;
-    memset(&act, 0, sizeof act);
-    act.cbSize = sizeof act;
-    act.dwFlags = ACTCTX_FLAG_RESOURCE_NAME_VALID | ACTCTX_FLAG_ASSEMBLY_DIRECTORY_VALID;
-    act.lpSource = shell32;
-    act.lpAssemblyDirectory = dir;
-    act.lpResourceName = MAKEINTRESOURCEW(124);
-    context = CreateActCtxW(&act);
-    return context;
-}
-
 static int plain_message_box(HWND owner, int kind, const wchar_t* title, const wchar_t* text, int buttons) {
     UINT flags = MB_OK;
     switch (buttons) {

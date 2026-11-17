@@ -81,6 +81,7 @@ impl Element for Stack {
 
 impl Stack {
     /// Add a spacer that expands with the given weight.
+    #[cfg(feature = "widgets")]
     pub fn add_spacer(&mut self, weight: f32) -> AureaResult<()> {
         use super::Spacer;
         self.add_weighted(Spacer::new()?, weight)
@@ -112,11 +113,13 @@ impl Container for Stack {
 }
 
 #[cfg(test)]
+#[cfg(feature = "widgets")]
 mod container_ownership_tests {
     use super::{Orientation, Stack};
     use crate::{AureaResult, Container, Window};
 
     #[test]
+    #[cfg(feature = "widgets")]
     #[ignore = "creates native elements; run with --ignored"]
     fn a_container_takes_ownership_of_what_it_is_given() -> AureaResult<()> {
         use crate::elements::{Button, Element, Label};
@@ -140,6 +143,7 @@ mod container_ownership_tests {
     }
 
     #[test]
+    #[cfg(feature = "widgets")]
     #[ignore = "creates native elements; run with --ignored"]
     fn wrapper_elements_forward_ownership() -> AureaResult<()> {
         use crate::elements::{Divider, Spacer};
@@ -154,6 +158,7 @@ mod container_ownership_tests {
     }
 
     #[test]
+    #[cfg(feature = "widgets")]
     #[ignore = "creates native widgets; run with --ignored"]
     fn ownership_survives_repetition() -> AureaResult<()> {
         use crate::elements::{Button, Label};

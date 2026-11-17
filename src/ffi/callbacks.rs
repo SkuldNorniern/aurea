@@ -20,11 +20,13 @@ use crate::input::pen::note_source;
 #[cfg(feature = "text-input")]
 use crate::input::text;
 use crate::registry::custom::invoke_custom_callback;
+#[cfg(feature = "widgets")]
 use crate::registry::elements::{
     invoke_button_callback, invoke_row_list_activated, invoke_row_list_selected,
     invoke_sidebar_selected, invoke_tab_detach, invoke_tab_selected, invoke_table_activated,
     invoke_table_selected,
 };
+#[cfg(any(feature = "menu", feature = "tray"))]
 use crate::registry::menu::invoke_menu_callback;
 use crate::registry::window::{push_event_to_all_windows, scale_factor_changed};
 use crate::render::notify_canvas_destroyed;
@@ -50,6 +52,7 @@ pub extern "C" fn ng_invoke_canvas_destroyed(canvas: *mut c_void) {
 }
 
 /// Runs the menu item callback `id`.
+#[cfg(any(feature = "menu", feature = "tray"))]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_menu_callback(id: u32) {
     guard("ng_invoke_menu_callback", || {
@@ -58,6 +61,7 @@ pub extern "C" fn ng_invoke_menu_callback(id: u32) {
 }
 
 /// Runs the button callback `id`.
+#[cfg(feature = "widgets")]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_button_callback(id: u32) {
     guard("ng_invoke_button_callback", || {
@@ -66,6 +70,7 @@ pub extern "C" fn ng_invoke_button_callback(id: u32) {
 }
 
 /// Reports that tab `index` of tab bar `id` was selected.
+#[cfg(feature = "widgets")]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_tab_bar_selected(id: u32, index: i32) {
     guard("ng_invoke_tab_bar_selected", || {
@@ -74,6 +79,7 @@ pub extern "C" fn ng_invoke_tab_bar_selected(id: u32, index: i32) {
 }
 
 /// Reports that tab `index` of tab bar `id` was detached.
+#[cfg(feature = "widgets")]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_tab_bar_detach(id: u32, index: i32) {
     guard("ng_invoke_tab_bar_detach", || {
@@ -82,6 +88,7 @@ pub extern "C" fn ng_invoke_tab_bar_detach(id: u32, index: i32) {
 }
 
 /// Reports that row `index` of sidebar list `id` was selected.
+#[cfg(feature = "widgets")]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_sidebar_list_selected(id: u32, index: i32) {
     guard("ng_invoke_sidebar_list_selected", || {
@@ -90,6 +97,7 @@ pub extern "C" fn ng_invoke_sidebar_list_selected(id: u32, index: i32) {
 }
 
 /// Reports that the user selected row `index` of table `id`, or no row for -1.
+#[cfg(feature = "widgets")]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_table_selected(id: u32, index: i32) {
     guard("ng_invoke_table_selected", || {
@@ -98,6 +106,7 @@ pub extern "C" fn ng_invoke_table_selected(id: u32, index: i32) {
 }
 
 /// Reports that the user activated row `index` of table `id`.
+#[cfg(feature = "widgets")]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_table_activated(id: u32, index: i32) {
     guard("ng_invoke_table_activated", || {
@@ -106,6 +115,7 @@ pub extern "C" fn ng_invoke_table_activated(id: u32, index: i32) {
 }
 
 /// Reports that the user selected row `index` of row list `id`, or no row for -1.
+#[cfg(feature = "widgets")]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_row_list_selected(id: u32, index: i32) {
     guard("ng_invoke_row_list_selected", || {
@@ -114,6 +124,7 @@ pub extern "C" fn ng_invoke_row_list_selected(id: u32, index: i32) {
 }
 
 /// Reports that the user activated row `index` of row list `id`.
+#[cfg(feature = "widgets")]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_row_list_activated(id: u32, index: i32) {
     guard("ng_invoke_row_list_activated", || {
@@ -482,6 +493,7 @@ pub extern "C" fn ng_invoke_custom_callback(id: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "widgets")]
     use crate::registry::elements::{next_button_id, register_button_callback};
     use std::thread::sleep;
 
@@ -548,6 +560,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "widgets")]
     fn a_panicking_callback_is_contained() {
         let id = next_button_id();
         register_button_callback(id, || panic!("application callback blew up"));
@@ -556,6 +569,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "widgets")]
     fn callbacks_still_run_after_a_panic() {
         use std::cell::Cell;
         use std::rc::Rc;

@@ -36,7 +36,7 @@ fn main() {
 
     fn add_sources(build: &mut Build, root: &Path, sources: &[&str]) {
         for source in sources {
-            if input_source_enabled(source) {
+            if source_enabled(source) {
                 build.file(root.join(source));
             }
         }
@@ -220,7 +220,7 @@ fn main() {
 
     let mut build = Build::new();
     build.include(&native).warnings(true);
-    define_input_features(&mut build);
+    define_features(&mut build);
 
     // A function used without a declaration is an error, not a warning.
     //
@@ -327,10 +327,11 @@ fn main() {
 
     build.compile("native_gui");
 
-    if is_windows {
+    // Without `widgets` no C++ source is left, and an empty archive cannot be made.
+    if is_windows && windows_cpp.iter().any(|source| source_enabled(source)) {
         let mut cpp_build = Build::new();
         cpp_build.cpp(true).include(&native).define("_WIN32", None);
-        define_input_features(&mut cpp_build);
+        define_features(&mut cpp_build);
         add_sources(&mut cpp_build, &root, windows_cpp);
         cpp_build.compile("native_gui_cpp");
     }
@@ -382,16 +383,19 @@ fn main() {
     );
 }
 
-/// Windows system libraries. Only `ime` needs imm32; OLE serves dialogs and accessibility too.
+/// Windows system libraries. Only `ime` needs imm32 and only `dialog` needs comdlg32; OLE serves
+/// dialogs and accessibility too.
 fn link_windows_libs() {
     for lib in [
-        "user32", "gdi32", "shell32", "gdiplus", "ole32", "oleacc", "oleaut32", "uuid", "comdlg32",
-        "advapi32",
+        "user32", "gdi32", "shell32", "gdiplus", "ole32", "oleacc", "oleaut32", "uuid", "advapi32",
     ] {
         println!("cargo:rustc-link-lib={lib}");
     }
     if feature_on("CARGO_FEATURE_IME") {
         println!("cargo:rustc-link-lib=imm32");
+    }
+    if feature_on("CARGO_FEATURE_DIALOG") {
+        println!("cargo:rustc-link-lib=comdlg32");
     }
 }
 
@@ -400,8 +404,9 @@ fn feature_on(name: &str) -> bool {
     env::var_os(name).is_some()
 }
 
-/// Each input feature that is on becomes an `NG_INPUT_*` macro for every native compile.
-fn define_input_features(build: &mut Build) {
+/// Each feature that is on becomes a macro for every native compile: `NG_INPUT_*` for the input
+/// parts, `NG_FEATURE_*` for the rest.
+fn define_features(build: &mut Build) {
     let features = [
         ("CARGO_FEATURE_TEXT_INPUT", "NG_INPUT_TEXT"),
         ("CARGO_FEATURE_IME", "NG_INPUT_IME"),
@@ -410,6 +415,13 @@ fn define_input_features(build: &mut Build) {
         ("CARGO_FEATURE_TOUCH", "NG_INPUT_TOUCH"),
         ("CARGO_FEATURE_GESTURES", "NG_INPUT_GESTURES"),
         ("CARGO_FEATURE_DROP_FILES", "NG_INPUT_DROP_FILES"),
+        ("CARGO_FEATURE_CLIPBOARD", "NG_FEATURE_CLIPBOARD"),
+        ("CARGO_FEATURE_FILES", "NG_FEATURE_FILES"),
+        ("CARGO_FEATURE_MENU", "NG_FEATURE_MENU"),
+        ("CARGO_FEATURE_TRAY", "NG_FEATURE_TRAY"),
+        ("CARGO_FEATURE_DIALOG", "NG_FEATURE_DIALOG"),
+        ("CARGO_FEATURE_EMBED", "NG_FEATURE_EMBED"),
+        ("CARGO_FEATURE_WIDGETS", "NG_FEATURE_WIDGETS"),
     ];
     for (name, define) in features {
         if feature_on(name) {
@@ -418,16 +430,44 @@ fn define_input_features(build: &mut Build) {
     }
 }
 
-/// A source dedicated to one input feature is compiled only while that feature is on.
-fn input_source_enabled(source: &str) -> bool {
+/// A source dedicated to one feature is compiled only while that feature is on.
+fn source_enabled(source: &str) -> bool {
+    if widget_source(source) {
+        return feature_on("CARGO_FEATURE_WIDGETS");
+    }
     let feature = match source {
         "native/platform/windows/pen.c" | "native/platform/windows/wintab.c" => "CARGO_FEATURE_PEN",
         "native/platform/windows/ime.c" | "native/platform/linux/ime.c" => "CARGO_FEATURE_IME",
         "native/platform/windows/gesture.c" => "CARGO_FEATURE_GESTURES",
         "native/platform/windows/drop.c" => "CARGO_FEATURE_DROP_FILES",
+        "native/platform/windows/clipboard.c"
+        | "native/platform/linux/clipboard.c"
+        | "native/platform/macos/clipboard.m" => "CARGO_FEATURE_CLIPBOARD",
+        "native/platform/windows/menu.c"
+        | "native/platform/linux/menu.c"
+        | "native/platform/macos/menu.m"
+        | "native/common/menu_table.c" => "CARGO_FEATURE_MENU",
+        "native/platform/windows/tray.c" | "native/platform/macos/tray.m" => "CARGO_FEATURE_TRAY",
+        "native/platform/windows/dialog.c"
+        | "native/platform/linux/dialog.c"
+        | "native/platform/macos/dialog.m" => "CARGO_FEATURE_DIALOG",
+        "native/platform/macos/swiftui_host.m" => "CARGO_FEATURE_EMBED",
         _ => return true,
     };
     feature_on(feature)
+}
+
+/// A native control's source, which `widgets` gates. The layout, canvas and helpers the other
+/// elements and the window share stay in every build.
+fn widget_source(source: &str) -> bool {
+    let Some((_, file)) = source.split_once("/elements/") else {
+        return false;
+    };
+    let stem = file.split('.').next().unwrap_or(file);
+    !matches!(
+        stem,
+        "accessible" | "box" | "box_layout" | "canvas" | "common" | "fonts"
+    )
 }
 
 /// Probes for GTK3 (and optionally X11-XCB) via pkg-config and configures

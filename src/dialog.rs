@@ -81,13 +81,13 @@ impl FileDialog {
     }
 
     /// [`Self::open`] over `parent` if there is one.
-    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    #[cfg(all(not(any(target_os = "ios", target_os = "android")), feature = "files"))]
     pub(crate) fn open_over(&self, parent: Option<&Window>) -> AureaResult<Vec<PathBuf>> {
         self.run(parent, OPEN)
     }
 
     /// [`Self::save`] over `parent` if there is one.
-    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    #[cfg(all(not(any(target_os = "ios", target_os = "android")), feature = "files"))]
     pub(crate) fn save_over(&self, parent: Option<&Window>) -> AureaResult<Option<PathBuf>> {
         Ok(self.run(parent, SAVE)?.into_iter().next())
     }
