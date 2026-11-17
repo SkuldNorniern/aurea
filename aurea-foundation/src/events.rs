@@ -310,7 +310,10 @@ impl ScrollEvent {
 
     /// The fingers lifted and the system keeps it going: controls that set a value skip this.
     pub fn is_momentum(&self) -> bool {
-        matches!(self.phase, ScrollPhase::Momentum | ScrollPhase::MomentumEnded)
+        matches!(
+            self.phase,
+            ScrollPhase::Momentum | ScrollPhase::MomentumEnded
+        )
     }
 }
 

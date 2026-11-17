@@ -180,7 +180,10 @@ mod tests {
     fn clicks_and_pixels_stay_apart_and_scale_by_the_step() {
         let mut input = ScrollInput::default();
         let mut lock = AxisLock::default();
-        input.add(&ScrollEvent::wheel(0.0, 2.0, 16.0, Modifiers::default()), &mut lock);
+        input.add(
+            &ScrollEvent::wheel(0.0, 2.0, 16.0, Modifiers::default()),
+            &mut lock,
+        );
         input.add(&trackpad(ScrollPhase::Discrete, 0.0, 5.0), &mut lock);
         assert_eq!(input.clicks, (0.0, 2.0));
         assert_eq!(input.smooth, (0.0, 5.0));
@@ -234,7 +237,10 @@ mod tests {
     fn wheels_never_lock() {
         let mut input = ScrollInput::default();
         let mut lock = AxisLock::default();
-        input.add(&ScrollEvent::wheel(1.0, 1.0, 16.0, Modifiers::default()), &mut lock);
+        input.add(
+            &ScrollEvent::wheel(1.0, 1.0, 16.0, Modifiers::default()),
+            &mut lock,
+        );
         assert_eq!(input.clicks, (1.0, 1.0));
     }
 
@@ -243,9 +249,21 @@ mod tests {
         let mut carry = StepCarry::default();
         assert_eq!(carry.take(1.0, 0.0, 16.0), 1);
         assert_eq!(carry.take(0.0, 10.0, 16.0), 0);
-        assert_eq!(carry.take(0.0, 10.0, 16.0), 1, "20 of 32 pixels: one step, a bit kept");
-        assert_eq!(carry.take(0.0, -4.0, 16.0), 0, "turning back drops the kept bit");
+        assert_eq!(
+            carry.take(0.0, 10.0, 16.0),
+            1,
+            "20 of 32 pixels: one step, a bit kept"
+        );
+        assert_eq!(
+            carry.take(0.0, -4.0, 16.0),
+            0,
+            "turning back drops the kept bit"
+        );
         assert_eq!(carry.take(-0.75, 0.0, 16.0), -1);
-        assert_eq!(carry.take(0.125, 0.0, 0.0), 0, "eighths of a fine wheel add up");
+        assert_eq!(
+            carry.take(0.125, 0.0, 0.0),
+            0,
+            "eighths of a fine wheel add up"
+        );
     }
 }

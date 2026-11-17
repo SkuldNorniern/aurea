@@ -7,7 +7,6 @@ use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
 use crate::app::opened;
-use crate::wheel_line_pixels;
 use crate::input::{drop, gesture, ime, pen, raw, text};
 use crate::registry::custom::invoke_custom_callback;
 use crate::registry::elements::{
@@ -18,6 +17,7 @@ use crate::registry::elements::{
 use crate::registry::menu::invoke_menu_callback;
 use crate::registry::window::{push_event_to_all_windows, scale_factor_changed};
 use crate::render::notify_canvas_destroyed;
+use crate::wheel_line_pixels;
 use crate::window::{
     KeyCode, Modifiers, MouseButton, MouseButtons, PointerKind, ScrollEvent, ScrollPhase,
     ScrollSource, WindowEvent, push_window_event,

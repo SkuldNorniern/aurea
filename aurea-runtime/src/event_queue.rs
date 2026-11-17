@@ -138,7 +138,6 @@ impl Default for EventQueue {
     }
 }
 
-
 /// Two scrolls add up when nothing tells them apart: the same device, keys and step of the same
 /// gesture. A gesture's start and end stay their own events.
 fn merges(last: &ScrollEvent, next: &ScrollEvent) -> bool {
@@ -207,14 +206,27 @@ mod tests {
     #[test]
     fn wheel_clicks_add_up_with_their_pixels() {
         let queue = EventQueue::new();
-        queue.push(WindowEvent::Scroll(ScrollEvent::wheel(0.0, 1.0, 16.0, Modifiers::default())));
-        queue.push(WindowEvent::Scroll(ScrollEvent::wheel(0.5, 1.0, 16.0, Modifiers::default())));
+        queue.push(WindowEvent::Scroll(ScrollEvent::wheel(
+            0.0,
+            1.0,
+            16.0,
+            Modifiers::default(),
+        )));
+        queue.push(WindowEvent::Scroll(ScrollEvent::wheel(
+            0.5,
+            1.0,
+            16.0,
+            Modifiers::default(),
+        )));
         let out = queue.pop_all();
         assert_eq!(out.len(), 1);
         let WindowEvent::Scroll(s) = &out[0] else {
             panic!("a scroll");
         };
-        assert_eq!((s.delta_x, s.delta_y, s.clicks), (8.0, 32.0, Some((0.5, 2.0))));
+        assert_eq!(
+            (s.delta_x, s.delta_y, s.clicks),
+            (8.0, 32.0, Some((0.5, 2.0)))
+        );
     }
 
     #[test]
