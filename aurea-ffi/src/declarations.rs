@@ -50,6 +50,7 @@ pub struct NGIosHost {
     pub mouse: unsafe extern "C" fn(action: c_int, x: f32, y: f32, button: c_int),
     pub dropped: unsafe extern "C" fn(paths: *const c_char, x: f32, y: f32),
     pub keyboard: unsafe extern "C" fn(connected: c_int),
+    pub scroll: unsafe extern "C" fn(dx: f32, dy: f32, x: f32, y: f32, source: c_int, phase: c_int),
 }
 
 #[cfg(target_os = "ios")]

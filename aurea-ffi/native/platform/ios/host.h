@@ -71,6 +71,10 @@ typedef struct NGIosHost {
     void (*dropped)(const char* paths, float x, float y);
     /* A hardware keyboard came or went. */
     void (*keyboard)(int connected);
+    /* A trackpad or mouse wheel scroll over the view: deltas in points, right and up positive, where
+       the pointer is in points, `source` an NG_SCROLL_* source and `phase` an NG_SCROLL_* phase
+       (common/input.h). */
+    void (*scroll)(float dx, float dy, float x, float y, int source, int phase);
 } NGIosHost;
 
 /* What a pointer did, for `mouse`. */

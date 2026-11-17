@@ -45,7 +45,7 @@ use crate::ui::{FrameAsk, Theme, Ui, UiState};
 use crate::wake::wake_at;
 use crate::{
     AureaError, AureaResult, KeyCode, MenuBar, Modifiers, MouseButton, MouseButtons, PointerKind,
-    Rect, WindowEvent,
+    Rect, ScrollEvent, ScrollPhase, ScrollSource, WindowEvent,
 };
 use crate::{PenPhase, PenSample, PenTapAction, PenTool};
 #[cfg(feature = "zengpu")]
@@ -189,6 +189,7 @@ pub fn run<R: Into<FrameAsk>>(
         mouse,
         dropped,
         keyboard,
+        scroll,
     };
     exit(unsafe { ng_ios_run_host(host) })
 }
@@ -533,6 +534,46 @@ unsafe extern "C" fn mouse(action: i32, x: f32, y: f32, button: i32) {
     });
     POINTER_PENCIL.set(false);
     hear(&[event]);
+}
+
+/// A trackpad or mouse wheel scroll: deltas in points, `source` and `phase` as `NG_SCROLL_*`.
+unsafe extern "C" fn scroll(dx: f32, dy: f32, x: f32, y: f32, source: i32, phase: i32) {
+    let event = HOST.with_borrow_mut(|host| {
+        let [left, top, ..] = host.insets;
+        let event = WindowEvent::Scroll(ScrollEvent {
+            delta_x: f64::from(dx),
+            delta_y: f64::from(dy),
+            clicks: None,
+            source: scroll_source(source),
+            phase: scroll_phase(phase),
+            inverted: true,
+            x: f64::from(x - left),
+            y: f64::from(y - top),
+            modifiers: Modifiers::default(),
+        });
+        host.state.handle(&event);
+        event
+    });
+    hear(&[event]);
+}
+
+fn scroll_source(source: i32) -> ScrollSource {
+    match source {
+        1 => ScrollSource::Trackpad,
+        2 => ScrollSource::Touch,
+        _ => ScrollSource::Wheel,
+    }
+}
+
+fn scroll_phase(phase: i32) -> ScrollPhase {
+    match phase {
+        1 => ScrollPhase::Began,
+        2 => ScrollPhase::Moved,
+        3 => ScrollPhase::Ended,
+        4 => ScrollPhase::Momentum,
+        5 => ScrollPhase::MomentumEnded,
+        _ => ScrollPhase::Discrete,
+    }
 }
 
 unsafe extern "C" fn wake() -> i32 {

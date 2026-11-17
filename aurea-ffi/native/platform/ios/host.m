@@ -81,6 +81,18 @@ __weak AureaHostView* g_ios_view;
         if (@available(iOS 13.0, *)) {
             [self addGestureRecognizer:[[UIHoverGestureRecognizer alloc] initWithTarget:self action:@selector(hovered:)]];
         }
+        if (@available(iOS 13.4, *)) {
+            UIPanGestureRecognizer* trackpad = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(trackpadScrolled:)];
+            trackpad.allowedScrollTypesMask = UIScrollTypeMaskContinuous;
+            trackpad.allowedTouchTypes = @[];
+            trackpad.cancelsTouchesInView = NO;
+            [self addGestureRecognizer:trackpad];
+            UIPanGestureRecognizer* wheel = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(wheelScrolled:)];
+            wheel.allowedScrollTypesMask = UIScrollTypeMaskDiscrete;
+            wheel.allowedTouchTypes = @[];
+            wheel.cancelsTouchesInView = NO;
+            [self addGestureRecognizer:wheel];
+        }
         _link = [CADisplayLink displayLinkWithTarget:self selector:@selector(tick:)];
         [_link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
     }
@@ -408,6 +420,40 @@ static uint32_t ng_ios_modifiers(UIKeyModifierFlags flags) {
     self.pointerOver = YES;
     CGPoint at = [hover locationInView:self];
     g_ios_host.mouse(NG_IOS_MOUSE_MOVE, (float)at.x, (float)at.y, -1);
+    [self markDirty];
+}
+
+/* A trackpad two-finger scroll, as a pan with no touches. */
+- (void)trackpadScrolled:(UIPanGestureRecognizer*)pan API_AVAILABLE(ios(13.4)) {
+    [self scrollWith:pan source:NG_SCROLL_TRACKPAD];
+}
+
+/* A mouse wheel, as a pan with no touches. */
+- (void)wheelScrolled:(UIPanGestureRecognizer*)pan API_AVAILABLE(ios(13.4)) {
+    [self scrollWith:pan source:NG_SCROLL_WHEEL];
+}
+
+/* Each callback's movement, so the deltas add up; content follows the fingers. */
+- (void)scrollWith:(UIPanGestureRecognizer*)pan source:(int)source API_AVAILABLE(ios(13.4)) {
+    if (!g_ios_host.scroll) return;
+    CGPoint t = [pan translationInView:self];
+    [pan setTranslation:CGPointZero inView:self];
+    double dx = -t.x, dy = t.y;
+    int phase = NG_SCROLL_DISCRETE;
+    if (source == NG_SCROLL_WHEEL) {
+        if (dx == 0 && dy == 0) return;
+    } else {
+        switch (pan.state) {
+            case UIGestureRecognizerStateBegan: phase = NG_SCROLL_BEGAN; break;
+            case UIGestureRecognizerStateChanged: phase = NG_SCROLL_MOVED; break;
+            case UIGestureRecognizerStateEnded:
+            case UIGestureRecognizerStateCancelled:
+            case UIGestureRecognizerStateFailed: phase = NG_SCROLL_ENDED; break;
+            default: return;
+        }
+    }
+    CGPoint at = [pan locationInView:self];
+    g_ios_host.scroll((float)dx, (float)dy, (float)at.x, (float)at.y, source, phase);
     [self markDirty];
 }
 
