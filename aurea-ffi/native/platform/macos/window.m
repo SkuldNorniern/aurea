@@ -1,6 +1,7 @@
 ﻿#import "window.h"
 #import "content_view.h"
 #import "pen.h"
+#import "raw.h"
 #import "common/errors.h"
 #import "common/input.h"
 #import "common/rust_callbacks.h"
@@ -277,15 +278,7 @@ static NSString* drag_paths(id<NSDraggingInfo> info) {
     ng_macos_pen_report(self, event, ((buttons & 1) ? AUREA_PEN_MOVE : AUREA_PEN_HOVER));
 
     if (self.grabMode == 1) ng_macos_cursor_confine([self window]);
-#ifdef NG_INPUT_RAW_MOUSE
-    if (self.grabMode == 2) {
-        if (self.rawSuppress) {
-            self.rawSuppress = NO;
-            return;
-        }
-        ng_invoke_raw_mouse_motion(self.windowHandle, (double)[event deltaX], (double)[event deltaY]);
-    }
-#endif
+    if (self.grabMode == 2) ng_macos_raw_motion(self, event);
 }
 
 - (void)mouseDragged:(NSEvent*)event {
