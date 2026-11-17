@@ -7,9 +7,10 @@
 #include <oleacc.h>
 #include <stdlib.h>
 
+/* Per thread: the service lives in the apartment of the thread that made it. */
 static IAccPropServices* acc_props(void) {
-    static IAccPropServices* props;
-    static int tried;
+    static __declspec(thread) IAccPropServices* props;
+    static __declspec(thread) int tried;
     if (!tried) {
         tried = 1;
         HRESULT init = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
