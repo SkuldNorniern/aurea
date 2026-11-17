@@ -98,6 +98,7 @@ static __weak AureaHostView* g_view;
 @property (copy) NSString* marked;
 @property (assign) NSInteger caret;
 @property (assign) CGRect area;
+- (void)commitComposing;
 @end
 
 @implementation AureaKeyInput
@@ -195,6 +196,15 @@ static void ng_ios_type(NSString* text) {
     _marked = [text copy] ?: @"";
     _caret = selected.location == NSNotFound ? (NSInteger)_marked.length : (NSInteger)selected.location;
     [self sendPreedit];
+}
+
+/* a press commits the composition like a text view, keyboard is told so it starts fresh
+   and the next jamo does not join the old syllable */
+- (void)commitComposing {
+    if (!_marked.length) return;
+    [self.inputDelegate textWillChange:self];
+    [self unmarkText];
+    [self.inputDelegate textDidChange:self];
 }
 
 /* The input method is done with the composition: it is typed as it stands. */
@@ -896,6 +906,9 @@ static int ng_ios_pen_action(long action) {
 }
 
 - (void)touchesBegan:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
+#ifdef NG_INPUT_TEXT
+    [self.keys commitComposing];
+#endif
     [self send:NG_IOS_TOUCH_DOWN touches:touches event:event];
 }
 
