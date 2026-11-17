@@ -397,13 +397,15 @@ impl<'v> Slider<'v> {
         (lo, hi): (f32, f32),
     ) {
         if input.enabled && input.hovered {
-            let wheel = ui.wheel().1;
             let step = self.step.unwrap_or((hi - lo).abs() / 100.0);
-            if wheel != 0.0 && step.is_finite() && step > 0.0 {
+            if step.is_finite() && step > 0.0 {
                 let previous = snap(*self.value, lo, hi, self.step);
-                let next = (previous + wheel * step).clamp(lo.min(hi), lo.max(hi));
-                *self.value = next;
-                ui.consume_wheel((0.0, (next - previous) / step));
+                let (low, high) = (lo.min(hi), lo.max(hi));
+                let steps =
+                    ui.take_wheel_steps((high - previous) / step, (previous - low) / step);
+                if steps != 0 {
+                    *self.value = (previous + steps as f32 * step).clamp(low, high);
+                }
             }
         }
     }

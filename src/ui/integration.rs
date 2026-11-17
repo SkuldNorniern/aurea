@@ -2,10 +2,11 @@
 
 #[cfg(feature = "ui-text-edit")]
 use super::TextArea;
+use super::widget::scroll::wheel_line_pixels;
 use super::rig::Rig;
 use super::{Button, Response, ScrollArea, ScrollStyle, Slider, Stepper, TextField, Ui};
 use crate::render::{Color, Point, Rect, Renderer};
-use crate::window::{KeyCode, Modifiers, MouseButton, PointerKind, WindowEvent};
+use crate::window::{KeyCode, Modifiers, MouseButton, PointerKind, ScrollPhase, WindowEvent};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -50,8 +51,8 @@ fn inner_scroll_consumes_first_and_only_its_distance() {
     assert_eq!((inner, outer), (30.0, 10.0));
     assert_eq!(
         remaining,
-        (2.0, 0.0),
-        "horizontal input survives vertical scrolling"
+        (2.0 * wheel_line_pixels(), 0.0),
+        "horizontal input survives vertical scrolling, in pixels"
     );
     assert!(
         rig.state.wants_frame(),
@@ -557,7 +558,11 @@ fn a_stepper_at_its_limit_leaves_wheel_input_for_the_parent() {
         rig.frame(&mut draw);
         rig.wheel(12.0, 12.0, 2.0, delta);
         let remaining = rig.frame(&mut draw);
-        assert_eq!(remaining, (2.0, 0.0), "preserve the horizontal axis");
+        assert_eq!(
+            remaining,
+            (2.0 * wheel_line_pixels(), 0.0),
+            "preserve the horizontal axis"
+        );
         assert_eq!((value, offset), expected);
     }
 }
@@ -708,4 +713,63 @@ fn focus_loss_discards_uncommitted_ime_composition() {
         assert!(rig.state.edit.preedit().is_empty());
         assert_eq!(text, "saved");
     }
+}
+
+#[test]
+fn a_trackpad_scrolls_its_own_pixels_with_no_easing() {
+    let mut rig = rig();
+    let mut offset = 0.0;
+    let draw = |ui: &mut Ui<'_, u8>, offset: &mut f32| -> f32 {
+        // eases wheels, and a click would be 20 px
+        let style = ScrollStyle {
+            step: 20.0,
+            smooth: true,
+            ..ScrollStyle::new(ui.theme)
+        };
+        let mut top = 0.0;
+        ScrollArea::new(offset, 400.0)
+            .style(style)
+            .show(ui, 1, Rect::new(0.0, 0.0, 220.0, 100.0), |_, content, _| {
+                top = content.y;
+                Ok(())
+            })
+            .expect("area");
+        top
+    };
+    rig.frame(|ui| draw(ui, &mut offset));
+    rig.trackpad(40.0, 30.0, 0.0, 0.0, ScrollPhase::Began);
+    rig.trackpad(40.0, 30.0, 0.0, -7.0, ScrollPhase::Moved);
+    rig.frame(|ui| draw(ui, &mut offset));
+    assert_eq!(offset, 7.0, "seven pixels down, not a step");
+    let top = rig.frame(|ui| draw(ui, &mut offset));
+    assert_eq!(top, -7.0, "drawn there at once, no easing toward it");
+}
+
+fn slider_alone(ui: &mut Ui<'_, u8>, value: &mut f32) {
+    Slider::new(value, 0.0..=100.0)
+        .step(1.0)
+        .show(ui, 1, Rect::new(0.0, 0.0, 180.0, 24.0))
+        .expect("slider");
+}
+
+#[test]
+fn a_trackpad_steps_a_slider_a_line_at_a_time_and_momentum_moves_nothing() {
+    let line = wheel_line_pixels();
+    let mut rig = rig();
+    let mut value = 50.0;
+    rig.frame(|ui| slider_alone(ui, &mut value));
+    rig.trackpad(40.0, 12.0, 0.0, 0.0, ScrollPhase::Began);
+    rig.trackpad(40.0, 12.0, 0.0, line * 0.75, ScrollPhase::Moved);
+    rig.frame(|ui| slider_alone(ui, &mut value));
+    assert_eq!(value, 50.0, "under a line: nothing yet");
+    rig.trackpad(40.0, 12.0, 0.0, line * 0.5, ScrollPhase::Moved);
+    rig.frame(|ui| slider_alone(ui, &mut value));
+    assert_eq!(value, 51.0, "the kept quarter and this half make a step");
+    rig.trackpad(40.0, 12.0, 0.0, 0.0, ScrollPhase::Ended);
+    rig.trackpad(40.0, 12.0, 0.0, line * 5.0, ScrollPhase::Momentum);
+    rig.frame(|ui| slider_alone(ui, &mut value));
+    assert_eq!(value, 51.0, "a flick carrying on does not spin it");
+    rig.wheel(40.0, 12.0, 0.0, -1.0);
+    rig.frame(|ui| slider_alone(ui, &mut value));
+    assert_eq!(value, 50.0, "a wheel click is one step");
 }

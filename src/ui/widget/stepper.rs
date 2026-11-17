@@ -212,12 +212,14 @@ impl<'v> Stepper<'v> {
         }
         if input.enabled && ui.pointer().is_some_and(|at| rect.contains(at)) {
             let previous = *self.value;
-            let wheel = ui.wheel().1;
-            if wheel != 0.0 {
-                let stepped =
-                    lo + (((previous + wheel * self.step) - lo) / self.step).round() * self.step;
-                *self.value = stepped.clamp(lo.min(hi), hi.max(lo));
-                ui.consume_wheel((0.0, (*self.value - previous) / self.step));
+            let (low, high) = (lo.min(hi), lo.max(hi));
+            let steps =
+                ui.take_wheel_steps((high - previous) / self.step, (previous - low) / self.step);
+            if steps != 0 {
+                let stepped = lo
+                    + (((previous + steps as f32 * self.step) - lo) / self.step).round()
+                        * self.step;
+                *self.value = stepped.clamp(low, high);
             }
         }
         if (*self.value - before).abs() > f32::EPSILON {

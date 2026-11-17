@@ -12,6 +12,8 @@ use super::state::{
 };
 use super::theme::Theme;
 use super::tokens::Tokens;
+use super::scroll_input::ScrollInput;
+use super::widget::scroll::wheel_line_pixels;
 use super::widget::tooltip::TooltipOptions;
 use crate::AureaResult;
 use crate::render::{Color, DrawingContext, Font, Paint, PaintStyle, Point, Rect, TextMetrics};
@@ -498,15 +500,18 @@ impl<Id: WidgetId> Ui<'_, Id> {
         self.state.cursor = icon;
     }
 
-    /// Wheel movement since the last frame.
+    /// Scroll since the last frame in logical pixels, right and up positive; a wheel click is a
+    /// line of the user's setting.
     pub fn wheel(&self) -> (f32, f32) {
         self.state.wheel()
     }
 
-    /// Wheel movement since the last frame, taken so nothing drawn after scrolls with it too: the
-    /// innermost scrolling area under the pointer takes it first.
+    /// [`Self::wheel`], taken so nothing drawn after scrolls with it too: the innermost scrolling
+    /// area under the pointer takes it first.
     pub fn take_wheel(&mut self) -> (f32, f32) {
-        mem::take(&mut self.state.wheel)
+        let pixels = self.state.wheel();
+        self.state.scroll = ScrollInput::default();
+        pixels
     }
 
     /// [`Self::take_wheel`], only with the pointer over `rect`.
@@ -518,20 +523,55 @@ impl<Id: WidgetId> Ui<'_, Id> {
         }
     }
 
-    /// Consumes only the used wheel movement, leaving each axis's remainder for an enclosing scroll
-    /// area.
+    /// Consumes the `used` pixels of [`Self::wheel`], leaving each axis's remainder for an
+    /// enclosing scroll area.
     pub fn consume_wheel(&mut self, used: (f32, f32)) {
-        fn remaining(available: f32, used: f32) -> f32 {
-            if used.is_finite() && available.signum() == used.signum() {
-                available - used.abs().min(available.abs()).copysign(available)
-            } else {
-                available
-            }
+        let have = self.state.wheel();
+        self.consume_scroll((share(used.0, have.0), share(used.1, have.1)));
+    }
+
+    /// Pixels to scroll by when a wheel click is `step` pixels: a scroller's own step for wheels,
+    /// the trackpad's pixels as they are.
+    pub fn scroll_pixels(&self, step: (f32, f32)) -> (f32, f32) {
+        self.state.scroll.pixels(step)
+    }
+
+    /// Consumes `used` fractions of each axis of the scroll.
+    pub(crate) fn consume_scroll(&mut self, used: (f32, f32)) {
+        self.state.scroll.consume(used);
+    }
+
+    /// The scroll came from a trackpad or fingers: it is smooth already, so no easing on top.
+    pub fn scroll_is_smooth(&self) -> bool {
+        self.state.scroll.fingers
+    }
+
+    /// Whole steps up (positive) or down for a control that steps once a wheel click, out of the
+    /// vertical scroll; a trackpad steps once a line of travel. A flick's momentum steps nothing.
+    /// `room_up` and `room_down` are the steps the control has left each way: what goes past them
+    /// is left for its parent, as is a direction it cannot go at all.
+    pub fn take_wheel_steps(&mut self, room_up: f32, room_down: f32) -> i32 {
+        let scroll = self.state.scroll;
+        let line = wheel_line_pixels();
+        let wanted = scroll.clicks.1 + scroll.smooth.1 / line;
+        let room = if wanted > 0.0 { room_up } else { room_down };
+        if wanted == 0.0 || scroll.momentum || room < 1.0 {
+            self.state.step_carry.reset();
+            return 0;
         }
-        self.state.wheel = (
-            remaining(self.state.wheel.0, used.0),
-            remaining(self.state.wheel.1, used.1),
-        );
+        let steps = self
+            .state
+            .step_carry
+            .take(scroll.clicks.1, scroll.smooth.1, line);
+        let fits = room.floor();
+        if (steps.unsigned_abs() as f32) <= fits {
+            self.consume_scroll((0.0, 1.0));
+            return steps;
+        }
+        // past the end: take what fits, the rest goes to the parent
+        self.state.step_carry.reset();
+        self.state.scroll.take_steps_y(fits.copysign(wanted), line);
+        fits_steps(fits) * steps.signum()
     }
 
     /// Runs `f` with drawing and the pointer both clipped to `rect`, inside any clip already in
@@ -929,6 +969,22 @@ fn estimate(text: &str, font: &Font) -> TextMetrics {
         ascent: font.size * 0.8,
         descent: font.size * 0.2,
         advance: width,
+    }
+}
+
+
+// `fits` is a floored count of steps inside a control's range.
+#[allow(clippy::cast_possible_truncation)]
+fn fits_steps(fits: f32) -> i32 {
+    fits as i32
+}
+
+/// The part of `have` that `used` is, when they go the same way.
+fn share(used: f32, have: f32) -> f32 {
+    if have != 0.0 && used.is_finite() && used.signum() == have.signum() {
+        (used / have).clamp(0.0, 1.0)
+    } else {
+        0.0
     }
 }
 

@@ -75,12 +75,9 @@ impl ScrollStyle {
     }
 }
 
-/// The default notch from the user's wheel setting: 16 px a line, or a whole view. macOS wheel
-/// events already arrive in points.
+/// Pixels a wheel click scrolls by default, from the user's setting: 16 px a line, or a whole
+/// view. Trackpads scroll their own pixels whatever this is.
 fn wheel_step() -> f32 {
-    if cfg!(any(target_os = "macos", target_os = "ios")) {
-        return 1.0;
-    }
     match wheel_scroll() {
         WheelScroll::Lines(_) => wheel_line_pixels(),
         WheelScroll::Page => f32::INFINITY,
@@ -95,13 +92,9 @@ pub(crate) fn wheel_line_pixels() -> f32 {
     }
 }
 
-/// Zoom exponent and pan pixels per wheel unit.
+/// Zoom exponent and pan distance per pixel of scroll: a 16 px wheel click zooms by e^0.16.
 pub fn wheel_steps() -> (f32, f32) {
-    if cfg!(any(target_os = "macos", target_os = "ios")) {
-        (0.01, 1.0)
-    } else {
-        (0.18, wheel_line_pixels())
-    }
+    (0.01, 1.0)
 }
 
 /// Keeps the larger axis of a wheel move.
@@ -244,7 +237,9 @@ impl<'v> ScrollArea<'v> {
             .is_some_and(|at| over && ui.state.wheel_reaches(Key::new(id, 0), at));
         let room = (self.content - rect.height).max(0.0);
         let touched = touch_drag(ui, id, rect, room, self.offset);
-        let ease = style.smooth && !self.jump && !touched;
+        // a trackpad is smooth already; easing it again only lags
+        let smooth_input = wheel_here && ui.scroll_is_smooth();
+        let ease = style.smooth && !self.jump && !touched && !smooth_input;
         let (pull_y, pull_x) = pull(ui, id, rect, self.sideways.is_some());
         let down = Axis::DOWN;
         let pulled_y = down.pulled(rect, self.content, self.offset, pull_y);
@@ -274,16 +269,7 @@ impl<'v> ScrollArea<'v> {
             style.step
         };
         if wheel_here && step.is_finite() && step > 0.0 {
-            let wheel = ui.wheel();
-            // wheel y is up positive and x right positive: up lowers the offset, right raises it
-            let dy = y.wheel(self.offset, wheel.1, step);
-            let dx = x
-                .as_mut()
-                .map_or(0.0, |(x, offset)| x.wheel(offset, -wheel.0, step));
-            ui.consume_wheel((dx / step, -dy / step));
-            if dx != 0.0 || dy != 0.0 {
-                ui.mark_changed();
-            }
+            scroll_both(ui, id, (step, smooth_input), (&mut y, self.offset), x.as_mut());
         }
         y.end(ui, id, rect, self.content, over, style, self.reveal)?;
         let mut changed = y.moved || pulled_y || touched;
@@ -534,14 +520,43 @@ struct Scrolled {
     dragged: bool,
 }
 
+/// Moves both offsets by this frame's scroll: a wheel click a `step`, a trackpad its pixels.
+/// y is up positive and x right positive: up lowers the offset, right raises it.
+fn scroll_both<Id: WidgetId>(
+    ui: &mut Ui<'_, Id>,
+    id: Id,
+    (step, smooth_input): (f32, bool),
+    (y, y_offset): (&mut Scrolled, &mut f32),
+    x: Option<&mut (Scrolled, &mut f32)>,
+) {
+    let (px, py) = ui.scroll_pixels((step, step));
+    let dy = y.wheel(y_offset, py);
+    let mut dx = 0.0;
+    if let Some((x, offset)) = x {
+        dx = x.wheel(offset, -px);
+        if smooth_input && dx != 0.0 {
+            ui.set_animated(id, 0, x.axis.offset, **offset);
+        }
+    }
+    let used = |moved: f32, had: f32| if had == 0.0 { 0.0 } else { moved / had };
+    ui.consume_scroll((used(dx, px), used(-dy, py)));
+    // fingers already move smoothly: the drawn offset follows them, not a tween
+    if smooth_input && dy != 0.0 {
+        ui.set_animated(id, 0, y.axis.offset, *y_offset);
+    }
+    if dx != 0.0 || dy != 0.0 {
+        ui.mark_changed();
+    }
+}
+
 impl Scrolled {
-    /// Moves `offset` by the wheel's `notches` along the axis; how far it went.
-    fn wheel(&mut self, offset: &mut f32, notches: f32, step: f32) -> f32 {
+    /// Moves `offset` back by `pixels` along the axis; how far it went.
+    fn wheel(&mut self, offset: &mut f32, pixels: f32) -> f32 {
         if self.room <= 0.0 {
             return 0.0;
         }
         let previous = *offset;
-        *offset = (previous - notches * step).clamp(0.0, self.room);
+        *offset = (previous - pixels).clamp(0.0, self.room);
         let distance = *offset - previous;
         if distance.abs() > f32::EPSILON {
             self.moved = true;

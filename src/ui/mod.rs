@@ -4,6 +4,7 @@ pub mod accessibility;
 pub mod component;
 mod frame;
 pub mod paint;
+mod scroll_input;
 mod state;
 pub mod text_edit;
 mod theme;
@@ -380,9 +381,13 @@ mod tests {
 /// A canvas, UI state and theme that UI tests draw frames into and feed input to.
 #[cfg(test)]
 pub(crate) mod rig {
+    use super::widget::scroll::wheel_line_pixels;
     use super::{Theme, Ui, UiState, WidgetId};
     use crate::render::{CpuRasterizer, Renderer};
-    use crate::window::{KeyCode, Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
+    use crate::window::{
+        KeyCode, Modifiers, MouseButton, MouseButtons, PointerKind, ScrollEvent, ScrollPhase,
+        ScrollSource, WindowEvent,
+    };
 
     /// A pointer move to `(x, y)` with `buttons` held.
     pub(crate) fn mouse_move(x: impl Into<f64>, y: impl Into<f64>, buttons: u32) -> WindowEvent {
@@ -495,13 +500,35 @@ pub(crate) mod rig {
             dy: impl Into<f64>,
         ) {
             self.at(x, y);
-            self.send(WindowEvent::MouseWheel {
+            let line = f64::from(wheel_line_pixels());
+            self.send(WindowEvent::Scroll(ScrollEvent {
+                x: x.into(),
+                y: y.into(),
+                ..ScrollEvent::wheel(dx.into(), dy.into(), line, Modifiers::default())
+            }));
+        }
+
+        /// The pointer at `(x, y)` and a trackpad moving `(dx, dy)` pixels in `phase`.
+        pub(crate) fn trackpad(
+            &mut self,
+            x: impl Into<f64> + Copy,
+            y: impl Into<f64> + Copy,
+            dx: impl Into<f64>,
+            dy: impl Into<f64>,
+            phase: ScrollPhase,
+        ) {
+            self.at(x, y);
+            self.send(WindowEvent::Scroll(ScrollEvent {
                 delta_x: dx.into(),
                 delta_y: dy.into(),
+                clicks: None,
+                source: ScrollSource::Trackpad,
+                phase,
+                inverted: true,
                 x: x.into(),
                 y: y.into(),
                 modifiers: Modifiers::default(),
-            });
+            }));
         }
 
         /// `key` going down, no modifiers.

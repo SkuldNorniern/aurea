@@ -44,11 +44,7 @@ impl PlotView {
 
     /// Both axes zoom and pan.
     pub fn new() -> Self {
-        let wheel_zoom = if cfg!(target_os = "macos") {
-            0.01
-        } else {
-            0.18
-        };
+        let (wheel_zoom, _) = wheel_steps();
         Self {
             x: None,
             y: None,

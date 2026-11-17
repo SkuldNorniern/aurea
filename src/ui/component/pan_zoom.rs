@@ -3,7 +3,8 @@
 use std::f32::consts::TAU;
 
 use crate::render::{Point, Rect, Transform};
-use crate::ui::widget::scroll::wheel_steps;
+use crate::ui::scroll_input;
+use crate::ui::widget::scroll::{wheel_line_pixels, wheel_steps};
 use crate::window::{CursorIcon, KeyCode, MouseButton, WindowEvent};
 
 /// Where content sits in a view and how large it is drawn.
@@ -15,10 +16,10 @@ pub struct PanZoom {
     view: Rect,
     min_zoom: f32,
     max_zoom: f32,
-    /// How much a wheel unit zooms: the zoom is multiplied by `e` to the power of this times the
-    /// wheel's travel.
+    /// How much a pixel of scroll zooms: the zoom is multiplied by `e` to the power of this
+    /// times the scroll's pixels.
     pub wheel_zoom: f32,
-    /// How far a wheel unit scrolls, in logical pixels.
+    /// How far a pixel of scroll pans, in logical pixels.
     pub wheel_pan: f32,
     /// Space held turns a left drag into a pan.
     pub space_pans: bool,
@@ -267,17 +268,27 @@ impl PanZoom {
                 y,
                 ..
             } => self.button(button, pressed, point(x, y)),
+            WindowEvent::Scroll(scroll) => self.wheel(
+                to_f32(scroll.delta_x),
+                to_f32(scroll.delta_y),
+                scroll.modifiers.command(),
+                scroll.modifiers.shift,
+            ),
             WindowEvent::MouseWheel {
                 delta_x,
                 delta_y,
                 modifiers,
                 ..
-            } => self.wheel(
-                to_f32(delta_x),
-                to_f32(delta_y),
-                modifiers.command(),
-                modifiers.shift,
-            ),
+            } => {
+                let line = f64::from(wheel_line_pixels());
+                let scroll = scroll_input::legacy(delta_x, delta_y, line, modifiers);
+                self.wheel(
+                    to_f32(scroll.delta_x),
+                    to_f32(scroll.delta_y),
+                    modifiers.command(),
+                    modifiers.shift,
+                )
+            }
             WindowEvent::Magnify { factor, x, y } => {
                 let at = point(x, y);
                 self.pointer = Some(at);

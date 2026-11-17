@@ -825,9 +825,16 @@ fn scroll<Id: WidgetId>(ui: &mut Ui<'_, Id>, rect: Rect, m: &Metrics) -> f32 {
     }
     let room = (total - rect.height).max(0.0);
     let over = ui.pointer().is_some_and(|at| rect.contains(at));
-    let wheel = if over { ui.take_wheel().1 } else { 0.0 };
+    // a wheel click moves a row, a trackpad its pixels; up is positive
+    let wheel = if over {
+        let (_, up) = ui.scroll_pixels((m.row, m.row));
+        ui.take_wheel();
+        up
+    } else {
+        0.0
+    };
     let p = &mut ui.state.popup;
-    p.scroll = (p.scroll - wheel * m.row).clamp(0.0, room);
+    p.scroll = (p.scroll - wheel).clamp(0.0, room);
     if wheel != 0.0 {
         p.fling = None;
     }

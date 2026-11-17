@@ -614,14 +614,18 @@ fn scroll<Id: WidgetId>(
     index: usize,
     (reveal, hovered): (bool, bool),
 ) {
-    let wheel = if hovered { ui.wheel() } else { (0.0, 0.0) };
     let before = (edit.scroll, view.scroll_y);
     let layout = view.layout();
     let caret = view.caret(index);
+    // three lines a wheel click, a trackpad's pixels as they are; x right positive, y up
     let step = caret.height.max(1.0) * 3.0;
-    // x is right positive, y up positive
+    let wheel = if hovered {
+        ui.scroll_pixels((step, step))
+    } else {
+        (0.0, 0.0)
+    };
     let wheel_x = viewport_scroll(
-        before.0 + wheel.0 * step,
+        before.0 + wheel.0,
         0.0,
         0.0,
         layout.width,
@@ -629,7 +633,7 @@ fn scroll<Id: WidgetId>(
         false,
     );
     let wheel_y = viewport_scroll(
-        before.1 - wheel.1 * step,
+        before.1 - wheel.1,
         0.0,
         0.0,
         layout.height,
@@ -637,10 +641,11 @@ fn scroll<Id: WidgetId>(
         false,
     );
     if hovered {
-        ui.consume_wheel(((wheel_x - before.0) / step, (before.1 - wheel_y) / step));
+        let used = |moved: f32, had: f32| if had == 0.0 { 0.0 } else { moved / had };
+        ui.consume_scroll((used(wheel_x - before.0, wheel.0), used(before.1 - wheel_y, wheel.1)));
     }
     edit.scroll = viewport_scroll(
-        edit.scroll + wheel.0 * step,
+        edit.scroll + wheel.0,
         caret.x,
         2.0,
         layout.width,
@@ -648,7 +653,7 @@ fn scroll<Id: WidgetId>(
         reveal,
     );
     view.scroll_y = viewport_scroll(
-        view.scroll_y - wheel.1 * step,
+        view.scroll_y - wheel.1,
         caret.y,
         caret.height,
         layout.height,
@@ -775,6 +780,7 @@ fn selection<Id: WidgetId>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::widget::scroll::wheel_line_pixels;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::rig::Rig;
     use crate::ui::{Theme, UiState};
@@ -968,7 +974,8 @@ mod tests {
         rig.at(50.0, 40.0);
         draw(&mut rig, &mut text);
         rig.wheel(50.0, 40.0, -1.0, 0.0);
-        assert_eq!(draw(&mut rig, &mut text), (-1.0, 0.0), "nothing left of the start");
+        let line = wheel_line_pixels();
+        assert_eq!(draw(&mut rig, &mut text), (-line, 0.0), "nothing left of the start");
         draw(&mut rig, &mut text);
         rig.wheel(50.0, 40.0, 1.0, 0.0);
         assert_eq!(draw(&mut rig, &mut text), (0.0, 0.0), "right scrolls the line");

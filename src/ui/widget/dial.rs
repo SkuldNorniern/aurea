@@ -264,8 +264,13 @@ impl<'v> Dial<'v> {
             self.keys(ui, span);
         }
         if input.enabled && input.hovered {
-            let wheel = ui.take_wheel().1;
-            *self.value += wheel * self.step.unwrap_or(span / 100.0);
+            let step = self.step.unwrap_or(span / 100.0);
+            if step.is_finite() && step > 0.0 {
+                let (low, high) = (lo.min(hi), lo.max(hi));
+                let steps =
+                    ui.take_wheel_steps((high - *self.value) / step, (*self.value - low) / step);
+                *self.value += steps as f32 * step;
+            }
         }
         *self.value = snap(*self.value, lo, hi, self.step);
         if (*self.value - before).abs() > f32::EPSILON {
@@ -418,7 +423,9 @@ mod tests {
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::UiState;
     use crate::ui::rig::Rig;
-    use crate::window::{Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent};
+    use crate::window::{
+        Modifiers, MouseButton, MouseButtons, PointerKind, ScrollEvent, WindowEvent,
+    };
 
     fn frame(raster: &mut CpuRasterizer, state: &mut UiState<u8>, value: &mut f32) {
         frame_fine(raster, state, value, 0.1);
@@ -543,13 +550,11 @@ mod tests {
         let (mut raster, mut state, mut value) = rig();
         frame(&mut raster, &mut state, &mut value);
         moved(&mut state, 20.0, false);
-        state.handle(&WindowEvent::MouseWheel {
-            delta_x: 0.0,
-            delta_y: 500.0,
+        state.handle(&WindowEvent::Scroll(ScrollEvent {
             x: 20.0,
             y: 20.0,
-            modifiers: Modifiers::default(),
-        });
+            ..ScrollEvent::wheel(0.0, 500.0, 16.0, Modifiers::default())
+        }));
         frame(&mut raster, &mut state, &mut value);
         assert_eq!(value, 100.0);
     }

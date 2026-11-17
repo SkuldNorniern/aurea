@@ -21,7 +21,9 @@ use super::paint::TextSize;
 use super::text_edit::TextEdit;
 use super::theme::Theme;
 use super::tokens::Tokens;
+use super::scroll_input::{self, AxisLock, ScrollInput, StepCarry};
 use super::widget::popup::Popup;
+use super::widget::scroll::wheel_line_pixels;
 use super::widget::tooltip::TooltipOptions;
 use crate::fonts;
 use crate::render::{Font, Path, Point, Rect, TextMetrics};
@@ -331,7 +333,12 @@ pub struct UiState<Id: WidgetId> {
     /// its undo and draft for a while.
     edit_seen: HashMap<Key<Id>, Instant>,
     pub(crate) blink_from: Instant,
-    pub(crate) wheel: (f32, f32),
+    /// Scroll this frame that no widget used yet.
+    pub(crate) scroll: ScrollInput,
+    /// The axis a trackpad or finger gesture keeps to.
+    scroll_lock: AxisLock,
+    /// The fraction of a step a stepping control has not used yet.
+    pub(crate) step_carry: StepCarry,
     pub(crate) path: Path,
     pub(crate) scratch: String,
     pub(crate) probe: String,
@@ -411,7 +418,9 @@ impl<Id: WidgetId> UiState<Id> {
             editing: HashMap::new(),
             edit_seen: HashMap::new(),
             blink_from: Instant::now(),
-            wheel: (0.0, 0.0),
+            scroll: ScrollInput::default(),
+            scroll_lock: AxisLock::default(),
+            step_carry: StepCarry::default(),
             path: Path::new(),
             scratch: String::new(),
             probe: String::new(),
@@ -562,7 +571,9 @@ impl<Id: WidgetId> UiState<Id> {
             WindowEvent::MouseButton { x, y, .. } => {
                 popup || captured || self.hit_at(point(*x, *y)).is_some()
             }
-            WindowEvent::MouseWheel { .. } | WindowEvent::RawMouseMotion { .. } => {
+            WindowEvent::MouseWheel { .. }
+            | WindowEvent::Scroll(_)
+            | WindowEvent::RawMouseMotion { .. } => {
                 popup || captured || self.pointer.is_some_and(|at| self.hit_at(at).is_some())
             }
             WindowEvent::KeyInput { key, modifiers, .. } => {
@@ -666,11 +677,19 @@ impl<Id: WidgetId> UiState<Id> {
                 self.queue_pointer(Pointer::Secondary(at));
                 true
             }
+            WindowEvent::Scroll(scroll) => {
+                self.scroll.add(scroll, &mut self.scroll_lock);
+                self.hot.is_some()
+            }
             WindowEvent::MouseWheel {
-                delta_x, delta_y, ..
+                delta_x,
+                delta_y,
+                modifiers,
+                ..
             } => {
-                self.wheel.0 += to_f32(*delta_x);
-                self.wheel.1 += to_f32(*delta_y);
+                let line = f64::from(wheel_line_pixels());
+                let scroll = scroll_input::legacy(*delta_x, *delta_y, line, *modifiers);
+                self.scroll.add(&scroll, &mut self.scroll_lock);
                 self.hot.is_some()
             }
             WindowEvent::KeyInput {
@@ -882,9 +901,11 @@ impl<Id: WidgetId> UiState<Id> {
         }
     }
 
-    /// Wheel movement since the last frame that no widget used.
+    /// Scroll since the last frame that no widget used, in logical pixels, right and up
+    /// positive. A wheel click counts as one line of the user's setting.
     pub fn wheel(&self) -> (f32, f32) {
-        self.wheel
+        let line = wheel_line_pixels();
+        self.scroll.pixels((line, line))
     }
 
     fn hit_at(&self, at: Point) -> Option<&Hit<Id>> {
@@ -1206,7 +1227,7 @@ impl<Id: WidgetId> UiState<Id> {
         self.text_cancelled = false;
         self.press = None;
         self.secondary = None;
-        self.wheel = (0.0, 0.0);
+        self.scroll = ScrollInput::default();
     }
 
     pub(crate) fn scroll_begin(&self) -> usize {
