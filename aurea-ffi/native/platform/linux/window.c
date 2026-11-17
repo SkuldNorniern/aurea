@@ -446,7 +446,9 @@ static gboolean on_scroll(GtkWidget* widget, GdkEventScroll* event, gpointer dat
         }
     }
 
-    ng_invoke_mouse_wheel((void*)widget, dx, -dy, mods);
+    /* gdk is down positive; smooth deltas count in clicks too. rust turns them into pixels */
+    ng_invoke_scroll((void*)widget, 0.0, 0.0, 1, dx, -dy, NG_SCROLL_WHEEL, NG_SCROLL_DISCRETE, 0,
+                     mods);
     return FALSE;
 }
 

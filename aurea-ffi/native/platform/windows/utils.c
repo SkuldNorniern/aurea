@@ -738,16 +738,20 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_MOUSEWHEEL: {
             double delta = (double)GET_WHEEL_DELTA_WPARAM(wParam) / (double)WHEEL_DELTA;
             /* Shift turns the wheel sideways, as Windows apps expect; down goes right, like a tilt. */
+            double cx = 0.0, cy = delta;
             if (GET_KEYSTATE_WPARAM(wParam) & MK_SHIFT) {
-                ng_invoke_mouse_wheel((void*)hwnd, -delta, 0.0, ng_windows_modifiers());
-            } else {
-                ng_invoke_mouse_wheel((void*)hwnd, 0.0, delta, ng_windows_modifiers());
+                cx = -delta;
+                cy = 0.0;
             }
+            /* wheel clicks, fractional from fine wheels; rust turns them into pixels */
+            ng_invoke_scroll((void*)hwnd, 0.0, 0.0, 1, cx, cy, NG_SCROLL_WHEEL, NG_SCROLL_DISCRETE, 0,
+                             ng_windows_modifiers());
             break;
         }
         case WM_MOUSEHWHEEL: {
             double delta = (double)GET_WHEEL_DELTA_WPARAM(wParam) / (double)WHEEL_DELTA;
-            ng_invoke_mouse_wheel((void*)hwnd, delta, 0.0, ng_windows_modifiers());
+            ng_invoke_scroll((void*)hwnd, 0.0, 0.0, 1, delta, 0.0, NG_SCROLL_WHEEL, NG_SCROLL_DISCRETE, 0,
+                             ng_windows_modifiers());
             break;
         }
         case WM_GESTURE:
