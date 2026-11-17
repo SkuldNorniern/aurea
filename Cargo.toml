@@ -136,9 +136,9 @@ touch = ["aurea-ffi/touch"]
 gestures = ["aurea-ffi/gestures"]
 # `FilesHovered`, `FilesDropped`, `FilesHoverEnded`.
 drop-files = ["aurea-ffi/drop-files"]
-# Game controllers, `input::gamepad::Pads`: buttons, sticks, triggers and hotplug. Windows and Linux;
-# other systems build an empty mirror.
-gamepad = ["dep:libc", "dep:windows"]
+# Game controllers, `input::gamepad::Pads`: buttons, sticks, triggers and hotplug. Windows, Linux,
+# macOS and iOS; other systems build an empty mirror.
+gamepad = ["dep:libc", "dep:windows", "aurea-ffi/gamepad"]
 # Clipboard text and images, `window::clipboard`. Native clipboard code only with this on.
 clipboard = ["aurea-ffi/clipboard"]
 # Opening, revealing and sharing files and folders, and the app's folders. Pick and save on the

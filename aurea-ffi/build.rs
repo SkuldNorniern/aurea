@@ -157,6 +157,7 @@ fn main() {
         "native/platform/ios/ime_off.m",
         "native/platform/ios/tray.m",
         "native/platform/ios/embed.m",
+        "native/platform/apple/gamepad.m",
         "native/platform/ios/documents.m",
         "native/platform/ios/sheets.m",
         "native/platform/ios/elements/button.m",
@@ -221,6 +222,7 @@ fn main() {
         "native/platform/macos/elements/scroll_view.m",
         "native/platform/macos/swiftui_host.m",
         "native/platform/macos/elements/widgets_off.m",
+        "native/platform/apple/gamepad.m",
     ];
 
     let linux_sources: &[&str] = &[
@@ -337,12 +339,7 @@ fn main() {
         rerun_for(&root, common_c);
         rerun_for(&root, ios_sources);
     } else if target.contains("apple-darwin") {
-        println!("cargo:rustc-link-lib=framework=Cocoa");
-        println!("cargo:rustc-link-lib=framework=CoreVideo");
-        println!("cargo:rustc-link-lib=framework=IOSurface");
-        println!("cargo:rustc-link-lib=framework=QuartzCore");
-        println!("cargo:rustc-link-lib=framework=UserNotifications");
-        println!("cargo:rustc-link-lib=framework=ImageIO");
+        link_macos_frameworks();
 
         add_sources(&mut build, &root, common_c);
         add_sources(&mut build, &root, macos_sources);
@@ -457,6 +454,16 @@ fn link_windows_libs() {
 }
 
 /// Whether the cargo feature env var `name` is set, i.e. the feature is on.
+/// The frameworks the macOS host links, GameController only with pads.
+fn link_macos_frameworks() {
+    for framework in ["Cocoa", "CoreVideo", "IOSurface", "QuartzCore", "UserNotifications", "ImageIO"] {
+        println!("cargo:rustc-link-lib=framework={framework}");
+    }
+    if feature_on("CARGO_FEATURE_GAMEPAD") {
+        println!("cargo:rustc-link-lib=framework=GameController");
+    }
+}
+
 fn feature_on(name: &str) -> bool {
     env::var_os(name).is_some()
 }
@@ -542,6 +549,7 @@ fn source_enabled(source: &str) -> bool {
         | "native/platform/linux/dialog.c"
         | "native/platform/macos/dialog.m" => "CARGO_FEATURE_DIALOG",
         "native/platform/macos/swiftui_host.m" | "native/platform/ios/embed.m" => "CARGO_FEATURE_EMBED",
+        "native/platform/apple/gamepad.m" => "CARGO_FEATURE_GAMEPAD",
         _ => return true,
     };
     feature_on(feature)

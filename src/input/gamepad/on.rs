@@ -1,4 +1,4 @@
-//! Pads on Windows and Linux: the platform source reads each pad's state, and [`Hub`] turns the
+//! Pads on Windows, Linux, macOS and iOS: the platform source reads each pad's state, and [`Hub`] turns the
 //! changes into events.
 
 use super::PadEvent;
@@ -9,6 +9,8 @@ use super::state::{Found, Hub};
 use super::evdev::Source;
 #[cfg(windows)]
 use super::win::Source;
+#[cfg(target_vendor = "apple")]
+use super::apple::Source;
 
 /// Game controllers, polled by the app on its event loop thread.
 ///

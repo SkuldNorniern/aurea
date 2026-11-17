@@ -28,6 +28,8 @@ pen = []
 touch = []
 gestures = []
 drop-files = []
+# GameController pads on macOS and iOS.
+gamepad = []
 # Platform features, each gating its native code and libraries; see the root crate's features.
 clipboard = []
 files = []

@@ -102,7 +102,8 @@ mod tests {
         assert_eq!(supported(Feature::DropFiles), cfg!(feature = "drop-files"));
         assert_eq!(
             supported(Feature::Gamepad),
-            cfg!(feature = "gamepad") && cfg!(any(windows, target_os = "linux"))
+            cfg!(feature = "gamepad")
+                && cfg!(any(windows, target_os = "linux", target_vendor = "apple"))
         );
         assert_eq!(
             supported(Feature::RawMouse),
