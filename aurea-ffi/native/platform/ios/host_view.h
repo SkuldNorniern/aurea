@@ -8,7 +8,7 @@
    touch, drop, text) take their events from it. */
 @class AureaKeyInput;
 
-@interface AureaHostView : UIView <UIPencilInteractionDelegate, UIDropInteractionDelegate>
+@interface AureaHostView : UIView <UIPencilInteractionDelegate>
 @property (strong) CADisplayLink* link;
 @property (assign) BOOL dirty;
 @property (assign) int idle;
