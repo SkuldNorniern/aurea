@@ -1,5 +1,6 @@
 #include <os/proc.h>
 #import "host.h"
+#import "host_view.h"
 #import "ios.h"
 #import "../../common/input.h"
 #import "../../common/rust_callbacks.h"
@@ -17,7 +18,7 @@ static void ng_ios_device_changed(NSNotification* note);
    which becomes a sublayer's contents; the view's own colour fills the rest. A display link asks for frames while the UI wants them, and pauses when
    it has had nothing to do for a while. */
 
-static NGIosHost g_host;
+NGIosHost g_ios_host;
 
 /* How many idle refreshes before the display link pauses: a quarter second at 120 Hz. */
 #define NG_IOS_IDLE_TICKS 30
@@ -25,31 +26,7 @@ static NGIosHost g_host;
 /* The side of a presented tile in pixels: a multiple of the rasterizer's 128 pixel tiles. */
 #define NG_IOS_TILE 256u
 
-@class AureaKeyInput;
-
-@interface AureaHostView : UIView <UIPencilInteractionDelegate, UIDropInteractionDelegate>
-@property (strong) CADisplayLink* link;
-@property (assign) BOOL dirty;
-@property (assign) int idle;
-@property (strong) CALayer* content;
-@property (assign) uint32_t background;
-@property (strong) NSMutableArray<CALayer*>* tiles;
-@property (strong) UIView* gpuView;
-@property (assign) unsigned gridWidth;
-@property (assign) unsigned gridHeight;
-@property (assign) CGFloat gridScale;
-@property (strong) AureaKeyInput* keys;
-@property (assign) CGFloat keyboardHeight;
-/* The MouseButton a trackpad or mouse click holds, -1 for none. */
-@property (assign) int pointerButton;
-/* A trackpad or mouse pointer is over the view; a pencil's hover ending is not its exit. */
-@property (assign) BOOL pointerOver;
-- (void)wakeLink;
-- (void)markDirty;
-- (NSSet<UIPress*>*)keys:(NSSet<UIPress*>*)presses pressed:(int)pressed;
-@end
-
-static __weak AureaHostView* g_view;
+__weak AureaHostView* g_ios_view;
 
 #ifdef NG_INPUT_TEXT
 /* A place in the text being composed, as a UTF-16 index into it. */
@@ -129,26 +106,26 @@ static __weak AureaHostView* g_view;
 }
 
 static void ng_ios_tap_key(uint32_t code) {
-    if (!g_host.key) return;
-    g_host.key(code, 1, 0, "");
-    g_host.key(code, 0, 0, "");
+    if (!g_ios_host.key) return;
+    g_ios_host.key(code, 1, 0, "");
+    g_ios_host.key(code, 0, 0, "");
 }
 
 static void ng_ios_type(NSString* text) {
-    if (g_host.key && text.length) g_host.key(NG_KEY_UNKNOWN, 1, 0, text.UTF8String ?: "");
+    if (g_ios_host.key && text.length) g_ios_host.key(NG_KEY_UNKNOWN, 1, 0, text.UTF8String ?: "");
 }
 
 /* The composition as the app sees it, the cursor in UTF-8 bytes. */
 - (void)sendPreedit {
 #ifdef NG_INPUT_IME
-    if (g_host.preedit) {
+    if (g_ios_host.preedit) {
         NSInteger caret = MIN(MAX(_caret, 0), (NSInteger)_marked.length);
         NSString* head = [_marked substringToIndex:(NSUInteger)caret];
         int cursor = _marked.length ? (int)[head lengthOfBytesUsingEncoding:NSUTF8StringEncoding] : -1;
-        g_host.preedit(_marked.UTF8String ?: "", cursor);
+        g_ios_host.preedit(_marked.UTF8String ?: "", cursor);
     }
 #endif
-    [g_view markDirty];
+    [g_ios_view markDirty];
 }
 
 - (void)endComposing {
@@ -171,7 +148,7 @@ static void ng_ios_type(NSString* text) {
     } else {
         ng_ios_type(text);
     }
-    [g_view markDirty];
+    [g_ios_view markDirty];
 }
 
 - (void)deleteBackward {
@@ -183,7 +160,7 @@ static void ng_ios_type(NSString* text) {
         return;
     }
     ng_ios_tap_key(NG_KEY_BACKSPACE);
-    [g_view markDirty];
+    [g_ios_view markDirty];
 }
 
 /* Composition. */
@@ -334,17 +311,17 @@ static void ng_ios_type(NSString* text) {
 /* Hardware keys go to the host's handler. */
 
 - (void)pressesBegan:(NSSet<UIPress*>*)presses withEvent:(UIPressesEvent*)event {
-    NSSet<UIPress*>* rest = [g_view keys:presses pressed:1];
+    NSSet<UIPress*>* rest = [g_ios_view keys:presses pressed:1];
     if (rest.count) [super pressesBegan:rest withEvent:event];
 }
 
 - (void)pressesEnded:(NSSet<UIPress*>*)presses withEvent:(UIPressesEvent*)event {
-    NSSet<UIPress*>* rest = [g_view keys:presses pressed:0];
+    NSSet<UIPress*>* rest = [g_ios_view keys:presses pressed:0];
     if (rest.count) [super pressesEnded:rest withEvent:event];
 }
 
 - (void)pressesCancelled:(NSSet<UIPress*>*)presses withEvent:(UIPressesEvent*)event {
-    NSSet<UIPress*>* rest = [g_view keys:presses pressed:0];
+    NSSet<UIPress*>* rest = [g_ios_view keys:presses pressed:0];
     if (rest.count) [super pressesCancelled:rest withEvent:event];
 }
 
@@ -363,7 +340,7 @@ static void ng_ios_type(NSString* text) {
         _background = UINT32_MAX;
         _pointerButton = -1;
         _dirty = YES;
-        g_view = self;
+        g_ios_view = self;
 #ifdef NG_INPUT_PEN
         if (@available(iOS 12.1, *)) {
             UIPencilInteraction* pencil = [[UIPencilInteraction alloc] init];
@@ -456,15 +433,15 @@ static void ng_ios_type(NSString* text) {
         }];
     }
     dispatch_group_notify(waiting, dispatch_get_main_queue(), ^{
-        if (!paths.count || !g_host.dropped) return;
+        if (!paths.count || !g_ios_host.dropped) return;
         NSMutableData* list = [NSMutableData data];
         const char end = 0;
         for (NSString* path in paths) {
             [list appendBytes:path.fileSystemRepresentation length:strlen(path.fileSystemRepresentation) + 1];
         }
         [list appendBytes:&end length:1];
-        g_host.dropped(list.bytes, (float)at.x, (float)at.y);
-        [g_view markDirty];
+        g_ios_host.dropped(list.bytes, (float)at.x, (float)at.y);
+        [g_ios_view markDirty];
     });
 }
 #endif
@@ -489,9 +466,9 @@ static void ng_ios_type(NSString* text) {
     (void)note;
     // no GCKeyboard before iOS 14, report no hardware keyboard
     if (@available(iOS 14.0, *)) {
-        g_host.keyboard(GCKeyboard.coalescedKeyboard != nil);
+        g_ios_host.keyboard(GCKeyboard.coalescedKeyboard != nil);
     } else {
-        g_host.keyboard(false);
+        g_ios_host.keyboard(false);
     }
 }
 
@@ -505,7 +482,7 @@ static void ng_ios_type(NSString* text) {
 
 - (void)memoryWarning:(NSNotification*)note {
     (void)note;
-    if (g_host.lifecycle) g_host.lifecycle(NG_IOS_MEMORY_WARNING);
+    if (g_ios_host.lifecycle) g_ios_host.lifecycle(NG_IOS_MEMORY_WARNING);
     [self markDirty];
 }
 
@@ -526,8 +503,8 @@ static void ng_ios_type(NSString* text) {
 
 /* The colour around the safe area follows the theme's background. */
 - (void)paintBackground {
-    if (!g_host.background) return;
-    uint32_t rgb = g_host.background() & 0xFFFFFF;
+    if (!g_ios_host.background) return;
+    uint32_t rgb = g_ios_host.background() & 0xFFFFFF;
     if (rgb == _background) return;
     _background = rgb;
     self.backgroundColor = [UIColor colorWithRed:((rgb >> 16) & 0xFF) / 255.0
@@ -537,9 +514,9 @@ static void ng_ios_type(NSString* text) {
 }
 
 - (void)tick:(CADisplayLink*)link {
-    if (!g_host.frame) return;
+    if (!g_ios_host.frame) return;
     /* `wake` is how other threads, and touches still being told apart, ask for a frame. */
-    if (!_dirty && !(g_host.wake && g_host.wake())) {
+    if (!_dirty && !(g_ios_host.wake && g_ios_host.wake())) {
         if (++_idle >= NG_IOS_IDLE_TICKS) link.paused = YES;
         return;
     }
@@ -559,7 +536,7 @@ static void ng_ios_type(NSString* text) {
     const uint32_t* words = NULL;
     unsigned out_w = 0, out_h = 0;
     unsigned damage[4] = {0, 0, 0, 0};
-    _dirty = g_host.frame(width, height, (float)scale, (float)safe.left, (float)safe.top, (float)safe.right,
+    _dirty = g_ios_host.frame(width, height, (float)scale, (float)safe.left, (float)safe.top, (float)safe.right,
                           (float)safe.bottom, &words, &out_w, &out_h, damage) != 0;
     [self paintBackground];
     if (!words || out_w == 0 || out_h == 0) return;
@@ -647,12 +624,12 @@ static double ng_ios_age(NSTimeInterval timestamp) {
     float tilt_x = 0, tilt_y = 0, twist = 0;
     ng_ios_tilt(touch.altitudeAngle, [touch azimuthAngleInView:self], &tilt_x, &tilt_y);
     if (@available(iOS 17.5, *)) twist = (float)(touch.rollAngle * 180.0 / M_PI);
-    g_host.pen(phase, at.x, at.y, pressure, tilt_x, tilt_y, twist, ng_ios_age(touch.timestamp));
+    g_ios_host.pen(phase, at.x, at.y, pressure, tilt_x, tilt_y, twist, ng_ios_age(touch.timestamp));
 }
 
 /* An Apple Pencil also reports every sample between frames, with pressure and tilt. */
 - (void)pens:(int)phase touch:(UITouch*)touch event:(UIEvent*)event {
-    if (touch.type != UITouchTypePencil || !g_host.pen) return;
+    if (touch.type != UITouchTypePencil || !g_ios_host.pen) return;
     NSArray<UITouch*>* samples = [event coalescedTouchesForTouch:touch] ?: @[ touch ];
     for (UITouch* sample in samples) {
         BOOL last = sample == samples.lastObject;
@@ -672,16 +649,16 @@ static double ng_ios_age(NSTimeInterval timestamp) {
 /* A trackpad or mouse click comes as a touch of its own type, with the buttons on the event. The
    button is the one pressed when it began, so a drag keeps it. */
 - (void)pointer:(int)action touch:(UITouch*)touch event:(UIEvent*)event API_AVAILABLE(ios(13.4)) {
-    if (!g_host.mouse) return;
+    if (!g_ios_host.mouse) return;
     CGPoint at = [touch locationInView:self];
     if (action == NG_IOS_TOUCH_DOWN) {
         self.pointerButton = (event.buttonMask & UIEventButtonMaskSecondary) ? 1 : 0;
-        g_host.mouse(NG_IOS_MOUSE_PRESS, (float)at.x, (float)at.y, self.pointerButton);
+        g_ios_host.mouse(NG_IOS_MOUSE_PRESS, (float)at.x, (float)at.y, self.pointerButton);
     } else if (action == NG_IOS_TOUCH_UP || action == NG_IOS_TOUCH_CANCEL) {
-        g_host.mouse(NG_IOS_MOUSE_RELEASE, (float)at.x, (float)at.y, self.pointerButton);
+        g_ios_host.mouse(NG_IOS_MOUSE_RELEASE, (float)at.x, (float)at.y, self.pointerButton);
         self.pointerButton = -1;
     } else {
-        g_host.mouse(NG_IOS_MOUSE_MOVE, (float)at.x, (float)at.y, self.pointerButton);
+        g_ios_host.mouse(NG_IOS_MOUSE_MOVE, (float)at.x, (float)at.y, self.pointerButton);
     }
 }
 
@@ -700,10 +677,10 @@ static double ng_ios_age(NSTimeInterval timestamp) {
         [self pens:pen_phase[action] touch:touch event:event];
 #endif
 #ifdef NG_INPUT_TOUCH
-        if (g_host.touch) {
+        if (g_ios_host.touch) {
             CGPoint at = [touch locationInView:self];
             int pencil = touch.type == UITouchTypePencil;
-            g_host.touch(action, (float)at.x, (float)at.y, (uintptr_t)(__bridge void*)touch, pencil);
+            g_ios_host.touch(action, (float)at.x, (float)at.y, (uintptr_t)(__bridge void*)touch, pencil);
         }
 #endif
     }
@@ -771,7 +748,7 @@ static uint32_t ng_ios_modifiers(UIKeyModifierFlags flags) {
 
 /* Returns the presses it did not take, for UIKit to pass on. */
 - (NSSet<UIPress*>*)keys:(NSSet<UIPress*>*)presses pressed:(int)pressed {
-    if (!g_host.key) return presses;
+    if (!g_ios_host.key) return presses;
     NSMutableSet<UIPress*>* rest = [NSMutableSet set];
     for (UIPress* press in presses) {
         if (@available(iOS 13.4, *)) {
@@ -784,7 +761,7 @@ static uint32_t ng_ios_modifiers(UIKeyModifierFlags flags) {
             /* Text comes with presses alone, and not with shortcuts or control characters. */
             NSString* typed = pressed && !(mods & (NG_MOD_CTRL | NG_MOD_META)) ? key.characters : @"";
             if (typed.length == 1 && [typed characterAtIndex:0] < 0x20) typed = @"";
-            g_host.key(ng_ios_key(key.keyCode), pressed, mods, typed.UTF8String ?: "");
+            g_ios_host.key(ng_ios_key(key.keyCode), pressed, mods, typed.UTF8String ?: "");
         } else {
             [rest addObject:press];
         }
@@ -831,7 +808,7 @@ static int ng_ios_pen_action(long action) {
 }
 
 - (void)penTap:(int)squeeze action:(long)action {
-    if (g_host.pen_tap) g_host.pen_tap(squeeze, ng_ios_pen_action(action));
+    if (g_ios_host.pen_tap) g_ios_host.pen_tap(squeeze, ng_ios_pen_action(action));
     [self markDirty];
 }
 
@@ -876,32 +853,32 @@ static int ng_ios_pen_action(long action) {
 }
 
 - (void)pencilHovered:(UIHoverGestureRecognizer*)hover {
-    if (!g_host.pen) return;
+    if (!g_ios_host.pen) return;
     if (@available(iOS 16.4, *)) {
         if (hover.state != UIGestureRecognizerStateBegan && hover.state != UIGestureRecognizerStateChanged) return;
         CGPoint at = [hover locationInView:self];
         float tilt_x = 0, tilt_y = 0, twist = 0;
         ng_ios_tilt(hover.altitudeAngle, [hover azimuthAngleInView:self], &tilt_x, &tilt_y);
         if (@available(iOS 17.5, *)) twist = (float)(hover.rollAngle * 180.0 / M_PI);
-        g_host.pen(NG_IOS_PEN_HOVER, at.x, at.y, 0.0f, tilt_x, tilt_y, twist, 0.0);
+        g_ios_host.pen(NG_IOS_PEN_HOVER, at.x, at.y, 0.0f, tilt_x, tilt_y, twist, 0.0);
         [self markDirty];
     }
 }
 
 /* A trackpad or mouse pointer over the view, moving with no button held. */
 - (void)pointerHovered:(UIHoverGestureRecognizer*)hover {
-    if (!g_host.mouse) return;
+    if (!g_ios_host.mouse) return;
     if (hover.state == UIGestureRecognizerStateEnded || hover.state == UIGestureRecognizerStateCancelled) {
         if (!self.pointerOver) return;
         self.pointerOver = NO;
-        g_host.mouse(NG_IOS_MOUSE_EXIT, 0, 0, -1);
+        g_ios_host.mouse(NG_IOS_MOUSE_EXIT, 0, 0, -1);
         [self markDirty];
         return;
     }
     if (hover.state != UIGestureRecognizerStateBegan && hover.state != UIGestureRecognizerStateChanged) return;
     self.pointerOver = YES;
     CGPoint at = [hover locationInView:self];
-    g_host.mouse(NG_IOS_MOUSE_MOVE, (float)at.x, (float)at.y, -1);
+    g_ios_host.mouse(NG_IOS_MOUSE_MOVE, (float)at.x, (float)at.y, -1);
     [self markDirty];
 }
 
@@ -936,9 +913,9 @@ static int ng_ios_pen_action(long action) {
 }
 
 - (UIStatusBarStyle)preferredStatusBarStyle {
-    if (!g_host.light_theme) return UIStatusBarStyleDefault;
+    if (!g_ios_host.light_theme) return UIStatusBarStyleDefault;
     if (@available(iOS 13.0, *)) {
-        return g_host.light_theme() ? UIStatusBarStyleDarkContent : UIStatusBarStyleLightContent;
+        return g_ios_host.light_theme() ? UIStatusBarStyleDarkContent : UIStatusBarStyleLightContent;
     }
     return UIStatusBarStyleDefault;
 }
@@ -971,12 +948,12 @@ void ng_apple_device_info(unsigned long long* total, unsigned long long* availab
 
 static void ng_ios_device_changed(NSNotification* note) {
     (void)note;
-    if (g_host.lifecycle) g_host.lifecycle(NG_IOS_DEVICE_CHANGED);
+    if (g_ios_host.lifecycle) g_ios_host.lifecycle(NG_IOS_DEVICE_CHANGED);
 }
 
 static void ng_ios_lifecycle(int state) {
-    if (g_host.lifecycle) g_host.lifecycle(state);
-    [g_view markDirty];
+    if (g_ios_host.lifecycle) g_ios_host.lifecycle(state);
+    [g_ios_view markDirty];
 }
 
 static UIWindow* ng_ios_host_window(UIWindow* window) {
@@ -1112,7 +1089,7 @@ API_AVAILABLE(ios(13.0))
 @end
 
 int ng_ios_run_host(NGIosHost host) {
-    g_host = host;
+    g_ios_host = host;
     @autoreleasepool {
         return UIApplicationMain(*_NSGetArgc(), *_NSGetArgv(), nil, NSStringFromClass([AureaHostDelegate class]));
     }
@@ -1120,12 +1097,12 @@ int ng_ios_run_host(NGIosHost host) {
 
 void ng_ios_wake(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
-        [g_view wakeLink];
+        [g_ios_view wakeLink];
     });
 }
 
 void* ng_ios_gpu_view(void) {
-    AureaHostView* host = g_view;
+    AureaHostView* host = g_ios_view;
     if (!host) return NULL;
     if (!host.gpuView) {
         UIView* view = [[UIView alloc] initWithFrame:UIEdgeInsetsInsetRect(host.bounds, host.safeAreaInsets)];
@@ -1138,13 +1115,13 @@ void* ng_ios_gpu_view(void) {
 }
 
 void ng_ios_drop_gpu_view(void) {
-    AureaHostView* host = g_view;
+    AureaHostView* host = g_ios_view;
     [host.gpuView removeFromSuperview];
     host.gpuView = nil;
 }
 
 void ng_ios_show_native(void* view, float x, float y, float width, float height) {
-    AureaHostView* host = g_view;
+    AureaHostView* host = g_ios_view;
     UIView* element = (__bridge UIView*)view;
     if (!host || !element) return;
     UIEdgeInsets safe = host.safeAreaInsets;
@@ -1161,7 +1138,7 @@ void ng_ios_hide_native(void* view) {
 }
 
 void ng_ios_show_keyboard(int show) {
-    AureaHostView* host = g_view;
+    AureaHostView* host = g_ios_view;
     if (!host) return;
 #ifdef NG_INPUT_TEXT
     if (show) {
@@ -1175,13 +1152,13 @@ void ng_ios_show_keyboard(int show) {
 }
 
 float ng_ios_refresh_rate(void) {
-    AureaHostView* host = g_view;
+    AureaHostView* host = g_ios_view;
     UIScreen* screen = host.window.screen ?: UIScreen.mainScreen;
     return (float)screen.maximumFramesPerSecond;
 }
 
 void ng_ios_set_high_frame_rate(int high) {
-    AureaHostView* host = g_view;
+    AureaHostView* host = g_ios_view;
     if (!host) return;
     if (@available(iOS 15.0, *)) {
         float top = ng_ios_refresh_rate();
@@ -1191,7 +1168,7 @@ void ng_ios_set_high_frame_rate(int high) {
 }
 
 float ng_ios_keyboard_height(void) {
-    AureaHostView* host = g_view;
+    AureaHostView* host = g_ios_view;
 #ifdef NG_INPUT_TEXT
     return host && host.keys.isFirstResponder ? (float)host.keyboardHeight : 0.0f;
 #else
@@ -1202,7 +1179,7 @@ float ng_ios_keyboard_height(void) {
 
 void ng_ios_set_text_area(float x, float y, float width, float height) {
 #ifdef NG_INPUT_TEXT
-    AureaHostView* host = g_view;
+    AureaHostView* host = g_ios_view;
     if (!host) return;
     UIEdgeInsets safe = host.safeAreaInsets;
     host.keys.area = CGRectMake(x + safe.left, y + safe.top, width, height);
