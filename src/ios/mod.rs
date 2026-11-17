@@ -36,7 +36,7 @@ use crate::ffi::{ng_platform_attach_menu, ng_platform_create_menu, ng_platform_d
 use crate::gpu_ready;
 use crate::input::keyboard::{KeyboardFocus, set_keyboard_connected};
 use crate::input::touch::Touches;
-use crate::input::{ime, pen, text};
+use crate::input::{drop, ime, pen, text};
 use crate::locale;
 use crate::render::{CanvasId, CpuRasterizer, Renderer, SurfaceInfo, register_host_canvas};
 use crate::screen::{self, Screen};
@@ -254,7 +254,7 @@ unsafe extern "C" fn dropped(paths: *const c_char, x: f32, y: f32) {
     let [left, top, ..] = HOST.with_borrow(|host| host.insets);
     // SAFETY: the host passes the paths list as `drop::dropped` takes it.
     if let Some(event) =
-        unsafe { crate::input::drop::dropped(paths, f64::from(x - left), f64::from(y - top)) }
+        unsafe { drop::dropped(paths, f64::from(x - left), f64::from(y - top)) }
     {
         hear(&[event]);
     }
