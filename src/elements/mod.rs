@@ -127,6 +127,46 @@ mod gtk_tests {
         fn g_signal_emit_by_name(instance: *mut c_void, signal: *const c_char, ...);
     }
 
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn dropped_elements_leave_no_reference_behind() -> AureaResult<()> {
+        unsafe extern "C" {
+            fn g_object_ref(object: *mut c_void) -> *mut c_void;
+            fn g_object_unref(object: *mut c_void);
+        }
+        /// The head of a GObject: its class pointer, then its reference count.
+        #[repr(C)]
+        struct GObjectHead {
+            class: *mut c_void,
+            ref_count: u32,
+        }
+        // Only the test's own reference is left once Aurea lets go.
+        fn held_only_by_us(object: *mut c_void) -> bool {
+            let count = unsafe { (*object.cast::<GObjectHead>()).ref_count };
+            unsafe { g_object_unref(object) };
+            count == 1
+        }
+        let mut window = Window::new("freed elements", 200, 100)?;
+
+        let label = Label::new("alone")?;
+        let alone = unsafe { g_object_ref(label.handle()) };
+        drop(label);
+        assert!(
+            held_only_by_us(alone),
+            "a label never added kept a reference"
+        );
+
+        let first = Stack::new(Orientation::Vertical)?;
+        let replaced = unsafe { g_object_ref(first.handle()) };
+        window.set_content(first)?;
+        window.set_content(Label::new("next")?)?;
+        assert!(
+            held_only_by_us(replaced),
+            "replaced content kept a reference"
+        );
+        Ok(())
+    }
+
     /// [`settle`], going on while the X server has not answered a resize yet.
     fn settle_at(window: &Window, size: (u32, u32)) {
         window.show();

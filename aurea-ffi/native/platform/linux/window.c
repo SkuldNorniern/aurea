@@ -778,9 +778,15 @@ void ng_linux_destroy_window(NGHandle handle) {
     gtk_widget_destroy((GtkWidget*)handle);
 }
 
+/* The caller owns an element with no parent: still floating, or the ref detach kept. Destroy alone
+   leaves that ref, so drop it too. A parented one goes with its parent's ref. */
 void ng_linux_destroy_element(NGHandle element) {
     if (!GTK_IS_WIDGET(element)) return;
-    gtk_widget_destroy((GtkWidget*)element);
+    GtkWidget* widget = (GtkWidget*)element;
+    gboolean ours = !gtk_widget_get_parent(widget) && !GTK_IS_WINDOW(widget);
+    if (ours && g_object_is_floating(widget)) g_object_ref_sink(widget);
+    gtk_widget_destroy(widget);
+    if (ours) g_object_unref(widget);
 }
 
 void ng_linux_element_retain(NGHandle element) {
@@ -846,7 +852,11 @@ int ng_linux_set_window_content(NGHandle window_handle, NGHandle content_handle)
     g_object_ref(content);
     GList* children = gtk_container_get_children(GTK_CONTAINER(vbox));
     for (GList* item = children; item != NULL; item = item->next) {
-        if (!GTK_IS_MENU_BAR(item->data)) gtk_container_remove(GTK_CONTAINER(vbox), GTK_WIDGET(item->data));
+        GtkWidget* old = GTK_WIDGET(item->data);
+        if (GTK_IS_MENU_BAR(old)) continue;
+        /* The old content stays alive for its owner, which detaches and destroys it. */
+        if (old != content) g_object_ref(old);
+        gtk_container_remove(GTK_CONTAINER(vbox), old);
     }
     g_list_free(children);
 
