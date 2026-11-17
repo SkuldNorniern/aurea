@@ -2,6 +2,7 @@
 #import "content_view.h"
 #import "pen.h"
 #import "raw.h"
+#import "gesture.h"
 #import "common/errors.h"
 #import "common/input.h"
 #import "common/rust_callbacks.h"
@@ -381,22 +382,13 @@ static const double NG_MACOS_POINTS_PER_LINE = 40.0;
         ng_macos_modifiers(event));
 }
 
-#ifdef NG_INPUT_GESTURES
 - (void)magnifyWithEvent:(NSEvent*)event {
-    if (!self.windowHandle || event.magnification == 0.0) return;
-    NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
-    CGFloat h = [self bounds].size.height;
-    ng_invoke_gesture(self.windowHandle, NG_GESTURE_MAGNIFY, 1.0 + (double)event.magnification, p.x, h - p.y);
+    if (!ng_macos_gesture_magnify(self, event)) [super magnifyWithEvent:event];
 }
 
 - (void)rotateWithEvent:(NSEvent*)event {
-    if (!self.windowHandle || event.rotation == 0.0) return;
-    NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
-    CGFloat h = [self bounds].size.height;
-    /* Apple reports degrees counter-clockwise; Rotate wants radians clockwise. */
-    ng_invoke_gesture(self.windowHandle, NG_GESTURE_ROTATE, -(double)event.rotation * M_PI / 180.0, p.x, h - p.y);
+    if (!ng_macos_gesture_rotate(self, event)) [super rotateWithEvent:event];
 }
-#endif
 
 - (void)sendKeyDown:(NSEvent*)event {
     if (!keysDown) keysDown = [NSMutableIndexSet indexSet];
