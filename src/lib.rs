@@ -56,6 +56,10 @@
 //! - `embed`: SwiftUI hosts on macOS and the C embedding API.
 //! - `widgets`: the native controls in [`elements`]. Layout and canvases stay without it.
 //! - `ui`: the canvas widget toolkit, [`app::run`] and [`animation`].
+//! - `effects`: backdrop blur, frost and other filters on the CPU renderer; off, a backdrop draws
+//!   nothing.
+//! - `system-fonts`: installed fonts by name and for fallback; off, only fonts the app registers,
+//!   then the built-in face.
 //! - `zengpu`: GPU rendering through ZenGPU, on Metal on macOS and Vulkan elsewhere. Experimental.
 //! - `wgpu`: wgpu renderer and surface helpers, for fitting Aurea into a wgpu app.
 //! - `accessibility`: screen reader support for canvas widgets, through AccessKit.
