@@ -373,14 +373,16 @@ static void ng_ios_type(NSString* text) {
                                                  selector:@selector(keyboardChanged:)
                                                      name:UIKeyboardWillChangeFrameNotification
                                                    object:nil];
-        [[NSNotificationCenter defaultCenter] addObserver:self
-                                                 selector:@selector(hardKeyboardChanged:)
-                                                     name:GCKeyboardDidConnectNotification
-                                                   object:nil];
-        [[NSNotificationCenter defaultCenter] addObserver:self
-                                                 selector:@selector(hardKeyboardChanged:)
-                                                     name:GCKeyboardDidDisconnectNotification
-                                                   object:nil];
+        if (@available(iOS 14.0, *)) {
+            [[NSNotificationCenter defaultCenter] addObserver:self
+                                                     selector:@selector(hardKeyboardChanged:)
+                                                         name:GCKeyboardDidConnectNotification
+                                                       object:nil];
+            [[NSNotificationCenter defaultCenter] addObserver:self
+                                                     selector:@selector(hardKeyboardChanged:)
+                                                         name:GCKeyboardDidDisconnectNotification
+                                                       object:nil];
+        }
         [self hardKeyboardChanged:nil];
         for (NSNotificationName name in @[
                  NSProcessInfoThermalStateDidChangeNotification,
@@ -475,7 +477,12 @@ static void ng_ios_type(NSString* text) {
 
 - (void)hardKeyboardChanged:(NSNotification*)note {
     (void)note;
-    g_host.keyboard(GCKeyboard.coalescedKeyboard != nil);
+    // no GCKeyboard before iOS 14, report no hardware keyboard
+    if (@available(iOS 14.0, *)) {
+        g_host.keyboard(GCKeyboard.coalescedKeyboard != nil);
+    } else {
+        g_host.keyboard(false);
+    }
 }
 
 /* How much of the view the on-screen keyboard covers, for ng_ios_keyboard_height. */
@@ -925,10 +932,13 @@ static int ng_ios_pen_action(long action) {
 
 @end
 
-static UIBackgroundTaskIdentifier g_background_task = UIBackgroundTaskInvalid;
+// UIBackgroundTaskInvalid is extern const, cant be a static initializer
+static UIBackgroundTaskIdentifier g_background_task;
+static BOOL g_background_active;
 
 void ng_ios_end_background(void) {
-    if (g_background_task == UIBackgroundTaskInvalid) return;
+    if (!g_background_active) return;
+    g_background_active = NO;
     [UIApplication.sharedApplication endBackgroundTask:g_background_task];
     g_background_task = UIBackgroundTaskInvalid;
 }
@@ -1017,6 +1027,7 @@ API_AVAILABLE(ios(13.0))
     g_background_task = [UIApplication.sharedApplication
         beginBackgroundTaskWithName:@"aurea.suspending"
                   expirationHandler:^{ ng_ios_end_background(); }];
+    g_background_active = g_background_task != UIBackgroundTaskInvalid;
     ng_ios_lifecycle(NG_IOS_BACKGROUND);
     ng_ios_lifecycle(NG_IOS_SUSPENDING);
 }
