@@ -1,7 +1,7 @@
 #import <Cocoa/Cocoa.h>
 #import <ImageIO/ImageIO.h>
 #include "common/clipboard.h"
-#include "macos/clipboard.h"
+#include "clipboard.h"
 
 static NSString* pasteboard_type(const char* format) {
     if (!strcmp(format, "image/png")) return NSPasteboardTypePNG;
