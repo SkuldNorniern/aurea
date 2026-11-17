@@ -1,5 +1,6 @@
 ﻿#import "window.h"
 #import "content_view.h"
+#import "pen.h"
 #import "common/errors.h"
 #import "common/input.h"
 #import "common/rust_callbacks.h"
@@ -49,9 +50,7 @@ unsigned int ng_macos_modifiers(NSEvent* event) {
 /* The modifiers of a mouse event, with what moved the pointer: a tablet's events are pens. */
 unsigned int ng_macos_mouse_modifiers(NSEvent* event) {
     unsigned int mods = ng_macos_modifiers(event);
-#ifdef NG_INPUT_PEN
-    if (event.subtype == NSEventSubtypeTabletPoint) mods |= NG_POINTER_PEN;
-#endif
+    mods |= ng_macos_pen_bits(event);
     return mods;
 }
 
@@ -261,50 +260,13 @@ static NSString* drag_paths(id<NSDraggingInfo> info) {
     }
 }
 
-#ifdef NG_INPUT_PEN
-enum { AUREA_PEN_HOVER = 0, AUREA_PEN_DOWN = 1, AUREA_PEN_MOVE = 2, AUREA_PEN_UP = 3 };
-enum { AUREA_PEN_ERASER = 1, AUREA_PEN_BARREL = 2 };
-
-static BOOL g_pen_eraser = NO;
-
-static BOOL is_pen_event(NSEvent* event) {
-    switch (event.type) {
-        case NSEventTypeTabletPoint:
-            return YES;
-        case NSEventTypeLeftMouseDown:
-        case NSEventTypeLeftMouseUp:
-        case NSEventTypeLeftMouseDragged:
-        case NSEventTypeMouseMoved:
-            return event.subtype == NSEventSubtypeTabletPoint;
-        default:
-            return NO;
-    }
-}
-
-- (void)reportPen:(NSEvent*)event phase:(unsigned int)phase {
-    if (!self.windowHandle || !is_pen_event(event)) return;
-    NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
-    CGFloat h = [self bounds].size.height;
-    NSPoint tilt = event.tilt;
-    unsigned int flags = g_pen_eraser ? AUREA_PEN_ERASER : 0;
-    if (event.buttonMask & (NSEventButtonMaskPenLowerSide | NSEventButtonMaskPenUpperSide)) {
-        flags |= AUREA_PEN_BARREL;
-    }
-    double age = [[NSProcessInfo processInfo] systemUptime] - event.timestamp;
-    ng_invoke_pen(self.windowHandle, p.x, h - p.y, event.pressure, (float)(tilt.x * 90.0),
-                  (float)(tilt.y * 90.0), event.rotation, phase, flags, ng_macos_modifiers(event), age);
-}
-
 - (void)tabletProximity:(NSEvent*)event {
-    if (event.isEnteringProximity) {
-        g_pen_eraser = event.pointingDeviceType == NSPointingDeviceTypeEraser;
-    }
+    if (!ng_macos_pen_proximity(event)) [super tabletProximity:event];
 }
 
 - (void)tabletPoint:(NSEvent*)event {
-    [self reportPen:event phase:(event.pressure > 0 ? AUREA_PEN_MOVE : AUREA_PEN_HOVER)];
+    if (!ng_macos_pen_point(self, event)) [super tabletPoint:event];
 }
-#endif
 
 - (void)mouseMoved:(NSEvent*)event {
     if (!self.windowHandle) return;
@@ -312,9 +274,7 @@ static BOOL is_pen_event(NSEvent* event) {
     CGFloat h = [self bounds].size.height;
     unsigned int buttons = (unsigned int)([NSEvent pressedMouseButtons] & 0xFF);
     ng_invoke_mouse_move(self.windowHandle, location.x, h - location.y, buttons, ng_macos_mouse_modifiers(event));
-#ifdef NG_INPUT_PEN
-    [self reportPen:event phase:((buttons & 1) ? AUREA_PEN_MOVE : AUREA_PEN_HOVER)];
-#endif
+    ng_macos_pen_report(self, event, ((buttons & 1) ? AUREA_PEN_MOVE : AUREA_PEN_HOVER));
 
     if (self.grabMode == 1) ng_macos_cursor_confine([self window]);
 #ifdef NG_INPUT_RAW_MOUSE
@@ -367,9 +327,7 @@ static BOOL is_pen_event(NSEvent* event) {
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
     ng_invoke_mouse_button(self.windowHandle, 0, 1, ng_macos_mouse_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
-#ifdef NG_INPUT_PEN
-    [self reportPen:event phase:AUREA_PEN_DOWN];
-#endif
+    ng_macos_pen_report(self, event, AUREA_PEN_DOWN);
     [self buttonWentDown];
 }
 
@@ -378,9 +336,7 @@ static BOOL is_pen_event(NSEvent* event) {
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
     ng_invoke_mouse_button(self.windowHandle, 0, 0, ng_macos_mouse_modifiers(event), p.x, h - p.y, 1);
-#ifdef NG_INPUT_PEN
-    [self reportPen:event phase:AUREA_PEN_UP];
-#endif
+    ng_macos_pen_report(self, event, AUREA_PEN_UP);
     [self buttonWentUp];
 }
 
