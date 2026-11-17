@@ -334,16 +334,39 @@ unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
     [self buttonWentUp];
 }
 
-static const double NG_MACOS_POINTS_PER_LINE = 40.0;
+/* Where a trackpad scroll falls in its gesture; -1 for the touch down before any move. */
+static int ng_macos_scroll_phase(NSEvent* event) {
+    NSEventPhase momentum = event.momentumPhase;
+    if (momentum != NSEventPhaseNone) {
+        if (momentum & (NSEventPhaseEnded | NSEventPhaseCancelled)) return NG_SCROLL_MOMENTUM_ENDED;
+        return NG_SCROLL_MOMENTUM;
+    }
+    switch (event.phase) {
+        case NSEventPhaseNone: return NG_SCROLL_DISCRETE;
+        case NSEventPhaseMayBegin: return -1;
+        case NSEventPhaseBegan: return NG_SCROLL_BEGAN;
+        case NSEventPhaseChanged: return NG_SCROLL_MOVED;
+        default: return NG_SCROLL_ENDED;
+    }
+}
 
+/* AppKit deltas follow the content: right is negative x there, up positive y. A wheel with
+   detents gives lines and goes as clicks; a trackpad gives points, which are logical pixels. */
 - (void)scrollWheel:(NSEvent*)event {
     if (!self.windowHandle) return;
-    double scale = [event hasPreciseScrollingDeltas] ? 1.0 : NG_MACOS_POINTS_PER_LINE;
-    ng_invoke_mouse_wheel(
-        self.windowHandle,
-        -(double)[event scrollingDeltaX] * scale,
-        (double)[event scrollingDeltaY] * scale,
-        ng_macos_modifiers(event));
+    double dx = -(double)[event scrollingDeltaX];
+    double dy = (double)[event scrollingDeltaY];
+    unsigned int mods = ng_macos_modifiers(event);
+    int inverted = event.isDirectionInvertedFromDevice ? 1 : 0;
+    if (![event hasPreciseScrollingDeltas]) {
+        ng_invoke_scroll(self.windowHandle, 0.0, 0.0, 1, dx, dy, NG_SCROLL_WHEEL,
+                         NG_SCROLL_DISCRETE, inverted, mods);
+        return;
+    }
+    int phase = ng_macos_scroll_phase(event);
+    if (phase < 0) return;
+    ng_invoke_scroll(self.windowHandle, dx, dy, 0, 0.0, 0.0, NG_SCROLL_TRACKPAD, (unsigned int)phase,
+                     inverted, mods);
 }
 
 - (void)magnifyWithEvent:(NSEvent*)event {
