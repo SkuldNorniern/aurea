@@ -14,10 +14,12 @@ use crate::cpu::tiles::{
     mark_tile_range_dirty, tile_grid_dims, tile_range, union_dirty_tile_rects,
 };
 use crate::cpu::{pool, stroke};
+#[cfg(feature = "effects")]
 use crate::effect::Effect;
 use crate::memory::smaller_buffer;
 use crate::recording::RecordingContext;
 use crate::renderer::{DrawingContext, FrameOutcome, FrameOutput, Renderer};
+#[cfg(feature = "effects")]
 use crate::scene::command::DrawCommand;
 use crate::scene::display_list::{CacheKey, DisplayItem, DisplayList};
 use crate::surface::{Surface, SurfaceInfo};
@@ -520,6 +522,7 @@ impl Renderer for CpuRasterizer {
 
 /// `damage` grown over every backdrop whose reach it touches: the box it writes must be drawn
 /// whole, since each pixel of it reads the pixels around.
+#[cfg(feature = "effects")]
 fn grow_over_backdrops(items: &[DisplayItem], damage: Rect) -> Rect {
     let mut grown = damage;
     for item in items {
@@ -538,6 +541,26 @@ fn grow_over_backdrops(items: &[DisplayItem], damage: Rect) -> Rect {
         }
     }
     grown
+}
+
+#[cfg(not(feature = "effects"))]
+fn grow_over_backdrops(_: &[DisplayItem], damage: Rect) -> Rect {
+    damage
+}
+
+/// The first backdrop at or after `from`, where the frame is drawn up to it, then it on the whole
+/// frame.
+#[cfg(feature = "effects")]
+fn next_backdrop(items: &[DisplayItem], from: usize) -> Option<usize> {
+    items[from..]
+        .iter()
+        .position(|item| matches!(item.command, DrawCommand::Backdrop(..)))
+        .map(|at| from + at)
+}
+
+#[cfg(not(feature = "effects"))]
+fn next_backdrop(_: &[DisplayItem], _: usize) -> Option<usize> {
+    None
 }
 
 impl CpuRasterizer {
@@ -594,10 +617,7 @@ impl CpuRasterizer {
         // on the whole frame, then on.
         let mut start = 0;
         loop {
-            let backdrop = items[start..]
-                .iter()
-                .position(|item| matches!(item.command, DrawCommand::Backdrop(..)))
-                .map(|at| start + at);
+            let backdrop = next_backdrop(items, start);
             let end = backdrop.unwrap_or(items.len());
             let segment = FramePlan {
                 range: start..end,
@@ -659,6 +679,8 @@ mod diff_damage_tests {
     use super::*;
     use crate::cpu::damage::FrameDamage;
     use crate::cpu::raster::gradient;
+    #[cfg(not(feature = "effects"))]
+    use crate::effect::Effect;
 
     use crate::renderer::{FrameOutcome, Renderer};
     use crate::scene::command::DrawCommand;
@@ -677,6 +699,31 @@ mod diff_damage_tests {
             BlendMode::Normal,
             DrawCommand::Clear(Color::rgb(0, 0, 0)),
         )
+    }
+
+    #[cfg(not(feature = "effects"))]
+    #[test]
+    fn a_backdrop_draws_nothing_without_effects() {
+        let frame = |glass: bool| {
+            let mut r = CpuRasterizer::new(200, 200);
+            {
+                let mut ctx = r.begin_frame().expect("frame");
+                ctx.clear(Color::rgb(0, 0, 0)).expect("clear");
+                ctx.draw_rect(
+                    Rect::new(0.0, 0.0, 100.0, 200.0),
+                    &Paint::new().color(Color::rgb(255, 255, 255)),
+                )
+                .expect("rect");
+                if glass {
+                    let shape = Path::rounded_rect(Rect::new(50.0, 50.0, 100.0, 100.0), 10.0);
+                    let effects = [Effect::Blur(8.0)];
+                    ctx.backdrop(&shape, &effects).expect("backdrop");
+                }
+            }
+            r.end_frame().expect("end");
+            r.frame_output().expect("out").bytes().to_vec()
+        };
+        assert!(frame(true) == frame(false));
     }
 
     #[test]

@@ -1,5 +1,5 @@
 //! What a backdrop does to the pixels already drawn under a shape: blur, saturate, tint, or an
-//! app's own filter.
+//! app's own filter. Without the `effects` feature a backdrop draws nothing.
 
 use std::fmt::Debug;
 use std::panic::{RefUnwindSafe, UnwindSafe};

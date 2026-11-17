@@ -18,6 +18,7 @@ pub(crate) struct ImageScratch {
     /// Byte offset of each output column's source pixel, for nearest sampling.
     pub(crate) source_cols: Vec<usize>,
     pub(crate) clip: ClipScratch,
+    #[cfg(feature = "effects")]
     pub(crate) effect: super::effect::EffectScratch,
 }
 
