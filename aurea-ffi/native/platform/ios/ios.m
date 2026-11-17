@@ -437,10 +437,6 @@ int ng_platform_label_set_text(NGHandle handle, const char* text) {
     return NG_SUCCESS;
 }
 
-void ng_platform_canvas_invalidate(NGHandle handle) {
-    (void)handle;
-}
-
 void ng_platform_text_editor_invalidate(NGHandle handle) {
     (void)handle;
 }
