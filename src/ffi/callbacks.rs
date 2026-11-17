@@ -1,3 +1,4 @@
+#[cfg(feature = "pen")]
 use crate::window::PenTapAction;
 use log::error;
 use std::ffi::CStr;
@@ -5,11 +6,19 @@ use std::os::raw::{c_char, c_int, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::sync::LazyLock;
+#[cfg(feature = "pen")]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::app::opened;
+#[cfg(feature = "drop-files")]
+use crate::input::drop;
+#[cfg(feature = "ime")]
+use crate::input::ime;
+#[cfg(feature = "pen")]
 use crate::input::pen::note_source;
+#[cfg(feature = "text-input")]
+use crate::input::text;
 use crate::registry::custom::invoke_custom_callback;
 use crate::registry::elements::{
     invoke_button_callback, invoke_row_list_activated, invoke_row_list_selected,
@@ -20,9 +29,10 @@ use crate::registry::menu::invoke_menu_callback;
 use crate::registry::window::{push_event_to_all_windows, scale_factor_changed};
 use crate::render::notify_canvas_destroyed;
 use crate::window::{
-    KeyCode, Modifiers, MouseButton, MouseButtons, PenPhase, PenSample, PenTool, PointerKind,
-    WindowEvent, push_window_event,
+    KeyCode, Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent, push_window_event,
 };
+#[cfg(feature = "pen")]
+use crate::window::{PenPhase, PenSample, PenTool};
 use aurea_runtime::FrameScheduler;
 
 fn guard(entry: &str, call: impl FnOnce()) {
@@ -37,16 +47,6 @@ pub extern "C" fn ng_invoke_canvas_destroyed(canvas: *mut c_void) {
     guard("ng_invoke_canvas_destroyed", || {
         notify_canvas_destroyed(canvas)
     });
-}
-
-#[inline]
-fn c_string(ptr: *const c_char) -> Option<String> {
-    if ptr.is_null() {
-        return None;
-    }
-
-    let c_str = unsafe { CStr::from_ptr(ptr) };
-    c_str.to_str().ok().map(str::to_owned)
 }
 
 /// Runs the menu item callback `id`.
@@ -223,19 +223,25 @@ pub extern "C" fn ng_invoke_mouse_wheel(
     });
 }
 
+#[cfg(feature = "gestures")]
 const GESTURE_MAGNIFY: u32 = 0;
+#[cfg(feature = "gestures")]
 const GESTURE_ROTATE: u32 = 1;
 
 /// Queues a pinch (`value` a factor) or a twist (`value` radians, clockwise) about (`x`, `y`).
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_gesture(window: *mut c_void, kind: u32, value: f64, x: f64, y: f64) {
     guard("ng_invoke_gesture", || {
+        #[cfg(feature = "gestures")]
         if let Some(event) = gesture_event(kind, value, x, y) {
             push_window_event(window, event);
         }
+        #[cfg(not(feature = "gestures"))]
+        let _ = (window, kind, value, x, y);
     });
 }
 
+#[cfg(feature = "gestures")]
 fn gesture_event(kind: u32, value: f64, x: f64, y: f64) -> Option<WindowEvent> {
     match kind {
         GESTURE_MAGNIFY if value.is_finite() && value > 0.0 => Some(WindowEvent::Magnify {
@@ -256,10 +262,12 @@ fn gesture_event(kind: u32, value: f64, x: f64, y: f64) -> Option<WindowEvent> {
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_text_input(window: *mut c_void, text: *const c_char) {
     guard("ng_invoke_text_input", || {
-        if let Some(text) = c_string(text).and_then(typed_text) {
-            let event = WindowEvent::TextInput { text };
+        #[cfg(feature = "text-input")]
+        if let Some(event) = text::typed(text) {
             push_window_event(window, event);
         }
+        #[cfg(not(feature = "text-input"))]
+        let _ = (window, text);
     });
 }
 
@@ -267,27 +275,11 @@ pub extern "C" fn ng_invoke_text_input(window: *mut c_void, text: *const c_char)
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_ime_preedit(window: *mut c_void, text: *const c_char, cursor: c_int) {
     guard("ng_invoke_ime_preedit", || {
-        let text = c_string(text).unwrap_or_default();
-        let event = WindowEvent::ImePreedit {
-            cursor: preedit_cursor(&text, cursor),
-            text,
-        };
-        push_window_event(window, event);
+        #[cfg(feature = "ime")]
+        push_window_event(window, ime::preedit(text, cursor));
+        #[cfg(not(feature = "ime"))]
+        let _ = (window, text, cursor);
     });
-}
-
-fn preedit_cursor(text: &str, cursor: c_int) -> Option<usize> {
-    let cursor = usize::try_from(cursor).ok()?;
-    text.is_char_boundary(cursor).then_some(cursor)
-}
-
-fn typed_text(text: String) -> Option<String> {
-    let text = if text.chars().any(char::is_control) {
-        text.chars().filter(|c| !c.is_control()).collect()
-    } else {
-        text
-    };
-    (!text.is_empty()).then_some(text)
 }
 
 /// Queues a focus gain or loss for `window`.
@@ -345,13 +337,18 @@ pub extern "C" fn ng_invoke_cursor_entered(window: *mut c_void, entered: c_int) 
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_raw_mouse_motion(window: *mut c_void, delta_x: f64, delta_y: f64) {
     guard("ng_invoke_raw_mouse_motion", || {
-        let event = WindowEvent::RawMouseMotion { delta_x, delta_y };
-        push_window_event(window, event);
+        #[cfg(feature = "raw-mouse")]
+        push_window_event(window, WindowEvent::RawMouseMotion { delta_x, delta_y });
+        #[cfg(not(feature = "raw-mouse"))]
+        let _ = (window, delta_x, delta_y);
     });
 }
 
+#[cfg(feature = "pen")]
 const PEN_ERASER: u32 = 1;
+#[cfg(feature = "pen")]
 const PEN_BARREL: u32 = 2;
+#[cfg(feature = "pen")]
 const PEN_WINTAB: u32 = 4;
 
 static EPOCH: LazyLock<Instant> = LazyLock::new(Instant::now);
@@ -381,43 +378,53 @@ pub extern "C" fn ng_invoke_pen(
     age: f64,
 ) {
     guard("ng_invoke_pen", || {
-        note_source(flags & PEN_WINTAB != 0);
-        let sample = PenSample {
-            time: event_time(age),
-            x,
-            y,
-            pressure: pressure.clamp(0.0, 1.0),
-            tilt_x: tilt_x.clamp(-90.0, 90.0),
-            tilt_y: tilt_y.clamp(-90.0, 90.0),
-            twist: twist.rem_euclid(360.0),
-            phase: PenPhase::from_raw(phase),
-            tool: pen_tool(flags),
-            barrel: flags & PEN_BARREL != 0,
-            modifiers: Modifiers::from_bits(modifiers),
-        };
-        let tapped = barrel_tapped(&LAST_BARREL, sample.barrel, sample.phase);
-        push_window_event(window, WindowEvent::Pen(sample));
-        if tapped {
-            push_window_event(
-                window,
-                WindowEvent::PenTap {
-                    squeeze: false,
-                    action: PenTapAction::default(),
-                },
-            );
+        #[cfg(feature = "pen")]
+        {
+            note_source(flags & PEN_WINTAB != 0);
+            let sample = PenSample {
+                time: event_time(age),
+                x,
+                y,
+                pressure: pressure.clamp(0.0, 1.0),
+                tilt_x: tilt_x.clamp(-90.0, 90.0),
+                tilt_y: tilt_y.clamp(-90.0, 90.0),
+                twist: twist.rem_euclid(360.0),
+                phase: PenPhase::from_raw(phase),
+                tool: pen_tool(flags),
+                barrel: flags & PEN_BARREL != 0,
+                modifiers: Modifiers::from_bits(modifiers),
+            };
+            let tapped = barrel_tapped(&LAST_BARREL, sample.barrel, sample.phase);
+            push_window_event(window, WindowEvent::Pen(sample));
+            if tapped {
+                push_window_event(
+                    window,
+                    WindowEvent::PenTap {
+                        squeeze: false,
+                        action: PenTapAction::default(),
+                    },
+                );
+            }
         }
+        #[cfg(not(feature = "pen"))]
+        let _ = (
+            window, x, y, pressure, tilt_x, tilt_y, twist, phase, flags, modifiers, age,
+        );
     });
 }
 
+#[cfg(feature = "pen")]
 static LAST_BARREL: AtomicBool = AtomicBool::new(false);
 
 /// Whether the barrel button just went down with the pen in the air: a tap on it, as a phone's
 /// stylus reports one. Pressed against the surface it only changes what the stroke does.
+#[cfg(feature = "pen")]
 fn barrel_tapped(last: &AtomicBool, barrel: bool, phase: PenPhase) -> bool {
     let was = last.swap(barrel, Ordering::Relaxed);
     barrel && !was && phase == PenPhase::Hover
 }
 
+#[cfg(feature = "pen")]
 fn pen_tool(flags: u32) -> PenTool {
     if flags & PEN_ERASER != 0 {
         PenTool::Eraser
@@ -425,9 +432,6 @@ fn pen_tool(flags: u32) -> PenTool {
         PenTool::Tip
     }
 }
-
-const DROP_HOVER: u32 = 0;
-const DROP_DROP: u32 = 1;
 
 /// Queues a file hover or drop for `window`.
 #[unsafe(no_mangle)]
@@ -439,18 +443,10 @@ pub extern "C" fn ng_invoke_file_drop(
     paths: *const c_char,
 ) {
     guard("ng_invoke_file_drop", || {
-        let paths: Vec<PathBuf> = c_string(paths)
-            .unwrap_or_default()
-            .lines()
-            .filter(|l| !l.is_empty())
-            .map(PathBuf::from)
-            .collect();
-        let event = match kind {
-            DROP_HOVER => WindowEvent::FilesHovered { paths, x, y },
-            DROP_DROP => WindowEvent::FilesDropped { paths, x, y },
-            _ => WindowEvent::FilesHoverEnded,
-        };
-        push_window_event(window, event);
+        #[cfg(feature = "drop-files")]
+        push_window_event(window, drop::event(kind, x, y, paths));
+        #[cfg(not(feature = "drop-files"))]
+        let _ = (window, kind, x, y, paths);
     });
 }
 
@@ -490,6 +486,7 @@ mod tests {
     use std::thread::sleep;
 
     #[test]
+    #[cfg(feature = "pen")]
     fn a_barrel_press_in_the_air_is_a_tap() {
         let last = AtomicBool::new(false);
         assert!(
@@ -508,6 +505,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "pen")]
     fn pen_flags_and_phases_read_as_sent() {
         assert_eq!(pen_tool(0), PenTool::Tip);
         assert_eq!(pen_tool(PEN_ERASER | PEN_BARREL), PenTool::Eraser);
@@ -527,15 +525,7 @@ mod tests {
     }
 
     #[test]
-    fn control_characters_are_not_typed_text() {
-        for key in ["\r", "\u{8}", "\t", "\u{1b}", "\u{1}", "\u{7f}"] {
-            assert_eq!(typed_text(key.to_owned()), None, "{key:?}");
-        }
-        assert_eq!(typed_text("a\u{8}b".to_owned()).as_deref(), Some("ab"));
-        assert_eq!(typed_text("한글 😀".to_owned()).as_deref(), Some("한글 😀"));
-    }
-
-    #[test]
+    #[cfg(feature = "gestures")]
     fn a_pinch_keeps_its_factor_and_spot() {
         assert!(matches!(
             gesture_event(GESTURE_MAGNIFY, 1.5, 3.0, 4.0),
@@ -547,6 +537,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "gestures")]
     fn a_twist_keeps_its_sign_and_unknown_kinds_are_dropped() {
         assert!(matches!(
             gesture_event(GESTURE_ROTATE, -0.25, 3.0, 4.0),
@@ -554,16 +545,6 @@ mod tests {
         ));
         assert!(gesture_event(GESTURE_ROTATE, f64::NAN, 0.0, 0.0).is_none());
         assert!(gesture_event(7, 1.0, 0.0, 0.0).is_none());
-    }
-
-    #[test]
-    fn preedit_cursor_must_land_on_a_character() {
-        assert_eq!(preedit_cursor("한글", -1), None);
-        assert_eq!(preedit_cursor("한글", 0), Some(0));
-        assert_eq!(preedit_cursor("한글", 3), Some(3));
-        assert_eq!(preedit_cursor("한글", 6), Some(6));
-        assert_eq!(preedit_cursor("한글", 1), None);
-        assert_eq!(preedit_cursor("한글", 7), None);
     }
 
     #[test]

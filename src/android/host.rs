@@ -14,20 +14,21 @@ use jni::JNIEnv;
 use jni::objects::JObject;
 
 use super::window::NativeWindow;
+#[cfg(feature = "pen")]
 use crate::ffi::callbacks::event_time;
 #[cfg(feature = "zengpu")]
 use crate::gpu_ready;
 use crate::input::keyboard::{KeyboardFocus, set_keyboard_connected};
+#[cfg(feature = "touch")]
 use crate::input::touch::{Phase, Touches};
 use crate::render::{CpuRasterizer, Renderer, SurfaceInfo};
 use crate::screen::{self, Screen};
 use crate::trim_memory;
 use crate::ui::{Theme, Ui, UiState};
 use crate::wake::wake_at;
-use crate::{
-    AureaResult, KeyCode, Modifiers, MouseButtons, PenPhase, PenSample, PenTapAction, PenTool,
-    Point, PointerKind, Rect, WindowEvent,
-};
+use crate::{AureaResult, KeyCode, Modifiers, Point, Rect, WindowEvent};
+#[cfg(feature = "pen")]
+use crate::{MouseButtons, PenPhase, PenSample, PenTapAction, PenTool, PointerKind};
 use aurea_render::FrameOutcome;
 #[cfg(feature = "zengpu")]
 use aurea_render::{ZenGpuContext, ZenGpuRenderer};
@@ -51,6 +52,7 @@ struct Host {
     /// System bar insets in buffer pixels; they can arrive before the surface and its scale.
     insets: [f32; 4],
     shape: Shape,
+    #[cfg(feature = "touch")]
     touches: Touches,
     keyboard: KeyboardFocus,
 }
@@ -189,6 +191,7 @@ thread_local! {
         logical: (1, 1),
         insets: [0.0; 4],
         shape: Shape::default(),
+        #[cfg(feature = "touch")]
         touches: Touches::new(),
         keyboard: KeyboardFocus::default(),
     });
@@ -247,6 +250,7 @@ pub(super) fn device_changed() {
 
 /// A pen's side button clicked while it hovers.
 pub(super) fn pen_tap() {
+    #[cfg(feature = "pen")]
     feed(&[WindowEvent::PenTap {
         squeeze: false,
         action: PenTapAction::default(),
@@ -421,15 +425,23 @@ pub(super) fn key(code: i32, pressed: bool, meta: i32) {
 
 /// Text the keyboard typed.
 pub(super) fn text(text: String) {
+    #[cfg(feature = "text-input")]
     if !text.is_empty() {
         feed(&[WindowEvent::TextInput { text }]);
     }
+    #[cfg(not(feature = "text-input"))]
+    let _ = text;
 }
 
 /// What an input method is still composing; empty when it is done or called off.
 pub(super) fn preedit(text: String, cursor: i32) {
-    let cursor = usize::try_from(cursor).ok();
-    feed(&[WindowEvent::ImePreedit { text, cursor }]);
+    #[cfg(feature = "ime")]
+    {
+        let cursor = usize::try_from(cursor).ok();
+        feed(&[WindowEvent::ImePreedit { text, cursor }]);
+    }
+    #[cfg(not(feature = "ime"))]
+    let _ = (text, cursor);
 }
 
 /// Android's `KeyEvent` meta state as modifiers.
@@ -490,6 +502,7 @@ const TOOL_MOUSE: i32 = 3;
 const TOOL_ERASER: i32 = 4;
 
 /// Where a reading falls, as `AureaActivity` sends it.
+#[cfg(feature = "pen")]
 const HOVER: i32 = 4;
 const EXIT: i32 = 5;
 
@@ -509,32 +522,20 @@ pub(super) fn pointer(
 ) {
     let pen = tool == TOOL_STYLUS || tool == TOOL_ERASER;
     POINTER_PENCIL.store(pen, Ordering::Relaxed);
-    let (at, touched) = HOST.with_borrow_mut(|host| {
-        let at = host.logical(x, y);
-        let touch = match phase {
-            0 => Phase::Down,
-            1 => Phase::Up,
-            2 => Phase::Move,
-            3 => Phase::Cancel,
-            _ => return (at, Vec::new()),
-        };
-        // a mouse presses at once, like a pen.
-        let at_once = pen || tool == TOOL_MOUSE;
-        let id = usize::try_from(id).unwrap_or(0);
-        (
-            at,
-            host.touches.touch(touch, id, at, at_once, Instant::now()),
-        )
-    });
-    let mut events = Vec::with_capacity(touched.len() + 1);
+    let at = HOST.with_borrow_mut(|host| host.logical(x, y));
+    let mut events = Vec::new();
+    #[cfg(feature = "pen")]
     if pen {
         let lean = (tilt, orientation);
         events.push(WindowEvent::Pen(pen_sample(
             phase, tool, at, pressure, lean, barrel, age,
         )));
     }
+    #[cfg(not(feature = "pen"))]
+    let _ = (pressure, tilt, orientation, barrel, age);
     match phase {
         // a pen above the screen moves the pointer without pressing.
+        #[cfg(feature = "pen")]
         HOVER => events.push(WindowEvent::MouseMove {
             x: f64::from(at.x),
             y: f64::from(at.y),
@@ -546,12 +547,33 @@ pub(super) fn pointer(
         EXIT => events.push(WindowEvent::MouseExited),
         _ => {}
     }
-    events.extend(touched);
+    // a mouse presses at once, like a pen.
+    events.extend(touch_events(phase, id, at, pen || tool == TOOL_MOUSE));
     feed(&events);
+}
+
+/// The events of a finger, or a pen or mouse at once, landing or moving at `at`.
+#[cfg(feature = "touch")]
+fn touch_events(phase: i32, id: i32, at: Point, at_once: bool) -> Vec<WindowEvent> {
+    let touch = match phase {
+        0 => Phase::Down,
+        1 => Phase::Up,
+        2 => Phase::Move,
+        3 => Phase::Cancel,
+        _ => return Vec::new(),
+    };
+    let id = usize::try_from(id).unwrap_or(0);
+    HOST.with_borrow_mut(|host| host.touches.touch(touch, id, at, at_once, Instant::now()))
+}
+
+#[cfg(not(feature = "touch"))]
+fn touch_events(_: i32, _: i32, _: Point, _: bool) -> Vec<WindowEvent> {
+    Vec::new()
 }
 
 /// A pen reading as a [`PenSample`]: Android gives the tilt from upright and the direction the pen
 /// leans, which become the lean toward the right and toward the user.
+#[cfg(feature = "pen")]
 fn pen_sample(
     phase: i32,
     tool: i32,
@@ -620,12 +642,30 @@ fn follow_focus() {
     }
 }
 
-fn draw_frame() -> bool {
-    // a finger held still long enough becomes the mouse.
+/// A finger held still long enough becomes the mouse.
+#[cfg(feature = "touch")]
+fn settle_touches() {
     let settled = HOST.with_borrow_mut(|host| host.touches.tick(Instant::now()));
     feed(&settled);
+}
+
+/// Whether a finger is waiting to become the mouse, so a frame is wanted soon.
+#[cfg(feature = "touch")]
+fn touch_waiting(host: &Host) -> bool {
+    host.touches.waiting()
+}
+
+#[cfg(not(feature = "touch"))]
+fn touch_waiting(_: &Host) -> bool {
+    false
+}
+
+fn draw_frame() -> bool {
+    #[cfg(feature = "touch")]
+    settle_touches();
     HOST.with_borrow_mut(|host| {
         let insets = host.logical_insets();
+        let waiting = touch_waiting(host);
         let Host {
             app: Some(app),
             theme,
@@ -645,7 +685,7 @@ fn draw_frame() -> bool {
                 log::warn!("android frame: {e}");
                 return false;
             }
-            return next_frame(theme, state, host.touches.waiting());
+            return next_frame(theme, state, waiting);
         }
         match draw(raster, app, theme, state, size, insets) {
             Err(e) => {
@@ -664,7 +704,7 @@ fn draw_frame() -> bool {
                 }
             }
         }
-        next_frame(theme, state, host.touches.waiting())
+        next_frame(theme, state, waiting)
     })
 }
 

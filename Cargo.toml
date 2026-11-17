@@ -105,7 +105,23 @@ accesskit_unix = { version = "0.23", optional = true }
 # No GPU backend by default: the GPU 2D path does not yet reach parity with the
 # CPU rasterizer (strokes and damage-driven partial repaint are still missing),
 # so it stays opt-in until it does.
-default = []
+# Input: keys and mouse are always on. `input` turns on every input feature below.
+default = ["input"]
+input = ["text-input", "ime", "raw-mouse", "pen", "touch", "gestures", "drop-files"]
+# Typed text as `TextInput`.
+text-input = []
+# Preedit as `ImePreedit`, the candidate window's place, and ime on and off per field. Needs `text-input`.
+ime = ["text-input"]
+# `RawMouseMotion` and cursor lock (`CursorGrabMode::Locked`).
+raw-mouse = []
+# Pen samples, `PenBatch`, `PenPredicted`, `PenTap`, pressure and tilt.
+pen = []
+# Fingers: `LongPress`, `FingerTap`, `PressCancelled`, and a finger as the mouse.
+touch = []
+# Pinch, twist and two-finger scroll: `Magnify`, `Rotate`, `Gesture`.
+gestures = []
+# `FilesHovered`, `FilesDropped`, `FilesHoverEnded`.
+drop-files = []
 accessibility = ["dep:accesskit", "dep:accesskit_windows", "dep:accesskit_macos", "dep:accesskit_unix", "dep:windows"]
 wgpu = ["dep:wgpu", "dep:raw-window-handle"]
 # iOS and Android native hosts. Experimental and opt-in; see mobile/README.md

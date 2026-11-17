@@ -84,26 +84,7 @@ fn rotate(radians: f32, at: Point) -> WindowEvent {
     }
 }
 
-/// Where fingers at `a` and `b` lie. Two fingers on one spot have no line between them, so they
-/// keep the `last` angle.
-pub(super) fn pose(a: Point, b: Point, last: f32) -> Pose {
-    let span = distance(a, b);
-    Pose {
-        center: Point::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0),
-        span,
-        angle: if span > 0.0 {
-            (b.y - a.y).atan2(b.x - a.x)
-        } else {
-            last
-        },
-    }
-}
-
 /// The turn from `delta` radians, taken the short way round, as a value in `[-PI, PI)`.
 pub(super) fn wrap(delta: f32) -> f32 {
     (delta + PI).rem_euclid(TAU) - PI
-}
-
-pub(super) fn distance(a: Point, b: Point) -> f32 {
-    (a.x - b.x).hypot(a.y - b.y)
 }

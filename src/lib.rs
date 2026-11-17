@@ -38,8 +38,11 @@
 //!
 //! # Features
 //!
-//! None are on by default, and the CPU renderer always works.
+//! The CPU renderer always works. Keys and the mouse are always on; `input` (on by default) adds
+//! the input features below, and [`input::supported`] says which are there.
 //!
+//! - `text-input`, `ime`, `raw-mouse`, `pen`, `touch`, `gestures`, `drop-files`: the input parts,
+//!   all in `input`.
 //! - `zengpu`: GPU rendering through ZenGPU, on Metal on macOS and Vulkan elsewhere. Experimental.
 //! - `wgpu`: wgpu renderer and surface helpers, for fitting Aurea into a wgpu app.
 //! - `accessibility`: screen reader support for canvas widgets, through AccessKit.
@@ -84,7 +87,7 @@ pub mod embed;
 /// C ABI entry points for the native layers.
 pub mod ffi;
 pub mod files;
-mod input;
+pub mod input;
 pub mod integration;
 pub(crate) use input::keyboard;
 pub use input::keymap;

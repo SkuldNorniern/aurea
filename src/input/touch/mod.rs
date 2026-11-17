@@ -9,11 +9,15 @@
 
 use std::time::{Duration, Instant};
 
-use crate::{GesturePhase, Point, WindowEvent, press_on_hold};
+#[cfg(feature = "gestures")]
+use crate::GesturePhase;
+use crate::{Point, WindowEvent, press_on_hold};
 
-use self::gesture::{distance, gesture, pose, totals, wheel, wrap};
+#[cfg(feature = "gestures")]
+use self::gesture::{gesture, totals, wheel, wrap};
 use self::mouse::{as_pen, long_press, mouse_move, press, release};
 
+#[cfg(feature = "gestures")]
 mod gesture;
 mod mouse;
 
@@ -57,6 +61,7 @@ enum State {
     },
     /// Two fingers: how they landed and lie, how far they have turned in all, and how far while
     /// still inside the dead zone (`None` once they are turning for real).
+    #[cfg(feature = "gestures")]
     Gesture {
         a: usize,
         b: usize,
@@ -66,6 +71,7 @@ enum State {
         turn: Option<f32>,
     },
     /// The finger left of a gesture, scrolling.
+    #[cfg(feature = "gestures")]
     Pan {
         id: usize,
         at: Point,
@@ -84,6 +90,25 @@ struct Pose {
     center: Point,
     span: f32,
     angle: f32,
+}
+
+/// Where fingers at `a` and `b` lie. Two fingers on one spot have no line between them, so they
+/// keep the `last` angle.
+fn pose(a: Point, b: Point, last: f32) -> Pose {
+    let span = distance(a, b);
+    Pose {
+        center: Point::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0),
+        span,
+        angle: if span > 0.0 {
+            (b.y - a.y).atan2(b.x - a.x)
+        } else {
+            last
+        },
+    }
+}
+
+fn distance(a: Point, b: Point) -> f32 {
+    (a.x - b.x).hypot(a.y - b.y)
 }
 
 /// Fingers that may yet be a tap: since when, how many, and where.
@@ -142,9 +167,7 @@ impl Touches {
         self.starting_tap(phase, pencil);
         self.state = match self.state {
             // a pencil landing on a waiting finger: the finger was a palm.
-            State::Idle | State::Pending { .. } | State::Pan { .. }
-                if pencil && phase == Phase::Down =>
-            {
+            _ if pencil && phase == Phase::Down && self.takes_pencil() => {
                 press(&mut out, at);
                 State::Pointer { id, still: None }
             }
@@ -175,7 +198,9 @@ impl Touches {
                 Phase::Down => self.state,
             },
             State::LongPressed { id: held } if held == id => self.long_pressed(&mut out, phase),
+            #[cfg(feature = "gestures")]
             State::Gesture { .. } => self.gesture(&mut out, phase, id),
+            #[cfg(feature = "gestures")]
             State::Pan { .. } => self.pan(&mut out, phase, id, at),
             State::Done if matches!(phase, Phase::Up | Phase::Cancel) => self.rest(),
             state => state,
@@ -185,6 +210,16 @@ impl Touches {
             as_pen(&mut out);
         }
         out
+    }
+
+    /// Whether a pencil landing now draws: nothing is waiting on a finger, or a pan was left behind.
+    fn takes_pencil(&self) -> bool {
+        match self.state {
+            State::Idle | State::Pending { .. } => true,
+            #[cfg(feature = "gestures")]
+            State::Pan { .. } => true,
+            _ => false,
+        }
     }
 
     /// Before the state moves on: a second finger on a waiting one may be a tap, and more may join
@@ -203,6 +238,7 @@ impl Touches {
                     at: pose(start, at, 0.0).center,
                 });
             }
+            #[cfg(feature = "gestures")]
             State::Pan { .. } => self.tap = None,
             _ => {
                 if let Some(tap) = &mut self.tap {
@@ -281,7 +317,7 @@ impl Touches {
             return self.state;
         };
         match phase {
-            Phase::Down => begin(out, held, was, id, at),
+            Phase::Down => self.second_finger(out, held, was, id, at),
             _ if held != id => self.state,
             Phase::Move if distance(start, at) > SLOP => {
                 press(out, start);
@@ -303,8 +339,34 @@ impl Touches {
         }
     }
 
+    /// A second finger on a waiting one starts a gesture. Without `gestures` it is ignored.
+    #[cfg(feature = "gestures")]
+    fn second_finger(
+        &self,
+        out: &mut Vec<WindowEvent>,
+        a: usize,
+        at_a: Point,
+        b: usize,
+        at_b: Point,
+    ) -> State {
+        begin(out, a, at_a, b, at_b)
+    }
+
+    #[cfg(not(feature = "gestures"))]
+    fn second_finger(
+        &self,
+        _out: &mut Vec<WindowEvent>,
+        _a: usize,
+        _at_a: Point,
+        _b: usize,
+        _at_b: Point,
+    ) -> State {
+        self.state
+    }
+
     /// Two fingers: their moves scroll and zoom, and either lifting ends it. If that leaves one
     /// finger it pans on, unless the system took the touch.
+    #[cfg(feature = "gestures")]
     fn gesture(&self, out: &mut Vec<WindowEvent>, phase: Phase, id: usize) -> State {
         let State::Gesture {
             a,
@@ -358,6 +420,7 @@ impl Touches {
     }
 
     /// The finger left of a gesture: it scrolls, and another landing starts a new gesture.
+    #[cfg(feature = "gestures")]
     fn pan(&self, out: &mut Vec<WindowEvent>, phase: Phase, id: usize, at: Point) -> State {
         let State::Pan { id: held, at: was } = self.state else {
             return self.state;
@@ -424,6 +487,7 @@ impl Touches {
         out
     }
 
+    #[cfg(feature = "gestures")]
     fn at(&self, id: usize) -> Option<Point> {
         self.down.iter().find(|(d, _)| *d == id).map(|(_, at)| *at)
     }
@@ -439,6 +503,7 @@ impl Touches {
 }
 
 /// Fingers `a` at `at_a` and `b` at `at_b` start a gesture.
+#[cfg(feature = "gestures")]
 fn begin(out: &mut Vec<WindowEvent>, a: usize, at_a: Point, b: usize, at_b: Point) -> State {
     let start = pose(at_a, at_b, 0.0);
     out.push(totals(GesturePhase::Began, start, start, 0.0));
@@ -456,7 +521,6 @@ fn begin(out: &mut Vec<WindowEvent>, a: usize, at_a: Point, b: usize, at_b: Poin
 mod tests {
     use super::*;
     use crate::PointerKind;
-    use std::f32::consts::PI;
 
     fn kinds(events: &[WindowEvent]) -> Vec<&'static str> {
         events
@@ -589,6 +653,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "gestures")]
     fn without_a_press_on_hold_a_tap_moving_and_second_finger_still_work() {
         let now = Instant::now();
         let later = now + HOLD * 2;
@@ -643,219 +708,6 @@ mod tests {
         assert_eq!(kinds(&out), ["move", "press"]);
     }
 
-    /// Two fingers down 100 apart, at y 0.
-    fn two_fingers(now: Instant) -> Touches {
-        let mut t = Touches::new();
-        t.touch(Phase::Down, 1, p(0.0, 0.0), false, now);
-        assert_eq!(
-            kinds(&t.touch(Phase::Down, 2, p(100.0, 0.0), false, now)),
-            ["gesture"]
-        );
-        t
-    }
-
-    /// The last [`WindowEvent::Gesture`] in `events`: phase, center, moved, scale and turn.
-    fn last_gesture(events: &[WindowEvent]) -> (GesturePhase, (f64, f64), (f64, f64), f64, f64) {
-        events
-            .iter()
-            .rev()
-            .find_map(|e| match *e {
-                WindowEvent::Gesture {
-                    phase,
-                    x,
-                    y,
-                    dx,
-                    dy,
-                    scale,
-                    turn,
-                } => Some((phase, (x, y), (dx, dy), scale, turn)),
-                _ => None,
-            })
-            .expect("a gesture event")
-    }
-
-    #[test]
-    fn gesture_totals_count_from_the_landing() {
-        let now = Instant::now();
-        let mut t = two_fingers(now);
-        t.touch(Phase::Move, 1, p(-50.0, 0.0), false, now);
-        let out = t.touch(Phase::Move, 2, p(150.0, 0.0), false, now);
-        let (phase, _, _, scale, turn) = last_gesture(&out);
-        assert_eq!(phase, GesturePhase::Moved);
-        assert_eq!(scale, 2.0);
-        assert_eq!(turn, 0.0);
-        // on from there, not from the last reading.
-        t.touch(Phase::Move, 1, p(-100.0, 20.0), false, now);
-        let out = t.touch(Phase::Move, 2, p(200.0, 20.0), false, now);
-        let (_, center, moved, scale, _) = last_gesture(&out);
-        assert_eq!(scale, 3.0);
-        assert_eq!(center, (50.0, 20.0));
-        assert_eq!(moved, (0.0, 20.0));
-    }
-
-    #[test]
-    fn gesture_turn_adds_up_past_a_half_turn() {
-        let now = Instant::now();
-        let mut t = two_fingers(now);
-        let out = t.touch(Phase::Move, 2, turned(1.0), false, now);
-        assert_eq!(last_gesture(&out).4, 0.0, "jitter");
-        for deg in [90.0, 170.0, 250.0] {
-            t.touch(Phase::Move, 2, turned(deg), false, now);
-        }
-        let out = t.touch(Phase::Move, 2, turned(300.0), false, now);
-        let total = last_gesture(&out).4;
-        assert!((total - 300f64.to_radians()).abs() < 1e-3, "{total}");
-    }
-
-    #[test]
-    fn a_cancelled_gesture_says_so() {
-        let now = Instant::now();
-        let mut t = two_fingers(now);
-        let out = t.touch(Phase::Cancel, 1, p(0.0, 0.0), false, now);
-        assert_eq!(last_gesture(&out).0, GesturePhase::Cancelled);
-        assert_eq!(kinds(&out), ["gesture", "exit"]);
-        assert!(
-            t.touch(Phase::Move, 2, p(160.0, 0.0), false, now)
-                .is_empty(),
-            "the system took it, so the other finger is dead"
-        );
-    }
-
-    #[test]
-    fn two_fingers_moving_together_scroll() {
-        let now = Instant::now();
-        let mut t = two_fingers(now);
-        // both move down 10: a scroll that follows them.
-        t.touch(Phase::Move, 1, p(0.0, 10.0), false, now);
-        let out = t.touch(Phase::Move, 2, p(100.0, 10.0), false, now);
-        assert_eq!(kinds(&out)[..2], ["move", "wheel"]);
-        assert!(matches!(out[1], WindowEvent::MouseWheel { delta_y, .. } if delta_y == 5.0));
-    }
-
-    #[test]
-    fn two_fingers_spreading_magnify_without_pressing() {
-        let now = Instant::now();
-        let mut t = two_fingers(now);
-        t.touch(Phase::Move, 1, p(-50.0, 0.0), false, now);
-        let out = t.touch(Phase::Move, 2, p(150.0, 0.0), false, now);
-        let factor = out.iter().find_map(|e| match e {
-            WindowEvent::Magnify { factor, .. } => Some(*factor),
-            _ => None,
-        });
-        assert!(factor.is_some_and(|f| f > 1.0));
-        assert!(!kinds(&out).contains(&"press"));
-    }
-
-    /// Where the second of [`two_fingers`] is when turned `deg` degrees clockwise on screen, its
-    /// first finger still at the origin.
-    fn turned(deg: f32) -> Point {
-        let r = deg.to_radians();
-        p(100.0 * r.cos(), 100.0 * r.sin())
-    }
-
-    fn rotations(events: &[WindowEvent]) -> Vec<(f64, f64, f64)> {
-        events
-            .iter()
-            .filter_map(|e| match *e {
-                WindowEvent::Rotate { radians, x, y } => Some((radians, x, y)),
-                _ => None,
-            })
-            .collect()
-    }
-
-    #[test]
-    fn two_fingers_twisting_rotate_clockwise_about_their_middle() {
-        let now = Instant::now();
-        let mut t = two_fingers(now);
-        let out = t.touch(Phase::Move, 2, turned(30.0), false, now);
-        let [(radians, x, y)] = rotations(&out)[..] else {
-            panic!("one rotation: {out:?}");
-        };
-        assert!((radians - f64::from(PI / 6.0)).abs() < 1e-4, "{radians}");
-        // the fingers now lie at (0, 0) and (86.6, 50): their middle.
-        assert!(
-            (x - 43.3).abs() < 0.01 && (y - 25.0).abs() < 0.01,
-            "{x} {y}"
-        );
-        // the next move turns on from where the last left off.
-        let out = t.touch(Phase::Move, 2, turned(45.0), false, now);
-        let [(radians, ..)] = rotations(&out)[..] else {
-            panic!("one rotation: {out:?}");
-        };
-        assert!((radians - f64::from(PI / 12.0)).abs() < 1e-4, "{radians}");
-    }
-
-    #[test]
-    fn a_twist_across_the_back_turns_the_short_way() {
-        let now = Instant::now();
-        let mut t = two_fingers(now);
-        t.touch(Phase::Move, 2, turned(170.0), false, now);
-        // from 170 degrees to -170 is 20 degrees on, through 180, not 340 back.
-        let out = t.touch(Phase::Move, 2, turned(-170.0), false, now);
-        let [(radians, ..)] = rotations(&out)[..] else {
-            panic!("one rotation: {out:?}");
-        };
-        assert!((radians - f64::from(PI / 9.0)).abs() < 1e-4, "{radians}");
-    }
-
-    #[test]
-    fn a_pinch_does_not_turn() {
-        let now = Instant::now();
-        let mut t = two_fingers(now);
-        t.touch(Phase::Move, 1, p(-50.0, 0.0), false, now);
-        let out = t.touch(Phase::Move, 2, p(150.0, 0.0), false, now);
-        assert!(out.iter().any(|e| matches!(e, WindowEvent::Magnify { .. })));
-        assert!(rotations(&out).is_empty());
-    }
-
-    #[test]
-    fn a_small_twist_waits_for_the_dead_zone_to_pass() {
-        let now = Instant::now();
-        let mut t = two_fingers(now);
-        let out = t.touch(Phase::Move, 2, turned(1.0), false, now);
-        assert!(rotations(&out).is_empty(), "jitter");
-        // past 2 degrees in all, the whole turn comes through at once.
-        let out = t.touch(Phase::Move, 2, turned(2.5), false, now);
-        let [(radians, ..)] = rotations(&out)[..] else {
-            panic!("one rotation: {out:?}");
-        };
-        assert!(
-            (radians - f64::from((2.5f32).to_radians())).abs() < 1e-4,
-            "{radians}"
-        );
-    }
-
-    #[test]
-    fn a_pure_twist_does_not_spread_or_close() {
-        let now = Instant::now();
-        let mut t = two_fingers(now);
-        let out = t.touch(Phase::Move, 2, turned(30.0), false, now);
-        assert!(!rotations(&out).is_empty());
-        for e in &out {
-            if let WindowEvent::Magnify { factor, .. } = e {
-                assert!((factor - 1.0).abs() < 1e-4, "{factor}");
-            }
-        }
-    }
-
-    #[test]
-    fn the_finger_left_of_a_gesture_pans() {
-        let now = Instant::now();
-        let mut t = two_fingers(now);
-        let out = t.touch(Phase::Up, 1, p(0.0, 0.0), false, now);
-        assert_eq!(kinds(&out), ["gesture"]);
-        assert_eq!(last_gesture(&out).0, GesturePhase::Ended);
-        let out = t.touch(Phase::Move, 2, p(100.0, 30.0), false, now);
-        assert_eq!(kinds(&out), ["move", "wheel"]);
-        assert!(matches!(out[1], WindowEvent::MouseWheel { delta_y, .. } if delta_y == 30.0));
-        assert_eq!(
-            kinds(&t.touch(Phase::Up, 2, p(100.0, 30.0), false, now)),
-            ["exit"]
-        );
-        assert!(t.touch(Phase::Down, 3, p(1.0, 1.0), false, now).is_empty());
-        assert!(t.waiting());
-    }
-
     fn taps(events: &[WindowEvent]) -> Vec<(u8, f64, f64)> {
         events
             .iter()
@@ -864,47 +716,6 @@ mod tests {
                 _ => None,
             })
             .collect()
-    }
-
-    #[test]
-    fn two_fingers_lifting_soon_tap_where_they_met() {
-        let now = Instant::now();
-        let mut t = two_fingers(now);
-        let out = t.touch(Phase::Up, 1, p(0.0, 0.0), false, now);
-        assert!(taps(&out).is_empty(), "one is still down");
-        let out = t.touch(Phase::Up, 2, p(100.0, 0.0), false, now + TAP);
-        assert_eq!(taps(&out), [(2, 50.0, 0.0)]);
-        assert_eq!(kinds(&out), ["exit", "other"]);
-    }
-
-    #[test]
-    fn three_fingers_tap_as_three() {
-        let now = Instant::now();
-        let mut t = two_fingers(now);
-        t.touch(Phase::Down, 3, p(50.0, 50.0), false, now);
-        t.touch(Phase::Up, 1, p(0.0, 0.0), false, now);
-        t.touch(Phase::Up, 3, p(50.0, 50.0), false, now);
-        let out = t.touch(Phase::Up, 2, p(100.0, 0.0), false, now);
-        assert_eq!(taps(&out), [(3, 50.0, 0.0)]);
-    }
-
-    #[test]
-    fn a_slow_or_moved_or_cancelled_lift_is_no_tap() {
-        let now = Instant::now();
-        let mut slow = two_fingers(now);
-        slow.touch(Phase::Up, 1, p(0.0, 0.0), false, now);
-        let late = now + TAP + Duration::from_millis(1);
-        assert!(taps(&slow.touch(Phase::Up, 2, p(100.0, 0.0), false, late)).is_empty());
-
-        let mut moved = two_fingers(now);
-        moved.touch(Phase::Move, 2, p(120.0, 0.0), false, now);
-        moved.touch(Phase::Move, 2, p(100.0, 0.0), false, now);
-        moved.touch(Phase::Up, 1, p(0.0, 0.0), false, now);
-        assert!(taps(&moved.touch(Phase::Up, 2, p(100.0, 0.0), false, now)).is_empty());
-
-        let mut taken = two_fingers(now);
-        taken.touch(Phase::Cancel, 1, p(0.0, 0.0), false, now);
-        assert!(taps(&taken.touch(Phase::Up, 2, p(100.0, 0.0), false, now)).is_empty());
     }
 
     #[test]
@@ -917,51 +728,314 @@ mod tests {
         assert_eq!(kinds(&out), ["move", "press", "release", "exit"]);
     }
 
-    #[test]
-    fn a_finger_landing_on_a_pan_starts_a_new_gesture() {
-        let now = Instant::now();
-        let mut t = two_fingers(now);
-        t.touch(Phase::Up, 1, p(0.0, 0.0), false, now);
-        t.touch(Phase::Move, 2, p(100.0, 30.0), false, now);
-        let out = t.touch(Phase::Down, 3, p(0.0, 30.0), false, now);
-        assert_eq!(last_gesture(&out).0, GesturePhase::Began);
-        t.touch(Phase::Move, 3, p(-100.0, 30.0), false, now);
-        let out = t.touch(Phase::Move, 2, p(100.0, 30.0), false, now);
-        assert_eq!(last_gesture(&out).3, 2.0, "from the new landing");
-    }
+    /// Everything below needs two fingers to gesture: `two_fingers` and what it drives.
+    #[cfg(feature = "gestures")]
+    mod gestures {
+        use super::*;
+        use std::f32::consts::PI;
 
-    #[test]
-    fn a_pencil_landing_on_a_pan_draws() {
-        let now = Instant::now();
-        let mut t = two_fingers(now);
-        t.touch(Phase::Up, 1, p(0.0, 0.0), false, now);
-        let out = t.touch(Phase::Down, 3, p(5.0, 5.0), true, now);
-        assert_eq!(kinds(&out), ["move", "press"]);
-    }
+        /// Two fingers down 100 apart, at y 0.
+        fn two_fingers(now: Instant) -> Touches {
+            let mut t = Touches::new();
+            t.touch(Phase::Down, 1, p(0.0, 0.0), false, now);
+            assert_eq!(
+                kinds(&t.touch(Phase::Down, 2, p(100.0, 0.0), false, now)),
+                ["gesture"]
+            );
+            t
+        }
 
-    #[test]
-    fn a_third_finger_lifting_leaves_the_gesture_alone() {
-        let now = Instant::now();
-        let mut t = two_fingers(now);
-        t.touch(Phase::Down, 3, p(50.0, 50.0), false, now);
-        assert!(t.touch(Phase::Up, 3, p(50.0, 50.0), false, now).is_empty());
-        let out = t.touch(Phase::Move, 2, p(150.0, 0.0), false, now);
-        assert_eq!(last_gesture(&out).3, 1.5);
-    }
+        /// The last [`WindowEvent::Gesture`] in `events`: phase, center, moved, scale and turn.
+        fn last_gesture(
+            events: &[WindowEvent],
+        ) -> (GesturePhase, (f64, f64), (f64, f64), f64, f64) {
+            events
+                .iter()
+                .rev()
+                .find_map(|e| match *e {
+                    WindowEvent::Gesture {
+                        phase,
+                        x,
+                        y,
+                        dx,
+                        dy,
+                        scale,
+                        turn,
+                    } => Some((phase, (x, y), (dx, dy), scale, turn)),
+                    _ => None,
+                })
+                .expect("a gesture event")
+        }
 
-    #[test]
-    fn a_gesture_with_two_fingers_left_ends_until_they_lift() {
-        let now = Instant::now();
-        let mut t = two_fingers(now);
-        t.touch(Phase::Down, 3, p(50.0, 50.0), false, now);
-        assert_eq!(
-            kinds(&t.touch(Phase::Up, 1, p(0.0, 0.0), false, now)),
-            ["gesture", "exit"]
-        );
-        assert!(t.touch(Phase::Move, 2, p(9.0, 9.0), false, now).is_empty());
-        assert!(t.touch(Phase::Up, 2, p(9.0, 9.0), false, now).is_empty());
-        assert!(t.touch(Phase::Up, 3, p(9.0, 9.0), false, now).is_empty());
-        assert!(t.touch(Phase::Down, 4, p(1.0, 1.0), false, now).is_empty());
-        assert!(t.waiting());
+        #[test]
+        fn gesture_totals_count_from_the_landing() {
+            let now = Instant::now();
+            let mut t = two_fingers(now);
+            t.touch(Phase::Move, 1, p(-50.0, 0.0), false, now);
+            let out = t.touch(Phase::Move, 2, p(150.0, 0.0), false, now);
+            let (phase, _, _, scale, turn) = last_gesture(&out);
+            assert_eq!(phase, GesturePhase::Moved);
+            assert_eq!(scale, 2.0);
+            assert_eq!(turn, 0.0);
+            // on from there, not from the last reading.
+            t.touch(Phase::Move, 1, p(-100.0, 20.0), false, now);
+            let out = t.touch(Phase::Move, 2, p(200.0, 20.0), false, now);
+            let (_, center, moved, scale, _) = last_gesture(&out);
+            assert_eq!(scale, 3.0);
+            assert_eq!(center, (50.0, 20.0));
+            assert_eq!(moved, (0.0, 20.0));
+        }
+
+        #[test]
+        fn gesture_turn_adds_up_past_a_half_turn() {
+            let now = Instant::now();
+            let mut t = two_fingers(now);
+            let out = t.touch(Phase::Move, 2, turned(1.0), false, now);
+            assert_eq!(last_gesture(&out).4, 0.0, "jitter");
+            for deg in [90.0, 170.0, 250.0] {
+                t.touch(Phase::Move, 2, turned(deg), false, now);
+            }
+            let out = t.touch(Phase::Move, 2, turned(300.0), false, now);
+            let total = last_gesture(&out).4;
+            assert!((total - 300f64.to_radians()).abs() < 1e-3, "{total}");
+        }
+
+        #[test]
+        fn a_cancelled_gesture_says_so() {
+            let now = Instant::now();
+            let mut t = two_fingers(now);
+            let out = t.touch(Phase::Cancel, 1, p(0.0, 0.0), false, now);
+            assert_eq!(last_gesture(&out).0, GesturePhase::Cancelled);
+            assert_eq!(kinds(&out), ["gesture", "exit"]);
+            assert!(
+                t.touch(Phase::Move, 2, p(160.0, 0.0), false, now)
+                    .is_empty(),
+                "the system took it, so the other finger is dead"
+            );
+        }
+
+        #[test]
+        fn two_fingers_moving_together_scroll() {
+            let now = Instant::now();
+            let mut t = two_fingers(now);
+            // both move down 10: a scroll that follows them.
+            t.touch(Phase::Move, 1, p(0.0, 10.0), false, now);
+            let out = t.touch(Phase::Move, 2, p(100.0, 10.0), false, now);
+            assert_eq!(kinds(&out)[..2], ["move", "wheel"]);
+            assert!(matches!(out[1], WindowEvent::MouseWheel { delta_y, .. } if delta_y == 5.0));
+        }
+
+        #[test]
+        fn two_fingers_spreading_magnify_without_pressing() {
+            let now = Instant::now();
+            let mut t = two_fingers(now);
+            t.touch(Phase::Move, 1, p(-50.0, 0.0), false, now);
+            let out = t.touch(Phase::Move, 2, p(150.0, 0.0), false, now);
+            let factor = out.iter().find_map(|e| match e {
+                WindowEvent::Magnify { factor, .. } => Some(*factor),
+                _ => None,
+            });
+            assert!(factor.is_some_and(|f| f > 1.0));
+            assert!(!kinds(&out).contains(&"press"));
+        }
+
+        /// Where the second of [`two_fingers`] is when turned `deg` degrees clockwise on screen, its
+        /// first finger still at the origin.
+        fn turned(deg: f32) -> Point {
+            let r = deg.to_radians();
+            p(100.0 * r.cos(), 100.0 * r.sin())
+        }
+
+        fn rotations(events: &[WindowEvent]) -> Vec<(f64, f64, f64)> {
+            events
+                .iter()
+                .filter_map(|e| match *e {
+                    WindowEvent::Rotate { radians, x, y } => Some((radians, x, y)),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        #[test]
+        fn two_fingers_twisting_rotate_clockwise_about_their_middle() {
+            let now = Instant::now();
+            let mut t = two_fingers(now);
+            let out = t.touch(Phase::Move, 2, turned(30.0), false, now);
+            let [(radians, x, y)] = rotations(&out)[..] else {
+                panic!("one rotation: {out:?}");
+            };
+            assert!((radians - f64::from(PI / 6.0)).abs() < 1e-4, "{radians}");
+            // the fingers now lie at (0, 0) and (86.6, 50): their middle.
+            assert!(
+                (x - 43.3).abs() < 0.01 && (y - 25.0).abs() < 0.01,
+                "{x} {y}"
+            );
+            // the next move turns on from where the last left off.
+            let out = t.touch(Phase::Move, 2, turned(45.0), false, now);
+            let [(radians, ..)] = rotations(&out)[..] else {
+                panic!("one rotation: {out:?}");
+            };
+            assert!((radians - f64::from(PI / 12.0)).abs() < 1e-4, "{radians}");
+        }
+
+        #[test]
+        fn a_twist_across_the_back_turns_the_short_way() {
+            let now = Instant::now();
+            let mut t = two_fingers(now);
+            t.touch(Phase::Move, 2, turned(170.0), false, now);
+            // from 170 degrees to -170 is 20 degrees on, through 180, not 340 back.
+            let out = t.touch(Phase::Move, 2, turned(-170.0), false, now);
+            let [(radians, ..)] = rotations(&out)[..] else {
+                panic!("one rotation: {out:?}");
+            };
+            assert!((radians - f64::from(PI / 9.0)).abs() < 1e-4, "{radians}");
+        }
+
+        #[test]
+        fn a_pinch_does_not_turn() {
+            let now = Instant::now();
+            let mut t = two_fingers(now);
+            t.touch(Phase::Move, 1, p(-50.0, 0.0), false, now);
+            let out = t.touch(Phase::Move, 2, p(150.0, 0.0), false, now);
+            assert!(out.iter().any(|e| matches!(e, WindowEvent::Magnify { .. })));
+            assert!(rotations(&out).is_empty());
+        }
+
+        #[test]
+        fn a_small_twist_waits_for_the_dead_zone_to_pass() {
+            let now = Instant::now();
+            let mut t = two_fingers(now);
+            let out = t.touch(Phase::Move, 2, turned(1.0), false, now);
+            assert!(rotations(&out).is_empty(), "jitter");
+            // past 2 degrees in all, the whole turn comes through at once.
+            let out = t.touch(Phase::Move, 2, turned(2.5), false, now);
+            let [(radians, ..)] = rotations(&out)[..] else {
+                panic!("one rotation: {out:?}");
+            };
+            assert!(
+                (radians - f64::from((2.5f32).to_radians())).abs() < 1e-4,
+                "{radians}"
+            );
+        }
+
+        #[test]
+        fn a_pure_twist_does_not_spread_or_close() {
+            let now = Instant::now();
+            let mut t = two_fingers(now);
+            let out = t.touch(Phase::Move, 2, turned(30.0), false, now);
+            assert!(!rotations(&out).is_empty());
+            for e in &out {
+                if let WindowEvent::Magnify { factor, .. } = e {
+                    assert!((factor - 1.0).abs() < 1e-4, "{factor}");
+                }
+            }
+        }
+
+        #[test]
+        fn the_finger_left_of_a_gesture_pans() {
+            let now = Instant::now();
+            let mut t = two_fingers(now);
+            let out = t.touch(Phase::Up, 1, p(0.0, 0.0), false, now);
+            assert_eq!(kinds(&out), ["gesture"]);
+            assert_eq!(last_gesture(&out).0, GesturePhase::Ended);
+            let out = t.touch(Phase::Move, 2, p(100.0, 30.0), false, now);
+            assert_eq!(kinds(&out), ["move", "wheel"]);
+            assert!(matches!(out[1], WindowEvent::MouseWheel { delta_y, .. } if delta_y == 30.0));
+            assert_eq!(
+                kinds(&t.touch(Phase::Up, 2, p(100.0, 30.0), false, now)),
+                ["exit"]
+            );
+            assert!(t.touch(Phase::Down, 3, p(1.0, 1.0), false, now).is_empty());
+            assert!(t.waiting());
+        }
+
+        #[test]
+        fn two_fingers_lifting_soon_tap_where_they_met() {
+            let now = Instant::now();
+            let mut t = two_fingers(now);
+            let out = t.touch(Phase::Up, 1, p(0.0, 0.0), false, now);
+            assert!(taps(&out).is_empty(), "one is still down");
+            let out = t.touch(Phase::Up, 2, p(100.0, 0.0), false, now + TAP);
+            assert_eq!(taps(&out), [(2, 50.0, 0.0)]);
+            assert_eq!(kinds(&out), ["exit", "other"]);
+        }
+
+        #[test]
+        fn three_fingers_tap_as_three() {
+            let now = Instant::now();
+            let mut t = two_fingers(now);
+            t.touch(Phase::Down, 3, p(50.0, 50.0), false, now);
+            t.touch(Phase::Up, 1, p(0.0, 0.0), false, now);
+            t.touch(Phase::Up, 3, p(50.0, 50.0), false, now);
+            let out = t.touch(Phase::Up, 2, p(100.0, 0.0), false, now);
+            assert_eq!(taps(&out), [(3, 50.0, 0.0)]);
+        }
+
+        #[test]
+        fn a_slow_or_moved_or_cancelled_lift_is_no_tap() {
+            let now = Instant::now();
+            let mut slow = two_fingers(now);
+            slow.touch(Phase::Up, 1, p(0.0, 0.0), false, now);
+            let late = now + TAP + Duration::from_millis(1);
+            assert!(taps(&slow.touch(Phase::Up, 2, p(100.0, 0.0), false, late)).is_empty());
+
+            let mut moved = two_fingers(now);
+            moved.touch(Phase::Move, 2, p(120.0, 0.0), false, now);
+            moved.touch(Phase::Move, 2, p(100.0, 0.0), false, now);
+            moved.touch(Phase::Up, 1, p(0.0, 0.0), false, now);
+            assert!(taps(&moved.touch(Phase::Up, 2, p(100.0, 0.0), false, now)).is_empty());
+
+            let mut taken = two_fingers(now);
+            taken.touch(Phase::Cancel, 1, p(0.0, 0.0), false, now);
+            assert!(taps(&taken.touch(Phase::Up, 2, p(100.0, 0.0), false, now)).is_empty());
+        }
+
+        #[test]
+        fn a_finger_landing_on_a_pan_starts_a_new_gesture() {
+            let now = Instant::now();
+            let mut t = two_fingers(now);
+            t.touch(Phase::Up, 1, p(0.0, 0.0), false, now);
+            t.touch(Phase::Move, 2, p(100.0, 30.0), false, now);
+            let out = t.touch(Phase::Down, 3, p(0.0, 30.0), false, now);
+            assert_eq!(last_gesture(&out).0, GesturePhase::Began);
+            t.touch(Phase::Move, 3, p(-100.0, 30.0), false, now);
+            let out = t.touch(Phase::Move, 2, p(100.0, 30.0), false, now);
+            assert_eq!(last_gesture(&out).3, 2.0, "from the new landing");
+        }
+
+        #[test]
+        fn a_pencil_landing_on_a_pan_draws() {
+            let now = Instant::now();
+            let mut t = two_fingers(now);
+            t.touch(Phase::Up, 1, p(0.0, 0.0), false, now);
+            let out = t.touch(Phase::Down, 3, p(5.0, 5.0), true, now);
+            assert_eq!(kinds(&out), ["move", "press"]);
+        }
+
+        #[test]
+        fn a_third_finger_lifting_leaves_the_gesture_alone() {
+            let now = Instant::now();
+            let mut t = two_fingers(now);
+            t.touch(Phase::Down, 3, p(50.0, 50.0), false, now);
+            assert!(t.touch(Phase::Up, 3, p(50.0, 50.0), false, now).is_empty());
+            let out = t.touch(Phase::Move, 2, p(150.0, 0.0), false, now);
+            assert_eq!(last_gesture(&out).3, 1.5);
+        }
+
+        #[test]
+        fn a_gesture_with_two_fingers_left_ends_until_they_lift() {
+            let now = Instant::now();
+            let mut t = two_fingers(now);
+            t.touch(Phase::Down, 3, p(50.0, 50.0), false, now);
+            assert_eq!(
+                kinds(&t.touch(Phase::Up, 1, p(0.0, 0.0), false, now)),
+                ["gesture", "exit"]
+            );
+            assert!(t.touch(Phase::Move, 2, p(9.0, 9.0), false, now).is_empty());
+            assert!(t.touch(Phase::Up, 2, p(9.0, 9.0), false, now).is_empty());
+            assert!(t.touch(Phase::Up, 3, p(9.0, 9.0), false, now).is_empty());
+            assert!(t.touch(Phase::Down, 4, p(1.0, 1.0), false, now).is_empty());
+            assert!(t.waiting());
+        }
     }
 }

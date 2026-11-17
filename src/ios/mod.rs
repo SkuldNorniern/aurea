@@ -11,14 +11,20 @@ pub use sheets::{alert, open_url, pick_color, share_files};
 pub(crate) use sheets::{preview_path, reveal_path};
 
 use std::cell::{Cell, RefCell};
-use std::ffi::{CStr, OsStr, c_char, c_int};
+#[cfg(feature = "drop-files")]
+use std::ffi::OsStr;
+use std::ffi::{CStr, c_char, c_int};
+#[cfg(feature = "drop-files")]
 use std::os::unix::ffi::OsStrExt;
+#[cfg(feature = "drop-files")]
 use std::path::PathBuf;
 use std::process::exit;
 use std::ptr::{null, null_mut};
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(feature = "touch")]
+use std::time::Instant;
 
 #[cfg(feature = "zengpu")]
 use aurea_ffi::ng_ios_gpu_view;
@@ -29,13 +35,17 @@ use aurea_ffi::{
     ng_ios_wake,
 };
 
+#[cfg(feature = "touch")]
+use crate::Point;
 use crate::dispatch;
 use crate::elements::Element;
+#[cfg(feature = "pen")]
 use crate::ffi::callbacks::event_time;
 use crate::ffi::{ng_platform_attach_menu, ng_platform_create_menu, ng_platform_destroy_menu};
 #[cfg(feature = "zengpu")]
 use crate::gpu_ready;
 use crate::input::keyboard::{KeyboardFocus, set_keyboard_connected};
+#[cfg(feature = "touch")]
 use crate::input::touch::{Phase, Touches};
 use crate::locale;
 use crate::render::{CanvasId, CpuRasterizer, Renderer, SurfaceInfo, register_host_canvas};
@@ -44,9 +54,11 @@ use crate::trim_memory;
 use crate::ui::{FrameAsk, Theme, Ui, UiState};
 use crate::wake::wake_at;
 use crate::{
-    AureaError, AureaResult, KeyCode, MenuBar, Modifiers, MouseButton, MouseButtons, PenPhase,
-    PenSample, PenTapAction, PenTool, Point, PointerKind, Rect, WindowEvent,
+    AureaError, AureaResult, KeyCode, MenuBar, Modifiers, MouseButton, MouseButtons, PointerKind,
+    Rect, WindowEvent,
 };
+#[cfg(feature = "pen")]
+use crate::{PenPhase, PenSample, PenTapAction, PenTool};
 #[cfg(feature = "zengpu")]
 use crate::{
     platform::{handles::NativeWindowHandle, zengpu::window_handles},
@@ -69,6 +81,7 @@ struct Host {
     pixels: (u32, u32),
     scale: f32,
     insets: [f32; 4],
+    #[cfg(feature = "touch")]
     touches: Touches,
     keyboard: KeyboardFocus,
 }
@@ -128,6 +141,7 @@ impl Host {
 static GPU_WANTED: AtomicBool = AtomicBool::new(true);
 
 /// The pen phase code the host uses for a predicted sample; see `host.h`.
+#[cfg(feature = "pen")]
 const NG_IOS_PEN_PREDICTED: i32 = 4;
 
 /// Set from any thread by [`request_frame`]; the display link polls it.
@@ -154,6 +168,7 @@ thread_local! {
         pixels: (0, 0),
         scale: 1.0,
         insets: [0.0; 4],
+        #[cfg(feature = "touch")]
         touches: Touches::new(),
         keyboard: KeyboardFocus::default(),
     });
@@ -250,24 +265,29 @@ pub fn hide_native(element: &impl Element) {
 }
 
 unsafe extern "C" fn dropped(paths: *const c_char, x: f32, y: f32) {
-    let mut list = Vec::new();
-    let mut at = paths;
-    // SAFETY: the host gives NUL-terminated paths ended by an empty one.
-    while let Some(path) = unsafe { CStr::from_ptr(at) }
-        .to_bytes()
-        .first()
-        .map(|_| unsafe { CStr::from_ptr(at) })
+    #[cfg(feature = "drop-files")]
     {
-        list.push(PathBuf::from(OsStr::from_bytes(path.to_bytes())));
-        // SAFETY: past this path's NUL there is at least the empty one.
-        at = unsafe { at.add(path.to_bytes().len() + 1) };
+        let mut list = Vec::new();
+        let mut at = paths;
+        // SAFETY: the host gives NUL-terminated paths ended by an empty one.
+        while let Some(path) = unsafe { CStr::from_ptr(at) }
+            .to_bytes()
+            .first()
+            .map(|_| unsafe { CStr::from_ptr(at) })
+        {
+            list.push(PathBuf::from(OsStr::from_bytes(path.to_bytes())));
+            // SAFETY: past this path's NUL there is at least the empty one.
+            at = unsafe { at.add(path.to_bytes().len() + 1) };
+        }
+        let [left, top, ..] = HOST.with_borrow(|host| host.insets);
+        hear(&[WindowEvent::FilesDropped {
+            paths: list,
+            x: f64::from(x - left),
+            y: f64::from(y - top),
+        }]);
     }
-    let [left, top, ..] = HOST.with_borrow(|host| host.insets);
-    hear(&[WindowEvent::FilesDropped {
-        paths: list,
-        x: f64::from(x - left),
-        y: f64::from(y - top),
-    }]);
+    #[cfg(not(feature = "drop-files"))]
+    let _ = (paths, x, y);
 }
 
 /// Asks for a frame from any thread, such as when background work finishes. The UI's own
@@ -457,11 +477,14 @@ unsafe extern "C" fn key(code: u32, pressed: i32, modifiers: u32, text: *const c
             modifiers: Modifiers::from_bits(modifiers),
         });
     }
+    #[cfg(feature = "text-input")]
     if let Some(text) = text {
         events.push(WindowEvent::TextInput {
             text: text.into_owned(),
         });
     }
+    #[cfg(not(feature = "text-input"))]
+    let _ = text;
     HOST.with_borrow_mut(|host| {
         for event in &events {
             host.state.handle(event);
@@ -472,20 +495,25 @@ unsafe extern "C" fn key(code: u32, pressed: i32, modifiers: u32, text: *const c
 
 /// What an input method is composing, before it becomes text.
 unsafe extern "C" fn preedit(text: *const c_char, cursor: c_int) {
-    // SAFETY: the host passes a NUL-terminated string that lives for the call, or null.
-    let text = if text.is_null() {
-        String::new()
-    } else {
-        unsafe { CStr::from_ptr(text) }
-            .to_string_lossy()
-            .into_owned()
-    };
-    let event = WindowEvent::ImePreedit {
-        text,
-        cursor: usize::try_from(cursor).ok(),
-    };
-    HOST.with_borrow_mut(|host| host.state.handle(&event));
-    hear(&[event]);
+    #[cfg(feature = "ime")]
+    {
+        // SAFETY: the host passes a NUL-terminated string that lives for the call, or null.
+        let text = if text.is_null() {
+            String::new()
+        } else {
+            unsafe { CStr::from_ptr(text) }
+                .to_string_lossy()
+                .into_owned()
+        };
+        let event = WindowEvent::ImePreedit {
+            text,
+            cursor: usize::try_from(cursor).ok(),
+        };
+        HOST.with_borrow_mut(|host| host.state.handle(&event));
+        hear(&[event]);
+    }
+    #[cfg(not(feature = "ime"))]
+    let _ = (text, cursor);
 }
 
 /// [`WindowEvent::OpenRequested`], for the app to take what it was asked to open.
@@ -507,12 +535,17 @@ unsafe extern "C" fn keyboard(connected: c_int) {
 
 /// An Apple Pencil double tap or Pencil Pro squeeze.
 unsafe extern "C" fn pen_tap(squeeze: c_int, action: c_int) {
-    let event = WindowEvent::PenTap {
-        squeeze: squeeze != 0,
-        action: PenTapAction::from_raw(u32::try_from(action).unwrap_or(u32::MAX)),
-    };
-    HOST.with_borrow_mut(|host| host.state.handle(&event));
-    hear(&[event]);
+    #[cfg(feature = "pen")]
+    {
+        let event = WindowEvent::PenTap {
+            squeeze: squeeze != 0,
+            action: PenTapAction::from_raw(u32::try_from(action).unwrap_or(u32::MAX)),
+        };
+        HOST.with_borrow_mut(|host| host.state.handle(&event));
+        hear(&[event]);
+    }
+    #[cfg(not(feature = "pen"))]
+    let _ = (squeeze, action);
 }
 
 /// A trackpad or mouse pointer: `action` is one of the host's `NG_IOS_MOUSE_*` codes, and `button`
@@ -553,10 +586,29 @@ unsafe extern "C" fn mouse(action: i32, x: f32, y: f32, button: i32) {
 unsafe extern "C" fn wake() -> i32 {
     dispatch::drain();
     let asked = WAKE.swap(false, Ordering::AcqRel);
-    i32::from(asked || HOST.with_borrow(|host| host.touches.waiting()))
+    i32::from(asked || touch_waiting())
+}
+
+/// Whether a finger is waiting to be told apart, so a frame is wanted soon.
+#[cfg(feature = "touch")]
+fn touch_waiting() -> bool {
+    HOST.with_borrow(|host| host.touches.waiting())
+}
+
+#[cfg(not(feature = "touch"))]
+fn touch_waiting() -> bool {
+    false
 }
 
 unsafe extern "C" fn touch(action: i32, x: f32, y: f32, id: usize, pencil: i32) {
+    #[cfg(feature = "touch")]
+    touch_input(action, x, y, id, pencil);
+    #[cfg(not(feature = "touch"))]
+    let _ = (action, x, y, id, pencil);
+}
+
+#[cfg(feature = "touch")]
+fn touch_input(action: i32, x: f32, y: f32, id: usize, pencil: i32) {
     let phase = match action {
         0 => Phase::Down,
         1 => Phase::Up,
@@ -580,6 +632,7 @@ unsafe extern "C" fn touch(action: i32, x: f32, y: f32, id: usize, pencil: i32) 
 }
 
 /// A finger held still long enough becomes the mouse; checked before each frame.
+#[cfg(feature = "touch")]
 fn settle_touches() {
     let events = HOST.with_borrow_mut(|host| {
         let events = host.touches.tick(Instant::now());
@@ -593,6 +646,24 @@ fn settle_touches() {
 
 #[allow(clippy::too_many_arguments)]
 unsafe extern "C" fn pen(
+    phase: i32,
+    x: f64,
+    y: f64,
+    pressure: f32,
+    tilt_x: f32,
+    tilt_y: f32,
+    twist: f32,
+    age: f64,
+) {
+    #[cfg(feature = "pen")]
+    pen_input(phase, x, y, pressure, tilt_x, tilt_y, twist, age);
+    #[cfg(not(feature = "pen"))]
+    let _ = (phase, x, y, pressure, tilt_x, tilt_y, twist, age);
+}
+
+#[cfg(feature = "pen")]
+#[allow(clippy::too_many_arguments)]
+fn pen_input(
     phase: i32,
     x: f64,
     y: f64,
@@ -652,6 +723,7 @@ unsafe extern "C" fn frame(
         *out_height = 0;
         damage.write_bytes(0, 4);
     }
+    #[cfg(feature = "touch")]
     settle_touches();
     let again = HOST.with_borrow_mut(|host| {
         let scale = scale.max(1.0);

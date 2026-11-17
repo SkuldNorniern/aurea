@@ -29,7 +29,7 @@ pub enum PenSource {
 static MODE: AtomicU8 = AtomicU8::new(0);
 static SOURCE: AtomicU8 = AtomicU8::new(0);
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "pen"))]
 unsafe extern "C" {
     fn ng_windows_pen_set_mode(mode: i32);
 }
@@ -37,6 +37,14 @@ unsafe extern "C" {
 /// Chooses the source pens use, for the whole app; Windows only, others have one. A stroke being
 /// drawn by the source that stops is cancelled. Call on the UI thread.
 pub fn set_pen_mode(mode: PenMode) {
+    #[cfg(not(feature = "pen"))]
+    let _ = mode;
+    #[cfg(feature = "pen")]
+    set_mode(mode);
+}
+
+#[cfg(feature = "pen")]
+fn set_mode(mode: PenMode) {
     let code = match mode {
         PenMode::Auto => 0,
         PenMode::System => 1,
@@ -44,7 +52,7 @@ pub fn set_pen_mode(mode: PenMode) {
     };
     MODE.store(code, Ordering::Relaxed);
     SOURCE.store(0, Ordering::Relaxed);
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "pen"))]
     // SAFETY: takes any value, and the caller is on the UI thread.
     unsafe {
         ng_windows_pen_set_mode(i32::from(code));
@@ -71,11 +79,12 @@ pub fn pen_source() -> PenSource {
     }
 }
 
+#[cfg(feature = "pen")]
 pub(crate) fn note_source(wintab: bool) {
     SOURCE.store(if wintab { 2 } else { 1 }, Ordering::Relaxed);
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "pen"))]
 mod tests {
     use super::*;
 
