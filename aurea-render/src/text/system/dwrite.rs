@@ -699,7 +699,7 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
-    const TUFFY: &[u8] = include_bytes!("../../fonts/Tuffy.ttf");
+    const TUFFY: &[u8] = include_bytes!("../../../fonts/Tuffy.ttf");
 
     fn stream(bytes: &FontBytes) -> *mut MemoryStream {
         Box::into_raw(Box::new(MemoryStream {

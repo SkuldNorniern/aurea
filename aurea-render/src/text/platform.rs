@@ -4,10 +4,12 @@ mod cache;
 mod mask;
 
 use crate::geometry::Path;
+use crate::text::file_backend::FontFileRasterizer;
 use crate::text::glyph::{FaceData, FaceId, GlyphCoverage};
 use crate::text::layout::{LayoutOptions, TextLayout, layout_text};
 use crate::text::outline::glyph_outline;
 use crate::text::shape::{ShapedGlyph, ShapedText, shape_line};
+use crate::text::system::native_rasterizer;
 use crate::text::{CacheKind, LAYOUT_BYTES, MASK_BYTES, SHAPED_BYTES, layout_bytes};
 use crate::types::{
     Font, FontFeature, FontMetrics, FontStyle, FontVariation, FontWeight, GlyphMask, TextMetrics,
@@ -141,14 +143,9 @@ pub trait PlatformTextRasterizer: Send + Sync {
 
 /// Get the best available platform text rasterizer.
 pub fn get_platform_rasterizer() -> Box<dyn PlatformTextRasterizer> {
-    #[cfg(all(windows, feature = "system-fonts"))]
-    {
-        use crate::text::directwrite_backend::DirectWriteRasterizer;
-        if let Ok(dw) = DirectWriteRasterizer::new() {
-            return Box::new(dw);
-        }
+    if let Some(native) = native_rasterizer() {
+        return native;
     }
-    use crate::text::file_backend::FontFileRasterizer;
     Box::new(FontFileRasterizer::new())
 }
 

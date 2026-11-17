@@ -25,9 +25,9 @@ use skrifa::attribute::Style;
 use skrifa::raw::types::NameId;
 use skrifa::{FontRef as SkrifaFont, MetadataProvider, Tag};
 
-use crate::text::file_backend::file_bytes;
 use crate::text::glyph::{FaceData, FontBytes};
 use crate::text::platform::{FontRef, get_platform_rasterizer};
+use crate::text::system::file_bytes;
 use crate::types::{FontStyle, FontVariation};
 
 const WGHT: [u8; 4] = *b"wght";

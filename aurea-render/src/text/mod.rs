@@ -8,13 +8,8 @@ pub mod outline;
 pub mod platform;
 pub mod shape;
 
-#[cfg(all(windows, feature = "system-fonts"))]
-mod directwrite_backend;
-#[cfg(all(windows, feature = "system-fonts"))]
-mod dwrite;
 mod file_backend;
-#[cfg(unix)]
-mod mapped;
+pub(crate) mod system;
 
 pub use glyph::*;
 pub use layout::*;

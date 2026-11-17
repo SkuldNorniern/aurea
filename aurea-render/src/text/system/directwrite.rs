@@ -1,11 +1,11 @@
 //! DirectWrite glyph rasterizer (Windows) — hinted ClearType subpixel coverage.
 
-use super::super::types::{FontStyle, FontVariation, FontWeight};
 use super::dwrite::{FontCollection, FontFace, FontFile};
-use super::fonts;
-use super::glyph::{FaceData, FaceId, FontBytes, GlyphKey};
-use super::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph};
-use super::{CacheKind, GLYPH_BYTES, GLYPH_CAP, LruCache, budget, shared};
+use crate::text::fonts;
+use crate::text::glyph::{FaceData, FaceId, FontBytes, GlyphKey};
+use crate::text::platform::{FontRef, PlatformTextRasterizer, SubpixelGlyph};
+use crate::text::{CacheKind, GLYPH_BYTES, GLYPH_CAP, LruCache, budget, shared};
+use crate::types::{FontStyle, FontVariation, FontWeight};
 use aurea_foundation::{AureaError, AureaResult, lock};
 use std::collections::HashMap;
 use std::path::PathBuf;
