@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use aurea::render::{CpuRasterizer, Renderer};
 use aurea::ui::{Align, Button, ListView, Slider, TextField, Theme, Toggle, Ui, UiState};
-use aurea::{AureaResult, Modifiers, MouseButtons, PointerKind, Rect, WindowEvent};
+use aurea::{AureaResult, Modifiers, MouseButtons, PointerKind, Rect, ScrollEvent, WindowEvent};
 
 mod support;
 
@@ -161,13 +161,7 @@ fn main() -> AureaResult<()> {
         Some(if i == 0 {
             moved(1000.0, 400.0)
         } else {
-            WindowEvent::MouseWheel {
-                delta_x: 0.0,
-                delta_y: -1.0,
-                x: 0.0,
-                y: 0.0,
-                modifiers: Modifiers::default(),
-            }
+            WindowEvent::Scroll(ScrollEvent::wheel(0.0, -1.0, 16.0, Modifiers::default()))
         })
     })?;
     Ok(())
