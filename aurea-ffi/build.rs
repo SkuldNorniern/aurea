@@ -195,6 +195,7 @@ fn main() {
         "native/platform/macos/elements/split_view.m",
         "native/platform/macos/elements/scroll_view.m",
         "native/platform/macos/swiftui_host.m",
+        "native/platform/macos/elements/widgets_off.m",
     ];
 
     let linux_sources: &[&str] = &[
@@ -520,7 +521,8 @@ fn off_stub_feature(source: &str) -> Option<&'static str> {
         "native/platform/windows/gesture_off.c" => "CARGO_FEATURE_GESTURES",
         "native/platform/windows/drop_off.c" => "CARGO_FEATURE_DROP_FILES",
         "native/platform/windows/menu_off.c" => "CARGO_FEATURE_MENU",
-        "native/platform/windows/elements/widgets_off.c" => "CARGO_FEATURE_WIDGETS",
+        "native/platform/windows/elements/widgets_off.c"
+        | "native/platform/macos/elements/widgets_off.m" => "CARGO_FEATURE_WIDGETS",
         "native/platform/linux/pen_off.c" => "CARGO_FEATURE_PEN",
         "native/platform/linux/touch_off.c" => "CARGO_FEATURE_TOUCH",
         "native/platform/linux/raw_off.c" => "CARGO_FEATURE_RAW_MOUSE",
