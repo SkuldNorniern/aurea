@@ -219,7 +219,8 @@ __weak AureaHostView* g_ios_view;
         dx = 0, dy = 0, dw = w, dh = h;
     }
     if (dw == 0 || dh == 0) return;
-    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+    static CGColorSpaceRef space = NULL;
+    if (!space) space = CGColorSpaceCreateDeviceRGB(); // made once, the space never changes
     unsigned c0 = dx / NG_IOS_TILE, c1 = MIN(cols, (dx + dw + NG_IOS_TILE - 1) / NG_IOS_TILE);
     unsigned r0 = dy / NG_IOS_TILE, r1 = MIN(rows, (dy + dh + NG_IOS_TILE - 1) / NG_IOS_TILE);
     for (unsigned r = r0; r < r1; r++) {
@@ -242,7 +243,6 @@ __weak AureaHostView* g_ios_view;
             CFRelease(pixels);
         }
     }
-    CGColorSpaceRelease(space);
 }
 
 /* A trackpad or mouse click comes as a touch of its own type, with the buttons on the event. The
