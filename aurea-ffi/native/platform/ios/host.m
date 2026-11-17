@@ -3,6 +3,7 @@
 #import "host_view.h"
 #import "drop.h"
 #import "touch.h"
+#import "pen.h"
 #import "ios.h"
 #import "../../common/input.h"
 #import "../../common/rust_callbacks.h"
@@ -343,13 +344,7 @@ static void ng_ios_type(NSString* text) {
         _pointerButton = -1;
         _dirty = YES;
         g_ios_view = self;
-#ifdef NG_INPUT_PEN
-        if (@available(iOS 12.1, *)) {
-            UIPencilInteraction* pencil = [[UIPencilInteraction alloc] init];
-            pencil.delegate = self;
-            [self addInteraction:pencil];
-        }
-#endif
+        ng_ios_pen_attach(self);
         ng_ios_drop_attach(self);
 #ifdef NG_INPUT_TEXT
         _keys = [[AureaKeyInput alloc] initWithFrame:CGRectMake(0, 0, 1, 1)];
@@ -553,48 +548,6 @@ static void ng_ios_type(NSString* text) {
     CGColorSpaceRelease(space);
 }
 
-/* Lean of the pen in degrees from the screen's normal, as PenSample reads it: positive x toward
-   the right, positive y toward the user. */
-static void ng_ios_tilt(CGFloat altitude, CGFloat azimuth, float* tilt_x, float* tilt_y) {
-    CGFloat flat = cos(altitude);
-    CGFloat up = sin(altitude);
-    *tilt_x = (float)(atan2(flat * cos(azimuth), up) * 180.0 / M_PI);
-    *tilt_y = (float)(atan2(flat * sin(azimuth), up) * 180.0 / M_PI);
-}
-
-static double ng_ios_age(NSTimeInterval timestamp) {
-    return NSProcessInfo.processInfo.systemUptime - timestamp;
-}
-
-- (void)pen:(int)phase touch:(UITouch*)touch {
-    CGPoint at = [touch preciseLocationInView:self];
-    CGFloat most = touch.maximumPossibleForce;
-    float pressure = most > 0 ? (float)(touch.force / most) : 1.0f;
-    float tilt_x = 0, tilt_y = 0, twist = 0;
-    ng_ios_tilt(touch.altitudeAngle, [touch azimuthAngleInView:self], &tilt_x, &tilt_y);
-    if (@available(iOS 17.5, *)) twist = (float)(touch.rollAngle * 180.0 / M_PI);
-    g_ios_host.pen(phase, at.x, at.y, pressure, tilt_x, tilt_y, twist, ng_ios_age(touch.timestamp));
-}
-
-/* An Apple Pencil also reports every sample between frames, with pressure and tilt. */
-- (void)pens:(int)phase touch:(UITouch*)touch event:(UIEvent*)event {
-    if (touch.type != UITouchTypePencil || !g_ios_host.pen) return;
-    NSArray<UITouch*>* samples = [event coalescedTouchesForTouch:touch] ?: @[ touch ];
-    for (UITouch* sample in samples) {
-        BOOL last = sample == samples.lastObject;
-        int at = phase == NG_IOS_PEN_DOWN && sample != samples.firstObject ? NG_IOS_PEN_MOVE
-               : (phase == NG_IOS_PEN_UP || phase == NG_IOS_PEN_CANCEL) && !last ? NG_IOS_PEN_MOVE
-                                                                         : phase;
-        [self pen:at touch:sample];
-    }
-    /* Where it will likely go next, while it is down, for the stroke to seem to keep up. */
-    if (phase == NG_IOS_PEN_DOWN || phase == NG_IOS_PEN_MOVE) {
-        for (UITouch* ahead in [event predictedTouchesForTouch:touch]) {
-            [self pen:NG_IOS_PEN_PREDICTED touch:ahead];
-        }
-    }
-}
-
 /* A trackpad or mouse click comes as a touch of its own type, with the buttons on the event. The
    button is the one pressed when it began, so a drag keeps it. */
 - (void)pointer:(int)action touch:(UITouch*)touch event:(UIEvent*)event API_AVAILABLE(ios(13.4)) {
@@ -612,9 +565,6 @@ static double ng_ios_age(NSTimeInterval timestamp) {
 }
 
 - (void)send:(int)action touches:(NSSet<UITouch*>*)touches event:(UIEvent*)event {
-#ifdef NG_INPUT_PEN
-    static const int pen_phase[] = {NG_IOS_PEN_DOWN, NG_IOS_PEN_UP, NG_IOS_PEN_MOVE, NG_IOS_PEN_CANCEL};
-#endif
     for (UITouch* touch in touches) {
         if (@available(iOS 13.4, *)) {
             if (touch.type == UITouchTypeIndirectPointer) {
@@ -622,9 +572,7 @@ static double ng_ios_age(NSTimeInterval timestamp) {
                 continue;
             }
         }
-#ifdef NG_INPUT_PEN
-        [self pens:pen_phase[action] touch:touch event:event];
-#endif
+        ng_ios_pen_touch(self, action, touch, event);
         ng_ios_touch(self, action, touch);
     }
     [self markDirty];
@@ -737,75 +685,16 @@ static uint32_t ng_ios_modifiers(UIKeyModifierFlags flags) {
     ng_ios_key_command(key);
 }
 
-/* What the user set a pencil gesture to do, as PenTapAction codes: palettes of any kind are one,
-   and system shortcuts another. Compared as numbers, since the later actions are newer than the
-   oldest iOS this builds for. */
-static int ng_ios_pen_action(long action) {
-    switch (action) {
-        case 0: return 0;
-        case 1: return 1;
-        case 2: return 2;
-        case 3: case 4: case 5: return 3;
-        default: return 4;
-    }
-}
-
-- (void)penTap:(int)squeeze action:(long)action {
-    if (g_ios_host.pen_tap) g_ios_host.pen_tap(squeeze, ng_ios_pen_action(action));
-    [self markDirty];
-}
-
-/* A double tap on an Apple Pencil's flat side. */
-- (void)pencilInteraction:(UIPencilInteraction*)interaction
-            didReceiveTap:(UIPencilInteractionTap*)tap API_AVAILABLE(ios(17.5)) {
-    (void)interaction;
-    (void)tap;
-    [self penTap:0 action:(long)UIPencilInteraction.preferredTapAction];
-}
-
-/* A squeeze of a Pencil Pro, once it lets go. */
-- (void)pencilInteraction:(UIPencilInteraction*)interaction
-        didReceiveSqueeze:(UIPencilInteractionSqueeze*)squeeze API_AVAILABLE(ios(17.5)) {
-    (void)interaction;
-    if (squeeze.phase != UIPencilInteractionPhaseEnded) return;
-    [self penTap:1 action:(long)UIPencilInteraction.preferredSqueezeAction];
-}
-
-/* Before iOS 17.5 a tap comes here; later ones come above instead. */
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#pragma clang diagnostic ignored "-Wdeprecated-implementations"
-- (void)pencilInteractionDidTap:(UIPencilInteraction*)interaction API_AVAILABLE(ios(12.1)) {
-    (void)interaction;
-    [self penTap:0 action:(long)UIPencilInteraction.preferredTapAction];
-}
-#pragma clang diagnostic pop
-
 /* A pencil held over the screen, on iPads that sense it, has a height above the screen; a trackpad
    or mouse pointer has none. Before iOS 16.4 the height is not known, so all of it is the pointer. */
 - (void)hovered:(UIHoverGestureRecognizer*)hover API_AVAILABLE(ios(13.0)) {
     if (@available(iOS 16.4, *)) {
         if (hover.zOffset > 0) {
-#ifdef NG_INPUT_PEN
-            [self pencilHovered:hover];
-#endif
+            ng_ios_pen_hover(self, hover);
             return;
         }
     }
     [self pointerHovered:hover];
-}
-
-- (void)pencilHovered:(UIHoverGestureRecognizer*)hover {
-    if (!g_ios_host.pen) return;
-    if (@available(iOS 16.4, *)) {
-        if (hover.state != UIGestureRecognizerStateBegan && hover.state != UIGestureRecognizerStateChanged) return;
-        CGPoint at = [hover locationInView:self];
-        float tilt_x = 0, tilt_y = 0, twist = 0;
-        ng_ios_tilt(hover.altitudeAngle, [hover azimuthAngleInView:self], &tilt_x, &tilt_y);
-        if (@available(iOS 17.5, *)) twist = (float)(hover.rollAngle * 180.0 / M_PI);
-        g_ios_host.pen(NG_IOS_PEN_HOVER, at.x, at.y, 0.0f, tilt_x, tilt_y, twist, 0.0);
-        [self markDirty];
-    }
 }
 
 /* A trackpad or mouse pointer over the view, moving with no button held. */
