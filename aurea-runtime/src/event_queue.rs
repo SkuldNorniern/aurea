@@ -48,7 +48,6 @@ impl EventQueue {
             WindowEvent::MouseMove { x, y, .. } | WindowEvent::MouseButton { x, y, .. } => {
                 *lock(&self.pointer) = (*x, *y);
             }
-            WindowEvent::MouseWheel { x, y, .. } => (*x, *y) = *lock(&self.pointer),
             WindowEvent::Scroll(scroll) => (scroll.x, scroll.y) = *lock(&self.pointer),
             _ => {}
         }
@@ -80,25 +79,6 @@ impl EventQueue {
                     delta_y: last_y,
                 }) = trailing_motion(&mut events)
                     .find(|e| matches!(e, WindowEvent::RawMouseMotion { .. }))
-                {
-                    *last_x += delta_x;
-                    *last_y += delta_y;
-                    return;
-                }
-            }
-            WindowEvent::MouseWheel {
-                delta_x,
-                delta_y,
-                modifiers,
-                ..
-            } => {
-                if let Some(WindowEvent::MouseWheel {
-                    delta_x: last_x,
-                    delta_y: last_y,
-                    modifiers: last_modifiers,
-                    ..
-                }) = events.last_mut()
-                    && *last_modifiers == *modifiers
                 {
                     *last_x += delta_x;
                     *last_y += delta_y;
@@ -332,14 +312,8 @@ mod tests {
         );
     }
 
-    fn wheel(delta_y: f64, modifiers: Modifiers) -> WindowEvent {
-        WindowEvent::MouseWheel {
-            delta_x: 0.0,
-            delta_y,
-            x: 0.0,
-            y: 0.0,
-            modifiers,
-        }
+    fn wheel(clicks: f64, modifiers: Modifiers) -> WindowEvent {
+        WindowEvent::Scroll(ScrollEvent::wheel(0.0, clicks, 1.0, modifiers))
     }
 
     #[test]
@@ -357,7 +331,7 @@ mod tests {
         let events = q.pop_all();
         assert!(matches!(
             events[1],
-            WindowEvent::MouseWheel { x, y, .. } if (x, y) == (12.0, 34.0)
+            WindowEvent::Scroll(ScrollEvent { x, y, .. }) if (x, y) == (12.0, 34.0)
         ));
     }
 
@@ -371,8 +345,10 @@ mod tests {
         let events = q.pop_all();
         assert_eq!(events.len(), 1);
         match events[0] {
-            WindowEvent::MouseWheel { delta_y, .. } => assert!((delta_y - 12.0).abs() < 1e-9),
-            ref other => panic!("expected MouseWheel, got {other:?}"),
+            WindowEvent::Scroll(ScrollEvent { delta_y, .. }) => {
+                assert!((delta_y - 12.0).abs() < 1e-9)
+            }
+            ref other => panic!("expected Scroll, got {other:?}"),
         }
     }
 

@@ -191,27 +191,6 @@ pub extern "C" fn ng_invoke_mouse_move(
     });
 }
 
-/// Queues a mouse wheel scroll for `window`.
-#[unsafe(no_mangle)]
-pub extern "C" fn ng_invoke_mouse_wheel(
-    window: *mut c_void,
-    delta_x: f64,
-    delta_y: f64,
-    modifiers: u32,
-) {
-    guard("ng_invoke_mouse_wheel", || {
-        let event = WindowEvent::MouseWheel {
-            delta_x,
-            delta_y,
-            // queue fills these.
-            x: 0.0,
-            y: 0.0,
-            modifiers: Modifiers::from_bits(modifiers),
-        };
-        push_window_event(window, event);
-    });
-}
-
 /// Queues a scroll in logical pixels, right and up positive; see `ng_invoke_scroll` in
 /// `rust_callbacks.h` for the codes.
 #[unsafe(no_mangle)]

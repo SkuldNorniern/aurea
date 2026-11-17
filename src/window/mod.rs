@@ -1283,25 +1283,24 @@ mod event_queue_tests {
     }
 
     #[test]
-    fn event_queue_mouse_wheel() {
+    fn event_queue_scroll() {
         let queue = EventQueue::new();
-        queue.push(WindowEvent::MouseWheel {
-            delta_x: 1.0,
-            delta_y: -2.0,
-            x: 0.0,
-            y: 0.0,
-            modifiers: Modifiers::default(),
-        });
+        queue.push(WindowEvent::Scroll(ScrollEvent::wheel(
+            1.0,
+            -2.0,
+            1.0,
+            Modifiers::default(),
+        )));
         let out = queue.pop_all();
         assert_eq!(out.len(), 1);
         match &out[0] {
-            WindowEvent::MouseWheel {
+            WindowEvent::Scroll(ScrollEvent {
                 delta_x, delta_y, ..
-            } => {
+            }) => {
                 assert_eq!(*delta_x, 1.0);
                 assert_eq!(*delta_y, -2.0);
             }
-            _ => unreachable!("just pushed a MouseWheel event"),
+            _ => unreachable!("just pushed a Scroll event"),
         }
     }
 
@@ -2124,9 +2123,7 @@ mod win32_wheel_tests {
             .poll_events()
             .into_iter()
             .filter_map(|event| match event {
-                WindowEvent::MouseWheel {
-                    delta_x, delta_y, ..
-                } => Some((delta_x, delta_y)),
+                WindowEvent::Scroll(ScrollEvent { clicks, .. }) => clicks,
                 _ => None,
             })
             .collect()

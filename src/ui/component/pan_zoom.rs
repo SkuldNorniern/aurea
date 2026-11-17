@@ -3,8 +3,7 @@
 use std::f32::consts::TAU;
 
 use crate::render::{Point, Rect, Transform};
-use crate::ui::scroll_input;
-use crate::ui::widget::scroll::{wheel_line_pixels, wheel_steps};
+use crate::ui::widget::scroll::wheel_steps;
 use crate::window::{CursorIcon, KeyCode, MouseButton, WindowEvent};
 
 /// Where content sits in a view and how large it is drawn.
@@ -274,21 +273,6 @@ impl PanZoom {
                 scroll.modifiers.command(),
                 scroll.modifiers.shift,
             ),
-            WindowEvent::MouseWheel {
-                delta_x,
-                delta_y,
-                modifiers,
-                ..
-            } => {
-                let line = f64::from(wheel_line_pixels());
-                let scroll = scroll_input::legacy(delta_x, delta_y, line, modifiers);
-                self.wheel(
-                    to_f32(scroll.delta_x),
-                    to_f32(scroll.delta_y),
-                    modifiers.command(),
-                    modifiers.shift,
-                )
-            }
             WindowEvent::Magnify { factor, x, y } => {
                 let at = point(x, y);
                 self.pointer = Some(at);
@@ -428,7 +412,7 @@ fn to_f32(v: f64) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::window::{Modifiers, MouseButtons, PointerKind};
+    use crate::window::{Modifiers, MouseButtons, PointerKind, ScrollEvent};
     use std::f32::consts::FRAC_PI_2;
 
     const VIEW: Rect = Rect::new(100.0, 50.0, 400.0, 300.0);
@@ -468,13 +452,7 @@ mod tests {
     }
 
     fn wheel(delta_y: f64, modifiers: Modifiers) -> WindowEvent {
-        WindowEvent::MouseWheel {
-            delta_x: 0.0,
-            delta_y,
-            x: 0.0,
-            y: 0.0,
-            modifiers,
-        }
+        WindowEvent::Scroll(ScrollEvent::wheel(0.0, delta_y, 16.0, modifiers))
     }
 
     #[test]

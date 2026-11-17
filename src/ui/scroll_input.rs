@@ -1,7 +1,7 @@
 //! A frame's scroll input: wheel clicks and smooth pixels kept apart, so a scroller moves by its
 //! own step a click and by the pixels a trackpad gives, and a control that steps goes once a click.
 
-use crate::window::{Modifiers, ScrollEvent, ScrollPhase, ScrollSource};
+use crate::window::{ScrollEvent, ScrollPhase, ScrollSource};
 
 /// What scrolled this frame and no widget used yet.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -148,22 +148,6 @@ impl StepCarry {
     }
 }
 
-/// A `MouseWheel` from a host not on `ng_invoke_scroll` yet: points on Apple systems, notches of
-/// `line` pixels elsewhere.
-pub(crate) fn legacy(delta_x: f64, delta_y: f64, line: f64, modifiers: Modifiers) -> ScrollEvent {
-    if cfg!(target_vendor = "apple") {
-        ScrollEvent {
-            delta_x,
-            delta_y,
-            clicks: None,
-            source: ScrollSource::Trackpad,
-            ..ScrollEvent::wheel(0.0, 0.0, 0.0, modifiers)
-        }
-    } else {
-        ScrollEvent::wheel(delta_x, delta_y, line, modifiers)
-    }
-}
-
 // Scroll amounts are small; f32 keeps them.
 #[allow(clippy::cast_possible_truncation)]
 fn to_f32(value: f64) -> f32 {
@@ -179,6 +163,7 @@ fn whole_steps(whole: f32) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::window::Modifiers;
 
     fn trackpad(phase: ScrollPhase, dx: f64, dy: f64) -> ScrollEvent {
         ScrollEvent {
@@ -262,16 +247,5 @@ mod tests {
         assert_eq!(carry.take(0.0, -4.0, 16.0), 0, "turning back drops the kept bit");
         assert_eq!(carry.take(-0.75, 0.0, 16.0), -1);
         assert_eq!(carry.take(0.125, 0.0, 0.0), 0, "eighths of a fine wheel add up");
-    }
-
-    #[test]
-    fn legacy_wheels_become_clicks_or_points() {
-        let event = legacy(0.0, 2.0, 16.0, Modifiers::default());
-        if cfg!(target_vendor = "apple") {
-            assert_eq!((event.delta_y, event.clicks), (2.0, None));
-            assert_eq!(event.source, ScrollSource::Trackpad);
-        } else {
-            assert_eq!((event.delta_y, event.clicks), (32.0, Some((0.0, 2.0))));
-        }
     }
 }

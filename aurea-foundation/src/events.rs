@@ -106,20 +106,6 @@ pub enum WindowEvent {
     },
     /// Content scrolled, by a wheel, a trackpad or fingers. See [`ScrollEvent`].
     Scroll(ScrollEvent),
-    /// The wheel or a touchpad scrolled: in notches on Windows and Linux (fractions from touchpads
-    /// and fine wheels), in points on macOS. Being replaced by [`WindowEvent::Scroll`].
-    MouseWheel {
-        /// Horizontal scroll amount.
-        delta_x: f64,
-        /// Vertical scroll amount.
-        delta_y: f64,
-        /// Pointer x, in the same coordinates as [`WindowEvent::MouseMove`].
-        x: f64,
-        /// Pointer y.
-        y: f64,
-        /// Modifier keys held down.
-        modifiers: Modifiers,
-    },
     /// A key was pressed or released.
     KeyInput {
         /// The key that changed.
@@ -184,7 +170,7 @@ pub enum WindowEvent {
     /// begun on press.
     PressCancelled,
     /// A pinch: the content should grow by `factor` about (`x`, `y`), in logical pixels. Two
-    /// fingers moving together come as [`WindowEvent::MouseWheel`] instead.
+    /// fingers moving together come as [`WindowEvent::Scroll`] instead.
     Magnify {
         /// How much bigger since the last one: above 1 grows, below 1 shrinks.
         factor: f64,
@@ -270,7 +256,7 @@ pub enum GesturePhase {
     Began,
     /// A finger moved.
     Moved,
-    /// A finger lifted. The one left pans as [`WindowEvent::MouseWheel`].
+    /// A finger lifted. The one left pans as [`WindowEvent::Scroll`].
     Ended,
     /// The system took the touches: put the view back.
     Cancelled,

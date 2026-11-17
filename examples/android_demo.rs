@@ -70,9 +70,9 @@ mod app {
                 };
                 format!("gesture {name} {dx:.0},{dy:.0} x{scale:.2} {turn:.2} rad")
             }
-            WindowEvent::MouseWheel {
-                delta_x, delta_y, ..
-            } => format!("wheel {delta_x:.0},{delta_y:.0}"),
+            WindowEvent::Scroll(scroll) => {
+                format!("wheel {:.0},{:.0}", scroll.delta_x, scroll.delta_y)
+            }
             WindowEvent::FingerTap { fingers, .. } => format!("{fingers} finger tap"),
             WindowEvent::LongPress { .. } => "long press".to_owned(),
             WindowEvent::OpenRequested => "open requested".to_owned(),

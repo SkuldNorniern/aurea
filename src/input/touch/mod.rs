@@ -3,7 +3,7 @@
 //!
 //! A pencil is the mouse at once. A finger waits a moment first: it becomes the mouse when it moves
 //! or stays down, a click when it lifts, and the start of a two-finger gesture when a second finger
-//! lands. Two fingers moving together scroll as [`WindowEvent::MouseWheel`], spreading or closing
+//! lands. Two fingers moving together scroll as [`WindowEvent::Scroll`], spreading or closing
 //! zoom as [`WindowEvent::Magnify`], and turning about each other as [`WindowEvent::Rotate`], with
 //! the totals in [`WindowEvent::Gesture`]. When one lifts, the other goes on scrolling.
 //!

@@ -95,9 +95,9 @@ mod app {
             }
             WindowEvent::Magnify { factor, .. } => format!("pinch x{factor:.2}"),
             WindowEvent::Rotate { radians, .. } => format!("twist {radians:.2} rad"),
-            WindowEvent::MouseWheel {
-                delta_x, delta_y, ..
-            } => format!("scroll {delta_x:.0}, {delta_y:.0}"),
+            WindowEvent::Scroll(scroll) => {
+                format!("scroll {:.0}, {:.0}", scroll.delta_x, scroll.delta_y)
+            }
             WindowEvent::MouseButton {
                 button,
                 pressed: true,

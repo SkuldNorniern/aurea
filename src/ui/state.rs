@@ -21,7 +21,7 @@ use super::paint::TextSize;
 use super::text_edit::TextEdit;
 use super::theme::Theme;
 use super::tokens::Tokens;
-use super::scroll_input::{self, AxisLock, ScrollInput, StepCarry};
+use super::scroll_input::{AxisLock, ScrollInput, StepCarry};
 use super::widget::popup::Popup;
 use super::widget::scroll::wheel_line_pixels;
 use super::widget::tooltip::TooltipOptions;
@@ -571,9 +571,7 @@ impl<Id: WidgetId> UiState<Id> {
             WindowEvent::MouseButton { x, y, .. } => {
                 popup || captured || self.hit_at(point(*x, *y)).is_some()
             }
-            WindowEvent::MouseWheel { .. }
-            | WindowEvent::Scroll(_)
-            | WindowEvent::RawMouseMotion { .. } => {
+            WindowEvent::Scroll(_) | WindowEvent::RawMouseMotion { .. } => {
                 popup || captured || self.pointer.is_some_and(|at| self.hit_at(at).is_some())
             }
             WindowEvent::KeyInput { key, modifiers, .. } => {
@@ -679,17 +677,6 @@ impl<Id: WidgetId> UiState<Id> {
             }
             WindowEvent::Scroll(scroll) => {
                 self.scroll.add(scroll, &mut self.scroll_lock);
-                self.hot.is_some()
-            }
-            WindowEvent::MouseWheel {
-                delta_x,
-                delta_y,
-                modifiers,
-                ..
-            } => {
-                let line = f64::from(wheel_line_pixels());
-                let scroll = scroll_input::legacy(*delta_x, *delta_y, line, *modifiers);
-                self.scroll.add(&scroll, &mut self.scroll_lock);
                 self.hot.is_some()
             }
             WindowEvent::KeyInput {
