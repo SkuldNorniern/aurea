@@ -161,7 +161,7 @@ int ng_macos_init(void) {
         ng_macos_watch_appearance();
 
         [NSApp finishLaunching];
-        [NSApp activateIgnoringOtherApps:YES];
+        ng_macos_activate();
 
         if (@available(macOS 14.0, *)) {
             s_display_link_proxy = [[NgDisplayLinkProxy alloc] init];

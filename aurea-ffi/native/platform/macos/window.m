@@ -1295,14 +1295,14 @@ void ng_macos_window_focus(NGHandle window) {
     if (!window) return;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
     if (nsWindow.isMiniaturized) [nsWindow deminiaturize:nil];
-    [NSApp activateIgnoringOtherApps:YES];
+    ng_macos_activate();
     [nsWindow makeKeyAndOrderFront:nil];
 }
 
 void ng_macos_window_show(NGHandle window) {
     if (!window) return;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
-    [NSApp activateIgnoringOtherApps:YES];
+    ng_macos_activate();
     [nsWindow makeKeyAndOrderFront:nil];
     NSView* contentView = [nsWindow contentView];
     id responder = [nsWindow firstResponder];

@@ -35,6 +35,18 @@ void ng_macos_beep(void) {
     NSBeep();
 }
 
+/* Brings the app forward. macOS 14 asks, older ones take it. */
+void ng_macos_activate(void) {
+    if (@available(macOS 14.0, *)) {
+        [NSApp activate];
+    } else {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        [NSApp activateIgnoringOtherApps:YES];
+#pragma clang diagnostic pop
+    }
+}
+
 int ng_macos_prefers_dark(void) {
     if (@available(macOS 10.14, *)) {
         if (!NSApp) {
