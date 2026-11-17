@@ -25,8 +25,14 @@ int ng_macos_menu_clear(NGMenuHandle menu);
 int ng_macos_menu_move_last(NGMenuHandle menu, unsigned int index);
 NGMenuHandle ng_macos_create_submenu(NGMenuHandle parentMenu, const char* title);
 #ifdef __OBJC__
+#import <objc/objc.h>
+@class NSEvent;
 NSMenu* ng_macos_standard_menu_bar(void);
+/* A shortcut of the menu bar, YES when the menu took the key. */
+BOOL ng_macos_menu_key(NSEvent* event);
 #endif
+/* Puts the standard menu bar up when the app has none. */
+void ng_macos_menu_bar_install(void);
 
 #ifdef __cplusplus
 }

@@ -105,6 +105,14 @@ NSMenu* ng_macos_standard_menu_bar(void) {
     }
 }
 
+void ng_macos_menu_bar_install(void) {
+    if (![NSApp mainMenu]) [NSApp setMainMenu:ng_macos_standard_menu_bar()];
+}
+
+BOOL ng_macos_menu_key(NSEvent* event) {
+    return [[NSApp mainMenu] performKeyEquivalent:event];
+}
+
 NGMenuHandle ng_macos_create_menu(void) {
     if (!menuItemTarget) {
         menuItemTarget = [[MenuItemTarget alloc] init];

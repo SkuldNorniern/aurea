@@ -4,6 +4,7 @@
 #import "raw.h"
 #import "gesture.h"
 #import "drop.h"
+#import "menu.h"
 #import "common/errors.h"
 #import "common/input.h"
 #import "common/rust_callbacks.h"
@@ -383,12 +384,7 @@ static const double NG_MACOS_POINTS_PER_LINE = 40.0;
     if (!self.windowHandle) return;
     BOOL composing = [self hasMarkedText];
     if (!composing) {
-#ifdef NG_FEATURE_MENU
-        if ([[NSApp mainMenu] performKeyEquivalent:event]) {
-            menuTookKey = (unsigned int)[event keyCode] + 1;
-            return;
-        }
-#endif
+        if (ng_macos_menu_key(event)) return;
         [self sendKeyDown:event];
     }
 #ifdef NG_INPUT_TEXT
@@ -502,13 +498,7 @@ static const double NG_MACOS_POINTS_PER_LINE = 40.0;
 
 - (void)keyUp:(NSEvent*)event {
     if (!self.windowHandle) return;
-#ifdef NG_FEATURE_MENU
-    if (menuTookKey != 0 && menuTookKey == (unsigned int)[event keyCode] + 1) {
-        menuTookKey = 0;
-        return;
-    }
-#endif
-    /* no release for a press the input method kept */
+    /* no release for a press the input method or the menu took */
     if (![keysDown containsIndex:[event keyCode]]) return;
     [keysDown removeIndex:[event keyCode]];
     unsigned int keycode = ng_macos_keycode_from_event([event keyCode]);

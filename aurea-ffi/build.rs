@@ -180,6 +180,7 @@ fn main() {
         "native/platform/macos/drop_off.m",
         "native/platform/macos/clipboard.m",
         "native/platform/macos/menu.m",
+        "native/platform/macos/menu_off.m",
         "native/platform/macos/tray.m",
         "native/platform/macos/dialog.m",
         "native/platform/macos/utils.m",
@@ -540,7 +541,7 @@ fn off_stub_feature(source: &str) -> Option<&'static str> {
         "native/platform/linux/gesture_off.c" | "native/platform/macos/gesture_off.m" => "CARGO_FEATURE_GESTURES",
         "native/platform/linux/text_off.c" => "CARGO_FEATURE_TEXT_INPUT",
         "native/platform/linux/ime_off.c" => "CARGO_FEATURE_IME",
-        "native/platform/linux/menu_off.c" => "CARGO_FEATURE_MENU",
+        "native/platform/linux/menu_off.c" | "native/platform/macos/menu_off.m" => "CARGO_FEATURE_MENU",
         _ => return None,
     })
 }

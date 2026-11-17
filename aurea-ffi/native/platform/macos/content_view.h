@@ -12,7 +12,6 @@
     unsigned int modifiersDown;
     NSString* markedText;
     NSRect imeArea;
-    unsigned int menuTookKey;
     BOOL imeSentCommand;
     NSMutableIndexSet* keysDown;
 }

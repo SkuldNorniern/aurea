@@ -157,11 +157,7 @@ int ng_macos_init(void) {
 
         app_delegate = [[AppDelegate alloc] init];
         [NSApp setDelegate:app_delegate];
-#ifdef NG_FEATURE_MENU
-        if (![NSApp mainMenu]) {
-            [NSApp setMainMenu:ng_macos_standard_menu_bar()];
-        }
-#endif
+        ng_macos_menu_bar_install();
         ng_macos_watch_appearance();
 
         [NSApp finishLaunching];
