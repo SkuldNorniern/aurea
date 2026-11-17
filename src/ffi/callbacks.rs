@@ -18,7 +18,8 @@ use crate::registry::menu::invoke_menu_callback;
 use crate::registry::window::{push_event_to_all_windows, scale_factor_changed};
 use crate::render::notify_canvas_destroyed;
 use crate::window::{
-    KeyCode, Modifiers, MouseButton, MouseButtons, PointerKind, WindowEvent, push_window_event,
+    KeyCode, Modifiers, MouseButton, MouseButtons, PointerKind, ScrollEvent, ScrollPhase,
+    ScrollSource, WindowEvent, push_window_event,
 };
 use aurea_runtime::FrameScheduler;
 
@@ -210,6 +211,60 @@ pub extern "C" fn ng_invoke_mouse_wheel(
     });
 }
 
+/// Queues a scroll in logical pixels, right and up positive; see `ng_invoke_scroll` in
+/// `rust_callbacks.h` for the codes.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub extern "C" fn ng_invoke_scroll(
+    window: *mut c_void,
+    delta_x: f64,
+    delta_y: f64,
+    has_clicks: c_int,
+    clicks_x: f64,
+    clicks_y: f64,
+    source: u32,
+    phase: u32,
+    inverted: c_int,
+    modifiers: u32,
+) {
+    guard("ng_invoke_scroll", || {
+        let event = WindowEvent::Scroll(ScrollEvent {
+            delta_x,
+            delta_y,
+            clicks: (has_clicks != 0).then_some((clicks_x, clicks_y)),
+            source: scroll_source(source),
+            phase: scroll_phase(phase),
+            inverted: inverted != 0,
+            // queue fills these.
+            x: 0.0,
+            y: 0.0,
+            modifiers: Modifiers::from_bits(modifiers),
+        });
+        push_window_event(window, event);
+    });
+}
+
+/// `NG_SCROLL_WHEEL..` of `input.h`; anything else reads as a wheel.
+fn scroll_source(code: u32) -> ScrollSource {
+    match code {
+        1 => ScrollSource::Trackpad,
+        2 => ScrollSource::Touch,
+        _ => ScrollSource::Wheel,
+    }
+}
+
+/// `NG_SCROLL_DISCRETE..` of `input.h`; anything else reads as discrete.
+fn scroll_phase(code: u32) -> ScrollPhase {
+    match code {
+        1 => ScrollPhase::Began,
+        2 => ScrollPhase::Moved,
+        3 => ScrollPhase::Ended,
+        4 => ScrollPhase::Momentum,
+        5 => ScrollPhase::MomentumEnded,
+        _ => ScrollPhase::Discrete,
+    }
+}
+
 /// Queues a pinch (`value` a factor) or a twist (`value` radians, clockwise) about (`x`, `y`).
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_gesture(window: *mut c_void, kind: u32, value: f64, x: f64, y: f64) {
@@ -375,6 +430,33 @@ mod tests {
     #[cfg(feature = "widgets")]
     use crate::registry::elements::{next_button_id, register_button_callback};
     use std::thread::sleep;
+
+    #[test]
+    fn scroll_codes_follow_input_h() {
+        let sources = [0, 1, 2, 9].map(scroll_source);
+        assert_eq!(
+            sources,
+            [
+                ScrollSource::Wheel,
+                ScrollSource::Trackpad,
+                ScrollSource::Touch,
+                ScrollSource::Wheel
+            ]
+        );
+        let phases = [0, 1, 2, 3, 4, 5, 9].map(scroll_phase);
+        assert_eq!(
+            phases,
+            [
+                ScrollPhase::Discrete,
+                ScrollPhase::Began,
+                ScrollPhase::Moved,
+                ScrollPhase::Ended,
+                ScrollPhase::Momentum,
+                ScrollPhase::MomentumEnded,
+                ScrollPhase::Discrete
+            ]
+        );
+    }
 
     #[test]
     #[cfg(feature = "widgets")]

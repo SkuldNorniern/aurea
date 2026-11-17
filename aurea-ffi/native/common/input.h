@@ -102,4 +102,17 @@
 #define NG_GESTURE_MAGNIFY 0u
 #define NG_GESTURE_ROTATE 1u
 
+/* What made a scroll, for ng_invoke_scroll. */
+#define NG_SCROLL_WHEEL 0u
+#define NG_SCROLL_TRACKPAD 1u
+#define NG_SCROLL_TOUCH 2u
+
+/* Where a scroll falls in its gesture. A wheel, or a system with no phases, is discrete. */
+#define NG_SCROLL_DISCRETE 0u
+#define NG_SCROLL_BEGAN 1u
+#define NG_SCROLL_MOVED 2u
+#define NG_SCROLL_ENDED 3u
+#define NG_SCROLL_MOMENTUM 4u
+#define NG_SCROLL_MOMENTUM_ENDED 5u
+
 #endif
