@@ -104,8 +104,10 @@ pub enum WindowEvent {
         /// When the event happened.
         time: Duration,
     },
+    /// Content scrolled, by a wheel, a trackpad or fingers. See [`ScrollEvent`].
+    Scroll(ScrollEvent),
     /// The wheel or a touchpad scrolled: in notches on Windows and Linux (fractions from touchpads
-    /// and fine wheels), in points on macOS.
+    /// and fine wheels), in points on macOS. Being replaced by [`WindowEvent::Scroll`].
     MouseWheel {
         /// Horizontal scroll amount.
         delta_x: f64,
@@ -272,6 +274,89 @@ pub enum GesturePhase {
     Ended,
     /// The system took the touches: put the view back.
     Cancelled,
+}
+
+/// A scroll: how far, by what, and where in the gesture.
+///
+/// `delta_x` and `delta_y` are logical pixels on every system, right and up positive: what the
+/// content under the pointer moves past, the way a scroll bar would go. Natural scrolling is
+/// already in them. A wheel also gives its detents in `clicks`, so a control can step once a
+/// detent without guessing how many pixels one is.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScrollEvent {
+    /// Pixels to the right, negative for left.
+    pub delta_x: f64,
+    /// Pixels up, negative for down.
+    pub delta_y: f64,
+    /// Wheel detents along x and y, signed like the deltas and fractional for fine wheels.
+    /// `None` when the device has no detents: trackpads and fingers.
+    pub clicks: Option<(f64, f64)>,
+    /// What scrolled.
+    pub source: ScrollSource,
+    /// Where in a gesture this falls; a wheel has none.
+    pub phase: ScrollPhase,
+    /// The system's natural scrolling is on: content follows the fingers. Deltas already have it;
+    /// a slider that should not turn the other way reads this.
+    pub inverted: bool,
+    /// Pointer x, in the same coordinates as [`WindowEvent::MouseMove`].
+    pub x: f64,
+    /// Pointer y.
+    pub y: f64,
+    /// Modifier keys held down.
+    pub modifiers: Modifiers,
+}
+
+impl ScrollEvent {
+    /// A wheel turned by `clicks` detents of `line` pixels each, no phase.
+    pub fn wheel(clicks_x: f64, clicks_y: f64, line: f64, modifiers: Modifiers) -> Self {
+        Self {
+            delta_x: clicks_x * line,
+            delta_y: clicks_y * line,
+            clicks: Some((clicks_x, clicks_y)),
+            source: ScrollSource::Wheel,
+            phase: ScrollPhase::Discrete,
+            inverted: false,
+            x: 0.0,
+            y: 0.0,
+            modifiers,
+        }
+    }
+
+    /// The fingers lifted and the system keeps it going: controls that set a value skip this.
+    pub fn is_momentum(&self) -> bool {
+        matches!(self.phase, ScrollPhase::Momentum | ScrollPhase::MomentumEnded)
+    }
+}
+
+/// What made a [`ScrollEvent`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum ScrollSource {
+    /// A wheel with detents, or a tilt; the system already spaced it out.
+    #[default]
+    Wheel,
+    /// A trackpad or a fine continuous wheel: smooth deltas, with phases and momentum where the
+    /// system gives them.
+    Trackpad,
+    /// Fingers on a touch screen dragging the content.
+    Touch,
+}
+
+/// Where a [`ScrollEvent`] falls in its gesture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum ScrollPhase {
+    /// No gesture: a wheel detent, or a system that gives no phases.
+    #[default]
+    Discrete,
+    /// The fingers started scrolling. Lock an axis here.
+    Began,
+    /// The fingers moved.
+    Moved,
+    /// The fingers lifted. Momentum may follow.
+    Ended,
+    /// The system carries on after the fingers lifted.
+    Momentum,
+    /// The carry stopped: the scroll is over. Snap to a page here.
+    MomentumEnded,
 }
 
 /// How much of a window shows on screen.

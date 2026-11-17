@@ -1,6 +1,6 @@
 //! Event queue for window-level events.
 
-use aurea_foundation::{WindowEvent, lock};
+use aurea_foundation::{ScrollEvent, ScrollPhase, WindowEvent, lock};
 use std::mem::{discriminant, take};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -49,6 +49,7 @@ impl EventQueue {
                 *lock(&self.pointer) = (*x, *y);
             }
             WindowEvent::MouseWheel { x, y, .. } => (*x, *y) = *lock(&self.pointer),
+            WindowEvent::Scroll(scroll) => (scroll.x, scroll.y) = *lock(&self.pointer),
             _ => {}
         }
         let pen_batch_size = self.pen_batch_size();
@@ -104,6 +105,19 @@ impl EventQueue {
                     return;
                 }
             }
+            WindowEvent::Scroll(scroll) => {
+                if let Some(WindowEvent::Scroll(last)) = events.last_mut()
+                    && merges(last, scroll)
+                {
+                    last.delta_x += scroll.delta_x;
+                    last.delta_y += scroll.delta_y;
+                    last.clicks = match (last.clicks, scroll.clicks) {
+                        (Some((ax, ay)), Some((bx, by))) => Some((ax + bx, ay + by)),
+                        (a, b) => a.or(b),
+                    };
+                    return;
+                }
+            }
             WindowEvent::Resized { .. } | WindowEvent::Moved { .. } => {
                 if let Some(last) = events
                     .iter_mut()
@@ -144,12 +158,84 @@ impl Default for EventQueue {
     }
 }
 
+
+/// Two scrolls add up when nothing tells them apart: the same device, keys and step of the same
+/// gesture. A gesture's start and end stay their own events.
+fn merges(last: &ScrollEvent, next: &ScrollEvent) -> bool {
+    last.source == next.source
+        && last.phase == next.phase
+        && last.modifiers == next.modifiers
+        && last.inverted == next.inverted
+        && matches!(
+            next.phase,
+            ScrollPhase::Discrete | ScrollPhase::Moved | ScrollPhase::Momentum
+        )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use aurea_foundation::{Modifiers, MouseButtons, PointerKind};
-    use aurea_foundation::{PenPhase, PenSample};
+    use aurea_foundation::{PenPhase, PenSample, ScrollSource};
     use std::time::Duration;
+
+    fn scroll(phase: ScrollPhase, dy: f64) -> WindowEvent {
+        WindowEvent::Scroll(ScrollEvent {
+            delta_y: dy,
+            phase,
+            source: ScrollSource::Trackpad,
+            ..ScrollEvent::wheel(0.0, 0.0, 0.0, Modifiers::default())
+        })
+    }
+
+    fn scroll_deltas(events: &[WindowEvent]) -> Vec<(ScrollPhase, f64)> {
+        events
+            .iter()
+            .filter_map(|e| match e {
+                WindowEvent::Scroll(s) => Some((s.phase, s.delta_y)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn scrolls_add_up_inside_a_step_but_keep_the_gesture_edges() {
+        let queue = EventQueue::new();
+        for event in [
+            scroll(ScrollPhase::Began, 1.0),
+            scroll(ScrollPhase::Moved, 2.0),
+            scroll(ScrollPhase::Moved, 3.0),
+            scroll(ScrollPhase::Ended, 0.0),
+            scroll(ScrollPhase::Momentum, 4.0),
+            scroll(ScrollPhase::Momentum, 5.0),
+            scroll(ScrollPhase::MomentumEnded, 0.0),
+        ] {
+            queue.push(event);
+        }
+        assert_eq!(
+            scroll_deltas(&queue.pop_all()),
+            [
+                (ScrollPhase::Began, 1.0),
+                (ScrollPhase::Moved, 5.0),
+                (ScrollPhase::Ended, 0.0),
+                (ScrollPhase::Momentum, 9.0),
+                (ScrollPhase::MomentumEnded, 0.0),
+            ]
+        );
+    }
+
+    #[test]
+    fn wheel_clicks_add_up_with_their_pixels() {
+        let queue = EventQueue::new();
+        queue.push(WindowEvent::Scroll(ScrollEvent::wheel(0.0, 1.0, 16.0, Modifiers::default())));
+        queue.push(WindowEvent::Scroll(ScrollEvent::wheel(0.5, 1.0, 16.0, Modifiers::default())));
+        let out = queue.pop_all();
+        assert_eq!(out.len(), 1);
+        let WindowEvent::Scroll(s) = &out[0] else {
+            panic!("a scroll");
+        };
+        assert_eq!((s.delta_x, s.delta_y, s.clicks), (8.0, 32.0, Some((0.5, 2.0))));
+    }
 
     #[test]
     fn pen_batch_limit_changes_without_waiting_for_a_full_batch() {

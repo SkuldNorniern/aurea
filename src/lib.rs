@@ -168,7 +168,8 @@ pub use crate::window::{clipboard_text, set_clipboard_text};
 
 pub use crate::window::{
     EventCallback, GesturePhase, KeyCode, Modifiers, MouseButton, MouseButtons, Occlusion,
-    PenPhase, PenSample, PenSampler, PenSampling, PenTapAction, PenTool, PointerKind, WindowEvent,
+    PenPhase, PenSample, PenSampler, PenSampling, PenTapAction, PenTool, PointerKind, ScrollEvent,
+    ScrollPhase, ScrollSource, WindowEvent,
 };
 
 use crate::render::trim_renderers;

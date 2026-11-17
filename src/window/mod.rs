@@ -11,7 +11,8 @@ mod types;
 
 pub use aurea_foundation::{
     EventCallback, GesturePhase, KeyCode, Modifiers, MouseButton, MouseButtons, Occlusion,
-    PenPhase, PenSample, PenSampler, PenSampling, PenTapAction, PenTool, PointerKind, WindowEvent,
+    PenPhase, PenSample, PenSampler, PenSampling, PenTapAction, PenTool, PointerKind, ScrollEvent,
+    ScrollPhase, ScrollSource, WindowEvent,
 };
 pub use aurea_runtime::EventQueue;
 pub use clipboard::{clipboard_text, set_clipboard_text};
