@@ -4,7 +4,6 @@ use super::Widget;
 use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
-#[cfg(feature = "accessibility")]
 use crate::ui::accessibility::Role;
 use crate::ui::component::{FocusRing, StateColors};
 use crate::ui::frame::{Response, Ui};
@@ -136,7 +135,6 @@ impl<'v> Chip<'v> {
             response.changed = true;
             ui.mark_changed();
         }
-        #[cfg(feature = "accessibility")]
         {
             let on = *self.on;
             ui.accessible_description(id, 0, Role::Switch, self.label, None);

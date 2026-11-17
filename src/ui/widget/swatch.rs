@@ -4,7 +4,6 @@ use super::Widget;
 use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
-#[cfg(feature = "accessibility")]
 use crate::ui::accessibility::Role;
 use crate::ui::component::FocusRing;
 use crate::ui::frame::{Eased, Response, Ui};
@@ -131,7 +130,6 @@ impl<'v> Swatches<'v> {
                 style.size,
             );
             let input = ui.interact(id, part, cell, Sense::Click, true);
-            #[cfg(feature = "accessibility")]
             ui.with_accessible(id, part, |node| {
                 let [r, g, b, _] = color.to_rgba8();
                 node.set_role(Role::Button);

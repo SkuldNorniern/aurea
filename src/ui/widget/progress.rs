@@ -4,13 +4,10 @@ use super::Widget;
 use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
-#[cfg(feature = "accessibility")]
 use crate::ui::accessibility::Role;
 use crate::ui::component::Track;
 use crate::ui::frame::{Eased, Response, Ui};
 use crate::ui::paint::Component;
-#[cfg(feature = "accessibility")]
-use crate::ui::state::Sense;
 use crate::ui::state::{Channel, WidgetId};
 use crate::ui::theme::Theme;
 
@@ -92,9 +89,8 @@ impl ProgressBar {
         rect: Rect,
     ) -> Look<ProgressParts> {
         let style = self.style.unwrap_or_else(|| ProgressStyle::new(ui.theme));
-        #[cfg(feature = "accessibility")]
         {
-            ui.interact(id, 0, rect, Sense::Hover, true);
+            ui.accessible_region(id, 0, rect);
             let amount = self.amount;
             ui.with_accessible(id, 0, |node| {
                 node.set_role(Role::ProgressIndicator);

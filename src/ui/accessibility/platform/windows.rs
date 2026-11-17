@@ -9,7 +9,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use accesskit::TreeUpdate;
 use accesskit_windows::{Adapter as NativeAdapter, HWND, LPARAM, LRESULT, WPARAM};
 
-use super::super::Handler;
+use super::super::tree::Handler;
 use crate::render::Canvas;
 use crate::{AureaError, AureaResult};
 

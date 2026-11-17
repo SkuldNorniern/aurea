@@ -1,6 +1,5 @@
 //! Widgets drawn on a canvas, styled by a [`Theme`] and the same on every platform.
 
-#[cfg(feature = "accessibility")]
 pub mod accessibility;
 pub mod component;
 mod frame;

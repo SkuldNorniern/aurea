@@ -5,7 +5,6 @@ use std::time::Instant;
 
 use crate::AureaResult;
 use crate::render::{Font, Paint, PaintStyle, Point, Rect, shape_text};
-#[cfg(feature = "accessibility")]
 use crate::ui::accessibility::edit_value;
 use crate::ui::frame::{Align, Ui, baseline_in, fill};
 use crate::ui::state::{Interaction, Key, Typed, WidgetId, caret_on};
@@ -192,11 +191,9 @@ impl<'v> EditableText<'v> {
     }
 
     fn type_in<Id: WidgetId>(&mut self, ui: &mut Ui<'_, Id>, key: Key<Id>) -> Typing {
-        #[cfg(feature = "accessibility")]
         let accessible = ui.accessibility_actions(key.id, key.part);
         let state = &mut *ui.state;
         let mut typing = Typing::default();
-        #[cfg(feature = "accessibility")]
         typing.merge(edit_value(
             &mut state.edit,
             self.text,

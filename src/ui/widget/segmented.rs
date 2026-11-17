@@ -5,7 +5,6 @@ use super::Widget;
 use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
-#[cfg(feature = "accessibility")]
 use crate::ui::accessibility::Role;
 use crate::ui::component::{FocusRing, StateColors};
 use crate::ui::frame::{Eased, Response, Ui};
@@ -144,7 +143,6 @@ impl<'v> Segmented<'v> {
             let part = u16::try_from(i).unwrap_or(u16::MAX - 1);
             let cell = rect.column(i, n, 0.0);
             let input = ui.interact(id, part, cell, Sense::Click, self.enabled);
-            #[cfg(feature = "accessibility")]
             {
                 let on = *self.selected == i;
                 ui.accessible_description(id, part, Role::RadioButton, option, None);

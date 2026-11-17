@@ -2,13 +2,9 @@
 
 use std::time::{Duration, Instant};
 
-#[cfg(feature = "accessibility")]
-use accesskit::Live;
-
 use crate::AureaResult;
 use crate::render::{Color, Rect};
-#[cfg(feature = "accessibility")]
-use crate::ui::accessibility::Role;
+use crate::ui::accessibility::{Live, Role};
 use crate::ui::component::card;
 use crate::ui::frame::{Eased, Response, Ui};
 use crate::ui::paint::{Component, Label, Overflow, Surface};
@@ -266,7 +262,6 @@ impl Toasts {
             if input.clicked {
                 live.leaving = true;
             }
-            #[cfg(feature = "accessibility")]
             {
                 ui.accessible_description(id, part, Role::Alert, &live.toast.text, None);
                 ui.with_accessible(id, part, |node| node.set_live(Live::Polite));

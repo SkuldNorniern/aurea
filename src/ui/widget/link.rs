@@ -5,7 +5,6 @@ use super::Widget;
 use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
-#[cfg(feature = "accessibility")]
 use crate::ui::accessibility::Role;
 use crate::ui::component::FocusRing;
 use crate::ui::frame::{Response, Ui};
@@ -98,7 +97,6 @@ impl<'t> Link<'t> {
         let width = self.width(ui).min(rect.width);
         let text = Rect::new(rect.x, rect.y, width, rect.height);
         let input = ui.interact(id, 0, text, Sense::Click, true);
-        #[cfg(feature = "accessibility")]
         ui.accessible_description(id, 0, Role::Link, self.text, None);
         Look {
             rect: text,

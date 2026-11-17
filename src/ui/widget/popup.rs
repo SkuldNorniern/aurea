@@ -5,6 +5,7 @@ use std::mem;
 use std::time::{Duration, Instant};
 
 use crate::render::{Color, Point, Rect};
+use crate::ui::accessibility::Generation;
 use crate::ui::component::card;
 use crate::ui::frame::{Align, Ui};
 use crate::ui::paint::{Component, Label, Mark, MarkShape};
@@ -238,11 +239,11 @@ impl OwnedMenuItem {
 }
 
 #[derive(Debug, Default)]
-struct Row {
-    label: String,
+pub(crate) struct Row {
+    pub(crate) label: String,
     shortcut: String,
-    enabled: bool,
-    checked: bool,
+    pub(crate) enabled: bool,
+    pub(crate) checked: bool,
     separator: bool,
     children: Vec<Row>,
     has_children: bool,
@@ -299,14 +300,14 @@ struct Fling {
 }
 
 #[derive(Debug)]
-struct Parent {
+pub(crate) struct Parent {
     rows: Vec<Row>,
     len: usize,
     highlight: Option<usize>,
     scroll: f32,
     anchor: Rect,
     min_width: f32,
-    selected: usize,
+    pub(crate) selected: usize,
     nested: bool,
     reveal: bool,
 }
@@ -315,25 +316,24 @@ struct Parent {
 pub(crate) struct Popup<Id> {
     pub(crate) style: Option<PopupStyle>,
     pub(crate) options: MenuOptions,
-    owner: Option<Key<Id>>,
+    pub(crate) owner: Option<Key<Id>>,
     anchor: Rect,
     min_width: f32,
-    rows: Vec<Row>,
-    len: usize,
-    highlight: Option<usize>,
+    pub(crate) rows: Vec<Row>,
+    pub(crate) len: usize,
+    pub(crate) highlight: Option<usize>,
     scroll: f32,
     drag: Option<Drag>,
     fling: Option<Fling>,
     return_focus: Option<Key<Id>>,
     picked: Option<(Key<Id>, Vec<usize>, Option<u64>)>,
-    parents: Vec<Parent>,
+    pub(crate) parents: Vec<Parent>,
     nested: bool,
-    reveal: bool,
-    card: bool,
+    pub(crate) reveal: bool,
+    pub(crate) card: bool,
     card_drawn: bool,
-    focus_order: Vec<Key<Id>>,
-    #[cfg(feature = "accessibility")]
-    generation: u64,
+    pub(crate) focus_order: Vec<Key<Id>>,
+    pub(crate) generation: Generation,
 }
 
 /// How menus and dropdown lists behave, for the whole UI; set with [`Ui::set_menu_options`].
@@ -404,8 +404,7 @@ impl<Id> Default for Popup<Id> {
             card: false,
             card_drawn: false,
             focus_order: Vec::new(),
-            #[cfg(feature = "accessibility")]
-            generation: 0,
+            generation: Default::default(),
         }
     }
 }
@@ -419,13 +418,7 @@ impl<Id: WidgetId> Popup<Id> {
         items: impl IntoIterator<Item = MenuItem<'a>>,
         return_focus: Option<Key<Id>>,
     ) {
-        #[cfg(feature = "accessibility")]
-        {
-            self.generation = self
-                .generation
-                .checked_add(1)
-                .expect("menu generation exhausted");
-        }
+        self.generation.advance();
         while !self.parents.is_empty() {
             self.back();
         }
@@ -479,43 +472,6 @@ impl<Id: WidgetId> Popup<Id> {
         focus.is_some_and(|key| self.focus_order.contains(&key))
     }
 
-    #[cfg(feature = "accessibility")]
-    pub(crate) fn focus_order(&self) -> &[Key<Id>] {
-        &self.focus_order
-    }
-
-    #[cfg(feature = "accessibility")]
-    pub(crate) fn accessible_action(
-        &mut self,
-        owner: Key<Id>,
-        generation: u64,
-        path: &[usize],
-        activate: bool,
-    ) -> Option<Option<Key<Id>>> {
-        if self.owner != Some(owner) || self.generation != generation || self.card {
-            return None;
-        }
-        let (&leaf, ancestors) = path.split_last()?;
-        while !self.parents.is_empty() {
-            self.back();
-        }
-        for &row in ancestors {
-            if !self.descend(row) {
-                return None;
-            }
-        }
-        if leaf >= self.len || !self.rows[leaf].enabled {
-            return None;
-        }
-        self.highlight = Some(leaf);
-        self.reveal = true;
-        if !activate {
-            return None;
-        }
-        let focus = self.pick(leaf);
-        (!self.is_open()).then_some(focus)
-    }
-
     pub(crate) fn next_focus(&self, focus: Option<Key<Id>>, back: bool) -> Option<Key<Id>> {
         let n = self.focus_order.len();
         if n == 0 {
@@ -554,7 +510,7 @@ impl<Id: WidgetId> Popup<Id> {
         None
     }
 
-    fn take_path(&mut self, owner: Key<Id>) -> Option<Vec<usize>> {
+    pub(crate) fn take_path(&mut self, owner: Key<Id>) -> Option<Vec<usize>> {
         if self.picked.as_ref().is_some_and(|(key, ..)| *key == owner) {
             return self.picked.take().map(|(_, path, _)| path);
         }
@@ -580,7 +536,7 @@ impl<Id: WidgetId> Popup<Id> {
         mem::swap(&mut self.reveal, &mut parent.reveal);
     }
 
-    fn back(&mut self) {
+    pub(crate) fn back(&mut self) {
         let Some(mut parent) = self.parents.pop() else {
             return;
         };
@@ -595,7 +551,7 @@ impl<Id: WidgetId> Popup<Id> {
         self.reveal = parent.reveal;
     }
 
-    fn descend(&mut self, row: usize) -> bool {
+    pub(crate) fn descend(&mut self, row: usize) -> bool {
         if row >= self.len || !self.rows[row].enabled || !self.rows[row].has_children {
             return false;
         }
@@ -624,7 +580,7 @@ impl<Id: WidgetId> Popup<Id> {
         true
     }
 
-    fn pick(&mut self, row: usize) -> Option<Key<Id>> {
+    pub(crate) fn pick(&mut self, row: usize) -> Option<Key<Id>> {
         let owner = self.owner?;
         if !self.rows.get(row).is_some_and(|r| r.enabled) || row >= self.len {
             return None;
@@ -1004,8 +960,6 @@ fn rows<Id: WidgetId>(
     input: Interaction,
     level: usize,
 ) -> AureaResult<Option<(usize, bool)>> {
-    #[cfg(not(feature = "accessibility"))]
-    let _ = level;
     let p = ui.theme.palette;
     let pad = ui.theme.padding;
     let mut y = rect.y + m.pad - ui.state.popup.scroll;
@@ -1033,37 +987,10 @@ fn rows<Id: WidgetId>(
         if row_action(ui, rect, cell, i, input) {
             action = Some((i, input.clicked));
         }
-        #[cfg(feature = "accessibility")]
-        accessible_row(ui, cell, i, level);
+        ui.accessible_menu_row(cell, i, level);
         paint_row(ui, cell, m, shown, i)?;
     }
     Ok(action)
-}
-
-#[cfg(feature = "accessibility")]
-fn accessible_row<Id: WidgetId>(ui: &mut Ui<'_, Id>, cell: Rect, i: usize, level: usize) {
-    let p = &ui.state.popup;
-    let row = &p.rows[i];
-    let rect = cell
-        .intersection(ui.state.clip.unwrap_or(cell))
-        .unwrap_or_default();
-    if let Some(bridge) = &mut ui.state.accessibility
-        && let Some(owner) = p.owner
-    {
-        let mut path: Vec<_> = p.parents[..level]
-            .iter()
-            .map(|parent| parent.selected)
-            .collect();
-        path.push(i);
-        bridge.menu(
-            owner,
-            p.generation,
-            path,
-            (row.label.as_str(), row.enabled, row.checked),
-            rect,
-            level == p.parents.len() && p.highlight == Some(i),
-        );
-    }
 }
 
 fn paint_row<Id: WidgetId>(
@@ -1297,7 +1224,7 @@ impl<Id: WidgetId> Ui<'_, Id> {
     }
 }
 
-const MENU_PART: u16 = 0xFFFE;
+pub(crate) const MENU_PART: u16 = 0xFFFE;
 
 #[cfg(test)]
 mod tests {
@@ -1650,33 +1577,6 @@ mod tests {
         menu_frame(&mut rig);
         assert!(!rig.state.popup.is_open());
         assert_eq!(rig.state.focus, Some(Key::new(1, 0)));
-    }
-
-    #[cfg(feature = "accessibility")]
-    #[test]
-    fn assistive_menu_actions_reject_old_openings_and_disabled_leaves() {
-        let leaves = [
-            MenuItem::new("Disabled").enabled(false),
-            MenuItem::new("Leaf"),
-        ];
-        let items = [MenuItem::new("Branch").submenu(&leaves)];
-        let owner = Key::new(9u8, MENU_PART);
-        let mut popup = Popup::default();
-        popup.open(owner, Rect::default(), 0.0, items, None);
-        let old = popup.generation;
-        popup.open(owner, Rect::default(), 0.0, items, None);
-        assert_eq!(popup.accessible_action(owner, old, &[0, 1], true), None);
-        assert_eq!(popup.take_path(owner), None);
-        assert_eq!(
-            popup.accessible_action(owner, popup.generation, &[0, 0], true),
-            None
-        );
-        assert!(popup.is_open());
-        assert_eq!(
-            popup.accessible_action(owner, popup.generation, &[0, 1], true),
-            Some(None)
-        );
-        assert_eq!(popup.take_path(owner), Some(vec![0, 1]));
     }
 
     #[test]

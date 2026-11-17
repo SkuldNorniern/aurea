@@ -6,7 +6,6 @@ use super::Widget;
 use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
-#[cfg(feature = "accessibility")]
 use crate::ui::accessibility::{Action, ActionData};
 use crate::ui::component::{FocusRing, Knob, StateColors, Track};
 use crate::ui::frame::{Response, Ui};
@@ -243,7 +242,6 @@ impl<'v> Slider<'v> {
         let (lo, hi) = (*self.range.start(), *self.range.end());
         let span = hi - lo;
         let before = *self.value;
-        #[cfg(feature = "accessibility")]
         self.accessibility(ui, id, (lo, hi));
         let groove = self.groove(area, r);
         if input.held {
@@ -256,7 +254,6 @@ impl<'v> Slider<'v> {
         }
         self.wheel(ui, input, (lo, hi));
         *self.value = snap(*self.value, lo, hi, self.step);
-        #[cfg(feature = "accessibility")]
         self.describe_accessibility(ui, id, (lo, hi));
         if (*self.value - before).abs() > f32::EPSILON {
             response.changed = true;
@@ -532,7 +529,6 @@ impl Look<SliderParts<'_>> {
     }
 }
 
-#[cfg(feature = "accessibility")]
 impl Slider<'_> {
     fn accessibility<Id: WidgetId>(&mut self, ui: &mut Ui<'_, Id>, id: Id, (lo, hi): (f32, f32)) {
         let (lo, hi) = (lo.min(hi), lo.max(hi));
@@ -561,9 +557,7 @@ impl Slider<'_> {
     ) {
         let (lo, hi) = (lo.min(hi), lo.max(hi));
         let step = self.step.unwrap_or((hi - lo) / 100.0);
-        if let Some(bridge) = &mut ui.state.accessibility
-            && let Some(node) = bridge.node(Key::new(id, 0))
-        {
+        ui.with_accessible(id, 0, |node| {
             node.set_numeric_value(f64::from(snap(*self.value, lo, hi, self.step)));
             node.set_min_numeric_value(f64::from(lo));
             node.set_max_numeric_value(f64::from(hi));
@@ -571,7 +565,7 @@ impl Slider<'_> {
             node.add_action(Action::Increment);
             node.add_action(Action::Decrement);
             node.add_action(Action::SetValue);
-        }
+        });
     }
 }
 

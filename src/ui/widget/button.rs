@@ -5,7 +5,6 @@ use super::look::Look;
 use super::repeat::fires;
 use crate::AureaResult;
 use crate::render::{Color, Font, Rect, glyph_ink_rows, shape_text};
-#[cfg(feature = "accessibility")]
 use crate::ui::accessibility::Role;
 use crate::ui::component::{FocusRing, StateColors};
 use crate::ui::frame::{Align, Response, Ui};
@@ -316,7 +315,6 @@ impl<'t> Button<'t> {
             };
             response.clicked = keyed || (fired && self.enabled);
         }
-        #[cfg(feature = "accessibility")]
         ui.accessible_description(id, self.part, Role::Button, self.label, None);
         let mut state = ui.eased(id, self.part, input);
         let mut style = self

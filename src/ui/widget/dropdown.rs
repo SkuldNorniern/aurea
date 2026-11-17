@@ -6,7 +6,6 @@ use super::look::Look;
 use super::popup::{MenuItem, PopupStyle};
 use crate::AureaResult;
 use crate::render::{Color, Rect};
-#[cfg(feature = "accessibility")]
 use crate::ui::accessibility::Role;
 use crate::ui::component::{FocusRing, StateColors};
 use crate::ui::frame::{Response, Ui};
@@ -159,7 +158,6 @@ impl<'v> Dropdown<'v> {
             response.changed = true;
         }
         // no label here, so one from `accessible_label` stays.
-        #[cfg(feature = "accessibility")]
         {
             let value = self.options.get(*self.selected).copied();
             ui.with_accessible(id, 0, |node| {

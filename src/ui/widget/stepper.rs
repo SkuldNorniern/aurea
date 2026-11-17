@@ -9,7 +9,6 @@ use super::look::Look;
 use super::repeat::fires;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
-#[cfg(feature = "accessibility")]
 use crate::ui::accessibility::Role;
 use crate::ui::component::{FocusRing, StateColors};
 use crate::ui::frame::{Align, Eased, Response, Ui};
@@ -205,7 +204,6 @@ impl<'v> Stepper<'v> {
             steps += self.key_steps(ui);
         }
         let before = *self.value;
-        #[cfg(feature = "accessibility")]
         ui.accessible_adjust(id, 0, self.value, (lo.min(hi), lo.max(hi)), self.step);
         if steps != 0.0 {
             let stepped =
@@ -226,7 +224,6 @@ impl<'v> Stepper<'v> {
             response.changed = true;
             ui.mark_changed();
         }
-        #[cfg(feature = "accessibility")]
         ui.accessible_range(
             id,
             0,

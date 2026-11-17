@@ -4,13 +4,10 @@ use super::Widget;
 use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
-#[cfg(feature = "accessibility")]
 use crate::ui::accessibility::{Action, Role};
 use crate::ui::component::{EditableText, FocusRing, StateColors};
 use crate::ui::frame::{Response, Ui};
 use crate::ui::paint::{Component, Mark, MarkShape, Surface};
-#[cfg(feature = "accessibility")]
-use crate::ui::state::Key;
 use crate::ui::state::{Channel, Interaction, Sense, WidgetId};
 use crate::ui::text_edit::Rules;
 use crate::ui::theme::Theme;
@@ -295,7 +292,6 @@ impl Look<TextFieldParts<'_>> {
             .pass_vertical_keys(edit.pass_vertical_keys)
             .select_all_on_focus(edit.select_all_on_focus)
             .show(ui, (id, 0), parts.text, edit.input)?;
-        #[cfg(feature = "accessibility")]
         {
             ui.accessible_description(
                 id,
@@ -308,14 +304,12 @@ impl Look<TextFieldParts<'_>> {
                 parts.placeholder,
                 (!parts.password).then_some(edit.text.as_str()),
             );
-            if let Some(bridge) = &mut ui.state.accessibility
-                && let Some(node) = bridge.node(Key::new(id, 0))
-            {
+            ui.with_accessible(id, 0, |node| {
                 node.add_action(Action::SetValue);
                 if parts.password {
                     node.clear_value();
                 }
-            }
+            });
         }
         let response = &mut self.response;
         response.changed = outcome.changed || parts.cleared;

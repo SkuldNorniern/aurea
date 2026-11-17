@@ -3,7 +3,6 @@
 use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
-#[cfg(feature = "accessibility")]
 use crate::ui::accessibility::Role;
 use crate::ui::component::FocusRing;
 use crate::ui::frame::{Response, Ui};
@@ -201,7 +200,6 @@ impl<'v> Splitter<'v> {
                 CursorIcon::ResizeHorizontal
             });
         }
-        #[cfg(feature = "accessibility")]
         ui.accessible_description(id, 0, Role::Splitter, self.label, None);
         let line = line_rect(rect, self.stacked, at, style.thickness);
 

@@ -8,7 +8,6 @@ use super::look::Look;
 use super::slider::snap;
 use crate::AureaResult;
 use crate::render::{Color, LineCap, Paint, PaintStyle, Path, Point, Rect};
-#[cfg(feature = "accessibility")]
 use crate::ui::accessibility::Role;
 use crate::ui::component::FocusRing;
 use crate::ui::frame::{Response, Ui};
@@ -254,7 +253,6 @@ impl<'v> Dial<'v> {
         let (lo, hi) = (*self.range.start(), *self.range.end());
         let span = hi - lo;
         let before = *self.value;
-        #[cfg(feature = "accessibility")]
         {
             let step = self.step.unwrap_or(span / 100.0);
             ui.accessible_adjust(id, 0, self.value, (lo.min(hi), lo.max(hi)), step);
@@ -274,7 +272,6 @@ impl<'v> Dial<'v> {
             response.changed = true;
             ui.mark_changed();
         }
-        #[cfg(feature = "accessibility")]
         {
             let step = self.step.unwrap_or(span / 100.0);
             let range = (lo.min(hi), lo.max(hi));

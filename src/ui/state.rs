@@ -269,7 +269,7 @@ fn takes_text(sense: Option<Sense>) -> bool {
 /// The state canvas widgets keep between frames.
 #[derive(Debug)]
 pub struct UiState<Id: WidgetId> {
-    #[cfg(feature = "accessibility")]
+    #[allow(dead_code)] // never read without the accessibility feature
     pub(crate) accessibility: Option<Box<super::accessibility::Bridge<Id>>>,
     pub(crate) tweens: Tweens<(Key<Id>, Channel)>,
     pointer: Option<Point>,
@@ -365,7 +365,6 @@ impl<Id: WidgetId> UiState<Id> {
         tweens.set_instant(follow && reduced_motion());
         Self {
             tweens,
-            #[cfg(feature = "accessibility")]
             accessibility: None,
             pointer: None,
             pointer_kind: PointerKind::Mouse,
@@ -586,11 +585,8 @@ impl<Id: WidgetId> UiState<Id> {
     }
 
     fn update_input_source(&mut self, event: &WindowEvent) {
-        #[cfg(feature = "accessibility")]
-        if matches!(event, WindowEvent::Focused | WindowEvent::Unfocused)
-            && let Some(bridge) = &mut self.accessibility
-        {
-            bridge.focused(matches!(event, WindowEvent::Focused));
+        if matches!(event, WindowEvent::Focused | WindowEvent::Unfocused) {
+            self.accessibility_focused(matches!(event, WindowEvent::Focused));
         }
         match event {
             WindowEvent::MouseMove { pointer, .. } | WindowEvent::MouseButton { pointer, .. } => {
@@ -930,7 +926,6 @@ impl<Id: WidgetId> UiState<Id> {
             self.fonts = Some(Rc::new(Fonts::new(theme)));
         }
         self.changed = false;
-        #[cfg(feature = "accessibility")]
         self.accessibility_begin();
         self.popup.begin_frame();
         self.resolve_keys();
@@ -1192,15 +1187,7 @@ impl<Id: WidgetId> UiState<Id> {
         self.hit_grid
             .build(self.last_hits.iter().map(|hit| hit.rect));
         mem::swap(&mut self.order, &mut self.last_order);
-        #[cfg(feature = "accessibility")]
-        if let Some(bridge) = &mut self.accessibility {
-            let modal = self.popup.is_open().then_some(self.popup.focus_order());
-            bridge.finish(
-                self.focus,
-                modal,
-                self.popup.is_open() && !self.popup.is_card(),
-            );
-        }
+        self.accessibility_finish();
         self.wants_frame |= self.tweens.busy() || self.changed || !self.clicked.is_empty();
         self.clear_input();
         self.measures.retain(|_, (_, used)| mem::take(used));
@@ -1279,10 +1266,7 @@ impl<Id: WidgetId> UiState<Id> {
             None => rect,
         };
         let enabled = enabled && rect.width > 0.0 && rect.height > 0.0;
-        #[cfg(feature = "accessibility")]
-        if let Some(bridge) = &mut self.accessibility {
-            bridge.register(key, rect, sense, enabled);
-        }
+        self.accessibility_register(key, rect, sense, enabled);
         self.hits.push(Hit {
             rect,
             key,

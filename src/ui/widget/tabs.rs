@@ -5,7 +5,6 @@ use super::Widget;
 use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
-#[cfg(feature = "accessibility")]
 use crate::ui::accessibility::Role;
 use crate::ui::component::{FocusRing, StateColors};
 use crate::ui::frame::{Eased, Response, Ui};
@@ -171,7 +170,6 @@ impl<'v> TabBar<'v> {
             );
             x += width + style.gap;
             let input = ui.interact(id, part, cell, Sense::Click, self.enabled);
-            #[cfg(feature = "accessibility")]
             {
                 let on = *self.selected == i;
                 ui.accessible_description(id, part, Role::Tab, label, None);

@@ -10,9 +10,7 @@ use super::look::Look;
 use super::text_field::FieldStyle;
 use crate::AureaResult;
 use crate::render::{Color, Font, LayoutLine, LayoutOptions, Point, Rect, TextLayout, layout_text};
-#[cfg(feature = "accessibility")]
 use crate::ui::accessibility::edit_value;
-#[cfg(feature = "accessibility")]
 use crate::ui::accessibility::{Action, Role};
 use crate::ui::component::editable::{SystemClipboard, Typing, apply};
 use crate::ui::component::{EditableText, FocusRing, TextOutcome};
@@ -330,7 +328,6 @@ impl Editing<'_> {
         (font, options): (&Font, LayoutOptions),
     ) -> AureaResult<Typing> {
         let mut outcome = Typing::default();
-        #[cfg(feature = "accessibility")]
         if input.enabled {
             outcome.merge(edit_value(
                 edit,
@@ -461,7 +458,6 @@ impl Look<TextAreaParts<'_>> {
             ..TextOutcome::default()
         };
         outcome.lifecycle(ui, Key::new(id, 0), input, edit.commit_on_blur);
-        #[cfg(feature = "accessibility")]
         {
             ui.accessible_description(
                 id,
@@ -470,11 +466,7 @@ impl Look<TextAreaParts<'_>> {
                 edit.placeholder,
                 Some(edit.text.as_str()),
             );
-            if let Some(bridge) = &mut ui.state.accessibility
-                && let Some(node) = bridge.node(Key::new(id, 0))
-            {
-                node.add_action(Action::SetValue);
-            }
+            ui.with_accessible(id, 0, |node| node.add_action(Action::SetValue));
         }
         let response = &mut self.response;
         response.changed = outcome.changed;
