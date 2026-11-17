@@ -10,6 +10,9 @@ mod traits;
 
 // A spacer is an empty label, so it is a control.
 #[cfg(feature = "widgets")]
+mod widgets;
+
+#[cfg(feature = "widgets")]
 mod button;
 #[cfg(feature = "widgets")]
 mod checkbox;

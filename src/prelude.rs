@@ -17,7 +17,6 @@ pub use crate::elements::{
 pub use crate::elements::{Container, Divider, Element, Orientation, Stack};
 
 pub use crate::input::keymap::{Chord, Keymap};
-#[cfg(feature = "menu")]
 pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
 
 pub use crate::render::{
@@ -35,7 +34,6 @@ pub use aurea_runtime::{DamageRegion, FrameInfo, FrameScheduler};
 /// What every app needs, whichever widgets it draws with.
 mod core {
     pub use crate::input::keymap::{Chord, Keymap};
-    #[cfg(feature = "menu")]
     pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
     pub use crate::render::{
         Canvas, Color, DrawingContext, Paint, PaintStyle, Point, Rect, RendererBackend,

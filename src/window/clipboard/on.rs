@@ -1,4 +1,5 @@
-//! Clipboard text, RGBA8 images and application byte formats. Android has text and images.
+//! Clipboard text, RGBA8 images and application byte formats, through the native clipboard. Android
+//! has text and images only.
 
 #[cfg(target_os = "android")]
 use crate::android;
@@ -22,24 +23,11 @@ use std::str;
 #[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "ios"))]
 use std::{ptr, slice};
 
-use crate::window::image;
-pub use crate::window::image::ClipboardImage;
-
-/// Borrowed custom-format data to publish alongside other representations.
-#[derive(Clone, Copy, Debug)]
-pub struct ClipboardData<'a> {
-    /// Format name of the custom data.
-    pub format: &'a str,
-    /// The data bytes.
-    pub bytes: &'a [u8],
-}
-
-use super::image::READ_LIMIT_EXCEEDED as READ_LIMIT;
-
-/// Native error code when a read exceeds the caller's byte budget.
-pub const READ_LIMIT_EXCEEDED: i32 = READ_LIMIT;
-/// Windows reports this while another process has the clipboard open.
-pub const CLIPBOARD_BUSY: i32 = -7;
+#[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "ios"))]
+use super::CLIPBOARD_BUSY;
+use super::ClipboardData;
+use crate::image;
+use crate::image::ClipboardImage;
 
 #[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "ios"))]
 struct NativeBytes(*mut u8);

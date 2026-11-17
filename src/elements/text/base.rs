@@ -4,7 +4,8 @@
 use super::change::{TextChange, diff};
 use super::features::TextFeatures;
 use super::offsets::{Unit, to_bytes, to_units};
-use crate::elements::native::{CallbackWatch, NativeElement, read_text};
+use crate::elements::native::{CallbackWatch, NativeElement};
+use crate::elements::widgets::read_text;
 use crate::ffi::{
     NG_TEXT_FEATURE_SECRET, ng_platform_set_text_content, ng_platform_text_can_undo,
     ng_platform_text_get_selection, ng_platform_text_replace, ng_platform_text_set_feature,

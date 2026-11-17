@@ -1,8 +1,6 @@
 mod callback;
 pub mod custom;
-#[cfg(feature = "widgets")]
 pub mod elements;
-#[cfg(any(feature = "menu", feature = "tray"))]
 pub mod menu;
 pub mod window;
 

@@ -6,10 +6,21 @@ use std::ffi::{CStr, c_char, c_int, c_uint};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
 
-use crate::ffi::{
-    NG_ERROR_UNSUPPORTED, ng_platform_color_dialog, ng_platform_file_dialog,
-    ng_platform_free_dialog_paths, ng_platform_message_box,
-};
+use crate::ffi::NG_ERROR_UNSUPPORTED;
+
+#[cfg(not(feature = "dialog"))]
+mod off;
+#[cfg(feature = "dialog")]
+mod on;
+#[cfg(not(feature = "dialog"))]
+use off::*;
+#[cfg(feature = "dialog")]
+use on::*;
+
+/// Whether the native dialogs are built in.
+pub(crate) const fn built() -> bool {
+    cfg!(feature = "dialog")
+}
 use crate::render::Color;
 use crate::{AureaError, AureaResult, Platform, Window};
 
@@ -81,13 +92,19 @@ impl FileDialog {
     }
 
     /// [`Self::open`] over `parent` if there is one.
-    #[cfg(all(not(any(target_os = "ios", target_os = "android")), feature = "files"))]
+    #[cfg_attr(
+        any(target_os = "ios", target_os = "android", not(feature = "files")),
+        allow(dead_code)
+    )]
     pub(crate) fn open_over(&self, parent: Option<&Window>) -> AureaResult<Vec<PathBuf>> {
         self.run(parent, OPEN)
     }
 
     /// [`Self::save`] over `parent` if there is one.
-    #[cfg(all(not(any(target_os = "ios", target_os = "android")), feature = "files"))]
+    #[cfg_attr(
+        any(target_os = "ios", target_os = "android", not(feature = "files")),
+        allow(dead_code)
+    )]
     pub(crate) fn save_over(&self, parent: Option<&Window>) -> AureaResult<Option<PathBuf>> {
         Ok(self.run(parent, SAVE)?.into_iter().next())
     }
@@ -104,7 +121,7 @@ impl FileDialog {
 
     fn run(&self, parent: Option<&Window>, kind: c_int) -> AureaResult<Vec<PathBuf>> {
         // Phones have document pickers instead, in `files`; cancelling must not look like this.
-        if cfg!(any(target_os = "ios", target_os = "android")) {
+        if !built() || cfg!(any(target_os = "ios", target_os = "android")) {
             return Err(AureaError::unsupported("file_dialog"));
         }
         let text = |s: &str| c_text(s);
@@ -391,6 +408,7 @@ fn color_of(argb: c_uint) -> Color {
 }
 
 #[cfg(test)]
+#[cfg(feature = "dialog")]
 mod tests {
     use super::*;
 
@@ -404,7 +422,7 @@ mod tests {
         );
     }
 
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "dialog"))]
     #[test]
     fn old_windows_dialog_results_become_path_lists() {
         unsafe extern "C" {

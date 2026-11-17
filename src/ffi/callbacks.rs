@@ -9,13 +9,11 @@ use std::time::{Duration, Instant};
 use crate::app::opened;
 use crate::input::{drop, gesture, ime, pen, raw, text};
 use crate::registry::custom::invoke_custom_callback;
-#[cfg(feature = "widgets")]
 use crate::registry::elements::{
     invoke_button_callback, invoke_row_list_activated, invoke_row_list_selected,
     invoke_sidebar_selected, invoke_tab_detach, invoke_tab_selected, invoke_table_activated,
     invoke_table_selected,
 };
-#[cfg(any(feature = "menu", feature = "tray"))]
 use crate::registry::menu::invoke_menu_callback;
 use crate::registry::window::{push_event_to_all_windows, scale_factor_changed};
 use crate::render::notify_canvas_destroyed;
@@ -39,7 +37,6 @@ pub extern "C" fn ng_invoke_canvas_destroyed(canvas: *mut c_void) {
 }
 
 /// Runs the menu item callback `id`.
-#[cfg(any(feature = "menu", feature = "tray"))]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_menu_callback(id: u32) {
     guard("ng_invoke_menu_callback", || {
@@ -48,7 +45,6 @@ pub extern "C" fn ng_invoke_menu_callback(id: u32) {
 }
 
 /// Runs the button callback `id`.
-#[cfg(feature = "widgets")]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_button_callback(id: u32) {
     guard("ng_invoke_button_callback", || {
@@ -57,7 +53,6 @@ pub extern "C" fn ng_invoke_button_callback(id: u32) {
 }
 
 /// Reports that tab `index` of tab bar `id` was selected.
-#[cfg(feature = "widgets")]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_tab_bar_selected(id: u32, index: i32) {
     guard("ng_invoke_tab_bar_selected", || {
@@ -66,7 +61,6 @@ pub extern "C" fn ng_invoke_tab_bar_selected(id: u32, index: i32) {
 }
 
 /// Reports that tab `index` of tab bar `id` was detached.
-#[cfg(feature = "widgets")]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_tab_bar_detach(id: u32, index: i32) {
     guard("ng_invoke_tab_bar_detach", || {
@@ -75,7 +69,6 @@ pub extern "C" fn ng_invoke_tab_bar_detach(id: u32, index: i32) {
 }
 
 /// Reports that row `index` of sidebar list `id` was selected.
-#[cfg(feature = "widgets")]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_sidebar_list_selected(id: u32, index: i32) {
     guard("ng_invoke_sidebar_list_selected", || {
@@ -84,7 +77,6 @@ pub extern "C" fn ng_invoke_sidebar_list_selected(id: u32, index: i32) {
 }
 
 /// Reports that the user selected row `index` of table `id`, or no row for -1.
-#[cfg(feature = "widgets")]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_table_selected(id: u32, index: i32) {
     guard("ng_invoke_table_selected", || {
@@ -93,7 +85,6 @@ pub extern "C" fn ng_invoke_table_selected(id: u32, index: i32) {
 }
 
 /// Reports that the user activated row `index` of table `id`.
-#[cfg(feature = "widgets")]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_table_activated(id: u32, index: i32) {
     guard("ng_invoke_table_activated", || {
@@ -102,7 +93,6 @@ pub extern "C" fn ng_invoke_table_activated(id: u32, index: i32) {
 }
 
 /// Reports that the user selected row `index` of row list `id`, or no row for -1.
-#[cfg(feature = "widgets")]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_row_list_selected(id: u32, index: i32) {
     guard("ng_invoke_row_list_selected", || {
@@ -111,7 +101,6 @@ pub extern "C" fn ng_invoke_row_list_selected(id: u32, index: i32) {
 }
 
 /// Reports that the user activated row `index` of row list `id`.
-#[cfg(feature = "widgets")]
 #[unsafe(no_mangle)]
 pub extern "C" fn ng_invoke_row_list_activated(id: u32, index: i32) {
     guard("ng_invoke_row_list_activated", || {

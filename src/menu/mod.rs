@@ -7,10 +7,19 @@ mod spec;
 #[cfg(feature = "ui-core")]
 pub use spec::{MenuPopup, MenuRow, MenuSpec, NativeMenus};
 
+// The native calls come from `on`, or from `off` without `menu`: same names, and no menu is made.
+#[cfg(not(feature = "menu"))]
+mod off;
+#[cfg(feature = "menu")]
+mod on;
+
 use crate::ffi::c_title;
-use crate::ffi::*;
 use crate::registry::menu::{next_menu_item_id, register_menu_callback, unregister_menu_callback};
 use crate::{AureaError, AureaResult};
+#[cfg(not(feature = "menu"))]
+use off::*;
+#[cfg(feature = "menu")]
+use on::*;
 use std::cell::{Cell, RefCell};
 use std::os::raw::c_int;
 use std::os::raw::c_void;
@@ -644,6 +653,31 @@ impl MenuItem {
     }
 }
 
+/// Whether menus are built in.
+pub(crate) const fn built() -> bool {
+    cfg!(feature = "menu")
+}
+
+/// A menu bar for a window with native handle `window`, when the window's platform has one.
+pub(crate) fn create_bar(window: *mut c_void, capable: bool) -> AureaResult<MenuBar> {
+    if !built() {
+        return Err(AureaError::unsupported("menu bar"));
+    }
+    if !capable {
+        return Err(AureaError::ElementOperationFailed);
+    }
+    let handle = unsafe { ng_platform_create_menu() };
+    if handle.is_null() {
+        return Err(AureaError::MenuCreationFailed);
+    }
+    let result = unsafe { ng_platform_attach_menu(window, handle) };
+    if result != 0 {
+        unsafe { ng_platform_destroy_menu(handle) };
+        return Err(AureaError::MenuCreationFailed);
+    }
+    Ok(MenuBar::new(handle))
+}
+
 impl Drop for MenuBar {
     fn drop(&mut self) {
         for id in self.item_ids.borrow().iter() {
@@ -658,6 +692,7 @@ impl Drop for MenuBar {
 }
 
 #[cfg(test)]
+#[cfg(feature = "menu")]
 mod tests {
     use super::*;
 
@@ -765,6 +800,7 @@ mod tests {
 }
 
 #[cfg(test)]
+#[cfg(feature = "menu")]
 mod menu_ownership_tests {
     #[cfg(any(windows, target_os = "linux"))]
     use crate::menu::SubMenu;

@@ -80,13 +80,6 @@ impl Element for Stack {
 }
 
 impl Stack {
-    /// Add a spacer that expands with the given weight.
-    #[cfg(feature = "widgets")]
-    pub fn add_spacer(&mut self, weight: f32) -> AureaResult<()> {
-        use super::Spacer;
-        self.add_weighted(Spacer::new()?, weight)
-    }
-
     /// Add multiple elements with the same layout weight.
     pub fn add_many<E, I>(&mut self, elements: I, weight: f32) -> AureaResult<()>
     where

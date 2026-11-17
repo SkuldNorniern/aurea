@@ -32,6 +32,12 @@ pub mod swatch;
 pub mod tabs;
 #[cfg(feature = "ui-text-edit")]
 pub mod text_area;
+
+/// The multiline editor's state, which a `TextEdit` holds when `ui-text-edit` is on.
+#[cfg(feature = "ui-text-edit")]
+pub(crate) use text_area::EditorView as Multiline;
+#[cfg(not(feature = "ui-text-edit"))]
+pub(crate) type Multiline = ();
 pub mod text_field;
 pub mod toast;
 pub mod toggle;

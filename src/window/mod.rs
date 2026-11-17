@@ -1,11 +1,9 @@
 //! Window management, events, and lifecycle integration.
 
-#[cfg(feature = "clipboard")]
 pub mod clipboard;
 mod close;
 #[cfg(feature = "zengpu")]
 mod gpu;
-mod image;
 mod lifecycle;
 mod manager;
 pub(crate) mod native;
@@ -16,7 +14,6 @@ pub use aurea_foundation::{
     PenPhase, PenSample, PenSampler, PenSampling, PenTapAction, PenTool, PointerKind, WindowEvent,
 };
 pub use aurea_runtime::EventQueue;
-#[cfg(feature = "clipboard")]
 pub use clipboard::{clipboard_text, set_clipboard_text};
 pub use manager::WindowManager;
 pub use types::{CursorGrabMode, CursorIcon, WindowId, WindowType};
@@ -34,14 +31,14 @@ use crate::lifecycle::{
     LifecycleEvent, register_lifecycle_callback, subscribe_lifecycle_callback,
     unregister_lifecycle_callback,
 };
-#[cfg(feature = "menu")]
-use crate::menu::MenuBar;
+use crate::menu::{self, MenuBar};
 mod proxy;
 
 pub use proxy::WindowProxy;
 
 use close::CloseFlags;
 
+use crate::image::ClipboardImage;
 #[cfg(feature = "wgpu")]
 use crate::platform::handles::native_handle_from_window_ptr;
 use crate::platform::ui_thread;
@@ -53,7 +50,6 @@ use crate::registry::window::{
 };
 use crate::render::{Image, ImageSet, Rect};
 use crate::{AureaError, AureaResult};
-#[cfg(feature = "menu")]
 use aurea_foundation::Capability;
 use aurea_foundation::CapabilityChecker;
 use aurea_foundation::lock;
@@ -135,7 +131,6 @@ pub struct WindowPlacement {
 /// A native platform window with menu, content, and event handling.
 pub struct Window {
     handle: *mut c_void,
-    #[cfg(feature = "menu")]
     menu_bar: Option<MenuBar>,
     content: Option<Box<dyn Element>>,
     platform: Platform,
@@ -243,7 +238,6 @@ impl Window {
             id,
             #[cfg(feature = "wgpu")]
             surface_handle,
-            #[cfg(feature = "menu")]
             menu_bar: None,
             content: None,
             platform,
@@ -270,24 +264,9 @@ impl Window {
     }
 
     /// Builds this window's menu bar and hands back a borrow of it.
-    #[cfg(feature = "menu")]
     pub fn create_menu_bar(&mut self) -> AureaResult<&mut MenuBar> {
-        if !self.capabilities.has(Capability::MenuBar) {
-            return Err(AureaError::ElementOperationFailed);
-        }
-
-        let handle = unsafe { ng_platform_create_menu() };
-        if handle.is_null() {
-            return Err(AureaError::MenuCreationFailed);
-        }
-
-        let result = unsafe { ng_platform_attach_menu(self.handle, handle) };
-        if result != 0 {
-            unsafe { ng_platform_destroy_menu(handle) };
-            return Err(AureaError::MenuCreationFailed);
-        }
-
-        Ok(self.menu_bar.insert(MenuBar::new(handle)))
+        let bar = menu::create_bar(self.handle, self.capabilities.has(Capability::MenuBar))?;
+        Ok(self.menu_bar.insert(bar))
     }
 
     /// The platform this window runs on.
@@ -664,7 +643,7 @@ impl Window {
     /// Window icon from PNG bytes.
     pub fn set_icon_png(&self, png: &[u8]) -> AureaResult<()> {
         const MAX_BYTES: usize = 64 * 1024 * 1024;
-        let icon = image::ClipboardImage::from_png(png, MAX_BYTES)?;
+        let icon = ClipboardImage::from_png(png, MAX_BYTES)?;
         self.set_icon_rgba(&icon.rgba, icon.width, icon.height)
     }
 

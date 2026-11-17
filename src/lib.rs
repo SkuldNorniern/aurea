@@ -105,7 +105,6 @@ pub use aurea_animation as animation;
 
 pub mod app;
 mod device;
-#[cfg(feature = "dialog")]
 pub mod dialog;
 mod dispatch;
 pub mod elements;
@@ -115,6 +114,7 @@ pub mod embed;
 pub mod ffi;
 #[cfg(feature = "files")]
 pub mod files;
+mod image;
 pub mod input;
 pub mod integration;
 #[cfg(feature = "ui-core")]
@@ -125,7 +125,6 @@ pub mod lifecycle;
 pub mod locale;
 /// Logging setup.
 pub mod logger;
-#[cfg(feature = "menu")]
 pub mod menu;
 pub mod platform;
 pub mod prelude;
@@ -156,17 +155,14 @@ pub use crate::elements::{Container, Divider, Element, Orientation, Stack};
 use crate::ffi::{
     ng_platform_beep, ng_platform_prefers_dark, ng_platform_reduced_motion, ng_platform_wheel_lines,
 };
-#[cfg(feature = "menu")]
 pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
 #[cfg(feature = "tray")]
 pub use crate::tray::TrayIcon;
-#[cfg(feature = "clipboard")]
 pub use crate::window::clipboard;
 pub use crate::window::{
     CloseAnswer, CursorGrabMode, CursorIcon, Window, WindowId, WindowManager, WindowPlacement,
     WindowProxy, WindowType,
 };
-#[cfg(feature = "clipboard")]
 pub use crate::window::{clipboard_text, set_clipboard_text};
 
 pub use crate::window::{
