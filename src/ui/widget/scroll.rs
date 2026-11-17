@@ -84,13 +84,7 @@ fn wheel_step() -> f32 {
     }
 }
 
-/// Logical pixels a notch moves under the user's line setting: 16 a line, 48 when it is a page.
-pub(crate) fn wheel_line_pixels() -> f32 {
-    match wheel_scroll() {
-        WheelScroll::Lines(lines) => 16.0 * f32::from(u16::try_from(lines).unwrap_or(u16::MAX)),
-        WheelScroll::Page => 48.0,
-    }
-}
+pub(crate) use crate::wheel_line_pixels;
 
 /// Zoom exponent and pan distance per pixel of scroll: a 16 px wheel click zooms by e^0.16.
 pub fn wheel_steps() -> (f32, f32) {

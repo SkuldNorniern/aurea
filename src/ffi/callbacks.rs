@@ -7,6 +7,7 @@ use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
 use crate::app::opened;
+use crate::wheel_line_pixels;
 use crate::input::{drop, gesture, ime, pen, raw, text};
 use crate::registry::custom::invoke_custom_callback;
 use crate::registry::elements::{
@@ -228,11 +229,21 @@ pub extern "C" fn ng_invoke_scroll(
     modifiers: u32,
 ) {
     guard("ng_invoke_scroll", || {
+        let clicks = (has_clicks != 0).then_some((clicks_x, clicks_y));
+        let source = scroll_source(source);
+        // a wheel's pixels come from its clicks and the user's line, the same on every system
+        let (delta_x, delta_y) = match clicks {
+            Some((cx, cy)) if source == ScrollSource::Wheel => {
+                let line = f64::from(wheel_line_pixels());
+                (cx * line, cy * line)
+            }
+            _ => (delta_x, delta_y),
+        };
         let event = WindowEvent::Scroll(ScrollEvent {
             delta_x,
             delta_y,
-            clicks: (has_clicks != 0).then_some((clicks_x, clicks_y)),
-            source: scroll_source(source),
+            clicks,
+            source,
             phase: scroll_phase(phase),
             inverted: inverted != 0,
             // queue fills these.

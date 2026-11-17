@@ -278,6 +278,15 @@ pub enum WheelScroll {
     Page,
 }
 
+/// Logical pixels a wheel click scrolls under the user's line setting: 16 a line, 48 when it is
+/// a page.
+pub(crate) fn wheel_line_pixels() -> f32 {
+    match wheel_scroll() {
+        WheelScroll::Lines(lines) => 16.0 * f32::from(u16::try_from(lines).unwrap_or(u16::MAX)),
+        WheelScroll::Page => 48.0,
+    }
+}
+
 /// The user's wheel setting, read each call so a change takes effect at once.
 pub fn wheel_scroll() -> WheelScroll {
     match u32::try_from(unsafe { ng_platform_wheel_lines() }) {

@@ -39,8 +39,9 @@ void ng_invoke_mouse_button(
 void ng_invoke_mouse_move(void* window, double x, double y, unsigned int buttons, unsigned int modifiers);
 void ng_invoke_mouse_wheel(void* window, double delta_x, double delta_y, unsigned int modifiers);
 /* A scroll in logical pixels, right and up positive. `has_clicks` when a wheel gave detents in
-   `clicks_x`/`clicks_y`; `source` is NG_SCROLL_WHEEL.., `phase` NG_SCROLL_DISCRETE.., `inverted`
-   when natural scrolling is on. */
+   `clicks_x`/`clicks_y`; for NG_SCROLL_WHEEL with clicks the deltas are ignored and come from the
+   clicks and the user's line. `source` is NG_SCROLL_WHEEL.., `phase` NG_SCROLL_DISCRETE..,
+   `inverted` when natural scrolling is on. */
 void ng_invoke_scroll(void* window, double delta_x, double delta_y, int has_clicks, double clicks_x,
                       double clicks_y, unsigned int source, unsigned int phase, int inverted,
                       unsigned int modifiers);
