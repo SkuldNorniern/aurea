@@ -155,6 +155,8 @@ fn main() {
         "native/platform/ios/text_off.m",
         "native/platform/ios/ime.m",
         "native/platform/ios/ime_off.m",
+        "native/platform/ios/tray.m",
+        "native/platform/ios/embed.m",
         "native/platform/ios/documents.m",
         "native/platform/ios/sheets.m",
         "native/platform/ios/elements/button.m",
@@ -533,11 +535,13 @@ fn source_enabled(source: &str) -> bool {
         | "native/platform/linux/menu.c"
         | "native/platform/macos/menu.m"
         | "native/common/menu_table.c" => "CARGO_FEATURE_MENU",
-        "native/platform/windows/tray.c" | "native/platform/macos/tray.m" => "CARGO_FEATURE_TRAY",
+        "native/platform/windows/tray.c"
+        | "native/platform/macos/tray.m"
+        | "native/platform/ios/tray.m" => "CARGO_FEATURE_TRAY",
         "native/platform/windows/dialog.c"
         | "native/platform/linux/dialog.c"
         | "native/platform/macos/dialog.m" => "CARGO_FEATURE_DIALOG",
-        "native/platform/macos/swiftui_host.m" => "CARGO_FEATURE_EMBED",
+        "native/platform/macos/swiftui_host.m" | "native/platform/ios/embed.m" => "CARGO_FEATURE_EMBED",
         _ => return true,
     };
     feature_on(feature)
