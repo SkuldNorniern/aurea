@@ -320,7 +320,12 @@ fn main() {
 
         add_sources(&mut build, &root, common_c);
         add_sources(&mut build, &root, macos_sources);
+        // same floor rustc links for, else cc takes the SDK version and the
+        // availability errors below never fire
+        println!("cargo:rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET");
+        let min = env::var("MACOSX_DEPLOYMENT_TARGET").unwrap_or_else(|_| "11.0".into());
         build
+            .flag(format!("-mmacosx-version-min={min}"))
             .define("__APPLE__", None)
             .flag("-x")
             .flag("objective-c")
