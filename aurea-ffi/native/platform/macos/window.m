@@ -3,6 +3,7 @@
 #import "pen.h"
 #import "raw.h"
 #import "gesture.h"
+#import "drop.h"
 #import "common/errors.h"
 #import "common/input.h"
 #import "common/rust_callbacks.h"
@@ -159,42 +160,23 @@ unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
     return [super makeBackingLayer];
 }
 
-static NSString* drag_paths(id<NSDraggingInfo> info) {
-    NSArray<NSURL*>* urls = [[info draggingPasteboard]
-        readObjectsForClasses:@[[NSURL class]]
-                      options:@{NSPasteboardURLReadingFileURLsOnlyKey: @YES}];
-    NSMutableArray<NSString*>* paths = [NSMutableArray array];
-    for (NSURL* url in urls) {
-        if (url.path) [paths addObject:url.path];
-    }
-    return paths.count > 0 ? [paths componentsJoinedByString:@"\n"] : nil;
-}
-
-- (BOOL)reportDrag:(id<NSDraggingInfo>)info kind:(unsigned int)kind {
-    NSString* paths = drag_paths(info);
-    if (!paths) return NO;
-    NSPoint p = [self convertPoint:[info draggingLocation] fromView:nil];
-    CGFloat h = [self bounds].size.height;
-    ng_invoke_file_drop(self.windowHandle, kind, p.x, h - p.y, [paths UTF8String]);
-    return YES;
-}
-
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)info {
-    return [self reportDrag:info kind:NG_DROP_HOVER] ? NSDragOperationCopy : NSDragOperationNone;
+    return ng_macos_drop_hover(self, info);
 }
 
 - (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)info {
-    return [self reportDrag:info kind:NG_DROP_HOVER] ? NSDragOperationCopy : NSDragOperationNone;
+    return ng_macos_drop_hover(self, info);
 }
 
 - (void)draggingExited:(id<NSDraggingInfo>)info {
     (void)info;
-    ng_invoke_file_drop(self.windowHandle, NG_DROP_LEAVE, 0, 0, "");
+    ng_macos_drop_leave(self);
 }
 
 - (BOOL)performDragOperation:(id<NSDraggingInfo>)info {
-    return [self reportDrag:info kind:NG_DROP_DROP];
+    return ng_macos_drop_perform(self, info);
 }
+
 - (void)resetCursorRects {
     [self addCursorRect:[self bounds] cursor:(self.cursor ?: [NSCursor arrowCursor])];
 }
@@ -808,13 +790,7 @@ NGHandle ng_macos_create_window_with_type(const char* title, int width, int heig
     AureaContentView* contentView = [[AureaContentView alloc] initWithFrame:frame];
     contentView.windowHandle = (__bridge void*)window;
     [contentView setWantsLayer:YES];
-#ifdef NG_INPUT_DROP_FILES
-    if (@available(macOS 10.13, *)) {
-        [contentView registerForDraggedTypes:@[NSPasteboardTypeFileURL]];
-    } else {
-        [contentView registerForDraggedTypes:@[@"public.file-url"]];
-    }
-#endif
+    ng_macos_drop_register(contentView);
     [window setContentView:contentView];
     [window makeFirstResponder:contentView];
     [contentView updateTrackingAreas];
