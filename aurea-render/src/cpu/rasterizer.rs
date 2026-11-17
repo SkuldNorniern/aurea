@@ -7,6 +7,7 @@ use crate::cpu::damage::{
     FrameDamage, is_known_bounds, mark_occluded, resolve_frame_damage, union_rect,
 };
 use crate::cpu::raster::band::Band;
+use crate::cpu::raster::effect;
 use crate::cpu::raster::fill::PathScratch;
 use crate::cpu::raster::gradient;
 use crate::cpu::raster::image::ImageScratch;
@@ -14,13 +15,9 @@ use crate::cpu::tiles::{
     mark_tile_range_dirty, tile_grid_dims, tile_range, union_dirty_tile_rects,
 };
 use crate::cpu::{pool, stroke};
-#[cfg(feature = "effects")]
-use crate::effect::Effect;
 use crate::memory::smaller_buffer;
 use crate::recording::RecordingContext;
 use crate::renderer::{DrawingContext, FrameOutcome, FrameOutput, Renderer};
-#[cfg(feature = "effects")]
-use crate::scene::command::DrawCommand;
 use crate::scene::display_list::{CacheKey, DisplayItem, DisplayList};
 use crate::surface::{Surface, SurfaceInfo};
 use crate::types::{Color, Rect};
@@ -520,49 +517,6 @@ impl Renderer for CpuRasterizer {
     }
 }
 
-/// `damage` grown over every backdrop whose reach it touches: the box it writes must be drawn
-/// whole, since each pixel of it reads the pixels around.
-#[cfg(feature = "effects")]
-fn grow_over_backdrops(items: &[DisplayItem], damage: Rect) -> Rect {
-    let mut grown = damage;
-    for item in items {
-        let DrawCommand::Backdrop(bounds, effects) = &item.command else {
-            continue;
-        };
-        let reach: f32 = effects.iter().map(Effect::reach).sum();
-        let read = Rect::new(
-            bounds.x - reach,
-            bounds.y - reach,
-            bounds.width + 2.0 * reach,
-            bounds.height + 2.0 * reach,
-        );
-        if read.intersects(grown) {
-            grown = grown.union(*bounds);
-        }
-    }
-    grown
-}
-
-#[cfg(not(feature = "effects"))]
-fn grow_over_backdrops(_: &[DisplayItem], damage: Rect) -> Rect {
-    damage
-}
-
-/// The first backdrop at or after `from`, where the frame is drawn up to it, then it on the whole
-/// frame.
-#[cfg(feature = "effects")]
-fn next_backdrop(items: &[DisplayItem], from: usize) -> Option<usize> {
-    items[from..]
-        .iter()
-        .position(|item| matches!(item.command, DrawCommand::Backdrop(..)))
-        .map(|at| from + at)
-}
-
-#[cfg(not(feature = "effects"))]
-fn next_backdrop(_: &[DisplayItem], _: usize) -> Option<usize> {
-    None
-}
-
 impl CpuRasterizer {
     fn render_frame(&mut self, counters: Option<&mut FrameCounters>) -> AureaResult<FrameOutcome> {
         let mut tally = Tally(counters);
@@ -587,7 +541,7 @@ impl CpuRasterizer {
             return Ok(self.unchanged());
         };
         // a backdrop reads around its box, so any change it reads repaints all of it
-        let region = grow_over_backdrops(self.display_list.items(), region);
+        let region = effect::grow_over(self.display_list.items(), region);
         mark_tile_range_dirty(region, tiles_x, tiles_y, &mut dirty_tiles);
         self.history.damage = Some(region);
         tally.set_dirty_tiles(&dirty_tiles);
@@ -617,7 +571,7 @@ impl CpuRasterizer {
         // on the whole frame, then on.
         let mut start = 0;
         loop {
-            let backdrop = next_backdrop(items, start);
+            let backdrop = effect::next_backdrop(items, start);
             let end = backdrop.unwrap_or(items.len());
             let segment = FramePlan {
                 range: start..end,

@@ -4,7 +4,7 @@ use crate::cpu::clip::ClipBox;
 use crate::cpu::raster::band::Band;
 use crate::cpu::raster::fill::{self, PathScratch};
 use crate::cpu::raster::image::ImageScratch;
-use crate::cpu::raster::{circle, glyph, gradient, image, pixel, rect, round_rect};
+use crate::cpu::raster::{circle, effect, glyph, gradient, image, pixel, rect, round_rect};
 use crate::cpu::stroke;
 use crate::scene::command::DrawCommand;
 use crate::scene::display_list::DisplayItem;
@@ -29,11 +29,10 @@ pub(crate) fn render(
         return Ok(());
     }
     match &item.command {
-        #[cfg(feature = "effects")]
         DrawCommand::Backdrop(bounds, effects) => {
             // a whole frame's buffer: every row an effect reads is here
             let rows = u32::try_from(buf.len()).unwrap_or(u32::MAX) / bw.max(1);
-            super::effect::apply(
+            effect::backdrop(
                 effects,
                 *bounds,
                 buf,
@@ -42,8 +41,6 @@ pub(crate) fn render(
                 &mut scratch_row.effect,
             );
         }
-        #[cfg(not(feature = "effects"))]
-        DrawCommand::Backdrop(..) => {}
         DrawCommand::DrawColumns(x, wide, spans, color) => {
             let paint = Paint::new().color(pixel::fade_color(*color, alpha));
             // A column past the clip costs nothing but this step.

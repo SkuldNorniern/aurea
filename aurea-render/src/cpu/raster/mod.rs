@@ -6,7 +6,6 @@ pub mod blend;
 pub(crate) mod circle;
 pub mod clip;
 pub(crate) mod coverage;
-#[cfg(feature = "effects")]
 pub(crate) mod effect;
 pub(crate) mod fill;
 pub(crate) mod glyph;
