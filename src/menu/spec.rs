@@ -1,7 +1,7 @@
 //! Menus as data: one tree of rows that becomes a native bar and an in-app popup, updated in place
 //! when the tree's labels, greys or ticks change.
 
-use crate::keymap::Keymap;
+use crate::input::keymap::Keymap;
 use crate::menu::{MenuBar, MenuItem, SubMenu};
 use crate::ui::{OwnedMenuItem, Ui, WidgetId};
 use crate::{AureaResult, Point};
@@ -318,7 +318,7 @@ mod tests {
     use super::*;
     #[cfg(any(windows, target_os = "linux"))]
     use crate::Window;
-    use crate::keymap::Chord;
+    use crate::input::keymap::Chord;
     use crate::window::KeyCode;
 
     fn tree(undo_on: bool, snap: bool) -> Vec<MenuSpec<u8>> {

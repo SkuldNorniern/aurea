@@ -23,6 +23,7 @@ use crate::elements::Element;
 use crate::ffi::c_title;
 use crate::ffi::ng_platform_request_frame;
 use crate::ffi::*;
+use crate::input::pen::{PenSource, pen_source};
 #[cfg(feature = "wgpu")]
 use crate::integration::NativeWindowHandle;
 use crate::lifecycle::{
@@ -30,7 +31,6 @@ use crate::lifecycle::{
     unregister_lifecycle_callback,
 };
 use crate::menu::MenuBar;
-use crate::pen::{PenSource, pen_source};
 mod proxy;
 
 pub use proxy::WindowProxy;

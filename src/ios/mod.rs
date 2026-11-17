@@ -1,7 +1,7 @@
 //! iOS: the app's UI filling the screen, drawn on the GPU with the `zengpu` feature and on the CPU
 //! otherwise, or when the GPU cannot start. Touches come in as the
 //! mouse, two-finger scrolls, pinches and twists as the wheel, [`WindowEvent::Magnify`] and [`WindowEvent::Rotate`]; see
-//! `crate::touch`.
+//! `crate::input::touch`.
 
 mod documents;
 mod sheets;
@@ -35,11 +35,11 @@ use crate::ffi::callbacks::event_time;
 use crate::ffi::{ng_platform_attach_menu, ng_platform_create_menu, ng_platform_destroy_menu};
 #[cfg(feature = "zengpu")]
 use crate::gpu_ready;
-use crate::keyboard::{KeyboardFocus, set_keyboard_connected};
+use crate::input::keyboard::{KeyboardFocus, set_keyboard_connected};
+use crate::input::touch::{Phase, Touches};
 use crate::locale;
 use crate::render::{CanvasId, CpuRasterizer, Renderer, SurfaceInfo, register_host_canvas};
 use crate::screen::{self, Screen};
-use crate::touch::{Phase, Touches};
 use crate::trim_memory;
 use crate::ui::{FrameAsk, Theme, Ui, UiState};
 use crate::wake::wake_at;

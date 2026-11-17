@@ -1,7 +1,7 @@
 //! Android: the app's UI filling an `AureaActivity`, drawn on the GPU with the `zengpu` feature
 //! and on the CPU otherwise, or when the GPU cannot start. Fingers come in as the mouse, two-finger
 //! scrolls, pinches and twists as the wheel, [`WindowEvent::Magnify`] and [`WindowEvent::Rotate`], a pen also as
-//! [`WindowEvent::Pen`] with its pressure and lean; see `crate::touch`.
+//! [`WindowEvent::Pen`] with its pressure and lean; see `crate::input::touch`.
 //!
 //! The Java side is `dev.aurea.AureaActivity`, in the `aurea` Gradle module next to the sample in
 //! `mobile/android/`. An app subclasses it, names its native library, and defines `aurea_main`,

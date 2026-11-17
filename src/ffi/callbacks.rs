@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::app::opened;
-use crate::pen::note_source;
+use crate::input::pen::note_source;
 use crate::registry::custom::invoke_custom_callback;
 use crate::registry::elements::{
     invoke_button_callback, invoke_row_list_activated, invoke_row_list_selected,

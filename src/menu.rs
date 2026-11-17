@@ -13,7 +13,7 @@ use std::os::raw::c_int;
 use std::os::raw::c_void;
 use std::rc::{Rc, Weak};
 
-use crate::keymap::Chord;
+use crate::input::keymap::Chord;
 use crate::window::KeyCode;
 
 use log::debug;

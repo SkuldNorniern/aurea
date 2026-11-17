@@ -65,8 +65,6 @@ mod gpu_ready;
 #[cfg(target_os = "ios")]
 pub mod ios;
 #[cfg(any(target_os = "ios", target_os = "android", test))]
-mod touch;
-#[cfg(any(target_os = "ios", target_os = "android", test))]
 mod wake;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -86,16 +84,16 @@ pub mod embed;
 /// C ABI entry points for the native layers.
 pub mod ffi;
 pub mod files;
+mod input;
 pub mod integration;
-mod keyboard;
-pub mod keymap;
+pub(crate) use input::keyboard;
+pub use input::keymap;
 /// App lifecycle notifications.
 pub mod lifecycle;
 pub mod locale;
 /// Logging setup.
 pub mod logger;
 pub mod menu;
-mod pen;
 pub mod platform;
 pub mod prelude;
 /// Callback registries that native code calls back into.
@@ -142,9 +140,9 @@ pub use crate::files::{
     FileCache, Stamp, app_cache_dir, app_config_dir, app_data_dir, app_local_data_dir, cache_dir,
     config_dir, data_dir, documents_dir, local_data_dir, open_path, open_url, reveal_path,
 };
-pub use crate::keymap::{Chord, Keymap};
+pub use crate::input::keymap::{Chord, Keymap};
+pub use crate::input::pen::{PenMode, PenSource, pen_mode, pen_source, set_pen_mode};
 pub use crate::locale::{locale, locales};
-pub use crate::pen::{PenMode, PenSource, pen_mode, pen_source, set_pen_mode};
 pub use crate::platform::handles::NativeWindowHandle;
 pub use crate::screen::{Screen, screen, simulate_screen};
 pub use aurea_foundation::{AureaError, AureaResult};
@@ -176,8 +174,8 @@ pub fn pointer_is_pencil() -> bool {
     false
 }
 
+pub use crate::input::keyboard::{keyboard_connected, keyboard_height, set_keyboard_follows_focus};
 pub use device::{Device, Thermal, device};
-pub use keyboard::{keyboard_connected, keyboard_height, set_keyboard_follows_focus};
 pub use sheets::sheet_presented;
 
 static PRESS_ON_HOLD: AtomicBool = AtomicBool::new(true);

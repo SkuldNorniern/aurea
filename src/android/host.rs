@@ -17,10 +17,10 @@ use super::window::NativeWindow;
 use crate::ffi::callbacks::event_time;
 #[cfg(feature = "zengpu")]
 use crate::gpu_ready;
-use crate::keyboard::{KeyboardFocus, set_keyboard_connected};
+use crate::input::keyboard::{KeyboardFocus, set_keyboard_connected};
+use crate::input::touch::{Phase, Touches};
 use crate::render::{CpuRasterizer, Renderer, SurfaceInfo};
 use crate::screen::{self, Screen};
-use crate::touch::{Phase, Touches};
 use crate::trim_memory;
 use crate::ui::{Theme, Ui, UiState};
 use crate::wake::wake_at;
