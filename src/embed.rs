@@ -2,6 +2,7 @@
 
 use crate::elements::Element;
 use crate::ffi::*;
+use crate::platform::ui_thread::is_process_main_thread;
 use crate::render::{Canvas, Color, Paint, PaintStyle, Point, Rect, RendererBackend};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -13,7 +14,11 @@ thread_local! {
     static EMBED_INIT: RefCell<bool> = const { RefCell::new(false) };
 }
 
-fn ensure_init() {
+fn ensure_init() -> bool {
+    // AppKit throws when init runs off the main thread
+    if !is_process_main_thread() {
+        return false;
+    }
     EMBED_INIT.with(|init| {
         let mut flag = init.borrow_mut();
         if !*flag {
@@ -21,6 +26,7 @@ fn ensure_init() {
             *flag = true;
         }
     });
+    true
 }
 
 /// Create an embeddable canvas view.
@@ -29,7 +35,9 @@ pub extern "C" fn aurea_embed_create_canvas(width: c_int, height: c_int) -> *mut
     if width <= 0 || height <= 0 {
         return null_mut();
     }
-    ensure_init();
+    if !ensure_init() {
+        return null_mut();
+    }
 
     let mut canvas = match Canvas::new(
         width.cast_unsigned(),

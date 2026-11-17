@@ -19,12 +19,12 @@ pub(crate) fn claim() -> AureaResult<()> {
 }
 
 #[cfg(not(target_vendor = "apple"))]
-fn is_process_main_thread() -> bool {
+pub(crate) fn is_process_main_thread() -> bool {
     true
 }
 
 #[cfg(target_vendor = "apple")]
-fn is_process_main_thread() -> bool {
+pub(crate) fn is_process_main_thread() -> bool {
     unsafe extern "C" {
         fn pthread_main_np() -> c_int;
     }

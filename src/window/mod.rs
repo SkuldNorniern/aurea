@@ -77,16 +77,15 @@ static PLATFORM: LazyLock<Mutex<PlatformState>> = LazyLock::new(|| {
 fn acquire_platform() -> AureaResult<()> {
     let mut state = lock(&PLATFORM);
     if !state.ready {
+        // claim first, AppKit throws if init runs off the main thread
+        ui_thread::claim()?;
         if unsafe { ng_platform_init() } != 0 {
+            ui_thread::release();
             return Err(AureaError::PlatformError(1));
         }
         FrameScheduler::set_request_frame_hook(|| {
             unsafe { ng_platform_request_frame() };
         });
-        if let Err(error) = ui_thread::claim() {
-            unsafe { ng_platform_cleanup() };
-            return Err(error);
-        }
         state.ready = true;
     }
     state.windows += 1;
