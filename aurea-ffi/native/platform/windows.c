@@ -1,9 +1,7 @@
 ﻿#include "windows.h"
 #include "windows/utils.h"
 #include "windows/window.h"
-#ifdef NG_FEATURE_MENU
 #include "windows/menu.h"
-#endif
 #include "windows/elements.h"
 #include "common/errors.h"
 #include "common/rust_callbacks.h"

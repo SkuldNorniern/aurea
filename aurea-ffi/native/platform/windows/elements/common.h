@@ -117,6 +117,8 @@ int ng_windows_is_notification(UINT msg);
 void ng_windows_forward_to_window(HWND from, UINT msg, WPARAM wParam, LPARAM lParam);
 /* For the window's procedure: a control's notification, 1 if it was a change. */
 int ng_windows_control_changed(UINT msg, WPARAM wParam, LPARAM lParam);
+/* A WM_COMMAND from a button: 1 when it was one and its callback ran. */
+int ng_windows_button_command(unsigned int command_id);
 /* A tab bar's size; 0 when `bar` is not one. */
 int ng_windows_tab_bar_measure(HWND bar, int* width, int* height);
 /* The height `hwnd` wants at `width`. */

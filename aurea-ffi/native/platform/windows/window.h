@@ -53,12 +53,6 @@ void ng_windows_release_window_input(void* hwnd);
 void* ng_windows_window_cursor(NGHandle window);
 NGHandle ng_windows_window_get_content_view(NGHandle window);
 
-#ifdef NG_FEATURE_CLIPBOARD
-char* ng_windows_get_clipboard_text(void);
-void ng_windows_free_clipboard_text(char* text);
-int ng_windows_set_clipboard_text(const char* text);
-#endif
-
 #ifdef __cplusplus
 }
 #endif

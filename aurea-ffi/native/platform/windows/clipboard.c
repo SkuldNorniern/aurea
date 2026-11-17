@@ -1,6 +1,9 @@
+#include "clipboard.h"
 #include "common/clipboard.h"
+#include "common/errors.h"
 #include <windows.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <limits.h>
 
 #define EMPTY_FORMATS "application/x-aurea-empty-clipboard-formats-v1"
@@ -192,4 +195,75 @@ int ng_windows_clipboard_write(const NGClipboardEntry* entries, size_t count) {
     if (empty_meta) GlobalFree(empty_meta);
     free(formats); free(handles);
     return result;
+}
+
+char* ng_windows_get_clipboard_text(void) {
+    if (!OpenClipboard(NULL)) return NULL;
+    HANDLE h = GetClipboardData(CF_UNICODETEXT);
+    if (!h) { CloseClipboard(); return NULL; }
+    WCHAR* wide = (WCHAR*)GlobalLock(h);
+    if (!wide) { CloseClipboard(); return NULL; }
+    SIZE_T capacity = GlobalSize(h) / sizeof(WCHAR);
+    SIZE_T units = 0;
+    while (units < capacity && wide[units]) ++units;
+    if (units == capacity || units > INT_MAX) {
+        GlobalUnlock(h); CloseClipboard(); return NULL;
+    }
+    int len = units ? WideCharToMultiByte(CP_UTF8, 0, wide, (int)units, NULL, 0, NULL, NULL) : 0;
+    char* result = NULL;
+    if (!units || len > 0) {
+        result = (char*)malloc((size_t)len + 1);
+        if (result) {
+            if (len) WideCharToMultiByte(CP_UTF8, 0, wide, (int)units, result, len, NULL, NULL);
+            int out = 0;
+            for (int i = 0; i < len; i++) {
+                if (result[i] == '\r' && i + 1 < len && result[i + 1] == '\n') continue;
+                result[out++] = result[i];
+            }
+            result[out] = 0;
+        }
+    }
+    GlobalUnlock(h);
+    CloseClipboard();
+    return result;
+}
+
+void ng_windows_free_clipboard_text(char* text) {
+    free(text);
+}
+
+int ng_windows_set_clipboard_text(const char* text) {
+    if (!text) return NG_ERROR_INVALID_PARAMETER;
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, text, -1, NULL, 0);
+    if (wlen <= 0) return NG_ERROR_PLATFORM_SPECIFIC;
+    int breaks = 0;
+    for (const char* c = text; *c; c++) breaks += *c == '\n' && (c == text || c[-1] != '\r');
+    HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, ((SIZE_T)wlen + (SIZE_T)breaks) * sizeof(WCHAR));
+    if (!h) return NG_ERROR_PLATFORM_SPECIFIC;
+    WCHAR* dst = (WCHAR*)GlobalLock(h);
+    if (!dst) { GlobalFree(h); return NG_ERROR_PLATFORM_SPECIFIC; }
+    MultiByteToWideChar(CP_UTF8, 0, text, -1, dst + breaks, wlen);
+    WCHAR* at = dst;
+    for (WCHAR* from = dst + breaks; ; from++) {
+        if (*from == L'\n' && (at == dst || at[-1] != L'\r')) *at++ = L'\r';
+        *at++ = *from;
+        if (!*from) break;
+    }
+    GlobalUnlock(h);
+    HWND owner = (HWND)ng_windows_clipboard_owner();
+    if (!owner) { GlobalFree(h); return NG_ERROR_PLATFORM_SPECIFIC; }
+    if (!OpenClipboard(owner)) {
+        int error = GetLastError() == ERROR_ACCESS_DENIED ? NG_ERROR_BUSY : NG_ERROR_PLATFORM_SPECIFIC;
+        ng_windows_clipboard_cleanup(owner); GlobalFree(h); return error;
+    }
+    if (!EmptyClipboard()) { CloseClipboard(); ng_windows_clipboard_cleanup(owner); GlobalFree(h); return NG_ERROR_PLATFORM_SPECIFIC; }
+    if (!SetClipboardData(CF_UNICODETEXT, h)) {
+        CloseClipboard();
+        ng_windows_clipboard_cleanup(owner);
+        GlobalFree(h);
+        return NG_ERROR_PLATFORM_SPECIFIC;
+    }
+    CloseClipboard();
+    ng_windows_clipboard_cleanup(owner);
+    return NG_SUCCESS;
 }

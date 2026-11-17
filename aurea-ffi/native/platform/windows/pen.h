@@ -21,6 +21,10 @@
 void ng_windows_pen_message(HWND root, UINT msg, WPARAM wParam);
 /* WM_POINTERCAPTURECHANGED: the system took the pen, so a stroke it was drawing is dropped. */
 void ng_windows_pen_capture_lost(HWND root, WPARAM wParam);
+/* Pointer bits for a mouse message Windows made from the pen. */
+unsigned int ng_windows_pen_bits(void);
+/* WM_TABLET_QUERYSYSTEMGESTURESTATUS: 1 with `status` set when the pen answers it. */
+int ng_windows_pen_query_gestures(LRESULT* status);
 int ng_windows_pen_mode(void);
 void ng_windows_pen_set_mode(int mode);
 /* Whether Windows Ink is sending the pen, so wintab stays quiet. */

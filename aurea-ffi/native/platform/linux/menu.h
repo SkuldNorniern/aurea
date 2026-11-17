@@ -2,6 +2,7 @@
 #define NATIVE_GUI_LINUX_MENU_H
 
 #include "common/types.h"
+#include <gtk/gtk.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -21,6 +22,11 @@ int ng_linux_menu_clear(NGMenuHandle menu);
 int ng_linux_menu_move_last(NGMenuHandle menu, unsigned int index);
 NGMenuHandle ng_linux_create_submenu(NGMenuHandle parent_menu, const char* title);
 int ng_linux_handle_menu_shortcut(NGHandle window, unsigned int keycode, unsigned int modifiers);
+/* Key press and release the menu bar may take; 1 when it did and the window stops there. */
+int ng_linux_menu_key_press(GtkWidget* widget, GdkEventKey* event, unsigned int keycode, unsigned int mods);
+int ng_linux_menu_key_release(GtkWidget* widget, GdkEventKey* event);
+/* A window is going away: its menu table entries are forgotten. */
+void ng_linux_menu_window_destroyed(GtkWidget* widget);
 
 #ifdef __cplusplus
 }

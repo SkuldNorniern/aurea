@@ -1,8 +1,6 @@
 #import "macos.h"
 #import "macos/window.h"
-#ifdef NG_FEATURE_MENU
 #import "macos/menu.h"
-#endif
 #import "common/errors.h"
 #import "common/rust_callbacks.h"
 #import "macos/elements.h"

@@ -3,6 +3,8 @@
 #include "utils.h"
 #include "window.h"
 #include "common/rust_callbacks.h"
+#include "common/input.h"
+#include <tpcshrd.h>
 
 #define AUREA_PEN_HISTORY 64
 
@@ -177,4 +179,13 @@ void ng_windows_pen_message(HWND root, UINT msg, WPARAM wParam) {
 
 void ng_windows_pen_capture_lost(HWND root, WPARAM wParam) {
     if (root && g_ink_contact_id == GET_POINTERID_WPARAM(wParam)) ng_windows_ink_drop();
+}
+
+unsigned int ng_windows_pen_bits(void) {
+    return NG_POINTER_PEN;
+}
+
+int ng_windows_pen_query_gestures(LRESULT* status) {
+    *status = TABLET_DISABLE_PRESSANDHOLD | TABLET_DISABLE_FLICKS | TABLET_DISABLE_FLICKFALLBACKKEYS;
+    return 1;
 }

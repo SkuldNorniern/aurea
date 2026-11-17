@@ -1,5 +1,6 @@
 ﻿#include "menu.h"
 #include "utils.h"
+#include "window_state.h"
 #include "common/shortcuts.h"
 #include "common/menu_table.h"
 #include "common/errors.h"
@@ -230,4 +231,44 @@ int ng_windows_menu_clear(NGMenuHandle menu) {
         DeleteMenu((HMENU)menu, (UINT)i, MF_BYPOSITION);
     }
     return NG_SUCCESS;
+}
+
+int ng_windows_menu_key_down(HWND hwnd, UINT msg, WPARAM wParam, unsigned int keycode, unsigned int modifiers) {
+    NGWindow* w = ng_windows_window_state(hwnd);
+    if (msg == WM_SYSKEYDOWN && wParam == VK_MENU && GetMenu(hwnd)) {
+        return NG_MENU_KEY_DEFAULT;
+    }
+    if (msg == WM_SYSKEYDOWN && (modifiers & NG_MOD_ALT) && !(modifiers & NG_MOD_CTRL)
+        && !ng_windows_menu_has_shortcut((void*)hwnd, keycode, modifiers)
+        && ng_windows_menu_takes_key((void*)hwnd, (unsigned int)wParam)) {
+        w->menu_access_key = wParam;
+        return NG_MENU_KEY_DEFAULT;
+    }
+    w->menu_access_key = 0;
+    if (ng_windows_handle_menu_shortcut((void*)hwnd, keycode, modifiers)) {
+        w->shortcut_took_syskey = msg == WM_SYSKEYDOWN;
+        w->menu_took_key = wParam;
+        return NG_MENU_KEY_TAKEN;
+    }
+    return NG_MENU_KEY_PASS;
+}
+
+int ng_windows_menu_key_up(HWND hwnd, UINT msg, WPARAM wParam) {
+    NGWindow* w = ng_windows_window_state(hwnd);
+    if (msg == WM_SYSKEYUP && wParam == VK_MENU && GetMenu(hwnd)) {
+        return NG_MENU_KEY_DEFAULT;
+    }
+    if (msg == WM_SYSKEYUP && w->menu_access_key != 0 && wParam == w->menu_access_key) {
+        w->menu_access_key = 0;
+        return NG_MENU_KEY_DEFAULT;
+    }
+    if (w->menu_took_key != 0 && wParam == w->menu_took_key) {
+        w->menu_took_key = 0;
+        return NG_MENU_KEY_TAKEN;
+    }
+    return NG_MENU_KEY_PASS;
+}
+
+void ng_windows_menu_command(unsigned int command_id, LPARAM lParam) {
+    if (!lParam) ng_invoke_menu_callback(command_id - 1);
 }

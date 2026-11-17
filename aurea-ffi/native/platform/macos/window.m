@@ -1612,30 +1612,6 @@ NGHandle ng_macos_window_get_content_view(NGHandle window) {
     return (__bridge void*)contentView;
 } 
 
-#ifdef NG_FEATURE_CLIPBOARD
-char* ng_macos_get_clipboard_text(void) {
-    NSPasteboard* pb = [NSPasteboard generalPasteboard];
-    NSString* str = [pb stringForType:NSPasteboardTypeString];
-    if (!str) return NULL;
-    const char* utf8 = [str UTF8String];
-    if (!utf8) return NULL;
-    return strdup(utf8);
-}
-
-void ng_macos_free_clipboard_text(char* text) {
-    free(text);
-}
-
-int ng_macos_set_clipboard_text(const char* text) {
-    if (!text) return NG_ERROR_INVALID_PARAMETER;
-    NSPasteboard* pb = [NSPasteboard generalPasteboard];
-    [pb clearContents];
-    NSString* str = [NSString stringWithUTF8String:text];
-    if (!str) return NG_ERROR_PLATFORM_SPECIFIC;
-    BOOL ok = [pb setString:str forType:NSPasteboardTypeString];
-    return ok ? NG_SUCCESS : NG_ERROR_PLATFORM_SPECIFIC;
-}
-#endif
 
 void ng_apple_device_info(unsigned long long* total, unsigned long long* available, int* thermal,
                           int* low) {

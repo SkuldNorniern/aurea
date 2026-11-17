@@ -5,6 +5,7 @@
 #import "common/platform_ops.h"
 #ifdef NG_FEATURE_CLIPBOARD
 #import "common/clipboard.h"
+#import "macos/clipboard.h"
 #endif
 #import "common/errors.h"
 #import "window.h"

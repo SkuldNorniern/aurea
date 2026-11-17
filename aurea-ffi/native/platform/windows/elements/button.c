@@ -50,3 +50,9 @@ void ng_windows_button_invalidate(NGHandle button) {
     if (!button) return;
     InvalidateRect((HWND)button, NULL, FALSE);
 }
+
+int ng_windows_button_command(unsigned int command_id) {
+    if (command_id < BUTTON_COMMAND_BASE) return 0;
+    ng_invoke_button_callback(command_id - BUTTON_COMMAND_BASE);
+    return 1;
+}

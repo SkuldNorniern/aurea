@@ -2,10 +2,22 @@
 #define NATIVE_GUI_WINDOWS_MENU_H
 
 #include "common/types.h"
+#include <windows.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* What the menu leaves of a key message: WindowProc goes on, hands it to DefWindowProc, or returns 0. */
+#define NG_MENU_KEY_PASS 0
+#define NG_MENU_KEY_DEFAULT 1
+#define NG_MENU_KEY_TAKEN 2
+
+/* Key messages the menu bar may take; NG_MENU_KEY_* says what WindowProc does next. */
+int ng_windows_menu_key_down(HWND hwnd, UINT msg, WPARAM wParam, unsigned int keycode, unsigned int modifiers);
+int ng_windows_menu_key_up(HWND hwnd, UINT msg, WPARAM wParam);
+/* A WM_COMMAND with no window control: a menu item's id. */
+void ng_windows_menu_command(unsigned int command_id, LPARAM lParam);
 
 NGMenuHandle ng_windows_create_menu(void);
 void ng_windows_destroy_menu(NGMenuHandle handle);

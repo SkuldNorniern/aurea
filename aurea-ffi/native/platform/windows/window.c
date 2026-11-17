@@ -2,9 +2,7 @@
 #include "occlusion.h"
 #include "drop.h"
 #include "gesture.h"
-#ifdef NG_FEATURE_CLIPBOARD
-#include "common/clipboard.h"
-#endif
+#include "raw.h"
 #include "elements/common.h"
 #include "utils.h"
 #include "window_state.h"
@@ -118,12 +116,8 @@ NGHandle ng_windows_create_window_with_type(const char* title, int width, int he
     if (hwnd) {
         ng_windows_set_client_size(hwnd, width, height, 0);
         ng_windows_fit_work_area(hwnd);
-#ifdef NG_INPUT_DROP_FILES
         ng_windows_accept_drops(hwnd);
-#endif
-#ifdef NG_INPUT_GESTURES
         ng_windows_enable_gestures(hwnd);
-#endif
         ShowWindow(hwnd, SW_SHOW);
         UpdateWindow(hwnd);
         SetFocus(hwnd);
@@ -645,20 +639,6 @@ int ng_windows_window_set_cursor_icon(NGHandle window, int icon) {
 }
 
 static HWND g_grab_holder = NULL;
-static HWND g_raw_holder = NULL;
-
-static void ng_windows_set_raw_mouse(HWND target) {
-#ifdef NG_INPUT_RAW_MOUSE
-    RAWINPUTDEVICE rid;
-    rid.usUsagePage = 0x01;
-    rid.usUsage = 0x02;
-    rid.dwFlags = target ? 0 : RIDEV_REMOVE;
-    rid.hwndTarget = target;
-    if (RegisterRawInputDevices(&rid, 1, sizeof(rid))) g_raw_holder = target;
-#else
-    (void)target;
-#endif
-}
 
 static void ng_windows_clip_to_content(HWND hwnd) {
     RECT rect;
@@ -679,7 +659,7 @@ static void ng_windows_give_up_grab(HWND hwnd) {
         ClipCursor(NULL);
         g_grab_holder = NULL;
     }
-    if (g_raw_holder == hwnd) ng_windows_set_raw_mouse(NULL);
+    ng_windows_raw_mouse_take(hwnd, 0);
 }
 
 static void ng_windows_take_grab(HWND hwnd) {
@@ -689,11 +669,7 @@ static void ng_windows_take_grab(HWND hwnd) {
     if (g_grab_holder && g_grab_holder != hwnd) ng_windows_give_up_grab(g_grab_holder);
     ng_windows_clip_to_content(hwnd);
     g_grab_holder = hwnd;
-    if (mode == 2) {
-        if (g_raw_holder != hwnd) ng_windows_set_raw_mouse(hwnd);
-    } else if (g_raw_holder == hwnd) {
-        ng_windows_set_raw_mouse(NULL);
-    }
+    ng_windows_raw_mouse_take(hwnd, mode == 2);
 }
 
 void ng_windows_cursor_grab_activate(void* window, int active) {
@@ -749,75 +725,3 @@ int ng_windows_window_set_cursor_grab(NGHandle window, int mode) {
     return NG_SUCCESS;
 }
 
-#ifdef NG_FEATURE_CLIPBOARD
-char* ng_windows_get_clipboard_text(void) {
-    if (!OpenClipboard(NULL)) return NULL;
-    HANDLE h = GetClipboardData(CF_UNICODETEXT);
-    if (!h) { CloseClipboard(); return NULL; }
-    WCHAR* wide = (WCHAR*)GlobalLock(h);
-    if (!wide) { CloseClipboard(); return NULL; }
-    SIZE_T capacity = GlobalSize(h) / sizeof(WCHAR);
-    SIZE_T units = 0;
-    while (units < capacity && wide[units]) ++units;
-    if (units == capacity || units > INT_MAX) {
-        GlobalUnlock(h); CloseClipboard(); return NULL;
-    }
-    int len = units ? WideCharToMultiByte(CP_UTF8, 0, wide, (int)units, NULL, 0, NULL, NULL) : 0;
-    char* result = NULL;
-    if (!units || len > 0) {
-        result = (char*)malloc((size_t)len + 1);
-        if (result) {
-            if (len) WideCharToMultiByte(CP_UTF8, 0, wide, (int)units, result, len, NULL, NULL);
-            int out = 0;
-            for (int i = 0; i < len; i++) {
-                if (result[i] == '\r' && i + 1 < len && result[i + 1] == '\n') continue;
-                result[out++] = result[i];
-            }
-            result[out] = 0;
-        }
-    }
-    GlobalUnlock(h);
-    CloseClipboard();
-    return result;
-}
-
-void ng_windows_free_clipboard_text(char* text) {
-    free(text);
-}
-
-int ng_windows_set_clipboard_text(const char* text) {
-    if (!text) return NG_ERROR_INVALID_PARAMETER;
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, text, -1, NULL, 0);
-    if (wlen <= 0) return NG_ERROR_PLATFORM_SPECIFIC;
-    int breaks = 0;
-    for (const char* c = text; *c; c++) breaks += *c == '\n' && (c == text || c[-1] != '\r');
-    HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, ((SIZE_T)wlen + (SIZE_T)breaks) * sizeof(WCHAR));
-    if (!h) return NG_ERROR_PLATFORM_SPECIFIC;
-    WCHAR* dst = (WCHAR*)GlobalLock(h);
-    if (!dst) { GlobalFree(h); return NG_ERROR_PLATFORM_SPECIFIC; }
-    MultiByteToWideChar(CP_UTF8, 0, text, -1, dst + breaks, wlen);
-    WCHAR* at = dst;
-    for (WCHAR* from = dst + breaks; ; from++) {
-        if (*from == L'\n' && (at == dst || at[-1] != L'\r')) *at++ = L'\r';
-        *at++ = *from;
-        if (!*from) break;
-    }
-    GlobalUnlock(h);
-    HWND owner = (HWND)ng_windows_clipboard_owner();
-    if (!owner) { GlobalFree(h); return NG_ERROR_PLATFORM_SPECIFIC; }
-    if (!OpenClipboard(owner)) {
-        int error = GetLastError() == ERROR_ACCESS_DENIED ? NG_ERROR_BUSY : NG_ERROR_PLATFORM_SPECIFIC;
-        ng_windows_clipboard_cleanup(owner); GlobalFree(h); return error;
-    }
-    if (!EmptyClipboard()) { CloseClipboard(); ng_windows_clipboard_cleanup(owner); GlobalFree(h); return NG_ERROR_PLATFORM_SPECIFIC; }
-    if (!SetClipboardData(CF_UNICODETEXT, h)) {
-        CloseClipboard();
-        ng_windows_clipboard_cleanup(owner);
-        GlobalFree(h);
-        return NG_ERROR_PLATFORM_SPECIFIC;
-    }
-    CloseClipboard();
-    ng_windows_clipboard_cleanup(owner);
-    return NG_SUCCESS;
-}
-#endif

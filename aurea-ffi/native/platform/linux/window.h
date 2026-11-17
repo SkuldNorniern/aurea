@@ -51,12 +51,6 @@ int ng_linux_window_set_cursor_icon(NGHandle window, int icon);
 int ng_linux_window_set_cursor_rgba(NGHandle window, const unsigned char* rgba, unsigned int width, unsigned int height, unsigned int hot_x, unsigned int hot_y);
 NGHandle ng_linux_window_get_content_view(NGHandle window);
 
-#ifdef NG_FEATURE_CLIPBOARD
-char* ng_linux_get_clipboard_text(void);
-void ng_linux_free_clipboard_text(char* text);
-int ng_linux_set_clipboard_text(const char* text);
-#endif
-
 #ifdef __cplusplus
 }
 #endif

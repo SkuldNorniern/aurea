@@ -1,6 +1,7 @@
 #include "common/platform_ops.h"
 #ifdef NG_FEATURE_CLIPBOARD
 #include "common/clipboard.h"
+#include "platform/linux/clipboard.h"
 #endif
 #ifdef NG_FEATURE_DIALOG
 #include "dialog.h"
@@ -13,13 +14,6 @@
 #endif
 #include "platform/linux/ime.h"
 
-#ifndef NG_INPUT_IME
-/* Without ime there is no input method to place: the area is accepted and ignored. */
-int ng_linux_window_set_ime_cursor_area(NGHandle window, float x, float y, float width, float height) {
-    (void)window; (void)x; (void)y; (void)width; (void)height;
-    return NG_SUCCESS;
-}
-#endif
 #include "common/shortcuts.h"
 #include "platform/linux/elements.h"
 

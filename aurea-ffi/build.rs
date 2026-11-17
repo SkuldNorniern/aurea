@@ -95,8 +95,19 @@ fn main() {
         "native/platform/windows/tray.c",
         "native/platform/windows/ime.c",
         "native/platform/windows/pen.c",
+        "native/platform/windows/pen_off.c",
         "native/platform/windows/wintab.c",
+        "native/platform/windows/text.c",
+        "native/platform/windows/text_off.c",
+        "native/platform/windows/raw.c",
+        "native/platform/windows/raw_off.c",
+        "native/platform/windows/touch.c",
+        "native/platform/windows/touch_off.c",
+        "native/platform/windows/ime_off.c",
         "native/platform/windows/gesture.c",
+        "native/platform/windows/gesture_off.c",
+        "native/platform/windows/drop_off.c",
+        "native/platform/windows/menu_off.c",
         "native/platform/windows/occlusion.c",
         "native/platform/windows/elements/common.c",
         "native/platform/windows/elements/fonts.c",
@@ -120,6 +131,7 @@ fn main() {
         "native/platform/windows/elements/sidebar_list.c",
         "native/platform/windows/elements/table.c",
         "native/platform/windows/elements/row_list.c",
+        "native/platform/windows/elements/widgets_off.c",
     ];
 
     let windows_cpp: &[&str] = &["native/platform/windows/elements/image_view.cpp"];
@@ -196,6 +208,20 @@ fn main() {
         "native/platform/linux/menu.c",
         "native/platform/linux/dialog.c",
         "native/platform/linux/control.c",
+        "native/platform/linux/pen.c",
+        "native/platform/linux/pen_off.c",
+        "native/platform/linux/touch.c",
+        "native/platform/linux/touch_off.c",
+        "native/platform/linux/raw.c",
+        "native/platform/linux/raw_off.c",
+        "native/platform/linux/drop.c",
+        "native/platform/linux/drop_off.c",
+        "native/platform/linux/gesture.c",
+        "native/platform/linux/gesture_off.c",
+        "native/platform/linux/text.c",
+        "native/platform/linux/text_off.c",
+        "native/platform/linux/ime_off.c",
+        "native/platform/linux/menu_off.c",
         "native/platform/linux/elements/button.c",
         "native/platform/linux/elements/label.c",
         "native/platform/linux/elements/box.c",
@@ -404,8 +430,18 @@ fn feature_on(name: &str) -> bool {
     env::var_os(name).is_some()
 }
 
+/// Feature gating, one scheme for every platform:
+///
+/// - A feature's own sources (`pen.c`, `wintab.c`, ...) build only while the feature is on, and
+///   carry its code, including any window-message handler it needs.
+/// - A `*_off.c` stub next to them builds only while the feature is off. It defines the same entry
+///   points as no-ops (or the "not handled" answer), so shared code calls them unconditionally.
+///   The stub is mapped in `off_stub_feature`.
+/// - Shared sources and headers have no `NG_INPUT_*`/`NG_FEATURE_*` test. The ops tables are the
+///   exception: they keep their `#ifdef` around entries.
+///
 /// Each feature that is on becomes a macro for every native compile: `NG_INPUT_*` for the input
-/// parts, `NG_FEATURE_*` for the rest.
+/// parts, `NG_FEATURE_*` for the rest. Only the ops tables and the Apple sources still test them.
 fn define_features(build: &mut Build) {
     let features = [
         ("CARGO_FEATURE_TEXT_INPUT", "NG_INPUT_TEXT"),
@@ -432,14 +468,25 @@ fn define_features(build: &mut Build) {
 
 /// A source dedicated to one feature is compiled only while that feature is on.
 fn source_enabled(source: &str) -> bool {
+    if let Some(feature) = off_stub_feature(source) {
+        return !feature_on(feature);
+    }
     if widget_source(source) {
         return feature_on("CARGO_FEATURE_WIDGETS");
     }
     let feature = match source {
         "native/platform/windows/pen.c" | "native/platform/windows/wintab.c" => "CARGO_FEATURE_PEN",
+        "native/platform/windows/text.c" => "CARGO_FEATURE_TEXT_INPUT",
+        "native/platform/windows/raw.c" => "CARGO_FEATURE_RAW_MOUSE",
+        "native/platform/windows/touch.c" => "CARGO_FEATURE_TOUCH",
         "native/platform/windows/ime.c" | "native/platform/linux/ime.c" => "CARGO_FEATURE_IME",
         "native/platform/windows/gesture.c" => "CARGO_FEATURE_GESTURES",
-        "native/platform/windows/drop.c" => "CARGO_FEATURE_DROP_FILES",
+        "native/platform/windows/drop.c" | "native/platform/linux/drop.c" => "CARGO_FEATURE_DROP_FILES",
+        "native/platform/linux/pen.c" => "CARGO_FEATURE_PEN",
+        "native/platform/linux/touch.c" => "CARGO_FEATURE_TOUCH",
+        "native/platform/linux/raw.c" => "CARGO_FEATURE_RAW_MOUSE",
+        "native/platform/linux/gesture.c" => "CARGO_FEATURE_GESTURES",
+        "native/platform/linux/text.c" => "CARGO_FEATURE_TEXT_INPUT",
         "native/platform/windows/clipboard.c"
         | "native/platform/linux/clipboard.c"
         | "native/platform/macos/clipboard.m" => "CARGO_FEATURE_CLIPBOARD",
@@ -455,6 +502,30 @@ fn source_enabled(source: &str) -> bool {
         _ => return true,
     };
     feature_on(feature)
+}
+
+/// The `*_off.c` stub compiled while `feature` is off, by source path.
+fn off_stub_feature(source: &str) -> Option<&'static str> {
+    Some(match source {
+        "native/platform/windows/pen_off.c" => "CARGO_FEATURE_PEN",
+        "native/platform/windows/text_off.c" => "CARGO_FEATURE_TEXT_INPUT",
+        "native/platform/windows/raw_off.c" => "CARGO_FEATURE_RAW_MOUSE",
+        "native/platform/windows/touch_off.c" => "CARGO_FEATURE_TOUCH",
+        "native/platform/windows/ime_off.c" => "CARGO_FEATURE_IME",
+        "native/platform/windows/gesture_off.c" => "CARGO_FEATURE_GESTURES",
+        "native/platform/windows/drop_off.c" => "CARGO_FEATURE_DROP_FILES",
+        "native/platform/windows/menu_off.c" => "CARGO_FEATURE_MENU",
+        "native/platform/windows/elements/widgets_off.c" => "CARGO_FEATURE_WIDGETS",
+        "native/platform/linux/pen_off.c" => "CARGO_FEATURE_PEN",
+        "native/platform/linux/touch_off.c" => "CARGO_FEATURE_TOUCH",
+        "native/platform/linux/raw_off.c" => "CARGO_FEATURE_RAW_MOUSE",
+        "native/platform/linux/drop_off.c" => "CARGO_FEATURE_DROP_FILES",
+        "native/platform/linux/gesture_off.c" => "CARGO_FEATURE_GESTURES",
+        "native/platform/linux/text_off.c" => "CARGO_FEATURE_TEXT_INPUT",
+        "native/platform/linux/ime_off.c" => "CARGO_FEATURE_IME",
+        "native/platform/linux/menu_off.c" => "CARGO_FEATURE_MENU",
+        _ => return None,
+    })
 }
 
 /// A native control's source, which `widgets` gates. The layout, canvas and helpers the other

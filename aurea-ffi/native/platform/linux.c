@@ -1,9 +1,7 @@
 #include "linux.h"
 #include "linux/utils.h"
 #include "linux/window.h"
-#ifdef NG_FEATURE_MENU
 #include "linux/menu.h"
-#endif
 #include "linux/elements.h"
 #include "common/errors.h"
 #include "common/rust_callbacks.h"

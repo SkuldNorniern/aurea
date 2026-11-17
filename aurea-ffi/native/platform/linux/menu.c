@@ -1,5 +1,6 @@
 #include "menu.h"
 #include "window.h"
+#include "window_state.h"
 #include "common/shortcuts.h"
 #include "common/menu_table.h"
 #include "common/errors.h"
@@ -234,4 +235,25 @@ int ng_linux_menu_clear(NGMenuHandle menu) {
     }
     g_list_free(children);
     return NG_SUCCESS;
+}
+
+/* A key press the menu bar takes: its shortcut ran, and the window stops there. */
+int ng_linux_menu_key_press(GtkWidget* widget, GdkEventKey* event, unsigned int keycode, unsigned int mods) {
+    if (!ng_linux_handle_menu_shortcut((void*)widget, keycode, mods)) return 0;
+    ng_linux_window_state(widget)->menu_took_key = event->keyval;
+    return 1;
+}
+
+/* A key release that ends a press the menu bar took. */
+int ng_linux_menu_key_release(GtkWidget* widget, GdkEventKey* event) {
+    NgLinuxWindow* w = ng_linux_window_state(widget);
+    if (w->menu_took_key != 0 && w->menu_took_key == event->keyval) {
+        w->menu_took_key = 0;
+        return 1;
+    }
+    return 0;
+}
+
+void ng_linux_menu_window_destroyed(GtkWidget* widget) {
+    ng_menu_table_forget_window(widget);
 }
