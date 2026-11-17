@@ -619,8 +619,9 @@ fn scroll<Id: WidgetId>(
     let layout = view.layout();
     let caret = view.caret(index);
     let step = caret.height.max(1.0) * 3.0;
+    // x is right positive, y up positive
     let wheel_x = viewport_scroll(
-        before.0 - wheel.0 * step,
+        before.0 + wheel.0 * step,
         0.0,
         0.0,
         layout.width,
@@ -636,10 +637,10 @@ fn scroll<Id: WidgetId>(
         false,
     );
     if hovered {
-        ui.consume_wheel(((before.0 - wheel_x) / step, (before.1 - wheel_y) / step));
+        ui.consume_wheel(((wheel_x - before.0) / step, (before.1 - wheel_y) / step));
     }
     edit.scroll = viewport_scroll(
-        edit.scroll - wheel.0 * step,
+        edit.scroll + wheel.0 * step,
         caret.x,
         2.0,
         layout.width,
@@ -949,6 +950,28 @@ mod tests {
         key(&mut state, KeyCode::Z, true);
         frame(&mut state, &mut raster, &mut text);
         assert_eq!(text, "first\nsecond");
+    }
+
+    #[test]
+    fn the_wheel_scrolls_a_long_line_right_and_left_stays_at_the_start() {
+        let mut rig = Rig::new(150, 80);
+        let mut text = "x".repeat(400);
+        let rect = Rect::new(0.0, 0.0, 150.0, 80.0);
+        let draw = |rig: &mut Rig, text: &mut String| {
+            let mut left = (0.0, 0.0);
+            rig.frame(|ui| {
+                TextArea::new(text).wrap(false).show(ui, 1, rect).expect("area");
+                left = ui.wheel();
+            });
+            left
+        };
+        rig.at(50.0, 40.0);
+        draw(&mut rig, &mut text);
+        rig.wheel(50.0, 40.0, -1.0, 0.0);
+        assert_eq!(draw(&mut rig, &mut text), (-1.0, 0.0), "nothing left of the start");
+        draw(&mut rig, &mut text);
+        rig.wheel(50.0, 40.0, 1.0, 0.0);
+        assert_eq!(draw(&mut rig, &mut text), (0.0, 0.0), "right scrolls the line");
     }
 
     #[test]
