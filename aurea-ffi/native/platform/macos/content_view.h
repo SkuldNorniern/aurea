@@ -5,13 +5,12 @@
 
 /* The view every Aurea window holds. window.m has the shared part, the input feature files
    (pen, raw, gesture, drop, text, ime) take their events from it. */
-@interface AureaContentView : NSView <NSTextInputClient> {
+@interface AureaContentView : NSView {
     NSTrackingArea* trackingArea;
     int buttonsHeld;
     BOOL exitHeld;
     unsigned int modifiersDown;
     NSString* markedText;
-    NSRect imeArea;
     BOOL imeSentCommand;
     NSMutableIndexSet* keysDown;
 }
@@ -23,8 +22,8 @@
 @property (nonatomic, assign) int grabMode;
 /* the first raw delta after a lock is the warp to the middle, drop it */
 @property (nonatomic, assign) BOOL rawSuppress;
-- (void)setImeArea:(NSRect)area;
-- (void)dropMarkedText;
+/* where the caret of the focused field is, for the candidate window. view points, top down */
+@property (nonatomic, assign) NSRect imeArea;
 @end
 
 /* NG_MOD_* of an event. */

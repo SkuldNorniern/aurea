@@ -178,6 +178,10 @@ fn main() {
         "native/platform/macos/gesture_off.m",
         "native/platform/macos/drop.m",
         "native/platform/macos/drop_off.m",
+        "native/platform/macos/text.m",
+        "native/platform/macos/text_off.m",
+        "native/platform/macos/ime.m",
+        "native/platform/macos/ime_off.m",
         "native/platform/macos/clipboard.m",
         "native/platform/macos/menu.m",
         "native/platform/macos/menu_off.m",
@@ -494,7 +498,9 @@ fn source_enabled(source: &str) -> bool {
         "native/platform/windows/text.c" => "CARGO_FEATURE_TEXT_INPUT",
         "native/platform/windows/raw.c" => "CARGO_FEATURE_RAW_MOUSE",
         "native/platform/windows/touch.c" => "CARGO_FEATURE_TOUCH",
-        "native/platform/windows/ime.c" | "native/platform/linux/ime.c" => "CARGO_FEATURE_IME",
+        "native/platform/windows/ime.c"
+        | "native/platform/linux/ime.c"
+        | "native/platform/macos/ime.m" => "CARGO_FEATURE_IME",
         "native/platform/windows/gesture.c" => "CARGO_FEATURE_GESTURES",
         "native/platform/windows/drop.c"
         | "native/platform/linux/drop.c"
@@ -503,7 +509,7 @@ fn source_enabled(source: &str) -> bool {
         "native/platform/linux/touch.c" => "CARGO_FEATURE_TOUCH",
         "native/platform/linux/raw.c" | "native/platform/macos/raw.m" => "CARGO_FEATURE_RAW_MOUSE",
         "native/platform/linux/gesture.c" | "native/platform/macos/gesture.m" => "CARGO_FEATURE_GESTURES",
-        "native/platform/linux/text.c" => "CARGO_FEATURE_TEXT_INPUT",
+        "native/platform/linux/text.c" | "native/platform/macos/text.m" => "CARGO_FEATURE_TEXT_INPUT",
         "native/platform/windows/clipboard.c"
         | "native/platform/linux/clipboard.c"
         | "native/platform/macos/clipboard.m" => "CARGO_FEATURE_CLIPBOARD",
@@ -539,8 +545,8 @@ fn off_stub_feature(source: &str) -> Option<&'static str> {
         "native/platform/linux/raw_off.c" | "native/platform/macos/raw_off.m" => "CARGO_FEATURE_RAW_MOUSE",
         "native/platform/linux/drop_off.c" | "native/platform/macos/drop_off.m" => "CARGO_FEATURE_DROP_FILES",
         "native/platform/linux/gesture_off.c" | "native/platform/macos/gesture_off.m" => "CARGO_FEATURE_GESTURES",
-        "native/platform/linux/text_off.c" => "CARGO_FEATURE_TEXT_INPUT",
-        "native/platform/linux/ime_off.c" => "CARGO_FEATURE_IME",
+        "native/platform/linux/text_off.c" | "native/platform/macos/text_off.m" => "CARGO_FEATURE_TEXT_INPUT",
+        "native/platform/linux/ime_off.c" | "native/platform/macos/ime_off.m" => "CARGO_FEATURE_IME",
         "native/platform/linux/menu_off.c" | "native/platform/macos/menu_off.m" => "CARGO_FEATURE_MENU",
         _ => return None,
     })

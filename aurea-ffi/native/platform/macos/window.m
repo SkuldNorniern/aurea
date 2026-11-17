@@ -5,6 +5,7 @@
 #import "gesture.h"
 #import "drop.h"
 #import "menu.h"
+#import "text.h"
 #import "common/errors.h"
 #import "common/input.h"
 #import "common/rust_callbacks.h"
@@ -277,30 +278,10 @@ unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
     [self mouseMoved:event];
 }
 
-/* A press commits what an input method is composing, before the press goes out.
-   input method sees the press first like in a text view, it commits by itself.
-   if it keeps the text, put ours in and make it drop its copy so it cant come twice. */
-- (void)commitMarkedText:(NSEvent*)event {
-    if (![self hasMarkedText]) return;
-    [[self inputContext] handleEvent:event];
-    if (![self hasMarkedText]) return;
-    NSString* text = markedText;
-    [self insertText:text replacementRange:NSMakeRange(NSNotFound, 0)];
-    [[self inputContext] discardMarkedText];
-}
-
-/* focus loss cancels the composition on the Rust side, drop ours too
-   or keyDown keeps holding keys back after focus comes back */
-- (void)dropMarkedText {
-    if (![self hasMarkedText]) return;
-    markedText = nil;
-    [[self inputContext] discardMarkedText];
-}
-
 - (void)mouseDown:(NSEvent*)event {
     if (!self.windowHandle) return;
     [[self window] makeFirstResponder:self];
-    [self commitMarkedText:event];
+    ng_macos_text_commit(self, event);
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
     ng_invoke_mouse_button(self.windowHandle, 0, 1, ng_macos_mouse_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
@@ -319,7 +300,7 @@ unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
 
 - (void)rightMouseDown:(NSEvent*)event {
     if (!self.windowHandle) return;
-    [self commitMarkedText:event];
+    ng_macos_text_commit(self, event);
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
     ng_invoke_mouse_button(self.windowHandle, 1, 1, ng_macos_mouse_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
@@ -336,7 +317,7 @@ unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
 
 - (void)otherMouseDown:(NSEvent*)event {
     if (!self.windowHandle) return;
-    [self commitMarkedText:event];
+    ng_macos_text_commit(self, event);
     int button = (int)[event buttonNumber];
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
@@ -382,118 +363,14 @@ static const double NG_MACOS_POINTS_PER_LINE = 40.0;
 
 - (void)keyDown:(NSEvent*)event {
     if (!self.windowHandle) return;
-    BOOL composing = [self hasMarkedText];
+    BOOL composing = ng_macos_text_composing(self);
     if (!composing) {
         if (ng_macos_menu_key(event)) return;
         [self sendKeyDown:event];
     }
-#ifdef NG_INPUT_TEXT
-    imeSentCommand = NO;
-    [self interpretKeyEvents:@[event]];
     /* Korean commits on Enter, arrows, Tab and sends the key on as a command after the text.
        the key goes out then, after the commit, so the newline or caret move is not lost */
-    if (composing && imeSentCommand) [self sendKeyDown:event];
-#endif
-}
-
-- (void)insertText:(id)string replacementRange:(NSRange)replacementRange {
-    (void)replacementRange;
-    NSString* text = [string isKindOfClass:[NSAttributedString class]] ? [string string] : string;
-    if ([self hasMarkedText]) {
-        markedText = nil;
-#ifdef NG_INPUT_IME
-        if (self.windowHandle) ng_invoke_ime_preedit(self.windowHandle, "", -1);
-#endif
-    }
-    if (!self.windowHandle || !text || [text length] == 0) return;
-
-    unichar first = [text characterAtIndex:0];
-    BOOL isControl = (first < 0x0020 || first == 0x007F);
-    BOOL isFnKeyChar = (first >= 0xF700 && first <= 0xF8FF);
-    if (isControl || isFnKeyChar) return;
-
-#ifdef NG_INPUT_TEXT
-    const char* utf8 = [text UTF8String];
-    if (utf8) {
-        ng_invoke_text_input(self.windowHandle, utf8);
-    }
-#endif
-}
-
-- (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange replacementRange:(NSRange)replacementRange {
-    (void)replacementRange;
-    (void)selectedRange;
-    NSString* text = [string isKindOfClass:[NSAttributedString class]] ? [string string] : string;
-    markedText = (text && [text length] > 0) ? [text copy] : nil;
-    if (!self.windowHandle) return;
-
-#ifdef NG_INPUT_IME
-    int cursor = -1;
-    if (markedText && selectedRange.location != NSNotFound && selectedRange.location <= [markedText length]) {
-        NSString* head = [markedText substringToIndex:selectedRange.location];
-        cursor = (int)[head lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
-    }
-    const char* utf8 = markedText ? [markedText UTF8String] : "";
-    ng_invoke_ime_preedit(self.windowHandle, utf8 ? utf8 : "", cursor);
-#endif
-}
-
-- (void)unmarkText {
-    if (![self hasMarkedText]) return;
-    markedText = nil;
-#ifdef NG_INPUT_IME
-    if (self.windowHandle) ng_invoke_ime_preedit(self.windowHandle, "", -1);
-#endif
-}
-
-- (BOOL)hasMarkedText {
-    return markedText != nil && [markedText length] > 0;
-}
-
-- (NSRange)markedRange {
-    return [self hasMarkedText] ? NSMakeRange(0, [markedText length]) : NSMakeRange(NSNotFound, 0);
-}
-
-- (NSRange)selectedRange {
-    return NSMakeRange(NSNotFound, 0);
-}
-
-- (NSArray<NSAttributedStringKey>*)validAttributesForMarkedText {
-    return @[];
-}
-
-- (NSAttributedString*)attributedSubstringForProposedRange:(NSRange)range actualRange:(NSRangePointer)actualRange {
-    (void)range;
-    (void)actualRange;
-    return nil;
-}
-
-- (NSUInteger)characterIndexForPoint:(NSPoint)point {
-    (void)point;
-    return NSNotFound;
-}
-
-- (NSRect)firstRectForCharacterRange:(NSRange)range actualRange:(NSRangePointer)actualRange {
-    (void)range;
-    (void)actualRange;
-    CGFloat h = [self bounds].size.height;
-    NSRect local = NSMakeRect(
-        imeArea.origin.x,
-        h - imeArea.origin.y - imeArea.size.height,
-        imeArea.size.width,
-        imeArea.size.height);
-    NSRect inWindow = [self convertRect:local toView:nil];
-    return [self window] ? [[self window] convertRectToScreen:inWindow] : inWindow;
-}
-
-- (void)doCommandBySelector:(SEL)selector {
-    (void)selector;
-    imeSentCommand = YES;
-}
-
-- (void)setImeArea:(NSRect)area {
-    imeArea = area;
-    [[self inputContext] invalidateCharacterCoordinates];
+    if (ng_macos_text_key(self, event) && composing) [self sendKeyDown:event];
 }
 
 - (void)keyUp:(NSEvent*)event {
@@ -608,7 +485,7 @@ static void ng_macos_forget_held_shortcuts(void* window);
     ng_macos_cursor_grab_focus([notification object], NO);
     NSView* content = [[notification object] contentView];
     if ([content isKindOfClass:[AureaContentView class]]) {
-        [(AureaContentView*)content dropMarkedText];
+        ng_macos_text_drop((AureaContentView*)content);
     }
     if (self.windowHandle) {
         ng_invoke_focus_changed(self.windowHandle, 0);
@@ -1107,20 +984,6 @@ int ng_macos_window_set_shortcuts(NGHandle window, const unsigned int* keycodes,
     if (!window) return NG_ERROR_INVALID_HANDLE;
     ng_macos_ensure_shortcut_monitor();
     return ng_shortcuts_set(window, keycodes, modifiers, count);
-}
-
-int ng_macos_window_set_ime_cursor_area(NGHandle window, float x, float y, float width, float height) {
-#ifndef NG_INPUT_IME
-    (void)window; (void)x; (void)y; (void)width; (void)height;
-    return NG_SUCCESS;
-#else
-    if (!window) return NG_ERROR_INVALID_HANDLE;
-    NSWindow* nsWindow = (__bridge NSWindow*)window;
-    NSView* view = [nsWindow contentView];
-    if (![view isKindOfClass:[AureaContentView class]]) return NG_ERROR_PLATFORM_SPECIFIC;
-    [(AureaContentView*)view setImeArea:NSMakeRect(x, y, width, height)];
-    return NG_SUCCESS;
-#endif
 }
 
 static NSCursor* diagonalResizeCursor(BOOL reverse) {
