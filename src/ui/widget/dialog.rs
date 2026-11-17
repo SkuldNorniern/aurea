@@ -365,10 +365,12 @@ impl<Id: WidgetId> Look<DialogParts<'_, Id>> {
 mod tests {
     use super::*;
     use crate::render::Color;
+    #[cfg(feature = "ui-text-edit")]
+    use crate::ui::TextArea;
+    use crate::ui::TextField;
     use crate::ui::rig::Rig;
     use crate::ui::theme::Theme;
     use crate::ui::widget::button::Button;
-    use crate::ui::{TextArea, TextField};
     use crate::window::{KeyCode, WindowEvent};
     use std::cell::Cell;
 
@@ -550,6 +552,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ui-text-edit")]
     fn enter_in_a_text_area_body_stays_a_new_line() {
         let mut rig = Rig::new(400, 300);
         let mut text = String::new();

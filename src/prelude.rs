@@ -25,7 +25,7 @@ pub use crate::render::{
 };
 
 /// Plots and scope views.
-#[cfg(feature = "ui")]
+#[cfg(feature = "ui-graph")]
 pub use crate::ui::graph;
 
 pub use crate::{AureaError, AureaResult};
@@ -61,7 +61,7 @@ mod core {
 /// # Ok(())
 /// # }
 /// ```
-#[cfg(feature = "ui")]
+#[cfg(feature = "ui-core")]
 pub mod canvas {
     pub use super::core::*;
     pub use crate::ui::*;

@@ -10,14 +10,17 @@ mod theme;
 mod tokens;
 pub mod widget;
 
+#[cfg(feature = "ui-graph")]
+pub use component::PlotView;
 pub use component::{
-    EditableText, FocusRing, Knob, PanZoom, PlotView, StateColors, TextOutcome, Track, card,
+    EditableText, FocusRing, Knob, PanZoom, StateColors, TextOutcome, Track, card,
 };
 pub use frame::{Align, Eased, FrameAsk, PressAt, Response, TypedInput, Ui};
+#[cfg(feature = "ui-graph")]
+pub use paint::{AxisMarks, AxisSide, AxisStyle, GridLines, GridStyle, Marker, Stroke, Trace};
 pub use paint::{
-    AxisMarks, AxisSide, AxisStyle, Badge, BadgeTone, Border, Component, DetailRow, GridLines,
-    GridStyle, IconMark, IconSource, Label, Mark, MarkShape, Marker, Overflow, Panel, PromptLine,
-    Separator, Shadow, Spinner, Stroke, Surface, TextSize, Trace,
+    Badge, BadgeTone, Border, Component, DetailRow, IconMark, IconSource, Label, Mark, MarkShape,
+    Overflow, Panel, PromptLine, Separator, Shadow, Spinner, Surface, TextSize,
 };
 pub use state::ScopedId;
 pub use state::{Channel, Fonts, InputResponse, Interaction, Sense, UiState, WidgetId};
@@ -26,17 +29,21 @@ pub use tokens::{Shape, TextRole, Tokens};
 pub use widget::Widget;
 pub use widget::button::{Button, ButtonParts, ButtonStyle, Tone};
 pub use widget::chip::{Chip, ChipParts, ChipStyle};
+#[cfg(feature = "ui-color")]
 pub use widget::color::{ColorPicker, PickerParts, PickerStyle};
 pub use widget::dial::{Dial, DialParts, DialStyle};
 pub use widget::dialog::{Dialog, DialogAnswer, DialogParts};
 pub use widget::disclosure::{Disclosure, DisclosureParts, DisclosureStyle};
+#[cfg(feature = "ui-dock")]
 pub use widget::dock::{
     Dock, DockAxis, DockBar, DockGroup, DockLayout, DockMetrics, DockPlan, DockSide, DockStyle,
     DockTabEvent, DockTree, DockView, FloatingPanel,
 };
 pub use widget::dropdown::{Dropdown, DropdownParts, DropdownStyle};
 pub use widget::empty::{EmptyParts, EmptyState};
+#[cfg(feature = "ui-graph")]
 pub use widget::graph;
+#[cfg(feature = "ui-graph")]
 pub use widget::graph::{GraphStyle, GraphView, ScopeStyle, ScopeView};
 pub use widget::link::{Link, LinkParts, LinkStyle};
 pub use widget::look::Look;
@@ -54,8 +61,10 @@ pub use widget::sheet::{BottomSheet, SheetParts, SheetState};
 pub use widget::slider::{Slider, SliderParts, SliderStyle, SliderTrack};
 pub use widget::splitter::{Splitter, SplitterParts, SplitterStyle};
 pub use widget::stepper::{Stepper, StepperParts, StepperStyle};
+#[cfg(feature = "ui-color")]
 pub use widget::swatch::{Swatch, SwatchParts, SwatchStyle, Swatches};
 pub use widget::tabs::{Tab, TabBar, TabBarParts, TabStyle};
+#[cfg(feature = "ui-text-edit")]
 pub use widget::text_area::{TextArea, TextAreaParts};
 pub use widget::text_field::{FieldStyle, TextField, TextFieldParts};
 pub use widget::toast::{Toast, ToastLook, ToastTone, Toasts, ToastsParts};
@@ -64,6 +73,7 @@ pub use widget::toggle::{
 };
 pub use widget::tooltip::TooltipOptions;
 pub use widget::tree::{TreeRow, TreeRowParts, TreeStyle, TreeView, tree_rows};
+#[cfg(feature = "ui-color")]
 pub use widget::wheel::{ColorWheel, WheelParts};
 
 #[cfg(test)]

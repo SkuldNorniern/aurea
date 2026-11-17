@@ -49,13 +49,19 @@
 //! - `files`: opening, revealing and sharing files, and the app's folders. Pick and save on the
 //!   desktop need `dialog` too; on phones they are part of `files`.
 //! - `menu`: menu bars, [`Window::create_menu_bar`]. The menu tree also draws an in-app popup, so
-//!   [`menu::MenuSpec`] needs `ui`.
+//!   [`menu::MenuSpec`] needs `ui-core`.
 //! - `tray`: icons in the notification area, [`TrayIcon`].
 //! - `dialog`: native file, message and colour dialogs.
 //! - `single-instance`: [`app::single_instance`], which needs `files`.
 //! - `embed`: SwiftUI hosts on macOS and the C embedding API.
 //! - `widgets`: the native controls in [`elements`]. Layout and canvases stay without it.
-//! - `ui`: the canvas widget toolkit, [`app::run`] and [`animation`].
+//! - `ui`: the canvas widget toolkit, [`app::run`] and [`animation`]. Its parts are `ui-core`,
+//!   `ui-graph`, `ui-dock`, `ui-color` and `ui-text-edit`; `ui` is all of them.
+//! - `ui-core`: the toolkit without the parts below.
+//! - `ui-graph`: plots and scope views, [`ui::graph`].
+//! - `ui-dock`: docking panels, [`ui::Dock`].
+//! - `ui-color`: colour picker, colour wheel and swatches.
+//! - `ui-text-edit`: multiline [`ui::TextArea`].
 //! - `effects`: backdrop blur, frost and other filters on the CPU renderer; off, a backdrop draws
 //!   nothing.
 //! - `system-fonts`: installed fonts by name and for fallback; off, only fonts the app registers,
@@ -94,7 +100,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[doc = include_str!("../README.md")]
 struct ReadmeDoctests;
 
-#[cfg(feature = "ui")]
+#[cfg(feature = "ui-core")]
 pub use aurea_animation as animation;
 
 pub mod app;
@@ -111,7 +117,7 @@ pub mod ffi;
 pub mod files;
 pub mod input;
 pub mod integration;
-#[cfg(feature = "ui")]
+#[cfg(feature = "ui-core")]
 pub(crate) use input::keyboard;
 pub use input::keymap;
 /// App lifecycle notifications.
@@ -131,7 +137,7 @@ mod screen;
 mod sheets;
 #[cfg(feature = "tray")]
 pub mod tray;
-#[cfg(feature = "ui")]
+#[cfg(feature = "ui-core")]
 pub mod ui;
 pub mod window;
 

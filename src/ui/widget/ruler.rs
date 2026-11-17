@@ -301,6 +301,7 @@ mod tests {
         assert!((0..200).all(|x| at(x, 25) == 0xFF00_0000), "nothing below");
     }
 
+    #[cfg(feature = "system-fonts")]
     #[test]
     fn look_paints_the_apps_ground_and_keeps_the_marks() {
         let (mut raster, mut state) = (CpuRasterizer::new(200, 60), UiState::<u8>::new());

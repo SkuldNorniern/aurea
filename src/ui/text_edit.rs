@@ -68,6 +68,7 @@ pub struct TextEdit {
     undo: Vec<Edit>,
     redo: Vec<Edit>,
     last: Kind,
+    #[cfg(feature = "ui-text-edit")]
     pub(crate) multiline: Option<Box<super::widget::text_area::EditorView>>,
 }
 
@@ -89,6 +90,7 @@ impl TextEdit {
             undo: Vec::new(),
             redo: Vec::new(),
             last: Kind::None,
+            #[cfg(feature = "ui-text-edit")]
             multiline: None,
         }
     }

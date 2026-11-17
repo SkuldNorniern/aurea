@@ -1,7 +1,9 @@
 //! Contracts shared by applications embedding editors and custom controls.
 
+#[cfg(feature = "ui-text-edit")]
+use super::TextArea;
 use super::rig::Rig;
-use super::{Button, Response, ScrollArea, ScrollStyle, Slider, Stepper, TextArea, TextField, Ui};
+use super::{Button, Response, ScrollArea, ScrollStyle, Slider, Stepper, TextField, Ui};
 use crate::render::{Color, Point, Rect, Renderer};
 use crate::window::{KeyCode, Modifiers, MouseButton, PointerKind, WindowEvent};
 use std::thread::sleep;
@@ -140,18 +142,21 @@ fn measured_layout_recomputes_overflow_on_resize() {
 
 fn editor(ui: &mut Ui<'_, u8>, text: &mut String, multiline: bool, enabled: bool) -> Response {
     let rect = Rect::new(0.0, 0.0, 160.0, 40.0);
+    #[cfg(feature = "ui-text-edit")]
     if multiline {
-        TextArea::new(text)
+        return TextArea::new(text)
             .enabled(enabled)
             .commit_on_blur(true)
             .show(ui, 1, rect)
-    } else {
-        TextField::new(text)
-            .enabled(enabled)
-            .commit_on_blur(true)
-            .show(ui, 1, rect)
+            .expect("editor");
     }
-    .expect("editor")
+    #[cfg(not(feature = "ui-text-edit"))]
+    let _ = multiline;
+    TextField::new(text)
+        .enabled(enabled)
+        .commit_on_blur(true)
+        .show(ui, 1, rect)
+        .expect("editor")
 }
 
 #[test]
@@ -414,6 +419,7 @@ fn custom_track_keeps_native_keyboard_input_and_disabled_opacity() {
 }
 
 #[test]
+#[cfg(feature = "ui-text-edit")]
 fn a_text_area_passes_wheel_to_its_parent_only_when_it_cannot_scroll() {
     for (text, expected) in [("short".to_string(), 20.0), ("line\n".repeat(40), 0.0)] {
         let mut rig = rig();

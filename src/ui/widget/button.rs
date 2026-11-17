@@ -628,6 +628,7 @@ mod tests {
         assert_eq!(rig.pixel(4, 4)[0], 0, "nothing in the corner");
     }
 
+    #[cfg(feature = "system-fonts")]
     #[test]
     fn one_symbol_labels_sit_in_the_middle() {
         for symbol in ["\u{d7}", "\u{2191}", "+", "A"] {

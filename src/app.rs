@@ -20,7 +20,7 @@ use std::sync::{Mutex, OnceLock, PoisonError};
     feature = "single-instance"
 ))]
 mod instance;
-#[cfg(feature = "ui")]
+#[cfg(feature = "ui-core")]
 mod run;
 
 #[cfg(all(
@@ -28,7 +28,7 @@ mod run;
     feature = "single-instance"
 ))]
 pub use instance::single_instance;
-#[cfg(feature = "ui")]
+#[cfg(feature = "ui-core")]
 pub use run::run;
 
 #[cfg(target_os = "android")]

@@ -325,6 +325,7 @@ mod tests {
         rig
     }
 
+    #[cfg(feature = "effects")]
     #[test]
     fn frost_blurs_what_is_under_it() {
         let mut rig: Rig = Rig::new(100, 60);

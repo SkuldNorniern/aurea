@@ -3,10 +3,12 @@
 
 pub(crate) mod editable;
 mod pan_zoom;
+#[cfg(feature = "ui-graph")]
 mod plot_view;
 
 pub use editable::{EditableText, TextOutcome};
 pub use pan_zoom::PanZoom;
+#[cfg(feature = "ui-graph")]
 pub use plot_view::PlotView;
 
 use super::frame::{Eased, Ui};

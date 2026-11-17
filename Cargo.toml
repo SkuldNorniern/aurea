@@ -153,8 +153,19 @@ single-instance = ["files"]
 embed = ["aurea-ffi/embed"]
 # Native controls: buttons, labels, text, lists and the rest of `elements`. Layout and canvases stay.
 widgets = ["aurea-ffi/widgets"]
-# The canvas widget toolkit (`ui`), `app::run`, and the `animation` module it runs on.
-ui = ["dep:aurea-animation"]
+# The canvas widget toolkit core: `app::run`, the `animation` module it runs on, and the widgets
+# outside the parts below.
+ui-core = ["dep:aurea-animation"]
+# Plots, scope views and `ui::graph`.
+ui-graph = ["ui-core"]
+# Docking panels: `Dock`, `DockView` and `FloatingPanel`.
+ui-dock = ["ui-core"]
+# Colour picker, colour wheel and swatches.
+ui-color = ["ui-core"]
+# Multiline `TextArea`.
+ui-text-edit = ["ui-core"]
+# The whole canvas widget toolkit: `ui-core` and every part above.
+ui = ["ui-core", "ui-graph", "ui-dock", "ui-color", "ui-text-edit"]
 # Backdrop blur, frost and the other filter effects on the CPU renderer. Off: a backdrop draws
 # nothing.
 effects = ["aurea-render/effects"]
@@ -261,11 +272,11 @@ required-features = ["ui"]
 
 [[example]]
 name = "live_chart"
-required-features = ["ui"]
+required-features = ["ui-graph"]
 
 [[example]]
 name = "scope"
-required-features = ["ui"]
+required-features = ["ui-graph"]
 
 [[example]]
 name = "browser"
@@ -325,7 +336,7 @@ required-features = ["tray", "widgets"]
 
 [[example]]
 name = "widgets"
-required-features = ["ui", "widgets"]
+required-features = ["ui-color", "widgets"]
 
 [[example]]
 name = "window"

@@ -1,10 +1,10 @@
 //! Menu bar and submenu support.
 
-// The menu tree also draws an in-app popup, a `ui` widget, so it needs `ui` too.
-#[cfg(feature = "ui")]
+// The menu tree also draws an in-app popup, a `ui` widget, so it needs `ui-core` too.
+#[cfg(feature = "ui-core")]
 mod spec;
 
-#[cfg(feature = "ui")]
+#[cfg(feature = "ui-core")]
 pub use spec::{MenuPopup, MenuRow, MenuSpec, NativeMenus};
 
 use crate::ffi::c_title;
