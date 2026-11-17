@@ -1,14 +1,21 @@
-//! Typed text, as `WindowEvent::TextInput`.
+//! Typed text, without control characters.
 
-use std::os::raw::c_char;
+use std::os::raw::{c_char, c_void};
 
-use super::c_string;
 use crate::WindowEvent;
+use crate::input::c_string;
+use crate::window::push_window_event;
 
-/// The event for the text at `text`, without control characters; `None` when nothing is left.
-pub(crate) fn typed(text: *const c_char) -> Option<WindowEvent> {
-    let text = printable(c_string(text)?)?;
-    Some(WindowEvent::TextInput { text })
+/// Queues the text at `text` for `window`, without control characters.
+pub(crate) fn deliver(window: *mut c_void, text: *const c_char) {
+    if let Some(text) = c_string(text).and_then(printable) {
+        push_window_event(window, WindowEvent::TextInput { text });
+    }
+}
+
+/// The event for text the mobile keyboard typed; `None` when it is empty.
+pub(crate) fn typed(text: String) -> Option<WindowEvent> {
+    (!text.is_empty()).then_some(WindowEvent::TextInput { text })
 }
 
 fn printable(text: String) -> Option<String> {

@@ -48,7 +48,7 @@ pub(super) fn force_close(handle: *mut c_void, flags: &CloseFlags) {
 }
 
 /// The `0 = ok` status most window setters return.
-pub(super) fn plain_status(code: c_int) -> AureaResult<()> {
+pub(crate) fn plain_status(code: c_int) -> AureaResult<()> {
     if code == 0 {
         Ok(())
     } else {

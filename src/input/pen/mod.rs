@@ -1,6 +1,24 @@
 //! Where pen samples come from. Windows has two sources and picks one; every other system has one.
+//! The pen events are built and delivered in `on` with the `pen` feature, and dropped without it.
 
 use std::sync::atomic::{AtomicU8, Ordering};
+
+#[cfg(not(feature = "pen"))]
+mod off;
+#[cfg(feature = "pen")]
+mod on;
+
+// The mobile builders are each used by one or two of the hosts, not on every target.
+#[allow(unused_imports)]
+#[cfg(not(feature = "pen"))]
+pub(crate) use off::{
+    batch_size, deliver, hover, predicted, sample, set_batch_size, set_batching, set_mode, tap,
+};
+#[allow(unused_imports)]
+#[cfg(feature = "pen")]
+pub(crate) use on::{
+    batch_size, deliver, hover, predicted, sample, set_batch_size, set_batching, set_mode, tap,
+};
 
 /// Which source pens may use, as a paint app's tablet setting.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -29,34 +47,10 @@ pub enum PenSource {
 static MODE: AtomicU8 = AtomicU8::new(0);
 static SOURCE: AtomicU8 = AtomicU8::new(0);
 
-#[cfg(all(windows, feature = "pen"))]
-unsafe extern "C" {
-    fn ng_windows_pen_set_mode(mode: i32);
-}
-
 /// Chooses the source pens use, for the whole app; Windows only, others have one. A stroke being
 /// drawn by the source that stops is cancelled. Call on the UI thread.
 pub fn set_pen_mode(mode: PenMode) {
-    #[cfg(not(feature = "pen"))]
-    let _ = mode;
-    #[cfg(feature = "pen")]
     set_mode(mode);
-}
-
-#[cfg(feature = "pen")]
-fn set_mode(mode: PenMode) {
-    let code = match mode {
-        PenMode::Auto => 0,
-        PenMode::System => 1,
-        PenMode::Wintab => 2,
-    };
-    MODE.store(code, Ordering::Relaxed);
-    SOURCE.store(0, Ordering::Relaxed);
-    #[cfg(all(windows, feature = "pen"))]
-    // SAFETY: takes any value, and the caller is on the UI thread.
-    unsafe {
-        ng_windows_pen_set_mode(i32::from(code));
-    }
 }
 
 /// The source chosen with [`set_pen_mode`].
@@ -79,25 +73,7 @@ pub fn pen_source() -> PenSource {
     }
 }
 
-#[cfg(feature = "pen")]
-pub(crate) fn note_source(wintab: bool) {
-    SOURCE.store(if wintab { 2 } else { 1 }, Ordering::Relaxed);
-}
-
-#[cfg(all(test, feature = "pen"))]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_source_starts_over_with_the_mode_and_follows_samples() {
-        note_source(true);
-        assert_eq!(pen_source(), PenSource::Wintab);
-        note_source(false);
-        assert_eq!(pen_source(), PenSource::System);
-        set_pen_mode(PenMode::Wintab);
-        assert_eq!(pen_mode(), PenMode::Wintab);
-        assert_eq!(pen_source(), PenSource::None);
-        set_pen_mode(PenMode::default());
-        assert_eq!(pen_mode(), PenMode::Auto);
-    }
+/// Whether pen input is built in.
+pub(crate) const fn built() -> bool {
+    cfg!(feature = "pen")
 }

@@ -8,7 +8,7 @@ mod gpu;
 mod image;
 mod lifecycle;
 mod manager;
-mod native;
+pub(crate) mod native;
 mod types;
 
 pub use aurea_foundation::{
@@ -27,6 +27,7 @@ use crate::ffi::c_title;
 use crate::ffi::ng_platform_request_frame;
 use crate::ffi::*;
 use crate::input::pen::{PenSource, pen_source};
+use crate::input::{ime, pen, raw};
 #[cfg(feature = "wgpu")]
 use crate::integration::NativeWindowHandle;
 use crate::lifecycle::{
@@ -467,9 +468,7 @@ impl Window {
     /// Disabled by default; applies to the desktop event queue on every platform.
     pub fn set_pen_batching(&self, enabled: bool) {
         ui_thread::check("Window::set_pen_batching");
-        if cfg!(feature = "pen") {
-            self.event_queue.set_pen_batching(enabled);
-        }
+        pen::set_batching(&self.event_queue, enabled);
     }
 
     /// Groups consecutive native pen readings into events of up to `size`
@@ -507,9 +506,7 @@ impl Window {
     /// ```
     pub fn set_pen_batch_size(&self, size: usize) {
         ui_thread::check("Window::set_pen_batch_size");
-        if cfg!(feature = "pen") {
-            self.event_queue.set_pen_batch_size(size);
-        }
+        pen::set_batch_size(&self.event_queue, size);
     }
 
     /// Which source the latest pen sample came from, so an app can show it; see
@@ -521,11 +518,7 @@ impl Window {
     /// Current pen batch limit, or zero for individual pen events.
     pub fn pen_batch_size(&self) -> usize {
         ui_thread::check("Window::pen_batch_size");
-        if cfg!(feature = "pen") {
-            self.event_queue.pen_batch_size()
-        } else {
-            0
-        }
+        pen::batch_size(&self.event_queue)
     }
 
     /// Waits until something happens, then hands back this window's events, for an app that runs
@@ -912,19 +905,7 @@ impl Window {
     /// so its candidate window opens beside the text instead of in a corner.
     pub fn set_ime_cursor_area(&self, area: Rect) -> AureaResult<()> {
         ui_thread::check("Window::set_ime_cursor_area");
-        if !cfg!(feature = "ime") {
-            return Ok(());
-        }
-        let result = unsafe {
-            ng_platform_window_set_ime_cursor_area(
-                self.handle,
-                area.x,
-                area.y,
-                area.width,
-                area.height,
-            )
-        };
-        native::plain_status(result)
+        ime::set_cursor_area(self.handle, area)
     }
 
     /// Keys this window keeps for itself even while a child view, such as an embedded web view, has
@@ -952,7 +933,7 @@ impl Window {
     /// it returns [`AureaError::Unsupported`] and leaves the cursor as it is.
     pub fn set_cursor_grab(&self, mode: CursorGrabMode) -> AureaResult<()> {
         ui_thread::check("Window::set_cursor_grab");
-        if mode == CursorGrabMode::Locked && !cfg!(feature = "raw-mouse") {
+        if mode == CursorGrabMode::Locked && !raw::built() {
             return Err(AureaError::unsupported(
                 "cursor lock without the raw-mouse feature",
             ));

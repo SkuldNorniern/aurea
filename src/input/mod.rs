@@ -6,16 +6,14 @@
 #[cfg(any(feature = "text-input", feature = "ime", feature = "drop-files"))]
 use std::os::raw::c_char;
 
-#[cfg(feature = "drop-files")]
 pub(crate) mod drop;
-#[cfg(feature = "ime")]
+pub(crate) mod gesture;
 pub(crate) mod ime;
 pub(crate) mod keyboard;
 pub mod keymap;
 pub(crate) mod pen;
-#[cfg(feature = "text-input")]
+pub(crate) mod raw;
 pub(crate) mod text;
-#[cfg(all(feature = "touch", any(target_os = "ios", target_os = "android", test)))]
 pub(crate) mod touch;
 
 pub use keyboard::{keyboard_connected, keyboard_height, set_keyboard_follows_focus};
@@ -58,13 +56,13 @@ pub enum Feature {
 /// ```
 pub fn supported(feature: Feature) -> bool {
     let built = match feature {
-        Feature::TextInput => cfg!(feature = "text-input"),
-        Feature::Ime => cfg!(feature = "ime"),
-        Feature::RawMouse => cfg!(feature = "raw-mouse"),
-        Feature::Pen => cfg!(feature = "pen"),
-        Feature::Touch => cfg!(feature = "touch"),
-        Feature::Gestures => cfg!(feature = "gestures"),
-        Feature::DropFiles => cfg!(feature = "drop-files"),
+        Feature::TextInput => text::built(),
+        Feature::Ime => ime::built(),
+        Feature::RawMouse => raw::built(),
+        Feature::Pen => pen::built(),
+        Feature::Touch => touch::built(),
+        Feature::Gestures => gesture::built(),
+        Feature::DropFiles => drop::built(),
     };
     let platform = match feature {
         Feature::RawMouse => !cfg!(any(target_os = "ios", target_os = "android")),
