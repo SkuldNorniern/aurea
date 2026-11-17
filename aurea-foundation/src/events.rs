@@ -5,8 +5,10 @@ use std::rc::Rc;
 use std::slice;
 use std::time::Duration;
 
-/// A window event delivered to the app.
+/// A window event delivered to the app. More kinds come in later versions, so a match keeps a
+/// `_` arm.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum WindowEvent {
     /// The user asked to close the window.
     CloseRequested,
@@ -319,6 +321,7 @@ impl ScrollEvent {
 
 /// What made a [`ScrollEvent`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum ScrollSource {
     /// A wheel with detents, or a tilt; the system already spaced it out.
     #[default]
@@ -332,6 +335,7 @@ pub enum ScrollSource {
 
 /// Where a [`ScrollEvent`] falls in its gesture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum ScrollPhase {
     /// No gesture: a wheel detent, or a system that gives no phases.
     #[default]
