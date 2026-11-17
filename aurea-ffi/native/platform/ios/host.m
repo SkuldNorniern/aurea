@@ -51,6 +51,7 @@ static NGIosHost g_host;
 
 static __weak AureaHostView* g_view;
 
+#ifdef NG_INPUT_TEXT
 /* A place in the text being composed, as a UTF-16 index into it. */
 @interface AureaTextPosition : UITextPosition
 @property (assign) NSInteger index;
@@ -138,12 +139,14 @@ static void ng_ios_type(NSString* text) {
 
 /* The composition as the app sees it, the cursor in UTF-8 bytes. */
 - (void)sendPreedit {
+#ifdef NG_INPUT_IME
     if (g_host.preedit) {
         NSInteger caret = MIN(MAX(_caret, 0), (NSInteger)_marked.length);
         NSString* head = [_marked substringToIndex:(NSUInteger)caret];
         int cursor = _marked.length ? (int)[head lengthOfBytesUsingEncoding:NSUTF8StringEncoding] : -1;
         g_host.preedit(_marked.UTF8String ?: "", cursor);
     }
+#endif
     [g_view markDirty];
 }
 
@@ -336,6 +339,7 @@ static void ng_ios_type(NSString* text) {
 }
 
 @end
+#endif
 
 @implementation AureaHostView
 
@@ -350,15 +354,21 @@ static void ng_ios_type(NSString* text) {
         _pointerButton = -1;
         _dirty = YES;
         g_view = self;
+#ifdef NG_INPUT_PEN
         if (@available(iOS 12.1, *)) {
             UIPencilInteraction* pencil = [[UIPencilInteraction alloc] init];
             pencil.delegate = self;
             [self addInteraction:pencil];
         }
+#endif
+#ifdef NG_INPUT_DROP_FILES
         [self addInteraction:[[UIDropInteraction alloc] initWithDelegate:self]];
+#endif
+#ifdef NG_INPUT_TEXT
         _keys = [[AureaKeyInput alloc] initWithFrame:CGRectMake(0, 0, 1, 1)];
         _keys.hidden = YES;
         [self addSubview:_keys];
+#endif
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(keyboardChanged:)
                                                      name:UIKeyboardWillChangeFrameNotification
@@ -396,6 +406,7 @@ static void ng_ios_type(NSString* text) {
     return self;
 }
 
+#ifdef NG_INPUT_DROP_FILES
 - (BOOL)dropInteraction:(UIDropInteraction*)interaction canHandleSession:(id<UIDropSession>)session {
     (void)interaction;
     return [session hasItemsConformingToTypeIdentifiers:@[ @"public.item" ]];
@@ -444,6 +455,7 @@ static void ng_ios_type(NSString* text) {
         [g_view markDirty];
     });
 }
+#endif
 
 - (void)removeFromSuperview {
     [_link invalidate];
@@ -657,7 +669,9 @@ static double ng_ios_age(NSTimeInterval timestamp) {
 }
 
 - (void)send:(int)action touches:(NSSet<UITouch*>*)touches event:(UIEvent*)event {
+#ifdef NG_INPUT_PEN
     static const int pen_phase[] = {NG_IOS_PEN_DOWN, NG_IOS_PEN_UP, NG_IOS_PEN_MOVE, NG_IOS_PEN_CANCEL};
+#endif
     for (UITouch* touch in touches) {
         if (@available(iOS 13.4, *)) {
             if (touch.type == UITouchTypeIndirectPointer) {
@@ -665,12 +679,16 @@ static double ng_ios_age(NSTimeInterval timestamp) {
                 continue;
             }
         }
+#ifdef NG_INPUT_PEN
         [self pens:pen_phase[action] touch:touch event:event];
+#endif
+#ifdef NG_INPUT_TOUCH
         if (g_host.touch) {
             CGPoint at = [touch locationInView:self];
             int pencil = touch.type == UITouchTypePencil;
             g_host.touch(action, (float)at.x, (float)at.y, (uintptr_t)(__bridge void*)touch, pencil);
         }
+#endif
     }
     [self markDirty];
 }
@@ -831,7 +849,9 @@ static int ng_ios_pen_action(long action) {
 - (void)hovered:(UIHoverGestureRecognizer*)hover API_AVAILABLE(ios(13.0)) {
     if (@available(iOS 16.4, *)) {
         if (hover.zOffset > 0) {
+#ifdef NG_INPUT_PEN
             [self pencilHovered:hover];
+#endif
             return;
         }
     }
@@ -1119,11 +1139,15 @@ void ng_ios_hide_native(void* view) {
 void ng_ios_show_keyboard(int show) {
     AureaHostView* host = g_view;
     if (!host) return;
+#ifdef NG_INPUT_TEXT
     if (show) {
         [host.keys becomeFirstResponder];
     } else if (host.keys.isFirstResponder) {
         [host becomeFirstResponder];
     }
+#else
+    (void)show;
+#endif
 }
 
 float ng_ios_refresh_rate(void) {
@@ -1144,12 +1168,21 @@ void ng_ios_set_high_frame_rate(int high) {
 
 float ng_ios_keyboard_height(void) {
     AureaHostView* host = g_view;
+#ifdef NG_INPUT_TEXT
     return host && host.keys.isFirstResponder ? (float)host.keyboardHeight : 0.0f;
+#else
+    (void)host;
+    return 0.0f;
+#endif
 }
 
 void ng_ios_set_text_area(float x, float y, float width, float height) {
+#ifdef NG_INPUT_TEXT
     AureaHostView* host = g_view;
     if (!host) return;
     UIEdgeInsets safe = host.safeAreaInsets;
     host.keys.area = CGRectMake(x + safe.left, y + safe.top, width, height);
+#else
+    (void)x; (void)y; (void)width; (void)height;
+#endif
 }

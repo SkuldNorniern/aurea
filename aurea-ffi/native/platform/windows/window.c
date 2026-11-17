@@ -116,8 +116,12 @@ NGHandle ng_windows_create_window_with_type(const char* title, int width, int he
     if (hwnd) {
         ng_windows_set_client_size(hwnd, width, height, 0);
         ng_windows_fit_work_area(hwnd);
+#ifdef NG_INPUT_DROP_FILES
         ng_windows_accept_drops(hwnd);
+#endif
+#ifdef NG_INPUT_GESTURES
         ng_windows_enable_gestures(hwnd);
+#endif
         ShowWindow(hwnd, SW_SHOW);
         UpdateWindow(hwnd);
         SetFocus(hwnd);
@@ -642,12 +646,16 @@ static HWND g_grab_holder = NULL;
 static HWND g_raw_holder = NULL;
 
 static void ng_windows_set_raw_mouse(HWND target) {
+#ifdef NG_INPUT_RAW_MOUSE
     RAWINPUTDEVICE rid;
     rid.usUsagePage = 0x01;
     rid.usUsage = 0x02;
     rid.dwFlags = target ? 0 : RIDEV_REMOVE;
     rid.hwndTarget = target;
     if (RegisterRawInputDevices(&rid, 1, sizeof(rid))) g_raw_holder = target;
+#else
+    (void)target;
+#endif
 }
 
 static void ng_windows_clip_to_content(HWND hwnd) {

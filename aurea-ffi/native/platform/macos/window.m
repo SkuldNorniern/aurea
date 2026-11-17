@@ -49,11 +49,15 @@ static unsigned int ng_macos_modifiers(NSEvent* event) {
 /* The modifiers of a mouse event, with what moved the pointer: a tablet's events are pens. */
 static unsigned int ng_macos_mouse_modifiers(NSEvent* event) {
     unsigned int mods = ng_macos_modifiers(event);
+#ifdef NG_INPUT_PEN
     if (event.subtype == NSEventSubtypeTabletPoint) mods |= NG_POINTER_PEN;
+#endif
     return mods;
 }
 
+#ifdef NG_INPUT_RAW_MOUSE
 static BOOL ng_macos_consume_raw_suppress(void* windowHandle);
+#endif
 
 static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
     switch (keycode) {
@@ -276,6 +280,7 @@ static NSString* drag_paths(id<NSDraggingInfo> info) {
     }
 }
 
+#ifdef NG_INPUT_PEN
 enum { AUREA_PEN_HOVER = 0, AUREA_PEN_DOWN = 1, AUREA_PEN_MOVE = 2, AUREA_PEN_UP = 3 };
 enum { AUREA_PEN_ERASER = 1, AUREA_PEN_BARREL = 2 };
 
@@ -318,6 +323,7 @@ static BOOL is_pen_event(NSEvent* event) {
 - (void)tabletPoint:(NSEvent*)event {
     [self reportPen:event phase:(event.pressure > 0 ? AUREA_PEN_MOVE : AUREA_PEN_HOVER)];
 }
+#endif
 
 - (void)mouseMoved:(NSEvent*)event {
     if (!self.windowHandle) return;
@@ -325,16 +331,20 @@ static BOOL is_pen_event(NSEvent* event) {
     CGFloat h = [self bounds].size.height;
     unsigned int buttons = (unsigned int)([NSEvent pressedMouseButtons] & 0xFF);
     ng_invoke_mouse_move(self.windowHandle, location.x, h - location.y, buttons, ng_macos_mouse_modifiers(event));
+#ifdef NG_INPUT_PEN
     [self reportPen:event phase:((buttons & 1) ? AUREA_PEN_MOVE : AUREA_PEN_HOVER)];
+#endif
 
     int mode = ng_macos_get_cursor_grab_mode(self.windowHandle);
     if (mode == 1) ng_macos_cursor_confine([self window]);
+#ifdef NG_INPUT_RAW_MOUSE
     if (mode == 2) {
         if (ng_macos_consume_raw_suppress(self.windowHandle)) {
             return;
         }
         ng_invoke_raw_mouse_motion(self.windowHandle, (double)[event deltaX], (double)[event deltaY]);
     }
+#endif
 }
 
 - (void)mouseDragged:(NSEvent*)event {
@@ -365,7 +375,9 @@ static BOOL is_pen_event(NSEvent* event) {
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
     ng_invoke_mouse_button(self.windowHandle, 0, 1, ng_macos_mouse_modifiers(event), p.x, h - p.y, (int)[event clickCount]);
+#ifdef NG_INPUT_PEN
     [self reportPen:event phase:AUREA_PEN_DOWN];
+#endif
     [self buttonWentDown];
 }
 
@@ -374,7 +386,9 @@ static BOOL is_pen_event(NSEvent* event) {
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     CGFloat h = [self bounds].size.height;
     ng_invoke_mouse_button(self.windowHandle, 0, 0, ng_macos_mouse_modifiers(event), p.x, h - p.y, 1);
+#ifdef NG_INPUT_PEN
     [self reportPen:event phase:AUREA_PEN_UP];
+#endif
     [self buttonWentUp];
 }
 
@@ -426,6 +440,7 @@ static const double NG_MACOS_POINTS_PER_LINE = 40.0;
         ng_macos_modifiers(event));
 }
 
+#ifdef NG_INPUT_GESTURES
 - (void)magnifyWithEvent:(NSEvent*)event {
     if (!self.windowHandle || event.magnification == 0.0) return;
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
@@ -440,6 +455,7 @@ static const double NG_MACOS_POINTS_PER_LINE = 40.0;
     /* Apple reports degrees counter-clockwise; Rotate wants radians clockwise. */
     ng_invoke_gesture(self.windowHandle, NG_GESTURE_ROTATE, -(double)event.rotation * M_PI / 180.0, p.x, h - p.y);
 }
+#endif
 
 - (void)keyDown:(NSEvent*)event {
     if (!self.windowHandle) return;
@@ -451,7 +467,9 @@ static const double NG_MACOS_POINTS_PER_LINE = 40.0;
         unsigned int keycode = ng_macos_keycode_from_event([event keyCode]);
         ng_invoke_key_event(self.windowHandle, keycode, 1, ng_macos_modifiers(event));
     }
+#ifdef NG_INPUT_TEXT
     [self interpretKeyEvents:@[event]];
+#endif
 }
 
 - (void)insertText:(id)string replacementRange:(NSRange)replacementRange {
@@ -459,7 +477,9 @@ static const double NG_MACOS_POINTS_PER_LINE = 40.0;
     NSString* text = [string isKindOfClass:[NSAttributedString class]] ? [string string] : string;
     if ([self hasMarkedText]) {
         markedText = nil;
+#ifdef NG_INPUT_IME
         if (self.windowHandle) ng_invoke_ime_preedit(self.windowHandle, "", -1);
+#endif
     }
     if (!self.windowHandle || !text || [text length] == 0) return;
 
@@ -468,18 +488,22 @@ static const double NG_MACOS_POINTS_PER_LINE = 40.0;
     BOOL isFnKeyChar = (first >= 0xF700 && first <= 0xF8FF);
     if (isControl || isFnKeyChar) return;
 
+#ifdef NG_INPUT_TEXT
     const char* utf8 = [text UTF8String];
     if (utf8) {
         ng_invoke_text_input(self.windowHandle, utf8);
     }
+#endif
 }
 
 - (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange replacementRange:(NSRange)replacementRange {
     (void)replacementRange;
+    (void)selectedRange;
     NSString* text = [string isKindOfClass:[NSAttributedString class]] ? [string string] : string;
     markedText = (text && [text length] > 0) ? [text copy] : nil;
     if (!self.windowHandle) return;
 
+#ifdef NG_INPUT_IME
     int cursor = -1;
     if (markedText && selectedRange.location != NSNotFound && selectedRange.location <= [markedText length]) {
         NSString* head = [markedText substringToIndex:selectedRange.location];
@@ -487,12 +511,15 @@ static const double NG_MACOS_POINTS_PER_LINE = 40.0;
     }
     const char* utf8 = markedText ? [markedText UTF8String] : "";
     ng_invoke_ime_preedit(self.windowHandle, utf8 ? utf8 : "", cursor);
+#endif
 }
 
 - (void)unmarkText {
     if (![self hasMarkedText]) return;
     markedText = nil;
+#ifdef NG_INPUT_IME
     if (self.windowHandle) ng_invoke_ime_preedit(self.windowHandle, "", -1);
+#endif
 }
 
 - (BOOL)hasMarkedText {
@@ -732,6 +759,7 @@ static int ng_macos_get_cursor_grab_mode(void* windowHandle) {
     return (int)[mode integerValue];
 }
 
+#ifdef NG_INPUT_RAW_MOUSE
 static BOOL ng_macos_consume_raw_suppress(void* windowHandle) {
     if (!windowRawSuppress || !windowHandle) {
         return NO;
@@ -748,6 +776,7 @@ static BOOL ng_macos_consume_raw_suppress(void* windowHandle) {
     }
     return suppress;
 }
+#endif
 
 NGHandle ng_macos_create_window(const char* title, int width, int height) {
     return ng_macos_create_window_with_type(title, width, height, 0);
@@ -852,11 +881,13 @@ NGHandle ng_macos_create_window_with_type(const char* title, int width, int heig
     AureaContentView* contentView = [[AureaContentView alloc] initWithFrame:frame];
     contentView.windowHandle = (__bridge void*)window;
     [contentView setWantsLayer:YES];
+#ifdef NG_INPUT_DROP_FILES
     if (@available(macOS 10.13, *)) {
         [contentView registerForDraggedTypes:@[NSPasteboardTypeFileURL]];
     } else {
         [contentView registerForDraggedTypes:@[@"public.file-url"]];
     }
+#endif
     [window setContentView:contentView];
     [window makeFirstResponder:contentView];
     [contentView updateTrackingAreas];
@@ -1194,12 +1225,17 @@ int ng_macos_window_set_shortcuts(NGHandle window, const unsigned int* keycodes,
 }
 
 int ng_macos_window_set_ime_cursor_area(NGHandle window, float x, float y, float width, float height) {
+#ifndef NG_INPUT_IME
+    (void)window; (void)x; (void)y; (void)width; (void)height;
+    return NG_SUCCESS;
+#else
     if (!window) return NG_ERROR_INVALID_HANDLE;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
     NSView* view = [nsWindow contentView];
     if (![view isKindOfClass:[AureaContentView class]]) return NG_ERROR_PLATFORM_SPECIFIC;
     [(AureaContentView*)view setImeArea:NSMakeRect(x, y, width, height)];
     return NG_SUCCESS;
+#endif
 }
 
 static NSCursor* diagonalResizeCursor(BOOL reverse) {

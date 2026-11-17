@@ -148,6 +148,7 @@ static gboolean on_window_state_event(GtkWidget* widget, GdkEventWindowState* ev
     return FALSE;
 }
 
+#ifdef NG_INPUT_DROP_FILES
 static char* drop_paths(GtkSelectionData* data) {
     gchar** uris = gtk_selection_data_get_uris(data);
     if (!uris) return NULL;
@@ -211,6 +212,7 @@ static void on_drag_leave(GtkWidget* w, GdkDragContext* ctx, guint time, gpointe
     (void)ctx; (void)time; (void)d;
     ng_invoke_file_drop((void*)w, NG_DROP_LEAVE, 0, 0, "");
 }
+#endif
 
 static void on_realize_uncompressed(GtkWidget* widget, gpointer data) {
     (void)data;
@@ -352,12 +354,46 @@ static int ng_linux_mouse_button_from_event(guint button) {
     }
 }
 
+/* Preedit and the input method's key filter. Without ime, keys go straight through. */
+#ifdef NG_INPUT_IME
+static int ng_linux_composing(GtkWidget* widget) {
+    return ng_linux_ime_composing(widget);
+}
+
+static int ng_linux_im_filter(GtkWidget* widget, GdkEventKey* event) {
+    return ng_linux_ime_filter(widget, event);
+}
+#else
+static int ng_linux_composing(GtkWidget* widget) {
+    (void)widget;
+    return 0;
+}
+
+static int ng_linux_im_filter(GtkWidget* widget, GdkEventKey* event) {
+    (void)widget;
+    (void)event;
+    return 0;
+}
+#endif
+
+#ifdef NG_INPUT_TEXT
+/* Whether the input method makes a key's text. Without ime, the key's own text is used. */
+static int ng_linux_text_from_im(GtkWidget* widget) {
+#ifdef NG_INPUT_IME
+    return ng_linux_ime_active(widget);
+#else
+    (void)widget;
+    return 0;
+#endif
+}
+#endif
+
 static gboolean on_key_press(GtkWidget* widget, GdkEventKey* event, gpointer data) {
     (void)data;
     unsigned int mods = ng_linux_modifiers(event->state);
     unsigned int keycode = ng_linux_keycode_from_keyval(event->keyval);
 
-    if (!ng_linux_ime_composing(widget)) {
+    if (!ng_linux_composing(widget)) {
         if (ng_linux_handle_menu_shortcut((void*)widget, keycode, mods)) {
             window_state(widget)->menu_took_key = event->keyval;
             return TRUE;
@@ -366,10 +402,12 @@ static gboolean on_key_press(GtkWidget* widget, GdkEventKey* event, gpointer dat
         if (ng_shortcuts_match((void*)widget, keycode, mods)) return TRUE;
     }
 
-    if (ng_linux_ime_filter(widget, event)) return TRUE;
-    if (!ng_linux_ime_active(widget) && event->string && event->string[0] != '\0') {
+    if (ng_linux_im_filter(widget, event)) return TRUE;
+#ifdef NG_INPUT_TEXT
+    if (!ng_linux_text_from_im(widget) && event->string && event->string[0] != '\0') {
         ng_invoke_text_input((void*)widget, event->string);
     }
+#endif
     return FALSE;
 }
 
@@ -382,8 +420,8 @@ static gboolean on_key_release(GtkWidget* widget, GdkEventKey* event, gpointer d
     }
     unsigned int mods = ng_linux_modifiers(event->state);
     unsigned int keycode = ng_linux_keycode_from_keyval(event->keyval);
-    int composing = ng_linux_ime_composing(widget);
-    if (ng_linux_ime_filter(widget, event)) return TRUE;
+    int composing = ng_linux_composing(widget);
+    if (ng_linux_im_filter(widget, event)) return TRUE;
     if (!composing) ng_invoke_key_event((void*)widget, keycode, 0, mods);
     return FALSE;
 }
@@ -470,6 +508,7 @@ static int ng_linux_click_count(GtkWidget* widget, GdkEventButton* event) {
     return p->count;
 }
 
+#ifdef NG_INPUT_PEN
 enum { PEN_HOVER = 0, PEN_DOWN = 1, PEN_MOVE = 2, PEN_UP = 3 };
 enum { PEN_ERASER = 1, PEN_BARREL = 2 };
 
@@ -500,17 +539,22 @@ static void report_pen(GtkWidget* widget, GdkEvent* event, double x, double y, g
     ng_invoke_pen((void*)widget, x, y, (float)pressure, tilt_x, tilt_y, twist, phase, flags,
                   ng_linux_modifiers(state), pen_age(event));
 }
+#endif
 
 /* NG_POINTER_PEN or NG_POINTER_TOUCH when the device behind `event` is one, else 0. */
 static unsigned int ng_linux_pointer_bits(GdkEvent* event) {
     GdkDevice* device = gdk_event_get_source_device(event);
     if (!device) return 0;
     switch (gdk_device_get_source(device)) {
+#ifdef NG_INPUT_PEN
         case GDK_SOURCE_PEN:
         case GDK_SOURCE_ERASER:
             return NG_POINTER_PEN;
+#endif
+#ifdef NG_INPUT_TOUCH
         case GDK_SOURCE_TOUCHSCREEN:
             return NG_POINTER_TOUCH;
+#endif
         default:
             return 0;
     }
@@ -527,9 +571,13 @@ static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpoint
     double y = event->y;
     ng_linux_content_point(widget, event->window, &x, &y);
     if (button < 8) ng_linux_pointer(widget)->held |= 1u << button;
+#ifdef NG_INPUT_IME
     ng_linux_ime_reset(widget);
+#endif
     ng_invoke_mouse_button((void*)widget, button, 1, mods, x, y, click_count);
+#ifdef NG_INPUT_PEN
     if (event->button == 1) report_pen(widget, (GdkEvent*)event, x, y, event->state, PEN_DOWN);
+#endif
     return FALSE;
 }
 
@@ -543,7 +591,9 @@ static gboolean on_button_release(GtkWidget* widget, GdkEventButton* event, gpoi
     ng_linux_content_point(widget, event->window, &x, &y);
     if (button < 8) ng_linux_pointer(widget)->held &= ~(1u << button);
     ng_invoke_mouse_button((void*)widget, button, 0, mods, x, y, 1);
+#ifdef NG_INPUT_PEN
     if (event->button == 1) report_pen(widget, (GdkEvent*)event, x, y, event->state, PEN_UP);
+#endif
     return FALSE;
 }
 
@@ -560,9 +610,12 @@ static gboolean on_motion_notify(GtkWidget* widget, GdkEventMotion* event, gpoin
     buttons |= ng_linux_pointer(widget)->held & ~7u;
     ng_invoke_mouse_move((void*)widget, x, y, buttons,
                          ng_linux_modifiers(event->state) | ng_linux_pointer_bits((GdkEvent*)event));
+#ifdef NG_INPUT_PEN
     report_pen(widget, (GdkEvent*)event, x, y, event->state,
                (event->state & GDK_BUTTON1_MASK) ? PEN_MOVE : PEN_HOVER);
+#endif
 
+#ifdef NG_INPUT_RAW_MOUSE
     NgLinuxWindow* w = window_state(widget);
     if (w->grab_mode == 2) {
         if (w->mouse_known) {
@@ -572,6 +625,7 @@ static gboolean on_motion_notify(GtkWidget* widget, GdkEventMotion* event, gpoin
         w->mouse_x = event->x;
         w->mouse_y = event->y;
     }
+#endif
     return FALSE;
 }
 
@@ -604,6 +658,7 @@ static gboolean on_scroll(GtkWidget* widget, GdkEventScroll* event, gpointer dat
     return FALSE;
 }
 
+#ifdef NG_INPUT_GESTURES
 static void on_zoom_changed(GtkGestureZoom* gesture, gdouble scale, gpointer data) {
     (void)scale;
     gdouble delta = gtk_gesture_zoom_get_scale_delta(gesture);
@@ -627,10 +682,13 @@ static void ng_linux_connect_gestures(GtkWidget* window) {
     w->rotate = gtk_gesture_rotate_new(window);
     g_signal_connect(w->rotate, "angle-changed", G_CALLBACK(on_angle_changed), window);
 }
+#endif
 
 static gboolean on_focus_in(GtkWidget* widget, GdkEventFocus* event, gpointer data) {
     (void)event; (void)data;
+#ifdef NG_INPUT_IME
     ng_linux_ime_focus(widget, 1);
+#endif
     gtk_window_set_urgency_hint(GTK_WINDOW(widget), FALSE);
     ng_invoke_focus_changed((void*)widget, 1);
     return FALSE;
@@ -638,7 +696,9 @@ static gboolean on_focus_in(GtkWidget* widget, GdkEventFocus* event, gpointer da
 
 static gboolean on_focus_out(GtkWidget* widget, GdkEventFocus* event, gpointer data) {
     (void)event; (void)data;
+#ifdef NG_INPUT_IME
     ng_linux_ime_focus(widget, 0);
+#endif
     ng_invoke_focus_changed((void*)widget, 0);
     return FALSE;
 }
@@ -703,7 +763,9 @@ NGHandle ng_linux_create_window(const char* title, int width, int height) {
             GDK_ENTER_NOTIFY_MASK | GDK_LEAVE_NOTIFY_MASK | GDK_FOCUS_CHANGE_MASK);
 
     window_state(window);
+#ifdef NG_INPUT_IME
     ng_linux_ime_attach(window);
+#endif
     g_signal_connect(window, "realize", G_CALLBACK(on_realize_uncompressed), NULL);
     g_signal_connect(window, "key-press-event", G_CALLBACK(on_key_press), NULL);
     g_signal_connect(window, "key-release-event", G_CALLBACK(on_key_release), NULL);
@@ -715,18 +777,22 @@ NGHandle ng_linux_create_window(const char* title, int width, int height) {
     g_signal_connect(window, "focus-out-event", G_CALLBACK(on_focus_out), NULL);
     g_signal_connect(window, "enter-notify-event", G_CALLBACK(on_enter), NULL);
     g_signal_connect(window, "leave-notify-event", G_CALLBACK(on_leave), NULL);
+#ifdef NG_INPUT_DROP_FILES
     gtk_drag_dest_set(window, 0, NULL, 0, GDK_ACTION_COPY);
     gtk_drag_dest_add_uri_targets(window);
     g_signal_connect(window, "drag-motion", G_CALLBACK(on_drag_motion), NULL);
     g_signal_connect(window, "drag-drop", G_CALLBACK(on_drag_drop), NULL);
     g_signal_connect(window, "drag-data-received", G_CALLBACK(on_drag_data), NULL);
     g_signal_connect(window, "drag-leave", G_CALLBACK(on_drag_leave), NULL);
+#endif
 
     g_signal_connect(window, "destroy", G_CALLBACK(on_window_destroy), NULL);
     g_signal_connect(window, "delete-event", G_CALLBACK(on_delete_event), NULL);
     g_signal_connect(window, "window-state-event", G_CALLBACK(on_window_state_event), NULL);
     g_signal_connect(window, "configure-event", G_CALLBACK(on_configure_event), NULL);
+#ifdef NG_INPUT_GESTURES
     ng_linux_connect_gestures(window);
+#endif
 
     GtkWidget* main_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_container_add(GTK_CONTAINER(window), main_vbox);

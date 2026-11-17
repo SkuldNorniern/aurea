@@ -36,7 +36,9 @@ fn main() {
 
     fn add_sources(build: &mut Build, root: &Path, sources: &[&str]) {
         for source in sources {
-            build.file(root.join(source));
+            if input_source_enabled(source) {
+                build.file(root.join(source));
+            }
         }
     }
 
@@ -218,6 +220,7 @@ fn main() {
 
     let mut build = Build::new();
     build.include(&native).warnings(true);
+    define_input_features(&mut build);
 
     // A function used without a declaration is an error, not a warning.
     //
@@ -247,17 +250,7 @@ fn main() {
         add_sources(&mut build, &root, windows_c);
         build.define("_WIN32", None);
 
-        println!("cargo:rustc-link-lib=user32");
-        println!("cargo:rustc-link-lib=gdi32");
-        println!("cargo:rustc-link-lib=shell32");
-        println!("cargo:rustc-link-lib=gdiplus");
-        println!("cargo:rustc-link-lib=ole32");
-        println!("cargo:rustc-link-lib=oleacc");
-        println!("cargo:rustc-link-lib=oleaut32");
-        println!("cargo:rustc-link-lib=uuid");
-        println!("cargo:rustc-link-lib=imm32");
-        println!("cargo:rustc-link-lib=comdlg32");
-        println!("cargo:rustc-link-lib=advapi32");
+        link_windows_libs();
 
         rerun_for(&root, common_c);
         rerun_for(&root, windows_c);
@@ -337,6 +330,7 @@ fn main() {
     if is_windows {
         let mut cpp_build = Build::new();
         cpp_build.cpp(true).include(&native).define("_WIN32", None);
+        define_input_features(&mut cpp_build);
         add_sources(&mut cpp_build, &root, windows_cpp);
         cpp_build.compile("native_gui_cpp");
     }
@@ -386,6 +380,54 @@ fn main() {
         macos_headers,
         linux_headers,
     );
+}
+
+/// Windows system libraries. Only `ime` needs imm32; OLE serves dialogs and accessibility too.
+fn link_windows_libs() {
+    for lib in [
+        "user32", "gdi32", "shell32", "gdiplus", "ole32", "oleacc", "oleaut32", "uuid", "comdlg32",
+        "advapi32",
+    ] {
+        println!("cargo:rustc-link-lib={lib}");
+    }
+    if feature_on("CARGO_FEATURE_IME") {
+        println!("cargo:rustc-link-lib=imm32");
+    }
+}
+
+/// Whether the cargo feature env var `name` is set, i.e. the feature is on.
+fn feature_on(name: &str) -> bool {
+    env::var_os(name).is_some()
+}
+
+/// Each input feature that is on becomes an `NG_INPUT_*` macro for every native compile.
+fn define_input_features(build: &mut Build) {
+    let features = [
+        ("CARGO_FEATURE_TEXT_INPUT", "NG_INPUT_TEXT"),
+        ("CARGO_FEATURE_IME", "NG_INPUT_IME"),
+        ("CARGO_FEATURE_RAW_MOUSE", "NG_INPUT_RAW_MOUSE"),
+        ("CARGO_FEATURE_PEN", "NG_INPUT_PEN"),
+        ("CARGO_FEATURE_TOUCH", "NG_INPUT_TOUCH"),
+        ("CARGO_FEATURE_GESTURES", "NG_INPUT_GESTURES"),
+        ("CARGO_FEATURE_DROP_FILES", "NG_INPUT_DROP_FILES"),
+    ];
+    for (name, define) in features {
+        if feature_on(name) {
+            build.define(define, None);
+        }
+    }
+}
+
+/// A source dedicated to one input feature is compiled only while that feature is on.
+fn input_source_enabled(source: &str) -> bool {
+    let feature = match source {
+        "native/platform/windows/pen.c" | "native/platform/windows/wintab.c" => "CARGO_FEATURE_PEN",
+        "native/platform/windows/ime.c" | "native/platform/linux/ime.c" => "CARGO_FEATURE_IME",
+        "native/platform/windows/gesture.c" => "CARGO_FEATURE_GESTURES",
+        "native/platform/windows/drop.c" => "CARGO_FEATURE_DROP_FILES",
+        _ => return true,
+    };
+    feature_on(feature)
 }
 
 /// Probes for GTK3 (and optionally X11-XCB) via pkg-config and configures

@@ -137,6 +137,7 @@ static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         return SendMessageW(root, msg, wParam, out);
     }
 
+#ifdef NG_INPUT_PEN
     case WM_POINTERDOWN:
     case WM_POINTERUPDATE:
     case WM_POINTERUP:
@@ -149,6 +150,7 @@ static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
 
     case WM_TABLET_QUERYSYSTEMGESTURESTATUS:
         return TABLET_DISABLE_PRESSANDHOLD | TABLET_DISABLE_FLICKS | TABLET_DISABLE_FLICKFALLBACKKEYS;
+#endif
 
     case WM_SIZE:
         ng_invoke_canvas_resized((void*)hwnd);

@@ -109,19 +109,19 @@ accesskit_unix = { version = "0.23", optional = true }
 default = ["input"]
 input = ["text-input", "ime", "raw-mouse", "pen", "touch", "gestures", "drop-files"]
 # Typed text as `TextInput`.
-text-input = []
+text-input = ["aurea-ffi/text-input"]
 # Preedit as `ImePreedit`, the candidate window's place, and ime on and off per field. Needs `text-input`.
-ime = ["text-input"]
+ime = ["text-input", "aurea-ffi/ime"]
 # `RawMouseMotion` and cursor lock (`CursorGrabMode::Locked`).
-raw-mouse = []
+raw-mouse = ["aurea-ffi/raw-mouse"]
 # Pen samples, `PenBatch`, `PenPredicted`, `PenTap`, pressure and tilt.
-pen = []
+pen = ["aurea-ffi/pen"]
 # Fingers: `LongPress`, `FingerTap`, `PressCancelled`, and a finger as the mouse.
-touch = []
+touch = ["aurea-ffi/touch"]
 # Pinch, twist and two-finger scroll: `Magnify`, `Rotate`, `Gesture`.
-gestures = []
+gestures = ["aurea-ffi/gestures"]
 # `FilesHovered`, `FilesDropped`, `FilesHoverEnded`.
-drop-files = []
+drop-files = ["aurea-ffi/drop-files"]
 accessibility = ["dep:accesskit", "dep:accesskit_windows", "dep:accesskit_macos", "dep:accesskit_unix", "dep:windows"]
 wgpu = ["dep:wgpu", "dep:raw-window-handle"]
 # iOS and Android native hosts. Experimental and opt-in; see mobile/README.md

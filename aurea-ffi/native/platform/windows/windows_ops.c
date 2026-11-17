@@ -13,6 +13,14 @@ static int box_add_wrapper(NGHandle b, NGHandle e, float w) {
     return ng_windows_box_add_weighted(b, e, w);
 }
 
+#ifndef NG_INPUT_IME
+/* Without ime there is no input method to place: the area is accepted and ignored. */
+int ng_windows_window_set_ime_cursor_area(NGHandle window, float x, float y, float width, float height) {
+    (void)window; (void)x; (void)y; (void)width; (void)height;
+    return NG_SUCCESS;
+}
+#endif
+
 static const ng_platform_ops_t windows_ops = {
     .init = ng_windows_init,
     .reduced_motion = ng_windows_reduced_motion,

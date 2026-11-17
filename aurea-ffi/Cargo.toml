@@ -20,6 +20,14 @@ workspace = true
 [features]
 # iOS and Android native hosts; experimental, see the root crate's `mobile`.
 mobile = []
+# Input features, each gating its native code; see the root crate's `input`.
+text-input = []
+ime = ["text-input"]
+raw-mouse = []
+pen = []
+touch = []
+gestures = []
+drop-files = []
 
 [build-dependencies]
 cc = "1.2"

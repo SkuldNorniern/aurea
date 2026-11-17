@@ -437,6 +437,7 @@ int ng_windows_take_shortcut(HWND root, WPARAM vk) {
     return 1;
 }
 
+#ifdef NG_INPUT_TEXT
 static void ng_windows_emit_text_input(NGWindow* w, wchar_t wc) {
     HWND hwnd = w->hwnd;
     if (wc >= 0xD800 && wc <= 0xDBFF) {
@@ -464,6 +465,7 @@ static void ng_windows_emit_text_input(NGWindow* w, wchar_t wc) {
         ng_invoke_text_input((void*)hwnd, buffer);
     }
 }
+#endif
 
 double ng_windows_logical(HWND hwnd, int physical) {
     float scale = ng_windows_get_scale_factor((NGHandle)hwnd);
@@ -474,7 +476,18 @@ double ng_windows_logical(HWND hwnd, int physical) {
 static unsigned int ng_windows_pointer_bits(void) {
     DWORD extra = (DWORD)GetMessageExtraInfo();
     if ((extra & 0xFFFFFF00u) != 0xFF515700u) return 0;
-    return (extra & 0x80u) ? NG_POINTER_TOUCH : NG_POINTER_PEN;
+    if (extra & 0x80u) {
+#ifdef NG_INPUT_TOUCH
+        return NG_POINTER_TOUCH;
+#else
+        return 0;
+#endif
+    }
+#ifdef NG_INPUT_PEN
+    return NG_POINTER_PEN;
+#else
+    return 0;
+#endif
 }
 
 static void ng_windows_emit_mouse_button(
@@ -601,19 +614,25 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         return DefWindowProcW(hwnd, uMsg, wParam, lParam);
     }
 
+#ifdef NG_INPUT_IME
     LRESULT ime_result;
     if (ng_windows_ime_message(hwnd, uMsg, wParam, lParam, &ime_result)) {
         return ime_result;
     }
+#endif
+#ifdef NG_INPUT_PEN
     ng_windows_wintab_message(hwnd, uMsg, lParam);
+#endif
 
     int pressed, clicks;
     int button = ng_windows_button_of(uMsg, wParam, &pressed, &clicks);
     if (button >= 0) {
         if (pressed) {
             SetCapture(hwnd);
+#ifdef NG_INPUT_IME
             /* Before the press goes out, so the app has the text when it hears the click. */
             ng_windows_ime_complete(hwnd);
+#endif
         }
         ng_windows_emit_mouse_button(hwnd, lParam, button, pressed, clicks);
         if (!pressed) ng_windows_release_capture(hwnd, wParam);
@@ -626,7 +645,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             break;
         case WM_ACTIVATE:
             ng_windows_cursor_grab_activate((void*)hwnd, LOWORD(wParam) != WA_INACTIVE);
+#ifdef NG_INPUT_PEN
             ng_windows_wintab_activate(hwnd, LOWORD(wParam) != WA_INACTIVE);
+#endif
             break;
         case WM_KILLFOCUS:
             w->high_surrogate = 0;
@@ -645,6 +666,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 ng_windows_buttons(wParam),
                 ng_windows_modifiers() | ng_windows_pointer_bits());
             break;
+#ifdef NG_INPUT_PEN
         case WM_POINTERDOWN:
         case WM_POINTERUPDATE:
         case WM_POINTERUP:
@@ -653,6 +675,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_POINTERCAPTURECHANGED:
             ng_windows_pen_capture_lost(hwnd, wParam);
             break;
+#endif
         case WM_MOUSELEAVE:
             w->tracking_leave = FALSE;
             ng_windows_recheck_pointer(w);
@@ -699,6 +722,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             ng_windows_display_changed();
             break;
         case WM_INPUT:
+#ifdef NG_INPUT_RAW_MOUSE
             if (w->grab_mode == 2) {
                 RAWINPUT raw;
                 UINT size = sizeof(raw);
@@ -710,6 +734,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                         (double)raw.data.mouse.lLastY);
                 }
             }
+#endif
             break;
         case WM_KEYDOWN:
         case WM_SYSKEYDOWN: {
@@ -763,7 +788,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             }
             break;
         case WM_CHAR:
+#ifdef NG_INPUT_TEXT
             ng_windows_emit_text_input(w, (wchar_t)wParam);
+#endif
             break;
         case WM_MOUSEWHEEL: {
             double delta = (double)GET_WHEEL_DELTA_WPARAM(wParam) / (double)WHEEL_DELTA;
@@ -780,9 +807,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             ng_invoke_mouse_wheel((void*)hwnd, delta, 0.0, ng_windows_modifiers());
             break;
         }
+#ifdef NG_INPUT_GESTURES
         case WM_GESTURE:
             if (ng_windows_gesture_message(hwnd, lParam)) return 0;
             break;
+#endif
         case WM_HSCROLL:
         case WM_VSCROLL:
             ng_windows_control_changed(uMsg, wParam, lParam);
@@ -869,9 +898,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             break;
         }
         case WM_DESTROY:
+#ifdef NG_INPUT_PEN
             ng_windows_wintab_destroyed(hwnd);
+#endif
             ng_windows_release_window_input((void*)hwnd);
+#ifdef NG_INPUT_DROP_FILES
             ng_windows_refuse_drops(hwnd);
+#endif
             KillTimer(hwnd, AUREA_OCCLUSION_TIMER_ID);
             KillTimer(hwnd, AUREA_HOVER_TIMER_ID);
             ng_shortcuts_clear((void*)hwnd);
