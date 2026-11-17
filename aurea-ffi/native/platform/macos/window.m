@@ -18,7 +18,6 @@ static void ng_macos_cursor_refresh(NSWindow* window);
 static void ng_macos_cursor_confine(NSWindow* window);
 #include <limits.h>
 
-static int ng_macos_get_cursor_grab_mode(void* windowHandle);
 
 @interface WindowDelegate : NSObject <NSWindowDelegate>
 @property (nonatomic, assign) void* windowHandle;
@@ -54,10 +53,6 @@ static unsigned int ng_macos_mouse_modifiers(NSEvent* event) {
 #endif
     return mods;
 }
-
-#ifdef NG_INPUT_RAW_MOUSE
-static BOOL ng_macos_consume_raw_suppress(void* windowHandle);
-#endif
 
 static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
     switch (keycode) {
@@ -157,20 +152,24 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
 @interface AureaContentView : NSView <NSTextInputClient> {
     NSTrackingArea* trackingArea;
     int buttonsHeld;
-    BOOL imeSentCommand;
-    NSMutableIndexSet* keysDown;
     BOOL exitHeld;
     unsigned int modifiersDown;
     NSString* markedText;
     NSRect imeArea;
     unsigned int menuTookKey;
+    BOOL imeSentCommand;
+    NSMutableIndexSet* keysDown;
 }
 @property (nonatomic, assign) void* windowHandle;
 @property (nonatomic, strong) NSCursor* cursor;
 @property (nonatomic, assign) BOOL usesMetalLayer;
 @property (nonatomic, assign) BOOL hidesCursor;
-- (void)dropMarkedText;
+/* 0 free, 1 confined, 2 locked */
+@property (nonatomic, assign) int grabMode;
+/* the first raw delta after a lock is the warp to the middle, drop it */
+@property (nonatomic, assign) BOOL rawSuppress;
 - (void)setImeArea:(NSRect)area;
+- (void)dropMarkedText;
 @end
 
 @implementation AureaContentView
@@ -338,11 +337,11 @@ static BOOL is_pen_event(NSEvent* event) {
     [self reportPen:event phase:((buttons & 1) ? AUREA_PEN_MOVE : AUREA_PEN_HOVER)];
 #endif
 
-    int mode = ng_macos_get_cursor_grab_mode(self.windowHandle);
-    if (mode == 1) ng_macos_cursor_confine([self window]);
+    if (self.grabMode == 1) ng_macos_cursor_confine([self window]);
 #ifdef NG_INPUT_RAW_MOUSE
-    if (mode == 2) {
-        if (ng_macos_consume_raw_suppress(self.windowHandle)) {
+    if (self.grabMode == 2) {
+        if (self.rawSuppress) {
+            self.rawSuppress = NO;
             return;
         }
         ng_invoke_raw_mouse_motion(self.windowHandle, (double)[event deltaX], (double)[event deltaY]);
@@ -373,6 +372,7 @@ static BOOL is_pen_event(NSEvent* event) {
     [self insertText:text replacementRange:NSMakeRange(NSNotFound, 0)];
     [[self inputContext] discardMarkedText];
 }
+
 /* focus loss cancels the composition on the Rust side, drop ours too
    or keyDown keeps holding keys back after focus comes back */
 - (void)dropMarkedText {
@@ -380,7 +380,6 @@ static BOOL is_pen_event(NSEvent* event) {
     markedText = nil;
     [[self inputContext] discardMarkedText];
 }
-
 
 - (void)mouseDown:(NSEvent*)event {
     if (!self.windowHandle) return;
@@ -470,13 +469,13 @@ static const double NG_MACOS_POINTS_PER_LINE = 40.0;
     ng_invoke_gesture(self.windowHandle, NG_GESTURE_ROTATE, -(double)event.rotation * M_PI / 180.0, p.x, h - p.y);
 }
 #endif
+
 - (void)sendKeyDown:(NSEvent*)event {
     if (!keysDown) keysDown = [NSMutableIndexSet indexSet];
     [keysDown addIndex:[event keyCode]];
     unsigned int keycode = ng_macos_keycode_from_event([event keyCode]);
     ng_invoke_key_event(self.windowHandle, keycode, 1, ng_macos_modifiers(event));
 }
-
 
 - (void)keyDown:(NSEvent*)event {
     if (!self.windowHandle) return;
@@ -490,12 +489,12 @@ static const double NG_MACOS_POINTS_PER_LINE = 40.0;
 #endif
         [self sendKeyDown:event];
     }
-    imeSentCommand = NO;
 #ifdef NG_INPUT_TEXT
+    imeSentCommand = NO;
+    [self interpretKeyEvents:@[event]];
     /* Korean commits on Enter, arrows, Tab and sends the key on as a command after the text.
        the key goes out then, after the commit, so the newline or caret move is not lost */
     if (composing && imeSentCommand) [self sendKeyDown:event];
-    [self interpretKeyEvents:@[event]];
 #endif
 }
 
@@ -590,8 +589,8 @@ static const double NG_MACOS_POINTS_PER_LINE = 40.0;
 }
 
 - (void)doCommandBySelector:(SEL)selector {
-    imeSentCommand = YES;
     (void)selector;
+    imeSentCommand = YES;
 }
 
 - (void)setImeArea:(NSRect)area {
@@ -606,10 +605,10 @@ static const double NG_MACOS_POINTS_PER_LINE = 40.0;
         menuTookKey = 0;
         return;
     }
+#endif
     /* no release for a press the input method kept */
     if (![keysDown containsIndex:[event keyCode]]) return;
     [keysDown removeIndex:[event keyCode]];
-#endif
     unsigned int keycode = ng_macos_keycode_from_event([event keyCode]);
     ng_invoke_key_event(self.windowHandle, keycode, 0, ng_macos_modifiers(event));
 }
@@ -714,11 +713,11 @@ static void ng_macos_forget_held_shortcuts(void* window);
 
 - (void)windowDidResignKey:(NSNotification*)notification {
     ng_macos_cursor_refresh([notification object]);
+    ng_macos_cursor_grab_focus([notification object], NO);
     NSView* content = [[notification object] contentView];
     if ([content isKindOfClass:[AureaContentView class]]) {
         [(AureaContentView*)content dropMarkedText];
     }
-    ng_macos_cursor_grab_focus([notification object], NO);
     if (self.windowHandle) {
         ng_invoke_focus_changed(self.windowHandle, 0);
     }
@@ -738,8 +737,12 @@ static void ng_macos_forget_held_shortcuts(void* window);
 @end
 
 static NSMutableDictionary* windowDelegates = nil;
-static NSMutableDictionary* windowCursorGrabModes = nil;
-static NSMutableDictionary* windowRawSuppress = nil;
+
+/* the Aurea view of a window, nil for any other content */
+static AureaContentView* ng_macos_view(NSWindow* window) {
+    NSView* content = [window contentView];
+    return [content isKindOfClass:[AureaContentView class]] ? (AureaContentView*)content : nil;
+}
 
 static BOOL s_cursor_hidden = NO;
 
@@ -773,9 +776,7 @@ static void ng_macos_warp_cursor(NSPoint cocoa) {
 }
 
 static BOOL ng_macos_cursor_locked(NSWindow* window) {
-    if (!windowCursorGrabModes) return NO;
-    NSValue* key = [NSValue valueWithPointer:(__bridge const void*)window];
-    return [[windowCursorGrabModes objectForKey:key] intValue] == 2;
+    return ng_macos_view(window).grabMode == 2;
 }
 
 static void ng_macos_cursor_grab_focus(NSWindow* window, BOOL focused) {
@@ -783,37 +784,6 @@ static void ng_macos_cursor_grab_focus(NSWindow* window, BOOL focused) {
     CGAssociateMouseAndMouseCursorPosition(focused ? false : true);
 }
 
-static int ng_macos_get_cursor_grab_mode(void* windowHandle) {
-    if (!windowCursorGrabModes || !windowHandle) {
-        return 0;
-    }
-    NSWindow* window = (__bridge NSWindow*)windowHandle;
-    NSValue* key = [NSValue valueWithPointer:(__bridge const void*)window];
-    NSNumber* mode = [windowCursorGrabModes objectForKey:key];
-    if (!mode) {
-        return 0;
-    }
-    return (int)[mode integerValue];
-}
-
-#ifdef NG_INPUT_RAW_MOUSE
-static BOOL ng_macos_consume_raw_suppress(void* windowHandle) {
-    if (!windowRawSuppress || !windowHandle) {
-        return NO;
-    }
-    NSWindow* window = (__bridge NSWindow*)windowHandle;
-    NSValue* key = [NSValue valueWithPointer:(__bridge const void*)window];
-    NSNumber* value = [windowRawSuppress objectForKey:key];
-    if (!value) {
-        return NO;
-    }
-    BOOL suppress = [value boolValue];
-    if (suppress) {
-        [windowRawSuppress setObject:@(NO) forKey:key];
-    }
-    return suppress;
-}
-#endif
 
 NGHandle ng_macos_create_window(const char* title, int width, int height) {
     return ng_macos_create_window_with_type(title, width, height, 0);
@@ -954,12 +924,8 @@ void ng_macos_destroy_window(NGHandle handle) {
         if (delegate.hideOnClose) ng_macos_hide_on_close_count--;
         [windowDelegates removeObjectForKey:windowValue];
     }
-    if (windowCursorGrabModes) {
-        if (ng_macos_cursor_locked(window)) {
-            CGAssociateMouseAndMouseCursorPosition(true);
-        }
-        NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)window];
-        [windowCursorGrabModes removeObjectForKey:windowValue];
+    if (ng_macos_cursor_locked(window)) {
+        CGAssociateMouseAndMouseCursorPosition(true);
     }
     if ([[window contentView] isKindOfClass:[AureaContentView class]]
         && ((AureaContentView*)[window contentView]).hidesCursor) {
@@ -967,10 +933,6 @@ void ng_macos_destroy_window(NGHandle handle) {
     }
     ng_shortcuts_clear(handle);
     ng_macos_forget_held_shortcuts(handle);
-    if (windowRawSuppress) {
-        NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)window];
-        [windowRawSuppress removeObjectForKey:windowValue];
-    }
     ng_macos_notify_destroyed([window contentView]);
     [window close];
 }
@@ -1182,7 +1144,7 @@ int ng_macos_window_set_cursor_visible(NGHandle window, int visible) {
 
 static void ng_macos_cursor_confine(NSWindow* window) {
     if (!window || ![window isKeyWindow]) return;
-    if (ng_macos_get_cursor_grab_mode((__bridge void*)window) != 1) return;
+    if (ng_macos_view(window).grabMode != 1) return;
     NSRect area = NSInsetRect([window convertRectToScreen:[[window contentView] frame]], 1, 1);
     if (NSIsEmptyRect(area)) return;
     NSPoint p = [NSEvent mouseLocation];
@@ -1344,26 +1306,19 @@ int ng_macos_window_set_cursor_icon(NGHandle window, int icon) {
 int ng_macos_window_set_cursor_grab(NGHandle window, int mode) {
     if (!window) return NG_ERROR_INVALID_HANDLE;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
-
-    if (!windowCursorGrabModes) {
-        windowCursorGrabModes = [[NSMutableDictionary alloc] init];
-    }
-    if (!windowRawSuppress) {
-        windowRawSuppress = [[NSMutableDictionary alloc] init];
-    }
-
-    NSValue* key = [NSValue valueWithPointer:(__bridge const void*)nsWindow];
-    [windowCursorGrabModes setObject:@(mode) forKey:key];
+    AureaContentView* view = ng_macos_view(nsWindow);
+    if (!view) return NG_ERROR_PLATFORM_SPECIFIC;
+    view.grabMode = mode;
 
     if (mode == 2) {
-        [windowRawSuppress setObject:@(YES) forKey:key];
+        view.rawSuppress = YES;
         CGAssociateMouseAndMouseCursorPosition(false);
         NSRect frame = [nsWindow frame];
         ng_macos_warp_cursor(NSMakePoint(NSMidX(frame), NSMidY(frame)));
         CGAssociateMouseAndMouseCursorPosition(false);
     } else {
         CGAssociateMouseAndMouseCursorPosition(true);
-        [windowRawSuppress setObject:@(NO) forKey:key];
+        view.rawSuppress = NO;
     }
 
     return NG_SUCCESS;
