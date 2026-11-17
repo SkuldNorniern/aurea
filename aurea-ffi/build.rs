@@ -147,6 +147,8 @@ fn main() {
         "native/platform/ios/host.m",
         "native/platform/ios/drop.m",
         "native/platform/ios/drop_off.m",
+        "native/platform/ios/touch.m",
+        "native/platform/ios/touch_off.m",
         "native/platform/ios/documents.m",
         "native/platform/ios/sheets.m",
         "native/platform/ios/elements/button.m",
@@ -509,7 +511,7 @@ fn source_enabled(source: &str) -> bool {
         | "native/platform/macos/drop.m"
         | "native/platform/ios/drop.m" => "CARGO_FEATURE_DROP_FILES",
         "native/platform/linux/pen.c" | "native/platform/macos/pen.m" => "CARGO_FEATURE_PEN",
-        "native/platform/linux/touch.c" => "CARGO_FEATURE_TOUCH",
+        "native/platform/linux/touch.c" | "native/platform/ios/touch.m" => "CARGO_FEATURE_TOUCH",
         "native/platform/linux/raw.c" | "native/platform/macos/raw.m" => "CARGO_FEATURE_RAW_MOUSE",
         "native/platform/linux/gesture.c" | "native/platform/macos/gesture.m" => "CARGO_FEATURE_GESTURES",
         "native/platform/linux/text.c" | "native/platform/macos/text.m" => "CARGO_FEATURE_TEXT_INPUT",
@@ -544,7 +546,7 @@ fn off_stub_feature(source: &str) -> Option<&'static str> {
         "native/platform/windows/elements/widgets_off.c"
         | "native/platform/macos/elements/widgets_off.m" => "CARGO_FEATURE_WIDGETS",
         "native/platform/linux/pen_off.c" | "native/platform/macos/pen_off.m" => "CARGO_FEATURE_PEN",
-        "native/platform/linux/touch_off.c" => "CARGO_FEATURE_TOUCH",
+        "native/platform/linux/touch_off.c" | "native/platform/ios/touch_off.m" => "CARGO_FEATURE_TOUCH",
         "native/platform/linux/raw_off.c" | "native/platform/macos/raw_off.m" => "CARGO_FEATURE_RAW_MOUSE",
         "native/platform/linux/drop_off.c"
         | "native/platform/macos/drop_off.m"

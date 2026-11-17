@@ -2,6 +2,7 @@
 #import "host.h"
 #import "host_view.h"
 #import "drop.h"
+#import "touch.h"
 #import "ios.h"
 #import "../../common/input.h"
 #import "../../common/rust_callbacks.h"
@@ -624,13 +625,7 @@ static double ng_ios_age(NSTimeInterval timestamp) {
 #ifdef NG_INPUT_PEN
         [self pens:pen_phase[action] touch:touch event:event];
 #endif
-#ifdef NG_INPUT_TOUCH
-        if (g_ios_host.touch) {
-            CGPoint at = [touch locationInView:self];
-            int pencil = touch.type == UITouchTypePencil;
-            g_ios_host.touch(action, (float)at.x, (float)at.y, (uintptr_t)(__bridge void*)touch, pencil);
-        }
-#endif
+        ng_ios_touch(self, action, touch);
     }
     [self markDirty];
 }
