@@ -7,6 +7,7 @@
 use std::os::raw::c_char;
 
 pub(crate) mod drop;
+pub mod gamepad;
 pub(crate) mod gesture;
 pub(crate) mod ime;
 pub(crate) mod keyboard;
@@ -38,6 +39,8 @@ pub enum Feature {
     Gestures,
     /// `WindowEvent::FilesHovered`, `FilesDropped` and `FilesHoverEnded`.
     DropFiles,
+    /// Game controllers through [`gamepad::Pads`]. Windows and Linux only.
+    Gamepad,
 }
 
 /// Whether `feature` is built in and works on this platform, so an app can ask at run time and
@@ -45,7 +48,7 @@ pub enum Feature {
 ///
 /// A feature built in but missing on one machine, such as a pen with no tablet driver, still
 /// says true: its events just do not come. Each feature is true wherever it is built, except
-/// [`Feature::RawMouse`] on iOS and Android.
+/// [`Feature::RawMouse`] on iOS and Android, and [`Feature::Gamepad`] outside Windows and Linux.
 ///
 /// ```rust
 /// use aurea::input::{Feature, supported};
@@ -63,6 +66,7 @@ pub fn supported(feature: Feature) -> bool {
         Feature::Touch => touch::built(),
         Feature::Gestures => gesture::built(),
         Feature::DropFiles => drop::built(),
+        Feature::Gamepad => gamepad::built(),
     };
     let platform = match feature {
         Feature::RawMouse => !cfg!(any(target_os = "ios", target_os = "android")),
@@ -96,6 +100,10 @@ mod tests {
         assert_eq!(supported(Feature::Touch), cfg!(feature = "touch"));
         assert_eq!(supported(Feature::Gestures), cfg!(feature = "gestures"));
         assert_eq!(supported(Feature::DropFiles), cfg!(feature = "drop-files"));
+        assert_eq!(
+            supported(Feature::Gamepad),
+            cfg!(feature = "gamepad") && cfg!(any(windows, target_os = "linux"))
+        );
         assert_eq!(
             supported(Feature::RawMouse),
             cfg!(feature = "raw-mouse") && !cfg!(any(target_os = "ios", target_os = "android"))

@@ -93,13 +93,14 @@ jni = "0.21"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 accesskit_windows = { version = "0.35.1", optional = true }
-windows = { version = "0.62", optional = true, features = ["Win32_System_Com", "Win32_UI_Accessibility"] }
+windows = { version = "0.62", optional = true, features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_LibraryLoader", "Win32_System_WinRT", "Win32_UI_Accessibility", "Gaming_Input", "Foundation", "Foundation_Collections"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 accesskit_macos = { version = "0.27.1", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 accesskit_unix = { version = "0.23", optional = true }
+libc = { version = "0.2", optional = true }
 
 [features]
 # No GPU backend by default: the GPU 2D path does not yet reach parity with the
@@ -120,7 +121,7 @@ default = [
     "effects",
     "system-fonts",
 ]
-input = ["text-input", "ime", "raw-mouse", "pen", "touch", "gestures", "drop-files"]
+input = ["text-input", "ime", "raw-mouse", "pen", "touch", "gestures", "drop-files", "gamepad"]
 # Typed text as `TextInput`.
 text-input = ["aurea-ffi/text-input"]
 # Preedit as `ImePreedit`, the candidate window's place, and ime on and off per field. Needs `text-input`.
@@ -135,6 +136,9 @@ touch = ["aurea-ffi/touch"]
 gestures = ["aurea-ffi/gestures"]
 # `FilesHovered`, `FilesDropped`, `FilesHoverEnded`.
 drop-files = ["aurea-ffi/drop-files"]
+# Game controllers, `input::gamepad::Pads`: buttons, sticks, triggers and hotplug. Windows and Linux;
+# other systems build an empty mirror.
+gamepad = ["dep:libc", "dep:windows"]
 # Clipboard text and images, `window::clipboard`. Native clipboard code only with this on.
 clipboard = ["aurea-ffi/clipboard"]
 # Opening, revealing and sharing files and folders, and the app's folders. Pick and save on the
@@ -293,6 +297,10 @@ required-features = ["widgets"]
 [[example]]
 name = "custom_look"
 required-features = ["ui", "widgets"]
+
+[[example]]
+name = "gamepad"
+required-features = ["gamepad"]
 
 [[example]]
 name = "hybrid_ui"
