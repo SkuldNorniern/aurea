@@ -67,6 +67,52 @@ fn inner_scroll_consumes_first_and_only_its_distance() {
     );
 }
 
+fn sideways_nested(ui: &mut Ui<'_, u8>, outer: &mut f32, inner: &mut f32) -> (f32, f32) {
+    let style = ScrollStyle {
+        step: 20.0,
+        smooth: false,
+        ..ScrollStyle::new(ui.theme)
+    };
+    let (mut outer_y, mut inner_y) = (0.0, 0.0);
+    ScrollArea::new(&mut outer_y, 0.0)
+        .sideways(outer, 400.0)
+        .style(style)
+        .show(
+            ui,
+            1,
+            Rect::new(0.0, 0.0, 220.0, 100.0),
+            |ui, content, _| {
+                ScrollArea::new(&mut inner_y, 0.0)
+                    .sideways(inner, 210.0)
+                    .style(style)
+                    .show(
+                        ui,
+                        2,
+                        Rect::new(content.x, content.y, 180.0, 60.0),
+                        |_, _, _| Ok(()),
+                    )?;
+                Ok(())
+            },
+        )
+        .expect("sideways nested scroll");
+    ui.wheel()
+}
+
+#[test]
+fn sideways_inner_scroll_takes_its_distance_and_passes_the_rest_right() {
+    let mut rig = rig();
+    let (mut outer, mut inner) = (0.0, 0.0);
+    rig.frame(|ui| sideways_nested(ui, &mut outer, &mut inner));
+    rig.wheel(40.0, 30.0, 2.0, 0.0);
+    let remaining = rig.frame(|ui| sideways_nested(ui, &mut outer, &mut inner));
+    assert_eq!((inner, outer), (30.0, 10.0), "inner fills its 30, outer takes the rest");
+    assert_eq!(remaining, (0.0, 0.0));
+    rig.frame(|ui| sideways_nested(ui, &mut outer, &mut inner));
+    rig.wheel(40.0, 30.0, -1.0, 0.0);
+    rig.frame(|ui| sideways_nested(ui, &mut outer, &mut inner));
+    assert_eq!((inner, outer), (10.0, 10.0), "left goes to the inner first");
+}
+
 fn slider_in_scroll(ui: &mut Ui<'_, u8>, offset: &mut f32, value: &mut f32, enabled: bool) {
     let style = ScrollStyle {
         step: 20.0,

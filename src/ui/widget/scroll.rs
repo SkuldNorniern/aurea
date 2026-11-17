@@ -275,11 +275,12 @@ impl<'v> ScrollArea<'v> {
         };
         if wheel_here && step.is_finite() && step > 0.0 {
             let wheel = ui.wheel();
+            // wheel y is up positive and x right positive: up lowers the offset, right raises it
             let dy = y.wheel(self.offset, wheel.1, step);
             let dx = x
                 .as_mut()
-                .map_or(0.0, |(x, offset)| x.wheel(offset, wheel.0, step));
-            ui.consume_wheel((-dx / step, -dy / step));
+                .map_or(0.0, |(x, offset)| x.wheel(offset, -wheel.0, step));
+            ui.consume_wheel((dx / step, -dy / step));
             if dx != 0.0 || dy != 0.0 {
                 ui.mark_changed();
             }
@@ -1436,11 +1437,15 @@ mod tests {
         };
         rig.at(50.0, 50.0);
         frame(&mut rig, &mut y, &mut x);
-        rig.wheel(50.0, 50.0, -3.0, 0.0);
+        // wheel x is right positive, like a tilt right or fingers going left on a natural trackpad
+        rig.wheel(50.0, 50.0, 3.0, 0.0);
         frame(&mut rig, &mut y, &mut x);
         assert_eq!(x, 30.0);
         assert_eq!(frame(&mut rig, &mut y, &mut x), (30.0, 400.0));
         assert_eq!(y, 0.0, "content shorter than the view stays put");
+        rig.wheel(50.0, 50.0, -1.0, 0.0);
+        frame(&mut rig, &mut y, &mut x);
+        assert_eq!(x, 20.0, "left goes back");
 
         // the bottom bar drags to the far end
         rig.at(2.0, 96.0);
