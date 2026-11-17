@@ -3,9 +3,9 @@
 use std::time::{Duration, Instant};
 
 #[cfg(feature = "gestures")]
-use crate::GesturePhase;
+use crate::input::gesture::{Pose, gesture, pose, scroll_edge, totals, wheel, wrap};
 #[cfg(feature = "gestures")]
-use crate::input::gesture::{Pose, gesture, pose, totals, wheel, wrap};
+use crate::{GesturePhase, ScrollPhase};
 use crate::{Point, WindowEvent, press_on_hold};
 
 use super::mouse::{as_pen, long_press, mouse_move, press, release};
@@ -394,11 +394,13 @@ impl Touches {
                 if let [(id, at)] = self.down[..] {
                     return State::Pan { id, at };
                 }
+                scroll_edge(out, ScrollPhase::Ended, was.center);
                 out.push(WindowEvent::MouseExited);
                 self.rest()
             }
             Phase::Cancel => {
                 out.push(totals(GesturePhase::Cancelled, start, was, left));
+                scroll_edge(out, ScrollPhase::Ended, was.center);
                 out.push(WindowEvent::MouseExited);
                 self.rest()
             }
@@ -421,6 +423,7 @@ impl Touches {
                 State::Pan { id, at }
             }
             Phase::Up | Phase::Cancel => {
+                scroll_edge(out, ScrollPhase::Ended, at);
                 out.push(WindowEvent::MouseExited);
                 self.rest()
             }
@@ -494,6 +497,7 @@ impl Touches {
 fn begin(out: &mut Vec<WindowEvent>, a: usize, at_a: Point, b: usize, at_b: Point) -> State {
     let start = pose(at_a, at_b, 0.0);
     out.push(totals(GesturePhase::Began, start, start, 0.0));
+    scroll_edge(out, ScrollPhase::Began, start.center);
     State::Gesture {
         a,
         b,
@@ -507,17 +511,19 @@ fn begin(out: &mut Vec<WindowEvent>, a: usize, at_a: Point, b: usize, at_b: Poin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::PointerKind;
+    use crate::{PointerKind, ScrollSource};
 
+    /// What happened, minus a scroll gesture's empty start and end; `scroll_edges` checks those.
     fn kinds(events: &[WindowEvent]) -> Vec<&'static str> {
         events
             .iter()
+            .filter(|e| !matches!(e, WindowEvent::Scroll(s) if s.delta_x == 0.0 && s.delta_y == 0.0))
             .map(|e| match e {
                 WindowEvent::MouseMove { .. } => "move",
                 WindowEvent::MouseButton { pressed: true, .. } => "press",
                 WindowEvent::MouseButton { pressed: false, .. } => "release",
                 WindowEvent::MouseExited => "exit",
-                WindowEvent::MouseWheel { .. } => "wheel",
+                WindowEvent::Scroll(_) => "wheel",
                 WindowEvent::PressCancelled => "press cancelled",
                 WindowEvent::LongPress { .. } => "long press",
                 WindowEvent::Magnify { .. } => "magnify",
@@ -801,6 +807,34 @@ mod tests {
             );
         }
 
+        fn scroll_edges(events: &[WindowEvent]) -> Vec<ScrollPhase> {
+            events
+                .iter()
+                .filter_map(|e| match e {
+                    WindowEvent::Scroll(s) => {
+                        assert_eq!(s.source, ScrollSource::Touch);
+                        Some(s.phase)
+                    }
+                    _ => None,
+                })
+                .collect()
+        }
+
+        #[test]
+        fn a_finger_scroll_begins_moves_and_ends() {
+            let now = Instant::now();
+            let mut t = Touches::new();
+            t.touch(Phase::Down, 1, p(0.0, 0.0), false, now);
+            let down = t.touch(Phase::Down, 2, p(100.0, 0.0), false, now);
+            assert_eq!(scroll_edges(&down), [ScrollPhase::Began]);
+            t.touch(Phase::Move, 1, p(0.0, 10.0), false, now);
+            let moved = t.touch(Phase::Move, 2, p(100.0, 10.0), false, now);
+            assert_eq!(scroll_edges(&moved), [ScrollPhase::Moved]);
+            t.touch(Phase::Up, 1, p(0.0, 10.0), false, now);
+            let up = t.touch(Phase::Up, 2, p(100.0, 10.0), false, now);
+            assert_eq!(scroll_edges(&up), [ScrollPhase::Ended]);
+        }
+
         #[test]
         fn two_fingers_moving_together_scroll() {
             let now = Instant::now();
@@ -809,7 +843,7 @@ mod tests {
             t.touch(Phase::Move, 1, p(0.0, 10.0), false, now);
             let out = t.touch(Phase::Move, 2, p(100.0, 10.0), false, now);
             assert_eq!(kinds(&out)[..2], ["move", "wheel"]);
-            assert!(matches!(out[1], WindowEvent::MouseWheel { delta_y, .. } if delta_y == 5.0));
+            assert!(matches!(out[1], WindowEvent::Scroll(s) if s.delta_y == 5.0));
         }
 
         #[test]
@@ -927,7 +961,7 @@ mod tests {
             assert_eq!(last_gesture(&out).0, GesturePhase::Ended);
             let out = t.touch(Phase::Move, 2, p(100.0, 30.0), false, now);
             assert_eq!(kinds(&out), ["move", "wheel"]);
-            assert!(matches!(out[1], WindowEvent::MouseWheel { delta_y, .. } if delta_y == 30.0));
+            assert!(matches!(out[1], WindowEvent::Scroll(s) if s.delta_y == 30.0));
             assert_eq!(
                 kinds(&t.touch(Phase::Up, 2, p(100.0, 30.0), false, now)),
                 ["exit"]

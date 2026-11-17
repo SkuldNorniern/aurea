@@ -4,7 +4,7 @@ use std::f32::consts::{PI, TAU};
 use std::os::raw::c_void;
 
 use crate::window::push_window_event;
-use crate::{GesturePhase, Modifiers, Point, WindowEvent};
+use crate::{GesturePhase, Modifiers, Point, ScrollEvent, ScrollPhase, ScrollSource, WindowEvent};
 
 /// How far two fingers must turn, in radians, before it is a twist: a pinch's jitter stays under
 /// this.
@@ -53,19 +53,32 @@ pub(crate) fn totals(phase: GesturePhase, start: Pose, now: Pose, turn: f32) -> 
     }
 }
 
+/// A finger scroll at `at`: content follows the fingers, so a move right scrolls left.
+fn touch_scroll(phase: ScrollPhase, (dx, dy): (f32, f32), at: Point) -> WindowEvent {
+    WindowEvent::Scroll(ScrollEvent {
+        delta_x: f64::from(-dx),
+        delta_y: f64::from(dy),
+        clicks: None,
+        source: ScrollSource::Touch,
+        phase,
+        inverted: true,
+        x: f64::from(at.x),
+        y: f64::from(at.y),
+        modifiers: Modifiers::default(),
+    })
+}
+
 /// Scrolls by a move from `was` to `now`, if it went anywhere.
 pub(crate) fn wheel(out: &mut Vec<WindowEvent>, was: Point, now: Point) {
     let (dx, dy) = (now.x - was.x, now.y - was.y);
     if dx != 0.0 || dy != 0.0 {
-        // natural scrolling, the way a trackpad reports it: content follows the fingers.
-        out.push(WindowEvent::MouseWheel {
-            delta_x: f64::from(-dx),
-            delta_y: f64::from(dy),
-            x: f64::from(now.x),
-            y: f64::from(now.y),
-            modifiers: Modifiers::default(),
-        });
+        out.push(touch_scroll(ScrollPhase::Moved, (dx, dy), now));
     }
+}
+
+/// The fingers began or stopped scrolling at `at`.
+pub(crate) fn scroll_edge(out: &mut Vec<WindowEvent>, phase: ScrollPhase, at: Point) {
+    out.push(touch_scroll(phase, (0.0, 0.0), at));
 }
 
 /// Emits what two fingers moved to `now` from `was` amount to, and returns the twist still inside

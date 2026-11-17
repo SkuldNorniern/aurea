@@ -14,7 +14,7 @@ mod on;
 #[cfg(not(feature = "gestures"))]
 pub(crate) use off::deliver;
 #[cfg(feature = "gestures")]
-pub(crate) use on::{Pose, deliver, gesture, pose, totals, wheel, wrap};
+pub(crate) use on::{Pose, deliver, gesture, pose, scroll_edge, totals, wheel, wrap};
 
 /// Whether gestures are built in.
 pub(crate) const fn built() -> bool {
