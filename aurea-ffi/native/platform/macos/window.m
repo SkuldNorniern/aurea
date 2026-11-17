@@ -1,4 +1,5 @@
 ﻿#import "window.h"
+#import "content_view.h"
 #import "common/errors.h"
 #import "common/input.h"
 #import "common/rust_callbacks.h"
@@ -27,7 +28,7 @@ static void ng_macos_cursor_confine(NSWindow* window);
 @property (nonatomic, assign) BOOL closeGuarded;
 @end
 
-static unsigned int ng_macos_modifiers(NSEvent* event) {
+unsigned int ng_macos_modifiers(NSEvent* event) {
     NSEventModifierFlags flags = [event modifierFlags];
     unsigned int mods = 0;
     if (flags & NSEventModifierFlagShift) {
@@ -46,7 +47,7 @@ static unsigned int ng_macos_modifiers(NSEvent* event) {
 }
 
 /* The modifiers of a mouse event, with what moved the pointer: a tablet's events are pens. */
-static unsigned int ng_macos_mouse_modifiers(NSEvent* event) {
+unsigned int ng_macos_mouse_modifiers(NSEvent* event) {
     unsigned int mods = ng_macos_modifiers(event);
 #ifdef NG_INPUT_PEN
     if (event.subtype == NSEventSubtypeTabletPoint) mods |= NG_POINTER_PEN;
@@ -54,7 +55,7 @@ static unsigned int ng_macos_mouse_modifiers(NSEvent* event) {
     return mods;
 }
 
-static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
+unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
     switch (keycode) {
         case 0: return NG_KEY_A;
         case 1: return NG_KEY_S;
@@ -149,28 +150,6 @@ static unsigned int ng_macos_keycode_from_event(unsigned short keycode) {
     }
 }
 
-@interface AureaContentView : NSView <NSTextInputClient> {
-    NSTrackingArea* trackingArea;
-    int buttonsHeld;
-    BOOL exitHeld;
-    unsigned int modifiersDown;
-    NSString* markedText;
-    NSRect imeArea;
-    unsigned int menuTookKey;
-    BOOL imeSentCommand;
-    NSMutableIndexSet* keysDown;
-}
-@property (nonatomic, assign) void* windowHandle;
-@property (nonatomic, strong) NSCursor* cursor;
-@property (nonatomic, assign) BOOL usesMetalLayer;
-@property (nonatomic, assign) BOOL hidesCursor;
-/* 0 free, 1 confined, 2 locked */
-@property (nonatomic, assign) int grabMode;
-/* the first raw delta after a lock is the warp to the middle, drop it */
-@property (nonatomic, assign) BOOL rawSuppress;
-- (void)setImeArea:(NSRect)area;
-- (void)dropMarkedText;
-@end
 
 @implementation AureaContentView
 
