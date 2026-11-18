@@ -4,24 +4,39 @@
 //! XInput when that does not activate), Linux (evdev) and macOS and iOS (GameController) have a
 //! backend; other systems build an empty [`Pads`].
 
-#[cfg(not(all(feature = "gamepad", any(windows, target_os = "linux", target_vendor = "apple"))))]
+#[cfg(not(all(
+    feature = "gamepad",
+    any(windows, target_os = "linux", target_vendor = "apple")
+)))]
 mod off;
-#[cfg(all(feature = "gamepad", any(windows, target_os = "linux", target_vendor = "apple")))]
+#[cfg(all(
+    feature = "gamepad",
+    any(windows, target_os = "linux", target_vendor = "apple")
+))]
 mod on;
 
-#[cfg(not(all(feature = "gamepad", any(windows, target_os = "linux", target_vendor = "apple"))))]
+#[cfg(not(all(
+    feature = "gamepad",
+    any(windows, target_os = "linux", target_vendor = "apple")
+)))]
 pub use off::Pads;
-#[cfg(all(feature = "gamepad", any(windows, target_os = "linux", target_vendor = "apple")))]
+#[cfg(all(
+    feature = "gamepad",
+    any(windows, target_os = "linux", target_vendor = "apple")
+))]
 pub use on::Pads;
 
+#[cfg(all(feature = "gamepad", target_vendor = "apple"))]
+mod apple;
 #[cfg(all(feature = "gamepad", target_os = "linux"))]
 mod evdev;
-#[cfg(all(feature = "gamepad", any(windows, target_os = "linux", target_vendor = "apple")))]
+#[cfg(all(
+    feature = "gamepad",
+    any(windows, target_os = "linux", target_vendor = "apple")
+))]
 mod state;
 #[cfg(all(feature = "gamepad", windows))]
 mod win;
-#[cfg(all(feature = "gamepad", target_vendor = "apple"))]
-mod apple;
 
 /// A pad, for the session: its id is never given to another pad.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -121,7 +136,10 @@ pub enum PadAxis {
 
 /// Whether pads are built in and polled on this platform.
 pub(crate) const fn built() -> bool {
-    cfg!(all(feature = "gamepad", any(windows, target_os = "linux", target_vendor = "apple")))
+    cfg!(all(
+        feature = "gamepad",
+        any(windows, target_os = "linux", target_vendor = "apple")
+    ))
 }
 
 #[cfg(test)]

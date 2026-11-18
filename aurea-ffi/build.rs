@@ -456,7 +456,14 @@ fn link_windows_libs() {
 /// Whether the cargo feature env var `name` is set, i.e. the feature is on.
 /// The frameworks the macOS host links, GameController only with pads.
 fn link_macos_frameworks() {
-    for framework in ["Cocoa", "CoreVideo", "IOSurface", "QuartzCore", "UserNotifications", "ImageIO"] {
+    for framework in [
+        "Cocoa",
+        "CoreVideo",
+        "IOSurface",
+        "QuartzCore",
+        "UserNotifications",
+        "ImageIO",
+    ] {
         println!("cargo:rustc-link-lib=framework={framework}");
     }
     if feature_on("CARGO_FEATURE_GAMEPAD") {
@@ -531,7 +538,9 @@ fn source_enabled(source: &str) -> bool {
         | "native/platform/ios/pen.m" => "CARGO_FEATURE_PEN",
         "native/platform/linux/touch.c" | "native/platform/ios/touch.m" => "CARGO_FEATURE_TOUCH",
         "native/platform/linux/raw.c" | "native/platform/macos/raw.m" => "CARGO_FEATURE_RAW_MOUSE",
-        "native/platform/linux/gesture.c" | "native/platform/macos/gesture.m" => "CARGO_FEATURE_GESTURES",
+        "native/platform/linux/gesture.c" | "native/platform/macos/gesture.m" => {
+            "CARGO_FEATURE_GESTURES"
+        }
         "native/platform/linux/text.c"
         | "native/platform/macos/text.m"
         | "native/platform/ios/text.m" => "CARGO_FEATURE_TEXT_INPUT",
@@ -548,7 +557,9 @@ fn source_enabled(source: &str) -> bool {
         "native/platform/windows/dialog.c"
         | "native/platform/linux/dialog.c"
         | "native/platform/macos/dialog.m" => "CARGO_FEATURE_DIALOG",
-        "native/platform/macos/swiftui_host.m" | "native/platform/ios/embed.m" => "CARGO_FEATURE_EMBED",
+        "native/platform/macos/swiftui_host.m" | "native/platform/ios/embed.m" => {
+            "CARGO_FEATURE_EMBED"
+        }
         "native/platform/apple/gamepad.m" => "CARGO_FEATURE_GAMEPAD",
         _ => return true,
     };
@@ -571,19 +582,27 @@ fn off_stub_feature(source: &str) -> Option<&'static str> {
         "native/platform/linux/pen_off.c"
         | "native/platform/macos/pen_off.m"
         | "native/platform/ios/pen_off.m" => "CARGO_FEATURE_PEN",
-        "native/platform/linux/touch_off.c" | "native/platform/ios/touch_off.m" => "CARGO_FEATURE_TOUCH",
-        "native/platform/linux/raw_off.c" | "native/platform/macos/raw_off.m" => "CARGO_FEATURE_RAW_MOUSE",
+        "native/platform/linux/touch_off.c" | "native/platform/ios/touch_off.m" => {
+            "CARGO_FEATURE_TOUCH"
+        }
+        "native/platform/linux/raw_off.c" | "native/platform/macos/raw_off.m" => {
+            "CARGO_FEATURE_RAW_MOUSE"
+        }
         "native/platform/linux/drop_off.c"
         | "native/platform/macos/drop_off.m"
         | "native/platform/ios/drop_off.m" => "CARGO_FEATURE_DROP_FILES",
-        "native/platform/linux/gesture_off.c" | "native/platform/macos/gesture_off.m" => "CARGO_FEATURE_GESTURES",
+        "native/platform/linux/gesture_off.c" | "native/platform/macos/gesture_off.m" => {
+            "CARGO_FEATURE_GESTURES"
+        }
         "native/platform/linux/text_off.c"
         | "native/platform/macos/text_off.m"
         | "native/platform/ios/text_off.m" => "CARGO_FEATURE_TEXT_INPUT",
         "native/platform/linux/ime_off.c"
         | "native/platform/macos/ime_off.m"
         | "native/platform/ios/ime_off.m" => "CARGO_FEATURE_IME",
-        "native/platform/linux/menu_off.c" | "native/platform/macos/menu_off.m" => "CARGO_FEATURE_MENU",
+        "native/platform/linux/menu_off.c" | "native/platform/macos/menu_off.m" => {
+            "CARGO_FEATURE_MENU"
+        }
         _ => return None,
     })
 }

@@ -263,7 +263,13 @@ impl<'v> ScrollArea<'v> {
             style.step
         };
         if wheel_here && step.is_finite() && step > 0.0 {
-            scroll_both(ui, id, (step, smooth_input), (&mut y, self.offset), x.as_mut());
+            scroll_both(
+                ui,
+                id,
+                (step, smooth_input),
+                (&mut y, self.offset),
+                x.as_mut(),
+            );
         }
         y.end(ui, id, rect, self.content, over, style, self.reveal)?;
         let mut changed = y.moved || pulled_y || touched;

@@ -2,8 +2,8 @@
 
 #[cfg(feature = "ui-text-edit")]
 use super::TextArea;
-use super::widget::scroll::wheel_line_pixels;
 use super::rig::Rig;
+use super::widget::scroll::wheel_line_pixels;
 use super::{Button, Response, ScrollArea, ScrollStyle, Slider, Stepper, TextField, Ui};
 use crate::render::{Color, Point, Rect, Renderer};
 use crate::window::{KeyCode, Modifiers, MouseButton, PointerKind, ScrollPhase, WindowEvent};
@@ -106,7 +106,11 @@ fn sideways_inner_scroll_takes_its_distance_and_passes_the_rest_right() {
     rig.frame(|ui| sideways_nested(ui, &mut outer, &mut inner));
     rig.wheel(40.0, 30.0, 2.0, 0.0);
     let remaining = rig.frame(|ui| sideways_nested(ui, &mut outer, &mut inner));
-    assert_eq!((inner, outer), (30.0, 10.0), "inner fills its 30, outer takes the rest");
+    assert_eq!(
+        (inner, outer),
+        (30.0, 10.0),
+        "inner fills its 30, outer takes the rest"
+    );
     assert_eq!(remaining, (0.0, 0.0));
     rig.frame(|ui| sideways_nested(ui, &mut outer, &mut inner));
     rig.wheel(40.0, 30.0, -1.0, 0.0);

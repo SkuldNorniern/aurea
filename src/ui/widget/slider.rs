@@ -401,8 +401,7 @@ impl<'v> Slider<'v> {
             if step.is_finite() && step > 0.0 {
                 let previous = snap(*self.value, lo, hi, self.step);
                 let (low, high) = (lo.min(hi), lo.max(hi));
-                let steps =
-                    ui.take_wheel_steps((high - previous) / step, (previous - low) / step);
+                let steps = ui.take_wheel_steps((high - previous) / step, (previous - low) / step);
                 if steps != 0 {
                     *self.value = (previous + steps as f32 * step).clamp(low, high);
                 }

@@ -18,10 +18,10 @@ use aurea_foundation::{FastBuild, FastHasher};
 
 use super::component::editable::EditingSession;
 use super::paint::TextSize;
+use super::scroll_input::{AxisLock, ScrollInput, StepCarry};
 use super::text_edit::TextEdit;
 use super::theme::Theme;
 use super::tokens::Tokens;
-use super::scroll_input::{AxisLock, ScrollInput, StepCarry};
 use super::widget::popup::Popup;
 use super::widget::scroll::wheel_line_pixels;
 use super::widget::tooltip::TooltipOptions;

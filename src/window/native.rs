@@ -29,7 +29,11 @@ pub(super) fn size(handle: *mut c_void) -> (i32, i32) {
 /// Physical pixels a logical pixel takes now; 1 when the system gives nothing sensible.
 pub(super) fn scale(handle: *mut c_void) -> f32 {
     let scale = unsafe { ng_platform_get_scale_factor(handle) };
-    if scale.is_finite() && scale > 0.0 { scale } else { 1.0 }
+    if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    }
 }
 
 /// Physical pixels for `logical` at `scale`, rounded as the canvases size their buffers.

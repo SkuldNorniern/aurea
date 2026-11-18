@@ -617,7 +617,10 @@ mod checks {
         let window = Window::new("ime", 300, 200)?;
         settle(&window);
         let content = appkit::id(window.handle() as appkit::Id, c"contentView");
-        assert!(!appkit::id(content, c"inputContext").is_null(), "on by default");
+        assert!(
+            !appkit::id(content, c"inputContext").is_null(),
+            "on by default"
+        );
         window.set_ime_allowed(false)?;
         assert!(appkit::id(content, c"inputContext").is_null(), "kept out");
         window.set_ime_allowed(true)?;

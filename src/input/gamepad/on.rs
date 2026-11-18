@@ -5,12 +5,12 @@ use super::PadEvent;
 use super::PadInfo;
 use super::state::{Found, Hub};
 
+#[cfg(target_vendor = "apple")]
+use super::apple::Source;
 #[cfg(target_os = "linux")]
 use super::evdev::Source;
 #[cfg(windows)]
 use super::win::Source;
-#[cfg(target_vendor = "apple")]
-use super::apple::Source;
 
 /// Game controllers, polled by the app on its event loop thread.
 ///

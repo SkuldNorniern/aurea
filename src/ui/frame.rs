@@ -6,13 +6,13 @@ use std::mem;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use super::scroll_input::ScrollInput;
 use super::state::{
     Channel, Fonts, Interaction, Key, Press, Sense, Typed, UiState, WidgetId, caret_flip_in,
     caret_on,
 };
 use super::theme::Theme;
 use super::tokens::Tokens;
-use super::scroll_input::ScrollInput;
 use super::widget::scroll::wheel_line_pixels;
 use super::widget::tooltip::TooltipOptions;
 use crate::AureaResult;
@@ -971,7 +971,6 @@ fn estimate(text: &str, font: &Font) -> TextMetrics {
         advance: width,
     }
 }
-
 
 // `fits` is a floored count of steps inside a control's range.
 #[allow(clippy::cast_possible_truncation)]

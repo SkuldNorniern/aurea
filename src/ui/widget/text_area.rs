@@ -642,7 +642,10 @@ fn scroll<Id: WidgetId>(
     );
     if hovered {
         let used = |moved: f32, had: f32| if had == 0.0 { 0.0 } else { moved / had };
-        ui.consume_scroll((used(wheel_x - before.0, wheel.0), used(before.1 - wheel_y, wheel.1)));
+        ui.consume_scroll((
+            used(wheel_x - before.0, wheel.0),
+            used(before.1 - wheel_y, wheel.1),
+        ));
     }
     edit.scroll = viewport_scroll(
         edit.scroll + wheel.0,
@@ -780,9 +783,9 @@ fn selection<Id: WidgetId>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::widget::scroll::wheel_line_pixels;
     use crate::render::{CpuRasterizer, Renderer};
     use crate::ui::rig::Rig;
+    use crate::ui::widget::scroll::wheel_line_pixels;
     use crate::ui::{Theme, UiState};
     use crate::window::WindowEvent;
     use std::sync::Arc;
@@ -966,7 +969,10 @@ mod tests {
         let draw = |rig: &mut Rig, text: &mut String| {
             let mut left = (0.0, 0.0);
             rig.frame(|ui| {
-                TextArea::new(text).wrap(false).show(ui, 1, rect).expect("area");
+                TextArea::new(text)
+                    .wrap(false)
+                    .show(ui, 1, rect)
+                    .expect("area");
                 left = ui.wheel();
             });
             left
@@ -975,10 +981,18 @@ mod tests {
         draw(&mut rig, &mut text);
         rig.wheel(50.0, 40.0, -1.0, 0.0);
         let line = wheel_line_pixels();
-        assert_eq!(draw(&mut rig, &mut text), (-line, 0.0), "nothing left of the start");
+        assert_eq!(
+            draw(&mut rig, &mut text),
+            (-line, 0.0),
+            "nothing left of the start"
+        );
         draw(&mut rig, &mut text);
         rig.wheel(50.0, 40.0, 1.0, 0.0);
-        assert_eq!(draw(&mut rig, &mut text), (0.0, 0.0), "right scrolls the line");
+        assert_eq!(
+            draw(&mut rig, &mut text),
+            (0.0, 0.0),
+            "right scrolls the line"
+        );
     }
 
     #[test]

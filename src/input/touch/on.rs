@@ -517,7 +517,9 @@ mod tests {
     fn kinds(events: &[WindowEvent]) -> Vec<&'static str> {
         events
             .iter()
-            .filter(|e| !matches!(e, WindowEvent::Scroll(s) if s.delta_x == 0.0 && s.delta_y == 0.0))
+            .filter(
+                |e| !matches!(e, WindowEvent::Scroll(s) if s.delta_x == 0.0 && s.delta_y == 0.0),
+            )
             .map(|e| match e {
                 WindowEvent::MouseMove { .. } => "move",
                 WindowEvent::MouseButton { pressed: true, .. } => "press",
