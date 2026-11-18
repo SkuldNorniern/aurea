@@ -451,6 +451,8 @@ impl<'w> WgpuBackend<'w> {
 
     fn record(&self, pass: &mut wgpu::RenderPass<'_>, plan: &FramePlan, draw: DrawRef) {
         match draw {
+            // wgpu has no backdrops: frames with one fall back to the cpu
+            DrawRef::Backdrop(_) => {}
             DrawRef::Rect(idx) => {
                 pass.set_pipeline(&self.rect_pipeline);
                 pass.set_vertex_buffer(0, self.rect_buf.buffer.slice(..));

@@ -2,7 +2,7 @@
 
 use crate::types::Color;
 
-use crate::gpu::batch::DrawRef;
+use crate::gpu::batch::{BackdropDraw, DrawRef};
 use crate::types::{Path, Rect};
 use std::sync::Arc;
 
@@ -56,6 +56,8 @@ pub struct FramePlan {
     pub images: Vec<ImagePlanEntry>,
     /// Resolved text instances (mask texture slot filled in).
     pub texts: Vec<TextPlanEntry>,
+    /// Backdrops, which `order` names by index.
+    pub backdrops: Vec<BackdropDraw>,
     /// Painter-order draw stream (indices into per-kind arrays above or into the rect/circle arrays
     /// on the `RenderBatches` side, which the backend receives alongside this plan).
     pub order: Vec<DrawRef>,
@@ -82,6 +84,7 @@ impl FramePlan {
         self.gradients.clear();
         self.images.clear();
         self.texts.clear();
+        self.backdrops.clear();
         self.order.clear();
         self.clips.clear();
         self.path_clips.clear();

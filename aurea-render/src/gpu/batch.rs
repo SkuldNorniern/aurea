@@ -1,8 +1,8 @@
 //! Backend-agnostic 2D batches lowered from a [`DisplayList`].
 
 use crate::capabilities::GpuFeatures;
-use crate::effect::Effect;
 use crate::cpu::raster::coverage;
+use crate::effect::Effect;
 use crate::numeric::{f32_to_u8_clamped, f32_to_u32_clamped};
 use crate::scene::command::{DrawCommand, quad_bounds};
 use crate::scene::display_list::{DisplayItem, DisplayList};
@@ -333,6 +333,77 @@ pub enum DrawRef {
     Text(u32),
     /// Index into `shapes`.
     Shape(u32),
+    /// Index into `backdrops`.
+    Backdrop(u32),
+}
+
+/// What a backdrop does to the pixels under `bounds`, step by step as the CPU runs them: each
+/// step ends on 8 bit channels, so a clamp in the middle lands where it does there.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BackdropDraw {
+    /// The shape's bounds in physical pixels; its path comes as the draw's path clip.
+    pub bounds: Rect,
+    /// How far past `bounds` the steps read.
+    pub reach: u32,
+    pub steps: Vec<BackdropStep>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BackdropStep {
+    /// Three box passes along x, then three along y, each `2 * half + 1` wide.
+    Blur(u32),
+    /// Rows of `rgb' = m * rgb + offset`, channels 0 to 1: `[r, g, b, offset]` three times.
+    Colour([f32; 12]),
+}
+
+/// One colour step as a matrix: saturate around Rec. 709 grey, brightness, a tint by its alpha.
+fn colour_step(effect: &Effect) -> Option<[f32; 12]> {
+    match effect {
+        Effect::Saturate(s) => {
+            let w = [54.0 / 256.0, 183.0 / 256.0, 19.0 / 256.0];
+            let mut m = [0.0; 12];
+            for row in 0..3 {
+                for col in 0..3 {
+                    let own = if row == col { *s } else { 0.0 };
+                    m[row * 4 + col] = (1.0 - s) * w[col] + own;
+                }
+            }
+            Some(m)
+        }
+        Effect::Brightness(b) => Some([*b, 0.0, 0.0, 0.0, 0.0, *b, 0.0, 0.0, 0.0, 0.0, *b, 0.0]),
+        Effect::Tint(c) => {
+            let a = f32::from(c.a) / 255.0;
+            let keep = 1.0 - a;
+            let t = [c.r, c.g, c.b].map(|v| f32::from(v) / 255.0 * a);
+            Some([
+                keep, 0.0, 0.0, t[0], 0.0, keep, 0.0, t[1], 0.0, 0.0, keep, t[2],
+            ])
+        }
+        Effect::Blur(_) | Effect::Custom(_) => None,
+    }
+}
+
+impl BackdropDraw {
+    /// The draw for `effects` over `bounds`. Custom filters have no step: frames with one go to
+    /// the CPU.
+    pub fn new(bounds: Rect, effects: &[Effect]) -> Self {
+        let reach = effects.iter().map(Effect::reach).sum::<f32>().ceil();
+        let steps = effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::Blur(r) => {
+                    let half = f32_to_u32_clamped((r / 3.0).round());
+                    (half > 0).then_some(BackdropStep::Blur(half))
+                }
+                e => colour_step(e).map(BackdropStep::Colour),
+            })
+            .collect();
+        Self {
+            bounds,
+            reach: f32_to_u32_clamped(reach),
+            steps,
+        }
+    }
 }
 
 /// A single frame's 2D draw work, lowered from a display list and independent of any GPU backend.
@@ -350,6 +421,8 @@ pub struct RenderBatches {
     pub texts: Vec<TextDraw>,
     /// Solid-colour filled shapes in submission order.
     pub shapes: Vec<ShapeInstance>,
+    /// Backdrops in submission order.
+    pub backdrops: Vec<BackdropDraw>,
     /// Cross-kind painter order, indexing the per-kind instance arrays above.
     pub order: Vec<DrawRef>,
     /// The clip for each entry in [`Self::order`], in physical pixels.
@@ -420,6 +493,7 @@ impl RenderBatches {
         self.images.clear();
         self.texts.clear();
         self.shapes.clear();
+        self.backdrops.clear();
         self.order.clear();
         self.clips.clear();
         self.path_clips.clear();
@@ -500,7 +574,12 @@ impl RenderBatches {
             return;
         }
         match &item.command {
-            DrawCommand::Clear(_) | DrawCommand::Backdrop(..) => {}
+            DrawCommand::Clear(_) => {}
+            DrawCommand::Backdrop(bounds, effects) => {
+                self.order
+                    .push(DrawRef::Backdrop(batch_index(self.backdrops.len())));
+                self.backdrops.push(BackdropDraw::new(*bounds, effects));
+            }
             DrawCommand::DrawRect(rect, paint) => self.lower_rect(*rect, paint, alpha),
             DrawCommand::DrawColumns(x, wide, spans, color) => {
                 let color = fade(*color, alpha);
@@ -754,6 +833,31 @@ mod tests {
     use crate::scene::display_list::{CacheKey, DisplayIndex, DisplayItem};
     use crate::types::{BlendMode, Paint, Rect};
     use crate::types::{Path, PathCommand};
+
+    #[test]
+    fn backdrop_steps_keep_their_order_and_skip_nothing_blurs() {
+        let draw = BackdropDraw::new(
+            Rect::new(0.0, 0.0, 10.0, 10.0),
+            &[
+                Effect::Brightness(0.5),
+                Effect::Blur(9.0),
+                Effect::Blur(1.0),
+                Effect::Tint(Color::rgba(255, 0, 0, 255)),
+            ],
+        );
+        assert_eq!(draw.steps.len(), 3, "a blur under a pixel has no pass");
+        assert!(matches!(draw.steps[0], BackdropStep::Colour(m) if m[0] == 0.5));
+        assert_eq!(draw.steps[1], BackdropStep::Blur(3));
+        let BackdropStep::Colour(tint) = draw.steps[2] else {
+            panic!("tint is a colour step");
+        };
+        assert_eq!(
+            (tint[0], tint[3], tint[7]),
+            (0.0, 1.0, 0.0),
+            "full red over all"
+        );
+        assert!(draw.reach >= 10);
+    }
 
     fn item(command: DrawCommand) -> DisplayItem {
         DisplayItem::new(

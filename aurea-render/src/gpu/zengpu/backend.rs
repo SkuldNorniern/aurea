@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::iter::once;
 use std::mem::{discriminant, size_of, size_of_val};
+use std::ops::Range;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -21,7 +22,7 @@ use zengpu::{
     Acquire, Bindings, BufferDesc, BufferHandle, BufferUsage, ColorAttachment, DeviceRequest,
     DeviceType, DispatchOp, FilterMode, Format, Frame, GpuAdapter, GpuDevice, GpuError,
     GraphicsDevice, LoadOp, MemoryUsage, PipelineHandle, Rect as HalRect, RenderCommands,
-    RenderPassDesc, SamplerDesc, SamplerHandle, Scalar, Surface, TexDim, TextureDesc,
+    RenderPassDesc, SamplerDesc, SamplerHandle, Scalar, Surface, TargetHandle, TexDim, TextureDesc,
     TextureHandle, TextureRegion, TextureUsage, TextureWrite, Viewport, ViewportScissor,
     WindowHandles,
 };
@@ -29,7 +30,9 @@ use zengpu::{GpuSubmission, Submission, SubmissionStatus};
 
 use crate::capabilities::GpuFeatures;
 use crate::gpu::backend::full_frame_plan;
-use crate::gpu::batch::{DrawRef, RectInstance, ShapeInstance, valid_rgba_image};
+use crate::gpu::batch::{
+    BackdropDraw, BackdropStep, DrawRef, RectInstance, ShapeInstance, valid_rgba_image,
+};
 use crate::gpu::{FramePlan, Gpu2dBackend, Gpu2dRenderer, PixelFormat};
 use crate::image::area_downsample;
 use crate::memory::smaller_buffer;
@@ -657,7 +660,8 @@ fn draw_index(draw: DrawRef) -> u32 {
         | DrawRef::Shape(i)
         | DrawRef::Gradient(i)
         | DrawRef::Image(i)
-        | DrawRef::Text(i) => i,
+        | DrawRef::Text(i)
+        | DrawRef::Backdrop(i) => i,
     }
 }
 
@@ -786,6 +790,97 @@ pub struct ZenGpuBackend {
     text_instances: Vec<TextInstance>,
     slot_textures: HashMap<u32, TextureHandle>,
     cpu_frame: Option<CpuFrame>,
+    backdrop_targets: Option<BackdropTargets>,
+    /// Per backdrop this frame: the slot its result is in.
+    backdrop_slots: Vec<u32>,
+    /// Where backdrops start in the image instances.
+    backdrop_base: u32,
+}
+
+/// What a frame with backdrops draws through: the scene, when the target is a window and cannot be
+/// sampled, and two textures the blur passes take turns on. Each pairs a target with its slot.
+struct BackdropTargets {
+    scene: Option<(NativeOffscreenTarget, u32)>,
+    ping: [(NativeOffscreenTarget, u32); 2],
+}
+
+impl BackdropTargets {
+    fn new(
+        device: &NativeDevice,
+        sampler: SamplerHandle,
+        format: Format,
+        (w, h): (u32, u32),
+        window: bool,
+    ) -> AureaResult<Self> {
+        let make = || -> AureaResult<(NativeOffscreenTarget, u32)> {
+            let target = NativeOffscreenTarget::new(device, format, w, h).map_err(gpu_err)?;
+            let slot = device
+                .bind_texture(target.texture_handle(), sampler)
+                .ok_or(AureaError::RenderingFailed)?;
+            Ok((target, slot))
+        };
+        Ok(Self {
+            scene: if window { Some(make()?) } else { None },
+            ping: [make()?, make()?],
+        })
+    }
+
+    fn fits(&self, format: Format, size: (u32, u32), window: bool) -> bool {
+        let (target, _) = &self.ping[0];
+        target.format() == format && target.extent() == size && self.scene.is_some() == window
+    }
+
+    fn ping(&self) -> [(TargetHandle, u32); 2] {
+        self.ping
+            .each_ref()
+            .map(|(t, slot)| (t.target_handle(), *slot))
+    }
+}
+
+/// The pixels a backdrop reads: its bounds inside its clip, grown by its reach, inside the target.
+fn backdrop_region(
+    draw: &BackdropDraw,
+    clip: Option<Rect>,
+    (vw, vh): (f32, f32),
+) -> Option<[f32; 4]> {
+    let b = draw.bounds;
+    let (mut x0, mut y0, mut x1, mut y1) = (b.x, b.y, b.x + b.width, b.y + b.height);
+    if let Some(c) = clip {
+        x0 = x0.max(c.x);
+        y0 = y0.max(c.y);
+        x1 = x1.min(c.x + c.width);
+        y1 = y1.min(c.y + c.height);
+    }
+    if x1 <= x0 || y1 <= y0 {
+        return None;
+    }
+    let reach = draw.reach as f32;
+    let region = [
+        (x0.floor() - reach).max(0.0),
+        (y0.floor() - reach).max(0.0),
+        (x1.ceil() + reach).min(vw),
+        (y1.ceil() + reach).min(vh),
+    ];
+    (region[2] > region[0] && region[3] > region[1]).then_some(region)
+}
+
+/// The passes a backdrop runs: a blur is three box passes along x then three along y, a colour
+/// step one pass through its matrix. With no steps, one plain copy.
+fn backdrop_passes(draw: &BackdropDraw) -> Vec<(u32, [f32; 2], Option<[f32; 12]>)> {
+    let mut passes = Vec::new();
+    for step in &draw.steps {
+        match *step {
+            BackdropStep::Blur(half) => {
+                passes.extend([(half, [1.0, 0.0], None); 3]);
+                passes.extend([(half, [0.0, 1.0], None); 3]);
+            }
+            BackdropStep::Colour(m) => passes.push((0, [1.0, 0.0], Some(m))),
+        }
+    }
+    if passes.is_empty() {
+        passes.push((0, [1.0, 0.0], None));
+    }
+    passes
 }
 
 /// Public renderer type alias — `Gpu2dRenderer` parameterized on `ZenGpuBackend`.
@@ -889,6 +984,9 @@ impl ZenGpuRenderer {
             text_instances: Vec::new(),
             slot_textures: HashMap::new(),
             cpu_frame: None,
+            backdrop_targets: None,
+            backdrop_slots: Vec::new(),
+            backdrop_base: 0,
         };
         Ok(Gpu2dRenderer::from_backend(backend, width, height, scale))
     }
@@ -974,13 +1072,15 @@ impl ZenGpuBackend {
     fn record_ordered_draws(
         &self,
         cmd: &mut NativeCommandList,
+        range: Range<usize>,
         order: &[DrawRef],
         clips: &[Option<Rect>],
         viewport: (f32, f32),
         buffers: &FrameBuffers,
         pipelines: Pipelines,
     ) -> AureaResult<()> {
-        let mut i = 0;
+        let order = &order[..range.end];
+        let mut i = range.start;
         let mut active_clip: Option<Option<Rect>> = None;
         while i < order.len() {
             let binding = self.clip_masks.bindings[i];
@@ -1004,6 +1104,11 @@ impl ZenGpuBackend {
                 DrawRef::Gradient(_) => (pipelines.gradient, buffers.gradient, 2),
                 DrawRef::Image(_) => (pipelines.image, buffers.image, 2),
                 DrawRef::Text(_) => (pipelines.text, buffers.text, 2),
+                DrawRef::Backdrop(_) => (pipelines.image, buffers.image, 2),
+            };
+            let start = match first {
+                DrawRef::Backdrop(j) => self.backdrop_base + j,
+                _ => draw_index(first),
             };
             let pipeline = pipeline.ok_or(AureaError::RenderingFailed)?;
             // Rects and shapes take only the clip mask; the other kinds also take their texture.
@@ -1014,7 +1119,7 @@ impl ZenGpuBackend {
                 buffer,
                 &viewport_scalars,
                 &textures[..width],
-                draw_index(first),
+                start,
                 count,
             );
             i += count as usize;
@@ -1029,7 +1134,50 @@ impl ZenGpuBackend {
             DrawRef::Gradient(i) => self.gradient_slot(i),
             DrawRef::Image(i) => self.image_slot(i),
             DrawRef::Text(i) => self.text_slot(i),
+            DrawRef::Backdrop(i) => self.backdrop_slots.get(i as usize).copied().unwrap_or(0),
         }
+    }
+
+    /// Records the passes of one backdrop, reading `src` and taking turns on `ping`. Returns the
+    /// slot its result is in.
+    fn record_backdrop(
+        cmd: &mut NativeCommandList,
+        pipeline: PipelineHandle,
+        draw: &BackdropDraw,
+        clip: Option<Rect>,
+        src: u32,
+        ping: [(TargetHandle, u32); 2],
+        (vw, vh): (f32, f32),
+    ) -> u32 {
+        let Some([x0, y0, x1, y1]) = backdrop_region(draw, clip, (vw, vh)) else {
+            // nothing of it shows
+            return ping[0].1;
+        };
+        let mut src = src;
+        for (k, (half, dir, colour)) in backdrop_passes(draw).into_iter().enumerate() {
+            let (target, slot) = ping[k % 2];
+            cmd.begin_render_pass(&RenderPassDesc {
+                color: &[ColorAttachment {
+                    target,
+                    load: LoadOp::Load,
+                    store: true,
+                    sample_after: true,
+                }],
+                depth: None,
+            });
+            Self::set_scissor(cmd, (vw, vh), Some(Rect::new(x0, y0, x1 - x0, y1 - y0)));
+            let m = colour.unwrap_or([0.0; 12]);
+            let scalars: Vec<Scalar> = [vw, vh, x0, y0, x1, y1, dir[0], dir[1]]
+                .into_iter()
+                .map(Scalar::F32)
+                .chain([Scalar::U32(half), Scalar::U32(u32::from(colour.is_some()))])
+                .chain(m.into_iter().map(Scalar::F32))
+                .collect();
+            Self::draw_run(cmd, pipeline, None, &scalars, &[src], 0, 1);
+            cmd.end_render_pass();
+            src = slot;
+        }
+        src
     }
 }
 
@@ -1084,6 +1232,8 @@ impl Gpu2dBackend for ZenGpuBackend {
         if let Some(frame) = self.cpu_frame.take() {
             self.evict_image(frame.slot);
         }
+        self.backdrop_targets = None;
+        self.backdrop_slots = Vec::new();
     }
 
     fn resize(&mut self, physical_width: u32, physical_height: u32) -> AureaResult<()> {
@@ -1179,6 +1329,7 @@ impl Gpu2dBackend for ZenGpuBackend {
                     .storage,
             rounded_rects: true,
             stroked_circles: true,
+            backdrops: true,
             ..GpuFeatures::NONE
         }
     }
@@ -1283,6 +1434,26 @@ impl Gpu2dBackend for ZenGpuBackend {
                 slot: i.slot,
                 _pad: [0; 3],
             }));
+        // a backdrop's result is drawn like an image of the whole target, through its bounds
+        self.backdrop_base =
+            u32::try_from(plan.images.len()).map_err(|_| AureaError::RenderingFailed)?;
+        self.image_instances.extend(plan.backdrops.iter().map(|b| {
+            let r = b.bounds;
+            ImageInstance {
+                rect: [r.x, r.y, r.width, r.height],
+                uv: [
+                    r.x / vw,
+                    r.y / vh,
+                    (r.x + r.width) / vw,
+                    (r.y + r.height) / vh,
+                ],
+                tint: [1.0; 4],
+                sampling: [vw, vh, 1.0, 0.0],
+                affine: [0.0; 4],
+                slot: 0,
+                _pad: [0; 3],
+            }
+        }));
         reset_vec(&mut self.text_instances, plan.texts.len());
         self.text_instances
             .extend(plan.texts.iter().map(|t| TextInstance {
@@ -1342,7 +1513,7 @@ impl Gpu2dBackend for ZenGpuBackend {
             .upload(device, as_bytes(&self.text_instances))
             .map_err(gpu_err)?;
 
-        let load = match plan.clear {
+        let mut load = match plan.clear {
             Some(c) => LoadOp::clear_rgb(
                 f32::from(c.r) / 255.0,
                 f32::from(c.g) / 255.0,
@@ -1350,16 +1521,14 @@ impl Gpu2dBackend for ZenGpuBackend {
             ),
             None => LoadOp::Load,
         };
-        cmd.begin_render_pass(&RenderPassDesc {
-            color: &[ColorAttachment {
-                target,
-                load,
-                store: true,
-                sample_after,
-            }],
-            depth: None,
-        });
-        cmd.set_viewport_scissor(ViewportScissor {
+        let buffers = FrameBuffers {
+            rect: rect_handle,
+            shape: shape_handle,
+            gradient: gradient_handle,
+            image: image_handle,
+            text: text_handle,
+        };
+        let viewport = ViewportScissor {
             viewport: Viewport {
                 x: 0.0,
                 y: 0.0,
@@ -1369,25 +1538,115 @@ impl Gpu2dBackend for ZenGpuBackend {
                 max_depth: 1.0,
             },
             scissor: None,
-        });
-
-        let buffers = FrameBuffers {
-            rect: rect_handle,
-            shape: shape_handle,
-            gradient: gradient_handle,
-            image: image_handle,
-            text: text_handle,
         };
-        self.record_ordered_draws(
-            &mut cmd,
-            &plan.order,
-            &plan.clips,
-            (vw, vh),
-            &buffers,
-            pipelines,
-        )?;
 
-        cmd.end_render_pass();
+        // Backdrops read what is under them, so the scene goes to a texture: the pass ends at
+        // each one, its blur runs, and the pass goes on with its result drawn in.
+        let mut scene = (target, sample_after, None);
+        if !plan.backdrops.is_empty() {
+            let window = matches!(self.target, Target::Window(_));
+            let size = (plan.viewport_width, plan.viewport_height);
+            let format = self.pipelines.format;
+            if !self
+                .backdrop_targets
+                .as_ref()
+                .is_some_and(|t| t.fits(format, size, window))
+            {
+                self.backdrop_targets = None;
+                self.backdrop_targets = Some(BackdropTargets::new(
+                    device,
+                    self.sampler,
+                    format,
+                    size,
+                    window,
+                )?);
+            }
+            let targets = self
+                .backdrop_targets
+                .as_ref()
+                .ok_or(AureaError::RenderingFailed)?;
+            scene = match (&targets.scene, &self.target) {
+                (Some((t, slot)), _) => (t.target_handle(), true, Some(*slot)),
+                (None, Target::Offscreen(offscreen)) => {
+                    let slot = device
+                        .bind_texture(offscreen.target.texture_handle(), self.sampler)
+                        .ok_or(AureaError::RenderingFailed)?;
+                    (offscreen.target.target_handle(), true, Some(slot))
+                }
+                (None, Target::Window(_)) => return Err(AureaError::RenderingFailed),
+            };
+        }
+        let (scene_target, scene_after, scene_slot) = scene;
+        let box_blur = pipelines.box_blur;
+        let ping = self.backdrop_targets.as_ref().map(BackdropTargets::ping);
+        self.backdrop_slots.clear();
+
+        let mut start = 0;
+        let stops = plan
+            .order
+            .iter()
+            .enumerate()
+            .filter(|(_, d)| matches!(d, DrawRef::Backdrop(_)))
+            .map(|(i, _)| i)
+            .chain(once(plan.order.len()));
+        for stop in stops {
+            cmd.begin_render_pass(&RenderPassDesc {
+                color: &[ColorAttachment {
+                    target: scene_target,
+                    load,
+                    store: true,
+                    sample_after: scene_after,
+                }],
+                depth: None,
+            });
+            cmd.set_viewport_scissor(viewport);
+            self.record_ordered_draws(
+                &mut cmd,
+                start..stop,
+                &plan.order,
+                &plan.clips,
+                (vw, vh),
+                &buffers,
+                pipelines,
+            )?;
+            cmd.end_render_pass();
+            load = LoadOp::Load;
+            start = stop;
+            if let Some(DrawRef::Backdrop(j)) = plan.order.get(stop) {
+                let (Some(pipeline), Some(ping), Some(src), Some(draw)) =
+                    (box_blur, ping, scene_slot, plan.backdrops.get(*j as usize))
+                else {
+                    return Err(AureaError::RenderingFailed);
+                };
+                let clip = plan.clips.get(stop).copied().flatten();
+                let slot =
+                    Self::record_backdrop(&mut cmd, pipeline, draw, clip, src, ping, (vw, vh));
+                self.backdrop_slots.push(slot);
+            }
+        }
+        // a window scene drawn off to the side is copied on
+        if let (Some(frame), Some(slot), Some(pipeline)) = (&frame, scene_slot, box_blur)
+            && scene_target != frame.target()
+        {
+            cmd.begin_render_pass(&RenderPassDesc {
+                color: &[ColorAttachment {
+                    target: frame.target(),
+                    load: LoadOp::Load,
+                    store: true,
+                    sample_after: false,
+                }],
+                depth: None,
+            });
+            cmd.set_viewport_scissor(viewport);
+            let scalars: Vec<Scalar> = [vw, vh, 0.0, 0.0, vw, vh, 1.0, 0.0]
+                .into_iter()
+                .map(Scalar::F32)
+                .chain([Scalar::U32(0), Scalar::U32(0)])
+                .chain([0.0; 12].into_iter().map(Scalar::F32))
+                .collect();
+            Self::draw_run(&mut cmd, pipeline, None, &scalars, &[slot], 0, 1);
+            cmd.end_render_pass();
+        }
         match (&mut self.target, frame) {
             (Target::Window(surface), Some(frame)) => {
                 surface.present(frame, cmd).map_err(gpu_err)?;
@@ -1412,6 +1671,8 @@ impl Drop for ZenGpuBackend {
         if let Target::Offscreen(offscreen) = &mut self.target {
             offscreen.release(device);
         }
+        // before the context, which may hold the last reference to the device
+        self.backdrop_targets = None;
         for (_, texture) in self.slot_textures.drain() {
             self.context.destroy_image(texture);
         }
@@ -1446,8 +1707,8 @@ pub(super) fn as_bytes<T: Copy>(slice: &[T]) -> &[u8] {
 mod context_tests {
     use super::*;
     use crate::cpu::CpuRasterizer;
-    use crate::effect::Effect;
     use crate::cpu::raster::coverage;
+    use crate::effect::Effect;
     use crate::renderer::{DrawingContext, Renderer};
     use crate::surface::{Surface as RenderSurface, SurfaceInfo};
     use crate::types::{BlendMode, Color, Paint, PaintStyle, Path, PathCommand, Point};
@@ -1509,6 +1770,10 @@ mod context_tests {
                 ],
             )
             .unwrap();
+            // partly off the frame, colour before blur
+            let corner = Path::rounded_rect(Rect::new(-8.0, 44.0, 30.0, 30.0), 6.0);
+            ctx.backdrop(&corner, &[Effect::Brightness(0.8), Effect::Blur(6.0)])
+                .unwrap();
         };
         let mut cpu = CpuRasterizer::new(w, h);
         cpu.init(RenderSurface::Cpu, SurfaceInfo::new(w, h, 1.0))
@@ -1518,6 +1783,8 @@ mod context_tests {
         let mut gpu = ZenGpuRenderer::offscreen(Arc::new(context), w, h, 1.0).unwrap();
         draw(&mut *gpu.begin_frame().unwrap());
         assert_eq!(gpu.end_frame().unwrap(), FrameOutcome::Presented);
+        let missing = gpu.last_frame_missing();
+        assert!(missing.is_empty(), "frost left the gpu: {missing:?}");
         let (want, got) = (
             cpu.frame_output().expect("cpu"),
             gpu.frame_output().expect("gpu"),

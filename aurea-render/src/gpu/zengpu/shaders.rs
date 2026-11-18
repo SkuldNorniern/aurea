@@ -279,6 +279,48 @@ pub const TEXT_DUAL_SOURCE_FRAG: ZslShader = zsl!(
 
 /// One texel of the next mip level: `area_downsample`'s span weights and alpha-weighted sums, in
 /// the same order, so the rounding matches the CPU result. `src` is the level above `dst`.
+/// A quad over the whole target: the viewport and scissor pick the part drawn.
+pub const BOX_VERT: ZslShader = zsl!(
+    vertex box_vs(vi: vertex_index) -> f32x4 {
+        let corner = f32x2(f32((26 >> vi) & 1), f32((52 >> vi) & 1))
+        f32x4(corner * 2.0 - 1.0, 0.0, 1.0)
+    }
+);
+
+/// One box pass of a backdrop blur, as the CPU runs it: each texel the average of `2 * half + 1`
+/// along x or y, reads held to the region (edges repeat). Source and target share pixel
+/// coordinates. With `colour` set the result also goes through the backdrop's colour matrix.
+pub const BOX_FRAG: ZslShader = zsl!(
+    push P {
+        size_x: f32, size_y: f32, x0: f32, y0: f32, x1: f32, y1: f32, dir_x: f32, dir_y: f32,
+        span: u32, colour: u32,
+        r0: f32, r1: f32, r2: f32, r3: f32,
+        g0: f32, g1: f32, g2: f32, g3: f32,
+        b0: f32, b1: f32, b2: f32, b3: f32,
+        slot: u32
+    }
+    fragment box_fs(pos: frag_coord, tex: textures, p: P) -> f32x4 {
+        let ax = floor(pos.x)
+        let ay = floor(pos.y)
+        let sum = f32x4(0.0, 0.0, 0.0, 0.0)
+        let taps = p.span * 2 + 1
+        for i in 0..taps {
+            let k = f32(i) - f32(p.span)
+            let sx = min(max(ax + p.dir_x * k, p.x0), p.x1 - 1.0)
+            let sy = min(max(ay + p.dir_y * k, p.y0), p.y1 - 1.0)
+            sum = sum + tex[p.slot].sample_level(f32x2((sx + 0.5) / p.size_x, (sy + 0.5) / p.size_y), 0.0)
+        }
+        let c = sum / f32(taps)
+        if p.colour != 0 {
+            let r = p.r0 * c.r + p.r1 * c.g + p.r2 * c.b + p.r3
+            let g = p.g0 * c.r + p.g1 * c.g + p.g2 * c.b + p.g3
+            let b = p.b0 * c.r + p.b1 * c.g + p.b2 * c.b + p.b3
+            c = f32x4(r, g, b, c.a)
+        }
+        c
+    }
+);
+
 pub const MIP_DOWN: ZslShader = zsl!(
     push P { rx: f32, ry: f32 }
     @workgroup_size(8, 8)

@@ -133,6 +133,8 @@ pub struct Pipelines {
     pub gradient: Option<PipelineHandle>,
     pub image: Option<PipelineHandle>,
     pub text: Option<PipelineHandle>,
+    /// Backdrop blur passes, and the copy of a scene onto a window it was drawn off.
+    pub box_blur: Option<PipelineHandle>,
 }
 
 /// The compute kernel that builds an image's mips on the GPU. The caller owns the handle.
@@ -225,6 +227,28 @@ impl Pipelines {
                     &mut self.text,
                     (&TEXT_VERT, text_frag, &[TEXT_LAYOUT], text_blend),
                 ),
+                // a backdrop blurs with box passes, then draws its result as an image
+                DrawRef::Backdrop(_) => {
+                    if self.box_blur.is_none() {
+                        self.box_blur = Some(create_pipeline(
+                            device,
+                            &BOX_VERT,
+                            &BOX_FRAG,
+                            &[],
+                            BlendMode::Opaque,
+                            color_format,
+                        )?);
+                    }
+                    (
+                        &mut self.image,
+                        (
+                            &IMAGE_VERT,
+                            &IMAGE_FRAG,
+                            &[IMAGE_LAYOUT],
+                            BlendMode::AlphaBlend,
+                        ),
+                    )
+                }
             };
             if slot.is_none() {
                 let (vert, frag, layouts, blend) = spec;
@@ -249,6 +273,7 @@ impl Pipelines {
             self.image,
             self.text,
             self.clip_mask,
+            self.box_blur,
         ]
         .into_iter()
         .flatten()

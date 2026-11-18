@@ -25,6 +25,7 @@ pub fn resolve_frame<B: Gpu2dBackend>(
     plan.order.extend_from_slice(&batches.order);
     plan.clips.extend_from_slice(&batches.clips);
     plan.path_clips.extend_from_slice(&batches.path_clips);
+    plan.backdrops.extend_from_slice(&batches.backdrops);
 
     // Pin the entire cached working set before the first upload. Otherwise a
     // cache above its soft limits evicts not-yet-resolved tiles from this frame.
