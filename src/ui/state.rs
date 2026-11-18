@@ -348,10 +348,12 @@ pub struct UiState<Id: WidgetId> {
     pub(crate) tokens: Tokens,
     pub(crate) cursor: CursorIcon,
     pub(crate) ime_area: Option<Rect>,
+    /// The focused field hides what is typed: the input method stays out of it.
+    pub(crate) ime_secure: bool,
     pub(crate) changed: bool,
     wants_frame: bool,
     pub(crate) wake_at: Option<Instant>,
-    sent: (CursorIcon, Option<Rect>),
+    sent: (CursorIcon, Option<Rect>, Option<bool>),
     /// Whether easing follows the system's reduced motion setting, until the app sets its own.
     motion_follows_system: bool,
 }
@@ -430,10 +432,11 @@ impl<Id: WidgetId> UiState<Id> {
             tokens: Tokens::new(),
             cursor: CursorIcon::Default,
             ime_area: None,
+            ime_secure: false,
             changed: false,
             wants_frame: false,
             wake_at: None,
-            sent: (CursorIcon::Default, None),
+            sent: (CursorIcon::Default, None, None),
             motion_follows_system: follow,
         }
     }
@@ -869,8 +872,14 @@ impl<Id: WidgetId> UiState<Id> {
         self.ime_area
     }
 
-    /// Tells `window` the pointer shape and the caret area for an input method, when either changed
-    /// since it was last told.
+    /// Whether an input method may compose now: only where a field shows its caret, never in a
+    /// password.
+    pub fn ime_allowed(&self) -> bool {
+        self.ime_area.is_some() && !self.ime_secure
+    }
+
+    /// Tells `window` the pointer shape, the caret area for an input method and whether one may
+    /// compose, when any changed since it was last told.
     pub fn sync_window(&mut self, window: &Window) {
         if self.cursor != self.sent.0 {
             match window.set_cursor(self.cursor) {
@@ -885,6 +894,13 @@ impl<Id: WidgetId> UiState<Id> {
                 log::debug!("input method area: {e}");
             }
             self.sent.1 = self.ime_area;
+        }
+        let allowed = self.ime_allowed();
+        if self.sent.2 != Some(allowed) {
+            match window.set_ime_allowed(allowed) {
+                Ok(()) => self.sent.2 = Some(allowed),
+                Err(e) => log::debug!("input method on or off: {e}"),
+            }
         }
     }
 
@@ -949,6 +965,7 @@ impl<Id: WidgetId> UiState<Id> {
         self.tweens.frame();
         self.cursor = CursorIcon::Default;
         self.ime_area = None;
+        self.ime_secure = false;
         self.tip.anchor = None;
         self.clip = None;
         self.focus_seen = false;

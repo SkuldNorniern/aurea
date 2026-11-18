@@ -309,6 +309,8 @@ impl<'v> EditableText<'v> {
         } else {
             0
         };
+        // a password keeps the input method out, empty or not
+        ui.state.ime_secure |= editing && self.password;
         let preedit = if editing {
             ui.state.edit.preedit().to_string()
         } else {

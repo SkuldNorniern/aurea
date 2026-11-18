@@ -773,3 +773,28 @@ fn a_trackpad_steps_a_slider_a_line_at_a_time_and_momentum_moves_nothing() {
     rig.frame(|ui| slider_alone(ui, &mut value));
     assert_eq!(value, 50.0, "a wheel click is one step");
 }
+
+#[test]
+fn the_input_method_composes_only_in_a_focused_field_that_is_no_password() {
+    let mut rig = rig();
+    let (mut name, mut secret) = (String::new(), String::new());
+    let mut draw = |rig: &mut Rig| {
+        rig.frame(|ui| {
+            TextField::new(&mut name)
+                .show(ui, 1, Rect::new(0.0, 0.0, 200.0, 30.0))
+                .expect("name");
+            TextField::new(&mut secret)
+                .password(true)
+                .show(ui, 2, Rect::new(0.0, 40.0, 200.0, 30.0))
+                .expect("secret");
+        });
+    };
+    draw(&mut rig);
+    assert!(!rig.state.ime_allowed(), "nothing focused: keys stay keys");
+    rig.state.focus(1, 0);
+    draw(&mut rig);
+    assert!(rig.state.ime_allowed(), "a plain field composes");
+    rig.state.focus(2, 0);
+    draw(&mut rig);
+    assert!(!rig.state.ime_allowed(), "a password does not");
+}
