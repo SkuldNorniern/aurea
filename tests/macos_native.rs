@@ -596,6 +596,23 @@ mod checks {
         Ok(())
     }
 
+    pub fn a_window_with_a_filling_canvas_shrinks_both_ways() -> AureaResult<()> {
+        use aurea::render::{Canvas, RendererBackend};
+        let mut window = Window::new("shrink", 760, 370)?;
+        let mut root = Stack::new(Orientation::Vertical)?;
+        root.set_padding(0)?;
+        root.add(Canvas::new(760, 370, RendererBackend::Cpu)?)?;
+        window.set_content(root)?;
+        settle(&window);
+        window.set_size(400, 200);
+        settle(&window);
+        assert_eq!(window.size(), (400, 200), "its first size is no floor");
+        window.set_size(900, 500);
+        settle(&window);
+        assert_eq!(window.size(), (900, 500));
+        Ok(())
+    }
+
     pub fn a_window_keeps_its_minimum_size() -> AureaResult<()> {
         let window = Window::new("min size", 400, 300)?;
         window.set_min_size(501, 351)?;
@@ -649,6 +666,7 @@ fn main() {
         a_window_keeps_its_minimum_size,
         a_styled_text_view_keeps_its_look_when_attached,
         menus_and_cursors_survive_being_rebuilt,
+        a_window_with_a_filling_canvas_shrinks_both_ways,
     ];
     let mut failed = Vec::new();
     for (name, test) in tests {
