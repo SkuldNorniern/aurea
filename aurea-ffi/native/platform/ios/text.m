@@ -49,6 +49,8 @@
 @property (copy) NSString* marked;
 @property (assign) NSInteger caret;
 @property (assign) CGRect area;
+/* a password: the keyboard composes and predicts nothing */
+@property (assign) BOOL secure;
 - (void)commitComposing;
 @end
 
@@ -65,6 +67,10 @@
 
 - (BOOL)canBecomeFirstResponder {
     return YES;
+}
+
+- (BOOL)isSecureTextEntry {
+    return self.secure;
 }
 
 - (UITextAutocorrectionType)autocorrectionType {
@@ -299,6 +305,15 @@ void ng_ios_text_attach(AureaHostView* host) {
     keys.hidden = YES;
     [host addSubview:keys];
     host.keys = keys;
+}
+
+void ng_ios_set_secure_text(int secure) {
+    AureaKeyInput* keys = g_ios_view.keys;
+    if (!keys || keys.secure == (secure != 0)) return;
+    [keys commitComposing];
+    keys.secure = secure != 0;
+    /* a keyboard already up takes the new traits only when reloaded */
+    if (keys.isFirstResponder) [keys reloadInputViews];
 }
 
 void ng_ios_text_commit(AureaHostView* host) {

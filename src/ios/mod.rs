@@ -23,7 +23,8 @@ use aurea_ffi::ng_ios_gpu_view;
 use aurea_ffi::{
     NGIosHost, ng_ios_background_time, ng_ios_drop_gpu_view, ng_ios_end_background,
     ng_ios_hide_native, ng_ios_keyboard_height, ng_ios_refresh_rate, ng_ios_run_host,
-    ng_ios_set_high_frame_rate, ng_ios_set_text_area, ng_ios_show_keyboard, ng_ios_show_native,
+    ng_ios_set_high_frame_rate, ng_ios_set_secure_text, ng_ios_set_text_area, ng_ios_show_keyboard,
+    ng_ios_show_native,
     ng_ios_wake,
 };
 
@@ -741,11 +742,13 @@ unsafe extern "C" fn frame(
         i32::from(more)
     });
     // Outside the host's borrow, as the view may call back.
-    let ask = HOST.with_borrow_mut(|host| {
+    let (ask, secure) = HOST.with_borrow_mut(|host| {
         let wanted = host.state.wants_keyboard();
         let caret = host.state.ime_area();
-        host.keyboard.sync(wanted, caret)
+        (host.keyboard.sync(wanted, caret), host.state.ime_secure)
     });
+    // SAFETY: on the main thread, in the host's frame; the view skips it when nothing changed.
+    unsafe { ng_ios_set_secure_text(c_int::from(secure)) };
     if let Some(area) = ask.area {
         set_text_area(area);
     }

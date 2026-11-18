@@ -109,6 +109,8 @@ void ng_ios_show_keyboard(int show);
 /* Where text is being typed, in points from the safe area's top left, for input methods to show
    their candidates beside. Main thread only. */
 void ng_ios_set_text_area(float x, float y, float width, float height);
+/* A password is being typed: the keyboard composes and predicts nothing. Nonzero turns it on. */
+void ng_ios_set_secure_text(int secure);
 
 /* How many points of the view the on-screen keyboard covers from the bottom, 0 when it is down. */
 float ng_ios_keyboard_height(void);

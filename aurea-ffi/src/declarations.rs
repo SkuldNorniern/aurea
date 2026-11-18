@@ -69,6 +69,7 @@ unsafe extern "C" {
     pub fn ng_ios_refresh_rate() -> f32;
     pub fn ng_ios_set_high_frame_rate(high: c_int);
     pub fn ng_ios_set_text_area(x: f32, y: f32, width: f32, height: f32);
+    pub fn ng_ios_set_secure_text(secure: c_int);
     pub fn ng_ios_pick_files(
         extensions: *const c_char,
         multiple: c_int,

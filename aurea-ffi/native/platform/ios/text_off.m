@@ -6,6 +6,10 @@ void ng_ios_text_attach(AureaHostView* host) {
     (void)host;
 }
 
+void ng_ios_set_secure_text(int secure) {
+    (void)secure;
+}
+
 void ng_ios_text_commit(AureaHostView* host) {
     (void)host;
 }
