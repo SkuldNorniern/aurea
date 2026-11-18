@@ -24,6 +24,8 @@
 @property (nonatomic, assign) BOOL rawSuppress;
 /* the window's delegate: the window holds it only weakly, its view keeps it alive */
 @property (nonatomic, strong) id<NSWindowDelegate> windowDelegate;
+/* key codes of app shortcuts pressed in this window, so their release goes out too */
+@property (nonatomic, strong) NSMutableIndexSet* heldShortcuts;
 /* where the caret of the focused field is, for the candidate window. view points, top down */
 @property (nonatomic, assign) NSRect imeArea;
 @end

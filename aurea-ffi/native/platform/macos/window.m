@@ -433,7 +433,6 @@ static int ng_macos_scroll_phase(NSEvent* event) {
 @end
 
 static void ng_macos_cursor_grab_focus(NSWindow* window, BOOL focused);
-static void ng_macos_forget_held_shortcuts(void* window);
 
 @implementation WindowDelegate
 - (BOOL)windowShouldClose:(NSWindow*)sender {
@@ -712,7 +711,6 @@ void ng_macos_destroy_window(NGHandle handle) {
         ng_macos_cursor_set_hidden(NO);
     }
     ng_shortcuts_clear(handle);
-    ng_macos_forget_held_shortcuts(handle);
     ng_macos_notify_destroyed([window contentView]);
     [window close];
 }
@@ -935,33 +933,18 @@ static void ng_macos_cursor_confine(NSWindow* window) {
 
 static id g_shortcut_monitor = nil;
 
-#define NG_SHORTCUTS_HELD 8
-static struct { void* window; unsigned int keycode; } g_shortcuts_held[NG_SHORTCUTS_HELD];
-
-static BOOL ng_macos_take_held_shortcut(void* window, unsigned int keycode) {
-    for (int i = 0; i < NG_SHORTCUTS_HELD; i++) {
-        if (g_shortcuts_held[i].window == window && g_shortcuts_held[i].keycode == keycode) {
-            g_shortcuts_held[i].window = NULL;
-            return YES;
-        }
-    }
-    return NO;
+static BOOL ng_macos_take_held_shortcut(NSWindow* window, unsigned int keycode) {
+    AureaContentView* view = ng_macos_view(window);
+    if (![view.heldShortcuts containsIndex:keycode]) return NO;
+    [view.heldShortcuts removeIndex:keycode];
+    return YES;
 }
 
-static void ng_macos_hold_shortcut(void* window, unsigned int keycode) {
-    for (int i = 0; i < NG_SHORTCUTS_HELD; i++) {
-        if (!g_shortcuts_held[i].window) {
-            g_shortcuts_held[i].window = window;
-            g_shortcuts_held[i].keycode = keycode;
-            return;
-        }
-    }
-}
-
-static void ng_macos_forget_held_shortcuts(void* window) {
-    for (int i = 0; i < NG_SHORTCUTS_HELD; i++) {
-        if (g_shortcuts_held[i].window == window) g_shortcuts_held[i].window = NULL;
-    }
+static void ng_macos_hold_shortcut(NSWindow* window, unsigned int keycode) {
+    AureaContentView* view = ng_macos_view(window);
+    if (!view) return;
+    if (!view.heldShortcuts) view.heldShortcuts = [NSMutableIndexSet indexSet];
+    [view.heldShortcuts addIndex:keycode];
 }
 
 static void ng_macos_ensure_shortcut_monitor(void) {
@@ -982,13 +965,13 @@ static void ng_macos_ensure_shortcut_monitor(void) {
         unsigned int keycode = ng_macos_keycode_from_event([event keyCode]);
         unsigned int mods = ng_macos_modifiers(event);
         if ([event type] == NSEventTypeKeyUp) {
-            if (!ng_macos_take_held_shortcut(handle, keycode)) return event;
+            if (!ng_macos_take_held_shortcut(window, keycode)) return event;
             ng_invoke_key_event(handle, keycode, 0, mods);
             return nil;
         }
         if (!ng_shortcuts_match(handle, keycode, mods)) return event;
         if (![event isARepeat]) {
-            ng_macos_hold_shortcut(handle, keycode);
+            ng_macos_hold_shortcut(window, keycode);
         }
         ng_invoke_key_event(handle, keycode, 1, mods);
         return nil;
