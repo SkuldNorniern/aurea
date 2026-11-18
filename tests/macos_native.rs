@@ -613,6 +613,18 @@ mod checks {
         Ok(())
     }
 
+    pub fn the_input_method_can_be_kept_out_and_let_back() -> AureaResult<()> {
+        let window = Window::new("ime", 300, 200)?;
+        settle(&window);
+        let content = appkit::id(window.handle() as appkit::Id, c"contentView");
+        assert!(!appkit::id(content, c"inputContext").is_null(), "on by default");
+        window.set_ime_allowed(false)?;
+        assert!(appkit::id(content, c"inputContext").is_null(), "kept out");
+        window.set_ime_allowed(true)?;
+        assert!(!appkit::id(content, c"inputContext").is_null(), "let back");
+        Ok(())
+    }
+
     pub fn a_window_keeps_its_minimum_size() -> AureaResult<()> {
         let window = Window::new("min size", 400, 300)?;
         window.set_min_size(501, 351)?;
@@ -667,6 +679,7 @@ fn main() {
         a_styled_text_view_keeps_its_look_when_attached,
         menus_and_cursors_survive_being_rebuilt,
         a_window_with_a_filling_canvas_shrinks_both_ways,
+        the_input_method_can_be_kept_out_and_let_back,
     ];
     let mut failed = Vec::new();
     for (name, test) in tests {
