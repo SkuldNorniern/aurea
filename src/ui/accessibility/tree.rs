@@ -96,9 +96,34 @@ struct MenuTarget<Id> {
     path: Vec<usize>,
 }
 
+/// What a bridge describes: a canvas, or a screen that draws as a host canvas (iOS).
+enum Surface {
+    Canvas(Canvas),
+    #[cfg(target_os = "ios")]
+    Host(CanvasId),
+}
+
+impl Surface {
+    fn id(&self) -> CanvasId {
+        match self {
+            Self::Canvas(canvas) => canvas.id(),
+            #[cfg(target_os = "ios")]
+            Self::Host(id) => *id,
+        }
+    }
+
+    fn is_live(&self) -> bool {
+        match self {
+            Self::Canvas(canvas) => canvas.ensure_live().is_ok(),
+            #[cfg(target_os = "ios")]
+            Self::Host(_) => true,
+        }
+    }
+}
+
 pub(crate) struct Bridge<Id: WidgetId> {
     platform: platform::Adapter,
-    canvas: Canvas,
+    surface: Surface,
     shared: Arc<Shared>,
     name: String,
     entries: HashMap<Key<Id>, Entry>,
@@ -115,7 +140,7 @@ pub(crate) struct Bridge<Id: WidgetId> {
 impl<Id: WidgetId> fmt::Debug for Bridge<Id> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AccessibilityBridge")
-            .field("canvas", &self.canvas.id())
+            .field("canvas", &self.surface.id())
             .field("nodes", &self.entries.len())
             .finish_non_exhaustive()
     }
@@ -139,9 +164,25 @@ impl<Id: WidgetId> Bridge<Id> {
         if !window.is_null() {
             platform.focused(unsafe { ng_platform_window_is_focused(window) } != 0);
         }
-        Ok(Self {
+        Ok(Self::with(
             platform,
-            canvas: canvas.clone(),
+            Surface::Canvas(canvas.clone()),
+            shared,
+            name,
+            attachment,
+        ))
+    }
+
+    fn with(
+        platform: platform::Adapter,
+        surface: Surface,
+        shared: Arc<Shared>,
+        name: &str,
+        attachment: Attachment,
+    ) -> Self {
+        Self {
+            platform,
+            surface,
             shared,
             name: name.into(),
             entries: HashMap::new(),
@@ -153,7 +194,7 @@ impl<Id: WidgetId> Bridge<Id> {
             menu_requests: Vec::new(),
             menu_focus: None,
             _attachment: attachment,
-        })
+        }
     }
 
     pub(crate) fn begin(&mut self) -> Vec<(Key<Id>, AccessibleAction)> {
@@ -319,7 +360,7 @@ impl<Id: WidgetId> Bridge<Id> {
         modal: Option<&[Key<Id>]>,
         menu_open: bool,
     ) {
-        if self.canvas.ensure_live().is_err() {
+        if !self.surface.is_live() {
             return;
         }
         self.entries
@@ -332,7 +373,9 @@ impl<Id: WidgetId> Bridge<Id> {
         }
         let mut root = Node::new(Role::Window);
         #[cfg(target_os = "windows")]
-        root.set_transform(Affine::scale(f64::from(self.canvas.scale_factor())));
+        if let Surface::Canvas(canvas) = &self.surface {
+            root.set_transform(Affine::scale(f64::from(canvas.scale_factor())));
+        }
         root.set_label(self.name.as_str());
         root.set_children(
             self.draw_order
@@ -374,7 +417,9 @@ impl<Id: WidgetId> Bridge<Id> {
             focus,
         };
         #[cfg(target_os = "linux")]
-        self.platform.geometry(&self.canvas);
+        if let Surface::Canvas(canvas) = &self.surface {
+            self.platform.geometry(canvas);
+        }
         self.platform.update(update);
     }
 
@@ -399,7 +444,7 @@ impl<Id: WidgetId> UiState<Id> {
     pub fn enable_accessibility(&mut self, canvas: &Canvas, name: &str) -> AureaResult<()> {
         canvas.ensure_live()?;
         if let Some(bridge) = &mut self.accessibility
-            && bridge.canvas.id() == canvas.id()
+            && bridge.surface.id() == canvas.id()
         {
             bridge.name.clear();
             bridge.name.push_str(name);
@@ -419,7 +464,7 @@ impl<Id: WidgetId> UiState<Id> {
         if self
             .accessibility
             .as_ref()
-            .is_some_and(|bridge| bridge.canvas.ensure_live().is_err())
+            .is_some_and(|bridge| !bridge.surface.is_live())
         {
             self.accessibility = None;
         }
