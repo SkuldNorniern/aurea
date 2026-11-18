@@ -1446,6 +1446,7 @@ pub(super) fn as_bytes<T: Copy>(slice: &[T]) -> &[u8] {
 mod context_tests {
     use super::*;
     use crate::cpu::CpuRasterizer;
+    use crate::effect::Effect;
     use crate::cpu::raster::coverage;
     use crate::renderer::{DrawingContext, Renderer};
     use crate::surface::{Surface as RenderSurface, SurfaceInfo};
@@ -1475,6 +1476,72 @@ mod context_tests {
         ctx.set_sampling(Sampling::Nearest).unwrap();
         ctx.draw_image_rect(image, Rect::new(6.0, 18.0, 8.0, 6.0))
             .unwrap();
+    }
+
+    /// Frost on stripes: the GPU frame matches the CPU one, inside the shape and around it.
+    #[test]
+    fn backdrops_match_the_cpu() {
+        let Ok(context) = ZenGpuContext::new() else {
+            return;
+        };
+        let (w, h) = (96, 64);
+        let draw = |ctx: &mut dyn DrawingContext| {
+            ctx.clear(Color::rgb(255, 255, 255)).unwrap();
+            for i in 0..24 {
+                let colour = if i % 2 == 0 {
+                    Color::rgb(220, 40, 40)
+                } else {
+                    Color::rgb(40, 60, 220)
+                };
+                ctx.draw_rect(
+                    Rect::new(i as f32 * 4.0, 0.0, 4.0, 64.0),
+                    &Paint::new().color(colour),
+                )
+                .unwrap();
+            }
+            let glass = Path::rounded_rect(Rect::new(20.0, 14.0, 56.0, 36.0), 10.0);
+            ctx.backdrop(
+                &glass,
+                &[
+                    Effect::Blur(9.0),
+                    Effect::Saturate(1.4),
+                    Effect::Tint(Color::rgba(255, 255, 255, 40)),
+                ],
+            )
+            .unwrap();
+        };
+        let mut cpu = CpuRasterizer::new(w, h);
+        cpu.init(RenderSurface::Cpu, SurfaceInfo::new(w, h, 1.0))
+            .unwrap();
+        draw(&mut *cpu.begin_frame().unwrap());
+        cpu.end_frame().unwrap();
+        let mut gpu = ZenGpuRenderer::offscreen(Arc::new(context), w, h, 1.0).unwrap();
+        draw(&mut *gpu.begin_frame().unwrap());
+        assert_eq!(gpu.end_frame().unwrap(), FrameOutcome::Presented);
+        let (want, got) = (
+            cpu.frame_output().expect("cpu"),
+            gpu.frame_output().expect("gpu"),
+        );
+        let channel = |v: u32, shift: u32| ((v >> shift) & 0xFF) as i32;
+        let worst = got
+            .words()
+            .iter()
+            .zip(want.words())
+            .map(|(&g, &c)| {
+                [16, 8, 0]
+                    .iter()
+                    .map(|&s| (channel(g, s) - channel(c, s)).abs())
+                    .max()
+                    .unwrap_or(0)
+            })
+            .max()
+            .unwrap_or(0);
+        assert!(worst <= 12, "gpu and cpu frost differ by {worst} of 255");
+        let middle = want.words()[(32 * w + 48) as usize];
+        assert!(
+            channel(middle, 16) < 200 && channel(middle, 0) < 200,
+            "the stripes under the glass are blurred together: {middle:08x}"
+        );
     }
 
     #[test]

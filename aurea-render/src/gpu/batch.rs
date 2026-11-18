@@ -1,6 +1,7 @@
 //! Backend-agnostic 2D batches lowered from a [`DisplayList`].
 
 use crate::capabilities::GpuFeatures;
+use crate::effect::Effect;
 use crate::cpu::raster::coverage;
 use crate::numeric::{f32_to_u8_clamped, f32_to_u32_clamped};
 use crate::scene::command::{DrawCommand, quad_bounds};
@@ -233,8 +234,11 @@ fn needs_of(item: &DisplayItem) -> GpuFeatures {
         DrawCommand::Clear(_) | DrawCommand::DrawRect(..) | DrawCommand::DrawColumns(..) => {
             GpuFeatures::NONE
         }
-        // Not drawn on the GPU yet: the shape shows what is under it unchanged.
-        DrawCommand::Backdrop(..) => GpuFeatures::NONE,
+        DrawCommand::Backdrop(_, effects) => GpuFeatures {
+            backdrops: true,
+            custom_backdrops: effects.iter().any(|e| matches!(e, Effect::Custom(_))),
+            ..GpuFeatures::NONE
+        },
         DrawCommand::DrawRoundRect(..) | DrawCommand::DrawShadow(..) => GpuFeatures {
             rounded_rects: true,
             ..GpuFeatures::NONE

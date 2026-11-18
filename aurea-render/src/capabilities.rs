@@ -25,6 +25,10 @@ pub struct GpuFeatures {
     pub stroked_circles: bool,
     /// App-made GPU textures.
     pub textures: bool,
+    /// Backdrops: blur, saturate, brightness and tint of what is drawn under a shape.
+    pub backdrops: bool,
+    /// Backdrops with an app's own filter, which runs over CPU pixels.
+    pub custom_backdrops: bool,
 }
 
 impl GpuFeatures {
@@ -40,6 +44,8 @@ impl GpuFeatures {
         blend_modes: false,
         stroked_circles: false,
         textures: false,
+        backdrops: false,
+        custom_backdrops: false,
     };
 
     /// Everything the CPU rasterizer draws.
@@ -54,6 +60,8 @@ impl GpuFeatures {
         blend_modes: true,
         stroked_circles: true,
         textures: false,
+        backdrops: true,
+        custom_backdrops: true,
     };
 
     /// What `needed` asks for that this set does not have.
@@ -69,6 +77,8 @@ impl GpuFeatures {
             blend_modes: needed.blend_modes && !self.blend_modes,
             stroked_circles: needed.stroked_circles && !self.stroked_circles,
             textures: needed.textures && !self.textures,
+            backdrops: needed.backdrops && !self.backdrops,
+            custom_backdrops: needed.custom_backdrops && !self.custom_backdrops,
         }
     }
 
@@ -85,6 +95,8 @@ impl GpuFeatures {
             blend_modes: self.blend_modes || other.blend_modes,
             stroked_circles: self.stroked_circles || other.stroked_circles,
             textures: self.textures || other.textures,
+            backdrops: self.backdrops || other.backdrops,
+            custom_backdrops: self.custom_backdrops || other.custom_backdrops,
         }
     }
 
@@ -99,7 +111,9 @@ impl GpuFeatures {
             || self.paths
             || self.blend_modes
             || self.stroked_circles
-            || self.textures)
+            || self.textures
+            || self.backdrops
+            || self.custom_backdrops)
     }
 }
 
