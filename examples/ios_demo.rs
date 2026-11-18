@@ -284,7 +284,8 @@ mod app {
                     s.pressure, s.tilt_x, s.tilt_y
                 )
             });
-        let caption = Rect::new(area.x + 12.0, area.y + 8.0, area.width - 100.0, 24.0);
+        // under the buttons: a phone is too narrow for both on one line
+        let caption = Rect::new(area.x + 12.0, area.y + 40.0, area.width - 24.0, 24.0);
         ui.text(&reading, caption, &fonts.small, p.dim, Align::Start)?;
         let clear = Rect::new(area.x + area.width - 84.0, area.y + 4.0, 76.0, 32.0);
         if Button::new("Clear").quiet().show(ui, CLEAR, clear)?.clicked {
@@ -299,7 +300,7 @@ mod app {
         }
         if sketch.typing {
             let covered = format!("keyboard covers {:.0} pt", keyboard_height());
-            let at = Rect::new(area.x + 12.0, area.y + 36.0, area.width - 24.0, 24.0);
+            let at = Rect::new(area.x + 12.0, area.y + 62.0, area.width - 24.0, 24.0);
             ui.text(&covered, at, &fonts.small, p.dim, Align::Start)?;
         }
         let open = Rect::new(clear.x - 84.0, clear.y, 76.0, 32.0);
