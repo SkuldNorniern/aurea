@@ -767,6 +767,17 @@ impl Window {
         (width.cast_unsigned(), height.cast_unsigned())
     }
 
+    /// The size the canvas draws at, in physical pixels: [`Self::size`] times the screen's
+    /// scale, rounded the way [`WindowEvent::Resized`] reports it. What a GPU surface should be.
+    pub fn canvas_size(&self) -> (u32, u32) {
+        let (width, height) = self.size();
+        let scale = native::scale(self.handle);
+        (
+            native::canvas_pixels(width, scale),
+            native::canvas_pixels(height, scale),
+        )
+    }
+
     /// Check if the window is currently focused.
     ///
     /// ```rust,no_run

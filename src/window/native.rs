@@ -32,6 +32,15 @@ pub(super) fn scale(handle: *mut c_void) -> f32 {
     if scale.is_finite() && scale > 0.0 { scale } else { 1.0 }
 }
 
+/// Physical pixels for `logical` at `scale`, rounded as the canvases size their buffers.
+pub(super) fn canvas_pixels(logical: u32, scale: f32) -> u32 {
+    let pixels = (f64::from(logical) * f64::from(scale)).round();
+    // logical sizes are window sized; the product stays far inside u32
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let pixels = pixels.max(0.0) as u32;
+    pixels
+}
+
 /// Native sizes are signed; anything past `i32::MAX` is clamped rather than wrapped negative.
 pub(super) fn to_native_dim(value: u32) -> i32 {
     i32::try_from(value).unwrap_or(i32::MAX)

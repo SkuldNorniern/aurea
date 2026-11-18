@@ -9,14 +9,6 @@ use aurea_foundation::WindowEvent;
 use aurea_runtime::{EventQueue, FrameScheduler};
 use std::os::raw::c_void;
 
-/// Physical pixels for `logical` at `scale`, rounded as the canvases size their buffers.
-fn canvas_pixels(logical: u32, scale: f32) -> u32 {
-    let pixels = (f64::from(logical) * f64::from(scale)).round();
-    // logical sizes are window sized; the product stays far inside u32
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let pixels = pixels.max(0.0) as u32;
-    pixels
-}
 use std::sync::Arc;
 
 /// The listener a window registers for its own lifecycle: converts each notice and queues it.
@@ -56,8 +48,8 @@ fn convert(handle: *mut c_void, close: &CloseFlags, event: LifecycleEvent) -> Op
                 width,
                 height,
                 scale,
-                canvas_width: canvas_pixels(width, scale),
-                canvas_height: canvas_pixels(height, scale),
+                canvas_width: native::canvas_pixels(width, scale),
+                canvas_height: native::canvas_pixels(height, scale),
             }
         }
         LifecycleEvent::WindowMinimized => {
@@ -81,7 +73,7 @@ fn convert(handle: *mut c_void, close: &CloseFlags, event: LifecycleEvent) -> Op
 
 #[cfg(test)]
 mod canvas_tests {
-    use super::canvas_pixels;
+    use super::native::canvas_pixels;
 
     #[test]
     fn canvas_pixels_round_like_the_canvases() {

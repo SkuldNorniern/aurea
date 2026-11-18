@@ -64,7 +64,8 @@ fn run() -> Result<()> {
     let handles = window
         .zengpu_handles()
         .map_err(|e| GpuError::Backend(format!("window handle: {e:?}")))?;
-    let (w, h) = window.size();
+    // the surface is in physical pixels, as the canvas draws
+    let (w, h) = window.canvas_size();
     let config = SurfaceConfig {
         format: Format::Bgra8Unorm,
         width: w,
@@ -119,8 +120,12 @@ fn run() -> Result<()> {
         for event in window.poll_events() {
             match event {
                 WindowEvent::CloseRequested => break 'main,
-                WindowEvent::Resized { width, height, .. } => {
-                    let _ = surface.resize(width.max(1), height.max(1));
+                WindowEvent::Resized {
+                    canvas_width,
+                    canvas_height,
+                    ..
+                } => {
+                    let _ = surface.resize(canvas_width.max(1), canvas_height.max(1));
                 }
                 _ => {}
             }
