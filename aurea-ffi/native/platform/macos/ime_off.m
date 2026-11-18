@@ -17,3 +17,9 @@ int ng_macos_window_set_ime_cursor_area(NGHandle window, float x, float y, float
     (void)height;
     return NG_SUCCESS;
 }
+
+int ng_macos_window_set_ime_allowed(NGHandle window, int allowed) {
+    (void)window;
+    (void)allowed;
+    return NG_SUCCESS;
+}

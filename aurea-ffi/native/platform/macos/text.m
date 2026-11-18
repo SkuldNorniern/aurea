@@ -33,6 +33,11 @@
     [[self inputContext] discardMarkedText];
 }
 
+/* no context with the input method kept out: AppKit then types keys as they are */
+- (NSTextInputContext*)inputContext {
+    return self.imeBlocked ? nil : [super inputContext];
+}
+
 /* interpretKeyEvents ends in insertText, setMarkedText or doCommandBySelector. */
 - (BOOL)interpretKey:(NSEvent*)event {
     imeSentCommand = NO;

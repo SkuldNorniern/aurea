@@ -71,6 +71,7 @@ static const ng_platform_ops_t macos_ops = {
     .window_set_cursor_icon = ng_macos_window_set_cursor_icon,
     .window_set_cursor_rgba = ng_macos_window_set_cursor_rgba,
     .window_set_ime_cursor_area = ng_macos_window_set_ime_cursor_area,
+    .window_set_ime_allowed = ng_macos_window_set_ime_allowed,
     .window_set_shortcuts = ng_macos_window_set_shortcuts,
     .window_get_content_view = ng_macos_window_get_content_view,
     .window_show = ng_macos_window_show,

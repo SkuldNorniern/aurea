@@ -3,6 +3,7 @@
 #import "window.h"
 #import "common/errors.h"
 #import "common/rust_callbacks.h"
+#import "text.h"
 
 void ng_macos_ime_preedit(AureaContentView* view, NSString* text, NSRange selected) {
     if (!view.windowHandle) return;
@@ -25,5 +26,17 @@ int ng_macos_window_set_ime_cursor_area(NGHandle window, float x, float y, float
     if (![view isKindOfClass:[AureaContentView class]]) return NG_ERROR_PLATFORM_SPECIFIC;
     ((AureaContentView*)view).imeArea = NSMakeRect(x, y, width, height);
     [[view inputContext] invalidateCharacterCoordinates];
+    return NG_SUCCESS;
+}
+
+int ng_macos_window_set_ime_allowed(NGHandle window, int allowed) {
+    if (!window) return NG_ERROR_INVALID_HANDLE;
+    NSView* view = [(__bridge NSWindow*)window contentView];
+    if (![view isKindOfClass:[AureaContentView class]]) return NG_ERROR_PLATFORM_SPECIFIC;
+    AureaContentView* content = (AureaContentView*)view;
+    if (content.imeBlocked == !allowed) return NG_SUCCESS;
+    /* a composition in flight goes before the input method does */
+    if (!allowed) ng_macos_text_drop(content);
+    content.imeBlocked = !allowed;
     return NG_SUCCESS;
 }

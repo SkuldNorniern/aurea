@@ -14,3 +14,7 @@ pub(crate) fn composing(_: String, _: c_int) -> Option<WindowEvent> {
 pub(crate) fn set_cursor_area(_: *mut c_void, _: Rect) -> AureaResult<()> {
     Ok(())
 }
+
+pub(crate) fn set_allowed(_: *mut c_void, _: bool) -> AureaResult<()> {
+    Ok(())
+}

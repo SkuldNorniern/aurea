@@ -2,7 +2,7 @@
 
 use std::os::raw::{c_char, c_int, c_void};
 
-use crate::ffi::ng_platform_window_set_ime_cursor_area;
+use crate::ffi::{ng_platform_window_set_ime_allowed, ng_platform_window_set_ime_cursor_area};
 use crate::input::c_string;
 use crate::window::native::plain_status;
 use crate::window::push_window_event;
@@ -32,6 +32,11 @@ pub(crate) fn set_cursor_area(handle: *mut c_void, area: Rect) -> AureaResult<()
         ng_platform_window_set_ime_cursor_area(handle, area.x, area.y, area.width, area.height)
     };
     plain_status(result)
+}
+
+/// Lets the input method of `handle` compose, or keeps it out so keys type as they are.
+pub(crate) fn set_allowed(handle: *mut c_void, allowed: bool) -> AureaResult<()> {
+    plain_status(unsafe { ng_platform_window_set_ime_allowed(handle, c_int::from(allowed)) })
 }
 
 fn cursor_at(text: &str, cursor: c_int) -> Option<usize> {

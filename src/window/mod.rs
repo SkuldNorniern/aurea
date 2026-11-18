@@ -898,6 +898,14 @@ impl Window {
         ime::set_cursor_area(self.handle, area)
     }
 
+    /// Lets an input method compose in this window, or keeps it out so keys type as they are:
+    /// off where no text field has focus, so a shortcut key is not taken into a composition, and
+    /// for a password. On by default; systems without the switch keep it on.
+    pub fn set_ime_allowed(&self, allowed: bool) -> AureaResult<()> {
+        ui_thread::check("Window::set_ime_allowed");
+        ime::set_allowed(self.handle, allowed)
+    }
+
     /// Keys this window keeps for itself even while a child view, such as an embedded web view, has
     /// keyboard focus.
     pub fn set_shortcuts(&self, shortcuts: &[(KeyCode, Modifiers)]) -> AureaResult<()> {

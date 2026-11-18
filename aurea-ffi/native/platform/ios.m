@@ -344,6 +344,12 @@ int ng_platform_window_set_cursor_icon(NGHandle window, int icon) {
     return NG_ERROR_PLATFORM_SPECIFIC;
 }
 
+int ng_platform_window_set_ime_allowed(NGHandle window, int allowed) {
+    (void)window;
+    (void)allowed;
+    return NG_SUCCESS;
+}
+
 int ng_platform_window_set_ime_cursor_area(NGHandle window, float x, float y, float width, float height) {
     (void)window;
     (void)x;

@@ -28,6 +28,8 @@
 @property (nonatomic, strong) NSMutableIndexSet* heldShortcuts;
 /* where the caret of the focused field is, for the candidate window. view points, top down */
 @property (nonatomic, assign) NSRect imeArea;
+/* the input method stays out: keys type as they are, with nothing composed */
+@property (nonatomic, assign) BOOL imeBlocked;
 @end
 
 /* NG_MOD_* of an event. */

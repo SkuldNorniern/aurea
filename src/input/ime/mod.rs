@@ -11,9 +11,9 @@ mod off;
 mod on;
 
 #[cfg(not(feature = "ime"))]
-pub(crate) use off::{composing, deliver, set_cursor_area};
+pub(crate) use off::{composing, deliver, set_allowed, set_cursor_area};
 #[cfg(feature = "ime")]
-pub(crate) use on::{composing, deliver, set_cursor_area};
+pub(crate) use on::{composing, deliver, set_allowed, set_cursor_area};
 
 /// Whether input method composition is built in.
 pub(crate) const fn built() -> bool {

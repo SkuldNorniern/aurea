@@ -257,6 +257,8 @@ unsafe extern "C" {
         hot_x: c_uint,
         hot_y: c_uint,
     ) -> c_int;
+    /// Lets an input method compose in a window, or keeps it out.
+    pub fn ng_platform_window_set_ime_allowed(window: *mut c_void, allowed: c_int) -> c_int;
     /// Sets the IME candidate area for a window.
     pub fn ng_platform_window_set_ime_cursor_area(
         window: *mut c_void,
