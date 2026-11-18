@@ -528,12 +528,15 @@ static void ng_macos_forget_held_shortcuts(void* window);
 }
 @end
 
-static NSMutableDictionary* windowDelegates = nil;
-
 /* the Aurea view of a window, nil for any other content */
 static AureaContentView* ng_macos_view(NSWindow* window) {
     NSView* content = [window contentView];
     return [content isKindOfClass:[AureaContentView class]] ? (AureaContentView*)content : nil;
+}
+
+/* the delegate an Aurea window's view keeps, nil for any other window */
+static WindowDelegate* ng_macos_delegate(NSWindow* window) {
+    return (WindowDelegate*)ng_macos_view(window).windowDelegate;
 }
 
 static BOOL s_cursor_hidden = NO;
@@ -588,10 +591,6 @@ NGHandle ng_macos_create_window_with_type(const char* title, int width, int heig
     
     if (width <= 0 || height <= 0) {
         return NULL;
-    }
-    
-    if (!windowDelegates) {
-        windowDelegates = [[NSMutableDictionary alloc] init];
     }
     
     NSRect frame = NSMakeRect(0, 0, width, height);
@@ -655,9 +654,6 @@ NGHandle ng_macos_create_window_with_type(const char* title, int width, int heig
     delegate.windowHandle = (__bridge void*)window;
     [window setDelegate:delegate];
     
-    NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)window];
-    [windowDelegates setObject:delegate forKey:windowValue];
-    
     [window setTitle:ng_macos_to_nsstring(title)];
 
     /* A window asked bigger than the screen's visible frame would hide its own edges. */
@@ -679,6 +675,7 @@ NGHandle ng_macos_create_window_with_type(const char* title, int width, int heig
     [window setAcceptsMouseMovedEvents:YES];
     AureaContentView* contentView = [[AureaContentView alloc] initWithFrame:frame];
     contentView.windowHandle = (__bridge void*)window;
+    contentView.windowDelegate = delegate;
     [contentView setWantsLayer:YES];
     ng_macos_drop_register(contentView);
     [window setContentView:contentView];
@@ -704,12 +701,9 @@ void ng_macos_destroy_window(NGHandle handle) {
     if (!handle) return;
     NSWindow* window = (__bridge_transfer NSWindow*)handle;
     [window setDelegate:nil];
-    if (windowDelegates) {
-        NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)window];
-        WindowDelegate* delegate = [windowDelegates objectForKey:windowValue];
-        if (delegate.hideOnClose) ng_macos_hide_on_close_count--;
-        [windowDelegates removeObjectForKey:windowValue];
-    }
+    WindowDelegate* delegate = ng_macos_delegate(window);
+    if (delegate.hideOnClose) ng_macos_hide_on_close_count--;
+    ng_macos_view(window).windowDelegate = nil;
     if (ng_macos_cursor_locked(window)) {
         CGAssociateMouseAndMouseCursorPosition(true);
     }
@@ -724,20 +718,18 @@ void ng_macos_destroy_window(NGHandle handle) {
 }
 
 void ng_macos_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallback callback) {
-    if (!window || !windowDelegates) return;
+    if (!window) return;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
-    NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)nsWindow];
-    WindowDelegate* delegate = [windowDelegates objectForKey:windowValue];
+    WindowDelegate* delegate = ng_macos_delegate(nsWindow);
     if (delegate) {
         delegate.scaleFactorCallback = callback;
     }
 }
 
 void ng_macos_window_set_lifecycle_callback(NGHandle window) {
-    if (!window || !windowDelegates) return;
+    if (!window) return;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
-    NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)nsWindow];
-    WindowDelegate* delegate = [windowDelegates objectForKey:windowValue];
+    WindowDelegate* delegate = ng_macos_delegate(nsWindow);
     if (delegate) {
         delegate.lifecycleCallbackEnabled = YES;
     }
@@ -1282,10 +1274,9 @@ int ng_macos_detach_element(NGHandle element) {
 }
 
 void ng_macos_window_set_close_guard(NGHandle window, int guarded) {
-    if (!window || !windowDelegates) return;
+    if (!window) return;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
-    NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)nsWindow];
-    WindowDelegate* delegate = [windowDelegates objectForKey:windowValue];
+    WindowDelegate* delegate = ng_macos_delegate(nsWindow);
     if (!delegate) return;
     delegate.closeGuarded = guarded != 0;
 }
@@ -1294,8 +1285,9 @@ int ng_macos_hide_on_close_count = 0;
 
 int ng_macos_request_close_all(void) {
     int asked = 0;
-    for (WindowDelegate* delegate in [[windowDelegates allValues] copy]) {
-        if (!delegate.lifecycleCallbackEnabled || !delegate.windowHandle) continue;
+    for (NSWindow* window in [[NSApp windows] copy]) {
+        WindowDelegate* delegate = ng_macos_delegate(window);
+        if (!delegate || !delegate.lifecycleCallbackEnabled || !delegate.windowHandle) continue;
         ng_invoke_lifecycle_callback(delegate.windowHandle, 5);
         asked++;
     }
@@ -1303,10 +1295,9 @@ int ng_macos_request_close_all(void) {
 }
 
 int ng_macos_window_set_hide_on_close(NGHandle window, int hide) {
-    if (!window || !windowDelegates) return NG_ERROR_INVALID_HANDLE;
+    if (!window) return NG_ERROR_INVALID_HANDLE;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
-    NSValue* windowValue = [NSValue valueWithPointer:(__bridge const void*)nsWindow];
-    WindowDelegate* delegate = [windowDelegates objectForKey:windowValue];
+    WindowDelegate* delegate = ng_macos_delegate(nsWindow);
     if (!delegate) return NG_ERROR_INVALID_HANDLE;
     BOOL want = hide != 0;
     if (want != delegate.hideOnClose) ng_macos_hide_on_close_count += want ? 1 : -1;

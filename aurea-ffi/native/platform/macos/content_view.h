@@ -22,6 +22,8 @@
 @property (nonatomic, assign) int grabMode;
 /* the first raw delta after a lock is the warp to the middle, drop it */
 @property (nonatomic, assign) BOOL rawSuppress;
+/* the window's delegate: the window holds it only weakly, its view keeps it alive */
+@property (nonatomic, strong) id<NSWindowDelegate> windowDelegate;
 /* where the caret of the focused field is, for the candidate window. view points, top down */
 @property (nonatomic, assign) NSRect imeArea;
 @end
