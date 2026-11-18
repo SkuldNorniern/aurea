@@ -1,4 +1,4 @@
-// Made by identity.sh from Cargo.toml; edit [package.metadata.aurea] there instead.
+// Made by aurea-identity.sh from Cargo.toml; edit [package.metadata.aurea] there instead.
 PRODUCT_BUNDLE_IDENTIFIER = com.aurea.smoke
 INFOPLIST_KEY_CFBundleDisplayName = Aurea Smoke
 MARKETING_VERSION = 0.1.0
