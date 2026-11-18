@@ -429,9 +429,13 @@ mod tests {
     fn drag_left_edge(q: &EventQueue, steps: i32) {
         for step in 0..steps {
             q.push(WindowEvent::Moved { x: -step, y: 0 });
+            let width = 800 + step.cast_unsigned();
             q.push(WindowEvent::Resized {
-                width: 800 + step.cast_unsigned(),
+                width,
                 height: 600,
+                scale: 2.0,
+                canvas_width: width * 2,
+                canvas_height: 1200,
             });
         }
     }
@@ -444,6 +448,9 @@ mod tests {
         q.push(WindowEvent::Resized {
             width: 1,
             height: 1,
+            scale: 1.0,
+            canvas_width: 1,
+            canvas_height: 1,
         });
 
         let events = q.pop_all();
@@ -453,7 +460,9 @@ mod tests {
             events[1],
             WindowEvent::Resized {
                 width: 1299,
-                height: 600
+                height: 600,
+                canvas_width: 2598,
+                ..
             }
         ));
         assert!(matches!(events[2], WindowEvent::Focused));

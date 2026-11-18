@@ -119,7 +119,7 @@ fn run() -> Result<()> {
         for event in window.poll_events() {
             match event {
                 WindowEvent::CloseRequested => break 'main,
-                WindowEvent::Resized { width, height } => {
+                WindowEvent::Resized { width, height, .. } => {
                     let _ = surface.resize(width.max(1), height.max(1));
                 }
                 _ => {}

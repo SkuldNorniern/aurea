@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         for event in window.poll_events() {
             match event {
                 WindowEvent::CloseRequested => break 'main,
-                WindowEvent::Resized { width, height } => {
+                WindowEvent::Resized { width, height, .. } => {
                     renderer.resize(width, height)?;
                 }
                 _ => {}

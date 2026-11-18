@@ -1560,7 +1560,10 @@ mod tests {
             !state
                 .handle_input(&WindowEvent::Resized {
                     width: 200,
-                    height: 200
+                    height: 200,
+                    scale: 1.0,
+                    canvas_width: 200,
+                    canvas_height: 200,
                 })
                 .consumed
         );

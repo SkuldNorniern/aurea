@@ -8,6 +8,15 @@ use crate::trim_memory;
 use aurea_foundation::WindowEvent;
 use aurea_runtime::{EventQueue, FrameScheduler};
 use std::os::raw::c_void;
+
+/// Physical pixels for `logical` at `scale`, rounded as the canvases size their buffers.
+fn canvas_pixels(logical: u32, scale: f32) -> u32 {
+    let pixels = (f64::from(logical) * f64::from(scale)).round();
+    // logical sizes are window sized; the product stays far inside u32
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let pixels = pixels.max(0.0) as u32;
+    pixels
+}
 use std::sync::Arc;
 
 /// The listener a window registers for its own lifecycle: converts each notice and queues it.
@@ -41,9 +50,14 @@ fn convert(handle: *mut c_void, close: &CloseFlags, event: LifecycleEvent) -> Op
         }
         LifecycleEvent::WindowResized => {
             let (width, height) = native::size(handle);
+            let (width, height) = (width.cast_unsigned(), height.cast_unsigned());
+            let scale = native::scale(handle);
             WindowEvent::Resized {
-                width: width.cast_unsigned(),
-                height: height.cast_unsigned(),
+                width,
+                height,
+                scale,
+                canvas_width: canvas_pixels(width, scale),
+                canvas_height: canvas_pixels(height, scale),
             }
         }
         LifecycleEvent::WindowMinimized => {
@@ -63,4 +77,17 @@ fn convert(handle: *mut c_void, close: &CloseFlags, event: LifecycleEvent) -> Op
         LifecycleEvent::SurfaceRecreated => WindowEvent::SurfaceRecreated,
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod canvas_tests {
+    use super::canvas_pixels;
+
+    #[test]
+    fn canvas_pixels_round_like_the_canvases() {
+        assert_eq!(canvas_pixels(800, 2.0), 1600);
+        assert_eq!(canvas_pixels(801, 1.25), 1001);
+        assert_eq!(canvas_pixels(3, 1.5), 5, "4.5 rounds up");
+        assert_eq!(canvas_pixels(0, 2.0), 0);
+    }
 }

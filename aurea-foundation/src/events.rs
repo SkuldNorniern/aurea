@@ -20,6 +20,12 @@ pub enum WindowEvent {
         width: u32,
         /// Height in logical pixels.
         height: u32,
+        /// Physical pixels a logical pixel takes on the window's screen now.
+        scale: f32,
+        /// Width the canvas draws at, in physical pixels: what a GPU surface should be.
+        canvas_width: u32,
+        /// Height the canvas draws at, in physical pixels.
+        canvas_height: u32,
     },
     /// The window moved on screen.
     Moved {

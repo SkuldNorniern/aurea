@@ -2,8 +2,8 @@
 
 use super::close::CloseFlags;
 use crate::ffi::{
-    ng_platform_window_get_position, ng_platform_window_get_size, ng_platform_window_request_close,
-    ng_platform_window_set_close_guard,
+    ng_platform_get_scale_factor, ng_platform_window_get_position, ng_platform_window_get_size,
+    ng_platform_window_request_close, ng_platform_window_set_close_guard,
 };
 use crate::{AureaError, AureaResult};
 use std::os::raw::{c_int, c_void};
@@ -24,6 +24,12 @@ pub(super) fn size(handle: *mut c_void) -> (i32, i32) {
         ng_platform_window_get_size(handle, &mut width, &mut height);
     }
     (width, height)
+}
+
+/// Physical pixels a logical pixel takes now; 1 when the system gives nothing sensible.
+pub(super) fn scale(handle: *mut c_void) -> f32 {
+    let scale = unsafe { ng_platform_get_scale_factor(handle) };
+    if scale.is_finite() && scale > 0.0 { scale } else { 1.0 }
 }
 
 /// Native sizes are signed; anything past `i32::MAX` is clamped rather than wrapped negative.

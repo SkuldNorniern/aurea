@@ -584,7 +584,7 @@ impl Window {
     ///         aurea::WindowEvent::CloseRequested => {
     ///             println!("Window close requested");
     ///         }
-    ///         aurea::WindowEvent::Resized { width, height } => {
+    ///         aurea::WindowEvent::Resized { width, height, .. } => {
     ///             println!("Window resized to {}x{}", width, height);
     ///         }
     ///         _ => {}
@@ -1335,6 +1335,9 @@ mod event_queue_tests {
         queue.push(WindowEvent::Resized {
             width: 800,
             height: 600,
+            scale: 2.0,
+            canvas_width: 1600,
+            canvas_height: 1200,
         });
         let out = queue.pop_all();
         assert_eq!(out.len(), 1);
@@ -1342,7 +1345,10 @@ mod event_queue_tests {
             &out[0],
             WindowEvent::Resized {
                 width: 800,
-                height: 600
+                height: 600,
+                scale: 2.0,
+                canvas_width: 1600,
+                canvas_height: 1200,
             }
         ));
     }
