@@ -52,6 +52,7 @@ static const ng_platform_ops_t windows_ops = {
     .window_set_cursor_icon = ng_windows_window_set_cursor_icon,
     .window_set_cursor_rgba = ng_windows_window_set_cursor_rgba,
     .window_set_ime_cursor_area = ng_windows_window_set_ime_cursor_area,
+    .window_set_ime_allowed = ng_windows_window_set_ime_allowed,
     .window_set_shortcuts = ng_windows_window_set_shortcuts,
     .window_get_content_view = ng_windows_window_get_content_view,
     .window_show = ng_windows_window_show,

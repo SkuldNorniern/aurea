@@ -30,6 +30,12 @@ int ng_linux_ime_active(GtkWidget* window) {
     return 0;
 }
 
+int ng_linux_window_set_ime_allowed(NGHandle window, int allowed) {
+    (void)window;
+    (void)allowed;
+    return NG_SUCCESS;
+}
+
 int ng_linux_window_set_ime_cursor_area(NGHandle window, float x, float y, float width, float height) {
     (void)window;
     (void)x;

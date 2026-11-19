@@ -71,6 +71,36 @@ int ng_windows_window_set_ime_cursor_area(NGHandle window, float x, float y, flo
     return NG_SUCCESS;
 }
 
+static void ng_windows_ime_cancel(HWND hwnd) {
+    HIMC imc = ImmGetContext(hwnd);
+    if (!imc) return;
+    if (ImmGetCompositionStringW(imc, GCS_COMPSTR, NULL, 0) > 0) {
+        ImmNotifyIME(imc, NI_COMPOSITIONSTR, CPS_CANCEL, 0);
+    }
+    ImmReleaseContext(hwnd, imc);
+}
+
+/* Keeps the input method out of `window`: a composition in flight is cancelled, and its context
+   is detached until allowed again. */
+int ng_windows_window_set_ime_allowed(NGHandle window, int allowed) {
+    if (!window) return NG_ERROR_INVALID_HANDLE;
+    HWND hwnd = (HWND)window;
+    NGWindow* w = ng_windows_window_state(hwnd);
+    if (!w) return NG_ERROR_INVALID_HANDLE;
+
+    BOOL blocked = !allowed;
+    if (blocked == w->ime_blocked) return NG_SUCCESS;
+    if (blocked) {
+        ng_windows_ime_cancel(hwnd);
+        w->ime_saved = ImmAssociateContext(hwnd, NULL);
+    } else {
+        ImmAssociateContextEx(hwnd, w->ime_saved, w->ime_saved ? 0 : IACE_DEFAULT);
+        w->ime_saved = NULL;
+    }
+    w->ime_blocked = blocked;
+    return NG_SUCCESS;
+}
+
 static char* ng_windows_ime_string(HIMC imc, DWORD kind, LONG* units) {
     LONG bytes = ImmGetCompositionStringW(imc, kind, NULL, 0);
     if (units) *units = 0;

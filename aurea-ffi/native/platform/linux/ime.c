@@ -8,6 +8,8 @@ typedef struct {
     GtkWidget* window;
     GtkIMContext* context;
     gboolean composing;
+    /* Kept out: keys skip the input method and type as they are. */
+    gboolean blocked;
 } NgIme;
 
 #define AUREA_IME_KEY "aurea-ime"
@@ -80,7 +82,7 @@ void ng_linux_ime_attach(GtkWidget* window) {
 void ng_linux_ime_focus(GtkWidget* window, int focused) {
     NgIme* ime = ime_of(window);
     if (!ime) return;
-    if (focused) {
+    if (focused && !ime->blocked) {
         gtk_im_context_focus_in(ime->context);
     } else {
         gtk_im_context_focus_out(ime->context);
@@ -98,7 +100,8 @@ int ng_linux_ime_composing(GtkWidget* window) {
 }
 
 int ng_linux_ime_active(GtkWidget* window) {
-    if (!ime_of(window)) return 0;
+    NgIme* ime = ime_of(window);
+    if (!ime || ime->blocked) return 0;
     GtkWidget* focus = gtk_window_get_focus(GTK_WINDOW(window));
     return focus == NULL || GTK_IS_DRAWING_AREA(focus);
 }
@@ -107,6 +110,23 @@ int ng_linux_ime_filter(GtkWidget* window, GdkEventKey* event) {
     NgIme* ime = ime_of(window);
     if (!ime || !ng_linux_ime_active(window)) return 0;
     return gtk_im_context_filter_keypress(ime->context, event);
+}
+
+/* Keeps the input method out of `window`: a composition in flight is dropped, and no key goes
+   through it until allowed again. */
+int ng_linux_window_set_ime_allowed(NGHandle window, int allowed) {
+    NgIme* ime = ime_of((GtkWidget*)window);
+    if (!ime) return NG_ERROR_INVALID_HANDLE;
+    gboolean blocked = !allowed;
+    if (blocked == ime->blocked) return NG_SUCCESS;
+    ime->blocked = blocked;
+    if (blocked) {
+        gtk_im_context_reset(ime->context);
+        gtk_im_context_focus_out(ime->context);
+    } else if (gtk_window_has_toplevel_focus(GTK_WINDOW(ime->window))) {
+        gtk_im_context_focus_in(ime->context);
+    }
+    return NG_SUCCESS;
 }
 
 int ng_linux_window_set_ime_cursor_area(NGHandle window, float x, float y, float width, float height) {

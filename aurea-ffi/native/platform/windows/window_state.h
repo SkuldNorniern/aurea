@@ -2,6 +2,7 @@
 #define NATIVE_GUI_WINDOWS_WINDOW_STATE_H
 
 #include <windows.h>
+#include <imm.h>
 #include "common/platform_api.h"
 
 #ifdef __cplusplus
@@ -54,6 +55,9 @@ typedef struct NGWindow {
     RECT ime_area;
     /* The app has heard the preedit cleared. */
     BOOL ime_cleared;
+    /* The input method is detached, and the context it had to put back. */
+    BOOL ime_blocked;
+    HIMC ime_saved;
 } NGWindow;
 
 /* Makes and frees `hwnd`'s state; the window procedure calls these. */

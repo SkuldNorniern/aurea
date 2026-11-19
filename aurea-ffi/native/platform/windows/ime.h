@@ -6,6 +6,9 @@
 
 int ng_windows_window_set_ime_cursor_area(NGHandle window, float x, float y, float width, float height);
 
+/* Lets the input method compose in `window`, or detaches it so keys type as they are. */
+int ng_windows_window_set_ime_allowed(NGHandle window, int allowed);
+
 /* Handles WM_IME_ for a window. */
 int ng_windows_ime_message(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result);
 

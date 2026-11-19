@@ -10,6 +10,12 @@ int ng_windows_window_set_ime_cursor_area(NGHandle window, float x, float y, flo
     return NG_SUCCESS;
 }
 
+int ng_windows_window_set_ime_allowed(NGHandle window, int allowed) {
+    (void)window;
+    (void)allowed;
+    return NG_SUCCESS;
+}
+
 int ng_windows_ime_message(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result) {
     (void)hwnd;
     (void)msg;

@@ -27,4 +27,7 @@ void ng_linux_content_origin(GtkWidget* window, int* x, int* y);
 
 int ng_linux_window_set_ime_cursor_area(NGHandle window, float x, float y, float width, float height);
 
+/* Lets the input method take keys in `window`, or keeps it out so keys type as they are. */
+int ng_linux_window_set_ime_allowed(NGHandle window, int allowed);
+
 #endif
