@@ -2129,7 +2129,7 @@ mod win32_occlusion_tests {
 
 #[cfg(all(test, windows))]
 mod win32_wheel_tests {
-    use crate::{AureaResult, Window, WindowEvent};
+    use crate::{AureaResult, ScrollEvent, Window, WindowEvent};
     use std::os::raw::c_void;
 
     const WM_MOUSEWHEEL: u32 = 0x020A;
