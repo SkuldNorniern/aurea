@@ -8,14 +8,17 @@ mod app {
     use aurea::elements::{
         Checkbox as NativeCheckbox, Container, Label, Orientation, RowList, ScrollView,
         ScrollbarPolicy, SidebarList, SplitOrientation, SplitView, Stack, TabBar, Table,
-        TextControl, TextEditor, TextField, TextStyle,
+        TextControl, TextEditor, TextField as NativeTextField, TextStyle,
     };
     use aurea::ios::{
         create_menu_bar, keyboard_height, on_event, pick_files, request_frame, run as run_app,
         set_theme, show_keyboard, show_native,
     };
     use aurea::logger::init_from_env;
-    use aurea::ui::{Align, Button, Checkbox, ProgressBar, Segmented, Slider, Theme, Toggle, Ui};
+    use aurea::ui::{
+        Align, Button, Checkbox, ProgressBar, Segmented, Slider, TextField as CanvasTextField,
+        Theme, Toggle, Ui,
+    };
     use aurea::{
         AureaResult, MenuBar, MenuShortcut, PenPhase, PenSample, Point, PointerKind, Rect,
         ShortcutKey, WindowEvent,
@@ -35,9 +38,10 @@ mod app {
     const OPEN: u64 = 9;
     const TYPE: u64 = 10;
     const HEADER: u64 = 11;
+    const NAME: u64 = 12;
 
     /// Where the pad starts, below the controls.
-    const PAD_TOP: f32 = 448.0;
+    const PAD_TOP: f32 = 500.0;
 
     /// Pencil strokes: each point with the width its pressure gave it.
     #[derive(Default)]
@@ -151,7 +155,7 @@ mod app {
     fn native_widgets() -> AureaResult<Stack> {
         let mut root = Stack::new(Orientation::Vertical)?;
         root.add(Label::with_style("Native widgets", TextStyle::Heading)?)?;
-        let field = TextField::with_content("A text field")?;
+        let field = NativeTextField::with_content("A text field")?;
         field.on_change(|_| println!("native tap: field changed"))?;
         root.add(field)?;
         root.add(TabBar::with_callbacks_and_tabs(
@@ -191,7 +195,7 @@ mod app {
     fn native_check() -> AureaResult<()> {
         let check =
             |name: &str, ok: bool| println!("native {name}: {}", if ok { "ok" } else { "FAILED" });
-        let field = TextField::with_content("hello")?;
+        let field = NativeTextField::with_content("hello")?;
         check("field text", field.text()? == "hello");
         field.replace(0..5, "연결 ok")?;
         check("field replace", field.text()? == "연결 ok");
@@ -259,6 +263,7 @@ mod app {
         muted: bool,
         share: bool,
         look: usize,
+        name: String,
     }
 
     fn pad(
@@ -394,6 +399,9 @@ mod app {
             .show(ui, SHARE, row(324.0, 44.0))?;
         let look = s.look;
         Segmented::new(&["Light", "Dark"], &mut s.look).show(ui, LOOK, row(384.0, 44.0))?;
+        CanvasTextField::new(&mut s.name)
+            .placeholder("Name")
+            .show(ui, NAME, row(440.0, 44.0))?;
         if s.look != look {
             set_theme(if s.look == 0 {
                 Theme::light()
