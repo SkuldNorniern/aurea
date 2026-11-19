@@ -676,6 +676,23 @@ impl<Id: WidgetId> Ui<'_, Id> {
             node.set_label(label);
         }
     }
+    /// Lets screen readers read `text` drawn at `rect`, such as a heading or a status line. It
+    /// takes no input, so it can sit over controls.
+    pub fn accessible_text(&mut self, id: Id, part: u16, rect: Rect, text: &str) {
+        let rect = match self.state.clip {
+            Some(clip) => rect
+                .intersection(clip)
+                .unwrap_or_else(|| Rect::new(rect.x, rect.y, 0.0, 0.0)),
+            None => rect,
+        };
+        let key = Key::new(id, part);
+        self.state
+            .accessibility_register(key, rect, Sense::Hover, true);
+        if let Some(bridge) = &mut self.state.accessibility {
+            bridge.describe(key, Role::Label, text, None);
+        }
+    }
+
     /// Describe a custom widget after registering it with `interact`.
     pub fn accessible(&mut self, id: Id, part: u16, mut node: Node) {
         if let Some(bridge) = &mut self.state.accessibility

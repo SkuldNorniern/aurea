@@ -119,6 +119,9 @@ impl<Id: WidgetId> Ui<'_, Id> {
     pub fn accessible(&mut self, _: Id, _: u16, _: Node) {}
 
     #[inline]
+    pub fn accessible_text(&mut self, _: Id, _: u16, _: Rect, _: &str) {}
+
+    #[inline]
     pub fn accessibility_actions(&mut self, _: Id, _: u16) -> Vec<AccessibleAction> {
         Vec::new()
     }
