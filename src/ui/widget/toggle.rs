@@ -329,6 +329,8 @@ impl<'v> Checkbox<'v> {
             ui.mark_changed();
         }
         let state = ui.eased(id, 0, input);
+        ui.accessible_description(id, 0, Role::CheckBox, self.label.unwrap_or(""), None);
+        ui.with_accessible(id, 0, |node| node.set_toggled((*self.checked).into()));
         let rate = ui.theme.motion.slide * 1.5;
         let progress = ui.animate(
             id,

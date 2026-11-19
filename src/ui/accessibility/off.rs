@@ -15,6 +15,7 @@ use crate::ui::state::{Key, Sense, UiState, WidgetId};
 pub enum Role {
     Alert,
     Button,
+    CheckBox,
     ComboBox,
     DisclosureTriangle,
     Link,
