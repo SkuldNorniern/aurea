@@ -315,15 +315,14 @@ fn main() {
     }
 
     if is_ios {
-        println!("cargo:rustc-link-lib=framework=UIKit");
-        println!("cargo:rustc-link-lib=framework=Foundation");
+        let simulator = target.ends_with("-sim") || target.starts_with("x86_64-apple-ios");
+        link_ios(simulator);
 
         add_sources(&mut build, &root, common_c);
         add_sources(&mut build, &root, ios_sources);
         // Simulator objects carry their own platform; built with the device
         // flag they fail to link into a simulator app. `TARGET_OS_*` comes
         // from <TargetConditionals.h>, so it is not defined here.
-        let simulator = target.ends_with("-sim") || target.starts_with("x86_64-apple-ios");
         let min_version = if simulator {
             "-mios-simulator-version-min=13.0"
         } else {
@@ -457,6 +456,27 @@ fn link_windows_libs() {
 }
 
 /// Whether the cargo feature env var `name` is set, i.e. the feature is on.
+/// `@available` in the Objective-C compiles to `__isPlatformVersionAtLeast`, which lives in
+/// clang's runtime. rustc doesn't link that runtime, and LTO drops Rust's own copy, so a release
+/// build fails to link without it. `-bundle` hands the archive to the final link, which takes
+/// only what is used.
+fn link_clang_runtime(name: &str) {
+    let Ok(out) = Command::new("xcrun")
+        .args(["clang", "--print-resource-dir"])
+        .output()
+    else {
+        return;
+    };
+    if !out.status.success() {
+        return;
+    }
+    let dir = Path::new(String::from_utf8_lossy(&out.stdout).trim()).join("lib/darwin");
+    if dir.join(format!("lib{name}.a")).is_file() {
+        println!("cargo:rustc-link-search=native={}", dir.display());
+        println!("cargo:rustc-link-lib=static:-bundle={name}");
+    }
+}
+
 /// The frameworks the macOS host links, GameController only with pads.
 fn link_macos_frameworks() {
     for framework in [
@@ -472,6 +492,18 @@ fn link_macos_frameworks() {
     if feature_on("CARGO_FEATURE_GAMEPAD") {
         println!("cargo:rustc-link-lib=framework=GameController");
     }
+    link_clang_runtime("clang_rt.osx");
+}
+
+/// What the iOS host links: UIKit, Foundation and clang's runtime for the device or simulator.
+fn link_ios(simulator: bool) {
+    println!("cargo:rustc-link-lib=framework=UIKit");
+    println!("cargo:rustc-link-lib=framework=Foundation");
+    link_clang_runtime(if simulator {
+        "clang_rt.iossim"
+    } else {
+        "clang_rt.ios"
+    });
 }
 
 fn feature_on(name: &str) -> bool {
