@@ -287,11 +287,10 @@ mod app {
         // under the buttons: a phone is too narrow for both on one line
         let caption = Rect::new(area.x + 12.0, area.y + 40.0, area.width - 24.0, 24.0);
         ui.text(&reading, caption, &fonts.small, p.dim, Align::Start)?;
+        // left to right, the order screen readers read them in
         let clear = Rect::new(area.x + area.width - 84.0, area.y + 4.0, 76.0, 32.0);
-        if Button::new("Clear").quiet().show(ui, CLEAR, clear)?.clicked {
-            sketch.strokes.clear();
-        }
         let typing = Rect::new(clear.x - 168.0, clear.y, 76.0, 32.0);
+        let open = Rect::new(clear.x - 84.0, clear.y, 76.0, 32.0);
         let label = if sketch.typing { "Done" } else { "Type" };
         if Button::new(label).quiet().show(ui, TYPE, typing)?.clicked {
             // the on-screen keyboard; what it types shows top right.
@@ -303,7 +302,6 @@ mod app {
             let at = Rect::new(area.x + 12.0, area.y + 62.0, area.width - 24.0, 24.0);
             ui.text(&covered, at, &fonts.small, p.dim, Align::Start)?;
         }
-        let open = Rect::new(clear.x - 84.0, clear.y, 76.0, 32.0);
         if Button::new("Open").quiet().show(ui, OPEN, open)?.clicked {
             // the system picker; the top right line says what came back.
             let shown = Rc::clone(last);
@@ -317,6 +315,9 @@ mod app {
             if let Err(e) = asked {
                 *last.borrow_mut() = format!("picker: {e}");
             }
+        }
+        if Button::new("Clear").quiet().show(ui, CLEAR, clear)?.clicked {
+            sketch.strokes.clear();
         }
         for stroke in &sketch.strokes {
             for pair in stroke.windows(2) {
