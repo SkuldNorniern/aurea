@@ -449,7 +449,7 @@ mod tests {
     use crate::types::{Paint, Path};
 
     /// Stripes 8 pixels wide, black and white, with the white column at `shift` moved.
-    fn stripes(raster: &mut CpuRasterizer, shift: f32, glass: bool) -> Vec<u32> {
+    fn stripes(raster: &mut CpuRasterizer, shift: f32, glass: Option<f32>) -> Vec<u32> {
         let (w, h) = (800u32, 600u32);
         {
             let mut ctx = raster.begin_frame().expect("frame");
@@ -464,9 +464,9 @@ mod tests {
                 .expect("stripe");
                 x += 16.0;
             }
-            if glass {
+            if let Some(radius) = glass {
                 let shape = Path::rounded_rect(Rect::new(100.0, 100.0, 300.0, 200.0), 40.0);
-                ctx.backdrop(&shape, &[Effect::Blur(24.0)])
+                ctx.backdrop(&shape, &[Effect::Blur(radius)])
                     .expect("backdrop");
             }
         }
@@ -484,7 +484,7 @@ mod tests {
     fn a_backdrop_blurs_only_inside_its_shape_across_bands() {
         // big enough that the frame is drawn in bands
         let mut raster = CpuRasterizer::new(800, 600);
-        let px = stripes(&mut raster, 0.0, true);
+        let px = stripes(&mut raster, 0.0, Some(24.0));
         let at = |x: usize, y: usize| px[y * 800 + x];
         let inside = at(250, 200);
         assert!(
@@ -509,11 +509,54 @@ mod tests {
     #[test]
     fn a_change_beside_the_glass_repaints_all_of_it() {
         let mut raster = CpuRasterizer::new(800, 600);
-        stripes(&mut raster, 0.0, true);
-        let moved = stripes(&mut raster, 4.0, true);
+        stripes(&mut raster, 0.0, Some(24.0));
+        let moved = stripes(&mut raster, 4.0, Some(24.0));
         let mut fresh = CpuRasterizer::new(800, 600);
-        let whole = stripes(&mut fresh, 4.0, true);
+        let whole = stripes(&mut fresh, 4.0, Some(24.0));
         assert_eq!(moved, whole, "a partial repaint matches a whole one");
+    }
+
+    #[test]
+    fn a_small_blur_reads_as_far_as_its_passes_go() {
+        // the glass edge at 109 sits where the stripe, six pixels out, is not the one at the edge
+        let frame = |glass: Option<f32>| {
+            let mut raster = CpuRasterizer::new(800, 600);
+            {
+                let mut ctx = raster.begin_frame().expect("frame");
+                ctx.clear(Color::rgb(0, 0, 0)).expect("clear");
+                for x in (0..800).step_by(16) {
+                    ctx.draw_rect(
+                        Rect::new(x as f32, 0.0, 8.0, 600.0),
+                        &Paint::new().color(Color::rgb(255, 255, 255)),
+                    )
+                    .expect("stripe");
+                }
+                if let Some(radius) = glass {
+                    let shape = Path::rounded_rect(Rect::new(109.0, 100.0, 200.0, 200.0), 0.0);
+                    ctx.backdrop(&shape, &[Effect::Blur(radius)])
+                        .expect("backdrop");
+                }
+            }
+            raster.end_frame().expect("end");
+            raster
+                .frame_output()
+                .expect("out")
+                .bytes()
+                .chunks(4)
+                .map(|p| u32::from(p[1]))
+                .collect::<Vec<u32>>()
+        };
+        let mut full: Vec<u32> = frame(None)
+            .iter()
+            .map(|&g| 0xFF00_0000 | (g << 16) | (g << 8) | g)
+            .collect();
+        box_passes(&mut full, 800, 600, 5.0, &mut Vec::new());
+        let after = frame(Some(5.0));
+        let green = |p: u32| (p >> 8) & 0xFF;
+        let at = |x: usize, y: usize| y * 800 + x;
+        for x in 109..309 {
+            assert_eq!(after[at(x, 200)], green(full[at(x, 200)]), "at x {x}");
+        }
     }
 
     #[test]

@@ -856,7 +856,7 @@ mod tests {
             (0.0, 1.0, 0.0),
             "full red over all"
         );
-        assert!(draw.reach >= 10);
+        assert_eq!(draw.reach, 9, "the blur under a pixel reads nothing");
     }
 
     fn item(command: DrawCommand) -> DisplayItem {

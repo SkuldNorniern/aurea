@@ -48,7 +48,8 @@ impl Effect {
     /// How far past a pixel this step reads.
     pub fn reach(&self) -> f32 {
         match self {
-            Self::Blur(radius) => radius.max(0.0),
+            // three box passes of `half` each way, not `radius`: they read past it when rounded
+            Self::Blur(radius) => 3.0 * (radius.max(0.0) / 3.0).round(),
             Self::Custom(filter) => filter.reach().max(0.0),
             _ => 0.0,
         }
